@@ -224,7 +224,7 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   // Ship
   'ship-base-branch': ['ship/**', 'bin/gstack-repo-mode'],
   'ship-local-workflow': ['ship/**', 'scripts/gen-skill-docs.ts'],
-  'review-dashboard-via': ['ship/**', 'scripts/resolvers/review.ts', 'codex/**', 'autoplan/**', 'land-and-deploy/**'],
+  'review-dashboard-via': ['ship/**', 'scripts/resolvers/review.ts', 'codex/**', 'autoplan/**', 'land-and-deploy/**', 'land/**'],
   'ship-plan-completion': ['ship/**', 'scripts/gen-skill-docs.ts'],
   'ship-plan-verification': ['ship/**', 'scripts/gen-skill-docs.ts'],
 
@@ -309,13 +309,16 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   // gstack-upgrade
   'gstack-upgrade-happy-path': ['gstack-upgrade/**'],
 
-  // Deploy skills
-  'land-and-deploy-workflow':      ['land-and-deploy/**', 'scripts/gen-skill-docs.ts'],
-  'land-and-deploy-first-run':     ['land-and-deploy/**', 'scripts/gen-skill-docs.ts', 'bin/gstack-slug'],
-  'land-and-deploy-review-gate':   ['land-and-deploy/**', 'bin/gstack-review-read'],
+  // Deploy skills. land-and-deploy now composes /land and drives merges through
+  // bin/gstack-merge (lib/merge.ts), so those are dependencies of every
+  // land-and-deploy E2E — a change to the land skill or the merge helper must
+  // re-run the composition path.
+  'land-and-deploy-workflow':      ['land-and-deploy/**', 'land/**', 'bin/gstack-merge', 'lib/merge.ts', 'scripts/resolvers/merge-queue-setup.ts', 'scripts/gen-skill-docs.ts'],
+  'land-and-deploy-first-run':     ['land-and-deploy/**', 'land/**', 'bin/gstack-merge', 'lib/merge.ts', 'scripts/resolvers/merge-queue-setup.ts', 'scripts/gen-skill-docs.ts', 'bin/gstack-slug'],
+  'land-and-deploy-review-gate':   ['land-and-deploy/**', 'land/**', 'bin/gstack-review-read'],
   'canary-workflow':               ['canary/**', 'browse/src/**'],
   'benchmark-workflow':            ['benchmark/**', 'browse/src/**'],
-  'setup-deploy-workflow':         ['setup-deploy/**', 'scripts/gen-skill-docs.ts'],
+  'setup-deploy-workflow':         ['setup-deploy/**', 'bin/gstack-merge', 'lib/merge.ts', 'scripts/resolvers/merge-queue-setup.ts', 'scripts/gen-skill-docs.ts'],
 
   // Sidebar agent
   'sidebar-navigate':              ['browse/src/server.ts', 'browse/src/sidebar-agent.ts', 'browse/src/sidebar-utils.ts', 'extension/**'],

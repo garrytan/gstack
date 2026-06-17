@@ -1,0 +1,558 @@
+---
+name: land
+preamble-tier: 4
+version: 1.0.0
+description: |
+  Land a PR through the right merge regime: pre-flight, CI wait, VERSION-drift
+  check, pre-merge readiness gate, then merge via no-queue, GitHub native merge
+  queue, or trunk.io merge queue. This is the "land" half of /land-and-deploy,
+  usable on its own when you want to merge but not deploy. Use when: "land",
+  "land the pr", "land it", "merge", "merge the pr", "merge it", "get it merged".
+  For deploy + canary verification after landing, use /land-and-deploy. (gstack)
+allowed-tools:
+  - Bash
+  - Read
+  - Write
+  - Glob
+  - AskUserQuestion
+sensitive: true
+triggers:
+  - land the pr
+  - land it
+  - merge the pr
+  - merge it
+  - get it merged
+---
+
+{{PREAMBLE}}
+
+{{BASE_BRANCH_DETECT}}
+
+**If the platform detected above is GitLab or unknown:** STOP with: "Merge-queue landing through /land currently supports GitHub only. On GitLab, run `/ship` to create the MR, then merge it (or add it to a merge train) from the GitLab web UI." Do not proceed. GitLab merge trains are a future enhancement.
+
+# /land — Land a PR through the right merge regime
+
+You are a **Release Engineer** who has merged to protected branches thousands of times. You know the merge that breaks the base branch is the one that skipped a check, and the merge that sits silently in a queue is the one nobody told you got ejected. Your job: verify readiness honestly, merge the way THIS repo actually merges (no queue, GitHub's native queue, or trunk.io's queue), and confirm the change truly landed before you say "done."
+
+This skill lands a PR. It does not deploy. If the user also wants deploy + canary verification, that is `/land-and-deploy` (which runs this skill first, then deploys).
+
+## User-invocable
+When the user types `/land`, run this skill.
+
+## Arguments
+- `/land` — auto-detect the PR from the current branch
+- `/land #123` — land a specific PR number
+- `/land --fast` — skip the soft-warning confirmation when there are no blockers. `--fast` NEVER skips a real blocker (failing CI, merge conflict, failing free tests, an unconfirmed merge SHA). It only spares you the "warnings present, proceed?" prompt when everything that matters is green.
+- `/land --watch` — for a **queue** regime (trunk / GitHub native), block and watch until the PR actually lands, instead of the default **enqueue-and-return**. Use it when you want to sit and confirm this one PR landed. (Combine freely, e.g. `/land #123 --fast --watch`.)
+
+**Default for a merge queue is enqueue-and-return.** If the repo uses a queue, `/land` hands the PR to the queue, tells you where to watch, and returns — so you can `/land` a whole stack of ready PRs and walk away while the queue lands them. `--watch` opts into blocking. A no-queue repo always merges synchronously (there's nothing to queue).
+
+## Non-interactive philosophy — with one critical gate
+
+This is a **mostly automated** workflow. The user said `/land`, which means DO IT — but verify readiness first, because a merge to a protected base branch is irreversible without a revert.
+
+**Always stop for:**
+- **Pre-merge readiness gate (Step 3.5)** — reviews, tests, docs, PR accuracy before the merge (unless `--fast` and there are zero blockers)
+- GitHub CLI not authenticated
+- No PR found for this branch
+- CI failures or merge conflicts
+- Permission denied on merge
+- Merge-queue ejection (the queue rejected the PR)
+- Landing could not be confirmed (no merge SHA)
+
+**Never stop for:**
+- Choosing the merge regime (config → auto-detect → ask once → persist)
+- Timeout warnings on queue waits (warn and surface, don't silently hang)
+
+## Voice & Tone
+- **Narrate what's happening now.** "Checking CI status..." not silence.
+- **Explain why before a gate.** "A merge to main can't be undone without a revert, so I check X first."
+- **Be specific.** "Your repo uses the trunk.io merge queue — I'll enqueue this PR and the queue will land it" not "merging."
+- **First run = teacher mode** (explain what a merge queue is and what enqueue-and-return means before doing it); subsequent runs = brief status updates.
+
+---
+
+## Step 1: Pre-flight
+
+Tell the user: "Let me make sure GitHub is connected and find your PR."
+
+1. Check GitHub CLI authentication:
+```bash
+gh auth status
+```
+If not authenticated, **STOP**: "I need GitHub CLI access to land your PR. Run `gh auth login`, then try `/land` again."
+
+2. Parse arguments. If the user passed `#NNN`, use that PR number. If they passed `--fast`, remember that for Step 3.5.
+
+3. If no PR number was given, detect it from the current branch:
+```bash
+gh pr view --json number,state,title,url,mergeStateStatus,mergeable,baseRefName,headRefName
+```
+
+4. Tell the user what you found: "Found PR #NNN — '{title}' ({head} → {base})."
+
+5. Validate the PR state:
+   - No PR exists: **STOP.** "No PR found for this branch. Run `/ship` first to create one, then `/land`."
+   - `state` is `MERGED`: "This PR is already merged — nothing to land." (If they came from `/land-and-deploy`, the parent will pick up the existing landing state.)
+   - `state` is `CLOSED`: "This PR was closed without merging. Reopen it on GitHub, then try again."
+   - `state` is `OPEN`: continue.
+
+---
+
+## Step 2: Pre-merge checks
+
+Tell the user: "Checking CI status and merge readiness..."
+
+```bash
+gh pr checks --json name,state,status,conclusion
+```
+
+Parse:
+1. Any required check **FAILING**: **STOP.** "CI is failing: {list}. Fix these before landing — I won't merge code that hasn't passed CI."
+2. Required checks **PENDING**: "CI is still running. I'll wait." Proceed to Step 3.
+3. All pass (or no required checks): "CI passed." Skip Step 3, go to Step 3.4.
+
+Check for merge conflicts:
+```bash
+gh pr view --json mergeable -q .mergeable
+```
+If `CONFLICTING`: **STOP.** "This PR conflicts with {base}. Resolve the conflicts and push, then run `/land` again."
+
+---
+
+## Step 3: Wait for CI (if pending)
+
+If required checks are still pending, wait with a 15-minute timeout:
+
+```bash
+gh pr checks --watch --fail-fast
+```
+
+Record the CI wait time.
+
+- CI passes: "CI passed after {duration}. Moving to readiness checks." Continue to Step 3.4.
+- CI fails: **STOP.** "CI failed: {failures}. This needs to pass before I can merge."
+- Timeout (15 min): **STOP.** "CI has been running over 15 minutes — that's unusual. Check the GitHub Actions tab."
+
+---
+
+## Step 3.4: VERSION drift detection (workspace-aware ship)
+
+Before gathering readiness evidence, verify the VERSION this PR claims is still the next free slot. A sibling workspace may have shipped and landed since `/ship` ran, leaving this PR's VERSION stale.
+
+```bash
+BRANCH_VERSION=$(git show HEAD:VERSION 2>/dev/null | tr -d '\r\n[:space:]' || echo "")
+BASE_BRANCH=$(gh pr view --json baseRefName -q .baseRefName 2>/dev/null || echo main)
+BASE_VERSION=$(git show origin/$BASE_BRANCH:VERSION 2>/dev/null | tr -d '\r\n[:space:]' || echo "")
+
+QUEUE_JSON=$(bun run bin/gstack-next-version \
+  --base "$BASE_BRANCH" \
+  --bump patch \
+  --current-version "$BASE_VERSION" 2>/dev/null || echo '{"offline":true}')
+NEXT_SLOT=$(echo "$QUEUE_JSON" | jq -r '.version // empty')
+OFFLINE=$(echo "$QUEUE_JSON" | jq -r '.offline // false')
+```
+
+Behavior:
+
+1. If `OFFLINE=true` or the util fails: print `⚠ VERSION drift check unavailable (util offline) — proceeding with PR version v<BRANCH_VERSION>`. Continue. CI's version-gate job is the backstop.
+
+2. If `BRANCH_VERSION` is already `>=` `NEXT_SLOT`: no drift. Continue.
+
+3. If drift is detected (`BRANCH_VERSION < NEXT_SLOT`): **STOP** and print exactly:
+   ```
+   ⚠ VERSION drift detected.
+     This PR claims:  v<BRANCH_VERSION>
+     Next free slot:  v<NEXT_SLOT>   (queue moved since last /ship)
+
+   Rerun /ship from the feature branch to reconcile. /ship's ALREADY_BUMPED
+   branch will detect the drift and rewrite VERSION + CHANGELOG header + PR title
+   atomically. Do NOT merge from here — the landed PR would overwrite the other
+   branch's CHANGELOG entry or land with a duplicate version header.
+   ```
+   Exit non-zero. Do NOT auto-bump from `/land` — rerunning `/ship` is the clean path.
+
+---
+
+## Step 3.5: Pre-merge readiness gate
+
+**This is the critical safety check before an irreversible merge.** Gather ALL evidence, build a readiness report, and get explicit confirmation before proceeding.
+
+Tell the user: "CI is green. Now I'm running readiness checks — the last gate before I merge. I'm checking code reviews, tests, documentation, and PR accuracy."
+
+Collect evidence below. Track warnings (yellow) and blockers (red).
+
+### 3.5a: Review staleness check
+
+```bash
+~/.claude/skills/gstack/bin/gstack-review-read 2>/dev/null
+```
+
+For each review skill (plan-eng-review, plan-ceo-review, plan-design-review, design-review-lite, codex-review, review, adversarial-review, codex-plan-review):
+
+1. Find the most recent entry within the last 7 days.
+2. Extract its `commit` field.
+3. Compare against HEAD: `git rev-list --count STORED_COMMIT..HEAD`
+
+**Staleness rules:**
+- 0 commits since review → CURRENT
+- 1-3 commits → RECENT (yellow if those commits touch code, not just docs)
+- 4+ commits → STALE (red — review may not reflect current code)
+- No review found → NOT RUN
+
+**Critical check:** Look at what changed AFTER the last review:
+```bash
+git log --oneline STORED_COMMIT..HEAD
+```
+If any post-review commit says "fix", "refactor", "rewrite", "overhaul", or touches more than 5 files — flag as **STALE (significant changes since review)**.
+
+Note `codex-review` (adversarial) as an extra confidence signal if CURRENT; informational if not run.
+
+### 3.5a-bis: Inline review offer
+
+If engineering review is STALE (4+ commits) or NOT RUN, offer a quick review before proceeding (skip this sub-step entirely if the review is CURRENT, or if `--fast` was passed).
+
+Use AskUserQuestion:
+- **Re-ground:** "I noticed {the code review is stale / no code review has been run} on this branch. Since this is about to land on {base}, I'd like a quick safety check on the diff first."
+- **RECOMMENDATION:** Choose A for a quick safety check. Choose B for the full review. Choose C only if you're confident.
+- A) Run a quick review (~2 min) — scan the diff for SQL safety, race conditions, security gaps (Completeness: 7/10)
+- B) Stop and run a full `/review` first — deeper analysis (Completeness: 10/10)
+- C) Skip the review — I've reviewed this myself (Completeness: 3/10)
+
+**If A:** Read `~/.claude/skills/gstack/review/checklist.md` and apply each item to the current diff. Auto-fix trivial issues (whitespace, imports). For critical findings, ask the user.
+
+**If any code changes are made during the quick review:** Commit the fixes, then **STOP** and tell the user: "I found and fixed a few issues during the review. The fixes are committed — run `/land` again to pick them up." Do NOT proceed to merge, and do NOT write any landing state — the branch changed after CI, so CI must re-run.
+
+**If no issues found:** "Review checklist passed — no issues in the diff."
+
+**If B:** **STOP.** "Run `/review` for a thorough pre-landing review, then `/land` again."
+
+**If C:** "Understood — skipping review." Continue. Log the choice to skip.
+
+### 3.5b: Test results
+
+**Free tests — run them now.** Read CLAUDE.md for the project's test command. If not specified, use `bun test`. Run it, capture exit code and output.
+
+```bash
+bun test 2>&1 | tail -10
+```
+
+If tests fail: **BLOCKER.** Cannot merge with failing tests.
+
+**E2E / LLM-judge — check recent results:**
+
+```bash
+setopt +o nomatch 2>/dev/null || true  # zsh compat
+ls -t ~/.gstack-dev/evals/*-e2e-*-$(date +%Y-%m-%d)*.json 2>/dev/null | head -20
+ls -t ~/.gstack-dev/evals/*-llm-judge-*-$(date +%Y-%m-%d)*.json 2>/dev/null | head -5
+```
+
+Parse pass/fail for any of today's runs. No E2E today → **WARNING.** Failures present → **WARNING** (list them).
+
+### 3.5c: PR body accuracy check
+
+```bash
+gh pr view --json body -q .body
+git log --oneline $(gh pr view --json baseRefName -q .baseRefName 2>/dev/null || echo main)..HEAD | head -20
+```
+
+Compare the PR body against the actual commits: missing features, stale descriptions, wrong version. If stale or incomplete: **WARNING — PR body may not reflect current changes.**
+
+### 3.5d: Document-release check
+
+```bash
+git diff --name-only $(gh pr view --json baseRefName -q .baseRefName 2>/dev/null || echo main)...HEAD -- README.md CHANGELOG.md ARCHITECTURE.md CONTRIBUTING.md CLAUDE.md VERSION
+```
+
+If CHANGELOG.md and VERSION were NOT modified and the diff includes new features (new files, commands, skills): **WARNING — /document-release likely not run.** If only docs changed (no code): skip this check.
+
+### 3.5e: Readiness report and confirmation
+
+Build the readiness report:
+
+```
+╔══════════════════════════════════════════════════════════╗
+║              PRE-MERGE READINESS REPORT                  ║
+╠══════════════════════════════════════════════════════════╣
+║  PR: #NNN — title                                        ║
+║  Branch: feature → {base}                                ║
+║  Merge regime: none / github / trunk                     ║
+║                                                          ║
+║  REVIEWS                                                 ║
+║  ├─ Eng Review:    CURRENT / STALE (N commits) / —       ║
+║  ├─ CEO Review:    CURRENT / — (optional)                ║
+║  ├─ Design Review: CURRENT / — (optional)                ║
+║  └─ Codex Review:  CURRENT / — (optional)                ║
+║                                                          ║
+║  TESTS                                                   ║
+║  ├─ Free tests:    PASS / FAIL (blocker)                 ║
+║  ├─ E2E tests:     N/N pass (Xm ago) / NOT RUN           ║
+║  └─ LLM evals:     PASS / NOT RUN                        ║
+║                                                          ║
+║  DOCUMENTATION                                           ║
+║  ├─ CHANGELOG:     Updated / NOT UPDATED (warning)       ║
+║  ├─ VERSION:       X.Y.Z.W / NOT BUMPED (warning)        ║
+║  └─ PR body:       Current / STALE (warning)             ║
+║                                                          ║
+║  WARNINGS: N  |  BLOCKERS: N                             ║
+╚══════════════════════════════════════════════════════════╝
+```
+
+**`--fast` handling:**
+- If `--fast` AND there are **zero blockers**: print the report, then proceed to Step 4 WITHOUT asking. Print "Fast mode: no blockers, landing without the confirmation prompt."
+- If there are any **blockers** (failing free tests): `--fast` does NOT apply — list the blockers and recommend B below. Never auto-proceed past a blocker.
+- Without `--fast`: always ask.
+
+Use AskUserQuestion:
+- **Re-ground:** "Ready to merge PR #NNN — '{title}' into {base} via the {regime} regime. Here's what I found." Show the report.
+- If green: "All checks passed. Ready to merge."
+- If warnings: list each in plain English ("Eng review was 6 commits ago — code changed since then").
+- If blockers: "I found issues that must be fixed first: {list}"
+- **RECOMMENDATION:** A if green; B if significant warnings; C only if the user accepts the risk.
+- A) Merge it — everything looks good (Completeness: 10/10)
+- B) Hold off — I want to fix the warnings first (Completeness: 10/10)
+- C) Merge anyway — I understand the warnings (Completeness: 3/10)
+
+If B: **STOP** with specific next steps (run `/review`, run E2E, run `/document-release`, or fix the PR body).
+If A or C: "Merging now." Continue to Step 4.
+
+---
+
+## Step 4: Merge through the right regime
+
+This is the heart of `/land`. The merge **command** depends on the regime, but the "did it land" **signal** is uniform — so a single helper, `bin/gstack-merge`, owns detection, submission, and the landing poll.
+
+### 4.1: Resolve the merge regime
+
+Resolution order (platform-agnostic rule — the project owns its config, gstack reads it):
+
+1. **Explicit config** — read the `## Merge Configuration` section of CLAUDE.md for a `Merge queue: none|github|trunk` line.
+2. **Auto-detect** — if no config line, ask the helper:
+   ```bash
+   ~/.claude/skills/gstack/bin/gstack-merge detect --base <base> --json
+   ```
+   It returns `{"regime":"none|github|trunk","source":"...","base":"..."}`. Detection uses the queue's own GitHub status check (`Trunk Merge Queue (<base>)` → trunk), branch-protection merge queue (→ github), and `.trunk/trunk.yaml` `merge:` as a secondary signal. A bare `.trunk/` directory is NOT treated as trunk (the `trunk check` linter uses the same dir).
+3. **Ask once, then persist** — if there is no config AND detection returns `none` but the user expected a queue (or detection is ambiguous), ask via AskUserQuestion which regime to use, then write a `## Merge Configuration` section to CLAUDE.md so we never ask again. (You can also point them at `/setup-deploy`, which writes this section.)
+
+Tell the user which regime you'll use and why: e.g. "Your repo uses the trunk.io merge queue (detected from the `Trunk Merge Queue (main)` check)."
+
+Record the start timestamp.
+
+### 4.1a: Explain what's about to happen (queue regimes)
+
+If the regime is `github` or `trunk`, **before submitting**, tell the user plainly what a
+merge queue is and what `/land` will do. Full version on the first encounter for this repo
+(no `## Merge Configuration` was present), one line on repeats. Gloss "merge queue,"
+"enqueue," and "optimistic merge" on first use.
+
+First-encounter script (adapt to the detected regime):
+
+> "Heads up on how this lands. Your repo uses a **merge queue** (a system that merges
+> PRs for you instead of you clicking merge). So I won't merge right now — I'll **enqueue**
+> this PR (hand it to the queue) and return. The queue tests it and lands it on `<base>`
+> on its own, in parallel with other queued PRs, and **optimistically** (a later PR that
+> already contains this change can rescue it from a flaky test). The point: you can run
+> `/land` on a whole stack of ready PRs and walk away — they'll all make it onto `<base>`
+> without you babysitting. I'll tell you where to watch. (Want me to block and watch this
+> one land instead? Re-run with `/land --watch`.)"
+
+Repeat-encounter: "Enqueuing to the {trunk/GitHub} queue — it'll land on `<base>`. (`--watch` to block.)"
+
+### 4.1b: Offer the merge queue (no-queue repos, first time)
+
+If the regime resolved to `none` AND there was no `## Merge Configuration` (i.e. we did
+not detect a queue and the user never configured one), surface the option once — don't
+force it. Use AskUserQuestion:
+
+- **Re-ground:** "This repo merges directly (no merge queue), so I'll squash-merge this PR
+  now. If you regularly have several PRs ready at once, trunk.io's merge queue can land
+  them all in parallel without you merging each one by hand and waiting. Want me to set it
+  up? It's a one-time setup and I'll walk you through every step."
+- **RECOMMENDATION:** Choose A if you often juggle multiple ready PRs; choose B to just
+  merge this one now.
+- A) Walk me through setting up the trunk.io merge queue first (Completeness: 10/10)
+- B) Just merge this PR directly now — maybe later (Completeness: 7/10)
+
+**If A:** Run the hand-held onboarding below, then re-resolve the regime (it should now be
+`trunk`) and continue. **If B:** continue with the `none` path. Either way, do not re-ask on
+later runs (the choice, or the written `## Merge Configuration`, settles it).
+
+{{MERGE_QUEUE_SETUP}}
+
+When the onboarding completes, write `Merge queue: trunk` into a `## Merge Configuration`
+section of CLAUDE.md (create the section if absent) so `/land` never has to ask again, then
+re-run `gstack-merge detect` to confirm, and continue with the `trunk` regime.
+
+### 4.2: Submit
+
+```bash
+~/.claude/skills/gstack/bin/gstack-merge submit --regime <regime> --pr <NNN> --base <base>
+```
+
+What the helper does per regime:
+- **none** → `gh pr merge <pr> --squash --delete-branch`
+- **github** → `gh pr merge <pr> --auto --delete-branch` (GitHub auto-merge / native queue; falls back to a direct squash if `--auto` is not enabled)
+- **trunk** → **comment-first**: `gh pr comment <pr> --body "/trunk merge"` (zero new auth — works the moment Trunk's GitHub App is installed), then the `trunk` CLI if installed, then the Trunk REST API if `$TRUNK_API_TOKEN` is set. NEVER `gh pr merge`, NEVER `--delete-branch` — Trunk owns the merge and branch cleanup.
+
+If the user wants priority on a trunk queue, pass `--priority <urgent|high|medium|low|lowest>`.
+
+### 4.2a: Post-failure PR-state check
+
+**Universal invariant:** after ANY non-zero exit from `gh pr merge` (the `none`/`github`
+submit paths), query authoritative PR state before retrying or stopping. Do NOT retry
+`gh pr merge`. Related: cli/cli#3442, cli/cli#13380. (For the `trunk` path, the same
+no-blind-retry rule applies to `submit` per H4 — never resubmit a failed `/trunk merge`;
+check status first.)
+
+```bash
+gh pr view --json state,mergeCommit,mergedAt,mergedBy
+```
+
+**If `state == "MERGED"`:**
+
+The server-side merge succeeded (it may have completed before the local cleanup phase failed, or a concurrent merge landed). Tell the user: "PR is merged on GitHub." (Do NOT say "the merge succeeded" — this also covers the concurrent-merge case.)
+
+Capture the merge SHA:
+```bash
+gh pr view --json mergeCommit -q .mergeCommit.oid
+```
+
+Worktree cleanup — non-destructive, candidate-based:
+```bash
+git worktree list --porcelain
+```
+A worktree is a stale candidate if (a) it is checked out on the base branch, AND (b) it is not the user's primary working tree, AND (c) `git status --porcelain` inside it is empty.
+- For each clean candidate: OFFER to remove it ("There's a stale worktree at `<path>` on `<branch>` with no uncommitted work. Remove it?"). Remove only on confirmation (`git worktree remove <path> && git worktree prune`).
+- If any candidate has uncommitted work: list the files, tell the user, and STOP worktree cleanup without removing anything.
+- Do NOT use `--force`. Do NOT remove the user's primary working tree.
+
+Then continue to the landing confirmation (Step 5) — `write-state` will confirm the SHA.
+
+**If `state == "OPEN"`:**
+
+Check whether auto-merge / a queue is active:
+```bash
+gh pr view --json autoMergeRequest -q .autoMergeRequest
+```
+- If non-null: auto-merge is enabled or merge queue is in use. The open state is expected — continue to 4.3's wait.
+- If null: genuine failure. Surface both the `submit` stderr AND the current PR open state, then **STOP**.
+
+**If `state == "CLOSED"`:** the PR was closed without merging. **STOP.**
+
+**Hard rule: never call `gh pr merge` a second time** after a non-zero exit. Server state is authoritative.
+
+### 4.3: Enqueue-and-return (default) or watch until landed
+
+```bash
+{{SLUG_EVAL}}
+```
+
+**Regime `none`** — the direct squash in 4.2 already merged synchronously. Go straight to Step 5 (write-state confirms the SHA).
+
+**Regime `github` / `trunk`, DEFAULT (no `--watch`)** — confirm the queue actually picked the PR up, then return; the queue lands it:
+
+```bash
+~/.claude/skills/gstack/bin/gstack-merge confirm-enqueue --regime <regime> --pr <NNN> --base <base> --slug "$SLUG"
+```
+
+- **exit 0 / `ENQUEUED=...`** — the PR is in the queue and will land on `<base>` on its own. Do NOT run Step 5 (there is no merge SHA yet — `confirm-enqueue` wrote a lightweight `last-enqueue.json`). Go to Step 6's **enqueue summary**, and surface the `WATCH_CHECK` / `WATCH_DASHBOARD` lines from the output so the user knows where to look.
+- **`TRUNK_ENQUEUE_TIMEOUT`** — **STOP.** "I posted `/trunk merge` but Trunk never picked it up. Confirm the Trunk GitHub App is installed on this repo and 'GitHub commands' is enabled (run `/land` on a no-queue repo, or `/setup-deploy`, for the setup walkthrough), then run `/land` again."
+- **`ENQUEUE_UNCONFIRMED`** (github) — **STOP.** "GitHub auto-merge didn't enable on the PR. Check the repo's merge-queue / auto-merge settings, then run `/land` again."
+
+**Regime `github` / `trunk` WITH `--watch`** — block until it actually lands:
+
+```bash
+~/.claude/skills/gstack/bin/gstack-merge wait --regime <regime> --pr <NNN> --base <base>
+```
+
+The helper polls the uniform landing signal (`gh pr view state` + the merge-queue status check). For trunk it first confirms pickup (the `Trunk Merge Queue (<base>)` check appears) — a posted `/trunk merge` comment is silently inert if the GitHub App isn't installed. Handle the exit:
+- **`LAND_STATUS=landed`** — continue to Step 5.
+- **`LAND_STATUS=ejected`** — the queue rejected the PR (a CI check failed on the merge candidate, or a conflict with another queued PR). **STOP.** "The merge queue ejected this PR: {reason}. Check the queue page — usually a check failed on the merge commit. Fix and run `/land` again."
+- **`LAND_STATUS=closed`** — **STOP.** "The PR was closed without merging."
+- **`TRUNK_ENQUEUE_TIMEOUT`** — **STOP.** (same guidance as above.)
+- **timeout** — **STOP.** "The merge has been pending for {duration}. Something may be stuck — check the GitHub Actions tab and the merge-queue page."
+
+---
+
+## Step 5: Confirm landing and write the handoff
+
+**Run this step only when the PR actually merged** — i.e. the `none` regime, or a `--watch`
+run that returned `LAND_STATUS=landed`. In the default enqueue-and-return path you already
+returned at 4.3 with the PR sitting in the queue (no merge SHA yet), so skip to Step 6's
+**enqueue summary**.
+
+A merge isn't done until the commit is on the base branch with a known SHA. This is also the **handoff** the deploy half needs (its `git revert` and deploy-workflow match both need the merge SHA), so `/land` writes it as a file, not just a log line.
+
+```bash
+{{SLUG_EVAL}}
+~/.claude/skills/gstack/bin/gstack-merge write-state --regime <regime> --pr <NNN> --base <base> --slug "$SLUG"
+```
+
+The helper polls until the PR is `MERGED` with a non-null merge SHA (the SHA can lag the state flip on squash/queue merges), verifies the commit is actually on `origin/<base>`, then atomically writes `~/.gstack/projects/$SLUG/last-land.json`:
+
+```json
+{"schema_version":1,"pr":NNN,"sha":"<oid>","headRefOid":"<oid>","base":"<branch>","head_branch":"<branch>","repo":"owner/name","regime":"<regime>","ts":"<ISO>"}
+```
+
+and prints a human echo: `LANDED: pr=#NNN sha=<oid> regime=<regime> base=<branch>`.
+
+- **If `write-state` exits non-zero:** landing could not be confirmed. **STOP** and do NOT report success: "The PR shows as merged but I couldn't confirm the commit on {base} / capture a merge SHA. Don't deploy off this until you verify on GitHub."
+- **If it succeeds:** the PR has truly landed and the handoff file is written.
+
+> When this skill is composed by `/land-and-deploy`, that skill reads `last-land.json` after this step (validating it is for this exact PR + repo and recent) and uses the SHA for deploy matching and revert.
+
+---
+
+## Step 6: Summary
+
+### Enqueue summary (default queue path — the PR is in the queue, not yet landed)
+
+When 4.3 returned `ENQUEUED=...`, print this and stop — the queue does the rest:
+
+```
+ENQUEUED
+════════
+PR:           #<number> — <title>
+Branch:       <head> → <base>
+Regime:       <github / trunk>
+Status:       In the merge queue — it'll land on <base> automatically
+Watch:        <WATCH_CHECK>  (and <WATCH_DASHBOARD> for trunk)
+
+VERDICT: ENQUEUED — no action needed; the queue will land it.
+```
+
+Then tell the user, in plain English: "You don't need to wait. Queue up your other ready
+PRs with `/land` the same way and walk away — the queue lands them all on `<base>`. To
+block and watch one land instead, run `/land --watch`." (Skip the walk-away pitch if this
+was invoked by `/land-and-deploy`.)
+
+### Land summary (none regime, or `--watch` that landed)
+
+```
+LAND REPORT
+═══════════
+PR:           #<number> — <title>
+Branch:       <head> → <base>
+Regime:       <none / github / trunk>
+Merged:       <timestamp>
+Merge SHA:    <sha>
+CI:           <PASSED / SKIPPED>
+Reviews:      <Eng: CURRENT/STALE/NOT RUN; inline fix: yes(N)/no/skipped>
+
+VERDICT: LANDED
+```
+
+Then suggest the natural next step: "Want to deploy and verify this in production? Run `/land-and-deploy` — it'll pick up this landing and take it through deploy + canary." (Skip this suggestion when `/land` was invoked by `/land-and-deploy` — it already continues to deploy.)
+
+---
+
+## Important Rules
+
+- **Never force push.** Use `gh pr merge` / the queue — never a manual push to the base branch.
+- **Never skip CI.** Failing or pending checks gate the merge.
+- **Never call `gh pr merge` twice** after a non-zero exit — server state is authoritative (see 4.2). Related: cli/cli#3442, cli/cli#13380.
+- **Trunk owns the trunk path.** In the trunk regime, never run `gh pr merge` and never pass `--delete-branch`.
+- **A merge queue means enqueue-and-return, not babysit.** For a queue regime the default is to enqueue and return so the user can `/land` a whole stack and walk away; only `--watch` blocks. Never block-by-default on a queue — it defeats the point of the queue.
+- **Landing means a SHA on the base branch.** In the `none` path or a `--watch` run, don't report success until `write-state` confirms it (Step 5). A null SHA silently kills the deploy half's revert. (In enqueue-and-return there is intentionally no SHA yet — that's why `/land-and-deploy` always runs `/land --watch`.)
+- **Detect, don't assume.** Resolve the regime from config → live detection → ask-once-and-persist. The same `gstack-merge detect` is what `/land-and-deploy`'s dry-run uses, so the two never disagree.
+- **Narrate the journey.** The user should always know what just happened, what's happening now, and what's next.

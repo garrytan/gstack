@@ -40,6 +40,7 @@ Conventions:
 - [/ios-fix](ios-fix/SKILL.md): Autonomous iOS bug fixer.
 - [/ios-qa](ios-qa/SKILL.md): Live-device iOS QA for SwiftUI apps.
 - [/ios-sync](ios-sync/SKILL.md): Regenerate the iOS debug bridge against the latest upstream gstack templates.
+- [/land](land/SKILL.md): Land a PR through the right merge regime: pre-flight, CI wait, VERSION-drift check, pre-merge readiness gate, then merge via no-queue, GitHub native merge queue, or trunk.io merge queue.
 - [/land-and-deploy](land-and-deploy/SKILL.md): Land and deploy workflow.
 - [/landing-report](landing-report/SKILL.md): Read-only queue dashboard for workspace-aware ship.
 - [/learn](learn/SKILL.md): Manage project learnings.

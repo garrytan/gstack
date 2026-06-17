@@ -148,6 +148,11 @@
       "routing": "Updates StateServer.swift, DebugOverlay.swift, Package.swift,\nand the typed @Observable state accessors. Use after you upgrade gstack\nor add new ViewModels/properties that need accessor coverage.\nUse when asked to \"resync the iOS debug bridge\", \"regenerate iOS\naccessors\", or \"update the gstack iOS instrumentation\".",
       "voice_line": "Voice triggers (speech-to-text aliases): \"resync the iOS debug bridge\", \"regenerate iOS accessors\", \"update the gstack iOS instrumentation\"."
     },
+    "land": {
+      "lead": "Land a PR through the right merge regime: pre-flight, CI wait, VERSION-drift check, pre-merge readiness gate, then merge via no-queue,",
+      "routing": "GitHub native merge\nqueue, or trunk.io merge queue. This is the \"land\" half of /land-and-deploy,\nusable on its own when you want to merge but not deploy. Use when: \"land\",\n\"land the pr\", \"land it\", \"merge\", \"merge the pr\", \"merge it\", \"get it merged\".\nFor deploy + canary verification after landing, use /land-and-deploy.",
+      "voice_line": null
+    },
     "land-and-deploy": {
       "lead": "Land and deploy workflow.",
       "routing": "Merges the PR, waits for CI and deploy,\nverifies production health via canary checks. Takes over after /ship\ncreates the PR. Use when: \"merge\", \"land\", \"deploy\", \"merge and verify\",\n\"land it\", \"ship it to production\".",

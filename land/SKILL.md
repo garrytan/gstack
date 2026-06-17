@@ -1,8 +1,8 @@
 ---
-name: land-and-deploy
+name: land
 preamble-tier: 4
 version: 1.0.0
-description: Land and deploy workflow. (gstack)
+description: "Land a PR through the right merge regime: pre-flight, CI wait, VERSION-drift check, pre-merge readiness gate, then merge via no-queue, (gstack)"
 allowed-tools:
   - Bash
   - Read
@@ -10,9 +10,11 @@ allowed-tools:
   - Glob
   - AskUserQuestion
 triggers:
-  - merge and deploy
   - land the pr
-  - ship to production
+  - land it
+  - merge the pr
+  - merge it
+  - get it merged
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
@@ -20,10 +22,11 @@ triggers:
 
 ## When to invoke this skill
 
-Merges the PR, waits for CI and deploy,
-verifies production health via canary checks. Takes over after /ship
-creates the PR. Use when: "merge", "land", "deploy", "merge and verify",
-"land it", "ship it to production".
+GitHub native merge
+queue, or trunk.io merge queue. This is the "land" half of /land-and-deploy,
+usable on its own when you want to merge but not deploy. Use when: "land",
+"land the pr", "land it", "merge", "merge the pr", "merge it", "get it merged".
+For deploy + canary verification after landing, use /land-and-deploy.
 
 ## Preamble (run first)
 
@@ -70,7 +73,7 @@ _QUESTION_TUNING=$(~/.claude/skills/gstack/bin/gstack-config get question_tuning
 echo "QUESTION_TUNING: $_QUESTION_TUNING"
 mkdir -p ~/.gstack/analytics
 if [ "$_TEL" != "off" ]; then
-echo '{"skill":"land-and-deploy","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(_repo=$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null | tr -cd 'a-zA-Z0-9._-'); echo "${_repo:-unknown}")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
+echo '{"skill":"land","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(_repo=$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null | tr -cd 'a-zA-Z0-9._-'); echo "${_repo:-unknown}")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 fi
 for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null); do
   if [ -f "$_PF" ]; then
@@ -92,7 +95,7 @@ if [ -f "$_LEARN_FILE" ]; then
 else
   echo "LEARNINGS: 0"
 fi
-~/.claude/skills/gstack/bin/gstack-timeline-log '{"skill":"land-and-deploy","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
+~/.claude/skills/gstack/bin/gstack-timeline-log '{"skill":"land","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
 _HAS_ROUTING="no"
 if [ -f CLAUDE.md ] && grep -q "## Skill routing" CLAUDE.md 2>/dev/null; then
   _HAS_ROUTING="yes"
@@ -681,7 +684,7 @@ Before each AskUserQuestion, choose `question_id` from `scripts/question-registr
 
 After answer, log best-effort (PostToolUse hook also captures deterministically when installed; dedup on (source, tool_use_id) handles double-writes):
 ```bash
-~/.claude/skills/gstack/bin/gstack-question-log '{"skill":"land-and-deploy","question_id":"<id>","question_summary":"<short>","category":"<approval|clarification|routing|cherry-pick|feedback-loop>","door_type":"<one-way|two-way>","options_count":N,"user_choice":"<key>","recommended":"<key>","session_id":"'"$_SESSION_ID"'"}' 2>/dev/null || true
+~/.claude/skills/gstack/bin/gstack-question-log '{"skill":"land","question_id":"<id>","question_summary":"<short>","category":"<approval|clarification|routing|cherry-pick|feedback-loop>","door_type":"<one-way|two-way>","options_count":N,"user_choice":"<key>","recommended":"<key>","session_id":"'"$_SESSION_ID"'"}' 2>/dev/null || true
 ```
 
 For two-way questions, offer: "Tune this question? Reply `tune: never-ask`, `tune: always-ask`, or free-form."
@@ -766,42 +769,6 @@ Replace `SKILL_NAME`, `OUTCOME`, and `USED_BROWSE` before running.
 
 Skills that run plan reviews (`/plan-*-review`, `/codex review`) include the EXIT PLAN MODE GATE blocking checklist at the end of the skill, which verifies the plan file ends with `## GSTACK REVIEW REPORT` before ExitPlanMode is called. Skills that don't run plan reviews (operational skills like `/ship`, `/qa`, `/review`) typically don't operate in plan mode and have no review report to verify; this footer is a no-op for them. Writing the plan file is the one edit allowed in plan mode.
 
-## SETUP (run this check BEFORE any browse command)
-
-```bash
-_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
-B=""
-[ -n "$_ROOT" ] && [ -x "$_ROOT/.claude/skills/gstack/browse/dist/browse" ] && B="$_ROOT/.claude/skills/gstack/browse/dist/browse"
-[ -z "$B" ] && B="$HOME/.claude/skills/gstack/browse/dist/browse"
-if [ -x "$B" ]; then
-  echo "READY: $B"
-else
-  echo "NEEDS_SETUP"
-fi
-```
-
-If `NEEDS_SETUP`:
-1. Tell the user: "gstack browse needs a one-time build (~10 seconds). OK to proceed?" Then STOP and wait.
-2. Run: `cd <SKILL_DIR> && ./setup`
-3. If `bun` is not installed:
-   ```bash
-   if ! command -v bun >/dev/null 2>&1; then
-     BUN_VERSION="1.3.10"
-     BUN_INSTALL_SHA="bab8acfb046aac8c72407bdcce903957665d655d7acaa3e11c7c4616beae68dd"
-     tmpfile=$(mktemp)
-     curl -fsSL "https://bun.sh/install" -o "$tmpfile"
-     actual_sha=$(shasum -a 256 "$tmpfile" | awk '{print $1}')
-     if [ "$actual_sha" != "$BUN_INSTALL_SHA" ]; then
-       echo "ERROR: bun install script checksum mismatch" >&2
-       echo "  expected: $BUN_INSTALL_SHA" >&2
-       echo "  got:      $actual_sha" >&2
-       rm "$tmpfile"; exit 1
-     fi
-     BUN_VERSION="$BUN_VERSION" bash "$tmpfile"
-     rm "$tmpfile"
-   fi
-   ```
-
 ## Step 0: Detect platform and base branch
 
 First, detect the git hosting platform from the remote URL:
@@ -841,764 +808,613 @@ branch name wherever the instructions say "the base branch" or `<default>`.
 
 ---
 
-**If the platform detected above is GitLab or unknown:** STOP with: "GitLab support for /land-and-deploy is not yet implemented. Run `/ship` to create the MR, then merge manually via the GitLab web UI." Do not proceed.
+**If the platform detected above is GitLab or unknown:** STOP with: "Merge-queue landing through /land currently supports GitHub only. On GitLab, run `/ship` to create the MR, then merge it (or add it to a merge train) from the GitLab web UI." Do not proceed. GitLab merge trains are a future enhancement.
 
-# /land-and-deploy — Merge, Deploy, Verify
+# /land — Land a PR through the right merge regime
 
-You are a **Release Engineer** who has deployed to production thousands of times. You know the two worst feelings in software: the merge that breaks prod, and the merge that sits in queue for 45 minutes while you stare at the screen. Your job is to handle both gracefully — merge efficiently, wait intelligently, verify thoroughly, and give the user a clear verdict.
+You are a **Release Engineer** who has merged to protected branches thousands of times. You know the merge that breaks the base branch is the one that skipped a check, and the merge that sits silently in a queue is the one nobody told you got ejected. Your job: verify readiness honestly, merge the way THIS repo actually merges (no queue, GitHub's native queue, or trunk.io's queue), and confirm the change truly landed before you say "done."
 
-This skill picks up where `/ship` left off. `/ship` creates the PR. You merge it, wait for deploy, and verify production.
+This skill lands a PR. It does not deploy. If the user also wants deploy + canary verification, that is `/land-and-deploy` (which runs this skill first, then deploys).
 
 ## User-invocable
-When the user types `/land-and-deploy`, run this skill.
+When the user types `/land`, run this skill.
 
 ## Arguments
-- `/land-and-deploy` — auto-detect PR from current branch, no post-deploy URL
-- `/land-and-deploy <url>` — auto-detect PR, verify deploy at this URL
-- `/land-and-deploy #123` — specific PR number
-- `/land-and-deploy #123 <url>` — specific PR + verification URL
+- `/land` — auto-detect the PR from the current branch
+- `/land #123` — land a specific PR number
+- `/land --fast` — skip the soft-warning confirmation when there are no blockers. `--fast` NEVER skips a real blocker (failing CI, merge conflict, failing free tests, an unconfirmed merge SHA). It only spares you the "warnings present, proceed?" prompt when everything that matters is green.
+- `/land --watch` — for a **queue** regime (trunk / GitHub native), block and watch until the PR actually lands, instead of the default **enqueue-and-return**. Use it when you want to sit and confirm this one PR landed. (Combine freely, e.g. `/land #123 --fast --watch`.)
 
-## Non-interactive philosophy (like /ship) — with one critical gate
+**Default for a merge queue is enqueue-and-return.** If the repo uses a queue, `/land` hands the PR to the queue, tells you where to watch, and returns — so you can `/land` a whole stack of ready PRs and walk away while the queue lands them. `--watch` opts into blocking. A no-queue repo always merges synchronously (there's nothing to queue).
 
-This is a **mostly automated** workflow. Do NOT ask for confirmation at any step except
-the ones listed below. The user said `/land-and-deploy` which means DO IT — but verify
-readiness first.
+## Non-interactive philosophy — with one critical gate
+
+This is a **mostly automated** workflow. The user said `/land`, which means DO IT — but verify readiness first, because a merge to a protected base branch is irreversible without a revert.
 
 **Always stop for:**
-- **First-run dry-run validation (Step 1.5)** — shows deploy infrastructure and confirms setup
-- **Pre-merge readiness gate** — owned by `/land` (its Step 3.5: reviews, tests, docs, then the single irreversible-merge confirmation)
+- **Pre-merge readiness gate (Step 3.5)** — reviews, tests, docs, PR accuracy before the merge (unless `--fast` and there are zero blockers)
 - GitHub CLI not authenticated
 - No PR found for this branch
-- CI failures or merge conflicts (surfaced by `/land`)
-- Permission denied on merge / merge-queue ejection (surfaced by `/land`)
-- Landing could not be confirmed (no merge SHA in the handoff)
-- Deploy workflow failure (offer revert)
-- Production health issues detected by canary (offer revert)
+- CI failures or merge conflicts
+- Permission denied on merge
+- Merge-queue ejection (the queue rejected the PR)
+- Landing could not be confirmed (no merge SHA)
 
 **Never stop for:**
-- Choosing the merge regime (`/land` resolves it: config → detect → ask once → persist)
-- Timeout warnings (warn and continue gracefully)
+- Choosing the merge regime (config → auto-detect → ask once → persist)
+- Timeout warnings on queue waits (warn and surface, don't silently hang)
 
 ## Voice & Tone
-
-Every message to the user should make them feel like they have a senior release engineer
-sitting next to them. The tone is:
-- **Narrate what's happening now.** "Checking your CI status..." not just silence.
-- **Explain why before asking.** "Deploys are irreversible, so I check X before proceeding."
-- **Be specific, not generic.** "Your Fly.io app 'myapp' is healthy" not "deploy looks good."
-- **Acknowledge the stakes.** This is production. The user is trusting you with their users' experience.
-- **First run = teacher mode.** Walk them through everything. Explain what each check does and why.
-- **Subsequent runs = efficient mode.** Brief status updates, no re-explanations.
-- **Never be robotic.** "I ran 4 checks and found 1 issue" not "CHECKS: 4, ISSUES: 1."
+- **Narrate what's happening now.** "Checking CI status..." not silence.
+- **Explain why before a gate.** "A merge to main can't be undone without a revert, so I check X first."
+- **Be specific.** "Your repo uses the trunk.io merge queue — I'll enqueue this PR and the queue will land it" not "merging."
+- **First run = teacher mode** (explain what a merge queue is and what enqueue-and-return means before doing it); subsequent runs = brief status updates.
 
 ---
 
 ## Step 1: Pre-flight
 
-Tell the user: "Starting deploy sequence. First, let me make sure everything is connected and find your PR."
+Tell the user: "Let me make sure GitHub is connected and find your PR."
 
 1. Check GitHub CLI authentication:
 ```bash
 gh auth status
 ```
-If not authenticated, **STOP**: "I need GitHub CLI access to merge your PR. Run `gh auth login` to connect, then try `/land-and-deploy` again."
+If not authenticated, **STOP**: "I need GitHub CLI access to land your PR. Run `gh auth login`, then try `/land` again."
 
-2. Parse arguments. If the user specified `#NNN`, use that PR number. If a URL was provided, save it for canary verification in Step 7.
+2. Parse arguments. If the user passed `#NNN`, use that PR number. If they passed `--fast`, remember that for Step 3.5.
 
-3. If no PR number specified, detect from current branch:
+3. If no PR number was given, detect it from the current branch:
 ```bash
 gh pr view --json number,state,title,url,mergeStateStatus,mergeable,baseRefName,headRefName
 ```
 
-4. Tell the user what you found: "Found PR #NNN — '{title}' (branch → base)."
+4. Tell the user what you found: "Found PR #NNN — '{title}' ({head} → {base})."
 
 5. Validate the PR state:
-   - If no PR exists: **STOP.** "No PR found for this branch. Run `/ship` first to create a PR, then come back here to land and deploy it."
-   - If `state` is `CLOSED`: "This PR was closed without merging. Reopen it on GitHub first, then try again."
-   - If `state` is `OPEN`: continue to Step 1.5.
-   - If `state` is `MERGED` (already-landed re-run — e.g. you deployed to staging only earlier, or a previous run merged then stopped): do NOT re-invoke `/land`. Try to consume the landing record instead:
-     ```bash
-     eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
-     REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null)
-     ~/.claude/skills/gstack/bin/gstack-merge read-state --slug "$SLUG" --pr <NNN> --repo "$REPO"
-     ```
-     - If it prints `LAND_SHA=...` (valid handoff for this PR): tell the user "This PR already landed — skipping the merge and going straight to deploy verification." Capture `LAND_SHA`/`LAND_BASE`/`LAND_REGIME`/`LAND_HEAD`, then skip Steps 1.5 and 2 and go to **Step 3** (post-merge CI auto-deploy detection).
-     - If it prints `READ_STATE_INVALID=...` (no/stale/foreign handoff): **STOP.** "This PR is already merged but I have no landing record for it, so I can't safely match the deploy or offer a revert. Run `/canary <url>` to verify the live site, or revert manually if needed."
+   - No PR exists: **STOP.** "No PR found for this branch. Run `/ship` first to create one, then `/land`."
+   - `state` is `MERGED`: "This PR is already merged — nothing to land." (If they came from `/land-and-deploy`, the parent will pick up the existing landing state.)
+   - `state` is `CLOSED`: "This PR was closed without merging. Reopen it on GitHub, then try again."
+   - `state` is `OPEN`: continue.
 
 ---
 
-## Step 1.5: First-run dry-run validation
+## Step 2: Pre-merge checks
 
-Check whether this project has been through a successful `/land-and-deploy` before,
-and whether the deploy configuration has changed since then:
-
-```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
-if [ ! -f ~/.gstack/projects/$SLUG/land-deploy-confirmed ]; then
-  echo "FIRST_RUN"
-else
-  # Check if deploy config has changed since confirmation
-  SAVED_HASH=$(cat ~/.gstack/projects/$SLUG/land-deploy-confirmed 2>/dev/null)
-  CURRENT_HASH=$(sed -n '/## Deploy Configuration/,/^## /p' CLAUDE.md 2>/dev/null | shasum -a 256 | cut -d' ' -f1)
-  # Also hash workflow files that affect deploy behavior
-  WORKFLOW_HASH=$(find .github/workflows -maxdepth 1 \( -name '*deploy*' -o -name '*cd*' \) 2>/dev/null | xargs cat 2>/dev/null | shasum -a 256 | cut -d' ' -f1)
-  COMBINED_HASH="${CURRENT_HASH}-${WORKFLOW_HASH}"
-  if [ "$SAVED_HASH" != "$COMBINED_HASH" ] && [ -n "$SAVED_HASH" ]; then
-    echo "CONFIG_CHANGED"
-  else
-    echo "CONFIRMED"
-  fi
-fi
-```
-
-**If CONFIRMED:** Print "I've deployed this project before and know how it works. Moving straight to readiness checks." Proceed to Step 2.
-
-**If CONFIG_CHANGED:** The deploy configuration has changed since the last confirmed deploy.
-Re-trigger the dry run. Tell the user:
-
-"I've deployed this project before, but your deploy configuration has changed since the last
-time. That could mean a new platform, a different workflow, or updated URLs. I'm going to
-do a quick dry run to make sure I still understand how your project deploys."
-
-Then proceed to the FIRST_RUN flow below (steps 1.5a through 1.5e).
-
-**If FIRST_RUN:** This is the first time `/land-and-deploy` is running for this project. Before doing anything irreversible, show the user exactly what will happen. This is a dry run — explain, validate, and confirm.
-
-Tell the user:
-
-"This is the first time I'm deploying this project, so I'm going to do a dry run first.
-
-Here's what that means: I'll detect your deploy infrastructure, test that my commands actually work, and show you exactly what will happen — step by step — before I touch anything. Deploys are irreversible once they hit production, so I want to earn your trust before I start merging.
-
-Let me take a look at your setup."
-
-### 1.5a: Deploy infrastructure detection
-
-Run the deploy configuration bootstrap to detect the platform and settings:
+Tell the user: "Checking CI status and merge readiness..."
 
 ```bash
-# Check for persisted deploy config in CLAUDE.md
-DEPLOY_CONFIG=$(grep -A 20 "## Deploy Configuration" CLAUDE.md 2>/dev/null || echo "NO_CONFIG")
-echo "$DEPLOY_CONFIG"
-
-# If config exists, parse it
-if [ "$DEPLOY_CONFIG" != "NO_CONFIG" ]; then
-  PROD_URL=$(echo "$DEPLOY_CONFIG" | grep -i "production.*url" | head -1 | sed 's/.*: *//')
-  PLATFORM=$(echo "$DEPLOY_CONFIG" | grep -i "platform" | head -1 | sed 's/.*: *//')
-  echo "PERSISTED_PLATFORM:$PLATFORM"
-  echo "PERSISTED_URL:$PROD_URL"
-fi
-
-# Auto-detect platform from config files
-[ -f fly.toml ] && echo "PLATFORM:fly"
-[ -f render.yaml ] && echo "PLATFORM:render"
-([ -f vercel.json ] || [ -d .vercel ]) && echo "PLATFORM:vercel"
-[ -f netlify.toml ] && echo "PLATFORM:netlify"
-[ -f Procfile ] && echo "PLATFORM:heroku"
-([ -f railway.json ] || [ -f railway.toml ]) && echo "PLATFORM:railway"
-
-# Detect deploy workflows
-for f in $(find .github/workflows -maxdepth 1 \( -name '*.yml' -o -name '*.yaml' \) 2>/dev/null); do
-  [ -f "$f" ] && grep -qiE "deploy|release|production|cd" "$f" 2>/dev/null && echo "DEPLOY_WORKFLOW:$f"
-  [ -f "$f" ] && grep -qiE "staging" "$f" 2>/dev/null && echo "STAGING_WORKFLOW:$f"
-done
+gh pr checks --json name,state,status,conclusion
 ```
 
-If `PERSISTED_PLATFORM` and `PERSISTED_URL` were found in CLAUDE.md, use them directly
-and skip manual detection. If no persisted config exists, use the auto-detected platform
-to guide deploy verification. If nothing is detected, ask the user via AskUserQuestion
-in the decision tree below.
+Parse:
+1. Any required check **FAILING**: **STOP.** "CI is failing: {list}. Fix these before landing — I won't merge code that hasn't passed CI."
+2. Required checks **PENDING**: "CI is still running. I'll wait." Proceed to Step 3.
+3. All pass (or no required checks): "CI passed." Skip Step 3, go to Step 3.4.
 
-If you want to persist deploy settings for future runs, suggest the user run `/setup-deploy`.
+Check for merge conflicts:
+```bash
+gh pr view --json mergeable -q .mergeable
+```
+If `CONFLICTING`: **STOP.** "This PR conflicts with {base}. Resolve the conflicts and push, then run `/land` again."
 
-Parse the output and record: the detected platform, production URL, deploy workflow (if any),
-and any persisted config from CLAUDE.md.
+---
 
-### 1.5b: Command validation
+## Step 3: Wait for CI (if pending)
 
-Test each detected command to verify the detection is accurate. Build a validation table:
+If required checks are still pending, wait with a 15-minute timeout:
 
 ```bash
-# Test gh auth (already passed in Step 1, but confirm)
-gh auth status 2>&1 | head -3
-
-# Test platform CLI if detected
-# Fly.io: fly status --app {app} 2>/dev/null
-# Heroku: heroku releases --app {app} -n 1 2>/dev/null
-# Vercel: vercel ls 2>/dev/null | head -3
-
-# Test production URL reachability
-# curl -sf {production-url} -o /dev/null -w "%{http_code}" 2>/dev/null
-
-# Detect the merge regime with the SAME helper /land will use (so the dry-run
-# table tells the truth — no separate detection logic that could disagree).
-~/.claude/skills/gstack/bin/gstack-merge detect --json 2>/dev/null
+gh pr checks --watch --fail-fast
 ```
 
-Parse the `gstack-merge detect` output (`{"regime":"none|github|trunk","source":"..."}`) and use it for the MERGE QUEUE / MERGE METHOD rows below. This is informational only — nothing is merged here.
+Record the CI wait time.
 
-Run whichever commands are relevant based on the detected platform. Build the results into this table:
+- CI passes: "CI passed after {duration}. Moving to readiness checks." Continue to Step 3.4.
+- CI fails: **STOP.** "CI failed: {failures}. This needs to pass before I can merge."
+- Timeout (15 min): **STOP.** "CI has been running over 15 minutes — that's unusual. Check the GitHub Actions tab."
 
-```
-╔══════════════════════════════════════════════════════════╗
-║         DEPLOY INFRASTRUCTURE VALIDATION                  ║
-╠══════════════════════════════════════════════════════════╣
-║                                                            ║
-║  Platform:    {platform} (from {source})                   ║
-║  App:         {app name or "N/A"}                          ║
-║  Prod URL:    {url or "not configured"}                    ║
-║                                                            ║
-║  COMMAND VALIDATION                                        ║
-║  ├─ gh auth status:     ✓ PASS                             ║
-║  ├─ {platform CLI}:     ✓ PASS / ⚠ NOT INSTALLED / ✗ FAIL ║
-║  ├─ curl prod URL:      ✓ PASS (200 OK) / ⚠ UNREACHABLE   ║
-║  └─ deploy workflow:    {file or "none detected"}          ║
-║                                                            ║
-║  STAGING DETECTION                                         ║
-║  ├─ Staging URL:        {url or "not configured"}          ║
-║  ├─ Staging workflow:   {file or "not found"}              ║
-║  └─ Preview deploys:    {detected or "not detected"}       ║
-║                                                            ║
-║  WHAT WILL HAPPEN                                          ║
-║  1. Run pre-merge readiness checks (reviews, tests, docs)  ║
-║  2. Wait for CI if pending                                 ║
-║  3. Merge PR via {merge method}                            ║
-║  4. {Wait for deploy workflow / Wait 60s / Skip}           ║
-║  5. {Run canary verification / Skip (no URL)}              ║
-║                                                            ║
-║  MERGE REGIME: {none / github / trunk} (from {source})    ║
-║  MERGE QUEUE:  {none / GitHub native / trunk.io}          ║
-║  MERGED BY:    /land (Step 2) — readiness gate + merge     ║
-╚══════════════════════════════════════════════════════════╝
-```
+---
 
-**Validation failures are WARNINGs, not BLOCKERs** (except `gh auth status` which already
-failed at Step 1). If `curl` fails, note "I couldn't reach that URL — might be a network
-issue, VPN requirement, or incorrect address. I'll still be able to deploy, but I won't
-be able to verify the site is healthy afterward."
-If platform CLI is not installed, note "The {platform} CLI isn't installed on this machine.
-I can still deploy through GitHub, but I'll use HTTP health checks instead of the platform
-CLI to verify the deploy worked."
+## Step 3.4: VERSION drift detection (workspace-aware ship)
 
-### 1.5c: Staging detection
+Before gathering readiness evidence, verify the VERSION this PR claims is still the next free slot. A sibling workspace may have shipped and landed since `/ship` ran, leaving this PR's VERSION stale.
 
-Check for staging environments in this order:
-
-1. **CLAUDE.md persisted config:** Check for a staging URL in the Deploy Configuration section:
 ```bash
-grep -i "staging" CLAUDE.md 2>/dev/null | head -3
+BRANCH_VERSION=$(git show HEAD:VERSION 2>/dev/null | tr -d '\r\n[:space:]' || echo "")
+BASE_BRANCH=$(gh pr view --json baseRefName -q .baseRefName 2>/dev/null || echo main)
+BASE_VERSION=$(git show origin/$BASE_BRANCH:VERSION 2>/dev/null | tr -d '\r\n[:space:]' || echo "")
+
+QUEUE_JSON=$(bun run bin/gstack-next-version \
+  --base "$BASE_BRANCH" \
+  --bump patch \
+  --current-version "$BASE_VERSION" 2>/dev/null || echo '{"offline":true}')
+NEXT_SLOT=$(echo "$QUEUE_JSON" | jq -r '.version // empty')
+OFFLINE=$(echo "$QUEUE_JSON" | jq -r '.offline // false')
 ```
 
-2. **GitHub Actions staging workflow:** Check for workflow files with "staging" in the name or content:
-```bash
-for f in $(find .github/workflows -maxdepth 1 \( -name '*.yml' -o -name '*.yaml' \) 2>/dev/null); do
-  [ -f "$f" ] && grep -qiE "staging" "$f" 2>/dev/null && echo "STAGING_WORKFLOW:$f"
-done
-```
+Behavior:
 
-3. **Vercel/Netlify preview deploys:** Check PR status checks for preview URLs:
-```bash
-gh pr checks --json name,targetUrl 2>/dev/null | head -20
-```
-Look for check names containing "vercel", "netlify", or "preview" and extract the target URL.
+1. If `OFFLINE=true` or the util fails: print `⚠ VERSION drift check unavailable (util offline) — proceeding with PR version v<BRANCH_VERSION>`. Continue. CI's version-gate job is the backstop.
 
-Record any staging targets found. These will be offered in Step 5.
+2. If `BRANCH_VERSION` is already `>=` `NEXT_SLOT`: no drift. Continue.
 
-### 1.5d: Readiness preview
+3. If drift is detected (`BRANCH_VERSION < NEXT_SLOT`): **STOP** and print exactly:
+   ```
+   ⚠ VERSION drift detected.
+     This PR claims:  v<BRANCH_VERSION>
+     Next free slot:  v<NEXT_SLOT>   (queue moved since last /ship)
 
-Tell the user: "Before I merge any PR, I run a series of readiness checks — code reviews, tests, documentation, PR accuracy. Let me show you what that looks like for this project."
+   Rerun /ship from the feature branch to reconcile. /ship's ALREADY_BUMPED
+   branch will detect the drift and rewrite VERSION + CHANGELOG header + PR title
+   atomically. Do NOT merge from here — the landed PR would overwrite the other
+   branch's CHANGELOG entry or land with a duplicate version header.
+   ```
+   Exit non-zero. Do NOT auto-bump from `/land` — rerunning `/ship` is the clean path.
 
-Preview the readiness checks that will run at Step 3.5 (without re-running tests):
+---
+
+## Step 3.5: Pre-merge readiness gate
+
+**This is the critical safety check before an irreversible merge.** Gather ALL evidence, build a readiness report, and get explicit confirmation before proceeding.
+
+Tell the user: "CI is green. Now I'm running readiness checks — the last gate before I merge. I'm checking code reviews, tests, documentation, and PR accuracy."
+
+Collect evidence below. Track warnings (yellow) and blockers (red).
+
+### 3.5a: Review staleness check
 
 ```bash
 ~/.claude/skills/gstack/bin/gstack-review-read 2>/dev/null
 ```
 
-Show a summary of review status: which reviews have been run, how stale they are.
-Also check if CHANGELOG.md and VERSION have been updated.
+For each review skill (plan-eng-review, plan-ceo-review, plan-design-review, design-review-lite, codex-review, review, adversarial-review, codex-plan-review):
 
-Explain in plain English: "When I merge, I'll check: has the code been reviewed recently? Do the tests pass? Is the CHANGELOG updated? Is the PR description accurate? If anything looks off, I'll flag it before merging."
+1. Find the most recent entry within the last 7 days.
+2. Extract its `commit` field.
+3. Compare against HEAD: `git rev-list --count STORED_COMMIT..HEAD`
 
-### 1.5e: Dry-run confirmation
+**Staleness rules:**
+- 0 commits since review → CURRENT
+- 1-3 commits → RECENT (yellow if those commits touch code, not just docs)
+- 4+ commits → STALE (red — review may not reflect current code)
+- No review found → NOT RUN
 
-Tell the user: "That's everything I detected. Take a look at the table above — does this match how your project actually deploys?"
-
-Present the full dry-run results to the user via AskUserQuestion:
-
-- **Re-ground:** "First deploy dry-run for [project] on branch [branch]. Above is what I detected about your deploy infrastructure. Nothing has been merged or deployed yet — this is just my understanding of your setup."
-- Show the infrastructure validation table from 1.5b above.
-- List any warnings from command validation, with plain-English explanations.
-- If staging was detected, note: "I found a staging environment at {url/workflow}. After we merge, I'll offer to deploy there first so you can verify everything works before it hits production."
-- If no staging was detected, note: "I didn't find a staging environment. The deploy will go straight to production — I'll run health checks right after to make sure everything looks good."
-- **RECOMMENDATION:** Choose A if all validations passed. Choose B if there are issues to fix. Choose C to run /setup-deploy for a more thorough configuration.
-- A) That's right — this is how my project deploys. Let's go. (Completeness: 10/10)
-- B) Something's off — let me tell you what's wrong (Completeness: 10/10)
-- C) I want to configure this more carefully first (runs /setup-deploy) (Completeness: 10/10)
-
-**If A:** Tell the user: "Great — I've saved this configuration. Next time you run `/land-and-deploy`, I'll skip the dry run and go straight to readiness checks. If your deploy setup changes (new platform, different workflows, updated URLs), I'll automatically re-run the dry run to make sure I still have it right."
-
-Save the deploy config fingerprint so we can detect future changes:
+**Critical check:** Look at what changed AFTER the last review:
 ```bash
-mkdir -p ~/.gstack/projects/$SLUG
-CURRENT_HASH=$(sed -n '/## Deploy Configuration/,/^## /p' CLAUDE.md 2>/dev/null | shasum -a 256 | cut -d' ' -f1)
-WORKFLOW_HASH=$(find .github/workflows -maxdepth 1 \( -name '*deploy*' -o -name '*cd*' \) 2>/dev/null | xargs cat 2>/dev/null | shasum -a 256 | cut -d' ' -f1)
-echo "${CURRENT_HASH}-${WORKFLOW_HASH}" > ~/.gstack/projects/$SLUG/land-deploy-confirmed
+git log --oneline STORED_COMMIT..HEAD
 ```
-Continue to Step 2.
+If any post-review commit says "fix", "refactor", "rewrite", "overhaul", or touches more than 5 files — flag as **STALE (significant changes since review)**.
 
-**If B:** **STOP.** "Tell me what's different about your setup and I'll adjust. You can also run `/setup-deploy` to walk through the full configuration."
+Note `codex-review` (adversarial) as an extra confidence signal if CURRENT; informational if not run.
 
-**If C:** **STOP.** "Running `/setup-deploy` will walk through your deploy platform, production URL, and health checks in detail. It saves everything to CLAUDE.md so I'll know exactly what to do next time. Run `/land-and-deploy` again when that's done."
+### 3.5a-bis: Inline review offer
 
----
-
-## Step 2: Land the PR (compose /land)
-
-The entire "land" half — pre-flight, CI wait, VERSION-drift check, the pre-merge
-readiness gate, and the actual merge through the right regime (none / GitHub native
-merge queue / trunk.io merge queue) — is owned by the `/land` skill. Run it now.
-
-**Run `/land` as if invoked with `--watch`.** `/land`'s default for a queue regime is
-enqueue-and-return (hand the PR to the queue and come back) — but the deploy and revert
-steps below need the *completed* merge and its SHA, so here you MUST block until the PR
-actually lands. Take `/land`'s `--watch` branch at its Step 4.3 (`gstack-merge wait`, then
-Step 5 `write-state`), not the enqueue-and-return branch. If the PR ejects or times out in
-the queue, `/land` STOPs and so do you — there is nothing to deploy.
-
-Read the `/land` skill file at `~/.claude/skills/gstack/land/SKILL.md` using the Read tool.
-
-**If unreadable:** Skip with "Could not load /land — skipping." and continue.
-
-Follow its instructions from top to bottom, **skipping these sections** (already handled by the parent skill):
-- Preamble (run first)
-- AskUserQuestion Format
-- Completeness Principle — Boil the Ocean
-- Search Before Building
-- Contributor Mode
-- Completion Status Protocol
-- Telemetry (run last)
-- Step 0: Detect platform and base branch
-- Review Readiness Dashboard
-- Plan File Review Report
-- Prerequisite Skill Offer
-- Plan Status Footer
-
-Execute every other section at full depth. When the loaded skill's instructions are complete, continue with the next step below.
-
-`/land`'s readiness gate (its Step 3.5) owns the single irreversible-merge
-confirmation. The dry-run above was informational only — do NOT add a second merge
-confirmation here.
-
-### 2.1: Consume the landing handoff
-
-`/land` writes a `last-land.json` handoff and prints a `LANDED:` line. Skill composition
-does not return structured data across the boundary, so read the file explicitly and
-validate it before touching any deploy or revert path:
-
-```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
-REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null)
-~/.claude/skills/gstack/bin/gstack-merge read-state --slug "$SLUG" --pr <NNN> --repo "$REPO"
-```
-
-- **`READ_STATE_INVALID=...`** (no / stale / wrong-PR / wrong-repo handoff): **STOP.**
-  "I couldn't confirm this PR actually landed (no valid landing record). I won't deploy
-  off an unconfirmed merge. Re-run `/land` and check why it didn't complete."
-- **`LAND_SHA=... LAND_BASE=... LAND_REGIME=... LAND_HEAD=...`**: capture these. `LAND_SHA`
-  is the merge commit on the base branch — every deploy-workflow match and any revert
-  uses it.
-
-### 2.2: Verify the SHA is really on the base branch (H2)
-
-Don't trust metadata alone — confirm the commit actually landed on the base:
-
-```bash
-git fetch origin <base>
-git merge-base --is-ancestor <LAND_SHA> origin/<base> && echo "ON_BASE" || echo "NOT_ON_BASE"
-```
-
-If `NOT_ON_BASE`: **STOP.** "GitHub reports the PR merged, but `<LAND_SHA>` isn't on
-`origin/<base>` yet. Wait a moment and re-run `/land-and-deploy`, or check the repo —
-I won't deploy or offer a revert against a commit I can't see on the base branch."
-
-If `ON_BASE`: the PR has truly landed. Continue to Step 3.
-
----
-
-## Step 3: Post-merge CI auto-deploy detection
-
-After the PR has landed, check if a deploy workflow was triggered by the merge. Match
-on `LAND_SHA` (the merge commit captured in Step 2):
-
-```bash
-gh run list --branch <base> --limit 5 --json name,status,workflowName,headSha
-```
-
-Look for runs whose `headSha` matches `LAND_SHA`. If a deploy workflow is found:
-- Tell the user: "PR landed. I can see a deploy workflow ('{workflow-name}') kicked off automatically. I'll monitor it and let you know when it's done."
-
-If no deploy workflow is found after the merge:
-- Tell the user: "PR landed. I don't see a deploy workflow — your project might deploy a different way, or it might be a library/CLI that doesn't have a deploy step. I'll figure out the right verification in the next step."
-
-If `LAND_REGIME` is `github` or `trunk` (a merge queue) AND a deploy workflow exists:
-- Tell the user: "PR made it through the merge queue and the deploy workflow is running. Monitoring it now."
-
-Record the landing timestamp and `LAND_REGIME` for the deploy report.
-
----
-
-## Step 5: Deploy strategy detection
-
-Determine what kind of project this is and how to verify the deploy.
-
-First, run the deploy configuration bootstrap to detect or read persisted deploy settings:
-
-```bash
-# Check for persisted deploy config in CLAUDE.md
-DEPLOY_CONFIG=$(grep -A 20 "## Deploy Configuration" CLAUDE.md 2>/dev/null || echo "NO_CONFIG")
-echo "$DEPLOY_CONFIG"
-
-# If config exists, parse it
-if [ "$DEPLOY_CONFIG" != "NO_CONFIG" ]; then
-  PROD_URL=$(echo "$DEPLOY_CONFIG" | grep -i "production.*url" | head -1 | sed 's/.*: *//')
-  PLATFORM=$(echo "$DEPLOY_CONFIG" | grep -i "platform" | head -1 | sed 's/.*: *//')
-  echo "PERSISTED_PLATFORM:$PLATFORM"
-  echo "PERSISTED_URL:$PROD_URL"
-fi
-
-# Auto-detect platform from config files
-[ -f fly.toml ] && echo "PLATFORM:fly"
-[ -f render.yaml ] && echo "PLATFORM:render"
-([ -f vercel.json ] || [ -d .vercel ]) && echo "PLATFORM:vercel"
-[ -f netlify.toml ] && echo "PLATFORM:netlify"
-[ -f Procfile ] && echo "PLATFORM:heroku"
-([ -f railway.json ] || [ -f railway.toml ]) && echo "PLATFORM:railway"
-
-# Detect deploy workflows
-for f in $(find .github/workflows -maxdepth 1 \( -name '*.yml' -o -name '*.yaml' \) 2>/dev/null); do
-  [ -f "$f" ] && grep -qiE "deploy|release|production|cd" "$f" 2>/dev/null && echo "DEPLOY_WORKFLOW:$f"
-  [ -f "$f" ] && grep -qiE "staging" "$f" 2>/dev/null && echo "STAGING_WORKFLOW:$f"
-done
-```
-
-If `PERSISTED_PLATFORM` and `PERSISTED_URL` were found in CLAUDE.md, use them directly
-and skip manual detection. If no persisted config exists, use the auto-detected platform
-to guide deploy verification. If nothing is detected, ask the user via AskUserQuestion
-in the decision tree below.
-
-If you want to persist deploy settings for future runs, suggest the user run `/setup-deploy`.
-
-Then run `gstack-diff-scope` to classify the changes:
-
-```bash
-eval $(~/.claude/skills/gstack/bin/gstack-diff-scope $(gh pr view --json baseRefName -q .baseRefName 2>/dev/null || echo main) 2>/dev/null)
-echo "FRONTEND=$SCOPE_FRONTEND BACKEND=$SCOPE_BACKEND DOCS=$SCOPE_DOCS CONFIG=$SCOPE_CONFIG"
-```
-
-**Decision tree (evaluate in order):**
-
-1. If the user provided a production URL as an argument: use it for canary verification. Also check for deploy workflows.
-
-2. Check for GitHub Actions deploy workflows:
-```bash
-gh run list --branch <base> --limit 5 --json name,status,conclusion,headSha,workflowName
-```
-Look for workflow names containing "deploy", "release", "production", or "cd". If found: poll the deploy workflow in Step 6, then run canary.
-
-3. If SCOPE_DOCS is the only scope that's true (no frontend, no backend, no config): skip verification entirely. Tell the user: "This was a docs-only change — nothing to deploy or verify. You're all set." Go to Step 9.
-
-4. If no deploy workflows detected and no URL provided: use AskUserQuestion once:
-   - **Re-ground:** "PR is merged, but I don't see a deploy workflow or a production URL for this project. If this is a web app, I can verify the deploy if you give me the URL. If it's a library or CLI tool, there's nothing to verify — we're done."
-   - **RECOMMENDATION:** Choose B if this is a library/CLI tool. Choose A if this is a web app.
-   - A) Here's the production URL: {let them type it}
-   - B) No deploy needed — this isn't a web app
-
-### 5a: Staging-first option
-
-If staging was detected in Step 1.5c (or from CLAUDE.md deploy config), and the changes
-include code (not docs-only), offer the staging-first option:
+If engineering review is STALE (4+ commits) or NOT RUN, offer a quick review before proceeding (skip this sub-step entirely if the review is CURRENT, or if `--fast` was passed).
 
 Use AskUserQuestion:
-- **Re-ground:** "I found a staging environment at {staging URL or workflow}. Since this deploy includes code changes, I can verify everything works on staging first — before it hits production. This is the safest path: if something breaks on staging, production is untouched."
-- **RECOMMENDATION:** Choose A for maximum safety. Choose B if you're confident.
-- A) Deploy to staging first, verify it works, then go to production (Completeness: 10/10)
-- B) Skip staging — go straight to production (Completeness: 7/10)
-- C) Deploy to staging only — I'll check production later (Completeness: 8/10)
+- **Re-ground:** "I noticed {the code review is stale / no code review has been run} on this branch. Since this is about to land on {base}, I'd like a quick safety check on the diff first."
+- **RECOMMENDATION:** Choose A for a quick safety check. Choose B for the full review. Choose C only if you're confident.
+- A) Run a quick review (~2 min) — scan the diff for SQL safety, race conditions, security gaps (Completeness: 7/10)
+- B) Stop and run a full `/review` first — deeper analysis (Completeness: 10/10)
+- C) Skip the review — I've reviewed this myself (Completeness: 3/10)
 
-**If A (staging first):** Tell the user: "Deploying to staging first. I'll run the same health checks I'd run on production — if staging looks good, I'll move on to production automatically."
+**If A:** Read `~/.claude/skills/gstack/review/checklist.md` and apply each item to the current diff. Auto-fix trivial issues (whitespace, imports). For critical findings, ask the user.
 
-Run Steps 6-7 against the staging target first. Use the staging
-URL or staging workflow for deploy verification and canary checks. After staging passes,
-tell the user: "Staging is healthy — your changes are working. Now deploying to production." Then run
-Steps 6-7 again against the production target.
+**If any code changes are made during the quick review:** Commit the fixes, then **STOP** and tell the user: "I found and fixed a few issues during the review. The fixes are committed — run `/land` again to pick them up." Do NOT proceed to merge, and do NOT write any landing state — the branch changed after CI, so CI must re-run.
 
-**If B (skip staging):** Tell the user: "Skipping staging — going straight to production." Proceed with production deployment as normal.
+**If no issues found:** "Review checklist passed — no issues in the diff."
 
-**If C (staging only):** Tell the user: "Deploying to staging only. I'll verify it works and stop there."
+**If B:** **STOP.** "Run `/review` for a thorough pre-landing review, then `/land` again."
 
-Run Steps 6-7 against the staging target. After verification,
-print the deploy report (Step 9) with verdict "STAGING VERIFIED — production deploy pending."
-Then tell the user: "Staging looks good. When you're ready for production, run `/land-and-deploy` again."
-**STOP.** The user can re-run `/land-and-deploy` later for production.
+**If C:** "Understood — skipping review." Continue. Log the choice to skip.
 
-**If no staging detected:** Skip this sub-step entirely. No question asked.
+### 3.5b: Test results
+
+**Free tests — run them now.** Read CLAUDE.md for the project's test command. If not specified, use `bun test`. Run it, capture exit code and output.
+
+```bash
+bun test 2>&1 | tail -10
+```
+
+If tests fail: **BLOCKER.** Cannot merge with failing tests.
+
+**E2E / LLM-judge — check recent results:**
+
+```bash
+setopt +o nomatch 2>/dev/null || true  # zsh compat
+ls -t ~/.gstack-dev/evals/*-e2e-*-$(date +%Y-%m-%d)*.json 2>/dev/null | head -20
+ls -t ~/.gstack-dev/evals/*-llm-judge-*-$(date +%Y-%m-%d)*.json 2>/dev/null | head -5
+```
+
+Parse pass/fail for any of today's runs. No E2E today → **WARNING.** Failures present → **WARNING** (list them).
+
+### 3.5c: PR body accuracy check
+
+```bash
+gh pr view --json body -q .body
+git log --oneline $(gh pr view --json baseRefName -q .baseRefName 2>/dev/null || echo main)..HEAD | head -20
+```
+
+Compare the PR body against the actual commits: missing features, stale descriptions, wrong version. If stale or incomplete: **WARNING — PR body may not reflect current changes.**
+
+### 3.5d: Document-release check
+
+```bash
+git diff --name-only $(gh pr view --json baseRefName -q .baseRefName 2>/dev/null || echo main)...HEAD -- README.md CHANGELOG.md ARCHITECTURE.md CONTRIBUTING.md CLAUDE.md VERSION
+```
+
+If CHANGELOG.md and VERSION were NOT modified and the diff includes new features (new files, commands, skills): **WARNING — /document-release likely not run.** If only docs changed (no code): skip this check.
+
+### 3.5e: Readiness report and confirmation
+
+Build the readiness report:
+
+```
+╔══════════════════════════════════════════════════════════╗
+║              PRE-MERGE READINESS REPORT                  ║
+╠══════════════════════════════════════════════════════════╣
+║  PR: #NNN — title                                        ║
+║  Branch: feature → {base}                                ║
+║  Merge regime: none / github / trunk                     ║
+║                                                          ║
+║  REVIEWS                                                 ║
+║  ├─ Eng Review:    CURRENT / STALE (N commits) / —       ║
+║  ├─ CEO Review:    CURRENT / — (optional)                ║
+║  ├─ Design Review: CURRENT / — (optional)                ║
+║  └─ Codex Review:  CURRENT / — (optional)                ║
+║                                                          ║
+║  TESTS                                                   ║
+║  ├─ Free tests:    PASS / FAIL (blocker)                 ║
+║  ├─ E2E tests:     N/N pass (Xm ago) / NOT RUN           ║
+║  └─ LLM evals:     PASS / NOT RUN                        ║
+║                                                          ║
+║  DOCUMENTATION                                           ║
+║  ├─ CHANGELOG:     Updated / NOT UPDATED (warning)       ║
+║  ├─ VERSION:       X.Y.Z.W / NOT BUMPED (warning)        ║
+║  └─ PR body:       Current / STALE (warning)             ║
+║                                                          ║
+║  WARNINGS: N  |  BLOCKERS: N                             ║
+╚══════════════════════════════════════════════════════════╝
+```
+
+**`--fast` handling:**
+- If `--fast` AND there are **zero blockers**: print the report, then proceed to Step 4 WITHOUT asking. Print "Fast mode: no blockers, landing without the confirmation prompt."
+- If there are any **blockers** (failing free tests): `--fast` does NOT apply — list the blockers and recommend B below. Never auto-proceed past a blocker.
+- Without `--fast`: always ask.
+
+Use AskUserQuestion:
+- **Re-ground:** "Ready to merge PR #NNN — '{title}' into {base} via the {regime} regime. Here's what I found." Show the report.
+- If green: "All checks passed. Ready to merge."
+- If warnings: list each in plain English ("Eng review was 6 commits ago — code changed since then").
+- If blockers: "I found issues that must be fixed first: {list}"
+- **RECOMMENDATION:** A if green; B if significant warnings; C only if the user accepts the risk.
+- A) Merge it — everything looks good (Completeness: 10/10)
+- B) Hold off — I want to fix the warnings first (Completeness: 10/10)
+- C) Merge anyway — I understand the warnings (Completeness: 3/10)
+
+If B: **STOP** with specific next steps (run `/review`, run E2E, run `/document-release`, or fix the PR body).
+If A or C: "Merging now." Continue to Step 4.
 
 ---
 
-## Step 6: Wait for deploy (if applicable)
+## Step 4: Merge through the right regime
 
-The deploy verification strategy depends on the platform detected in Step 5.
+This is the heart of `/land`. The merge **command** depends on the regime, but the "did it land" **signal** is uniform — so a single helper, `bin/gstack-merge`, owns detection, submission, and the landing poll.
 
-### Strategy A: GitHub Actions workflow
+### 4.1: Resolve the merge regime
 
-If a deploy workflow was detected, find the run triggered by the merge commit:
+Resolution order (platform-agnostic rule — the project owns its config, gstack reads it):
+
+1. **Explicit config** — read the `## Merge Configuration` section of CLAUDE.md for a `Merge queue: none|github|trunk` line.
+2. **Auto-detect** — if no config line, ask the helper:
+   ```bash
+   ~/.claude/skills/gstack/bin/gstack-merge detect --base <base> --json
+   ```
+   It returns `{"regime":"none|github|trunk","source":"...","base":"..."}`. Detection uses the queue's own GitHub status check (`Trunk Merge Queue (<base>)` → trunk), branch-protection merge queue (→ github), and `.trunk/trunk.yaml` `merge:` as a secondary signal. A bare `.trunk/` directory is NOT treated as trunk (the `trunk check` linter uses the same dir).
+3. **Ask once, then persist** — if there is no config AND detection returns `none` but the user expected a queue (or detection is ambiguous), ask via AskUserQuestion which regime to use, then write a `## Merge Configuration` section to CLAUDE.md so we never ask again. (You can also point them at `/setup-deploy`, which writes this section.)
+
+Tell the user which regime you'll use and why: e.g. "Your repo uses the trunk.io merge queue (detected from the `Trunk Merge Queue (main)` check)."
+
+Record the start timestamp.
+
+### 4.1a: Explain what's about to happen (queue regimes)
+
+If the regime is `github` or `trunk`, **before submitting**, tell the user plainly what a
+merge queue is and what `/land` will do. Full version on the first encounter for this repo
+(no `## Merge Configuration` was present), one line on repeats. Gloss "merge queue,"
+"enqueue," and "optimistic merge" on first use.
+
+First-encounter script (adapt to the detected regime):
+
+> "Heads up on how this lands. Your repo uses a **merge queue** (a system that merges
+> PRs for you instead of you clicking merge). So I won't merge right now — I'll **enqueue**
+> this PR (hand it to the queue) and return. The queue tests it and lands it on `<base>`
+> on its own, in parallel with other queued PRs, and **optimistically** (a later PR that
+> already contains this change can rescue it from a flaky test). The point: you can run
+> `/land` on a whole stack of ready PRs and walk away — they'll all make it onto `<base>`
+> without you babysitting. I'll tell you where to watch. (Want me to block and watch this
+> one land instead? Re-run with `/land --watch`.)"
+
+Repeat-encounter: "Enqueuing to the {trunk/GitHub} queue — it'll land on `<base>`. (`--watch` to block.)"
+
+### 4.1b: Offer the merge queue (no-queue repos, first time)
+
+If the regime resolved to `none` AND there was no `## Merge Configuration` (i.e. we did
+not detect a queue and the user never configured one), surface the option once — don't
+force it. Use AskUserQuestion:
+
+- **Re-ground:** "This repo merges directly (no merge queue), so I'll squash-merge this PR
+  now. If you regularly have several PRs ready at once, trunk.io's merge queue can land
+  them all in parallel without you merging each one by hand and waiting. Want me to set it
+  up? It's a one-time setup and I'll walk you through every step."
+- **RECOMMENDATION:** Choose A if you often juggle multiple ready PRs; choose B to just
+  merge this one now.
+- A) Walk me through setting up the trunk.io merge queue first (Completeness: 10/10)
+- B) Just merge this PR directly now — maybe later (Completeness: 7/10)
+
+**If A:** Run the hand-held onboarding below, then re-resolve the regime (it should now be
+`trunk`) and continue. **If B:** continue with the `none` path. Either way, do not re-ask on
+later runs (the choice, or the written `## Merge Configuration`, settles it).
+
+### Set up a merge queue with trunk.io (first-time, hand-held)
+
+**What a merge queue is, in plain English.** Normally you merge one PR, wait for
+it to land, merge the next, wait again — babysitting a line of PRs into the base
+branch one at a time. A **merge queue** flips that: you *enqueue* each ready PR
+and walk away. Trunk tests them (in parallel, and **optimistically** — a later PR
+that already contains an earlier change can rescue it from a flaky failure) and
+**lands them on the base branch for you**, in a safe order. You queue ten PRs in
+a row, close your laptop, and they all make it onto the base branch without you.
+
+That is exactly the workflow this unlocks: `/land` on each PR, then go do
+something else.
+
+**Before you start:** this needs a trunk.io account (the free tier covers small
+teams) and admin access to the GitHub repo. It's a one-time setup. I'll walk each
+step and explain *why*, and verify what I can with `gh`.
+
+**Step 1 — Create / sign in to trunk.io.**
+Open https://app.trunk.io and sign in with GitHub. *(Why: the queue config and
+dashboard live in Trunk's web app, not in your repo — there's no `trunk.yaml`
+merge section to commit.)*
+
+**Step 2 — Install the Trunk GitHub App on this repo.**
+In app.trunk.io → **Merge Queue** → **Create New Queue** → install the GitHub
+App, select this repo, approve permissions. *(Why: the App is what lets the
+`trunk-io` bot test on throwaway branches and push the final merge. Mandatory —
+nothing works without it.)*
+Verify the App can see the repo:
+```bash
+gh api "/repos/<owner>/<repo>/installation" --jq '.app_slug' 2>/dev/null || echo "App not detected yet"
+```
+
+**Step 3 — Create a queue for this repo + base branch.**
+In the same flow, pick this repo and target branch `<base>`, click **Create
+Queue**. *(Why: a queue is scoped to one branch — you're queuing merges into
+`<base>`.)*
+
+**Step 4 — Adjust branch protection (3 changes).**
+In GitHub → Settings → Branches → the `<base>` rule:
+- **Allow the `trunk-io` bot to push to the protected branch.** *(Why: Trunk's
+  bot performs the actual merge; without push rights it can't land anything.)*
+- **Disable "Require branches to be up to date before merging."** *(Why: Trunk
+  tests each PR against the others in the queue, so GitHub's own up-to-date gate
+  would fight it.)*
+- **Exclude `trunk-merge/*` and `trunk-temp/*` from protection.** *(Why: those
+  are the throwaway branches Trunk tests on; protecting them blocks testing.)*
+
+**Step 5 — Turn on the optimizations that make "queue many, walk away" real.**
+In app.trunk.io → your repo → Merge Queue → Settings, enable:
+- **Optimistic Merge Queue** + **Pending Failure Depth ≥ 1** — keeps testing
+  later PRs while an earlier one is in "pending failure," and auto-recovers when a
+  later PR proves the failure was a flake. *(Why: one flaky PR doesn't stall the
+  whole line.)*
+- **Parallel** — non-overlapping PRs test in independent lanes at the same time.
+  *(Why: throughput; ten unrelated PRs don't go one-at-a-time.)*
+- **Batching** — lands compatible PRs together with auto-bisection on failure.
+  *(Why: fewer CI runs, and a bad PR doesn't eject the whole batch.)*
+- **Merge Method** — pick Squash / Merge Commit / Rebase to match your repo. *(Why:
+  it controls what the landed commit looks like; `/land` handles all three.)*
+
+**Step 6 — Pick how PRs get enqueued.**
+The simplest works immediately: commenting **`/trunk merge`** on a PR. `/land`
+uses that by default — zero extra auth, because the GitHub App is already
+installed. *(Optional upgrades: set an "enqueue by label" name in the web UI, run
+`trunk login` to use the `trunk` CLI, or set `$TRUNK_API_TOKEN` for the REST
+API — `/land` will prefer those when present.)*
+
+**Step 7 — Persist the choice so I never ask again.**
+I'll write `Merge queue: trunk` into a `## Merge Configuration` section of
+CLAUDE.md. *(Why: `/land` reads it and skips detection from then on.)*
+
+**Step 8 — Verify end-to-end.**
+Open any test PR and run `/land`. You should see a **`Trunk Merge Queue
+(<base>)`** check appear, move Queued → Testing → Merged, and the PR land on
+`<base>` without you touching GitHub:
+```bash
+gh pr checks <test-pr> --json name,state | grep -i "Trunk Merge Queue" || echo "no queue check yet — recheck Steps 2-4"
+```
+
+Full docs: https://docs.trunk.io/merge-queue/getting-started
+
+Once this is done, the payoff: queue up all your ready PRs with `/land`, walk
+away, and trunk lands them on `<base>` for you.
+
+When the onboarding completes, write `Merge queue: trunk` into a `## Merge Configuration`
+section of CLAUDE.md (create the section if absent) so `/land` never has to ask again, then
+re-run `gstack-merge detect` to confirm, and continue with the `trunk` regime.
+
+### 4.2: Submit
 
 ```bash
-gh run list --branch <base> --limit 10 --json databaseId,headSha,status,conclusion,name,workflowName
+~/.claude/skills/gstack/bin/gstack-merge submit --regime <regime> --pr <NNN> --base <base>
 ```
 
-Match by `LAND_SHA` (the merge commit captured in Step 2). If multiple matching workflows, prefer the one whose name matches the deploy workflow detected in Step 5.
+What the helper does per regime:
+- **none** → `gh pr merge <pr> --squash --delete-branch`
+- **github** → `gh pr merge <pr> --auto --delete-branch` (GitHub auto-merge / native queue; falls back to a direct squash if `--auto` is not enabled)
+- **trunk** → **comment-first**: `gh pr comment <pr> --body "/trunk merge"` (zero new auth — works the moment Trunk's GitHub App is installed), then the `trunk` CLI if installed, then the Trunk REST API if `$TRUNK_API_TOKEN` is set. NEVER `gh pr merge`, NEVER `--delete-branch` — Trunk owns the merge and branch cleanup.
 
-Poll every 30 seconds:
-```bash
-gh run view <run-id> --json status,conclusion
-```
+If the user wants priority on a trunk queue, pass `--priority <urgent|high|medium|low|lowest>`.
 
-### Strategy B: Platform CLI (Fly.io, Render, Heroku)
+### 4.2a: Post-failure PR-state check
 
-If a deploy status command was configured in CLAUDE.md (e.g., `fly status --app myapp`), use it instead of or in addition to GitHub Actions polling.
-
-**Fly.io:** After merge, Fly deploys via GitHub Actions or `fly deploy`. Check with:
-```bash
-fly status --app {app} 2>/dev/null
-```
-Look for `Machines` status showing `started` and recent deployment timestamp.
-
-**Render:** Render auto-deploys on push to the connected branch. Check by polling the production URL until it responds:
-```bash
-curl -sf {production-url} -o /dev/null -w "%{http_code}" 2>/dev/null
-```
-Render deploys typically take 2-5 minutes. Poll every 30 seconds.
-
-**Heroku:** Check latest release:
-```bash
-heroku releases --app {app} -n 1 2>/dev/null
-```
-
-### Strategy C: Auto-deploy platforms (Vercel, Netlify)
-
-Vercel and Netlify deploy automatically on merge. No explicit deploy trigger needed. Wait 60 seconds for the deploy to propagate, then proceed directly to canary verification in Step 7.
-
-### Strategy D: Custom deploy hooks
-
-If CLAUDE.md has a custom deploy status command in the "Custom deploy hooks" section, run that command and check its exit code.
-
-### Common: Timing and failure handling
-
-Record deploy start time. Show progress every 2 minutes: "Deploy is still running... ({X}m so far). This is normal for most platforms."
-
-If deploy succeeds (`conclusion` is `success` or health check passes): Tell the user "Deploy finished successfully. Took {duration}. Now I'll verify the site is healthy." Record deploy duration, continue to Step 7.
-
-If deploy fails (`conclusion` is `failure`): use AskUserQuestion:
-- **Re-ground:** "The deploy workflow failed after the merge. The code is merged but may not be live yet. Here's what I can do:"
-- **RECOMMENDATION:** Choose A to investigate before reverting.
-- A) Let me look at the deploy logs to figure out what went wrong
-- B) Revert the merge immediately — roll back to the previous version
-- C) Continue to health checks anyway — the deploy failure might be a flaky step, and the site might actually be fine
-
-If timeout (20 min): "The deploy has been running for 20 minutes, which is longer than most deploys take. The site might still be deploying, or something might be stuck." Ask whether to continue waiting or skip verification.
-
----
-
-## Step 7: Canary verification (conditional depth)
-
-Tell the user: "Deploy is done. Now I'm going to check the live site to make sure everything looks good — loading the page, checking for errors, and measuring performance."
-
-Use the diff-scope classification from Step 5 to determine canary depth:
-
-| Diff Scope | Canary Depth |
-|------------|-------------|
-| SCOPE_DOCS only | Already skipped in Step 5 |
-| SCOPE_CONFIG only | Smoke: `$B goto` + verify 200 status |
-| SCOPE_BACKEND only | Console errors + perf check |
-| SCOPE_FRONTEND (any) | Full: console + perf + screenshot |
-| Mixed scopes | Full canary |
-
-**Full canary sequence:**
+**Universal invariant:** after ANY non-zero exit from `gh pr merge` (the `none`/`github`
+submit paths), query authoritative PR state before retrying or stopping. Do NOT retry
+`gh pr merge`. Related: cli/cli#3442, cli/cli#13380. (For the `trunk` path, the same
+no-blind-retry rule applies to `submit` per H4 — never resubmit a failed `/trunk merge`;
+check status first.)
 
 ```bash
-$B goto <url>
+gh pr view --json state,mergeCommit,mergedAt,mergedBy
 ```
 
-Check that the page loaded successfully (200, not an error page).
+**If `state == "MERGED"`:**
 
+The server-side merge succeeded (it may have completed before the local cleanup phase failed, or a concurrent merge landed). Tell the user: "PR is merged on GitHub." (Do NOT say "the merge succeeded" — this also covers the concurrent-merge case.)
+
+Capture the merge SHA:
 ```bash
-$B console --errors
+gh pr view --json mergeCommit -q .mergeCommit.oid
 ```
 
-Check for critical console errors: lines containing `Error`, `Uncaught`, `Failed to load`, `TypeError`, `ReferenceError`. Ignore warnings.
-
+Worktree cleanup — non-destructive, candidate-based:
 ```bash
-$B perf
+git worktree list --porcelain
 ```
+A worktree is a stale candidate if (a) it is checked out on the base branch, AND (b) it is not the user's primary working tree, AND (c) `git status --porcelain` inside it is empty.
+- For each clean candidate: OFFER to remove it ("There's a stale worktree at `<path>` on `<branch>` with no uncommitted work. Remove it?"). Remove only on confirmation (`git worktree remove <path> && git worktree prune`).
+- If any candidate has uncommitted work: list the files, tell the user, and STOP worktree cleanup without removing anything.
+- Do NOT use `--force`. Do NOT remove the user's primary working tree.
 
-Check that page load time is under 10 seconds.
+Then continue to the landing confirmation (Step 5) — `write-state` will confirm the SHA.
 
+**If `state == "OPEN"`:**
+
+Check whether auto-merge / a queue is active:
 ```bash
-$B text
+gh pr view --json autoMergeRequest -q .autoMergeRequest
 ```
+- If non-null: auto-merge is enabled or merge queue is in use. The open state is expected — continue to 4.3's wait.
+- If null: genuine failure. Surface both the `submit` stderr AND the current PR open state, then **STOP**.
 
-Verify the page has content (not blank, not a generic error page).
+**If `state == "CLOSED"`:** the PR was closed without merging. **STOP.**
 
-```bash
-$B snapshot -i -a -o ".gstack/deploy-reports/post-deploy.png"
-```
+**Hard rule: never call `gh pr merge` a second time** after a non-zero exit. Server state is authoritative.
 
-Take an annotated screenshot as evidence.
-
-**Health assessment:**
-- Page loads successfully with 200 status → PASS
-- No critical console errors → PASS
-- Page has real content (not blank or error screen) → PASS
-- Loads in under 10 seconds → PASS
-
-If all pass: Tell the user "Site is healthy. Page loaded in {X}s, no console errors, content looks good. Screenshot saved to {path}." Mark as HEALTHY, continue to Step 9.
-
-If any fail: show the evidence (screenshot path, console errors, perf numbers). Use AskUserQuestion:
-- **Re-ground:** "I found some issues on the live site after the deploy. Here's what I see: {specific issues}. This might be temporary (caches clearing, CDN propagating) or it might be a real problem."
-- **RECOMMENDATION:** Choose based on severity — B for critical (site down), A for minor (console errors).
-- A) That's expected — the site is still warming up. Mark it as healthy.
-- B) That's broken — revert the merge and roll back to the previous version
-- C) Let me investigate more — open the site and look at logs before deciding
-
----
-
-## Step 8: Revert (if needed)
-
-If the user chose to revert at any point:
-
-Tell the user: "Reverting the merge now. This will create a new commit that undoes all the changes from this PR. The previous version of your site will be restored once the revert deploys."
-
-Use `LAND_SHA` (the confirmed merge commit from Step 2) as the revert target.
-
-**Merge-queue / protected branches first (H8).** If `LAND_REGIME` is `github` or `trunk`,
-a direct push to the base branch is almost always blocked by branch protection, so go
-straight to a revert PR — do not attempt a direct push:
-
-```bash
-git fetch origin <base>
-git checkout -b revert-pr-<NNN> origin/<base>
-git revert <LAND_SHA> --no-edit
-git push origin revert-pr-<NNN>
-gh pr create --base <base> --head revert-pr-<NNN> --title 'revert: <original PR title>' --fill
-```
-Tell the user: "This repo uses a merge queue / protected branch, so I opened a revert PR. Merge it (it can ride the queue too) to roll back."
-
-**No-queue repos (`LAND_REGIME` is `none`).** Try the direct push first:
-
-```bash
-git fetch origin <base>
-git checkout <base>
-git revert <LAND_SHA> --no-edit
-git push origin <base>
-```
-
-If the revert has conflicts: "The revert has merge conflicts — this can happen if other changes landed on {base} after your merge. You'll need to resolve them manually. The merge commit SHA is `<LAND_SHA>` — run `git revert <LAND_SHA>` to try again."
-
-If the direct push is rejected by branch protection: fall back to the revert-PR flow above.
-
-After a successful revert (pushed or PR merged): Tell the user "Revert is in — the deploy should roll back automatically once CI passes. Keep an eye on the site to confirm." Note the revert commit SHA and continue to Step 9 with status REVERTED.
-
----
-
-## Step 9: Deploy report
-
-Create the deploy report directory:
-
-```bash
-mkdir -p .gstack/deploy-reports
-```
-
-Produce and display the ASCII summary:
-
-```
-LAND & DEPLOY REPORT
-═════════════════════
-PR:           #<number> — <title>
-Branch:       <head-branch> → <base-branch>
-Landed:       <timestamp>
-Merge SHA:    <LAND_SHA>
-Merge regime: <none / github / trunk>   (landing handled by /land)
-First run:    <yes (dry-run validated) / no (previously confirmed)>
-
-Timing:
-  Dry-run:    <duration or "skipped (confirmed)">
-  Land:       <duration of /land — CI wait + queue + merge>
-  Deploy:     <duration or "no workflow detected">
-  Staging:    <duration or "skipped">
-  Canary:     <duration or "skipped">
-  Total:      <end-to-end duration>
-
-Reviews:
-  Eng review: <CURRENT / STALE / NOT RUN>
-  Inline fix: <yes (N fixes) / no / skipped>
-
-CI:           <PASSED / SKIPPED>
-Deploy:       <PASSED / FAILED / NO WORKFLOW / CI AUTO-DEPLOY>
-Staging:      <VERIFIED / SKIPPED / N/A>
-Verification: <HEALTHY / DEGRADED / SKIPPED / REVERTED>
-  Scope:      <FRONTEND / BACKEND / CONFIG / DOCS / MIXED>
-  Console:    <N errors or "clean">
-  Load time:  <Xs>
-  Screenshot: <path or "none">
-
-VERDICT: <DEPLOYED AND VERIFIED / DEPLOYED (UNVERIFIED) / STAGING VERIFIED / REVERTED>
-```
-
-Save report to `.gstack/deploy-reports/{date}-pr{number}-deploy.md`.
-
-Log to the review dashboard:
+### 4.3: Enqueue-and-return (default) or watch until landed
 
 ```bash
 eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
-mkdir -p ~/.gstack/projects/$SLUG
 ```
 
-Write a JSONL entry with timing data:
-```json
-{"skill":"land-and-deploy","timestamp":"<ISO>","status":"<SUCCESS/REVERTED>","pr":<number>,"merge_sha":"<LAND_SHA>","merge_regime":"<none/github/trunk>","first_run":<true/false>,"deploy_status":"<HEALTHY/DEGRADED/SKIPPED>","staging_status":"<VERIFIED/SKIPPED>","review_status":"<CURRENT/STALE/NOT_RUN/INLINE_FIX>","land_s":<N>,"deploy_s":<N>,"staging_s":<N>,"canary_s":<N>,"total_s":<N>}
+**Regime `none`** — the direct squash in 4.2 already merged synchronously. Go straight to Step 5 (write-state confirms the SHA).
+
+**Regime `github` / `trunk`, DEFAULT (no `--watch`)** — confirm the queue actually picked the PR up, then return; the queue lands it:
+
+```bash
+~/.claude/skills/gstack/bin/gstack-merge confirm-enqueue --regime <regime> --pr <NNN> --base <base> --slug "$SLUG"
 ```
+
+- **exit 0 / `ENQUEUED=...`** — the PR is in the queue and will land on `<base>` on its own. Do NOT run Step 5 (there is no merge SHA yet — `confirm-enqueue` wrote a lightweight `last-enqueue.json`). Go to Step 6's **enqueue summary**, and surface the `WATCH_CHECK` / `WATCH_DASHBOARD` lines from the output so the user knows where to look.
+- **`TRUNK_ENQUEUE_TIMEOUT`** — **STOP.** "I posted `/trunk merge` but Trunk never picked it up. Confirm the Trunk GitHub App is installed on this repo and 'GitHub commands' is enabled (run `/land` on a no-queue repo, or `/setup-deploy`, for the setup walkthrough), then run `/land` again."
+- **`ENQUEUE_UNCONFIRMED`** (github) — **STOP.** "GitHub auto-merge didn't enable on the PR. Check the repo's merge-queue / auto-merge settings, then run `/land` again."
+
+**Regime `github` / `trunk` WITH `--watch`** — block until it actually lands:
+
+```bash
+~/.claude/skills/gstack/bin/gstack-merge wait --regime <regime> --pr <NNN> --base <base>
+```
+
+The helper polls the uniform landing signal (`gh pr view state` + the merge-queue status check). For trunk it first confirms pickup (the `Trunk Merge Queue (<base>)` check appears) — a posted `/trunk merge` comment is silently inert if the GitHub App isn't installed. Handle the exit:
+- **`LAND_STATUS=landed`** — continue to Step 5.
+- **`LAND_STATUS=ejected`** — the queue rejected the PR (a CI check failed on the merge candidate, or a conflict with another queued PR). **STOP.** "The merge queue ejected this PR: {reason}. Check the queue page — usually a check failed on the merge commit. Fix and run `/land` again."
+- **`LAND_STATUS=closed`** — **STOP.** "The PR was closed without merging."
+- **`TRUNK_ENQUEUE_TIMEOUT`** — **STOP.** (same guidance as above.)
+- **timeout** — **STOP.** "The merge has been pending for {duration}. Something may be stuck — check the GitHub Actions tab and the merge-queue page."
 
 ---
 
-## Step 10: Suggest follow-ups
+## Step 5: Confirm landing and write the handoff
 
-After the deploy report:
+**Run this step only when the PR actually merged** — i.e. the `none` regime, or a `--watch`
+run that returned `LAND_STATUS=landed`. In the default enqueue-and-return path you already
+returned at 4.3 with the PR sitting in the queue (no merge SHA yet), so skip to Step 6's
+**enqueue summary**.
 
-If verdict is DEPLOYED AND VERIFIED: Tell the user "Your changes are live and verified. Nice ship."
+A merge isn't done until the commit is on the base branch with a known SHA. This is also the **handoff** the deploy half needs (its `git revert` and deploy-workflow match both need the merge SHA), so `/land` writes it as a file, not just a log line.
 
-If verdict is DEPLOYED (UNVERIFIED): Tell the user "Your changes are merged and should be deploying. I wasn't able to verify the site — check it manually when you get a chance."
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+~/.claude/skills/gstack/bin/gstack-merge write-state --regime <regime> --pr <NNN> --base <base> --slug "$SLUG"
+```
 
-If verdict is REVERTED: Tell the user "The merge was reverted. Your changes are no longer on {base}. The PR branch is still available if you need to fix and re-ship."
+The helper polls until the PR is `MERGED` with a non-null merge SHA (the SHA can lag the state flip on squash/queue merges), verifies the commit is actually on `origin/<base>`, then atomically writes `~/.gstack/projects/$SLUG/last-land.json`:
 
-Then suggest relevant follow-ups:
-- If a production URL was verified: "Want extended monitoring? Run `/canary <url>` to watch the site for the next 10 minutes."
-- If performance data was collected: "Want a deeper performance analysis? Run `/benchmark <url>`."
-- "Need to update docs? Run `/document-release` to sync README, CHANGELOG, and other docs with what you just shipped."
+```json
+{"schema_version":1,"pr":NNN,"sha":"<oid>","headRefOid":"<oid>","base":"<branch>","head_branch":"<branch>","repo":"owner/name","regime":"<regime>","ts":"<ISO>"}
+```
+
+and prints a human echo: `LANDED: pr=#NNN sha=<oid> regime=<regime> base=<branch>`.
+
+- **If `write-state` exits non-zero:** landing could not be confirmed. **STOP** and do NOT report success: "The PR shows as merged but I couldn't confirm the commit on {base} / capture a merge SHA. Don't deploy off this until you verify on GitHub."
+- **If it succeeds:** the PR has truly landed and the handoff file is written.
+
+> When this skill is composed by `/land-and-deploy`, that skill reads `last-land.json` after this step (validating it is for this exact PR + repo and recent) and uses the SHA for deploy matching and revert.
+
+---
+
+## Step 6: Summary
+
+### Enqueue summary (default queue path — the PR is in the queue, not yet landed)
+
+When 4.3 returned `ENQUEUED=...`, print this and stop — the queue does the rest:
+
+```
+ENQUEUED
+════════
+PR:           #<number> — <title>
+Branch:       <head> → <base>
+Regime:       <github / trunk>
+Status:       In the merge queue — it'll land on <base> automatically
+Watch:        <WATCH_CHECK>  (and <WATCH_DASHBOARD> for trunk)
+
+VERDICT: ENQUEUED — no action needed; the queue will land it.
+```
+
+Then tell the user, in plain English: "You don't need to wait. Queue up your other ready
+PRs with `/land` the same way and walk away — the queue lands them all on `<base>`. To
+block and watch one land instead, run `/land --watch`." (Skip the walk-away pitch if this
+was invoked by `/land-and-deploy`.)
+
+### Land summary (none regime, or `--watch` that landed)
+
+```
+LAND REPORT
+═══════════
+PR:           #<number> — <title>
+Branch:       <head> → <base>
+Regime:       <none / github / trunk>
+Merged:       <timestamp>
+Merge SHA:    <sha>
+CI:           <PASSED / SKIPPED>
+Reviews:      <Eng: CURRENT/STALE/NOT RUN; inline fix: yes(N)/no/skipped>
+
+VERDICT: LANDED
+```
+
+Then suggest the natural next step: "Want to deploy and verify this in production? Run `/land-and-deploy` — it'll pick up this landing and take it through deploy + canary." (Skip this suggestion when `/land` was invoked by `/land-and-deploy` — it already continues to deploy.)
 
 ---
 
 ## Important Rules
 
-- **Never force push.** Use `gh pr merge` which is safe.
-- **Never skip CI.** If checks are failing, stop and explain why.
-- **Narrate the journey.** The user should always know: what just happened, what's happening now, and what's about to happen next. No silent gaps between steps.
-- **Auto-detect everything.** PR number, merge method, deploy strategy, project type, merge queues, staging environments. Only ask when information genuinely can't be inferred.
-- **Poll with backoff.** Don't hammer GitHub API. 30-second intervals for CI/deploy, with reasonable timeouts.
-- **Revert is always an option.** At every failure point, offer revert as an escape hatch (Step 8 uses `LAND_SHA` and goes PR-first on queue/protected branches). Explain what reverting does in plain English.
-- **Single-pass verification, not continuous monitoring.** `/land-and-deploy` checks once. `/canary` does the extended monitoring loop.
-- **Branch cleanup belongs to `/land`.** `/land` deletes the feature branch on the no-queue/GitHub paths; on the trunk path, Trunk owns branch cleanup. Don't delete branches here.
-- **The merge lives in `/land`.** This skill never calls `gh pr merge` itself — it composes `/land` (Step 2) and consumes the landing handoff. Keep merge logic in one place.
-- **First run = teacher mode.** Walk the user through everything. Explain what each check does and why it matters. Show them their infrastructure. Let them confirm before proceeding. Build trust through transparency.
-- **Subsequent runs = efficient mode.** Brief status updates, no re-explanations. The user already trusts the tool — just do the job and report results.
-- **The goal is: first-timers think "wow, this is thorough — I trust it." Repeat users think "that was fast — it just works."**
+- **Never force push.** Use `gh pr merge` / the queue — never a manual push to the base branch.
+- **Never skip CI.** Failing or pending checks gate the merge.
+- **Never call `gh pr merge` twice** after a non-zero exit — server state is authoritative (see 4.2). Related: cli/cli#3442, cli/cli#13380.
+- **Trunk owns the trunk path.** In the trunk regime, never run `gh pr merge` and never pass `--delete-branch`.
+- **A merge queue means enqueue-and-return, not babysit.** For a queue regime the default is to enqueue and return so the user can `/land` a whole stack and walk away; only `--watch` blocks. Never block-by-default on a queue — it defeats the point of the queue.
+- **Landing means a SHA on the base branch.** In the `none` path or a `--watch` run, don't report success until `write-state` confirms it (Step 5). A null SHA silently kills the deploy half's revert. (In enqueue-and-return there is intentionally no SHA yet — that's why `/land-and-deploy` always runs `/land --watch`.)
+- **Detect, don't assume.** Resolve the regime from config → live detection → ask-once-and-persist. The same `gstack-merge detect` is what `/land-and-deploy`'s dry-run uses, so the two never disagree.
+- **Narrate the journey.** The user should always know what just happened, what's happening now, and what's next.

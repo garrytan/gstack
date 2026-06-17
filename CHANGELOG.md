@@ -1,5 +1,49 @@
 # Changelog
 
+## [1.59.0.0] - 2026-05-31
+
+## **`/land` is a standalone skill now, and on a merge queue it's fire-and-forget: enqueue a stack of green PRs, walk away, and the queue lands them all on the base branch.**
+
+There is now a `/land` skill that does exactly one thing: take a green PR and get it onto the base branch through the right regime, with the full readiness gate (reviews, tests, docs, the one irreversible-merge confirmation) intact. The headline behavior on a merge queue is what you actually want when a pile of PRs is ready: `/land` enqueues the PR and returns. It does not sit and babysit. You run `/land` on each ready PR and walk away, and the queue tests them in parallel and lands them on the base branch for you, optimistically (a later PR that already contains an earlier change can rescue it from a flaky failure). No more merge-one, wait, merge-the-next. When you do want to watch a single PR land, `/land --watch` blocks; `/land-and-deploy` always watches, because it needs the completed merge before it can deploy.
+
+`/land-and-deploy` no longer carries its own copy of the merge logic; it composes `/land` and then deploys. So the merge path lives in one place, and that one place understands three worlds: no queue (`gh pr merge --squash`), GitHub's native merge queue (`gh pr merge --auto`), and the trunk.io merge queue. Trunk works the moment its GitHub App is installed, with zero extra auth, because the default submit path is a `/trunk merge` PR comment. The trunk CLI and REST API are picked up automatically when present, for queue position and priority. Never set up a merge queue before? `/land` explains what a merge queue is in plain English before it does anything, and walks you through trunk.io setup step by step the first time.
+
+The trick that keeps this cheap: the submit command differs by regime, but the "did it land" signal is identical. All three end with the PR in `MERGED` state and a commit on the base branch, so one uniform poll (plus the `Trunk Merge Queue (<branch>)` status check for ejection) covers every regime. Detection reads that same status check, not the `.trunk/` directory (which the trunk linter also uses), so a repo that runs `trunk check` but not the queue is correctly read as "no queue."
+
+### The numbers that matter
+
+From the diff between this branch and `origin/main`, plus `bun test`:
+
+| Metric | Before | After | Δ |
+|--------|--------|-------|---|
+| Merge logic copies | 1 (inside land-and-deploy) | 1 (in /land, composed) | deduped |
+| `land-and-deploy/SKILL.md` | 1860 lines | 1568 lines | −292 |
+| Merge regimes supported | 1 (GitHub auto-merge) | 3 (none / github / trunk) | +2 |
+| Deterministic merge tests | 0 | 41 (30 unit + 11 CLI) | +41 |
+| New auth to use trunk.io | n/a | 0 (gh comment path) | none |
+
+The merge SHA the deploy half needs for a revert now travels as an explicit, validated `last-land.json` handoff (right PR, right repo, recent, non-null SHA) instead of hoping the agent carries it across the skill boundary. Rebase-merge repos (where the merge commit can be null) are handled: landing is confirmed by `state == MERGED` AND the commit actually being on the base branch.
+
+### What this means for you
+
+If you only want to merge, run `/land` and stop. Got ten PRs green and ready? Run `/land` on each and walk away; the queue lands them all without you sequencing merges by hand. If you want merge plus deploy plus canary, run `/land-and-deploy` exactly like before; it just routes the merge through `/land` now (in watch mode, since it deploys the result). On a trunk.io repo, gstack stops fighting the queue and uses it: it enqueues, points you at the queue's own status check and dashboard, and tells you plainly if the queue ejects the PR. Set the regime once in CLAUDE.md (`/setup-deploy` writes it) or let `/land` detect it and offer to set trunk.io up for you. Non-trunk users pay nothing for any of this.
+
+### Itemized changes
+
+#### Added
+- **`/land` skill**: lands a PR standalone: pre-flight, CI wait, VERSION-drift check, the pre-merge readiness gate (with a `--fast` flag that skips soft-warning prompts but never a real blocker), and a regime-aware merge. Writes a `last-land.json` handoff and prints a `LANDED:` line on success.
+- **Enqueue-and-return is the default on a merge queue.** `/land` hands the PR to the queue and returns, so you can `/land` a stack of ready PRs and walk away while the queue lands them in parallel. `--watch` opts into blocking until a single PR lands (and is what `/land-and-deploy` uses). A no-queue repo merges synchronously, as before.
+- **First-time merge-queue onboarding.** When a repo has no queue configured, `/land` offers to set trunk.io up and hand-holds the whole thing: install the GitHub App, create the queue, the three branch-protection changes, and the optimizations (optimistic merge, parallel, batching) that make "queue many, walk away" work. It also explains, in plain English, what a merge queue is before doing anything. The walkthrough lives in one shared place, used by both `/land` and `/setup-deploy`.
+- **Merge-queue support for three regimes**: none, GitHub native merge queue, and trunk.io. Trunk submit is comment-first (`gh pr comment "/trunk merge"`, zero new auth), with the trunk CLI and REST API (`$TRUNK_API_TOKEN`) as automatic upgrades for priority and queue position.
+- **`bin/gstack-merge`**: a small, unit-tested helper (`detect` / `submit` / `wait` / `write-state` / `read-state`) backed by `lib/merge.ts`. The same `detect` powers `/land`, `/land-and-deploy`'s dry-run, and `/setup-deploy`, so they never disagree.
+- **`## Merge Configuration` in CLAUDE.md**: `/setup-deploy` now records `Merge queue: none|github|trunk` separately from deploy settings, so `/land` reads merge config with zero deploy coupling.
+
+#### Changed
+- **`/land-and-deploy` composes `/land`** instead of carrying its own merge steps. It consumes the validated handoff, verifies the merge SHA is really on the base branch before deploying, and goes revert-PR-first on merge-queue / protected branches.
+
+#### For contributors
+- `lib/merge.ts` holds the pure regime logic (detection precedence, submit planning, landing classification, handoff schema + validation); `test/gstack-merge.test.ts` (30) and `test/gstack-merge-cli.test.ts` (11) pin it. A generated-doc scrub test fails CI if `/land`'s SKILL.md ever grows deploy/canary machinery. The merge SHA → revert handoff and the never-blind-retry invariant (cli/cli#3442, cli/cli#13380) moved into `/land` with their tests.
+
 ## [1.58.1.0] - 2026-06-14
 
 ## **Local evals stop lying. Spawned `claude` test children run in a sealed clean room,**

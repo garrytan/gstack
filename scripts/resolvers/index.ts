@@ -36,8 +36,10 @@ import { generateMakePdfSetup } from './make-pdf';
 import { generateTasksSectionEmit, generateTasksSectionAggregate } from './tasks-section';
 import { SECTION, SECTION_INDEX } from './sections';
 import { generateRedactTaxonomyTable, generateRedactInvocationBlock } from './redact-doc';
+import { generateMergeQueueSetup } from './merge-queue-setup';
 
 export const RESOLVERS: Record<string, ResolverValue> = {
+  MERGE_QUEUE_SETUP: generateMergeQueueSetup,
   SLUG_EVAL: generateSlugEval,
   SLUG_SETUP: generateSlugSetup,
   REDACT_TAXONOMY_TABLE: generateRedactTaxonomyTable,

@@ -27,11 +27,14 @@ allowed-tools:
 
 # /setup-deploy — Configure Deployment for gstack
 
-You are helping the user configure their deployment so `/land-and-deploy` works
-automatically. Your job is to detect the deploy platform, production URL, health
-checks, and deploy status commands — then persist everything to CLAUDE.md.
+You are helping the user configure their deployment so `/land` and `/land-and-deploy`
+work automatically. Your job is to detect the deploy platform, production URL, health
+checks, deploy status commands, AND the merge regime (no queue / GitHub native merge
+queue / trunk.io merge queue) — then persist everything to CLAUDE.md in two sections:
+`## Deploy Configuration` and `## Merge Configuration`.
 
-After this runs once, `/land-and-deploy` reads CLAUDE.md and skips detection entirely.
+After this runs once, `/land` reads `## Merge Configuration` and `/land-and-deploy` reads
+both sections, skipping detection entirely.
 
 ## User-invocable
 When the user types `/setup-deploy`, run this skill.
@@ -158,6 +161,30 @@ Use AskUserQuestion to gather the information:
    - Commands to run before merging (e.g., `bun run build`)
    - Commands to run after merge but before deploy verification
 
+### Step 3.5: Detect the merge regime
+
+How a PR actually merges is separate from how it deploys — a repo can deploy to Fly
+and still gate merges behind the trunk.io merge queue. Detect the merge regime with the
+same helper `/land` uses (so the two never disagree):
+
+```bash
+~/.claude/skills/gstack/bin/gstack-merge detect --json 2>/dev/null
+```
+
+This prints `{"regime":"none|github|trunk","source":"..."}`:
+- **none** — no merge queue; PRs merge directly (`gh pr merge --squash`).
+- **github** — GitHub's native merge queue (branch protection).
+- **trunk** — the trunk.io merge queue (detected from the `Trunk Merge Queue (<base>)`
+  status check or a `merge:` section in `.trunk/trunk.yaml`).
+
+Show the detected regime and confirm it with the user. If the user says it's wrong (e.g.
+they know trunk.io is set up but the GitHub App isn't installed yet), take their answer.
+
+If the regime is **trunk** and the user wants the optional REST features (queue position,
+priority, metrics), tell them: "Trunk's core flow works with zero setup via GitHub
+comments. For queue position/priority, set `TRUNK_API_TOKEN` in your shell (get it from
+the Trunk app: Settings > Organization > General > API). It is never written to CLAUDE.md."
+
 ### Step 4: Write configuration
 
 Read CLAUDE.md (or create it). Find and replace the `## Deploy Configuration` section
@@ -169,7 +196,6 @@ if it exists, or append it at the end.
 - Production URL: {url}
 - Deploy workflow: {workflow file or "auto-deploy on push"}
 - Deploy status command: {command or "HTTP health check"}
-- Merge method: {squash/merge/rebase}
 - Project type: {web app / API / CLI / library}
 - Post-deploy health check: {health check URL or command}
 
@@ -179,6 +205,27 @@ if it exists, or append it at the end.
 - Deploy status: {command or "poll production URL"}
 - Health check: {URL or command}
 ```
+
+Then, as a **separate top-level section**, find and replace the `## Merge Configuration`
+section if it exists, or append it. Keep it separate from Deploy Configuration so that
+`/land` (which only lands, never deploys) reads merge settings with zero deploy coupling:
+
+```markdown
+## Merge Configuration (configured by /setup-deploy)
+- Merge queue: {none / github / trunk}
+- Merge method: {squash / merge / rebase}   (no-queue repos only; queues own their method)
+- Trunk API token: {"set in $TRUNK_API_TOKEN (optional, never stored here)" / "not used"}
+```
+
+`/land` reads the `Merge queue:` line to pick its submit path. If you skip this section,
+`/land` falls back to live detection and asks once.
+
+**If the user chose `trunk` and the queue isn't set up yet** (no `Trunk Merge Queue (<base>)`
+check on recent PRs — check with `gh pr checks` or `gh api`), walk them through the
+one-time onboarding below before writing `Merge queue: trunk`. If they chose `none` or
+`github`, skip the onboarding.
+
+{{MERGE_QUEUE_SETUP}}
 
 ### Step 5: Verify
 
@@ -206,13 +253,14 @@ Platform:      {platform}
 URL:           {url}
 Health check:  {health check}
 Status cmd:    {status command}
+Merge queue:   {none / github / trunk}
 Merge method:  {merge method}
 
-Saved to CLAUDE.md. /land-and-deploy will use these settings automatically.
+Saved to CLAUDE.md. /land and /land-and-deploy will use these settings automatically.
 
 Next steps:
-- Run /land-and-deploy to merge and deploy your current PR
-- Edit the "## Deploy Configuration" section in CLAUDE.md to change settings
+- Run /land to land the current PR (merge only), or /land-and-deploy to merge + deploy + verify
+- Edit the "## Deploy Configuration" or "## Merge Configuration" section in CLAUDE.md to change settings
 - Run /setup-deploy again to reconfigure
 ```
 

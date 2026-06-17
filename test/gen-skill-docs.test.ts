@@ -1436,6 +1436,121 @@ describe('INVOKE_SKILL resolver', () => {
   });
 });
 
+// --- /land skill: composition into /land-and-deploy + generated-doc scrub (H9) ---
+
+describe('/land skill composition', () => {
+  const landTmpl = fs.readFileSync(path.join(ROOT, 'land', 'SKILL.md.tmpl'), 'utf-8');
+  const landMd = fs.readFileSync(path.join(ROOT, 'land', 'SKILL.md'), 'utf-8');
+  const ladTmpl = fs.readFileSync(path.join(ROOT, 'land-and-deploy', 'SKILL.md.tmpl'), 'utf-8');
+  const ladMd = fs.readFileSync(path.join(ROOT, 'land-and-deploy', 'SKILL.md'), 'utf-8');
+
+  test('land-and-deploy composes /land via {{INVOKE_SKILL:land}}', () => {
+    expect(ladTmpl).toContain('{{INVOKE_SKILL:land}}');
+  });
+
+  test('land-and-deploy SKILL.md resolves the composition prose to the land skill', () => {
+    expect(ladMd).toContain('land/SKILL.md');
+    expect(ladMd).toContain('Follow its instructions from top to bottom');
+  });
+
+  test('land-and-deploy no longer carries its own merge step (merge lives in /land)', () => {
+    // The parent must compose /land, not run gh pr merge itself.
+    expect(ladMd).not.toContain('gh pr merge --auto --delete-branch');
+    expect(ladMd).not.toContain('## Step 4: Merge the PR');
+  });
+
+  test('land-and-deploy consumes the handoff via gstack-merge read-state', () => {
+    expect(ladMd).toContain('gstack-merge read-state');
+    expect(ladMd).toContain('last-land.json');
+  });
+
+  // H9 — generated-doc scrub: extracting the land half "verbatim" risks dragging
+  // deploy/canary machinery into /land. Forbid the machinery tokens (not the words
+  // "deploy"/"canary", which legitimately appear in /land-and-deploy cross-refs).
+  test('/land SKILL.md carries no deploy/canary machinery (H9)', () => {
+    const forbidden = [
+      'deploy-reports',
+      'DEPLOY_BOOTSTRAP',
+      '$B goto',
+      '$B console',
+      '$B perf',
+      '$B snapshot',
+      'Canary verification',
+      'Wait for deploy',
+      'gh run list',
+    ];
+    const offenders = forbidden.filter((s) => landMd.includes(s));
+    expect(offenders).toEqual([]);
+  });
+
+  test('/land drives the merge through the gstack-merge helper', () => {
+    expect(landMd).toContain('gstack-merge submit');
+    expect(landMd).toContain('gstack-merge wait');
+    expect(landMd).toContain('gstack-merge write-state');
+    expect(landMd).toContain('gstack-merge detect');
+  });
+
+  test('/land uses {{BASE_BRANCH_DETECT}} so composition correctly skips the duplicate', () => {
+    // The INVOKE_SKILL skip-list skips "Step 0: Detect platform and base branch",
+    // which is exactly what BASE_BRANCH_DETECT emits — so the parent's detection
+    // wins when composed, and standalone /land runs its own.
+    expect(landTmpl).toContain('{{BASE_BRANCH_DETECT}}');
+  });
+
+  test('/land documents all three merge regimes', () => {
+    expect(landMd).toContain('trunk');
+    expect(landMd).toContain('/trunk merge');
+    expect(landMd).toMatch(/gh pr merge .*--squash/);
+    expect(landMd).toContain('--auto');
+  });
+});
+
+// --- /land enqueue-and-return + onboarding (D4/D5/D6) ---
+
+describe('/land enqueue-and-return + merge-queue onboarding', () => {
+  const landMd = fs.readFileSync(path.join(ROOT, 'land', 'SKILL.md'), 'utf-8');
+  const setupMd = fs.readFileSync(path.join(ROOT, 'setup-deploy', 'SKILL.md'), 'utf-8');
+  const ladMd = fs.readFileSync(path.join(ROOT, 'land-and-deploy', 'SKILL.md'), 'utf-8');
+
+  test('D4: enqueue-and-return is the default for queue regimes, with a --watch opt-in', () => {
+    expect(landMd).toContain('confirm-enqueue');
+    expect(landMd).toContain('enqueue-and-return');
+    expect(landMd).toContain('--watch');
+    // The default must NOT block on the queue; --watch is the blocking path.
+    expect(landMd).toMatch(/Default for a merge queue is enqueue-and-return/i);
+  });
+
+  test('D4: land-and-deploy forces /land into --watch (it needs the completed merge)', () => {
+    expect(ladMd).toContain('--watch');
+    expect(ladMd).toMatch(/as if invoked with .*--watch|--watch branch/);
+  });
+
+  test('D5: the skill explains what a merge queue is and what it will do', () => {
+    expect(landMd).toMatch(/what a merge queue is|how this lands/i);
+    expect(landMd).toMatch(/walk away/i);
+    expect(landMd).toContain('optimistic');
+  });
+
+  test('D6: the shared {{MERGE_QUEUE_SETUP}} onboarding resolves in BOTH /land and /setup-deploy', () => {
+    // No literal placeholder left anywhere.
+    expect(landMd).not.toContain('{{MERGE_QUEUE_SETUP}}');
+    expect(setupMd).not.toContain('{{MERGE_QUEUE_SETUP}}');
+    // The authoritative onboarding text appears in both (single source, two includes).
+    expect(landMd).toContain('Set up a merge queue with trunk.io');
+    expect(setupMd).toContain('Set up a merge queue with trunk.io');
+    // It hand-holds the load-bearing trunk steps.
+    expect(landMd).toContain('Trunk GitHub App');
+    expect(landMd).toContain('app.trunk.io');
+    expect(landMd).toMatch(/trunk-merge\/\*/);
+  });
+
+  test('bin/gstack-merge exposes the confirm-enqueue subcommand', () => {
+    const bin = fs.readFileSync(path.join(ROOT, 'bin', 'gstack-merge'), 'utf-8');
+    expect(bin).toContain("case 'confirm-enqueue':");
+    expect(bin).toContain('last-enqueue.json');
+  });
+});
+
 // --- {{CHANGELOG_WORKFLOW}} resolver tests ---
 
 describe('CHANGELOG_WORKFLOW resolver', () => {

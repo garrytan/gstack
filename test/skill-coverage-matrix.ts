@@ -145,6 +145,7 @@ export const SKILL_COVERAGE: Record<string, SkillCoverage> = {
   'document-generate': { gate: ['test/skill-coverage-floor.test.ts'], periodic: [] },
 
   // ─── Ops + integrations ─────────────────────────────────────
+  land: { gate: ['test/gstack-merge.test.ts', 'test/gstack-merge-cli.test.ts', 'test/land-and-deploy-postfail.test.ts', 'test/gen-skill-docs.test.ts', 'test/skill-coverage-floor.test.ts'], periodic: [] },
   'land-and-deploy': { gate: ['test/skill-e2e-deploy.test.ts', 'test/skill-coverage-floor.test.ts'], periodic: [] },
   canary: { gate: ['test/skill-coverage-floor.test.ts'], periodic: [] },
   benchmark: { gate: ['test/skill-e2e-benchmark-providers.test.ts', 'test/skill-coverage-floor.test.ts'], periodic: [] },
