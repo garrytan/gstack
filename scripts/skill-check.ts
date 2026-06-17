@@ -13,6 +13,7 @@ import { discoverTemplates, discoverSkillFiles } from './discover-skills';
 import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
+import { claude } from '../hosts/index';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const ROOT_REALPATH = fs.realpathSync(ROOT);
@@ -64,12 +65,18 @@ for (const file of SKILL_FILES) {
 
 console.log('\n  Templates:');
 const TEMPLATES = discoverTemplates(ROOT);
+const claudeSkipSkills = new Set(claude.generation.skipSkills || []);
 
 for (const { tmpl, output } of TEMPLATES) {
   const tmplPath = path.join(ROOT, tmpl);
   const outPath = path.join(ROOT, output);
   if (!fs.existsSync(tmplPath)) {
     console.log(`  \u26a0\ufe0f  ${output.padEnd(30)} — no template`);
+    continue;
+  }
+  const dirName = path.dirname(tmpl);
+  if (dirName !== '.' && claudeSkipSkills.has(dirName)) {
+    console.log(`  ✅ ${tmpl.padEnd(30)} → (skipped for primary host ${claude.displayName})`);
     continue;
   }
   if (!fs.existsSync(outPath)) {
