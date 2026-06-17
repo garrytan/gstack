@@ -157,25 +157,40 @@ Run full mode, then load \`baseline.json\` from a previous run. Diff: which issu
 
 ### Phase 2: Authenticate (if needed)
 
-**If the user specified auth credentials:**
+**Credential discovery order** — try these in sequence, stop at the first that yields a working session:
+
+1. **Environment variables (cstack autonomous mode).** If \`$QA_USER\` and \`$QA_PASS\` are exported by the supervisor (cstack agent-qa runs unattended — no human in the chat session), use them directly:
+   \`\`\`bash
+   if [ -n "\${QA_USER:-}" ] && [ -n "\${QA_PASS:-}" ]; then
+     echo "Using cstack-supplied env credentials for $QA_USER"
+   fi
+   \`\`\`
+   Then fill the login form with \`$B fill\` using \`$QA_USER\` / \`$QA_PASS\`. Never echo the password back. Never write it to the report — \`[REDACTED]\` is the only literal that appears anywhere.
+
+2. **Cookie file** (if the user provided one):
+   \`\`\`bash
+   $B cookie-import cookies.json
+   $B goto <target-url>
+   \`\`\`
+
+3. **CDP mode** — if \`CDP_MODE=true\` from the Setup check, the real browser is already authenticated; skip explicit login.
+
+4. **AskUserQuestion fallback (interactive mode).** If none of the above applies AND a human is in the chat, ask them for the email + password. Use the value once for the \`$B fill\` step, then drop it. Never write it to the report.
+
+**If no credential source is available and there is no human in the session** (autonomous cstack run with no env vars and no cookies), STOP. Write a single \`env_error\` finding to the report: "QA requires authentication but \`$QA_USER\`/\`$QA_PASS\` are not exported and no cookies were provided. Run \`bin/cstack-qa-secrets-init\` on the operator machine to provision." Continue only with the unauthenticated portions of the app, and flag the gap in the report.
+
+**Login form interaction** (after credentials are acquired by any path above):
 
 \`\`\`bash
 $B goto <login-url>
 $B snapshot -i                    # find the login form
-$B fill @e3 "user@example.com"
-$B fill @e4 "[REDACTED]"         # NEVER include real passwords in report
+$B fill @e3 "$QA_USER"            # or the email from AskUserQuestion
+$B fill @e4 "$QA_PASS"            # NEVER include real passwords in report — [REDACTED] in evidence
 $B click @e5                      # submit
 $B snapshot -D                    # verify login succeeded
 \`\`\`
 
-**If the user provided a cookie file:**
-
-\`\`\`bash
-$B cookie-import cookies.json
-$B goto <target-url>
-\`\`\`
-
-**If 2FA/OTP is required:** Ask the user for the code and wait.
+**If 2FA/OTP is required:** Ask the user for the code and wait. Autonomous mode cannot supply OTP — mark the finding and skip authenticated tests.
 
 **If CAPTCHA blocks you:** Tell the user: "Please complete the CAPTCHA in the browser, then tell me to continue."
 

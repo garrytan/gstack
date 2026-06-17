@@ -33,6 +33,7 @@ Then read the task's spec (`task show <id>` → `spec` field → read that file)
 ./kernel/task claim <id> --agent $AGENT_NAME --role $AGENT_ROLE
 ```
 Exit 0 = yours. Exit 2 = lost the race or not claimable — pick another eligible ID. Never retry the same ID after exit 2.
+What claim sets per role: feature → `status: in_progress`; qa/doc → `claimed_by: $AGENT_NAME` (status unchanged, stays `testing`/`documenting`).
 
 ### 5. Work
 Execute ⟨CALLBACK: work procedure⟩ in the appropriate repo, strictly within the spec's scope.
@@ -44,8 +45,16 @@ Contract gate (code roles): API surface changes are diffed against `$CONTROL_DIR
 Gate unfixable → `./kernel/task fail <id> --agent $AGENT_NAME --role $AGENT_ROLE [--needs-human]`, log details to PROGRESS.md, revert WORK changes, exit.
 
 ### 7. Complete — ordered
-1. **WORK first**: commit per role format, push, open PR to the protected branch (never merge).
+1. **WORK first**: commit per role format, push, open PR to the protected branch (never merge). Doc agent opens a PR in the docs repo. QA agent has no WORK repo — skip step 1.
 2. **CONTROL second**: `./kernel/task complete <id> --agent $AGENT_NAME --role $AGENT_ROLE [--verdict ...]`, then mailbox messages + PROGRESS.md entry, commit `progress($AGENT_NAME): <id>`, push.
+
+Pipeline handoff on complete:
+- **feature** → `status: testing`, `domain: qa` (QA agent picks it up next)
+- **qa --verdict passed** → `status: documenting`, `domain: doc` (doc agent picks it up next)
+- **qa --verdict failed** → `status: open`, `domain: <origin_domain>` (back to feature agent), `failure_count` +1
+- **qa --verdict env_error** → `status: testing`, stays in qa domain, no failure_count change
+- **doc** → `status: done` (pipeline complete)
+
 Crash between 1 and 2 leaves a live claim; the lease rule recovers it. Never run `task complete` before the code push.
 
 ### 8. Exit
@@ -69,6 +78,6 @@ Also summarize in PROGRESS.md. Standard routes:
 ## Hard rules
 - NEVER edit `ledger/*.task` directly, or `kernel/`, AGENT_BASE, role files, CLAUDE.md, skills, or `contracts/` (outside the authorized contract-update path). Disagree with a rule → say so in PROGRESS.md, obey anyway.
 - NEVER call `kernel/task unblock` — it is human-only, for reversing `needs_human`. (Agents reverse `awaiting_info` via `kernel/task resume`, which IS agent-permitted — see Mailbox sending.) If a task is stuck `needs_human`, your job is to wait, work on other eligible tasks, or (if you are the one who can now act because a blocking task completed) note in PROGRESS.md that the blocker is resolved and the task is ready for `unblock` — do not edit the ledger to route around this.
-- NEVER print, log, or commit secrets (`QA_USER`, `QA_PASS`, tokens).
+- NEVER print, log, or commit secrets (`QA_USER`, `QA_PASS`, `QA_ACTOR_*_USER`, `QA_ACTOR_*_PASS`, tokens).
 - NEVER force-push; never push/merge to a protected branch; never weaken an existing test.
 - NEVER mark complete with a failed gate. Architectural ambiguity → `task fail --needs-human` + your question in PROGRESS.md. Do not guess.

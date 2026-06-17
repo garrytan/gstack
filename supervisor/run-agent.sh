@@ -42,11 +42,26 @@
 #   WORK_REPO_URL=git@github.com:org/work.git   # empty for QA/doc agents
 #   AGENT_DOMAIN=be                              # be | fe | full | qa | doc
 #   READ_REPOS="git@github.com:org/api.git ..."  # optional, read-only
+#   SECRET_PREFIX=<engagement-slug>              # QA agent only — namespaces
+#                                                # secret files in ~/.cstack-secrets/
+#                                                # (e.g. SECRET_PREFIX=acme → reads
+#                                                # ~/.cstack-secrets/acme-qa-user etc.)
+#                                                # Non-QA agents ignore this key.
 
 set -u
 
 SUPERVISOR_DIR="$(cd "$(dirname "$0")" && pwd)"
 STREAM_PROCESSOR="$SUPERVISOR_DIR/stream-processor.py"
+# shellcheck disable=SC1091
+. "$SUPERVISOR_DIR/cost-guards.sh"
+
+# Cost guards (override via per-agent config or env):
+#   IDLE_PRESKIP=1            skip claude session when kernel says no work AND
+#                              mailbox is empty (saves ~$0.24 per idle iter).
+#   SESSION_TIMEOUT=600       hard wall-clock cap on each claude invocation
+#                              (seconds). Set 0 to disable.
+IDLE_PRESKIP="${IDLE_PRESKIP:-1}"
+SESSION_TIMEOUT="${SESSION_TIMEOUT:-600}"
 
 AGENT_NAME="${1:?Usage: run-agent.sh <agent-name> <role-file> [model]}"
 ROLE_FILE="${2:?Provide a role file, e.g. FEATURE_ROLE.md}"
@@ -334,12 +349,46 @@ if [ ! -d "$ANSWER_WT/.git" ] && [ ! -f "$ANSWER_WT/.git" ]; then
   git -C "$CONTROL_DIR" worktree add -q "$ANSWER_WT" HEAD
 fi
 
-# QA credentials (staging only, never committed)
-if [ -f "$HOME/.cstack-secrets/dsti-qa-user" ]; then
-  export QA_USER
-  export QA_PASS
-  QA_USER="$(cat "$HOME/.cstack-secrets/dsti-qa-user")"
-  QA_PASS="$(cat "$HOME/.cstack-secrets/dsti-qa-pass")"
+# QA credentials (staging only, never committed) — QA agents only.
+# All other roles skip this block entirely; they have no business reading
+# secrets and should never have $QA_USER etc. in their environment.
+#
+# Secret file format (created by `bin/cstack-qa-secrets-init`):
+#   line 1 = username (email or login)
+#   line 2 = password
+#
+# Files (all chmod 600, in chmod 700 dir):
+#   ~/.cstack-secrets/${SECRET_PREFIX}-qa                 → $QA_USER, $QA_PASS
+#   ~/.cstack-secrets/${SECRET_PREFIX}-qa-actor-<role>    → $QA_ACTOR_<ROLE>_USER, $QA_ACTOR_<ROLE>_PASS
+#
+# $SECRET_PREFIX is read from the per-agent config (see header). If unset or
+# the files are missing, no env vars are exported and QA work will (correctly)
+# fail with qa_status: env_error.
+if [ "$AGENT_ROLE" = "qa" ]; then
+  SECRET_PREFIX="${SECRET_PREFIX:-}"
+  if [ -n "$SECRET_PREFIX" ] && [ -d "$HOME/.cstack-secrets" ]; then
+    # Single-user identity for /qa
+    _qa_file="$HOME/.cstack-secrets/${SECRET_PREFIX}-qa"
+    if [ -f "$_qa_file" ]; then
+      export QA_USER QA_PASS
+      QA_USER="$(sed -n '1p' "$_qa_file")"
+      QA_PASS="$(sed -n '2p' "$_qa_file")"
+    fi
+    unset _qa_file
+
+    # Per-role identities for /workflow-qa
+    for _actor_file in "$HOME/.cstack-secrets/${SECRET_PREFIX}-qa-actor-"*; do
+      [ -f "$_actor_file" ] || continue
+      _actor_role="${_actor_file##*/${SECRET_PREFIX}-qa-actor-}"
+      _actor_key="$(echo "$_actor_role" | tr '[:lower:]-' '[:upper:]_')"
+      _user_var="QA_ACTOR_${_actor_key}_USER"
+      _pass_var="QA_ACTOR_${_actor_key}_PASS"
+      export "$_user_var" "$_pass_var"
+      eval "$_user_var=\$(sed -n '1p' \"\$_actor_file\")"
+      eval "$_pass_var=\$(sed -n '2p' \"\$_actor_file\")"
+    done
+    unset _actor_file _actor_role _actor_key _user_var _pass_var
+  fi
 fi
 
 export AGENT_NAME AGENT_DOMAIN AGENT_ROLE CONTROL_DIR WORK_DIR READ_DIR
@@ -385,6 +434,29 @@ while true; do
   echo "[$AGENT_NAME] iteration start @ control:$COMMIT_CTRL"
   write_presence "working"
 
+  # ----- Cost guard: idle preskip ---------------------------------------------
+  # If the kernel says no eligible work AND our mailbox has no incoming
+  # messages, skip launching claude entirely. We still record a synthetic
+  # no_work metric line so metrics-report.sh sees the iteration.
+  WORK_REPO_NAME=""
+  if [ -n "${WORK_REPO_URL:-}" ]; then
+    WORK_REPO_NAME=$(basename "$WORK_REPO_URL" .git)
+  fi
+  export AGENT_DOMAIN WORK_REPO_NAME
+  if should_skip_idle_session "$CONTROL_DIR" "$AGENT_NAME" "$AGENT_ROLE"; then
+    echo "[$AGENT_NAME] preskip: no eligible tasks + empty mailbox — skipping claude session"
+    EPOCH_END=$(date +%s)
+    DURATION=$((EPOCH_END - EPOCH_START))
+    SKIP_METRIC=$(printf '{"ts":"%s","agent":"%s","duration_s":%d,"exit_code":0,"control_commit":"%s","task":null,"outcome":"no_work","input_tokens":0,"output_tokens":0,"cache_read_tokens":0,"cost_usd":0,"num_turns":0,"no_work":true,"context_exhausted":false,"preskip":true}' \
+      "$TS_START" "$AGENT_NAME" "$DURATION" "$COMMIT_CTRL")
+    echo "$SKIP_METRIC" >> "$METRICS_FILE" 2>/dev/null || true
+    consecutive_fails=0
+    write_presence "idle"
+    idle_wait
+    continue
+  fi
+  # ----------------------------------------------------------------------------
+
   # Snapshot mailbox blob hash so the watcher can detect incoming messages
   MAILBOX_HASH=$(git -C "$CONTROL_DIR" ls-tree HEAD "mailboxes/$AGENT_NAME.md" 2>/dev/null | awk '{print $3}' || echo "")
 
@@ -404,10 +476,13 @@ while true; do
   # Run claude with stream-json so tool calls are visible in real-time.
   # stream-processor.py writes live.json + live-events.jsonl and emits
   # a metrics-compatible JSON summary to stdout at session end.
+  # Wall-clock cap: SESSION_TIMEOUT seconds (default 600). 124 = killed by
+  # watchdog — recorded as a crash via existing exit-code path.
   (
     set -o pipefail
     cd "$RUN_CWD" || exit 1
-    claude --dangerously-skip-permissions \
+    run_with_timeout "$SESSION_TIMEOUT" \
+      claude --dangerously-skip-permissions \
            "${ADD_DIRS[@]}" \
            -p "$(cat "$CONTROL_DIR/AGENT_BASE.md" "$CONTROL_DIR/roles/$ROLE_FILE")" \
            --model "$MODEL" \
@@ -464,11 +539,27 @@ except Exception as e:
 print(json.dumps(m, separators=(",", ":")))
 PYEOF
 )
-  echo "$METRIC_LINE" >> "$METRICS_FILE"
-  git -C "$METRICS_WT" add METRICS.jsonl 2>/dev/null && \
-    git -C "$METRICS_WT" commit -qm "metrics(${AGENT_NAME}): ${RUN_ID}" 2>/dev/null && \
-    git -C "$METRICS_WT" push -q -u origin metrics 2>/dev/null || \
-    { git -C "$METRICS_WT" pull --rebase -q origin metrics 2>/dev/null; git -C "$METRICS_WT" push -q -u origin metrics 2>/dev/null || true; }
+  # Push metric to dedicated metrics branch.
+  # METRICS.jsonl is append-only: when push is rejected (concurrent agent push),
+  # we fetch + reset --hard (never rebase — rebase on JSONL causes stuck conflicts)
+  # then re-append our line and push again.
+  _push_metric() {
+    local line="$1"
+    echo "$line" >> "$METRICS_FILE"
+    git -C "$METRICS_WT" add METRICS.jsonl 2>/dev/null || return 0
+    git -C "$METRICS_WT" diff --cached --quiet 2>/dev/null && return 0   # nothing to commit
+    git -C "$METRICS_WT" commit -qm "metrics(${AGENT_NAME}): ${RUN_ID}" 2>/dev/null || return 0
+    if ! git -C "$METRICS_WT" push -q -u origin metrics 2>/dev/null; then
+      # Push rejected — reset to remote, re-append, re-commit, push once more
+      git -C "$METRICS_WT" fetch -q origin metrics 2>/dev/null || return 0
+      git -C "$METRICS_WT" reset --hard origin/metrics 2>/dev/null || return 0
+      echo "$line" >> "$METRICS_FILE"
+      git -C "$METRICS_WT" add METRICS.jsonl 2>/dev/null || return 0
+      git -C "$METRICS_WT" commit -qm "metrics(${AGENT_NAME}): ${RUN_ID}" 2>/dev/null || return 0
+      git -C "$METRICS_WT" push -q -u origin metrics 2>/dev/null || true
+    fi
+  }
+  _push_metric "$METRIC_LINE"
 
   # --- Circuit breaker ---
   if [ $EXIT_CODE -ne 0 ]; then

@@ -231,14 +231,63 @@ transitions in code absent from spec and vice versa (extends WQA-000).
 
 ## Phase 4: Execute
 
+### Acquire actor credentials (runs once before any mode)
+
+Workflow-qa is multi-actor — every role from `qa/actors.json` needs a
+working credential so we can drive transitions as that role. Discover them
+in this priority order, **per role**:
+
+1. **Environment variables (cstack autonomous mode).** If the supervisor
+   exported `$QA_ACTOR_<ROLE_UPPER>_USER` and `$QA_ACTOR_<ROLE_UPPER>_PASS`
+   (role name uppercased, hyphens → underscores), use them. This is how
+   cstack agent-qa runs unattended — no human is in the chat to type a
+   password. Detect with:
+   ```bash
+   role_var="QA_ACTOR_$(echo "$role" | tr '[:lower:]-' '[:upper:]_')_USER"
+   [ -n "${!role_var:-}" ] && echo "env-var creds present for $role"
+   ```
+2. **Per-role cookie file.** If `qa/cookies/<role>.json` exists (browser
+   mode only), import it for that role's session: `$B cookie-import qa/cookies/<role>.json`. The session is already authenticated, no password needed.
+3. **AskUserQuestion fallback (interactive mode).** If neither of the above
+   is set up and a human is in the chat session, ask for the missing role's
+   credentials right then. Use one AskUserQuestion per missing role, with
+   the username field labeled and the password as a free-text answer the
+   user types into the chat UI. Use the value once for the login request,
+   then drop it — never echo it back, never write it to the report, never
+   commit it.
+
+   AskUserQuestion template (one per missing role):
+   > "I need credentials for the `<role>` actor to test transitions that
+   > role can fire. Please provide:
+   > - Username for `<role>`:
+   > - Password for `<role>`:"
+
+**If no credential source is available for a role and there is no human in
+the session** (autonomous cstack run), STOP and write a single `env_error`
+finding to the report: "Role `<role>` is listed in qa/actors.json but no
+`$QA_ACTOR_<role>_USER`/`$QA_ACTOR_<role>_PASS` is exported. Run
+`bin/cstack-qa-secrets-init` on the operator machine to provision."
+Continue testing only the roles whose credentials are available, and mark
+the uncovered matrix rows as `SKIPPED — missing-credentials` so the
+coverage gap is visible.
+
+**Never** put a real password into the report, into a commit message, into
+a curl command shown in the report, or into any evidence file. The literal
+string `[REDACTED]` appears in the report; the real value lives only in
+the in-memory variable used for the login request.
+
 ### API mode (default when a backend is detected)
 
 Detect the running backend (try the user-given target, then common local
-ports). Authenticate one session per role:
+ports). Using the credentials acquired above, authenticate one session per
+role:
 
 ```bash
 # One token per actor role; never hardcode credentials in the report — [REDACTED]
-curl -s -X POST "$TARGET/auth/login" -d '{"username":"<role-account>","password":"[REDACTED]"}'
+# $user / $pass come from the credential acquisition step (env, cookie session, or AskUserQuestion).
+curl -s -X POST "$TARGET/auth/login" \
+  -H "Content-Type: application/json" \
+  -d "$(jq -n --arg u "$user" --arg p "$pass" '{username:$u,password:$p}')"
 ```
 
 For each matrix row: create or select a fixture entity in the required `from`
@@ -255,8 +304,9 @@ not bootstrap a framework inside this skill.
 
 ### Browser mode (`--browser`, or `--both`)
 
-Per matrix row: log in as the actor, navigate to the entity, attempt the
-transition through the UI, screenshot before/after into
+Per matrix row: log in as the actor using the credentials acquired in the
+acquisition step (cookie import preferred — one `$B cookie-import qa/cookies/<role>.json` per role session — otherwise fill the login form with `$B fill` using the password sourced from `$QA_ACTOR_<ROLE>_PASS` or from the AskUserQuestion fallback; never echo the value back). Navigate to the
+entity, attempt the transition through the UI, screenshot before/after into
 `qa/workflow-reports/evidence/`, check the console for errors. Browser mode
 additionally verifies the **affordance layer**: actions a role cannot
 perform should not be presented as available buttons that fail on click.

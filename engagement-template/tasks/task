@@ -8,7 +8,7 @@ Ledger format: one flat key:value file per task at ledger/<TASK-ID>.task
 (no nesting, no YAML library needed, trivially mergeable, one task = one file).
 
 Usage:
-  task eligible --role feature --domain be --repo dsti-cms-api   # print eligible task ids, best first
+  task eligible --role feature --domain be --repo <repo-name>    # print eligible task ids, best first
   task show <id>                                                  # print a task's fields
   task claim <id> --agent agent-be --role feature                 # atomic claim (git push is the lock)
   task complete <id> --agent agent-be --role feature              # role-appropriate completion

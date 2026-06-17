@@ -6,8 +6,8 @@
 
 ## Traceability
 - Requirement: REQ-XXX (from REQUIREMENTS.md)  <!-- or "ad hoc" with justification -->
-- Repo: <dsti-cms-api | dsti-cms-web | dsti-cms-docs>
-- Domain: <be | fe | full | doc>
+- Repo: <repo-name>                       <!-- the WORK repo this task targets -->
+- Domain: <be | fe | full>                <!-- origin domain — never changes after creation -->
 
 ## Context
 <2–5 sentences: why this task exists, what part of the system it touches, links to prior PROGRESS.md entries or related tasks if relevant.>

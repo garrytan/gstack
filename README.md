@@ -42,6 +42,15 @@ Fork it. Improve it. Make it yours. And if you want to hate on free open source 
 
 ## Install — 30 seconds
 
+> **Fork note (tshepostack):** This repo is named `tshepostack` on disk but
+> installs to `~/.claude/skills/gstack/` — this is intentional, don't rename
+> either side. The `gstack` identity is preserved at the install layout so
+> every SKILL.md preamble (`~/.claude/skills/gstack/bin/...`) and state path
+> (`~/.gstack/`) keeps working, and upstream merges from `garrytan/gstack`
+> stay clean. You can clone this fork to any directory name you like —
+> `./setup` resolves its own path via `dirname "$0"`, so the source folder
+> name is invisible to the running skills.
+
 **Requirements:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Git](https://git-scm.com/), [Bun](https://bun.sh/) v1.0+, [Node.js](https://nodejs.org/) (Windows only)
 
 ### Step 1: Install on your machine
