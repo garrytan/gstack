@@ -32,7 +32,8 @@ Failure handling: unfixable → `status: needs_human`, `failure_count` +1, rever
 PR description MUST include the AC table from the spec with each row's verification result, and the evidence lines for every human-verify AC.
 This hands the task to the QA agent — do NOT set `status: done` directly.
 
-## PROGRESS.md entry format
+## PROGRESS entry format
+Write the detail entry to `$CONTROL_DIR/progress/$AGENT_NAME.md` (append):
 ```
 ## $AGENT_NAME | <ISO timestamp> | <task-id>
 - What was done (2–4 bullets)
@@ -41,3 +42,4 @@ This hands the task to the QA agent — do NOT set `status: done` directly.
 - Blocked on: <nothing | description>
 - Notes for other agents: <interfaces added, files touched, gotchas>
 ```
+Also append a one-liner to `$CONTROL_DIR/PROGRESS.md`: `<ISO-ts> | $AGENT_NAME | <task-id> | testing` (or current final status)

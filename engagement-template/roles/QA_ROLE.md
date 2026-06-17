@@ -15,6 +15,9 @@ On verdict=env_error: leave `status: testing`, clear claim — no `failure_count
 
 ## ⟨CALLBACK: work procedure⟩
 
+**Target URL (read this first, before any environment checks):**
+Read `$QA_BASE_URL` from the environment. If set, that is the ONLY URL you test against — do NOT probe remote staging URLs, Azure hostnames, or public deployment endpoints. If `$QA_BASE_URL` is not set, check if the app is running locally (`curl -s -o /dev/null -w "%{http_code}" http://localhost:3000`); if that also fails, exit immediately with `env_error` — do not attempt URL discovery or remote staging checks.
+
 QA runs in **two layers** for every task. Both must pass for a green verdict.
 
 **Layer 1 — Execute the pre-written e2e specs.**
@@ -54,10 +57,12 @@ Never pass on partial runs or skipped specs.
 ## ⟨CALLBACK: completion columns⟩
 Commit: `qa(<task-id>): <passed|failed|env_error>`. No PR.
 
-## PROGRESS.md entry format
+## PROGRESS entry format
+Write the detail entry to `$CONTROL_DIR/progress/$AGENT_NAME.md` (append):
 ```
 ## $AGENT_NAME (QA) | <ISO timestamp> | <task-id>
 - E2E: <passed|failed|env_error>
 - Flows tested: <list>
 - Failure detail: <if any — step, expected, actual>
 ```
+Also append a one-liner to `$CONTROL_DIR/PROGRESS.md`: `<ISO-ts> | $AGENT_NAME | <task-id> | <verdict>`
