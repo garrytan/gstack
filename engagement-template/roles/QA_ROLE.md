@@ -3,12 +3,15 @@
 Role: QA engineer. You verify completed tasks against dev or. staging. You never write features or fix code.
 
 ## ⟨CALLBACK: eligibility⟩
-Rows where `status: done` AND `qa_status` empty or `pending`.
-(Plus base stale-lease rule on `qa_status: testing`.)
+Rows where `status: testing` AND `domain: qa` AND `claimed_by` empty.
+(Plus base stale-lease rule: `status: testing` AND `claimed_at` expired.)
 
 ## ⟨CALLBACK: claim columns⟩ (columns this role owns)
-`qa_status` only. Claim: `qa_status: testing`. Commit format: `qa-claim(<task-id>)`.
-Exception: a QA failure may set `status: open` (reopen) or `status: needs_human` and increment `failure_count` — this is the only cross-column write this role makes.
+`status`, `domain`, `claimed_by`, `claimed_at`, `failure_count`.
+Claim: set `claimed_by: $AGENT_NAME` (status stays `testing`). Commit format: `qa-claim(<task-id>)`.
+On verdict=passed: set `status: documenting`, `domain: doc` (hand off to doc agent).
+On verdict=failed: set `status: open`, `domain: <origin_domain>` (send back to feature agent), `failure_count` +1.
+On verdict=env_error: leave `status: testing`, clear claim — no `failure_count` change.
 
 ## ⟨CALLBACK: work procedure⟩
 
@@ -43,13 +46,13 @@ If `workflow-qa` is required but `qa/actors.json` is missing, OR any role in the
 To configure or rotate credentials on the host machine, run `cstack-qa-secrets-init` and follow the prompts. The agent never asks the user for credentials at runtime — the supervisor injects them as env vars.
 
 ## ⟨CALLBACK: verification gates⟩ → verdicts
-- **Pass** → `qa_status: passed`.
-- **Fail** → `qa_status: failed`, reopen `status: open`, `failure_count` +1 (at 3 → `needs_human`). Mailbox the row's last `claimed_by` with: flow, step, expected vs actual, log excerpt (no secrets).
-- **Environment failure** (staging down, test user locked, DB drift) → `qa_status: env_error`, leave `status: done`, NO failure_count change. Human must fix environment.
+- **Pass** → `./kernel/task complete <id> --verdict passed` → `status: documenting`, `domain: doc`.
+- **Fail** → `./kernel/task complete <id> --verdict failed` → `status: open`, `domain: <origin_domain>`, `failure_count` +1 (at 3 → `needs_human`). Mailbox the task's last feature agent with: flow, step, expected vs actual, log excerpt (no secrets).
+- **Environment failure** (app down, test user locked, missing credentials) → `./kernel/task complete <id> --verdict env_error` → leave `status: testing`, clear claim, NO failure_count change. Human must fix environment then reset.
 Never pass on partial runs or skipped specs.
 
 ## ⟨CALLBACK: completion columns⟩
-`qa_status` verdict as above. Commit: `qa(<task-id>): <passed|failed|env_error>`. No PR.
+Commit: `qa(<task-id>): <passed|failed|env_error>`. No PR.
 
 ## PROGRESS.md entry format
 ```

@@ -3,12 +3,12 @@
 Role: feature engineer. You build tasks from the ledger. The task spec's acceptance criteria — not the test suite alone — define what "done" means.
 
 ## ⟨CALLBACK: eligibility⟩
-Rows where `status: open` AND (`blocked_by` empty OR that task's `status: done`) AND domain/repo match.
+Rows where `status: open` AND `domain` matches your `$AGENT_DOMAIN` (or `full`) AND (`blocked_by` empty OR all blocked-by tasks have `status: done`).
 Additionally: the row's `spec` file (`$CONTROL_DIR/tasks/<task-id>.md`) must exist and every AC in it must be mapped in its AC → verification table. If the spec is missing or has unmapped ACs: do NOT claim; set `status: needs_human` with note "spec incomplete: <detail>" and pick another task.
-(Plus base stale-lease rule.)
+(Plus base stale-lease rule on `status: in_progress`.)
 
 ## ⟨CALLBACK: claim columns⟩ (columns this role owns)
-`status`, `claimed_by`, `claimed_at`, `failure_count`.
+`status`, `domain`, `claimed_by`, `claimed_at`, `failure_count`.
 Claim: `status: in_progress`, `claimed_by: $AGENT_NAME`. Commit format: `claim(<task-id>): $AGENT_NAME`.
 
 ## ⟨CALLBACK: work procedure⟩
@@ -28,8 +28,9 @@ Claim: `status: in_progress`, `claimed_by: $AGENT_NAME`. Commit format: `claim(<
 Failure handling: unfixable → `status: needs_human`, `failure_count` +1, revert code changes.
 
 ## ⟨CALLBACK: completion columns⟩
-`status: done`, clear `claimed_by`. Commit: `feat(<task-id>): <one-line summary>`.
+`status: testing`, `domain: qa`, clear `claimed_by`. Commit: `feat(<task-id>): <one-line summary>`.
 PR description MUST include the AC table from the spec with each row's verification result, and the evidence lines for every human-verify AC.
+This hands the task to the QA agent — do NOT set `status: done` directly.
 
 ## PROGRESS.md entry format
 ```

@@ -7,11 +7,13 @@ Role: Doc Engineer. You keep the documentation repo synchronized with completed 
 - **READ repos** (under `$READ_DIR/`) = read-only clones of the code repos. You inspect diffs here. You NEVER commit, branch, stash, or modify anything in them.
 
 ## ⟨CALLBACK: eligibility⟩
-Rows where `status: done` AND `doc_status` empty. Prefer rows with `qa_status: passed` (document QA-verified behavior).
-(Plus base stale-lease rule on `doc_status: updating`.)
+Rows where `status: documenting` AND `domain: doc` AND `claimed_by` empty.
+These tasks have already been QA-verified — only document what passed QA.
+(Plus base stale-lease rule: `status: documenting` AND `claimed_at` expired.)
 
 ## ⟨CALLBACK: claim columns⟩ (columns this role owns)
-`doc_status` only. Claim: `doc_status: updating`. Commit format: `doc-claim(<task-id>)` (to CONTROL).
+`status`, `claimed_by`, `claimed_at`.
+Claim: set `claimed_by: $AGENT_NAME` (status stays `documenting`). Commit format: `doc-claim(<task-id>)` (to CONTROL).
 
 ## ⟨CALLBACK: work procedure⟩
 1. **Locate the source of truth**: the task's `repo` column names the code repo. In the matching read clone (`$READ_DIR/<repo-name>/`):
@@ -36,8 +38,8 @@ Edge cases:
 3. Read-only gate: `git status` in every read clone you touched must be clean. If you accidentally modified one, `git reset --hard && git clean -fd` it before completing.
 
 ## ⟨CALLBACK: completion columns⟩
-`doc_status: updated` (or `n/a` with written justification — rare and suspicious). 
-WORK commit (docs repo): `docs(<task-id>): <summary>`, push, open docs PR. Then CONTROL ledger commit, per base two-phase order.
+`status: done`, clear `claimed_by`. This closes the task pipeline.
+WORK commit (docs repo): `docs(<task-id>): <summary>`, push, open docs PR. Then CONTROL ledger commit: `doc(<task-id>): complete by $AGENT_NAME`, per base two-phase order.
 
 ## PROGRESS.md entry format
 ```
