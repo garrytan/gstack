@@ -569,14 +569,22 @@ link_claude_skill_dirs() {
       # Validate target isn't a symlink before creating the link
       if [ -L "$target/SKILL.md" ]; then rm "$target/SKILL.md"; fi
       _link_or_copy "$gstack_dir/$dir_name/SKILL.md" "$target/SKILL.md"
-      # Link the sections/ subdir for carved skills (v2 plan T9). The prefixed
-      # Claude skill dir otherwise holds only SKILL.md, so a runtime
-      # "Read sections/<name>.md" 404s. Route through _link_or_copy so Windows
-      # gets a fresh copy (and re-copies on every ./setup, refreshing staleness).
-      if [ -d "$gstack_dir/$dir_name/sections" ]; then
-        if [ -e "$target/sections" ] || [ -L "$target/sections" ]; then rm -rf "$target/sections"; fi
-        _link_or_copy "$gstack_dir/$dir_name/sections" "$target/sections"
-      fi
+      # Link EVERY sibling aux entry next to SKILL.md, not just sections/. A skill's SKILL.md reads its
+      # aux files by a path relative to its own dir (e.g. /review's "Read .claude/skills/review/
+      # checklist.md", plus specialists/, greptile-triage.md, design-checklist.md; or a carved skill's
+      # "Read sections/<name>.md"). The target dir otherwise holds only SKILL.md, so those reads 404 —
+      # on Windows especially, where _link_or_copy makes SKILL.md a real COPY whose base dir is $target,
+      # not the gstack source. Route each aux entry through _link_or_copy (symlink on Unix, fresh copy on
+      # Windows that re-syncs on every ./setup). SKILL.md itself and node_modules are skipped.
+      for _aux in "$gstack_dir/$dir_name"/*; do
+        [ -e "$_aux" ] || continue
+        case "$(basename "$_aux")" in
+          SKILL.md|node_modules) continue ;;
+        esac
+        _aux_dst="$target/$(basename "$_aux")"
+        if [ -e "$_aux_dst" ] || [ -L "$_aux_dst" ]; then rm -rf "$_aux_dst"; fi
+        _link_or_copy "$_aux" "$_aux_dst"
+      done
       linked+=("$link_name")
     fi
   done
