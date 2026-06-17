@@ -124,7 +124,7 @@ export function probeSource(id: string, env?: NodeJS.ProcessEnv): SourceState {
  * Behavior:
  *   - status=absent  → `gbrain sources add <id> --path <path> [--federated]`, returns changed=true.
  *   - status=match + same path → no-op, returns changed=false.
- *   - status=match + different path → `sources remove` + `sources add`, returns changed=true.
+ *   - status=match + different path → `sources remove --confirm-destructive` + `sources add`, returns changed=true.
  *     (Skip when reregister_on_drift=false; returns changed=false.)
  *
  * Caller is responsible for catching errors. The function uses withErrorContext for
@@ -157,8 +157,15 @@ export async function ensureSourceRegistered(
     }
 
     // For drift, remove first.
+    //
+    // #1985: gbrain >= 0.42 gates `sources remove` behind --confirm-destructive
+    // (`--yes` alone no longer suppresses the data-loss prompt). Without it the
+    // remove fails with "To proceed, pass --confirm-destructive", which surfaces
+    // as "source registration failed" and aborts the whole /sync-gbrain code
+    // stage for any source that has drifted to a new path. This matches the
+    // flag the orchestrator's own safeSourcesRemove() already passes.
     if (state.status === "drift") {
-      const rm = spawnSync("gbrain", ["sources", "remove", id, "--yes"], {
+      const rm = spawnSync("gbrain", ["sources", "remove", id, "--yes", "--confirm-destructive"], {
         encoding: "utf-8",
         timeout: 30_000,
         env,
