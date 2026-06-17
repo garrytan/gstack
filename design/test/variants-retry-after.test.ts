@@ -2,7 +2,7 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { generateVariant } from "../src/variants";
+import { generateVariant, normalizeVariantCount } from "../src/variants";
 
 // 1x1 transparent PNG, base64 — valid bytes that fs.writeFileSync can write.
 const TINY_PNG_BASE64 =
@@ -129,5 +129,37 @@ describe("generateVariant Retry-After handling", () => {
     expect(calls.length).toBe(2);
     const gap = calls[1].ts - calls[0].ts;
     expect(gap).toBeLessThan(500);
+  });
+});
+
+describe("normalizeVariantCount", () => {
+  test("non-numeric (NaN) falls back to the default of 3", () => {
+    // Regression: `--count abc` -> parseInt -> NaN -> Math.min(NaN, 7) -> NaN,
+    // so the loop ran zero times and the JSON result emitted `"count": null`.
+    expect(normalizeVariantCount(NaN)).toBe(3);
+    expect(normalizeVariantCount(Number.parseInt("abc", 10))).toBe(3);
+  });
+
+  test("zero and negative counts clamp up to the minimum of 1", () => {
+    // Regression: `--count 0` / `--count -2` produced zero variants.
+    expect(normalizeVariantCount(0)).toBe(1);
+    expect(normalizeVariantCount(-2)).toBe(1);
+  });
+
+  test("counts above the cap clamp down to 7", () => {
+    expect(normalizeVariantCount(10)).toBe(7);
+    expect(normalizeVariantCount(7)).toBe(7);
+  });
+
+  test("in-range counts pass through unchanged", () => {
+    expect(normalizeVariantCount(1)).toBe(1);
+    expect(normalizeVariantCount(3)).toBe(3);
+    expect(normalizeVariantCount(6)).toBe(6);
+  });
+
+  test("fractional counts truncate toward zero before clamping", () => {
+    expect(normalizeVariantCount(2.9)).toBe(2);
+    expect(normalizeVariantCount(0.5)).toBe(1);
+    expect(normalizeVariantCount(Infinity)).toBe(3);
   });
 });
