@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# gstack-statusline — Claude Code statusLine command that shows the most recent
+# gstack skill you invoked, e.g. /review or /ship.
+#
+# Claude Code pipes a JSON status payload on stdin (cwd, transcript_path, model,
+# ...). We read it, find the last skill the session actually invoked, print it in
+# yellow, and exit. Falls back to gstack's own skill-usage analytics so the
+# segment survives a fresh session and surfaces skills run in other windows.
+#
+# Wired into ~/.claude/settings.json by `./setup` (it offers to install on every
+# run). To install or switch manually:
+#
+#   "statusLine": {
+#     "type": "command",
+#     "command": "bash ~/.claude/skills/gstack/bin/gstack-statusline"
+#   }
+#
+# Remove with: gstack-settings-hook remove-statusline   (or ./setup --no-statusline)
+
+input=$(cat)
+
+# jq is the only dependency (already required across gstack). If it's missing,
+# print nothing rather than spilling an error into the status bar.
+command -v jq >/dev/null 2>&1 || exit 0
+
+last_skill=""
+transcript_path=$(printf '%s' "$input" | jq -r '.transcript_path // empty' 2>/dev/null)
+
+if [ -n "$transcript_path" ] && [ -f "$transcript_path" ]; then
+  # A skill is invoked two ways in the transcript, never by Reading the file:
+  #   1. a slash command — <command-message>…<command-name>/NAME</command-name>
+  #   2. the Skill tool   — "name":"Skill","input":{"skill":"NAME"
+  # Collect both signals with their line numbers, order by transcript position,
+  # drop the meta-commands that aren't skills, and take the last one standing.
+  last_skill=$(
+    {
+      grep -nE '"content":"<command-message>.*<command-name>/[a-z0-9-]+</command-name>' "$transcript_path" 2>/dev/null \
+        | sed -E 's|^([0-9]+):.*<command-name>/([a-z0-9-]+)</command-name>.*|\1 \2|'
+      grep -nE '"name":"Skill","input":\{"skill":"[a-z0-9-]+"' "$transcript_path" 2>/dev/null \
+        | sed -E 's|^([0-9]+):.*"name":"Skill","input":\{"skill":"([a-z0-9-]+)".*|\1 \2|'
+    } 2>/dev/null \
+    | grep -E '^[0-9]+ ' \
+    | sort -n \
+    | awk '{print $2}' \
+    | grep -vE '^(gstack|effort|statusline|clear|help|compact|config|model)$' \
+    | tail -1 \
+    | sed 's|^|/|')
+fi
+
+# Fallback: last skill recorded in gstack analytics (covers other sessions too).
+if [ -z "$last_skill" ]; then
+  state_dir="${GSTACK_STATE_ROOT:-${GSTACK_HOME:-${GSTACK_STATE_DIR:-$HOME/.gstack}}}"
+  analytics_file="$state_dir/analytics/skill-usage.jsonl"
+  if [ -f "$analytics_file" ]; then
+    last_skill=$(tail -20 "$analytics_file" 2>/dev/null \
+      | jq -r '.skill // empty' 2>/dev/null \
+      | grep -v '^$' \
+      | tail -1 \
+      | sed 's|^|/|')
+  fi
+fi
+
+if [ -n "$last_skill" ]; then
+  printf '\033[00;33m%s\033[00m' "$last_skill"
+fi
