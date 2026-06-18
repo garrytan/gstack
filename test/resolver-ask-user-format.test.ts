@@ -115,7 +115,7 @@ describe('generateAskUserFormat — v1.7.0.0 Pros/Cons format', () => {
     // Regression: a model once emitted `questions` as a JSON string instead of
     // an array, which crashed hosts that render the prompt before validating.
     expect(out).toMatch(/Tool-call shape/i);
-    expect(out).toMatch(/questions.*array.*not string|not a string/i);
+    expect(out).toMatch(/questions.*array.*(?:not string|not a string)/i);
     expect(out).toMatch(/non-empty `options` array/);
     expect(out).toMatch(/questions.*NOT a string/);
   });
