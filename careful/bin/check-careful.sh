@@ -26,7 +26,19 @@ fi
 CMD_LOWER=$(printf '%s' "$CMD" | tr '[:upper:]' '[:lower:]')
 
 # --- Check for safe exceptions (rm -rf of build artifacts) ---
-if printf '%s' "$CMD" | grep -qE 'rm\s+(-[a-zA-Z]*r[a-zA-Z]*\s+|--recursive\s+)' 2>/dev/null; then
+# Only whitelist when the command is a SINGLE rm invocation. The target
+# extraction below greedily matches the LAST `rm ` in the string, so a chained
+# command like `rm -rf /; rm -rf node_modules` would be judged solely by its
+# final (safe) targets and wave through the destructive earlier `rm -rf /`.
+# When any shell separator is present, skip the shortcut and fall through to the
+# destructive-pattern check, which warns on any recursive rm.
+HAS_SEPARATOR=false
+case "$CMD" in
+  # Real separators, plus JSON-escaped newlines (\n / \r) which survive the
+  # grep extraction path as literal two-char sequences and still mark a chain.
+  *';'*|*'|'*|*'&'*|*$'\n'*|*$'\r'*|*'\n'*|*'\r'*) HAS_SEPARATOR=true ;;
+esac
+if [ "$HAS_SEPARATOR" = false ] && printf '%s' "$CMD" | grep -qE 'rm\s+(-[a-zA-Z]*r[a-zA-Z]*\s+|--recursive\s+)' 2>/dev/null; then
   SAFE_ONLY=true
   RM_ARGS=$(printf '%s' "$CMD" | sed -E 's/.*rm[[:space:]]+(-[a-zA-Z]+[[:space:]]+)*//;s/--recursive[[:space:]]*//')
   for target in $RM_ARGS; do

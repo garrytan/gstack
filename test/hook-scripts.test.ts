@@ -96,6 +96,31 @@ describe('check-careful.sh', () => {
       expect(output.permissionDecision).toBe('ask');
       expect(output.message).toContain('recursive delete');
     });
+
+    // Regression: the safe-exception extracts targets from only the LAST `rm` in
+    // the command (greedy match), so a chain that ends in a safe target must not
+    // wave through a destructive earlier rm. The shortcut only applies to a
+    // single rm invocation; any shell separator falls through to the warning.
+    test('rm -rf /; rm -rf node_modules warns (semicolon chain, dangerous first)', () => {
+      const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('rm -rf /; rm -rf node_modules'));
+      expect(exitCode).toBe(0);
+      expect(output.permissionDecision).toBe('ask');
+      expect(output.message).toContain('recursive delete');
+    });
+
+    test('rm -rf /etc/data && rm -rf dist warns (&& chain, dangerous first)', () => {
+      const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('rm -rf /etc/data && rm -rf dist'));
+      expect(exitCode).toBe(0);
+      expect(output.permissionDecision).toBe('ask');
+      expect(output.message).toContain('recursive delete');
+    });
+
+    test('rm -rf node_modules; rm -rf /home/user/data warns (safe first, dangerous last)', () => {
+      const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('rm -rf node_modules; rm -rf /home/user/data'));
+      expect(exitCode).toBe(0);
+      expect(output.permissionDecision).toBe('ask');
+      expect(output.message).toContain('recursive delete');
+    });
   });
 
   // --- SQL destructive commands ---
