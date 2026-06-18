@@ -33,12 +33,47 @@ mkdir -p "$LOG_DIR"
 
 OS="$(uname -s)"
 
+# Build a PATH that includes wherever 'claude' and 'bun' are actually installed.
+# launchd/systemd strip the user shell environment, so we resolve tool locations
+# at install time and bake the directories into the service config.
+# Uses `command -v` so it inherits the caller's shell PATH (NVM, volta, etc.).
+resolve_service_path() {
+  local base="/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin"
+  local extra=""
+
+  _maybe_add() {
+    local dir="$1"
+    [ -n "$dir" ] && [ -d "$dir" ] || return 0
+    case ":${base}${extra}:" in
+      *":${dir}:"*) ;;
+      *) extra="${extra}:${dir}" ;;
+    esac
+  }
+
+  # Resolve critical tools from the current shell PATH — picks up NVM/volta/etc.
+  local p
+  for tool in claude bun node; do
+    p="$(command -v "$tool" 2>/dev/null || true)"
+    [ -n "$p" ] && _maybe_add "$(dirname "$p")"
+  done
+
+  # Static fallbacks for directories that may not have the tools yet
+  _maybe_add "$HOME/.local/bin"
+  _maybe_add "$HOME/.bun/bin"
+
+  echo "${base}${extra}"
+}
+
 # --- macOS: launchd LaunchAgent ---
 
 install_macos() {
   local label="com.cstack.agent.${AGENT_NAME}"
   local plist="$HOME/Library/LaunchAgents/${label}.plist"
   mkdir -p "$HOME/Library/LaunchAgents"
+
+  local svc_path
+  svc_path="$(resolve_service_path)"
+  echo "[$AGENT_NAME] service PATH: $svc_path"
 
   cat > "$plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -75,7 +110,7 @@ install_macos() {
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
-        <string>/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
+        <string>${svc_path}</string>
         <key>HOME</key>
         <string>${HOME}</string>
     </dict>
@@ -83,9 +118,21 @@ install_macos() {
 </plist>
 PLIST
 
-  # Unload existing instance if present, then load fresh
+  # Unregister any existing instance (covers both explicit bootstrap and
+  # auto-load from ~/Library/LaunchAgents at login), then load fresh.
+  # bootout exits non-zero if the label wasn't registered — that's fine.
   launchctl bootout "gui/$(id -u)/${label}" 2>/dev/null || true
-  launchctl bootstrap "gui/$(id -u)" "$plist"
+
+  # bootstrap registers and starts the service.  Error 5 (EIO) means launchd
+  # still sees the label as registered despite bootout — retry once after a
+  # short pause to let launchd finish its internal cleanup.
+  local rc=0
+  launchctl bootstrap "gui/$(id -u)" "$plist" 2>/dev/null || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    sleep 2
+    launchctl bootout "gui/$(id -u)/${label}" 2>/dev/null || true
+    launchctl bootstrap "gui/$(id -u)" "$plist"
+  fi
   echo "[$AGENT_NAME] installed as launchd agent: $label"
   echo "[$AGENT_NAME] status: launchctl print gui/$(id -u)/${label}"
   echo "[$AGENT_NAME] logs:   tail -f ${LOG_DIR}/stdout.log"
@@ -97,6 +144,10 @@ install_linux() {
   local service="cstack-${AGENT_NAME}"
   local unit_dir="$HOME/.config/systemd/user"
   mkdir -p "$unit_dir"
+
+  local svc_path
+  svc_path="$(resolve_service_path)"
+  echo "[$AGENT_NAME] service PATH: $svc_path"
 
   cat > "$unit_dir/${service}.service" <<UNIT
 [Unit]
@@ -112,7 +163,7 @@ RestartSec=10s
 StandardOutput=append:${LOG_DIR}/stdout.log
 StandardError=append:${LOG_DIR}/stderr.log
 Environment=HOME=${HOME}
-Environment=PATH=/usr/local/bin:/usr/bin:/bin
+Environment=PATH=${svc_path}
 
 [Install]
 WantedBy=default.target
