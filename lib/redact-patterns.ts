@@ -233,8 +233,13 @@ export const PATTERNS: RedactPattern[] = [
     id: "openai.key",
     tier: "HIGH",
     category: "secret",
-    description: "OpenAI API key (incl. sk-proj-)",
-    regex: /\b(sk-(?:proj-)?[A-Za-z0-9]{32,})\b/,
+    description: "OpenAI API key (incl. sk-proj-/sk-svcacct-/sk-admin-)",
+    // Two explicit shapes (NOT a globally-optional prefix, which would match
+    // malformed sk--... or separator-less sk-projabc...):
+    //   prefixed: sk-{proj,svcacct,admin}- + base64url-ish body (allows -_)
+    //   bare:     sk- + contiguous alphanumeric run (legacy), keeps {32,} floor
+    regex:
+      /\b(sk-(?:proj|svcacct|admin)-[A-Za-z0-9_-]{20,}|sk-[A-Za-z0-9]{32,})\b/,
   },
   {
     id: "sendgrid.key",

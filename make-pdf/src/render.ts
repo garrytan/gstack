@@ -14,6 +14,7 @@
 import { marked } from "marked";
 import { smartypants } from "./smartypants";
 import { printCss, type PrintCssOptions } from "./print-css";
+import { applyImageDirectives } from "./image-policy";
 
 export interface RenderOptions {
   markdown: string;
@@ -34,6 +35,14 @@ export interface RenderOptions {
   // Page layout
   pageSize?: "letter" | "a4" | "legal" | "tabloid";
   margins?: string;
+  // Per-side margins (override `margins`). Must reach the CSS @page rule:
+  // when a landscape promotion flips preferCSSPageSize on, the CSS margins
+  // are the ones Chromium honors — dropping per-side flags there would
+  // silently change the whole document's layout (Codex P2).
+  marginTop?: string;
+  marginRight?: string;
+  marginBottom?: string;
+  marginLeft?: string;
 
   // Footer behavior. pageNumbers defaults to true. When footerTemplate is set,
   // CSS page numbers are suppressed so the custom Chromium footer wins cleanly.
@@ -60,8 +69,13 @@ export function render(opts: RenderOptions): RenderResult {
   // 1. Markdown → HTML
   const rawHtml = marked.parse(opts.markdown, { async: false }) as string;
 
+  // 1.5. Image directive suffixes: `![a](x.png){width=50%}` → data-gstack-*
+  // attributes. Before the sanitizer (which keeps data- attrs) so the brace
+  // text never reaches smartypants or the final page.
+  const directedHtml = applyImageDirectives(rawHtml);
+
   // 2. Sanitize
-  const cleanHtml = sanitizeUntrustedHtml(rawHtml);
+  const cleanHtml = sanitizeUntrustedHtml(directedHtml);
 
   // 3. Decode common entities so smartypants can match raw " and '.
   //    marked HTML-encodes quotes in text ("hello" → &quot;hello&quot;);
@@ -91,7 +105,9 @@ export function render(opts: RenderOptions): RenderResult {
     confidential: opts.confidential !== false,
     runningHeader: derivedTitle,
     pageSize: opts.pageSize,
-    margins: opts.margins,
+    // Compose per-side margins into the CSS shorthand so @page stays the
+    // single source of truth even under preferCSSPageSize.
+    margins: composeMargins(opts),
     pageNumbers: showPageNumbers,
   };
   const css = printCss(cssOptions);
@@ -106,14 +122,22 @@ export function render(opts: RenderOptions): RenderResult {
       })
     : "";
 
+  // TOC anchors must resolve: assign id="toc-N" to each H1-H3 in the same
+  // order buildTocBlock scans them, or every TOC link is a dead href (masked
+  // in PDFs by Chromium outline bookmarks, glaring in --to html). Headings
+  // that already carry an id keep it — the ids array records the ACTUAL id
+  // per heading so TOC entries always link to something real.
+  const anchored = opts.toc ? addHeadingIds(typographicHtml) : { html: typographicHtml, ids: [] };
+  const anchoredHtml = anchored.html;
+
   const tocBlock = opts.toc
-    ? buildTocBlock(typographicHtml)
+    ? buildTocBlock(anchoredHtml, anchored.ids)
     : "";
 
   // Wrap body in .chapter sections at H1 boundaries if chapter breaks are on.
   const chapterHtml = opts.noChapterBreaks
-    ? `<section class="chapter">${typographicHtml}</section>`
-    : wrapChaptersByH1(typographicHtml);
+    ? `<section class="chapter">${anchoredHtml}</section>`
+    : wrapChaptersByH1(anchoredHtml);
 
   const watermarkBlock = opts.watermark
     ? `<div class="watermark">${escapeHtml(opts.watermark)}</div>`
@@ -256,13 +280,13 @@ function buildCoverBlock(opts: {
  * Page numbers are filled in by Paged.js (when --toc is passed and Paged.js
  * polyfill is injected).
  */
-function buildTocBlock(html: string): string {
+function buildTocBlock(html: string, ids: string[] = []): string {
   const headings = extractHeadings(html);
   if (headings.length === 0) return "";
 
   const items = headings.map((h, i) => {
     const level = h.level >= 2 ? "level-2" : "level-1";
-    const id = `toc-${i}`;
+    const id = ids[i] ?? `toc-${i}`;
     return [
       `  <li class="${level}">`,
       `    <span class="toc-title"><a href="#${id}">${escapeHtml(h.text)}</a></span>`,
@@ -280,6 +304,28 @@ function buildTocBlock(html: string): string {
     `  </ol>`,
     `</section>`,
   ].join("\n");
+}
+
+/**
+ * Assign id="toc-N" to every H1-H3 in document order — the same order
+ * extractHeadings/buildTocBlock use, so anchors and entries line up by index.
+ * A heading that already carries an id keeps it, and the returned ids array
+ * records the actual id for that slot so the TOC links to the real anchor
+ * instead of a nonexistent toc-N.
+ */
+function addHeadingIds(html: string): { html: string; ids: string[] } {
+  const ids: string[] = [];
+  const out = html.replace(/<(h[1-3])([^>]*)>/gi, (full, tag: string, attrs: string) => {
+    const existing = attrs.match(/\bid\s*=\s*["']([^"']*)["']/i)?.[1];
+    if (existing) {
+      ids.push(existing);
+      return full;
+    }
+    const id = `toc-${ids.length}`;
+    ids.push(id);
+    return `<${tag}${attrs} id="${id}">`;
+  });
+  return { html: out, ids };
 }
 
 function extractHeadings(html: string): Array<{ level: number; text: string }> {
@@ -352,11 +398,28 @@ function decodeTextEntities(s: string): string {
     .replace(/&amp;/g, "&");
 }
 
+/** Compose `margin: top right bottom left` from per-side overrides + base. */
+function composeMargins(opts: {
+  margins?: string; marginTop?: string; marginRight?: string;
+  marginBottom?: string; marginLeft?: string;
+}): string | undefined {
+  const base = opts.margins ?? "1in";
+  if (!opts.marginTop && !opts.marginRight && !opts.marginBottom && !opts.marginLeft) {
+    return opts.margins;
+  }
+  return [
+    opts.marginTop ?? base,
+    opts.marginRight ?? base,
+    opts.marginBottom ?? base,
+    opts.marginLeft ?? base,
+  ].join(" ");
+}
+
 function stripTags(html: string): string {
   return html.replace(/<[^>]+>/g, "");
 }
 
-function escapeHtml(s: string): string {
+export function escapeHtml(s: string): string {
   return s
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")

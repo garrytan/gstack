@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# gstack-session-kind — classify the current agent session so skills know whether
+# a human can answer an interactive prompt (AskUserQuestion).
+#
+# Usage: gstack-session-kind            → prints one of: spawned | headless | interactive
+#
+# Used by the preamble (generate-preamble-bash.ts) which echoes
+#   SESSION_KIND: <value>
+# so the AskUserQuestion-failure fallback rule can branch without a shell-out at
+# failure time:
+#   spawned     → orchestrator session (OpenClaw). Auto-choose recommended option
+#                 per the skill's SPAWNED_SESSION block. Never prose, never BLOCKED.
+#   headless    → no human present (claude -p evals / CI). BLOCK on AUQ failure.
+#   interactive → a human is present. Prose-fallback on AUQ failure.
+#
+# Detection is best-effort. On ANY ambiguity it prints `interactive` — BLOCK only on
+# a positive headless signal, since a stray prose message in an unmarked one-shot
+# `-p` run just ends the turn (harmless), whereas wrongly BLOCKING a real human is not.
+#
+# Why env vars and not TTY/entrypoint: an interactive Conductor session reports
+# CLAUDE_CODE_ENTRYPOINT=sdk-ts with no TTY — identical to a headless SDK eval. The
+# signals that actually discriminate are the host/orchestrator/CI env markers below.
+set -euo pipefail
+
+# 1. Orchestrator-spawned session (OpenClaw). Authoritative block lives in the skill;
+#    we only surface the classification.
+if [ -n "${OPENCLAW_SESSION:-}" ]; then
+  echo "spawned"
+  exit 0
+fi
+
+# 2. Explicit headless override (set by the eval/E2E harness for determinism).
+if [ -n "${GSTACK_HEADLESS:-}" ]; then
+  echo "headless"
+  exit 0
+fi
+
+# 3. Positive interactive-host signals: a human-driven host is present.
+#    - Conductor app sets CONDUCTOR_* workspace vars.
+#    - Plain interactive `claude` CLI sets CLAUDE_CODE_ENTRYPOINT=cli.
+if [ -n "${CONDUCTOR_WORKSPACE_PATH:-}" ] || [ -n "${CONDUCTOR_PORT:-}" ] || [ "${CLAUDE_CODE_ENTRYPOINT:-}" = "cli" ]; then
+  echo "interactive"
+  exit 0
+fi
+
+# 4. CI / automation markers with no interactive host → headless.
+if [ -n "${CI:-}" ] || [ -n "${GITHUB_ACTIONS:-}" ]; then
+  echo "headless"
+  exit 0
+fi
+
+# 5. No positive headless signal → assume a human is present (degrade-safe default).
+echo "interactive"

@@ -65,7 +65,7 @@ const DESTRUCTIVE_PATTERNS: RegExp[] = [
   // Credentials / auth — allow filler words ("the", "my") between verb and noun
   /\brevoke\s+[\w\s]*\b(api key|token|credential|access key|password)\b/i,
   /\breset\s+[\w\s]*\b(api key|token|password|credential)\b/i,
-  /\brotate\s+[\w\s]*\b(api key|token|secret|credential|access key)\b/i,
+  /\brotate\s+[\w\s]*\b(api key|token|secret|credential|access key|password)\b/i,
 
   // Scope / architecture forks (reversible with effort — still deserve confirmation)
   /\barchitectur(e|al)\s+(change|fork|shift|decision)\b/i,

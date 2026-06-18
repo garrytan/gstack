@@ -59,4 +59,3 @@ When an item is completed, move it to the `## Completed` section preserving its 
 
 ```markdown
 **Completed:** vX.Y.Z (YYYY-MM-DD)
-```

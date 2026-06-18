@@ -162,6 +162,12 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
+      # The comment upsert below calls the REST `/issues/{n}/comments` endpoints
+      # (gh api ... issues/comments). With GITHUB_TOKEN those are gated by the
+      # `issues` permission, not `pull-requests` — without it the GET returns 401
+      # on every PR that produces eval artifacts (PRs with no artifacts exit
+      # early and never hit it, which is why this stayed hidden). See #1802 CI fix.
+      issues: write
     steps:
       - uses: actions/checkout@v4
         with:

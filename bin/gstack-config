@@ -86,7 +86,16 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 #                           #   --no-plan-tune-hooks, or env GSTACK_PLAN_TUNE_HOOKS.
 #
 # ─── Advanced ────────────────────────────────────────────────────────
-# codex_reviews: enabled    # disabled = skip Codex adversarial reviews in /ship
+# codex_reviews: enabled    # Master switch for Codex cross-model review. enabled =
+#                           #   Codex runs as a standard step in /review, /ship,
+#                           #   /document-release, plan reviews, and /autoplan (auto
+#                           #   falls back to a Claude subagent if Codex is missing or
+#                           #   not authenticated). disabled = skip all Codex passes.
+#                           #   Asymmetry on disabled: diff-review (/review, /ship) still
+#                           #   runs the free Claude adversarial subagent; plan-review and
+#                           #   /document-release skip the outside-voice step entirely.
+#                           #   An invalid value is REJECTED (existing value preserved) so
+#                           #   a typo cannot silently turn paid Codex calls on or off.
 # gstack_contributor: false # true = file field reports when gstack misbehaves
 # skip_eng_review: false    # true = skip eng review gate in /ship (not recommended)
 #
@@ -302,6 +311,13 @@ case "${1:-}" in
       echo "Warning: plan_tune_hooks '$VALUE' not recognized. Valid values: prompt, yes, no. Using prompt." >&2
       VALUE="prompt"
     fi
+    # codex_reviews controls PAID Codex calls. Unlike the warn-and-default keys above,
+    # an invalid value is REJECTED and the existing setting is left unchanged — a typo
+    # must never silently flip the switch and turn paid Codex calls on or off.
+    if [ "$KEY" = "codex_reviews" ] && [ "$VALUE" != "enabled" ] && [ "$VALUE" != "disabled" ]; then
+      echo "Error: codex_reviews '$VALUE' not recognized. Valid values: enabled, disabled. Existing value left unchanged." >&2
+      exit 1
+    fi
     mkdir -p "$STATE_DIR"
     # Write annotated header on first creation
     if [ ! -f "$CONFIG_FILE" ]; then
@@ -396,8 +412,29 @@ case "${1:-}" in
 
     case "$STATUS" in
       ok)
-        echo "Detected gbrain v$VERSION → brain-aware blocks will render in planning-skill SKILL.md files."
-        echo "Run 'bun run gen:skill-docs' in the gstack repo (or re-run ./setup) to regenerate now."
+        echo "Detected gbrain v$VERSION."
+        # Render brain-aware blocks INTO the global install so EVERY project's
+        # Claude sessions get them (other projects read SKILL.md + sections from
+        # ~/.claude/skills/gstack via absolute paths baked at gen time). Guards
+        # (never mutate an arbitrary directory): the target must exist, not be a
+        # symlink (a symlinked install points at a dev worktree — rendering there
+        # would dirty tracked source), and look like a real gstack clone.
+        INSTALL_DIR="$HOME/.claude/skills/gstack"
+        if [ ! -d "$INSTALL_DIR" ]; then
+          echo "No global install at $INSTALL_DIR — nothing to render. (Dev workspaces get blocks via bin/dev-setup.)"
+        elif [ -L "$INSTALL_DIR" ]; then
+          echo "Skip: $INSTALL_DIR is a symlink (likely a dev worktree). Rendering there would dirty tracked source — run bin/dev-setup in that worktree instead."
+        elif [ ! -f "$INSTALL_DIR/VERSION" ] || [ ! -f "$INSTALL_DIR/package.json" ]; then
+          echo "Skip: $INSTALL_DIR doesn't look like a gstack clone (missing VERSION/package.json) — refusing to modify it."
+        elif ! command -v bun >/dev/null 2>&1; then
+          echo "Skip: bun not on PATH — can't render. Install bun, then re-run 'gstack-config gbrain-refresh'."
+        elif ( cd "$INSTALL_DIR" && bun run gen:skill-docs:user --host claude >/dev/null 2>&1 ); then
+          echo "Rendered brain-aware blocks into $INSTALL_DIR — now live across all your projects' Claude sessions."
+          echo "Note: this dirties the install's git tree (generated blocks differ from main, by design)."
+          echo "      A 'git reset --hard origin/main' there reverts them; re-run 'gstack-config gbrain-refresh' to restore."
+        else
+          echo "Warning: render failed. Run 'cd $INSTALL_DIR && bun run gen:skill-docs:user --host claude' manually to see the error."
+        fi
         ;;
       *)
         echo "gbrain not detected (local-status: $STATUS) → brain-aware blocks will be suppressed in planning-skill SKILL.md files."
