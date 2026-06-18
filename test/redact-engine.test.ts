@@ -34,6 +34,11 @@ describe("HIGH credential patterns", () => {
     ["github.oauth", "gho_" + "1234567890abcdefghijklmnopqrstuvwxyz"],
     ["github.server", "ghs_1234567890abcdefghijklmnopqrstuvwxyz"],
     ["github.fine_grained", "github_pat_" + "A".repeat(82)],
+    ["gitlab.pat", "glpat-" + "x".repeat(30)],
+    ["huggingface.token", "hf_" + "x".repeat(34)],
+    ["npm.token", "npm_" + "x".repeat(36)],
+    ["digitalocean.token", "dop_v1_" + "a".repeat(64)],
+    ["gcp.service_account_key", '"private_key": "-----BEGIN PRIVATE KEY-----\\nMIIE..."'],
     ["anthropic.key", "sk-ant-" + "api03-abcdefghij1234567890XYZ"],
     ["openai.key", "sk-proj-" + "a".repeat(40)],
     ["sendgrid.key", "SG." + "a".repeat(22) + "." + "b".repeat(43)],
@@ -115,6 +120,19 @@ describe("MEDIUM demoted credential-shaped patterns (TENSION-1)", () => {
     const jwt = "eyJhbGciOiJ.eyJzdWIiOiI." + "x".repeat(20);
     const f = scan(jwt, { repoVisibility: "private" }).findings.find((x) => x.id === "jwt");
     expect(f?.tier).toBe("MEDIUM");
+  });
+  test("gitlab.pat covers glpat-/glptt-/gldt- prefixes", () => {
+    expect(ids("glptt-" + "a1b2c3d4e5f6g7h8i9j0")).toContain("gitlab.pat");
+    expect(ids("gldt-" + "a1b2c3d4e5f6g7h8i9j0")).toContain("gitlab.pat");
+  });
+  test("http.bearer is MEDIUM and needs a high-entropy token", () => {
+    const f = scan("Authorization: Bearer 8Fk2pQ9vXz4wL7mN3rT6yB1cD5eG0hJ", {
+      repoVisibility: "private",
+    }).findings.find((x) => x.id === "http.bearer");
+    expect(f?.tier).toBe("MEDIUM");
+    // example-header / low-entropy bodies do NOT flag (high-FP mitigation)
+    expect(ids("send Bearer ${ACCESS_TOKEN} in the header")).not.toContain("http.bearer");
+    expect(ids("Authorization: Bearer your_token_here_goes")).not.toContain("http.bearer");
   });
   test("env.kv fires on high-entropy, skips placeholder", () => {
     expect(ids("API_TOKEN=8Fk2pQ9vXz4wL7mN3rT6yB1cD5eG0hJ")).toContain("env.kv");
