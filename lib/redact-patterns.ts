@@ -223,6 +223,41 @@ export const PATTERNS: RedactPattern[] = [
     regex: /\b(github_pat_[A-Za-z0-9_]{82})\b/,
   },
   {
+    id: "gitlab.pat",
+    tier: "HIGH",
+    category: "secret",
+    description: "GitLab token (PAT glpat-, pipeline-trigger glptt-, deploy gldt-)",
+    regex: /\b((?:glpat|glptt|gldt)-[A-Za-z0-9_\-]{20,})\b/,
+  },
+  {
+    id: "huggingface.token",
+    tier: "HIGH",
+    category: "secret",
+    description: "Hugging Face access token (hf_…)",
+    regex: /\b(hf_[A-Za-z0-9]{34,})\b/,
+  },
+  {
+    id: "npm.token",
+    tier: "HIGH",
+    category: "secret",
+    description: "npm access token (npm_…)",
+    regex: /\b(npm_[A-Za-z0-9]{36})\b/,
+  },
+  {
+    id: "digitalocean.token",
+    tier: "HIGH",
+    category: "secret",
+    description: "DigitalOcean personal access token (dop_v1_…)",
+    regex: /\b(dop_v1_[a-f0-9]{64})\b/,
+  },
+  {
+    id: "gcp.service_account_key",
+    tier: "HIGH",
+    category: "secret",
+    description: "GCP service-account JSON private key (escaped-newline PEM block)",
+    regex: /("private_key"\s*:\s*"-----BEGIN (?:RSA )?PRIVATE KEY-----)/,
+  },
+  {
     id: "anthropic.key",
     tier: "HIGH",
     category: "secret",
@@ -339,6 +374,20 @@ export const PATTERNS: RedactPattern[] = [
     category: "secret",
     description: "JSON Web Token (3-segment base64url)",
     regex: /\b(eyJ[A-Za-z0-9_\-]{8,}\.eyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,})\b/,
+  },
+  {
+    id: "http.bearer",
+    tier: "MEDIUM",
+    category: "secret",
+    description: "Authorization: Bearer token (high-FP: matches example headers)",
+    // MEDIUM, not HIGH: `Bearer <token>` appears constantly in API docs, example
+    // curl commands, and prose. Require a long, high-entropy, non-placeholder body
+    // to cut those FPs; still warn-only (AskUserQuestion) per the calibration rule.
+    regex: /\bBearer[ \t]+([A-Za-z0-9_\-\.~+\/]{20,})\b/,
+    validate: (span) =>
+      !isPlaceholderSpan(span) &&
+      !/^\$\{?[A-Za-z_]/.test(span) &&
+      shannonEntropy(span) >= 3.5,
   },
   {
     id: "env.kv",
