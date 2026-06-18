@@ -1,0 +1,284 @@
+---
+name: mobile-maestro-qa
+preamble-tier: 3
+version: 0.1.0
+description: |
+  AI-agent-driven QA for React Native / Expo apps on the iOS Simulator (and
+  Android emulator where trivial), driven by Maestro. Boots a simulator, builds
+  and launches the app, then runs a hybrid agent loop: inspect the accessibility
+  tree (or screenshot when layout matters) → decide → act (tap / type / swipe /
+  scroll / assert) → re-observe → assert. Maestro drives the simulator through
+  its own bundled XCUITest driver via the official Maestro MCP server — no idb,
+  no Appium, no WebDriverAgent. Targets by visible text by default so it works on
+  uninstrumented builds, preferring stable testIDs when present.
+  Use when asked to "qa my expo app", "test the react native app on the
+  simulator", "maestro qa", "find bugs in the mobile app", or "run mobile QA".
+  (gstack)
+voice-triggers:
+  - "QA the Expo app"
+  - "test the React Native app"
+  - "run mobile QA with Maestro"
+allowed-tools:
+  - Bash
+  - Read
+  - Write
+  - Edit
+  - Grep
+  - Glob
+  - AskUserQuestion
+triggers:
+  - maestro qa
+  - qa my expo app
+  - test the react native app on the simulator
+  - find bugs in the mobile app
+  - run mobile qa
+---
+
+{{PREAMBLE}}
+
+# Mobile QA with Maestro
+
+This skill drives a React Native / Expo app on the iOS Simulator (and, where
+trivial, the Android emulator) the way a human tester would: it looks at the
+screen, decides what to do, taps and types through real UI, and asserts on the
+result. The agent never reaches into app internals — there is no SwiftUI state
+to introspect in a React Native app, so everything happens through the
+accessibility tree and visible text.
+
+The loop is **hybrid**: prefer the cheap `inspect_screen` (a compact
+accessibility-tree JSON) to decide what is on screen; fall back to
+`take_screenshot` (vision) only when layout, color, or visual correctness is
+what you are judging. Then `run` an action and re-observe. Capture screenshots
+as evidence at every assertion.
+
+## Why Maestro (and not the SwiftUI approach)
+
+The gstack `/ios-qa` skill introspects `@Observable` SwiftUI state over an
+embedded HTTP bridge. A React Native app has no such state to read, so this
+skill automates through the **accessibility tree / visible text** instead.
+Maestro drives the iOS Simulator through its OWN bundled XCUITest driver — not
+idb, not Appium/WebDriverAgent — and is cross-platform, so the same flows run on
+the Android emulator with no rewrite.
+
+## Driver tooling: who does what
+
+- **Maestro** is the driver. It taps, types, swipes, scrolls, and asserts. The
+  agent talks to it through the official Maestro **MCP server**, which exposes a
+  PERSISTENT session with three tools:
+  - `mcp__maestro__inspect_screen` — compact accessibility-tree JSON. Cheap.
+    Prefer this to decide. (Referred to below as `inspect_screen`.)
+  - `mcp__maestro__take_screenshot` — a PNG for vision. Use when layout / visual
+    correctness matters. (Referred to below as `take_screenshot`.)
+  - `mcp__maestro__run` — execute an inline YAML flow:
+    `tapOn:` / `inputText:` / `swipe:` / `scroll:` / `doubleTapOn:` /
+    `assertVisible:` and friends. (Referred to below as `run`.)
+- **`simctl`** (`xcrun simctl`) is a UTILITY, not a driver. It CANNOT tap or
+  type. Use it to boot/install/launch/terminate, take a raw screenshot
+  (`xcrun simctl io booted screenshot <path>`), seed the photo/media library
+  (`xcrun simctl addmedia booted <files...>`), pre-grant or revoke permissions
+  (`xcrun simctl privacy booted grant|revoke <service> <bundle-id>`), and open
+  deep links (`xcrun simctl openurl booted <url>`).
+- **Android equivalents** (where you run there): input is built into `adb` — no
+  companion driver needed. `adb shell input tap <x> <y>` /
+  `adb shell input text <s>`, emulator control via `adb emu ...`, permissions
+  via `adb shell pm grant <pkg> <permission>`.
+
+## Targeting elements
+
+Target by **visible text by default** — `tapOn: "Login"` — so flows work on
+uninstrumented apps. When a stable identifier exists, prefer
+`tapOn: { id: "login-button" }` (Maestro `id:` maps to React Native `testID` /
+`accessibilityIdentifier`) or the accessibility label, because it survives copy
+changes. Fall back to text when no stable id is present.
+
+**OS permission alerts** (photos, camera, notifications, tracking) are handled
+by tapping the system button's TEXT through Maestro — e.g.
+`run` → `tapOn: "Allow Full Access"`, `tapOn: "Don't Allow"`,
+`tapOn: "Allow While Using App"`. You can also pre-grant or pre-deny with
+`simctl privacy` in Phase 0 to skip or to deterministically test the flow.
+
+## Prerequisites (install once)
+
+- macOS with Xcode + at least one iOS Simulator runtime installed.
+- Node + the repo's package manager (detect: `pnpm` / `npm` / `yarn` / `bun`
+  from the lockfile).
+- A Java runtime (JDK 11+) — Maestro requires it. On hosts where shell state
+  does not persist between commands, prepend the maestro bin dir to `PATH` on
+  each invocation: `export PATH="$HOME/.maestro/bin:$PATH"`.
+- **Maestro:**
+  ```bash
+  curl -fsSL "https://get.maestro.mobile.dev" | bash
+  # or: brew tap mobile-dev-inc/tap && brew install mobile-dev-inc/tap/maestro
+  maestro --version
+  ```
+- **Maestro MCP server**, registered with your agent host:
+  ```bash
+  claude mcp add maestro -- maestro mcp
+  ```
+  Confirm the three tools (`inspect_screen`, `take_screenshot`, `run`) are
+  available before a full run.
+
+## Phase 0: Environment setup & discovery
+
+Everything in this phase is **discovered from the repo** — never hardcode a
+bundle id, scheme, run command, or simulator name.
+
+1. **Maestro + MCP present.** `maestro --version` succeeds; the Maestro MCP
+   tools are listed. If not, run the install + `claude mcp add maestro` steps
+   above.
+
+2. **Detect the iOS bundle id and URL scheme.** Expo managed apps declare these
+   in `app.json` or `app.config.{js,ts}`:
+   ```bash
+   # Static app.json:
+   cat app.json | python3 -c 'import json,sys;d=json.load(sys.stdin)["expo"];print("bundleId:",d.get("ios",{}).get("bundleIdentifier"));print("scheme:",d.get("scheme"))'
+   # Or grep when config is dynamic / TS:
+   grep -RnoE 'bundleIdentifier"?\s*[:=]\s*"[^"]+"' app.json app.config.* 2>/dev/null
+   grep -RnoE '\bscheme"?\s*[:=]\s*"[^"]+"' app.json app.config.* 2>/dev/null
+   ```
+   If the app is already prebuilt, read it from native:
+   `grep -RnoE 'PRODUCT_BUNDLE_IDENTIFIER = [^;]+' ios/*.xcodeproj/project.pbxproj`.
+
+3. **Detect the run command.** Prefer a repo dev script that ALSO starts backend
+   services, so network calls work during QA:
+   ```bash
+   # Look for a wrapper script that boots backend + app (e.g. "dev", "start", "run:ios", a Makefile target, a scripts/ entry):
+   ls scripts 2>/dev/null; ls -1 | grep -iE 'dev|start|run' 2>/dev/null
+   # Inspect package.json scripts:
+   cat package.json | python3 -c 'import json,sys;print("\n".join(f"{k}: {v}" for k,v in json.load(sys.stdin).get("scripts",{}).items()))'
+   ```
+   If such a script exists, prefer it. Otherwise fall back to the Expo native
+   build, which does a prebuild + pod install on first run (slow — minutes):
+   ```bash
+   npx expo run:ios          # add --device "<Simulator Name>" to target a specific sim
+   ```
+   Detect the package manager from the lockfile (`pnpm-lock.yaml`,
+   `package-lock.json`, `yarn.lock`, `bun.lockb`) and use it consistently.
+
+4. **Boot a simulator — recent, not bleeding-edge.** The newest Xcode/runtime
+   combinations can be flaky for driver attach. Prefer a runtime one major
+   version behind the latest installed.
+   ```bash
+   xcrun simctl list devices available
+   xcrun simctl boot "<UDID-or-name>" 2>/dev/null || true
+   open -a Simulator
+   ```
+
+5. **Build + launch the app** via the detected command (dev script preferred,
+   else `npx expo run:ios`). Confirm it reaches the first screen.
+
+   An `expo-dev-client` build often opens with the **Expo dev-menu** overlay
+   (and/or a floating "Tools" bubble) covering the first screen, so an immediate
+   assert against app content fails. Dismiss the dev-menu FIRST — tap the close
+   control ("Close" / the `xmark` icon), NOT "Continue" — then `take_screenshot`
+   to confirm the real app UI is visible. Make the taps OPTIONAL so an absent
+   menu doesn't fail the flow:
+   ```yaml
+   # Expo dev-client may open over the app with a dev-menu / "Tools" bubble.
+   # Dismiss it FIRST (tap Close / the xmark — NOT "Continue"); optional so an
+   # absent menu doesn't fail the flow.
+   - tapOn:
+       text: "Close"
+       optional: true
+   - tapOn:
+       id: "xmark"
+       optional: true
+   ```
+
+6. **Seed media / pre-grant permissions as the flows need.** For a media app,
+   seed the photo library and pre-grant so the app has something to show:
+   ```bash
+   xcrun simctl addmedia booted ~/path/to/sample1.jpg ~/path/to/sample2.heic
+   xcrun simctl privacy booted grant photos <bundle-id>
+   ```
+   To test a permission FLOW instead, revoke first
+   (`xcrun simctl privacy booted revoke photos <bundle-id>`) and drive the
+   system alert via Maestro in Phase 2.
+
+7. **Smoke-test the Maestro ↔ simulator connection once** before a full run —
+   one `inspect_screen` (or a trivial `run` with a single `assertVisible:` for a
+   known label). If the driver fails to attach, switch to a less bleeding-edge
+   iOS runtime and retry before proceeding.
+
+## Phase 1: Derive the QA plan
+
+1. **If the repo has a QA spec, follow it.** Look for a `QA/` directory, a
+   `QA.md`, or per-flow QA docs:
+   ```bash
+   ls QA 2>/dev/null; find . -maxdepth 3 -iname 'QA*.md' -not -path '*/node_modules/*' 2>/dev/null
+   ```
+   Read it and turn each documented flow into a concrete checklist.
+
+2. **Otherwise, QA the changed surface.** Discover what changed and scope the
+   plan to the screens those files render:
+   ```bash
+   git diff --name-only "$(git merge-base HEAD origin/main 2>/dev/null || echo HEAD~1)"...HEAD
+   ```
+   Map changed components/screens to the user-facing flows that exercise them.
+
+3. **Produce a concrete per-flow plan** — one entry per flow with: entry point,
+   the exact taps/inputs, and the assertion that proves it works. Show the user
+   the plan before executing a long run.
+
+## Phase 2: Execute the loop (one flow at a time)
+
+For each flow, iterate:
+
+1. **Observe.** `inspect_screen` to read the accessibility tree (cheap,
+   preferred). Use `take_screenshot` instead when you are judging layout, color,
+   spacing, or visual correctness. On the FIRST observation after launch,
+   dismiss any lingering Expo dev-menu / "Tools" bubble before asserting — an
+   optional `tapOn` for "Close" / the `xmark` icon (see Phase 0), then a
+   screenshot to confirm the real app UI is visible.
+2. **Decide.** Compare what's on screen against the flow's next step.
+3. **Act.** `run` an inline YAML action — e.g.
+   `run` → `tapOn: "Continue"`, `inputText: "test@example.com"`,
+   `swipe: { direction: UP }`, `scroll`, `doubleTapOn: { id: "photo-3" }`.
+   Handle any OS permission alert by tapping its button text.
+4. **Re-observe & assert.** `inspect_screen` again, or `run` →
+   `assertVisible: "Welcome"` (or `assertVisible: { id: "home-feed" }`). Capture
+   a screenshot as evidence — either `take_screenshot` or
+   `xcrun simctl io booted screenshot <path>`.
+5. **Record** pass/fail for the flow with the evidence screenshot and a one-line
+   note on what was verified. On failure, capture the failing screen + the
+   accessibility tree so a fixer can reproduce it.
+
+Drive every action through visible UI. Do not skip steps by relaunching to a
+deep link unless the flow's entry point IS a deep link
+(`xcrun simctl openurl booted <url>`).
+
+## Phase 3: Report & (optionally) hand off
+
+1. **Report** a per-flow pass/fail table, each row linking its evidence
+   screenshot and a one-line note. Lead with the failures.
+2. For each failure, include: the flow, the step that broke, the visible
+   symptom, the screenshot, and the accessibility-tree node if relevant.
+3. **Optionally hand failures to a fixer.** If the user wants bugs fixed, pass
+   each failing flow (with repro steps + evidence) to your code-fixing flow:
+   reproduce on the simulator, locate the root cause in the RN source, apply a
+   minimal fix, rebuild, and re-run the SAME Maestro flow to confirm the fix.
+
+## Fallback drivers (only if Maestro can't attach)
+
+- **Appium + XCUITest.** Also taps by text via an `-ios predicate string`.
+  ```bash
+  npm i -g appium && appium driver install xcuitest
+  ```
+  Heavier setup (WebDriverAgent build, capabilities) — use only if Maestro's
+  bundled driver won't attach to your runtime.
+- **idb** — last resort only. Its Homebrew bottle is a stale 2022 build and is
+  frequently broken on current macOS/Xcode; reach for it only when nothing else
+  works.
+
+## Failure modes + recovery
+
+| Symptom | Likely cause | Action |
+|---|---|---|
+| Maestro can't attach to the simulator | bleeding-edge iOS runtime | Boot a runtime one major behind; re-run the Phase 0 smoke test |
+| First assertion fails immediately after launch | Expo dev-menu / "Tools" bubble overlaying the app | Dismiss it first with an optional `tapOn` Close / `xmark` (NOT "Continue"), then screenshot to confirm |
+| `tapOn: "<text>"` finds nothing | text differs from what's rendered | `inspect_screen` to read the real labels; target by `id:` if present |
+| App shows empty media / no photos | library not seeded | `xcrun simctl addmedia booted <files>` then relaunch |
+| Permission alert blocks the flow | service not pre-granted | Tap the system button text via `run`, or pre-grant with `simctl privacy` |
+| Network calls fail / backend down | ran bare `expo run:ios`, no services | Use the repo's dev script that also starts backend services |
+| `expo run:ios` very slow on first run | prebuild + pod install | Expected once; subsequent launches are fast |
+| MCP tools missing | server not registered | `claude mcp add maestro -- maestro mcp`; restart the session |
