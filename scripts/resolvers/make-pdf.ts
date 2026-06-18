@@ -1,4 +1,5 @@
 import type { TemplateContext } from './types';
+import { runtimeFallbackPath } from './types';
 
 /**
  * {{MAKE_PDF_SETUP}} — emits the shell preamble that resolves $P to the
@@ -19,7 +20,7 @@ _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 P=""
 [ -n "$MAKE_PDF_BIN" ] && [ -x "$MAKE_PDF_BIN" ] && P="$MAKE_PDF_BIN"
 [ -z "$P" ] && [ -n "$_ROOT" ] && [ -x "$_ROOT/${ctx.paths.localSkillRoot}/make-pdf/dist/pdf" ] && P="$_ROOT/${ctx.paths.localSkillRoot}/make-pdf/dist/pdf"
-[ -z "$P" ] && P="$HOME${ctx.paths.makePdfDir.replace(/^~/, '')}/pdf"
+[ -z "$P" ] && P="${runtimeFallbackPath(ctx.paths.makePdfDir, 'pdf')}"
 if [ -x "$P" ]; then
   echo "MAKE_PDF_READY: $P"
   alias _p_="$P"   # shellcheck alias helper (not exported)

@@ -50,6 +50,30 @@ function buildHostPaths(): Record<string, HostPaths> {
 
 export const HOST_PATHS: Record<string, HostPaths> = buildHostPaths();
 
+/**
+ * Build a shell-safe global fallback path for a runtime binary.
+ *
+ * `HostPaths` dirs come in two shapes:
+ *  - `~`-style (Claude): `~/.claude/skills/gstack/design/dist` — needs `$HOME`
+ *    substituted for the leading `~` so the path resolves in a non-interactive
+ *    shell that doesn't do tilde expansion inside a quoted string.
+ *  - `$`-style (env-var hosts like codex/hermes): `$GSTACK_DESIGN` — already an
+ *    absolute root exported by the preamble. Must be used verbatim.
+ *
+ * Naively doing `"$HOME${dir.replace(/^~/, '')}"` left env-var roots untouched
+ * by the `~` strip and then prepended `$HOME`, producing invalid paths like
+ * `$HOME$GSTACK_DESIGN/design`. Those never resolve, so design/browse/make-pdf
+ * were reported NOT_AVAILABLE on env-var hosts even when installed. See
+ * garrytan/gstack#1159.
+ *
+ * @param dir   a HostPaths dir (`browseDir` / `designDir` / `makePdfDir`)
+ * @param bin   the binary basename appended to the resolved root (e.g. `design`)
+ */
+export function runtimeFallbackPath(dir: string, bin: string): string {
+  if (dir.startsWith('$')) return `${dir}/${bin}`;
+  return `$HOME${dir.replace(/^~/, '')}/${bin}`;
+}
+
 import type { Model } from '../models';
 export type { Model } from '../models';
 
