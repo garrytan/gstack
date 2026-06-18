@@ -1,5 +1,5 @@
 ---
-name: retro
+name: gstack-retro
 preamble-tier: 2
 version: 2.0.0
 description: Weekly engineering retrospective. (gstack)
@@ -972,7 +972,8 @@ git log origin/<default> --since="<window>" --format="%H|%aN|%ae|%ai|%s" --short
 
 # 2. Per-commit test vs total LOC breakdown with author
 #    Each commit block starts with COMMIT:<hash>|<author>, followed by numstat lines.
-#    Separate test files (matching test/|spec/|__tests__/) from production files.
+#    Separate test files from production files using the language-agnostic TEST pattern
+#    below (commands 10/12) — NOT just JS/TS. Python test_*.py, *.tftest.hcl, *.bats count.
 git log origin/<default> --since="<window>" --format="COMMIT:%H|%aN" --numstat
 
 # 3. Commit timestamps for session detection and hourly distribution (with author)
@@ -996,18 +997,57 @@ cat ~/.gstack/greptile-history.md 2>/dev/null || true
 # 9. TODOS.md backlog (if available)
 cat TODOS.md 2>/dev/null || true
 
-# 10. Test file count
-find . -name '*.test.*' -o -name '*.spec.*' -o -name '*_test.*' -o -name '*_spec.*' 2>/dev/null | grep -v node_modules | wc -l
+# --- Language-agnostic TEST file pattern (used by commands 10, 12, 13) ---
+# Matches: Python test_*.py / *_test.py, JS/TS *.test.* / *.spec.*, Ruby *_spec.rb,
+# Terraform *.tftest.hcl, Bats *.bats, and any path under tests/ __tests__/ spec/.
+# Do NOT narrow this to '\.(test|spec)\.' — that misses every non-JS test suite.
+#   TEST_RE='(^|/)test_|_test\.|\.test\.|\.spec\.|_spec\.|\.tftest\.hcl$|\.bats$|(^|/)(tests?|__tests__|spec)/'
+#   VENDOR_RE='/(node_modules|\.venv|venv|dist|build|\.git)/'
+
+# 10. Total test file count (repo-wide; git ls-files respects .gitignore)
+git ls-files | grep -ivE '/(node_modules|\.venv|venv|dist|build)/' \
+  | grep -iE '(^|/)test_|_test\.|\.test\.|\.spec\.|_spec\.|\.tftest\.hcl$|\.bats$|(^|/)(tests?|__tests__|spec)/' \
+  | sort -u | wc -l
 
 # 11. Regression test commits in window
 git log origin/<default> --since="<window>" --oneline --grep="test(qa):" --grep="test(design):" --grep="test: coverage"
 
-# 12. gstack skill usage telemetry (if available)
-cat ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
+# 12. Test files ADDED in window  (this is "tests added this period")
+git log origin/<default> --since="<window>" --diff-filter=A --format="" --name-only \
+  | grep -ivE '/(node_modules|\.venv|venv|dist|build)/' \
+  | grep -iE '(^|/)test_|_test\.|\.test\.|\.spec\.|_spec\.|\.tftest\.hcl$|\.bats$|(^|/)(tests?|__tests__|spec)/' \
+  | sort -u | wc -l
 
-# 12. Test files changed in window
-git log origin/<default> --since="<window>" --format="" --name-only | grep -E '\.(test|spec)\.' | sort -u | wc -l
+# 13. Test files TOUCHED in window  (added OR modified — sanity cross-check vs command 12)
+git log origin/<default> --since="<window>" --format="" --name-only \
+  | grep -ivE '/(node_modules|\.venv|venv|dist|build)/' \
+  | grep -iE '(^|/)test_|_test\.|\.test\.|\.spec\.|_spec\.|\.tftest\.hcl$|\.bats$|(^|/)(tests?|__tests__|spec)/' \
+  | sort -u | wc -l
+
+# 14. gstack skill usage telemetry (if available)
+cat ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 ```
+
+### Step 1.5: Per-commit plausibility guard (anti-fabrication)
+
+Before describing ANY single commit's size or any "big landing," obey these rules. They
+exist because a contradiction between aggregate counts (e.g. "1,446 total tests exist" from
+command 10) and a window count (e.g. "0 tests added" from command 12) was once reconciled by
+inventing a non-existent "bootstrap commit" with fabricated file/LOC figures.
+
+- **Per-commit figures come from that commit only.** Any per-commit file count or LOC you
+  state MUST come from `git show --stat <hash>` / `git show --shortstat <hash>` for that exact
+  hash. Never infer a commit's size from aggregate totals, a PR number, or a commit subject.
+- **Verify outliers.** If you are about to describe a commit as unusually large (>500 files
+  or >50k insertions), first run `git show --shortstat <hash>` and quote the real numbers. If
+  the commit is small, do not call it large.
+- **No invented "bootstrap"/"foundation"/"initial import" narrative.** Only describe such a
+  commit if a real commit in the window has a matching subject AND a verified stat showing it.
+  A mature repo (check `git log --reverse --format=%ai | head -1`) does not get re-bootstrapped.
+- **Reconcile contradictions by re-checking, not narrating.** If command 10 (total) and
+  command 12 (added) seem to contradict each other, re-run command 12 (it is the usual culprit
+  — a test-pattern miss) before writing a single word about test activity. Never bridge two
+  numbers with an event you have not verified exists.
 
 ### Step 2: Compute Metrics
 
@@ -1379,9 +1419,16 @@ Narrative covering:
 
 ### Test Health
 - Total test files: N (from command 10)
-- Tests added this period: M (from command 12 — test files changed)
+- Tests added this period: M (from command 12 — test files ADDED). Also note tests TOUCHED
+  (command 13). If command 12 returns 0 but command 13 > 0, tests were modified not added —
+  say so; do NOT report "no test activity."
 - Regression test commits: list `test(qa):` and `test(design):` and `test: coverage` commits from command 11
 - If prior retro exists and has `test_health`: show delta "Test count: {last} → {now} (+{delta})"
+- **Sanity check before claiming "0 tests added":** new tests are frequently committed under
+  `fix:`/`feat:` (not a `test:` prefix), and command 11 only counts `test(...)`-prefixed
+  commits — never infer "0 new tests" from command 11. Trust command 12 (file-level). If
+  command 12 is 0 while many files changed, re-run it before concluding — a zero there is
+  more often a pattern miss than a real absence.
 - If test ratio < 20%: flag as growth area — "100% test coverage is the goal. Tests make vibe coding safe."
 
 ### Plan Completion
