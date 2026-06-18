@@ -85,6 +85,16 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 #                           # Override per-run: ./setup --plan-tune-hooks /
 #                           #   --no-plan-tune-hooks, or env GSTACK_PLAN_TUNE_HOOKS.
 #
+# ─── Statusline ──────────────────────────────────────────────────────
+# statusline: prompt        # Controls whether ./setup installs the gstack
+#                           #   Claude Code statusLine (bin/gstack-statusline,
+#                           #   shows your most recent /gstack skill).
+#                           #   prompt — ask on a real TTY, skip otherwise (default)
+#                           #   yes    — install non-interactively
+#                           #   no     — skip non-interactively
+#                           # Override per-run: ./setup --statusline /
+#                           #   --no-statusline, or env GSTACK_STATUSLINE.
+#
 # ─── Advanced ────────────────────────────────────────────────────────
 # codex_reviews: enabled    # Master switch for Codex cross-model review. enabled =
 #                           #   Codex runs as a standard step in /review, /ship,
@@ -130,6 +140,7 @@ lookup_default() {
     artifacts_sync_mode) echo "off" ;;
     artifacts_sync_mode_prompted) echo "false" ;;
     plan_tune_hooks) echo "prompt" ;; # prompt | yes | no — controls ./setup plan-tune hook install
+    statusline) echo "prompt" ;; # prompt | yes | no — controls ./setup gstack statusline install
 
     redact_repo_visibility) echo "" ;; # empty → fall through to gh/glab detection
     redact_prepush_hook) echo "false" ;;
@@ -311,6 +322,10 @@ case "${1:-}" in
       echo "Warning: plan_tune_hooks '$VALUE' not recognized. Valid values: prompt, yes, no. Using prompt." >&2
       VALUE="prompt"
     fi
+    if [ "$KEY" = "statusline" ] && [ "$VALUE" != "prompt" ] && [ "$VALUE" != "yes" ] && [ "$VALUE" != "no" ]; then
+      echo "Warning: statusline '$VALUE' not recognized. Valid values: prompt, yes, no. Using prompt." >&2
+      VALUE="prompt"
+    fi
     # codex_reviews controls PAID Codex calls. Unlike the warn-and-default keys above,
     # an invalid value is REJECTED and the existing setting is left unchanged — a typo
     # must never silently flip the switch and turn paid Codex calls on or off.
@@ -347,7 +362,7 @@ case "${1:-}" in
     for KEY in proactive routing_declined telemetry auto_upgrade update_check \
                skill_prefix checkpoint_mode checkpoint_push explain_level \
                codex_reviews gstack_contributor skip_eng_review workspace_root \
-               artifacts_sync_mode artifacts_sync_mode_prompted plan_tune_hooks; do
+               artifacts_sync_mode artifacts_sync_mode_prompted plan_tune_hooks statusline; do
       VALUE=$(grep -E "^${KEY}:" "$CONFIG_FILE" 2>/dev/null | tail -1 | awk '{print $2}' | tr -d '[:space:]' || true)
       SOURCE="default"
       if [ -n "$VALUE" ]; then
@@ -363,7 +378,7 @@ case "${1:-}" in
     for KEY in proactive routing_declined telemetry auto_upgrade update_check \
                skill_prefix checkpoint_mode checkpoint_push explain_level \
                codex_reviews gstack_contributor skip_eng_review workspace_root \
-               artifacts_sync_mode artifacts_sync_mode_prompted plan_tune_hooks; do
+               artifacts_sync_mode artifacts_sync_mode_prompted plan_tune_hooks statusline; do
       printf '  %-24s %s\n' "$KEY:" "$(lookup_default "$KEY")"
     done
     ;;
