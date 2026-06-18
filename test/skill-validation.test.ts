@@ -1975,3 +1975,34 @@ describe('Bundled browser-skills frontmatter contract', () => {
     }
   });
 });
+
+describe('setup-deploy — no partial-secret print of API keys', () => {
+  // Regression guard for garrytan/gstack#1078: the Render key check used to
+  // instruct `echo $RENDER_API_KEY | head -c 4`, which prints 4 real bytes of
+  // a live secret into terminal scrollback / screenshots. Presence checks must
+  // never emit ANY key bytes. We scan both the template (source of truth) and
+  // the generated SKILL.md so neither can regress independently.
+  const files = ['SKILL.md.tmpl', 'SKILL.md'].map((f) =>
+    path.join(ROOT, 'setup-deploy', f)
+  );
+
+  // Match a provider key being piped into / sliced by a partial-print primitive.
+  // Covers `$RENDER_API_KEY | head -c N`, `head -c N ... API_KEY`,
+  // `${RENDER_API_KEY:0:4}`, `cut -c1-4 ... API_KEY`, etc.
+  const pipeToHeadCut = /API_KEY[^\n`]*\|\s*(head|cut)\b/i;
+  const headCutToKey = /\b(head\s+-c|cut\s+-c)\b[^\n`]*API_KEY/i;
+  const bashSubstringSlice = /API_KEY:\d+:\d+/i;
+
+  for (const file of files) {
+    test(`${path.basename(file)} never partial-prints an API key`, () => {
+      const content = fs.readFileSync(file, 'utf-8');
+      expect(content).not.toMatch(pipeToHeadCut);
+      expect(content).not.toMatch(headCutToKey);
+      expect(content).not.toMatch(bashSubstringSlice);
+      // The specific issue-#1078 instruction must be gone.
+      expect(content).not.toContain('echo $RENDER_API_KEY | head -c 4');
+      // And the replacement presence check must be present (no key bytes).
+      expect(content).toContain('RENDER_API_KEY: not set');
+    });
+  }
+});
