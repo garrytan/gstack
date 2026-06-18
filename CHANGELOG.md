@@ -1,5 +1,44 @@
 # Changelog
 
+## [1.58.3.0] - 2026-06-18
+
+## **GBrowser masks the full set of automation tells by default, on every path a page can reach.**
+## **Layer C stealth is always on, carries a per-install hardware identity, and survives the toString depth-3 trick.**
+
+GBrowser's headless and headed Chromium now ship "Layer C" anti-detection by default, with no opt-in flag. Where the old default masked only `navigator.webdriver`, the browser now also restores the full `window.chrome.*` shape (runtime, app, csi, loadTimes), aligns `Notification.permission` with the Permissions API, reports a per-install `hardwareConcurrency`/`deviceMemory` from the host profile, sweeps the known Selenium/Phantom/Nightmare/Playwright globals, and installs a `Function.prototype.toString` proxy so every patched getter reports `[native code]` even under the depth-3 recursion check. The aggressive `GSTACK_STEALTH=extended` mode (WebGL spoof, faked plugins, mediaDevices) still exists, now layered on top of Layer C rather than replacing it. And stealth applies on all four context-creation paths, so a `useragent` change, a `viewport --scale`, or a headless-to-headed handoff hands a site a fully masked page every time.
+
+### The numbers that matter
+
+Source: `bun test browse/test/stealth-layer-c.test.ts browse/test/stealth-webdriver.test.ts browse/test/stealth-extended.test.ts browse/test/browser-manager-unit.test.ts` (80 tests, real Chromium for the runtime checks).
+
+| Capability | Before (v1.58.1.0) | After (v1.58.3.0) |
+|---|---|---|
+| Automation tells masked by default | 1 (navigator.webdriver) | 7 categories (webdriver, window.chrome.*, Notification, per-install hardware, toString-native, automation-global sweep, cdc/Permissions) |
+| Context paths that apply stealth | 2 (launch, launchHeaded) | 4 (+ handoff, + recreateContext) |
+| toString integrity | not addressed | survives the depth-3 `[native code]` check |
+| Hardware identity | generic Chromium default | per-install, from the host profile |
+| Stealth tests | none dedicated | 80 passing (incl. real-Chromium runtime) |
+
+By default the browser now masks seven categories of automation tell instead of one, on every path a page can reach, not just the first launch.
+
+### What this means for builders
+
+If you drive GBrowser to dogfood, scrape, or QA against anti-bot-protected targets, your sessions look like a real per-install Chrome out of the box. There is no `GSTACK_STEALTH` flag to remember, and no silent gap where a routine `useragent` or `viewport --scale` strips the mask. For gbrowser builds with the Pack 1 C++ patches, set the `GSTACK_*` host-profile env (gbd does this) to push the GPU/UA-CH/hardware spoof down to native code; on stock Playwright Chromium the same call is a safe no-op.
+
+### Itemized changes
+
+#### Added
+- Always-on Layer C stealth (`buildStealthScript`): webdriver mask, `window.chrome.{runtime,app,csi,loadTimes}` shape, `Notification.permission` alignment, per-install `hardwareConcurrency`/`deviceMemory`, a `Function.prototype.toString` proxy that holds up under the depth-3 `[native code]` check, and a static sweep of Selenium/Phantom/Nightmare/Playwright globals.
+- `buildGStackLaunchArgs`: per-install `--gstack-*` cmdline switches (GPU vendor/renderer, UA-CH platform/model, hardware concurrency/memory) for gbrowser's Pack 1 C++ patches, emitted only when the matching `GSTACK_*` env is set so stock Chromium is unaffected.
+- Real-Chromium runtime coverage: webdriver, chrome.* shape, Notification/Permissions pairing, toString depth-3, per-install hardware, and the extended-mode blend (80 stealth tests).
+
+#### Changed
+- Stealth applies on every context-creation path (`launch`, `launchHeaded`, `handoff`, `recreateContext`), so a `useragent`, `viewport --scale`, or handoff keeps the full mask.
+- The cdc_/`__webdriver` cleanup and the Permissions notifications shim live in `applyStealth`, so headless and handoff get the same `Notification.permission`/`permissions.query` consistency as the headed path.
+- `GSTACK_STEALTH=extended` layers on top of Layer C; the always-on default does not fake `navigator.plugins` (the opt-in mode still does, as the documented "may break sites" escape hatch).
+- `--gstack-suppress-prepare-stack-trace` is opt-in via `GSTACK_CDP_STEALTH=on`, so the switch never reaches a Chromium that does not understand it.
+- `--disable-blink-features=AutomationControlled` comes from one shared `STEALTH_LAUNCH_ARGS` constant across every launch path.
+
 ## [1.58.1.0] - 2026-06-14
 
 ## **Local evals stop lying. Spawned `claude` test children run in a sealed clean room,**
