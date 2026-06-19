@@ -10,6 +10,7 @@ import { existsSync, watch, mkdirSync } from "fs";
 import { homedir } from "os";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
+import Anthropic from "@anthropic-ai/sdk";
 
 const PORT = 7842;
 const HOSTNAME = "127.0.0.1";
@@ -124,6 +125,85 @@ function broadcast(event: string): void {
   }
 }
 
+// CONS-005: POST /api/draft-decision — stream a Claude draft suggestion via SSE.
+// Client disconnects abort the Anthropic SDK stream (no wasted tokens).
+async function handleDraftDecision(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  // AC3: missing key — return 503 before reading body.
+  if (!process.env.ANTHROPIC_API_KEY) {
+    sendJson(
+      res,
+      { error: "AI drafts unavailable — set ANTHROPIC_API_KEY in your environment" },
+      503,
+    );
+    return;
+  }
+
+  // Read request body (small JSON — read before switching to SSE mode).
+  let body: { taskId?: string; agentName?: string; context?: string } = {};
+  try {
+    const chunks: Buffer[] = [];
+    for await (const chunk of req) {
+      chunks.push(chunk as Buffer);
+    }
+    body = JSON.parse(Buffer.concat(chunks).toString()) as typeof body;
+  } catch {
+    // Malformed body — proceed with empty context.
+  }
+
+  // Switch to SSE mode.
+  res.writeHead(200, {
+    "content-type": "text/event-stream",
+    "cache-control": "no-cache",
+    connection: "keep-alive",
+  });
+
+  // AC2: abort the SDK stream when the browser disconnects.
+  const controller = new AbortController();
+  req.on("close", () => controller.abort());
+
+  const client = new Anthropic();
+  try {
+    const parts = [
+      body.taskId ? `Task: ${body.taskId}` : "",
+      body.agentName ? `Agent: ${body.agentName}` : "",
+      body.context ?? "",
+    ].filter(Boolean);
+    const prompt = parts.join("\n") || "No context provided.";
+
+    const stream = client.messages.stream(
+      {
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 512,
+        messages: [{ role: "user", content: prompt }],
+      },
+      { signal: controller.signal },
+    );
+
+    // AC1: forward each text token as an SSE data event.
+    stream.on("text", (text) => {
+      res.write(`data: ${JSON.stringify(text)}\n\n`);
+    });
+
+    await stream.finalMessage();
+    res.write("data: [DONE]\n\n"); // AC4: completion sentinel.
+    res.end();
+  } catch (err: unknown) {
+    if (controller.signal.aborted) {
+      // AC2: client disconnected — nothing more to write.
+      res.end();
+      return;
+    }
+    // AC5: API error — send error event and close gracefully.
+    const msg = err instanceof Error ? err.message : "unknown error";
+    try {
+      res.write(`data: ${JSON.stringify({ error: msg })}\n\n`);
+    } catch {
+      // Response already closed by the time we reach here.
+    }
+    res.end();
+  }
+}
+
 // AC1: hostname '127.0.0.1' — not reachable from any network interface.
 const server = createServer((req: IncomingMessage, res: ServerResponse) => {
   const path = rawPath(req.url);
@@ -167,6 +247,12 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     sseClients.add(res);
     req.on("close", () => sseClients.delete(res));
     return; // keep connection open — do NOT call res.end()
+  }
+
+  // POST /api/draft-decision — stream AI-drafted decision suggestion (CONS-005).
+  if (path === "/api/draft-decision" && method === "POST") {
+    void handleDraftDecision(req, res);
+    return;
   }
 
   res.writeHead(404);
