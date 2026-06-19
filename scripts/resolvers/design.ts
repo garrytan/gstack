@@ -1,4 +1,4 @@
-import type { TemplateContext } from './types';
+import { type TemplateContext, toShellPath } from './types';
 import { AI_SLOP_BLACKLIST, OPENAI_HARD_REJECTIONS, OPENAI_LITMUS_CHECKS } from './constants';
 
 export function generateDesignReviewLite(ctx: TemplateContext): string {
@@ -792,7 +792,7 @@ export function generateDesignSetup(ctx: TemplateContext): string {
 _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 D=""
 [ -n "$_ROOT" ] && [ -x "$_ROOT/${ctx.paths.localSkillRoot}/design/dist/design" ] && D="$_ROOT/${ctx.paths.localSkillRoot}/design/dist/design"
-[ -z "$D" ] && D="$HOME${ctx.paths.designDir.replace(/^~/, '')}/design"
+[ -z "$D" ] && D="${toShellPath(ctx.paths.designDir)}/design"
 if [ -x "$D" ]; then
   echo "DESIGN_READY: $D"
 else
@@ -800,7 +800,7 @@ else
 fi
 B=""
 [ -n "$_ROOT" ] && [ -x "$_ROOT/${ctx.paths.localSkillRoot}/browse/dist/browse" ] && B="$_ROOT/${ctx.paths.localSkillRoot}/browse/dist/browse"
-[ -z "$B" ] && B="$HOME${ctx.paths.browseDir.replace(/^~/, '')}/browse"
+[ -z "$B" ] && B="${toShellPath(ctx.paths.browseDir)}/browse"
 if [ -x "$B" ]; then
   echo "BROWSE_READY: $B"
 else
@@ -837,7 +837,7 @@ export function generateDesignMockup(ctx: TemplateContext): string {
 _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 D=""
 [ -n "$_ROOT" ] && [ -x "$_ROOT/${ctx.paths.localSkillRoot}/design/dist/design" ] && D="$_ROOT/${ctx.paths.localSkillRoot}/design/dist/design"
-[ -z "$D" ] && D="$HOME${ctx.paths.designDir.replace(/^~/, '')}/design"
+[ -z "$D" ] && D="${toShellPath(ctx.paths.designDir)}/design"
 [ -x "$D" ] && echo "DESIGN_READY" || echo "DESIGN_NOT_AVAILABLE"
 \`\`\`
 
