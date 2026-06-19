@@ -94,6 +94,12 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 #                           #   no     — skip non-interactively
 #                           # Override per-run: ./setup --statusline /
 #                           #   --no-statusline, or env GSTACK_STATUSLINE.
+# statusline_mode: full     # What the gstack statusLine shows.
+#                           #   full  — baseline (dir, git branch, model) + the
+#                           #           last skill (additive, never loses what
+#                           #           the default showed). Default.
+#                           #   skill — the last gstack skill only (minimal).
+#                           # Override per-run: env GSTACK_STATUSLINE_MODE.
 #
 # ─── Advanced ────────────────────────────────────────────────────────
 # codex_reviews: enabled    # Master switch for Codex cross-model review. enabled =
@@ -141,6 +147,7 @@ lookup_default() {
     artifacts_sync_mode_prompted) echo "false" ;;
     plan_tune_hooks) echo "prompt" ;; # prompt | yes | no — controls ./setup plan-tune hook install
     statusline) echo "prompt" ;; # prompt | yes | no — controls ./setup gstack statusline install
+    statusline_mode) echo "full" ;; # full | skill — what the gstack statusLine shows
 
     redact_repo_visibility) echo "" ;; # empty → fall through to gh/glab detection
     redact_prepush_hook) echo "false" ;;
@@ -326,6 +333,10 @@ case "${1:-}" in
       echo "Warning: statusline '$VALUE' not recognized. Valid values: prompt, yes, no. Using prompt." >&2
       VALUE="prompt"
     fi
+    if [ "$KEY" = "statusline_mode" ] && [ "$VALUE" != "full" ] && [ "$VALUE" != "skill" ]; then
+      echo "Warning: statusline_mode '$VALUE' not recognized. Valid values: full, skill. Using full." >&2
+      VALUE="full"
+    fi
     # codex_reviews controls PAID Codex calls. Unlike the warn-and-default keys above,
     # an invalid value is REJECTED and the existing setting is left unchanged — a typo
     # must never silently flip the switch and turn paid Codex calls on or off.
@@ -362,7 +373,7 @@ case "${1:-}" in
     for KEY in proactive routing_declined telemetry auto_upgrade update_check \
                skill_prefix checkpoint_mode checkpoint_push explain_level \
                codex_reviews gstack_contributor skip_eng_review workspace_root \
-               artifacts_sync_mode artifacts_sync_mode_prompted plan_tune_hooks statusline; do
+               artifacts_sync_mode artifacts_sync_mode_prompted plan_tune_hooks statusline statusline_mode; do
       VALUE=$(grep -E "^${KEY}:" "$CONFIG_FILE" 2>/dev/null | tail -1 | awk '{print $2}' | tr -d '[:space:]' || true)
       SOURCE="default"
       if [ -n "$VALUE" ]; then
@@ -378,7 +389,7 @@ case "${1:-}" in
     for KEY in proactive routing_declined telemetry auto_upgrade update_check \
                skill_prefix checkpoint_mode checkpoint_push explain_level \
                codex_reviews gstack_contributor skip_eng_review workspace_root \
-               artifacts_sync_mode artifacts_sync_mode_prompted plan_tune_hooks statusline; do
+               artifacts_sync_mode artifacts_sync_mode_prompted plan_tune_hooks statusline statusline_mode; do
       printf '  %-24s %s\n' "$KEY:" "$(lookup_default "$KEY")"
     done
     ;;

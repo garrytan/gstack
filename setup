@@ -1514,8 +1514,18 @@ fi
 # Idempotent: set-statusline is a no-op when our statusLine is already current,
 # and refuses (exit 3) to overwrite a non-gstack statusLine.
 STATUSLINE_SCRIPT="$SOURCE_GSTACK_DIR/bin/gstack-statusline"
-STATUSLINE_COMMAND="bash \"$STATUSLINE_SCRIPT\""
 STATUSLINE_MARKER="$HOME/.gstack/.statusline-prompted"
+
+# Display style: full (baseline dir/branch/model + skill — additive, the default)
+# or skill (skill only). Resolve env > config > default, then pin it in the
+# installed command so the script's own default can never drift it.
+STATUSLINE_STYLE="${GSTACK_STATUSLINE_MODE:-}"
+[ -z "$STATUSLINE_STYLE" ] && STATUSLINE_STYLE="$("$GSTACK_CONFIG" get statusline_mode 2>/dev/null || true)"
+case "$(printf '%s' "$STATUSLINE_STYLE" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')" in
+  skill) STATUSLINE_STYLE="skill" ;;
+  *)     STATUSLINE_STYLE="full" ;;
+esac
+STATUSLINE_COMMAND="bash \"$STATUSLINE_SCRIPT\" --$STATUSLINE_STYLE"
 
 if [ "$NO_TEAM_MODE" -ne 1 ] \
    && [ -x "$SETTINGS_HOOK" ] \
@@ -1547,7 +1557,12 @@ if [ "$NO_TEAM_MODE" -ne 1 ] \
         ;;
       *)
         log ""
-        log "Statusline installed: your status bar now shows the last gstack skill you ran."
+        if [ "$STATUSLINE_STYLE" = "skill" ]; then
+          log "Statusline installed (skill mode): your status bar shows the last gstack skill you ran."
+        else
+          log "Statusline installed (full mode): dir, branch, model, plus the last gstack skill you ran."
+          log "  Want skill-only? gstack-config set statusline_mode skill && ./setup --statusline"
+        fi
         log "  Backup written before the change. Remove anytime with:"
         log "    $SETTINGS_HOOK remove-statusline   (or ./setup --no-statusline)"
         ;;
@@ -1579,10 +1594,12 @@ if [ "$NO_TEAM_MODE" -ne 1 ] \
     log "gstack statusline: show your last /gstack skill in the status bar?"
     log "──────────────────────────────────────────────────────────"
     log ""
-    log "Adds a Claude Code statusLine (bin/gstack-statusline) that displays the"
-    log "most recent gstack skill you invoked, e.g. /review or /ship. Cosmetic and"
-    log "reversible. Backs up settings.json first; never clobbers an existing"
-    log "statusLine (you'll get a one-liner to opt in by hand if you have one)."
+    log "Adds a Claude Code statusLine (bin/gstack-statusline) showing the most"
+    log "recent gstack skill you invoked, e.g. /review or /ship. Default 'full'"
+    log "mode keeps dir/branch/model alongside it, so nothing the default showed is"
+    log "lost (set statusline_mode skill for skill-only). Cosmetic and reversible."
+    log "Backs up settings.json first; never clobbers an existing statusLine (you'll"
+    log "get a one-liner to opt in by hand if you have one)."
     log ""
     printf "Install the gstack statusline now? [Y/n] (default: Y, auto-skips in %ss): " "$_SL_PROMPT_TIMEOUT"
     if read -t "$_SL_PROMPT_TIMEOUT" -r SL_REPLY </dev/tty 2>/dev/null; then

@@ -2,20 +2,38 @@
 # gstack-statusline — Claude Code statusLine command that shows the most recent
 # gstack skill you invoked, e.g. /review or /ship.
 #
-# Claude Code pipes a JSON status payload on stdin (cwd, transcript_path, model,
-# ...). We read it, find the last skill the session actually invoked, print it in
-# yellow, and exit. Falls back to gstack's own skill-usage analytics so the
-# segment survives a fresh session and surfaces skills run in other windows.
+# Two display modes (pick with --full / --skill / --mode, the
+# GSTACK_STATUSLINE_MODE env var, or the `statusline_mode` config key that
+# `./setup` installs from):
 #
-# Wired into ~/.claude/settings.json by `./setup` (it offers to install on every
-# run). To install or switch manually:
+#   full   — reconstruct a baseline (dir, git branch, model) from the status
+#            payload and APPEND the skill, so installing this never loses what
+#            Claude Code's default status line showed. This is the default.
+#   skill  — print ONLY the last gstack skill (minimal; replaces whatever the
+#            status bar showed before).
 #
-#   "statusLine": {
-#     "type": "command",
-#     "command": "bash ~/.claude/skills/gstack/bin/gstack-statusline"
-#   }
+# Claude Code pipes a JSON status payload on stdin. We read it, find the last
+# skill the session actually invoked (a slash command or the Skill tool, not a
+# file that was merely Read), and print it in yellow. The skill falls back to
+# gstack's own skill-usage analytics so the segment survives a fresh session and
+# surfaces skills run in other windows.
 #
+# Wired into ~/.claude/settings.json by `./setup`. To install/switch manually:
+#   "statusLine": { "type": "command",
+#     "command": "bash ~/.claude/skills/gstack/bin/gstack-statusline --full" }
 # Remove with: gstack-settings-hook remove-statusline   (or ./setup --no-statusline)
+
+mode="${GSTACK_STATUSLINE_MODE:-full}"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --full)   mode="full"; shift ;;
+    --skill)  mode="skill"; shift ;;
+    --mode)   mode="${2:-full}"; shift 2 ;;
+    --mode=*) mode="${1#--mode=}"; shift ;;
+    *)        shift ;;
+  esac
+done
+case "$mode" in full|skill) ;; *) mode="full" ;; esac
 
 input=$(cat)
 
@@ -23,6 +41,7 @@ input=$(cat)
 # print nothing rather than spilling an error into the status bar.
 command -v jq >/dev/null 2>&1 || exit 0
 
+# ── Last gstack skill ────────────────────────────────────────────────
 last_skill=""
 transcript_path=$(printf '%s' "$input" | jq -r '.transcript_path // empty' 2>/dev/null)
 
@@ -60,6 +79,31 @@ if [ -z "$last_skill" ]; then
   fi
 fi
 
+# ── Assemble output ──────────────────────────────────────────────────
+# Colors via ANSI-C quoting so the data we interpolate is never re-interpreted
+# (printf '%s', not '%b'). Each non-empty segment is space-joined.
+ESC=$'\033'
+out=""
+
+if [ "$mode" = "full" ]; then
+  # Baseline reconstructed from the payload Claude Code passes in, so installing
+  # the statusline is additive instead of replacing the default's content.
+  cur_dir=$(printf '%s' "$input" | jq -r '.workspace.current_dir // .cwd // empty' 2>/dev/null)
+  model=$(printf '%s' "$input" | jq -r '.model.display_name // empty' 2>/dev/null)
+  if [ -n "$cur_dir" ]; then
+    out="${ESC}[01;34m$(basename "$cur_dir")${ESC}[00m"
+    # Git branch is NOT in the payload — derive it (silent when not a repo).
+    branch=$(git -C "$cur_dir" branch --show-current 2>/dev/null || true)
+    [ -n "$branch" ] && out="$out ${ESC}[01;32m($branch)${ESC}[00m"
+  fi
+  [ -n "$model" ] && out="$out ${ESC}[02m$model${ESC}[00m"
+fi
+
 if [ -n "$last_skill" ]; then
-  printf '\033[00;33m%s\033[00m' "$last_skill"
+  [ -n "$out" ] && out="$out "
+  out="$out${ESC}[00;33m$last_skill${ESC}[00m"
+fi
+
+if [ -n "$out" ]; then
+  printf '%s' "$out"
 fi
