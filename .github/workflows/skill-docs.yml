@@ -1,5 +1,13 @@
 name: Skill Docs Freshness
 on: [push, pull_request]
+
+# Cancel superseded runs for the same branch (matches evals.yml,
+# windows-free-tests.yml, etc.). head_ref is set on pull_request; ref_name is
+# the fallback for push so a rapid push series doesn't pile up stale runs.
+concurrency:
+  group: skill-docs-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
 jobs:
   check-freshness:
     runs-on: ubicloud-standard-8
