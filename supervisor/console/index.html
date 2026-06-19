@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Agent Console — Fleet</title>
+  <title>Fleet Console</title>
 
   <!-- Satoshi — display/hero font via Fontshare CDN -->
   <link href="https://api.fontshare.com/v2/css?f[]=satoshi@700,500,400&display=swap" rel="stylesheet">
@@ -29,13 +29,59 @@
 </header>
 
 <div class="page-body" id="page-body">
-  <!-- Cards injected by console.js via SSE -->
-  <div class="empty-section">
-    <div class="empty-check">✓</div>
-    <div class="empty-title">All clear</div>
-    <div class="empty-sub">No tasks need your attention right now.</div>
+
+  <!-- SSE reconnect banner — hidden until SSE drops -->
+  <div class="reconnect-banner" id="reconnect-banner" role="alert" aria-live="assertive" style="display:none">
+    <div class="reconnect-spinner" aria-hidden="true"></div>
+    Connection lost — reconnecting…
   </div>
-</div>
+
+  <!-- ── Human Attention Queue ── -->
+  <section aria-label="Human Attention Queue" id="section-attention">
+    <div class="section-header">
+      <span class="section-title">Needs your decision</span>
+      <span class="section-badge badge-amber" id="attention-badge" style="display:none">0 blocked</span>
+      <div class="section-divider"></div>
+    </div>
+
+    <!-- Cards injected here by console.js -->
+    <div id="attention-cards"></div>
+
+    <!-- Per-section empty state -->
+    <div class="empty-section" id="attention-empty" role="status">
+      <div class="empty-check" aria-hidden="true">✓</div>
+      <div class="empty-title">No blocked agents</div>
+      <div class="empty-sub">Agents needing your input will appear here.</div>
+    </div>
+  </section>
+
+  <!-- ── Approval Queue ── -->
+  <section aria-label="Approval Queue" id="section-approval">
+    <div class="section-header">
+      <span class="section-title">Approval queue</span>
+      <span class="section-badge badge-red" id="approval-badge" style="display:none">0 pending</span>
+      <div class="section-divider"></div>
+    </div>
+
+    <!-- Cards injected here by console.js -->
+    <div id="approval-cards"></div>
+
+    <!-- Per-section empty state (AC1) -->
+    <div class="empty-section" id="approval-empty" role="status">
+      <div class="empty-check" aria-hidden="true">✓</div>
+      <div class="empty-title">No pending approvals</div>
+      <div class="empty-sub">Agents are running autonomously. Risky actions will appear here for your sign-off.</div>
+    </div>
+  </section>
+
+  <!-- All-clear banner — spans both queue areas, shown only when BOTH queues are empty (AC2) -->
+  <div class="empty-section" id="all-clear-banner" role="status" style="display:none;margin-top:8px">
+    <div class="empty-check" aria-hidden="true">✓</div>
+    <div class="empty-title">All clear — agents are running.</div>
+    <div class="empty-sub">No blocked tasks, no pending approvals.</div>
+  </div>
+
+</div><!-- /page-body -->
 
 <script src="console.js"></script>
 </body>
