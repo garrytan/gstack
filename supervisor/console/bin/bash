@@ -1,0 +1,123 @@
+#!/usr/bin/env bash
+# supervisor/console/bin/bash — risk-gated Bash tool intercept
+# Sits first on PATH so the Claude Bash tool calls this instead of system bash.
+# High-risk commands block until the console approves or rejects them.
+
+# Resolve own canonical path to exclude from REAL_BASH search
+_SELF=$(realpath "${BASH_SOURCE[0]}" 2>/dev/null || readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || "${BASH_SOURCE[0]}")
+REAL_BASH=$(type -ap bash | grep -v "$_SELF" | head -1)
+if [ -z "$REAL_BASH" ]; then
+  echo "[bash-wrapper] FATAL: cannot locate real bash (self: $_SELF)" >&2
+  exit 127
+fi
+
+# check_risk: returns "high" if cmd contains a high-risk pattern.
+# No ^ anchor — matches patterns anywhere in the string so chained commands
+# like "cd /tmp && git push origin main" are correctly classified.
+check_risk() {
+  local cmd="$1"
+  if echo "$cmd" | grep -qE \
+    'git[[:space:]]+push|git[[:space:]]+rebase[[:space:]]|git[[:space:]]+reset[[:space:]]|rm[[:space:]]+-[a-zA-Z]*r[a-zA-Z]*f[a-zA-Z]*|curl[^|]*\|[[:space:]]*(bash|sh)|wget[^|]*\|[[:space:]]*(bash|sh)|chmod[[:space:]]+-R|chown[[:space:]]+-R|dd[[:space:]]+if=|mkfs|fdisk'; then
+    echo "high"
+  else
+    echo "low"
+  fi
+}
+
+# evaluate_chain_risk: split on &&, ||, ; and return "high" if any segment is high risk.
+evaluate_chain_risk() {
+  local full_cmd="$1"
+  local segments
+  segments=$(python3 -c "
+import re, sys
+parts = re.split(r'&&|\|\||;', sys.argv[1])
+for p in parts:
+    s = p.strip()
+    if s:
+        print(s)
+" "$full_cmd" 2>/dev/null) || segments="$full_cmd"
+
+  while IFS= read -r seg; do
+    [ -z "$seg" ] && continue
+    if [ "$(check_risk "$seg")" = "high" ]; then
+      echo "high"
+      return
+    fi
+  done <<< "$segments"
+  echo "low"
+}
+
+# Extract the -c argument (the command string the Bash tool passes)
+CMD=""
+FOUND_C=0
+for _arg in "$@"; do
+  if [ "$_arg" = "-c" ]; then
+    FOUND_C=1
+    continue
+  fi
+  if [ "$FOUND_C" -eq 1 ] && [ -z "$CMD" ]; then
+    CMD="$_arg"
+    break
+  fi
+done
+
+# Not a -c invocation (script file or bare bash) — pass through immediately
+if [ "$FOUND_C" -eq 0 ] || [ -z "$CMD" ]; then
+  exec "$REAL_BASH" "$@"
+fi
+
+RISK=$(evaluate_chain_risk "$CMD")
+
+# Low risk — pass through immediately
+if [ "$RISK" != "high" ]; then
+  exec "$REAL_BASH" "$@"
+fi
+
+# === High-risk intercept ===
+AGENT="${AGENT_NAME:-unknown}"
+REQUEST_ID="$(date +%s)-$$-$RANDOM"
+
+if [ -z "${SUPERVISOR_DECISIONS_DIR:-}" ]; then
+  echo "[bash-wrapper] WARNING: SUPERVISOR_DECISIONS_DIR not set; blocking high-risk command" >&2
+  echo "[bash-wrapper] Command: $CMD" >&2
+  echo "[bash-wrapper] Set SUPERVISOR_DECISIONS_DIR and approve via console to proceed." >&2
+  exit 1
+fi
+
+mkdir -p "$SUPERVISOR_DECISIONS_DIR"
+
+REQUEST_FILE="$SUPERVISOR_DECISIONS_DIR/${AGENT}-${REQUEST_ID}.json"
+RESPONSE_FILE="$SUPERVISOR_DECISIONS_DIR/${AGENT}-${REQUEST_ID}.decision.json"
+
+# Write the decision request (json, no jq dependency)
+python3 -c "
+import json, sys
+req = {
+    'command': sys.argv[1],
+    'risk': 'high',
+    'agent': sys.argv[2],
+    'request_id': sys.argv[3],
+}
+with open(sys.argv[4], 'w') as f:
+    json.dump(req, f)
+" "$CMD" "$AGENT" "$REQUEST_ID" "$REQUEST_FILE"
+
+echo "[bash-wrapper] HIGH RISK — blocked, awaiting console decision: $REQUEST_FILE" >&2
+
+# Poll until the console writes a response file
+while true; do
+  if [ -f "$RESPONSE_FILE" ]; then
+    APPROVED=$(python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print(d.get('approved','') or '')" "$RESPONSE_FILE" 2>/dev/null || echo "")
+    rm -f "$RESPONSE_FILE" 2>/dev/null || true
+    if [ "$APPROVED" = "true" ] || [ "$APPROVED" = "True" ] || [ "$APPROVED" = "1" ]; then
+      echo "[bash-wrapper] approved — executing" >&2
+      rm -f "$REQUEST_FILE" 2>/dev/null || true
+      exec "$REAL_BASH" "$@"
+    else
+      echo "[bash-wrapper] rejected — command blocked" >&2
+      rm -f "$REQUEST_FILE" 2>/dev/null || true
+      exit 1
+    fi
+  fi
+  sleep 1
+done

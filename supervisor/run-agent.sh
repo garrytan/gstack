@@ -393,6 +393,14 @@ fi
 
 export AGENT_NAME AGENT_DOMAIN AGENT_ROLE CONTROL_DIR WORK_DIR READ_DIR QA_BASE_URL
 
+# Console intercept: wrapper sits first on PATH so the Bash tool hits it first.
+# SUPERVISOR_DECISIONS_DIR receives request/response files for high-risk commands.
+# EVENTS_FILE is the append-only tool-call feed written by stream-processor.py.
+export PATH="$SUPERVISOR_DIR/console/bin:$PATH"
+export SUPERVISOR_DECISIONS_DIR="$SUPERVISOR_DIR/console/decisions"
+export EVENTS_FILE="$LOG_DIR/live-events.jsonl"
+mkdir -p "$SUPERVISOR_DECISIONS_DIR"
+
 _init_collab_paths
 
 # Start presence beacon and Supabase wake listener (once, not per iteration)
