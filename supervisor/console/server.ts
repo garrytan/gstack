@@ -1,6 +1,6 @@
 // supervisor/console/server.ts — agent console HTTP server
 // Resolves the control repo (cloning if needed) then starts the server.
-// The HTTP port is never bound until the clone succeeds (AC3).
+// The HTTP port is never bound until the clone succeeds (CONS-002 AC3).
 
 import { existsSync } from "fs";
 import { homedir } from "os";
@@ -8,6 +8,9 @@ import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 
 const PORT = 7842;
+const HOSTNAME = "127.0.0.1";
+// Uppercase letters, hyphen, digits only — no path segments, no traversal.
+const TASK_ID_RE = /^[A-Z]+-[0-9]+$/;
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // Parse fleet.conf: skip blank lines and # comments, return all agent names.
@@ -20,28 +23,28 @@ function parseFleetConf(content: string): string[] {
     .filter(Boolean);
 }
 
-async function resolveControlDir(): Promise<string> {
-  // AC5: explicit override via env var — skip all detection.
+// Extract the raw path without dot-segment resolution so traversal attempts
+// reach the taskId validator rather than silently becoming a different path.
+function rawPath(url: string): string {
+  const afterScheme = url.indexOf("://");
+  const pathStart = afterScheme === -1 ? 0 : url.indexOf("/", afterScheme + 3);
+  if (pathStart === -1) return "/";
+  const end = url.indexOf("?", pathStart);
+  return end === -1 ? url.slice(pathStart) : url.slice(pathStart, end);
+}
+
+async function resolveControlDir(agents: string[]): Promise<string> {
+  // CONS-002 AC5: explicit override via env var.
   if (process.env.CONTROL_DIR) {
     return process.env.CONTROL_DIR;
   }
 
-  // AC4: derive the control repo URL from the first agent listed in fleet.conf.
-  const fleetConfPath = join(__dirname, "..", "fleet.conf");
-  let fleetContent: string;
-  try {
-    fleetContent = await Bun.file(fleetConfPath).text();
-  } catch {
-    throw new Error(`Cannot read fleet.conf at ${fleetConfPath}`);
-  }
-
-  const agents = parseFleetConf(fleetContent);
   if (!agents.length) {
     throw new Error("fleet.conf has no agent entries");
   }
   const firstAgent = agents[0];
 
-  // AC4: read URL via git, not from a separate config file.
+  // CONS-002 AC4: derive URL via git, not a separate config file.
   const agentControlPath = join(homedir(), "agents", firstAgent, "control");
   const gitProc = Bun.spawn(
     ["git", "-C", agentControlPath, "remote", "get-url", "origin"],
@@ -58,12 +61,12 @@ async function resolveControlDir(): Promise<string> {
 
   const clonePath = join(homedir(), "agents", "console", "control");
 
-  // AC2: already cloned — start immediately.
+  // CONS-002 AC2: already cloned — start immediately.
   if (existsSync(clonePath)) {
     return clonePath;
   }
 
-  // AC1: clone is blocking; server.listen() is not called until it finishes.
+  // CONS-002 AC1: clone is blocking; Bun.serve() is not called until done.
   console.log(`Cloning control repo from ${remoteUrl}...`);
   const cloneProc = Bun.spawn(["git", "clone", remoteUrl, clonePath], {
     stdout: "inherit",
@@ -71,7 +74,7 @@ async function resolveControlDir(): Promise<string> {
   });
   const cloneExit = await cloneProc.exited;
 
-  // AC6: non-zero exit on failure; no server is started.
+  // CONS-002 AC6: non-zero exit on failure; no server is started.
   if (cloneExit !== 0) {
     console.error(`ERROR: failed to clone control repo from ${remoteUrl}`);
     process.exit(1);
@@ -80,22 +83,63 @@ async function resolveControlDir(): Promise<string> {
   return clonePath;
 }
 
-// Resolve control dir (blocking — see AC3: server only binds after this).
-const controlDir = await resolveControlDir();
+function json(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+// Read fleet.conf once — shared by control-dir resolution and agent validation.
+const fleetConfPath = join(__dirname, "..", "fleet.conf");
+let fleetContent: string;
+try {
+  fleetContent = await Bun.file(fleetConfPath).text();
+} catch {
+  console.error(`ERROR: cannot read fleet.conf at ${fleetConfPath}`);
+  process.exit(1);
+  throw new Error("unreachable"); // satisfies TS definite-assignment
+}
+
+const agentList = parseFleetConf(fleetContent);
+const validAgents = new Set(agentList); // AC3, AC6: Set built at startup
+
+// Resolve control dir (blocking — Bun.serve() is called only after this).
+const controlDir = await resolveControlDir(agentList);
 console.log(`Control dir: ${controlDir}`);
 
-// AC3: app.listen() is called only after the clone succeeds.
+// AC1: hostname:'127.0.0.1' — not reachable from any network interface.
 Bun.serve({
   port: PORT,
+  hostname: HOSTNAME,
   fetch(req: Request): Response {
-    const url = new URL(req.url);
-    if (url.pathname === "/health") {
-      return new Response(JSON.stringify({ status: "ok", controlDir }), {
-        headers: { "content-type": "application/json" },
-      });
+    const path = rawPath(req.url);
+    const { method } = req;
+
+    if (path === "/health") {
+      return json({ status: "ok", controlDir });
     }
+
+    // AC3: POST /api/mailbox/:agentName — reject names not in fleet.conf Set.
+    if (path.startsWith("/api/mailbox/") && method === "POST") {
+      const agentName = path.slice("/api/mailbox/".length).split("/")[0];
+      if (!validAgents.has(agentName)) {
+        return json({ error: "unknown agent" }, 400);
+      }
+      return json({ queued: true });
+    }
+
+    // AC4/AC5: POST /api/unblock/:taskId — reject IDs that fail the regex.
+    if (path.startsWith("/api/unblock/") && method === "POST") {
+      const taskId = path.slice("/api/unblock/".length).split("/")[0];
+      if (!TASK_ID_RE.test(taskId)) {
+        return json({ error: "invalid task ID" }, 400);
+      }
+      return json({ unblocked: taskId });
+    }
+
     return new Response("Not Found", { status: 404 });
   },
 });
 
-console.log(`Console server listening on http://127.0.0.1:${PORT}`);
+console.log(`Console server listening on http://${HOSTNAME}:${PORT}`);
