@@ -7,7 +7,7 @@
 import { createServer } from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { existsSync, watch, mkdirSync } from "fs";
-import { appendFile } from "fs/promises";
+import { appendFile, readdir, stat, unlink, writeFile } from "fs/promises";
 import { homedir } from "os";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
@@ -144,6 +144,41 @@ async function handleMailbox(req: IncomingMessage, res: ServerResponse, agentNam
     const msg = err instanceof Error ? err.message : "push failed after retry";
     sendJson(res, { error: msg }, 500);
   }
+}
+
+// AC3/AC4: write decision file + schedule 60s unlink (gives bash wrapper time to read).
+async function handleApprove(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of req) chunks.push(chunk as Buffer);
+  let body: { agentName?: string; requestId?: string; approved?: boolean } = {};
+  try {
+    body = JSON.parse(Buffer.concat(chunks).toString()) as typeof body;
+  } catch {
+    sendJson(res, { error: "invalid JSON" }, 400);
+    return;
+  }
+
+  const { agentName, requestId } = body;
+  if (!agentName || !requestId || body.approved === undefined) {
+    sendJson(res, { error: "missing agentName, requestId, or approved" }, 400);
+    return;
+  }
+
+  const dir = process.env.SUPERVISOR_DECISIONS_DIR;
+  if (!dir) {
+    sendJson(res, { error: "SUPERVISOR_DECISIONS_DIR not set" }, 503);
+    return;
+  }
+
+  const decisionFile = join(dir, `${agentName}-${requestId}.decision.json`);
+  await writeFile(decisionFile, JSON.stringify({ approved: body.approved }));
+
+  // AC3: schedule cleanup — bash wrapper has 60s to poll and read before we unlink.
+  setTimeout(() => {
+    unlink(decisionFile).catch(() => {}); // AC4: swallow — wrapper may have already removed it
+  }, 60_000);
+
+  sendJson(res, { ok: true });
 }
 
 // Read fleet.conf once — shared by control-dir resolution and agent validation.
@@ -301,6 +336,12 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     return; // keep connection open — do NOT call res.end()
   }
 
+  // POST /api/approve — write decision file for bash wrapper approval (CONS-008).
+  if (path === "/api/approve" && method === "POST") {
+    void handleApprove(req, res);
+    return;
+  }
+
   // POST /api/draft-decision — stream AI-drafted decision suggestion (CONS-005).
   if (path === "/api/draft-decision" && method === "POST") {
     void handleDraftDecision(req, res);
@@ -310,6 +351,23 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
   res.writeHead(404);
   res.end("Not Found");
 });
+
+// AC1/AC2: prune decision files older than 24h before binding — not fire-and-forget.
+const _decisionsDir = process.env.SUPERVISOR_DECISIONS_DIR ?? "";
+if (_decisionsDir) {
+  try {
+    const _now = Date.now();
+    const _cutoff = 24 * 60 * 60 * 1000;
+    for (const _file of await readdir(_decisionsDir)) {
+      if (!_file.endsWith(".json")) continue;
+      const _fp = join(_decisionsDir, _file);
+      try {
+        const _st = await stat(_fp);
+        if (_now - _st.mtimeMs > _cutoff) await unlink(_fp);
+      } catch { /* file removed between readdir and stat */ }
+    }
+  } catch { /* dir absent or unreadable */ }
+}
 
 server.listen(PORT, HOSTNAME, () => {
   console.log(`Console server listening on http://${HOSTNAME}:${PORT}`);
