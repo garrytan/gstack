@@ -14,7 +14,7 @@
  */
 
 import { BrowserManager } from './browser-manager';
-import { handleReadCommand } from './read-commands';
+import { handleReadCommand, hasOutArg } from './read-commands';
 import { handleWriteCommand } from './write-commands';
 import { handleMetaCommand } from './meta-commands';
 import { handleCookiePickerRoute, hasActivePicker } from './cookie-picker-routes';
@@ -330,9 +330,15 @@ export const TUNNEL_COMMANDS = new Set<string>([
  * without standing up an HTTP listener. Behavior is identical to the inline
  * check; the function canonicalizes the command (so aliases hit the same set)
  * and returns false for null/undefined input.
+ *
+ * `args` is consulted so an `--out` invocation (e.g. `eval --out <file>`) is
+ * NEVER tunnel-dispatchable: `--out` turns an otherwise-readable command into a
+ * local-disk WRITE, and the tunnel surface never grants disk-write capability to
+ * remote paired agents. Omitting `args` preserves the old command-only behavior.
  */
-export function canDispatchOverTunnel(command: string | undefined | null): boolean {
+export function canDispatchOverTunnel(command: string | undefined | null, args?: string[]): boolean {
   if (typeof command !== 'string' || command.length === 0) return false;
+  if (Array.isArray(args) && hasOutArg(args)) return false;
   const cmd = canonicalizeCommand(command);
   return TUNNEL_COMMANDS.has(cmd);
 }
@@ -716,6 +722,19 @@ if (BROWSE_PARENT_PID > 0 && !IS_HEADED_WATCHDOG) {
 import { READ_COMMANDS, WRITE_COMMANDS, META_COMMANDS } from './commands';
 export { READ_COMMANDS, WRITE_COMMANDS, META_COMMANDS };
 
+/**
+ * Whether an invocation should be treated as a WRITE for capability gating
+ * (scope, watch-mode block, tab ownership, tunnel). A command is a write if it
+ * mutates state (`WRITE_COMMANDS`) OR it carries an `--out` flag — `js`/`eval
+ * --out` writes the evaluate result to local disk, so the capability is
+ * per-invocation, not per-command-name. This deliberately does NOT change
+ * dispatch routing: `js`/`eval` still route to `handleReadCommand`; only the
+ * security gates consult this.
+ */
+function isWriteInvocation(command: string, args: string[]): boolean {
+  return WRITE_COMMANDS.has(command) || hasOutArg(args);
+}
+
 // ─── Inspector State (in-memory) ──────────────────────────────
 let inspectorData: InspectorResult | null = null;
 let inspectorTimestamp: number = 0;
@@ -957,6 +976,19 @@ async function handleCommandInternalImpl(
       };
     }
 
+    // `--out` writes the evaluate result to local disk, which is a WRITE
+    // capability distinct from the JS-exec (admin) capability js/eval need.
+    // Require write scope so an admin-but-not-write token can't write files.
+    if (hasOutArg(args) && !tokenInfo.scopes.includes('write')) {
+      return {
+        status: 403, json: true,
+        result: JSON.stringify({
+          error: `"--out" writes to disk and requires the "write" scope`,
+          hint: `Your scopes: ${tokenInfo.scopes.join(', ')}. Re-pair with write access to use --out.`,
+        }),
+      };
+    }
+
     // Domain check for navigation commands
     if ((command === 'goto' || command === 'newtab') && args[0]) {
       if (!checkDomain(tokenInfo, args[0])) {
@@ -1011,7 +1043,7 @@ async function handleCommandInternalImpl(
   // Skip for `newtab` — it creates a tab rather than accessing one.
   if (command !== 'newtab' && tokenInfo && tokenInfo.clientId !== 'root' && tokenInfo.tabPolicy === 'own-only') {
     const targetTab = tabId ?? browserManager.getActiveTabId();
-    if (!browserManager.checkTabAccess(targetTab, tokenInfo.clientId, { isWrite: WRITE_COMMANDS.has(command), ownOnly: true })) {
+    if (!browserManager.checkTabAccess(targetTab, tokenInfo.clientId, { isWrite: isWriteInvocation(command, args), ownOnly: true })) {
       return {
         status: 403, json: true,
         result: JSON.stringify({
@@ -1035,8 +1067,9 @@ async function handleCommandInternalImpl(
     };
   }
 
-  // Block mutation commands while watching (read-only observation mode)
-  if (browserManager.isWatching() && WRITE_COMMANDS.has(command)) {
+  // Block mutation commands while watching (read-only observation mode).
+  // `--out` invocations count as mutations (they write the result to disk).
+  if (browserManager.isWatching() && isWriteInvocation(command, args)) {
     return {
       status: 400, json: true,
       result: JSON.stringify({ error: 'Cannot run mutation commands while watching. Run `$B watch stop` first.' }),
@@ -2650,11 +2683,11 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
         // Paired remote agents drive the browser but cannot configure the
         // daemon, launch new browsers, import cookies, or rotate tokens.
         if (surface === 'tunnel') {
-          if (!canDispatchOverTunnel(body?.command)) {
+          if (!canDispatchOverTunnel(body?.command, body?.args)) {
             logTunnelDenial(req, url, `disallowed_command:${body?.command}`);
             return new Response(JSON.stringify({
               error: `Command '${body?.command}' is not allowed over the tunnel surface`,
-              hint: `Tunnel commands: ${[...TUNNEL_COMMANDS].sort().join(', ')}`,
+              hint: `Tunnel commands: ${[...TUNNEL_COMMANDS].sort().join(', ')}. Note: --out (disk write) is never allowed over the tunnel.`,
             }), { status: 403, headers: { 'Content-Type': 'application/json' } });
           }
         }

@@ -47,6 +47,16 @@ echo "SKILL_PREFIX: $_SKILL_PREFIX"
 source <(~/.claude/skills/gstack/bin/gstack-repo-mode 2>/dev/null) || true
 REPO_MODE=${REPO_MODE:-unknown}
 echo "REPO_MODE: $REPO_MODE"
+_SESSION_KIND=$(~/.claude/skills/gstack/bin/gstack-session-kind 2>/dev/null || echo "interactive")
+case "$_SESSION_KIND" in spawned|headless|interactive) ;; *) _SESSION_KIND="interactive" ;; esac
+echo "SESSION_KIND: $_SESSION_KIND"
+# Conductor host: AskUserQuestion is unreliable here (native disabled, MCP
+# variant flaky), so skills render decisions as prose instead of calling the
+# tool. Gated on !headless so an eval/CI run INSIDE Conductor (GSTACK_HEADLESS)
+# still BLOCKs rather than rendering prose to nobody.
+if [ "$_SESSION_KIND" != "headless" ] && { [ -n "${CONDUCTOR_WORKSPACE_PATH:-}" ] || [ -n "${CONDUCTOR_PORT:-}" ]; }; then
+  echo "CONDUCTOR_SESSION: true"
+fi
 _LAKE_SEEN=$([ -f ~/.gstack/.completeness-intro-seen ] && echo "yes" || echo "no")
 echo "LAKE_INTRO: $_LAKE_SEEN"
 _TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || true)
@@ -162,7 +172,7 @@ In plan mode, allowed because they inform the plan: `$B`, `$D`, `codex exec`/`co
 
 ## Skill Invocation During Plan Mode
 
-If the user invokes a skill in plan mode, the skill takes precedence over generic plan mode behavior. **Treat the skill file as executable instructions, not reference.** Follow it step by step starting from Step 0; the first AskUserQuestion is the workflow entering plan mode, not a violation of it. AskUserQuestion (any variant — `mcp__*__AskUserQuestion` or native; see "AskUserQuestion Format → Tool resolution") satisfies plan mode's end-of-turn requirement. If no variant is callable, the skill is BLOCKED — stop and report `BLOCKED — AskUserQuestion unavailable` per the AskUserQuestion Format rule. At a STOP point, stop immediately. Do not continue the workflow or call ExitPlanMode there. Commands marked "PLAN MODE EXCEPTION — ALWAYS RUN" execute. Call ExitPlanMode only after the skill workflow completes, or if the user tells you to cancel the skill or leave plan mode.
+If the user invokes a skill in plan mode, the skill takes precedence over generic plan mode behavior. **Treat the skill file as executable instructions, not reference.** Follow it step by step starting from Step 0; the first AskUserQuestion is the workflow entering plan mode, not a violation of it. AskUserQuestion (any variant — `mcp__*__AskUserQuestion` or native; see "AskUserQuestion Format → Tool resolution") satisfies plan mode's end-of-turn requirement. If AskUserQuestion is unavailable or a call fails, follow the AskUserQuestion Format failure fallback: `headless` → BLOCKED; `interactive` → the prose fallback (also satisfies end-of-turn). At a STOP point, stop immediately. Do not continue the workflow or call ExitPlanMode there. Commands marked "PLAN MODE EXCEPTION — ALWAYS RUN" execute. Call ExitPlanMode only after the skill workflow completes, or if the user tells you to cancel the skill or leave plan mode.
 
 If `PROACTIVE` is `"false"`, do not auto-invoke or proactively suggest skills. If a skill seems useful, ask: "I think /skillname might help here — want me to run it?"
 
@@ -197,7 +207,7 @@ touch ~/.gstack/.writing-style-prompted
 
 Skip if `WRITING_STYLE_PENDING` is `no`.
 
-If `LAKE_INTRO` is `no`: say "gstack follows the **Boil the Lake** principle — do the complete thing when AI makes marginal cost near-zero. Read more: https://garryslist.org/posts/boil-the-ocean" Offer to open:
+If `LAKE_INTRO` is `no`: say "gstack follows the **Boil the Ocean** principle — do the complete thing when AI makes marginal cost near-zero. Read more: https://garryslist.org/posts/boil-the-ocean" Offer to open:
 
 ```bash
 open https://garryslist.org/posts/boil-the-ocean
@@ -595,6 +605,79 @@ as you edit the markdown. Skip the PDF round trip until you're ready.
 $P generate --no-confidential memo.md memo.pdf
 ```
 
+### Diagrams — mermaid and excalidraw fences render as pictures
+
+A column-0 ` ```mermaid ` or ` ```excalidraw ` fence in the markdown renders
+as a crisp vector diagram, fully offline (vendored bundle, no CDN). Indented
+fences (inside lists) stay plain code blocks by design. A broken fence
+produces a visible red diagnostic block with the parse error — never silent
+raw code.
+
+Fence info-string options:
+
+```
+```mermaid title="Auth flow"        ← caption + aria-label
+```mermaid render=false             ← keep it as a code block (today's behavior)
+```mermaid page=landscape           ← force this diagram onto a landscape page
+```mermaid page=portrait            ← veto auto-landscape for this diagram
+```
+
+A ` ```excalidraw ` fence contains a full .excalidraw scene file (what
+excalidraw.com saves). Authoring NEW diagrams from English is `/diagram`'s
+job — it emits an editable triplet (source, .excalidraw, SVG/PNG) and pairs
+with this skill: embed the `.mmd` source in your markdown, not the PNG.
+
+### Images — scaled right, never truncated
+
+Local images inline automatically (relative paths resolve against the
+markdown file). Every image caps at the content box — zero truncation, ever.
+Oversized photos downscale to print resolution (300dpi) so payloads stay
+small with no visible quality loss.
+
+Remote (http/https) images are **blocked with a visible placeholder** by
+default — offline posture; pass `--allow-network` to fetch them. An image
+that resolves outside the markdown's directory (even via symlink) still
+inlines, but warns loudly; `--strict` makes it fatal. Files over 64MB or
+non-regular files (fifos, devices) degrade to a placeholder instead of
+hanging the run.
+
+Per-image directives, written immediately after the image:
+
+```
+![chart](data.png){width=full}      ← stretch to content-box width
+![chart](data.png){width=50%}       ← percentage or 3in/8cm/200px
+![wide](arch.png){page=landscape}   ← give it its own landscape page
+![wide](shot.png){page=portrait}    ← veto auto-landscape
+```
+
+Wide, small-text diagram images auto-promote to their own landscape page
+(conservative: aspect ≥ 1.8, width over ~2.5x the content box, AND a
+diagram-ish alt word — diagram/architecture/flowchart/chart/graph). The
+promoted page is vertically centered. When the heuristic guesses wrong,
+`{page=portrait}` vetoes it; false negatives just need `{page=landscape}`.
+
+### Other formats — single-file HTML and Word
+
+```bash
+$P generate readme.md out.html --to html    # ONE self-contained file: inline
+                                            # SVG diagrams, data-URI images,
+                                            # zero network refs, screen-readable
+$P generate readme.md out.docx --to docx    # Word: content fidelity (headings,
+                                            # tables, code, diagrams as PNG) —
+                                            # layout is Word's, not ours
+```
+
+`--to` is the output format. `--format` is something else entirely (a
+`--page-size` alias) — don't confuse them.
+
+### CI mode — fail loud on missing assets
+
+```bash
+$P generate docs.md --strict     # missing, remote, out-of-tree, oversized,
+                                 # and non-regular-file images exit non-zero
+                                 # instead of warn + placeholder
+```
+
 ## Common flags
 
 ```
@@ -614,6 +697,10 @@ Branding:
   --no-confidential          Suppress the CONFIDENTIAL right-footer
 
 Output:
+  --to pdf|html|docx         Output format (default: pdf). html = single
+                             self-contained file; docx = content fidelity.
+  --strict                   Missing, remote, out-of-tree, oversized, or
+                             non-regular-file images fail the run (CI mode).
   --page-numbers             "N of M" footer (default on)
   --tagged                   Accessible PDF (default on)
   --outline                  PDF bookmarks from headings (default on)
@@ -621,8 +708,9 @@ Output:
   --verbose                  Per-stage timings
 
 Network:
-  --allow-network            Fetch external images. Off by default
-                             (blocks tracking pixels).
+  --allow-network            Fetch external images. Off by default: remote
+                             images render as a visible blocked placeholder
+                             (no tracking pixels fetch at print time).
 
 Metadata:
   --title "..."              Document title (defaults to first H1)
@@ -650,8 +738,9 @@ If the user has a `.md` file open and says "make it look nice", propose
   `--no-syntax` once that flag exists. For now, remove fenced code blocks
   and regenerate.
 - Paged.js timeout → probably no headings in the markdown. Drop `--toc`.
-- External image missing → add `--allow-network` (understand you're giving
-  the markdown file permission to fetch from its image URLs).
+- "[remote image blocked]" placeholder in the output → add `--allow-network`
+  (understand you're giving the markdown file permission to fetch from its
+  image URLs).
 - Generated PDF too tall/wide → `--page-size a4` or `--margins 0.75in`.
 
 ## Output contract

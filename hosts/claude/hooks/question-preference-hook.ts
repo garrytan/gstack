@@ -40,6 +40,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { spawnSync } from 'child_process';
+import { isConductor } from '../../../lib/is-conductor';
 
 interface HookStdin {
   session_id?: string;
@@ -400,57 +401,77 @@ async function main(): Promise<void> {
     ? '[plan-tune memory] Past answers suggest: ' + contextNuggets.join(' | ')
     : undefined;
 
+  // Determine whether EVERY question is eligible for never-ask auto-decide.
+  // We deliberately do NOT early-return defer on the first ineligible question:
+  // a Conductor session still needs the [conductor] prose deny as a fallback,
+  // so we compute eligibility, then branch. memoryContext is preserved on every
+  // non-enforcing exit. (All-or-nothing per-call semantics are unchanged: any
+  // ineligible question makes the whole call not auto-decidable.)
   const autoDecisions: Array<{ id: string; recommended: string }> = [];
+  let fullyAutoDecidable = true;
   for (const q of questions) {
     const qText = q.question || '';
     const marker = qText.match(MARKER_RE);
-    if (!marker) {
-      defer(memoryContext);
-      return;
-    }
+    if (!marker) { fullyAutoDecidable = false; break; }
     const questionId = marker[1];
     const pref = lookupPreference(slug, questionId);
-    if (!pref.preference || pref.preference === 'always-ask') {
-      defer(memoryContext);
-      return;
-    }
+    if (!pref.preference || pref.preference === 'always-ask') { fullyAutoDecidable = false; break; }
 
     const entry = registry[questionId];
     const doorType = entry?.door_type || 'two-way';
-    if (doorType === 'one-way') {
-      // Safety override — even never-ask doesn't bypass one-way doors.
-      defer(memoryContext);
-      return;
-    }
+    // Safety override — even never-ask doesn't bypass one-way doors.
+    if (doorType === 'one-way') { fullyAutoDecidable = false; break; }
 
     const opts = optionLabels(q.options || []);
     const { recommended, ambiguous } = extractRecommended(qText, opts);
-    if (!recommended || ambiguous) {
-      // Refuse-on-ambiguous per D2 — fail safe, ask normally.
-      defer(memoryContext);
-      return;
-    }
+    // Refuse-on-ambiguous per D2 — fail safe.
+    if (!recommended || ambiguous) { fullyAutoDecidable = false; break; }
     autoDecisions.push({ id: questionId, recommended });
   }
 
-  // All questions were eligible for enforcement.
-  markAutoDecided(stdin.session_id, stdin.tool_use_id);
+  if (fullyAutoDecidable && autoDecisions.length > 0) {
+    // All questions were eligible for enforcement.
+    markAutoDecided(stdin.session_id, stdin.tool_use_id);
 
-  // Log each auto-decided question now, since deny prevents PostToolUse from
-  // firing. /plan-tune Recent auto-decisions reads source=auto-decided events.
-  for (let i = 0; i < autoDecisions.length; i++) {
-    const d = autoDecisions[i];
-    const q = questions[i];
-    const qText = (q.question || '').replace(MARKER_RE, '').trim();
-    const opts = optionLabels(q.options || []);
-    logAutoDecided(d.id, qText, d.recommended, opts.length, stdin.session_id, stdin.tool_use_id, stdin.cwd);
+    // Log each auto-decided question now, since deny prevents PostToolUse from
+    // firing. /plan-tune Recent auto-decisions reads source=auto-decided events.
+    for (let i = 0; i < autoDecisions.length; i++) {
+      const d = autoDecisions[i];
+      const q = questions[i];
+      const qText = (q.question || '').replace(MARKER_RE, '').trim();
+      const opts = optionLabels(q.options || []);
+      logAutoDecided(d.id, qText, d.recommended, opts.length, stdin.session_id, stdin.tool_use_id, stdin.cwd);
+    }
+
+    const reasonLines = autoDecisions.map(
+      (d) =>
+        `[plan-tune auto-decide] ${d.id} → ${d.recommended} (your never-ask preference). Proceed with that option without re-prompting. Change with /plan-tune.`,
+    );
+    deny(reasonLines.join('\n'));
+    return;
   }
 
-  const reasonLines = autoDecisions.map(
-    (d) =>
-      `[plan-tune auto-decide] ${d.id} → ${d.recommended} (your never-ask preference). Proceed with that option without re-prompting. Change with /plan-tune.`,
-  );
-  deny(reasonLines.join('\n'));
+  // Not fully auto-decidable. In Conductor, AskUserQuestion is unreliable
+  // (native is disabled, the mcp__conductor__AskUserQuestion variant is flaky),
+  // so deny the tool and redirect to a prose decision brief. This is TRANSPORT
+  // AVOIDANCE, not preference enforcement: it fires regardless of marker,
+  // preference, or door type — including one-way doors, which must reach the
+  // human via prose rather than the unreliable tool.
+  if (isConductor()) {
+    const conductorReason =
+      '[conductor] AskUserQuestion is unreliable in Conductor (native disabled, MCP variant flaky). ' +
+      'Do NOT call AskUserQuestion (native or any mcp__*__AskUserQuestion). Render this decision as a ' +
+      'PROSE decision brief now: a D<N> label, an ELI10 of the issue, a Recommendation line, then one ' +
+      'paragraph per choice carrying its `(recommended)` marker and `Completeness: X/10`; tell the user ' +
+      'to reply with a letter, then STOP. For a one-way/destructive confirmation, require an explicit ' +
+      'typed confirmation and do NOT proceed on a vague reply. Capture the decision with gstack-question-log ' +
+      '(PostToolUse will not fire on a prose path).' +
+      (memoryContext ? `\n${memoryContext}` : '');
+    deny(conductorReason);
+    return;
+  }
+
+  defer(memoryContext);
 }
 
 main().catch((e) => {

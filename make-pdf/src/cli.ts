@@ -64,9 +64,14 @@ function printUsage(): void {
     lines.push(`      ${info.description}`);
   }
   lines.push("");
+  lines.push("Output format:");
+  lines.push("  --to pdf|html|docx        What to produce (default: pdf).");
+  lines.push("                            html = single self-contained file, no network refs.");
+  lines.push("                            docx = content fidelity, diagrams as PNG.");
+  lines.push("");
   lines.push("Page layout:");
   lines.push("  --margins <dim>           All four margins (default: 1in). in, pt, cm, mm.");
-  lines.push("  --page-size letter|a4|legal  (aliases: --format)");
+  lines.push("  --page-size letter|a4|legal  (aliases: --format — page SIZE, not output format)");
   lines.push("");
   lines.push("Document structure:");
   lines.push("  --cover                   Add a cover page.");
@@ -85,6 +90,12 @@ function printUsage(): void {
   lines.push("  --outline / --no-outline             (default: on, PDF bookmarks)");
   lines.push("  --quiet                   Suppress progress on stderr.");
   lines.push("  --verbose                 Per-stage timings on stderr.");
+  lines.push("");
+  lines.push("Diagrams & images:");
+  lines.push("  ```mermaid / ```excalidraw fences render as vector diagrams.");
+  lines.push("  Add render=false to a fence info string to keep it as a code block.");
+  lines.push("  Local images are inlined; oversized rasters downscale to print resolution.");
+  lines.push("  --strict                  Missing/remote images fail the run (CI mode).");
   lines.push("");
   lines.push("Network:");
   lines.push("  --allow-network           Load external images (off by default).");
@@ -112,9 +123,16 @@ function generateOptionsFromFlags(parsed: ParsedArgs): GenerateOptions {
     if (f[`no-${key}`] === true) return false;
     return def;
   };
+  const to = typeof f.to === "string" ? f.to.toLowerCase() : "pdf";
+  if (to !== "pdf" && to !== "html" && to !== "docx") {
+    console.error(`$P generate: invalid --to '${f.to}'. Expected pdf, html, or docx.`);
+    console.error("(--format is a --page-size alias, not the output format.)");
+    process.exit(ExitCode.BadArgs);
+  }
   return {
     input: p[0],
     output: p[1],
+    to: to as GenerateOptions["to"],
     margins: f.margins as string | undefined,
     marginTop: f["margin-top"] as string | undefined,
     marginRight: f["margin-right"] as string | undefined,
@@ -136,6 +154,7 @@ function generateOptionsFromFlags(parsed: ParsedArgs): GenerateOptions {
     quiet: f.quiet === true,
     verbose: f.verbose === true,
     allowNetwork: f["allow-network"] === true,
+    strict: f.strict === true,
     title: typeof f.title === "string" ? f.title : undefined,
     author: typeof f.author === "string" ? f.author : undefined,
     date: typeof f.date === "string" ? f.date : undefined,

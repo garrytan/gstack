@@ -1,0 +1,167 @@
+#!/usr/bin/env python3
+"""gstack-detach — run a long agent job (evals, benchmarks, syncs) robustly.
+
+Agent-launched long jobs on a shared dev box keep dying to environmental
+killers. This tool bakes in the fixes so gstack (and every gstack user) runs
+them properly:
+
+  * SIGTERM-proof: fork + setsid puts the job in its OWN session, so the
+    harness's "polite quit" SIGTERM to the launching process group can't reach
+    it (observed: `script "test:gate" was terminated by signal SIGTERM`).
+  * No idle-sleep death (macOS): wraps the command in `caffeinate -i`.
+  * No cross-worktree API saturation: `--lock NAME` takes a machine-wide
+    advisory lock so concurrent Conductor worktrees SERIALIZE their eval runs
+    instead of saturating the shared model API (which mass-times-out E2E suites).
+  * No shared-/tmp collision: a run-scoped log path by default
+    (~/.gstack-dev/eval-runs/<label>-<slug>-<branch>-<ts>-<pid>.log), so
+    concurrent runs never clobber or contaminate each other's logs.
+  * No silent hang: `--timeout SECS` watchdog kills a stalled run, and a
+    `### gstack-detach EXIT=<code> ###` sentinel is ALWAYS appended on a
+    terminal path so a poller can tell finished-vs-died (silence != success).
+
+Usage:
+  gstack-detach [--log PATH] [--lock NAME] [--timeout SECS] [--label LBL] -- CMD [ARGS...]
+
+Prints `gstack-detach LOG <path>` and returns immediately. Poll the log; break
+on `### gstack-detach EXIT=` (both success and failure are marked).
+
+Secrets are inherited from the environment ONLY — never pass an API key in argv.
+"""
+import argparse
+import os
+import shutil
+import signal
+import subprocess
+import sys
+import time
+from datetime import datetime, timezone
+
+
+def _now():
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _git(*args):
+    try:
+        return subprocess.check_output(["git", *args], stderr=subprocess.DEVNULL, text=True).strip()
+    except Exception:
+        return ""
+
+
+def run_scoped_log(label):
+    base = os.path.expanduser("~/.gstack-dev/eval-runs")
+    os.makedirs(base, exist_ok=True)
+    root = _git("rev-parse", "--show-toplevel")
+    slug = os.path.basename(root) if root else "unknown"
+    branch = (_git("branch", "--show-current") or "nobranch").replace("/", "-")
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    return os.path.join(base, f"{label}-{slug}-{branch}-{stamp}-{os.getpid()}.log")
+
+
+def log_line(path, msg):
+    with open(path, "ab", buffering=0) as f:
+        f.write((msg + "\n").encode("utf-8", "replace"))
+
+
+def acquire_lock(name, log):
+    """Machine-wide advisory lock via fcntl (portable on macOS + Linux). Blocks
+    until free so concurrent worktrees serialize rather than saturate the API.
+    Returns the held fd (kept open for the process lifetime)."""
+    import fcntl
+
+    d = os.path.expanduser("~/.gstack/locks")
+    os.makedirs(d, exist_ok=True)
+    fd = open(os.path.join(d, f"{name}.lock"), "w")
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        log_line(log, f"### gstack-detach WAITING for lock '{name}' (another run holds it) ### {_now()}")
+        fcntl.flock(fd, fcntl.LOCK_EX)  # block until released
+    fd.write(f"{os.getpid()} {_now()}\n")
+    fd.flush()
+    log_line(log, f"### gstack-detach LOCK '{name}' ACQUIRED ### {_now()}")
+    return fd
+
+
+def child_run(args, log):
+    lock_fd = acquire_lock(args.lock, log) if args.lock else None
+    cmd = args.cmd
+    if shutil.which("caffeinate"):  # macOS: block idle-sleep for the run
+        cmd = ["caffeinate", "-i", *cmd]
+    log_line(log, f"### gstack-detach START label={args.label} pgid={os.getpgid(0)} ### {_now()}")
+    with open(log, "ab", buffering=0) as f:
+        # start_new_session: the command runs in its OWN process group so the
+        # watchdog can killpg() it without also killing this supervisor (which
+        # must survive to write the EXIT sentinel).
+        proc = subprocess.Popen(
+            cmd, stdout=f, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, start_new_session=True
+        )
+        if args.timeout and args.timeout > 0:
+            try:
+                code = proc.wait(timeout=args.timeout)
+            except subprocess.TimeoutExpired:
+                log_line(log, f"### gstack-detach WATCHDOG fired after {args.timeout}s — killing ### {_now()}")
+                try:
+                    os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+                except Exception:
+                    pass
+                time.sleep(5)
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+                code = "timeout"
+        else:
+            code = proc.wait()
+    log_line(log, f"### gstack-detach EXIT={code} ### {_now()}")
+    if lock_fd:
+        try:
+            lock_fd.close()
+        except Exception:
+            pass
+
+
+def main():
+    ap = argparse.ArgumentParser(add_help=True)
+    ap.add_argument("--log")
+    ap.add_argument("--lock")
+    ap.add_argument("--timeout", type=int, default=0)
+    ap.add_argument("--label", default="job")
+    ap.add_argument("cmd", nargs=argparse.REMAINDER)
+    args = ap.parse_args()
+
+    cmd = args.cmd
+    if cmd and cmd[0] == "--":
+        cmd = cmd[1:]
+    if not cmd:
+        print("gstack-detach: no command given (usage: gstack-detach [opts] -- CMD...)", file=sys.stderr)
+        sys.exit(2)
+    args.cmd = cmd
+
+    log = args.log or run_scoped_log(args.label)
+    os.makedirs(os.path.dirname(log) or ".", exist_ok=True)
+    open(log, "ab").close()
+
+    # Detach: fork so the launching shell returns immediately, then setsid in the
+    # child to escape the harness's process group / controlling terminal.
+    if os.fork() > 0:
+        # flush BEFORE os._exit — os._exit skips stdio buffer flush, which would
+        # otherwise drop this line and leave the caller without the log path.
+        print(f"gstack-detach LOG {log}", flush=True)
+        os._exit(0)
+    os.setsid()
+    devnull = os.open(os.devnull, os.O_RDWR)
+    os.dup2(devnull, 0)
+    lf = os.open(log, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644)
+    os.dup2(lf, 1)
+    os.dup2(lf, 2)
+    try:
+        child_run(args, log)
+    except Exception as e:  # never leave the log without a terminal marker
+        log_line(log, f"### gstack-detach ERROR {e!r} ### {_now()}")
+        log_line(log, f"### gstack-detach EXIT=error ### {_now()}")
+    os._exit(0)
+
+
+if __name__ == "__main__":
+    main()

@@ -24,6 +24,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { hermeticChildEnv, isHermeticEnabled } from './hermetic-env';
 
 /** Strip ANSI escapes for pattern-matching against visible text. */
 export function stripAnsi(s: string): string {
@@ -120,6 +121,13 @@ export interface ClaudePtySession {
   exited(): boolean;
   /** Exit code, if known. */
   exitCode(): number | null;
+  /**
+   * The hermetic CLAUDE_CONFIG_DIR this session's claude was pointed at, or
+   * null when EVALS_HERMETIC=0. Forensics: hermetic plan files live under
+   * `<hermeticConfigDir>/plans/` (extractPlanFilePath still matches them —
+   * the dir name ends in `/.claude` by contract).
+   */
+  hermeticConfigDir: string | null;
   /**
    * Send SIGINT, then SIGKILL after 1s. Always safe to call multiple times.
    * Awaits process exit before resolving.
@@ -1143,7 +1151,16 @@ export async function launchClaudePty(
   if (permissionMode !== null) {
     args.push('--permission-mode', permissionMode);
   }
+  // Hermetic children get zero MCP servers; gated on the same call-time
+  // check as the env scrub so EVALS_HERMETIC=0 restores operator MCP too.
+  // Before opts.extraArgs so a test could theoretically supply --mcp-config.
+  const hermetic = isHermeticEnabled();
+  if (hermetic) args.push('--strict-mcp-config');
   if (opts.extraArgs) args.push(...opts.extraArgs);
+
+  // Hermetic by default (test/helpers/hermetic-env.ts): operator session
+  // context never reaches the child; per-test opts.env merges last.
+  const childEnv = hermeticChildEnv(opts.env);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const proc = (Bun as any).spawn([claudePath, ...args], {
@@ -1155,7 +1172,7 @@ export async function launchClaudePty(
       },
     },
     cwd,
-    env: { ...process.env, ...(opts.env ?? {}) },
+    env: childEnv,
   });
 
   // Track exit so waitForAny can fail fast if claude crashes.
@@ -1307,6 +1324,7 @@ export async function launchClaudePty(
     pid: () => proc.pid as number | undefined,
     exited: () => exited,
     exitCode: () => exitCodeCaptured,
+    hermeticConfigDir: hermetic ? childEnv.CLAUDE_CONFIG_DIR ?? null : null,
     close,
   };
 }

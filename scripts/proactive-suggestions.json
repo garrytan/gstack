@@ -78,6 +78,11 @@
       "routing": "Uses the browse tool to actually TEST the\ndeveloper experience: navigates docs, tries the getting started flow, times\nTTHW, screenshots error messages, evaluates CLI help text. Produces a DX\nscorecard with evidence. Compares against /plan-devex-review scores if they\nexist (the boomerang: plan said 3 minutes, reality says 8). Use when asked to\n\"test the DX\", \"DX audit\", \"developer experience test\", or \"try the\nonboarding\". Proactively suggest after shipping a developer-facing feature.",
       "voice_line": "Voice triggers (speech-to-text aliases): \"dx audit\", \"test the developer experience\", \"try the onboarding\", \"developer experience test\"."
     },
+    "diagram": {
+      "lead": "Turn an English description (or mermaid source) into a diagram triplet: the source, an editable .excalidraw file you can open",
+      "routing": "on excalidraw.com,\nand rendered SVG + PNG (clean mermaid style; the .excalidraw carries the\nhand-drawn aesthetic). Fully offline.\nUse when asked to \"make a diagram\", \"draw the architecture\", \"create a\nflowchart\", \"diagram this\", or \"visualize this flow\".",
+      "voice_line": null
+    },
     "document-generate": {
       "lead": "Generate missing documentation from scratch for a feature, module, or entire project.",
       "routing": "Uses the Diataxis framework (tutorial / how-to / reference / explanation) to produce\ncomplete, structured documentation. Can be invoked standalone or called by\n/document-release when it finds coverage gaps. Use when asked to \"write docs\",\n\"generate documentation\", \"document this feature\", \"create a tutorial\", or\n\"explain this module\".",

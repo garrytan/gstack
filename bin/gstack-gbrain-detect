@@ -234,4 +234,14 @@ function main(): void {
   process.stdout.write(JSON.stringify(out, null, 2) + "\n");
 }
 
+// --is-ok: live engine-status gate. Exits 0 iff gbrain is usable ("ok"), 1
+// otherwise. Runs detection live (never reads the possibly-stale
+// gbrain-detection.json), so callers — setup, bin/dev-setup, and
+// `gstack-config gbrain-refresh` — can decide whether to render the gbrain
+// :user variant without duplicating the JSON grep. Prints nothing on stdout.
+if (process.argv.includes("--is-ok")) {
+  const noCache = process.env.GSTACK_DETECT_NO_CACHE === "1";
+  process.exit(localEngineStatus({ noCache }) === "ok" ? 0 : 1);
+}
+
 main();

@@ -111,7 +111,16 @@ describe('/spec quality gate fallback', () => {
 
 describe('/spec fail-closed redaction (shared engine)', () => {
   test('the full taxonomy (with secret prefixes) lives in the generated /cso doc', () => {
-    const cso = fs.readFileSync(path.join(ROOT, 'cso', 'SKILL.md'), 'utf-8');
+    // cso is carved — the Secrets Archaeology prose + prefixes moved into
+    // sections/audit-phases.md; read the skeleton+sections union.
+    const csoDir = path.join(ROOT, 'cso');
+    let cso = fs.readFileSync(path.join(csoDir, 'SKILL.md'), 'utf-8');
+    const secDir = path.join(csoDir, 'sections');
+    if (fs.existsSync(secDir)) {
+      for (const f of fs.readdirSync(secDir).sort()) {
+        if (f.endsWith('.md') && !f.endsWith('.md.tmpl')) cso += '\n' + fs.readFileSync(path.join(secDir, f), 'utf-8');
+      }
+    }
     expect(cso).toContain('AKIA');
     expect(cso).toMatch(/ghp_|gho_|ghs_/);
     expect(cso).toContain('sk-ant-');

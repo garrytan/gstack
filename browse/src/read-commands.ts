@@ -13,7 +13,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { TEMP_DIR } from './platform';
 import { inspectElement, formatInspectorResult, getModificationHistory } from './cdp-inspector';
-import { validateReadPath } from './path-security';
+import { validateReadPath, validateOutputPath } from './path-security';
 import { stripLoneSurrogates } from './sanitize';
 // Re-export for backward compatibility (tests import from read-commands)
 export { validateReadPath } from './path-security';
@@ -44,6 +44,117 @@ function wrapForEvaluate(code: string): string {
   return needsBlockWrapper(trimmed)
     ? `(async()=>{\n${code}\n})()`
     : `(async()=>(${trimmed}))()`;
+}
+
+/** Flags split out of `js`/`eval` args by parseOutArgs. */
+export interface OutArgs {
+  outPath?: string;
+  raw: boolean;
+  rest: string[];
+}
+
+/**
+ * Parse `--out <path>` / `--out=<path>` and `--raw` / `--raw=true|false` out of an
+ * arg list, returning the flags plus the remaining positional args (`rest`).
+ *
+ * Single source of truth shared by the js/eval handlers and the write-capability
+ * gate in server.ts, so the two never disagree on what counts as an `--out`
+ * invocation. Throws on malformed usage (repeated `--out`, missing value, bad
+ * `--raw` value) so the user gets a clear error instead of a silent misparse.
+ */
+export function parseOutArgs(args: string[]): OutArgs {
+  let outPath: string | undefined;
+  let raw = false;
+  const rest: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '--out') {
+      if (outPath !== undefined) throw new Error('--out specified more than once');
+      const val = args[i + 1];
+      if (val === undefined || val.startsWith('--')) throw new Error('--out requires a file path');
+      outPath = val;
+      i++;
+    } else if (a.startsWith('--out=')) {
+      if (outPath !== undefined) throw new Error('--out specified more than once');
+      const val = a.slice('--out='.length);
+      if (val === '') throw new Error('--out requires a file path');
+      outPath = val;
+    } else if (a === '--raw') {
+      raw = true;
+    } else if (a.startsWith('--raw=')) {
+      const v = a.slice('--raw='.length).toLowerCase();
+      if (v !== 'true' && v !== 'false') throw new Error('--raw must be true or false');
+      raw = v === 'true';
+    } else {
+      rest.push(a);
+    }
+  }
+  return { outPath, raw, rest };
+}
+
+/**
+ * True iff an arg list contains an `--out` flag in any accepted form
+ * (`--out <path>` or `--out=<path>`). Used by the write-capability gate to
+ * decide whether an otherwise-read command (`js`/`eval`) is actually a write
+ * invocation. Mirrors parseOutArgs's `--out` recognition exactly. Never throws —
+ * a malformed `--out=` still counts as an out attempt (fail safe: gate it).
+ */
+export function hasOutArg(args: string[]): boolean {
+  return args.some(a => a === '--out' || a.startsWith('--out='));
+}
+
+/**
+ * Convert an evaluate() result to its string form — the exact conversion `js`/`eval`
+ * used inline before `--out` existed. Kept byte-for-byte: `typeof === 'object'`
+ * (which includes `null`) goes through JSON.stringify (so `null` → `"null"`);
+ * everything else via `String(result ?? '')` (so `undefined` → `''`). JSON.stringify
+ * still throws on circular / BigInt-bearing results, same as before.
+ */
+export function resultToString(result: unknown): string {
+  return typeof result === 'object'
+    ? JSON.stringify(result, null, 2)
+    : String(result ?? '');
+}
+
+/**
+ * Write an evaluate result string to disk for `--out`, returning bytes written.
+ *
+ * When the result is a base64 data URL (`data:<type>;...;base64,<payload>`) and
+ * `raw` is false, decode the payload to raw bytes — this is the Excalidraw / og-image
+ * path where a render function returns a PNG data URL. The header is parsed
+ * case-insensitively and split on the FIRST comma (data URLs can contain commas in
+ * the payload). The payload is validated against the base64 charset before decoding,
+ * because `Buffer.from(_, 'base64')` silently drops invalid characters and would
+ * otherwise write corrupted bytes. `--raw` forces a literal write even for data URLs.
+ *
+ * Non-base64 strings are surrogate-sanitized (matching what the stdout egress path
+ * did before) and written as UTF-8. Parent directories are created — validateOutputPath
+ * gates the location but does not mkdir.
+ */
+export function writeEvalResult(outPath: string, str: string, opts: { raw: boolean }): number {
+  validateOutputPath(outPath);
+  fs.mkdirSync(path.dirname(path.resolve(outPath)), { recursive: true });
+
+  if (!opts.raw && str.startsWith('data:')) {
+    const comma = str.indexOf(',');
+    if (comma !== -1) {
+      const header = str.slice('data:'.length, comma);
+      const tokens = header.split(';').map(t => t.trim().toLowerCase());
+      if (tokens.includes('base64')) {
+        const payload = str.slice(comma + 1).replace(/\s+/g, '');
+        if (!/^[A-Za-z0-9+/]*={0,2}$/.test(payload)) {
+          throw new Error('--out: malformed base64 in data URL (decode would corrupt output)');
+        }
+        const buf = Buffer.from(payload, 'base64');
+        fs.writeFileSync(outPath, buf);
+        return buf.length;
+      }
+    }
+  }
+
+  const buf = Buffer.from(stripLoneSurrogates(str), 'utf-8');
+  fs.writeFileSync(outPath, buf);
+  return buf.length;
 }
 
 /**
@@ -179,24 +290,36 @@ export async function handleReadCommand(
     }
 
     case 'js': {
-      const expr = args[0];
-      if (!expr) throw new Error('Usage: browse js <expression>');
+      const { outPath, raw, rest } = parseOutArgs(args);
+      const expr = rest[0];
+      if (!expr) throw new Error('Usage: browse js <expression> [--out <file>] [--raw]');
       if (bm) assertJsOriginAllowed(bm, page.url());
       const wrapped = wrapForEvaluate(expr);
       const result = await target.evaluate(wrapped);
-      return typeof result === 'object' ? JSON.stringify(result, null, 2) : String(result ?? '');
+      const str = resultToString(result);
+      if (outPath) {
+        const n = writeEvalResult(outPath, str, { raw });
+        return `JS result written: ${outPath} (${n} bytes)`;
+      }
+      return str;
     }
 
     case 'eval': {
-      const filePath = args[0];
-      if (!filePath) throw new Error('Usage: browse eval <js-file>');
+      const { outPath, raw, rest } = parseOutArgs(args);
+      const filePath = rest[0];
+      if (!filePath) throw new Error('Usage: browse eval <js-file> [--out <file>] [--raw]');
       if (bm) assertJsOriginAllowed(bm, page.url());
       validateReadPath(filePath);
       if (!fs.existsSync(filePath)) throw new Error(`File not found: ${filePath}`);
       const code = fs.readFileSync(filePath, 'utf-8');
       const wrapped = wrapForEvaluate(code);
       const result = await target.evaluate(wrapped);
-      return typeof result === 'object' ? JSON.stringify(result, null, 2) : String(result ?? '');
+      const str = resultToString(result);
+      if (outPath) {
+        const n = writeEvalResult(outPath, str, { raw });
+        return `Eval result written: ${outPath} (${n} bytes)`;
+      }
+      return str;
     }
 
     case 'css': {

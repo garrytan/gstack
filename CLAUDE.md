@@ -31,11 +31,26 @@ use Codex's own auth from `~/.codex/` config — no `OPENAI_API_KEY` env var nee
 `lib/conductor-env-shim.ts`) promotes `GSTACK_ANTHROPIC_API_KEY` /
 `GSTACK_OPENAI_API_KEY` to their canonical names inside gstack's TS binaries.
 Tests run through gstack entrypoints inherit this promotion automatically.
-Don't echo the key value to stdout, logs, or shell history. When passing to a
-test's Agent SDK, do NOT pass `env: {...}` to `runAgentSdkTest` — the SDK's
-auth pipeline doesn't pick up the key the same way when env is supplied as an
-object (confirmed failure mode). Mutate `process.env.ANTHROPIC_API_KEY`
-ambiently before the call and restore in `finally`.
+Don't echo the key value to stdout, logs, or shell history. The historical
+"never pass `env:` to `runAgentSdkTest`" rule is retired: the failure was
+partial-env replacement (the SDK's `Options.env` REPLACES the child's entire
+environment, so an object without the key broke auth). The runner now always
+passes a COMPLETE hermetic env with per-test `env:` merged last, so per-test
+overrides are safe; ambient `process.env.ANTHROPIC_API_KEY` mutation also
+still works (the env builder reads process.env at call time).
+
+**Hermetic local E2E (default).** Every E2E runner (claude -p, PTY, Agent
+SDK, codex, gemini) spawns children through `test/helpers/hermetic-env.ts`:
+allowlist-scrubbed env (operator `CONDUCTOR_*`, `CLAUDE_*`, `GSTACK_*`,
+`MCP_*`, `GBRAIN_*`, and credentials like `GH_TOKEN` never reach children),
+a fresh seeded `CLAUDE_CONFIG_DIR` (no operator `~/.claude` CLAUDE.md /
+MCP servers / skills), a temp `GSTACK_HOME`, and `--strict-mcp-config`.
+Local eval signal matches CI. Debug against real operator state with
+`EVALS_HERMETIC=0` (restores the legacy env AND drops the strict-MCP flag).
+Per-test `env:` overrides merge last, so deliberate contamination
+(`CONDUCTOR_WORKSPACE_PATH`, per-test `GSTACK_HOME`) keeps working. Wiring
+is pinned by `test/hermetic-wiring.test.ts` (static tripwire) and two
+gate-tier canaries in `test/skill-e2e-hermetic-canary.test.ts`.
 
 E2E tests stream progress in real-time (tool-by-tool via `--output-format stream-json
 --verbose`). Results are persisted to `~/.gstack-dev/evals/` with auto-comparison
@@ -137,7 +152,7 @@ gstack/
 ├── setup            # One-time setup: build binary + symlink skills
 ├── SKILL.md         # Generated from SKILL.md.tmpl (don't edit directly)
 ├── SKILL.md.tmpl    # Template: edit this, run gen:skill-docs
-├── ETHOS.md         # Builder philosophy (Boil the Lake, Search Before Building)
+├── ETHOS.md         # Builder philosophy (Boil the Ocean, Search Before Building)
 └── package.json     # Build scripts for browse
 ```
 
@@ -776,8 +791,10 @@ When estimating or discussing effort, always show both human-team and CC+gstack 
 | Research / exploration | 1 day | 3 hours | ~3x |
 
 Completeness is cheap. Don't recommend shortcuts when the complete implementation
-is a "lake" (achievable) not an "ocean" (multi-quarter migration). See the
-Completeness Principle in the skill preamble for the full philosophy.
+is achievable. Boil the ocean — the complete thing is the goal; only genuinely
+unrelated multi-quarter migrations are separate scope, never an excuse for a
+shortcut. See the Completeness Principle in the skill preamble for the full
+philosophy.
 
 ## Search before building
 
@@ -825,6 +842,34 @@ The full E2E suite can take 30-45 minutes. That's 10-15 polling cycles. Do all o
 them. Report progress at each check (which tests passed, which are running, any
 failures so far). The user wants to see the run complete, not a promise that
 you'll check later.
+
+## Running evals as an agent: always detach (SIGTERM-proof)
+
+When **you (an agent/harness)** launch a long eval/benchmark run, run it through
+`bin/gstack-detach` — NEVER as a plain backgrounded Bash task. A plain background
+task lives in the harness's process group, so a SIGTERM ("polite quit") on a turn
+boundary, a stopped Monitor, or an interruption kills the run mid-flight (observed:
+`script "test:gate" was terminated by signal SIGTERM` ~40 min into a run). On macOS
+the run can also die to idle-sleep. `gstack-detach` fixes both: a fresh session
+(escapes the group SIGTERM) wrapped in `caffeinate -i` (blocks idle-sleep).
+
+- Use the `eval:bg*` scripts (`eval:bg`, `eval:bg:all`, `eval:bg:gate`,
+  `eval:bg:periodic`) — they wrap the eval command in `gstack-detach` with the
+  machine-wide `gstack-evals` lock (concurrent worktrees serialize instead of
+  saturating the shared model API), a per-tier watchdog, and a **run-scoped** log
+  under `~/.gstack-dev/eval-runs/` (no shared-`/tmp` collision). Each prints its
+  log path. Or call `gstack-detach [--lock NAME] [--timeout SECS] [--label LBL] --
+  <cmd>` directly for any long agent job. Export `ANTHROPIC_API_KEY` first (never
+  pass keys in argv).
+- Then **poll the printed logfile** with a death-aware watcher: break on the
+  guaranteed `### gstack-detach EXIT=<code> ###` sentinel (success AND failure are
+  both marked, so silence is never mistaken for success). The detached run survives
+  even if your watcher gets reaped, so re-checking the log always works.
+- Why the lock: a shared dev box with several Conductor worktrees will rate-limit
+  the model API if two eval suites run at once (15-way concurrency each), which
+  mass-times-out E2E tests. The lock makes the second run WAIT, not collide.
+- Humans running `bun run test:evals` foreground in their own terminal don't need
+  this — Ctrl-C is intended there. Detachment is for agent-launched runs only.
 
 ## E2E test fixtures: extract, don't copy
 
@@ -881,6 +926,12 @@ The active skill lives at `~/.claude/skills/gstack/`. After making changes:
 2. Fetch and reset in the skill directory: `cd ~/.claude/skills/gstack && git fetch origin && git reset --hard origin/main`
 3. Rebuild: `cd ~/.claude/skills/gstack && bun run build`
 
+**If you use gbrain:** the `git reset --hard` in step 2 reverts the brain-aware
+(`GBRAIN_CONTEXT_LOAD` / `GBRAIN_SAVE_RESULTS`) blocks that `gstack-config
+gbrain-refresh` renders into the install (those generated blocks differ from
+`main` by design). After deploying, re-run `gstack-config gbrain-refresh` to
+restore them across all your projects' Claude sessions. It's idempotent.
+
 Or copy the binaries directly:
 - `cp browse/dist/browse ~/.claude/skills/gstack/browse/dist/browse`
 - `cp design/dist/design ~/.claude/skills/gstack/design/dist/design`
@@ -902,6 +953,31 @@ Key routing rules:
 - Ship/deploy/PR → invoke /ship or /land-and-deploy
 - Save progress → invoke /context-save
 - Resume context → invoke /context-restore
+
+## Cross-session decision memory
+
+Durable decisions and their rationale are captured in an append-only, event-sourced
+store at `~/.gstack/projects/<slug>/decisions.jsonl` so neither you nor the user
+re-litigates a settled call or loses the "why" across sessions. This is the reliable,
+file-only path: it works with gbrain OFF. (gbrain semantic recall is an optional
+enhancement layered on top, never a dependency.)
+
+- **Resurface** active decisions before re-deciding: `bin/gstack-decision-search`
+  (`--recent N`, `--scope repo|branch|issue`, `--query KW`, `--all`, `--json`).
+  Add `--semantic` (with `--query`) to append related hits from gbrain memory when
+  it's up; it degrades silently to the reliable file results when gbrain is off.
+  Session start already surfaces scope-relevant active decisions via Context Recovery.
+  If a decision is listed, treat it as settled with its rationale; if you're about to
+  reverse it, say so explicitly.
+- **Capture** a DURABLE decision when you or the user make one:
+  `bin/gstack-decision-log '{"decision":"...","rationale":"...","scope":"repo|branch|issue","source":"user|skill|agent","confidence":1-10}'`.
+  Reverse a prior call with `--supersede <id>`; expunge an accidental secret with
+  `--redact <id>`; rewrite the log to the active set with `--compact`. Non-interactive
+  (never prompts), injection-sanitized, and HIGH-secret-blocking on write.
+- **Durable means:** architecture choice, scope cut, tool/vendor choice, or a reversal
+  of a prior call. NOT a turn-level edit, a phrasing tweak, or anything trivially
+  re-derivable. Capture is curated at the source — log durable decisions only, or the
+  store becomes noise.
 
 ## GBrain Search Guidance (configured by /sync-gbrain)
 <!-- gstack-gbrain-search-guidance:start -->
