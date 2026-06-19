@@ -7,6 +7,7 @@
 import { createServer } from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { existsSync, watch, mkdirSync } from "fs";
+import { appendFile } from "fs/promises";
 import { homedir } from "os";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
@@ -92,6 +93,57 @@ function sendJson(res: ServerResponse, body: unknown, status = 200): void {
     "content-length": Buffer.byteLength(data),
   });
   res.end(data);
+}
+
+// Run a git subcommand in repoPath, return exit code.
+async function runGit(args: string[], repoPath: string): Promise<number> {
+  const proc = Bun.spawn(["git", ...args], {
+    cwd: repoPath,
+    stdout: "inherit",
+    stderr: "inherit",
+  });
+  return proc.exited;
+}
+
+// Commit `file` (absolute path inside `repoPath`) then push.
+// If push is rejected (exit 1 or 128): pull --rebase once, then retry push.
+// Maximum one rebase attempt — does not loop.
+async function gitCommitAndPush(repoPath: string, file: string, message: string): Promise<void> {
+  await runGit(["add", file], repoPath);
+  await runGit(["commit", "-m", message], repoPath);
+
+  console.log(`[gitCommitAndPush] pushing`);
+  const pushExit = await runGit(["push"], repoPath);
+  if (pushExit === 0) return; // AC4: no rebase on success
+
+  // Only rebase on push-rejection exit codes (AC4 constraint).
+  if (pushExit === 1 || pushExit === 128) {
+    console.log(`[gitCommitAndPush] push rejected (exit ${pushExit}), retrying with pull --rebase`);
+    const pullExit = await runGit(["pull", "--rebase"], repoPath);
+    if (pullExit !== 0) throw new Error("push failed after retry"); // AC3
+
+    const retryExit = await runGit(["push"], repoPath);
+    if (retryExit === 0) return; // AC2: success after rebase
+  }
+
+  throw new Error("push failed after retry"); // AC3
+}
+
+async function handleMailbox(req: IncomingMessage, res: ServerResponse, agentName: string): Promise<void> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of req) chunks.push(chunk as Buffer);
+  const body = Buffer.concat(chunks).toString();
+
+  const mailboxFile = join(controlDir, "mailboxes", `${agentName}.md`);
+  await appendFile(mailboxFile, body ? `\n${body}\n` : "\n");
+
+  try {
+    await gitCommitAndPush(controlDir, mailboxFile, `mailbox(${agentName}): console message`);
+    sendJson(res, { ok: true });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "push failed after retry";
+    sendJson(res, { error: msg }, 500);
+  }
 }
 
 // Read fleet.conf once — shared by control-dir resolution and agent validation.
@@ -221,7 +273,7 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       sendJson(res, { error: "unknown agent" }, 400);
       return;
     }
-    sendJson(res, { queued: true });
+    void handleMailbox(req, res, agentName);
     return;
   }
 
