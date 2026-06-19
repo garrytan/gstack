@@ -9,7 +9,7 @@ Scripts for starting, stopping, and monitoring the autonomous agent fleet.
 | `fleet.conf` | Declare all agents in one place |
 | `install.sh` | Register an agent as a launchd (macOS) or systemd (Linux) service |
 | `wake-listen.ts` | Supabase Realtime subscriber — wakes idle agents in <1s cross-machine |
-| `console/server.ts` | Console HTTP server (v7.1 — auto-detects control repo, gates risky Bash commands) |
+| `console/server.ts` | Console HTTP server (v7.1 — auto-detects control repo, gates risky Bash commands, streams live events via SSE) |
 | `console/bin/bash` | Risk-gated Bash tool intercept (v7.1 — blocks destructive commands until approved) |
 | `console/index.html` | Console UI entry point (v7.1 — serves static HTML with SSE support) |
 | `console/styles.css` | Console design system (v7.1 — dark theme, motion tokens, Satoshi/DM Sans/JetBrains Mono typefaces) |
@@ -206,6 +206,103 @@ bun run supervisor/console/server.ts
 ```
 
 The server now reads `fleet.conf` to find the control repo without manual setup. Operators upgrading from v7.0 can delete any hardcoded `CONTROL_DIR` exports in their systemd/launchd service files.
+
+---
+
+## AI Draft Suggestions — streaming Claude responses via SSE (v7.1)
+
+The console lets operators request AI-drafted suggestions for blocked tasks, streaming Claude's response token-by-token via Server-Sent Events (SSE). This endpoint integrates with the Anthropic SDK and aborts the stream if the browser disconnects, preventing wasted token consumption.
+
+### Request and response
+
+**Endpoint:** `POST /api/draft-decision`
+
+**Request body:**
+```json
+{
+  "taskId": "CONS-005",
+  "agentName": "agent-be",
+  "context": "Task spec and agent notes..."
+}
+```
+
+**Response:** HTTP 200 with `text/event-stream` (SSE format). Each token arrives as a `data:` line containing a JSON-escaped string:
+```
+data: "The "
+data: "operator "
+data: "can "
+data: "review "
+data: "and "
+data: "edit "
+data: "this "
+data: "draft "
+data: "before "
+data: "submitting."
+data: [DONE]
+```
+
+### Error handling
+
+If `ANTHROPIC_API_KEY` is not set in the server environment, the endpoint returns HTTP 503 immediately (before reading the body):
+```json
+{
+  "error": "AI drafts unavailable — set ANTHROPIC_API_KEY in your environment"
+}
+```
+
+If the Anthropic API returns an error during streaming (invalid key, rate limit, etc.), the stream sends an error event and closes gracefully:
+```
+data: {"error": "invalid API key"}
+```
+
+The server process does not crash.
+
+### Disconnection handling
+
+When the browser closes the connection or the user cancels the request mid-stream, the `req.on("close")` callback triggers `AbortController.abort()`. This immediately stops the Anthropic SDK stream, preventing further token consumption. The server logs no additional output after disconnect.
+
+### Implementation details
+
+- **Model:** `claude-haiku-4-5-20251001` (Haiku for cost control — draft suggestions don't need Opus)
+- **Max tokens:** 512 per response
+- **Abort signal:** Passed to `client.messages.stream({..., signal: controller.signal})`
+- **Streaming handler:** `stream.on("text", ...)` catches each token and writes it as an SSE `data:` line
+- **Completion sentinel:** Final `data: [DONE]\n\n` event signals end of stream
+- **Content type:** Operator supplies `context` (task spec + agent notes) in request body; no hardcoded prompt template
+
+### Use case
+
+When a task is blocked waiting for human decision (e.g., approval request, merge conflict), an operator can click "AI Draft" to get a Claude suggestion. The response appears token-by-token in the console, allowing the operator to review and edit before submitting. If the operator cancels mid-draft or closes the console tab, no additional tokens are charged.
+
+---
+
+## SSE Live Events — real-time log pushing (v7.1)
+
+The console delivers live agent events to connected browsers without polling, using Server-Sent Events (SSE) and `fs.watch` to monitor agent log directories.
+
+### How it works
+
+1. **Server startup.** When `console/server.ts` starts, it reads the agent list from `fleet.conf`. For each agent, it:
+   - Creates the log directory if missing (`~/agents/<agent>/logs/` with `mkdir -p`)
+   - Registers an `fs.watch` callback on that directory
+
+2. **Live-events.jsonl watching.** When an agent appends a line to its `live-events.jsonl`, the `fs.watch` callback detects the write and triggers a broadcast within <1s.
+
+3. **SSE endpoint.** The `/api/events` endpoint accepts HTTP GET and streams a `ReadableStream<Uint8Array>` to connected browsers. Each browser tab gets its own controller in the `sseClients` Set.
+
+4. **Broadcast to all clients.** When a change is detected, the `broadcast()` function encodes the event and sends it to all connected controllers. Dropped connections are cleaned up automatically.
+
+### Implementation
+
+- **Watcher count:** One `fs.watch()` call per agent in `fleet.conf` (typically 4: agent-be, agent-fe, agent-qa, agent-doc)
+- **Event filtering:** Only `live-events.jsonl` changes trigger broadcasts; other files in the log directory are ignored
+- **Client registry:** `sseClients` is a `Set<ReadableStreamDefaultController>` populated at `/api/events` GET, cleaned up on disconnect or error
+- **Broadcast format:** Each event is encoded as `data: <json>\n\n` where the JSON includes `{ agent, file, ts }`
+- **Fallback:** The browser (`index.html`) uses htmx 5s polling as a reconnection fallback; this SSE path handles the push case
+
+### Use case
+
+When an agent writes an approval request or task log line, the console receives it within 1 second on all open browser tabs without a page reload.
 
 ---
 

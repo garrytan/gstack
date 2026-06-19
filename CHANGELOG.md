@@ -2,6 +2,32 @@
 
 ## [Unreleased]
 
+### AI draft suggestions — Claude responses streamed via SSE (v7.1)
+
+The console now lets operators request AI-drafted task suggestions, streaming Claude Haiku's response token-by-token without blocking the UI. The stream aborts immediately if the browser closes the connection, preventing wasted token consumption. Use this when a task is blocked and you need a quick suggestion before deciding.
+
+#### Added
+- `POST /api/draft-decision` endpoint accepting task context and streaming token-by-token via SSE
+- AbortController integration: disconnect cancels the Anthropic SDK stream within milliseconds
+- Clear error handling: missing `ANTHROPIC_API_KEY` returns HTTP 503; API errors send graceful SSE events
+- Configurable context: request body includes `taskId`, `agentName`, and `context` (task spec + agent notes)
+
+#### Changed
+- Console server now serves Claude-drafted suggestions in addition to live event streams
+
+### SSE live events — real-time agent log pushing (v7.1)
+
+The console server now delivers live agent events to all connected browsers using Server-Sent Events (SSE) and `fs.watch`. When an agent writes to its log file (`~/agents/<agent>/logs/live-events.jsonl`), the event appears on every open console tab within 1 second, with no polling and no page reload.
+
+#### Added
+- `/api/events` SSE endpoint serving `text/event-stream` to connected browsers
+- One `fs.watch` callback per agent in `fleet.conf` (typically 4: agent-be, agent-fe, agent-qa, agent-doc)
+- Automatic directory creation (`mkdir -p`) for missing log directories at server startup
+- Client registry (`sseClients` Set) tracking all connected SSE controllers, with automatic cleanup on disconnect or error
+
+#### Changed
+- Console server now gates live approval updates through SSE push instead of relying solely on polling
+
 ### Console UI — design system refinement
 
 The agent console now uses the full gstack design system: corrected typography (16px body, 8px button radius), dark-mode color tokens, motion variables, and a grain texture for visual polish. Font CDN links load Satoshi (display), DM Sans (body), and JetBrains Mono (data) with `display=swap` to prevent layout shift.
