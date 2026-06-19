@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Agent Console — Fleet</title>
+
+  <!-- Satoshi — display/hero font via Fontshare CDN -->
+  <link href="https://api.fontshare.com/v2/css?f[]=satoshi@700,500,400&display=swap" rel="stylesheet">
+
+  <!-- DM Sans — body/UI font via Google Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <!-- JetBrains Mono — data/code font via Google Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="page-header">
+  <div class="page-brand">Fleet</div>
+  <div class="page-subtitle">agent management console</div>
+  <div class="page-header-spacer"></div>
+  <div class="sse-indicator">
+    <div class="sse-dot" id="sse-dot"></div>
+    <span id="sse-label">live</span>
+  </div>
+</header>
+
+<div class="page-body" id="page-body">
+  <!-- Cards injected by console.js via SSE -->
+  <div class="empty-section">
+    <div class="empty-check">✓</div>
+    <div class="empty-title">All clear</div>
+    <div class="empty-sub">No tasks need your attention right now.</div>
+  </div>
+</div>
+
+<script src="console.js"></script>
+</body>
+</html>
