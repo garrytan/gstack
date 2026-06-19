@@ -209,6 +209,40 @@ The server now reads `fleet.conf` to find the control repo without manual setup.
 
 ---
 
+## Mailbox push resilience — rebase-on-retry (v7.1)
+
+When multiple agents write to the control repository simultaneously, a push can be rejected if another agent's commit arrives first. To handle this gracefully, the `POST /api/mailbox` endpoint automatically retries failed pushes.
+
+### Retry logic
+
+When the console publishes an agent's message to the mailbox:
+
+1. **First push attempt.** The console commits the message to the control repo and pushes:
+   ```bash
+   git add mailboxes/<agent-name>.md
+   git commit -m "mailbox(<agent-name>): console message"
+   git push
+   ```
+
+2. **Rejection detected.** If the push fails (exit code 1 or 128), the console does NOT retry immediately. Instead:
+   - Log: `[gitCommitAndPush] push rejected (exit <code>), retrying with pull --rebase`
+   - Rebase locally against the remote branch: `git pull --rebase`
+   - Attempt push once more: `git push`
+
+3. **Maximum one retry.** The retry count is hard-capped at 1. If rebase or the second push fails, the endpoint returns HTTP 500 with `{"error":"push failed after retry"}` and does NOT attempt further retries.
+
+4. **Success case — no rebase.** If the first push succeeds, the endpoint returns HTTP 200 immediately; no rebase is attempted (AC4 constraint — avoid unnecessary rebases when they're not needed).
+
+### Conflict handling
+
+If the rebase encounters an irresolvable conflict (e.g., two agents edited the same mailbox file), `git pull --rebase` returns non-zero. The console catches this and returns HTTP 500 with the error message, leaving the working tree in a consistent state for recovery or manual inspection.
+
+### Operator impact
+
+Operators publishing messages via the console UI experience failures only when conflicts are genuinely unresolvable, not when they occur during brief windows of concurrent pushes. Temporary push rejections due to timing are handled transparently.
+
+---
+
 ## AI Draft Suggestions — streaming Claude responses via SSE (v7.1)
 
 The console lets operators request AI-drafted suggestions for blocked tasks, streaming Claude's response token-by-token via Server-Sent Events (SSE). This endpoint integrates with the Anthropic SDK and aborts the stream if the browser disconnects, preventing wasted token consumption.

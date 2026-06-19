@@ -15,6 +15,19 @@ The console now lets operators request AI-drafted task suggestions, streaming Cl
 #### Changed
 - Console server now serves Claude-drafted suggestions in addition to live event streams
 
+### Mailbox push resilience — automatic rebase-on-retry (v7.1)
+
+When multiple agents write to the control repository simultaneously, concurrent pushes can collide. The `POST /api/mailbox` endpoint now handles this transparently by automatically rebasing and retrying failed pushes, so operators don't see spurious "push failed" errors during fleet activity.
+
+#### Added
+- Automatic rebase-on-retry for mailbox writes: if a push is rejected (exit 1 or 128), the console runs `git pull --rebase` followed by `git push` once more
+- Clear logging: both the initial rejection and the retry attempt are logged at info level with exit codes
+- Conflict awareness: if rebase itself fails (merge conflict), the server returns HTTP 500 with `{"error":"push failed after retry"}` without hanging or looping
+
+#### Changed
+- `POST /api/mailbox` now handles concurrent writes gracefully, reducing spurious errors during multi-agent fleet runs
+- Console operator sees HTTP 200 on success (whether first push or after rebase), making push resilience invisible to the UI
+
 ### SSE live events — real-time agent log pushing (v7.1)
 
 The console server now delivers live agent events to all connected browsers using Server-Sent Events (SSE) and `fs.watch`. When an agent writes to its log file (`~/agents/<agent>/logs/live-events.jsonl`), the event appears on every open console tab within 1 second, with no polling and no page reload.
