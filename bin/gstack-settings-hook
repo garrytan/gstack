@@ -15,6 +15,13 @@
 #        gstack-settings-hook rollback     # restore latest backup
 #        gstack-settings-hook list-sources # show all gstack-tagged hook entries
 #
+#   3. Statusline (gstack-statusline install — used by setup + gstack-uninstall):
+#        gstack-settings-hook set-statusline --command <cmd> [--force]
+#        gstack-settings-hook remove-statusline
+#      set-statusline installs settings.statusLine only when the slot is empty or
+#      already gstack's; it REFUSES to clobber a user/third-party statusLine
+#      (exit 3) unless --force. remove-statusline only removes gstack's own.
+#
 # Every add-event/remove-source writes a backup to ~/.claude/settings.json.bak.<ts>
 # before mutating (Codex correction — silent settings.json mutation is wrong).
 #
@@ -36,6 +43,8 @@ Usage:
   gstack-settings-hook add-event --event <name> --command <cmd> --source <tag> [--matcher <re>] [--timeout <s>]
   gstack-settings-hook remove-source --source <tag>
   gstack-settings-hook diff-event --event <name> --command <cmd> --source <tag> [--matcher <re>] [--timeout <s>]
+  gstack-settings-hook set-statusline --command <cmd> [--force]
+  gstack-settings-hook remove-statusline
   gstack-settings-hook rollback
   gstack-settings-hook list-sources
 EOF
@@ -241,6 +250,71 @@ case "$ACTION" in
       fs.writeFileSync(tmp, JSON.stringify(settings, null, 2) + "\n");
       fs.renameSync(tmp, settingsPath);
       console.log("OK: removed " + removed + " hook entry/entries tagged source=" + source);
+    '
+    ;;
+
+  set-statusline)
+    COMMAND=""
+    FORCE=""
+    shift
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --command) COMMAND="$2"; shift 2 ;;
+        --force)   FORCE=1; shift ;;
+        *) echo "unknown flag: $1" >&2; exit 1 ;;
+      esac
+    done
+    if [ -z "$COMMAND" ]; then
+      echo "set-statusline requires --command <cmd>" >&2
+      exit 1
+    fi
+    backup_settings
+    GSTACK_SETTINGS_PATH="$SETTINGS_FILE" GSTACK_SL_COMMAND="$COMMAND" GSTACK_SL_FORCE="${FORCE:-}" bun -e '
+      const fs = require("fs");
+      const settingsPath = process.env.GSTACK_SETTINGS_PATH;
+      const cmd = process.env.GSTACK_SL_COMMAND;
+      const force = process.env.GSTACK_SL_FORCE === "1";
+      let settings = {};
+      try { settings = JSON.parse(fs.readFileSync(settingsPath, "utf8")); } catch {}
+      const existing = settings.statusLine;
+      const isGstack = (sl) => !!(sl && typeof sl.command === "string" && sl.command.includes("gstack-statusline"));
+      // Never clobber a statusLine the user (or another tool) configured. Only
+      // overwrite our own, or install when the slot is empty — unless --force.
+      if (existing && !isGstack(existing) && !force) {
+        console.log("SKIP: existing non-gstack statusLine left untouched (use --force to replace)");
+        process.exit(3);
+      }
+      if (isGstack(existing) && existing.command === cmd) {
+        console.log("OK: gstack statusLine already current (no change)");
+        process.exit(0);
+      }
+      settings.statusLine = { type: "command", command: cmd };
+      const tmp = settingsPath + ".tmp";
+      fs.writeFileSync(tmp, JSON.stringify(settings, null, 2) + "\n");
+      fs.renameSync(tmp, settingsPath);
+      console.log("OK: gstack statusLine installed");
+    '
+    ;;
+
+  remove-statusline)
+    [ -f "$SETTINGS_FILE" ] || { echo "OK: no settings file"; exit 0; }
+    backup_settings
+    GSTACK_SETTINGS_PATH="$SETTINGS_FILE" bun -e '
+      const fs = require("fs");
+      const settingsPath = process.env.GSTACK_SETTINGS_PATH;
+      let settings = {};
+      try { settings = JSON.parse(fs.readFileSync(settingsPath, "utf8")); } catch { process.exit(0); }
+      const sl = settings.statusLine;
+      // Only remove OUR statusLine — never a user/third-party one.
+      if (sl && typeof sl.command === "string" && sl.command.includes("gstack-statusline")) {
+        delete settings.statusLine;
+        const tmp = settingsPath + ".tmp";
+        fs.writeFileSync(tmp, JSON.stringify(settings, null, 2) + "\n");
+        fs.renameSync(tmp, settingsPath);
+        console.log("OK: removed gstack statusLine");
+      } else {
+        console.log("OK: no gstack statusLine to remove");
+      }
     '
     ;;
 

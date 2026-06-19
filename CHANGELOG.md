@@ -1,5 +1,74 @@
 # Changelog
 
+## [1.59.0.0] - 2026-06-19
+
+## **Your status bar now shows the last gstack skill you ran.**
+## **Opt in at setup, and it never touches a statusLine you already have.**
+
+`./setup` now offers a Claude Code statusLine that shows your most recently
+invoked gstack skill, e.g. `/review` or `/ship`, right in the status bar. It
+reads the current session transcript to find the last skill you actually
+invoked (a slash command or the Skill tool, not a file you happened to read),
+and falls back to gstack's own usage log so the segment still shows up in a
+fresh session and surfaces skills you ran in other windows. Say yes at the
+prompt or pass `--statusline`. By default (`full` mode) it keeps a baseline of
+directory, git branch, and model and appends the skill, so installing it never
+loses what your status line already showed; set `statusline_mode skill` if you
+want the skill name alone. The install is safe by construction: it backs up
+`settings.json` first, it is a no-op when our statusLine is already current, and
+it refuses to overwrite a statusLine you set up yourself (you get a one-line
+command to opt in by hand instead). Remove it anytime with
+`gstack-settings-hook remove-statusline` or `./setup --no-statusline`.
+
+### The numbers that matter
+
+No performance benchmark here, this is a display feature. The number that
+matters is blast radius on your `settings.json`. Source:
+`bun test test/gstack-settings-hook-statusline.test.ts` (10 tests).
+
+| Property | Behavior |
+|---|---|
+| Existing non-gstack statusLine | never overwritten (exit 3, install prints a manual opt-in line) |
+| settings.json backup before any write | yes (`settings.json.bak.<ts>`, `gstack-settings-hook rollback` restores) |
+| Re-running setup | idempotent no-op when our statusLine is already current |
+| Non-interactive / CI install | never mutates silently; opt in via `--statusline` or `GSTACK_STATUSLINE=yes` |
+| Timed-out prompt (no human at the TTY) | installs nothing, does not record a decline |
+
+### What this means for builders
+
+In a long session it is easy to lose track of which skill is driving. The
+statusline keeps the answer in front of you with zero effort, and turning it on
+costs one keystroke at setup. If you already run a custom statusLine, nothing
+changes unless you ask for it. Contributed by @theRealProHacker.
+
+### Itemized changes
+
+#### Added
+- `bin/gstack-statusline`: the Claude Code statusLine command. Reads the status
+  JSON on stdin, extracts the last skill invoked from the session transcript,
+  prints it in yellow, and falls back to `~/.gstack/analytics/skill-usage.jsonl`
+  when there is no transcript signal yet. Two modes: `full` (default; baseline
+  dir/branch/model reconstructed from the payload, with the skill appended, so
+  nothing the default showed is lost) and `skill` (skill only), selectable via
+  `--full`/`--skill`, `GSTACK_STATUSLINE_MODE`, or the `statusline_mode` key.
+- `./setup` install step (step 12): offers the statusline on interactive runs
+  (Enter installs, `n` skips and is remembered, a timeout installs nothing),
+  resolvable up front via `--statusline` / `--no-statusline`, the
+  `GSTACK_STATUSLINE` env var, or a `statusline:` key in `~/.gstack/config.yaml`.
+- `gstack-settings-hook set-statusline --command <cmd> [--force]` and
+  `remove-statusline`: backup-first, atomic-write helpers that own the
+  `statusLine` slot in `settings.json` and only ever touch gstack's own entry.
+- `statusline` (`prompt` | `yes` | `no`) and `statusline_mode` (`full` | `skill`)
+  config keys in `gstack-config`, with validation and `list` / `defaults` coverage.
+- Tests: `test/gstack-settings-hook-statusline.test.ts` (10 — empty-slot install,
+  idempotency, never-clobber guard, `--force`, removal) and
+  `test/gstack-statusline.test.ts` (9 — skill extraction, analytics fallback,
+  full vs skill modes, git-branch derivation, mode resolution).
+
+#### Changed
+- `gstack-uninstall` and `./setup --no-team` now tear down the gstack statusLine
+  (only gstack's own, never a user/third-party one).
+
 ## [1.58.3.0] - 2026-06-18
 
 ## **GBrowser masks the full set of automation tells by default, on every path a page can reach.**

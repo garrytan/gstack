@@ -62,6 +62,43 @@ No vendored files in your repo, no version drift, no manual upgrades. Every Clau
 
 Swap `required` for `optional` if you'd rather nudge teammates than block them.
 
+### Statusline — your last skill, always visible
+
+`./setup` offers to install a Claude Code statusLine that shows the most recent
+gstack skill you ran, e.g. `/review` or `/ship`, right in your status bar. Say
+yes at the prompt (it's cosmetic and reversible), or wire it up explicitly:
+
+```bash
+~/.claude/skills/gstack/bin/gstack-statusline   # the script Claude Code calls
+(cd ~/.claude/skills/gstack && ./setup --statusline)   # install non-interactively
+```
+
+It reads the current session transcript to find the last skill you invoked, and
+falls back to gstack's own usage log so the segment survives a fresh session and
+surfaces skills run in other windows. Setup never clobbers a statusLine you
+already have — if you've got one, it prints a one-liner to opt in by hand. It
+backs up `settings.json` before any change. Remove it anytime:
+
+```bash
+~/.claude/skills/gstack/bin/gstack-settings-hook remove-statusline
+# or: (cd ~/.claude/skills/gstack && ./setup --no-statusline)
+```
+
+**Two display modes** (`statusline_mode` in `~/.gstack/config.yaml`, or
+`GSTACK_STATUSLINE_MODE`):
+
+- `full` (default) — a baseline of directory, git branch, and model, then the
+  skill appended: `myrepo (main) Opus 4.8  /review`. Additive, so nothing the
+  default status line showed is lost.
+- `skill` — the last gstack skill only: `/review`.
+
+```bash
+gstack-config set statusline_mode skill   # switch, then re-run ./setup --statusline
+```
+
+Set `statusline: yes` (or `no`) in `~/.gstack/config.yaml`, or
+`GSTACK_STATUSLINE=yes`, to skip the install prompt on future runs.
+
 ### OpenClaw
 
 OpenClaw spawns Claude Code sessions via ACP, so every gstack skill just works

@@ -83,6 +83,7 @@ SKILL_PREFIX_FLAG=0
 TEAM_MODE=0
 NO_TEAM_MODE=0
 PLAN_TUNE_HOOKS_MODE=""   # "" = resolve from env/config/prompt; "yes"/"no" = explicit
+STATUSLINE_MODE=""        # "" = resolve from env/config/prompt; "yes"/"no" = explicit
 while [ $# -gt 0 ]; do
   case "$1" in
     --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, codex, kiro, factory, opencode, openclaw, hermes, gbrain, or auto)" >&2 && exit 1; HOST="$2"; shift 2 ;;
@@ -95,6 +96,9 @@ while [ $# -gt 0 ]; do
     --plan-tune-hooks)    PLAN_TUNE_HOOKS_MODE="yes"; shift ;;
     --no-plan-tune-hooks) PLAN_TUNE_HOOKS_MODE="no"; shift ;;
     --plan-tune-hooks=*)  PLAN_TUNE_HOOKS_MODE="${1#--plan-tune-hooks=}"; shift ;;
+    --statusline)    STATUSLINE_MODE="yes"; shift ;;
+    --no-statusline) STATUSLINE_MODE="no"; shift ;;
+    --statusline=*)  STATUSLINE_MODE="${1#--statusline=}"; shift ;;
     -q|--quiet) QUIET=1; shift ;;
     *) shift ;;
   esac
@@ -1499,7 +1503,133 @@ if [ "$NO_TEAM_MODE" -ne 1 ] \
   fi
 fi
 
-# Also tear down plan-tune hooks on --no-team (matches the existing pattern).
+# 12. gstack statusline install.
+#
+# Offers to wire a Claude Code statusLine (bin/gstack-statusline) that shows the
+# most recent gstack skill you invoked, e.g. /review or /ship. Same consent
+# contract as the plan-tune block: never mutate settings.json silently, never
+# clobber a statusLine you already have, always back up first, and stay fully
+# resolvable from flag/env/config so scripted installs never block.
+#
+# Idempotent: set-statusline is a no-op when our statusLine is already current,
+# and refuses (exit 3) to overwrite a non-gstack statusLine.
+STATUSLINE_SCRIPT="$SOURCE_GSTACK_DIR/bin/gstack-statusline"
+STATUSLINE_MARKER="$HOME/.gstack/.statusline-prompted"
+
+# Display style: full (baseline dir/branch/model + skill — additive, the default)
+# or skill (skill only). Resolve env > config > default, then pin it in the
+# installed command so the script's own default can never drift it.
+STATUSLINE_STYLE="${GSTACK_STATUSLINE_MODE:-}"
+[ -z "$STATUSLINE_STYLE" ] && STATUSLINE_STYLE="$("$GSTACK_CONFIG" get statusline_mode 2>/dev/null || true)"
+case "$(printf '%s' "$STATUSLINE_STYLE" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')" in
+  skill) STATUSLINE_STYLE="skill" ;;
+  *)     STATUSLINE_STYLE="full" ;;
+esac
+STATUSLINE_COMMAND="bash \"$STATUSLINE_SCRIPT\" --$STATUSLINE_STYLE"
+
+if [ "$NO_TEAM_MODE" -ne 1 ] \
+   && [ -x "$SETTINGS_HOOK" ] \
+   && [ -f "$STATUSLINE_SCRIPT" ]; then
+
+  # Resolve the desired action without ever blocking.
+  # Priority: CLI flag (--statusline / --no-statusline)
+  #         > env (GSTACK_STATUSLINE=yes|no)
+  #         > saved config (statusline)
+  #         > smart default ("prompt" → timed prompt on a real TTY, else skip).
+  SL_DECISION="$STATUSLINE_MODE"
+  [ -z "$SL_DECISION" ] && SL_DECISION="${GSTACK_STATUSLINE:-}"
+  [ -z "$SL_DECISION" ] && SL_DECISION="$("$GSTACK_CONFIG" get statusline 2>/dev/null || true)"
+  SL_DECISION=$(printf '%s' "$SL_DECISION" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
+  case "$SL_DECISION" in
+    y|yes|true|install|on|1) SL_DECISION="yes" ;;
+    n|no|false|skip|off|0)   SL_DECISION="no" ;;
+    *)                       SL_DECISION="prompt" ;;
+  esac
+
+  _install_statusline() {
+    _SL_OUT="$("$SETTINGS_HOOK" set-statusline --command "$STATUSLINE_COMMAND" 2>/dev/null || true)"
+    case "$_SL_OUT" in
+      *"non-gstack statusLine"*)
+        log ""
+        log "Statusline: you already have a custom Claude Code statusLine — left untouched."
+        log "  To switch to the gstack skill statusline, run:"
+        log "    $SETTINGS_HOOK set-statusline --command '$STATUSLINE_COMMAND' --force"
+        ;;
+      *)
+        log ""
+        if [ "$STATUSLINE_STYLE" = "skill" ]; then
+          log "Statusline installed (skill mode): your status bar shows the last gstack skill you ran."
+        else
+          log "Statusline installed (full mode): dir, branch, model, plus the last gstack skill you ran."
+          log "  Want skill-only? gstack-config set statusline_mode skill && ./setup --statusline"
+        fi
+        log "  Backup written before the change. Remove anytime with:"
+        log "    $SETTINGS_HOOK remove-statusline   (or ./setup --no-statusline)"
+        ;;
+    esac
+  }
+
+  if [ "$SL_DECISION" = "yes" ]; then
+    # Explicit opt-in (flag / env / config). Non-interactive.
+    _install_statusline
+    touch "$STATUSLINE_MARKER"
+  elif [ "$SL_DECISION" = "no" ]; then
+    # Explicit opt-out: also tear down a previously-installed gstack statusline.
+    "$SETTINGS_HOOK" remove-statusline >/dev/null 2>&1 || true
+    log ""
+    log "gstack statusline not installed (opted out). Install later with: ./setup --statusline"
+    touch "$STATUSLINE_MARKER"
+  elif [ -f "$STATUSLINE_MARKER" ]; then
+    # Previously decided. Don't re-ask. Re-enable via ./setup --statusline.
+    :
+  elif [ "$QUIET" -ne 1 ] && [ -t 0 ] && [ -t 1 ]; then
+    # Real interactive terminal with no recorded preference: ask. The read is
+    # time-bounded; an ENTER installs (Y default — cosmetic + reversible), an
+    # explicit 'n' skips and is remembered, and a TIMEOUT installs nothing and
+    # does NOT persist a decline (so a forwarded/automated TTY never gets a
+    # silent mutation — matches the plan-tune caution).
+    _SL_PROMPT_TIMEOUT=10
+    log ""
+    log "──────────────────────────────────────────────────────────"
+    log "gstack statusline: show your last /gstack skill in the status bar?"
+    log "──────────────────────────────────────────────────────────"
+    log ""
+    log "Adds a Claude Code statusLine (bin/gstack-statusline) showing the most"
+    log "recent gstack skill you invoked, e.g. /review or /ship. Default 'full'"
+    log "mode keeps dir/branch/model alongside it, so nothing the default showed is"
+    log "lost (set statusline_mode skill for skill-only). Cosmetic and reversible."
+    log "Backs up settings.json first; never clobbers an existing statusLine (you'll"
+    log "get a one-liner to opt in by hand if you have one)."
+    log ""
+    printf "Install the gstack statusline now? [Y/n] (default: Y, auto-skips in %ss): " "$_SL_PROMPT_TIMEOUT"
+    if read -t "$_SL_PROMPT_TIMEOUT" -r SL_REPLY </dev/tty 2>/dev/null; then
+      case "$SL_REPLY" in
+        n|N)
+          log ""
+          log "Skipped. Install later with ./setup --statusline."
+          touch "$STATUSLINE_MARKER"
+          ;;
+        *)
+          # ENTER or y/Y → install.
+          _install_statusline
+          touch "$STATUSLINE_MARKER"
+          ;;
+      esac
+    else
+      # Timed out — no human present. Install nothing; ask again next run.
+      log ""
+      log "No response — skipped for now. Re-run ./setup --statusline to install."
+    fi
+  else
+    # Non-interactive (CI, scripted/workspace setup, quiet). Never prompt.
+    log ""
+    log "gstack statusline available (shows your last skill). Install with:"
+    log "  ./setup --statusline   (or set GSTACK_STATUSLINE=yes)"
+  fi
+fi
+
+# Also tear down plan-tune hooks + gstack statusline on --no-team (matches the existing pattern).
 if [ "$NO_TEAM_MODE" -eq 1 ] && [ -x "$SETTINGS_HOOK" ]; then
   "$SETTINGS_HOOK" remove-source --source plan-tune-cathedral 2>/dev/null || true
+  "$SETTINGS_HOOK" remove-statusline 2>/dev/null || true
 fi

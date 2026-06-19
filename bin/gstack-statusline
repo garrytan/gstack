@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+# gstack-statusline — Claude Code statusLine command that shows the most recent
+# gstack skill you invoked, e.g. /review or /ship.
+#
+# Two display modes (pick with --full / --skill / --mode, the
+# GSTACK_STATUSLINE_MODE env var, or the `statusline_mode` config key that
+# `./setup` installs from):
+#
+#   full   — reconstruct a baseline (dir, git branch, model) from the status
+#            payload and APPEND the skill, so installing this never loses what
+#            Claude Code's default status line showed. This is the default.
+#   skill  — print ONLY the last gstack skill (minimal; replaces whatever the
+#            status bar showed before).
+#
+# Claude Code pipes a JSON status payload on stdin. We read it, find the last
+# skill the session actually invoked (a slash command or the Skill tool, not a
+# file that was merely Read), and print it in yellow. The skill falls back to
+# gstack's own skill-usage analytics so the segment survives a fresh session and
+# surfaces skills run in other windows.
+#
+# Wired into ~/.claude/settings.json by `./setup`. To install/switch manually:
+#   "statusLine": { "type": "command",
+#     "command": "bash ~/.claude/skills/gstack/bin/gstack-statusline --full" }
+# Remove with: gstack-settings-hook remove-statusline   (or ./setup --no-statusline)
+
+mode="${GSTACK_STATUSLINE_MODE:-full}"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --full)   mode="full"; shift ;;
+    --skill)  mode="skill"; shift ;;
+    --mode)   mode="${2:-full}"; shift 2 ;;
+    --mode=*) mode="${1#--mode=}"; shift ;;
+    *)        shift ;;
+  esac
+done
+case "$mode" in full|skill) ;; *) mode="full" ;; esac
+
+input=$(cat)
+
+# jq is the only dependency (already required across gstack). If it's missing,
+# print nothing rather than spilling an error into the status bar.
+command -v jq >/dev/null 2>&1 || exit 0
+
+# ── Last gstack skill ────────────────────────────────────────────────
+last_skill=""
+transcript_path=$(printf '%s' "$input" | jq -r '.transcript_path // empty' 2>/dev/null)
+
+if [ -n "$transcript_path" ] && [ -f "$transcript_path" ]; then
+  # A skill is invoked two ways in the transcript, never by Reading the file:
+  #   1. a slash command — <command-message>…<command-name>/NAME</command-name>
+  #   2. the Skill tool   — "name":"Skill","input":{"skill":"NAME"
+  # Collect both signals with their line numbers, order by transcript position,
+  # drop the meta-commands that aren't skills, and take the last one standing.
+  last_skill=$(
+    {
+      grep -nE '"content":"<command-message>.*<command-name>/[a-z0-9-]+</command-name>' "$transcript_path" 2>/dev/null \
+        | sed -E 's|^([0-9]+):.*<command-name>/([a-z0-9-]+)</command-name>.*|\1 \2|'
+      grep -nE '"name":"Skill","input":\{"skill":"[a-z0-9-]+"' "$transcript_path" 2>/dev/null \
+        | sed -E 's|^([0-9]+):.*"name":"Skill","input":\{"skill":"([a-z0-9-]+)".*|\1 \2|'
+    } 2>/dev/null \
+    | grep -E '^[0-9]+ ' \
+    | sort -n \
+    | awk '{print $2}' \
+    | grep -vE '^(gstack|effort|statusline|clear|help|compact|config|model)$' \
+    | tail -1 \
+    | sed 's|^|/|')
+fi
+
+# Fallback: last skill recorded in gstack analytics (covers other sessions too).
+if [ -z "$last_skill" ]; then
+  state_dir="${GSTACK_STATE_ROOT:-${GSTACK_HOME:-${GSTACK_STATE_DIR:-$HOME/.gstack}}}"
+  analytics_file="$state_dir/analytics/skill-usage.jsonl"
+  if [ -f "$analytics_file" ]; then
+    last_skill=$(tail -20 "$analytics_file" 2>/dev/null \
+      | jq -r '.skill // empty' 2>/dev/null \
+      | grep -v '^$' \
+      | tail -1 \
+      | sed 's|^|/|')
+  fi
+fi
+
+# ── Assemble output ──────────────────────────────────────────────────
+# Colors via ANSI-C quoting so the data we interpolate is never re-interpreted
+# (printf '%s', not '%b'). Each non-empty segment is space-joined.
+ESC=$'\033'
+out=""
+
+if [ "$mode" = "full" ]; then
+  # Baseline reconstructed from the payload Claude Code passes in, so installing
+  # the statusline is additive instead of replacing the default's content.
+  cur_dir=$(printf '%s' "$input" | jq -r '.workspace.current_dir // .cwd // empty' 2>/dev/null)
+  model=$(printf '%s' "$input" | jq -r '.model.display_name // empty' 2>/dev/null)
+  if [ -n "$cur_dir" ]; then
+    out="${ESC}[01;34m$(basename "$cur_dir")${ESC}[00m"
+    # Git branch is NOT in the payload — derive it (silent when not a repo).
+    branch=$(git -C "$cur_dir" branch --show-current 2>/dev/null || true)
+    [ -n "$branch" ] && out="$out ${ESC}[01;32m($branch)${ESC}[00m"
+  fi
+  [ -n "$model" ] && out="$out ${ESC}[02m$model${ESC}[00m"
+fi
+
+if [ -n "$last_skill" ]; then
+  [ -n "$out" ] && out="$out "
+  out="$out${ESC}[00;33m$last_skill${ESC}[00m"
+fi
+
+if [ -n "$out" ]; then
+  printf '%s' "$out"
+fi

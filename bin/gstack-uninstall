@@ -236,6 +236,10 @@ if [ -x "$SETTINGS_HOOK" ]; then
   if "$SETTINGS_HOOK" remove-source --source plan-tune-cathedral 2>/dev/null | grep -q "removed [1-9]"; then
     REMOVED+=("plan-tune cathedral hooks")
   fi
+  # Remove the gstack statusLine (only ours — a user/third-party one is left alone).
+  if "$SETTINGS_HOOK" remove-statusline 2>/dev/null | grep -q "removed gstack statusLine"; then
+    REMOVED+=("gstack statusLine")
+  fi
 fi
 
 # ─── Remove global state ────────────────────────────────────
