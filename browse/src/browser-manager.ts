@@ -342,8 +342,8 @@ export class BrowserManager {
     // BROWSE_EXTENSIONS_DIR points to an unpacked Chrome extension directory.
     // Extensions only work in headed mode, so we use an off-screen window.
     const extensionsDir = process.env.BROWSE_EXTENSIONS_DIR;
-    const { STEALTH_LAUNCH_ARGS } = await import('./stealth');
-    const launchArgs: string[] = [...STEALTH_LAUNCH_ARGS];
+    const { STEALTH_LAUNCH_ARGS, buildGStackLaunchArgs } = await import('./stealth');
+    const launchArgs: string[] = [...STEALTH_LAUNCH_ARGS, ...buildGStackLaunchArgs()];
     let useHeadless = true;
 
     // Docker/CI/root: Chromium sandbox requires unprivileged user namespaces which
@@ -407,10 +407,11 @@ export class BrowserManager {
       await this.context.setExtraHTTPHeaders(this.extraHeaders);
     }
 
-    // D7: mask navigator.webdriver only. The other 3 wintermute patches
-    // (plugins, languages, chrome.runtime) are intentionally NOT applied —
-    // faking them to fixed values can flag more bot-like to modern
-    // fingerprinters, not less.
+    // Apply Layer C stealth (applyStealth): masks navigator.webdriver,
+    // restores window.chrome.* shape, aligns Notification.permission, sets
+    // per-install hardware, and strips automation globals + the Permissions
+    // notifications tell. We still do NOT fake navigator.plugins/languages —
+    // faking those to fixed values flags more bot-like, not less (D7).
     const { applyStealth } = await import('./stealth');
     await applyStealth(this.context);
 
@@ -436,11 +437,19 @@ export class BrowserManager {
 
     // Find the gstack extension directory for auto-loading
     const extensionPath = this.findExtensionPath();
+    const { STEALTH_LAUNCH_ARGS, buildGStackLaunchArgs } = await import('./stealth');
     const launchArgs = [
       '--hide-crash-restore-bubble',
-      // Anti-bot-detection: remove the navigator.webdriver flag that Playwright sets.
-      // Sites like Google and NYTimes check this to block automation browsers.
-      '--disable-blink-features=AutomationControlled',
+      // Anti-bot-detection: --disable-blink-features=AutomationControlled (and any
+      // future blink-level tells) via the shared STEALTH_LAUNCH_ARGS constant — the
+      // same flag launch() and handoff() use, kept in one place instead of a literal.
+      ...STEALTH_LAUNCH_ARGS,
+      // GStack Pack 1: per-install hardware/GPU/UA-CH overrides for the
+      // C++ patches in gbrowser's Chromium build. Each switch is a no-op
+      // on Chromium builds without the corresponding patch (the patch's
+      // empty-fallback returns native), so this is safe on stock Playwright
+      // Chromium too.
+      ...buildGStackLaunchArgs(),
     ];
     if (extensionPath) {
       // Skip --load-extension when running against a custom Chromium build
@@ -533,8 +542,14 @@ export class BrowserManager {
       if (err?.code !== 'ENOENT' && err?.code !== 'EACCES') throw err;
     }
 
-    // Build custom user agent: keep Chrome version for site compatibility,
-    // but replace "Chrome for Testing" branding with "GStackBrowser"
+    // Build custom user agent: report as stock Chrome with the version
+    // matching the underlying Chromium binary. D6 (codex #18 correction):
+    // the previous "GStackBrowser" branding suffix was itself a high-entropy
+    // classifier — sites grepping UA for known browser strings caught us
+    // immediately. Branding still lives in the wrapper .app name + Dock icon
+    // + tray; it does NOT need to be in the UA string for the product to be
+    // "GBrowser." Removing it resolves the "looks like Chrome but identifies
+    // as GStackBrowser" contradiction codex flagged.
     let customUA: string | undefined;
     if (!this.customUserAgent) {
       // Detect Chrome version from the Chromium binary
@@ -547,13 +562,20 @@ export class BrowserManager {
         // Output like: "Google Chrome for Testing 145.0.6422.0" or "Chromium 145.0.6422.0"
         const versionMatch = versionOutput.match(/(\d+\.\d+\.\d+\.\d+)/);
         const chromeVersion = versionMatch ? versionMatch[1] : '131.0.0.0';
-        customUA = `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${chromeVersion} Safari/537.36 GStackBrowser`;
+        customUA = `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${chromeVersion} Safari/537.36`;
       } catch {
         // Fallback: generic modern Chrome UA
-        customUA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 GStackBrowser';
+        customUA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
       }
     }
 
+    // T1: strip Playwright's automation-tell defaults. STEALTH_IGNORE_DEFAULT_ARGS
+    // covers the originals (extension-loading blockers) plus --enable-automation
+    // (kills the "Chrome is being controlled by automated test software" infobar
+    // and the chrome-runtime shape changes Playwright otherwise triggers) and
+    // three more (--disable-popup-blocking, --disable-component-update,
+    // --disable-default-apps — each a documented automation tell per Patchright).
+    const { STEALTH_IGNORE_DEFAULT_ARGS } = await import('./stealth');
     this.context = await chromium.launchPersistentContext(userDataDir, {
       headless: false,
       // Match the sandbox policy used by launch() above. Without this,
@@ -565,59 +587,23 @@ export class BrowserManager {
       userAgent: this.customUserAgent || customUA,
       ...(executablePath ? { executablePath } : {}),
       ...(this.proxyConfig ? { proxy: this.proxyConfig } : {}),
-      // Playwright adds flags that block extension loading
-      ignoreDefaultArgs: [
-        '--disable-extensions',
-        '--disable-component-extensions-with-background-pages',
-      ],
+      ignoreDefaultArgs: STEALTH_IGNORE_DEFAULT_ARGS,
     });
     this.browser = this.context.browser();
     this.connectionMode = 'headed';
     this.intentionalDisconnect = false;
 
     // ─── Anti-bot-detection patches ───────────────────────────────
-    // D7 (codex correction): mask navigator.webdriver only. We do NOT fake
-    // plugins/languages — modern fingerprinters check consistency between
-    // those and userAgent/platform, and synthesizing fixed values can flag
-    // MORE bot-like, not less. Let Chromium's natural plugins and languages
-    // surface unmodified.
-    //
-    // What we DO clean up are automation-specific runtime artifacts that
-    // shouldn't exist in a real browser at all (Permissions API quirks,
-    // ChromeDriver-injected window globals). Those aren't fingerprint
-    // synthesis — they're removing leaked automation tells.
+    // Apply Layer C stealth (applyStealth): masks navigator.webdriver,
+    // restores window.chrome.* shape, aligns Notification.permission, sets
+    // per-install hardware, and strips automation runtime artifacts (cdc_/
+    // __webdriver globals + the Permissions notifications 'denied' tell).
+    // We still do NOT fake navigator.plugins/languages — faking those flags
+    // more bot-like, not less (D7). The cdc/Permissions cleanup moved into
+    // applyStealth so headless launch() and handoff() get it too, not just
+    // this headed path.
     const { applyStealth } = await import('./stealth');
     await applyStealth(this.context);
-    await this.context.addInitScript(() => {
-      // Remove CDP runtime artifacts that automation detectors look for
-      // cdc_ prefixed vars are injected by ChromeDriver/CDP
-      const cleanup = () => {
-        for (const key of Object.keys(window)) {
-          if (key.startsWith('cdc_') || key.startsWith('__webdriver')) {
-            try {
-              delete (window as any)[key];
-            } catch (e: any) {
-              if (!(e instanceof TypeError)) throw e;
-            }
-          }
-        }
-      };
-      cleanup();
-      // Re-clean after a tick in case they're injected late
-      setTimeout(cleanup, 0);
-
-      // Override Permissions API to return 'prompt' for notifications
-      // (automation browsers return 'denied' which is a fingerprint)
-      const originalQuery = window.navigator.permissions?.query;
-      if (originalQuery) {
-        (window.navigator.permissions as any).query = (params: any) => {
-          if (params.name === 'notifications') {
-            return Promise.resolve({ state: 'prompt', onchange: null } as PermissionStatus);
-          }
-          return originalQuery.call(window.navigator.permissions, params);
-        };
-      }
-    });
 
     // Inject visual indicator — subtle top-edge amber gradient
     // Extension's content script handles the floating pill
@@ -1437,6 +1423,14 @@ export class BrowserManager {
       }
       this.context = await this.browser.newContext(contextOptions);
 
+      // Re-apply stealth: newContext() is a fresh context with no init scripts,
+      // so a useragent / viewport --scale rebuild would otherwise drop the
+      // webdriver mask, window.chrome.* shape, hardware spoof, and cdc/
+      // Permissions cleanup on every restored page. Must run before
+      // restoreState() navigates the restored tabs.
+      const { applyStealth } = await import('./stealth');
+      await applyStealth(this.context);
+
       if (Object.keys(this.extraHeaders).length > 0) {
         await this.context.setExtraHTTPHeaders(this.extraHeaders);
       }
@@ -1460,6 +1454,9 @@ export class BrowserManager {
           contextOptions.userAgent = this.customUserAgent;
         }
         this.context = await this.browser!.newContext(contextOptions);
+        // Stealth applies to the fallback blank context too.
+        const { applyStealth } = await import('./stealth');
+        await applyStealth(this.context);
         await this.newTab();
         this.clearRefs();
       } catch {
@@ -1556,7 +1553,11 @@ export class BrowserManager {
       const fs = require('fs');
       const path = require('path');
       const extensionPath = this.findExtensionPath();
-      const launchArgs = ['--hide-crash-restore-bubble'];
+      const { STEALTH_LAUNCH_ARGS, buildGStackLaunchArgs } = await import('./stealth');
+      // Same blink-level stealth flags as launch()/launchHeaded(). Without
+      // STEALTH_LAUNCH_ARGS the handed-off browser kept the AutomationControlled
+      // tell that the other two paths strip.
+      const launchArgs: string[] = ['--hide-crash-restore-bubble', ...STEALTH_LAUNCH_ARGS, ...buildGStackLaunchArgs()];
       if (extensionPath) {
         launchArgs.push(`--disable-extensions-except=${extensionPath}`);
         launchArgs.push(`--load-extension=${extensionPath}`);
@@ -1570,6 +1571,10 @@ export class BrowserManager {
       const userDataDir = path.join(process.env.HOME || '/tmp', '.gstack', 'chromium-profile');
       fs.mkdirSync(userDataDir, { recursive: true });
 
+      // T1: same automation-tell-stripping defaults as launchHeaded().
+      // The handoff path (headless → headed re-launch) takes the same
+      // anti-detection posture.
+      const { STEALTH_IGNORE_DEFAULT_ARGS } = await import('./stealth');
       newContext = await chromium.launchPersistentContext(userDataDir, {
         headless: false,
         // Match the sandbox policy used by launchHeaded() / launch(). The
@@ -1579,10 +1584,7 @@ export class BrowserManager {
         args: launchArgs,
         viewport: null,
         ...(this.proxyConfig ? { proxy: this.proxyConfig } : {}),
-        ignoreDefaultArgs: [
-          '--disable-extensions',
-          '--disable-component-extensions-with-background-pages',
-        ],
+        ignoreDefaultArgs: STEALTH_IGNORE_DEFAULT_ARGS,
         timeout: 15000,
       });
     } catch (err: unknown) {
@@ -1600,6 +1602,13 @@ export class BrowserManager {
       this.pages.clear();
       this.tabSessions.clear();
       this.connectionMode = 'headed';
+
+      // Same Layer C stealth as launch()/launchHeaded(). Must run BEFORE
+      // restoreState() navigates so the init scripts apply to the restored
+      // pages — without this the handed-off browser had cmdline args but no
+      // JS stealth (no webdriver mask, no chrome.* shape, no toString proxy).
+      const { applyStealth } = await import('./stealth');
+      await applyStealth(newContext);
 
       if (Object.keys(this.extraHeaders).length > 0) {
         await newContext.setExtraHTTPHeaders(this.extraHeaders);
