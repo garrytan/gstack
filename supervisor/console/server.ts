@@ -2,7 +2,7 @@
 // Resolves the control repo (cloning if needed) then starts the server.
 // The HTTP port is never bound until the clone succeeds (CONS-002 AC3).
 
-import { existsSync } from "fs";
+import { existsSync, watch, mkdirSync } from "fs";
 import { homedir } from "os";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
@@ -108,6 +108,21 @@ const validAgents = new Set(agentList); // AC3, AC6: Set built at startup
 const controlDir = await resolveControlDir(agentList);
 console.log(`Control dir: ${controlDir}`);
 
+// SSE client registry — one controller per connected browser tab.
+const sseClients = new Set<ReadableStreamDefaultController<Uint8Array>>();
+const encoder = new TextEncoder();
+
+function broadcast(event: string): void {
+  const chunk = encoder.encode(`data: ${event}\n\n`);
+  for (const ctrl of sseClients) {
+    try {
+      ctrl.enqueue(chunk);
+    } catch {
+      sseClients.delete(ctrl);
+    }
+  }
+}
+
 // AC1: hostname:'127.0.0.1' — not reachable from any network interface.
 Bun.serve({
   port: PORT,
@@ -138,8 +153,42 @@ Bun.serve({
       return json({ unblocked: taskId });
     }
 
+    // AC2/AC5: GET /api/events — SSE stream; each tab gets its own controller.
+    if (path === "/api/events") {
+      let thisCtrl: ReadableStreamDefaultController<Uint8Array>;
+      const stream = new ReadableStream<Uint8Array>({
+        start(ctrl) {
+          thisCtrl = ctrl;
+          sseClients.add(ctrl);
+          ctrl.enqueue(encoder.encode(": ping\n\n"));
+        },
+        cancel() {
+          sseClients.delete(thisCtrl);
+        },
+      });
+      return new Response(stream, {
+        headers: {
+          "content-type": "text/event-stream",
+          "cache-control": "no-cache",
+          connection: "keep-alive",
+        },
+      });
+    }
+
     return new Response("Not Found", { status: 404 });
   },
 });
 
 console.log(`Console server listening on http://${HOSTNAME}:${PORT}`);
+
+// AC1/AC4: one fs.watch per agent log directory; mkdir -p so missing dirs don't crash.
+for (const agent of agentList) {
+  const logDir = join(homedir(), "agents", agent, "logs");
+  mkdirSync(logDir, { recursive: true });
+  watch(logDir, (_evt, filename) => {
+    if (filename === "live-events.jsonl") {
+      broadcast(JSON.stringify({ agent, file: filename, ts: Date.now() }));
+    }
+  });
+  console.log(`Watching ${logDir}`);
+}
