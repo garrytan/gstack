@@ -84,8 +84,20 @@ backs up `settings.json` before any change. Remove it anytime:
 # or: (cd ~/.claude/skills/gstack && ./setup --no-statusline)
 ```
 
+**Two display modes** (`statusline_mode` in `~/.gstack/config.yaml`, or
+`GSTACK_STATUSLINE_MODE`):
+
+- `full` (default) — a baseline of directory, git branch, and model, then the
+  skill appended: `myrepo (main) Opus 4.8  /review`. Additive, so nothing the
+  default status line showed is lost.
+- `skill` — the last gstack skill only: `/review`.
+
+```bash
+gstack-config set statusline_mode skill   # switch, then re-run ./setup --statusline
+```
+
 Set `statusline: yes` (or `no`) in `~/.gstack/config.yaml`, or
-`GSTACK_STATUSLINE=yes`, to skip the prompt on future installs.
+`GSTACK_STATUSLINE=yes`, to skip the install prompt on future runs.
 
 ### OpenClaw
 

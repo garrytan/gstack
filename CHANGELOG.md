@@ -11,7 +11,10 @@ reads the current session transcript to find the last skill you actually
 invoked (a slash command or the Skill tool, not a file you happened to read),
 and falls back to gstack's own usage log so the segment still shows up in a
 fresh session and surfaces skills you ran in other windows. Say yes at the
-prompt or pass `--statusline`. The install is safe by construction: it backs up
+prompt or pass `--statusline`. By default (`full` mode) it keeps a baseline of
+directory, git branch, and model and appends the skill, so installing it never
+loses what your status line already showed; set `statusline_mode skill` if you
+want the skill name alone. The install is safe by construction: it backs up
 `settings.json` first, it is a no-op when our statusLine is already current, and
 it refuses to overwrite a statusLine you set up yourself (you get a one-line
 command to opt in by hand instead). Remove it anytime with
@@ -21,7 +24,7 @@ command to opt in by hand instead). Remove it anytime with
 
 No performance benchmark here, this is a display feature. The number that
 matters is blast radius on your `settings.json`. Source:
-`bun test test/gstack-settings-hook-statusline.test.ts` (13 tests).
+`bun test test/gstack-settings-hook-statusline.test.ts` (10 tests).
 
 | Property | Behavior |
 |---|---|
@@ -44,7 +47,10 @@ changes unless you ask for it. Contributed by @theRealProHacker.
 - `bin/gstack-statusline`: the Claude Code statusLine command. Reads the status
   JSON on stdin, extracts the last skill invoked from the session transcript,
   prints it in yellow, and falls back to `~/.gstack/analytics/skill-usage.jsonl`
-  when there is no transcript signal yet.
+  when there is no transcript signal yet. Two modes: `full` (default; baseline
+  dir/branch/model reconstructed from the payload, with the skill appended, so
+  nothing the default showed is lost) and `skill` (skill only), selectable via
+  `--full`/`--skill`, `GSTACK_STATUSLINE_MODE`, or the `statusline_mode` key.
 - `./setup` install step (step 12): offers the statusline on interactive runs
   (Enter installs, `n` skips and is remembered, a timeout installs nothing),
   resolvable up front via `--statusline` / `--no-statusline`, the
@@ -52,10 +58,12 @@ changes unless you ask for it. Contributed by @theRealProHacker.
 - `gstack-settings-hook set-statusline --command <cmd> [--force]` and
   `remove-statusline`: backup-first, atomic-write helpers that own the
   `statusLine` slot in `settings.json` and only ever touch gstack's own entry.
-- `statusline` config key (`prompt` | `yes` | `no`, default `prompt`) in
-  `gstack-config`, with validation and `list` / `defaults` coverage.
-- `test/gstack-settings-hook-statusline.test.ts`: 13 tests covering empty-slot
-  install, idempotency, the never-clobber guard, `--force`, and removal.
+- `statusline` (`prompt` | `yes` | `no`) and `statusline_mode` (`full` | `skill`)
+  config keys in `gstack-config`, with validation and `list` / `defaults` coverage.
+- Tests: `test/gstack-settings-hook-statusline.test.ts` (10 — empty-slot install,
+  idempotency, never-clobber guard, `--force`, removal) and
+  `test/gstack-statusline.test.ts` (9 — skill extraction, analytics fallback,
+  full vs skill modes, git-branch derivation, mode resolution).
 
 #### Changed
 - `gstack-uninstall` and `./setup --no-team` now tear down the gstack statusLine
