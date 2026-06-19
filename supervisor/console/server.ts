@@ -6,7 +6,8 @@
 
 import { createServer } from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { existsSync, watch, mkdirSync } from "fs";
+import { spawnSync } from "child_process";
+import { existsSync, watch, mkdirSync, readFileSync } from "fs";
 import { homedir } from "os";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
@@ -35,7 +36,7 @@ function rawPath(url: string | undefined): string {
   return end === -1 ? url : url.slice(0, end);
 }
 
-async function resolveControlDir(agents: string[]): Promise<string> {
+function resolveControlDir(agents: string[]): string {
   // CONS-002 AC5: explicit override via env var.
   if (process.env.CONTROL_DIR) {
     return process.env.CONTROL_DIR;
@@ -48,12 +49,13 @@ async function resolveControlDir(agents: string[]): Promise<string> {
 
   // CONS-002 AC4: derive URL via git, not a separate config file.
   const agentControlPath = join(homedir(), "agents", firstAgent, "control");
-  const gitProc = Bun.spawn(
-    ["git", "-C", agentControlPath, "remote", "get-url", "origin"],
-    { stdout: "pipe", stderr: "pipe" }
+  const gitResult = spawnSync(
+    "git",
+    ["-C", agentControlPath, "remote", "get-url", "origin"],
+    { encoding: "utf8" }
   );
-  const gitExit = await gitProc.exited;
-  const remoteUrl = (await new Response(gitProc.stdout).text()).trim();
+  const gitExit = gitResult.status ?? 1;
+  const remoteUrl = (gitResult.stdout ?? "").trim();
 
   if (gitExit !== 0 || !remoteUrl) {
     throw new Error(
@@ -70,11 +72,10 @@ async function resolveControlDir(agents: string[]): Promise<string> {
 
   // CONS-002 AC1: clone is blocking; server.listen() is not called until done.
   console.log(`Cloning control repo from ${remoteUrl}...`);
-  const cloneProc = Bun.spawn(["git", "clone", remoteUrl, clonePath], {
-    stdout: "inherit",
-    stderr: "inherit",
+  const cloneResult = spawnSync("git", ["clone", remoteUrl, clonePath], {
+    stdio: "inherit",
   });
-  const cloneExit = await cloneProc.exited;
+  const cloneExit = cloneResult.status ?? 1;
 
   // CONS-002 AC6: non-zero exit on failure; no server is started.
   if (cloneExit !== 0) {
@@ -98,7 +99,7 @@ function sendJson(res: ServerResponse, body: unknown, status = 200): void {
 const fleetConfPath = join(__dirname, "..", "fleet.conf");
 let fleetContent: string;
 try {
-  fleetContent = await Bun.file(fleetConfPath).text();
+  fleetContent = readFileSync(fleetConfPath, "utf8");
 } catch {
   console.error(`ERROR: cannot read fleet.conf at ${fleetConfPath}`);
   process.exit(1);
@@ -109,7 +110,7 @@ const agentList = parseFleetConf(fleetContent);
 const validAgents = new Set(agentList); // AC3, AC6: Set built at startup
 
 // Resolve control dir (blocking — server.listen() is called only after this).
-const controlDir = await resolveControlDir(agentList);
+const controlDir = resolveControlDir(agentList);
 console.log(`Control dir: ${controlDir}`);
 
 // SSE client registry — one ServerResponse per connected browser tab.
