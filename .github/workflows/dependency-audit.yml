@@ -1,0 +1,36 @@
+name: Dependency Audit
+
+# Defense-in-depth: surface known CVEs in the dependency tree on every PR.
+#
+# The redaction guard (lib/redact-engine.ts) and the static-grep tripwire
+# tests cover OUR code; nothing in CI watched the THIRD-PARTY tree for
+# published advisories. This job runs `bun audit` against the committed
+# lockfile so a vulnerable transitive dep shows up at review time.
+#
+# Intentionally NON-BLOCKING (continue-on-error) to start: it reports, it
+# does not gate the merge. Flip `continue-on-error` to false once the tree
+# is known-clean to make it a hard gate.
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: dependency-audit-${{ github.head_ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: bun audit (advisory scan of the committed lockfile)
+        run: bun audit
+        continue-on-error: true
