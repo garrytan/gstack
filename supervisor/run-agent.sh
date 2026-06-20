@@ -391,6 +391,22 @@ if [ "$AGENT_ROLE" = "qa" ]; then
   fi
 fi
 
+# Browse binary for QA agents (screenshot evidence, qa-smoke.sh).
+# gstack is typically not on the launchd/systemd service PATH, so we probe
+# known locations and export BROWSE_BIN so qa-smoke.sh uses it directly
+# without relying on `gstack` being in $PATH.
+if [ "$AGENT_ROLE" = "qa" ] && [ -z "${BROWSE_BIN:-}" ]; then
+  for _browse_candidate in \
+    "$(command -v gstack 2>/dev/null || true)" \
+    "$HOME/.claude/skills/gstack/browse/dist/browse" \
+    "$HOME/.local/bin/gstack" \
+    "/usr/local/bin/gstack"; do
+    [ -n "$_browse_candidate" ] && [ -x "$_browse_candidate" ] && BROWSE_BIN="$_browse_candidate" && break
+  done
+  unset _browse_candidate
+fi
+export BROWSE_BIN
+
 export AGENT_NAME AGENT_DOMAIN AGENT_ROLE CONTROL_DIR WORK_DIR READ_DIR QA_BASE_URL
 
 # Console intercept: wrapper sits first on PATH so the Bash tool hits it first.
