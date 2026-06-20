@@ -1,5 +1,40 @@
 # Changelog
 
+## [1.59.0.0] - 2026-06-20
+
+## **The browser can now pretend to be any phone, anywhere, in any language.**
+## **Device presets, geolocation, locale, and timezone, all from the CLI.**
+
+You can now emulate a real device and a real place without leaving the command line. `device "iPhone 15"` applies Playwright's full preset (user agent, viewport, pixel ratio, mobile and touch flags) so a page renders exactly as it would on that phone. `geo 37.77,-122.41` overrides geolocation and grants the permission automatically, so "near me" features work. `locale ja-JP` and `timezone Asia/Tokyo` make the page believe it is running in Tokyo, in Japanese, which is the fastest way to check i18n and date handling. Each override persists across navigations, context rebuilds, and new tabs, and `geo`/`locale`/`timezone` carry through the headless-to-headed handoff too. Under the hood the three headless context-creation paths now share one `buildContextOptions()` builder, so these settings can't drift between them.
+
+### The numbers that matter
+
+Source: `bun test browse/test/emulation-command.test.ts` (10 tests, no real browser required).
+
+| Capability | Before | After |
+|---|---|---|
+| Emulate a named device | viewport + useragent set separately, by hand | `device "iPhone 15"` (one command, full preset) |
+| Geolocation override | not possible | `geo <lat,lng>` (auto-grants permission) |
+| Locale override | not possible | `locale <bcp47>` |
+| Timezone override | not possible | `timezone <iana-tz>` |
+| Duplicated context-option blocks | 3 | 1 shared builder |
+
+The device table comes straight from Playwright, so every preset Playwright knows (phones, tablets, named browsers) is available via `device list`.
+
+### What this means for builders
+
+Checking a mobile layout? `device "Pixel 7"` then `screenshot`. Testing a store locator? `geo` to the target city. Verifying Japanese formatting and the right date rollover? `locale ja-JP` and `timezone Asia/Tokyo`. It is the same model as Playwright's emulation options, available from the CLI without writing a script.
+
+### Itemized changes
+
+#### Added
+- `device <name|list|reset>` — apply a Playwright device preset (UA + viewport + device-scale + mobile/touch). Viewport sizing is headless-only; in headed mode the real window wins, but the UA still applies.
+- `geo <lat,lng> | clear` — geolocation override, auto-granting the geolocation permission.
+- `locale <bcp47> | clear` and `timezone <iana-tz> | clear` — Accept-Language/Intl locale and Date/Intl timezone overrides.
+
+#### Changed
+- Extracted a shared `buildContextOptions()` for the three headless context-creation sites (removes duplicated viewport/scale/user-agent blocks). `locale`/`timezone`/`geolocation` also apply on the headed path and across the headless-to-headed handoff.
+
 ## [1.58.3.0] - 2026-06-18
 
 ## **GBrowser masks the full set of automation tells by default, on every path a page can reach.**

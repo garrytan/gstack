@@ -97,15 +97,19 @@ Run with `browse <command> [args]`. Full reference: `browse/SKILL.md`.
 - `cookie <name>=<value>`: Set cookie on current page domain
 - `cookie-import <json>`: Import cookies from JSON file
 - `cookie-import-browser [browser] [--domain d]`: Import cookies from installed Chromium browsers (opens picker, or use --domain for direct import)
+- `device <name>  |  device list  |  device reset`: Emulate a Playwright device preset (user agent + viewport + device-scale + mobile/touch flags), e.g.
 - `dialog-accept [text]`: Auto-accept next alert/confirm/prompt.
 - `dialog-dismiss`: Auto-dismiss next dialog
 - `fill <sel> <val>`: Fill input
+- `geo <lat,lng>  |  geo clear`: Override geolocation for the page (grants the geolocation permission automatically).
 - `header <name>:<value>`: Set custom request header (colon-separated, sensitive values auto-redacted)
 - `hover <sel>`: Hover element
+- `locale <bcp47>  |  locale clear`: Override the browser locale (BCP-47, e.g.
 - `press <key>`: Press a Playwright keyboard key against the focused element.
 - `scroll [sel|@ref]`: With a selector, smooth-scrolls the element into view.
 - `select <sel> <val>`: Select dropdown option by value, label, or visible text
 - `style <sel> <prop> <value> | style --undo [N]`: Modify CSS property on element (with undo support)
+- `timezone <iana-tz>  |  timezone clear`: Override the timezone (IANA id, e.g.
 - `type <text>`: Type into focused element
 - `upload <sel> <file> [file2...]`: Upload file(s)
 - `useragent <string>`: Set user agent

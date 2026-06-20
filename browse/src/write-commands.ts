@@ -591,6 +591,83 @@ export async function handleWriteCommand(
       return `User agent set: ${ua}`;
     }
 
+    case 'device': {
+      const { devices } = await import('playwright');
+      const sub = args[0];
+      if (!sub) throw new Error('Usage: browse device <name>  |  device list  |  device reset');
+      if (sub === 'list') {
+        return Object.keys(devices).sort().join('\n');
+      }
+      if (sub === 'reset' || sub === 'clear') {
+        bm.clearDevice();
+        const error = await bm.recreateContext();
+        return error ? `Device reset but: ${error}` : 'Device emulation cleared (desktop defaults).';
+      }
+      const name = args.join(' ');
+      const d = (devices as Record<string, any>)[name];
+      if (!d) throw new Error(`Unknown device "${name}". Run: browse device list`);
+      bm.setDevice(name, {
+        userAgent: d.userAgent,
+        viewport: d.viewport,
+        deviceScaleFactor: d.deviceScaleFactor,
+        isMobile: d.isMobile,
+        hasTouch: d.hasTouch,
+      });
+      const error = await bm.recreateContext();
+      const vp = d.viewport ? `${d.viewport.width}x${d.viewport.height}` : '?';
+      const flags = `${d.isMobile ? ', mobile' : ''}${d.hasTouch ? ', touch' : ''}`;
+      return error
+        ? `Device "${name}" set but: ${error}`
+        : `Emulating ${name} (${vp} @${d.deviceScaleFactor}x${flags}).`;
+    }
+
+    case 'geo': {
+      const arg = args[0];
+      if (!arg) throw new Error('Usage: browse geo <lat,lng>  |  geo clear');
+      if (arg === 'clear') {
+        bm.setGeolocation(null);
+        const error = await bm.recreateContext();
+        return error ? `Geolocation cleared but: ${error}` : 'Geolocation override cleared.';
+      }
+      const parts = arg.split(',').map(s => parseFloat(s.trim()));
+      const [lat, lng] = parts;
+      if (parts.length < 2 || Number.isNaN(lat) || Number.isNaN(lng)) {
+        throw new Error('Invalid coordinates. Example: browse geo 37.77,-122.41');
+      }
+      if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+        throw new Error('Latitude must be -90..90 and longitude -180..180');
+      }
+      bm.setGeolocation({ latitude: lat, longitude: lng });
+      const error = await bm.recreateContext();
+      return error ? `Geolocation set but: ${error}` : `Geolocation set to ${lat},${lng}.`;
+    }
+
+    case 'locale': {
+      const arg = args[0];
+      if (!arg) throw new Error('Usage: browse locale <bcp47>  |  locale clear');
+      if (arg === 'clear') {
+        bm.setLocale(null);
+        const error = await bm.recreateContext();
+        return error ? `Locale cleared but: ${error}` : 'Locale override cleared.';
+      }
+      bm.setLocale(arg);
+      const error = await bm.recreateContext();
+      return error ? `Locale set but: ${error}` : `Locale set to ${arg}.`;
+    }
+
+    case 'timezone': {
+      const arg = args[0];
+      if (!arg) throw new Error('Usage: browse timezone <iana-tz>  |  timezone clear');
+      if (arg === 'clear') {
+        bm.setTimezone(null);
+        const error = await bm.recreateContext();
+        return error ? `Timezone cleared but: ${error}` : 'Timezone override cleared.';
+      }
+      bm.setTimezone(arg);
+      const error = await bm.recreateContext();
+      return error ? `Timezone set but: ${error}` : `Timezone set to ${arg}.`;
+    }
+
     case 'upload': {
       const [selector, ...filePaths] = args;
       if (!selector || filePaths.length === 0) throw new Error('Usage: browse upload <selector> <file1> [file2...]');
