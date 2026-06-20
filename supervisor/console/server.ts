@@ -6,7 +6,8 @@
 
 import { createServer } from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { existsSync, watch, mkdirSync } from "fs";
+import { existsSync, watch, mkdirSync, readFileSync } from "fs";
+import { spawnSync } from "child_process";
 import { appendFile, readdir, stat, unlink, writeFile } from "fs/promises";
 import { homedir } from "os";
 import { join, dirname } from "path";
@@ -36,7 +37,7 @@ function rawPath(url: string | undefined): string {
   return end === -1 ? url : url.slice(0, end);
 }
 
-async function resolveControlDir(agents: string[]): Promise<string> {
+function resolveControlDir(agents: string[]): string {
   // CONS-002 AC5: explicit override via env var.
   if (process.env.CONTROL_DIR) {
     return process.env.CONTROL_DIR;
@@ -49,12 +50,13 @@ async function resolveControlDir(agents: string[]): Promise<string> {
 
   // CONS-002 AC4: derive URL via git, not a separate config file.
   const agentControlPath = join(homedir(), "agents", firstAgent, "control");
-  const gitProc = Bun.spawn(
-    ["git", "-C", agentControlPath, "remote", "get-url", "origin"],
-    { stdout: "pipe", stderr: "pipe" }
+  const gitResult = spawnSync(
+    "git",
+    ["-C", agentControlPath, "remote", "get-url", "origin"],
+    { encoding: "utf8" }
   );
-  const gitExit = await gitProc.exited;
-  const remoteUrl = (await new Response(gitProc.stdout).text()).trim();
+  const gitExit = gitResult.status ?? 1;
+  const remoteUrl = (gitResult.stdout ?? "").trim();
 
   if (gitExit !== 0 || !remoteUrl) {
     throw new Error(
@@ -71,11 +73,10 @@ async function resolveControlDir(agents: string[]): Promise<string> {
 
   // CONS-002 AC1: clone is blocking; server.listen() is not called until done.
   console.log(`Cloning control repo from ${remoteUrl}...`);
-  const cloneProc = Bun.spawn(["git", "clone", remoteUrl, clonePath], {
-    stdout: "inherit",
-    stderr: "inherit",
+  const cloneResult = spawnSync("git", ["clone", remoteUrl, clonePath], {
+    stdio: "inherit",
   });
-  const cloneExit = await cloneProc.exited;
+  const cloneExit = cloneResult.status ?? 1;
 
   // CONS-002 AC6: non-zero exit on failure; no server is started.
   if (cloneExit !== 0) {
@@ -96,33 +97,29 @@ function sendJson(res: ServerResponse, body: unknown, status = 200): void {
 }
 
 // Run a git subcommand in repoPath, return exit code.
-async function runGit(args: string[], repoPath: string): Promise<number> {
-  const proc = Bun.spawn(["git", ...args], {
-    cwd: repoPath,
-    stdout: "inherit",
-    stderr: "inherit",
-  });
-  return proc.exited;
+function runGit(args: string[], repoPath: string): number {
+  const result = spawnSync("git", args, { cwd: repoPath, stdio: "inherit" });
+  return result.status ?? 1;
 }
 
 // Commit `file` (absolute path inside `repoPath`) then push.
 // If push is rejected (exit 1 or 128): pull --rebase once, then retry push.
 // Maximum one rebase attempt — does not loop.
-async function gitCommitAndPush(repoPath: string, file: string, message: string): Promise<void> {
-  await runGit(["add", file], repoPath);
-  await runGit(["commit", "-m", message], repoPath);
+function gitCommitAndPush(repoPath: string, file: string, message: string): void {
+  runGit(["add", file], repoPath);
+  runGit(["commit", "-m", message], repoPath);
 
   console.log(`[gitCommitAndPush] pushing`);
-  const pushExit = await runGit(["push"], repoPath);
+  const pushExit = runGit(["push"], repoPath);
   if (pushExit === 0) return; // AC4: no rebase on success
 
   // Only rebase on push-rejection exit codes (AC4 constraint).
   if (pushExit === 1 || pushExit === 128) {
     console.log(`[gitCommitAndPush] push rejected (exit ${pushExit}), retrying with pull --rebase`);
-    const pullExit = await runGit(["pull", "--rebase"], repoPath);
+    const pullExit = runGit(["pull", "--rebase"], repoPath);
     if (pullExit !== 0) throw new Error("push failed after retry"); // AC3
 
-    const retryExit = await runGit(["push"], repoPath);
+    const retryExit = runGit(["push"], repoPath);
     if (retryExit === 0) return; // AC2: success after rebase
   }
 
@@ -138,7 +135,7 @@ async function handleMailbox(req: IncomingMessage, res: ServerResponse, agentNam
   await appendFile(mailboxFile, body ? `\n${body}\n` : "\n");
 
   try {
-    await gitCommitAndPush(controlDir, mailboxFile, `mailbox(${agentName}): console message`);
+    gitCommitAndPush(controlDir, mailboxFile, `mailbox(${agentName}): console message`);
     sendJson(res, { ok: true });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "push failed after retry";
@@ -185,7 +182,7 @@ async function handleApprove(req: IncomingMessage, res: ServerResponse): Promise
 const fleetConfPath = join(__dirname, "..", "fleet.conf");
 let fleetContent: string;
 try {
-  fleetContent = await Bun.file(fleetConfPath).text();
+  fleetContent = readFileSync(fleetConfPath, "utf8");
 } catch {
   console.error(`ERROR: cannot read fleet.conf at ${fleetConfPath}`);
   process.exit(1);
@@ -196,7 +193,7 @@ const agentList = parseFleetConf(fleetContent);
 const validAgents = new Set(agentList); // AC3, AC6: Set built at startup
 
 // Resolve control dir (blocking — server.listen() is called only after this).
-const controlDir = await resolveControlDir(agentList);
+const controlDir = resolveControlDir(agentList);
 console.log(`Control dir: ${controlDir}`);
 
 // SSE client registry — one ServerResponse per connected browser tab.
