@@ -769,6 +769,73 @@ describe('investigate skill structure', () => {
   }
 });
 
+describe('gloop skill structure', () => {
+  const content = fs.readFileSync(path.join(ROOT, 'gloop', 'SKILL.md'), 'utf-8');
+
+  // The full goal -> plan -> review -> implement -> review loop, in order.
+  for (const phase of ['Phase 0', 'Phase 1', 'Phase 2', 'Phase 2.5',
+                       'Phase 3', 'Phase 4', 'Phase 5', 'Phase 6', 'Phase 7']) {
+    test(`contains ${phase}`, () => expect(content).toContain(phase));
+  }
+
+  // The whole point: the loop drives gstack's own planning + review skills, and
+  // never short-circuits from a vague goal straight to code.
+  test('prevents the goal-straight-to-code anti-pattern', () => {
+    expect(content).toContain('anti-pattern this prevents');
+    expect(content).toContain('Never go from goal straight to implementation');
+  });
+
+  test('runs a plan review before any implementation (hard gate)', () => {
+    expect(content).toContain('HARD GATE');
+    // Drives the real gstack planning skills, not a bespoke reviewer.
+    expect(content).toContain('/autoplan');
+    expect(content).toContain('/plan-eng-review');
+  });
+
+  // Pin load-bearing behavior, not just slogans: the INVOKE_SKILL placeholders
+  // must actually resolve to "read the driven skill's SKILL.md" instructions, and
+  // no {{placeholder}} may survive into the generated output.
+  test('INVOKE_SKILL blocks resolved to real skill-file reads', () => {
+    expect(content).not.toContain('{{');
+    expect(content).toContain('autoplan/SKILL.md');
+    expect(content).toContain('plan-eng-review/SKILL.md');
+    expect(content).toContain('review/SKILL.md');
+  });
+
+  test('runs /review after each implementation pass', () => {
+    expect(content).toContain('/review');
+    expect(content).toContain('independent');
+  });
+
+  test('surfaces major scope changes instead of auto-deciding them', () => {
+    expect(content).toContain('User-Challenge Gate');
+    expect(content).toContain('never auto-decide');
+  });
+
+  test('frames the goal into verifiable success criteria', () => {
+    expect(content).toContain('success criteria');
+  });
+
+  test('keeps a durable handoff state file across passes and --resume', () => {
+    expect(content).toContain('gloop-state');
+    expect(content).toContain('--resume');
+    // Resume safety: a chosen review path is not a completed review — the loop
+    // must not enter implementation until the plan review actually finished.
+    expect(content).toContain('plan_review');
+  });
+
+  test('has loop guards so it stops instead of spinning', () => {
+    expect(content).toContain('Max passes');
+    expect(content).toContain('Convergence guard');
+    expect(content).toContain('BLOCKED');
+  });
+
+  test('ends at PR-ready and hands off to /ship (does not open the PR)', () => {
+    expect(content).toContain('PR-ready summary');
+    expect(content).toContain('Next step: run /ship');
+  });
+});
+
 // Contributor mode was removed in v0.13.10.0 — replaced by operational self-improvement.
 // Tests for contributor mode preamble structure are no longer applicable.
 
