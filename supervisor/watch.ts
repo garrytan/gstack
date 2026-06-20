@@ -130,17 +130,24 @@ function agentRows(agents: Agent[]): string {
     // State color
     let stateStr: string;
     switch (rawState) {
-      case "working": stateStr = `${C.green}${C.bold}WORKING${C.reset}`; break;
-      case "idle":    stateStr = `${C.yellow}IDLE${C.reset}`;            break;
-      case "stopped": stateStr = `${C.dim}stopped${C.reset}`;            break;
-      default:        stateStr = `${C.dim}${rawState}${C.reset}`;
+      case "working":      stateStr = `${C.green}${C.bold}WORKING${C.reset}`;        break;
+      case "checking":     stateStr = `${C.cyan}checking${C.reset}`;                 break;
+      case "idle":         stateStr = `${C.yellow}IDLE${C.reset}`;                   break;
+      case "rate_limited": stateStr = `${C.yellow}${C.bold}RATE LIM${C.reset}`;      break;
+      case "stopped":      stateStr = `${C.dim}stopped${C.reset}`;                   break;
+      default:             stateStr = `${C.dim}${rawState}${C.reset}`;
     }
 
-    // Task
-    const task = (live?.task ?? (presence?.task as string | null) ?? null);
+    // Task — only read live.task while the session is active (not ended).
+    // A finished session leaves a stale task in live.json which would show
+    // the last-ever task even when the agent has nothing claimed.
+    const liveTask = (live && !live.ended) ? live.task : null;
+    const task = liveTask ?? (presence?.task as string | null) ?? null;
     const taskStr = task
       ? `${C.cyan}${task.slice(0, COL.task - 1)}${C.reset}`
-      : `${C.dim}—${C.reset}`;
+      : rawState === "idle"
+        ? `${C.dim}no tasks${C.reset}`
+        : `${C.dim}—${C.reset}`;
 
     // Running duration (only while live and not ended)
     const runningStr = (live && !live.ended)

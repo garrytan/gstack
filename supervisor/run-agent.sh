@@ -440,7 +440,7 @@ while true; do
   JSONFILE="$LOG_DIR/${RUN_ID}.json"
 
   echo "[$AGENT_NAME] iteration start @ control:$COMMIT_CTRL"
-  write_presence "working"
+  write_presence "checking"
 
   # ----- Cost guard: idle preskip ---------------------------------------------
   # If the kernel says no eligible work AND our mailbox has no incoming
@@ -475,6 +475,8 @@ while true; do
   done
 
   RUN_CWD="$WORK_DIR"; [ -d "$WORK_DIR/.git" ] || RUN_CWD="$CONTROL_DIR"
+
+  write_presence "working"
 
   # Start background mailbox watcher for parallel answer sessions
   WATCHER_PID=""
