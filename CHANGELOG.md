@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+### Localhost binding + path validation — security hardening (v7.1)
+
+The console server now binds exclusively to `127.0.0.1` and validates all path parameters before processing, preventing accidental network exposure and path-traversal attacks.
+
+#### Added
+- Exclusive localhost binding: server listens on `127.0.0.1:7842` only, rejecting connections from any other network interface
+- agentName validation: all `POST /api/mailbox/:agentName` requests reject unknown agents with HTTP 400 (agent must be listed in `fleet.conf`)
+- taskId regex validation: all `POST /api/unblock/:taskId` requests enforce `/^[A-Z]+-[0-9]+$/` format, blocking malformed identifiers (e.g., `../../etc/passwd`, `cons-003`, slashes) with HTTP 400
+- Raw path handling: switched to `node:http` instead of `Bun.serve()` to preserve un-normalized request paths, enabling validation before path processing
+
+#### Changed
+- Console server no longer reachable via misconfigured firewall rules allowing network access (localhost-only binding prevents escalation even if firewall is wrong)
+- All path parameters now validated synchronously in the request handler before any filesystem operations
+
 ### Decision cleanup — automatic garbage collection (v7.1)
 
 The console server now cleans up decision files automatically on two schedules to prevent disk accumulation. Stale decisions older than 24 hours are removed at startup, and fresh decisions are removed 60 seconds after the bash wrapper reads them, giving the wrapper time to process the approval before cleanup.

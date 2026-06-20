@@ -219,6 +219,70 @@ The server now reads `fleet.conf` to find the control repo without manual setup.
 
 ---
 
+## Localhost-only binding + path parameter validation (v7.1)
+
+The console server implements two security hardening measures to prevent accidental network exposure and path-traversal attacks.
+
+### Localhost binding (AC1/AC2)
+
+The server binds exclusively to `127.0.0.1`, making it unreachable from any network interface:
+
+```javascript
+server.listen(PORT, HOSTNAME, ...)  // HOSTNAME = "127.0.0.1"
+```
+
+**Verification:**
+- **AC1:** `curl http://0.0.0.0:7842/health` → connection refused (server not listening on 0.0.0.0)
+- **AC2:** `curl http://127.0.0.1:7842/health` → HTTP 200 with `{"status":"ok"}`
+
+This binding strategy protects against misconfigured firewalls — even if a firewall rule accidentally permits port 7842, the server is not reachable from the network.
+
+### Request path validation (AC3-AC6)
+
+All path parameters are validated before being used as filesystem paths or task identifiers, preventing path traversal attacks.
+
+**agentName validation (AC3):** 
+The server maintains a Set of valid agent names read from `fleet.conf` at startup. Any request to `POST /api/mailbox/:agentName` with an unknown agent name is rejected:
+```bash
+curl -X POST http://127.0.0.1:7842/api/mailbox/unknown-agent
+# Response: HTTP 400
+# {"error": "unknown agent"}
+```
+
+Valid agent names are those listed in `supervisor/fleet.conf`, e.g., `agent-be`, `agent-fe`, `agent-qa`, `agent-doc`.
+
+**taskId validation (AC4/AC5):**
+Task identifiers must match the regex `/^[A-Z]+-[0-9]+$/` (uppercase letters, hyphen, digits only). This prevents path traversal via dot segments or slashes. Example validations:
+
+```bash
+# AC4: Invalid format — path traversal attempt blocked
+curl -X POST http://127.0.0.1:7842/api/unblock/../../etc/passwd
+# Response: HTTP 400
+# {"error": "invalid task ID"}
+
+# AC5: Valid format — proceeds to processing
+curl -X POST http://127.0.0.1:7842/api/unblock/CONS-003 \
+  -d '{"decision":"proceed"}'
+# Response: HTTP 200
+```
+
+The regex rejects:
+- Lowercase letters: `cons-003` ✗
+- Dot segments: `../../../etc/passwd` ✗
+- Slashes: `CONS/003` ✗
+- No hyphen: `CONS003` ✗
+- Extra characters: `CONS-003!` ✗
+
+**Fleet.conf parsing (AC6):**
+At startup, `server.ts` reads `fleet.conf` and builds a Set of all agent names listed in the file. All agents listed in `fleet.conf` are immediately valid; no name rejection happens for legitimate agents. The Set is queried on every request to `/api/mailbox/:agentName`.
+
+### Implementation notes
+
+- **Node.js raw path:** The server uses `node:http.createServer()` instead of `Bun.serve()`. Bun normalizes dot segments before the request handler is called (defeating AC4 validation), whereas `node:http` passes the raw, un-normalized path, allowing the server to validate and reject malicious identifiers.
+- **Synchronous validation:** All validations occur synchronously in the request handler. No path is written to disk until validation passes.
+
+---
+
 ## Mailbox push resilience — rebase-on-retry (v7.1)
 
 When multiple agents write to the control repository simultaneously, a push can be rejected if another agent's commit arrives first. To handle this gracefully, the `POST /api/mailbox` endpoint automatically retries failed pushes.
