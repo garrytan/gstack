@@ -371,6 +371,10 @@ export class BrowserManager {
 
     this.browser = await chromium.launch({
       headless: useHeadless,
+      // Honor a custom Chromium binary via GSTACK_CHROMIUM_PATH (e.g. distro
+      // Chromium on Linux/Arch where Playwright's bundled chrome-headless-shell
+      // isn't available). Mirrors the executablePath support in launchHeaded().
+      ...(process.env.GSTACK_CHROMIUM_PATH ? { executablePath: process.env.GSTACK_CHROMIUM_PATH } : {}),
       // On Windows, Chromium's sandbox fails when the server is spawned through
       // the Bun→Node process chain (GitHub #276). Disable it — local daemon
       // browsing user-specified URLs has marginal sandbox benefit. Also disabled
