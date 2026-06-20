@@ -425,9 +425,18 @@ trap cleanup EXIT INT TERM
 # --- Main loop ----------------------------------------------------------------
 
 while true; do
-  # Sync everything before each session
-  git -C "$CONTROL_DIR" pull --rebase --quiet || true
-  [ -d "$WORK_DIR/.git" ] && { git -C "$WORK_DIR" pull --rebase --quiet || true; }
+  # Sync everything before each session.
+  # fetch+reset is used instead of pull --rebase: pull --rebase fails silently
+  # on rebase conflicts or git locks (|| true swallows it), leaving the clone
+  # stale and the agent unable to see new tasks. fetch+reset --hard never
+  # diverges and is idempotent — any local drift is discarded.
+  if ! git -C "$CONTROL_DIR" fetch -q origin 2>/dev/null; then
+    echo "[$AGENT_NAME] WARN: control repo fetch failed — retrying once"
+    sleep 2
+    git -C "$CONTROL_DIR" fetch -q origin 2>/dev/null || echo "[$AGENT_NAME] WARN: control repo fetch failed twice, continuing with stale clone"
+  fi
+  git -C "$CONTROL_DIR" reset --hard -q origin/main 2>/dev/null || true
+  [ -d "$WORK_DIR/.git" ] && { git -C "$WORK_DIR" fetch -q origin 2>/dev/null && git -C "$WORK_DIR" reset --hard -q origin/main 2>/dev/null || true; }
   for rd in "${READ_DIRS[@]:-}"; do
     [ -n "$rd" ] && git -C "$rd" pull --quiet || true
   done
