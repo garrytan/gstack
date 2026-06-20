@@ -1,5 +1,41 @@
 # Changelog
 
+## [1.58.4.0] - 2026-06-20
+
+## **The browser daemon stops handing its root token to any extension that asks.**
+## **One real privilege-escalation path closed, plus a sweep of dependency CVEs.**
+
+The `/health` endpoint used to return the daemon's root auth token to any caller whose Origin was a `chrome-extension://` URL, regardless of which extension. On a machine with more than one extension installed, a second extension could read that token and then drive every browse-server endpoint. The token is now scoped: when you pin `BROWSE_EXTENSION_ID`, `/health` only releases it to that exact extension origin, the same way the PTY WebSocket gate already works. Leaving the id unset keeps the old behavior, so nothing breaks for existing installs. Alongside that, a `bun audit` of the dependency tree turned up 37 advisories; the direct dependencies we control are patched, and a new CI job now scans the tree on every pull request so the next one shows up at review time instead of in production.
+
+### The numbers that matter
+
+Source: `bun audit` before/after, and `bun test browse/test/server-auth.test.ts`.
+
+| Metric | Before | After |
+|---|---|---|
+| `/health` token released to | any `chrome-extension://` origin | only the pinned extension id |
+| Direct-dependency CVEs | 2 (`@anthropic-ai/sdk`, `diff`) | 0 |
+| CI dependency scanning | none | `bun audit` on every PR |
+| server-auth regression tests | 38 | 39 (gate now pinned) |
+
+The single most useful number: a second extension on your machine can no longer scrape the root token from `/health` once the extension id is pinned.
+
+### What this means for builders
+
+If you run GStack Browser on a shared or multi-extension machine, set `BROWSE_EXTENSION_ID` to your extension's id and the daemon stops trusting strangers. Everything else keeps working. Run `bun audit` yourself to see the remaining transitive advisories, which live behind pinned upstream packages.
+
+### Itemized changes
+
+#### Fixed
+- `/health` now scopes the bootstrap `AUTH_TOKEN` to an exact `chrome-extension://<BROWSE_EXTENSION_ID>` match when the id is pinned, closing a multi-extension privilege-escalation path. Behavior is unchanged when the id is unset.
+
+#### Changed
+- Bumped `@anthropic-ai/sdk` (0.78.0 → 0.91.1, insecure default file permissions) and `diff` (7 → 8, parsePatch DoS), and refreshed transitive dependencies within their ranges.
+
+#### For contributors
+- New non-blocking `dependency-audit` GitHub workflow runs `bun audit` on every pull request.
+- Added a regression test pinning the `/health` extension-id gate.
+
 ## [1.58.3.0] - 2026-06-18
 
 ## **GBrowser masks the full set of automation tells by default, on every path a page can reach.**
