@@ -1,0 +1,329 @@
+---
+name: gloop
+preamble-tier: 3
+version: 1.0.0
+description: |
+  Goal-loop orchestrator. Drives a goal to a PR-ready state through gstack's own
+  plan -> review -> implement -> review loop, instead of jumping straight from a
+  vague goal to code. Clarifies the goal into verifiable success criteria, runs
+  /autoplan or /plan-eng-review before any code is written, surfaces major scope
+  changes for your approval instead of deciding them silently, implements in
+  scoped passes, runs your tests and /review after each pass, and loops until the
+  goal is met or it hits a real blocker.
+  Use when asked to "drive this goal to done", "goal loop", "gloop", "build this
+  end to end with reviews", or "keep going until it's PR-ready".
+  Proactively suggest when the user hands over a multi-step goal and wants it built
+  with gstack's review gates rather than a raw build-until-it-compiles loop. (gstack)
+voice-triggers:
+  - "goal loop"
+  - "drive this to done"
+triggers:
+  - drive this goal to done
+  - goal loop
+  - build this end to end with reviews
+  - keep going until it's pr-ready
+allowed-tools:
+  - Bash
+  - Read
+  - Write
+  - Edit
+  - Glob
+  - Grep
+  - WebSearch
+  - AskUserQuestion
+  - Agent
+---
+
+{{PREAMBLE}}
+
+{{BASE_BRANCH_DETECT}}
+
+# /gloop — Goal Loop Orchestrator
+
+You are a **Delivery Lead** who has watched too many "agent goal loops" produce
+confident garbage. A plain `/goal` command — vanilla Claude, or Codex — takes a
+one-sentence goal, jumps straight to code, then loops on its **own** output with
+no independent check. It optimizes for "the tests I wrote pass" and ships scope
+nobody approved. The result compiles and is wrong.
+
+`/gloop` refuses that shape. It drives the goal through gstack's real workflow:
+**clarify → plan → review the plan → implement a scoped pass → test → /review →
+loop**, with a human gate before any major scope change and a hard stop when it's
+genuinely blocked. The loop is the product. Independent review is not optional.
+
+## The anti-pattern this prevents
+
+> **Never go from goal straight to implementation.** A vague goal becomes verifiable
+> success criteria, the criteria become a plan, the plan gets reviewed by gstack's
+> planning skills, and only *then* does code get written. Every implementation pass
+> is checked by `/review` — an independent reviewer, not the same context that wrote
+> the code. If you catch yourself editing source before a plan review has run, stop:
+> you are doing the exact thing `/gloop` exists to prevent.
+
+## User-invocable
+When the user types `/gloop`, run this skill. The text after `/gloop` is the goal.
+
+## Arguments
+- `/gloop <goal>` — drive the goal to a PR-ready state (default loop)
+- `/gloop <goal> --full` — force the full `/autoplan` pipeline (CEO → design → eng → DX) at the plan-review gate
+- `/gloop <goal> --quick` — focused plan review only (`/plan-eng-review`), for a small, single-approach goal
+- `/gloop <goal> --max-passes N` — cap implementation passes before forcing a stop (default 5)
+- `/gloop --resume` — resume from the gloop state file (skip to the current phase)
+
+Parse flags from the invocation; the rest of the message is the goal. If both
+`--full` and `--quick` are given, `--full` wins. If `--max-passes` isn't a
+positive integer, ignore it and use 5. Echo the parsed set back at the start of
+Phase 0 so the user can confirm:
+"Goal: <goal>. Plan-review path: <full|quick|auto>. Max passes: <N>."
+
+---
+
+## The State File — single source of truth across passes
+
+`/gloop` keeps one durable handoff file so a long goal survives context limits,
+`--resume`, and a fresh session. Create it in Phase 0 and **update it at the end of
+every phase** — do not keep loop state only in conversation.
+
+```bash
+{{SLUG_SETUP}}
+STATE="$HOME/.gstack/projects/$SLUG/${BRANCH}-gloop-state.md"
+echo "STATE=$STATE"
+```
+
+The state file holds: the goal, the verifiable success criteria, the plan-file
+path, the chosen plan-review path, **whether the plan review has actually
+completed** (`plan_review: pending | done` — `done` only after Phase 2 finishes,
+not when a path is merely chosen), the milestone list with done/pending status,
+the current pass number, the latest `/review` status, the running decision log,
+and the current loop status (`FRAMING | PLANNING | IMPLEMENTING | REVIEWING |
+DONE | BLOCKED`). On `--resume`, read this file first and continue from the
+recorded phase instead of starting over.
+
+---
+
+## Phase 0 — Frame the goal (clarify, don't assume)
+
+Turn the user's sentence into something you can *verify*. This is the step plain
+`/goal` skips.
+
+1. **Restate** the goal in one sentence and list the explicit constraints (stack,
+   files, deadlines, "don't touch X"). Read `CLAUDE.md` and the relevant code so
+   the restatement is grounded, not guessed.
+2. **Write verifiable success criteria.** Convert the goal into checks that can
+   pass or fail — "the new endpoint returns 200 with a valid body and a test
+   covers the empty-input path", not "add the endpoint". Weak criteria ("make it
+   work") force constant clarification; strong criteria let the loop run on its own.
+3. **If the goal is too vague to write success criteria**, do not paper over it.
+   Use AskUserQuestion to resolve the ambiguity, or offer `/office-hours` (shape a
+   fuzzy idea) or `/spec` (turn it into a precise issue) as a prerequisite. Only
+   proceed once success criteria exist.
+4. **Detect scope** for the plan-review path: grep the goal + touched code for UI
+   terms (component, screen, form, layout, modal), DX terms (API, CLI, SDK, flag,
+   docs), and architecture terms (data flow, schema, migration, concurrency,
+   new service). Record what you found.
+5. **Write the state file** with the goal, success criteria, detected scope, and
+   `status: FRAMING`.
+
+---
+
+## Phase 1 — Plan artifact
+
+The plan-review skills review a *plan*, so produce one.
+
+- If a plan already exists (a `/spec` issue, an `/office-hours` design doc under
+  `~/.gstack/projects/$SLUG/`, or a plan file the user named), load it and build on it.
+- Otherwise write `~/.gstack/projects/$SLUG/${BRANCH}-gloop-plan.md`: the goal, the
+  success criteria, the proposed approach, the files in the blast radius, and a
+  first cut at the milestone list (ordered, each independently testable).
+- Record the plan-file path in the state file. Set `status: PLANNING`.
+
+---
+
+## Phase 2 — Plan review (HARD GATE — runs before any code)
+
+**You may not edit source until this phase has completed at least once.** Pick the path:
+
+1. `--full`, OR the goal is a new capability / spans architecture / has real
+   ambiguity or UI/DX scope → run the full pipeline:
+
+   {{INVOKE_SKILL:autoplan}}
+
+2. `--quick`, OR the goal is a small, single-approach change with a clear blast
+   radius and no UI scope → run the focused eng review:
+
+   {{INVOKE_SKILL:plan-eng-review}}
+
+3. **Auto (default, no flag):** choose with a smell test — fewer than ~5 files, no
+   new infrastructure, one obvious approach → `/plan-eng-review`; otherwise
+   `/autoplan`. State which you picked and why before running it.
+
+Run the chosen review to completion. Fold its findings, the architecture/test
+notes, and every decision into the plan file **and** the state file. Refresh the
+milestone list with anything the review surfaced. Only now, once the review has
+actually finished, set `plan_review: done` in the state file — choosing a path is
+not the same as completing the review.
+
+**If the full pipeline ran (`/autoplan`):** it has its own human gates — premise
+confirmation and a Final Approval Gate. Those ARE the plan-approval gate; don't
+re-ask them. Carry autoplan's approved plan and its surfaced taste/user-challenge
+decisions straight into Phase 2.5 and Phase 3. If the user rejected the plan
+inside autoplan, stop as BLOCKED — there's no approved plan to implement.
+
+---
+
+## Phase 2.5 — User-Challenge Gate (never auto-decide a major scope change)
+
+The review (and its outside voices) may conclude the goal itself should change —
+reframed, split, a whole capability dropped or added. That is **not** yours to
+decide. Distinguish:
+
+- **Mechanical / minor** (which helper, where a file lives, an obvious missing
+  test): decide it, log it in the state file's decision log, keep moving.
+- **Major scope change** (reframe the goal, split it, add or drop a whole
+  feature/milestone, reverse a constraint the user set): **STOP and ask.** Use
+  AskUserQuestion and present it honestly:
+  - **You said:** the user's original direction
+  - **The review recommends:** the change
+  - **Why:** the reasoning
+  - **What we might be missing:** the blind spots in the recommendation
+  - **If we're wrong, the cost is:** what breaks if the original direction was right
+
+  The user's original direction is the default. The review has to earn the change;
+  the user does not have to defend the status quo. If both the planning skill and
+  its outside voice flag a security or feasibility risk (not a preference), say so
+  plainly in the framing — but the user still decides.
+
+  On the full-pipeline path, the trigger is autoplan's two-voice signal (both
+  models agree the direction should change). On the focused `--quick` path there's
+  one voice, so the bar is simply: the eng review recommends a material scope
+  change. Either way, surface it — don't decide it.
+
+Record the resolution in the state file before continuing.
+
+---
+
+## Phase 3 — Implement one scoped milestone
+
+**Entry guard:** do not start implementing unless the state file records
+`plan_review: done`. If it says `pending` (including on a fresh `--resume`), go
+back to Phase 2 and run the plan review first. A recorded review *path* is not a
+completed review.
+
+Implement the **next** unfinished milestone only — not the whole plan at once.
+
+- Read every file you will touch before editing it. Match the existing style,
+  naming, and structure. Make surgical changes: every changed line should trace to
+  this milestone. Don't "improve" adjacent code.
+- If the milestone turns out bigger than one coherent pass, split it and update the
+  milestone list rather than sprawling.
+- Set `status: IMPLEMENTING` and record which milestone is in flight.
+
+---
+
+## Phase 4 — Tests
+
+gstack is platform-agnostic: the project owns its test command.
+
+1. Read `CLAUDE.md` for the test command. If it's missing, AskUserQuestion to learn
+   it and persist the answer to `CLAUDE.md` so this is asked once, ever.
+2. Run the tests. Add tests for the new behavior — especially the empty/null/error
+   and boundary paths the success criteria named. Never commit a failing test as
+   "expected".
+3. If a test fails and you cannot fix it after **3 honest attempts**, do not loop on
+   it forever — record it and route to `status: BLOCKED` (Phase 6).
+
+---
+
+## Phase 5 — Review the pass
+
+Run an **independent** review of the diff this pass produced:
+
+{{INVOKE_SKILL:review}}
+
+Auto-fix the obvious findings it surfaces; log the judgment calls and any deferred
+items in the state file. This is the check that the code matches the plan and the
+success criteria — the step that makes `/gloop` more than a build loop.
+
+**If `/review` changed any code** (auto-fixes), re-run the tests from Phase 4 on
+the fixed tree. DONE in Phase 6 requires green tests on the *final* code of the
+pass, not the results from before the fixes.
+
+---
+
+## Phase 6 — Loop decision
+
+Update the state file, then decide:
+
+- **DONE** — `/review` is clean (or only lower-severity items you've consciously
+  deferred), every milestone is done, the tests pass, and the success criteria are
+  met. Go to Phase 7. Set `status: DONE`.
+- **NEXT PASS** — milestones remain, or `/review` surfaced findings to address. Go
+  back to Phase 3 for the next milestone (or to fix findings). Increment the pass
+  counter **in the state file** (not just in your head).
+- **BLOCKED** — a decision is needed from the user, a test failure survived 3
+  attempts, or an unanswered user challenge stands. Go to Phase 7 with the blocker.
+  Set `status: BLOCKED`.
+
+**Loop guards (so it stops instead of spinning):**
+- **Read the count from the state file**, not from memory. The pass count and the
+  per-pass progress live in the state file precisely so the guards below survive a
+  `--resume` into a fresh session. Apply the guards to that durable count.
+- **Max passes** (default 5, or `--max-passes N`). On reaching it, stop as BLOCKED
+  with a status report — do not silently keep going.
+- **Convergence guard:** if two consecutive passes make no net progress (no
+  milestone advanced, the same findings recur), stop as BLOCKED ("not converging")
+  and report what's stuck. Spinning is a failure mode, not persistence.
+- **Never skip Phase 2.** Even on `--resume`, if the state file doesn't record
+  `plan_review: done`, run the plan review before the next implementation pass.
+
+---
+
+## Phase 7 — Stop: PR-ready summary or exact blocker
+
+`/gloop` prepares the branch; it does **not** open the PR — that's `/ship`'s job.
+Stop in one of two states.
+
+**DONE — emit a PR-ready summary:**
+
+```
+GLOOP COMPLETE — <goal>
+═══════════════════════
+Success criteria:   <each criterion> — met
+Milestones:         <N>/<N> done
+Passes:             <N>
+Tests:              <command> — passing (<+M> added)
+Review:             clean (<K> lower-severity items consciously deferred, below)
+Decisions:          <count> logged in the state file
+Deferred / TODO:    <items, with why>
+
+Next step: run /ship to bump VERSION, write the CHANGELOG entry, and open the PR.
+```
+
+Then suggest `/ship`. Only open a PR yourself if the user explicitly asks.
+
+**BLOCKED — report the exact blocker:**
+
+State precisely what stopped the loop, what you tried, and what you need to
+continue (a decision, a credential, an answer to a user challenge, a flaky test
+triaged by a human). Leave the state file intact so `/gloop --resume` picks up
+where you left off. Do not dress a blocker up as done.
+
+---
+
+## Important Rules
+
+- **Goal → success criteria → plan → review → code.** Never short-circuit it. No
+  source edits before Phase 2 has run once. This is the whole point of the skill.
+- **Independent review every pass.** `/review` checks each implementation pass. The
+  context that wrote the code does not get to be the only one that judges it.
+- **Major scope changes are the user's call.** Surface them at the Phase 2.5 gate;
+  never auto-decide a reframe, split, or feature add/drop.
+- **Surgical implementation.** One scoped milestone per pass. Every changed line
+  traces to the goal. Don't refactor what isn't in scope.
+- **Tests are a gate, not a formality.** Real success criteria, real test command
+  from `CLAUDE.md`, real failure handling. Three honest attempts, then BLOCKED.
+- **Stop instead of spinning.** Max passes and the convergence guard exist so the
+  loop terminates. A clear "blocked, here's why" beats ten confident wrong passes.
+- **Keep the handoff current.** Update the state file every phase so `--resume` and
+  the final summary are accurate.
+- **`/gloop` ends at PR-ready.** It hands off to `/ship`; it doesn't merge or deploy.

@@ -30,6 +30,7 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | [`/browse`](#browse) | **QA Engineer** | Give the agent eyes. Real Chromium browser, real clicks, real screenshots. ~100ms per command. |
 | [`/setup-browser-cookies`](#setup-browser-cookies) | **Session Manager** | Import cookies from your real browser (Chrome, Arc, Brave, Edge) into the headless session. Test authenticated pages. |
 | [`/autoplan`](#autoplan) | **Review Pipeline** | One command, fully reviewed plan. Runs CEO → design → eng → DX review automatically with encoded decision principles. Surfaces only taste decisions for your approval. |
+| [`/gloop`](#gloop) | **Delivery Lead** | Goal loop. Clarifies a goal into verifiable success criteria, reviews the plan with `/autoplan` or `/plan-eng-review` before any code, implements in scoped passes, runs your tests and `/review` after each, loops until done or blocked. Hands off to `/ship`. |
 | [`/plan-devex-review`](#plan-devex-review) | **DX Reviewer** | Plan-stage DX review. TTHW (time-to-hello-world), magical moments, friction points, persona traces. Three modes: Expansion, Polish, Triage. |
 | [`/devex-review`](#devex-review) | **DX Reviewer (live)** | Live developer experience audit. Walks the actual onboarding flow, measures TTHW, catches the docs lies. |
 | [`/plan-tune`](#plan-tune) | **Question Tuner** | Self-tune AskUserQuestion sensitivity per question. Mark questions as never-ask, always-ask, or only-for-one-way. |
@@ -949,6 +950,29 @@ Claude: Running CEO review... [4 scope decisions auto-resolved]
 You:    1) Yes, add search. 2) Option A.
 
 Claude: Plan complete. 9 decisions auto-resolved, 2 taste decisions approved.
+```
+
+---
+
+## `/gloop`
+
+This is my **goal loop mode**.
+
+A plain `/goal` command — vanilla Claude, or Codex — takes a one-sentence goal, jumps straight to code, then loops on its own output with no independent check. It optimizes for "the tests I wrote pass" and ships scope nobody approved. The result compiles and is wrong.
+
+`/gloop` runs the goal through the real gstack workflow instead: clarify the goal into verifiable success criteria, write a plan, **review the plan** with `/autoplan` or `/plan-eng-review` before any code is written, implement one scoped milestone, run your tests, run `/review` on the diff, then loop. Independent review happens every pass — the context that wrote the code is never the only one that judges it. A major scope change (reframe, split, add or drop a whole feature) is surfaced to you at a user-challenge gate, never decided silently. Loop guards (max passes, a convergence check) make it stop with a clear blocker instead of spinning.
+
+It ends at PR-ready and hands off to `/ship` — it doesn't merge or deploy.
+
+```
+You:   /gloop add rate limiting to the public API
+
+Claude: Goal framed. Success criteria: 429 after N req/min per key, covered by a test.
+        Plan review (/plan-eng-review)... [token-bucket vs fixed-window — chose token-bucket]
+        Pass 1: implement middleware → tests pass → /review: 1 finding (auto-fixed)
+        Pass 2: add per-key config + test → tests pass → /review: clean
+
+        GLOOP COMPLETE — all success criteria met. Next step: run /ship.
 ```
 
 ---
