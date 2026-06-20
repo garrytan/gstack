@@ -50,8 +50,8 @@ body::after {
   display: flex;
   align-items: center;
   gap: 16px;
-  padding: 16px 24px;
-  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+  padding: 16px 24px 0;
   background: var(--surface);
 }
 .page-brand {
@@ -68,6 +68,36 @@ body::after {
   color: var(--text-micro);
 }
 .page-header-spacer { flex: 1; }
+
+/* ── Tab nav ── */
+.tab-nav {
+  width: 100%;
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  margin: 8px -24px 0;
+  padding: 0 24px;
+}
+.tab-btn {
+  font-family: var(--mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-micro);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 10px 16px;
+  cursor: pointer;
+  transition: color var(--dur-micro), border-color var(--dur-micro);
+  margin-bottom: -1px;
+}
+.tab-btn:hover {
+  color: var(--text-dim);
+}
+.tab-btn[aria-selected="true"] {
+  color: var(--text);
+  border-bottom-color: var(--amber);
+}
 .sse-indicator {
   display: flex;
   align-items: center;
@@ -607,6 +637,120 @@ body::after {
   border-radius: 50%;
   animation: spin 800ms linear infinite;
   flex-shrink: 0;
+}
+
+/* ── Fleet table ── */
+.tab-panel {
+  /* flex child of page-body — inherits gap */
+}
+.fleet-loading {
+  padding: 32px;
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-micro);
+}
+.fleet-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.fleet-table th {
+  text-align: left;
+  padding: 8px 12px;
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-micro);
+  font-weight: 500;
+  border-bottom: 1px solid var(--border);
+}
+.fleet-table td {
+  padding: 10px 12px;
+  font-family: var(--mono);
+  font-size: 12px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+.fleet-table tr:last-child td {
+  border-bottom: none;
+}
+.fleet-table tr:hover td {
+  background: var(--surface);
+}
+.fleet-agent {
+  color: var(--text);
+  font-weight: 500;
+}
+.fleet-task-id {
+  color: var(--text-dim);
+}
+.fleet-no-task {
+  color: var(--text-micro);
+  font-style: italic;
+}
+.fleet-elapsed {
+  color: var(--text-dim);
+  min-width: 80px;
+  white-space: nowrap;
+}
+.fleet-tool {
+  color: var(--text-dim);
+}
+.fleet-summary {
+  color: var(--text-micro);
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── State badges (AC4) ── */
+.state-badge {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 6px;
+  border-radius: 3px;
+  display: inline-block;
+  white-space: nowrap;
+}
+.state-working {
+  color: var(--green);
+  background: rgba(34, 197, 94, 0.1);
+  border: 1px solid rgba(34, 197, 94, 0.2);
+}
+.state-checking {
+  color: var(--blue);
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+}
+.state-idle {
+  color: var(--amber);
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.15);
+}
+.state-stopped {
+  color: var(--text-micro);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+.state-rate-limited {
+  color: var(--amber);
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  font-weight: 700;
+}
+
+/* ── Cost placeholder ── */
+.cost-placeholder {
+  padding: 64px 24px;
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--text-micro);
 }
 
 /* ── Card entry/exit animations ── */

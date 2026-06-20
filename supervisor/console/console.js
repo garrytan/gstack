@@ -1,7 +1,9 @@
 /* Fleet Console — vanilla JS, no dependencies */
 
 const SSE_URL = '/api/events';
+const FLEET_URL = '/api/fleet';
 const RECONNECT_DELAY_MS = 3000;
+const FLEET_STALE_MS = 30000;
 
 const $ = (id) => document.getElementById(id);
 
@@ -20,6 +22,168 @@ let sseConnected = false;
 let attentionCount = 0;
 let approvalCount = 0;
 
+/* ── Tab state ── */
+
+let currentTab = 'fleet';
+let fleetLastEventTs = 0;
+let fleetStalenessHandle = null;
+const fleetElapsedTimers = new Map();
+
+const tabBtns = {
+  fleet: $('tab-fleet'),
+  queue: $('tab-queue'),
+  cost: $('tab-cost'),
+};
+
+const sectionFleet = $('section-fleet');
+const sectionAttention = $('section-attention');
+const sectionApproval = $('section-approval');
+const sectionCost = $('section-cost');
+
+function switchTab(name) {
+  currentTab = name;
+
+  for (const [key, btn] of Object.entries(tabBtns)) {
+    btn.setAttribute('aria-selected', String(key === name));
+  }
+
+  /* Fleet panel */
+  if (name === 'fleet') {
+    sectionFleet.removeAttribute('hidden');
+  } else {
+    sectionFleet.setAttribute('hidden', '');
+  }
+
+  /* Queue sections — AC9: use hidden attribute, not display:none */
+  if (name === 'queue') {
+    sectionAttention.removeAttribute('hidden');
+    sectionApproval.removeAttribute('hidden');
+  } else {
+    sectionAttention.setAttribute('hidden', '');
+    sectionApproval.setAttribute('hidden', '');
+  }
+
+  /* Cost panel */
+  if (name === 'cost') {
+    sectionCost.removeAttribute('hidden');
+  } else {
+    sectionCost.setAttribute('hidden', '');
+  }
+
+  if (name === 'fleet') {
+    fetchFleet();
+    startFleetStalenessTimer();
+  } else {
+    stopFleetStalenessTimer();
+  }
+
+  syncState();
+}
+
+/* ── Fleet data ── */
+
+async function fetchFleet() {
+  try {
+    const res = await fetch(FLEET_URL);
+    if (!res.ok) return;
+    const agents = await res.json();
+    renderFleet(agents);
+  } catch (_) {}
+}
+
+function renderFleet(agents) {
+  const loading = $('fleet-loading');
+  const table = $('fleet-table');
+  const empty = $('fleet-empty');
+  const tbody = $('fleet-tbody');
+
+  fleetElapsedTimers.forEach((timer) => clearInterval(timer));
+  fleetElapsedTimers.clear();
+
+  if (!agents || agents.length === 0) {
+    loading.style.display = 'none';
+    table.style.display = 'none';
+    empty.style.display = '';
+    return;
+  }
+
+  loading.style.display = 'none';
+  table.style.display = '';
+  empty.style.display = 'none';
+
+  tbody.innerHTML = '';
+  for (const a of agents) {
+    const tr = document.createElement('tr');
+    const taskCell = a.task
+      ? `<span class="fleet-task-id">${esc(a.task)}</span>`
+      : `<span class="fleet-no-task">no tasks</span>`;
+    const toolCell = a.lastTool ? esc(a.lastTool) : '—';
+    const summaryText = a.lastSummary ? a.lastSummary.slice(0, 60) : '';
+    const summaryCell = summaryText ? esc(summaryText) : '';
+
+    tr.innerHTML = `
+      <td class="fleet-agent">${esc(a.name)}</td>
+      <td>${stateToHtml(a.state)}</td>
+      <td>${taskCell}</td>
+      <td class="fleet-elapsed">—</td>
+      <td class="fleet-tool">${toolCell}</td>
+      <td class="fleet-summary">${summaryCell}</td>
+    `;
+
+    tbody.appendChild(tr);
+
+    if (!a.ended && a.sessionStart) {
+      const elapsedEl = tr.querySelector('.fleet-elapsed');
+      updateElapsed(elapsedEl, a.sessionStart);
+      const timer = setInterval(() => updateElapsed(elapsedEl, a.sessionStart), 1000);
+      fleetElapsedTimers.set(a.name, timer);
+    }
+  }
+}
+
+function updateElapsed(el, sessionStart) {
+  const secs = Math.floor((Date.now() - sessionStart) / 1000);
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  const s = secs % 60;
+  el.textContent = h > 0
+    ? `${h}h ${m}m`
+    : `${m}m ${String(s).padStart(2, '0')}s`;
+}
+
+function stateToHtml(state) {
+  const map = {
+    working: 'state-working',
+    checking: 'state-checking',
+    idle: 'state-idle',
+    stopped: 'state-stopped',
+    rate_limited: 'state-rate-limited',
+  };
+  const cls = map[state] || 'state-stopped';
+  const label = state === 'rate_limited' ? 'RATE LIMITED' : (state || 'unknown').toUpperCase();
+  return `<span class="state-badge ${cls}">${esc(label)}</span>`;
+}
+
+/* ── Fleet staleness polling (AC6) ── */
+
+function startFleetStalenessTimer() {
+  stopFleetStalenessTimer();
+  fleetLastEventTs = Date.now();
+  fleetStalenessHandle = setInterval(() => {
+    if (currentTab === 'fleet' && Date.now() - fleetLastEventTs >= FLEET_STALE_MS) {
+      fleetLastEventTs = Date.now();
+      fetchFleet();
+    }
+  }, 1000);
+}
+
+function stopFleetStalenessTimer() {
+  if (fleetStalenessHandle) {
+    clearInterval(fleetStalenessHandle);
+    fleetStalenessHandle = null;
+  }
+}
+
 /* ── State sync ── */
 
 function syncState() {
@@ -27,7 +191,8 @@ function syncState() {
 
   attentionEmpty.style.display = attentionCount === 0 ? '' : 'none';
   approvalEmpty.style.display = approvalCount === 0 ? '' : 'none';
-  allClearBanner.style.display = bothEmpty ? '' : 'none';
+  /* all-clear banner only shown on Queue tab when both queues are empty */
+  allClearBanner.style.display = (bothEmpty && currentTab === 'queue') ? '' : 'none';
 
   if (attentionCount > 0) {
     attentionBadge.style.display = '';
@@ -43,9 +208,8 @@ function syncState() {
     approvalBadge.style.display = 'none';
   }
 
-  /* AC8: dynamic document title */
   const total = attentionCount + approvalCount;
-  document.title = total > 0 ? `(${total}) Fleet Console` : 'Fleet Console — All clear';
+  document.title = total > 0 ? `(${total}) Fleet Console` : 'Fleet Console';
 }
 
 /* ── Card exit helper ── */
@@ -304,6 +468,15 @@ function connect() {
     });
   });
 
+  /* AC5: re-fetch fleet table on fleet-update event (within 500ms) */
+  es.addEventListener('fleet-update', (e) => {
+    const ev = JSON.parse(e.data);
+    if (ev.type === 'fleet-update') {
+      fleetLastEventTs = Date.now();
+      if (currentTab === 'fleet') fetchFleet();
+    }
+  });
+
   /* AC9: SSE reconnect banner on error */
   es.addEventListener('error', () => {
     sseConnected = false;
@@ -327,5 +500,9 @@ function esc(str) {
 
 /* ── Boot ── */
 
-syncState();
+for (const [name, btn] of Object.entries(tabBtns)) {
+  btn.addEventListener('click', () => switchTab(name));
+}
+
+switchTab('fleet');
 connect();

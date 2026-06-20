@@ -26,18 +26,46 @@
     <div class="sse-dot" id="sse-dot"></div>
     <span id="sse-label">live</span>
   </div>
+  <nav role="tablist" class="tab-nav" aria-label="Console views">
+    <button role="tab" id="tab-fleet" class="tab-btn" aria-selected="true" aria-controls="section-fleet">Fleet</button>
+    <button role="tab" id="tab-queue" class="tab-btn" aria-selected="false" aria-controls="section-attention section-approval">Queue</button>
+    <button role="tab" id="tab-cost" class="tab-btn" aria-selected="false" aria-controls="section-cost">Cost</button>
+  </nav>
 </header>
 
 <div class="page-body" id="page-body">
 
-  <!-- SSE reconnect banner — hidden until SSE drops -->
+  <!-- SSE reconnect banner — not tab-specific, always visible when SSE drops -->
   <div class="reconnect-banner" id="reconnect-banner" role="alert" aria-live="assertive" style="display:none">
     <div class="reconnect-spinner" aria-hidden="true"></div>
     Connection lost — reconnecting…
   </div>
 
-  <!-- ── Human Attention Queue ── -->
-  <section aria-label="Human Attention Queue" id="section-attention">
+  <!-- ── Fleet tab panel (default) ── -->
+  <div id="section-fleet" role="tabpanel" aria-labelledby="tab-fleet" class="tab-panel">
+    <div id="fleet-loading" class="fleet-loading">Loading agent status…</div>
+    <table class="fleet-table" id="fleet-table" style="display:none">
+      <thead>
+        <tr>
+          <th>Agent</th>
+          <th>State</th>
+          <th>Task</th>
+          <th>Elapsed</th>
+          <th>Last tool</th>
+          <th>Activity</th>
+        </tr>
+      </thead>
+      <tbody id="fleet-tbody"></tbody>
+    </table>
+    <div class="empty-section" id="fleet-empty" role="status" style="display:none">
+      <div class="empty-check" aria-hidden="true">✓</div>
+      <div class="empty-title">No agents online</div>
+      <div class="empty-sub">Start agents to see live status here.</div>
+    </div>
+  </div>
+
+  <!-- ── Human Attention Queue ── hidden while Fleet tab is active -->
+  <section aria-label="Human Attention Queue" id="section-attention" hidden>
     <div class="section-header">
       <span class="section-title">Needs your decision</span>
       <span class="section-badge badge-amber" id="attention-badge" style="display:none">0 blocked</span>
@@ -55,8 +83,8 @@
     </div>
   </section>
 
-  <!-- ── Approval Queue ── -->
-  <section aria-label="Approval Queue" id="section-approval">
+  <!-- ── Approval Queue ── hidden while Fleet tab is active -->
+  <section aria-label="Approval Queue" id="section-approval" hidden>
     <div class="section-header">
       <span class="section-title">Approval queue</span>
       <span class="section-badge badge-red" id="approval-badge" style="display:none">0 pending</span>
@@ -66,7 +94,7 @@
     <!-- Cards injected here by console.js -->
     <div id="approval-cards"></div>
 
-    <!-- Per-section empty state (AC1) -->
+    <!-- Per-section empty state -->
     <div class="empty-section" id="approval-empty" role="status">
       <div class="empty-check" aria-hidden="true">✓</div>
       <div class="empty-title">No pending approvals</div>
@@ -74,11 +102,16 @@
     </div>
   </section>
 
-  <!-- All-clear banner — spans both queue areas, shown only when BOTH queues are empty (AC2) -->
+  <!-- All-clear banner — shown by syncState() only when Queue tab is active and both queues empty -->
   <div class="empty-section" id="all-clear-banner" role="status" style="display:none;margin-top:8px">
     <div class="empty-check" aria-hidden="true">✓</div>
     <div class="empty-title">All clear — agents are running.</div>
     <div class="empty-sub">No blocked tasks, no pending approvals.</div>
+  </div>
+
+  <!-- ── Cost tab panel (placeholder) ── -->
+  <div id="section-cost" role="tabpanel" aria-labelledby="tab-cost" class="tab-panel" hidden>
+    <div class="cost-placeholder">Cost view — coming soon</div>
   </div>
 
 </div><!-- /page-body -->
