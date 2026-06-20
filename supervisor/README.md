@@ -18,6 +18,7 @@ Scripts for starting, stopping, and monitoring the autonomous agent fleet.
 | `console/bash-wrapper.test.ts` | Bun test wrapper that runs bash-wrapper.test.sh inline (v7.1) |
 | `console/bash-wrapper.test.sh` | Bash unit tests for risk classification (check_risk) and polling behavior (poll_approval) (v7.1) |
 | `console/server.test.ts` | Bun tests for endpoint security — taskId regex validation, agent name validation, needs_human endpoint (v7.1) |
+| `console/qa-smoke.sh` | QA smoke test for console UI — asserts page title, nav bar, and Fleet tab are present via gstack browse (v7.1) |
 
 ---
 
@@ -803,6 +804,40 @@ All 15 tests pass (5 bash-wrapper + 10 server tests). Run the full suite with:
 ```bash
 bun test supervisor/console/     # runs all tests, exit 0 on pass
 bun test --timeout 10000 supervisor/console/  # increase timeout if needed
+```
+
+## QA smoke testing — browser-based console verification (v7.1)
+
+When QA agents test the console UI, they use `qa-smoke.sh` to verify that the web interface is actually rendering correctly. This smoke test navigates to the console URL, asserts key DOM elements are present, and captures a screenshot as evidence — complementing server-side unit tests with real browser verification.
+
+### When to run
+
+The QA agent runs `qa-smoke.sh` automatically for any task with `human-verify` ACs targeting the console. Example:
+
+```bash
+bash supervisor/console/qa-smoke.sh
+```
+
+### What the script verifies
+
+The script:
+1. Opens `$QA_BASE_URL` (default: `http://localhost:7842`) using `gstack browse`
+2. Asserts the page title contains "Fleet Console"
+3. Asserts a `nav[role=tablist]` (the tab bar) is visible
+4. Asserts the "Fleet" tab button is present in the DOM
+5. Captures a timestamped screenshot to `/tmp/console-qa-<timestamp>.png`
+6. Prints the screenshot path to stdout so the QA agent can attach it to its report
+
+### Error handling
+
+If `gstack browse` is not on PATH, the script exits with:
+```
+gstack browse not found — install gstack or set BROWSE_BIN
+```
+
+You can override the browse binary with `BROWSE_BIN`:
+```bash
+BROWSE_BIN=/path/to/custom-browse bash supervisor/console/qa-smoke.sh
 ```
 
 ---

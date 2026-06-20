@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+### QA smoke testing — browser-verified console UI checks (v7.1)
+
+QA agents can now verify the console UI is rendering correctly using a lightweight browser-based smoke test. When testing tasks with human-verify acceptance criteria, the QA agent runs `qa-smoke.sh` to assert that key DOM elements (page title, tab bar, Fleet tab) are present in the live browser, and captures a screenshot as proof — complementing server-side unit tests with real-world verification.
+
+#### Added
+- `supervisor/console/qa-smoke.sh`: new executable bash script that navigates to the console using `gstack browse`, asserts "Fleet Console" page title, verifies `nav[role=tablist]` visibility, confirms Fleet tab button presence, and captures a timestamped screenshot
+- Screenshot output path printed to stdout so QA agents can attach it to their completion reports
+- Environment variables: `QA_BASE_URL` (default `http://localhost:7842`) and `BROWSE_BIN` (default `gstack`) for flexibility in testing environments
+- Clear error message when `gstack browse` is not available: "gstack browse not found — install gstack or set BROWSE_BIN"
+
+#### Changed
+- `roles/QA_ROLE.md` now requires all console UI tasks to run the smoke script before marking tests complete — assertions and screenshots replace curl-only JSON verification
+- QA workflow now includes browser-level verification as a mandatory gate for tasks with `human-verify` ACs targeting web endpoints
+
 ### Static file serving — console UI served from filesystem (v7.1)
 
 The console server now serves static HTML, CSS, and JavaScript files from the `supervisor/console/` directory without requiring a separate web server or build step. Operators access the console at `http://127.0.0.1:7842/`, with automatic path-traversal protection and MIME-type detection.
