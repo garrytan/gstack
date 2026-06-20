@@ -12,29 +12,17 @@ import { homedir } from "os";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import Anthropic from "@anthropic-ai/sdk";
+import {
+  TASK_ID_RE,
+  parseFleetConf,
+  rawPath,
+  sendJson,
+  parseTaskLedger,
+} from "./server-utils.ts";
 
 const PORT = 7842;
 const HOSTNAME = "127.0.0.1";
-// Uppercase letters, hyphen, digits only — no path segments, no traversal.
-const TASK_ID_RE = /^[A-Z]+-[0-9]+$/;
 const __dirname = dirname(fileURLToPath(import.meta.url));
-
-// Parse fleet.conf: skip blank lines and # comments, return all agent names.
-function parseFleetConf(content: string): string[] {
-  return content
-    .split("\n")
-    .map((l) => l.trim())
-    .filter((l) => l && !l.startsWith("#"))
-    .map((l) => l.split(/\s+/)[0])
-    .filter(Boolean);
-}
-
-// Extract path from node:http's raw un-normalised req.url (strips query string).
-function rawPath(url: string | undefined): string {
-  if (!url) return "/";
-  const end = url.indexOf("?");
-  return end === -1 ? url : url.slice(0, end);
-}
 
 async function resolveControlDir(agents: string[]): Promise<string> {
   // CONS-002 AC5: explicit override via env var.
@@ -84,15 +72,6 @@ async function resolveControlDir(agents: string[]): Promise<string> {
   }
 
   return clonePath;
-}
-
-function sendJson(res: ServerResponse, body: unknown, status = 200): void {
-  const data = JSON.stringify(body);
-  res.writeHead(status, {
-    "content-type": "application/json",
-    "content-length": Buffer.byteLength(data),
-  });
-  res.end(data);
 }
 
 // Run a git subcommand in repoPath, return exit code.
@@ -345,6 +324,14 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
   // POST /api/draft-decision — stream AI-drafted decision suggestion (CONS-005).
   if (path === "/api/draft-decision" && method === "POST") {
     void handleDraftDecision(req, res);
+    return;
+  }
+
+  // GET /api/attention — return tasks with status: needs_human from the ledger.
+  if (path === "/api/attention" && method === "GET") {
+    const tasks = parseTaskLedger(join(controlDir, "ledger"));
+    const needsHuman = tasks.filter((t) => t.status === "needs_human");
+    sendJson(res, { tasks: needsHuman });
     return;
   }
 
