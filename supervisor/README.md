@@ -705,6 +705,70 @@ bun test --timeout 10000 supervisor/console/  # increase timeout if needed
 
 ---
 
+## Static file serving — serving console UI from filesystem (v7.1)
+
+The console server serves the static HTML, CSS, and JavaScript UI files from the `supervisor/console/` directory. This allows operators to access the console at `http://127.0.0.1:7842/` without bundling assets into the binary or requiring a separate web server.
+
+### How it works
+
+When a request arrives at an unmatched path (after all API routes have been checked), the server routes it to the `serveStatic()` utility function:
+
+1. **Path normalization:** If the request is for `/`, it's rewritten to `/index.html`. Other paths are stripped of leading slashes (e.g., `/styles.css` becomes `styles.css`).
+
+2. **Path traversal protection (AC4):** The resolved file path must be inside the root directory. The function calls `resolve(join(rootDir, filePath))` and checks that the result starts with `safeRoot + sep`, blocking attempts like `/../../../etc/passwd` with HTTP 400.
+
+3. **MIME type detection (AC2):** Based on file extension, the server sets the appropriate `Content-Type` header:
+   - `.html` → `text/html`
+   - `.css` → `text/css`
+   - `.js` → `text/javascript`
+   - `.json` → `application/json`
+   - `.svg` → `image/svg+xml`
+   - `.ico` → `image/x-icon`
+   - Unknown → `application/octet-stream`
+
+4. **File serving (AC1/AC3):** The server reads the file synchronously and sends it with HTTP 200 and the correct `content-type` and `content-length` headers. If the file does not exist, it returns HTTP 404.
+
+### Request and response
+
+**Requests:**
+```
+GET / → serves index.html with text/html
+GET /index.html → also serves index.html
+GET /styles.css → serves styles.css with text/css
+GET /console.js → serves console.js with text/javascript
+GET /nonexistent.xyz → HTTP 404 Not Found
+GET /../../../etc/passwd → HTTP 400 Bad Request (path traversal blocked)
+```
+
+**Response headers:**
+```
+HTTP/1.1 200 OK
+Content-Type: text/html
+Content-Length: 1234
+```
+
+### Handler placement
+
+The static file handler is the **last route** in `supervisor/console/server.ts`, after all API endpoints (`/api/*`). This ensures API requests are never shadowed by static files and provides a safe default for any unmatched path.
+
+### Supported file types
+
+Static serving is optimized for console UI delivery:
+- **HTML** (`index.html`) — main UI entry point
+- **CSS** (`styles.css`) — design tokens and layout
+- **JavaScript** (`console.js`) — interactive client and SSE handling
+- **JSON** (for future APIs or config files)
+- **SVG** (for icons, if used)
+- **ICO** (`favicon.ico`)
+
+### Implementation details
+
+- **Synchronous reads:** `readFileSync()` is safe here because console startup is not performance-critical and files are typically small (<100KB total). Async reads would complicate the response lifecycle.
+- **Guard constraint:** The traversal check requires `resolved.startsWith(safeRoot + sep)` to ensure the slash is present. Without the trailing separator, `/home` would accidentally match `/home2/attacker`. The `sep` constant is `node:path.sep` (platform-aware).
+- **Error handling:** Any `readFileSync` exception (permission denied, etc.) is caught and returns HTTP 404, treating the file as missing rather than distinguishing permission errors.
+
+---
+
 ## Adding a new agent
 
 1. Add a line to `fleet.conf`

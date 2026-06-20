@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+### Static file serving — console UI served from filesystem (v7.1)
+
+The console server now serves static HTML, CSS, and JavaScript files from the `supervisor/console/` directory without requiring a separate web server or build step. Operators access the console at `http://127.0.0.1:7842/`, with automatic path-traversal protection and MIME-type detection.
+
+#### Added
+- `serveStatic()` utility function in `server-utils.ts` handling file resolution, traversal guards, and MIME-type detection
+- Support for serving `.html`, `.css`, `.js`, `.json`, `.svg`, and `.ico` files with correct Content-Type headers
+- Path-traversal guard (AC4): requests like `/../../../etc/passwd` return HTTP 400
+- Automatic fallback for `/` → `index.html` (AC1)
+
+#### Changed
+- Console server's final 404 handler now serves static files instead of rejecting all unmatched paths
+- Request handler order: API routes checked first, then static files as fallback
+
 ### Localhost binding + path validation — security hardening (v7.1)
 
 The console server now binds exclusively to `127.0.0.1` and validates all path parameters before processing, preventing accidental network exposure and path-traversal attacks.
