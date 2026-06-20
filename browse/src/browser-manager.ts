@@ -15,7 +15,7 @@
  *   restores state. Falls back to clean slate on any failure.
  */
 
-import { chromium, type Browser, type BrowserContext, type BrowserContextOptions, type Page, type Locator, type Cookie } from 'playwright';
+import { chromium, type Browser, type BrowserContext, type BrowserContextOptions, type Page, type Locator, type Cookie, type Route } from 'playwright';
 import { writeSecureFile, mkdirSecure } from './file-permissions';
 import { addConsoleEntry, addNetworkEntry, addDialogEntry, networkBuffer, type DialogEntry } from './buffers';
 import { emitActivity } from './activity';
@@ -146,6 +146,43 @@ export interface BrowserState {
   }>;
 }
 
+/**
+ * A single network-routing rule. Rules are evaluated in insertion order; the
+ * first whose `pattern` matches the request URL wins. `block` aborts the
+ * request; `stub` fulfills it with a canned response. Operator-controlled
+ * (a WRITE command, never reachable over the tunnel), so a stubbed body is
+ * trusted input from our own user, not attacker-supplied page content.
+ */
+export interface RouteRule {
+  pattern: string;
+  action: 'block' | 'stub';
+  status?: number;
+  contentType?: string;
+  body?: string;
+}
+
+/**
+ * Match a request URL against a route glob. `*` matches any run of characters
+ * (including `/`), `?` matches a single character; every other regex
+ * metacharacter is escaped so patterns like `*.png` or `**​/api/*` behave the
+ * way a user expects without needing to know Playwright's internal matcher.
+ * Pure + exported so the matching contract is unit-testable without a browser.
+ */
+export function matchesRoutePattern(pattern: string, url: string): boolean {
+  // A bare `*.png`-style suffix should also match full URLs, so collapse a
+  // leading `**` into `*` (both mean "any prefix") before translating.
+  const normalized = pattern.replace(/^\*\*/, '*');
+  const escaped = normalized.replace(/[.+^${}()|[\]\\]/g, '\\$&')
+    .replace(/\*/g, '.*')
+    .replace(/\?/g, '.');
+  try {
+    return new RegExp(`^${escaped}$`).test(url);
+  } catch {
+    // A pattern that can't compile to a regex matches nothing rather than throwing.
+    return false;
+  }
+}
+
 export class BrowserManager {
   private browser: Browser | null = null;
   private context: BrowserContext | null = null;
@@ -160,6 +197,16 @@ export class BrowserManager {
   private nextTabId: number = 1;
   private extraHeaders: Record<string, string> = {};
   private customUserAgent: string | null = null;
+
+  // ─── Network routing (request interception) ──────────────────
+  // Rules live at the manager level so they survive context recreation
+  // (useragent/viewport --scale rebuilds, handoff) and apply to new tabs,
+  // exactly like extraHeaders. A single catch-all `context.route('**/*', ...)`
+  // dispatcher consults this array, so add/clear is just array mutation — no
+  // per-rule register/unroute bookkeeping. The dispatcher is created once and
+  // reused across contexts (it closes over `this`).
+  private routeRules: RouteRule[] = [];
+  private routeDispatcher: ((route: Route) => Promise<void>) | null = null;
 
   // ─── Viewport + deviceScaleFactor (context options) ──────────
   // Tracked at the manager level so recreateContext() preserves them.
@@ -406,6 +453,7 @@ export class BrowserManager {
     if (Object.keys(this.extraHeaders).length > 0) {
       await this.context.setExtraHTTPHeaders(this.extraHeaders);
     }
+    await this.applyRoutes(this.context);
 
     // Apply Layer C stealth (applyStealth): masks navigator.webdriver,
     // restores window.chrome.* shape, aligns Notification.permission, sets
@@ -1223,6 +1271,75 @@ export class BrowserManager {
     }
   }
 
+  // ─── Network routing ────────────────────────────────────────
+  /**
+   * The shared route handler. Created lazily and reused across every context
+   * so `unroute()` can pass the same reference. Iterates rules in order and
+   * acts on the first match; non-matching requests fall through to the network.
+   * Errors are swallowed: a request can be aborted by navigation/page-close
+   * between match and action, and there's nothing useful to do about it.
+   */
+  private getRouteDispatcher(): (route: Route) => Promise<void> {
+    if (!this.routeDispatcher) {
+      this.routeDispatcher = async (route: Route) => {
+        try {
+          const url = route.request().url();
+          const rule = this.routeRules.find(r => matchesRoutePattern(r.pattern, url));
+          if (!rule) { await route.continue(); return; }
+          if (rule.action === 'block') { await route.abort(); return; }
+          await route.fulfill({
+            status: rule.status ?? 200,
+            contentType: rule.contentType ?? 'application/json',
+            body: rule.body ?? '',
+          });
+        } catch {
+          // Request already handled (page navigated/closed mid-flight). Ignore.
+        }
+      };
+    }
+    return this.routeDispatcher;
+  }
+
+  /**
+   * Re-attach the catch-all route handler to a (re)created context. Called from
+   * every context-creation site so routing survives recreateContext()/handoff,
+   * mirroring the extraHeaders re-apply. No-op when there are no rules.
+   */
+  async applyRoutes(context: BrowserContext | null = this.context): Promise<void> {
+    if (!context || this.routeRules.length === 0) return;
+    await context.route('**/*', this.getRouteDispatcher());
+  }
+
+  /** Add a routing rule and install the catch-all handler if it's the first one. */
+  async addRouteRule(rule: RouteRule): Promise<void> {
+    const wasEmpty = this.routeRules.length === 0;
+    this.routeRules.push(rule);
+    if (this.context && wasEmpty) {
+      await this.context.route('**/*', this.getRouteDispatcher());
+    }
+  }
+
+  /**
+   * Remove rules. With a pattern, drops rules whose pattern matches it exactly;
+   * without one, drops all. Returns the number removed. Detaches the catch-all
+   * handler once no rules remain so non-routed sessions pay zero interception cost.
+   */
+  async clearRoutes(pattern?: string): Promise<number> {
+    const before = this.routeRules.length;
+    this.routeRules = pattern
+      ? this.routeRules.filter(r => r.pattern !== pattern)
+      : [];
+    if (this.routeRules.length === 0 && this.context && this.routeDispatcher) {
+      await this.context.unroute('**/*', this.routeDispatcher).catch(() => {});
+    }
+    return before - this.routeRules.length;
+  }
+
+  /** Snapshot of active routing rules (copy — callers can't mutate internal state). */
+  getRouteRules(): RouteRule[] {
+    return this.routeRules.map(r => ({ ...r }));
+  }
+
   // ─── User Agent ────────────────────────────────────────────
   setUserAgent(ua: string) {
     this.customUserAgent = ua;
@@ -1434,6 +1551,7 @@ export class BrowserManager {
       if (Object.keys(this.extraHeaders).length > 0) {
         await this.context.setExtraHTTPHeaders(this.extraHeaders);
       }
+      await this.applyRoutes(this.context);
 
       // 4. Restore state
       await this.restoreState(state);
@@ -1613,6 +1731,7 @@ export class BrowserManager {
       if (Object.keys(this.extraHeaders).length > 0) {
         await newContext.setExtraHTTPHeaders(this.extraHeaders);
       }
+      await this.applyRoutes(newContext);
 
       // Register disconnect handler on new browser. Same clean-vs-crash
       // discrimination as launch() / launchHeaded() above so a user-initiated
