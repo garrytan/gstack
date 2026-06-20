@@ -912,15 +912,19 @@ $B prettyscreenshot --cleanup --scroll-to ".pricing" --width 1440 ~/Desktop/hero
 | `cookie <name>=<value>` | Set cookie on current page domain |
 | `cookie-import <json>` | Import cookies from JSON file |
 | `cookie-import-browser [browser] [--domain d]` | Import cookies from installed Chromium browsers (opens picker, or use --domain for direct import) |
+| `device <name>  |  device list  |  device reset` | Emulate a Playwright device preset (user agent + viewport + device-scale + mobile/touch flags), e.g. "iPhone 15", "Pixel 7". Viewport sizing takes effect in headless mode; in headed mode the real window wins but the user agent still applies. "device list" prints all names; "device reset" returns to desktop defaults. Rebuilds the browser context. |
 | `dialog-accept [text]` | Auto-accept next alert/confirm/prompt. Optional text is sent as the prompt response |
 | `dialog-dismiss` | Auto-dismiss next dialog |
 | `fill <sel> <val>` | Fill input |
+| `geo <lat,lng>  |  geo clear` | Override geolocation for the page (grants the geolocation permission automatically). Coordinates are "latitude,longitude". "geo clear" removes the override. Rebuilds the browser context. |
 | `header <name>:<value>` | Set custom request header (colon-separated, sensitive values auto-redacted) |
 | `hover <sel>` | Hover element |
+| `locale <bcp47>  |  locale clear` | Override the browser locale (BCP-47, e.g. en-GB, ja-JP) — affects Accept-Language and Intl formatting. "locale clear" removes it. Rebuilds the browser context. |
 | `press <key>` | Press a Playwright keyboard key against the focused element. Names are case-sensitive: Enter, Tab, Escape, ArrowUp/Down/Left/Right, Backspace, Delete, Home, End, PageUp, PageDown. Modifiers combine with +: Shift+Enter, Control+A, Meta+K. Single printable chars (a, A, 1) work too. Full key list: https://playwright.dev/docs/api/class-keyboard#keyboard-press |
 | `scroll [sel|@ref]` | With a selector, smooth-scrolls the element into view. Without a selector, jumps to page bottom. No --by/--to amount option; for pixel-precise scrolling use `js window.scrollTo(0, N)`. |
 | `select <sel> <val>` | Select dropdown option by value, label, or visible text |
 | `style <sel> <prop> <value> | style --undo [N]` | Modify CSS property on element (with undo support) |
+| `timezone <iana-tz>  |  timezone clear` | Override the timezone (IANA id, e.g. Asia/Tokyo, America/New_York) so Date/Intl report that zone. "timezone clear" removes it. Rebuilds the browser context. |
 | `type <text>` | Type into focused element |
 | `upload <sel> <file> [file2...]` | Upload file(s) |
 | `useragent <string>` | Set user agent |
