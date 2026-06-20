@@ -141,6 +141,12 @@ function sanitizeAuthToken(raw: string | undefined): string | null {
 // env once via resolveConfigFromEnv() and threads the result through.
 const BROWSE_PORT = parseInt(process.env.BROWSE_PORT || '0', 10);
 const IDLE_TIMEOUT_MS = parseInt(process.env.BROWSE_IDLE_TIMEOUT || '1800000', 10); // 30 min
+// Optional pin: when set, /health only hands the bootstrap token to OUR
+// extension origin (chrome-extension://<id>), not any extension on the
+// machine. Mirrors the same env var the PTY agent uses for its /ws origin
+// gate (terminal-agent.ts). Unset = backward-compatible (any extension
+// origin), which is why this is opt-in tightening, not a behavior break.
+const BROWSE_EXTENSION_ID = process.env.BROWSE_EXTENSION_ID || '';
 
 /**
  * Port the local listener bound to. Set once the daemon picks a port.
@@ -1782,8 +1788,17 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
           // server is tunneled to the internet (ngrok, SSH tunnel).
           // In headed mode the server is always local, so return token unconditionally
           // (fixes Playwright Chromium extensions that don't send Origin header).
+          //
+          // Extension-origin path: when BROWSE_EXTENSION_ID is pinned, require
+          // an EXACT chrome-extension://<id> match so a SECOND extension on the
+          // same machine can't scrape the root token by hitting /health (the
+          // multi-extension privilege-escalation leak; mirrors the /ws origin
+          // gate in terminal-agent.ts). Unset = any extension origin, preserving
+          // today's behavior for installs that don't pin the id.
           ...(browserManager.getConnectionMode() === 'headed' ||
-              req.headers.get('origin')?.startsWith('chrome-extension://')
+              (req.headers.get('origin')?.startsWith('chrome-extension://') &&
+               (!BROWSE_EXTENSION_ID ||
+                req.headers.get('origin') === `chrome-extension://${BROWSE_EXTENSION_ID}`))
               ? { token: authToken } : {}),
           // The chat queue is gone — Terminal pane is the sole sidebar
           // surface. Keep `chatEnabled: false` so any older extension

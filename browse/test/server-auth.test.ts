@@ -32,6 +32,16 @@ describe('Server auth security', () => {
     expect(healthBlock).toContain('chrome-extension://');
   });
 
+  // Test 1a: /health extension-origin path honors the BROWSE_EXTENSION_ID pin
+  // so a SECOND extension on the machine can't scrape the root token. Mirrors
+  // the /ws origin gate in terminal-agent.ts (multi-extension priv-esc leak).
+  test('/health extension token gate honors BROWSE_EXTENSION_ID exact match', () => {
+    const healthBlock = sliceBetween(SERVER_SRC, "url.pathname === '/health'", "url.pathname === '/connect'");
+    // The gate must consult the pin, not just any chrome-extension:// origin.
+    expect(healthBlock).toContain('BROWSE_EXTENSION_ID');
+    expect(healthBlock).toContain('chrome-extension://${BROWSE_EXTENSION_ID}');
+  });
+
   // Test 1b: /health does not expose sensitive browsing state
   test('/health does not expose currentUrl or currentMessage', () => {
     const healthBlock = sliceBetween(SERVER_SRC, "url.pathname === '/health'", "url.pathname === '/connect'");
