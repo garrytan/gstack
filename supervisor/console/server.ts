@@ -20,6 +20,8 @@ import {
   sendJson,
   parseTaskLedger,
   serveStatic,
+  readFleetStatus,
+  makeWatchHandler,
 } from "./server-utils.ts";
 
 const PORT = 7842;
@@ -333,6 +335,12 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     return;
   }
 
+  // GET /api/fleet — per-agent status from live.json + presence.json (CONS-012).
+  if (path === "/api/fleet" && method === "GET") {
+    sendJson(res, readFleetStatus(agentList, join(homedir(), "agents")));
+    return;
+  }
+
   // Static file handler (CONS-011) — LAST, after all API routes.
   serveStatic(__dirname, path, res);
 });
@@ -362,10 +370,6 @@ server.listen(PORT, HOSTNAME, () => {
 for (const agent of agentList) {
   const logDir = join(homedir(), "agents", agent, "logs");
   mkdirSync(logDir, { recursive: true });
-  watch(logDir, (_evt, filename) => {
-    if (filename === "live-events.jsonl") {
-      broadcast(JSON.stringify({ agent, file: filename, ts: Date.now() }));
-    }
-  });
+  watch(logDir, makeWatchHandler(agent, broadcast));
   console.log(`Watching ${logDir}`);
 }

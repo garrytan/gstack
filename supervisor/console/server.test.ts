@@ -14,6 +14,9 @@ import {
   sendJson,
   rawPath,
   serveStatic,
+  readFleetStatus,
+  makeWatchHandler,
+  type AgentStatus,
 } from "./server-utils.ts";
 
 const TEST_PORT = 7843;
@@ -21,13 +24,15 @@ const TEST_PORT = 7843;
 const testDir = join(tmpdir(), `console-test-${process.pid}`);
 const ledgerDir = join(testDir, "ledger");
 const staticDir = join(testDir, "static");
+const agentsHome = join(testDir, "agents-home");
+const fleetAgents = ["agent-be", "agent-qa", "agent-fe", "agent-doc"];
 
 // Agents recognised by the mock fleet.conf.
 const validAgents = new Set(["agent-be", "agent-qa", "agent-fe", "agent-doc"]);
 
 let httpServer: Server;
 
-function makeHandler(rootDir: string) {
+function makeHandler(rootDir: string, fleetHome?: string) {
   return (req: IncomingMessage, res: ServerResponse) => {
     const path = rawPath(req.url);
     const method = req.method ?? "GET";
@@ -62,6 +67,12 @@ function makeHandler(rootDir: string) {
       return;
     }
 
+    // GET /api/fleet — per-agent status (CONS-012).
+    if (path === "/api/fleet" && method === "GET" && fleetHome) {
+      sendJson(res, readFleetStatus(fleetAgents, fleetHome));
+      return;
+    }
+
     // Static file handler — last, after all API routes.
     serveStatic(rootDir, path, res);
   };
@@ -83,7 +94,49 @@ beforeAll(
       writeFileSync(join(staticDir, "index.html"), "<html><body>test</body></html>");
       writeFileSync(join(staticDir, "styles.css"), "body { color: red; }");
 
-      httpServer = createServer(makeHandler(staticDir));
+      // CONS-012 fleet fixtures: four agents, each with different live/presence state.
+
+      // agent-be: active session + presence → used for AC1 (full shape check)
+      mkdirSync(join(agentsHome, "agent-be", "logs"), { recursive: true });
+      mkdirSync(join(agentsHome, "agent-be", "control", "mailboxes", "presence"), { recursive: true });
+      writeFileSync(
+        join(agentsHome, "agent-be", "logs", "live.json"),
+        JSON.stringify({
+          agent: "agent-be",
+          session_start: "2026-06-20T10:00:00Z",
+          task: "CONS-012",
+          last_tool: "Bash",
+          last_summary: "Implementing fleet endpoint",
+          ended: false,
+        }),
+      );
+      writeFileSync(
+        join(agentsHome, "agent-be", "control", "mailboxes", "presence", "agent-be.json"),
+        JSON.stringify({ state: "working" }),
+      );
+
+      // agent-qa: ended session → AC3 (task must be null)
+      mkdirSync(join(agentsHome, "agent-qa", "logs"), { recursive: true });
+      writeFileSync(
+        join(agentsHome, "agent-qa", "logs", "live.json"),
+        JSON.stringify({ task: "CONS-009", ended: true }),
+      );
+
+      // agent-fe: no live.json at all → AC2 (all-null session fields)
+      mkdirSync(join(agentsHome, "agent-fe", "logs"), { recursive: true });
+
+      // agent-doc: active live.json but no presence.json → AC5 (state: "stopped")
+      mkdirSync(join(agentsHome, "agent-doc", "logs"), { recursive: true });
+      writeFileSync(
+        join(agentsHome, "agent-doc", "logs", "live.json"),
+        JSON.stringify({
+          task: "CONS-003",
+          session_start: "2026-06-20T09:00:00Z",
+          ended: false,
+        }),
+      );
+
+      httpServer = createServer(makeHandler(staticDir, agentsHome));
       httpServer.listen(TEST_PORT, "127.0.0.1", resolve);
     }),
 );
@@ -233,6 +286,87 @@ describe("path traversal prevention", () => {
   test("returns 400 or 404 for a traversal attempt (AC4)", async () => {
     const r = await fetch(`http://127.0.0.1:${TEST_PORT}/../../../etc/passwd`);
     expect([400, 404]).toContain(r.status);
+  });
+});
+
+// --- CONS-012: GET /api/fleet ---
+
+describe("GET /api/fleet", () => {
+  test("returns 200 with application/json and a typed AgentStatus array (AC1)", async () => {
+    const r = await fetch(`http://127.0.0.1:${TEST_PORT}/api/fleet`);
+    expect(r.status).toBe(200);
+    expect(r.headers.get("content-type")).toContain("application/json");
+    const body = (await r.json()) as AgentStatus[];
+    expect(Array.isArray(body)).toBe(true);
+    expect(body).toHaveLength(4);
+    const be = body.find((a) => a.name === "agent-be");
+    expect(be).toBeDefined();
+    expect(be!.state).toBe("working");
+    expect(be!.task).toBe("CONS-012");
+    expect(be!.sessionStart).toBe("2026-06-20T10:00:00Z");
+    expect(be!.lastTool).toBe("Bash");
+    expect(be!.ended).toBe(false);
+  });
+
+  test("agent with no live.json has null session fields and ended: true (AC2)", async () => {
+    const r = await fetch(`http://127.0.0.1:${TEST_PORT}/api/fleet`);
+    const body = (await r.json()) as AgentStatus[];
+    const fe = body.find((a) => a.name === "agent-fe");
+    expect(fe).toBeDefined();
+    expect(fe!.task).toBeNull();
+    expect(fe!.lastTool).toBeNull();
+    expect(fe!.lastSummary).toBeNull();
+    expect(fe!.sessionStart).toBeNull();
+    expect(fe!.ended).toBe(true);
+  });
+
+  test("agent with ended:true in live.json returns task: null (AC3)", async () => {
+    const r = await fetch(`http://127.0.0.1:${TEST_PORT}/api/fleet`);
+    const body = (await r.json()) as AgentStatus[];
+    const qa = body.find((a) => a.name === "agent-qa");
+    expect(qa).toBeDefined();
+    expect(qa!.task).toBeNull();
+    expect(qa!.ended).toBe(true);
+  });
+
+  test("agent with missing presence.json has state: 'stopped' (AC5)", async () => {
+    const r = await fetch(`http://127.0.0.1:${TEST_PORT}/api/fleet`);
+    const body = (await r.json()) as AgentStatus[];
+    const doc = body.find((a) => a.name === "agent-doc");
+    expect(doc).toBeDefined();
+    expect(doc!.state).toBe("stopped");
+    expect(doc!.task).toBe("CONS-003");
+    expect(doc!.ended).toBe(false);
+  });
+});
+
+describe("makeWatchHandler (AC4)", () => {
+  test("broadcasts fleet-update payload when filename is live.json", () => {
+    const calls: string[] = [];
+    const handler = makeWatchHandler("agent-be", (msg) => calls.push(msg));
+    handler("change", "live.json");
+    expect(calls).toHaveLength(1);
+    const payload = JSON.parse(calls[0]) as { type: string; agent: string; ts: number };
+    expect(payload.type).toBe("fleet-update");
+    expect(payload.agent).toBe("agent-be");
+    expect(typeof payload.ts).toBe("number");
+  });
+
+  test("broadcasts file payload (not fleet-update) when filename is live-events.jsonl", () => {
+    const calls: string[] = [];
+    const handler = makeWatchHandler("agent-be", (msg) => calls.push(msg));
+    handler("change", "live-events.jsonl");
+    expect(calls).toHaveLength(1);
+    const payload = JSON.parse(calls[0]) as { agent: string; file: string };
+    expect(payload.agent).toBe("agent-be");
+    expect(payload.file).toBe("live-events.jsonl");
+  });
+
+  test("does not call broadcast for unrelated filenames", () => {
+    const calls: string[] = [];
+    const handler = makeWatchHandler("agent-be", (msg) => calls.push(msg));
+    handler("change", "other.log");
+    expect(calls).toHaveLength(0);
   });
 });
 
