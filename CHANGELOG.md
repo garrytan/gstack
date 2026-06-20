@@ -16,6 +16,9 @@ The console server now serves static HTML, CSS, and JavaScript files from the `s
 - Console server's final 404 handler now serves static files instead of rejecting all unmatched paths
 - Request handler order: API routes checked first, then static files as fallback
 
+#### Fixed
+- **bash-wrapper.test.ts environment overflow (exit 126).** When running `bun test supervisor/console/` after sessions with accumulated large PATH entries, `spawnSync` inherited the full `process.env` and exceeded macOS `ARG_MAX`, causing bash to fail with "Argument list too long". Fixed by passing an explicit trimmed `env` object containing only `HOME`, `TMPDIR`, `SHELL`, and a minimal `PATH` (`/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin`) to ensure subprocess environment stays within system limits.
+
 ### Localhost binding + path validation — security hardening (v7.1)
 
 The console server now binds exclusively to `127.0.0.1` and validates all path parameters before processing, preventing accidental network exposure and path-traversal attacks.
