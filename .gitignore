@@ -37,3 +37,8 @@ supabase/.temp/
 
 # Throughput analysis — local-only, regenerate via scripts/garry-output-comparison.ts
 docs/throughput-*.json
+
+# Local tool/skill artifacts and unrelated nested projects (never part of gstack source)
+.serena/
+graphify-out/
+shopify-oauth/
