@@ -55,6 +55,14 @@ should_skip_idle_session() {
   ) || rc=$?
 
   if [ "$rc" -eq 3 ]; then
+    # Even with no claimable tasks, don't skip if this agent already holds a
+    # claim. Without this check, an agent that claims a task and then hits a
+    # plan-session sleep wakes up, sees exit-3 from `task eligible` (because
+    # its own claim isn't "eligible"), and skips the session forever.
+    if grep -rl "^claimed_by: ${agent_name}$" "$control_dir/ledger/" \
+         2>/dev/null | grep -q .; then
+      return 1   # active claim — must launch session to continue it
+    fi
     return 0   # skip
   fi
   return 1     # don't skip
