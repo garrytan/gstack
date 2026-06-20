@@ -101,8 +101,13 @@ _write_decision() {
 }
 
 # AC2a: decision file with approved:true → wrapper exits 0
+# Mock git so the approved command always succeeds (we test wrapper behaviour, not real git).
+MOCKBIN="$WORK/mockbin"
+mkdir -p "$MOCKBIN"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$MOCKBIN/git"
+chmod +x "$MOCKBIN/git"
 rm -f "$WORK"/*.json 2>/dev/null
-SUPERVISOR_DECISIONS_DIR="$WORK" AGENT_NAME=test_agent "$WRAPPER" -c 'git push origin main' &
+PATH="$MOCKBIN:$PATH" SUPERVISOR_DECISIONS_DIR="$WORK" AGENT_NAME=test_agent "$WRAPPER" -c 'git push origin main' &
 W2A=$!
 REQ=$(_wait_req "$WORK") && _write_decision "$REQ" "true" "$WORK"
 wait "$W2A"; C2A=$?
