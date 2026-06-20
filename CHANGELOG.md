@@ -1,5 +1,40 @@
 # Changelog
 
+## [1.59.0.0] - 2026-06-20
+
+## **The browser can now intercept its own network: block requests or fake responses, no backend needed.**
+## **`$B route` brings Playwright-grade request mocking to the gstack browser CLI.**
+
+You can now control what the browser's network actually does. `route block` drops requests matching a URL glob (kill trackers, cut images for a faster scrape, simulate a dead endpoint). `route stub` answers a request with a canned body and status, so you can drive a UI against a mocked API with no server running. Rules match by glob (`*` = any run of characters, `?` = one), evaluate first-match-wins, and persist across navigations, `useragent`/`viewport --scale` rebuilds, browser handoff, and new tabs, so a rule you set once keeps holding as the session evolves. It is an operator-only WRITE command and is never reachable over the pair-agent tunnel.
+
+### The numbers that matter
+
+Source: `bun test browse/test/route-command.test.ts` (14 tests, no real browser required).
+
+| Capability | Before | After |
+|---|---|---|
+| Block requests by URL glob | not possible | `route block <glob>` |
+| Stub a response (status + body) | not possible | `route stub <glob> <body> [--status N] [--content-type T]` |
+| Large stub bodies | n/a | `--from-file <path>` (safe-dirs validated) |
+| Rule persistence across context rebuilds | n/a | all 3 context-creation paths |
+| Dedicated tests | 0 | 14 (matcher + dispatcher) |
+
+The dispatcher attaches a single catch-all route only while at least one rule exists and detaches when the last one clears, so sessions that never call `route` pay zero interception overhead.
+
+### What this means for builders
+
+Testing a flow that depends on a flaky third party? `route stub` it and the page never knows. Profiling a heavy page? `route block '*.png'` and watch it load. Reproducing an error state? Stub the API with a 500. It is the same mental model as Playwright's `page.route`, available straight from the CLI.
+
+### Itemized changes
+
+#### Added
+- `$B route` command with four subcommands: `block` (abort), `stub` (fulfill with status/content-type/body, or `--from-file`), `list`, and `clear [glob]`.
+- Exported `matchesRoutePattern` and `RouteRule` from `browser-manager.ts`; rule store with `addRouteRule` / `clearRoutes` / `getRouteRules` / `applyRoutes`.
+- 14 unit tests covering glob matching and the abort/fulfill/continue dispatcher (no real Chromium needed).
+
+#### Changed
+- Routing rules re-apply at every context-creation site, so they survive `useragent`, `viewport --scale`, and headless-to-headed handoff like custom headers do.
+
 ## [1.58.3.0] - 2026-06-18
 
 ## **GBrowser masks the full set of automation tells by default, on every path a page can reach.**

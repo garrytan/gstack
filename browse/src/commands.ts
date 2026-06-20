@@ -24,6 +24,7 @@ export const WRITE_COMMANDS = new Set([
   'load-html',
   'click', 'fill', 'select', 'hover', 'type', 'press', 'scroll', 'wait',
   'viewport', 'cookie', 'cookie-import', 'cookie-import-browser', 'header', 'useragent',
+  'route',
   'upload', 'dialog-accept', 'dialog-dismiss',
   'style', 'cleanup', 'prettyscreenshot',
   'download', 'scrape', 'archive',
@@ -133,6 +134,7 @@ export const COMMAND_DESCRIPTIONS: Record<string, { category: string; descriptio
   'cookie-import-browser': { category: 'Interaction', description: 'Import cookies from installed Chromium browsers (opens picker, or use --domain for direct import)', usage: 'cookie-import-browser [browser] [--domain d]' },
   'header':  { category: 'Interaction', description: 'Set custom request header (colon-separated, sensitive values auto-redacted)', usage: 'header <name>:<value>' },
   'useragent': { category: 'Interaction', description: 'Set user agent', usage: 'useragent <string>' },
+  'route':   { category: 'Interaction', description: 'Intercept network requests by URL glob (* = any chars, ? = one). "block" aborts matching requests (kill trackers, simulate offline); "stub" fulfills them with a canned response (mock an API without a backend). Rules persist across navigations, context rebuilds, and new tabs; first matching rule wins. Operator-only — never allowed over the tunnel. Large stub bodies: use --from-file <path> (safe-dirs only).', usage: 'route block <url-glob>  |  route stub <url-glob> <body> [--status N] [--content-type T]  |  route stub <url-glob> --from-file <path> [--status N] [--content-type T]  |  route list  |  route clear [url-glob]' },
   'dialog-accept': { category: 'Interaction', description: 'Auto-accept next alert/confirm/prompt. Optional text is sent as the prompt response', usage: 'dialog-accept [text]' },
   'dialog-dismiss': { category: 'Interaction', description: 'Auto-dismiss next dialog' },
   // Data extraction

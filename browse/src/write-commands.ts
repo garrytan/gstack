@@ -591,6 +591,74 @@ export async function handleWriteCommand(
       return `User agent set: ${ua}`;
     }
 
+    case 'route': {
+      const sub = (args[0] || '').toLowerCase();
+
+      if (sub === 'list') {
+        const rules = bm.getRouteRules();
+        if (rules.length === 0) return 'No active route rules.';
+        return rules.map((r, i) => {
+          if (r.action === 'block') return `${i + 1}. block  ${r.pattern}`;
+          const bytes = Buffer.byteLength(r.body ?? '', 'utf-8');
+          return `${i + 1}. stub   ${r.pattern} -> ${r.status ?? 200} ${r.contentType ?? 'application/json'} (${bytes}B)`;
+        }).join('\n');
+      }
+
+      if (sub === 'clear') {
+        const pattern = args[1];
+        const removed = await bm.clearRoutes(pattern);
+        return pattern
+          ? `Cleared ${removed} route rule(s) matching "${pattern}".`
+          : `Cleared all ${removed} route rule(s).`;
+      }
+
+      // "abort" is an alias for "block" — both drop the request.
+      if (sub === 'block' || sub === 'abort') {
+        const pattern = args[1];
+        if (!pattern) throw new Error('Usage: browse route block <url-glob>');
+        await bm.addRouteRule({ pattern, action: 'block' });
+        return `Blocking requests matching "${pattern}".`;
+      }
+
+      if (sub === 'stub') {
+        // Pull --status/--content-type/--from-file out of the tail; the
+        // remaining positionals are [pattern, body?].
+        const rest = args.slice(1);
+        let status: number | undefined;
+        let contentType: string | undefined;
+        let fromFile: string | undefined;
+        const positionals: string[] = [];
+        for (let i = 0; i < rest.length; i++) {
+          const a = rest[i];
+          if (a === '--status') { status = parseInt(rest[++i] ?? '', 10); }
+          else if (a === '--content-type') { contentType = rest[++i]; }
+          else if (a === '--from-file') { fromFile = rest[++i]; }
+          else positionals.push(a);
+        }
+        const pattern = positionals[0];
+        if (!pattern) {
+          throw new Error('Usage: browse route stub <url-glob> <body> [--status N] [--content-type T]  |  route stub <url-glob> --from-file <path> [--status N] [--content-type T]');
+        }
+        if (status !== undefined && (Number.isNaN(status) || status < 100 || status > 599)) {
+          throw new Error('--status must be an HTTP status code between 100 and 599');
+        }
+        let body: string;
+        if (fromFile) {
+          // Same safe-dirs gate as every other file read (no traversal).
+          validateReadPath(fromFile);
+          body = fs.readFileSync(fromFile, 'utf-8');
+        } else {
+          body = positionals.slice(1).join(' ');
+          if (!body) throw new Error('route stub needs a body (positional) or --from-file <path>');
+        }
+        await bm.addRouteRule({ pattern, action: 'stub', status, contentType, body });
+        const bytes = Buffer.byteLength(body, 'utf-8');
+        return `Stubbing "${pattern}" -> ${status ?? 200} ${contentType ?? 'application/json'} (${bytes}B).`;
+      }
+
+      throw new Error('Usage: browse route block <url-glob>  |  route stub <url-glob> <body> [--status N] [--content-type T]  |  route stub <url-glob> --from-file <path> [--status N] [--content-type T]  |  route list  |  route clear [url-glob]');
+    }
+
     case 'upload': {
       const [selector, ...filePaths] = args;
       if (!selector || filePaths.length === 0) throw new Error('Usage: browse upload <selector> <file1> [file2...]');

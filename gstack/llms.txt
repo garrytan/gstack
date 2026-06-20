@@ -103,6 +103,7 @@ Run with `browse <command> [args]`. Full reference: `browse/SKILL.md`.
 - `header <name>:<value>`: Set custom request header (colon-separated, sensitive values auto-redacted)
 - `hover <sel>`: Hover element
 - `press <key>`: Press a Playwright keyboard key against the focused element.
+- `route block <url-glob>  |  route stub <url-glob> <body> [--status N] [--content-type T]  |  route stub <url-glob> --from-file <path> [--status N] [--content-type T]  |  route list  |  route clear [url-glob]`: Intercept network requests by URL glob (* = any chars, ?
 - `scroll [sel|@ref]`: With a selector, smooth-scrolls the element into view.
 - `select <sel> <val>`: Select dropdown option by value, label, or visible text
 - `style <sel> <prop> <value> | style --undo [N]`: Modify CSS property on element (with undo support)
