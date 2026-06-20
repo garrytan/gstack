@@ -24,6 +24,7 @@ export const WRITE_COMMANDS = new Set([
   'load-html',
   'click', 'fill', 'select', 'hover', 'type', 'press', 'scroll', 'wait',
   'viewport', 'cookie', 'cookie-import', 'cookie-import-browser', 'header', 'useragent',
+  'device', 'geo', 'locale', 'timezone',
   'upload', 'dialog-accept', 'dialog-dismiss',
   'style', 'cleanup', 'prettyscreenshot',
   'download', 'scrape', 'archive',
@@ -133,6 +134,10 @@ export const COMMAND_DESCRIPTIONS: Record<string, { category: string; descriptio
   'cookie-import-browser': { category: 'Interaction', description: 'Import cookies from installed Chromium browsers (opens picker, or use --domain for direct import)', usage: 'cookie-import-browser [browser] [--domain d]' },
   'header':  { category: 'Interaction', description: 'Set custom request header (colon-separated, sensitive values auto-redacted)', usage: 'header <name>:<value>' },
   'useragent': { category: 'Interaction', description: 'Set user agent', usage: 'useragent <string>' },
+  'device':  { category: 'Interaction', description: 'Emulate a Playwright device preset (user agent + viewport + device-scale + mobile/touch flags), e.g. "iPhone 15", "Pixel 7". Viewport sizing takes effect in headless mode; in headed mode the real window wins but the user agent still applies. "device list" prints all names; "device reset" returns to desktop defaults. Rebuilds the browser context.', usage: 'device <name>  |  device list  |  device reset' },
+  'geo':     { category: 'Interaction', description: 'Override geolocation for the page (grants the geolocation permission automatically). Coordinates are "latitude,longitude". "geo clear" removes the override. Rebuilds the browser context.', usage: 'geo <lat,lng>  |  geo clear' },
+  'locale':  { category: 'Interaction', description: 'Override the browser locale (BCP-47, e.g. en-GB, ja-JP) — affects Accept-Language and Intl formatting. "locale clear" removes it. Rebuilds the browser context.', usage: 'locale <bcp47>  |  locale clear' },
+  'timezone': { category: 'Interaction', description: 'Override the timezone (IANA id, e.g. Asia/Tokyo, America/New_York) so Date/Intl report that zone. "timezone clear" removes it. Rebuilds the browser context.', usage: 'timezone <iana-tz>  |  timezone clear' },
   'dialog-accept': { category: 'Interaction', description: 'Auto-accept next alert/confirm/prompt. Optional text is sent as the prompt response', usage: 'dialog-accept [text]' },
   'dialog-dismiss': { category: 'Interaction', description: 'Auto-dismiss next dialog' },
   // Data extraction

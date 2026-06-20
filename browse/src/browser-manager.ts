@@ -169,6 +169,20 @@ export class BrowserManager {
   private deviceScaleFactor: number = 1;
   private currentViewport: { width: number; height: number } = { width: 1280, height: 720 };
 
+  // ─── Emulation (context options) ─────────────────────────────
+  // Like viewport/deviceScaleFactor, these are *context* options, so changing
+  // them requires recreateContext(). Tracked at the manager level so they
+  // survive context rebuilds and apply to new tabs. All null/false = the
+  // browser's own defaults (no override). buildContextOptions() folds them in.
+  // isMobile/hasTouch are set by `device` presets (headless path); locale,
+  // timezone, and geolocation apply on every path.
+  private customLocale: string | null = null;
+  private customTimezone: string | null = null;
+  private customGeolocation: { latitude: number; longitude: number; accuracy?: number } | null = null;
+  private deviceIsMobile: boolean | null = null;
+  private deviceHasTouch: boolean | null = null;
+  private currentDeviceName: string | null = null;
+
   /** Server port — set after server starts, used by cookie-import-browser command */
   public serverPort: number = 0;
 
@@ -394,13 +408,7 @@ export class BrowserManager {
       void handleChromiumDisconnect(this.browser);
     });
 
-    const contextOptions: BrowserContextOptions = {
-      viewport: { width: this.currentViewport.width, height: this.currentViewport.height },
-      deviceScaleFactor: this.deviceScaleFactor,
-    };
-    if (this.customUserAgent) {
-      contextOptions.userAgent = this.customUserAgent;
-    }
+    const contextOptions = this.buildContextOptions();
     this.context = await this.browser.newContext(contextOptions);
 
     if (Object.keys(this.extraHeaders).length > 0) {
@@ -587,6 +595,9 @@ export class BrowserManager {
       userAgent: this.customUserAgent || customUA,
       ...(executablePath ? { executablePath } : {}),
       ...(this.proxyConfig ? { proxy: this.proxyConfig } : {}),
+      // locale / timezone / geolocation overrides (no viewport dependency, so
+      // safe alongside the real-window `viewport: null` above).
+      ...this.buildEmulationExtras(),
       ignoreDefaultArgs: STEALTH_IGNORE_DEFAULT_ARGS,
     });
     this.browser = this.context.browser();
@@ -1232,6 +1243,90 @@ export class BrowserManager {
     return this.customUserAgent;
   }
 
+  // ─── Emulation (device / geo / locale / timezone) ────────────
+  /**
+   * Build the full BrowserContextOptions from tracked state. Single source of
+   * truth for the headless newContext() paths (launch + both recreateContext
+   * branches), so viewport, deviceScaleFactor, userAgent, and the emulation
+   * overrides can't drift between sites. Only non-null fields are emitted, so
+   * an untouched manager produces exactly the historical `{ viewport,
+   * deviceScaleFactor }` shape.
+   */
+  private buildContextOptions(): BrowserContextOptions {
+    const opts: BrowserContextOptions = {
+      viewport: { width: this.currentViewport.width, height: this.currentViewport.height },
+      deviceScaleFactor: this.deviceScaleFactor,
+    };
+    if (this.customUserAgent) opts.userAgent = this.customUserAgent;
+    if (this.deviceIsMobile !== null) opts.isMobile = this.deviceIsMobile;
+    if (this.deviceHasTouch !== null) opts.hasTouch = this.deviceHasTouch;
+    Object.assign(opts, this.buildEmulationExtras());
+    return opts;
+  }
+
+  /**
+   * The subset of emulation options that are safe on EVERY context path,
+   * including the headed launchPersistentContext path (which keeps the real
+   * window via `viewport: null`, so it can't take viewport/isMobile/hasTouch).
+   * locale, timezoneId, and geolocation have no viewport dependency.
+   */
+  buildEmulationExtras(): BrowserContextOptions {
+    const extras: BrowserContextOptions = {};
+    if (this.customLocale) extras.locale = this.customLocale;
+    if (this.customTimezone) extras.timezoneId = this.customTimezone;
+    if (this.customGeolocation) {
+      extras.geolocation = this.customGeolocation;
+      extras.permissions = ['geolocation'];
+    }
+    return extras;
+  }
+
+  /**
+   * Apply a Playwright device descriptor (userAgent + viewport +
+   * deviceScaleFactor + isMobile + hasTouch). The viewport fields take effect
+   * on the headless path; on headed the real window wins, but the userAgent
+   * still applies. Caller must recreateContext() to realize the change.
+   */
+  setDevice(name: string, d: { userAgent?: string; viewport?: { width: number; height: number }; deviceScaleFactor?: number; isMobile?: boolean; hasTouch?: boolean }): void {
+    this.currentDeviceName = name;
+    if (d.userAgent) this.customUserAgent = d.userAgent;
+    if (d.viewport) this.currentViewport = { width: d.viewport.width, height: d.viewport.height };
+    if (typeof d.deviceScaleFactor === 'number') this.deviceScaleFactor = d.deviceScaleFactor;
+    if (typeof d.isMobile === 'boolean') this.deviceIsMobile = d.isMobile;
+    if (typeof d.hasTouch === 'boolean') this.deviceHasTouch = d.hasTouch;
+  }
+
+  /** Clear a device preset back to desktop defaults. Caller recreates context. */
+  clearDevice(): void {
+    this.currentDeviceName = null;
+    this.customUserAgent = null;
+    this.currentViewport = { width: 1280, height: 720 };
+    this.deviceScaleFactor = 1;
+    this.deviceIsMobile = null;
+    this.deviceHasTouch = null;
+  }
+
+  setLocale(locale: string | null): void { this.customLocale = locale; }
+  setTimezone(tz: string | null): void { this.customTimezone = tz; }
+  setGeolocation(geo: { latitude: number; longitude: number; accuracy?: number } | null): void {
+    this.customGeolocation = geo;
+  }
+
+  /** Human-readable snapshot of active emulation overrides (for `device`/status). */
+  getEmulationStatus(): { device: string | null; viewport: string; deviceScaleFactor: number; userAgent: string | null; locale: string | null; timezone: string | null; geolocation: string | null } {
+    return {
+      device: this.currentDeviceName,
+      viewport: `${this.currentViewport.width}x${this.currentViewport.height}`,
+      deviceScaleFactor: this.deviceScaleFactor,
+      userAgent: this.customUserAgent,
+      locale: this.customLocale,
+      timezone: this.customTimezone,
+      geolocation: this.customGeolocation
+        ? `${this.customGeolocation.latitude},${this.customGeolocation.longitude}`
+        : null,
+    };
+  }
+
   // ─── Lifecycle helpers ───────────────────────────────
   /**
    * Close all open pages and clear the pages map.
@@ -1414,13 +1509,7 @@ export class BrowserManager {
       await this.context.close().catch(() => {});
 
       // 3. Create new context with updated settings
-      const contextOptions: BrowserContextOptions = {
-        viewport: { width: this.currentViewport.width, height: this.currentViewport.height },
-        deviceScaleFactor: this.deviceScaleFactor,
-      };
-      if (this.customUserAgent) {
-        contextOptions.userAgent = this.customUserAgent;
-      }
+      const contextOptions = this.buildContextOptions();
       this.context = await this.browser.newContext(contextOptions);
 
       // Re-apply stealth: newContext() is a fresh context with no init scripts,
@@ -1446,13 +1535,7 @@ export class BrowserManager {
         this.tabSessions.clear();
         if (this.context) await this.context.close().catch(() => {});
 
-        const contextOptions: BrowserContextOptions = {
-          viewport: { width: this.currentViewport.width, height: this.currentViewport.height },
-          deviceScaleFactor: this.deviceScaleFactor,
-        };
-        if (this.customUserAgent) {
-          contextOptions.userAgent = this.customUserAgent;
-        }
+        const contextOptions = this.buildContextOptions();
         this.context = await this.browser!.newContext(contextOptions);
         // Stealth applies to the fallback blank context too.
         const { applyStealth } = await import('./stealth');
@@ -1584,6 +1667,8 @@ export class BrowserManager {
         args: launchArgs,
         viewport: null,
         ...(this.proxyConfig ? { proxy: this.proxyConfig } : {}),
+        // Carry locale / timezone / geolocation across the headless->headed handoff.
+        ...this.buildEmulationExtras(),
         ignoreDefaultArgs: STEALTH_IGNORE_DEFAULT_ARGS,
         timeout: 15000,
       });
