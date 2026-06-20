@@ -58,10 +58,10 @@ STREAM_PROCESSOR="$SUPERVISOR_DIR/stream-processor.py"
 # Cost guards (override via per-agent config or env):
 #   IDLE_PRESKIP=1            skip claude session when kernel says no work AND
 #                              mailbox is empty (saves ~$0.24 per idle iter).
-#   SESSION_TIMEOUT=600       hard wall-clock cap on each claude invocation
+#   SESSION_TIMEOUT=1800      hard wall-clock cap on each claude invocation
 #                              (seconds). Set 0 to disable.
 IDLE_PRESKIP="${IDLE_PRESKIP:-1}"
-SESSION_TIMEOUT="${SESSION_TIMEOUT:-600}"
+SESSION_TIMEOUT="${SESSION_TIMEOUT:-1800}"
 
 AGENT_NAME="${1:?Usage: run-agent.sh <agent-name> <role-file> [model]}"
 ROLE_FILE="${2:?Provide a role file, e.g. FEATURE_ROLE.md}"
