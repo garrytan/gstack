@@ -72,8 +72,6 @@ The console server now delivers live agent events to all connected browsers usin
 
 The agent console now uses the full gstack design system: corrected typography (16px body, 8px button radius), dark-mode color tokens, motion variables, and a grain texture for visual polish. Font CDN links load Satoshi (display), DM Sans (body), and JetBrains Mono (data) with `display=swap` to prevent layout shift.
 
-### Itemized changes
-
 #### Added
 - Console UI design tokens (colors, typography, spacing) sourced from `docs/DESIGN.md`
 - Font CDN links: Satoshi via Fontshare, DM Sans and JetBrains Mono via Google Fonts
@@ -83,6 +81,32 @@ The agent console now uses the full gstack design system: corrected typography (
 #### Changed
 - Body font size from 14px to 16px for improved readability
 - Button border-radius from 5px to 8px for consistency with design guidelines
+
+### Console UI — Interactive features and queue management (v7.1)
+
+The console frontend now provides a full-featured approval and task-blocking queue interface with animations, accessibility, and dynamic content updates. Operators see live cards as tasks arrive via SSE, manage approvals and decisions with one-click action buttons, and receive real-time feedback via animations and state badges.
+
+#### Added
+- Two-section layout: separate "Human Attention Queue" (blocked tasks) and "Approval Queue" (pending bash commands)
+- Per-section empty states: "No blocked agents" and "No pending approvals" with checkmark icons
+- All-clear banner: full-width "All clear — agents are running." when both queues are empty
+- Card entry animation: slideIn 250ms with bounce easing (`--ease-enter`) when cards arrive via SSE
+- Card exit animation: fadeOut 150ms before DOM removal when operator approves/rejects
+- Spinner and double-click protection: Approve/Reject buttons show spinner and become disabled immediately, preventing accidental duplicate submissions
+- Failure count badge: amber pill badge ("⚠ blocked N times") appears on tasks with `failure_count >= 2`
+- AI draft panel: collapsible section with amber disclaimer, streamed draft text, and "Use this draft ↑" button to copy suggestions into operator textarea
+- Visible textarea label: semantic `<label>` element (not placeholder-only) linked to the decision textarea
+- `aria-required="true"` on textarea: signals assistive technologies that input is required
+- Dynamic document title: browser tab shows "(N) Fleet Console" when pending items exist, or "Fleet Console — All clear" when idle
+- SSE reconnect banner: amber warning appears when connection drops, disappears on reconnect
+- Keyboard accessibility: native `<button>` elements respond to Enter key without custom handlers
+- HTML escaping: all user-supplied and dynamic content escaped to prevent XSS
+- Elapsed time timer: each card displays "Nm SSs" format, updating every second
+
+#### Changed
+- Console UI now validates all user interactions through the server before mutating DOM state
+- Cards are prepended to queues (newest first) for chronological visibility
+- Browser tab title kept in sync with queue state, eliminating need to open console for status check
 
 ---
 

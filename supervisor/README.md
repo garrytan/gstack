@@ -12,6 +12,7 @@ Scripts for starting, stopping, and monitoring the autonomous agent fleet.
 | `console/server.ts` | Console HTTP server (v7.1 — auto-detects control repo, gates risky Bash commands, streams live events via SSE) |
 | `console/bin/bash` | Risk-gated Bash tool intercept (v7.1 — blocks destructive commands until approved) |
 | `console/index.html` | Console UI entry point (v7.1 — serves static HTML with SSE support) |
+| `console/console.js` | Console interactive client (v7.1 — card animations, empty states, AI draft panel, ARIA accessibility) |
 | `console/styles.css` | Console design system (v7.1 — dark theme, motion tokens, Satoshi/DM Sans/JetBrains Mono typefaces) |
 
 ---
@@ -503,6 +504,121 @@ Used for consistent timing across transitions and animations:
 ### Font sizing
 - Body text: 16px (see `docs/DESIGN.md` for rationale)
 - Button border-radius: 8px (consistent with accessibility guidelines)
+
+---
+
+## Console UI — Interactive features and polish (v7.1)
+
+The `console.js` file implements a vanilla JavaScript frontend for the console UI, providing real-time task and approval queue management with animations, accessibility, and dynamic content updates via SSE.
+
+### Two-section layout with per-section empty states
+
+The console divides operator workload into two independent sections:
+
+**Human Attention Queue** — Tasks blocked waiting for operator decision (e.g., tasks that failed and need human input).
+- Empty state (AC1): Shows "No blocked agents" when the queue is empty, replacing the old single "All clear" banner.
+- Header includes an amber badge showing count when populated (e.g., "0 blocked").
+
+**Approval Queue** — High-risk Bash commands awaiting approval.
+- Empty state (AC1): Shows "No pending approvals" when the queue is empty.
+- Header includes a red badge showing count when populated (e.g., "0 pending").
+
+**All-clear banner (AC2):** When BOTH queues are empty simultaneously, a full-width "All clear — agents are running." banner spans the entire console, replacing the individual empty states. This single banner unifies the visual experience when the fleet is fully idle.
+
+### Card animations
+
+Cards enter and exit the DOM with CSS animations driven by JavaScript:
+
+**Entry animation (AC3):** When a new card arrives via SSE, JavaScript prepends it with the `card-new` class. CSS plays a `slideIn 250ms var(--ease-enter)` animation, using the cubic-bezier bounce easing from the design tokens for a snappy entrance.
+
+**Exit animation (AC4):** When an operator approves or rejects a card, JavaScript:
+1. Adds the `card-exit` class to trigger a `fadeOut 150ms forwards` animation
+2. Waits 150ms for the fade to complete
+3. Removes the card from the DOM
+4. Updates queue counts and syncs the UI state
+
+This two-phase exit prevents abrupt disappearance and gives operators visual feedback that their action was registered.
+
+**Spinner and disabled state (AC4a):** When clicking Approve/Reject, the button immediately adds the `loading` class (CSS shows a spinner) and becomes disabled to prevent double-clicks. The disabled state applies to both buttons until the server responds.
+
+### Failure count badge (AC5)
+
+When a task in the Human Attention Queue has `failure_count >= 2`, a amber pill badge appears in the card's meta row (top-right area):
+
+```
+⚠ blocked 3 times
+```
+
+The badge uses the `--amber` color token and includes both the warning icon and the count. This provides at-a-glance visibility into which tasks have been problematic.
+
+### AI draft panel (AC6)
+
+Tasks that have an AI-drafted suggestion show a collapsible "AI Draft" button. Clicking it reveals a panel below the acceptance criteria with:
+
+1. **Collapsible container:** Toggling the button shows/hides the panel using `aria-expanded` and display state.
+2. **Amber disclaimer badge:** Always visible when the panel is expanded, stating "AI draft — review before sending" in the `--amber` color.
+3. **Streaming text div:** The drafted text is rendered in a scrollable section (populated by the `POST /api/draft-decision` SSE response).
+4. **"Use this draft ↑" button:** A ghost-style button copies the draft text into the textarea below, allowing operators to review and edit before sending.
+
+Example interaction:
+1. Operator sees a blocked task with an AI draft available.
+2. Clicks "AI Draft" button → panel expands, disclaimer badge is visible.
+3. Reads the streamed draft suggestion.
+4. Clicks "Use this draft ↑" → text is copied into the textarea.
+5. Operator edits the text if needed and clicks "Send back to agent →".
+
+### Textarea with visible label and ARIA (AC7)
+
+The human decision textarea includes:
+
+- **Visible `<label>` element:** Linked to the textarea via `for` attribute and `id` attribute, always visible (not hidden or placeholder-only). Label text: "Your decision".
+- **`aria-required="true"`:** Signals to assistive technologies that the field is required before submission.
+
+The textarea uses placeholder text for hints but the actual label is a proper semantic `<label>` element.
+
+### Dynamic document title (AC8)
+
+The browser tab title updates dynamically based on queue state:
+
+- **Pending items (N > 0):** `(N) Fleet Console` (e.g., "(2) Fleet Console")
+- **All clear:** `Fleet Console — All clear`
+
+The title updates every time cards are added or removed, giving operators a quick status check from the browser tab without opening the console.
+
+### SSE reconnect banner (AC9)
+
+When the SSE connection drops (e.g., server restart), an amber banner appears at the top:
+
+```
+⚠ Connection lost — reconnecting…
+```
+
+The banner includes a spinner animation. When the SSE connection is re-established, the banner disappears automatically. This prevents operator confusion when the console briefly loses its live push stream.
+
+### Keyboard accessibility (AC10)
+
+All interactive buttons are native `<button>` elements:
+
+```html
+<button class="btn-approve" aria-label="...">Approve →</button>
+```
+
+Native buttons automatically:
+- Respond to Enter key (AC10 requirement)
+- Respond to Space key
+- Are focusable via Tab
+- Announce their purpose to screen readers via `aria-label`
+
+No custom key handlers are needed — the browser's native button behavior is leveraged.
+
+### Implementation details
+
+- **No dependencies:** `console.js` uses vanilla JavaScript with no npm packages (htmx is not required for core functionality).
+- **Event source:** SSE endpoint is `/api/events` (shared with agent log broadcasting).
+- **Event types:** `approval`, `attention`, `resolve` (from the server).
+- **HTML escaping:** All dynamic content is escaped via an `esc()` helper function to prevent XSS.
+- **State sync:** A `syncState()` function centralizes the logic for updating empty states, counts, badges, and the document title after every card operation.
+- **Timer display:** Elapsed time on each card updates every 1 second (minutes:seconds format).
 
 ---
 
