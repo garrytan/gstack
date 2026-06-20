@@ -21,10 +21,19 @@ describe("bash-wrapper.test.sh", () => {
   test(
     "all check_risk and poll_approval cases pass (AC1 + AC2)",
     () => {
+      // Pass an explicit trimmed env to avoid "Argument list too long" (exit 126)
+      // when Bun test runner has accumulated a large PATH in process.env.
+      const env: Record<string, string> = {
+        HOME: process.env.HOME ?? "/tmp",
+        TMPDIR: process.env.TMPDIR ?? "/tmp",
+        SHELL: "/bin/bash",
+        PATH: "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin",
+      };
       const result = spawnSync("bash", [SCRIPT], {
         encoding: "utf8",
         stdio: "pipe",
         timeout: 30_000,
+        env,
       });
       if (result.stdout) process.stdout.write(result.stdout);
       if (result.stderr) process.stderr.write(result.stderr);

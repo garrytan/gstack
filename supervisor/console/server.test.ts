@@ -13,19 +13,21 @@ import {
   parseMailboxNotes,
   sendJson,
   rawPath,
+  serveStatic,
 } from "./server-utils.ts";
 
 const TEST_PORT = 7843;
 
 const testDir = join(tmpdir(), `console-test-${process.pid}`);
 const ledgerDir = join(testDir, "ledger");
+const staticDir = join(testDir, "static");
 
 // Agents recognised by the mock fleet.conf.
 const validAgents = new Set(["agent-be", "agent-qa", "agent-fe", "agent-doc"]);
 
 let httpServer: Server;
 
-function makeHandler() {
+function makeHandler(rootDir: string) {
   return (req: IncomingMessage, res: ServerResponse) => {
     const path = rawPath(req.url);
     const method = req.method ?? "GET";
@@ -60,8 +62,8 @@ function makeHandler() {
       return;
     }
 
-    res.writeHead(404);
-    res.end("Not Found");
+    // Static file handler — last, after all API routes.
+    serveStatic(rootDir, path, res);
   };
 }
 
@@ -69,6 +71,7 @@ beforeAll(
   () =>
     new Promise<void>((resolve) => {
       mkdirSync(ledgerDir, { recursive: true });
+      mkdirSync(staticDir, { recursive: true });
 
       // Seed mock ledger with one needs_human task for AC5.
       writeFileSync(
@@ -76,7 +79,11 @@ beforeAll(
         "id: CONS-999\nstatus: needs_human\ndomain: be\ndescription: blocked test task\n",
       );
 
-      httpServer = createServer(makeHandler());
+      // Fixture files for CONS-011 static-serving tests.
+      writeFileSync(join(staticDir, "index.html"), "<html><body>test</body></html>");
+      writeFileSync(join(staticDir, "styles.css"), "body { color: red; }");
+
+      httpServer = createServer(makeHandler(staticDir));
       httpServer.listen(TEST_PORT, "127.0.0.1", resolve);
     }),
 );
@@ -184,6 +191,48 @@ describe("parseTaskLedger", () => {
 
   test("returns [] when the ledger directory does not exist", () => {
     expect(parseTaskLedger(join(testDir, "nonexistent-ledger"))).toEqual([]);
+  });
+});
+
+// --- CONS-011: static file serving ---
+
+describe("GET / (index.html)", () => {
+  test("returns 200 with HTML content and text/html content-type (AC1)", async () => {
+    const r = await fetch(`http://127.0.0.1:${TEST_PORT}/`);
+    expect(r.status).toBe(200);
+    expect(r.headers.get("content-type")).toContain("text/html");
+    const body = await r.text();
+    expect(body).toContain("<html>");
+  });
+
+  test("GET /index.html also returns 200 with HTML (AC1)", async () => {
+    const r = await fetch(`http://127.0.0.1:${TEST_PORT}/index.html`);
+    expect(r.status).toBe(200);
+    expect(r.headers.get("content-type")).toContain("text/html");
+  });
+});
+
+describe("GET /styles.css", () => {
+  test("returns 200 with CSS content and text/css content-type (AC2)", async () => {
+    const r = await fetch(`http://127.0.0.1:${TEST_PORT}/styles.css`);
+    expect(r.status).toBe(200);
+    expect(r.headers.get("content-type")).toContain("text/css");
+    const body = await r.text();
+    expect(body).toContain("color");
+  });
+});
+
+describe("GET /nonexistent.xyz", () => {
+  test("returns 404 for a file that does not exist (AC3)", async () => {
+    const r = await fetch(`http://127.0.0.1:${TEST_PORT}/nonexistent.xyz`);
+    expect(r.status).toBe(404);
+  });
+});
+
+describe("path traversal prevention", () => {
+  test("returns 400 or 404 for a traversal attempt (AC4)", async () => {
+    const r = await fetch(`http://127.0.0.1:${TEST_PORT}/../../../etc/passwd`);
+    expect([400, 404]).toContain(r.status);
   });
 });
 
