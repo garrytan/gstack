@@ -3,6 +3,69 @@ import type { ServerResponse } from "node:http";
 import { readdirSync, readFileSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 
+export type AgentStatus = {
+  name: string;
+  state: string;
+  task: string | null;
+  sessionStart: string | null;
+  lastTool: string | null;
+  lastSummary: string | null;
+  ended: boolean;
+};
+
+// Read live.json and presence.json for each agent and return fleet status array.
+// agentsHome is the parent of per-agent dirs (e.g. ~/agents).
+export function readFleetStatus(agents: string[], agentsHome: string): AgentStatus[] {
+  return agents.map((name) => {
+    const presencePath = join(
+      agentsHome, name, "control", "mailboxes", "presence", `${name}.json`,
+    );
+    let state = "stopped";
+    try {
+      const p = JSON.parse(readFileSync(presencePath, "utf8")) as Record<string, unknown>;
+      if (typeof p.state === "string") state = p.state;
+    } catch {
+      // AC5: missing or unreadable → "stopped"
+    }
+
+    const livePath = join(agentsHome, name, "logs", "live.json");
+    let task: string | null = null;
+    let sessionStart: string | null = null;
+    let lastTool: string | null = null;
+    let lastSummary: string | null = null;
+    let ended = true;
+    try {
+      const l = JSON.parse(readFileSync(livePath, "utf8")) as Record<string, unknown>;
+      ended = l.ended === true;
+      // AC3: ended sessions leave a stale task — do not forward it.
+      task = ended ? null : (typeof l.task === "string" ? l.task : null);
+      sessionStart = typeof l.session_start === "string" ? l.session_start : null;
+      lastTool = typeof l.last_tool === "string" ? l.last_tool : null;
+      lastSummary = typeof l.last_summary === "string" ? l.last_summary : null;
+    } catch {
+      // AC2: no live.json → all null, ended: true
+    }
+
+    return { name, state, task, sessionStart, lastTool, lastSummary, ended };
+  });
+}
+
+// Returns an fs.watch callback for a single agent's log directory.
+// Exported so tests can verify broadcast payloads without real filesystem events.
+export function makeWatchHandler(
+  agent: string,
+  broadcastFn: (msg: string) => void,
+): (_event: string, filename: string | null) => void {
+  return (_event, filename) => {
+    if (filename === "live-events.jsonl") {
+      broadcastFn(JSON.stringify({ agent, file: filename, ts: Date.now() }));
+    } else if (filename === "live.json") {
+      // AC4: broadcast fleet-update so browsers know to re-fetch /api/fleet.
+      broadcastFn(JSON.stringify({ type: "fleet-update", agent, ts: Date.now() }));
+    }
+  };
+}
+
 const MIME_TYPES: Record<string, string> = {
   html: "text/html",
   css: "text/css",
