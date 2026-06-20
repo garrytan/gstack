@@ -1,7 +1,43 @@
 // supervisor/console/server-utils.ts — pure utility functions, no side effects
 import type { ServerResponse } from "node:http";
 import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve, sep } from "node:path";
+
+const MIME_TYPES: Record<string, string> = {
+  html: "text/html",
+  css: "text/css",
+  js: "text/javascript",
+  json: "application/json",
+  svg: "image/svg+xml",
+  ico: "image/x-icon",
+};
+
+// Serve a static file from rootDir. Handles 200/400/404 itself — always writes a response.
+// Static handler must be placed LAST, after all API routes.
+export function serveStatic(rootDir: string, urlPath: string, res: ServerResponse): void {
+  const filePath = urlPath === "/" ? "index.html" : urlPath.replace(/^\//, "");
+  const safeRoot = resolve(rootDir);
+  const resolved = resolve(join(rootDir, filePath));
+
+  // Path-traversal guard: resolved path must be inside safeRoot (AC4).
+  if (!resolved.startsWith(safeRoot + sep)) {
+    res.writeHead(400);
+    res.end("Bad Request");
+    return;
+  }
+
+  const ext = resolved.slice(resolved.lastIndexOf(".") + 1).toLowerCase();
+  const mime = MIME_TYPES[ext] ?? "application/octet-stream";
+
+  try {
+    const content = readFileSync(resolved);
+    res.writeHead(200, { "content-type": mime, "content-length": content.length });
+    res.end(content);
+  } catch {
+    res.writeHead(404);
+    res.end("Not Found");
+  }
+}
 
 // Uppercase letters, hyphen, digits only — no path segments, no traversal.
 export const TASK_ID_RE = /^[A-Z]+-[0-9]+$/;

@@ -19,6 +19,7 @@ import {
   rawPath,
   sendJson,
   parseTaskLedger,
+  serveStatic,
 } from "./server-utils.ts";
 
 const PORT = 7842;
@@ -332,8 +333,8 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     return;
   }
 
-  res.writeHead(404);
-  res.end("Not Found");
+  // Static file handler (CONS-011) — LAST, after all API routes.
+  serveStatic(__dirname, path, res);
 });
 
 // AC1/AC2: prune decision files older than 24h before binding — not fire-and-forget.
