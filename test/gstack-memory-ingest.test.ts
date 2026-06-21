@@ -804,13 +804,29 @@ function writeConsumerSessions(gstackHome: string, provider: string, fileName: s
 }
 
 describe("gstack-memory-ingest consumer-session normalized contract", () => {
+  it("does not include consumer sessions in the default source set", () => {
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    mkdirSync(gstackHome, { recursive: true });
+    writeConsumerSessions(gstackHome, "chatgpt", "normalized.json", [
+      makeConsumerSession(),
+    ]);
+
+    const r = runScript(["--probe"], { HOME: home, GSTACK_HOME: gstackHome });
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain("Total files in window: 0");
+    expect(r.stdout).not.toContain("consumer-session");
+
+    rmSync(home, { recursive: true, force: true });
+  });
+
   it("dry-run discovery reports metadata only and never prints chat/storage values", () => {
     const home = makeTestHome();
     const gstackHome = join(home, ".gstack");
     const rawDir = join(gstackHome, "consumer-sessions", "raw", "chatgpt");
     mkdirSync(rawDir, { recursive: true });
     writeFileSync(
-      join(rawDir, "export.json"),
+      join(rawDir, "matt@example.com salary chat export.json"),
       JSON.stringify({
         text: "DO NOT LEAK CHAT TEXT",
         cookie: "cookie-secret-value",
@@ -819,7 +835,7 @@ describe("gstack-memory-ingest consumer-session normalized contract", () => {
       }),
       "utf-8",
     );
-    writeConsumerSessions(gstackHome, "chatgpt", "normalized.json", [
+    writeConsumerSessions(gstackHome, "chatgpt", "private conversation title.json", [
       makeConsumerSession({
         turns: [{ index: 0, role: "user", content: "NORMALIZED CHAT SECRET" }],
       }),
@@ -838,6 +854,12 @@ describe("gstack-memory-ingest consumer-session normalized contract", () => {
     expect(r.stdout).not.toContain("local-storage-secret");
     expect(r.stdout).not.toContain("indexed-db-secret");
     expect(r.stdout).not.toContain("NORMALIZED CHAT SECRET");
+    expect(r.stdout).not.toContain("matt@example.com");
+    expect(r.stdout).not.toContain("salary chat");
+    expect(r.stdout).not.toContain("private conversation title");
+    expect(r.stdout).toContain("consumer-sessions/raw/chatgpt/<redacted-export-001.json>");
+    expect(r.stdout).toContain("consumer-sessions/normalized/chatgpt/<redacted-export-001.json>");
+    expect(parsed.roots.root).toBe("consumer-sessions");
 
     rmSync(home, { recursive: true, force: true });
   });
@@ -948,6 +970,75 @@ esac
     expect(stagedList.match(/\.md/g)?.length).toBe(1);
     expect(stagedList).toContain("conversation-b");
     expect(stagedList).not.toContain("conversation-a");
+
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("probe treats unchanged consumer sessions as unchanged after ingest", () => {
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    mkdirSync(gstackHome, { recursive: true });
+    const { binDir } = installFakeGbrain(home);
+
+    writeConsumerSessions(gstackHome, "chatgpt", "bundle.json", [
+      makeConsumerSession(),
+    ]);
+
+    const first = runScript(["--bulk", "--sources", "consumer-session", "--quiet"], {
+      HOME: home,
+      GSTACK_HOME: gstackHome,
+      PATH: `${binDir}:${process.env.PATH || ""}`,
+    });
+    expect(first.exitCode).toBe(0);
+
+    const probe = runScript(["--probe", "--sources", "consumer-session"], {
+      HOME: home,
+      GSTACK_HOME: gstackHome,
+    });
+    expect(probe.exitCode).toBe(0);
+    expect(probe.stdout).toContain("Total files in window: 1");
+    expect(probe.stdout).toContain("New (never ingested):  0");
+    expect(probe.stdout).toContain("Updated (mtime/hash):  0");
+    expect(probe.stdout).toContain("Unchanged:             1");
+
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("--limit does not mark an incomplete multi-chunk consumer session as ingested", () => {
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    mkdirSync(gstackHome, { recursive: true });
+    const { binDir } = installFakeGbrain(home);
+
+    const longContent = `start\n${"x".repeat(170_000)}\ntail-marker`;
+    writeConsumerSessions(gstackHome, "chatgpt", "long.json", [
+      makeConsumerSession({
+        turns: [
+          { index: 0, role: "user", created_at: "2026-06-01T10:00:00Z", content: longContent },
+        ],
+      }),
+    ]);
+
+    const limited = runScript(["--bulk", "--sources", "consumer-session", "--limit", "1", "--quiet"], {
+      HOME: home,
+      GSTACK_HOME: gstackHome,
+      PATH: `${binDir}:${process.env.PATH || ""}`,
+    });
+    expect(limited.exitCode).toBe(0);
+    const limitedState = JSON.parse(readFileSync(join(gstackHome, ".transcript-ingest-state.json"), "utf-8"));
+    expect(Object.keys(limitedState.consumer_sessions || {}).length).toBe(0);
+
+    const full = runScript(["--bulk", "--sources", "consumer-session", "--quiet"], {
+      HOME: home,
+      GSTACK_HOME: gstackHome,
+      PATH: `${binDir}:${process.env.PATH || ""}`,
+    });
+    expect(full.exitCode).toBe(0);
+    const fullState = JSON.parse(readFileSync(join(gstackHome, ".transcript-ingest-state.json"), "utf-8"));
+    const entries = Object.values(fullState.consumer_sessions || {}) as Array<{ page_slugs: string[]; chunk_count: number }>;
+    expect(entries.length).toBe(1);
+    expect(entries[0].page_slugs.length).toBe(entries[0].chunk_count);
+    expect(entries[0].chunk_count).toBeGreaterThan(1);
 
     rmSync(home, { recursive: true, force: true });
   });

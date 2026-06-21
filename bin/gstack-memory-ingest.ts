@@ -67,6 +67,7 @@ import {
 import { execGbrainText, spawnGbrainAsync } from "../lib/gbrain-exec";
 import { checkOwnedStagingDir, STAGING_MARKER } from "../lib/staging-guard";
 import {
+  consumerSessionContentHash,
   consumerSessionStateKey,
   discoverConsumerSessionFiles,
   parseNormalizedConsumerSessionExport,
@@ -202,6 +203,8 @@ const ALL_TYPES: MemoryType[] = [
   "consumer-session",
 ];
 
+const DEFAULT_TYPES: MemoryType[] = ALL_TYPES.filter((t) => t !== "consumer-session");
+
 // ── CLI ────────────────────────────────────────────────────────────────────
 
 function printUsage(): void {
@@ -218,6 +221,8 @@ Options:
   --include-unattributed  Ingest sessions with no resolvable git remote.
   --all-history        Walk transcripts older than 90 days too.
   --sources <list>     Comma-separated subset: ${ALL_TYPES.join(",")}
+                       Default excludes consumer-session; opt in explicitly
+                       with --sources consumer-session.
   --limit <N>          Stop after N pages written (smoke testing).
   --consumer-sessions-dry-run
                        Discover raw/normalized consumer session exports under
@@ -239,7 +244,7 @@ function parseArgs(): CliArgs {
   let includeUnattributed = false;
   let allHistory = false;
   let limit: number | null = null;
-  let sources: Set<MemoryType> = new Set(ALL_TYPES);
+  let sources: Set<MemoryType> = new Set(DEFAULT_TYPES);
   let noWrite = process.env.GSTACK_MEMORY_INGEST_NO_WRITE === "1";
   let consumerSessionsDryRun = false;
   let scanSecrets = process.env.GSTACK_MEMORY_INGEST_SCAN_SECRETS === "1";
@@ -1141,6 +1146,34 @@ function recordPreparedSuccesses(
   return written;
 }
 
+function consumerSessionProbeStatus(
+  path: string,
+  state: IngestState,
+): "new" | "updated" | "unchanged" {
+  let sessions;
+  try {
+    sessions = parseNormalizedConsumerSessionExport(path);
+  } catch {
+    return "new";
+  }
+
+  if (sessions.length === 0) return "new";
+  let sawExisting = false;
+  for (const session of sessions) {
+    const stateKey = consumerSessionStateKey(session);
+    const existing = state.consumer_sessions?.[stateKey];
+    if (!existing) return sawExisting ? "updated" : "new";
+    sawExisting = true;
+    if (existing.content_sha256 !== consumerSessionContentHash(session)) {
+      return "updated";
+    }
+    if (existing.page_slugs.length !== existing.chunk_count) {
+      return "updated";
+    }
+  }
+  return "unchanged";
+}
+
 // ── Main ingest passes ─────────────────────────────────────────────────────
 
 async function probeMode(args: CliArgs): Promise<ProbeReport> {
@@ -1177,10 +1210,17 @@ async function probeMode(args: CliArgs): Promise<ProbeReport> {
     byType[type].bytes += size;
     totalBytes += size;
 
-    const entry = state.sessions[path];
-    if (!entry) newCount++;
-    else if (fileChangedSinceState(path, state)) updatedCount++;
-    else unchangedCount++;
+    if (type === "consumer-session") {
+      const status = consumerSessionProbeStatus(path, state);
+      if (status === "new") newCount++;
+      else if (status === "updated") updatedCount++;
+      else unchangedCount++;
+    } else {
+      const entry = state.sessions[path];
+      if (!entry) newCount++;
+      else if (fileChangedSinceState(path, state)) updatedCount++;
+      else unchangedCount++;
+    }
   }
 
   // Per ED2: ~25-35 min for ~11.7K transcripts = ~150ms/page synchronous
@@ -1274,13 +1314,23 @@ function preparePages(
           const pages = renderConsumerSessionPages(session);
           const stateKey = consumerSessionStateKey(session);
           const existing = state.consumer_sessions?.[stateKey];
-          if (args.mode === "incremental" && existing?.content_sha256 === pages[0]?.content_sha256) {
+          if (
+            args.mode === "incremental"
+            && existing?.content_sha256 === pages[0]?.content_sha256
+            && existing.page_slugs.length === existing.chunk_count
+          ) {
             skippedDedup++;
             continue;
           }
+          const remainingLimit = args.limit === null
+            ? Number.POSITIVE_INFINITY
+            : args.limit - prepared.length;
+          if (pages.length > remainingLimit) {
+            skippedDedup++;
+            break;
+          }
           if (session.completeness.partial) partialPages++;
           for (const rendered of pages) {
-            if (args.limit !== null && prepared.length >= args.limit) break;
             prepared.push({
               slug: rendered.slug,
               source_path: path,

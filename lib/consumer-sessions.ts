@@ -1,7 +1,7 @@
 import { createHash } from "crypto";
 import { existsSync, readdirSync, readFileSync, statSync } from "fs";
 import { hostname, platform } from "os";
-import { basename, join, relative } from "path";
+import { basename, extname, join, relative } from "path";
 
 export const CONSUMER_SESSION_SCHEMA_VERSION = 1;
 export const DEFAULT_CONSUMER_SESSION_CHUNK_CHARS = 80_000;
@@ -109,7 +109,7 @@ export function consumerSessionRoots(gstackHome: string): ConsumerSessionRoots {
     root,
     raw: join(root, "raw"),
     normalized: join(root, "normalized"),
-    rendered: join(gstackHome, "sessions"),
+    rendered: join(root, "rendered"),
   };
 }
 
@@ -124,16 +124,22 @@ export function discoverConsumerSessionFiles(gstackHome: string): ConsumerSessio
   const roots = consumerSessionRoots(gstackHome);
   const files: ConsumerSessionDryRunFile[] = [];
 
-  for (const path of walkFiles(roots.raw, () => true)) {
-    files.push(buildRawDiscovery(path, roots.raw));
+  const rawFiles = walkFiles(roots.raw, () => true);
+  for (let i = 0; i < rawFiles.length; i++) {
+    files.push(buildRawDiscovery(rawFiles[i], roots.raw, displayConsumerSessionPath("raw", roots.raw, rawFiles[i], i + 1)));
   }
 
-  for (const path of walkFiles(roots.normalized, (p) => basename(p).toLowerCase().endsWith(".json"))) {
-    files.push(buildNormalizedDiscovery(path, roots.normalized));
+  const normalizedFiles = walkFiles(roots.normalized, (p) => basename(p).toLowerCase().endsWith(".json"));
+  for (let i = 0; i < normalizedFiles.length; i++) {
+    files.push(buildNormalizedDiscovery(
+      normalizedFiles[i],
+      roots.normalized,
+      displayConsumerSessionPath("normalized", roots.normalized, normalizedFiles[i], i + 1),
+    ));
   }
 
   files.sort((a, b) => a.path.localeCompare(b.path));
-  return { roots, files };
+  return { roots: displayConsumerSessionRoots(), files };
 }
 
 export function parseNormalizedConsumerSessionExport(path: string): NormalizedConsumerSession[] {
@@ -239,10 +245,10 @@ export function renderConsumerSessionPages(
   });
 }
 
-function buildRawDiscovery(path: string, rawRoot: string): ConsumerSessionDryRunFile {
+function buildRawDiscovery(path: string, rawRoot: string, displayPath: string): ConsumerSessionDryRunFile {
   const st = safeStat(path);
   return {
-    path,
+    path: displayPath,
     provider_kind: providerKindFromPath(path, rawRoot),
     provider_export_kind: "raw-provider-export",
     size_bytes: st.size,
@@ -254,11 +260,11 @@ function buildRawDiscovery(path: string, rawRoot: string): ConsumerSessionDryRun
   };
 }
 
-function buildNormalizedDiscovery(path: string, normalizedRoot: string): ConsumerSessionDryRunFile {
+function buildNormalizedDiscovery(path: string, normalizedRoot: string, displayPath: string): ConsumerSessionDryRunFile {
   const st = safeStat(path);
   if (!st.ok) {
     return {
-      path,
+      path: displayPath,
       provider_kind: providerKindFromPath(path, normalizedRoot),
       provider_export_kind: "normalized-consumer-session",
       size_bytes: st.size,
@@ -272,7 +278,7 @@ function buildNormalizedDiscovery(path: string, normalizedRoot: string): Consume
   try {
     const sessions = parseNormalizedConsumerSessionExport(path);
     return {
-      path,
+      path: displayPath,
       provider_kind: providerKindFromSessionOrPath(sessions[0], path, normalizedRoot),
       provider_export_kind: sessions[0]?.source_receipt.provider_export_kind || "normalized-consumer-session",
       size_bytes: st.size,
@@ -285,7 +291,7 @@ function buildNormalizedDiscovery(path: string, normalizedRoot: string): Consume
   } catch (err) {
     const message = err instanceof Error ? err.message : "";
     return {
-      path,
+      path: displayPath,
       provider_kind: providerKindFromPath(path, normalizedRoot),
       provider_export_kind: "normalized-consumer-session",
       size_bytes: st.size,
@@ -296,6 +302,23 @@ function buildNormalizedDiscovery(path: string, normalizedRoot: string): Consume
       parser_status: message === "invalid_json" ? "invalid_json" : "schema_error",
     };
   }
+}
+
+function displayConsumerSessionRoots(): ConsumerSessionRoots {
+  return {
+    root: "consumer-sessions",
+    raw: "consumer-sessions/raw",
+    normalized: "consumer-sessions/normalized",
+    rendered: "consumer-sessions/rendered",
+  };
+}
+
+function displayConsumerSessionPath(kind: "raw" | "normalized", root: string, filePath: string, index: number): string {
+  const provider = providerKindFromPath(filePath, root);
+  const rawExt = extname(filePath).replace(/^\./, "");
+  const ext = rawExt ? safePathSegment(rawExt) : "";
+  const ordinal = String(index).padStart(3, "0");
+  return `consumer-sessions/${kind}/${provider}/<redacted-export-${ordinal}${ext ? `.${ext}` : ""}>`;
 }
 
 function coerceSession(value: unknown, path: string, index: number): NormalizedConsumerSession {
