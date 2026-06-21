@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+### Queue tab bootstrap — GET /api/queue + fetchQueue() client (v7.1)
+
+The Queue tab now populates immediately when opened, even if the page is loaded after a blocking event was already sent. Operators no longer see a blank Queue tab when the bash wrapper has already blocked a command before they opened the console — the tab fetches existing pending items on activate, without waiting for a new SSE event.
+
+#### Added
+- `GET /api/queue` endpoint in `server.ts`: returns `{ approvals: ApprovalItem[], attention: AttentionItem[] }` — pending approval requests (unresolved `{agent}-{id}.json` files from `SUPERVISOR_DECISIONS_DIR`) and `needs_human` ledger entries
+- `readApprovals(decisionsDir)` utility in `server-utils.ts`: reads unresolved approval request files; an "unresolved" file is one where `{agent}-{id}.json` exists but `{agent}-{id}.decision.json` does NOT; returns `[]` when the directory is unset, absent, or unreadable (no 500/503)
+- `fetchQueue()` in `console.js`: async function that calls `GET /api/queue` and renders approval and attention cards into the DOM with deduplication — skips any card whose element id (`approval-{id}`, `attention-{id}`) already exists in the DOM
+- `fetchQueue()` called on Queue tab activate (`switchTab('queue')`) and on SSE reconnect (`EventSource.onopen`) so the tab re-syncs after dropped connections
+- Three new test describe blocks in `server.test.ts` covering AC1 (unresolved-only approvals), AC5 (no `SUPERVISOR_DECISIONS_DIR`), and AC6 (missing directory) — total server tests raised from 10 to 14
+
+#### Changed
+- `console.js` SSE `open` handler: now calls `fetchQueue()` on reconnect (previously only hid the reconnect banner)
+- Document title format confirmed: `(N) Fleet Console` when N > 0, `Fleet Console` when N = 0 — handled by pre-existing `syncState()` with no new code required
+
 ### QA smoke testing — browser-verified console UI checks (v7.1)
 
 QA agents can now verify the console UI is rendering correctly using a lightweight browser-based smoke test. When testing tasks with human-verify acceptance criteria, the QA agent runs `qa-smoke.sh` to assert that key DOM elements (page title, tab bar, Fleet tab) are present in the live browser, and captures a screenshot as proof — complementing server-side unit tests with real-world verification.
