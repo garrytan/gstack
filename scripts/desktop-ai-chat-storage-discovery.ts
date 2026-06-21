@@ -23,6 +23,12 @@ export interface DiscoveryOptions {
   homeDir?: string;
   applicationsDirs?: string[];
   includeMissing?: boolean;
+  /**
+   * Off by default. Reading even a small prefix from provider cache files can
+   * load private chat content into memory if the provider stores plaintext.
+   * Enable only for synthetic fixtures or explicitly approved samples.
+   */
+  allowHeaderRead?: boolean;
 }
 
 export interface DiscoveryEntry {
@@ -84,6 +90,7 @@ interface ProviderSpec {
   appNames: string[];
   storageRoots: (homeDir: string) => string[];
   dynamicRoots?: (homeDir: string) => string[];
+  installedFromStorage?: (entry: DiscoveryEntry) => boolean;
   decision: ProviderDecision;
   limitations: string[];
   installedRequiresApp?: boolean;
@@ -106,7 +113,7 @@ function providerSpecs(applicationsDirs: string[]): ProviderSpec[] {
       decision: 'promising but brittle',
       dataExtensions: CHATGPT_DATA_EXTENSIONS,
       limitations: [
-        '.data files can be classified by headers and magic bytes only; extracting records needs synthetic fixtures or user-approved samples.',
+        '.data files are discovered by metadata only by default; header classification is opt-in for synthetic fixtures or user-approved samples.',
       ],
     },
     {
@@ -148,7 +155,6 @@ function providerSpecs(applicationsDirs: string[]): ProviderSpec[] {
       ],
       dynamicRoots: homeDir => groupContainersMatching(homeDir, /grok|xai/i),
       decision: 'not feasible',
-      installedRequiresApp: true,
       limitations: [
         'Report as not installed/no dedicated macOS target unless a local app bundle or container exists.',
       ],
@@ -173,6 +179,10 @@ function providerSpecs(applicationsDirs: string[]): ProviderSpec[] {
         path.join(homeDir, 'Library/Application Support/Comet'),
       ],
       dynamicRoots: homeDir => groupContainersMatching(homeDir, /comet|perplexity/i),
+      installedFromStorage: entry =>
+        entry.path.includes('/Library/Application Support/Comet')
+        || entry.path.includes('/Library/Containers/ai.perplexity.comet')
+        || entry.path.toLowerCase().includes('/comet'),
       decision: 'promising but brittle',
       limitations: [
         'Comet is Chromium-like browser storage; app-level ingestion is brittle unless provider-owned data formats are documented or fixture-backed.',
@@ -192,17 +202,27 @@ export function discoverDesktopAiChatStorage(options: DiscoveryOptions = {}): Pr
       ...(spec.dynamicRoots ? spec.dynamicRoots(homeDir) : []),
     ]);
     const directEntries = candidates
-      .map(candidate => describePath(candidate, options.includeMissing ?? true))
+      .map(candidate => describePath(candidate, options.includeMissing ?? true, {
+        allowHeaderRead: options.allowHeaderRead ?? false,
+      }))
       .filter((entry): entry is DiscoveryEntry => Boolean(entry));
 
     const existingRoots = directEntries.filter(entry => entry.exists && entry.kind !== 'file');
     const structuralEntries = existingRoots.flatMap(entry =>
-      describeStructuralStorage(entry.path, spec.dataExtensions)
+      describeStructuralStorage(entry.path, {
+        dataExtensions: spec.dataExtensions,
+        allowHeaderRead: options.allowHeaderRead ?? false,
+      })
     );
 
     const entries = uniqueEntries([...directEntries, ...structuralEntries]);
     const hasApp = directEntries.some(entry => entry.exists && entry.kind === 'app-bundle');
-    const hasStorage = directEntries.some(entry => entry.exists && entry.kind !== 'missing' && entry.kind !== 'app-bundle');
+    const hasStorage = directEntries.some(entry =>
+      entry.exists
+      && entry.kind !== 'missing'
+      && entry.kind !== 'app-bundle'
+      && (spec.installedFromStorage ? spec.installedFromStorage(entry) : true)
+    );
     const installed = spec.installedRequiresApp ? hasApp : hasApp || hasStorage;
 
     return {
@@ -228,14 +248,15 @@ export function formatDiscoveryMarkdown(discoveries: ProviderDiscovery[]): strin
     lines.push(`- Installed: ${discovery.installed ? 'yes' : 'no'}`);
     lines.push(`- Decision: ${discovery.decision}`);
     lines.push('');
-    lines.push('| Path | Kind | Type/technology | Size | Modified | Bundle ID | Note |');
-    lines.push('|---|---|---|---:|---|---|---|');
+    lines.push('| Path | Kind | Type/technology | Parser feasibility | Size | Modified | Bundle ID | Note |');
+    lines.push('|---|---|---|---|---:|---|---|---|');
 
     for (const entry of discovery.entries) {
       lines.push([
         entry.path,
         entry.kind,
         entry.storageTechnology ?? entry.fileType ?? '',
+        entry.parserFeasibility ?? '',
         entry.sizeBytes === undefined ? '' : String(entry.sizeBytes),
         entry.modifiedAt ?? '',
         entry.bundleIdentifier ?? '',
@@ -254,47 +275,65 @@ export function formatDiscoveryMarkdown(discoveries: ProviderDiscovery[]): strin
   return lines.join('\n');
 }
 
-function describePath(targetPath: string, includeMissing: boolean): DiscoveryEntry | null {
+function describePath(
+  targetPath: string,
+  includeMissing: boolean,
+  options: { allowHeaderRead?: boolean; displayPath?: string } = {},
+): DiscoveryEntry | null {
   let stat: fs.Stats;
   try {
     stat = fs.statSync(targetPath);
   } catch {
     return includeMissing
-      ? { path: targetPath, exists: false, kind: 'missing', note: 'not installed / not found' }
+      ? { path: options.displayPath ?? targetPath, exists: false, kind: 'missing', note: 'not installed / not found' }
       : null;
   }
 
   const isApp = isAppBundle(targetPath, stat);
   const kind = isApp ? 'app-bundle' : stat.isDirectory() ? 'directory' : 'file';
   return {
-    path: targetPath,
+    path: options.displayPath ?? targetPath,
     exists: true,
     kind,
-    fileType: kind === 'file' ? classifyFile(targetPath) : undefined,
+    fileType: kind === 'file' ? classifyFile(targetPath, options.allowHeaderRead ?? false) : undefined,
     sizeBytes: stat.size,
     modifiedAt: stat.mtime.toISOString(),
     bundleIdentifier: isApp ? readBundleIdentifier(targetPath) : undefined,
-    storageTechnology: inferStorageTechnology(targetPath, kind),
+    storageTechnology: inferStorageTechnology(options.displayPath ?? targetPath, kind),
   };
 }
 
-function describeStructuralStorage(root: string, dataExtensions?: Set<string>): DiscoveryEntry[] {
+function describeStructuralStorage(
+  root: string,
+  options: { dataExtensions?: Set<string>; allowHeaderRead?: boolean },
+): DiscoveryEntry[] {
   const entries: DiscoveryEntry[] = [];
 
   for (const relPath of STRUCTURAL_RELATIVE_PATHS) {
     const fullPath = path.join(root, relPath);
-    const entry = describePath(fullPath, false);
+    const entry = describePath(fullPath, false, {
+      allowHeaderRead: options.allowHeaderRead ?? false,
+    });
     if (!entry) continue;
     entry.parserFeasibility = feasibilityFor(entry);
     entries.push(entry);
   }
 
-  if (dataExtensions && dataExtensions.size > 0) {
-    for (const filePath of findFilesByExtension(root, dataExtensions, 5, 100)) {
-      const entry = describePath(filePath, false);
+  if (options.dataExtensions && options.dataExtensions.size > 0) {
+    const filePaths = findFilesByExtension(root, options.dataExtensions, 5, 100);
+    for (let i = 0; i < filePaths.length; i++) {
+      const filePath = filePaths[i];
+      const entry = describePath(filePath, false, {
+        allowHeaderRead: options.allowHeaderRead ?? false,
+        displayPath: redactedPrivateFilePath(root, filePath, i + 1),
+      });
       if (!entry) continue;
-      entry.storageTechnology = classifyDataFile(filePath);
-      entry.parserFeasibility = 'header-only classification; do not parse private values without fixture approval';
+      entry.storageTechnology = options.allowHeaderRead
+        ? classifyDataFile(filePath)
+        : '.data file; private header/content not inspected';
+      entry.parserFeasibility = options.allowHeaderRead
+        ? 'header-only classification on synthetic/user-approved sample; do not parse private values'
+        : 'metadata-only; rerun with --allow-header-read only for synthetic/user-approved samples';
       entries.push(entry);
     }
   }
@@ -343,12 +382,14 @@ function inferStorageTechnology(targetPath: string, kind: DiscoveryEntry['kind']
   return undefined;
 }
 
-function classifyFile(filePath: string): string {
+function classifyFile(filePath: string, allowHeaderRead: boolean): string {
   const ext = path.extname(filePath).toLowerCase();
   if (ext === '.sqlite' || ext === '.sqlite3' || ext === '.db') {
-    return classifySqliteLike(filePath);
+    return allowHeaderRead ? classifySqliteLike(filePath) : 'database-like file; private header/content not inspected';
   }
-  if (ext === '.data') return classifyDataFile(filePath);
+  if (ext === '.data') {
+    return allowHeaderRead ? classifyDataFile(filePath) : '.data file; private header/content not inspected';
+  }
   return ext ? `${ext.slice(1)} file` : 'file';
 }
 
@@ -409,6 +450,12 @@ function readPrefix(filePath: string, bytes: number): Buffer | null {
   } finally {
     if (fd !== null) fs.closeSync(fd);
   }
+}
+
+function redactedPrivateFilePath(root: string, filePath: string, index: number): string {
+  const ext = path.extname(filePath) || '.file';
+  const ordinal = String(index).padStart(3, '0');
+  return path.join(root, '...', `<redacted-private-file-${ordinal}${ext}>`);
 }
 
 function readBundleIdentifier(appPath: string): string | undefined {
@@ -496,6 +543,8 @@ function parseArgs(argv: string[]) {
       options.applicationsDirs = [...(options.applicationsDirs ?? []), argv[++i]];
     } else if (arg === '--existing-only') {
       options.includeMissing = false;
+    } else if (arg === '--allow-header-read') {
+      options.allowHeaderRead = true;
     } else if (arg === '--help') {
       printHelp();
       process.exit(0);
@@ -515,9 +564,12 @@ Options:
   --home PATH                  Home directory to inspect. Default: current user home.
   --applications-dir PATH      Applications directory. Can be repeated.
   --existing-only              Omit missing candidate paths.
+  --allow-header-read          Opt in to magic-byte classification for synthetic
+                               or explicitly approved samples. Off by default.
   --help                       Show this help.
 
-Privacy invariant: emits metadata and structural classifications only.`);
+Privacy invariant: emits metadata and structural classifications only. By default,
+private cache files are not opened for header inspection.`);
 }
 
 if (import.meta.main) {

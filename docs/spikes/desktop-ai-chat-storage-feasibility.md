@@ -28,9 +28,11 @@ The added detector follows that boundary:
 bun run scripts/desktop-ai-chat-storage-discovery.ts --existing-only --format markdown
 ```
 
-The script uses `stat` metadata, app `Info.plist` bundle identifiers, shallow
-known-path discovery, and magic-byte/header classification for ChatGPT `.data`
-files. It does not dump bytes or parse private records.
+The script uses `stat` metadata, app `Info.plist` bundle identifiers, and
+shallow known-path discovery. By default it does not open private provider cache
+files for header inspection. Magic-byte/header classification is available only
+with `--allow-header-read`, which is reserved for synthetic fixtures or
+explicitly approved samples.
 
 ## Local Discovery Snapshot
 
@@ -38,7 +40,7 @@ Measured on Matt's macOS machine on 2026-06-21 with the metadata-only detector.
 
 | Provider | Installed | Decision | Evidence |
 |---|---:|---|---|
-| ChatGPT Desktop | yes | promising but brittle | `/Applications/ChatGPT.app` bundle `com.openai.chat`; `~/Library/Application Support/com.openai.chat`; `.data` files under `conversations-v3-*`, `drafts-v2-*`, model/gizmo/helper caches |
+| ChatGPT Desktop | yes | promising but brittle | `/Applications/ChatGPT.app` bundle `com.openai.chat`; `~/Library/Application Support/com.openai.chat`; metadata-only `.data` file evidence under conversation/draft/cache roots |
 | Claude Desktop | yes | metadata-only | `/Applications/Claude.app` bundle `com.anthropic.claudefordesktop`; `~/Library/Application Support/Claude`; Chromium-style `IndexedDB`, `Local Storage`, `Session Storage`, `Cookies`, `Service Worker` paths |
 | Gemini | no | not feasible | no dedicated `/Applications/Gemini.app` detected; browser/PWA cache inspection is out of scope |
 | Grok | no | not feasible | no dedicated `/Applications/Grok.app` or local Grok/xAI app container detected |
@@ -59,14 +61,15 @@ Detected:
 | `~/Library/Application Support/com.openai.chat/drafts-v2-*/NewThreadDraft.data` | `.data` file, protobuf-like by header only | drafts likely recoverable only with approved fixtures |
 | `~/Library/Group Containers/group.com.openai.chat` | macOS group container | metadata-only |
 
-Header-only classification found `.data` files that are not SQLite and not
-plain gzip/lz4/zstd. Some look Apple-binary-plist, msgpack-like, protobuf-like,
-or custom/encrypted binary. The classifier intentionally does not print header
-bytes or run string scans.
+Metadata-only discovery found `.data` files under conversation-shaped roots.
+Default discovery deliberately does not classify those files by reading headers,
+because even a small prefix read could load private plaintext into memory if a
+provider changes formats. Header-only classification is opt-in for synthetic
+fixtures or explicitly approved samples.
 
 **Decision:** promising but brittle. There are clear local conversation-shaped
-files, but record extraction needs synthetic fixtures or user-approved samples
-to avoid reading private values.
+files, but record extraction and binary classification need synthetic fixtures
+or user-approved samples.
 
 ### Claude Desktop
 
@@ -146,7 +149,9 @@ Added `scripts/desktop-ai-chat-storage-discovery.ts`:
 - exact Perplexity/Comet paths requested in MAT-19/MAT-24 comments
 - app bundle ID extraction from `Info.plist`
 - metadata-only structural storage detection
-- ChatGPT `.data` classification by header/magic-byte categories only
+- ChatGPT `.data` metadata discovery by default
+- opt-in ChatGPT `.data` header/magic-byte classification for synthetic or
+  explicitly approved samples
 - JSON and Markdown output modes
 - test hooks for synthetic home/application roots
 
@@ -155,8 +160,9 @@ Added `scripts/desktop-ai-chat-storage-discovery.ts`:
 Added `test/desktop-ai-chat-storage-discovery.test.ts`:
 
 - verifies synthetic ChatGPT app/storage metadata detection
-- verifies synthetic private-looking chat text is not present in JSON or
-  Markdown output
+- verifies synthetic private-looking chat text and private-looking filenames are
+  not present in JSON or Markdown output
+- verifies header classification is explicit opt-in
 - verifies Gemini remains `not feasible` without a dedicated app bundle
 - verifies `.data` header classification for SQLite, gzip, and unknown binary
 
