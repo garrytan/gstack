@@ -340,33 +340,148 @@ describe("GET /api/fleet", () => {
   });
 });
 
-describe("makeWatchHandler (AC4)", () => {
-  test("broadcasts fleet-update payload when filename is live.json", () => {
-    const calls: string[] = [];
-    const handler = makeWatchHandler("agent-be", (msg) => calls.push(msg));
+// --- T4: makeWatchHandler ---
+
+describe("makeWatchHandler", () => {
+  const watchLogDir = join(testDir, "watch-logs");
+
+  beforeAll(() => {
+    mkdirSync(watchLogDir, { recursive: true });
+  });
+
+  // AC2: reads last line of live-events.jsonl and broadcasts fleet-update SSE frame
+  test("broadcasts fleet-update SSE frame with correct fields for live-events.jsonl (AC2)", () => {
+    const frames: string[] = [];
+    const cache = new Map<string, string>();
+    const handler = makeWatchHandler("agent-be", watchLogDir, (f) => frames.push(f), cache);
+
+    writeFileSync(
+      join(watchLogDir, "live-events.jsonl"),
+      JSON.stringify({ task: "T4", tool: "Bash", summary: "Running tests" }) + "\n",
+    );
+
+    handler("change", "live-events.jsonl");
+    expect(frames).toHaveLength(1);
+    expect(frames[0]).toContain("event: fleet-update");
+    const dataLine = frames[0].split("\n").find((l) => l.startsWith("data: "));
+    const payload = JSON.parse(dataLine!.slice("data: ".length)) as {
+      type: string; agent: string; task: string; tool: string; summary: string; ts: number;
+    };
+    expect(payload.type).toBe("fleet-update");
+    expect(payload.agent).toBe("agent-be");
+    expect(payload.task).toBe("T4");
+    expect(payload.tool).toBe("Bash");
+    expect(payload.summary).toBe("Running tests");
+    expect(typeof payload.ts).toBe("number");
+    expect(cache.get("agent-be")).toBeDefined();
+  });
+
+  // AC3: unreadable live-events.jsonl → no broadcast, no crash
+  test("does not broadcast when live-events.jsonl is unreadable (AC3)", () => {
+    const frames: string[] = [];
+    const cache = new Map<string, string>();
+    const missingDir = join(testDir, "missing-logs");
+    // directory exists but file is absent → ENOENT
+    mkdirSync(missingDir, { recursive: true });
+    const handler = makeWatchHandler("agent-be", missingDir, (f) => frames.push(f), cache);
+    handler("change", "live-events.jsonl");
+    expect(frames).toHaveLength(0);
+    expect(cache.size).toBe(0);
+  });
+
+  // live.json: broadcasts named fleet-update SSE frame
+  test("broadcasts fleet-update SSE frame when live.json changes", () => {
+    const frames: string[] = [];
+    const cache = new Map<string, string>();
+    const handler = makeWatchHandler("agent-be", watchLogDir, (f) => frames.push(f), cache);
     handler("change", "live.json");
-    expect(calls).toHaveLength(1);
-    const payload = JSON.parse(calls[0]) as { type: string; agent: string; ts: number };
+    expect(frames).toHaveLength(1);
+    expect(frames[0]).toContain("event: fleet-update");
+    const dataLine = frames[0].split("\n").find((l) => l.startsWith("data: "));
+    const payload = JSON.parse(dataLine!.slice("data: ".length)) as {
+      type: string; agent: string; ts: number;
+    };
     expect(payload.type).toBe("fleet-update");
     expect(payload.agent).toBe("agent-be");
     expect(typeof payload.ts).toBe("number");
   });
 
-  test("broadcasts file payload (not fleet-update) when filename is live-events.jsonl", () => {
-    const calls: string[] = [];
-    const handler = makeWatchHandler("agent-be", (msg) => calls.push(msg));
-    handler("change", "live-events.jsonl");
-    expect(calls).toHaveLength(1);
-    const payload = JSON.parse(calls[0]) as { agent: string; file: string };
-    expect(payload.agent).toBe("agent-be");
-    expect(payload.file).toBe("live-events.jsonl");
+  // unrelated filename → no broadcast
+  test("does not call broadcast for unrelated filenames", () => {
+    const frames: string[] = [];
+    const cache = new Map<string, string>();
+    const handler = makeWatchHandler("agent-be", watchLogDir, (f) => frames.push(f), cache);
+    handler("change", "other.log");
+    expect(frames).toHaveLength(0);
+  });
+});
+
+// --- T4: GET /api/events (AC1 + AC5) ---
+
+describe("GET /api/events", () => {
+  const localSseClients = new Set<ServerResponse>();
+  let sseServer: Server;
+
+  beforeAll(
+    () =>
+      new Promise<void>((resolve) => {
+        sseServer = createServer((req, res) => {
+          const p = rawPath(req.url);
+          if (p !== "/api/events") {
+            res.writeHead(404);
+            res.end();
+            return;
+          }
+          res.writeHead(200, {
+            "content-type": "text/event-stream",
+            "cache-control": "no-cache",
+            connection: "keep-alive",
+          });
+          res.write(": ok\n\n");
+          localSseClients.add(res);
+          req.on("close", () => localSseClients.delete(res));
+        });
+        sseServer.listen(7844, "127.0.0.1", resolve);
+      }),
+  );
+
+  afterAll(
+    () =>
+      new Promise<void>((resolve, reject) => {
+        sseServer.close((err) => {
+          if (err) reject(err);
+          else resolve();
+        });
+      }),
+  );
+
+  test("returns 200 with SSE headers and ': ok' heartbeat (AC1)", async () => {
+    const ac = new AbortController();
+    const r = await fetch("http://127.0.0.1:7844/api/events", { signal: ac.signal });
+    expect(r.status).toBe(200);
+    expect(r.headers.get("content-type")).toContain("text/event-stream");
+    expect(r.headers.get("cache-control")).toBe("no-cache");
+    expect(r.headers.get("connection")).toBe("keep-alive");
+    const reader = r.body!.getReader();
+    const { value } = await reader.read();
+    expect(new TextDecoder().decode(value)).toBe(": ok\n\n");
+    ac.abort();
+    await reader.cancel();
+    // Brief wait so close event fires before the next test checks localSseClients.
+    await new Promise((resolve) => setTimeout(resolve, 50));
   });
 
-  test("does not call broadcast for unrelated filenames", () => {
-    const calls: string[] = [];
-    const handler = makeWatchHandler("agent-be", (msg) => calls.push(msg));
-    handler("change", "other.log");
-    expect(calls).toHaveLength(0);
+  test("removes closed response from sseClients on disconnect (AC5)", async () => {
+    const before = localSseClients.size;
+    const ac = new AbortController();
+    const r = await fetch("http://127.0.0.1:7844/api/events", { signal: ac.signal });
+    const reader = r.body!.getReader();
+    await reader.read(); // consume ": ok\n\n"
+    expect(localSseClients.size).toBe(before + 1);
+    ac.abort();
+    await reader.cancel();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(localSseClients.size).toBe(before);
   });
 });
 
