@@ -86,6 +86,8 @@ describe("ChatGPT official export consumer-session importer", () => {
     expect(result.stdout).not.toContain("Sensitive synthetic title");
     expect(result.stdout).not.toContain("SYNTHETIC ASSISTANT");
     expect(result.stdout).not.toContain("SYNTHETIC USER");
+    expect(result.stdout).not.toContain(home);
+    expect(result.stdout).toContain("<redacted-chatgpt-input>");
 
     rmSync(home, { recursive: true, force: true });
   });
@@ -104,6 +106,7 @@ describe("ChatGPT official export consumer-session importer", () => {
               name: "synthetic-plan.txt",
               mime_type: "text/plain",
               size_bytes: 128,
+              download_url: "https://signed.example.test/secret-token",
             },
           ],
           contentParts: [
@@ -135,14 +138,15 @@ describe("ChatGPT official export consumer-session importer", () => {
       "file-service-image-1",
     ]);
     expect(session.turns[1].attachments?.find((attachment) => attachment.name === "synthetic-plan.txt")?.size_bytes).toBe(128);
+    expect(JSON.stringify(session)).not.toContain("signed.example.test");
+    expect(JSON.stringify(session)).not.toContain("secret-token");
 
     rmSync(home, { recursive: true, force: true });
   });
 
-  it("normalizes a zipped official export through system unzip when zip tooling is available", () => {
+  it("normalizes a zipped official export through the safe extractor when zip tooling is available", () => {
     const zipVersion = spawnSync("zip", ["-v"], { encoding: "utf-8" });
-    const unzipVersion = spawnSync("unzip", ["-v"], { encoding: "utf-8" });
-    if ((zipVersion.status ?? 1) !== 0 || (unzipVersion.status ?? 1) !== 0) return;
+    if ((zipVersion.status ?? 1) !== 0) return;
 
     const home = makeHome();
     const extracted = join(home, "extracted");
@@ -172,6 +176,34 @@ describe("ChatGPT official export consumer-session importer", () => {
     const defaultPathReport = importChatGptConsumerSessions({ gstackHome: join(home, ".gstack") });
     expect(defaultPathReport.provider_export_kind).toBe("chatgpt-official-export-zip");
     expect(defaultPathReport.conversation_count).toBe(1);
+
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("rejects zip entries that are symlinks before extraction", () => {
+    const python = spawnSync("python3", ["--version"], { encoding: "utf-8" });
+    if ((python.status ?? 1) !== 0) return;
+
+    const home = makeHome();
+    const zipPath = join(home, "malicious-chatgpt-export.zip");
+    const makeZip = spawnSync("python3", ["-c", `
+import os, stat, zipfile
+zip_path = os.environ["ZIP_PATH"]
+with zipfile.ZipFile(zip_path, "w") as zf:
+    info = zipfile.ZipInfo("linked-export")
+    info.create_system = 3
+    info.external_attr = (stat.S_IFLNK | 0o777) << 16
+    zf.writestr(info, "/tmp")
+`], {
+      env: { ...process.env, ZIP_PATH: zipPath },
+      encoding: "utf-8",
+    });
+    expect(makeZip.status).toBe(0);
+
+    expect(() => importChatGptConsumerSessions({
+      inputPath: zipPath,
+      outputPath: join(home, "normalized"),
+    })).toThrow(/unsafe_zip_symlink/);
 
     rmSync(home, { recursive: true, force: true });
   });
@@ -209,6 +241,56 @@ describe("ChatGPT official export consumer-session importer", () => {
       missing_turns: true,
       reason: "no_supported_turns",
     });
+
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("preserves non-active ChatGPT branch messages instead of silently dropping them", () => {
+    const home = makeHome();
+    const input = join(home, "export");
+    const conversation = fixtureConversation({ id: "conv-branches" });
+    const mapping = conversation.mapping as Record<string, Record<string, unknown>>;
+    mapping["alt-assistant"] = {
+      id: "alt-assistant",
+      parent: "user-1",
+      children: [],
+      message: {
+        id: "msg-alt-assistant",
+        author: { role: "assistant", name: "assistant" },
+        create_time: 1780315330,
+        content: { content_type: "text", parts: ["Alternative assistant branch"] },
+        metadata: {},
+      },
+    };
+    writeChatGptExport(input, { conversations: [conversation] });
+
+    const report = importChatGptConsumerSessions({
+      inputPath: input,
+      outputPath: join(home, "normalized"),
+    });
+    const session = parseNormalizedConsumerSessionExport(report.planned_outputs[0].path)[0];
+    expect(session.turns.map((turn) => turn.content)).toContain("Alternative assistant branch");
+
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("removes stale normalized outputs from the previous manifest", () => {
+    const home = makeHome();
+    const input = join(home, "export");
+    const output = join(home, "normalized");
+    const convA = fixtureConversation({ id: "conv-a" });
+    const convB = fixtureConversation({ id: "conv-b" });
+    writeChatGptExport(input, { conversations: [convA, convB] });
+
+    const first = importChatGptConsumerSessions({ inputPath: input, outputPath: output });
+    expect(first.planned_outputs).toHaveLength(2);
+    const stalePath = first.planned_outputs.find((planned) => planned.conversation_id === "conv-b")?.path;
+    expect(stalePath).toBeTruthy();
+    expect(existsSync(stalePath!)).toBe(true);
+
+    writeChatGptExport(input, { conversations: [convA] });
+    importChatGptConsumerSessions({ inputPath: input, outputPath: output });
+    expect(existsSync(stalePath!)).toBe(false);
 
     rmSync(home, { recursive: true, force: true });
   });

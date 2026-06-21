@@ -3,6 +3,7 @@
 import {
   defaultChatGptNormalizedPath,
   defaultChatGptRawPath,
+  displayChatGptImportReport,
   importChatGptConsumerSessions,
 } from "../lib/consumer-session-chatgpt";
 
@@ -24,7 +25,7 @@ try {
     outputPath: args.output,
     dryRun: args.dryRun,
   });
-  process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+  process.stdout.write(`${JSON.stringify(args.dryRun ? displayChatGptImportReport(report) : report, null, 2)}\n`);
 } catch (err) {
   const message = err instanceof Error ? err.message : String(err);
   process.stderr.write(`consumer-session-chatgpt-import: ${message}\n`);
@@ -83,7 +84,7 @@ Defaults:
 Supported input shapes:
   - extracted official export directory containing conversations.json
   - direct conversations.json file
-  - .zip official export, extracted with system unzip
+  - .zip official export, extracted with a safe built-in extractor
 
 Dry-run prints counts and planned output paths only; it does not print chat text.
 `);

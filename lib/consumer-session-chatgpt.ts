@@ -1,16 +1,18 @@
 import { createHash } from "crypto";
 import {
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
+  renameSync,
   rmSync,
-  statSync,
+  unlinkSync,
   writeFileSync,
 } from "fs";
 import { hostname, platform, tmpdir } from "os";
-import { basename, extname, join, relative, resolve } from "path";
+import { basename, extname, join, resolve } from "path";
 import { spawnSync } from "child_process";
 import {
   CONSUMER_SESSION_SCHEMA_VERSION,
@@ -53,6 +55,7 @@ export interface ChatGptImportReport {
 export interface PreparedExport {
   root: string;
   conversationsPath: string;
+  identityPath: string;
   providerExportKind: string;
   cleanup?: () => void;
 }
@@ -126,8 +129,10 @@ export function importChatGptConsumerSessions(options: ChatGptImportOptions = {}
     if (!options.dryRun) {
       mkdirSync(outputPath, { recursive: true });
       for (let i = 0; i < uniqueSessions.length; i++) {
-        writeFileSync(plannedOutputs[i].path, `${stableJson(uniqueSessions[i])}\n`, "utf-8");
+        writeFileAtomic(plannedOutputs[i].path, `${stableJson(uniqueSessions[i])}\n`);
       }
+      removeStaleManifestOutputs(outputPath, plannedOutputs.map((output) => basename(output.path)));
+      writeManifest(outputPath, plannedOutputs.map((output) => basename(output.path)));
     }
 
     return {
@@ -150,7 +155,7 @@ export function importChatGptConsumerSessions(options: ChatGptImportOptions = {}
 export function normalizeChatGptExport(prepared: PreparedExport): NormalizedConsumerSession[] {
   const conversationsRaw = readJson(prepared.conversationsPath);
   const conversations = coerceConversationArray(conversationsRaw);
-  const accountHash = accountHashForExport(prepared.root, prepared.conversationsPath);
+  const accountHash = accountHashForExport(prepared.root, prepared.identityPath);
   const contentHash = sha256(readFileSync(prepared.conversationsPath));
   return conversations.map((conversation, index) =>
     normalizeConversation(conversation, {
@@ -166,9 +171,10 @@ export function normalizeChatGptExport(prepared: PreparedExport): NormalizedCons
 export function prepareChatGptExport(inputPath: string): PreparedExport {
   const resolved = resolve(inputPath);
   if (!existsSync(resolved)) {
-    throw new Error(`chatgpt_export_not_found:${resolved}`);
+    throw new Error("chatgpt_export_not_found");
   }
-  const st = statSync(resolved);
+  const st = lstatSync(resolved);
+  if (st.isSymbolicLink()) throw new Error("chatgpt_export_schema_error:symlink_input");
   if (st.isFile() && extname(resolved).toLowerCase() === ".zip") {
     return prepareZipExport(resolved);
   }
@@ -181,6 +187,7 @@ export function prepareChatGptExport(inputPath: string): PreparedExport {
     return {
       root: resolve(resolved, ".."),
       conversationsPath: resolved,
+      identityPath: resolved,
       providerExportKind: "chatgpt-official-conversations-json",
     };
   }
@@ -196,6 +203,7 @@ export function prepareChatGptExport(inputPath: string): PreparedExport {
     return {
       root: resolved,
       conversationsPath,
+      identityPath: resolved,
       providerExportKind: "chatgpt-official-export-directory",
     };
   }
@@ -205,11 +213,10 @@ export function prepareChatGptExport(inputPath: string): PreparedExport {
 
 function prepareZipExport(zipPath: string): PreparedExport {
   const tmp = mkdtempSync(join(tmpdir(), "gstack-chatgpt-export-"));
-  const unzip = spawnSync("unzip", ["-qq", zipPath, "-d", tmp], { encoding: "utf-8" });
-  if (unzip.status !== 0) {
+  const extraction = extractZipSafely(zipPath, tmp);
+  if (!extraction.ok) {
     rmSync(tmp, { recursive: true, force: true });
-    const detail = (unzip.stderr || unzip.stdout || "system unzip failed").trim();
-    throw new Error(`chatgpt_zip_unzip_failed:${detail}`);
+    throw new Error(`chatgpt_zip_extract_failed:${extraction.reason}`);
   }
   const conversationsPath = findConversationsJson(tmp);
   if (!conversationsPath) {
@@ -219,8 +226,21 @@ function prepareZipExport(zipPath: string): PreparedExport {
   return {
     root: tmp,
     conversationsPath,
+    identityPath: zipPath,
     providerExportKind: "chatgpt-official-export-zip",
     cleanup: () => rmSync(tmp, { recursive: true, force: true }),
+  };
+}
+
+export function displayChatGptImportReport(report: ChatGptImportReport): ChatGptImportReport {
+  return {
+    ...report,
+    input_path: "<redacted-chatgpt-input>",
+    output_path: "consumer-sessions/normalized/chatgpt",
+    planned_outputs: report.planned_outputs.map((output, index) => ({
+      ...output,
+      path: `consumer-sessions/normalized/chatgpt/<redacted-output-${String(index + 1).padStart(3, "0")}.json>`,
+    })),
   };
 }
 
@@ -404,8 +424,7 @@ function attachmentFromObject(value: unknown, sourceKind: string): NormalizedCon
   const obj = objectOrUndefined(value) || {};
   const providerId = stringOrUndefined(obj.id)
     || stringOrUndefined(obj.file_id)
-    || stringOrUndefined(obj.asset_pointer)
-    || stringOrUndefined(obj.download_url);
+    || stringOrUndefined(obj.asset_pointer);
   const name = stringOrUndefined(obj.name)
     || stringOrUndefined(obj.file_name)
     || stringOrUndefined(obj.filename)
@@ -444,16 +463,23 @@ function orderedMessageNodes(mapping: Map<string, ChatGptNode>, currentNode: str
       lineage.push(node);
       next = stringOrUndefined(node.parent);
     }
-    return lineage.reverse();
+    const activeLineage = lineage.reverse();
+    const branchNodes = [...mapping.entries()]
+      .filter(([id, node]) => !seen.has(id) && coerceMessage(node.message))
+      .map(([, node]) => node)
+      .sort(compareMessageNodes);
+    return [...activeLineage, ...branchNodes];
   }
 
-  return [...mapping.values()].sort((a, b) => {
-    const aMsg = coerceMessage(a.message);
-    const bMsg = coerceMessage(b.message);
-    const aTime = numericTimestamp(aMsg?.create_time) ?? Number.MAX_SAFE_INTEGER;
-    const bTime = numericTimestamp(bMsg?.create_time) ?? Number.MAX_SAFE_INTEGER;
-    return aTime - bTime || (stringOrUndefined(a.id) || "").localeCompare(stringOrUndefined(b.id) || "");
-  });
+  return [...mapping.values()].sort(compareMessageNodes);
+}
+
+function compareMessageNodes(a: ChatGptNode, b: ChatGptNode): number {
+  const aMsg = coerceMessage(a.message);
+  const bMsg = coerceMessage(b.message);
+  const aTime = numericTimestamp(aMsg?.create_time) ?? Number.MAX_SAFE_INTEGER;
+  const bTime = numericTimestamp(bMsg?.create_time) ?? Number.MAX_SAFE_INTEGER;
+  return aTime - bTime || (stringOrUndefined(a.id) || "").localeCompare(stringOrUndefined(b.id) || "");
 }
 
 function coerceConversationArray(value: unknown): ChatGptConversation[] {
@@ -488,8 +514,8 @@ function coerceMessage(value: unknown): ChatGptMessage | undefined {
   return objectOrUndefined(value);
 }
 
-function accountHashForExport(root: string, conversationsPath: string): string {
-  const accountMaterial = readAccountMaterial(root) || `path:${resolve(conversationsPath)}`;
+function accountHashForExport(root: string, identityPath: string): string {
+  const accountMaterial = readAccountMaterial(root) || `source:${sha256(resolve(identityPath))}`;
   return `acct_${sha256(accountMaterial).slice(0, 32)}`;
 }
 
@@ -529,10 +555,11 @@ function findFileNamed(root: string, fileName: string): string | undefined {
       const path = join(dir, entry);
       let st;
       try {
-        st = statSync(path);
+        st = lstatSync(path);
       } catch {
         continue;
       }
+      if (st.isSymbolicLink()) continue;
       if (st.isFile() && entry.toLowerCase() === wanted) return path;
       if (st.isDirectory()) stack.push(path);
     }
@@ -557,10 +584,11 @@ function findFilesByExtension(root: string, extension: string): string[] {
       const path = join(dir, entry);
       let st;
       try {
-        st = statSync(path);
+        st = lstatSync(path);
       } catch {
         continue;
       }
+      if (st.isSymbolicLink()) continue;
       if (st.isFile() && extname(entry).toLowerCase() === wanted) out.push(path);
       if (st.isDirectory()) stack.push(path);
     }
@@ -661,8 +689,7 @@ function readJson(path: string): unknown {
   try {
     return JSON.parse(readFileSync(path, "utf-8"));
   } catch (err) {
-    const detail = err instanceof Error ? err.message : String(err);
-    throw new Error(`chatgpt_export_schema_error:invalid_json:${relative(process.cwd(), path)}:${detail}`);
+    throw new Error(`chatgpt_export_schema_error:invalid_json:${redactedPath(path)}`);
   }
 }
 
@@ -695,4 +722,95 @@ function stableJson(value: unknown): string {
 
 function sha256(value: string | Buffer): string {
   return createHash("sha256").update(value).digest("hex");
+}
+
+function extractZipSafely(zipPath: string, dest: string): { ok: true } | { ok: false; reason: string } {
+  const result = spawnSync("python3", ["-c", SAFE_ZIP_EXTRACTOR, zipPath, dest], {
+    encoding: "utf-8",
+    maxBuffer: 1024 * 1024,
+  });
+  if (result.status === 0) return { ok: true };
+  const raw = (result.stderr || result.stdout || "python_zip_extract_failed").trim().split(/\r?\n/)[0] || "python_zip_extract_failed";
+  return { ok: false, reason: raw.replace(/[^a-z0-9_:-]/gi, "_").slice(0, 80) };
+}
+
+const SAFE_ZIP_EXTRACTOR = String.raw`
+import os, shutil, stat, sys, zipfile
+
+zip_path, dest = sys.argv[1:3]
+dest_abs = os.path.abspath(dest)
+
+def fail(reason):
+    print(reason, file=sys.stderr)
+    sys.exit(1)
+
+try:
+    with zipfile.ZipFile(zip_path) as zf:
+        for info in zf.infolist():
+            raw = info.filename or ""
+            norm = raw.replace("\\", "/")
+            if not norm:
+                continue
+            parts = [part for part in norm.split("/") if part]
+            if norm.startswith("/") or (parts and ":" in parts[0]) or any(part == ".." for part in parts):
+                fail("unsafe_zip_path")
+            mode = (info.external_attr >> 16) & 0o170000
+            if mode == stat.S_IFLNK:
+                fail("unsafe_zip_symlink")
+            target = os.path.abspath(os.path.join(dest_abs, *parts))
+            if target != dest_abs and not target.startswith(dest_abs + os.sep):
+                fail("unsafe_zip_escape")
+            if info.is_dir() or raw.endswith("/"):
+                os.makedirs(target, mode=0o700, exist_ok=True)
+                continue
+            os.makedirs(os.path.dirname(target), mode=0o700, exist_ok=True)
+            with zf.open(info) as src, open(target, "wb") as dst:
+                shutil.copyfileobj(src, dst)
+            os.chmod(target, 0o600)
+except zipfile.BadZipFile:
+    fail("invalid_zip")
+except OSError:
+    fail("zip_extract_io_error")
+`;
+
+const MANIFEST_NAME = ".chatgpt-import-manifest";
+
+function writeFileAtomic(path: string, body: string): void {
+  const tmp = `${path}.tmp.${process.pid}.${Date.now()}`;
+  writeFileSync(tmp, body, "utf-8");
+  renameSync(tmp, path);
+}
+
+function readManifest(outputPath: string): string[] {
+  try {
+    const parsed = JSON.parse(readFileSync(join(outputPath, MANIFEST_NAME), "utf-8"));
+    return Array.isArray(parsed?.files)
+      ? parsed.files.filter((file: unknown) => typeof file === "string" && basename(file) === file)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeManifest(outputPath: string, files: string[]): void {
+  writeFileAtomic(join(outputPath, MANIFEST_NAME), `${stableJson({ files: [...files].sort() })}\n`);
+}
+
+function removeStaleManifestOutputs(outputPath: string, nextFiles: string[]): void {
+  const keep = new Set(nextFiles);
+  for (const previous of readManifest(outputPath)) {
+    if (keep.has(previous)) continue;
+    try {
+      unlinkSync(join(outputPath, previous));
+    } catch {
+      // Missing stale outputs are already gone.
+    }
+  }
+}
+
+function redactedPath(path: string): string {
+  const normalized = path.replace(/\\/g, "/");
+  if (normalized.includes("consumer-sessions/raw/chatgpt")) return "consumer-sessions/raw/chatgpt/<redacted>";
+  if (normalized.includes("consumer-sessions/normalized/chatgpt")) return "consumer-sessions/normalized/chatgpt/<redacted>";
+  return `<redacted-${sha256(path).slice(0, 8)}>`;
 }
