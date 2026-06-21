@@ -180,10 +180,10 @@ jobs:
             --codeql-status "$CODEQL_STATUS"
           mkdir -p security-artifacts/evidence/gitleaks security-artifacts/evidence/trivy
           if [ -f evidence/gitleaks/gitleaks.sarif ]; then
-            cp evidence/gitleaks/gitleaks.sarif security-artifacts/evidence/gitleaks.sarif
+            cp evidence/gitleaks/gitleaks.sarif security-artifacts/evidence/gitleaks/gitleaks.sarif
           fi
           if [ -f evidence/trivy/trivy.sarif ]; then
-            cp evidence/trivy/trivy.sarif security-artifacts/evidence/trivy.sarif
+            cp evidence/trivy/trivy.sarif security-artifacts/evidence/trivy/trivy.sarif
           fi
       - name: Upload reporting artifacts
         uses: actions/upload-artifact@v4
