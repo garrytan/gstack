@@ -2,6 +2,24 @@
 
 ## [Unreleased]
 
+### SSE fleet-watch — structured live-events.jsonl broadcast + Last-Event-ID replay (v7.1)
+
+The console now pushes structured agent telemetry to every connected browser tab the moment an agent writes a log line, without polling. When `live-events.jsonl` changes, the server reads the last JSON line, extracts `{ task, tool, summary }`, and broadcasts a named `event: fleet-update` SSE frame with a full payload. On reconnect, the server immediately replays the last known payload for every agent using the `Last-Event-ID` header, so tabs that briefly disconnect don't miss the current state. A 30-second keep-alive ping prevents proxy timeouts on long-running console sessions.
+
+#### Added
+- `makeWatchHandler` now reads the last line of `live-events.jsonl` on change, parses it, and broadcasts a named `event: fleet-update` SSE frame with payload `{ type, agent, task, tool, summary, ts }`. Unreadable files (ENOENT, permission error) are silently skipped — the watcher stays active (AC2/AC3)
+- `lastEventCache` (`Map<agent, payload>`) at module level in `server.ts`: stores the last broadcast payload per agent for Last-Event-ID replay. Cleared on server restart (AC4)
+- Last-Event-ID replay: on reconnect with a `Last-Event-ID` header, `/api/events` immediately sends the cached `fleet-update` payload for every agent that has one (AC4)
+- Initial `: ok\n\n` comment line written to SSE connections immediately after headers to prevent proxy buffering (AC1)
+- 30-second keep-alive ping (`: ping\n\n`) per SSE connection, using `setInterval` cleared on disconnect (AC6)
+- 6 new tests in `server.test.ts` covering AC1 (SSE headers and heartbeat), AC2 (structured fleet-update broadcast), AC3 (ENOENT silent skip), and AC5 (client disconnect cleanup)
+
+#### Changed
+- `/api/events` initial response changed from `: ping\n\n` to `: ok\n\n` (semantics: heartbeat, not a periodic ping)
+- `broadcast()` now accepts a complete SSE frame string (not raw JSON); callers are responsible for wrapping with `event:`/`data:` lines
+- `makeWatchHandler` signature extended: `makeWatchHandler(agent, logDir, broadcastFn, cache)` — `logDir` is needed to read `live-events.jsonl`; `cache` receives the last payload per agent
+- `sseClients` disconnect handler now also clears the per-connection ping interval to prevent memory leaks
+
 ### Fleet tab UI polish — avatars, SSE dot, Unblock flow, responsive layout (v7.1)
 
 The Fleet tab and Queue tab now have the UI polish that turns a functional prototype into a production-grade console. Each fleet row shows a Dicebear initials avatar for at-a-glance agent identification, the SSE dot cycles green/amber/red in real time so you know the connection is live, the Unblock flow on attention cards reveals an inline textarea rather than navigating away, and the entire console is readable on an iPhone SE without horizontal scrolling.
