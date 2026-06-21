@@ -2,20 +2,23 @@
 
 ## [Unreleased]
 
-### gitCommitAndPush — push retry with fetch+reset, 3 attempts, 30s timeout (T7)
+### SSE fleet-watch — structured live-events.jsonl broadcast + Last-Event-ID replay (v7.1)
 
-When the console writes to the control repository and another agent pushes at the same moment, the push is now retried automatically up to three times using a hard-reset sync strategy. Each retry fetches the latest remote state, resets the local branch to match, re-stages the change, re-commits, and attempts the push again. A 30-second kill timeout guards every git subprocess so a stalled network call never blocks the server.
+The console now pushes structured agent telemetry to every connected browser tab the moment an agent writes a log line, without polling. When `live-events.jsonl` changes, the server reads the last JSON line, extracts `{ task, tool, summary }`, and broadcasts a named `event: fleet-update` SSE frame with a full payload. On reconnect, the server immediately replays the last known payload for every agent using the `Last-Event-ID` header, so tabs that briefly disconnect don't miss the current state. A 30-second keep-alive ping prevents proxy timeouts on long-running console sessions.
 
 #### Added
-- `gitCommitAndPush(controlDir, commitMessage, spawner?)` exported from `server-utils.ts` — replaces the previous single-attempt implementation. Accepts an optional `GitSpawner` for dependency injection in tests.
-- `GitSpawnResult` and `GitSpawner` types exported from `server-utils.ts` for test injection.
-- `readApprovals(decisionsDir)` and `resolvePort(portEnv)` now exported from `server-utils.ts` and imported by `server.ts`.
+- `makeWatchHandler` now reads the last line of `live-events.jsonl` on change, parses it, and broadcasts a named `event: fleet-update` SSE frame with payload `{ type, agent, task, tool, summary, ts }`. Unreadable files (ENOENT, permission error) are silently skipped — the watcher stays active (AC2/AC3)
+- `lastEventCache` (`Map<agent, payload>`) at module level in `server.ts`: stores the last broadcast payload per agent for Last-Event-ID replay. Cleared on server restart (AC4)
+- Last-Event-ID replay: on reconnect with a `Last-Event-ID` header, `/api/events` immediately sends the cached `fleet-update` payload for every agent that has one (AC4)
+- Initial `: ok\n\n` comment line written to SSE connections immediately after headers to prevent proxy buffering (AC1)
+- 30-second keep-alive ping (`: ping\n\n`) per SSE connection, using `setInterval` cleared on disconnect (AC6)
+- 6 new tests in `server.test.ts` covering AC1 (SSE headers and heartbeat), AC2 (structured fleet-update broadcast), AC3 (ENOENT silent skip), and AC5 (client disconnect cleanup)
 
 #### Changed
-- Push retry strategy: replaced `git pull --rebase` (max 1 retry) with `git fetch origin && git reset --hard origin/<branch>` (up to 3 retries). Hard reset avoids detached-HEAD edge cases in non-interactive environments.
-- Staging now uses `git add -A` (all working-tree changes) rather than staging a specific file path.
-- Error on exhaustion: `Error('git push failed after 3 retries')` (was `'push failed after retry'`).
-- Nothing-to-commit: `git commit` exit non-zero now resolves void without attempting push (no error thrown).
+- `/api/events` initial response changed from `: ping\n\n` to `: ok\n\n` (semantics: heartbeat, not a periodic ping)
+- `broadcast()` now accepts a complete SSE frame string (not raw JSON); callers are responsible for wrapping with `event:`/`data:` lines
+- `makeWatchHandler` signature extended: `makeWatchHandler(agent, logDir, broadcastFn, cache)` — `logDir` is needed to read `live-events.jsonl`; `cache` receives the last payload per agent
+- `sseClients` disconnect handler now also clears the per-connection ping interval to prevent memory leaks
 
 ### Fleet tab UI polish — avatars, SSE dot, Unblock flow, responsive layout (v7.1)
 
