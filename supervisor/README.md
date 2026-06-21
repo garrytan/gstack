@@ -14,10 +14,10 @@ Scripts for starting, stopping, and monitoring the autonomous agent fleet.
 | `console/index.html` | Console UI entry point (v7.1 — serves static HTML with SSE support) |
 | `console/console.js` | Console interactive client (v7.1 — card animations, empty states, AI draft panel, ARIA accessibility) |
 | `console/styles.css` | Console design system (v7.1 — dark theme, motion tokens, Satoshi/DM Sans/JetBrains Mono typefaces) |
-| `console/server-utils.ts` | Utility exports — parsing ledger/mailbox, task ID validation, fleet status reading, SSE helpers, `makeWatchHandler` (reads last `live-events.jsonl` line, caches payload for Last-Event-ID replay), port resolution (v7.1) |
+| `console/server-utils.ts` | Utility exports — parsing ledger/mailbox, task ID validation, fleet status reading, SSE helpers, `makeWatchHandler` (reads last `live-events.jsonl` line, caches payload for Last-Event-ID replay), port resolution, `readLogTail` (JSONL tail reader), `makeRateLimiter` (token-bucket rate limiter) (v7.1) |
 | `console/bash-wrapper.test.ts` | Bun test wrapper that runs bash-wrapper.test.sh inline (v7.1) |
 | `console/bash-wrapper.test.sh` | Bash unit tests for risk classification (check_risk) and polling behavior (poll_approval) (v7.1) |
-| `console/server.test.ts` | Bun tests for endpoint security, static serving, queue bootstrap, `resolveControlDir`, SSE endpoint (T4 AC1/AC2/AC3/AC5), and `makeWatchHandler` — taskId regex validation, agent name validation, needs_human endpoint (v7.1) |
+| `console/server.test.ts` | Bun tests for endpoint security, static serving, queue bootstrap, `resolveControlDir`, SSE endpoint (T4 AC1/AC2/AC3/AC5), `makeWatchHandler`, log tail endpoint (T12 AC1-AC7), and rate limiter (v7.1) |
 | `console/qa-smoke.sh` | QA smoke test for console UI — asserts page title, nav bar, Fleet tab presence, and T6 AC1/AC2/AC4/AC5 (Dicebear avatar src, elapsed time format, HIGH risk badge, Unblock button) via gstack browse (v7.1) |
 
 ---
@@ -1342,6 +1342,108 @@ Three new `describe` blocks in `server.test.ts` cover the server-side ACs:
 | `GET /api/queue missing dir` | AC6 | `readApprovals(nonexistent-path)` → `[]`, no exception thrown |
 
 Test fixtures in `beforeAll`: one unresolved approval file (`agent-fe-REQ-1.json`), one resolved pair (`agent-fe-REQ-2.json` + `agent-fe-REQ-2.decision.json`). The AC1 test asserts that only REQ-1 appears in the response.
+
+---
+
+## Log tail endpoint — GET /api/log/:agent (v7.1)
+
+When a director clicks on an agent in the Fleet tab, a log panel opens showing the agent's last 50 events from `live-events.jsonl`. The `GET /api/log/:agent` endpoint seeds this panel on open; subsequent events arrive via the existing SSE stream filtered by agent name.
+
+### Endpoint
+
+**`GET /api/log/:agent?n=<count>`**
+
+| Parameter | Type | Default | Constraint |
+|---|---|---|---|
+| `:agent` | path | — | Must be a name from `fleet.conf`; unknown agents → 404 |
+| `?n` | query | `50` | Integer 1–200; non-numeric or > 200 → 400 |
+
+**Response (200):**
+
+```json
+{
+  "events": [
+    { "ts": "2026-06-22T00:00:01Z", "tool": "Bash", "summary": "ran bun test", "path": null },
+    { "ts": "2026-06-22T00:00:05Z", "tool": "Read",  "summary": "read README.md", "path": "/Users/user/agents/agent-be/work/README.md" }
+  ]
+}
+```
+
+The response also includes an `X-Log-Lines` header reporting the total number of non-empty lines in the file before the tail (for pagination context).
+
+Each event object always has four fields:
+
+| Field | Type | Notes |
+|---|---|---|
+| `ts` | string | ISO timestamp from the JSONL line |
+| `tool` | string | Tool name (e.g. `Bash`, `Read`, `Edit`) |
+| `summary` | string | One-line description of the action |
+| `path` | string \| null | File path if present; `null` for events that have no path |
+
+### Error responses
+
+| Status | Condition |
+|---|---|
+| 400 | `?n` is non-numeric, < 1, or > 200 — body: `{ "error": "n must be 1-200" }` |
+| 404 | Agent name not found in `validAgents` (built from `fleet.conf`) |
+| 429 | Rate limit exceeded (10 req/s per client IP) — body: `{ "error": "rate limit exceeded" }` |
+
+When the log file is absent or empty, the endpoint returns `200 { "events": [] }` — not 404 or 500 (AC4). This handles the case where an agent has been registered in `fleet.conf` but has not yet written any events.
+
+### readLogTail() — server-utils.ts
+
+`readLogTail(logFile, n)` is the pure utility that reads the JSONL file:
+
+1. Calls `readFileSync(logFile, "utf8")` — any exception (file not found, permission denied) returns `{ events: [], totalLines: 0 }` without rethrowing (AC4).
+2. Splits on `\n` and filters blank lines to get `lines[]`; records `totalLines = lines.length`.
+3. Slices the last `n` lines with `lines.slice(-n)`.
+4. For each line, calls `JSON.parse()` in a try/catch — malformed lines are silently skipped (AC5).
+5. Normalizes each parsed object into a `LogEvent` (typed fields with fallbacks to `""` / `null`).
+6. Returns `{ events, totalLines }`.
+
+The file is read whole-file in memory. Log files are small (< 100KB in practice) — no streaming or external `tail` process is used (per the spec constraint).
+
+### makeRateLimiter() — server-utils.ts
+
+`makeRateLimiter(maxPerSecond)` returns a `{ check(ip) }` token-bucket guard:
+
+- Keeps a `Map<string, { count, resetAt }>` at module scope — one bucket per client IP.
+- On each `check(ip)` call: if the bucket is absent or expired, a fresh bucket (`count=1, resetAt=now+1000ms`) is created and `true` is returned.
+- If the bucket is current and `count >= maxPerSecond`, returns `false` (caller responds 429).
+- Otherwise increments `count` and returns `true`.
+- State resets on server restart (no external cache — per spec constraint).
+
+The server creates one `logRateLimiter = makeRateLimiter(10)` at module scope and shares it across all `/api/log/:agent` requests.
+
+### Implementation in server.ts
+
+The handler is registered after all other API routes and before the static file fallback:
+
+```
+GET /api/log/:agent
+  → validate agentName ∈ validAgents (404 if not)
+  → rate-limit check (429 if over)
+  → parse ?n (400 if invalid)
+  → readLogTail(~/agents/{agent}/logs/live-events.jsonl, n)
+  → respond 200 { events } + X-Log-Lines header
+```
+
+Log files are located at `homedir()/agents/{agentName}/logs/live-events.jsonl` — the same path the SSE watcher (`makeWatchHandler`) reads.
+
+### Test coverage (AC1–AC7)
+
+Two new `describe` blocks in `server.test.ts` cover all seven ACs:
+
+| Test | AC | What it asserts |
+|---|---|---|
+| `returns last 50 of 100 events` | AC1 | 100-line fixture, `?n=50` → 50 events; last event `ts=99` |
+| `?n=300 returns 400` | AC2 | Body `{ error: "n must be 1-200" }` |
+| `?n=abc returns 400` | AC2 | Non-numeric → same 400 body |
+| `unknown agent returns 404` | AC3 | Agent not in Set → 404 |
+| `missing log file returns { events: [] }` | AC4 | `readLogTail` called with nonexistent path → `{ events: [], totalLines: 0 }` |
+| `malformed JSON lines silently skipped` | AC5 | File with 1 bad line, 2 valid → 2 events returned |
+| `X-Log-Lines header equals total line count` | AC6 | 100-line file, header `100` |
+| `11th request returns 429` | AC7 | Isolated server, 11 sequential requests → first 10 are 200, 11th is 429 |
 
 ---
 

@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+### Log tail endpoint — GET /api/log/:agent + rate limiting (v7.1)
+
+Click any agent in the Fleet tab to open its log panel — the last 50 events from `live-events.jsonl` load instantly, and new events continue to stream in via the existing SSE connection. The `?n=` parameter lets you request up to 200 events for deeper history. A built-in token-bucket rate limiter (10 req/s per client IP) prevents runaway polling from overwhelming the server.
+
+#### Added
+- `GET /api/log/:agent?n=<count>` endpoint returns the last `n` lines of `~/agents/{agent}/logs/live-events.jsonl` as `{ events: LogEvent[] }`. Default `n=50`, max `n=200`.
+- `X-Log-Lines` response header reports the total number of non-empty lines in the file before the tail slice, providing pagination context without a separate request (AC6).
+- `readLogTail(logFile, n)` exported from `server-utils.ts`: reads the file whole, filters blank lines, slices the last `n`, parses each as JSON, and normalizes into `LogEvent` objects (`ts`, `tool`, `summary`, `path`). Absent or empty files return `{ events: [], totalLines: 0 }` — never 404 or 500 (AC4). Malformed JSONL lines are silently skipped (AC5).
+- `makeRateLimiter(maxPerSecond)` exported from `server-utils.ts`: module-level `Map<ip, { count, resetAt }>` token bucket with no external dependencies (AC7 constraint). State resets on server restart.
+- `LogEvent` TypeScript interface exported from `server-utils.ts` — `{ ts: string; tool: string; summary: string; path: string | null }`.
+- 8 new tests in `server.test.ts` covering AC1 (50-of-100 tail), AC2 (n validation: > 200 and non-numeric), AC3 (unknown agent → 404), AC4 (missing file → `{ events: [] }`), AC5 (bad JSONL line skipped), AC6 (X-Log-Lines header), and AC7 (11th request → 429).
+
+#### Changed
+- Unknown agent on `GET /api/log/:agent` returns 404 (not 400) — the agent name is valid but the log dir may not exist yet (AC3).
+
 ### SSE fleet-watch — structured live-events.jsonl broadcast + Last-Event-ID replay (v7.1)
 
 The console now pushes structured agent telemetry to every connected browser tab the moment an agent writes a log line, without polling. When `live-events.jsonl` changes, the server reads the last JSON line, extracts `{ task, tool, summary }`, and broadcasts a named `event: fleet-update` SSE frame with a full payload. On reconnect, the server immediately replays the last known payload for every agent using the `Last-Event-ID` header, so tabs that briefly disconnect don't miss the current state. A 30-second keep-alive ping prevents proxy timeouts on long-running console sessions.
