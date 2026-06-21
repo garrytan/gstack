@@ -14,7 +14,7 @@ Scripts for starting, stopping, and monitoring the autonomous agent fleet.
 | `console/index.html` | Console UI entry point (v7.1 — serves static HTML with SSE support) |
 | `console/console.js` | Console interactive client (v7.1 — card animations, empty states, AI draft panel, ARIA accessibility) |
 | `console/styles.css` | Console design system (v7.1 — dark theme, motion tokens, Satoshi/DM Sans/JetBrains Mono typefaces) |
-| `console/server-utils.ts` | Utility exports — parsing ledger/mailbox, task ID validation, fleet status reading, SSE helpers, watch handler, port resolution (v7.1) |
+| `console/server-utils.ts` | Utility exports — parsing ledger/mailbox, task ID validation, fleet status reading, SSE helpers, watch handler, port resolution, `gitCommitAndPush` (3-retry fetch-reset), `readApprovals` (T7) |
 | `console/bash-wrapper.test.ts` | Bun test wrapper that runs bash-wrapper.test.sh inline (v7.1) |
 | `console/bash-wrapper.test.sh` | Bash unit tests for risk classification (check_risk) and polling behavior (poll_approval) (v7.1) |
 | `console/server.test.ts` | Bun tests for endpoint security, static serving, queue bootstrap, and `resolveControlDir` — taskId regex validation, agent name validation, needs_human endpoint (v7.1) |
@@ -387,37 +387,54 @@ This replaces the old `Console server listening on http://127.0.0.1:7842` messag
 
 ---
 
-## Mailbox push resilience — rebase-on-retry (v7.1)
+## Mailbox push resilience — fetch-reset-retry (T7)
 
-When multiple agents write to the control repository simultaneously, a push can be rejected if another agent's commit arrives first. To handle this gracefully, the `POST /api/mailbox` endpoint automatically retries failed pushes.
+When multiple agents write to the control repository simultaneously, a push can be rejected if another agent's commit arrives first. To handle this gracefully, `gitCommitAndPush` in `server-utils.ts` automatically retries failed pushes up to three times using a hard-reset sync strategy.
 
 ### Retry logic
 
-When the console publishes an agent's message to the mailbox:
+`gitCommitAndPush(controlDir, commitMessage)` runs the following sequence:
 
-1. **First push attempt.** The console commits the message to the control repo and pushes:
-   ```bash
-   git add mailboxes/<agent-name>.md
-   git commit -m "mailbox(<agent-name>): console message"
-   git push
-   ```
+1. **Stage all changes.** `git add -A` — stages every modified and untracked file in the working tree.
 
-2. **Rejection detected.** If the push fails (exit code 1 or 128), the console does NOT retry immediately. Instead:
-   - Log: `[gitCommitAndPush] push rejected (exit <code>), retrying with pull --rebase`
-   - Rebase locally against the remote branch: `git pull --rebase`
-   - Attempt push once more: `git push`
+2. **Commit.** `git commit -m <commitMessage>`. If the exit code is non-zero (e.g., "nothing to commit"), the function returns void without attempting a push.
 
-3. **Maximum one retry.** The retry count is hard-capped at 1. If rebase or the second push fails, the endpoint returns HTTP 500 with `{"error":"push failed after retry"}` and does NOT attempt further retries.
+3. **Push with up to 3 attempts.** For each attempt:
+   - `git push origin HEAD`
+   - If exit code 0 — success, return void immediately.
+   - If non-zero and more attempts remain:
+     ```bash
+     git fetch origin
+     git reset --hard origin/<branch>   # <branch> resolved at call start via git rev-parse
+     git add -A
+     git commit -m <commitMessage>
+     ```
+   - Then retry the push.
 
-4. **Success case — no rebase.** If the first push succeeds, the endpoint returns HTTP 200 immediately; no rebase is attempted (AC4 constraint — avoid unnecessary rebases when they're not needed).
+4. **After 3 failed push attempts**, throws `Error('git push failed after 3 retries')`.
 
-### Conflict handling
+### Subprocess timeout
 
-If the rebase encounters an irresolvable conflict (e.g., two agents edited the same mailbox file), `git pull --rebase` returns non-zero. The console catches this and returns HTTP 500 with the error message, leaving the working tree in a consistent state for recovery or manual inspection.
+Every git subprocess runs with a 30-second kill timeout. A subprocess that hangs is killed and its result is counted as a failure (exit code 1). This prevents a stalled network operation from blocking the event loop indefinitely.
+
+### Why fetch + reset --hard instead of pull --rebase
+
+`git pull --rebase` can leave the working tree in a detached-HEAD state when run non-interactively in CI and automated agent environments. The `fetch + reset --hard` pattern is deterministic: it discards any local-only divergence and aligns the branch exactly with the remote before re-committing. The console's use case (writing a single file and committing it) has no meaningful local-only state to preserve between retries.
 
 ### Operator impact
 
-Operators publishing messages via the console UI experience failures only when conflicts are genuinely unresolvable, not when they occur during brief windows of concurrent pushes. Temporary push rejections due to timing are handled transparently.
+Operators publishing messages via the console UI experience failures only after three genuine concurrent conflicts — rare under normal fleet operation. Temporary push rejections due to brief timing windows are handled transparently.
+
+### Test coverage
+
+| AC | Test | Location |
+|---|---|---|
+| AC1 | `gitCommitAndPush stages with git add -A and commits` | `server.test.ts` — `describe("gitCommitAndPush")` |
+| AC2 | `gitCommitAndPush retries with fetch+reset on push failure` | `server.test.ts` — first push fails; asserts fetch+reset+re-commit+push sequence |
+| AC3 | `gitCommitAndPush throws after 3 failed pushes` | `server.test.ts` — all 3 pushes fail; asserts Error thrown |
+| AC4 | `gitCommitAndPush resolves void on success` | `server.test.ts` — happy path |
+| AC5 | `gitCommitAndPush resolves void when nothing to commit` | `server.test.ts` — commit exits 1; asserts no push attempted |
+| AC6 | 30s kill timeout on each Bun.spawn call | PR review (human-verify) |
 
 ---
 
