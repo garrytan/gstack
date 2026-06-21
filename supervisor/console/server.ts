@@ -22,9 +22,18 @@ import {
   serveStatic,
   readFleetStatus,
   makeWatchHandler,
+  resolvePort,
 } from "./server-utils.ts";
 
-const PORT = 7842;
+// Validate PORT early — before any filesystem reads (AC5: exit 1 before bind).
+const PORT = (() => {
+  try {
+    return resolvePort(process.env.PORT);
+  } catch (e) {
+    process.stderr.write(`ERROR: ${(e as Error).message}\n`);
+    process.exit(1);
+  }
+})();
 const HOSTNAME = "127.0.0.1";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -362,8 +371,17 @@ if (_decisionsDir) {
   } catch { /* dir absent or unreadable */ }
 }
 
+// AC3: crash on EADDRINUSE rather than silently binding to a random port.
+server.on("error", (err: NodeJS.ErrnoException) => {
+  if (err.code === "EADDRINUSE") {
+    process.stderr.write(`ERROR: port ${PORT} already in use — is another console running?\n`);
+    process.exit(1);
+  }
+  throw err;
+});
+
 server.listen(PORT, HOSTNAME, () => {
-  console.log(`Console server listening on http://${HOSTNAME}:${PORT}`);
+  process.stdout.write(`Console ready → http://localhost:${PORT}\n`);
 });
 
 // One fs.watch per agent log directory; mkdir -p so missing dirs don't crash.

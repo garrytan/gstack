@@ -102,6 +102,17 @@ export function serveStatic(rootDir: string, urlPath: string, res: ServerRespons
   }
 }
 
+// Resolve the server port from the PORT env var (default 7842).
+// Throws on non-numeric or out-of-range values so callers can exit 1.
+export function resolvePort(portEnv: string | undefined): number {
+  if (!portEnv) return 7842;
+  const n = parseInt(portEnv, 10);
+  if (isNaN(n) || n < 1024 || n > 65535) {
+    throw new Error(`Invalid PORT value: "${portEnv}" — expected a number between 1024 and 65535`);
+  }
+  return n;
+}
+
 // Uppercase letters, hyphen, digits only — no path segments, no traversal.
 export const TASK_ID_RE = /^[A-Z]+-[0-9]+$/;
 

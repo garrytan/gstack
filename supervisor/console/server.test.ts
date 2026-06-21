@@ -4,7 +4,9 @@
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { createServer } from "node:http";
 import type { Server, IncomingMessage, ServerResponse } from "node:http";
-import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import type { AddressInfo } from "node:net";
+import { spawnSync } from "node:child_process";
+import { mkdirSync, writeFileSync, rmSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -16,6 +18,7 @@ import {
   serveStatic,
   readFleetStatus,
   makeWatchHandler,
+  resolvePort,
   type AgentStatus,
 } from "./server-utils.ts";
 
@@ -367,6 +370,87 @@ describe("makeWatchHandler (AC4)", () => {
     const handler = makeWatchHandler("agent-be", (msg) => calls.push(msg));
     handler("change", "other.log");
     expect(calls).toHaveLength(0);
+  });
+});
+
+// --- T3: port binding ---
+
+describe("port binding", () => {
+  test("server binds to 127.0.0.1, not 0.0.0.0 (AC1)", async () => {
+    const s = createServer(() => {});
+    await new Promise<void>((resolve) => s.listen(0, "127.0.0.1", resolve));
+    const addr = s.address() as AddressInfo;
+    expect(addr.address).toBe("127.0.0.1");
+    await new Promise<void>((resolve) => s.close(resolve));
+  });
+
+  test("resolvePort returns 7842 when PORT is unset (AC2)", () => {
+    expect(resolvePort(undefined)).toBe(7842);
+    expect(resolvePort("")).toBe(7842);
+  });
+
+  test("resolvePort returns the numeric PORT value when set (AC2)", () => {
+    expect(resolvePort("9999")).toBe(9999);
+  });
+
+  test("server actually binds to PORT=9999 when resolvePort is used (AC2)", async () => {
+    const port = resolvePort("9999");
+    const s = createServer(() => {});
+    await new Promise<void>((resolve) => s.listen(port, "127.0.0.1", resolve));
+    expect((s.address() as AddressInfo).port).toBe(9999);
+    await new Promise<void>((resolve) => s.close(resolve));
+  });
+
+  test("EADDRINUSE exits 1 with the right error message (AC3)", async () => {
+    const occupier = createServer(() => {});
+    await new Promise<void>((resolve) => occupier.listen(0, "127.0.0.1", resolve));
+    const usedPort = (occupier.address() as AddressInfo).port;
+
+    const script = `
+import { createServer } from "node:http";
+const s = createServer(() => {});
+s.on("error", (err) => {
+  if (err.code === "EADDRINUSE") {
+    process.stderr.write("ERROR: port " + ${usedPort} + " already in use — is another console running?\\n");
+    process.exit(1);
+  }
+});
+s.listen(${usedPort}, "127.0.0.1");
+`;
+    const result = spawnSync("bun", ["--eval", script], { encoding: "utf8" });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("already in use");
+
+    await new Promise<void>((resolve) => occupier.close(resolve));
+  });
+
+  test("resolvePort throws on non-numeric PORT (AC5)", () => {
+    expect(() => resolvePort("abc")).toThrow();
+  });
+
+  test("resolvePort throws on out-of-range PORT (AC5)", () => {
+    expect(() => resolvePort("80")).toThrow();
+    expect(() => resolvePort("99999")).toThrow();
+  });
+
+  test("server exits 1 for PORT=invalid before bind (AC5)", () => {
+    const tmpScript = join(tmpdir(), `t3-ac5-${process.pid}.ts`);
+    writeFileSync(tmpScript, `
+import { resolvePort } from ${JSON.stringify(join(import.meta.dir, "server-utils.ts"))};
+try {
+  resolvePort(process.env.PORT);
+} catch (e) {
+  process.stderr.write("ERROR: " + (e as Error).message + "\\n");
+  process.exit(1);
+}
+`);
+    const result = spawnSync("bun", ["run", tmpScript], {
+      encoding: "utf8",
+      env: { ...process.env, PORT: "invalid" },
+    });
+    try { unlinkSync(tmpScript); } catch { /* ignore */ }
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("ERROR:");
   });
 });
 
