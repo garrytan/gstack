@@ -16,7 +16,7 @@ Scripts for starting, stopping, and monitoring the autonomous agent fleet.
 | `console/styles.css` | Console design system (v7.1 — dark theme, motion tokens, Satoshi/DM Sans/JetBrains Mono typefaces) |
 | `console/server-utils.ts` | Utility exports — parsing ledger/mailbox, task ID validation, fleet status reading, SSE helpers, watch handler (v7.1) |
 | `console/bash-wrapper.test.ts` | Bun test wrapper that runs bash-wrapper.test.sh inline (v7.1) |
-| `console/bash-wrapper.test.sh` | Bash unit tests for risk classification (check_risk) and polling behavior (poll_approval) (v7.1) |
+| `console/bash-wrapper.test.sh` | Bash unit tests for REAL_BASH symlink detection (AC1), chain-risk splitting via python3 (AC2), jq-free approval polling (AC3), and SUPERVISOR_DECISIONS_DIR guard (AC6) (v7.1) |
 | `console/server.test.ts` | Bun tests for endpoint security — taskId regex validation, agent name validation, needs_human endpoint (v7.1) |
 | `console/qa-smoke.sh` | QA smoke test for console UI — asserts page title, nav bar, and Fleet tab are present via gstack browse (v7.1) |
 
@@ -121,21 +121,39 @@ Agents use the Claude Bash tool for all shell operations. To prevent accidental 
 
 1. **Prepended to PATH.** `run-agent.sh` exports `$SUPERVISOR_DIR/console/bin` first on PATH, so every Bash tool call (from Claude) hits the wrapper before the system bash.
 
-2. **Risk classification.** The wrapper identifies high-risk patterns anywhere in the command string (including chained commands like `cd /tmp && git push`):
+2. **Real bash detection.** The wrapper locates the actual system bash to delegate approved commands. It resolves its own canonical path using `BASH_SOURCE[0]` (not `$0`, which is unreliable when invoked via PATH), then iterates `type -ap bash` candidates, comparing each via `realpath` to skip any path — including symlinks — that resolves to itself:
+   ```bash
+   _SELF=$(realpath "${BASH_SOURCE[0]}" ...)
+   while IFS= read -r _cand; do
+     _cand_real=$(realpath "$_cand" ...)
+     [ "$_cand_real" = "$_SELF" ] && continue
+     REAL_BASH="$_cand"; break
+   done < <(type -ap bash)
+   ```
+   This correctly handles setups where a symlink to the wrapper appears earlier on PATH than the system bash.
+
+3. **Risk classification.** The wrapper uses two functions:
+   - `check_risk <cmd>` — returns `high` if the command string matches a high-risk pattern anywhere (no `^` anchor so patterns in chained commands are caught).
+   - `evaluate_chain_risk <cmd>` — splits the full command on `&&`, `||`, and `;` using `python3 -c "import re, sys; parts = re.split(...)"`, then calls `check_risk` on each segment. A chain like `cd /tmp && git push origin main` is classified `high` because the second segment matches.
+
+   High-risk patterns:
    - Git mutations: `git push`, `git rebase`, `git reset`
    - Destructive file ops: `rm -rf`, `chmod -R`, `chown -R`
    - Data/device access: `curl | bash`, `wget | bash`, `dd if=`, `mkfs`, `fdisk`
 
-3. **Low-risk pass-through.** Commands like `git clone`, `ls`, `npm install` execute immediately without gating.
+4. **Low-risk pass-through.** Commands like `git clone`, `ls`, `npm install` execute immediately without gating.
 
-4. **High-risk intercept.** When a high-risk command is detected:
-   - Wrapper writes a JSON request file to `$SUPERVISOR_DECISIONS_DIR/<agent>-<request-id>.json`
+5. **High-risk intercept.** When a high-risk command is detected:
+   - Wrapper writes a JSON request file to `$SUPERVISOR_DECISIONS_DIR/<agent>-<request-id>.json` using `python3 -c "import json, sys; ..."` (no `jq` dependency)
    - Logs the command to stderr: `[bash-wrapper] HIGH RISK — blocked, awaiting console decision`
-   - Polls for an approval response file (`<agent>-<request-id>.decision.json`)
+   - Polls for an approval response file (`<agent>-<request-id>.decision.json`), also parsed with `python3 -c "import json, sys; ..."`
    - If `{"approved": true}` — executes the command
    - If `{"approved": false}` or timeout — blocks and exits with code 1
 
-5. **Fallback when console is down.** If `$SUPERVISOR_DECISIONS_DIR` is not set, the wrapper blocks with a warning and does NOT execute the command. This prevents silent execution when the console is unavailable.
+6. **Fallback when console is down.** If `$SUPERVISOR_DECISIONS_DIR` is not set, the wrapper blocks with a warning and exits 1. This prevents silent execution when the console is unavailable:
+   ```
+   [bash-wrapper] WARNING: SUPERVISOR_DECISIONS_DIR not set; blocking high-risk command
+   ```
 
 ### Accessing decision files
 
@@ -830,25 +848,33 @@ bun test supervisor/console/
 
 ### Bash wrapper tests — `bash-wrapper.test.sh` + `bash-wrapper.test.ts`
 
-**Risk classification (AC1):** The `check_risk` function classifies commands into security tiers:
+The test suite uses `env -i + /bin/bash "$WRAPPER"` invocation throughout to avoid shebang-loop `E2BIG` errors that occur when multiple bash wrappers share a PATH. Each test passes a clean, minimal environment (`HOME`, `TMPDIR`, `PATH` pointing to system binaries only).
 
-| Command | Classification | Example |
-|---------|-----------------|---------|
-| Destructive git operations | high | `git push origin main`, `git rebase`, `git reset` |
-| Recursive file operations | high | `rm -rf /home`, `chmod -R`, `chown -R`, `mkfs`, `fdisk` |
-| Pipe-to-shell | high | `curl \| bash`, `wget \| sh` |
-| Safe commands | low | `git clone`, `ls`, `bun test`, `cd` |
-| Chained operations | high | `cd /tmp && git push origin main` (if any segment is high) |
+**REAL_BASH symlink detection (AC1):** A fake `bin/` directory is created containing only a symlink named `bash` that points to the wrapper itself. When the fake bin appears first on PATH, the wrapper's `realpath`-based loop must skip it and find the system bash. The test calls the wrapper via `/bin/bash "$WRAPPER"` (bypassing PATH lookup) and asserts exit 0.
 
-The classification runs inline in the bash wrapper (`supervisor/console/bin/bash`) before attempting execution. Commands classified as high are sent to the console for operator approval; low-risk commands execute immediately.
+**Chain-risk classification (AC2):** The inline `check_risk` and `evaluate_chain_risk` functions are tested:
 
-**Approval polling (AC2):** When a command is blocked, the wrapper polls for a decision file:
+| Command | Classification | Reason |
+|---------|-----------------|--------|
+| `git push origin main` | high | direct git push match |
+| `git commit -m "fix"` | not high | no high-risk pattern |
+| `bun test` | low | safe command |
+| `cd /tmp && git push origin main` | high | `git push` in second segment |
+| `rm -rf /home` | high | recursive remove |
 
-- **Approved path:** If `<agent>-<request-id>.decision.json` appears with `{"approved": true}`, the wrapper executes the command and exits 0.
-- **Rejected path:** If the decision file has `{"approved": false}`, the wrapper exits 1 (command blocked).
-- **Timeout path:** If no decision file appears within 60s, the wrapper exits 1 (timeout protection prevents indefinite hangs).
+**Approval polling via python3 (AC3):** Decision file parsing uses `python3 -c "import json, sys; ..."` — no `jq` dependency. Three paths are verified:
 
-All three paths are covered by the test suite.
+- **Approved path:** Decision file with `{"approved": true}` → wrapper executes the command, exits 0.
+- **Rejected path:** Decision file with `{"approved": false}` → wrapper exits 1 (command blocked).
+- **Timeout path:** No decision file appears within 3s (test-bounded) → non-zero exit (prevents indefinite hangs).
+
+All three paths use isolated decision directories to prevent cross-test interference.
+
+**SUPERVISOR_DECISIONS_DIR guard (AC6):** When `SUPERVISOR_DECISIONS_DIR` is unset and the wrapper intercepts a high-risk command, it:
+- Exits with code 1
+- Writes a warning to stderr containing `SUPERVISOR_DECISIONS_DIR`
+
+Both conditions are asserted. This verifies commands are never silently executed when the console is unavailable.
 
 ### Server endpoint tests — `server.test.ts` + `server-utils.ts`
 
@@ -890,7 +916,7 @@ Response:
 
 ### Test results
 
-All 19 tests pass (5 bash-wrapper + 14 server tests). The 4 new tests cover `GET /api/queue` AC1, AC5, and AC6 — see the Queue tab bootstrap section below. Run the full suite with:
+All 27 tests pass (10 bash-wrapper + 17 server tests). Run the full suite with:
 
 ```bash
 bun test supervisor/console/     # runs all tests, exit 0 on pass
