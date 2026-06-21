@@ -98,6 +98,11 @@
       "routing": "Blocks Edit and\nWrite outside the allowed path. Use when debugging to prevent accidentally\n\"fixing\" unrelated code, or when you want to scope changes to one module.\nUse when asked to \"freeze\", \"restrict edits\", \"only edit this folder\",\nor \"lock down edits\".",
       "voice_line": null
     },
+    "gloop": {
+      "lead": "Goal-loop orchestrator.",
+      "routing": "Drives a goal to a PR-ready state through gstack's own\nplan -> review -> implement -> review loop, instead of jumping straight from a\nvague goal to code. It clarifies success criteria, runs /autoplan or\n/plan-eng-review before coding, autonomously folds review findings into the\nplan, implements in scoped passes, runs tests and /review after each pass, and\nasks only for missing/contradictory objectives or external irreversible\ndecisions.\nUse when asked to \"drive this goal to done\", \"goal loop\", \"gloop\", \"build this\nend to end with reviews\", or \"keep going until it's PR-ready\".\nProactively suggest when the user hands over a multi-step goal and wants it built\nwith gstack's review gates rather than a raw build-until-it-compiles loop.",
+      "voice_line": "Voice triggers (speech-to-text aliases): \"goal loop\", \"drive this to done\"."
+    },
     "gstack": {
       "lead": "Fast headless browser for QA testing and site dogfooding.",
       "routing": "Navigate pages, interact with\nelements, verify state, diff before/after, take annotated screenshots, test responsive\nlayouts, forms, uploads, dialogs, and capture bug evidence. Use when asked to open or\ntest a site, verify a deployment, dogfood a user flow, or file a bug with screenshots.",

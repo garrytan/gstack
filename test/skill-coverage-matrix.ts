@@ -121,6 +121,11 @@ export const SKILL_COVERAGE: Record<string, SkillCoverage> = {
     gate: ['test/skill-coverage-floor.test.ts'],
     periodic: ['test/skill-e2e-autoplan-chain.test.ts', 'test/skill-e2e-autoplan-dual-voice.test.ts'],
   },
+  gloop: {
+    gate: ['test/skill-coverage-floor.test.ts', 'test/skill-validation.test.ts'],
+    periodic: [],
+    rationale: 'Goal-loop orchestrator (drives /autoplan|/plan-eng-review|/review). Structural floor plus the dedicated "gloop skill structure" assertions in skill-validation.test.ts pin the Phase 0-7 loop, the no-code-before-review hard gate, the user-challenge gate, the durable plan_review/--resume state, and the INVOKE_SKILL wiring.',
+  },
   'office-hours': {
     gate: ['test/skill-e2e-office-hours.test.ts', 'test/skill-coverage-floor.test.ts'],
     periodic: ['test/skill-e2e-office-hours-auto-mode.test.ts', 'test/skill-e2e-office-hours-phase4.test.ts'],

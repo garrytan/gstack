@@ -20,6 +20,7 @@ Invoke them by name (e.g., `/office-hours`).
 | `/plan-devex-review` | DX-mode review: TTHW, magical moments, friction points, persona traces. |
 | `/plan-tune` | Self-tune AskUserQuestion sensitivity per question. |
 | `/autoplan` | One command runs CEO → design → eng → DX review. |
+| `/gloop` | Goal loop. Clarifies a goal into success criteria, reviews the plan (`/autoplan` or `/plan-eng-review`), implements in scoped passes, runs tests + `/review` after each, loops until PR-ready or blocked. |
 | `/design-consultation` | Build a complete design system from scratch. |
 | `/spec` | Turn vague intent into a precise, executable spec in five phases. Files a GitHub issue, optionally spawns a Claude Code agent in a fresh worktree, and lets `/ship` close the source issue on merge. |
 
