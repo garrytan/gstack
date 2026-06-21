@@ -16,7 +16,9 @@ import {
   serveStatic,
   readFleetStatus,
   makeWatchHandler,
+  readApprovals,
   type AgentStatus,
+  type ApprovalItem,
 } from "./server-utils.ts";
 
 const TEST_PORT = 7843;
@@ -25,6 +27,7 @@ const testDir = join(tmpdir(), `console-test-${process.pid}`);
 const ledgerDir = join(testDir, "ledger");
 const staticDir = join(testDir, "static");
 const agentsHome = join(testDir, "agents-home");
+const decisionsDir = join(testDir, "decisions");
 const fleetAgents = ["agent-be", "agent-qa", "agent-fe", "agent-doc"];
 
 // Agents recognised by the mock fleet.conf.
@@ -32,7 +35,7 @@ const validAgents = new Set(["agent-be", "agent-qa", "agent-fe", "agent-doc"]);
 
 let httpServer: Server;
 
-function makeHandler(rootDir: string, fleetHome?: string) {
+function makeHandler(rootDir: string, fleetHome?: string, testDecisionsDir?: string) {
   return (req: IncomingMessage, res: ServerResponse) => {
     const path = rawPath(req.url);
     const method = req.method ?? "GET";
@@ -73,6 +76,15 @@ function makeHandler(rootDir: string, fleetHome?: string) {
       return;
     }
 
+    // GET /api/queue — pending approvals + attention items (CONS-016).
+    if (path === "/api/queue" && method === "GET") {
+      const tasks = parseTaskLedger(ledgerDir);
+      const attention = tasks.filter((t) => t.status === "needs_human");
+      const approvals = readApprovals(testDecisionsDir);
+      sendJson(res, { approvals, attention });
+      return;
+    }
+
     // Static file handler — last, after all API routes.
     serveStatic(rootDir, path, res);
   };
@@ -83,6 +95,7 @@ beforeAll(
     new Promise<void>((resolve) => {
       mkdirSync(ledgerDir, { recursive: true });
       mkdirSync(staticDir, { recursive: true });
+      mkdirSync(decisionsDir, { recursive: true });
 
       // Seed mock ledger with one needs_human task for AC5.
       writeFileSync(
@@ -93,6 +106,22 @@ beforeAll(
       // Fixture files for CONS-011 static-serving tests.
       writeFileSync(join(staticDir, "index.html"), "<html><body>test</body></html>");
       writeFileSync(join(staticDir, "styles.css"), "body { color: red; }");
+
+      // CONS-016 decisions fixtures: one unresolved + one resolved approval file.
+      // agent-fe-REQ-1.json: no matching .decision.json → unresolved (should appear).
+      writeFileSync(
+        join(decisionsDir, "agent-fe-REQ-1.json"),
+        JSON.stringify({ id: "REQ-1", agent: "agent-fe", command: "rm test.txt", risk: "low" }),
+      );
+      // agent-fe-REQ-2.json: has matching .decision.json → resolved (should be excluded).
+      writeFileSync(
+        join(decisionsDir, "agent-fe-REQ-2.json"),
+        JSON.stringify({ id: "REQ-2", agent: "agent-fe", command: "cat file.txt", risk: "low" }),
+      );
+      writeFileSync(
+        join(decisionsDir, "agent-fe-REQ-2.decision.json"),
+        JSON.stringify({ approved: true }),
+      );
 
       // CONS-012 fleet fixtures: four agents, each with different live/presence state.
 
@@ -136,7 +165,7 @@ beforeAll(
         }),
       );
 
-      httpServer = createServer(makeHandler(staticDir, agentsHome));
+      httpServer = createServer(makeHandler(staticDir, agentsHome, decisionsDir));
       httpServer.listen(TEST_PORT, "127.0.0.1", resolve);
     }),
 );
@@ -371,6 +400,40 @@ describe("makeWatchHandler (AC4)", () => {
 });
 
 // --- AC7 ---
+
+// --- CONS-016: GET /api/queue ---
+
+describe("GET /api/queue", () => {
+  test("returns only unresolved approvals and needs_human attention tasks (AC1)", async () => {
+    const r = await fetch(`http://127.0.0.1:${TEST_PORT}/api/queue`);
+    expect(r.status).toBe(200);
+    expect(r.headers.get("content-type")).toContain("application/json");
+    const body = (await r.json()) as { approvals: ApprovalItem[]; attention: Array<{ id: string; status: string }> };
+    // Only REQ-1 is unresolved (REQ-2 has a .decision.json)
+    expect(body.approvals).toHaveLength(1);
+    expect((body.approvals[0] as Record<string, unknown>).id).toBe("REQ-1");
+    // attention mirrors /api/attention (CONS-999 is needs_human in the mock ledger)
+    expect(body.attention).toHaveLength(1);
+    expect(body.attention[0].id).toBe("CONS-999");
+    expect(body.attention[0].status).toBe("needs_human");
+  });
+});
+
+describe("GET /api/queue no decisions dir", () => {
+  test("readApprovals returns [] when decisionsDir is undefined (AC5)", () => {
+    expect(readApprovals(undefined)).toEqual([]);
+  });
+
+  test("readApprovals returns [] when decisionsDir is empty string (AC5)", () => {
+    expect(readApprovals("")).toEqual([]);
+  });
+});
+
+describe("GET /api/queue missing dir", () => {
+  test("readApprovals returns [] when dir does not exist — no 500 (AC6)", () => {
+    expect(readApprovals(join(testDir, "nonexistent-decisions"))).toEqual([]);
+  });
+});
 
 describe("parseMailboxNotes", () => {
   test("returns [] for content containing only the cleared marker", () => {

@@ -2,6 +2,7 @@
 
 const SSE_URL = '/api/events';
 const FLEET_URL = '/api/fleet';
+const QUEUE_URL = '/api/queue';
 const RECONNECT_DELAY_MS = 3000;
 const FLEET_STALE_MS = 30000;
 
@@ -75,6 +76,10 @@ function switchTab(name) {
     startFleetStalenessTimer();
   } else {
     stopFleetStalenessTimer();
+  }
+
+  if (name === 'queue') {
+    fetchQueue();
   }
 
   syncState();
@@ -182,6 +187,43 @@ function stopFleetStalenessTimer() {
     clearInterval(fleetStalenessHandle);
     fleetStalenessHandle = null;
   }
+}
+
+/* ── Queue bootstrap ── */
+
+async function fetchQueue() {
+  try {
+    const res = await fetch(QUEUE_URL);
+    if (!res.ok) return;
+    const data = await res.json();
+
+    for (const item of (data.approvals || [])) {
+      if (!item.id) continue;
+      const cardId = `approval-${item.id}`;
+      if (document.getElementById(cardId)) continue;
+      const card = buildApprovalCard(item);
+      approvalCards.prepend(card);
+      approvalCount++;
+    }
+
+    for (const task of (data.attention || [])) {
+      if (!task.id) continue;
+      const cardId = `attention-${task.id}`;
+      if (document.getElementById(cardId)) continue;
+      const ev = {
+        id: task.id,
+        task_id: task.id,
+        agent: task.claimed_by || task.domain || 'unknown',
+        title: task.description || task.id,
+        failure_count: parseInt(task.failure_count || '0', 10) || 0,
+      };
+      const card = buildAttentionCard(ev);
+      attentionCards.prepend(card);
+      attentionCount++;
+    }
+
+    syncState();
+  } catch (_) {}
 }
 
 /* ── State sync ── */
@@ -437,8 +479,8 @@ function connect() {
     sseConnected = true;
     sseDot.classList.remove('disconnected');
     sseLabel.textContent = 'live';
-    /* AC9: hide reconnect banner once SSE reconnects */
     reconnectBanner.style.display = 'none';
+    fetchQueue();
   });
 
   es.addEventListener('approval', (e) => {

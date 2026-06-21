@@ -157,6 +157,33 @@ export function parseTaskLedger(ledgerDir: string): TaskEntry[] {
   });
 }
 
+export type ApprovalItem = Record<string, unknown>;
+
+// Return unresolved approval request files from decisionsDir.
+// "Unresolved" = {agent}-{id}.json exists but {agent}-{id}.decision.json does NOT.
+// Returns [] when decisionsDir is falsy, absent, or unreadable (AC5, AC6).
+export function readApprovals(decisionsDir: string | undefined): ApprovalItem[] {
+  if (!decisionsDir) return [];
+  let files: string[];
+  try {
+    files = readdirSync(decisionsDir);
+  } catch {
+    return [];
+  }
+  const decisionSet = new Set(files.filter((f) => f.endsWith(".decision.json")));
+  return files
+    .filter((f) => f.endsWith(".json") && !f.endsWith(".decision.json"))
+    .filter((f) => !decisionSet.has(f.replace(/\.json$/, ".decision.json")))
+    .map((f): ApprovalItem | null => {
+      try {
+        return JSON.parse(readFileSync(join(decisionsDir, f), "utf8")) as ApprovalItem;
+      } catch {
+        return null;
+      }
+    })
+    .filter((item): item is ApprovalItem => item !== null);
+}
+
 // Parse a mailbox file's content into an array of note objects.
 // Returns [] when the file contains only the <!-- cleared --> marker.
 export function parseMailboxNotes(content: string): MailboxNote[] {
