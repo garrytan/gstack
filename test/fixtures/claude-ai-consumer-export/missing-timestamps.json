@@ -1,0 +1,23 @@
+{
+  "account": {
+    "id": "acct-synthetic-001"
+  },
+  "conversations": [
+    {
+      "id": "conv-synthetic-missing-timestamps",
+      "title": "Synthetic chat with missing timestamps",
+      "messages": [
+        {
+          "id": "msg-no-ts-001",
+          "role": "user",
+          "content": "This synthetic message intentionally has no timestamp."
+        },
+        {
+          "id": "msg-no-ts-002",
+          "role": "assistant",
+          "content": "This synthetic reply also has no timestamp."
+        }
+      ]
+    }
+  ]
+}

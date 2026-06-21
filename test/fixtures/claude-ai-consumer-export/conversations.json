@@ -1,0 +1,63 @@
+{
+  "exported_at": "2026-06-15T12:00:00Z",
+  "account": {
+    "id": "acct-synthetic-001",
+    "email": "synthetic.user@example.invalid"
+  },
+  "conversations": [
+    {
+      "uuid": "conv-synthetic-001",
+      "name": "Synthetic project planning chat",
+      "created_at": "2026-06-10T09:00:00Z",
+      "updated_at": "2026-06-10T09:05:00Z",
+      "project": {
+        "id": "project-synthetic-001",
+        "name": "Synthetic Research Project"
+      },
+      "artifacts": [
+        {
+          "id": "artifact-synthetic-001",
+          "title": "Outline",
+          "type": "markdown",
+          "language": "markdown",
+          "created_at": "2026-06-10T09:04:00Z"
+        }
+      ],
+      "chat_messages": [
+        {
+          "uuid": "msg-synthetic-001",
+          "sender": "human",
+          "created_at": "2026-06-10T09:00:00Z",
+          "text": "Please use the attached synthetic brief.",
+          "attachments": [
+            {
+              "id": "file-synthetic-001",
+              "file_name": "synthetic-brief.txt",
+              "mime_type": "text/plain",
+              "size_bytes": 128,
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          ]
+        },
+        {
+          "uuid": "msg-synthetic-002",
+          "sender": "assistant",
+          "created_at": "2026-06-10T09:05:00Z",
+          "content": [
+            {
+              "type": "text",
+              "text": "I can summarize the synthetic brief and keep the file metadata attached."
+            }
+          ],
+          "artifacts": [
+            {
+              "id": "artifact-synthetic-002",
+              "title": "Brief summary",
+              "type": "text"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

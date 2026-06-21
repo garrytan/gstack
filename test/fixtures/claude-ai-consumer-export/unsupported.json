@@ -1,0 +1,8 @@
+{
+  "localStorage": {
+    "auth": "synthetic-local-storage-value"
+  },
+  "indexedDB": {
+    "records": []
+  }
+}
