@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+### CONTROL_DIR auto-detection — multi-agent iteration with graceful null (v7.1)
+
+The console server now discovers the control repository by scanning all agent checkout directories rather than reading only the first agent's remote. If no agent directory matches the control-repo slug, the server starts anyway and logs a warning — it no longer clones the control repo or exits on failure.
+
+#### Added
+- `resolveControlDir(agentDirs: string[]): string | null` exported from `server-utils.ts`: iterates each agent control path, runs `git -C <dir> remote get-url origin`, returns the first directory whose remote URL contains `seab-group/tshepostack`
+- Graceful null return: if no agent directory matches, `resolveControlDir` returns `null` and logs a warning; the server binds and serves the static UI even without a control repo
+- Silent skip for unreadable directories: non-existent paths and `git remote get-url` failures are caught and skipped without crashing
+- `CONTROL_DIR` env var short-circuit: if set, returned immediately without running any git commands
+- Startup cache: `resolveControlDir` called once at startup; result stored in `const controlDir` — not re-computed on subsequent requests
+- Four new describe blocks in `server.test.ts` covering AC1 (first match), AC2 (null on no match), AC3 (env override), and AC5 (missing dir skipped)
+
+#### Changed
+- `resolveControlDir` moved from `server.ts` to `server-utils.ts` and exported for testability
+- Previous behavior (read only first agent's remote, block on git clone, exit on failure) replaced by multi-agent iteration with null return
+- Server now continues serving if control repo is not found, with a `WARNING:` log line instead of crashing
+
 ### QA smoke testing — browser-verified console UI checks (v7.1)
 
 QA agents can now verify the console UI is rendering correctly using a lightweight browser-based smoke test. When testing tasks with human-verify acceptance criteria, the QA agent runs `qa-smoke.sh` to assert that key DOM elements (page title, tab bar, Fleet tab) are present in the live browser, and captures a screenshot as proof — complementing server-side unit tests with real-world verification.
