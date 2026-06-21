@@ -24,6 +24,9 @@ By design, these stay local even when sync is on:
   (`.welcome-seen`, `.telemetry-prompted`, `.vendoring-warned-*`, etc.)
 - Question-preferences: per-machine UX preferences
   (`question-preferences.json`, `question-log.jsonl`, `question-events.jsonl`).
+- Consumer AI raw exports, unless you explicitly place them in the export
+  inbox described below. Raw exports stay under `~/.gstack/consumer-sessions/`,
+  outside your Obsidian vault and outside default GBrain search.
 
 The exact allowlist lives in `~/.gstack/.brain-allowlist`. The CLI manages
 it; you can append your own entries below the marker line.
@@ -97,19 +100,77 @@ current privacy mode.
 Every skill run prints a `BRAIN_SYNC:` line near the top of the preamble
 output. Scan it for problems.
 
+For a metadata-only preview of newly discovered sync candidates:
+
+```bash
+gstack-brain-sync --discover-new --dry-run
+```
+
+The dry-run prints paths, size, mtime, and file kind. It does not print export
+archive contents or chat text.
+
 ## Privacy modes in detail
 
 | Mode | What syncs |
 |------|------------|
 | `off` | Nothing (default). |
 | `artifacts-only` | Plans, designs, retros, learnings, reviews. Skips timelines + developer-profile. |
-| `full` | Everything in the allowlist, including behavioral state. |
+| `full` | Everything in the allowlist, including behavioral state and explicitly staged consumer export inboxes. |
 
 Change anytime with:
 ```bash
 gstack-config set artifacts_sync_mode full
 gstack-config set artifacts_sync_mode off
 ```
+
+## Consumer AI export inboxes
+
+Use this when you want a MacBook to hand raw ChatGPT / Claude.ai / Gemini /
+Grok exports to another Mac through the existing private artifact bridge.
+
+The only synced raw-export location is:
+
+```text
+~/.gstack/consumer-sessions/raw/<provider>/<account>/<device>/inbox/
+```
+
+Write a freshness marker beside the inbox:
+
+```text
+~/.gstack/consumer-sessions/raw/<provider>/<account>/<device>/freshness.json
+```
+
+That marker is intentionally separate from the files. The receiving Mac can
+distinguish "this source device checked in and had no new exports" from "this
+source device has not reported." A minimal marker is:
+
+```json
+{"schema_version":1,"device":"macbook","last_reported_at":"2026-06-21T10:00:00Z","export_count":0}
+```
+
+Discovery is additive. `gstack-brain-sync` stages explicit existing files; it
+does not stage deletes for disappeared local exports, so a transient cleanup on
+one Mac does not unexpectedly remove the copy already pushed to the private
+repo.
+
+Large archive exports (`.zip`, `.tgz`, `.tar`, `.tar.gz`) are ignored until a
+newer sibling completion marker exists:
+
+```text
+chatgpt-export.zip
+chatgpt-export.zip.complete
+```
+
+Copy archives with a temporary name such as `.partial`, `.tmp`, `.download`, or
+`.crdownload`, rename to the final name when the copy is complete, then write
+the `.complete` marker last. The discovery step also best-effort hardens raw
+export files and inbox directories to `0600` / `0700` on macOS-style
+filesystems.
+
+Consumer session ingestion is still opt-in. Default `gstack-memory-ingest`
+sources exclude `consumer-session`; use `--sources consumer-session` when you
+want normalized consumer sessions indexed. Raw exports should remain in
+`~/.gstack/consumer-sessions/raw`, not in your Obsidian vault.
 
 ## Secret protection
 

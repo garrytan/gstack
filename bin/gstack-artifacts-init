@@ -249,6 +249,13 @@ builder-profile.jsonl
 # is skipped; brain admin pulls + indexes into the remote brain.
 transcripts/run-*/*.md
 transcripts/run-*/**/*.md
+# Consumer AI export bridge inboxes. Raw exports are synced only when the
+# user explicitly places them under:
+#   consumer-sessions/raw/<provider>/<account>/<device>/inbox/
+# The per-device freshness marker lets the receiving machine distinguish
+# "device reported no new exports" from "device has not reported".
+consumer-sessions/raw/*/*/*/freshness.json
+consumer-sessions/raw/*/*/*/inbox/**
 # NOT synced (machine-local UX state):
 #   projects/*/question-preferences.json (per-machine UX preferences)
 #   projects/*/question-log.jsonl (audit/derivation log stays with preferences)
@@ -273,7 +280,9 @@ cat > "$GSTACK_HOME/.brain-privacy-map.json" <<'EOF'
   {"pattern": "developer-profile.json", "class": "behavioral"},
   {"pattern": "builder-profile.jsonl", "class": "behavioral"},
   {"pattern": "transcripts/run-*/*.md", "class": "behavioral"},
-  {"pattern": "transcripts/run-*/**/*.md", "class": "behavioral"}
+  {"pattern": "transcripts/run-*/**/*.md", "class": "behavioral"},
+  {"pattern": "consumer-sessions/raw/*/*/*/freshness.json", "class": "behavioral"},
+  {"pattern": "consumer-sessions/raw/*/*/*/inbox/**", "class": "behavioral"}
 ]
 EOF
 

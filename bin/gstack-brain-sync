@@ -7,6 +7,8 @@
 #   gstack-brain-sync --skip-file <p>  add <p> to ~/.gstack/.brain-skip.txt
 #   gstack-brain-sync --drop-queue --yes   clear queue without committing
 #   gstack-brain-sync --discover-new   scan allowlist dirs, enqueue changed files
+#   gstack-brain-sync --discover-new --dry-run
+#                                      print paths/metadata that would enqueue
 #
 # Invoked by the preamble at skill START and END boundaries. No persistent
 # daemon. Typical run <1s when queue empty; ~200-800ms with network push.
@@ -378,17 +380,38 @@ subcmd_drop_queue() {
 }
 
 subcmd_discover_new() {
+  local dry_run="${1:-}"
+  if [ -n "$dry_run" ] && [ "$dry_run" != "--dry-run" ]; then
+    echo "Usage: gstack-brain-sync --discover-new [--dry-run]" >&2
+    exit 1
+  fi
   if ! sync_active; then
     exit 0
   fi
   # Walk allowlist globs; enqueue any file where mtime+size differs from cursor.
-  python3 - "$GSTACK_HOME" "$ALLOWLIST" "$DISCOVER_CURSOR" <<'PYEOF' 2>/dev/null || true
+  python3 - "$GSTACK_HOME" "$ALLOWLIST" "$DISCOVER_CURSOR" "$dry_run" <<'PYEOF' 2>/dev/null || true
 import sys, os, json, fnmatch
 from datetime import datetime, timezone
 
-gstack_home, allowlist_path, cursor_path = sys.argv[1:4]
+gstack_home, allowlist_path, cursor_path, dry_run_arg = sys.argv[1:5]
+dry_run = dry_run_arg == "--dry-run"
 queue_path = os.path.join(gstack_home, ".brain-queue.jsonl")
 skip_path = os.path.join(gstack_home, ".brain-skip.txt")
+TEMP_SUFFIXES = (
+    ".tmp",
+    ".temp",
+    ".part",
+    ".partial",
+    ".download",
+    ".crdownload",
+    ".inprogress",
+)
+ARCHIVE_SUFFIXES = (
+    ".zip",
+    ".tgz",
+    ".tar",
+    ".tar.gz",
+)
 
 def load_lines(path):
     try:
@@ -410,6 +433,79 @@ def save_cursor(path, data):
             json.dump(data, f)
     except OSError:
         pass
+
+def is_consumer_export_path(rel):
+    parts = rel.split("/")
+    return (
+        len(parts) >= 7
+        and parts[0] == "consumer-sessions"
+        and parts[1] == "raw"
+        and parts[5] == "inbox"
+    )
+
+def is_consumer_freshness_marker(rel):
+    parts = rel.split("/")
+    return (
+        len(parts) == 6
+        and parts[0] == "consumer-sessions"
+        and parts[1] == "raw"
+        and parts[5] == "freshness.json"
+    )
+
+def is_temp_transfer_name(rel):
+    lower = rel.lower()
+    return lower.endswith(TEMP_SUFFIXES) or ".tmp." in lower or ".partial." in lower
+
+def is_archive_export(rel):
+    lower = rel.lower()
+    return lower.endswith(ARCHIVE_SUFFIXES)
+
+def completion_marker_for(full):
+    return full + ".complete"
+
+def archive_has_completion_marker(full):
+    marker = completion_marker_for(full)
+    try:
+        export_st = os.stat(full)
+        marker_st = os.stat(marker)
+    except OSError:
+        return False
+    # The marker must be written after the archive payload. If the archive is
+    # changed later, skip until the writer refreshes the marker.
+    return marker_st.st_mtime_ns >= export_st.st_mtime_ns
+
+def protect_consumer_path(full, rel):
+    if not (is_consumer_export_path(rel) or is_consumer_freshness_marker(rel)):
+        return
+    current = os.path.dirname(full)
+    stop = os.path.abspath(gstack_home)
+    dirs = []
+    while os.path.abspath(current).startswith(stop) and os.path.abspath(current) != stop:
+        dirs.append(current)
+        current = os.path.dirname(current)
+    for d in reversed(dirs):
+        try:
+            os.chmod(d, 0o700)
+        except OSError:
+            pass
+    try:
+        os.chmod(full, 0o600)
+    except OSError:
+        pass
+
+def include_allowlisted_file(full, rel):
+    if is_consumer_freshness_marker(rel):
+        return True
+    if is_consumer_export_path(rel):
+        if is_temp_transfer_name(rel):
+            return False
+        if rel.endswith(".complete"):
+            target = full[:-len(".complete")]
+            return os.path.exists(target)
+        if is_archive_export(rel) and not archive_has_completion_marker(full):
+            return False
+        return True
+    return True
 
 allowlist = load_lines(allowlist_path)
 # Normalize skip entries to the same POSIX form as `rel` below, so a
@@ -437,13 +533,31 @@ for root, dirs, files in os.walk(gstack_home):
             continue
         if rel in skip:
             continue
+        if not include_allowlisted_file(full, rel):
+            continue
+        if not dry_run:
+            protect_consumer_path(full, rel)
         try:
             st = os.stat(full)
             key = f"{int(st.st_mtime)}:{st.st_size}"
         except OSError:
             continue
         if cursor.get(rel) != key:
-            to_enqueue.append((rel, key))
+            to_enqueue.append((rel, key, st.st_size, int(st.st_mtime), is_consumer_export_path(rel), is_consumer_freshness_marker(rel)))
+
+if dry_run:
+    files = []
+    for rel, key, size, mtime, is_export, is_freshness in to_enqueue:
+        kind = "consumer-export" if is_export else "consumer-freshness" if is_freshness else "artifact"
+        files.append({
+            "path": rel,
+            "kind": kind,
+            "size_bytes": size,
+            "mtime": datetime.fromtimestamp(mtime, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "archive_complete": bool(is_archive_export(rel) and not rel.endswith(".complete")),
+        })
+    print(json.dumps({"root": gstack_home, "files": files}, indent=2, sort_keys=True))
+    sys.exit(0)
 
 # Append to the queue directly. The previous implementation shelled out to
 # gstack-brain-enqueue once per file, but Windows Python cannot exec a
@@ -460,7 +574,7 @@ if to_enqueue:
         # don't guarantee that. Compact separators match the shim's JSON shape.
         fd = os.open(queue_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
         try:
-            for rel, key in to_enqueue:
+            for rel, key, *_ in to_enqueue:
                 rec = json.dumps({"file": rel, "ts": ts}, separators=(",", ":"))
                 os.write(fd, (rec + "\n").encode("utf-8"))
         finally:
@@ -472,10 +586,11 @@ if to_enqueue:
         # file next changes).
         to_enqueue = []
     # Advance the cursor only for records actually written.
-    for rel, key in to_enqueue:
+    for rel, key, *_ in to_enqueue:
         new_cursor[rel] = key
 
-save_cursor(cursor_path, new_cursor)
+if not dry_run:
+    save_cursor(cursor_path, new_cursor)
 PYEOF
 }
 
@@ -485,7 +600,7 @@ case "${1:-}" in
   --status) subcmd_status ;;
   --skip-file) shift; subcmd_skip_file "${1:-}" ;;
   --drop-queue) shift; subcmd_drop_queue "${1:-}" ;;
-  --discover-new) subcmd_discover_new ;;
+  --discover-new) shift; subcmd_discover_new "${1:-}" ;;
   --help|-h)
     sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'
     ;;
