@@ -2,16 +2,20 @@
 
 ## [Unreleased]
 
-### Bash wrapper hardening — REAL_BASH symlink detection, chain risk, jq-free parsing (v7.1)
+### Queue tab bootstrap — GET /api/queue + fetchQueue() client (v7.1)
 
-The bash wrapper that gates high-risk commands now correctly handles three previously broken cases: symlinked wrapper paths were not excluded from REAL_BASH detection, chained commands like `cd /tmp && git push` could slip past classification, and decision-file parsing crashed on macOS systems without `jq`. All three are fixed. The test suite was rebuilt to cover these paths explicitly, growing from 5 to 10 bash-wrapper tests.
+The Queue tab now populates immediately when opened, even if the page is loaded after a blocking event was already sent. Operators no longer see a blank Queue tab when the bash wrapper has already blocked a command before they opened the console — the tab fetches existing pending items on activate, without waiting for a new SSE event.
+
+#### Added
+- `GET /api/queue` endpoint in `server.ts`: returns `{ approvals: ApprovalItem[], attention: AttentionItem[] }` — pending approval requests (unresolved `{agent}-{id}.json` files from `SUPERVISOR_DECISIONS_DIR`) and `needs_human` ledger entries
+- `readApprovals(decisionsDir)` utility in `server-utils.ts`: reads unresolved approval request files; an "unresolved" file is one where `{agent}-{id}.json` exists but `{agent}-{id}.decision.json` does NOT; returns `[]` when the directory is unset, absent, or unreadable (no 500/503)
+- `fetchQueue()` in `console.js`: async function that calls `GET /api/queue` and renders approval and attention cards into the DOM with deduplication — skips any card whose element id (`approval-{id}`, `attention-{id}`) already exists in the DOM
+- `fetchQueue()` called on Queue tab activate (`switchTab('queue')`) and on SSE reconnect (`EventSource.onopen`) so the tab re-syncs after dropped connections
+- Three new test describe blocks in `server.test.ts` covering AC1 (unresolved-only approvals), AC5 (no `SUPERVISOR_DECISIONS_DIR`), and AC6 (missing directory) — total server tests raised from 10 to 14
 
 #### Changed
-- **REAL_BASH detection** switched from `grep -v "$_SELF"` to a `realpath`-loop over `type -ap bash` candidates. The old grep compared path strings, so symlinks to the wrapper were not excluded. The new loop calls `realpath` on each candidate and skips any that resolves to the wrapper's own canonical path.
-- **Chain-risk evaluation** (`evaluate_chain_risk`) now splits the command on `&&`, `||`, and `;` using `python3 -c "import re, sys; re.split(...)"` and checks each segment with `check_risk`. A command like `cd /tmp && git push origin main` is correctly classified high even though `cd` alone is low.
-- **Decision-file JSON parsing** uses `python3 -c "import json, sys; ..."` throughout — both for writing request files and reading response files. Removes the `jq` dependency that caused wrapper failures on stock macOS.
-- **SUPERVISOR_DECISIONS_DIR guard** now exits 1 and writes a warning to stderr when the variable is unset, rather than proceeding silently. Prevents unintended command execution when the console is not running.
-- **Bash wrapper test suite** (`bash-wrapper.test.sh`) rewritten to use `env -i + /bin/bash "$WRAPPER"` invocation, eliminating shebang-loop `E2BIG` errors when multiple wrappers share PATH. New tests cover the symlink REAL_BASH case (AC1) and unset-directory guard (AC6). Total bash-wrapper tests: 10 (was 5). Total suite: 27 (was 15).
+- `console.js` SSE `open` handler: now calls `fetchQueue()` on reconnect (previously only hid the reconnect banner)
+- Document title format confirmed: `(N) Fleet Console` when N > 0, `Fleet Console` when N = 0 — handled by pre-existing `syncState()` with no new code required
 
 ### QA smoke testing — browser-verified console UI checks (v7.1)
 

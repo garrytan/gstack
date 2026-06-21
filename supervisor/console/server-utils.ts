@@ -2,6 +2,27 @@
 import type { ServerResponse } from "node:http";
 import { readdirSync, readFileSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
+import { spawnSync } from "node:child_process";
+
+// Scan each agent checkout directory for a git remote URL that contains the
+// control-repo slug. Returns the first matching dir, or null if none match.
+// CONTROL_DIR env var short-circuits all git calls (AC3).
+// Non-existent dirs and git errors are silently skipped (AC5).
+export function resolveControlDir(agentDirs: string[]): string | null {
+  if (process.env.CONTROL_DIR) return process.env.CONTROL_DIR;
+  for (const dir of agentDirs) {
+    try {
+      const r = spawnSync("git", ["-C", dir, "remote", "get-url", "origin"], { encoding: "utf8" });
+      if ((r.status ?? 1) !== 0) continue;
+      const url = (r.stdout ?? "").trim();
+      if (url.includes("seab-group/tshepostack")) return dir;
+    } catch {
+      // silently skip unreadable dirs (AC5)
+    }
+  }
+  console.warn("[resolveControlDir] no agent directory matched control-repo remote");
+  return null;
+}
 
 export type AgentStatus = {
   name: string;
@@ -102,6 +123,17 @@ export function serveStatic(rootDir: string, urlPath: string, res: ServerRespons
   }
 }
 
+// Resolve the server port from the PORT env var (default 7842).
+// Throws on non-numeric or out-of-range values so callers can exit 1.
+export function resolvePort(portEnv: string | undefined): number {
+  if (!portEnv) return 7842;
+  const n = parseInt(portEnv, 10);
+  if (isNaN(n) || n < 1024 || n > 65535) {
+    throw new Error(`Invalid PORT value: "${portEnv}" — expected a number between 1024 and 65535`);
+  }
+  return n;
+}
+
 // Uppercase letters, hyphen, digits only — no path segments, no traversal.
 export const TASK_ID_RE = /^[A-Z]+-[0-9]+$/;
 
@@ -155,6 +187,33 @@ export function parseTaskLedger(ledgerDir: string): TaskEntry[] {
     }
     return entry;
   });
+}
+
+export type ApprovalItem = Record<string, unknown>;
+
+// Return unresolved approval request files from decisionsDir.
+// "Unresolved" = {agent}-{id}.json exists but {agent}-{id}.decision.json does NOT.
+// Returns [] when decisionsDir is falsy, absent, or unreadable (AC5, AC6).
+export function readApprovals(decisionsDir: string | undefined): ApprovalItem[] {
+  if (!decisionsDir) return [];
+  let files: string[];
+  try {
+    files = readdirSync(decisionsDir);
+  } catch {
+    return [];
+  }
+  const decisionSet = new Set(files.filter((f) => f.endsWith(".decision.json")));
+  return files
+    .filter((f) => f.endsWith(".json") && !f.endsWith(".decision.json"))
+    .filter((f) => !decisionSet.has(f.replace(/\.json$/, ".decision.json")))
+    .map((f): ApprovalItem | null => {
+      try {
+        return JSON.parse(readFileSync(join(decisionsDir, f), "utf8")) as ApprovalItem;
+      } catch {
+        return null;
+      }
+    })
+    .filter((item): item is ApprovalItem => item !== null);
 }
 
 // Parse a mailbox file's content into an array of note objects.
