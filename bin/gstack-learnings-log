@@ -7,6 +7,19 @@
 # by gstack-learnings-search ("latest winner" per key+type).
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# bun is a native binary. On Git Bash (Windows) MSYS unreliably mangles an
+# absolute /c/... path embedded inside the `bun -e` script string, breaking
+# the static import ("Cannot find module"). Resolve the lib to a file:// URL
+# and hand it to bun via an env var (env values are NOT path-mangled), then
+# dynamic-import it. cygpath -m yields a Windows path on MSYS; on POSIX the
+# canonical absolute path is used directly.
+LIB_TS="$(cd "$SCRIPT_DIR/../lib" && pwd)/jsonl-store.ts"
+if command -v cygpath >/dev/null 2>&1; then
+  GSTACK_LIB_URL="file://$(cygpath -m "$LIB_TS")"
+else
+  GSTACK_LIB_URL="file://$LIB_TS"
+fi
+export GSTACK_LIB_URL
 eval "$("$SCRIPT_DIR/gstack-slug" 2>/dev/null)"
 GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
 mkdir -p "$GSTACK_HOME/projects/$SLUG"
@@ -15,7 +28,7 @@ INPUT="$1"
 
 # Validate and sanitize input
 VALIDATED=$(printf '%s' "$INPUT" | bun -e "
-import { hasInjection } from '$SCRIPT_DIR/../lib/jsonl-store.ts';
+const { hasInjection } = await import(process.env.GSTACK_LIB_URL);
 const raw = await Bun.stdin.text();
 let j;
 try { j = JSON.parse(raw); } catch { process.stderr.write('gstack-learnings-log: invalid JSON, skipping\n'); process.exit(1); }
