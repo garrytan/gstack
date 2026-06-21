@@ -960,7 +960,7 @@ This is my **goal loop mode**.
 
 A plain `/goal` command — vanilla Claude, or Codex — takes a one-sentence goal, jumps straight to code, then loops on its own output with no independent check. It optimizes for "the tests I wrote pass" and ships scope nobody approved. The result compiles and is wrong.
 
-`/gloop` runs the goal through the real gstack workflow instead: clarify the goal into verifiable success criteria, write a plan, **review the plan** with `/autoplan` or `/plan-eng-review` before any code is written, implement one scoped milestone, run your tests, run `/review` on the diff, then loop. Independent review happens every pass — the context that wrote the code is never the only one that judges it. A major scope change (reframe, split, add or drop a whole feature) is surfaced to you at a user-challenge gate, never decided silently. Loop guards (max passes, a convergence check) make it stop with a clear blocker instead of spinning.
+`/gloop` runs the goal through the real gstack workflow instead: clarify the goal into verifiable success criteria, write a plan, **review the plan** with `/autoplan` or `/plan-eng-review` before any code is written, implement one scoped milestone, run your tests, run `/review` on the diff, then loop. Independent review happens every pass — the context that wrote the code is never the only one that judges it. Review and evaluation findings are folded into the plan automatically; it asks only when the objective is missing/contradictory or the next step needs an external irreversible decision. Loop guards (max passes, a convergence check) make it stop with a clear blocker instead of spinning.
 
 It ends at PR-ready and hands off to `/ship` — it doesn't merge or deploy.
 

@@ -27,11 +27,11 @@ allowed-tools:
 
 Drives a goal to a PR-ready state through gstack's own
 plan -> review -> implement -> review loop, instead of jumping straight from a
-vague goal to code. Clarifies the goal into verifiable success criteria, runs
-/autoplan or /plan-eng-review before any code is written, surfaces major scope
-changes for your approval instead of deciding them silently, implements in
-scoped passes, runs your tests and /review after each pass, and loops until the
-goal is met or it hits a real blocker.
+vague goal to code. It clarifies success criteria, runs /autoplan or
+/plan-eng-review before coding, autonomously folds review findings into the
+plan, implements in scoped passes, runs tests and /review after each pass, and
+asks only for missing/contradictory objectives or external irreversible
+decisions.
 Use when asked to "drive this goal to done", "goal loop", "gloop", "build this
 end to end with reviews", or "keep going until it's PR-ready".
 Proactively suggest when the user hands over a multi-step goal and wants it built
@@ -829,7 +829,7 @@ nobody approved. The result compiles and is wrong.
 
 `/gloop` refuses that shape. It drives the goal through gstack's real workflow:
 **clarify → plan → review the plan → implement a scoped pass → test → /review →
-loop**, with a human gate before any major scope change and a hard stop when it's
+loop**, with autonomous review-driven plan updates and a hard stop only when it's
 genuinely blocked. The loop is the product. Independent review is not optional.
 
 ## The anti-pattern this prevents
@@ -980,42 +980,37 @@ milestone list with anything the review surfaced. Only now, once the review has
 actually finished, set `plan_review: done` in the state file — choosing a path is
 not the same as completing the review.
 
-**If the full pipeline ran (`/autoplan`):** it has its own human gates — premise
-confirmation and a Final Approval Gate. Those ARE the plan-approval gate; don't
-re-ask them. Carry autoplan's approved plan and its surfaced taste/user-challenge
-decisions straight into Phase 2.5 and Phase 3. If the user rejected the plan
-inside autoplan, stop as BLOCKED — there's no approved plan to implement.
+**If the full pipeline ran (`/autoplan`):** treat it as an evaluation engine, not
+as a reason to stop. Carry autoplan's reviewed plan, findings, and tradeoffs
+straight into Phase 2.5 and Phase 3. Do not add a second approval step.
 
 ---
 
-## Phase 2.5 — User-Challenge Gate (never auto-decide a major scope change)
+## Phase 2.5 — Autonomous Plan Reconciliation
 
-The review (and its outside voices) may conclude the goal itself should change —
-reframed, split, a whole capability dropped or added. That is **not** yours to
-decide. Distinguish:
+The review (and its outside voices) may conclude the plan should change: split a
+milestone, reorder work, add a missing hardening task, drop a redundant approach,
+or tighten the success criteria. **Default to deciding and continuing.** `/gloop`
+is supposed to be a goal-completion loop, not a meeting scheduler.
 
 - **Mechanical / minor** (which helper, where a file lives, an obvious missing
   test): decide it, log it in the state file's decision log, keep moving.
-- **Major scope change** (reframe the goal, split it, add or drop a whole
-  feature/milestone, reverse a constraint the user set): **STOP and ask.** Use
-  AskUserQuestion and present it honestly:
-  - **You said:** the user's original direction
-  - **The review recommends:** the change
-  - **Why:** the reasoning
-  - **What we might be missing:** the blind spots in the recommendation
-  - **If we're wrong, the cost is:** what breaks if the original direction was right
+- **Material but reversible** (split milestones, add or drop implementation
+  tactics, change sequencing, pick a reviewed architecture path): decide it with
+  the best evidence from `/autoplan` or `/plan-eng-review`, update the plan/state,
+  and keep moving. Include the rationale in the final summary.
+- **Ask only for true objective blockers:** the objective is missing, success
+  criteria cannot be written, the user gave contradictory constraints, the next
+  step needs credentials/access, the next step is destructive or externally
+  irreversible, or the review proves the requested outcome is impossible under
+  the stated constraints.
 
-  The user's original direction is the default. The review has to earn the change;
-  the user does not have to defend the status quo. If both the planning skill and
-  its outside voice flag a security or feasibility risk (not a preference), say so
-  plainly in the framing — but the user still decides.
+If the objective is fuzzy enough that success criteria cannot exist yet, route to
+an `/office-hours`-style clarification experience and then stop with a precise
+objective. Do not use ordinary verification/evaluation findings as a reason to
+ask the user; those are inputs to the autonomous iteration loop.
 
-  On the full-pipeline path, the trigger is autoplan's two-voice signal (both
-  models agree the direction should change). On the focused `--quick` path there's
-  one voice, so the bar is simply: the eng review recommends a material scope
-  change. Either way, surface it — don't decide it.
-
-Record the resolution in the state file before continuing.
+Record every reconciliation decision in the state file before continuing.
 
 ---
 
@@ -1095,9 +1090,11 @@ Update the state file, then decide:
 - **NEXT PASS** — milestones remain, or `/review` surfaced findings to address. Go
   back to Phase 3 for the next milestone (or to fix findings). Increment the pass
   counter **in the state file** (not just in your head).
-- **BLOCKED** — a decision is needed from the user, a test failure survived 3
-  attempts, or an unanswered user challenge stands. Go to Phase 7 with the blocker.
-  Set `status: BLOCKED`.
+- **BLOCKED** — a true objective blocker stands (the objective is missing or
+  contradictory, the next step needs a credential/access or an externally
+  irreversible decision, or the review proved the outcome impossible under the
+  stated constraints), or a test failure survived 3 attempts. Go to Phase 7 with
+  the blocker. Set `status: BLOCKED`.
 
 **Loop guards (so it stops instead of spinning):**
 - **Read the count from the state file**, not from memory. The pass count and the
@@ -1139,9 +1136,10 @@ Then suggest `/ship`. Only open a PR yourself if the user explicitly asks.
 **BLOCKED — report the exact blocker:**
 
 State precisely what stopped the loop, what you tried, and what you need to
-continue (a decision, a credential, an answer to a user challenge, a flaky test
-triaged by a human). Leave the state file intact so `/gloop --resume` picks up
-where you left off. Do not dress a blocker up as done.
+continue (a clarified objective, a credential or access, approval for an
+externally irreversible step, a flaky test triaged by a human). Leave the state
+file intact so `/gloop --resume` picks up where you left off. Do not dress a
+blocker up as done.
 
 ---
 
@@ -1151,8 +1149,10 @@ where you left off. Do not dress a blocker up as done.
   source edits before Phase 2 has run once. This is the whole point of the skill.
 - **Independent review every pass.** `/review` checks each implementation pass. The
   context that wrote the code does not get to be the only one that judges it.
-- **Major scope changes are the user's call.** Surface them at the Phase 2.5 gate;
-  never auto-decide a reframe, split, or feature add/drop.
+- **Autonomy is the default.** Ask only for missing/contradictory objectives,
+  credentials/access, destructive or externally irreversible actions, or proven
+  impossibility. Ordinary review, verification, evaluation, and scope-shaping
+  findings are inputs to the loop, not reasons to stop.
 - **Surgical implementation.** One scoped milestone per pass. Every changed line
   traces to the goal. Don't refactor what isn't in scope.
 - **Tests are a gate, not a formality.** Real success criteria, real test command

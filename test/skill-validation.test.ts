@@ -807,9 +807,11 @@ describe('gloop skill structure', () => {
     expect(content).toContain('independent');
   });
 
-  test('surfaces major scope changes instead of auto-deciding them', () => {
-    expect(content).toContain('User-Challenge Gate');
-    expect(content).toContain('never auto-decide');
+  test('runs autonomously except for true objective blockers', () => {
+    expect(content).toContain('Autonomous Plan Reconciliation');
+    expect(content).toContain('Default to deciding and continuing');
+    expect(content).toContain('Ask only for true objective blockers');
+    expect(content).toContain('Do not use ordinary verification/evaluation findings as a reason to');
   });
 
   test('frames the goal into verifiable success criteria', () => {
