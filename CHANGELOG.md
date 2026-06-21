@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+### gitCommitAndPush — push retry with fetch+reset, 3 attempts, 30s timeout (T7)
+
+When the console writes to the control repository and another agent pushes at the same moment, the push is now retried automatically up to three times using a hard-reset sync strategy. Each retry fetches the latest remote state, resets the local branch to match, re-stages the change, re-commits, and attempts the push again. A 30-second kill timeout guards every git subprocess so a stalled network call never blocks the server.
+
+#### Added
+- `gitCommitAndPush(controlDir, commitMessage, spawner?)` exported from `server-utils.ts` — replaces the previous single-attempt implementation. Accepts an optional `GitSpawner` for dependency injection in tests.
+- `GitSpawnResult` and `GitSpawner` types exported from `server-utils.ts` for test injection.
+- `readApprovals(decisionsDir)` and `resolvePort(portEnv)` now exported from `server-utils.ts` and imported by `server.ts`.
+
+#### Changed
+- Push retry strategy: replaced `git pull --rebase` (max 1 retry) with `git fetch origin && git reset --hard origin/<branch>` (up to 3 retries). Hard reset avoids detached-HEAD edge cases in non-interactive environments.
+- Staging now uses `git add -A` (all working-tree changes) rather than staging a specific file path.
+- Error on exhaustion: `Error('git push failed after 3 retries')` (was `'push failed after retry'`).
+- Nothing-to-commit: `git commit` exit non-zero now resolves void without attempting push (no error thrown).
+
 ### Fleet tab UI polish — avatars, SSE dot, Unblock flow, responsive layout (v7.1)
 
 The Fleet tab and Queue tab now have the UI polish that turns a functional prototype into a production-grade console. Each fleet row shows a Dicebear initials avatar for at-a-glance agent identification, the SSE dot cycles green/amber/red in real time so you know the connection is live, the Unblock flow on attention cards reveals an inline textarea rather than navigating away, and the entire console is readable on an iPhone SE without horizontal scrolling.
