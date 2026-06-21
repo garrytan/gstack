@@ -52,6 +52,22 @@ else
   _fail "Fleet tab button is not present"
 fi
 
+# T10 AC1/AC7: body font-size is 16px
+FONT_SIZE=$("$BROWSE_BIN" js "getComputedStyle(document.body).fontSize")
+if [ "$FONT_SIZE" = "16px" ]; then
+  _ok "body font-size is 16px (got: $FONT_SIZE)"
+else
+  _fail "body font-size should be 16px (got: $FONT_SIZE)"
+fi
+
+# T10 AC4: card border-radius is 6px (checked on .empty-section which is always present)
+RADIUS=$("$BROWSE_BIN" js "getComputedStyle(document.querySelector('.empty-section')).borderRadius")
+if [ "$RADIUS" = "6px" ]; then
+  _ok "card border-radius is 6px (got: $RADIUS)"
+else
+  _fail "card border-radius should be 6px (got: $RADIUS)"
+fi
+
 # AC1e / AC2: take screenshot and print path so QA can attach it as evidence
 "$BROWSE_BIN" screenshot "$SCREENSHOT"
 echo "Screenshot: $SCREENSHOT"

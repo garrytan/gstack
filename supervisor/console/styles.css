@@ -16,6 +16,23 @@
   --sans: 'DM Sans', system-ui, sans-serif;
   --display: 'Satoshi', 'DM Sans', system-ui, sans-serif;
 
+  /* T10 design token spec */
+  --font-body: 'Satoshi', 'DM Sans', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --radius-card: 6px;
+  --radius-badge: 4px;
+  --radius-btn: 6px;
+  --color-green: #16a34a;
+  --color-amber: #d97706;
+  --color-red: #dc2626;
+  --color-grey: #9ca3af;
+
   /* Motion tokens — DESIGN.md: micro(50-100ms) short(150ms) medium(250ms) */
   --dur-micro: 75ms;
   --dur-short: 150ms;
@@ -28,10 +45,15 @@
 body {
   background: var(--base);
   color: var(--text);
-  font-family: var(--sans);
+  font-family: var(--font-body);
   font-size: 16px;
   line-height: 1.5;
   min-height: 100vh;
+}
+
+code, .cmd {
+  font-family: var(--font-mono);
+  line-height: 1.6;
 }
 
 /* Grain texture — DESIGN.md: SVG feTurbulence, opacity 0.03 dark mode */
@@ -49,9 +71,9 @@ body::after {
 .page-header {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: var(--space-4);
   flex-wrap: wrap;
-  padding: 16px 24px 0;
+  padding: var(--space-4) var(--space-6) 0;
   background: var(--surface);
 }
 .page-brand {
@@ -86,7 +108,7 @@ body::after {
   background: none;
   border: none;
   border-bottom: 2px solid transparent;
-  padding: 10px 16px;
+  padding: 10px var(--space-4);
   cursor: pointer;
   transition: color var(--dur-micro), border-color var(--dur-micro);
   margin-bottom: -1px;
@@ -110,13 +132,13 @@ body::after {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--green);
-  box-shadow: 0 0 4px var(--green);
+  background: var(--color-green);
+  box-shadow: 0 0 4px var(--color-green);
   animation: pulse 2s ease-in-out infinite;
 }
 .sse-dot.disconnected {
-  background: var(--red);
-  box-shadow: 0 0 4px var(--red);
+  background: var(--color-red);
+  box-shadow: 0 0 4px var(--color-red);
   animation: none;
 }
 @keyframes pulse {
@@ -128,10 +150,10 @@ body::after {
 .page-body {
   max-width: 800px;
   margin: 0 auto;
-  padding: 24px 24px 48px;
+  padding: var(--space-6) var(--space-6) 48px;
   display: flex;
   flex-direction: column;
-  gap: 32px;
+  gap: var(--space-8);
 }
 
 /* ── Section header ── */
@@ -139,7 +161,7 @@ body::after {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-bottom: 12px;
+  margin-bottom: var(--space-3);
 }
 .section-title {
   font-family: var(--mono);
@@ -153,7 +175,7 @@ body::after {
   font-family: var(--mono);
   font-size: 10px;
   padding: 2px 6px;
-  border-radius: 9999px;
+  border-radius: var(--radius-badge);
   font-weight: 500;
 }
 .badge-red { background: var(--red); color: #fff; }
@@ -170,7 +192,7 @@ body::after {
   background: var(--surface);
   border: 1px solid var(--border);
   border-top: 3px solid var(--amber);
-  border-radius: 8px;
+  border-radius: var(--radius-card);
   padding: 20px;
   margin-bottom: 10px;
   transition: border-color var(--dur-short) var(--ease-enter);
@@ -182,7 +204,7 @@ body::after {
 .card-meta {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   margin-bottom: 14px;
 }
 .card-agent {
@@ -206,34 +228,34 @@ body::after {
 .failure-badge {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
   font-family: var(--mono);
   font-size: 10px;
   color: var(--amber);
   background: rgba(245, 158, 11, 0.08);
   border: 1px solid rgba(245, 158, 11, 0.2);
-  border-radius: 9999px;
-  padding: 2px 8px;
+  border-radius: var(--radius-badge);
+  padding: 2px var(--space-2);
 }
 
 .card-task-title {
   font-size: 15px;
   font-weight: 600;
   color: var(--text);
-  margin-bottom: 8px;
+  margin-bottom: var(--space-2);
 }
 .card-agent-note {
   font-size: 14px;
   color: var(--text-dim);
   background: var(--surface-2);
   border-left: 2px solid var(--border);
-  padding: 10px 12px;
-  border-radius: 0 4px 4px 0;
-  margin-bottom: 12px;
+  padding: 10px var(--space-3);
+  border-radius: 0 var(--radius-badge) var(--radius-badge) 0;
+  margin-bottom: var(--space-3);
   font-style: italic;
 }
 .card-acs {
-  margin-bottom: 16px;
+  margin-bottom: var(--space-4);
 }
 .card-acs-label {
   font-family: var(--mono);
@@ -245,28 +267,28 @@ body::after {
 }
 .card-ac-row {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
   font-family: var(--mono);
   font-size: 12px;
   color: var(--text-dim);
-  padding: 4px 0;
+  padding: var(--space-1) 0;
 }
 .ac-id { color: var(--text-micro); flex-shrink: 0; }
 
 .card-textarea-wrapper {
   position: relative;
-  margin-bottom: 12px;
+  margin-bottom: var(--space-3);
 }
 .card-textarea {
   width: 100%;
   min-height: 88px;
   background: var(--surface-2);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-card);
   color: var(--text);
   font-family: var(--sans);
   font-size: 14px;
-  padding: 12px;
+  padding: var(--space-3);
   resize: vertical;
   outline: none;
   transition: border-color var(--dur-micro);
@@ -290,7 +312,7 @@ body::after {
 .card-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   justify-content: flex-end;
 }
 
@@ -304,7 +326,7 @@ body::after {
   color: var(--text-micro);
   background: none;
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-badge);
   padding: 5px 10px;
   cursor: pointer;
   transition: border-color var(--dur-micro), color var(--dur-micro);
@@ -321,22 +343,22 @@ body::after {
   letter-spacing: 0.08em;
   color: var(--amber);
   background: rgba(245, 158, 11, 0.1);
-  border-radius: 2px;
-  padding: 1px 4px;
+  border-radius: var(--radius-badge);
+  padding: 1px var(--space-1);
 }
 
 /* AI draft panel */
 .ai-draft-panel {
   background: var(--surface-2);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-card);
   padding: 14px;
-  margin-bottom: 12px;
+  margin-bottom: var(--space-3);
 }
 .ai-draft-panel-header {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   margin-bottom: 10px;
 }
 .ai-draft-panel-title {
@@ -351,7 +373,7 @@ body::after {
   color: var(--amber);
   background: rgba(245, 158, 11, 0.08);
   border: 1px solid rgba(245, 158, 11, 0.15);
-  border-radius: 3px;
+  border-radius: var(--radius-badge);
   padding: 2px 6px;
 }
 .ai-draft-text {
@@ -366,8 +388,8 @@ body::after {
   color: var(--text-dim);
   background: none;
   border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 4px 10px;
+  border-radius: var(--radius-btn);
+  padding: var(--space-1) 10px;
   cursor: pointer;
 }
 .ai-draft-use-btn:hover {
@@ -379,7 +401,7 @@ body::after {
 .approval-card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-card);
   padding: 18px 20px;
   margin-bottom: 10px;
   transition: border-color var(--dur-short);
@@ -398,7 +420,7 @@ body::after {
   font-size: 10px;
   font-weight: 500;
   padding: 2px 6px;
-  border-radius: 3px;
+  border-radius: var(--radius-badge);
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
@@ -411,8 +433,8 @@ body::after {
   color: var(--text);
   background: var(--surface-2);
   border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 8px 12px;
+  border-radius: var(--radius-badge);
+  padding: var(--space-2) var(--space-3);
   margin: 10px 0;
   word-break: break-all;
 }
@@ -434,8 +456,8 @@ body::after {
   color: var(--text-dim);
   background: var(--surface-2);
   border: 1px solid var(--border);
-  border-radius: 3px;
-  padding: 3px 8px;
+  border-radius: var(--radius-badge);
+  padding: 3px var(--space-2);
 }
 .no-files-note {
   font-family: var(--mono);
@@ -448,7 +470,7 @@ body::after {
 .approval-footer {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 .approval-timer {
   font-family: var(--mono);
@@ -458,11 +480,11 @@ body::after {
 }
 .approval-timer .urgent { color: var(--amber); }
 
-/* ── Buttons — DESIGN.md: buttons/inputs border-radius md = 8px ── */
+/* ── Buttons ── */
 .btn-reject {
-  padding: 6px 16px;
+  padding: 6px var(--space-4);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-btn);
   background: none;
   color: var(--text-dim);
   font-family: var(--sans);
@@ -477,7 +499,7 @@ body::after {
 .btn-approve {
   padding: 6px 18px;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--radius-btn);
   background: var(--amber);
   color: #0C0C0C;
   font-family: var(--sans);
@@ -504,9 +526,9 @@ body::after {
 @keyframes spin { to { transform: rotate(360deg); } }
 
 .btn-send {
-  padding: 8px 18px;
+  padding: var(--space-2) 18px;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--radius-btn);
   background: var(--amber);
   color: #0C0C0C;
   font-family: var(--sans);
@@ -522,10 +544,10 @@ body::after {
 .success-flash {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   background: rgba(34, 197, 94, 0.08);
   border: 1px solid rgba(34, 197, 94, 0.2);
-  border-radius: 6px;
+  border-radius: var(--radius-card);
   padding: 10px 14px;
   font-size: 14px;
   color: var(--green);
@@ -541,7 +563,7 @@ body::after {
 .timeout-card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-card);
   padding: 14px 20px;
   margin-bottom: 10px;
   opacity: 0.55;
@@ -550,7 +572,7 @@ body::after {
   font-family: var(--mono);
   font-size: 11px;
   color: var(--text-micro);
-  margin-bottom: 4px;
+  margin-bottom: var(--space-1);
 }
 .timeout-command {
   font-family: var(--mono);
@@ -561,19 +583,19 @@ body::after {
 /* ── Empty state ── */
 .empty-section {
   border: 1px dashed var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-card);
   padding: 40px 20px;
   text-align: center;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 .empty-check {
   font-family: var(--mono);
   font-size: 20px;
   color: var(--green);
-  margin-bottom: 4px;
+  margin-bottom: var(--space-1);
 }
 .empty-title {
   font-size: 15px;
@@ -590,15 +612,15 @@ body::after {
 .error-card {
   background: rgba(239, 68, 68, 0.05);
   border: 1px solid rgba(239, 68, 68, 0.2);
-  border-radius: 8px;
-  padding: 14px 16px;
+  border-radius: var(--radius-card);
+  padding: 14px var(--space-4);
   margin-bottom: 10px;
 }
 .error-card-title {
   font-family: var(--mono);
   font-size: 12px;
   color: var(--red);
-  margin-bottom: 4px;
+  margin-bottom: var(--space-1);
 }
 .error-card-body {
   font-size: 13px;
@@ -610,17 +632,17 @@ body::after {
   color: var(--text-micro);
   background: none;
   border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 4px 8px;
+  border-radius: var(--radius-btn);
+  padding: var(--space-1) var(--space-2);
   cursor: pointer;
-  margin-top: 8px;
+  margin-top: var(--space-2);
 }
 
 /* ── SSE reconnect banner ── */
 .reconnect-banner {
   background: rgba(245, 158, 11, 0.06);
   border: 1px solid rgba(245, 158, 11, 0.2);
-  border-radius: 6px;
+  border-radius: var(--radius-card);
   padding: 10px 14px;
   display: flex;
   align-items: center;
@@ -644,7 +666,7 @@ body::after {
   /* flex child of page-body — inherits gap */
 }
 .fleet-loading {
-  padding: 32px;
+  padding: var(--space-8);
   text-align: center;
   font-family: var(--mono);
   font-size: 12px;
@@ -656,7 +678,7 @@ body::after {
 }
 .fleet-table th {
   text-align: left;
-  padding: 8px 12px;
+  padding: var(--space-2) var(--space-3);
   font-family: var(--mono);
   font-size: 10px;
   text-transform: uppercase;
@@ -666,7 +688,7 @@ body::after {
   border-bottom: 1px solid var(--border);
 }
 .fleet-table td {
-  padding: 10px 12px;
+  padding: 10px var(--space-3);
   font-family: var(--mono);
   font-size: 12px;
   border-bottom: 1px solid var(--border);
@@ -705,7 +727,7 @@ body::after {
   white-space: nowrap;
 }
 
-/* ── State badges (AC4) ── */
+/* ── State badges ── */
 .state-badge {
   font-family: var(--mono);
   font-size: 10px;
@@ -713,7 +735,7 @@ body::after {
   text-transform: uppercase;
   letter-spacing: 0.04em;
   padding: 2px 6px;
-  border-radius: 3px;
+  border-radius: var(--radius-badge);
   display: inline-block;
   white-space: nowrap;
 }
