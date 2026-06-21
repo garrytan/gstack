@@ -2,22 +2,19 @@
 
 ## [Unreleased]
 
-### CONTROL_DIR auto-detection — multi-agent iteration with graceful null (v7.1)
+### Port binding hardening — PORT override, EADDRINUSE crash, ready message (v7.1)
 
-The console server now discovers the control repository by scanning all agent checkout directories rather than reading only the first agent's remote. If no agent directory matches the control-repo slug, the server starts anyway and logs a warning — it no longer clones the control repo or exits on failure.
+The console server now validates the `PORT` environment variable before binding, crashes cleanly when the port is already in use, and prints a `Console ready →` line to stdout on successful startup. Operators can override the default port 7842 with any value in the 1024–65535 range; invalid values (non-numeric, below 1024, above 65535) exit immediately with a clear error before any socket is opened.
 
 #### Added
-- `resolveControlDir(agentDirs: string[]): string | null` exported from `server-utils.ts`: iterates each agent control path, runs `git -C <dir> remote get-url origin`, returns the first directory whose remote URL contains `seab-group/tshepostack`
-- Graceful null return: if no agent directory matches, `resolveControlDir` returns `null` and logs a warning; the server binds and serves the static UI even without a control repo
-- Silent skip for unreadable directories: non-existent paths and `git remote get-url` failures are caught and skipped without crashing
-- `CONTROL_DIR` env var short-circuit: if set, returned immediately without running any git commands
-- Startup cache: `resolveControlDir` called once at startup; result stored in `const controlDir` — not re-computed on subsequent requests
-- Four new describe blocks in `server.test.ts` covering AC1 (first match), AC2 (null on no match), AC3 (env override), and AC5 (missing dir skipped)
+- `resolvePort(portEnv)` exported from `server-utils.ts`: parses and validates the `PORT` env var, returns `7842` when unset, throws on invalid or out-of-range values
+- `PORT` env var support: `PORT=9000 bun run supervisor/console/server.ts` binds to port 9000 on `127.0.0.1`
+- EADDRINUSE handler: when the selected port is already in use, the server writes `ERROR: port {PORT} already in use — is another console running?` to stderr and exits 1
+- 8 new tests in `server.test.ts` covering AC1 (127.0.0.1 binding), AC2 (PORT override), AC3 (EADDRINUSE exit), and AC5 (invalid PORT exits before bind)
 
 #### Changed
-- `resolveControlDir` moved from `server.ts` to `server-utils.ts` and exported for testability
-- Previous behavior (read only first agent's remote, block on git clone, exit on failure) replaced by multi-agent iteration with null return
-- Server now continues serving if control repo is not found, with a `WARNING:` log line instead of crashing
+- Startup log: `Console server listening on http://127.0.0.1:7842` replaced by `Console ready → http://localhost:{PORT}` (written to stdout, not console.log)
+- PORT validation now runs at module start before any filesystem reads or network operations (AC5 constraint)
 
 ### QA smoke testing — browser-verified console UI checks (v7.1)
 

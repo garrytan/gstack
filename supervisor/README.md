@@ -14,7 +14,7 @@ Scripts for starting, stopping, and monitoring the autonomous agent fleet.
 | `console/index.html` | Console UI entry point (v7.1 — serves static HTML with SSE support) |
 | `console/console.js` | Console interactive client (v7.1 — card animations, empty states, AI draft panel, ARIA accessibility) |
 | `console/styles.css` | Console design system (v7.1 — dark theme, motion tokens, Satoshi/DM Sans/JetBrains Mono typefaces) |
-| `console/server-utils.ts` | Utility exports — `resolveControlDir`, parsing ledger/mailbox, task ID validation, fleet status reading, SSE helpers, watch handler (v7.1) |
+| `console/server-utils.ts` | Utility exports — parsing ledger/mailbox, task ID validation, fleet status reading, SSE helpers, watch handler, port resolution (v7.1) |
 | `console/bash-wrapper.test.ts` | Bun test wrapper that runs bash-wrapper.test.sh inline (v7.1) |
 | `console/bash-wrapper.test.sh` | Bash unit tests for risk classification (check_risk) and polling behavior (poll_approval) (v7.1) |
 | `console/server.test.ts` | Bun tests for endpoint security, static serving, queue bootstrap, and `resolveControlDir` — taskId regex validation, agent name validation, needs_human endpoint (v7.1) |
@@ -222,8 +222,13 @@ When you start the console server:
 
 ```bash
 $ bun run supervisor/console/server.ts
-Control dir: /Users/<user>/agents/agent-be/control
-Console server listening on http://127.0.0.1:7842
+[console] CONTROL_DIR not set, auto-detecting...
+[console] First agent from fleet.conf: agent-be
+[console] Reading control URL from ~/agents/agent-be/control/.git/config
+[console] Control URL: git@github.com:my-org/my-control-repo.git
+[console] Cloning control repo from git@github.com:my-org/my-control-repo.git...
+[console] Clone complete at ~/agents/console/control
+Console ready → http://localhost:7842
 ```
 
 If no agent directory matches:
@@ -304,6 +309,81 @@ At startup, `server.ts` reads `fleet.conf` and builds a Set of all agent names l
 
 - **Node.js raw path:** The server uses `node:http.createServer()` instead of `Bun.serve()`. Bun normalizes dot segments before the request handler is called (defeating AC4 validation), whereas `node:http` passes the raw, un-normalized path, allowing the server to validate and reject malicious identifiers.
 - **Synchronous validation:** All validations occur synchronously in the request handler. No path is written to disk until validation passes.
+
+---
+
+## Port binding hardening — PORT override, EADDRINUSE crash, ready message (v7.1)
+
+The console server validates the listening port before binding, crashes fast on conflicts, and announces readiness via stdout. These behaviors build on the CONS-003 localhost-only binding constraint.
+
+### Port resolution — `resolvePort()` (AC1/AC2)
+
+Port selection is handled by `resolvePort(portEnv: string | undefined)` exported from `server-utils.ts`:
+
+- Returns `7842` when `PORT` is unset or empty.
+- Parses `parseInt(portEnv, 10)` and validates the result is a number in the range 1024–65535.
+- Throws `Error('Invalid PORT value: "{value}" — expected a number between 1024 and 65535')` for anything outside that range.
+
+`server.ts` calls `resolvePort(process.env.PORT)` inside an IIFE at module start — before any filesystem reads or network operations:
+
+```bash
+# Default port
+bun run supervisor/console/server.ts
+# → Console ready → http://localhost:7842
+
+# Custom port
+PORT=9000 bun run supervisor/console/server.ts
+# → Console ready → http://localhost:9000
+```
+
+The server always binds to `127.0.0.1` (loopback only) regardless of the PORT value. External network binding is not configurable.
+
+### EADDRINUSE crash (AC3)
+
+If the selected port is already in use when the server attempts to bind, the EADDRINUSE error handler fires:
+
+```
+ERROR: port 7842 already in use — is another console running?
+```
+
+The message goes to stderr and the process exits with code 1. No fallback port is chosen. The operator must stop the conflicting process or use `PORT=<other>` to select a free port.
+
+### PORT validation (AC5)
+
+An invalid `PORT` value causes the server to exit **before** attempting to bind. The validation error goes to stderr with exit code 1:
+
+```bash
+PORT=invalid bun run supervisor/console/server.ts
+# stderr: ERROR: Invalid PORT value: "invalid" — expected a number between 1024 and 65535
+# exit 1
+
+PORT=80 bun run supervisor/console/server.ts
+# stderr: ERROR: Invalid PORT value: "80" — expected a number between 1024 and 65535
+# exit 1 (below minimum 1024)
+```
+
+### Startup ready message (AC4)
+
+After a successful bind, the server writes the ready line to stdout:
+
+```
+Console ready → http://localhost:7842
+```
+
+This replaces the old `Console server listening on http://127.0.0.1:7842` message. The new message uses `localhost` (operator-friendly) and includes the arrow format consistent with Node.js ecosystem conventions.
+
+### Test coverage
+
+| AC | Test | Location |
+|---|---|---|
+| AC1 | `server binds to 127.0.0.1, not 0.0.0.0` | `server.test.ts` — port binding describe |
+| AC2 | `resolvePort returns 7842 when PORT is unset` | `server.test.ts` |
+| AC2 | `resolvePort returns the numeric PORT value when set` | `server.test.ts` |
+| AC2 | `server actually binds to PORT=9999` | `server.test.ts` |
+| AC3 | `EADDRINUSE exits 1 with the right error message` | `server.test.ts` — occupier + spawnSync |
+| AC5 | `resolvePort throws on non-numeric PORT` | `server.test.ts` |
+| AC5 | `resolvePort throws on out-of-range PORT` | `server.test.ts` |
+| AC5 | `server exits 1 for PORT=invalid before bind` | `server.test.ts` — temp script + spawnSync |
 
 ---
 
@@ -929,7 +1009,7 @@ AC4 (startup cache) is human-verify: `resolveControlDir` is called once in `serv
 
 ### Test results
 
-All 37 tests pass (8 bash-wrapper + 29 server tests). Run the full suite with:
+All 41 tests pass (8 bash-wrapper + 33 server tests). Run the full suite with:
 
 ```bash
 bun test supervisor/console/     # runs all tests, exit 0 on pass
