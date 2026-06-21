@@ -185,6 +185,74 @@ def mode_allows(cls, mode):
         return cls == "artifact"
     return True  # full
 
+TEMP_SUFFIXES = (
+    ".tmp",
+    ".temp",
+    ".part",
+    ".partial",
+    ".download",
+    ".crdownload",
+    ".inprogress",
+)
+ARCHIVE_SUFFIXES = (
+    ".zip",
+    ".tgz",
+    ".tar",
+    ".tar.gz",
+)
+
+def is_consumer_raw_path(rel):
+    parts = rel.split("/")
+    return len(parts) >= 2 and parts[0] == "consumer-sessions" and parts[1] == "raw"
+
+def is_consumer_export_path(rel):
+    parts = rel.split("/")
+    return (
+        len(parts) >= 7
+        and parts[0] == "consumer-sessions"
+        and parts[1] == "raw"
+        and parts[5] == "inbox"
+    )
+
+def is_consumer_freshness_marker(rel):
+    parts = rel.split("/")
+    return (
+        len(parts) == 6
+        and parts[0] == "consumer-sessions"
+        and parts[1] == "raw"
+        and parts[5] == "freshness.json"
+    )
+
+def is_temp_transfer_name(rel):
+    lower = rel.lower()
+    return lower.endswith(TEMP_SUFFIXES) or ".tmp." in lower or ".partial." in lower
+
+def is_archive_export(rel):
+    lower = rel.lower()
+    return lower.endswith(ARCHIVE_SUFFIXES)
+
+def archive_has_completion_marker(full):
+    try:
+        export_st = os.stat(full)
+        marker_st = os.stat(full + ".complete")
+    except OSError:
+        return False
+    return marker_st.st_mtime_ns >= export_st.st_mtime_ns
+
+def include_consumer_path(full, rel):
+    if is_consumer_freshness_marker(rel):
+        return True
+    if not is_consumer_export_path(rel):
+        return False
+    if is_temp_transfer_name(rel):
+        return False
+    if rel.endswith(".complete"):
+        target = full[:-len(".complete")]
+        return os.path.exists(target)
+    if is_archive_export(rel) and not archive_has_completion_marker(full):
+        return False
+    return True
+
 final = []
 for p in sorted(queue_paths):
     if p in skip_lines:
@@ -195,12 +263,15 @@ for p in sorted(queue_paths):
     # Must match at least one allowlist glob.
     if not path_matches_any(p, allowlist_globs):
         continue
+    full_path = os.path.join(gstack_home, p)
+    if is_consumer_raw_path(p) and not include_consumer_path(full_path, p):
+        continue
     # Must survive privacy mode filter.
     cls = privacy_class(p, privacy_map)
     if not mode_allows(cls, mode):
         continue
     # Must exist on disk — can't stage what isn't there.
-    if not os.path.exists(os.path.join(gstack_home, p)):
+    if not os.path.exists(full_path):
         continue
     final.append(p)
 
@@ -388,12 +459,14 @@ subcmd_discover_new() {
   if ! sync_active; then
     exit 0
   fi
+  local mode
+  mode=$("$CONFIG_BIN" get artifacts_sync_mode 2>/dev/null || echo off)
   # Walk allowlist globs; enqueue any file where mtime+size differs from cursor.
-  python3 - "$GSTACK_HOME" "$ALLOWLIST" "$DISCOVER_CURSOR" "$dry_run" <<'PYEOF' 2>/dev/null || true
+  python3 - "$GSTACK_HOME" "$ALLOWLIST" "$DISCOVER_CURSOR" "$dry_run" "$PRIVACY_MAP" "$mode" <<'PYEOF' 2>/dev/null || true
 import sys, os, json, fnmatch
 from datetime import datetime, timezone
 
-gstack_home, allowlist_path, cursor_path, dry_run_arg = sys.argv[1:5]
+gstack_home, allowlist_path, cursor_path, dry_run_arg, privacy_path, mode = sys.argv[1:7]
 dry_run = dry_run_arg == "--dry-run"
 queue_path = os.path.join(gstack_home, ".brain-queue.jsonl")
 skip_path = os.path.join(gstack_home, ".brain-skip.txt")
@@ -427,12 +500,24 @@ def load_cursor(path):
     except (FileNotFoundError, json.JSONDecodeError):
         return {}
 
+def load_privacy_map(path):
+    try:
+        with open(path) as f:
+            data = json.load(f)
+        return data if isinstance(data, list) else []
+    except (FileNotFoundError, json.JSONDecodeError):
+        return []
+
 def save_cursor(path, data):
     try:
         with open(path, "w") as f:
             json.dump(data, f)
     except OSError:
         pass
+
+def is_consumer_raw_path(rel):
+    parts = rel.split("/")
+    return len(parts) >= 2 and parts[0] == "consumer-sessions" and parts[1] == "raw"
 
 def is_consumer_export_path(rel):
     parts = rel.split("/")
@@ -494,6 +579,8 @@ def protect_consumer_path(full, rel):
         pass
 
 def include_allowlisted_file(full, rel):
+    if is_consumer_raw_path(rel) and not (is_consumer_export_path(rel) or is_consumer_freshness_marker(rel)):
+        return False
     if is_consumer_freshness_marker(rel):
         return True
     if is_consumer_export_path(rel):
@@ -507,7 +594,46 @@ def include_allowlisted_file(full, rel):
         return True
     return True
 
+def privacy_class(path, mapping):
+    for entry in mapping:
+        pat = entry.get("pattern")
+        if pat and fnmatch.fnmatchcase(path, pat):
+            return entry.get("class", "artifact")
+    return "artifact"
+
+def mode_allows(cls):
+    if mode == "off":
+        return False
+    if mode == "artifacts-only":
+        return cls == "artifact"
+    return True
+
+def display_path(rel):
+    if is_consumer_export_path(rel):
+        parts = rel.split("/")
+        return "/".join([
+            "consumer-sessions",
+            "raw",
+            parts[2],
+            "<redacted-account>",
+            "<redacted-device>",
+            "inbox",
+            "<redacted-export-file>",
+        ])
+    if is_consumer_freshness_marker(rel):
+        parts = rel.split("/")
+        return "/".join([
+            "consumer-sessions",
+            "raw",
+            parts[2],
+            "<redacted-account>",
+            "<redacted-device>",
+            "freshness.json",
+        ])
+    return rel
+
 allowlist = load_lines(allowlist_path)
+privacy_map = load_privacy_map(privacy_path)
 # Normalize skip entries to the same POSIX form as `rel` below, so a
 # backslash entry in .brain-skip.txt still matches a normalized path on Windows.
 skip = {s.replace(os.sep, "/") for s in load_lines(skip_path)}
@@ -535,6 +661,8 @@ for root, dirs, files in os.walk(gstack_home):
             continue
         if not include_allowlisted_file(full, rel):
             continue
+        if not mode_allows(privacy_class(rel, privacy_map)):
+            continue
         if not dry_run:
             protect_consumer_path(full, rel)
         try:
@@ -550,13 +678,13 @@ if dry_run:
     for rel, key, size, mtime, is_export, is_freshness in to_enqueue:
         kind = "consumer-export" if is_export else "consumer-freshness" if is_freshness else "artifact"
         files.append({
-            "path": rel,
+            "path": display_path(rel),
             "kind": kind,
             "size_bytes": size,
             "mtime": datetime.fromtimestamp(mtime, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "archive_complete": bool(is_archive_export(rel) and not rel.endswith(".complete")),
         })
-    print(json.dumps({"root": gstack_home, "files": files}, indent=2, sort_keys=True))
+    print(json.dumps({"root": "<gstack-home>", "files": files}, indent=2, sort_keys=True))
     sys.exit(0)
 
 # Append to the queue directly. The previous implementation shelled out to

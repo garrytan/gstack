@@ -385,12 +385,16 @@ describe('gstack-brain-sync --discover-new', () => {
       '{"schema_version":1,"device":"macbook","last_reported_at":"2026-06-21T10:00:00Z","export_count":1}\n');
     fs.writeFileSync(path.join(inboxDir, 'chatgpt-export.json'), '{"conversation":"synthetic"}\n');
     fs.writeFileSync(path.join(cacheDir, 'unsafe-cache.json'), '{"cookie":"do-not-sync"}\n');
+    const nestedCacheInbox = path.join(cacheDir, 'inbox');
+    fs.mkdirSync(nestedCacheInbox, { recursive: true });
+    fs.writeFileSync(path.join(nestedCacheInbox, 'unsafe-nested-cache.json'), '{"cookie":"do-not-sync"}\n');
 
     run(['gstack-brain-sync', '--discover-new']);
     const queue = fs.readFileSync(path.join(tmpHome, '.brain-queue.jsonl'), 'utf-8');
     expect(queue).toContain('consumer-sessions/raw/chatgpt/acct-1/macbook/freshness.json');
     expect(queue).toContain('consumer-sessions/raw/chatgpt/acct-1/macbook/inbox/chatgpt-export.json');
     expect(queue).not.toContain('unsafe-cache.json');
+    expect(queue).not.toContain('unsafe-nested-cache.json');
 
     const mode = fs.statSync(path.join(inboxDir, 'chatgpt-export.json')).mode & 0o777;
     expect(mode).toBe(0o600);
@@ -422,6 +426,56 @@ describe('gstack-brain-sync --discover-new', () => {
     expect(queue).toContain('consumer-sessions/raw/claude-ai/acct-1/macbook/inbox/claude-export.zip.complete');
   });
 
+  test('consumer archive completion guard is enforced during direct queue drain', () => {
+    run(['gstack-artifacts-init', '--remote', bareRemote]);
+    run(['gstack-config', 'set', 'artifacts_sync_mode', 'full']);
+
+    const inboxDir = path.join(tmpHome, 'consumer-sessions/raw/chatgpt/acct-1/macbook/inbox');
+    fs.mkdirSync(inboxDir, { recursive: true });
+    const rel = 'consumer-sessions/raw/chatgpt/acct-1/macbook/inbox/chatgpt-export.zip';
+    fs.writeFileSync(path.join(tmpHome, rel), 'partial zip bytes');
+    fs.writeFileSync(path.join(tmpHome, '.brain-queue.jsonl'), JSON.stringify({ file: rel, ts: '2026-06-21T10:00:00Z' }) + '\n');
+
+    run(['gstack-brain-sync', '--once']);
+    let tree = spawnSync('git', ['--git-dir=' + bareRemote, 'ls-tree', '-r', '--name-only', 'main'], { encoding: 'utf-8' });
+    expect(tree.stdout).not.toContain('chatgpt-export.zip');
+
+    const marker = path.join(tmpHome, `${rel}.complete`);
+    fs.writeFileSync(marker, '{"completed_at":"2026-06-21T10:05:00Z"}\n');
+    fs.utimesSync(path.join(tmpHome, rel), new Date('2026-06-21T10:00:00Z'), new Date('2026-06-21T10:00:00Z'));
+    fs.utimesSync(marker, new Date('2026-06-21T10:05:00Z'), new Date('2026-06-21T10:05:00Z'));
+    fs.writeFileSync(path.join(tmpHome, '.brain-queue.jsonl'), JSON.stringify({ file: rel, ts: '2026-06-21T10:06:00Z' }) + '\n');
+
+    run(['gstack-brain-sync', '--once']);
+    tree = spawnSync('git', ['--git-dir=' + bareRemote, 'ls-tree', '-r', '--name-only', 'main'], { encoding: 'utf-8' });
+    expect(tree.stdout).toContain(rel);
+  });
+
+  test('consumer export discovery does not advance cursor while artifacts-only hides behavioral exports', () => {
+    run(['gstack-artifacts-init', '--remote', bareRemote]);
+    run(['gstack-config', 'set', 'artifacts_sync_mode', 'artifacts-only']);
+
+    const inboxDir = path.join(tmpHome, 'consumer-sessions/raw/perplexity/acct-1/macbook/inbox');
+    fs.mkdirSync(inboxDir, { recursive: true });
+    const rel = 'consumer-sessions/raw/perplexity/acct-1/macbook/inbox/perplexity-export.json';
+    fs.writeFileSync(path.join(tmpHome, rel), '{"conversation":"sync later"}\n');
+
+    run(['gstack-brain-sync', '--discover-new']);
+    let queue = fs.existsSync(path.join(tmpHome, '.brain-queue.jsonl'))
+      ? fs.readFileSync(path.join(tmpHome, '.brain-queue.jsonl'), 'utf-8')
+      : '';
+    expect(queue).not.toContain('perplexity-export.json');
+    const cursor = fs.existsSync(path.join(tmpHome, '.brain-discover-cursor'))
+      ? fs.readFileSync(path.join(tmpHome, '.brain-discover-cursor'), 'utf-8')
+      : '';
+    expect(cursor).not.toContain('perplexity-export.json');
+
+    run(['gstack-config', 'set', 'artifacts_sync_mode', 'full']);
+    run(['gstack-brain-sync', '--discover-new']);
+    queue = fs.readFileSync(path.join(tmpHome, '.brain-queue.jsonl'), 'utf-8');
+    expect(queue).toContain(rel);
+  });
+
   test('consumer export dry-run prints metadata only and does not advance queue or cursor', () => {
     run(['gstack-artifacts-init', '--remote', bareRemote]);
     run(['gstack-config', 'set', 'artifacts_sync_mode', 'full']);
@@ -435,13 +489,17 @@ describe('gstack-brain-sync --discover-new', () => {
     const parsed = JSON.parse(r.stdout);
     expect(parsed.files).toEqual(expect.arrayContaining([
       expect.objectContaining({
-        path: 'consumer-sessions/raw/gemini/acct-1/macbook/inbox/gemini-export.json',
+        path: 'consumer-sessions/raw/gemini/<redacted-account>/<redacted-device>/inbox/<redacted-export-file>',
         kind: 'consumer-export',
         size_bytes: expect.any(Number),
         mtime: expect.any(String),
       }),
     ]));
     expect(r.stdout).not.toContain('DO NOT PRINT CHAT TEXT');
+    expect(r.stdout).not.toContain(tmpHome);
+    expect(r.stdout).not.toContain('acct-1');
+    expect(r.stdout).not.toContain('macbook');
+    expect(r.stdout).not.toContain('gemini-export.json');
     expect(fs.existsSync(path.join(tmpHome, '.brain-queue.jsonl'))).toBe(false);
     expect(fs.existsSync(path.join(tmpHome, '.brain-discover-cursor'))).toBe(false);
   });
