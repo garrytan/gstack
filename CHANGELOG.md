@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+### Fleet tab UI polish — avatars, SSE dot, Unblock flow, responsive layout (v7.1)
+
+The Fleet tab and Queue tab now have the UI polish that turns a functional prototype into a production-grade console. Each fleet row shows a Dicebear initials avatar for at-a-glance agent identification, the SSE dot cycles green/amber/red in real time so you know the connection is live, the Unblock flow on attention cards reveals an inline textarea rather than navigating away, and the entire console is readable on an iPhone SE without horizontal scrolling.
+
+#### Added
+- Dicebear initials avatar (32×32) in each Fleet table row. URL constructed client-side from `a.name`; grey-circle fallback shown if the CDN is unreachable. Avatar hidden at 640px breakpoint to preserve stacked-card readability.
+- SSE status dot now cycles three states: green (connected), amber (reconnecting — `EventSource.CONNECTING`), red (closed — `EventSource.CLOSED`). Checked via `setInterval` every 2 seconds using `es.readyState`; transitions to red immediately on SSE error event.
+- Unblock inline flow on attention cards: clicking Unblock reveals an inline textarea and Send reply button without leaving the console. Send reply POSTs `{ action: 'unblock', text, agentName, taskId }` to `POST /api/decision`; button shows "Sending…" and is disabled while in-flight; card fades out on completion.
+- Responsive fleet table: below 640px, switches from standard table to stacked-card layout via CSS `data-label` technique (each `<td>` prefixes its column name). Below 375px, padding tightens to eliminate horizontal scroll on iPhone SE.
+- T6 AC1/AC2/AC4/AC5 assertions added to `qa-smoke.sh`: verifies Dicebear avatar src, elapsed time format, HIGH risk badge render, and Unblock button presence using `window.__injectApproval` and `window.__injectAttention` JS injection helpers.
+
+#### Changed
+- Fleet elapsed timer now updates every 10 seconds (was 5 seconds).
+- Card exit animation duration extended from 150ms to 300ms for a more deliberate confirmation feel.
+
 ### Port binding hardening — PORT override, EADDRINUSE crash, ready message (v7.1)
 
 The console server now validates the `PORT` environment variable before binding, crashes cleanly when the port is already in use, and prints a `Console ready →` line to stdout on successful startup. Operators can override the default port 7842 with any value in the 1024–65535 range; invalid values (non-numeric, below 1024, above 65535) exit immediately with a clear error before any socket is opened.
