@@ -766,3 +766,189 @@ exit 0
     rmSync(home, { recursive: true, force: true });
   });
 });
+
+// ── Consumer session contract and synthetic normalized adapter ─────────────
+
+function makeConsumerSession(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    schema_version: 1,
+    provider: "chatgpt",
+    account_hash: "acct_0123456789abcdef",
+    conversation_id: "conv-001",
+    title: "Synthetic planning session",
+    created_at: "2026-06-01T10:00:00Z",
+    updated_at: "2026-06-01T10:05:00Z",
+    turns: [
+      { index: 0, role: "user", created_at: "2026-06-01T10:00:00Z", content: "first prompt" },
+      { index: 1, role: "assistant", created_at: "2026-06-01T10:01:00Z", content: "first answer" },
+    ],
+    attachments: [
+      { id: "att-1", name: "context.txt", mime_type: "text/plain", size_bytes: 42, sha256: "a".repeat(64) },
+    ],
+    source_receipt: {
+      raw_path: "/exports/chatgpt/raw-export.json",
+      provider_export_kind: "synthetic-normalized-v1",
+    },
+    host: { hostname: "macbook-fixture", platform: "darwin" },
+    completeness: { complete: true, partial: false, truncated: false },
+    ...overrides,
+  };
+}
+
+function writeConsumerSessions(gstackHome: string, provider: string, fileName: string, sessions: Record<string, unknown>[]): string {
+  const dir = join(gstackHome, "consumer-sessions", "normalized", provider);
+  mkdirSync(dir, { recursive: true });
+  const file = join(dir, fileName);
+  writeFileSync(file, JSON.stringify({ sessions }, null, 2), "utf-8");
+  return file;
+}
+
+describe("gstack-memory-ingest consumer-session normalized contract", () => {
+  it("dry-run discovery reports metadata only and never prints chat/storage values", () => {
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    const rawDir = join(gstackHome, "consumer-sessions", "raw", "chatgpt");
+    mkdirSync(rawDir, { recursive: true });
+    writeFileSync(
+      join(rawDir, "export.json"),
+      JSON.stringify({
+        text: "DO NOT LEAK CHAT TEXT",
+        cookie: "cookie-secret-value",
+        localStorage: { auth: "local-storage-secret" },
+        indexedDB: { auth: "indexed-db-secret" },
+      }),
+      "utf-8",
+    );
+    writeConsumerSessions(gstackHome, "chatgpt", "normalized.json", [
+      makeConsumerSession({
+        turns: [{ index: 0, role: "user", content: "NORMALIZED CHAT SECRET" }],
+      }),
+    ]);
+
+    const r = runScript(["--consumer-sessions-dry-run"], { HOME: home, GSTACK_HOME: gstackHome });
+    expect(r.exitCode).toBe(0);
+    const parsed = JSON.parse(r.stdout);
+    expect(parsed.files.length).toBe(2);
+    expect(r.stdout).toContain("provider_kind");
+    expect(r.stdout).toContain("provider_export_kind");
+    expect(r.stdout).toContain("parser_status");
+    expect(r.stdout).toContain("conversation_count");
+    expect(r.stdout).not.toContain("DO NOT LEAK CHAT TEXT");
+    expect(r.stdout).not.toContain("cookie-secret-value");
+    expect(r.stdout).not.toContain("local-storage-secret");
+    expect(r.stdout).not.toContain("indexed-db-secret");
+    expect(r.stdout).not.toContain("NORMALIZED CHAT SECRET");
+
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("renders synthetic normalized sessions under sessions/<provider> and chunks long conversations", () => {
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    mkdirSync(gstackHome, { recursive: true });
+    const stagingCopy = join(home, "consumer-staging-copy");
+    const binDir = join(home, "fake-bin");
+    mkdirSync(binDir, { recursive: true });
+    const fake = `#!/usr/bin/env bash
+case "\${1:-}" in
+  --help|-h) echo "Usage: gbrain"; echo "Commands:"; echo "  import <dir>   Import"; exit 0 ;;
+  import)
+    DIR="\${2:-}"
+    cp -R "\$DIR" "${stagingCopy}" 2>/dev/null || true
+    TOTAL=\$(find "\$DIR" -name "*.md" -type f | wc -l | tr -d ' ')
+    echo "{\\"status\\":\\"success\\",\\"duration_s\\":0.1,\\"imported\\":\$TOTAL,\\"skipped\\":0,\\"errors\\":0,\\"chunks\\":\$TOTAL,\\"total_files\\":\$TOTAL}"
+    exit 0 ;;
+  *) exit 2 ;;
+esac
+`;
+    const fakePath = join(binDir, "gbrain");
+    writeFileSync(fakePath, fake, "utf-8");
+    chmodSync(fakePath, 0o755);
+
+    const longContent = `start\n${"x".repeat(170_000)}\ntail-marker`;
+    writeConsumerSessions(gstackHome, "chatgpt", "long.json", [
+      makeConsumerSession({
+        turns: [
+          { index: 0, role: "user", created_at: "2026-06-01T10:00:00Z", content: longContent },
+        ],
+      }),
+    ]);
+
+    const r = runScript(["--bulk", "--sources", "consumer-session", "--quiet"], {
+      HOME: home,
+      GSTACK_HOME: gstackHome,
+      PATH: `${binDir}:${process.env.PATH || ""}`,
+    });
+    expect(r.exitCode).toBe(0);
+
+    const findMd = spawnSync("find", [stagingCopy, "-name", "*.md", "-type", "f"], { encoding: "utf-8" });
+    const mdPaths = (findMd.stdout || "").trim().split("\n").filter(Boolean).sort();
+    expect(mdPaths.length).toBeGreaterThan(1);
+    for (const mdPath of mdPaths) {
+      expect(mdPath).toContain("/sessions/chatgpt/");
+    }
+    const bodies = mdPaths.map((p) => readFileSync(p, "utf-8"));
+    expect(bodies[0]).toContain("type: consumer-session");
+    expect(bodies[0]).toContain("raw_path: \"/exports/chatgpt/raw-export.json\"");
+    expect(bodies[0]).toContain("provider_export_kind: \"synthetic-normalized-v1\"");
+    expect(bodies[0]).toContain("host: \"macbook-fixture\"");
+    expect(bodies[0]).toMatch(/session_id: [a-f0-9]{32}/);
+    expect(bodies[0]).toContain("consumer-session");
+    expect(bodies.join("\n")).toContain("tail-marker");
+
+    const state = JSON.parse(readFileSync(join(gstackHome, ".transcript-ingest-state.json"), "utf-8"));
+    const entries = Object.values(state.consumer_sessions || {}) as Array<{ page_slugs: string[]; content_sha256: string; chunk_count: number }>;
+    expect(entries.length).toBe(1);
+    expect(entries[0].page_slugs.length).toBe(mdPaths.length);
+    expect(entries[0].content_sha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(entries[0].chunk_count).toBe(mdPaths.length);
+
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("incremental state is per normalized conversation content hash, not export-file mtime only", () => {
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    mkdirSync(gstackHome, { recursive: true });
+    const { binDir, stagingListFile } = installFakeGbrain(home);
+
+    const sessionA = makeConsumerSession({
+      conversation_id: "conv-a",
+      title: "Conversation A",
+      turns: [{ index: 0, role: "user", content: "unchanged A" }],
+    });
+    const sessionB = makeConsumerSession({
+      conversation_id: "conv-b",
+      title: "Conversation B",
+      turns: [{ index: 0, role: "user", content: "before B" }],
+    });
+    const exportPath = writeConsumerSessions(gstackHome, "chatgpt", "bundle.json", [sessionA, sessionB]);
+
+    const first = runScript(["--bulk", "--sources", "consumer-session", "--quiet"], {
+      HOME: home,
+      GSTACK_HOME: gstackHome,
+      PATH: `${binDir}:${process.env.PATH || ""}`,
+    });
+    expect(first.exitCode).toBe(0);
+    expect(readFileSync(stagingListFile, "utf-8").match(/\.md/g)?.length).toBe(2);
+
+    writeFileSync(
+      exportPath,
+      JSON.stringify({ sessions: [sessionA, { ...sessionB, turns: [{ index: 0, role: "user", content: "after B" }] }] }, null, 2),
+      "utf-8",
+    );
+
+    const second = runScript(["--incremental", "--sources", "consumer-session", "--quiet"], {
+      HOME: home,
+      GSTACK_HOME: gstackHome,
+      PATH: `${binDir}:${process.env.PATH || ""}`,
+    });
+    expect(second.exitCode).toBe(0);
+    const stagedList = readFileSync(stagingListFile, "utf-8");
+    expect(stagedList.match(/\.md/g)?.length).toBe(1);
+    expect(stagedList).toContain("conversation-b");
+    expect(stagedList).not.toContain("conversation-a");
+
+    rmSync(home, { recursive: true, force: true });
+  });
+});

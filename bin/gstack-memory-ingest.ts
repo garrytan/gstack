@@ -66,6 +66,13 @@ import {
 } from "../lib/gstack-memory-helpers";
 import { execGbrainText, spawnGbrainAsync } from "../lib/gbrain-exec";
 import { checkOwnedStagingDir, STAGING_MARKER } from "../lib/staging-guard";
+import {
+  consumerSessionStateKey,
+  discoverConsumerSessionFiles,
+  parseNormalizedConsumerSessionExport,
+  renderConsumerSessionPages,
+  walkConsumerSessionNormalizedFiles,
+} from "../lib/consumer-sessions";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -80,6 +87,7 @@ interface CliArgs {
   sources: Set<MemoryType>;
   limit: number | null;
   noWrite: boolean;
+  consumerSessionsDryRun: boolean;
   /**
    * Opt-in per-file gitleaks scan during the prepare phase. Off by
    * default — the cross-machine boundary (gstack-brain-sync, git push)
@@ -96,7 +104,8 @@ type MemoryType =
   | "ceo-plan"
   | "design-doc"
   | "retro"
-  | "builder-profile-entry";
+  | "builder-profile-entry"
+  | "consumer-session";
 
 interface PageRecord {
   slug: string;
@@ -127,6 +136,20 @@ interface IngestState {
       sha256: string;
       ingested_at: string;
       page_slug: string;
+      partial?: boolean;
+    }
+  >;
+  consumer_sessions?: Record<
+    string,
+    {
+      content_sha256: string;
+      ingested_at: string;
+      page_slugs: string[];
+      raw_path?: string;
+      export_path?: string;
+      provider: string;
+      conversation_id: string;
+      chunk_count: number;
       partial?: boolean;
     }
   >;
@@ -176,6 +199,7 @@ const ALL_TYPES: MemoryType[] = [
   "design-doc",
   "retro",
   "builder-profile-entry",
+  "consumer-session",
 ];
 
 // ── CLI ────────────────────────────────────────────────────────────────────
@@ -195,6 +219,9 @@ Options:
   --all-history        Walk transcripts older than 90 days too.
   --sources <list>     Comma-separated subset: ${ALL_TYPES.join(",")}
   --limit <N>          Stop after N pages written (smoke testing).
+  --consumer-sessions-dry-run
+                       Discover raw/normalized consumer session exports under
+                       the local inbox without printing chat text or raw values.
   --no-write           Skip gbrain put calls (still updates state file).
                        Used by tests + dry runs without actual ingest.
   --scan-secrets       Opt-in per-file gitleaks scan during prepare. Off by
@@ -214,6 +241,7 @@ function parseArgs(): CliArgs {
   let limit: number | null = null;
   let sources: Set<MemoryType> = new Set(ALL_TYPES);
   let noWrite = process.env.GSTACK_MEMORY_INGEST_NO_WRITE === "1";
+  let consumerSessionsDryRun = false;
   let scanSecrets = process.env.GSTACK_MEMORY_INGEST_SCAN_SECRETS === "1";
 
   for (let i = 0; i < args.length; i++) {
@@ -227,6 +255,7 @@ function parseArgs(): CliArgs {
       case "--include-unattributed": includeUnattributed = true; break;
       case "--all-history": allHistory = true; break;
       case "--no-write": noWrite = true; break;
+      case "--consumer-sessions-dry-run": consumerSessionsDryRun = true; break;
       case "--scan-secrets": scanSecrets = true; break;
       case "--limit":
         limit = parseInt(args[++i] || "0", 10);
@@ -255,7 +284,7 @@ function parseArgs(): CliArgs {
     }
   }
 
-  return { mode, quiet, benchmark, includeUnattributed, allHistory, sources, limit, noWrite, scanSecrets };
+  return { mode, quiet, benchmark, includeUnattributed, allHistory, sources, limit, noWrite, consumerSessionsDryRun, scanSecrets };
 }
 
 // ── State file ─────────────────────────────────────────────────────────────
@@ -523,6 +552,11 @@ function* walkAllSources(ctx: WalkContext): Generator<{ path: string; type: Memo
   if (ctx.args.sources.has("transcript")) {
     yield* walkClaudeCodeProjects(ctx);
     yield* walkCodexSessions(ctx);
+  }
+  if (ctx.args.sources.has("consumer-session")) {
+    for (const path of walkConsumerSessionNormalizedFiles(GSTACK_HOME)) {
+      yield { path, type: "consumer-session" };
+    }
   }
   yield* walkGstackArtifacts(ctx);
 }
@@ -886,6 +920,15 @@ interface PreparedPage {
   /** Carry-through fields for state recording on success. */
   page_slug: string;
   partial: boolean;
+  consumer_session?: {
+    state_key: string;
+    content_sha256: string;
+    raw_path?: string;
+    export_path?: string;
+    provider: string;
+    conversation_id: string;
+    chunk_count: number;
+  };
 }
 
 interface StagingResult {
@@ -1030,6 +1073,74 @@ export function readNewFailures(
   return failed;
 }
 
+function recordPreparedSuccesses(
+  state: IngestState,
+  prepared: PreparedPage[],
+  failedSources: Set<string>,
+  nowIso: string,
+  quiet: boolean,
+): number {
+  let written = 0;
+  const consumerGroups = new Map<string, PreparedPage[]>();
+
+  for (const p of prepared) {
+    if (failedSources.has(p.source_path)) continue;
+    if (p.consumer_session) {
+      const group = consumerGroups.get(p.consumer_session.state_key) || [];
+      group.push(p);
+      consumerGroups.set(p.consumer_session.state_key, group);
+      written++;
+      if (!quiet) {
+        const tag = p.partial ? " [partial]" : "";
+        console.log(`[${written}] ${p.page_slug}${tag}`);
+      }
+      continue;
+    }
+
+    try {
+      state.sessions[p.source_path] = {
+        mtime_ns: Math.floor(statSync(p.source_path).mtimeMs * 1e6),
+        sha256: fileSha256(p.source_path),
+        ingested_at: nowIso,
+        page_slug: p.page_slug,
+        partial: p.partial,
+      };
+      written++;
+      if (!quiet) {
+        const tag = p.partial ? " [partial]" : "";
+        console.log(`[${written}] ${p.page_slug}${tag}`);
+      }
+    } catch (err) {
+      // statSync can fail if the source file was removed mid-run; skip
+      // recording but don't fail the whole pass.
+      console.error(
+        `[state-record] ${p.source_path}: ${(err as Error).message}`,
+      );
+    }
+  }
+
+  if (consumerGroups.size > 0 && !state.consumer_sessions) {
+    state.consumer_sessions = {};
+  }
+  for (const [stateKey, group] of consumerGroups) {
+    const meta = group[0]?.consumer_session;
+    if (!meta || !state.consumer_sessions) continue;
+    state.consumer_sessions[stateKey] = {
+      content_sha256: meta.content_sha256,
+      ingested_at: nowIso,
+      page_slugs: group.map((p) => p.page_slug),
+      raw_path: meta.raw_path,
+      export_path: meta.export_path,
+      provider: meta.provider,
+      conversation_id: meta.conversation_id,
+      chunk_count: meta.chunk_count,
+      partial: group.some((p) => p.partial),
+    };
+  }
+
+  return written;
+}
+
 // ── Main ingest passes ─────────────────────────────────────────────────────
 
 async function probeMode(args: CliArgs): Promise<ProbeReport> {
@@ -1045,6 +1156,7 @@ async function probeMode(args: CliArgs): Promise<ProbeReport> {
     "design-doc": { count: 0, bytes: 0 },
     retro: { count: 0, bytes: 0 },
     "builder-profile-entry": { count: 0, bytes: 0 },
+    "consumer-session": { count: 0, bytes: 0 },
   };
 
   let totalFiles = 0;
@@ -1130,7 +1242,7 @@ function preparePages(
   for (const { path, type } of walkAllSources(ctx)) {
     if (args.limit !== null && prepared.length >= args.limit) break;
 
-    if (args.mode === "incremental" && !fileChangedSinceState(path, state)) {
+    if (type !== "consumer-session" && args.mode === "incremental" && !fileChangedSinceState(path, state)) {
       skippedDedup++;
       continue;
     }
@@ -1156,7 +1268,50 @@ function preparePages(
 
     let page: PageRecord;
     try {
-      if (type === "transcript") {
+      if (type === "consumer-session") {
+        const sessions = parseNormalizedConsumerSessionExport(path);
+        for (const session of sessions) {
+          const pages = renderConsumerSessionPages(session);
+          const stateKey = consumerSessionStateKey(session);
+          const existing = state.consumer_sessions?.[stateKey];
+          if (args.mode === "incremental" && existing?.content_sha256 === pages[0]?.content_sha256) {
+            skippedDedup++;
+            continue;
+          }
+          if (session.completeness.partial) partialPages++;
+          for (const rendered of pages) {
+            if (args.limit !== null && prepared.length >= args.limit) break;
+            prepared.push({
+              slug: rendered.slug,
+              source_path: path,
+              rendered_body: renderPageBody({
+                slug: rendered.slug,
+                title: rendered.title,
+                type: "consumer-session",
+                body: rendered.body,
+                tags: rendered.tags,
+                source_path: path,
+                session_id: rendered.session_id,
+                partial: rendered.partial,
+                size_bytes: statSync(path).size,
+                content_sha256: rendered.content_sha256,
+              }),
+              page_slug: rendered.slug,
+              partial: rendered.partial,
+              consumer_session: {
+                state_key: rendered.conversation_key,
+                content_sha256: rendered.content_sha256,
+                raw_path: session.source_receipt.raw_path,
+                export_path: session.source_receipt.export_path || path,
+                provider: session.provider,
+                conversation_id: session.conversation_id,
+                chunk_count: rendered.chunk_count,
+              },
+            });
+          }
+        }
+        continue;
+      } else if (type === "transcript") {
         const session = parseTranscriptJsonl(path);
         if (!session) {
           parseFailed++;
@@ -1475,20 +1630,7 @@ async function ingestPass(args: CliArgs): Promise<BulkResult> {
     // the prior contract from --help: "Skip gbrain put calls (still
     // updates state file)".
     const nowIso = new Date().toISOString();
-    for (const p of prep.prepared) {
-      try {
-        state.sessions[p.source_path] = {
-          mtime_ns: Math.floor(statSync(p.source_path).mtimeMs * 1e6),
-          sha256: fileSha256(p.source_path),
-          ingested_at: nowIso,
-          page_slug: p.page_slug,
-          partial: p.partial,
-        };
-        written++;
-      } catch {
-        // best-effort state record
-      }
-    }
+    written = recordPreparedSuccesses(state, prep.prepared, new Set(), nowIso, true);
     state.last_full_walk = new Date().toISOString();
     state.last_writer = "gstack-memory-ingest";
     saveState(state);
@@ -1644,22 +1786,7 @@ async function ingestPass(args: CliArgs): Promise<BulkResult> {
     // machine's perspective, the act of staging IS the write.
     if (remoteHttpMode) {
       const nowIso = new Date().toISOString();
-      for (const p of prep.prepared) {
-        try {
-          state.sessions[p.source_path] = {
-            mtime_ns: Math.floor(statSync(p.source_path).mtimeMs * 1e6),
-            sha256: fileSha256(p.source_path),
-            ingested_at: nowIso,
-            page_slug: p.page_slug,
-            partial: p.partial,
-          };
-          written++;
-        } catch (err) {
-          console.error(
-            `[state-record] ${p.source_path}: ${(err as Error).message}`,
-          );
-        }
-      }
+      written = recordPreparedSuccesses(state, prep.prepared, new Set(), nowIso, args.quiet);
       state.last_full_walk = nowIso;
       state.last_writer = "gstack-memory-ingest (remote-http mode)";
       saveState(state);
@@ -1787,29 +1914,7 @@ async function ingestPass(args: CliArgs): Promise<BulkResult> {
     // left un-state'd so the next run re-prepares them and gbrain's
     // content_hash dedup short-circuits the import.
     const nowIso = new Date().toISOString();
-    for (const p of prep.prepared) {
-      if (failedSources.has(p.source_path)) continue;
-      try {
-        state.sessions[p.source_path] = {
-          mtime_ns: Math.floor(statSync(p.source_path).mtimeMs * 1e6),
-          sha256: fileSha256(p.source_path),
-          ingested_at: nowIso,
-          page_slug: p.page_slug,
-          partial: p.partial,
-        };
-        written++;
-        if (!args.quiet) {
-          const tag = p.partial ? " [partial]" : "";
-          console.log(`[${written}] ${p.page_slug}${tag}`);
-        }
-      } catch (err) {
-        // statSync can fail if the source file was removed mid-run; skip
-        // recording but don't fail the whole pass.
-        console.error(
-          `[state-record] ${p.source_path}: ${(err as Error).message}`,
-        );
-      }
-    }
+    written = recordPreparedSuccesses(state, prep.prepared, failedSources, nowIso, args.quiet);
 
     if (!args.quiet) {
       console.error(
@@ -1893,10 +1998,20 @@ function printBulkResult(r: BulkResult, args: CliArgs): void {
   }
 }
 
+function printConsumerSessionsDryRun(): void {
+  const report = discoverConsumerSessionFiles(GSTACK_HOME);
+  console.log(JSON.stringify(report, null, 2));
+}
+
 // ── Entry point ────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
   const args = parseArgs();
+
+  if (args.consumerSessionsDryRun) {
+    printConsumerSessionsDryRun();
+    return;
+  }
 
   // Engine tier detection — informational; routing happens in gbrain server-side.
   const engine = detectEngineTier();
