@@ -5,6 +5,7 @@ import { join } from "path";
 import {
   defaultClaudeAiInputPath,
   defaultClaudeAiOutputDir,
+  displayClaudeAiDryRunReport,
   dryRunClaudeAiExport,
   isClaudeAiParseError,
   summarizeClaudeAiDiagnostics,
@@ -77,7 +78,7 @@ function main(): void {
   try {
     if (args.dryRun) {
       const report = dryRunClaudeAiExport({ inputPath: args.inputPath, outputDir: args.outputDir });
-      console.log(JSON.stringify(report, null, 2));
+      console.log(JSON.stringify(displayClaudeAiDryRunReport(report), null, 2));
       process.exit(report.diagnostics.length > 0 ? 1 : 0);
     }
     const result = writeClaudeAiNormalizedExport({ inputPath: args.inputPath, outputDir: args.outputDir });

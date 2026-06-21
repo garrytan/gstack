@@ -1,10 +1,11 @@
 import { describe, expect, it } from "bun:test";
 import { spawnSync } from "child_process";
-import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
 import {
+  dryRunClaudeAiExport,
   normalizeClaudeAiExport,
   normalizedOutputPath,
   writeClaudeAiNormalizedExport,
@@ -54,7 +55,7 @@ describe("Claude.ai consumer export normalizer", () => {
     expect(session.created_at).toBe("2026-06-10T09:00:00.000Z");
     expect(session.updated_at).toBe("2026-06-10T09:05:00.000Z");
     expect(session.source_receipt.provider_export_kind).toBe("claude-ai-conversations-json-v1");
-    expect(session.source_receipt.raw_path).toContain("conversations.json");
+    expect(session.source_receipt.raw_path).toBe("conversations.json");
     expect(session.host).toEqual({ hostname: "synthetic-host", platform: "test-os" });
     expect(session.completeness.complete).toBe(true);
     expect(session.turns.map((turn) => turn.role)).toEqual(["user", "assistant"]);
@@ -153,7 +154,11 @@ describe("Claude.ai consumer export normalizer", () => {
     expect(report.files[0].conversation_count).toBe(1);
     expect(report.files[0].turn_count).toBe(2);
     expect(report.files[0].attachment_count).toBe(1);
-    expect(report.files[0].planned_output_paths[0]).toContain(outputDir);
+    expect(report.input_path).toBe("consumer-sessions/raw/claude-ai/<redacted-input>");
+    expect(report.output_dir).toBe("consumer-sessions/normalized/claude-ai");
+    expect(report.files[0].planned_output_paths[0]).toContain("<redacted-output-001.json>");
+    expect(r.stdout).not.toContain(outputDir);
+    expect(r.stdout).not.toContain(FIXTURE_DIR);
     expect(r.stdout).not.toContain("Please use the attached synthetic brief.");
     expect(r.stdout).not.toContain("I can summarize the synthetic brief");
     expect(r.stdout).not.toContain("synthetic.user@example.invalid");
@@ -179,6 +184,27 @@ describe("Claude.ai consumer export normalizer", () => {
     const files = readdirSync(outputDir).filter((name) => name.endsWith(".json"));
     expect(files.length).toBe(1);
     expect(r.stdout).toContain('"provider": "claude-ai"');
+
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("does not follow symlinked JSON files outside the selected export root", () => {
+    const dir = tmpDir();
+    const input = join(dir, "raw");
+    const outside = join(dir, "outside");
+    const outputDir = join(dir, "normalized");
+    mkdirSync(input, { recursive: true });
+    mkdirSync(outside, { recursive: true });
+    writeFileSync(
+      join(outside, "outside.json"),
+      readFileSync(join(FIXTURE_DIR, "conversations.json"), "utf-8"),
+      "utf-8",
+    );
+    symlinkSync(join(outside, "outside.json"), join(input, "linked.json"));
+
+    const result = dryRunClaudeAiExport({ inputPath: input, outputDir });
+    expect(result.files).toEqual([]);
+    expect(result.diagnostics[0]?.code).toBe("unsupported_schema");
 
     rmSync(dir, { recursive: true, force: true });
   });

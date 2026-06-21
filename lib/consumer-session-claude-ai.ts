@@ -1,7 +1,7 @@
 import { createHash } from "crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "fs";
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "fs";
 import { hostname, platform } from "os";
-import { basename, extname, join } from "path";
+import { basename, extname, join, relative } from "path";
 
 import {
   CONSUMER_SESSION_SCHEMA_VERSION,
@@ -180,6 +180,25 @@ export function dryRunClaudeAiExport(options: NormalizeClaudeAiOptions): ClaudeA
   }
 }
 
+export function displayClaudeAiDryRunReport(report: ClaudeAiDryRunReport): ClaudeAiDryRunReport {
+  return {
+    ...report,
+    input_path: "consumer-sessions/raw/claude-ai/<redacted-input>",
+    output_dir: "consumer-sessions/normalized/claude-ai",
+    files: report.files.map((file, index) => ({
+      ...file,
+      input_path: `consumer-sessions/raw/claude-ai/<redacted-file-${String(index + 1).padStart(3, "0")}.json>`,
+      planned_output_paths: file.planned_output_paths.map((_, outputIndex) =>
+        `consumer-sessions/normalized/claude-ai/<redacted-output-${String(outputIndex + 1).padStart(3, "0")}.json>`
+      ),
+    })),
+    diagnostics: report.diagnostics.map((diagnostic, index) => ({
+      ...diagnostic,
+      path: `consumer-sessions/raw/claude-ai/<redacted-diagnostic-${String(index + 1).padStart(3, "0")}.json>`,
+    })),
+  };
+}
+
 export function writeClaudeAiNormalizedExport(options: NormalizeClaudeAiOptions): ClaudeAiWriteResult {
   const normalized = normalizeClaudeAiExport(options);
   mkdirSync(options.outputDir, { recursive: true });
@@ -262,6 +281,7 @@ function parseClaudeAiJsonFile(
       host: options.host || process.env.GSTACK_HOSTNAME || hostname(),
       platform: options.platform || platform(),
       path,
+      displayPath: displayPathForSource(options.inputPath, path),
       providerExportKind: shape.providerExportKind,
       sourceHash,
       index: i,
@@ -314,6 +334,7 @@ function normalizeConversation(
     host: string;
     platform: string;
     path: string;
+    displayPath: string;
     providerExportKind: string;
     sourceHash: string;
     index: number;
@@ -389,7 +410,7 @@ function normalizeConversation(
     turns,
     attachments: conversationAttachments,
     source_receipt: {
-      raw_path: context.path,
+      raw_path: context.displayPath,
       provider_export_kind: context.providerExportKind,
       content_sha256: context.sourceHash,
     },
@@ -569,7 +590,8 @@ function accountHashFor(value: unknown): string {
 
 function discoverJsonFiles(inputPath: string): string[] {
   if (!existsSync(inputPath)) return [];
-  const st = statSync(inputPath);
+  const st = lstatSync(inputPath);
+  if (st.isSymbolicLink()) return [];
   if (st.isFile()) return extname(inputPath).toLowerCase() === ".json" ? [inputPath] : [];
   if (!st.isDirectory()) return [];
   const out: string[] = [];
@@ -577,13 +599,22 @@ function discoverJsonFiles(inputPath: string): string[] {
     const entries = readdirSync(dir).sort();
     for (const entry of entries) {
       const path = join(dir, entry);
-      const child = statSync(path);
+      const child = lstatSync(path);
+      if (child.isSymbolicLink()) continue;
       if (child.isDirectory()) visit(path);
       else if (child.isFile() && extname(path).toLowerCase() === ".json") out.push(path);
     }
   }
   visit(inputPath);
   return out;
+}
+
+function displayPathForSource(inputPath: string, filePath: string): string {
+  const input = lstatSync(inputPath);
+  if (input.isFile()) return basename(filePath);
+  const rel = relative(inputPath, filePath).split("\\").join("/");
+  if (!rel || rel.startsWith("..") || rel.startsWith("/")) return basename(filePath);
+  return rel;
 }
 
 function attachmentCount(session: ClaudeAiSession): number {
