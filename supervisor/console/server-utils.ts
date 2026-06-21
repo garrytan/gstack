@@ -265,6 +265,35 @@ export async function gitCommitAndPush(
   throw new Error("git push failed after 3 retries"); // AC3
 }
 
+export type ApprovalItem = Record<string, unknown>;
+
+// Read unresolved decision-request files from decisionsDir.
+// A request file (<base>.json) is "unresolved" when no matching <base>.decision.json exists.
+// Returns [] for undefined/empty dir or when the dir is absent/unreadable.
+export function readApprovals(decisionsDir: string | undefined): ApprovalItem[] {
+  if (!decisionsDir) return [];
+  let files: string[];
+  try {
+    files = readdirSync(decisionsDir);
+  } catch {
+    return [];
+  }
+  const resolved = new Set(
+    files
+      .filter((f) => f.endsWith(".decision.json"))
+      .map((f) => f.slice(0, -(".decision.json".length)) + ".json"),
+  );
+  return files
+    .filter((f) => f.endsWith(".json") && !f.endsWith(".decision.json") && !resolved.has(f))
+    .flatMap((f) => {
+      try {
+        return [JSON.parse(readFileSync(join(decisionsDir, f), "utf8")) as ApprovalItem];
+      } catch {
+        return [];
+      }
+    });
+}
+
 // Parse a mailbox file's content into an array of note objects.
 // Returns [] when the file contains only the <!-- cleared --> marker.
 export function parseMailboxNotes(content: string): MailboxNote[] {

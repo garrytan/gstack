@@ -18,8 +18,11 @@ import {
   readFleetStatus,
   makeWatchHandler,
   gitCommitAndPush,
+  resolvePort,
+  readApprovals,
   type AgentStatus,
   type GitSpawner,
+  type ApprovalItem,
 } from "./server-utils.ts";
 
 const TEST_PORT = 7843;
