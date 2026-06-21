@@ -8,7 +8,7 @@ import { createServer } from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { watch, mkdirSync, readFileSync } from "fs";
 import { spawnSync } from "child_process";
-import { appendFile, readdir, stat, unlink, writeFile } from "fs/promises";
+import { appendFile, unlink, writeFile } from "fs/promises";
 import { homedir } from "os";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
@@ -25,6 +25,7 @@ import {
   gitCommitAndPush,
   resolvePort,
   readApprovals,
+  purgeStaleDecisionFiles,
 } from "./server-utils.ts";
 
 // Validate PORT early — before any filesystem reads (AC5: exit 1 before bind).
@@ -320,22 +321,8 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
   serveStatic(__dirname, path, res);
 });
 
-// AC1/AC2: prune decision files older than 24h before binding — not fire-and-forget.
-const _decisionsDir = process.env.SUPERVISOR_DECISIONS_DIR ?? "";
-if (_decisionsDir) {
-  try {
-    const _now = Date.now();
-    const _cutoff = 24 * 60 * 60 * 1000;
-    for (const _file of await readdir(_decisionsDir)) {
-      if (!_file.endsWith(".json")) continue;
-      const _fp = join(_decisionsDir, _file);
-      try {
-        const _st = await stat(_fp);
-        if (_now - _st.mtimeMs > _cutoff) await unlink(_fp);
-      } catch { /* file removed between readdir and stat */ }
-    }
-  } catch { /* dir absent or unreadable */ }
-}
+// T8: purge stale decision files (older than 1 hour) synchronously before binding (AC5).
+purgeStaleDecisionFiles(process.env.SUPERVISOR_DECISIONS_DIR ?? "");
 
 // AC3: crash on EADDRINUSE rather than silently binding to a random port.
 server.on("error", (err: NodeJS.ErrnoException) => {

@@ -4,7 +4,7 @@
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { createServer } from "node:http";
 import type { Server, IncomingMessage, ServerResponse } from "node:http";
-import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, writeFileSync, rmSync, existsSync, utimesSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -20,6 +20,7 @@ import {
   gitCommitAndPush,
   resolvePort,
   readApprovals,
+  purgeStaleDecisionFiles,
   type AgentStatus,
   type GitSpawner,
   type ApprovalItem,
@@ -657,6 +658,75 @@ describe("parseMailboxNotes", () => {
     expect(notes).toHaveLength(1);
     expect(notes[0].from).toBe("agent-qa");
     expect(notes[0].taskId).toBe("CONS-003");
+  });
+});
+
+// --- T8: startup cleanup ---
+
+describe("startup cleanup", () => {
+  const cleanupDir = join(testDir, "cleanup-decisions");
+
+  beforeAll(() => {
+    mkdirSync(cleanupDir, { recursive: true });
+  });
+
+  function setOldMtime(fp: string): void {
+    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    utimesSync(fp, twoHoursAgo, twoHoursAgo);
+  }
+
+  test("deletes request *.json file older than 1 hour (AC1)", () => {
+    const fp = join(cleanupDir, "agent-x-OLD-1.json");
+    writeFileSync(fp, JSON.stringify({ id: "OLD-1" }));
+    setOldMtime(fp);
+
+    purgeStaleDecisionFiles(cleanupDir);
+    expect(existsSync(fp)).toBe(false);
+  });
+
+  test("also deletes paired *.decision.json when request file is deleted (AC2)", () => {
+    const reqFp = join(cleanupDir, "agent-x-OLD-2.json");
+    const decFp = join(cleanupDir, "agent-x-OLD-2.decision.json");
+    writeFileSync(reqFp, JSON.stringify({ id: "OLD-2" }));
+    writeFileSync(decFp, JSON.stringify({ approved: true }));
+    setOldMtime(reqFp);
+    setOldMtime(decFp);
+
+    purgeStaleDecisionFiles(cleanupDir);
+    expect(existsSync(reqFp)).toBe(false);
+    expect(existsSync(decFp)).toBe(false);
+  });
+
+  test("deletes old *.decision.json even when request file is not old (AC2)", () => {
+    const reqFp = join(cleanupDir, "agent-x-OLD-3.json");
+    const decFp = join(cleanupDir, "agent-x-OLD-3.decision.json");
+    writeFileSync(reqFp, JSON.stringify({ id: "OLD-3" }));
+    writeFileSync(decFp, JSON.stringify({ approved: false }));
+    setOldMtime(decFp);
+    // reqFp left with current mtime (newer than 1 hour)
+
+    purgeStaleDecisionFiles(cleanupDir);
+    expect(existsSync(decFp)).toBe(false);
+    expect(existsSync(reqFp)).toBe(true);
+  });
+
+  test("does NOT delete request file newer than 1 hour (AC3)", () => {
+    const fp = join(cleanupDir, "agent-x-NEW-1.json");
+    writeFileSync(fp, JSON.stringify({ id: "NEW-1" }));
+    // leave mtime as-is (just created — well under 1 hour)
+
+    purgeStaleDecisionFiles(cleanupDir);
+    expect(existsSync(fp)).toBe(true);
+  });
+
+  test("exits silently when decisionsDir does not exist (AC4)", () => {
+    expect(() =>
+      purgeStaleDecisionFiles(join(testDir, "nonexistent-cleanup-dir")),
+    ).not.toThrow();
+  });
+
+  test("exits silently when decisionsDir is empty string (AC4)", () => {
+    expect(() => purgeStaleDecisionFiles("")).not.toThrow();
   });
 });
 
