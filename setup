@@ -24,6 +24,8 @@ FACTORY_SKILLS="$HOME/.factory/skills"
 FACTORY_GSTACK="$FACTORY_SKILLS/gstack"
 OPENCODE_SKILLS="$HOME/.config/opencode/skills"
 OPENCODE_GSTACK="$OPENCODE_SKILLS/gstack"
+GEMINI_SKILLS="$HOME/.gemini/skills"
+GEMINI_GSTACK="$GEMINI_SKILLS/gstack"
 
 IS_WINDOWS=0
 case "$(uname -s)" in
@@ -85,7 +87,7 @@ NO_TEAM_MODE=0
 PLAN_TUNE_HOOKS_MODE=""   # "" = resolve from env/config/prompt; "yes"/"no" = explicit
 while [ $# -gt 0 ]; do
   case "$1" in
-    --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, codex, kiro, factory, opencode, openclaw, hermes, gbrain, or auto)" >&2 && exit 1; HOST="$2"; shift 2 ;;
+    --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, codex, kiro, factory, opencode, openclaw, hermes, gbrain, gemini, or auto)" >&2 && exit 1; HOST="$2"; shift 2 ;;
     --host=*) HOST="${1#--host=}"; shift ;;
     --local) LOCAL_INSTALL=1; shift ;;
     --prefix)    SKILL_PREFIX=1; SKILL_PREFIX_FLAG=1; shift ;;
@@ -101,7 +103,7 @@ while [ $# -gt 0 ]; do
 done
 
 case "$HOST" in
-  claude|codex|kiro|factory|opencode|auto) ;;
+  claude|codex|kiro|factory|opencode|auto|gemini) ;;
   openclaw)
     echo ""
     echo "OpenClaw integration uses a different model — OpenClaw spawns Claude Code"
@@ -200,14 +202,16 @@ INSTALL_CODEX=0
 INSTALL_KIRO=0
 INSTALL_FACTORY=0
 INSTALL_OPENCODE=0
+INSTALL_GEMINI=0
 if [ "$HOST" = "auto" ]; then
   command -v claude >/dev/null 2>&1 && INSTALL_CLAUDE=1
   command -v codex >/dev/null 2>&1 && INSTALL_CODEX=1
   command -v kiro-cli >/dev/null 2>&1 && INSTALL_KIRO=1
   command -v droid >/dev/null 2>&1 && INSTALL_FACTORY=1
   command -v opencode >/dev/null 2>&1 && INSTALL_OPENCODE=1
+  command -v gemini >/dev/null 2>&1 && INSTALL_GEMINI=1
   # If none found, default to claude
-  if [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ] && [ "$INSTALL_FACTORY" -eq 0 ] && [ "$INSTALL_OPENCODE" -eq 0 ]; then
+  if [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ] && [ "$INSTALL_FACTORY" -eq 0 ] && [ "$INSTALL_OPENCODE" -eq 0 ] && [ "$INSTALL_GEMINI" -eq 0 ]; then
     INSTALL_CLAUDE=1
   fi
 elif [ "$HOST" = "claude" ]; then
@@ -220,6 +224,8 @@ elif [ "$HOST" = "factory" ]; then
   INSTALL_FACTORY=1
 elif [ "$HOST" = "opencode" ]; then
   INSTALL_OPENCODE=1
+elif [ "$HOST" = "gemini" ]; then
+  INSTALL_GEMINI=1
 fi
 
 migrate_direct_codex_install() {
@@ -472,6 +478,16 @@ if [ "$INSTALL_OPENCODE" -eq 1 ] && [ "$NEEDS_BUILD" -eq 0 ]; then
     cd "$SOURCE_GSTACK_DIR"
     bun_cmd install --frozen-lockfile 2>/dev/null || bun_cmd install
     bun_cmd run gen:skill-docs --host opencode
+  )
+fi
+
+# 1e. Generate .gemini/ Gemini skill docs
+if [ "$INSTALL_GEMINI" -eq 1 ] && [ "$NEEDS_BUILD" -eq 0 ]; then
+  log "Generating .gemini/ skill docs..."
+  (
+    cd "$SOURCE_GSTACK_DIR"
+    bun_cmd install --frozen-lockfile 2>/dev/null || bun_cmd install
+    bun_cmd run gen:skill-docs --host gemini
   )
 fi
 
@@ -908,6 +924,73 @@ create_opencode_runtime_root() {
   fi
 }
 
+create_gemini_runtime_root() {
+  local gstack_dir="$1"
+  local gemini_gstack="$2"
+  local gemini_dir="$gstack_dir/.gemini/skills"
+
+  if [ -L "$gemini_gstack" ]; then
+    rm -f "$gemini_gstack"
+  elif [ -d "$gemini_gstack" ] && [ "$gemini_gstack" != "$gstack_dir" ]; then
+    rm -rf "$gemini_gstack"
+  fi
+
+  mkdir -p "$gemini_gstack" "$gemini_gstack/browse" "$gemini_gstack/review"
+
+  if [ -f "$gemini_dir/gstack/SKILL.md" ]; then
+    _link_or_copy "$gemini_dir/gstack/SKILL.md" "$gemini_gstack/SKILL.md"
+  fi
+  if [ -d "$gstack_dir/bin" ]; then
+    _link_or_copy "$gstack_dir/bin" "$gemini_gstack/bin"
+  fi
+  if [ -d "$gstack_dir/browse/dist" ]; then
+    _link_or_copy "$gstack_dir/browse/dist" "$gemini_gstack/browse/dist"
+  fi
+  if [ -d "$gstack_dir/browse/bin" ]; then
+    _link_or_copy "$gstack_dir/browse/bin" "$gemini_gstack/browse/bin"
+  fi
+  for f in checklist.md TODOS-format.md; do
+    if [ -f "$gstack_dir/review/$f" ]; then
+      _link_or_copy "$gstack_dir/review/$f" "$gemini_gstack/review/$f"
+    fi
+  done
+  if [ -f "$gstack_dir/ETHOS.md" ]; then
+    _link_or_copy "$gstack_dir/ETHOS.md" "$gemini_gstack/ETHOS.md"
+  fi
+}
+
+link_gemini_skill_dirs() {
+  local gstack_dir="$1"
+  local skills_dir="$2"
+  local gemini_dir="$gstack_dir/.gemini/skills"
+  local linked=()
+
+  if [ ! -d "$gemini_dir" ]; then
+    echo "  Generating .gemini/ skill docs..."
+    ( cd "$gstack_dir" && bun run gen:skill-docs --host gemini )
+  fi
+
+  if [ ! -d "$gemini_dir" ]; then
+    echo "  warning: .gemini/skills/ generation failed — run 'bun run gen:skill-docs --host gemini' manually" >&2
+    return 1
+  fi
+
+  for skill_dir in "$gemini_dir"/gstack*/; do
+    if [ -f "$skill_dir/SKILL.md" ]; then
+      skill_name="$(basename "$skill_dir")"
+      [ "$skill_name" = "gstack" ] && continue
+      target="$skills_dir/$skill_name"
+      if [ -L "$target" ] || [ ! -e "$target" ]; then
+        _link_or_copy "$skill_dir" "$target"
+        linked+=("$skill_name")
+      fi
+    fi
+  done
+  if [ ${#linked[@]} -gt 0 ]; then
+    echo "  linked skills: ${linked[*]}"
+  fi
+}
+
 link_factory_skill_dirs() {
   local gstack_dir="$1"
   local skills_dir="$2"
@@ -1191,6 +1274,16 @@ if [ "$INSTALL_OPENCODE" -eq 1 ]; then
   echo "gstack ready (opencode)."
   echo "  browse: $BROWSE_BIN"
   echo "  opencode skills: $OPENCODE_SKILLS"
+fi
+
+# 6d. Install for Gemini
+if [ "$INSTALL_GEMINI" -eq 1 ]; then
+  mkdir -p "$GEMINI_SKILLS"
+  create_gemini_runtime_root "$SOURCE_GSTACK_DIR" "$GEMINI_GSTACK"
+  link_gemini_skill_dirs "$SOURCE_GSTACK_DIR" "$GEMINI_SKILLS"
+  echo "gstack ready (gemini)."
+  echo "  browse: $BROWSE_BIN"
+  echo "  gemini skills: $GEMINI_SKILLS"
 fi
 
 # 7. Create .agents/ sidecar symlinks for the real Codex skill target.

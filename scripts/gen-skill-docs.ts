@@ -979,7 +979,7 @@ for (const currentHost of hostsToRun) {
           voice_line: catalogParts.voiceLine,
         };
       }
-      const relOutput = path.relative(OUT_DIR || ROOT, outputPath);
+      const relOutput = path.relative(OUT_DIR || ROOT, outputPath).replace(/\\/g, '/');
 
       if (symlinkLoop) {
         console.log(`SKIPPED (symlink loop): ${relOutput}`);
@@ -1031,7 +1031,7 @@ for (const currentHost of hostsToRun) {
           currentHostConfig.generation.skipSkills.includes(sec.skillDir)) continue;
 
       const { outputPath, content } = processSectionTemplate(path.join(ROOT, sec.tmpl), sec.skillDir, currentHost);
-      const relOutput = path.relative(OUT_DIR || ROOT, outputPath);
+      const relOutput = path.relative(OUT_DIR || ROOT, outputPath).replace(/\\/g, '/');
 
       if (DRY_RUN) {
         const existing = fs.existsSync(outputPath) ? fs.readFileSync(outputPath, 'utf-8') : '';
