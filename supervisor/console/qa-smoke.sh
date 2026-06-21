@@ -68,6 +68,42 @@ else
   _fail "card border-radius should be 6px (got: $RADIUS)"
 fi
 
+# T6 AC1: fleet avatar img src contains dicebear.com
+"$BROWSE_BIN" js "renderFleet([{name:'agent-fe',state:'working',task:'T6',sessionStart:Date.now()-120000,lastTool:'Read',lastSummary:'testing'}])"
+AVATAR_SRC=$("$BROWSE_BIN" js "const img=document.querySelector('.fleet-avatar img');img?img.getAttribute('src'):'none'")
+if echo "$AVATAR_SRC" | grep -q "dicebear.com"; then
+  _ok "fleet avatar img src contains dicebear.com"
+else
+  _fail "fleet avatar img src should contain dicebear.com (got: $AVATAR_SRC)"
+fi
+
+# T6 AC2: elapsed time cell contains 'm' or 'h'
+ELAPSED=$("$BROWSE_BIN" js "const el=document.querySelector('.fleet-elapsed');el?el.textContent.trim():'none'")
+if echo "$ELAPSED" | grep -qE "[0-9]+[mh]"; then
+  _ok "fleet elapsed time shows time value (got: $ELAPSED)"
+else
+  _fail "fleet elapsed time should show Xm/Xh value (got: $ELAPSED)"
+fi
+
+# T6 AC4: approval card renders with HIGH risk badge — switch to Queue tab first
+"$BROWSE_BIN" js "document.getElementById('tab-queue').click()"
+"$BROWSE_BIN" js "const c=buildApprovalCard({id:'test-a1',agent:'agent-fe',risk:'high',command:'rm -rf /',description:'test action',action_type:'SHELL',files:[]});document.getElementById('approval-cards').prepend(c)"
+HIGH_BADGE=$("$BROWSE_BIN" js "const b=document.querySelector('.approval-risk-label.risk-high');b?b.textContent.trim():'none'")
+if echo "$HIGH_BADGE" | grep -qi "HIGH"; then
+  _ok "approval card renders with HIGH risk badge (got: $HIGH_BADGE)"
+else
+  _fail "approval card should render with HIGH badge (got: $HIGH_BADGE)"
+fi
+
+# T6 AC5: attention card renders with Unblock button
+"$BROWSE_BIN" js "const c=buildAttentionCard({id:'test-b1',agent:'agent-fe',task_id:'T6',title:'Test blocked task',agent_note:'This is a test note for the unblock test'});document.getElementById('attention-cards').prepend(c)"
+UNBLOCK_BTN=$("$BROWSE_BIN" js "document.querySelector('.btn-unblock')?'present':'none'")
+if [ "$UNBLOCK_BTN" = "present" ]; then
+  _ok "attention card has Unblock button"
+else
+  _fail "attention card should have Unblock button"
+fi
+
 # AC1e / AC2: take screenshot and print path so QA can attach it as evidence
 "$BROWSE_BIN" screenshot "$SCREENSHOT"
 echo "Screenshot: $SCREENSHOT"

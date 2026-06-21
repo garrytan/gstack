@@ -136,6 +136,11 @@ body::after {
   box-shadow: 0 0 4px var(--color-green);
   animation: pulse 2s ease-in-out infinite;
 }
+.sse-dot.connecting {
+  background: var(--color-amber);
+  box-shadow: 0 0 4px var(--color-amber);
+  animation: pulse 1s ease-in-out infinite;
+}
 .sse-dot.disconnected {
   background: var(--color-red);
   box-shadow: 0 0 4px var(--color-red);
@@ -425,7 +430,7 @@ body::after {
   letter-spacing: 0.05em;
 }
 .risk-high { background: rgba(239, 68, 68, 0.1); color: var(--red); border: 1px solid rgba(239, 68, 68, 0.2); }
-.risk-medium { background: rgba(59, 130, 246, 0.1); color: var(--blue); border: 1px solid rgba(59, 130, 246, 0.2); }
+.risk-medium { background: rgba(245, 158, 11, 0.08); color: var(--color-amber); border: 1px solid rgba(245, 158, 11, 0.2); }
 
 .approval-command {
   font-family: var(--mono);
@@ -437,6 +442,10 @@ body::after {
   padding: var(--space-2) var(--space-3);
   margin: 10px 0;
   word-break: break-all;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
 }
 .approval-description {
   font-size: 14px;
@@ -491,6 +500,7 @@ body::after {
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
+  white-space: nowrap;
   transition: border-color var(--dur-micro), color var(--dur-micro);
 }
 .btn-reject:hover { border-color: var(--red); color: var(--red); }
@@ -506,6 +516,7 @@ body::after {
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
+  white-space: nowrap;
   transition: background var(--dur-micro), opacity var(--dur-micro);
   display: flex;
   align-items: center;
@@ -535,10 +546,36 @@ body::after {
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
+  white-space: nowrap;
   transition: background var(--dur-micro), opacity var(--dur-micro);
 }
 .btn-send:hover { background: var(--amber-dim); }
 .btn-send:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.btn-unblock {
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-btn);
+  background: none;
+  color: var(--text-dim);
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color var(--dur-micro), color var(--dur-micro);
+}
+.btn-unblock:hover { border-color: var(--amber); color: var(--amber); }
+.btn-unblock:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.card-initial-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--space-3);
+}
+.card-unblock-section {
+  margin-top: var(--space-3);
+}
 
 /* ── Success flash ── */
 .success-flash {
@@ -704,6 +741,29 @@ body::after {
   color: var(--text);
   font-weight: 500;
 }
+.fleet-agent-cell {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.fleet-avatar {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+.fleet-avatar img {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: block;
+}
+.fleet-avatar-fallback {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  display: none;
+}
 .fleet-task-id {
   color: var(--text-dim);
 }
@@ -784,9 +844,48 @@ body::after {
   to { opacity: 1; transform: translateY(0); }
 }
 .card-exit {
-  animation: fadeOut var(--dur-short) var(--ease-exit) forwards;
+  animation: fadeOut 300ms var(--ease-exit) forwards;
 }
 @keyframes fadeOut {
   from { opacity: 1; transform: scaleY(1); max-height: 500px; }
   to { opacity: 0; transform: scaleY(0.95); max-height: 0; padding: 0; margin: 0; overflow: hidden; }
+}
+
+/* ── Responsive: fleet table → card layout below 640px (AC8) ── */
+@media (max-width: 640px) {
+  .fleet-table,
+  .fleet-table thead,
+  .fleet-table tbody,
+  .fleet-table th,
+  .fleet-table td,
+  .fleet-table tr { display: block; }
+  .fleet-table thead { display: none; }
+  .fleet-table tr {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-card);
+    margin-bottom: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+  }
+  .fleet-table td {
+    border-bottom: none;
+    padding: 3px 0;
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-2);
+  }
+  .fleet-table td::before {
+    content: attr(data-label);
+    font-family: var(--mono);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-micro);
+    min-width: 64px;
+    flex-shrink: 0;
+    padding-top: 2px;
+  }
+  .fleet-agent-cell { flex-wrap: wrap; }
+  .fleet-summary { max-width: none; white-space: normal; }
+  .page-body { padding: var(--space-3) var(--space-3) var(--space-8); }
 }
