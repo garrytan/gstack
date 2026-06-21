@@ -41,12 +41,12 @@ jobs:
         with:
           run-id: ${{ github.event_name == 'workflow_dispatch' && inputs.security_run_id || github.event.workflow_run.id }}
           name: security-automation-report
-          path: downloaded
+          path: downloaded/security-artifacts
           github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Run compliance validation and generate reports
         id: validate
         env:
-          SECURITY_REPORT_PATH: downloaded/security-summary.json
+          SECURITY_REPORT_PATH: downloaded/security-artifacts/security-summary.json
           WORKFLOW_DIR: downloaded
           PR_NUMBER: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.pull_requests[0].number || 'not-pr' }}
         run: |
