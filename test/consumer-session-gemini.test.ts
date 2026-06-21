@@ -113,7 +113,7 @@ describe("Gemini Takeout consumer-session normalizer", () => {
             {
               id: "u1",
               role: "user",
-              text: "Please use this image.",
+              parts: [{ text: "Please use this image.", inline_data: "INLINE_DATA_SHOULD_NOT_APPEAR" }],
               uploads: [{ id: "upload-1", fileName: "diagram.png", mimeType: "image/png", sizeBytes: 2048, data: "BINARY_UPLOAD_SHOULD_NOT_APPEAR" }],
             },
             {
@@ -133,11 +133,13 @@ describe("Gemini Takeout consumer-session normalizer", () => {
       const normalized = readFileSync(result.planned_outputs[0].path, "utf-8");
       expect(normalized).not.toContain("BINARY_UPLOAD_SHOULD_NOT_APPEAR");
       expect(normalized).not.toContain("BINARY_MEDIA_SHOULD_NOT_APPEAR");
+      expect(normalized).not.toContain("INLINE_DATA_SHOULD_NOT_APPEAR");
 
       const rendered = renderConsumerSessionPages(session).map((page) => page.body).join("\n");
       expect(rendered).toContain("Attachments: 1");
       expect(rendered).not.toContain("BINARY_UPLOAD_SHOULD_NOT_APPEAR");
       expect(rendered).not.toContain("BINARY_MEDIA_SHOULD_NOT_APPEAR");
+      expect(rendered).not.toContain("INLINE_DATA_SHOULD_NOT_APPEAR");
     } finally {
       rmSync(home, { recursive: true, force: true });
     }
@@ -196,7 +198,10 @@ describe("Gemini Takeout consumer-session normalizer", () => {
       expect(result.status).toBe(0);
       expect(result.stdout).toContain("conversation_count");
       expect(result.stdout).toContain("planned_outputs");
-      expect(result.stdout).toContain("dry-run-conv");
+      expect(result.stdout).toContain("<redacted-conversation-001>");
+      expect(result.stdout).not.toContain("dry-run-conv");
+      expect(result.stdout).not.toContain(input);
+      expect(result.stdout).not.toContain(home);
       expect(result.stdout).not.toContain("DRY_RUN_CHAT_TEXT_SHOULD_NOT_PRINT");
       expect(result.stdout).not.toContain("dryrun@example.test");
       expect(result.stdout).not.toContain("Dry run private title");
@@ -205,7 +210,7 @@ describe("Gemini Takeout consumer-session normalizer", () => {
     }
   });
 
-  it("can normalize a tgz Takeout archive using system tar when available", () => {
+  it("can normalize a tgz Takeout archive using the safe extractor when tar is available for fixture creation", () => {
     const probe = spawnSync("tar", ["--version"], { encoding: "utf-8" });
     if (probe.status !== 0) return;
 
@@ -231,6 +236,86 @@ describe("Gemini Takeout consumer-session normalizer", () => {
       const session = readOnlySession(result.planned_outputs[0].path);
       expect(session.conversation_id).toBe("archive-conv");
       expect(session.source_receipt.raw_path).toBe("Gemini Apps/conversations.json");
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects archive symlinks before extraction", () => {
+    const python = spawnSync("python3", ["--version"], { encoding: "utf-8" });
+    if ((python.status ?? 1) !== 0) return;
+
+    const home = makeHome();
+    try {
+      const archive = join(home, "malicious.tgz");
+      const makeArchive = spawnSync("python3", ["-c", `
+import os, tarfile
+archive = os.environ["ARCHIVE_PATH"]
+info = tarfile.TarInfo("linked-export")
+info.type = tarfile.SYMTYPE
+info.linkname = "/tmp"
+with tarfile.open(archive, "w:gz") as tf:
+    tf.addfile(info)
+`], {
+        env: { ...process.env, ARCHIVE_PATH: archive },
+        encoding: "utf-8",
+      });
+      expect(makeArchive.status).toBe(0);
+
+      expect(() => importGeminiTakeout({
+        inputPath: archive,
+        outputPath: join(home, "normalized"),
+      })).toThrow(/unsafe_archive_member/);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps raw provider conversation ids distinct even when file slugs collide", () => {
+    const home = makeHome();
+    try {
+      const input = join(home, "takeout");
+      const output = join(home, "normalized");
+      writeConversation(input, "Gemini Apps/conversations.json", {
+        conversations: [
+          { id: "abc.def", messages: [{ role: "user", text: "dot id" }] },
+          { id: "abc/def", messages: [{ role: "user", text: "slash id" }] },
+        ],
+      });
+
+      const result = importGeminiTakeout({ inputPath: input, outputPath: output });
+      expect(result.conversation_count).toBe(2);
+      expect(new Set(result.planned_outputs.map((output) => output.path)).size).toBe(2);
+      const ids = result.planned_outputs
+        .map((output) => readOnlySession(output.path).conversation_id)
+        .sort();
+      expect(ids).toEqual(["abc.def", "abc/def"]);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it("removes stale normalized outputs from the previous manifest", () => {
+    const home = makeHome();
+    try {
+      const input = join(home, "takeout");
+      const output = join(home, "normalized");
+      writeConversation(input, "Gemini Apps/conversations.json", {
+        conversations: [
+          { id: "conv-a", messages: [{ role: "user", text: "keep" }] },
+          { id: "conv-b", messages: [{ role: "user", text: "remove" }] },
+        ],
+      });
+      const first = importGeminiTakeout({ inputPath: input, outputPath: output });
+      const stalePath = first.planned_outputs.find((planned) => planned.conversation_id === "conv-b")?.path;
+      expect(stalePath).toBeTruthy();
+      expect(existsSync(stalePath!)).toBe(true);
+
+      writeConversation(input, "Gemini Apps/conversations.json", {
+        conversations: [{ id: "conv-a", messages: [{ role: "user", text: "keep" }] }],
+      });
+      importGeminiTakeout({ inputPath: input, outputPath: output });
+      expect(existsSync(stalePath!)).toBe(false);
     } finally {
       rmSync(home, { recursive: true, force: true });
     }

@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 
-import { importGeminiTakeout } from "../lib/consumer-session-gemini";
+import { displayGeminiTakeoutImportResult, importGeminiTakeout } from "../lib/consumer-session-gemini";
 
 interface Args {
   inputPath?: string;
@@ -65,7 +65,7 @@ try {
     gstackHome: args.gstackHome,
     dryRun: args.dryRun,
   });
-  console.log(JSON.stringify(result, null, 2));
+  console.log(JSON.stringify(args.dryRun ? displayGeminiTakeoutImportResult(result) : result, null, 2));
 } catch (err) {
   console.error(err instanceof Error ? err.message : String(err));
   console.error(usage());

@@ -2,12 +2,14 @@ import { createHash } from "crypto";
 import { spawnSync } from "child_process";
 import {
   existsSync,
+  lstatSync,
   mkdtempSync,
   mkdirSync,
   readdirSync,
   readFileSync,
+  renameSync,
   rmSync,
-  statSync,
+  unlinkSync,
   writeFileSync,
 } from "fs";
 import { homedir, hostname, platform, tmpdir } from "os";
@@ -91,6 +93,21 @@ const BINARY_KEYS = new Set([
   "inlinedata",
   "payload",
 ]);
+const TEXT_CONTAINER_KEYS = new Set([
+  "answer",
+  "body",
+  "content",
+  "markdown",
+  "message",
+  "parts",
+  "plainText",
+  "prompt",
+  "query",
+  "response",
+  "segments",
+  "text",
+  "value",
+]);
 
 export function importGeminiTakeout(options: GeminiTakeoutImportOptions = {}): GeminiTakeoutImportResult {
   const gstackHome = options.gstackHome || process.env.GSTACK_HOME || join(homedir(), ".gstack");
@@ -134,11 +151,14 @@ export function importGeminiTakeout(options: GeminiTakeoutImportOptions = {}): G
     const planned = sessions.map((session) => plannedOutputForSession(outputPath, session));
     if (!options.dryRun) {
       mkdirSync(outputPath, { recursive: true });
-      for (const session of sessions) {
-        const out = plannedOutputForSession(outputPath, session).path;
+      for (let i = 0; i < sessions.length; i++) {
+        const out = planned[i].path;
         mkdirSync(dirname(out), { recursive: true });
-        writeFileSync(out, `${JSON.stringify(session, null, 2)}\n`, "utf-8");
+        writeFileAtomic(out, `${JSON.stringify(sessions[i], null, 2)}\n`);
       }
+      const nextFiles = planned.map((item) => relative(outputPath, item.path).split("\\").join("/"));
+      removeStaleManifestOutputs(outputPath, nextFiles);
+      writeManifest(outputPath, nextFiles);
     }
 
     return {
@@ -162,47 +182,41 @@ export function importGeminiTakeout(options: GeminiTakeoutImportOptions = {}): G
   }
 }
 
+export function displayGeminiTakeoutImportResult(result: GeminiTakeoutImportResult): GeminiTakeoutImportResult {
+  return {
+    ...result,
+    input_path: "<redacted-gemini-input>",
+    output_path: "consumer-sessions/normalized/gemini",
+    account_hash: "<redacted-account-hash>",
+    planned_outputs: result.planned_outputs.map((output, index) => ({
+      ...output,
+      path: `consumer-sessions/normalized/gemini/<redacted-output-${String(index + 1).padStart(3, "0")}.json>`,
+      conversation_id: `<redacted-conversation-${String(index + 1).padStart(3, "0")}>`,
+    })),
+  };
+}
+
 function prepareInput(inputPath: string): { root: string; cleanup: () => void } {
   const lower = inputPath.toLowerCase();
   if (lower.endsWith(".zip")) {
     const root = mkdtempSync(join(tmpdir(), "gstack-gemini-takeout-"));
-    assertArchiveEntriesSafe(inputPath, "zip");
-    const result = spawnSync("unzip", ["-q", inputPath, "-d", root], { encoding: "utf-8" });
-    if (result.status !== 0) {
+    const result = extractArchiveSafely(inputPath, root, "zip");
+    if (!result.ok) {
       rmSync(root, { recursive: true, force: true });
-      throw new Error(`failed_to_extract_zip:${result.stderr || result.stdout || "unzip failed"}`);
+      throw new Error(`failed_to_extract_zip:${result.reason}`);
     }
     return { root, cleanup: () => rmSync(root, { recursive: true, force: true }) };
   }
   if (lower.endsWith(".tgz") || lower.endsWith(".tar.gz")) {
     const root = mkdtempSync(join(tmpdir(), "gstack-gemini-takeout-"));
-    assertArchiveEntriesSafe(inputPath, "tgz");
-    const result = spawnSync("tar", ["-xzf", inputPath, "-C", root], { encoding: "utf-8" });
-    if (result.status !== 0) {
+    const result = extractArchiveSafely(inputPath, root, "tgz");
+    if (!result.ok) {
       rmSync(root, { recursive: true, force: true });
-      throw new Error(`failed_to_extract_tgz:${result.stderr || result.stdout || "tar failed"}`);
+      throw new Error(`failed_to_extract_tgz:${result.reason}`);
     }
     return { root, cleanup: () => rmSync(root, { recursive: true, force: true }) };
   }
   return { root: inputPath, cleanup: () => undefined };
-}
-
-function assertArchiveEntriesSafe(inputPath: string, kind: "zip" | "tgz"): void {
-  const result = kind === "zip"
-    ? spawnSync("unzip", ["-Z1", inputPath], { encoding: "utf-8" })
-    : spawnSync("tar", ["-tzf", inputPath], { encoding: "utf-8" });
-  if (result.status !== 0) {
-    throw new Error(`failed_to_list_${kind}:${result.stderr || result.stdout || "archive listing failed"}`);
-  }
-  for (const entry of (result.stdout || "").split(/\r?\n/).filter(Boolean)) {
-    if (isUnsafeArchiveEntry(entry)) throw new Error(`unsafe_archive_entry:${entry}`);
-  }
-}
-
-function isUnsafeArchiveEntry(entry: string): boolean {
-  if (entry.startsWith("/") || /^[A-Za-z]:/.test(entry)) return true;
-  const parts = entry.split(/[\\/]+/).filter(Boolean);
-  return parts.includes("..");
 }
 
 function loadJsonSources(root: string): SourceJson[] {
@@ -238,10 +252,11 @@ function walkFiles(root: string): string[] {
       const path = join(dir, entry);
       let st;
       try {
-        st = statSync(path);
+        st = lstatSync(path);
       } catch {
         continue;
       }
+      if (st.isSymbolicLink()) continue;
       if (st.isDirectory()) visit(path);
       else if (st.isFile()) out.push(path);
     }
@@ -399,15 +414,13 @@ function turnArray(obj: Record<string, unknown>): unknown[] {
 }
 
 function conversationIdFromObject(obj: Record<string, unknown>): string | undefined {
-  return safePathSegment(
-    stringValue(obj.conversation_id)
-      || stringValue(obj.conversationId)
-      || stringValue(obj.conversationUuid)
-      || stringValue(obj.chat_id)
-      || stringValue(obj.chatId)
-      || stringValue(obj.id)
-      || idFromUrl(stringValue(obj.titleUrl) || stringValue(obj.url)),
-  );
+  return stringValue(obj.conversation_id)
+    || stringValue(obj.conversationId)
+    || stringValue(obj.conversationUuid)
+    || stringValue(obj.chat_id)
+    || stringValue(obj.chatId)
+    || stringValue(obj.id)
+    || idFromUrl(stringValue(obj.titleUrl) || stringValue(obj.url));
 }
 
 function stableConversationId(rawPath: string, title: string | undefined, turns: unknown[]): string {
@@ -470,7 +483,10 @@ function extractTextValue(value: unknown, depth: number): string {
   const direct = stringValue(obj.text) || stringValue(obj.markdown) || stringValue(obj.plainText) || stringValue(obj.value);
   if (direct) return direct;
   return Object.entries(obj)
-    .filter(([key]) => !BINARY_KEYS.has(key.toLowerCase()))
+    .filter(([key]) => {
+      const lower = key.toLowerCase();
+      return TEXT_CONTAINER_KEYS.has(key) || TEXT_CONTAINER_KEYS.has(lower) || (!BINARY_KEYS.has(lower) && lower.endsWith("text"));
+    })
     .map(([, child]) => extractTextValue(child, depth + 1))
     .filter(Boolean)
     .join("\n\n");
@@ -592,7 +608,7 @@ function plannedOutputForSession(outputPath: string, session: NormalizedConsumer
 
 function outputFileName(accountHash: string, conversationId: string): string {
   const conversationSlug = safePathSegment(conversationId) || sha256(conversationId).slice(0, 24);
-  return `${accountHash}/${conversationSlug}.json`;
+  return `${accountHash}/${conversationSlug}-${sha256(conversationId).slice(0, 12)}.json`;
 }
 
 function dedupeTurns(turns: NormalizedConsumerSessionTurn[]): NormalizedConsumerSessionTurn[] {
@@ -693,4 +709,116 @@ function countArray(value: unknown): number {
 
 function arrayOfStrings(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
+function extractArchiveSafely(
+  inputPath: string,
+  dest: string,
+  kind: "zip" | "tgz",
+): { ok: true } | { ok: false; reason: string } {
+  const result = spawnSync("python3", ["-c", SAFE_ARCHIVE_EXTRACTOR, inputPath, dest, kind], {
+    encoding: "utf-8",
+    maxBuffer: 1024 * 1024,
+  });
+  if (result.status === 0) return { ok: true };
+  const raw = (result.stderr || result.stdout || "python_archive_extract_failed").trim().split(/\r?\n/)[0] || "python_archive_extract_failed";
+  return { ok: false, reason: raw.replace(/[^a-z0-9_:-]/gi, "_").slice(0, 80) };
+}
+
+const SAFE_ARCHIVE_EXTRACTOR = String.raw`
+import os, shutil, stat, sys, tarfile, zipfile
+
+archive_path, dest, kind = sys.argv[1:4]
+dest_abs = os.path.abspath(dest)
+
+def fail(reason):
+    print(reason, file=sys.stderr)
+    sys.exit(1)
+
+def safe_target(raw_name):
+    norm = (raw_name or "").replace("\\", "/")
+    if not norm:
+        return None
+    parts = [part for part in norm.split("/") if part]
+    if norm.startswith("/") or (parts and ":" in parts[0]) or any(part == ".." for part in parts):
+        fail("unsafe_archive_path")
+    target = os.path.abspath(os.path.join(dest_abs, *parts))
+    if target != dest_abs and not target.startswith(dest_abs + os.sep):
+        fail("unsafe_archive_escape")
+    return target
+
+try:
+    if kind == "zip":
+        with zipfile.ZipFile(archive_path) as zf:
+            for info in zf.infolist():
+                target = safe_target(info.filename)
+                if target is None:
+                    continue
+                mode = (info.external_attr >> 16) & 0o170000
+                if mode == stat.S_IFLNK:
+                    fail("unsafe_archive_symlink")
+                if info.is_dir() or info.filename.endswith("/"):
+                    os.makedirs(target, mode=0o700, exist_ok=True)
+                    continue
+                os.makedirs(os.path.dirname(target), mode=0o700, exist_ok=True)
+                with zf.open(info) as src, open(target, "wb") as dst:
+                    shutil.copyfileobj(src, dst)
+                os.chmod(target, 0o600)
+    else:
+        with tarfile.open(archive_path, "r:gz") as tf:
+            for member in tf.getmembers():
+                target = safe_target(member.name)
+                if target is None:
+                    continue
+                if member.isdir():
+                    os.makedirs(target, mode=0o700, exist_ok=True)
+                    continue
+                if not member.isfile():
+                    fail("unsafe_archive_member")
+                src = tf.extractfile(member)
+                if src is None:
+                    fail("unsafe_archive_member")
+                os.makedirs(os.path.dirname(target), mode=0o700, exist_ok=True)
+                with src, open(target, "wb") as dst:
+                    shutil.copyfileobj(src, dst)
+                os.chmod(target, 0o600)
+except (zipfile.BadZipFile, tarfile.TarError):
+    fail("invalid_archive")
+except OSError:
+    fail("archive_extract_io_error")
+`;
+
+const MANIFEST_NAME = ".gemini-import-manifest";
+
+function writeFileAtomic(path: string, body: string): void {
+  const tmp = `${path}.tmp.${process.pid}.${Date.now()}`;
+  writeFileSync(tmp, body, "utf-8");
+  renameSync(tmp, path);
+}
+
+function readManifest(outputPath: string): string[] {
+  try {
+    const parsed = JSON.parse(readFileSync(join(outputPath, MANIFEST_NAME), "utf-8"));
+    return Array.isArray(parsed?.files)
+      ? parsed.files.filter((file: unknown) => typeof file === "string" && !file.startsWith("/") && !file.split("/").includes(".."))
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeManifest(outputPath: string, files: string[]): void {
+  writeFileAtomic(join(outputPath, MANIFEST_NAME), `${JSON.stringify({ files: [...files].sort() }, null, 2)}\n`);
+}
+
+function removeStaleManifestOutputs(outputPath: string, nextFiles: string[]): void {
+  const keep = new Set(nextFiles);
+  for (const previous of readManifest(outputPath)) {
+    if (keep.has(previous)) continue;
+    try {
+      unlinkSync(join(outputPath, previous));
+    } catch {
+      // Missing stale outputs are already gone.
+    }
+  }
 }
