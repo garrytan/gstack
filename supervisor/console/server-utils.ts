@@ -2,6 +2,27 @@
 import type { ServerResponse } from "node:http";
 import { readdirSync, readFileSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
+import { spawnSync } from "node:child_process";
+
+// Scan each agent checkout directory for a git remote URL that contains the
+// control-repo slug. Returns the first matching dir, or null if none match.
+// CONTROL_DIR env var short-circuits all git calls (AC3).
+// Non-existent dirs and git errors are silently skipped (AC5).
+export function resolveControlDir(agentDirs: string[]): string | null {
+  if (process.env.CONTROL_DIR) return process.env.CONTROL_DIR;
+  for (const dir of agentDirs) {
+    try {
+      const r = spawnSync("git", ["-C", dir, "remote", "get-url", "origin"], { encoding: "utf8" });
+      if ((r.status ?? 1) !== 0) continue;
+      const url = (r.stdout ?? "").trim();
+      if (url.includes("seab-group/tshepostack")) return dir;
+    } catch {
+      // silently skip unreadable dirs (AC5)
+    }
+  }
+  console.warn("[resolveControlDir] no agent directory matched control-repo remote");
+  return null;
+}
 
 export type AgentStatus = {
   name: string;
