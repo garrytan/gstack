@@ -69,6 +69,53 @@ describe('Sawyer skill autopilot routing', () => {
     });
     expect(rec.skill).toBe('devex-review');
   });
+
+  test('stops non-trivial closeout work for a simplify checkpoint before review', () => {
+    const rec = recommendSawyerSkillAutopilot({
+      prompt: 'finish a non-trivial 4-file code change that added a helper and is about to be PR-ready',
+      lastSkill: 'executing',
+      lastOutcome: 'diff ready',
+    });
+    expect(rec.action).toBe('stop');
+    expect(rec.skill).toBeUndefined();
+    expect(rec.phase).toBe('post-skill');
+    expect(rec.reason).toContain('simplify checkpoint');
+  });
+
+  test('stops prompt-only diff-ready non-trivial work for a simplify checkpoint', () => {
+    const rec = recommendSawyerSkillAutopilot({ prompt: 'diff-ready 3+ files helper change' });
+    expect(rec.action).toBe('stop');
+    expect(rec.skill).toBeUndefined();
+    expect(rec.confidence).toBe('high');
+    expect(rec.reason).toContain('simplify checkpoint');
+  });
+
+  test('does not simplify-gate trivial ship requests', () => {
+    const rec = recommendSawyerSkillAutopilot({ prompt: 'ship this one-line typo fix and open the PR' });
+    expect(rec.action).toBe('invoke');
+    expect(rec.skill).toBe('ship');
+  });
+
+  test('chains a clean simplify checkpoint into /review', () => {
+    const rec = recommendSawyerSkillAutopilot({
+      prompt: 'ship this non-trivial 4-file helper change',
+      lastSkill: 'simplify-checkpoint',
+      lastOutcome: 'clean',
+    });
+    expect(rec.action).toBe('invoke');
+    expect(rec.skill).toBe('review');
+    expect(rec.phase).toBe('post-skill');
+  });
+
+  test('flags global workflow simplify checkpoints as a global-surface boundary', () => {
+    const rec = recommendSawyerSkillAutopilot({
+      prompt: 'finish this non-trivial .codex workflow surface change and get it ready for review',
+      lastSkill: 'executing',
+      lastOutcome: 'diff ready',
+    });
+    expect(rec.action).toBe('stop');
+    expect(rec.permissionBoundary).toBe('global-surface');
+  });
 });
 
 describe('Sawyer skill autopilot replay pack', () => {
@@ -162,6 +209,22 @@ describe('Sawyer skill autopilot replay pack', () => {
       input: { lastSkill: 'land-and-deploy', deployStatus: 'healthy', developerFacing: true },
       action: 'invoke',
       skill: 'devex-review',
+    },
+    {
+      name: 'non-trivial closeout stops for simplify checkpoint',
+      input: {
+        prompt: 'finish a non-trivial 4-file code change that added a helper and is about to be PR-ready',
+        lastSkill: 'executing',
+        lastOutcome: 'diff ready',
+      },
+      action: 'stop',
+      skill: undefined,
+    },
+    {
+      name: 'clean simplify checkpoint chains to review',
+      input: { prompt: 'ship this non-trivial helper change', lastSkill: 'simplify-checkpoint', lastOutcome: 'clean' },
+      action: 'invoke',
+      skill: 'review',
     },
   ];
 
