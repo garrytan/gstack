@@ -18,7 +18,7 @@ Scripts for starting, stopping, and monitoring the autonomous agent fleet.
 | `console/bash-wrapper.test.ts` | Bun test wrapper that runs bash-wrapper.test.sh inline (v7.1) |
 | `console/bash-wrapper.test.sh` | Bash unit tests for risk classification (check_risk) and polling behavior (poll_approval) (v7.1) |
 | `console/server.test.ts` | Bun tests for endpoint security, static serving, queue bootstrap, and `resolveControlDir` — taskId regex validation, agent name validation, needs_human endpoint (v7.1) |
-| `console/qa-smoke.sh` | QA smoke test for console UI — asserts page title, nav bar, Fleet tab presence, and T6 AC1/AC2/AC4/AC5 (Dicebear avatar src, elapsed time format, HIGH risk badge, Unblock button) via gstack browse (v7.1) |
+| `console/qa-smoke.sh` | QA smoke test for console UI — asserts page title, nav bar, Fleet tab presence, T10 AC1/AC4 (`body` `font-size: 16px`, card `border-radius: 6px`), and T6 AC1/AC2/AC4/AC5 (Dicebear avatar src, elapsed time format, HIGH risk badge, Unblock button) via gstack browse (v7.1) |
 
 ---
 
@@ -787,6 +787,8 @@ All fonts use `display=swap` to prevent invisible text during font load.
 ### Design tokens
 Sourced from `docs/DESIGN.md` and defined in `:root` of `styles.css`:
 
+**Palette tokens:**
+
 | Token | Value | Purpose |
 |-------|-------|---------|
 | `--base` | `#0C0C0C` | Page background |
@@ -800,6 +802,45 @@ Sourced from `docs/DESIGN.md` and defined in `:root` of `styles.css`:
 | `--green` | `#22C55E` | Success state |
 | `--red` | `#EF4444` | Error state |
 | `--blue` | `#3B82F6` | Info state |
+
+**Typography tokens (T10):**
+
+| Token | Value | Purpose |
+|-------|-------|---------|
+| `--font-body` | `'Satoshi', 'DM Sans', system-ui, sans-serif` | Body font stack — applied to `body { font-family }` |
+| `--font-mono` | `'JetBrains Mono', ui-monospace, monospace` | Monospace font stack — applied to `code` and `.cmd` elements |
+
+**Spacing scale tokens (T10):**
+
+| Token | Value |
+|-------|-------|
+| `--space-1` | `4px` |
+| `--space-2` | `8px` |
+| `--space-3` | `12px` |
+| `--space-4` | `16px` |
+| `--space-6` | `24px` |
+| `--space-8` | `32px` |
+
+All `margin`, `padding`, and `gap` values in component rules use these tokens. No raw `px` values remain in component rules.
+
+**Border-radius tokens (T10):**
+
+| Token | Value | Applied to |
+|-------|-------|------------|
+| `--radius-card` | `6px` | `.card`, `.attention-card`, `.card-textarea`, fleet table rows (responsive) |
+| `--radius-badge` | `4px` | `.section-badge`, `.failure-badge`, `.ai-draft-toggle`, `.card-agent-note` corners |
+| `--radius-btn` | `6px` | Action buttons |
+
+**Status dot color tokens (T10):**
+
+These are separate from the palette `--green`/`--amber`/`--red` tokens and are used exclusively for the SSE connection status dot and state indicators:
+
+| Token | Value | Purpose |
+|-------|-------|---------|
+| `--color-green` | `#16a34a` | Connected dot / working state |
+| `--color-amber` | `#d97706` | Reconnecting dot |
+| `--color-red` | `#dc2626` | Disconnected dot / error state |
+| `--color-grey` | `#9ca3af` | Inactive / stopped state |
 
 ### Motion variables
 Used for consistent timing across transitions and animations:
@@ -815,9 +856,12 @@ Used for consistent timing across transitions and animations:
 ### Visual effects
 - **Grain texture:** `body::after` pseudo-element with SVG `feTurbulence` at 0.03 opacity (fixed position, z-index 9999, non-interactive). Adds subtle surface texture without impacting readability.
 
-### Font sizing
-- Body text: 16px (see `docs/DESIGN.md` for rationale)
-- Button border-radius: 8px (consistent with accessibility guidelines)
+### Font sizing and line height
+- Body text: `16px`, `line-height: 1.5` — set via `var(--font-body)` on `body`
+- Monospace elements (`code`, `.cmd`): `font-family: var(--font-mono)`, `line-height: 1.6`
+- Card border-radius: `6px` (`--radius-card`)
+- Badge border-radius: `4px` (`--radius-badge`)
+- Button border-radius: `6px` (`--radius-btn`)
 
 ---
 
@@ -845,7 +889,7 @@ The header includes a six-pixel coloured dot (`#sse-dot`) indicating SSE connect
 | `EventSource.CONNECTING` | `.connecting` | Amber |
 | `EventSource.CLOSED` | `.disconnected` | Red (no pulse) |
 
-Color values are drawn from the existing `--green`, `--amber`, and `--red` CSS tokens. The dot also transitions to `.disconnected` immediately on an `error` event, before the auto-reconnect delay fires.
+Color values use the T10 status dot tokens (`--color-green`, `--color-amber`, `--color-red`) — these are distinct from the palette tokens (`--green`, `--amber`, `--red`) and carry the DESIGN.md-specified status dot hex values. The dot also transitions to `.disconnected` immediately on an `error` event, before the auto-reconnect delay fires.
 
 ### Unblock inline flow (AC5/AC6)
 

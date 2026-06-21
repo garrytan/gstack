@@ -1,6 +1,6 @@
 // supervisor/console/server-utils.ts — pure utility functions, no side effects
 import type { ServerResponse } from "node:http";
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync, unlinkSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import { spawnSync } from "node:child_process";
 
@@ -292,6 +292,36 @@ export function readApprovals(decisionsDir: string | undefined): ApprovalItem[] 
         return [];
       }
     });
+}
+
+// Purge stale decision files at startup (T8).
+// Deletes request *.json files (not *.decision.json) older than 1 hour plus their paired
+// *.decision.json. Also deletes any *.decision.json that is itself older than 1 hour.
+// Per-file try/catch ensures one unreadable file does not abort the rest.
+export function purgeStaleDecisionFiles(decisionsDir: string): void {
+  if (!decisionsDir) return;
+  const threshold = 60 * 60 * 1000;
+  const now = Date.now();
+  let files: string[];
+  try {
+    files = readdirSync(decisionsDir);
+  } catch {
+    return;
+  }
+  for (const file of files) {
+    if (!file.endsWith(".json")) continue;
+    const fp = join(decisionsDir, file);
+    try {
+      if (now - statSync(fp).mtime.getTime() > threshold) {
+        unlinkSync(fp);
+        if (!file.endsWith(".decision.json")) {
+          try {
+            unlinkSync(join(decisionsDir, file.slice(0, -5) + ".decision.json"));
+          } catch { /* paired decision file absent or already deleted */ }
+        }
+      }
+    } catch { /* stat or unlink failed — skip this file */ }
+  }
 }
 
 // Parse a mailbox file's content into an array of note objects.

@@ -176,6 +176,24 @@ The console can now query and monitor the current state of all agents in the fle
 - `live.json` changes trigger `fleet-update` events; other changes remain invisible to SSE
 - Ended sessions now exclude stale `task` fields from fleet status (AC3: if `ended: true`, then `task: null`)
 
+### Design token corrections — typography, spacing scale, border radius (v7.1)
+
+The console design system is now fully token-driven. Every `margin`, `padding`, and `gap` in the CSS uses the 8-point spacing scale, border radii are declared once and applied everywhere, and the font stacks for body text and monospace elements are CSS variables rather than inline values. The card and badge radius corrections from the first pass (8px → 6px card, 4px badge, 6px button) are now codified in `--radius-*` tokens so future changes are a one-line edit.
+
+#### Added
+- `--font-body: 'Satoshi', 'DM Sans', system-ui, sans-serif` — typography token applied to `body { font-family }`
+- `--font-mono: 'JetBrains Mono', ui-monospace, monospace` — typography token applied to `code` and `.cmd` elements with `line-height: 1.6`
+- Spacing scale: `--space-1: 4px`, `--space-2: 8px`, `--space-3: 12px`, `--space-4: 16px`, `--space-6: 24px`, `--space-8: 32px`
+- Border-radius tokens: `--radius-card: 6px`, `--radius-badge: 4px`, `--radius-btn: 6px`
+- Status dot color tokens: `--color-green: #16a34a`, `--color-amber: #d97706`, `--color-red: #dc2626`, `--color-grey: #9ca3af` (separate from palette `--green`/`--amber`/`--red`)
+- `qa-smoke.sh` gains two T10 assertions: `body` `font-size` must equal `16px`; `.empty-section` `border-radius` must equal `6px`
+
+#### Changed
+- All component `margin`/`padding`/`gap` rules now use `--space-*` tokens — no raw `px` values remain in component rules
+- Card border-radius corrected to `6px` (`--radius-card`), badge to `4px` (`--radius-badge`), button to `6px` (`--radius-btn`) — corrects the interim 8px value from the initial design pass
+- SSE status dot now draws from `--color-green` and `--color-red` instead of the palette `--green`/`--red`
+- `body { line-height }` confirmed at `1.5`; `code, .cmd { line-height }` set to `1.6`
+
 ### Console UI — design system refinement
 
 The agent console now uses the full gstack design system: corrected typography (16px body, 8px button radius), dark-mode color tokens, motion variables, and a grain texture for visual polish. Font CDN links load Satoshi (display), DM Sans (body), and JetBrains Mono (data) with `display=swap` to prevent layout shift.
