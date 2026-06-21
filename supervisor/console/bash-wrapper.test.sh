@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # supervisor/console/bash-wrapper.test.sh
-# Tests for check_risk classification (AC1) and poll_approval paths (AC2).
+# Tests: REAL_BASH detection, chain-risk splitting, jq-free decision parsing,
+# and SUPERVISOR_DECISIONS_DIR guard.
 # Run standalone: bash supervisor/console/bash-wrapper.test.sh
-# Run via bun: bun test supervisor/console/ (invoked by bash-wrapper.test.ts)
+# Run via bun:    bun test supervisor/console/ (invoked by bash-wrapper.test.ts)
 
 THIS_DIR="$(cd "$(dirname "$0")" && pwd)"
 WRAPPER="$THIS_DIR/bin/bash"
@@ -12,6 +13,24 @@ fail=0
 
 _ok()   { printf '  ok    %s\n' "$1"; pass=$((pass + 1)); }
 _fail() { printf '  FAIL  %s\n' "$1" >&2; fail=$((fail + 1)); }
+
+# Minimal safe PATH: python3 + real bash only.  Excludes supervisor wrappers so
+# REAL_BASH inside the wrapper always resolves to the system bash, not another
+# wrapper.  Also prevents shebang-loop E2BIG when multiple wrappers are on PATH.
+_SAFE_PATH="/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin"
+
+# Invoke the wrapper using an explicit /bin/bash interpreter (bypasses PATH-based
+# shebang resolution and prevents infinite wrapper→shebang→wrapper loops).
+# Passes a clean, minimal environment so nothing leaks from the agent shell.
+# Callers prepend extra VAR=value pairs before the wrapper path:
+#   _wrap_run VAR=val "$WRAPPER" -c 'cmd'
+_wrap_run() {
+  env -i \
+    HOME="$HOME" \
+    TMPDIR="${TMPDIR:-/tmp}" \
+    PATH="$_SAFE_PATH" \
+    "$@"
+}
 
 # Inline copies of check_risk and evaluate_chain_risk from bin/bash.
 # These must stay in sync with the wrapper implementation.
@@ -46,39 +65,51 @@ for p in parts:
   echo "low"
 }
 
-echo "=== AC1: check_risk classification ==="
+WORK=$(mktemp -d)
+cleanup() { rm -rf "$WORK"; }
+trap cleanup EXIT
 
-# AC1a: git push → high
+echo "=== AC1: REAL_BASH resolution via symlink ==="
+
+# Create a fake bin dir with only a symlink named "bash" pointing to our wrapper.
+# The symlink appears first in PATH so "type -ap bash" finds it; the wrapper must
+# skip it via the realpath self-exclusion and pick the system bash instead.
+# We call via /bin/bash (not PATH lookup) to avoid the shebang-loop E2BIG.
+FAKEBIN="$WORK/fakebin"
+mkdir -p "$FAKEBIN"
+ln -s "$WRAPPER" "$FAKEBIN/bash"
+
+_wrap_run PATH="$FAKEBIN:$_SAFE_PATH" /bin/bash "$FAKEBIN/bash" -c 'exit 0'
+C_AC1=$?
+[ "$C_AC1" -eq 0 ] \
+  && _ok "symlinked wrapper resolves REAL_BASH to system bash (exit 0)" \
+  || _fail "symlinked wrapper resolves REAL_BASH to system bash (got exit $C_AC1)"
+
+echo ""
+echo "=== AC2: check_risk / chain classification ==="
+
 [ "$(check_risk 'git push origin main')" = "high" ] \
   && _ok "git push origin main → high" \
   || _fail "git push origin main → high"
 
-# AC1b: git commit → not high (spec names this tier "medium"; impl returns "low")
 [ "$(check_risk 'git commit -m "fix"')" != "high" ] \
   && _ok 'git commit -m "fix" → not high' \
   || _fail 'git commit -m "fix" → not high'
 
-# AC1c: bun test → low
 [ "$(check_risk 'bun test')" = "low" ] \
   && _ok "bun test → low" \
   || _fail "bun test → low"
 
-# AC1d: chained command — cd is low, but trailing git push makes the chain high
 [ "$(evaluate_chain_risk 'cd /tmp && git push origin main')" = "high" ] \
   && _ok "cd /tmp && git push origin main → high (chained)" \
   || _fail "cd /tmp && git push origin main → high (chained)"
 
-# AC1e: rm -rf → high
 [ "$(check_risk 'rm -rf /home')" = "high" ] \
   && _ok "rm -rf /home → high" \
   || _fail "rm -rf /home → high"
 
 echo ""
-echo "=== AC2: poll_approval paths ==="
-
-WORK=$(mktemp -d)
-cleanup() { rm -rf "$WORK"; }
-trap cleanup EXIT
+echo "=== AC3: poll_approval (python3 JSON parsing, no jq) ==="
 
 # Wait up to 5s for a request file to appear in dir $1; print its path.
 _wait_req() {
@@ -100,40 +131,67 @@ _write_decision() {
   printf '{"approved": %s}\n' "$approved" > "$dir/${agent}-${rid}.decision.json"
 }
 
-# AC2a: decision file with approved:true → wrapper exits 0
-# Mock git so the approved command always succeeds (we test wrapper behaviour, not real git).
+# Mock git so approved commands always succeed (tests wrapper behaviour, not real git).
 MOCKBIN="$WORK/mockbin"
 mkdir -p "$MOCKBIN"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$MOCKBIN/git"
 chmod +x "$MOCKBIN/git"
-rm -f "$WORK"/*.json 2>/dev/null
-PATH="$MOCKBIN:$PATH" SUPERVISOR_DECISIONS_DIR="$WORK" AGENT_NAME=test_agent "$WRAPPER" -c 'git push origin main' &
-W2A=$!
-REQ=$(_wait_req "$WORK") && _write_decision "$REQ" "true" "$WORK"
-wait "$W2A"; C2A=$?
-[ "$C2A" -eq 0 ] \
-  && _ok "approved → exit 0" \
-  || _fail "approved → exit 0 (got exit $C2A)"
 
-# AC2b: decision file with approved:false → wrapper exits 1
-rm -f "$WORK"/*.json 2>/dev/null
-SUPERVISOR_DECISIONS_DIR="$WORK" AGENT_NAME=test_agent "$WRAPPER" -c 'git push origin main' &
-W2B=$!
-REQ=$(_wait_req "$WORK") && _write_decision "$REQ" "false" "$WORK"
-wait "$W2B"; C2B=$?
-[ "$C2B" -eq 1 ] \
+# AC3a: approved:true → exit 0.
+DECDIR="$WORK/decisions_a"
+mkdir -p "$DECDIR"
+_wrap_run \
+  PATH="$MOCKBIN:$_SAFE_PATH" \
+  SUPERVISOR_DECISIONS_DIR="$DECDIR" \
+  AGENT_NAME=test_agent \
+  /bin/bash "$WRAPPER" -c 'git push origin main' &
+W3A=$!
+REQ=$(_wait_req "$DECDIR") && _write_decision "$REQ" "true" "$DECDIR"
+wait "$W3A"; C3A=$?
+[ "$C3A" -eq 0 ] \
+  && _ok "approved → exit 0 (python3 JSON parsing)" \
+  || _fail "approved → exit 0 (got exit $C3A)"
+
+# AC3b: approved:false → exit 1.
+DECDIR="$WORK/decisions_b"
+mkdir -p "$DECDIR"
+_wrap_run \
+  SUPERVISOR_DECISIONS_DIR="$DECDIR" \
+  AGENT_NAME=test_agent \
+  /bin/bash "$WRAPPER" -c 'git push origin main' &
+W3B=$!
+REQ=$(_wait_req "$DECDIR") && _write_decision "$REQ" "false" "$DECDIR"
+wait "$W3B"; C3B=$?
+[ "$C3B" -eq 1 ] \
   && _ok "rejected → exit 1" \
-  || _fail "rejected → exit 1 (got exit $C2B)"
+  || _fail "rejected → exit 1 (got exit $C3B)"
 
-# AC2c: no decision within timeout → non-zero exit
-# Uses `timeout 3` to bound the test; the wrapper would otherwise poll forever.
-rm -f "$WORK"/*.json 2>/dev/null
-timeout 3 env SUPERVISOR_DECISIONS_DIR="$WORK" AGENT_NAME=test_agent \
-  "$WRAPPER" -c 'git push origin main' >/dev/null 2>&1
-C2C=$?
-[ "$C2C" -ne 0 ] \
+# AC3c: no decision within timeout → non-zero exit.
+DECDIR="$WORK/decisions_c"
+mkdir -p "$DECDIR"
+timeout 3 env -i \
+  HOME="$HOME" TMPDIR="${TMPDIR:-/tmp}" PATH="$_SAFE_PATH" \
+  SUPERVISOR_DECISIONS_DIR="$DECDIR" AGENT_NAME=test_agent \
+  /bin/bash "$WRAPPER" -c 'git push origin main' >/dev/null 2>&1
+C3C=$?
+[ "$C3C" -ne 0 ] \
   && _ok "no decision within timeout → non-zero exit" \
-  || _fail "no decision within timeout → non-zero exit (got exit $C2C)"
+  || _fail "no decision within timeout → non-zero exit (got exit $C3C)"
+
+echo ""
+echo "=== AC6: SUPERVISOR_DECISIONS_DIR unset → exit 1 + stderr warning ==="
+
+STDERR_AC6="$WORK/ac6_stderr.txt"
+_wrap_run \
+  AGENT_NAME=test_agent \
+  /bin/bash "$WRAPPER" -c 'git push origin main' 2>"$STDERR_AC6"
+C_AC6=$?
+WARN_MSG=$(cat "$STDERR_AC6" 2>/dev/null || true)
+if [ "$C_AC6" -eq 1 ] && echo "$WARN_MSG" | grep -qi "SUPERVISOR_DECISIONS_DIR"; then
+  _ok "SUPERVISOR_DECISIONS_DIR unset → exit 1 + warning"
+else
+  _fail "SUPERVISOR_DECISIONS_DIR unset → exit 1 + warning (exit=$C_AC6, stderr='$WARN_MSG')"
+fi
 
 echo ""
 printf '=== Results: %d passed, %d failed ===\n' "$pass" "$fail"

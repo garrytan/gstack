@@ -2,6 +2,27 @@
 import type { ServerResponse } from "node:http";
 import { readdirSync, readFileSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
+import { spawnSync } from "node:child_process";
+
+// Scan each agent checkout directory for a git remote URL that contains the
+// control-repo slug. Returns the first matching dir, or null if none match.
+// CONTROL_DIR env var short-circuits all git calls (AC3).
+// Non-existent dirs and git errors are silently skipped (AC5).
+export function resolveControlDir(agentDirs: string[]): string | null {
+  if (process.env.CONTROL_DIR) return process.env.CONTROL_DIR;
+  for (const dir of agentDirs) {
+    try {
+      const r = spawnSync("git", ["-C", dir, "remote", "get-url", "origin"], { encoding: "utf8" });
+      if ((r.status ?? 1) !== 0) continue;
+      const url = (r.stdout ?? "").trim();
+      if (url.includes("seab-group/tshepostack")) return dir;
+    } catch {
+      // silently skip unreadable dirs (AC5)
+    }
+  }
+  console.warn("[resolveControlDir] no agent directory matched control-repo remote");
+  return null;
+}
 
 export type AgentStatus = {
   name: string;
@@ -52,16 +73,39 @@ export function readFleetStatus(agents: string[], agentsHome: string): AgentStat
 
 // Returns an fs.watch callback for a single agent's log directory.
 // Exported so tests can verify broadcast payloads without real filesystem events.
+// broadcastFn receives a complete SSE frame (event + data lines, terminated with \n\n).
+// cache is updated with the last fleet-update payload per agent for Last-Event-ID replay.
 export function makeWatchHandler(
   agent: string,
-  broadcastFn: (msg: string) => void,
+  logDir: string,
+  broadcastFn: (frame: string) => void,
+  cache: Map<string, string>,
 ): (_event: string, filename: string | null) => void {
   return (_event, filename) => {
     if (filename === "live-events.jsonl") {
-      broadcastFn(JSON.stringify({ agent, file: filename, ts: Date.now() }));
+      // AC2: read last JSON line and broadcast fleet-update.
+      // AC3: silently skip on ENOENT or permission error — watcher stays active.
+      try {
+        const content = readFileSync(join(logDir, "live-events.jsonl"), "utf8");
+        const lines = content.trimEnd().split("\n").filter(Boolean);
+        if (!lines.length) return;
+        const parsed = JSON.parse(lines[lines.length - 1]) as Record<string, unknown>;
+        const payload = JSON.stringify({
+          type: "fleet-update",
+          agent,
+          task: parsed.task ?? null,
+          tool: parsed.tool ?? null,
+          summary: parsed.summary ?? null,
+          ts: Date.now(),
+        });
+        cache.set(agent, payload);
+        broadcastFn(`event: fleet-update\ndata: ${payload}\n\n`);
+      } catch {
+        // AC3: unreadable — skip silently
+      }
     } else if (filename === "live.json") {
-      // AC4: broadcast fleet-update so browsers know to re-fetch /api/fleet.
-      broadcastFn(JSON.stringify({ type: "fleet-update", agent, ts: Date.now() }));
+      const payload = JSON.stringify({ type: "fleet-update", agent, ts: Date.now() });
+      broadcastFn(`event: fleet-update\ndata: ${payload}\n\n`);
     }
   };
 }
@@ -100,6 +144,17 @@ export function serveStatic(rootDir: string, urlPath: string, res: ServerRespons
     res.writeHead(404);
     res.end("Not Found");
   }
+}
+
+// Resolve the server port from the PORT env var (default 7842).
+// Throws on non-numeric or out-of-range values so callers can exit 1.
+export function resolvePort(portEnv: string | undefined): number {
+  if (!portEnv) return 7842;
+  const n = parseInt(portEnv, 10);
+  if (isNaN(n) || n < 1024 || n > 65535) {
+    throw new Error(`Invalid PORT value: "${portEnv}" — expected a number between 1024 and 65535`);
+  }
+  return n;
 }
 
 // Uppercase letters, hyphen, digits only — no path segments, no traversal.
@@ -155,6 +210,33 @@ export function parseTaskLedger(ledgerDir: string): TaskEntry[] {
     }
     return entry;
   });
+}
+
+export type ApprovalItem = Record<string, unknown>;
+
+// Return unresolved approval request files from decisionsDir.
+// "Unresolved" = {agent}-{id}.json exists but {agent}-{id}.decision.json does NOT.
+// Returns [] when decisionsDir is falsy, absent, or unreadable (AC5, AC6).
+export function readApprovals(decisionsDir: string | undefined): ApprovalItem[] {
+  if (!decisionsDir) return [];
+  let files: string[];
+  try {
+    files = readdirSync(decisionsDir);
+  } catch {
+    return [];
+  }
+  const decisionSet = new Set(files.filter((f) => f.endsWith(".decision.json")));
+  return files
+    .filter((f) => f.endsWith(".json") && !f.endsWith(".decision.json"))
+    .filter((f) => !decisionSet.has(f.replace(/\.json$/, ".decision.json")))
+    .map((f): ApprovalItem | null => {
+      try {
+        return JSON.parse(readFileSync(join(decisionsDir, f), "utf8")) as ApprovalItem;
+      } catch {
+        return null;
+      }
+    })
+    .filter((item): item is ApprovalItem => item !== null);
 }
 
 // Parse a mailbox file's content into an array of note objects.
