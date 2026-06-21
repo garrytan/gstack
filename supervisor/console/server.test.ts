@@ -5,6 +5,7 @@ import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { createServer } from "node:http";
 import type { Server, IncomingMessage, ServerResponse } from "node:http";
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -16,6 +17,7 @@ import {
   serveStatic,
   readFleetStatus,
   makeWatchHandler,
+  resolveControlDir,
   type AgentStatus,
 } from "./server-utils.ts";
 
@@ -394,5 +396,68 @@ describe("parseMailboxNotes", () => {
     expect(notes).toHaveLength(1);
     expect(notes[0].from).toBe("agent-qa");
     expect(notes[0].taskId).toBe("CONS-003");
+  });
+});
+
+// --- T2: resolveControlDir ---
+
+const rcdBase = join(tmpdir(), `rcd-test-${process.pid}`);
+
+function initGitDir(dir: string, remoteUrl: string): void {
+  mkdirSync(dir, { recursive: true });
+  spawnSync("git", ["init"], { cwd: dir, encoding: "utf8" });
+  spawnSync("git", ["remote", "add", "origin", remoteUrl], { cwd: dir, encoding: "utf8" });
+}
+
+describe("resolveControlDir (AC1) — returns first dir whose remote matches slug", () => {
+  const dir1 = join(rcdBase, "ac1-agent-a", "control");
+  const dir2 = join(rcdBase, "ac1-agent-b", "control");
+
+  test("returns dir with matching remote when one of two dirs matches", () => {
+    const prev = process.env.CONTROL_DIR;
+    delete process.env.CONTROL_DIR;
+    initGitDir(dir1, "git@github.com:other-org/other-repo.git");
+    initGitDir(dir2, "git@github.com:seab-group/tshepostack.git");
+    const result = resolveControlDir([dir1, dir2]);
+    process.env.CONTROL_DIR = prev;
+    expect(result).toBe(dir2);
+  });
+});
+
+describe("resolveControlDir (AC2) — returns null when no dir matches", () => {
+  const dir1 = join(rcdBase, "ac2-agent-a", "control");
+  const dir2 = join(rcdBase, "ac2-agent-b", "control");
+
+  test("returns null when all dirs have unrelated remote URLs", () => {
+    const prev = process.env.CONTROL_DIR;
+    delete process.env.CONTROL_DIR;
+    initGitDir(dir1, "git@github.com:other-org/repo-a.git");
+    initGitDir(dir2, "git@github.com:other-org/repo-b.git");
+    const result = resolveControlDir([dir1, dir2]);
+    process.env.CONTROL_DIR = prev;
+    expect(result).toBeNull();
+  });
+});
+
+describe("resolveControlDir (AC3) — CONTROL_DIR env var short-circuits git", () => {
+  test("returns CONTROL_DIR env var without running git on non-existent dir", () => {
+    const prev = process.env.CONTROL_DIR;
+    process.env.CONTROL_DIR = "/fake/control/path";
+    const result = resolveControlDir([join(rcdBase, "nonexistent")]);
+    process.env.CONTROL_DIR = prev;
+    expect(result).toBe("/fake/control/path");
+  });
+});
+
+describe("resolveControlDir (AC5) — skips non-existent dirs silently", () => {
+  test("does not throw for a path that does not exist, returns null", () => {
+    const prev = process.env.CONTROL_DIR;
+    delete process.env.CONTROL_DIR;
+    let result: string | null;
+    expect(() => {
+      result = resolveControlDir([join(rcdBase, "missing-dir", "control")]);
+    }).not.toThrow();
+    expect(result!).toBeNull();
+    process.env.CONTROL_DIR = prev;
   });
 });

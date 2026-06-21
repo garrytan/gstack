@@ -6,7 +6,7 @@
 
 import { createServer } from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { existsSync, watch, mkdirSync, readFileSync } from "fs";
+import { watch, mkdirSync, readFileSync } from "fs";
 import { spawnSync } from "child_process";
 import { appendFile, readdir, stat, unlink, writeFile } from "fs/promises";
 import { homedir } from "os";
@@ -22,61 +22,12 @@ import {
   serveStatic,
   readFleetStatus,
   makeWatchHandler,
+  resolveControlDir,
 } from "./server-utils.ts";
 
 const PORT = 7842;
 const HOSTNAME = "127.0.0.1";
 const __dirname = dirname(fileURLToPath(import.meta.url));
-
-function resolveControlDir(agents: string[]): string {
-  // CONS-002 AC5: explicit override via env var.
-  if (process.env.CONTROL_DIR) {
-    return process.env.CONTROL_DIR;
-  }
-
-  if (!agents.length) {
-    throw new Error("fleet.conf has no agent entries");
-  }
-  const firstAgent = agents[0];
-
-  // CONS-002 AC4: derive URL via git, not a separate config file.
-  const agentControlPath = join(homedir(), "agents", firstAgent, "control");
-  const gitResult = spawnSync(
-    "git",
-    ["-C", agentControlPath, "remote", "get-url", "origin"],
-    { encoding: "utf8" }
-  );
-  const gitExit = gitResult.status ?? 1;
-  const remoteUrl = (gitResult.stdout ?? "").trim();
-
-  if (gitExit !== 0 || !remoteUrl) {
-    throw new Error(
-      `Could not read control repo remote URL from ${agentControlPath}`
-    );
-  }
-
-  const clonePath = join(homedir(), "agents", "console", "control");
-
-  // CONS-002 AC2: already cloned — start immediately.
-  if (existsSync(clonePath)) {
-    return clonePath;
-  }
-
-  // CONS-002 AC1: clone is blocking; server.listen() is not called until done.
-  console.log(`Cloning control repo from ${remoteUrl}...`);
-  const cloneResult = spawnSync("git", ["clone", remoteUrl, clonePath], {
-    stdio: "inherit",
-  });
-  const cloneExit = cloneResult.status ?? 1;
-
-  // CONS-002 AC6: non-zero exit on failure; no server is started.
-  if (cloneExit !== 0) {
-    console.error(`ERROR: failed to clone control repo from ${remoteUrl}`);
-    process.exit(1);
-  }
-
-  return clonePath;
-}
 
 // Run a git subcommand in repoPath, return exit code.
 function runGit(args: string[], repoPath: string): number {
@@ -174,9 +125,14 @@ try {
 const agentList = parseFleetConf(fleetContent);
 const validAgents = new Set(agentList); // AC3, AC6: Set built at startup
 
-// Resolve control dir (blocking — server.listen() is called only after this).
-const controlDir = resolveControlDir(agentList);
-console.log(`Control dir: ${controlDir}`);
+// Scan each agent's control checkout to find the control repo (T2 AC1/AC4).
+const agentDirs = agentList.map((name) => join(homedir(), "agents", name, "control"));
+const controlDir = resolveControlDir(agentDirs) ?? "";
+if (controlDir) {
+  console.log(`Control dir: ${controlDir}`);
+} else {
+  console.warn("WARNING: control dir not found — mailbox and ledger routes unavailable");
+}
 
 // SSE client registry — one ServerResponse per connected browser tab.
 const sseClients = new Set<ServerResponse>();
