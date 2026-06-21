@@ -294,6 +294,60 @@ export function readApprovals(decisionsDir: string | undefined): ApprovalItem[] 
     });
 }
 
+export interface LogEvent {
+  ts: string;
+  tool: string;
+  summary: string;
+  path: string | null;
+}
+
+// Read the last n lines of a JSONL log file. Silently skips malformed lines (AC5).
+// Returns { events: [], totalLines: 0 } when the file is absent or empty (AC4).
+export function readLogTail(logFile: string, n: number): { events: LogEvent[]; totalLines: number } {
+  let content: string;
+  try {
+    content = readFileSync(logFile, "utf8");
+  } catch {
+    return { events: [], totalLines: 0 };
+  }
+  const lines = content.split("\n").filter((l) => l.trim() !== "");
+  const totalLines = lines.length;
+  const events: LogEvent[] = [];
+  for (const line of lines.slice(-n)) {
+    try {
+      const ev = JSON.parse(line) as Record<string, unknown>;
+      events.push({
+        ts: typeof ev.ts === "string" ? ev.ts : "",
+        tool: typeof ev.tool === "string" ? ev.tool : "",
+        summary: typeof ev.summary === "string" ? ev.summary : "",
+        path: typeof ev.path === "string" ? ev.path : null,
+      });
+    } catch {
+      // AC5: silently skip malformed lines
+    }
+  }
+  return { events, totalLines };
+}
+
+// Simple token bucket rate limiter — caller owns state, resets when the returned object is GC'd.
+// check(ip) returns true (allowed) or false (over limit → respond 429).
+export function makeRateLimiter(maxPerSecond: number): { check: (ip: string) => boolean } {
+  const map = new Map<string, { count: number; resetAt: number }>();
+  return {
+    check(ip: string): boolean {
+      const now = Date.now();
+      const entry = map.get(ip);
+      if (!entry || now >= entry.resetAt) {
+        map.set(ip, { count: 1, resetAt: now + 1000 });
+        return true;
+      }
+      if (entry.count >= maxPerSecond) return false;
+      entry.count++;
+      return true;
+    },
+  };
+}
+
 // Parse a mailbox file's content into an array of note objects.
 // Returns [] when the file contains only the <!-- cleared --> marker.
 export function parseMailboxNotes(content: string): MailboxNote[] {

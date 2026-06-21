@@ -25,6 +25,8 @@ import {
   gitCommitAndPush,
   resolvePort,
   readApprovals,
+  readLogTail,
+  makeRateLimiter,
 } from "./server-utils.ts";
 
 // Validate PORT early — before any filesystem reads (AC5: exit 1 before bind).
@@ -120,6 +122,9 @@ const sseClients = new Set<ServerResponse>();
 
 // AC4: last known fleet-update payload per agent — replayed on reconnect.
 const lastEventCache = new Map<string, string>();
+
+// AC7 (T12): module-level rate limiter for GET /api/log/:agent — resets on server restart.
+const logRateLimiter = makeRateLimiter(10);
 
 // broadcastFn: frame is a complete SSE frame (event + data lines, terminated with \n\n).
 function broadcast(frame: string): void {
@@ -313,6 +318,43 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     const attention = allTasks.filter((t) => t.status === "needs_human");
     const approvals = readApprovals(process.env.SUPERVISOR_DECISIONS_DIR);
     sendJson(res, { approvals, attention });
+    return;
+  }
+
+  // GET /api/log/:agent — return last N events from live-events.jsonl (T12).
+  if (path.startsWith("/api/log/") && method === "GET") {
+    const agentName = path.slice("/api/log/".length).split("/")[0];
+    if (!validAgents.has(agentName)) {
+      sendJson(res, { error: "not found" }, 404);
+      return;
+    }
+    const ip = (req.socket as { remoteAddress?: string }).remoteAddress ?? "unknown";
+    if (!logRateLimiter.check(ip)) {
+      sendJson(res, { error: "rate limit exceeded" }, 429);
+      return;
+    }
+    const qIdx = (req.url ?? "").indexOf("?");
+    const nStr = qIdx !== -1
+      ? new URLSearchParams((req.url ?? "").slice(qIdx + 1)).get("n")
+      : null;
+    let n = 50;
+    if (nStr !== null) {
+      const parsed = parseInt(nStr, 10);
+      if (isNaN(parsed) || parsed < 1 || parsed > 200) {
+        sendJson(res, { error: "n must be 1-200" }, 400);
+        return;
+      }
+      n = parsed;
+    }
+    const logFile = join(homedir(), "agents", agentName, "logs", "live-events.jsonl");
+    const { events, totalLines } = readLogTail(logFile, n);
+    const data = JSON.stringify({ events });
+    res.writeHead(200, {
+      "content-type": "application/json",
+      "x-log-lines": String(totalLines),
+      "content-length": Buffer.byteLength(data),
+    });
+    res.end(data);
     return;
   }
 
