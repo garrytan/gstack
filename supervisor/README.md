@@ -121,21 +121,39 @@ Agents use the Claude Bash tool for all shell operations. To prevent accidental 
 
 1. **Prepended to PATH.** `run-agent.sh` exports `$SUPERVISOR_DIR/console/bin` first on PATH, so every Bash tool call (from Claude) hits the wrapper before the system bash.
 
-2. **Risk classification.** The wrapper identifies high-risk patterns anywhere in the command string (including chained commands like `cd /tmp && git push`):
+2. **Real bash detection.** The wrapper locates the actual system bash to delegate approved commands. It resolves its own canonical path using `BASH_SOURCE[0]` (not `$0`, which is unreliable when invoked via PATH), then iterates `type -ap bash` candidates, comparing each via `realpath` to skip any path — including symlinks — that resolves to itself:
+   ```bash
+   _SELF=$(realpath "${BASH_SOURCE[0]}" ...)
+   while IFS= read -r _cand; do
+     _cand_real=$(realpath "$_cand" ...)
+     [ "$_cand_real" = "$_SELF" ] && continue
+     REAL_BASH="$_cand"; break
+   done < <(type -ap bash)
+   ```
+   This correctly handles setups where a symlink to the wrapper appears earlier on PATH than the system bash.
+
+3. **Risk classification.** The wrapper uses two functions:
+   - `check_risk <cmd>` — returns `high` if the command string matches a high-risk pattern anywhere (no `^` anchor so patterns in chained commands are caught).
+   - `evaluate_chain_risk <cmd>` — splits the full command on `&&`, `||`, and `;` using `python3 -c "import re, sys; parts = re.split(...)"`, then calls `check_risk` on each segment. A chain like `cd /tmp && git push origin main` is classified `high` because the second segment matches.
+
+   High-risk patterns:
    - Git mutations: `git push`, `git rebase`, `git reset`
    - Destructive file ops: `rm -rf`, `chmod -R`, `chown -R`
    - Data/device access: `curl | bash`, `wget | bash`, `dd if=`, `mkfs`, `fdisk`
 
-3. **Low-risk pass-through.** Commands like `git clone`, `ls`, `npm install` execute immediately without gating.
+4. **Low-risk pass-through.** Commands like `git clone`, `ls`, `npm install` execute immediately without gating.
 
-4. **High-risk intercept.** When a high-risk command is detected:
-   - Wrapper writes a JSON request file to `$SUPERVISOR_DECISIONS_DIR/<agent>-<request-id>.json`
+5. **High-risk intercept.** When a high-risk command is detected:
+   - Wrapper writes a JSON request file to `$SUPERVISOR_DECISIONS_DIR/<agent>-<request-id>.json` using `python3 -c "import json, sys; ..."` (no `jq` dependency)
    - Logs the command to stderr: `[bash-wrapper] HIGH RISK — blocked, awaiting console decision`
-   - Polls for an approval response file (`<agent>-<request-id>.decision.json`)
+   - Polls for an approval response file (`<agent>-<request-id>.decision.json`), also parsed with `python3 -c "import json, sys; ..."`
    - If `{"approved": true}` — executes the command
    - If `{"approved": false}` or timeout — blocks and exits with code 1
 
-5. **Fallback when console is down.** If `$SUPERVISOR_DECISIONS_DIR` is not set, the wrapper blocks with a warning and does NOT execute the command. This prevents silent execution when the console is unavailable.
+6. **Fallback when console is down.** If `$SUPERVISOR_DECISIONS_DIR` is not set, the wrapper blocks with a warning and exits 1. This prevents silent execution when the console is unavailable:
+   ```
+   [bash-wrapper] WARNING: SUPERVISOR_DECISIONS_DIR not set; blocking high-risk command
+   ```
 
 ### Accessing decision files
 
@@ -779,7 +797,7 @@ The textarea uses placeholder text for hints but the actual label is a proper se
 The browser tab title updates dynamically based on queue state:
 
 - **Pending items (N > 0):** `(N) Fleet Console` (e.g., "(2) Fleet Console")
-- **All clear:** `Fleet Console — All clear`
+- **All clear (N = 0):** `Fleet Console`
 
 The title updates every time cards are added or removed, giving operators a quick status check from the browser tab without opening the console.
 
@@ -830,25 +848,33 @@ bun test supervisor/console/
 
 ### Bash wrapper tests — `bash-wrapper.test.sh` + `bash-wrapper.test.ts`
 
-**Risk classification (AC1):** The `check_risk` function classifies commands into security tiers:
+The test suite uses `env -i + /bin/bash "$WRAPPER"` invocation throughout to avoid shebang-loop `E2BIG` errors that occur when multiple bash wrappers share a PATH. Each test passes a clean, minimal environment (`HOME`, `TMPDIR`, `PATH` pointing to system binaries only).
 
-| Command | Classification | Example |
-|---------|-----------------|---------|
-| Destructive git operations | high | `git push origin main`, `git rebase`, `git reset` |
-| Recursive file operations | high | `rm -rf /home`, `chmod -R`, `chown -R`, `mkfs`, `fdisk` |
-| Pipe-to-shell | high | `curl \| bash`, `wget \| sh` |
-| Safe commands | low | `git clone`, `ls`, `bun test`, `cd` |
-| Chained operations | high | `cd /tmp && git push origin main` (if any segment is high) |
+**REAL_BASH symlink detection (AC1):** A fake `bin/` directory is created containing only a symlink named `bash` that points to the wrapper itself. When the fake bin appears first on PATH, the wrapper's `realpath`-based loop must skip it and find the system bash. The test calls the wrapper via `/bin/bash "$WRAPPER"` (bypassing PATH lookup) and asserts exit 0.
 
-The classification runs inline in the bash wrapper (`supervisor/console/bin/bash`) before attempting execution. Commands classified as high are sent to the console for operator approval; low-risk commands execute immediately.
+**Chain-risk classification (AC2):** The inline `check_risk` and `evaluate_chain_risk` functions are tested:
 
-**Approval polling (AC2):** When a command is blocked, the wrapper polls for a decision file:
+| Command | Classification | Reason |
+|---------|-----------------|--------|
+| `git push origin main` | high | direct git push match |
+| `git commit -m "fix"` | not high | no high-risk pattern |
+| `bun test` | low | safe command |
+| `cd /tmp && git push origin main` | high | `git push` in second segment |
+| `rm -rf /home` | high | recursive remove |
 
-- **Approved path:** If `<agent>-<request-id>.decision.json` appears with `{"approved": true}`, the wrapper executes the command and exits 0.
-- **Rejected path:** If the decision file has `{"approved": false}`, the wrapper exits 1 (command blocked).
-- **Timeout path:** If no decision file appears within 60s, the wrapper exits 1 (timeout protection prevents indefinite hangs).
+**Approval polling via python3 (AC3):** Decision file parsing uses `python3 -c "import json, sys; ..."` — no `jq` dependency. Three paths are verified:
 
-All three paths are covered by the test suite.
+- **Approved path:** Decision file with `{"approved": true}` → wrapper executes the command, exits 0.
+- **Rejected path:** Decision file with `{"approved": false}` → wrapper exits 1 (command blocked).
+- **Timeout path:** No decision file appears within 3s (test-bounded) → non-zero exit (prevents indefinite hangs).
+
+All three paths use isolated decision directories to prevent cross-test interference.
+
+**SUPERVISOR_DECISIONS_DIR guard (AC6):** When `SUPERVISOR_DECISIONS_DIR` is unset and the wrapper intercepts a high-risk command, it:
+- Exits with code 1
+- Writes a warning to stderr containing `SUPERVISOR_DECISIONS_DIR`
+
+Both conditions are asserted. This verifies commands are never silently executed when the console is unavailable.
 
 ### Server endpoint tests — `server.test.ts` + `server-utils.ts`
 
@@ -1007,6 +1033,75 @@ Static serving is optimized for console UI delivery:
 - **Synchronous reads:** `readFileSync()` is safe here because console startup is not performance-critical and files are typically small (<100KB total). Async reads would complicate the response lifecycle.
 - **Guard constraint:** The traversal check requires `resolved.startsWith(safeRoot + sep)` to ensure the slash is present. Without the trailing separator, `/home` would accidentally match `/home2/attacker`. The `sep` constant is `node:path.sep` (platform-aware).
 - **Error handling:** Any `readFileSync` exception (permission denied, etc.) is caught and returns HTTP 404, treating the file as missing rather than distinguishing permission errors.
+
+---
+
+## Queue tab bootstrap — GET /api/queue endpoint (v7.1)
+
+The console exposes `GET /api/queue` so the Queue tab populates immediately on first load and after a page refresh, without waiting for SSE events. Before this endpoint, a blocked command whose SSE event was missed (e.g., the operator opened the console after the bash wrapper had already sent the event) left the Queue tab blank even though work was waiting.
+
+### Server side — GET /api/queue
+
+**Endpoint:** `GET /api/queue`
+
+**Response:** HTTP 200 with `Content-Type: application/json`:
+
+```json
+{
+  "approvals": [
+    { "id": "REQ-1", "agent": "agent-fe", "command": "rm test.txt", "risk": "low" }
+  ],
+  "attention": [
+    { "id": "CONS-999", "status": "needs_human", "domain": "be", "description": "..." }
+  ]
+}
+```
+
+- **`approvals`** — Unresolved approval request files from `SUPERVISOR_DECISIONS_DIR`. An "unresolved" file is one where `{agent}-{id}.json` exists but the matching `{agent}-{id}.decision.json` does NOT yet exist in the same directory.
+- **`attention`** — All tasks with `status: needs_human` from the ledger (same data as `GET /api/attention`).
+
+When `SUPERVISOR_DECISIONS_DIR` is unset, the directory does not exist, or is unreadable, `approvals` returns `[]` — the endpoint never returns 503 or 500 for a missing or absent directory (AC5, AC6).
+
+### readApprovals() — server-utils.ts
+
+The `readApprovals(decisionsDir)` utility reads unresolved approval request files:
+
+1. Returns `[]` immediately if `decisionsDir` is falsy (AC5).
+2. Calls `readdirSync(decisionsDir)` — catches any error and returns `[]` so a missing or unreadable directory never causes a 500 (AC6).
+3. Builds a `Set` of all `.decision.json` filenames present in the directory.
+4. Filters the `.json` files to those without a matching `.decision.json` entry — these are the unresolved requests.
+5. Reads and JSON-parses each unresolved file with `readFileSync()`; silently skips any file that fails to parse.
+
+### Client side — fetchQueue() in console.js
+
+`fetchQueue()` is an async function in `console.js` that fetches `GET /api/queue` and renders its results into the existing card containers:
+
+- **Called on tab activate (AC2):** `switchTab('queue')` calls `fetchQueue()` so the Queue tab is populated before any SSE event arrives.
+- **Called on SSE reconnect (AC3):** The SSE `open` event handler calls `fetchQueue()` to re-sync the tab after a dropped connection.
+- **Deduplication (AC3 constraint):** Before prepending a card, `fetchQueue()` checks `document.getElementById(cardId)` where `cardId` is `approval-{id}` or `attention-{id}`. If the element already exists, that card is skipped. This prevents duplicates when SSE events and the bootstrap fetch both deliver the same item.
+- **State sync:** After rendering all cards from the response, `fetchQueue()` calls `syncState()` to update counts, badges, and the document title.
+
+### Document title — AC4
+
+The title format `(N) Fleet Console` (N > 0) / `Fleet Console` (N = 0) is implemented by the pre-existing `syncState()` function with no new code required in CONS-016:
+
+```javascript
+document.title = total > 0 ? `(${total}) Fleet Console` : 'Fleet Console';
+```
+
+`total = approvalCount + attentionCount`. `fetchQueue()` calls `syncState()` after updating the counts, so the title reflects the bootstrapped queue depth immediately.
+
+### Test coverage
+
+Three new `describe` blocks in `server.test.ts` cover the server-side ACs:
+
+| Describe block | AC | What it asserts |
+|---|---|---|
+| `GET /api/queue` | AC1 | Returns only unresolved approvals (REQ-1, not REQ-2 which has a `.decision.json`) + needs_human tasks from the ledger |
+| `GET /api/queue no decisions dir` | AC5 | `readApprovals(undefined)` → `[]`; `readApprovals("")` → `[]` |
+| `GET /api/queue missing dir` | AC6 | `readApprovals(nonexistent-path)` → `[]`, no exception thrown |
+
+Test fixtures in `beforeAll`: one unresolved approval file (`agent-fe-REQ-1.json`), one resolved pair (`agent-fe-REQ-2.json` + `agent-fe-REQ-2.decision.json`). The AC1 test asserts that only REQ-1 appears in the response.
 
 ---
 

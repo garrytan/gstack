@@ -2,6 +2,7 @@
 
 const SSE_URL = '/api/events';
 const FLEET_URL = '/api/fleet';
+const QUEUE_URL = '/api/queue';
 const RECONNECT_DELAY_MS = 3000;
 const FLEET_STALE_MS = 30000;
 
@@ -19,6 +20,7 @@ const attentionBadge = $('attention-badge');
 const approvalBadge = $('approval-badge');
 
 let sseConnected = false;
+let currentEs = null;
 let attentionCount = 0;
 let approvalCount = 0;
 
@@ -77,6 +79,10 @@ function switchTab(name) {
     stopFleetStalenessTimer();
   }
 
+  if (name === 'queue') {
+    fetchQueue();
+  }
+
   syncState();
 }
 
@@ -120,14 +126,23 @@ function renderFleet(agents) {
     const toolCell = a.lastTool ? esc(a.lastTool) : '—';
     const summaryText = a.lastSummary ? a.lastSummary.slice(0, 60) : '';
     const summaryCell = summaryText ? esc(summaryText) : '';
+    const avatarSrc = `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(a.name)}&size=32`;
 
     tr.innerHTML = `
-      <td class="fleet-agent">${esc(a.name)}</td>
-      <td>${stateToHtml(a.state)}</td>
-      <td>${taskCell}</td>
-      <td class="fleet-elapsed">—</td>
-      <td class="fleet-tool">${toolCell}</td>
-      <td class="fleet-summary">${summaryCell}</td>
+      <td class="fleet-agent" data-label="Agent">
+        <div class="fleet-agent-cell">
+          <div class="fleet-avatar">
+            <img src="${avatarSrc}" width="32" height="32" alt="" onerror="this.style.display='none';this.nextElementSibling.style.display='block'">
+            <div class="fleet-avatar-fallback" aria-hidden="true"></div>
+          </div>
+          <span>${esc(a.name)}</span>
+        </div>
+      </td>
+      <td data-label="State">${stateToHtml(a.state)}</td>
+      <td data-label="Task">${taskCell}</td>
+      <td class="fleet-elapsed" data-label="Elapsed">—</td>
+      <td class="fleet-tool" data-label="Tool">${toolCell}</td>
+      <td class="fleet-summary" data-label="Activity">${summaryCell}</td>
     `;
 
     tbody.appendChild(tr);
@@ -135,7 +150,7 @@ function renderFleet(agents) {
     if (!a.ended && a.sessionStart) {
       const elapsedEl = tr.querySelector('.fleet-elapsed');
       updateElapsed(elapsedEl, a.sessionStart);
-      const timer = setInterval(() => updateElapsed(elapsedEl, a.sessionStart), 1000);
+      const timer = setInterval(() => updateElapsed(elapsedEl, a.sessionStart), 10000);
       fleetElapsedTimers.set(a.name, timer);
     }
   }
@@ -184,6 +199,43 @@ function stopFleetStalenessTimer() {
   }
 }
 
+/* ── Queue bootstrap ── */
+
+async function fetchQueue() {
+  try {
+    const res = await fetch(QUEUE_URL);
+    if (!res.ok) return;
+    const data = await res.json();
+
+    for (const item of (data.approvals || [])) {
+      if (!item.id) continue;
+      const cardId = `approval-${item.id}`;
+      if (document.getElementById(cardId)) continue;
+      const card = buildApprovalCard(item);
+      approvalCards.prepend(card);
+      approvalCount++;
+    }
+
+    for (const task of (data.attention || [])) {
+      if (!task.id) continue;
+      const cardId = `attention-${task.id}`;
+      if (document.getElementById(cardId)) continue;
+      const ev = {
+        id: task.id,
+        task_id: task.id,
+        agent: task.claimed_by || task.domain || 'unknown',
+        title: task.description || task.id,
+        failure_count: parseInt(task.failure_count || '0', 10) || 0,
+      };
+      const card = buildAttentionCard(ev);
+      attentionCards.prepend(card);
+      attentionCount++;
+    }
+
+    syncState();
+  } catch (_) {}
+}
+
 /* ── State sync ── */
 
 function syncState() {
@@ -219,7 +271,25 @@ function exitCard(card, onRemove) {
   setTimeout(() => {
     card.remove();
     if (onRemove) onRemove();
-  }, 150);
+  }, 300);
+}
+
+/* ── SSE dot: green/amber/red checked every 2s (AC3) ── */
+
+function updateSseDot() {
+  const rs = currentEs ? currentEs.readyState : 2;
+  if (rs === 1) {
+    sseDot.classList.remove('disconnected', 'connecting');
+    sseLabel.textContent = 'live';
+  } else if (rs === 0) {
+    sseDot.classList.remove('disconnected');
+    sseDot.classList.add('connecting');
+    sseLabel.textContent = 'connecting';
+  } else {
+    sseDot.classList.remove('connecting');
+    sseDot.classList.add('disconnected');
+    sseLabel.textContent = 'offline';
+  }
 }
 
 /* ── Approval card ── */
@@ -238,7 +308,7 @@ function buildApprovalCard(ev) {
     : `<div class="no-files-note">No files affected</div>`;
 
   const riskClass = risk === 'high' ? 'risk-high' : 'risk-medium';
-  const riskLabel = risk.toUpperCase() + ' RISK';
+  const riskLabel = risk.toUpperCase();
 
   article.innerHTML = `
     <div class="card-meta">
@@ -248,7 +318,7 @@ function buildApprovalCard(ev) {
       <div class="card-meta-spacer"></div>
       <span class="approval-risk-label ${riskClass}">${riskLabel}</span>
     </div>
-    <div class="approval-command" role="code">${esc(ev.command || '')}</div>
+    <code class="approval-command">${esc(ev.command || '')}</code>
     <div class="approval-description">${esc(ev.description || '')}</div>
     ${filePillsHtml}
     <div class="approval-footer">
@@ -270,7 +340,6 @@ function buildApprovalCard(ev) {
     approveBtn.disabled = true;
     rejectBtn.disabled = true;
     sendDecision(ev.id, 'approve').finally(() => {
-      /* AC4b: card-exit + DOM removal after 150ms */
       exitCard(article, () => {
         approvalCount--;
         syncState();
@@ -300,6 +369,7 @@ function buildApprovalCard(ev) {
 function buildAttentionCard(ev) {
   const cardId = `attention-${ev.id}`;
   const textareaId = `decision-${ev.id}`;
+  const unblockSectionId = `unblock-section-${ev.id}`;
   const draftPanelId = `draft-panel-${ev.id}`;
   const failureCount = ev.failure_count || 0;
 
@@ -308,7 +378,6 @@ function buildAttentionCard(ev) {
   article.setAttribute('aria-label', `Blocked task: ${ev.task_id}`);
   article.id = cardId;
 
-  /* AC5: amber failure badge when failure_count >= 2 */
   const failureBadgeHtml = failureCount >= 2
     ? `<span class="failure-badge" aria-label="Blocked ${failureCount} times">⚠ blocked ${failureCount} times</span>`
     : '';
@@ -317,7 +386,11 @@ function buildAttentionCard(ev) {
     `<div class="card-ac-row"><span class="ac-id">${esc(ac.id)}</span><span>${esc(ac.text)}</span></div>`
   ).join('');
 
-  /* AC6: AI draft panel (collapsed by default, toggle reveals it) */
+  /* Cap agent note at 160 chars (AC5) */
+  const noteRaw = ev.agent_note || '';
+  const noteText = noteRaw.length > 160 ? noteRaw.slice(0, 160) + '…' : noteRaw;
+
+  /* AI draft panel (collapsed by default, inside the unblock section) */
   const draftText = ev.ai_draft || '';
   const draftPanelHtml = draftText ? `
     <div class="ai-draft-panel" id="${draftPanelId}" aria-label="AI draft decision" style="display:none">
@@ -347,25 +420,30 @@ function buildAttentionCard(ev) {
       <span class="card-timer" aria-live="polite" data-started="${Date.now()}"></span>
     </div>
     <div class="card-task-title">${esc(ev.title || ev.task_id)}</div>
-    ${ev.agent_note ? `<div class="card-agent-note" role="note">${esc(ev.agent_note)}</div>` : ''}
+    ${noteText ? `<div class="card-agent-note" role="note">${esc(noteText)}</div>` : ''}
     ${acsHtml ? `<div class="card-acs"><div class="card-acs-label">Acceptance criteria context</div>${acsHtml}</div>` : ''}
-    ${draftPanelHtml}
-    <div class="card-textarea-wrapper">
-      <label class="card-textarea-label" for="${textareaId}">Your decision</label>
-      <textarea
-        class="card-textarea"
-        id="${textareaId}"
-        placeholder="Type your decision for the agent..."
-        aria-required="true"
-      ></textarea>
+    <div class="card-unblock-section" id="${unblockSectionId}" style="display:none">
+      ${draftPanelHtml}
+      <div class="card-textarea-wrapper">
+        <label class="card-textarea-label" for="${textareaId}">Your decision</label>
+        <textarea
+          class="card-textarea"
+          id="${textareaId}"
+          placeholder="Type your decision for the agent..."
+          aria-required="true"
+        ></textarea>
+      </div>
+      <div class="card-actions">
+        ${draftToggleHtml}
+        <button class="btn-send" aria-label="Send decision back to ${esc(ev.agent)} for task ${esc(ev.task_id)}">Send reply</button>
+      </div>
     </div>
-    <div class="card-actions">
-      ${draftToggleHtml}
-      <button class="btn-send" aria-label="Send decision back to ${esc(ev.agent)} for task ${esc(ev.task_id)}">Send back to agent →</button>
+    <div class="card-initial-actions">
+      <button class="btn-unblock" aria-controls="${unblockSectionId}" aria-label="Unblock task ${esc(ev.task_id)} for ${esc(ev.agent)}">Unblock</button>
     </div>
   `;
 
-  /* AC6: AI draft toggle */
+  /* AI draft toggle */
   if (draftText) {
     const toggle = article.querySelector('.ai-draft-toggle');
     const panel = article.querySelector(`#${draftPanelId}`);
@@ -375,7 +453,6 @@ function buildAttentionCard(ev) {
       panel.style.display = expanded ? 'none' : '';
     });
 
-    /* "Use this draft ↑" copies draft text to textarea */
     article.querySelector('.ai-draft-use-btn').addEventListener('click', () => {
       const textarea = article.querySelector(`#${textareaId}`);
       textarea.value = draftText;
@@ -383,14 +460,29 @@ function buildAttentionCard(ev) {
     });
   }
 
-  /* Send decision */
+  /* Unblock button: reveal textarea section (AC5) */
+  const unblockBtn = article.querySelector('.btn-unblock');
+  const unblockSection = article.querySelector(`#${unblockSectionId}`);
+  const initialActions = article.querySelector('.card-initial-actions');
+  unblockBtn.addEventListener('click', () => {
+    unblockSection.style.display = '';
+    initialActions.style.display = 'none';
+    article.querySelector(`#${textareaId}`).focus();
+  });
+
+  /* Send reply: POST { action, text, agentName, taskId } (AC6) */
   const sendBtn = article.querySelector('.btn-send');
   sendBtn.addEventListener('click', () => {
     const textarea = article.querySelector(`#${textareaId}`);
     const text = textarea.value.trim();
     if (!text) { textarea.focus(); return; }
+    sendBtn.textContent = 'Sending…';
     sendBtn.disabled = true;
-    sendDecision(ev.id, 'unblock', text).finally(() => {
+    fetch('/api/decision', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'unblock', text, agentName: ev.agent, taskId: ev.task_id }),
+    }).catch(() => {}).finally(() => {
       exitCard(article, () => {
         attentionCount--;
         syncState();
@@ -431,17 +523,17 @@ function sendDecision(id, action, text) {
 /* ── SSE ── */
 
 function connect() {
-  const es = new EventSource(SSE_URL);
+  currentEs = new EventSource(SSE_URL);
 
-  es.addEventListener('open', () => {
+  currentEs.addEventListener('open', () => {
     sseConnected = true;
     sseDot.classList.remove('disconnected');
     sseLabel.textContent = 'live';
-    /* AC9: hide reconnect banner once SSE reconnects */
     reconnectBanner.style.display = 'none';
+    fetchQueue();
   });
 
-  es.addEventListener('approval', (e) => {
+  currentEs.addEventListener('approval', (e) => {
     const ev = JSON.parse(e.data);
     const card = buildApprovalCard(ev);
     approvalCards.prepend(card);
@@ -449,7 +541,7 @@ function connect() {
     syncState();
   });
 
-  es.addEventListener('attention', (e) => {
+  currentEs.addEventListener('attention', (e) => {
     const ev = JSON.parse(e.data);
     const card = buildAttentionCard(ev);
     attentionCards.prepend(card);
@@ -457,7 +549,7 @@ function connect() {
     syncState();
   });
 
-  es.addEventListener('resolve', (e) => {
+  currentEs.addEventListener('resolve', (e) => {
     const ev = JSON.parse(e.data);
     const card = document.getElementById(`approval-${ev.id}`) || document.getElementById(`attention-${ev.id}`);
     if (!card) return;
@@ -468,8 +560,7 @@ function connect() {
     });
   });
 
-  /* AC5: re-fetch fleet table on fleet-update event (within 500ms) */
-  es.addEventListener('fleet-update', (e) => {
+  currentEs.addEventListener('fleet-update', (e) => {
     const ev = JSON.parse(e.data);
     if (ev.type === 'fleet-update') {
       fleetLastEventTs = Date.now();
@@ -477,13 +568,10 @@ function connect() {
     }
   });
 
-  /* AC9: SSE reconnect banner on error */
-  es.addEventListener('error', () => {
+  currentEs.addEventListener('error', () => {
     sseConnected = false;
-    sseDot.classList.add('disconnected');
-    sseLabel.textContent = 'offline';
     reconnectBanner.style.display = '';
-    es.close();
+    currentEs.close();
     setTimeout(connect, RECONNECT_DELAY_MS);
   });
 }
@@ -506,3 +594,4 @@ for (const [name, btn] of Object.entries(tabBtns)) {
 
 switchTab('fleet');
 connect();
+setInterval(updateSseDot, 2000);

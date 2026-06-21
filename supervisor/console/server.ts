@@ -6,7 +6,7 @@
 
 import { createServer } from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { existsSync, watch, mkdirSync, readFileSync } from "fs";
+import { watch, mkdirSync, readFileSync } from "fs";
 import { spawnSync } from "child_process";
 import { appendFile, readdir, stat, unlink, writeFile } from "fs/promises";
 import { homedir } from "os";
@@ -22,61 +22,20 @@ import {
   serveStatic,
   readFleetStatus,
   makeWatchHandler,
+  readApprovals,
 } from "./server-utils.ts";
 
-const PORT = 7842;
-const HOSTNAME = "127.0.0.1";
-const __dirname = dirname(fileURLToPath(import.meta.url));
-
-function resolveControlDir(agents: string[]): string {
-  // CONS-002 AC5: explicit override via env var.
-  if (process.env.CONTROL_DIR) {
-    return process.env.CONTROL_DIR;
-  }
-
-  if (!agents.length) {
-    throw new Error("fleet.conf has no agent entries");
-  }
-  const firstAgent = agents[0];
-
-  // CONS-002 AC4: derive URL via git, not a separate config file.
-  const agentControlPath = join(homedir(), "agents", firstAgent, "control");
-  const gitResult = spawnSync(
-    "git",
-    ["-C", agentControlPath, "remote", "get-url", "origin"],
-    { encoding: "utf8" }
-  );
-  const gitExit = gitResult.status ?? 1;
-  const remoteUrl = (gitResult.stdout ?? "").trim();
-
-  if (gitExit !== 0 || !remoteUrl) {
-    throw new Error(
-      `Could not read control repo remote URL from ${agentControlPath}`
-    );
-  }
-
-  const clonePath = join(homedir(), "agents", "console", "control");
-
-  // CONS-002 AC2: already cloned — start immediately.
-  if (existsSync(clonePath)) {
-    return clonePath;
-  }
-
-  // CONS-002 AC1: clone is blocking; server.listen() is not called until done.
-  console.log(`Cloning control repo from ${remoteUrl}...`);
-  const cloneResult = spawnSync("git", ["clone", remoteUrl, clonePath], {
-    stdio: "inherit",
-  });
-  const cloneExit = cloneResult.status ?? 1;
-
-  // CONS-002 AC6: non-zero exit on failure; no server is started.
-  if (cloneExit !== 0) {
-    console.error(`ERROR: failed to clone control repo from ${remoteUrl}`);
+// Validate PORT early — before any filesystem reads (AC5: exit 1 before bind).
+const PORT = (() => {
+  try {
+    return resolvePort(process.env.PORT);
+  } catch (e) {
+    process.stderr.write(`ERROR: ${(e as Error).message}\n`);
     process.exit(1);
   }
-
-  return clonePath;
-}
+})();
+const HOSTNAME = "127.0.0.1";
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // Run a git subcommand in repoPath, return exit code.
 function runGit(args: string[], repoPath: string): number {
@@ -174,9 +133,14 @@ try {
 const agentList = parseFleetConf(fleetContent);
 const validAgents = new Set(agentList); // AC3, AC6: Set built at startup
 
-// Resolve control dir (blocking — server.listen() is called only after this).
-const controlDir = resolveControlDir(agentList);
-console.log(`Control dir: ${controlDir}`);
+// Scan each agent's control checkout to find the control repo (T2 AC1/AC4).
+const agentDirs = agentList.map((name) => join(homedir(), "agents", name, "control"));
+const controlDir = resolveControlDir(agentDirs) ?? "";
+if (controlDir) {
+  console.log(`Control dir: ${controlDir}`);
+} else {
+  console.warn("WARNING: control dir not found — mailbox and ledger routes unavailable");
+}
 
 // SSE client registry — one ServerResponse per connected browser tab.
 const sseClients = new Set<ServerResponse>();
@@ -341,6 +305,15 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     return;
   }
 
+  // GET /api/queue — pending approvals + needs_human attention items (CONS-016).
+  if (path === "/api/queue" && method === "GET") {
+    const allTasks = parseTaskLedger(join(controlDir, "ledger"));
+    const attention = allTasks.filter((t) => t.status === "needs_human");
+    const approvals = readApprovals(process.env.SUPERVISOR_DECISIONS_DIR);
+    sendJson(res, { approvals, attention });
+    return;
+  }
+
   // Static file handler (CONS-011) — LAST, after all API routes.
   serveStatic(__dirname, path, res);
 });
@@ -362,8 +335,17 @@ if (_decisionsDir) {
   } catch { /* dir absent or unreadable */ }
 }
 
+// AC3: crash on EADDRINUSE rather than silently binding to a random port.
+server.on("error", (err: NodeJS.ErrnoException) => {
+  if (err.code === "EADDRINUSE") {
+    process.stderr.write(`ERROR: port ${PORT} already in use — is another console running?\n`);
+    process.exit(1);
+  }
+  throw err;
+});
+
 server.listen(PORT, HOSTNAME, () => {
-  console.log(`Console server listening on http://${HOSTNAME}:${PORT}`);
+  process.stdout.write(`Console ready → http://localhost:${PORT}\n`);
 });
 
 // One fs.watch per agent log directory; mkdir -p so missing dirs don't crash.

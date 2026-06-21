@@ -5,6 +5,7 @@ import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { createServer } from "node:http";
 import type { Server, IncomingMessage, ServerResponse } from "node:http";
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -16,7 +17,9 @@ import {
   serveStatic,
   readFleetStatus,
   makeWatchHandler,
+  readApprovals,
   type AgentStatus,
+  type ApprovalItem,
 } from "./server-utils.ts";
 
 const TEST_PORT = 7843;
@@ -25,6 +28,7 @@ const testDir = join(tmpdir(), `console-test-${process.pid}`);
 const ledgerDir = join(testDir, "ledger");
 const staticDir = join(testDir, "static");
 const agentsHome = join(testDir, "agents-home");
+const decisionsDir = join(testDir, "decisions");
 const fleetAgents = ["agent-be", "agent-qa", "agent-fe", "agent-doc"];
 
 // Agents recognised by the mock fleet.conf.
@@ -32,7 +36,7 @@ const validAgents = new Set(["agent-be", "agent-qa", "agent-fe", "agent-doc"]);
 
 let httpServer: Server;
 
-function makeHandler(rootDir: string, fleetHome?: string) {
+function makeHandler(rootDir: string, fleetHome?: string, testDecisionsDir?: string) {
   return (req: IncomingMessage, res: ServerResponse) => {
     const path = rawPath(req.url);
     const method = req.method ?? "GET";
@@ -73,6 +77,15 @@ function makeHandler(rootDir: string, fleetHome?: string) {
       return;
     }
 
+    // GET /api/queue — pending approvals + attention items (CONS-016).
+    if (path === "/api/queue" && method === "GET") {
+      const tasks = parseTaskLedger(ledgerDir);
+      const attention = tasks.filter((t) => t.status === "needs_human");
+      const approvals = readApprovals(testDecisionsDir);
+      sendJson(res, { approvals, attention });
+      return;
+    }
+
     // Static file handler — last, after all API routes.
     serveStatic(rootDir, path, res);
   };
@@ -83,6 +96,7 @@ beforeAll(
     new Promise<void>((resolve) => {
       mkdirSync(ledgerDir, { recursive: true });
       mkdirSync(staticDir, { recursive: true });
+      mkdirSync(decisionsDir, { recursive: true });
 
       // Seed mock ledger with one needs_human task for AC5.
       writeFileSync(
@@ -93,6 +107,22 @@ beforeAll(
       // Fixture files for CONS-011 static-serving tests.
       writeFileSync(join(staticDir, "index.html"), "<html><body>test</body></html>");
       writeFileSync(join(staticDir, "styles.css"), "body { color: red; }");
+
+      // CONS-016 decisions fixtures: one unresolved + one resolved approval file.
+      // agent-fe-REQ-1.json: no matching .decision.json → unresolved (should appear).
+      writeFileSync(
+        join(decisionsDir, "agent-fe-REQ-1.json"),
+        JSON.stringify({ id: "REQ-1", agent: "agent-fe", command: "rm test.txt", risk: "low" }),
+      );
+      // agent-fe-REQ-2.json: has matching .decision.json → resolved (should be excluded).
+      writeFileSync(
+        join(decisionsDir, "agent-fe-REQ-2.json"),
+        JSON.stringify({ id: "REQ-2", agent: "agent-fe", command: "cat file.txt", risk: "low" }),
+      );
+      writeFileSync(
+        join(decisionsDir, "agent-fe-REQ-2.decision.json"),
+        JSON.stringify({ approved: true }),
+      );
 
       // CONS-012 fleet fixtures: four agents, each with different live/presence state.
 
@@ -136,7 +166,7 @@ beforeAll(
         }),
       );
 
-      httpServer = createServer(makeHandler(staticDir, agentsHome));
+      httpServer = createServer(makeHandler(staticDir, agentsHome, decisionsDir));
       httpServer.listen(TEST_PORT, "127.0.0.1", resolve);
     }),
 );
@@ -370,7 +400,122 @@ describe("makeWatchHandler (AC4)", () => {
   });
 });
 
+// --- T3: port binding ---
+
+describe("port binding", () => {
+  test("server binds to 127.0.0.1, not 0.0.0.0 (AC1)", async () => {
+    const s = createServer(() => {});
+    await new Promise<void>((resolve) => s.listen(0, "127.0.0.1", resolve));
+    const addr = s.address() as AddressInfo;
+    expect(addr.address).toBe("127.0.0.1");
+    await new Promise<void>((resolve) => s.close(resolve));
+  });
+
+  test("resolvePort returns 7842 when PORT is unset (AC2)", () => {
+    expect(resolvePort(undefined)).toBe(7842);
+    expect(resolvePort("")).toBe(7842);
+  });
+
+  test("resolvePort returns the numeric PORT value when set (AC2)", () => {
+    expect(resolvePort("9999")).toBe(9999);
+  });
+
+  test("server actually binds to PORT=9999 when resolvePort is used (AC2)", async () => {
+    const port = resolvePort("9999");
+    const s = createServer(() => {});
+    await new Promise<void>((resolve) => s.listen(port, "127.0.0.1", resolve));
+    expect((s.address() as AddressInfo).port).toBe(9999);
+    await new Promise<void>((resolve) => s.close(resolve));
+  });
+
+  test("EADDRINUSE exits 1 with the right error message (AC3)", async () => {
+    const occupier = createServer(() => {});
+    await new Promise<void>((resolve) => occupier.listen(0, "127.0.0.1", resolve));
+    const usedPort = (occupier.address() as AddressInfo).port;
+
+    const script = `
+import { createServer } from "node:http";
+const s = createServer(() => {});
+s.on("error", (err) => {
+  if (err.code === "EADDRINUSE") {
+    process.stderr.write("ERROR: port " + ${usedPort} + " already in use — is another console running?\\n");
+    process.exit(1);
+  }
+});
+s.listen(${usedPort}, "127.0.0.1");
+`;
+    const result = spawnSync("bun", ["--eval", script], { encoding: "utf8" });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("already in use");
+
+    await new Promise<void>((resolve) => occupier.close(resolve));
+  });
+
+  test("resolvePort throws on non-numeric PORT (AC5)", () => {
+    expect(() => resolvePort("abc")).toThrow();
+  });
+
+  test("resolvePort throws on out-of-range PORT (AC5)", () => {
+    expect(() => resolvePort("80")).toThrow();
+    expect(() => resolvePort("99999")).toThrow();
+  });
+
+  test("server exits 1 for PORT=invalid before bind (AC5)", () => {
+    const tmpScript = join(tmpdir(), `t3-ac5-${process.pid}.ts`);
+    writeFileSync(tmpScript, `
+import { resolvePort } from ${JSON.stringify(join(import.meta.dir, "server-utils.ts"))};
+try {
+  resolvePort(process.env.PORT);
+} catch (e) {
+  process.stderr.write("ERROR: " + (e as Error).message + "\\n");
+  process.exit(1);
+}
+`);
+    const result = spawnSync("bun", ["run", tmpScript], {
+      encoding: "utf8",
+      env: { ...process.env, PORT: "invalid" },
+    });
+    try { unlinkSync(tmpScript); } catch { /* ignore */ }
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("ERROR:");
+  });
+});
+
 // --- AC7 ---
+
+// --- CONS-016: GET /api/queue ---
+
+describe("GET /api/queue", () => {
+  test("returns only unresolved approvals and needs_human attention tasks (AC1)", async () => {
+    const r = await fetch(`http://127.0.0.1:${TEST_PORT}/api/queue`);
+    expect(r.status).toBe(200);
+    expect(r.headers.get("content-type")).toContain("application/json");
+    const body = (await r.json()) as { approvals: ApprovalItem[]; attention: Array<{ id: string; status: string }> };
+    // Only REQ-1 is unresolved (REQ-2 has a .decision.json)
+    expect(body.approvals).toHaveLength(1);
+    expect((body.approvals[0] as Record<string, unknown>).id).toBe("REQ-1");
+    // attention mirrors /api/attention (CONS-999 is needs_human in the mock ledger)
+    expect(body.attention).toHaveLength(1);
+    expect(body.attention[0].id).toBe("CONS-999");
+    expect(body.attention[0].status).toBe("needs_human");
+  });
+});
+
+describe("GET /api/queue no decisions dir", () => {
+  test("readApprovals returns [] when decisionsDir is undefined (AC5)", () => {
+    expect(readApprovals(undefined)).toEqual([]);
+  });
+
+  test("readApprovals returns [] when decisionsDir is empty string (AC5)", () => {
+    expect(readApprovals("")).toEqual([]);
+  });
+});
+
+describe("GET /api/queue missing dir", () => {
+  test("readApprovals returns [] when dir does not exist — no 500 (AC6)", () => {
+    expect(readApprovals(join(testDir, "nonexistent-decisions"))).toEqual([]);
+  });
+});
 
 describe("parseMailboxNotes", () => {
   test("returns [] for content containing only the cleared marker", () => {
@@ -394,5 +539,68 @@ describe("parseMailboxNotes", () => {
     expect(notes).toHaveLength(1);
     expect(notes[0].from).toBe("agent-qa");
     expect(notes[0].taskId).toBe("CONS-003");
+  });
+});
+
+// --- T2: resolveControlDir ---
+
+const rcdBase = join(tmpdir(), `rcd-test-${process.pid}`);
+
+function initGitDir(dir: string, remoteUrl: string): void {
+  mkdirSync(dir, { recursive: true });
+  spawnSync("git", ["init"], { cwd: dir, encoding: "utf8" });
+  spawnSync("git", ["remote", "add", "origin", remoteUrl], { cwd: dir, encoding: "utf8" });
+}
+
+describe("resolveControlDir (AC1) — returns first dir whose remote matches slug", () => {
+  const dir1 = join(rcdBase, "ac1-agent-a", "control");
+  const dir2 = join(rcdBase, "ac1-agent-b", "control");
+
+  test("returns dir with matching remote when one of two dirs matches", () => {
+    const prev = process.env.CONTROL_DIR;
+    delete process.env.CONTROL_DIR;
+    initGitDir(dir1, "git@github.com:other-org/other-repo.git");
+    initGitDir(dir2, "git@github.com:seab-group/tshepostack.git");
+    const result = resolveControlDir([dir1, dir2]);
+    process.env.CONTROL_DIR = prev;
+    expect(result).toBe(dir2);
+  });
+});
+
+describe("resolveControlDir (AC2) — returns null when no dir matches", () => {
+  const dir1 = join(rcdBase, "ac2-agent-a", "control");
+  const dir2 = join(rcdBase, "ac2-agent-b", "control");
+
+  test("returns null when all dirs have unrelated remote URLs", () => {
+    const prev = process.env.CONTROL_DIR;
+    delete process.env.CONTROL_DIR;
+    initGitDir(dir1, "git@github.com:other-org/repo-a.git");
+    initGitDir(dir2, "git@github.com:other-org/repo-b.git");
+    const result = resolveControlDir([dir1, dir2]);
+    process.env.CONTROL_DIR = prev;
+    expect(result).toBeNull();
+  });
+});
+
+describe("resolveControlDir (AC3) — CONTROL_DIR env var short-circuits git", () => {
+  test("returns CONTROL_DIR env var without running git on non-existent dir", () => {
+    const prev = process.env.CONTROL_DIR;
+    process.env.CONTROL_DIR = "/fake/control/path";
+    const result = resolveControlDir([join(rcdBase, "nonexistent")]);
+    process.env.CONTROL_DIR = prev;
+    expect(result).toBe("/fake/control/path");
+  });
+});
+
+describe("resolveControlDir (AC5) — skips non-existent dirs silently", () => {
+  test("does not throw for a path that does not exist, returns null", () => {
+    const prev = process.env.CONTROL_DIR;
+    delete process.env.CONTROL_DIR;
+    let result: string | null;
+    expect(() => {
+      result = resolveControlDir([join(rcdBase, "missing-dir", "control")]);
+    }).not.toThrow();
+    expect(result!).toBeNull();
+    process.env.CONTROL_DIR = prev;
   });
 });

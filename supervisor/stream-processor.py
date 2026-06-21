@@ -95,10 +95,31 @@ def detect_task(text: str, current):  # current: Optional[str]
 session_start_iso = now_iso()
 session_start_ts  = time.time()
 
+def _ledger_claimed_task() -> "str | None":
+    """Return the task ID this agent has in_progress in the ledger, if any."""
+    ledger_dir = os.path.join(CONTROL_DIR, "ledger")
+    if not os.path.isdir(ledger_dir):
+        return None
+    try:
+        for fn in os.listdir(ledger_dir):
+            if not fn.endswith(".task"):
+                continue
+            fields: dict = {}
+            with open(os.path.join(ledger_dir, fn)) as f:
+                for line in f:
+                    m = re.match(r'^([a-z_]+):\s?(.*)$', line.rstrip("\n"))
+                    if m:
+                        fields[m.group(1)] = m.group(2).strip()
+            if fields.get("claimed_by") == AGENT_NAME and fields.get("status") == "in_progress":
+                return fields.get("id") or fn[:-5]
+    except OSError:
+        pass
+    return None
+
 live: dict = {
     "agent":         AGENT_NAME,
     "session_start": session_start_iso,
-    "task":          None,
+    "task":          _ledger_claimed_task(),
     "last_tool":     None,
     "last_summary":  None,
     "last_ts":       session_start_iso,
@@ -109,7 +130,7 @@ live: dict = {
     "ended":         False,
 }
 atomic_write(LIVE_FILE, live)
-update_presence({"state": "working", "task": None, "last_tool": None})
+update_presence({"state": "working", "task": live["task"], "last_tool": None})
 
 # Accumulators for final metrics JSON
 result_event: dict = {}
