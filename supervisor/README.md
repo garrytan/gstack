@@ -779,7 +779,7 @@ The textarea uses placeholder text for hints but the actual label is a proper se
 The browser tab title updates dynamically based on queue state:
 
 - **Pending items (N > 0):** `(N) Fleet Console` (e.g., "(2) Fleet Console")
-- **All clear:** `Fleet Console — All clear`
+- **All clear (N = 0):** `Fleet Console`
 
 The title updates every time cards are added or removed, giving operators a quick status check from the browser tab without opening the console.
 
@@ -890,7 +890,7 @@ Response:
 
 ### Test results
 
-All 15 tests pass (5 bash-wrapper + 10 server tests). Run the full suite with:
+All 19 tests pass (5 bash-wrapper + 14 server tests). The 4 new tests cover `GET /api/queue` AC1, AC5, and AC6 — see the Queue tab bootstrap section below. Run the full suite with:
 
 ```bash
 bun test supervisor/console/     # runs all tests, exit 0 on pass
@@ -994,6 +994,75 @@ Static serving is optimized for console UI delivery:
 - **Synchronous reads:** `readFileSync()` is safe here because console startup is not performance-critical and files are typically small (<100KB total). Async reads would complicate the response lifecycle.
 - **Guard constraint:** The traversal check requires `resolved.startsWith(safeRoot + sep)` to ensure the slash is present. Without the trailing separator, `/home` would accidentally match `/home2/attacker`. The `sep` constant is `node:path.sep` (platform-aware).
 - **Error handling:** Any `readFileSync` exception (permission denied, etc.) is caught and returns HTTP 404, treating the file as missing rather than distinguishing permission errors.
+
+---
+
+## Queue tab bootstrap — GET /api/queue endpoint (v7.1)
+
+The console exposes `GET /api/queue` so the Queue tab populates immediately on first load and after a page refresh, without waiting for SSE events. Before this endpoint, a blocked command whose SSE event was missed (e.g., the operator opened the console after the bash wrapper had already sent the event) left the Queue tab blank even though work was waiting.
+
+### Server side — GET /api/queue
+
+**Endpoint:** `GET /api/queue`
+
+**Response:** HTTP 200 with `Content-Type: application/json`:
+
+```json
+{
+  "approvals": [
+    { "id": "REQ-1", "agent": "agent-fe", "command": "rm test.txt", "risk": "low" }
+  ],
+  "attention": [
+    { "id": "CONS-999", "status": "needs_human", "domain": "be", "description": "..." }
+  ]
+}
+```
+
+- **`approvals`** — Unresolved approval request files from `SUPERVISOR_DECISIONS_DIR`. An "unresolved" file is one where `{agent}-{id}.json` exists but the matching `{agent}-{id}.decision.json` does NOT yet exist in the same directory.
+- **`attention`** — All tasks with `status: needs_human` from the ledger (same data as `GET /api/attention`).
+
+When `SUPERVISOR_DECISIONS_DIR` is unset, the directory does not exist, or is unreadable, `approvals` returns `[]` — the endpoint never returns 503 or 500 for a missing or absent directory (AC5, AC6).
+
+### readApprovals() — server-utils.ts
+
+The `readApprovals(decisionsDir)` utility reads unresolved approval request files:
+
+1. Returns `[]` immediately if `decisionsDir` is falsy (AC5).
+2. Calls `readdirSync(decisionsDir)` — catches any error and returns `[]` so a missing or unreadable directory never causes a 500 (AC6).
+3. Builds a `Set` of all `.decision.json` filenames present in the directory.
+4. Filters the `.json` files to those without a matching `.decision.json` entry — these are the unresolved requests.
+5. Reads and JSON-parses each unresolved file with `readFileSync()`; silently skips any file that fails to parse.
+
+### Client side — fetchQueue() in console.js
+
+`fetchQueue()` is an async function in `console.js` that fetches `GET /api/queue` and renders its results into the existing card containers:
+
+- **Called on tab activate (AC2):** `switchTab('queue')` calls `fetchQueue()` so the Queue tab is populated before any SSE event arrives.
+- **Called on SSE reconnect (AC3):** The SSE `open` event handler calls `fetchQueue()` to re-sync the tab after a dropped connection.
+- **Deduplication (AC3 constraint):** Before prepending a card, `fetchQueue()` checks `document.getElementById(cardId)` where `cardId` is `approval-{id}` or `attention-{id}`. If the element already exists, that card is skipped. This prevents duplicates when SSE events and the bootstrap fetch both deliver the same item.
+- **State sync:** After rendering all cards from the response, `fetchQueue()` calls `syncState()` to update counts, badges, and the document title.
+
+### Document title — AC4
+
+The title format `(N) Fleet Console` (N > 0) / `Fleet Console` (N = 0) is implemented by the pre-existing `syncState()` function with no new code required in CONS-016:
+
+```javascript
+document.title = total > 0 ? `(${total}) Fleet Console` : 'Fleet Console';
+```
+
+`total = approvalCount + attentionCount`. `fetchQueue()` calls `syncState()` after updating the counts, so the title reflects the bootstrapped queue depth immediately.
+
+### Test coverage
+
+Three new `describe` blocks in `server.test.ts` cover the server-side ACs:
+
+| Describe block | AC | What it asserts |
+|---|---|---|
+| `GET /api/queue` | AC1 | Returns only unresolved approvals (REQ-1, not REQ-2 which has a `.decision.json`) + needs_human tasks from the ledger |
+| `GET /api/queue no decisions dir` | AC5 | `readApprovals(undefined)` → `[]`; `readApprovals("")` → `[]` |
+| `GET /api/queue missing dir` | AC6 | `readApprovals(nonexistent-path)` → `[]`, no exception thrown |
+
+Test fixtures in `beforeAll`: one unresolved approval file (`agent-fe-REQ-1.json`), one resolved pair (`agent-fe-REQ-2.json` + `agent-fe-REQ-2.decision.json`). The AC1 test asserts that only REQ-1 appears in the response.
 
 ---
 
