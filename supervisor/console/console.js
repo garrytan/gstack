@@ -2,6 +2,7 @@
 
 const SSE_URL = '/api/events';
 const FLEET_URL = '/api/fleet';
+const QUEUE_URL = '/api/queue';
 const RECONNECT_DELAY_MS = 3000;
 const FLEET_STALE_MS = 30000;
 
@@ -20,6 +21,7 @@ const approvalBadge = $('approval-badge');
 
 let es = null;
 let sseConnected = false;
+let currentEs = null;
 let attentionCount = 0;
 let approvalCount = 0;
 
@@ -78,6 +80,10 @@ function switchTab(name) {
     stopFleetStalenessTimer();
   }
 
+  if (name === 'queue') {
+    fetchQueue();
+  }
+
   syncState();
 }
 
@@ -122,6 +128,7 @@ function renderFleet(agents, baseTs) {
     const toolCell = a.lastTool ? esc(a.lastTool) : '—';
     const summaryText = a.lastSummary ? a.lastSummary.slice(0, 60) : '';
     const summaryCell = summaryText ? esc(summaryText) : '';
+    const avatarSrc = `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(a.name)}&size=32`;
 
     tr.innerHTML = `
       <td class="fleet-agent" data-label="Agent">
@@ -202,6 +209,43 @@ function stopFleetStalenessTimer() {
   }
 }
 
+/* ── Queue bootstrap ── */
+
+async function fetchQueue() {
+  try {
+    const res = await fetch(QUEUE_URL);
+    if (!res.ok) return;
+    const data = await res.json();
+
+    for (const item of (data.approvals || [])) {
+      if (!item.id) continue;
+      const cardId = `approval-${item.id}`;
+      if (document.getElementById(cardId)) continue;
+      const card = buildApprovalCard(item);
+      approvalCards.prepend(card);
+      approvalCount++;
+    }
+
+    for (const task of (data.attention || [])) {
+      if (!task.id) continue;
+      const cardId = `attention-${task.id}`;
+      if (document.getElementById(cardId)) continue;
+      const ev = {
+        id: task.id,
+        task_id: task.id,
+        agent: task.claimed_by || task.domain || 'unknown',
+        title: task.description || task.id,
+        failure_count: parseInt(task.failure_count || '0', 10) || 0,
+      };
+      const card = buildAttentionCard(ev);
+      attentionCards.prepend(card);
+      attentionCount++;
+    }
+
+    syncState();
+  } catch (_) {}
+}
+
 /* ── State sync ── */
 
 function syncState() {
@@ -256,7 +300,7 @@ function buildApprovalCard(ev) {
     : `<div class="no-files-note">No files affected</div>`;
 
   const riskClass = risk === 'high' ? 'risk-high' : 'risk-medium';
-  const riskLabel = risk.toUpperCase() + ' RISK';
+  const riskLabel = risk.toUpperCase();
 
   article.innerHTML = `
     <div class="card-meta">
@@ -288,7 +332,6 @@ function buildApprovalCard(ev) {
     approveBtn.disabled = true;
     rejectBtn.disabled = true;
     sendDecision(ev.id, 'approve').finally(() => {
-      /* AC4b: card-exit + DOM removal after 150ms */
       exitCard(article, () => {
         approvalCount--;
         syncState();
@@ -318,6 +361,7 @@ function buildApprovalCard(ev) {
 function buildAttentionCard(ev) {
   const cardId = `attention-${ev.id}`;
   const textareaId = `decision-${ev.id}`;
+  const unblockSectionId = `unblock-section-${ev.id}`;
   const draftPanelId = `draft-panel-${ev.id}`;
   const failureCount = ev.failure_count || 0;
 
@@ -469,15 +513,15 @@ function sendDecision(id, action, text) {
 function connect() {
   es = new EventSource(SSE_URL);
 
-  es.addEventListener('open', () => {
+  currentEs.addEventListener('open', () => {
     sseConnected = true;
     sseDot.classList.remove('disconnected');
     sseLabel.textContent = 'live';
-    /* AC9: hide reconnect banner once SSE reconnects */
     reconnectBanner.style.display = 'none';
+    fetchQueue();
   });
 
-  es.addEventListener('approval', (e) => {
+  currentEs.addEventListener('approval', (e) => {
     const ev = JSON.parse(e.data);
     const card = buildApprovalCard(ev);
     approvalCards.prepend(card);
@@ -485,7 +529,7 @@ function connect() {
     syncState();
   });
 
-  es.addEventListener('attention', (e) => {
+  currentEs.addEventListener('attention', (e) => {
     const ev = JSON.parse(e.data);
     const card = buildAttentionCard(ev);
     attentionCards.prepend(card);
@@ -493,7 +537,7 @@ function connect() {
     syncState();
   });
 
-  es.addEventListener('resolve', (e) => {
+  currentEs.addEventListener('resolve', (e) => {
     const ev = JSON.parse(e.data);
     const card = document.getElementById(`approval-${ev.id}`) || document.getElementById(`attention-${ev.id}`);
     if (!card) return;
@@ -504,8 +548,7 @@ function connect() {
     });
   });
 
-  /* AC5: re-fetch fleet table on fleet-update event (within 500ms) */
-  es.addEventListener('fleet-update', (e) => {
+  currentEs.addEventListener('fleet-update', (e) => {
     const ev = JSON.parse(e.data);
     if (ev.type === 'fleet-update') {
       fleetLastEventTs = Date.now();
@@ -513,13 +556,10 @@ function connect() {
     }
   });
 
-  /* AC9: SSE reconnect banner on error */
-  es.addEventListener('error', () => {
+  currentEs.addEventListener('error', () => {
     sseConnected = false;
-    sseDot.classList.add('disconnected');
-    sseLabel.textContent = 'offline';
     reconnectBanner.style.display = '';
-    es.close();
+    currentEs.close();
     setTimeout(connect, RECONNECT_DELAY_MS);
   });
 }

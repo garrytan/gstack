@@ -2,6 +2,27 @@
 import type { ServerResponse } from "node:http";
 import { readdirSync, readFileSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
+import { spawnSync } from "node:child_process";
+
+// Scan each agent checkout directory for a git remote URL that contains the
+// control-repo slug. Returns the first matching dir, or null if none match.
+// CONTROL_DIR env var short-circuits all git calls (AC3).
+// Non-existent dirs and git errors are silently skipped (AC5).
+export function resolveControlDir(agentDirs: string[]): string | null {
+  if (process.env.CONTROL_DIR) return process.env.CONTROL_DIR;
+  for (const dir of agentDirs) {
+    try {
+      const r = spawnSync("git", ["-C", dir, "remote", "get-url", "origin"], { encoding: "utf8" });
+      if ((r.status ?? 1) !== 0) continue;
+      const url = (r.stdout ?? "").trim();
+      if (url.includes("seab-group/tshepostack")) return dir;
+    } catch {
+      // silently skip unreadable dirs (AC5)
+    }
+  }
+  console.warn("[resolveControlDir] no agent directory matched control-repo remote");
+  return null;
+}
 
 export type AgentStatus = {
   name: string;
@@ -52,16 +73,39 @@ export function readFleetStatus(agents: string[], agentsHome: string): AgentStat
 
 // Returns an fs.watch callback for a single agent's log directory.
 // Exported so tests can verify broadcast payloads without real filesystem events.
+// broadcastFn receives a complete SSE frame (event + data lines, terminated with \n\n).
+// cache is updated with the last fleet-update payload per agent for Last-Event-ID replay.
 export function makeWatchHandler(
   agent: string,
-  broadcastFn: (msg: string) => void,
+  logDir: string,
+  broadcastFn: (frame: string) => void,
+  cache: Map<string, string>,
 ): (_event: string, filename: string | null) => void {
   return (_event, filename) => {
     if (filename === "live-events.jsonl") {
-      broadcastFn(JSON.stringify({ agent, file: filename, ts: Date.now() }));
+      // AC2: read last JSON line and broadcast fleet-update.
+      // AC3: silently skip on ENOENT or permission error — watcher stays active.
+      try {
+        const content = readFileSync(join(logDir, "live-events.jsonl"), "utf8");
+        const lines = content.trimEnd().split("\n").filter(Boolean);
+        if (!lines.length) return;
+        const parsed = JSON.parse(lines[lines.length - 1]) as Record<string, unknown>;
+        const payload = JSON.stringify({
+          type: "fleet-update",
+          agent,
+          task: parsed.task ?? null,
+          tool: parsed.tool ?? null,
+          summary: parsed.summary ?? null,
+          ts: Date.now(),
+        });
+        cache.set(agent, payload);
+        broadcastFn(`event: fleet-update\ndata: ${payload}\n\n`);
+      } catch {
+        // AC3: unreadable — skip silently
+      }
     } else if (filename === "live.json") {
-      // AC4: broadcast fleet-update so browsers know to re-fetch /api/fleet.
-      broadcastFn(JSON.stringify({ type: "fleet-update", agent, ts: Date.now() }));
+      const payload = JSON.stringify({ type: "fleet-update", agent, ts: Date.now() });
+      broadcastFn(`event: fleet-update\ndata: ${payload}\n\n`);
     }
   };
 }
@@ -100,6 +144,17 @@ export function serveStatic(rootDir: string, urlPath: string, res: ServerRespons
     res.writeHead(404);
     res.end("Not Found");
   }
+}
+
+// Resolve the server port from the PORT env var (default 7842).
+// Throws on non-numeric or out-of-range values so callers can exit 1.
+export function resolvePort(portEnv: string | undefined): number {
+  if (!portEnv) return 7842;
+  const n = parseInt(portEnv, 10);
+  if (isNaN(n) || n < 1024 || n > 65535) {
+    throw new Error(`Invalid PORT value: "${portEnv}" — expected a number between 1024 and 65535`);
+  }
+  return n;
 }
 
 // Uppercase letters, hyphen, digits only — no path segments, no traversal.
@@ -155,6 +210,59 @@ export function parseTaskLedger(ledgerDir: string): TaskEntry[] {
     }
     return entry;
   });
+}
+
+export type GitSpawnResult = { code: number; out: string; err: string };
+export type GitSpawner = (args: string[]) => Promise<GitSpawnResult>;
+
+// Commit all staged + unstaged changes then push, retrying up to 3 times on rejection.
+// Pass spawner to inject a mock in tests; defaults to Bun.spawn with 30s timeout.
+export async function gitCommitAndPush(
+  controlDir: string,
+  commitMessage: string,
+  spawner?: GitSpawner,
+): Promise<void> {
+  const git: GitSpawner = spawner ?? (async (args) => {
+    const proc = Bun.spawn(["git", ...args], {
+      cwd: controlDir,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const timer = setTimeout(() => proc.kill(), 30_000);
+    const [code, out, err] = await Promise.all([
+      proc.exited,
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+    ]);
+    clearTimeout(timer);
+    return { code: code ?? 1, out, err };
+  });
+
+  // Get current branch name for the reset target on retry (AC2).
+  const branchResult = await git(["rev-parse", "--abbrev-ref", "HEAD"]);
+  const branch = branchResult.out.trim() || "main";
+
+  // Stage all working-tree changes (AC1: git add -A).
+  await git(["add", "-A"]);
+
+  // Commit — exit non-zero means nothing to commit; resolve void without push (AC5).
+  const commitResult = await git(["commit", "-m", commitMessage]);
+  if (commitResult.code !== 0) return;
+
+  // Attempt push up to 3 times; sync with remote between each failure (AC2, AC3, AC4).
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const pushResult = await git(["push", "origin", "HEAD"]);
+    if (pushResult.code === 0) return; // AC4: success
+
+    if (attempt < 3) {
+      await git(["fetch", "origin"]);
+      await git(["reset", "--hard", `origin/${branch}`]);
+      await git(["add", "-A"]);
+      await git(["commit", "-m", commitMessage]);
+    }
+  }
+
+  throw new Error("git push failed after 3 retries"); // AC3
 }
 
 // Parse a mailbox file's content into an array of note objects.

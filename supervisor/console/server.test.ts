@@ -5,6 +5,7 @@ import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { createServer } from "node:http";
 import type { Server, IncomingMessage, ServerResponse } from "node:http";
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -16,7 +17,9 @@ import {
   serveStatic,
   readFleetStatus,
   makeWatchHandler,
+  gitCommitAndPush,
   type AgentStatus,
+  type GitSpawner,
 } from "./server-utils.ts";
 
 const TEST_PORT = 7843;
@@ -25,6 +28,7 @@ const testDir = join(tmpdir(), `console-test-${process.pid}`);
 const ledgerDir = join(testDir, "ledger");
 const staticDir = join(testDir, "static");
 const agentsHome = join(testDir, "agents-home");
+const decisionsDir = join(testDir, "decisions");
 const fleetAgents = ["agent-be", "agent-qa", "agent-fe", "agent-doc"];
 
 // Agents recognised by the mock fleet.conf.
@@ -32,7 +36,7 @@ const validAgents = new Set(["agent-be", "agent-qa", "agent-fe", "agent-doc"]);
 
 let httpServer: Server;
 
-function makeHandler(rootDir: string, fleetHome?: string) {
+function makeHandler(rootDir: string, fleetHome?: string, testDecisionsDir?: string) {
   return (req: IncomingMessage, res: ServerResponse) => {
     const path = rawPath(req.url);
     const method = req.method ?? "GET";
@@ -73,6 +77,15 @@ function makeHandler(rootDir: string, fleetHome?: string) {
       return;
     }
 
+    // GET /api/queue — pending approvals + attention items (CONS-016).
+    if (path === "/api/queue" && method === "GET") {
+      const tasks = parseTaskLedger(ledgerDir);
+      const attention = tasks.filter((t) => t.status === "needs_human");
+      const approvals = readApprovals(testDecisionsDir);
+      sendJson(res, { approvals, attention });
+      return;
+    }
+
     // Static file handler — last, after all API routes.
     serveStatic(rootDir, path, res);
   };
@@ -83,6 +96,7 @@ beforeAll(
     new Promise<void>((resolve) => {
       mkdirSync(ledgerDir, { recursive: true });
       mkdirSync(staticDir, { recursive: true });
+      mkdirSync(decisionsDir, { recursive: true });
 
       // Seed mock ledger with one needs_human task for AC5.
       writeFileSync(
@@ -93,6 +107,22 @@ beforeAll(
       // Fixture files for CONS-011 static-serving tests.
       writeFileSync(join(staticDir, "index.html"), "<html><body>test</body></html>");
       writeFileSync(join(staticDir, "styles.css"), "body { color: red; }");
+
+      // CONS-016 decisions fixtures: one unresolved + one resolved approval file.
+      // agent-fe-REQ-1.json: no matching .decision.json → unresolved (should appear).
+      writeFileSync(
+        join(decisionsDir, "agent-fe-REQ-1.json"),
+        JSON.stringify({ id: "REQ-1", agent: "agent-fe", command: "rm test.txt", risk: "low" }),
+      );
+      // agent-fe-REQ-2.json: has matching .decision.json → resolved (should be excluded).
+      writeFileSync(
+        join(decisionsDir, "agent-fe-REQ-2.json"),
+        JSON.stringify({ id: "REQ-2", agent: "agent-fe", command: "cat file.txt", risk: "low" }),
+      );
+      writeFileSync(
+        join(decisionsDir, "agent-fe-REQ-2.decision.json"),
+        JSON.stringify({ approved: true }),
+      );
 
       // CONS-012 fleet fixtures: four agents, each with different live/presence state.
 
@@ -136,7 +166,7 @@ beforeAll(
         }),
       );
 
-      httpServer = createServer(makeHandler(staticDir, agentsHome));
+      httpServer = createServer(makeHandler(staticDir, agentsHome, decisionsDir));
       httpServer.listen(TEST_PORT, "127.0.0.1", resolve);
     }),
 );
@@ -340,37 +370,267 @@ describe("GET /api/fleet", () => {
   });
 });
 
-describe("makeWatchHandler (AC4)", () => {
-  test("broadcasts fleet-update payload when filename is live.json", () => {
-    const calls: string[] = [];
-    const handler = makeWatchHandler("agent-be", (msg) => calls.push(msg));
+// --- T4: makeWatchHandler ---
+
+describe("makeWatchHandler", () => {
+  const watchLogDir = join(testDir, "watch-logs");
+
+  beforeAll(() => {
+    mkdirSync(watchLogDir, { recursive: true });
+  });
+
+  // AC2: reads last line of live-events.jsonl and broadcasts fleet-update SSE frame
+  test("broadcasts fleet-update SSE frame with correct fields for live-events.jsonl (AC2)", () => {
+    const frames: string[] = [];
+    const cache = new Map<string, string>();
+    const handler = makeWatchHandler("agent-be", watchLogDir, (f) => frames.push(f), cache);
+
+    writeFileSync(
+      join(watchLogDir, "live-events.jsonl"),
+      JSON.stringify({ task: "T4", tool: "Bash", summary: "Running tests" }) + "\n",
+    );
+
+    handler("change", "live-events.jsonl");
+    expect(frames).toHaveLength(1);
+    expect(frames[0]).toContain("event: fleet-update");
+    const dataLine = frames[0].split("\n").find((l) => l.startsWith("data: "));
+    const payload = JSON.parse(dataLine!.slice("data: ".length)) as {
+      type: string; agent: string; task: string; tool: string; summary: string; ts: number;
+    };
+    expect(payload.type).toBe("fleet-update");
+    expect(payload.agent).toBe("agent-be");
+    expect(payload.task).toBe("T4");
+    expect(payload.tool).toBe("Bash");
+    expect(payload.summary).toBe("Running tests");
+    expect(typeof payload.ts).toBe("number");
+    expect(cache.get("agent-be")).toBeDefined();
+  });
+
+  // AC3: unreadable live-events.jsonl → no broadcast, no crash
+  test("does not broadcast when live-events.jsonl is unreadable (AC3)", () => {
+    const frames: string[] = [];
+    const cache = new Map<string, string>();
+    const missingDir = join(testDir, "missing-logs");
+    // directory exists but file is absent → ENOENT
+    mkdirSync(missingDir, { recursive: true });
+    const handler = makeWatchHandler("agent-be", missingDir, (f) => frames.push(f), cache);
+    handler("change", "live-events.jsonl");
+    expect(frames).toHaveLength(0);
+    expect(cache.size).toBe(0);
+  });
+
+  // live.json: broadcasts named fleet-update SSE frame
+  test("broadcasts fleet-update SSE frame when live.json changes", () => {
+    const frames: string[] = [];
+    const cache = new Map<string, string>();
+    const handler = makeWatchHandler("agent-be", watchLogDir, (f) => frames.push(f), cache);
     handler("change", "live.json");
-    expect(calls).toHaveLength(1);
-    const payload = JSON.parse(calls[0]) as { type: string; agent: string; ts: number };
+    expect(frames).toHaveLength(1);
+    expect(frames[0]).toContain("event: fleet-update");
+    const dataLine = frames[0].split("\n").find((l) => l.startsWith("data: "));
+    const payload = JSON.parse(dataLine!.slice("data: ".length)) as {
+      type: string; agent: string; ts: number;
+    };
     expect(payload.type).toBe("fleet-update");
     expect(payload.agent).toBe("agent-be");
     expect(typeof payload.ts).toBe("number");
   });
 
-  test("broadcasts file payload (not fleet-update) when filename is live-events.jsonl", () => {
-    const calls: string[] = [];
-    const handler = makeWatchHandler("agent-be", (msg) => calls.push(msg));
-    handler("change", "live-events.jsonl");
-    expect(calls).toHaveLength(1);
-    const payload = JSON.parse(calls[0]) as { agent: string; file: string };
-    expect(payload.agent).toBe("agent-be");
-    expect(payload.file).toBe("live-events.jsonl");
+  // unrelated filename → no broadcast
+  test("does not call broadcast for unrelated filenames", () => {
+    const frames: string[] = [];
+    const cache = new Map<string, string>();
+    const handler = makeWatchHandler("agent-be", watchLogDir, (f) => frames.push(f), cache);
+    handler("change", "other.log");
+    expect(frames).toHaveLength(0);
+  });
+});
+
+// --- T4: GET /api/events (AC1 + AC5) ---
+
+describe("GET /api/events", () => {
+  const localSseClients = new Set<ServerResponse>();
+  let sseServer: Server;
+
+  beforeAll(
+    () =>
+      new Promise<void>((resolve) => {
+        sseServer = createServer((req, res) => {
+          const p = rawPath(req.url);
+          if (p !== "/api/events") {
+            res.writeHead(404);
+            res.end();
+            return;
+          }
+          res.writeHead(200, {
+            "content-type": "text/event-stream",
+            "cache-control": "no-cache",
+            connection: "keep-alive",
+          });
+          res.write(": ok\n\n");
+          localSseClients.add(res);
+          req.on("close", () => localSseClients.delete(res));
+        });
+        sseServer.listen(7844, "127.0.0.1", resolve);
+      }),
+  );
+
+  afterAll(
+    () =>
+      new Promise<void>((resolve, reject) => {
+        sseServer.close((err) => {
+          if (err) reject(err);
+          else resolve();
+        });
+      }),
+  );
+
+  test("returns 200 with SSE headers and ': ok' heartbeat (AC1)", async () => {
+    const ac = new AbortController();
+    const r = await fetch("http://127.0.0.1:7844/api/events", { signal: ac.signal });
+    expect(r.status).toBe(200);
+    expect(r.headers.get("content-type")).toContain("text/event-stream");
+    expect(r.headers.get("cache-control")).toBe("no-cache");
+    expect(r.headers.get("connection")).toBe("keep-alive");
+    const reader = r.body!.getReader();
+    const { value } = await reader.read();
+    expect(new TextDecoder().decode(value)).toBe(": ok\n\n");
+    ac.abort();
+    await reader.cancel();
+    // Brief wait so close event fires before the next test checks localSseClients.
+    await new Promise((resolve) => setTimeout(resolve, 50));
   });
 
-  test("does not call broadcast for unrelated filenames", () => {
-    const calls: string[] = [];
-    const handler = makeWatchHandler("agent-be", (msg) => calls.push(msg));
-    handler("change", "other.log");
-    expect(calls).toHaveLength(0);
+  test("removes closed response from sseClients on disconnect (AC5)", async () => {
+    const before = localSseClients.size;
+    const ac = new AbortController();
+    const r = await fetch("http://127.0.0.1:7844/api/events", { signal: ac.signal });
+    const reader = r.body!.getReader();
+    await reader.read(); // consume ": ok\n\n"
+    expect(localSseClients.size).toBe(before + 1);
+    ac.abort();
+    await reader.cancel();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(localSseClients.size).toBe(before);
+  });
+});
+
+// --- T3: port binding ---
+
+describe("port binding", () => {
+  test("server binds to 127.0.0.1, not 0.0.0.0 (AC1)", async () => {
+    const s = createServer(() => {});
+    await new Promise<void>((resolve) => s.listen(0, "127.0.0.1", resolve));
+    const addr = s.address() as AddressInfo;
+    expect(addr.address).toBe("127.0.0.1");
+    await new Promise<void>((resolve) => s.close(resolve));
+  });
+
+  test("resolvePort returns 7842 when PORT is unset (AC2)", () => {
+    expect(resolvePort(undefined)).toBe(7842);
+    expect(resolvePort("")).toBe(7842);
+  });
+
+  test("resolvePort returns the numeric PORT value when set (AC2)", () => {
+    expect(resolvePort("9999")).toBe(9999);
+  });
+
+  test("server actually binds to PORT=9999 when resolvePort is used (AC2)", async () => {
+    const port = resolvePort("9999");
+    const s = createServer(() => {});
+    await new Promise<void>((resolve) => s.listen(port, "127.0.0.1", resolve));
+    expect((s.address() as AddressInfo).port).toBe(9999);
+    await new Promise<void>((resolve) => s.close(resolve));
+  });
+
+  test("EADDRINUSE exits 1 with the right error message (AC3)", async () => {
+    const occupier = createServer(() => {});
+    await new Promise<void>((resolve) => occupier.listen(0, "127.0.0.1", resolve));
+    const usedPort = (occupier.address() as AddressInfo).port;
+
+    const script = `
+import { createServer } from "node:http";
+const s = createServer(() => {});
+s.on("error", (err) => {
+  if (err.code === "EADDRINUSE") {
+    process.stderr.write("ERROR: port " + ${usedPort} + " already in use — is another console running?\\n");
+    process.exit(1);
+  }
+});
+s.listen(${usedPort}, "127.0.0.1");
+`;
+    const result = spawnSync("bun", ["--eval", script], { encoding: "utf8" });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("already in use");
+
+    await new Promise<void>((resolve) => occupier.close(resolve));
+  });
+
+  test("resolvePort throws on non-numeric PORT (AC5)", () => {
+    expect(() => resolvePort("abc")).toThrow();
+  });
+
+  test("resolvePort throws on out-of-range PORT (AC5)", () => {
+    expect(() => resolvePort("80")).toThrow();
+    expect(() => resolvePort("99999")).toThrow();
+  });
+
+  test("server exits 1 for PORT=invalid before bind (AC5)", () => {
+    const tmpScript = join(tmpdir(), `t3-ac5-${process.pid}.ts`);
+    writeFileSync(tmpScript, `
+import { resolvePort } from ${JSON.stringify(join(import.meta.dir, "server-utils.ts"))};
+try {
+  resolvePort(process.env.PORT);
+} catch (e) {
+  process.stderr.write("ERROR: " + (e as Error).message + "\\n");
+  process.exit(1);
+}
+`);
+    const result = spawnSync("bun", ["run", tmpScript], {
+      encoding: "utf8",
+      env: { ...process.env, PORT: "invalid" },
+    });
+    try { unlinkSync(tmpScript); } catch { /* ignore */ }
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("ERROR:");
   });
 });
 
 // --- AC7 ---
+
+// --- CONS-016: GET /api/queue ---
+
+describe("GET /api/queue", () => {
+  test("returns only unresolved approvals and needs_human attention tasks (AC1)", async () => {
+    const r = await fetch(`http://127.0.0.1:${TEST_PORT}/api/queue`);
+    expect(r.status).toBe(200);
+    expect(r.headers.get("content-type")).toContain("application/json");
+    const body = (await r.json()) as { approvals: ApprovalItem[]; attention: Array<{ id: string; status: string }> };
+    // Only REQ-1 is unresolved (REQ-2 has a .decision.json)
+    expect(body.approvals).toHaveLength(1);
+    expect((body.approvals[0] as Record<string, unknown>).id).toBe("REQ-1");
+    // attention mirrors /api/attention (CONS-999 is needs_human in the mock ledger)
+    expect(body.attention).toHaveLength(1);
+    expect(body.attention[0].id).toBe("CONS-999");
+    expect(body.attention[0].status).toBe("needs_human");
+  });
+});
+
+describe("GET /api/queue no decisions dir", () => {
+  test("readApprovals returns [] when decisionsDir is undefined (AC5)", () => {
+    expect(readApprovals(undefined)).toEqual([]);
+  });
+
+  test("readApprovals returns [] when decisionsDir is empty string (AC5)", () => {
+    expect(readApprovals("")).toEqual([]);
+  });
+});
+
+describe("GET /api/queue missing dir", () => {
+  test("readApprovals returns [] when dir does not exist — no 500 (AC6)", () => {
+    expect(readApprovals(join(testDir, "nonexistent-decisions"))).toEqual([]);
+  });
+});
 
 describe("parseMailboxNotes", () => {
   test("returns [] for content containing only the cleared marker", () => {
@@ -394,5 +654,91 @@ describe("parseMailboxNotes", () => {
     expect(notes).toHaveLength(1);
     expect(notes[0].from).toBe("agent-qa");
     expect(notes[0].taskId).toBe("CONS-003");
+  });
+});
+
+// --- T7: gitCommitAndPush ---
+
+function makeSpawner(responses: Record<string, { code: number; out?: string; err?: string }[]>): {
+  spawner: GitSpawner;
+  calls: string[][];
+} {
+  const calls: string[][] = [];
+  const counters: Record<string, number> = {};
+  const spawner: GitSpawner = async (args) => {
+    calls.push([...args]);
+    const key = args[0];
+    counters[key] = (counters[key] ?? 0) + 1;
+    const queue = responses[key] ?? [];
+    const response = queue[counters[key] - 1] ?? queue[queue.length - 1] ?? { code: 0 };
+    return { code: response.code, out: response.out ?? "", err: response.err ?? "" };
+  };
+  return { spawner, calls };
+}
+
+describe("gitCommitAndPush", () => {
+  test("uses git add -A, commit -m, and push origin HEAD in order (AC1)", async () => {
+    const { spawner, calls } = makeSpawner({
+      "rev-parse": [{ code: 0, out: "main" }],
+    });
+    await gitCommitAndPush("/fake/repo", "test: hello", spawner);
+    expect(calls[0]).toEqual(["rev-parse", "--abbrev-ref", "HEAD"]);
+    expect(calls[1]).toEqual(["add", "-A"]);
+    expect(calls[2]).toEqual(["commit", "-m", "test: hello"]);
+    expect(calls[3]).toEqual(["push", "origin", "HEAD"]);
+  });
+
+  test("resolves void on success without retry (AC4)", async () => {
+    const { spawner } = makeSpawner({ "rev-parse": [{ code: 0, out: "main" }] });
+    await expect(gitCommitAndPush("/fake/repo", "msg", spawner)).resolves.toBeUndefined();
+  });
+
+  test("resolves void without push when commit exits non-zero (AC5)", async () => {
+    const { spawner, calls } = makeSpawner({
+      "rev-parse": [{ code: 0, out: "main" }],
+      commit: [{ code: 1, err: "nothing to commit" }],
+    });
+    await expect(gitCommitAndPush("/fake/repo", "msg", spawner)).resolves.toBeUndefined();
+    expect(calls.some((a) => a[0] === "push")).toBe(false);
+  });
+
+  test("retries with fetch+reset+re-stage+re-commit after first push failure (AC2)", async () => {
+    let pushCount = 0;
+    const { spawner, calls } = makeSpawner({
+      "rev-parse": [{ code: 0, out: "main" }],
+      push: [{ code: 128, err: "rejected" }, { code: 0 }],
+    });
+    // Override push counter tracking via custom spawner that delegates
+    const wrappedSpawner: GitSpawner = async (args) => {
+      if (args[0] === "push") pushCount++;
+      return spawner(args);
+    };
+    await expect(gitCommitAndPush("/fake/repo", "msg", wrappedSpawner)).resolves.toBeUndefined();
+    const fetchIdx = calls.findIndex((a) => a[0] === "fetch");
+    const resetIdx = calls.findIndex((a) => a[0] === "reset");
+    expect(fetchIdx).toBeGreaterThan(-1);
+    expect(resetIdx).toBeGreaterThan(fetchIdx);
+    expect(calls[resetIdx]).toEqual(["reset", "--hard", "origin/main"]);
+    expect(pushCount).toBe(2);
+  });
+
+  test("throws Error after 3 failed push attempts (AC3)", async () => {
+    const { spawner } = makeSpawner({
+      "rev-parse": [{ code: 0, out: "main" }],
+      push: [{ code: 1 }],
+    });
+    await expect(gitCommitAndPush("/fake/repo", "msg", spawner)).rejects.toThrow(
+      "git push failed after 3 retries",
+    );
+  });
+
+  test("uses origin/<branch> from rev-parse in reset command (AC2 branch name)", async () => {
+    const { spawner, calls } = makeSpawner({
+      "rev-parse": [{ code: 0, out: "feat/my-branch\n" }],
+      push: [{ code: 1, err: "rejected" }, { code: 0 }],
+    });
+    await gitCommitAndPush("/fake/repo", "msg", spawner);
+    const resetCall = calls.find((a) => a[0] === "reset");
+    expect(resetCall).toEqual(["reset", "--hard", "origin/feat/my-branch"]);
   });
 });

@@ -14,10 +14,10 @@ Scripts for starting, stopping, and monitoring the autonomous agent fleet.
 | `console/index.html` | Console UI entry point (v7.1 — serves static HTML with SSE support) |
 | `console/console.js` | Console interactive client (v7.1 — card animations, empty states, AI draft panel, ARIA accessibility) |
 | `console/styles.css` | Console design system (v7.1 — dark theme, motion tokens, Satoshi/DM Sans/JetBrains Mono typefaces) |
-| `console/server-utils.ts` | Utility exports — parsing ledger/mailbox, task ID validation, fleet status reading, SSE helpers, watch handler (v7.1) |
+| `console/server-utils.ts` | Utility exports — parsing ledger/mailbox, task ID validation, fleet status reading, SSE helpers, watch handler, port resolution (v7.1) |
 | `console/bash-wrapper.test.ts` | Bun test wrapper that runs bash-wrapper.test.sh inline (v7.1) |
 | `console/bash-wrapper.test.sh` | Bash unit tests for risk classification (check_risk) and polling behavior (poll_approval) (v7.1) |
-| `console/server.test.ts` | Bun tests for endpoint security — taskId regex validation, agent name validation, needs_human endpoint (v7.1) |
+| `console/server.test.ts` | Bun tests for endpoint security, static serving, queue bootstrap, and `resolveControlDir` — taskId regex validation, agent name validation, needs_human endpoint (v7.1) |
 | `console/qa-smoke.sh` | QA smoke test for console UI — asserts page title, nav bar, and Fleet tab are present via gstack browse (v7.1) |
 
 ---
@@ -121,21 +121,39 @@ Agents use the Claude Bash tool for all shell operations. To prevent accidental 
 
 1. **Prepended to PATH.** `run-agent.sh` exports `$SUPERVISOR_DIR/console/bin` first on PATH, so every Bash tool call (from Claude) hits the wrapper before the system bash.
 
-2. **Risk classification.** The wrapper identifies high-risk patterns anywhere in the command string (including chained commands like `cd /tmp && git push`):
+2. **Real bash detection.** The wrapper locates the actual system bash to delegate approved commands. It resolves its own canonical path using `BASH_SOURCE[0]` (not `$0`, which is unreliable when invoked via PATH), then iterates `type -ap bash` candidates, comparing each via `realpath` to skip any path — including symlinks — that resolves to itself:
+   ```bash
+   _SELF=$(realpath "${BASH_SOURCE[0]}" ...)
+   while IFS= read -r _cand; do
+     _cand_real=$(realpath "$_cand" ...)
+     [ "$_cand_real" = "$_SELF" ] && continue
+     REAL_BASH="$_cand"; break
+   done < <(type -ap bash)
+   ```
+   This correctly handles setups where a symlink to the wrapper appears earlier on PATH than the system bash.
+
+3. **Risk classification.** The wrapper uses two functions:
+   - `check_risk <cmd>` — returns `high` if the command string matches a high-risk pattern anywhere (no `^` anchor so patterns in chained commands are caught).
+   - `evaluate_chain_risk <cmd>` — splits the full command on `&&`, `||`, and `;` using `python3 -c "import re, sys; parts = re.split(...)"`, then calls `check_risk` on each segment. A chain like `cd /tmp && git push origin main` is classified `high` because the second segment matches.
+
+   High-risk patterns:
    - Git mutations: `git push`, `git rebase`, `git reset`
    - Destructive file ops: `rm -rf`, `chmod -R`, `chown -R`
    - Data/device access: `curl | bash`, `wget | bash`, `dd if=`, `mkfs`, `fdisk`
 
-3. **Low-risk pass-through.** Commands like `git clone`, `ls`, `npm install` execute immediately without gating.
+4. **Low-risk pass-through.** Commands like `git clone`, `ls`, `npm install` execute immediately without gating.
 
-4. **High-risk intercept.** When a high-risk command is detected:
-   - Wrapper writes a JSON request file to `$SUPERVISOR_DECISIONS_DIR/<agent>-<request-id>.json`
+5. **High-risk intercept.** When a high-risk command is detected:
+   - Wrapper writes a JSON request file to `$SUPERVISOR_DECISIONS_DIR/<agent>-<request-id>.json` using `python3 -c "import json, sys; ..."` (no `jq` dependency)
    - Logs the command to stderr: `[bash-wrapper] HIGH RISK — blocked, awaiting console decision`
-   - Polls for an approval response file (`<agent>-<request-id>.decision.json`)
+   - Polls for an approval response file (`<agent>-<request-id>.decision.json`), also parsed with `python3 -c "import json, sys; ..."`
    - If `{"approved": true}` — executes the command
    - If `{"approved": false}` or timeout — blocks and exits with code 1
 
-5. **Fallback when console is down.** If `$SUPERVISOR_DECISIONS_DIR` is not set, the wrapper blocks with a warning and does NOT execute the command. This prevents silent execution when the console is unavailable.
+6. **Fallback when console is down.** If `$SUPERVISOR_DECISIONS_DIR` is not set, the wrapper blocks with a warning and exits 1. This prevents silent execution when the console is unavailable:
+   ```
+   [bash-wrapper] WARNING: SUPERVISOR_DECISIONS_DIR not set; blocking high-risk command
+   ```
 
 ### Accessing decision files
 
@@ -172,29 +190,33 @@ Decision files are ephemeral and cleaned up automatically on two schedules to pr
 
 ## Console server — zero-config control repo discovery (v7.1)
 
-The console server reads task ledgers, mailboxes, and decision files from the control repository. To eliminate manual env setup, `supervisor/console/server.ts` auto-detects the control repo on startup.
+The console server reads task ledgers, mailboxes, and decision files from the control repository. Rather than requiring a hardcoded path, `supervisor/console/server.ts` discovers the control repo automatically by scanning each agent's checkout directory.
 
-### How auto-detection works
+### How auto-detection works (`resolveControlDir`)
+
+`resolveControlDir(agentDirs: string[])` is exported from `server-utils.ts` and called once at startup. The result is cached in a module-level `controlDir` constant — git is never called again on subsequent requests (AC4).
 
 When you start the console server:
 
-1. **Check env override.** If `CONTROL_DIR` is set, use that path directly (backward-compatible fallback). Skip the next steps.
+1. **Check env override (AC3).** If the `CONTROL_DIR` environment variable is set, return its value immediately. No git commands are run; the value is used as-is.
 
-2. **Resolve control repo URL.** Read `supervisor/fleet.conf` (same directory as run-agent.sh), skip comment lines and blank lines, take the first agent name. Then read the git remote URL:
-   ```bash
-   git -C ~/agents/<first-agent>/control remote get-url origin
+2. **Iterate all agent checkout directories (AC1).** Build the list of agent control paths from `fleet.conf`:
    ```
-   This gives the control repo URL without requiring a separate config file.
-
-3. **Clone if needed.** If `~/agents/console/control` does not exist, clone the control repo there:
-   ```bash
-   git clone <url> ~/agents/console/control
+   ~/agents/<each-agent>/control
    ```
-   This is a **blocking operation** — the HTTP server does not bind until the clone succeeds.
+   For each path, run:
+   ```bash
+   git -C <path> remote get-url origin
+   ```
+   Return the **first** directory whose origin URL contains `seab-group/tshepostack` (substring match — works for both SSH and HTTPS remotes).
 
-4. **Skip if already present.** If `~/agents/console/control` already exists, start immediately without re-cloning.
+3. **Skip unreadable directories silently (AC5).** If a path does not exist, or `git remote get-url` exits non-zero, that entry is skipped without logging and without throwing. The loop continues to the next agent.
 
-5. **Graceful failure.** If the clone fails (network error, bad URL, missing repo), the server exits with a non-zero code and logs a descriptive error. It does NOT start a server without the control repo.
+4. **Return null on no match (AC2).** If no agent directory yields a matching remote, `resolveControlDir` returns `null` and logs:
+   ```
+   [resolveControlDir] no agent directory matched control-repo remote
+   ```
+   The server continues to bind and serve. API routes that require the control repo (mailbox, ledger, attention) will be unavailable, but the static UI and `/health` endpoint still respond.
 
 ### Startup log example
 
@@ -206,22 +228,23 @@ $ bun run supervisor/console/server.ts
 [console] Control URL: git@github.com:my-org/my-control-repo.git
 [console] Cloning control repo from git@github.com:my-org/my-control-repo.git...
 [console] Clone complete at ~/agents/console/control
-[console] Starting HTTP server on port 7842
+Console ready → http://localhost:7842
 ```
 
-### Setup implications
+If no agent directory matches:
+```bash
+$ bun run supervisor/console/server.ts
+WARNING: control dir not found — mailbox and ledger routes unavailable
+Console server listening on http://127.0.0.1:7842
+```
 
-**Old workflow** (before v7.1):
+### Using the env override
+
 ```bash
 CONTROL_DIR=/path/to/control bun run supervisor/console/server.ts
 ```
 
-**New workflow** (v7.1):
-```bash
-bun run supervisor/console/server.ts
-```
-
-The server now reads `fleet.conf` to find the control repo without manual setup. Operators upgrading from v7.0 can delete any hardcoded `CONTROL_DIR` exports in their systemd/launchd service files.
+The `CONTROL_DIR` env var takes absolute precedence over auto-detection. Use it when the agent checkout directories are not under `~/agents/` (non-standard machine layouts).
 
 ---
 
@@ -286,6 +309,81 @@ At startup, `server.ts` reads `fleet.conf` and builds a Set of all agent names l
 
 - **Node.js raw path:** The server uses `node:http.createServer()` instead of `Bun.serve()`. Bun normalizes dot segments before the request handler is called (defeating AC4 validation), whereas `node:http` passes the raw, un-normalized path, allowing the server to validate and reject malicious identifiers.
 - **Synchronous validation:** All validations occur synchronously in the request handler. No path is written to disk until validation passes.
+
+---
+
+## Port binding hardening — PORT override, EADDRINUSE crash, ready message (v7.1)
+
+The console server validates the listening port before binding, crashes fast on conflicts, and announces readiness via stdout. These behaviors build on the CONS-003 localhost-only binding constraint.
+
+### Port resolution — `resolvePort()` (AC1/AC2)
+
+Port selection is handled by `resolvePort(portEnv: string | undefined)` exported from `server-utils.ts`:
+
+- Returns `7842` when `PORT` is unset or empty.
+- Parses `parseInt(portEnv, 10)` and validates the result is a number in the range 1024–65535.
+- Throws `Error('Invalid PORT value: "{value}" — expected a number between 1024 and 65535')` for anything outside that range.
+
+`server.ts` calls `resolvePort(process.env.PORT)` inside an IIFE at module start — before any filesystem reads or network operations:
+
+```bash
+# Default port
+bun run supervisor/console/server.ts
+# → Console ready → http://localhost:7842
+
+# Custom port
+PORT=9000 bun run supervisor/console/server.ts
+# → Console ready → http://localhost:9000
+```
+
+The server always binds to `127.0.0.1` (loopback only) regardless of the PORT value. External network binding is not configurable.
+
+### EADDRINUSE crash (AC3)
+
+If the selected port is already in use when the server attempts to bind, the EADDRINUSE error handler fires:
+
+```
+ERROR: port 7842 already in use — is another console running?
+```
+
+The message goes to stderr and the process exits with code 1. No fallback port is chosen. The operator must stop the conflicting process or use `PORT=<other>` to select a free port.
+
+### PORT validation (AC5)
+
+An invalid `PORT` value causes the server to exit **before** attempting to bind. The validation error goes to stderr with exit code 1:
+
+```bash
+PORT=invalid bun run supervisor/console/server.ts
+# stderr: ERROR: Invalid PORT value: "invalid" — expected a number between 1024 and 65535
+# exit 1
+
+PORT=80 bun run supervisor/console/server.ts
+# stderr: ERROR: Invalid PORT value: "80" — expected a number between 1024 and 65535
+# exit 1 (below minimum 1024)
+```
+
+### Startup ready message (AC4)
+
+After a successful bind, the server writes the ready line to stdout:
+
+```
+Console ready → http://localhost:7842
+```
+
+This replaces the old `Console server listening on http://127.0.0.1:7842` message. The new message uses `localhost` (operator-friendly) and includes the arrow format consistent with Node.js ecosystem conventions.
+
+### Test coverage
+
+| AC | Test | Location |
+|---|---|---|
+| AC1 | `server binds to 127.0.0.1, not 0.0.0.0` | `server.test.ts` — port binding describe |
+| AC2 | `resolvePort returns 7842 when PORT is unset` | `server.test.ts` |
+| AC2 | `resolvePort returns the numeric PORT value when set` | `server.test.ts` |
+| AC2 | `server actually binds to PORT=9999` | `server.test.ts` |
+| AC3 | `EADDRINUSE exits 1 with the right error message` | `server.test.ts` — occupier + spawnSync |
+| AC5 | `resolvePort throws on non-numeric PORT` | `server.test.ts` |
+| AC5 | `resolvePort throws on out-of-range PORT` | `server.test.ts` |
+| AC5 | `server exits 1 for PORT=invalid before bind` | `server.test.ts` — temp script + spawnSync |
 
 ---
 
@@ -779,7 +877,7 @@ The textarea uses placeholder text for hints but the actual label is a proper se
 The browser tab title updates dynamically based on queue state:
 
 - **Pending items (N > 0):** `(N) Fleet Console` (e.g., "(2) Fleet Console")
-- **All clear:** `Fleet Console — All clear`
+- **All clear (N = 0):** `Fleet Console`
 
 The title updates every time cards are added or removed, giving operators a quick status check from the browser tab without opening the console.
 
@@ -830,25 +928,33 @@ bun test supervisor/console/
 
 ### Bash wrapper tests — `bash-wrapper.test.sh` + `bash-wrapper.test.ts`
 
-**Risk classification (AC1):** The `check_risk` function classifies commands into security tiers:
+The test suite uses `env -i + /bin/bash "$WRAPPER"` invocation throughout to avoid shebang-loop `E2BIG` errors that occur when multiple bash wrappers share a PATH. Each test passes a clean, minimal environment (`HOME`, `TMPDIR`, `PATH` pointing to system binaries only).
 
-| Command | Classification | Example |
-|---------|-----------------|---------|
-| Destructive git operations | high | `git push origin main`, `git rebase`, `git reset` |
-| Recursive file operations | high | `rm -rf /home`, `chmod -R`, `chown -R`, `mkfs`, `fdisk` |
-| Pipe-to-shell | high | `curl \| bash`, `wget \| sh` |
-| Safe commands | low | `git clone`, `ls`, `bun test`, `cd` |
-| Chained operations | high | `cd /tmp && git push origin main` (if any segment is high) |
+**REAL_BASH symlink detection (AC1):** A fake `bin/` directory is created containing only a symlink named `bash` that points to the wrapper itself. When the fake bin appears first on PATH, the wrapper's `realpath`-based loop must skip it and find the system bash. The test calls the wrapper via `/bin/bash "$WRAPPER"` (bypassing PATH lookup) and asserts exit 0.
 
-The classification runs inline in the bash wrapper (`supervisor/console/bin/bash`) before attempting execution. Commands classified as high are sent to the console for operator approval; low-risk commands execute immediately.
+**Chain-risk classification (AC2):** The inline `check_risk` and `evaluate_chain_risk` functions are tested:
 
-**Approval polling (AC2):** When a command is blocked, the wrapper polls for a decision file:
+| Command | Classification | Reason |
+|---------|-----------------|--------|
+| `git push origin main` | high | direct git push match |
+| `git commit -m "fix"` | not high | no high-risk pattern |
+| `bun test` | low | safe command |
+| `cd /tmp && git push origin main` | high | `git push` in second segment |
+| `rm -rf /home` | high | recursive remove |
 
-- **Approved path:** If `<agent>-<request-id>.decision.json` appears with `{"approved": true}`, the wrapper executes the command and exits 0.
-- **Rejected path:** If the decision file has `{"approved": false}`, the wrapper exits 1 (command blocked).
-- **Timeout path:** If no decision file appears within 60s, the wrapper exits 1 (timeout protection prevents indefinite hangs).
+**Approval polling via python3 (AC3):** Decision file parsing uses `python3 -c "import json, sys; ..."` — no `jq` dependency. Three paths are verified:
 
-All three paths are covered by the test suite.
+- **Approved path:** Decision file with `{"approved": true}` → wrapper executes the command, exits 0.
+- **Rejected path:** Decision file with `{"approved": false}` → wrapper exits 1 (command blocked).
+- **Timeout path:** No decision file appears within 3s (test-bounded) → non-zero exit (prevents indefinite hangs).
+
+All three paths use isolated decision directories to prevent cross-test interference.
+
+**SUPERVISOR_DECISIONS_DIR guard (AC6):** When `SUPERVISOR_DECISIONS_DIR` is unset and the wrapper intercepts a high-risk command, it:
+- Exits with code 1
+- Writes a warning to stderr containing `SUPERVISOR_DECISIONS_DIR`
+
+Both conditions are asserted. This verifies commands are never silently executed when the console is unavailable.
 
 ### Server endpoint tests — `server.test.ts` + `server-utils.ts`
 
@@ -888,9 +994,22 @@ Response:
 
 **Mailbox parsing edge cases (AC7):** The `parseMailboxNotes()` utility handles mailbox files containing only the `<!-- cleared by ... -->` marker without crashing — returns an empty array.
 
+**`resolveControlDir` tests (T2 AC1–AC3, AC5):** Four describe blocks cover the control-repo discovery function:
+
+| Describe block | What it tests |
+|---|---|
+| `resolveControlDir (AC1)` | Returns the first dir whose git remote URL contains the control-repo slug; other dirs are skipped |
+| `resolveControlDir (AC2)` | Returns `null` when all agent dirs have unrelated remote URLs |
+| `resolveControlDir (AC3)` | Returns `CONTROL_DIR` env var without calling `git`, even when the path does not exist |
+| `resolveControlDir (AC5)` | Does not throw for a non-existent directory path; returns `null` |
+
+Each test creates temporary git repos with `git init` + `git remote add origin <url>` to control exactly which remote URLs are visible. `process.env.CONTROL_DIR` is saved and restored around each test.
+
+AC4 (startup cache) is human-verify: `resolveControlDir` is called once in `server.ts` at module level and the result stored in `const controlDir` — never re-called on subsequent requests.
+
 ### Test results
 
-All 15 tests pass (5 bash-wrapper + 10 server tests). Run the full suite with:
+All 41 tests pass (8 bash-wrapper + 33 server tests). Run the full suite with:
 
 ```bash
 bun test supervisor/console/     # runs all tests, exit 0 on pass
@@ -994,6 +1113,75 @@ Static serving is optimized for console UI delivery:
 - **Synchronous reads:** `readFileSync()` is safe here because console startup is not performance-critical and files are typically small (<100KB total). Async reads would complicate the response lifecycle.
 - **Guard constraint:** The traversal check requires `resolved.startsWith(safeRoot + sep)` to ensure the slash is present. Without the trailing separator, `/home` would accidentally match `/home2/attacker`. The `sep` constant is `node:path.sep` (platform-aware).
 - **Error handling:** Any `readFileSync` exception (permission denied, etc.) is caught and returns HTTP 404, treating the file as missing rather than distinguishing permission errors.
+
+---
+
+## Queue tab bootstrap — GET /api/queue endpoint (v7.1)
+
+The console exposes `GET /api/queue` so the Queue tab populates immediately on first load and after a page refresh, without waiting for SSE events. Before this endpoint, a blocked command whose SSE event was missed (e.g., the operator opened the console after the bash wrapper had already sent the event) left the Queue tab blank even though work was waiting.
+
+### Server side — GET /api/queue
+
+**Endpoint:** `GET /api/queue`
+
+**Response:** HTTP 200 with `Content-Type: application/json`:
+
+```json
+{
+  "approvals": [
+    { "id": "REQ-1", "agent": "agent-fe", "command": "rm test.txt", "risk": "low" }
+  ],
+  "attention": [
+    { "id": "CONS-999", "status": "needs_human", "domain": "be", "description": "..." }
+  ]
+}
+```
+
+- **`approvals`** — Unresolved approval request files from `SUPERVISOR_DECISIONS_DIR`. An "unresolved" file is one where `{agent}-{id}.json` exists but the matching `{agent}-{id}.decision.json` does NOT yet exist in the same directory.
+- **`attention`** — All tasks with `status: needs_human` from the ledger (same data as `GET /api/attention`).
+
+When `SUPERVISOR_DECISIONS_DIR` is unset, the directory does not exist, or is unreadable, `approvals` returns `[]` — the endpoint never returns 503 or 500 for a missing or absent directory (AC5, AC6).
+
+### readApprovals() — server-utils.ts
+
+The `readApprovals(decisionsDir)` utility reads unresolved approval request files:
+
+1. Returns `[]` immediately if `decisionsDir` is falsy (AC5).
+2. Calls `readdirSync(decisionsDir)` — catches any error and returns `[]` so a missing or unreadable directory never causes a 500 (AC6).
+3. Builds a `Set` of all `.decision.json` filenames present in the directory.
+4. Filters the `.json` files to those without a matching `.decision.json` entry — these are the unresolved requests.
+5. Reads and JSON-parses each unresolved file with `readFileSync()`; silently skips any file that fails to parse.
+
+### Client side — fetchQueue() in console.js
+
+`fetchQueue()` is an async function in `console.js` that fetches `GET /api/queue` and renders its results into the existing card containers:
+
+- **Called on tab activate (AC2):** `switchTab('queue')` calls `fetchQueue()` so the Queue tab is populated before any SSE event arrives.
+- **Called on SSE reconnect (AC3):** The SSE `open` event handler calls `fetchQueue()` to re-sync the tab after a dropped connection.
+- **Deduplication (AC3 constraint):** Before prepending a card, `fetchQueue()` checks `document.getElementById(cardId)` where `cardId` is `approval-{id}` or `attention-{id}`. If the element already exists, that card is skipped. This prevents duplicates when SSE events and the bootstrap fetch both deliver the same item.
+- **State sync:** After rendering all cards from the response, `fetchQueue()` calls `syncState()` to update counts, badges, and the document title.
+
+### Document title — AC4
+
+The title format `(N) Fleet Console` (N > 0) / `Fleet Console` (N = 0) is implemented by the pre-existing `syncState()` function with no new code required in CONS-016:
+
+```javascript
+document.title = total > 0 ? `(${total}) Fleet Console` : 'Fleet Console';
+```
+
+`total = approvalCount + attentionCount`. `fetchQueue()` calls `syncState()` after updating the counts, so the title reflects the bootstrapped queue depth immediately.
+
+### Test coverage
+
+Three new `describe` blocks in `server.test.ts` cover the server-side ACs:
+
+| Describe block | AC | What it asserts |
+|---|---|---|
+| `GET /api/queue` | AC1 | Returns only unresolved approvals (REQ-1, not REQ-2 which has a `.decision.json`) + needs_human tasks from the ledger |
+| `GET /api/queue no decisions dir` | AC5 | `readApprovals(undefined)` → `[]`; `readApprovals("")` → `[]` |
+| `GET /api/queue missing dir` | AC6 | `readApprovals(nonexistent-path)` → `[]`, no exception thrown |
+
+Test fixtures in `beforeAll`: one unresolved approval file (`agent-fe-REQ-1.json`), one resolved pair (`agent-fe-REQ-2.json` + `agent-fe-REQ-2.decision.json`). The AC1 test asserts that only REQ-1 appears in the response.
 
 ---
 
