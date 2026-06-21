@@ -145,10 +145,14 @@ if (controlDir) {
 // SSE client registry — one ServerResponse per connected browser tab.
 const sseClients = new Set<ServerResponse>();
 
-function broadcast(event: string): void {
+// AC4: last known fleet-update payload per agent — replayed on reconnect.
+const lastEventCache = new Map<string, string>();
+
+// broadcastFn: frame is a complete SSE frame (event + data lines, terminated with \n\n).
+function broadcast(frame: string): void {
   for (const res of sseClients) {
     try {
-      res.write(`data: ${event}\n\n`);
+      res.write(frame);
     } catch {
       sseClients.delete(res);
     }
@@ -273,9 +277,34 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       "cache-control": "no-cache",
       connection: "keep-alive",
     });
-    res.write(": ping\n\n");
+    // AC1: flush initial comment to prevent proxy buffering.
+    res.write(": ok\n\n");
+
+    // AC4: replay last known fleet-update for each agent on reconnect.
+    const lastId = req.headers["last-event-id"];
+    if (lastId) {
+      for (const payload of lastEventCache.values()) {
+        res.write(`event: fleet-update\ndata: ${payload}\n\n`);
+      }
+    }
+
     sseClients.add(res);
-    req.on("close", () => sseClients.delete(res));
+
+    // AC6: keep-alive ping every 30 s to prevent proxy/load-balancer timeout.
+    const pingInterval = setInterval(() => {
+      try {
+        res.write(": ping\n\n");
+      } catch {
+        sseClients.delete(res);
+        clearInterval(pingInterval);
+      }
+    }, 30_000);
+
+    // AC5: remove client on disconnect; clear ping interval to avoid memory leak.
+    req.on("close", () => {
+      sseClients.delete(res);
+      clearInterval(pingInterval);
+    });
     return; // keep connection open — do NOT call res.end()
   }
 
@@ -352,6 +381,6 @@ server.listen(PORT, HOSTNAME, () => {
 for (const agent of agentList) {
   const logDir = join(homedir(), "agents", agent, "logs");
   mkdirSync(logDir, { recursive: true });
-  watch(logDir, makeWatchHandler(agent, broadcast));
+  watch(logDir, makeWatchHandler(agent, logDir, broadcast, lastEventCache));
   console.log(`Watching ${logDir}`);
 }

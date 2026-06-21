@@ -73,16 +73,39 @@ export function readFleetStatus(agents: string[], agentsHome: string): AgentStat
 
 // Returns an fs.watch callback for a single agent's log directory.
 // Exported so tests can verify broadcast payloads without real filesystem events.
+// broadcastFn receives a complete SSE frame (event + data lines, terminated with \n\n).
+// cache is updated with the last fleet-update payload per agent for Last-Event-ID replay.
 export function makeWatchHandler(
   agent: string,
-  broadcastFn: (msg: string) => void,
+  logDir: string,
+  broadcastFn: (frame: string) => void,
+  cache: Map<string, string>,
 ): (_event: string, filename: string | null) => void {
   return (_event, filename) => {
     if (filename === "live-events.jsonl") {
-      broadcastFn(JSON.stringify({ agent, file: filename, ts: Date.now() }));
+      // AC2: read last JSON line and broadcast fleet-update.
+      // AC3: silently skip on ENOENT or permission error — watcher stays active.
+      try {
+        const content = readFileSync(join(logDir, "live-events.jsonl"), "utf8");
+        const lines = content.trimEnd().split("\n").filter(Boolean);
+        if (!lines.length) return;
+        const parsed = JSON.parse(lines[lines.length - 1]) as Record<string, unknown>;
+        const payload = JSON.stringify({
+          type: "fleet-update",
+          agent,
+          task: parsed.task ?? null,
+          tool: parsed.tool ?? null,
+          summary: parsed.summary ?? null,
+          ts: Date.now(),
+        });
+        cache.set(agent, payload);
+        broadcastFn(`event: fleet-update\ndata: ${payload}\n\n`);
+      } catch {
+        // AC3: unreadable — skip silently
+      }
     } else if (filename === "live.json") {
-      // AC4: broadcast fleet-update so browsers know to re-fetch /api/fleet.
-      broadcastFn(JSON.stringify({ type: "fleet-update", agent, ts: Date.now() }));
+      const payload = JSON.stringify({ type: "fleet-update", agent, ts: Date.now() });
+      broadcastFn(`event: fleet-update\ndata: ${payload}\n\n`);
     }
   };
 }
