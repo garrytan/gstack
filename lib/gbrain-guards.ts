@@ -29,7 +29,7 @@
  */
 
 import { spawnSync } from "child_process";
-import { existsSync, realpathSync } from "fs";
+import { existsSync, realpathSync, readFileSync } from "fs";
 import { homedir } from "os";
 import { join, resolve, sep } from "path";
 import { execGbrainJson, execGbrainText, NEEDS_SHELL_ON_WINDOWS } from "./gbrain-exec";
@@ -92,12 +92,53 @@ export function detectAutopilot(
     join(homedir(), ".gbrain", "autopilot.pid"),
   ];
   for (const lp of lockPaths) {
-    if (existsSync(lp)) return { active: true, signal: `lock:${lp}` };
+    if (!existsSync(lp)) continue;
+    // A lock FILE alone is not proof of life — a crashed daemon leaves a stale
+    // lock that would otherwise wedge every sync forever (observed: a dead pid
+    // refused --full indefinitely). Read the holder pid and check liveness.
+    const pid = readLockPid(lp);
+    if (pid === null) {
+      // Can't introspect (no parseable pid) → stay conservative: treat as active.
+      return { active: true, signal: `lock:${lp}` };
+    }
+    if (isPidAlive(pid)) {
+      return { active: true, signal: `lock:${lp} (pid ${pid})` };
+    }
+    // Stale lock (holder pid is dead): ignore this signal, keep checking. Pure
+    // decision function — we do NOT delete the file here; the caller may clean it.
   }
   // Primary signal: a live `gbrain autopilot` process.
   const running = (probe.processRunning ?? defaultProcessRunning)();
   if (running) return { active: true, signal: "process:gbrain autopilot" };
   return { active: false, signal: null };
+}
+
+/** Read the holder pid from a lock/pid file. Returns null if no integer pid is present. */
+function readLockPid(lockPath: string): number | null {
+  try {
+    const raw = readFileSync(lockPath, "utf-8").trim();
+    // Files seen: a bare pid ("65495"), or JSON like {"pid":65495,...}.
+    const m = raw.match(/"pid"\s*:\s*(\d+)/) ?? raw.match(/^(\d+)$/);
+    if (!m) return null;
+    const pid = Number.parseInt(m[1], 10);
+    return Number.isFinite(pid) && pid > 0 ? pid : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Liveness via signal 0: no signal sent, just an existence/permission check.
+ * ESRCH → dead; EPERM → alive but owned by another user. Cross-host pids are
+ * meaningless, but the autopilot lock is same-host by construction.
+ */
+function isPidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === "EPERM";
+  }
 }
 
 function defaultProcessRunning(): boolean {

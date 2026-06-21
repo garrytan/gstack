@@ -14,7 +14,20 @@ import { HOST_PATHS } from "../scripts/resolvers/types";
 import { PATTERNS } from "../lib/redact-patterns";
 
 const ROOT = path.resolve(import.meta.dir, "..");
-const CSO = fs.readFileSync(path.join(ROOT, "cso", "SKILL.md"), "utf-8");
+// cso is carved (skeleton + sections/audit-phases.md). The Secrets Archaeology
+// prose + secret prefixes moved into the section; check the union so relocated
+// content still counts.
+function unionSkill(skill: string): string {
+  let t = fs.readFileSync(path.join(ROOT, skill, "SKILL.md"), "utf-8");
+  const dir = path.join(ROOT, skill, "sections");
+  if (fs.existsSync(dir)) {
+    for (const f of fs.readdirSync(dir).sort()) {
+      if (f.endsWith(".md") && !f.endsWith(".md.tmpl")) t += "\n" + fs.readFileSync(path.join(dir, f), "utf-8");
+    }
+  }
+  return t;
+}
+const CSO = unionSkill("cso");
 const ctx = { skillName: "cso", tmplPath: "", host: "claude" as const, paths: HOST_PATHS["claude"] };
 
 describe("cso/spec taxonomy alignment", () => {

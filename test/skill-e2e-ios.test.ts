@@ -36,6 +36,16 @@ afterEach(() => {
   rmSync(workDir, { recursive: true, force: true });
 });
 
+// Under `bun test --concurrent`, overlapping tests read the SAME shared
+// `workDir` binding (beforeEach reassigns it mid-flight), so a fixed
+// 'daemon.pid' name collides: the first daemon claims it and every sibling
+// gets already_running against the test process's own (always-alive) pid —
+// the exact failure seen in full gate runs at 15-way concurrency. Unique
+// per-claim pidfiles keep the single-instance semantics under test while
+// removing the cross-test collision.
+let pidfileSeq = 0;
+const uniquePidfile = () => join(workDir, `daemon-${++pidfileSeq}.pid`);
+
 interface StubState {
   loggedIn: boolean;
   username: string;
@@ -205,7 +215,7 @@ class AppState {
       const daemon = await startDaemon({
         loopbackPort: 0,
         tailnetEnabled: false,
-        pidfilePath: join(workDir, 'daemon.pid'),
+        pidfilePath: uniquePidfile(),
         tunnelProvider: async () => tunnel,
       });
       if ('error' in daemon) throw new Error(daemon.error);
@@ -249,7 +259,7 @@ describe('ios-qa E2E (agent-flow simulation)', () => {
       const daemon = await startDaemon({
         loopbackPort: 0,
         tailnetEnabled: false,
-        pidfilePath: join(workDir, 'daemon.pid'),
+        pidfilePath: uniquePidfile(),
         tunnelProvider: async () => tunnel,
       });
       if ('error' in daemon) throw new Error(daemon.error);
@@ -314,7 +324,7 @@ describe('ios-qa E2E (agent-flow simulation)', () => {
       const daemon = await startDaemon({
         loopbackPort: 0,
         tailnetEnabled: false,
-        pidfilePath: join(workDir, 'daemon.pid'),
+        pidfilePath: uniquePidfile(),
         tunnelProvider: async () => tunnel,
       });
       if ('error' in daemon) throw new Error(daemon.error);
@@ -352,7 +362,7 @@ describe('ios-qa E2E (agent-flow simulation)', () => {
       const daemon = await startDaemon({
         loopbackPort: 0,
         tailnetEnabled: true,
-        pidfilePath: join(workDir, 'daemon.pid'),
+        pidfilePath: uniquePidfile(),
         tunnelProvider: async () => tunnel,
         probeImpl: async () => ({ ok: true, ownIdentity: 'mac@e2e' }),
         whoIsImpl: async () => ({ identity: 'agent@e2e', raw: {} }),
@@ -430,7 +440,7 @@ describe('ios-qa E2E (agent-flow simulation)', () => {
       const daemon = await startDaemon({
         loopbackPort: 0,
         tailnetEnabled: true,
-        pidfilePath: join(workDir, 'daemon.pid'),
+        pidfilePath: uniquePidfile(),
         tunnelProvider: async () => tunnel,
         probeImpl: async () => ({ ok: true, ownIdentity: 'mac@e2e' }),
         whoIsImpl: async () => ({ identity: 'readonly@e2e', raw: {} }),
