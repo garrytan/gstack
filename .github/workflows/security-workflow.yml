@@ -48,7 +48,7 @@ jobs:
           fi
           echo "report_path=gitleaks.sarif" >> "$GITHUB_OUTPUT"
       - name: Upload SARIF alerts
-        if: always() && hashFiles("gitleaks.sarif") != ''
+        if: always() && hashFiles('gitleaks.sarif') != ''
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: gitleaks.sarif
@@ -101,7 +101,7 @@ jobs:
           fi
           echo "report_path=trivy.sarif" >> "$GITHUB_OUTPUT"
       - name: Upload SARIF alerts
-        if: always() && hashFiles("trivy.sarif") != ''
+        if: always() && hashFiles('trivy.sarif') != ''
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: trivy.sarif
