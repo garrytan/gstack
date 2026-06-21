@@ -3,9 +3,18 @@
 # Sits first on PATH so the Claude Bash tool calls this instead of system bash.
 # High-risk commands block until the console approves or rejects them.
 
-# Resolve own canonical path to exclude from REAL_BASH search
+# Resolve own canonical path to exclude from REAL_BASH search.
+# Uses BASH_SOURCE[0] (not $0) for reliable self-detection when called via PATH.
+# Compares realpath of each candidate so symlinks pointing to this wrapper are
+# also excluded (plain string grep would miss them).
 _SELF=$(realpath "${BASH_SOURCE[0]}" 2>/dev/null || readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || "${BASH_SOURCE[0]}")
-REAL_BASH=$(type -ap bash | grep -v "$_SELF" | head -1)
+REAL_BASH=""
+while IFS= read -r _cand; do
+  _cand_real=$(realpath "$_cand" 2>/dev/null || readlink -f "$_cand" 2>/dev/null || "$_cand")
+  [ "$_cand_real" = "$_SELF" ] && continue
+  REAL_BASH="$_cand"
+  break
+done < <(type -ap bash 2>/dev/null)
 if [ -z "$REAL_BASH" ]; then
   echo "[bash-wrapper] FATAL: cannot locate real bash (self: $_SELF)" >&2
   exit 127

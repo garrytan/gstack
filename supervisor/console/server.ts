@@ -22,7 +22,7 @@ import {
   serveStatic,
   readFleetStatus,
   makeWatchHandler,
-  resolveControlDir,
+  readApprovals,
 } from "./server-utils.ts";
 
 const PORT = 7842;
@@ -294,6 +294,15 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
   // GET /api/fleet — per-agent status from live.json + presence.json (CONS-012).
   if (path === "/api/fleet" && method === "GET") {
     sendJson(res, readFleetStatus(agentList, join(homedir(), "agents")));
+    return;
+  }
+
+  // GET /api/queue — pending approvals + needs_human attention items (CONS-016).
+  if (path === "/api/queue" && method === "GET") {
+    const allTasks = parseTaskLedger(join(controlDir, "ledger"));
+    const attention = allTasks.filter((t) => t.status === "needs_human");
+    const approvals = readApprovals(process.env.SUPERVISOR_DECISIONS_DIR);
+    sendJson(res, { approvals, attention });
     return;
   }
 
