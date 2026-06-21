@@ -1,150 +1,47 @@
 #!/usr/bin/env bash
 # supervisor/console/qa-smoke.sh
-# Smoke-tests the Fleet Console web UI for key DOM elements and captures a screenshot.
-# Usage: bash supervisor/console/qa-smoke.sh
-# Env: QA_BASE_URL (default: http://localhost:7842), BROWSE_BIN (default: gstack)
+# Boots the server on a random free port, hits all GET endpoints, and exits 0.
+# T9 AC8: uses bun run server.ts; kills server with trap "kill $PID" EXIT.
+set -euo pipefail
 
-BROWSE_BIN="${BROWSE_BIN:-gstack}"
-QA_BASE_URL="${QA_BASE_URL:-http://localhost:7842}"
-SCREENSHOT="/tmp/console-qa-$(date +%s).png"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PORT=$(python3 -c "import socket; s=socket.socket(); s.bind(('',0)); print(s.getsockname()[1]); s.close()")
+TMP_DECISIONS=$(mktemp -d)
 
-pass=0
-fail=0
+PID=""
+trap 'kill "${PID}" 2>/dev/null || true; rm -rf "${TMP_DECISIONS}"' EXIT
 
-_ok()   { printf '  ok    %s\n' "$1"; pass=$((pass + 1)); }
-_fail() { printf '  FAIL  %s\n' "$1" >&2; fail=$((fail + 1)); }
+PORT="${PORT}" SUPERVISOR_DECISIONS_DIR="${TMP_DECISIONS}" \
+  bun run "${SCRIPT_DIR}/server.ts" > /dev/null 2>&1 &
+PID=$!
 
-# AC5: verify the browse binary is available before doing anything else
-if ! command -v "$BROWSE_BIN" >/dev/null 2>&1; then
-  echo "gstack browse not found — install gstack or set BROWSE_BIN" >&2
-  exit 1
-fi
+# Wait up to 5 s for the server to accept connections.
+for i in $(seq 1 25); do
+  curl -sf "http://127.0.0.1:${PORT}/health" > /dev/null 2>&1 && break
+  sleep 0.2
+done
 
-echo "=== Fleet Console smoke test ==="
-echo "  URL:     $QA_BASE_URL"
-echo "  Browser: $BROWSE_BIN"
-echo ""
+pass=0; fail=0
 
-# AC1a: navigate to the console
-"$BROWSE_BIN" goto "$QA_BASE_URL"
+check() {
+  local desc="$1" url="$2" want="${3:-200}" timeout="${4:-5}"
+  local got
+  got=$(curl -s --max-time "${timeout}" -o /dev/null -w '%{http_code}' "${url}" 2>/dev/null) || true
+  if [ "${got}" = "${want}" ]; then
+    printf '  ok    %s\n' "${desc}"; pass=$((pass + 1))
+  else
+    printf '  FAIL  %s (want %s, got %s)\n' "${desc}" "${want}" "${got}" >&2; fail=$((fail + 1))
+  fi
+}
 
-# AC1b: page title contains "Fleet Console"
-TITLE=$("$BROWSE_BIN" js "document.title")
-if echo "$TITLE" | grep -q "Fleet Console"; then
-  _ok "page title contains 'Fleet Console' (got: $TITLE)"
-else
-  _fail "page title should contain 'Fleet Console' (got: $TITLE)"
-fi
+B="http://127.0.0.1:${PORT}"
+check "GET /health"           "${B}/health"
+check "GET / (index.html)"    "${B}/"
+check "GET /styles.css"       "${B}/styles.css"
+check "GET /api/fleet"        "${B}/api/fleet"
+check "GET /api/attention"    "${B}/api/attention"
+check "GET /api/queue"        "${B}/api/queue"
+check "GET /api/events (SSE)" "${B}/api/events" "200" 1
 
-# AC1c: nav[role=tablist] is visible
-VIS=$("$BROWSE_BIN" is visible "nav[role=tablist]")
-if [ "$VIS" = "true" ]; then
-  _ok "nav[role=tablist] is visible"
-else
-  _fail "nav[role=tablist] is not visible (got: $VIS)"
-fi
-
-# AC1d: Fleet tab button is present (checked via JS for text content)
-FLEET_TAB=$("$BROWSE_BIN" js "Array.from(document.querySelectorAll('button[role=\"tab\"]')).some(function(b){return b.textContent.trim()==='Fleet';}) ? 'true' : 'false'")
-if [ "$FLEET_TAB" = "true" ]; then
-  _ok "Fleet tab button is present"
-else
-  _fail "Fleet tab button is not present"
-fi
-
-# T10 AC1/AC7: body font-size is 16px
-FONT_SIZE=$("$BROWSE_BIN" js "getComputedStyle(document.body).fontSize")
-if [ "$FONT_SIZE" = "16px" ]; then
-  _ok "body font-size is 16px (got: $FONT_SIZE)"
-else
-  _fail "body font-size should be 16px (got: $FONT_SIZE)"
-fi
-
-# T10 AC4: card border-radius is 6px (checked on .empty-section which is always present)
-RADIUS=$("$BROWSE_BIN" js "getComputedStyle(document.querySelector('.empty-section')).borderRadius")
-if [ "$RADIUS" = "6px" ]; then
-  _ok "card border-radius is 6px (got: $RADIUS)"
-else
-  _fail "card border-radius should be 6px (got: $RADIUS)"
-fi
-
-# T6 AC1: fleet avatar img src contains dicebear.com
-"$BROWSE_BIN" js "renderFleet([{name:'agent-fe',state:'working',task:'T6',sessionStart:Date.now()-120000,lastTool:'Read',lastSummary:'testing'}])"
-AVATAR_SRC=$("$BROWSE_BIN" js "const img=document.querySelector('.fleet-avatar img');img?img.getAttribute('src'):'none'")
-if echo "$AVATAR_SRC" | grep -q "dicebear.com"; then
-  _ok "fleet avatar img src contains dicebear.com"
-else
-  _fail "fleet avatar img src should contain dicebear.com (got: $AVATAR_SRC)"
-fi
-
-# T6 AC2: elapsed time cell contains 'm' or 'h'
-ELAPSED=$("$BROWSE_BIN" js "const el=document.querySelector('.fleet-elapsed');el?el.textContent.trim():'none'")
-if echo "$ELAPSED" | grep -qE "[0-9]+[mh]"; then
-  _ok "fleet elapsed time shows time value (got: $ELAPSED)"
-else
-  _fail "fleet elapsed time should show Xm/Xh value (got: $ELAPSED)"
-fi
-
-# T6 AC4: approval card renders with HIGH risk badge — switch to Queue tab first
-"$BROWSE_BIN" js "document.getElementById('tab-queue').click()"
-"$BROWSE_BIN" js "const c=buildApprovalCard({id:'test-a1',agent:'agent-fe',risk:'high',command:'rm -rf /',description:'test action',action_type:'SHELL',files:[]});document.getElementById('approval-cards').prepend(c)"
-HIGH_BADGE=$("$BROWSE_BIN" js "const b=document.querySelector('.approval-risk-label.risk-high');b?b.textContent.trim():'none'")
-if echo "$HIGH_BADGE" | grep -qi "HIGH"; then
-  _ok "approval card renders with HIGH risk badge (got: $HIGH_BADGE)"
-else
-  _fail "approval card should render with HIGH badge (got: $HIGH_BADGE)"
-fi
-
-# T6 AC5: attention card renders with Unblock button
-"$BROWSE_BIN" js "const c=buildAttentionCard({id:'test-b1',agent:'agent-fe',task_id:'T6',title:'Test blocked task',agent_note:'This is a test note for the unblock test'});document.getElementById('attention-cards').prepend(c)"
-UNBLOCK_BTN=$("$BROWSE_BIN" js "document.querySelector('.btn-unblock')?'present':'none'")
-if [ "$UNBLOCK_BTN" = "present" ]; then
-  _ok "attention card has Unblock button"
-else
-  _fail "attention card should have Unblock button"
-fi
-
-# AC1e / AC2: take screenshot and print path so QA can attach it as evidence
-"$BROWSE_BIN" screenshot "$SCREENSHOT"
-echo "Screenshot: $SCREENSHOT"
-echo ""
-
-# ── T6 AC1: fleet avatar src contains dicebear.com ──
-# Inject a mock agent row by calling renderFleet() directly
-"$BROWSE_BIN" js "renderFleet([{name:'agent-qa',state:'working',task:'T6',sessionStart:new Date(Date.now()-125000).toISOString(),lastTool:'bash',lastSummary:'testing',ended:false}], Date.now()-125000)"
-AVATAR_SRC=$("$BROWSE_BIN" js "var img=document.querySelector('.fleet-avatar');img?img.src:'none'")
-if echo "$AVATAR_SRC" | grep -q "dicebear"; then
-  _ok "T6 AC1: fleet avatar src contains dicebear.com (got: $AVATAR_SRC)"
-else
-  _fail "T6 AC1: fleet avatar src should contain dicebear.com (got: $AVATAR_SRC)"
-fi
-
-# ── T6 AC2: fleet elapsed time contains 'm' or 'h' ──
-ELAPSED=$("$BROWSE_BIN" js "var el=document.querySelector('.fleet-elapsed');el?el.textContent.trim():'none'")
-if echo "$ELAPSED" | grep -qE "[mh]"; then
-  _ok "T6 AC2: fleet elapsed time contains 'm' or 'h' (got: $ELAPSED)"
-else
-  _fail "T6 AC2: fleet elapsed time should contain 'm' or 'h' (got: $ELAPSED)"
-fi
-
-# ── T6 AC4: approval card renders with HIGH badge ──
-"$BROWSE_BIN" js "switchTab('queue')"
-"$BROWSE_BIN" js "window.__injectApproval({id:'qa-appr-1',agent:'agent-qa',command:'rm -rf /prod',risk:'high',action_type:'DELETE',description:'Removes production data'})"
-HIGH_BADGE=$("$BROWSE_BIN" js "document.querySelector('.risk-high')?'true':'false'")
-if [ "$HIGH_BADGE" = "true" ]; then
-  _ok "T6 AC4: approval card renders with HIGH risk badge"
-else
-  _fail "T6 AC4: approval card should have HIGH risk badge"
-fi
-
-# ── T6 AC5: attention card renders with Unblock button ──
-"$BROWSE_BIN" js "window.__injectAttention({id:'qa-attn-1',agent:'agent-qa',task_id:'T6',agent_note:'Need decision on blocker',title:'T6 blocked'})"
-UNBLOCK_BTN=$("$BROWSE_BIN" js "document.querySelector('.btn-unblock')?'true':'false'")
-if [ "$UNBLOCK_BTN" = "true" ]; then
-  _ok "T6 AC5: attention card renders with Unblock button"
-else
-  _fail "T6 AC5: attention card should have Unblock button"
-fi
-
-printf '=== Results: %d passed, %d failed ===\n' "$pass" "$fail"
-[ "$fail" -eq 0 ]
+printf '\n=== smoke: %d passed, %d failed ===\n' "${pass}" "${fail}"
+[ "${fail}" -eq 0 ]

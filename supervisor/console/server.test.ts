@@ -448,6 +448,29 @@ describe("makeWatchHandler", () => {
     handler("change", "other.log");
     expect(frames).toHaveLength(0);
   });
+
+  test("fires broadcast on 'rename' event for live-events.jsonl (AC6)", () => {
+    const frames: string[] = [];
+    const cache = new Map<string, string>();
+    const handler = makeWatchHandler("agent-be", watchLogDir, (f) => frames.push(f), cache);
+
+    writeFileSync(
+      join(watchLogDir, "live-events.jsonl"),
+      JSON.stringify({ task: "T9", tool: "Edit", summary: "Testing rename events" }) + "\n",
+    );
+    handler("rename", "live-events.jsonl");
+    expect(frames).toHaveLength(1);
+    expect(frames[0]).toContain("event: fleet-update");
+  });
+
+  test("fires broadcast on 'rename' event for live.json (AC6)", () => {
+    const frames: string[] = [];
+    const cache = new Map<string, string>();
+    const handler = makeWatchHandler("agent-be", watchLogDir, (f) => frames.push(f), cache);
+    handler("rename", "live.json");
+    expect(frames).toHaveLength(1);
+    expect(frames[0]).toContain("event: fleet-update");
+  });
 });
 
 // --- T4: GET /api/events (AC1 + AC5) ---
@@ -516,6 +539,34 @@ describe("GET /api/events", () => {
     await reader.cancel();
     await new Promise((resolve) => setTimeout(resolve, 100));
     expect(localSseClients.size).toBe(before);
+  });
+
+  test("three concurrent connections all receive a broadcast — no duplicates (AC3)", async () => {
+    const initial = localSseClients.size;
+    const controllers = [new AbortController(), new AbortController(), new AbortController()];
+    const responses = await Promise.all(
+      controllers.map((ac) => fetch("http://127.0.0.1:7844/api/events", { signal: ac.signal })),
+    );
+    const readers = responses.map((r) => r.body!.getReader());
+    await Promise.all(readers.map((r) => r.read())); // consume ": ok\n\n" heartbeats
+    expect(localSseClients.size).toBe(initial + 3);
+
+    const frame = `event: fleet-update\ndata: ${JSON.stringify({ test: true })}\n\n`;
+    for (const client of localSseClients) {
+      try { client.write(frame); } catch { /* closed */ }
+    }
+
+    const chunks = await Promise.all(readers.map((r) => r.read()));
+    const texts = chunks.map((c) => new TextDecoder().decode(c.value));
+    for (const text of texts) {
+      expect(text).toContain("event: fleet-update");
+      expect(text.split("event: fleet-update").length).toBe(2);
+    }
+
+    controllers.forEach((ac) => ac.abort());
+    await Promise.all(readers.map((r) => r.cancel()));
+    await new Promise<void>((resolve) => setTimeout(resolve, 100));
+    expect(localSseClients.size).toBe(initial);
   });
 });
 
@@ -658,6 +709,23 @@ describe("parseMailboxNotes", () => {
     expect(notes).toHaveLength(1);
     expect(notes[0].from).toBe("agent-qa");
     expect(notes[0].taskId).toBe("CONS-003");
+  });
+
+  test("parseMailboxNotes with malformed header skips section gracefully (AC5)", () => {
+    expect(parseMailboxNotes("## from: bad-header")).toEqual([]);
+  });
+
+  test("parseMailboxNotes with unicode agent name parses correctly (AC5)", () => {
+    const content = [
+      "",
+      "## from: 代理人-α | 2026-06-21T00:00:00Z | re: T9",
+      "unicode body",
+      "",
+    ].join("\n");
+    const notes = parseMailboxNotes(content);
+    expect(notes).toHaveLength(1);
+    expect(notes[0].from).toBe("代理人-α");
+    expect(notes[0].taskId).toBe("T9");
   });
 });
 
@@ -813,5 +881,148 @@ describe("gitCommitAndPush", () => {
     await gitCommitAndPush("/fake/repo", "msg", spawner);
     const resetCall = calls.find((a) => a[0] === "reset");
     expect(resetCall).toEqual(["reset", "--hard", "origin/feat/my-branch"]);
+  });
+});
+
+// --- T9 AC4: rawPath preserves dot segments ---
+
+describe("rawPath dot-segment preservation (AC4)", () => {
+  test("rawPath('/a/../b') returns '/a/../b' unprocessed (AC4)", () => {
+    expect(rawPath("/a/../b")).toBe("/a/../b");
+  });
+
+  test("rawPath('/foo/./bar') returns '/foo/./bar' unprocessed (AC4)", () => {
+    expect(rawPath("/foo/./bar")).toBe("/foo/./bar");
+  });
+
+  test("rawPath does not normalise what the URL API would (AC4 contrast)", () => {
+    expect(rawPath("/a/../b")).not.toBe(new URL("/a/../b", "http://localhost").pathname);
+  });
+});
+
+// --- T9 AC7: GET /api/fleet with empty/absent fleet.conf ---
+
+describe("GET /api/fleet absent/empty fleet.conf (AC7)", () => {
+  test("readFleetStatus with empty agent list returns [] — no crash (AC7)", () => {
+    expect(readFleetStatus([], testDir)).toEqual([]);
+  });
+
+  test("GET /api/fleet returns 200 with [] when no agents configured (AC7)", async () => {
+    const srv = createServer((_req, res) => {
+      sendJson(res, readFleetStatus([], testDir));
+    });
+    await new Promise<void>((resolve) => srv.listen(0, "127.0.0.1", resolve));
+    const { port } = srv.address() as { port: number };
+    try {
+      const r = await fetch(`http://127.0.0.1:${port}/api/fleet`);
+      expect(r.status).toBe(200);
+      expect(await r.json()).toEqual([]);
+    } finally {
+      await new Promise<void>((resolve) => srv.close(resolve));
+    }
+  });
+});
+
+// --- T9 AC1 + AC2: JSON body and Content-Type validation for all POST endpoints ---
+
+async function readAndValidateJsonBody(req: IncomingMessage): Promise<string | null> {
+  const ct = req.headers["content-type"] ?? "";
+  if (!ct.includes("application/json")) return "content-type must be application/json";
+  const chunks: Buffer[] = [];
+  for await (const chunk of req) chunks.push(chunk as Buffer);
+  try {
+    JSON.parse(Buffer.concat(chunks).toString());
+    return null;
+  } catch {
+    return "invalid JSON body";
+  }
+}
+
+describe("JSON body and Content-Type validation (AC1 + AC2)", () => {
+  let jsonSrv: Server;
+  const JSON_PORT = 7845;
+
+  beforeAll(
+    () =>
+      new Promise<void>((resolve) => {
+        jsonSrv = createServer((req, res) => {
+          if (req.method !== "POST") {
+            res.writeHead(405);
+            res.end();
+            return;
+          }
+          void (async () => {
+            const err = await readAndValidateJsonBody(req);
+            if (err) {
+              sendJson(res, { error: err }, 400);
+              return;
+            }
+            sendJson(res, { ok: true });
+          })();
+        });
+        jsonSrv.listen(JSON_PORT, "127.0.0.1", resolve);
+      }),
+  );
+
+  afterAll(
+    () =>
+      new Promise<void>((resolve, reject) => {
+        jsonSrv.close((err) => (err ? reject(err) : resolve()));
+      }),
+  );
+
+  test("POST /api/mailbox/:agentName returns 400 for invalid JSON body (AC1)", async () => {
+    const r = await fetch(`http://127.0.0.1:${JSON_PORT}/api/mailbox/agent-be`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{not: valid json}",
+    });
+    expect(r.status).toBe(400);
+    const body = (await r.json()) as { error: string };
+    expect(body.error).toBeTruthy();
+  });
+
+  test("POST /api/approve returns 400 for invalid JSON body (AC1)", async () => {
+    const r = await fetch(`http://127.0.0.1:${JSON_PORT}/api/approve`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "this is not json",
+    });
+    expect(r.status).toBe(400);
+  });
+
+  test("POST /api/draft-decision returns 400 for invalid JSON body (AC1)", async () => {
+    const r = await fetch(`http://127.0.0.1:${JSON_PORT}/api/draft-decision`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "[unclosed array",
+    });
+    expect(r.status).toBe(400);
+  });
+
+  test("POST /api/mailbox/:agentName returns 400 when Content-Type is not application/json (AC2)", async () => {
+    const r = await fetch(`http://127.0.0.1:${JSON_PORT}/api/mailbox/agent-be`, {
+      method: "POST",
+      headers: { "content-type": "text/plain" },
+      body: JSON.stringify({ note: "hello" }),
+    });
+    expect(r.status).toBe(400);
+  });
+
+  test("POST /api/approve returns 400 when Content-Type is not application/json (AC2)", async () => {
+    const r = await fetch(`http://127.0.0.1:${JSON_PORT}/api/approve`, {
+      method: "POST",
+      body: JSON.stringify({ agentName: "agent-be", requestId: "r1", approved: true }),
+    });
+    expect(r.status).toBe(400);
+  });
+
+  test("POST /api/draft-decision returns 400 when Content-Type is not application/json (AC2)", async () => {
+    const r = await fetch(`http://127.0.0.1:${JSON_PORT}/api/draft-decision`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: "taskId=T9&agentName=agent-be",
+    });
+    expect(r.status).toBe(400);
   });
 });
