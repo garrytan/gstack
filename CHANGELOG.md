@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+### Port binding hardening — PORT override, EADDRINUSE crash, ready message (v7.1)
+
+The console server now validates the `PORT` environment variable before binding, crashes cleanly when the port is already in use, and prints a `Console ready →` line to stdout on successful startup. Operators can override the default port 7842 with any value in the 1024–65535 range; invalid values (non-numeric, below 1024, above 65535) exit immediately with a clear error before any socket is opened.
+
+#### Added
+- `resolvePort(portEnv)` exported from `server-utils.ts`: parses and validates the `PORT` env var, returns `7842` when unset, throws on invalid or out-of-range values
+- `PORT` env var support: `PORT=9000 bun run supervisor/console/server.ts` binds to port 9000 on `127.0.0.1`
+- EADDRINUSE handler: when the selected port is already in use, the server writes `ERROR: port {PORT} already in use — is another console running?` to stderr and exits 1
+- 8 new tests in `server.test.ts` covering AC1 (127.0.0.1 binding), AC2 (PORT override), AC3 (EADDRINUSE exit), and AC5 (invalid PORT exits before bind)
+
+#### Changed
+- Startup log: `Console server listening on http://127.0.0.1:7842` replaced by `Console ready → http://localhost:{PORT}` (written to stdout, not console.log)
+- PORT validation now runs at module start before any filesystem reads or network operations (AC5 constraint)
+
 ### QA smoke testing — browser-verified console UI checks (v7.1)
 
 QA agents can now verify the console UI is rendering correctly using a lightweight browser-based smoke test. When testing tasks with human-verify acceptance criteria, the QA agent runs `qa-smoke.sh` to assert that key DOM elements (page title, tab bar, Fleet tab) are present in the live browser, and captures a screenshot as proof — complementing server-side unit tests with real-world verification.
