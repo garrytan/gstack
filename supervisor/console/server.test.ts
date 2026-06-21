@@ -4,7 +4,7 @@
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { createServer } from "node:http";
 import type { Server, IncomingMessage, ServerResponse } from "node:http";
-import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, writeFileSync, rmSync, existsSync, utimesSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -450,6 +450,29 @@ describe("makeWatchHandler", () => {
     handler("change", "other.log");
     expect(frames).toHaveLength(0);
   });
+
+  test("fires broadcast on 'rename' event for live-events.jsonl (AC6)", () => {
+    const frames: string[] = [];
+    const cache = new Map<string, string>();
+    const handler = makeWatchHandler("agent-be", watchLogDir, (f) => frames.push(f), cache);
+
+    writeFileSync(
+      join(watchLogDir, "live-events.jsonl"),
+      JSON.stringify({ task: "T9", tool: "Edit", summary: "Testing rename events" }) + "\n",
+    );
+    handler("rename", "live-events.jsonl");
+    expect(frames).toHaveLength(1);
+    expect(frames[0]).toContain("event: fleet-update");
+  });
+
+  test("fires broadcast on 'rename' event for live.json (AC6)", () => {
+    const frames: string[] = [];
+    const cache = new Map<string, string>();
+    const handler = makeWatchHandler("agent-be", watchLogDir, (f) => frames.push(f), cache);
+    handler("rename", "live.json");
+    expect(frames).toHaveLength(1);
+    expect(frames[0]).toContain("event: fleet-update");
+  });
 });
 
 // --- T4: GET /api/events (AC1 + AC5) ---
@@ -518,6 +541,34 @@ describe("GET /api/events", () => {
     await reader.cancel();
     await new Promise((resolve) => setTimeout(resolve, 100));
     expect(localSseClients.size).toBe(before);
+  });
+
+  test("three concurrent connections all receive a broadcast — no duplicates (AC3)", async () => {
+    const initial = localSseClients.size;
+    const controllers = [new AbortController(), new AbortController(), new AbortController()];
+    const responses = await Promise.all(
+      controllers.map((ac) => fetch("http://127.0.0.1:7844/api/events", { signal: ac.signal })),
+    );
+    const readers = responses.map((r) => r.body!.getReader());
+    await Promise.all(readers.map((r) => r.read())); // consume ": ok\n\n" heartbeats
+    expect(localSseClients.size).toBe(initial + 3);
+
+    const frame = `event: fleet-update\ndata: ${JSON.stringify({ test: true })}\n\n`;
+    for (const client of localSseClients) {
+      try { client.write(frame); } catch { /* closed */ }
+    }
+
+    const chunks = await Promise.all(readers.map((r) => r.read()));
+    const texts = chunks.map((c) => new TextDecoder().decode(c.value));
+    for (const text of texts) {
+      expect(text).toContain("event: fleet-update");
+      expect(text.split("event: fleet-update").length).toBe(2);
+    }
+
+    controllers.forEach((ac) => ac.abort());
+    await Promise.all(readers.map((r) => r.cancel()));
+    await new Promise<void>((resolve) => setTimeout(resolve, 100));
+    expect(localSseClients.size).toBe(initial);
   });
 });
 
@@ -660,6 +711,92 @@ describe("parseMailboxNotes", () => {
     expect(notes).toHaveLength(1);
     expect(notes[0].from).toBe("agent-qa");
     expect(notes[0].taskId).toBe("CONS-003");
+  });
+
+  test("parseMailboxNotes with malformed header skips section gracefully (AC5)", () => {
+    expect(parseMailboxNotes("## from: bad-header")).toEqual([]);
+  });
+
+  test("parseMailboxNotes with unicode agent name parses correctly (AC5)", () => {
+    const content = [
+      "",
+      "## from: 代理人-α | 2026-06-21T00:00:00Z | re: T9",
+      "unicode body",
+      "",
+    ].join("\n");
+    const notes = parseMailboxNotes(content);
+    expect(notes).toHaveLength(1);
+    expect(notes[0].from).toBe("代理人-α");
+    expect(notes[0].taskId).toBe("T9");
+  });
+});
+
+// --- T8: startup cleanup ---
+
+describe("startup cleanup", () => {
+  const cleanupDir = join(testDir, "cleanup-decisions");
+
+  beforeAll(() => {
+    mkdirSync(cleanupDir, { recursive: true });
+  });
+
+  function setOldMtime(fp: string): void {
+    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    utimesSync(fp, twoHoursAgo, twoHoursAgo);
+  }
+
+  test("deletes request *.json file older than 1 hour (AC1)", () => {
+    const fp = join(cleanupDir, "agent-x-OLD-1.json");
+    writeFileSync(fp, JSON.stringify({ id: "OLD-1" }));
+    setOldMtime(fp);
+
+    purgeStaleDecisionFiles(cleanupDir);
+    expect(existsSync(fp)).toBe(false);
+  });
+
+  test("also deletes paired *.decision.json when request file is deleted (AC2)", () => {
+    const reqFp = join(cleanupDir, "agent-x-OLD-2.json");
+    const decFp = join(cleanupDir, "agent-x-OLD-2.decision.json");
+    writeFileSync(reqFp, JSON.stringify({ id: "OLD-2" }));
+    writeFileSync(decFp, JSON.stringify({ approved: true }));
+    setOldMtime(reqFp);
+    setOldMtime(decFp);
+
+    purgeStaleDecisionFiles(cleanupDir);
+    expect(existsSync(reqFp)).toBe(false);
+    expect(existsSync(decFp)).toBe(false);
+  });
+
+  test("deletes old *.decision.json even when request file is not old (AC2)", () => {
+    const reqFp = join(cleanupDir, "agent-x-OLD-3.json");
+    const decFp = join(cleanupDir, "agent-x-OLD-3.decision.json");
+    writeFileSync(reqFp, JSON.stringify({ id: "OLD-3" }));
+    writeFileSync(decFp, JSON.stringify({ approved: false }));
+    setOldMtime(decFp);
+    // reqFp left with current mtime (newer than 1 hour)
+
+    purgeStaleDecisionFiles(cleanupDir);
+    expect(existsSync(decFp)).toBe(false);
+    expect(existsSync(reqFp)).toBe(true);
+  });
+
+  test("does NOT delete request file newer than 1 hour (AC3)", () => {
+    const fp = join(cleanupDir, "agent-x-NEW-1.json");
+    writeFileSync(fp, JSON.stringify({ id: "NEW-1" }));
+    // leave mtime as-is (just created — well under 1 hour)
+
+    purgeStaleDecisionFiles(cleanupDir);
+    expect(existsSync(fp)).toBe(true);
+  });
+
+  test("exits silently when decisionsDir does not exist (AC4)", () => {
+    expect(() =>
+      purgeStaleDecisionFiles(join(testDir, "nonexistent-cleanup-dir")),
+    ).not.toThrow();
+  });
+
+  test("exits silently when decisionsDir is empty string (AC4)", () => {
+    expect(() => purgeStaleDecisionFiles("")).not.toThrow();
   });
 });
 

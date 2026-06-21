@@ -14,10 +14,10 @@ Scripts for starting, stopping, and monitoring the autonomous agent fleet.
 | `console/index.html` | Console UI entry point (v7.1 — serves static HTML with SSE support) |
 | `console/console.js` | Console interactive client (v7.1 — card animations, empty states, AI draft panel, ARIA accessibility) |
 | `console/styles.css` | Console design system (v7.1 — dark theme, motion tokens, Satoshi/DM Sans/JetBrains Mono typefaces) |
-| `console/server-utils.ts` | Utility exports — parsing ledger/mailbox, task ID validation, fleet status reading, SSE helpers, watch handler, port resolution (v7.1) |
+| `console/server-utils.ts` | Utility exports — parsing ledger/mailbox, task ID validation, fleet status reading, SSE helpers, `makeWatchHandler` (reads last `live-events.jsonl` line, caches payload for Last-Event-ID replay), port resolution (v7.1) |
 | `console/bash-wrapper.test.ts` | Bun test wrapper that runs bash-wrapper.test.sh inline (v7.1) |
 | `console/bash-wrapper.test.sh` | Bash unit tests for risk classification (check_risk) and polling behavior (poll_approval) (v7.1) |
-| `console/server.test.ts` | Bun tests for endpoint security, static serving, queue bootstrap, and `resolveControlDir` — taskId regex validation, agent name validation, needs_human endpoint (v7.1) |
+| `console/server.test.ts` | Bun tests for endpoint security, static serving, queue bootstrap, `resolveControlDir`, SSE endpoint (T4 AC1/AC2/AC3/AC5), and `makeWatchHandler` — taskId regex validation, agent name validation, needs_human endpoint (v7.1) |
 | `console/qa-smoke.sh` | QA smoke test for console UI — asserts page title, nav bar, Fleet tab presence, and T6 AC1/AC2/AC4/AC5 (Dicebear avatar src, elapsed time format, HIGH risk badge, Unblock button) via gstack browse (v7.1) |
 
 ---
@@ -387,37 +387,54 @@ This replaces the old `Console server listening on http://127.0.0.1:7842` messag
 
 ---
 
-## Mailbox push resilience — rebase-on-retry (v7.1)
+## Mailbox push resilience — fetch-reset-retry (T7)
 
-When multiple agents write to the control repository simultaneously, a push can be rejected if another agent's commit arrives first. To handle this gracefully, the `POST /api/mailbox` endpoint automatically retries failed pushes.
+When multiple agents write to the control repository simultaneously, a push can be rejected if another agent's commit arrives first. To handle this gracefully, `gitCommitAndPush` in `server-utils.ts` automatically retries failed pushes up to three times using a hard-reset sync strategy.
 
 ### Retry logic
 
-When the console publishes an agent's message to the mailbox:
+`gitCommitAndPush(controlDir, commitMessage)` runs the following sequence:
 
-1. **First push attempt.** The console commits the message to the control repo and pushes:
-   ```bash
-   git add mailboxes/<agent-name>.md
-   git commit -m "mailbox(<agent-name>): console message"
-   git push
-   ```
+1. **Stage all changes.** `git add -A` — stages every modified and untracked file in the working tree.
 
-2. **Rejection detected.** If the push fails (exit code 1 or 128), the console does NOT retry immediately. Instead:
-   - Log: `[gitCommitAndPush] push rejected (exit <code>), retrying with pull --rebase`
-   - Rebase locally against the remote branch: `git pull --rebase`
-   - Attempt push once more: `git push`
+2. **Commit.** `git commit -m <commitMessage>`. If the exit code is non-zero (e.g., "nothing to commit"), the function returns void without attempting a push.
 
-3. **Maximum one retry.** The retry count is hard-capped at 1. If rebase or the second push fails, the endpoint returns HTTP 500 with `{"error":"push failed after retry"}` and does NOT attempt further retries.
+3. **Push with up to 3 attempts.** For each attempt:
+   - `git push origin HEAD`
+   - If exit code 0 — success, return void immediately.
+   - If non-zero and more attempts remain:
+     ```bash
+     git fetch origin
+     git reset --hard origin/<branch>   # <branch> resolved at call start via git rev-parse
+     git add -A
+     git commit -m <commitMessage>
+     ```
+   - Then retry the push.
 
-4. **Success case — no rebase.** If the first push succeeds, the endpoint returns HTTP 200 immediately; no rebase is attempted (AC4 constraint — avoid unnecessary rebases when they're not needed).
+4. **After 3 failed push attempts**, throws `Error('git push failed after 3 retries')`.
 
-### Conflict handling
+### Subprocess timeout
 
-If the rebase encounters an irresolvable conflict (e.g., two agents edited the same mailbox file), `git pull --rebase` returns non-zero. The console catches this and returns HTTP 500 with the error message, leaving the working tree in a consistent state for recovery or manual inspection.
+Every git subprocess runs with a 30-second kill timeout. A subprocess that hangs is killed and its result is counted as a failure (exit code 1). This prevents a stalled network operation from blocking the event loop indefinitely.
+
+### Why fetch + reset --hard instead of pull --rebase
+
+`git pull --rebase` can leave the working tree in a detached-HEAD state when run non-interactively in CI and automated agent environments. The `fetch + reset --hard` pattern is deterministic: it discards any local-only divergence and aligns the branch exactly with the remote before re-committing. The console's use case (writing a single file and committing it) has no meaningful local-only state to preserve between retries.
 
 ### Operator impact
 
-Operators publishing messages via the console UI experience failures only when conflicts are genuinely unresolvable, not when they occur during brief windows of concurrent pushes. Temporary push rejections due to timing are handled transparently.
+Operators publishing messages via the console UI experience failures only after three genuine concurrent conflicts — rare under normal fleet operation. Temporary push rejections due to brief timing windows are handled transparently.
+
+### Test coverage
+
+| AC | Test | Location |
+|---|---|---|
+| AC1 | `gitCommitAndPush stages with git add -A and commits` | `server.test.ts` — `describe("gitCommitAndPush")` |
+| AC2 | `gitCommitAndPush retries with fetch+reset on push failure` | `server.test.ts` — first push fails; asserts fetch+reset+re-commit+push sequence |
+| AC3 | `gitCommitAndPush throws after 3 failed pushes` | `server.test.ts` — all 3 pushes fail; asserts Error thrown |
+| AC4 | `gitCommitAndPush resolves void on success` | `server.test.ts` — happy path |
+| AC5 | `gitCommitAndPush resolves void when nothing to commit` | `server.test.ts` — commit exits 1; asserts no push attempted |
+| AC6 | 30s kill timeout on each Bun.spawn call | PR review (human-verify) |
 
 ---
 
@@ -540,25 +557,36 @@ The console delivers live agent events to connected browsers without polling, us
 
 1. **Server startup.** When `console/server.ts` starts, it reads the agent list from `fleet.conf`. For each agent, it:
    - Creates the log directory if missing (`~/agents/<agent>/logs/` with `mkdir -p`)
-   - Registers an `fs.watch` callback on that directory
+   - Registers an `fs.watch` callback on that directory via `makeWatchHandler(agent, logDir, broadcast, lastEventCache)`
 
-2. **Live-events.jsonl watching.** When an agent appends a line to its `live-events.jsonl`, the `fs.watch` callback detects the write and triggers a broadcast within <1s.
+2. **Live-events.jsonl watching (AC2).** When an agent appends a line to its `live-events.jsonl`, the `fs.watch` callback reads the last JSON line, extracts `{ task, tool, summary }`, and broadcasts a named `event: fleet-update` SSE frame with payload `{ type: "fleet-update", agent, task, tool, summary, ts }`. The payload is also cached in `lastEventCache` (a `Map<agent, payload>`) for Last-Event-ID replay. Unreadable files (ENOENT, permission error) are silently skipped — the watcher stays active (AC3).
 
-3. **SSE endpoint.** The `/api/events` endpoint accepts HTTP GET and streams a `ReadableStream<Uint8Array>` to connected browsers. Each browser tab gets its own controller in the `sseClients` Set.
+3. **live.json watching.** When `live.json` changes (agent state change), the callback broadcasts a minimal `event: fleet-update` frame with payload `{ type: "fleet-update", agent, ts }`. The browser reacts to the event type and re-fetches `/api/fleet` to get the latest state.
 
-4. **Broadcast to all clients.** When a change is detected, the `broadcast()` function encodes the event and sends it to all connected controllers. Dropped connections are cleaned up automatically.
+4. **SSE endpoint (AC1).** The `/api/events` endpoint accepts HTTP GET and upgrades the connection to a streaming Server-Sent Events response. It sets headers `Content-Type: text/event-stream`, `Cache-Control: no-cache`, `Connection: keep-alive`, then immediately flushes an initial `: ok\n\n` comment line to prevent proxy buffering. Each browser tab gets its own `ServerResponse` in the `sseClients` Set.
+
+5. **Last-Event-ID replay (AC4).** On reconnect, if the request carries a `Last-Event-ID` header, the server immediately replays the last known `fleet-update` payload for every agent from `lastEventCache`. If an agent has no cached payload (e.g., no `live-events.jsonl` write since startup), it is skipped.
+
+6. **Broadcast to all clients.** When a change is detected, `broadcast(frame)` iterates `sseClients` and writes the complete SSE frame directly to each `ServerResponse`. If a write throws (closed socket), that client is removed from the set.
+
+7. **Keep-alive pings (AC6).** After adding a client to `sseClients`, a `setInterval` runs every 30 seconds writing `: ping\n\n` to the connection. If the write throws, the client is removed and the interval is cleared.
+
+8. **Client disconnect (AC5).** When the SSE connection closes (`req.on("close")`), the server removes the `ServerResponse` from `sseClients` and clears the ping interval. Subsequent broadcasts skip that client.
 
 ### Implementation
 
 - **Watcher count:** One `fs.watch()` call per agent in `fleet.conf` (typically 4: agent-be, agent-fe, agent-qa, agent-doc)
-- **Event filtering:** Only `live-events.jsonl` changes trigger broadcasts; other files in the log directory are ignored
-- **Client registry:** `sseClients` is a `Set<ReadableStreamDefaultController>` populated at `/api/events` GET, cleaned up on disconnect or error
-- **Broadcast format:** Each event is encoded as `data: <json>\n\n` where the JSON includes `{ agent, file, ts }`
-- **Fallback:** The browser (`index.html`) uses htmx 5s polling as a reconnection fallback; this SSE path handles the push case
+- **Event filtering:** `live-events.jsonl` changes broadcast a full payload `{ type, agent, task, tool, summary, ts }`; `live.json` changes broadcast a minimal `{ type, agent, ts }`; all other files are ignored
+- **Client registry:** `sseClients` is a `Set<ServerResponse>` (Node.js `http.ServerResponse`) populated at `/api/events` GET, cleaned up on disconnect or write error
+- **Broadcast format:** Named SSE frames — `event: fleet-update\ndata: <json>\n\n`
+- **Initial heartbeat:** `: ok\n\n` comment line sent immediately after headers (prevents proxy buffering, per AC1)
+- **Reconnect replay:** `lastEventCache` is a `Map<string, string>` at module level; cleared on server restart, not persisted. Replayed on reconnect when `Last-Event-ID` header is present
+- **Keep-alive interval:** 30-second `: ping\n\n` comment per client; interval cleared on disconnect
+- **Error resilience:** Silent `catch` in `makeWatchHandler` for `live-events.jsonl` reads — ENOENT or permission errors skip the broadcast without rethrowing
 
 ### Use case
 
-When an agent writes an approval request or task log line, the console receives it within 1 second on all open browser tabs without a page reload.
+When an agent writes a log line to `live-events.jsonl`, the console receives the structured event within 1 second on all open browser tabs, without a page reload.
 
 ---
 
@@ -648,7 +676,8 @@ This dual mechanism ensures the fleet table stays fresh even if the SSE connecti
 ### Implementation
 
 - **SSE event type:** `fleet-update` (sent by server, received by browser)
-- **Event payload:** Empty; browser reacts to the event type, not the body
+- **Event payload:** Two shapes depending on trigger file. `live-events.jsonl` change: `{ type: "fleet-update", agent, task, tool, summary, ts }`. `live.json` change: `{ type: "fleet-update", agent, ts }`. Browser uses the event type as a trigger to re-fetch `/api/fleet`; payload fields are not parsed by the client
+- **Last-Event-ID replay:** On reconnect with a `Last-Event-ID` header, the server immediately replays the last known `fleet-update` payload for every agent from `lastEventCache`. Agents with no cached payload are skipped
 - **Fallback timer:** `setInterval` every 30 seconds (`FLEET_STALE_MS = 30000`)
 - **Timer reset:** Triggered by SSE event AND by successful fetch completion in `renderFleet()`
 
@@ -730,7 +759,22 @@ The console lets operators query the current state of all agents in the fleet, s
 
 ### SSE fleet-update events
 
-When `live.json` changes for any agent in the fleet, the fs.watch callback broadcasts a `fleet-update` event:
+The server emits named `event: fleet-update` SSE frames on two triggers. The payload shape differs by source file:
+
+**`live-events.jsonl` change** — last JSON line parsed, full payload broadcast:
+
+```javascript
+{
+  "type": "fleet-update",
+  "agent": "agent-be",
+  "task": "T4",
+  "tool": "Bash",
+  "summary": "Running tests",
+  "ts": 1718909802000
+}
+```
+
+**`live.json` change** — minimal payload broadcast (agent state change, triggers re-fetch):
 
 ```javascript
 {
@@ -740,7 +784,7 @@ When `live.json` changes for any agent in the fleet, the fs.watch callback broad
 }
 ```
 
-The console client receives this event and re-fetches `/api/fleet` to reflect the latest state. This eliminates the need for polling and keeps the fleet status table synchronized with agent activity in real-time.
+The console client receives either event type and re-fetches `/api/fleet` to reflect the latest state. This eliminates the need for polling and keeps the fleet status table synchronized with agent activity in real-time.
 
 ### Data fields reference
 
@@ -770,6 +814,8 @@ All fonts use `display=swap` to prevent invisible text during font load.
 ### Design tokens
 Sourced from `docs/DESIGN.md` and defined in `:root` of `styles.css`:
 
+**Palette tokens:**
+
 | Token | Value | Purpose |
 |-------|-------|---------|
 | `--base` | `#0C0C0C` | Page background |
@@ -783,6 +829,45 @@ Sourced from `docs/DESIGN.md` and defined in `:root` of `styles.css`:
 | `--green` | `#22C55E` | Success state |
 | `--red` | `#EF4444` | Error state |
 | `--blue` | `#3B82F6` | Info state |
+
+**Typography tokens (T10):**
+
+| Token | Value | Purpose |
+|-------|-------|---------|
+| `--font-body` | `'Satoshi', 'DM Sans', system-ui, sans-serif` | Body font stack — applied to `body { font-family }` |
+| `--font-mono` | `'JetBrains Mono', ui-monospace, monospace` | Monospace font stack — applied to `code` and `.cmd` elements |
+
+**Spacing scale tokens (T10):**
+
+| Token | Value |
+|-------|-------|
+| `--space-1` | `4px` |
+| `--space-2` | `8px` |
+| `--space-3` | `12px` |
+| `--space-4` | `16px` |
+| `--space-6` | `24px` |
+| `--space-8` | `32px` |
+
+All `margin`, `padding`, and `gap` values in component rules use these tokens. No raw `px` values remain in component rules.
+
+**Border-radius tokens (T10):**
+
+| Token | Value | Applied to |
+|-------|-------|------------|
+| `--radius-card` | `6px` | `.card`, `.attention-card`, `.card-textarea`, fleet table rows (responsive) |
+| `--radius-badge` | `4px` | `.section-badge`, `.failure-badge`, `.ai-draft-toggle`, `.card-agent-note` corners |
+| `--radius-btn` | `6px` | Action buttons |
+
+**Status dot color tokens (T10):**
+
+These are separate from the palette `--green`/`--amber`/`--red` tokens and are used exclusively for the SSE connection status dot and state indicators:
+
+| Token | Value | Purpose |
+|-------|-------|---------|
+| `--color-green` | `#16a34a` | Connected dot / working state |
+| `--color-amber` | `#d97706` | Reconnecting dot |
+| `--color-red` | `#dc2626` | Disconnected dot / error state |
+| `--color-grey` | `#9ca3af` | Inactive / stopped state |
 
 ### Motion variables
 Used for consistent timing across transitions and animations:
@@ -798,9 +883,12 @@ Used for consistent timing across transitions and animations:
 ### Visual effects
 - **Grain texture:** `body::after` pseudo-element with SVG `feTurbulence` at 0.03 opacity (fixed position, z-index 9999, non-interactive). Adds subtle surface texture without impacting readability.
 
-### Font sizing
-- Body text: 16px (see `docs/DESIGN.md` for rationale)
-- Button border-radius: 8px (consistent with accessibility guidelines)
+### Font sizing and line height
+- Body text: `16px`, `line-height: 1.5` — set via `var(--font-body)` on `body`
+- Monospace elements (`code`, `.cmd`): `font-family: var(--font-mono)`, `line-height: 1.6`
+- Card border-radius: `6px` (`--radius-card`)
+- Badge border-radius: `4px` (`--radius-badge`)
+- Button border-radius: `6px` (`--radius-btn`)
 
 ---
 
@@ -828,7 +916,7 @@ The header includes a six-pixel coloured dot (`#sse-dot`) indicating SSE connect
 | `EventSource.CONNECTING` | `.connecting` | Amber |
 | `EventSource.CLOSED` | `.disconnected` | Red (no pulse) |
 
-Color values are drawn from the existing `--green`, `--amber`, and `--red` CSS tokens. The dot also transitions to `.disconnected` immediately on an `error` event, before the auto-reconnect delay fires.
+Color values use the T10 status dot tokens (`--color-green`, `--color-amber`, `--color-red`) — these are distinct from the palette tokens (`--green`, `--amber`, `--red`) and carry the DESIGN.md-specified status dot hex values. The dot also transitions to `.disconnected` immediately on an `error` event, before the auto-reconnect delay fires.
 
 ### Unblock inline flow (AC5/AC6)
 
@@ -1066,9 +1154,22 @@ Each test creates temporary git repos with `git init` + `git remote add origin <
 
 AC4 (startup cache) is human-verify: `resolveControlDir` is called once in `server.ts` at module level and the result stored in `const controlDir` — never re-called on subsequent requests.
 
+**T4 SSE tests (T4 AC1–AC3, AC5):** Two `describe` blocks in `server.test.ts` cover the SSE endpoint and watch handler:
+
+| Describe block | What it tests |
+|---|---|
+| `makeWatchHandler — AC2` | Writes a JSON line to a temp `live-events.jsonl`; asserts the broadcast frame contains `event: fleet-update` and payload fields `{ type, agent, task, tool, summary, ts }`; verifies `lastEventCache` is populated |
+| `makeWatchHandler — AC3` | Points handler at a directory with no `live-events.jsonl`; asserts no frame is broadcast and no exception is thrown |
+| `makeWatchHandler — live.json` | Triggers handler with `live.json`; asserts a named `event: fleet-update` frame is broadcast |
+| `makeWatchHandler — unrelated` | Triggers handler with an unrelated filename; asserts no broadcast |
+| `GET /api/events — AC1` | Fetches `/api/events` from a local SSE test server; asserts HTTP 200, SSE headers, and `": ok\n\n"` as the first response chunk |
+| `GET /api/events — AC5` | Connects, reads the heartbeat, aborts the connection; asserts the client is removed from `sseClients` within 100ms |
+
+AC4 (Last-Event-ID replay) and AC6 (30s ping interval) are human-verify: AC4 requires a reconnect with a `Last-Event-ID` header to observe replay messages; AC6 requires waiting 30 seconds and confirming `: ping\n\n` is emitted.
+
 ### Test results
 
-All 41 tests pass (8 bash-wrapper + 33 server tests). Run the full suite with:
+All 48 tests pass (8 bash-wrapper + 40 server tests). Run the full suite with:
 
 ```bash
 bun test supervisor/console/     # runs all tests, exit 0 on pass

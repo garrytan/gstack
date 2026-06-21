@@ -1,6 +1,6 @@
 // supervisor/console/server-utils.ts — pure utility functions, no side effects
 import type { ServerResponse } from "node:http";
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync, unlinkSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import { spawnSync } from "node:child_process";
 

@@ -2,6 +2,24 @@
 
 ## [Unreleased]
 
+### SSE fleet-watch — structured live-events.jsonl broadcast + Last-Event-ID replay (v7.1)
+
+The console now pushes structured agent telemetry to every connected browser tab the moment an agent writes a log line, without polling. When `live-events.jsonl` changes, the server reads the last JSON line, extracts `{ task, tool, summary }`, and broadcasts a named `event: fleet-update` SSE frame with a full payload. On reconnect, the server immediately replays the last known payload for every agent using the `Last-Event-ID` header, so tabs that briefly disconnect don't miss the current state. A 30-second keep-alive ping prevents proxy timeouts on long-running console sessions.
+
+#### Added
+- `makeWatchHandler` now reads the last line of `live-events.jsonl` on change, parses it, and broadcasts a named `event: fleet-update` SSE frame with payload `{ type, agent, task, tool, summary, ts }`. Unreadable files (ENOENT, permission error) are silently skipped — the watcher stays active (AC2/AC3)
+- `lastEventCache` (`Map<agent, payload>`) at module level in `server.ts`: stores the last broadcast payload per agent for Last-Event-ID replay. Cleared on server restart (AC4)
+- Last-Event-ID replay: on reconnect with a `Last-Event-ID` header, `/api/events` immediately sends the cached `fleet-update` payload for every agent that has one (AC4)
+- Initial `: ok\n\n` comment line written to SSE connections immediately after headers to prevent proxy buffering (AC1)
+- 30-second keep-alive ping (`: ping\n\n`) per SSE connection, using `setInterval` cleared on disconnect (AC6)
+- 6 new tests in `server.test.ts` covering AC1 (SSE headers and heartbeat), AC2 (structured fleet-update broadcast), AC3 (ENOENT silent skip), and AC5 (client disconnect cleanup)
+
+#### Changed
+- `/api/events` initial response changed from `: ping\n\n` to `: ok\n\n` (semantics: heartbeat, not a periodic ping)
+- `broadcast()` now accepts a complete SSE frame string (not raw JSON); callers are responsible for wrapping with `event:`/`data:` lines
+- `makeWatchHandler` signature extended: `makeWatchHandler(agent, logDir, broadcastFn, cache)` — `logDir` is needed to read `live-events.jsonl`; `cache` receives the last payload per agent
+- `sseClients` disconnect handler now also clears the per-connection ping interval to prevent memory leaks
+
 ### Fleet tab UI polish — avatars, SSE dot, Unblock flow, responsive layout (v7.1)
 
 The Fleet tab and Queue tab now have the UI polish that turns a functional prototype into a production-grade console. Each fleet row shows a Dicebear initials avatar for at-a-glance agent identification, the SSE dot cycles green/amber/red in real time so you know the connection is live, the Unblock flow on attention cards reveals an inline textarea rather than navigating away, and the entire console is readable on an iPhone SE without horizontal scrolling.
@@ -160,6 +178,24 @@ The console can now query and monitor the current state of all agents in the fle
 - fs.watch callback now listens for both `live-events.jsonl` (approval/log events) and `live.json` (fleet state changes)
 - `live.json` changes trigger `fleet-update` events; other changes remain invisible to SSE
 - Ended sessions now exclude stale `task` fields from fleet status (AC3: if `ended: true`, then `task: null`)
+
+### Design token corrections — typography, spacing scale, border radius (v7.1)
+
+The console design system is now fully token-driven. Every `margin`, `padding`, and `gap` in the CSS uses the 8-point spacing scale, border radii are declared once and applied everywhere, and the font stacks for body text and monospace elements are CSS variables rather than inline values. The card and badge radius corrections from the first pass (8px → 6px card, 4px badge, 6px button) are now codified in `--radius-*` tokens so future changes are a one-line edit.
+
+#### Added
+- `--font-body: 'Satoshi', 'DM Sans', system-ui, sans-serif` — typography token applied to `body { font-family }`
+- `--font-mono: 'JetBrains Mono', ui-monospace, monospace` — typography token applied to `code` and `.cmd` elements with `line-height: 1.6`
+- Spacing scale: `--space-1: 4px`, `--space-2: 8px`, `--space-3: 12px`, `--space-4: 16px`, `--space-6: 24px`, `--space-8: 32px`
+- Border-radius tokens: `--radius-card: 6px`, `--radius-badge: 4px`, `--radius-btn: 6px`
+- Status dot color tokens: `--color-green: #16a34a`, `--color-amber: #d97706`, `--color-red: #dc2626`, `--color-grey: #9ca3af` (separate from palette `--green`/`--amber`/`--red`)
+- `qa-smoke.sh` gains two T10 assertions: `body` `font-size` must equal `16px`; `.empty-section` `border-radius` must equal `6px`
+
+#### Changed
+- All component `margin`/`padding`/`gap` rules now use `--space-*` tokens — no raw `px` values remain in component rules
+- Card border-radius corrected to `6px` (`--radius-card`), badge to `4px` (`--radius-badge`), button to `6px` (`--radius-btn`) — corrects the interim 8px value from the initial design pass
+- SSE status dot now draws from `--color-green` and `--color-red` instead of the palette `--green`/`--red`
+- `body { line-height }` confirmed at `1.5`; `code, .cmd { line-height }` set to `1.6`
 
 ### Console UI — design system refinement
 
