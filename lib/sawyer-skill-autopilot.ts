@@ -34,6 +34,16 @@ interface Rule {
   permissionBoundary?: SawyerSkillAutopilotRecommendation['permissionBoundary'];
 }
 
+const PR_OPEN_RE = /\b(open|created|ready|draft)\b/;
+const SHIP_INTENT_RE = /\b(ship|push|open (a )?pr|create (a )?pr|pull request)\b/;
+const LAND_INTENT_RE = /\b(land|merge|deploy|production)\b/;
+const SIMPLIFY_CLOSEOUT_INTENT_RE = /\b(review|ship|push|open (a )?pr|create (a )?pr|pull request|pr-ready|ready for pr|closeout|finish)\b/;
+const SIMPLIFY_DIFF_READY_RE = /\b(diff[- ]ready|ready for review|ready to ship|implemented|finished|complete|done)\b/;
+const SIMPLIFY_CLOSEOUT_STAGE_RE = /\b(executing|execution|implement|implementation|coding|qa)\b/;
+const NON_TRIVIAL_DIFF_RE = /\b(non[- ]trivial|large diff|multi[- ]file|several files?|3\+ files?|[3-9][ -]files?|[1-9][0-9]+[ -]files?)\b/;
+const SIMPLIFY_CONCERN_RE = /\b(helper|helpers|abstraction|abstractions|config|configuration|workflow|agent[- ]surface|agent surface|global surface|reuse|complexity|simplif(y|ication))\b/;
+const GLOBAL_SURFACE_RE = /\b(global surface|agent[- ]surface|agent surface|workflow surface|profile|\.codex|\.claude|agents\.md|claude\.md)\b/;
+
 const FIRST_SKILL_RULES: Rule[] = [
   {
     skill: 'context-restore',
@@ -158,7 +168,7 @@ const FIRST_SKILL_RULES: Rule[] = [
 ];
 
 export function recommendSawyerSkillAutopilot(input: SawyerSkillAutopilotInput): SawyerSkillAutopilotRecommendation {
-  const prompt = normalize(input.prompt);
+  const prompt = String(input.prompt ?? '').trim().toLowerCase();
   const lastSkill = normalizeSkill(input.lastSkill);
 
   const chained = recommendFromReceipt(input, prompt, lastSkill);
@@ -203,9 +213,33 @@ function recommendFromReceipt(
   prompt: string,
   lastSkill: string,
 ): SawyerSkillAutopilotRecommendation | null {
-  const outcome = normalize(input.lastOutcome);
-  const prState = normalize(input.prState);
-  const deployStatus = normalize(input.deployStatus);
+  const outcome = String(input.lastOutcome ?? '').trim().toLowerCase();
+  const prState = String(input.prState ?? '').trim().toLowerCase();
+  const deployStatus = String(input.deployStatus ?? '').trim().toLowerCase();
+
+  if (lastSkill === 'simplify-checkpoint' && outcomeLooksClean(outcome)) {
+    return {
+      action: 'invoke',
+      skill: 'review',
+      skillSource: 'gstack',
+      reason: 'The simplify checkpoint is clean, so the next gated closeout step is review.',
+      phase: 'post-skill',
+      confidence: 'high',
+      evidence: [`lastSkill=${lastSkill}`, `lastOutcome=${outcome || 'clean'}`],
+    };
+  }
+
+  const simplify = simplifyCheckpointSignal(prompt, outcome, lastSkill);
+  if (simplify.needed) {
+    return {
+      action: 'stop',
+      reason: 'Run a simplify checkpoint before review or ship, then rerun proof if it changes anything.',
+      phase: lastSkill ? 'post-skill' : 'first-skill',
+      confidence: 'high',
+      permissionBoundary: simplify.globalSurface ? 'global-surface' : undefined,
+      evidence: simplify.evidence,
+    };
+  }
 
   if (runtimeProofMissing(input.runtimeProof) && (lastSkill === 'land-and-deploy' || prompt.includes('runtime') || prompt.includes('post merge'))) {
     return {
@@ -220,7 +254,7 @@ function recommendFromReceipt(
     };
   }
 
-  if (lastSkill === 'review' && outcomeLooksClean(outcome) && wantsShip(prompt)) {
+  if (lastSkill === 'review' && outcomeLooksClean(outcome) && SHIP_INTENT_RE.test(prompt)) {
     return {
       action: 'invoke',
       skill: 'ship',
@@ -233,8 +267,8 @@ function recommendFromReceipt(
     };
   }
 
-  if (lastSkill === 'ship' && prStateLooksOpen(prState)) {
-    if (wantsLand(prompt)) {
+  if (lastSkill === 'ship' && PR_OPEN_RE.test(prState)) {
+    if (LAND_INTENT_RE.test(prompt)) {
       return {
         action: 'invoke',
         skill: 'land-and-deploy',
@@ -283,12 +317,8 @@ function recommendFromReceipt(
   return null;
 }
 
-function normalize(value: unknown): string {
-  return String(value ?? '').trim().toLowerCase();
-}
-
 function normalizeSkill(value: unknown): string {
-  return normalize(value).replace(/^\/+/, '').replace(/^gstack-/, '');
+  return String(value ?? '').trim().toLowerCase().replace(/^\/+/, '').replace(/^gstack-/, '');
 }
 
 function runtimeProofMissing(value: SawyerSkillAutopilotInput['runtimeProof']): boolean {
@@ -299,18 +329,38 @@ function outcomeLooksClean(outcome: string): boolean {
   return !outcome || /\b(clean|approved|success|done|no findings|no issues)\b/.test(outcome);
 }
 
-function prStateLooksOpen(prState: string): boolean {
-  return /\b(open|created|ready|draft)\b/.test(prState);
-}
-
 function deployLooksHealthy(deployStatus: string): boolean {
   return !deployStatus || /\b(healthy|success|deployed|verified|green)\b/.test(deployStatus);
 }
 
-function wantsShip(prompt: string): boolean {
-  return /\b(ship|push|open (a )?pr|create (a )?pr|pull request)\b/.test(prompt);
-}
+function simplifyCheckpointSignal(prompt: string, outcome: string, lastSkill: string): {
+  needed: boolean;
+  globalSurface: boolean;
+  evidence: string[];
+} {
+  if (lastSkill === 'simplify-checkpoint') {
+    return { needed: false, globalSurface: false, evidence: [] };
+  }
 
-function wantsLand(prompt: string): boolean {
-  return /\b(land|merge|deploy|production)\b/.test(prompt);
+  const text = `${prompt} ${outcome}`;
+  const hasCloseoutIntent =
+    SIMPLIFY_CLOSEOUT_INTENT_RE.test(prompt) ||
+    SIMPLIFY_DIFF_READY_RE.test(prompt) ||
+    SIMPLIFY_DIFF_READY_RE.test(outcome) ||
+    SIMPLIFY_CLOSEOUT_STAGE_RE.test(lastSkill);
+  const hasNonTrivialSignal = NON_TRIVIAL_DIFF_RE.test(text) || SIMPLIFY_CONCERN_RE.test(text);
+  const globalSurface = GLOBAL_SURFACE_RE.test(prompt);
+  const evidence: string[] = [];
+
+  if (lastSkill) evidence.push(`lastSkill=${lastSkill}`);
+  if (outcome) evidence.push(`lastOutcome=${outcome}`);
+  if (SIMPLIFY_CLOSEOUT_INTENT_RE.test(prompt)) evidence.push('prompt has review/ship/closeout intent');
+  if (hasNonTrivialSignal) evidence.push('non-trivial diff signal present');
+  if (globalSurface) evidence.push('global/workflow surface signal present');
+
+  return {
+    needed: hasCloseoutIntent && hasNonTrivialSignal,
+    globalSurface,
+    evidence,
+  };
 }
