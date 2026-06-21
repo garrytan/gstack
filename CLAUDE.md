@@ -1021,3 +1021,14 @@ add --path <dir>` (no `--url`): URL-managed sources can auto-reclone, and the
 sync code walk for them requires an explicit `--allow-reclone` opt-in.
 
 <!-- gstack-gbrain-search-guidance:end -->
+
+## AMMOR-specific hard rules
+
+- Do not modify login credentials.
+- Do not modify authentication providers.
+- Do not delete the super admin account.
+- Do not reset production databases or delete production data.
+- Do not replace existing brand assets.
+- Never run a PR to completion until `bun test` has passed.
+- Keep repository instructions and workflow docs updated when security, tests, or deployments are changed.
+- Use append-only updates for chain-of-custody evidence artifacts.

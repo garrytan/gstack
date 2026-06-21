@@ -1,0 +1,32 @@
+name: AMMOR Roadmap Automation
+
+on:
+  issues:
+    types: [opened, edited, labeled, unlabeled]
+  pull_request:
+    types: [opened, edited, labeled, unlabeled, ready_for_review]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  sync-project-and-milestone:
+    name: Sync issue/PR to roadmap tracking
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve roadmap labels to milestone and project
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ROADMAP_POLICY_PATH: .github/ammor-roadmap-automation.json
+          AMMOR_ROADMAP_PROJECT_ID: ${{ vars.AMMOR_ROADMAP_PROJECT_ID }}
+          AMMOR_ROADMAP_TOKEN: ${{ secrets.AMMOR_ROADMAP_TOKEN }}
+          AMMOR_ROADMAP_STATUS_FIELD_ID: ${{ vars.AMMOR_ROADMAP_STATUS_FIELD_ID }}
+        run: |
+          node scripts/roadmap/sync-roadmap-automation.mjs

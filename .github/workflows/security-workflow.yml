@@ -1,0 +1,190 @@
+name: Security Workflow
+
+on:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "30 3 * * 1"
+
+permissions:
+  contents: read
+  actions: read
+  security-events: write
+  pull-requests: read
+  checks: read
+
+jobs:
+  secret-scan:
+    name: Scan for exposed credentials
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    outputs:
+      findings: ${{ steps.metrics.outputs.findings }}
+      status: ${{ steps.metrics.outputs.status }}
+      report_path: ${{ steps.metrics.outputs.report_path }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run gitleaks secret scan
+        id: gitleaks
+        continue-on-error: true
+        uses: gitleaks/gitleaks-action@v2
+        with:
+          args: detect --redact --format sarif --report-path gitleaks.sarif --exit-code 1
+      - name: Collect secret scan evidence
+        id: metrics
+        run: |
+          if [ -f "gitleaks.sarif" ]; then
+            FINDINGS=$(jq '.runs | if . != null then ([.[] | .results] | add | length) else 0 end' gitleaks.sarif)
+            echo "findings=$FINDINGS" >> "$GITHUB_OUTPUT"
+          else
+            echo "findings=0" >> "$GITHUB_OUTPUT"
+          fi
+          if [ "${{ steps.gitleaks.outcome }}" = "failure" ]; then
+            echo "status=failed" >> "$GITHUB_OUTPUT"
+          else
+            echo "status=passed" >> "$GITHUB_OUTPUT"
+          fi
+          echo "report_path=gitleaks.sarif" >> "$GITHUB_OUTPUT"
+      - name: Upload SARIF alerts
+        if: always() && hashFiles("gitleaks.sarif") != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: gitleaks.sarif
+          category: gitleaks
+      - name: Upload secret scan artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gitleaks-results
+          path: gitleaks.sarif
+          if-no-files-found: ignore
+
+  dependency-scan:
+    name: Scan vulnerable dependencies
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    outputs:
+      findings: ${{ steps.metrics.outputs.findings }}
+      status: ${{ steps.metrics.outputs.status }}
+      report_path: ${{ steps.metrics.outputs.report_path }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Trivy file-system scan
+        id: trivy
+        uses: aquasecurity/trivy-action@0.31.0
+        with:
+          scan-type: "fs"
+          scan-ref: "."
+          format: "sarif"
+          output: "trivy.sarif"
+          exit-code: "0"
+          vuln-type: "library"
+          severity: "CRITICAL,HIGH"
+          ignore-unfixed: true
+          timeout: "10m"
+      - name: Collect dependency scan evidence
+        id: metrics
+        run: |
+          if [ -f "trivy.sarif" ]; then
+            FINDINGS=$(jq '.runs | if . != null then ([.[] | .results] | add | length) else 0 end' trivy.sarif)
+            echo "findings=$FINDINGS" >> "$GITHUB_OUTPUT"
+          else
+            echo "findings=0" >> "$GITHUB_OUTPUT"
+          fi
+          if [ "${{ steps.trivy.outcome }}" = "success" ]; then
+            echo "status=passed" >> "$GITHUB_OUTPUT"
+          else
+            echo "status=failed" >> "$GITHUB_OUTPUT"
+          fi
+          echo "report_path=trivy.sarif" >> "$GITHUB_OUTPUT"
+      - name: Upload SARIF alerts
+        if: always() && hashFiles("trivy.sarif") != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy.sarif
+          category: trivy
+      - name: Upload dependency scan artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-results
+          path: trivy.sarif
+          if-no-files-found: ignore
+
+  codeql:
+    name: Run CodeQL analysis
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript
+          queries: security-and-quality
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@v3
+
+  reporting:
+    name: Build security compliance inputs
+    runs-on: ubuntu-latest
+    needs:
+      - secret-scan
+      - dependency-scan
+      - codeql
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+      - name: Download secret scan artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: gitleaks-results
+          path: evidence/gitleaks
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Download dependency scan artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: trivy-results
+          path: evidence/trivy
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and upload unified security report
+        id: build
+        env:
+          GITLEAKS_FINDINGS: ${{ needs.secret-scan.outputs.findings }}
+          TRIVY_FINDINGS: ${{ needs.dependency-scan.outputs.findings }}
+          CODEQL_STATUS: ${{ needs.codeql.result }}
+          PR_NUMBER: ${{ github.event.pull_request.number || 'not-pr' }}
+        run: |
+          node scripts/security/security-summary.mjs \
+            --output-dir security-artifacts \
+            --repo "${{ github.repository }}" \
+            --branch "${{ github.head_ref || github.ref_name }}" \
+            --sha "${{ github.sha }}" \
+            --run-id "${{ github.run_id }}" \
+            --pull-request "${PR_NUMBER}" \
+            --gitleaks-findings "$GITLEAKS_FINDINGS" \
+            --dependency-findings "$TRIVY_FINDINGS" \
+            --codeql-status "$CODEQL_STATUS"
+          mkdir -p security-artifacts/evidence/gitleaks security-artifacts/evidence/trivy
+          if [ -f evidence/gitleaks/gitleaks.sarif ]; then
+            cp evidence/gitleaks/gitleaks.sarif security-artifacts/evidence/gitleaks.sarif
+          fi
+          if [ -f evidence/trivy/trivy.sarif ]; then
+            cp evidence/trivy/trivy.sarif security-artifacts/evidence/trivy.sarif
+          fi
+      - name: Upload reporting artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-automation-report
+          path: security-artifacts
+          retention-days: 30
+      - name: Add workflow summary
+        run: |
+          cat security-artifacts/security-summary.md >> "$GITHUB_STEP_SUMMARY"

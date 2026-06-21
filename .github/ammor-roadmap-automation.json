@@ -1,0 +1,56 @@
+{
+  "enabled": true,
+  "description": "AMMOR roadmap + PM automation policy for issues and pull requests.",
+  "milestones": [
+    {
+      "labels": ["priority:critical", "type:security"],
+      "milestone": "AMMOR — Critical"
+    },
+    {
+      "labels": ["priority:high", "type:high", "area:fraud"],
+      "milestone": "AMMOR — High"
+    },
+    {
+      "labels": ["area:claims", "type:claims", "area:case-management"],
+      "milestone": "AMMOR — Claims/Case"
+    },
+    {
+      "labels": ["area:government", "type:government"],
+      "milestone": "AMMOR — Government"
+    },
+    {
+      "labels": ["area:insurance", "type:insurance"],
+      "milestone": "AMMOR — Insurance"
+    }
+  ],
+  "default_milestone": "AMMOR — Product",
+  "project": {
+    "enabled": true,
+    "project_id_env_var": "AMMOR_ROADMAP_PROJECT_ID",
+    "token_env_var": "AMMOR_ROADMAP_TOKEN",
+    "status_field_id": "",
+    "status_lookup": {}
+  },
+  "project_status_rules": [
+    {
+      "labels": ["priority:critical"],
+      "status": "critical"
+    },
+    {
+      "labels": ["priority:high"],
+      "status": "high"
+    },
+    {
+      "labels": ["area:government", "type:government"],
+      "status": "government"
+    },
+    {
+      "labels": ["area:insurance", "type:insurance"],
+      "status": "insurance"
+    },
+    {
+      "labels": ["area:claims", "area:case-management", "type:claims"],
+      "status": "claims"
+    }
+  ]
+}

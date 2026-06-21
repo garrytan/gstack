@@ -1,0 +1,30 @@
+version: 2
+updates:
+  - package-ecosystem: "bun"
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "07:00"
+      timezone: "America/New_York"
+    open-pull-requests-limit: 5
+    target-branch: main
+    labels:
+      - security
+      - dependencies
+    commit-message:
+      prefix: chore
+      include: scope
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "07:30"
+      timezone: "America/New_York"
+    open-pull-requests-limit: 3
+    target-branch: main
+    labels:
+      - security
+      - github-actions

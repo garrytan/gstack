@@ -1,0 +1,35 @@
+name: AMMOR Safety Gate Runner
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  trigger-safety-gates:
+    name: Trigger security/compliance/testing/deployment safety workflows
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger gate workflows
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const ref = (process.env.GITHUB_HEAD_REF || process.env.GITHUB_REF_NAME || context.ref || 'main').replace(/^refs\/heads\//, '');
+            const workflows = [
+              'security-workflow.yml',
+              'testing-workflow.yml',
+              'deployment-safety-workflow.yml',
+            ];
+
+            for (const workflow of workflows) {
+              await github.rest.actions.createWorkflowDispatch({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                workflow_id: workflow,
+                ref,
+              });
+              core.info(`Dispatched ${workflow} on ${ref}`);
+            }
+            core.info('Workflow dispatch requests sent. Security workflow completion will auto-trigger Compliance workflow.');

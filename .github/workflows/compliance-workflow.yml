@@ -1,0 +1,128 @@
+name: Compliance Workflow
+
+on:
+  workflow_run:
+    workflows:
+      - "Security Workflow"
+    types:
+      - completed
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: write
+  issues: read
+  checks: read
+
+jobs:
+  compliance:
+    name: Compliance verification and reporting
+    if: github.event.workflow_run.conclusion != 'cancelled'
+    runs-on: ubuntu-latest
+    env:
+      COMPLIANCE_RISK_THRESHOLD: ${{ vars.COMPLIANCE_RISK_THRESHOLD || 25 }}
+    steps:
+      - name: Checkout repository at security workflow commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 1
+      - name: Download security workflow artifacts
+        uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ github.event.workflow_run.id }}
+          name: security-automation-report
+          path: downloaded
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Run compliance validation and generate reports
+        id: validate
+        env:
+          SECURITY_REPORT_PATH: downloaded/security-artifacts/security-summary.json
+          WORKFLOW_DIR: downloaded
+          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number || 'not-pr' }}
+        run: |
+          node scripts/security/compliance-audit.mjs \
+            --output-dir compliance-artifacts \
+            --security-report "$SECURITY_REPORT_PATH" \
+            --pull-request "$PR_NUMBER" \
+            --run-id "${{ github.event.workflow_run.id }}" \
+            --run-attempt "${{ github.event.workflow_run.run_attempt }}" \
+            --workflow "compliance-workflow" \
+            --actor "${{ github.event.workflow_run.actor.login }}" \
+            --repo "${{ github.repository }}" \
+            --workflow-run-dir "$WORKFLOW_DIR" \
+            --repo-root "."
+      - name: Enforce PR risk threshold
+        if: github.event.workflow_run.event == 'pull_request'
+        run: |
+          node -e '
+            const fs = require("fs");
+            const report = JSON.parse(
+              fs.readFileSync("compliance-artifacts/risk-assessment-report.json", "utf8")
+            );
+            const threshold = Number(process.env.COMPLIANCE_RISK_THRESHOLD || 25);
+            if (report.risk && Number(report.risk.score) > threshold) {
+              console.error(`Compliance gate failed: risk ${report.risk.score} > threshold ${threshold}`);
+              console.error("Top violations:");
+              if (Array.isArray(report.violations) && report.violations.length > 0) {
+                for (const item of report.violations.slice(0, 8)) {
+                  console.error(`- [${item.severity}] ${item.message}`);
+                }
+              }
+              process.exit(1);
+            }
+            console.log(`Compliance gate passed: risk ${report.risk.score} <= threshold ${threshold}`);
+          '
+      - name: Upload compliance artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: compliance-report-${{ github.event.workflow_run.id }}
+          path: compliance-artifacts
+          retention-days: 30
+      - name: Post PR comment with report
+        if: github.event.workflow_run.event == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require("fs");
+            const runId = `${{ github.event.workflow_run.id }}`;
+            const report = fs.readFileSync(
+              "compliance-artifacts/risk-assessment-report.md",
+              "utf8"
+            );
+            const dashboard = fs.readFileSync(
+              "compliance-artifacts/vulnerability-dashboard.md",
+              "utf8"
+            );
+            const body = `### Compliance Automation Report\n\n${report}\n\n---\n\n${dashboard}\n\n**Artifacts:** \`${runId}\``;
+
+            const prNumber = ${{ github.event.workflow_run.pull_requests[0].number || 0 }};
+            if (!prNumber) return;
+            const comments = await github.paginate(
+              github.rest.issues.listComments,
+              {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber
+              }
+            );
+            const marker = "### Compliance Automation Report";
+            const existing = comments.find((c) => c.body && c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                body
+              });
+            }
+      - name: Show summary
+        run: |
+          cat compliance-artifacts/vulnerability-dashboard.md >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,22 @@
+{
+  "schema_version": "1.0.0",
+  "name": "ammor-fraud-intelligence-security-chain",
+  "records": [
+    {
+      "run_id": "baseline-0000",
+      "generated_at": "2026-06-20T00:00:00Z",
+      "workflow": "bootstrap",
+      "record_hash": "GENESIS-CHAIN-0000",
+      "previous_record_hash": "GENESIS",
+      "artifact_checksum": "GENESIS",
+      "control_summary": {
+        "high_risk_findings": 0,
+        "medium_risk_findings": 0,
+        "chain_entries": 1
+      },
+      "notes": [
+        "Bootstrapped evidence chain. Replace this record when production automation writes first validated update."
+      ]
+    }
+  ]
+}

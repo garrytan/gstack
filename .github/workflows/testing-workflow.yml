@@ -1,0 +1,210 @@
+name: AMMOR Testing Automation
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  checks: write
+  pull-requests: read
+  actions: read
+
+jobs:
+  unit-and-regression-tests:
+    name: Unit and regression tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Run fast test suite
+        run: bun test
+
+      - name: Run compliance audit test
+        if: vars.AMMOR_RUN_AUDIT_TESTS == 'true'
+        run: bun run test:audit
+
+      - name: Generate test evidence summary
+        run: |
+          mkdir -p qa-artifacts
+          node -e '
+            const fs = require("fs");
+            const report = {
+              timestamp: new Date().toISOString(),
+              suite: "bun test + test:audit",
+              repository: process.env.GITHUB_REPOSITORY || "local",
+              runId: process.env.GITHUB_RUN_ID || "local",
+              headSha: process.env.GITHUB_SHA || "local"
+            };
+            fs.writeFileSync("qa-artifacts/testing-summary.json", JSON.stringify(report, null, 2));
+            fs.writeFileSync("qa-artifacts/testing-summary.md", `# AMMOR Testing Summary\n\n- Repository: ${report.repository}\n- Run ID: ${report.runId}\n- Commit: ${report.headSha}\n- Timestamp: ${report.timestamp}\n- Status: completed\n`);
+          '
+
+      - name: Upload QA artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ammor-testing-evidence
+          path: qa-artifacts
+
+  detect-ammor-workspaces:
+    name: Detect AMMOR application workspaces
+    runs-on: ubuntu-latest
+    outputs:
+      workspaces_json: ${{ steps.detect.outputs.workspaces_json }}
+      workspace_count: ${{ steps.detect.outputs.workspace_count }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Detect candidate AMMOR workspaces
+        id: detect
+        run: node scripts/ammor/detect-workspaces.mjs --output github >> "$GITHUB_OUTPUT"
+
+  ammor-flow-tests:
+    name: AMMOR product flow tests
+    needs: detect-ammor-workspaces
+    if: ${{ needs.detect-ammor-workspaces.outputs.workspace_count != '0' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.detect-ammor-workspaces.outputs.workspaces_json) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: |
+          cd "${{ matrix.path }}"
+          bun install --frozen-lockfile || bun install
+
+      - name: Run AMMOR product workflow tests
+        env:
+          AMMOR_RUN_ID: ${{ github.run_id }}
+          AMMOR_ENFORCE_PRODUCT_TEST_SCRIPTS: ${{ vars.AMMOR_ENFORCE_PRODUCT_TEST_SCRIPTS || 'true' }}
+        run: |
+          node scripts/ammor/run-ammor-product-tests.mjs \
+            --workspace "${{ matrix.path }}" \
+            --workspace-id "${{ matrix.id }}" \
+            --run-id "${{ github.run_id }}" \
+            --sha "${{ github.sha }}" \
+            --evidence-root qa-artifacts
+
+      - name: Upload product flow artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ammor-product-test-artifacts-${{ matrix.id }}
+          path: qa-artifacts/ammor-product-tests
+          if-no-files-found: ignore
+
+  ammor-portal-ux-gates:
+    name: Visual regression + accessibility gates
+    needs:
+      - detect-ammor-workspaces
+      - ammor-flow-tests
+    if: ${{ needs.detect-ammor-workspaces.outputs.workspace_count != '0' && vars.AMMOR_RUN_UX_GATES == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.detect-ammor-workspaces.outputs.workspaces_json) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: |
+          cd "${{ matrix.path }}"
+          bun install --frozen-lockfile || bun install
+
+      - name: Run portal UX and accessibility gates
+        env:
+          AMMOR_UX_BASE_URL: ${{ vars.AMMOR_UX_BASE_URL }}
+          AMMOR_ENFORCE_UX_TEST_SCRIPTS: ${{ vars.AMMOR_ENFORCE_UX_TEST_SCRIPTS || 'true' }}
+        run: |
+          node scripts/ammor/run-ux-gates.mjs \
+            --workspace "${{ matrix.path }}" \
+            --workspace-id "${{ matrix.id }}" \
+            --run-id "${{ github.run_id }}" \
+            --sha "${{ github.sha }}" \
+            --evidence-root qa-artifacts
+
+      - name: Upload UX gate artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ammor-ux-gate-artifacts-${{ matrix.id }}
+          path: qa-artifacts/ammor-product-tests
+          if-no-files-found: ignore
+
+  aggregate-ammor-testing:
+    name: Aggregate AMMOR testing evidence
+    needs:
+      - unit-and-regression-tests
+      - detect-ammor-workspaces
+      - ammor-flow-tests
+      - ammor-portal-ux-gates
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build aggregate artifact
+        run: |
+          mkdir -p qa-artifacts
+          node -e '
+            const fs = require("fs");
+            const summary = {
+              generatedAt: new Date().toISOString(),
+              repository: process.env.GITHUB_REPOSITORY || "local",
+              runId: process.env.GITHUB_RUN_ID || "local",
+              headSha: process.env.GITHUB_SHA || "local",
+              workspaceDetection: {
+                detected: Number(process.env.WORKSPACE_COUNT || "0"),
+              },
+              jobs: {
+                unitAndRegression: "${{ needs['unit-and-regression-tests'].result }}",
+                ammorFlow: "${{ needs['ammor-flow-tests'].result }}",
+                uxGates: "${{ needs['ammor-portal-ux-gates'].result }}"
+              }
+            };
+            fs.writeFileSync("qa-artifacts/ammor-testing-aggregate.json", JSON.stringify(summary, null, 2));
+            fs.writeFileSync("qa-artifacts/ammor-testing-aggregate.md", [
+              "# AMMOR Testing Aggregate",
+              `- Repository: ${summary.repository}`,
+              `- Run ID: ${summary.runId}`,
+              `- Commit: ${summary.headSha}`,
+              `- Timestamp: ${summary.generatedAt}`,
+              `- Workspaces detected: ${summary.workspaceDetection.detected}`,
+              `- Unit/regression: ${summary.jobs.unitAndRegression}`,
+              `- Product flow tests: ${summary.jobs.ammorFlow}`,
+              `- UX gates: ${summary.jobs.uxGates}`
+            ].join("\n"));
+          '
+        env:
+          WORKSPACE_COUNT: ${{ needs.detect-ammor-workspaces.outputs.workspace_count }}
+
+      - name: Upload aggregate evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ammor-testing-aggregate
+          path: qa-artifacts

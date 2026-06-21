@@ -1,0 +1,83 @@
+name: AMMOR Deployment Safety
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+  checks: read
+  pull-requests: read
+  issues: read
+
+jobs:
+  deployment-safety:
+    name: Deployment safety audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run deployment safety checks
+        id: safety
+        run: |
+          node scripts/deployment/deployment-safety.mjs \
+            --output-dir deployment-artifacts \
+            --repo "${{ github.repository }}" \
+            --run-id "${{ github.run_id }}" \
+            --sha "${{ github.sha }}" \
+            --ref "${{ github.ref_name || github.head_ref }}"
+
+      - name: Upload deployment safety artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-safety-artifacts-${{ github.run_id }}
+          path: deployment-artifacts
+
+      - name: Post PR comment with deployment gate status
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require("fs");
+            const status = fs.readFileSync("deployment-artifacts/deployment-safety.json", "utf8");
+            const parsed = JSON.parse(status);
+            const body = `### Deployment Safety Report\n\n` +
+              `- **overall status:** ${parsed.status}\n` +
+              `- **blocking checks:** ${parsed.blockingChecks}\n` +
+              `- **non-blocking findings:** ${parsed.warningCount}\n` +
+              `\n` +
+              `**Artifacts:** \`${parsed.runId}\``;
+
+            const prNumber = context.payload?.pull_request?.number || context.payload?.number || 0;
+            if (!prNumber) return;
+            const comments = await github.paginate(
+              github.rest.issues.listComments,
+              {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber
+              }
+            );
+            const marker = "### Deployment Safety Report";
+            const existing = comments.find((c) => c.body && c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                body
+              });
+            }
