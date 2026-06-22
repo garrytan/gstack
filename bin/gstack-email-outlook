@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<EOF
+Usage: gstack-email-outlook send --to RECIPIENT [--subject SUBJECT] [--body TEXT | --body-file PATH] [--from FROM_EMAIL] [--dry-run]
+
+This uses the Microsoft Outlook desktop app via AppleScript to send from the logged-in Outlook account.
+EOF
+  exit 1
+}
+
+if [[ $# -lt 1 ]]; then usage; fi
+cmd="$1"; shift
+if [[ "$cmd" != "send" ]]; then usage; fi
+
+TO=""; SUBJECT=""; BODY=""; BODY_FILE=""; FROM="${EMAIL_FROM:-}"; DRY_RUN=false
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --to) TO="$2"; shift 2;;
+    --subject) SUBJECT="$2"; shift 2;;
+    --body) BODY="$2"; shift 2;;
+    --body-file) BODY_FILE="$2"; shift 2;;
+    --from) FROM="$2"; shift 2;;
+    --dry-run) DRY_RUN=true; shift;;
+    -h|--help) usage;;
+    *) echo "Unknown arg: $1"; usage;;
+  esac
+done
+
+if [[ -z "$TO" ]]; then echo "--to is required" >&2; usage; fi
+if [[ -n "$BODY_FILE" ]]; then
+  if [[ ! -f "$BODY_FILE" ]]; then echo "body-file not found: $BODY_FILE" >&2; exit 2; fi
+  BODY=$(cat "$BODY_FILE")
+fi
+if [[ -z "$BODY" ]]; then echo "--body is required" >&2; usage; fi
+if [[ -z "$FROM" ]]; then FROM=""; fi
+
+# Escape double quotes for AppleScript literal
+esc_subject=${SUBJECT//\"/\\\"}
+esc_body=${BODY//\"/\\\"}
+
+if [[ "$DRY_RUN" == "true" ]]; then
+  echo "--- DRY RUN: Outlook email ---"
+  echo "To: $TO"
+  echo "From (Outlook account): $FROM"
+  echo "Subject: $SUBJECT"
+  echo
+  echo "$BODY"
+  exit 0
+fi
+
+# Build and run AppleScript to create and send the message
+osascript -e 'tell application "Microsoft Outlook"' \
+          -e "set newMessage to make new outgoing message with properties {subject:\"$esc_subject\", content:\"$esc_body\"}" \
+          -e "make new recipient at newMessage with properties {email address:{address:\"$TO\"}}" \
+          -e "send newMessage" \
+          -e 'end tell'
+
+rc=$?
+if [[ $rc -ne 0 ]]; then echo "Outlook send failed (osascript rc=$rc)" >&2; exit $rc; fi
+
+echo "Email sent via Microsoft Outlook to $TO"

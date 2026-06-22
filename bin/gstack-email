@@ -1,0 +1,131 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<EOF
+Usage: gstack-email send --to RECIPIENT [--subject SUBJECT] [--body TEXT | --body-file PATH] [--from FROM_EMAIL] [--html] [--dry-run]
+
+Environment:
+  SENDGRID_API_KEY     If set, SendGrid API is used. Otherwise falls back to local sendmail/MSMTP.
+  EMAIL_FROM           Default From address if --from not provided.
+
+Examples:
+  gstack-email send --to alice@example.com --subject "Hi" --body "Hello"
+  gstack-email send --to alice@example.com --body-file ./msg.txt --from you@org.com --dry-run
+EOF
+  exit 1
+}
+
+command=""
+if [[ $# -lt 1 ]]; then usage; fi
+command="$1"; shift
+if [[ "$command" != "send" ]]; then usage; fi
+
+TO=""; SUBJECT=""; BODY=""; BODY_FILE=""; FROM="${EMAIL_FROM:-}"; HTML=false; DRY_RUN=false
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --to) TO="$2"; shift 2;;
+    --subject) SUBJECT="$2"; shift 2;;
+    --body) BODY="$2"; shift 2;;
+    --body-file) BODY_FILE="$2"; shift 2;;
+    --from) FROM="$2"; shift 2;;
+    --html) HTML=true; shift;;
+    --dry-run) DRY_RUN=true; shift;;
+    -h|--help) usage;;
+    *) echo "Unknown arg: $1"; usage;;
+  esac
+done
+
+if [[ -z "$TO" ]]; then echo "--to is required" >&2; usage; fi
+if [[ -n "$BODY_FILE" ]]; then
+  if [[ ! -f "$BODY_FILE" ]]; then echo "body-file not found: $BODY_FILE" >&2; exit 2; fi
+  BODY=$(cat "$BODY_FILE")
+fi
+if [[ -z "$BODY" ]]; then echo "Either --body or --body-file must provide a message body" >&2; usage; fi
+if [[ -z "$FROM" ]]; then echo "From address not provided; set EMAIL_FROM env or pass --from" >&2; exit 2; fi
+
+# Prepare MIME body
+boundary="ZZ_BOUNDARY_$(date +%s)"
+if [[ "$HTML" == "true" ]]; then
+  mime_body="--$boundary\nContent-Type: text/html; charset=us-ascii\n\n$BODY\n--$boundary--"
+  content_type="multipart/alternative; boundary=$boundary"
+else
+  mime_body="$BODY"
+  content_type="text/plain; charset=us-ascii"
+fi
+
+if [[ "$DRY_RUN" == "true" ]]; then
+  echo "--- DRY RUN: email payload ---"
+  echo "From: $FROM"
+  echo "To: $TO"
+  echo "Subject: $SUBJECT"
+  echo "Content-Type: $content_type"
+  echo
+  echo "$mime_body"
+  echo "--- end ---"
+  exit 0
+fi
+
+# Prefer SendGrid if API key present
+if [[ -n "${SENDGRID_API_KEY:-}" ]]; then
+  # Build content type safely
+  if [[ "$HTML" == "true" ]]; then
+    ctype="text/html"
+  else
+    ctype="text/plain"
+  fi
+  # Pass values via environment to a small python helper to produce safe JSON
+  export _GSTACK_TO="$TO" _GSTACK_FROM="$FROM" _GSTACK_SUBJECT="$SUBJECT" _GSTACK_BODY="$BODY" _GSTACK_CTYPE="$ctype"
+  payload=$(python3 - <<PY
+import os, json
+payload = {
+  "personalizations": [{"to": [{"email": os.environ.get('_GSTACK_TO','')}]}],
+  "from": {"email": os.environ.get('_GSTACK_FROM','')},
+  "subject": os.environ.get('_GSTACK_SUBJECT',''),
+  "content": [{"type": os.environ.get('_GSTACK_CTYPE','text/plain'), "value": os.environ.get('_GSTACK_BODY','')}]
+}
+print(json.dumps(payload))
+PY
+)
+  # Unset the temporary env vars
+  unset _GSTACK_TO _GSTACK_FROM _GSTACK_SUBJECT _GSTACK_BODY _GSTACK_CTYPE
+  # Note: keep payload simple; users can extend for attachments
+  curl -sS --fail -X POST "https://api.sendgrid.com/v3/mail/send" \
+    -H "Authorization: Bearer ${SENDGRID_API_KEY}" \
+    -H "Content-Type: application/json" \
+    -d "$payload"
+  rc=$?
+  if [[ $rc -ne 0 ]]; then echo "SendGrid send failed (curl rc=$rc)" >&2; exit $rc; fi
+  echo "Email sent via SendGrid to $TO"
+  exit 0
+fi
+
+# Fallback: use sendmail (or msmtp if sendmail not present)
+if command -v /usr/sbin/sendmail >/dev/null 2>&1 || command -v sendmail >/dev/null 2>&1; then
+  SENDMAIL_BIN=$(command -v /usr/sbin/sendmail || command -v sendmail)
+  tmpfile=$(mktemp /tmp/gstack-email.XXXX)
+  {
+    echo "From: $FROM"
+    echo "To: $TO"
+    echo "Subject: $SUBJECT"
+    if [[ "$HTML" == "true" ]]; then
+      echo "MIME-Version: 1.0"
+      echo "Content-Type: $content_type"
+      echo
+      echo "$mime_body"
+    else
+      echo
+      echo "$mime_body"
+    fi
+  } > "$tmpfile"
+  "$SENDMAIL_BIN" -t < "$tmpfile"
+  rc=$?
+  rm -f "$tmpfile"
+  if [[ $rc -ne 0 ]]; then echo "sendmail failed (rc=$rc)" >&2; exit $rc; fi
+  echo "Email sent via sendmail to $TO"
+  exit 0
+fi
+
+echo "No SendGrid key and no sendmail found. To use SendGrid, set SENDGRID_API_KEY. To use SMTP, install/configure sendmail or msmtp and ensure sendmail is on PATH." >&2
+exit 2

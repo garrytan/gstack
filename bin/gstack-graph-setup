@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# gstack-graph-setup
+# Small helper to scaffold a Microsoft Graph app-registration config and open the
+# Azure App Registrations page. It DOES NOT store secrets remotely.
+
+ROOT_DIR="$(dirname "$0")/.."
+SKILL_DIR="/Users/briankennedyjrm.ed/.claude/skills/gstack"
+CONFIG_PATH="$SKILL_DIR/email/graph-config.example.json"
+
+echo "Scaffolding example Graph config at: $CONFIG_PATH"
+mkdir -p "$(dirname "$CONFIG_PATH")"
+cat > "$CONFIG_PATH" <<'JSON'
+{
+  "client_id": "<PASTE_CLIENT_ID_HERE>",
+  "client_secret": "<PASTE_CLIENT_SECRET_HERE>",
+  "tenant_id": "<PASTE_TENANT_ID_OR_COMMON>",
+  "redirect_uri": "http://localhost:8080/callback",
+  "scopes": ["offline_access","openid","profile","Mail.ReadWrite","Mail.Send","User.Read"]
+}
+JSON
+
+cat <<EOF
+Example config created: $CONFIG_PATH
+
+Next steps (quick):
+  1) In the Azure portal you will register a new app (App registrations → New registration).
+     - Name: gstack-email-agent (or choose your own)
+     - Redirect URI: Web -> http://localhost:8080/callback
+  2) Add API permissions: Microsoft Graph -> Delegated permissions: Mail.Send, Mail.ReadWrite, User.Read, openid, offline_access
+  3) Grant admin consent (if needed for your tenant) or consent during sign-in for personal accounts.
+  4) Create a client secret (Certificates & secrets) and copy Client ID, Tenant ID, and Secret into the example JSON above.
+
+After registration, run this script again with the --validate flag to perform a quick validation (it will attempt a device-code or instruct how to run a local OAuth flow).
+
+Security note: Do NOT commit client_secret to git. Keep it in a local secret store or environment variables.
+
+Opening the Azure App Registrations page in your browser now...
+EOF
+
+# Open Azure App Registrations blade
+open "https://portal.azure.com/#blade/Microsoft_AAD_RegisteredApps/ApplicationsListBlade"
+
+exit 0

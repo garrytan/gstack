@@ -1,0 +1,7 @@
+{
+  "client_id": "<PASTE_CLIENT_ID_HERE>",
+  "client_secret": "<PASTE_CLIENT_SECRET_HERE>",
+  "tenant_id": "<PASTE_TENANT_ID_OR_COMMON>",
+  "redirect_uri": "http://localhost:8080/callback",
+  "scopes": ["offline_access","openid","profile","Mail.ReadWrite","Mail.Send","User.Read"]
+}
