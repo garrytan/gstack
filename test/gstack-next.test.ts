@@ -284,4 +284,37 @@ describe("gstack-next CLI", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  test("detects committed branch diffs when only origin/main exists", () => {
+    const dir = mkdtempSync(join(tmpdir(), "gstack-next-remote-base-"));
+    try {
+      execFileSync("git", ["init", "-b", "main"], { cwd: dir });
+      execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: dir });
+      execFileSync("git", ["config", "user.name", "Test User"], { cwd: dir });
+      writeFileSync(join(dir, "README.md"), "# Test\n");
+      execFileSync("git", ["add", "README.md"], { cwd: dir });
+      execFileSync("git", ["commit", "-m", "initial"], { cwd: dir });
+      const baseSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: dir, encoding: "utf8" }).trim();
+      execFileSync("git", ["checkout", "-b", "codex/test"], { cwd: dir });
+      execFileSync("git", ["update-ref", "refs/remotes/origin/main", baseSha], { cwd: dir });
+      execFileSync("git", ["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"], { cwd: dir });
+      execFileSync("git", ["branch", "-D", "main"], { cwd: dir });
+      mkdirSync(join(dir, "src"), { recursive: true });
+      writeFileSync(join(dir, "src", "server.ts"), "export const ok = true;\n");
+      execFileSync("git", ["add", "src/server.ts"], { cwd: dir });
+      execFileSync("git", ["commit", "-m", "add server"], { cwd: dir });
+
+      const output = execFileSync(
+        join(import.meta.dir, "..", "bin", "gstack-next"),
+        ["--repo", dir, "--profile", "sawyer"],
+        { encoding: "utf8" },
+      );
+
+      expect(output).toContain("Changed files: 1");
+      expect(output).toContain("Phase: review");
+      expect(output).toContain("Next skill: /review");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

@@ -2307,6 +2307,8 @@ describe('setup script validation', () => {
 
   test('setup installs a managed gstack-autopilot shim for global installs', () => {
     expect(setupContent).toContain('install_autopilot_shim');
+    expect(setupContent).toContain('local install_skills_dir="${1:-$INSTALL_SKILLS_DIR}"');
+    expect(setupContent).toContain('install_autopilot_shim "$CODEX_SKILLS"');
     expect(setupContent).toContain('shim_dir="$HOME/.local/bin"');
     expect(setupContent).toContain('local shim="$shim_dir/gstack-autopilot"');
     expect(setupContent).toContain('gstack-managed autopilot shim');
@@ -2464,6 +2466,16 @@ describe('setup script validation', () => {
     }
     expect(setupContent).toContain('for asset in bin lib browse review qa');
     expect(setupContent).toContain('_link_or_copy "$gstack_dir/lib" "$codex_gstack/lib"');
+  });
+
+  test('minimal host runtime roots include lib for autopilot bins', () => {
+    for (const script of ['gstack-sawyer-skill-autopilot.ts']) {
+      const content = fs.readFileSync(path.join(ROOT, 'bin', script), 'utf-8');
+      expect(content).toContain("../lib/sawyer-skill-autopilot");
+    }
+    expect(setupContent).toContain('_link_or_copy "$gstack_dir/lib" "$factory_gstack/lib"');
+    expect(setupContent).toContain('_link_or_copy "$gstack_dir/lib" "$opencode_gstack/lib"');
+    expect(setupContent).toContain('_link_or_copy "$SOURCE_GSTACK_DIR/lib" "$KIRO_GSTACK/lib"');
   });
 
   test('direct Codex installs are migrated out of ~/.codex/skills/gstack', () => {

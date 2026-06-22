@@ -776,7 +776,8 @@ create_agents_sidecar() {
 # This shim makes the toggle command visible on a normal shell PATH without
 # requiring users to remember the install-root path.
 install_autopilot_shim() {
-  case "$INSTALL_SKILLS_DIR" in
+  local install_skills_dir="${1:-$INSTALL_SKILLS_DIR}"
+  case "$install_skills_dir" in
     "$HOME/.claude/skills"|"$HOME/.codex/skills"|"$HOME/.factory/skills"|"$HOME/.kiro/skills"|"$HOME/.config/opencode/skills") ;;
     *) return 0 ;;
   esac
@@ -896,6 +897,9 @@ create_factory_runtime_root() {
   if [ -d "$gstack_dir/bin" ]; then
     _link_or_copy "$gstack_dir/bin" "$factory_gstack/bin"
   fi
+  if [ -d "$gstack_dir/lib" ]; then
+    _link_or_copy "$gstack_dir/lib" "$factory_gstack/lib"
+  fi
   if [ -d "$gstack_dir/browse/dist" ]; then
     _link_or_copy "$gstack_dir/browse/dist" "$factory_gstack/browse/dist"
   fi
@@ -933,6 +937,9 @@ create_opencode_runtime_root() {
   fi
   if [ -d "$gstack_dir/bin" ]; then
     _link_or_copy "$gstack_dir/bin" "$opencode_gstack/bin"
+  fi
+  if [ -d "$gstack_dir/lib" ]; then
+    _link_or_copy "$gstack_dir/lib" "$opencode_gstack/lib"
   fi
   if [ -d "$gstack_dir/browse/dist" ]; then
     _link_or_copy "$gstack_dir/browse/dist" "$opencode_gstack/browse/dist"
@@ -1157,6 +1164,7 @@ if [ "$INSTALL_CODEX" -eq 1 ]; then
   fi
   # Install generated Codex-format skills (not Claude source dirs)
   link_codex_skill_dirs "$SOURCE_GSTACK_DIR" "$CODEX_SKILLS"
+  install_autopilot_shim "$CODEX_SKILLS"
 
   log "gstack ready (codex)."
   log "  browse: $BROWSE_BIN"
@@ -1180,6 +1188,9 @@ if [ "$INSTALL_KIRO" -eq 1 ]; then
   # ETHOS.md — referenced by "Search Before Building" in all skill preambles
   if [ -f "$SOURCE_GSTACK_DIR/ETHOS.md" ]; then
     _link_or_copy "$SOURCE_GSTACK_DIR/ETHOS.md" "$KIRO_GSTACK/ETHOS.md"
+  fi
+  if [ -d "$SOURCE_GSTACK_DIR/lib" ]; then
+    _link_or_copy "$SOURCE_GSTACK_DIR/lib" "$KIRO_GSTACK/lib"
   fi
   # gstack-upgrade skill
   if [ -f "$AGENTS_DIR/gstack-upgrade/SKILL.md" ]; then
@@ -1261,7 +1272,7 @@ if [ "$INSTALL_CODEX" -eq 1 ]; then
 fi
 
 # 7b. Install the user-facing autopilot toggle command for real installs.
-install_autopilot_shim
+install_autopilot_shim "$INSTALL_SKILLS_DIR"
 
 # 8. Run pending version migrations
 # Migrations handle state fixes that ./setup alone can't cover (stale config,

@@ -487,9 +487,20 @@ function readPrState(cwd: string): PullRequestState | null {
 
 function detectBaseBranch(cwd: string): string | undefined {
   const originHead = git(["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"], cwd);
-  if (originHead?.startsWith("origin/")) return originHead.replace(/^origin\//, "");
+  if (originHead?.startsWith("origin/")) {
+    const localBranch = originHead.replace(/^origin\//, "");
+    if (git(["show-ref", "--verify", "--quiet", `refs/heads/${localBranch}`], cwd) !== null) {
+      return localBranch;
+    }
+    if (git(["show-ref", "--verify", "--quiet", `refs/remotes/${originHead}`], cwd) !== null) {
+      return originHead;
+    }
+    return localBranch;
+  }
   if (git(["show-ref", "--verify", "--quiet", "refs/heads/main"], cwd) !== null) return "main";
   if (git(["show-ref", "--verify", "--quiet", "refs/heads/master"], cwd) !== null) return "master";
+  if (git(["show-ref", "--verify", "--quiet", "refs/remotes/origin/main"], cwd) !== null) return "origin/main";
+  if (git(["show-ref", "--verify", "--quiet", "refs/remotes/origin/master"], cwd) !== null) return "origin/master";
   return undefined;
 }
 

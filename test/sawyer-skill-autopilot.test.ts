@@ -41,6 +41,30 @@ describe('Sawyer skill autopilot routing', () => {
     expect(rec.skill).toBe('ship');
   });
 
+  test.each(['not clean', 'unclean', 'done with concerns', 'P1 finding remains'])(
+    'blocks ship after non-clean review outcome: %s',
+    (lastOutcome) => {
+      const rec = recommendSawyerSkillAutopilot({
+        prompt: 'great, ship it',
+        lastSkill: '/review',
+        lastOutcome,
+      });
+      expect(rec.action).toBe('stop');
+      expect(rec.skill).toBeUndefined();
+      expect(rec.reason).toContain('Review must finish cleanly');
+    },
+  );
+
+  test('blocks ship after review with a missing outcome', () => {
+    const rec = recommendSawyerSkillAutopilot({
+      prompt: 'great, ship it',
+      lastSkill: '/review',
+    });
+    expect(rec.action).toBe('stop');
+    expect(rec.skill).toBeUndefined();
+    expect(rec.evidence).toContain('lastOutcome=missing');
+  });
+
   test('stops after /ship creates an open PR unless landing is requested', () => {
     const rec = recommendSawyerSkillAutopilot({
       lastSkill: 'ship',
@@ -105,6 +129,16 @@ describe('Sawyer skill autopilot routing', () => {
     expect(rec.action).toBe('invoke');
     expect(rec.skill).toBe('review');
     expect(rec.phase).toBe('post-skill');
+  });
+
+  test('blocks closeout after simplify checkpoint with a missing outcome', () => {
+    const rec = recommendSawyerSkillAutopilot({
+      prompt: 'ship this non-trivial 4-file helper change',
+      lastSkill: 'simplify-checkpoint',
+    });
+    expect(rec.action).toBe('stop');
+    expect(rec.skill).toBeUndefined();
+    expect(rec.reason).toContain('simplify checkpoint');
   });
 
   test('flags global workflow simplify checkpoints as a global-surface boundary', () => {
@@ -185,6 +219,12 @@ describe('Sawyer skill autopilot replay pack', () => {
       input: { prompt: 'great, ship it', lastSkill: 'review', lastOutcome: 'clean' },
       action: 'invoke',
       skill: 'ship',
+    },
+    {
+      name: 'non-clean review plus ship request stops',
+      input: { prompt: 'great, ship it', lastSkill: 'review', lastOutcome: 'not clean' },
+      action: 'stop',
+      skill: undefined,
     },
     {
       name: 'ship-created PR stops at merge boundary',

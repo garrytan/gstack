@@ -229,6 +229,27 @@ function recommendFromReceipt(
     };
   }
 
+  if (lastSkill === 'simplify-checkpoint' && SIMPLIFY_CLOSEOUT_INTENT_RE.test(prompt)) {
+    return {
+      action: 'stop',
+      reason: 'The simplify checkpoint does not have a clean outcome yet.',
+      phase: 'post-skill',
+      confidence: 'high',
+      evidence: [`lastSkill=${lastSkill}`, `lastOutcome=${outcome || 'missing'}`],
+    };
+  }
+
+  if (lastSkill === 'review' && SHIP_INTENT_RE.test(prompt) && !outcomeLooksClean(outcome)) {
+    return {
+      action: 'stop',
+      reason: 'Review must finish cleanly before shipping.',
+      phase: 'post-skill',
+      confidence: 'high',
+      permissionBoundary: 'push-pr',
+      evidence: [`lastSkill=${lastSkill}`, `lastOutcome=${outcome || 'missing'}`],
+    };
+  }
+
   const simplify = simplifyCheckpointSignal(prompt, outcome, lastSkill);
   if (simplify.needed) {
     return {
@@ -326,7 +347,16 @@ function runtimeProofMissing(value: SawyerSkillAutopilotInput['runtimeProof']): 
 }
 
 function outcomeLooksClean(outcome: string): boolean {
-  return !outcome || /\b(clean|approved|success|done|no findings|no issues)\b/.test(outcome);
+  const text = outcome.trim().toLowerCase();
+  if (!text) return false;
+  if (
+    /\b(?:not\s+(?:clean|approved|success(?:ful)?|done)|unclean|done with concerns|with concerns|concerns?|unresolved|blocked|failed?|failure|errors?|issues? found|findings? found|p[0-9])\b/.test(
+      text,
+    )
+  ) {
+    return false;
+  }
+  return /\b(clean|approved|success(?:ful)?|done|no findings|no issues)\b/.test(text);
 }
 
 function deployLooksHealthy(deployStatus: string): boolean {
