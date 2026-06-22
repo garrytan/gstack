@@ -912,7 +912,7 @@ Refs are invalidated on navigation — run `snapshot` again after `goto`.
 | `type <text>` | Type into focused element |
 | `upload <sel> <file> [file2...]` | Upload file(s) |
 | `useragent <string>` | Set user agent |
-| `viewport [<WxH>] [--scale <n>]` | Set viewport size and optional deviceScaleFactor (1-3, for retina screenshots). --scale requires a context rebuild. |
+| `viewport [<WxH>|auto] [--scale <n>]` | Set viewport size and optional deviceScaleFactor (1-3, for retina screenshots). --scale requires a context rebuild. Use `auto` (alias `reset`/`unpin`) to clear a pinned size and follow the window again. |
 | `wait <sel|--networkidle|--load>` | Wait for element, network idle, or page load (timeout: 15s) |
 
 ### Inspection

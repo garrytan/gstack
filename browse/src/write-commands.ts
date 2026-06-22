@@ -523,7 +523,18 @@ export async function handleWriteCommand(
       }
 
       if (sizeArg === undefined && scaleArg === undefined) {
-        throw new Error('Usage: browse viewport [<WxH>] [--scale <n>]  (e.g. 375x812, or --scale 2 to keep current size)');
+        throw new Error('Usage: browse viewport [<WxH>|auto] [--scale <n>]  (e.g. 375x812, auto to unpin, or --scale 2 to keep current size)');
+      }
+
+      // `viewport auto` (aliases `reset`/`unpin`): clear a prior WxH pin and
+      // restore window-following without tearing down the session.
+      if (sizeArg === 'auto' || sizeArg === 'reset' || sizeArg === 'unpin') {
+        if (scaleArg !== undefined) {
+          throw new Error('viewport auto cannot be combined with --scale (a custom scale needs a concrete viewport size).');
+        }
+        const err = await bm.resetViewportToAuto();
+        if (err) return `Viewport partially reset: ${err}`;
+        return 'Viewport unpinned: now follows the window (auto); device scale reset to 1x.';
       }
 
       // Resolve width/height: either from sizeArg or from current viewport if --scale-only.
