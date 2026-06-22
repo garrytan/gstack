@@ -144,6 +144,26 @@ echo "FILE=$FILE"
 The on-disk directory name is `checkpoints/` (not `contexts/`) — this is a legacy
 path kept so existing saved files remain loadable. Users never see it.
 
+### Step 4a: Persist plan file (if in plan mode)
+
+If plan mode is active, the plan lives in a temp file (`CLAUDE_PLAN_FILE`) that
+is lost if the session ends without ExitPlanMode approval. Persist it to
+`.claude/plans/` so `/context-restore` can find it even when the user saves
+and exits before approving the plan.
+
+```bash
+if [ "${GSTACK_PLAN_MODE:-}" = "active" ] && [ -n "${CLAUDE_PLAN_FILE:-}" ] && [ -f "$CLAUDE_PLAN_FILE" ]; then
+  mkdir -p .claude/plans
+  PLAN_TS=$(date +%Y%m%d-%H%M%S)
+  cp "$CLAUDE_PLAN_FILE" ".claude/plans/plan-$PLAN_TS.md"
+  cp "$CLAUDE_PLAN_FILE" ".claude/plans/active-plan.md"
+  echo "PLAN_PERSISTED=.claude/plans/plan-$PLAN_TS.md"
+fi
+```
+
+If `PLAN_PERSISTED` is echoed, include it in the saved context's Notes section
+so the checkpoint records where the plan was saved.
+
 Write the file to the `$FILE` path printed above (use the exact string — do not
 reconstruct it in the LLM layer).
 
