@@ -1,0 +1,62 @@
+{
+  "business_name": "Northstar Pantry",
+  "business_type": "fictional subscription snack company",
+  "north_star": "deliver healthy snack boxes on time while keeping gross margin above 42%",
+  "team": {
+    "founder": "You",
+    "ops_lead": "Maya",
+    "support": "Jon",
+    "growth": "Leah"
+  },
+  "metrics": {
+    "active_subscribers": 214,
+    "monthly_revenue_usd": 16840,
+    "gross_margin_pct": 38.6,
+    "late_shipments_pct": 7.2,
+    "support_ticket_rate_pct": 4.1,
+    "blended_cac_usd": 33.4,
+    "refund_rate_pct": 1.7
+  },
+  "issues": [
+    {
+      "name": "Late shipments",
+      "impact": 5,
+      "urgency": 5,
+      "confidence": 0.95,
+      "note": "On-time delivery is the main customer promise."
+    },
+    {
+      "name": "Oat bar supplier delay",
+      "impact": 4,
+      "urgency": 4,
+      "confidence": 0.92,
+      "note": "The promo calendar depends on the delayed SKU."
+    },
+    {
+      "name": "Packing accuracy complaints",
+      "impact": 4,
+      "urgency": 4,
+      "confidence": 0.88,
+      "note": "Box mismatches are driving support tickets."
+    },
+    {
+      "name": "Rising CAC",
+      "impact": 3,
+      "urgency": 3,
+      "confidence": 0.81,
+      "note": "Paid acquisition is more expensive than the guardrail."
+    },
+    {
+      "name": "Enterprise sample request",
+      "impact": 3,
+      "urgency": 4,
+      "confidence": 0.86,
+      "note": "A good follow-up could unlock a larger account."
+    }
+  ],
+  "open_questions": [
+    "Should we switch to the backup oat bar supplier now?",
+    "Which support issue is causing the most churn?",
+    "Can we pause the paid social campaign without hurting growth too much?"
+  ]
+}
