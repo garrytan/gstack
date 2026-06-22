@@ -24,10 +24,12 @@ import { COMMAND_DESCRIPTIONS as BROWSE_COMMANDS } from '../browse/src/commands'
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const OUTPUT = path.join(ROOT, 'gstack', 'llms.txt');
+const CLAUDE_SKIPPED_SKILL_DIRS = new Set(['claude']);
 
 interface SkillEntry {
   name: string;
   description: string;
+  href: string;
 }
 
 /**
@@ -113,6 +115,11 @@ function oneLine(text: string): string {
   return first.replace(/\s+/g, ' ').trim();
 }
 
+function skillDirForOutput(output: string): string {
+  const dir = path.dirname(output);
+  return dir === '.' ? '.' : dir;
+}
+
 interface GenerateOptions {
   /** Override repo root (for tests). */
   root?: string;
@@ -135,6 +142,9 @@ export async function generateLlmsTxt(opts: GenerateOptions = {}): Promise<Gener
   const templates = discoverTemplates(root);
   const skills: SkillEntry[] = [];
   for (const t of templates) {
+    if (CLAUDE_SKIPPED_SKILL_DIRS.has(skillDirForOutput(t.output))) {
+      continue;
+    }
     const filePath = path.join(root, t.tmpl);
     const entry = parseSkillFrontmatter(filePath);
     if (!entry) {
@@ -144,7 +154,7 @@ export async function generateLlmsTxt(opts: GenerateOptions = {}): Promise<Gener
       }
       continue;
     }
-    skills.push(entry);
+    skills.push({ ...entry, href: t.output });
   }
   skills.sort((a, b) => a.name.localeCompare(b.name));
 
@@ -167,7 +177,7 @@ export async function generateLlmsTxt(opts: GenerateOptions = {}): Promise<Gener
   lines.push('');
   for (const skill of skills) {
     const summary = oneLine(skill.description);
-    lines.push(`- [/${skill.name}](${skill.name}/SKILL.md): ${summary}`);
+    lines.push(`- [/${skill.name}](${skill.href}): ${summary}`);
   }
   lines.push('');
 
