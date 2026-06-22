@@ -2,6 +2,25 @@
 
 ## [Unreleased]
 
+### Pipeline view — task ledger overview with live SSE updates (T13)
+
+The console now has a **Pipeline tab** showing every task in the ledger at once. Directors can answer "how much work is left?" without SSH-ing into a box: tasks appear in four collapsible groups (In progress, Blocked, Open, Done), each with a count badge. Domain filter chips narrow the view to a single team. Clicking any card opens an inline spec panel that fetches and displays the raw task markdown — no file access required.
+
+#### Added
+- `GET /api/pipeline` reads all `*.task` files from `$CONTROL_DIR/ledger/`, extends `parseTaskLedger` with `updated_at` from file `mtime`, sorts tasks within each status group by `updated_at` descending, and returns `{ tasks: PipelineTask[], updatedAt: string }` (T13 AC1/AC2).
+- `GET /api/spec/:taskId` validates the task ID against `TASK_ID_RE`, reads `$CONTROL_DIR/tasks/{taskId}.md`, and returns `{ markdown: string }`. Errors: 400 invalid ID, 404 missing file, 503 no `CONTROL_DIR` (T13 AC7).
+- `pipeline-update` SSE event: `makeLedgerWatchHandler` hooks into the existing single ledger `fs.watch` watcher and broadcasts `{ type: "pipeline-update", task_id, status, agent }` on any `.task` file change. No second `fs.watch` call is opened (T13 AC3).
+- Pipeline tab panel in `index.html` with domain filter chips (All / be / fe / doc / qa), `#pipeline-groups` container, and `<aside id="spec-panel">` (T13 AC4/AC5/AC6).
+- Domain filter chips persist selection in `localStorage` under `console-pipeline-domain-filter` (T13 AC8).
+- `PipelineTask` TypeScript type exported from `server-utils.ts` (superset of `TaskEntry` with `updated_at: string`).
+- `makeLedgerWatchHandler(ledgerDir, broadcastFn)` exported from `server-utils.ts` for unit testing without a live server.
+- 3 new `describe` blocks in `server.test.ts` covering T13 AC1 (pipeline response format), AC2 (sort order), AC3 (single broadcast, agent field mapping), and AC7 (spec endpoint: 200/400/404/503).
+- 4 new assertions in `qa-smoke.sh` covering T13 AC4/AC5: pipeline endpoint 200, invalid spec ID returns 400, `pipeline-groups` element in page HTML, `tasks` key in pipeline JSON.
+
+#### Changed
+- `TASK_ID_RE` extended from `/^[A-Z]+-[0-9]+$/` to `/^[A-Z]+(-[0-9]+|[0-9]+)$/` — now accepts both `CONS-003` style and short-name `T13` style. All existing validation paths are unchanged.
+- `parseTaskLedger` return type widened from `TaskEntry[]` to `PipelineTask[]` — callers that used `TaskEntry[]` remain compatible (additive field only).
+
 ### Startup cleanup — purge stale decision files older than 1 hour (v7.1)
 
 When the console restarts after a crash, any bash-wrapper approval requests that had been waiting longer than 1 hour are automatically purged before the HTTP server binds. This prevents stale approval cards from appearing in the Queue tab after a restart when the requesting agent has long since timed out and moved on. The cleanup is synchronous and completes before any client can connect.

@@ -11,14 +11,14 @@ Scripts for starting, stopping, and monitoring the autonomous agent fleet.
 | `wake-listen.ts` | Supabase Realtime subscriber — wakes idle agents in <1s cross-machine |
 | `console/server.ts` | Console HTTP server (v7.1 — auto-detects control repo, gates risky Bash commands, streams live events via SSE) |
 | `console/bin/bash` | Risk-gated Bash tool intercept (v7.1 — blocks destructive commands until approved) |
-| `console/index.html` | Console UI entry point (v7.1 — serves static HTML with SSE support) |
-| `console/console.js` | Console interactive client (v7.1 — card animations, empty states, AI draft panel, ARIA accessibility) |
-| `console/styles.css` | Console design system (v7.1 — dark theme, motion tokens, Satoshi/DM Sans/JetBrains Mono typefaces) |
-| `console/server-utils.ts` | Utility exports — parsing ledger/mailbox, task ID validation, fleet status reading, SSE helpers, `makeWatchHandler` (reads last `live-events.jsonl` line, caches payload for Last-Event-ID replay), port resolution, `readLogTail` (JSONL tail reader), `makeRateLimiter` (token-bucket rate limiter), `purgeStaleDecisionFiles` (startup garbage collection of stale decision files) (v7.1) |
+| `console/index.html` | Console UI entry point (v7.1 — serves static HTML with SSE support, Pipeline tab panel with domain filter chips and spec panel) |
+| `console/console.js` | Console interactive client (v7.1 — card animations, empty states, AI draft panel, ARIA accessibility, Pipeline tab with collapsible status groups, domain filter chips persisted in localStorage, spec panel on card click, `pipeline-update` SSE listener) |
+| `console/styles.css` | Console design system (v7.1 — dark theme, motion tokens, Satoshi/DM Sans/JetBrains Mono typefaces, pipeline group/card/filter/spec-panel component styles) |
+| `console/server-utils.ts` | Utility exports — parsing ledger/mailbox, task ID validation (`TASK_ID_RE` supports both `CONS-003` and `T13` styles), fleet status reading, SSE helpers, `makeWatchHandler` (reads last `live-events.jsonl` line, caches payload for Last-Event-ID replay), `makeLedgerWatchHandler` (broadcasts `pipeline-update` SSE on `.task` file changes), port resolution, `readLogTail` (JSONL tail reader), `makeRateLimiter` (token-bucket rate limiter), `purgeStaleDecisionFiles` (startup garbage collection of stale decision files), `PipelineTask` type (T13) (v7.1) |
 | `console/bash-wrapper.test.ts` | Bun test wrapper that runs bash-wrapper.test.sh inline (v7.1) |
 | `console/bash-wrapper.test.sh` | Bash unit tests for risk classification (check_risk) and polling behavior (poll_approval) (v7.1) |
-| `console/server.test.ts` | Bun tests for endpoint security, static serving, queue bootstrap, `resolveControlDir`, SSE endpoint (T4 AC1/AC2/AC3/AC5), `makeWatchHandler`, log tail endpoint (T12 AC1-AC7), rate limiter, and startup cleanup (T8 AC1-AC4) (v7.1) |
-| `console/qa-smoke.sh` | QA smoke test for console UI — asserts page title, nav bar, Fleet tab presence, and T6 AC1/AC2/AC4/AC5 (Dicebear avatar src, elapsed time format, HIGH risk badge, Unblock button) via gstack browse (v7.1) |
+| `console/server.test.ts` | Bun tests for endpoint security, static serving, queue bootstrap, `resolveControlDir`, SSE endpoint (T4 AC1/AC2/AC3/AC5), `makeWatchHandler`, log tail endpoint (T12 AC1-AC7), rate limiter, startup cleanup (T8 AC1-AC4), pipeline endpoint (T13 AC1/AC2), ledger watch handler (T13 AC3), and spec endpoint (T13 AC7) (v7.1) |
+| `console/qa-smoke.sh` | QA smoke test for console UI — asserts page title, nav bar, Fleet tab presence, T6 AC1/AC2/AC4/AC5 (Dicebear avatar src, elapsed time format, HIGH risk badge, Unblock button), and T13 AC4/AC5 (pipeline endpoint 200, `pipeline-groups` element in HTML, `tasks` key in pipeline JSON) via gstack browse (v7.1) |
 
 ---
 
@@ -286,7 +286,7 @@ curl -X POST http://127.0.0.1:7842/api/mailbox/unknown-agent
 Valid agent names are those listed in `supervisor/fleet.conf`, e.g., `agent-be`, `agent-fe`, `agent-qa`, `agent-doc`.
 
 **taskId validation (AC4/AC5):**
-Task identifiers must match the regex `/^[A-Z]+-[0-9]+$/` (uppercase letters, hyphen, digits only). This prevents path traversal via dot segments or slashes. Example validations:
+Task identifiers must match the regex `/^[A-Z]+(-[0-9]+|[0-9]+)$/` (uppercase letters followed by either a hyphen and digits, or digits only). This supports both `CONS-003` style and short-name `T13` style, while blocking path traversal via dot segments or slashes. Example validations:
 
 ```bash
 # AC4: Invalid format — path traversal attempt blocked
@@ -294,18 +294,23 @@ curl -X POST http://127.0.0.1:7842/api/unblock/../../etc/passwd
 # Response: HTTP 400
 # {"error": "invalid task ID"}
 
-# AC5: Valid format — proceeds to processing
+# AC5: Valid formats — both proceed to processing
 curl -X POST http://127.0.0.1:7842/api/unblock/CONS-003 \
+  -d '{"decision":"proceed"}'
+# Response: HTTP 200
+
+curl -X POST http://127.0.0.1:7842/api/unblock/T13 \
   -d '{"decision":"proceed"}'
 # Response: HTTP 200
 ```
 
 The regex rejects:
-- Lowercase letters: `cons-003` ✗
+- Lowercase letters: `cons-003` ✗, `t13` ✗
+- Mixed case: `Cons003` ✗
 - Dot segments: `../../../etc/passwd` ✗
 - Slashes: `CONS/003` ✗
-- No hyphen: `CONS003` ✗
 - Extra characters: `CONS-003!` ✗
+- Starts with a digit: `3CONS` ✗
 
 **Fleet.conf parsing (AC6):**
 At startup, `server.ts` reads `fleet.conf` and builds a Set of all agent names listed in the file. All agents listed in `fleet.conf` are immediately valid; no name rejection happens for legitimate agents. The Set is queried on every request to `/api/mailbox/:agentName`.
@@ -597,24 +602,25 @@ When an agent writes a log line to `live-events.jsonl`, the console receives the
 
 ## Tab navigation and panel switching (v7.1)
 
-The console UI organizes control surfaces into three tabs: **Fleet**, **Queue**, and **Cost**. Each tab is a distinct panel; clicking a tab switches which panel is visible while keeping others hidden.
+The console UI organizes control surfaces into four tabs: **Fleet**, **Queue**, **Pipeline**, and **Cost**. Each tab is a distinct panel; clicking a tab switches which panel is visible while keeping others hidden.
 
 ### Tabs and panels
 
 - **Fleet tab** — Shows agent fleet status (agent names, states, current task, elapsed time, recent tool use)
 - **Queue tab** — Shows pending tasks awaiting approval (the approval section from earlier sections)
+- **Pipeline tab** — Shows all ledger tasks grouped by status (In progress / Blocked / Open / Done), with domain filter chips and a spec panel that opens on card click (T13)
 - **Cost tab** — Placeholder for operational cost tracking (not yet implemented; currently shows static text)
 
 ### Implementation
 
-The console UI (`console.js`) renders a `<nav role="tablist">` element with three `<button role="tab">` elements (one per tab). When a tab is clicked:
+The console UI (`console.js`) renders a `<nav role="tablist">` element with four `<button role="tab">` elements (one per tab). When a tab is clicked:
 
 1. The `onclick` handler finds the corresponding panel element (e.g., `<section id="section-fleet">`)
 2. Sets `hidden` attribute on the previously active panel
 3. Removes `hidden` attribute from the new panel
 4. Updates the active button's `aria-selected` state and styling
 
-Each panel (`section-fleet`, `section-queue`, `section-cost`) is a sibling `<section>` in the DOM. CSS media queries and design tokens ensure tab buttons are styled consistently with the rest of the console.
+Each panel (`section-fleet`, `section-queue`, `section-pipeline`, `section-cost`) is a sibling `<section>` in the DOM. CSS media queries and design tokens ensure tab buttons are styled consistently with the rest of the console.
 
 ---
 
@@ -1063,7 +1069,7 @@ No custom key handlers are needed — the browser's native button behavior is le
 
 - **No dependencies:** `console.js` uses vanilla JavaScript with no npm packages (htmx is not required for core functionality).
 - **Event source:** SSE endpoint is `/api/events` (shared with agent log broadcasting).
-- **Event types:** `approval`, `attention`, `resolve` (from the server).
+- **Event types:** `approval`, `attention`, `resolve` (queue/attention events from the server); `pipeline-update` (ledger change events, triggers a `fetchPipeline()` call when the Pipeline tab is active).
 - **HTML escaping:** All dynamic content is escaped via an `esc()` helper function to prevent XSS.
 - **State sync:** A `syncState()` function centralizes the logic for updating empty states, counts, badges, and the document title after every card operation.
 - **Timer display:** Elapsed time on each card updates every 1 second (minutes:seconds format).
@@ -1113,7 +1119,7 @@ Both conditions are asserted. This verifies commands are never silently executed
 **Task ID validation (AC3):** The `POST /api/unblock/<taskId>` endpoint rejects invalid task IDs:
 
 - Invalid: lowercase IDs (`cons-003`), missing digits (`CONS`), trailing slashes with extra segments
-- Valid: uppercase + dash + digits only (regex: `/^[A-Z]+-[0-9]+$/`)
+- Valid: uppercase letters followed by either hyphen+digits (`CONS-003`) or digits only (`T13`) — regex: `/^[A-Z]+(-[0-9]+|[0-9]+)$/` (T13 extended this from the original `/^[A-Z]+-[0-9]+$/` to support short-name style task IDs)
 - Response: HTTP 400 if invalid, 200 if valid
 
 **Agent name validation (AC4):** The `POST /api/mailbox/<agentName>` endpoint rejects unknown agents:
@@ -1187,6 +1193,36 @@ AC4 (Last-Event-ID replay) and AC6 (30s ping interval) are human-verify: AC4 req
 
 AC5 (cleanup runs before `server.listen()`) is human-verify: confirmed by `server.ts` calling `purgeStaleDecisionFiles(...)` at line 402, before `server.listen(PORT, HOSTNAME, ...)` at line 413.
 
+### Pipeline view tests — `server.test.ts` (T13 AC1/AC2/AC3/AC7)
+
+Three `describe` blocks cover the T13 pipeline endpoints and the ledger watch handler:
+
+**`describe("GET /api/pipeline")`** — Three mock `.task` files with distinct statuses and controlled `mtime` values are written before the suite. Tests assert:
+- Response is HTTP 200 JSON with a `tasks` array and an `updatedAt` field (AC1)
+- Each task carries `updated_at` derived from file `mtime` (AC1)
+- Tasks within status groups are sorted by `updated_at` descending — most-recently-changed first (AC2)
+
+**`describe("makeLedgerWatchHandler")`** — Tests the exported handler function directly without a live server:
+
+| Test | AC | What it asserts |
+|---|---|---|
+| `broadcasts single pipeline-update SSE frame for a .task file change` | AC3 | Writes a `.task` file, calls the handler, asserts exactly one SSE frame with `event: pipeline-update`, `task_id`, `status`, and `agent: null` when `claimed_by` is `"-"` |
+| `includes claimed_by as agent when not "-"` | AC3 | File with `claimed_by: agent-fe` → `agent` field in payload is `"agent-fe"` |
+
+Non-`.task` filenames and IDs failing `TASK_ID_RE` are silently ignored (no frame broadcast).
+
+**`describe("GET /api/spec/:taskId")`** — Five tests covering AC7:
+
+| Test | AC | What it asserts |
+|---|---|---|
+| `returns 200 with markdown content for a valid existing taskId` | AC7 | HTTP 200, `content-type: application/json`, body `{ markdown: string }` containing the task ID |
+| `returns 400 for invalid taskId (lowercase)` | AC7 | `cons-999` → HTTP 400, error field truthy |
+| `returns 400 for invalid taskId (no digits)` | AC7 | `CONS` → HTTP 400 |
+| `returns 404 for valid taskId with no spec file` | AC7 | `T13` → HTTP 404, error field truthy |
+| `returns 503 when no tasksDir configured` | AC7 | Separate server without `tasksDir` → HTTP 503 |
+
+AC6 (spec panel click opens panel with content) and AC8 (domain filter persists in localStorage) are human-verify.
+
 ### Test results
 
 All 79 tests pass (2 bash-wrapper + 77 server tests). Run the full suite with:
@@ -1215,8 +1251,12 @@ The script:
 2. Asserts the page title contains "Fleet Console"
 3. Asserts a `nav[role=tablist]` (the tab bar) is visible
 4. Asserts the "Fleet" tab button is present in the DOM
-5. Captures a timestamped screenshot to `/tmp/console-qa-<timestamp>.png`
-6. Prints the screenshot path to stdout so the QA agent can attach it to its report
+5. Asserts `GET /api/pipeline` returns HTTP 200 (T13 AC1 prerequisite)
+6. Asserts `GET /api/spec/invalid-id` returns HTTP 400 (T13 AC7)
+7. Asserts `index.html` contains the `pipeline-groups` container element (T13 AC4/AC5)
+8. Asserts the pipeline JSON response contains a `tasks` key (T13 AC4/AC5)
+9. Captures a timestamped screenshot to `/tmp/console-qa-<timestamp>.png`
+10. Prints the screenshot path to stdout so the QA agent can attach it to its report
 
 ### Error handling
 
@@ -1362,6 +1402,101 @@ Three new `describe` blocks in `server.test.ts` cover the server-side ACs:
 | `GET /api/queue missing dir` | AC6 | `readApprovals(nonexistent-path)` → `[]`, no exception thrown |
 
 Test fixtures in `beforeAll`: one unresolved approval file (`agent-fe-REQ-1.json`), one resolved pair (`agent-fe-REQ-2.json` + `agent-fe-REQ-2.decision.json`). The AC1 test asserts that only REQ-1 appears in the response.
+
+---
+
+## Pipeline view — GET /api/pipeline + GET /api/spec/:taskId (T13)
+
+The Pipeline tab gives directors a single-screen answer to "how much work is left?" by reading every task in the ledger and grouping them by status. The view is SSE-driven: initial load calls `GET /api/pipeline`, and any subsequent `.task` file change in the ledger triggers a `pipeline-update` SSE event that refreshes the tab automatically.
+
+### GET /api/pipeline (AC1/AC2)
+
+**Endpoint:** `GET /api/pipeline`
+
+**Response:** HTTP 200 with `Content-Type: application/json`:
+
+```json
+{
+  "tasks": [
+    {
+      "id": "T13",
+      "status": "documenting",
+      "domain": "doc",
+      "claimed_by": "agent-doc",
+      "failure_count": "0",
+      "description": "Pipeline view: GET /api/pipeline + task card layout",
+      "updated_at": "2026-06-22T11:00:00.000Z"
+    }
+  ],
+  "updatedAt": "2026-06-22T11:01:00.000Z"
+}
+```
+
+**`updated_at` field (AC1 extension):** `parseTaskLedger` was extended to return `PipelineTask[]` (a superset of the existing `TaskEntry` type). Each `PipelineTask` carries an `updated_at` ISO string derived from the task file's `mtime`. If the stat call fails, `updated_at` defaults to the Unix epoch.
+
+**Sort order (AC2):** The server sorts tasks within each status group by `updated_at` descending — the most recently changed task appears first. Groups themselves are not sorted by the endpoint; that ordering is applied by the client in `PIPELINE_STATUS_GROUPS`.
+
+### GET /api/spec/:taskId (AC7)
+
+**Endpoint:** `GET /api/spec/:taskId`
+
+Returns the raw markdown content of a task's spec file from `$CONTROL_DIR/tasks/{taskId}.md`.
+
+| Status | Condition |
+|---|---|
+| 200 | Valid `taskId`, file exists — body: `{ "markdown": "..." }` |
+| 400 | `taskId` fails `TASK_ID_RE` — body: `{ "error": "invalid task ID" }` |
+| 404 | Valid `taskId` but no spec file at the resolved path — body: `{ "error": "spec not found" }` |
+| 503 | `CONTROL_DIR` not configured — body: `{ "error": "CONTROL_DIR not configured" }` |
+
+The `taskId` is validated against `TASK_ID_RE` before any filesystem access. Spec content is fetched at click time (not pre-loaded).
+
+### Pipeline-update SSE event (AC3)
+
+When any `.task` file in `$CONTROL_DIR/ledger/` changes, the server broadcasts a named SSE event to all connected clients:
+
+```
+event: pipeline-update
+data: {"type":"pipeline-update","task_id":"T13","status":"done","agent":null}
+```
+
+The `agent` field is the current `claimed_by` value (null if the task is unclaimed or the field is `"-"`). This event reuses the existing ledger `fs.watch` watcher registered at server startup via `makeLedgerWatchHandler` — no second `fs.watch` call is opened.
+
+The browser listens for `pipeline-update` events and calls `fetchPipeline()` only when the Pipeline tab is currently active. Inactive tabs do not fetch.
+
+### Pipeline tab UI (AC4/AC5)
+
+Tasks are rendered in four collapsible groups, in this order:
+
+| Group | Statuses covered |
+|---|---|
+| In progress | `in_progress`, `testing`, `documenting` |
+| Blocked | `needs_human`, `awaiting_info` |
+| Open | `open` |
+| Done | `done` |
+
+Each group header shows the group name and a count badge. Groups with zero tasks are collapsed by default (header present, body `hidden`). Clicking a header toggles `aria-expanded` and removes/adds the `hidden` attribute on the body.
+
+Each task card (`<article role="button">`) shows:
+- **Task ID** — bold
+- **Domain pill** — `domain` field (falls back to `origin_domain` if absent)
+- **Agent name** — `claimed_by` field; greyed-out "—" when unclaimed
+- **Failure count badge** — amber badge showing `failure_count`, visible only when ≥ 1
+- **Time since `updated_at`** — relative time string (e.g., "5m ago", "2h ago")
+
+### Domain filter chips (AC8)
+
+Five chips above the pipeline groups let operators filter by domain: **All**, **be**, **fe**, **doc**, **qa**. The active chip uses a filled style (`.domain-chip-active` CSS class). The selected filter is persisted to `localStorage` under the key `console-pipeline-domain-filter` so it survives page reloads. On filter change, `renderPipeline()` is called immediately with the stored filter.
+
+### Spec panel (AC6)
+
+Clicking any task card (or pressing Enter/Space when the card is focused) opens a slide-in `<aside id="spec-panel">` at the right edge of the Pipeline panel. The panel:
+
+1. Shows the `taskId` as a header
+2. Fetches `GET /api/spec/{taskId}` from the server
+3. Displays the raw markdown response as `<pre>` content inside `#spec-content`
+
+Content is fetched at click time — not pre-loaded. "Loading…" is displayed while the request is in flight. A close button dismisses the panel.
 
 ---
 
