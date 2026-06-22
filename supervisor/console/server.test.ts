@@ -4,7 +4,7 @@
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { createServer } from "node:http";
 import type { Server, IncomingMessage, ServerResponse } from "node:http";
-import { mkdirSync, writeFileSync, rmSync, existsSync, utimesSync, readFileSync } from "node:fs";
+import { mkdirSync, writeFileSync, rmSync, existsSync, utimesSync, readFileSync, unlinkSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -1319,5 +1319,44 @@ describe("GET /api/spec/:taskId", () => {
     } finally {
       await new Promise<void>((resolve) => noSpecServer.close(() => resolve()));
     }
+  });
+});
+
+// --- T13-amended AC2: pipeline bootstrapped at most once per tab activation ---
+
+describe("T13-amended AC2: console.js pipeline bootstrap guard", () => {
+  const consoleSrc = readFileSync(join(import.meta.dir, "console.js"), "utf8");
+
+  test("pipelineBootstrapped guard variable is present in console.js", () => {
+    expect(consoleSrc).toContain("pipelineBootstrapped");
+  });
+
+  test("fetchPipeline in switchTab is conditional on pipelineBootstrapped", () => {
+    const switchTabIdx = consoleSrc.indexOf("function switchTab(");
+    expect(switchTabIdx).toBeGreaterThan(-1);
+    // The pipeline block inside switchTab must gate fetchPipeline on the flag
+    const switchTabBody = consoleSrc.slice(switchTabIdx, switchTabIdx + 1000);
+    expect(switchTabBody).toContain("pipelineBootstrapped");
+    expect(switchTabBody).toContain("fetchPipeline()");
+  });
+
+  test("no setInterval or setTimeout polls /api/pipeline", () => {
+    expect(/setInterval\b[^;]*pipeline/i.test(consoleSrc)).toBe(false);
+    expect(/setTimeout\b[^;]*fetchPipeline/i.test(consoleSrc)).toBe(false);
+  });
+});
+
+// --- T13-amended AC4: SSE reconnect bootstraps pipeline ---
+
+describe("T13-amended AC4: SSE open handler calls fetchPipeline on reconnect", () => {
+  const consoleSrc = readFileSync(join(import.meta.dir, "console.js"), "utf8");
+
+  test("fetchPipeline is called inside the SSE open event handler", () => {
+    const openIdx = consoleSrc.indexOf("addEventListener('open'");
+    expect(openIdx).toBeGreaterThan(-1);
+    const closingIdx = consoleSrc.indexOf("});\n", openIdx);
+    expect(closingIdx).toBeGreaterThan(openIdx);
+    const handler = consoleSrc.slice(openIdx, closingIdx + 4);
+    expect(handler).toContain("fetchPipeline()");
   });
 });

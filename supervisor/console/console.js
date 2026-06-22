@@ -28,6 +28,7 @@ let attentionCount = 0;
 let approvalCount = 0;
 let pipelineData = [];
 let pipelineDomainFilter = localStorage.getItem(DOMAIN_FILTER_KEY) || 'all';
+let pipelineBootstrapped = false;
 
 /* ── Tab state ── */
 
@@ -75,7 +76,10 @@ function switchTab(name) {
   /* Pipeline panel */
   if (name === 'pipeline') {
     sectionPipeline.removeAttribute('hidden');
-    fetchPipeline();
+    if (!pipelineBootstrapped) {
+      pipelineBootstrapped = true;
+      fetchPipeline();
+    }
   } else {
     sectionPipeline.setAttribute('hidden', '');
   }
@@ -693,15 +697,17 @@ function sendDecision(id, action, text) {
 function connect() {
   es = new EventSource(SSE_URL);
 
-  currentEs.addEventListener('open', () => {
+  es.addEventListener('open', () => {
     sseConnected = true;
     sseDot.classList.remove('disconnected');
     sseLabel.textContent = 'live';
     reconnectBanner.style.display = 'none';
     fetchQueue();
+    fetchPipeline();
+    pipelineBootstrapped = true;
   });
 
-  currentEs.addEventListener('approval', (e) => {
+  es.addEventListener('approval', (e) => {
     const ev = JSON.parse(e.data);
     const card = buildApprovalCard(ev);
     approvalCards.prepend(card);
@@ -709,7 +715,7 @@ function connect() {
     syncState();
   });
 
-  currentEs.addEventListener('attention', (e) => {
+  es.addEventListener('attention', (e) => {
     const ev = JSON.parse(e.data);
     const card = buildAttentionCard(ev);
     attentionCards.prepend(card);
@@ -717,7 +723,7 @@ function connect() {
     syncState();
   });
 
-  currentEs.addEventListener('resolve', (e) => {
+  es.addEventListener('resolve', (e) => {
     const ev = JSON.parse(e.data);
     const card = document.getElementById(`approval-${ev.id}`) || document.getElementById(`attention-${ev.id}`);
     if (!card) return;
@@ -728,7 +734,7 @@ function connect() {
     });
   });
 
-  currentEs.addEventListener('fleet-update', (e) => {
+  es.addEventListener('fleet-update', (e) => {
     const ev = JSON.parse(e.data);
     if (ev.type === 'fleet-update') {
       fleetLastEventTs = Date.now();
@@ -740,10 +746,10 @@ function connect() {
     if (currentTab === 'pipeline') fetchPipeline();
   });
 
-  currentEs.addEventListener('error', () => {
+  es.addEventListener('error', () => {
     sseConnected = false;
     reconnectBanner.style.display = '';
-    currentEs.close();
+    es.close();
     setTimeout(connect, RECONNECT_DELAY_MS);
   });
 }
