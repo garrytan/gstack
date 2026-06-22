@@ -57,7 +57,7 @@ If you need to automate interfaces outside of the web browser (desktop client ap
 
 If your automation loops require complex session isolation, bypassing enterprise bot detection, or running parallel worker tabs, stick to the absolute industry foundations.
 
-- microsoft/playwright
+- microsoft/playwright (https://github.com/microsoft/playwright)
   What it is: The gold-standard framework for web testing and raw automation.
   Why it bolsters your skill: It has a built-in Playwright CLI and a dedicated Playwright MCP Server (Model Context Protocol). Coding tools use its element reference trees to execute deterministic clicks and forms without visual ambiguity.
 
