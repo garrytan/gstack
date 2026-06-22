@@ -49,7 +49,7 @@ If you need to automate interfaces outside of the web browser (desktop client ap
   What it is: An open-source, multimodal AI agent stack running on the advanced UI-TARS model framework.
   Why it bolsters your skill: It operates through natural language control via a Vision-Language Model (VLM). Instead of feeding the agent complex code, it takes screenshots, visually recognizes UI elements, and applies precise mouse and keyboard interaction based on semantic intent.
 
-- Integration-Automation/AutoControlGUI
+- Integration-Automation/AutoControlGUI (https://github.com/Integration-Automation/AutoControlGUI)
   What it is: A unified, cross-platform Python GUI automation framework (macOS, Windows, Linux).
   Why it bolsters your skill: It natively integrates an AI Element Locator (VLM) alongside localized OCR and OS Accessibility Tree queries. It allows you to wrap automation loops inside clean JSON Action Scripting.
 
