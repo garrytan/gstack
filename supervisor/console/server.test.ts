@@ -24,11 +24,15 @@ import {
   readLogTail,
   makeRateLimiter,
   purgeStaleDecisionFiles,
+  readPidFile,
+  stopProcess,
   type AgentStatus,
   type GitSpawner,
   type ApprovalItem,
   type LogEvent,
   type PipelineTask,
+  type KillFn,
+  type IsAliveFn,
 } from "./server-utils.ts";
 
 const TEST_PORT = 7843;
@@ -1358,5 +1362,381 @@ describe("T13-amended AC4: SSE open handler calls fetchPipeline on reconnect", (
     expect(closingIdx).toBeGreaterThan(openIdx);
     const handler = consoleSrc.slice(openIdx, closingIdx + 4);
     expect(handler).toContain("fetchPipeline()");
+  });
+});
+
+// ─── T11: Fleet control endpoints ────────────────────────────────────────────
+
+// Helper: build a request handler for fleet control routes with injectable deps.
+function makeFleetControlHandler(opts: {
+  validAgents: Set<string>;
+  pidsDir: string;
+  supervisorDir: string;
+  killFn: KillFn;
+  isAliveFn: IsAliveFn;
+  spawnFn: (script: string, agentName: string) => void;
+  broadcastFn: (frame: string) => void;
+  stopTimeoutMs?: number;
+}) {
+  return (req: IncomingMessage, res: ServerResponse) => {
+    const path = rawPath(req.url);
+    if (!path.startsWith("/api/fleet/") || req.method !== "POST") {
+      res.writeHead(404); res.end(); return;
+    }
+    const action = path.slice("/api/fleet/".length).split("/")[0];
+    if (action !== "stop" && action !== "restart" && action !== "pause" && action !== "resume") {
+      sendJson(res, { error: "unknown action" }, 404); return;
+    }
+    const qIdx = (req.url ?? "").indexOf("?");
+    const agentName = qIdx !== -1
+      ? (new URLSearchParams((req.url ?? "").slice(qIdx + 1)).get("agent") ?? "")
+      : "";
+    if (!opts.validAgents.has(agentName)) {
+      sendJson(res, { error: "unknown agent" }, 400); return;
+    }
+    const pidFile = join(opts.pidsDir, `${agentName}.pid`);
+    const pid = readPidFile(pidFile);
+    if (pid === null) {
+      sendJson(res, { error: "pid file not found" }, 404); return;
+    }
+    if (action === "pause" || action === "resume") {
+      if (!opts.isAliveFn(pid)) {
+        sendJson(res, { error: "process not running" }, 409); return;
+      }
+      opts.killFn(pid, action === "pause" ? "SIGSTOP" : "SIGCONT");
+      sendJson(res, { ok: true }); return;
+    }
+    // stop / restart — async
+    void (async () => {
+      await stopProcess(pid, {
+        killFn: opts.killFn,
+        isAliveFn: opts.isAliveFn,
+        stopTimeoutMs: opts.stopTimeoutMs ?? 100,
+      });
+      if (action === "restart") {
+        opts.spawnFn(join(opts.supervisorDir, "run-agent.sh"), agentName);
+      }
+      const payload = JSON.stringify({ type: "fleet-update", agent: agentName, action, ts: Date.now() });
+      opts.broadcastFn(`event: fleet-update\ndata: ${payload}\n\n`);
+      sendJson(res, { ok: true });
+    })();
+  };
+}
+
+// Shared mutable spies — reset before each HTTP fleet test
+let fleetKillCalls: { pid: number; signal: string }[] = [];
+let fleetSpawnCalls: { script: string; agentName: string }[] = [];
+let fleetBroadcasts: string[] = [];
+let mockIsAlive: IsAliveFn = () => false;
+let mockKill: KillFn = (pid, signal) => fleetKillCalls.push({ pid, signal });
+
+const fleetPidsDir = join(testDir, "fleet-pids");
+const fleetSupervisorDir = join(testDir, "fleet-supervisor");
+const fleetValidAgents = new Set(["agent-be", "agent-qa"]);
+
+let fleetServer: Server;
+
+beforeAll(
+  () =>
+    new Promise<void>((resolve) => {
+      mkdirSync(fleetPidsDir, { recursive: true });
+      // agent-be has pid 12345; agent-qa has no pid file (for 404 tests)
+      writeFileSync(join(fleetPidsDir, "agent-be.pid"), "12345\n");
+
+      fleetServer = createServer(
+        makeFleetControlHandler({
+          validAgents: fleetValidAgents,
+          pidsDir: fleetPidsDir,
+          supervisorDir: fleetSupervisorDir,
+          killFn: (pid, signal) => mockKill(pid, signal),
+          isAliveFn: (pid) => mockIsAlive(pid),
+          spawnFn: (script, agentName) => fleetSpawnCalls.push({ script, agentName }),
+          broadcastFn: (frame) => fleetBroadcasts.push(frame),
+          stopTimeoutMs: 100,
+        }),
+      );
+      fleetServer.listen(7849, "127.0.0.1", resolve);
+    }),
+);
+
+afterAll(
+  () =>
+    new Promise<void>((resolve, reject) => {
+      fleetServer.close((err) => {
+        if (err) reject(err);
+        else resolve();
+      });
+    }),
+);
+
+// --- T11 AC1: stopProcess sends SIGTERM, then SIGKILL if process stays alive ---
+
+describe("stopProcess (AC1)", () => {
+  test("sends SIGTERM first, then SIGKILL after timeout when process stays alive", async () => {
+    const signals: string[] = [];
+    const killFn: KillFn = (_pid, sig) => signals.push(sig);
+    const isAliveFn: IsAliveFn = () => true; // never dies naturally
+
+    await stopProcess(12345, { killFn, isAliveFn, stopTimeoutMs: 60 });
+
+    expect(signals).toContain("SIGTERM");
+    expect(signals).toContain("SIGKILL");
+    expect(signals.indexOf("SIGTERM")).toBeLessThan(signals.indexOf("SIGKILL"));
+  });
+
+  test("sends SIGTERM and resolves without SIGKILL when process dies after SIGTERM", async () => {
+    const signals: string[] = [];
+    let alive = true;
+    const killFn: KillFn = (_pid, sig) => {
+      signals.push(sig);
+      if (sig === "SIGTERM") alive = false; // process dies on SIGTERM
+    };
+    const isAliveFn: IsAliveFn = () => alive;
+
+    await stopProcess(12345, { killFn, isAliveFn, stopTimeoutMs: 500 });
+
+    expect(signals).toContain("SIGTERM");
+    expect(signals).not.toContain("SIGKILL");
+  });
+
+  test("returns immediately without sending any signal when process is already dead (AC6/AC8)", async () => {
+    const signals: string[] = [];
+    const killFn: KillFn = (_pid, sig) => signals.push(sig);
+    const isAliveFn: IsAliveFn = () => false;
+
+    await stopProcess(99999, { killFn, isAliveFn });
+
+    expect(signals).toHaveLength(0);
+  });
+});
+
+// --- T11 AC5: unknown agent → 400 on all four endpoints ---
+
+describe("fleet control unknown agent → 400 (AC5)", () => {
+  for (const action of ["stop", "restart", "pause", "resume"] as const) {
+    test(`POST /api/fleet/${action} returns 400 for unknown agent`, async () => {
+      const r = await fetch(`http://127.0.0.1:7849/api/fleet/${action}?agent=unknown-agent`, {
+        method: "POST",
+      });
+      expect(r.status).toBe(400);
+      const body = (await r.json()) as { error: string };
+      expect(body.error).toBeTruthy();
+    });
+  }
+
+  test("POST /api/fleet/stop returns 400 when agent query param is missing", async () => {
+    const r = await fetch("http://127.0.0.1:7849/api/fleet/stop", { method: "POST" });
+    expect(r.status).toBe(400);
+  });
+});
+
+// --- T11 AC1 (HTTP): POST /api/fleet/stop --- (via stopProcess test above + HTTP 200)
+
+describe("POST /api/fleet/stop (AC1/AC6/AC8)", () => {
+  test("returns 200 { ok: true } when process is dead (stale PID / AC6 / AC8)", async () => {
+    fleetKillCalls = [];
+    mockIsAlive = () => false; // process already dead
+
+    const r = await fetch("http://127.0.0.1:7849/api/fleet/stop?agent=agent-be", { method: "POST" });
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { ok: boolean };
+    expect(body.ok).toBe(true);
+    expect(fleetKillCalls).toHaveLength(0); // no signals sent to already-dead process
+  });
+
+  test("returns 200 { ok: true } and sends SIGTERM when process is alive", async () => {
+    fleetKillCalls = [];
+    let alive = true;
+    mockKill = (pid, signal) => { fleetKillCalls.push({ pid, signal }); alive = false; };
+    mockIsAlive = () => alive;
+
+    const r = await fetch("http://127.0.0.1:7849/api/fleet/stop?agent=agent-be", { method: "POST" });
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { ok: boolean };
+    expect(body.ok).toBe(true);
+    expect(fleetKillCalls.some((c) => c.signal === "SIGTERM")).toBe(true);
+    expect(fleetKillCalls.every((c) => c.pid === 12345)).toBe(true);
+
+    // restore defaults
+    mockKill = (pid, signal) => fleetKillCalls.push({ pid, signal });
+  });
+
+  test("returns 404 when pid file does not exist", async () => {
+    const r = await fetch("http://127.0.0.1:7849/api/fleet/stop?agent=agent-qa", { method: "POST" });
+    expect(r.status).toBe(404);
+  });
+
+  test("is idempotent — second call when process is dead also returns 200 (AC8)", async () => {
+    fleetKillCalls = [];
+    mockIsAlive = () => false;
+
+    const r1 = await fetch("http://127.0.0.1:7849/api/fleet/stop?agent=agent-be", { method: "POST" });
+    expect(r1.status).toBe(200);
+
+    const r2 = await fetch("http://127.0.0.1:7849/api/fleet/stop?agent=agent-be", { method: "POST" });
+    expect(r2.status).toBe(200);
+    expect((await r2.json() as { ok: boolean }).ok).toBe(true);
+  });
+});
+
+// --- T11 AC2: POST /api/fleet/restart — stop then spawn ---
+
+describe("POST /api/fleet/restart (AC2)", () => {
+  test("stops the agent then spawns run-agent.sh with the agent name", async () => {
+    fleetKillCalls = [];
+    fleetSpawnCalls = [];
+    let alive = true;
+    mockKill = (pid, signal) => { fleetKillCalls.push({ pid, signal }); alive = false; };
+    mockIsAlive = () => alive;
+
+    const r = await fetch("http://127.0.0.1:7849/api/fleet/restart?agent=agent-be", { method: "POST" });
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { ok: boolean };
+    expect(body.ok).toBe(true);
+
+    // SIGTERM was sent to the agent's process
+    expect(fleetKillCalls.some((c) => c.signal === "SIGTERM" && c.pid === 12345)).toBe(true);
+
+    // run-agent.sh was spawned with agent-be
+    expect(fleetSpawnCalls).toHaveLength(1);
+    expect(fleetSpawnCalls[0].agentName).toBe("agent-be");
+    expect(fleetSpawnCalls[0].script).toContain("run-agent.sh");
+
+    // restore defaults
+    mockKill = (pid, signal) => fleetKillCalls.push({ pid, signal });
+  });
+
+  test("spawns run-agent.sh even when process was already dead", async () => {
+    fleetKillCalls = [];
+    fleetSpawnCalls = [];
+    mockIsAlive = () => false; // already dead — stop is a no-op
+
+    const r = await fetch("http://127.0.0.1:7849/api/fleet/restart?agent=agent-be", { method: "POST" });
+    expect(r.status).toBe(200);
+    expect(fleetSpawnCalls).toHaveLength(1);
+    expect(fleetSpawnCalls[0].agentName).toBe("agent-be");
+  });
+});
+
+// --- T11 AC3: POST /api/fleet/pause — sends SIGSTOP ---
+
+describe("POST /api/fleet/pause (AC3/AC6)", () => {
+  test("sends SIGSTOP to the agent's PID when process is alive (AC3)", async () => {
+    fleetKillCalls = [];
+    mockKill = (pid, signal) => fleetKillCalls.push({ pid, signal });
+    mockIsAlive = () => true;
+
+    const r = await fetch("http://127.0.0.1:7849/api/fleet/pause?agent=agent-be", { method: "POST" });
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { ok: boolean };
+    expect(body.ok).toBe(true);
+    expect(fleetKillCalls).toHaveLength(1);
+    expect(fleetKillCalls[0]).toEqual({ pid: 12345, signal: "SIGSTOP" });
+  });
+
+  test("returns 409 { error: 'process not running' } when process is not alive (AC6)", async () => {
+    mockIsAlive = () => false;
+
+    const r = await fetch("http://127.0.0.1:7849/api/fleet/pause?agent=agent-be", { method: "POST" });
+    expect(r.status).toBe(409);
+    const body = (await r.json()) as { error: string };
+    expect(body.error).toBe("process not running");
+  });
+});
+
+// --- T11 AC4: POST /api/fleet/resume — sends SIGCONT ---
+
+describe("POST /api/fleet/resume (AC4/AC6)", () => {
+  test("sends SIGCONT to the agent's PID when process is alive (AC4)", async () => {
+    fleetKillCalls = [];
+    mockKill = (pid, signal) => fleetKillCalls.push({ pid, signal });
+    mockIsAlive = () => true;
+
+    const r = await fetch("http://127.0.0.1:7849/api/fleet/resume?agent=agent-be", { method: "POST" });
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { ok: boolean };
+    expect(body.ok).toBe(true);
+    expect(fleetKillCalls).toHaveLength(1);
+    expect(fleetKillCalls[0]).toEqual({ pid: 12345, signal: "SIGCONT" });
+  });
+
+  test("returns 409 { error: 'process not running' } when process is not alive (AC6)", async () => {
+    mockIsAlive = () => false;
+
+    const r = await fetch("http://127.0.0.1:7849/api/fleet/resume?agent=agent-be", { method: "POST" });
+    expect(r.status).toBe(409);
+    const body = (await r.json()) as { error: string };
+    expect(body.error).toBe("process not running");
+  });
+});
+
+// --- T11 AC7: fleet-update SSE broadcast after stop and restart ---
+
+describe("fleet-update SSE broadcast (AC7)", () => {
+  test("broadcasts fleet-update event after stop", async () => {
+    fleetBroadcasts = [];
+    mockIsAlive = () => false; // process already dead — stop is instant
+
+    await fetch("http://127.0.0.1:7849/api/fleet/stop?agent=agent-be", { method: "POST" });
+
+    expect(fleetBroadcasts).toHaveLength(1);
+    expect(fleetBroadcasts[0]).toContain("event: fleet-update");
+    const dataLine = fleetBroadcasts[0].split("\n").find((l) => l.startsWith("data: "));
+    const payload = JSON.parse(dataLine!.slice("data: ".length)) as {
+      type: string; agent: string; action: string; ts: number;
+    };
+    expect(payload.type).toBe("fleet-update");
+    expect(payload.agent).toBe("agent-be");
+    expect(payload.action).toBe("stop");
+    expect(typeof payload.ts).toBe("number");
+  });
+
+  test("broadcasts fleet-update event after restart", async () => {
+    fleetBroadcasts = [];
+    fleetSpawnCalls = [];
+    mockIsAlive = () => false;
+
+    await fetch("http://127.0.0.1:7849/api/fleet/restart?agent=agent-be", { method: "POST" });
+
+    expect(fleetBroadcasts).toHaveLength(1);
+    const dataLine = fleetBroadcasts[0].split("\n").find((l) => l.startsWith("data: "));
+    const payload = JSON.parse(dataLine!.slice("data: ".length)) as { action: string };
+    expect(payload.action).toBe("restart");
+  });
+
+  test("does NOT broadcast fleet-update after pause (AC7 scope: stop/restart only)", async () => {
+    fleetBroadcasts = [];
+    mockKill = () => {};
+    mockIsAlive = () => true;
+
+    await fetch("http://127.0.0.1:7849/api/fleet/pause?agent=agent-be", { method: "POST" });
+
+    expect(fleetBroadcasts).toHaveLength(0);
+  });
+});
+
+// --- T11: readPidFile utility ---
+
+describe("readPidFile", () => {
+  test("returns the numeric PID when the file contains a valid integer", () => {
+    const pidFile = join(testDir, "test.pid");
+    writeFileSync(pidFile, "42\n");
+    expect(readPidFile(pidFile)).toBe(42);
+  });
+
+  test("returns null when the file does not exist", () => {
+    expect(readPidFile(join(testDir, "nonexistent.pid"))).toBeNull();
+  });
+
+  test("returns null for non-numeric content", () => {
+    const pidFile = join(testDir, "bad.pid");
+    writeFileSync(pidFile, "not-a-pid\n");
+    expect(readPidFile(pidFile)).toBeNull();
+  });
+
+  test("returns null for zero or negative PID", () => {
+    const pidFile = join(testDir, "zero.pid");
+    writeFileSync(pidFile, "0\n");
+    expect(readPidFile(pidFile)).toBeNull();
   });
 });

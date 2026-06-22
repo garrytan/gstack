@@ -7,7 +7,7 @@
 import { createServer } from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { watch, mkdirSync, readFileSync } from "fs";
-import { spawnSync } from "child_process";
+import { spawnSync, spawn } from "child_process";
 import { appendFile, unlink, writeFile } from "fs/promises";
 import { homedir } from "os";
 import { join, dirname } from "path";
@@ -30,6 +30,10 @@ import {
   readLogTail,
   makeRateLimiter,
   purgeStaleDecisionFiles,
+  readPidFile,
+  defaultIsProcessAlive,
+  defaultKillFn,
+  stopProcess,
 } from "./server-utils.ts";
 
 // Validate PORT early — before any filesystem reads (AC5: exit 1 before bind).
@@ -43,6 +47,7 @@ const PORT = (() => {
 })();
 const HOSTNAME = "127.0.0.1";
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const supervisorDir = dirname(__dirname); // directory containing console/
 
 
 async function handleMailbox(req: IncomingMessage, res: ServerResponse, agentName: string): Promise<void> {
@@ -312,6 +317,58 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
   // GET /api/fleet — per-agent status from live.json + presence.json (CONS-012).
   if (path === "/api/fleet" && method === "GET") {
     sendJson(res, readFleetStatus(agentList, join(homedir(), "agents")));
+    return;
+  }
+
+  // T11: POST /api/fleet/{stop,restart,pause,resume}?agent=... — fleet process control.
+  if (path.startsWith("/api/fleet/") && method === "POST") {
+    const action = path.slice("/api/fleet/".length).split("/")[0] as string;
+    if (action !== "stop" && action !== "restart" && action !== "pause" && action !== "resume") {
+      sendJson(res, { error: "unknown action" }, 404);
+      return;
+    }
+    const qIdx = (req.url ?? "").indexOf("?");
+    const agentName = qIdx !== -1
+      ? (new URLSearchParams((req.url ?? "").slice(qIdx + 1)).get("agent") ?? "")
+      : "";
+    if (!validAgents.has(agentName)) {
+      sendJson(res, { error: "unknown agent" }, 400);
+      return;
+    }
+    const pidFile = join(supervisorDir, "pids", `${agentName}.pid`);
+    const pid = readPidFile(pidFile);
+    if (pid === null) {
+      sendJson(res, { error: "pid file not found" }, 404);
+      return;
+    }
+    if (action === "pause" || action === "resume") {
+      if (!defaultIsProcessAlive(pid)) {
+        sendJson(res, { error: "process not running" }, 409);
+        return;
+      }
+      defaultKillFn(pid, action === "pause" ? "SIGSTOP" : "SIGCONT");
+      sendJson(res, { ok: true });
+      return;
+    }
+    // stop and restart — async; response sent after stop completes
+    void (async () => {
+      await stopProcess(pid);
+      if (action === "restart") {
+        const proc = spawn(join(supervisorDir, "run-agent.sh"), [agentName], {
+          detached: true,
+          stdio: "ignore",
+        });
+        proc.unref();
+      }
+      const fleetPayload = JSON.stringify({
+        type: "fleet-update",
+        agent: agentName,
+        action,
+        ts: Date.now(),
+      });
+      broadcast(`event: fleet-update\ndata: ${fleetPayload}\n\n`);
+      sendJson(res, { ok: true });
+    })();
     return;
   }
 

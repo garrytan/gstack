@@ -441,34 +441,56 @@ export function parseMailboxNotes(content: string): MailboxNote[] {
   return notes;
 }
 
-const STALE_THRESHOLD_MS = 60 * 60 * 1000;
+// T11: Fleet process control types and utilities
 
-export function purgeStaleDecisionFiles(dir: string): void {
-  if (!dir) return;
-  let files: string[];
+export type KillFn = (pid: number, signal: string) => void;
+export type IsAliveFn = (pid: number) => boolean;
+
+// Read PID from a pid file; returns null if missing, unreadable, or not a positive integer.
+export function readPidFile(pidPath: string): number | null {
   try {
-    files = readdirSync(dir);
+    const pid = parseInt(readFileSync(pidPath, "utf8").trim(), 10);
+    return Number.isFinite(pid) && pid > 0 ? pid : null;
   } catch {
-    return;
-  }
-  for (const name of files) {
-    if (name.endsWith(".decision.json")) continue;
-    if (!name.endsWith(".json")) continue;
-    const fp = join(dir, name);
-    try {
-      if (Date.now() - statSync(fp).mtime.getTime() > STALE_THRESHOLD_MS) {
-        try { unlinkSync(fp); } catch {}
-        try { unlinkSync(join(dir, name.replace(/\.json$/, ".decision.json"))); } catch {}
-      }
-    } catch {}
-  }
-  for (const name of files) {
-    if (!name.endsWith(".decision.json")) continue;
-    const fp = join(dir, name);
-    try {
-      if (Date.now() - statSync(fp).mtime.getTime() > STALE_THRESHOLD_MS) {
-        try { unlinkSync(fp); } catch {}
-      }
-    } catch {}
+    return null;
   }
 }
+
+// Check process liveness via signal 0 (no signal sent; ESRCH if absent).
+export function defaultIsProcessAlive(pid: number): boolean {
+  try { process.kill(pid, 0); return true; } catch { return false; }
+}
+
+// Send a signal; swallows if the process has already exited.
+export function defaultKillFn(pid: number, signal: string): void {
+  try { process.kill(pid, signal as NodeJS.Signals); } catch { /* already gone */ }
+}
+
+// Send SIGTERM; fire SIGKILL after stopTimeoutMs (default 5000ms) if still alive.
+// Resolves when the process is confirmed dead or SIGKILL has fired.
+// Returns immediately without sending any signal if the process is already dead (AC6/AC8).
+export async function stopProcess(
+  pid: number,
+  opts: { killFn?: KillFn; isAliveFn?: IsAliveFn; stopTimeoutMs?: number } = {},
+): Promise<void> {
+  const kill = opts.killFn ?? defaultKillFn;
+  const isAlive = opts.isAliveFn ?? defaultIsProcessAlive;
+  const ms = opts.stopTimeoutMs ?? 5_000;
+
+  if (!isAlive(pid)) return;
+  kill(pid, "SIGTERM");
+
+  await new Promise<void>((resolve) => {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      clearInterval(poll);
+      clearTimeout(sigkillTimer);
+      resolve();
+    };
+    const sigkillTimer = setTimeout(() => { kill(pid, "SIGKILL"); finish(); }, ms);
+    const poll = setInterval(() => { if (!isAlive(pid)) finish(); }, 50);
+  });
+}
+
