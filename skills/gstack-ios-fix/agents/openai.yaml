@@ -1,0 +1,6 @@
+interface:
+  display_name: "gstack-ios-fix"
+  short_description: "Autonomous iOS bug fixer. Takes a bug found by /ios-qa, reads the source, writes the fix, rebuilds, redeploys, and..."
+  default_prompt: "Use gstack-ios-fix for this task."
+policy:
+  allow_implicit_invocation: true

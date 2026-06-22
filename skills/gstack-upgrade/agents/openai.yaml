@@ -1,0 +1,6 @@
+interface:
+  display_name: "gstack-upgrade"
+  short_description: "Upgrade gstack to the latest version. Detects global vs vendored install, runs the upgrade, and shows what's new...."
+  default_prompt: "Use gstack-upgrade for this task."
+policy:
+  allow_implicit_invocation: true

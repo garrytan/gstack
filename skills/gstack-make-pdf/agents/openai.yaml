@@ -1,0 +1,6 @@
+interface:
+  display_name: "gstack-make-pdf"
+  short_description: "Turn any markdown file into a publication-quality PDF. Proper 1in margins, intelligent page breaks, page numbers,..."
+  default_prompt: "Use gstack-make-pdf for this task."
+policy:
+  allow_implicit_invocation: true

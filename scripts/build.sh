@@ -31,6 +31,13 @@ esac
 "$BUN_CMD" build --compile bin/gstack-global-discover.ts --outfile bin/gstack-global-discover
 bash browse/scripts/build-node-server.sh
 bash scripts/write-version-files.sh browse/dist/.version design/dist/.version make-pdf/dist/.version
+
+for target in browse/dist/browse browse/dist/find-browse design/dist/design make-pdf/dist/pdf bin/gstack-global-discover; do
+  if [ ! -f "$target" ] && [ -f "$target.exe" ]; then
+    mv "$target.exe" "$target"
+  fi
+done
+
 chmod +x browse/dist/browse browse/dist/find-browse design/dist/design make-pdf/dist/pdf bin/gstack-global-discover
 rm -f .*.bun-build
 if [ "$BUN_CMD_WAS_COPIED" -eq 1 ]; then

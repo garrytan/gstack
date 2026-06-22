@@ -1,0 +1,6 @@
+interface:
+  display_name: "gstack-claude"
+  short_description: "Claude Code CLI wrapper for non-Claude hosts - three modes. Review: independent diff review via claude -p...."
+  default_prompt: "Use gstack-claude for this task."
+policy:
+  allow_implicit_invocation: true

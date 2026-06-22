@@ -1,0 +1,6 @@
+interface:
+  display_name: "gstack-ios-clean"
+  short_description: "Remove the DebugBridge SPM package and all #if DEBUG wiring from an iOS app. Cleans up StateServer, DebugOverlay,..."
+  default_prompt: "Use gstack-ios-clean for this task."
+policy:
+  allow_implicit_invocation: true

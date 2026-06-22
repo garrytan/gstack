@@ -1,0 +1,6 @@
+interface:
+  display_name: "gstack-plan-devex-review"
+  short_description: "Interactive developer experience plan review. Explores developer personas, benchmarks against competitors, designs..."
+  default_prompt: "Use gstack-plan-devex-review for this task."
+policy:
+  allow_implicit_invocation: true

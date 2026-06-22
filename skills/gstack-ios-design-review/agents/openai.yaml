@@ -1,0 +1,6 @@
+interface:
+  display_name: "gstack-ios-design-review"
+  short_description: "Visual design audit for iOS apps on real hardware. Connects to a real iPhone via the same StateServer as /ios-qa,..."
+  default_prompt: "Use gstack-ios-design-review for this task."
+policy:
+  allow_implicit_invocation: true

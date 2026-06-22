@@ -1,0 +1,6 @@
+interface:
+  display_name: "gstack-plan-tune"
+  short_description: "Self-tuning question sensitivity + developer psychographic for gstack (v1: observational). Review which..."
+  default_prompt: "Use gstack-plan-tune for this task."
+policy:
+  allow_implicit_invocation: true

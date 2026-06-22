@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+if [ -x /c/Users/Mohab/.bun/bin/bun.exe ]; then
+  exec /c/Users/Mohab/.bun/bin/bun.exe x "$@"
+elif [ -x /c/Users/Mohab/.bun/bin/bunx ]; then
+  exec /c/Users/Mohab/.bun/bin/bunx x "$@"
+elif [ -x /c/Users/Mohab/.bun/bin/bun ]; then
+  exec /c/Users/Mohab/.bun/bin/bun x "$@"
+elif [ -x /mnt/c/Users/Mohab/.bun/bin/bun.exe ]; then
+  exec /mnt/c/Users/Mohab/.bun/bin/bun.exe x "$@"
+elif [ -x /mnt/c/Users/Mohab/.bun/bin/bun ]; then
+  exec /mnt/c/Users/Mohab/.bun/bin/bun x "$@"
+elif [ -x "$HOME/.bun/bin/bun" ]; then
+  exec "$HOME/.bun/bin/bun" x "$@"
+elif [ -x /bin/bun ]; then
+  exec /bin/bun x "$@"
+else
+  bunx "$@"
+fi

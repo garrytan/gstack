@@ -1,0 +1,6 @@
+interface:
+  display_name: "gstack-context-save"
+  short_description: "Save working context. Captures git state, decisions made, and remaining work so any future session can pick up..."
+  default_prompt: "Use gstack-context-save for this task."
+policy:
+  allow_implicit_invocation: true

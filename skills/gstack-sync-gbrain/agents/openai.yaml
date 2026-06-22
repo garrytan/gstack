@@ -1,0 +1,6 @@
+interface:
+  display_name: "gstack-sync-gbrain"
+  short_description: "Keep gbrain current with this repo's code and refresh agent search guidance in CLAUDE.md. Wraps the..."
+  default_prompt: "Use gstack-sync-gbrain for this task."
+policy:
+  allow_implicit_invocation: true

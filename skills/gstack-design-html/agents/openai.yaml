@@ -1,0 +1,6 @@
+interface:
+  display_name: "gstack-design-html"
+  short_description: "Design finalization: generates production-quality Pretext-native HTML/CSS. Works with approved mockups from..."
+  default_prompt: "Use gstack-design-html for this task."
+policy:
+  allow_implicit_invocation: true

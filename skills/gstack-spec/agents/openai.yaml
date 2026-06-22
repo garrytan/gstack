@@ -1,0 +1,6 @@
+interface:
+  display_name: "gstack-spec"
+  short_description: "Turn vague intent into a precise, executable spec in five phases. Files the issue, optionally spawns a Claude Code..."
+  default_prompt: "Use gstack-spec for this task."
+policy:
+  allow_implicit_invocation: true

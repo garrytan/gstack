@@ -1,0 +1,6 @@
+interface:
+  display_name: "gstack-review"
+  short_description: "Pre-landing PR review. Analyzes diff against the base branch for SQL safety, LLM trust boundary violations,..."
+  default_prompt: "Use gstack-review for this task."
+policy:
+  allow_implicit_invocation: true

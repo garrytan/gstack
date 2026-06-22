@@ -1,0 +1,6 @@
+interface:
+  display_name: "gstack-benchmark-models"
+  short_description: "Cross-model benchmark for gstack skills. Runs the same prompt through Claude, GPT (via Codex CLI), and Gemini..."
+  default_prompt: "Use gstack-benchmark-models for this task."
+policy:
+  allow_implicit_invocation: true

@@ -1,0 +1,6 @@
+interface:
+  display_name: "gstack-qa"
+  short_description: "Systematically QA test a web application and fix bugs found. Runs QA testing, then iteratively fixes bugs in source..."
+  default_prompt: "Use gstack-qa for this task."
+policy:
+  allow_implicit_invocation: true

@@ -1,0 +1,6 @@
+interface:
+  display_name: "gstack-ios-sync"
+  short_description: "Regenerate the iOS debug bridge against the latest upstream gstack templates. Updates StateServer.swift,..."
+  default_prompt: "Use gstack-ios-sync for this task."
+policy:
+  allow_implicit_invocation: true

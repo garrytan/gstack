@@ -1,0 +1,6 @@
+interface:
+  display_name: "gstack-learn"
+  short_description: "Manage project learnings. Review, search, prune, and export what gstack has learned across sessions. Use when asked..."
+  default_prompt: "Use gstack-learn for this task."
+policy:
+  allow_implicit_invocation: true

@@ -1,0 +1,6 @@
+interface:
+  display_name: "gstack-scrape"
+  short_description: "Pull data from a web page. First call on a new intent prototypes the flow via $B primitives and returns JSON...."
+  default_prompt: "Use gstack-scrape for this task."
+policy:
+  allow_implicit_invocation: true

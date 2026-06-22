@@ -1,0 +1,6 @@
+interface:
+  display_name: "gstack-landing-report"
+  short_description: "Read-only queue dashboard for workspace-aware ship. Shows which VERSION slots are currently claimed by open PRs,..."
+  default_prompt: "Use gstack-landing-report for this task."
+policy:
+  allow_implicit_invocation: true

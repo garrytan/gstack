@@ -1,0 +1,6 @@
+interface:
+  display_name: "gstack-devex-review"
+  short_description: "Live developer experience audit. Uses the browse tool to actually TEST the developer experience: navigates docs,..."
+  default_prompt: "Use gstack-devex-review for this task."
+policy:
+  allow_implicit_invocation: true

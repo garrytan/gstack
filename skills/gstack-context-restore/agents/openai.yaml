@@ -1,0 +1,6 @@
+interface:
+  display_name: "gstack-context-restore"
+  short_description: "Restore working context saved earlier by /context-save. Loads the most recent saved state (across all branches by..."
+  default_prompt: "Use gstack-context-restore for this task."
+policy:
+  allow_implicit_invocation: true

@@ -1,0 +1,6 @@
+interface:
+  display_name: "gstack-pair-agent"
+  short_description: "Pair a remote AI agent with your browser. One command generates a setup key and prints instructions the other agent..."
+  default_prompt: "Use gstack-pair-agent for this task."
+policy:
+  allow_implicit_invocation: true

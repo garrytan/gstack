@@ -1,0 +1,6 @@
+interface:
+  display_name: "gstack-investigate"
+  short_description: "Systematic debugging with root cause investigation. Four phases: investigate, analyze, hypothesize, implement. Iron..."
+  default_prompt: "Use gstack-investigate for this task."
+policy:
+  allow_implicit_invocation: true

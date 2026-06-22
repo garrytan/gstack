@@ -1,0 +1,6 @@
+interface:
+  display_name: "gstack-skillify"
+  short_description: "Codify the most recent successful /scrape flow into a permanent browser-skill on disk. Future /scrape calls with the..."
+  default_prompt: "Use gstack-skillify for this task."
+policy:
+  allow_implicit_invocation: true

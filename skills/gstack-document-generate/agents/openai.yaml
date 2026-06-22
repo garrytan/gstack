@@ -1,0 +1,6 @@
+interface:
+  display_name: "gstack-document-generate"
+  short_description: "Generate missing documentation from scratch for a feature, module, or entire project. Uses the Diataxis framework..."
+  default_prompt: "Use gstack-document-generate for this task."
+policy:
+  allow_implicit_invocation: true

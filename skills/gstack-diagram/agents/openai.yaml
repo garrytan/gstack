@@ -1,0 +1,6 @@
+interface:
+  display_name: "gstack-diagram"
+  short_description: "Turn an English description (or mermaid source) into a diagram triplet: the source, an editable .excalidraw file you..."
+  default_prompt: "Use gstack-diagram for this task."
+policy:
+  allow_implicit_invocation: true

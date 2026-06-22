@@ -1,0 +1,6 @@
+interface:
+  display_name: "gstack-health"
+  short_description: "Code quality dashboard. Wraps existing project tools (type checker, linter, test runner, dead code detector, shell..."
+  default_prompt: "Use gstack-health for this task."
+policy:
+  allow_implicit_invocation: true

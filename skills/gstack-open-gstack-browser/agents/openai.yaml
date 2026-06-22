@@ -1,0 +1,6 @@
+interface:
+  display_name: "gstack-open-gstack-browser"
+  short_description: "Launch GStack Browser — AI-controlled Chromium with the sidebar extension baked in. Opens a visible browser window..."
+  default_prompt: "Use gstack-open-gstack-browser for this task."
+policy:
+  allow_implicit_invocation: true

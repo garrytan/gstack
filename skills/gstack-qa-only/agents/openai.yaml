@@ -1,0 +1,6 @@
+interface:
+  display_name: "gstack-qa-only"
+  short_description: "Report-only QA testing. Systematically tests a web application and produces a structured report with health score,..."
+  default_prompt: "Use gstack-qa-only for this task."
+policy:
+  allow_implicit_invocation: true
