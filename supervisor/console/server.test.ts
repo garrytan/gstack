@@ -26,6 +26,7 @@ import {
   purgeStaleDecisionFiles,
   readPidFile,
   stopProcess,
+  computeStuckSignals,
   type AgentStatus,
   type GitSpawner,
   type ApprovalItem,
@@ -33,6 +34,7 @@ import {
   type PipelineTask,
   type KillFn,
   type IsAliveFn,
+  type StuckAgent,
 } from "./server-utils.ts";
 
 const TEST_PORT = 7843;
@@ -1738,5 +1740,276 @@ describe("readPidFile", () => {
     const pidFile = join(testDir, "zero.pid");
     writeFileSync(pidFile, "0\n");
     expect(readPidFile(pidFile)).toBeNull();
+  });
+});
+
+// =============================================================================
+// T14 — GET /api/stuck + edge-triggered SSE broadcast
+// =============================================================================
+
+// Minimal stuck handler factory for testing — mirrors the server.ts implementation.
+function makeStuckHandler(opts: {
+  agents: string[];
+  agentsHome: string;
+  ledgerDir: string;
+  broadcastFn: (frame: string) => void;
+  broadcastCooldownMs?: number;
+}) {
+  const prevSignals = new Map<string, string>();
+  const lastBroadcast = new Map<string, number>();
+  const cooldown = opts.broadcastCooldownMs ?? 60_000;
+
+  return (req: IncomingMessage, res: ServerResponse) => {
+    if (rawPath(req.url) !== "/api/stuck" || (req.method ?? "GET") !== "GET") {
+      sendJson(res, { error: "not found" }, 404);
+      return;
+    }
+    const now = Date.now();
+    const stuckAgents = computeStuckSignals(opts.agents, opts.agentsHome, opts.ledgerDir, now);
+    const currentSignals = new Map<string, string>(stuckAgents.map((s) => [s.agent, s.signal]));
+
+    for (const entry of stuckAgents) {
+      const prev = prevSignals.get(entry.agent);
+      const last = lastBroadcast.get(entry.agent) ?? 0;
+      if (prev !== entry.signal && now - last >= cooldown) {
+        opts.broadcastFn(
+          `event: stuck\ndata: ${JSON.stringify({ agent: entry.agent, signal: entry.signal, detail: entry.detail })}\n\n`,
+        );
+        lastBroadcast.set(entry.agent, now);
+      }
+    }
+    for (const agent of [...prevSignals.keys()]) {
+      if (!currentSignals.has(agent)) prevSignals.delete(agent);
+    }
+    for (const [agent, signal] of currentSignals) prevSignals.set(agent, signal);
+
+    sendJson(res, { stuck: stuckAgents });
+  };
+}
+
+const stuckAgentsHome = join(testDir, "stuck-agents");
+const stuckLedgerDir = join(testDir, "stuck-ledger");
+let stuckBroadcasts: string[] = [];
+let stuckServer: Server;
+
+// AC7-specific server — isolated state for edge-trigger test.
+let stuckEdgeServer: Server;
+let stuckEdgeBroadcasts: string[] = [];
+
+const STUCK_TEST_PORT = 7851;
+const STUCK_EDGE_PORT = 7852;
+
+const stuckTestAgents = [
+  "stuck-silent",
+  "stuck-loop",
+  "stuck-fail",
+  "stuck-malformed",
+  "stuck-missing",
+  "stuck-suppressed",
+];
+
+beforeAll(
+  () =>
+    new Promise<void>((resolve) => {
+      mkdirSync(stuckLedgerDir, { recursive: true });
+      for (const a of stuckTestAgents) {
+        mkdirSync(join(stuckAgentsHome, a, "logs"), { recursive: true });
+      }
+
+      // AC2: stuck-silent — one event 11 minutes ago
+      const elevenMinAgo = new Date(Date.now() - 11 * 60 * 1000).toISOString();
+      writeFileSync(
+        join(stuckAgentsHome, "stuck-silent", "logs", "live-events.jsonl"),
+        JSON.stringify({ ts: elevenMinAgo, tool: "Bash", summary: "old event" }) + "\n",
+      );
+
+      // AC3: stuck-loop — 5 consecutive Edit events (recent ts so no silent conflict)
+      const recentTs = new Date().toISOString();
+      const loopLines = Array.from({ length: 5 }, () =>
+        JSON.stringify({ ts: recentTs, tool: "Edit", summary: "editing" })
+      ).join("\n") + "\n";
+      writeFileSync(join(stuckAgentsHome, "stuck-loop", "logs", "live-events.jsonl"), loopLines);
+
+      // AC4: stuck-fail — ledger with failure_count=2 and status=in_progress
+      writeFileSync(
+        join(stuckLedgerDir, "STUCK-1.task"),
+        "id: STUCK-1\nstatus: in_progress\nclaimed_by: stuck-fail\nfailure_count: 2\n",
+      );
+      writeFileSync(
+        join(stuckAgentsHome, "stuck-fail", "logs", "live-events.jsonl"),
+        JSON.stringify({ ts: new Date().toISOString(), tool: "Read", summary: "reading" }) + "\n",
+      );
+
+      // AC5: stuck-malformed — broken line + one valid old line
+      const fifteenMinAgo = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+      writeFileSync(
+        join(stuckAgentsHome, "stuck-malformed", "logs", "live-events.jsonl"),
+        `}{broken json line\n${JSON.stringify({ ts: fifteenMinAgo, tool: "Bash", summary: "old" })}\n`,
+      );
+
+      // AC6: stuck-missing — log dir exists but no live-events.jsonl file
+
+      // AC8: stuck-suppressed — ledger with status=needs_human (failure_count=3 to confirm suppression over fail_storm)
+      writeFileSync(
+        join(stuckLedgerDir, "STUCK-2.task"),
+        "id: STUCK-2\nstatus: needs_human\nclaimed_by: stuck-suppressed\nfailure_count: 3\n",
+      );
+      // Recent log so it wouldn't trigger silent
+      writeFileSync(
+        join(stuckAgentsHome, "stuck-suppressed", "logs", "live-events.jsonl"),
+        JSON.stringify({ ts: new Date().toISOString(), tool: "Bash", summary: "recent" }) + "\n",
+      );
+
+      stuckServer = createServer(
+        makeStuckHandler({
+          agents: stuckTestAgents,
+          agentsHome: stuckAgentsHome,
+          ledgerDir: stuckLedgerDir,
+          broadcastFn: (frame) => stuckBroadcasts.push(frame),
+          broadcastCooldownMs: 0,
+        }),
+      );
+      stuckServer.listen(STUCK_TEST_PORT, "127.0.0.1", resolve);
+    }),
+);
+
+afterAll(
+  () =>
+    new Promise<void>((resolve, reject) => {
+      stuckServer.close((err) => {
+        if (err) reject(err);
+        else resolve();
+      });
+    }),
+);
+
+// AC7-specific server lifecycle — fresh state for edge-trigger test.
+beforeAll(
+  () =>
+    new Promise<void>((resolve) => {
+      const edgeAgentsHome = join(testDir, "stuck-edge-agents");
+      mkdirSync(join(edgeAgentsHome, "stuck-edge", "logs"), { recursive: true });
+      const twentyMinAgo = new Date(Date.now() - 20 * 60 * 1000).toISOString();
+      writeFileSync(
+        join(edgeAgentsHome, "stuck-edge", "logs", "live-events.jsonl"),
+        JSON.stringify({ ts: twentyMinAgo, tool: "Bash", summary: "old event" }) + "\n",
+      );
+
+      stuckEdgeServer = createServer(
+        makeStuckHandler({
+          agents: ["stuck-edge"],
+          agentsHome: edgeAgentsHome,
+          ledgerDir: stuckLedgerDir,
+          broadcastFn: (frame) => stuckEdgeBroadcasts.push(frame),
+          broadcastCooldownMs: 0,
+        }),
+      );
+      stuckEdgeServer.listen(STUCK_EDGE_PORT, "127.0.0.1", resolve);
+    }),
+);
+
+afterAll(
+  () =>
+    new Promise<void>((resolve, reject) => {
+      stuckEdgeServer.close((err) => {
+        if (err) reject(err);
+        else resolve();
+      });
+    }),
+);
+
+describe("GET /api/stuck", () => {
+  test("AC1: returns { stuck: StuckAgent[] } with correct shape", async () => {
+    const r = await fetch(`http://127.0.0.1:${STUCK_TEST_PORT}/api/stuck`);
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { stuck: StuckAgent[] };
+    expect(Array.isArray(body.stuck)).toBe(true);
+    const entry = body.stuck.find((e) => e.agent === "stuck-silent");
+    expect(entry).toBeDefined();
+    expect(typeof entry!.agent).toBe("string");
+    expect(typeof entry!.signal).toBe("string");
+    expect(typeof entry!.detail).toBe("string");
+    expect(typeof entry!.since).toBe("string");
+    expect(() => new Date(entry!.since)).not.toThrow();
+  });
+
+  test("AC2: silent detection — ts 11 minutes ago, signal=silent, detail contains '11m'", async () => {
+    const r = await fetch(`http://127.0.0.1:${STUCK_TEST_PORT}/api/stuck`);
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { stuck: StuckAgent[] };
+    const entry = body.stuck.find((e) => e.agent === "stuck-silent");
+    expect(entry).toBeDefined();
+    expect(entry!.signal).toBe("silent");
+    expect(entry!.detail).toContain("11m");
+  });
+
+  test("AC3: loop detection — 5 events with tool='Edit', signal=loop, detail='looping on Edit'", async () => {
+    const r = await fetch(`http://127.0.0.1:${STUCK_TEST_PORT}/api/stuck`);
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { stuck: StuckAgent[] };
+    const entry = body.stuck.find((e) => e.agent === "stuck-loop");
+    expect(entry).toBeDefined();
+    expect(entry!.signal).toBe("loop");
+    expect(entry!.detail).toBe("looping on Edit");
+  });
+
+  test("AC4: fail_storm — failure_count=2 and status=in_progress, signal=fail_storm", async () => {
+    const r = await fetch(`http://127.0.0.1:${STUCK_TEST_PORT}/api/stuck`);
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { stuck: StuckAgent[] };
+    const entry = body.stuck.find((e) => e.agent === "stuck-fail");
+    expect(entry).toBeDefined();
+    expect(entry!.signal).toBe("fail_storm");
+    expect(entry!.detail).toBe("2 failed attempts");
+  });
+
+  test("AC5: malformed JSONL line skipped — returns 200 with valid array, not 500", async () => {
+    const r = await fetch(`http://127.0.0.1:${STUCK_TEST_PORT}/api/stuck`);
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { stuck: StuckAgent[] };
+    // Valid line after malformed line is still processed; old ts → silent
+    const entry = body.stuck.find((e) => e.agent === "stuck-malformed");
+    expect(entry).toBeDefined();
+    expect(entry!.signal).toBe("silent");
+  });
+
+  test("AC6: missing log file — agent skipped gracefully, others still returned, no 500", async () => {
+    const r = await fetch(`http://127.0.0.1:${STUCK_TEST_PORT}/api/stuck`);
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { stuck: StuckAgent[] };
+    // stuck-missing has no log file — must not appear and must not cause 500
+    expect(body.stuck.find((e) => e.agent === "stuck-missing")).toBeUndefined();
+    // stuck-silent still appears (other agents unaffected)
+    expect(body.stuck.find((e) => e.agent === "stuck-silent")).toBeDefined();
+  });
+
+  test("AC7: edge-triggered SSE — broadcasts once for new signal, suppresses same signal on re-evaluation", async () => {
+    stuckEdgeBroadcasts = [];
+
+    // First call — stuck-edge has old log → silent signal → new edge → broadcast
+    const r1 = await fetch(`http://127.0.0.1:${STUCK_EDGE_PORT}/api/stuck`);
+    expect(r1.status).toBe(200);
+    const edgeBroadcasts1 = stuckEdgeBroadcasts.filter((f) => f.includes('"stuck-edge"'));
+    expect(edgeBroadcasts1).toHaveLength(1);
+    expect(edgeBroadcasts1[0]).toContain("event: stuck");
+    const payload = JSON.parse(edgeBroadcasts1[0].split("\n")[1].slice("data: ".length)) as {
+      agent: string; signal: string; detail: string;
+    };
+    expect(payload.agent).toBe("stuck-edge");
+    expect(payload.signal).toBe("silent");
+
+    stuckEdgeBroadcasts = [];
+
+    // Second call — same signal for stuck-edge — must NOT broadcast again
+    const r2 = await fetch(`http://127.0.0.1:${STUCK_EDGE_PORT}/api/stuck`);
+    expect(r2.status).toBe(200);
+    expect(stuckEdgeBroadcasts.filter((f) => f.includes('"stuck-edge"'))).toHaveLength(0);
+  });
+
+  test("AC8: agent with needs_human status not reported as stuck", async () => {
+    const r = await fetch(`http://127.0.0.1:${STUCK_TEST_PORT}/api/stuck`);
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { stuck: StuckAgent[] };
+    expect(body.stuck.find((e) => e.agent === "stuck-suppressed")).toBeUndefined();
   });
 });

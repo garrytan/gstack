@@ -441,6 +441,90 @@ export function parseMailboxNotes(content: string): MailboxNote[] {
   return notes;
 }
 
+// T14: Stuck detection
+
+export interface StuckAgent {
+  agent: string;
+  signal: "silent" | "loop" | "fail_storm";
+  detail: string;
+  since: string;
+}
+
+const STUCK_SILENT_SECONDS = 600;
+const STUCK_IDLE_STATUSES = new Set(["needs_human", "awaiting_info", "complete", "open"]);
+
+// Compute stuck signals for a list of agents.
+// nowMs is injectable for deterministic tests.
+export function computeStuckSignals(
+  agents: string[],
+  agentsHome: string,
+  ledgerDir: string,
+  nowMs: number = Date.now(),
+): StuckAgent[] {
+  const tasks = parseTaskLedger(ledgerDir);
+
+  const agentTask = new Map<string, { failureCount: number; status: string }>();
+  for (const task of tasks) {
+    const cb = task.claimed_by;
+    if (cb && cb !== "-" && cb !== "") {
+      const fc = parseInt(task.failure_count ?? "0", 10);
+      agentTask.set(cb, { failureCount: Number.isFinite(fc) ? fc : 0, status: task.status ?? "" });
+    }
+  }
+
+  const stuck: StuckAgent[] = [];
+  const sinceIso = new Date(nowMs).toISOString();
+
+  for (const agent of agents) {
+    const taskMeta = agentTask.get(agent);
+
+    // AC8: skip agents in idle/terminal statuses
+    if (taskMeta && STUCK_IDLE_STATUSES.has(taskMeta.status)) continue;
+
+    // AC4: fail_storm takes highest precedence
+    if (taskMeta && taskMeta.failureCount >= 2 && taskMeta.status !== "needs_human" && taskMeta.status !== "awaiting_info") {
+      stuck.push({ agent, signal: "fail_storm", detail: `${taskMeta.failureCount} failed attempts`, since: sinceIso });
+      continue;
+    }
+
+    // Read last 20 JSONL lines; skip malformed (AC5/AC6)
+    let validEvents: Record<string, unknown>[] = [];
+    try {
+      const content = readFileSync(join(agentsHome, agent, "logs", "live-events.jsonl"), "utf8");
+      const rawLines = content.split("\n").filter((l) => l.trim() !== "");
+      validEvents = rawLines
+        .slice(-20)
+        .map((line) => { try { return JSON.parse(line) as Record<string, unknown>; } catch { return null; } })
+        .filter((e): e is Record<string, unknown> => e !== null);
+    } catch {
+      // AC6: missing/unreadable log — skip gracefully
+      continue;
+    }
+
+    if (validEvents.length === 0) continue;
+
+    // AC3: loop — last 5 valid events all have same non-null tool
+    if (validEvents.length >= 5) {
+      const last5 = validEvents.slice(-5);
+      const tools = last5.map((e) => (typeof e.tool === "string" && e.tool !== "") ? e.tool : null);
+      if (tools.every((t) => t !== null) && new Set(tools).size === 1) {
+        stuck.push({ agent, signal: "loop", detail: `looping on ${tools[0]}`, since: sinceIso });
+        continue;
+      }
+    }
+
+    // AC2: silent — last valid event ts more than 600s ago
+    const lastEvent = validEvents[validEvents.length - 1];
+    const tsMs = typeof lastEvent.ts === "string" ? new Date(lastEvent.ts).getTime() : 0;
+    if (tsMs > 0 && (nowMs - tsMs) / 1000 > STUCK_SILENT_SECONDS) {
+      const minutes = Math.round((nowMs - tsMs) / 60_000);
+      stuck.push({ agent, signal: "silent", detail: `silent for ${minutes}m`, since: sinceIso });
+    }
+  }
+
+  return stuck;
+}
+
 // T11: Fleet process control types and utilities
 
 export type KillFn = (pid: number, signal: string) => void;

@@ -34,6 +34,7 @@ import {
   defaultIsProcessAlive,
   defaultKillFn,
   stopProcess,
+  computeStuckSignals,
 } from "./server-utils.ts";
 
 // Validate PORT early — before any filesystem reads (AC5: exit 1 before bind).
@@ -133,6 +134,10 @@ const lastEventCache = new Map<string, string>();
 
 // AC7 (T12): module-level rate limiter for GET /api/log/:agent — resets on server restart.
 const logRateLimiter = makeRateLimiter(10);
+
+// T14: stuck detection state — cleared on restart.
+const prevStuckSignals = new Map<string, string>(); // agent → last signal type
+const lastStuckBroadcast = new Map<string, number>(); // agent → last broadcast ms
 
 // broadcastFn: frame is a complete SSE frame (event + data lines, terminated with \n\n).
 function broadcast(frame: string): void {
@@ -448,6 +453,37 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       "content-length": Buffer.byteLength(data),
     });
     res.end(data);
+    return;
+  }
+
+  // T14: GET /api/stuck — compute stuck signals + edge-triggered SSE broadcast.
+  if (path === "/api/stuck" && method === "GET") {
+    const stuckAgents = computeStuckSignals(
+      agentList,
+      join(homedir(), "agents"),
+      controlDir ? join(controlDir, "ledger") : "",
+    );
+
+    const now = Date.now();
+    const currentSignals = new Map<string, string>(stuckAgents.map((s) => [s.agent, s.signal]));
+
+    for (const entry of stuckAgents) {
+      const prev = prevStuckSignals.get(entry.agent);
+      const last = lastStuckBroadcast.get(entry.agent) ?? 0;
+      if (prev !== entry.signal && now - last >= 60_000) {
+        broadcast(`event: stuck\ndata: ${JSON.stringify({ agent: entry.agent, signal: entry.signal, detail: entry.detail })}\n\n`);
+        lastStuckBroadcast.set(entry.agent, now);
+      }
+    }
+
+    for (const agent of [...prevStuckSignals.keys()]) {
+      if (!currentSignals.has(agent)) prevStuckSignals.delete(agent);
+    }
+    for (const [agent, signal] of currentSignals) {
+      prevStuckSignals.set(agent, signal);
+    }
+
+    sendJson(res, { stuck: stuckAgents });
     return;
   }
 
