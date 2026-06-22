@@ -12,12 +12,12 @@ Scripts for starting, stopping, and monitoring the autonomous agent fleet.
 | `console/server.ts` | Console HTTP server (v7.1 — auto-detects control repo, gates risky Bash commands, streams live events via SSE) |
 | `console/bin/bash` | Risk-gated Bash tool intercept (v7.1 — blocks destructive commands until approved) |
 | `console/index.html` | Console UI entry point (v7.1 — serves static HTML with SSE support, Pipeline tab panel with domain filter chips and spec panel) |
-| `console/console.js` | Console interactive client (v7.1 — card animations, empty states, AI draft panel, ARIA accessibility, Pipeline tab with collapsible status groups, domain filter chips persisted in localStorage, spec panel on card click, `pipeline-update` SSE listener) |
+| `console/console.js` | Console interactive client (v7.1 — card animations, empty states, AI draft panel, ARIA accessibility, Pipeline tab with collapsible status groups, domain filter chips persisted in localStorage, spec panel on card click, `pipeline-update` SSE listener; T13-amended: `pipelineBootstrapped` one-shot guard on tab activate, `fetchPipeline()` called on SSE reconnect, all SSE listeners fixed from `currentEs` → `es`) |
 | `console/styles.css` | Console design system (v7.1 — dark theme, motion tokens, Satoshi/DM Sans/JetBrains Mono typefaces, pipeline group/card/filter/spec-panel component styles) |
 | `console/server-utils.ts` | Utility exports — parsing ledger/mailbox, task ID validation (`TASK_ID_RE` supports both `CONS-003` and `T13` styles), fleet status reading, SSE helpers, `makeWatchHandler` (reads last `live-events.jsonl` line, caches payload for Last-Event-ID replay), `makeLedgerWatchHandler` (broadcasts `pipeline-update` SSE on `.task` file changes), port resolution, `readLogTail` (JSONL tail reader), `makeRateLimiter` (token-bucket rate limiter), `purgeStaleDecisionFiles` (startup garbage collection of stale decision files), `PipelineTask` type (T13) (v7.1) |
 | `console/bash-wrapper.test.ts` | Bun test wrapper that runs bash-wrapper.test.sh inline (v7.1) |
 | `console/bash-wrapper.test.sh` | Bash unit tests for risk classification (check_risk) and polling behavior (poll_approval) (v7.1) |
-| `console/server.test.ts` | Bun tests for endpoint security, static serving, queue bootstrap, `resolveControlDir`, SSE endpoint (T4 AC1/AC2/AC3/AC5), `makeWatchHandler`, log tail endpoint (T12 AC1-AC7), rate limiter, startup cleanup (T8 AC1-AC4), pipeline endpoint (T13 AC1/AC2), ledger watch handler (T13 AC3), and spec endpoint (T13 AC7) (v7.1) |
+| `console/server.test.ts` | Bun tests for endpoint security, static serving, queue bootstrap, `resolveControlDir`, SSE endpoint (T4 AC1/AC2/AC3/AC5), `makeWatchHandler`, log tail endpoint (T12 AC1-AC7), rate limiter, startup cleanup (T8 AC1-AC4), pipeline endpoint (T13 AC1/AC2), ledger watch handler (T13 AC3), spec endpoint (T13 AC7), pipeline bootstrap guard (T13-amended AC2), and SSE reconnect pipeline bootstrap (T13-amended AC4) (v7.1) |
 | `console/qa-smoke.sh` | QA smoke test for console UI — asserts page title, nav bar, Fleet tab presence, T6 AC1/AC2/AC4/AC5 (Dicebear avatar src, elapsed time format, HIGH risk badge, Unblock button), and T13 AC4/AC5 (pipeline endpoint 200, `pipeline-groups` element in HTML, `tasks` key in pipeline JSON) via gstack browse (v7.1) |
 
 ---
@@ -1193,9 +1193,9 @@ AC4 (Last-Event-ID replay) and AC6 (30s ping interval) are human-verify: AC4 req
 
 AC5 (cleanup runs before `server.listen()`) is human-verify: confirmed by `server.ts` calling `purgeStaleDecisionFiles(...)` at line 402, before `server.listen(PORT, HOSTNAME, ...)` at line 413.
 
-### Pipeline view tests — `server.test.ts` (T13 AC1/AC2/AC3/AC7)
+### Pipeline view tests — `server.test.ts` (T13 AC1/AC2/AC3/AC7 + T13-amended AC2/AC4)
 
-Three `describe` blocks cover the T13 pipeline endpoints and the ledger watch handler:
+Three `describe` blocks cover the T13 pipeline endpoints and the ledger watch handler, plus two additional blocks added by T13-amended that verify the SSE-only bootstrap behavior via static analysis of `console.js`:
 
 **`describe("GET /api/pipeline")`** — Three mock `.task` files with distinct statuses and controlled `mtime` values are written before the suite. Tests assert:
 - Response is HTTP 200 JSON with a `tasks` array and an `updatedAt` field (AC1)
@@ -1223,9 +1223,23 @@ Non-`.task` filenames and IDs failing `TASK_ID_RE` are silently ignored (no fram
 
 AC6 (spec panel click opens panel with content) and AC8 (domain filter persists in localStorage) are human-verify.
 
+**`describe("T13-amended AC2: console.js pipeline bootstrap guard")`** — Three static-analysis tests against the `console.js` source text (no live server needed):
+
+| Test | AC | What it asserts |
+|---|---|---|
+| `pipelineBootstrapped guard variable is present in console.js` | AC2 | Source contains the identifier `pipelineBootstrapped` |
+| `fetchPipeline in switchTab is conditional on pipelineBootstrapped` | AC2 | First 1000 chars of `switchTab` body contain both `pipelineBootstrapped` and `fetchPipeline()` |
+| `no setInterval or setTimeout polls /api/pipeline` | AC1 | Regexes `/setInterval\b[^;]*pipeline/i` and `/setTimeout\b[^;]*fetchPipeline/i` both return false |
+
+**`describe("T13-amended AC4: SSE open handler calls fetchPipeline on reconnect")`** — One static-analysis test:
+
+| Test | AC | What it asserts |
+|---|---|---|
+| `fetchPipeline is called inside the SSE open event handler` | AC4 | Slices the `addEventListener('open'` handler body from source and asserts it contains `fetchPipeline()` |
+
 ### Test results
 
-All 79 tests pass (2 bash-wrapper + 77 server tests). Run the full suite with:
+All 83 tests pass (2 bash-wrapper + 81 server tests). Run the full suite with:
 
 ```bash
 bun test supervisor/console/     # runs all tests, exit 0 on pass
@@ -1405,9 +1419,9 @@ Test fixtures in `beforeAll`: one unresolved approval file (`agent-fe-REQ-1.json
 
 ---
 
-## Pipeline view — GET /api/pipeline + GET /api/spec/:taskId (T13)
+## Pipeline view — GET /api/pipeline + GET /api/spec/:taskId (T13 / T13-amended)
 
-The Pipeline tab gives directors a single-screen answer to "how much work is left?" by reading every task in the ledger and grouping them by status. The view is SSE-driven: initial load calls `GET /api/pipeline`, and any subsequent `.task` file change in the ledger triggers a `pipeline-update` SSE event that refreshes the tab automatically.
+The Pipeline tab gives directors a single-screen answer to "how much work is left?" by reading every task in the ledger and grouping them by status. The view is SSE-only: on first tab activation `GET /api/pipeline` is called once to bootstrap the view, and every subsequent `.task` file change in the ledger triggers a `pipeline-update` SSE event that refreshes the tab automatically. There is no polling fallback — the SSE reconnect path handles connection drops by calling `GET /api/pipeline` again on reconnect.
 
 ### GET /api/pipeline (AC1/AC2)
 
@@ -1462,7 +1476,7 @@ data: {"type":"pipeline-update","task_id":"T13","status":"done","agent":null}
 
 The `agent` field is the current `claimed_by` value (null if the task is unclaimed or the field is `"-"`). This event reuses the existing ledger `fs.watch` watcher registered at server startup via `makeLedgerWatchHandler` — no second `fs.watch` call is opened.
 
-The browser listens for `pipeline-update` events and calls `fetchPipeline()` only when the Pipeline tab is currently active. Inactive tabs do not fetch.
+The browser listens for `pipeline-update` events and calls `fetchPipeline()` only when the Pipeline tab is currently active. Inactive tabs do not fetch. There is no polling fallback for the pipeline view — connection drops are handled by the SSE reconnect path (see below).
 
 ### Pipeline tab UI (AC4/AC5)
 
@@ -1487,6 +1501,18 @@ Each task card (`<article role="button">`) shows:
 ### Domain filter chips (AC8)
 
 Five chips above the pipeline groups let operators filter by domain: **All**, **be**, **fe**, **doc**, **qa**. The active chip uses a filled style (`.domain-chip-active` CSS class). The selected filter is persisted to `localStorage` under the key `console-pipeline-domain-filter` so it survives page reloads. On filter change, `renderPipeline()` is called immediately with the stored filter.
+
+### SSE-only bootstrap and reconnect guard (T13-amended AC2/AC3/AC4)
+
+T13-amended removes the original polling fallback from the pipeline view and introduces a one-shot bootstrap guard:
+
+**`pipelineBootstrapped` flag (AC2):** A module-level boolean in `console.js`. When the Pipeline tab is activated for the first time in a session, `switchTab('pipeline')` checks the flag: if `false`, it calls `fetchPipeline()` and sets the flag to `true`. Subsequent tab switches do not re-fetch. This prevents redundant initial loads while still ensuring the first activation always gets fresh data.
+
+**SSE reconnect behavior (AC4):** The `EventSource` `open` event handler (which fires on initial connect and on every reconnect after a drop) calls `fetchPipeline()` and sets `pipelineBootstrapped = true`. This ensures the pipeline data is refreshed exactly once per reconnect. The flag is reset implicitly by the reconnect re-setting it to `true` on open — the subsequent tab switch guard then correctly skips the second fetch.
+
+**No polling fallback (AC3):** When the SSE connection drops, the console shows the existing "Reconnecting…" banner (the shared SSE status dot in the header). The pipeline view does not start polling `GET /api/pipeline` on connection loss. The banner dismisses and data refreshes when SSE reconnects.
+
+**Bug fix — SSE listeners on `es` (not `currentEs`):** Prior to T13-amended, all six `EventSource.addEventListener` calls inside `connect()` were attached to `currentEs` (which was `null` at call time) instead of `es` (the newly created `EventSource`). T13-amended corrects all six listeners (`open`, `approval`, `attention`, `resolve`, `fleet-update`, `error`) and the paired `currentEs.close()` call to use `es`.
 
 ### Spec panel (AC6)
 

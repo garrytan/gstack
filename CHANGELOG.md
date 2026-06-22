@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+### Pipeline view — SSE-only updates, remove polling fallback (T13-amended)
+
+The pipeline view no longer has a polling fallback. Previously the implementation included a `setInterval`-based poll of `GET /api/pipeline` as a safety net. That code is removed: the SSE reconnect path already handles connection drops, and the polling created race conditions when a `pipeline-update` SSE event and a poll response arrived simultaneously. The view now bootstraps once on first tab activation and refreshes only via SSE or reconnect.
+
+#### Added
+- `pipelineBootstrapped` module-level flag in `console.js`: `switchTab('pipeline')` calls `fetchPipeline()` at most once per session on first activation (T13-amended AC2).
+- SSE `open` handler now calls `fetchPipeline()` and sets `pipelineBootstrapped = true` on every reconnect, ensuring the pipeline data is refreshed exactly once after each SSE reconnect (T13-amended AC4).
+- 2 new `describe` blocks in `server.test.ts` — 4 static-analysis tests verifying the bootstrap guard and SSE reconnect behavior in `console.js` without a live server (T13-amended AC1/AC2/AC4).
+
+#### Changed
+- Pipeline tab no longer calls `fetchPipeline()` on every tab switch — only on the first activation or after SSE reconnect (T13-amended AC2).
+- Reconnect banner (shared SSE status dot) is the only feedback on pipeline connection loss — no polling fallback is started (T13-amended AC3).
+
+#### Fixed
+- All five `EventSource.addEventListener` calls in `connect()` were attached to `currentEs` (which was `null` at call time) instead of `es` (the newly created `EventSource`). All listeners now correctly use `es` (`open`, `approval`, `attention`, `resolve`, `fleet-update`, `error`).
+
 ### Pipeline view — task ledger overview with live SSE updates (T13)
 
 The console now has a **Pipeline tab** showing every task in the ledger at once. Directors can answer "how much work is left?" without SSH-ing into a box: tasks appear in four collapsible groups (In progress, Blocked, Open, Done), each with a count badge. Domain filter chips narrow the view to a single team. Clicking any card opens an inline spec panel that fetches and displays the raw task markdown — no file access required.
