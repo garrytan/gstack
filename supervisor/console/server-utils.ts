@@ -370,3 +370,35 @@ export function parseMailboxNotes(content: string): MailboxNote[] {
   }
   return notes;
 }
+
+const STALE_THRESHOLD_MS = 60 * 60 * 1000;
+
+export function purgeStaleDecisionFiles(dir: string): void {
+  if (!dir) return;
+  let files: string[];
+  try {
+    files = readdirSync(dir);
+  } catch {
+    return;
+  }
+  for (const name of files) {
+    if (name.endsWith(".decision.json")) continue;
+    if (!name.endsWith(".json")) continue;
+    const fp = join(dir, name);
+    try {
+      if (Date.now() - statSync(fp).mtime.getTime() > STALE_THRESHOLD_MS) {
+        try { unlinkSync(fp); } catch {}
+        try { unlinkSync(join(dir, name.replace(/\.json$/, ".decision.json"))); } catch {}
+      }
+    } catch {}
+  }
+  for (const name of files) {
+    if (!name.endsWith(".decision.json")) continue;
+    const fp = join(dir, name);
+    try {
+      if (Date.now() - statSync(fp).mtime.getTime() > STALE_THRESHOLD_MS) {
+        try { unlinkSync(fp); } catch {}
+      }
+    } catch {}
+  }
+}

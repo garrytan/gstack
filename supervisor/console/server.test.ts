@@ -22,6 +22,7 @@ import {
   readApprovals,
   readLogTail,
   makeRateLimiter,
+  purgeStaleDecisionFiles,
   type AgentStatus,
   type GitSpawner,
   type ApprovalItem,

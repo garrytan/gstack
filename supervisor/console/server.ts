@@ -27,6 +27,7 @@ import {
   readApprovals,
   readLogTail,
   makeRateLimiter,
+  purgeStaleDecisionFiles,
 } from "./server-utils.ts";
 
 // Validate PORT early — before any filesystem reads (AC5: exit 1 before bind).
