@@ -43,5 +43,27 @@ check "GET /api/attention"    "${B}/api/attention"
 check "GET /api/queue"        "${B}/api/queue"
 check "GET /api/events (SSE)" "${B}/api/events" "200" 1
 
+# T13 AC1: pipeline endpoint returns 200 JSON with tasks array (AC4 data prerequisite)
+check "GET /api/pipeline"     "${B}/api/pipeline"
+
+# T13 AC7: invalid taskId always returns 400 regardless of CONTROL_DIR
+check "GET /api/spec/invalid-id → 400" "${B}/api/spec/invalid-id" "400"
+
+# T13 AC4/AC5: index.html contains pipeline-groups container element
+INDEX_BODY=$(curl -sf --max-time 5 "${B}/" 2>/dev/null) || INDEX_BODY=""
+if printf '%s' "${INDEX_BODY}" | grep -q 'pipeline-groups'; then
+  printf '  ok    index.html contains pipeline-groups element\n'; pass=$((pass + 1))
+else
+  printf '  FAIL  index.html missing pipeline-groups element\n' >&2; fail=$((fail + 1))
+fi
+
+# T13 AC4/AC5: GET /api/pipeline returns JSON with tasks key
+PIPELINE_BODY=$(curl -sf --max-time 5 "${B}/api/pipeline" 2>/dev/null) || PIPELINE_BODY=""
+if printf '%s' "${PIPELINE_BODY}" | grep -q '"tasks"'; then
+  printf '  ok    pipeline JSON contains tasks key\n'; pass=$((pass + 1))
+else
+  printf '  FAIL  pipeline JSON missing tasks key\n' >&2; fail=$((fail + 1))
+fi
+
 printf '\n=== smoke: %d passed, %d failed ===\n' "${pass}" "${fail}"
 [ "${fail}" -eq 0 ]

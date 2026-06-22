@@ -3,8 +3,10 @@
 const SSE_URL = '/api/events';
 const FLEET_URL = '/api/fleet';
 const QUEUE_URL = '/api/queue';
+const PIPELINE_URL = '/api/pipeline';
 const RECONNECT_DELAY_MS = 3000;
 const FLEET_STALE_MS = 30000;
+const DOMAIN_FILTER_KEY = 'console-pipeline-domain-filter';
 
 const $ = (id) => document.getElementById(id);
 
@@ -24,6 +26,8 @@ let sseConnected = false;
 let currentEs = null;
 let attentionCount = 0;
 let approvalCount = 0;
+let pipelineData = [];
+let pipelineDomainFilter = localStorage.getItem(DOMAIN_FILTER_KEY) || 'all';
 
 /* ── Tab state ── */
 
@@ -35,12 +39,14 @@ const fleetElapsedTimers = new Map();
 const tabBtns = {
   fleet: $('tab-fleet'),
   queue: $('tab-queue'),
+  pipeline: $('tab-pipeline'),
   cost: $('tab-cost'),
 };
 
 const sectionFleet = $('section-fleet');
 const sectionAttention = $('section-attention');
 const sectionApproval = $('section-approval');
+const sectionPipeline = $('section-pipeline');
 const sectionCost = $('section-cost');
 
 function switchTab(name) {
@@ -64,6 +70,14 @@ function switchTab(name) {
   } else {
     sectionAttention.setAttribute('hidden', '');
     sectionApproval.setAttribute('hidden', '');
+  }
+
+  /* Pipeline panel */
+  if (name === 'pipeline') {
+    sectionPipeline.removeAttribute('hidden');
+    fetchPipeline();
+  } else {
+    sectionPipeline.setAttribute('hidden', '');
   }
 
   /* Cost panel */
@@ -245,6 +259,172 @@ async function fetchQueue() {
     syncState();
   } catch (_) {}
 }
+
+/* ── Pipeline ── */
+
+const PIPELINE_STATUS_GROUPS = [
+  { label: 'In progress', statuses: ['in_progress', 'testing', 'documenting'] },
+  { label: 'Blocked',     statuses: ['needs_human', 'awaiting_info'] },
+  { label: 'Open',        statuses: ['open'] },
+  { label: 'Done',        statuses: ['done'] },
+];
+
+async function fetchPipeline() {
+  try {
+    const res = await fetch(PIPELINE_URL);
+    if (!res.ok) return;
+    const data = await res.json();
+    pipelineData = data.tasks || [];
+    renderPipeline();
+  } catch (_) {}
+}
+
+function renderPipeline() {
+  const groupsEl = $('pipeline-groups');
+  if (!groupsEl) return;
+
+  const filtered = pipelineDomainFilter === 'all'
+    ? pipelineData
+    : pipelineData.filter((t) => t.domain === pipelineDomainFilter || t.origin_domain === pipelineDomainFilter);
+
+  groupsEl.innerHTML = '';
+  for (const group of PIPELINE_STATUS_GROUPS) {
+    const tasks = filtered.filter((t) => group.statuses.includes(t.status));
+    const count = tasks.length;
+    const collapsed = count === 0;
+
+    const section = document.createElement('section');
+    section.className = 'pipeline-group';
+    section.dataset.group = group.label;
+
+    const header = document.createElement('div');
+    header.className = 'pipeline-group-header';
+    header.setAttribute('role', 'button');
+    header.setAttribute('tabindex', '0');
+    header.setAttribute('aria-expanded', String(!collapsed));
+    header.innerHTML = `
+      <span class="pipeline-group-name">${esc(group.label)}</span>
+      <span class="pipeline-group-count${count === 0 ? ' count-zero' : ''}">${count}</span>
+    `;
+
+    const body = document.createElement('div');
+    body.className = 'pipeline-group-body';
+    if (collapsed) body.setAttribute('hidden', '');
+
+    for (const task of tasks) {
+      body.appendChild(buildTaskCard(task));
+    }
+
+    header.addEventListener('click', () => {
+      const expanded = header.getAttribute('aria-expanded') === 'true';
+      header.setAttribute('aria-expanded', String(!expanded));
+      if (expanded) body.setAttribute('hidden', ''); else body.removeAttribute('hidden');
+    });
+    header.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); header.click(); }
+    });
+
+    section.appendChild(header);
+    section.appendChild(body);
+    groupsEl.appendChild(section);
+  }
+}
+
+function buildTaskCard(task) {
+  const failureCount = parseInt(task.failure_count || '0', 10);
+  const agentName = task.claimed_by && task.claimed_by !== '-' ? task.claimed_by : null;
+  const domain = task.domain || task.origin_domain || '?';
+  const timeSince = relativeTime(task.updated_at);
+
+  const article = document.createElement('article');
+  article.className = 'pipeline-task-card';
+  article.dataset.taskId = task.id;
+  article.setAttribute('tabindex', '0');
+  article.setAttribute('role', 'button');
+  article.setAttribute('aria-label', `Task ${task.id}`);
+
+  const failureBadge = failureCount >= 1
+    ? `<span class="pipeline-failure-badge" aria-label="${failureCount} failures">${failureCount} ✕</span>`
+    : '';
+
+  article.innerHTML = `
+    <div class="pipeline-card-header">
+      <span class="pipeline-task-id">${esc(task.id)}</span>
+      <span class="pipeline-domain-pill">${esc(domain)}</span>
+      ${failureBadge}
+      <span class="pipeline-card-spacer"></span>
+      <span class="pipeline-card-agent${agentName ? '' : ' pipeline-card-agent-none'}">${agentName ? esc(agentName) : '—'}</span>
+    </div>
+    <div class="pipeline-card-desc">${esc(task.description || task.id)}</div>
+    <div class="pipeline-card-time">${esc(timeSince)}</div>
+  `;
+
+  article.addEventListener('click', () => openSpecPanel(task.id));
+  article.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openSpecPanel(task.id); }
+  });
+
+  return article;
+}
+
+function relativeTime(iso) {
+  if (!iso) return '';
+  const diff = Date.now() - new Date(iso).getTime();
+  const secs = Math.floor(diff / 1000);
+  if (secs < 60) return `${secs}s ago`;
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+}
+
+async function openSpecPanel(taskId) {
+  const panel = $('spec-panel');
+  const content = $('spec-content');
+  const title = $('spec-panel-title');
+  if (!panel || !content) return;
+
+  title.textContent = taskId;
+  content.textContent = 'Loading…';
+  panel.removeAttribute('hidden');
+
+  try {
+    const res = await fetch(`/api/spec/${encodeURIComponent(taskId)}`);
+    if (!res.ok) {
+      content.textContent = `Error: ${res.status} — spec not found`;
+      return;
+    }
+    const data = await res.json();
+    content.textContent = data.markdown || '(empty)';
+  } catch (_) {
+    content.textContent = 'Failed to load spec.';
+  }
+}
+
+/* Domain filter chips — initialize from localStorage, handle clicks */
+(function initDomainChips() {
+  for (const chip of document.querySelectorAll('.domain-chip')) {
+    if (chip.dataset.domain === pipelineDomainFilter) chip.classList.add('domain-chip-active');
+    chip.addEventListener('click', () => {
+      pipelineDomainFilter = chip.dataset.domain;
+      localStorage.setItem(DOMAIN_FILTER_KEY, pipelineDomainFilter);
+      for (const c of document.querySelectorAll('.domain-chip')) {
+        c.classList.toggle('domain-chip-active', c.dataset.domain === pipelineDomainFilter);
+      }
+      renderPipeline();
+    });
+  }
+})();
+
+/* Spec panel close button */
+(function initSpecClose() {
+  const btn = $('spec-close');
+  const panel = $('spec-panel');
+  if (btn && panel) {
+    btn.addEventListener('click', () => panel.setAttribute('hidden', ''));
+  }
+})();
 
 /* ── State sync ── */
 
@@ -554,6 +734,10 @@ function connect() {
       fleetLastEventTs = Date.now();
       if (currentTab === 'fleet') fetchFleet(ev.ts);
     }
+  });
+
+  es.addEventListener('pipeline-update', () => {
+    if (currentTab === 'pipeline') fetchPipeline();
   });
 
   currentEs.addEventListener('error', () => {

@@ -157,10 +157,11 @@ export function resolvePort(portEnv: string | undefined): number {
   return n;
 }
 
-// Uppercase letters, hyphen, digits only — no path segments, no traversal.
-export const TASK_ID_RE = /^[A-Z]+-[0-9]+$/;
+// Uppercase letters then either hyphen+digits (CONS-003) or digits only (T13) — no traversal.
+export const TASK_ID_RE = /^[A-Z]+(-[0-9]+|[0-9]+)$/;
 
 export type TaskEntry = Record<string, string>;
+export type PipelineTask = TaskEntry & { updated_at: string };
 export type MailboxNote = { from: string; ts: string; taskId: string; body: string };
 
 // Parse fleet.conf: skip blank lines and # comments, return all agent names.
@@ -191,7 +192,8 @@ export function sendJson(res: ServerResponse, body: unknown, status = 200): void
 
 // Read all *.task files from ledgerDir and return parsed key:value objects.
 // Returns [] if the directory is absent, empty, or unreadable.
-export function parseTaskLedger(ledgerDir: string): TaskEntry[] {
+// updated_at is derived from each file's mtime (most recently kernel/task-updated time).
+export function parseTaskLedger(ledgerDir: string): PipelineTask[] {
   let files: string[];
   try {
     files = readdirSync(ledgerDir).filter((f) => f.endsWith(".task"));
@@ -199,7 +201,8 @@ export function parseTaskLedger(ledgerDir: string): TaskEntry[] {
     return [];
   }
   return files.map((f) => {
-    const content = readFileSync(join(ledgerDir, f), "utf8");
+    const filePath = join(ledgerDir, f);
+    const content = readFileSync(filePath, "utf8");
     const entry: TaskEntry = {};
     for (const line of content.split("\n")) {
       const colon = line.indexOf(":");
@@ -208,8 +211,75 @@ export function parseTaskLedger(ledgerDir: string): TaskEntry[] {
       const value = line.slice(colon + 1).trim();
       if (key) entry[key] = value;
     }
-    return entry;
+    let updated_at: string;
+    try {
+      updated_at = statSync(filePath).mtime.toISOString();
+    } catch {
+      updated_at = new Date(0).toISOString();
+    }
+    return { ...entry, updated_at } as PipelineTask;
   });
+}
+
+// Delete stale decision request files (and their paired .decision.json) older than 1 hour.
+// Also deletes orphaned .decision.json files older than 1 hour.
+// Runs synchronously at startup; silently skips unreadable files.
+export function purgeStaleDecisionFiles(decisionsDir: string): void {
+  if (!decisionsDir) return;
+  let files: string[];
+  try {
+    files = readdirSync(decisionsDir);
+  } catch {
+    return;
+  }
+  const ONE_HOUR = 60 * 60 * 1000;
+  const now = Date.now();
+  for (const f of files) {
+    if (!f.endsWith(".json")) continue;
+    const fp = join(decisionsDir, f);
+    try {
+      const mtime = statSync(fp).mtime.getTime();
+      if (now - mtime <= ONE_HOUR) continue;
+      try { unlinkSync(fp); } catch { /* already removed */ }
+      if (!f.endsWith(".decision.json")) {
+        const decFp = join(decisionsDir, f.slice(0, -".json".length) + ".decision.json");
+        try { unlinkSync(decFp); } catch { /* no paired file */ }
+      }
+    } catch {
+      // unreadable or missing — skip
+    }
+  }
+}
+
+// Returns an fs.watch callback for the ledger directory.
+// Broadcasts a pipeline-update SSE event whenever a .task file changes.
+// Exported for unit tests; in server.ts this is registered at most once (no duplicate watchers).
+export function makeLedgerWatchHandler(
+  ledgerDir: string,
+  broadcastFn: (frame: string) => void,
+): (_event: string, filename: string | null) => void {
+  return (_event, filename) => {
+    if (!filename || !filename.endsWith(".task")) return;
+    const taskId = filename.slice(0, -".task".length);
+    if (!TASK_ID_RE.test(taskId)) return;
+    let status: string | null = null;
+    let agent: string | null = null;
+    try {
+      const content = readFileSync(join(ledgerDir, filename), "utf8");
+      for (const line of content.split("\n")) {
+        const colon = line.indexOf(":");
+        if (colon === -1) continue;
+        const key = line.slice(0, colon).trim();
+        const val = line.slice(colon + 1).trim();
+        if (key === "status") status = val || null;
+        if (key === "claimed_by") agent = val && val !== "-" ? val : null;
+      }
+    } catch {
+      // task file deleted — broadcast with null status/agent
+    }
+    const payload = JSON.stringify({ type: "pipeline-update", task_id: taskId, status, agent });
+    broadcastFn(`event: pipeline-update\ndata: ${payload}\n\n`);
+  };
 }
 
 export type GitSpawnResult = { code: number; out: string; err: string };
