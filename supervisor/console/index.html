@@ -29,6 +29,7 @@
   <nav role="tablist" class="tab-nav" aria-label="Console views">
     <button role="tab" id="tab-fleet" class="tab-btn" aria-selected="true" aria-controls="section-fleet">Fleet</button>
     <button role="tab" id="tab-queue" class="tab-btn" aria-selected="false" aria-controls="section-attention section-approval">Queue</button>
+    <button role="tab" id="tab-pipeline" class="tab-btn" aria-selected="false" aria-controls="section-pipeline">Pipeline</button>
     <button role="tab" id="tab-cost" class="tab-btn" aria-selected="false" aria-controls="section-cost">Cost</button>
   </nav>
 </header>
@@ -107,6 +108,29 @@
     <div class="empty-check" aria-hidden="true">✓</div>
     <div class="empty-title">All clear — agents are running.</div>
     <div class="empty-sub">No blocked tasks, no pending approvals.</div>
+  </div>
+
+  <!-- ── Pipeline tab panel ── -->
+  <div id="section-pipeline" role="tabpanel" aria-labelledby="tab-pipeline" class="tab-panel" hidden>
+
+    <div class="pipeline-filter-bar" role="group" aria-label="Domain filter">
+      <button class="domain-chip" data-domain="all">All</button>
+      <button class="domain-chip" data-domain="be">be</button>
+      <button class="domain-chip" data-domain="fe">fe</button>
+      <button class="domain-chip" data-domain="doc">doc</button>
+      <button class="domain-chip" data-domain="qa">qa</button>
+    </div>
+
+    <div id="pipeline-groups"></div>
+
+    <aside id="spec-panel" class="spec-panel" hidden aria-label="Task spec">
+      <div class="spec-panel-header">
+        <span class="spec-panel-title" id="spec-panel-title">Spec</span>
+        <button id="spec-close" class="spec-close" aria-label="Close spec panel">×</button>
+      </div>
+      <pre id="spec-content" class="spec-content"></pre>
+    </aside>
+
   </div>
 
   <!-- ── Cost tab panel (placeholder) ── -->

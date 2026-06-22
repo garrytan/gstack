@@ -21,12 +21,15 @@ import {
   parseTaskLedger,
   serveStatic,
   readFleetStatus,
+  resolveControlDir,
   makeWatchHandler,
+  makeLedgerWatchHandler,
   gitCommitAndPush,
   resolvePort,
   readApprovals,
   readLogTail,
   makeRateLimiter,
+  purgeStaleDecisionFiles,
 } from "./server-utils.ts";
 
 // Validate PORT early — before any filesystem reads (AC5: exit 1 before bind).
@@ -321,6 +324,39 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     return;
   }
 
+  // GET /api/pipeline — all ledger tasks sorted within each status group by updated_at (T13 AC1/AC2).
+  if (path === "/api/pipeline" && method === "GET") {
+    const tasks = parseTaskLedger(join(controlDir, "ledger"));
+    tasks.sort((a, b) => {
+      const ta = new Date(a.updated_at || "").getTime() || 0;
+      const tb = new Date(b.updated_at || "").getTime() || 0;
+      return tb - ta;
+    });
+    sendJson(res, { tasks, updatedAt: new Date().toISOString() });
+    return;
+  }
+
+  // GET /api/spec/:taskId — return raw markdown for a task spec (T13 AC7).
+  if (path.startsWith("/api/spec/") && method === "GET") {
+    const taskId = path.slice("/api/spec/".length).split("/")[0];
+    if (!TASK_ID_RE.test(taskId)) {
+      sendJson(res, { error: "invalid task ID" }, 400);
+      return;
+    }
+    if (!controlDir) {
+      sendJson(res, { error: "CONTROL_DIR not configured" }, 503);
+      return;
+    }
+    const specFile = join(controlDir, "tasks", `${taskId}.md`);
+    try {
+      const markdown = readFileSync(specFile, "utf8");
+      sendJson(res, { markdown });
+    } catch {
+      sendJson(res, { error: "spec not found" }, 404);
+    }
+    return;
+  }
+
   // GET /api/log/:agent — return last N events from live-events.jsonl (T12).
   if (path.startsWith("/api/log/") && method === "GET") {
     const agentName = path.slice("/api/log/".length).split("/")[0];
@@ -384,4 +420,11 @@ for (const agent of agentList) {
   mkdirSync(logDir, { recursive: true });
   watch(logDir, makeWatchHandler(agent, logDir, broadcast, lastEventCache));
   console.log(`Watching ${logDir}`);
+}
+
+// T13 AC3: single ledger watcher — broadcasts pipeline-update SSE on any .task file change.
+if (controlDir) {
+  const ledgerDir = join(controlDir, "ledger");
+  watch(ledgerDir, makeLedgerWatchHandler(ledgerDir, broadcast));
+  console.log(`Watching ledger: ${ledgerDir}`);
 }

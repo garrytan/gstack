@@ -4,7 +4,7 @@
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { createServer } from "node:http";
 import type { Server, IncomingMessage, ServerResponse } from "node:http";
-import { mkdirSync, writeFileSync, rmSync, existsSync, utimesSync } from "node:fs";
+import { mkdirSync, writeFileSync, rmSync, existsSync, utimesSync, readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -17,15 +17,18 @@ import {
   serveStatic,
   readFleetStatus,
   makeWatchHandler,
+  makeLedgerWatchHandler,
   gitCommitAndPush,
   resolvePort,
   readApprovals,
   readLogTail,
   makeRateLimiter,
+  purgeStaleDecisionFiles,
   type AgentStatus,
   type GitSpawner,
   type ApprovalItem,
   type LogEvent,
+  type PipelineTask,
 } from "./server-utils.ts";
 
 const TEST_PORT = 7843;
@@ -35,6 +38,7 @@ const ledgerDir = join(testDir, "ledger");
 const staticDir = join(testDir, "static");
 const agentsHome = join(testDir, "agents-home");
 const decisionsDir = join(testDir, "decisions");
+const tasksDir = join(testDir, "tasks");
 const fleetAgents = ["agent-be", "agent-qa", "agent-fe", "agent-doc"];
 
 // Agents recognised by the mock fleet.conf.
@@ -42,7 +46,7 @@ const validAgents = new Set(["agent-be", "agent-qa", "agent-fe", "agent-doc"]);
 
 let httpServer: Server;
 
-function makeHandler(rootDir: string, fleetHome?: string, testDecisionsDir?: string) {
+function makeHandler(rootDir: string, fleetHome?: string, testDecisionsDir?: string, testTasksDir?: string) {
   return (req: IncomingMessage, res: ServerResponse) => {
     const path = rawPath(req.url);
     const method = req.method ?? "GET";
@@ -92,6 +96,39 @@ function makeHandler(rootDir: string, fleetHome?: string, testDecisionsDir?: str
       return;
     }
 
+    // T13 AC1/AC2: GET /api/pipeline — all ledger tasks sorted by updated_at descending.
+    if (path === "/api/pipeline" && method === "GET") {
+      const tasks = parseTaskLedger(ledgerDir);
+      tasks.sort((a, b) => {
+        const ta = new Date(a.updated_at || "").getTime() || 0;
+        const tb = new Date(b.updated_at || "").getTime() || 0;
+        return tb - ta;
+      });
+      sendJson(res, { tasks, updatedAt: new Date().toISOString() });
+      return;
+    }
+
+    // T13 AC7: GET /api/spec/:taskId — return raw markdown for a task spec.
+    if (path.startsWith("/api/spec/") && method === "GET") {
+      const taskId = path.slice("/api/spec/".length).split("/")[0];
+      if (!TASK_ID_RE.test(taskId)) {
+        sendJson(res, { error: "invalid task ID" }, 400);
+        return;
+      }
+      if (!testTasksDir) {
+        sendJson(res, { error: "CONTROL_DIR not configured" }, 503);
+        return;
+      }
+      const specFile = join(testTasksDir, `${taskId}.md`);
+      try {
+        const markdown = readFileSync(specFile, "utf8");
+        sendJson(res, { markdown });
+      } catch {
+        sendJson(res, { error: "spec not found" }, 404);
+      }
+      return;
+    }
+
     // Static file handler — last, after all API routes.
     serveStatic(rootDir, path, res);
   };
@@ -103,6 +140,7 @@ beforeAll(
       mkdirSync(ledgerDir, { recursive: true });
       mkdirSync(staticDir, { recursive: true });
       mkdirSync(decisionsDir, { recursive: true });
+      mkdirSync(tasksDir, { recursive: true });
 
       // Seed mock ledger with one needs_human task for AC5.
       writeFileSync(
@@ -172,7 +210,10 @@ beforeAll(
         }),
       );
 
-      httpServer = createServer(makeHandler(staticDir, agentsHome, decisionsDir));
+      // Seed a spec file for GET /api/spec tests.
+      writeFileSync(join(tasksDir, "CONS-999.md"), "# CONS-999\n\nSpec content for testing.");
+
+      httpServer = createServer(makeHandler(staticDir, agentsHome, decisionsDir, tasksDir));
       httpServer.listen(TEST_PORT, "127.0.0.1", resolve);
     }),
 );
@@ -1061,5 +1102,222 @@ describe("GET /api/log rate limiting (AC7)", () => {
     }
     expect(statuses.slice(0, 10).every((s) => s === 200)).toBe(true);
     expect(statuses[10]).toBe(429);
+  });
+});
+
+// --- T13 AC1/AC2: GET /api/pipeline ---
+
+describe("GET /api/pipeline", () => {
+  const pipelineLedger = join(testDir, "pipeline-ledger");
+
+  beforeAll(() => {
+    mkdirSync(pipelineLedger, { recursive: true });
+    // Three tasks with different statuses and distinct mtimes.
+    writeFileSync(
+      join(pipelineLedger, "T1.task"),
+      "id: T1\nstatus: open\ndomain: be\nclaimed_by: -\nfailure_count: 0\ndescription: Backend task\n",
+    );
+    writeFileSync(
+      join(pipelineLedger, "T2.task"),
+      "id: T2\nstatus: in_progress\ndomain: fe\nclaimed_by: agent-fe\nfailure_count: 1\ndescription: Frontend task\n",
+    );
+    writeFileSync(
+      join(pipelineLedger, "T3.task"),
+      "id: T3\nstatus: done\ndomain: doc\nclaimed_by: agent-doc\nfailure_count: 0\ndescription: Doc task\n",
+    );
+  });
+
+  let pipelineServer: Server;
+
+  beforeAll(
+    () =>
+      new Promise<void>((resolve) => {
+        pipelineServer = createServer(makeHandler(staticDir, undefined, undefined, tasksDir));
+        // Override ledgerDir for the pipeline handler by wrapping makeHandler
+        pipelineServer = createServer((req, res) => {
+          const p = rawPath(req.url);
+          if (p === "/api/pipeline" && req.method === "GET") {
+            const tasks = parseTaskLedger(pipelineLedger);
+            tasks.sort((a, b) => {
+              const ta = new Date(a.updated_at || "").getTime() || 0;
+              const tb = new Date(b.updated_at || "").getTime() || 0;
+              return tb - ta;
+            });
+            sendJson(res, { tasks, updatedAt: new Date().toISOString() });
+            return;
+          }
+          res.writeHead(404);
+          res.end();
+        });
+        pipelineServer.listen(7847, "127.0.0.1", resolve);
+      }),
+  );
+
+  afterAll(
+    () =>
+      new Promise<void>((resolve, reject) => {
+        pipelineServer.close((err) => {
+          if (err) reject(err);
+          else resolve();
+        });
+      }),
+  );
+
+  test("returns 200 with tasks array and updatedAt string (AC1)", async () => {
+    const r = await fetch("http://127.0.0.1:7847/api/pipeline");
+    expect(r.status).toBe(200);
+    expect(r.headers.get("content-type")).toContain("application/json");
+    const body = (await r.json()) as { tasks: PipelineTask[]; updatedAt: string };
+    expect(Array.isArray(body.tasks)).toBe(true);
+    expect(body.tasks).toHaveLength(3);
+    expect(typeof body.updatedAt).toBe("string");
+  });
+
+  test("each task has id, status, domain, failure_count, updated_at fields (AC1)", async () => {
+    const r = await fetch("http://127.0.0.1:7847/api/pipeline");
+    const body = (await r.json()) as { tasks: PipelineTask[] };
+    const t2 = body.tasks.find((t) => t.id === "T2");
+    expect(t2).toBeDefined();
+    expect(t2!.status).toBe("in_progress");
+    expect(t2!.domain).toBe("fe");
+    expect(t2!.failure_count).toBe("1");
+    expect(typeof t2!.updated_at).toBe("string");
+    expect(new Date(t2!.updated_at).getTime()).toBeGreaterThan(0);
+  });
+
+  test("tasks with same status are sorted by updated_at descending (AC2)", () => {
+    // Set T1 mtime to 1 hour ago, T3 mtime to 2 hours ago (both different statuses but we can
+    // verify the sort direction by creating two same-status tasks).
+    const sortLedger = join(testDir, "sort-ledger");
+    mkdirSync(sortLedger, { recursive: true });
+    const older = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    const newer = new Date(Date.now() - 1 * 60 * 60 * 1000);
+
+    writeFileSync(join(sortLedger, "SA-1.task"), "id: SA-1\nstatus: open\ndomain: be\n");
+    writeFileSync(join(sortLedger, "SA-2.task"), "id: SA-2\nstatus: open\ndomain: fe\n");
+    // Manually set mtimes so SA-2 is newer than SA-1
+    utimesSync(join(sortLedger, "SA-1.task"), older, older);
+    utimesSync(join(sortLedger, "SA-2.task"), newer, newer);
+
+    const tasks = parseTaskLedger(sortLedger);
+    tasks.sort((a, b) => {
+      const ta = new Date(a.updated_at || "").getTime() || 0;
+      const tb = new Date(b.updated_at || "").getTime() || 0;
+      return tb - ta;
+    });
+    const openTasks = tasks.filter((t) => t.status === "open");
+    expect(openTasks).toHaveLength(2);
+    // SA-2 (newer) must come before SA-1 (older)
+    expect(openTasks[0].id).toBe("SA-2");
+    expect(openTasks[1].id).toBe("SA-1");
+  });
+});
+
+// --- T13 AC3: makeLedgerWatchHandler ---
+
+describe("makeLedgerWatchHandler", () => {
+  const watchLedger = join(testDir, "watch-ledger");
+
+  beforeAll(() => {
+    mkdirSync(watchLedger, { recursive: true });
+  });
+
+  test("broadcasts single pipeline-update SSE frame for a .task file change (AC3)", () => {
+    const frames: string[] = [];
+    const handler = makeLedgerWatchHandler(watchLedger, (f) => frames.push(f));
+
+    writeFileSync(
+      join(watchLedger, "T99.task"),
+      "id: T99\nstatus: open\nclaimed_by: -\ndomain: be\n",
+    );
+    handler("change", "T99.task");
+
+    expect(frames).toHaveLength(1);
+    expect(frames[0]).toContain("event: pipeline-update");
+    const dataLine = frames[0].split("\n").find((l) => l.startsWith("data: "));
+    const payload = JSON.parse(dataLine!.slice("data: ".length)) as {
+      type: string; task_id: string; status: string | null; agent: string | null;
+    };
+    expect(payload.type).toBe("pipeline-update");
+    expect(payload.task_id).toBe("T99");
+    expect(payload.status).toBe("open");
+    expect(payload.agent).toBeNull();
+  });
+
+  test("includes claimed_by as agent when not '-' (AC3)", () => {
+    const frames: string[] = [];
+    const handler = makeLedgerWatchHandler(watchLedger, (f) => frames.push(f));
+    writeFileSync(
+      join(watchLedger, "T98.task"),
+      "id: T98\nstatus: in_progress\nclaimed_by: agent-fe\ndomain: fe\n",
+    );
+    handler("change", "T98.task");
+    expect(frames).toHaveLength(1);
+    const dataLine = frames[0].split("\n").find((l) => l.startsWith("data: "));
+    const payload = JSON.parse(dataLine!.slice("data: ".length)) as { agent: string | null };
+    expect(payload.agent).toBe("agent-fe");
+  });
+
+  test("does not broadcast for non-.task filenames (AC3)", () => {
+    const frames: string[] = [];
+    const handler = makeLedgerWatchHandler(watchLedger, (f) => frames.push(f));
+    handler("change", "README.md");
+    handler("change", "some.json");
+    handler("change", null);
+    expect(frames).toHaveLength(0);
+  });
+
+  test("does not broadcast for .task filenames that fail TASK_ID_RE (AC3)", () => {
+    const frames: string[] = [];
+    const handler = makeLedgerWatchHandler(watchLedger, (f) => frames.push(f));
+    handler("change", "invalid-task.task");
+    expect(frames).toHaveLength(0);
+  });
+});
+
+// --- T13 AC7: GET /api/spec/:taskId ---
+
+describe("GET /api/spec/:taskId", () => {
+  test("returns 200 with markdown content for a valid existing taskId (AC7)", async () => {
+    const r = await fetch(`http://127.0.0.1:${TEST_PORT}/api/spec/CONS-999`);
+    expect(r.status).toBe(200);
+    expect(r.headers.get("content-type")).toContain("application/json");
+    const body = (await r.json()) as { markdown: string };
+    expect(typeof body.markdown).toBe("string");
+    expect(body.markdown).toContain("CONS-999");
+  });
+
+  test("returns 400 for invalid taskId (lowercase) (AC7)", async () => {
+    const r = await fetch(`http://127.0.0.1:${TEST_PORT}/api/spec/cons-999`);
+    expect(r.status).toBe(400);
+    const body = (await r.json()) as { error: string };
+    expect(body.error).toBeTruthy();
+  });
+
+  test("returns 400 for invalid taskId (no digits) (AC7)", async () => {
+    const r = await fetch(`http://127.0.0.1:${TEST_PORT}/api/spec/CONS`);
+    expect(r.status).toBe(400);
+  });
+
+  test("returns 404 for valid taskId with no spec file (AC7)", async () => {
+    const r = await fetch(`http://127.0.0.1:${TEST_PORT}/api/spec/T13`);
+    expect(r.status).toBe(404);
+    const body = (await r.json()) as { error: string };
+    expect(body.error).toBeTruthy();
+  });
+
+  test("returns 503 when no tasksDir configured (AC7)", async () => {
+    // Create a separate server without tasksDir to test the 503 path.
+    let noSpecServer: Server;
+    await new Promise<void>((resolve) => {
+      noSpecServer = createServer(makeHandler(staticDir));
+      noSpecServer.listen(7848, "127.0.0.1", resolve);
+    });
+    try {
+      const r = await fetch("http://127.0.0.1:7848/api/spec/CONS-001");
+      expect(r.status).toBe(503);
+    } finally {
+      await new Promise<void>((resolve) => noSpecServer.close(() => resolve()));
+    }
   });
 });
