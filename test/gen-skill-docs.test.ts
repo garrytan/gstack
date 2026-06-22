@@ -2429,11 +2429,12 @@ describe('setup script validation', () => {
   });
 
   test('create_agents_sidecar links runtime assets', () => {
-    // Sidecar must link bin, browse, review, qa
+    // Sidecar must link bin, lib, browse, review, qa
     const fnStart = setupContent.indexOf('create_agents_sidecar()');
     const fnEnd = setupContent.indexOf('}', setupContent.indexOf('done', fnStart));
     const fnBody = setupContent.slice(fnStart, fnEnd);
     expect(fnBody).toContain('bin');
+    expect(fnBody).toContain('lib');
     expect(fnBody).toContain('browse');
     expect(fnBody).toContain('review');
     expect(fnBody).toContain('qa');
@@ -2444,6 +2445,7 @@ describe('setup script validation', () => {
     const fnEnd = setupContent.indexOf('}', setupContent.indexOf('done', setupContent.indexOf('review/', fnStart)));
     const fnBody = setupContent.slice(fnStart, fnEnd);
     expect(fnBody).toContain('gstack/SKILL.md');
+    expect(fnBody).toContain('_link_or_copy "$gstack_dir/lib" "$codex_gstack/lib"');
     expect(fnBody).toContain('browse/dist');
     expect(fnBody).toContain('browse/bin');
     expect(fnBody).toContain('gstack-upgrade/SKILL.md');
@@ -2453,6 +2455,15 @@ describe('setup script validation', () => {
     expect(fnBody).toContain('greptile-triage.md');
     expect(fnBody).toContain('TODOS-format.md');
     expect(fnBody).not.toContain('_link_or_copy "$gstack_dir" "$codex_gstack"');
+  });
+
+  test('Codex runtime roots include lib for JSONL logging bins', () => {
+    for (const script of ['gstack-learnings-log', 'gstack-question-log']) {
+      const content = fs.readFileSync(path.join(ROOT, 'bin', script), 'utf-8');
+      expect(content).toContain("../lib/jsonl-store.ts");
+    }
+    expect(setupContent).toContain('for asset in bin lib browse review qa');
+    expect(setupContent).toContain('_link_or_copy "$gstack_dir/lib" "$codex_gstack/lib"');
   });
 
   test('direct Codex installs are migrated out of ~/.codex/skills/gstack', () => {
