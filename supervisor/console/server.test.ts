@@ -2013,3 +2013,119 @@ describe("GET /api/stuck", () => {
     expect(body.stuck.find((e) => e.agent === "stuck-suppressed")).toBeUndefined();
   });
 });
+
+// T14-amended — Stuck detection: wrap ALL JSON.parse in try/catch (P1 crash fix)
+// =============================================================================
+
+const STUCK_MALFORMED_PORT = 7853;
+const STUCK_ALL_MALFORMED_PORT = 7854;
+
+const malformedAgentsHome = join(testDir, "stuck-malformed-amended");
+let malformedMixedServer: Server;
+let malformedAllServer: Server;
+
+beforeAll(
+  () =>
+    new Promise<void>((resolve) => {
+      // AC2/AC3: 20-line JSONL with 3 malformed lines interspersed among 17 valid Bash events.
+      mkdirSync(join(malformedAgentsHome, "malformed-mixed", "logs"), { recursive: true });
+      const recentTs = new Date().toISOString();
+      const validLine = JSON.stringify({ ts: recentTs, tool: "Bash", summary: "work" });
+      const malformedLine = "}{broken";
+      // Build 20 lines: malformed at positions 4, 11, 17 (0-indexed), valid elsewhere.
+      const lines: string[] = [];
+      let validCount = 0;
+      for (let i = 0; i < 20; i++) {
+        if (i === 4 || i === 11 || i === 17) {
+          lines.push(malformedLine);
+        } else {
+          validCount++;
+          lines.push(validLine);
+        }
+      }
+      writeFileSync(
+        join(malformedAgentsHome, "malformed-mixed", "logs", "live-events.jsonl"),
+        lines.join("\n") + "\n",
+      );
+
+      malformedMixedServer = createServer(
+        makeStuckHandler({
+          agents: ["malformed-mixed"],
+          agentsHome: malformedAgentsHome,
+          ledgerDir: join(testDir, "stuck-ledger"),
+          broadcastFn: () => {},
+          broadcastCooldownMs: 0,
+        }),
+      );
+      malformedMixedServer.listen(STUCK_MALFORMED_PORT, "127.0.0.1", resolve);
+    }),
+);
+
+afterAll(
+  () =>
+    new Promise<void>((resolve, reject) => {
+      malformedMixedServer.close((err) => {
+        if (err) reject(err);
+        else resolve();
+      });
+    }),
+);
+
+beforeAll(
+  () =>
+    new Promise<void>((resolve) => {
+      // AC4: all 5 lines are malformed — validEvents will be empty → { stuck: [] }.
+      mkdirSync(join(malformedAgentsHome, "malformed-all", "logs"), { recursive: true });
+      const allBroken = Array.from({ length: 5 }, () => "}{broken").join("\n") + "\n";
+      writeFileSync(
+        join(malformedAgentsHome, "malformed-all", "logs", "live-events.jsonl"),
+        allBroken,
+      );
+
+      malformedAllServer = createServer(
+        makeStuckHandler({
+          agents: ["malformed-all"],
+          agentsHome: malformedAgentsHome,
+          ledgerDir: join(testDir, "stuck-ledger"),
+          broadcastFn: () => {},
+          broadcastCooldownMs: 0,
+        }),
+      );
+      malformedAllServer.listen(STUCK_ALL_MALFORMED_PORT, "127.0.0.1", resolve);
+    }),
+);
+
+afterAll(
+  () =>
+    new Promise<void>((resolve, reject) => {
+      malformedAllServer.close((err) => {
+        if (err) reject(err);
+        else resolve();
+      });
+    }),
+);
+
+describe("stuck detection malformed JSONL", () => {
+  test("AC2: 20-line file with 3 malformed lines — signals computed from 17 valid lines", async () => {
+    const r = await fetch(`http://127.0.0.1:${STUCK_MALFORMED_PORT}/api/stuck`);
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { stuck: StuckAgent[] };
+    // 17 valid Bash events → last 5 all Bash → loop signal confirms 17 lines processed
+    const entry = body.stuck.find((e) => e.agent === "malformed-mixed");
+    expect(entry).toBeDefined();
+    expect(entry!.signal).toBe("loop");
+    expect(entry!.detail).toBe("looping on Bash");
+  });
+
+  test("AC3: malformed JSONL lines do not cause a 500 — endpoint always returns 200", async () => {
+    const r = await fetch(`http://127.0.0.1:${STUCK_MALFORMED_PORT}/api/stuck`);
+    expect(r.status).toBe(200);
+  });
+
+  test("AC4: all-malformed JSONL file → { stuck: [] } with HTTP 200", async () => {
+    const r = await fetch(`http://127.0.0.1:${STUCK_ALL_MALFORMED_PORT}/api/stuck`);
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { stuck: StuckAgent[] };
+    expect(body.stuck).toHaveLength(0);
+  });
+});
