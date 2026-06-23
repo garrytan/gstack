@@ -1,5 +1,5 @@
 /**
- * gbrain-local-status — classify the local gbrain engine into 5 states.
+ * gbrain-local-status — classify the local gbrain engine into 6 states.
  *
  * Shared between bin/gstack-gbrain-detect (preamble probe on every skill start)
  * and bin/gstack-gbrain-sync.ts (orchestrator SKIP-when-not-ok semantics).
@@ -9,15 +9,19 @@
  *   - Probe: `gbrain sources list --json`. Cheap (~80ms), actually hits the DB.
  *     Uses the same stderr patterns as lib/gbrain-sources.ts:66-67.
  *   - Cache: 60s TTL at ~/.gstack/.gbrain-local-status-cache.json, keyed on
- *     {home, path_hash, gbrain_bin_path, gbrain_version, config_mtime}.
+ *     {home, gbrain_home, path_hash, gbrain_bin_path, gbrain_version,
+ *     config_mtime, probe_timeout_ms}.
  *   - --no-cache bypass: /setup-gbrain and /sync-gbrain pass it after any
  *     state-mutating operation so the next read sees fresh status.
  *
  * No-cli  → gbrain not on PATH.
- * Missing → CLI present, ~/.gbrain/config.json absent.
+ * Missing → CLI present, config.json absent (honors GBRAIN_HOME).
  * Broken-config → config exists but `gbrain sources list` fails with config parse error
  *                 (or any non-recognized error — defensive default per codex #8).
  * Broken-db → config exists, DB unreachable per stderr classification.
+ * Timeout → probe exceeded GSTACK_GBRAIN_PROBE_TIMEOUT_MS (default 15s) with no
+ *           recognized error — engine is likely healthy but slow (e.g. a cold
+ *           pooler connection, #1964). Consumers treat this as usable.
  * Ok → DB reachable, sources list returned valid JSON.
  */
 
@@ -42,7 +46,8 @@ export type LocalEngineStatus =
   | "no-cli"
   | "missing-config"
   | "broken-config"
-  | "broken-db";
+  | "broken-db"
+  | "timeout";
 
 export interface ClassifyOptions {
   /** Bypass the 60s cache. Used after any state-mutating operation. */
@@ -64,20 +69,38 @@ interface CacheEntry {
   /** Cache invariants — entry is invalidated if any of these change between writes. */
   key: {
     home: string;
+    gbrain_home: string; // honors GBRAIN_HOME (#1964 / codex D11)
     path_hash: string;
     gbrain_bin_path: string;
     gbrain_version: string;
     config_mtime: number; // 0 when config absent
     config_size: number; // 0 when config absent
+    probe_timeout_ms: number; // raising the timeout invalidates a cached "timeout"
   };
 }
 
 export const CACHE_TTL_MS = 60_000;
-export const PROBE_TIMEOUT_MS = 5_000;
+export const DEFAULT_PROBE_TIMEOUT_MS = 15_000;
+
+/**
+ * Effective probe timeout. `GSTACK_GBRAIN_PROBE_TIMEOUT_MS` overrides the
+ * 15s default (tests set it low; users with slow poolers raise it).
+ * Non-numeric or non-positive values fall back to the default.
+ */
+export function probeTimeoutMs(env?: NodeJS.ProcessEnv): number {
+  const raw = (env ?? process.env).GSTACK_GBRAIN_PROBE_TIMEOUT_MS;
+  if (!raw) return DEFAULT_PROBE_TIMEOUT_MS;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_PROBE_TIMEOUT_MS;
+  // Floor of 1ms: Math.floor(0.5) would yield 0, and execFileSync treats
+  // timeout: 0 as NO timeout — the probe that exists to bound hangs would
+  // itself hang forever (adversarial review finding 2).
+  return Math.max(1, Math.floor(parsed));
+}
 
 /** Effective user home — respects HOME env override (used by tests). */
-function userHome(): string {
-  return process.env.HOME || homedir();
+function userHome(env?: NodeJS.ProcessEnv): string {
+  return (env ?? process.env).HOME || homedir();
 }
 
 /** Cache path computed fresh on each call so tests can mutate GSTACK_HOME per case. */
@@ -88,8 +111,11 @@ export function cacheFilePath(): string {
   );
 }
 
-function gbrainConfigPath(): string {
-  return join(userHome(), ".gbrain", "config.json");
+/** Honors GBRAIN_HOME (codex D11) — same resolution as buildGbrainEnv. */
+function gbrainConfigPath(env?: NodeJS.ProcessEnv): string {
+  const e = env ?? process.env;
+  const gbrainHome = e.GBRAIN_HOME || join(userHome(e), ".gbrain");
+  return join(gbrainHome, "config.json");
 }
 
 function hashPath(p: string): string {
@@ -146,9 +172,9 @@ export function readGbrainVersion(env?: NodeJS.ProcessEnv): string {
   return result;
 }
 
-function configFingerprint(): { mtime: number; size: number } {
+function configFingerprint(env?: NodeJS.ProcessEnv): { mtime: number; size: number } {
   try {
-    const st = statSync(gbrainConfigPath());
+    const st = statSync(gbrainConfigPath(env));
     return { mtime: Math.floor(st.mtimeMs), size: st.size };
   } catch {
     return { mtime: 0, size: 0 };
@@ -161,25 +187,29 @@ function buildCacheKey(
   env?: NodeJS.ProcessEnv,
 ): CacheEntry["key"] {
   const e = env ?? process.env;
-  const config = configFingerprint();
+  const config = configFingerprint(e);
   return {
     home: e.HOME || "",
+    gbrain_home: e.GBRAIN_HOME || "",
     path_hash: hashPath(e.PATH || ""),
     gbrain_bin_path: gbrainBin || "",
     gbrain_version: gbrainVersion,
     config_mtime: config.mtime,
     config_size: config.size,
+    probe_timeout_ms: probeTimeoutMs(e),
   };
 }
 
 function keysEqual(a: CacheEntry["key"], b: CacheEntry["key"]): boolean {
   return (
     a.home === b.home &&
+    a.gbrain_home === b.gbrain_home &&
     a.path_hash === b.path_hash &&
     a.gbrain_bin_path === b.gbrain_bin_path &&
     a.gbrain_version === b.gbrain_version &&
     a.config_mtime === b.config_mtime &&
-    a.config_size === b.config_size
+    a.config_size === b.config_size &&
+    a.probe_timeout_ms === b.probe_timeout_ms
   );
 }
 
@@ -226,7 +256,7 @@ function freshClassify(env?: NodeJS.ProcessEnv): LocalEngineStatus {
   if (!gbrainBin) return "no-cli";
 
   // 2. Config file present?
-  if (!existsSync(gbrainConfigPath())) return "missing-config";
+  if (!existsSync(gbrainConfigPath(env))) return "missing-config";
 
   // 3. Probe gbrain sources list.
   //
@@ -240,14 +270,18 @@ function freshClassify(env?: NodeJS.ProcessEnv): LocalEngineStatus {
   try {
     execFileSync("gbrain", ["sources", "list", "--json"], {
       encoding: "utf-8",
-      timeout: PROBE_TIMEOUT_MS,
+      timeout: probeTimeoutMs(env),
       stdio: ["ignore", "pipe", "pipe"],
       env: buildGbrainEnv({ baseEnv: env ?? process.env }),
       shell: NEEDS_SHELL_ON_WINDOWS, // #1731: gbrain is a .cmd shim on Windows
     });
     return "ok";
   } catch (err) {
-    const e = err as NodeJS.ErrnoException & { stderr?: Buffer | string };
+    const e = err as NodeJS.ErrnoException & {
+      stderr?: Buffer | string;
+      killed?: boolean;
+      signal?: NodeJS.Signals | null;
+    };
     const stderr = (e.stderr ? e.stderr.toString() : "") || "";
 
     // ENOENT can happen if gbrain disappeared between resolveGbrainBin and now.
@@ -257,6 +291,13 @@ function freshClassify(env?: NodeJS.ProcessEnv): LocalEngineStatus {
     // "Cannot connect to database" is the more specific DB-unreachable signal.
     if (stderr.includes("Cannot connect to database")) return "broken-db";
     if (stderr.includes("config.json")) return "broken-config";
+
+    // Probe killed by the timeout with no recognized error: the engine is
+    // most likely healthy but slow (cold pooler connections measured at
+    // 6.9-10.7s in #1964). Don't tell the user their config is malformed.
+    if (e.killed === true || e.signal === "SIGTERM" || e.code === "ETIMEDOUT") {
+      return "timeout";
+    }
 
     // Defensive default per codex #8: unrecognized failures classify as
     // broken-config so the user sees the raw stderr surfaced upstream.

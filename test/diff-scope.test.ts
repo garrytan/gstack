@@ -78,6 +78,15 @@ describe('gstack-diff-scope', () => {
     expect(scope.SCOPE_BACKEND).toBe('true');
   });
 
+  // #1810: ESM/CJS and explicit-module TS extensions matched no category, so an
+  // .mjs/.cjs/.mts/.cts-only PR skipped the backend reviewer entirely.
+  test('detects ESM/CJS/explicit-module backend files (#1810)', () => {
+    for (const f of ['server.mjs', 'worker.cjs', 'config.mts', 'legacy.cts']) {
+      const scope = runScope(createRepo([f]));
+      expect(scope.SCOPE_BACKEND).toBe('true');
+    }
+  });
+
   test('detects test files', () => {
     const dir = createRepo(['test/app.test.ts']);
     const scope = runScope(dir);

@@ -36,6 +36,11 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'browse-basic':    ['browse/src/**', 'browse/test/test-server.ts'],
   'browse-snapshot': ['browse/src/**', 'browse/test/test-server.ts'],
 
+  // Hermetic isolation canaries (hermetic-env.ts is also a GLOBAL touchfile;
+  // these entries exist so the canaries themselves stay tier-classified)
+  'hermetic-canary':   ['test/helpers/hermetic-env.ts', 'test/helpers/session-runner.ts', 'test/skill-e2e-hermetic-canary.test.ts', 'lib/conductor-env-shim.ts'],
+  'hermetic-sentinel': ['test/helpers/hermetic-env.ts', 'test/helpers/session-runner.ts', 'test/skill-e2e-hermetic-canary.test.ts', 'lib/conductor-env-shim.ts'],
+
   // SKILL.md setup + preamble (depend on ROOT SKILL.md + gen-skill-docs)
   'skillmd-setup-discovery':  ['SKILL.md', 'SKILL.md.tmpl', 'scripts/gen-skill-docs.ts'],
   'skillmd-no-local-binary':  ['SKILL.md', 'SKILL.md.tmpl', 'scripts/gen-skill-docs.ts'],
@@ -111,17 +116,28 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   // written a never-ask preference, AUQ should still auto-decide rather than
   // surfacing the question. Touches the question-tuning + preference
   // infrastructure plus the resolvers that own the AUTO_DECIDE preamble.
-  'auto-decide-preserved':        ['scripts/resolvers/question-tuning.ts', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble/generate-completion-status.ts', 'plan-ceo-review/**', 'bin/gstack-question-preference', 'bin/gstack-config', 'bin/gstack-slug', 'test/helpers/claude-pty-runner.ts'],
+  'auto-decide-preserved':        ['scripts/resolvers/question-tuning.ts', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble/generate-preamble-bash.ts', 'scripts/resolvers/preamble/generate-completion-status.ts', 'plan-ceo-review/**', 'bin/gstack-question-preference', 'bin/gstack-config', 'bin/gstack-slug', 'hosts/claude/hooks/question-preference-hook.ts', 'lib/is-conductor.ts', 'test/helpers/claude-pty-runner.ts'],
+
+  // Conductor → prose decision brief (Conductor signal makes prose the default;
+  // the PreToolUse hook denies the flaky tool). Touches the resolver that owns
+  // the Conductor rule, the preamble signal, the hook, and the detection helper.
+  'conductor-prose':              ['scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble/generate-preamble-bash.ts', 'scripts/resolvers/preamble.ts', 'plan-eng-review/**', 'hosts/claude/hooks/question-preference-hook.ts', 'lib/is-conductor.ts', 'test/helpers/claude-pty-runner.ts', 'test/skill-e2e-conductor-prose.test.ts'],
 
   // Real-PTY E2E batch (#6 new tests on the harness).
   // Each one tests behavior the SDK harness can't observe (rendered TTY,
   // numbered-option lists, multi-phase ordering, idempotency state echo).
-  'ask-user-question-format-pty':              ['plan-ceo-review/**', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble/generate-completeness-section.ts', 'scripts/resolvers/preamble.ts', 'test/helpers/claude-pty-runner.ts'],
+  'auq-format-gate':                           ['plan-ceo-review/**', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble/generate-completeness-section.ts', 'scripts/resolvers/preamble.ts', 'test/helpers/auq-sdk-capture.ts', 'test/helpers/session-runner.ts', 'test/helpers/llm-judge.ts'],
   'plan-ceo-mode-routing':       ['plan-ceo-review/**', 'scripts/resolvers/preamble/generate-ask-user-format.ts', 'scripts/resolvers/preamble.ts', 'test/helpers/claude-pty-runner.ts'],
   'plan-design-with-ui-scope':   ['plan-design-review/**', 'test/fixtures/plans/ui-heavy-feature.md', 'test/helpers/claude-pty-runner.ts'],
   'budget-regression-pty':       ['test/helpers/eval-store.ts', 'test/skill-budget-regression.test.ts'],
   'ship-idempotency-pty':        ['ship/**', 'bin/gstack-next-version', 'bin/gstack-version-bump', 'scripts/resolvers/sections.ts', 'lib/worktree.ts', 'test/helpers/claude-pty-runner.ts'],
-  'ship-section-loading':        ['ship/**', 'scripts/resolvers/sections.ts', 'scripts/gen-skill-docs.ts', 'test/helpers/required-reads.ts', 'test/helpers/transcript-section-logger.ts', 'test/helpers/claude-pty-runner.ts'],
+  'ship-section-loading':        ['ship/**', 'scripts/resolvers/sections.ts', 'scripts/gen-skill-docs.ts', 'test/helpers/auq-sdk-capture.ts', 'test/helpers/session-runner.ts'],
+  'plan-ceo-section-loading':    ['plan-ceo-review/**', 'scripts/resolvers/sections.ts', 'scripts/gen-skill-docs.ts', 'test/helpers/auq-sdk-capture.ts', 'test/helpers/session-runner.ts'],
+  // Data-driven behavioral guard for the 'plan'/'prompt' carves (eng, design,
+  // devex, office-hours + future PR2 carves). One file iterating CARVE_GUARDS;
+  // the selector sets GSTACK_CARVE_SKILL=<name> to scope cost to the changed
+  // skill (D-CODEX A). Touching the registry/helper or sections.ts runs all.
+  'carve-section-loading':       ['plan-eng-review/**', 'plan-design-review/**', 'plan-devex-review/**', 'office-hours/**', 'document-release/**', 'design-consultation/**', 'cso/**', 'test/helpers/carve-guards.ts', 'scripts/resolvers/sections.ts', 'scripts/gen-skill-docs.ts', 'test/helpers/auq-sdk-capture.ts', 'test/helpers/session-runner.ts'],
   'autoplan-chain-pty':          ['autoplan/**', 'plan-ceo-review/**', 'plan-design-review/**', 'plan-eng-review/**', 'plan-devex-review/**', 'test/fixtures/plans/ui-heavy-feature.md', 'test/helpers/claude-pty-runner.ts'],
   'e2e-harness-audit':            ['plan-ceo-review/**', 'plan-eng-review/**', 'plan-design-review/**', 'plan-devex-review/**', 'scripts/resolvers/preamble/generate-completion-status.ts', 'test/helpers/agent-sdk-runner.ts', 'test/helpers/claude-pty-runner.ts'],
 
@@ -285,6 +301,11 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'design-shotgun-session':         ['design-shotgun/**', 'scripts/resolvers/design.ts'],
   'design-shotgun-full':            ['design-shotgun/**', 'design/src/**', 'browse/src/**'],
 
+  // /diagram (diagram-render bundle consumers). Triplet = deterministic
+  // functional (gate); authoring quality = LLM-judged benchmark (periodic).
+  'diagram-triplet':            ['diagram/**', 'lib/diagram-render/**', 'browse/src/write-commands.ts', 'browse/src/read-commands.ts'],
+  'diagram-authoring-quality':  ['diagram/**', 'lib/diagram-render/**', 'test/helpers/llm-judge.ts'],
+
   // gstack-upgrade
   'gstack-upgrade-happy-path': ['gstack-upgrade/**'],
 
@@ -426,6 +447,11 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
   'browse-basic': 'gate',
   'browse-snapshot': 'gate',
 
+  // Hermetic isolation — gate (deterministic env/config assertions; if the
+  // clean room breaks, every other eval's signal is contaminated)
+  'hermetic-canary': 'gate',
+  'hermetic-sentinel': 'gate',
+
   // SKILL.md setup — gate (if setup breaks, no skill works)
   'skillmd-setup-discovery': 'gate',
   'skillmd-no-local-binary': 'gate',
@@ -490,26 +516,35 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
   'plan-eng-coverage-audit': 'gate',
   'plan-review-report': 'gate',
 
-  // Plan-mode handshake — deterministic safety regression, gate-tier
+  // Plan-mode handshake. plan-ceo/plan-devex ask-first reliably (gate-tier);
+  // plan-eng/plan-design run a long explore/audit before their first
+  // AskUserQuestion, so whether they reach a terminal outcome within the 300s
+  // budget hinges on stochastic ask-first compliance (~50-67%/run measured).
+  // Per the "non-deterministic -> periodic" tiering rule they are periodic:
+  // the hardened ask-first gate + the collapsed-form detector lifted them from
+  // always-failing to mostly-passing, but they are not deterministic gates.
   'plan-ceo-review-plan-mode': 'gate',
-  'plan-eng-review-plan-mode': 'gate',
-  'plan-design-review-plan-mode': 'gate',
+  'plan-eng-review-plan-mode': 'periodic',
+  'plan-design-review-plan-mode': 'periodic',
   'plan-devex-review-plan-mode': 'gate',
   'plan-mode-no-op': 'gate',
   // v1.21+ auto-mode regression tests
   'office-hours-auto-mode': 'gate',
   'auto-decide-preserved': 'periodic',
+  'conductor-prose': 'periodic',
   'e2e-harness-audit': 'gate',
 
   // Real-PTY E2E batch — tier classification:
   //   gate: cheap, deterministic, run on every PR
   //   periodic: long-running or expensive (>$3/run), run weekly
-  'ask-user-question-format-pty':            'gate',       // ~$0.50/run, single skill probe
+  'auq-format-gate':                         'gate',       // ~$0.50/run, SDK capture, single skill probe
   'plan-ceo-mode-routing':     'periodic',   // ~$3/run, deep navigation through 8-12 prior AskUserQuestions
   'plan-design-with-ui-scope': 'gate',       // ~$0.80/run
   'budget-regression-pty':     'gate',       // free, library-only assertion
   'ship-idempotency-pty':      'periodic',   // ~$3/run, real /ship in plan mode
   'ship-section-loading':      'periodic',   // ~$3/run, real /ship; asserts section reads
+  'plan-ceo-section-loading':  'periodic',   // ~$3-5/run, real /plan-ceo-review; asserts section read
+  'carve-section-loading':     'periodic',   // ~$1-2/skill, data-driven; GSTACK_CARVE_SKILL scopes to one
   'autoplan-chain-pty':        'periodic',   // ~$8/run, all 3 phases sequential
 
   // Per-finding count + review-report-at-bottom — periodic because each
@@ -520,9 +555,9 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
   'plan-eng-finding-count':    'periodic',
   'plan-design-finding-count': 'periodic',
   'plan-devex-finding-count':  'periodic',
-  'plan-eng-finding-floor':    'gate',
+  'plan-eng-finding-floor':    'periodic',  // stochastic ask-first (see plan-mode-handshake note); periodic
   'plan-ceo-finding-floor':    'gate',
-  'plan-design-finding-floor': 'gate',
+  'plan-design-finding-floor': 'periodic',  // stochastic ask-first (see plan-mode-handshake note); periodic
   'plan-devex-finding-floor':  'gate',
   'plan-eng-multi-finding-batching': 'periodic',
   'plan-ceo-split-overflow': 'periodic',
@@ -648,6 +683,10 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
   'design-shotgun-session': 'gate',
   'design-shotgun-full': 'periodic',
 
+  // /diagram — triplet is deterministic functional, judge is a quality benchmark
+  'diagram-triplet': 'gate',
+  'diagram-authoring-quality': 'periodic',
+
   // gstack-upgrade
   'gstack-upgrade-happy-path': 'gate',
 
@@ -768,6 +807,7 @@ export const LLM_JUDGE_TOUCHFILES: Record<string, string[]> = {
  */
 export const GLOBAL_TOUCHFILES = [
   'test/helpers/session-runner.ts',  // All E2E tests use this runner
+  'test/helpers/hermetic-env.ts',    // Changes every E2E child's environment
   'test/helpers/eval-store.ts',      // All E2E tests store results here
   'test/helpers/touchfiles.ts',      // Self-referential — reclassifying wrong is dangerous
 ];

@@ -15,6 +15,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { hermeticChildEnv } from './hermetic-env';
 
 // --- Interfaces ---
 
@@ -201,15 +202,18 @@ export async function runCodexSkill(opts: {
     // Build codex exec command
     const args = ['exec', prompt, '--json', '-s', sandbox];
 
-    // Spawn codex with temp HOME so it discovers our installed skill
+    // Spawn codex with temp HOME so it discovers our installed skill.
+    // Hermetic scrub (test/helpers/hermetic-env.ts) with codex's auth surface
+    // re-admitted: codex auths from $HOME/.codex (copied into tempHome above)
+    // plus OPENAI_API_KEY/CODEX_* when present. HOME override merges last.
     const proc = Bun.spawn(['codex', ...args], {
       cwd: cwd || skillDir,
       stdout: 'pipe',
       stderr: 'pipe',
-      env: {
-        ...process.env,
-        HOME: tempHome,
-      },
+      env: hermeticChildEnv(
+        { HOME: tempHome },
+        { extraAllow: ['OPENAI_API_KEY', 'CODEX_*'] },
+      ),
     });
 
     // Race against timeout

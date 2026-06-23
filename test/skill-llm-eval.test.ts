@@ -540,7 +540,22 @@ async function runWorkflowJudge(opts: {
   const defaults = { clarity: 4, completeness: 3, actionability: 4 };
   const thresholds = { ...defaults, ...opts.thresholds };
 
-  const content = fs.readFileSync(path.join(ROOT, opts.skillPath), 'utf-8');
+  // Read the skeleton + sections UNION so carved skills (v2 plan T9) still
+  // expose markers that moved into sections/*.md (e.g. plan-eng's "## Review
+  // Sections" + "## CRITICAL RULE", plan-design's 7 passes). Without this the
+  // slice markers vanish from the skeleton and the judge scores empty content.
+  let content = fs.readFileSync(path.join(ROOT, opts.skillPath), 'utf-8');
+  const secDir = path.join(ROOT, path.dirname(opts.skillPath), 'sections');
+  const sectionBodies: string[] = [];
+  if (fs.existsSync(secDir)) {
+    for (const f of fs.readdirSync(secDir).sort()) {
+      if (f.endsWith('.md') && !f.endsWith('.md.tmpl')) {
+        const body = fs.readFileSync(path.join(secDir, f), 'utf-8');
+        sectionBodies.push(body);
+        content += '\n' + body;
+      }
+    }
+  }
   const startIdx = content.indexOf(opts.startMarker);
   if (startIdx === -1) throw new Error(`Start marker not found in ${opts.skillPath}: "${opts.startMarker}"`);
 
@@ -551,6 +566,17 @@ async function runWorkflowJudge(opts: {
     section = content.slice(startIdx, endIdx);
   } else {
     section = content.slice(startIdx);
+  }
+
+  // Two carve shapes exist. plan-eng/plan-design moved the MARKERS into the
+  // section files, so the slice above already reaches the carved content.
+  // document-release instead keeps its markers in the skeleton and carves the
+  // workflow BODY (Steps 2-9 → sections/release-body.md) AFTER the endMarker,
+  // so the marker slice drops it. Re-append any carved section the window
+  // excluded, so the judge always sees the full workflow the agent executes.
+  for (const body of sectionBodies) {
+    const head = body.trim().slice(0, 120);
+    if (head && !section.includes(head)) section += '\n' + body;
   }
 
   const scores = await callJudge<JudgeScore>(`You are evaluating the quality of ${opts.judgeContext} for an AI coding agent.

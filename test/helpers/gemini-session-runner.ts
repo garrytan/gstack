@@ -14,6 +14,7 @@
  */
 
 import * as path from 'path';
+import { hermeticChildEnv } from './hermetic-env';
 
 // --- Interfaces ---
 
@@ -122,11 +123,16 @@ export async function runGeminiSkill(opts: {
   // Build gemini command
   const args = ['-p', prompt, '--output-format', 'stream-json', '--yolo'];
 
-  // Spawn gemini — uses real HOME for auth, cwd for skill discovery
+  // Spawn gemini — uses real HOME for auth (~/.gemini; HOME is allowlisted),
+  // cwd for skill discovery. Hermetic scrub with gemini's auth surface
+  // re-admitted (previously this spawn inherited the full operator env).
   const proc = Bun.spawn(['gemini', ...args], {
     cwd: cwd || process.cwd(),
     stdout: 'pipe',
     stderr: 'pipe',
+    env: hermeticChildEnv(undefined, {
+      extraAllow: ['GEMINI_API_KEY', 'GOOGLE_API_KEY', 'GOOGLE_APPLICATION_CREDENTIALS', 'GOOGLE_CLOUD_*', 'GEMINI_*'],
+    }),
   });
 
   // Race against timeout

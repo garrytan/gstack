@@ -7,20 +7,22 @@ import * as path from 'path';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 
-// Carved-skill aware (v2 plan T9): ship is a skeleton SKILL.md + sections/*.md.
-// Read the union so validations of content that moved into a section still hold.
-// `_SHIP_MD` is a distinct path expression so a mechanical read-replace can't
-// recurse into this helper.
-const _SHIP_MD = path.join(ROOT, 'ship', 'SKILL.md');
-function readShipUnion(): string {
-  let t = fs.readFileSync(_SHIP_MD, 'utf-8');
-  const secDir = path.join(ROOT, 'ship', 'sections');
+// Carved-skill aware (v2 plan T9 / Phase B): a carved skill is a skeleton SKILL.md
+// plus sections/*.md. Read the union so validations of content that moved into a
+// section still hold. For an uncarved skill (no sections dir) this is just the
+// skeleton, so readSkillUnion is safe to use everywhere.
+function readSkillUnion(skill: string): string {
+  let t = fs.readFileSync(path.join(ROOT, skill, 'SKILL.md'), 'utf-8');
+  const secDir = path.join(ROOT, skill, 'sections');
   if (fs.existsSync(secDir)) {
     for (const f of fs.readdirSync(secDir).sort()) {
       if (f.endsWith('.md')) t += '\n' + fs.readFileSync(path.join(secDir, f), 'utf-8');
     }
   }
   return t;
+}
+function readShipUnion(): string {
+  return readSkillUnion('ship');
 }
 
 describe('SKILL.md command validation', () => {
@@ -548,8 +550,8 @@ describe('TODOS-format.md reference consistency', () => {
 
   test('skills that write TODOs reference TODOS-format.md', () => {
     const shipContent = readShipUnion();
-    const ceoPlanContent = fs.readFileSync(path.join(ROOT, 'plan-ceo-review', 'SKILL.md'), 'utf-8');
-    const engPlanContent = fs.readFileSync(path.join(ROOT, 'plan-eng-review', 'SKILL.md'), 'utf-8');
+    const ceoPlanContent = readSkillUnion('plan-ceo-review'); // carved: TODOS-format ref moved to section
+    const engPlanContent = readSkillUnion('plan-eng-review');
 
     expect(shipContent).toContain('TODOS-format.md');
     expect(ceoPlanContent).toContain('TODOS-format.md');
@@ -621,7 +623,10 @@ describe('v0.4.1 preamble features', () => {
 // --- Structural tests for new skills ---
 
 describe('office-hours skill structure', () => {
-  const content = fs.readFileSync(path.join(ROOT, 'office-hours', 'SKILL.md'), 'utf-8');
+  // Carved (v2 plan T9): Phase 5 (Design Doc) + Phase 6 (handoff) moved into
+  // sections/design-and-handoff.md, so structural phrases now live there — read
+  // the skeleton+sections union.
+  const content = readSkillUnion('office-hours');
 
   // Original structural assertions
   for (const section of ['Phase 1', 'Phase 2', 'Phase 3', 'Phase 4', 'Phase 5', 'Phase 6',
@@ -832,7 +837,7 @@ describe('Completeness Principle in generated SKILL.md files', () => {
     test(`${skill} contains Completeness Principle section`, () => {
       const content = fs.readFileSync(path.join(ROOT, skill), 'utf-8');
       expect(content).toContain('Completeness Principle');
-      expect(content).toContain('Boil the Lake');
+      expect(content).toContain('Boil the Ocean');
     });
   }
 
@@ -912,8 +917,10 @@ describe('CEO review mode validation', () => {
   });
 
   test('has docs/designs promotion section', () => {
-    expect(content).toContain('docs/designs');
-    expect(content).toContain('PROMOTED');
+    // Carved (v2 plan Phase B): the promotion block moved into the review section.
+    const union = readSkillUnion('plan-ceo-review');
+    expect(union).toContain('docs/designs');
+    expect(union).toContain('PROMOTED');
   });
 
   test('mode quick reference has four columns', () => {
@@ -1379,15 +1386,16 @@ describe('Codex skill', () => {
     expect(content).toContain('Adversarial review (always-on)');
     // Always-on: both Claude and Codex adversarial
     expect(content).toContain('Claude adversarial subagent (always runs)');
-    expect(content).toContain('Codex adversarial challenge (always runs when available)');
+    expect(content).toContain('Codex adversarial challenge (runs whenever');
     // Claude adversarial subagent dispatch
     expect(content).toContain('Agent tool');
     expect(content).toContain('FIXABLE');
     expect(content).toContain('INVESTIGATE');
-    // Codex availability check
-    expect(content).toContain('CODEX_NOT_AVAILABLE');
-    // OLD_CFG only gates Codex, not Claude
-    expect(content).toContain('skip Codex passes only');
+    // Probe-based availability via the shared codexPreflight() (install + auth)
+    expect(content).toContain('CODEX_MODE');
+    expect(content).toContain('command -v codex'); // install check kept literal
+    // codex_reviews=disabled gates Codex passes only; Claude adversarial still runs
+    expect(content).toContain('skip the Codex passes ONLY');
     // Review log
     expect(content).toContain('adversarial-review');
     expect(content).toContain('reasoning_effort="high"');
@@ -1440,6 +1448,43 @@ describe('Codex skill', () => {
     const content = fs.readFileSync(path.join(ROOT, 'plan-eng-review', 'SKILL.md'), 'utf-8');
     expect(content).toContain('Codex');
     expect(content).toContain('codex exec');
+  });
+
+  // D5 regression guard: the Codex outside voice is default-on, not opt-in. A future
+  // gen-skill-docs change must not silently reintroduce the "Want an outside voice?"
+  // AskUserQuestion. The CODEX_PLAN_REVIEW content renders into each skill's
+  // sections/review-sections.md (the skeleton points at it). plan-design-review uses
+  // DESIGN_OUTSIDE_VOICES, not CODEX_PLAN_REVIEW, so it is excluded here.
+  test('plan reviews run the Codex outside voice default-on (no opt-in question)', () => {
+    for (const skill of ['plan-eng-review', 'plan-ceo-review', 'plan-devex-review']) {
+      const content = fs.readFileSync(
+        path.join(ROOT, skill, 'sections', 'review-sections.md'), 'utf-8');
+      expect(content).not.toContain('Want an outside voice');
+      expect(content).toContain('Outside Voice — Independent Plan Challenge (default-on)');
+      expect(content).toContain('CODEX_MODE');
+      expect(content).toContain('command -v codex'); // preflight install check (e2e relies on it)
+    }
+  });
+
+  test('/document-release includes the default-on Codex documentation review', () => {
+    // The doc-review renders into the carved release-body section (kept out of the
+    // always-loaded skeleton to respect the skeleton-byte budget).
+    const content = fs.readFileSync(
+      path.join(ROOT, 'document-release', 'sections', 'release-body.md'), 'utf-8');
+    expect(content).toContain('Codex Documentation Review (default-on)');
+    expect(content).toContain('CODEX_MODE');
+    expect(content).toContain('codex-doc-review');
+  });
+
+  test('codex-host document-release does NOT contain the Codex doc review', () => {
+    // .agents/ is gitignored — generate on demand (codex never invokes itself)
+    Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', 'codex'], {
+      cwd: ROOT, stdout: 'pipe', stderr: 'pipe',
+    });
+    const content = fs.readFileSync(
+      path.join(ROOT, '.agents', 'skills', 'gstack-document-release', 'SKILL.md'), 'utf-8');
+    expect(content).not.toContain('Codex Documentation Review');
+    expect(content).not.toContain('codex-doc-review');
   });
 
   test('codex review invocations avoid the prompt plus --base argument shape', () => {

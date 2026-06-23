@@ -86,6 +86,41 @@ describe('brain-cache meta lifecycle', () => {
   });
 });
 
+describe('brain-cache malformed _meta.json (#1879)', () => {
+  function seedMeta(content: string): void {
+    const cacheDir = join(TMP_HOME, 'projects', 'helsinki', 'brain-cache');
+    mkdirSync(cacheDir, { recursive: true });
+    writeFileSync(join(cacheDir, '_meta.json'), content);
+  }
+
+  test('cmdInvalidate does not throw when last_refresh is missing', async () => {
+    const mod = await importCache();
+    // Valid JSON object, but no last_refresh map — the original crash.
+    seedMeta(JSON.stringify({ schema_version: '0.0.1', endpoint_hash: 'x' }));
+    expect(() => mod.cmdInvalidate('product', 'helsinki')).not.toThrow();
+  });
+
+  test('cmdGet does not throw on null / array / primitive _meta.json', async () => {
+    const mod = await importCache();
+    for (const bad of ['null', '[]', '"a string"', '42']) {
+      seedMeta(bad);
+      expect(() => mod.cmdGet('product', 'helsinki')).not.toThrow();
+    }
+  });
+
+  test('missing schema_version is treated as a mismatch (forces rebuild, not trust)', async () => {
+    const mod = await importCache();
+    const cacheDir = join(TMP_HOME, 'projects', 'helsinki', 'brain-cache');
+    mkdirSync(cacheDir, { recursive: true });
+    writeFileSync(join(cacheDir, 'product.md'), '# stale-no-schema\n');
+    // No schema_version field — must NOT be trusted as a warm hit.
+    seedMeta(JSON.stringify({ endpoint_hash: mod.detectEndpointHash(), last_refresh: { product: Date.now() } }));
+    const result = mod.cmdGet('product', 'helsinki');
+    // Brain unreachable in test → rebuild path runs; must not be a trusted warm hit.
+    expect(['missing', 'cold-refreshed', 'stale-fallback']).toContain(result.state);
+  });
+});
+
 describe('brain-cache endpoint detection', () => {
   test('detectEndpointHash returns "local" when no ~/.claude.json gbrain MCP', async () => {
     // We don't write ~/.claude.json in the temp env, so this falls through to local.

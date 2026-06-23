@@ -1,6 +1,90 @@
 # TODOS
 
+## NEXT PRIORITY
+
+### P1: #1882 — portable skill-install prefix (non-`gstack` install dirs break silently)
+
+**What:** Every generated SKILL.md hardcodes the literal `~/.claude/skills/gstack/...`
+for its `bin/`/asset calls (the per-invocation telemetry/config preamble plus ~9
+resolvers). `setup` wires the top-level skill symlinks for any directory name, so
+installing at `~/.claude/skills/<other>` leaves every internal `bin` reference
+pointing at a non-existent `~/.claude/skills/gstack/` path — failing **silently, at
+skill-invocation time**. Make the emitted references portable: resolve the install
+root at runtime (the preamble already defines `GSTACK_ROOT`/`GSTACK_BIN` in
+`scripts/resolvers/preamble/generate-preamble-bash.ts` but the literals don't use
+them) and emit `$GSTACK_BIN`-relative paths instead of the hardcoded prefix.
+
+**Why:** Filed as #1882. Split out of the June 2026 fix wave (decision A) once
+implementation showed it is a host-config/design change, not a fix-wave patch. The
+urgent half — the guard/freeze/careful frontmatter hooks broken on CC 2.1.162 — was
+already fixed in that wave (#1871) with a literal `$HOME`-anchored path, because
+frontmatter hooks run before any runtime variable exists and cannot use `$GSTACK_BIN`.
+So #1882 is now purely the body-preamble portability work.
+
+**Pros:** Unblocks installs at any directory name; removes a whole class of silent
+invocation-time failures.
+**Cons:** Touches the most load-bearing bash in the repo (every skill's preamble);
+a silent mistake breaks all 52 skills. High blast radius — needs its own focused PR.
+
+**Context / where to start:**
+- Rewire `ctx.paths.binDir` (and browse/design dir paths) + the ~9 resolvers that
+  emit the literal (`testing.ts`, `review.ts`, `design.ts`, `browse.ts`,
+  `redact-doc.ts`, `tasks-section.ts`, `preamble/generate-*.ts`) to use the
+  preamble-defined `$GSTACK_ROOT`/`$GSTACK_BIN`.
+- Ensure `GSTACK_ROOT`/`GSTACK_BIN` are defined before first use in EVERY skill's
+  preamble (verify the telemetry preamble's first bin call is after the definition).
+- **Test conflict (verified):** `test/gen-skill-docs.test.ts:1942` and the sibling
+  ship assertion currently *assert* generated Claude output `.toContain('~/.claude/skills/gstack')`
+  as a guardrail that Codex-host paths don't leak. These must be rewritten to match
+  the new portable scheme.
+- Regenerate all 52 SKILL.md (`bun run scripts/gen-skill-docs.ts --host all`); never
+  hand-edit generated files. Bisect: resolver/host-config change commit, then the
+  52-file regen commit.
+- Smoke-test a skill invocation from a non-`gstack` install dir to prove the fix.
+- Sibling of #349 (the `$CLAUDE_CONFIG_DIR` / `~/.claude` path issue).
+
 ## Test infrastructure
+
+### Eval harness: live progress + incremental result persistence (kill the silent hour)
+
+**Priority:** P1
+
+**What:** `bun run test:evals` is observably silent for its entire runtime and
+persists nothing until completion. Make the E2E harness (1) append a one-line
+progress record per test START and END to a well-known heartbeat file (e.g.
+`~/.gstack-dev/evals/.current-run.jsonl`), (2) write each test's eval-store
+result incrementally instead of only at run end, and (3) flush per-test
+pass/fail lines to stderr unbuffered so `bun test --concurrent` mega-file
+buffering can't hide 50 minutes of legitimate progress.
+
+**Why:** During the v1.57.11.0 ship, the diff-selected eval run (54 tests) was
+killed ~50 min in and NOTHING distinguished the corpse from a healthy run for
+hours: the log had zero test lines (per-file buffering across five mega
+`skill-e2e-*.test.ts` files), `~/.gstack-dev/evals/` had zero new files
+(results persist only on completion), and the only available liveness signal
+(`pgrep "bun test --max-concurrency"`) false-positives on every sibling
+free-suite shard. An agent or human watching the run has no honest signal.
+
+**Pros:** Dead runs detected in minutes instead of hours; partial results
+survive kills (a 50-min run that dies at test 40/54 keeps 40 results and can
+resume); `eval:watch` gets a real data source.
+
+**Cons:** Touches `test/helpers/session-runner.ts` + `eval-store.ts` (global
+touchfiles — change triggers ALL eval tests on the next diff-selected run);
+incremental writes need a PARTIAL marker so `eval:compare` doesn't treat a
+dead run as a complete baseline.
+
+**Context:** Root-caused 2026-06-12 during the v1.57.11.0 /ship. The run
+itself was on pace (~50 min for 54 E2E tests at concurrency 15 is nominal);
+the failure was pure observability. Related: the existing
+`project_e2e_harness_observability` note (stream-json reasoning + tool traces
+dropped on failure — same module, fix together). Start in
+`test/helpers/session-runner.ts` (per-test lifecycle) and
+`test/helpers/eval-store.ts` (persistence timing).
+
+**Depends on / blocked by:** Nothing. Classify the new behavior under the
+existing two-tier system; the heartbeat file must be safe under
+`--concurrent` (append-only, one JSON line per event).
 
 ### ✅ DONE (v1.53.1.0): Rebaseline parity-suite (v1.44.1 → v1.53.0.0)
 
@@ -18,6 +102,38 @@ future bloat is still caught — only the stale anchor moved. Mirrors the earlie
 v1.47.0.0 baselines retained in `test/fixtures/` for the v1→v2 audit trail. The
 captured skill bytes match `origin/main` exactly (the rebasing branch left every
 SKILL.md untouched). `bun test` is green again.
+
+## Token-reduction follow-ups (Phase B, filed via /plan-eng-review on the plan-ceo-review carve)
+
+### P3: Carve the always-loaded `{{PREAMBLE}}` reference blocks into an on-demand doc
+
+**What:** The per-skill section carves (`/ship` v1.54, `/plan-ceo-review` v1.56) yield
+real but bounded wins (-42% to -59% on the carved skill) because the shared
+`{{PREAMBLE}}` (~40-50KB on every tier-3/4 skill) is the dominant always-loaded cost
+and stays inline. Move the rarely-needed preamble REFERENCE blocks (the AskUserQuestion
+split-rules and the CJK / lone-surrogate escaping reference) into an on-demand
+section-style doc the agent reads only when it hits those edge cases, leaving the hot
+path (voice, completeness principle, recommendation format) inline.
+
+**Why:** Highest-ROI remaining token target. One preamble carve helps EVERY tier-≥2
+skill at once, not one skill per PR. The eng-review on the plan-ceo carve flagged that
+per-skill carves stay modest precisely because the preamble dominates the always-loaded
+surface.
+
+**Pros:** A single change reduces always-loaded cost across the whole skill pack.
+**Cons:** The preamble is load-bearing and shared; a botched carve regresses every skill.
+Needs the same union-parity + per-push freshness guards the section carves use, applied
+corpus-wide.
+
+**Context:** Builds on the v2 section pipeline (`scripts/resolvers/sections.ts`,
+`{{SECTION:id}}` / `{{SECTION_INDEX}}`). The preamble source is
+`scripts/resolvers/preamble.ts`. Measure which sub-blocks are cold (escaping reference,
+split-rules) vs hot (voice, recommendation format) before cutting. Validate on one skill,
+then roll corpus-wide.
+
+**Effort estimate:** L (human team) → M (CC+gstack)
+**Priority:** P3
+**Depends on / blocked by:** The section pipeline (shipped v1.54). No hard blocker.
 
 ## gbrowser memory follow-ups (filed via /plan-eng-review + /codex on the v1.49 leak-fix PR)
 
@@ -1919,7 +2035,7 @@ Shipped in v0.6.5. TemplateContext in gen-skill-docs.ts bakes skill name into pr
 
 **What:** Write a postinstall script that patches Playwright's CDP layer to suppress `Runtime.enable` and use `addBinding` for context ID discovery, same approach as rebrowser-patches. Eliminates the `navigator.webdriver`, `cdc_` markers, and other CDP artifacts that sites like Google use to detect automation.
 
-**Why:** Our current stealth narrows to `navigator.webdriver` masking + ChromeDriver `cdc_` runtime cleanup + Permissions API patch (v1.28.0.0 narrowed it from also faking plugins/languages, since modern fingerprinters punish inconsistent fakes more than they punish admitted defaults). That's enough for most sites but Google still triggers captchas, because the real detection is at the CDP protocol level. rebrowser-patches proved the approach works but their patches target Playwright 1.52.0 and don't apply to our 1.58.2. We need our own patcher using string matching instead of line-number diffs. 6 files, ~200 lines of patches total.
+**Why:** As of v1.58.3.0 our JS-layer stealth is "Layer C" — always-on `navigator.webdriver` mask + `window.chrome.*` shape + `Notification.permission`/Permissions alignment + per-install `hardwareConcurrency`/`deviceMemory` + a `Function.prototype.toString` proxy + an automation-global sweep + ChromeDriver `cdc_`/`__webdriver` cleanup (still NOT faking plugins/languages, since modern fingerprinters punish inconsistent fakes more than they punish admitted defaults). That closes most JS-observable tells, but Google still triggers captchas because the deepest detection is at the CDP protocol level, which a page-world init script can't reach. rebrowser-patches proved the CDP approach works but their patches target Playwright 1.52.0 and don't apply to our 1.58.2. We need our own patcher using string matching instead of line-number diffs. 6 files, ~200 lines of patches total. (Layer C's toString proxy still has descriptor/Reflect.ownKeys surfaces; pushing the spoofs to native code via CDP suppression or the Chromium fork makes the JS layer obsolete.)
 
 **Context:** Full analysis of rebrowser-patches source: patches 6 files in `playwright-core/lib/server/` (crConnection.js, crDevTools.js, crPage.js, crServiceWorker.js, frames.js, page.js). Key technique: suppress `Runtime.enable` (the main CDP detection vector), use `Runtime.addBinding` + `CustomEvent` trick to discover execution context IDs without it. Our extension communicates via Chrome extension APIs, not CDP Runtime, so it should be unaffected. Write E2E tests that verify: (1) extension still loads and connects, (2) Google.com loads without captcha, (3) sidebar chat still works.
 
@@ -2251,3 +2367,92 @@ into `test/helpers/fake-gbrain.ts` when the second consumer arrives
 runs).
 
 **Depends on:** None.
+
+### P2: Real-session carve canary (E3, deferred from carve-guard plan)
+
+**What:** Wire a real-session section-Read-miss canary on top of the
+carved skills. When a real user session drives a carved skill and the
+agent does NOT Read a section the skeleton's STOP directive pointed it
+at, log it (salted, content-free) to
+`~/.gstack/analytics/section-reads.jsonl` and surface drift via
+`bun run eval:summary`. Non-blocking alert, never a merge gate
+(real-session data is non-deterministic).
+
+**Why:** The static (E2) + behavioral (T2) guards prove carves are
+structurally sound and that a real agent Reads sections in a controlled
+eval. They do NOT see production drift — a prompt-context change that
+makes live agents start skipping a section. The canary is the only
+mechanism that catches that, from real usage.
+
+**Context:** Deferred from the carve-guard-hardening plan (D5→T2, codex
+outside-voice #7). `test/helpers/transcript-section-logger.ts` exists but
+is built for deterministic test transcripts + ship action fingerprints,
+NOT real-session drift — it needs rework before it can back this. Ship
+the deterministic guards first; add this once they've proven useful. The
+carved-skill set + each skill's `requiredReads` are already declared in
+`test/helpers/carve-guards.ts`, so the canary reads its expectations
+from there.
+
+**Effort:** M (human ~2d, CC ~4h).
+
+**Depends on:** `transcript-section-logger.ts` real-session-drift rework.
+
+### P2: Harden behavioral section-loading test hermeticity
+
+**What:** `captureSectionReads` in `test/helpers/auq-sdk-capture.ts` accepts ANY
+Read whose path matches `sections/<file>.md`. The skeleton's STOP-Read directive
+points at the gstack-root install path (`scripts/resolvers/sections.ts` builds it
+from `ctx.paths.skillRoot`), not the planted fixture copy. So a run can satisfy
+the section-read assertion by reading the GLOBAL install's section instead of the
+hermetic fixture.
+
+**Why:** A behavioral test that passes by reading the global install doesn't prove
+THIS branch's carved section loads. If the fixture's section were broken but the
+global install's weren't, the test would still pass.
+
+**Context:** Codex outside-voice finding on the carve-guard ship (v1.57.0.0).
+Pre-existing in `auq-sdk-capture.ts` — affects `skill-e2e-ship-section-loading`,
+`skill-e2e-plan-ceo-review-section-loading`, and the new
+`carve-section-loading.test.ts`. Fix: match the fixture's ABSOLUTE sections path
+(the `planDir` copy), not a bare `sections/<file>.md` regex; or rewrite the STOP
+path to the fixture during the run.
+
+**Effort:** S (human ~3h, CC ~30min). **Depends on:** None.
+
+### P3: Content-hash diagram render cache for make-pdf
+
+**What:** Cache rendered diagram SVG/PNG in `~/.gstack/cache/diagram-render/`,
+keyed on `sha256(fence source + bundle version + render options)`, so repeat
+`make-pdf` runs skip the browse render tab for unchanged diagrams.
+
+**Why:** Every run currently re-renders every fence (~150-300ms each). Docs with
+10+ diagrams pay seconds per iteration during write-preview loops. Codex
+outside-voice flagged the missing cache story during the eng review of the
+diagram engine plan (2026-06-11, D7).
+
+**Context:** The diagram-render bundle ships a `BUILD_INFO.json` with a content
+hash (see `lib/diagram-render/`) — use that as the bundle-version cache key
+component so bundle bumps invalidate cleanly. Invalidation surface is the main
+risk: stale renders after a mermaid theme change must not survive. Only worth
+building once users hit multi-diagram docs; wedge perf is fine without it.
+
+**Effort:** S (human ~1d, CC ~30min). **Depends on:** diagram engine wedge
+shipping (lib/diagram-render bundle versioning).
+
+### P3: Dedupe the make-pdf e2e gate-test harness
+
+**What:** Five e2e files (`combined-gate`, `emoji-gate`, `diagram-gate`,
+`landscape-gate`, `format-gate`) each hand-roll the same prerequisite probe
+(binary/browse/poppler checks with CI hard-fail vs local skip), mkdtemp/rm
+lifecycle, and child-timeout constants. Extract a shared
+`make-pdf/test/e2e/helpers.ts` (prerequisites(), withWorkDir(), runGenerate()).
+
+**Why:** Review-army maintainability finding on v1.58.0.0 — the boilerplate
+diverges a little more with each new gate (diagram-gate now captures stderr
+via Bun.spawnSync while the others use execFileSync), and a future fix to the
+CI-hard-fail contract has to land five times.
+
+**Context:** Deferred at ship time (D8.2) because it's test-only churn across
+five green files at the tail of a release. Zero user-facing value; pure DRY.
+
+**Effort:** S (human ~3h, CC ~20min). **Depends on:** None.

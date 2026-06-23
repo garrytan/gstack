@@ -118,15 +118,20 @@ describe("buildGbrainEnv", () => {
     expect(result.DATABASE_URL).toBe("postgresql://gbrain/db");
   });
 
-  // --- GBRAIN_PREPARE auto-detection (#1435) ---
+  // --- GBRAIN_PREPARE is never auto-set (#1965) ---
+  // gbrain auto-disables prepared statements on transaction-mode poolers;
+  // forcing GBRAIN_PREPARE=true there breaks every write with "prepared
+  // statement does not exist". The helper must leave the variable alone in
+  // all cases — a caller-set value (the documented session-mode-on-6543
+  // override) passes through untouched.
 
-  it("sets GBRAIN_PREPARE=true when DATABASE_URL targets port 6543 (transaction-mode pooler)", () => {
+  it("does not set GBRAIN_PREPARE when DATABASE_URL targets port 6543 (transaction-mode pooler)", () => {
     const poolerUrl = "postgresql://postgres.abc:pw@aws-0-us-east-1.pooler.supabase.com:6543/postgres";
     writeFileSync(join(gbrainHome, "config.json"), JSON.stringify({ database_url: poolerUrl }));
     const baseEnv = { HOME: home };
     const result = buildGbrainEnv({ baseEnv });
     expect(result.DATABASE_URL).toBe(poolerUrl);
-    expect(result.GBRAIN_PREPARE).toBe("true");
+    expect(result.GBRAIN_PREPARE).toBeUndefined();
   });
 
   it("does not set GBRAIN_PREPARE when DATABASE_URL targets port 5432 (session-mode pooler)", () => {
@@ -144,7 +149,7 @@ describe("buildGbrainEnv", () => {
     expect(result.GBRAIN_PREPARE).toBeUndefined();
   });
 
-  it("respects caller's explicit GBRAIN_PREPARE=false (opt-out)", () => {
+  it("passes through caller's explicit GBRAIN_PREPARE=false", () => {
     const poolerUrl = "postgresql://postgres.abc:pw@aws-0-us-east-1.pooler.supabase.com:6543/postgres";
     writeFileSync(join(gbrainHome, "config.json"), JSON.stringify({ database_url: poolerUrl }));
     const baseEnv = { HOME: home, GBRAIN_PREPARE: "false" };
@@ -152,10 +157,10 @@ describe("buildGbrainEnv", () => {
     expect(result.GBRAIN_PREPARE).toBe("false");
   });
 
-  it("sets GBRAIN_PREPARE even when caller DATABASE_URL already matches config on port 6543", () => {
+  it("passes through caller's explicit GBRAIN_PREPARE=true (session-mode-on-6543 override)", () => {
     const poolerUrl = "postgresql://postgres.abc:pw@aws-0-us-east-1.pooler.supabase.com:6543/postgres";
     writeFileSync(join(gbrainHome, "config.json"), JSON.stringify({ database_url: poolerUrl }));
-    const baseEnv = { HOME: home, DATABASE_URL: poolerUrl };
+    const baseEnv = { HOME: home, GBRAIN_PREPARE: "true" };
     const result = buildGbrainEnv({ baseEnv });
     expect(result.GBRAIN_PREPARE).toBe("true");
   });
