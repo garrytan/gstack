@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
   TASK_ID_RE,
+  parseFleetConf,
   parseTaskLedger,
   parseMailboxNotes,
   sendJson,
