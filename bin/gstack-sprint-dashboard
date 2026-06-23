@@ -18,7 +18,7 @@
  */
 
 import { existsSync, readFileSync, writeFileSync, statSync, readdirSync } from "fs";
-import { join, basename } from "path";
+import { join, basename, resolve } from "path";
 import { execFileSync, spawn } from "child_process";
 import { homedir } from "os";
 
@@ -773,26 +773,58 @@ function renderPage(slug: string, branch: string, sections: Record<string, strin
 
 // ─── Open helper ─────────────────────────────────────────────────────────
 
+function isWsl(): boolean {
+  if (process.platform !== "linux") return false;
+  try {
+    return /microsoft/i.test(readFileSync("/proc/version", "utf-8"));
+  } catch {
+    return false;
+  }
+}
+
 function openInBrowser(path: string) {
+  const absPath = resolve(path);
   let cmd: string;
   let args: string[];
   if (process.platform === "darwin") {
     cmd = "open";
-    args = [path];
+    args = [absPath];
   } else if (process.platform === "win32") {
     // explorer.exe, not `cmd /c start` — start mishandles paths with
     // special characters and pops a console window on some configs.
     cmd = "explorer.exe";
-    args = [path];
+    args = [absPath];
+  } else if (isWsl()) {
+    // WSL has no desktop environment / MIME handlers on the Linux side —
+    // xdg-open is typically not even installed. Hand off to the Windows
+    // side via WSL interop instead. explorer.exe needs a Windows-style
+    // path (C:\...), not the WSL /mnt/c/... or native Linux path.
+    cmd = "explorer.exe";
+    try {
+      const winPath = execFileSync("wslpath", ["-w", absPath], {
+        encoding: "utf-8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }).trim();
+      args = [winPath];
+    } catch {
+      args = [absPath];
+    }
   } else {
     cmd = "xdg-open";
-    args = [path];
+    args = [absPath];
   }
   try {
     const child = spawn(cmd, args, { stdio: "ignore", detached: true });
+    // ENOENT (missing binary) surfaces asynchronously via the 'error' event,
+    // not as a synchronous throw — without this handler it's an unhandled
+    // exception that crashes the whole process (observed: xdg-open missing
+    // on a WSL box with no desktop environment).
+    child.on("error", () => {
+      console.error(`Could not auto-open ${absPath} automatically — open it manually.`);
+    });
     child.unref();
   } catch {
-    console.error(`Could not auto-open ${path} — open it manually.`);
+    console.error(`Could not auto-open ${absPath} automatically — open it manually.`);
   }
 }
 
