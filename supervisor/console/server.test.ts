@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
   TASK_ID_RE,
+  parseFleetConf,
   parseTaskLedger,
   parseMailboxNotes,
   sendJson,
@@ -1743,273 +1744,264 @@ describe("readPidFile", () => {
   });
 });
 
-// =============================================================================
-// T14 — GET /api/stuck + edge-triggered SSE broadcast
-// =============================================================================
+// ─── T11-amended: fleet.conf-based validAgents ───────────────────────────────
 
-// Minimal stuck handler factory for testing — mirrors the server.ts implementation.
-function makeStuckHandler(opts: {
-  agents: string[];
-  agentsHome: string;
-  ledgerDir: string;
-  broadcastFn: (frame: string) => void;
-  broadcastCooldownMs?: number;
-}) {
-  const prevSignals = new Map<string, string>();
-  const lastBroadcast = new Map<string, number>();
-  const cooldown = opts.broadcastCooldownMs ?? 60_000;
+// Handler factory that mirrors server.ts T11-amended behaviour:
+// validAgents sourced from controlDir/fleet.conf, rebuildable via POST /api/workspace-switch.
+function makeFleetConfHandler(
+  initialControlDir: string,
+  agentsHomeDir: string,
+): { handler: (req: IncomingMessage, res: ServerResponse) => void } {
+  let localValidAgents = new Set<string>();
 
-  return (req: IncomingMessage, res: ServerResponse) => {
-    if (rawPath(req.url) !== "/api/stuck" || (req.method ?? "GET") !== "GET") {
-      sendJson(res, { error: "not found" }, 404);
+  function rebuild(dir: string): void {
+    if (!dir) { localValidAgents = new Set(); return; }
+    const confPath = join(dir, "fleet.conf");
+    try {
+      localValidAgents = new Set(parseFleetConf(readFileSync(confPath, "utf8")));
+    } catch {
+      localValidAgents = new Set();
+    }
+  }
+
+  rebuild(initialControlDir);
+
+  const handler = (req: IncomingMessage, res: ServerResponse): void => {
+    const path = rawPath(req.url);
+    const method = req.method ?? "GET";
+
+    if (path.startsWith("/api/mailbox/") && method === "POST") {
+      const agentName = path.slice("/api/mailbox/".length).split("/")[0];
+      if (!localValidAgents.has(agentName)) {
+        sendJson(res, { error: "unknown agent" }, 400);
+        return;
+      }
+      sendJson(res, { ok: true });
       return;
     }
-    const now = Date.now();
-    const stuckAgents = computeStuckSignals(opts.agents, opts.agentsHome, opts.ledgerDir, now);
-    const currentSignals = new Map<string, string>(stuckAgents.map((s) => [s.agent, s.signal]));
 
-    for (const entry of stuckAgents) {
-      const prev = prevSignals.get(entry.agent);
-      const last = lastBroadcast.get(entry.agent) ?? 0;
-      if (prev !== entry.signal && now - last >= cooldown) {
-        opts.broadcastFn(
-          `event: stuck\ndata: ${JSON.stringify({ agent: entry.agent, signal: entry.signal, detail: entry.detail })}\n\n`,
-        );
-        lastBroadcast.set(entry.agent, now);
-      }
+    if (path === "/api/fleet" && method === "GET") {
+      sendJson(res, readFleetStatus([...localValidAgents], agentsHomeDir));
+      return;
     }
-    for (const agent of [...prevSignals.keys()]) {
-      if (!currentSignals.has(agent)) prevSignals.delete(agent);
-    }
-    for (const [agent, signal] of currentSignals) prevSignals.set(agent, signal);
 
-    sendJson(res, { stuck: stuckAgents });
+    if (path === "/api/workspace-switch" && method === "POST") {
+      void (async () => {
+        const chunks: Buffer[] = [];
+        for await (const chunk of req) chunks.push(chunk as Buffer);
+        let body: { controlDir?: string } = {};
+        try {
+          body = JSON.parse(Buffer.concat(chunks).toString()) as typeof body;
+        } catch {
+          sendJson(res, { error: "invalid JSON" }, 400);
+          return;
+        }
+        rebuild(body.controlDir ?? "");
+        sendJson(res, { ok: true, agents: [...localValidAgents] });
+      })();
+      return;
+    }
+
+    res.writeHead(404); res.end("Not Found");
   };
+
+  return { handler };
 }
 
-const stuckAgentsHome = join(testDir, "stuck-agents");
-const stuckLedgerDir = join(testDir, "stuck-ledger");
-let stuckBroadcasts: string[] = [];
-let stuckServer: Server;
+// --- T11-amended AC2: missing fleet.conf → empty validAgents → 400 on all mutating endpoints ---
 
-// AC7-specific server — isolated state for edge-trigger test.
-let stuckEdgeServer: Server;
-let stuckEdgeBroadcasts: string[] = [];
+describe("missing fleet.conf — validAgents empty (AC2)", () => {
+  const missingConfDir = join(testDir, "missing-conf-control");
+  let missingConfServer: Server;
 
-const STUCK_TEST_PORT = 7851;
-const STUCK_EDGE_PORT = 7852;
+  beforeAll(
+    () =>
+      new Promise<void>((resolve) => {
+        mkdirSync(missingConfDir, { recursive: true });
+        // Intentionally no fleet.conf in missingConfDir
+        const { handler } = makeFleetConfHandler(missingConfDir, agentsHome);
+        missingConfServer = createServer(handler);
+        missingConfServer.listen(7850, "127.0.0.1", resolve);
+      }),
+  );
 
-const stuckTestAgents = [
-  "stuck-silent",
-  "stuck-loop",
-  "stuck-fail",
-  "stuck-malformed",
-  "stuck-missing",
-  "stuck-suppressed",
-];
+  afterAll(
+    () =>
+      new Promise<void>((resolve, reject) => {
+        missingConfServer.close((err) => { if (err) reject(err); else resolve(); });
+      }),
+  );
 
-beforeAll(
-  () =>
-    new Promise<void>((resolve) => {
-      mkdirSync(stuckLedgerDir, { recursive: true });
-      for (const a of stuckTestAgents) {
-        mkdirSync(join(stuckAgentsHome, a, "logs"), { recursive: true });
-      }
+  test("known agent returns 400 when fleet.conf is absent (no fallback list)", async () => {
+    const r = await fetch("http://127.0.0.1:7850/api/mailbox/agent-be", {
+      method: "POST",
+      body: "hello",
+    });
+    expect(r.status).toBe(400);
+    const body = (await r.json()) as { error: string };
+    expect(body.error).toBeTruthy();
+  });
 
-      // AC2: stuck-silent — one event 11 minutes ago
-      const elevenMinAgo = new Date(Date.now() - 11 * 60 * 1000).toISOString();
-      writeFileSync(
-        join(stuckAgentsHome, "stuck-silent", "logs", "live-events.jsonl"),
-        JSON.stringify({ ts: elevenMinAgo, tool: "Bash", summary: "old event" }) + "\n",
-      );
-
-      // AC3: stuck-loop — 5 consecutive Edit events (recent ts so no silent conflict)
-      const recentTs = new Date().toISOString();
-      const loopLines = Array.from({ length: 5 }, () =>
-        JSON.stringify({ ts: recentTs, tool: "Edit", summary: "editing" })
-      ).join("\n") + "\n";
-      writeFileSync(join(stuckAgentsHome, "stuck-loop", "logs", "live-events.jsonl"), loopLines);
-
-      // AC4: stuck-fail — ledger with failure_count=2 and status=in_progress
-      writeFileSync(
-        join(stuckLedgerDir, "STUCK-1.task"),
-        "id: STUCK-1\nstatus: in_progress\nclaimed_by: stuck-fail\nfailure_count: 2\n",
-      );
-      writeFileSync(
-        join(stuckAgentsHome, "stuck-fail", "logs", "live-events.jsonl"),
-        JSON.stringify({ ts: new Date().toISOString(), tool: "Read", summary: "reading" }) + "\n",
-      );
-
-      // AC5: stuck-malformed — broken line + one valid old line
-      const fifteenMinAgo = new Date(Date.now() - 15 * 60 * 1000).toISOString();
-      writeFileSync(
-        join(stuckAgentsHome, "stuck-malformed", "logs", "live-events.jsonl"),
-        `}{broken json line\n${JSON.stringify({ ts: fifteenMinAgo, tool: "Bash", summary: "old" })}\n`,
-      );
-
-      // AC6: stuck-missing — log dir exists but no live-events.jsonl file
-
-      // AC8: stuck-suppressed — ledger with status=needs_human (failure_count=3 to confirm suppression over fail_storm)
-      writeFileSync(
-        join(stuckLedgerDir, "STUCK-2.task"),
-        "id: STUCK-2\nstatus: needs_human\nclaimed_by: stuck-suppressed\nfailure_count: 3\n",
-      );
-      // Recent log so it wouldn't trigger silent
-      writeFileSync(
-        join(stuckAgentsHome, "stuck-suppressed", "logs", "live-events.jsonl"),
-        JSON.stringify({ ts: new Date().toISOString(), tool: "Bash", summary: "recent" }) + "\n",
-      );
-
-      stuckServer = createServer(
-        makeStuckHandler({
-          agents: stuckTestAgents,
-          agentsHome: stuckAgentsHome,
-          ledgerDir: stuckLedgerDir,
-          broadcastFn: (frame) => stuckBroadcasts.push(frame),
-          broadcastCooldownMs: 0,
-        }),
-      );
-      stuckServer.listen(STUCK_TEST_PORT, "127.0.0.1", resolve);
-    }),
-);
-
-afterAll(
-  () =>
-    new Promise<void>((resolve, reject) => {
-      stuckServer.close((err) => {
-        if (err) reject(err);
-        else resolve();
+  test("all four standard agents return 400 when fleet.conf is absent", async () => {
+    for (const agent of ["agent-be", "agent-qa", "agent-fe", "agent-doc"]) {
+      const r = await fetch(`http://127.0.0.1:7850/api/mailbox/${agent}`, {
+        method: "POST",
+        body: "",
       });
-    }),
-);
+      expect(r.status).toBe(400);
+    }
+  });
+});
 
-// AC7-specific server lifecycle — fresh state for edge-trigger test.
-beforeAll(
-  () =>
-    new Promise<void>((resolve) => {
-      const edgeAgentsHome = join(testDir, "stuck-edge-agents");
-      mkdirSync(join(edgeAgentsHome, "stuck-edge", "logs"), { recursive: true });
-      const twentyMinAgo = new Date(Date.now() - 20 * 60 * 1000).toISOString();
-      writeFileSync(
-        join(edgeAgentsHome, "stuck-edge", "logs", "live-events.jsonl"),
-        JSON.stringify({ ts: twentyMinAgo, tool: "Bash", summary: "old event" }) + "\n",
-      );
+// --- T11-amended AC3: workspace switch rebuilds validAgents ---
 
-      stuckEdgeServer = createServer(
-        makeStuckHandler({
-          agents: ["stuck-edge"],
-          agentsHome: edgeAgentsHome,
-          ledgerDir: stuckLedgerDir,
-          broadcastFn: (frame) => stuckEdgeBroadcasts.push(frame),
-          broadcastCooldownMs: 0,
-        }),
-      );
-      stuckEdgeServer.listen(STUCK_EDGE_PORT, "127.0.0.1", resolve);
-    }),
-);
+describe("workspace switch validAgents (AC3)", () => {
+  const wsADir = join(testDir, "ws-a-control");
+  const wsBDir = join(testDir, "ws-b-control");
+  const wsEmptyDir = join(testDir, "ws-empty-control");
+  let wsServer: Server;
 
-afterAll(
-  () =>
-    new Promise<void>((resolve, reject) => {
-      stuckEdgeServer.close((err) => {
-        if (err) reject(err);
-        else resolve();
-      });
-    }),
-);
+  beforeAll(
+    () =>
+      new Promise<void>((resolve) => {
+        mkdirSync(wsADir, { recursive: true });
+        mkdirSync(wsBDir, { recursive: true });
+        mkdirSync(wsEmptyDir, { recursive: true });
 
-describe("GET /api/stuck", () => {
-  test("AC1: returns { stuck: StuckAgent[] } with correct shape", async () => {
-    const r = await fetch(`http://127.0.0.1:${STUCK_TEST_PORT}/api/stuck`);
+        writeFileSync(
+          join(wsADir, "fleet.conf"),
+          "agent-be  FEATURE_ROLE.md\nagent-qa  QA_ROLE.md\n",
+        );
+        writeFileSync(
+          join(wsBDir, "fleet.conf"),
+          "agent-fe  FEATURE_ROLE.md\nagent-doc  DOC_ROLE.md\n",
+        );
+        // wsEmptyDir has no fleet.conf
+
+        const { handler } = makeFleetConfHandler(wsADir, agentsHome);
+        wsServer = createServer(handler);
+        wsServer.listen(7851, "127.0.0.1", resolve);
+      }),
+  );
+
+  afterAll(
+    () =>
+      new Promise<void>((resolve, reject) => {
+        wsServer.close((err) => { if (err) reject(err); else resolve(); });
+      }),
+  );
+
+  test("workspace A agents are valid before switch", async () => {
+    const r = await fetch("http://127.0.0.1:7851/api/mailbox/agent-be", {
+      method: "POST", body: "",
+    });
     expect(r.status).toBe(200);
-    const body = (await r.json()) as { stuck: StuckAgent[] };
-    expect(Array.isArray(body.stuck)).toBe(true);
-    const entry = body.stuck.find((e) => e.agent === "stuck-silent");
-    expect(entry).toBeDefined();
-    expect(typeof entry!.agent).toBe("string");
-    expect(typeof entry!.signal).toBe("string");
-    expect(typeof entry!.detail).toBe("string");
-    expect(typeof entry!.since).toBe("string");
-    expect(() => new Date(entry!.since)).not.toThrow();
+
+    const r2 = await fetch("http://127.0.0.1:7851/api/mailbox/agent-fe", {
+      method: "POST", body: "",
+    });
+    expect(r2.status).toBe(400);
   });
 
-  test("AC2: silent detection — ts 11 minutes ago, signal=silent, detail contains '11m'", async () => {
-    const r = await fetch(`http://127.0.0.1:${STUCK_TEST_PORT}/api/stuck`);
+  test("after workspace switch validAgents reflects new workspace fleet.conf", async () => {
+    const switchRes = await fetch("http://127.0.0.1:7851/api/workspace-switch", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ controlDir: wsBDir }),
+    });
+    expect(switchRes.status).toBe(200);
+    const switchBody = (await switchRes.json()) as { ok: boolean; agents: string[] };
+    expect(switchBody.ok).toBe(true);
+    expect(switchBody.agents).toContain("agent-fe");
+    expect(switchBody.agents).toContain("agent-doc");
+    expect(switchBody.agents).not.toContain("agent-be");
+
+    // agent-fe (workspace B) is now valid
+    const r = await fetch("http://127.0.0.1:7851/api/mailbox/agent-fe", {
+      method: "POST", body: "",
+    });
     expect(r.status).toBe(200);
-    const body = (await r.json()) as { stuck: StuckAgent[] };
-    const entry = body.stuck.find((e) => e.agent === "stuck-silent");
-    expect(entry).toBeDefined();
-    expect(entry!.signal).toBe("silent");
-    expect(entry!.detail).toContain("11m");
+
+    // agent-be (workspace A only) is now rejected
+    const r2 = await fetch("http://127.0.0.1:7851/api/mailbox/agent-be", {
+      method: "POST", body: "",
+    });
+    expect(r2.status).toBe(400);
   });
 
-  test("AC3: loop detection — 5 events with tool='Edit', signal=loop, detail='looping on Edit'", async () => {
-    const r = await fetch(`http://127.0.0.1:${STUCK_TEST_PORT}/api/stuck`);
+  test("switch to workspace with absent fleet.conf empties validAgents", async () => {
+    const switchRes = await fetch("http://127.0.0.1:7851/api/workspace-switch", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ controlDir: wsEmptyDir }),
+    });
+    expect(switchRes.status).toBe(200);
+    const switchBody = (await switchRes.json()) as { agents: string[] };
+    expect(switchBody.agents).toHaveLength(0);
+
+    // All agents now rejected
+    const r = await fetch("http://127.0.0.1:7851/api/mailbox/agent-fe", {
+      method: "POST", body: "",
+    });
+    expect(r.status).toBe(400);
+  });
+});
+
+// --- T11-amended AC4: GET /api/fleet uses validAgents set ---
+
+describe("GET /api/fleet reflects validAgents from fleet.conf (AC4)", () => {
+  const fleetConfControlDir = join(testDir, "fleet-conf-control");
+  let fleetConfServer: Server;
+
+  beforeAll(
+    () =>
+      new Promise<void>((resolve) => {
+        mkdirSync(fleetConfControlDir, { recursive: true });
+        // fleet.conf lists only agent-be and agent-qa (subset of the usual four)
+        writeFileSync(
+          join(fleetConfControlDir, "fleet.conf"),
+          "agent-be  FEATURE_ROLE.md\nagent-qa  QA_ROLE.md\n",
+        );
+        const { handler } = makeFleetConfHandler(fleetConfControlDir, agentsHome);
+        fleetConfServer = createServer(handler);
+        fleetConfServer.listen(7852, "127.0.0.1", resolve);
+      }),
+  );
+
+  afterAll(
+    () =>
+      new Promise<void>((resolve, reject) => {
+        fleetConfServer.close((err) => { if (err) reject(err); else resolve(); });
+      }),
+  );
+
+  test("GET /api/fleet returns only agents present in validAgents set", async () => {
+    const r = await fetch("http://127.0.0.1:7852/api/fleet");
     expect(r.status).toBe(200);
-    const body = (await r.json()) as { stuck: StuckAgent[] };
-    const entry = body.stuck.find((e) => e.agent === "stuck-loop");
-    expect(entry).toBeDefined();
-    expect(entry!.signal).toBe("loop");
-    expect(entry!.detail).toBe("looping on Edit");
+    const body = (await r.json()) as AgentStatus[];
+    expect(Array.isArray(body)).toBe(true);
+    expect(body).toHaveLength(2);
+    const names = body.map((a) => a.name);
+    expect(names).toContain("agent-be");
+    expect(names).toContain("agent-qa");
+    expect(names).not.toContain("agent-fe");
+    expect(names).not.toContain("agent-doc");
   });
 
-  test("AC4: fail_storm — failure_count=2 and status=in_progress, signal=fail_storm", async () => {
-    const r = await fetch(`http://127.0.0.1:${STUCK_TEST_PORT}/api/stuck`);
+  test("GET /api/fleet returns empty array when validAgents is empty", async () => {
+    // Switch to a workspace with no fleet.conf
+    const emptyDir = join(testDir, "fleet-empty-ws");
+    mkdirSync(emptyDir, { recursive: true });
+
+    await fetch("http://127.0.0.1:7852/api/workspace-switch", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ controlDir: emptyDir }),
+    });
+
+    const r = await fetch("http://127.0.0.1:7852/api/fleet");
     expect(r.status).toBe(200);
-    const body = (await r.json()) as { stuck: StuckAgent[] };
-    const entry = body.stuck.find((e) => e.agent === "stuck-fail");
-    expect(entry).toBeDefined();
-    expect(entry!.signal).toBe("fail_storm");
-    expect(entry!.detail).toBe("2 failed attempts");
-  });
-
-  test("AC5: malformed JSONL line skipped — returns 200 with valid array, not 500", async () => {
-    const r = await fetch(`http://127.0.0.1:${STUCK_TEST_PORT}/api/stuck`);
-    expect(r.status).toBe(200);
-    const body = (await r.json()) as { stuck: StuckAgent[] };
-    // Valid line after malformed line is still processed; old ts → silent
-    const entry = body.stuck.find((e) => e.agent === "stuck-malformed");
-    expect(entry).toBeDefined();
-    expect(entry!.signal).toBe("silent");
-  });
-
-  test("AC6: missing log file — agent skipped gracefully, others still returned, no 500", async () => {
-    const r = await fetch(`http://127.0.0.1:${STUCK_TEST_PORT}/api/stuck`);
-    expect(r.status).toBe(200);
-    const body = (await r.json()) as { stuck: StuckAgent[] };
-    // stuck-missing has no log file — must not appear and must not cause 500
-    expect(body.stuck.find((e) => e.agent === "stuck-missing")).toBeUndefined();
-    // stuck-silent still appears (other agents unaffected)
-    expect(body.stuck.find((e) => e.agent === "stuck-silent")).toBeDefined();
-  });
-
-  test("AC7: edge-triggered SSE — broadcasts once for new signal, suppresses same signal on re-evaluation", async () => {
-    stuckEdgeBroadcasts = [];
-
-    // First call — stuck-edge has old log → silent signal → new edge → broadcast
-    const r1 = await fetch(`http://127.0.0.1:${STUCK_EDGE_PORT}/api/stuck`);
-    expect(r1.status).toBe(200);
-    const edgeBroadcasts1 = stuckEdgeBroadcasts.filter((f) => f.includes('"stuck-edge"'));
-    expect(edgeBroadcasts1).toHaveLength(1);
-    expect(edgeBroadcasts1[0]).toContain("event: stuck");
-    const payload = JSON.parse(edgeBroadcasts1[0].split("\n")[1].slice("data: ".length)) as {
-      agent: string; signal: string; detail: string;
-    };
-    expect(payload.agent).toBe("stuck-edge");
-    expect(payload.signal).toBe("silent");
-
-    stuckEdgeBroadcasts = [];
-
-    // Second call — same signal for stuck-edge — must NOT broadcast again
-    const r2 = await fetch(`http://127.0.0.1:${STUCK_EDGE_PORT}/api/stuck`);
-    expect(r2.status).toBe(200);
-    expect(stuckEdgeBroadcasts.filter((f) => f.includes('"stuck-edge"'))).toHaveLength(0);
-  });
-
-  test("AC8: agent with needs_human status not reported as stuck", async () => {
-    const r = await fetch(`http://127.0.0.1:${STUCK_TEST_PORT}/api/stuck`);
-    expect(r.status).toBe(200);
-    const body = (await r.json()) as { stuck: StuckAgent[] };
-    expect(body.stuck.find((e) => e.agent === "stuck-suppressed")).toBeUndefined();
+    const body = (await r.json()) as AgentStatus[];
+    expect(body).toHaveLength(0);
   });
 });
