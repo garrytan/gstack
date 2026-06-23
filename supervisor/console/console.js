@@ -284,7 +284,7 @@ async function fetchStuck() {
 }
 
 function renderStuckSection() {
-  const section = $('section-stuck');
+  const section = $('stuck-alert-slot');
   const container = $('stuck-cards');
   if (!section || !container) return;
 
