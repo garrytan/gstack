@@ -204,6 +204,10 @@ Report the exact output — either "READY: <path>" or "NEEDS_SETUP".`,
       fs.copyFileSync(path.join(ROOT, 'bin', script), path.join(binDir, script));
       fs.chmodSync(path.join(binDir, script), 0o755);
     }
+    // gstack-learnings-log imports $SCRIPT_DIR/../lib/jsonl-store.ts (shared
+    // injection patterns, since v1.57.5.0) — a real install always ships bin/
+    // and lib/ together, so the fixture must too. Without it the bin exits 1
+    // before writing anything and the test fails on every attempt.
     const libDir = path.join(opDir, 'lib');
     fs.mkdirSync(libDir, { recursive: true });
     fs.copyFileSync(path.join(ROOT, 'lib', 'jsonl-store.ts'), path.join(libDir, 'jsonl-store.ts'));

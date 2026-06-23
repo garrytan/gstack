@@ -1231,6 +1231,63 @@ Claiming work is complete without verification is dishonesty, not efficiency.
 
 ## Step 17: Push
 
+**Credential pre-push guard (#1946) — run before the push:**
+
+```bash
+_REDACT_PREPUSH=$(~/.claude/skills/gstack/bin/gstack-config get redact_prepush_hook 2>/dev/null || echo "false")
+_HOOK_PATH=$(git rev-parse --git-path hooks/pre-push 2>/dev/null || echo "")
+_HOOK_INSTALLED="no"
+[ -n "$_HOOK_PATH" ] && [ -f "$_HOOK_PATH" ] && grep -q "gstack-redact" "$_HOOK_PATH" 2>/dev/null && _HOOK_INSTALLED="yes"
+# Custom hooks dirs (core.hooksPath — e.g. husky's COMMITTED .husky/) must
+# never get a silent install: the chaining installer would rename the team's
+# committed hook and write a machine-local wrapper into the working tree.
+_HOOKS_DIR=$(git rev-parse --git-path hooks 2>/dev/null || echo "")
+_GIT_DIR=$(git rev-parse --absolute-git-dir 2>/dev/null || echo "")
+_HOOKS_IN_GIT_DIR="no"
+case "$_HOOKS_DIR" in
+  "$_GIT_DIR"/*|hooks|.git/hooks) _HOOKS_IN_GIT_DIR="yes" ;;
+esac
+_PREPUSH_PROMPTED=$([ -f "${GSTACK_HOME:-$HOME/.gstack}/.redact-prepush-prompted" ] && echo "yes" || echo "no")
+echo "REDACT_PREPUSH: $_REDACT_PREPUSH"
+echo "HOOK_INSTALLED: $_HOOK_INSTALLED"
+echo "HOOKS_IN_GIT_DIR: $_HOOKS_IN_GIT_DIR"
+echo "PREPUSH_PROMPTED: $_PREPUSH_PROMPTED"
+```
+
+Branch on the echoed values:
+
+1. **`REDACT_PREPUSH: true` and `HOOK_INSTALLED: no` and `HOOKS_IN_GIT_DIR: yes`** —
+   consent already given; install silently (no question) and continue:
+   ```bash
+   ~/.claude/skills/gstack/bin/gstack-redact install-prepush-hook
+   ```
+   If `HOOKS_IN_GIT_DIR: no` (husky or another committed hooks dir), do NOT
+   install silently — print one line: "redact pre-push guard not installed:
+   this repo uses a custom core.hooksPath; run
+   `gstack-redact install-prepush-hook` manually if you want it chained."
+2. **`REDACT_PREPUSH` not true AND `PREPUSH_PROMPTED: no`** — one-time
+   offer (fires once EVER, machine-wide). AskUserQuestion:
+
+   > gstack can install a per-repo git pre-push hook that blocks pushes
+   > containing credentials (API keys, tokens, private keys). It's a
+   > guardrail, not enforcement — `GSTACK_REDACT_PREPUSH=skip` bypasses it.
+   > Install it for repos you ship from?
+
+   Options:
+   - A) Yes — install the credential guard (recommended)
+   - B) No — never ask again
+
+   If A: run `~/.claude/skills/gstack/bin/gstack-config set redact_prepush_hook true`
+   then `~/.claude/skills/gstack/bin/gstack-redact install-prepush-hook`.
+   If B: run `~/.claude/skills/gstack/bin/gstack-config set redact_prepush_hook false`.
+   ALWAYS (after either answer, but NOT if the question itself failed to
+   render — a failed AskUserQuestion must re-offer next time):
+   ```bash
+   touch "${GSTACK_HOME:-$HOME/.gstack}/.redact-prepush-prompted"
+   ```
+3. **Anything else** (declined earlier, or already installed) — continue
+   without comment.
+
 **Idempotency check:** Check if the branch is already pushed and up to date.
 
 ```bash

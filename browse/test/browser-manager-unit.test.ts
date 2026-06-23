@@ -227,3 +227,79 @@ describe('BrowserManager.onDisconnect exit-code propagation', () => {
     expect(shutdownCalls).toEqual([0, 2, 2]);
   });
 });
+
+// ─── Stealth injected on EVERY launch path (regression tripwire) ───
+//
+// applyStealth must run on launch() (headless), launchHeaded(), AND
+// handoff(). The blend of Layer C with extended mode left handoff() building
+// cmdline args but never calling applyStealth, so a handed-off browser had
+// no JS stealth (no webdriver mask, no chrome.* shape, no toString proxy).
+// This static check fails CI if any launch path drops the call again.
+describe('stealth injected on every context-creation path', () => {
+  it('every context-creation path calls applyStealth (>= 4 call sites)', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const src = readFileSync(join(import.meta.dir, '..', 'src', 'browser-manager.ts'), 'utf-8');
+
+    // Every path that builds a BrowserContext must apply stealth: launch()
+    // (headless), launchHeaded(), handoff(), and recreateContext() (the
+    // useragent / viewport --scale rebuild, main + fallback). A path that
+    // creates a context without applyStealth silently un-stealths its pages.
+    const callSites = src.match(/applyStealth\(/g) || [];
+    expect(callSites.length).toBeGreaterThanOrEqual(4);
+
+    // handoff() body specifically must call applyStealth, before the resume() JSDoc.
+    const handoffStart = src.indexOf('async handoff(');
+    expect(handoffStart).toBeGreaterThan(0);
+    const resumeAnchor = src.indexOf('Resume AI control after user handoff', handoffStart);
+    const handoffBody = src.slice(handoffStart, resumeAnchor > 0 ? resumeAnchor : handoffStart + 4000);
+    expect(handoffBody).toContain('applyStealth(');
+
+    // recreateContext() body must call applyStealth too — useragent and
+    // viewport --scale route through it and would otherwise drop all stealth.
+    const recreateStart = src.indexOf('recreateContext');
+    expect(recreateStart).toBeGreaterThan(0);
+    // Find the method definition (not just the JSDoc/caller references).
+    const recreateDef = src.indexOf('async recreateContext(');
+    expect(recreateDef).toBeGreaterThan(0);
+    const setUaAnchor = src.indexOf('async setDeviceScaleFactor(', recreateDef);
+    const recreateBody = src.slice(recreateDef, setUaAnchor > 0 ? setUaAnchor : recreateDef + 6000);
+    expect(recreateBody).toContain('applyStealth(');
+  });
+
+  it('buildGStackLaunchArgs() is spread into all 3 launch sites', async () => {
+    // Same silent-drop regression class as applyStealth: a launch path that
+    // omits buildGStackLaunchArgs() loses the per-install GPU/UA/hardware
+    // cmdline spoof. launch(), launchHeaded(), and handoff() must all call it.
+    const { readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const src = readFileSync(join(import.meta.dir, '..', 'src', 'browser-manager.ts'), 'utf-8');
+    const callSites = src.match(/buildGStackLaunchArgs\(\)/g) || [];
+    expect(callSites.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('STEALTH_LAUNCH_ARGS is spread into all 3 launch sites (no hardcoded literal)', async () => {
+    // The --disable-blink-features=AutomationControlled flag must come from the
+    // shared constant on launch(), launchHeaded(), AND handoff(). handoff()
+    // previously omitted it, leaving the AutomationControlled tell on the
+    // handed-off browser. No path may inline the literal instead.
+    const { readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const src = readFileSync(join(import.meta.dir, '..', 'src', 'browser-manager.ts'), 'utf-8');
+    const spreads = src.match(/\.\.\.STEALTH_LAUNCH_ARGS/g) || [];
+    expect(spreads.length).toBeGreaterThanOrEqual(3);
+    // The literal must not be reintroduced in a launchArgs array (it belongs in
+    // the STEALTH_LAUNCH_ARGS constant in stealth.ts, not inline here).
+    expect(src).not.toContain("'--disable-blink-features=AutomationControlled'");
+  });
+
+  it('STEALTH_IGNORE_DEFAULT_ARGS is wired into both persistent-context paths', async () => {
+    // launchHeaded() and handoff() both launchPersistentContext and must strip
+    // Playwright's automation-tell defaults via the shared constant.
+    const { readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const src = readFileSync(join(import.meta.dir, '..', 'src', 'browser-manager.ts'), 'utf-8');
+    const sites = src.match(/ignoreDefaultArgs:\s*STEALTH_IGNORE_DEFAULT_ARGS/g) || [];
+    expect(sites.length).toBeGreaterThanOrEqual(2);
+  });
+});

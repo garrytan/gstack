@@ -64,7 +64,7 @@ jobs:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
       options: --user runner
-    timeout-minutes: 25
+    timeout-minutes: ${{ matrix.suite.timeout || 25 }}
     strategy:
       fail-fast: false
       matrix:
@@ -94,6 +94,16 @@ jobs:
             file: test/codex-e2e.test.ts
           - name: e2e-gemini
             file: test/gemini-e2e.test.ts
+          # Real-PTY plan-mode smokes. Only the deterministically-reliable ones
+          # are CI-gated: office-hours (asks its mode question first, caught by
+          # the collapsed/bullet prose-AUQ detector) and plan-mode-no-op (no
+          # ask-first dependency). The plan-eng/plan-design plan-mode + floor
+          # smokes are periodic (stochastic ask-first — see touchfiles E2E_TIERS).
+          # Needs the interactive-config seed step below; PTY sessions otherwise
+          # wedge on the fresh-container onboarding/API-key dialog.
+          - name: e2e-pty-plan-smoke
+            file: test/skill-e2e-office-hours-auto-mode.test.ts test/skill-e2e-plan-mode-no-op.test.ts
+            timeout: 35
     steps:
       - uses: actions/checkout@v4
         with:
@@ -136,6 +146,75 @@ jobs:
           echo "whoami=$(whoami) HOME=$HOME TMPDIR=${TMPDIR:-unset}"
           touch /tmp/.bun-test && rm /tmp/.bun-test && echo "/tmp writable"
           bun -e "import {chromium} from 'playwright';const b=await chromium.launch({args:['--no-sandbox']});console.log('Chromium OK');await b.close()"
+
+      # PTY smokes spawn the interactive `claude` TUI. A fresh container has no
+      # ~/.claude.json, so claude wedges on the onboarding + "use detected
+      # ANTHROPIC_API_KEY?" dialog and the spawned session never reaches the
+      # skill. Seed onboarding-complete + the key approval (mirrors what the
+      # hermetic E2E child env seeds). Scoped to this suite; needs its OWN key
+      # env (the secrets block below is on the Run step only).
+      - name: Seed claude interactive config
+        if: matrix.suite.name == 'e2e-pty-plan-smoke'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          node -e '
+            const fs = require("fs"), os = require("os"), path = require("path");
+            const p = path.join(os.homedir(), ".claude.json");
+            const seed = fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, "utf8")) : {};
+            seed.hasCompletedOnboarding = true;
+            const key = process.env.ANTHROPIC_API_KEY || "";
+            if (key) seed.customApiKeyResponses = { approved: [key.slice(-20)], rejected: [] };
+            fs.writeFileSync(p, JSON.stringify(seed, null, 2));
+            console.log("seeded", p);
+          '
+
+      # PTY smokes drive the interactive `claude` TUI and send /office-hours and
+      # /plan-ceo-review. Claude Code discovers user-scoped skills from
+      # $HOME/.claude/skills/<name>/SKILL.md, but .claude/skills is gitignored, so
+      # a fresh CI checkout has NO registry — claude prints "Unknown command:
+      # /plan-ceo-review". Mirror setup's --no-prefix registry minimally: a gstack
+      # root symlink (resolves the preamble's absolute ~/.claude/skills/gstack/bin/*
+      # and ~/.claude/skills/gstack/<skill>/sections/* paths) plus a per-skill
+      # top-level dir holding SKILL.md (+ sections) symlinks for the two skills
+      # these tests invoke. No ./setup (it builds binaries, launches Chromium,
+      # installs fonts, reads a /dev/tty prompt) and no binary build (SKILL.md +
+      # bin/ + sections/ are committed). $HOME is /github/home here; the spawned
+      # claude inherits it (this runner adds no HOME/CLAUDE_CONFIG_DIR override,
+      # no hermetic mode) and the Seed step already proved claude reads $HOME.
+      - name: Register gstack skills for PTY smoke
+        if: matrix.suite.name == 'e2e-pty-plan-smoke'
+        run: |
+          set -eu
+          SKILLS_DIR="$HOME/.claude/skills"
+          REPO="$GITHUB_WORKSPACE"   # /__w/gstack/gstack
+          mkdir -p "$SKILLS_DIR"
+          ln -snf "$REPO" "$SKILLS_DIR/gstack"
+          for s in office-hours plan-ceo-review; do
+            mkdir -p "$SKILLS_DIR/$s"
+            ln -snf "$REPO/$s/SKILL.md" "$SKILLS_DIR/$s/SKILL.md"
+            ln -snf "$REPO/$s/sections" "$SKILLS_DIR/$s/sections"
+          done
+          echo "--- registry under $SKILLS_DIR ---"
+          ls -la "$SKILLS_DIR/gstack" "$SKILLS_DIR/office-hours" "$SKILLS_DIR/plan-ceo-review"
+          # Fail fast if any committed target moved/renamed — a dangling symlink
+          # would otherwise resurface as a silent "Unknown command" + 35-min timeout.
+          for f in \
+            "$SKILLS_DIR/office-hours/SKILL.md" \
+            "$SKILLS_DIR/plan-ceo-review/SKILL.md" \
+            "$SKILLS_DIR/gstack/bin/gstack-update-check" \
+            "$SKILLS_DIR/gstack/office-hours/sections/design-and-handoff.md" \
+            "$SKILLS_DIR/gstack/plan-ceo-review/sections/review-sections.md"; do
+            if [ ! -e "$f" ]; then
+              echo "ERROR: skill-registry target missing (symlink dangles): $f" >&2
+              exit 1
+            fi
+          done
+          grep -m1 '^name: office-hours$'    "$SKILLS_DIR/office-hours/SKILL.md"    >/dev/null \
+            || { echo "ERROR: office-hours SKILL.md missing 'name: office-hours' frontmatter" >&2; exit 1; }
+          grep -m1 '^name: plan-ceo-review$' "$SKILLS_DIR/plan-ceo-review/SKILL.md" >/dev/null \
+            || { echo "ERROR: plan-ceo-review SKILL.md missing 'name: plan-ceo-review' frontmatter" >&2; exit 1; }
+          echo "skill registry OK"
 
       - name: Run ${{ matrix.suite.name }}
         env:
@@ -218,14 +297,14 @@ jobs:
 
           BODY="## E2E Evals: ${STATUS}
 
-          **${PASSED}/${TOTAL}** tests passed | **\$${COST}** total cost | **12 parallel runners**
+          **${PASSED}/${TOTAL}** tests passed | **\$${COST}** total cost | **13 parallel runners**
 
           | Suite | Result | Status | Cost |
           |-------|--------|--------|------|
           $(echo -e "$SUITE_LINES")
 
           ---
-          *12x ubicloud-standard-8 (Docker: pre-baked toolchain + deps) | wall clock ≈ slowest suite*"
+          *13x ubicloud-standard-8 (Docker: pre-baked toolchain + deps) | wall clock ≈ slowest suite*"
 
           if [ "$FAILED" -gt 0 ]; then
             FAILURES=""

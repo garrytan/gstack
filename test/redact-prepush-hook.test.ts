@@ -107,6 +107,84 @@ describe("diff direction + special refs", () => {
   });
 });
 
+describe("fail closed on unscannable diffs (#1946)", () => {
+  test("a diff git cannot compute BLOCKS the push and names the escape valve", () => {
+    // Bogus-but-well-formed SHAs: git diff exits non-zero, the old git()
+    // helper returned "" and the push sailed through unscanned.
+    const bogusLocal = "a".repeat(40);
+    const bogusRemote = "b".repeat(40);
+    const { code, stderr } = runHook(
+      `refs/heads/main ${bogusLocal} refs/heads/main ${bogusRemote}\n`,
+    );
+    expect(code).toBe(1);
+    expect(stderr).toContain("could not compute the pushed diff");
+    expect(stderr).toContain("GSTACK_REDACT_PREPUSH=skip");
+  });
+
+  test("an empty-but-successful diff still passes (no-op push)", () => {
+    const head = git(["rev-parse", "HEAD"]);
+    // remote == local: diff succeeds and is empty — must NOT block.
+    const { code } = runHook(`refs/heads/main ${head} refs/heads/main ${head}\n`);
+    expect(code).toBe(0);
+  });
+
+  test("a remote sha absent locally (shallow clone / stale fetch) falls back to scanning MORE, not blocking", () => {
+    // Adversarial review finding 8: remote..local can't resolve when the
+    // remote tip object isn't in the local odb. The fallback scans the
+    // merge-base/empty-tree range — a secret in the pushed content still
+    // blocks; a clean push passes instead of hard-failing.
+    const fakeRemoteSha = "c".repeat(40);
+    const head = commit("secrets.txt", "key AKIA1234567890ABCDEF\n", "leaky commit");
+    const { code, stderr } = runHook(`refs/heads/main ${head} refs/heads/main ${fakeRemoteSha}\n`);
+    expect(code).toBe(1); // fallback range still catches the credential
+    expect(stderr).toContain("aws.access_key");
+    expect(stderr).not.toContain("could not compute the pushed diff");
+  });
+
+  test("a diff killed by a signal (null status — the maxBuffer/kill class) BLOCKS", () => {
+    // Stub git: probes delegate to the real git; the diff invocation kills
+    // itself, producing spawnSync status === null. This is the exact branch
+    // gitStrict's docstring names (oversized-diff overflow is delivered the
+    // same way) — pre-landing review flagged it as untested.
+    const realGit = Bun.which("git") || "/usr/bin/git";
+    const stubDir = fs.mkdtempSync(path.join(os.tmpdir(), "prepush-stubgit-"));
+    try {
+      const stub = `#!/bin/sh\nif [ "$1" = "diff" ]; then kill -KILL $$; fi\nexec "${realGit}" "$@"\n`;
+      fs.writeFileSync(path.join(stubDir, "git"), stub);
+      fs.chmodSync(path.join(stubDir, "git"), 0o755);
+
+      const base = git(["rev-parse", "HEAD"]);
+      const head = commit("clean.txt", "clean content\n", "clean commit");
+      const { code, stderr } = runHook(`refs/heads/main ${head} refs/heads/main ${base}\n`, {
+        PATH: `${stubDir}:${process.env.PATH}`,
+      });
+      expect(code).toBe(1);
+      expect(stderr).toContain("could not compute the pushed diff");
+      expect(stderr).toContain("GSTACK_REDACT_PREPUSH=skip");
+    } finally {
+      fs.rmSync(stubDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("install UX surfaces (#1946 / eng review D3+D10)", () => {
+  const ROOT = path.resolve(import.meta.dir, "..");
+
+  test("setup carries the hint only — never a per-repo install (it runs in the wrong repo)", () => {
+    const setup = fs.readFileSync(path.join(ROOT, "setup"), "utf8");
+    expect(setup).toContain("redact_prepush_hook");
+    // The hint must not invoke the installer from setup.
+    expect(setup).not.toContain("install-prepush-hook");
+  });
+
+  test("ship template owns per-repo install: silent-install path + one-time offer marker", () => {
+    const tmpl = fs.readFileSync(path.join(ROOT, "ship", "SKILL.md.tmpl"), "utf8");
+    expect(tmpl).toContain("install-prepush-hook");
+    expect(tmpl).toContain(".redact-prepush-prompted");
+    expect(tmpl).toContain("redact_prepush_hook");
+  });
+});
+
 describe("escape valve", () => {
   test("GSTACK_REDACT_PREPUSH=skip bypasses + logs", () => {
     const base = git(["rev-parse", "HEAD"]);

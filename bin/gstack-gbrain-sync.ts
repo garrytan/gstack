@@ -717,6 +717,8 @@ function dreamMarkerPid(): number | null {
  *   missing-config → "no local engine; run /setup-gbrain to add local PGLite"
  *   broken-config  → "config file at ~/.gbrain/config.json is malformed; see /setup-gbrain Step 1.5"
  *   broken-db      → "config points at unreachable DB; see /setup-gbrain Step 1.5"
+ *   timeout        → kept for Record totality; stages PROCEED on timeout (#1964)
+ *                    via the gate's warnProbeTimeout path, never this skip.
  */
 function skipStageForLocalStatus(
   stage: "code" | "memory" | "dream",
@@ -731,6 +733,8 @@ function skipStageForLocalStatus(
       "config at ~/.gbrain/config.json is malformed; see /setup-gbrain Step 1.5",
     "broken-db":
       "config points at unreachable DB; see /setup-gbrain Step 1.5",
+    "timeout":
+      "engine probe timed out; raise GSTACK_GBRAIN_PROBE_TIMEOUT_MS if your pooler is slow",
   };
   const reason = reasons[status as Exclude<LocalEngineStatus, "ok">];
   return {
@@ -740,6 +744,20 @@ function skipStageForLocalStatus(
     duration_ms: Date.now() - t0,
     summary: `skipped — local engine ${status} — ${reason}`,
   };
+}
+
+/**
+ * "timeout" means the probe hit its deadline with no recognized error — the
+ * engine is most likely healthy but slow (#1964: cold pooler connections
+ * measured at 6.9-10.7s). Stages proceed; a genuinely-dead engine surfaces
+ * its REAL error at the first actual operation instead of a false
+ * "config malformed" skip.
+ */
+function warnProbeTimeout(stage: "code" | "memory" | "dream"): void {
+  process.stderr.write(
+    `[gstack-gbrain-sync] ${stage}: engine probe timed out — proceeding anyway; ` +
+      `raise GSTACK_GBRAIN_PROBE_TIMEOUT_MS if your pooler is slow\n`,
+  );
 }
 
 
@@ -773,7 +791,9 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
   // when the local DB is dead. Skipped on --dry-run (above) since dry-run
   // never actually probes anything.
   const localStatus = localEngineStatus({ noCache: false });
-  if (localStatus !== "ok") {
+  if (localStatus === "timeout") {
+    warnProbeTimeout("code"); // #1964: slow-but-healthy — proceed
+  } else if (localStatus !== "ok") {
     return skipStageForLocalStatus("code", localStatus, t0);
   }
 
@@ -1031,7 +1051,9 @@ function runMemoryIngest(args: CliArgs): StageResult {
   // not ok, SKIP cleanly so brain-sync (the only stage that doesn't depend
   // on local engine) still runs.
   const localStatus = localEngineStatus({ noCache: false });
-  if (localStatus !== "ok") {
+  if (localStatus === "timeout") {
+    warnProbeTimeout("memory"); // #1964: slow-but-healthy — proceed
+  } else if (localStatus !== "ok") {
     return skipStageForLocalStatus("memory", localStatus, t0);
   }
 
@@ -1193,7 +1215,9 @@ export async function runDream(args: CliArgs): Promise<StageResult> {
   }
 
   const localStatus = localEngineStatus({ noCache: false });
-  if (localStatus !== "ok") {
+  if (localStatus === "timeout") {
+    warnProbeTimeout("dream"); // #1964: slow-but-healthy — proceed
+  } else if (localStatus !== "ok") {
     return skipStageForLocalStatus("dream", localStatus, t0);
   }
 
