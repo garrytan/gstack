@@ -39,6 +39,131 @@ EOF
 
 Repeat for `agent-fe`, `agent-qa`, `agent-doc`. The `WORK_REPO_URL` is empty for QA/doc agents that only commit to the control repo.
 
+If you want the same machine to run two projects at once, create a separate config file for each project and give every agent a unique name. The config file name still follows `~/agents/<agent-name>/config`, so the names need to be different even if the roles are the same.
+
+Example: Project A uses `proj-a-*` and Project B uses `proj-b-*`.
+
+```bash
+# Project A
+mkdir -p ~/agents/proj-a-fe
+cat > ~/agents/proj-a-fe/config <<EOF
+CONTROL_REPO_URL=git@github.com:your-org/project-a-control.git
+WORK_REPO_URL=git@github.com:your-org/project-a-frontend.git
+AGENT_DOMAIN=fe
+EOF
+
+mkdir -p ~/agents/proj-a-be
+cat > ~/agents/proj-a-be/config <<EOF
+CONTROL_REPO_URL=git@github.com:your-org/project-a-control.git
+WORK_REPO_URL=git@github.com:your-org/project-a-backend.git
+AGENT_DOMAIN=be
+EOF
+
+# Project B
+mkdir -p ~/agents/proj-b-fe
+cat > ~/agents/proj-b-fe/config <<EOF
+CONTROL_REPO_URL=git@github.com:your-org/project-b-control.git
+WORK_REPO_URL=git@github.com:your-org/project-b-frontend.git
+AGENT_DOMAIN=fe
+EOF
+
+mkdir -p ~/agents/proj-b-qa
+cat > ~/agents/proj-b-qa/config <<EOF
+CONTROL_REPO_URL=git@github.com:your-org/project-b-control.git
+WORK_REPO_URL=
+AGENT_DOMAIN=qa
+EOF
+```
+cat > ~/agents/cms-agent-be/config <<EOF
+CONTROL_REPO_URL=https://github.com/seab-group/dsti-website-cms-control.git
+WORK_REPO_URL=https://github.com/seab-group/dsti-website-cms.git
+AGENT_DOMAIN=be
+EOF
+
+Then create a matching `fleet.conf` for each project. For example:
+
+```bash
+# ~/agents/project-a/fleet.conf
+proj-a-fe    FEATURE_ROLE.md    claude-sonnet-4-6
+proj-a-be    FEATURE_ROLE.md    claude-sonnet-4-6
+proj-a-qa    QA_ROLE.md         claude-sonnet-4-6
+proj-a-doc   DOC_ROLE.md        claude-sonnet-4-6
+
+# ~/agents/project-b/fleet.conf
+proj-b-fe    FEATURE_ROLE.md    claude-sonnet-4-6
+proj-b-be    FEATURE_ROLE.md    claude-sonnet-4-6
+proj-b-qa    QA_ROLE.md         claude-sonnet-4-6
+proj-b-doc   DOC_ROLE.md        claude-sonnet-4-6
+```
+
+Start whichever fleet you want by pointing `FLEET_CONF` at the right file:
+
+```bash
+FLEET_CONF=~/agents/project-a/fleet.conf ./fleet.sh start
+FLEET_CONF=~/agents/project-b/fleet.conf ./fleet.sh start
+```
+
+**macOS production install (launchd)** — agents start immediately and survive logout/reboot:
+
+```bash
+cd supervisor
+
+./install.sh agent-be     FEATURE_ROLE.md  claude-sonnet-4-6
+./install.sh agent-fe     FEATURE_ROLE.md  claude-sonnet-4-6
+./install.sh agent-qa     QA_ROLE.md       claude-haiku-4-5
+./install.sh agent-doc    DOC_ROLE.md      claude-haiku-4-6
+./install.sh cms-agent-be FEATURE_ROLE.md  claude-sonnet-4-6
+./install.sh cms-agent-fe FEATURE_ROLE.md  claude-sonnet-4-6
+./install.sh cms-agent-qa QA_ROLE.md       claude-haiku-4-5
+./install.sh cms-agent-doc DOC_ROLE.md     claude-haiku-4-6
+```
+
+Check status:
+
+```bash
+./fleet.sh status
+```
+
+To remove all services:
+
+```bash
+./fleet.sh uninstall
+```
+
+**Linux production install (systemd)** — same per-agent config files, installed as systemd user services with `install.sh`.
+
+Example for one Linux machine running Project A:
+
+```bash
+mkdir -p ~/agents/proj-a-fe
+cat > ~/agents/proj-a-fe/config <<EOF
+CONTROL_REPO_URL=git@github.com:your-org/project-a-control.git
+WORK_REPO_URL=git@github.com:your-org/project-a-frontend.git
+AGENT_DOMAIN=fe
+EOF
+
+mkdir -p ~/agents/proj-a-be
+cat > ~/agents/proj-a-be/config <<EOF
+CONTROL_REPO_URL=git@github.com:your-org/project-a-control.git
+WORK_REPO_URL=git@github.com:your-org/project-a-backend.git
+AGENT_DOMAIN=be
+EOF
+
+cd supervisor
+./install.sh proj-a-fe FEATURE_ROLE.md claude-sonnet-4-6
+./install.sh proj-a-be FEATURE_ROLE.md claude-sonnet-4-6
+./install.sh proj-a-qa QA_ROLE.md claude-sonnet-4-6
+./install.sh proj-a-doc DOC_ROLE.md claude-sonnet-4-6
+```
+
+After install, Linux manages them with `systemctl --user`:
+
+```bash
+systemctl --user status cstack-proj-a-fe
+systemctl --user stop cstack-proj-a-fe
+systemctl --user disable --now cstack-proj-a-fe
+```
+
 **Optional — enable cross-machine Supabase wake (add to each config):**
 
 ```bash
@@ -55,6 +180,26 @@ agent-fe    FEATURE_ROLE.md    claude-sonnet-4-6
 agent-qa    QA_ROLE.md         claude-sonnet-4-6
 agent-doc   DOC_ROLE.md        claude-sonnet-4-6
 ```
+
+If you want to run Project A and Project B at the same time on the same machine, give each project its own agent names. The supervisor keys everything off `~/agents/<agent-name>/config`, log directories, presence files, and launchd/systemd labels, so `agent-fe` can only belong to one project at a time.
+
+The supported pattern is to namespace the names, for example:
+
+```bash
+# Project A
+proj-a-fe
+proj-a-be
+proj-a-qa
+proj-a-doc
+
+# Project B
+proj-b-fe
+proj-b-be
+proj-b-qa
+proj-b-doc
+```
+
+You can keep separate `fleet.conf` files and point `FLEET_CONF` at the one you want to start, but the agent names still need to be unique across all concurrent projects.
 
 ### Step 3 — Choose: development mode or production mode
 
@@ -1990,3 +2135,71 @@ Two new `describe` blocks in `server.test.ts` cover all seven ACs:
 1. Add a line to `fleet.conf`
 2. Create `~/agents/<new-agent>/config` on the target machine
 3. Run `./fleet.sh start` (or `./fleet.sh install` for production)
+
+---
+
+## Adding agents for a second project when Project A is already installed
+
+Existing launchd services for Project A are **not affected** — each service is keyed off the agent name, so new agents with different names install independently alongside existing ones.
+
+### Steps
+
+**1. Create config files for the new project's agents:**
+
+```bash
+mkdir -p ~/agents/proj-b-fe
+cat > ~/agents/proj-b-fe/config <<EOF
+CONTROL_REPO_URL=git@github.com:your-org/project-b-control.git
+WORK_REPO_URL=git@github.com:your-org/project-b-frontend.git
+AGENT_DOMAIN=fe
+EOF
+
+mkdir -p ~/agents/proj-b-be
+cat > ~/agents/proj-b-be/config <<EOF
+CONTROL_REPO_URL=git@github.com:your-org/project-b-control.git
+WORK_REPO_URL=git@github.com:your-org/project-b-backend.git
+AGENT_DOMAIN=be
+EOF
+
+# Add qa and doc agents similarly, leaving WORK_REPO_URL empty if they only commit to the control repo
+```
+
+**2. Add the new agents to `supervisor/fleet.conf`** (existing Project A lines stay untouched):
+
+```
+# Project A — already installed, leave these alone
+agent-be    FEATURE_ROLE.md    claude-sonnet-4-6
+agent-fe    FEATURE_ROLE.md    claude-sonnet-4-6
+agent-qa    QA_ROLE.md         claude-haiku-4-5
+agent-doc   DOC_ROLE.md        claude-haiku-4-6
+
+# Project B — new agents
+proj-b-fe   FEATURE_ROLE.md    claude-sonnet-4-6
+proj-b-be   FEATURE_ROLE.md    claude-sonnet-4-6
+proj-b-qa   QA_ROLE.md         claude-haiku-4-5
+proj-b-doc  DOC_ROLE.md        claude-haiku-4-6
+```
+
+**3. Install only the new agents (macOS launchd):**
+
+```bash
+cd supervisor
+./install.sh proj-b-fe  FEATURE_ROLE.md  claude-sonnet-4-6
+./install.sh proj-b-be  FEATURE_ROLE.md  claude-sonnet-4-6
+./install.sh proj-b-qa  QA_ROLE.md       claude-haiku-4-5
+./install.sh proj-b-doc DOC_ROLE.md      claude-haiku-4-6
+```
+
+Do **not** re-run `./install.sh` for Project A agents — they are already running as services and don't need to be reinstalled.
+
+**4. Verify all agents are running:**
+
+```bash
+./fleet.sh status
+```
+
+You should see both Project A and Project B agents listed, each showing `service running`.
+
+### Key rule
+
+Agent names must be unique across all projects on the same machine. Prefixing with the project name (`proj-a-`, `proj-b-`, `cms-`) prevents collisions in config files, log directories, and launchd service labels.
