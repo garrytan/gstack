@@ -65,5 +65,30 @@ else
   printf '  FAIL  pipeline JSON missing tasks key\n' >&2; fail=$((fail + 1))
 fi
 
+# T15 AC1: GET /api/stuck returns 200 with stuck key
+check "GET /api/stuck" "${B}/api/stuck"
+STUCK_BODY=$(curl -sf --max-time 5 "${B}/api/stuck" 2>/dev/null) || STUCK_BODY=""
+if printf '%s' "${STUCK_BODY}" | grep -q '"stuck"'; then
+  printf '  ok    stuck JSON contains stuck key\n'; pass=$((pass + 1))
+else
+  printf '  FAIL  stuck JSON missing stuck key\n' >&2; fail=$((fail + 1))
+fi
+
+# T15 AC1/AC2: index.html contains stuck-cards container element
+if printf '%s' "${INDEX_BODY}" | grep -q 'stuck-cards'; then
+  printf '  ok    index.html contains stuck-cards element\n'; pass=$((pass + 1))
+else
+  printf '  FAIL  index.html missing stuck-cards element\n' >&2; fail=$((fail + 1))
+fi
+
+# T15 AC2: section-stuck element appears before section-attention element in HTML
+STUCK_LINE=$(printf '%s' "${INDEX_BODY}" | grep -n 'id="section-stuck"' | head -1 | cut -d: -f1)
+ATTN_LINE=$(printf '%s' "${INDEX_BODY}" | grep -n 'id="section-attention"' | head -1 | cut -d: -f1)
+if [ -n "${STUCK_LINE}" ] && [ -n "${ATTN_LINE}" ] && [ "${STUCK_LINE}" -lt "${ATTN_LINE}" ]; then
+  printf '  ok    section-stuck appears before section-attention in DOM\n'; pass=$((pass + 1))
+else
+  printf '  FAIL  section-stuck not before section-attention in DOM\n' >&2; fail=$((fail + 1))
+fi
+
 printf '\n=== smoke: %d passed, %d failed ===\n' "${pass}" "${fail}"
 [ "${fail}" -eq 0 ]
