@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+### Stuck detection engine — identify looping, silent, and failing agents (T14)
+
+Directors can now see at a glance which agents are stuck. `GET /api/stuck` computes three signal types in one call: `fail_storm` (task failure count ≥ 2), `loop` (last 5 JSONL events all share the same tool), and `silent` (no new event for 10 minutes). Agents in `needs_human`, `awaiting_info`, `complete`, or `open` status are excluded — they are already handled or have no active claim. A `stuck` SSE event fires edge-triggered when a new signal is detected, at most once per 60-second window per agent, so the console can surface stuck alerts without polling.
+
+#### Added
+- `GET /api/stuck` returns `{ stuck: StuckAgent[] }` where each entry carries `agent`, `signal` (`silent` | `loop` | `fail_storm`), `detail`, and `since` (T14 AC1).
+- `computeStuckSignals(agents, agentsHome, ledgerDir, nowMs?)` in `server-utils.ts` — pure utility reading each agent's `live-events.jsonl` tail (last 20 lines) and ledger to compute signals. `nowMs` is injectable for deterministic test control (T14 AC1–AC4).
+- `stuck` SSE event: edge-triggered broadcast with payload `{ agent, signal, detail }` when a new signal type is detected for an agent. Suppressed for subsequent evaluations with the same signal; cooldown of 60 s per agent (T14 AC7).
+- 8 new tests in `server.test.ts` covering all T14 ACs (116 total: 2 bash-wrapper + 114 server).
+
+#### Changed
+- Signal precedence when multiple signals fire: `fail_storm` > `loop` > `silent` — only the highest-precedence signal is reported per agent (T14 spec constraint).
+
+#### Fixed
+- Every `JSON.parse` call on JSONL lines is wrapped in try/catch. A single malformed line is silently skipped; it does not cause the endpoint to return 500 or truncate results for other agents (T14 AC5).
+- Missing or unreadable `live-events.jsonl` for one agent is caught gracefully; the agent is skipped and the response still includes signals for all other agents (T14 AC6).
+
 ### Fleet control endpoints — stop, restart, pause, resume agents from the console (T11)
 
 Directors can now control individual agents directly from the Fleet tab without touching a terminal. Four new POST endpoints send OS-level signals to agent processes and respond immediately. Stop sends SIGTERM and, if the process is still alive after 5 seconds, SIGKILL. Restart stops the agent and re-launches it via `run-agent.sh`. Pause and resume send SIGSTOP and SIGCONT. All four validate the agent name against `fleet.conf` and read the agent PID from `supervisor/pids/{name}.pid`.

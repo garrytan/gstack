@@ -14,10 +14,10 @@ Scripts for starting, stopping, and monitoring the autonomous agent fleet.
 | `console/index.html` | Console UI entry point (v7.1 — serves static HTML with SSE support, Pipeline tab panel with domain filter chips and spec panel) |
 | `console/console.js` | Console interactive client (v7.1 — card animations, empty states, AI draft panel, ARIA accessibility, Pipeline tab with collapsible status groups, domain filter chips persisted in localStorage, spec panel on card click, `pipeline-update` SSE listener; T13-amended: `pipelineBootstrapped` one-shot guard on tab activate, `fetchPipeline()` called on SSE reconnect, all SSE listeners fixed from `currentEs` → `es`) |
 | `console/styles.css` | Console design system (v7.1 — dark theme, motion tokens, Satoshi/DM Sans/JetBrains Mono typefaces, pipeline group/card/filter/spec-panel component styles) |
-| `console/server-utils.ts` | Utility exports — parsing ledger/mailbox, task ID validation (`TASK_ID_RE` supports both `CONS-003` and `T13` styles), fleet status reading, SSE helpers, `makeWatchHandler` (reads last `live-events.jsonl` line, caches payload for Last-Event-ID replay), `makeLedgerWatchHandler` (broadcasts `pipeline-update` SSE on `.task` file changes), port resolution, `readLogTail` (JSONL tail reader), `makeRateLimiter` (token-bucket rate limiter), `purgeStaleDecisionFiles` (startup garbage collection of stale decision files), `PipelineTask` type (T13); T11: `readPidFile` (reads PID from a pid file), `stopProcess` (SIGTERM + SIGKILL-after-5s async stop), `defaultIsProcessAlive` (signal-0 liveness check), `defaultKillFn` (signal sender), `KillFn`/`IsAliveFn` injectable types (v7.1) |
+| `console/server-utils.ts` | Utility exports — parsing ledger/mailbox, task ID validation (`TASK_ID_RE` supports both `CONS-003` and `T13` styles), fleet status reading, SSE helpers, `makeWatchHandler` (reads last `live-events.jsonl` line, caches payload for Last-Event-ID replay), `makeLedgerWatchHandler` (broadcasts `pipeline-update` SSE on `.task` file changes), port resolution, `readLogTail` (JSONL tail reader), `makeRateLimiter` (token-bucket rate limiter), `purgeStaleDecisionFiles` (startup garbage collection of stale decision files), `PipelineTask` type (T13); T11: `readPidFile` (reads PID from a pid file), `stopProcess` (SIGTERM + SIGKILL-after-5s async stop), `defaultIsProcessAlive` (signal-0 liveness check), `defaultKillFn` (signal sender), `KillFn`/`IsAliveFn` injectable types; T14: `computeStuckSignals` (reads each agent's JSONL tail + ledger, returns `StuckAgent[]` with silent/loop/fail_storm signals), `StuckAgent` type (v7.1) |
 | `console/bash-wrapper.test.ts` | Bun test wrapper that runs bash-wrapper.test.sh inline (v7.1) |
 | `console/bash-wrapper.test.sh` | Bash unit tests for risk classification (check_risk) and polling behavior (poll_approval) (v7.1) |
-| `console/server.test.ts` | Bun tests for endpoint security, static serving, queue bootstrap, `resolveControlDir`, SSE endpoint (T4 AC1/AC2/AC3/AC5), `makeWatchHandler`, log tail endpoint (T12 AC1-AC7), rate limiter, startup cleanup (T8 AC1-AC4), pipeline endpoint (T13 AC1/AC2), ledger watch handler (T13 AC3), spec endpoint (T13 AC7), pipeline bootstrap guard (T13-amended AC2), SSE reconnect pipeline bootstrap (T13-amended AC4), and fleet control endpoints (T11 AC1-AC8) (v7.1) |
+| `console/server.test.ts` | Bun tests for endpoint security, static serving, queue bootstrap, `resolveControlDir`, SSE endpoint (T4 AC1/AC2/AC3/AC5), `makeWatchHandler`, log tail endpoint (T12 AC1-AC7), rate limiter, startup cleanup (T8 AC1-AC4), pipeline endpoint (T13 AC1/AC2), ledger watch handler (T13 AC3), spec endpoint (T13 AC7), pipeline bootstrap guard (T13-amended AC2), SSE reconnect pipeline bootstrap (T13-amended AC4), fleet control endpoints (T11 AC1-AC8), and stuck detection engine (T14 AC1-AC8) (v7.1) |
 | `console/qa-smoke.sh` | QA smoke test for console UI — asserts page title, nav bar, Fleet tab presence, T6 AC1/AC2/AC4/AC5 (Dicebear avatar src, elapsed time format, HIGH risk badge, Unblock button), and T13 AC4/AC5 (pipeline endpoint 200, `pipeline-groups` element in HTML, `tasks` key in pipeline JSON) via gstack browse (v7.1) |
 
 ---
@@ -884,6 +884,95 @@ The `action` field is `"stop"` or `"restart"`. `pause` and `resume` do not broad
 
 ---
 
+## Stuck detection engine (T14)
+
+The console can detect when an agent is stuck — claimed on a task but showing no observable progress — and report it via `GET /api/stuck`. Three signal types cover the most common failure modes. A `stuck` SSE event fires edge-triggered when a new signal is detected for an agent, at most once per 60-second evaluation window.
+
+### Signal types
+
+| Signal | Detection rule | `detail` format |
+|---|---|---|
+| `fail_storm` | Agent's current task has `failure_count >= 2` and `status` is not `needs_human` or `awaiting_info` | `"{N} failed attempts"` |
+| `loop` | Last 5 valid JSONL events in `live-events.jsonl` all share the same non-null `tool` field | `"looping on {tool}"` |
+| `silent` | `ts` of the last valid JSONL event is more than 600 seconds before `Date.now()` | `"silent for {X}m"` |
+
+**Signal precedence:** `fail_storm` > `loop` > `silent`. When multiple signals would fire for the same agent, only the highest-precedence one is reported.
+
+**Idle suppression (AC8):** Agents whose current task `status` is `needs_human`, `awaiting_info`, `complete`, or `open` are excluded from all stuck checks. They are already in human hands or have no active claim.
+
+### GET /api/stuck (AC1)
+
+**Endpoint:** `GET /api/stuck`
+
+**Response:** HTTP 200 with `Content-Type: application/json`:
+
+```json
+{
+  "stuck": [
+    {
+      "agent": "agent-be",
+      "signal": "fail_storm",
+      "detail": "3 failed attempts",
+      "since": "2026-06-23T08:00:00.000Z"
+    },
+    {
+      "agent": "agent-fe",
+      "signal": "silent",
+      "detail": "silent for 15m",
+      "since": "2026-06-23T08:00:00.000Z"
+    }
+  ]
+}
+```
+
+The endpoint never returns 500. A missing or unreadable log file for one agent causes that agent to be skipped gracefully; signals for other agents are still returned (AC6).
+
+### computeStuckSignals() — server-utils.ts
+
+`computeStuckSignals(agents, agentsHome, ledgerDir, nowMs?)` is the pure utility underlying the endpoint:
+
+1. **Reads the ledger** via `parseTaskLedger(ledgerDir)` to build a map of `agent → { failureCount, status }` for all currently claimed tasks.
+2. **For each agent** in the `agents` list:
+   - Checks AC8 idle suppression first — skips agents in terminal/waiting statuses.
+   - Checks `fail_storm` — highest precedence, no JSONL read needed.
+   - Reads `~/agents/{agent}/logs/live-events.jsonl` using `readFileSync` + `split("\n").slice(-20)`. Missing or unreadable file → `catch` block → `continue` to next agent (AC6).
+   - Parses each of the last 20 lines with `try { JSON.parse(line) } catch { return null }` then filters nulls — one malformed line does not throw or truncate results (AC5).
+   - Checks `loop`: if at least 5 valid events exist and the last 5 all share the same non-null `tool`, emits `loop`.
+   - Checks `silent`: if the last valid event's `ts` is more than `STUCK_SILENT_SECONDS` (600) seconds before `nowMs`, emits `silent`.
+3. Returns `StuckAgent[]` — one entry per stuck agent.
+
+The `nowMs` parameter is injectable for deterministic test control.
+
+### Edge-triggered SSE broadcast (AC7)
+
+Each call to `GET /api/stuck` also runs the SSE broadcast logic in `server.ts`:
+
+- **`prevStuckSignals`** — a module-level `Map<string, string>` (agent → last reported signal). Cleared on server restart.
+- **`lastStuckBroadcast`** — a module-level `Map<string, number>` (agent → last broadcast timestamp ms). Cleared on server restart.
+- A `stuck` SSE event fires for an agent only when: (1) the new signal differs from the previous signal, AND (2) at least 60 seconds have elapsed since the last broadcast for that agent.
+
+```
+event: stuck
+data: {"agent":"agent-be","signal":"fail_storm","detail":"3 failed attempts"}
+```
+
+The event fires at most once per 60-second window per agent, even if the endpoint is polled more frequently. Agents that are no longer stuck are removed from `prevStuckSignals` on the next evaluation.
+
+### AC → verification mapping
+
+| AC | Verified by |
+|---|---|
+| AC1 | `describe("GET /api/stuck")` — response is HTTP 200 JSON with `stuck` array; each entry has `agent`, `signal`, `detail`, `since` string fields |
+| AC2 | Test writes JSONL event 11 minutes ago; asserts `signal=silent`, `detail` contains `"11m"` |
+| AC3 | Test writes 5 JSONL events with `tool: "Edit"`; asserts `signal=loop`, `detail="looping on Edit"` |
+| AC4 | Test writes ledger with `failure_count=2`, `status=in_progress`; asserts `signal=fail_storm`, `detail="2 failed attempts"` |
+| AC5 | Test injects `}{broken json line` before a valid old JSONL line; asserts HTTP 200, valid array, silent signal for the agent |
+| AC6 | Test agent `stuck-missing` has no `live-events.jsonl`; asserts it is absent from stuck array, other agents still present, no 500 |
+| AC7 | Two sequential calls to an isolated edge server; asserts broadcast fires exactly once on the first call, zero times on the second (same signal) |
+| AC8 | Test writes ledger with `status=needs_human`, `failure_count=3`; asserts agent absent from stuck list |
+
+---
+
 ## Console UI — design system (v7.1)
 
 The console frontend uses a dark-theme design system coordinated with `docs/DESIGN.md`.
@@ -1379,9 +1468,37 @@ T11 adds 25 new tests across 8 describe blocks. A shared `fleetServer` (port 784
 | `returns null for non-numeric content` | File containing `"not-a-pid\n"` → `null` |
 | `returns null for zero or negative PID` | File containing `"0\n"` → `null` |
 
+### Stuck detection tests — `server.test.ts` (T14 AC1–AC8)
+
+T14 adds 8 new tests in one `describe` block. Two isolated HTTP servers are created: a shared `stuckServer` (port 7851) hosting six synthetic agents that cover all signal types, and a dedicated `stuckEdgeServer` (port 7852) with fresh module-level state to verify edge-triggered SSE without interference from other tests. A `makeStuckHandler` factory mirrors the `server.ts` implementation with injectable `broadcastCooldownMs` so the 60-second cooldown can be bypassed in tests.
+
+**Test fixtures** written in `beforeAll`:
+
+| Agent | What is set up |
+|---|---|
+| `stuck-silent` | JSONL with one event 11 minutes ago |
+| `stuck-loop` | JSONL with 5 consecutive `tool: "Edit"` events (recent ts) |
+| `stuck-fail` | Ledger entry: `failure_count=2`, `status=in_progress`; recent JSONL |
+| `stuck-malformed` | JSONL: `}{broken json line` then one valid event 15 minutes ago |
+| `stuck-missing` | Log directory exists but no `live-events.jsonl` file |
+| `stuck-suppressed` | Ledger: `status=needs_human`, `failure_count=3`; recent JSONL |
+
+**`describe("GET /api/stuck")`** — 8 tests:
+
+| Test | AC | What it asserts |
+|---|---|---|
+| `AC1: returns { stuck: StuckAgent[] } with correct shape` | AC1 | HTTP 200; `body.stuck` is an array; `stuck-silent` entry has `agent`, `signal`, `detail`, `since` as strings; `since` is a valid date |
+| `AC2: silent detection — ts 11 minutes ago, signal=silent, detail contains '11m'` | AC2 | `stuck-silent` entry: `signal="silent"`, `detail` contains `"11m"` |
+| `AC3: loop detection — 5 events with tool='Edit', signal=loop, detail='looping on Edit'` | AC3 | `stuck-loop` entry: `signal="loop"`, `detail="looping on Edit"` |
+| `AC4: fail_storm — failure_count=2 and status=in_progress, signal=fail_storm` | AC4 | `stuck-fail` entry: `signal="fail_storm"`, `detail="2 failed attempts"` |
+| `AC5: malformed JSONL line skipped — returns 200 with valid array, not 500` | AC5 | HTTP 200; `stuck-malformed` entry present (bad line skipped, valid old ts → silent) |
+| `AC6: missing log file — agent skipped gracefully, others still returned, no 500` | AC6 | HTTP 200; `stuck-missing` absent; `stuck-silent` still present |
+| `AC7: edge-triggered SSE — broadcasts once for new signal, suppresses same signal on re-evaluation` | AC7 | First call: exactly 1 broadcast for `stuck-edge`, `event: stuck`, payload has `agent="stuck-edge"` and `signal="silent"`; second call (same signal): 0 broadcasts |
+| `AC8: agent with needs_human status not reported as stuck` | AC8 | `stuck-suppressed` absent from stuck array despite `failure_count=3` |
+
 ### Test results
 
-All 108 tests pass (2 bash-wrapper + 106 server tests). Run the full suite with:
+All 116 tests pass (2 bash-wrapper + 114 server tests). Run the full suite with:
 
 ```bash
 bun test supervisor/console/     # runs all tests, exit 0 on pass
