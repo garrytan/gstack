@@ -102,23 +102,31 @@ async function handleApprove(req: IncomingMessage, res: ServerResponse): Promise
   sendJson(res, { ok: true });
 }
 
-// Read fleet.conf once — shared by control-dir resolution and agent validation.
-const fleetConfPath = join(__dirname, "..", "fleet.conf");
-let fleetContent: string;
+// Supervisor fleet.conf drives control-dir discovery only — not agent validation (T11-amended).
+let supervisorAgentList: string[] = [];
 try {
-  fleetContent = readFileSync(fleetConfPath, "utf8");
+  supervisorAgentList = parseFleetConf(readFileSync(join(__dirname, "..", "fleet.conf"), "utf8"));
 } catch {
-  console.error(`ERROR: cannot read fleet.conf at ${fleetConfPath}`);
-  process.exit(1);
-  throw new Error("unreachable"); // satisfies TS definite-assignment
+  // Non-fatal: CONTROL_DIR env var may still resolve controlDir below.
 }
 
-const agentList = parseFleetConf(fleetContent);
-const validAgents = new Set(agentList); // AC3, AC6: Set built at startup
-
 // Scan each agent's control checkout to find the control repo (T2 AC1/AC4).
-const agentDirs = agentList.map((name) => join(homedir(), "agents", name, "control"));
+const agentDirs = supervisorAgentList.map((name) => join(homedir(), "agents", name, "control"));
 const controlDir = resolveControlDir(agentDirs) ?? "";
+
+// T11-amended AC1/AC2: validAgents built solely from controlDir/fleet.conf.
+let validAgents = new Set<string>();
+function rebuildValidAgents(dir: string): void {
+  if (!dir) { validAgents = new Set(); return; }
+  const confPath = join(dir, "fleet.conf");
+  try {
+    validAgents = new Set(parseFleetConf(readFileSync(confPath, "utf8")));
+  } catch {
+    process.stderr.write(`WARNING: fleet.conf not found at ${confPath} — no agents valid\n`);
+    validAgents = new Set();
+  }
+}
+rebuildValidAgents(controlDir);
 if (controlDir) {
   console.log(`Control dir: ${controlDir}`);
 } else {
@@ -315,8 +323,9 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
   }
 
   // GET /api/fleet — per-agent status from live.json + presence.json (CONS-012).
+  // T11-amended AC4: only agents in validAgents (from controlDir/fleet.conf) are included.
   if (path === "/api/fleet" && method === "GET") {
-    sendJson(res, readFleetStatus(agentList, join(homedir(), "agents")));
+    sendJson(res, readFleetStatus([...validAgents], join(homedir(), "agents")));
     return;
   }
 
@@ -472,7 +481,7 @@ server.listen(PORT, HOSTNAME, () => {
 });
 
 // One fs.watch per agent log directory; mkdir -p so missing dirs don't crash.
-for (const agent of agentList) {
+for (const agent of supervisorAgentList) {
   const logDir = join(homedir(), "agents", agent, "logs");
   mkdirSync(logDir, { recursive: true });
   watch(logDir, makeWatchHandler(agent, logDir, broadcast, lastEventCache));

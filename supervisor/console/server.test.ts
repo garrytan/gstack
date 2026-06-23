@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
   TASK_ID_RE,
+  parseFleetConf,
   parseTaskLedger,
   parseMailboxNotes,
   sendJson,
@@ -1738,5 +1739,267 @@ describe("readPidFile", () => {
     const pidFile = join(testDir, "zero.pid");
     writeFileSync(pidFile, "0\n");
     expect(readPidFile(pidFile)).toBeNull();
+  });
+});
+
+// ─── T11-amended: fleet.conf-based validAgents ───────────────────────────────
+
+// Handler factory that mirrors server.ts T11-amended behaviour:
+// validAgents sourced from controlDir/fleet.conf, rebuildable via POST /api/workspace-switch.
+function makeFleetConfHandler(
+  initialControlDir: string,
+  agentsHomeDir: string,
+): { handler: (req: IncomingMessage, res: ServerResponse) => void } {
+  let localValidAgents = new Set<string>();
+
+  function rebuild(dir: string): void {
+    if (!dir) { localValidAgents = new Set(); return; }
+    const confPath = join(dir, "fleet.conf");
+    try {
+      localValidAgents = new Set(parseFleetConf(readFileSync(confPath, "utf8")));
+    } catch {
+      localValidAgents = new Set();
+    }
+  }
+
+  rebuild(initialControlDir);
+
+  const handler = (req: IncomingMessage, res: ServerResponse): void => {
+    const path = rawPath(req.url);
+    const method = req.method ?? "GET";
+
+    if (path.startsWith("/api/mailbox/") && method === "POST") {
+      const agentName = path.slice("/api/mailbox/".length).split("/")[0];
+      if (!localValidAgents.has(agentName)) {
+        sendJson(res, { error: "unknown agent" }, 400);
+        return;
+      }
+      sendJson(res, { ok: true });
+      return;
+    }
+
+    if (path === "/api/fleet" && method === "GET") {
+      sendJson(res, readFleetStatus([...localValidAgents], agentsHomeDir));
+      return;
+    }
+
+    if (path === "/api/workspace-switch" && method === "POST") {
+      void (async () => {
+        const chunks: Buffer[] = [];
+        for await (const chunk of req) chunks.push(chunk as Buffer);
+        let body: { controlDir?: string } = {};
+        try {
+          body = JSON.parse(Buffer.concat(chunks).toString()) as typeof body;
+        } catch {
+          sendJson(res, { error: "invalid JSON" }, 400);
+          return;
+        }
+        rebuild(body.controlDir ?? "");
+        sendJson(res, { ok: true, agents: [...localValidAgents] });
+      })();
+      return;
+    }
+
+    res.writeHead(404); res.end("Not Found");
+  };
+
+  return { handler };
+}
+
+// --- T11-amended AC2: missing fleet.conf → empty validAgents → 400 on all mutating endpoints ---
+
+describe("missing fleet.conf — validAgents empty (AC2)", () => {
+  const missingConfDir = join(testDir, "missing-conf-control");
+  let missingConfServer: Server;
+
+  beforeAll(
+    () =>
+      new Promise<void>((resolve) => {
+        mkdirSync(missingConfDir, { recursive: true });
+        // Intentionally no fleet.conf in missingConfDir
+        const { handler } = makeFleetConfHandler(missingConfDir, agentsHome);
+        missingConfServer = createServer(handler);
+        missingConfServer.listen(7850, "127.0.0.1", resolve);
+      }),
+  );
+
+  afterAll(
+    () =>
+      new Promise<void>((resolve, reject) => {
+        missingConfServer.close((err) => { if (err) reject(err); else resolve(); });
+      }),
+  );
+
+  test("known agent returns 400 when fleet.conf is absent (no fallback list)", async () => {
+    const r = await fetch("http://127.0.0.1:7850/api/mailbox/agent-be", {
+      method: "POST",
+      body: "hello",
+    });
+    expect(r.status).toBe(400);
+    const body = (await r.json()) as { error: string };
+    expect(body.error).toBeTruthy();
+  });
+
+  test("all four standard agents return 400 when fleet.conf is absent", async () => {
+    for (const agent of ["agent-be", "agent-qa", "agent-fe", "agent-doc"]) {
+      const r = await fetch(`http://127.0.0.1:7850/api/mailbox/${agent}`, {
+        method: "POST",
+        body: "",
+      });
+      expect(r.status).toBe(400);
+    }
+  });
+});
+
+// --- T11-amended AC3: workspace switch rebuilds validAgents ---
+
+describe("workspace switch validAgents (AC3)", () => {
+  const wsADir = join(testDir, "ws-a-control");
+  const wsBDir = join(testDir, "ws-b-control");
+  const wsEmptyDir = join(testDir, "ws-empty-control");
+  let wsServer: Server;
+
+  beforeAll(
+    () =>
+      new Promise<void>((resolve) => {
+        mkdirSync(wsADir, { recursive: true });
+        mkdirSync(wsBDir, { recursive: true });
+        mkdirSync(wsEmptyDir, { recursive: true });
+
+        writeFileSync(
+          join(wsADir, "fleet.conf"),
+          "agent-be  FEATURE_ROLE.md\nagent-qa  QA_ROLE.md\n",
+        );
+        writeFileSync(
+          join(wsBDir, "fleet.conf"),
+          "agent-fe  FEATURE_ROLE.md\nagent-doc  DOC_ROLE.md\n",
+        );
+        // wsEmptyDir has no fleet.conf
+
+        const { handler } = makeFleetConfHandler(wsADir, agentsHome);
+        wsServer = createServer(handler);
+        wsServer.listen(7851, "127.0.0.1", resolve);
+      }),
+  );
+
+  afterAll(
+    () =>
+      new Promise<void>((resolve, reject) => {
+        wsServer.close((err) => { if (err) reject(err); else resolve(); });
+      }),
+  );
+
+  test("workspace A agents are valid before switch", async () => {
+    const r = await fetch("http://127.0.0.1:7851/api/mailbox/agent-be", {
+      method: "POST", body: "",
+    });
+    expect(r.status).toBe(200);
+
+    const r2 = await fetch("http://127.0.0.1:7851/api/mailbox/agent-fe", {
+      method: "POST", body: "",
+    });
+    expect(r2.status).toBe(400);
+  });
+
+  test("after workspace switch validAgents reflects new workspace fleet.conf", async () => {
+    const switchRes = await fetch("http://127.0.0.1:7851/api/workspace-switch", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ controlDir: wsBDir }),
+    });
+    expect(switchRes.status).toBe(200);
+    const switchBody = (await switchRes.json()) as { ok: boolean; agents: string[] };
+    expect(switchBody.ok).toBe(true);
+    expect(switchBody.agents).toContain("agent-fe");
+    expect(switchBody.agents).toContain("agent-doc");
+    expect(switchBody.agents).not.toContain("agent-be");
+
+    // agent-fe (workspace B) is now valid
+    const r = await fetch("http://127.0.0.1:7851/api/mailbox/agent-fe", {
+      method: "POST", body: "",
+    });
+    expect(r.status).toBe(200);
+
+    // agent-be (workspace A only) is now rejected
+    const r2 = await fetch("http://127.0.0.1:7851/api/mailbox/agent-be", {
+      method: "POST", body: "",
+    });
+    expect(r2.status).toBe(400);
+  });
+
+  test("switch to workspace with absent fleet.conf empties validAgents", async () => {
+    const switchRes = await fetch("http://127.0.0.1:7851/api/workspace-switch", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ controlDir: wsEmptyDir }),
+    });
+    expect(switchRes.status).toBe(200);
+    const switchBody = (await switchRes.json()) as { agents: string[] };
+    expect(switchBody.agents).toHaveLength(0);
+
+    // All agents now rejected
+    const r = await fetch("http://127.0.0.1:7851/api/mailbox/agent-fe", {
+      method: "POST", body: "",
+    });
+    expect(r.status).toBe(400);
+  });
+});
+
+// --- T11-amended AC4: GET /api/fleet uses validAgents set ---
+
+describe("GET /api/fleet reflects validAgents from fleet.conf (AC4)", () => {
+  const fleetConfControlDir = join(testDir, "fleet-conf-control");
+  let fleetConfServer: Server;
+
+  beforeAll(
+    () =>
+      new Promise<void>((resolve) => {
+        mkdirSync(fleetConfControlDir, { recursive: true });
+        // fleet.conf lists only agent-be and agent-qa (subset of the usual four)
+        writeFileSync(
+          join(fleetConfControlDir, "fleet.conf"),
+          "agent-be  FEATURE_ROLE.md\nagent-qa  QA_ROLE.md\n",
+        );
+        const { handler } = makeFleetConfHandler(fleetConfControlDir, agentsHome);
+        fleetConfServer = createServer(handler);
+        fleetConfServer.listen(7852, "127.0.0.1", resolve);
+      }),
+  );
+
+  afterAll(
+    () =>
+      new Promise<void>((resolve, reject) => {
+        fleetConfServer.close((err) => { if (err) reject(err); else resolve(); });
+      }),
+  );
+
+  test("GET /api/fleet returns only agents present in validAgents set", async () => {
+    const r = await fetch("http://127.0.0.1:7852/api/fleet");
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as AgentStatus[];
+    expect(Array.isArray(body)).toBe(true);
+    expect(body).toHaveLength(2);
+    const names = body.map((a) => a.name);
+    expect(names).toContain("agent-be");
+    expect(names).toContain("agent-qa");
+    expect(names).not.toContain("agent-fe");
+    expect(names).not.toContain("agent-doc");
+  });
+
+  test("GET /api/fleet returns empty array when validAgents is empty", async () => {
+    // Switch to a workspace with no fleet.conf
+    const emptyDir = join(testDir, "fleet-empty-ws");
+    mkdirSync(emptyDir, { recursive: true });
+
+    await fetch("http://127.0.0.1:7852/api/workspace-switch", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ controlDir: emptyDir }),
+    });
+
+    const r = await fetch("http://127.0.0.1:7852/api/fleet");
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as AgentStatus[];
+    expect(body).toHaveLength(0);
   });
 });
