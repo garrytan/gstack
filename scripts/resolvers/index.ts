@@ -25,7 +25,8 @@ import { generateTestBootstrap, generateTestCoverageAuditPlan, generateTestCover
 import { generateReviewDashboard, generatePlanFileReviewReport, generateExitPlanModeGate, generateAntiShortcutClause, generateSpecReviewLoop, generateBenefitsFrom, generateCodexSecondOpinion, generateAdversarialStep, generateCodexPlanReview, generatePlanCompletionAuditShip, generatePlanCompletionAuditReview, generatePlanVerificationExec, generateScopeDrift, generateCrossReviewDedup } from './review';
 import { generateSlugEval, generateSlugSetup, generateBaseBranchDetect, generateDeployBootstrap, generateQAMethodology, generateCoAuthorTrailer, generateChangelogWorkflow } from './utility';
 import { generateLearningsSearch, generateLearningsLog } from './learnings';
-import { generateConfidenceCalibration } from './confidence';
+import { generateConfidenceCalibration, generateDecisionConfidence } from './confidence';
+import { generateAutoplanUnattended } from './autoplan-unattended';
 import { generateInvokeSkill } from './composition';
 import { generateReviewArmy } from './review-army';
 import { generateDxFramework } from './dx';
@@ -80,6 +81,8 @@ export const RESOLVERS: Record<string, ResolverValue> = {
   LEARNINGS_SEARCH: generateLearningsSearch,
   LEARNINGS_LOG: generateLearningsLog,
   CONFIDENCE_CALIBRATION: generateConfidenceCalibration,
+  DECISION_CONFIDENCE: generateDecisionConfidence,
+  AUTOPLAN_UNATTENDED: generateAutoplanUnattended,
   INVOKE_SKILL: generateInvokeSkill,
   CHANGELOG_WORKFLOW: generateChangelogWorkflow,
   REVIEW_ARMY: generateReviewArmy,

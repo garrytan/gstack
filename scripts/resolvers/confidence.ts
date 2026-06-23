@@ -79,3 +79,30 @@ confirms it IS a real issue, that is a calibration event. Your initial confidenc
 too low. Log the corrected pattern as a learning so future reviews catch it with
 higher confidence.`;
 }
+
+/**
+ * Decision confidence resolver (G7) — for skills that AUTO-DECIDE rather than
+ * report findings (e.g. /autoplan). Reuses the 1-10 rubric above, but applies
+ * it to each auto-decision and adds an escalation threshold: a Taste decision
+ * scored below the threshold is surfaced to a human instead of silently
+ * auto-resolved. Without this, a near-coin-flip taste call is auto-decided
+ * identically to a clear one — dangerous precisely when no human is watching.
+ */
+export function generateDecisionConfidence(_ctx: TemplateContext): string {
+  return `## Decision Confidence — escalate the coin-flips
+
+Every auto-decision carries a confidence score (1-10), using the same rubric as finding
+confidence: 9-10 verified by reading specific code; 7-8 high-confidence pattern; 5-6 moderate,
+could go either way; 3-4 low; 1-2 speculation.
+
+**Escalation rule:** a **Taste** decision scored **below the threshold** (default 6; override
+with \`gstack-config get autoplan_escalate_below\`) is escalated instead of silently
+auto-decided — to the Final Approval Gate when a human is present, or to the Unattended Mode
+pending-queue when not. A near-coin-flip is not a call the 6 principles should make alone.
+Mechanical decisions and Taste decisions at or above the threshold auto-decide as before. This
+rule never downgrades a User Challenge (those are always surfaced) and never overrides the
+two hard gates.
+
+Record the score in the Decision Audit Trail \`Confidence\` column. When a decision is escalated
+for low confidence, set its Rationale to \`escalated: confidence N/10 < threshold\`.`;
+}
