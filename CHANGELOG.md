@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+### Fleet control endpoints — stop, restart, pause, resume agents from the console (T11)
+
+Directors can now control individual agents directly from the Fleet tab without touching a terminal. Four new POST endpoints send OS-level signals to agent processes and respond immediately. Stop sends SIGTERM and, if the process is still alive after 5 seconds, SIGKILL. Restart stops the agent and re-launches it via `run-agent.sh`. Pause and resume send SIGSTOP and SIGCONT. All four validate the agent name against `fleet.conf` and read the agent PID from `supervisor/pids/{name}.pid`.
+
+#### Added
+- `POST /api/fleet/stop?agent=<name>` — graceful SIGTERM with SIGKILL fallback after 5 s; returns `{ ok: true }` when the process is confirmed dead (T11 AC1).
+- `POST /api/fleet/restart?agent=<name>` — stops the agent then spawns `supervisor/run-agent.sh <name>` as a detached subprocess; returns `{ ok: true }` immediately after spawn without waiting for Claude to become ready (T11 AC2).
+- `POST /api/fleet/pause?agent=<name>` — sends SIGSTOP; returns `{ ok: true }` (T11 AC3).
+- `POST /api/fleet/resume?agent=<name>` — sends SIGCONT; returns `{ ok: true }` (T11 AC4).
+- `fleet-update` SSE event broadcast after stop and restart with `{ type: "fleet-update", agent, action, ts }` — browsers refresh the fleet table immediately (T11 AC7).
+- `readPidFile`, `stopProcess`, `defaultIsProcessAlive`, `defaultKillFn`, and `KillFn`/`IsAliveFn` types exported from `server-utils.ts` — fully injectable for unit testing without real processes.
+- 25 new tests in `server.test.ts` across 8 describe blocks covering all 8 ACs (T11 AC1–AC8).
+
+#### Changed
+- Stop and double-stop on an already-dead process both return `{ ok: true }` — no error, no signal sent (T11 AC6/AC8).
+
 ### Pipeline view — SSE-only updates, remove polling fallback (T13-amended)
 
 The pipeline view no longer has a polling fallback. Previously the implementation included a `setInterval`-based poll of `GET /api/pipeline` as a safety net. That code is removed: the SSE reconnect path already handles connection drops, and the polling created race conditions when a `pipeline-update` SSE event and a poll response arrived simultaneously. The view now bootstraps once on first tab activation and refreshes only via SSE or reconnect.

@@ -9,15 +9,15 @@ Scripts for starting, stopping, and monitoring the autonomous agent fleet.
 | `fleet.conf` | Declare all agents in one place |
 | `install.sh` | Register an agent as a launchd (macOS) or systemd (Linux) service |
 | `wake-listen.ts` | Supabase Realtime subscriber — wakes idle agents in <1s cross-machine |
-| `console/server.ts` | Console HTTP server (v7.1 — auto-detects control repo, gates risky Bash commands, streams live events via SSE) |
+| `console/server.ts` | Console HTTP server (v7.1 — auto-detects control repo, gates risky Bash commands, streams live events via SSE; T11: fleet control routes — POST /api/fleet/stop, /restart, /pause, /resume) |
 | `console/bin/bash` | Risk-gated Bash tool intercept (v7.1 — blocks destructive commands until approved) |
 | `console/index.html` | Console UI entry point (v7.1 — serves static HTML with SSE support, Pipeline tab panel with domain filter chips and spec panel) |
 | `console/console.js` | Console interactive client (v7.1 — card animations, empty states, AI draft panel, ARIA accessibility, Pipeline tab with collapsible status groups, domain filter chips persisted in localStorage, spec panel on card click, `pipeline-update` SSE listener; T13-amended: `pipelineBootstrapped` one-shot guard on tab activate, `fetchPipeline()` called on SSE reconnect, all SSE listeners fixed from `currentEs` → `es`) |
 | `console/styles.css` | Console design system (v7.1 — dark theme, motion tokens, Satoshi/DM Sans/JetBrains Mono typefaces, pipeline group/card/filter/spec-panel component styles) |
-| `console/server-utils.ts` | Utility exports — parsing ledger/mailbox, task ID validation (`TASK_ID_RE` supports both `CONS-003` and `T13` styles), fleet status reading, SSE helpers, `makeWatchHandler` (reads last `live-events.jsonl` line, caches payload for Last-Event-ID replay), `makeLedgerWatchHandler` (broadcasts `pipeline-update` SSE on `.task` file changes), port resolution, `readLogTail` (JSONL tail reader), `makeRateLimiter` (token-bucket rate limiter), `purgeStaleDecisionFiles` (startup garbage collection of stale decision files), `PipelineTask` type (T13) (v7.1) |
+| `console/server-utils.ts` | Utility exports — parsing ledger/mailbox, task ID validation (`TASK_ID_RE` supports both `CONS-003` and `T13` styles), fleet status reading, SSE helpers, `makeWatchHandler` (reads last `live-events.jsonl` line, caches payload for Last-Event-ID replay), `makeLedgerWatchHandler` (broadcasts `pipeline-update` SSE on `.task` file changes), port resolution, `readLogTail` (JSONL tail reader), `makeRateLimiter` (token-bucket rate limiter), `purgeStaleDecisionFiles` (startup garbage collection of stale decision files), `PipelineTask` type (T13); T11: `readPidFile` (reads PID from a pid file), `stopProcess` (SIGTERM + SIGKILL-after-5s async stop), `defaultIsProcessAlive` (signal-0 liveness check), `defaultKillFn` (signal sender), `KillFn`/`IsAliveFn` injectable types (v7.1) |
 | `console/bash-wrapper.test.ts` | Bun test wrapper that runs bash-wrapper.test.sh inline (v7.1) |
 | `console/bash-wrapper.test.sh` | Bash unit tests for risk classification (check_risk) and polling behavior (poll_approval) (v7.1) |
-| `console/server.test.ts` | Bun tests for endpoint security, static serving, queue bootstrap, `resolveControlDir`, SSE endpoint (T4 AC1/AC2/AC3/AC5), `makeWatchHandler`, log tail endpoint (T12 AC1-AC7), rate limiter, startup cleanup (T8 AC1-AC4), pipeline endpoint (T13 AC1/AC2), ledger watch handler (T13 AC3), spec endpoint (T13 AC7), pipeline bootstrap guard (T13-amended AC2), and SSE reconnect pipeline bootstrap (T13-amended AC4) (v7.1) |
+| `console/server.test.ts` | Bun tests for endpoint security, static serving, queue bootstrap, `resolveControlDir`, SSE endpoint (T4 AC1/AC2/AC3/AC5), `makeWatchHandler`, log tail endpoint (T12 AC1-AC7), rate limiter, startup cleanup (T8 AC1-AC4), pipeline endpoint (T13 AC1/AC2), ledger watch handler (T13 AC3), spec endpoint (T13 AC7), pipeline bootstrap guard (T13-amended AC2), SSE reconnect pipeline bootstrap (T13-amended AC4), and fleet control endpoints (T11 AC1-AC8) (v7.1) |
 | `console/qa-smoke.sh` | QA smoke test for console UI — asserts page title, nav bar, Fleet tab presence, T6 AC1/AC2/AC4/AC5 (Dicebear avatar src, elapsed time format, HIGH risk badge, Unblock button), and T13 AC4/AC5 (pipeline endpoint 200, `pipeline-groups` element in HTML, `tasks` key in pipeline JSON) via gstack browse (v7.1) |
 
 ---
@@ -811,6 +811,79 @@ The console client receives either event type and re-fetches `/api/fleet` to ref
 
 ---
 
+## Fleet control endpoints (T11)
+
+Operators can stop, restart, pause, or resume any agent directly from the Fleet tab. The four `POST /api/fleet/*` endpoints send OS-level signals to the agent process, whose PID is read from `supervisor/pids/{agentName}.pid` — a file written by `run-agent.sh` when it spawns Claude.
+
+### Endpoints
+
+| Endpoint | Action | Signal(s) | Returns |
+|---|---|---|---|
+| `POST /api/fleet/stop?agent=<name>` | Graceful stop | SIGTERM; SIGKILL after 5 s if still alive | `{ ok: true }` |
+| `POST /api/fleet/restart?agent=<name>` | Stop then re-launch | SIGTERM / SIGKILL (per stop), then spawns `run-agent.sh <name>` | `{ ok: true }` immediately after spawn |
+| `POST /api/fleet/pause?agent=<name>` | Suspend execution | SIGSTOP | `{ ok: true }` |
+| `POST /api/fleet/resume?agent=<name>` | Resume execution | SIGCONT | `{ ok: true }` |
+
+### How stop works
+
+`stopProcess(pid, opts)` in `server-utils.ts` is an async function that:
+
+1. Checks process liveness via `process.kill(pid, 0)` (signal 0 — no effect, ESRCH if not found).
+2. If already dead: returns immediately. No signal sent. This covers both the stale-PID case (AC6) and the idempotent double-stop case (AC8).
+3. Sends SIGTERM.
+4. Starts a 50 ms poll loop checking liveness every 50 ms.
+5. If the process has not exited after `stopTimeoutMs` (default 5000 ms), sends SIGKILL and resolves.
+6. If the process exits before the timeout fires, clears the timer and resolves.
+
+`restart` calls `stopProcess` then spawns `run-agent.sh <agentName>` as a detached subprocess with `stdio: 'ignore'` and calls `proc.unref()`, so the console server does not wait for or track the new Claude session.
+
+### Error responses
+
+| Condition | Status | Body |
+|---|---|---|
+| `agentName` not in `validAgents` (from `fleet.conf`) | 400 | `{ error: 'unknown agent' }` |
+| PID file does not exist at `pids/{agentName}.pid` | 404 | `{ error: 'pid file not found' }` |
+| Process is not running — pause or resume only (AC6) | 409 | `{ error: 'process not running' }` |
+
+For `stop` and `restart`, a stale PID (process already exited) is handled silently — `stopProcess` returns immediately and the response is `{ ok: true }`. This makes `stop` idempotent (AC8).
+
+### SSE broadcast after stop and restart (AC7)
+
+After `stopProcess` resolves (and after `run-agent.sh` is spawned for restart), the server broadcasts a `fleet-update` SSE event to all connected browsers:
+
+```json
+{
+  "type": "fleet-update",
+  "agent": "agent-be",
+  "action": "stop",
+  "ts": 1718909802000
+}
+```
+
+The `action` field is `"stop"` or `"restart"`. `pause` and `resume` do not broadcast — they are silent, low-latency operations.
+
+### Implementation constraints
+
+- PID file path: `join(supervisorDir, 'pids', '{agentName}.pid')`. `supervisorDir` is `dirname(__dirname)` (the directory containing `console/`) — never hardcoded.
+- `readPidFile` returns `null` for missing files, unreadable files, and non-positive integer content. The server returns 404 when `readPidFile` returns `null`.
+- Signal calls are wrapped in `try/catch` — the process may exit between the liveness check and the `process.kill` call.
+- macOS only: Windows process signals are out of scope.
+
+### AC → verification mapping
+
+| AC | What it tests |
+|---|---|
+| AC1 | `stopProcess` sends SIGTERM first, then SIGKILL after timeout when process stays alive |
+| AC2 | `POST /api/fleet/restart` stops the agent then spawns `run-agent.sh <agentName>` |
+| AC3 | `POST /api/fleet/pause` sends SIGSTOP to the agent's PID |
+| AC4 | `POST /api/fleet/resume` sends SIGCONT to the agent's PID |
+| AC5 | Unknown agent name → 400 on all four endpoints |
+| AC6 | Stale PID: stop → 200 (no signal); pause/resume → 409 |
+| AC7 | `fleet-update` SSE event broadcast after stop and restart; NOT after pause |
+| AC8 | Double stop when process is dead → 200 both times |
+
+---
+
 ## Console UI — design system (v7.1)
 
 The console frontend uses a dark-theme design system coordinated with `docs/DESIGN.md`.
@@ -1237,9 +1310,78 @@ AC6 (spec panel click opens panel with content) and AC8 (domain filter persists 
 |---|---|---|
 | `fetchPipeline is called inside the SSE open event handler` | AC4 | Slices the `addEventListener('open'` handler body from source and asserts it contains `fetchPipeline()` |
 
+### Fleet control tests — `server.test.ts` (T11 AC1–AC8)
+
+T11 adds 25 new tests across 8 describe blocks. A shared `fleetServer` (port 7849) is created with injectable `killFn`, `isAliveFn`, `spawnFn`, and `broadcastFn` so all fleet control logic can be exercised without sending real OS signals or spawning real processes. One pid file is pre-written: `agent-be.pid` = `12345`. `agent-qa` has no pid file (used for 404 tests).
+
+**`describe("stopProcess (AC1)")`** — 3 tests against the exported utility directly:
+
+| Test | AC | What it asserts |
+|---|---|---|
+| `sends SIGTERM first, then SIGKILL after timeout when process stays alive` | AC1 | `isAliveFn` always returns true; asserts `SIGTERM` before `SIGKILL` in signal order |
+| `sends SIGTERM and resolves without SIGKILL when process dies after SIGTERM` | AC1 | `isAliveFn` flips false on SIGTERM; asserts SIGTERM present, SIGKILL absent |
+| `returns immediately without sending any signal when process is already dead (AC6/AC8)` | AC6/AC8 | `isAliveFn` always false; asserts zero signals sent |
+
+**`describe("fleet control unknown agent → 400 (AC5)")`** — 5 tests:
+
+| Test | AC | What it asserts |
+|---|---|---|
+| `POST /api/fleet/stop returns 400 for unknown agent` | AC5 | `agent=unknown-agent` → HTTP 400 with error body |
+| `POST /api/fleet/restart returns 400 for unknown agent` | AC5 | Same for restart |
+| `POST /api/fleet/pause returns 400 for unknown agent` | AC5 | Same for pause |
+| `POST /api/fleet/resume returns 400 for unknown agent` | AC5 | Same for resume |
+| `POST /api/fleet/stop returns 400 when agent query param is missing` | AC5 | Missing `?agent=` → HTTP 400 |
+
+**`describe("POST /api/fleet/stop (AC1/AC6/AC8)")`** — 4 tests via HTTP:
+
+| Test | AC | What it asserts |
+|---|---|---|
+| `returns 200 { ok: true } when process is dead (stale PID / AC6 / AC8)` | AC6/AC8 | `isAliveFn = () => false`; 200, no signals sent |
+| `returns 200 { ok: true } and sends SIGTERM when process is alive` | AC1 | `isAliveFn` flips false on kill; 200, SIGTERM sent to PID 12345 |
+| `returns 404 when pid file does not exist` | AC1 | `agent=agent-qa` (no pid file) → HTTP 404 |
+| `is idempotent — second call when process is dead also returns 200 (AC8)` | AC8 | Two consecutive stop calls both return 200 |
+
+**`describe("POST /api/fleet/restart (AC2)")`** — 2 tests:
+
+| Test | AC | What it asserts |
+|---|---|---|
+| `stops the agent then spawns run-agent.sh with the agent name` | AC2 | SIGTERM sent, then `spawnFn` called once with `agentName = "agent-be"` and script path containing `run-agent.sh` |
+| `spawns run-agent.sh even when process was already dead` | AC2 | `isAliveFn = () => false`; stop is a no-op but spawn still fires |
+
+**`describe("POST /api/fleet/pause (AC3/AC6)")`** — 2 tests:
+
+| Test | AC | What it asserts |
+|---|---|---|
+| `sends SIGSTOP to the agent's PID when process is alive (AC3)` | AC3 | `isAliveFn = () => true`; exactly one kill call with `{ pid: 12345, signal: "SIGSTOP" }` |
+| `returns 409 { error: 'process not running' } when process is not alive (AC6)` | AC6 | `isAliveFn = () => false` → HTTP 409, error body |
+
+**`describe("POST /api/fleet/resume (AC4/AC6)")`** — 2 tests:
+
+| Test | AC | What it asserts |
+|---|---|---|
+| `sends SIGCONT to the agent's PID when process is alive (AC4)` | AC4 | `isAliveFn = () => true`; exactly one kill call with `{ pid: 12345, signal: "SIGCONT" }` |
+| `returns 409 { error: 'process not running' } when process is not alive (AC6)` | AC6 | `isAliveFn = () => false` → HTTP 409, error body |
+
+**`describe("fleet-update SSE broadcast (AC7)")`** — 3 tests:
+
+| Test | AC | What it asserts |
+|---|---|---|
+| `broadcasts fleet-update event after stop` | AC7 | After stop call, `broadcastFn` called once; frame contains `event: fleet-update`; payload `{ type: "fleet-update", agent: "agent-be", action: "stop", ts: number }` |
+| `broadcasts fleet-update event after restart` | AC7 | After restart call, broadcast fires with `action: "restart"` |
+| `does NOT broadcast fleet-update after pause (AC7 scope: stop/restart only)` | AC7 | After pause call, `broadcastFn` call count is zero |
+
+**`describe("readPidFile")`** — 4 unit tests:
+
+| Test | What it asserts |
+|---|---|
+| `returns the numeric PID when the file contains a valid integer` | File containing `"42\n"` → returns `42` |
+| `returns null when the file does not exist` | Non-existent path → `null` |
+| `returns null for non-numeric content` | File containing `"not-a-pid\n"` → `null` |
+| `returns null for zero or negative PID` | File containing `"0\n"` → `null` |
+
 ### Test results
 
-All 83 tests pass (2 bash-wrapper + 81 server tests). Run the full suite with:
+All 108 tests pass (2 bash-wrapper + 106 server tests). Run the full suite with:
 
 ```bash
 bun test supervisor/console/     # runs all tests, exit 0 on pass
