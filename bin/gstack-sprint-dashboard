@@ -93,6 +93,74 @@ function escapeHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
+interface ChangelogVersion {
+  version: string;
+  date: string;
+}
+
+// Shared by Release Velocity and the header stats bar — parsed once.
+function getChangelogVersions(): ChangelogVersion[] {
+  const changelogPath = join(process.cwd(), "CHANGELOG.md");
+  if (!existsSync(changelogPath)) return [];
+  const changelog = readFileSync(changelogPath, "utf-8");
+  const versionHeadingRe = /^## \[(\d+\.\d+\.\d+\.\d+)\] - (\d{4}-\d{2}-\d{2})/gm;
+  const versions: ChangelogVersion[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = versionHeadingRe.exec(changelog)) !== null) {
+    versions.push({ version: m[1], date: m[2] });
+  }
+  return versions;
+}
+
+interface BacklogCounts {
+  P0: number;
+  P1: number;
+  P2: number;
+  P3: number;
+  P4: number;
+  unparsed: number;
+}
+
+// Shared by the TODOS backlog-health widget and the header stats bar.
+function getBacklogCounts(): BacklogCounts | null {
+  const todosPath = join(process.cwd(), "TODOS.md");
+  if (!existsSync(todosPath)) return null;
+  const todos = readFileSync(todosPath, "utf-8");
+  const headingRe = /^### (.+)$/gm;
+  const counts: BacklogCounts = { P0: 0, P1: 0, P2: 0, P3: 0, P4: 0, unparsed: 0 };
+  let m: RegExpExecArray | null;
+  while ((m = headingRe.exec(todos)) !== null) {
+    const pm = m[1].match(/^(P[0-4]):/);
+    if (pm) counts[pm[1] as keyof BacklogCounts]++;
+    else counts.unparsed++;
+  }
+  return counts;
+}
+
+// Best-effort: shells out to the sibling gstack-decision-search binary rather
+// than re-implementing the active-decisions snapshot format. Returns null
+// (renders "—") if the binary is missing, errors, or returns unparseable
+// output — open decisions is a "nice to have" stat, never a hard dependency.
+function getOpenDecisionsCount(): number | null {
+  try {
+    const out = execFileSync(join(import.meta.dir, "gstack-decision-search"), ["--json"], {
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    const rows = JSON.parse(out || "[]");
+    return Array.isArray(rows) ? rows.length : null;
+  } catch {
+    return null;
+  }
+}
+
+function getCurrentVersion(): string | null {
+  const versionPath = join(process.cwd(), "VERSION");
+  if (!existsSync(versionPath)) return null;
+  const v = readFileSync(versionPath, "utf-8").trim();
+  return v || null;
+}
+
 // ─── Widget: Pipeline board ────────────────────────────────────────────────
 
 const SKILL_TO_STAGE: Record<string, string> = {
@@ -112,10 +180,64 @@ const SKILL_TO_STAGE: Record<string, string> = {
   investigate: "implement",
   ship: "ship",
   "land-and-deploy": "ship",
+  canary: "canary",
 };
+
+// Ordered left-to-right in the pipeline board grid.
+const STAGES: { id: string; label: string }[] = [
+  { id: "office-hours", label: "OH" },
+  { id: "spec", label: "Spec" },
+  { id: "plan-review", label: "Plan" },
+  { id: "implement", label: "Impl" },
+  { id: "review", label: "Review" },
+  { id: "ship", label: "Ship" },
+  { id: "canary", label: "Canary" },
+];
 
 function stageForSkill(skill: string): string {
   return SKILL_TO_STAGE[skill] || "implement";
+}
+
+interface BranchStageData {
+  branch: string;
+  stagesReached: Set<string>;
+  latestStage: string | null;
+  latestEntry: Record<string, any> | null;
+}
+
+// Shared by the pipeline board and the header stats bar — computed once so
+// both widgets agree on what "in-flight" means and don't re-walk the
+// timeline/git-branch list twice.
+function computeBranchStageData(timeline: Record<string, any>[]): BranchStageData[] {
+  let branches: string[] = [];
+  try {
+    const out = execFileSync("git", ["branch", "--format=%(refname:short)"], {
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    branches = out.split("\n").map((l) => l.trim()).filter(Boolean);
+  } catch {
+    branches = [];
+  }
+
+  const entriesByBranch = new Map<string, Record<string, any>[]>();
+  for (const entry of timeline) {
+    if (entry.event !== "completed" || !entry.branch || !entry.ts || !entry.skill) continue;
+    const list = entriesByBranch.get(entry.branch) || [];
+    list.push(entry);
+    entriesByBranch.set(entry.branch, list);
+  }
+
+  return branches.map((branch) => {
+    const entries = entriesByBranch.get(branch) || [];
+    const stagesReached = new Set(entries.map((e) => stageForSkill(e.skill)));
+    let latestEntry: Record<string, any> | null = null;
+    for (const e of entries) {
+      if (!latestEntry || new Date(e.ts).getTime() > new Date(latestEntry.ts).getTime()) latestEntry = e;
+    }
+    const latestStage = latestEntry ? stageForSkill(latestEntry.skill) : null;
+    return { branch, stagesReached, latestStage, latestEntry };
+  });
 }
 
 interface PrBadge {
@@ -184,47 +306,31 @@ function resolveDefaultBranch(): string | null {
   }
 }
 
-function buildPipelineBoard(timeline: Record<string, any>[]): string {
-  let branches: string[] = [];
-  try {
-    const out = execFileSync("git", ["branch", "--format=%(refname:short)"], {
-      encoding: "utf-8",
-      stdio: ["ignore", "pipe", "ignore"],
-    });
-    branches = out.split("\n").map((l) => l.trim()).filter(Boolean);
-  } catch {
-    branches = [];
-  }
-
-  const latestByBranch = new Map<string, Record<string, any>>();
-  for (const entry of timeline) {
-    if (entry.event !== "completed" || !entry.branch || !entry.ts) continue;
-    const prev = latestByBranch.get(entry.branch);
-    if (!prev || new Date(entry.ts).getTime() > new Date(prev.ts).getTime()) {
-      latestByBranch.set(entry.branch, entry);
-    }
-  }
-
-  if (branches.length === 0) {
+function buildPipelineBoard(branchData: BranchStageData[]): string {
+  if (branchData.length === 0) {
     return `<div class="empty">no data yet — no local git branches found</div>`;
   }
 
   const defaultBranch = resolveDefaultBranch();
+  const stageHeaders = STAGES.map((s) => `<th class="stage-col">${escapeHtml(s.label)}</th>`).join("");
 
-  const rows = branches
-    .map((branch) => {
-      const latest = latestByBranch.get(branch);
-      const stage = latest ? stageForSkill(latest.skill) : "untracked";
-      const lastActivity = latest
-        ? `${escapeHtml(latest.skill)} · ${new Date(latest.ts).toLocaleString()}`
+  const rows = branchData
+    .map(({ branch, stagesReached, latestStage, latestEntry }) => {
+      const lastActivity = latestEntry
+        ? `${escapeHtml(latestEntry.skill)} · ${new Date(latestEntry.ts).toLocaleString()}`
         : "—";
       // The default branch is trunk, never a PR head — skip the lookup
       // rather than relying on owner-scoping alone to avoid a false match.
       const pr = branch === defaultBranch ? undefined : fetchPrBadge(branch);
       const prCell = pr ? `<span class="pr-badge pr-${pr.state.toLowerCase()}">#${pr.number} ${pr.state}</span>` : "—";
+      const stageCells = STAGES.map((s) => {
+        if (!stagesReached.has(s.id)) return `<td class="stage-col"></td>`;
+        const isCurrent = s.id === latestStage;
+        return `<td class="stage-col"><span class="tick ${isCurrent ? "tick-current" : "tick-passed"}">✓</span></td>`;
+      }).join("");
       return `<tr>
-        <td class="mono">${escapeHtml(branch)}</td>
-        <td><span class="stage stage-${stage}">${escapeHtml(stage)}</span></td>
+        <td class="mono">${escapeHtml(branch)}${latestStage === null ? ' <span class="dim">(untracked)</span>' : ""}</td>
+        ${stageCells}
         <td class="mono dim">${lastActivity}</td>
         <td>${prCell}</td>
       </tr>`;
@@ -232,7 +338,7 @@ function buildPipelineBoard(timeline: Record<string, any>[]): string {
     .join("\n");
 
   return `<table>
-    <thead><tr><th>Branch</th><th>Stage</th><th>Last Activity</th><th>PR</th></tr></thead>
+    <thead><tr><th>Branch</th>${stageHeaders}<th>Last Activity</th><th>PR</th></tr></thead>
     <tbody>${rows}</tbody>
   </table>`;
 }
@@ -368,18 +474,9 @@ function buildActiveDesignDocs(slug: string): string {
 
 // ─── Widget: Release velocity ───────────────────────────────────────────────
 
-function buildReleaseVelocity(): string {
-  const changelogPath = join(process.cwd(), "CHANGELOG.md");
-  if (!existsSync(changelogPath)) {
+function buildReleaseVelocity(versions: ChangelogVersion[]): string {
+  if (versions.length === 0) {
     return `<div class="empty">no data yet — no CHANGELOG.md in this repo</div>`;
-  }
-
-  const changelog = readFileSync(changelogPath, "utf-8");
-  const versionHeadingRe = /^## \[(\d+\.\d+\.\d+\.\d+)\] - (\d{4}-\d{2}-\d{2})/gm;
-  const versions: { version: string; date: string }[] = [];
-  let m: RegExpExecArray | null;
-  while ((m = versionHeadingRe.exec(changelog)) !== null) {
-    versions.push({ version: m[1], date: m[2] });
   }
 
   const recentVersions = versions.filter((v) => withinWindow(v.date, HISTORY_WINDOW_DAYS));
@@ -434,21 +531,9 @@ function buildReleaseVelocity(): string {
 
 // ─── Widget: TODOS backlog health ───────────────────────────────────────────
 
-function buildBacklogHealth(): string {
-  const todosPath = join(process.cwd(), "TODOS.md");
-  if (!existsSync(todosPath)) {
+function buildBacklogHealth(counts: BacklogCounts | null): string {
+  if (!counts) {
     return `<div class="empty">no data yet — no TODOS.md in this repo</div>`;
-  }
-
-  const todos = readFileSync(todosPath, "utf-8");
-  const headingRe = /^### (.+)$/gm;
-  const counts: Record<string, number> = { P0: 0, P1: 0, P2: 0, P3: 0, P4: 0, unparsed: 0 };
-  let m: RegExpExecArray | null;
-  while ((m = headingRe.exec(todos)) !== null) {
-    const heading = m[1];
-    const pm = heading.match(/^(P[0-4]):/);
-    if (pm) counts[pm[1]]++;
-    else counts.unparsed++;
   }
 
   const total = Object.values(counts).reduce((a, b) => a + b, 0);
@@ -465,6 +550,55 @@ function buildBacklogHealth(): string {
     <thead><tr><th>Priority</th><th>Count</th></tr></thead>
     <tbody>${rows}</tbody>
   </table>`;
+}
+
+// ─── Widget: Header stats bar ───────────────────────────────────────────────
+
+function buildHeaderStats(
+  branchData: BranchStageData[],
+  versions: ChangelogVersion[],
+  backlogCounts: BacklogCounts | null
+): string {
+  const version = getCurrentVersion();
+
+  const inFlight = branchData.filter(
+    (b) => b.latestStage !== null && b.latestStage !== "ship"
+  ).length;
+
+  const now = new Date();
+  const shipsThisMonth = versions.filter((v) => {
+    const d = new Date(v.date);
+    return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+  }).length;
+
+  const recentVersions = versions
+    .filter((v) => withinWindow(v.date, HISTORY_WINDOW_DAYS))
+    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  let avgDaysPerRelease: string = "—";
+  if (recentVersions.length >= 2) {
+    const first = new Date(recentVersions[0].date).getTime();
+    const last = new Date(recentVersions[recentVersions.length - 1].date).getTime();
+    const spanDays = (last - first) / (24 * 60 * 60 * 1000);
+    avgDaysPerRelease = (spanDays / (recentVersions.length - 1)).toFixed(1);
+  }
+
+  const p1Open = backlogCounts ? backlogCounts.P1 : null;
+  const openDecisions = getOpenDecisionsCount();
+
+  const stat = (label: string, value: string | number | null) =>
+    `<div class="stat-card">
+      <div class="stat-value">${value === null ? "—" : escapeHtml(String(value))}</div>
+      <div class="stat-label">${escapeHtml(label)}</div>
+    </div>`;
+
+  return `<div class="stats-bar">
+    ${stat("Version", version ? `v${version}` : null)}
+    ${stat("In-flight", inFlight)}
+    ${stat("Ships this month", shipsThisMonth)}
+    ${stat("Avg days/release", avgDaysPerRelease === "—" ? null : avgDaysPerRelease)}
+    ${stat("P1 open", p1Open)}
+    ${stat("Open decisions", openDecisions)}
+  </div>`;
 }
 
 // ─── HTML shell ──────────────────────────────────────────────────────────
@@ -570,12 +704,31 @@ function renderPage(slug: string, branch: string, sections: Record<string, strin
   .release-velocity li { padding: 2px 0; }
   .score { color: var(--success); }
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 16px; }
+  .stats-bar {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 12px;
+    margin-top: 16px;
+  }
+  .stat-card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 16px;
+  }
+  .stat-value { color: var(--amber-500); font-size: 22px; font-weight: 600; }
+  .stat-label { color: var(--text-label); font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; margin-top: 4px; }
+  .stage-col { text-align: center; width: 56px; }
+  .tick { font-weight: 600; }
+  .tick-current { color: var(--amber-500); }
+  .tick-passed { color: var(--text-meta); }
 </style>
 </head>
 <body>
 <header>
   <h1>gstack sprint dashboard</h1>
   <div class="meta">project: ${escapeHtml(slug)} · branch: ${escapeHtml(branch)} · generated ${escapeHtml(generatedAt)}</div>
+  ${sections.headerStats}
 </header>
 
 <h2>Pipeline board</h2>
@@ -663,15 +816,19 @@ function main() {
 
   const timelinePath = join(gstackHome(), "projects", slug, "timeline.jsonl");
   const timeline = readJsonlSafe(timelinePath);
+  const branchData = computeBranchStageData(timeline);
+  const versions = getChangelogVersions();
+  const backlogCounts = getBacklogCounts();
 
   const sections = {
-    pipeline: buildPipelineBoard(timeline),
+    headerStats: buildHeaderStats(branchData, versions, backlogCounts),
+    pipeline: buildPipelineBoard(branchData),
     activity: buildActivityFeed(timeline),
     topSkills: buildTopSkillsChart(slug),
     quality: buildQualityScores(),
     designDocs: buildActiveDesignDocs(slug),
-    releaseVelocity: buildReleaseVelocity(),
-    backlog: buildBacklogHealth(),
+    releaseVelocity: buildReleaseVelocity(versions),
+    backlog: buildBacklogHealth(backlogCounts),
   };
 
   const html = renderPage(slug, branch, sections);
