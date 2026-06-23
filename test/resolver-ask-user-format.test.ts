@@ -111,6 +111,15 @@ describe('generateAskUserFormat — v1.7.0.0 Pros/Cons format', () => {
     expect(out).toMatch(/Net line closes/);
   });
 
+  test('documents JSON tool-call shape (questions array, options required)', () => {
+    // Regression: a model once emitted `questions` as a JSON string instead of
+    // an array, which crashed hosts that render the prompt before validating.
+    expect(out).toMatch(/Tool-call shape/i);
+    expect(out).toMatch(/questions.*array.*(?:not string|not a string)/i);
+    expect(out).toMatch(/non-empty `options` array/);
+    expect(out).toMatch(/questions.*NOT a string/);
+  });
+
   test('documents D-numbering as model-level not runtime state', () => {
     // Codex finding #4 caveat: D-numbering is a prompt wish, not a system
     // guarantee. TemplateContext has no counter. This check pins the caveat.
