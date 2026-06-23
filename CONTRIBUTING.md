@@ -176,6 +176,18 @@ EVALS=1 bun test test/skill-e2e-*.test.ts
 - Saves full NDJSON transcripts and failure JSON for debugging
 - Tests live in `test/skill-e2e-*.test.ts` (split by category), runner logic in `test/helpers/session-runner.ts`
 
+**Hermetic by default.** Every E2E runner (claude -p, the real-PTY plan-mode
+runner, the Agent SDK runner, plus the codex and gemini runners) spawns its child
+through `test/helpers/hermetic-env.ts`: an allowlist-scrubbed environment, a fresh
+seeded `CLAUDE_CONFIG_DIR`, a temp `GSTACK_HOME`, and `--strict-mcp-config`. Your
+operator `~/.claude` config, MCP servers (gbrain, Conductor), skills, `~/.gstack`
+decision logs, and `CONDUCTOR_*` env never leak into the child, so local eval
+signal matches CI instead of disagreeing for reasons unrelated to the code under
+test. Set `EVALS_HERMETIC=0` to debug against your real operator state (this also
+drops `--strict-mcp-config`). The wiring is pinned by `test/hermetic-wiring.test.ts`
+(a free static tripwire) and two gate-tier isolation canaries in
+`test/skill-e2e-hermetic-canary.test.ts`.
+
 ### E2E observability
 
 When E2E tests run, they produce machine-readable artifacts in `~/.gstack-dev/`:
@@ -197,6 +209,25 @@ bun run eval:list            # list all eval runs (turns, duration, cost per run
 bun run eval:compare         # compare two runs — shows per-test deltas + Takeaway commentary
 bun run eval:summary         # aggregate stats + per-test efficiency averages across runs
 ```
+
+**Detached runs for agents and long suites.** When an agent (or you, for a run
+you don't want to babysit) launches a long eval, use the `eval:bg*` scripts. They
+wrap the eval command in `bin/gstack-detach`: a fresh session that escapes a
+turn-boundary SIGTERM, a `caffeinate` wrapper that blocks idle-sleep, a machine-wide
+`gstack-evals` lock so concurrent worktrees serialize instead of saturating the
+model API, a run-scoped log under `~/.gstack-dev/eval-runs/`, a per-tier watchdog,
+and a guaranteed `### gstack-detach EXIT=<code> ###` sentinel so a poller never
+mistakes silence for success.
+
+```bash
+bun run eval:bg              # detached test:evals (diff-based)
+bun run eval:bg:all          # detached test:evals:all
+bun run eval:bg:gate         # detached gate-tier suite
+bun run eval:bg:periodic     # detached periodic-tier suite
+```
+
+Each prints its log path. Humans running `bun run test:evals` foreground in their
+own terminal don't need this — Ctrl-C is intended there.
 
 **Eval comparison commentary:** `eval:compare` generates natural-language Takeaway sections interpreting what changed between runs — flagging regressions, noting improvements, calling out efficiency gains (fewer turns, faster, cheaper), and producing an overall summary. This is driven by `generateCommentary()` in `eval-store.ts`.
 

@@ -56,6 +56,13 @@ echo "REPO_MODE: $REPO_MODE"
 _SESSION_KIND=$(~/.claude/skills/gstack/bin/gstack-session-kind 2>/dev/null || echo "interactive")
 case "$_SESSION_KIND" in spawned|headless|interactive) ;; *) _SESSION_KIND="interactive" ;; esac
 echo "SESSION_KIND: $_SESSION_KIND"
+# Conductor host: AskUserQuestion is unreliable here (native disabled, MCP
+# variant flaky), so skills render decisions as prose instead of calling the
+# tool. Gated on !headless so an eval/CI run INSIDE Conductor (GSTACK_HEADLESS)
+# still BLOCKs rather than rendering prose to nobody.
+if [ "$_SESSION_KIND" != "headless" ] && { [ -n "${CONDUCTOR_WORKSPACE_PATH:-}" ] || [ -n "${CONDUCTOR_PORT:-}" ]; }; then
+  echo "CONDUCTOR_SESSION: true"
+fi
 _LAKE_SEEN=$([ -f ~/.gstack/.completeness-intro-seen ] && echo "yes" || echo "no")
 echo "LAKE_INTRO: $_LAKE_SEEN"
 _TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || true)
@@ -305,7 +312,9 @@ AI orchestrator (e.g., OpenClaw). In spawned sessions:
 
 "AskUserQuestion" can resolve to two tools at runtime: the **host MCP variant** (e.g. `mcp__conductor__AskUserQuestion` — appears in your tool list when the host registers it) or the **native** Claude Code tool.
 
-**Rule:** if any `mcp__*__AskUserQuestion` variant is in your tool list, prefer it. Hosts may disable native AUQ via `--disallowedTools AskUserQuestion` (Conductor does, by default) and route through their MCP variant; calling native there silently fails. Same questions/options shape; same decision-brief format applies.
+**Conductor rule (read before the MCP rule):** if `CONDUCTOR_SESSION: true` was echoed by the preamble, do NOT call AskUserQuestion at all — neither native nor any `mcp__*__AskUserQuestion` variant. Render EVERY decision brief as the **prose form** below and STOP. This is proactive, not a reaction to a failure: Conductor disables native AUQ and its MCP variant is flaky (it returns `[Tool result missing due to internal error]`), so prose is the reliable path. **Auto-decide preferences still apply first:** if a `[plan-tune auto-decide] <id> → <option>` result has already surfaced for a question, proceed with that option (no prose). Because in Conductor you go straight to prose without ever calling the tool, this auto-decide-first ordering is enforced HERE, not only by the PreToolUse hook. When you render a Conductor prose brief, also capture it with `bin/gstack-question-log` (the PostToolUse capture hook never fires on a prose path, so `/plan-tune` history/learning depends on this call).
+
+**Rule (non-Conductor):** if any `mcp__*__AskUserQuestion` variant is in your tool list, prefer it. Hosts may disable native AUQ via `--disallowedTools AskUserQuestion` (Conductor does, by default) and route through their MCP variant; calling native there silently fails. Same questions/options shape; same decision-brief format applies.
 
 If AskUserQuestion is unavailable (no variant in your tool list) OR a call to it fails, do NOT silently auto-decide or write the decision to the plan file as a substitute. Follow the **failure fallback** below.
 
@@ -327,7 +336,11 @@ Tell three outcomes apart:
 2. **Completeness scores per choice** — explicit `Completeness: X/10` on EACH choice (10 complete, 7 happy-path, 3 shortcut); use the kind-note when options differ in kind not coverage, but never silently drop the score.
 3. **The recommendation and why** — a `Recommendation: <choice> because <reason>` line plus the `(recommended)` marker on that choice.
 
-Layout: a `D<N>` title + a one-line note that AskUserQuestion failed and to reply with a letter; the issue ELI10; the Recommendation line; then ONE paragraph per choice carrying its `(recommended)` marker, its `Completeness: X/10`, and 2-4 sentences of reasoning — never a bare bullet list; a closing `Net:` line. Split chains / 5+ options: one prose block per per-option call, in sequence. Then STOP and wait — the user's typed answer is the decision. In plan mode this satisfies end-of-turn like a tool call.
+Layout: a `D<N>` title + a one-line note to reply with a letter (in Conductor this is the normal path; elsewhere it means AskUserQuestion was unavailable or errored); the issue ELI10; the Recommendation line; then ONE paragraph per choice carrying its `(recommended)` marker, its `Completeness: X/10`, and 2-4 sentences of reasoning — never a bare bullet list; a closing `Net:` line. Split chains / 5+ options: one prose block per per-option call, in sequence. Then STOP and wait — the user's typed answer is the decision. In plan mode this satisfies end-of-turn like a tool call.
+
+**Continuation — mapping a typed reply back to a brief.** Each brief carries a stable label (`D<N>`, or `D<N>.k` in a split chain). The user references it (e.g. "3.2: B"). A bare letter maps to the single most-recent UNANSWERED brief; if more than one is open (a split chain), do NOT guess — ask which `D<N>.k` it answers. Never apply a bare letter ambiguously across a chain.
+
+**One-way / destructive confirmations in prose.** When the decision is a one-way door (irreversible or destructive — delete, force-push, drop, overwrite), prose is a WEAKER gate than the tool, so make it stronger: require an explicit typed confirmation (the exact option letter or word), state plainly what is irreversible, and NEVER proceed on a vague, partial, or ambiguous reply — re-ask instead. Treat silence or "ok"/"sure" without the explicit choice as not-yet-confirmed.
 
 ### Format
 
@@ -411,7 +424,7 @@ Before calling AskUserQuestion, verify:
 - [ ] (recommended) label on one option (even for neutral-posture)
 - [ ] Dual-scale effort labels on effort-bearing options (human / CC)
 - [ ] Net line closes the decision
-- [ ] You are calling the tool, not writing prose — unless the documented failure fallback applies (then: prose with the mandatory triad — issue ELI10, per-choice Completeness, Recommendation + `(recommended)` — and a "reply with a letter" instruction, then STOP)
+- [ ] You are calling the tool, not writing prose — unless `CONDUCTOR_SESSION: true` (then prose is the DEFAULT, not the tool) OR the documented failure fallback applies (then: prose with the mandatory triad — issue ELI10, per-choice Completeness, Recommendation + `(recommended)` — and a "reply with a letter" instruction, then STOP)
 - [ ] Non-ASCII characters (CJK / accents) written directly, NOT \u-escaped
 - [ ] If you had 5+ options, you split (or batched into ≤4-groups) — did NOT drop any
 - [ ] If you split, you checked dependencies between options before firing the chain

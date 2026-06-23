@@ -4,6 +4,8 @@ on:
     branches: [main]
     paths:
       - 'make-pdf/**'
+      - 'lib/diagram-render/**'
+      - 'test/diagram-render-drift.test.ts'
       - 'browse/src/meta-commands.ts'
       - 'browse/src/write-commands.ts'
       - 'browse/src/commands.ts'
@@ -81,7 +83,7 @@ jobs:
           which pdftotext && pdftotext -v 2>&1 | head -1 || true
 
       - name: Run make-pdf unit tests
-        run: bun test make-pdf/test/*.test.ts
+        run: bun test make-pdf/test/*.test.ts test/diagram-render-drift.test.ts
 
       - name: Run E2E gates (combined-features copy-paste + emoji render)
         env:

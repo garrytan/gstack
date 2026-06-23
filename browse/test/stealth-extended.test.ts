@@ -3,11 +3,12 @@
  * v1.41 wave).
  *
  * Pins:
- * 1. Default mode keeps minimum: only WEBDRIVER_MASK_SCRIPT applied.
- * 2. GSTACK_STEALTH=extended adds EXTENDED_STEALTH_SCRIPT on top.
+ * 1. Default mode applies the always-on Layer C stealth script (and NOT
+ *    the extended script) — the consistency-first default.
+ * 2. GSTACK_STEALTH=extended adds EXTENDED_STEALTH_SCRIPT on top of Layer C.
  * 3. EXTENDED_STEALTH_SCRIPT contains the six detection-vector patches.
- * 4. Apply order: default mask first, extended second (so the
- *    delete-from-prototype path layers on top of the getter without
+ * 4. Apply order: Layer C first, extended second (so the extended
+ *    delete-from-prototype path layers on top of Layer C's getter without
  *    silently overriding it if delete fails).
  *
  * Live SannySoft pass-rate verification is a periodic-tier E2E test
@@ -18,7 +19,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import {
   EXTENDED_STEALTH_SCRIPT,
-  WEBDRIVER_MASK_SCRIPT,
   isExtendedStealthEnabled,
   applyStealth,
 } from '../src/stealth';
@@ -89,7 +89,7 @@ describe('EXTENDED_STEALTH_SCRIPT — six detection-vector patches', () => {
 });
 
 describe('applyStealth — script wiring', () => {
-  test('default mode applies ONLY WEBDRIVER_MASK_SCRIPT', async () => {
+  test('default mode applies Layer C + cleanup, not extended', async () => {
     delete process.env.GSTACK_STEALTH;
     const calls: string[] = [];
     const fakeCtx = {
@@ -98,11 +98,19 @@ describe('applyStealth — script wiring', () => {
       },
     } as unknown as Parameters<typeof applyStealth>[0];
     await applyStealth(fakeCtx);
-    expect(calls).toHaveLength(1);
-    expect(calls[0]).toBe(WEBDRIVER_MASK_SCRIPT);
+    expect(calls).toHaveLength(2);
+    // [0] = Layer C (toString-proxy native-code lie + webdriver mask).
+    expect(calls[0]).toContain('[native code]');
+    expect(calls[0]).toContain('webdriver');
+    // [1] = automation-artifact cleanup (cdc_ scan + Permissions shim) —
+    //       now applied on EVERY launch path, not just the headed one.
+    expect(calls[1]).toContain('cdc_');
+    expect(calls[1]).toContain('setTimeout(cleanup');
+    // Extended script must NOT be applied by default.
+    expect(calls).not.toContain(EXTENDED_STEALTH_SCRIPT);
   });
 
-  test('extended mode applies BOTH scripts in order (mask first, extended second)', async () => {
+  test('extended mode applies Layer C, cleanup, then extended (in order)', async () => {
     process.env.GSTACK_STEALTH = 'extended';
     const calls: string[] = [];
     const fakeCtx = {
@@ -111,8 +119,9 @@ describe('applyStealth — script wiring', () => {
       },
     } as unknown as Parameters<typeof applyStealth>[0];
     await applyStealth(fakeCtx);
-    expect(calls).toHaveLength(2);
-    expect(calls[0]).toBe(WEBDRIVER_MASK_SCRIPT);
-    expect(calls[1]).toBe(EXTENDED_STEALTH_SCRIPT);
+    expect(calls).toHaveLength(3);
+    expect(calls[0]).toContain('[native code]');     // Layer C first
+    expect(calls[1]).toContain('cdc_');              // cleanup second
+    expect(calls[2]).toBe(EXTENDED_STEALTH_SCRIPT);  // extended last
   });
 });

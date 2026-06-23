@@ -4,6 +4,9 @@ dist/
 browse/dist/
 design/dist/
 make-pdf/dist/
+# diagram-render ships its built bundle (offline-at-install premise, eng-review D2)
+!lib/diagram-render/dist/
+!lib/diagram-render/dist/**
 bin/gstack-global-discover*
 .gstack/
 .claude/skills/

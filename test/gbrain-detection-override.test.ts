@@ -136,6 +136,27 @@ describe('gbrain detection override → gen-skill-docs', () => {
     }
   });
 
+  test('with status "timeout" (slow-but-healthy, #1964), brain blocks render like "ok"', () => {
+    const { tmpHome, cleanup } = makeFixture(
+      JSON.stringify({ gbrain_local_status: 'timeout', gbrain_on_path: true, gbrain_version: 'test-0.41.0' }),
+    );
+    try {
+      const snap = regenAndSnapshot({
+        respectDetection: true,
+        tmpHome,
+        files: PROBE_FILES,
+      });
+      const content = probeUnion(snap);
+
+      // A slow engine must not silently suppress brain features — same
+      // treatment as "ok" (matches gstack-gbrain-detect --is-ok).
+      expect(content).toContain('## Save Results to Brain');
+      expect(content).toContain('gbrain put "office-hours/');
+    } finally {
+      cleanup();
+    }
+  });
+
   test('with detected:false (status != "ok"), brain blocks stay suppressed', () => {
     const { tmpHome, cleanup } = makeFixture(
       JSON.stringify({ gbrain_local_status: 'no-cli', gbrain_on_path: false, gbrain_version: null }),

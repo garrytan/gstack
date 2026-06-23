@@ -527,10 +527,16 @@ window is being controlled.
 ### What "GStack Browser" means
 
 Not your daily Chrome — a Playwright-managed Chromium with custom branding
-in the Dock and menu bar, anti-bot stealth (sites like Google and NYTimes
-work without captchas), a custom user agent, and the gstack extension
-pre-loaded via `launchPersistentContext`. Your regular Chrome with your tabs
-and bookmarks stays untouched.
+in the Dock and menu bar (the `.app` name, Dock icon, and tray, NOT the UA
+string), always-on Layer C anti-bot stealth (most JS-observable automation
+tells are masked, so many anti-bot-protected sites load cleanly), a
+stock-Chrome user agent that reports the underlying Chromium version, and the
+gstack extension pre-loaded via `launchPersistentContext`. The UA no longer
+carries a `GStackBrowser` suffix — that branding string was itself a
+high-entropy tell, so the browser now reports a plain `Chrome/<version>` UA.
+Deepest-layer CDP-protocol detection still gets through (Google can still
+trigger captchas; see the CDP-patch item in `TODOS.md`). Your regular Chrome
+with your tabs and bookmarks stays untouched.
 
 ### When to use headed mode
 
@@ -581,13 +587,42 @@ A running daemon with config A meeting a new invocation with config B exits
 1 with a `browse disconnect` hint instead of silently restarting and dropping
 tab state, cookies, or sessions.
 
-**Stealth scope.** When `--headed` or `--proxy` are set, `$B` masks
-`navigator.webdriver` only — via Chromium's
-`--disable-blink-features=AutomationControlled` plus a small init script.
-We do NOT fake `navigator.plugins`, `navigator.languages`, or `window.chrome`
-— modern fingerprinters check those for consistency, and synthesizing fixed
-values can flag MORE bot-like, not less. ChromeDriver's `cdc_` runtime
-artifacts and the Permissions API patch are still cleaned up.
+**Stealth scope (Layer C, always on).** Every context — headless `launch`,
+`--headed`/`--proxy`, `handoff`, and the `useragent`/`viewport --scale`
+rebuild (`recreateContext`) — gets the full Layer C mask, no opt-in flag.
+Layer C masks `navigator.webdriver`, restores the `window.chrome.*` shape
+(`runtime`, `app`, `csi`, `loadTimes`), aligns `Notification.permission`
+with the Permissions API, reports a per-install
+`hardwareConcurrency`/`deviceMemory` from the host profile, sweeps the known
+Selenium/Phantom/Nightmare/Playwright globals, and installs a
+`Function.prototype.toString` proxy so every patched getter reports
+`[native code]` even under the depth-3 recursion check. It still does NOT
+fake `navigator.plugins` or `navigator.languages` — modern fingerprinters
+cross-check those for consistency, and synthesizing fixed values flags MORE
+bot-like, not less. ChromeDriver's `cdc_`/`__webdriver` runtime artifacts and
+the Permissions notifications tell are also cleaned up on every path.
+
+`GSTACK_STEALTH=extended` (also accepts `1` or `true`; off by default) layers
+six more aggressive patches on top — WebGL renderer spoof, a faked
+`navigator.plugins` PluginArray, `navigator.mediaDevices`. That mode actively
+lies and can break sites that reflect on those properties; use it only when
+the default triggers detection. For gbrowser builds with the C++ patches, the
+`GSTACK_*` host-profile env (GPU vendor/renderer, UA-CH platform/model,
+hardware) emits the Pack 1 `--gstack-gpu-vendor` / `--gstack-gpu-renderer` /
+`--gstack-ua-platform` / `--gstack-ua-model` / `--gstack-hw-concurrency` /
+`--gstack-device-memory` switches that push the GPU/UA-CH/hardware spoof down
+to native code, and `GSTACK_CDP_STEALTH=on` (or `1`/`true`) emits the Pack 2
+`--gstack-suppress-prepare-stack-trace` switch (closes the Cloudflare
+`Error.prepareStackTrace` canary). On stock Playwright Chromium every one of
+these switches is a safe no-op.
+
+`launchHeaded` / `handoff` also strip Playwright's automation-tell launch
+defaults via `ignoreDefaultArgs` (`STEALTH_IGNORE_DEFAULT_ARGS`):
+`--enable-automation` (the "Chrome is being controlled by automated test
+software" infobar), `--disable-extensions`,
+`--disable-component-extensions-with-background-pages`,
+`--disable-popup-blocking`, `--disable-component-update`, and
+`--disable-default-apps`.
 
 **Container support.** `--headed` on Linux without `DISPLAY` walks the
 display range (`:99`, `:100`, ...) until `xdpyinfo` reports a free slot,
@@ -1164,6 +1199,11 @@ the global `~/.gstack/browser-skills/foo/` only inside project-a.
 | `GSTACK_BROWSE_MAX_HTML_BYTES` | 52428800 (50MB) | `load-html` size cap |
 | `GSTACK_SECURITY_OFF` | unset | Emergency kill switch — disable ML classifier |
 | `GSTACK_SECURITY_ENSEMBLE` | unset | Set to `deberta` for 3-classifier ensemble (721MB download) |
+| `GSTACK_STEALTH` | unset | Set to `extended` (also accepts `1`/`true`) to layer six aggressive patches (WebGL spoof, faked plugins, mediaDevices) on top of Layer C. Actively lies; can break sites. |
+| `GSTACK_CDP_STEALTH` | unset | Set to `on`/`1`/`true` to emit `--gstack-suppress-prepare-stack-trace` (gbrowser Pack 2 / B11 C++ patch only; no-op on stock Chromium) |
+| `GSTACK_GPU_VENDOR`, `GSTACK_GPU_RENDERER`, `GSTACK_GPU_CHIPSET` | unset | Per-install GPU spoof fed to the Pack 1 WebGL/UA-CH C++ patches. Set by gbd from the host profile; emitted as `--gstack-gpu-vendor` / `--gstack-gpu-renderer` / `--gstack-ua-model` cmdline switches only when present. |
+| `GSTACK_PLATFORM` | unset | Host platform classification (`MacARM`/`MacIntel` → `macOS`, `Win32` → `Windows`, `Linux*` → `Linux`) emitted as `--gstack-ua-platform` |
+| `GSTACK_HW_CONCURRENCY`, `GSTACK_DEVICE_MEMORY` | host profile (fallback 8) | Per-install `hardwareConcurrency`/`deviceMemory` reported by Layer C and emitted as `--gstack-hw-concurrency` / `--gstack-device-memory` for the worker-navigator C++ patch |
 
 ---
 
@@ -1179,7 +1219,7 @@ browse/
 │   ├── proxy-config.ts          # --proxy URL parsing + cred resolution (URL vs env, fail-fast on both)
 │   ├── proxy-redact.ts          # Cred-redaction helper for any proxy URL surfaced to logs/errors
 │   ├── xvfb.ts                  # Xvfb auto-spawn + orphan cleanup with PID + start-time validation
-│   ├── stealth.ts               # navigator.webdriver mask + cdc_ cleanup + Permissions API patch
+│   ├── stealth.ts               # Layer C: webdriver mask + window.chrome.* + Notification/Permissions + per-install hardware + toString proxy + automation-global sweep; buildGStackLaunchArgs (GSTACK_* cmdline switches); GSTACK_STEALTH=extended opt-in
 │   ├── browse-client.ts         # Canonical SDK — what skills import as _lib/browse-client.ts
 │   ├── snapshot.ts              # AX tree → @e/@c refs → Locator map; -D/-a/-C handling
 │   ├── read-commands.ts         # Non-mutating: text, html, links, js, css, is, dialog, ...

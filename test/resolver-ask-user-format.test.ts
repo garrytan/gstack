@@ -225,8 +225,25 @@ describe('generateAskUserFormat — runtime-failure prose fallback', () => {
     expect(out).toMatch(/must be sent as tool_use, not prose — unless the documented failure fallback/);
   });
 
-  test('OV2: the self-check "not writing prose" line carries the fallback qualifier', () => {
-    expect(out).toMatch(/not writing prose — unless the documented failure fallback applies/);
+  test('OV2: the self-check "not writing prose" line carries the Conductor + fallback qualifiers', () => {
+    // After the Conductor-default-prose change, the exception is two-pronged:
+    // CONDUCTOR_SESSION makes prose the default, OR the documented failure fallback.
+    expect(out).toMatch(/not writing prose — unless `CONDUCTOR_SESSION: true`[\s\S]*OR the documented failure fallback applies/);
+  });
+
+  // Conductor-default-prose contract (the proactive path, distinct from the
+  // failure fallback). Guards the Tool-resolution rule + self-check wording.
+  test('Conductor: do-not-call rule present in Tool resolution', () => {
+    expect(out).toMatch(/CONDUCTOR_SESSION: true/);
+    expect(out).toMatch(/do NOT call AskUserQuestion at all/);
+    expect(out).toMatch(/Auto-decide preferences still apply first/);
+    expect(out).toMatch(/gstack-question-log/);
+  });
+
+  test('Conductor: one-way prose rule + continuation protocol present', () => {
+    expect(out).toMatch(/one-way\b[\s\S]*typed confirmation/i);
+    expect(out).toMatch(/never proceed on a vague/i);
+    expect(out).toMatch(/Continuation — mapping a typed reply/);
   });
 });
 

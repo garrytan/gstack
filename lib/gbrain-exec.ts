@@ -58,10 +58,10 @@ export interface BuildGbrainEnvOptions {
  * Detect whether a DATABASE_URL targets a PgBouncer transaction-mode pooler.
  *
  * Supabase transaction-mode poolers conventionally run on port 6543 at
- * `*.pooler.supabase.com`. When gbrain connects through one of these, it
- * auto-disables prepared statements — but search requires them (#1435).
- * Returns `true` when the URL looks like a transaction-mode pooler so the
- * caller can set `GBRAIN_PREPARE=true` to re-enable prepared statements.
+ * `*.pooler.supabase.com`. gbrain auto-disables prepared statements on these
+ * (prepared statements break under transaction pooling — #1965); its banner
+ * documents `GBRAIN_PREPARE=true` as the override for poolers that actually
+ * run in session mode on 6543.
  */
 export function isTransactionModePooler(url: string): boolean {
   try {
@@ -83,10 +83,11 @@ export function isTransactionModePooler(url: string): boolean {
  *   - the config has no `database_url`,
  *   - the caller already set DATABASE_URL to the same value.
  *
- * When the effective DATABASE_URL targets a PgBouncer transaction-mode
- * pooler (port 6543), sets `GBRAIN_PREPARE=true` so gbrain re-enables
- * prepared statements needed for search (#1435). Caller can override
- * with `GBRAIN_PREPARE=false` in the base env.
+ * GBRAIN_PREPARE is never set here (#1965): gbrain auto-disables prepared
+ * statements on transaction-mode poolers itself, and forcing them on breaks
+ * every write with "prepared statement does not exist". A caller-set
+ * GBRAIN_PREPARE (either value) passes through untouched — that remains the
+ * documented override for session-mode poolers on port 6543.
  *
  * Always returns a fresh object — mutating the returned env never
  * affects the caller's env. Tests assert on effective values, not
@@ -117,20 +118,6 @@ export function buildGbrainEnv(opts: BuildGbrainEnvOptions = {}): NodeJS.Process
     if (opts.announce) {
       const note = hadCaller ? " (overrode value from caller env / .env.local)" : "";
       process.stderr.write(`[gbrain-exec] seeded DATABASE_URL from ${configPath}${note}\n`);
-    }
-  }
-
-  // PgBouncer transaction-mode pooler detection (#1435): when the effective
-  // DATABASE_URL targets port 6543 (Supabase transaction-mode convention),
-  // gbrain auto-disables prepared statements — but search needs them.
-  // Set GBRAIN_PREPARE=true unless the caller explicitly opted out.
-  const effectiveUrl = out.DATABASE_URL || cfg.database_url;
-  if (effectiveUrl && !out.GBRAIN_PREPARE && isTransactionModePooler(effectiveUrl)) {
-    out.GBRAIN_PREPARE = "true";
-    if (opts.announce) {
-      process.stderr.write(
-        `[gbrain-exec] set GBRAIN_PREPARE=true (port 6543 transaction-mode pooler detected)\n`,
-      );
     }
   }
 

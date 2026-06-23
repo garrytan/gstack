@@ -51,6 +51,13 @@ echo "REPO_MODE: $REPO_MODE"
 _SESSION_KIND=$(~/.claude/skills/gstack/bin/gstack-session-kind 2>/dev/null || echo "interactive")
 case "$_SESSION_KIND" in spawned|headless|interactive) ;; *) _SESSION_KIND="interactive" ;; esac
 echo "SESSION_KIND: $_SESSION_KIND"
+# Conductor host: AskUserQuestion is unreliable here (native disabled, MCP
+# variant flaky), so skills render decisions as prose instead of calling the
+# tool. Gated on !headless so an eval/CI run INSIDE Conductor (GSTACK_HEADLESS)
+# still BLOCKs rather than rendering prose to nobody.
+if [ "$_SESSION_KIND" != "headless" ] && { [ -n "${CONDUCTOR_WORKSPACE_PATH:-}" ] || [ -n "${CONDUCTOR_PORT:-}" ]; }; then
+  echo "CONDUCTOR_SESSION: true"
+fi
 _LAKE_SEEN=$([ -f ~/.gstack/.completeness-intro-seen ] && echo "yes" || echo "no")
 echo "LAKE_INTRO: $_LAKE_SEEN"
 _TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || true)

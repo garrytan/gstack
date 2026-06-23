@@ -114,6 +114,7 @@ jobs:
             browse/test/security.test.ts \
             browse/test/server-sanitize-surrogates.test.ts \
             test/setup-windows-fallback.test.ts \
+            test/bin-windows-bun-import-paths.test.ts \
             test/build-script-shell-compat.test.ts \
             test/docs-config-keys.test.ts \
             test/brain-sync-windows-paths.test.ts \

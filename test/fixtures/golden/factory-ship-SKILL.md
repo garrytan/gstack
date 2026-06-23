@@ -41,6 +41,13 @@ echo "REPO_MODE: $REPO_MODE"
 _SESSION_KIND=$($GSTACK_BIN/gstack-session-kind 2>/dev/null || echo "interactive")
 case "$_SESSION_KIND" in spawned|headless|interactive) ;; *) _SESSION_KIND="interactive" ;; esac
 echo "SESSION_KIND: $_SESSION_KIND"
+# Conductor host: AskUserQuestion is unreliable here (native disabled, MCP
+# variant flaky), so skills render decisions as prose instead of calling the
+# tool. Gated on !headless so an eval/CI run INSIDE Conductor (GSTACK_HEADLESS)
+# still BLOCKs rather than rendering prose to nobody.
+if [ "$_SESSION_KIND" != "headless" ] && { [ -n "${CONDUCTOR_WORKSPACE_PATH:-}" ] || [ -n "${CONDUCTOR_PORT:-}" ]; }; then
+  echo "CONDUCTOR_SESSION: true"
+fi
 _LAKE_SEEN=$([ -f ~/.gstack/.completeness-intro-seen ] && echo "yes" || echo "no")
 echo "LAKE_INTRO: $_LAKE_SEEN"
 _TEL=$($GSTACK_BIN/gstack-config get telemetry 2>/dev/null || true)
@@ -290,7 +297,9 @@ AI orchestrator (e.g., OpenClaw). In spawned sessions:
 
 "AskUserQuestion" can resolve to two tools at runtime: the **host MCP variant** (e.g. `mcp__conductor__AskUserQuestion` — appears in your tool list when the host registers it) or the **native** Claude Code tool.
 
-**Rule:** if any `mcp__*__AskUserQuestion` variant is in your tool list, prefer it. Hosts may disable native AUQ via `--disallowedTools AskUserQuestion` (Conductor does, by default) and route through their MCP variant; calling native there silently fails. Same questions/options shape; same decision-brief format applies.
+**Conductor rule (read before the MCP rule):** if `CONDUCTOR_SESSION: true` was echoed by the preamble, do NOT call AskUserQuestion at all — neither native nor any `mcp__*__AskUserQuestion` variant. Render EVERY decision brief as the **prose form** below and STOP. This is proactive, not a reaction to a failure: Conductor disables native AUQ and its MCP variant is flaky (it returns `[Tool result missing due to internal error]`), so prose is the reliable path. **Auto-decide preferences still apply first:** if a `[plan-tune auto-decide] <id> → <option>` result has already surfaced for a question, proceed with that option (no prose). Because in Conductor you go straight to prose without ever calling the tool, this auto-decide-first ordering is enforced HERE, not only by the PreToolUse hook. When you render a Conductor prose brief, also capture it with `bin/gstack-question-log` (the PostToolUse capture hook never fires on a prose path, so `/plan-tune` history/learning depends on this call).
+
+**Rule (non-Conductor):** if any `mcp__*__AskUserQuestion` variant is in your tool list, prefer it. Hosts may disable native AUQ via `--disallowedTools AskUserQuestion` (Conductor does, by default) and route through their MCP variant; calling native there silently fails. Same questions/options shape; same decision-brief format applies.
 
 If AskUserQuestion is unavailable (no variant in your tool list) OR a call to it fails, do NOT silently auto-decide or write the decision to the plan file as a substitute. Follow the **failure fallback** below.
 
@@ -312,7 +321,11 @@ Tell three outcomes apart:
 2. **Completeness scores per choice** — explicit `Completeness: X/10` on EACH choice (10 complete, 7 happy-path, 3 shortcut); use the kind-note when options differ in kind not coverage, but never silently drop the score.
 3. **The recommendation and why** — a `Recommendation: <choice> because <reason>` line plus the `(recommended)` marker on that choice.
 
-Layout: a `D<N>` title + a one-line note that AskUserQuestion failed and to reply with a letter; the issue ELI10; the Recommendation line; then ONE paragraph per choice carrying its `(recommended)` marker, its `Completeness: X/10`, and 2-4 sentences of reasoning — never a bare bullet list; a closing `Net:` line. Split chains / 5+ options: one prose block per per-option call, in sequence. Then STOP and wait — the user's typed answer is the decision. In plan mode this satisfies end-of-turn like a tool call.
+Layout: a `D<N>` title + a one-line note to reply with a letter (in Conductor this is the normal path; elsewhere it means AskUserQuestion was unavailable or errored); the issue ELI10; the Recommendation line; then ONE paragraph per choice carrying its `(recommended)` marker, its `Completeness: X/10`, and 2-4 sentences of reasoning — never a bare bullet list; a closing `Net:` line. Split chains / 5+ options: one prose block per per-option call, in sequence. Then STOP and wait — the user's typed answer is the decision. In plan mode this satisfies end-of-turn like a tool call.
+
+**Continuation — mapping a typed reply back to a brief.** Each brief carries a stable label (`D<N>`, or `D<N>.k` in a split chain). The user references it (e.g. "3.2: B"). A bare letter maps to the single most-recent UNANSWERED brief; if more than one is open (a split chain), do NOT guess — ask which `D<N>.k` it answers. Never apply a bare letter ambiguously across a chain.
+
+**One-way / destructive confirmations in prose.** When the decision is a one-way door (irreversible or destructive — delete, force-push, drop, overwrite), prose is a WEAKER gate than the tool, so make it stronger: require an explicit typed confirmation (the exact option letter or word), state plainly what is irreversible, and NEVER proceed on a vague, partial, or ambiguous reply — re-ask instead. Treat silence or "ok"/"sure" without the explicit choice as not-yet-confirmed.
 
 ### Format
 
@@ -396,7 +409,7 @@ Before calling AskUserQuestion, verify:
 - [ ] (recommended) label on one option (even for neutral-posture)
 - [ ] Dual-scale effort labels on effort-bearing options (human / CC)
 - [ ] Net line closes the decision
-- [ ] You are calling the tool, not writing prose — unless the documented failure fallback applies (then: prose with the mandatory triad — issue ELI10, per-choice Completeness, Recommendation + `(recommended)` — and a "reply with a letter" instruction, then STOP)
+- [ ] You are calling the tool, not writing prose — unless `CONDUCTOR_SESSION: true` (then prose is the DEFAULT, not the tool) OR the documented failure fallback applies (then: prose with the mandatory triad — issue ELI10, per-choice Completeness, Recommendation + `(recommended)` — and a "reply with a letter" instruction, then STOP)
 - [ ] Non-ASCII characters (CJK / accents) written directly, NOT \u-escaped
 - [ ] If you had 5+ options, you split (or batched into ≤4-groups) — did NOT drop any
 - [ ] If you split, you checked dependencies between options before firing the chain
@@ -1278,6 +1291,22 @@ EVAL_JUDGE_TIER=full EVAL_VERBOSE=1 bin/test-lane --eval test/evals/<suite>_eval
 ```
 
 If multiple suites need to run, run them sequentially (each needs a test lane). If the first suite fails, stop immediately — don't burn API cost on remaining suites.
+
+**Long eval suites (30+ min): launch detached so a turn boundary can't kill them.**
+A plain backgrounded eval lives in the harness's process group and dies to a
+SIGTERM ("polite quit") on a turn boundary, a stopped monitor, or an interruption
+(observed mid-`/ship`: `script terminated by signal SIGTERM`). Run it through
+`$GSTACK_ROOT/bin/gstack-detach` instead — it survives in its own
+session, serializes against other worktrees via a machine lock (no API
+saturation), and writes a guaranteed `### gstack-detach EXIT=<code> ###` sentinel:
+
+```bash
+$GSTACK_ROOT/bin/gstack-detach --label ship-evals --lock gstack-evals --timeout 5400 -- <project eval command>
+```
+
+Then poll the printed log path; break on the `EXIT=` sentinel (covers both pass
+and crash — silence is never success). The detached run survives even if your
+poller is reaped.
 
 **4. Check results:**
 
@@ -2790,6 +2819,63 @@ Claiming work is complete without verification is dishonesty, not efficiency.
 ---
 
 ## Step 17: Push
+
+**Credential pre-push guard (#1946) — run before the push:**
+
+```bash
+_REDACT_PREPUSH=$($GSTACK_ROOT/bin/gstack-config get redact_prepush_hook 2>/dev/null || echo "false")
+_HOOK_PATH=$(git rev-parse --git-path hooks/pre-push 2>/dev/null || echo "")
+_HOOK_INSTALLED="no"
+[ -n "$_HOOK_PATH" ] && [ -f "$_HOOK_PATH" ] && grep -q "gstack-redact" "$_HOOK_PATH" 2>/dev/null && _HOOK_INSTALLED="yes"
+# Custom hooks dirs (core.hooksPath — e.g. husky's COMMITTED .husky/) must
+# never get a silent install: the chaining installer would rename the team's
+# committed hook and write a machine-local wrapper into the working tree.
+_HOOKS_DIR=$(git rev-parse --git-path hooks 2>/dev/null || echo "")
+_GIT_DIR=$(git rev-parse --absolute-git-dir 2>/dev/null || echo "")
+_HOOKS_IN_GIT_DIR="no"
+case "$_HOOKS_DIR" in
+  "$_GIT_DIR"/*|hooks|.git/hooks) _HOOKS_IN_GIT_DIR="yes" ;;
+esac
+_PREPUSH_PROMPTED=$([ -f "${GSTACK_HOME:-$HOME/.gstack}/.redact-prepush-prompted" ] && echo "yes" || echo "no")
+echo "REDACT_PREPUSH: $_REDACT_PREPUSH"
+echo "HOOK_INSTALLED: $_HOOK_INSTALLED"
+echo "HOOKS_IN_GIT_DIR: $_HOOKS_IN_GIT_DIR"
+echo "PREPUSH_PROMPTED: $_PREPUSH_PROMPTED"
+```
+
+Branch on the echoed values:
+
+1. **`REDACT_PREPUSH: true` and `HOOK_INSTALLED: no` and `HOOKS_IN_GIT_DIR: yes`** —
+   consent already given; install silently (no question) and continue:
+   ```bash
+   $GSTACK_ROOT/bin/gstack-redact install-prepush-hook
+   ```
+   If `HOOKS_IN_GIT_DIR: no` (husky or another committed hooks dir), do NOT
+   install silently — print one line: "redact pre-push guard not installed:
+   this repo uses a custom core.hooksPath; run
+   `gstack-redact install-prepush-hook` manually if you want it chained."
+2. **`REDACT_PREPUSH` not true AND `PREPUSH_PROMPTED: no`** — one-time
+   offer (fires once EVER, machine-wide). AskUserQuestion:
+
+   > gstack can install a per-repo git pre-push hook that blocks pushes
+   > containing credentials (API keys, tokens, private keys). It's a
+   > guardrail, not enforcement — `GSTACK_REDACT_PREPUSH=skip` bypasses it.
+   > Install it for repos you ship from?
+
+   Options:
+   - A) Yes — install the credential guard (recommended)
+   - B) No — never ask again
+
+   If A: run `$GSTACK_ROOT/bin/gstack-config set redact_prepush_hook true`
+   then `$GSTACK_ROOT/bin/gstack-redact install-prepush-hook`.
+   If B: run `$GSTACK_ROOT/bin/gstack-config set redact_prepush_hook false`.
+   ALWAYS (after either answer, but NOT if the question itself failed to
+   render — a failed AskUserQuestion must re-offer next time):
+   ```bash
+   touch "${GSTACK_HOME:-$HOME/.gstack}/.redact-prepush-prompted"
+   ```
+3. **Anything else** (declined earlier, or already installed) — continue
+   without comment.
 
 **Idempotency check:** Check if the branch is already pushed and up to date.
 

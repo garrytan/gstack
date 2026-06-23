@@ -31,6 +31,7 @@ export async function mintForCaller(opts: {
   request: MintRequest;
   tokenStore: SessionTokenStore;
   allowlistPath?: string;
+  attemptsPath?: string;
   endpoint?: string;
 }): Promise<MintResponse | MintError> {
   const allowlist = await loadAllowlist(opts.allowlistPath);
@@ -42,6 +43,7 @@ export async function mintForCaller(opts: {
       rawIdentity: opts.callerIdentity,
       endpoint: opts.endpoint ?? '/auth/mint',
       reason: 'identity_not_allowed',
+      path: opts.attemptsPath,
     });
     return { error: 'identity_not_allowed' };
   }
@@ -52,6 +54,7 @@ export async function mintForCaller(opts: {
       rawIdentity: opts.callerIdentity,
       endpoint: opts.endpoint ?? '/auth/mint',
       reason: 'capability_insufficient',
+      path: opts.attemptsPath,
     });
     return { error: 'capability_insufficient' };
   }
@@ -73,6 +76,7 @@ export async function mintForCaller(opts: {
       rawIdentity: opts.callerIdentity,
       endpoint: opts.endpoint ?? '/auth/mint',
       reason: 'rate_limited',
+      path: opts.attemptsPath,
     });
     return { error: 'rate_limited' };
   }

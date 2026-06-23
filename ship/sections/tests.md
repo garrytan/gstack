@@ -332,6 +332,22 @@ EVAL_JUDGE_TIER=full EVAL_VERBOSE=1 bin/test-lane --eval test/evals/<suite>_eval
 
 If multiple suites need to run, run them sequentially (each needs a test lane). If the first suite fails, stop immediately — don't burn API cost on remaining suites.
 
+**Long eval suites (30+ min): launch detached so a turn boundary can't kill them.**
+A plain backgrounded eval lives in the harness's process group and dies to a
+SIGTERM ("polite quit") on a turn boundary, a stopped monitor, or an interruption
+(observed mid-`/ship`: `script terminated by signal SIGTERM`). Run it through
+`~/.claude/skills/gstack/bin/gstack-detach` instead — it survives in its own
+session, serializes against other worktrees via a machine lock (no API
+saturation), and writes a guaranteed `### gstack-detach EXIT=<code> ###` sentinel:
+
+```bash
+~/.claude/skills/gstack/bin/gstack-detach --label ship-evals --lock gstack-evals --timeout 5400 -- <project eval command>
+```
+
+Then poll the printed log path; break on the `EXIT=` sentinel (covers both pass
+and crash — silence is never success). The detached run survives even if your
+poller is reaped.
+
 **4. Check results:**
 
 - **If any eval fails:** Show the failures, the cost dashboard, and **STOP**. Do not proceed.

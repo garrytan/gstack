@@ -31,20 +31,52 @@ if [ -z "$SUPABASE_URL" ] || [ -z "$ANON_KEY" ]; then
 fi
 
 # ─── Fetch aggregated stats from edge function ────────────────
-DATA="$(curl -sf --max-time 15 \
+# HTTP status captured (#1947): a backend failure must read as "unknown",
+# never as a healthy "Weekly active installs: 0".
+TMPBODY="$(mktemp)"
+trap 'rm -f "$TMPBODY"' EXIT
+HTTP_CODE="$(curl -s --max-time 15 -w '%{http_code}' -o "$TMPBODY" \
   "${SUPABASE_URL}/functions/v1/community-pulse" \
   -H "apikey: ${ANON_KEY}" \
-  2>/dev/null || echo "{}")"
+  2>/dev/null || true)"
+# curl prints its own 000 before a non-zero exit — a `|| echo` here would
+# double it to "000000" in user-facing output. Normalize to the last 3 chars.
+HTTP_CODE="$(printf '%s' "$HTTP_CODE" | tr -d '[:space:]' | tail -c 3)"
+[ -n "$HTTP_CODE" ] || HTTP_CODE="000"
+DATA="$(cat "$TMPBODY" 2>/dev/null || echo "")"
 
 echo "gstack community dashboard"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
+
+if [ "$HTTP_CODE" != "200" ] || [ -z "$DATA" ] || ! printf '%s' "$DATA" | grep -q '"weekly_active"'; then
+  echo "Community stats: unknown — backend error (HTTP ${HTTP_CODE})"
+  echo ""
+  echo "For local analytics: gstack-analytics"
+  exit 0
+fi
 
 # ─── Weekly active installs ──────────────────────────────────
 WEEKLY="$(echo "$DATA" | grep -o '"weekly_active":[0-9]*' | grep -o '[0-9]*' || echo "0")"
 CHANGE="$(echo "$DATA" | grep -o '"change_pct":[0-9-]*' | grep -o '[0-9-]*' || echo "0")"
 
 echo "Weekly active installs: ${WEEKLY}"
+# Marker check: jq when available (whitespace/reserialization-proof); the
+# grep fallback tolerates optional whitespace around the colon.
+_STALE="false"
+if command -v jq >/dev/null 2>&1; then
+  _MARKER="$(printf '%s' "$DATA" | jq -r '.status // empty' 2>/dev/null)"
+  _STALE="$(printf '%s' "$DATA" | jq -r '.stale // false' 2>/dev/null)"
+else
+  _MARKER="$(printf '%s' "$DATA" | grep -Eq '"status"[[:space:]]*:[[:space:]]*"ok"' && echo ok || true)"
+fi
+if [ "$_MARKER" != "ok" ]; then
+  echo "  (unverified — legacy backend response; deploy the latest community-pulse for verified figures)"
+elif [ "$_STALE" = "true" ]; then
+  # Backend serves its last good snapshot when recompute fails — real but
+  # frozen figures must not read as current (matches security-dashboard).
+  echo "  (stale snapshot — backend recompute failing; figures may be out of date)"
+fi
 if [ "$CHANGE" -gt 0 ] 2>/dev/null; then
   echo "  Change: +${CHANGE}%"
 elif [ "$CHANGE" -lt 0 ] 2>/dev/null; then

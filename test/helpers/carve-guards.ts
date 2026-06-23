@@ -183,7 +183,9 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
       gateAfterStop: 'EXIT PLAN MODE GATE',
     },
     behavioral: 'plan',
-    maxSkeletonBytes: 82_000,
+    // +Conductor AUQ-default-prose rule + one-way/continuation safety in the
+    // always-loaded AskUserQuestion Format section.
+    maxSkeletonBytes: 84_000,
     minUnionBytes: 70_000,
     mustContain: ['design', 'visual'],
   },
@@ -199,7 +201,9 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
       gateAfterStop: 'EXIT PLAN MODE GATE',
     },
     behavioral: 'plan',
-    maxSkeletonBytes: 76_000,
+    // +Conductor AUQ-default-prose rule + one-way/destructive prose safety +
+    // continuation protocol in the always-loaded AskUserQuestion Format section.
+    maxSkeletonBytes: 78_000,
     minUnionBytes: 70_000,
     mustContain: ['developer experience', 'Getting Started'],
     // Default-on Codex outside-voice (codexPreflight block + CODEX_MODE branch
@@ -237,7 +241,9 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
       gateAfterStop: undefined,
     },
     behavioral: 'prompt',
-    maxSkeletonBytes: 50_000,
+    // +Conductor AUQ-default-prose rule + one-way/continuation safety in the
+    // always-loaded AskUserQuestion Format section.
+    maxSkeletonBytes: 53_000,
     minUnionBytes: 55_000,
     mustContain: ['CHANGELOG', 'Diataxis', 'coverage'],
     // Two intentional additions stack on this small skill: the AUQ-failure prose
@@ -262,7 +268,9 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
       gateAfterStop: undefined,
     },
     behavioral: 'prompt',
-    maxSkeletonBytes: 64_000,
+    // +Conductor AUQ-default-prose rule + one-way/continuation safety in the
+    // always-loaded AskUserQuestion Format section.
+    maxSkeletonBytes: 67_000,
     minUnionBytes: 72_000,
     mustContain: ['Typography', 'Color', 'Aesthetic Direction'],
     // Cross-cutting preamble growth (v1.57.2.0 AUQ-failure prose fallback ~2KB +
@@ -298,7 +306,9 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
       gateAfterStop: undefined,
     },
     behavioral: 'prompt',
-    maxSkeletonBytes: 70_000,
+    // +Conductor AUQ-default-prose rule + one-way/continuation safety in the
+    // always-loaded AskUserQuestion Format section.
+    maxSkeletonBytes: 73_000,
     minUnionBytes: 72_000,
     mustContain: ['OWASP', 'STRIDE', 'daily', 'comprehensive', 'verif'],
     // cso keeps its mode-dispatch + FP-filtering phases always-loaded, so the

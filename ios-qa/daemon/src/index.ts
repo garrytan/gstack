@@ -30,6 +30,12 @@ interface DaemonOptions {
   tailnetSocketPath?: string;
   tailnetSessionTtlSeconds?: number;
   pidfilePath?: string;
+  // Explicit security-log + allowlist paths. Default to the env-var-derived
+  // locations (defaultAuditPath etc.) when omitted, but passing them lets
+  // concurrent test instances stay isolated without racing on process.env.
+  auditPath?: string;
+  attemptsPath?: string;
+  allowlistPath?: string;
   // Test injection
   tunnelProvider?: () => Promise<DeviceTunnel | null>;
   whoIsImpl?: (addr: string) => Promise<{ identity: string; raw: unknown }>;
@@ -112,6 +118,9 @@ export async function startDaemon(opts: DaemonOptions): Promise<RunningDaemon | 
         res,
         tokenStore,
         getTunnel,
+        auditPath: opts.auditPath,
+        attemptsPath: opts.attemptsPath,
+        allowlistPath: opts.allowlistPath,
         whoIsImpl: opts.whoIsImpl ?? ((addr) => whoIs(addr, opts.tailnetSocketPath)),
       });
     });
@@ -172,6 +181,10 @@ interface HandlerCtx {
   res: ServerResponse;
   tokenStore: SessionTokenStore;
   getTunnel: () => Promise<DeviceTunnel | null>;
+  // Explicit security-log + allowlist paths (default to env-derived when undefined).
+  auditPath?: string;
+  attemptsPath?: string;
+  allowlistPath?: string;
 }
 
 function readBody(req: IncomingMessage, maxBytes = 1_048_576): Promise<Buffer | { error: 'body_too_large' }> {
@@ -274,7 +287,7 @@ interface TailnetCtx extends HandlerCtx {
  * Tailnet handler — locked allowlist + capability tiers.
  */
 async function handleTailnet(ctx: TailnetCtx): Promise<void> {
-  const { req, res, tokenStore, getTunnel, whoIsImpl } = ctx;
+  const { req, res, tokenStore, getTunnel, whoIsImpl, auditPath, attemptsPath, allowlistPath } = ctx;
   const url = parseUrl(req.url ?? '/');
   const path = url.pathname ?? '/';
   const method = req.method ?? 'GET';
@@ -304,6 +317,7 @@ async function handleTailnet(ctx: TailnetCtx): Promise<void> {
           rawIdentity: peerAddr,
           endpoint: route,
           reason: 'whois_unparseable',
+          path: attemptsPath,
         });
         sendJson(res, 502, { error: 'whois_failed', detail: (err as Error).message });
         return;
@@ -318,6 +332,8 @@ async function handleTailnet(ctx: TailnetCtx): Promise<void> {
         request: parsed,
         tokenStore,
         endpoint: route,
+        allowlistPath,
+        attemptsPath,
       });
 
       if ('error' in result) {
@@ -338,6 +354,7 @@ async function handleTailnet(ctx: TailnetCtx): Promise<void> {
         rawIdentity: token ? 'token:' + token.slice(0, 8) : 'no_token',
         endpoint: route,
         reason: validation.reason,
+        path: attemptsPath,
       });
       const status = validation.reason === 'capability_insufficient' ? 403 : 401;
       sendJson(res, status, { error: validation.reason });
@@ -383,7 +400,7 @@ async function handleTailnet(ctx: TailnetCtx): Promise<void> {
         capability: session.capability,
         request_id: req.headers['x-request-id']?.toString() ?? '-',
         status: upstream.status,
-      });
+      }, auditPath);
     }
 
     res.writeHead(upstream.status, upstream.headers);

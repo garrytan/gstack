@@ -7,13 +7,24 @@
 # by gstack-learnings-search ("latest winner" per key+type).
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# Windows git-bash (#1950): pwd yields a POSIX path (/c/Users/...), which Bun
+# on Windows cannot resolve as an ES module specifier in the import below.
+# cygpath -m converts to C:/Users/... which Bun accepts.
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*) command -v cygpath >/dev/null 2>&1 && SCRIPT_DIR="$(cygpath -m "$SCRIPT_DIR")" ;;
+esac
 eval "$("$SCRIPT_DIR/gstack-slug" 2>/dev/null)"
 GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
 mkdir -p "$GSTACK_HOME/projects/$SLUG"
 
 INPUT="$1"
 
-# Validate and sanitize input
+# Validate and sanitize input. Errors surface (#1950): stderr is captured and
+# printed on failure instead of swallowed — a silent exit 1 here cost Windows
+# users every AI-logged learning.
+TMPERR=$(mktemp)
+trap 'rm -f "$TMPERR"' EXIT
+set +e
 VALIDATED=$(printf '%s' "$INPUT" | bun -e "
 import { hasInjection } from '$SCRIPT_DIR/../lib/jsonl-store.ts';
 const raw = await Bun.stdin.text();
@@ -63,9 +74,14 @@ if (!j.ts) j.ts = new Date().toISOString();
 j.trusted = j.source === 'user-stated';
 
 console.log(JSON.stringify(j));
-" 2>/dev/null)
+" 2>"$TMPERR")
+VALIDATE_RC=$?
+set -e
 
-if [ $? -ne 0 ] || [ -z "$VALIDATED" ]; then
+if [ $VALIDATE_RC -ne 0 ] || [ -z "$VALIDATED" ]; then
+  if [ -s "$TMPERR" ]; then
+    cat "$TMPERR" >&2
+  fi
   exit 1
 fi
 
