@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+### Fleet control — tighten agent validation to controlDir fleet.conf (T11-amended)
+
+Agent name validation for all fleet control endpoints now reads the fleet registry from the workspace's control repo rather than the local `supervisor/fleet.conf`. If no registry is found at startup, all agent names are immediately rejected — there is no fallback list. When the active workspace changes, the valid-agent set is rebuilt from the new workspace's registry; switching to a workspace with no registry empties the set rather than retaining the previous one.
+
+#### Changed
+- `validAgents` is now sourced from `controlDir/fleet.conf` (the control repo's fleet registry) instead of `supervisor/fleet.conf`. The supervisor fleet.conf is still read to set up log-file watchers, but it no longer governs which agent names are accepted by the API (T11-amended AC1).
+- `GET /api/fleet` now returns only agents present in `validAgents` — the list is no longer drawn from the supervisor fleet file (T11-amended AC4).
+
+#### Added
+- `rebuildValidAgents(dir)` in `server.ts` — rebuilds the `validAgents` Set from `dir/fleet.conf`; called at startup and on workspace switch (T11-amended AC1/AC3).
+- `POST /api/workspace-switch` triggers `rebuildValidAgents` with the new workspace's `controlDir`; if the new fleet.conf is absent, `validAgents` is emptied and a warning is written to stderr (T11-amended AC3).
+- 7 new tests in `server.test.ts` across 3 describe blocks covering AC2 (missing fleet.conf empties validAgents), AC3 (workspace switch rebuilds validAgents), and AC4 (GET /api/fleet reflects validAgents) — ports 7850/7851/7852 (123 total: 2 bash-wrapper + 121 server).
+
+#### Fixed
+- A missing `controlDir/fleet.conf` at startup no longer crashes the server. Instead `validAgents` is set to empty and a warning is written to stderr (T11-amended AC2).
+
 ### Stuck detection engine — identify looping, silent, and failing agents (T14)
 
 Directors can now see at a glance which agents are stuck. `GET /api/stuck` computes three signal types in one call: `fail_storm` (task failure count ≥ 2), `loop` (last 5 JSONL events all share the same tool), and `silent` (no new event for 10 minutes). Agents in `needs_human`, `awaiting_info`, `complete`, or `open` status are excluded — they are already handled or have no active claim. A `stuck` SSE event fires edge-triggered when a new signal is detected, at most once per 60-second window per agent, so the console can surface stuck alerts without polling.

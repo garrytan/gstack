@@ -9,7 +9,7 @@ Scripts for starting, stopping, and monitoring the autonomous agent fleet.
 | `fleet.conf` | Declare all agents in one place |
 | `install.sh` | Register an agent as a launchd (macOS) or systemd (Linux) service |
 | `wake-listen.ts` | Supabase Realtime subscriber — wakes idle agents in <1s cross-machine |
-| `console/server.ts` | Console HTTP server (v7.1 — auto-detects control repo, gates risky Bash commands, streams live events via SSE; T11: fleet control routes — POST /api/fleet/stop, /restart, /pause, /resume) |
+| `console/server.ts` | Console HTTP server (v7.1 — auto-detects control repo, gates risky Bash commands, streams live events via SSE; T11: fleet control routes — POST /api/fleet/stop, /restart, /pause, /resume; T11-amended: shim removed — `validAgents` built solely from `controlDir/fleet.conf` via `rebuildValidAgents()`, called at startup and on workspace switch) |
 | `console/bin/bash` | Risk-gated Bash tool intercept (v7.1 — blocks destructive commands until approved) |
 | `console/index.html` | Console UI entry point (v7.1 — serves static HTML with SSE support, Pipeline tab panel with domain filter chips and spec panel) |
 | `console/console.js` | Console interactive client (v7.1 — card animations, empty states, AI draft panel, ARIA accessibility, Pipeline tab with collapsible status groups, domain filter chips persisted in localStorage, spec panel on card click, `pipeline-update` SSE listener; T13-amended: `pipelineBootstrapped` one-shot guard on tab activate, `fetchPipeline()` called on SSE reconnect, all SSE listeners fixed from `currentEs` → `es`) |
@@ -17,7 +17,7 @@ Scripts for starting, stopping, and monitoring the autonomous agent fleet.
 | `console/server-utils.ts` | Utility exports — parsing ledger/mailbox, task ID validation (`TASK_ID_RE` supports both `CONS-003` and `T13` styles), fleet status reading, SSE helpers, `makeWatchHandler` (reads last `live-events.jsonl` line, caches payload for Last-Event-ID replay), `makeLedgerWatchHandler` (broadcasts `pipeline-update` SSE on `.task` file changes), port resolution, `readLogTail` (JSONL tail reader), `makeRateLimiter` (token-bucket rate limiter), `purgeStaleDecisionFiles` (startup garbage collection of stale decision files), `PipelineTask` type (T13); T11: `readPidFile` (reads PID from a pid file), `stopProcess` (SIGTERM + SIGKILL-after-5s async stop), `defaultIsProcessAlive` (signal-0 liveness check), `defaultKillFn` (signal sender), `KillFn`/`IsAliveFn` injectable types; T14: `computeStuckSignals` (reads each agent's JSONL tail + ledger, returns `StuckAgent[]` with silent/loop/fail_storm signals), `StuckAgent` type (v7.1) |
 | `console/bash-wrapper.test.ts` | Bun test wrapper that runs bash-wrapper.test.sh inline (v7.1) |
 | `console/bash-wrapper.test.sh` | Bash unit tests for risk classification (check_risk) and polling behavior (poll_approval) (v7.1) |
-| `console/server.test.ts` | Bun tests for endpoint security, static serving, queue bootstrap, `resolveControlDir`, SSE endpoint (T4 AC1/AC2/AC3/AC5), `makeWatchHandler`, log tail endpoint (T12 AC1-AC7), rate limiter, startup cleanup (T8 AC1-AC4), pipeline endpoint (T13 AC1/AC2), ledger watch handler (T13 AC3), spec endpoint (T13 AC7), pipeline bootstrap guard (T13-amended AC2), SSE reconnect pipeline bootstrap (T13-amended AC4), fleet control endpoints (T11 AC1-AC8), and stuck detection engine (T14 AC1-AC8) (v7.1) |
+| `console/server.test.ts` | Bun tests for endpoint security, static serving, queue bootstrap, `resolveControlDir`, SSE endpoint (T4 AC1/AC2/AC3/AC5), `makeWatchHandler`, log tail endpoint (T12 AC1-AC7), rate limiter, startup cleanup (T8 AC1-AC4), pipeline endpoint (T13 AC1/AC2), ledger watch handler (T13 AC3), spec endpoint (T13 AC7), pipeline bootstrap guard (T13-amended AC2), SSE reconnect pipeline bootstrap (T13-amended AC4), fleet control endpoints (T11 AC1-AC8), stuck detection engine (T14 AC1-AC8), and fleet.conf-based validAgents (T11-amended AC2/AC3/AC4) (v7.1) |
 | `console/qa-smoke.sh` | QA smoke test for console UI — asserts page title, nav bar, Fleet tab presence, T6 AC1/AC2/AC4/AC5 (Dicebear avatar src, elapsed time format, HIGH risk badge, Unblock button), and T13 AC4/AC5 (pipeline endpoint 200, `pipeline-groups` element in HTML, `tasks` key in pipeline JSON) via gstack browse (v7.1) |
 
 ---
@@ -283,7 +283,7 @@ curl -X POST http://127.0.0.1:7842/api/mailbox/unknown-agent
 # {"error": "unknown agent"}
 ```
 
-Valid agent names are those listed in `supervisor/fleet.conf`, e.g., `agent-be`, `agent-fe`, `agent-qa`, `agent-doc`.
+Valid agent names are those in the `validAgents` Set, which is loaded from `controlDir/fleet.conf` at startup (T11-amended AC1). If that file is absent, `validAgents` is empty and every agent name is rejected (T11-amended AC2). `supervisor/fleet.conf` is read only to locate agent log directories — it is not the source for name validation.
 
 **taskId validation (AC4/AC5):**
 Task identifiers must match the regex `/^[A-Z]+(-[0-9]+|[0-9]+)$/` (uppercase letters followed by either a hyphen and digits, or digits only). This supports both `CONS-003` style and short-name `T13` style, while blocking path traversal via dot segments or slashes. Example validations:
@@ -312,8 +312,8 @@ The regex rejects:
 - Extra characters: `CONS-003!` ✗
 - Starts with a digit: `3CONS` ✗
 
-**Fleet.conf parsing (AC6):**
-At startup, `server.ts` reads `fleet.conf` and builds a Set of all agent names listed in the file. All agents listed in `fleet.conf` are immediately valid; no name rejection happens for legitimate agents. The Set is queried on every request to `/api/mailbox/:agentName`.
+**Fleet.conf parsing (AC6 / T11-amended AC1–AC3):**
+At startup, `server.ts` calls `rebuildValidAgents(controlDir)`, which reads `controlDir/fleet.conf` and builds `validAgents` — a `Set<string>` of all agent names listed in the file. All agents listed in `fleet.conf` are immediately valid. If `controlDir/fleet.conf` is absent or unreadable, `validAgents` is set to an empty `Set` and a warning is written to stderr; the server continues (T11-amended AC2). When the workspace changes (via `POST /api/workspace-switch`), `rebuildValidAgents` is called again with the new `controlDir`; if the new `fleet.conf` is absent, `validAgents` is emptied rather than kept from the previous workspace (T11-amended AC3). The Set is queried on every request to `/api/mailbox/:agentName`.
 
 ### Implementation notes
 
@@ -841,7 +841,7 @@ Operators can stop, restart, pause, or resume any agent directly from the Fleet 
 
 | Condition | Status | Body |
 |---|---|---|
-| `agentName` not in `validAgents` (from `fleet.conf`) | 400 | `{ error: 'unknown agent' }` |
+| `agentName` not in `validAgents` (from `controlDir/fleet.conf`) | 400 | `{ error: 'unknown agent' }` |
 | PID file does not exist at `pids/{agentName}.pid` | 404 | `{ error: 'pid file not found' }` |
 | Process is not running — pause or resume only (AC6) | 409 | `{ error: 'process not running' }` |
 
@@ -881,6 +881,55 @@ The `action` field is `"stop"` or `"restart"`. `pause` and `resume` do not broad
 | AC6 | Stale PID: stop → 200 (no signal); pause/resume → 409 |
 | AC7 | `fleet-update` SSE event broadcast after stop and restart; NOT after pause |
 | AC8 | Double stop when process is dead → 200 both times |
+
+---
+
+## Fleet control — validAgents hardening (T11-amended)
+
+T11 used `supervisor/fleet.conf` (the file that lists all agents for log-watcher setup) as the source for `validAgents`. T11-amended removes that shim: `validAgents` is now built exclusively from `controlDir/fleet.conf` — the fleet.conf inside the control repo checkout, which is the authoritative source of agent registration.
+
+### What changed
+
+| Component | Before (T11) | After (T11-amended) |
+|---|---|---|
+| `validAgents` source | `supervisor/fleet.conf` (hardcoded path) | `controlDir/fleet.conf` (workspace-resolved at runtime) |
+| Missing `fleet.conf` at startup | Fatal — server exited with error | Non-fatal — `validAgents` emptied, warning to stderr, server continues |
+| Workspace switch | Not supported | `rebuildValidAgents(newControlDir)` called; if new file absent, `validAgents` emptied |
+| `GET /api/fleet` agent list | `agentList` from supervisor fleet.conf | `[...validAgents]` from control fleet.conf |
+
+### rebuildValidAgents
+
+`rebuildValidAgents(dir: string)` is a module-level function in `server.ts`:
+
+```typescript
+function rebuildValidAgents(dir: string): void {
+  if (!dir) { validAgents = new Set(); return; }
+  const confPath = join(dir, "fleet.conf");
+  try {
+    validAgents = new Set(parseFleetConf(readFileSync(confPath, "utf8")));
+  } catch {
+    process.stderr.write(`WARNING: fleet.conf not found at ${confPath} — no agents valid\n`);
+    validAgents = new Set();
+  }
+}
+```
+
+It is called:
+1. Once at startup with the resolved `controlDir`.
+2. On `POST /api/workspace-switch` with the new `controlDir` from the request body.
+
+### supervisorAgentList — separation of concerns
+
+The `supervisorAgentList` (read from `supervisor/fleet.conf`) is kept as a separate, startup-only list used exclusively for log-watcher directory setup. It is never used for request validation. This separation means the log-watchers continue to cover all agents even if the workspace has no fleet.conf.
+
+### AC → verification mapping
+
+| AC | What it tests |
+|---|---|
+| AC1 | No hardcoded agent list remains in `server.ts`; `validAgents` built from `parseFleetConf(readFileSync(join(controlDir, 'fleet.conf'), 'utf-8'))` |
+| AC2 | Missing `controlDir/fleet.conf` → `validAgents` empty → any `POST /api/mailbox/:name` returns 400 |
+| AC3 | `POST /api/workspace-switch` with a new `controlDir` rebuilds `validAgents`; switching to a workspace with absent fleet.conf empties `validAgents` |
+| AC4 | `GET /api/fleet` returns only agents present in `validAgents`; returns empty array when `validAgents` is empty |
 
 ---
 
@@ -1468,6 +1517,32 @@ T11 adds 25 new tests across 8 describe blocks. A shared `fleetServer` (port 784
 | `returns null for non-numeric content` | File containing `"not-a-pid\n"` → `null` |
 | `returns null for zero or negative PID` | File containing `"0\n"` → `null` |
 
+### T11-amended tests — validAgents from fleet.conf (AC2/AC3/AC4)
+
+T11-amended adds 7 new tests across 3 describe blocks. Each block uses a `makeFleetConfHandler` factory that mirrors the `server.ts` T11-amended implementation: `validAgents` is sourced from `controlDir/fleet.conf` and can be rebuilt via `POST /api/workspace-switch`. Three isolated HTTP servers are used (ports 7850–7852) so no state bleeds between blocks.
+
+**`describe("missing fleet.conf — validAgents empty (AC2)")`** — port 7850, 2 tests:
+
+| Test | AC | What it asserts |
+|---|---|---|
+| `known agent returns 400 when fleet.conf is absent (no fallback list)` | AC2 | No fleet.conf in control dir; POST to `/api/mailbox/agent-be` → 400 |
+| `all four standard agents return 400 when fleet.conf is absent` | AC2 | Each of agent-be/qa/fe/doc → 400; confirms no hardcoded fallback exists |
+
+**`describe("workspace switch validAgents (AC3)")`** — port 7851, 3 tests:
+
+| Test | AC | What it asserts |
+|---|---|---|
+| `workspace A agents are valid before switch` | AC3 | Workspace A fleet.conf lists agent-be/agent-qa; agent-be → 200, agent-fe → 400 |
+| `after workspace switch validAgents reflects new workspace fleet.conf` | AC3 | POST `/api/workspace-switch` with workspace B dir (agent-fe/agent-doc); agent-fe → 200, agent-be → 400; response body includes new agent list |
+| `switch to workspace with absent fleet.conf empties validAgents` | AC3 | Switch to dir with no fleet.conf; response `agents` array is empty; agent-fe → 400 |
+
+**`describe("GET /api/fleet reflects validAgents from fleet.conf (AC4)")`** — port 7852, 2 tests:
+
+| Test | AC | What it asserts |
+|---|---|---|
+| `GET /api/fleet returns only agents present in validAgents set` | AC4 | Fleet.conf lists agent-be + agent-qa only; response length 2; agent-fe and agent-doc absent |
+| `GET /api/fleet returns empty array when validAgents is empty` | AC4 | Switch to workspace with no fleet.conf; GET `/api/fleet` → `[]` |
+
 ### Stuck detection tests — `server.test.ts` (T14 AC1–AC8)
 
 T14 adds 8 new tests in one `describe` block. Two isolated HTTP servers are created: a shared `stuckServer` (port 7851) hosting six synthetic agents that cover all signal types, and a dedicated `stuckEdgeServer` (port 7852) with fresh module-level state to verify edge-triggered SSE without interference from other tests. A `makeStuckHandler` factory mirrors the `server.ts` implementation with injectable `broadcastCooldownMs` so the 60-second cooldown can be bypassed in tests.
@@ -1498,7 +1573,7 @@ T14 adds 8 new tests in one `describe` block. Two isolated HTTP servers are crea
 
 ### Test results
 
-All 116 tests pass (2 bash-wrapper + 114 server tests). Run the full suite with:
+All 123 tests pass (2 bash-wrapper + 121 server tests). Run the full suite with:
 
 ```bash
 bun test supervisor/console/     # runs all tests, exit 0 on pass
