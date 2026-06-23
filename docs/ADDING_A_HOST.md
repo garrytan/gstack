@@ -142,6 +142,28 @@ freshness check passes, codex skill excluded.
 
 Add install instructions for the new host in the appropriate section.
 
+### 7. (Optional) Support project-level installation with `--dir`
+
+If your host supports installing skills to a project-local directory (e.g. for
+team-wide or repo-specific skill installations), extend the setup script to
+support the `--dir` flag. Add your host to the `case` statement that handles
+`CUSTOM_DIR` overrides in the `setup` script:
+
+```bash
+case "$HOST" in
+  myhost)
+    MYHOST_SKILLS="$CUSTOM_DIR"
+    MYHOST_GSTACK="$MYHOST_SKILLS/gstack"
+    ;;
+esac
+```
+
+Users can then install skills to a custom directory:
+
+```bash
+./setup --host myhost --dir ./my-project/.myhost/skills
+```
+
 ## Config field reference
 
 See `scripts/host-config.ts` for the full `HostConfig` interface with JSDoc

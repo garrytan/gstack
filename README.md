@@ -123,6 +123,14 @@ Or target a specific agent with `./setup --host <name>`:
 | GBrain (mod) | `--host gbrain` | `~/.gbrain/skills/gstack-*/` |
 | Qoder | `--host qoder` | `~/.lingma/skills/gstack-*/` |
 
+You can also install skills to a custom directory with `--dir` (useful for
+project-level skill installations):
+
+```bash
+# Install Qoder skills to a project-local directory
+./setup --host qoder --dir ./my-project/.lingma/skills
+```
+
 **Want to add support for another agent?** See [docs/ADDING_A_HOST.md](docs/ADDING_A_HOST.md).
 It's one TypeScript config file, zero code changes.
 

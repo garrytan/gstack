@@ -89,12 +89,15 @@ SKILL_PREFIX=1
 SKILL_PREFIX_FLAG=0
 TEAM_MODE=0
 NO_TEAM_MODE=0
+CUSTOM_DIR=""
 PLAN_TUNE_HOOKS_MODE=""   # "" = resolve from env/config/prompt; "yes"/"no" = explicit
 while [ $# -gt 0 ]; do
   case "$1" in
     --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, codex, kiro, factory, opencode, qoder, openclaw, hermes, gbrain, or auto)" >&2 && exit 1; HOST="$2"; shift 2 ;;
     --host=*) HOST="${1#--host=}"; shift ;;
     --local) LOCAL_INSTALL=1; shift ;;
+    --dir) [ -z "$2" ] && echo "Missing value for --dir (expected a directory path)" >&2 && exit 1; CUSTOM_DIR="$2"; shift 2 ;;
+    --dir=*) CUSTOM_DIR="${1#--dir=}"; shift ;;
     --prefix)    SKILL_PREFIX=1; SKILL_PREFIX_FLAG=1; shift ;;
     --no-prefix) SKILL_PREFIX=0; SKILL_PREFIX_FLAG=1; shift ;;
     --team)    TEAM_MODE=1; shift ;;
@@ -106,6 +109,11 @@ while [ $# -gt 0 ]; do
     *) shift ;;
   esac
 done
+
+# Expand ~ in --dir argument (bash doesn't expand it inside quoted strings)
+if [ -n "$CUSTOM_DIR" ] && [ "${CUSTOM_DIR#\~}" != "$CUSTOM_DIR" ]; then
+  CUSTOM_DIR="${HOME}${CUSTOM_DIR#\~}"
+fi
 
 case "$HOST" in
   claude|codex|kiro|factory|opencode|qoder|auto) ;;
@@ -231,6 +239,18 @@ elif [ "$HOST" = "opencode" ]; then
   INSTALL_OPENCODE=1
 elif [ "$HOST" = "qoder" ]; then
   INSTALL_QODER=1
+fi
+
+# ─── Apply custom directory override ──────────────────────────
+# When --dir is specified, override the target skills directory
+# for the selected host (supports project-level installations).
+if [ -n "$CUSTOM_DIR" ]; then
+  case "$HOST" in
+    qoder)
+      QODER_SKILLS="$CUSTOM_DIR"
+      QODER_GSTACK="$QODER_SKILLS/gstack"
+      ;;
+  esac
 fi
 
 migrate_direct_codex_install() {
@@ -495,7 +515,8 @@ if ! ensure_playwright_browser; then
     echo "Installing Playwright Chromium..."
     (
       cd "$SOURCE_GSTACK_DIR"
-      bunx playwright install chromium
+      # Use timeout to avoid hanging on macOS cache issues (timeout returns 124 on macOS)
+      timeout 120 bunx playwright install chromium 2>/dev/null || echo "  Playwright install timed out or failed — browser-dependent skills may not work"
     )
   fi
 
@@ -522,13 +543,15 @@ fi
 
 if ! ensure_playwright_browser; then
   if [ "$IS_WINDOWS" -eq 1 ]; then
-    echo "gstack setup failed: Playwright Chromium could not be launched via Node.js" >&2
+    echo "Warning: Playwright Chromium could not be launched via Node.js" >&2
     echo "  This is a known issue with Bun on Windows (oven-sh/bun#4253)." >&2
     echo "  Ensure Node.js is installed and 'node -e \"require('playwright')\"' works." >&2
+    echo "  Browser-dependent skills (/browse, /qa) will not work until fixed." >&2
   else
-    echo "gstack setup failed: Playwright Chromium could not be launched" >&2
+    echo "Warning: Playwright Chromium could not be launched" >&2
+    echo "  Browser-dependent skills (/browse, /qa) will not work until fixed." >&2
+    echo "  To fix: 'bunx playwright install chromium' or set GSTACK_SKIP_BROWSER_CHECK=1" >&2
   fi
-  exit 1
 fi
 
 # 2b. Ensure a color-emoji font is installed so make-pdf emoji render (Linux).
