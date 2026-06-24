@@ -2275,3 +2275,17 @@ describe("fleet/restart role human (T15-amended)", () => {
     unlinkSync(join(t15aLedgerDir, "TASK-003.task"));
   });
 });
+
+// =============================================================================
+// BUG-2 regression — GET /api/stuck must not reference `agentList` (undefined)
+// =============================================================================
+
+describe("BUG-2: GET /api/stuck agentList regression guard", () => {
+  test("server.ts passes validAgents (not agentList) to computeStuckSignals", () => {
+    const src = readFileSync(join(__dirname, "server.ts"), "utf8");
+    // Guard: computeStuckSignals must never receive the undefined `agentList` variable.
+    // T11-amended renamed agentList → supervisorAgentList; T14 introduced the stuck route.
+    // A merge conflict could silently reintroduce the ReferenceError.
+    expect(src).not.toMatch(/computeStuckSignals\s*\(\s*agentList\b/);
+  });
+});
