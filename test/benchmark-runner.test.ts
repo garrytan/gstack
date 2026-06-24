@@ -51,12 +51,15 @@ test('missingTools reports unsupported tools per provider', () => {
   expect(missingTools('claude', ['Edit', 'Glob', 'Grep', 'Bash', 'Read'])).toEqual([]);
   // Gemini has very limited agentic surface
   expect(missingTools('gemini', ['Bash', 'Edit'])).toEqual(['Bash', 'Edit']);
+  // Antigravity (`agy --print`) is a full agentic session: supports Bash/Edit
+  expect(missingTools('antigravity', ['Bash', 'Edit', 'Read', 'Grep'])).toEqual([]);
 });
 
-test('TOOL_COMPATIBILITY is populated for all three families', () => {
+test('TOOL_COMPATIBILITY is populated for all provider families', () => {
   expect(TOOL_COMPATIBILITY.claude).toBeDefined();
   expect(TOOL_COMPATIBILITY.gpt).toBeDefined();
   expect(TOOL_COMPATIBILITY.gemini).toBeDefined();
+  expect(TOOL_COMPATIBILITY.antigravity).toBeDefined();
 });
 
 test('formatTable handles a report with mixed success/error/unavailable entries', () => {

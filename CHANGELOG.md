@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.52.1.1] - 2026-06-24
+
+## **Antigravity (`agy`) joins the benchmark/second-opinion providers. Google retired the standalone Gemini CLI for individuals; the new `agy` CLI is now a first-class provider adapter.**
+
+Google replaced the standalone Gemini CLI (`gemini`) with the **Antigravity CLI** (`agy`) for individual accounts — the old binary now fails with `IneligibleTierError`. A new `AntigravityAdapter` (`test/helpers/providers/antigravity.ts`) wraps `agy`'s non-interactive mode so multi-provider benchmarks and outside-voice second opinions keep working.
+
+### What changed
+
+- **New `antigravity` provider family** added to the `Family` union, the `ADAPTERS` map, and tool-compatibility table. The legacy `gemini` adapter is left in place for anyone still on the old CLI.
+- **Headless contract** (verified against `agy` 1.0.11): `agy --print "<prompt>" --dangerously-skip-permissions [--model "<name>"] --print-timeout <dur>`. Unlike `gemini`, `agy --print` emits **plain text** — there is no `--output-format stream-json`, so the adapter reports `tokens: 0` / `toolCalls: 0` (no CLI telemetry) and treats stdout as the response. Auth is configured at install / first TUI launch (no login flag, no API-key env var), so `available()` only checks the binary is on PATH.
+- **Tool surface**: `agy --print` runs a full agentic session (Read/Write/Edit/Bash/Glob/Grep/WebSearch/WebFetch), a richer surface than the old Gemini CLI.
+- **Tests**: unit coverage for the new family in `benchmark-runner.test.ts`, plus live availability + smoke + 4-provider `runBenchmark` cases in `skill-e2e-benchmark-providers.test.ts` (the smoke asserts on output, not token counts, since `agy` reports none). Verified live: `EVALS=1 bun test test/skill-e2e-benchmark-providers.test.ts -t antigravity` → 2 pass.
+
 ## [1.52.1.0] - 2026-05-27
 
 ## **Brain-aware planning lands. Five planning skills read structured context from any personal gbrain before asking — same questions, smarter answers, no token tax.**

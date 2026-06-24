@@ -11,22 +11,26 @@ import type { ProviderAdapter, RunOpts, RunResult } from './providers/types';
 import { ClaudeAdapter } from './providers/claude';
 import { GptAdapter } from './providers/gpt';
 import { GeminiAdapter } from './providers/gemini';
+import { AntigravityAdapter } from './providers/antigravity';
+
+/** Provider names the benchmark harness knows how to instantiate. */
+export type ProviderName = 'claude' | 'gpt' | 'gemini' | 'antigravity';
 
 export interface BenchmarkInput {
   prompt: string;
   workdir: string;
   timeoutMs?: number;
-  /** Adapter names to run (e.g., ['claude', 'gpt', 'gemini']). */
-  providers: Array<'claude' | 'gpt' | 'gemini'>;
+  /** Adapter names to run (e.g., ['claude', 'gpt', 'antigravity']). */
+  providers: ProviderName[];
   /** Optional per-provider model overrides. */
-  models?: Partial<Record<'claude' | 'gpt' | 'gemini', string>>;
+  models?: Partial<Record<ProviderName, string>>;
   /** If true, skip providers whose available() returns !ok. If false, include them with error. */
   skipUnavailable?: boolean;
 }
 
 export interface BenchmarkEntry {
   provider: string;
-  family: 'claude' | 'gpt' | 'gemini';
+  family: ProviderName;
   available: boolean;
   unavailable_reason?: string;
   result?: RunResult;
@@ -44,10 +48,11 @@ export interface BenchmarkReport {
   entries: BenchmarkEntry[];
 }
 
-const ADAPTERS: Record<'claude' | 'gpt' | 'gemini', () => ProviderAdapter> = {
+const ADAPTERS: Record<ProviderName, () => ProviderAdapter> = {
   claude: () => new ClaudeAdapter(),
   gpt: () => new GptAdapter(),
   gemini: () => new GeminiAdapter(),
+  antigravity: () => new AntigravityAdapter(),
 };
 
 export async function runBenchmark(input: BenchmarkInput): Promise<BenchmarkReport> {

@@ -26,7 +26,7 @@ export type ToolName =
   | 'WebSearch'
   | 'WebFetch';
 
-export const TOOL_COMPATIBILITY: Record<'claude' | 'gpt' | 'gemini', Record<ToolName, boolean>> = {
+export const TOOL_COMPATIBILITY: Record<'claude' | 'gpt' | 'gemini' | 'antigravity', Record<ToolName, boolean>> = {
   claude: {
     Read: true,
     Write: true,
@@ -67,6 +67,22 @@ export const TOOL_COMPATIBILITY: Record<'claude' | 'gpt' | 'gemini', Record<Tool
     WebSearch: true,
     WebFetch: false,
   },
+  antigravity: {
+    // Antigravity CLI (`agy`, as of 1.0.11) runs `--print` as a full agentic
+    // session: it reads workspace files and can write/edit/run when permissions
+    // are granted (`--dangerously-skip-permissions`). Richer tool surface than
+    // the old Gemini CLI. AskUserQuestion is N/A in non-interactive print mode.
+    Read: true,
+    Write: true,
+    Edit: true,
+    Bash: true,
+    Agent: false,
+    Glob: true,
+    Grep: true,
+    AskUserQuestion: false,
+    WebSearch: true,
+    WebFetch: true,
+  },
 };
 
 /**
@@ -74,7 +90,7 @@ export const TOOL_COMPATIBILITY: Record<'claude' | 'gpt' | 'gemini', Record<Tool
  * Empty array means full compatibility.
  */
 export function missingTools(
-  provider: 'claude' | 'gpt' | 'gemini',
+  provider: 'claude' | 'gpt' | 'gemini' | 'antigravity',
   requiredTools: ToolName[]
 ): ToolName[] {
   const map = TOOL_COMPATIBILITY[provider];

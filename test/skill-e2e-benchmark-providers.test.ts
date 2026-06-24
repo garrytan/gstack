@@ -22,6 +22,7 @@ import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { ClaudeAdapter } from './helpers/providers/claude';
 import { GptAdapter } from './helpers/providers/gpt';
 import { GeminiAdapter } from './helpers/providers/gemini';
+import { AntigravityAdapter } from './helpers/providers/antigravity';
 import { runBenchmark } from './helpers/benchmark-runner';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -39,6 +40,7 @@ const PROMPT = 'Reply with exactly this text and nothing else: ok';
 const claude = new ClaudeAdapter();
 const gpt = new GptAdapter();
 const gemini = new GeminiAdapter();
+const antigravity = new AntigravityAdapter();
 
 // Use a temp working directory so provider CLIs can't accidentally touch the repo.
 // Created in beforeAll / cleaned in afterAll so concurrent CI runs don't leak.
@@ -144,6 +146,36 @@ describeIfEvals('multi-provider benchmark adapters (live)', () => {
     expect(typeof result.modelUsed).toBe('string');
   }, 150_000);
 
+  test('antigravity: available() returns structured ok/reason', async () => {
+    const check = await antigravity.available();
+    expect(check).toHaveProperty('ok');
+    if (!check.ok) {
+      expect(typeof check.reason).toBe('string');
+    }
+  });
+
+  test('antigravity: trivial prompt produces parseable output', async () => {
+    const check = await antigravity.available();
+    if (!check.ok) {
+      process.stderr.write(`\nantigravity live smoke: SKIPPED — ${check.reason}\n`);
+      return;
+    }
+    const result = await antigravity.run({ prompt: PROMPT, workdir, timeoutMs: 120_000 });
+    if (result.error) {
+      throw new Error(`antigravity errored: ${result.error.code} — ${result.error.reason}`);
+    }
+    // `agy --print` emits plain text and exposes NO token/tool telemetry, so we
+    // assert on output (not token counts, unlike claude/gpt). The smoke is "did
+    // the adapter wire up and the run terminate successfully with content?"
+    expect(typeof result.output).toBe('string');
+    expect(result.output.toLowerCase()).toContain('ok');
+    expect(result.tokens.input).toBe(0);   // CLI reports no telemetry
+    expect(result.tokens.output).toBe(0);
+    expect(result.durationMs).toBeGreaterThan(0);
+    expect(typeof result.modelUsed).toBe('string');
+    expect(result.modelUsed.length).toBeGreaterThan(0);
+  }, 150_000);
+
   test('timeout error surfaces as error.code=timeout (no exception)', async () => {
     // Use whatever adapter is available first — all three should share timeout semantics.
     const adapter = (await claude.available()).ok ? claude
@@ -164,18 +196,18 @@ describeIfEvals('multi-provider benchmark adapters (live)', () => {
   }, 30_000);
 
   test('runBenchmark: Promise.allSettled means one unavailable provider does not block others', async () => {
-    // Use the full runner with all three providers — whichever are unauthed should
+    // Use the full runner with all four providers — whichever are unauthed should
     // return entries with available=false and not crash the batch.
     const report = await runBenchmark({
       prompt: PROMPT,
       workdir,
-      providers: ['claude', 'gpt', 'gemini'],
+      providers: ['claude', 'gpt', 'gemini', 'antigravity'],
       timeoutMs: 120_000,
       skipUnavailable: false,
     });
-    expect(report.entries).toHaveLength(3);
+    expect(report.entries).toHaveLength(4);
     for (const e of report.entries) {
-      expect(['claude', 'gpt', 'gemini']).toContain(e.family);
+      expect(['claude', 'gpt', 'gemini', 'antigravity']).toContain(e.family);
       if (e.available) {
         expect(e.result).toBeDefined();
       } else {
