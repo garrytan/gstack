@@ -62,10 +62,15 @@ should_skip_idle_session() {
   # Eligibility: ask the kernel directly. Exit 3 = NO_ELIGIBLE_TASKS.
   # Any other exit (including 0 = work available, 1 = error) → don't skip.
   local domain="${AGENT_DOMAIN:-}"
-  local repo="${WORK_REPO_NAME:-}"
   local -a args=( eligible --role "$role" )
   [ -n "$domain" ] && args+=( --domain "$domain" )
-  [ -n "$repo" ]   && args+=( --repo   "$repo" )
+  # Doc agents skip the --repo filter: their WORK_REPO is the docs destination
+  # while task `repo` fields reference the code repo being documented (different
+  # repos). Feature/qa agents share the same repo for both, so filter applies.
+  if [ "$role" != "doc" ]; then
+    local repo="${WORK_REPO_NAME:-}"
+    [ -n "$repo" ] && args+=( --repo "$repo" )
+  fi
 
   # Capture rc via `|| rc=$?` so the helper survives a caller's `set -e`.
   local rc=0
