@@ -9,7 +9,7 @@ Scripts for starting, stopping, and monitoring the autonomous agent fleet.
 | `fleet.conf` | Declare all agents in one place |
 | `install.sh` | Register an agent as a launchd (macOS) or systemd (Linux) service |
 | `wake-listen.ts` | Supabase Realtime subscriber — wakes idle agents in <1s cross-machine |
-| `console/server.ts` | Console HTTP server (v7.1 — auto-detects control repo, gates risky Bash commands, streams live events via SSE; T11: fleet control routes — POST /api/fleet/stop, /restart, /pause, /resume; T11-amended: shim removed — `validAgents` built solely from `controlDir/fleet.conf` via `rebuildValidAgents()`, called at startup and on workspace switch) |
+| `console/server.ts` | Console HTTP server (v7.1 — auto-detects control repo, gates risky Bash commands, streams live events via SSE; T11: fleet control routes — POST /api/fleet/stop, /restart, /pause, /resume; T11-amended: shim removed — `validAgents` built solely from `controlDir/fleet.conf` via `rebuildValidAgents()`, called at startup and on workspace switch; T5: `handleDraftDecision` rewritten — Anthropic SDK dependency removed, endpoint now appends a timestamped human note block to the agent's mailbox file and calls `gitCommitAndPush`) |
 | `console/bin/bash` | Risk-gated Bash tool intercept (v7.1 — blocks destructive commands until approved) |
 | `console/index.html` | Console UI entry point (v7.1 — serves static HTML with SSE support, Pipeline tab panel with domain filter chips and spec panel) |
 | `console/console.js` | Console interactive client (v7.1 — card animations, empty states, AI draft panel, ARIA accessibility, Pipeline tab with collapsible status groups, domain filter chips persisted in localStorage, spec panel on card click, `pipeline-update` SSE listener; T13-amended: `pipelineBootstrapped` one-shot guard on tab activate, `fetchPipeline()` called on SSE reconnect, all SSE listeners fixed from `currentEs` → `es`) |
@@ -1168,6 +1168,149 @@ The event fires at most once per 60-second window per agent, even if the endpoin
 
 ---
 
+## Stuck alert UI (T15)
+
+T15 wires the `GET /api/stuck` endpoint (T14) into the console frontend. When one or more agents are stuck, a red alert card appears above the Queue attention section without navigating away from the current tab. Clicking "Force restart" opens a native `<dialog>` confirm modal that POSTs to the T11 restart endpoint.
+
+### Stuck alert slot
+
+A `<section id="stuck-alert-slot">` is placed immediately above `section-attention` in `index.html`. It carries `aria-live="assertive"` so screen readers announce new stuck alerts and starts `hidden`. `console.js` manages visibility:
+
+- `hidden` attribute present → card section is not shown (zero agents stuck)
+- `hidden` attribute removed → section visible, contains one `<article class="stuck-alert-card">`
+
+The slot is permanent in the DOM across all tab switches — it is not inside any tab panel.
+
+### State
+
+Two module-level Maps track stuck state:
+
+| Map | Key | Value | Purpose |
+|---|---|---|---|
+| `stuckAgents` | agent name | `{ agent, signal, detail, since }` | Current set of stuck agents (entry present = stuck) |
+| `agentLastTaskId` | agent name | task ID string | Last `task` field seen in a `fleet-update` SSE event — used for AC6 auto-dismiss comparison |
+
+### Bootstrap and SSE
+
+On page load, `fetchStuck()` calls `GET /api/stuck` and populates `stuckAgents` from the response array, then calls `renderStuckSection()`. `fetchStuck()` is also called in the SSE `open` handler so stuck state is refreshed on reconnect.
+
+The `stuck` SSE event (`event: stuck`) is handled separately:
+
+```js
+es.addEventListener('stuck', (e) => {
+  const ev = JSON.parse(e.data);
+  if (!ev.agent) return;
+  stuckAgents.set(ev.agent, { agent: ev.agent, signal: ev.signal, detail: ev.detail, since: ev.since || new Date().toISOString() });
+  renderStuckSection();
+});
+```
+
+`since` falls back to `new Date().toISOString()` if the SSE payload omits it (the T14 SSE payload does not include `since`; only the REST response does).
+
+### Rendering — AC3 (one card, earliest since)
+
+`renderStuckSection()` selects the agent with the earliest (oldest) `since` timestamp and renders exactly one card. If more than one agent is stuck, a `+N more` badge is appended to the card header where N = total stuck count − 1:
+
+```html
+<span class="stuck-more-badge" aria-label="2 more stuck agents">+2 more</span>
+```
+
+The card structure (`buildStuckCard()`):
+
+```
+<article class="stuck-alert-card card-new" id="stuck-{agentName}" aria-label="Stuck agent: {agent}">
+  <div class="stuck-card-header">
+    <span class="stuck-signal-dot" />   <!-- pulsing red dot -->
+    <span class="stuck-agent-name">{agent}</span>
+    [+N more badge if multi]
+    <span class="stuck-card-spacer" />
+    <span class="stuck-since">{relativeTime(since)}</span>
+  </div>
+  <div class="stuck-detail">{detail}</div>
+  <div class="stuck-card-actions">
+    <button class="btn-force-restart" data-agent="{agent}">Force restart</button>
+  </div>
+</article>
+```
+
+The `id="stuck-{agentName}"` attribute ensures DOM deduplication — `renderStuckSection()` replaces the container's `innerHTML` on every update.
+
+### Auto-dismiss — AC6
+
+The `fleet-update` SSE handler checks every incoming event against `stuckAgents`. If the update carries a new `task` value (agent moved on) or an `action` of `stop` or `restart`, `dismissStuckAgent(agent)` is called:
+
+```js
+const movedOn = ev.task != null && ev.task !== prev;
+const stopped = ev.action === 'stop' || ev.action === 'restart';
+if (movedOn || stopped) dismissStuckAgent(ev.agent);
+```
+
+`dismissStuckAgent()` removes the agent from `stuckAgents`, applies the `card-exit` animation (same as other card removals), then calls `renderStuckSection()` to show the next-earliest stuck agent if any remain.
+
+### Force restart modal — AC4/AC5/AC7/AC8
+
+The modal is a native `<dialog id="restart-modal">` element placed after the `</div>` closing tag of the page body and before `<script src="console.js">`:
+
+```html
+<dialog id="restart-modal" class="restart-modal" aria-labelledby="restart-modal-heading">
+  <h2 class="restart-modal-heading" id="restart-modal-heading">Restart agent?</h2>
+  <p class="restart-modal-body"></p>
+  <div class="restart-modal-actions">
+    <button class="btn-modal-cancel">Cancel</button>
+    <button class="btn-modal-restart btn-danger">Restart agent</button>
+  </div>
+</dialog>
+```
+
+`initRestartModal()` (called once on page load after the script is parsed) wires up three close paths (AC7):
+
+| Interaction | Handler |
+|---|---|
+| Backdrop click | `modal.addEventListener('click', e => { if (e.target === modal) modal.close(); })` |
+| Cancel button | `btn-modal-cancel` click → `modal.close()` |
+| Escape key | Native `<dialog>` behavior — no handler required |
+
+`showRestartModal(agent)` populates the modal before opening it (AC4):
+
+- Heading: `Restart {agent}?`
+- Body: `Current task {task_id} will be marked failed. This cannot be undone.` — `task_id` is read from `agentLastTaskId.get(agent)` or `"current task unknown"` if not yet seen.
+- Restart button label: `Restart {agent}`
+
+On confirm (AC5), the restart button:
+
+1. Sets `btn.textContent = 'Restarting…'` and `btn.disabled = true`
+2. POSTs to `/api/fleet/restart?agent={encodeURIComponent(agent)}`
+3. Calls `modal.close()` in `.finally()` regardless of fetch outcome
+
+`<dialog>.showModal()` provides native focus trapping — tab focus cannot leave the modal while it is open (AC8 constraint satisfied automatically).
+
+### Styles
+
+T15 adds two new style blocks to `styles.css`:
+
+**`.stuck-alert-card`** — red left/top accent, surface background, with `.stuck-signal-dot` (`@keyframes stuckPulse` at 1.6 s, red fill). `.stuck-more-badge` uses `color-mix(in srgb, var(--red) 15%, transparent)` for a muted red chip. `.btn-force-restart` matches the badge treatment with a 1 px red border and hover darkening.
+
+**`.restart-modal`** — inherits surface background and border tokens; `::backdrop` is `rgba(0,0,0,0.7)`. `.btn-danger` uses the same `color-mix` red pattern as the Force restart button; `:disabled` reduces opacity to 0.5.
+
+### AC → verification mapping (T15)
+
+| AC | Verified by | Type |
+|---|---|---|
+| AC1 | `qa-smoke.sh` — `GET /api/stuck` returns 200; response body contains `"stuck"` key | e2e_check |
+| AC2 | `qa-smoke.sh` — `index.html` contains `stuck-cards`; `id="stuck-alert-slot"` appears before `id="section-attention"` in DOM line order | e2e_check |
+| AC3 | PR review — inject 3 stuck agents via `window.__injectStuck`; confirm single card with "+2 more" badge | human-verify |
+| AC4 | PR review — click Force restart; confirm modal heading `"Restart agent-be?"`, body references task ID, Cancel + red "Restart agent-be" buttons | human-verify |
+| AC5 | PR review — click Restart in modal; confirm POST fires to `/api/fleet/restart?agent=agent-be`; button shows "Restarting…" and is disabled | human-verify |
+| AC6 | PR review — inject stuck then `window.__injectFleetUpdate` with new `task`; confirm card fades out | human-verify |
+| AC7 | PR review — press Escape; confirm modal closes (native `<dialog>` behavior); backdrop click closes modal; Cancel closes modal | human-verify |
+| AC8 | PR review — inspect DOM; confirm `<dialog>` element present (`tagName=DIALOG`), placed before `<script src="console.js">` so `initRestartModal()` finds it on parse | human-verify |
+
+### GET /api/stuck — server.ts fix (cb261a1)
+
+This branch also includes a one-line fix to the `GET /api/stuck` handler in `server.ts`: the `agents` argument passed to `computeStuckSignals()` was changed from `agentList` (a `string[]` from `supervisor/fleet.conf`, set up for log-watcher purposes) to `[...validAgents]` (spread from the `Set<string>` that governs request validation, sourced from `controlDir/fleet.conf` per T11-amended). Without this fix, stuck detection would check agents from the wrong fleet registry whenever a workspace switch occurred.
+
+---
+
 ## Console UI — design system (v7.1)
 
 The console frontend uses a dark-theme design system coordinated with `docs/DESIGN.md`.
@@ -1426,7 +1569,7 @@ No custom key handlers are needed — the browser's native button behavior is le
 
 - **No dependencies:** `console.js` uses vanilla JavaScript with no npm packages (htmx is not required for core functionality).
 - **Event source:** SSE endpoint is `/api/events` (shared with agent log broadcasting).
-- **Event types:** `approval`, `attention`, `resolve` (queue/attention events from the server); `pipeline-update` (ledger change events, triggers a `fetchPipeline()` call when the Pipeline tab is active).
+- **Event types:** `approval`, `attention`, `resolve` (queue/attention events from the server); `pipeline-update` (ledger change events, triggers a `fetchPipeline()` call when the Pipeline tab is active); `stuck` (edge-triggered alert when an agent is stuck, triggers `renderStuckSection()` to show or update the stuck alert card above the Queue attention section).
 - **HTML escaping:** All dynamic content is escaped via an `esc()` helper function to prevent XSS.
 - **State sync:** A `syncState()` function centralizes the logic for updating empty states, counts, badges, and the document title after every card operation.
 - **Timer display:** Elapsed time on each card updates every 1 second (minutes:seconds format).
@@ -1730,6 +1873,25 @@ T14-amended adds a `describe("stuck detection malformed JSONL")` block with 3 te
 | `AC3: malformed JSONL lines do not cause a 500 — endpoint always returns 200` | AC3 | `GET /api/stuck` against the mixed-malformed server returns HTTP 200, not 500 |
 | `AC4: all-malformed JSONL file → { stuck: [] } with HTTP 200` | AC4 | `GET /api/stuck` against the all-malformed server returns HTTP 200; `body.stuck` has length 0 (no valid events to compute signals from) |
 
+### Draft-decision tests — server.test.ts (T5 AC1–AC7)
+
+T5 adds a `describe("POST /api/draft-decision")` block with 7 tests across two isolated HTTP servers:
+
+- **Port 7855** (`draftServer`): uses `draftTestDir` as `controlDir`, `draftValidAgents` Set (`agent-be`, `agent-qa`, `agent-fe`, `agent-doc`), and `mockGit` (captures args, optionally throws). Mailbox files are created in `draftMailboxDir = join(draftTestDir, "mailboxes")`.
+- **Port 7856** (`draftNoCtrlServer`): uses empty string as `controlDir` to exercise the 503 path without touching the filesystem.
+
+| Test | AC | What it asserts |
+|---|---|---|
+| `AC1: appends correct mailbox block to {controlDir}/mailboxes/{agentName}.md` | AC1 | POST returns 200; `agent-be.md` contains `## from: human \| {ISO ts} \| re: T5` followed by `looks good` |
+| `AC2: calls gitCommitAndPush with correct commit message on success` | AC2 | POST returns `{ ok: true }`; `capturedGitArgs.msg === "console: note for agent-qa re CONS-123"`; `capturedGitArgs.dir === draftTestDir` |
+| `AC3: unknown agentName → 400 { error: 'unknown agent' }` | AC3 | `agentName: "agent-unknown"` → HTTP 400, body `{ error: "unknown agent" }` |
+| `AC4: taskId failing TASK_ID_RE → 400 { error: 'invalid taskId' }` | AC4 | `taskId: "invalid"` → HTTP 400, body `{ error: "invalid taskId" }` |
+| `AC5: empty text → 400 { error: 'text required' }` | AC5 | `text: ""` → HTTP 400, body `{ error: "text required" }` |
+| `AC6: gitCommitAndPush throws → 500 { error: 'git push failed' }` | AC6 | `gitShouldFail = true` → HTTP 500, body `{ error: "git push failed" }` |
+| `AC7: CONTROL_DIR not set → 503 { error: 'control dir not configured' }` | AC7 | Request to port 7856 (empty `controlDir`) → HTTP 503, body `{ error: "control dir not configured" }` |
+
+The test infrastructure uses a `makeDraftDecisionHandler` factory (mirrors `handleDraftDecision` in `server.ts`) with injectable `controlDir`, `validAgents`, and `gitFn` to avoid side-effects on the real control repo. `capturedGitArgs` and `gitShouldFail` are module-level mutable state reset per test. Temp directory and both servers are torn down in `afterAll`.
+
 ### Test results
 
 All 126 tests pass (2 bash-wrapper + 124 server tests). Run the full suite with:
@@ -1762,8 +1924,11 @@ The script:
 6. Asserts `GET /api/spec/invalid-id` returns HTTP 400 (T13 AC7)
 7. Asserts `index.html` contains the `pipeline-groups` container element (T13 AC4/AC5)
 8. Asserts the pipeline JSON response contains a `tasks` key (T13 AC4/AC5)
-9. Captures a timestamped screenshot to `/tmp/console-qa-<timestamp>.png`
-10. Prints the screenshot path to stdout so the QA agent can attach it to its report
+9. Asserts `GET /api/stuck` returns HTTP 200 with a `"stuck"` key in the response body (T15 AC1)
+10. Asserts `index.html` contains a `stuck-cards` container element (T15 AC1/AC2)
+11. Asserts `id="stuck-alert-slot"` appears before `id="section-attention"` in the HTML source (T15 AC2 — slot is above the Queue attention section)
+12. Captures a timestamped screenshot to `/tmp/console-qa-<timestamp>.png`
+13. Prints the screenshot path to stdout so the QA agent can attach it to its report
 
 ### Error handling
 

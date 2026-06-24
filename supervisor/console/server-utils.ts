@@ -1,5 +1,5 @@
 // supervisor/console/server-utils.ts — pure utility functions, no side effects
-import type { ServerResponse } from "node:http";
+import type { IncomingMessage, ServerResponse } from "node:http";
 import { readdirSync, readFileSync, statSync, unlinkSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -576,5 +576,26 @@ export async function stopProcess(
     const sigkillTimer = setTimeout(() => { kill(pid, "SIGKILL"); finish(); }, ms);
     const poll = setInterval(() => { if (!isAlive(pid)) finish(); }, 50);
   });
+}
+
+// Validate Content-Type and parse JSON body for POST handlers.
+// Returns { ok: true; json: unknown; raw: string } on success or
+// { ok: false; statusCode: number; error: string } on failure.
+export async function readAndValidatePostBody(
+  req: IncomingMessage,
+): Promise<{ ok: true; json: unknown; raw: string } | { ok: false; statusCode: number; error: string }> {
+  const ct = req.headers["content-type"] ?? "";
+  if (!ct.includes("application/json")) {
+    return { ok: false, statusCode: 400, error: "content-type must be application/json" };
+  }
+  const chunks: Buffer[] = [];
+  for await (const chunk of req) chunks.push(chunk as Buffer);
+  const raw = Buffer.concat(chunks).toString();
+  try {
+    const json = JSON.parse(raw) as unknown;
+    return { ok: true, json, raw };
+  } catch {
+    return { ok: false, statusCode: 400, error: "invalid JSON body" };
+  }
 }
 

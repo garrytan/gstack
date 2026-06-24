@@ -1146,3 +1146,149 @@ body::after {
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+/* ── T15: Stuck alert card ── */
+.stuck-alert-section {
+  padding: var(--space-3) var(--space-6) 0;
+}
+
+.stuck-alert-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--red);
+  border-radius: var(--radius-card);
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-3);
+}
+
+.stuck-card-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+@keyframes stuckPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+.stuck-signal-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--red);
+  flex-shrink: 0;
+  animation: stuckPulse 1.6s ease-in-out infinite;
+}
+
+.stuck-agent-name {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--red);
+}
+
+.stuck-more-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-badge);
+  background: color-mix(in srgb, var(--red) 15%, transparent);
+  color: var(--red);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.stuck-card-spacer { flex: 1; }
+
+.stuck-since {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-micro);
+}
+
+.stuck-detail {
+  font-size: 13px;
+  color: var(--text-dim);
+  margin-bottom: var(--space-3);
+}
+
+.stuck-card-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.btn-force-restart {
+  background: color-mix(in srgb, var(--red) 15%, transparent);
+  border: 1px solid var(--red);
+  border-radius: var(--radius-btn);
+  color: var(--red);
+  font-size: 12px;
+  font-weight: 500;
+  padding: var(--space-1) var(--space-3);
+  cursor: pointer;
+  transition: background var(--dur-short) var(--ease-enter);
+}
+.btn-force-restart:hover {
+  background: color-mix(in srgb, var(--red) 25%, transparent);
+}
+
+/* ── T15: Force restart modal ── */
+.restart-modal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  color: var(--text);
+  padding: var(--space-6);
+  min-width: 320px;
+  max-width: min(480px, 90vw);
+}
+.restart-modal::backdrop {
+  background: rgba(0, 0, 0, 0.7);
+}
+
+.restart-modal-heading {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: var(--space-3);
+}
+
+.restart-modal-body {
+  font-size: 14px;
+  color: var(--text-dim);
+  margin-bottom: var(--space-6);
+  line-height: 1.5;
+}
+
+.restart-modal-actions {
+  display: flex;
+  gap: var(--space-3);
+  justify-content: flex-end;
+}
+
+.btn-modal-cancel {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-btn);
+  color: var(--text-dim);
+  font-size: 13px;
+  padding: var(--space-2) var(--space-4);
+  cursor: pointer;
+  transition: border-color var(--dur-short) var(--ease-enter);
+}
+.btn-modal-cancel:hover { border-color: var(--text-dim); color: var(--text); }
+
+.btn-danger {
+  background: color-mix(in srgb, var(--red) 15%, transparent);
+  border: 1px solid var(--red);
+  border-radius: var(--radius-btn);
+  color: var(--red);
+  font-size: 13px;
+  font-weight: 500;
+  padding: var(--space-2) var(--space-4);
+  cursor: pointer;
+  transition: background var(--dur-short) var(--ease-enter);
+}
+.btn-danger:hover { background: color-mix(in srgb, var(--red) 25%, transparent); }
+.btn-danger:disabled { opacity: 0.5; cursor: not-allowed; }

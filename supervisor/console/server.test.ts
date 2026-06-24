@@ -28,6 +28,7 @@ import {
   readPidFile,
   stopProcess,
   computeStuckSignals,
+  readAndValidatePostBody,
   type AgentStatus,
   type GitSpawner,
   type ApprovalItem,
@@ -76,7 +77,31 @@ function makeHandler(rootDir: string, fleetHome?: string, testDecisionsDir?: str
         sendJson(res, { error: "unknown agent" }, 400);
         return;
       }
-      sendJson(res, { ok: true });
+      void (async () => {
+        const v = await readAndValidatePostBody(req);
+        if (!v.ok) { sendJson(res, { error: v.error }, v.statusCode); return; }
+        sendJson(res, { ok: true });
+      })();
+      return;
+    }
+
+    // POST /api/approve — validate JSON body and Content-Type (T9 AC1 + AC2).
+    if (path === "/api/approve" && method === "POST") {
+      void (async () => {
+        const v = await readAndValidatePostBody(req);
+        if (!v.ok) { sendJson(res, { error: v.error }, v.statusCode); return; }
+        sendJson(res, { ok: true });
+      })();
+      return;
+    }
+
+    // POST /api/draft-decision — validate JSON body and Content-Type (T9 AC1 + AC2).
+    if (path === "/api/draft-decision" && method === "POST") {
+      void (async () => {
+        const v = await readAndValidatePostBody(req);
+        if (!v.ok) { sendJson(res, { error: v.error }, v.statusCode); return; }
+        sendJson(res, { ok: true });
+      })();
       return;
     }
 
@@ -295,10 +320,14 @@ describe("POST /api/mailbox/:agentName", () => {
     expect(r.status).toBe(400);
   });
 
-  test("accepts a known agent name", async () => {
+  test("accepts a known agent name with valid JSON body", async () => {
     const r = await fetch(
       `http://127.0.0.1:${TEST_PORT}/api/mailbox/agent-be`,
-      { method: "POST", body: "test message" },
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ note: "test message" }),
+      },
     );
     expect(r.status).toBe(200);
   });
@@ -2128,5 +2157,107 @@ describe("stuck detection malformed JSONL", () => {
     expect(r.status).toBe(200);
     const body = (await r.json()) as { stuck: StuckAgent[] };
     expect(body.stuck).toHaveLength(0);
+  });
+});
+
+// --- T9 AC4: rawPath dot-segment preservation ---
+
+describe("rawPath dot-segment preservation (AC4)", () => {
+  test("rawPath('/a/../b') returns '/a/../b' unprocessed (AC4)", () => {
+    expect(rawPath("/a/../b")).toBe("/a/../b");
+  });
+
+  test("rawPath('/foo/./bar') returns '/foo/./bar' unprocessed (AC4)", () => {
+    expect(rawPath("/foo/./bar")).toBe("/foo/./bar");
+  });
+
+  test("rawPath does not normalise dot segments the way the URL API would (AC4 contrast)", () => {
+    expect(rawPath("/a/../b")).not.toBe(new URL("/a/../b", "http://localhost").pathname);
+  });
+});
+
+// --- T9 AC7: GET /api/fleet absent/empty fleet.conf ---
+
+describe("GET /api/fleet absent/empty fleet.conf (AC7)", () => {
+  test("readFleetStatus with empty agent list returns [] — no crash (AC7)", () => {
+    expect(readFleetStatus([], testDir)).toEqual([]);
+  });
+
+  test("GET /api/fleet returns 200 with [] when no agents configured (AC7)", async () => {
+    const srv = createServer((_req, res) => {
+      sendJson(res, readFleetStatus([], testDir));
+    });
+    await new Promise<void>((resolve) => srv.listen(0, "127.0.0.1", resolve));
+    const { port } = srv.address() as { port: number };
+    try {
+      const r = await fetch(`http://127.0.0.1:${port}/api/fleet`);
+      expect(r.status).toBe(200);
+      expect(await r.json()).toEqual([]);
+    } finally {
+      await new Promise<void>((resolve) => srv.close(resolve));
+    }
+  });
+});
+
+// --- T9 AC1: malformed JSON body rejected by all POST endpoints ---
+
+describe("malformed JSON body (AC1)", () => {
+  test("POST /api/mailbox/agent-be returns 400 for invalid JSON body (AC1)", async () => {
+    const r = await fetch(`http://127.0.0.1:${TEST_PORT}/api/mailbox/agent-be`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{not: valid json}",
+    });
+    expect(r.status).toBe(400);
+    const body = (await r.json()) as { error: string };
+    expect(body.error).toBeTruthy();
+  });
+
+  test("POST /api/approve returns 400 for invalid JSON body (AC1)", async () => {
+    const r = await fetch(`http://127.0.0.1:${TEST_PORT}/api/approve`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "this is not json",
+    });
+    expect(r.status).toBe(400);
+  });
+
+  test("POST /api/draft-decision returns 400 for invalid JSON body (AC1)", async () => {
+    const r = await fetch(`http://127.0.0.1:${TEST_PORT}/api/draft-decision`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "[unclosed array",
+    });
+    expect(r.status).toBe(400);
+  });
+});
+
+// --- T9 AC2: missing or wrong Content-Type rejected by all POST endpoints ---
+
+describe("missing Content-Type (AC2)", () => {
+  test("POST /api/mailbox/agent-be returns 400 when Content-Type is not application/json (AC2)", async () => {
+    const r = await fetch(`http://127.0.0.1:${TEST_PORT}/api/mailbox/agent-be`, {
+      method: "POST",
+      headers: { "content-type": "text/plain" },
+      body: JSON.stringify({ note: "hello" }),
+    });
+    expect(r.status).toBe(400);
+  });
+
+  test("POST /api/approve returns 400 when Content-Type is not application/json (AC2)", async () => {
+    const r = await fetch(`http://127.0.0.1:${TEST_PORT}/api/approve`, {
+      method: "POST",
+      body: JSON.stringify({ agentName: "agent-be", requestId: "r1", approved: true }),
+    });
+    expect(r.status).toBe(400);
+  });
+
+  test("POST /api/draft-decision returns 400 when Content-Type is not application/json (AC2)", async () => {
+    const r = await fetch(`http://127.0.0.1:${TEST_PORT}/api/draft-decision`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: "taskId=T9&agentName=agent-be",
+    });
+    expect(r.status).toBe(400);
   });
 });
