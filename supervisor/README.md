@@ -14,10 +14,10 @@ Scripts for starting, stopping, and monitoring the autonomous agent fleet.
 | `console/index.html` | Console UI entry point (v7.1 — serves static HTML with SSE support, Pipeline tab panel with domain filter chips and spec panel) |
 | `console/console.js` | Console interactive client (v7.1 — card animations, empty states, AI draft panel, ARIA accessibility, Pipeline tab with collapsible status groups, domain filter chips persisted in localStorage, spec panel on card click, `pipeline-update` SSE listener; T13-amended: `pipelineBootstrapped` one-shot guard on tab activate, `fetchPipeline()` called on SSE reconnect, all SSE listeners fixed from `currentEs` → `es`) |
 | `console/styles.css` | Console design system (v7.1 — dark theme, motion tokens, Satoshi/DM Sans/JetBrains Mono typefaces, pipeline group/card/filter/spec-panel component styles) |
-| `console/server-utils.ts` | Utility exports — parsing ledger/mailbox, task ID validation (`TASK_ID_RE` supports both `CONS-003` and `T13` styles), fleet status reading, SSE helpers, `makeWatchHandler` (reads last `live-events.jsonl` line, caches payload for Last-Event-ID replay), `makeLedgerWatchHandler` (broadcasts `pipeline-update` SSE on `.task` file changes), port resolution, `readLogTail` (JSONL tail reader), `makeRateLimiter` (token-bucket rate limiter), `purgeStaleDecisionFiles` (startup garbage collection of stale decision files), `PipelineTask` type (T13); T11: `readPidFile` (reads PID from a pid file), `stopProcess` (SIGTERM + SIGKILL-after-5s async stop), `defaultIsProcessAlive` (signal-0 liveness check), `defaultKillFn` (signal sender), `KillFn`/`IsAliveFn` injectable types; T14: `computeStuckSignals` (reads each agent's JSONL tail + ledger, returns `StuckAgent[]` with silent/loop/fail_storm signals), `StuckAgent` type (v7.1) |
+| `console/server-utils.ts` | Utility exports — parsing ledger/mailbox, task ID validation (`TASK_ID_RE` supports both `CONS-003` and `T13` styles), fleet status reading, SSE helpers, `makeWatchHandler` (reads last `live-events.jsonl` line, caches payload for Last-Event-ID replay), `makeLedgerWatchHandler` (broadcasts `pipeline-update` SSE on `.task` file changes), port resolution, `readLogTail` (JSONL tail reader), `makeRateLimiter` (token-bucket rate limiter), `purgeStaleDecisionFiles` (startup garbage collection of stale decision files), `PipelineTask` type (T13); T11: `readPidFile` (reads PID from a pid file), `stopProcess` (SIGTERM + SIGKILL-after-5s async stop), `defaultIsProcessAlive` (signal-0 liveness check), `defaultKillFn` (signal sender), `KillFn`/`IsAliveFn` injectable types; T14: `computeStuckSignals` (reads each agent's JSONL tail + ledger, returns `StuckAgent[]` with silent/loop/fail_storm signals), `StuckAgent` type; T9: `readAndValidatePostBody` (validates Content-Type header + JSON body for all POST handlers; returns `{ ok: true; json: unknown; raw: string }` on success or `{ ok: false; statusCode: number; error: string }` on failure) (v7.1) |
 | `console/bash-wrapper.test.ts` | Bun test wrapper that runs bash-wrapper.test.sh inline (v7.1) |
 | `console/bash-wrapper.test.sh` | Bash unit tests for risk classification (check_risk) and polling behavior (poll_approval) (v7.1) |
-| `console/server.test.ts` | Bun tests for endpoint security, static serving, queue bootstrap, `resolveControlDir`, SSE endpoint (T4 AC1/AC2/AC3/AC5), `makeWatchHandler`, log tail endpoint (T12 AC1-AC7), rate limiter, startup cleanup (T8 AC1-AC4), pipeline endpoint (T13 AC1/AC2), ledger watch handler (T13 AC3), spec endpoint (T13 AC7), pipeline bootstrap guard (T13-amended AC2), SSE reconnect pipeline bootstrap (T13-amended AC4), fleet control endpoints (T11 AC1-AC8), stuck detection engine (T14 AC1-AC8), fleet.conf-based validAgents (T11-amended AC2/AC3/AC4), and malformed JSONL resilience (T14-amended AC2/AC3/AC4) (v7.1) |
+| `console/server.test.ts` | Bun tests for endpoint security, static serving, queue bootstrap, `resolveControlDir`, SSE endpoint (T4 AC1/AC2/AC3/AC5), `makeWatchHandler`, log tail endpoint (T12 AC1-AC7), rate limiter, startup cleanup (T8 AC1-AC4), pipeline endpoint (T13 AC1/AC2), ledger watch handler (T13 AC3), spec endpoint (T13 AC7), pipeline bootstrap guard (T13-amended AC2), SSE reconnect pipeline bootstrap (T13-amended AC4), fleet control endpoints (T11 AC1-AC8), stuck detection engine (T14 AC1-AC8), fleet.conf-based validAgents (T11-amended AC2/AC3/AC4), malformed JSONL resilience (T14-amended AC2/AC3/AC4), and T9 edge-case coverage (malformed JSON body AC1, missing Content-Type AC2, concurrent SSE AC3, rawPath dot-segment preservation AC4, parseMailboxNotes edge cases AC5, makeWatchHandler rename+change AC6, GET /api/fleet absent fleet.conf AC7, qa-smoke.sh AC8) (130 total: 2 bash-wrapper + 128 server) |
 | `console/qa-smoke.sh` | QA smoke test for console UI — asserts page title, nav bar, Fleet tab presence, T6 AC1/AC2/AC4/AC5 (Dicebear avatar src, elapsed time format, HIGH risk badge, Unblock button), and T13 AC4/AC5 (pipeline endpoint 200, `pipeline-groups` element in HTML, `tasks` key in pipeline JSON) via gstack browse (v7.1) |
 
 ---
@@ -460,6 +460,9 @@ The regex rejects:
 **Fleet.conf parsing (AC6 / T11-amended AC1–AC3):**
 At startup, `server.ts` calls `rebuildValidAgents(controlDir)`, which reads `controlDir/fleet.conf` and builds `validAgents` — a `Set<string>` of all agent names listed in the file. All agents listed in `fleet.conf` are immediately valid. If `controlDir/fleet.conf` is absent or unreadable, `validAgents` is set to an empty `Set` and a warning is written to stderr; the server continues (T11-amended AC2). When the workspace changes (via `POST /api/workspace-switch`), `rebuildValidAgents` is called again with the new `controlDir`; if the new `fleet.conf` is absent, `validAgents` is emptied rather than kept from the previous workspace (T11-amended AC3). The Set is queried on every request to `/api/mailbox/:agentName`.
 
+**POST body validation — `readAndValidatePostBody` (T9 AC1/AC2):**
+All POST endpoints (`/api/mailbox/:agentName`, `/api/approve`, `/api/draft-decision`) call `readAndValidatePostBody(req)` before any filesystem or git operation. The function checks the `Content-Type` header (must include `application/json`) and parses the request body as JSON. A wrong content type or unparseable body produces an immediate HTTP 400 response. The function returns a discriminated union: `{ ok: true; json: unknown; raw: string }` on success or `{ ok: false; statusCode: number; error: string }` on failure. Prior to T9, each handler read raw body bytes and called `JSON.parse` independently, and a missing `Content-Type` header was silently accepted.
+
 ### Implementation notes
 
 - **Node.js raw path:** The server uses `node:http.createServer()` instead of `Bun.serve()`. Bun normalizes dot segments before the request handler is called (defeating AC4 validation), whereas `node:http` passes the raw, un-normalized path, allowing the server to validate and reject malicious identifiers.
@@ -637,70 +640,58 @@ Operators see a blocked-command card in the console UI when a high-risk command 
 
 ---
 
-## AI Draft Suggestions — streaming Claude responses via SSE (v7.1)
+## Human notes to agents — POST /api/draft-decision (T5 / T9)
 
-The console lets operators request AI-drafted suggestions for blocked tasks, streaming Claude's response token-by-token via Server-Sent Events (SSE). This endpoint integrates with the Anthropic SDK and aborts the stream if the browser disconnects, preventing wasted token consumption.
+The console lets operators send a note directly into an agent's mailbox, tied to a specific task. The server validates the request, appends a formatted block to the agent's mailbox file in the control repo, and commits the change. This replaces the earlier CONS-005 Anthropic SDK SSE stub, which was a placeholder. The endpoint is now a plain JSON endpoint with no streaming and no external API dependency.
 
 ### Request and response
 
 **Endpoint:** `POST /api/draft-decision`
 
+**Required headers:** `Content-Type: application/json`
+
 **Request body:**
 ```json
 {
-  "taskId": "CONS-005",
   "agentName": "agent-be",
-  "context": "Task spec and agent notes..."
+  "taskId": "T9",
+  "text": "Please use the pattern from server-utils.ts for the new endpoint."
 }
 ```
 
-**Response:** HTTP 200 with `text/event-stream` (SSE format). Each token arrives as a `data:` line containing a JSON-escaped string:
-```
-data: "The "
-data: "operator "
-data: "can "
-data: "review "
-data: "and "
-data: "edit "
-data: "this "
-data: "draft "
-data: "before "
-data: "submitting."
-data: [DONE]
-```
-
-### Error handling
-
-If `ANTHROPIC_API_KEY` is not set in the server environment, the endpoint returns HTTP 503 immediately (before reading the body):
+**Response:** HTTP 200 JSON on success:
 ```json
-{
-  "error": "AI drafts unavailable — set ANTHROPIC_API_KEY in your environment"
-}
+{ "ok": true }
 ```
 
-If the Anthropic API returns an error during streaming (invalid key, rate limit, etc.), the stream sends an error event and closes gracefully:
+### Validation
+
+All three fields are required. The server applies the following checks in order and returns immediately on the first failure:
+
+1. `Content-Type` header must include `application/json` — returns 400 with `{ "error": "content-type must be application/json" }` if not.
+2. Request body must be valid JSON — returns 400 with `{ "error": "invalid JSON body" }` if not.
+3. `agentName` must be a member of `validAgents` (loaded from `controlDir/fleet.conf`) — returns 400 with `{ "error": "unknown agent" }` if not.
+4. `taskId` must match `TASK_ID_RE` — returns 400 with `{ "error": "invalid taskId" }` if not.
+5. `text` must be a non-empty string — returns 400 with `{ "error": "text required" }` if not.
+6. `controlDir` must be configured — returns 503 with `{ "error": "control dir not configured" }` if not.
+
+### Mailbox append format
+
+The appended block uses the standard agent-loop mailbox format:
+
 ```
-data: {"error": "invalid API key"}
+## from: human | <ISO-timestamp> | re: <taskId>
+<text>
 ```
 
-The server process does not crash.
+The file written is `$controlDir/mailboxes/<agentName>.md`. After appending, the server calls `gitCommitAndPush(controlDir, "console: note for <agentName> re <taskId>")`. If the push fails, the endpoint returns HTTP 500 with `{ "error": "git push failed" }`.
 
-### Disconnection handling
+### AC → verification mapping
 
-When the browser closes the connection or the user cancels the request mid-stream, the `req.on("close")` callback triggers `AbortController.abort()`. This immediately stops the Anthropic SDK stream, preventing further token consumption. The server logs no additional output after disconnect.
-
-### Implementation details
-
-- **Model:** `claude-haiku-4-5-20251001` (Haiku for cost control — draft suggestions don't need Opus)
-- **Max tokens:** 512 per response
-- **Abort signal:** Passed to `client.messages.stream({..., signal: controller.signal})`
-- **Streaming handler:** `stream.on("text", ...)` catches each token and writes it as an SSE `data:` line
-- **Completion sentinel:** Final `data: [DONE]\n\n` event signals end of stream
-- **Content type:** Operator supplies `context` (task spec + agent notes) in request body; no hardcoded prompt template
-
-### Use case
-
-When a task is blocked waiting for human decision (e.g., approval request, merge conflict), an operator can click "AI Draft" to get a Claude suggestion. The response appears token-by-token in the console, allowing the operator to review and edit before submitting. If the operator cancels mid-draft or closes the console tab, no additional tokens are charged.
+| AC | Test | Location |
+|---|---|---|
+| AC1 — malformed body → 400 | `describe("malformed JSON body (AC1)")` — draft-decision test | `server.test.ts` |
+| AC2 — missing Content-Type → 400 | `describe("missing Content-Type (AC2)")` — draft-decision test | `server.test.ts` |
 
 ---
 
@@ -1377,7 +1368,7 @@ Tasks that have an AI-drafted suggestion show a collapsible "AI Draft" button. C
 
 1. **Collapsible container:** Toggling the button shows/hides the panel using `aria-expanded` and display state.
 2. **Amber disclaimer badge:** Always visible when the panel is expanded, stating "AI draft — review before sending" in the `--amber` color.
-3. **Streaming text div:** The drafted text is rendered in a scrollable section (populated by the `POST /api/draft-decision` SSE response).
+3. **Draft text div:** The drafted text is rendered in a scrollable section. The operator types or pastes a note here, which is sent via `POST /api/draft-decision` to append it to the agent's mailbox.
 4. **"Use this draft ↑" button:** A ghost-style button copies the draft text into the textarea below, allowing operators to review and edit before sending.
 
 Example interaction:

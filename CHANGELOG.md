@@ -2,6 +2,24 @@
 
 ## [Unreleased]
 
+### POST body validation + draft-decision mailbox note (T9)
+
+All POST endpoints now reject requests immediately when the `Content-Type` header is missing or wrong, or when the body is not valid JSON. Previously each handler read raw body bytes and called `JSON.parse` independently — a missing header was silently accepted. Now a single shared `readAndValidatePostBody()` utility handles both checks and returns HTTP 400 before any filesystem operation is attempted.
+
+`POST /api/draft-decision` has been re-implemented: it no longer calls the Anthropic SDK or streams a response via SSE. It now appends a human-authored note directly to the target agent's mailbox file in the control repo and commits the change. This makes the endpoint consistent with how human decisions flow through the rest of the system.
+
+#### Added
+- `readAndValidatePostBody(req)` in `server-utils.ts` — shared Content-Type and JSON validation for all POST handlers; returns `{ ok: true; json: unknown; raw: string }` on success or `{ ok: false; statusCode: number; error: string }` on failure (T9 AC1/AC2).
+- `describe("rawPath dot-segment preservation (AC4)")` — 3 unit tests verifying that `rawPath()` returns dot-segment paths unprocessed, unlike the `URL` API which normalizes them (T9 AC4).
+- `describe("GET /api/fleet absent/empty fleet.conf (AC7)")` — 2 tests verifying that `GET /api/fleet` returns HTTP 200 with `[]` when no agents are configured (T9 AC7).
+- `describe("malformed JSON body (AC1)")` and `describe("missing Content-Type (AC2)")` — 6 tests across all three POST endpoints confirming 400 responses (T9 AC1/AC2).
+- 130 total tests (2 bash-wrapper + 128 server).
+
+#### Changed
+- `POST /api/draft-decision` now appends `## from: human | <ts> | re: <taskId>\n<text>` to the agent's mailbox and commits via `gitCommitAndPush`. Returns JSON `{ ok: true }`. No longer calls the Anthropic SDK or streams SSE (T9 / T5).
+- `handleMailbox` and `handleApprove` now both validate Content-Type and JSON body via `readAndValidatePostBody` before any filesystem write (T9 AC1/AC2).
+- `import Anthropic from "@anthropic-ai/sdk"` removed from `server.ts` — no SDK dependency at runtime.
+
 ### Stuck detection — malformed JSONL no longer crashes GET /api/stuck (T14-amended)
 
 A single corrupted line in an agent's `live-events.jsonl` (caused by a mid-write SIGTERM, a disk error, or any partial write) no longer returns a 500 from `GET /api/stuck`. Every `JSON.parse` call on individual JSONL lines in the stuck detection path is now wrapped in a per-line try/catch that returns null and filters the bad line out. The remaining valid lines are processed normally. If every line in the file is malformed, the endpoint returns `{ stuck: [] }` with HTTP 200. No stuck signals are reported for data that cannot be read; signals based on other agents are unaffected.
