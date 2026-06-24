@@ -1,11 +1,12 @@
-import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-import { execSync, ExecSyncOptionsWithStringEncoding } from 'child_process';
+import { describe, test, expect, beforeEach, afterEach, setDefaultTimeout } from 'bun:test';
+import { execFileSync, ExecSyncOptionsWithStringEncoding } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const BIN = path.join(ROOT, 'bin');
+setDefaultTimeout(process.platform === 'win32' ? 20000 : 5000);
 
 let tmpDir: string;
 
@@ -16,7 +17,9 @@ function runProfile(): Record<string, string> {
     encoding: 'utf-8',
     timeout: 15000,
   };
-  const stdout = execSync(`${BIN}/gstack-builder-profile`, execOpts).trim();
+  const stdout = process.platform === 'win32'
+    ? execFileSync(process.env.GSTACK_TEST_BASH || 'C:\\Program Files\\Git\\bin\\bash.exe', ['-lc', './bin/gstack-builder-profile'], execOpts).trim()
+    : execFileSync(path.join(BIN, 'gstack-builder-profile'), [], execOpts).trim();
   const result: Record<string, string> = {};
   for (const line of stdout.split('\n')) {
     const idx = line.indexOf(':');

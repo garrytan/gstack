@@ -64,12 +64,17 @@ for (const file of SKILL_FILES) {
 
 console.log('\n  Templates:');
 const TEMPLATES = discoverTemplates(ROOT);
+const HOST_ONLY_TEMPLATE_OUTPUTS = new Set(['claude/SKILL.md']);
 
 for (const { tmpl, output } of TEMPLATES) {
   const tmplPath = path.join(ROOT, tmpl);
   const outPath = path.join(ROOT, output);
   if (!fs.existsSync(tmplPath)) {
     console.log(`  \u26a0\ufe0f  ${output.padEnd(30)} — no template`);
+    continue;
+  }
+  if (HOST_ONLY_TEMPLATE_OUTPUTS.has(output)) {
+    console.log(`  -  ${tmpl.padEnd(30)} \u2192 host-generated skill`);
     continue;
   }
   if (!fs.existsSync(outPath)) {

@@ -40,10 +40,42 @@ esac
 # INVARIANT: every symlink in this script MUST route through this helper.
 # A raw ln call here will be caught by test/setup-windows-fallback.test.ts
 # (the static-invariant assertion D7).
+_resolve_path() {
+  local path="$1"
+  if [ -d "$path" ]; then
+    (cd "$path" 2>/dev/null && pwd -P)
+    return
+  fi
+
+  local dir base
+  dir="$(dirname "$path")"
+  base="$(basename "$path")"
+  if [ -d "$dir" ]; then
+    (cd "$dir" 2>/dev/null && printf '%s/%s\n' "$(pwd -P)" "$base")
+  fi
+}
+
+_paths_same() {
+  if [ "$1" = "$2" ]; then
+    return 0
+  fi
+  if [ "$IS_WINDOWS" -eq 1 ]; then
+    local left right
+    left="$(_resolve_path "$1" | tr '[:upper:]' '[:lower:]')"
+    right="$(_resolve_path "$2" | tr '[:upper:]' '[:lower:]')"
+    [ -n "$left" ] && [ "$left" = "$right" ]
+    return
+  fi
+  return 1
+}
+
 _link_or_copy() {
   local src="$1"
   local dst="$2"
   if [ "$IS_WINDOWS" -eq 1 ]; then
+    if [ -e "$dst" ] && _paths_same "$src" "$dst"; then
+      return 0
+    fi
     rm -rf "$dst"
     # Unix `ln -snf` accepts a name-only or relative-path source even when the
     # target doesn't resolve from CWD (e.g. the connect-chrome alias points at
@@ -1029,7 +1061,7 @@ if [ "$INSTALL_CLAUDE" -eq 1 ]; then
     # separate top-level skills (dublin-v1, lincoln-v2, ...). Typical trigger:
     # running ./setup from a Conductor worktree of the gstack repo itself.
     _SKIP_CLAUDE_REGISTER=0
-    if [ -d "$CLAUDE_GSTACK_LINK" ] && [ ! -L "$CLAUDE_GSTACK_LINK" ]; then
+    if [ -d "$CLAUDE_GSTACK_LINK" ] && [ ! -L "$CLAUDE_GSTACK_LINK" ] && ! _paths_same "$CLAUDE_GSTACK_LINK" "$SOURCE_GSTACK_DIR"; then
       _EXISTING_REAL=$(cd "$CLAUDE_GSTACK_LINK" 2>/dev/null && pwd -P || echo "")
       if [ -n "$_EXISTING_REAL" ] && [ "$_EXISTING_REAL" != "$SOURCE_GSTACK_DIR" ]; then
         _SKIP_CLAUDE_REGISTER=1
