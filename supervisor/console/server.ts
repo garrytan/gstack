@@ -281,7 +281,7 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     return;
   }
 
-  // POST /api/draft-decision — stream AI-drafted decision suggestion (CONS-005).
+  // POST /api/draft-decision — append human note to agent mailbox (T5).
   if (path === "/api/draft-decision" && method === "POST") {
     void handleDraftDecision(req, res);
     return;
@@ -436,7 +436,7 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
   // T14: GET /api/stuck — compute stuck signals + edge-triggered SSE broadcast.
   if (path === "/api/stuck" && method === "GET") {
     const stuckAgents = computeStuckSignals(
-      agentList,
+      [...validAgents],
       join(homedir(), "agents"),
       controlDir ? join(controlDir, "ledger") : "",
     );

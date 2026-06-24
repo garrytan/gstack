@@ -4,6 +4,7 @@ const SSE_URL = '/api/events';
 const FLEET_URL = '/api/fleet';
 const QUEUE_URL = '/api/queue';
 const PIPELINE_URL = '/api/pipeline';
+const STUCK_URL = '/api/stuck';
 const RECONNECT_DELAY_MS = 3000;
 const FLEET_STALE_MS = 30000;
 const DOMAIN_FILTER_KEY = 'console-pipeline-domain-filter';
@@ -29,6 +30,10 @@ let approvalCount = 0;
 let pipelineData = [];
 let pipelineDomainFilter = localStorage.getItem(DOMAIN_FILTER_KEY) || 'all';
 let pipelineBootstrapped = false;
+
+/* T15: stuck agent state */
+const stuckAgents = new Map(); // agent → { agent, signal, detail, since }
+const agentLastTaskId = new Map(); // agent → last known task_id (for AC6 auto-dismiss)
 
 /* ── Tab state ── */
 
@@ -262,6 +267,123 @@ async function fetchQueue() {
 
     syncState();
   } catch (_) {}
+}
+
+/* ── Stuck alert (T15) ── */
+
+async function fetchStuck() {
+  try {
+    const res = await fetch(STUCK_URL);
+    if (!res.ok) return;
+    const data = await res.json();
+    for (const s of (data.stuck || [])) {
+      stuckAgents.set(s.agent, s);
+    }
+    renderStuckSection();
+  } catch (_) {}
+}
+
+function renderStuckSection() {
+  const section = $('stuck-alert-slot');
+  const container = $('stuck-cards');
+  if (!section || !container) return;
+
+  if (stuckAgents.size === 0) {
+    section.setAttribute('hidden', '');
+    container.innerHTML = '';
+    return;
+  }
+
+  /* AC3: show only the card for the agent with the earliest (oldest) since time */
+  let earliest = null;
+  for (const s of stuckAgents.values()) {
+    if (!earliest || new Date(s.since) < new Date(earliest.since)) earliest = s;
+  }
+
+  const extra = stuckAgents.size - 1;
+  container.innerHTML = '';
+  container.appendChild(buildStuckCard(earliest, extra));
+  section.removeAttribute('hidden');
+}
+
+function buildStuckCard(s, extraCount) {
+  const cardId = `stuck-${s.agent}`;
+  const article = document.createElement('article');
+  article.className = 'stuck-alert-card card-new';
+  article.id = cardId;
+  article.setAttribute('aria-label', `Stuck agent: ${s.agent}`);
+
+  const extraBadge = extraCount > 0
+    ? `<span class="stuck-more-badge" aria-label="${extraCount} more stuck agents">+${extraCount} more</span>`
+    : '';
+  const sinceStr = s.since ? relativeTime(s.since) : '—';
+
+  article.innerHTML = `
+    <div class="stuck-card-header">
+      <span class="stuck-signal-dot" aria-hidden="true"></span>
+      <span class="stuck-agent-name">${esc(s.agent)}</span>
+      ${extraBadge}
+      <span class="stuck-card-spacer"></span>
+      <span class="stuck-since">${esc(sinceStr)}</span>
+    </div>
+    <div class="stuck-detail">${esc(s.detail)}</div>
+    <div class="stuck-card-actions">
+      <button class="btn-force-restart" data-agent="${esc(s.agent)}">Force restart</button>
+    </div>
+  `;
+
+  article.querySelector('.btn-force-restart').addEventListener('click', () => {
+    showRestartModal(s.agent);
+  });
+
+  return article;
+}
+
+function dismissStuckAgent(agent) {
+  if (!stuckAgents.has(agent)) return;
+  stuckAgents.delete(agent);
+  const card = document.getElementById(`stuck-${agent}`);
+  if (card) {
+    exitCard(card, renderStuckSection);
+  } else {
+    renderStuckSection();
+  }
+}
+
+/* ── Force restart modal (AC4–AC8) ── */
+
+function showRestartModal(agent) {
+  const modal = $('restart-modal');
+  if (!modal) return;
+  const taskId = agentLastTaskId.get(agent) || 'current task unknown';
+  modal.querySelector('.restart-modal-heading').textContent = `Restart ${agent}?`;
+  modal.querySelector('.restart-modal-body').textContent =
+    `Current task ${taskId} will be marked failed. This cannot be undone.`;
+  const restartBtn = modal.querySelector('.btn-modal-restart');
+  restartBtn.textContent = `Restart ${agent}`;
+  restartBtn.dataset.agent = agent;
+  restartBtn.disabled = false;
+  modal.showModal();
+}
+
+function initRestartModal() {
+  const modal = $('restart-modal');
+  if (!modal) return;
+
+  /* AC7: close on backdrop click */
+  modal.addEventListener('click', (e) => { if (e.target === modal) modal.close(); });
+
+  modal.querySelector('.btn-modal-cancel').addEventListener('click', () => modal.close());
+
+  modal.querySelector('.btn-modal-restart').addEventListener('click', () => {
+    const btn = modal.querySelector('.btn-modal-restart');
+    const agent = btn.dataset.agent;
+    btn.textContent = 'Restarting…';
+    btn.disabled = true;
+    fetch(`/api/fleet/restart?agent=${encodeURIComponent(agent)}`, { method: 'POST' })
+      .catch(() => {})
+      .finally(() => modal.close());
+  });
 }
 
 /* ── Pipeline ── */
@@ -704,6 +826,7 @@ function connect() {
     reconnectBanner.style.display = 'none';
     fetchQueue();
     fetchPipeline();
+    fetchStuck();
     pipelineBootstrapped = true;
   });
 
@@ -739,7 +862,26 @@ function connect() {
     if (ev.type === 'fleet-update') {
       fleetLastEventTs = Date.now();
       if (currentTab === 'fleet') fetchFleet(ev.ts);
+
+      /* AC6: auto-dismiss stuck card if agent moved to a new task or was stopped */
+      if (ev.agent && stuckAgents.has(ev.agent)) {
+        const prev = agentLastTaskId.get(ev.agent);
+        if (ev.task !== undefined) agentLastTaskId.set(ev.agent, ev.task);
+        const movedOn = ev.task != null && ev.task !== prev;
+        const stopped = ev.action === 'stop' || ev.action === 'restart';
+        if (movedOn || stopped) dismissStuckAgent(ev.agent);
+      } else if (ev.agent && ev.task !== undefined) {
+        agentLastTaskId.set(ev.agent, ev.task);
+      }
     }
+  });
+
+  /* T15 AC2: handle stuck SSE event — insert card above Queue attention section */
+  es.addEventListener('stuck', (e) => {
+    const ev = JSON.parse(e.data);
+    if (!ev.agent) return;
+    stuckAgents.set(ev.agent, { agent: ev.agent, signal: ev.signal, detail: ev.detail, since: ev.since || new Date().toISOString() });
+    renderStuckSection();
   });
 
   es.addEventListener('pipeline-update', () => {
@@ -772,6 +914,8 @@ for (const [name, btn] of Object.entries(tabBtns)) {
 
 switchTab('fleet');
 connect();
+fetchStuck();
+initRestartModal();
 
 /* AC3: poll SSE readyState every 2 s to cycle dot green/amber/red */
 setInterval(() => {
@@ -797,4 +941,25 @@ window.__injectAttention = function(ev) {
   attentionCards.prepend(buildAttentionCard(ev));
   attentionCount++;
   syncState();
+};
+window.__injectStuck = function(ev) {
+  stuckAgents.set(ev.agent, {
+    agent: ev.agent,
+    signal: ev.signal || 'silent',
+    detail: ev.detail || 'test signal',
+    since: ev.since || new Date().toISOString(),
+  });
+  renderStuckSection();
+};
+window.__injectFleetUpdate = function(ev) {
+  const payload = { type: 'fleet-update', ...ev };
+  if (payload.agent && stuckAgents.has(payload.agent)) {
+    const prev = agentLastTaskId.get(payload.agent);
+    if (payload.task !== undefined) agentLastTaskId.set(payload.agent, payload.task);
+    const movedOn = payload.task != null && payload.task !== prev;
+    const stopped = payload.action === 'stop' || payload.action === 'restart';
+    if (movedOn || stopped) dismissStuckAgent(payload.agent);
+  } else if (payload.agent && payload.task !== undefined) {
+    agentLastTaskId.set(payload.agent, payload.task);
+  }
 };
