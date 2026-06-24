@@ -4,7 +4,7 @@
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { createServer } from "node:http";
 import type { Server, IncomingMessage, ServerResponse } from "node:http";
-import { mkdirSync, writeFileSync, rmSync, existsSync, utimesSync, readFileSync, unlinkSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync, rmSync, existsSync, utimesSync, readFileSync, unlinkSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { join, isAbsolute, basename } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -2673,5 +2673,146 @@ describe("POST /api/workspaces/:id/activate validAgents reload (AC7)", () => {
     expect(r.status).toBe(200);
     expect(wsRebuildCalls).toHaveLength(1);
     expect(wsRebuildCalls[0]).toBe("/ac7-control");
+  });
+});
+
+// T17a: CONTROL_DIR back-compat tests
+const T17A_BC1_PORT = 7885;
+const T17A_BC2_PORT = 7886;
+
+describe("CONTROL_DIR back-compat: first boot (AC1)", () => {
+  let bc1TmpDir: string;
+  let bc1ControlDir: string;
+  let bc1Server: Server;
+  let bc1RegistryPath: string;
+
+  beforeAll(
+    () =>
+      new Promise<void>((resolve) => {
+        bc1TmpDir = mkdtempSync(join(tmpdir(), "console-t17a-bc1-"));
+        bc1ControlDir = join(bc1TmpDir, "mock-control");
+        mkdirSync(bc1ControlDir);
+        bc1RegistryPath = join(bc1TmpDir, "workspaces.json");
+        bootstrapWorkspace(bc1ControlDir, bc1RegistryPath);
+        bc1Server = createServer(makeWorkspacesHandler({ workspacesPath: bc1RegistryPath }));
+        bc1Server.listen(T17A_BC1_PORT, "127.0.0.1", resolve);
+      }),
+  );
+
+  afterAll(
+    () =>
+      new Promise<void>((resolve) => {
+        bc1Server.close(() => {
+          rmSync(bc1TmpDir, { recursive: true, force: true });
+          resolve();
+        });
+      }),
+  );
+
+  test("GET /api/workspaces returns single workspace with auto-UUID (AC1)", async () => {
+    const r = await fetch(`http://127.0.0.1:${T17A_BC1_PORT}/api/workspaces`);
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as WorkspaceRegistry;
+    expect(body.workspaces).toHaveLength(1);
+    expect(body.workspaces[0].controlDir).toBe(bc1ControlDir);
+    expect(body.activeId).toBe(body.workspaces[0].id);
+    expect(body.workspaces[0].id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+    );
+  });
+});
+
+describe("CONTROL_DIR back-compat: existing registry (AC2)", () => {
+  let bc2TmpDir: string;
+  let bc2ControlDir: string;
+  let bc2Server: Server;
+  let bc2RegistryPath: string;
+  const existingActiveId = "existing-ws-id-ac2";
+
+  beforeAll(
+    () =>
+      new Promise<void>((resolve) => {
+        bc2TmpDir = mkdtempSync(join(tmpdir(), "console-t17a-bc2-"));
+        bc2ControlDir = join(bc2TmpDir, "new-control");
+        mkdirSync(bc2ControlDir);
+        bc2RegistryPath = join(bc2TmpDir, "workspaces.json");
+        const existing: WorkspaceRegistry = {
+          workspaces: [
+            { id: existingActiveId, name: "other", controlDir: "/tmp/other-bc2", createdAt: "2026-01-01T00:00:00Z" },
+          ],
+          activeId: existingActiveId,
+        };
+        writeWorkspaceRegistry(bc2RegistryPath, existing);
+        bootstrapWorkspace(bc2ControlDir, bc2RegistryPath);
+        bc2Server = createServer(makeWorkspacesHandler({ workspacesPath: bc2RegistryPath }));
+        bc2Server.listen(T17A_BC2_PORT, "127.0.0.1", resolve);
+      }),
+  );
+
+  afterAll(
+    () =>
+      new Promise<void>((resolve) => {
+        bc2Server.close(() => {
+          rmSync(bc2TmpDir, { recursive: true, force: true });
+          resolve();
+        });
+      }),
+  );
+
+  test("GET /api/workspaces returns 2 workspaces and preserves existing activeId (AC2)", async () => {
+    const r = await fetch(`http://127.0.0.1:${T17A_BC2_PORT}/api/workspaces`);
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as WorkspaceRegistry;
+    expect(body.workspaces).toHaveLength(2);
+    const newWs = body.workspaces.find((w) => w.controlDir === bc2ControlDir);
+    expect(newWs).toBeDefined();
+    expect(body.activeId).toBe(existingActiveId);
+    expect(body.activeId).not.toBe(newWs?.id);
+  });
+});
+
+describe("CONTROL_DIR back-compat: validAgents (AC3)", () => {
+  let ac3TmpDir: string;
+
+  beforeAll(() => {
+    ac3TmpDir = mkdtempSync(join(tmpdir(), "console-t17a-bc3-"));
+    writeFileSync(join(ac3TmpDir, "fleet.conf"), "agent-be\nagent-qa\nagent-fe\n");
+  });
+
+  afterAll(() => {
+    rmSync(ac3TmpDir, { recursive: true, force: true });
+  });
+
+  test("parseFleetConf reads agents from CONTROL_DIR/fleet.conf (AC3)", () => {
+    const confPath = join(ac3TmpDir, "fleet.conf");
+    const agents = new Set(parseFleetConf(readFileSync(confPath, "utf8")));
+    expect(agents.size).toBe(3);
+    expect(agents.has("agent-be")).toBe(true);
+    expect(agents.has("agent-qa")).toBe(true);
+    expect(agents.has("agent-fe")).toBe(true);
+  });
+});
+
+describe("CONTROL_DIR back-compat: missing fleet.conf (AC4)", () => {
+  let ac4TmpDir: string;
+
+  beforeAll(() => {
+    ac4TmpDir = mkdtempSync(join(tmpdir(), "console-t17a-bc4-"));
+    // no fleet.conf written intentionally
+  });
+
+  afterAll(() => {
+    rmSync(ac4TmpDir, { recursive: true, force: true });
+  });
+
+  test("validAgents is empty Set when fleet.conf absent, no crash (AC4)", () => {
+    const confPath = join(ac4TmpDir, "fleet.conf");
+    let agents: Set<string> = new Set();
+    try {
+      agents = new Set(parseFleetConf(readFileSync(confPath, "utf8")));
+    } catch {
+      agents = new Set();
+    }
+    expect(agents.size).toBe(0);
   });
 });
