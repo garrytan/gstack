@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+### v1 test suite — gap tests for stale PID, loop threshold, signal precedence, n=0 (T16-amended)
+
+Four boundary and multi-signal test cases that were not covered by prior suites are now locked in. The loop detection threshold boundary (4 events vs. the 5-event threshold), the `fail_storm`-over-`loop` precedence rule, the stale-PID idempotent stop path with real OS liveness checks, and the `?n=0` lower-bound rejection in the log endpoint are all now exercised in their own isolated describe blocks.
+
+#### Added
+- `describe("fleet/stop stale PID")` — 1 test on port 7871: writes PID `99999` and uses real `defaultIsProcessAlive`/`defaultKillFn`; asserts POST `/api/fleet/stop` returns `{ ok: true }` even when the process does not exist (T16-amended AC1).
+- `describe("stuck loop threshold 4")` — 1 pure-unit test: 4 consecutive same-tool events must NOT produce a `loop` signal (`computeStuckSignals` called directly; threshold is 5) (T16-amended AC2).
+- `describe("stuck signal precedence")` — 1 pure-unit test: both `fail_storm` (failure\_count=2 + in\_progress) and `loop` (5 same-tool events) conditions active simultaneously; asserts `signal === "fail_storm"` (T16-amended AC3).
+- `describe("log n=0")` — 1 test on port 7872: GET `/api/log/agent-be?n=0` → HTTP 400, `{ error: "n must be 1-200" }` (T16-amended AC4).
+- 135 total tests (2 bash-wrapper + 133 server).
+
 ### GET /api/stuck — regression guard against agentList ReferenceError (BUG-2)
 
 A static test now prevents the `GET /api/stuck` crash from coming back via a future merge conflict. The crash itself was already fixed in main (T11-amended renamed `agentList` to `supervisorAgentList`; T14 introduced the stuck route using the old name before that rename landed). The regression guard reads `server.ts` source at test time and asserts that `computeStuckSignals` is never called with `agentList` — a wrong variable name fails CI immediately, before any runtime crash can reach production.
