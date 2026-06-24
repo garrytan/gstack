@@ -2130,3 +2130,218 @@ describe("stuck detection malformed JSONL", () => {
     expect(body.stuck).toHaveLength(0);
   });
 });
+
+// --- T5: POST /api/draft-decision ---
+
+const DRAFT_PORT = 7855;
+const DRAFT_NO_DIR_PORT = 7856;
+
+const draftTestDir = join(tmpdir(), `draft-decision-test-${process.pid}`);
+const draftMailboxDir = join(draftTestDir, "mailboxes");
+const draftValidAgents = new Set(["agent-be", "agent-qa", "agent-fe", "agent-doc"]);
+
+type GitFn = (dir: string, msg: string) => Promise<void>;
+
+function makeDraftDecisionHandler(opts: {
+  controlDir: string;
+  validAgents: Set<string>;
+  gitFn?: GitFn;
+}) {
+  const { controlDir, validAgents: agents, gitFn } = opts;
+  return async (req: IncomingMessage, res: ServerResponse) => {
+    const method = req.method ?? "GET";
+    if (rawPath(req.url) !== "/api/draft-decision" || method !== "POST") {
+      sendJson(res, { error: "not found" }, 404);
+      return;
+    }
+
+    if (!controlDir) {
+      sendJson(res, { error: "control dir not configured" }, 503);
+      return;
+    }
+
+    const chunks: Buffer[] = [];
+    for await (const chunk of req) chunks.push(chunk as Buffer);
+    let body: { agentName?: string; taskId?: string; text?: string } = {};
+    try {
+      body = JSON.parse(Buffer.concat(chunks).toString()) as typeof body;
+    } catch {
+      sendJson(res, { error: "invalid JSON" }, 400);
+      return;
+    }
+
+    const { agentName, taskId, text } = body;
+    if (!agentName || !agents.has(agentName)) {
+      sendJson(res, { error: "unknown agent" }, 400);
+      return;
+    }
+    if (!taskId || !TASK_ID_RE.test(taskId)) {
+      sendJson(res, { error: "invalid taskId" }, 400);
+      return;
+    }
+    if (!text || text.trim() === "") {
+      sendJson(res, { error: "text required" }, 400);
+      return;
+    }
+
+    const ts = new Date().toISOString();
+    const block = `\n## from: human | ${ts} | re: ${taskId}\n${text}\n`;
+    const { appendFile: appendFileAsync } = await import("fs/promises");
+    await appendFileAsync(join(controlDir, "mailboxes", `${agentName}.md`), block);
+
+    const commitGit = gitFn ?? (() => Promise.resolve());
+    try {
+      await commitGit(controlDir, `console: note for ${agentName} re ${taskId}`);
+      sendJson(res, { ok: true });
+    } catch {
+      sendJson(res, { error: "git push failed" }, 500);
+    }
+  };
+}
+
+let draftServer: Server;
+let draftNoCtrlServer: Server;
+let capturedGitArgs: { dir: string; msg: string } | null = null;
+let gitShouldFail = false;
+
+const mockGit: GitFn = async (dir, msg) => {
+  capturedGitArgs = { dir, msg };
+  if (gitShouldFail) throw new Error("push rejected");
+};
+
+beforeAll(
+  () =>
+    new Promise<void>((resolve) => {
+      mkdirSync(draftMailboxDir, { recursive: true });
+
+      draftServer = createServer(
+        makeDraftDecisionHandler({
+          controlDir: draftTestDir,
+          validAgents: draftValidAgents,
+          gitFn: mockGit,
+        }),
+      );
+
+      draftNoCtrlServer = createServer(
+        makeDraftDecisionHandler({
+          controlDir: "",
+          validAgents: draftValidAgents,
+          gitFn: mockGit,
+        }),
+      );
+
+      let started = 0;
+      const done = () => { if (++started === 2) resolve(); };
+      draftServer.listen(DRAFT_PORT, "127.0.0.1", done);
+      draftNoCtrlServer.listen(DRAFT_NO_DIR_PORT, "127.0.0.1", done);
+    }),
+);
+
+afterAll(
+  () =>
+    new Promise<void>((resolve, reject) => {
+      let closed = 0;
+      const done = (err?: Error) => {
+        if (err) { reject(err); return; }
+        if (++closed === 2) {
+          rmSync(draftTestDir, { recursive: true, force: true });
+          resolve();
+        }
+      };
+      draftServer.close(done);
+      draftNoCtrlServer.close(done);
+    }),
+);
+
+describe("POST /api/draft-decision", () => {
+  test("AC1: appends correct mailbox block to {controlDir}/mailboxes/{agentName}.md", async () => {
+    capturedGitArgs = null;
+    gitShouldFail = false;
+    const mailboxFile = join(draftMailboxDir, "agent-be.md");
+
+    const r = await fetch(`http://127.0.0.1:${DRAFT_PORT}/api/draft-decision`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ agentName: "agent-be", taskId: "T5", text: "looks good" }),
+    });
+    expect(r.status).toBe(200);
+
+    const content = readFileSync(mailboxFile, "utf8");
+    expect(content).toMatch(/^## from: human \| .+ \| re: T5$/m);
+    expect(content).toContain("looks good");
+  });
+
+  test("AC2: calls gitCommitAndPush with correct commit message on success", async () => {
+    capturedGitArgs = null;
+    gitShouldFail = false;
+
+    const r = await fetch(`http://127.0.0.1:${DRAFT_PORT}/api/draft-decision`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ agentName: "agent-qa", taskId: "CONS-123", text: "please check logs" }),
+    });
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { ok: boolean };
+    expect(body.ok).toBe(true);
+    expect(capturedGitArgs).not.toBeNull();
+    expect(capturedGitArgs!.msg).toBe("console: note for agent-qa re CONS-123");
+    expect(capturedGitArgs!.dir).toBe(draftTestDir);
+  });
+
+  test("AC3: unknown agentName → 400 { error: 'unknown agent' }", async () => {
+    const r = await fetch(`http://127.0.0.1:${DRAFT_PORT}/api/draft-decision`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ agentName: "agent-unknown", taskId: "T5", text: "hello" }),
+    });
+    expect(r.status).toBe(400);
+    const body = (await r.json()) as { error: string };
+    expect(body.error).toBe("unknown agent");
+  });
+
+  test("AC4: taskId failing TASK_ID_RE → 400 { error: 'invalid taskId' }", async () => {
+    const r = await fetch(`http://127.0.0.1:${DRAFT_PORT}/api/draft-decision`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ agentName: "agent-be", taskId: "invalid", text: "hello" }),
+    });
+    expect(r.status).toBe(400);
+    const body = (await r.json()) as { error: string };
+    expect(body.error).toBe("invalid taskId");
+  });
+
+  test("AC5: empty text → 400 { error: 'text required' }", async () => {
+    const r = await fetch(`http://127.0.0.1:${DRAFT_PORT}/api/draft-decision`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ agentName: "agent-be", taskId: "T5", text: "" }),
+    });
+    expect(r.status).toBe(400);
+    const body = (await r.json()) as { error: string };
+    expect(body.error).toBe("text required");
+  });
+
+  test("AC6: gitCommitAndPush throws → 500 { error: 'git push failed' }", async () => {
+    gitShouldFail = true;
+    const r = await fetch(`http://127.0.0.1:${DRAFT_PORT}/api/draft-decision`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ agentName: "agent-fe", taskId: "T5", text: "retry please" }),
+    });
+    gitShouldFail = false;
+    expect(r.status).toBe(500);
+    const body = (await r.json()) as { error: string };
+    expect(body.error).toBe("git push failed");
+  });
+
+  test("AC7: CONTROL_DIR not set → 503 { error: 'control dir not configured' }", async () => {
+    const r = await fetch(`http://127.0.0.1:${DRAFT_NO_DIR_PORT}/api/draft-decision`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ agentName: "agent-be", taskId: "T5", text: "hello" }),
+    });
+    expect(r.status).toBe(503);
+    const body = (await r.json()) as { error: string };
+    expect(body.error).toBe("control dir not configured");
+  });
+});
