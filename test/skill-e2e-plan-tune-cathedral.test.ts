@@ -296,7 +296,8 @@ describeIfSelected('PlanTune cathedral E2E: annotation', ['plan-tune-annotation'
     });
     expect(res.status).toBe(0);
     const parsed = JSON.parse(res.stdout || '{}');
-    expect(parsed.hookSpecificOutput?.permissionDecision).toBe('defer');
+    // Issue #2035: defer path emits additionalContext but NO permissionDecision.
+    expect(parsed.hookSpecificOutput?.permissionDecision).toBeUndefined();
     expect(parsed.hookSpecificOutput?.additionalContext).toContain('verbose explanations');
   });
 });

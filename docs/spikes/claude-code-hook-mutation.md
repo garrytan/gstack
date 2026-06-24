@@ -51,7 +51,17 @@ Optional in subagent context: `agent_id`, `agent_type`.
 - `"deny"` — block (feedback to Claude, NOT a synthetic answer per Codex
   correction in D-prefixed decisions)
 - `"ask"` — escalate to user
-- `"defer"` — let permission flow continue
+
+**Important (issue #2035):** `"defer"` is documented in some references as
+"let permission flow continue," but **do not emit it**. Recent Claude Code
+builds (Opus 4.8 era, June 2026+) reject a `permissionDecision: "defer"`
+output and abort the AUQ tool call with
+`[Tool result missing due to internal error]`. The actual "no decision /
+proceed via the normal permission flow" contract is **exit 0 with no
+stdout** (or, if you have `additionalContext` to inject, exit 0 + a
+`hookSpecificOutput` payload with **only** `additionalContext` — no
+`permissionDecision` field at all). This is the contract
+`hosts/claude/hooks/question-preference-hook.ts` now follows.
 
 **`updatedInput` semantics:** shallow merge of fields present in the returned
 object onto the original `tool_input`. Only valid with
@@ -88,7 +98,9 @@ required for our hook to fire there.
   accepting.
 
 **`permissionDecision` precedence (when multiple hooks decide):**
-`deny > ask > allow > defer` — most restrictive wins.
+`deny > ask > allow` — most restrictive wins. A hook that exits 0 with no
+stdout (the legacy "defer" semantic) does not contribute a decision and is
+treated as a no-op for precedence purposes.
 
 ## Implementation hookSpecificOutput examples
 
@@ -111,10 +123,13 @@ required for our hook to fire there.
 {
   "hookSpecificOutput": {
     "hookEventName": "PreToolUse",
-    "permissionDecision": "defer"
+    "additionalContext": "[plan-tune memory] ..."
   }
 }
 ```
+or, if there is no `additionalContext` to inject, simply **exit 0 with no
+stdout**. Do NOT emit `permissionDecision: "defer"` — see issue #2035,
+Claude Code rejects that value.
 
 **PostToolUse capture (always):**
 ```json

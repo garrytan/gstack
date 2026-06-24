@@ -114,7 +114,14 @@ function autoDecidedEvents(): Array<Record<string, unknown>> {
 // ----------------------------------------------------------------------
 
 describe('defers (no enforcement)', () => {
-  test('no preference set → defer', () => {
+  // Issue #2035: defer() must NOT emit permissionDecision:'defer' — recent
+  // Claude Code builds reject that value and abort the AUQ tool call with
+  // "Tool result missing due to internal error". The "proceed via the normal
+  // permission flow" contract is exit 0 with no stdout when there's nothing
+  // to inject, or exit 0 + hookSpecificOutput with only additionalContext when
+  // there IS context (never permissionDecision on the defer path).
+
+  test('no preference set → exit 0, no stdout (defer path is silent)', () => {
     const r = runHook({
       session_id: 's1',
       tool_name: 'AskUserQuestion',
@@ -126,10 +133,11 @@ describe('defers (no enforcement)', () => {
       },
     });
     expect(r.status).toBe(0);
-    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('defer');
+    expect(r.stdout).toBe('');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBeUndefined();
   });
 
-  test('marker missing → defer (D18)', () => {
+  test('marker missing → exit 0, no stdout (D18)', () => {
     writeProjectPref('test-q', 'never-ask');
     const r = runHook({
       session_id: 's2',
@@ -141,10 +149,12 @@ describe('defers (no enforcement)', () => {
         ],
       },
     });
-    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('defer');
+    expect(r.status).toBe(0);
+    expect(r.stdout).toBe('');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBeUndefined();
   });
 
-  test('always-ask preference → defer', () => {
+  test('always-ask preference → exit 0, no stdout', () => {
     writeProjectPref('test-q', 'always-ask');
     const r = runHook({
       session_id: 's3',
@@ -156,10 +166,12 @@ describe('defers (no enforcement)', () => {
         ],
       },
     });
-    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('defer');
+    expect(r.status).toBe(0);
+    expect(r.stdout).toBe('');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBeUndefined();
   });
 
-  test('empty stdin → defer (crash safety)', () => {
+  test('empty stdin → exit 0, no stdout (crash safety)', () => {
     const env: Record<string, string> = {};
     for (const [k, v] of Object.entries(process.env)) {
       if (v !== undefined) env[k] = v;
@@ -167,14 +179,15 @@ describe('defers (no enforcement)', () => {
     env.GSTACK_STATE_ROOT = stateRoot;
     const res = spawnSync(HOOK, [], { env, input: '', encoding: 'utf-8' });
     expect(res.status).toBe(0);
-    const parsed = JSON.parse(res.stdout || '{}');
-    expect(parsed.hookSpecificOutput?.permissionDecision).toBe('defer');
+    expect(res.stdout).toBe('');
   });
 
-  test('non-AUQ tool_name → defer (defensive)', () => {
+  test('non-AUQ tool_name → exit 0, no stdout (defensive)', () => {
     writeProjectPref('test-q', 'never-ask');
     const r = runHook({ session_id: 's4', tool_name: 'Bash', tool_use_id: 'tu-4', tool_input: {} });
-    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('defer');
+    expect(r.status).toBe(0);
+    expect(r.stdout).toBe('');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBeUndefined();
   });
 });
 
@@ -204,7 +217,7 @@ describe('enforces never-ask preferences', () => {
     expect(r.parsed?.hookSpecificOutput?.permissionDecisionReason).toContain('Fix now');
   });
 
-  test('one-way door → defer even with never-ask (safety override)', () => {
+  test('one-way door → exit 0, no stdout even with never-ask (safety override)', () => {
     writeProjectPref('ship-test-failure-triage', 'never-ask');
     const r = runHook({
       session_id: 's6',
@@ -219,10 +232,12 @@ describe('enforces never-ask preferences', () => {
         ],
       },
     });
-    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('defer');
+    expect(r.status).toBe(0);
+    expect(r.stdout).toBe('');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBeUndefined();
   });
 
-  test('ambiguous recommendation (two labels) → defer (D2 refuse-on-ambiguous)', () => {
+  test('ambiguous recommendation (two labels) → exit 0, no stdout (D2 refuse-on-ambiguous)', () => {
     writeProjectPref('ship-pre-landing-review-fix', 'never-ask');
     const r = runHook({
       session_id: 's7',
@@ -237,10 +252,12 @@ describe('enforces never-ask preferences', () => {
         ],
       },
     });
-    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('defer');
+    expect(r.status).toBe(0);
+    expect(r.stdout).toBe('');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBeUndefined();
   });
 
-  test('no recommendation marker AND no prose match → defer', () => {
+  test('no recommendation marker AND no prose match → exit 0, no stdout', () => {
     writeProjectPref('ship-pre-landing-review-fix', 'never-ask');
     const r = runHook({
       session_id: 's8',
@@ -255,7 +272,9 @@ describe('enforces never-ask preferences', () => {
         ],
       },
     });
-    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('defer');
+    expect(r.status).toBe(0);
+    expect(r.stdout).toBe('');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBeUndefined();
   });
 });
 
@@ -301,7 +320,7 @@ describe('precedence: project wins over global (D8)', () => {
     expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('deny');
   });
 
-  test('project always-ask + global never-ask → defer (project wins)', () => {
+  test('project always-ask + global never-ask → exit 0, no stdout (project wins)', () => {
     writeProjectPref('ship-pre-landing-review-fix', 'always-ask');
     writeGlobalPref('ship-pre-landing-review-fix', 'never-ask');
     const r = runHook({
@@ -317,7 +336,9 @@ describe('precedence: project wins over global (D8)', () => {
         ],
       },
     });
-    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('defer');
+    expect(r.status).toBe(0);
+    expect(r.stdout).toBe('');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBeUndefined();
   });
 });
 
@@ -437,13 +458,15 @@ describe('Conductor prose redirect', () => {
     expect(r.parsed?.hookSpecificOutput?.permissionDecisionReason).not.toContain('[conductor]');
   });
 
-  test('non-AUQ tool in Conductor → still defer (no redirect on unrelated tools)', () => {
+  test('non-AUQ tool in Conductor → still exit 0, no stdout (no redirect on unrelated tools)', () => {
     const r = runHook(
       { session_id: 'c6', tool_name: 'Bash', tool_use_id: 'tu-c6', tool_input: {} },
       undefined,
       CONDUCTOR,
     );
-    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('defer');
+    expect(r.status).toBe(0);
+    expect(r.stdout).toBe('');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBeUndefined();
   });
 });
 
@@ -491,5 +514,64 @@ describe('auto-decided event tagging', () => {
     });
     const markerPath = path.join(stateRoot, 'sessions', 's14', '.auto-decided-tu-14');
     expect(fs.existsSync(markerPath)).toBe(true);
+  });
+});
+
+// ----------------------------------------------------------------------
+// Regression: issue #2035 — defer() must never emit permissionDecision:'defer'
+// ----------------------------------------------------------------------
+
+describe('issue #2035: defer path never emits permissionDecision', () => {
+  test('silent defer (no context): stdout is empty AND no permissionDecision field', () => {
+    const r = runHook({
+      session_id: 'r1',
+      tool_name: 'AskUserQuestion',
+      tool_use_id: 'tu-r1',
+      tool_input: {
+        questions: [
+          { question: 'Generic question with no marker', options: ['A', 'B'] },
+        ],
+      },
+    });
+    expect(r.status).toBe(0);
+    expect(r.stdout).toBe('');
+    // The bug: emitting {"hookSpecificOutput":{"permissionDecision":"defer"}}
+    // caused Claude Code to abort the AUQ call with "Tool result missing
+    // due to internal error". Make sure we never go back to that output.
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBeUndefined();
+  });
+
+  test('context-injecting defer: emits additionalContext but NEVER permissionDecision', () => {
+    // Seed a memory nugget matching ship-todos-reorganize's signal_key so
+    // the hook surfaces memoryContext via defer(additionalContext).
+    fs.writeFileSync(
+      path.join(stateRoot, 'free-text-memory.json'),
+      JSON.stringify({
+        nuggets: [
+          {
+            nugget: 'User prefers terse output',
+            applies_to_signal_keys: ['detail-preference'],
+            applied_at: '2026-05-01T00:00:00Z',
+          },
+        ],
+      }),
+    );
+    const r = runHook({
+      session_id: 'r2',
+      tool_name: 'AskUserQuestion',
+      tool_use_id: 'tu-r2',
+      tool_input: {
+        questions: [
+          {
+            question: '<gstack-qid:ship-todos-reorganize> Reorganize?',
+            options: ['A) Accept (recommended)', 'B) Skip'],
+          },
+        ],
+      },
+    });
+    expect(r.status).toBe(0);
+    // Context-only payload: additionalContext present, permissionDecision absent.
+    expect(r.parsed?.hookSpecificOutput?.additionalContext).toContain('terse output');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBeUndefined();
   });
 });

@@ -91,7 +91,9 @@ describe('memory injection', () => {
         ],
       },
     });
-    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('defer');
+    // Issue #2035: defer path emits additionalContext but NO permissionDecision
+    // (which would make Claude Code abort the tool call).
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBeUndefined();
     expect(r.parsed?.hookSpecificOutput?.additionalContext).toContain('verbose explanations');
   });
 
@@ -115,7 +117,9 @@ describe('memory injection', () => {
         ],
       },
     });
-    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('defer');
+    // Issue #2035: with no context to inject, defer is silent (no stdout at all).
+    expect(r.status).toBe(0);
+    expect(r.stdout).toBe('');
     expect(r.parsed?.hookSpecificOutput?.additionalContext).toBeUndefined();
   });
 
@@ -219,7 +223,9 @@ describe('per-session memory cache', () => {
         ],
       },
     });
-    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('defer');
+    // Issue #2035: defer path with no context is silent.
+    expect(r.status).toBe(0);
+    expect(r.stdout).toBe('');
     expect(r.parsed?.hookSpecificOutput?.additionalContext).toBeUndefined();
   });
 });

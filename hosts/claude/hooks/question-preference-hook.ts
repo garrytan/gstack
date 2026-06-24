@@ -93,12 +93,23 @@ function readStdin(): Promise<string> {
 }
 
 function defer(additionalContext?: string): void {
-  const out: Record<string, unknown> = {
-    hookEventName: 'PreToolUse',
-    permissionDecision: 'defer',
-  };
-  if (additionalContext) out.additionalContext = additionalContext;
-  process.stdout.write(JSON.stringify({ hookSpecificOutput: out }));
+  // "Proceed via the normal permission flow" is exit 0 with no stdout.
+  // Emitting permissionDecision:'defer' makes recent Claude Code builds reject
+  // the tool call with an internal error, silently breaking every AUQ call.
+  // Only emit JSON when there is actually additionalContext to inject, and
+  // without a permissionDecision so Claude Code treats the output as
+  // context-only and lets the normal permission flow proceed.
+  // See https://github.com/garrytan/gstack/issues/2035.
+  if (additionalContext) {
+    process.stdout.write(
+      JSON.stringify({
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          additionalContext,
+        },
+      }),
+    );
+  }
   process.exit(0);
 }
 
