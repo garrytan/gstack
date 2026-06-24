@@ -41,6 +41,11 @@ import {
   writeWorkspaceRegistry,
   defaultWorkspacesPath,
   bootstrapWorkspace,
+  type TrustRule,
+  type TrustLedger,
+  readTrustLedger,
+  writeTrustLedger,
+  defaultTrustPath,
 } from "./server-utils.ts";
 
 // Validate PORT early — before any filesystem reads (AC5: exit 1 before bind).
@@ -557,6 +562,61 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       res.writeHead(204); res.end();
       return;
     }
+  }
+
+  // T21: GET /api/trust — return rules from trust.json; missing file → { rules: [] }.
+  if (path === "/api/trust" && method === "GET") {
+    const ledger = readTrustLedger(defaultTrustPath());
+    sendJson(res, { rules: ledger.rules });
+    return;
+  }
+
+  // T21: POST /api/trust — validate and append a new trust rule.
+  if (path === "/api/trust" && method === "POST") {
+    void (async () => {
+      const parsed = await readAndValidatePostBody(req);
+      if (!parsed.ok) { sendJson(res, { error: parsed.error }, parsed.statusCode); return; }
+      const body = parsed.json as { agent?: string; pattern?: string; action?: string };
+      const { agent: ruleAgent, pattern, action } = body;
+      if (!ruleAgent || !validAgents.has(ruleAgent)) {
+        sendJson(res, { error: "unknown agent" }, 400);
+        return;
+      }
+      if (!pattern || typeof pattern !== "string" || pattern.trim() === "") {
+        sendJson(res, { error: "pattern must be a non-empty string" }, 400);
+        return;
+      }
+      if (action !== "approve" && action !== "reject") {
+        sendJson(res, { error: "action must be 'approve' or 'reject'" }, 400);
+        return;
+      }
+      const trustPath = defaultTrustPath();
+      const ledger = readTrustLedger(trustPath);
+      const rule: TrustRule = {
+        id: randomUUID(),
+        agent: ruleAgent,
+        pattern,
+        action,
+        createdAt: new Date().toISOString(),
+      };
+      ledger.rules.push(rule);
+      writeTrustLedger(trustPath, ledger);
+      sendJson(res, { rule });
+    })();
+    return;
+  }
+
+  // T21: DELETE /api/trust/:id — remove rule by id; 204 on success, 404 if not found.
+  if (path.startsWith("/api/trust/") && method === "DELETE") {
+    const ruleId = path.slice("/api/trust/".length).split("/")[0];
+    const trustPath = defaultTrustPath();
+    const ledger = readTrustLedger(trustPath);
+    const idx = ledger.rules.findIndex((r) => r.id === ruleId);
+    if (idx === -1) { sendJson(res, { error: "not found" }, 404); return; }
+    ledger.rules.splice(idx, 1);
+    writeTrustLedger(trustPath, ledger);
+    res.writeHead(204); res.end();
+    return;
   }
 
   // Static file handler (CONS-011) — LAST, after all API routes.

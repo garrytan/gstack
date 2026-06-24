@@ -628,6 +628,37 @@ export function bootstrapWorkspace(controlDir: string, workspacesPath: string): 
   writeWorkspaceRegistry(workspacesPath, reg);
 }
 
+// T21: Trust ledger — ~/.gstack-console/trust.json
+
+export interface TrustRule {
+  id: string;
+  agent: string;
+  pattern: string;
+  action: "approve" | "reject";
+  createdAt: string;
+}
+
+export interface TrustLedger {
+  rules: TrustRule[];
+}
+
+export function defaultTrustPath(): string {
+  return join(homedir(), ".gstack-console", "trust.json");
+}
+
+export function readTrustLedger(filePath: string): TrustLedger {
+  try {
+    return JSON.parse(readFileSync(filePath, "utf8")) as TrustLedger;
+  } catch {
+    return { rules: [] };
+  }
+}
+
+export function writeTrustLedger(filePath: string, ledger: TrustLedger): void {
+  mkdirSync(dirname(filePath), { recursive: true });
+  writeFileSync(filePath, JSON.stringify(ledger, null, 2));
+}
+
 // Validate Content-Type and parse JSON body for POST handlers.
 // Returns { ok: true; json: unknown; raw: string } on success or
 // { ok: false; statusCode: number; error: string } on failure.

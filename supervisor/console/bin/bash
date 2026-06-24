@@ -86,6 +86,32 @@ fi
 AGENT="${AGENT_NAME:-unknown}"
 REQUEST_ID="$(date +%s)-$$-$RANDOM"
 
+# Trust ledger check — auto-approve/reject before decision-request flow (T21 AC4/AC5/AC6).
+TRUST_FILE="$HOME/.gstack-console/trust.json"
+if [ -f "$TRUST_FILE" ]; then
+  TRUST_RESULT=$(python3 -c "
+import json, sys
+try:
+    ledger = json.load(open(sys.argv[1]))
+    rules = ledger.get('rules', [])
+    agent = sys.argv[2]
+    cmd = sys.argv[3]
+    for rule in rules:
+        if rule.get('agent') == agent and rule.get('pattern', '') in cmd:
+            print(rule.get('action', ''))
+            break
+except Exception:
+    pass
+" "$TRUST_FILE" "$AGENT" "$CMD" 2>/dev/null || echo "")
+  if [ "$TRUST_RESULT" = "approve" ]; then
+    echo "[bash-wrapper] trust rule matched — auto-approving" >&2
+    exec "$REAL_BASH" "$@"
+  elif [ "$TRUST_RESULT" = "reject" ]; then
+    echo "[bash-wrapper] trust rule matched — auto-rejecting" >&2
+    exit 1
+  fi
+fi
+
 if [ -z "${SUPERVISOR_DECISIONS_DIR:-}" ]; then
   echo "[bash-wrapper] WARNING: SUPERVISOR_DECISIONS_DIR not set; blocking high-risk command" >&2
   echo "[bash-wrapper] Command: $CMD" >&2
