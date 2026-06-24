@@ -73,10 +73,21 @@ CONTROL_DIR="$AGENT_HOME/control"
 WORK_DIR="$AGENT_HOME/work"
 READ_DIR="$AGENT_HOME/read"
 LOG_DIR="$AGENT_HOME/logs"
-WAKE_CHECK_INTERVAL=5     # seconds between ls-remote checks while idle (was 30)
-MAX_IDLE_WAIT=300         # safety-net wake after 5 min even if nothing changed (was 1800)
+# v9 cost-guard: WAKE_CHECK_INTERVAL 5→60s. Eight agents at 5s polling were
+# generating ~64 wakes/agent/hour and trampling each other into the Pro session
+# limit. 60s keeps idle cheap; local wake file still fires in ≤1s.
+WAKE_CHECK_INTERVAL="${WAKE_CHECK_INTERVAL:-60}"
+MAX_IDLE_WAIT="${MAX_IDLE_WAIT:-300}"   # safety-net wake after 5 min even if nothing changed
 MAX_CONSECUTIVE_FAILS=3
 PRESENCE_INTERVAL=30      # seconds between presence heartbeat writes
+
+# v9 cost-guard: shared rate-limit marker. When ONE agent detects the upstream
+# session-limit error, it writes the reset epoch here. All other agents check
+# this file in should_skip_idle_session and skip the claude call entirely
+# until the marker expires. One file, atomic rename, no daemon, no IPC.
+# Default path lives under $HOME; override per-fleet with RATE_LIMIT_MARKER.
+RATE_LIMIT_MARKER="${RATE_LIMIT_MARKER:-$HOME/.cstack-rate-limited-until}"
+export RATE_LIMIT_MARKER
 
 # Paths for real-time coordination (local only — gitignored in control repo)
 MAILBOX_FILE=""           # set after CONTROL_DIR confirmed
@@ -543,12 +554,47 @@ while true; do
 
   # --- Extract metrics from session JSON ---
   METRIC_LINE=$(python3 - "$JSONFILE" "$AGENT_NAME" "$TS_START" "$DURATION" "$EXIT_CODE" "$COMMIT_CTRL" <<'PYEOF'
-import json, sys, re
+import json, sys, re, time
+from datetime import datetime, timedelta
 jsonfile, agent, ts, dur, exit_code, c_ctrl = sys.argv[1:7]
+# Outcome vocabulary (v9):
+#   no_work              — kernel returned NO_ELIGIBLE_TASKS (cheapest path)
+#   done                 — task closed (status: done / qa_status: passed / doc_status: updated)
+#   needs_human          — agent explicitly escalated
+#   completed_session    — exit 0, no other signal
+#   rate_limited         — upstream session/usage/rate limit; NOT the agent's fault
+#   context_exhausted    — context window blown
+#   crashed              — non-zero exit with no other classification
+#   metrics_parse_error  — session JSON unreadable
+# Bash circuit-breaker counts only `crashed` + `context_exhausted` against
+# MAX_CONSECUTIVE_FAILS. `rate_limited` triggers a sleep, not an escalation.
 m = {"ts": ts, "agent": agent, "duration_s": int(dur), "exit_code": int(exit_code),
      "control_commit": c_ctrl, "task": None, "outcome": "unknown",
      "input_tokens": None, "output_tokens": None, "cache_read_tokens": None,
-     "cost_usd": None, "num_turns": None, "no_work": False, "context_exhausted": False}
+     "cost_usd": None, "num_turns": None, "no_work": False, "context_exhausted": False,
+     "rate_limited": False, "resets_at": None}
+
+def _parse_reset_epoch(txt):
+    """Best-effort: pull a HH:MM(am|pm) out of the error string. Returns epoch
+    seconds in local time, or None on any failure. Caller falls back to a
+    fixed sleep when this returns None — never let parse failure block."""
+    try:
+        mo = re.search(r'resets?\s+at?\s*(\d{1,2}):(\d{2})\s*(am|pm)', txt, re.I)
+        if not mo:
+            mo = re.search(r'(\d{1,2}):(\d{2})\s*(am|pm)', txt, re.I)
+        if not mo:
+            return None
+        hh, mm, ap = int(mo.group(1)), int(mo.group(2)), mo.group(3).lower()
+        if ap == 'pm' and hh != 12: hh += 12
+        if ap == 'am' and hh == 12: hh = 0
+        now = datetime.now()
+        target = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+        if target <= now:
+            target += timedelta(days=1)
+        return int(target.timestamp())
+    except Exception:
+        return None
+
 try:
     data = json.load(open(jsonfile))
     u = data.get("usage", {}) or {}
@@ -557,18 +603,33 @@ try:
              cost_usd=data.get("total_cost_usd") or data.get("cost_usd"),
              num_turns=data.get("num_turns"))
     txt = data.get("result", "") or ""
+    low = txt.lower()
+    is_err = bool(data.get("is_error"))
+
     if "NO_ELIGIBLE_TASKS" in txt:
         m["no_work"] = True; m["outcome"] = "no_work"
     tm = re.search(r'(?:claim|feat|fix|qa|qa-claim|docs|doc-claim|bug)\(([A-Z0-9][A-Z0-9-]+)\)', txt)
     if tm: m["task"] = tm.group(1)
-    low = txt.lower()
-    if m["outcome"] != "no_work":
+
+    # v9: rate-limit detection. Upstream returns is_error:true with exit 0 and
+    # total_cost_usd:0, so the old EXIT_CODE-only branch never tripped.
+    if m["outcome"] != "no_work" and is_err and re.search(
+            r'session\s*limit|usage\s*limit|rate\s*limit|quota|too\s*many\s*requests|429',
+            low):
+        m["rate_limited"] = True
+        m["outcome"] = "rate_limited"
+        m["resets_at"] = _parse_reset_epoch(txt)
+    elif m["outcome"] != "no_work":
         if "needs_human" in low: m["outcome"] = "needs_human"
         elif re.search(r'status:\s*done|marked done|qa_status:\s*passed|doc_status:\s*updated', low): m["outcome"] = "done"
-        elif int(exit_code) == 0: m["outcome"] = "completed_session"
+        elif int(exit_code) == 0 and not is_err: m["outcome"] = "completed_session"
+        elif is_err: m["outcome"] = "errored"
         else: m["outcome"] = "crashed"
-    if data.get("is_error") and "context" in str(data.get("result","")).lower():
+
+    if is_err and "context" in low:
         m["context_exhausted"] = True
+        if m["outcome"] not in ("rate_limited",):
+            m["outcome"] = "context_exhausted"
 except Exception as e:
     m["outcome"] = "metrics_parse_error"; m["parse_error"] = str(e)[:200]
 print(json.dumps(m, separators=(",", ":")))
@@ -596,10 +657,39 @@ PYEOF
   }
   _push_metric "$METRIC_LINE"
 
-  # --- Circuit breaker ---
-  if [ $EXIT_CODE -ne 0 ]; then
+  # --- Circuit breaker (v9: outcome-aware) ---
+  # The pre-v9 breaker only ticked on EXIT_CODE != 0. Upstream rate-limits exit 0
+  # with is_error:true, so the loop would re-fire every WAKE_CHECK_INTERVAL and
+  # produce thousands of zero-cost retries. We now switch on the metric outcome:
+  #   rate_limited       → write shared marker, sleep until reset, DON'T tick fails
+  #   crashed/errored/context_exhausted → tick fails, escalate at MAX_CONSECUTIVE_FAILS
+  #   anything else      → reset fail counter
+  OUTCOME=$(echo "$METRIC_LINE" | sed -n 's/.*"outcome":"\([^"]*\)".*/\1/p')
+
+  if [ "$OUTCOME" = "rate_limited" ]; then
+    RESETS_AT=$(echo "$METRIC_LINE" | sed -n 's/.*"resets_at":\([0-9]\{1,\}\).*/\1/p')
+    NOW=$(date +%s)
+    if [ -z "$RESETS_AT" ] || [ "$RESETS_AT" -le "$NOW" ] 2>/dev/null; then
+      # Parser couldn't read a reset time, or it was already in the past.
+      # Default to a 1h cool-down — long enough that we don't re-hammer,
+      # short enough that the agent is back when the window genuinely rolls.
+      RESETS_AT=$((NOW + 3600))
+    fi
+    # Atomic publish so concurrent agents either see the old marker or the new one.
+    TMP_MARKER="${RATE_LIMIT_MARKER}.tmp.$$"
+    echo "$RESETS_AT" > "$TMP_MARKER" && mv -f "$TMP_MARKER" "$RATE_LIMIT_MARKER"
+    SLEEP_FOR=$((RESETS_AT - NOW + 60))   # 60s buffer past reset
+    [ "$SLEEP_FOR" -lt 60 ] && SLEEP_FOR=60
+    echo "[$AGENT_NAME] rate-limited by upstream; marker=$RATE_LIMIT_MARKER reset=$(date -r "$RESETS_AT" '+%H:%M' 2>/dev/null || echo "$RESETS_AT") sleeping ${SLEEP_FOR}s"
+    write_presence "rate_limited"
+    sleep "$SLEEP_FOR"
+    consecutive_fails=0
+    continue
+  fi
+
+  if [ "$OUTCOME" = "crashed" ] || [ "$OUTCOME" = "errored" ] || [ "$OUTCOME" = "context_exhausted" ] || [ $EXIT_CODE -ne 0 ]; then
     consecutive_fails=$((consecutive_fails + 1))
-    echo "[$AGENT_NAME] session exited $EXIT_CODE (fail $consecutive_fails/$MAX_CONSECUTIVE_FAILS)"
+    echo "[$AGENT_NAME] session outcome=$OUTCOME exit=$EXIT_CODE (fail $consecutive_fails/$MAX_CONSECUTIVE_FAILS)"
     if [ $consecutive_fails -ge $MAX_CONSECUTIVE_FAILS ]; then
       echo "[$AGENT_NAME] ESCALATION: stopping. Human needed. Last: $JSONFILE"
       exit 1

@@ -34,6 +34,25 @@ should_skip_idle_session() {
     return 1
   fi
 
+  # v9 cross-agent rate-limit marker. Any agent that hits the upstream
+  # session/usage limit writes the reset epoch to this file. Every other
+  # agent then skips its claude call until the marker expires — one agent
+  # taking the hit prevents the whole fleet from hammering the wall.
+  local marker="${RATE_LIMIT_MARKER:-$HOME/.cstack-rate-limited-until}"
+  if [ -f "$marker" ]; then
+    local until_epoch
+    until_epoch=$(cat "$marker" 2>/dev/null | tr -d '[:space:]')
+    local now
+    now=$(date +%s)
+    if [ -n "$until_epoch" ] && [ "$until_epoch" -gt "$now" ] 2>/dev/null; then
+      return 0   # fleet-wide skip until rate-limit window resets
+    fi
+    # Marker is stale — clean it up so we don't recheck on every iteration.
+    if [ -n "$until_epoch" ] && [ "$until_epoch" -le "$now" ] 2>/dev/null; then
+      rm -f "$marker" 2>/dev/null || true
+    fi
+  fi
+
   # Mailbox: skip only if missing or already cleared (no '## from:' header).
   local mbox="$control_dir/mailboxes/$agent_name.md"
   if [ -f "$mbox" ] && grep -q '^## from:' "$mbox" 2>/dev/null; then
