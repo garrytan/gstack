@@ -2951,3 +2951,87 @@ describe("GET /api/cost no cost data returns empty agents (AC6)", () => {
     }
   });
 });
+
+// T19-amended: cache-specific describe blocks matching AC → verification table.
+
+describe("cost cache cachedAt", () => {
+  test("GET /api/cost response includes cachedAt as ISO string", async () => {
+    costCache.clear();
+    const r = await fetch(`http://127.0.0.1:${COST_PORT}/api/cost`);
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as CostResponse;
+    expect(typeof body.cachedAt).toBe("string");
+    expect(new Date(body.cachedAt).toISOString()).toBe(body.cachedAt);
+  });
+});
+
+describe("cost cache TTL", () => {
+  test("two calls within 1s hit cache: compute runs once", async () => {
+    let callCount = 0;
+    const spy = (agents: string[], home: string, since?: string): CostResponse => {
+      callCount++;
+      return computeCostData(agents, home, since);
+    };
+    const localCache = new Map<string, { data: CostResponse; expiresAt: number }>();
+    const localReg = join(costTestDir, "ws-ttl.json");
+    writeWorkspaceRegistry(localReg, { workspaces: [{ id: "ws-ttl", name: "TTL", controlDir: "/c", createdAt: "2026-01-01T00:00:00Z" }], activeId: "ws-ttl" });
+    const s = createServer(makeCostHandler({ agents: ["agent-a"], agentsHome: costAgentsHome, workspacesPath: localReg, costCache: localCache, computeFn: spy }));
+    await new Promise<void>((r) => s.listen(7894, "127.0.0.1", r));
+    try {
+      await fetch("http://127.0.0.1:7894/api/cost");
+      await fetch("http://127.0.0.1:7894/api/cost");
+      expect(callCount).toBe(1);
+    } finally {
+      await new Promise<void>((r) => s.close(() => r()));
+    }
+  });
+});
+
+describe("cost cache workspace switch", () => {
+  test("switching workspace invalidates cost cache for the outgoing workspace id", async () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), "console-cost-switch-"));
+    const regPath = join(tmpDir, "workspaces.json");
+    const cache = new Map<string, { data: CostResponse; expiresAt: number }>();
+    writeWorkspaceRegistry(regPath, {
+      workspaces: [
+        { id: "sw-ws1", name: "W1", controlDir: "/w1", createdAt: "2026-01-01T00:00:00Z" },
+        { id: "sw-ws2", name: "W2", controlDir: "/w2", createdAt: "2026-01-01T00:00:00Z" },
+      ],
+      activeId: "sw-ws1",
+    });
+    cache.set("sw-ws1", { data: { agents: [], total: { tokens_in: 0, tokens_out: 0, cost_usd: 0 }, cachedAt: "2026-01-01T00:00:00Z" }, expiresAt: Date.now() + 60_000 });
+    const s = createServer(makeWorkspacesHandler({ workspacesPath: regPath, costInvalidateFn: (id) => cache.delete(id) }));
+    await new Promise<void>((r) => s.listen(7895, "127.0.0.1", r));
+    try {
+      const r = await fetch("http://127.0.0.1:7895/api/workspaces/sw-ws2/activate", { method: "POST" });
+      expect(r.status).toBe(200);
+      expect(cache.has("sw-ws1")).toBe(false);
+    } finally {
+      await new Promise<void>((r) => s.close(() => r()));
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("cost cache bypass since", () => {
+  test("GET /api/cost?since= bypasses cache and re-reads on every call", async () => {
+    let callCount = 0;
+    const spy = (agents: string[], home: string, since?: string): CostResponse => {
+      callCount++;
+      return computeCostData(agents, home, since);
+    };
+    const localCache = new Map<string, { data: CostResponse; expiresAt: number }>();
+    const localReg = join(costTestDir, "ws-since.json");
+    writeWorkspaceRegistry(localReg, { workspaces: [{ id: "ws-since", name: "Since", controlDir: "/c", createdAt: "2026-01-01T00:00:00Z" }], activeId: "ws-since" });
+    const s = createServer(makeCostHandler({ agents: ["agent-a"], agentsHome: costAgentsHome, workspacesPath: localReg, costCache: localCache, computeFn: spy }));
+    await new Promise<void>((r) => s.listen(7896, "127.0.0.1", r));
+    try {
+      await fetch("http://127.0.0.1:7896/api/cost?since=2026-01-01T10:00:00Z");
+      await fetch("http://127.0.0.1:7896/api/cost?since=2026-01-01T10:00:00Z");
+      expect(callCount).toBe(2);
+      expect(localCache.size).toBe(0);
+    } finally {
+      await new Promise<void>((r) => s.close(() => r()));
+    }
+  });
+});
