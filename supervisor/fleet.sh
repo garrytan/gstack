@@ -37,11 +37,36 @@ die() { echo "ERROR: $*" >&2; exit 1; }
 
 read_fleet() {
   # Emits: agent_name role_file model (one line per agent)
+  #
+  # Optional positional args act as an allowlist — only matching agents are
+  # emitted. Lets callers do `./fleet.sh start cms-agent-be cms-agent-qa`
+  # instead of starting every agent in fleet.conf.
+  #
+  # Unknown names (not in fleet.conf) abort with a clear error so a typo
+  # never silently expands the fleet you didn't mean to touch.
   [ -f "$FLEET_CONF" ] || die "fleet.conf not found: $FLEET_CONF"
+
+  local -a allow=()
+  if [ "$#" -gt 0 ]; then
+    allow=("$@")
+    # Validate every requested name exists in fleet.conf
+    local known_names
+    known_names=$(grep -v '^\s*#' "$FLEET_CONF" | grep -v '^\s*$' | awk '{print $1}')
+    local n
+    for n in "${allow[@]}"; do
+      echo "$known_names" | grep -qx "$n" || die "unknown agent: $n (not in $FLEET_CONF)"
+    done
+  fi
+
   grep -v '^\s*#' "$FLEET_CONF" | grep -v '^\s*$' | while IFS= read -r line; do
     # shellcheck disable=SC2086
     set -- $line
     local name="$1" role="${2:-FEATURE_ROLE.md}" model="${3:-claude-sonnet-4-6}"
+    if [ "${#allow[@]}" -gt 0 ]; then
+      local match=0 a
+      for a in "${allow[@]}"; do [ "$a" = "$name" ] && match=1 && break; done
+      [ "$match" -eq 0 ] && continue
+    fi
     echo "$name $role $model"
   done
 }
@@ -125,7 +150,7 @@ cmd_start() {
   [ -f "$SUPERVISOR" ] || die "run-agent.sh not found: $SUPERVISOR"
   mkdir -p "$PID_DIR"
 
-  read_fleet | while read -r name role model; do
+  read_fleet "$@" | while read -r name role model; do
     if is_installed "$name"; then
       echo "[$name] already installed as OS service — use 'fleet.sh install' to manage"
       continue
@@ -148,7 +173,7 @@ cmd_start() {
 }
 
 cmd_stop() {
-  read_fleet | while read -r name role _model; do
+  read_fleet "$@" | while read -r name role _model; do
     if is_installed "$name"; then
       case "$OS" in
         Darwin) launchctl stop "com.cstack.agent.${name}" 2>/dev/null && echo "[$name] service stopped" || echo "[$name] not running" ;;
@@ -268,13 +293,13 @@ PYEOF
 
 cmd_install() {
   [ -f "$SCRIPT_DIR/install.sh" ] || die "install.sh not found: $SCRIPT_DIR/install.sh"
-  read_fleet | while read -r name role model; do
+  read_fleet "$@" | while read -r name role model; do
     bash "$SCRIPT_DIR/install.sh" "$name" "$role" "$model"
   done
 }
 
 cmd_uninstall() {
-  read_fleet | while read -r name _role _model; do
+  read_fleet "$@" | while read -r name _role _model; do
     case "$OS" in
       Darwin)
         local label="com.cstack.agent.${name}"
@@ -296,28 +321,35 @@ cmd_uninstall() {
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 CMD="${1:-help}"
+shift || true   # rest of argv ($@) is now the optional agent-name allowlist
 case "$CMD" in
-  start)     cmd_start ;;
-  stop)      cmd_stop ;;
+  start)     cmd_start "$@" ;;
+  stop)      cmd_stop "$@" ;;
   status)    cmd_status ;;
   watch)     cmd_watch ;;
   stream)    cmd_stream ;;
   logs)      cmd_logs ;;
-  install)   cmd_install ;;
-  uninstall) cmd_uninstall ;;
-  restart)   cmd_stop; sleep 1; cmd_start ;;
+  install)   cmd_install "$@" ;;
+  uninstall) cmd_uninstall "$@" ;;
+  restart)   cmd_stop "$@"; sleep 1; cmd_start "$@" ;;
   help|--help|-h)
-    echo "Usage: fleet.sh <command>"
+    echo "Usage: fleet.sh <command> [agent-name...]"
     echo ""
-    echo "  start      Start all agents in the background"
-    echo "  stop       Stop all running agents"
-    echo "  status     Show live status of every agent"
-    echo "  watch      Live dashboard — task, duration, last tool (Ctrl-C)"
-    echo "  stream     Real-time tool-call feed from all agents (Ctrl-C)"
-    echo "  logs       Tail all supervisor stdout logs (Ctrl-C)"
-    echo "  install    Register all as OS services (survive logout, auto-restart)"
-    echo "  uninstall  Remove OS service registrations"
-    echo "  restart    stop + start"
+    echo "  start [names...]      Start agents in the background (all if no names given)"
+    echo "  stop  [names...]      Stop agents (all if no names given)"
+    echo "  status                Show live status of every agent"
+    echo "  watch                 Live dashboard — task, duration, last tool (Ctrl-C)"
+    echo "  stream                Real-time tool-call feed from all agents (Ctrl-C)"
+    echo "  logs                  Tail all supervisor stdout logs (Ctrl-C)"
+    echo "  install [names...]    Register as OS services (survive logout, auto-restart)"
+    echo "  uninstall [names...]  Remove OS service registrations"
+    echo "  restart [names...]    stop + start"
+    echo ""
+    echo "Examples:"
+    echo "  ./fleet.sh start cms-agent-be cms-agent-qa   # start just these two"
+    echo "  ./fleet.sh stop agent-doc                    # stop one specific agent"
+    echo "  ./fleet.sh install cms-agent-be              # install one as a service"
+    echo "  ./fleet.sh start                             # start every agent in fleet.conf"
     echo ""
     echo "Agents defined in: $FLEET_CONF"
     ;;
