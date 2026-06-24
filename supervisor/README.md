@@ -17,8 +17,8 @@ Scripts for starting, stopping, and monitoring the autonomous agent fleet.
 | `console/server-utils.ts` | Utility exports — parsing ledger/mailbox, task ID validation (`TASK_ID_RE` supports both `CONS-003` and `T13` styles), fleet status reading, SSE helpers, `makeWatchHandler` (reads last `live-events.jsonl` line, caches payload for Last-Event-ID replay), `makeLedgerWatchHandler` (broadcasts `pipeline-update` SSE on `.task` file changes), port resolution, `readLogTail` (JSONL tail reader), `makeRateLimiter` (token-bucket rate limiter), `purgeStaleDecisionFiles` (startup garbage collection of stale decision files), `PipelineTask` type (T13); T11: `readPidFile` (reads PID from a pid file), `stopProcess` (SIGTERM + SIGKILL-after-5s async stop), `defaultIsProcessAlive` (signal-0 liveness check), `defaultKillFn` (signal sender), `KillFn`/`IsAliveFn` injectable types; T14: `computeStuckSignals` (reads each agent's JSONL tail + ledger, returns `StuckAgent[]` with silent/loop/fail_storm signals), `StuckAgent` type; T9: `readAndValidatePostBody` (validates Content-Type header + JSON body for all POST handlers; returns `{ ok: true; json: unknown; raw: string }` on success or `{ ok: false; statusCode: number; error: string }` on failure) (v7.1) |
 | `console/bash-wrapper.test.ts` | Bun test wrapper that runs bash-wrapper.test.sh inline (v7.1) |
 | `console/bash-wrapper.test.sh` | Bash unit tests for risk classification (check_risk) and polling behavior (poll_approval) (v7.1) |
-| `console/server.test.ts` | Bun tests for endpoint security, static serving, queue bootstrap, `resolveControlDir`, SSE endpoint (T4 AC1/AC2/AC3/AC5), `makeWatchHandler`, log tail endpoint (T12 AC1-AC7), rate limiter, startup cleanup (T8 AC1-AC4), pipeline endpoint (T13 AC1/AC2), ledger watch handler (T13 AC3), spec endpoint (T13 AC7), pipeline bootstrap guard (T13-amended AC2), SSE reconnect pipeline bootstrap (T13-amended AC4), fleet control endpoints (T11 AC1-AC8), stuck detection engine (T14 AC1-AC8), fleet.conf-based validAgents (T11-amended AC2/AC3/AC4), malformed JSONL resilience (T14-amended AC2/AC3/AC4), T9 edge-case coverage (malformed JSON body AC1, missing Content-Type AC2, concurrent SSE AC3, rawPath dot-segment preservation AC4, parseMailboxNotes edge cases AC5, makeWatchHandler rename+change AC6, GET /api/fleet absent fleet.conf AC7, qa-smoke.sh AC8), and force restart --role human (T15-amended AC1/AC3/AC4/AC5) (122 total: 2 bash-wrapper + 120 server) |
-| `console/qa-smoke.sh` | QA smoke test for console UI — asserts page title, nav bar, Fleet tab presence, T6 AC1/AC2/AC4/AC5 (Dicebear avatar src, elapsed time format, HIGH risk badge, Unblock button), and T13 AC4/AC5 (pipeline endpoint 200, `pipeline-groups` element in HTML, `tasks` key in pipeline JSON) via gstack browse (v7.1) |
+| `console/server.test.ts` | Bun tests for endpoint security, static serving, queue bootstrap, `resolveControlDir`, SSE endpoint (T4 AC1/AC2/AC3/AC5), `makeWatchHandler`, log tail endpoint (T12 AC1-AC7), rate limiter, startup cleanup (T8 AC1-AC4), pipeline endpoint (T13 AC1/AC2), ledger watch handler (T13 AC3), spec endpoint (T13 AC7), pipeline bootstrap guard (T13-amended AC2), SSE reconnect pipeline bootstrap (T13-amended AC4), fleet control endpoints (T11 AC1-AC8), stuck detection engine (T14 AC1-AC8), fleet.conf-based validAgents (T11-amended AC2/AC3/AC4), malformed JSONL resilience (T14-amended AC2/AC3/AC4), T9 edge-case coverage (malformed JSON body AC1, missing Content-Type AC2, concurrent SSE AC3, rawPath dot-segment preservation AC4, parseMailboxNotes edge cases AC5, makeWatchHandler rename+change AC6, GET /api/fleet absent fleet.conf AC7, qa-smoke.sh AC8), force restart --role human (T15-amended AC1/AC3/AC4/AC5), and T16 expansion (stale PID AC1, stuck 4-event loop AC2, stuck precedence AC3, log n=0 AC4; T16-amended: real ESRCH via `defaultIsProcessAlive` AC1, stuck 4-event loop AC2, stuck precedence AC3, log n=0 AC4) (130 total: 2 bash-wrapper + 128 server) |
+| `console/qa-smoke.sh` | QA smoke test for console UI — asserts page title, nav bar, Fleet tab presence, T6 AC1/AC2/AC4/AC5 (Dicebear avatar src, elapsed time format, HIGH risk badge, Unblock button), T13 AC4/AC5 (pipeline endpoint 200, `pipeline-groups` element in HTML, `tasks` key in pipeline JSON), and T16 AC6/AC7 (GET /api/pipeline + /api/stuck + /api/log/{agent} return 200 + `application/json`; POST /api/fleet/stop with mock stale PID returns `{ ok: true }`) via gstack browse (v7.1); sets up a tmp `CONTROL_DIR` with mock `fleet.conf` (agent `smoke-test-agent`) and a mock PID file (`supervisor/pids/smoke-test-agent.pid` = 99999) so fleet/log endpoints resolve without a real agent process |
 
 ---
 
@@ -1886,6 +1886,62 @@ T15-amended adds a `describe("fleet/restart role human (T15-amended)")` block wi
 
 Each test writes its own temp ledger file and cleans up with `unlinkSync`. Module-level `t15aTaskFailCalls`, `t15aSpawnCalls`, and `t15aMockTaskFailCode` are reset before each test case to prevent cross-test contamination.
 
+### T16 test expansion — `server.test.ts` (T16 AC1–AC4 + T16-amended AC1–AC4)
+
+T16 adds 4 describe blocks (T16 section) and 4 more (T16-amended section) — 8 new server tests in total, each in its own isolated describe block so they are individually findable by `git bisect`. All are appended after the existing test suite; no existing describe blocks were modified.
+
+**T16 AC1 — `describe("fleet/stop stale PID")`** (1 test, reuses port 7849 fleet server):
+
+| Test | AC | What it asserts |
+|---|---|---|
+| `PID file exists but process does not exist (ESRCH) → 200 { ok: true }` | AC1 | `mockIsAlive = () => false` (simulates `process.kill(pid, 0)` throwing ESRCH); POST `/api/fleet/stop?agent=agent-be` → HTTP 200, `{ ok: true }`; `fleetKillCalls` has length 0 (no signal sent to a non-running process) |
+
+**T16 AC2 — `describe("stuck 4-event loop")`** (1 test, pure unit):
+
+| Test | AC | What it asserts |
+|---|---|---|
+| `exactly 4 matching tool events does NOT trigger loop signal (threshold is 5)` | AC2 | `computeStuckSignals` called with a JSONL file containing exactly 4 consecutive `Bash` events; result must NOT contain a `loop` signal for `agent-4evt` (threshold is 5) |
+
+**T16 AC3 — `describe("stuck precedence")`** (1 test, pure unit):
+
+| Test | AC | What it asserts |
+|---|---|---|
+| `fail_storm signal returned when both fail_storm and loop conditions are met` | AC3 | Ledger has `failure_count=2, status=in_progress` (fail_storm met) AND JSONL has 5 identical `Bash` events (loop met); `computeStuckSignals` returns a single entry with `signal="fail_storm"` for `agent-prec` — precedence rule confirmed (`fail_storm` checks before `loop` and uses `continue`) |
+
+**T16 AC4 — `describe("log n=0")`** (1 test, own server port 7860):
+
+| Test | AC | What it asserts |
+|---|---|---|
+| `?n=0 returns 400 { error: 'n must be 1-200' } (boundary below minimum)` | AC4 | `makeLogHandler` wired on port 7860; GET `/api/log/agent-be?n=0` → HTTP 400, `{ error: "n must be 1-200" }` |
+
+---
+
+**T16-amended AC1 — `describe("POST /api/fleet/stop stale PID")`** (1 test, own server port 7857):
+
+Uses `defaultIsProcessAlive` (the real `process.kill(pid, 0)` liveness check) and `defaultKillFn` (the real signal sender). PID file is written with `2147483647` (max signed 32-bit int — guaranteed not to exist).
+
+| Test | AC | What it asserts |
+|---|---|---|
+| `PID file exists but process.kill(pid, 0) throws ESRCH → stop returns 200 { ok: true }` | AC1 | POST `/api/fleet/stop?agent=agent-be` → HTTP 200, `{ ok: true }` |
+
+**T16-amended AC2 — `describe("GET /api/stuck 4-event loop")`** (1 test, pure unit):
+
+| Test | AC | What it asserts |
+|---|---|---|
+| `4 consecutive same-tool events does NOT produce loop signal (threshold is 5)` | AC2 | 4 `Edit` events in JSONL; no `loop` entry for `agent-4loop` in `computeStuckSignals` result |
+
+**T16-amended AC3 — `describe("GET /api/stuck precedence")`** (1 test, pure unit):
+
+| Test | AC | What it asserts |
+|---|---|---|
+| `fail_storm takes precedence over loop when both conditions are met` | AC3 | Ledger task `PREC-1` has `failure_count=2, status=in_progress` (fail_storm); JSONL has 5 `Edit` events (loop); `computeStuckSignals` entry for `agent-prec` has `signal="fail_storm"` |
+
+**T16-amended AC4 — `describe("GET /api/log n=0")`** (1 test, own server port 7858):
+
+| Test | AC | What it asserts |
+|---|---|---|
+| `?n=0 returns 400 { error: 'n must be 1-200' } (boundary case)` | AC4 | Separate `makeLogHandler` on port 7858 (independent lifecycle from T16 AC4's port 7860); GET `?n=0` → HTTP 400, `{ error: "n must be 1-200" }` |
+
 ### Draft-decision tests — server.test.ts (T5 AC1–AC7)
 
 T5 adds a `describe("POST /api/draft-decision")` block with 7 tests across two isolated HTTP servers:
@@ -1907,7 +1963,7 @@ The test infrastructure uses a `makeDraftDecisionHandler` factory (mirrors `hand
 
 ### Test results
 
-All 122 tests pass (2 bash-wrapper + 120 server tests). Run the full suite with:
+All 130 tests pass (2 bash-wrapper + 128 server tests). Run the full suite with:
 
 ```bash
 bun test supervisor/console/     # runs all tests, exit 0 on pass
@@ -1940,8 +1996,14 @@ The script:
 9. Asserts `GET /api/stuck` returns HTTP 200 with a `"stuck"` key in the response body (T15 AC1)
 10. Asserts `index.html` contains a `stuck-cards` container element (T15 AC1/AC2)
 11. Asserts `id="stuck-alert-slot"` appears before `id="section-attention"` in the HTML source (T15 AC2 — slot is above the Queue attention section)
-12. Captures a timestamped screenshot to `/tmp/console-qa-<timestamp>.png`
-13. Prints the screenshot path to stdout so the QA agent can attach it to its report
+12. Asserts `GET /api/pipeline` returns HTTP 200 with `content-type: application/json` (T16 AC6)
+13. Asserts `GET /api/stuck` returns HTTP 200 with `content-type: application/json` (T16 AC6)
+14. Asserts `GET /api/log/smoke-test-agent` returns HTTP 200 with `content-type: application/json` (T16 AC6)
+15. Asserts `POST /api/fleet/stop?agent=smoke-test-agent` (mock PID 99999 — non-running) returns `{ ok: true }` (T16 AC7)
+16. Captures a timestamped screenshot to `/tmp/console-qa-<timestamp>.png`
+17. Prints the screenshot path to stdout so the QA agent can attach it to its report
+
+Items 12–14 use a `check_json` helper that calls `curl -D -` to capture response headers inline and checks both HTTP status and `Content-Type: application/json`. Items 14–15 require `CONTROL_DIR` to be set so `validAgents` is populated — the script creates a temporary `CONTROL_DIR` with a single-line `fleet.conf` listing `smoke-test-agent`, and writes a mock PID file at `supervisor/pids/smoke-test-agent.pid` containing `99999`. Both are cleaned up by the `EXIT` trap.
 
 ### Error handling
 
