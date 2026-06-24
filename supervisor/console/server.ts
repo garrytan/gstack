@@ -12,7 +12,6 @@ import { appendFile, unlink, writeFile } from "fs/promises";
 import { homedir } from "os";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
-import Anthropic from "@anthropic-ai/sdk";
 import {
   TASK_ID_RE,
   parseFleetConf,
@@ -158,82 +157,48 @@ function broadcast(frame: string): void {
   }
 }
 
-// CONS-005: POST /api/draft-decision — stream a Claude draft suggestion via SSE.
-// Client disconnects abort the Anthropic SDK stream (no wasted tokens).
+// T5: POST /api/draft-decision — append human note to agent mailbox + git commit.
 async function handleDraftDecision(req: IncomingMessage, res: ServerResponse): Promise<void> {
-  // AC3: missing key — return 503 before reading body.
-  if (!process.env.ANTHROPIC_API_KEY) {
-    sendJson(
-      res,
-      { error: "AI drafts unavailable — set ANTHROPIC_API_KEY in your environment" },
-      503,
-    );
+  if (!controlDir) {
+    sendJson(res, { error: "control dir not configured" }, 503);
     return;
   }
 
-  // Read request body (small JSON — read before switching to SSE mode).
-  let body: { taskId?: string; agentName?: string; context?: string } = {};
+  const chunks: Buffer[] = [];
+  for await (const chunk of req) chunks.push(chunk as Buffer);
+  let body: { agentName?: string; taskId?: string; text?: string } = {};
   try {
-    const chunks: Buffer[] = [];
-    for await (const chunk of req) {
-      chunks.push(chunk as Buffer);
-    }
     body = JSON.parse(Buffer.concat(chunks).toString()) as typeof body;
   } catch {
-    // Malformed body — proceed with empty context.
+    sendJson(res, { error: "invalid JSON" }, 400);
+    return;
   }
 
-  // Switch to SSE mode.
-  res.writeHead(200, {
-    "content-type": "text/event-stream",
-    "cache-control": "no-cache",
-    connection: "keep-alive",
-  });
+  const { agentName, taskId, text } = body;
 
-  // AC2: abort the SDK stream when the browser disconnects.
-  const controller = new AbortController();
-  req.on("close", () => controller.abort());
+  if (!agentName || !validAgents.has(agentName)) {
+    sendJson(res, { error: "unknown agent" }, 400);
+    return;
+  }
+  if (!taskId || !TASK_ID_RE.test(taskId)) {
+    sendJson(res, { error: "invalid taskId" }, 400);
+    return;
+  }
+  if (!text || text.trim() === "") {
+    sendJson(res, { error: "text required" }, 400);
+    return;
+  }
 
-  const client = new Anthropic();
+  const ts = new Date().toISOString();
+  const block = `\n## from: human | ${ts} | re: ${taskId}\n${text}\n`;
+  const mailboxFile = join(controlDir, "mailboxes", `${agentName}.md`);
+  await appendFile(mailboxFile, block);
+
   try {
-    const parts = [
-      body.taskId ? `Task: ${body.taskId}` : "",
-      body.agentName ? `Agent: ${body.agentName}` : "",
-      body.context ?? "",
-    ].filter(Boolean);
-    const prompt = parts.join("\n") || "No context provided.";
-
-    const stream = client.messages.stream(
-      {
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: 512,
-        messages: [{ role: "user", content: prompt }],
-      },
-      { signal: controller.signal },
-    );
-
-    // AC1: forward each text token as an SSE data event.
-    stream.on("text", (text) => {
-      res.write(`data: ${JSON.stringify(text)}\n\n`);
-    });
-
-    await stream.finalMessage();
-    res.write("data: [DONE]\n\n"); // AC4: completion sentinel.
-    res.end();
-  } catch (err: unknown) {
-    if (controller.signal.aborted) {
-      // AC2: client disconnected — nothing more to write.
-      res.end();
-      return;
-    }
-    // AC5: API error — send error event and close gracefully.
-    const msg = err instanceof Error ? err.message : "unknown error";
-    try {
-      res.write(`data: ${JSON.stringify({ error: msg })}\n\n`);
-    } catch {
-      // Response already closed by the time we reach here.
-    }
-    res.end();
+    await gitCommitAndPush(controlDir, `console: note for ${agentName} re ${taskId}`);
+    sendJson(res, { ok: true });
+  } catch {
+    sendJson(res, { error: "git push failed" }, 500);
   }
 }
 
@@ -313,7 +278,7 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     return;
   }
 
-  // POST /api/draft-decision — stream AI-drafted decision suggestion (CONS-005).
+  // POST /api/draft-decision — append human note to agent mailbox (T5).
   if (path === "/api/draft-decision" && method === "POST") {
     void handleDraftDecision(req, res);
     return;
@@ -468,7 +433,7 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
   // T14: GET /api/stuck — compute stuck signals + edge-triggered SSE broadcast.
   if (path === "/api/stuck" && method === "GET") {
     const stuckAgents = computeStuckSignals(
-      agentList,
+      [...validAgents],
       join(homedir(), "agents"),
       controlDir ? join(controlDir, "ledger") : "",
     );

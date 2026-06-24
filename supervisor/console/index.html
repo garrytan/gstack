@@ -42,6 +42,11 @@
     Connection lost — reconnecting…
   </div>
 
+  <!-- ── Stuck alert slot — shown above Queue attention section when agents are stuck (T15) ── -->
+  <section id="stuck-alert-slot" class="stuck-alert-section" aria-label="Stuck agents" aria-live="assertive" hidden>
+    <div id="stuck-cards"></div>
+  </section>
+
   <!-- ── Fleet tab panel (default) ── -->
   <div id="section-fleet" role="tabpanel" aria-labelledby="tab-fleet" class="tab-panel">
     <div id="fleet-loading" class="fleet-loading">Loading agent status…</div>
@@ -139,6 +144,16 @@
   </div>
 
 </div><!-- /page-body -->
+
+<!-- ── Force restart confirm modal (AC8: native <dialog>) ── -->
+<dialog id="restart-modal" class="restart-modal" aria-labelledby="restart-modal-heading">
+  <h2 class="restart-modal-heading" id="restart-modal-heading">Restart agent?</h2>
+  <p class="restart-modal-body"></p>
+  <div class="restart-modal-actions">
+    <button class="btn-modal-cancel">Cancel</button>
+    <button class="btn-modal-restart btn-danger">Restart agent</button>
+  </div>
+</dialog>
 
 <script src="console.js"></script>
 </body>
