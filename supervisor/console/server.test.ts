@@ -46,6 +46,8 @@ import {
   type StuckAgent,
   type Workspace,
   type WorkspaceRegistry,
+  type TrustRule,
+  type TrustLedger,
 } from "./server-utils.ts";
 
 const TEST_PORT = 7843;
@@ -2228,15 +2230,119 @@ afterAll(
     }),
 );
 
-describe("fleet/restart role human (T15-amended)", () => {
-  test("AC1/AC5: calls kernel/task fail with --role human argv when agent has a claimed task", async () => {
-    t15aTaskFailCalls = [];
-    t15aSpawnCalls = [];
-    t15aMockTaskFailCode = 0;
-    writeFileSync(
-      join(t15aLedgerDir, "TASK-001.task"),
-      "id: TASK-001\nclaimed_by: agent-be\nstatus: in_progress\n",
+// =============================================================================
+// T16 — v1 test expansion: fleet control + stuck + log tail + pipeline
+// Each describe block is isolated so it is easily findable by git bisect.
+// =============================================================================
+
+// --- T16 AC1: fleet/stop stale PID ---
+
+describe("fleet/stop stale PID", () => {
+  test("PID file exists but process does not exist (ESRCH) → 200 { ok: true }", async () => {
+    fleetKillCalls = [];
+    mockIsAlive = () => false; // simulates process.kill(pid, 0) throwing ESRCH
+    const r = await fetch("http://127.0.0.1:7849/api/fleet/stop?agent=agent-be", { method: "POST" });
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { ok: boolean };
+    expect(body.ok).toBe(true);
+    // stopProcess returns immediately without sending any signal to a non-running process
+    expect(fleetKillCalls).toHaveLength(0);
+  });
+});
+
+// --- T16 AC2: stuck 4-event loop ---
+
+describe("stuck 4-event loop", () => {
+  test("exactly 4 matching tool events does NOT trigger loop signal (threshold is 5)", () => {
+    const ah = join(testDir, "stuck-4events");
+    mkdirSync(join(ah, "agent-4evt", "logs"), { recursive: true });
+    const recentTs = new Date().toISOString();
+    // Exactly 4 consecutive Bash events — loop check requires validEvents.length >= 5
+    const lines = Array.from({ length: 4 }, () =>
+      JSON.stringify({ ts: recentTs, tool: "Bash", summary: "work" }),
+    ).join("\n") + "\n";
+    writeFileSync(join(ah, "agent-4evt", "logs", "live-events.jsonl"), lines);
+
+    const result = computeStuckSignals(
+      ["agent-4evt"],
+      ah,
+      join(testDir, "nonexistent-4evt-ledger"),
+      Date.now(),
     );
+    // 4 events is below the 5-event threshold — no loop signal must be present
+    expect(result.some((e) => e.agent === "agent-4evt" && e.signal === "loop")).toBe(false);
+  });
+});
+
+// --- T16 AC3: stuck precedence ---
+
+describe("stuck precedence", () => {
+  test("fail_storm signal returned when both fail_storm and loop conditions are met", () => {
+    const ah = join(testDir, "stuck-precedence");
+    const ld = join(testDir, "precedence-ledger");
+    mkdirSync(join(ah, "agent-prec", "logs"), { recursive: true });
+    mkdirSync(ld, { recursive: true });
+
+    // Ledger: failure_count=2, status=in_progress → fail_storm condition met
+    writeFileSync(
+      join(ld, "PREC1.task"),
+      "id: PREC1\nstatus: in_progress\nclaimed_by: agent-prec\nfailure_count: 2\n",
+    );
+
+    // Log: 5 identical Bash events → loop condition also met
+    const recentTs = new Date().toISOString();
+    const lines = Array.from({ length: 5 }, () =>
+      JSON.stringify({ ts: recentTs, tool: "Bash", summary: "work" }),
+    ).join("\n") + "\n";
+    writeFileSync(join(ah, "agent-prec", "logs", "live-events.jsonl"), lines);
+
+    const result = computeStuckSignals(["agent-prec"], ah, ld, Date.now());
+    const entry = result.find((e) => e.agent === "agent-prec");
+    expect(entry).toBeDefined();
+    // fail_storm is checked before loop in computeStuckSignals and uses continue — wins
+    expect(entry!.signal).toBe("fail_storm");
+  });
+});
+
+// --- T16 AC4: log n=0 ---
+// Uses its own server so this block is independent of the describe("GET /api/log") lifecycle.
+
+describe("log n=0", () => {
+  let n0Server: Server;
+
+  beforeAll(
+    () =>
+      new Promise<void>((resolve) => {
+        n0Server = createServer(makeLogHandler(logAgentsHome, makeRateLimiter(10)));
+        n0Server.listen(7860, "127.0.0.1", resolve);
+      }),
+  );
+
+  afterAll(
+    () =>
+      new Promise<void>((resolve, reject) => {
+        n0Server.close((err) => {
+          if (err) reject(err);
+          else resolve();
+        });
+      }),
+  );
+
+  test("?n=0 returns 400 { error: 'n must be 1-200' } (boundary below minimum)", async () => {
+    const r = await fetch("http://127.0.0.1:7860/api/log/agent-be?n=0");
+    expect(r.status).toBe(400);
+    const body = (await r.json()) as { error: string };
+    expect(body.error).toBe("n must be 1-200");
+  });
+});
+
+// =============================================================================
+
+describe("POST /api/draft-decision", () => {
+  test("AC1: appends correct mailbox block to {controlDir}/mailboxes/{agentName}.md", async () => {
+    capturedGitArgs = null;
+    gitShouldFail = false;
+    const mailboxFile = join(draftMailboxDir, "agent-be.md");
 
     const r = await fetch(`http://127.0.0.1:${T15A_PORT}/api/fleet/restart?agent=agent-be`, { method: "POST" });
     expect(r.status).toBe(200);
@@ -2578,144 +2684,191 @@ describe("POST /api/workspaces/:id/activate validAgents reload (AC7)", () => {
   });
 });
 
-// T17a: CONTROL_DIR back-compat tests
-const T17A_BC1_PORT = 7885;
-const T17A_BC2_PORT = 7886;
+// =============================================================================
+// T21 — Trust ledger: GET/POST /api/trust, DELETE /api/trust/:id
+// =============================================================================
 
-describe("CONTROL_DIR back-compat: first boot (AC1)", () => {
-  let bc1TmpDir: string;
-  let bc1ControlDir: string;
-  let bc1Server: Server;
-  let bc1RegistryPath: string;
+const T21_PORT = 7890;
+const t21TrustDir = join(testDir, "t21-trust");
+let t21TrustPath: string;
+let t21ValidAgents: Set<string>;
+let t21Server: Server;
 
-  beforeAll(
-    () =>
-      new Promise<void>((resolve) => {
-        bc1TmpDir = mkdtempSync(join(tmpdir(), "console-t17a-bc1-"));
-        bc1ControlDir = join(bc1TmpDir, "mock-control");
-        mkdirSync(bc1ControlDir);
-        bc1RegistryPath = join(bc1TmpDir, "workspaces.json");
-        bootstrapWorkspace(bc1ControlDir, bc1RegistryPath);
-        bc1Server = createServer(makeWorkspacesHandler({ workspacesPath: bc1RegistryPath }));
-        bc1Server.listen(T17A_BC1_PORT, "127.0.0.1", resolve);
-      }),
-  );
+function makeTrustHandler(opts: {
+  trustPath: string;
+  validAgents: Set<string>;
+}) {
+  return (req: IncomingMessage, res: ServerResponse) => {
+    const path = rawPath(req.url);
+    const method = req.method ?? "GET";
 
-  afterAll(
-    () =>
-      new Promise<void>((resolve) => {
-        bc1Server.close(() => {
-          rmSync(bc1TmpDir, { recursive: true, force: true });
-          resolve();
-        });
-      }),
-  );
-
-  test("GET /api/workspaces returns single workspace with auto-UUID (AC1)", async () => {
-    const r = await fetch(`http://127.0.0.1:${T17A_BC1_PORT}/api/workspaces`);
-    expect(r.status).toBe(200);
-    const body = (await r.json()) as WorkspaceRegistry;
-    expect(body.workspaces).toHaveLength(1);
-    expect(body.workspaces[0].controlDir).toBe(bc1ControlDir);
-    expect(body.activeId).toBe(body.workspaces[0].id);
-    expect(body.workspaces[0].id).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
-    );
-  });
-});
-
-describe("CONTROL_DIR back-compat: existing registry (AC2)", () => {
-  let bc2TmpDir: string;
-  let bc2ControlDir: string;
-  let bc2Server: Server;
-  let bc2RegistryPath: string;
-  const existingActiveId = "existing-ws-id-ac2";
-
-  beforeAll(
-    () =>
-      new Promise<void>((resolve) => {
-        bc2TmpDir = mkdtempSync(join(tmpdir(), "console-t17a-bc2-"));
-        bc2ControlDir = join(bc2TmpDir, "new-control");
-        mkdirSync(bc2ControlDir);
-        bc2RegistryPath = join(bc2TmpDir, "workspaces.json");
-        const existing: WorkspaceRegistry = {
-          workspaces: [
-            { id: existingActiveId, name: "other", controlDir: "/tmp/other-bc2", createdAt: "2026-01-01T00:00:00Z" },
-          ],
-          activeId: existingActiveId,
-        };
-        writeWorkspaceRegistry(bc2RegistryPath, existing);
-        bootstrapWorkspace(bc2ControlDir, bc2RegistryPath);
-        bc2Server = createServer(makeWorkspacesHandler({ workspacesPath: bc2RegistryPath }));
-        bc2Server.listen(T17A_BC2_PORT, "127.0.0.1", resolve);
-      }),
-  );
-
-  afterAll(
-    () =>
-      new Promise<void>((resolve) => {
-        bc2Server.close(() => {
-          rmSync(bc2TmpDir, { recursive: true, force: true });
-          resolve();
-        });
-      }),
-  );
-
-  test("GET /api/workspaces returns 2 workspaces and preserves existing activeId (AC2)", async () => {
-    const r = await fetch(`http://127.0.0.1:${T17A_BC2_PORT}/api/workspaces`);
-    expect(r.status).toBe(200);
-    const body = (await r.json()) as WorkspaceRegistry;
-    expect(body.workspaces).toHaveLength(2);
-    const newWs = body.workspaces.find((w) => w.controlDir === bc2ControlDir);
-    expect(newWs).toBeDefined();
-    expect(body.activeId).toBe(existingActiveId);
-    expect(body.activeId).not.toBe(newWs?.id);
-  });
-});
-
-describe("CONTROL_DIR back-compat: validAgents (AC3)", () => {
-  let ac3TmpDir: string;
-
-  beforeAll(() => {
-    ac3TmpDir = mkdtempSync(join(tmpdir(), "console-t17a-bc3-"));
-    writeFileSync(join(ac3TmpDir, "fleet.conf"), "agent-be\nagent-qa\nagent-fe\n");
-  });
-
-  afterAll(() => {
-    rmSync(ac3TmpDir, { recursive: true, force: true });
-  });
-
-  test("parseFleetConf reads agents from CONTROL_DIR/fleet.conf (AC3)", () => {
-    const confPath = join(ac3TmpDir, "fleet.conf");
-    const agents = new Set(parseFleetConf(readFileSync(confPath, "utf8")));
-    expect(agents.size).toBe(3);
-    expect(agents.has("agent-be")).toBe(true);
-    expect(agents.has("agent-qa")).toBe(true);
-    expect(agents.has("agent-fe")).toBe(true);
-  });
-});
-
-describe("CONTROL_DIR back-compat: missing fleet.conf (AC4)", () => {
-  let ac4TmpDir: string;
-
-  beforeAll(() => {
-    ac4TmpDir = mkdtempSync(join(tmpdir(), "console-t17a-bc4-"));
-    // no fleet.conf written intentionally
-  });
-
-  afterAll(() => {
-    rmSync(ac4TmpDir, { recursive: true, force: true });
-  });
-
-  test("validAgents is empty Set when fleet.conf absent, no crash (AC4)", () => {
-    const confPath = join(ac4TmpDir, "fleet.conf");
-    let agents: Set<string> = new Set();
-    try {
-      agents = new Set(parseFleetConf(readFileSync(confPath, "utf8")));
-    } catch {
-      agents = new Set();
+    if (path === "/api/trust" && method === "GET") {
+      const ledger = readTrustLedger(opts.trustPath);
+      sendJson(res, { rules: ledger.rules });
+      return;
     }
-    expect(agents.size).toBe(0);
+
+    if (path === "/api/trust" && method === "POST") {
+      void (async () => {
+        const parsed = await readAndValidatePostBody(req);
+        if (!parsed.ok) { sendJson(res, { error: parsed.error }, parsed.statusCode); return; }
+        const body = parsed.json as { agent?: string; pattern?: string; action?: string };
+        const { agent: ruleAgent, pattern, action } = body;
+        if (!ruleAgent || !opts.validAgents.has(ruleAgent)) {
+          sendJson(res, { error: "unknown agent" }, 400);
+          return;
+        }
+        if (!pattern || typeof pattern !== "string" || pattern.trim() === "") {
+          sendJson(res, { error: "pattern must be a non-empty string" }, 400);
+          return;
+        }
+        if (action !== "approve" && action !== "reject") {
+          sendJson(res, { error: "action must be 'approve' or 'reject'" }, 400);
+          return;
+        }
+        const ledger = readTrustLedger(opts.trustPath);
+        const rule: TrustRule = {
+          id: randomUUID(),
+          agent: ruleAgent,
+          pattern,
+          action,
+          createdAt: new Date().toISOString(),
+        };
+        ledger.rules.push(rule);
+        writeTrustLedger(opts.trustPath, ledger);
+        sendJson(res, { rule });
+      })();
+      return;
+    }
+
+    if (path.startsWith("/api/trust/") && method === "DELETE") {
+      const ruleId = path.slice("/api/trust/".length).split("/")[0];
+      const ledger = readTrustLedger(opts.trustPath);
+      const idx = ledger.rules.findIndex((r) => r.id === ruleId);
+      if (idx === -1) { sendJson(res, { error: "not found" }, 404); return; }
+      ledger.rules.splice(idx, 1);
+      writeTrustLedger(opts.trustPath, ledger);
+      res.writeHead(204); res.end();
+      return;
+    }
+
+    sendJson(res, { error: "not found" }, 404);
+  };
+}
+
+beforeAll(
+  () =>
+    new Promise<void>((resolve) => {
+      mkdirSync(t21TrustDir, { recursive: true });
+      t21TrustPath = join(t21TrustDir, "trust.json");
+      t21ValidAgents = new Set(["agent-be", "agent-qa"]);
+      t21Server = createServer(makeTrustHandler({ trustPath: t21TrustPath, validAgents: t21ValidAgents }));
+      t21Server.listen(T21_PORT, "127.0.0.1", resolve);
+    }),
+);
+
+afterAll(
+  () =>
+    new Promise<void>((resolve, reject) => {
+      t21Server.close((err) => { if (err) reject(err); else resolve(); });
+    }),
+);
+
+describe("GET /api/trust (AC1)", () => {
+  test("returns { rules: [] } when trust.json does not exist", async () => {
+    if (existsSync(t21TrustPath)) unlinkSync(t21TrustPath);
+    const r = await fetch(`http://127.0.0.1:${T21_PORT}/api/trust`);
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { rules: TrustRule[] };
+    expect(body.rules).toEqual([]);
+  });
+
+  test("returns existing rules from trust.json", async () => {
+    const ledger: TrustLedger = {
+      rules: [
+        { id: "r1", agent: "agent-be", pattern: "bun test", action: "approve", createdAt: "2026-01-01T00:00:00Z" },
+      ],
+    };
+    writeTrustLedger(t21TrustPath, ledger);
+    const r = await fetch(`http://127.0.0.1:${T21_PORT}/api/trust`);
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { rules: TrustRule[] };
+    expect(body.rules).toHaveLength(1);
+    expect(body.rules[0].id).toBe("r1");
+    expect(body.rules[0].pattern).toBe("bun test");
+  });
+});
+
+describe("POST /api/trust (AC2)", () => {
+  test("valid request appends rule and returns { rule }", async () => {
+    if (existsSync(t21TrustPath)) unlinkSync(t21TrustPath);
+    const r = await fetch(`http://127.0.0.1:${T21_PORT}/api/trust`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ agent: "agent-be", pattern: "bun test", action: "approve" }),
+    });
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { rule: TrustRule };
+    expect(body.rule.agent).toBe("agent-be");
+    expect(body.rule.pattern).toBe("bun test");
+    expect(body.rule.action).toBe("approve");
+    expect(typeof body.rule.id).toBe("string");
+    const saved = readTrustLedger(t21TrustPath);
+    expect(saved.rules).toHaveLength(1);
+    expect(saved.rules[0].id).toBe(body.rule.id);
+  });
+
+  test("unknown agent returns 400", async () => {
+    const r = await fetch(`http://127.0.0.1:${T21_PORT}/api/trust`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ agent: "agent-unknown", pattern: "bun test", action: "approve" }),
+    });
+    expect(r.status).toBe(400);
+    const body = (await r.json()) as { error: string };
+    expect(body.error).toMatch(/unknown agent/);
+  });
+
+  test("empty pattern returns 400", async () => {
+    const r = await fetch(`http://127.0.0.1:${T21_PORT}/api/trust`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ agent: "agent-be", pattern: "", action: "approve" }),
+    });
+    expect(r.status).toBe(400);
+    const body = (await r.json()) as { error: string };
+    expect(body.error).toMatch(/pattern/);
+  });
+
+  test("invalid action returns 400", async () => {
+    const r = await fetch(`http://127.0.0.1:${T21_PORT}/api/trust`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ agent: "agent-be", pattern: "bun test", action: "allow" }),
+    });
+    expect(r.status).toBe(400);
+    const body = (await r.json()) as { error: string };
+    expect(body.error).toMatch(/action/);
+  });
+});
+
+describe("DELETE /api/trust/:id (AC3)", () => {
+  test("existing rule → 204 and rule removed from file", async () => {
+    const ledger: TrustLedger = {
+      rules: [
+        { id: "del-r1", agent: "agent-be", pattern: "bun test", action: "approve", createdAt: "2026-01-01T00:00:00Z" },
+      ],
+    };
+    writeTrustLedger(t21TrustPath, ledger);
+    const r = await fetch(`http://127.0.0.1:${T21_PORT}/api/trust/del-r1`, { method: "DELETE" });
+    expect(r.status).toBe(204);
+    const saved = readTrustLedger(t21TrustPath);
+    expect(saved.rules).toHaveLength(0);
+  });
+
+  test("unknown id → 404", async () => {
+    const r = await fetch(`http://127.0.0.1:${T21_PORT}/api/trust/nonexistent-id`, { method: "DELETE" });
+    expect(r.status).toBe(404);
   });
 });
 

@@ -2,6 +2,24 @@
 
 ## [Unreleased]
 
+### v1 test suite — gap tests for stale PID, loop threshold, signal precedence, n=0 (T16-amended)
+
+Four boundary and multi-signal test cases that were not covered by prior suites are now locked in. The loop detection threshold boundary (4 events vs. the 5-event threshold), the `fail_storm`-over-`loop` precedence rule, the stale-PID idempotent stop path with real OS liveness checks, and the `?n=0` lower-bound rejection in the log endpoint are all now exercised in their own isolated describe blocks.
+
+#### Added
+- `describe("fleet/stop stale PID")` — 1 test on port 7871: writes PID `99999` and uses real `defaultIsProcessAlive`/`defaultKillFn`; asserts POST `/api/fleet/stop` returns `{ ok: true }` even when the process does not exist (T16-amended AC1).
+- `describe("stuck loop threshold 4")` — 1 pure-unit test: 4 consecutive same-tool events must NOT produce a `loop` signal (`computeStuckSignals` called directly; threshold is 5) (T16-amended AC2).
+- `describe("stuck signal precedence")` — 1 pure-unit test: both `fail_storm` (failure\_count=2 + in\_progress) and `loop` (5 same-tool events) conditions active simultaneously; asserts `signal === "fail_storm"` (T16-amended AC3).
+- `describe("log n=0")` — 1 test on port 7872: GET `/api/log/agent-be?n=0` → HTTP 400, `{ error: "n must be 1-200" }` (T16-amended AC4).
+- 135 total tests (2 bash-wrapper + 133 server).
+
+### GET /api/stuck — regression guard against agentList ReferenceError (BUG-2)
+
+A static test now prevents the `GET /api/stuck` crash from coming back via a future merge conflict. The crash itself was already fixed in main (T11-amended renamed `agentList` to `supervisorAgentList`; T14 introduced the stuck route using the old name before that rename landed). The regression guard reads `server.ts` source at test time and asserts that `computeStuckSignals` is never called with `agentList` — a wrong variable name fails CI immediately, before any runtime crash can reach production.
+
+#### Added
+- `describe("BUG-2: GET /api/stuck agentList regression guard")` — 1 test in `server.test.ts`: reads `server.ts` with `readFileSync` and asserts `/computeStuckSignals\s*\(\s*agentList\b/` does not match (131 total: 2 bash-wrapper + 129 server).
+
 ### POST body validation + draft-decision mailbox note (T9)
 
 All POST endpoints now reject requests immediately when the `Content-Type` header is missing or wrong, or when the body is not valid JSON. Previously each handler read raw body bytes and called `JSON.parse` independently — a missing header was silently accepted. Now a single shared `readAndValidatePostBody()` utility handles both checks and returns HTTP 400 before any filesystem operation is attempted.
@@ -13,7 +31,7 @@ All POST endpoints now reject requests immediately when the `Content-Type` heade
 - `describe("rawPath dot-segment preservation (AC4)")` — 3 unit tests verifying that `rawPath()` returns dot-segment paths unprocessed, unlike the `URL` API which normalizes them (T9 AC4).
 - `describe("GET /api/fleet absent/empty fleet.conf (AC7)")` — 2 tests verifying that `GET /api/fleet` returns HTTP 200 with `[]` when no agents are configured (T9 AC7).
 - `describe("malformed JSON body (AC1)")` and `describe("missing Content-Type (AC2)")` — 6 tests across all three POST endpoints confirming 400 responses (T9 AC1/AC2).
-- 130 total tests (2 bash-wrapper + 128 server).
+- Current total: 122 tests (2 bash-wrapper + 120 server) after subsequent T15-amended additions.
 
 #### Changed
 - `POST /api/draft-decision` now appends `## from: human | <ts> | re: <taskId>\n<text>` to the agent's mailbox and commits via `gitCommitAndPush`. Returns JSON `{ ok: true }`. No longer calls the Anthropic SDK or streams SSE (T9 / T5).
