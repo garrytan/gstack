@@ -33,6 +33,8 @@ import {
   readWorkspaceRegistry,
   writeWorkspaceRegistry,
   bootstrapWorkspace,
+  readTrustLedger,
+  writeTrustLedger,
   type AgentStatus,
   type GitSpawner,
   type ApprovalItem,
@@ -43,6 +45,8 @@ import {
   type StuckAgent,
   type Workspace,
   type WorkspaceRegistry,
+  type TrustRule,
+  type TrustLedger,
 } from "./server-utils.ts";
 
 const TEST_PORT = 7843;
@@ -2673,5 +2677,193 @@ describe("POST /api/workspaces/:id/activate validAgents reload (AC7)", () => {
     expect(r.status).toBe(200);
     expect(wsRebuildCalls).toHaveLength(1);
     expect(wsRebuildCalls[0]).toBe("/ac7-control");
+  });
+});
+
+// =============================================================================
+// T21 — Trust ledger: GET/POST /api/trust, DELETE /api/trust/:id
+// =============================================================================
+
+const T21_PORT = 7890;
+const t21TrustDir = join(testDir, "t21-trust");
+let t21TrustPath: string;
+let t21ValidAgents: Set<string>;
+let t21Server: Server;
+
+function makeTrustHandler(opts: {
+  trustPath: string;
+  validAgents: Set<string>;
+}) {
+  return (req: IncomingMessage, res: ServerResponse) => {
+    const path = rawPath(req.url);
+    const method = req.method ?? "GET";
+
+    if (path === "/api/trust" && method === "GET") {
+      const ledger = readTrustLedger(opts.trustPath);
+      sendJson(res, { rules: ledger.rules });
+      return;
+    }
+
+    if (path === "/api/trust" && method === "POST") {
+      void (async () => {
+        const parsed = await readAndValidatePostBody(req);
+        if (!parsed.ok) { sendJson(res, { error: parsed.error }, parsed.statusCode); return; }
+        const body = parsed.json as { agent?: string; pattern?: string; action?: string };
+        const { agent: ruleAgent, pattern, action } = body;
+        if (!ruleAgent || !opts.validAgents.has(ruleAgent)) {
+          sendJson(res, { error: "unknown agent" }, 400);
+          return;
+        }
+        if (!pattern || typeof pattern !== "string" || pattern.trim() === "") {
+          sendJson(res, { error: "pattern must be a non-empty string" }, 400);
+          return;
+        }
+        if (action !== "approve" && action !== "reject") {
+          sendJson(res, { error: "action must be 'approve' or 'reject'" }, 400);
+          return;
+        }
+        const ledger = readTrustLedger(opts.trustPath);
+        const rule: TrustRule = {
+          id: randomUUID(),
+          agent: ruleAgent,
+          pattern,
+          action,
+          createdAt: new Date().toISOString(),
+        };
+        ledger.rules.push(rule);
+        writeTrustLedger(opts.trustPath, ledger);
+        sendJson(res, { rule });
+      })();
+      return;
+    }
+
+    if (path.startsWith("/api/trust/") && method === "DELETE") {
+      const ruleId = path.slice("/api/trust/".length).split("/")[0];
+      const ledger = readTrustLedger(opts.trustPath);
+      const idx = ledger.rules.findIndex((r) => r.id === ruleId);
+      if (idx === -1) { sendJson(res, { error: "not found" }, 404); return; }
+      ledger.rules.splice(idx, 1);
+      writeTrustLedger(opts.trustPath, ledger);
+      res.writeHead(204); res.end();
+      return;
+    }
+
+    sendJson(res, { error: "not found" }, 404);
+  };
+}
+
+beforeAll(
+  () =>
+    new Promise<void>((resolve) => {
+      mkdirSync(t21TrustDir, { recursive: true });
+      t21TrustPath = join(t21TrustDir, "trust.json");
+      t21ValidAgents = new Set(["agent-be", "agent-qa"]);
+      t21Server = createServer(makeTrustHandler({ trustPath: t21TrustPath, validAgents: t21ValidAgents }));
+      t21Server.listen(T21_PORT, "127.0.0.1", resolve);
+    }),
+);
+
+afterAll(
+  () =>
+    new Promise<void>((resolve, reject) => {
+      t21Server.close((err) => { if (err) reject(err); else resolve(); });
+    }),
+);
+
+describe("GET /api/trust (AC1)", () => {
+  test("returns { rules: [] } when trust.json does not exist", async () => {
+    if (existsSync(t21TrustPath)) unlinkSync(t21TrustPath);
+    const r = await fetch(`http://127.0.0.1:${T21_PORT}/api/trust`);
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { rules: TrustRule[] };
+    expect(body.rules).toEqual([]);
+  });
+
+  test("returns existing rules from trust.json", async () => {
+    const ledger: TrustLedger = {
+      rules: [
+        { id: "r1", agent: "agent-be", pattern: "bun test", action: "approve", createdAt: "2026-01-01T00:00:00Z" },
+      ],
+    };
+    writeTrustLedger(t21TrustPath, ledger);
+    const r = await fetch(`http://127.0.0.1:${T21_PORT}/api/trust`);
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { rules: TrustRule[] };
+    expect(body.rules).toHaveLength(1);
+    expect(body.rules[0].id).toBe("r1");
+    expect(body.rules[0].pattern).toBe("bun test");
+  });
+});
+
+describe("POST /api/trust (AC2)", () => {
+  test("valid request appends rule and returns { rule }", async () => {
+    if (existsSync(t21TrustPath)) unlinkSync(t21TrustPath);
+    const r = await fetch(`http://127.0.0.1:${T21_PORT}/api/trust`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ agent: "agent-be", pattern: "bun test", action: "approve" }),
+    });
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { rule: TrustRule };
+    expect(body.rule.agent).toBe("agent-be");
+    expect(body.rule.pattern).toBe("bun test");
+    expect(body.rule.action).toBe("approve");
+    expect(typeof body.rule.id).toBe("string");
+    const saved = readTrustLedger(t21TrustPath);
+    expect(saved.rules).toHaveLength(1);
+    expect(saved.rules[0].id).toBe(body.rule.id);
+  });
+
+  test("unknown agent returns 400", async () => {
+    const r = await fetch(`http://127.0.0.1:${T21_PORT}/api/trust`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ agent: "agent-unknown", pattern: "bun test", action: "approve" }),
+    });
+    expect(r.status).toBe(400);
+    const body = (await r.json()) as { error: string };
+    expect(body.error).toMatch(/unknown agent/);
+  });
+
+  test("empty pattern returns 400", async () => {
+    const r = await fetch(`http://127.0.0.1:${T21_PORT}/api/trust`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ agent: "agent-be", pattern: "", action: "approve" }),
+    });
+    expect(r.status).toBe(400);
+    const body = (await r.json()) as { error: string };
+    expect(body.error).toMatch(/pattern/);
+  });
+
+  test("invalid action returns 400", async () => {
+    const r = await fetch(`http://127.0.0.1:${T21_PORT}/api/trust`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ agent: "agent-be", pattern: "bun test", action: "allow" }),
+    });
+    expect(r.status).toBe(400);
+    const body = (await r.json()) as { error: string };
+    expect(body.error).toMatch(/action/);
+  });
+});
+
+describe("DELETE /api/trust/:id (AC3)", () => {
+  test("existing rule → 204 and rule removed from file", async () => {
+    const ledger: TrustLedger = {
+      rules: [
+        { id: "del-r1", agent: "agent-be", pattern: "bun test", action: "approve", createdAt: "2026-01-01T00:00:00Z" },
+      ],
+    };
+    writeTrustLedger(t21TrustPath, ledger);
+    const r = await fetch(`http://127.0.0.1:${T21_PORT}/api/trust/del-r1`, { method: "DELETE" });
+    expect(r.status).toBe(204);
+    const saved = readTrustLedger(t21TrustPath);
+    expect(saved.rules).toHaveLength(0);
+  });
+
+  test("unknown id → 404", async () => {
+    const r = await fetch(`http://127.0.0.1:${T21_PORT}/api/trust/nonexistent-id`, { method: "DELETE" });
+    expect(r.status).toBe(404);
   });
 });
