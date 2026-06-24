@@ -120,6 +120,63 @@ If the current branch differs from the saved context's branch, note this:
 "This context was saved on branch `{branch}`. You are currently on
 `{current branch}`. You may want to switch branches before continuing."
 
+### Step 2a: Cross-Session Stall Detection (G010 guard)
+
+After presenting the latest checkpoint's Remaining Work, scan recent checkpoints
+for tasks that have been carried forward without progress. These are "stalled"
+items — they appear in the Remaining Work of multiple consecutive checkpoints
+but were never completed.
+
+```bash
+{{SLUG_SETUP}}
+eval "$(~/.claude/skills/gstack/bin/gstack-paths)"
+CHECKPOINT_DIR="$GSTACK_STATE_ROOT/projects/$SLUG/checkpoints"
+# Scan last 15 checkpoints for Remaining Work patterns
+STALL_FILES=$(find "$CHECKPOINT_DIR" -maxdepth 1 -name "*.md" -type f 2>/dev/null | sort -r | head -15)
+if [ -n "$STALL_FILES" ]; then
+  # Extract numbered Remaining Work items from each checkpoint, count occurrences
+  # Strategy: grep for lines matching "1. **<text>**" through "9. **<text>**"
+  # in the Remaining Work section of each file, normalize, count repeats >= 3
+  TMP_STALL=$(mktemp)
+  for f in $STALL_FILES; do
+    # Extract Remaining Work section and get numbered items with bold markers
+    awk '/^### Remaining Work$/,/^### Notes$|^### Decisions|^---$/' "$f" 2>/dev/null | \
+      grep -oP '^\d+\.\s+\*\*[^*]+\*\*' | \
+      sed 's/^\d+\.\s*\*\*//;s/\*\*$//' | \
+      sed 's/[[:space:]]*$//' >> "$TMP_STALL"
+  done
+  STALLED=""
+  if [ -s "$TMP_STALL" ]; then
+    STALLED=$(sort "$TMP_STALL" | uniq -c | sort -rn | awk '$1 >= 3 {print $0}')
+  fi
+  if [ -n "$STALLED" ]; then
+    echo "STALL_COUNT=$(echo "$STALLED" | wc -l)"
+    echo "STALLED_ITEMS<<STALL_EOF"
+    echo "$STALLED"
+    echo "STALL_EOF"
+  else
+    echo "NO_STALLED"
+  fi
+  rm -f "$TMP_STALL"
+else
+  echo "NO_STALLED"
+fi
+```
+
+If `STALL_COUNT` > 0, present the stalled items before the AskUserQuestion:
+
+```
+⚠ STALLED TASKS (appear in 3+ checkpoints without progress)
+These may have been buried by newer sessions — check if they still matter:
+
+{list each stalled task with checkpoint count}
+
+Consider aggregating all unfinished work into a master task file
+(e.g. docs/plans/master-task-inventory.md) — see G010 gotcha pattern.
+```
+
+If `NO_STALLED`, skip this section silently.
+
 ### Step 3: Offer next steps
 
 After presenting, ask via AskUserQuestion:
