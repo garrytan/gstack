@@ -1,7 +1,9 @@
 // supervisor/console/server-utils.ts — pure utility functions, no side effects
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { readdirSync, readFileSync, statSync, unlinkSync } from "node:fs";
-import { join, resolve, sep } from "node:path";
+import { readdirSync, readFileSync, statSync, unlinkSync, mkdirSync, writeFileSync } from "node:fs";
+import { join, resolve, sep, dirname, basename } from "node:path";
+import { homedir } from "node:os";
+import { randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
 
 // Scan each agent checkout directory for a git remote URL that contains the
@@ -576,6 +578,54 @@ export async function stopProcess(
     const sigkillTimer = setTimeout(() => { kill(pid, "SIGKILL"); finish(); }, ms);
     const poll = setInterval(() => { if (!isAlive(pid)) finish(); }, 50);
   });
+}
+
+// T17: Workspace registry
+
+export interface Workspace {
+  id: string;
+  name: string;
+  controlDir: string;
+  createdAt: string;
+}
+
+export interface WorkspaceRegistry {
+  workspaces: Workspace[];
+  activeId: string | null;
+}
+
+export function defaultWorkspacesPath(): string {
+  return join(homedir(), ".gstack-console", "workspaces.json");
+}
+
+export function readWorkspaceRegistry(filePath: string): WorkspaceRegistry {
+  try {
+    return JSON.parse(readFileSync(filePath, "utf8")) as WorkspaceRegistry;
+  } catch {
+    return { workspaces: [], activeId: null };
+  }
+}
+
+export function writeWorkspaceRegistry(filePath: string, registry: WorkspaceRegistry): void {
+  mkdirSync(dirname(filePath), { recursive: true });
+  writeFileSync(filePath, JSON.stringify(registry, null, 2));
+}
+
+// AC5: no registry → create with CONTROL_DIR as single active workspace.
+// AC6: registry exists but lacks CONTROL_DIR → append without changing activeId.
+export function bootstrapWorkspace(controlDir: string, workspacesPath: string): void {
+  if (!controlDir) return;
+  const reg = readWorkspaceRegistry(workspacesPath);
+  if (reg.workspaces.some((w) => w.controlDir === controlDir)) return;
+  const ws: Workspace = {
+    id: randomUUID(),
+    name: basename(controlDir),
+    controlDir,
+    createdAt: new Date().toISOString(),
+  };
+  reg.workspaces.push(ws);
+  if (!reg.activeId) reg.activeId = ws.id;
+  writeWorkspaceRegistry(workspacesPath, reg);
 }
 
 // Validate Content-Type and parse JSON body for POST handlers.

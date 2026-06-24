@@ -9,7 +9,7 @@ Scripts for starting, stopping, and monitoring the autonomous agent fleet.
 | `fleet.conf` | Declare all agents in one place |
 | `install.sh` | Register an agent as a launchd (macOS) or systemd (Linux) service |
 | `wake-listen.ts` | Supabase Realtime subscriber — wakes idle agents in <1s cross-machine |
-| `console/server.ts` | Console HTTP server (v7.1 — auto-detects control repo, gates risky Bash commands, streams live events via SSE; T11: fleet control routes — POST /api/fleet/stop, /restart, /pause, /resume; T11-amended: shim removed — `validAgents` built solely from `controlDir/fleet.conf` via `rebuildValidAgents()`, called at startup and on workspace switch; T5: `handleDraftDecision` rewritten — Anthropic SDK dependency removed, endpoint now appends a timestamped human note block to the agent's mailbox file and calls `gitCommitAndPush`) |
+| `console/server.ts` | Console HTTP server (v7.1 — auto-detects control repo, gates risky Bash commands, streams live events via SSE; T11: fleet control routes — POST /api/fleet/stop, /restart, /pause, /resume; T11-amended: shim removed — `validAgents` built solely from `controlDir/fleet.conf` via `rebuildValidAgents()`, called at startup and on workspace switch; T15-amended: `POST /api/fleet/restart` calls `kernel/task fail {taskId} --agent {agentName} --role human` via `spawnSync` before stopping and relaunching — returns 500 if fail exits non-zero, skips if agent holds no claimed task; T5: `handleDraftDecision` rewritten — Anthropic SDK dependency removed, endpoint now appends a timestamped human note block to the agent's mailbox file and calls `gitCommitAndPush`) |
 | `console/bin/bash` | Risk-gated Bash tool intercept (v7.1 — blocks destructive commands until approved) |
 | `console/index.html` | Console UI entry point (v7.1 — serves static HTML with SSE support, Pipeline tab panel with domain filter chips and spec panel) |
 | `console/console.js` | Console interactive client (v7.1 — card animations, empty states, AI draft panel, ARIA accessibility, Pipeline tab with collapsible status groups, domain filter chips persisted in localStorage, spec panel on card click, `pipeline-update` SSE listener; T13-amended: `pipelineBootstrapped` one-shot guard on tab activate, `fetchPipeline()` called on SSE reconnect, all SSE listeners fixed from `currentEs` → `es`) |
@@ -971,7 +971,7 @@ Operators can stop, restart, pause, or resume any agent directly from the Fleet 
 5. If the process has not exited after `stopTimeoutMs` (default 5000 ms), sends SIGKILL and resolves.
 6. If the process exits before the timeout fires, clears the timer and resolves.
 
-`restart` calls `stopProcess` then spawns `run-agent.sh <agentName>` as a detached subprocess with `stdio: 'ignore'` and calls `proc.unref()`, so the console server does not wait for or track the new Claude session.
+`restart` (T15-amended) first checks whether the agent holds a claimed ledger task by calling `parseTaskLedger(join(controlDir, "ledger"))` and finding an entry where `claimed_by === agentName`. If one exists, it calls `spawnSync(join(controlDir, "kernel", "task"), ["fail", taskId, "--agent", agentName, "--role", "human"])` to record the failure as human-initiated. If that subprocess exits non-zero, the handler returns HTTP 500 `{ error: "kernel/task fail exited with code N" }` and aborts without restarting. If no claimed task exists, the fail step is skipped. After the fail step (or skip), `restart` calls `stopProcess` then spawns `run-agent.sh <agentName>` as a detached subprocess with `stdio: 'ignore'` and calls `proc.unref()`, so the console server does not wait for or track the new Claude session.
 
 ### Error responses
 
@@ -980,6 +980,7 @@ Operators can stop, restart, pause, or resume any agent directly from the Fleet 
 | `agentName` not in `validAgents` (from `controlDir/fleet.conf`) | 400 | `{ error: 'unknown agent' }` |
 | PID file does not exist at `pids/{agentName}.pid` | 404 | `{ error: 'pid file not found' }` |
 | Process is not running — pause or resume only (AC6) | 409 | `{ error: 'process not running' }` |
+| `kernel/task fail` exits non-zero — restart only (T15-amended AC3) | 500 | `{ error: 'kernel/task fail exited with code N' }` |
 
 For `stop` and `restart`, a stale PID (process already exited) is handled silently — `stopProcess` returns immediately and the response is `{ ok: true }`. This makes `stop` idempotent (AC8).
 
@@ -1010,7 +1011,7 @@ The `action` field is `"stop"` or `"restart"`. `pause` and `resume` do not broad
 | AC | What it tests |
 |---|---|
 | AC1 | `stopProcess` sends SIGTERM first, then SIGKILL after timeout when process stays alive |
-| AC2 | `POST /api/fleet/restart` stops the agent then spawns `run-agent.sh <agentName>` |
+| AC2 | `POST /api/fleet/restart` stops the agent then spawns `run-agent.sh <agentName>` (T15-amended: preceded by `kernel/task fail --role human` when a claimed task exists) |
 | AC3 | `POST /api/fleet/pause` sends SIGSTOP to the agent's PID |
 | AC4 | `POST /api/fleet/resume` sends SIGCONT to the agent's PID |
 | AC5 | Unknown agent name → 400 on all four endpoints |
@@ -1973,8 +1974,14 @@ The script:
 9. Asserts `GET /api/stuck` returns HTTP 200 with a `"stuck"` key in the response body (T15 AC1)
 10. Asserts `index.html` contains a `stuck-cards` container element (T15 AC1/AC2)
 11. Asserts `id="stuck-alert-slot"` appears before `id="section-attention"` in the HTML source (T15 AC2 — slot is above the Queue attention section)
-12. Captures a timestamped screenshot to `/tmp/console-qa-<timestamp>.png`
-13. Prints the screenshot path to stdout so the QA agent can attach it to its report
+12. Asserts `GET /api/pipeline` returns HTTP 200 with `content-type: application/json` (T16 AC6)
+13. Asserts `GET /api/stuck` returns HTTP 200 with `content-type: application/json` (T16 AC6)
+14. Asserts `GET /api/log/smoke-test-agent` returns HTTP 200 with `content-type: application/json` (T16 AC6)
+15. Asserts `POST /api/fleet/stop?agent=smoke-test-agent` (mock PID 99999 — non-running) returns `{ ok: true }` (T16 AC7)
+16. Captures a timestamped screenshot to `/tmp/console-qa-<timestamp>.png`
+17. Prints the screenshot path to stdout so the QA agent can attach it to its report
+
+Items 12–14 use a `check_json` helper that calls `curl -D -` to capture response headers inline and checks both HTTP status and `Content-Type: application/json`. Items 14–15 require `CONTROL_DIR` to be set so `validAgents` is populated — the script creates a temporary `CONTROL_DIR` with a single-line `fleet.conf` listing `smoke-test-agent`, and writes a mock PID file at `supervisor/pids/smoke-test-agent.pid` containing `99999`. Both are cleaned up by the `EXIT` trap.
 
 ### Error handling
 

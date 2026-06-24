@@ -6,11 +6,12 @@
 
 import { createServer } from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { watch, mkdirSync, readFileSync } from "fs";
+import { watch, mkdirSync, readFileSync, existsSync } from "fs";
 import { spawnSync, spawn } from "child_process";
 import { appendFile, unlink, writeFile } from "fs/promises";
 import { homedir } from "os";
-import { join, dirname } from "path";
+import { join, dirname, isAbsolute, basename } from "path";
+import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "url";
 import {
   TASK_ID_RE,
@@ -35,6 +36,11 @@ import {
   stopProcess,
   computeStuckSignals,
   readAndValidatePostBody,
+  type Workspace,
+  readWorkspaceRegistry,
+  writeWorkspaceRegistry,
+  defaultWorkspacesPath,
+  bootstrapWorkspace,
 } from "./server-utils.ts";
 
 // Validate PORT early — before any filesystem reads (AC5: exit 1 before bind).
@@ -138,6 +144,10 @@ if (controlDir) {
 } else {
   console.warn("WARNING: control dir not found — mailbox and ledger routes unavailable");
 }
+
+// T17: workspace registry — auto-register CONTROL_DIR on startup (AC5/AC6).
+const workspacesPath = defaultWorkspacesPath();
+if (controlDir) bootstrapWorkspace(controlDir, workspacesPath);
 
 // SSE client registry — one ServerResponse per connected browser tab.
 const sseClients = new Set<ServerResponse>();
@@ -477,6 +487,76 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
 
     sendJson(res, { stuck: stuckAgents });
     return;
+  }
+
+  // T17: GET /api/workspaces — read registry; missing file → empty registry.
+  if (path === "/api/workspaces" && method === "GET") {
+    sendJson(res, readWorkspaceRegistry(workspacesPath));
+    return;
+  }
+
+  // T17: POST /api/workspaces — validate controlDir, add workspace entry.
+  if (path === "/api/workspaces" && method === "POST") {
+    void (async () => {
+      const parsed = await readAndValidatePostBody(req);
+      if (!parsed.ok) { sendJson(res, { error: parsed.error }, parsed.statusCode); return; }
+      const body = parsed.json as { name?: string; controlDir?: string };
+      const { name, controlDir: newControlDir } = body;
+      if (!name || !newControlDir || !isAbsolute(newControlDir)) {
+        sendJson(res, { error: "controlDir must be an absolute path" }, 400);
+        return;
+      }
+      if (!existsSync(join(newControlDir, "ledger"))) {
+        sendJson(res, { error: "controlDir/ledger not found" }, 400);
+        return;
+      }
+      const reg = readWorkspaceRegistry(workspacesPath);
+      const ws: Workspace = {
+        id: randomUUID(),
+        name,
+        controlDir: newControlDir,
+        createdAt: new Date().toISOString(),
+      };
+      reg.workspaces.push(ws);
+      writeWorkspaceRegistry(workspacesPath, reg);
+      sendJson(res, { workspace: ws });
+    })();
+    return;
+  }
+
+  if (path.startsWith("/api/workspaces/")) {
+    const rest = path.slice("/api/workspaces/".length);
+    const parts = rest.split("/");
+    const wsId = parts[0];
+
+    // T17: POST /api/workspaces/:id/activate — switch active workspace + broadcast.
+    if (parts.length === 2 && parts[1] === "activate" && method === "POST") {
+      const reg = readWorkspaceRegistry(workspacesPath);
+      const ws = reg.workspaces.find((w) => w.id === wsId);
+      if (!ws) { sendJson(res, { error: "not found" }, 404); return; }
+      reg.activeId = wsId;
+      writeWorkspaceRegistry(workspacesPath, reg);
+      // T17 AC7: reload validAgents from new workspace's fleet.conf before broadcast.
+      rebuildValidAgents(ws.controlDir);
+      const payload = JSON.stringify({ workspaceId: wsId, name: ws.name, controlDir: ws.controlDir });
+      broadcast(`event: workspace-switch\ndata: ${payload}\n\n`);
+      sendJson(res, { ok: true });
+      return;
+    }
+
+    // T17: DELETE /api/workspaces/:id — remove workspace, shift activeId if needed.
+    if (parts.length === 1 && method === "DELETE") {
+      const reg = readWorkspaceRegistry(workspacesPath);
+      const idx = reg.workspaces.findIndex((w) => w.id === wsId);
+      if (idx === -1) { sendJson(res, { error: "not found" }, 404); return; }
+      reg.workspaces.splice(idx, 1);
+      if (reg.activeId === wsId) {
+        reg.activeId = reg.workspaces.length > 0 ? (reg.workspaces[0].id ?? null) : null;
+      }
+      writeWorkspaceRegistry(workspacesPath, reg);
+      res.writeHead(204); res.end();
+      return;
+    }
   }
 
   // Static file handler (CONS-011) — LAST, after all API routes.

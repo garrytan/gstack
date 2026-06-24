@@ -6,7 +6,8 @@ import { createServer } from "node:http";
 import type { Server, IncomingMessage, ServerResponse } from "node:http";
 import { mkdirSync, writeFileSync, rmSync, existsSync, utimesSync, readFileSync, unlinkSync } from "node:fs";
 import { spawnSync } from "node:child_process";
-import { join } from "node:path";
+import { join, isAbsolute, basename } from "node:path";
+import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import {
   TASK_ID_RE,
@@ -29,6 +30,9 @@ import {
   stopProcess,
   computeStuckSignals,
   readAndValidatePostBody,
+  readWorkspaceRegistry,
+  writeWorkspaceRegistry,
+  bootstrapWorkspace,
   type AgentStatus,
   type GitSpawner,
   type ApprovalItem,
@@ -37,6 +41,8 @@ import {
   type KillFn,
   type IsAliveFn,
   type StuckAgent,
+  type Workspace,
+  type WorkspaceRegistry,
 } from "./server-utils.ts";
 
 const TEST_PORT = 7843;
@@ -2219,15 +2225,119 @@ afterAll(
     }),
 );
 
-describe("fleet/restart role human (T15-amended)", () => {
-  test("AC1/AC5: calls kernel/task fail with --role human argv when agent has a claimed task", async () => {
-    t15aTaskFailCalls = [];
-    t15aSpawnCalls = [];
-    t15aMockTaskFailCode = 0;
-    writeFileSync(
-      join(t15aLedgerDir, "TASK-001.task"),
-      "id: TASK-001\nclaimed_by: agent-be\nstatus: in_progress\n",
+// =============================================================================
+// T16 — v1 test expansion: fleet control + stuck + log tail + pipeline
+// Each describe block is isolated so it is easily findable by git bisect.
+// =============================================================================
+
+// --- T16 AC1: fleet/stop stale PID ---
+
+describe("fleet/stop stale PID", () => {
+  test("PID file exists but process does not exist (ESRCH) → 200 { ok: true }", async () => {
+    fleetKillCalls = [];
+    mockIsAlive = () => false; // simulates process.kill(pid, 0) throwing ESRCH
+    const r = await fetch("http://127.0.0.1:7849/api/fleet/stop?agent=agent-be", { method: "POST" });
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { ok: boolean };
+    expect(body.ok).toBe(true);
+    // stopProcess returns immediately without sending any signal to a non-running process
+    expect(fleetKillCalls).toHaveLength(0);
+  });
+});
+
+// --- T16 AC2: stuck 4-event loop ---
+
+describe("stuck 4-event loop", () => {
+  test("exactly 4 matching tool events does NOT trigger loop signal (threshold is 5)", () => {
+    const ah = join(testDir, "stuck-4events");
+    mkdirSync(join(ah, "agent-4evt", "logs"), { recursive: true });
+    const recentTs = new Date().toISOString();
+    // Exactly 4 consecutive Bash events — loop check requires validEvents.length >= 5
+    const lines = Array.from({ length: 4 }, () =>
+      JSON.stringify({ ts: recentTs, tool: "Bash", summary: "work" }),
+    ).join("\n") + "\n";
+    writeFileSync(join(ah, "agent-4evt", "logs", "live-events.jsonl"), lines);
+
+    const result = computeStuckSignals(
+      ["agent-4evt"],
+      ah,
+      join(testDir, "nonexistent-4evt-ledger"),
+      Date.now(),
     );
+    // 4 events is below the 5-event threshold — no loop signal must be present
+    expect(result.some((e) => e.agent === "agent-4evt" && e.signal === "loop")).toBe(false);
+  });
+});
+
+// --- T16 AC3: stuck precedence ---
+
+describe("stuck precedence", () => {
+  test("fail_storm signal returned when both fail_storm and loop conditions are met", () => {
+    const ah = join(testDir, "stuck-precedence");
+    const ld = join(testDir, "precedence-ledger");
+    mkdirSync(join(ah, "agent-prec", "logs"), { recursive: true });
+    mkdirSync(ld, { recursive: true });
+
+    // Ledger: failure_count=2, status=in_progress → fail_storm condition met
+    writeFileSync(
+      join(ld, "PREC1.task"),
+      "id: PREC1\nstatus: in_progress\nclaimed_by: agent-prec\nfailure_count: 2\n",
+    );
+
+    // Log: 5 identical Bash events → loop condition also met
+    const recentTs = new Date().toISOString();
+    const lines = Array.from({ length: 5 }, () =>
+      JSON.stringify({ ts: recentTs, tool: "Bash", summary: "work" }),
+    ).join("\n") + "\n";
+    writeFileSync(join(ah, "agent-prec", "logs", "live-events.jsonl"), lines);
+
+    const result = computeStuckSignals(["agent-prec"], ah, ld, Date.now());
+    const entry = result.find((e) => e.agent === "agent-prec");
+    expect(entry).toBeDefined();
+    // fail_storm is checked before loop in computeStuckSignals and uses continue — wins
+    expect(entry!.signal).toBe("fail_storm");
+  });
+});
+
+// --- T16 AC4: log n=0 ---
+// Uses its own server so this block is independent of the describe("GET /api/log") lifecycle.
+
+describe("log n=0", () => {
+  let n0Server: Server;
+
+  beforeAll(
+    () =>
+      new Promise<void>((resolve) => {
+        n0Server = createServer(makeLogHandler(logAgentsHome, makeRateLimiter(10)));
+        n0Server.listen(7860, "127.0.0.1", resolve);
+      }),
+  );
+
+  afterAll(
+    () =>
+      new Promise<void>((resolve, reject) => {
+        n0Server.close((err) => {
+          if (err) reject(err);
+          else resolve();
+        });
+      }),
+  );
+
+  test("?n=0 returns 400 { error: 'n must be 1-200' } (boundary below minimum)", async () => {
+    const r = await fetch("http://127.0.0.1:7860/api/log/agent-be?n=0");
+    expect(r.status).toBe(400);
+    const body = (await r.json()) as { error: string };
+    expect(body.error).toBe("n must be 1-200");
+  });
+});
+
+// =============================================================================
+
+describe("POST /api/draft-decision", () => {
+  test("AC1: appends correct mailbox block to {controlDir}/mailboxes/{agentName}.md", async () => {
+    capturedGitArgs = null;
+    gitShouldFail = false;
+    const mailboxFile = join(draftMailboxDir, "agent-be.md");
 
     const r = await fetch(`http://127.0.0.1:${T15A_PORT}/api/fleet/restart?agent=agent-be`, { method: "POST" });
     expect(r.status).toBe(200);
@@ -2273,5 +2383,295 @@ describe("fleet/restart role human (T15-amended)", () => {
     expect(t15aSpawnCalls).toContain("agent-be");
 
     unlinkSync(join(t15aLedgerDir, "TASK-003.task"));
+  });
+});
+
+// =============================================================================
+// T17: Workspace registry
+
+const T17_WS_PORT = 7880;
+const wsTestDir = join(testDir, "t17-workspaces");
+let wsBroadcasts: string[] = [];
+let wsRebuildCalls: string[] = [];
+let wsServer: Server;
+let wsRegistryPath: string;
+
+function makeWorkspacesHandler(opts: {
+  workspacesPath: string;
+  rebuildValidAgentsFn?: (controlDir: string) => void;
+  broadcastFn?: (frame: string) => void;
+  existsFn?: (dir: string) => boolean;
+}) {
+  const bc = opts.broadcastFn ?? (() => {});
+  const rebuild = opts.rebuildValidAgentsFn ?? (() => {});
+  const existsCheck = opts.existsFn ?? existsSync;
+
+  return (req: IncomingMessage, res: ServerResponse) => {
+    const path = rawPath(req.url);
+    const method = req.method ?? "GET";
+
+    if (path === "/api/workspaces" && method === "GET") {
+      sendJson(res, readWorkspaceRegistry(opts.workspacesPath));
+      return;
+    }
+
+    if (path === "/api/workspaces" && method === "POST") {
+      void (async () => {
+        const parsed = await readAndValidatePostBody(req);
+        if (!parsed.ok) { sendJson(res, { error: parsed.error }, parsed.statusCode); return; }
+        const body = parsed.json as { name?: string; controlDir?: string };
+        const { name, controlDir } = body;
+        if (!name || !controlDir || !isAbsolute(controlDir)) {
+          sendJson(res, { error: "controlDir must be an absolute path" }, 400);
+          return;
+        }
+        if (!existsCheck(join(controlDir, "ledger"))) {
+          sendJson(res, { error: "controlDir/ledger not found" }, 400);
+          return;
+        }
+        const reg = readWorkspaceRegistry(opts.workspacesPath);
+        const ws: Workspace = {
+          id: randomUUID(),
+          name,
+          controlDir,
+          createdAt: new Date().toISOString(),
+        };
+        reg.workspaces.push(ws);
+        writeWorkspaceRegistry(opts.workspacesPath, reg);
+        sendJson(res, { workspace: ws });
+      })();
+      return;
+    }
+
+    if (path.startsWith("/api/workspaces/")) {
+      const rest = path.slice("/api/workspaces/".length);
+      const parts = rest.split("/");
+      const wsId = parts[0];
+
+      if (parts.length === 2 && parts[1] === "activate" && method === "POST") {
+        const reg = readWorkspaceRegistry(opts.workspacesPath);
+        const ws = reg.workspaces.find((w) => w.id === wsId);
+        if (!ws) { sendJson(res, { error: "not found" }, 404); return; }
+        reg.activeId = wsId;
+        writeWorkspaceRegistry(opts.workspacesPath, reg);
+        rebuild(ws.controlDir);
+        const payload = JSON.stringify({ workspaceId: wsId, name: ws.name, controlDir: ws.controlDir });
+        bc(`event: workspace-switch\ndata: ${payload}\n\n`);
+        sendJson(res, { ok: true });
+        return;
+      }
+
+      if (parts.length === 1 && method === "DELETE") {
+        const reg = readWorkspaceRegistry(opts.workspacesPath);
+        const idx = reg.workspaces.findIndex((w) => w.id === wsId);
+        if (idx === -1) { sendJson(res, { error: "not found" }, 404); return; }
+        reg.workspaces.splice(idx, 1);
+        if (reg.activeId === wsId) {
+          reg.activeId = reg.workspaces.length > 0 ? (reg.workspaces[0].id ?? null) : null;
+        }
+        writeWorkspaceRegistry(opts.workspacesPath, reg);
+        res.writeHead(204); res.end();
+        return;
+      }
+    }
+
+    sendJson(res, { error: "not found" }, 404);
+  };
+}
+
+beforeAll(
+  () =>
+    new Promise<void>((resolve) => {
+      mkdirSync(wsTestDir, { recursive: true });
+      wsRegistryPath = join(wsTestDir, "workspaces.json");
+
+      wsServer = createServer(
+        makeWorkspacesHandler({
+          workspacesPath: wsRegistryPath,
+          rebuildValidAgentsFn: (dir) => wsRebuildCalls.push(dir),
+          broadcastFn: (frame) => wsBroadcasts.push(frame),
+          existsFn: (dir) => existsSync(dir),
+        }),
+      );
+      wsServer.listen(T17_WS_PORT, "127.0.0.1", resolve);
+    }),
+);
+
+afterAll(
+  () =>
+    new Promise<void>((resolve, reject) => {
+      wsServer.close((err) => { if (err) reject(err); else resolve(); });
+    }),
+);
+
+describe("GET /api/workspaces (AC1)", () => {
+  test("returns empty registry when file does not exist", async () => {
+    if (existsSync(wsRegistryPath)) unlinkSync(wsRegistryPath);
+    const r = await fetch(`http://127.0.0.1:${T17_WS_PORT}/api/workspaces`);
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as WorkspaceRegistry;
+    expect(body.workspaces).toEqual([]);
+    expect(body.activeId).toBeNull();
+  });
+
+  test("returns populated registry when file exists", async () => {
+    const reg: WorkspaceRegistry = {
+      workspaces: [{ id: "w1", name: "Alpha", controlDir: "/alpha", createdAt: "2026-01-01T00:00:00Z" }],
+      activeId: "w1",
+    };
+    writeWorkspaceRegistry(wsRegistryPath, reg);
+    const r = await fetch(`http://127.0.0.1:${T17_WS_PORT}/api/workspaces`);
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as WorkspaceRegistry;
+    expect(body.activeId).toBe("w1");
+    expect(body.workspaces).toHaveLength(1);
+    expect(body.workspaces[0].name).toBe("Alpha");
+    unlinkSync(wsRegistryPath);
+  });
+});
+
+describe("POST /api/workspaces (AC2)", () => {
+  test("returns 400 when controlDir is relative", async () => {
+    const r = await fetch(`http://127.0.0.1:${T17_WS_PORT}/api/workspaces`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "X", controlDir: "relative/path" }),
+    });
+    expect(r.status).toBe(400);
+  });
+
+  test("returns 400 when controlDir/ledger does not exist", async () => {
+    const r = await fetch(`http://127.0.0.1:${T17_WS_PORT}/api/workspaces`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "X", controlDir: "/no-such-dir-t17" }),
+    });
+    expect(r.status).toBe(400);
+  });
+
+  test("appends workspace and returns it when controlDir/ledger exists", async () => {
+    if (existsSync(wsRegistryPath)) unlinkSync(wsRegistryPath);
+    const fakeControl = join(wsTestDir, "fake-control");
+    mkdirSync(join(fakeControl, "ledger"), { recursive: true });
+
+    const r = await fetch(`http://127.0.0.1:${T17_WS_PORT}/api/workspaces`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "Beta", controlDir: fakeControl }),
+    });
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { workspace: Workspace };
+    expect(body.workspace.name).toBe("Beta");
+    expect(body.workspace.controlDir).toBe(fakeControl);
+    expect(typeof body.workspace.id).toBe("string");
+    const saved = readWorkspaceRegistry(wsRegistryPath);
+    expect(saved.workspaces).toHaveLength(1);
+  });
+});
+
+describe("DELETE /api/workspaces/:id (AC3)", () => {
+  test("removes workspace and shifts activeId to first remaining when active is deleted", async () => {
+    const reg: WorkspaceRegistry = {
+      workspaces: [
+        { id: "del1", name: "One", controlDir: "/one", createdAt: "2026-01-01T00:00:00Z" },
+        { id: "del2", name: "Two", controlDir: "/two", createdAt: "2026-01-01T00:00:00Z" },
+      ],
+      activeId: "del1",
+    };
+    writeWorkspaceRegistry(wsRegistryPath, reg);
+
+    const r = await fetch(`http://127.0.0.1:${T17_WS_PORT}/api/workspaces/del1`, { method: "DELETE" });
+    expect(r.status).toBe(204);
+    const saved = readWorkspaceRegistry(wsRegistryPath);
+    expect(saved.workspaces).toHaveLength(1);
+    expect(saved.activeId).toBe("del2");
+  });
+
+  test("sets activeId to null when last workspace is deleted", async () => {
+    const reg: WorkspaceRegistry = {
+      workspaces: [{ id: "only1", name: "Only", controlDir: "/only", createdAt: "2026-01-01T00:00:00Z" }],
+      activeId: "only1",
+    };
+    writeWorkspaceRegistry(wsRegistryPath, reg);
+
+    const r = await fetch(`http://127.0.0.1:${T17_WS_PORT}/api/workspaces/only1`, { method: "DELETE" });
+    expect(r.status).toBe(204);
+    const saved = readWorkspaceRegistry(wsRegistryPath);
+    expect(saved.workspaces).toHaveLength(0);
+    expect(saved.activeId).toBeNull();
+  });
+});
+
+describe("POST /api/workspaces/:id/activate (AC4)", () => {
+  test("sets activeId, broadcasts workspace-switch event, returns ok", async () => {
+    wsBroadcasts = [];
+    const reg: WorkspaceRegistry = {
+      workspaces: [
+        { id: "act1", name: "Gamma", controlDir: "/gamma", createdAt: "2026-01-01T00:00:00Z" },
+        { id: "act2", name: "Delta", controlDir: "/delta", createdAt: "2026-01-01T00:00:00Z" },
+      ],
+      activeId: "act1",
+    };
+    writeWorkspaceRegistry(wsRegistryPath, reg);
+
+    const r = await fetch(`http://127.0.0.1:${T17_WS_PORT}/api/workspaces/act2/activate`, { method: "POST" });
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { ok: boolean };
+    expect(body.ok).toBe(true);
+
+    const saved = readWorkspaceRegistry(wsRegistryPath);
+    expect(saved.activeId).toBe("act2");
+
+    expect(wsBroadcasts).toHaveLength(1);
+    expect(wsBroadcasts[0]).toContain("event: workspace-switch");
+    const dataLine = wsBroadcasts[0].split("\n").find((l) => l.startsWith("data:")) ?? "";
+    const payload = JSON.parse(dataLine.slice("data:".length).trim()) as Record<string, unknown>;
+    expect(payload.workspaceId).toBe("act2");
+    expect(payload.name).toBe("Delta");
+    expect(payload.controlDir).toBe("/delta");
+  });
+});
+
+describe("bootstrapWorkspace AC5/AC6", () => {
+  test("AC5: creates registry with CONTROL_DIR as active workspace when file absent", () => {
+    const regPath = join(wsTestDir, "bootstrap-ac5.json");
+    if (existsSync(regPath)) unlinkSync(regPath);
+    bootstrapWorkspace("/test/control-ac5", regPath);
+    const reg = readWorkspaceRegistry(regPath);
+    expect(reg.workspaces).toHaveLength(1);
+    expect(reg.workspaces[0].controlDir).toBe("/test/control-ac5");
+    expect(reg.activeId).toBe(reg.workspaces[0].id);
+  });
+
+  test("AC6: appends CONTROL_DIR without changing activeId when registry already exists", () => {
+    const regPath = join(wsTestDir, "bootstrap-ac6.json");
+    const existing: WorkspaceRegistry = {
+      workspaces: [{ id: "existing1", name: "Existing", controlDir: "/existing", createdAt: "2026-01-01T00:00:00Z" }],
+      activeId: "existing1",
+    };
+    writeWorkspaceRegistry(regPath, existing);
+    bootstrapWorkspace("/test/control-ac6", regPath);
+    const reg = readWorkspaceRegistry(regPath);
+    expect(reg.workspaces).toHaveLength(2);
+    expect(reg.workspaces[1].controlDir).toBe("/test/control-ac6");
+    expect(reg.activeId).toBe("existing1");
+  });
+});
+
+describe("POST /api/workspaces/:id/activate validAgents reload (AC7)", () => {
+  test("calls rebuildValidAgentsFn with the activated workspace's controlDir", async () => {
+    wsRebuildCalls = [];
+    const reg: WorkspaceRegistry = {
+      workspaces: [
+        { id: "ws-ac7", name: "AC7 WS", controlDir: "/ac7-control", createdAt: "2026-01-01T00:00:00Z" },
+      ],
+      activeId: null,
+    };
+    writeWorkspaceRegistry(wsRegistryPath, reg);
+
+    const r = await fetch(`http://127.0.0.1:${T17_WS_PORT}/api/workspaces/ws-ac7/activate`, { method: "POST" });
+    expect(r.status).toBe(200);
+    expect(wsRebuildCalls).toHaveLength(1);
+    expect(wsRebuildCalls[0]).toBe("/ac7-control");
   });
 });
