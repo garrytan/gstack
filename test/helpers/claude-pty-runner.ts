@@ -1605,7 +1605,7 @@ export async function runPlanSkillObservation(opts: {
       // command.
       await Bun.sleep(3000);
     }
-    const since = session.mark();
+    let since = session.mark();
     session.send(`/${opts.skillName}\r`);
 
     const budgetMs = opts.timeoutMs ?? 180_000;
@@ -1619,6 +1619,7 @@ export async function runPlanSkillObservation(opts: {
     // even if the current state is 'working'.
     let proseAUQEverObserved = false;
     let waitingEverObserved = false;
+    let unknownCmdRetries = 0;
     const JUDGE_AFTER_MS = 60_000;
     const JUDGE_INTERVAL_MS = 30_000;
     while (Date.now() - start < budgetMs) {
@@ -1634,9 +1635,24 @@ export async function runPlanSkillObservation(opts: {
         };
       }
       if (visible.includes('Unknown command:')) {
+        // Skill-discovery race: in a cold CI container the overlay-FS scan of
+        // the symlinked ~/.claude/skills registry can finish AFTER the boot
+        // grace, so the first `/skill` send reaches claude before the skill is
+        // indexed and is rejected as unknown. (Reproduces only in CI — passes
+        // locally where claude is warm and discovery is instant.) Re-send the
+        // command a few times, re-marking first so the stale "Unknown command:"
+        // line in scrollback can't immediately re-trip this check, before
+        // concluding the skill is genuinely unregistered.
+        if (unknownCmdRetries < 3) {
+          unknownCmdRetries++;
+          await Bun.sleep(6000);
+          since = session.mark();
+          session.send(`/${opts.skillName}\r`);
+          continue;
+        }
         return {
           outcome: 'exited',
-          summary: `claude rejected /${opts.skillName} as unknown command (skill not registered in this cwd)`,
+          summary: `claude rejected /${opts.skillName} as unknown command after ${unknownCmdRetries} retries (skill not registered in this cwd)`,
           evidence: visible.slice(-2000),
           elapsedMs: Date.now() - startedAt,
         };
