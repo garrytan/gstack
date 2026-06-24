@@ -9,7 +9,7 @@ Scripts for starting, stopping, and monitoring the autonomous agent fleet.
 | `fleet.conf` | Declare all agents in one place |
 | `install.sh` | Register an agent as a launchd (macOS) or systemd (Linux) service |
 | `wake-listen.ts` | Supabase Realtime subscriber — wakes idle agents in <1s cross-machine |
-| `console/server.ts` | Console HTTP server (v7.1 — auto-detects control repo, gates risky Bash commands, streams live events via SSE; T11: fleet control routes — POST /api/fleet/stop, /restart, /pause, /resume; T11-amended: shim removed — `validAgents` built solely from `controlDir/fleet.conf` via `rebuildValidAgents()`, called at startup and on workspace switch) |
+| `console/server.ts` | Console HTTP server (v7.1 — auto-detects control repo, gates risky Bash commands, streams live events via SSE; T11: fleet control routes — POST /api/fleet/stop, /restart, /pause, /resume; T11-amended: shim removed — `validAgents` built solely from `controlDir/fleet.conf` via `rebuildValidAgents()`, called at startup and on workspace switch; T5: `handleDraftDecision` rewritten — Anthropic SDK dependency removed, endpoint now appends a timestamped human note block to the agent's mailbox file and calls `gitCommitAndPush`) |
 | `console/bin/bash` | Risk-gated Bash tool intercept (v7.1 — blocks destructive commands until approved) |
 | `console/index.html` | Console UI entry point (v7.1 — serves static HTML with SSE support, Pipeline tab panel with domain filter chips and spec panel) |
 | `console/console.js` | Console interactive client (v7.1 — card animations, empty states, AI draft panel, ARIA accessibility, Pipeline tab with collapsible status groups, domain filter chips persisted in localStorage, spec panel on card click, `pipeline-update` SSE listener; T13-amended: `pipelineBootstrapped` one-shot guard on tab activate, `fetchPipeline()` called on SSE reconnect, all SSE listeners fixed from `currentEs` → `es`) |
@@ -17,7 +17,7 @@ Scripts for starting, stopping, and monitoring the autonomous agent fleet.
 | `console/server-utils.ts` | Utility exports — parsing ledger/mailbox, task ID validation (`TASK_ID_RE` supports both `CONS-003` and `T13` styles), fleet status reading, SSE helpers, `makeWatchHandler` (reads last `live-events.jsonl` line, caches payload for Last-Event-ID replay), `makeLedgerWatchHandler` (broadcasts `pipeline-update` SSE on `.task` file changes), port resolution, `readLogTail` (JSONL tail reader), `makeRateLimiter` (token-bucket rate limiter), `purgeStaleDecisionFiles` (startup garbage collection of stale decision files), `PipelineTask` type (T13); T11: `readPidFile` (reads PID from a pid file), `stopProcess` (SIGTERM + SIGKILL-after-5s async stop), `defaultIsProcessAlive` (signal-0 liveness check), `defaultKillFn` (signal sender), `KillFn`/`IsAliveFn` injectable types; T14: `computeStuckSignals` (reads each agent's JSONL tail + ledger, returns `StuckAgent[]` with silent/loop/fail_storm signals), `StuckAgent` type (v7.1) |
 | `console/bash-wrapper.test.ts` | Bun test wrapper that runs bash-wrapper.test.sh inline (v7.1) |
 | `console/bash-wrapper.test.sh` | Bash unit tests for risk classification (check_risk) and polling behavior (poll_approval) (v7.1) |
-| `console/server.test.ts` | Bun tests for endpoint security, static serving, queue bootstrap, `resolveControlDir`, SSE endpoint (T4 AC1/AC2/AC3/AC5), `makeWatchHandler`, log tail endpoint (T12 AC1-AC7), rate limiter, startup cleanup (T8 AC1-AC4), pipeline endpoint (T13 AC1/AC2), ledger watch handler (T13 AC3), spec endpoint (T13 AC7), pipeline bootstrap guard (T13-amended AC2), SSE reconnect pipeline bootstrap (T13-amended AC4), fleet control endpoints (T11 AC1-AC8), stuck detection engine (T14 AC1-AC8), fleet.conf-based validAgents (T11-amended AC2/AC3/AC4), and malformed JSONL resilience (T14-amended AC2/AC3/AC4) (v7.1) |
+| `console/server.test.ts` | Bun tests for endpoint security, static serving, queue bootstrap, `resolveControlDir`, SSE endpoint (T4 AC1/AC2/AC3/AC5), `makeWatchHandler`, log tail endpoint (T12 AC1-AC7), rate limiter, startup cleanup (T8 AC1-AC4), pipeline endpoint (T13 AC1/AC2), ledger watch handler (T13 AC3), spec endpoint (T13 AC7), pipeline bootstrap guard (T13-amended AC2), SSE reconnect pipeline bootstrap (T13-amended AC4), fleet control endpoints (T11 AC1-AC8), stuck detection engine (T14 AC1-AC8), fleet.conf-based validAgents (T11-amended AC2/AC3/AC4), malformed JSONL resilience (T14-amended AC2/AC3/AC4), and draft-decision mailbox append (T5 AC1-AC7) (v7.1) |
 | `console/qa-smoke.sh` | QA smoke test for console UI — asserts page title, nav bar, Fleet tab presence, T6 AC1/AC2/AC4/AC5 (Dicebear avatar src, elapsed time format, HIGH risk badge, Unblock button), and T13 AC4/AC5 (pipeline endpoint 200, `pipeline-groups` element in HTML, `tasks` key in pipeline JSON) via gstack browse (v7.1) |
 
 ---
@@ -637,9 +637,9 @@ Operators see a blocked-command card in the console UI when a high-risk command 
 
 ---
 
-## AI Draft Suggestions — streaming Claude responses via SSE (v7.1)
+## Draft-decision endpoint — human notes via agent mailbox (T5)
 
-The console lets operators request AI-drafted suggestions for blocked tasks, streaming Claude's response token-by-token via Server-Sent Events (SSE). This endpoint integrates with the Anthropic SDK and aborts the stream if the browser disconnects, preventing wasted token consumption.
+Directors can send free-text notes to any agent directly from the console. `POST /api/draft-decision` appends a timestamped human note block to the agent's mailbox file and commits it to git, so the agent picks it up on its next fetch. This replaces the earlier CONS-005 streaming prototype (which used the Anthropic SDK to stream Claude suggestions via SSE); T5 removes that dependency entirely.
 
 ### Request and response
 
@@ -648,59 +648,54 @@ The console lets operators request AI-drafted suggestions for blocked tasks, str
 **Request body:**
 ```json
 {
-  "taskId": "CONS-005",
   "agentName": "agent-be",
-  "context": "Task spec and agent notes..."
+  "taskId": "T5",
+  "text": "Please check the logs — the test on port 7855 is flaky."
 }
 ```
 
-**Response:** HTTP 200 with `text/event-stream` (SSE format). Each token arrives as a `data:` line containing a JSON-escaped string:
-```
-data: "The "
-data: "operator "
-data: "can "
-data: "review "
-data: "and "
-data: "edit "
-data: "this "
-data: "draft "
-data: "before "
-data: "submitting."
-data: [DONE]
-```
-
-### Error handling
-
-If `ANTHROPIC_API_KEY` is not set in the server environment, the endpoint returns HTTP 503 immediately (before reading the body):
+**Success response:** HTTP 200 `application/json`
 ```json
-{
-  "error": "AI drafts unavailable — set ANTHROPIC_API_KEY in your environment"
-}
+{ "ok": true }
 ```
 
-If the Anthropic API returns an error during streaming (invalid key, rate limit, etc.), the stream sends an error event and closes gracefully:
+The handler appends the following block to `{CONTROL_DIR}/mailboxes/{agentName}.md` before returning:
 ```
-data: {"error": "invalid API key"}
+## from: human | {ISO timestamp} | re: {taskId}
+{text}
 ```
 
-The server process does not crash.
+After appending, `gitCommitAndPush(controlDir, "console: note for {agentName} re {taskId}")` is called. If the push succeeds, `{ ok: true }` is returned. If it fails after retries (AC6), HTTP 500 is returned — the note block may already be appended (append before push; partial note is acceptable, rollback is not required).
 
-### Disconnection handling
+### Validation and error responses
 
-When the browser closes the connection or the user cancels the request mid-stream, the `req.on("close")` callback triggers `AbortController.abort()`. This immediately stops the Anthropic SDK stream, preventing further token consumption. The server logs no additional output after disconnect.
+| Condition | Status | Body |
+|---|---|---|
+| `agentName` not in `validAgents` | 400 | `{ "error": "unknown agent" }` |
+| `taskId` fails `TASK_ID_RE` | 400 | `{ "error": "invalid taskId" }` |
+| `text` empty or missing | 400 | `{ "error": "text required" }` |
+| `gitCommitAndPush` throws | 500 | `{ "error": "git push failed" }` |
+| `CONTROL_DIR` not set | 503 | `{ "error": "control dir not configured" }` |
 
-### Implementation details
+`TASK_ID_RE` is `/^[A-Z]+(-[0-9]+|[0-9]+)$/` — both `CONS-123` and `T5` are valid; `invalid` and `t5` are not. `validAgents` is the Set built from `controlDir/fleet.conf` at startup (same source used by all mutating endpoints).
 
-- **Model:** `claude-haiku-4-5-20251001` (Haiku for cost control — draft suggestions don't need Opus)
-- **Max tokens:** 512 per response
-- **Abort signal:** Passed to `client.messages.stream({..., signal: controller.signal})`
-- **Streaming handler:** `stream.on("text", ...)` catches each token and writes it as an SSE `data:` line
-- **Completion sentinel:** Final `data: [DONE]\n\n` event signals end of stream
-- **Content type:** Operator supplies `context` (task spec + agent notes) in request body; no hardcoded prompt template
+### Implementation constraints
 
-### Use case
+- **Append-only:** uses `fs.appendFile` (async) — never overwrites the mailbox file.
+- **No shell interpolation:** `agentName` and `taskId` are used for path construction only (`join(controlDir, "mailboxes", agentName + ".md")`), never passed to a shell.
+- **`CONTROL_DIR` check is first:** the 503 guard runs before reading the request body.
 
-When a task is blocked waiting for human decision (e.g., approval request, merge conflict), an operator can click "AI Draft" to get a Claude suggestion. The response appears token-by-token in the console, allowing the operator to review and edit before submitting. If the operator cancels mid-draft or closes the console tab, no additional tokens are charged.
+### AC → verification mapping
+
+| AC | Condition | Verified by | Type |
+|---|---|---|---|
+| AC1 | Mailbox block appended with correct format | `describe("POST /api/draft-decision")` AC1 test | done_check |
+| AC2 | `gitCommitAndPush` called with `"console: note for {agentName} re {taskId}"` | AC2 test | done_check |
+| AC3 | Unknown `agentName` → 400 `unknown agent` | AC3 test | done_check |
+| AC4 | `taskId` fails regex → 400 `invalid taskId` | AC4 test | done_check |
+| AC5 | Empty `text` → 400 `text required` | AC5 test | done_check |
+| AC6 | `gitCommitAndPush` throws → 500 `git push failed` | AC6 test | done_check |
+| AC7 | `CONTROL_DIR` absent → 503 `control dir not configured` | AC7 test | done_check |
 
 ---
 
@@ -1377,7 +1372,7 @@ Tasks that have an AI-drafted suggestion show a collapsible "AI Draft" button. C
 
 1. **Collapsible container:** Toggling the button shows/hides the panel using `aria-expanded` and display state.
 2. **Amber disclaimer badge:** Always visible when the panel is expanded, stating "AI draft — review before sending" in the `--amber` color.
-3. **Streaming text div:** The drafted text is rendered in a scrollable section (populated by the `POST /api/draft-decision` SSE response).
+3. **Draft text div:** The drafted text is rendered in a scrollable section (populated from the `ai_draft` field of the queue attention event, not by calling `POST /api/draft-decision`).
 4. **"Use this draft ↑" button:** A ghost-style button copies the draft text into the textarea below, allowing operators to review and edit before sending.
 
 Example interaction:
@@ -1738,6 +1733,25 @@ T14-amended adds a `describe("stuck detection malformed JSONL")` block with 3 te
 | `AC2: 20-line file with 3 malformed lines — signals computed from 17 valid lines` | AC2 | `GET /api/stuck` returns HTTP 200; `malformed-mixed` agent entry present with `signal="loop"` (17 valid Bash events → last 5 identical tools → loop detected) |
 | `AC3: malformed JSONL lines do not cause a 500 — endpoint always returns 200` | AC3 | `GET /api/stuck` against the mixed-malformed server returns HTTP 200, not 500 |
 | `AC4: all-malformed JSONL file → { stuck: [] } with HTTP 200` | AC4 | `GET /api/stuck` against the all-malformed server returns HTTP 200; `body.stuck` has length 0 (no valid events to compute signals from) |
+
+### Draft-decision tests — server.test.ts (T5 AC1–AC7)
+
+T5 adds a `describe("POST /api/draft-decision")` block with 7 tests across two isolated HTTP servers:
+
+- **Port 7855** (`draftServer`): uses `draftTestDir` as `controlDir`, `draftValidAgents` Set (`agent-be`, `agent-qa`, `agent-fe`, `agent-doc`), and `mockGit` (captures args, optionally throws). Mailbox files are created in `draftMailboxDir = join(draftTestDir, "mailboxes")`.
+- **Port 7856** (`draftNoCtrlServer`): uses empty string as `controlDir` to exercise the 503 path without touching the filesystem.
+
+| Test | AC | What it asserts |
+|---|---|---|
+| `AC1: appends correct mailbox block to {controlDir}/mailboxes/{agentName}.md` | AC1 | POST returns 200; `agent-be.md` contains `## from: human \| {ISO ts} \| re: T5` followed by `looks good` |
+| `AC2: calls gitCommitAndPush with correct commit message on success` | AC2 | POST returns `{ ok: true }`; `capturedGitArgs.msg === "console: note for agent-qa re CONS-123"`; `capturedGitArgs.dir === draftTestDir` |
+| `AC3: unknown agentName → 400 { error: 'unknown agent' }` | AC3 | `agentName: "agent-unknown"` → HTTP 400, body `{ error: "unknown agent" }` |
+| `AC4: taskId failing TASK_ID_RE → 400 { error: 'invalid taskId' }` | AC4 | `taskId: "invalid"` → HTTP 400, body `{ error: "invalid taskId" }` |
+| `AC5: empty text → 400 { error: 'text required' }` | AC5 | `text: ""` → HTTP 400, body `{ error: "text required" }` |
+| `AC6: gitCommitAndPush throws → 500 { error: 'git push failed' }` | AC6 | `gitShouldFail = true` → HTTP 500, body `{ error: "git push failed" }` |
+| `AC7: CONTROL_DIR not set → 503 { error: 'control dir not configured' }` | AC7 | Request to port 7856 (empty `controlDir`) → HTTP 503, body `{ error: "control dir not configured" }` |
+
+The test infrastructure uses a `makeDraftDecisionHandler` factory (mirrors `handleDraftDecision` in `server.ts`) with injectable `controlDir`, `validAgents`, and `gitFn` to avoid side-effects on the real control repo. `capturedGitArgs` and `gitShouldFail` are module-level mutable state reset per test. Temp directory and both servers are torn down in `afterAll`.
 
 ### Test results
 

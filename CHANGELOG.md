@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Draft-decision endpoint — send human notes directly to agent mailboxes (T5)
+
+Directors can now type a note into any blocked-task card and send it straight to the responsible agent's mailbox file, committed to git so the agent picks it up on its next fetch. The previous prototype streamed Claude suggestions via SSE and required `ANTHROPIC_API_KEY`; T5 removes that dependency entirely. The new endpoint is a plain JSON POST: send `{ agentName, taskId, text }` and get `{ ok: true }` back.
+
+#### Changed
+- `POST /api/draft-decision` no longer streams Anthropic SDK tokens via SSE. It now appends a `## from: human | {ISO ts} | re: {taskId}` block to `{CONTROL_DIR}/mailboxes/{agentName}.md` and calls `gitCommitAndPush` with commit message `"console: note for {agentName} re {taskId}"` (T5 AC1/AC2).
+- Anthropic SDK (`@anthropic-ai/sdk`) import removed from `server.ts` — no AI key required to run the console.
+
+#### Added
+- Validation: `agentName` checked against `validAgents` → 400 `unknown agent`; `taskId` checked against `TASK_ID_RE` → 400 `invalid taskId`; empty `text` → 400 `text required`; git push failure → 500 `git push failed`; missing `CONTROL_DIR` → 503 `control dir not configured` (T5 AC3–AC7).
+- 7 new tests in `describe("POST /api/draft-decision")` across ports 7855/7856 covering all ACs (126 total: 2 bash-wrapper + 124 server).
+
 ### Stuck detection — malformed JSONL no longer crashes GET /api/stuck (T14-amended)
 
 A single corrupted line in an agent's `live-events.jsonl` (caused by a mid-write SIGTERM, a disk error, or any partial write) no longer returns a 500 from `GET /api/stuck`. Every `JSON.parse` call on individual JSONL lines in the stuck detection path is now wrapped in a per-line try/catch that returns null and filters the bad line out. The remaining valid lines are processed normally. If every line in the file is malformed, the endpoint returns `{ stuck: [] }` with HTTP 200. No stuck signals are reported for data that cannot be read; signals based on other agents are unaffected.
