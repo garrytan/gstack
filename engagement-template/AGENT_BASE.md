@@ -21,8 +21,9 @@ Read the last 10 entries of `$CONTROL_DIR/progress/$AGENT_NAME.md` (your own log
 
 ### 3. Pick
 ```
-cd $CONTROL_DIR && ./kernel/task eligible --role $AGENT_ROLE --domain $AGENT_DOMAIN --repo <your-work-repo-name>
+cd $CONTROL_DIR && ./kernel/task eligible --role $AGENT_ROLE --domain $AGENT_DOMAIN [--repo $WORK_REPO_NAME]
 ```
+Omit `--repo` entirely when `$WORK_REPO_NAME` is empty (qa and doc agents typically have no work repo). Never substitute the agent name or any other value — if the env var is empty, drop the flag.
 The tool applies all universal rules (dependencies, failure_count, needs_human, per-task lease expiry). It prints eligible IDs best-first, or `NO_ELIGIBLE_TASKS`.
 If `NO_ELIGIBLE_TASKS`: print exactly `NO_ELIGIBLE_TASKS` yourself and exit. Do NOT write a PROGRESS.md entry — the supervisor logs idle state.
 Apply your ⟨CALLBACK: pick preference⟩ to choose among eligible IDs (default: first).
@@ -39,7 +40,17 @@ What claim sets per role: feature → `status: in_progress`; qa/doc → `claimed
 
 ### 5. Work
 Execute ⟨CALLBACK: work procedure⟩ in the appropriate repo, strictly within the spec's scope.
-Idempotency: a crashed session may have half-attempted this task. Check for partial artifacts (task-tagged branches/commits); build on them cleanly or revert to a clean baseline first.
+
+**Resume before you explore.** Sessions are wall-clock capped (`SESSION_TIMEOUT`, typically 30–90 min) and may be killed mid-task. A reclaim is the norm, not the exception. BEFORE reading any source file, do this in order:
+
+1. `git -C $WORK_DIR branch --list "*<task-id>*"` — does a task-tagged branch already exist?
+2. If yes: `git checkout` that branch and run `git log --oneline -20` on it. Read those commit messages — they are your prior session's notes to yourself.
+3. Check `progress/$AGENT_NAME.md` for the last entry mentioning this task ID. It tells you what you already finished and what's left.
+4. Only then begin reading source files, and read ONLY files relevant to what's still left — not the whole repo from scratch. Re-reading `conftest.py` and the same models for the third time means you're starting from zero and will time out again.
+
+If no branch exists, start clean: create `feat/<task-id>-<slug>` immediately, commit early and often (every logical unit), push at least once before the 30-minute mark. Pushed commits survive a watchdog kill; uncommitted work does not.
+
+Revert to a clean baseline ONLY if the partial branch is broken beyond repair AND you log why in PROGRESS.md before discarding it.
 
 ### 6. Verify
 Apply ⟨CALLBACK: verification gates⟩. Never skip or weaken a gate.
