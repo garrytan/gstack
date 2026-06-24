@@ -8,10 +8,20 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PORT=$(python3 -c "import socket; s=socket.socket(); s.bind(('',0)); print(s.getsockname()[1]); s.close()")
 TMP_DECISIONS=$(mktemp -d)
 
-PID=""
-trap 'kill "${PID}" 2>/dev/null || true; rm -rf "${TMP_DECISIONS}"' EXIT
+# T16 AC6/AC7: minimal CONTROL_DIR so validAgents is populated for log + fleet tests.
+TMP_CONTROL=$(mktemp -d)
+printf 'smoke-test-agent FEATURE_ROLE.md\n' > "${TMP_CONTROL}/fleet.conf"
+mkdir -p "${TMP_CONTROL}/ledger"
 
-PORT="${PORT}" SUPERVISOR_DECISIONS_DIR="${TMP_DECISIONS}" \
+# T16 AC7: mock PID file with a non-existent PID for fleet/stop test.
+PIDS_DIR="${SCRIPT_DIR}/../pids"
+mkdir -p "${PIDS_DIR}"
+printf '99999\n' > "${PIDS_DIR}/smoke-test-agent.pid"
+
+PID=""
+trap 'kill "${PID}" 2>/dev/null || true; rm -rf "${TMP_DECISIONS}" "${TMP_CONTROL}"; rm -f "${PIDS_DIR}/smoke-test-agent.pid"' EXIT
+
+PORT="${PORT}" SUPERVISOR_DECISIONS_DIR="${TMP_DECISIONS}" CONTROL_DIR="${TMP_CONTROL}" \
   bun run "${SCRIPT_DIR}/server.ts" > /dev/null 2>&1 &
 PID=$!
 
@@ -31,6 +41,21 @@ check() {
     printf '  ok    %s\n' "${desc}"; pass=$((pass + 1))
   else
     printf '  FAIL  %s (want %s, got %s)\n' "${desc}" "${want}" "${got}" >&2; fail=$((fail + 1))
+  fi
+}
+
+# T16 AC6: assert HTTP 200 + application/json content-type.
+# Uses -D - to dump response headers inline with a GET (HEAD is not handled by endpoints).
+check_json() {
+  local desc="$1" url="$2"
+  local headers status ct_line
+  headers=$(curl -s --max-time 5 -D - -o /dev/null "${url}" 2>/dev/null) || headers=""
+  status=$(printf '%s' "${headers}" | head -1 | grep -oE '[0-9]{3}' | head -1) || status="000"
+  ct_line=$(printf '%s' "${headers}" | grep -i '^content-type:' | tr -d '\r') || ct_line=""
+  if [ "${status}" = "200" ] && printf '%s' "${ct_line}" | grep -qi 'application/json'; then
+    printf '  ok    %s\n' "${desc}"; pass=$((pass + 1))
+  else
+    printf '  FAIL  %s (want 200+json, got status=%s ct=%s)\n' "${desc}" "${status}" "${ct_line}" >&2; fail=$((fail + 1))
   fi
 }
 
@@ -88,6 +113,19 @@ if [ -n "${STUCK_LINE}" ] && [ -n "${ATTN_LINE}" ] && [ "${STUCK_LINE}" -lt "${A
   printf '  ok    stuck-alert-slot appears before section-attention in DOM\n'; pass=$((pass + 1))
 else
   printf '  FAIL  stuck-alert-slot not before section-attention in DOM\n' >&2; fail=$((fail + 1))
+fi
+
+# T16 AC6: pipeline, stuck, log endpoints return 200 + application/json content-type.
+check_json "GET /api/pipeline JSON content-type"          "${B}/api/pipeline"
+check_json "GET /api/stuck JSON content-type"             "${B}/api/stuck"
+check_json "GET /api/log/smoke-test-agent JSON"           "${B}/api/log/smoke-test-agent"
+
+# T16 AC7: fleet/stop with mock stale PID returns 200 { ok: true }.
+STOP_RESP=$(curl -s --max-time 5 -X POST "${B}/api/fleet/stop?agent=smoke-test-agent" 2>/dev/null) || STOP_RESP=""
+if printf '%s' "${STOP_RESP}" | grep -q '"ok":true'; then
+  printf '  ok    POST /api/fleet/stop mock stale PID → ok:true\n'; pass=$((pass + 1))
+else
+  printf '  FAIL  POST /api/fleet/stop mock stale PID → %s\n' "${STOP_RESP}" >&2; fail=$((fail + 1))
 fi
 
 printf '\n=== smoke: %d passed, %d failed ===\n' "${pass}" "${fail}"

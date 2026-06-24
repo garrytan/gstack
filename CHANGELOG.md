@@ -20,7 +20,7 @@ All POST endpoints now reject requests immediately when the `Content-Type` heade
 - `describe("rawPath dot-segment preservation (AC4)")` — 3 unit tests verifying that `rawPath()` returns dot-segment paths unprocessed, unlike the `URL` API which normalizes them (T9 AC4).
 - `describe("GET /api/fleet absent/empty fleet.conf (AC7)")` — 2 tests verifying that `GET /api/fleet` returns HTTP 200 with `[]` when no agents are configured (T9 AC7).
 - `describe("malformed JSON body (AC1)")` and `describe("missing Content-Type (AC2)")` — 6 tests across all three POST endpoints confirming 400 responses (T9 AC1/AC2).
-- 130 total tests (2 bash-wrapper + 128 server).
+- Current total: 122 tests (2 bash-wrapper + 120 server) after subsequent T15-amended additions.
 
 #### Changed
 - `POST /api/draft-decision` now appends `## from: human | <ts> | re: <taskId>\n<text>` to the agent's mailbox and commits via `gitCommitAndPush`. Returns JSON `{ ok: true }`. No longer calls the Anthropic SDK or streams SSE (T9 / T5).

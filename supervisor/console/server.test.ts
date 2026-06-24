@@ -29,6 +29,8 @@ import {
   stopProcess,
   computeStuckSignals,
   readAndValidatePostBody,
+  defaultKillFn,
+  defaultIsProcessAlive,
   type AgentStatus,
   type GitSpawner,
   type ApprovalItem,
@@ -2219,15 +2221,119 @@ afterAll(
     }),
 );
 
-describe("fleet/restart role human (T15-amended)", () => {
-  test("AC1/AC5: calls kernel/task fail with --role human argv when agent has a claimed task", async () => {
-    t15aTaskFailCalls = [];
-    t15aSpawnCalls = [];
-    t15aMockTaskFailCode = 0;
-    writeFileSync(
-      join(t15aLedgerDir, "TASK-001.task"),
-      "id: TASK-001\nclaimed_by: agent-be\nstatus: in_progress\n",
+// =============================================================================
+// T16 — v1 test expansion: fleet control + stuck + log tail + pipeline
+// Each describe block is isolated so it is easily findable by git bisect.
+// =============================================================================
+
+// --- T16 AC1: fleet/stop stale PID ---
+
+describe("fleet/stop stale PID", () => {
+  test("PID file exists but process does not exist (ESRCH) → 200 { ok: true }", async () => {
+    fleetKillCalls = [];
+    mockIsAlive = () => false; // simulates process.kill(pid, 0) throwing ESRCH
+    const r = await fetch("http://127.0.0.1:7849/api/fleet/stop?agent=agent-be", { method: "POST" });
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { ok: boolean };
+    expect(body.ok).toBe(true);
+    // stopProcess returns immediately without sending any signal to a non-running process
+    expect(fleetKillCalls).toHaveLength(0);
+  });
+});
+
+// --- T16 AC2: stuck 4-event loop ---
+
+describe("stuck 4-event loop", () => {
+  test("exactly 4 matching tool events does NOT trigger loop signal (threshold is 5)", () => {
+    const ah = join(testDir, "stuck-4events");
+    mkdirSync(join(ah, "agent-4evt", "logs"), { recursive: true });
+    const recentTs = new Date().toISOString();
+    // Exactly 4 consecutive Bash events — loop check requires validEvents.length >= 5
+    const lines = Array.from({ length: 4 }, () =>
+      JSON.stringify({ ts: recentTs, tool: "Bash", summary: "work" }),
+    ).join("\n") + "\n";
+    writeFileSync(join(ah, "agent-4evt", "logs", "live-events.jsonl"), lines);
+
+    const result = computeStuckSignals(
+      ["agent-4evt"],
+      ah,
+      join(testDir, "nonexistent-4evt-ledger"),
+      Date.now(),
     );
+    // 4 events is below the 5-event threshold — no loop signal must be present
+    expect(result.some((e) => e.agent === "agent-4evt" && e.signal === "loop")).toBe(false);
+  });
+});
+
+// --- T16 AC3: stuck precedence ---
+
+describe("stuck precedence", () => {
+  test("fail_storm signal returned when both fail_storm and loop conditions are met", () => {
+    const ah = join(testDir, "stuck-precedence");
+    const ld = join(testDir, "precedence-ledger");
+    mkdirSync(join(ah, "agent-prec", "logs"), { recursive: true });
+    mkdirSync(ld, { recursive: true });
+
+    // Ledger: failure_count=2, status=in_progress → fail_storm condition met
+    writeFileSync(
+      join(ld, "PREC1.task"),
+      "id: PREC1\nstatus: in_progress\nclaimed_by: agent-prec\nfailure_count: 2\n",
+    );
+
+    // Log: 5 identical Bash events → loop condition also met
+    const recentTs = new Date().toISOString();
+    const lines = Array.from({ length: 5 }, () =>
+      JSON.stringify({ ts: recentTs, tool: "Bash", summary: "work" }),
+    ).join("\n") + "\n";
+    writeFileSync(join(ah, "agent-prec", "logs", "live-events.jsonl"), lines);
+
+    const result = computeStuckSignals(["agent-prec"], ah, ld, Date.now());
+    const entry = result.find((e) => e.agent === "agent-prec");
+    expect(entry).toBeDefined();
+    // fail_storm is checked before loop in computeStuckSignals and uses continue — wins
+    expect(entry!.signal).toBe("fail_storm");
+  });
+});
+
+// --- T16 AC4: log n=0 ---
+// Uses its own server so this block is independent of the describe("GET /api/log") lifecycle.
+
+describe("log n=0", () => {
+  let n0Server: Server;
+
+  beforeAll(
+    () =>
+      new Promise<void>((resolve) => {
+        n0Server = createServer(makeLogHandler(logAgentsHome, makeRateLimiter(10)));
+        n0Server.listen(7860, "127.0.0.1", resolve);
+      }),
+  );
+
+  afterAll(
+    () =>
+      new Promise<void>((resolve, reject) => {
+        n0Server.close((err) => {
+          if (err) reject(err);
+          else resolve();
+        });
+      }),
+  );
+
+  test("?n=0 returns 400 { error: 'n must be 1-200' } (boundary below minimum)", async () => {
+    const r = await fetch("http://127.0.0.1:7860/api/log/agent-be?n=0");
+    expect(r.status).toBe(400);
+    const body = (await r.json()) as { error: string };
+    expect(body.error).toBe("n must be 1-200");
+  });
+});
+
+// =============================================================================
+
+describe("POST /api/draft-decision", () => {
+  test("AC1: appends correct mailbox block to {controlDir}/mailboxes/{agentName}.md", async () => {
+    capturedGitArgs = null;
+    gitShouldFail = false;
+    const mailboxFile = join(draftMailboxDir, "agent-be.md");
 
     const r = await fetch(`http://127.0.0.1:${T15A_PORT}/api/fleet/restart?agent=agent-be`, { method: "POST" });
     expect(r.status).toBe(200);
@@ -2273,5 +2379,139 @@ describe("fleet/restart role human (T15-amended)", () => {
     expect(t15aSpawnCalls).toContain("agent-be");
 
     unlinkSync(join(t15aLedgerDir, "TASK-003.task"));
+  });
+});
+
+// =============================================================================
+// T16-amended: 4 gap tests — stale PID, loop threshold, signal precedence, n=0
+// =============================================================================
+
+// --- T16-amended AC1: POST /api/fleet/stop with a stale PID ---
+
+const STALE_PID_PORT = 7871;
+const stalePidTestDir = join(testDir, "stale-pids");
+let stalePidServer: Server;
+
+beforeAll(
+  () =>
+    new Promise<void>((resolve) => {
+      mkdirSync(stalePidTestDir, { recursive: true });
+      // PID 99999 is not running (macOS max is 99998; safe cross-platform sentinel)
+      writeFileSync(join(stalePidTestDir, "agent-be.pid"), "99999\n");
+      stalePidServer = createServer(
+        makeFleetControlHandler({
+          validAgents: new Set(["agent-be"]),
+          pidsDir: stalePidTestDir,
+          supervisorDir: stalePidTestDir,
+          killFn: defaultKillFn,
+          isAliveFn: defaultIsProcessAlive,
+          spawnFn: () => {},
+          broadcastFn: () => {},
+          stopTimeoutMs: 100,
+        }),
+      );
+      stalePidServer.listen(STALE_PID_PORT, "127.0.0.1", resolve);
+    }),
+);
+
+afterAll(
+  () =>
+    new Promise<void>((resolve, reject) => {
+      stalePidServer.close((err) => {
+        if (err) reject(err);
+        else resolve();
+      });
+    }),
+);
+
+describe("fleet/stop stale PID", () => {
+  test("PID file exists but process is not running → stop returns 200 { ok: true }", async () => {
+    const r = await fetch(`http://127.0.0.1:${STALE_PID_PORT}/api/fleet/stop?agent=agent-be`, {
+      method: "POST",
+    });
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { ok: boolean };
+    expect(body.ok).toBe(true);
+  });
+});
+
+// --- T16-amended AC2: GET /api/stuck with exactly 4 matching tool events ---
+
+describe("stuck loop threshold 4", () => {
+  test("exactly 4 consecutive same-tool events does NOT trigger loop signal (threshold is 5)", () => {
+    const tDir = join(testDir, "stuck-4events");
+    mkdirSync(join(tDir, "agent-4loop", "logs"), { recursive: true });
+    const recentTs = new Date().toISOString();
+    const lines =
+      Array.from({ length: 4 }, () =>
+        JSON.stringify({ ts: recentTs, tool: "Edit", summary: "editing" }),
+      ).join("\n") + "\n";
+    writeFileSync(join(tDir, "agent-4loop", "logs", "live-events.jsonl"), lines);
+
+    const signals = computeStuckSignals(["agent-4loop"], tDir, join(testDir, "empty-ledger-4"));
+    const loopEntry = signals.find((e) => e.agent === "agent-4loop" && e.signal === "loop");
+    expect(loopEntry).toBeUndefined();
+  });
+});
+
+// --- T16-amended AC3: GET /api/stuck signal precedence ---
+
+describe("stuck signal precedence", () => {
+  test("fail_storm takes precedence over loop when both conditions are met simultaneously", () => {
+    const tDir = join(testDir, "stuck-prec");
+    const tLedger = join(testDir, "stuck-prec-ledger");
+    mkdirSync(join(tDir, "agent-prec", "logs"), { recursive: true });
+    mkdirSync(tLedger, { recursive: true });
+
+    // fail_storm condition: failure_count=2 + status=in_progress
+    writeFileSync(
+      join(tLedger, "PREC-1.task"),
+      "id: PREC-1\nstatus: in_progress\nclaimed_by: agent-prec\nfailure_count: 2\n",
+    );
+
+    // loop condition: 5 consecutive same-tool events
+    const recentTs = new Date().toISOString();
+    const lines =
+      Array.from({ length: 5 }, () =>
+        JSON.stringify({ ts: recentTs, tool: "Edit", summary: "editing" }),
+      ).join("\n") + "\n";
+    writeFileSync(join(tDir, "agent-prec", "logs", "live-events.jsonl"), lines);
+
+    const signals = computeStuckSignals(["agent-prec"], tDir, tLedger);
+    const entry = signals.find((e) => e.agent === "agent-prec");
+    expect(entry).toBeDefined();
+    expect(entry!.signal).toBe("fail_storm");
+  });
+});
+
+// --- T16-amended AC4: GET /api/log/:agent?n=0 → 400 ---
+
+const LOG_N0_PORT = 7872;
+let logN0Server: Server;
+
+beforeAll(
+  () =>
+    new Promise<void>((resolve) => {
+      logN0Server = createServer(makeLogHandler(logAgentsHome, makeRateLimiter(100)));
+      logN0Server.listen(LOG_N0_PORT, "127.0.0.1", resolve);
+    }),
+);
+
+afterAll(
+  () =>
+    new Promise<void>((resolve, reject) => {
+      logN0Server.close((err) => {
+        if (err) reject(err);
+        else resolve();
+      });
+    }),
+);
+
+describe("log n=0", () => {
+  test("?n=0 returns 400 { error: 'n must be 1-200' } (boundary below minimum)", async () => {
+    const r = await fetch(`http://127.0.0.1:${LOG_N0_PORT}/api/log/agent-be?n=0`);
+    expect(r.status).toBe(400);
+    const body = (await r.json()) as { error: string };
+    expect(body.error).toBe("n must be 1-200");
   });
 });

@@ -9,7 +9,7 @@ Scripts for starting, stopping, and monitoring the autonomous agent fleet.
 | `fleet.conf` | Declare all agents in one place |
 | `install.sh` | Register an agent as a launchd (macOS) or systemd (Linux) service |
 | `wake-listen.ts` | Supabase Realtime subscriber — wakes idle agents in <1s cross-machine |
-| `console/server.ts` | Console HTTP server (v7.1 — auto-detects control repo, gates risky Bash commands, streams live events via SSE; T11: fleet control routes — POST /api/fleet/stop, /restart, /pause, /resume; T11-amended: shim removed — `validAgents` built solely from `controlDir/fleet.conf` via `rebuildValidAgents()`, called at startup and on workspace switch; T5: `handleDraftDecision` rewritten — Anthropic SDK dependency removed, endpoint now appends a timestamped human note block to the agent's mailbox file and calls `gitCommitAndPush`) |
+| `console/server.ts` | Console HTTP server (v7.1 — auto-detects control repo, gates risky Bash commands, streams live events via SSE; T11: fleet control routes — POST /api/fleet/stop, /restart, /pause, /resume; T11-amended: shim removed — `validAgents` built solely from `controlDir/fleet.conf` via `rebuildValidAgents()`, called at startup and on workspace switch; T15-amended: `POST /api/fleet/restart` calls `kernel/task fail {taskId} --agent {agentName} --role human` via `spawnSync` before stopping and relaunching — returns 500 if fail exits non-zero, skips if agent holds no claimed task; T5: `handleDraftDecision` rewritten — Anthropic SDK dependency removed, endpoint now appends a timestamped human note block to the agent's mailbox file and calls `gitCommitAndPush`) |
 | `console/bin/bash` | Risk-gated Bash tool intercept (v7.1 — blocks destructive commands until approved) |
 | `console/index.html` | Console UI entry point (v7.1 — serves static HTML with SSE support, Pipeline tab panel with domain filter chips and spec panel) |
 | `console/console.js` | Console interactive client (v7.1 — card animations, empty states, AI draft panel, ARIA accessibility, Pipeline tab with collapsible status groups, domain filter chips persisted in localStorage, spec panel on card click, `pipeline-update` SSE listener; T13-amended: `pipelineBootstrapped` one-shot guard on tab activate, `fetchPipeline()` called on SSE reconnect, all SSE listeners fixed from `currentEs` → `es`) |
@@ -971,7 +971,7 @@ Operators can stop, restart, pause, or resume any agent directly from the Fleet 
 5. If the process has not exited after `stopTimeoutMs` (default 5000 ms), sends SIGKILL and resolves.
 6. If the process exits before the timeout fires, clears the timer and resolves.
 
-`restart` calls `stopProcess` then spawns `run-agent.sh <agentName>` as a detached subprocess with `stdio: 'ignore'` and calls `proc.unref()`, so the console server does not wait for or track the new Claude session.
+`restart` (T15-amended) first checks whether the agent holds a claimed ledger task by calling `parseTaskLedger(join(controlDir, "ledger"))` and finding an entry where `claimed_by === agentName`. If one exists, it calls `spawnSync(join(controlDir, "kernel", "task"), ["fail", taskId, "--agent", agentName, "--role", "human"])` to record the failure as human-initiated. If that subprocess exits non-zero, the handler returns HTTP 500 `{ error: "kernel/task fail exited with code N" }` and aborts without restarting. If no claimed task exists, the fail step is skipped. After the fail step (or skip), `restart` calls `stopProcess` then spawns `run-agent.sh <agentName>` as a detached subprocess with `stdio: 'ignore'` and calls `proc.unref()`, so the console server does not wait for or track the new Claude session.
 
 ### Error responses
 
@@ -980,6 +980,7 @@ Operators can stop, restart, pause, or resume any agent directly from the Fleet 
 | `agentName` not in `validAgents` (from `controlDir/fleet.conf`) | 400 | `{ error: 'unknown agent' }` |
 | PID file does not exist at `pids/{agentName}.pid` | 404 | `{ error: 'pid file not found' }` |
 | Process is not running — pause or resume only (AC6) | 409 | `{ error: 'process not running' }` |
+| `kernel/task fail` exits non-zero — restart only (T15-amended AC3) | 500 | `{ error: 'kernel/task fail exited with code N' }` |
 
 For `stop` and `restart`, a stale PID (process already exited) is handled silently — `stopProcess` returns immediately and the response is `{ ok: true }`. This makes `stop` idempotent (AC8).
 
@@ -1010,7 +1011,7 @@ The `action` field is `"stop"` or `"restart"`. `pause` and `resume` do not broad
 | AC | What it tests |
 |---|---|
 | AC1 | `stopProcess` sends SIGTERM first, then SIGKILL after timeout when process stays alive |
-| AC2 | `POST /api/fleet/restart` stops the agent then spawns `run-agent.sh <agentName>` |
+| AC2 | `POST /api/fleet/restart` stops the agent then spawns `run-agent.sh <agentName>` (T15-amended: preceded by `kernel/task fail --role human` when a claimed task exists) |
 | AC3 | `POST /api/fleet/pause` sends SIGSTOP to the agent's PID |
 | AC4 | `POST /api/fleet/resume` sends SIGCONT to the agent's PID |
 | AC5 | Unknown agent name → 400 on all four endpoints |
@@ -1873,6 +1874,74 @@ T14-amended adds a `describe("stuck detection malformed JSONL")` block with 3 te
 | `AC3: malformed JSONL lines do not cause a 500 — endpoint always returns 200` | AC3 | `GET /api/stuck` against the mixed-malformed server returns HTTP 200, not 500 |
 | `AC4: all-malformed JSONL file → { stuck: [] } with HTTP 200` | AC4 | `GET /api/stuck` against the all-malformed server returns HTTP 200; `body.stuck` has length 0 (no valid events to compute signals from) |
 
+### Force restart --role human tests — server.test.ts (T15-amended AC1–AC5)
+
+T15-amended adds a `describe("fleet/restart role human (T15-amended)")` block with 3 tests on a dedicated HTTP server (port 7870). The `makeFleetControlHandler` factory gains two optional injectable parameters: `ledgerDir` (path to a temp ledger directory) and `taskFailFn((argv: string[]) => number)` (mocks the `kernel/task fail` subprocess and records the argv it was called with).
+
+| Test | AC | What it asserts |
+|---|---|---|
+| `AC1/AC5: calls kernel/task fail with --role human argv when agent has a claimed task` | AC1/AC5 | POST `/api/fleet/restart?agent=agent-be`; `TASK-001.task` has `claimed_by: agent-be`; `taskFailFn` receives `["fail", "TASK-001", "--agent", "agent-be", "--role", "human"]`; response 200; `spawnCalls` contains `"agent-be"` |
+| `AC3: returns 500 when kernel/task fail exits non-zero and does not restart` | AC3 | `taskFailFn` returns exit code 1; response 500 `{ error: "kernel/task fail exited with code 1" }`; `spawnCalls` is empty (agent not restarted) |
+| `AC4: skips kernel/task fail and restarts when agent has no claimed task` | AC4 | `TASK-003.task` is claimed by `agent-qa`, not `agent-be`; `taskFailFn` is not called; response 200; `spawnCalls` contains `"agent-be"` |
+
+Each test writes its own temp ledger file and cleans up with `unlinkSync`. Module-level `t15aTaskFailCalls`, `t15aSpawnCalls`, and `t15aMockTaskFailCode` are reset before each test case to prevent cross-test contamination.
+
+### T16 test expansion — `server.test.ts` (T16 AC1–AC4 + T16-amended AC1–AC4)
+
+T16 adds 4 describe blocks (T16 section) and 4 more (T16-amended section) — 8 new server tests in total, each in its own isolated describe block so they are individually findable by `git bisect`. All are appended after the existing test suite; no existing describe blocks were modified.
+
+**T16 AC1 — `describe("fleet/stop stale PID")`** (1 test, reuses port 7849 fleet server):
+
+| Test | AC | What it asserts |
+|---|---|---|
+| `PID file exists but process does not exist (ESRCH) → 200 { ok: true }` | AC1 | `mockIsAlive = () => false` (simulates `process.kill(pid, 0)` throwing ESRCH); POST `/api/fleet/stop?agent=agent-be` → HTTP 200, `{ ok: true }`; `fleetKillCalls` has length 0 (no signal sent to a non-running process) |
+
+**T16 AC2 — `describe("stuck 4-event loop")`** (1 test, pure unit):
+
+| Test | AC | What it asserts |
+|---|---|---|
+| `exactly 4 matching tool events does NOT trigger loop signal (threshold is 5)` | AC2 | `computeStuckSignals` called with a JSONL file containing exactly 4 consecutive `Bash` events; result must NOT contain a `loop` signal for `agent-4evt` (threshold is 5) |
+
+**T16 AC3 — `describe("stuck precedence")`** (1 test, pure unit):
+
+| Test | AC | What it asserts |
+|---|---|---|
+| `fail_storm signal returned when both fail_storm and loop conditions are met` | AC3 | Ledger has `failure_count=2, status=in_progress` (fail_storm met) AND JSONL has 5 identical `Bash` events (loop met); `computeStuckSignals` returns a single entry with `signal="fail_storm"` for `agent-prec` — precedence rule confirmed (`fail_storm` checks before `loop` and uses `continue`) |
+
+**T16 AC4 — `describe("log n=0")`** (1 test, own server port 7860):
+
+| Test | AC | What it asserts |
+|---|---|---|
+| `?n=0 returns 400 { error: 'n must be 1-200' } (boundary below minimum)` | AC4 | `makeLogHandler` wired on port 7860; GET `/api/log/agent-be?n=0` → HTTP 400, `{ error: "n must be 1-200" }` |
+
+---
+
+**T16-amended AC1 — `describe("POST /api/fleet/stop stale PID")`** (1 test, own server port 7857):
+
+Uses `defaultIsProcessAlive` (the real `process.kill(pid, 0)` liveness check) and `defaultKillFn` (the real signal sender). PID file is written with `2147483647` (max signed 32-bit int — guaranteed not to exist).
+
+| Test | AC | What it asserts |
+|---|---|---|
+| `PID file exists but process.kill(pid, 0) throws ESRCH → stop returns 200 { ok: true }` | AC1 | POST `/api/fleet/stop?agent=agent-be` → HTTP 200, `{ ok: true }` |
+
+**T16-amended AC2 — `describe("GET /api/stuck 4-event loop")`** (1 test, pure unit):
+
+| Test | AC | What it asserts |
+|---|---|---|
+| `4 consecutive same-tool events does NOT produce loop signal (threshold is 5)` | AC2 | 4 `Edit` events in JSONL; no `loop` entry for `agent-4loop` in `computeStuckSignals` result |
+
+**T16-amended AC3 — `describe("GET /api/stuck precedence")`** (1 test, pure unit):
+
+| Test | AC | What it asserts |
+|---|---|---|
+| `fail_storm takes precedence over loop when both conditions are met` | AC3 | Ledger task `PREC-1` has `failure_count=2, status=in_progress` (fail_storm); JSONL has 5 `Edit` events (loop); `computeStuckSignals` entry for `agent-prec` has `signal="fail_storm"` |
+
+**T16-amended AC4 — `describe("GET /api/log n=0")`** (1 test, own server port 7858):
+
+| Test | AC | What it asserts |
+|---|---|---|
+| `?n=0 returns 400 { error: 'n must be 1-200' } (boundary case)` | AC4 | Separate `makeLogHandler` on port 7858 (independent lifecycle from T16 AC4's port 7860); GET `?n=0` → HTTP 400, `{ error: "n must be 1-200" }` |
+
 ### Draft-decision tests — server.test.ts (T5 AC1–AC7)
 
 T5 adds a `describe("POST /api/draft-decision")` block with 7 tests across two isolated HTTP servers:
@@ -1937,8 +2006,14 @@ The script:
 9. Asserts `GET /api/stuck` returns HTTP 200 with a `"stuck"` key in the response body (T15 AC1)
 10. Asserts `index.html` contains a `stuck-cards` container element (T15 AC1/AC2)
 11. Asserts `id="stuck-alert-slot"` appears before `id="section-attention"` in the HTML source (T15 AC2 — slot is above the Queue attention section)
-12. Captures a timestamped screenshot to `/tmp/console-qa-<timestamp>.png`
-13. Prints the screenshot path to stdout so the QA agent can attach it to its report
+12. Asserts `GET /api/pipeline` returns HTTP 200 with `content-type: application/json` (T16 AC6)
+13. Asserts `GET /api/stuck` returns HTTP 200 with `content-type: application/json` (T16 AC6)
+14. Asserts `GET /api/log/smoke-test-agent` returns HTTP 200 with `content-type: application/json` (T16 AC6)
+15. Asserts `POST /api/fleet/stop?agent=smoke-test-agent` (mock PID 99999 — non-running) returns `{ ok: true }` (T16 AC7)
+16. Captures a timestamped screenshot to `/tmp/console-qa-<timestamp>.png`
+17. Prints the screenshot path to stdout so the QA agent can attach it to its report
+
+Items 12–14 use a `check_json` helper that calls `curl -D -` to capture response headers inline and checks both HTTP status and `Content-Type: application/json`. Items 14–15 require `CONTROL_DIR` to be set so `validAgents` is populated — the script creates a temporary `CONTROL_DIR` with a single-line `fleet.conf` listing `smoke-test-agent`, and writes a mock PID file at `supervisor/pids/smoke-test-agent.pid` containing `99999`. Both are cleaned up by the `EXIT` trap.
 
 ### Error handling
 
