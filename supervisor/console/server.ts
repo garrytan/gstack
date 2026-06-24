@@ -332,6 +332,21 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       sendJson(res, { ok: true });
       return;
     }
+    // T15-amended: for restart, mark the agent's current task as human-failed first.
+    if (action === "restart") {
+      const tasks = parseTaskLedger(join(controlDir, "ledger"));
+      const claimed = tasks.find((t) => t.claimed_by === agentName);
+      if (claimed?.id) {
+        const result = spawnSync(join(controlDir, "kernel", "task"), [
+          "fail", claimed.id, "--agent", agentName, "--role", "human",
+        ]);
+        const code = result.status ?? 1;
+        if (code !== 0) {
+          sendJson(res, { error: `kernel/task fail exited with code ${code}` }, 500);
+          return;
+        }
+      }
+    }
     // stop and restart — async; response sent after stop completes
     void (async () => {
       await stopProcess(pid);

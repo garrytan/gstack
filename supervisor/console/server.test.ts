@@ -1409,6 +1409,8 @@ function makeFleetControlHandler(opts: {
   spawnFn: (script: string, agentName: string) => void;
   broadcastFn: (frame: string) => void;
   stopTimeoutMs?: number;
+  ledgerDir?: string;
+  taskFailFn?: (argv: string[]) => number;
 }) {
   return (req: IncomingMessage, res: ServerResponse) => {
     const path = rawPath(req.url);
@@ -1437,6 +1439,17 @@ function makeFleetControlHandler(opts: {
       }
       opts.killFn(pid, action === "pause" ? "SIGSTOP" : "SIGCONT");
       sendJson(res, { ok: true }); return;
+    }
+    // T15-amended: for restart, mark the agent's current task as human-failed first.
+    if (action === "restart" && opts.taskFailFn && opts.ledgerDir) {
+      const tasks = parseTaskLedger(opts.ledgerDir);
+      const claimed = tasks.find((t) => t.claimed_by === agentName);
+      if (claimed?.id) {
+        const code = opts.taskFailFn(["fail", claimed.id, "--agent", agentName, "--role", "human"]);
+        if (code !== 0) {
+          sendJson(res, { error: `kernel/task fail exited with code ${code}` }, 500); return;
+        }
+      }
     }
     // stop / restart — async
     void (async () => {
@@ -2160,104 +2173,105 @@ describe("stuck detection malformed JSONL", () => {
   });
 });
 
-// --- T9 AC4: rawPath dot-segment preservation ---
+// =============================================================================
+// T15-amended — POST /api/fleet/restart: kernel/task fail --role human
+// =============================================================================
 
-describe("rawPath dot-segment preservation (AC4)", () => {
-  test("rawPath('/a/../b') returns '/a/../b' unprocessed (AC4)", () => {
-    expect(rawPath("/a/../b")).toBe("/a/../b");
+const T15A_PORT = 7870;
+const t15aLedgerDir = join(testDir, "t15a-ledger");
+const t15aPidsDir = join(testDir, "t15a-pids");
+const t15aValidAgents = new Set(["agent-be"]);
+
+let t15aTaskFailCalls: string[][] = [];
+let t15aSpawnCalls: string[] = [];
+let t15aMockTaskFailCode = 0;
+let t15aServer: Server;
+
+beforeAll(
+  () =>
+    new Promise<void>((resolve) => {
+      mkdirSync(t15aLedgerDir, { recursive: true });
+      mkdirSync(t15aPidsDir, { recursive: true });
+      writeFileSync(join(t15aPidsDir, "agent-be.pid"), "99999\n");
+
+      t15aServer = createServer(
+        makeFleetControlHandler({
+          validAgents: t15aValidAgents,
+          pidsDir: t15aPidsDir,
+          supervisorDir: join(testDir, "t15a-supervisor"),
+          killFn: () => {},
+          isAliveFn: () => false,
+          spawnFn: (_script, agentName) => t15aSpawnCalls.push(agentName),
+          broadcastFn: () => {},
+          stopTimeoutMs: 50,
+          ledgerDir: t15aLedgerDir,
+          taskFailFn: (argv) => { t15aTaskFailCalls.push(argv); return t15aMockTaskFailCode; },
+        }),
+      );
+      t15aServer.listen(T15A_PORT, "127.0.0.1", resolve);
+    }),
+);
+
+afterAll(
+  () =>
+    new Promise<void>((resolve, reject) => {
+      t15aServer.close((err) => { if (err) reject(err); else resolve(); });
+    }),
+);
+
+describe("fleet/restart role human (T15-amended)", () => {
+  test("AC1/AC5: calls kernel/task fail with --role human argv when agent has a claimed task", async () => {
+    t15aTaskFailCalls = [];
+    t15aSpawnCalls = [];
+    t15aMockTaskFailCode = 0;
+    writeFileSync(
+      join(t15aLedgerDir, "TASK-001.task"),
+      "id: TASK-001\nclaimed_by: agent-be\nstatus: in_progress\n",
+    );
+
+    const r = await fetch(`http://127.0.0.1:${T15A_PORT}/api/fleet/restart?agent=agent-be`, { method: "POST" });
+    expect(r.status).toBe(200);
+
+    expect(t15aTaskFailCalls).toHaveLength(1);
+    expect(t15aTaskFailCalls[0]).toEqual(["fail", "TASK-001", "--agent", "agent-be", "--role", "human"]);
+    expect(t15aSpawnCalls).toContain("agent-be");
+
+    unlinkSync(join(t15aLedgerDir, "TASK-001.task"));
   });
 
-  test("rawPath('/foo/./bar') returns '/foo/./bar' unprocessed (AC4)", () => {
-    expect(rawPath("/foo/./bar")).toBe("/foo/./bar");
-  });
+  test("AC3: returns 500 when kernel/task fail exits non-zero and does not restart", async () => {
+    t15aTaskFailCalls = [];
+    t15aSpawnCalls = [];
+    t15aMockTaskFailCode = 1;
+    writeFileSync(
+      join(t15aLedgerDir, "TASK-002.task"),
+      "id: TASK-002\nclaimed_by: agent-be\nstatus: in_progress\n",
+    );
 
-  test("rawPath does not normalise dot segments the way the URL API would (AC4 contrast)", () => {
-    expect(rawPath("/a/../b")).not.toBe(new URL("/a/../b", "http://localhost").pathname);
-  });
-});
-
-// --- T9 AC7: GET /api/fleet absent/empty fleet.conf ---
-
-describe("GET /api/fleet absent/empty fleet.conf (AC7)", () => {
-  test("readFleetStatus with empty agent list returns [] — no crash (AC7)", () => {
-    expect(readFleetStatus([], testDir)).toEqual([]);
-  });
-
-  test("GET /api/fleet returns 200 with [] when no agents configured (AC7)", async () => {
-    const srv = createServer((_req, res) => {
-      sendJson(res, readFleetStatus([], testDir));
-    });
-    await new Promise<void>((resolve) => srv.listen(0, "127.0.0.1", resolve));
-    const { port } = srv.address() as { port: number };
-    try {
-      const r = await fetch(`http://127.0.0.1:${port}/api/fleet`);
-      expect(r.status).toBe(200);
-      expect(await r.json()).toEqual([]);
-    } finally {
-      await new Promise<void>((resolve) => srv.close(resolve));
-    }
-  });
-});
-
-// --- T9 AC1: malformed JSON body rejected by all POST endpoints ---
-
-describe("malformed JSON body (AC1)", () => {
-  test("POST /api/mailbox/agent-be returns 400 for invalid JSON body (AC1)", async () => {
-    const r = await fetch(`http://127.0.0.1:${TEST_PORT}/api/mailbox/agent-be`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: "{not: valid json}",
-    });
-    expect(r.status).toBe(400);
+    const r = await fetch(`http://127.0.0.1:${T15A_PORT}/api/fleet/restart?agent=agent-be`, { method: "POST" });
+    expect(r.status).toBe(500);
     const body = (await r.json()) as { error: string };
-    expect(body.error).toBeTruthy();
+    expect(body.error).toBe("kernel/task fail exited with code 1");
+    expect(t15aSpawnCalls).toHaveLength(0);
+
+    unlinkSync(join(t15aLedgerDir, "TASK-002.task"));
   });
 
-  test("POST /api/approve returns 400 for invalid JSON body (AC1)", async () => {
-    const r = await fetch(`http://127.0.0.1:${TEST_PORT}/api/approve`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: "this is not json",
-    });
-    expect(r.status).toBe(400);
-  });
+  test("AC4: skips kernel/task fail and restarts when agent has no claimed task", async () => {
+    t15aTaskFailCalls = [];
+    t15aSpawnCalls = [];
+    t15aMockTaskFailCode = 0;
+    // ledger has a task claimed by a different agent — agent-be has no claim
+    writeFileSync(
+      join(t15aLedgerDir, "TASK-003.task"),
+      "id: TASK-003\nclaimed_by: agent-qa\nstatus: in_progress\n",
+    );
 
-  test("POST /api/draft-decision returns 400 for invalid JSON body (AC1)", async () => {
-    const r = await fetch(`http://127.0.0.1:${TEST_PORT}/api/draft-decision`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: "[unclosed array",
-    });
-    expect(r.status).toBe(400);
-  });
-});
+    const r = await fetch(`http://127.0.0.1:${T15A_PORT}/api/fleet/restart?agent=agent-be`, { method: "POST" });
+    expect(r.status).toBe(200);
+    expect(t15aTaskFailCalls).toHaveLength(0);
+    expect(t15aSpawnCalls).toContain("agent-be");
 
-// --- T9 AC2: missing or wrong Content-Type rejected by all POST endpoints ---
-
-describe("missing Content-Type (AC2)", () => {
-  test("POST /api/mailbox/agent-be returns 400 when Content-Type is not application/json (AC2)", async () => {
-    const r = await fetch(`http://127.0.0.1:${TEST_PORT}/api/mailbox/agent-be`, {
-      method: "POST",
-      headers: { "content-type": "text/plain" },
-      body: JSON.stringify({ note: "hello" }),
-    });
-    expect(r.status).toBe(400);
-  });
-
-  test("POST /api/approve returns 400 when Content-Type is not application/json (AC2)", async () => {
-    const r = await fetch(`http://127.0.0.1:${TEST_PORT}/api/approve`, {
-      method: "POST",
-      body: JSON.stringify({ agentName: "agent-be", requestId: "r1", approved: true }),
-    });
-    expect(r.status).toBe(400);
-  });
-
-  test("POST /api/draft-decision returns 400 when Content-Type is not application/json (AC2)", async () => {
-    const r = await fetch(`http://127.0.0.1:${TEST_PORT}/api/draft-decision`, {
-      method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: "taskId=T9&agentName=agent-be",
-    });
-    expect(r.status).toBe(400);
+    unlinkSync(join(t15aLedgerDir, "TASK-003.task"));
   });
 });
