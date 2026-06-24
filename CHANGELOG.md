@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+### Force restart: mark claimed task as human-failed before restarting (T15-amended)
+
+When the director clicks "Force restart" on a stuck agent, the server now records a human-initiated failure in the ledger before stopping and relaunching the agent. Without this, the ledger showed the task as abandoned — and the agent could immediately re-claim and retry the same task that a human intentionally stopped.
+
+The change is a single `spawnSync` call inserted into `POST /api/fleet/restart` before the existing stop+spawn flow. If the agent holds no claimed task, the call is skipped and restart proceeds unchanged. If the `kernel/task fail` subprocess exits non-zero, the endpoint returns 500 and the agent is not restarted.
+
+#### Added
+- `POST /api/fleet/restart` now calls `kernel/task fail {taskId} --agent {agentName} --role human` via `spawnSync` when the agent's current ledger task has `claimed_by === agentName`. The `--role human` flag is passed as a separate argv element — no shell interpolation (T15-amended AC1/AC2).
+- If `kernel/task fail` exits non-zero, the endpoint returns HTTP 500 `{ error: "kernel/task fail exited with code N" }` and aborts the restart (T15-amended AC3).
+- If the agent holds no claimed task (no ledger entry with `claimed_by === agentName`), the fail call is skipped and restart proceeds normally (T15-amended AC4).
+- `describe("fleet/restart role human (T15-amended)")` — 3 tests on port 7870 covering AC1/AC5 (correct argv), AC3 (non-zero exit → 500), and AC4 (no claim → skip fail) (T15-amended AC5).
+- `makeFleetControlHandler` factory gains two optional injectable parameters: `ledgerDir` (temp ledger directory) and `taskFailFn` (mock subprocess returning an exit code and recording argv).
+
+#### Changed
+- Error response table for `POST /api/fleet/restart` gains a new 500 row: `kernel/task fail exits non-zero → { error: "kernel/task fail exited with code N" }`.
+- 122 total tests (2 bash-wrapper + 120 server).
+
 ### POST body validation + draft-decision mailbox note (T9)
 
 All POST endpoints now reject requests immediately when the `Content-Type` header is missing or wrong, or when the body is not valid JSON. Previously each handler read raw body bytes and called `JSON.parse` independently — a missing header was silently accepted. Now a single shared `readAndValidatePostBody()` utility handles both checks and returns HTTP 400 before any filesystem operation is attempted.
@@ -13,7 +30,7 @@ All POST endpoints now reject requests immediately when the `Content-Type` heade
 - `describe("rawPath dot-segment preservation (AC4)")` — 3 unit tests verifying that `rawPath()` returns dot-segment paths unprocessed, unlike the `URL` API which normalizes them (T9 AC4).
 - `describe("GET /api/fleet absent/empty fleet.conf (AC7)")` — 2 tests verifying that `GET /api/fleet` returns HTTP 200 with `[]` when no agents are configured (T9 AC7).
 - `describe("malformed JSON body (AC1)")` and `describe("missing Content-Type (AC2)")` — 6 tests across all three POST endpoints confirming 400 responses (T9 AC1/AC2).
-- 130 total tests (2 bash-wrapper + 128 server).
+- Current total: 122 tests (2 bash-wrapper + 120 server) after subsequent T15-amended additions.
 
 #### Changed
 - `POST /api/draft-decision` now appends `## from: human | <ts> | re: <taskId>\n<text>` to the agent's mailbox and commits via `gitCommitAndPush`. Returns JSON `{ ok: true }`. No longer calls the Anthropic SDK or streams SSE (T9 / T5).
