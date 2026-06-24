@@ -2,39 +2,12 @@
 
 ## [Unreleased]
 
-### T16 test expansion — stale PID, stuck thresholds, log boundary, smoke AC6/AC7
+### GET /api/stuck — regression guard against agentList ReferenceError (BUG-2)
 
-Four edge cases identified during internal review are now covered by dedicated test blocks. Each runs in its own `describe` so it is trivially findable by `git bisect`. The qa-smoke.sh script gains four new assertions that verify v1 API endpoints return correct HTTP status and content-type headers without requiring a real agent process.
-
-#### Added
-- `describe("fleet/stop stale PID")` — asserts `POST /api/fleet/stop` returns 200 `{ ok: true }` when the PID file exists but the process is already dead (`isAliveFn` returns false / ESRCH); no kill signal is sent (T16 AC1).
-- `describe("stuck 4-event loop")` — asserts that exactly 4 consecutive same-tool events do NOT produce a `loop` signal; threshold is 5 (T16 AC2).
-- `describe("stuck precedence")` — asserts that when both `fail_storm` and `loop` conditions are simultaneously met, `computeStuckSignals` returns `fail_storm` (higher precedence wins) (T16 AC3).
-- `describe("log n=0")` — asserts that `?n=0` returns HTTP 400 `{ error: "n must be 1-200" }` (boundary below the minimum) (T16 AC4).
-- `describe("POST /api/fleet/stop stale PID")` — same scenario as AC1 but using the real `defaultIsProcessAlive` and `defaultKillFn` exports; PID file contains 2147483647 (guaranteed non-running) (T16-amended AC1, port 7857).
-- `describe("GET /api/stuck 4-event loop")` — same threshold check with `Edit` events on a separate test directory, independent of the T16 AC2 agent (T16-amended AC2).
-- `describe("GET /api/stuck precedence")` — same precedence check with `Edit` events; uses `PREC-1.task` in a separate ledger dir (T16-amended AC3).
-- `describe("GET /api/log n=0")` — same boundary check on port 7858 so the test lifecycle is independent of T16 AC4's port 7860 (T16-amended AC4).
-- `check_json` helper in `qa-smoke.sh` — uses `curl -D -` to assert HTTP 200 AND `application/json` content-type on GET endpoints without a separate HEAD request (T16 AC6).
-- `qa-smoke.sh` now sets up a tmp `CONTROL_DIR` with a single-line `fleet.conf` and a mock PID file (`supervisor/pids/smoke-test-agent.pid` = 99999) so fleet/log endpoints can be verified without a real agent process (T16 AC6/AC7).
-- 130 total tests (2 bash-wrapper + 128 server).
-
-### Force restart: mark claimed task as human-failed before restarting (T15-amended)
-
-When the director clicks "Force restart" on a stuck agent, the server now records a human-initiated failure in the ledger before stopping and relaunching the agent. Without this, the ledger showed the task as abandoned — and the agent could immediately re-claim and retry the same task that a human intentionally stopped.
-
-The change is a single `spawnSync` call inserted into `POST /api/fleet/restart` before the existing stop+spawn flow. If the agent holds no claimed task, the call is skipped and restart proceeds unchanged. If the `kernel/task fail` subprocess exits non-zero, the endpoint returns 500 and the agent is not restarted.
+A static test now prevents the `GET /api/stuck` crash from coming back via a future merge conflict. The crash itself was already fixed in main (T11-amended renamed `agentList` to `supervisorAgentList`; T14 introduced the stuck route using the old name before that rename landed). The regression guard reads `server.ts` source at test time and asserts that `computeStuckSignals` is never called with `agentList` — a wrong variable name fails CI immediately, before any runtime crash can reach production.
 
 #### Added
-- `POST /api/fleet/restart` now calls `kernel/task fail {taskId} --agent {agentName} --role human` via `spawnSync` when the agent's current ledger task has `claimed_by === agentName`. The `--role human` flag is passed as a separate argv element — no shell interpolation (T15-amended AC1/AC2).
-- If `kernel/task fail` exits non-zero, the endpoint returns HTTP 500 `{ error: "kernel/task fail exited with code N" }` and aborts the restart (T15-amended AC3).
-- If the agent holds no claimed task (no ledger entry with `claimed_by === agentName`), the fail call is skipped and restart proceeds normally (T15-amended AC4).
-- `describe("fleet/restart role human (T15-amended)")` — 3 tests on port 7870 covering AC1/AC5 (correct argv), AC3 (non-zero exit → 500), and AC4 (no claim → skip fail) (T15-amended AC5).
-- `makeFleetControlHandler` factory gains two optional injectable parameters: `ledgerDir` (temp ledger directory) and `taskFailFn` (mock subprocess returning an exit code and recording argv).
-
-#### Changed
-- Error response table for `POST /api/fleet/restart` gains a new 500 row: `kernel/task fail exits non-zero → { error: "kernel/task fail exited with code N" }`.
-- 122 total tests (2 bash-wrapper + 120 server).
+- `describe("BUG-2: GET /api/stuck agentList regression guard")` — 1 test in `server.test.ts`: reads `server.ts` with `readFileSync` and asserts `/computeStuckSignals\s*\(\s*agentList\b/` does not match (131 total: 2 bash-wrapper + 129 server).
 
 ### POST body validation + draft-decision mailbox note (T9)
 
