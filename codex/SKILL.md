@@ -938,7 +938,7 @@ Run Codex code review against the current branch diff.
 
 1. Create temp files for output capture:
 ```bash
-TMPERR=$(mktemp "$TMP_ROOT/codex-err-XXXXXX.txt")
+TMPERR=$(mktemp "$TMP_ROOT/codex-err-XXXXXX")
 ```
 
 2. Run the review (5-minute timeout). **Codex CLI ≥ 0.130.0 rejects passing a
@@ -986,7 +986,7 @@ when the diff content is adversarial:
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
 cd "$_REPO_ROOT"
 _USER_INSTRUCTIONS="<everything after '/codex review ' in user input>"
-_PROMPT_FILE=$(mktemp "$TMP_ROOT/codex-prompt-XXXXXX.txt")
+_PROMPT_FILE=$(mktemp "$TMP_ROOT/codex-prompt-XXXXXX")
 {
   printf '%s\n' "IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. Do NOT modify agents/openai.yaml. Stay focused on repository code only."
   printf '\nCustom focus: %s\n\n' "$_USER_INSTRUCTIONS"
@@ -1237,7 +1237,7 @@ if [ -z "$PYTHON_CMD" ]; then
 fi
 # Fix 1+2: wrap with timeout (gtimeout/timeout fallback chain via probe helper),
 # capture stderr to $TMPERR for auth error detection (was: 2>/dev/null).
-TMPERR=${TMPERR:-$(mktemp "$TMP_ROOT/codex-err-XXXXXX.txt")}
+TMPERR=${TMPERR:-$(mktemp "$TMP_ROOT/codex-err-XXXXXX")}
 _gstack_codex_timeout_wrapper 600 codex exec "<prompt>" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached --json < /dev/null 2>"$TMPERR" | PYTHONUNBUFFERED=1 "$PYTHON_CMD" -u -c "
 import sys, json
 turn_completed_count = 0
@@ -1336,8 +1336,8 @@ B) Start a new conversation
 
 2. Create temp files:
 ```bash
-TMPRESP=$(mktemp "$TMP_ROOT/codex-resp-XXXXXX.txt")
-TMPERR=$(mktemp "$TMP_ROOT/codex-err-XXXXXX.txt")
+TMPRESP=$(mktemp "$TMP_ROOT/codex-resp-XXXXXX")
+TMPERR=$(mktemp "$TMP_ROOT/codex-err-XXXXXX")
 ```
 
 3. **Plan review auto-detection:** If the user's prompt is about reviewing a plan,
