@@ -184,24 +184,31 @@ cmd_stop() {
 
     # Kill every run-agent.sh process for this agent — handles duplicates from
     # agents started in multiple terminals outside fleet.sh (not just .pids/).
-    local extra_pids
-    extra_pids=$(pgrep -f "run-agent.sh ${name} " 2>/dev/null || true)
+    # SIGTERM first (lets cleanup trap run), then SIGKILL after 3s for survivors.
     local pid_file="$PID_DIR/$name.pid"
     local tracked_pid=""
     [ -f "$pid_file" ] && tracked_pid=$(cat "$pid_file")
 
     local all_pids
-    all_pids=$(printf '%s\n' $tracked_pid $extra_pids | sort -u | xargs)
+    all_pids=$(printf '%s\n' $tracked_pid $(pgrep -f "run-agent.sh ${name} " 2>/dev/null) \
+      | sort -u | grep -v '^$' | xargs)
 
     if [ -n "$all_pids" ]; then
-      local killed=0
+      # SIGTERM pass
       for pid in $all_pids; do
-        if kill -0 "$pid" 2>/dev/null; then
-          kill "$pid" 2>/dev/null && killed=$((killed + 1))
-        fi
+        kill "$pid" 2>/dev/null || true
+      done
+      sleep 3
+      # SIGKILL any survivors (catches processes in open terminals or subshells)
+      local survivors
+      survivors=$(printf '%s\n' $all_pids | while read -r pid; do
+        kill -0 "$pid" 2>/dev/null && echo "$pid" || true
+      done)
+      for pid in $survivors; do
+        kill -9 "$pid" 2>/dev/null || true
       done
       local count; count=$(echo "$all_pids" | wc -w | tr -d ' ')
-      echo "[$name] stopped ($killed/$count processes killed)"
+      echo "[$name] stopped ($count process(es) killed)"
     else
       echo "[$name] not running"
     fi
