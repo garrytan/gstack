@@ -628,6 +628,66 @@ export function bootstrapWorkspace(controlDir: string, workspacesPath: string): 
   writeWorkspaceRegistry(workspacesPath, reg);
 }
 
+// T19: Cost tracker
+
+export interface CostAgentRow {
+  agent: string;
+  tokens_in: number;
+  tokens_out: number;
+  cost_usd: number;
+}
+
+export interface CostResponse {
+  agents: CostAgentRow[];
+  total: { tokens_in: number; tokens_out: number; cost_usd: number };
+  cachedAt: string;
+}
+
+// Read each agent's live-events.jsonl and aggregate token usage.
+// Only includes agents that have at least one event with a numeric cost_usd.
+// Events missing cost_usd or with non-numeric cost_usd are skipped (AC4).
+// If sinceIso is provided, only events with ts >= sinceIso are counted (AC5).
+export function computeCostData(
+  agents: string[],
+  agentsHome: string,
+  sinceIso?: string,
+): CostResponse {
+  const sinceMs = sinceIso ? new Date(sinceIso).getTime() : 0;
+  const rows: CostAgentRow[] = [];
+
+  for (const agent of agents) {
+    let ti = 0, to = 0, cu = 0, hasCost = false;
+    try {
+      const content = readFileSync(join(agentsHome, agent, "logs", "live-events.jsonl"), "utf8");
+      for (const line of content.split("\n")) {
+        if (!line.trim()) continue;
+        let ev: Record<string, unknown>;
+        try { ev = JSON.parse(line) as Record<string, unknown>; } catch { continue; }
+        if (sinceMs > 0 && typeof ev.ts === "string") {
+          if (new Date(ev.ts).getTime() < sinceMs) continue;
+        }
+        if (!("cost_usd" in ev)) continue;
+        const c = ev.cost_usd;
+        if (typeof c !== "number" || !Number.isFinite(c)) continue;
+        hasCost = true;
+        if (typeof ev.tokens_in === "number") ti += ev.tokens_in;
+        if (typeof ev.tokens_out === "number") to += ev.tokens_out;
+        cu += c;
+      }
+    } catch { continue; }
+    if (hasCost) {
+      rows.push({ agent, tokens_in: ti, tokens_out: to, cost_usd: Math.round(cu * 10000) / 10000 });
+    }
+  }
+
+  const total = {
+    tokens_in: rows.reduce((s, r) => s + r.tokens_in, 0),
+    tokens_out: rows.reduce((s, r) => s + r.tokens_out, 0),
+    cost_usd: Math.round(rows.reduce((s, r) => s + r.cost_usd, 0) * 10000) / 10000,
+  };
+  return { agents: rows, total, cachedAt: new Date().toISOString() };
+}
+
 // Validate Content-Type and parse JSON body for POST handlers.
 // Returns { ok: true; json: unknown; raw: string } on success or
 // { ok: false; statusCode: number; error: string } on failure.

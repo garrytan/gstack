@@ -30,9 +30,12 @@ import {
   stopProcess,
   computeStuckSignals,
   readAndValidatePostBody,
+  computeCostData,
   readWorkspaceRegistry,
   writeWorkspaceRegistry,
   bootstrapWorkspace,
+  type CostAgentRow,
+  type CostResponse,
   type AgentStatus,
   type GitSpawner,
   type ApprovalItem,
@@ -2297,10 +2300,12 @@ function makeWorkspacesHandler(opts: {
   rebuildValidAgentsFn?: (controlDir: string) => void;
   broadcastFn?: (frame: string) => void;
   existsFn?: (dir: string) => boolean;
+  costInvalidateFn?: (wsId: string) => void;
 }) {
   const bc = opts.broadcastFn ?? (() => {});
   const rebuild = opts.rebuildValidAgentsFn ?? (() => {});
   const existsCheck = opts.existsFn ?? existsSync;
+  const invalidateCost = opts.costInvalidateFn ?? (() => {});
 
   return (req: IncomingMessage, res: ServerResponse) => {
     const path = rawPath(req.url);
@@ -2348,6 +2353,7 @@ function makeWorkspacesHandler(opts: {
         const reg = readWorkspaceRegistry(opts.workspacesPath);
         const ws = reg.workspaces.find((w) => w.id === wsId);
         if (!ws) { sendJson(res, { error: "not found" }, 404); return; }
+        invalidateCost(reg.activeId ?? "");
         reg.activeId = wsId;
         writeWorkspaceRegistry(opts.workspacesPath, reg);
         rebuild(ws.controlDir);
@@ -2710,5 +2716,238 @@ describe("CONTROL_DIR back-compat: missing fleet.conf (AC4)", () => {
       agents = new Set();
     }
     expect(agents.size).toBe(0);
+  });
+});
+
+// T19: Cost tracker tests
+// makeCostHandler: injects computeFn and workspaceId for cache tests.
+function makeCostHandler(opts: {
+  agents: string[];
+  agentsHome: string;
+  workspacesPath: string;
+  costCache: Map<string, { data: CostResponse; expiresAt: number }>;
+  computeFn?: (agents: string[], home: string, since?: string) => CostResponse;
+}) {
+  const compute = opts.computeFn ?? computeCostData;
+  const TTL = 30_000;
+
+  return (req: IncomingMessage, res: ServerResponse) => {
+    const p = rawPath(req.url);
+    if (!p.startsWith("/api/cost") || (req.method ?? "GET") !== "GET") {
+      sendJson(res, { error: "not found" }, 404);
+      return;
+    }
+    const qs = (req.url ?? "").includes("?") ? new URLSearchParams((req.url ?? "").split("?")[1]) : null;
+    const since = qs?.get("since") ?? undefined;
+
+    if (since) {
+      sendJson(res, compute(opts.agents, opts.agentsHome, since));
+      return;
+    }
+
+    const reg = readWorkspaceRegistry(opts.workspacesPath);
+    const wsId = reg.activeId ?? "";
+    const cached = opts.costCache.get(wsId);
+    if (cached && cached.expiresAt > Date.now()) {
+      sendJson(res, cached.data);
+      return;
+    }
+    const data = compute(opts.agents, opts.agentsHome);
+    opts.costCache.set(wsId, { data, expiresAt: Date.now() + TTL });
+    sendJson(res, data);
+  };
+}
+
+const COST_PORT = 7890;
+const COST_AC3_PORT = 7891;
+
+const costTestDir = join(tmpdir(), `console-cost-test-${process.pid}`);
+const costAgentsHome = join(costTestDir, "agents");
+let costServer: Server;
+let costRegistryPath: string;
+let costCache: Map<string, { data: CostResponse; expiresAt: number }>;
+
+beforeAll(
+  () =>
+    new Promise<void>((resolve) => {
+      mkdirSync(join(costAgentsHome, "agent-a", "logs"), { recursive: true });
+      mkdirSync(join(costAgentsHome, "agent-b", "logs"), { recursive: true });
+
+      // Write JSONL with known token values for agent-a (AC1).
+      writeFileSync(
+        join(costAgentsHome, "agent-a", "logs", "live-events.jsonl"),
+        [
+          JSON.stringify({ ts: "2026-01-01T10:00:00Z", tokens_in: 100, tokens_out: 50, cost_usd: 0.001 }),
+          JSON.stringify({ ts: "2026-01-01T11:00:00Z", tokens_in: 200, tokens_out: 80, cost_usd: 0.002 }),
+          JSON.stringify({ ts: "2026-01-01T12:00:00Z", tool: "Bash" }), // no cost_usd → skipped (AC4)
+          JSON.stringify({ ts: "2026-01-01T13:00:00Z", cost_usd: "bad" }), // non-numeric → skipped (AC4)
+        ].join("\n") + "\n",
+      );
+      // agent-b has no cost_usd fields at all (AC6: should not appear in agents[]).
+      writeFileSync(
+        join(costAgentsHome, "agent-b", "logs", "live-events.jsonl"),
+        JSON.stringify({ ts: "2026-01-01T10:00:00Z", tool: "Read", summary: "reading" }) + "\n",
+      );
+
+      costRegistryPath = join(costTestDir, "workspaces.json");
+      writeWorkspaceRegistry(costRegistryPath, { workspaces: [{ id: "cost-ws-1", name: "CostWS", controlDir: "/cost-ctrl", createdAt: "2026-01-01T00:00:00Z" }], activeId: "cost-ws-1" });
+
+      costCache = new Map();
+      costServer = createServer(
+        makeCostHandler({
+          agents: ["agent-a", "agent-b"],
+          agentsHome: costAgentsHome,
+          workspacesPath: costRegistryPath,
+          costCache,
+        }),
+      );
+      costServer.listen(COST_PORT, "127.0.0.1", resolve);
+    }),
+);
+
+afterAll(
+  () =>
+    new Promise<void>((resolve) => {
+      costServer.close(() => {
+        rmSync(costTestDir, { recursive: true, force: true });
+        resolve();
+      });
+    }),
+);
+
+describe("GET /api/cost aggregation (AC1)", () => {
+  test("returns per-agent totals and grand total for agents with cost_usd", async () => {
+    costCache.clear();
+    const r = await fetch(`http://127.0.0.1:${COST_PORT}/api/cost`);
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as CostResponse;
+    expect(body.agents).toHaveLength(1);
+    const row = body.agents.find((a: CostAgentRow) => a.agent === "agent-a");
+    expect(row).toBeDefined();
+    expect(row!.tokens_in).toBe(300);
+    expect(row!.tokens_out).toBe(130);
+    expect(row!.cost_usd).toBe(0.003);
+    expect(body.total.tokens_in).toBe(300);
+    expect(body.total.cost_usd).toBe(0.003);
+    expect(typeof body.cachedAt).toBe("string");
+  });
+});
+
+describe("GET /api/cost 30s cache (AC2)", () => {
+  test("second call within 30s returns cached result without re-computing", async () => {
+    let callCount = 0;
+    const stubCompute = (agents: string[], home: string, since?: string): CostResponse => {
+      callCount++;
+      return computeCostData(agents, home, since);
+    };
+    const localCache = new Map<string, { data: CostResponse; expiresAt: number }>();
+    const localRegPath = join(costTestDir, "ws-ac2.json");
+    writeWorkspaceRegistry(localRegPath, { workspaces: [{ id: "ws-ac2", name: "AC2", controlDir: "/c", createdAt: "2026-01-01T00:00:00Z" }], activeId: "ws-ac2" });
+    const s = createServer(makeCostHandler({ agents: ["agent-a"], agentsHome: costAgentsHome, workspacesPath: localRegPath, costCache: localCache, computeFn: stubCompute }));
+    await new Promise<void>((r) => s.listen(7892, "127.0.0.1", r));
+    try {
+      await fetch("http://127.0.0.1:7892/api/cost");
+      await fetch("http://127.0.0.1:7892/api/cost");
+      expect(callCount).toBe(1); // second call hit the cache
+    } finally {
+      await new Promise<void>((r) => s.close(() => r()));
+    }
+  });
+});
+
+describe("GET /api/cost cache invalidation on workspace-switch (AC3)", () => {
+  test("switching workspace clears the outgoing workspace's cache entry", async () => {
+    const ac3TmpDir = mkdtempSync(join(tmpdir(), "console-cost-ac3-"));
+    const ac3RegPath = join(ac3TmpDir, "workspaces.json");
+    const ac3Cache = new Map<string, { data: CostResponse; expiresAt: number }>();
+    writeWorkspaceRegistry(ac3RegPath, {
+      workspaces: [
+        { id: "ac3-ws1", name: "W1", controlDir: "/w1", createdAt: "2026-01-01T00:00:00Z" },
+        { id: "ac3-ws2", name: "W2", controlDir: "/w2", createdAt: "2026-01-01T00:00:00Z" },
+      ],
+      activeId: "ac3-ws1",
+    });
+
+    // Pre-populate cache for ac3-ws1 (simulates a prior /api/cost call).
+    const stubEntry = { data: { agents: [], total: { tokens_in: 0, tokens_out: 0, cost_usd: 0 }, cachedAt: "2026-01-01T00:00:00Z" }, expiresAt: Date.now() + 60_000 };
+    ac3Cache.set("ac3-ws1", stubEntry);
+
+    const s = createServer(
+      makeWorkspacesHandler({
+        workspacesPath: ac3RegPath,
+        costInvalidateFn: (id) => ac3Cache.delete(id),
+      }),
+    );
+    await new Promise<void>((r) => s.listen(COST_AC3_PORT, "127.0.0.1", r));
+    try {
+      // Activate ac3-ws2 — should invalidate ac3-ws1 from cost cache.
+      const r = await fetch(`http://127.0.0.1:${COST_AC3_PORT}/api/workspaces/ac3-ws2/activate`, { method: "POST" });
+      expect(r.status).toBe(200);
+      expect(ac3Cache.has("ac3-ws1")).toBe(false); // cache invalidated
+    } finally {
+      await new Promise<void>((r) => s.close(() => r()));
+      rmSync(ac3TmpDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("GET /api/cost malformed cost fields skipped (AC4)", () => {
+  test("returns 200 and skips events with non-numeric cost_usd without 500", async () => {
+    costCache.clear();
+    const r = await fetch(`http://127.0.0.1:${COST_PORT}/api/cost`);
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as CostResponse;
+    // agent-a has 2 valid cost events (0.001 + 0.002) and 2 invalid lines → total 0.003
+    const row = body.agents.find((a: CostAgentRow) => a.agent === "agent-a");
+    expect(row!.cost_usd).toBe(0.003);
+  });
+});
+
+describe("GET /api/cost ?since= filter (AC5)", () => {
+  test("returns only events at or after the since timestamp, bypasses cache", async () => {
+    // Pre-populate cache with stale data to verify since bypasses it.
+    const fakeStale: CostResponse = { agents: [{ agent: "stale", tokens_in: 99, tokens_out: 99, cost_usd: 9.9999 }], total: { tokens_in: 99, tokens_out: 99, cost_usd: 9.9999 }, cachedAt: "2026-01-01T00:00:00Z" };
+    costCache.set("cost-ws-1", { data: fakeStale, expiresAt: Date.now() + 60_000 });
+    // since=2026-01-01T11:30:00Z — only the 12:00 event qualifies (but it has no cost_usd → 0), 11:00 also qualifies
+    const r = await fetch(`http://127.0.0.1:${COST_PORT}/api/cost?since=2026-01-01T11:30:00Z`);
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as CostResponse;
+    // 12:00 event has no cost_usd, 13:00 has bad cost_usd → agent-a absent (no valid cost after 11:30)
+    // 11:00 event is exactly at 11:00, which is BEFORE 11:30 → filtered out
+    expect(body.agents).toHaveLength(0);
+    expect(body.total.cost_usd).toBe(0);
+  });
+
+  test("?since= within window returns correct filtered totals", async () => {
+    // since=2026-01-01T10:30:00Z — only 11:00 event (cost 0.002) qualifies
+    const r = await fetch(`http://127.0.0.1:${COST_PORT}/api/cost?since=2026-01-01T10:30:00Z`);
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as CostResponse;
+    const row = body.agents.find((a: CostAgentRow) => a.agent === "agent-a");
+    expect(row).toBeDefined();
+    expect(row!.tokens_in).toBe(200);
+    expect(row!.cost_usd).toBe(0.002);
+  });
+});
+
+describe("GET /api/cost no cost data returns empty agents (AC6)", () => {
+  test("returns empty agents array when no events have cost_usd", async () => {
+    // agent-b has no cost_usd events; test with only agent-b
+    const localCache = new Map<string, { data: CostResponse; expiresAt: number }>();
+    const localRegPath = join(costTestDir, "ws-ac6.json");
+    writeWorkspaceRegistry(localRegPath, { workspaces: [{ id: "ws-ac6", name: "AC6", controlDir: "/c", createdAt: "2026-01-01T00:00:00Z" }], activeId: "ws-ac6" });
+    const s = createServer(makeCostHandler({ agents: ["agent-b"], agentsHome: costAgentsHome, workspacesPath: localRegPath, costCache: localCache }));
+    await new Promise<void>((r) => s.listen(7893, "127.0.0.1", r));
+    try {
+      const r = await fetch("http://127.0.0.1:7893/api/cost");
+      expect(r.status).toBe(200);
+      const body = (await r.json()) as CostResponse;
+      expect(body.agents).toHaveLength(0);
+      expect(body.total.tokens_in).toBe(0);
+      expect(body.total.cost_usd).toBe(0);
+      expect(typeof body.cachedAt).toBe("string");
+    } finally {
+      await new Promise<void>((r) => s.close(() => r()));
+    }
   });
 });

@@ -36,6 +36,8 @@ import {
   stopProcess,
   computeStuckSignals,
   readAndValidatePostBody,
+  computeCostData,
+  type CostResponse,
   type Workspace,
   readWorkspaceRegistry,
   writeWorkspaceRegistry,
@@ -161,6 +163,10 @@ const logRateLimiter = makeRateLimiter(10);
 // T14: stuck detection state — cleared on restart.
 const prevStuckSignals = new Map<string, string>(); // agent → last signal type
 const lastStuckBroadcast = new Map<string, number>(); // agent → last broadcast ms
+
+// T19: cost cache — workspace-keyed, 30s TTL.
+const COST_CACHE_TTL_MS = 30_000;
+const costCache = new Map<string, { data: CostResponse; expiresAt: number }>();
 
 // broadcastFn: frame is a complete SSE frame (event + data lines, terminated with \n\n).
 function broadcast(frame: string): void {
@@ -489,6 +495,32 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     return;
   }
 
+  // T19: GET /api/cost — aggregate token usage across all agents.
+  if (path.startsWith("/api/cost") && method === "GET") {
+    const qs = (req.url ?? "").includes("?") ? new URLSearchParams((req.url ?? "").split("?")[1]) : null;
+    const since = qs?.get("since") ?? undefined;
+    const agentsHome = join(homedir(), "agents");
+    const agents = [...validAgents];
+
+    if (since) {
+      // AC5: since filter — always compute fresh, bypass cache.
+      sendJson(res, computeCostData(agents, agentsHome, since));
+      return;
+    }
+
+    const reg = readWorkspaceRegistry(workspacesPath);
+    const wsId = reg.activeId ?? "";
+    const cached = costCache.get(wsId);
+    if (cached && cached.expiresAt > Date.now()) {
+      sendJson(res, cached.data);
+      return;
+    }
+    const data = computeCostData(agents, agentsHome);
+    costCache.set(wsId, { data, expiresAt: Date.now() + COST_CACHE_TTL_MS });
+    sendJson(res, data);
+    return;
+  }
+
   // T17: GET /api/workspaces — read registry; missing file → empty registry.
   if (path === "/api/workspaces" && method === "GET") {
     sendJson(res, readWorkspaceRegistry(workspacesPath));
@@ -534,6 +566,8 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       const reg = readWorkspaceRegistry(workspacesPath);
       const ws = reg.workspaces.find((w) => w.id === wsId);
       if (!ws) { sendJson(res, { error: "not found" }, 404); return; }
+      // T19 AC3: invalidate cost cache for the outgoing workspace before switching.
+      costCache.delete(reg.activeId ?? "");
       reg.activeId = wsId;
       writeWorkspaceRegistry(workspacesPath, reg);
       // T17 AC7: reload validAgents from new workspace's fleet.conf before broadcast.
