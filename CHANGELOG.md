@@ -2,6 +2,28 @@
 
 ## [Unreleased]
 
+### Stuck alert UI — surface stuck agents above Queue with Force restart modal (T15)
+
+You can now see which agents are stuck directly in the console without navigating away from the current tab. A red alert card appears above the Queue section whenever an agent is stuck (using the signals from T14: silent, loop, or fail_storm). If more than one agent is stuck, the card for the agent that has been stuck longest is shown with a "+N more" badge. Clicking "Force restart" opens a native dialog confirm modal with the agent name, the current task ID, and a Cancel/Restart button pair.
+
+The alert card auto-dismisses when the agent's `fleet-update` SSE event arrives with a new task ID or a stop/restart action — no manual refresh needed. The confirm modal closes on Escape, backdrop click, or Cancel, and shows "Restarting…" while the POST is in flight. No JavaScript libraries were added; the modal uses the browser's native `<dialog>` element and `showModal()` for built-in focus trapping.
+
+#### Added
+- `id="stuck-alert-slot"` section in `index.html` — permanently rendered above `section-attention`; hidden when zero agents are stuck (T15 AC1/AC2).
+- `<dialog id="restart-modal">` in `index.html` — native dialog for Force restart confirmation; placed before the script tag so `initRestartModal()` finds it on parse (T15 AC8).
+- `fetchStuck()` in `console.js` — calls `GET /api/stuck` on page load and on SSE reconnect; populates `stuckAgents` Map (T15 AC1).
+- `renderStuckSection()` — picks the agent with the earliest `since` timestamp; renders one card with `+N more` badge for additional stuck agents (T15 AC3).
+- `dismissStuckAgent()` — removes agent from `stuckAgents`, applies card-exit animation, re-renders section (T15 AC6).
+- `showRestartModal(agent)` / `initRestartModal()` — populate and open `<dialog>`; wire backdrop-click, Cancel, and restart-POST handlers (T15 AC4/AC5/AC7).
+- `stuck` SSE event listener — inserts or updates stuck state on edge-triggered events from the server (T15 AC2).
+- `fleet-update` SSE handler extended — auto-dismisses stuck card when agent moves to a new task or is stopped/restarted (T15 AC6).
+- `.stuck-alert-card`, `.stuck-more-badge`, `.btn-force-restart`, `.restart-modal`, `.btn-danger` component styles in `styles.css` (T15).
+- `window.__injectStuck` / `window.__injectFleetUpdate` test helpers in `console.js` for browser-based QA verification of AC3–AC6.
+- 3 new assertions in `qa-smoke.sh`: `GET /api/stuck` returns 200 with `stuck` key, `stuck-cards` element present in HTML, `stuck-alert-slot` appears before `section-attention` in DOM order (T15 AC1/AC2). Smoke test now runs 15 checks total.
+
+#### Fixed
+- `GET /api/stuck` in `server.ts` now passes `[...validAgents]` (from `controlDir/fleet.conf` per T11-amended) instead of `agentList` (from `supervisor/fleet.conf`) to `computeStuckSignals()`. Stuck detection now checks the correct agent set after a workspace switch.
+
 ### Stuck detection — malformed JSONL no longer crashes GET /api/stuck (T14-amended)
 
 A single corrupted line in an agent's `live-events.jsonl` (caused by a mid-write SIGTERM, a disk error, or any partial write) no longer returns a 500 from `GET /api/stuck`. Every `JSON.parse` call on individual JSONL lines in the stuck detection path is now wrapped in a per-line try/catch that returns null and filters the bad line out. The remaining valid lines are processed normally. If every line in the file is malformed, the endpoint returns `{ stuck: [] }` with HTTP 200. No stuck signals are reported for data that cannot be read; signals based on other agents are unaffected.
