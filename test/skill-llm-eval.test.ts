@@ -65,10 +65,10 @@ describeIfSelected('LLM-as-judge quality evals', [
 ], () => {
   testIfSelected('command reference table', async () => {
     const t0 = Date.now();
-    const content = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
-    const start = content.indexOf('## Command Reference');
-    const end = content.indexOf('## Tips');
-    const section = content.slice(start, end);
+    // P2 (v1.2.0): the command reference moved from the root router to browse/SKILL.md.
+    const content = fs.readFileSync(path.join(ROOT, 'browse', 'SKILL.md'), 'utf-8');
+    const start = content.indexOf('## Full Command List');
+    const section = content.slice(start);
 
     const scores = await judge('command reference table', section);
     console.log('Command reference scores:', JSON.stringify(scores, null, 2));
@@ -94,9 +94,10 @@ describeIfSelected('LLM-as-judge quality evals', [
 
   testIfSelected('snapshot flags reference', async () => {
     const t0 = Date.now();
-    const content = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
-    const start = content.indexOf('## Snapshot System');
-    const end = content.indexOf('## Command Reference');
+    // P2 (v1.2.0): snapshot flags moved from the root router to browse/SKILL.md.
+    const content = fs.readFileSync(path.join(ROOT, 'browse', 'SKILL.md'), 'utf-8');
+    const start = content.indexOf('## Snapshot Flags');
+    const end = content.indexOf('## CSS Inspector');
     const section = content.slice(start, end);
 
     const scores = await judge('snapshot flags reference', section);
@@ -145,9 +146,10 @@ describeIfSelected('LLM-as-judge quality evals', [
 
   testIfSelected('setup block', async () => {
     const t0 = Date.now();
-    const content = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
+    // P2 (v1.2.0): the browse setup block moved from the root router to browse/SKILL.md.
+    const content = fs.readFileSync(path.join(ROOT, 'browse', 'SKILL.md'), 'utf-8');
     const setupStart = content.indexOf('## SETUP');
-    const setupEnd = content.indexOf('## IMPORTANT');
+    const setupEnd = content.indexOf('## Core QA Patterns');
     const section = content.slice(setupStart, setupEnd);
 
     const scores = await judge('setup/binary discovery instructions', section);
@@ -172,10 +174,10 @@ describeIfSelected('LLM-as-judge quality evals', [
 
   testIfSelected('regression vs baseline', async () => {
     const t0 = Date.now();
-    const generated = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
-    const genStart = generated.indexOf('## Command Reference');
-    const genEnd = generated.indexOf('## Tips');
-    const genSection = generated.slice(genStart, genEnd);
+    // P2 (v1.2.0): the command reference moved from the root router to browse/SKILL.md.
+    const generated = fs.readFileSync(path.join(ROOT, 'browse', 'SKILL.md'), 'utf-8');
+    const genStart = generated.indexOf('## Full Command List');
+    const genSection = generated.slice(genStart);
 
     const baseline = `## Command Reference
 
@@ -480,10 +482,10 @@ describeIfSelected('Baseline score pinning', ['baseline score pinning'], () => {
     const baselines = JSON.parse(fs.readFileSync(baselinesPath, 'utf-8'));
     const regressions: string[] = [];
 
-    const skillContent = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
-    const cmdStart = skillContent.indexOf('## Command Reference');
-    const cmdEnd = skillContent.indexOf('## Tips');
-    const cmdSection = skillContent.slice(cmdStart, cmdEnd);
+    // P2 (v1.2.0): the command reference moved from the root router to browse/SKILL.md.
+    const skillContent = fs.readFileSync(path.join(ROOT, 'browse', 'SKILL.md'), 'utf-8');
+    const cmdStart = skillContent.indexOf('## Full Command List');
+    const cmdSection = skillContent.slice(cmdStart);
     const cmdScores = await judge('command reference table', cmdSection);
 
     for (const dim of ['clarity', 'completeness', 'actionability'] as const) {
