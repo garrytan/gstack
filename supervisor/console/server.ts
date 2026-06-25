@@ -25,6 +25,7 @@ import {
   gitCommitAndPush,
   resolvePort,
   readApprovals,
+  resolveControlDir,
 } from "./server-utils.ts";
 
 // Validate PORT early — before any filesystem reads (AC5: exit 1 before bind).

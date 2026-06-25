@@ -159,6 +159,15 @@ cmd_start() {
       echo "[$name] already running (PID $(cat "$PID_DIR/$name.pid"))"
       continue
     fi
+    # Also check for orphaned processes not tracked in .pids/ (e.g. started in
+    # another terminal or after a stale pid file) — avoids double-launching.
+    local existing_pid
+    existing_pid=$(pgrep -f "run-agent.sh ${name} " 2>/dev/null | head -1)
+    if [ -n "$existing_pid" ]; then
+      echo "$existing_pid" > "$PID_DIR/$name.pid"
+      echo "[$name] already running (PID $existing_pid, adopted)"
+      continue
+    fi
 
     log_dir=$(agent_log_dir "$name")
     mkdir -p "$log_dir"

@@ -1,0 +1,199 @@
+#!/usr/bin/env bash
+# new-bug — create a BUG task in the fleet control repo from a PR bug find
+#
+# Usage:
+#   new-bug                   # interactive prompts
+#   new-bug --domain fe       # pre-fill domain, still prompts for the rest
+#
+# Generates:
+#   $CONTROL/ledger/BUG-N.task
+#   $CONTROL/tasks/BUG-N.md
+# Then commits and pushes to the control repo.
+
+set -euo pipefail
+
+# ── Config ────────────────────────────────────────────────────────────────────
+
+CONTROL_DIR="${CONTROL_DIR:-$HOME/agents/agent-be/control}"
+
+die()  { echo "ERROR: $*" >&2; exit 1; }
+info() { echo "  $*"; }
+
+[ -d "$CONTROL_DIR/ledger" ] || die "Control repo not found at $CONTROL_DIR (set CONTROL_DIR to override)"
+
+# ── Parse flags ───────────────────────────────────────────────────────────────
+
+FLAG_DOMAIN=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --domain) FLAG_DOMAIN="$2"; shift 2 ;;
+    --help|-h)
+      echo "Usage: new-bug [--domain be|fe|qa|doc]"
+      echo ""
+      echo "Interactive wizard. Generates a BUG-N.task + BUG-N.md in the control repo"
+      echo "and commits+pushes so the right fleet agent picks it up."
+      exit 0
+      ;;
+    *) die "Unknown flag: $1" ;;
+  esac
+done
+
+# ── Next BUG number ───────────────────────────────────────────────────────────
+
+last_n=$(ls "$CONTROL_DIR/ledger/" 2>/dev/null \
+  | grep -E '^BUG-[0-9]+\.task$' \
+  | sed 's/BUG-//; s/\.task//' \
+  | sort -n \
+  | tail -1)
+next_n=$(( ${last_n:-0} + 1 ))
+BUG_ID="BUG-$next_n"
+
+echo ""
+echo "── New bug task: $BUG_ID ─────────────────────────────────────────────"
+echo ""
+
+# ── Prompts ───────────────────────────────────────────────────────────────────
+
+prompt() {
+  local label="$1" var_name="$2" default="${3:-}"
+  if [ -n "$default" ]; then
+    read -r -p "  $label [$default]: " val
+    val="${val:-$default}"
+  else
+    while true; do
+      read -r -p "  $label: " val
+      [ -n "$val" ] && break
+      echo "    (required — please enter a value)"
+    done
+  fi
+  printf -v "$var_name" '%s' "$val"
+}
+
+prompt_domain() {
+  if [ -n "$FLAG_DOMAIN" ]; then
+    DOMAIN="$FLAG_DOMAIN"
+  else
+    echo "  Domain — which agent should fix this?"
+    echo "    be  = backend / server / API"
+    echo "    fe  = frontend / UI"
+    echo "    qa  = test gap / flaky test"
+    echo "    doc = missing or wrong docs"
+    echo ""
+    while true; do
+      read -r -p "  domain [be/fe/qa/doc]: " DOMAIN
+      case "$DOMAIN" in be|fe|qa|doc) break ;; *) echo "    Please enter: be, fe, qa, or doc" ;; esac
+    done
+  fi
+}
+
+prompt_acs() {
+  echo ""
+  echo "  Acceptance criteria — what does 'fixed' look like?"
+  echo "  Enter one per line. Empty line when done (minimum 1)."
+  echo ""
+  ACS=()
+  local i=1
+  while true; do
+    read -r -p "  AC$i: " ac
+    [ -z "$ac" ] && { [ "${#ACS[@]}" -gt 0 ] && break || echo "    (need at least one AC)"; continue; }
+    ACS+=("$ac")
+    i=$(( i + 1 ))
+  done
+}
+
+prompt "One-line description" DESCRIPTION
+prompt_domain
+echo ""
+prompt "PR link or file:line where you found this" PR_REF
+echo ""
+echo "  Context — what you saw vs what you expected (paste, end with a blank line):"
+CONTEXT_LINES=()
+while IFS= read -r line; do
+  [ -z "$line" ] && break
+  CONTEXT_LINES+=("$line")
+done
+CONTEXT="$(printf '%s\n' "${CONTEXT_LINES[@]}")"
+echo ""
+prompt "done_check command" DONE_CHECK "bun test"
+echo ""
+prompt_acs
+
+# ── Build AC table ────────────────────────────────────────────────────────────
+
+AC_LIST=""
+AC_TABLE="| AC | Verified by | Type |\n|---|---|---|\n"
+for i in "${!ACS[@]}"; do
+  n=$(( i + 1 ))
+  AC_LIST+="- AC${n}: ${ACS[$i]}\n"
+  AC_TABLE+="| AC${n} | ${DONE_CHECK} | done_check |\n"
+done
+
+# ── Write files ───────────────────────────────────────────────────────────────
+
+TASK_FILE="$CONTROL_DIR/ledger/${BUG_ID}.task"
+SPEC_FILE="$CONTROL_DIR/tasks/${BUG_ID}.md"
+
+cat > "$TASK_FILE" <<EOF
+id: $BUG_ID
+repo: tshepostack
+domain: $DOMAIN
+origin_domain: $DOMAIN
+status: open
+claimed_by: -
+claimed_at: -
+blocked_by: -
+failure_count: 0
+lease_hours: 4
+prev_status: -
+spec: tasks/${BUG_ID}.md
+done_check: $DONE_CHECK
+e2e_check: -
+description: $DESCRIPTION
+EOF
+
+cat > "$SPEC_FILE" <<EOF
+# ${BUG_ID} — ${DESCRIPTION}
+
+> Lives at \`tasks/${BUG_ID}.md\` in the control repo.
+
+## Traceability
+- Repo: tshepostack
+- Domain: $DOMAIN
+- Source: PR review — $PR_REF
+
+## Context
+$CONTEXT
+
+## Acceptance criteria
+$(printf '%b' "$AC_LIST")
+## AC → verification mapping
+$(printf '%b' "$AC_TABLE")
+## Out of scope
+- (add any explicit exclusions here before agents pick this up)
+
+## Constraints
+- (add any decisions already made that agents must honour)
+
+## Definition of done (auto-summary)
+All done_check tests pass, full regression passes.
+
+- Contract change authorized: no
+EOF
+
+echo ""
+echo "── Files created ─────────────────────────────────────────────────────"
+info "$TASK_FILE"
+info "$SPEC_FILE"
+echo ""
+
+# ── Commit + push ─────────────────────────────────────────────────────────────
+
+echo "── Committing to control repo ────────────────────────────────────────"
+cd "$CONTROL_DIR"
+git add "ledger/${BUG_ID}.task" "tasks/${BUG_ID}.md"
+git commit -m "task(${BUG_ID}): ${DESCRIPTION}"
+git push
+
+echo ""
+echo "Done. ${BUG_ID} is now open — the $DOMAIN agent will pick it up on its next cycle."
+echo ""
