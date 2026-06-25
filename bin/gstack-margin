@@ -1,0 +1,181 @@
+#!/usr/bin/env bash
+# gstack-margin — publish a reviewed plan to Margin for phone review and read
+# the comments back. Wraps Margin's agent-first HTTP API (no API key: the first
+# publish self-provisions a per-document capability token, cached locally).
+#
+# Margin (https://margin.fieldspan.ai) renders a self-contained HTML document to
+# a private link. You open it on your phone, select text, and leave anchored
+# comments; the agent reads them back, revises, and re-publishes to the SAME doc.
+#
+# Usage:
+#   gstack-margin publish <html-file> [--title T] [--summary S]
+#                                  Create-or-revise. First call creates the doc
+#                                  and caches its capability token; later calls
+#                                  revise the same doc so the link is stable and
+#                                  comments stay anchored. Prints the reviewer URL.
+#   gstack-margin comments        Print open comment threads (JSON) for this doc.
+#   gstack-margin resolve <id>    Mark one comment thread resolved.
+#   gstack-margin url             Print the reviewer URL (nothing if no doc yet).
+#   gstack-margin status          Human-readable: doc id + reviewer URL, or none.
+#
+# Scope: credentials are cached per project + branch under the gstack state root
+#   ($GSTACK_HOME/projects/<slug>/margin-<branch>.json, mode 0600). The
+#   agent_token controls the document — it is never printed and never logged.
+#
+# Config:
+#   gstack-config get margin_url   Base URL (default https://margin.fieldspan.ai).
+#   MARGIN_URL env var             Overrides the configured base URL.
+#
+# Exit codes: 0 ok · 2 usage · 3 missing dependency/credential · 4 API error.
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+need() {
+  command -v "$1" >/dev/null 2>&1 || {
+    echo "gstack-margin: '$1' is required but not installed." >&2
+    exit 3
+  }
+}
+need curl
+need jq
+
+# ── Resolve state root, project slug/branch, and base URL ──────────────────
+eval "$("$SCRIPT_DIR/gstack-paths" 2>/dev/null)" || true
+GSTACK_STATE_ROOT="${GSTACK_STATE_ROOT:-${GSTACK_HOME:-$HOME/.gstack}}"
+eval "$("$SCRIPT_DIR/gstack-slug" 2>/dev/null)" || true
+SLUG="${SLUG:-$(basename "$PWD" | tr -cd 'a-zA-Z0-9._-')}"
+BRANCH="${BRANCH:-default}"
+
+# Base URL: MARGIN_URL env > configured margin_url > hosted default. An empty
+# resolved value falls back to the hosted instance so the helper is usable out
+# of the box (the configured default is also the hosted instance — both agree).
+BASE_URL="${MARGIN_URL:-$("$SCRIPT_DIR/gstack-config" get margin_url 2>/dev/null || true)}"
+BASE_URL="${BASE_URL:-https://margin.fieldspan.ai}"
+BASE_URL="${BASE_URL%/}"
+
+CRED_DIR="$GSTACK_STATE_ROOT/projects/$SLUG"
+CRED_FILE="$CRED_DIR/margin-$BRANCH.json"
+
+# ── Helpers ────────────────────────────────────────────────────────────────
+have_doc() { [ -f "$CRED_FILE" ] && [ -n "$(jq -r '.doc_id // empty' "$CRED_FILE" 2>/dev/null)" ]; }
+cred()     { jq -r --arg k "$1" '.[$k] // empty' "$CRED_FILE" 2>/dev/null; }
+
+# api_post <url> <bearer-or-empty> <json-body>  → stdout=body; nonzero on HTTP/transport error.
+api_post() {
+  local url="$1" bearer="$2" body="$3" tmp code
+  tmp="$(mktemp)"
+  if [ -n "$bearer" ]; then
+    code=$(printf '%s' "$body" | curl -s -o "$tmp" -w '%{http_code}' -X POST "$url" \
+      -H "authorization: Bearer $bearer" -H "content-type: application/json" --data-binary @-)
+  else
+    code=$(printf '%s' "$body" | curl -s -o "$tmp" -w '%{http_code}' -X POST "$url" \
+      -H "content-type: application/json" --data-binary @-)
+  fi
+  cat "$tmp"; rm -f "$tmp"
+  case "$code" in 2*) return 0 ;; *) return 1 ;; esac
+}
+
+api_get() {
+  local url="$1" bearer="$2" tmp code
+  tmp="$(mktemp)"
+  code=$(curl -s -o "$tmp" -w '%{http_code}' "$url" -H "authorization: Bearer $bearer")
+  cat "$tmp"; rm -f "$tmp"
+  case "$code" in 2*) return 0 ;; *) return 1 ;; esac
+}
+
+api_error() {
+  # Best-effort extraction of an error message from a JSON (or raw) body.
+  jq -r '.error // .message // empty' 2>/dev/null <<<"$1" || true
+}
+
+require_doc() {
+  have_doc || {
+    echo "gstack-margin: no Margin document for $SLUG@$BRANCH yet — run 'gstack-margin publish <html>' first." >&2
+    exit 3
+  }
+}
+
+# ── Commands ───────────────────────────────────────────────────────────────
+cmd_publish() {
+  local html_file="" title="gstack plan review" summary="Reviewed plan"
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --title)   title="${2:?--title needs a value}"; shift 2 ;;
+      --summary) summary="${2:?--summary needs a value}"; shift 2 ;;
+      -*)        echo "gstack-margin: unknown flag '$1'" >&2; exit 2 ;;
+      *)         html_file="$1"; shift ;;
+    esac
+  done
+  [ -n "$html_file" ] || { echo "Usage: gstack-margin publish <html-file> [--title T] [--summary S]" >&2; exit 2; }
+  if [ "$html_file" = "-" ]; then html_file="$(mktemp)"; cat > "$html_file"; fi
+  [ -f "$html_file" ] || { echo "gstack-margin: no such file: $html_file" >&2; exit 2; }
+
+  local resp
+  if have_doc; then
+    # Revise the existing document — keeps the link stable + comments anchored.
+    local doc_id token body
+    doc_id="$(cred doc_id)"; token="$(cred agent_token)"
+    body="$(jq -n --rawfile html "$html_file" --arg s "$summary" '{html:$html, summary:$s}')"
+    resp="$(api_post "$BASE_URL/api/docs/$doc_id/publish" "$token" "$body")" || {
+      echo "gstack-margin: revise failed${resp:+ — $(api_error "$resp")}" >&2; exit 4; }
+    local url; url="$(cred reviewer_url)"
+    echo "${url:-$BASE_URL/d/$doc_id}"
+  else
+    # Create a new document — no credential required; the server mints one.
+    local body
+    body="$(jq -n --rawfile html "$html_file" --arg t "$title" '{title:$t, html:$html}')"
+    resp="$(api_post "$BASE_URL/api/docs" "" "$body")" || {
+      echo "gstack-margin: publish failed${resp:+ — $(api_error "$resp")}" >&2; exit 4; }
+    local doc_id; doc_id="$(jq -r '.doc_id // empty' <<<"$resp")"
+    [ -n "$doc_id" ] || { echo "gstack-margin: unexpected response (no doc_id)${resp:+ — $(api_error "$resp")}" >&2; exit 4; }
+    mkdir -p "$CRED_DIR"
+    ( umask 077
+      jq '{doc_id, agent_token, reviewer_url, base_url: $base}' --arg base "$BASE_URL" <<<"$resp" > "$CRED_FILE.tmp" )
+    chmod 600 "$CRED_FILE.tmp" 2>/dev/null || true
+    mv "$CRED_FILE.tmp" "$CRED_FILE"
+    jq -r '.reviewer_url // empty' <<<"$resp"
+  fi
+}
+
+cmd_comments() {
+  require_doc
+  local doc_id token resp
+  doc_id="$(cred doc_id)"; token="$(cred agent_token)"
+  resp="$(api_get "$BASE_URL/api/docs/$doc_id/comments?status=open" "$token")" || {
+    echo "gstack-margin: read comments failed${resp:+ — $(api_error "$resp")}" >&2; exit 4; }
+  jq '.' <<<"$resp"
+}
+
+cmd_resolve() {
+  require_doc
+  local comment_id="${1:?Usage: gstack-margin resolve <comment_id>}"
+  local doc_id token resp
+  doc_id="$(cred doc_id)"; token="$(cred agent_token)"
+  resp="$(api_post "$BASE_URL/api/docs/$doc_id/comments/$comment_id/status" "$token" '{"status":"resolved"}')" || {
+    echo "gstack-margin: resolve failed${resp:+ — $(api_error "$resp")}" >&2; exit 4; }
+  echo "resolved $comment_id"
+}
+
+cmd_url()    { have_doc && cred reviewer_url || true; }
+cmd_status() {
+  if have_doc; then
+    echo "doc:      $(cred doc_id)"
+    echo "reviewer: $(cred reviewer_url)"
+    echo "base:     $BASE_URL"
+  else
+    echo "No Margin document for $SLUG@$BRANCH yet. Publish one with: gstack-margin publish <html>"
+  fi
+}
+
+case "${1:-}" in
+  publish)  shift; cmd_publish "$@" ;;
+  comments) shift; cmd_comments "$@" ;;
+  resolve)  shift; cmd_resolve "$@" ;;
+  url)      shift; cmd_url ;;
+  status)   shift; cmd_status ;;
+  ""|-h|--help)
+    sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'
+    ;;
+  *) echo "gstack-margin: unknown command '$1' (try: publish | comments | resolve | url | status)" >&2; exit 2 ;;
+esac

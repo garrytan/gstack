@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.58.5.0] - 2026-06-25
+
+## **Review the finished plan on your phone — every plan-review flow can now publish to Margin and fold your anchored comments back in.**
+
+The plan-review skills end at a terminal gate (or, for `/autoplan`, after the whole CEO → Design → Eng → DX gauntlet). Those gates are great at a desk and useless on a couch. This release adds a **Review on your phone (Margin)** step to `/autoplan`, `/plan-ceo-review`, `/plan-design-review`, `/plan-eng-review`, and `/plan-devex-review`: it renders the reviewed plan (review reports and all) to a static page, publishes it to [Margin](https://margin.fieldspan.ai), and hands you a private link. You open it on your phone, select any sentence, and leave a comment anchored to exactly that text. The skill reads the comments back, folds each one into the plan like a normal revise, re-publishes to the **same** link so the thread stays anchored, and marks it resolved — then continues to its approval/exit gate. No API key: the first publish self-provisions a per-document capability token, cached locally at mode `0600` and never printed.
+
+### What this means for gstack users
+
+When a plan review finishes, you no longer have to read a long plan in the terminal to weigh in. In `/autoplan` pick **P** at the gate; in any individual `plan-*-review` just say "review on my phone". You get a link, review it on your phone, and comment in plain language ("this section is too ambitious", "split this into two PRs"). The comments come back into the plan automatically. Point `gstack-config set margin_url` at your own self-hosted Margin if you don't want the hosted instance; override per-run with `MARGIN_URL`.
+
+### Itemized changes
+
+#### Added
+- **`bin/gstack-margin`** — a dependency-light (`curl` + `jq`) wrapper around Margin's agent-first HTTP API: `publish` (create-or-revise, caching the per-document token under `~/.gstack/projects/<slug>/margin-<branch>.json` at `0600`), `comments` (open threads as JSON), `resolve <id>`, plus `url` / `status`. The `agent_token` controls the document and is never echoed or logged.
+- **`{{MARGIN_PHONE_REVIEW}}` resolver** (`scripts/resolvers/margin.ts`) — the publish → comment → fold-back → re-publish loop, defined once and referenced by `/autoplan` and all four `plan-*-review` skills (host-aware bin paths via `ctx.paths.binDir`).
+- **Phone-review step in every plan-review flow** — a new `P` option at `/autoplan`'s Final Approval Gate, and an optional "Review on your phone (Margin)" section in `/plan-ceo-review`, `/plan-design-review`, `/plan-eng-review`, and `/plan-devex-review`. Phone comments are treated like a normal Revise and honor each skill's existing revision bound.
+- **`margin_url` config key** — base URL of the Margin instance the plan reviews publish to (default `https://margin.fieldspan.ai`); `MARGIN_URL` overrides per-run. Documented in the `gstack-config` header.
+- **`test/gstack-margin.test.ts`** — network-free coverage (a Bun stub server) for create vs. revise, stable-link reuse, `0600` token caching with no token leakage to stdout, bearer auth on revise/comments/resolve, and the usage/no-doc exit codes.
+
 ## [1.58.4.0] - 2026-06-18
 
 ## **A community bug-fix wave plus a test-gate that finally sees the questions it was missing.**
