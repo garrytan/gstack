@@ -99,8 +99,8 @@
       "voice_line": null
     },
     "gstack": {
-      "lead": "Fast headless browser for QA testing and site dogfooding.",
-      "routing": "Navigate pages, interact with\nelements, verify state, diff before/after, take annotated screenshots, test responsive\nlayouts, forms, uploads, dialogs, and capture bug evidence. Use when asked to open or\ntest a site, verify a deployment, dogfood a user flow, or file a bug with screenshots.",
+      "lead": "Router for the gstack skill suite.",
+      "routing": "Sends any gstack request to the right skill\n(planning, review, QA, shipping, debugging, docs, security, design). For browser/QA\nand dogfooding it points you at /browse. Use when you invoke gstack without a specific\nskill, or ask \"which gstack skill fits this?\".",
       "voice_line": null
     },
     "gstack-upgrade": {

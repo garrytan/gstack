@@ -189,11 +189,38 @@ jobs:
           SKILLS_DIR="$HOME/.claude/skills"
           REPO="$GITHUB_WORKSPACE"   # /__w/gstack/gstack
           mkdir -p "$SKILLS_DIR"
+          # The gstack root stays a symlink — the preamble's runtime bash resolves
+          # ~/.claude/skills/gstack/bin/* and ~/.claude/skills/gstack/<skill>/sections/*
+          # through it, and bash follows cross-mount symlinks fine.
           ln -snf "$REPO" "$SKILLS_DIR/gstack"
+          # But the per-skill SKILL.md the TUI DISCOVERS must be a REAL file on the
+          # same mount as $HOME. claude 2.1.187's interactive-TUI skill scanner does
+          # not follow the /github/home -> /__w cross-mount symlink (proven: `claude
+          # -p` discovered the skill — READY — while the TUI rejected /office-hours
+          # as "Unknown command"; a local macOS repro with the identical symlinked
+          # registry recognized it, isolating the failure to the container's
+          # cross-mount symlink). Copy SKILL.md + sections as real files so the TUI
+          # reads them directly.
           for s in office-hours plan-ceo-review; do
+            rm -rf "${SKILLS_DIR:?}/$s"
             mkdir -p "$SKILLS_DIR/$s"
-            ln -snf "$REPO/$s/SKILL.md" "$SKILLS_DIR/$s/SKILL.md"
-            ln -snf "$REPO/$s/sections" "$SKILLS_DIR/$s/sections"
+            cp "$REPO/$s/SKILL.md" "$SKILLS_DIR/$s/SKILL.md"
+            cp -R "$REPO/$s/sections" "$SKILLS_DIR/$s/sections"
+          done
+          # Also register PROJECT-scoped (cwd) skills. claude's interactive TUI
+          # surfaces /slash commands from <cwd>/.claude/skills, and the smokes run
+          # with cwd=$REPO whose .claude/skills is gitignored (absent on a fresh CI
+          # checkout) — the user-dir registration above feeds `claude -p` but the
+          # TUI looks here. No gstack symlink in the project dir: it would point at
+          # its own parent ($REPO). Runtime preamble paths use the user-dir
+          # ~/.claude/skills/gstack symlink above.
+          PROJ_SKILLS="$REPO/.claude/skills"
+          mkdir -p "$PROJ_SKILLS"
+          for s in office-hours plan-ceo-review; do
+            rm -rf "${PROJ_SKILLS:?}/$s"
+            mkdir -p "$PROJ_SKILLS/$s"
+            cp "$REPO/$s/SKILL.md" "$PROJ_SKILLS/$s/SKILL.md"
+            cp -R "$REPO/$s/sections" "$PROJ_SKILLS/$s/sections"
           done
           echo "--- registry under $SKILLS_DIR ---"
           ls -la "$SKILLS_DIR/gstack" "$SKILLS_DIR/office-hours" "$SKILLS_DIR/plan-ceo-review"

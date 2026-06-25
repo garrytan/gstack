@@ -1229,7 +1229,16 @@ fi
 
 # 9. First-time welcome + legacy cleanup
 if [ ! -f "$HOME/.gstack/.welcome-seen" ]; then
-  log "  Welcome! Run /gstack-upgrade anytime to stay current."
+  log ""
+  log "  gstack is ready. First move:"
+  log "    New idea / empty repo?   /office-hours  or  /spec"
+  log "    Existing code?           /qa  to see it work, or  /investigate"
+  log "  (Run /gstack-upgrade anytime to stay current)"
+  log ""
+  # Best-effort onboarding telemetry (respects telemetry!=off; never blocks setup).
+  if [ -x "$SOURCE_GSTACK_DIR/bin/gstack-telemetry-log" ]; then
+    "$SOURCE_GSTACK_DIR/bin/gstack-telemetry-log" --event-type onboarding --skill _setup_welcome --outcome shown >/dev/null 2>&1 || true
+  fi
   touch "$HOME/.gstack/.welcome-seen"
 fi
 rm -f /tmp/gstack-latest-version

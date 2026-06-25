@@ -41,6 +41,10 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'hermetic-canary':   ['test/helpers/hermetic-env.ts', 'test/helpers/session-runner.ts', 'test/skill-e2e-hermetic-canary.test.ts', 'lib/conductor-env-shim.ts'],
   'hermetic-sentinel': ['test/helpers/hermetic-env.ts', 'test/helpers/session-runner.ts', 'test/skill-e2e-hermetic-canary.test.ts', 'lib/conductor-env-shim.ts'],
 
+  // P4 first-run scaffold (activation lift) — the detection binary end-to-end
+  // through the real runner, plus the preamble wiring that gates + maps it.
+  'first-task-scaffold': ['bin/gstack-first-task-detect', 'scripts/resolvers/preamble/generate-first-run-guidance.ts', 'scripts/resolvers/preamble/generate-preamble-bash.ts', 'test/skill-e2e-first-task-scaffold.test.ts', 'test/helpers/session-runner.ts'],
+
   // SKILL.md setup + preamble (depend on ROOT SKILL.md + gen-skill-docs)
   'skillmd-setup-discovery':  ['SKILL.md', 'SKILL.md.tmpl', 'scripts/gen-skill-docs.ts'],
   'skillmd-no-local-binary':  ['SKILL.md', 'SKILL.md.tmpl', 'scripts/gen-skill-docs.ts'],
@@ -458,6 +462,9 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
   'skillmd-outside-git': 'gate',
   'session-awareness': 'gate',
   'operational-learning': 'gate',
+
+  // P4 first-run scaffold — periodic (onboarding, non-safety, model-touched marker)
+  'first-task-scaffold': 'periodic',
 
   // QA — gate for functional, periodic for quality/benchmarks
   'qa-quick': 'gate',
