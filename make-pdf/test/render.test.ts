@@ -68,6 +68,18 @@ describe("smartypants", () => {
     // it should remain intact. We're lenient here — acceptable either way.
     expect(out).toMatch(/--verbose|—verbose/);
   });
+
+  test("preserves an autolinked URL and its closing tag (#2084)", () => {
+    // marked autolinks a bare URL to <a href=URL>URL</a>; the URL in the link
+    // text sits immediately before the </a> placeholder. The greedy URL carve
+    // used to swallow that placeholder, leaking a raw SMARTPANTS_PRESERVED_n
+    // token and dropping </a> so link styling bled into the rest of the doc.
+    const out = smartypants(
+      `<p>See <a href="https://example.com">https://example.com</a> here.</p>`,
+    );
+    expect(out).not.toContain("SMARTPANTS_PRESERVED");
+    expect(out).toContain(`<a href="https://example.com">https://example.com</a>`);
+  });
 });
 
 // ─── sanitizer ──────────────────────────────────────────────

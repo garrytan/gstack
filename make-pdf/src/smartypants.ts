@@ -20,7 +20,11 @@
 
 const CODE_ZONE_RE = /<(pre|code|script|style)\b[^>]*>[\s\S]*?<\/\1>/gi;
 const TAG_RE = /<[^>]+>/g;
-const URL_RE = /\bhttps?:\/\/\S+/g;
+// Stop at whitespace or the carve sentinel (U+0000). \S would greedily eat a
+// following placeholder token (e.g. the </a> after autolinked link text),
+// nesting it inside the URL preservation so neither restores — leaving a raw
+// SMARTPANTS_PRESERVED_n leak and an unclosed <a> that bleeds link styling.
+const URL_RE = /\bhttps?:\/\/[^\s\u0000]+/g;
 
 /**
  * Apply smartypants to an HTML string. Zones that should not be touched:
