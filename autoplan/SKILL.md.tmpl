@@ -846,6 +846,7 @@ AskUserQuestion options:
 - C) Interrogate (ask about any specific decision)
 - D) Revise (the plan itself needs changes)
 - E) Reject (start over)
+- P) Review on my phone (publish the plan to Margin, comment, fold the comments back in)
 
 **Option handling:**
 - A: mark APPROVED, write review logs, suggest /ship
@@ -853,6 +854,18 @@ AskUserQuestion options:
 - C: answer freeform, re-present gate
 - D: make changes, re-run affected phases (scope→1B, design→2, test plan→3, arch→3). Max 3 cycles.
 - E: start over
+- P: run the Margin phone-review loop below, then re-present this gate.
+
+---
+
+## Phase 4.5: Review on your phone (Margin) — optional
+
+Triggered by option **P** at the gate. For autoplan, "fold each comment in" and
+"continue your normal flow" mean: treat the comment like a Revise (option D) —
+re-run the affected phase (scope→1B, design→2, test plan/arch→3), honor the
+max-3-cycles bound — and re-present the Final Approval Gate (Phase 4) when done.
+
+{{MARGIN_PHONE_REVIEW}}
 
 ---
 

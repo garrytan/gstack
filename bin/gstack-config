@@ -85,6 +85,14 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 #                           # Override per-run: ./setup --plan-tune-hooks /
 #                           #   --no-plan-tune-hooks, or env GSTACK_PLAN_TUNE_HOOKS.
 #
+# ─── Plan review on your phone (Margin) ──────────────────────────────
+# margin_url: https://margin.fieldspan.ai
+#                           # Base URL of the Margin instance /autoplan publishes
+#                           # the reviewed plan to for phone review (select text,
+#                           # leave anchored comments, fed back into the plan).
+#                           # Point at your own self-hosted Margin to change.
+#                           # Override per-run with the MARGIN_URL env var.
+#
 # ─── Advanced ────────────────────────────────────────────────────────
 # codex_reviews: enabled    # Master switch for Codex cross-model review. enabled =
 #                           #   Codex runs as a standard step in /review, /ship,
@@ -130,6 +138,7 @@ lookup_default() {
     artifacts_sync_mode) echo "off" ;;
     artifacts_sync_mode_prompted) echo "false" ;;
     plan_tune_hooks) echo "prompt" ;; # prompt | yes | no — controls ./setup plan-tune hook install
+    margin_url) echo "https://margin.fieldspan.ai" ;; # Margin phone-review base URL (autoplan). Point at your own self-hosted Margin to change.
 
     redact_repo_visibility) echo "" ;; # empty → fall through to gh/glab detection
     redact_prepush_hook) echo "false" ;;

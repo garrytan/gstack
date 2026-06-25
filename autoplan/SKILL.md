@@ -1754,6 +1754,7 @@ AskUserQuestion options:
 - C) Interrogate (ask about any specific decision)
 - D) Revise (the plan itself needs changes)
 - E) Reject (start over)
+- P) Review on my phone (publish the plan to Margin, comment, fold the comments back in)
 
 **Option handling:**
 - A: mark APPROVED, write review logs, suggest /ship
@@ -1761,6 +1762,75 @@ AskUserQuestion options:
 - C: answer freeform, re-present gate
 - D: make changes, re-run affected phases (scope→1B, design→2, test plan→3, arch→3). Max 3 cycles.
 - E: start over
+- P: run the Margin phone-review loop below, then re-present this gate.
+
+---
+
+## Phase 4.5: Review on your phone (Margin) — optional
+
+Triggered by option **P** at the gate. For autoplan, "fold each comment in" and
+"continue your normal flow" mean: treat the comment like a Revise (option D) —
+re-run the affected phase (scope→1B, design→2, test plan/arch→3), honor the
+max-3-cycles bound — and re-present the Final Approval Gate (Phase 4) when done.
+
+When the user wants to review this plan on their phone ("review on my phone",
+"send it to Margin", "let me comment on it"), publish the reviewed plan to
+**Margin** — a hosted reviewer at the URL from `~/.claude/skills/gstack/bin/gstack-config get margin_url`
+(default `https://margin.fieldspan.ai`). The user opens a private link on their
+phone, selects any text, and leaves comments anchored to exactly that text; you
+read them back, fold them into the plan, and re-publish. No API key — the first
+publish self-provisions a per-document token that `gstack-margin` caches locally
+(per project + branch, mode 0600, never printed).
+
+**1 · Render the reviewed plan to self-contained HTML.** Convert the plan file
+(including the `## GSTACK REVIEW REPORT` section — the scores and findings are
+what the reviewer reacts to) to one static HTML document. Margin's sandbox runs
+with **scripts off**, so: inline CSS only, no external scripts/stylesheets/fonts,
+images as `data:` or absolute `https:` only. Render headings, tables, lists, and
+code blocks so the reviewer reads the formatted plan, not raw markdown. Lead with
+a one-line "what I'd like you to weigh in on". Write it to a temp file:
+
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-paths)"
+HTML="$TMP_ROOT/plan-margin.html"   # write the rendered HTML here
+```
+
+**2 · Publish and hand over the link.**
+
+```bash
+~/.claude/skills/gstack/bin/gstack-margin publish "$HTML" --title "Plan review: <feature>"
+```
+
+It prints the reviewer URL. Give it to the user as a clickable link and tell
+them: open it (phone or browser), select any text, leave a comment. Then stop and
+wait — do not approve on their behalf.
+
+**3 · Read the comments back** (when the user says they've commented, or "check"):
+
+```bash
+~/.claude/skills/gstack/bin/gstack-margin comments
+```
+
+Each `.threads[]` entry carries `.body` (what they want), the `.anchor.quote` /
+`.anchor.block_text` it is attached to (which part of the plan), and an `.id`.
+
+**4 · Fold each comment into the plan.** Treat phone comments exactly like an
+in-terminal revision: edit the plan file, and re-run any affected review step.
+Honor the same revision bound your flow already uses.
+
+**5 · Re-publish to the SAME document and resolve handled threads.** This keeps
+the link stable and the comments anchored — never create a fresh doc per round
+(`gstack-margin` reuses the cached doc automatically):
+
+```bash
+~/.claude/skills/gstack/bin/gstack-margin publish "$HTML" --summary "addressed phone comments"
+~/.claude/skills/gstack/bin/gstack-margin resolve <comment_id>   # one per handled thread
+```
+
+**6 · Loop** until the user has no more comments, then continue your normal flow
+(re-present the approval gate, or proceed to the exit-plan-mode gate). On final
+approval, if a Margin doc exists, re-publish the approved plan one last time so
+the phone copy matches what ships.
 
 ---
 
