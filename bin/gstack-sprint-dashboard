@@ -1,89 +1,27 @@
 #!/usr/bin/env bun
 /**
- * gstack-sprint-dashboard — in-flight branch/stage visibility.
- *
- * Read-only. Generates a self-contained HTML sprint board from gstack's own
- * on-disk state (timeline.jsonl, analytics/*.jsonl, CHANGELOG.md, TODOS.md,
- * git, gh pr list) — no new instrumentation, no new user input.
+ * gstack-sprint-dashboard — sprint board in three output modes.
  *
  * Usage:
- *   gstack-sprint-dashboard               # write ./sprint.html, don't open
- *   gstack-sprint-dashboard open          # write ./sprint.html, open it
- *   gstack-sprint-dashboard out <path>    # write to <path>, don't open
+ *   gstack-sprint-dashboard              # compact terminal (default)
+ *   gstack-sprint-dashboard --compact    # compact terminal (explicit)
+ *   gstack-sprint-dashboard --full       # full terminal view
+ *   gstack-sprint-dashboard --web        # write sprint.html + open in browser
+ *   gstack-sprint-dashboard --out <path> # write HTML to <path> (implies --web)
+ *   gstack-sprint-dashboard --slug <s>   # override project slug
  *
- * A leading "--" (e.g. `bun run bin/gstack-sprint-dashboard -- open`) is
- * stripped before parsing, so both invocation styles work.
- *
- * Design doc: ~/.gstack/projects/garrytan-gstack/mst-feature-ui-workflow-design-20260623-105354.md
+ * Backwards-compat positional args (mapped to --web):
+ *   gstack-sprint-dashboard open         # alias for --web
+ *   gstack-sprint-dashboard out <path>   # alias for --web --out <path>
  */
 
-import { existsSync, readFileSync, writeFileSync, statSync, readdirSync } from "fs";
-import { join, basename, resolve } from "path";
+import { writeFileSync, readFileSync } from "fs";
+import { resolve } from "path";
 import { execFileSync, spawn } from "child_process";
-import { homedir } from "os";
+import { buildDashboard } from "../lib/dashboard-data";
+import { renderCompact, renderFull } from "../lib/dashboard-cli";
 
-const HISTORY_WINDOW_DAYS = 30;
-const ACTIVITY_FEED_LIMIT = 20;
-const DESIGN_DOCS_LIMIT = 10;
-
-// ─── Slug + paths ──────────────────────────────────────────────────────────
-
-function resolveSlug(): string {
-  const scriptDir = import.meta.dir;
-  const slugBin = join(scriptDir, "gstack-slug");
-  try {
-    let output: string;
-    if (process.platform === "win32") {
-      // Windows: gstack-slug is a bash script; run it via bash with a
-      // forward-slash path (import.meta.dir gives backslashes on Windows,
-      // which bash on Windows chokes on).
-      const forwardSlashPath = slugBin.replace(/\\/g, "/");
-      output = execFileSync("bash", [forwardSlashPath], {
-        encoding: "utf-8",
-        stdio: ["ignore", "pipe", "ignore"],
-      });
-    } else {
-      output = execFileSync(slugBin, [], {
-        encoding: "utf-8",
-        stdio: ["ignore", "pipe", "ignore"],
-      });
-    }
-    const match = output.match(/^SLUG=(.*)$/m);
-    if (match && match[1]) return match[1].trim();
-  } catch {
-    // fall through to basename fallback
-  }
-  return basename(process.cwd()).replace(/[^a-zA-Z0-9._-]/g, "");
-}
-
-function gstackHome(): string {
-  return process.env.GSTACK_HOME || join(homedir(), ".gstack");
-}
-
-// ─── Generic helpers ───────────────────────────────────────────────────────
-
-function readJsonlSafe(path: string): Record<string, any>[] {
-  if (!existsSync(path)) return [];
-  const lines = readFileSync(path, "utf-8").split("\n");
-  const out: Record<string, any>[] = [];
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    try {
-      out.push(JSON.parse(trimmed));
-    } catch {
-      // skip unparseable/torn lines (concurrent Conductor writes) — not fatal
-    }
-  }
-  return out;
-}
-
-function withinWindow(ts: string | undefined, days: number): boolean {
-  if (!ts) return false;
-  const t = new Date(ts).getTime();
-  if (Number.isNaN(t)) return false;
-  return Date.now() - t <= days * 24 * 60 * 60 * 1000;
-}
+// ─── HTML helpers (web mode only) ───────────────────────────────────────────
 
 function escapeHtml(s: string): string {
   return s
@@ -93,518 +31,151 @@ function escapeHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
-interface ChangelogVersion {
-  version: string;
-  date: string;
+function stageIcon(reached: boolean, isCurrent: boolean): string {
+  if (!reached) return "";
+  return `<span class="tick ${isCurrent ? "tick-current" : "tick-passed"}">✓</span>`;
 }
 
-// Shared by Release Velocity and the header stats bar — parsed once.
-function getChangelogVersions(): ChangelogVersion[] {
-  const changelogPath = join(process.cwd(), "CHANGELOG.md");
-  if (!existsSync(changelogPath)) return [];
-  const changelog = readFileSync(changelogPath, "utf-8");
-  const versionHeadingRe = /^## \[(\d+\.\d+\.\d+\.\d+)\] - (\d{4}-\d{2}-\d{2})/gm;
-  const versions: ChangelogVersion[] = [];
-  let m: RegExpExecArray | null;
-  while ((m = versionHeadingRe.exec(changelog)) !== null) {
-    versions.push({ version: m[1], date: m[2] });
-  }
-  return versions;
-}
+function renderHtml(data: ReturnType<typeof buildDashboard>): string {
+  const { slug, branch, version, generatedAt, inFlightCount, features, activity,
+          velocity, topSkills, quality, designDocs, backlog, openDecisions, prMap } = data;
 
-interface BacklogCounts {
-  P0: number;
-  P1: number;
-  P2: number;
-  P3: number;
-  P4: number;
-  unparsed: number;
-}
-
-// Shared by the TODOS backlog-health widget and the header stats bar.
-function getBacklogCounts(): BacklogCounts | null {
-  const todosPath = join(process.cwd(), "TODOS.md");
-  if (!existsSync(todosPath)) return null;
-  const todos = readFileSync(todosPath, "utf-8");
-  const headingRe = /^### (.+)$/gm;
-  const counts: BacklogCounts = { P0: 0, P1: 0, P2: 0, P3: 0, P4: 0, unparsed: 0 };
-  let m: RegExpExecArray | null;
-  while ((m = headingRe.exec(todos)) !== null) {
-    const pm = m[1].match(/^(P[0-4]):/);
-    if (pm) counts[pm[1] as keyof BacklogCounts]++;
-    else counts.unparsed++;
-  }
-  return counts;
-}
-
-// Best-effort: shells out to the sibling gstack-decision-search binary rather
-// than re-implementing the active-decisions snapshot format. Returns null
-// (renders "—") if the binary is missing, errors, or returns unparseable
-// output — open decisions is a "nice to have" stat, never a hard dependency.
-function getOpenDecisionsCount(): number | null {
-  try {
-    const out = execFileSync(join(import.meta.dir, "gstack-decision-search"), ["--json"], {
-      encoding: "utf-8",
-      stdio: ["ignore", "pipe", "ignore"],
-    });
-    const rows = JSON.parse(out || "[]");
-    return Array.isArray(rows) ? rows.length : null;
-  } catch {
-    return null;
-  }
-}
-
-function getCurrentVersion(): string | null {
-  const versionPath = join(process.cwd(), "VERSION");
-  if (!existsSync(versionPath)) return null;
-  const v = readFileSync(versionPath, "utf-8").trim();
-  return v || null;
-}
-
-// ─── Widget: Pipeline board ────────────────────────────────────────────────
-
-const SKILL_TO_STAGE: Record<string, string> = {
-  "office-hours": "office-hours",
-  spec: "spec",
-  "plan-ceo-review": "plan-review",
-  "plan-eng-review": "plan-review",
-  "plan-design-review": "plan-review",
-  "plan-devex-review": "plan-review",
-  autoplan: "plan-review",
-  review: "review",
-  codex: "review",
-  "design-review": "review",
-  "devex-review": "review",
-  qa: "implement",
-  "qa-only": "implement",
-  investigate: "implement",
-  ship: "ship",
-  "land-and-deploy": "ship",
-  canary: "canary",
-};
-
-// Ordered left-to-right in the pipeline board grid.
-const STAGES: { id: string; label: string }[] = [
-  { id: "office-hours", label: "OH" },
-  { id: "spec", label: "Spec" },
-  { id: "plan-review", label: "Plan" },
-  { id: "implement", label: "Impl" },
-  { id: "review", label: "Review" },
-  { id: "ship", label: "Ship" },
-  { id: "canary", label: "Canary" },
-];
-
-function stageForSkill(skill: string): string {
-  return SKILL_TO_STAGE[skill] || "implement";
-}
-
-interface BranchStageData {
-  branch: string;
-  stagesReached: Set<string>;
-  latestStage: string | null;
-  latestEntry: Record<string, any> | null;
-}
-
-// Shared by the pipeline board and the header stats bar — computed once so
-// both widgets agree on what "in-flight" means and don't re-walk the
-// timeline/git-branch list twice.
-function computeBranchStageData(timeline: Record<string, any>[]): BranchStageData[] {
-  let branches: string[] = [];
-  try {
-    const out = execFileSync("git", ["branch", "--format=%(refname:short)"], {
-      encoding: "utf-8",
-      stdio: ["ignore", "pipe", "ignore"],
-    });
-    branches = out.split("\n").map((l) => l.trim()).filter(Boolean);
-  } catch {
-    branches = [];
-  }
-
-  const entriesByBranch = new Map<string, Record<string, any>[]>();
-  for (const entry of timeline) {
-    if (entry.event !== "completed" || !entry.branch || !entry.ts || !entry.skill) continue;
-    const list = entriesByBranch.get(entry.branch) || [];
-    list.push(entry);
-    entriesByBranch.set(entry.branch, list);
-  }
-
-  return branches.map((branch) => {
-    const entries = entriesByBranch.get(branch) || [];
-    const stagesReached = new Set(entries.map((e) => stageForSkill(e.skill)));
-    let latestEntry: Record<string, any> | null = null;
-    for (const e of entries) {
-      if (!latestEntry || new Date(e.ts).getTime() > new Date(latestEntry.ts).getTime()) latestEntry = e;
-    }
-    const latestStage = latestEntry ? stageForSkill(latestEntry.skill) : null;
-    return { branch, stagesReached, latestStage, latestEntry };
-  });
-}
-
-interface PrBadge {
-  number: number;
-  state: string;
-}
-
-let cachedGhUser: string | null | undefined; // undefined = not resolved yet
-
-// Owner-scoped: `gh pr list --head <branch>` alone matches by branch name
-// across the WHOLE repo, including every fork's PRs. A repo with hundreds of
-// open community PRs has multiple unrelated forks sharing common branch names
-// (verified: 3 separate fork PRs all named "main" in this repo) — a bare
-// branch-name match silently shows someone else's PR badge on your own
-// branch. Scoping to "<your-login>:<branch>" via one cached `gh api user`
-// call disambiguates correctly.
-function resolveGhUser(): string | null {
-  if (cachedGhUser !== undefined) return cachedGhUser;
-  try {
-    cachedGhUser = execFileSync("gh", ["api", "user", "--jq", ".login"], {
-      encoding: "utf-8",
-      stdio: ["ignore", "pipe", "ignore"],
-    }).trim();
-  } catch {
-    cachedGhUser = null; // not authenticated, or gh unavailable
-  }
-  return cachedGhUser;
-}
-
-function fetchPrBadge(branch: string): PrBadge | undefined {
-  const user = resolveGhUser();
-  const head = user ? `${user}:${branch}` : branch;
-  try {
-    const out = execFileSync(
-      "gh",
-      ["pr", "list", "--head", head, "--json", "number,state", "--limit", "1"],
-      { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] }
-    );
-    const prs = JSON.parse(out) as { number: number; state: string }[];
-    return prs[0] ? { number: prs[0].number, state: prs[0].state } : undefined;
-  } catch {
-    // gh not installed, not authenticated, or errored — best-effort, no PR badge
-    return undefined;
-  }
-}
-
-// The default branch (main/master) is the trunk, never a PR head — skip the
-// PR lookup for it entirely rather than relying on owner-scoping alone.
-function resolveDefaultBranch(): string | null {
-  try {
-    return execFileSync(
-      "gh",
-      ["repo", "view", "--json", "defaultBranchRef", "--jq", ".defaultBranchRef.name"],
-      { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] }
-    ).trim();
-  } catch {
-    try {
-      const ref = execFileSync("git", ["symbolic-ref", "refs/remotes/origin/HEAD"], {
-        encoding: "utf-8",
-        stdio: ["ignore", "pipe", "ignore"],
-      }).trim();
-      return ref.replace(/^refs\/remotes\/origin\//, "");
-    } catch {
-      return null;
-    }
-  }
-}
-
-function buildPipelineBoard(branchData: BranchStageData[]): string {
-  if (branchData.length === 0) {
-    return `<div class="empty">no data yet — no local git branches found</div>`;
-  }
-
-  const defaultBranch = resolveDefaultBranch();
-  const stageHeaders = STAGES.map((s) => `<th class="stage-col">${escapeHtml(s.label)}</th>`).join("");
-
-  const rows = branchData
-    .map(({ branch, stagesReached, latestStage, latestEntry }) => {
-      const lastActivity = latestEntry
-        ? `${escapeHtml(latestEntry.skill)} · ${new Date(latestEntry.ts).toLocaleString()}`
-        : "—";
-      // The default branch is trunk, never a PR head — skip the lookup
-      // rather than relying on owner-scoping alone to avoid a false match.
-      const pr = branch === defaultBranch ? undefined : fetchPrBadge(branch);
-      const prCell = pr ? `<span class="pr-badge pr-${pr.state.toLowerCase()}">#${pr.number} ${pr.state}</span>` : "—";
-      const stageCells = STAGES.map((s) => {
-        if (!stagesReached.has(s.id)) return `<td class="stage-col"></td>`;
-        const isCurrent = s.id === latestStage;
-        return `<td class="stage-col"><span class="tick ${isCurrent ? "tick-current" : "tick-passed"}">✓</span></td>`;
-      }).join("");
-      return `<tr>
-        <td class="mono">${escapeHtml(branch)}${latestStage === null ? ' <span class="dim">(untracked)</span>' : ""}</td>
-        ${stageCells}
-        <td class="mono dim">${lastActivity}</td>
-        <td>${prCell}</td>
-      </tr>`;
-    })
-    .join("\n");
-
-  return `<table>
-    <thead><tr><th>Branch</th>${stageHeaders}<th>Last Activity</th><th>PR</th></tr></thead>
-    <tbody>${rows}</tbody>
-  </table>`;
-}
-
-// ─── Widget: Activity feed ─────────────────────────────────────────────────
-
-function buildActivityFeed(timeline: Record<string, any>[]): string {
-  const events = timeline
-    .filter((e) => e.ts && e.skill)
-    .sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime())
-    .slice(0, ACTIVITY_FEED_LIMIT);
-
-  if (events.length === 0) {
-    return `<div class="empty">no data yet — timeline.jsonl has no events</div>`;
-  }
-
-  const items = events
-    .map(
-      (e) => `<li>
-        <span class="mono dim">${new Date(e.ts).toLocaleString()}</span>
-        <span class="skill">${escapeHtml(e.skill)}</span>
-        <span class="mono dim">${escapeHtml(e.branch || "unknown")}</span>
-        <span class="event-${escapeHtml(e.event || "")}">${escapeHtml(e.event || "")}</span>
-      </li>`
-    )
-    .join("\n");
-
-  return `<ul class="activity-feed">${items}</ul>`;
-}
-
-// ─── Widget: Top skills chart ───────────────────────────────────────────────
-
-function buildTopSkillsChart(slug: string): string {
-  const path = join(gstackHome(), "analytics", "skill-usage.jsonl");
-  const entries = readJsonlSafe(path).filter((e) => e.skill && withinWindow(e.ts, HISTORY_WINDOW_DAYS));
-
-  if (entries.length === 0) {
-    return `<div class="empty">no data yet — analytics/skill-usage.jsonl has no recent entries</div>`;
-  }
-
-  const counts = new Map<string, number>();
-  for (const e of entries) counts.set(e.skill, (counts.get(e.skill) || 0) + 1);
-  const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1]);
-  const max = sorted[0]?.[1] || 1;
-
-  const bars = sorted
-    .map(
-      ([skill, count]) => `<div class="bar-row">
-        <span class="bar-label mono">${escapeHtml(skill)}</span>
-        <div class="bar-track"><div class="bar-fill" style="width:${(count / max) * 100}%"></div></div>
-        <span class="bar-count mono dim">${count}</span>
-      </div>`
-    )
-    .join("\n");
-
-  return `<div class="bar-chart">${bars}</div>`;
-}
-
-// ─── Widget: Quality scores ─────────────────────────────────────────────────
-
-function buildQualityScores(): string {
-  const path = join(gstackHome(), "analytics", "spec-review.jsonl");
-  const entries = readJsonlSafe(path)
-    .filter((e) => e.ts && withinWindow(e.ts, HISTORY_WINDOW_DAYS) && e.quality_score !== undefined)
-    .sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime())
-    .slice(0, 10);
-
-  if (entries.length === 0) {
-    return `<div class="empty">no data yet — analytics/spec-review.jsonl has no recent entries</div>`;
-  }
-
-  const rows = entries
-    .map(
-      (e) => `<tr>
-        <td class="mono dim">${new Date(e.ts).toLocaleDateString()}</td>
-        <td>${escapeHtml(e.skill || "—")}</td>
-        <td class="mono">${e.iterations ?? "—"}</td>
-        <td class="mono score">${e.quality_score}/10</td>
-      </tr>`
-    )
-    .join("\n");
-
-  return `<table>
-    <thead><tr><th>Date</th><th>Skill</th><th>Iterations</th><th>Score</th></tr></thead>
-    <tbody>${rows}</tbody>
-  </table>`;
-}
-
-// ─── Widget: Active design docs ─────────────────────────────────────────────
-
-function buildActiveDesignDocs(slug: string): string {
-  const projectDir = join(gstackHome(), "projects", slug);
-  if (!existsSync(projectDir)) {
-    return `<div class="empty">no data yet — no project directory for this repo</div>`;
-  }
-
-  let files: string[];
-  try {
-    files = readdirSync(projectDir).filter((f) => /-design-.*\.md$/.test(f));
-  } catch {
-    return `<div class="empty">no data yet — could not read project directory</div>`;
-  }
-
-  if (files.length === 0) {
-    return `<div class="empty">no data yet — no design docs for this project</div>`;
-  }
-
-  const withMtime = files.map((f) => {
-    const fullPath = join(projectDir, f);
-    let mtime = 0;
-    try {
-      mtime = statSync(fullPath).mtimeMs;
-    } catch {
-      // leave mtime at 0
-    }
-    return { name: f, fullPath, mtime };
-  });
-
-  withMtime.sort((a, b) => b.mtime - a.mtime);
-
-  const items = withMtime
-    .slice(0, DESIGN_DOCS_LIMIT)
-    .map(
-      (f) => `<li>
-        <a class="mono" href="file://${escapeHtml(f.fullPath)}">${escapeHtml(f.name)}</a>
-        <span class="mono dim">${f.mtime ? new Date(f.mtime).toLocaleDateString() : "—"}</span>
-      </li>`
-    )
-    .join("\n");
-
-  return `<ul class="design-docs">${items}</ul>`;
-}
-
-// ─── Widget: Release velocity ───────────────────────────────────────────────
-
-function buildReleaseVelocity(versions: ChangelogVersion[]): string {
-  if (versions.length === 0) {
-    return `<div class="empty">no data yet — no CHANGELOG.md in this repo</div>`;
-  }
-
-  const recentVersions = versions.filter((v) => withinWindow(v.date, HISTORY_WINDOW_DAYS));
-
-  if (recentVersions.length === 0) {
-    return `<div class="empty">no data yet — no versions shipped in the last ${HISTORY_WINDOW_DAYS} days</div>`;
-  }
-
-  // Commits per version: PR-merge commit subjects are conventionally
-  // prefixed "vX.Y.Z.W <message>" in this repo's commit log.
-  let subjects: string[] = [];
-  try {
-    const out = execFileSync(
-      "git",
-      ["log", `--since=${HISTORY_WINDOW_DAYS} days ago`, "--pretty=format:%s"],
-      { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] }
-    );
-    subjects = out.split("\n").filter(Boolean);
-  } catch {
-    subjects = [];
-  }
-
-  const commitCounts = new Map<string, number>();
-  for (const subject of subjects) {
-    const vm = subject.match(/^v(\d+\.\d+\.\d+\.\d+)\s/);
-    if (vm) commitCounts.set(vm[1], (commitCounts.get(vm[1]) || 0) + 1);
-  }
-
-  // Chronological order, oldest first, for a left-to-right sparkline.
-  recentVersions.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-  const counts = recentVersions.map((v) => commitCounts.get(v.version) || 0);
-  const max = Math.max(1, ...counts);
-  const blocks = " ▁▂▃▄▅▆▇█";
-
-  const sparkline = recentVersions
-    .map((v, i) => {
-      const count = counts[i];
-      const level = Math.min(8, Math.round((count / max) * 8));
-      return `<span class="sparkline-block" title="v${escapeHtml(v.version)} — ${count} commit(s)">${blocks[level]}</span>`;
-    })
-    .join("");
-
-  const versionList = recentVersions
-    .map((v, i) => `<li class="mono">v${escapeHtml(v.version)} <span class="dim">— ${v.date} — ${counts[i]} commit(s)</span></li>`)
-    .join("\n");
-
-  return `<div class="release-velocity">
-    <div class="sparkline">${sparkline}</div>
-    <ul>${versionList}</ul>
-  </div>`;
-}
-
-// ─── Widget: TODOS backlog health ───────────────────────────────────────────
-
-function buildBacklogHealth(counts: BacklogCounts | null): string {
-  if (!counts) {
-    return `<div class="empty">no data yet — no TODOS.md in this repo</div>`;
-  }
-
-  const total = Object.values(counts).reduce((a, b) => a + b, 0);
-  if (total === 0) {
-    return `<div class="empty">no data yet — TODOS.md has no level-3 headings</div>`;
-  }
-
-  const rows = (["P0", "P1", "P2", "P3", "P4", "unparsed"] as const)
-    .filter((p) => counts[p] > 0)
-    .map((p) => `<tr><td class="mono">${p}</td><td class="mono">${counts[p]}</td></tr>`)
-    .join("\n");
-
-  return `<table>
-    <thead><tr><th>Priority</th><th>Count</th></tr></thead>
-    <tbody>${rows}</tbody>
-  </table>`;
-}
-
-// ─── Widget: Header stats bar ───────────────────────────────────────────────
-
-function buildHeaderStats(
-  branchData: BranchStageData[],
-  versions: ChangelogVersion[],
-  backlogCounts: BacklogCounts | null
-): string {
-  const version = getCurrentVersion();
-
-  const inFlight = branchData.filter(
-    (b) => b.latestStage !== null && b.latestStage !== "ship"
-  ).length;
+  // ── Stage constants for HTML ──
+  const STAGES = [
+    { id: "office-hours", label: "OH" },
+    { id: "spec", label: "Spec" },
+    { id: "plan-review", label: "Plan" },
+    { id: "implement", label: "Impl" },
+    { id: "review", label: "Review" },
+    { id: "ship", label: "Ship" },
+    { id: "canary", label: "Canary" },
+  ] as const;
 
   const now = new Date();
-  const shipsThisMonth = versions.filter((v) => {
-    const d = new Date(v.date);
-    return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
-  }).length;
+  const HISTORY_DAYS = 30;
 
-  const recentVersions = versions
-    .filter((v) => withinWindow(v.date, HISTORY_WINDOW_DAYS))
-    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-  let avgDaysPerRelease: string = "—";
-  if (recentVersions.length >= 2) {
-    const first = new Date(recentVersions[0].date).getTime();
-    const last = new Date(recentVersions[recentVersions.length - 1].date).getTime();
-    const spanDays = (last - first) / (24 * 60 * 60 * 1000);
-    avgDaysPerRelease = (spanDays / (recentVersions.length - 1)).toFixed(1);
-  }
-
-  const p1Open = backlogCounts ? backlogCounts.P1 : null;
-  const openDecisions = getOpenDecisionsCount();
-
-  const stat = (label: string, value: string | number | null) =>
-    `<div class="stat-card">
-      <div class="stat-value">${value === null ? "—" : escapeHtml(String(value))}</div>
-      <div class="stat-label">${escapeHtml(label)}</div>
-    </div>`;
-
-  return `<div class="stats-bar">
-    ${stat("Version", version ? `v${version}` : null)}
-    ${stat("In-flight", inFlight)}
-    ${stat("Ships this month", shipsThisMonth)}
-    ${stat("Avg days/release", avgDaysPerRelease === "—" ? null : avgDaysPerRelease)}
-    ${stat("P1 open", p1Open)}
-    ${stat("Open decisions", openDecisions)}
+  // ── Header stats ──
+  const statsBar = `<div class="stats-bar">
+    ${[
+      ["Version", version ? `v${version}` : null],
+      ["In-flight", inFlightCount],
+      ["Ships this month", velocity.releasesThisMonth],
+      ["Avg days/release", velocity.avgDaysBetween !== null ? velocity.avgDaysBetween.toFixed(1) : null],
+      ["P1 open", backlog?.P1 ?? null],
+      ["Open decisions", openDecisions],
+    ].map(([label, value]) =>
+      `<div class="stat-card">
+        <div class="stat-value">${value === null || value === undefined ? "—" : escapeHtml(String(value))}</div>
+        <div class="stat-label">${escapeHtml(String(label))}</div>
+      </div>`
+    ).join("")}
   </div>`;
-}
 
-// ─── HTML shell ──────────────────────────────────────────────────────────
+  // ── Pipeline ──
+  const stageHeaders = STAGES.map((s) => `<th class="stage-col">${s.label}</th>`).join("");
+  const pipelineRows = features.map((f) => {
+    const stageCells = STAGES.map((s) => {
+      const reached = f.stagesReached.has(s.id as any);
+      const isCurrent = f.latestStage === s.id;
+      return `<td class="stage-col">${stageIcon(reached, isCurrent)}</td>`;
+    }).join("");
+    const pr = prMap.get(f.branch);
+    const prCell = pr
+      ? `<span class="pr-badge pr-${pr.state.toLowerCase()}">#${pr.number} ${pr.state}</span>`
+      : "—";
+    const lastAct = f.latestTs
+      ? `${escapeHtml(f.latestSkill ?? "")} · ${new Date(f.latestTs).toLocaleString()}`
+      : "—";
+    return `<tr>
+      <td class="mono">${escapeHtml(f.branch)}${f.latestStage === null ? ' <span class="dim">(untracked)</span>' : ""}</td>
+      ${stageCells}
+      <td class="mono dim">${lastAct}</td>
+      <td>${prCell}</td>
+    </tr>`;
+  }).join("\n");
 
-function renderPage(slug: string, branch: string, sections: Record<string, string>): string {
-  const generatedAt = new Date().toLocaleString();
+  const pipeline = features.length === 0
+    ? `<div class="empty">no data yet — no local git branches found</div>`
+    : `<table>
+        <thead><tr><th>Branch</th>${stageHeaders}<th>Last Activity</th><th>PR</th></tr></thead>
+        <tbody>${pipelineRows}</tbody>
+      </table>`;
+
+  // ── Activity feed ──
+  const activityHtml = activity.length === 0
+    ? `<div class="empty">no data yet</div>`
+    : `<ul class="activity-feed">${activity.map((e) =>
+        `<li>
+          <span class="mono dim">${new Date(e.ts).toLocaleString()}</span>
+          <span class="skill">${escapeHtml(e.skill)}</span>
+          <span class="mono dim">${escapeHtml(e.branch)}</span>
+          <span class="event-${escapeHtml(e.event)}">${escapeHtml(e.event)}</span>
+        </li>`).join("\n")}</ul>`;
+
+  // ── Top skills ──
+  const topSkillsHtml = topSkills.length === 0
+    ? `<div class="empty">no data yet</div>`
+    : (() => {
+        const max = topSkills[0]?.count || 1;
+        return `<div class="bar-chart">${topSkills.map((s) =>
+          `<div class="bar-row">
+            <span class="bar-label mono">${escapeHtml(s.skill)}</span>
+            <div class="bar-track"><div class="bar-fill" style="width:${(s.count / max) * 100}%"></div></div>
+            <span class="bar-count mono dim">${s.count}</span>
+          </div>`).join("\n")}</div>`;
+      })();
+
+  // ── Quality ──
+  const qualityHtml = quality.length === 0
+    ? `<div class="empty">no data yet</div>`
+    : `<table>
+        <thead><tr><th>Date</th><th>Skill</th><th>Iterations</th><th>Score</th></tr></thead>
+        <tbody>${quality.map((e) =>
+          `<tr>
+            <td class="mono dim">${new Date(e.ts).toLocaleDateString()}</td>
+            <td>${escapeHtml(e.skill)}</td>
+            <td class="mono">${e.iterations}</td>
+            <td class="mono score">${e.score}/10</td>
+          </tr>`).join("\n")}</tbody>
+      </table>`;
+
+  // ── Design docs ──
+  const designDocsHtml = designDocs.length === 0
+    ? `<div class="empty">no data yet</div>`
+    : `<ul class="design-docs">${designDocs.map((d) =>
+        `<li>
+          <a class="mono" href="file://${escapeHtml(d.fullPath)}">${escapeHtml(d.name)}</a>
+          <span class="mono dim">${d.mtime ? new Date(d.mtime).toLocaleDateString() : "—"}</span>
+        </li>`).join("\n")}</ul>`;
+
+  // ── Release velocity ──
+  const releaseVelocityHtml = (() => {
+    const recent = velocity.recentVersions;
+    if (recent.length === 0) return `<div class="empty">no releases in the last ${HISTORY_DAYS} days</div>`;
+    const blocks = " ▁▂▃▄▅▆▇█";
+    const max = Math.max(1, ...recent.map((v) => v.commitCount));
+    const sparkline = recent
+      .map((v) => `<span class="sparkline-block" title="v${escapeHtml(v.version)} — ${v.commitCount} commit(s)">${blocks[Math.min(8, Math.round((v.commitCount / max) * 8))]}</span>`)
+      .join("");
+    const versionList = recent
+      .map((v) => `<li class="mono">v${escapeHtml(v.version)} <span class="dim">— ${v.date} — ${v.commitCount} commit(s)</span></li>`)
+      .join("\n");
+    return `<div class="release-velocity"><div class="sparkline">${sparkline}</div><ul>${versionList}</ul></div>`;
+  })();
+
+  // ── Backlog ──
+  const backlogHtml = !backlog
+    ? `<div class="empty">no TODOS.md found</div>`
+    : (() => {
+        const total = Object.values(backlog).reduce((a, b) => a + b, 0);
+        if (total === 0) return `<div class="empty">no level-3 headings in TODOS.md</div>`;
+        const rows = (["P0", "P1", "P2", "P3", "P4", "unparsed"] as const)
+          .filter((p) => backlog[p] > 0)
+          .map((p) => `<tr><td class="mono">${p}</td><td class="mono">${backlog[p]}</td></tr>`)
+          .join("\n");
+        return `<table><thead><tr><th>Priority</th><th>Count</th></tr></thead><tbody>${rows}</tbody></table>`;
+      })();
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -612,7 +183,7 @@ function renderPage(slug: string, branch: string, sections: Record<string, strin
 <title>gstack sprint dashboard — ${escapeHtml(slug)}</title>
 <style>
   :root {
-    --amber-500: #F59E0B;
+    --amber: #F59E0B;
     --zinc-400: #A1A1AA;
     --zinc-600: #52525B;
     --bg-base: #0C0C0C;
@@ -625,13 +196,13 @@ function renderPage(slug: string, branch: string, sections: Record<string, strin
     --text-meta: #52525B;
     --success: #22C55E;
     --error: #EF4444;
-    --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+    --font: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
     background: var(--bg-base);
     color: var(--text-body);
-    font-family: var(--font-mono);
+    font-family: var(--font);
     font-size: 13px;
     line-height: 1.5;
     padding: 32px;
@@ -647,123 +218,86 @@ function renderPage(slug: string, branch: string, sections: Record<string, strin
     font-size: 13px;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    border-left: 2px solid var(--amber-500);
+    border-left: 2px solid var(--amber);
     padding-left: 8px;
     margin: 28px 0 12px;
   }
-  section {
-    background: var(--bg-surface);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 16px;
-  }
+  section { background: var(--bg-surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
   table { width: 100%; border-collapse: collapse; }
-  th {
-    text-align: left;
-    color: var(--text-label);
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
-    padding: 6px 8px;
-    border-bottom: 1px solid var(--border);
-  }
-  td { padding: 6px 8px; border-bottom: 1px solid var(--border-subtle, #1f1f1f); }
+  th { text-align: left; color: var(--text-label); font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  td { padding: 6px 8px; border-bottom: 1px solid #1f1f1f; }
   tr:hover { background: var(--bg-hover); }
-  .mono { font-family: var(--font-mono); }
+  .mono { font-family: var(--font); }
   .dim { color: var(--text-meta); }
   .empty { color: var(--text-meta); padding: 8px; font-style: italic; }
-  .stage {
-    display: inline-block;
-    padding: 2px 8px;
-    border-radius: 4px;
-    background: var(--bg-hover);
-    color: var(--amber-500);
-    font-size: 12px;
-  }
-  .stage-untracked { color: var(--text-meta); }
   .pr-badge { color: var(--success); font-size: 12px; }
   .pr-closed { color: var(--error); }
   .activity-feed, .design-docs { list-style: none; }
-  .activity-feed li, .design-docs li {
-    display: flex;
-    gap: 12px;
-    padding: 6px 0;
-    border-bottom: 1px solid var(--border-subtle, #1f1f1f);
-  }
+  .activity-feed li, .design-docs li { display: flex; gap: 12px; padding: 6px 0; border-bottom: 1px solid #1f1f1f; }
   .activity-feed li:last-child, .design-docs li:last-child { border-bottom: none; }
   .skill { color: var(--text-heading); }
-  .design-docs a { color: var(--amber-500); text-decoration: none; }
+  .design-docs a { color: var(--amber); text-decoration: none; }
   .bar-chart { display: flex; flex-direction: column; gap: 8px; }
   .bar-row { display: flex; align-items: center; gap: 8px; }
   .bar-label { width: 160px; color: var(--text-label); }
   .bar-track { flex: 1; background: var(--bg-hover); border-radius: 4px; height: 14px; overflow: hidden; }
-  .bar-fill { background: var(--amber-500); height: 100%; }
+  .bar-fill { background: var(--amber); height: 100%; }
   .bar-count { width: 32px; text-align: right; }
-  .sparkline { font-size: 24px; letter-spacing: 2px; color: var(--amber-500); margin-bottom: 12px; }
+  .sparkline { font-size: 24px; letter-spacing: 2px; color: var(--amber); margin-bottom: 12px; }
   .release-velocity ul { list-style: none; margin-top: 8px; }
   .release-velocity li { padding: 2px 0; }
   .score { color: var(--success); }
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 16px; }
-  .stats-bar {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-    gap: 12px;
-    margin-top: 16px;
-  }
-  .stat-card {
-    background: var(--bg-surface);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 12px 16px;
-  }
-  .stat-value { color: var(--amber-500); font-size: 22px; font-weight: 600; }
+  .stats-bar { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; margin-top: 16px; }
+  .stat-card { background: var(--bg-surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px 16px; }
+  .stat-value { color: var(--amber); font-size: 22px; font-weight: 600; }
   .stat-label { color: var(--text-label); font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; margin-top: 4px; }
   .stage-col { text-align: center; width: 56px; }
   .tick { font-weight: 600; }
-  .tick-current { color: var(--amber-500); }
+  .tick-current { color: var(--amber); }
   .tick-passed { color: var(--text-meta); }
 </style>
 </head>
 <body>
 <header>
   <h1>gstack sprint dashboard</h1>
-  <div class="meta">project: ${escapeHtml(slug)} · branch: ${escapeHtml(branch)} · generated ${escapeHtml(generatedAt)}</div>
-  ${sections.headerStats}
+  <div class="meta">project: ${escapeHtml(slug)} · branch: ${escapeHtml(branch)} · generated ${escapeHtml(generatedAt.toLocaleString())}</div>
+  ${statsBar}
 </header>
 
 <h2>Pipeline board</h2>
-<section>${sections.pipeline}</section>
+<section>${pipeline}</section>
 
 <div class="grid">
   <div>
     <h2>Activity feed</h2>
-    <section>${sections.activity}</section>
+    <section>${activityHtml}</section>
   </div>
   <div>
-    <h2>Top skills (last ${HISTORY_WINDOW_DAYS}d)</h2>
-    <section>${sections.topSkills}</section>
+    <h2>Top skills (last ${HISTORY_DAYS}d)</h2>
+    <section>${topSkillsHtml}</section>
   </div>
 </div>
 
 <div class="grid">
   <div>
-    <h2>Quality scores (last ${HISTORY_WINDOW_DAYS}d)</h2>
-    <section>${sections.quality}</section>
+    <h2>Quality scores (last ${HISTORY_DAYS}d)</h2>
+    <section>${qualityHtml}</section>
   </div>
   <div>
     <h2>Active design docs</h2>
-    <section>${sections.designDocs}</section>
+    <section>${designDocsHtml}</section>
   </div>
 </div>
 
 <div class="grid">
   <div>
-    <h2>Release velocity (last ${HISTORY_WINDOW_DAYS}d)</h2>
-    <section>${sections.releaseVelocity}</section>
+    <h2>Release velocity (last ${HISTORY_DAYS}d)</h2>
+    <section>${releaseVelocityHtml}</section>
   </div>
   <div>
     <h2>TODOS backlog health</h2>
-    <section>${sections.backlog}</section>
+    <section>${backlogHtml}</section>
   </div>
 </div>
 
@@ -771,7 +305,7 @@ function renderPage(slug: string, branch: string, sections: Record<string, strin
 </html>`;
 }
 
-// ─── Open helper ─────────────────────────────────────────────────────────
+// ─── Open helper ─────────────────────────────────────────────────────────────
 
 function isWsl(): boolean {
   if (process.platform !== "linux") return false;
@@ -790,15 +324,9 @@ function openInBrowser(path: string) {
     cmd = "open";
     args = [absPath];
   } else if (process.platform === "win32") {
-    // explorer.exe, not `cmd /c start` — start mishandles paths with
-    // special characters and pops a console window on some configs.
     cmd = "explorer.exe";
     args = [absPath];
   } else if (isWsl()) {
-    // WSL has no desktop environment / MIME handlers on the Linux side —
-    // xdg-open is typically not even installed. Hand off to the Windows
-    // side via WSL interop instead. explorer.exe needs a Windows-style
-    // path (C:\...), not the WSL /mnt/c/... or native Linux path.
     cmd = "explorer.exe";
     try {
       const winPath = execFileSync("wslpath", ["-w", absPath], {
@@ -815,61 +343,54 @@ function openInBrowser(path: string) {
   }
   try {
     const child = spawn(cmd, args, { stdio: "ignore", detached: true });
-    // ENOENT (missing binary) surfaces asynchronously via the 'error' event,
-    // not as a synchronous throw — without this handler it's an unhandled
-    // exception that crashes the whole process (observed: xdg-open missing
-    // on a WSL box with no desktop environment).
     child.on("error", () => {
-      console.error(`Could not auto-open ${absPath} automatically — open it manually.`);
+      console.error(`Could not open ${absPath} automatically — open it manually.`);
     });
     child.unref();
   } catch {
-    console.error(`Could not auto-open ${absPath} automatically — open it manually.`);
+    console.error(`Could not open ${absPath} automatically — open it manually.`);
   }
 }
 
-// ─── Main ────────────────────────────────────────────────────────────────
+// ─── Main ─────────────────────────────────────────────────────────────────────
 
 function main() {
   const args = process.argv.slice(2).filter((a) => a !== "--");
-  const command = args[0] || "out";
-  const outPath = command === "out" ? args[1] || "sprint.html" : "sprint.html";
 
-  const slug = resolveSlug();
-  let branch = "unknown";
-  try {
-    branch = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
-      encoding: "utf-8",
-      stdio: ["ignore", "pipe", "ignore"],
-    }).trim();
-  } catch {
-    // leave as "unknown"
+  // Backwards-compat: positional "open" and "out <path>"
+  const positionalOpen = args.includes("open");
+  const positionalOutIdx = args.indexOf("out");
+  const positionalOutPath = positionalOutIdx >= 0 ? args[positionalOutIdx + 1] : undefined;
+
+  // Determine mode
+  let mode: "compact" | "full" | "web" = "compact";
+  if (args.includes("--full")) mode = "full";
+  if (args.includes("--web") || args.includes("--open") || positionalOpen || positionalOutPath) mode = "web";
+
+  // Options
+  const outArgIdx = args.indexOf("--out");
+  const outPath = outArgIdx >= 0 ? args[outArgIdx + 1] : (positionalOutPath ?? "sprint.html");
+  const slugArgIdx = args.indexOf("--slug");
+  const slugArg = slugArgIdx >= 0 ? args[slugArgIdx + 1] : undefined;
+
+  if (mode === "compact") {
+    const data = buildDashboard({ slug: slugArg, loadPr: false, loadDecisions: false });
+    process.stdout.write(renderCompact(data));
+    return;
   }
 
-  const timelinePath = join(gstackHome(), "projects", slug, "timeline.jsonl");
-  const timeline = readJsonlSafe(timelinePath);
-  const branchData = computeBranchStageData(timeline);
-  const versions = getChangelogVersions();
-  const backlogCounts = getBacklogCounts();
+  if (mode === "full") {
+    const data = buildDashboard({ slug: slugArg, loadPr: true, loadDecisions: true });
+    process.stdout.write(renderFull(data));
+    return;
+  }
 
-  const sections = {
-    headerStats: buildHeaderStats(branchData, versions, backlogCounts),
-    pipeline: buildPipelineBoard(branchData),
-    activity: buildActivityFeed(timeline),
-    topSkills: buildTopSkillsChart(slug),
-    quality: buildQualityScores(),
-    designDocs: buildActiveDesignDocs(slug),
-    releaseVelocity: buildReleaseVelocity(versions),
-    backlog: buildBacklogHealth(backlogCounts),
-  };
-
-  const html = renderPage(slug, branch, sections);
+  // web mode
+  const data = buildDashboard({ slug: slugArg, loadPr: true, loadDecisions: true });
+  const html = renderHtml(data);
   writeFileSync(outPath, html, "utf-8");
   console.log(`Wrote ${outPath}`);
-
-  if (command === "open") {
-    openInBrowser(outPath);
-  }
+  openInBrowser(outPath);
 }
 
 main();

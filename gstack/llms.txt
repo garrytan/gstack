@@ -21,6 +21,7 @@ Conventions:
 - [/context-restore](context-restore/SKILL.md): Restore working context saved earlier by /context-save.
 - [/context-save](context-save/SKILL.md): Save working context.
 - [/cso](cso/SKILL.md): Chief Security Officer mode.
+- [/dashboard](dashboard/SKILL.md): Sprint board: compact terminal (default) · --full · --web HTML · --slug <project>.
 - [/design-consultation](design-consultation/SKILL.md): Design consultation: understands your product, researches the landscape, proposes a complete design system (aesthetic, typography, color, layout, spacing, motion), and generates font+color preview pages.
 - [/design-html](design-html/SKILL.md): Design finalization: generates production-quality Pretext-native HTML/CSS.
 - [/design-review](design-review/SKILL.md): Designer's eye QA: finds visual inconsistency, spacing issues, hierarchy problems, AI slop patterns, and slow interactions — then fixes them.

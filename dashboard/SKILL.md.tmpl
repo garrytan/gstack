@@ -1,0 +1,60 @@
+---
+name: dashboard
+preamble-tier: 1
+version: 1.0.0
+description: |
+  Sprint board: compact terminal (default) · --full · --web HTML · --slug <project>.
+  Use when asked for "sprint status", "what's in flight", "project status", or "dashboard". (gstack)
+allowed-tools:
+  - Bash
+triggers:
+  - sprint status
+  - what's in flight
+  - project status
+  - dashboard
+---
+
+{{PREAMBLE}}
+
+# /dashboard — sprint board
+
+Run `gstack-sprint-dashboard` (no flags) to display the compact sprint board.
+
+```bash
+gstack-sprint-dashboard
+```
+
+Read the output and present it directly to the user.
+
+## Output modes
+
+If the user asks for **more detail**, run with `--full`:
+```bash
+gstack-sprint-dashboard --full
+```
+
+If the user asks to **open in browser** or wants the visual HTML board:
+```bash
+gstack-sprint-dashboard --web
+```
+
+If the user specifies a **different project**, pass `--slug`:
+```bash
+gstack-sprint-dashboard --slug <project-slug>
+```
+
+## Reading the compact output
+
+The compact view shows:
+- **Header**: version, in-flight count, ships this month, avg days/release, P1 backlog
+- **Pipeline**: each branch with stage checkmarks (✓ done, ▶ current, ○ not started)
+- **Activity**: last 5 skill completions with timestamp and branch
+- **Footer**: average quality score and top skills by usage count
+
+The `◀` marker on a pipeline row indicates the current branch.
+
+## What to say
+
+After displaying the output, offer the user a one-line summary of what stands out:
+the branch closest to shipping, any P0/P1 backlog items, or the most active skill.
+Keep it to one sentence. Don't repeat the data they can already see.

@@ -2439,6 +2439,26 @@ building once users hit multi-diagram docs; wedge perf is fine without it.
 **Effort:** S (human ~1d, CC ~30min). **Depends on:** diagram engine wedge
 shipping (lib/diagram-render bundle versioning).
 
+### P3: Fix loadVelocity sparkline to show meaningful commit heights
+
+**What:** `loadVelocity()` in `lib/dashboard-data.ts` counts commits per version by
+matching `git log --pretty=format:%s` against `/^v\d+\.\d+\.\d+\.\d+ /`. In gstack's
+commit style, merge commits have this prefix (one per release), so every version always
+gets `commitCount=1`. The sparkline in `renderFull` renders all uniform full blocks (█)
+with no height variation.
+
+**Why:** The sparkline is meant to show release weight (bigger releases = taller bar).
+With all heights equal it's visual noise, not signal.
+
+**Fix:** Use `git log --oneline <prev-tag>..<tag>` per version pair to count actual
+commits per release, or use `git tag -l` to detect release tags and count commits
+between them. Either approach produces meaningful height variation.
+
+**Context:** Surfaced in /plan-eng-review on 2026-06-26. Deferred because the sparkline
+renders without crashing and the version list below it is still correct.
+
+**Effort:** S (human ~2h, CC ~10min). **Depends on:** None.
+
 ### P3: Dedupe the make-pdf e2e gate-test harness
 
 **What:** Five e2e files (`combined-gate`, `emoji-gate`, `diagram-gate`,
