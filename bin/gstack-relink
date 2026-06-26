@@ -37,12 +37,24 @@ SKILLS_DIR="${GSTACK_SKILLS_DIR:-$(dirname "$INSTALL_DIR")}"
 PREFIX=$("$GSTACK_CONFIG" get skill_prefix 2>/dev/null || echo "false")
 
 # Helper: remove old skill entry (symlink or real directory with symlinked SKILL.md)
+# ONLY removes gstack-owned entries — i.e. ones whose symlink (or whose dir's
+# SKILL.md symlink) resolves into the gstack install dir. A flat entry of the
+# same name that points elsewhere (e.g. a personal /qa or /review symlink into
+# ~/.agents/skills/) is left untouched, so switching prefix modes never clobbers
+# unrelated user skills that happen to share a gstack skill name.
 _cleanup_skill_entry() {
   local entry="$1"
+  local dest
   if [ -L "$entry" ]; then
-    rm -f "$entry"
+    dest="$(readlink "$entry" 2>/dev/null || true)"
+    case "$dest" in
+      "$INSTALL_DIR"/*|gstack/*|*/gstack/*) rm -f "$entry" ;;
+    esac
   elif [ -d "$entry" ] && [ -L "$entry/SKILL.md" ]; then
-    rm -rf "$entry"
+    dest="$(readlink "$entry/SKILL.md" 2>/dev/null || true)"
+    case "$dest" in
+      "$INSTALL_DIR"/*|gstack/*|*/gstack/*) rm -rf "$entry" ;;
+    esac
   fi
 }
 
