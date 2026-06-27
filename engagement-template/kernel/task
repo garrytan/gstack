@@ -28,8 +28,22 @@ Usage:
   task fail <id> --agent agent-qa --role qa [--needs-human] [--awaiting-info]
   task release <id> --agent agent-be --role feature
   task resume <id> --agent agent-qa --role qa     # awaiting_info → back to active
-  task create <id> --repo R --domain D --desc "..." [--blocked-by A,B] [--spec S] ...
+  task create <id> --repo R --domain D --desc "..." [--blocked-by A,B] [--spec S] [--locks migrations] ...
   task unblock <id>                                # human-only: clears needs_human
+
+Exclusive resource locks (`locks:` + `lock_state:` fields):
+  A task may reserve a named exclusive resource (canonical: `migrations`). The kernel
+  guarantees AT MOST ONE task per lock name is `held` at a time. The holder takes the
+  lock at first claim and keeps it through the WHOLE lifecycle — including after the
+  task reaches `done` — until its branch actually MERGES to main. That matters because
+  PRs are merged by a human who may not look for hours: releasing at `done` would let a
+  sibling branch off a main that still lacks the migration and mint a colliding number.
+  Enforced in `eligible` (a contended task is withheld) and `claim` (a contended claim
+  exits 2). Release is explicit, via `lock-release` — driven by the supervisor's
+  merge-reaper when the branch lands on main, or by a human (`--abandon` for a closed
+  PR). Set the lock at authoring time via `--locks`; agents never edit it.
+
+  task lock-release <id> [--abandon]              # free a lock after merge / abandon
 
 Exit codes: 0 ok · 1 error · 2 lost claim race · 3 nothing eligible
 All mutations commit+push with retry-on-reject (pull --rebase, re-verify, push).
@@ -55,6 +69,8 @@ DEFAULTS = {
     "claimed_by": "-",
     "claimed_at": "-",
     "blocked_by": "-",
+    "locks": "-",
+    "lock_state": "-",
     "failure_count": "0",
     "lease_hours": "4",
     "origin_domain": "-",
@@ -66,7 +82,7 @@ DEFAULTS = {
 
 FIELD_ORDER = [
     "id", "repo", "domain", "origin_domain", "status", "claimed_by", "claimed_at",
-    "blocked_by", "failure_count", "lease_hours", "prev_status",
+    "blocked_by", "locks", "lock_state", "failure_count", "lease_hours", "prev_status",
     "spec", "done_check", "e2e_check", "description",
 ]
 
@@ -147,6 +163,31 @@ def blocked(fields, index):
     return False
 
 
+# Exclusive locks are tracked by `lock_state`, NOT by pipeline status — because the
+# resource (e.g. the migration sequence on main) is only freed when the work MERGES,
+# which a human may do hours after the task reaches `done`. States:
+#   "-"     idle — declared (`locks: <res>`) but not yet acquired; does not block.
+#   "held"  acquired at first claim; blocks every OTHER task sharing the resource
+#           through the WHOLE lifecycle, INCLUDING after `done`, until merge.
+#   "freed" released after the branch merged to main (auto-reaped or human/`lock-release`).
+# A held task that QA bounces back to `open` STAYS held — its unmerged migration still
+# exists, so a sibling must not branch a colliding one on top of it.
+def lock_holders(fields, index):
+    """Other tasks currently holding the same exclusive resource lock as `fields`."""
+    res = fields.get("locks", "-")
+    if res in ("-", ""):
+        return []
+    return [o for o in index.values()
+            if o["id"] != fields["id"]
+            and o.get("locks", "-") == res
+            and o.get("lock_state") == "held"]
+
+
+def lock_contended(fields, index):
+    """True if this task's exclusive lock is already held by another active task."""
+    return bool(lock_holders(fields, index))
+
+
 def eligible(role, domain, repo):
     index = {t["id"]: t for t in all_tasks()}
     out = []
@@ -160,8 +201,11 @@ def eligible(role, domain, repo):
             continue
 
         if role == "feature":
-            # Unclaimed open tasks (not blocked) or stale in_progress
-            ok = (t["status"] == "open" and not blocked(t, index)) or stale(t, "status", "in_progress")
+            # Unclaimed open tasks (not blocked, lock free) or stale in_progress.
+            # A stale in_progress reclaim is the SAME task resuming its own lock,
+            # so lock_contended (which excludes self) never withholds a reclaim.
+            ok = (t["status"] == "open" and not blocked(t, index) and not lock_contended(t, index)) \
+                or stale(t, "status", "in_progress")
         elif role == "qa":
             # Unclaimed testing tasks or stale testing claims
             ok = (t["status"] == "testing" and t.get("claimed_by", "-") == "-") or stale(t, "status", "testing")
@@ -195,7 +239,16 @@ def cmd_claim(a):
     if a.role == "feature":
         if t["status"] != "open" and not stale(t, "status", "in_progress"):
             die(f"{a.id} not claimable (status={t['status']})", 2)
+        # Exclusive-lock pre-check: refuse if another task holds the same resource.
+        # A stale reclaim of the SAME task is exempt (lock_holders excludes self).
+        if t["status"] == "open":
+            holders = lock_holders(t, {x["id"]: x for x in all_tasks()})
+            if holders:
+                die(f"{a.id} blocked: lock '{t['locks']}' held by {holders[0]['id']}", 2)
         t["status"] = "in_progress"
+        # First acquisition of a declared lock: take it. A reclaim leaves it "held".
+        if t.get("locks", "-") not in ("-", "") and t.get("lock_state", "-") == "-":
+            t["lock_state"] = "held"
     elif a.role == "qa":
         already_claimed = t.get("claimed_by", "-") != "-"
         if t["status"] != "testing" or (already_claimed and not stale(t, "status", "testing")):
@@ -214,9 +267,26 @@ def cmd_claim(a):
 
     # Post-push: verify we still own it
     run(["git", "pull", "--rebase", "-q"], check=False)
-    t2 = load(a.id)
+    index2 = {x["id"]: x for x in all_tasks()}
+    t2 = index2.get(a.id, load(a.id))
     if t2.get("claimed_by") != a.agent:
         die(f"lost claim race on {a.id}", 2)
+
+    # Exclusive-lock tie-break: if a DIFFERENT task also became `held` on the same
+    # resource and was claimed at or before us, it wins (earliest claim, ties broken
+    # by id). We release our just-acquired lock and yield our claim back to open so
+    # only one holder survives a simultaneous first-claim.
+    if a.role == "feature":
+        mine = (t2.get("claimed_at", "-"), a.id)
+        for h in lock_holders(t2, index2):
+            if (h.get("claimed_at", "-"), h["id"]) <= mine:
+                t2["status"] = "open"
+                t2["claimed_by"] = "-"
+                t2["claimed_at"] = "-"
+                t2["lock_state"] = "-"   # we never really held it
+                save(a.id, t2)
+                git_sync_push(f"yield({a.id}): {a.agent} lost lock '{t2['locks']}' to {h['id']}")
+                die(f"lost lock '{t2['locks']}' race on {a.id} to {h['id']}", 2)
 
     print(f"claimed {a.id}")
 
@@ -348,6 +418,24 @@ def cmd_unblock(a):
     print(f"unblocked {a.id} (status → {t['status']})")
 
 
+def cmd_lock_release(a):
+    """Release an exclusive lock after its branch merged to main (or was abandoned).
+    Called by the supervisor's merge-reaper when it sees the branch land on main, or
+    by a human closing a superseded PR. Idempotent: a no-op on an unheld/freed lock."""
+    t = load(a.id)
+    if t.get("locks", "-") in ("-", ""):
+        print(f"{a.id} has no lock to release")
+        return
+    if t.get("lock_state") != "held":
+        print(f"{a.id} lock not held (lock_state={t.get('lock_state', '-')}) — nothing to release")
+        return
+    t["lock_state"] = "freed"
+    save(a.id, t)
+    reason = "abandoned" if getattr(a, "abandon", False) else "merged"
+    git_sync_push(f"lock-release({a.id}): {t['locks']} freed ({reason}) by {a.agent or 'reaper'}")
+    print(f"released lock '{t['locks']}' on {a.id} ({reason})")
+
+
 def cmd_create(a):
     if os.path.isfile(path_for(a.id)):
         die(f"{a.id} already exists")
@@ -355,6 +443,7 @@ def cmd_create(a):
     t = dict(DEFAULTS)
     t.update(id=a.id, repo=a.repo, domain=a.domain, origin_domain=a.domain, description=a.desc)
     if a.blocked_by:   t["blocked_by"] = a.blocked_by
+    if a.locks:        t["locks"] = a.locks
     if a.spec:         t["spec"] = a.spec
     if a.done_check:   t["done_check"] = a.done_check
     if a.e2e_check:    t["e2e_check"] = a.e2e_check
@@ -394,12 +483,18 @@ def main():
     ub = sub.add_parser("unblock")
     ub.add_argument("id")
 
+    # lock-release — free an exclusive lock post-merge (supervisor reaper or human)
+    lr = sub.add_parser("lock-release")
+    lr.add_argument("id")
+    lr.add_argument("--agent", default=None)
+    lr.add_argument("--abandon", action="store_true")
+
     # create
     cr = sub.add_parser("create")
     cr.add_argument("id")
     for f in ("--repo", "--domain", "--desc"):
         cr.add_argument(f, required=True)
-    for f in ("--blocked-by", "--spec", "--done-check", "--e2e-check", "--lease-hours", "--agent"):
+    for f in ("--blocked-by", "--locks", "--spec", "--done-check", "--e2e-check", "--lease-hours", "--agent"):
         cr.add_argument(f, default=None)
 
     a = p.parse_args()
@@ -420,6 +515,7 @@ def main():
     elif a.cmd == "release": cmd_release(a)
     elif a.cmd == "resume":  cmd_resume(a)
     elif a.cmd == "unblock": cmd_unblock(a)
+    elif a.cmd == "lock-release": cmd_lock_release(a)
     elif a.cmd == "create":  cmd_create(a)
 
 

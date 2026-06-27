@@ -16,6 +16,11 @@ refused is a feature that cannot break claiming.
 - Eligibility logic: dependencies, domain/repo matching, failure_count
   circuit breaker, per-task lease expiry, role-specific status rules
 - Claim arbitration (git push as the lock, post-push race verification)
+- Exclusive resource locks (`locks:` + `lock_state:`): at most one `held` task per
+  named resource, held from claim until the branch MERGES to main (not merely `done`,
+  since a human merges the PR hours later), with a post-push tie-break and an explicit
+  `lock-release`. Canonical use is `migrations` — it stops two feature agents minting
+  colliding migration numbers off the same main.
 - Column ownership enforcement per role
 
 ## Out of scope (belongs in user space — agents, skills, behaviour)
@@ -45,11 +50,24 @@ task fail <id> --agent A --role R [--needs-human | --awaiting-info]
                                                   # no failure_count hit — agent-to-agent question
 task resume <id> --agent A --role R              # AGENT-PERMITTED. awaiting_info -> open.
 task release <id> --agent A --role R
+task lock-release <id> [--agent A] [--abandon]  # free an exclusive lock post-merge.
+                                                  # supervisor merge-reaper calls it; humans
+                                                  # use --abandon for a closed/superseded PR.
 task unblock <id> --agent A --reason "..."      # HUMAN ONLY. needs_human -> open. Required reason.
 task sync                                        # batch-create ledger entries from tasks/*.md
                                                   # frontmatter (ready: true). One commit, any N.
-task create <id> --repo X --domain D --desc "..." [--blocked-by ..] [--spec ..] [--done-check ..] [--e2e-check ..] [--lease-hours N]
+task create <id> --repo X --domain D --desc "..." [--blocked-by ..] [--locks migrations] [--spec ..] [--done-check ..] [--e2e-check ..] [--lease-hours N]
 ```
+
+`--locks <resource>` reserves a named exclusive lock. The holder takes it at first claim
+(`lock_state: held`) and keeps it through the WHOLE lifecycle — including after `done` —
+until the work merges to main. While held, the kernel withholds every other task sharing
+the name from `eligible` and refuses their `claim` (exit 2). Two agents that race the same
+lock through concurrent pushes are resolved by a post-push tie-break: earliest `claimed_at`
+wins, ties broken by id; the loser yields and releases. The lock is freed by `lock-release`,
+which the supervisor's merge-reaper (`supervisor/lock-reaper.sh`) calls automatically when the
+task's `feat/<id>-*` branch becomes an ancestor of `origin/main`. A QA-bounced holder reverts
+to `open` but STAYS held — its unmerged migration still exists. Canonical value: `migrations`.
 Exit codes: 0 ok · 1 error (sync: also means >=1 spec had a frontmatter error — see output) · 2 lost claim race · 3 nothing eligible.
 
 `unblock` is the ONLY sanctioned reversal of `needs_human` — it refuses any other status,

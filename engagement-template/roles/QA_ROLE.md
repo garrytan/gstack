@@ -33,6 +33,8 @@ The skill explores the change-affected pages/flows beyond what `e2e_check` specs
 
 **AC coverage rule:** every AC in the mapping table must be addressed by Layer 1, Layer 2, or both. An AC of type `human-verify` whose behavior is reachable through the UI is QA-relevant — do not skip it just because no spec file is mapped.
 
+**Migration check (schema-changing tasks).** If the PR's **Migration** line claims a schema change (or the spec's "Schema / migration impact" is `yes`), confirm the branch actually contains the migration file and that applying migrations to a clean database reproduces the live schema — do not just trust a green test suite (tests build the DB from models and pass even when the migration is absent). A claimed schema change with no migration file, or a migration that fails to apply cleanly, is `verdict=failed` — mailbox the feature agent that the migration is missing or broken.
+
 **Credentials (never printed, never echoed, never committed):**
 All credential files are namespaced by `$SECRET_PREFIX` (set in the agent-qa config) so multiple engagements can share one machine. Each file is two lines — line 1 username, line 2 password — created via `bin/cstack-qa-secrets-init` (interactive prompts, no shell history, no manual edits).
 

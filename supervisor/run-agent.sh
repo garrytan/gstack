@@ -463,7 +463,18 @@ while true; do
     git -C "$CONTROL_DIR" fetch -q origin 2>/dev/null || echo "[$AGENT_NAME] WARN: control repo fetch failed twice, continuing with stale clone"
   fi
   git -C "$CONTROL_DIR" reset --hard -q origin/main 2>/dev/null || true
-  [ -d "$WORK_DIR/.git" ] && { git -C "$WORK_DIR" fetch -q origin 2>/dev/null && git -C "$WORK_DIR" reset --hard -q origin/main 2>/dev/null || true; }
+  # WORK repo: reset the DEFAULT branch only. Checkout main FIRST so the reset never
+  # lands on a leftover feature branch and clobber its local ref — task branches are
+  # re-fetched fresh from origin on resume (AGENT_BASE step 5). Prune stale remote refs.
+  if [ -d "$WORK_DIR/.git" ]; then
+    git -C "$WORK_DIR" fetch -q --prune origin 2>/dev/null || true
+    git -C "$WORK_DIR" checkout -q main 2>/dev/null || git -C "$WORK_DIR" checkout -q -B main origin/main 2>/dev/null || true
+    git -C "$WORK_DIR" reset --hard -q origin/main 2>/dev/null || true
+    # Auto-release migration/exclusive locks whose branch has merged to main, so the
+    # next schema task unblocks the moment a human merges the prior PR. Idempotent.
+    REAPER="$(dirname "$0")/lock-reaper.sh"
+    [ -x "$REAPER" ] && "$REAPER" "$CONTROL_DIR" "$WORK_DIR" "$AGENT_NAME" main 2>/dev/null || true
+  fi
   for rd in "${READ_DIRS[@]:-}"; do
     [ -n "$rd" ] && git -C "$rd" pull --quiet || true
   done

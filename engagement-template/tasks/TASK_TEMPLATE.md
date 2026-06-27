@@ -26,6 +26,16 @@
 | AC2 | `tests/test_x.py::test_other` | done_check |
 | AC3 | `e2e/feature.spec.ts` | e2e_check |
 | AC4 | PR review — <what the reviewer must confirm and how> | human-verify |
+| AC5 | project migration-drift check (see FEATURE_ROLE gate 5) | migration_check |   <!-- include ONLY if schema change is yes, below -->
+
+## Schema / migration impact
+<!-- Does this task add or change any DB table, column, index, constraint, enum, default, or seed? -->
+- Schema change: <no | yes>
+- If **yes**: this task MUST be registered with the `migrations` exclusive lock
+  (`kernel/task create ... --locks migrations`, or `locks: migrations` in the spec frontmatter).
+  The kernel then guarantees no two schema tasks run concurrently — the lock is held from claim
+  until this task's PR actually merges to main (auto-released by the supervisor's merge-reaper),
+  so their branches never mint colliding migration numbers. Add the `migration_check` AC row above.
 
 ## Out of scope
 <!-- Explicit boundaries. Anything an agent might plausibly "helpfully" include — exclude it here. -->
