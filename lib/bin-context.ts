@@ -24,5 +24,7 @@ export function gitBranch(): string | undefined {
 /** The value following `--flag` in argv, or undefined if absent. */
 export function flagValue(args: string[], name: string): string | undefined {
   const i = args.indexOf(name);
-  return i >= 0 ? args[i + 1] : undefined;
+  if (i < 0) return undefined;
+  const value = args[i + 1];
+  return value && !value.startsWith("--") ? value : undefined;
 }
