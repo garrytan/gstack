@@ -103,12 +103,33 @@ export function generateBrowseSetup(ctx: TemplateContext): string {
   return `## SETUP (run this check BEFORE any browse command)
 
 \`\`\`bash
-_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+_ROOT=\$(git rev-parse --show-toplevel 2>/dev/null)
 B=""
-[ -n "$_ROOT" ] && [ -x "$_ROOT/${ctx.paths.localSkillRoot}/browse/dist/browse" ] && B="$_ROOT/${ctx.paths.localSkillRoot}/browse/dist/browse"
-[ -z "$B" ] && B="$HOME${ctx.paths.browseDir.replace(/^~/, '')}/browse"
-if [ -x "$B" ]; then
-  echo "READY: $B"
+if [ -n "\$_ROOT" ] && [ -x "\$_ROOT/${ctx.paths.localSkillRoot}/browse/dist/browse.exe" ]; then
+  B="\$_ROOT/${ctx.paths.localSkillRoot}/browse/dist/browse.exe"
+elif [ -n "\$_ROOT" ] && [ -x "\$_ROOT/${ctx.paths.localSkillRoot}/browse/dist/browse" ]; then
+  B="\$_ROOT/${ctx.paths.localSkillRoot}/browse/dist/browse"
+elif [ -x "\$HOME${ctx.paths.browseDir.replace(/^~/, '')}/browse.exe" ]; then
+  B="\$HOME${ctx.paths.browseDir.replace(/^~/, '')}/browse.exe"
+elif [ -x "\$HOME${ctx.paths.browseDir.replace(/^~/, '')}/browse" ]; then
+  B="\$HOME${ctx.paths.browseDir.replace(/^~/, '')}/browse"
+fi
+B_OK=0
+if [ -n "\$B" ] && [ -x "\$B" ]; then
+  if "\$B" status >/dev/null 2>&1; then
+    B_OK=1
+  else
+    if command -v bun >/dev/null 2>&1 && [ -f "\$_ROOT/${ctx.paths.localSkillRoot}/browse/src/cli.ts" ]; then
+      B="bun run \$_ROOT/${ctx.paths.localSkillRoot}/browse/src/cli.ts"
+      B_OK=1
+    elif command -v bun >/dev/null 2>&1 && [ -f "\$HOME${ctx.paths.browseDir.replace(/^~/, '').replace(/\/dist$/, '/src')}/cli.ts" ]; then
+      B="bun run \$HOME${ctx.paths.browseDir.replace(/^~/, '').replace(/\/dist$/, '/src')}/cli.ts"
+      B_OK=1
+    fi
+  fi
+fi
+if [ "\$B_OK" -eq 1 ]; then
+  echo "READY: \$B"
 else
   echo "NEEDS_SETUP"
 fi

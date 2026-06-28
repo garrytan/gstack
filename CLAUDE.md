@@ -196,6 +196,14 @@ structures. Instead:
 This applies to test commands, eval commands, deploy commands, and any other
 project-specific behavior. The project owns its config; gstack reads it.
 
+## Windows Smart App Control (SAC) & git-bash
+
+On Windows 11 with Smart App Control (SAC) enabled, unsigned local binaries compiled by Bun (e.g. `browse.exe`, `design.exe`, `pdf.exe`) are blocked by the OS policy.
+To resolve this without requiring irreversible OS changes (disabling SAC), gstack implements an automatic fallback:
+- The setup check templates in `scripts/resolvers/` verify if the compiled binary can execute.
+- If execution is blocked, they automatically fall back to invoking the TS files via `bun run` (e.g., `bun run browse/src/cli.ts`). Since `bun` itself is signed and trusted, it runs successfully.
+- For Git-Bash support, binary resolution logic always prioritizes checking the `.exe` extension version over the extension-less paths.
+
 ## Writing SKILL templates
 
 SKILL.md.tmpl files are **prompt templates read by Claude**, not bash scripts.

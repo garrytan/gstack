@@ -146,10 +146,32 @@ echo "GSTACK_PLAN_MODE: $GSTACK_PLAN_MODE"
 ```bash
 _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 P=""
-[ -n "$MAKE_PDF_BIN" ] && [ -x "$MAKE_PDF_BIN" ] && P="$MAKE_PDF_BIN"
-[ -z "$P" ] && [ -n "$_ROOT" ] && [ -x "$_ROOT/.claude/skills/gstack/make-pdf/dist/pdf" ] && P="$_ROOT/.claude/skills/gstack/make-pdf/dist/pdf"
-[ -z "$P" ] && P="$HOME/.claude/skills/gstack/make-pdf/dist/pdf"
-if [ -x "$P" ]; then
+if [ -n "$MAKE_PDF_BIN" ] && [ -x "$MAKE_PDF_BIN" ]; then
+  P="$MAKE_PDF_BIN"
+elif [ -n "$_ROOT" ] && [ -x "$_ROOT/.claude/skills/gstack/make-pdf/dist/pdf.exe" ]; then
+  P="$_ROOT/.claude/skills/gstack/make-pdf/dist/pdf.exe"
+elif [ -n "$_ROOT" ] && [ -x "$_ROOT/.claude/skills/gstack/make-pdf/dist/pdf" ]; then
+  P="$_ROOT/.claude/skills/gstack/make-pdf/dist/pdf"
+elif [ -x "$HOME/.claude/skills/gstack/make-pdf/dist/pdf.exe" ]; then
+  P="$HOME/.claude/skills/gstack/make-pdf/dist/pdf.exe"
+elif [ -x "$HOME/.claude/skills/gstack/make-pdf/dist/pdf" ]; then
+  P="$HOME/.claude/skills/gstack/make-pdf/dist/pdf"
+fi
+P_OK=0
+if [ -n "$P" ] && [ -x "$P" ]; then
+  if "$P" --help >/dev/null 2>&1; then
+    P_OK=1
+  else
+    if command -v bun >/dev/null 2>&1 && [ -f "$_ROOT/.claude/skills/gstack/make-pdf/src/cli.ts" ]; then
+      P="bun run $_ROOT/.claude/skills/gstack/make-pdf/src/cli.ts"
+      P_OK=1
+    elif command -v bun >/dev/null 2>&1 && [ -f "$HOME/.claude/skills/gstack/make-pdf/src/cli.ts" ]; then
+      P="bun run $HOME/.claude/skills/gstack/make-pdf/src/cli.ts"
+      P_OK=1
+    fi
+  fi
+fi
+if [ "$P_OK" -eq 1 ]; then
   echo "MAKE_PDF_READY: $P"
   alias _p_="$P"   # shellcheck alias helper (not exported)
   export P   # available as $P in subsequent blocks within the same skill invocation

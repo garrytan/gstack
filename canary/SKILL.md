@@ -783,9 +783,30 @@ Skills that run plan reviews (`/plan-*-review`, `/codex review`) include the EXI
 ```bash
 _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 B=""
-[ -n "$_ROOT" ] && [ -x "$_ROOT/.claude/skills/gstack/browse/dist/browse" ] && B="$_ROOT/.claude/skills/gstack/browse/dist/browse"
-[ -z "$B" ] && B="$HOME/.claude/skills/gstack/browse/dist/browse"
-if [ -x "$B" ]; then
+if [ -n "$_ROOT" ] && [ -x "$_ROOT/.claude/skills/gstack/browse/dist/browse.exe" ]; then
+  B="$_ROOT/.claude/skills/gstack/browse/dist/browse.exe"
+elif [ -n "$_ROOT" ] && [ -x "$_ROOT/.claude/skills/gstack/browse/dist/browse" ]; then
+  B="$_ROOT/.claude/skills/gstack/browse/dist/browse"
+elif [ -x "$HOME/.claude/skills/gstack/browse/dist/browse.exe" ]; then
+  B="$HOME/.claude/skills/gstack/browse/dist/browse.exe"
+elif [ -x "$HOME/.claude/skills/gstack/browse/dist/browse" ]; then
+  B="$HOME/.claude/skills/gstack/browse/dist/browse"
+fi
+B_OK=0
+if [ -n "$B" ] && [ -x "$B" ]; then
+  if "$B" status >/dev/null 2>&1; then
+    B_OK=1
+  else
+    if command -v bun >/dev/null 2>&1 && [ -f "$_ROOT/.claude/skills/gstack/browse/src/cli.ts" ]; then
+      B="bun run $_ROOT/.claude/skills/gstack/browse/src/cli.ts"
+      B_OK=1
+    elif command -v bun >/dev/null 2>&1 && [ -f "$HOME/.claude/skills/gstack/browse/src/cli.ts" ]; then
+      B="bun run $HOME/.claude/skills/gstack/browse/src/cli.ts"
+      B_OK=1
+    fi
+  fi
+fi
+if [ "$B_OK" -eq 1 ]; then
   echo "READY: $B"
 else
   echo "NEEDS_SETUP"
