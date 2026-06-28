@@ -221,7 +221,9 @@ const MONOLITH_INVARIANTS: ParityInvariant[] = [
     skill: 'qa',
     mustContain: ['bug', 'browse', 'fix'],
     mustHaveHeadings: ['## Preamble', '## When to invoke'],
-    maxSizeRatio: 1.05,
+    // v1.2.0 activation lift: the unified first-run-guidance section (P4 scaffold +
+    // P3 loop tip) is added to every skill's shared preamble — intentional, ~1KB.
+    maxSizeRatio: 1.07,
     minBytes: 50_000,
   },
   {
@@ -231,14 +233,16 @@ const MONOLITH_INVARIANTS: ParityInvariant[] = [
     // Cross-cutting preamble growth (v1.57.2.0 AUQ-failure prose fallback ~2KB + the
     // cross-session decision-memory nudge) lands this skill just over the strict 1.05;
     // headroom for the shared preamble additions (matches the carved-skill overrides).
-    maxSizeRatio: 1.07,
+    // v1.2.0 activation lift adds the first-run-guidance section on top.
+    maxSizeRatio: 1.09,
     minBytes: 30_000,
   },
   {
     skill: 'autoplan',
     mustContain: ['ceo', 'eng', 'design'],
     mustHaveHeadings: ['## Preamble', '## When to invoke'],
-    maxSizeRatio: 1.05,
+    // v1.2.0 activation lift: shared first-run-guidance preamble section.
+    maxSizeRatio: 1.07,
     minBytes: 70_000,
   },
 ];

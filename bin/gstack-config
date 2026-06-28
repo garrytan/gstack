@@ -411,8 +411,10 @@ case "${1:-}" in
     fi
 
     case "$STATUS" in
-      ok)
-        echo "Detected gbrain v$VERSION."
+      ok|timeout)
+        # "timeout" = slow-but-healthy engine (#1964) — same treatment as
+        # "ok", matching gstack-gbrain-detect --is-ok and gen-skill-docs.
+        echo "Detected gbrain v$VERSION (local-status: $STATUS)."
         # Render brain-aware blocks INTO the global install so EVERY project's
         # Claude sessions get them (other projects read SKILL.md + sections from
         # ~/.claude/skills/gstack via absolute paths baked at gen time). Guards

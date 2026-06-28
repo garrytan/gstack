@@ -45,6 +45,47 @@ a silent mistake breaks all 52 skills. High blast radius — needs its own focus
 
 ## Test infrastructure
 
+### Eval harness: live progress + incremental result persistence (kill the silent hour)
+
+**Priority:** P1
+
+**What:** `bun run test:evals` is observably silent for its entire runtime and
+persists nothing until completion. Make the E2E harness (1) append a one-line
+progress record per test START and END to a well-known heartbeat file (e.g.
+`~/.gstack-dev/evals/.current-run.jsonl`), (2) write each test's eval-store
+result incrementally instead of only at run end, and (3) flush per-test
+pass/fail lines to stderr unbuffered so `bun test --concurrent` mega-file
+buffering can't hide 50 minutes of legitimate progress.
+
+**Why:** During the v1.57.11.0 ship, the diff-selected eval run (54 tests) was
+killed ~50 min in and NOTHING distinguished the corpse from a healthy run for
+hours: the log had zero test lines (per-file buffering across five mega
+`skill-e2e-*.test.ts` files), `~/.gstack-dev/evals/` had zero new files
+(results persist only on completion), and the only available liveness signal
+(`pgrep "bun test --max-concurrency"`) false-positives on every sibling
+free-suite shard. An agent or human watching the run has no honest signal.
+
+**Pros:** Dead runs detected in minutes instead of hours; partial results
+survive kills (a 50-min run that dies at test 40/54 keeps 40 results and can
+resume); `eval:watch` gets a real data source.
+
+**Cons:** Touches `test/helpers/session-runner.ts` + `eval-store.ts` (global
+touchfiles — change triggers ALL eval tests on the next diff-selected run);
+incremental writes need a PARTIAL marker so `eval:compare` doesn't treat a
+dead run as a complete baseline.
+
+**Context:** Root-caused 2026-06-12 during the v1.57.11.0 /ship. The run
+itself was on pace (~50 min for 54 E2E tests at concurrency 15 is nominal);
+the failure was pure observability. Related: the existing
+`project_e2e_harness_observability` note (stream-json reasoning + tool traces
+dropped on failure — same module, fix together). Start in
+`test/helpers/session-runner.ts` (per-test lifecycle) and
+`test/helpers/eval-store.ts` (persistence timing).
+
+**Depends on / blocked by:** Nothing. Classify the new behavior under the
+existing two-tier system; the heartbeat file must be safe under
+`--concurrent` (append-only, one JSON line per event).
+
 ### ✅ DONE (v1.53.1.0): Rebaseline parity-suite (v1.44.1 → v1.53.0.0)
 
 **What:** `test/parity-suite.test.ts` checked every skill's SKILL.md size against
@@ -1994,7 +2035,7 @@ Shipped in v0.6.5. TemplateContext in gen-skill-docs.ts bakes skill name into pr
 
 **What:** Write a postinstall script that patches Playwright's CDP layer to suppress `Runtime.enable` and use `addBinding` for context ID discovery, same approach as rebrowser-patches. Eliminates the `navigator.webdriver`, `cdc_` markers, and other CDP artifacts that sites like Google use to detect automation.
 
-**Why:** Our current stealth narrows to `navigator.webdriver` masking + ChromeDriver `cdc_` runtime cleanup + Permissions API patch (v1.28.0.0 narrowed it from also faking plugins/languages, since modern fingerprinters punish inconsistent fakes more than they punish admitted defaults). That's enough for most sites but Google still triggers captchas, because the real detection is at the CDP protocol level. rebrowser-patches proved the approach works but their patches target Playwright 1.52.0 and don't apply to our 1.58.2. We need our own patcher using string matching instead of line-number diffs. 6 files, ~200 lines of patches total.
+**Why:** As of v1.58.3.0 our JS-layer stealth is "Layer C" — always-on `navigator.webdriver` mask + `window.chrome.*` shape + `Notification.permission`/Permissions alignment + per-install `hardwareConcurrency`/`deviceMemory` + a `Function.prototype.toString` proxy + an automation-global sweep + ChromeDriver `cdc_`/`__webdriver` cleanup (still NOT faking plugins/languages, since modern fingerprinters punish inconsistent fakes more than they punish admitted defaults). That closes most JS-observable tells, but Google still triggers captchas because the deepest detection is at the CDP protocol level, which a page-world init script can't reach. rebrowser-patches proved the CDP approach works but their patches target Playwright 1.52.0 and don't apply to our 1.58.2. We need our own patcher using string matching instead of line-number diffs. 6 files, ~200 lines of patches total. (Layer C's toString proxy still has descriptor/Reflect.ownKeys surfaces; pushing the spoofs to native code via CDP suppression or the Chromium fork makes the JS layer obsolete.)
 
 **Context:** Full analysis of rebrowser-patches source: patches 6 files in `playwright-core/lib/server/` (crConnection.js, crDevTools.js, crPage.js, crServiceWorker.js, frames.js, page.js). Key technique: suppress `Runtime.enable` (the main CDP detection vector), use `Runtime.addBinding` + `CustomEvent` trick to discover execution context IDs without it. Our extension communicates via Chrome extension APIs, not CDP Runtime, so it should be unaffected. Write E2E tests that verify: (1) extension still loads and connects, (2) Google.com loads without captcha, (3) sidebar chat still works.
 

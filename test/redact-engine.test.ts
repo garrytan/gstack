@@ -12,6 +12,7 @@ import {
   exitCodeFor,
   maskPreview,
   normalizeWithMap,
+  redactFindingSpans,
   type RepoVisibility,
 } from "../lib/redact-engine";
 import {
@@ -42,6 +43,17 @@ describe("HIGH credential patterns", () => {
     ["slack.webhook", "https://hooks.slack.com/services/T00000000/B11111111/" + "a".repeat(24)],
     ["discord.webhook", "https://discord.com/api/webhooks/123456789012345678/" + "a".repeat(60)],
     ["pem.private_key", "-----BEGIN RSA PRIVATE KEY-----"],
+    // #1946 coverage-gap additions
+    ["gitlab.token", "remote: glpat-" + "Ab12Cd34Ef56Gh78Ij90"],
+    ["gitlab.token", "trigger glptt-" + "a1b2c3d4e5f6a7b8c9d0e1f2"],
+    ["gitlab.token", "deploy gldt-" + "Zy98Xw76Vu54Ts32Rq10"],
+    ["huggingface.token", "hf_" + "AbCdEfGhIjKlMnOpQrStUvWxYz012345"],
+    ["npm.token", "npm_" + "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8"],
+    ["digitalocean.token", "dop_v1_" + "0123456789abcdef".repeat(4)],
+    [
+      "gcp.service_account",
+      '{"private_key_id": "abc123", "private_key": "-----BEGIN PRIVATE KEY-----\\nMIIE..."}',
+    ],
   ];
   for (const [id, text] of cases) {
     test(`flags ${id}`, () => {
@@ -120,6 +132,38 @@ describe("MEDIUM demoted credential-shaped patterns (TENSION-1)", () => {
     expect(ids("API_TOKEN=8Fk2pQ9vXz4wL7mN3rT6yB1cD5eG0hJ")).toContain("env.kv");
     expect(ids("API_KEY=changeme")).not.toContain("env.kv");
     expect(ids("API_KEY=${MY_VAR}")).not.toContain("env.kv");
+  });
+
+  // #1946 — Bearer is the most FP-prone shape in the wave: docs and examples
+  // are full of "Authorization: Bearer <token>". MEDIUM + header proximity +
+  // the env.kv entropy recipe keep it calibrated.
+  test("auth.bearer fires on a high-entropy token in header context", () => {
+    const text = "curl -H 'Authorization: Bearer 8Fk2pQ9vXz4wL7mN3rT6yB1cD5eG0hJq'";
+    const f = scan(text, { repoVisibility: "private" }).findings.find(
+      (x) => x.id === "auth.bearer",
+    );
+    expect(f).toBeDefined();
+    expect(f?.tier).toBe("MEDIUM");
+  });
+  test("auth.bearer skips placeholders and env interpolations", () => {
+    expect(ids("Authorization: Bearer YOUR_TOKEN_HERE_PLACEHOLDER")).not.toContain("auth.bearer");
+    expect(ids("Authorization: Bearer ${ACCESS_TOKEN_FROM_ENV}")).not.toContain("auth.bearer");
+  });
+  test("auth.bearer requires header context (bare 'Bearer x' prose doesn't fire)", () => {
+    expect(ids("the Bearer 8Fk2pQ9vXz4wL7mN3rT6yB1cD5eG0hJq walked in")).not.toContain(
+      "auth.bearer",
+    );
+  });
+});
+
+describe("#1946 pattern negatives (placeholders never fire)", () => {
+  test("short or placeholder shapes don't trip the new HIGH patterns", () => {
+    expect(ids("glpat-xxxx")).not.toContain("gitlab.token");
+    expect(ids("hf_token")).not.toContain("huggingface.token");
+    expect(ids("npm_install")).not.toContain("npm.token");
+    expect(ids("dop_v1_short")).not.toContain("digitalocean.token");
+    // pem header WITHOUT the GCP JSON shape stays pem.private_key only.
+    expect(ids("-----BEGIN PRIVATE KEY-----")).not.toContain("gcp.service_account");
   });
 });
 
@@ -318,6 +362,82 @@ describe("masking + purity", () => {
     const a = scan("AKIA1234567890ABCDEF x@corp.io", { repoVisibility: "public" });
     const b = scan("AKIA1234567890ABCDEF x@corp.io", { repoVisibility: "public" });
     expect(a).toEqual(b);
+  });
+});
+
+describe("redactFindingSpans — machine-egress masking (#1947)", () => {
+  test("clean input passes through unchanged", () => {
+    const text = "push failed: remote rejected the branch";
+    expect(redactFindingSpans(text, { repoVisibility: "private" })).toBe(text);
+  });
+
+  test("a single finding's span becomes <REDACTED-{id}>, context survives", () => {
+    const token = "ghp_" + "1234567890abcdefghijklmnopqrstuvwxyz";
+    const out = redactFindingSpans(`auth ${token} rejected`, { repoVisibility: "private" });
+    expect(out).toBe("auth <REDACTED-github.pat> rejected");
+  });
+
+  test("multiple findings are all replaced (right-to-left splice keeps offsets valid)", () => {
+    const pat = "ghp_" + "1234567890abcdefghijklmnopqrstuvwxyz";
+    const aws = "AKIA1234567890ABCDEF";
+    const out = redactFindingSpans(`first ${aws} then ${pat} end`, {
+      repoVisibility: "private",
+    });
+    expect(out).toBe("first <REDACTED-aws.access_key> then <REDACTED-github.pat> end");
+  });
+
+  test("fails closed (null) when a span cannot be relocated — never raw passthrough", () => {
+    // env.kv's span (the value) starts well past the regex match start (the
+    // var name), so locateSpan's rewind-2 re-exec misses it. The contract is
+    // null → caller drops the whole payload. The one thing that must never
+    // happen is the secret surviving in the output.
+    const secret = "8Fk2pQ9vXz4wL7mN3rT6yB1cD5eG0hJq";
+    const out = redactFindingSpans(`API_KEY=${secret}`, { repoVisibility: "private" });
+    if (out !== null) {
+      // If locateSpan ever learns to find context-prefixed spans, masking
+      // must actually mask.
+      expect(out).not.toContain(secret);
+    } else {
+      expect(out).toBeNull();
+    }
+  });
+
+  test("multiline input redacts a finding past the first line (locateSpan line/col path)", () => {
+    const token = "ghp_" + "1234567890abcdefghijklmnopqrstuvwxyz";
+    const out = redactFindingSpans(`line one\nline two has ${token}\nline three`, {
+      repoVisibility: "private",
+    });
+    expect(out).toBe("line one\nline two has <REDACTED-github.pat>\nline three");
+  });
+
+  // Pre-landing review CRITICAL: pem.private_key and gcp.service_account
+  // capture only the HEADER, not the key material — a span splice would
+  // redact the marker and forward the key body. Marker-only patterns must
+  // drop the whole payload.
+  test("PEM private key → null (header-only span must not forward the key body)", () => {
+    const msg =
+      "deploy failed: -----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC\n-----END PRIVATE KEY-----";
+    expect(redactFindingSpans(msg, { repoVisibility: "private" })).toBeNull();
+  });
+
+  test("GCP service-account JSON → null (key body follows the captured marker)", () => {
+    const msg =
+      'config dump: {"private_key_id": "abc123", "private_key": "-----BEGIN PRIVATE KEY-----\\nMIIEvQIBADANBg..."}';
+    expect(redactFindingSpans(msg, { repoVisibility: "private" })).toBeNull();
+  });
+
+  // Pre-landing review: overlapping spans (a Bearer token that is also a
+  // JWT) must coalesce — independent splices apply stale offsets and can
+  // leave trailing secret bytes or mangled markers.
+  test("overlapping spans (Bearer JWT fires auth.bearer + jwt) never leak and produce clean markers", () => {
+    const jwt = "eyJ" + "a".repeat(20) + ".eyJ" + "b".repeat(20) + "." + "c".repeat(20);
+    const out = redactFindingSpans(`Authorization: Bearer ${jwt}`, { repoVisibility: "private" });
+    expect(out).not.toBeNull();
+    expect(out!).not.toContain("eyJ");
+    expect(out!).not.toContain("aaaa");
+    expect(out!).not.toContain("cccc");
+    // One coalesced, well-formed marker — no truncated fragments.
+    expect(out!).toMatch(/^Authorization: Bearer <REDACTED-[a-z._+]+>$/);
   });
 });
 

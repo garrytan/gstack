@@ -71,6 +71,15 @@ export interface ClaudePtyOptions {
   permissionMode?: 'plan' | 'default' | 'acceptEdits' | 'bypassPermissions' | 'auto' | 'dontAsk' | null;
   /** Extra args after the permission-mode flag. */
   extraArgs?: string[];
+  /**
+   * Model for the spawned interactive `claude`. Without an explicit --model the
+   * child inherits the operator's ~/.claude/settings.json model (e.g.
+   * claude-fable-5[1m]), which can spend 5+ min in extended thinking on an empty
+   * plan-mode context and blow every smoke budget. Resolution mirrors
+   * session-runner.ts:144 exactly: opts.model ?? EVALS_MODEL ?? 'claude-sonnet-4-6'.
+   * Pushed BEFORE extraArgs so a test-supplied --model still wins (last flag wins).
+   */
+  model?: string;
   /** Terminal size. Default 120x40. Plan-mode UI lays out cleanly at this size. */
   cols?: number;
   rows?: number;
@@ -406,8 +415,10 @@ export function judgePtyState(
   const prompt = `You are reading a snapshot of a terminal where Claude Code is running in plan mode for an automated test. Your job: classify the agent's current state.
 
 Pick exactly ONE:
-- WAITING — agent surfaced a question or option list and is sitting at the input prompt waiting for user reply. Signs: numbered/lettered options visible (1./2./3. or A)/B)/C)), "Recommendation:" line, cursor at empty input prompt with no recent generation activity.
+- WAITING — agent surfaced a question or option list and is sitting at the input prompt waiting for user reply. Signs: numbered/lettered options visible (1./2./3. or A)/B)/C)), "Recommendation:" line, cursor at empty input prompt with no recent generation activity, OR a fully-rendered question + reply-instruction (e.g. "Reply with A, B, or C" / "Recommendation:") is visible.
 - WORKING — agent is actively generating or running tools. Signs: spinner glyphs (✻ ✶ ✳ ✢ ✽), "Musing..." or "Churned for ..." text, recent tool-call blocks (Read/Edit/Bash/Grep), in-flight token output.
+
+PRECEDENCE OVERRIDE: if a lettered/numbered option list (A)/B)/1./2.) AND a "Recommendation:" or "Reply with"/"Reply A" instruction are BOTH visible in this snapshot, classify WAITING even when spinner glyphs (✻ ✶ ✳ ✢ ✽) are still animating — Claude Code keeps the spinner up at an idle prose decision, so a spinner alongside a fully-rendered question + reply-instruction is a residual render artifact, not active generation.
 - HUNG — agent has stopped without surfacing a question and without any spinner/work activity. Rare; usually means a crash.
 
 Respond with strict JSON ONLY (no markdown fences, no prose):
@@ -503,6 +514,16 @@ ${tail}
  *     for plan-eng / plan-design / plan-devex prose AUQ
  *   - 3+ distinct numbered options (1. 2. 3.) at line starts WITHOUT a
  *     `❯<spaces>1.` cursor — typical for autoplan / office-hours prose AUQ
+ *   - 3+ markdown bold-bullet options (`- **label**`) following an
+ *     interrogative line — office-hours renders its mode question this way
+ *     (`> - **Building a startup**`), which has no letter/number marker
+ *   - Pattern 4/5 (collapsed-form): a reply-instruction OR recommendation
+ *     marker PLUS 2+ distinct A-D letter markers each punctuated by ) : or (
+ *     anywhere in the tail. stripAnsi destroys the newlines + inter-word
+ *     spaces that the line-anchored patterns above need, so a real prose AUQ
+ *     arrives collapsed ("ReplywithA,B,orC", "A(recommended)", "-B:") and is
+ *     invisible to Patterns 1-3. This is the dominant Shape-B render mode in
+ *     the plan-design smoke + floor timeouts (verified against real run bytes).
  *
  * Used by classifyVisible and runPlanSkillFloorCheck to return outcome='asked'
  * (or auq_observed) instead of letting the harness time out when the model
@@ -546,7 +567,55 @@ export function isProseAUQVisible(visible: string): boolean {
   while ((nm = numberedRe.exec(tail)) !== null) {
     if (nm[1]) numberedHits.add(nm[1]);
   }
-  return numberedHits.size >= 2;
+  if (numberedHits.size >= 2) return true;
+
+  // Pattern 3: markdown bold-bullet option list. office-hours renders its
+  // mode question as `> - **Building a startup**` lines under
+  // --disallowedTools — no letter/number marker, so Patterns 1-2 miss it,
+  // and the model keeps a spinner up so the Haiku judge scores it 'working'
+  // and the run times out despite the question being on screen.
+  // Require both: an interrogative line (the question stem ends in '?') AND
+  // 3+ bold-bullet markers. The bold (`- **`) requirement is what separates
+  // an option list from incidental prose bullets; the line anchor is dropped
+  // because stripAnsi can collapse option lines (see Pattern 1 note), so we
+  // count markers anywhere in the tail. The `❯ 1.` cursor gate above already
+  // excludes a live native list.
+  if (/\?/.test(tail)) {
+    const boldBulletHits = (tail.match(/[-*•]\s+\*\*/g) || []).length;
+    if (boldBulletHits >= 3) return true;
+  }
+
+  // Pattern 4/5: collapsed-form prose AUQ. stripAnsi removes the
+  // cursor-positioning escapes that render option newlines + inter-word
+  // spaces, so "Reply with A, B, or C" arrives as "ReplywithA,B,orC" and
+  // "A) ..." as "A(recommended)" / "-B:" — defeating every line-anchored or
+  // ')'-anchored pattern above (Patterns 1-3 all return false on the real
+  // plan-design smoke + floor timeout bytes). Detect via two INDEPENDENT
+  // signals that must BOTH hold — the corroboration is what separates a real
+  // AUQ from incidental report prose that happens to mention a recommendation:
+  //   (1) a reply-instruction matched space-insensitively OR a recommendation
+  //       marker, AND
+  //   (2) 2+ distinct A-D letter markers each punctuated by ) : or ( anywhere
+  //       in the tail.
+  // A single 'B)' + the word "recommendation", or a comma-only collapsed
+  // "ReplywithA,B,orC" with no )/:/( punctuation on the letters, both stay
+  // false — the two-signal contract is pinned by unit tests.
+  const replyOrRec =
+    /reply\s*(?:with)?\s*[A-D]/i.test(tail) ||
+    /reply(?:with)?[A-D]/i.test(tail.replace(/\s+/g, '')) ||
+    /\bRecommendation\s*:/i.test(tail) ||
+    /\(recommended\)/i.test(tail);
+  if (replyOrRec) {
+    const collapsedLetterRe = /\b([A-D])[):(]/g;
+    const collapsedHits = new Set<string>();
+    let cm: RegExpExecArray | null;
+    while ((cm = collapsedLetterRe.exec(tail)) !== null) {
+      if (cm[1]) collapsedHits.add(cm[1]);
+    }
+    if (collapsedHits.size >= 2) return true;
+  }
+
+  return false;
 }
 
 /**
@@ -1145,9 +1214,15 @@ export async function launchClaudePty(
   let exited = false;
   let exitCodeCaptured: number | null = null;
 
+  const args: string[] = [];
+  // Pin the model so smokes don't inherit the operator's settings.json model
+  // (see ClaudePtyOptions.model). Chain mirrors session-runner.ts:144 so PTY and
+  // `claude -p` evals always agree. Pushed before extraArgs => a test-supplied
+  // --model wins (last flag wins).
+  const model = opts.model ?? process.env.EVALS_MODEL ?? 'claude-sonnet-4-6';
+  args.push('--model', model);
   // Permission mode: 'plan' default, null => omit flag entirely.
   const permissionMode = opts.permissionMode === undefined ? 'plan' : opts.permissionMode;
-  const args: string[] = [];
   if (permissionMode !== null) {
     args.push('--permission-mode', permissionMode);
   }
@@ -1498,6 +1573,9 @@ export async function runPlanSkillObservation(opts: {
    * Step 0 reads the prior conversation context so it sees the draft.
    */
   initialPlanContent?: string;
+  /** Override the spawned model. Defaults via launchClaudePty's chain
+   *  (opts.model ?? EVALS_MODEL ?? 'claude-sonnet-4-6'). */
+  model?: string;
 }): Promise<PlanSkillObservation> {
   const startedAt = Date.now();
   const session = await launchClaudePty({
@@ -1506,6 +1584,7 @@ export async function runPlanSkillObservation(opts: {
     timeoutMs: (opts.timeoutMs ?? 180_000) + 30_000,
     extraArgs: opts.extraArgs,
     env: opts.env,
+    model: opts.model,
   });
 
   try {
@@ -1762,6 +1841,8 @@ export async function runPlanSkillCounting(opts: {
   timeoutMs?: number;
   /** Extra env merged into the spawned `claude` process. */
   env?: Record<string, string>;
+  /** Override the spawned model. Defaults via launchClaudePty's chain. */
+  model?: string;
 }): Promise<PlanSkillCountObservation> {
   const startedAt = Date.now();
   const defaultPick = opts.defaultPick ?? 1;
@@ -1772,6 +1853,7 @@ export async function runPlanSkillCounting(opts: {
     cwd: opts.cwd,
     timeoutMs: timeoutMs + 60_000,
     env: opts.env,
+    model: opts.model,
   });
 
   const fingerprints: AskUserQuestionFingerprint[] = [];
@@ -1993,6 +2075,8 @@ export async function runPlanSkillFloorCheck(opts: {
   timeoutMs?: number;
   /** Extra env merged into the spawned `claude` process. */
   env?: Record<string, string>;
+  /** Override the spawned model. Defaults via launchClaudePty's chain. */
+  model?: string;
 }): Promise<PlanSkillFloorObservation> {
   const startedAt = Date.now();
   const timeoutMs = opts.timeoutMs ?? 600_000;
@@ -2002,6 +2086,7 @@ export async function runPlanSkillFloorCheck(opts: {
     cwd: opts.cwd,
     timeoutMs: timeoutMs + 60_000,
     env: opts.env,
+    model: opts.model,
   });
 
   try {

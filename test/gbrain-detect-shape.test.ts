@@ -43,7 +43,10 @@ function runDetect(env: Partial<NodeJS.ProcessEnv>): string {
     encoding: "utf-8",
     timeout: 15_000,
     stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env, ...env },
+    // GBRAIN_HOME pinned empty: detect honors it (codex D11), and sibling
+    // test files in the same shard set it ambiently — without the pin, the
+    // spawned detect reads the polluter's (or the developer's real) config.
+    env: { ...process.env, GBRAIN_HOME: "", ...env },
   });
 }
 
@@ -52,7 +55,7 @@ function runIsOk(env: Partial<NodeJS.ProcessEnv>): number {
   const r = spawnSync(BUN_BIN, ["run", DETECT_BIN, "--is-ok"], {
     timeout: 15_000,
     stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env, ...env },
+    env: { ...process.env, GBRAIN_HOME: "", ...env },
   });
   return r.status ?? 1;
 }

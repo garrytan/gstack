@@ -18,7 +18,7 @@
  *     "gstack_brain_sync_mode": "off"|"artifacts-only"|"full",
  *     "gstack_brain_git": true|false,
  *     "gstack_artifacts_remote": "https://..." | "",
- *     "gbrain_local_status": "ok"|"no-cli"|"missing-config"|"broken-config"|"broken-db",
+ *     "gbrain_local_status": "ok"|"no-cli"|"missing-config"|"broken-config"|"broken-db"|"timeout",
  *     "gbrain_pooler_mode": "transaction"|"session"|null
  *   }
  *
@@ -48,7 +48,13 @@ import { isTransactionModePooler } from "../lib/gbrain-exec";
 const STATE_DIR = process.env.GSTACK_HOME || join(userHome(), ".gstack");
 const SCRIPT_DIR = __dirname;
 const CONFIG_BIN = join(SCRIPT_DIR, "gstack-config");
-const GBRAIN_CONFIG = join(userHome(), ".gbrain", "config.json");
+// Honors GBRAIN_HOME — must stay consistent with lib/gbrain-local-status's
+// config resolution, or the detect JSON reports gbrain_local_status "ok"
+// alongside gbrain_config_exists false for relocated-home users.
+const GBRAIN_CONFIG = join(
+  process.env.GBRAIN_HOME || join(userHome(), ".gbrain"),
+  "config.json",
+);
 const CLAUDE_JSON = join(userHome(), ".claude.json");
 
 function userHome(): string {
@@ -234,14 +240,17 @@ function main(): void {
   process.stdout.write(JSON.stringify(out, null, 2) + "\n");
 }
 
-// --is-ok: live engine-status gate. Exits 0 iff gbrain is usable ("ok"), 1
-// otherwise. Runs detection live (never reads the possibly-stale
-// gbrain-detection.json), so callers — setup, bin/dev-setup, and
-// `gstack-config gbrain-refresh` — can decide whether to render the gbrain
-// :user variant without duplicating the JSON grep. Prints nothing on stdout.
+// --is-ok: live engine-status gate. Exits 0 iff gbrain is usable ("ok", or
+// "timeout" — a slow-but-healthy engine, #1964 — slow must not silently
+// suppress brain features), 1 otherwise. Runs detection live (never reads
+// the possibly-stale gbrain-detection.json), so callers — setup,
+// bin/dev-setup, and `gstack-config gbrain-refresh` — can decide whether to
+// render the gbrain :user variant without duplicating the JSON grep.
+// Prints nothing on stdout.
 if (process.argv.includes("--is-ok")) {
   const noCache = process.env.GSTACK_DETECT_NO_CACHE === "1";
-  process.exit(localEngineStatus({ noCache }) === "ok" ? 0 : 1);
+  const status = localEngineStatus({ noCache });
+  process.exit(status === "ok" || status === "timeout" ? 0 : 1);
 }
 
 main();

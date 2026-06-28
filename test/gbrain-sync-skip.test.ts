@@ -42,7 +42,7 @@ interface FakeEnv {
  */
 function makeEnv(opts: {
   withGbrain: boolean;
-  gbrainBehavior?: "ok" | "broken-db" | "broken-config";
+  gbrainBehavior?: "ok" | "broken-db" | "broken-config" | "slow";
   withConfig: boolean;
 }): FakeEnv {
   const tmp = mkdtempSync(join(tmpdir(), "gbrain-sync-skip-"));
@@ -65,19 +65,26 @@ function makeEnv(opts: {
 
   if (opts.withGbrain) {
     const behavior = opts.gbrainBehavior || "ok";
-    const stderrLine =
-      behavior === "broken-db"
-        ? 'echo "Cannot connect to database: . Fix: Check your connection URL in ~/.gbrain/config.json" >&2'
-        : behavior === "broken-config"
-          ? 'echo "Error: malformed config.json" >&2'
-          : "";
-    const exitCode = behavior === "ok" ? 0 : 1;
+    // "slow": healthy engine, cold pooler connection (#1964) — sleeps past the
+    // (test-lowered) probe timeout on `sources list`, then answers fine.
+    const sourcesBlock =
+      behavior === "slow"
+        ? `  sleep 2
+  echo '{"sources":[]}'
+  exit 0`
+        : behavior === "ok"
+          ? `  echo '{"sources":[]}'
+  exit 0`
+          : `  ${
+              behavior === "broken-db"
+                ? 'echo "Cannot connect to database: . Fix: Check your connection URL in ~/.gbrain/config.json" >&2'
+                : 'echo "Error: malformed config.json" >&2'
+            }
+  exit 1`;
     const fake = `#!/bin/sh
 if [ "$1" = "--version" ]; then echo "gbrain 0.33.1.0"; exit 0; fi
 if [ "$1 $2" = "sources list" ]; then
-  if [ ${exitCode} -eq 0 ]; then echo '{"sources":[]}'; exit 0; fi
-  ${stderrLine}
-  exit ${exitCode}
+${sourcesBlock}
 fi
 if [ "$1" = "--help" ]; then echo "  import"; exit 0; fi
 exit 0
@@ -95,7 +102,11 @@ exit 0
   };
 }
 
-function runOrchestrator(env: FakeEnv, args: string[]): { stdout: string; stderr: string; exitCode: number } {
+function runOrchestrator(
+  env: FakeEnv,
+  args: string[],
+  extraEnv: Record<string, string> = {},
+): { stdout: string; stderr: string; exitCode: number } {
   // Initialize a git repo in the sandbox so repoRoot() finds it (otherwise
   // code stage skips with "not in git repo" before our check ever fires).
   spawnSync("git", ["init", "-q", env.home], { encoding: "utf-8" });
@@ -113,6 +124,7 @@ function runOrchestrator(env: FakeEnv, args: string[]): { stdout: string; stderr
       HOME: env.home,
       GSTACK_HOME: env.gstackHome,
       PATH: `${env.bindir}:/usr/bin:/bin`,
+      ...extraEnv,
     },
   });
   return {
@@ -123,6 +135,53 @@ function runOrchestrator(env: FakeEnv, args: string[]): { stdout: string; stderr
 }
 
 describe("gstack-gbrain-sync — split-engine SKIP (plan D12)", () => {
+  it("PROCEEDS (with warning) when the engine probe times out — slow is not broken (#1964)", () => {
+    const env = makeEnv({ withGbrain: true, gbrainBehavior: "slow", withConfig: true });
+    try {
+      const r = runOrchestrator(env, ["--code-only"], {
+        GSTACK_GBRAIN_PROBE_TIMEOUT_MS: "300",
+      });
+      const out = r.stdout + r.stderr;
+      // The stage must NOT be skipped with the local-engine reason...
+      expect(out).not.toContain("local engine timeout");
+      expect(out).not.toContain("config.json is malformed");
+      // ...and the proceed-with-warning line must name the env knob.
+      expect(out).toContain("GSTACK_GBRAIN_PROBE_TIMEOUT_MS");
+    } finally {
+      env.cleanup();
+    }
+  }, 30_000); // proceeding runs the real code-import path against the slow fake (~11s)
+
+  it("memory stage also PROCEEDS (with warning) on probe timeout (#1964)", () => {
+    const env = makeEnv({ withGbrain: true, gbrainBehavior: "slow", withConfig: true });
+    try {
+      const r = runOrchestrator(env, ["--no-code", "--no-brain-sync"], {
+        GSTACK_GBRAIN_PROBE_TIMEOUT_MS: "300",
+      });
+      const out = r.stdout + r.stderr;
+      expect(out).not.toContain("local engine timeout");
+      expect(out).toContain("memory: engine probe timed out");
+    } finally {
+      env.cleanup();
+    }
+  }, 30_000);
+
+  it("dream stage also PROCEEDS (with warning) on probe timeout (#1964)", () => {
+    const env = makeEnv({ withGbrain: true, gbrainBehavior: "slow", withConfig: true });
+    try {
+      const r = runOrchestrator(
+        env,
+        ["--dream", "--no-code", "--no-memory", "--no-brain-sync"],
+        { GSTACK_GBRAIN_PROBE_TIMEOUT_MS: "300" },
+      );
+      const out = r.stdout + r.stderr;
+      expect(out).not.toContain("local engine timeout");
+      expect(out).toContain("dream: engine probe timed out");
+    } finally {
+      env.cleanup();
+    }
+  }, 30_000);
+
   it("SKIPs code stage when local engine is broken-db; brain-sync still attempted", () => {
     const env = makeEnv({ withGbrain: true, gbrainBehavior: "broken-db", withConfig: true });
     try {

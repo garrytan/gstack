@@ -135,6 +135,10 @@ Read `gbrain_local_status` from the Step 1 detect output. Branch as follows
 BEFORE invoking the orchestrator:
 
 - **`ok`**: proceed to Step 2 normally.
+- **`timeout`**: proceed to Step 2 — the engine is most likely healthy but
+  slow (cold pooler connection, #1964). Tell the user in one line: "Engine
+  probe timed out (>15s) — proceeding; raise `GSTACK_GBRAIN_PROBE_TIMEOUT_MS`
+  if your pooler is slow." Do NOT treat this as a broken config.
 - **`no-cli`**: STOP. "Local gbrain CLI not installed. Run `/setup-gbrain`
   first."
 - **`missing-config`** AND `gbrain_mcp_mode == "remote-http"`: tell the user
@@ -301,10 +305,11 @@ SLUG="_capability_check_$$"
 CAPABILITY_OK=0
 if [ -f ~/.gbrain/config.json ] && \
    gbrain --version 2>/dev/null | grep -q '^gbrain '; then
-  # GBRAIN_PREPARE=true ensures prepared statements stay enabled when
-  # connecting through a PgBouncer transaction-mode pooler (port 6543).
-  # Without it, search silently returns no results (#1435).
-  export GBRAIN_PREPARE=true
+  # Do NOT export GBRAIN_PREPARE here (#1965). gbrain auto-disables prepared
+  # statements on transaction-mode poolers (port 6543) — forcing them on
+  # breaks every write with "prepared statement does not exist". Users on a
+  # session-mode pooler at 6543 can set GBRAIN_PREPARE=true themselves (the
+  # gbrain banner documents this override).
   if echo "ping" | gbrain put "$SLUG" >/dev/null 2>&1; then
     # Retry search up to 3 times with 1s delay — under transaction-mode
     # pooling the search index may not be visible on the next connection

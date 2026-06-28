@@ -27,6 +27,12 @@
 # Append-only JSONL. Dedup is at read time in gstack-question-sensitivity --read-log.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# Windows git-bash (#1950): pwd yields a POSIX path (/c/Users/...), which Bun
+# on Windows cannot resolve as an ES module specifier in bun -e imports.
+# cygpath -m converts to C:/Users/... which Bun accepts.
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*) command -v cygpath >/dev/null 2>&1 && SCRIPT_DIR="$(cygpath -m "$SCRIPT_DIR")" ;;
+esac
 eval "$("$SCRIPT_DIR/gstack-slug" 2>/dev/null)"
 # GSTACK_STATE_ROOT takes precedence over GSTACK_HOME (test isolation per D16).
 GSTACK_HOME="${GSTACK_STATE_ROOT:-${GSTACK_HOME:-$HOME/.gstack}}"
@@ -39,6 +45,7 @@ TMPERR=$(mktemp)
 trap 'rm -f "$TMPERR"' EXIT
 set +e
 VALIDATED=$(printf '%s' "$INPUT" | bun -e "
+import { hasInjection } from '$SCRIPT_DIR/../lib/jsonl-store.ts';
 const path = require('path');
 const raw = await Bun.stdin.text();
 let j;
@@ -104,23 +111,12 @@ if (j.question_summary.includes('\n')) {
   j.question_summary = j.question_summary.replace(/\n+/g, ' ');
 }
 
-// Injection defense on the summary — same patterns as learnings-log.
-const INJECTION_PATTERNS = [
-  /ignore\s+(all\s+)?previous\s+(instructions|context|rules)/i,
-  /you\s+are\s+now\s+/i,
-  /always\s+output\s+no\s+findings/i,
-  /skip\s+(all\s+)?(security|review|checks)/i,
-  /override[:\s]/i,
-  /\bsystem\s*:/i,
-  /\bassistant\s*:/i,
-  /\buser\s*:/i,
-  /do\s+not\s+(report|flag|mention)/i,
-];
-for (const pat of INJECTION_PATTERNS) {
-  if (pat.test(j.question_summary)) {
-    process.stderr.write('gstack-question-log: question_summary contains suspicious instruction-like content, rejected\n');
-    process.exit(1);
-  }
+// Injection defense on the summary — shared audited list (lib/jsonl-store.ts),
+// same source of truth as learnings-log and decision-log. The previous local
+// duplicate drifted (#1934): pattern fixes to the lib never propagated here.
+if (hasInjection(j.question_summary)) {
+  process.stderr.write('gstack-question-log: question_summary contains suspicious instruction-like content, rejected\n');
+  process.exit(1);
 }
 
 // Registry lookup for category + door_type enrichment.

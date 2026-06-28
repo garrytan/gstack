@@ -1,5 +1,134 @@
 # Changelog
 
+## [1.58.5.0] - 2026-06-21
+
+## **A fresh install now lands on a concrete first move, not a dead end.**
+## **gstack reads your repo, hands you the right first skill, and the bare `gstack` front door routes instead of dumping browse docs.**
+
+gstack's first-run experience used to leak: a new user could install, type `gstack`, and land in a wall of browser-QA documentation regardless of what they wanted. This release makes the front door route, and adds a project-aware first-run scaffold. On the first skill run, gstack detects your repo state (empty repo, a language with code, a feature branch with unshipped work, uncommitted changes) and shows one short, specific suggestion — "there's code here, try `/qa`" or "unshipped work, `/review` then `/ship`" — then continues with whatever you asked. On a returning session it nudges the full `plan → review → ship` loop once. `office-hours` now offers to launch the next review for you instead of listing options you have to retype. And the top-level `gstack` skill is now a pure router: the duplicated browse docs it used to carry live only in `/browse`.
+
+### The numbers that matter
+
+Source: the community-tier telemetry that motivated this work (Supabase `frugpmstpnojnhfyimgv`, ~23,839 distinct installs, Mar–Jun 2026; rerun the cohort query to reproduce). These are the activation gaps the release targets, not a post-ship result.
+
+| Activation signal | Measured | What it means |
+|---|---|---|
+| Installs that never run any skill | ~21% | The front door loses 1 in 5 before they start |
+| One-and-done (ran exactly one skill, ever) | ~30% | Most of the rest don't come back |
+| Bare `gstack` skill one-and-done rate | 40% | The worst front door — it dead-ended in browse docs |
+| First-skill → 3-week survival spread | 21% (bare gstack) to 39% (`ship`) | Which first skill you land on predicts whether you stay |
+
+The success metric is pre-registered, not claimed: rerun the same cohort query at T+6 weeks and look for W0 activation up and one-and-done down, per intervention. No post-ship measurement exists yet.
+
+### What this means for builders
+
+If you just installed gstack, your first session points you at something useful for the repo you're actually in, and `gstack` with no specific ask sends you to the right skill instead of browser docs. Nothing fires in headless/eval runs, and the nudge never interrupts a command you explicitly gave. If the T+6-week numbers don't move, the honest read is that the lever was wording when the real gap is motivation, and the next step is an in-app onboarding flow (logged, not built here).
+
+### Itemized changes
+
+#### Added
+- **First-run project scaffold:** `bin/gstack-first-task-detect` classifies the repo into one of a fixed set of buckets (greenfield, `code_<lang>` for Node/Python/Rust/Go/Ruby/iOS, branch-ahead, dirty-default, clean-default) using local git + file markers only, with portable timeouts and a fail-safe empty output. The shared preamble maps the bucket to a one-line first-skill suggestion on the first-ever run.
+- **Returning-session loop tip:** once past the first run, the preamble nudges `plan → review → ship` a single time.
+- **Setup first-move nudge:** `./setup` now prints an intent-routed starting point (idea → `/office-hours`/`/spec`; existing code → `/qa`/`/investigate`).
+- **office-hours handoff:** the closing step offers to launch the next review (`/plan-eng-review` by default) via the Skill tool instead of listing options to retype.
+
+#### Changed
+- **The top-level `gstack` skill is now a pure router.** The browser-QA body it duplicated from `/browse` is removed; `gstack` routes any request to the right skill and sends browser/QA work to `/browse`. The browse skill itself is unchanged.
+- Activation telemetry event types (`onboarding`, `first_task_scaffold_shown`, `handoff`, `route`) are accepted by the telemetry ingest path so the funnel can be measured.
+
+#### For contributors
+- New unit coverage for every detection bucket plus the eval-safe enum contract and the first-run gating (`test/preamble-first-task-scaffold.test.ts`), and a periodic E2E that runs the detector through the real harness (`test/skill-e2e-first-task-scaffold.test.ts`, classified `periodic`).
+- Browse-content test assertions (gen-skill-docs, audit-compliance, skill-validation, the LLM-judge eval) repointed from the root skill to `browse/SKILL.md` to follow the router split; a regression test pins that the router carries no browse body.
+- Parity / carve-guard size caps bumped ~1–2KB per skill to account for the shared first-run-guidance preamble section.
+
+## [1.58.4.0] - 2026-06-18
+
+## **A community bug-fix wave plus a test-gate that finally sees the questions it was missing.**
+## **gbrain writes survive transaction-mode poolers, the redaction engine learns six more secret shapes, dashboards stop lying about zero, and the plan-review smokes detect asks the harness was blind to.**
+
+Two things ship here. First, the high-priority community bug wave: gbrain stopped force-enabling `GBRAIN_PREPARE` on transaction-mode poolers (which broke 100% of writes), a slow-but-healthy probe now classifies as `timeout` and lets sync proceed instead of silently skipping, the redaction engine gained six credential patterns, telemetry `error_message` runs through redaction before it leaves the machine, both the security and community dashboards stop reporting a fake `0` when the backend errors, and the Windows git-bash bins resolve their imports. Second, the plan-mode test gate: the real-PTY smokes for `/plan-eng-review`, `/plan-design-review`, and `/office-hours` were timing out on questions the skills had already rendered, because the terminal strips the cursor escapes that lay out the options. A new collapsed-form detector catches the ask in any render, the Haiku state-judge stops coin-flipping on a leftover spinner, and `/plan-eng-review` + `/plan-design-review` now confirm what to review before grinding a full audit on an empty repo.
+
+### The numbers that matter
+
+From the v1.58.4.0 diff against main and the CI eval matrix (`.github/workflows/evals.yml`, run 27780530109).
+
+| Metric | Before | After | Δ |
+|--------|--------|-------|---|
+| Credential shapes the redaction engine catches | (prior set) | +6 (GitLab, HuggingFace, npm, DigitalOcean, Bearer, GCP SA) | +6 |
+| Dashboards that can print a fake `0` on a backend error | 2 | 0 | -2 |
+| gstack skills whose gbrain writes break on a 6543 pooler | all | 0 | fixed |
+| PTY plan-mode smokes that timed out on an already-rendered question | 3 | 0 | -3 |
+| Reliably-green PTY smokes actually gated in CI | 0 | 4 | +4 |
+
+`office-hours` rendered its mode question at ~2m19s, well under the 300s budget, and the harness still scored the run a timeout because the option lines arrived collapsed (`A)` as `A(recommended)`, `Reply with A, B, or C` as `ReplywithA,B,orC`). The detector now reads both forms; 95 unit tests pin its contract.
+
+### What this means for gstack users
+
+If you run gbrain on a Supabase transaction-mode pooler, your writes work again. If you use `/ship`'s pre-push guard, it now fails closed on a git error and catches six more credential types before they leave your machine. If you run `/plan-eng-review` or `/plan-design-review`, they ask what to review first instead of spelunking your whole repo. The plan-review test gate stops flaking on its own blind spot. Nothing to do but upgrade.
+
+### Itemized changes
+
+#### Fixed
+- **gbrain on transaction-mode poolers:** removed the forced `GBRAIN_PREPARE=true` that deterministically broke writes on port-6543 poolers (#1965). An explicit user-set `GBRAIN_PREPARE` still passes through.
+- **gbrain probe timeout:** a probe that exceeds its deadline classifies as its own `timeout` status (15s default, `GSTACK_GBRAIN_PROBE_TIMEOUT_MS`-overridable); sync proceeds with a warning instead of silently suppressing brain features for a slow-but-healthy engine (#1964).
+- **Security + community dashboards:** backend errors now surface as "unknown — backend error" (or a 503), never a fake `0`; success responses carry a `status:"ok"` marker so legacy backends are flagged "unverified" (#1947).
+- **Telemetry:** `error_message` passes through the redaction engine at log time; on a redactor failure it fails closed to null (#1947).
+- **Windows git-bash:** `gstack-learnings-log` and `gstack-question-log` cygpath-normalize `$SCRIPT_DIR` so their `bun -e` imports resolve; learnings-log surfaces validation errors instead of swallowing them (#1950).
+- **`gstack-question-log`:** shares the audited injection-pattern list from `lib/jsonl-store.ts` instead of a local duplicate (#1934).
+- **Pre-push guard:** fails closed when the diff cannot be computed (git failure / maxBuffer kill), with a `GSTACK_REDACT_PREPUSH=skip` escape valve (#1946).
+- **PTY plan-mode smokes:** the harness detects a rendered AskUserQuestion even when stripAnsi collapses the option lines (markdown bold-bullet and lettered/numbered prose forms); the Haiku state-judge classifies WAITING when a question + reply-instruction is on screen despite an animating spinner. Fixes the office-hours, plan-eng, and plan-design plan-mode smokes that timed out on questions already displayed.
+- **ios-qa E2E:** isolated under `bun test --concurrent` (per-test work dirs, daemon paths passed as options not process-global env, afterAll cleanup) — fixes 3 real races.
+
+#### Added
+- **Six credential patterns in the redaction engine:** GitLab tokens, HuggingFace, npm, DigitalOcean, `Bearer` (entropy-gated), and GCP service-account JSON (#1946).
+- **Ask-first scope gate** in `/plan-eng-review` and `/plan-design-review`: the first action confirms the review target (branch diff / pasted plan / specific path) before any repo exploration or audit.
+- **`/ship` owns the pre-push guard install:** silent auto-install when the repo opts in, a one-time offer otherwise (#1946).
+
+#### For contributors
+- New collapsed-form prose-AUQ detector + judge spinner-precedence rule in `test/helpers/claude-pty-runner.ts`; 95 unit tests pin the two-signal contract.
+- The PTY model now pins to `EVALS_MODEL ?? claude-sonnet-4-6` (mirrors `session-runner.ts`), removing operator-model nondeterminism from the smokes.
+- Stochastic ask-first smokes (plan-eng/plan-design plan-mode + finding-floor) reclassified `periodic` per the non-deterministic-tests rule; the deterministic ones (office-hours, plan-mode-no-op) now run in CI via a new `e2e-pty-plan-smoke` matrix suite with an in-container skill-registry install step.
+- `redactFindingSpans()` is the machine-egress redaction entry point in `lib/redact-engine.ts`.
+
+## [1.58.3.0] - 2026-06-18
+
+## **GBrowser masks the full set of automation tells by default, on every path a page can reach.**
+## **Layer C stealth is always on, carries a per-install hardware identity, and survives the toString depth-3 trick.**
+
+GBrowser's headless and headed Chromium now ship "Layer C" anti-detection by default, with no opt-in flag. Where the old default masked only `navigator.webdriver`, the browser now also restores the full `window.chrome.*` shape (runtime, app, csi, loadTimes), aligns `Notification.permission` with the Permissions API, reports a per-install `hardwareConcurrency`/`deviceMemory` from the host profile, sweeps the known Selenium/Phantom/Nightmare/Playwright globals, and installs a `Function.prototype.toString` proxy so every patched getter reports `[native code]` even under the depth-3 recursion check. The aggressive `GSTACK_STEALTH=extended` mode (WebGL spoof, faked plugins, mediaDevices) still exists, now layered on top of Layer C rather than replacing it. And stealth applies on all four context-creation paths, so a `useragent` change, a `viewport --scale`, or a headless-to-headed handoff hands a site a fully masked page every time.
+
+### The numbers that matter
+
+Source: `bun test browse/test/stealth-layer-c.test.ts browse/test/stealth-webdriver.test.ts browse/test/stealth-extended.test.ts browse/test/browser-manager-unit.test.ts` (80 tests, real Chromium for the runtime checks).
+
+| Capability | Before (v1.58.1.0) | After (v1.58.3.0) |
+|---|---|---|
+| Automation tells masked by default | 1 (navigator.webdriver) | 7 categories (webdriver, window.chrome.*, Notification, per-install hardware, toString-native, automation-global sweep, cdc/Permissions) |
+| Context paths that apply stealth | 2 (launch, launchHeaded) | 4 (+ handoff, + recreateContext) |
+| toString integrity | not addressed | survives the depth-3 `[native code]` check |
+| Hardware identity | generic Chromium default | per-install, from the host profile |
+| Stealth tests | none dedicated | 80 passing (incl. real-Chromium runtime) |
+
+By default the browser now masks seven categories of automation tell instead of one, on every path a page can reach, not just the first launch.
+
+### What this means for builders
+
+If you drive GBrowser to dogfood, scrape, or QA against anti-bot-protected targets, your sessions look like a real per-install Chrome out of the box. There is no `GSTACK_STEALTH` flag to remember, and no silent gap where a routine `useragent` or `viewport --scale` strips the mask. For gbrowser builds with the Pack 1 C++ patches, set the `GSTACK_*` host-profile env (gbd does this) to push the GPU/UA-CH/hardware spoof down to native code; on stock Playwright Chromium the same call is a safe no-op.
+
+### Itemized changes
+
+#### Added
+- Always-on Layer C stealth (`buildStealthScript`): webdriver mask, `window.chrome.{runtime,app,csi,loadTimes}` shape, `Notification.permission` alignment, per-install `hardwareConcurrency`/`deviceMemory`, a `Function.prototype.toString` proxy that holds up under the depth-3 `[native code]` check, and a static sweep of Selenium/Phantom/Nightmare/Playwright globals.
+- `buildGStackLaunchArgs`: per-install `--gstack-*` cmdline switches (GPU vendor/renderer, UA-CH platform/model, hardware concurrency/memory) for gbrowser's Pack 1 C++ patches, emitted only when the matching `GSTACK_*` env is set so stock Chromium is unaffected.
+- Real-Chromium runtime coverage: webdriver, chrome.* shape, Notification/Permissions pairing, toString depth-3, per-install hardware, and the extended-mode blend (80 stealth tests).
+
+#### Changed
+- Stealth applies on every context-creation path (`launch`, `launchHeaded`, `handoff`, `recreateContext`), so a `useragent`, `viewport --scale`, or handoff keeps the full mask.
+- The cdc_/`__webdriver` cleanup and the Permissions notifications shim live in `applyStealth`, so headless and handoff get the same `Notification.permission`/`permissions.query` consistency as the headed path.
+- `GSTACK_STEALTH=extended` layers on top of Layer C; the always-on default does not fake `navigator.plugins` (the opt-in mode still does, as the documented "may break sites" escape hatch).
+- `--gstack-suppress-prepare-stack-trace` is opt-in via `GSTACK_CDP_STEALTH=on`, so the switch never reaches a Chromium that does not understand it.
+- `--disable-blink-features=AutomationControlled` comes from one shared `STEALTH_LAUNCH_ARGS` constant across every launch path.
+
 ## [1.58.2.0] - 2026-06-26
 
 ## **`./setup hermes` now installs gstack skill docs and runtime assets for the Hermes agent.**

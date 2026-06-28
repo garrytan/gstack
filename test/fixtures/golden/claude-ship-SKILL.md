@@ -60,6 +60,17 @@ echo "SESSION_KIND: $_SESSION_KIND"
 if [ "$_SESSION_KIND" != "headless" ] && { [ -n "${CONDUCTOR_WORKSPACE_PATH:-}" ] || [ -n "${CONDUCTOR_PORT:-}" ]; }; then
   echo "CONDUCTOR_SESSION: true"
 fi
+_ACTIVATED=$([ -f ~/.gstack/.activated ] && echo "yes" || echo "no")
+_FIRST_LOOP_SHOWN=$([ -f ~/.gstack/.first-loop-tip-shown ] && echo "yes" || echo "no")
+echo "ACTIVATED: $_ACTIVATED"
+echo "FIRST_LOOP_SHOWN: $_FIRST_LOOP_SHOWN"
+# First-run project detection: run the detector ONLY on the first-ever skill run
+# (ACTIVATED=no, interactive) so it stays off the hot path for every run after.
+_FIRST_TASK=""
+if [ "$_ACTIVATED" = "no" ] && [ "$_SESSION_KIND" != "headless" ]; then
+  _FIRST_TASK=$(~/.claude/skills/gstack/bin/gstack-first-task-detect 2>/dev/null || true)
+fi
+echo "FIRST_TASK: $_FIRST_TASK"
 _LAKE_SEEN=$([ -f ~/.gstack/.completeness-intro-seen ] && echo "yes" || echo "no")
 echo "LAKE_INTRO: $_LAKE_SEEN"
 _TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || true)
@@ -228,6 +239,24 @@ touch ~/.gstack/.proactive-prompted
 ```
 
 Skip if `PROACTIVE_PROMPTED` is `yes`.
+
+## First-run guidance (one-time)
+
+If `ACTIVATED` is `no` (first skill run on this machine) AND the preamble printed a non-empty `FIRST_TASK:` value that is NOT `nongit`: show ONE short, project-specific line mapped from the token, as a heads-up, then CONTINUE with whatever the user actually asked — do NOT halt their task. Map the token: `greenfield` → "Fresh repo — shape it first with `/spec` or `/office-hours`." `code_node`/`code_python`/`code_rust`/`code_go`/`code_ruby`/`code_ios` → "There's code here — `/qa` to see it work, or `/investigate` if something's off." `branch_ahead` → "Unshipped work on this branch — `/review` then `/ship`." `dirty_default` → "Uncommitted changes — `/review` before committing." `clean_default` → "Pick one: `/spec`, `/investigate`, or `/qa`." Then substitute the token you saw for TASK_TOKEN and run (best-effort), and mark activated:
+```bash
+~/.claude/skills/gstack/bin/gstack-telemetry-log --event-type first_task_scaffold_shown --skill "TASK_TOKEN" --outcome shown 2>/dev/null || true
+touch ~/.gstack/.activated 2>/dev/null || true
+```
+
+If `ACTIVATED` is `no` but `FIRST_TASK:` is empty or `nongit` (headless, non-git, or nothing actionable): show nothing, just run `touch ~/.gstack/.activated 2>/dev/null || true`.
+
+Else if `ACTIVATED` is `yes` AND `FIRST_LOOP_SHOWN` is `no`: say once as a heads-up (then continue):
+
+> Tip: gstack pays off when you complete one loop — **plan → review → ship**. A common first loop: `/office-hours` or `/spec` to shape it, `/plan-eng-review` to lock it, then `/ship`.
+
+Then run `touch ~/.gstack/.first-loop-tip-shown 2>/dev/null || true`.
+
+Skip this section if `ACTIVATED` and `FIRST_LOOP_SHOWN` are both `yes`.
 
 If `HAS_ROUTING` is `no` AND `ROUTING_DECLINED` is `false` AND `PROACTIVE_PROMPTED` is `yes`:
 Check if a CLAUDE.md file exists in the project root. If it does not exist, create it.
@@ -1230,6 +1259,63 @@ Claiming work is complete without verification is dishonesty, not efficiency.
 ---
 
 ## Step 17: Push
+
+**Credential pre-push guard (#1946) — run before the push:**
+
+```bash
+_REDACT_PREPUSH=$(~/.claude/skills/gstack/bin/gstack-config get redact_prepush_hook 2>/dev/null || echo "false")
+_HOOK_PATH=$(git rev-parse --git-path hooks/pre-push 2>/dev/null || echo "")
+_HOOK_INSTALLED="no"
+[ -n "$_HOOK_PATH" ] && [ -f "$_HOOK_PATH" ] && grep -q "gstack-redact" "$_HOOK_PATH" 2>/dev/null && _HOOK_INSTALLED="yes"
+# Custom hooks dirs (core.hooksPath — e.g. husky's COMMITTED .husky/) must
+# never get a silent install: the chaining installer would rename the team's
+# committed hook and write a machine-local wrapper into the working tree.
+_HOOKS_DIR=$(git rev-parse --git-path hooks 2>/dev/null || echo "")
+_GIT_DIR=$(git rev-parse --absolute-git-dir 2>/dev/null || echo "")
+_HOOKS_IN_GIT_DIR="no"
+case "$_HOOKS_DIR" in
+  "$_GIT_DIR"/*|hooks|.git/hooks) _HOOKS_IN_GIT_DIR="yes" ;;
+esac
+_PREPUSH_PROMPTED=$([ -f "${GSTACK_HOME:-$HOME/.gstack}/.redact-prepush-prompted" ] && echo "yes" || echo "no")
+echo "REDACT_PREPUSH: $_REDACT_PREPUSH"
+echo "HOOK_INSTALLED: $_HOOK_INSTALLED"
+echo "HOOKS_IN_GIT_DIR: $_HOOKS_IN_GIT_DIR"
+echo "PREPUSH_PROMPTED: $_PREPUSH_PROMPTED"
+```
+
+Branch on the echoed values:
+
+1. **`REDACT_PREPUSH: true` and `HOOK_INSTALLED: no` and `HOOKS_IN_GIT_DIR: yes`** —
+   consent already given; install silently (no question) and continue:
+   ```bash
+   ~/.claude/skills/gstack/bin/gstack-redact install-prepush-hook
+   ```
+   If `HOOKS_IN_GIT_DIR: no` (husky or another committed hooks dir), do NOT
+   install silently — print one line: "redact pre-push guard not installed:
+   this repo uses a custom core.hooksPath; run
+   `gstack-redact install-prepush-hook` manually if you want it chained."
+2. **`REDACT_PREPUSH` not true AND `PREPUSH_PROMPTED: no`** — one-time
+   offer (fires once EVER, machine-wide). AskUserQuestion:
+
+   > gstack can install a per-repo git pre-push hook that blocks pushes
+   > containing credentials (API keys, tokens, private keys). It's a
+   > guardrail, not enforcement — `GSTACK_REDACT_PREPUSH=skip` bypasses it.
+   > Install it for repos you ship from?
+
+   Options:
+   - A) Yes — install the credential guard (recommended)
+   - B) No — never ask again
+
+   If A: run `~/.claude/skills/gstack/bin/gstack-config set redact_prepush_hook true`
+   then `~/.claude/skills/gstack/bin/gstack-redact install-prepush-hook`.
+   If B: run `~/.claude/skills/gstack/bin/gstack-config set redact_prepush_hook false`.
+   ALWAYS (after either answer, but NOT if the question itself failed to
+   render — a failed AskUserQuestion must re-offer next time):
+   ```bash
+   touch "${GSTACK_HOME:-$HOME/.gstack}/.redact-prepush-prompted"
+   ```
+3. **Anything else** (declined earlier, or already installed) — continue
+   without comment.
 
 **Idempotency check:** Check if the branch is already pushed and up to date.
 
