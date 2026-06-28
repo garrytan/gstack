@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.58.6.0] - 2026-06-28
+
+## **gstack runs on Windows 11 under Smart App Control without OS bypass.**
+## **Resolvers automatically detect binary execution blocks and fall back to source invocation via `bun run`.**
+
+On Windows 11 with Smart App Control (SAC) enabled, the unsigned binaries bundled with gstack (`browse.exe`, `design.exe`, and `pdf.exe`) are blocked from executing by the OS safety policies. To support Windows developers without requiring them to permanently disable SAC or purchase developer certs, gstack now automatically detects execution failure during setup validation and falls back to invoking the TypeScript source directly via `bun run` (e.g. `bun run browse/src/cli.ts`). Since the `bun` interpreter itself is code-signed and trusted by Windows, it executes the skill logic successfully. Additionally, binary discovery shim paths are updated to prioritize `.exe` suffixes for compatibility under Git-Bash environment.
+
+### Added
+- Setup resolver detection of binary execution failure with `bun run` fallback for `browse`, `design`, and `make-pdf` skills.
+
+### Changed
+- Prioritized `.exe` executable searches in `browse/bin/find-browse` and resolver templates to ensure correct resolution on Windows under Git-Bash.
+
 ## [1.58.5.0] - 2026-06-21
 
 ## **A fresh install now lands on a concrete first move, not a dead end.**
