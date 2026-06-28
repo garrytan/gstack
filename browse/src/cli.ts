@@ -585,6 +585,15 @@ async function sendCommand(state: ServerState, command: string, args: string[], 
     }
     // Connection error — server may have crashed, OR may just be busy.
     if (err.code === 'ECONNREFUSED' || err.code === 'ECONNRESET' || err.message?.includes('fetch failed')) {
+      // User-initiated shutdown (stop / restart) intentionally closes the daemon.
+      // Both meta-commands.ts:423 ('stop') and :428 ('restart') call shutdown(),
+      // which closes the HTTP connection before the response body reaches the
+      // client. ECONNRESET here is the expected exit signal, not a crash.
+      // 'command' is already in closure from sendCommand's signature — no new
+      // param passing.
+      if (command === 'stop' || command === 'restart') {
+        process.exit(0);
+      }
       const oldState = readState();
       // #1781 busy-vs-dead: a single-threaded daemon under beacon/extension load
       // can briefly stop answering HTTP while still alive. Before declaring a
