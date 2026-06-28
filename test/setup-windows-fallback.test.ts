@@ -1,4 +1,4 @@
-import { describe, test, expect } from 'bun:test';
+import { describe, test, expect, afterAll } from 'bun:test';
 import { spawnSync } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -124,5 +124,112 @@ describe.skipIf(process.platform === 'win32')('setup: _link_or_copy helper — b
     expect(r.ok).toBe(true);
     expect(r.targetExists).toBe(true);
     expect(r.targetIsSymlink).toBe(false);
+  });
+});
+
+describe('setup: _link_or_copy Windows symlink-fallback paths', () => {
+  const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-win-symlink-'));
+
+  afterAll(() => fs.rmSync(TMP, { recursive: true, force: true }));
+
+  /** Create a `ln` shim at a temp path with the given behavior. */
+  function createShim(behavior: 'always-succeed' | 'always-fail' | 'fake-file'): string {
+    const shimDir = fs.mkdtempSync(path.join(TMP, 'shim-'));
+    const shim = path.join(shimDir, 'ln');
+    let script: string;
+    switch (behavior) {
+      case 'always-succeed':
+        script = `#!/usr/bin/env bash
+src="\${@: -2:1}"
+dst="\${@: -1}"
+# Bypass PATH to avoid re-invoking this very shim.
+/usr/bin/ln -snf "\$src" "\$dst" 2>/dev/null || true
+exit 0
+`;
+        break;
+      case 'always-fail':
+        script = `#!/usr/bin/env bash
+echo "permission denied" >&2
+exit 1
+`;
+        break;
+      case 'fake-file':
+        script = `#!/usr/bin/env bash
+touch "\${@: -1}"
+exit 0
+`;
+        break;
+    }
+    fs.writeFileSync(shim, script, { mode: 0o755 });
+    return shimDir;
+  }
+
+  /** Run the _link_or_copy helper in a subprocess with a custom PATH. */
+  function runWithShim(
+    srcKind: 'file' | 'dir',
+    shimDir: string,
+  ): { ok: boolean; dstIsSymlink: boolean; dstIsDir: boolean; content: string; stderr: string } {
+    const tmp = fs.mkdtempSync(path.join(TMP, 'run-'));
+    try {
+      const src = path.join(tmp, 'source');
+      const dst = path.join(tmp, 'dest');
+      if (srcKind === 'file') {
+        fs.writeFileSync(src, 'hello\n');
+      } else {
+        fs.mkdirSync(src);
+        fs.writeFileSync(path.join(src, 'inner.txt'), 'hello\n');
+      }
+      const helper = extractHelper();
+      const script = `IS_WINDOWS=1\n${helper}\n_link_or_copy "${src}" "${dst}"\n`;
+      const result = spawnSync('bash', ['-c', script], {
+        cwd: tmp,
+        encoding: 'utf-8',
+        timeout: 5000,
+        env: { ...process.env, PATH: `${shimDir}${path.delimiter}${process.env.PATH}` },
+      });
+      const lst = fs.lstatSync(dst, { throwIfNoEntry: false });
+      const exists = lst !== undefined;
+      let content = '';
+      if (exists) {
+        try { content = srcKind === 'dir'
+          ? fs.readdirSync(dst).sort().join(',')
+          : fs.readFileSync(dst, 'utf-8');
+        } catch { content = '<error reading>'; }
+      }
+      return {
+        ok: result.status === 0,
+        dstIsSymlink: exists && lst.isSymbolicLink(),
+        dstIsDir: exists && lst.isDirectory(),
+        content,
+        stderr: result.stderr,
+      };
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  }
+
+  test('_link_or_copy prefers symlinks when supported (Windows)', () => {
+    const shimDir = createShim('always-succeed');
+    const r = runWithShim('file', shimDir);
+    expect(r.ok).toBe(true);
+    expect(r.dstIsSymlink).toBe(true);
+    expect(r.content).toBe('hello\n');
+  });
+
+  test('_link_or_copy falls back to copy when symlink denied (Windows)', () => {
+    const shimDir = createShim('always-fail');
+    const r = runWithShim('file', shimDir);
+    expect(r.ok).toBe(true);
+    expect(r.dstIsSymlink).toBe(false);
+    expect(r.content).toBe('hello\n');
+  });
+
+  test('_link_or_copy handles "success-but-not-link" postcondition (race condition guard)', () => {
+    const shimDir = createShim('fake-file');
+    const r = runWithShim('dir', shimDir);
+    expect(r.ok).toBe(true);
+    expect(r.dstIsSymlink).toBe(false);
+    expect(r.dstIsDir).toBe(true);
+    expect(r.content).toContain('inner.txt');
   });
 });
