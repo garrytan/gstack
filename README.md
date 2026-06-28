@@ -468,7 +468,7 @@ Data is stored in [Supabase](https://supabase.com) (open source Firebase alterna
 
 **Codex says "Skipped loading skill(s) due to invalid SKILL.md"?** Your Codex skill descriptions are stale. Fix: `cd ~/.codex/skills/gstack && git pull && ./setup --host codex` — or for repo-local installs: `cd "$(readlink -f .agents/skills/gstack)" && git pull && ./setup --host codex`
 
-**Windows users:** gstack works on Windows 11 via Git Bash or WSL. Node.js is required in addition to Bun — Bun has a known bug with Playwright's pipe transport on Windows ([bun#4253](https://github.com/oven-sh/bun/issues/4253)). The browse server automatically falls back to Node.js. Make sure both `bun` and `node` are on your PATH.
+**Windows users:** gstack works on Windows 11 via Git Bash or WSL. Node.js is required in addition to Bun — Bun has a known bug with Playwright's pipe transport on Windows ([bun#4253](https://github.com/oven-sh/bun/issues/4253)). The browse server automatically falls back to Node.js. Make sure both `bun` and `node` are on your PATH. Additionally, if Windows Smart App Control (SAC) blocks execution of local compiled binaries (`browse.exe`, `design.exe`, `pdf.exe`), setup resolvers automatically fall back to running the TypeScript sources directly via `bun run`.
 
 On Windows without Developer Mode (MSYS2 / Git Bash), `setup` falls back to file copies instead of symlinks because `ln -snf` produces frozen copies that don't refresh on `git pull`. **Re-run `cd ~/.claude/skills/gstack && ./setup` after every `git pull`** so your skill files match the repo. `setup` prints a one-line note reminding you. Unix and WSL keep symlinks and don't need the re-run.
 
