@@ -15,14 +15,36 @@ export function generateMakePdfSetup(ctx: TemplateContext): string {
   return `## MAKE-PDF SETUP (run this check BEFORE any make-pdf command)
 
 \`\`\`bash
-_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+_ROOT=\$(git rev-parse --show-toplevel 2>/dev/null)
 P=""
-[ -n "$MAKE_PDF_BIN" ] && [ -x "$MAKE_PDF_BIN" ] && P="$MAKE_PDF_BIN"
-[ -z "$P" ] && [ -n "$_ROOT" ] && [ -x "$_ROOT/${ctx.paths.localSkillRoot}/make-pdf/dist/pdf" ] && P="$_ROOT/${ctx.paths.localSkillRoot}/make-pdf/dist/pdf"
-[ -z "$P" ] && P="$HOME${ctx.paths.makePdfDir.replace(/^~/, '')}/pdf"
-if [ -x "$P" ]; then
-  echo "MAKE_PDF_READY: $P"
-  alias _p_="$P"   # shellcheck alias helper (not exported)
+if [ -n "\$MAKE_PDF_BIN" ] && [ -x "\$MAKE_PDF_BIN" ]; then
+  P="\$MAKE_PDF_BIN"
+elif [ -n "\$_ROOT" ] && [ -x "\$_ROOT/${ctx.paths.localSkillRoot}/make-pdf/dist/pdf.exe" ]; then
+  P="\$_ROOT/${ctx.paths.localSkillRoot}/make-pdf/dist/pdf.exe"
+elif [ -n "\$_ROOT" ] && [ -x "\$_ROOT/${ctx.paths.localSkillRoot}/make-pdf/dist/pdf" ]; then
+  P="\$_ROOT/${ctx.paths.localSkillRoot}/make-pdf/dist/pdf"
+elif [ -x "\$HOME${ctx.paths.makePdfDir.replace(/^~/, '')}/pdf.exe" ]; then
+  P="\$HOME${ctx.paths.makePdfDir.replace(/^~/, '')}/pdf.exe"
+elif [ -x "\$HOME${ctx.paths.makePdfDir.replace(/^~/, '')}/pdf" ]; then
+  P="\$HOME${ctx.paths.makePdfDir.replace(/^~/, '')}/pdf"
+fi
+P_OK=0
+if [ -n "\$P" ] && [ -x "\$P" ]; then
+  if "\$P" --help >/dev/null 2>&1; then
+    P_OK=1
+  else
+    if command -v bun >/dev/null 2>&1 && [ -f "\$_ROOT/${ctx.paths.localSkillRoot}/make-pdf/src/cli.ts" ]; then
+      P="bun run \$_ROOT/${ctx.paths.localSkillRoot}/make-pdf/src/cli.ts"
+      P_OK=1
+    elif command -v bun >/dev/null 2>&1 && [ -f "\$HOME${ctx.paths.makePdfDir.replace(/^~/, '').replace(/\/dist$/, '/src')}/cli.ts" ]; then
+      P="bun run \$HOME${ctx.paths.makePdfDir.replace(/^~/, '').replace(/\/dist$/, '/src')}/cli.ts"
+      P_OK=1
+    fi
+  fi
+fi
+if [ "\$P_OK" -eq 1 ]; then
+  echo "MAKE_PDF_READY: \$P"
+  alias _p_="\$P"   # shellcheck alias helper (not exported)
   export P   # available as $P in subsequent blocks within the same skill invocation
 else
   echo "MAKE_PDF_NOT_AVAILABLE (run './setup' in the gstack repo to build it)"

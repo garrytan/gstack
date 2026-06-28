@@ -797,17 +797,59 @@ around obstacles.
 ```bash
 _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 D=""
-[ -n "$_ROOT" ] && [ -x "$_ROOT/.claude/skills/gstack/design/dist/design" ] && D="$_ROOT/.claude/skills/gstack/design/dist/design"
-[ -z "$D" ] && D="$HOME/.claude/skills/gstack/design/dist/design"
-if [ -x "$D" ]; then
+if [ -n "$_ROOT" ] && [ -x "$_ROOT/.claude/skills/gstack/design/dist/design.exe" ]; then
+  D="$_ROOT/.claude/skills/gstack/design/dist/design.exe"
+elif [ -n "$_ROOT" ] && [ -x "$_ROOT/.claude/skills/gstack/design/dist/design" ]; then
+  D="$_ROOT/.claude/skills/gstack/design/dist/design"
+elif [ -x "$HOME/.claude/skills/gstack/design/dist/design.exe" ]; then
+  D="$HOME/.claude/skills/gstack/design/dist/design.exe"
+elif [ -x "$HOME/.claude/skills/gstack/design/dist/design" ]; then
+  D="$HOME/.claude/skills/gstack/design/dist/design"
+fi
+D_OK=0
+if [ -n "$D" ] && [ -x "$D" ]; then
+  if "$D" --help >/dev/null 2>&1; then
+    D_OK=1
+  else
+    if command -v bun >/dev/null 2>&1 && [ -f "$_ROOT/.claude/skills/gstack/design/src/cli.ts" ]; then
+      D="bun run $_ROOT/.claude/skills/gstack/design/src/cli.ts"
+      D_OK=1
+    elif command -v bun >/dev/null 2>&1 && [ -f "$HOME/.claude/skills/gstack/design/src/cli.ts" ]; then
+      D="bun run $HOME/.claude/skills/gstack/design/src/cli.ts"
+      D_OK=1
+    fi
+  fi
+fi
+if [ "$D_OK" -eq 1 ]; then
   echo "DESIGN_READY: $D"
 else
   echo "DESIGN_NOT_AVAILABLE"
 fi
 B=""
-[ -n "$_ROOT" ] && [ -x "$_ROOT/.claude/skills/gstack/browse/dist/browse" ] && B="$_ROOT/.claude/skills/gstack/browse/dist/browse"
-[ -z "$B" ] && B="$HOME/.claude/skills/gstack/browse/dist/browse"
-if [ -x "$B" ]; then
+if [ -n "$_ROOT" ] && [ -x "$_ROOT/.claude/skills/gstack/browse/dist/browse.exe" ]; then
+  B="$_ROOT/.claude/skills/gstack/browse/dist/browse.exe"
+elif [ -n "$_ROOT" ] && [ -x "$_ROOT/.claude/skills/gstack/browse/dist/browse" ]; then
+  B="$_ROOT/.claude/skills/gstack/browse/dist/browse"
+elif [ -x "$HOME/.claude/skills/gstack/browse/dist/browse.exe" ]; then
+  B="$HOME/.claude/skills/gstack/browse/dist/browse.exe"
+elif [ -x "$HOME/.claude/skills/gstack/browse/dist/browse" ]; then
+  B="$HOME/.claude/skills/gstack/browse/dist/browse"
+fi
+B_OK=0
+if [ -n "$B" ] && [ -x "$B" ]; then
+  if "$B" status >/dev/null 2>&1; then
+    B_OK=1
+  else
+    if command -v bun >/dev/null 2>&1 && [ -f "$_ROOT/.claude/skills/gstack/browse/src/cli.ts" ]; then
+      B="bun run $_ROOT/.claude/skills/gstack/browse/src/cli.ts"
+      B_OK=1
+    elif command -v bun >/dev/null 2>&1 && [ -f "$HOME/.claude/skills/gstack/browse/src/cli.ts" ]; then
+      B="bun run $HOME/.claude/skills/gstack/browse/src/cli.ts"
+      B_OK=1
+    fi
+  fi
+fi
+if [ "$B_OK" -eq 1 ]; then
   echo "BROWSE_READY: $B"
 else
   echo "BROWSE_NOT_AVAILABLE (will use 'open' to view comparison boards)"
@@ -925,9 +967,30 @@ else a few taps away with an obvious path to get there.
 ```bash
 _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 B=""
-[ -n "$_ROOT" ] && [ -x "$_ROOT/.claude/skills/gstack/browse/dist/browse" ] && B="$_ROOT/.claude/skills/gstack/browse/dist/browse"
-[ -z "$B" ] && B="$HOME/.claude/skills/gstack/browse/dist/browse"
-if [ -x "$B" ]; then
+if [ -n "$_ROOT" ] && [ -x "$_ROOT/.claude/skills/gstack/browse/dist/browse.exe" ]; then
+  B="$_ROOT/.claude/skills/gstack/browse/dist/browse.exe"
+elif [ -n "$_ROOT" ] && [ -x "$_ROOT/.claude/skills/gstack/browse/dist/browse" ]; then
+  B="$_ROOT/.claude/skills/gstack/browse/dist/browse"
+elif [ -x "$HOME/.claude/skills/gstack/browse/dist/browse.exe" ]; then
+  B="$HOME/.claude/skills/gstack/browse/dist/browse.exe"
+elif [ -x "$HOME/.claude/skills/gstack/browse/dist/browse" ]; then
+  B="$HOME/.claude/skills/gstack/browse/dist/browse"
+fi
+B_OK=0
+if [ -n "$B" ] && [ -x "$B" ]; then
+  if "$B" status >/dev/null 2>&1; then
+    B_OK=1
+  else
+    if command -v bun >/dev/null 2>&1 && [ -f "$_ROOT/.claude/skills/gstack/browse/src/cli.ts" ]; then
+      B="bun run $_ROOT/.claude/skills/gstack/browse/src/cli.ts"
+      B_OK=1
+    elif command -v bun >/dev/null 2>&1 && [ -f "$HOME/.claude/skills/gstack/browse/src/cli.ts" ]; then
+      B="bun run $HOME/.claude/skills/gstack/browse/src/cli.ts"
+      B_OK=1
+    fi
+  fi
+fi
+if [ "$B_OK" -eq 1 ]; then
   echo "READY: $B"
 else
   echo "NEEDS_SETUP"

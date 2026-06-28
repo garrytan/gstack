@@ -789,20 +789,62 @@ export function generateDesignSetup(ctx: TemplateContext): string {
   return `## DESIGN SETUP (run this check BEFORE any design mockup command)
 
 \`\`\`bash
-_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+_ROOT=\$(git rev-parse --show-toplevel 2>/dev/null)
 D=""
-[ -n "$_ROOT" ] && [ -x "$_ROOT/${ctx.paths.localSkillRoot}/design/dist/design" ] && D="$_ROOT/${ctx.paths.localSkillRoot}/design/dist/design"
-[ -z "$D" ] && D="$HOME${ctx.paths.designDir.replace(/^~/, '')}/design"
-if [ -x "$D" ]; then
-  echo "DESIGN_READY: $D"
+if [ -n "\$_ROOT" ] && [ -x "\$_ROOT/${ctx.paths.localSkillRoot}/design/dist/design.exe" ]; then
+  D="\$_ROOT/${ctx.paths.localSkillRoot}/design/dist/design.exe"
+elif [ -n "\$_ROOT" ] && [ -x "\$_ROOT/${ctx.paths.localSkillRoot}/design/dist/design" ]; then
+  D="\$_ROOT/${ctx.paths.localSkillRoot}/design/dist/design"
+elif [ -x "\$HOME${ctx.paths.designDir.replace(/^~/, '')}/design.exe" ]; then
+  D="\$HOME${ctx.paths.designDir.replace(/^~/, '')}/design.exe"
+elif [ -x "\$HOME${ctx.paths.designDir.replace(/^~/, '')}/design" ]; then
+  D="\$HOME${ctx.paths.designDir.replace(/^~/, '')}/design"
+fi
+D_OK=0
+if [ -n "\$D" ] && [ -x "\$D" ]; then
+  if "\$D" --help >/dev/null 2>&1; then
+    D_OK=1
+  else
+    if command -v bun >/dev/null 2>&1 && [ -f "\$_ROOT/${ctx.paths.localSkillRoot}/design/src/cli.ts" ]; then
+      D="bun run \$_ROOT/${ctx.paths.localSkillRoot}/design/src/cli.ts"
+      D_OK=1
+    elif command -v bun >/dev/null 2>&1 && [ -f "\$HOME${ctx.paths.designDir.replace(/^~/, '').replace(/\/dist$/, '/src')}/cli.ts" ]; then
+      D="bun run \$HOME${ctx.paths.designDir.replace(/^~/, '').replace(/\/dist$/, '/src')}/cli.ts"
+      D_OK=1
+    fi
+  fi
+fi
+if [ "\$D_OK" -eq 1 ]; then
+  echo "DESIGN_READY: \$D"
 else
   echo "DESIGN_NOT_AVAILABLE"
 fi
 B=""
-[ -n "$_ROOT" ] && [ -x "$_ROOT/${ctx.paths.localSkillRoot}/browse/dist/browse" ] && B="$_ROOT/${ctx.paths.localSkillRoot}/browse/dist/browse"
-[ -z "$B" ] && B="$HOME${ctx.paths.browseDir.replace(/^~/, '')}/browse"
-if [ -x "$B" ]; then
-  echo "BROWSE_READY: $B"
+if [ -n "\$_ROOT" ] && [ -x "\$_ROOT/${ctx.paths.localSkillRoot}/browse/dist/browse.exe" ]; then
+  B="\$_ROOT/${ctx.paths.localSkillRoot}/browse/dist/browse.exe"
+elif [ -n "\$_ROOT" ] && [ -x "\$_ROOT/${ctx.paths.localSkillRoot}/browse/dist/browse" ]; then
+  B="\$_ROOT/${ctx.paths.localSkillRoot}/browse/dist/browse"
+elif [ -x "\$HOME${ctx.paths.browseDir.replace(/^~/, '')}/browse.exe" ]; then
+  B="\$HOME${ctx.paths.browseDir.replace(/^~/, '')}/browse.exe"
+elif [ -x "\$HOME${ctx.paths.browseDir.replace(/^~/, '')}/browse" ]; then
+  B="\$HOME${ctx.paths.browseDir.replace(/^~/, '')}/browse"
+fi
+B_OK=0
+if [ -n "\$B" ] && [ -x "\$B" ]; then
+  if "\$B" status >/dev/null 2>&1; then
+    B_OK=1
+  else
+    if command -v bun >/dev/null 2>&1 && [ -f "\$_ROOT/${ctx.paths.localSkillRoot}/browse/src/cli.ts" ]; then
+      B="bun run \$_ROOT/${ctx.paths.localSkillRoot}/browse/src/cli.ts"
+      B_OK=1
+    elif command -v bun >/dev/null 2>&1 && [ -f "\$HOME${ctx.paths.browseDir.replace(/^~/, '').replace(/\/dist$/, '/src')}/cli.ts" ]; then
+      B="bun run \$HOME${ctx.paths.browseDir.replace(/^~/, '').replace(/\/dist$/, '/src')}/cli.ts"
+      B_OK=1
+    fi
+  fi
+fi
+if [ "\$B_OK" -eq 1 ]; then
+  echo "BROWSE_READY: \$B"
 else
   echo "BROWSE_NOT_AVAILABLE (will use 'open' to view comparison boards)"
 fi
