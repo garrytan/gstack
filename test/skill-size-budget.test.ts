@@ -33,6 +33,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { captureBaseline, type ParityBaseline } from './helpers/capture-parity-baseline';
 import { logBudgetOverride } from './helpers/budget-override';
+import { CARVED_SKILLS } from './helpers/carve-guards';
 
 const REPO_ROOT = path.resolve(import.meta.dir, '..');
 const BASELINE_PATH = path.join(REPO_ROOT, 'test', 'fixtures', 'parity-baseline-v1.47.0.0.json');
@@ -161,9 +162,10 @@ describe('SKILL.md size budget regression (gate, free)', () => {
     const MIN_RATIO = 0.80; // a skill at <80% of its v1.44 size signals mass-deletion
     // Carved skills (v2 plan T9): the skeleton SKILL.md intentionally shrinks
     // because prose moved into sections/*.md. The union size is guarded instead
-    // by the sectioned ship invariant in parity-harness.ts (minBytes on the
+    // by the sectioned invariant in parity-harness.ts (minBytes on the
     // skeleton+sections union), so exempt the skeleton from the body-strip floor.
-    const SECTIONS_EXTRACTED = new Set<string>(['ship', 'plan-ceo-review', 'office-hours', 'plan-eng-review', 'plan-design-review', 'plan-devex-review']);
+    // EQ1: derived from the canonical CARVE_GUARDS registry — no parallel list.
+    const SECTIONS_EXTRACTED = new Set<string>(CARVED_SKILLS);
 
     const undershoots: Array<{
       skill: string; beforeBytes: number; afterBytes: number; ratio: number;

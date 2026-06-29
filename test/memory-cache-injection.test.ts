@@ -43,6 +43,11 @@ function runHook(stdin: object): { stdout: string; stderr: string; status: numbe
   env.GSTACK_STATE_ROOT = stateRoot;
   env.GSTACK_QUESTION_LOG_NO_DERIVE = '1';
   delete env.GSTACK_HOME;
+  // These cases assert the defer-path memoryContext injection. Strip ambient
+  // Conductor markers so running inside Conductor (CONDUCTOR_WORKSPACE_PATH/PORT
+  // set) doesn't flip the hook into the [conductor] prose deny instead of defer.
+  delete env.CONDUCTOR_WORKSPACE_PATH;
+  delete env.CONDUCTOR_PORT;
   const res = spawnSync(HOOK, [], {
     env,
     input: JSON.stringify({ ...stdin, cwd: fixtureCwd }),

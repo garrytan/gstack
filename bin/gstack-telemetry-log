@@ -18,6 +18,12 @@
 set -uo pipefail
 
 GSTACK_DIR="${GSTACK_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
+SCRIPT_DIR="$GSTACK_DIR/bin"
+# Windows git-bash (#1950): pwd yields a POSIX path (/c/Users/...), which Bun
+# on Windows cannot resolve as an ES module specifier in bun -e imports.
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*) command -v cygpath >/dev/null 2>&1 && SCRIPT_DIR="$(cygpath -m "$SCRIPT_DIR")" ;;
+esac
 STATE_DIR="${GSTACK_STATE_DIR:-$HOME/.gstack}"
 ANALYTICS_DIR="$STATE_DIR/analytics"
 JSONL_FILE="$ANALYTICS_DIR/skill-usage.jsonl"
@@ -177,8 +183,29 @@ BRANCH="$(json_safe "$BRANCH")"
 ERR_FIELD="null"
 [ -n "$ERROR_CLASS" ] && ERR_FIELD="\"$(json_safe "$ERROR_CLASS")\""
 
+# error_message goes through the redaction engine before it touches disk
+# (#1947): stack traces and failed-API errors can embed credentials, paths,
+# and hostnames. Every finding span becomes <REDACTED-{id}>; the rest of the
+# message survives for crash triage. The bun snippet emits a JSON-encoded
+# string (quotes included) ready to drop into the printf below. FAIL CLOSED:
+# if bun / the engine is unavailable, the scan errors, or the output doesn't
+# look like a JSON string, the whole message becomes null — never raw.
 ERR_MSG_FIELD="null"
-[ -n "$ERROR_MESSAGE" ] && ERR_MSG_FIELD="\"$(printf '%s' "$ERROR_MESSAGE" | head -c 200 | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/	/\\t/g' | tr '\n\r' '  ')\""
+if [ -n "$ERROR_MESSAGE" ]; then
+  ERR_MSG_FIELD="$(printf '%s' "$ERROR_MESSAGE" | bun -e "
+import { redactFindingSpans } from '$SCRIPT_DIR/../lib/redact-engine.ts';
+const input = await Bun.stdin.text();
+const out = redactFindingSpans(input, { repoVisibility: 'private' });
+if (out === null) process.exit(1);
+console.log(JSON.stringify(out.slice(0, 200)));
+" 2>/dev/null)" || ERR_MSG_FIELD="null"
+  case "$ERR_MSG_FIELD" in
+    *"
+"*) ERR_MSG_FIELD="null" ;; # embedded newline would corrupt the JSONL record
+    \"*\") ;; # single-line JSON string — safe to embed
+    *) ERR_MSG_FIELD="null" ;;
+  esac
+fi
 
 STEP_FIELD="null"
 [ -n "$FAILED_STEP" ] && STEP_FIELD="\"$(json_safe "$FAILED_STEP")\""

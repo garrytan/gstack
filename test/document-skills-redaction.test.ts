@@ -6,7 +6,21 @@ import * as fs from "fs";
 import * as path from "path";
 
 const ROOT = path.resolve(import.meta.dir, "..");
-const RELEASE = fs.readFileSync(path.join(ROOT, "document-release", "SKILL.md.tmpl"), "utf-8");
+// document-release is carved (skeleton + sections/release-body.md). Step 9
+// (commit + PR-body redaction scan) moved into the section template; check the
+// union of SKILL.md.tmpl + sections/*.md.tmpl so the scan-before-edit ordering
+// still verifies. document-generate is NOT carved (plain .md.tmpl).
+function unionTmpl(skill: string): string {
+  let t = fs.readFileSync(path.join(ROOT, skill, "SKILL.md.tmpl"), "utf-8");
+  const dir = path.join(ROOT, skill, "sections");
+  if (fs.existsSync(dir)) {
+    for (const f of fs.readdirSync(dir).sort()) {
+      if (f.endsWith(".md.tmpl")) t += "\n" + fs.readFileSync(path.join(dir, f), "utf-8");
+    }
+  }
+  return t;
+}
+const RELEASE = unionTmpl("document-release");
 const GENERATE = fs.readFileSync(path.join(ROOT, "document-generate", "SKILL.md.tmpl"), "utf-8");
 
 describe("/document-release redaction", () => {

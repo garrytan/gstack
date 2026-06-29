@@ -11,7 +11,7 @@
 
 import { execFileSync, spawnSync } from "child_process";
 import { withErrorContext } from "./gstack-memory-helpers";
-import { NEEDS_SHELL_ON_WINDOWS } from "./gbrain-exec";
+import { execGbrainJson, NEEDS_SHELL_ON_WINDOWS } from "./gbrain-exec";
 
 export interface SourceState {
   /** "absent" — id not registered. "match" — id at expected path. "drift" — id at different path. */
@@ -216,4 +216,61 @@ export function sourcePageCount(id: string, env?: NodeJS.ProcessEnv): number | n
   } catch {
     return null;
   }
+}
+
+/**
+ * Whether a source's call graph has been built.
+ *
+ *   "completed" — `gbrain dream` has run a full maintenance cycle, so the
+ *                 brain-global `resolve_symbol_edges` phase populated this
+ *                 source's call graph (`gbrain code-callers`/`code-callees`
+ *                 return edges).
+ *   "never"     — a cycle has provably NOT completed for this source.
+ *   "unknown"   — doctor is unavailable, unparseable, or reports a failure
+ *                 that doesn't name this source. Callers MUST treat unknown
+ *                 conservatively (the orchestrator skips auto-dream and WARNs
+ *                 rather than launch a ~35-min cycle on a flaky-doctor signal —
+ *                 see the `gbrain-doctor-overstrict` learning).
+ */
+export type CycleStatus = "completed" | "never" | "unknown";
+
+interface DoctorCheck {
+  name?: string;
+  status?: string;
+  message?: string;
+}
+interface DoctorReport {
+  checks?: DoctorCheck[];
+}
+
+/**
+ * Read `gbrain doctor --json --fast` and decide whether <sourceId>'s call
+ * graph is built, by inspecting the `cycle_freshness` check.
+ *
+ * Decision table (cycle_freshness.status / message):
+ *   - ok                                        → "completed"
+ *   - fail|warn AND message names <sourceId>    → "never"
+ *   - fail|warn AND message omits <sourceId>    → "unknown"  (a real failure
+ *       about OTHER sources must not be silently read as completed for us)
+ *   - check absent / doctor null / other status → "unknown"
+ *
+ * `sourceId` is matched as a LITERAL substring (not a regex) so an id with
+ * regex metacharacters can never misfire. Routes through `execGbrainJson` so
+ * DATABASE_URL is seeded from gbrain's config (consistent with every other
+ * gstack-side gbrain call). `env` is the caller's base env (tests inject a
+ * shim on PATH).
+ */
+export function cycleCompleted(sourceId: string, env?: NodeJS.ProcessEnv): CycleStatus {
+  const report = execGbrainJson<DoctorReport>(["doctor", "--json", "--fast"], { baseEnv: env });
+  if (!report || !Array.isArray(report.checks)) return "unknown";
+
+  const check = report.checks.find((c) => c.name === "cycle_freshness");
+  if (!check) return "unknown";
+
+  if (check.status === "ok") return "completed";
+  if (check.status === "fail" || check.status === "warn") {
+    const msg = check.message || "";
+    return msg.includes(sourceId) ? "never" : "unknown";
+  }
+  return "unknown";
 }

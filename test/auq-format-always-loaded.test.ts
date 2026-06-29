@@ -47,6 +47,11 @@ const MANDATORY: Array<{ name: string; re: RegExp }> = [
   { name: 'Completeness coverage rule', re: /Completeness\s*:/i },
   { name: 'kind-vs-coverage rule', re: /options differ in kind/i },
   { name: 'Self-check checklist', re: /Self-check before emitting/i },
+  // The runtime-failure fallback must be ALWAYS-LOADED too: when an AUQ call errors
+  // mid-skill, the model needs the prose-fallback rule in context that instant, not
+  // stranded in an on-demand section. Same guarantee as the format spec above.
+  { name: 'AUQ-failure fallback subsection', re: /When AskUserQuestion is unavailable or a call fails/i },
+  { name: 'fallback SESSION_KIND branch', re: /SESSION_KIND/ },
 ];
 
 /** Per-skill AUQ rules that govern review-finding cadence. A carve may move

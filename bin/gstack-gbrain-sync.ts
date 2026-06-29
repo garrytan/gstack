@@ -37,22 +37,27 @@ import { createHash } from "crypto";
 
 import "../lib/conductor-env-shim";
 import { detectEngineTier, withErrorContext, canonicalizeRemote } from "../lib/gstack-memory-helpers";
-import { ensureSourceRegistered, sourcePageCount, parseSourcesList } from "../lib/gbrain-sources";
+import { ensureSourceRegistered, sourcePageCount, parseSourcesList, cycleCompleted, type CycleStatus } from "../lib/gbrain-sources";
 import { detectAutopilot, decideSourceRemove, decideCodeSync } from "../lib/gbrain-guards";
 import { localEngineStatus, type LocalEngineStatus } from "../lib/gbrain-local-status";
 import { buildGbrainEnv, spawnGbrain, execGbrainJson, NEEDS_SHELL_ON_WINDOWS } from "../lib/gbrain-exec";
+import { checkOwnedStagingDir } from "../lib/staging-guard";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
 type Mode = "incremental" | "full" | "dry-run";
 
-interface CliArgs {
+export interface CliArgs {
   mode: Mode;
   quiet: boolean;
   noCode: boolean;
   noMemory: boolean;
   noBrainSync: boolean;
   codeOnly: boolean;
+  /** Force the source-scoped dream cycle (builds this source's call graph). Always runs. */
+  dream: boolean;
+  /** Opt out of the dream cycle that `--full` would otherwise auto-run. */
+  noDream: boolean;
   /** #1734: opt-in to sync a URL-managed source whose code walk may auto-reclone. */
   allowReclone: boolean;
 }
@@ -71,6 +76,13 @@ interface StageResult {
   ok: boolean;
   duration_ms: number;
   summary: string;
+  /**
+   * Stage ran and did not error, but the outcome is a degraded no-op the user
+   * should know about (e.g. dream completed but the schema pack can't extract
+   * code symbols, so the call graph stays empty). Rendered as WARN, counts as
+   * ok for the exit code — it's not a failure, just not the happy path.
+   */
+  warn?: boolean;
   /** Stage-specific structured detail. Code stage carries source_id + page_count. */
   detail?: CodeStageDetail;
 }
@@ -82,6 +94,24 @@ const GSTACK_HOME = process.env.GSTACK_HOME || join(HOME, ".gstack");
 const STATE_PATH = join(GSTACK_HOME, ".gbrain-sync-state.json");
 const LOCK_PATH = join(GSTACK_HOME, ".sync-gbrain.lock");
 const STALE_LOCK_MS = 5 * 60 * 1000;
+
+// Dream (call-graph build) is brain-global and runs LOCK-FREE after the sync
+// lock releases, so it can't use the sync lock to dedupe across worktrees. A
+// dedicated short-TTL marker prevents two worktrees from launching duplicate
+// ~35-min global jobs. TTL matches the dream timeout default so a crashed run
+// can't wedge the marker longer than one cycle.
+const DEFAULT_DREAM_TIMEOUT_MS = 45 * 60 * 1000; // 45min — dream is the slow stage
+const DREAM_MARKER_STALE_MS = DEFAULT_DREAM_TIMEOUT_MS;
+
+/**
+ * Marker path computed fresh per call (not a module const) so tests can mutate
+ * GSTACK_HOME at runtime — same pattern as cacheFilePath() in
+ * lib/gbrain-local-status.ts. Avoids the ESM static-import hoist trap where a
+ * module-load-time const captures the real ~/.gstack before a test can redirect.
+ */
+export function dreamMarkerPath(): string {
+  return join(process.env.GSTACK_HOME || join(homedir(), ".gstack"), ".dream-in-progress");
+}
 
 // Default 35-minute timeout for code-walk + memory-ingest stages. Override via
 // GSTACK_SYNC_CODE_TIMEOUT_MS / GSTACK_SYNC_MEMORY_TIMEOUT_MS. Bounds-checked
@@ -99,26 +129,27 @@ const MAX_STAGE_TIMEOUT_MS = 86_400_000;         // 24 hour ceiling
 export function resolveStageTimeoutMs(
   envValue: string | undefined,
   envName: string,
+  defaultMs: number = DEFAULT_STAGE_TIMEOUT_MS,
 ): number {
-  if (envValue === undefined || envValue === "") return DEFAULT_STAGE_TIMEOUT_MS;
+  if (envValue === undefined || envValue === "") return defaultMs;
   const n = Number.parseInt(envValue, 10);
   if (!Number.isFinite(n) || Number.isNaN(n) || n <= 0) {
     console.warn(
-      `[sync] ${envName}="${envValue}" is not a positive integer; falling back to ${DEFAULT_STAGE_TIMEOUT_MS}ms`,
+      `[sync] ${envName}="${envValue}" is not a positive integer; falling back to ${defaultMs}ms`,
     );
-    return DEFAULT_STAGE_TIMEOUT_MS;
+    return defaultMs;
   }
   if (n < MIN_STAGE_TIMEOUT_MS) {
     console.warn(
-      `[sync] ${envName}=${n} is below the ${MIN_STAGE_TIMEOUT_MS}ms (1min) floor; falling back to ${DEFAULT_STAGE_TIMEOUT_MS}ms`,
+      `[sync] ${envName}=${n} is below the ${MIN_STAGE_TIMEOUT_MS}ms (1min) floor; falling back to ${defaultMs}ms`,
     );
-    return DEFAULT_STAGE_TIMEOUT_MS;
+    return defaultMs;
   }
   if (n > MAX_STAGE_TIMEOUT_MS) {
     console.warn(
-      `[sync] ${envName}=${n} is above the ${MAX_STAGE_TIMEOUT_MS}ms (24h) ceiling; falling back to ${DEFAULT_STAGE_TIMEOUT_MS}ms`,
+      `[sync] ${envName}=${n} is above the ${MAX_STAGE_TIMEOUT_MS}ms (24h) ceiling; falling back to ${defaultMs}ms`,
     );
-    return DEFAULT_STAGE_TIMEOUT_MS;
+    return defaultMs;
   }
   return n;
 }
@@ -160,7 +191,7 @@ export function readGbrainCheckpoint(): GbrainCheckpoint | null {
 export type ResumeVerdict =
   | { kind: "no-checkpoint" }
   | { kind: "resume"; stagingDir: string; processedIndex: number; totalFiles: number }
-  | { kind: "stale-staging-missing"; stagingDir: string };
+  | { kind: "stale-staging-missing"; stagingDir: string; reason?: string };
 
 /**
  * Decide whether the next memory-ingest run should resume from gbrain's
@@ -169,20 +200,20 @@ export type ResumeVerdict =
  *   - checkpoint + staging ok    → resume (gbrain picks up at processedIndex+1)
  *   - checkpoint + staging gone  → warn, fall through to fresh restage
  */
-export function decideResume(): ResumeVerdict {
+export function decideResume(gstackHome: string = GSTACK_HOME): ResumeVerdict {
   const cp = readGbrainCheckpoint();
   if (!cp || !cp.dir) return { kind: "no-checkpoint" };
   const stagingDir = cp.dir;
-  if (!existsSync(stagingDir)) {
-    return { kind: "stale-staging-missing", stagingDir };
-  }
-  // Treat "non-empty" as the safe-to-resume signal. statSync on a missing
-  // file throws; we already handled missing above so this is dir-level shape.
-  try {
-    const st = statSync(stagingDir);
-    if (!st.isDirectory()) return { kind: "stale-staging-missing", stagingDir };
-  } catch {
-    return { kind: "stale-staging-missing", stagingDir };
+  // #1802: only resume into a path we can PROVE is a gstack-minted staging dir.
+  // A poisoned checkpoint (dir = repo root, written when an autopilot import was
+  // SIGTERM'd while CWD was the repo) would otherwise be adopted as the staging
+  // dir and later recursively deleted by cleanupStagingDir(). Fail-closed: any
+  // unprovable path restages from scratch (cost: one re-stage; never data loss).
+  // Pure decision: return the verdict (with reason) and let the caller log,
+  // so we don't double-log the same event from here and the call site.
+  const verdict = checkOwnedStagingDir(stagingDir, gstackHome);
+  if (!verdict.ok) {
+    return { kind: "stale-staging-missing", stagingDir, reason: verdict.reason };
   }
   return {
     kind: "resume",
@@ -208,12 +239,19 @@ Options:
   --no-memory          Skip the gstack-memory-ingest stage (transcripts + artifacts).
   --no-brain-sync      Skip the gstack-brain-sync git pipeline stage.
   --code-only          Only run the code-import stage (alias for --no-memory --no-brain-sync).
+  --dream              Force the source-scoped dream cycle that builds this
+                       source's call graph (gbrain code-callers/code-callees).
+                       Runs lock-free AFTER the sync stages. ~minutes. Default
+                       timeout 45min, override GSTACK_SYNC_DREAM_TIMEOUT_MS.
+  --no-dream           Opt out of the dream cycle that --full would auto-run.
   --allow-reclone      Permit the code walk for URL-managed sources (remote_url set)
                        even though gbrain may auto-reclone the working tree (#1734).
   --help               This text.
 
-Stages run in order: code → memory ingest → curated git push.
-Each stage failure is non-fatal; subsequent stages still run.
+Stages run in order: code → memory ingest → curated git push, then (lock-free)
+the optional dream call-graph build. --full auto-runs dream ONLY when the call
+graph was never built; --dream always forces it. Each stage failure is
+non-fatal; subsequent stages still run.
 `);
 }
 
@@ -225,6 +263,8 @@ function parseArgs(): CliArgs {
   let noMemory = false;
   let noBrainSync = false;
   let codeOnly = false;
+  let dream = false;
+  let noDream = false;
   let allowReclone = false;
 
   for (let i = 0; i < args.length; i++) {
@@ -243,6 +283,10 @@ function parseArgs(): CliArgs {
         noMemory = true;
         noBrainSync = true;
         break;
+      // --dream forces the cycle; --full only chains it at the call site (so
+      // --no-dream can override) — do NOT set dream from --full here.
+      case "--dream": dream = true; break;
+      case "--no-dream": noDream = true; break;
       case "--help":
       case "-h":
         printUsage();
@@ -254,7 +298,7 @@ function parseArgs(): CliArgs {
     }
   }
 
-  return { mode, quiet, noCode, noMemory, noBrainSync, codeOnly, allowReclone };
+  return { mode, quiet, noCode, noMemory, noBrainSync, codeOnly, dream, noDream, allowReclone };
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -609,6 +653,58 @@ function releaseLock(): void {
   }
 }
 
+/**
+ * Acquire the dream marker (`~/.gstack/.dream-in-progress`). Returns false when
+ * a FRESH marker already exists (another worktree is mid-dream) — the caller
+ * then SKIPs rather than launching a duplicate ~35-min global job. A stale
+ * marker (older than DREAM_MARKER_STALE_MS, i.e. a crashed run) is taken over.
+ * Mirrors acquireLock but with the dream TTL and its own path.
+ */
+export function acquireDreamMarker(): boolean {
+  const path = dreamMarkerPath();
+  mkdirSync(dirname(path), { recursive: true });
+  if (existsSync(path)) {
+    try {
+      const stat = statSync(path);
+      if (Date.now() - stat.mtimeMs > DREAM_MARKER_STALE_MS) {
+        unlinkSync(path);
+      } else {
+        return false;
+      }
+    } catch {
+      return false;
+    }
+  }
+  const info: LockInfo = { pid: process.pid, started_at: new Date().toISOString() };
+  try {
+    writeFileSync(path, JSON.stringify(info), { encoding: "utf-8", flag: "wx" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function releaseDreamMarker(): void {
+  try {
+    const path = dreamMarkerPath();
+    if (!existsSync(path)) return;
+    const info = JSON.parse(readFileSync(path, "utf-8")) as LockInfo;
+    if (info.pid === process.pid) unlinkSync(path);
+  } catch {
+    // Best-effort cleanup.
+  }
+}
+
+/** Read the pid recorded in a fresh dream marker, for the "already running" message. */
+function dreamMarkerPid(): number | null {
+  try {
+    const info = JSON.parse(readFileSync(dreamMarkerPath(), "utf-8")) as LockInfo;
+    return typeof info.pid === "number" ? info.pid : null;
+  } catch {
+    return null;
+  }
+}
+
 // ── Stage runners ──────────────────────────────────────────────────────────
 
 /**
@@ -621,9 +717,11 @@ function releaseLock(): void {
  *   missing-config → "no local engine; run /setup-gbrain to add local PGLite"
  *   broken-config  → "config file at ~/.gbrain/config.json is malformed; see /setup-gbrain Step 1.5"
  *   broken-db      → "config points at unreachable DB; see /setup-gbrain Step 1.5"
+ *   timeout        → kept for Record totality; stages PROCEED on timeout (#1964)
+ *                    via the gate's warnProbeTimeout path, never this skip.
  */
 function skipStageForLocalStatus(
-  stage: "code" | "memory",
+  stage: "code" | "memory" | "dream",
   status: LocalEngineStatus,
   t0: number,
 ): StageResult {
@@ -635,6 +733,8 @@ function skipStageForLocalStatus(
       "config at ~/.gbrain/config.json is malformed; see /setup-gbrain Step 1.5",
     "broken-db":
       "config points at unreachable DB; see /setup-gbrain Step 1.5",
+    "timeout":
+      "engine probe timed out; raise GSTACK_GBRAIN_PROBE_TIMEOUT_MS if your pooler is slow",
   };
   const reason = reasons[status as Exclude<LocalEngineStatus, "ok">];
   return {
@@ -644,6 +744,20 @@ function skipStageForLocalStatus(
     duration_ms: Date.now() - t0,
     summary: `skipped — local engine ${status} — ${reason}`,
   };
+}
+
+/**
+ * "timeout" means the probe hit its deadline with no recognized error — the
+ * engine is most likely healthy but slow (#1964: cold pooler connections
+ * measured at 6.9-10.7s). Stages proceed; a genuinely-dead engine surfaces
+ * its REAL error at the first actual operation instead of a false
+ * "config malformed" skip.
+ */
+function warnProbeTimeout(stage: "code" | "memory" | "dream"): void {
+  process.stderr.write(
+    `[gstack-gbrain-sync] ${stage}: engine probe timed out — proceeding anyway; ` +
+      `raise GSTACK_GBRAIN_PROBE_TIMEOUT_MS if your pooler is slow\n`,
+  );
 }
 
 
@@ -677,7 +791,9 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
   // when the local DB is dead. Skipped on --dry-run (above) since dry-run
   // never actually probes anything.
   const localStatus = localEngineStatus({ noCache: false });
-  if (localStatus !== "ok") {
+  if (localStatus === "timeout") {
+    warnProbeTimeout("code"); // #1964: slow-but-healthy — proceed
+  } else if (localStatus !== "ok") {
     return skipStageForLocalStatus("code", localStatus, t0);
   }
 
@@ -935,7 +1051,9 @@ function runMemoryIngest(args: CliArgs): StageResult {
   // not ok, SKIP cleanly so brain-sync (the only stage that doesn't depend
   // on local engine) still runs.
   const localStatus = localEngineStatus({ noCache: false });
-  if (localStatus !== "ok") {
+  if (localStatus === "timeout") {
+    warnProbeTimeout("memory"); // #1964: slow-but-healthy — proceed
+  } else if (localStatus !== "ok") {
     return skipStageForLocalStatus("memory", localStatus, t0);
   }
 
@@ -953,8 +1071,15 @@ function runMemoryIngest(args: CliArgs): StageResult {
     );
     childEnv.GSTACK_INGEST_RESUME_DIR = resume.stagingDir;
   } else if (resume.kind === "stale-staging-missing") {
+    // The reason distinguishes "actually gone" (disk cleanup / reboot) from
+    // "refused as unowned" (#1802 poison: the path may still exist on disk).
+    // Logging "gone" for a refused poison path misdirects incident diagnosis.
+    const why = resume.reason
+      ? `staging dir not usable: ${resume.reason}`
+      : `staging dir ${resume.stagingDir} gone`;
     console.error(
-      `[sync:memory] previous checkpoint stale (staging dir ${resume.stagingDir} gone), restaging from scratch`,
+      `[sync:memory] previous checkpoint stale (${why}), restaging from scratch. ` +
+        `Remove ~/.gbrain/import-checkpoint.json to silence.`,
     );
   }
 
@@ -1039,6 +1164,242 @@ function runBrainSyncPush(args: CliArgs): StageResult {
   };
 }
 
+/**
+ * Decide whether the dream (call-graph build) cycle should run. PURE so the
+ * gate matrix is unit-testable without spawning a real ~35-min dream.
+ *
+ *   - explicit --dream → always run (force), regardless of cycle state / --no-code.
+ *   - --full → run ONLY when the call graph was never built (cycle === "never"),
+ *     and only when not opted out via --no-dream / --no-code. "completed" skips
+ *     (edges already built); "unknown" skips (a flaky doctor must not trigger a
+ *     surprise 35-min cycle — see gbrain-doctor-overstrict).
+ *   - everything else → skip.
+ *
+ * `cycle` is only consulted on the --full auto path; pass null when forcing.
+ */
+export function shouldRunDream(args: CliArgs, cycle: CycleStatus | null): boolean {
+  if (args.dream) return true;
+  if (args.mode === "full" && !args.noDream && !args.noCode) {
+    return cycle === "never";
+  }
+  return false;
+}
+
+/**
+ * Run `gbrain dream` — the brain-global maintenance cycle whose
+ * resolve_symbol_edges phase builds the call graph. Runs LOCK-FREE (called
+ * after the sync lock releases) so it never freezes sibling worktrees; the
+ * `.dream-in-progress` marker dedupes concurrent dreams instead.
+ *
+ * Returns a StageResult (never throws). SKIP (ran:false, ok:true) for: dry-run
+ * preview, local engine not ok, or a fresh marker present. ERR (ran:true,
+ * ok:false) for: non-zero/timeout exit, or a spawn-setup failure (missing
+ * binary / malformed env) — a broken install must be visible, not disguised as
+ * optional maintenance.
+ */
+export async function runDream(args: CliArgs): Promise<StageResult> {
+  const t0 = Date.now();
+
+  if (args.mode === "dry-run") {
+    const root = repoRoot();
+    const sourceId = root ? deriveCodeSourceId(root) : null;
+    return {
+      name: "dream",
+      ran: false,
+      ok: true,
+      duration_ms: 0,
+      summary: sourceId
+        ? `would: gbrain dream --source ${sourceId}  (build this source's call graph)`
+        : "would: gbrain dream  (call-graph build)",
+    };
+  }
+
+  const localStatus = localEngineStatus({ noCache: false });
+  if (localStatus === "timeout") {
+    warnProbeTimeout("dream"); // #1964: slow-but-healthy — proceed
+  } else if (localStatus !== "ok") {
+    return skipStageForLocalStatus("dream", localStatus, t0);
+  }
+
+  // Dedupe concurrent dreams across worktrees (lock-free path).
+  if (!acquireDreamMarker()) {
+    const pid = dreamMarkerPid();
+    return {
+      name: "dream",
+      ran: false,
+      ok: true,
+      duration_ms: Date.now() - t0,
+      summary: `dream already running${pid !== null ? ` (pid ${pid})` : ""} — skipped`,
+    };
+  }
+
+  try {
+    const dreamTimeoutMs = resolveStageTimeoutMs(
+      process.env.GSTACK_SYNC_DREAM_TIMEOUT_MS,
+      "GSTACK_SYNC_DREAM_TIMEOUT_MS",
+      DEFAULT_DREAM_TIMEOUT_MS,
+    );
+
+    // Scope the cycle to THIS worktree's code source: `gbrain dream --source <id>`.
+    // Verified empirically (not just from `gbrain --help`): plain `gbrain dream`
+    // cycles the brain's default source and never runs the source-scoped `extract`
+    // phase for our code source, so the call graph for the pinned source stays
+    // empty. `gbrain dream --source <id>` runs the per-source cycle (the form
+    // `gbrain doctor` recommends for stale sources) and is what actually populates
+    // code-callers/code-callees for this worktree. Falls back to plain `dream`
+    // only when we can't derive the source id (not in a git repo).
+    const root = repoRoot();
+    const sourceId = root ? deriveCodeSourceId(root) : null;
+    const dreamArgs = sourceId ? ["dream", "--source", sourceId] : ["dream"];
+
+    // spawnGbrain seeds DATABASE_URL from gbrain's config via buildGbrainEnv.
+    //
+    // We CAPTURE output (pipe) rather than inherit because `gbrain dream` exits 0
+    // even when it SKIPS the cycle — when another cycle already holds gbrain's own
+    // DB lock (e.g. a running `gbrain autopilot`), it prints "Skipped: another
+    // cycle is already running. (locked)" and exits 0. Trusting the exit code
+    // alone would falsely report "call graph built". Trade-off: no live streaming
+    // for a long cycle; we echo the captured output afterward instead.
+    if (!args.quiet) {
+      process.stderr.write("[dream] running gbrain cycle (call-graph build; this can take a few minutes)...\n");
+    }
+    let result: ReturnType<typeof spawnGbrain>;
+    try {
+      result = spawnGbrain(dreamArgs, {
+        stdio: ["ignore", "pipe", "pipe"],
+        timeout: dreamTimeoutMs,
+        baseEnv: process.env,
+        announce: !args.quiet,
+      });
+    } catch (err) {
+      // Spawn-setup failure (missing binary, bad env): ERR, not a benign skip.
+      return {
+        name: "dream",
+        ran: true,
+        ok: false,
+        duration_ms: Date.now() - t0,
+        summary: `gbrain dream failed to start: ${(err as Error).message}`,
+      };
+    }
+
+    if (result.error) {
+      const e = result.error as NodeJS.ErrnoException;
+      const why = e.code === "ENOENT" ? "gbrain not on PATH" : e.message;
+      return {
+        name: "dream",
+        ran: true,
+        ok: false,
+        duration_ms: Date.now() - t0,
+        summary: `gbrain dream failed to start: ${why}`,
+      };
+    }
+
+    const out = `${result.stdout || ""}${result.stderr || ""}`;
+    if (!args.quiet && out.trim()) {
+      process.stderr.write(out.endsWith("\n") ? out : `${out}\n`);
+    }
+
+    if (result.status !== 0) {
+      return {
+        name: "dream",
+        ran: true,
+        ok: false,
+        duration_ms: Date.now() - t0,
+        summary: `gbrain dream exited ${result.status === null ? "null (killed by signal / timeout)" : result.status}`,
+      };
+    }
+
+    // Exit 0 but the cycle was SKIPPED because gbrain's own lock is held by
+    // another cycle (typically `gbrain autopilot`). Report SKIP, not "built" —
+    // the graph builds on that other cycle, not this invocation.
+    if (/already running|\block(?:ed)?\b|Skipped:/i.test(out)) {
+      return {
+        name: "dream",
+        ran: false,
+        ok: true,
+        duration_ms: Date.now() - t0,
+        summary: "skipped — a gbrain cycle is already running (e.g. autopilot); the call graph builds on that cycle",
+      };
+    }
+
+    // Exit 0 and the cycle actually ran. Parse the cycle's OWN output to report
+    // the truth, not a flat "built": `gbrain dream` exits 0 even when the call
+    // graph could not be built, and a misleading "built" turns a multi-minute
+    // no-op into a silent dead end. gbrain only surfaces these conditions in the
+    // cycle log (there is no pre-flight pack-capability query as of 0.41.x), so
+    // string-matching the log is the available signal; an unrecognized log
+    // degrades to the generic success summary below.
+    const dreamWarn = classifyDreamOutcome(out);
+    if (dreamWarn) {
+      return {
+        name: "dream",
+        ran: true,
+        ok: true,
+        warn: true,
+        duration_ms: Date.now() - t0,
+        summary: dreamWarn,
+      };
+    }
+
+    const edges = parseResolvedEdges(out);
+    return {
+      name: "dream",
+      ran: true,
+      ok: true,
+      duration_ms: Date.now() - t0,
+      summary:
+        edges !== null
+          ? `call graph built (${edges} edge${edges === 1 ? "" : "s"} resolved)`
+          : "call graph built (resolve_symbol_edges complete)",
+    };
+  } finally {
+    releaseDreamMarker();
+  }
+}
+
+/**
+ * Parse `<n>` from a `resolve_symbol_edges ... resolved <n>` cycle-log line.
+ * Returns null when the line is absent (older gbrain / different pack). The
+ * `[^\n]*?` is newline-bounded so it matches the `✓ resolve_symbol_edges ...`
+ * summary line, not the bracketed `[cycle.resolve_symbol_edges] start` markers.
+ */
+export function parseResolvedEdges(out: string): number | null {
+  const m = out.match(/resolve_symbol_edges\b[^\n]*?\bresolved\s+(\d+)/i);
+  return m ? parseInt(m[1], 10) : null;
+}
+
+/**
+ * Inspect a completed (exit-0) `gbrain dream` log and return a WARN summary when
+ * the cycle ran but could not actually build the call graph. Returns null on the
+ * happy path (caller emits the normal "call graph built" summary). Order matters:
+ * the pack-capability gap is the most actionable, so it wins over a 0-edge count
+ * (both appear together when the pack lacks the code-symbol phase).
+ */
+export function classifyDreamOutcome(out: string): string | null {
+  // The active schema pack doesn't declare the code-symbol extraction phase, so
+  // no symbols are extracted and resolve_symbol_edges has nothing to match.
+  if (/does not declare this phase/i.test(out)) {
+    return (
+      "dream ran, but this source's schema pack does not extract code symbols, " +
+      "so the call graph stays empty. Switch this source to a code-aware schema " +
+      "pack (`gbrain schema use <pack>`) to enable code-callers/code-callees."
+    );
+  }
+  // The embed phase failed for a missing key; symbols can't index without it.
+  if (/embed phase failed/i.test(out) || /requires\s+\S*_API_KEY/i.test(out)) {
+    return (
+      "dream ran, but the embed phase failed (missing embedding API key), so " +
+      "symbols won't index. Ensure the embedding provider's key is set for the " +
+      "gbrain process, then re-run /sync-gbrain --dream."
+    );
+  }
+  // Cycle ran and embedded fine, but matched zero call-graph edges.
+  if (parseResolvedEdges(out) === 0) {
+    return "dream ran but resolved 0 call-graph edges (no code symbols matched for this source yet).";
+  }
+  return null;
+}
+
 // ── State file ─────────────────────────────────────────────────────────────
 
 interface SyncState {
@@ -1077,10 +1438,28 @@ function saveSyncState(state: SyncState): void {
   }
 }
 
+/**
+ * Persist the dream stage result with read-modify-write semantics.
+ *
+ * Dream runs AFTER the sync lock releases, so a sibling worktree may have
+ * written newer state in the meantime. Overwriting the whole file with our
+ * pre-dream snapshot + dream result would clobber that sibling's sync. Instead
+ * re-read the CURRENT state, replace only the `dream` entry in last_stages, and
+ * atomic-rename. (Atomic rename alone isn't race-safe; the re-read + targeted
+ * merge is what prevents the clobber.)
+ */
+function mergeDreamIntoState(dream: StageResult): void {
+  const fresh = loadSyncState();
+  const others = (fresh.last_stages || []).filter((s) => s.name !== "dream");
+  fresh.last_stages = [...others, dream];
+  fresh.last_sync = new Date().toISOString();
+  saveSyncState(fresh);
+}
+
 // ── Output ─────────────────────────────────────────────────────────────────
 
-function formatStage(s: StageResult): string {
-  const status = !s.ran ? "SKIP" : s.ok ? "OK" : "ERR";
+export function formatStage(s: StageResult): string {
+  const status = !s.ran ? "SKIP" : !s.ok ? "ERR" : s.warn ? "WARN" : "OK";
   const dur = s.duration_ms > 0 ? ` (${(s.duration_ms / 1000).toFixed(1)}s)` : "";
   return `  ${status.padEnd(5)} ${s.name.padEnd(12)} ${s.summary}${dur}`;
 }
@@ -1116,9 +1495,9 @@ async function main(): Promise<void> {
   process.on("SIGTERM", () => { cleanup(); process.exit(143); });
 
   let exitCode = 0;
+  const stages: StageResult[] = [];
   try {
     const state = loadSyncState();
-    const stages: StageResult[] = [];
 
     if (!args.noCode) {
       stages.push(await withErrorContext("sync:code", () => runCodeImport(args), "gstack-gbrain-sync"));
@@ -1137,18 +1516,59 @@ async function main(): Promise<void> {
       saveSyncState(state);
     }
 
-    if (!args.quiet || args.mode === "dry-run") {
-      console.log(`\ngstack-gbrain-sync (${args.mode}):`);
-      for (const s of stages) console.log(formatStage(s));
-      const okCount = stages.filter((s) => s.ok).length;
-      const errCount = stages.filter((s) => !s.ok && s.ran).length;
-      console.log(`\n  ${okCount} ok, ${errCount} error, ${stages.length - okCount - errCount} skipped`);
-    }
-
     const anyError = stages.some((s) => s.ran && !s.ok);
     exitCode = anyError ? 1 : 0;
   } finally {
+    // Release the sync lock BEFORE the dream cycle. Dream is a source-scoped
+    // cycle that can run several minutes; holding the machine-wide lock that
+    // long would freeze every other worktree's /sync-gbrain. Dream is guarded
+    // by its own marker.
     cleanup();
+  }
+
+  // ── Dream (call-graph build) — LOCK-FREE, after the sync lock releases ─────
+  let dreamStage: StageResult | null = null;
+  if (args.mode === "dry-run") {
+    // Preview only; never probes doctor or spawns. `--dry-run` and `--full` are
+    // mutually exclusive modes (last one wins in parseArgs), so the only dream
+    // preview that applies to a dry-run is the explicit --dream force.
+    if (args.dream) {
+      dreamStage = await runDream(args);
+    }
+  } else {
+    // Resolve cycle state only on the --full auto path (perf: the steady-state
+    // incremental sync never pays a doctor subprocess). Explicit --dream forces.
+    let cycle: CycleStatus | null = null;
+    if (!args.dream && args.mode === "full" && !args.noDream && !args.noCode) {
+      const root = repoRoot();
+      cycle = root ? cycleCompleted(deriveCodeSourceId(root), process.env) : "unknown";
+    }
+    if (shouldRunDream(args, cycle)) {
+      dreamStage = await runDream(args);
+      mergeDreamIntoState(dreamStage);
+      if (dreamStage.ran && !dreamStage.ok) exitCode = 1;
+    } else if (cycle === "unknown") {
+      // --full wanted to auto-build but doctor couldn't confirm the graph state.
+      // Surface a WARN-style SKIP so the user knows to run --dream if needed,
+      // rather than silently doing nothing (a flaky doctor must not trigger a
+      // surprise 35-min run — gbrain-doctor-overstrict).
+      dreamStage = {
+        name: "dream",
+        ran: false,
+        ok: true,
+        duration_ms: 0,
+        summary: "call-graph state unknown (doctor unavailable) — run /sync-gbrain --dream if code-callers returns 0",
+      };
+    }
+  }
+
+  if (!args.quiet || args.mode === "dry-run") {
+    const allStages = dreamStage ? [...stages, dreamStage] : stages;
+    console.log(`\ngstack-gbrain-sync (${args.mode}):`);
+    for (const s of allStages) console.log(formatStage(s));
+    const okCount = allStages.filter((s) => s.ok).length;
+    const errCount = allStages.filter((s) => !s.ok && s.ran).length;
+    console.log(`\n  ${okCount} ok, ${errCount} error, ${allStages.length - okCount - errCount} skipped`);
   }
 
   process.exit(exitCode);

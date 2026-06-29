@@ -104,6 +104,7 @@ End-to-end walkthrough: [docs/howto-ios-testing-with-gstack.md](docs/howto-ios-t
 | `/guard` | Activate both careful + freeze at once. |
 | `/unfreeze` | Remove directory edit restrictions. |
 | `/make-pdf` | Turn any markdown file into a publication-quality PDF. |
+| `/diagram` | English in, diagram out: mermaid source + editable .excalidraw + SVG/PNG, offline. |
 
 ## Build commands
 

@@ -347,7 +347,13 @@ describe('runAgentSdkTest — options propagation', () => {
     expect(opts.permissionMode).toBe('bypassPermissions');
     expect(opts.allowDangerouslySkipPermissions).toBe(true);
     expect(opts.settingSources).toEqual([]);
-    expect(opts.env).toEqual({ ANTHROPIC_API_KEY: 'fake' });
+    // env is the COMPLETE hermetic env with the per-test override merged
+    // last — partial pass-through was the documented SDK auth-breaker
+    // (Options.env replaces the child's entire environment).
+    expect(opts.env?.ANTHROPIC_API_KEY).toBe('fake');
+    expect(opts.env?.PATH).toBeTruthy();
+    expect(opts.env?.CLAUDE_CONFIG_DIR).toMatch(/\/\.claude$/);
+    expect(opts.env?.GSTACK_HOME).toContain('gstack-home');
     expect(opts.pathToClaudeCodeExecutable).toBe('/fake/path/claude');
   });
 

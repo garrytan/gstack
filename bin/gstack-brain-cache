@@ -83,7 +83,23 @@ function loadMeta(scope: 'cross-project' | 'per-project', projectSlug: string | 
     return { schema_version: GSTACK_SCHEMA_PACK_VERSION, endpoint_hash: detectEndpointHash(), last_refresh: {}, last_attempt: {} };
   }
   try {
-    return JSON.parse(readFileSync(path, 'utf-8')) as CacheMeta;
+    const parsed = JSON.parse(readFileSync(path, 'utf-8')) as unknown;
+    // #1879: a valid JSON file can still be the wrong shape. JSON.parse can return
+    // null/array/string/number, and a partial object can omit last_refresh — three
+    // consumers (isStale, cmdInvalidate, refreshEntity) dereference meta.last_refresh
+    // unguarded and crash with a TypeError.
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      return { schema_version: GSTACK_SCHEMA_PACK_VERSION, endpoint_hash: detectEndpointHash(), last_refresh: {}, last_attempt: {} };
+    }
+    const meta = parsed as CacheMeta;
+    // Normalize ONLY the dereferenced maps. Do NOT default schema_version /
+    // endpoint_hash — leaving them absent makes schemaVersionMismatch() /
+    // endpointSwitched() correctly force a rebuild (missing identity = mismatch =
+    // safe). Defaulting them to current values would suppress invalidation and
+    // trust a stale file of unknown provenance.
+    meta.last_refresh = meta.last_refresh ?? {};
+    meta.last_attempt = meta.last_attempt ?? {};
+    return meta;
   } catch {
     // Corrupt _meta — start fresh (entries will refresh on next access).
     return { schema_version: GSTACK_SCHEMA_PACK_VERSION, endpoint_hash: detectEndpointHash(), last_refresh: {}, last_attempt: {} };
