@@ -542,6 +542,70 @@ esac
     rmSync(home, { recursive: true, force: true });
   });
 
+  // Regression for #2105: current Codex rollout records carry the message on
+  // `payload.{type:"message", role, content[]}` (a `response_item`), not on the
+  // legacy `payload.message`. The old parser only read `payload.message`, so
+  // every Codex session staged with an empty body (message_count 0). This proves
+  // the rendered transcript carries the user + assistant turns.
+  it("renders Codex response_item message bodies (payload.type === message)", () => {
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    mkdirSync(gstackHome, { recursive: true });
+
+    // Shim copies the staging dir so we can read the exact staged page bytes.
+    const binDir = join(home, "fake-bin");
+    mkdirSync(binDir, { recursive: true });
+    const stagingCopy = join(home, "staging-copy");
+    const script = `#!/usr/bin/env bash
+case "\${1:-}" in
+  --help|-h) echo "Usage: gbrain <command>"; echo "Commands:"; echo "  import <dir>   Import"; exit 0 ;;
+  import)
+    DIR="\${2:-}"
+    cp -R "\$DIR" "${stagingCopy}" 2>/dev/null || true
+    if [[ " \$* " == *" --json "* ]]; then
+      echo '{"status":"success","duration_s":0.1,"imported":1,"skipped":0,"errors":0,"chunks":1,"total_files":1}'
+    fi
+    exit 0 ;;
+  *) echo "unknown"; exit 2 ;;
+esac
+`;
+    const binPath = join(binDir, "gbrain");
+    writeFileSync(binPath, script, "utf-8");
+    chmodSync(binPath, 0o755);
+
+    const today = new Date();
+    const ymd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+    const session =
+      `{"type":"session_meta","payload":{"id":"codex-body-1","cwd":"/tmp/codex-body"},"timestamp":"${today.toISOString()}"}\n` +
+      `{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"hello from codex rollout"}]},"timestamp":"2026-05-01T00:00:01Z"}\n` +
+      `{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"codex assistant reply body"}]},"timestamp":"2026-05-01T00:00:02Z"}\n`;
+    writeCodexSession(home, ymd, session);
+
+    const r = runScript(["--bulk", "--include-unattributed", "--quiet"], {
+      HOME: home,
+      GSTACK_HOME: gstackHome,
+      PATH: `${binDir}:${process.env.PATH || ""}`,
+    });
+
+    expect(r.exitCode).toBe(0);
+    expect(existsSync(stagingCopy)).toBe(true);
+    const findMd = spawnSync("find", [stagingCopy, "-name", "*.md", "-type", "f"], {
+      encoding: "utf-8",
+    });
+    const mdPaths = (findMd.stdout || "").trim().split("\n").filter(Boolean);
+    const codexMd = mdPaths.find((p) => p.includes("/transcripts/codex/"));
+    expect(codexMd).toBeDefined();
+    const body = readFileSync(codexMd as string, "utf-8");
+
+    // Old parser left the body empty; both turns must now render.
+    expect(body).toContain("## User");
+    expect(body).toContain("hello from codex rollout");
+    expect(body).toContain("## Assistant");
+    expect(body).toContain("codex assistant reply body");
+
+    rmSync(home, { recursive: true, force: true });
+  });
+
   it("injects title/type/tags into the staged page's YAML frontmatter", () => {
     const home = makeTestHome();
     const gstackHome = join(home, ".gstack");

@@ -617,10 +617,19 @@ function parseTranscriptJsonl(path: string): ParsedSession | null {
       const tool = rec?.name || rec?.tool || rec?.tool_call?.name || "tool";
       bodyParts.push(`### Tool call: ${tool}`);
     } else if (isCodex && rec?.payload?.message) {
-      // Codex shape: each record has payload.message
+      // Legacy Codex shape: each record has payload.message
       const msg = rec.payload.message;
       const role = msg.role || "user";
       const content = extractContentText(msg);
+      if (content) {
+        bodyParts.push(`## ${role.charAt(0).toUpperCase() + role.slice(1)}\n\n${content}`);
+        messageCount++;
+      }
+    } else if (isCodex && rec?.payload?.type === "message") {
+      // Current Codex rollout shape: a `response_item` record carries
+      // payload.{role, content[]} directly, with no payload.message wrapper.
+      const role = rec.payload.role || "user";
+      const content = extractContentText(rec.payload);
       if (content) {
         bodyParts.push(`## ${role.charAt(0).toUpperCase() + role.slice(1)}\n\n${content}`);
         messageCount++;
