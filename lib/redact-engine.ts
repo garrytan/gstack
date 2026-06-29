@@ -253,7 +253,16 @@ function emailAllowed(email: string, opts: ScanOptions): boolean {
 
 export function scan(input: string, opts: ScanOptions = {}): ScanResult {
   const repoVisibility: RepoVisibility = opts.repoVisibility ?? "unknown";
-  const maxBytes = opts.maxBytes ?? DEFAULT_MAX_BYTES;
+  // #1824: ?? only catches null/undefined, not NaN or <= 0. A bad value
+  // (NaN from a malformed --max-bytes, or a negative) would make `byteLen >
+  // maxBytes` always false and silently disable the fail-closed oversize guard.
+  // Guardrail: any non-finite or non-positive value falls back to the default
+  // cap. The CLI is the layer that rejects bad args; this is belt-and-suspenders
+  // so the engine never silently runs uncapped.
+  const maxBytes =
+    Number.isFinite(opts.maxBytes) && (opts.maxBytes as number) > 0
+      ? (opts.maxBytes as number)
+      : DEFAULT_MAX_BYTES;
 
   // Fail CLOSED on oversize input. Check byte length BEFORE heavy work.
   const byteLen = Buffer.byteLength(input, "utf8");
@@ -416,6 +425,58 @@ export function applyRedactions(
   }
 
   return { body, diff: diffLines.reverse().join("\n"), skipped };
+}
+
+/**
+ * Patterns whose regex captures only a MARKER, not the secret payload itself
+ * (the PEM header line; the GCP JSON key prefix). Span replacement on these
+ * would redact the header and forward the key body — so redactFindingSpans
+ * drops the whole payload instead.
+ */
+const MARKER_ONLY_PATTERN_IDS = new Set(["pem.private_key", "gcp.service_account"]);
+
+/**
+ * Replace EVERY finding's span with `<REDACTED-{id}>`, regardless of tier or
+ * autoRedactable. For machine egress surfaces (telemetry error_message,
+ * #1947) where structure preservation doesn't matter and fail-closed beats
+ * fidelity. Returns null — caller must drop the whole payload — when:
+ *   - any finding's span cannot be located, or
+ *   - any finding matched a marker-only pattern (PEM / GCP service-account
+ *     JSON): their regexes capture the header, not the key material, so a
+ *     span splice would leak the body that follows the marker.
+ * Overlapping spans (e.g. a Bearer token that is also a JWT) are coalesced
+ * before splicing so stale offsets never leave partial secret bytes behind.
+ * (Contrast applyRedactions, which is the interactive, autoRedactable-only,
+ * structure-preserving path.)
+ */
+export function redactFindingSpans(input: string, opts: ScanOptions = {}): string | null {
+  const { findings } = scan(input, opts);
+  if (findings.some((f) => MARKER_ONLY_PATTERN_IDS.has(f.id))) return null;
+  const targets = findings.map((f) => ({ f, ...locateSpan(input, f) }));
+  if (targets.some((t) => t.start < 0)) return null;
+
+  // Coalesce overlapping/touching ranges — splicing two intersecting spans
+  // independently applies a stale end offset to already-modified text and
+  // can leave trailing secret bytes in place.
+  targets.sort((a, b) => a.start - b.start);
+  const merged: Array<{ start: number; end: number; ids: string[] }> = [];
+  for (const t of targets) {
+    const last = merged[merged.length - 1];
+    if (last && t.start <= last.end) {
+      last.end = Math.max(last.end, t.end);
+      if (!last.ids.includes(t.f.id)) last.ids.push(t.f.id);
+    } else {
+      merged.push({ start: t.start, end: t.end, ids: [t.f.id] });
+    }
+  }
+
+  // Right-to-left so earlier offsets remain valid after splicing.
+  let body = input;
+  for (let i = merged.length - 1; i >= 0; i--) {
+    const m = merged[i];
+    body = body.slice(0, m.start) + `<REDACTED-${m.ids.join("+")}>` + body.slice(m.end);
+  }
+  return body;
 }
 
 function locateSpan(input: string, f: Finding): { start: number; end: number } {

@@ -38,6 +38,55 @@ describe("detectAutopilot", () => {
     expect(r.active).toBe(false);
     expect(r.signal).toBeNull();
   });
+
+  // Stale-lock self-heal: a crashed daemon's lock (dead holder pid) must NOT
+  // wedge syncs forever (observed: dead pid refused --full indefinitely).
+  const DEAD_PID = 2999999; // above macOS pid_max; vanishingly unlikely elsewhere
+
+  test("ignores a STALE lock whose holder pid is dead", () => {
+    const tmp = fs.mkdtempSync(join(os.tmpdir(), "ap-"));
+    const lock = join(tmp, "autopilot.lock");
+    fs.writeFileSync(lock, `${DEAD_PID}\n`);
+    const r = detectAutopilot(process.env, { lockPaths: [lock], processRunning: () => false });
+    expect(r.active).toBe(false);
+    expect(r.signal).toBeNull();
+  });
+
+  test("treats a FRESH lock (live holder pid) as active", () => {
+    const tmp = fs.mkdtempSync(join(os.tmpdir(), "ap-"));
+    const lock = join(tmp, "autopilot.lock");
+    fs.writeFileSync(lock, String(process.pid)); // the test runner itself is alive
+    const r = detectAutopilot(process.env, { lockPaths: [lock], processRunning: () => false });
+    expect(r.active).toBe(true);
+    expect(r.signal).toContain(`pid ${process.pid}`);
+  });
+
+  test("parses a JSON lock body and ignores it when the pid is dead", () => {
+    const tmp = fs.mkdtempSync(join(os.tmpdir(), "ap-"));
+    const lock = join(tmp, "autopilot.lock");
+    fs.writeFileSync(lock, JSON.stringify({ pid: DEAD_PID, started_at: "x" }));
+    const r = detectAutopilot(process.env, { lockPaths: [lock], processRunning: () => false });
+    expect(r.active).toBe(false);
+  });
+
+  test("a stale lock does not mask a live autopilot process", () => {
+    const tmp = fs.mkdtempSync(join(os.tmpdir(), "ap-"));
+    const lock = join(tmp, "autopilot.lock");
+    fs.writeFileSync(lock, `${DEAD_PID}`);
+    const r = detectAutopilot(process.env, { lockPaths: [lock], processRunning: () => true });
+    expect(r.active).toBe(true);
+    expect(r.signal).toBe("process:gbrain autopilot");
+  });
+
+  test("a lock with no parseable pid stays conservative (active, no pid in signal)", () => {
+    const tmp = fs.mkdtempSync(join(os.tmpdir(), "ap-"));
+    const lock = join(tmp, "autopilot.lock");
+    fs.writeFileSync(lock, "corrupted-no-pid-here");
+    const r = detectAutopilot(process.env, { lockPaths: [lock], processRunning: () => false });
+    expect(r.active).toBe(true); // can't introspect → don't ignore the lock
+    expect(r.signal).toContain("lock:");
+    expect(r.signal).not.toContain("pid");
+  });
 });
 
 // ── #1734 remove safety (E7: fail closed on user-managed without keep-storage) ─

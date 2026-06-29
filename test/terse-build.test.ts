@@ -64,10 +64,10 @@ describe('terse build — per-resolver behavior', () => {
   });
 
   describe('generateCompletenessSection', () => {
-    test('default: emits full section with Boil-the-Lake prose', () => {
+    test('default: emits full section with Boil-the-Ocean prose', () => {
       const out = generateCompletenessSection(makeCtx('default'));
       expect(out).toContain('## Completeness Principle');
-      expect(out).toContain('Boil the Lake');
+      expect(out).toContain('Boil the Ocean');
     });
 
     test('terse: returns empty string', () => {

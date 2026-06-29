@@ -227,6 +227,48 @@ export const PATTERNS: RedactPattern[] = [
     regex: /\b(github_pat_[A-Za-z0-9_]{82})\b/,
   },
   {
+    id: "gitlab.token",
+    tier: "HIGH",
+    category: "secret",
+    description: "GitLab token (personal/pipeline-trigger/deploy)",
+    // glpat- personal access, glptt- pipeline trigger, gldt- deploy token.
+    // gstack drives glab first-class — these were a coverage gap (#1946).
+    regex: /\b(gl(?:pat|ptt|dt)-[A-Za-z0-9_-]{20,})\b/,
+  },
+  {
+    id: "huggingface.token",
+    tier: "HIGH",
+    category: "secret",
+    description: "HuggingFace access token",
+    regex: /\b(hf_[A-Za-z0-9]{30,})\b/,
+  },
+  {
+    id: "npm.token",
+    tier: "HIGH",
+    category: "secret",
+    description: "npm granular access token",
+    regex: /\b(npm_[A-Za-z0-9_\-]{30,})\b/,
+  },
+  {
+    id: "digitalocean.token",
+    tier: "HIGH",
+    category: "secret",
+    description: "DigitalOcean personal access token",
+    regex: /\b(dop_v1_[A-Za-z0-9]{64,})\b/,
+  },
+  {
+    id: "gcp.service_account",
+    tier: "HIGH",
+    category: "secret",
+    description: "GCP service-account JSON private key",
+    // The JSON-escaped form ("private_key": "-----BEGIN PRIVATE KEY-----\n...)
+    // dodges pem.private_key's literal-block match when minified to one line.
+    // Proximity to "private_key_id" confirms the GCP service-account shape.
+    regex: /("private_key"\s*:\s*"-----BEGIN (?:RSA |EC )?PRIVATE KEY-----)/,
+    nearRegex: /"private_key_id"/,
+    nearWindow: 300,
+  },
+  {
     id: "anthropic.key",
     tier: "HIGH",
     category: "secret",
@@ -237,8 +279,13 @@ export const PATTERNS: RedactPattern[] = [
     id: "openai.key",
     tier: "HIGH",
     category: "secret",
-    description: "OpenAI API key (incl. sk-proj-)",
-    regex: /\b(sk-(?:proj-)?[A-Za-z0-9]{32,})\b/,
+    description: "OpenAI API key (incl. sk-proj-/sk-svcacct-/sk-admin-)",
+    // Two explicit shapes (NOT a globally-optional prefix, which would match
+    // malformed sk--... or separator-less sk-projabc...):
+    //   prefixed: sk-{proj,svcacct,admin}- + base64url-ish body (allows -_)
+    //   bare:     sk- + contiguous alphanumeric run (legacy), keeps {32,} floor
+    regex:
+      /\b(sk-(?:proj|svcacct|admin)-[A-Za-z0-9_-]{20,}|sk-[A-Za-z0-9]{32,})\b/,
   },
   {
     id: "sendgrid.key",
@@ -274,42 +321,6 @@ export const PATTERNS: RedactPattern[] = [
     category: "secret",
     description: "Discord webhook URL",
     regex: /(https:\/\/(?:canary\.|ptb\.)?discord(?:app)?\.com\/api\/webhooks\/[0-9]{17,20}\/[A-Za-z0-9_\-]{60,})/,
-  },
-  {
-    id: "gitlab.token",
-    tier: "HIGH",
-    category: "secret",
-    description: "GitLab personal/project/group access token (glpat…)",
-    regex: /\b(glpat-[A-Za-z0-9_\-]{20,})\b/,
-  },
-  {
-    id: "huggingface.token",
-    tier: "HIGH",
-    category: "secret",
-    description: "Hugging Face access token (hf_…)",
-    regex: /\b(hf_[A-Za-z0-9]{30,})\b/,
-  },
-  {
-    id: "npm.token",
-    tier: "HIGH",
-    category: "secret",
-    description: "npm access token (npm_…)",
-    regex: /\b(npm_[A-Za-z0-9_\-]{30,})\b/,
-  },
-  {
-    id: "digitalocean.token",
-    tier: "HIGH",
-    category: "secret",
-    description: "DigitalOcean API token (dop_v1_…)",
-    regex: /\b(dop_v1_[A-Za-z0-9]{64,})\b/,
-  },
-  {
-    id: "auth.bearer",
-    tier: "HIGH",
-    category: "secret",
-    description: "High-entropy Bearer authorization token",
-    regex: /\bBearer[ \t]+([A-Za-z0-9_\-.=]{24,})\b/i,
-    validate: (span) => looksHighEntropySecret(span),
   },
   {
     id: "gcp.service_account_json",
@@ -389,6 +400,22 @@ export const PATTERNS: RedactPattern[] = [
     description: "Env-style SECRET assignment with high-entropy value",
     regex: /^[ \t]*(?:export[ \t]+)?[A-Z][A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|DSN|AUTH|COOKIE|SESSION|PRIVATE)[A-Z0-9_]*[ \t]*(?:=|:)[ \t]*['"]?([^\s'"]{8,})['"]?/i,
     // Only fire on high-entropy values — kills `FOO_KEY=changeme` FPs.
+    validate: (span) =>
+      !isPlaceholderSpan(span) &&
+      !/^\$\{?[A-Za-z_]/.test(span) &&
+      shannonEntropy(span) >= 3.0,
+  },
+  {
+    id: "auth.bearer",
+    tier: "MEDIUM",
+    category: "secret",
+    description: "Authorization Bearer token (high-entropy, header context)",
+    // FP-prone shape (docs and examples are full of "Bearer <token>"), so:
+    // MEDIUM tier, requires "authorization" nearby, and the same entropy
+    // recipe as env.kv to kill Bearer YOUR_TOKEN_HERE placeholders.
+    regex: /\bBearer[ \t]+([A-Za-z0-9._~+/=-]{20,})\b/,
+    nearRegex: /authorization/i,
+    nearWindow: 80,
     validate: (span) =>
       !isPlaceholderSpan(span) &&
       !/^\$\{?[A-Za-z_]/.test(span) &&

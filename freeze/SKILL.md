@@ -15,12 +15,12 @@ hooks:
     - matcher: "Edit"
       hooks:
         - type: command
-          command: "bash ${CLAUDE_SKILL_DIR}/bin/check-freeze.sh"
+          command: "bash $HOME/.claude/skills/gstack/freeze/bin/check-freeze.sh"
           statusMessage: "Checking freeze boundary..."
     - matcher: "Write"
       hooks:
         - type: command
-          command: "bash ${CLAUDE_SKILL_DIR}/bin/check-freeze.sh"
+          command: "bash $HOME/.claude/skills/gstack/freeze/bin/check-freeze.sh"
           statusMessage: "Checking freeze boundary..."
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->

@@ -420,13 +420,54 @@ If A: run `open URL1 && open URL2 && open URL3` (opens each in default browser).
 If B/C/D: run `open` on the selected URL only.
 If E: proceed to next-skill recommendations.
 
-### Next-skill recommendations
+### Next-skill recommendations — hand the user into the loop
 
-After the plea, suggest the next step:
+Don't just list options. Offer to launch the next review NOW so the design doc flows
+straight into a structured review. Map the design-doc mode to the recommended option
+(default `/plan-eng-review` when ambiguous — it has the broadest real-world use and the
+strongest retention).
 
-- **`/plan-ceo-review`** for ambitious features (EXPANSION mode) — rethink the problem, find the 10-star product
-- **`/plan-eng-review`** for well-scoped implementation planning — lock in architecture, tests, edge cases
-- **`/plan-design-review`** for visual/UX design review
+**If `PROACTIVE` is `false` OR `CONDUCTOR_SESSION: true`:** do NOT auto-launch. Recommend
+in one line and stop, letting the user invoke:
+- EXPANSION / ambitious → "Next: `/plan-ceo-review` to pressure-test scope and find the 10-star product."
+- well-scoped → "Next: `/plan-eng-review` to lock architecture, tests, and edge cases."
+- visual/UX-heavy → "Next: `/plan-design-review` for a visual/UX pass."
+
+**Otherwise**, offer via AskUserQuestion (D<N> format from the preamble):
+
+D<N> — Run the next review now?
+Project/branch/task: the design doc you just wrote for this feature.
+ELI10: You just wrote a design doc. The natural next step is a structured review that
+catches scope and architecture problems before you build. I can launch it right now, or
+you can run it later yourself.
+Stakes if we pick wrong: skipping review means problems surface mid-build, costing rework.
+Recommendation: the mode-mapped option (`/plan-eng-review` if unsure) because it locks the
+plan before any code is written.
+Completeness: A=10/10, B=9/10, C=8/10, D=3/10
+Pros / cons:
+A) Run /plan-eng-review now (recommended)
+  ✅ Locks architecture, tests, and edge cases before a line of code is written
+  ❌ Adds ~15 min CC now (human: 1-2 hrs of review compressed)
+B) Run /plan-ceo-review now
+  ✅ Pressure-tests ambition and scope — finds the 10-star version of the product
+  ❌ Lower value when the scope is already tight and well understood
+C) Run /plan-design-review now
+  ✅ Catches visual/UX problems while they are still cheap plan-stage changes
+  ❌ Little value for backend-only or non-visual features
+D) Not now — I'll run a review later
+  ✅ Keeps you in flow if you want to start building immediately
+  ❌ Review gaps compound; problems get more expensive after code exists
+Net: 15 minutes of structured review now against rework risk later.
+
+On the user's SELECTION of A/B/C (not on invocation success), log the handoff, then invoke
+the chosen skill via the **Skill tool** (it auto-discovers the design doc):
+```bash
+~/.claude/skills/gstack/bin/gstack-telemetry-log --event-type handoff --skill office-hours --outcome accepted --session-id "$_SESSION_ID" 2>/dev/null || true
+```
+On D, log declined and stop:
+```bash
+~/.claude/skills/gstack/bin/gstack-telemetry-log --event-type handoff --skill office-hours --outcome declined --session-id "$_SESSION_ID" 2>/dev/null || true
+```
 
 The design doc at `~/.gstack/projects/` is automatically discoverable by downstream skills — they will read it during their pre-review system audit.
 

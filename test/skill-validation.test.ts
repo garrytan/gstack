@@ -26,15 +26,18 @@ function readShipUnion(): string {
 }
 
 describe('SKILL.md command validation', () => {
-  test('all $B commands in SKILL.md are valid browse commands', () => {
+  // P2 (v1.2.0): the top-level gstack skill is a pure ROUTER, not the browse
+  // skill. The browse body lives only in browse/SKILL.md now. This regression
+  // pins the split: the router carries routing rules and zero browse commands,
+  // while browse/SKILL.md still advertises the full QA surface (asserted below).
+  test('top-level SKILL.md is a router with no browse body (P2)', () => {
+    const md = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
+    expect(md).not.toContain('gstack browse: QA Testing'); // browse body removed
+    expect(md).toContain('## Route first'); // router head present
+    expect(md).toContain('invoke `/investigate`'); // routing rules present
     const result = validateSkill(path.join(ROOT, 'SKILL.md'));
-    expect(result.invalid).toHaveLength(0);
-    expect(result.valid.length).toBeGreaterThan(0);
-  });
-
-  test('all snapshot flags in SKILL.md are valid', () => {
-    const result = validateSkill(path.join(ROOT, 'SKILL.md'));
-    expect(result.snapshotFlagErrors).toHaveLength(0);
+    expect(result.invalid).toHaveLength(0); // no INVALID browse commands
+    expect(result.valid.length).toBe(0); // and no browse commands at all — it routes, not browses
   });
 
   test('all $B commands in browse/SKILL.md are valid browse commands', () => {
@@ -837,7 +840,7 @@ describe('Completeness Principle in generated SKILL.md files', () => {
     test(`${skill} contains Completeness Principle section`, () => {
       const content = fs.readFileSync(path.join(ROOT, skill), 'utf-8');
       expect(content).toContain('Completeness Principle');
-      expect(content).toContain('Boil the Lake');
+      expect(content).toContain('Boil the Ocean');
     });
   }
 
@@ -1386,15 +1389,16 @@ describe('Codex skill', () => {
     expect(content).toContain('Adversarial review (always-on)');
     // Always-on: both Claude and Codex adversarial
     expect(content).toContain('Claude adversarial subagent (always runs)');
-    expect(content).toContain('Codex adversarial challenge (always runs when available)');
+    expect(content).toContain('Codex adversarial challenge (runs whenever');
     // Claude adversarial subagent dispatch
     expect(content).toContain('Agent tool');
     expect(content).toContain('FIXABLE');
     expect(content).toContain('INVESTIGATE');
-    // Codex availability check
-    expect(content).toContain('CODEX_NOT_AVAILABLE');
-    // OLD_CFG only gates Codex, not Claude
-    expect(content).toContain('skip Codex passes only');
+    // Probe-based availability via the shared codexPreflight() (install + auth)
+    expect(content).toContain('CODEX_MODE');
+    expect(content).toContain('command -v codex'); // install check kept literal
+    // codex_reviews=disabled gates Codex passes only; Claude adversarial still runs
+    expect(content).toContain('skip the Codex passes ONLY');
     // Review log
     expect(content).toContain('adversarial-review');
     expect(content).toContain('reasoning_effort="high"');
@@ -1447,6 +1451,43 @@ describe('Codex skill', () => {
     const content = fs.readFileSync(path.join(ROOT, 'plan-eng-review', 'SKILL.md'), 'utf-8');
     expect(content).toContain('Codex');
     expect(content).toContain('codex exec');
+  });
+
+  // D5 regression guard: the Codex outside voice is default-on, not opt-in. A future
+  // gen-skill-docs change must not silently reintroduce the "Want an outside voice?"
+  // AskUserQuestion. The CODEX_PLAN_REVIEW content renders into each skill's
+  // sections/review-sections.md (the skeleton points at it). plan-design-review uses
+  // DESIGN_OUTSIDE_VOICES, not CODEX_PLAN_REVIEW, so it is excluded here.
+  test('plan reviews run the Codex outside voice default-on (no opt-in question)', () => {
+    for (const skill of ['plan-eng-review', 'plan-ceo-review', 'plan-devex-review']) {
+      const content = fs.readFileSync(
+        path.join(ROOT, skill, 'sections', 'review-sections.md'), 'utf-8');
+      expect(content).not.toContain('Want an outside voice');
+      expect(content).toContain('Outside Voice — Independent Plan Challenge (default-on)');
+      expect(content).toContain('CODEX_MODE');
+      expect(content).toContain('command -v codex'); // preflight install check (e2e relies on it)
+    }
+  });
+
+  test('/document-release includes the default-on Codex documentation review', () => {
+    // The doc-review renders into the carved release-body section (kept out of the
+    // always-loaded skeleton to respect the skeleton-byte budget).
+    const content = fs.readFileSync(
+      path.join(ROOT, 'document-release', 'sections', 'release-body.md'), 'utf-8');
+    expect(content).toContain('Codex Documentation Review (default-on)');
+    expect(content).toContain('CODEX_MODE');
+    expect(content).toContain('codex-doc-review');
+  });
+
+  test('codex-host document-release does NOT contain the Codex doc review', () => {
+    // .agents/ is gitignored — generate on demand (codex never invokes itself)
+    Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', 'codex'], {
+      cwd: ROOT, stdout: 'pipe', stderr: 'pipe',
+    });
+    const content = fs.readFileSync(
+      path.join(ROOT, '.agents', 'skills', 'gstack-document-release', 'SKILL.md'), 'utf-8');
+    expect(content).not.toContain('Codex Documentation Review');
+    expect(content).not.toContain('codex-doc-review');
   });
 
   test('codex review invocations avoid the prompt plus --base argument shape', () => {

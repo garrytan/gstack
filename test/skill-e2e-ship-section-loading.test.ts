@@ -65,7 +65,7 @@ describeE2E('/ship section-loading E2E (periodic, SDK capture)', () => {
           'This is a FRESH version-changing ship: the branch has a real code change (app.js gained a new function with a test), VERSION still equals the base version (0.0.1, so it needs a bump), and CHANGELOG.md needs a new entry. Follow the skill\'s flow for a version-changing ship: run the pre-landing review and prepare the CHANGELOG entry. Produce the ship plan / review report. Do NOT actually commit, push, or open a PR.',
         requiredSections: REQUIRED_SECTIONS,
         reportMarker: /version|changelog|review|ship/i,
-        testName: '/ship section-loading',
+        testName: 'ship-section-loading',
         runId,
       });
 
