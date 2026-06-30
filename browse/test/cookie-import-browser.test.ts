@@ -516,4 +516,120 @@ describe('Cookie Import Browser', () => {
       }
     });
   });
+
+  describe('Numbered Profile Fallback (macOS 26 / no Default profile)', () => {
+    // Chrome on macOS 26 and some multi-profile installations place cookies in
+    // "Profile 4", "Profile 12", etc. instead of "Default". When the caller
+    // requests the default profile and "Default" doesn't exist, the module
+    // should fall back to the lowest-numbered profile that has a Cookies file.
+
+    async function withNumberedProfile<T>(
+      relativeBrowserDir: string,
+      sourceDb: string,
+      profileName: string,
+      run: () => Promise<T>,
+    ): Promise<T> {
+      const homeDir = os.homedir();
+      const profileDir = path.join(homeDir, relativeBrowserDir, profileName);
+      const cookiesPath = path.join(profileDir, 'Cookies');
+      const hadOriginal = fs.existsSync(cookiesPath);
+      const backupPath = path.join(profileDir, `Cookies.backup-${crypto.randomUUID()}`);
+
+      fs.mkdirSync(profileDir, { recursive: true });
+      if (hadOriginal) fs.copyFileSync(cookiesPath, backupPath);
+      fs.copyFileSync(sourceDb, cookiesPath);
+
+      // Also ensure no "Default" profile exists (we want the fallback to fire)
+      const defaultDir = path.join(homeDir, relativeBrowserDir, 'Default');
+      const defaultCookies = path.join(defaultDir, 'Cookies');
+      const hadDefault = fs.existsSync(defaultCookies);
+      const defaultBackup = path.join(defaultDir, `Cookies.backup-${crypto.randomUUID()}`);
+      if (hadDefault) {
+        fs.copyFileSync(defaultCookies, defaultBackup);
+        fs.unlinkSync(defaultCookies);
+      }
+
+      try {
+        return await run();
+      } finally {
+        if (hadDefault) {
+          fs.copyFileSync(defaultBackup, defaultCookies);
+          fs.unlinkSync(defaultBackup);
+        }
+        if (hadOriginal) {
+          fs.copyFileSync(backupPath, cookiesPath);
+          fs.unlinkSync(backupPath);
+        } else {
+          try { fs.unlinkSync(cookiesPath); } catch {}
+          try { fs.rmdirSync(profileDir); } catch {}
+        }
+      }
+    }
+
+    test('falls back to numbered profile when Default is missing (Linux Chromium)', async () => {
+      // Place the fixture DB under ~/.config/chromium/Profile 4/Cookies (no Default)
+      await withNumberedProfile('.config/chromium', LINUX_FIXTURE_DB, 'Profile 4', async () => {
+        // importCookies uses profile='Default' by default — should fall through to Profile 4
+        const result = await importCookies('chromium', ['.linux-plain.com']);
+        expect(result.count).toBe(1);
+        expect(result.cookies[0].name).toBe('plain');
+        expect(result.cookies[0].value).toBe('plain-linux');
+      });
+    });
+
+    test('picks the lowest-numbered profile when multiple exist (Linux Chromium)', async () => {
+      // Place fixtures under Profile 10 and Profile 4 (Profile 4 should win)
+      const homeDir = os.homedir();
+      const basePath = '.config/chromium';
+      const prof4Dir = path.join(homeDir, basePath, 'Profile 4');
+      const prof10Dir = path.join(homeDir, basePath, 'Profile 10');
+
+      // Temporarily ensure Profile 4 has the Linux fixture, Profile 10 has Mac fixture
+      const had4 = fs.existsSync(path.join(prof4Dir, 'Cookies'));
+      const had10 = fs.existsSync(path.join(prof10Dir, 'Cookies'));
+      const bk4 = path.join(prof4Dir, `Cookies.bk-${crypto.randomUUID()}`);
+      const bk10 = path.join(prof10Dir, `Cookies.bk-${crypto.randomUUID()}`);
+
+      // Disable Default if present
+      const defaultDir = path.join(homeDir, basePath, 'Default');
+      const defaultCookies = path.join(defaultDir, 'Cookies');
+      const hadDefault = fs.existsSync(defaultCookies);
+      const defaultBackup = path.join(defaultDir, `Cookies.bk-${crypto.randomUUID()}`);
+      if (hadDefault) {
+        fs.copyFileSync(defaultCookies, defaultBackup);
+        fs.unlinkSync(defaultCookies);
+      }
+
+      fs.mkdirSync(prof4Dir, { recursive: true });
+      fs.mkdirSync(prof10Dir, { recursive: true });
+      if (had4) fs.copyFileSync(path.join(prof4Dir, 'Cookies'), bk4);
+      if (had10) fs.copyFileSync(path.join(prof10Dir, 'Cookies'), bk10);
+      fs.copyFileSync(LINUX_FIXTURE_DB, path.join(prof4Dir, 'Cookies'));
+      fs.copyFileSync(FIXTURE_DB, path.join(prof10Dir, 'Cookies'));  // Mac fixture (different domain)
+
+      try {
+        const result = await importCookies('chromium', ['.linux-plain.com', '.github.com']);
+        // Profile 4 (Linux fixture) should be selected — it has .linux-plain.com
+        expect(result.domainCounts['.linux-plain.com']).toBe(1);
+        // .github.com is only in Profile 10 (Mac fixture, wrong profile), should be absent
+        expect(result.domainCounts['.github.com']).toBeUndefined();
+      } finally {
+        if (hadDefault) {
+          fs.copyFileSync(defaultBackup, defaultCookies);
+          fs.unlinkSync(defaultBackup);
+        }
+        if (had4) { fs.copyFileSync(bk4, path.join(prof4Dir, 'Cookies')); fs.unlinkSync(bk4); }
+        else { try { fs.unlinkSync(path.join(prof4Dir, 'Cookies')); } catch {} try { fs.rmdirSync(prof4Dir); } catch {} }
+        if (had10) { fs.copyFileSync(bk10, path.join(prof10Dir, 'Cookies')); fs.unlinkSync(bk10); }
+        else { try { fs.unlinkSync(path.join(prof10Dir, 'Cookies')); } catch {} try { fs.rmdirSync(prof10Dir); } catch {} }
+      }
+    });
+
+    test('listDomains falls back to numbered profile when Default is absent', async () => {
+      await withNumberedProfile('.config/chromium', LINUX_FIXTURE_DB, 'Profile 12', async () => {
+        const result = listDomains('chromium');  // no profile arg → defaults to 'Default'
+        expect(result.domains.map((d: any) => d.domain)).toContain('.linux-plain.com');
+      });
+    });
+  });
 });

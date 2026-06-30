@@ -575,6 +575,17 @@ export class BrowserManager {
     // and the chrome-runtime shape changes Playwright otherwise triggers) and
     // three more (--disable-popup-blocking, --disable-component-update,
     // --disable-default-apps — each a documented automation tell per Patchright).
+    // macOS 26 (Sequoia) tightened window activation policy: Chromium windows
+    // spawned by a non-app process close immediately unless the app is properly
+    // registered with the window server via NSApplicationActivateIgnoringOtherApps.
+    // --disable-features=MacControlledWindowBehavior suppresses the new OS-level
+    // window-hiding behavior introduced in macOS 26 while Playwright handles
+    // activation via its own NSApp startup sequence.
+    // This flag is a no-op on macOS < 26 and on non-macOS platforms.
+    if (process.platform === 'darwin') {
+      launchArgs.push('--disable-features=MacControlledWindowBehavior');
+    }
+
     const { STEALTH_IGNORE_DEFAULT_ARGS } = await import('./stealth');
     this.context = await chromium.launchPersistentContext(userDataDir, {
       headless: false,

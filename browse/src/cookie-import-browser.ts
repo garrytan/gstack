@@ -369,6 +369,17 @@ function getBrowserMatch(browser: BrowserInfo, profile: string): BrowserMatch {
   const match = findBrowserMatch(browser, profile);
   if (match) return match;
 
+  // When the caller requested the default profile ("Default") and it doesn't
+  // exist, scan for numbered profiles ("Profile 1", "Profile 12", etc.).
+  // Chrome on macOS 26 and some multi-profile installations never create a
+  // "Default" directory — every account lands in a numbered profile instead.
+  // We return the first numbered profile that has a Cookies file, ordered by
+  // profile number so the result is deterministic.
+  if (profile === 'Default') {
+    const numberedMatch = findFirstNumberedProfile(browser);
+    if (numberedMatch) return numberedMatch;
+  }
+
   const attempted = getSearchPlatforms()
     .map(platform => {
       const dataDir = getDataDirForPlatform(browser, platform);
@@ -380,6 +391,62 @@ function getBrowserMatch(browser: BrowserInfo, profile: string): BrowserMatch {
     `${browser.name} is not installed (no cookie database at ${attempted.join(' or ')})`,
     'not_installed',
   );
+}
+
+/**
+ * Scan a browser's data directory for numbered profiles ("Profile 1",
+ * "Profile 2", …) and return a BrowserMatch for the first one (lowest
+ * number) that contains a Cookies file.
+ *
+ * Called as a fallback when the "Default" profile directory doesn't exist.
+ * This handles Chrome on macOS 26+ and other installations that skip the
+ * Default directory entirely and put every account in a numbered profile.
+ */
+function findFirstNumberedProfile(browser: BrowserInfo): BrowserMatch | null {
+  for (const platform of getSearchPlatforms()) {
+    const dataDir = getDataDirForPlatform(browser, platform);
+    if (!dataDir) continue;
+    const browserDir = path.join(getBaseDir(platform), dataDir);
+    if (!fs.existsSync(browserDir)) continue;
+
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(browserDir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    // Collect all "Profile N" directories and sort by their number so the
+    // lowest-numbered (usually the primary account) is tried first.
+    const numbered = entries
+      .filter(e => e.isDirectory() && /^Profile \d+$/.test(e.name))
+      .sort((a, b) => {
+        const na = parseInt(a.name.slice('Profile '.length), 10);
+        const nb = parseInt(b.name.slice('Profile '.length), 10);
+        return na - nb;
+      });
+
+    for (const entry of numbered) {
+      validateProfile(entry.name);
+      const profileDir = path.join(browserDir, entry.name);
+      // Chrome 80+ on Windows stores cookies under Network/Cookies; fall back to Cookies.
+      const candidates = platform === 'win32'
+        ? [path.join(profileDir, 'Network', 'Cookies'), path.join(profileDir, 'Cookies')]
+        : [path.join(profileDir, 'Cookies')];
+      for (const dbPath of candidates) {
+        try {
+          if (fs.existsSync(dbPath)) {
+            return { browser, platform, dbPath };
+          }
+        } catch {}
+      }
+    }
+
+    // Found the browser directory on this platform but no numbered profile had
+    // cookies — don't try other platforms (they'd find the same browser dir).
+    if (numbered.length > 0) break;
+  }
+  return null;
 }
 
 // ─── Internal: SQLite Access ────────────────────────────────────
