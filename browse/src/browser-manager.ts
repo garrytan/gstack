@@ -1569,6 +1569,13 @@ export class BrowserManager {
       // STEALTH_LAUNCH_ARGS the handed-off browser kept the AutomationControlled
       // tell that the other two paths strip.
       const launchArgs: string[] = ['--hide-crash-restore-bubble', ...STEALTH_LAUNCH_ARGS, ...buildGStackLaunchArgs()];
+      // macOS 26: same window-hiding suppression as launchHeaded(). The handoff
+      // path launches a fresh headed Chromium and is subject to the same
+      // MacControlledWindowBehavior that causes the window to close immediately
+      // on Sequoia. No-op on macOS < 26 and on non-macOS platforms.
+      if (process.platform === 'darwin') {
+        launchArgs.push('--disable-features=MacControlledWindowBehavior');
+      }
       if (extensionPath) {
         launchArgs.push(`--disable-extensions-except=${extensionPath}`);
         launchArgs.push(`--load-extension=${extensionPath}`);
