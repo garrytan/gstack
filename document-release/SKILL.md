@@ -437,6 +437,10 @@ Read each documentation file and cross-reference it against the diff. Use these 
 (adapt to whatever project you're in — these are not gstack-specific):
 
 **README.md:**
+- Does the opening lead with the value proposition: what the user can do now, why it matters,
+  and what changes for them before implementation detail?
+- If the README starts with architecture, repo taxonomy, or dependency notes, flag the first
+  paragraph for a user-forward rewrite before mechanical doc updates.
 - Does it describe all features and capabilities visible in the diff?
 - Are install/setup instructions consistent with the changes?
 - Are examples, demos, and usage descriptions still valid?
