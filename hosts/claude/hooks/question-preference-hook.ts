@@ -451,15 +451,25 @@ async function main(): Promise<void> {
     return;
   }
 
-  // Not fully auto-decidable. In Conductor, AskUserQuestion is unreliable
-  // (native is disabled, the mcp__conductor__AskUserQuestion variant is flaky),
-  // so deny the tool and redirect to a prose decision brief. This is TRANSPORT
-  // AVOIDANCE, not preference enforcement: it fires regardless of marker,
-  // preference, or door type — including one-way doors, which must reach the
-  // human via prose rather than the unreliable tool.
-  if (isConductor()) {
-    const conductorReason =
-      '[conductor] AskUserQuestion is unreliable in Conductor (native disabled, MCP variant flaky). ' +
+  // Not fully auto-decidable. On some hosts AskUserQuestion is unreliable and
+  // must be avoided entirely:
+  //   - Conductor: native AUQ is disabled and the mcp__conductor__AskUserQuestion
+  //     variant is flaky.
+  //   - Claude Desktop app (CLAUDE_CODE_ENTRYPOINT=claude-desktop): the tool is
+  //     advertised + enabled (CLAUDE_CODE_ENABLE_ASK_USER_QUESTION_TOOL=true) but
+  //     its handler returns "[Tool result missing due to internal error]" — a host
+  //     bug verified 2026-07-01 on claude.exe 2.1.197. Critically, PostToolUse
+  //     hooks do NOT fire on that transport-error path, so auq-error-fallback-hook
+  //     can't rescue it after the fact; it must be pre-empted here in PreToolUse.
+  // On those hosts, deny the tool and redirect to a prose decision brief. This is
+  // TRANSPORT AVOIDANCE, not preference enforcement: it fires regardless of
+  // marker, preference, or door type — including one-way doors, which must reach
+  // the human via prose rather than the unreliable tool.
+  const isClaudeDesktop = (process.env.CLAUDE_CODE_ENTRYPOINT || '') === 'claude-desktop';
+  if (isConductor() || isClaudeDesktop) {
+    const host = isConductor() ? 'conductor' : 'claude-desktop';
+    const unreliableReason =
+      `[${host}] AskUserQuestion is unreliable in this host (missing-result / transport error). ` +
       'Do NOT call AskUserQuestion (native or any mcp__*__AskUserQuestion). Render this decision as a ' +
       'PROSE decision brief now: a D<N> label, an ELI10 of the issue, a Recommendation line, then one ' +
       'paragraph per choice carrying its `(recommended)` marker and `Completeness: X/10`; tell the user ' +
@@ -467,7 +477,7 @@ async function main(): Promise<void> {
       'typed confirmation and do NOT proceed on a vague reply. Capture the decision with gstack-question-log ' +
       '(PostToolUse will not fire on a prose path).' +
       (memoryContext ? `\n${memoryContext}` : '');
-    deny(conductorReason);
+    deny(unreliableReason);
     return;
   }
 

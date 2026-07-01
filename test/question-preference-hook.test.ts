@@ -72,13 +72,15 @@ function runHook(stdin: object, cwd?: string, extraEnv?: Record<string, string>)
   }
   env.GSTACK_STATE_ROOT = stateRoot;
   delete env.GSTACK_HOME;
-  // Strip ambient Conductor markers so these cases characterize NON-Conductor
-  // behavior deterministically — otherwise running the suite inside Conductor
-  // (CONDUCTOR_WORKSPACE_PATH/PORT set) would flip every defer into the
-  // [conductor] prose deny. The Conductor cases below opt back in explicitly
-  // via extraEnv.
+  // Strip ambient host markers so these cases characterize the plain
+  // (non-transport-avoidance) behavior deterministically — otherwise running the
+  // suite inside Conductor (CONDUCTOR_WORKSPACE_PATH/PORT set) or the Claude
+  // Desktop app (CLAUDE_CODE_ENTRYPOINT=claude-desktop) would flip every defer
+  // into the prose deny. The transport-avoidance cases below opt back in
+  // explicitly via extraEnv.
   delete env.CONDUCTOR_WORKSPACE_PATH;
   delete env.CONDUCTOR_PORT;
+  delete env.CLAUDE_CODE_ENTRYPOINT;
   env.GSTACK_QUESTION_LOG_NO_DERIVE = '1';
   if (extraEnv) Object.assign(env, extraEnv);
   const res = spawnSync(HOOK, [], {
@@ -442,6 +444,81 @@ describe('Conductor prose redirect', () => {
       { session_id: 'c6', tool_name: 'Bash', tool_use_id: 'tu-c6', tool_input: {} },
       undefined,
       CONDUCTOR,
+    );
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('defer');
+  });
+});
+
+// ----------------------------------------------------------------------
+// Claude Desktop app: deny + prose redirect (same transport avoidance as
+// Conductor — CLAUDE_CODE_ENTRYPOINT=claude-desktop; AUQ handler returns a
+// missing-result internal error, and PostToolUse can't rescue it)
+// ----------------------------------------------------------------------
+
+describe('Claude Desktop prose redirect', () => {
+  const DESKTOP = { CLAUDE_CODE_ENTRYPOINT: 'claude-desktop' };
+
+  test('two-way, no preference → deny with [claude-desktop] prose directive', () => {
+    const r = runHook({
+      session_id: 'd1',
+      tool_name: 'AskUserQuestion',
+      tool_use_id: 'tu-d1',
+      tool_input: {
+        questions: [
+          { question: '<gstack-qid:test-q> Need approval?', options: ['A) Yes (recommended)', 'B) No'] },
+        ],
+      },
+    }, undefined, DESKTOP);
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('deny');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecisionReason).toContain('[claude-desktop]');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecisionReason).toMatch(/do not call askuserquestion/i);
+    expect(r.parsed?.hookSpecificOutput?.permissionDecisionReason).toMatch(/reply with a letter/i);
+  });
+
+  test('one-way door → deny (destructive must reach human via prose, not the broken tool)', () => {
+    const r = runHook({
+      session_id: 'd2',
+      tool_name: 'AskUserQuestion',
+      tool_use_id: 'tu-d2',
+      tool_input: {
+        questions: [
+          {
+            question: '<gstack-qid:ship-test-failure-triage> Tests failed.',
+            options: ['A) Fix now (recommended)', 'B) Investigate', 'C) Ack and ship'],
+          },
+        ],
+      },
+    }, undefined, DESKTOP);
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('deny');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecisionReason).toContain('[claude-desktop]');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecisionReason).toMatch(/typed confirmation/i);
+  });
+
+  test('full never-ask auto-decide still wins over the desktop prose redirect', () => {
+    writeProjectPref('ship-pre-landing-review-fix', 'never-ask');
+    const r = runHook({
+      session_id: 'd3',
+      tool_name: 'AskUserQuestion',
+      tool_use_id: 'tu-d3',
+      tool_input: {
+        questions: [
+          {
+            question: '<gstack-qid:ship-pre-landing-review-fix> Pre-landing review flagged issue.',
+            options: ['A) Fix now (recommended)', 'B) Skip'],
+          },
+        ],
+      },
+    }, undefined, DESKTOP);
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('deny');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecisionReason).toContain('plan-tune auto-decide');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecisionReason).not.toContain('[claude-desktop]');
+  });
+
+  test('non-AUQ tool on desktop → still defer (no redirect on unrelated tools)', () => {
+    const r = runHook(
+      { session_id: 'd4', tool_name: 'Bash', tool_use_id: 'tu-d4', tool_input: {} },
+      undefined,
+      DESKTOP,
     );
     expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('defer');
   });
