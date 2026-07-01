@@ -190,6 +190,45 @@ function externalSkillName(skillDir: string, frontmatterName?: string): string {
   return `gstack-${baseName}`;
 }
 
+let skillInvocationNames: string[] | undefined;
+
+function getSkillInvocationNames(): string[] {
+  if (skillInvocationNames) return skillInvocationNames;
+
+  const names = new Set<string>();
+  for (const entry of fs.readdirSync(ROOT, { withFileTypes: true })) {
+    const tmplPath = entry.isDirectory()
+      ? path.join(ROOT, entry.name, 'SKILL.md.tmpl')
+      : entry.name === 'SKILL.md.tmpl'
+        ? path.join(ROOT, entry.name)
+        : '';
+    if (!tmplPath || !fs.existsSync(tmplPath)) continue;
+    const { name } = extractNameAndDescription(fs.readFileSync(tmplPath, 'utf-8'));
+    if (name) names.add(name);
+  }
+
+  skillInvocationNames = [...names].sort((a, b) => b.length - a.length);
+  return skillInvocationNames;
+}
+
+function namespaceSkillInvocations(content: string, hostConfig: HostConfig): string {
+  const skipped = new Set(hostConfig.generation.skipSkills ?? []);
+  const names = getSkillInvocationNames().filter(name => !skipped.has(name));
+  if (names.length === 0) return content;
+
+  const alternatives = names
+    .map(name => name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join('|');
+  const invocation = new RegExp(
+    `(^|[\\s\`('"→])\\/(${alternatives})(?=$|[\\s\`),.:;!?])`,
+    'gm',
+  );
+
+  return content.replace(invocation, (_match, prefix: string, name: string) =>
+    `${prefix}/${externalSkillName(name, name)}`,
+  );
+}
+
 function extractNameAndDescription(content: string): { name: string; description: string } {
   const fmStart = content.indexOf('---\n');
   if (fmStart !== 0) return { name: '', description: '' };
@@ -773,6 +812,9 @@ function processExternalHost(
 
   // Transform frontmatter (host-aware)
   let result = transformFrontmatter(content, host);
+  if (hostConfig.generation.frontmatterNameMatchesDirectory) {
+    result = result.replace(/^name:\s*.*$/m, `name: ${name}`);
+  }
 
   // Insert safety advisory at the top of the body (after frontmatter)
   if (safetyProse) {
@@ -783,6 +825,9 @@ function processExternalHost(
   // Config-driven path + tool rewrites (shared with processSectionTemplate so
   // section cross-references get the same per-host treatment as SKILL.md).
   result = applyHostRewrites(result, hostConfig);
+  if (hostConfig.generation.namespaceSkillInvocations) {
+    result = namespaceSkillInvocations(result, hostConfig);
+  }
 
   // Config-driven: generate metadata (e.g., openai.yaml for Codex)
   if (hostConfig.generation.generateMetadata && !symlinkLoop) {
@@ -904,6 +949,9 @@ function processSectionTemplate(
   // External hosts: rewrite cross-reference paths/tools (no frontmatter to transform).
   if (host !== 'claude') {
     content = applyHostRewrites(content, hostConfig);
+    if (hostConfig.generation.namespaceSkillInvocations) {
+      content = namespaceSkillInvocations(content, hostConfig);
+    }
   } else {
     // --out-dir: a section may cross-reference another section by absolute path;
     // repoint those to the out-dir too (no-op when --out-dir is unset).

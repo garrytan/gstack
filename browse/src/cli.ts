@@ -938,7 +938,9 @@ async function handlePairAgent(state: ServerState, args: string[]): Promise<void
     try {
       // Resolve host config for the globalRoot path
       const hostsPath = path.resolve(__dirname, '..', '..', 'hosts', 'index.ts');
-      let globalRoot = `.${localHost}/skills/gstack`;
+      let globalRoot = localHost === 'cursor'
+        ? '.cursor/gstack'
+        : `.${localHost}/skills/gstack`;
       try {
         const { getHostConfig } = await import(hostsPath);
         const hostConfig = getHostConfig(localHost);

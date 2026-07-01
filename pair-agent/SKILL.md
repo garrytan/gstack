@@ -1054,7 +1054,7 @@ to `~/.codex/skills/gstack/browse-remote.json`.
 
 Cursor's AI can run terminal commands. The instruction block works as-is.
 When using `--local cursor`, credentials are written to
-`~/.cursor/skills/gstack/browse-remote.json`.
+`~/.cursor/gstack/browse-remote.json`.
 
 ## Revoking access
 

@@ -64,6 +64,10 @@ export interface HostConfig {
     skipSkills?: string[];
     /** Skill directories to include (allowlist). Union logic: include minus skip. */
     includeSkills?: string[];
+    /** Rewrite frontmatter name to the generated output directory name. */
+    frontmatterNameMatchesDirectory?: boolean;
+    /** Rewrite references such as /ship to the generated namespaced skill name. */
+    namespaceSkillInvocations?: boolean;
   };
 
   // --- Content Rewrites ---
