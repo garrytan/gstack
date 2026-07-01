@@ -86,7 +86,21 @@ Continue with the current skill.
 ### Step 2: Detect install type
 
 ```bash
-if [ -d "$HOME/.claude/skills/gstack/.git" ]; then
+CURSOR_HOST=false
+CLAUDE_GSTACK="$HOME/.""claude/skills/gstack"
+if [ -d "$HOME/.cursor/gstack" ] && [ -d "$HOME/.gstack/repos/gstack/.git" ]; then
+  CURSOR_HOST=true
+  INSTALL_TYPE="global-git"
+  INSTALL_DIR="$HOME/.gstack/repos/gstack"
+elif [ -d "$HOME/.cursor/gstack" ] && [ -d "$HOME/gstack/.git" ]; then
+  CURSOR_HOST=true
+  INSTALL_TYPE="global-git"
+  INSTALL_DIR="$HOME/gstack"
+elif [ -d "$HOME/.cursor/gstack" ] && [ -d "$CLAUDE_GSTACK/.git" ]; then
+  CURSOR_HOST=true
+  INSTALL_TYPE="global-git"
+  INSTALL_DIR="$CLAUDE_GSTACK"
+elif [ -d "$HOME/.claude/skills/gstack/.git" ]; then
   INSTALL_TYPE="global-git"
   INSTALL_DIR="$HOME/.claude/skills/gstack"
 elif [ -d "$HOME/.gstack/repos/gstack/.git" ]; then
@@ -131,7 +145,11 @@ cd "$INSTALL_DIR"
 STASH_OUTPUT=$(git stash 2>&1)
 git fetch origin
 git reset --hard origin/main
-./setup
+if [ "$CURSOR_HOST" = "true" ]; then
+  ./setup --host cursor
+else
+  ./setup
+fi
 ```
 If `$STASH_OUTPUT` contains "Saved working directory", warn the user: "Note: local changes were stashed. Run `git stash pop` in the skill directory to restore them."
 

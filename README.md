@@ -115,15 +115,22 @@ Or target a specific agent with `./setup --host <name>`:
 |-------|------|-------------------|
 | OpenAI Codex CLI | `--host codex` | `~/.codex/skills/gstack-*/` |
 | OpenCode | `--host opencode` | `~/.config/opencode/skills/gstack-*/` |
-| Cursor | `--host cursor` | `~/.cursor/skills/gstack-*/` |
+| Cursor IDE, Agent CLI, and Cloud Agents | `--host cursor` | `~/.cursor/skills/gstack-*/` |
 | Factory Droid | `--host factory` | `~/.factory/skills/gstack-*/` |
 | Slate | `--host slate` | `~/.slate/skills/gstack-*/` |
 | Kiro | `--host kiro` | `~/.kiro/skills/gstack-*/` |
 | Hermes | `--host hermes` | `~/.hermes/skills/gstack-*/` |
 | GBrain (mod) | `--host gbrain` | `~/.gbrain/skills/gstack-*/` |
 
+Cursor users get the same generated skills across the IDE and the official
+`agent` CLI. Cloud Agents can run them after the environment runs the same
+setup command, but environment-installed skills do not appear in Cloud's
+pre-launch slash picker. See [the Cursor setup guide](docs/CURSOR.md) for Cloud
+environment configuration, invocation, and limitations.
+
 **Want to add support for another agent?** See [docs/ADDING_A_HOST.md](docs/ADDING_A_HOST.md).
-It's one TypeScript config file, zero code changes.
+Generated skill support starts with one TypeScript config file; first-class
+installers also wire the host's install and uninstall lifecycle.
 
 ## See it work
 

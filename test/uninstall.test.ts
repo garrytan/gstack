@@ -44,6 +44,12 @@ describe('gstack-uninstall', () => {
       // Create mock gstack install layout
       fs.mkdirSync(path.join(mockHome, '.claude', 'skills', 'gstack'), { recursive: true });
       fs.writeFileSync(path.join(mockHome, '.claude', 'skills', 'gstack', 'SKILL.md'), 'test');
+      fs.mkdirSync(path.join(mockHome, '.cursor', 'skills', 'gstack-ship'), { recursive: true });
+      fs.writeFileSync(path.join(mockHome, '.cursor', 'skills', 'gstack-ship', 'SKILL.md'), 'test');
+      fs.mkdirSync(path.join(mockHome, '.cursor', 'skills', 'other-skill'), { recursive: true });
+      fs.writeFileSync(path.join(mockHome, '.cursor', 'skills', 'other-skill', 'SKILL.md'), 'test');
+      fs.mkdirSync(path.join(mockHome, '.cursor', 'gstack', 'bin'), { recursive: true });
+      fs.writeFileSync(path.join(mockHome, '.cursor', 'gstack', 'bin', 'gstack-config'), 'test');
 
       // Create per-skill symlinks (both old unprefixed and new prefixed)
       fs.symlinkSync('gstack/review', path.join(mockHome, '.claude', 'skills', 'review'));
@@ -59,6 +65,8 @@ describe('gstack-uninstall', () => {
       // Create mock git repo
       fs.mkdirSync(mockGitRoot, { recursive: true });
       spawnSync('git', ['init', '-b', 'main'], { cwd: mockGitRoot, stdio: 'pipe' });
+      fs.mkdirSync(path.join(mockGitRoot, '.cursor', 'skills', 'gstack-custom'), { recursive: true });
+      fs.writeFileSync(path.join(mockGitRoot, '.cursor', 'skills', 'gstack-custom', 'SKILL.md'), 'project-owned');
     });
 
     afterEach(() => {
@@ -83,6 +91,9 @@ describe('gstack-uninstall', () => {
 
       // Global skill dir should be removed
       expect(fs.existsSync(path.join(mockHome, '.claude', 'skills', 'gstack'))).toBe(false);
+      expect(fs.existsSync(path.join(mockHome, '.cursor', 'skills', 'gstack-ship'))).toBe(false);
+      expect(fs.existsSync(path.join(mockHome, '.cursor', 'gstack'))).toBe(false);
+      expect(fs.existsSync(path.join(mockHome, '.cursor', 'skills', 'other-skill'))).toBe(true);
 
       // Per-skill symlinks pointing into gstack/ should be removed
       expect(fs.existsSync(path.join(mockHome, '.claude', 'skills', 'review'))).toBe(false);
@@ -90,6 +101,7 @@ describe('gstack-uninstall', () => {
 
       // Non-gstack tool should still exist
       expect(fs.existsSync(path.join(mockHome, '.claude', 'skills', 'other-tool'))).toBe(true);
+      expect(fs.existsSync(path.join(mockGitRoot, '.cursor', 'skills', 'gstack-custom'))).toBe(true);
 
       // State should be removed
       expect(fs.existsSync(path.join(mockHome, '.gstack'))).toBe(false);

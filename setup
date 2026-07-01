@@ -24,6 +24,8 @@ FACTORY_SKILLS="$HOME/.factory/skills"
 FACTORY_GSTACK="$FACTORY_SKILLS/gstack"
 OPENCODE_SKILLS="$HOME/.config/opencode/skills"
 OPENCODE_GSTACK="$OPENCODE_SKILLS/gstack"
+CURSOR_SKILLS="$HOME/.cursor/skills"
+CURSOR_GSTACK="$HOME/.cursor/gstack"
 
 IS_WINDOWS=0
 case "$(uname -s)" in
@@ -85,7 +87,7 @@ NO_TEAM_MODE=0
 PLAN_TUNE_HOOKS_MODE=""   # "" = resolve from env/config/prompt; "yes"/"no" = explicit
 while [ $# -gt 0 ]; do
   case "$1" in
-    --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, codex, kiro, factory, opencode, openclaw, hermes, gbrain, or auto)" >&2 && exit 1; HOST="$2"; shift 2 ;;
+    --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, codex, kiro, factory, opencode, cursor, openclaw, hermes, gbrain, or auto)" >&2 && exit 1; HOST="$2"; shift 2 ;;
     --host=*) HOST="${1#--host=}"; shift ;;
     --local) LOCAL_INSTALL=1; shift ;;
     --prefix)    SKILL_PREFIX=1; SKILL_PREFIX_FLAG=1; shift ;;
@@ -101,7 +103,7 @@ while [ $# -gt 0 ]; do
 done
 
 case "$HOST" in
-  claude|codex|kiro|factory|opencode|auto) ;;
+  claude|codex|kiro|factory|opencode|cursor|auto) ;;
   openclaw)
     echo ""
     echo "OpenClaw integration uses a different model — OpenClaw spawns Claude Code"
@@ -136,7 +138,7 @@ case "$HOST" in
     echo "GBrain setup and brain skills ship from the GBrain repo."
     echo ""
     exit 0 ;;
-  *) echo "Unknown --host value: $HOST (expected claude, codex, kiro, factory, opencode, openclaw, hermes, gbrain, or auto)" >&2; exit 1 ;;
+  *) echo "Unknown --host value: $HOST (expected claude, codex, kiro, factory, opencode, cursor, openclaw, hermes, gbrain, or auto)" >&2; exit 1 ;;
 esac
 
 # ─── Resolve skill prefix preference ─────────────────────────
@@ -184,8 +186,8 @@ fi
 if [ "$LOCAL_INSTALL" -eq 1 ]; then
   echo "Warning: --local is deprecated. Use global install + --team instead." >&2
   echo "  See: https://github.com/garrytan/gstack#team-mode" >&2
-  if [ "$HOST" = "codex" ]; then
-    echo "Error: --local is only supported for Claude Code (not Codex)." >&2
+  if [ "$HOST" != "claude" ]; then
+    echo "Error: --local is only supported for Claude Code (not $HOST)." >&2
     exit 1
   fi
   INSTALL_SKILLS_DIR="$(pwd)/.claude/skills"
@@ -200,14 +202,18 @@ INSTALL_CODEX=0
 INSTALL_KIRO=0
 INSTALL_FACTORY=0
 INSTALL_OPENCODE=0
+INSTALL_CURSOR=0
 if [ "$HOST" = "auto" ]; then
   command -v claude >/dev/null 2>&1 && INSTALL_CLAUDE=1
   command -v codex >/dev/null 2>&1 && INSTALL_CODEX=1
   command -v kiro-cli >/dev/null 2>&1 && INSTALL_KIRO=1
   command -v droid >/dev/null 2>&1 && INSTALL_FACTORY=1
   command -v opencode >/dev/null 2>&1 && INSTALL_OPENCODE=1
+  if command -v agent >/dev/null 2>&1 || command -v cursor >/dev/null 2>&1; then
+    INSTALL_CURSOR=1
+  fi
   # If none found, default to claude
-  if [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ] && [ "$INSTALL_FACTORY" -eq 0 ] && [ "$INSTALL_OPENCODE" -eq 0 ]; then
+  if [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ] && [ "$INSTALL_FACTORY" -eq 0 ] && [ "$INSTALL_OPENCODE" -eq 0 ] && [ "$INSTALL_CURSOR" -eq 0 ]; then
     INSTALL_CLAUDE=1
   fi
 elif [ "$HOST" = "claude" ]; then
@@ -220,6 +226,8 @@ elif [ "$HOST" = "factory" ]; then
   INSTALL_FACTORY=1
 elif [ "$HOST" = "opencode" ]; then
   INSTALL_OPENCODE=1
+elif [ "$HOST" = "cursor" ]; then
+  INSTALL_CURSOR=1
 fi
 
 migrate_direct_codex_install() {
@@ -378,6 +386,8 @@ trap cleanup_copied_bun EXIT
 NEEDS_BUILD=0
 if [ ! -x "$BROWSE_BIN" ]; then
   NEEDS_BUILD=1
+elif [ ! -x "$SOURCE_GSTACK_DIR/design/dist/design" ] || [ ! -x "$SOURCE_GSTACK_DIR/make-pdf/dist/pdf" ]; then
+  NEEDS_BUILD=1
 elif [ -n "$(find "$SOURCE_GSTACK_DIR/browse/src" -type f -newer "$BROWSE_BIN" -print -quit 2>/dev/null)" ]; then
   NEEDS_BUILD=1
 elif [ "$SOURCE_GSTACK_DIR/package.json" -nt "$BROWSE_BIN" ]; then
@@ -472,6 +482,16 @@ if [ "$INSTALL_OPENCODE" -eq 1 ] && [ "$NEEDS_BUILD" -eq 0 ]; then
     cd "$SOURCE_GSTACK_DIR"
     bun_cmd install --frozen-lockfile 2>/dev/null || bun_cmd install
     bun_cmd run gen:skill-docs --host opencode
+  )
+fi
+
+# 1e. Generate .cursor/ Cursor skill docs
+if [ "$INSTALL_CURSOR" -eq 1 ] && [ "$NEEDS_BUILD" -eq 0 ]; then
+  log "Generating .cursor/ skill docs..."
+  (
+    cd "$SOURCE_GSTACK_DIR"
+    bun_cmd install --frozen-lockfile 2>/dev/null || bun_cmd install
+    bun_cmd run gen:skill-docs --host cursor
   )
 fi
 
@@ -908,6 +928,79 @@ create_opencode_runtime_root() {
   fi
 }
 
+create_cursor_runtime_root() {
+  local gstack_dir="$1"
+  local cursor_gstack="$2"
+  local cursor_remote_tmp=""
+
+  # pair-agent stores its local credential in the runtime root. Preserve that
+  # user state while rebuilding managed runtime files during setup/upgrades.
+  if [ -f "$cursor_gstack/browse-remote.json" ]; then
+    cursor_remote_tmp="$(mktemp)"
+    cp -p "$cursor_gstack/browse-remote.json" "$cursor_remote_tmp"
+  fi
+  if [ -L "$cursor_gstack" ]; then
+    rm -f "$cursor_gstack"
+  elif [ -d "$cursor_gstack" ] && [ "$cursor_gstack" != "$gstack_dir" ]; then
+    rm -rf "$cursor_gstack"
+  fi
+  mkdir -p "$cursor_gstack"
+
+  # hosts/cursor.ts is the source of truth for runtime assets. Keeping the
+  # runtime outside ~/.cursor/skills prevents Cursor's recursive skill scanner
+  # from treating support files as duplicate skills.
+  while IFS= read -r asset; do
+    [ -n "$asset" ] || continue
+    local src="$gstack_dir/$asset"
+    local dst="$cursor_gstack/$asset"
+    if [ -e "$src" ]; then
+      mkdir -p "$(dirname "$dst")"
+      _link_or_copy "$src" "$dst"
+    fi
+  done < <(cd "$gstack_dir" && bun run scripts/host-config-export.ts symlinks cursor)
+
+  # Shared resolver prose reads other skills from
+  # $GSTACK_ROOT/<source-skill-name>/SKILL.md. Mirror the generated Cursor
+  # variants into the runtime root so those reads get Cursor paths/tool names,
+  # while the discoverable namespaced copies remain under ~/.cursor/skills/.
+  local cursor_skills="$gstack_dir/.cursor/skills"
+  for skill_dir in "$cursor_skills"/gstack*/; do
+    [ -f "$skill_dir/SKILL.md" ] || continue
+    local generated_name
+    local runtime_name
+    local runtime_skill_dir
+    generated_name="$(basename "$skill_dir")"
+    case "$generated_name" in
+      gstack)
+        runtime_skill_dir="$cursor_gstack"
+        ;;
+      gstack-upgrade)
+        runtime_skill_dir="$cursor_gstack/gstack-upgrade"
+        ;;
+      gstack-review|gstack-qa)
+        # These names collide with runtime support directories. Their
+        # generated skills remain discoverable under ~/.cursor/skills; do not
+        # place nested SKILL.md files under the runtime review/qa trees.
+        continue
+        ;;
+      *)
+        runtime_name="${generated_name#gstack-}"
+        runtime_skill_dir="$cursor_gstack/$runtime_name"
+        ;;
+    esac
+    mkdir -p "$runtime_skill_dir"
+    _link_or_copy "$skill_dir/SKILL.md" "$runtime_skill_dir/SKILL.md"
+    if [ -d "$skill_dir/sections" ]; then
+      _link_or_copy "$skill_dir/sections" "$runtime_skill_dir/sections"
+    fi
+  done
+
+  if [ -n "$cursor_remote_tmp" ]; then
+    cp -p "$cursor_remote_tmp" "$cursor_gstack/browse-remote.json"
+    rm -f "$cursor_remote_tmp"
+  fi
+}
+
 link_factory_skill_dirs() {
   local gstack_dir="$1"
   local skills_dir="$2"
@@ -965,6 +1058,45 @@ link_opencode_skill_dirs() {
         _link_or_copy "$skill_dir" "$target"
         linked+=("$skill_name")
       fi
+    fi
+  done
+  if [ ${#linked[@]} -gt 0 ]; then
+    echo "  linked skills: ${linked[*]}"
+  fi
+}
+
+link_cursor_skill_dirs() {
+  local gstack_dir="$1"
+  local skills_dir="$2"
+  local cursor_dir="$gstack_dir/.cursor/skills"
+  local linked=()
+
+  if [ ! -d "$cursor_dir" ]; then
+    echo "  Generating .cursor/ skill docs..."
+    ( cd "$gstack_dir" && bun run gen:skill-docs --host cursor )
+  fi
+
+  if [ ! -d "$cursor_dir" ]; then
+    echo "  warning: .cursor/skills/ generation failed — run 'bun run gen:skill-docs --host cursor' manually" >&2
+    return 1
+  fi
+
+  for skill_dir in "$cursor_dir"/gstack*/; do
+    if [ -f "$skill_dir/SKILL.md" ]; then
+      local skill_name
+      local target
+      skill_name="$(basename "$skill_dir")"
+      target="$skills_dir/$skill_name"
+      # Cursor does not reliably discover a skill when the skill directory
+      # itself is a symlink. Keep a real directory at the discovery root and
+      # link/copy its contents instead.
+      if [ -L "$target" ] || [ -d "$target" ]; then rm -rf "$target"; fi
+      mkdir -p "$target"
+      _link_or_copy "$skill_dir/SKILL.md" "$target/SKILL.md"
+      if [ -d "$skill_dir/sections" ]; then
+        _link_or_copy "$skill_dir/sections" "$target/sections"
+      fi
+      linked+=("$skill_name")
     fi
   done
   if [ ${#linked[@]} -gt 0 ]; then
@@ -1191,6 +1323,17 @@ if [ "$INSTALL_OPENCODE" -eq 1 ]; then
   echo "gstack ready (opencode)."
   echo "  browse: $BROWSE_BIN"
   echo "  opencode skills: $OPENCODE_SKILLS"
+fi
+
+# 6d. Install for Cursor IDE, Cursor CLI, and Cursor Cloud Agent environments
+if [ "$INSTALL_CURSOR" -eq 1 ]; then
+  mkdir -p "$CURSOR_SKILLS"
+  create_cursor_runtime_root "$SOURCE_GSTACK_DIR" "$CURSOR_GSTACK"
+  link_cursor_skill_dirs "$SOURCE_GSTACK_DIR" "$CURSOR_SKILLS"
+  echo "gstack ready (cursor)."
+  echo "  browse: $BROWSE_BIN"
+  echo "  cursor skills: $CURSOR_SKILLS"
+  echo "  cursor runtime: $CURSOR_GSTACK"
 fi
 
 # 7. Create .agents/ sidecar symlinks for the real Codex skill target.

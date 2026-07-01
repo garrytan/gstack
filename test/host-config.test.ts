@@ -369,6 +369,19 @@ describe('host-config-export.ts CLI', () => {
     expect(lines).toContain('plan-devex-review/dx-hall-of-fame.md');
   });
 
+  test('cursor symlinks returns runtime assets used by Cursor skills', () => {
+    const { stdout, exitCode } = run('symlinks', 'cursor');
+    expect(exitCode).toBe(0);
+    const lines = stdout.split('\n');
+    expect(lines).toContain('design/dist');
+    expect(lines).toContain('make-pdf/dist');
+    expect(lines).toContain('lib/diagram-render/dist');
+    expect(lines).toContain('scripts/jargon-list.json');
+    expect(lines).toContain('lib/redact-audit-log.ts');
+    expect(lines).toContain('review/checklist.md');
+    expect(lines).toContain('qa/templates');
+  });
+
   test('symlinks with missing host exits 1', () => {
     const { exitCode } = run('symlinks');
     expect(exitCode).toBe(1);
@@ -414,6 +427,12 @@ describe('golden-file regression', () => {
 // ─── Individual host config correctness ─────────────────────
 
 describe('host config correctness', () => {
+  test('pair-agent fallback uses the Cursor runtime root', () => {
+    const cli = fs.readFileSync(path.join(ROOT, 'browse', 'src', 'cli.ts'), 'utf-8');
+    expect(cli).toContain("localHost === 'cursor'");
+    expect(cli).toContain("'.cursor/gstack'");
+  });
+
   test('claude is the only prefixable host', () => {
     for (const config of ALL_HOST_CONFIGS) {
       if (config.name === 'claude') {
@@ -472,6 +491,35 @@ describe('host config correctness', () => {
     expect(factory.frontmatter.conditionalFields![0].add).toEqual({ 'disable-model-invocation': true });
   });
 
+  test('cursor uses the Agent CLI with the desktop command as an alias', () => {
+    expect(cursor.cliCommand).toBe('agent');
+    expect(cursor.cliAliases).toContain('cursor');
+  });
+
+  test('cursor keeps runtime assets outside its recursive skill root', () => {
+    expect(cursor.globalRoot).toBe('.cursor/gstack');
+    expect(cursor.localSkillRoot).toBe('.cursor/gstack');
+    expect(cursor.runtimeRoot.globalSymlinks).toContain('design/dist');
+    expect(cursor.runtimeRoot.globalSymlinks).toContain('review/specialists');
+    expect(cursor.runtimeRoot.globalSymlinks).toContain('qa/templates');
+    expect(cursor.runtimeRoot.globalSymlinks).not.toContain('gstack-upgrade');
+  });
+
+  test('cursor emits namespaced, spec-compliant skill metadata', () => {
+    expect(cursor.generation.frontmatterNameMatchesDirectory).toBe(true);
+    expect(cursor.generation.namespaceSkillInvocations).toBe(true);
+    expect(cursor.frontmatter.conditionalFields).toContainEqual({
+      if: { sensitive: true },
+      add: { 'disable-model-invocation': true },
+    });
+  });
+
+  test('cursor rewrites shared instructions and Claude tool wording', () => {
+    expect(cursor.pathRewrites).toContainEqual({ from: 'CLAUDE.md', to: 'AGENTS.md' });
+    expect(cursor.toolRewrites!['use the Bash tool']).toContain('shell tool');
+    expect(cursor.coAuthorTrailer).toContain('Cursor Agent');
+  });
+
   test('codex has suppressedResolvers for self-invocation prevention', () => {
     expect(codex.suppressedResolvers).toBeDefined();
     expect(codex.suppressedResolvers).toContain('CODEX_SECOND_OPINION');
@@ -500,6 +548,18 @@ describe('host config correctness', () => {
 
   test('openclaw has no staticFiles (SOUL.md removed)', () => {
     expect(openclaw.staticFiles).toBeUndefined();
+  });
+
+  test('cursor declares every runtime support asset used by its generated skills', () => {
+    const assets = cursor.runtimeRoot.globalSymlinks;
+    expect(assets).toContain('design/dist');
+    expect(assets).toContain('make-pdf/dist');
+    expect(assets).toContain('lib/diagram-render/dist');
+    expect(assets).toContain('scripts/jargon-list.json');
+    expect(assets).toContain('lib/redact-audit-log.ts');
+    expect(assets).toContain('lib/redact-patterns.ts');
+    expect(assets).toContain('ios-qa/templates');
+    expect(assets).toContain('extension');
   });
 
   test('openclaw includeSkills is empty (native skills replaced generated ones)', () => {

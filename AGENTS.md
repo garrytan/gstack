@@ -129,8 +129,59 @@ bun run skill:check      # health dashboard for all skills
 ## Key conventions
 
 - SKILL.md files are **generated** from `.tmpl` templates. Edit the template, not the output.
-- Run `bun run gen:skill-docs --host codex` to regenerate Codex-specific output.
+- Run `bun run gen:skill-docs --host codex` or `--host cursor` to regenerate host-specific output.
 - The browse binary provides headless browser access. Use `$B <command>` in skills.
 - Safety skills (careful, freeze, guard) use inline advisory prose — always confirm before destructive operations.
 - State paths resolve via `bin/gstack-paths` (sourced via `eval "$(...)"`). Honors `GSTACK_HOME`, `CLAUDE_PLUGIN_DATA`, `CLAUDE_PLANS_DIR`.
 - The `claude` CLI binary resolves via `browse/src/claude-bin.ts` (`Bun.which()` + `GSTACK_CLAUDE_BIN` override). Set `GSTACK_CLAUDE_BIN=wsl` plus `GSTACK_CLAUDE_BIN_ARGS='["claude"]'` to run Claude through WSL on Windows.
+
+## Cursor Cloud specific instructions
+
+### Runtime and PATH
+
+This repo requires **Bun** (not Node) for dev and tests. On Cursor Cloud VMs, Bun is installed to `~/.npm-global/bin` (via `npm install -g bun`) because `bun.sh` may be blocked by egress policy. Ensure `export PATH="$HOME/.npm-global/bin:$PATH"` is in your shell before running any `bun` command.
+
+One-time browser setup (not in the VM update script): after first `bun install`, run `bunx playwright install --with-deps chromium` so the browse daemon can launch headless Chromium.
+
+Run `./setup --host cursor` to exercise the end-user install path. It generates
+Cursor-native skills under the gitignored `.cursor/skills/` tree, installs them
+to `~/.cursor/skills/`, and keeps runtime assets outside recursive skill
+discovery at `~/.cursor/gstack/`.
+
+### Core runnable app
+
+gstack is not a traditional web app. The primary long-running process is the **browse daemon** (`browse/src/server.ts`). In dev, use the CLI wrapper which auto-starts it:
+
+```bash
+bun run dev status          # health check
+bun run dev goto <url>      # navigate
+bun run dev snapshot -i     # interactive element refs (@e1, @e2, …)
+bun run dev click @e1       # act on a ref from snapshot
+```
+
+Equivalent explicit server start: `bun run server` (alias `bun run start`).
+
+### Lint / test / build
+
+| Goal | Command |
+|------|---------|
+| Free validation (CI default) | `bun test` |
+| Fast skill static checks | `bun test test/skill-validation.test.ts test/gen-skill-docs.test.ts` |
+| Skill health dashboard | `bun run skill:check` (exits 1 on warnings — many skills intentionally have no `$B` commands) |
+| Compile binaries + regen SKILL.md | `bun run build` |
+| Paid E2E / LLM evals | `bun run test:evals` (needs `ANTHROPIC_API_KEY`; do not run casually in Cloud Agent) |
+
+To avoid a single long `bun test` hang, shard the free suite: `bun run scripts/test-free-shards.ts --shards 4 --shard N` where **N is 1–4** (1-based, not 0).
+
+### Browse demos on Cloud Agent VMs
+
+External HTTPS (e.g. `https://example.com`) may fail with connection errors from the VM egress proxy. For hello-world browse testing, serve local fixtures and drive localhost:
+
+```bash
+python3 -m http.server 8765 --bind 127.0.0.1 --directory browse/test/fixtures &
+bun run dev goto http://127.0.0.1:8765/basic.html
+bun run dev snapshot -i
+bun run dev click @e1
+```
+
+Leave the browse daemon and fixture server running between turns unless a clean restart is required.
