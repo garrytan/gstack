@@ -977,7 +977,7 @@ create_cursor_runtime_root() {
       gstack-upgrade)
         runtime_skill_dir="$cursor_gstack/gstack-upgrade"
         ;;
-      gstack-review|gstack-qa|gstack-qa-only)
+      gstack-review|gstack-qa)
         # These names collide with runtime support directories. Their
         # generated skills remain discoverable under ~/.cursor/skills; do not
         # place nested SKILL.md files under the runtime review/qa trees.

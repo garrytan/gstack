@@ -2324,6 +2324,8 @@ describe('Cursor host generation', () => {
     expect(upgrade).toContain('CURSOR_HOST=true');
     expect(upgrade).toContain('./setup --host cursor');
     expect(upgrade).toContain('$HOME/gstack/.git');
+    expect(upgrade).toContain('CLAUDE_GSTACK="$HOME/.""claude/skills/gstack"');
+    expect(upgrade).toContain('INSTALL_DIR="$CLAUDE_GSTACK"');
   });
 
   test('rewrites ship plan verification to the Cursor runtime root', () => {
@@ -2564,7 +2566,8 @@ describe('setup script validation', () => {
     expect(fnBody).toContain('local cursor_skills="$gstack_dir/.cursor/skills"');
     expect(fnBody).toContain('runtime_name="${generated_name#gstack-}"');
     expect(fnBody).toContain('runtime_skill_dir="$cursor_gstack/gstack-upgrade"');
-    expect(fnBody).toContain('gstack-review|gstack-qa|gstack-qa-only');
+    expect(fnBody).toContain('gstack-review|gstack-qa');
+    expect(fnBody).not.toContain('gstack-review|gstack-qa|gstack-qa-only');
     expect(fnBody).toContain('_link_or_copy "$skill_dir/SKILL.md" "$runtime_skill_dir/SKILL.md"');
     expect(fnBody).toContain('_link_or_copy "$skill_dir/sections" "$runtime_skill_dir/sections"');
   });
