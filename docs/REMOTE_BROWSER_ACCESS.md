@@ -187,7 +187,7 @@ If both agents are on the same machine, skip the copy-paste:
 ```bash
 $B pair-agent --local openclaw    # writes to ~/.openclaw/skills/gstack/browse-remote.json
 $B pair-agent --local codex       # writes to ~/.codex/skills/gstack/browse-remote.json
-$B pair-agent --local cursor      # writes to ~/.cursor/skills/gstack/browse-remote.json
+$B pair-agent --local cursor      # writes to ~/.cursor/gstack/browse-remote.json
 ```
 
 No tunnel needed. Uses localhost directly.

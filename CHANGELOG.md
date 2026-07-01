@@ -1,5 +1,52 @@
 # Changelog
 
+## [1.59.0.0] - 2026-06-30
+
+## **Cursor is now a real host.**
+## **One install works in IDE, CLI, and the Cloud runtime.**
+
+The README said `./setup --host cursor` worked, but setup rejected the flag. This release closes the gap end to end. One command now installs 54 gstack skills for Cursor's IDE Agent and official `agent` CLI, with the same installation usable in Cloud Agent environments. Generated skills use Cursor's `AGENTS.md`, shell, file, search, and subagent conventions. Workflows that can push, deploy, or change safety state require explicit invocation.
+
+### The numbers that matter
+
+Source: `bun run gen:skill-docs --host cursor`, an isolated `./setup --host cursor` smoke run, and `bun test test/host-config.test.ts test/gen-skill-docs.test.ts test/uninstall.test.ts`. The install smoke used a fresh temporary home directory and verified both skill discovery and runtime assets.
+
+| Metric | Before | After | Δ |
+|---|---:|---:|---:|
+| Cursor surfaces served by one working install | 0 | 3 | +3 |
+| Skills installed by `./setup --host cursor` | 0 | 54 | +54 |
+| Generated workflows mirrored for internal skill reads | 0 | 54 | +54 |
+| Runtime support asset paths installed outside recursive skill discovery | 0 | 13 | +13 |
+| Sensitive workflows protected from automatic invocation | 0 | 6 | +6 |
+| Dedicated Cursor setup and generation regression tests | 0 | 14 | +14 |
+
+The important number is 54. Cursor users now get the full gstack workflow, not a host config that can generate files but cannot install or run them. The isolated setup completed successfully, and all 492 focused tests passed.
+
+### What this means for Cursor builders
+
+Install once, then use `/gstack-office-hours`, `/gstack-review`, `/gstack-qa`, and `/gstack-ship` from Cursor's editor or terminal. Put the same setup command in a Cloud Agent environment and the workflows follow the job to the remote VM. Because Cloud's web slash picker runs before the VM setup command, environment-installed skills are invoked there through ordinary text or direct skill-file loading; pre-launch autocomplete requires plugin or project-level distribution. Start with `./setup --host cursor`.
+
+### Itemized changes
+
+#### Added
+- First-class setup and uninstall lifecycle for Cursor IDE, the Cursor Agent CLI, and Cloud Agent environments.
+- Cursor-native generated skill names and namespaced cross-skill commands.
+- Explicit-only invocation metadata for shipping, deployment, and safety-state workflows.
+- Complete browser, design, review, and QA runtime assets plus Cursor-native internal skill mirrors under `~/.cursor/gstack/`.
+- A dedicated Cursor guide covering installation, Cloud environments, supported features, and hardware limits.
+
+#### Changed
+- Cursor detection follows the official `agent` CLI and accepts the desktop `cursor` command as an alias.
+- Generated Cursor skills use `AGENTS.md` and Cursor tool terminology.
+- Runtime files live outside `~/.cursor/skills/`, preventing Cursor's recursive scanner from surfacing duplicate skills.
+- Setup preserves local browser-pairing credentials, refreshes Windows skill copies, and leaves project-owned Cursor skills untouched during uninstall.
+- The Cloud Agent bootstrap installs Bun when the VM does not already provide it.
+- Cursor skills now resolve browser, design, PDF, diagram, QA, review, redaction, extension, jargon, and iOS support files from `$GSTACK_ROOT`, including global-only installs outside the gstack checkout.
+- Cursor upgrades detect the Cursor runtime and rerun setup with `--host cursor`; runtime mirrors avoid nested `review/SKILL.md` and `qa/SKILL.md` duplicates.
+
+#### For contributors
+- Added dedicated host config, generation, setup, and uninstall regression coverage, plus an isolated end-to-end install smoke.
+
 ## [1.58.5.0] - 2026-06-21
 
 ## **A fresh install now lands on a concrete first move, not a dead end.**

@@ -2,8 +2,9 @@
 
 gstack uses a declarative host config system. Each supported AI coding agent
 (Claude, Codex, Factory, Kiro, OpenCode, Slate, Cursor, OpenClaw) is defined
-as a typed TypeScript config object. Adding a new host means creating one file
-and re-exporting it. Zero code changes to the generator, setup, or tooling.
+as a typed TypeScript config object. Adding generated skill support means
+creating one file and re-exporting it. Hosts that need a first-class
+`./setup --host ...` installer also need setup and uninstall wiring.
 
 ## How it works
 
@@ -28,8 +29,9 @@ Each config file exports a `HostConfig` object that tells the generator:
 - What resolver sections to suppress
 - What assets to symlink at install time
 
-The generator, setup script, platform-detect, uninstall, health checks, worktree
-copy, and tests all read from these configs. None of them have per-host code.
+The generator, health checks, worktree copy, and parameterized tests read from
+these configs. Setup and uninstall still contain install-path lifecycle code
+for first-class hosts.
 
 ## Step-by-step: add a new host
 
@@ -64,6 +66,9 @@ const myhost: HostConfig = {
   generation: {
     generateMetadata: false,   // true only for Codex (openai.yaml)
     skipSkills: ['codex'],     // codex skill is Claude-only
+    // Set both when the host requires namespaced frontmatter names and /commands.
+    frontmatterNameMatchesDirectory: false,
+    namespaceSkillInvocations: false,
   },
 
   pathRewrites: [
@@ -155,6 +160,8 @@ Key fields:
 | `frontmatter.descriptionLimitBehavior` | `error` (fail build), `truncate`, `warn` |
 | `frontmatter.conditionalFields` | Add fields based on template values (e.g., sensitive → disable-model-invocation) |
 | `frontmatter.renameFields` | Rename template fields (e.g., voice-triggers → triggers) |
+| `generation.frontmatterNameMatchesDirectory` | Make the frontmatter name equal the generated skill directory |
+| `generation.namespaceSkillInvocations` | Rewrite `/skill` references to `/gstack-skill` |
 | `pathRewrites` | Literal replaceAll on content. Order matters. |
 | `toolRewrites` | Rewrite Claude tool names (e.g., "use the Bash tool" → "run this command") |
 | `suppressedResolvers` | Resolver functions that return empty for this host |
