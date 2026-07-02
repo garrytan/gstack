@@ -22,7 +22,7 @@ import {
   substituteSlots,
   decodeFigureSource,
 } from "../src/diagram-prepass";
-import { imageDims } from "../src/image-size";
+import { imageDims, svgTagDims } from "../src/image-size";
 
 // ─── fence extraction ─────────────────────────────────────────────────
 
@@ -213,6 +213,15 @@ describe("imageDims", () => {
   test("SVG via viewBox", () => {
     const b = Buffer.from('<svg viewBox="0 0 1200 600"></svg>');
     expect(imageDims(b)).toEqual({ width: 1200, height: 600, mime: "image/svg+xml" });
+  });
+  test("SVG rejects malformed or non-positive dimensions", () => {
+    expect(svgTagDims('<svg width="1.2.3" height="10"></svg>')).toBeNull();
+    expect(svgTagDims('<svg viewBox="0 0 1200 0"></svg>')).toBeNull();
+    expect(imageDims(Buffer.from('<svg width=".5" height="10"></svg>'))).toEqual({
+      width: 0.5,
+      height: 10,
+      mime: "image/svg+xml",
+    });
   });
   test("unknown bytes → null", () => {
     expect(imageDims(Buffer.from("definitely not an image, sorry"))).toBeNull();

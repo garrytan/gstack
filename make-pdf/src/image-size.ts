@@ -104,14 +104,27 @@ function svgDims(b: Buffer): ImageDims | null {
 export function svgTagDims(markup: string): { width: number; height: number } | null {
   const tag = markup.match(/<svg\b[^>]*>/i)?.[0];
   if (!tag) return null;
+  const dimPattern = String.raw`(?:\d+(?:\.\d+)?|\.\d+)`;
+  const parseDim = (value: string | undefined): number | null => {
+    if (!value || !/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(value)) return null;
+    const n = Number(value);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  };
   const attr = (name: string): number | null => {
-    const m = tag.match(new RegExp(`\\b${name}\\s*=\\s*["']\\s*([0-9.]+)(px)?\\s*["']`, "i"));
-    return m ? parseFloat(m[1]) : null;
+    const m = tag.match(new RegExp(`\\b${name}\\s*=\\s*["']\\s*(${dimPattern})(px)?\\s*["']`, "i"));
+    return parseDim(m?.[1]);
   };
   const w = attr("width");
   const h = attr("height");
   if (w && h) return { width: w, height: h };
-  const vb = tag.match(/\bviewBox\s*=\s*["']\s*[-0-9.]+[\s,]+[-0-9.]+[\s,]+([0-9.]+)[\s,]+([0-9.]+)\s*["']/i);
-  if (vb) return { width: parseFloat(vb[1]), height: parseFloat(vb[2]) };
+  const vb = tag.match(new RegExp(
+    `\\bviewBox\\s*=\\s*["']\\s*-?${dimPattern}[\\s,]+-?${dimPattern}[\\s,]+(${dimPattern})[\\s,]+(${dimPattern})\\s*["']`,
+    "i",
+  ));
+  if (vb) {
+    const vbWidth = parseDim(vb[1]);
+    const vbHeight = parseDim(vb[2]);
+    if (vbWidth && vbHeight) return { width: vbWidth, height: vbHeight };
+  }
   return null;
 }
