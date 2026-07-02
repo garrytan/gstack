@@ -226,6 +226,29 @@ rm -f ~/.gstack/last-update-check
 rm -f ~/.gstack/update-snoozed
 ```
 
+### Step 5.5: Settle the browse daemon
+
+A running `browse` daemon is still on the OLD version. Until it's recycled, every
+`browse` call detects the version mismatch and kills + relaunches the daemon — and
+each relaunch resets the viewport to the default and wipes the browser context, so
+logged-in sessions drop and tabs land on `about:blank`. That churn is the usual
+cause of "browse suddenly can't hold a viewport / keeps logging me out / lands on
+about:blank" right after an upgrade.
+
+Stop it cleanly so the next `browse` call relaunches exactly once, on the new
+version:
+
+```bash
+BROWSE_BIN="$INSTALL_DIR/browse/dist/browse"
+if [ -x "$BROWSE_BIN" ] && "$BROWSE_BIN" status 2>/dev/null | grep -qi '^PID:'; then
+  "$BROWSE_BIN" stop 2>/dev/null || true
+  echo "Stopped the browse daemon so it relaunches on the new version."
+fi
+```
+
+Only ever use `browse stop` for this. Never `pkill`/pattern-kill chromium or browse
+processes — that can take down the user's real browser windows.
+
 ### Step 6: Show What's New
 
 Read `$INSTALL_DIR/CHANGELOG.md`. Find all version entries between the old version and the new version. Summarize as 5-7 bullets grouped by theme. Don't overwhelm — focus on user-facing changes. Skip internal refactors unless they're significant.
