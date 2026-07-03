@@ -18,6 +18,7 @@ import type { SetContentWaitUntil } from './tab-session';
 import { TEMP_DIR, isPathWithin } from './platform';
 import { SAFE_DIRECTORIES } from './path-security';
 import { modifyStyle, undoModification, resetModifications, getModificationHistory } from './cdp-inspector';
+import { waitForFonts } from './screenshot-utils';
 import { withCdpSession } from './cdp-bridge';
 
 /**
@@ -1124,6 +1125,7 @@ export async function handleWriteCommand(
       }
 
       // Take screenshot
+      await waitForFonts(page);
       await page.screenshot({ path: outputPath, fullPage: !scrollTo });
       // Guard against Anthropic vision API >2000px brick (#1214). Only
       // applies to fullPage captures; scrollTo viewport-bound shots are

@@ -20,6 +20,7 @@ import * as path from 'path';
 import { writeSecureFile, mkdirSecure } from './file-permissions';
 import { TEMP_DIR } from './platform';
 import { resolveConfig } from './config';
+import { waitForFonts } from './screenshot-utils';
 import type { Frame } from 'playwright';
 
 /** Tokenize a pipe segment respecting double-quoted strings. */
@@ -496,6 +497,9 @@ export async function handleMetaCommand(
         throw new Error('Cannot use --viewport with --clip — choose one');
       }
 
+      // Let web fonts settle so text renders in the intended typeface, not a fallback.
+      await waitForFonts(page);
+
       // --base64 mode: capture to buffer instead of disk
       if (base64Mode) {
         let buffer: Buffer;
@@ -581,6 +585,7 @@ export async function handleMetaCommand(
         await page.setViewportSize({ width: vp.width, height: vp.height });
         const screenshotPath = `${prefix}-${vp.name}.png`;
         validateOutputPath(screenshotPath);
+        await waitForFonts(page);
         await page.screenshot({ path: screenshotPath, fullPage: true });
         await guardScreenshotPath(screenshotPath);
         results.push(`${vp.name} (${vp.width}x${vp.height}): ${screenshotPath}`);

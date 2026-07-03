@@ -22,6 +22,7 @@ import type { TabSession, RefEntry } from './tab-session';
 import * as Diff from 'diff';
 import { TEMP_DIR, isPathWithin } from './platform';
 import { escapeEnvelopeSentinels } from './content-security';
+import { waitForFonts } from './screenshot-utils';
 import { stripLoneSurrogates } from './sanitize';
 import { guardScreenshotPath } from './screenshot-size-guard';
 
@@ -418,6 +419,7 @@ export async function handleSnapshot(
         }
       }, boxes);
 
+      await waitForFonts(page);
       await page.screenshot({ path: screenshotPath, fullPage: true });
       await guardScreenshotPath(screenshotPath);
 
@@ -539,6 +541,7 @@ export async function handleSnapshot(
         }
       }, boxes);
 
+      await waitForFonts(page);
       await page.screenshot({ path: heatmapPath, fullPage: true });
       await guardScreenshotPath(heatmapPath);
 
