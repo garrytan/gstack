@@ -367,7 +367,7 @@ describe('resolveChromiumProfile', () => {
     delete process.env.CHROMIUM_PROFILE;
     process.env.GSTACK_HOME = '/tmp/fallback-gstack';
     try {
-      expect(resolveChromiumProfile()).toBe('/tmp/fallback-gstack/chromium-profile');
+      expect(resolveChromiumProfile()).toBe(path.join('/tmp/fallback-gstack', 'chromium-profile'));
     } finally {
       if (origEnv !== undefined) process.env.CHROMIUM_PROFILE = origEnv;
       if (origHome === undefined) delete process.env.GSTACK_HOME;
