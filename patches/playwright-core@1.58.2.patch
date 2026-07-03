@@ -1,0 +1,24 @@
+diff --git a/lib/server/utils/processLauncher.js b/lib/server/utils/processLauncher.js
+index 954d5e6fbc527e640ccec5709263374101c6340b..6913f7e9cafe6bcc57ce5a501ce05edc01d36e0c 100644
+--- a/lib/server/utils/processLauncher.js
++++ b/lib/server/utils/processLauncher.js
+@@ -112,6 +112,10 @@ async function launchProcess(options) {
+     env: options.env,
+     cwd: options.cwd,
+     shell: options.shell,
++    // gstack patch (#2151 follow-up): chrome-headless-shell is a console-
++    // subsystem exe; launched from the console-less browse daemon on
++    // Windows it allocates a visible console window without CREATE_NO_WINDOW.
++    windowsHide: true,
+     stdio
+   };
+   const spawnedProcess = childProcess.spawn(options.command, options.args || [], spawnOptions);
+@@ -191,7 +195,7 @@ async function launchProcess(options) {
+       options.log(`[pid=${spawnedProcess.pid}] <will force kill>`);
+       try {
+         if (process.platform === "win32") {
+-          const taskkillProcess = childProcess.spawnSync(`taskkill /pid ${spawnedProcess.pid} /T /F`, { shell: true });
++          const taskkillProcess = childProcess.spawnSync(`taskkill /pid ${spawnedProcess.pid} /T /F`, { shell: true, windowsHide: true });
+           const [stdout2, stderr2] = [taskkillProcess.stdout.toString(), taskkillProcess.stderr.toString()];
+           if (stdout2)
+             options.log(`[pid=${spawnedProcess.pid}] taskkill stdout: ${stdout2}`);

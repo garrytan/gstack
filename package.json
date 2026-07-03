@@ -76,5 +76,8 @@
     "@anthropic-ai/sdk": "^0.78.0",
     "xterm": "5",
     "xterm-addon-fit": "^0.8.0"
+  },
+  "patchedDependencies": {
+    "playwright-core@1.58.2": "patches/playwright-core@1.58.2.patch"
   }
 }
