@@ -58,6 +58,7 @@ Invoke them by name (e.g., `/office-hours`).
 |-------|-------------|
 | `/context-save` | Save working context (git state, decisions, remaining work). |
 | `/context-restore` | Resume from a saved context, even across Conductor workspaces. |
+| `/handoff` | Hand a task off to another agentic harness, or claim one. Emits one `[handoff]` block into Plane + context-save + gbrain; pointer-based, token-optimized. |
 | `/learn` | Manage what gstack learned across sessions. |
 | `/retro` | Weekly retro with per-person breakdowns and shipping streaks. |
 | `/health` | Code quality dashboard (type checker, linter, tests, dead code). |

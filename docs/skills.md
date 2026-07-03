@@ -37,6 +37,7 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | [`/learn`](#learn) | **Memory** | Manage what gstack learned across sessions. Review, search, prune, and export project-specific patterns and preferences. |
 | [`/context-save`](#context-save) | **Save State** | Save working context (git state, decisions, remaining work) so any future session can resume. |
 | [`/context-restore`](#context-restore) | **Restore State** | Resume from a saved context, even across Conductor workspace handoffs. |
+| [`/handoff`](#handoff) | **Relay Handoff** | Hand a task off to another agentic harness, or claim one that was handed off. One `[handoff]` block into Plane + context-save + gbrain; pointer-based, token-optimized. |
 | [`/health`](#health) | **Code Quality Dashboard** | Wraps type checker, linter, tests, dead code detection. Computes a weighted 0-10 score; tracks trends over time. |
 | [`/landing-report`](#landing-report) | **Ship Queue Dashboard** | Read-only snapshot of the workspace-aware ship queue. Which version slots are claimed, which sibling workspaces have WIP. |
 | [`/benchmark-models`](#benchmark-models) | **Model Benchmark** | Side-by-side cross-model benchmark for skills (Claude vs GPT vs Gemini). Latency, tokens, cost, optional LLM-judged quality. |
