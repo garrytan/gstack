@@ -1,5 +1,30 @@
 # Changelog
 
+## [1.58.6.0] - 2026-06-28
+
+## **`./setup hermes` now installs gstack skill docs and runtime assets for the Hermes agent.**
+
+The `setup` script gains first-class Hermes host support. Running `./setup hermes` (or
+auto-detecting when `hermes` is on `PATH`) generates `.hermes/skills/gstack` and symlinks
+runtime assets (`bin`, `browse/dist`, `browse/bin`, `gstack-upgrade`, `review/`, `ETHOS.md`)
+so Hermes agents get the same zero-config onboarding that Claude, Codex, Kiro, Factory, and
+OpenCode already enjoy.
+
+### What changed
+
+- **Setup host detection**: `setup` now recognizes `hermes` as a valid host argument and sets
+  `INSTALL_HERMES=1`.
+- **Auto-detect**: when `HOST=auto`, `hermes` is checked alongside the five existing hosts.
+- **Skill doc generation**: `./setup hermes` runs `bun run gen:skill-docs --host hermes` if
+  not already present, then symlinks each generated skill into `~/.hermes/skills/`.
+- **Runtime sidecar layout**: `~/.hermes/skills/gstack/` receives root `SKILL.md`, `ETHOS.md`,
+  browse binaries, review checklists, and per-skill directories with preserved `gstack-*`
+  namespacing.
+- **Idempotent re-runs**: existing symlinks are replaced; real directories from other sources
+  are left untouched.
+
+---
+
 ## [1.58.5.0] - 2026-06-21
 
 ## **A fresh install now lands on a concrete first move, not a dead end.**
