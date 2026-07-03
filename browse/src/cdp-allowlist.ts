@@ -199,6 +199,14 @@ export const CDP_ALLOWLIST: ReadonlyArray<CdpAllowEntry> = Object.freeze([
     output: 'untrusted',
     justification: 'Inspect properties of an existing remote object. Read-only; output may contain page data.',
   },
+  // ─── Input (synthetic trusted user gestures) ───────────────
+  {
+    domain: 'Input',
+    method: 'dispatchMouseEvent',
+    scope: 'tab',
+    output: 'trusted',
+    justification: 'Trusted mouse gesture for widgets that ignore JS clicks (e.g. Personio Gefahrtarifstelle "Monat auswählen" dropdown). Focused tab only; returns an ack, no page content.',
+  },
 ]);
 
 const CDP_ALLOWLIST_INDEX: Map<string, CdpAllowEntry> = new Map(
