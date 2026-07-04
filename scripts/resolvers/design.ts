@@ -786,6 +786,24 @@ Source: [OpenAI "Designing Delightful Frontends with GPT-5.4"](https://developer
 }
 
 export function generateDesignSetup(ctx: TemplateContext): string {
+  if (ctx.host === 'codex' && ctx.skillName === 'design-shotgun') {
+    return `## CODEX IMAGE SETUP (run this check BEFORE generating design variants)
+
+This skill is running as \`gstack-design-shotgun\` in Codex. Use Codex's native
+\`image_gen\` tool for visual mockups.
+
+Do NOT run the gstack design binary for this skill:
+- no \`$D generate\`
+- no \`$D variants\`
+- no \`$D evolve\`
+- no OpenAI API key setup
+- no \`OPENAI_API_KEY\` lookup
+
+Design artifacts still belong in \`~/.gstack/projects/$SLUG/designs/\`. The
+\`image_gen\` tool may write images elsewhere first; copy the returned image files
+into the design session directory before building the comparison board.`;
+  }
+
   return `## DESIGN SETUP (run this check BEFORE any design mockup command)
 
 \`\`\`bash
@@ -909,7 +927,215 @@ echo '{"approved_variant":"<VARIANT>","feedback":"<FEEDBACK>","date":"'$(date -u
 Reference the saved mockup in the design doc or plan.`;
 }
 
-export function generateDesignShotgunLoop(_ctx: TemplateContext): string {
+export function generateDesignShotgunGeneration(ctx: TemplateContext): string {
+  if (ctx.host === 'codex') {
+    return `### Step 3c: Codex Native Image Generation
+
+**Codex host rule:** This skill is running as \`gstack-design-shotgun\`. Use the
+host-native \`image_gen\` tool directly. Do NOT run \`$D generate\`, \`$D variants\`,
+\`$D evolve\`, or any command that requires \`OPENAI_API_KEY\`.
+
+**If evolving from a screenshot** (user said "I don't like THIS"), take ONE screenshot
+first:
+
+\`\`\`bash
+$B screenshot "$_DESIGN_DIR/current.png"
+\`\`\`
+
+Use that screenshot as visual context in the \`image_gen\` prompt when the tool
+supports image editing or image reference input. If the tool only accepts text,
+describe the screenshot's visible layout, palette, hierarchy, and the requested
+change before generating.
+
+**Generate one image per variant.** For each confirmed direction, call the
+\`image_gen\` tool with a complete prompt that includes:
+
+- the product/screen brief
+- the variant-specific direction
+- audience and job-to-be-done
+- visible states and edge cases that must appear
+- design-system constraints from DESIGN.md or the taste profile
+- hard output requirement: a polished UI mockup screenshot, no logos, no tiny
+  unreadable body text, no decorative filler
+
+Run these calls in parallel if the host supports parallel tool calls. Otherwise run
+them sequentially and show each result as it lands.
+
+**Save returned images into the design session directory.** The \`image_gen\` tool
+returns or writes image files under the Codex generated-images directory. Copy each
+returned image path to the canonical design session path:
+
+\`\`\`bash
+cp "<image_gen returned path for variant A>" "$_DESIGN_DIR/variant-A.png"
+cp "<image_gen returned path for variant B>" "$_DESIGN_DIR/variant-B.png"
+cp "<image_gen returned path for variant C>" "$_DESIGN_DIR/variant-C.png"
+ls -lh "$_DESIGN_DIR"/variant-*.png
+\`\`\`
+
+If the user requested a different count, save the matching letters only. If a copy
+fails, report that variant as failed and keep the successful variants.
+
+### Step 3d: Results
+
+After generation completes:
+
+1. Show every generated image inline so the user sees all variants at once.
+2. Report status: "All {N} variants generated. {successes} succeeded, {failures} failed."
+3. For any failures: report explicitly with the error. Do NOT silently skip.
+4. If zero variants succeeded: stop and say \`image_gen\` did not return usable images.
+   Do NOT fall back to \`$D generate\` on Codex.
+5. Proceed to Step 4 (comparison board or inline feedback fallback).
+
+**Dynamic image list for comparison board:** When proceeding to Step 4, construct the
+image list from whatever variant files actually exist, not a hardcoded A/B/C list:
+
+\`\`\`bash
+setopt +o nomatch 2>/dev/null || true  # zsh compat
+_IMAGES=$(ls "$_DESIGN_DIR"/variant-*.png 2>/dev/null | tr '\\n' ',' | sed 's/,$//')
+echo "IMAGES: $_IMAGES"
+\`\`\`
+
+Use \`$_IMAGES\` for any comparison-board generation.`;
+  }
+
+  return `### Step 3c: Parallel Generation
+
+**If evolving from a screenshot** (user said "I don't like THIS"), take ONE screenshot
+first:
+
+\`\`\`bash
+$B screenshot "$_DESIGN_DIR/current.png"
+\`\`\`
+
+**Launch N Agent subagents in a single message** (parallel execution). Use the Agent
+tool with \`subagent_type: "general-purpose"\` for each variant. Each agent is independent
+and handles its own generation, quality check, verification, and retry.
+
+**Important: $D path propagation.** The \`$D\` variable from DESIGN SETUP is a shell
+variable that agents do NOT inherit. Substitute the resolved absolute path (from the
+\`DESIGN_READY: /path/to/design\` output in Step 0) into each agent prompt.
+
+**Agent prompt template** (one per variant, substitute all \`{...}\` values):
+
+\`\`\`
+Generate a design variant and save it.
+
+Design binary: {absolute path to $D binary}
+Brief: {the full variant-specific brief for this direction}
+Output: /tmp/variant-{letter}.png
+Final location: {_DESIGN_DIR absolute path}/variant-{letter}.png
+
+Steps:
+1. Run: {$D path} generate --brief "{brief}" --output /tmp/variant-{letter}.png
+2. If the command fails with a rate limit error (429 or "rate limit"), wait 5 seconds
+   and retry. Up to 3 retries.
+3. If the output file is missing or empty after the command succeeds, retry once.
+4. Copy: cp /tmp/variant-{letter}.png {_DESIGN_DIR}/variant-{letter}.png
+5. Quality check: {$D path} check --image {_DESIGN_DIR}/variant-{letter}.png --brief "{brief}"
+   If quality check fails, retry generation once.
+6. Verify: ls -lh {_DESIGN_DIR}/variant-{letter}.png
+7. Report exactly one of:
+   VARIANT_{letter}_DONE: {file size}
+   VARIANT_{letter}_FAILED: {error description}
+   VARIANT_{letter}_RATE_LIMITED: exhausted retries
+\`\`\`
+
+For the evolve path, replace step 1 with:
+\`\`\`
+{$D path} evolve --screenshot {_DESIGN_DIR}/current.png --brief "{brief}" --output /tmp/variant-{letter}.png
+\`\`\`
+
+**Why /tmp/ then cp?** In observed sessions, \`$D generate --output ~/.gstack/...\`
+failed with "The operation was aborted" while \`--output /tmp/...\` succeeded. This is
+a sandbox restriction. Always generate to \`/tmp/\` first, then \`cp\`.
+
+### Step 3d: Results
+
+After all agents complete:
+
+1. Read each generated PNG inline (Read tool) so the user sees all variants at once.
+2. Report status: "All {N} variants generated in ~{actual time}. {successes} succeeded,
+   {failures} failed."
+3. For any failures: report explicitly with the error. Do NOT silently skip.
+4. If zero variants succeeded: fall back to sequential generation (one at a time with
+   \`$D generate\`, showing each as it lands). Tell the user: "Parallel generation failed
+   (likely rate limiting). Falling back to sequential..."
+5. Proceed to Step 4 (comparison board).
+
+**Dynamic image list for comparison board:** When proceeding to Step 4, construct the
+image list from whatever variant files actually exist, not a hardcoded A/B/C list:
+
+\`\`\`bash
+setopt +o nomatch 2>/dev/null || true  # zsh compat
+_IMAGES=$(ls "$_DESIGN_DIR"/variant-*.png 2>/dev/null | tr '\\n' ',' | sed 's/,$//')
+\`\`\`
+
+Use \`$_IMAGES\` in the \`$D compare --images\` command.`;
+}
+
+export function generateDesignShotgunLoop(ctx: TemplateContext): string {
+  if (ctx.host === 'codex') {
+    return `### Comparison Board + Feedback Loop
+
+Codex path: do not use \`$D compare\` or \`$D serve\`. Build a lightweight local board
+from the images generated by \`image_gen\`, then collect feedback directly.
+
+Create a static comparison board:
+
+\`\`\`bash
+node - "$_DESIGN_DIR" <<'NODE'
+const fs = require('fs');
+const path = require('path');
+const dir = process.argv[2];
+const files = fs.readdirSync(dir).filter(f => /^variant-[A-Z]\\.png$/.test(f)).sort();
+const cards = files.map(file => {
+  const label = file.match(/^variant-([A-Z])\\.png$/)?.[1] || file;
+  return \`<section class="variant"><h2>Variant \${label}</h2><img src="./\${file}" alt="Variant \${label}"></section>\`;
+}).join('\\n');
+const html = \`<!doctype html>
+<meta charset="utf-8">
+<title>Design Shotgun Variants</title>
+<style>
+  body { margin: 0; padding: 24px; font: 14px/1.4 system-ui, sans-serif; background: #f5f5f5; color: #171717; }
+  main { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; align-items: start; }
+  .variant { background: white; border: 1px solid #d4d4d4; border-radius: 8px; padding: 12px; }
+  h1 { margin: 0 0 18px; font-size: 20px; }
+  h2 { margin: 0 0 10px; font-size: 14px; }
+  img { width: 100%; height: auto; display: block; border: 1px solid #e5e5e5; }
+</style>
+<h1>Design Shotgun Variants</h1>
+<main>\${cards}</main>\`;
+fs.writeFileSync(path.join(dir, 'design-board.html'), html);
+console.log(path.join(dir, 'design-board.html'));
+NODE
+open "file://$_DESIGN_DIR/design-board.html" 2>/dev/null || true
+\`\`\`
+
+Show each variant inline, then ask for feedback:
+
+"I've opened a comparison board with the generated variants. Which variant do you
+prefer, and what should change?"
+
+Use AskUserQuestion when available. If AskUserQuestion is unavailable, ask in prose
+and wait for the user's typed answer.
+
+**After receiving feedback:** Output a clear summary confirming what was understood:
+
+"Here's what I understood from your feedback:
+PREFERRED: Variant [X]
+YOUR NOTES: [comments]
+DIRECTION: [overall]
+
+Is this right?"
+
+Use AskUserQuestion or prose confirmation before saving.
+
+**Save the approved choice:**
+\`\`\`bash
+echo '{"approved_variant":"<V>","feedback":"<FB>","date":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","screen":"<SCREEN>","branch":"'$(git branch --show-current 2>/dev/null)'"}' > "$_DESIGN_DIR/approved.json"
+\`\`\``;
+  }
+
   return `### Comparison Board + Feedback Loop
 
 Create the comparison board and serve it over HTTP:
@@ -1154,4 +1380,3 @@ Flat design can strip away useful visual information that signals interactivity.
 Prioritize ruthlessly: things needed in a hurry go close at hand, everything
 else a few taps away with an obvious path to get there.`;
 }
-

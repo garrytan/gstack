@@ -1797,6 +1797,19 @@ describe('Codex generation (--host codex)', () => {
     expect(reviewContent).not.toContain('CODEX_REVIEWS');
   });
 
+  test('Codex design-shotgun uses image_gen instead of gstack design binary', () => {
+    const content = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-design-shotgun', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('gstack-design-shotgun');
+    expect(content).toContain('image_gen');
+    expect(content).toContain('host-native');
+    expect(content).toContain('no OpenAI API key setup');
+    expect(content).toContain('no `OPENAI_API_KEY` lookup');
+    expect(content).not.toContain('Run: {$D path} generate');
+    expect(content).not.toContain('$D compare --images');
+    expect(content).not.toContain('DESIGN_READY: $D');
+    expect(content).not.toContain('DESIGN_NOT_AVAILABLE');
+  });
+
   test('--host codex --dry-run freshness', () => {
     const result = Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', 'codex', '--dry-run'], {
       cwd: ROOT,
