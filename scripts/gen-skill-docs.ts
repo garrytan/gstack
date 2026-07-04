@@ -317,12 +317,16 @@ export function splitCatalogDescription(description: string): CatalogParts {
   const hasGstackTag = /\(gstack\)/.test(working);
   if (hasGstackTag) working = working.replace(/\(gstack\)/, '').trim();
 
-  // Lead = first sentence (up to first period followed by space or end of string).
-  // We tolerate sentences with embedded periods (URLs, "v1.45.0.0") by requiring
-  // the period to be followed by whitespace OR end-of-text.
+  // Lead = first sentence, ending at the first `.`/`!`/`?` that is followed by
+  // whitespace or end-of-text. Terminator chars NOT followed by whitespace/end
+  // (embedded periods in "TODOS.md", URLs, "v1.45.0.0") are consumed by the
+  // second alternative `[.!?](?!\s|$)` and do NOT end the sentence. The two
+  // alternatives are disjoint character classes, so there is no ambiguity and
+  // no catastrophic-backtracking risk. If no terminator-followed-by-boundary
+  // exists at all, we fall back to a 20-word cut below.
   // First normalize to single-line for sentence detection, then back out.
   const collapsed = working.replace(/\s+/g, ' ').trim();
-  const sentenceMatch = collapsed.match(/^([^.!?]*[.!?])(?:\s|$)/);
+  const sentenceMatch = collapsed.match(/^((?:[^.!?]|[.!?](?!\s|$))*[.!?])(?:\s|$)/);
   // sentenceLead is the FULL first sentence (no truncation). We compute routing
   // from this position, then optionally truncate the displayed lead afterwards.
   // Truncating first then computing routing was the v1.45.0.0 bug — when the
