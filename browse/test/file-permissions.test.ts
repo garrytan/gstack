@@ -23,6 +23,7 @@ import {
   appendSecureFile,
   mkdirSecure,
   __resetWarnedForTests,
+  __currentUserIcaclsPrincipalForTests,
 } from '../src/file-permissions';
 
 let tmpDir: string;
@@ -120,6 +121,32 @@ describe('appendSecureFile', () => {
     appendSecureFile(p, 'line1\n');
     appendSecureFile(p, 'line2\n');
     expect(fs.readFileSync(p, 'utf8')).toBe('line1\nline2\n');
+  });
+});
+
+describe('currentUserIcaclsPrincipal (regression: INT-50 domain SID collision)', () => {
+  // Background: on a domain-joined Windows box that also has a *local* account
+  // of the same login name, `icacls /grant lmiller:...` resolves the bare name
+  // to the LOCAL account, not the domain account the process runs as. Combined
+  // with `/inheritance:r`, that locks the process out of the .gstack state dir
+  // it just created and the browse daemon fails to start. The fix grants to the
+  // process token SID instead, which is collision-proof.
+  test('on Windows, resolves to a SID literal (*S-1-5-...), not a bare username', () => {
+    if (process.platform !== 'win32') return;
+    const principal = __currentUserIcaclsPrincipalForTests();
+    // A bare `os.userInfo().username` (the pre-fix behavior) would NOT start
+    // with '*S-'. The '*'-prefixed SID is what makes the grant unambiguous.
+    expect(principal.startsWith('*S-')).toBe(true);
+  });
+
+  test('off Windows, falls back to a non-empty name-based principal without throwing', () => {
+    if (process.platform === 'win32') return;
+    // whoami.exe /user is unavailable off-Windows; the helper must swallow the
+    // spawn failure and fall back to a name-based principal rather than throw.
+    let principal = '';
+    expect(() => { principal = __currentUserIcaclsPrincipalForTests(); }).not.toThrow();
+    expect(principal.length).toBeGreaterThan(0);
+    expect(principal.startsWith('*S-')).toBe(false);
   });
 });
 
