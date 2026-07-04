@@ -44,6 +44,7 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | **Multi-AI** | | |
 | [`/codex`](#codex) | **Second Opinion** | Independent review from OpenAI Codex CLI. Three modes: code review (pass/fail gate), adversarial challenge, and open consultation with session continuity. Cross-model analysis when both `/review` and `/codex` have run. |
 | [`/pair-agent`](#pair-agent) | **Remote Agent Bridge** | Pair a remote AI agent (OpenClaw, Codex, Cursor, Hermes) with your browser. Scoped tunnel, locked allowlist, session token. |
+| [`/setup-search-mcp`](#setup-search-mcp) | **Search MCP Setup** | Free web search for agents. No account or API key by default. |
 | [`/setup-gbrain`](#setup-gbrain) | **Memory Sync** | Set up gbrain for cross-machine session memory sync. One command from zero to live. |
 | [`/sync-gbrain`](#sync-gbrain) | **Keep Brain Current** | Refresh gbrain against this repo's code; teach the agent when to use `gbrain search`/`code-def` over Grep. Idempotent; safe to re-run. |
 | | | |
@@ -920,6 +921,25 @@ You:   /setup-browser-cookies github.com
 
 Claude: Imported 12 cookies for github.com from Comet.
 ```
+
+---
+
+## `/setup-search-mcp`
+
+This sets up free web search for agents through Parallel Search MCP. It gives
+gstack's Search Before Building workflow a no-key path to public web search and
+clean markdown from public URLs.
+
+```
+You:   /setup-search-mcp
+
+Claude: Configured Parallel Search MCP for Claude Code.
+        Default setup is free and no-auth.
+        Restart Claude Code if the new MCP tools are not visible yet.
+```
+
+Use Search MCP for public web search. Use `/browse` for authenticated flows,
+screenshots, clicks, visual QA, and stateful browser work.
 
 ---
 

@@ -248,6 +248,11 @@
       "routing": "One command from zero to \"gbrain is running, and this agent\ncan call it.\" Use when: \"setup gbrain\", \"connect gbrain\", \"start\ngbrain\", \"install gbrain\", \"configure gbrain for this machine\".",
       "voice_line": null
     },
+    "setup-search-mcp": {
+      "lead": "Set up free web search for agents in gstack's Search Before Building workflow.",
+      "routing": "Adds Parallel Search MCP with no account or API key by default.\nUse when: \"setup search\", \"install search mcp\", \"connect Parallel Search MCP\",\n\"free web search\", \"agent web search\", \"make Search Before Building work\".",
+      "voice_line": null
+    },
     "ship": {
       "lead": "Ship workflow: detect + merge base branch, run tests, review diff, bump VERSION, update CHANGELOG, commit, push, create PR.",
       "routing": "Use when asked to \"ship\", \"deploy\",\n\"push to main\", \"create a PR\", \"merge and push\", or \"get it deployed\".\nProactively invoke this skill (do NOT push/PR directly) when the user says code\nis ready, asks about deploying, wants to push code up, or asks to create a PR.",
