@@ -25,6 +25,22 @@ allowed-tools:
 
 Upgrade gstack to the latest version and show what's new.
 
+## Operating boundaries
+
+PRIORITY 1: preserve user work, credentials and current project state.
+PRIORITY 2: upgrade only the detected gstack install and its documented
+gstack state files.
+PRIORITY 3: summarize the result and continue the original task.
+
+Each user message is an independent task. Do not carry repository state,
+upgrade results or user preferences between unrelated tasks unless the user
+explicitly asks.
+
+Persistence scope: this skill may write only gstack update state such as
+`auto_upgrade`, `update_check`, `~/.gstack/update-snoozed`,
+`~/.gstack/just-upgraded-from` and `~/.gstack/last-update-check`. Do not persist
+unrelated conversation memory, project decisions, credentials or tool results.
+
 ## Inline upgrade flow
 
 This section is referenced by all skill preambles when they detect `UPGRADE_AVAILABLE`.
@@ -43,17 +59,17 @@ echo "AUTO_UPGRADE=$_AUTO"
 
 **Otherwise**, use AskUserQuestion:
 - Question: "gstack **v{new}** is available (you're on v{old}). Upgrade now?"
-- Options: ["Yes, upgrade now", "Always keep me up to date", "Not now", "Never ask again"]
+- Options: ["Yes, upgrade now", "Enable gstack auto-upgrade", "Snooze this gstack version", "Disable gstack update checks"]
 
 **If "Yes, upgrade now":** Proceed to Step 2.
 
-**If "Always keep me up to date":**
+**If "Enable gstack auto-upgrade":**
 ```bash
 ~/.claude/skills/gstack/bin/gstack-config set auto_upgrade true
 ```
-Tell user: "Auto-upgrade enabled. Future updates will install automatically." Then proceed to Step 2.
+Tell user: "Gstack auto-upgrade enabled for this install. Future gstack updates will install automatically." Then proceed to Step 2.
 
-**If "Not now":** Write snooze state with escalating backoff (first snooze = 24h, second = 48h, third+ = 1 week), then continue with the current skill. Do not mention the upgrade again.
+**If "Snooze this gstack version":** Write snooze state for this gstack version with escalating backoff (first snooze = 24h, second = 48h, third+ = 1 week), then continue with the current skill. Do not mention this gstack version again until the snooze expires.
 ```bash
 _SNOOZE_FILE="$HOME/.gstack/update-snoozed"
 _REMOTE_VER="{new}"
@@ -73,11 +89,11 @@ Note: `{new}` is the remote version from the `UPGRADE_AVAILABLE` output — subs
 
 Tell user the snooze duration: "Next reminder in 24h" (or 48h or 1 week, depending on level). Tip: "Set `auto_upgrade: true` in `~/.gstack/config.yaml` for automatic upgrades."
 
-**If "Never ask again":**
+**If "Disable gstack update checks":**
 ```bash
 ~/.claude/skills/gstack/bin/gstack-config set update_check false
 ```
-Tell user: "Update checks disabled. Run `~/.claude/skills/gstack/bin/gstack-config set update_check true` to re-enable."
+Tell user: "Gstack update checks disabled for this install. Run `~/.claude/skills/gstack/bin/gstack-config set update_check true` to re-enable."
 Continue with the current skill.
 
 ### Step 2: Detect install type
