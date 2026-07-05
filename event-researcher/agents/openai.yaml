@@ -1,0 +1,4 @@
+interface:
+  display_name: "Event Researcher"
+  short_description: "Research events into structured Markdown"
+  default_prompt: "Use $event-researcher to research this Luma event and save structured notes: <URL or event name>"
