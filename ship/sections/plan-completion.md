@@ -152,7 +152,9 @@ After producing the completion checklist, evaluate in priority order:
 
    **Per-item confirmation is mandatory.** Do NOT use a single AskUserQuestion to blanket-confirm all UNVERIFIABLE items. Blanket confirmation is the failure mode that surfaced in VAS-449 (user clicks A without opening any file). Instead:
 
-   - Loop through UNVERIFIABLE items one at a time.
+   - Maximum iterations: `min(number_of_UNVERIFIABLE_items, 5)`.
+   - Process each UNVERIFIABLE item exactly once, one at a time.
+   - Stop immediately on any `N`, unavailable user/tool response, or malformed answer, and resume only when the user explicitly re-runs `/ship` after fixing the missing work.
    - For each item, use AskUserQuestion with the item's *specific* manual check (e.g., "Confirm: does `~/Development/domain-hq/docs/dashboard.md` exist?", not "Have you checked all items?").
    - Options per item:
      Y) Confirmed done — cite what you verified (free-text, embedded in PR body)
