@@ -855,6 +855,20 @@ When the user types `/retro`, run this skill.
 
 
 
+## Step 0: gbrain goals context (run before git analysis)
+
+Pull the active goals pages from gbrain to measure shipped work against stated commitments — not just git log:
+
+```
+mcp__gbrain__get_page goals/weekly/2026-w{N}     ← current week's goals
+mcp__gbrain__get_page goals/monthly/YYYY-MM       ← month's commitments
+mcp__gbrain__list_pages type=task status=in_progress sort=updated_desc limit=10
+```
+
+Note which weekly goals had corresponding commits and which didn't. This becomes the "commitment vs shipped" section of the retro output.
+
+---
+
 ## Instructions
 
 Parse the argument to determine the time window. Default to 7 days if no argument given. All times should be reported in the user's **local timezone** (use the system default — do NOT set `TZ`).
@@ -1802,6 +1816,17 @@ When the user runs `/retro compare` (or `/retro compare 14d`):
 ## Important Rules
 
 - ALL narrative output goes directly to the user in the conversation. The ONLY file written is the `.context/retros/` JSON snapshot.
+
+## Step Final: capture findings to gbrain
+
+After the retro output is complete, invoke `signal-detector` in parallel — the "what we learned" and "3 habits for next week" sections qualify as original thinking and must be captured:
+
+```
+Invoke signal-detector with the key insights from the retro.
+Write target: signals/YYYY-MM-DD/retro-w{N}
+```
+
+Do NOT write the full retro to gbrain — only the distilled insights (patterns, surprises, decisions made).
 - Use `origin/<default>` for all git queries (not local main which may be stale)
 - Display all timestamps in the user's local timezone (do not override `TZ`)
 - If the window has zero commits, say so and suggest a different window

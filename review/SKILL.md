@@ -845,6 +845,19 @@ You are running the `/review` workflow. Analyze the current branch's diff agains
 
 ---
 
+## Step 0: gbrain task context
+
+**REQUIRED SUB-SKILL: Use `brain-ops` — look up any task or brief pages linked to this PR's feature before reading the diff.**
+
+```
+mcp__gbrain__list_pages type=task status=in_progress sort=updated_desc limit=5
+mcp__gbrain__search "<branch name or feature keyword>"
+```
+
+If a task page exists: pull its acceptance criteria and use them as an additional review lens alongside the checklist. Note any mismatches between what the task says should ship and what the diff actually ships.
+
+---
+
 ## Step 1: Check branch
 
 1. Run `git branch --show-current` to get the current branch.
@@ -1842,6 +1855,43 @@ staleness detection: if those files are later deleted, the learning can be flagg
 already knows. A good test: would this insight save time in a future session? If yes, log it.
 
 If the review exits early before a real review completes (for example, no diff against the base branch), do **not** write this entry.
+
+## Step Final: capture findings to gbrain
+
+After review completes, run both writes in parallel:
+
+**A — Signal capture (architectural insights)**
+If findings include non-trivial architectural observations, invoke `signal-detector`:
+```
+Write target: signals/YYYY-MM-DD/review-{branch-slug}
+```
+Skip for purely mechanical findings (formatting, null checks).
+
+**B — Task stub for CRITICAL unresolved findings**
+For any finding that remains `status: unresolved` AND severity `CRITICAL` after the Fix-First pass:
+```
+mcp__gbrain__put_page
+  slug: tasks/review-{branch-slug}-{fingerprint-short}
+  type: task
+  frontmatter:
+    status: open
+    priority: high
+    source: review
+    source_branch: <branch>
+    parent_meeting: null
+    parent_goal: null        ← Milo week ritual will wire this
+    due: <today + 3 days>
+    author: "anoop@hashdirectors.com // ghosty"
+  content: |
+    ## Finding
+    {finding title + one-line description}
+    ## Why it matters
+    {from the review's critical-pass rationale}
+    ## Suggested fix
+    {from Fix-First classification}
+```
+
+This makes critical findings visible to Milo's open ritual (Bucket B orphan tasks) and the week ritual's cascade-linking pass. Without this write, the finding dies in signals/.
 
 ## Important Rules
 

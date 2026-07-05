@@ -917,6 +917,20 @@ rm -f /tmp/.gstack-brain-context-$$.md 2>/dev/null || true
 `gstack/`, `concepts/` only). Personal/family/therapy content never leaks here.
 
 
+## Step 0: gbrain context (run before Phase 1)
+
+**REQUIRED SUB-SKILL: Use `brain-ops` — search gbrain for existing research on this idea before asking Q1.**
+
+```
+mcp__gbrain__search "<idea keyword>"           ← any prior takes, briefs, signals
+mcp__gbrain__search "<company/domain name>"    ← if idea targets a known market
+mcp__gbrain__list_pages type=signal sort=updated_desc limit=5  ← recent related signals
+```
+
+Surface what's already in the graph to the user before starting the diagnostic. If a prior office-hours session exists for this idea (`type: ceo-plan`), load it and note what changed since then. Skip questions that the graph already answers.
+
+---
+
 ## Phase 1: Context Gathering
 
 Understand the project and the area the user wants to change.
