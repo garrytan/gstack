@@ -2600,6 +2600,8 @@ stay agent judgment; the slot pick stays `gstack-next-version`.
 2. **Decide the bump level** from the diff (agent judgment):
    - **MICRO**: <50 lines, trivial tweaks/config. **PATCH**: 50+ lines, no feature signals.
    - **MINOR**: **ASK** if any feature signal (new route/page, migration, new module), OR 500+ lines. **MAJOR**: **ASK** — milestones or breaking changes only.
+
+   **Breaking-change check (overrides line counts):** before settling on MICRO/PATCH, scan the diff for changes to anything a consumer relies on — API response shapes, exported function signatures, config/env formats, DB schema used by other code, URL routes. A "patch" that changes behavior consumers relied on is a major change wearing a disguise (Hyrum's Law). **When unsure whether a change is breaking, assume it is and ASK** — a surprise major is far cheaper than a broken consumer.
    Save as `BUMP_LEVEL`. The level is the user-intended bump; queue-aware placement may advance the slot without changing the level.
 
 3. **Queue-aware pick** (workspace-aware ship):
@@ -2662,6 +2664,10 @@ stay agent judgment; the slot pick stays `gstack-next-version`.
    reflect all K themes.
 
 **Do NOT ask the user to describe changes.** Infer from the diff and commit history.
+
+**Going forward, write changelog entries WITH the change, not at ship time.** This step reconstructs impact from commit archaeology — half of it gets lost that way. When implementing, add the entry in the same commit that makes the change while the impact is fresh; this step then just consolidates.
+
+**Feature-flag hygiene (if the diff adds or touches flags):** every flag gets an owner and an expiration date noted in the CHANGELOG entry; flags are cleaned up within 2 weeks of full rollout; don't nest flags; CI must exercise both states. A flag that outlives its rollout is dead code wearing a disguise.
 
 ---
 

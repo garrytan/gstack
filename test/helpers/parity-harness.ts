@@ -234,7 +234,10 @@ const MONOLITH_INVARIANTS: ParityInvariant[] = [
     // cross-session decision-memory nudge) lands this skill just over the strict 1.05;
     // headroom for the shared preamble additions (matches the carved-skill overrides).
     // v1.2.0 activation lift adds the first-run-guidance section on top.
-    maxSizeRatio: 1.09,
+    // Phase-1 hardening adds the untrusted-error-output guard, git-bisect regression
+    // workflow, and non-reproducible-bug taxonomy (~700B, adapted from
+    // addyosmani/agent-skills, MIT) — intentional security/methodology content.
+    maxSizeRatio: 1.11,
     minBytes: 30_000,
   },
   {
