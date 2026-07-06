@@ -582,6 +582,16 @@ describe('GitLab support in generated skills', () => {
   test('ship checks .gitlab-ci.yml', () => {
     expect(shipSkillContent).toContain('.gitlab-ci.yml');
   });
+
+  test('ship documents ai-dev-toolkit DK replacement boundary', () => {
+    expect(shipSkillContent).toContain('idlefish-ecom-core-aiharness/ai-dev-toolkit');
+    expect(shipSkillContent).toContain('uni-brain -> master');
+    expect(shipSkillContent).toContain('SOURCE_HEAD=$(git rev-parse HEAD)');
+    expect(shipSkillContent).toContain('git restore --source="$SOURCE_HEAD" --staged --worktree -- kb');
+    expect(shipSkillContent).toContain('manually union the human-entered data');
+    expect(shipSkillContent).toContain('never overwrite the `uni-brain` copy silently');
+    expect(shipSkillContent).toContain("git ls-files 'kb/*/wiki/**' | wc -l");
+  });
 });
 
 /**

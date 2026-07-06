@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.58.6.0] - 2026-07-06
+
+## **/ship can now land ai-dev-toolkit DK branches without erasing the work that made them worth landing.**
+## **It merges master for code, restores the KB DK tree to the source branch, and preserves only hand-entered idleitem experience.**
+
+When `/ship` handles the `idlefish-ecom-core-aiharness/ai-dev-toolkit` `uni-brain -> master` path, it now treats DK as a protected source-of-truth tree instead of ordinary merge material. The workflow still merges `master` so code, config, and tests are checked against the current base. Then it restores `kb/**` back to the source branch HEAD, carries over only `kb/idleitem/experience/**`, and stops if the same experience file changed on both sides so the human-entered data can be unioned deliberately.
+
+That protects the DK logic that took real work to build: actions, rules, glossary, review artifacts, state, diagnostics, runs, and canonical JSON/YAML all stay exactly as the source branch authored them. Generated `kb/*/wiki/**` output stays ignored and untracked. The result is a ship flow that can keep master fresh without quietly replacing the branch's DK brain with stale base content.
+
+### Itemized changes
+
+#### Changed
+- **ai-dev-toolkit DK merge protocol in `/ship`:** the repo-specific `uni-brain -> master` path now captures `SOURCE_HEAD`, performs a normal base merge, restores `kb/**` from `SOURCE_HEAD`, and preserves only `kb/idleitem/experience/**` from both sides.
+- **Experience handling is explicit:** master-only experience files can be carried over; same-path experience conflicts must stop for a manual union instead of silently overwriting the `uni-brain` copy.
+- **Boundary verification is part of the skill:** `/ship` now requires checks that non-experience `kb/**` is unchanged from `SOURCE_HEAD`, `kb` has no unmerged entries, and `kb/*/wiki/**` remains untracked.
+
+#### For contributors
+- Regenerated the Claude, Codex, and Factory `/ship` skill outputs plus their golden baselines.
+- Added generation coverage so the ai-dev-toolkit DK replacement boundary cannot drop out of `/ship` silently.
+
 ## [1.58.5.0] - 2026-06-21
 
 ## **A fresh install now lands on a concrete first move, not a dead end.**

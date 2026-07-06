@@ -981,6 +981,36 @@ Fetch and merge the base branch into the feature branch so tests run against the
 git fetch origin <base> && git merge origin/<base> --no-edit
 ```
 
+**Repo-specific DK replacement protocol (`idlefish-ecom-core-aiharness/ai-dev-toolkit`, `uni-brain -> master`):**
+Do not use generic merge semantics for KB DK content. Merge `master` normally for code/config/test changes, but protect the DK tree from losing the logic already built on `uni-brain`: capture the current branch HEAD before merging, restore `kb/**` back to that source HEAD after the merge, then preserve only user-entered `kb/idleitem/experience/**` from both sides.
+
+Use this protocol instead of leaving the raw merge result for `kb/**`:
+
+```bash
+SOURCE_HEAD=$(git rev-parse HEAD)
+git fetch origin <base>
+git merge --no-commit --no-ff origin/<base> || true
+git restore --source="$SOURCE_HEAD" --staged --worktree -- kb
+```
+
+Then handle only `kb/idleitem/experience/**`:
+
+- If an experience file exists only on `origin/<base>`, restore it from `origin/<base>`.
+- If an experience file exists on both sides with different content, **STOP** and manually union the human-entered data; never overwrite the `uni-brain` copy silently.
+- Keep every other `kb/**` DK/canonical path exactly as `SOURCE_HEAD`, including actions, rules, glossary, review, state, diagnostics, runs, canonical JSON/YAML, and master-side DK files missing from `uni-brain`.
+- Keep `kb/*/wiki/**` ignored/untracked.
+
+Before tests, verify the DK boundary:
+
+```bash
+git diff --name-status "$SOURCE_HEAD" -- 'kb/**' ':(exclude)kb/idleitem/experience/**'
+git diff --name-status "$SOURCE_HEAD" -- 'kb/idleitem/experience/**'
+git ls-files -u -- kb
+git ls-files 'kb/*/wiki/**' | wc -l
+```
+
+The first command must be empty. The second command may show only preserved experience entries. The third command must be empty. The fourth command must print `0`.
+
 **If there are merge conflicts:** Try to auto-resolve if they are simple (VERSION, schema.rb, CHANGELOG ordering). If conflicts are complex or ambiguous, **STOP** and show them.
 
 **If already up to date:** Continue silently.
