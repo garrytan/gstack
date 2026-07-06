@@ -1396,11 +1396,11 @@ cat "$TMPERR_DESIGN" && rm -f "$TMPERR_DESIGN"
 Dispatch a subagent with this prompt:
 "Read the plan file at [plan-file-path]. You are an independent senior product designer reviewing this plan. You have NOT seen any prior review. Evaluate:
 
-1. Information hierarchy: what does the user see first, second, third? Is it right?
-2. Missing states: loading, empty, error, success, partial — which are unspecified?
-3. User journey: what's the emotional arc? Where does it break?
-4. Specificity: does the plan describe SPECIFIC UI ("48px Söhne Bold header, #1a1a1a on white") or generic patterns ("clean modern card-based layout")?
-5. What design decisions will haunt the implementer if left ambiguous?
+  1. Information hierarchy: what does the user see first, second, third? Is it right?
+  2. Missing states: loading, empty, error, success, partial — which are unspecified?
+  3. User journey: what's the emotional arc? Where does it break?
+  4. Specificity: does the plan describe SPECIFIC UI ("48px Söhne Bold header, #1a1a1a on white") or generic patterns ("clean modern card-based layout")?
+  5. What design decisions will haunt the implementer if left ambiguous?
 
 For each finding: what's wrong, severity (critical/high/medium), and the fix."
 
