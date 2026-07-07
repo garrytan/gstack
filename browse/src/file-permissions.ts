@@ -37,6 +37,7 @@
  */
 
 import { execFileSync } from 'child_process';
+import { randomBytes } from 'crypto';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -139,16 +140,16 @@ export function writeSecureFile(
  *
  * Same-directory is load-bearing: a temp file on another filesystem would make
  * `rename` fall back to copy+unlink, which is NOT atomic. The temp name embeds
- * the pid so two daemons racing the same destination don't clobber each other's
- * temp file before their own rename (the destination itself still needs a lock
- * — this only guarantees each write is individually atomic).
+ * the pid plus random bytes so racing writes never share a staging path (the
+ * destination itself still needs a lock — this only guarantees each write is
+ * individually atomic).
  */
 export function writeSecureFileAtomic(
   filePath: string,
   data: string | NodeJS.ArrayBufferView,
 ): void {
   const dir = path.dirname(filePath);
-  const tmp = path.join(dir, `.${path.basename(filePath)}.${process.pid}.tmp`);
+  const tmp = path.join(dir, `.${path.basename(filePath)}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`);
   let fd: number | null = null;
   try {
     fd = fs.openSync(tmp, 'w', 0o600);
