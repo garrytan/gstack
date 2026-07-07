@@ -94,11 +94,17 @@ function findSizeTable() {
     if (table) return { table, source: section.dataset.testid };
   }
 
-  // 4. Broad fallback: a table whose text content looks like a size chart
+  // 4. Broad fallback: a table whose text content looks like a size chart.
+  // Require at least two distinct size tokens to reduce false positives.
   for (const table of document.querySelectorAll('table')) {
-    if (/\b(eu|uk|us|xs|s\b|\bm\b|\bl\b|xl|xxl|chest|waist|hip|inseam|size)\b/i.test(table.textContent)) {
-      return { table, source: 'heuristic-fallback' };
-    }
+    const text = table.textContent;
+    const matches = [
+      /\b(EU|UK|US)\b/.test(text),
+      /\b(XS|XXS|XL|XXL|XXXL)\b/.test(text),
+      /\b(chest|waist|hip|inseam)\b/i.test(text),
+      /\b(size guide|Größe|taille)\b/i.test(text),
+    ].filter(Boolean).length;
+    if (matches >= 2) return { table, source: 'heuristic-fallback' };
   }
 
   return null;

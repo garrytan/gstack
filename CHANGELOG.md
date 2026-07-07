@@ -1,5 +1,35 @@
 # Changelog
 
+## [1.58.6.0] - 2026-07-07
+
+## **The gstack browser extension can now read Zalando size charts.**
+## **Stable selectors, modal-aware two-step parsing, 16 country TLDs covered.**
+
+Zalando's CSS class names are build-time hashed and change on every deploy, which made every class-based selector brittle. This release adds a dedicated Zalando content script that uses only `data-testid` attributes — the one stable surface Zalando exposes — to locate size information. When no table is already in the DOM (which is the common case, since the size guide lives behind a click), the parser clicks the Size Guide link automatically and waits 700ms for the React modal to render before parsing. Available sizes are extracted from the size picker independently of the chart, so even products without a size guide return the in-stock options. The extension's background service worker routes `parseZalandoSizeChart` messages to the content script on the active tab, with a clear error when you're not on a product page.
+
+### The numbers that matter
+
+Source: DOM structure analysis of zalando.de product pages (no live measurement yet — this is a new capability).
+
+| Signal | Before | After | Δ |
+|--------|--------|-------|---|
+| Zalando size chart readable | No | Yes | fixed |
+| Country TLDs covered | 0 | 16 | +16 |
+| Stable selector strategy | — | data-testid only | — |
+| Fallback for modal-gated charts | — | auto-click + 700ms wait | — |
+| Available sizes (even without chart) | — | extracted from size picker | — |
+
+### What this means for you
+
+If you use the gstack browser extension to inspect Zalando product pages, you can now request the size chart and get back a structured table with headers and rows. The parser works across all European Zalando TLDs and handles both the size picker ("what's currently in stock") and the full size guide table. Load any Zalando product page, open the extension, and send a `parseZalandoSizeChart` message from the sidebar — or call it from any extension context.
+
+### Itemized changes
+
+#### Added
+- `extension/zalando-parser.js`: dedicated Zalando content script. Parses available sizes from `[data-testid="pdp-size-picker"]`, finds size chart tables via accordion `data-testid` attributes or open dialogs, and clicks the Size Guide link + waits for modal render when no table is already visible.
+- `extension/manifest.json`: second `content_scripts` entry targeting all 16 Zalando country TLDs (`*.zalando.de`, `.co.uk`, `.fr`, `.it`, `.es`, `.nl`, `.be`, `.pl`, `.se`, `.fi`, `.dk`, `.no`, `.ch`, `.at`, `.ie`, `.pt`).
+- `extension/background.js`: `parseZalandoSizeChart` added to the `ALLOWED_TYPES` security allowlist, plus a routing handler that forwards the message to the active tab's content script.
+
 ## [1.58.5.0] - 2026-06-21
 
 ## **A fresh install now lands on a concrete first move, not a dead end.**
