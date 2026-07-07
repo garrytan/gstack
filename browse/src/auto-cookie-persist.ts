@@ -258,12 +258,21 @@ export function loadAutoCookieState(
 ): { cookies: Cookie[]; origins: [] } | null {
   if (!isAutoCookiePersistEnabled()) return null;
   const file = statePath(config);
-  let parsed: AutoCookieState;
+  let raw: string;
   try {
     if (!fs.existsSync(file)) return null;
-    parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as AutoCookieState;
+    raw = fs.readFileSync(file, 'utf-8');
+  } catch (err: any) {
+    // A read error here (e.g. EACCES) is NOT the benign corrupt-file case — the
+    // device cookie silently won't restore, so surface it rather than swallow.
+    console.warn(`[browse] auto-cookie state unreadable (${err?.code || err?.message}); starting without persisted cookies`);
+    return null;
+  }
+  let parsed: AutoCookieState;
+  try {
+    parsed = JSON.parse(raw) as AutoCookieState;
   } catch {
-    return null; // corrupt — ignore (a later save will overwrite it)
+    return null; // corrupt JSON — ignore (a later save overwrites it)
   }
   if (!parsed || parsed.kind !== STATE_KIND || parsed.version !== STATE_VERSION) return null;
   if (parsed.workspaceId !== computeProfileId(config)) return null;
