@@ -215,12 +215,39 @@ export function acquireLock(config: BrowseConfig): boolean {
   return true;
 }
 
+function readProcessStartTimeMs(pid: number): number | null {
+  if (process.platform === 'win32') return null;
+  try {
+    const result = Bun.spawnSync(['ps', '-p', String(pid), '-o', 'lstart='], {
+      stdout: 'pipe', stderr: 'pipe', timeout: 2000,
+    });
+    if (result.exitCode !== 0) return null;
+    const parsed = Date.parse(result.stdout.toString().trim());
+    return Number.isFinite(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function isRecordedOwnerStillAlive(meta: LockMeta): boolean {
+  if (typeof meta.pid !== 'number' || meta.pid <= 0) return false;
+  if (meta.pid === process.pid) return true;
+  if (!isProcessAlive(meta.pid)) return false;
+
+  const recordedMs = Date.parse(meta.startedAt);
+  const liveStartMs = readProcessStartTimeMs(meta.pid);
+  if (Number.isFinite(recordedMs) && liveStartMs !== null && liveStartMs > recordedMs) {
+    return false;
+  }
+  return true;
+}
+
 /** Reclaim a lock dir iff its recorded owner pid is no longer alive. */
 function reclaimIfStale(dir: string): boolean {
   try {
     const raw = fs.readFileSync(path.join(dir, 'owner.json'), 'utf-8');
     const meta = JSON.parse(raw) as LockMeta;
-    if (typeof meta.pid === 'number' && meta.pid > 0 && isProcessAlive(meta.pid)) {
+    if (isRecordedOwnerStillAlive(meta)) {
       return false; // live owner — do not steal
     }
   } catch {

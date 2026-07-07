@@ -181,6 +181,24 @@ describe('workspace lock', () => {
     expect(acquireLock(cfg)).toBe(true);
     releaseLock(cfg);
   });
+
+  test('reclaims a lock whose pid was reused by a newer process', () => {
+    if (process.platform === 'win32') return;
+    const cfg = tmpConfig();
+    const lockDir = path.join(cfg.stateDir, 'browse-auto-cookies', `${computeProfileId(cfg)}.lock`);
+    fs.mkdirSync(lockDir, { recursive: true });
+    const proc = Bun.spawn(['sleep', '5'], { stdout: 'ignore', stderr: 'ignore' });
+    try {
+      fs.writeFileSync(path.join(lockDir, 'owner.json'), JSON.stringify({
+        pid: proc.pid,
+        startedAt: '1970-01-01T00:00:00.000Z',
+      }));
+      expect(acquireLock(cfg)).toBe(true);
+      releaseLock(cfg);
+    } finally {
+      proc.kill();
+    }
+  });
 });
 
 describe('save → load round-trip (real Playwright)', () => {
