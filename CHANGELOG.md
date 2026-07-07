@@ -1,5 +1,33 @@
 # Changelog
 
+## [1.58.6.0] - 2026-07-07
+
+## **`/codex` and `/autoplan` now recognize any provider in your `codex` config, not just OpenAI's.**
+## **Custom OpenAI-compatible setups (mimo, self-hosted, proxies) no longer hit a hard auth-failed wall.**
+
+The auth probe in `bin/gstack-codex-probe` only checked three hardcoded signals — `$CODEX_API_KEY`, `$OPENAI_API_KEY`, and `~/.codex/auth.json`. Anyone running a self-hosted LLM, a proxy, or a non-OpenAI OpenAI-compatible service (mimo, internal gateways) configured their auth via `~/.codex/config.toml`'s `[model_providers.*].env_key`, which the probe ignored. The result: `codex` worked fine in the terminal, but `/codex` (and `/autoplan`, which shares the probe) hit `AUTH_FAILED` in Step 0.5 and bailed out before the diff was read. This release parses every `env_key` in your codex config and treats any of those env vars being non-empty as auth OK. New providers need zero code changes — just add the `[model_providers.*]` block you already use.
+
+### The numbers that matter
+
+No measurement yet — the change is correctness-only and we have no baseline for how often users with custom providers hit this.
+
+### What this means for users with custom LLM providers
+
+If you're running mimo, a self-hosted OpenAI-compatible gateway, or any other non-OpenAI provider configured through `~/.codex/config.toml`, `/codex` and `/autoplan` now work without forking gstack or losing probe coverage on every `gstack-upgrade`. OpenAI and ChatGPT users see no behavior change — the original three auth signals still short-circuit before the TOML parse. To verify your setup is recognized, run `/codex` once after upgrading; if your `codex` works in the terminal, the skill will too.
+
+### Itemized changes
+
+#### Added
+- `_gstack_codex_auth_probe` in `bin/gstack-codex-probe` falls back to parsing `~/.codex/config.toml` for any `[model_providers.*].env_key` and checks the corresponding env var. A non-empty match returns `AUTH_OK`. Lets users with mimo, self-hosted, or proxy providers run `/codex` and `/autoplan` without forking gstack.
+
+#### Changed
+- The auth probe's contract widens: any provider codex itself can authenticate to is now recognized. OpenAI and ChatGPT paths are unchanged (their three original signals still short-circuit before the TOML parse).
+- The TOML parse strips comment lines first (`grep -v '^[[:space:]]*#'`) so stale commented-out `# env_key = "OLD"` entries don't cause false `AUTH_OK` on configs where the user left old providers as comments.
+
+#### For contributors
+- 7 new test cases in `test/codex-hardening.test.ts` cover: env_key hit + env set, env_key hit + env unset, env_key hit + env whitespace-only, multiple providers with one match, config.toml present but env absent (negative path), commented-out env_key (must NOT match), and malformed TOML (must not crash, returns AUTH_FAILED). Total auth-probe tests: 15 (8 original + 7 new). No new helpers — all reuse `tempHome()` and `runProbe()`.
+- Known limitation documented in the probe source: `env_key` outside `[model_providers.*]` tables (e.g., in a `[some_other_feature]` section) would also match. Real Codex configs don't use `env_key` outside `model_providers`, so we accept this as a documented tradeoff rather than adding a TOML section tracker. A follow-up can add `awk`-based section tracking if real-world configs prove this matters.
+
 ## [1.58.5.0] - 2026-06-21
 
 ## **A fresh install now lands on a concrete first move, not a dead end.**

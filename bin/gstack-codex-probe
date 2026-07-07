@@ -29,6 +29,35 @@ _gstack_codex_auth_probe() {
     echo "AUTH_OK"
     return 0
   fi
+
+  # Custom provider fallback: parse ~/.codex/config.toml for any
+  # [model_providers.*].env_key and check the corresponding env var. Lets
+  # users with self-hosted / proxy / mimo-style providers run /codex without
+  # code changes. New providers need zero probe edits — just add the
+  # [model_providers.*] block you already use.
+  #
+  # Comment lines are stripped first (grep -v '^[[:space:]]*#') so stale
+  # commented-out `# env_key = "OLD"` entries don't cause false AUTH_OK.
+  #
+  # Known limitation: env_key outside [model_providers.*] tables (e.g., in a
+  # [some_other_feature] section) would also match. Real Codex configs don't
+  # use env_key outside model_providers, so we accept this as a documented
+  # tradeoff rather than adding a TOML section tracker.
+  if [ -f "$_codex_home/config.toml" ]; then
+    local _env_key _resolved
+    while IFS= read -r _env_key; do
+      [ -z "$_env_key" ] && continue
+      _resolved=$(printf '%s' "${!_env_key:-}" | tr -d '[:space:]')
+      if [ -n "$_resolved" ]; then
+        echo "AUTH_OK"
+        return 0
+      fi
+    done < <(grep -v '^[[:space:]]*#' "$_codex_home/config.toml" 2>/dev/null \
+             | grep -oE 'env_key[[:space:]]*=[[:space:]]*"?[A-Za-z_][A-Za-z0-9_]*"?' \
+             | sed -E 's/.*=[[:space:]]*"?([A-Za-z_][A-Za-z0-9_]*)"?/\1/' \
+             | sort -u)
+  fi
+
   echo "AUTH_FAILED"
   return 1
 }
