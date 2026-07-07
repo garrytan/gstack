@@ -18,11 +18,34 @@
   "background": {
     "service_worker": "background.js"
   },
-  "content_scripts": [{
-    "matches": ["<all_urls>"],
-    "js": ["content.js"],
-    "css": ["content.css"]
-  }],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "css": ["content.css"]
+    },
+    {
+      "matches": [
+        "*://*.zalando.de/*",
+        "*://*.zalando.co.uk/*",
+        "*://*.zalando.fr/*",
+        "*://*.zalando.it/*",
+        "*://*.zalando.es/*",
+        "*://*.zalando.nl/*",
+        "*://*.zalando.be/*",
+        "*://*.zalando.pl/*",
+        "*://*.zalando.se/*",
+        "*://*.zalando.fi/*",
+        "*://*.zalando.dk/*",
+        "*://*.zalando.no/*",
+        "*://*.zalando.ch/*",
+        "*://*.zalando.at/*",
+        "*://*.zalando.ie/*",
+        "*://*.zalando.pt/*"
+      ],
+      "js": ["zalando-parser.js"]
+    }
+  ],
   "icons": {
     "16": "icons/icon-16.png",
     "48": "icons/icon-48.png",

@@ -291,7 +291,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     // Inspector message types
     'startInspector', 'stopInspector', 'elementPicked', 'pickerCancelled',
     'applyStyle', 'toggleClass', 'injectCSS', 'resetAll',
-    'inspectResult'
+    'inspectResult',
+    // Zalando size chart parser
+    'parseZalandoSizeChart',
   ]);
   if (!ALLOWED_TYPES.has(msg.type)) {
     console.warn('[gstack] Rejected unknown message type:', msg.type);
@@ -426,6 +428,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const tabId = tabs?.[0]?.id;
       if (!tabId) { sendResponse({ error: 'No active tab' }); return; }
       sendToContentScript(tabId, msg).then(result => sendResponse(result));
+    });
+    return true;
+  }
+
+  // Zalando size chart: forward to content script on active tab
+  if (msg.type === 'parseZalandoSizeChart') {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      const tabId = tabs?.[0]?.id;
+      if (!tabId) { sendResponse({ error: 'No active tab' }); return; }
+      chrome.tabs.sendMessage(tabId, { type: 'parseZalandoSizeChart' })
+        .then(result => sendResponse(result))
+        .catch(err => sendResponse({ error: `Parser unavailable — is this a Zalando product page? (${err.message})` }));
     });
     return true;
   }
