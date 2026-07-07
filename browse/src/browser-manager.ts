@@ -254,6 +254,14 @@ export class BrowserManager {
 
   getConnectionMode(): 'launched' | 'headed' { return this.connectionMode; }
 
+  /**
+   * The live browser context, or null before launch / after close. Exposed for
+   * the auto-cookie-persist layer (server.ts) to snapshot cookies on a
+   * checkpoint without reaching into private state. Callers must null-check —
+   * a checkpoint can fire between close() and the next launch().
+   */
+  getContext(): import('playwright').BrowserContext | null { return this.context; }
+
   // ─── Watch Mode Methods ─────────────────────────────────
   isWatching(): boolean { return this.watching; }
 
@@ -401,6 +409,27 @@ export class BrowserManager {
     if (this.customUserAgent) {
       contextOptions.userAgent = this.customUserAgent;
     }
+
+    // Auto-cookie persistence (opt-in): seed the fresh context with previously
+    // persisted cookies so a device-trust cookie survives a daemon restart.
+    // Read-only + best-effort — the writer path (server.ts) owns the lock; a
+    // concurrent read of an atomically-written file is always a complete file.
+    // recreateContext() does NOT go through here (it restores in-memory state
+    // itself), so there's no double-restore.
+    try {
+      const { resolveConfig } = await import('./config');
+      const { loadAutoCookieState, warnPlaintextOnce } = await import('./auto-cookie-persist');
+      const cfg = resolveConfig();
+      warnPlaintextOnce(cfg);
+      const restored = loadAutoCookieState(cfg);
+      if (restored && restored.cookies.length > 0) {
+        contextOptions.storageState = restored;
+        console.log(`[browse] Restored ${restored.cookies.length} persisted cookie(s) from auto-state`);
+      }
+    } catch {
+      // Never block launch on the persistence layer.
+    }
+
     this.context = await this.browser.newContext(contextOptions);
 
     if (Object.keys(this.extraHeaders).length > 0) {
