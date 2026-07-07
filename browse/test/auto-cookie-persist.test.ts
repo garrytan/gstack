@@ -100,9 +100,20 @@ describe('cookie filter', () => {
   test('rejects internal-network domains', () => {
     const kept = filterPersistableCookies([
       cookie({ name: 'lh', domain: 'localhost' }),
+      cookie({ name: 'lh2', domain: 'LOCALHOST' }),
       cookie({ name: 'meta', domain: '169.254.169.254' }),
       cookie({ name: 'int', domain: 'foo.internal' }),
+      cookie({ name: 'int2', domain: 'Foo.INTERNAL' }),
       cookie({ name: 'ok', domain: 'example.com' }),
+    ], null);
+    expect(kept.map(c => c.name)).toEqual(['ok']);
+  });
+
+  test('rejects malformed expires values', () => {
+    const kept = filterPersistableCookies([
+      cookie({ name: 'nan', expires: Number.NaN }),
+      cookie({ name: 'inf', expires: Number.POSITIVE_INFINITY }),
+      cookie({ name: 'ok' }),
     ], null);
     expect(kept.map(c => c.name)).toEqual(['ok']);
   });

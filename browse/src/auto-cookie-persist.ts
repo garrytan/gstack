@@ -133,6 +133,11 @@ function lockPath(config: BrowseConfig): string {
   return path.join(autoDir(config), `${computeProfileId(config)}.lock`);
 }
 
+function normalizeCookieDomain(domain: string): string {
+  const d = domain.startsWith('.') ? domain.slice(1) : domain;
+  return d.toLowerCase();
+}
+
 /**
  * Keep only cookies that are safe and sensible to persist:
  *  - persistent (expires !== -1) and not already expired,
@@ -150,9 +155,9 @@ export function filterPersistableCookies(
     if (!c || typeof c.name !== 'string' || typeof c.value !== 'string') return false;
     if (typeof c.domain !== 'string' || !c.domain) return false;
     // Session cookie — Playwright reports expires === -1. Never persist.
-    if (typeof c.expires !== 'number' || c.expires === -1) return false;
+    if (typeof c.expires !== 'number' || c.expires === -1 || !Number.isFinite(c.expires)) return false;
     if (c.expires <= nowSec) return false; // already expired
-    const d = c.domain.startsWith('.') ? c.domain.slice(1) : c.domain;
+    const d = normalizeCookieDomain(c.domain);
     if (d === 'localhost' || d.endsWith('.internal') || d === '169.254.169.254') return false;
     if (allowlist && !hostMatchesAllowlist(c.domain, allowlist)) return false;
     return true;
