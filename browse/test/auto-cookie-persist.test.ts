@@ -34,6 +34,7 @@ import { writeSecureFileAtomic } from '../src/file-permissions';
 
 const META = fs.readFileSync(path.join(import.meta.dir, '../src/server.ts'), 'utf-8');
 const BM = fs.readFileSync(path.join(import.meta.dir, '../src/browser-manager.ts'), 'utf-8');
+const PICKER = fs.readFileSync(path.join(import.meta.dir, '../src/cookie-picker-routes.ts'), 'utf-8');
 
 function tmpConfig(): BrowseConfig {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'auto-cookie-'));
@@ -319,5 +320,23 @@ describe('wiring (static)', () => {
     const newCtxIdx = BM.indexOf('this.context = await this.browser.newContext(contextOptions);');
     expect(loadIdx).toBeGreaterThan(0);
     expect(newCtxIdx).toBeGreaterThan(loadIdx); // restore assigned into contextOptions before use
+  });
+
+  test('debounced command checkpoint runs after dispatch and covers real mutators', () => {
+    expect(META).toContain('WRITE_COMMANDS.has(command)');
+    expect(META).toContain("'js', 'eval'");
+    expect(META).toContain("'chain', 'state', 'newtab', 'tab-each'");
+    expect(META).not.toContain("'set-cookie'");
+    const canonicalIdx = META.indexOf('const command = canonicalizeCommand(rawCommand);');
+    const dispatchIdx = META.indexOf('if (READ_COMMANDS.has(command))', canonicalIdx);
+    const scheduleIdx = META.indexOf('// Auto-cookie checkpoint (opt-in): schedule after', dispatchIdx);
+    expect(dispatchIdx).toBeGreaterThan(canonicalIdx);
+    expect(scheduleIdx).toBeGreaterThan(dispatchIdx);
+  });
+
+  test('cookie picker imports/removals schedule auto-cookie persistence', () => {
+    expect(META).toContain('handleCookiePickerRoute(url, req, browserManager, authToken, scheduleAutoCookieCheckpoint)');
+    expect(PICKER).toContain('onCookieMutation?: () => void');
+    expect(PICKER.match(/onCookieMutation\?\.\(\)/g)?.length).toBe(2);
   });
 });

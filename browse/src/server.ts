@@ -666,11 +666,24 @@ const idleCheckInterval = setInterval(idleCheckTick, 60_000);
 let autoCookieLockHeld = false;
 let autoCookieLastHash: string | null = null;
 let autoCookieDebounce: ReturnType<typeof setTimeout> | null = null;
+let autoCookieCheckpointInFlight: Promise<void> | null = null;
 
 async function autoCookieCheckpoint(): Promise<void> {
+  while (autoCookieCheckpointInFlight) {
+    await autoCookieCheckpointInFlight;
+  }
   if (!autoCookieLockHeld) return; // never write without owning the lock
-  const res = await saveAutoCookieState(config, activeBrowserManager.getContext(), autoCookieLastHash);
-  autoCookieLastHash = res.hash;
+  const run = (async () => {
+    if (!autoCookieLockHeld) return;
+    const res = await saveAutoCookieState(config, activeBrowserManager.getContext(), autoCookieLastHash);
+    if (autoCookieLockHeld) autoCookieLastHash = res.hash;
+  })();
+  autoCookieCheckpointInFlight = run;
+  try {
+    await run;
+  } finally {
+    if (autoCookieCheckpointInFlight === run) autoCookieCheckpointInFlight = null;
+  }
 }
 
 // Debounced checkpoint: coalesces bursts of mutating commands into one write a
@@ -692,9 +705,13 @@ if (typeof autoCookieInterval.unref === 'function') autoCookieInterval.unref();
 
 // Commands that can mutate cookies/browser state and thus warrant a checkpoint.
 const AUTO_COOKIE_MUTATING_COMMANDS = new Set([
-  'goto', 'click', 'fill', 'type', 'press', 'select', 'reload', 'back', 'forward',
-  'chain', 'state', 'cookie-picker', 'set-cookie',
+  'chain', 'state', 'newtab', 'tab-each',
+  'js', 'eval',
 ]);
+
+function shouldAutoCookieCheckpoint(command: string): boolean {
+  return WRITE_COMMANDS.has(command) || AUTO_COOKIE_MUTATING_COMMANDS.has(command);
+}
 
 // Test-only surface for server-factory.test.ts. Lets the dual-instance
 // idle-timer behavior be exercised deterministically without mutating
@@ -1006,14 +1023,7 @@ async function handleCommandInternalImpl(
   // so the trail records what the agent actually typed.
   const command = canonicalizeCommand(rawCommand);
   const isAliased = command !== rawCommand;
-
-  // Auto-cookie checkpoint (opt-in): a mutating command may have changed
-  // cookies. Schedule a debounced checkpoint — the 1.5s debounce means the
-  // capture runs after the command has actually applied. No-op unless the lock
-  // is held. Skip nested chain subcommands: the outer chain already scheduled.
-  if ((opts?.chainDepth ?? 0) === 0 && AUTO_COOKIE_MUTATING_COMMANDS.has(command)) {
-    scheduleAutoCookieCheckpoint();
-  }
+  const shouldCheckpointAutoCookies = (opts?.chainDepth ?? 0) === 0 && shouldAutoCookieCheckpoint(command);
 
   // ─── Recursion guard: reject nested chains ──────────────────
   if (command === 'chain' && (opts?.chainDepth ?? 0) > 0) {
@@ -1113,6 +1123,7 @@ async function handleCommandInternalImpl(
   // ─── newtab with ownership for scoped tokens ──────────────
   if (command === 'newtab' && tokenInfo && tokenInfo.clientId !== 'root') {
     const newId = await browserManager.newTab(args[0] || undefined, tokenInfo.clientId);
+    if (shouldCheckpointAutoCookies) scheduleAutoCookieCheckpoint();
     return {
       status: 200, json: true,
       result: JSON.stringify({
@@ -1240,6 +1251,11 @@ async function handleCommandInternalImpl(
       };
     }
 
+    // Auto-cookie checkpoint (opt-in): schedule after the command attempt has
+    // actually run, so slow navigations/login redirects do not snapshot the
+    // pre-command cookie jar. No-op unless the lock is held.
+    if (shouldCheckpointAutoCookies) scheduleAutoCookieCheckpoint();
+
     // ─── Centralized content wrapping (single location for all commands) ───
     // Scoped tokens: content filter + enhanced envelope + datamarking
     // Root tokens: basic untrusted content wrapper (backward compat)
@@ -1311,6 +1327,8 @@ async function handleCommandInternalImpl(
     }
     return { status: 200, result };
   } catch (err: any) {
+    if (shouldCheckpointAutoCookies) scheduleAutoCookieCheckpoint();
+
     // Restore original active tab even on error
     if (savedTabId !== null) {
       try { browserManager.switchTab(savedTabId, { bringToFront: false }); } catch (restoreErr: any) {
@@ -1803,7 +1821,7 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
 
       // Cookie picker routes — HTML page unauthenticated, data/action routes require auth
       if (url.pathname.startsWith('/cookie-picker')) {
-        return handleCookiePickerRoute(url, req, browserManager, authToken);
+        return handleCookiePickerRoute(url, req, browserManager, authToken, scheduleAutoCookieCheckpoint);
       }
 
       // Welcome page — served when GStack Browser launches in headed mode

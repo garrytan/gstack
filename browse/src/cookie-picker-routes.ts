@@ -110,6 +110,7 @@ export async function handleCookiePickerRoute(
   req: Request,
   bm: BrowserManager,
   authToken?: string,
+  onCookieMutation?: () => void,
 ): Promise<Response> {
   const pathname = url.pathname;
   const port = parseInt(url.port, 10) || 9400;
@@ -268,6 +269,7 @@ export async function handleCookiePickerRoute(
       // Add to Playwright context
       const page = bm.getActiveSession().getPage();
       await page.context().addCookies(result.cookies);
+      onCookieMutation?.();
 
       // Track what was imported
       for (const domain of Object.keys(result.domainCounts)) {
@@ -305,6 +307,7 @@ export async function handleCookiePickerRoute(
         importedDomains.delete(domain);
         importedCounts.delete(domain);
       }
+      onCookieMutation?.();
 
       console.log(`[cookie-picker] Removed cookies for ${domains.length} domains`);
 
