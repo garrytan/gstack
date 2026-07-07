@@ -39,6 +39,7 @@
 import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
+import * as path from 'path';
 
 let warnedOnce = false;
 
@@ -121,6 +122,53 @@ export function writeSecureFile(
 ): void {
   fs.writeFileSync(filePath, data, { mode: 0o600 });
   restrictFilePermissions(filePath);
+}
+
+/**
+ * Atomically write a file and restrict it to owner-only access, cross-platform.
+ *
+ * `writeSecureFile` writes in place, so a crash (or a concurrent reader)
+ * mid-write can observe a truncated/half-written file. For state that is
+ * rewritten repeatedly by a long-lived daemon — e.g. the auto-cookie state,
+ * which checkpoints on every mutating command — a torn write means the next
+ * load reads corrupt JSON and silently drops a live auth cookie. This variant
+ * writes to a same-directory temp file (owner-only), best-effort fsyncs it,
+ * then `rename`s over the destination. `rename` within a directory is atomic
+ * on POSIX and on NTFS (ReplaceFile semantics via Node), so a reader sees
+ * either the old file or the new one, never a partial.
+ *
+ * Same-directory is load-bearing: a temp file on another filesystem would make
+ * `rename` fall back to copy+unlink, which is NOT atomic. The temp name embeds
+ * the pid so two daemons racing the same destination don't clobber each other's
+ * temp file before their own rename (the destination itself still needs a lock
+ * — this only guarantees each write is individually atomic).
+ */
+export function writeSecureFileAtomic(
+  filePath: string,
+  data: string | NodeJS.ArrayBufferView,
+): void {
+  const dir = path.dirname(filePath);
+  const tmp = path.join(dir, `.${path.basename(filePath)}.${process.pid}.tmp`);
+  let fd: number | null = null;
+  try {
+    fd = fs.openSync(tmp, 'w', 0o600);
+    fs.writeSync(fd, data as any);
+    try { fs.fsyncSync(fd); } catch { /* fsync is best-effort — rename still gives atomicity */ }
+  } finally {
+    if (fd !== null) {
+      try { fs.closeSync(fd); } catch { /* already closed / best-effort */ }
+    }
+  }
+  // On Windows, openSync with mode does not set an ACL; restrict explicitly
+  // before the rename so the destination never exists unrestricted.
+  restrictFilePermissions(tmp);
+  try {
+    fs.renameSync(tmp, filePath);
+  } catch (err) {
+    // Rename failed — clean up the temp file so it doesn't accumulate.
+    try { fs.unlinkSync(tmp); } catch { /* best-effort */ }
+    throw err;
+  }
 }
 
 /**
