@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+# gstack-first-task-detect — classify the current project into ONE first-task
+# bucket so the first-run scaffold can suggest a concrete next skill.
+#
+# Contract (load-bearing — the preamble eval's nothing but a single token):
+#   - Prints EXACTLY ONE whitelisted enum token to stdout, or nothing.
+#   - Never hangs: every git call is wrapped in a portable 2s timeout.
+#   - Never errors out of the caller: best-effort, fail-safe to no output.
+#   - Local git + filesystem only. NO network (no gh/glab) — this runs in the
+#     latency-sensitive skill preamble.
+#
+# Enum tokens (the ONLY strings this ever emits):
+#   greenfield | code_node | code_python | code_rust | code_go | code_ruby
+#   | code_ios | branch_ahead | dirty_default | clean_default | nongit
+#
+# The caller maps the token to human prose; no description text crosses the
+# eval boundary. Usage: TOKEN=$(gstack-first-task-detect)
+set -uo pipefail
+
+# --- Portable timeout wrapper (gtimeout → timeout → unwrapped), per gstack-codex-probe ---
+_ftd_to=$(command -v gtimeout 2>/dev/null || command -v timeout 2>/dev/null || echo "")
+_git() {
+  if [ -n "$_ftd_to" ]; then
+    "$_ftd_to" 2 git "$@" 2>/dev/null
+  else
+    git "$@" 2>/dev/null
+  fi
+}
+
+# Emit only whitelisted tokens — defense in depth even though every emit site
+# below is a literal.
+_emit() {
+  case "$1" in
+    greenfield|code_node|code_python|code_rust|code_go|code_ruby|code_ios|branch_ahead|dirty_default|clean_default|nongit)
+      printf '%s\n' "$1" ;;
+    *) : ;;  # unknown → emit nothing (caller shows no scaffold)
+  esac
+  exit 0
+}
+
+# --- 1. Not a git repo → nothing actionable from git, but language may still help ---
+if ! _git rev-parse --is-inside-work-tree | grep -q true; then
+  _emit nongit
+fi
+
+# --- 2. Greenfield (no commits) ---
+_commits=$(_git rev-list --count HEAD || echo 0)
+[ -z "$_commits" ] && _commits=0
+if [ "$_commits" -eq 0 ] 2>/dev/null; then
+  _emit greenfield
+fi
+
+# --- 3. Resolve default + current branch (reuse the repo's base-branch fallback) ---
+_default=$(_git symbolic-ref refs/remotes/origin/HEAD | sed 's|refs/remotes/origin/||')
+if [ -z "$_default" ]; then
+  if _git rev-parse --verify origin/main >/dev/null; then _default=main
+  elif _git rev-parse --verify origin/master >/dev/null; then _default=master
+  else _default=main
+  fi
+fi
+_current=$(_git rev-parse --abbrev-ref HEAD || echo "")
+
+# --- 4. On a feature branch ahead of base (local-only) → ready to review/ship ---
+if [ -n "$_current" ] && [ "$_current" != "$_default" ] && [ "$_current" != "HEAD" ]; then
+  # ahead-count vs the REAL base: prefer origin/<default> (the remote truth);
+  # a stale local <default> would falsely inflate the ahead count.
+  _base=""
+  if _git rev-parse --verify "origin/$_default" >/dev/null; then _base="origin/$_default"
+  elif _git rev-parse --verify "$_default" >/dev/null; then _base="$_default"
+  fi
+  if [ -n "$_base" ]; then
+    _ahead=$(_git rev-list --count "$_base..HEAD" || echo 0)
+    [ -z "$_ahead" ] && _ahead=0
+    if [ "$_ahead" -gt 0 ] 2>/dev/null; then
+      _emit branch_ahead
+    fi
+  fi
+fi
+
+# --- 5. Uncommitted changes on the default branch → review + commit ---
+_dirty=$(_git status --porcelain | head -1)
+if [ -n "$_dirty" ] && { [ "$_current" = "$_default" ] || [ "$_current" = "HEAD" ] || [ -z "$_current" ]; }; then
+  _emit dirty_default
+fi
+
+# --- 6. Has code + a recognized language marker → verify tests/build ---
+# Resolve to the repo root first so a skill invoked from a subdir doesn't miss
+# a root-level package.json / Cargo.toml / etc. Filesystem-only after this.
+_TOP=$(_git rev-parse --show-toplevel)
+[ -n "$_TOP" ] && cd "$_TOP" 2>/dev/null || true
+# Order by specificity/likelihood; stop at first match.
+if [ -f package.json ]; then _emit code_node; fi
+if [ -f pyproject.toml ] || [ -f setup.py ] || [ -f requirements.txt ]; then _emit code_python; fi
+if [ -f Cargo.toml ]; then _emit code_rust; fi
+if [ -f go.mod ]; then _emit code_go; fi
+if [ -f Gemfile ]; then _emit code_ruby; fi
+if ls ./*.xcodeproj >/dev/null 2>&1 || [ -d ios ]; then _emit code_ios; fi
+
+# --- 7. Clean default branch with history, no recognized language → pick something ---
+if [ "$_commits" -ge 5 ] 2>/dev/null; then
+  _emit clean_default
+fi
+
+# Nothing confidently actionable → emit nothing (no scaffold).
+exit 0

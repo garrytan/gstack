@@ -1,5 +1,46 @@
 # Changelog
 
+## [1.58.5.0] - 2026-06-21
+
+## **A fresh install now lands on a concrete first move, not a dead end.**
+## **gstack reads your repo, hands you the right first skill, and the bare `gstack` front door routes instead of dumping browse docs.**
+
+gstack's first-run experience used to leak: a new user could install, type `gstack`, and land in a wall of browser-QA documentation regardless of what they wanted. This release makes the front door route, and adds a project-aware first-run scaffold. On the first skill run, gstack detects your repo state (empty repo, a language with code, a feature branch with unshipped work, uncommitted changes) and shows one short, specific suggestion — "there's code here, try `/qa`" or "unshipped work, `/review` then `/ship`" — then continues with whatever you asked. On a returning session it nudges the full `plan → review → ship` loop once. `office-hours` now offers to launch the next review for you instead of listing options you have to retype. And the top-level `gstack` skill is now a pure router: the duplicated browse docs it used to carry live only in `/browse`.
+
+### The numbers that matter
+
+Source: the community-tier telemetry that motivated this work (Supabase `frugpmstpnojnhfyimgv`, ~23,839 distinct installs, Mar–Jun 2026; rerun the cohort query to reproduce). These are the activation gaps the release targets, not a post-ship result.
+
+| Activation signal | Measured | What it means |
+|---|---|---|
+| Installs that never run any skill | ~21% | The front door loses 1 in 5 before they start |
+| One-and-done (ran exactly one skill, ever) | ~30% | Most of the rest don't come back |
+| Bare `gstack` skill one-and-done rate | 40% | The worst front door — it dead-ended in browse docs |
+| First-skill → 3-week survival spread | 21% (bare gstack) to 39% (`ship`) | Which first skill you land on predicts whether you stay |
+
+The success metric is pre-registered, not claimed: rerun the same cohort query at T+6 weeks and look for W0 activation up and one-and-done down, per intervention. No post-ship measurement exists yet.
+
+### What this means for builders
+
+If you just installed gstack, your first session points you at something useful for the repo you're actually in, and `gstack` with no specific ask sends you to the right skill instead of browser docs. Nothing fires in headless/eval runs, and the nudge never interrupts a command you explicitly gave. If the T+6-week numbers don't move, the honest read is that the lever was wording when the real gap is motivation, and the next step is an in-app onboarding flow (logged, not built here).
+
+### Itemized changes
+
+#### Added
+- **First-run project scaffold:** `bin/gstack-first-task-detect` classifies the repo into one of a fixed set of buckets (greenfield, `code_<lang>` for Node/Python/Rust/Go/Ruby/iOS, branch-ahead, dirty-default, clean-default) using local git + file markers only, with portable timeouts and a fail-safe empty output. The shared preamble maps the bucket to a one-line first-skill suggestion on the first-ever run.
+- **Returning-session loop tip:** once past the first run, the preamble nudges `plan → review → ship` a single time.
+- **Setup first-move nudge:** `./setup` now prints an intent-routed starting point (idea → `/office-hours`/`/spec`; existing code → `/qa`/`/investigate`).
+- **office-hours handoff:** the closing step offers to launch the next review (`/plan-eng-review` by default) via the Skill tool instead of listing options to retype.
+
+#### Changed
+- **The top-level `gstack` skill is now a pure router.** The browser-QA body it duplicated from `/browse` is removed; `gstack` routes any request to the right skill and sends browser/QA work to `/browse`. The browse skill itself is unchanged.
+- Activation telemetry event types (`onboarding`, `first_task_scaffold_shown`, `handoff`, `route`) are accepted by the telemetry ingest path so the funnel can be measured.
+
+#### For contributors
+- New unit coverage for every detection bucket plus the eval-safe enum contract and the first-run gating (`test/preamble-first-task-scaffold.test.ts`), and a periodic E2E that runs the detector through the real harness (`test/skill-e2e-first-task-scaffold.test.ts`, classified `periodic`).
+- Browse-content test assertions (gen-skill-docs, audit-compliance, skill-validation, the LLM-judge eval) repointed from the root skill to `browse/SKILL.md` to follow the router split; a regression test pins that the router carries no browse body.
+- Parity / carve-guard size caps bumped ~1–2KB per skill to account for the shared first-run-guidance preamble section.
+
 ## [1.58.4.0] - 2026-06-18
 
 ## **A community bug-fix wave plus a test-gate that finally sees the questions it was missing.**

@@ -26,15 +26,18 @@ function readShipUnion(): string {
 }
 
 describe('SKILL.md command validation', () => {
-  test('all $B commands in SKILL.md are valid browse commands', () => {
+  // P2 (v1.2.0): the top-level gstack skill is a pure ROUTER, not the browse
+  // skill. The browse body lives only in browse/SKILL.md now. This regression
+  // pins the split: the router carries routing rules and zero browse commands,
+  // while browse/SKILL.md still advertises the full QA surface (asserted below).
+  test('top-level SKILL.md is a router with no browse body (P2)', () => {
+    const md = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
+    expect(md).not.toContain('gstack browse: QA Testing'); // browse body removed
+    expect(md).toContain('## Route first'); // router head present
+    expect(md).toContain('invoke `/investigate`'); // routing rules present
     const result = validateSkill(path.join(ROOT, 'SKILL.md'));
-    expect(result.invalid).toHaveLength(0);
-    expect(result.valid.length).toBeGreaterThan(0);
-  });
-
-  test('all snapshot flags in SKILL.md are valid', () => {
-    const result = validateSkill(path.join(ROOT, 'SKILL.md'));
-    expect(result.snapshotFlagErrors).toHaveLength(0);
+    expect(result.invalid).toHaveLength(0); // no INVALID browse commands
+    expect(result.valid.length).toBe(0); // and no browse commands at all — it routes, not browses
   });
 
   test('all $B commands in browse/SKILL.md are valid browse commands', () => {
