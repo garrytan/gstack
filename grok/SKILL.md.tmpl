@@ -124,7 +124,10 @@ use `--effort max` for all modes. If the input contains `--xhigh`, use
 - Challenge (2B): `high`
 - Consult (2C): `medium`
 
-**Never pass `--reasoning-effort` to Grok.** Composer-family models reject it.
+**Never pass `--reasoning-effort` to Grok.** Use `--effort` instead (the short alias).
+
+**Default model:** `grok-4.5`. Every headless invocation MUST pass `-m grok-4.5`
+unless the user explicitly overrides with `-m <other-model>`.
 
 ---
 
@@ -144,6 +147,7 @@ Grok runs **read-only** via `--permission-mode plan`. Never use `acceptEdits`,
 `auto`, or `bypassPermissions` in this skill.
 
 Shared flags for every invocation:
+- `-m grok-4.5` (default model; override only if the user passed `-m <other>`)
 - `--cwd "$_REPO_ROOT"`
 - `--permission-mode plan`
 - `--no-subagents`
@@ -176,7 +180,7 @@ _PROMPT_FILE=$(mktemp "$TMP_ROOT/grok-prompt-XXXXXX.txt")
   printf '\nReview the changes on this branch against the base branch <base>. Run git diff origin/<base>...HEAD 2>/dev/null || git diff <base>...HEAD to see the diff and review only those changes.\n'
   printf 'Produce findings marked [P1] (critical) or [P2] (advisory). No compliments — actionable issues only.\n'
 } > "$_PROMPT_FILE"
-_gstack_grok_timeout_wrapper 630 grok --prompt-file "$_PROMPT_FILE" --permission-mode plan --max-turns 12 --effort high --no-subagents --output-format plain --cwd "$_REPO_ROOT" < /dev/null 2>"$TMPERR"
+_gstack_grok_timeout_wrapper 630 grok -m grok-4.5 --prompt-file "$_PROMPT_FILE" --permission-mode plan --max-turns 12 --effort high --no-subagents --output-format plain --cwd "$_REPO_ROOT" < /dev/null 2>"$TMPERR"
 _GROK_EXIT=$?
 rm -f "$_PROMPT_FILE"
 if [ "$_GROK_EXIT" = "124" ]; then
@@ -191,6 +195,7 @@ fi
 ```
 
 If the user passed `--max` or `--xhigh`, substitute the matching `--effort` value.
+If the user passed `-m <model>`, substitute that model for `grok-4.5`.
 
 **Custom-instructions path (user typed `/grok review <focus>`):** inline the diff
 with DIFF_START/DIFF_END delimiters:
@@ -208,7 +213,7 @@ _PROMPT_FILE=$(mktemp "$TMP_ROOT/grok-prompt-XXXXXX.txt")
   git diff "<base>...HEAD" 2>/dev/null
   printf '\nDIFF_END\n'
 } > "$_PROMPT_FILE"
-_gstack_grok_timeout_wrapper 630 grok --prompt-file "$_PROMPT_FILE" --permission-mode plan --max-turns 12 --effort high --no-subagents --output-format plain --cwd "$_REPO_ROOT" < /dev/null 2>"$TMPERR"
+_gstack_grok_timeout_wrapper 630 grok -m grok-4.5 --prompt-file "$_PROMPT_FILE" --permission-mode plan --max-turns 12 --effort high --no-subagents --output-format plain --cwd "$_REPO_ROOT" < /dev/null 2>"$TMPERR"
 _GROK_EXIT=$?
 rm -f "$_PROMPT_FILE"
 if [ "$_GROK_EXIT" = "124" ]; then
@@ -283,7 +288,7 @@ _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo"
 TMPERR=${TMPERR:-$(mktemp "$TMP_ROOT/grok-err-XXXXXX.txt")}
 _PROMPT_FILE=$(mktemp "$TMP_ROOT/grok-prompt-XXXXXX.txt")
 printf '%s\n' "<prompt>" > "$_PROMPT_FILE"
-_gstack_grok_timeout_wrapper 630 grok --prompt-file "$_PROMPT_FILE" --permission-mode plan --max-turns 20 --effort high --no-subagents --output-format plain --cwd "$_REPO_ROOT" < /dev/null 2>"$TMPERR"
+_gstack_grok_timeout_wrapper 630 grok -m grok-4.5 --prompt-file "$_PROMPT_FILE" --permission-mode plan --max-turns 20 --effort high --no-subagents --output-format plain --cwd "$_REPO_ROOT" < /dev/null 2>"$TMPERR"
 _GROK_EXIT=$?
 rm -f "$_PROMPT_FILE"
 if [ "$_GROK_EXIT" = "124" ]; then
@@ -344,7 +349,7 @@ For a **new session:**
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
 _PROMPT_FILE=$(mktemp "$TMP_ROOT/grok-prompt-XXXXXX.txt")
 printf '%s\n' "<prompt with boundary + user question or embedded plan>" > "$_PROMPT_FILE"
-_gstack_grok_timeout_wrapper 630 grok --prompt-file "$_PROMPT_FILE" --permission-mode plan --max-turns 15 --effort medium --no-subagents --output-format plain --cwd "$_REPO_ROOT" < /dev/null 2>"$TMPERR"
+_gstack_grok_timeout_wrapper 630 grok -m grok-4.5 --prompt-file "$_PROMPT_FILE" --permission-mode plan --max-turns 15 --effort medium --no-subagents --output-format plain --cwd "$_REPO_ROOT" < /dev/null 2>"$TMPERR"
 _GROK_EXIT=$?
 rm -f "$_PROMPT_FILE"
 ```
@@ -355,7 +360,7 @@ _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo"
 _SESSION_ID=$(cat .context/grok-session-id 2>/dev/null)
 _PROMPT_FILE=$(mktemp "$TMP_ROOT/grok-prompt-XXXXXX.txt")
 printf '%s\n' "<prompt>" > "$_PROMPT_FILE"
-_gstack_grok_timeout_wrapper 630 grok -r "$_SESSION_ID" --prompt-file "$_PROMPT_FILE" --permission-mode plan --max-turns 15 --effort medium --no-subagents --output-format plain --cwd "$_REPO_ROOT" < /dev/null 2>"$TMPERR"
+_gstack_grok_timeout_wrapper 630 grok -r "$_SESSION_ID" -m grok-4.5 --prompt-file "$_PROMPT_FILE" --permission-mode plan --max-turns 15 --effort medium --no-subagents --output-format plain --cwd "$_REPO_ROOT" < /dev/null 2>"$TMPERR"
 _GROK_EXIT=$?
 rm -f "$_PROMPT_FILE"
 ```
@@ -382,8 +387,12 @@ _GROK_SID=$(grok sessions list -n 5 2>/dev/null | awk 'NF && $1 ~ /^[0-9a-f]{8}-
 
 ## Model & Effort
 
-**Model:** No model is hardcoded — Grok uses its configured default. Pass `-m`
-through if the user specifies a model (e.g., `/grok review -m grok-3`).
+**Model:** Default is **`grok-4.5`**. Every headless invocation passes
+`-m grok-4.5`. If the user specifies another model (e.g., `/grok review -m grok-3`
+or `/grok consult -m grok-composer-2.5-fast`), substitute that value for `-m`.
+
+Auth is unchanged: `grok login` OAuth (`~/.grok/auth.json`) or `$XAI_API_KEY` /
+`$GROK_API_KEY` via `gstack-grok-probe`.
 
 **Effort (per-mode defaults):**
 - Review: `high`

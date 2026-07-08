@@ -173,5 +173,16 @@ for (const relPath of ['grok/SKILL.md.tmpl']) {
         expect(line).not.toMatch(/--reasoning-effort\b/);
       }
     });
+
+    test('every grok headless invocation defaults to -m grok-4.5', () => {
+      const section = extractGrokInvocations(path.join(ROOT, relPath));
+      const invokeLines = section
+        .split('\n')
+        .filter((l) => /_gstack_grok_timeout_wrapper\s+\d+\s+grok\b/.test(l));
+      expect(invokeLines.length).toBeGreaterThan(0);
+      for (const line of invokeLines) {
+        expect(line).toMatch(/-m\s+grok-4\.5\b/);
+      }
+    });
   });
 }
