@@ -1537,7 +1537,8 @@ The reason must engage with a specific Codex insight and compare against an alte
 
 **Model:** No model is hardcoded — codex uses whatever its current default is (the frontier
 agentic coding model). This means as OpenAI ships newer models, /codex automatically
-uses them. If the user wants a specific model, pass `-m` through to codex.
+uses them. As of July 2026 that frontier is the GPT-5.6 family (ladder: `sol` > `terra` > `luna`,
+where bare `gpt-5.6` aliases to `sol`). If the user wants a specific model, pass `-m` through to codex.
 
 **Reasoning effort (per-mode defaults):**
 - **Review (2A):** `high` — bounded diff input, needs thoroughness but not max tokens
@@ -1547,12 +1548,14 @@ uses them. If the user wants a specific model, pass `-m` through to codex.
 `xhigh` uses ~23x more tokens than `high` and causes 50+ minute hangs on large context
 tasks (OpenAI issues #8545, #8402, #6931). Users can override with `--xhigh` flag
 (e.g., `/codex review --xhigh`) when they want maximum reasoning and are willing to wait.
+The GPT-5.6 family adds a `max` level above `xhigh` — even more token-hungry, so gstack
+wires no flag for it; pass `-c model_reasoning_effort=max` manually if you truly need it.
 
 **Web search:** All codex commands use `--enable web_search_cached` so Codex can look up
 docs and APIs during review. This is OpenAI's cached index — fast, no extra cost.
 
-If the user specifies a model (e.g., `/codex review -m gpt-5.1-codex-max`
-or `/codex challenge -m gpt-5.2`), pass the `-m` flag through to codex.
+If the user specifies a model (e.g., `/codex review -m gpt-5.6-sol`
+or `/codex challenge -m gpt-5.6-luna`), pass the `-m` flag through to codex.
 
 ---
 
