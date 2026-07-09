@@ -51,6 +51,7 @@
   "dependencies": {
     "@huggingface/transformers": "^4.1.0",
     "@ngrok/ngrok": "^1.7.0",
+    "basic-ftp": "5.2.1",
     "diff": "^7.0.0",
     "html-to-docx": "1.8.0",
     "marked": "^18.0.2",
