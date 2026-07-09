@@ -546,6 +546,10 @@ link_claude_skill_dirs() {
       dir_name="$(basename "$skill_dir")"
       # Skip node_modules
       [ "$dir_name" = "node_modules" ] && continue
+      # Skip the connect-chrome alias symlink — gstack-relink installs it as a
+      # thin skill with its own name. Linking it here would resolve its
+      # frontmatter to open-gstack-browser and collide with the canonical skill.
+      [ "$dir_name" = "connect-chrome" ] && continue
       # Use frontmatter name: if present (e.g., run-tests/ with name: test → symlink as "test")
       skill_name=$(grep -m1 '^name:' "$skill_dir/SKILL.md" 2>/dev/null | sed 's/^name:[[:space:]]*//' | tr -d '[:space:]')
       [ -z "$skill_name" ] && skill_name="$dir_name"
@@ -996,17 +1000,11 @@ if [ "$INSTALL_CLAUDE" -eq 1 ]; then
     # Self-healing: re-run gstack-relink to ensure name: fields and directory
     # names are consistent with the config. This catches cases where an interrupted
     # setup, stale git state, or gen:skill-docs left name: fields out of sync.
+    # gstack-relink also installs the /connect-chrome → /open-gstack-browser
+    # backwards-compat alias as a thin skill with its own frontmatter name.
     GSTACK_RELINK="$SOURCE_GSTACK_DIR/bin/gstack-relink"
     if [ -x "$GSTACK_RELINK" ]; then
       GSTACK_SKILLS_DIR="$INSTALL_SKILLS_DIR" GSTACK_INSTALL_DIR="$SOURCE_GSTACK_DIR" "$GSTACK_RELINK" >/dev/null 2>&1 || true
-    fi
-    # Backwards-compat alias: /connect-chrome → /open-gstack-browser
-    _OGB_LINK="$INSTALL_SKILLS_DIR/connect-chrome"
-    if [ "$SKILL_PREFIX" -eq 1 ]; then
-      _OGB_LINK="$INSTALL_SKILLS_DIR/gstack-connect-chrome"
-    fi
-    if [ -L "$_OGB_LINK" ] || [ ! -e "$_OGB_LINK" ]; then
-      _link_or_copy "gstack/open-gstack-browser" "$_OGB_LINK"
     fi
     if [ "$LOCAL_INSTALL" -eq 1 ]; then
       log "gstack ready (project-local)."
@@ -1065,16 +1063,10 @@ if [ "$INSTALL_CLAUDE" -eq 1 ]; then
       "$SOURCE_GSTACK_DIR/bin/gstack-patch-names" "$SOURCE_GSTACK_DIR" "$SKILL_PREFIX"
       link_claude_skill_dirs "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
       link_claude_root_skill_alias "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
+      # As above: gstack-relink installs the /connect-chrome alias.
       GSTACK_RELINK="$SOURCE_GSTACK_DIR/bin/gstack-relink"
       if [ -x "$GSTACK_RELINK" ]; then
         GSTACK_SKILLS_DIR="$INSTALL_SKILLS_DIR" GSTACK_INSTALL_DIR="$SOURCE_GSTACK_DIR" "$GSTACK_RELINK" >/dev/null 2>&1 || true
-      fi
-      _OGB_LINK="$INSTALL_SKILLS_DIR/connect-chrome"
-      if [ "$SKILL_PREFIX" -eq 1 ]; then
-        _OGB_LINK="$INSTALL_SKILLS_DIR/gstack-connect-chrome"
-      fi
-      if [ -L "$_OGB_LINK" ] || [ ! -e "$_OGB_LINK" ]; then
-        _link_or_copy "gstack/open-gstack-browser" "$_OGB_LINK"
       fi
       log "gstack ready (claude)."
       log "  browse: $BROWSE_BIN"

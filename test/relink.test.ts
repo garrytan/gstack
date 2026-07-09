@@ -470,6 +470,119 @@ describe('upgrade migrations', () => {
   });
 });
 
+// The connect-chrome alias used to be a symlink to the open-gstack-browser
+// skill directory, so both entries carried `name: open-gstack-browser`. Claude
+// Code keys skills on that frontmatter name, so one shadowed the other and the
+// survivor followed unsorted readdir order — `/open-gstack-browser` was missing
+// on some machines even though README/AGENTS.md/the extension all reference it.
+describe('connect-chrome alias does not collide with open-gstack-browser', () => {
+  // Recreate the repo layout: a canonical skill plus the tracked symlink.
+  function setupWithAlias(): void {
+    setupMockInstall(['qa', 'open-gstack-browser']);
+    fs.symlinkSync('open-gstack-browser', path.join(installDir, 'connect-chrome'));
+  }
+
+  function relink(): void {
+    run(`${path.join(installDir, 'bin', 'gstack-relink')}`, {
+      GSTACK_INSTALL_DIR: installDir,
+      GSTACK_SKILLS_DIR: skillsDir,
+    });
+  }
+
+  function setPrefix(value: 'true' | 'false'): void {
+    run(`${path.join(installDir, 'bin', 'gstack-config')} set skill_prefix ${value}`, {
+      GSTACK_INSTALL_DIR: installDir,
+      GSTACK_SKILLS_DIR: skillsDir,
+    });
+  }
+
+  function frontmatterName(dir: string): string | null {
+    const m = fs
+      .readFileSync(path.join(skillsDir, dir, 'SKILL.md'), 'utf-8')
+      .match(/^name:\s*(.+)$/m);
+    return m ? m[1].trim() : null;
+  }
+
+  // The core invariant: no two installed skills may declare the same name.
+  function expectNoDuplicateNames(): void {
+    const names = fs
+      .readdirSync(skillsDir)
+      .filter((d) => fs.existsSync(path.join(skillsDir, d, 'SKILL.md')))
+      .map(frontmatterName);
+    expect(names.length).toBe(new Set(names).size);
+  }
+
+  test('each installed skill declares a unique frontmatter name', () => {
+    setupWithAlias();
+    setPrefix('false');
+    relink();
+
+    expect(frontmatterName('open-gstack-browser')).toBe('open-gstack-browser');
+    expect(frontmatterName('connect-chrome')).toBe('connect-chrome');
+    expectNoDuplicateNames();
+  });
+
+  test('the alias is a real file, not a symlink into the canonical skill', () => {
+    setupWithAlias();
+    setPrefix('false');
+    relink();
+
+    const aliasSkill = path.join(skillsDir, 'connect-chrome', 'SKILL.md');
+    expect(fs.lstatSync(aliasSkill).isSymbolicLink()).toBe(false);
+    // It still points the agent at the canonical skill rather than duplicating it.
+    expect(fs.readFileSync(aliasSkill, 'utf-8')).toContain('open-gstack-browser');
+  });
+
+  test('flipping skill_prefix leaves exactly one alias behind', () => {
+    setupWithAlias();
+    setPrefix('false');
+    relink();
+    setPrefix('true');
+    relink();
+
+    expect(fs.existsSync(path.join(skillsDir, 'gstack-connect-chrome'))).toBe(true);
+    expect(fs.existsSync(path.join(skillsDir, 'connect-chrome'))).toBe(false);
+    expect(frontmatterName('gstack-connect-chrome')).toBe('gstack-connect-chrome');
+    expectNoDuplicateNames();
+
+    // ...and flipping back restores the flat names with no leftovers.
+    setPrefix('false');
+    relink();
+    expect(fs.existsSync(path.join(skillsDir, 'gstack-connect-chrome'))).toBe(false);
+    expect(frontmatterName('connect-chrome')).toBe('connect-chrome');
+    expectNoDuplicateNames();
+  });
+
+  test('relink is idempotent for the alias', () => {
+    setupWithAlias();
+    setPrefix('false');
+    relink();
+    relink();
+    relink();
+
+    expect(frontmatterName('connect-chrome')).toBe('connect-chrome');
+    expectNoDuplicateNames();
+  });
+
+  // Upgrade path: installs created before this fix have the alias as a symlink.
+  test('upgrades a pre-existing symlinked alias in place', () => {
+    setupWithAlias();
+    setPrefix('false');
+    // `gstack-config set` auto-relinks, so roll the alias back to the old
+    // shape: a bare symlink pointing at the canonical skill directory.
+    const alias = path.join(skillsDir, 'connect-chrome');
+    fs.rmSync(alias, { recursive: true, force: true });
+    fs.symlinkSync(path.join(installDir, 'open-gstack-browser'), alias);
+    expect(fs.lstatSync(alias).isSymbolicLink()).toBe(true);
+
+    relink();
+
+    expect(fs.lstatSync(path.join(skillsDir, 'connect-chrome')).isSymbolicLink()).toBe(false);
+    expect(frontmatterName('connect-chrome')).toBe('connect-chrome');
+    expectNoDuplicateNames();
+  });
+});
+
 describe('gstack-patch-names (#620/#578)', () => {
   // Helper to read name: from SKILL.md frontmatter
   function readSkillName(skillDir: string): string | null {
