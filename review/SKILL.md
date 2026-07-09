@@ -1872,8 +1872,9 @@ For any finding that remains `status: unresolved` AND severity `CRITICAL` after 
 ```
 mcp__gbrain__put_page
   slug: tasks/review-{branch-slug}-{fingerprint-short}
-  type: task
-  frontmatter:
+  content: |
+    ---
+    type: task
     status: open
     priority: high
     source: review
@@ -1882,7 +1883,7 @@ mcp__gbrain__put_page
     parent_goal: null        ← Milo week ritual will wire this
     due: <today + 3 days>
     author: "anoop@hashdirectors.com // ghosty"
-  content: |
+    ---
     ## Finding
     {finding title + one-line description}
     ## Why it matters
