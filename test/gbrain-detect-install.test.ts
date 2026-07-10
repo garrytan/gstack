@@ -25,7 +25,15 @@ const INSTALL = path.join(ROOT, 'bin', 'gstack-gbrain-install');
 // dirs — this keeps `gbrain` out of PATH deterministically across dev machines
 // while still finding jq, git, curl, sed, cat, etc. Each test can prepend a
 // fake-gbrain dir when it wants to simulate presence.
-const SAFE_PATH = '/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin';
+//
+// One wrinkle: bin/gstack-gbrain-detect's shebang is `#!/usr/bin/env -S bun run`,
+// so the child's PATH must contain `bun`. On dev machines bun usually lives in
+// ~/.bun/bin, which we deliberately exclude (it also holds a real `gbrain` from
+// `bun link`). Expose ONLY the running bun interpreter through a shim dir,
+// appended last so system dirs still win for everything else.
+const BUN_SHIM_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'bun-shim-'));
+fs.symlinkSync(process.execPath, path.join(BUN_SHIM_DIR, 'bun'));
+const SAFE_PATH = `/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin:${BUN_SHIM_DIR}`;
 
 let tmpHome: string;
 let tmpHomeReal: string;

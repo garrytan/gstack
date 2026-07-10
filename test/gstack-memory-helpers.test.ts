@@ -249,11 +249,14 @@ body
 // ── withErrorContext ───────────────────────────────────────────────────────
 
 describe("withErrorContext", () => {
-  let savedHome: string | undefined;
+  // Captured ONCE at collection time, NOT in beforeEach. Saving inside
+  // beforeEach clobbers the real value with the previous test's temp dir
+  // after test #1, so the afterAll restore leaked a dead temp path into
+  // process.env for every test file that ran after this one.
+  const savedHome = process.env.GSTACK_HOME;
   let testHome: string;
 
   beforeEach(() => {
-    savedHome = process.env.GSTACK_HOME;
     testHome = mkdtempSync(join(tmpdir(), "gstack-test-home-"));
     process.env.GSTACK_HOME = testHome;
   });
@@ -312,18 +315,20 @@ describe("withErrorContext", () => {
 // ── detectEngineTier ───────────────────────────────────────────────────────
 
 describe("detectEngineTier", () => {
-  let savedHome: string | undefined;
-  let savedGbrainHome: string | undefined;
-  let savedRealHome: string | undefined;
-  let savedPath: string | undefined;
+  // Captured ONCE at collection time, NOT in beforeEach. Saving inside
+  // beforeEach clobbers the real values with the previous test's temp dirs
+  // after test #1, so the afterAll restore leaked dead gstack-test-engine-*
+  // temp paths into GSTACK_HOME / GBRAIN_HOME / HOME for every test file
+  // that ran after this one (broke gstack-config + make-pdf format-gate in
+  // full-suite runs).
+  const savedHome = process.env.GSTACK_HOME;
+  const savedGbrainHome = process.env.GBRAIN_HOME;
+  const savedRealHome = process.env.HOME;
+  const savedPath = process.env.PATH;
   let testHome: string;
   let testGbrainHome: string;
 
   beforeEach(() => {
-    savedHome = process.env.GSTACK_HOME;
-    savedGbrainHome = process.env.GBRAIN_HOME;
-    savedRealHome = process.env.HOME;
-    savedPath = process.env.PATH;
     testHome = mkdtempSync(join(tmpdir(), "gstack-test-engine-"));
     testGbrainHome = mkdtempSync(join(tmpdir(), "gstack-test-gbrain-"));
     process.env.GSTACK_HOME = testHome;
