@@ -1,5 +1,39 @@
 # Changelog
 
+## [1.60.1.0] - 2026-07-09
+
+## **The /autoplan dual-voice eval is back on the board, catching real regressions.**
+## **Eval timeouts now return evidence instead of hanging the suite.**
+
+The dual-voice eval proves both halves of /autoplan's Phase 1, the Claude review subagent and the Codex outside voice, actually fire. It now registers its skills the way real installs do (project-level `.claude/skills/`), so it exercises the same slash-command path users hit. Claude Code 2.x resolves slash commands strictly from registered skills, and the eval's old sandbox layout predates that. The eval harness also gained a hard guarantee: when a spawned session hits its timeout, the runner returns everything it collected instead of waiting on orphaned child processes.
+
+### The numbers that matter
+
+Source: investigation transcripts and timings in `~/.gstack/projects/garrytan-gstack/e2e-runs/2026-07-10-*` plus the new regression test (reproducible: `bun test test/session-runner-timeout.test.ts`).
+
+| Metric | Before | After |
+|--------|--------|-------|
+| /autoplan session in the eval sandbox | 0 turns, "Unknown command" | 43+ tool calls, both voices fire |
+| Runner return after a 3s timeout with an orphaned child | hung past the 30s test cap | 8.1s |
+| Timed-out 600s eval run wall time | 1431s (blocked on orphan pipes) | returns at timeout + 5s grace |
+
+The orphan fix matters beyond one eval: any timed-out `claude -p` child that leaves a subprocess holding stdout kept the whole suite waiting. Streamed transcript lines now survive the cancel, so assertions run against real evidence even on timeout.
+
+### What this means for you
+
+`bun run test:evals` timeouts fail fast with a transcript instead of silently eating 10+ extra minutes per hung test. And if /autoplan's dual-voice wiring ever breaks, the eval will say so instead of failing for its own reasons.
+
+### Itemized changes
+
+#### Fixed
+
+- `test/skill-e2e-autoplan-dual-voice.test.ts`: sandbox installs /autoplan and its review skills at project level (`.claude/skills/`), matching real slash-command resolution on Claude Code 2.x; the transcript filter reads raw stream-json shapes (the old `entry.type === 'tool_use'` filter matched nothing, so assertions only ever saw the final result text); hang protection accepts the Phase 1 review dispatch as progress evidence (full Phase 1 completion takes 15+ minutes of subagent work and belongs to the skill, not the eval); budget raised to 10 min / 40 turns.
+- `test/helpers/session-runner.ts`: on spawn timeout, cancel the stdout reader and race the stderr drain against child exit plus a 5s grace window, so orphaned grandchildren cannot hold `runSkillTest` past bun's per-test timeout. Regression-locked by `test/session-runner-timeout.test.ts` (fails in 30s without the fix, passes in 8s with it).
+
+#### For contributors
+
+- TODOS.md: filed the periodic-CI coverage decision: `evals-periodic.yml` runs 9 of ~66 e2e files, so ~57 run only when local diff-selection happens to pick them, which is how this eval rotted unnoticed.
+
 ## [1.58.5.0] - 2026-06-21
 
 ## **A fresh install now lands on a concrete first move, not a dead end.**
