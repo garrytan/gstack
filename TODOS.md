@@ -45,6 +45,32 @@ a silent mistake breaks all 52 skills. High blast radius — needs its own focus
 
 ## Test infrastructure
 
+### P3: Fail-fast fork-PR secret detection in evals.yml (filed via PR #2211 full-checks run)
+
+**Priority:** P3
+
+**What:** Add an early step to each eval shard in `.github/workflows/evals.yml` that
+detects a secretless run (fork PR: `secrets.ANTHROPIC_API_KEY` empty) and exits
+immediately with a clear "fork PR: eval secrets unavailable — see fork-PR workflow in
+CLAUDE.md" annotation instead of running tests into auth failures.
+
+**Why:** On fork PR #2211, `e2e-review` failed in 1m with `error_api` and
+`e2e-pty-plan-smoke` burned 31m48s of runner time timing out on "Not logged in"
+before failing. The contributor read it as flakiness and re-triggered, burning the
+time twice. A 5-second preflight would have said exactly what was wrong.
+
+**Pros:** Saves ~30+ min of Ubicloud runner time per fork-PR push; replaces a
+misleading red X with an actionable message; stops contributors re-triggering
+doomed runs.
+**Cons:** One more conditional per shard; must not mask a genuinely misconfigured
+base-repo secret (annotate differently when `github.event.pull_request.head.repo.fork`
+is false).
+
+**Context / where to start:** `.github/workflows/evals.yml` matrix job — add a step
+before "Run <suite>" that checks the secret and `github.event.pull_request.head.repo.fork`,
+emits a `::notice` and exits 0 (or neutral). Diagnosis receipts: PR #2211 run 29056479216,
+jobs 86249027242 (empty `ANTHROPIC_API_KEY`, `error_api`) and 86249027265 (login timeout).
+
 ### Eval harness: live progress + incremental result persistence (kill the silent hour)
 
 **Priority:** P1
