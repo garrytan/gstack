@@ -180,18 +180,22 @@ else
   "$GSTACK_CONFIG" set skill_prefix "$([ "$SKILL_PREFIX" -eq 1 ] && echo true || echo false)" 2>/dev/null || true
 fi
 
-# --local: install to .claude/skills/ in the current working directory (deprecated)
+# --local: install to local skills directory in the current working directory (deprecated)
 if [ "$LOCAL_INSTALL" -eq 1 ]; then
   echo "Warning: --local is deprecated. Use global install + --team instead." >&2
   echo "  See: https://github.com/garrytan/gstack#team-mode" >&2
   if [ "$HOST" = "codex" ]; then
-    echo "Error: --local is only supported for Claude Code (not Codex)." >&2
+    echo "Error: --local is only supported for Claude Code/Antigravity (not Codex)." >&2
     exit 1
+  elif [ "$HOST" = "antigravity" ]; then
+    INSTALL_SKILLS_DIR="$(pwd)/.antigravity/skills"
+    mkdir -p "$INSTALL_SKILLS_DIR"
+  else
+    INSTALL_SKILLS_DIR="$(pwd)/.claude/skills"
+    mkdir -p "$INSTALL_SKILLS_DIR"
+    HOST="claude"
+    INSTALL_CODEX=0
   fi
-  INSTALL_SKILLS_DIR="$(pwd)/.claude/skills"
-  mkdir -p "$INSTALL_SKILLS_DIR"
-  HOST="claude"
-  INSTALL_CODEX=0
 fi
 
 # For auto: detect which agents are installed
@@ -990,42 +994,42 @@ create_antigravity_runtime_root() {
   mkdir -p "$antigravity_gstack" "$antigravity_gstack/browse" "$antigravity_gstack/design" "$antigravity_gstack/gstack-upgrade" "$antigravity_gstack/review" "$antigravity_gstack/qa" "$antigravity_gstack/plan-devex-review"
 
   if [ -f "$antigravity_dir/gstack/SKILL.md" ]; then
-    ln -snf "$antigravity_dir/gstack/SKILL.md" "$antigravity_gstack/SKILL.md"
+    _link_or_copy "$antigravity_dir/gstack/SKILL.md" "$antigravity_gstack/SKILL.md"
   fi
   if [ -d "$gstack_dir/bin" ]; then
-    ln -snf "$gstack_dir/bin" "$antigravity_gstack/bin"
+    _link_or_copy "$gstack_dir/bin" "$antigravity_gstack/bin"
   fi
   if [ -d "$gstack_dir/browse/dist" ]; then
-    ln -snf "$gstack_dir/browse/dist" "$antigravity_gstack/browse/dist"
+    _link_or_copy "$gstack_dir/browse/dist" "$antigravity_gstack/browse/dist"
   fi
   if [ -d "$gstack_dir/browse/bin" ]; then
-    ln -snf "$gstack_dir/browse/bin" "$antigravity_gstack/browse/bin"
+    _link_or_copy "$gstack_dir/browse/bin" "$antigravity_gstack/browse/bin"
   fi
   if [ -d "$gstack_dir/design/dist" ]; then
-    ln -snf "$gstack_dir/design/dist" "$antigravity_gstack/design/dist"
+    _link_or_copy "$gstack_dir/design/dist" "$antigravity_gstack/design/dist"
   fi
   if [ -f "$antigravity_dir/gstack-upgrade/SKILL.md" ]; then
-    ln -snf "$antigravity_dir/gstack-upgrade/SKILL.md" "$antigravity_gstack/gstack-upgrade/SKILL.md"
+    _link_or_copy "$antigravity_dir/gstack-upgrade/SKILL.md" "$antigravity_gstack/gstack-upgrade/SKILL.md"
   fi
   for f in checklist.md design-checklist.md greptile-triage.md TODOS-format.md; do
     if [ -f "$gstack_dir/review/$f" ]; then
-      ln -snf "$gstack_dir/review/$f" "$antigravity_gstack/review/$f"
+      _link_or_copy "$gstack_dir/review/$f" "$antigravity_gstack/review/$f"
     fi
   done
   if [ -d "$gstack_dir/review/specialists" ]; then
-    ln -snf "$gstack_dir/review/specialists" "$antigravity_gstack/review/specialists"
+    _link_or_copy "$gstack_dir/review/specialists" "$antigravity_gstack/review/specialists"
   fi
   if [ -d "$gstack_dir/qa/templates" ]; then
-    ln -snf "$gstack_dir/qa/templates" "$antigravity_gstack/qa/templates"
+    _link_or_copy "$gstack_dir/qa/templates" "$antigravity_gstack/qa/templates"
   fi
   if [ -d "$gstack_dir/qa/references" ]; then
-    ln -snf "$gstack_dir/qa/references" "$antigravity_gstack/qa/references"
+    _link_or_copy "$gstack_dir/qa/references" "$antigravity_gstack/qa/references"
   fi
   if [ -f "$gstack_dir/plan-devex-review/dx-hall-of-fame.md" ]; then
-    ln -snf "$gstack_dir/plan-devex-review/dx-hall-of-fame.md" "$antigravity_gstack/plan-devex-review/dx-hall-of-fame.md"
+    _link_or_copy "$gstack_dir/plan-devex-review/dx-hall-of-fame.md" "$antigravity_gstack/plan-devex-review/dx-hall-of-fame.md"
   fi
   if [ -f "$gstack_dir/ETHOS.md" ]; then
-    ln -snf "$gstack_dir/ETHOS.md" "$antigravity_gstack/ETHOS.md"
+    _link_or_copy "$gstack_dir/ETHOS.md" "$antigravity_gstack/ETHOS.md"
   fi
 }
 
@@ -1051,7 +1055,7 @@ link_antigravity_skill_dirs() {
       [ "$skill_name" = "gstack" ] && continue
       target="$skills_dir/$skill_name"
       if [ -L "$target" ] || [ ! -e "$target" ]; then
-        ln -snf "$skill_dir" "$target"
+        _link_or_copy "$skill_dir" "$target"
         linked+=("$skill_name")
       fi
     fi
@@ -1285,6 +1289,9 @@ fi
 # 6d. Install for Antigravity
 if [ "$INSTALL_ANTIGRAVITY" -eq 1 ]; then
   ANTIGRAVITY_SKILLS="$HOME/.config/antigravity/skills"
+  if [ "$LOCAL_INSTALL" -eq 1 ]; then
+    ANTIGRAVITY_SKILLS="$INSTALL_SKILLS_DIR"
+  fi
   ANTIGRAVITY_GSTACK="$ANTIGRAVITY_SKILLS/gstack"
   mkdir -p "$ANTIGRAVITY_SKILLS"
   create_antigravity_runtime_root "$SOURCE_GSTACK_DIR" "$ANTIGRAVITY_GSTACK"
