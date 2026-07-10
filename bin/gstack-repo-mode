@@ -12,13 +12,20 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-# Compute SLUG directly (avoid eval of gstack-slug — branch names can contain shell metacharacters)
+# Keep the no-remote early exit before consulting gstack-slug. gstack-slug falls
+# back to the directory basename when origin is missing, which would incorrectly
+# make local-only repos eligible for classification.
 REMOTE_URL=$(git remote get-url origin 2>/dev/null || true)
 if [ -z "$REMOTE_URL" ]; then
   echo "REPO_MODE=unknown"
   exit 0
 fi
-SLUG=$(echo "$REMOTE_URL" | sed 's|.*[:/]\([^/]*/[^/]*\)\.git$|\1|;s|.*[:/]\([^/]*/[^/]*\)$|\1|' | tr '/' '-')
+# Consume the canonical cached slug from gstack-slug (sed, never eval — branch
+# names can contain shell metacharacters). Invoke from the git root so the
+# PWD-keyed slug cache matches other gstack project-state writers.
+REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || true)
+[ -z "${REPO_ROOT:-}" ] && { echo "REPO_MODE=unknown"; exit 0; }
+SLUG=$(cd "$REPO_ROOT" && "$SCRIPT_DIR/gstack-slug" | sed -n 's/^SLUG=//p' | head -1)
 [ -z "${SLUG:-}" ] && { echo "REPO_MODE=unknown"; exit 0; }
 
 # Validate: only allow known values (prevent shell injection via source <(...))
