@@ -790,6 +790,14 @@ can resume without losing a beat via `/context-restore`.
 
 **HARD GATE:** Do NOT implement code changes. This skill captures state only.
 
+**EVGENIY LANGUAGE CONTRACT:** When the primary reader is Evgeniy, write the
+entire human-facing checkpoint and confirmation in Russian: title, headings,
+summary, decisions, risks, verification results, remaining work, notes, table
+labels, and next steps. Keep English only for exact commands, paths, filenames,
+code/API/schema fields, model/tool names, identifiers, immutable status literals,
+and source quotes. Frontmatter keys remain machine-readable. Before confirming a
+save, scan the checkpoint for leftover English prose and translate it.
+
 ---
 
 ## Detect command
@@ -915,23 +923,23 @@ files_modified:
   - path/to/file2
 ---
 
-## Working on: {title}
+## Текущая работа: {title}
 
-### Summary
+### Кратко
 
-{1-3 sentences describing the high-level goal and current progress}
+{1-3 предложения с описанием общей цели и текущего прогресса}
 
-### Decisions Made
+### Принятые решения
 
-{Bulleted list of architectural choices, trade-offs, and reasoning}
+{Маркированный список архитектурных решений, компромиссов и причин}
 
-### Remaining Work
+### Что осталось
 
-{Numbered list of concrete next steps, in priority order}
+{Нумерованный список конкретных следующих шагов в порядке приоритета}
 
-### Notes
+### Примечания
 
-{Gotchas, blocked items, open questions, things tried that didn't work}
+{Подводные камни, блокеры, открытые вопросы и неудачные попытки}
 ```
 
 The `files_modified` list comes from `git status --short` (both staged and unstaged
@@ -940,16 +948,16 @@ modified files). Use relative paths from the repo root.
 After writing, confirm to the user:
 
 ```
-CONTEXT SAVED
+КОНТЕКСТ СОХРАНЁН
 ════════════════════════════════════════
-Title:    {title}
-Branch:   {branch}
-File:     {path to saved file}
-Modified: {N} files
-Duration: {duration or "unknown"}
+Название:  {title}
+Ветка:     {branch}
+Файл:      {path to saved file}
+Изменено:  {N} файлов
+Длительность: {duration или "неизвестно"}
 ════════════════════════════════════════
 
-Restore later with /context-restore.
+Позже восстановите контекст командой /context-restore.
 ```
 
 ---
@@ -986,9 +994,9 @@ Read the frontmatter of each file to extract `status`, `branch`, and
 Present as a table:
 
 ```
-SAVED CONTEXTS ({branch} branch)
+СОХРАНЁННЫЕ КОНТЕКСТЫ (ветка {branch})
 ════════════════════════════════════════
-#  Date        Title                    Status
+#  Дата        Название                 Статус
 ─  ──────────  ───────────────────────  ───────────
 1  2026-04-18  auth-refactor            in-progress
 2  2026-04-17  api-pagination           completed
@@ -999,9 +1007,9 @@ SAVED CONTEXTS ({branch} branch)
 If `--all` is used, add a Branch column:
 
 ```
-SAVED CONTEXTS (all branches)
+СОХРАНЁННЫЕ КОНТЕКСТЫ (все ветки)
 ════════════════════════════════════════
-#  Date        Title                    Branch              Status
+#  Дата        Название                 Ветка               Статус
 ─  ──────────  ───────────────────────  ──────────────────  ───────────
 1  2026-04-18  auth-refactor            feat/auth           in-progress
 2  2026-04-17  api-pagination           main                completed
@@ -1009,8 +1017,8 @@ SAVED CONTEXTS (all branches)
 ════════════════════════════════════════
 ```
 
-If there are no saved contexts, tell the user: "No saved contexts yet. Run
-`/context-save` to save your current working state."
+If there are no saved contexts, tell Evgeniy: "Сохранённых контекстов пока нет.
+Запустите `/context-save`, чтобы сохранить текущее рабочее состояние."
 
 ---
 
