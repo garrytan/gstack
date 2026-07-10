@@ -8,6 +8,7 @@
 #
 # Usage:
 #   gstack-artifacts-init [--remote <url>] [--host github|gitlab|manual]
+#                         [--push-protocol auto|https|ssh]
 #                         [--url-form-supported true|false]
 #
 # Interactive by default. Pass --remote to skip the host prompt.
@@ -42,16 +43,24 @@ REMOTE_FILE="$HOME/.gstack-artifacts-remote.txt"
 
 REMOTE_URL=""
 HOST_PREF=""
+PUSH_PROTOCOL="auto"
+REMOTE_SOURCE="provider"
 URL_FORM_SUPPORTED="false"
 while [ $# -gt 0 ]; do
   case "$1" in
-    --remote) REMOTE_URL="$2"; shift 2 ;;
+    --remote) REMOTE_URL="$2"; REMOTE_SOURCE="explicit"; shift 2 ;;
     --host) HOST_PREF="$2"; shift 2 ;;
+    --push-protocol) PUSH_PROTOCOL="$2"; shift 2 ;;
     --url-form-supported) URL_FORM_SUPPORTED="$2"; shift 2 ;;
     --help|-h) sed -n '2,32p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "Unknown flag: $1" >&2; exit 1 ;;
   esac
 done
+
+case "$PUSH_PROTOCOL" in
+  auto|https|ssh) ;;
+  *) echo "Invalid --push-protocol: $PUSH_PROTOCOL (expected auto|https|ssh)" >&2; exit 1 ;;
+esac
 
 # ---- preconditions ----
 mkdir -p "$GSTACK_HOME"
@@ -89,6 +98,7 @@ if command -v glab >/dev/null 2>&1 && glab auth status >/dev/null 2>&1; then gla
 # ---- choose remote URL ----
 if [ -z "$REMOTE_URL" ] && [ -n "$EXISTING_REMOTE" ]; then
   REMOTE_URL="$EXISTING_REMOTE"
+  REMOTE_SOURCE="existing"
   echo "Using existing remote: $REMOTE_URL"
 fi
 
@@ -164,6 +174,7 @@ if [ -z "$REMOTE_URL" ]; then
         echo "No URL provided. Aborting." >&2
         exit 1
       fi
+      REMOTE_SOURCE="manual"
       ;;
     *) echo "Unknown --host: $HOST_PREF (expected github|gitlab|manual)" >&2; exit 1 ;;
   esac
@@ -171,7 +182,7 @@ fi
 
 # ---- canonicalize to HTTPS form ----
 # We store HTTPS in ~/.gstack-artifacts-remote.txt (codex Finding #10:
-# canonical form, derive SSH at push time via gstack-artifacts-url --to ssh).
+# canonical form, derive the configured push form via gstack-artifacts-url).
 # Unrecognized forms (local bare paths, file:// URLs, self-hosted gitea, etc.)
 # pass through verbatim so unusual remotes still work.
 CANONICAL_HTTPS=$("$URL_BIN" --to https "$REMOTE_URL" 2>/dev/null || echo "")
@@ -179,20 +190,49 @@ if [ -z "$CANONICAL_HTTPS" ]; then
   CANONICAL_HTTPS="$REMOTE_URL"
 fi
 
-# Use SSH for git push (more reliable for repeated pushes than HTTPS+token).
-# Fall back to the canonical input if derivation fails.
-PUSH_URL=$("$URL_BIN" --to ssh "$CANONICAL_HTTPS" 2>/dev/null || echo "$CANONICAL_HTTPS")
+# Choose the push protocol without overriding an explicit URL. Provider-created
+# remotes honor the provider CLI's git protocol; GitHub CLI defaults to HTTPS.
+# Unknown/local URL forms pass through unchanged.
+RESOLVED_PUSH_PROTOCOL="$PUSH_PROTOCOL"
+if [ "$RESOLVED_PUSH_PROTOCOL" = "auto" ]; then
+  case "$REMOTE_SOURCE" in
+    explicit|existing|manual)
+      case "$REMOTE_URL" in
+        git@*|ssh://*) RESOLVED_PUSH_PROTOCOL="ssh" ;;
+        http://*|https://*) RESOLVED_PUSH_PROTOCOL="https" ;;
+        *) RESOLVED_PUSH_PROTOCOL="preserve" ;;
+      esac
+      ;;
+    provider)
+      CONFIGURED_PROTOCOL=""
+      case "$HOST_PREF" in
+        github) CONFIGURED_PROTOCOL=$(gh config get git_protocol 2>/dev/null || echo "") ;;
+        gitlab) CONFIGURED_PROTOCOL=$(glab config get git_protocol 2>/dev/null || echo "") ;;
+      esac
+      case "$CONFIGURED_PROTOCOL" in
+        ssh|https) RESOLVED_PUSH_PROTOCOL="$CONFIGURED_PROTOCOL" ;;
+        *) RESOLVED_PUSH_PROTOCOL="https" ;;
+      esac
+      ;;
+  esac
+fi
+
+if [ "$RESOLVED_PUSH_PROTOCOL" = "preserve" ]; then
+  PUSH_URL="$REMOTE_URL"
+else
+  PUSH_URL=$("$URL_BIN" --to "$RESOLVED_PUSH_PROTOCOL" "$CANONICAL_HTTPS" 2>/dev/null || echo "$CANONICAL_HTTPS")
+fi
 
 # ---- verify push URL is reachable ----
 echo "Verifying remote connectivity: $PUSH_URL"
 if ! git ls-remote "$PUSH_URL" >/dev/null 2>&1; then
   cat >&2 <<EOF
-Remote not reachable via SSH: $PUSH_URL
+Remote not reachable via $RESOLVED_PUSH_PROTOCOL: $PUSH_URL
 This could mean:
   - Wrong URL
-  - SSH key not added to your git host (GitHub: gh ssh-key list; GitLab: glab ssh-key list)
+  - Credentials for $RESOLVED_PUSH_PROTOCOL are not configured for your git host
   - Network issue
-Fix and re-run gstack-artifacts-init.
+Fix and re-run gstack-artifacts-init, or choose --push-protocol https|ssh.
 EOF
   exit 1
 fi
@@ -373,7 +413,7 @@ cat <<EOF
 gstack-artifacts-init complete.
 Repo:    $GSTACK_HOME (git)
 Remote:  $CANONICAL_HTTPS  (canonical form, in ~/.gstack-artifacts-remote.txt)
-Push:    $PUSH_URL  (derived SSH form for git push)
+Push:    $PUSH_URL  ($RESOLVED_PUSH_PROTOCOL form for git push)
 
 EOF
 
