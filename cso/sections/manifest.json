@@ -1,0 +1,14 @@
+{
+  "$schema": "https://gstack.dev/schemas/section-manifest.json",
+  "skill": "cso",
+  "version": 1,
+  "note": "PASSIVE registry (v2 plan T9 / CM2). id/file/title/trigger text ONLY. Mode dispatch (## Arguments, ## Mode Resolution), always-run phases (0,1), and FP-filtering exceptions (Phase 12) stay in the always-loaded skeleton; only the scope-dependent audit phases are on demand.",
+  "sections": [
+    {
+      "id": "audit-phases",
+      "file": "audit-phases.md",
+      "title": "Scope-dependent audit phases: secrets, dependencies, CI/CD, infra, webhooks, LLM/AI, skill supply chain, OWASP Top 10, STRIDE, data classification (Phases 2-11)",
+      "trigger": "running the scope-dependent audit phases (Phases 2-11) selected by the resolved mode, after the Phase 0 stack detection and Phase 1 attack-surface census"
+    }
+  ]
+}

@@ -52,7 +52,7 @@ export async function evolve(options: EvolveOptions): Promise<void> {
   ].join("\n");
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 120_000);
+  const timeout = setTimeout(() => controller.abort(), 240_000);
 
   try {
     const response = await fetch("https://api.openai.com/v1/responses", {
@@ -64,7 +64,7 @@ export async function evolve(options: EvolveOptions): Promise<void> {
       body: JSON.stringify({
         model: "gpt-4o",
         input: evolvedPrompt,
-        tools: [{ type: "image_generation", size: "1536x1024", quality: "high" }],
+        tools: [{ type: "image_generation", model: "gpt-image-2", size: "1536x1024", quality: "high" }],
       }),
       signal: controller.signal,
     });

@@ -52,50 +52,87 @@ Canonical reference: `docs/designs/PLAN_TUNING_V0.md`.
 
 ## Step 0: Detect what the user wants
 
-Read the user's message. Route based on plain-English intent, not keywords:
+Read the user's message. Route based on plain-English intent, not keywords.
 
-1. **First-time use** (config says `question_tuning` is not yet set to `true`) →
-   run `Enable + setup` below.
-2. **"Show my profile" / "what do you know about me" / "show my vibe"** →
+**Implicit gates run first** (before user-intent routing). These exist so first-time
+users see the consent prompt, so explicit opt-ins eventually run the 5-Q setup,
+and so accumulated free-text answers get dream-cycled into actionable proposals.
+Each gate is guarded by a marker so the user is prompted at most once per choice.
+
+1. **Consent gate.** If `question_tuning` is `false` AND
+   `~/.gstack/.question-tuning-prompted` is missing → run `Consent + opt-in`
+   below. Honor the answer with a marker write either way; do not re-prompt.
+2. **Setup gate.** If `question_tuning` is `true` AND
+   `~/.gstack/developer-profile.json`'s `declared` object is empty AND
+   `~/.gstack/.declared-setup-prompted` is missing → run `5-Q setup` below.
+   Touch the marker after setup completes OR is declined.
+3. **Dream-cycle gate (Layer 8 / cathedral T10/T11).** If
+   `~/.gstack/projects/<slug>/distillation-proposals.json` exists AND has
+   `applied_at` missing on any proposal → run `Dream cycle review` below.
+   Marker: each proposal carries its own `applied_at` so re-firing this
+   gate naturally skips already-handled items.
+
+When no implicit gate fires, route by user intent:
+
+4. **"Show my profile" / "what do you know about me" / "show my vibe"** →
    run `Inspect profile`.
-3. **"Review questions" / "what have I been asked" / "show recent"** →
+5. **"Review questions" / "what have I been asked" / "show recent"** →
    run `Review question log`.
-4. **"Stop asking me about X" / "never ask about Y" / "tune: ..."** →
+6. **"Stop asking me about X" / "never ask about Y" / "tune: ..."** →
    run `Set a preference`.
-5. **"Update my profile" / "I'm more boil-the-ocean than that" / "I've changed
+7. **"Update my profile" / "I'm more boil-the-ocean than that" / "I've changed
    my mind"** → run `Edit declared profile` (confirm before writing).
-6. **"Show the gap" / "how far off is my profile"** → run `Show gap`.
-7. **"Turn it off" / "disable"** → `~/.claude/skills/gstack/bin/gstack-config set question_tuning false`
-8. **"Turn it on" / "enable"** → `~/.claude/skills/gstack/bin/gstack-config set question_tuning true`
-9. **Clear ambiguity** — if you can't tell what the user wants, ask plainly:
-   "Do you want to (a) see your profile, (b) review recent questions, (c) set
-   a preference, (d) update your declared profile, or (e) turn it off?"
+8. **"Show the gap" / "how far off is my profile"** → run `Show gap`.
+9. **"Dream cycle" / "distill" / "what have I been free-texting"** →
+   run `Dream cycle distill` below (triggers `gstack-distill-free-text`).
+10. **"Turn it off" / "disable"** → `~/.claude/skills/gstack/bin/gstack-config set question_tuning false`
+11. **"Turn it on" / "enable"** → `~/.claude/skills/gstack/bin/gstack-config set question_tuning true && touch ~/.gstack/.question-tuning-prompted`
+12. **Clear ambiguity** — if you can't tell what the user wants, ask plainly:
+    "Do you want to (a) see your profile, (b) review recent questions, (c) set
+    a preference, (d) update your declared profile, (e) run the dream cycle,
+    or (f) turn it off?"
 
 Power-user shortcuts (one-word invocations) — handle these too:
-`profile`, `vibe`, `gap`, `stats`, `review`, `enable`, `disable`, `setup`.
+`profile`, `vibe`, `gap`, `stats`, `review`, `enable`, `disable`, `setup`,
+`distill`, `dream`, `audit`.
 
 ---
 
-## Enable + setup (first-time flow)
+## Consent + opt-in
 
-**When this fires.** The user invokes `/plan-tune` and the preamble shows
-`QUESTION_TUNING: false` (the default).
+**When this fires.** Step 0's consent gate: `question_tuning` is `false` AND
+`~/.gstack/.question-tuning-prompted` is missing. The user has never been
+asked.
+
+**Privacy note.** gstack defaults `question_tuning` to `false` for every user.
+There is no auto-flip for any cohort. The consent prompt is the only path to
+enabling, and the answer is honored with a marker file so the user is never
+re-asked. Contributors are not auto-enrolled (see
+`docs/designs/PLAN_TUNING_V1.md` §"Decisions log" for the privacy posture
+rationale). If the user is a contributor (`gstack_contributor: true`), the
+prompt can mention it as additional context, but the decision is still
+explicit.
 
 **Flow:**
 
-1. Read the current state:
+1. Detect contributor state (for prompt framing only, not for auto-action):
    ```bash
    _QT=$(~/.claude/skills/gstack/bin/gstack-config get question_tuning 2>/dev/null || echo "false")
+   _CONTRIB=$(~/.claude/skills/gstack/bin/gstack-config get gstack_contributor 2>/dev/null || echo "false")
    echo "QUESTION_TUNING: $_QT"
+   echo "CONTRIBUTOR: $_CONTRIB"
    ```
 
-2. If `false`, use AskUserQuestion:
+2. AskUserQuestion (use the contributor-specific framing only if `_CONTRIB=true`,
+   otherwise use the general framing):
 
+   **General framing:**
    > Question tuning is off. gstack can learn which of its prompts you find
    > valuable vs noisy — so over time, gstack stops asking questions you've
    > already answered the same way. It takes about 2 minutes to set up your
    > initial profile. v1 is observational: gstack tracks your preferences
    > and shows you a profile, but doesn't silently change skill behavior yet.
+   > Logs stay local (`~/.gstack/projects/<slug>/question-log.jsonl`).
    >
    > RECOMMENDATION: Enable and set up your profile. Completeness: A=9/10.
    >
@@ -103,13 +140,47 @@ Power-user shortcuts (one-word invocations) — handle these too:
    > B) Enable but skip setup (I'll fill it in later)
    > C) Cancel — I'm not ready
 
-3. If A or B: enable:
+   **Contributor framing (only if `_CONTRIB=true`):**
+   > You're a gstack contributor. Question tuning isn't on by default for
+   > anyone, but contributors are the cohort whose data most helps v2 work
+   > (skills adapting to your steering style). Enabling logs every
+   > AskUserQuestion outcome locally to
+   > `~/.gstack/projects/<slug>/question-log.jsonl` — nothing leaves your
+   > machine. v1 is observational only.
+   >
+   > RECOMMENDATION: Enable and set up your profile. Completeness: A=9/10.
+   >
+   > A) Enable + set up (recommended for contributors, ~2 min)
+   > B) Enable but skip setup (I'll fill it in later)
+   > C) Cancel — I'm not ready
+
+3. ALWAYS touch the marker, regardless of choice:
+   ```bash
+   touch ~/.gstack/.question-tuning-prompted
+   ```
+
+4. If A or B: enable:
    ```bash
    ~/.claude/skills/gstack/bin/gstack-config set question_tuning true
    ```
 
-4. If A (full setup), ask FIVE one-per-dimension declaration questions via
-   individual AskUserQuestion calls (one at a time). Use plain English, no jargon:
+5. If C: do nothing else. Tell the user: "Question tuning stays off. Re-enable
+   any time with `/plan-tune enable` or `gstack-config set question_tuning true`."
+
+## 5-Q setup (post-consent, or via Setup gate)
+
+**When this fires.** Two paths:
+- Right after the consent prompt above accepts option A.
+- Standalone via Step 0's setup gate: `question_tuning` is already `true`
+  (user opted in via gstack-config or earlier `/plan-tune enable`) AND
+  `declared` is empty AND `~/.gstack/.declared-setup-prompted` is missing.
+  This catches users who set `question_tuning: true` directly without
+  running the wizard.
+
+**Flow:**
+
+1. Ask FIVE one-per-dimension declaration questions via individual
+   AskUserQuestion calls (one at a time). Use plain English, no jargon:
 
    **Q1 — scope_appetite:** "When you're planning a feature, do you lean toward
    shipping the smallest useful version fast, or building the complete, edge-
@@ -162,10 +233,18 @@ Power-user shortcuts (one-word invocations) — handle these too:
    "
    ```
 
-5. Tell the user: "Profile set. Question tuning is now on. Use `/plan-tune`
+2. Touch the marker so the Setup gate doesn't re-fire:
+   ```bash
+   touch ~/.gstack/.declared-setup-prompted
+   ```
+   Touch it even if the user bails out partway — they were asked; they chose
+   not to complete. The Setup gate respects that. They can rerun the 5-Q
+   anytime with `/plan-tune setup` (Step 0 power-user shortcut).
+
+3. Tell the user: "Profile set. Question tuning is on. Use `/plan-tune`
    again any time to inspect, adjust, or turn it off."
 
-6. Show the profile inline as a confirmation (see `Inspect profile` below).
+4. Show the profile inline as a confirmation (see `Inspect profile` below).
 
 ---
 
@@ -186,11 +265,17 @@ Parse the JSON. Present in **plain English**, not raw floats:
   Format: "**scope_appetite:** 0.8 (boil the ocean — you prefer the complete
   version with edge cases covered)"
 
-- If `inferred.diversity` passes the calibration gate (`sample_size >= 20 AND
+- If `inferred.diversity` passes the **display gate** (`sample_size >= 20 AND
   skills_covered >= 3 AND question_ids_covered >= 8 AND days_span >= 7`), show
   the inferred column next to declared:
   "**scope_appetite:** declared 0.8 (boil the ocean) ↔ observed 0.72 (close)"
   Use words for the gap: 0.0-0.1 "close", 0.1-0.3 "drift", 0.3+ "mismatch".
+
+  This display gate is intentionally lower than the E1 **promotion gate**
+  (90+ days stable across 3+ skills, per `docs/designs/PLAN_TUNING_V0.md`).
+  Displaying inferred values is a UI affordance; shipping behavior-adapting
+  defaults based on the profile is consequential and needs a much higher
+  bar. Do NOT use the display gate as a green light for v2 E1 work.
 
 - If the calibration gate isn't met, say: "Not enough observed data yet —
   need N more events across M more skills before we can show your observed
@@ -339,12 +424,37 @@ the user decides whether declared is wrong or behavior is wrong.
 
 ## Stats
 
+Cathedral T13 surfaces: host-aware breakdown (claude hook vs codex import
+vs agent-enriched), marked vs hash-only, auto-decided count, and dream
+cycle cost-to-date.
+
 ```bash
 ~/.claude/skills/gstack/bin/gstack-question-preference --stats
 eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
 eval "$(~/.claude/skills/gstack/bin/gstack-paths)"
 _LOG="$GSTACK_STATE_ROOT/projects/$SLUG/question-log.jsonl"
-[ -f "$_LOG" ] && echo "TOTAL_LOGGED: $(wc -l < "$_LOG" | tr -d ' ')" || echo "TOTAL_LOGGED: 0"
+if [ -f "$_LOG" ]; then
+  bun -e "
+    const lines = require('fs').readFileSync('$_LOG','utf-8').trim().split('\n').filter(Boolean);
+    const events = [];
+    for (const l of lines) { try { events.push(JSON.parse(l)); } catch {} }
+    const total = events.length;
+    const bySource = {};
+    let marked = 0;
+    for (const e of events) {
+      const src = e.source || 'agent';
+      bySource[src] = (bySource[src] || 0) + 1;
+      if (e.question_id && !e.question_id.startsWith('hook-')) marked++;
+    }
+    console.log('TOTAL_LOGGED: ' + total);
+    console.log('MARKED: ' + marked + ' (' + (total ? Math.round(100*marked/total) : 0) + '%)');
+    for (const s of Object.keys(bySource).sort()) {
+      console.log('SOURCE_' + s.toUpperCase().replace(/-/g,'_') + ': ' + bySource[s]);
+    }
+  "
+else
+  echo 'TOTAL_LOGGED: 0'
+fi
 ~/.claude/skills/gstack/bin/gstack-developer-profile --profile | bun -e "
   const p = JSON.parse(await Bun.stdin.text());
   const d = p.inferred?.diversity || {};
@@ -353,10 +463,174 @@ _LOG="$GSTACK_STATE_ROOT/projects/$SLUG/question-log.jsonl"
   console.log('DAYS_SPAN: ' + (d.days_span ?? 0));
   console.log('CALIBRATED: ' + (p.inferred?.sample_size >= 20 && d.skills_covered >= 3 && d.question_ids_covered >= 8 && d.days_span >= 7));
 "
+echo '---DISTILL---'
+~/.claude/skills/gstack/bin/gstack-distill-free-text --status
 ```
 
 Present as a compact summary with plain-English calibration status ("5 more
 events across 2 more skills and you'll be calibrated" or "you're calibrated").
+Surface the source breakdown so the user can see capture is real (Codex
+correction — without source columns, the cathedral's "before:0 / after:>0"
+claim is invisible).
+
+---
+
+## Recent auto-decisions
+
+Show the last 10 questions where the PreToolUse hook auto-decided (source=
+`auto-decided` in the log). Lets the user spot-check enforcement and flip
+any that misfired via `always-ask`.
+
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+eval "$(~/.claude/skills/gstack/bin/gstack-paths)"
+_LOG="$GSTACK_STATE_ROOT/projects/$SLUG/question-log.jsonl"
+[ ! -f "$_LOG" ] && echo 'NO_LOG' || bun -e "
+  const lines = require('fs').readFileSync('$_LOG','utf-8').trim().split('\n').filter(Boolean);
+  const auto = [];
+  for (const l of lines) {
+    try { const e = JSON.parse(l); if (e.source === 'auto-decided') auto.push(e); } catch {}
+  }
+  const recent = auto.slice(-10).reverse();
+  if (!recent.length) { console.log('(no auto-decisions yet)'); process.exit(0); }
+  for (const r of recent) {
+    console.log(r.ts + '  ' + r.question_id + ' → ' + r.user_choice);
+    console.log('     ' + (r.question_summary || ''));
+  }
+"
+```
+
+If any look wrong, offer: "Want to flip `<question_id>` to `always-ask`?"
+Run `gstack-question-preference --write '{"question_id":"<id>","preference":
+"always-ask","source":"plan-tune"}'` after Y.
+
+---
+
+## Audit unmarked questions
+
+Top N hash-only question_ids by frequency. These are AUQ fires the cathedral
+hook captured but cannot enforce against (no `<gstack-qid:foo>` marker in
+the skill template — D18 progressive markers). Surfacing them drives marker
+adoption: high-traffic unmarked questions are the next candidates to retrofit.
+
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+eval "$(~/.claude/skills/gstack/bin/gstack-paths)"
+_LOG="$GSTACK_STATE_ROOT/projects/$SLUG/question-log.jsonl"
+[ ! -f "$_LOG" ] && echo 'NO_LOG' || bun -e "
+  const lines = require('fs').readFileSync('$_LOG','utf-8').trim().split('\n').filter(Boolean);
+  const counts = {};
+  const summaries = {};
+  for (const l of lines) {
+    try {
+      const e = JSON.parse(l);
+      if (e.question_id && e.question_id.startsWith('hook-')) {
+        counts[e.question_id] = (counts[e.question_id] || 0) + 1;
+        summaries[e.question_id] = e.question_summary || '';
+      }
+    } catch {}
+  }
+  const rows = Object.entries(counts).sort((a,b) => b[1] - a[1]).slice(0, 10);
+  if (!rows.length) { console.log('(no unmarked questions — coverage is 100%)'); process.exit(0); }
+  for (const [id, n] of rows) {
+    console.log(n + 'x  ' + id);
+    console.log('     ' + summaries[id]);
+  }
+"
+```
+
+For each row, suggest where the marker should land (look up the skill from
+the summary's wording, e.g. "Bundle this fix..." likely lives in
+`ship/SKILL.md.tmpl`). Don't write markers without user approval — adding
+markers changes which AUQ fires can be auto-decided, which is a substrate
+expansion.
+
+---
+
+## Dream cycle review
+
+**When this fires.** Step 0's dream-cycle gate: `distillation-proposals.json`
+has at least one proposal with `applied_at` missing. Or the user explicitly
+invokes via `/plan-tune distill` / `dream`.
+
+**Flow:**
+
+1. Show the proposals:
+   ```bash
+   ~/.claude/skills/gstack/bin/gstack-distill-apply --list
+   ```
+
+2. For each unapplied proposal, present it as a numbered item and use
+   AskUserQuestion (one per call, per skill convention). Show:
+   - Kind (`preference` / `declared-nudge` / `memory-nugget`)
+   - Confidence + rationale
+   - The source quotes verbatim (proves user-origin)
+   - What applying does (which file/key/dim changes)
+
+3. **On accept** (Y): apply via the bin. The skill also publishes the
+   nugget to gbrain when configured.
+
+   For `memory-nugget`:
+   ```bash
+   # If gbrain is configured, mirror via MCP first.
+   # (Pseudo — actual gbrain call happens at the agent layer via
+   # mcp__gbrain__put_page; the bin records the published flag.)
+   ~/.claude/skills/gstack/bin/gstack-distill-apply --proposal N --gbrain-published true|false
+   ```
+
+   For `preference`:
+   ```bash
+   ~/.claude/skills/gstack/bin/gstack-distill-apply --proposal N
+   ```
+
+   For `declared-nudge`:
+   ```bash
+   # Same bin; updates developer-profile.json declared dim with the
+   # clamped delta.
+   ~/.claude/skills/gstack/bin/gstack-distill-apply --proposal N
+   ```
+
+4. **On decline**: skip without marking. User can re-decide later (the
+   proposal stays in the file). To dismiss permanently, manually clear:
+   `gstack-distill-apply --proposal N --dismiss` (not implemented in T11;
+   for now, regenerate via next distill run with corrected free-text).
+
+5. **gbrain integration.** When `mcp__gbrain__*` tools are available in
+   this session:
+   - On `memory-nugget` apply: `mcp__gbrain__put_page` with the nugget +
+     `mcp__gbrain__extract_facts` + `mcp__gbrain__add_tag` per the cathedral
+     plan D9 routing. Then pass `--gbrain-published true` to the bin so
+     the proposals file records the mirror.
+   - When gbrain isn't configured (no MCP tools), the bin's local file
+     write is the durable source-of-truth and the PreToolUse hook reads it
+     via Layer 8 memory injection.
+
+---
+
+## Dream cycle distill (manual trigger)
+
+**When this fires.** The user invokes `/plan-tune distill` / `dream` /
+`distill` / `dream cycle`. Auto-triggered version lives in Step 0 gate #3.
+
+**Flow:**
+
+1. Run distill:
+   ```bash
+   ~/.claude/skills/gstack/bin/gstack-distill-free-text
+   ```
+
+2. If `RATE_CAPPED`: tell the user "You've hit today's 3 distills/day cap.
+   Run again tomorrow, or `/plan-tune stats` for run history."
+3. If `NO_FREE_TEXT`: tell the user "No free-text answers since the last
+   distill. Keep using gstack — `Other` responses on AskUserQuestion feed
+   this loop."
+4. If success: print the proposals count + estimated cost, then route into
+   `Dream cycle review` above for the user to approve each.
+
+For background mode (e.g., the user wants to keep working):
+```bash
+~/.claude/skills/gstack/bin/gstack-distill-free-text --background
+```
 
 ---
 

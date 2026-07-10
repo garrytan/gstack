@@ -25,18 +25,84 @@ import { logTelemetry } from './telemetry';
 const CDP_TIMEOUT_MS = 5000;
 const CDP_ACQUIRE_TIMEOUT_MS = 5000;
 
-// Per-page CDPSession cache. Created lazily on first allow-listed call,
-// cleaned up when the page closes.
+// ─── CDP session lifecycle helpers ─────────────────────────────
+//
+// Every direct `newCDPSession(page)` call needs a matching `session.detach()`
+// to release the Chromium-side CDP target. Forgetting the detach leaves the
+// target attached until the underlying transport drops (often process exit),
+// which on a long-lived headed browser shows up as steadily-climbing
+// browser-process RSS. To make the leak class unforgettable, callers should
+// go through one of these two helpers and a static-grep test
+// (browse/test/cdp-session-cleanup.test.ts) fails CI if any source file
+// calls `newCDPSession(` outside this module.
+
+/**
+ * Ephemeral CDP session with try/finally detach. Use for one-shot CDP work
+ * where the caller doesn't need session reuse — e.g. archive snapshots,
+ * `$B memory`, a single `Page.captureScreenshot`. The session is detached
+ * in `finally` regardless of whether `fn` threw, so the Chromium target
+ * doesn't leak on the error path.
+ *
+ * For repeated use of the same page (e.g. the `$B cdp` bridge or the
+ * inspector), use `getOrCreateCdpSession` instead — it caches and detaches
+ * on page close.
+ */
+export async function withCdpSession<T>(
+  page: Page,
+  fn: (session: any) => Promise<T>,
+): Promise<T> {
+  const session = await page.context().newCDPSession(page);
+  try {
+    return await fn(session);
+  } finally {
+    try {
+      await session.detach();
+    } catch {
+      // Best-effort cleanup. Session may already be detached (target closed,
+      // context recreated, browser disconnect). Swallowing all errors is the
+      // correct cleanup posture per CLAUDE.md "best-effort cleanup paths".
+    }
+  }
+}
+
+/**
+ * Cached long-lived CDP session keyed by Page. First call creates the
+ * session and registers a `page.once('close', ...)` hook that removes the
+ * cache entry AND calls `session.detach()`. Pre-helper code only removed
+ * the cache entry, leaving the Chromium-side target attached.
+ *
+ * Pass a caller-owned WeakMap so this helper doesn't impose a single global
+ * cache — the `$B cdp` bridge and the inspector each keep their own session
+ * pool with different invariants (e.g. the inspector also detaches on
+ * `framenavigated` because DOM/CSS domain state is tied to the document).
+ */
+export async function getOrCreateCdpSession(
+  page: Page,
+  cache: WeakMap<Page, any>,
+): Promise<any> {
+  let session = cache.get(page);
+  if (session) return session;
+  session = await page.context().newCDPSession(page);
+  cache.set(page, session);
+  page.once('close', () => {
+    cache.delete(page);
+    session.detach().catch(() => {
+      // Best-effort cleanup — see withCdpSession finally block.
+    });
+  });
+  return session;
+}
+
+// ─── $B cdp bridge ─────────────────────────────────────────────
+
+// Per-page CDPSession cache. Lifecycle delegated to getOrCreateCdpSession
+// which registers a close hook that BOTH removes the cache entry AND calls
+// session.detach() — pre-helper code only did the former, leaving the
+// Chromium-side target attached.
 const sessionCache: WeakMap<Page, any> = new WeakMap();
 
 async function getCdpSession(page: Page): Promise<any> {
-  let s = sessionCache.get(page);
-  if (s) return s;
-  s = await page.context().newCDPSession(page);
-  sessionCache.set(page, s);
-  // Clear cache on detach so we don't hold a stale handle.
-  page.once('close', () => sessionCache.delete(page));
-  return s;
+  return getOrCreateCdpSession(page, sessionCache);
 }
 
 export interface CdpDispatchInput {

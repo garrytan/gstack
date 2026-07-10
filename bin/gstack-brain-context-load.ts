@@ -192,7 +192,10 @@ function resolveSkillFile(args: CliArgs): string | null {
 
 function gbrainAvailable(): boolean {
   try {
-    execFileSync("command", ["-v", "gbrain"], { stdio: "ignore" });
+    execFileSync("gbrain", ["--version"], {
+      stdio: "ignore",
+      timeout: MCP_TIMEOUT_MS,
+    });
     return true;
   } catch {
     return false;

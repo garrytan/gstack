@@ -16,7 +16,16 @@ This is the full monty: every scenario, every flag, every helper bin, every trou
 
 That's it. The skill detects your current state, asks three questions at most, and walks you through install, init, MCP registration for Claude Code, and per-repo trust policy. On a clean Mac with nothing installed it finishes in under five minutes. On a Mac where something's already set up it takes seconds (it detects the existing state and skips done work).
 
-## The three paths
+## What you get after setup
+
+Once `/setup-gbrain` finishes, your coding agent has two retrieval surfaces it didn't have before:
+
+- **Semantic code search across this repo.** `gbrain search "browser security canary"` returns ranked file regions, not exact-match grep hits. `gbrain code-def`, `code-refs`, `code-callers`, `code-callees` walk the call graph by symbol — useful when you don't know which file holds the implementation but you know what it does. The agent prefers these over Grep when the question is semantic; CLAUDE.md gets a `## GBrain Search Guidance` block that teaches it the routing rules.
+- **Cross-session memory.** Plans, retros, decisions, and learnings from past sessions live in `~/.gstack/` and (if you opted in to artifacts sync) get pushed to a private git repo that gbrain indexes. `gbrain search "what did we decide about auth?"` actually finds the prior CEO plan instead of you re-describing context every session.
+
+If you also enabled remote MCP (Path 4 below), brain queries route to a shared brain server that other machines can write to — your laptop, your desktop, and a teammate's machine all see the same memory.
+
+## The four paths
 
 You pick one when the skill asks "Where should your brain live?"
 
@@ -48,9 +57,24 @@ Best for: you'd rather click through supabase.com yourself than paste a PAT.
 
 Best for: try-it-first, no account, no cloud, no sharing. Or a dedicated "this Mac's brain" that stays isolated from any cloud agent.
 
-**What happens:** `gbrain init --pglite`. Brain lives at `~/.gbrain/brain.pglite`. No network calls. Done in 30 seconds.
+**What happens:** `gbrain init --pglite`. Brain lives at `~/.gbrain/brain.pglite`. No network calls for the init itself. Done in 30 seconds.
+
+**Embedding model.** When `VOYAGE_API_KEY` is set, gstack inits PGLite with `voyage-code-3` (1024-dim) — Voyage's code-specialized embedding model, which beats their general-purpose `voyage-4-large` and OpenAI `text-embedding-3-large` head-to-head on this codebase's symbol queries. Without `VOYAGE_API_KEY`, gbrain auto-selects (OpenAI 1536-dim when `OPENAI_API_KEY` is present, else falls down its provider chain). Either way, the embeddings call out to the chosen provider's API during sync — set the key for the provider you want before running `/sync-gbrain`.
 
 This is the best first choice if you just want to see what gbrain feels like before committing to cloud. You can always migrate later with `/setup-gbrain --switch`.
+
+### Path 4: Remote gbrain MCP (split-engine)
+
+Best for: your brain runs on another machine you control (Tailscale, ngrok, internal LAN) or a teammate's server. You want the cross-machine memory benefit without standing up a local database, and you still want symbol-aware code search on this Mac.
+
+**What happens:** You paste an MCP URL (e.g. `https://wintermute.tail554574.ts.net:3131/mcp`) and a bearer token. The skill verifies the URL over the wire, registers gbrain as an HTTP MCP in `~/.claude.json` at user scope, and offers to also stand up a tiny local PGLite for code search (~30 seconds, ~120 MB disk).
+
+If you accept the local PGLite, you end up in **split-engine mode**:
+
+- **Brain/context queries** (`mcp__gbrain__search`, `mcp__gbrain__query`, `mcp__gbrain__get_page`) route to the remote MCP. Plans, retros, learnings, cross-machine memory — all on the shared server.
+- **Code queries** (`gbrain code-def`, `code-refs`, `code-callers`, `code-callees`, `gbrain search` for code) route to the local PGLite via the `.gbrain-source` pin in each worktree. Indexed locally, fast, never leaves the machine.
+
+The two engines are independent. Wiping the local PGLite doesn't touch the remote brain; rotating the remote MCP bearer doesn't affect local code search. This is also the right configuration if your remote brain admin can't (or shouldn't) index every developer's checkout — local code stays local.
 
 ## MCP registration for Claude Code
 
@@ -60,7 +84,7 @@ By default the skill asks "Give Claude Code a typed tool surface for gbrain?" If
 claude mcp add gbrain -- gbrain serve
 ```
 
-That registers gbrain's stdio MCP server with Claude Code. Now `gbrain search`, `gbrain put_page`, `gbrain get_page`, etc. show up as first-class tools in every session, not bash shell-outs.
+That registers gbrain's stdio MCP server with Claude Code. Now `gbrain search`, `gbrain put`, `gbrain get`, etc. show up as first-class tools in every session, not bash shell-outs.
 
 **If `claude` is not on PATH**, the skill skips MCP registration gracefully with a manual-register hint. The CLI resolver still works from any skill that shells out to `gbrain` — MCP is an upgrade, not a prerequisite.
 
@@ -94,6 +118,35 @@ SSH and HTTPS remote variants collapse to the same key: `https://github.com/foo/
 ```
 
 Storage: `~/.gstack/gbrain-repo-policy.json`, mode 0600, schema-versioned so future migrations stay deterministic.
+
+## Keeping the brain current with `/sync-gbrain`
+
+`/setup-gbrain` is one-time onboarding. `/sync-gbrain` is the verb you run every time you want gbrain to see fresh changes in this repo's code.
+
+```bash
+/sync-gbrain                # incremental: mtime fast-path, ~seconds on a clean tree
+/sync-gbrain --full         # full reindex (~25-35 minutes on a big Mac)
+/sync-gbrain --code-only    # only the code stage; skip memory + brain-sync
+/sync-gbrain --dry-run      # preview what would sync; no writes
+```
+
+The skill runs three stages — code, memory, brain-sync — independently. A failure in one doesn't block the others. State persists to `~/.gstack/.gbrain-sync-state.json` so re-running picks up cleanly.
+
+**What it does on a fresh worktree:**
+
+1. **Pre-flight.** Checks `gbrain_local_status` (the local engine's health). If the engine is `broken-db` or `broken-config`, the skill STOPs with a remediation menu — it refuses to silently degrade. If the local engine is missing and you're in remote-MCP mode (Path 4), the code stage SKIPs cleanly and only brain-sync runs.
+2. **Code stage.** Registers the cwd as a federated source via `gbrain sources add`, writes a `.gbrain-source` pin file in the repo root (kubectl-style context — every worktree gets its own pin, so Conductor sibling worktrees don't collide), runs `gbrain sync --strategy code`.
+3. **Memory stage.** Stages your `~/.gstack/` transcripts + curated memory. In local-stdio MCP mode, ingests into the local engine. In remote-http MCP mode, persists staged markdown to `~/.gstack/transcripts/run-<pid>-<ts>/` for the remote brain admin's pull pipeline. The ingest timeout is 30 minutes by default; raise it for a big brain with `GSTACK_INGEST_TIMEOUT_MS` (accepts 1 min–24h). On timeout the gbrain import checkpoint is preserved, so the next `/sync-gbrain` resumes instead of starting over.
+4. **Brain-sync stage.** Pushes curated artifacts (plans, designs, retros) to your private artifacts repo if you have one configured.
+5. **CLAUDE.md guidance.** Capability-checks the round-trip (write a page → search → find it). If green, writes the `## GBrain Search Guidance` block to your project's CLAUDE.md. If red, REMOVES the block — the agent should never be told to use a tool that isn't installed.
+
+**The watermark.** Sync state advances by commit hash. If gbrain hits a file it can't index (5 MB hard limit per file, or a file vanished mid-sync), the watermark stays put and subsequent syncs retry. To acknowledge an unfixable failure and move past it:
+
+```bash
+gbrain sync --source <source-id> --skip-failed
+```
+
+Re-runnable, idempotent, safe to run from multiple terminals on the same machine (locked at `~/.gstack/.sync-gbrain.lock`).
 
 ## Switching engines later
 
@@ -173,8 +226,8 @@ Gbrain itself ships with these that gstack wraps:
 | `gbrain migrate --to supabase --url ...` | Move a PGLite brain to Supabase (lossless, preserves source as backup) |
 | `gbrain migrate --to pglite` | Reverse migration |
 | `gbrain search "query"` | Search the brain |
-| `gbrain put_page --title "..." --tags "a,b" <<<"content"` | Write a page |
-| `gbrain get_page "<slug>"` | Fetch a page |
+| `gbrain put "<slug>" --content "<markdown-with-frontmatter>"` | Write a page (title/tags go in YAML frontmatter inside `--content`) |
+| `gbrain get "<slug>"` | Fetch a page |
 | `gbrain serve` | Start the MCP stdio server (used by `claude mcp add`) |
 
 ### Config files + state
@@ -200,6 +253,26 @@ Gbrain itself ships with these that gstack wraps:
 | `SUPABASE_API_BASE` | `gstack-gbrain-supabase-provision` | Override the Management API host. Used by tests to point at a mock server. |
 | `GBRAIN_INSTALL_DIR` | `gstack-gbrain-install` | Override default install path (`~/gbrain`) |
 | `GSTACK_HOME` | every bin helper | Override `~/.gstack` state dir. Heavy test use. |
+| `VOYAGE_API_KEY` | `gbrain embed` subprocess; gstack PGLite init | When set, gstack inits PGLite with `voyage-code-3` (1024-dim), Voyage's code-specialized embedding model. Beats `voyage-4-large` and OpenAI `text-embedding-3-large` head-to-head on this codebase's symbol queries. See CHANGELOG v1.43.1.0 for the A/B numbers. |
+| `OPENAI_API_KEY` | `gbrain embed` subprocess | Used for embeddings during `gbrain sync` / `/sync-gbrain` when `VOYAGE_API_KEY` is not set (gbrain's auto-selected fallback, `text-embedding-3-large` 1536-dim). Without either key, pages are imported structurally (symbol tables, chunks) but semantic search degrades — you'll see `[gbrain] embedding failed for code file ...` in the sync log. |
+| `ANTHROPIC_API_KEY` | `claude-agent-sdk`, paid evals | Required for `bun run test:evals` and any direct `query()` call against Claude. |
+| `GSTACK_OPENAI_API_KEY` | `lib/conductor-env-shim.ts` | Conductor-injected fallback. Promoted to `OPENAI_API_KEY` when the canonical name is empty. |
+| `GSTACK_ANTHROPIC_API_KEY` | `lib/conductor-env-shim.ts` | Same pattern as above for Anthropic. |
+
+## Conductor + GSTACK_* env vars
+
+If you run gstack inside a [Conductor](https://conductor.build) workspace, **Conductor explicitly strips `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` from the workspace env.** Setting them in `~/.zshrc` or `.env` won't help — the strip happens after env inheritance. To get a usable API key into a workspace, set `GSTACK_ANTHROPIC_API_KEY` and `GSTACK_OPENAI_API_KEY` in Conductor's workspace env config instead. Conductor passes those through untouched.
+
+`lib/conductor-env-shim.ts` bridges the gap on the gstack side: when imported as a side effect (`import "../lib/conductor-env-shim";`), it promotes `GSTACK_FOO_API_KEY` to `FOO_API_KEY` for any subprocess that doesn't see the canonical name. The shim is already wired into:
+
+- `bin/gstack-gbrain-sync.ts` — so `/sync-gbrain` picks up OpenAI for embeddings
+- `bin/gstack-model-benchmark` — so `--judge` runs work without manual env mapping
+- `scripts/preflight-agent-sdk.ts` — so paid-eval auth probes work
+- `test/helpers/e2e-helpers.ts` — so `bun run test:evals` finds Anthropic
+
+If you add a new TS entry point that hits a paid API or needs gbrain embeddings, add the same one-line import at the top. See [CONTRIBUTING.md "Conductor workspaces"](CONTRIBUTING.md#conductor-workspaces) for the contributor checklist.
+
+`bin/gstack-codex-probe` is bash and doesn't read these directly — it relies on `~/.codex/` auth managed by the Codex CLI.
 
 ## Security model
 
@@ -267,6 +340,26 @@ You edited `~/.gstack/gbrain-repo-policy.json` by hand with legacy `allow` value
 
 `/health` treats that as yellow, not red. Check `gbrain doctor --json | jq .checks` to see which sub-checks are warning. Typical causes: resolver MECE overlap (skill names clashing) or DB connection not yet configured.
 
+### `/sync-gbrain` reports `OK` but `gbrain search` returns nothing semantic
+
+Embeddings probably failed during import. Symbol queries (`code-def`, `code-refs`) still work because they don't need embeddings, but `gbrain search "<terms>"` falls back to a degraded BM25 path. Look in the sync output for lines like:
+
+```
+[gbrain] embedding failed for code file <name>: OpenAI embedding requires OPENAI_API_KEY
+```
+
+The fix is to put a provider API key in the process env before re-running. `VOYAGE_API_KEY` is preferred for code (gstack defaults PGLite to `voyage-code-3` when set); otherwise `OPENAI_API_KEY` falls back to `text-embedding-3-large`. On a bare Mac shell, source the key from `~/.zshrc` before calling. In Conductor, the `lib/conductor-env-shim.ts` shim promotes `GSTACK_ANTHROPIC_API_KEY` / `GSTACK_OPENAI_API_KEY` to their canonical names automatically; for `VOYAGE_API_KEY`, set it directly in your Conductor workspace env. Re-run `/sync-gbrain --code-only` to backfill embeddings on already-imported pages.
+
+### `gbrain sync` blocked at a commit hash — `FILE_TOO_LARGE`
+
+A file in your tree exceeds gbrain's 5 MB hard limit (`MAX_FILE_SIZE` in `gbrain/src/core/import-file.ts`). Common culprits: response replay caches, captured screenshots, large JSON fixtures. Gbrain doesn't honor `.gitignore`-style exclude lists for code sync; the only knob is acknowledging the failure:
+
+```bash
+gbrain sync --source <source-id> --skip-failed
+```
+
+Watermark advances past the offending commit. The same file fails again if it changes; re-skip when that happens.
+
 ### Switching PGLite → Supabase hangs
 
 Another gstack session in a sibling Conductor workspace may be holding a lock on your local PGLite file via its preamble's `gstack-brain-sync` call. Close other workspaces, re-run `/setup-gbrain --switch`. The timeout is bounded at 180s so you'll never actually wait forever.
@@ -286,7 +379,7 @@ Another gstack session in a sibling Conductor workspace may be holding a lock on
 ## Related skills + next steps
 
 - `/health` — includes a GBrain dimension (doctor status, sync queue depth, last-push age) in its 0-10 composite score. The dimension is omitted when gbrain isn't installed; running `/health` on a non-gbrain machine doesn't penalize that choice.
-- `/gstack-upgrade` — keeps gstack itself up to date. Does NOT upgrade gbrain independently. To bump gbrain, update `PINNED_COMMIT` in `bin/gstack-gbrain-install` and re-run `/setup-gbrain`.
+- `/gstack-upgrade` — keeps gstack itself up to date. Does NOT upgrade gbrain independently. gbrain installs at the latest HEAD by default; to refresh it, `git pull` in your gbrain clone (default `~/gbrain`) and re-run `/setup-gbrain`. Pin a specific commit with `gstack-gbrain-install --pinned-commit <sha>` if you need reproducibility. Installs below the minimum tested version are refused.
 - `/retro` — weekly retrospective pulls learnings and plans from your gbrain when memory sync is on, letting the retro reference cross-machine history.
 
 Run `/setup-gbrain` and see what sticks.

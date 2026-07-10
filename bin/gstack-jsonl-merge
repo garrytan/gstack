@@ -53,18 +53,25 @@ for path in paths:
                     continue
                 if line in seen:
                     continue
-                # Prefer ISO ts field for sort; fall back to SHA-256.
+                # Prefer ISO ts field for sort; fall back to SHA-256. The line
+                # content is the final tiebreaker so the order is total: two
+                # entries sharing a ts must resolve identically regardless of
+                # which side they arrive on. Without it, equal-ts entries fall
+                # back to insertion order (base, ours, theirs), and since ours
+                # and theirs are swapped depending on which machine runs the
+                # merge, the two sides produce divergent files that never
+                # converge.
                 sort_key = None
                 try:
                     obj = json.loads(line)
                     ts = obj.get('ts') or obj.get('timestamp')
                     if isinstance(ts, str):
-                        sort_key = (0, ts)
+                        sort_key = (0, ts, line)
                 except (json.JSONDecodeError, ValueError, TypeError):
                     pass
                 if sort_key is None:
                     h = hashlib.sha256(line.encode('utf-8')).hexdigest()
-                    sort_key = (1, h)
+                    sort_key = (1, h, line)
                 seen[line] = sort_key
     except FileNotFoundError:
         # Absent base / absent ours / absent theirs are all valid.

@@ -19,7 +19,7 @@
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync, statSync, appendFileSync } from "fs";
 import { dirname, join } from "path";
-import { execSync, execFileSync } from "child_process";
+import { execFileSync } from "child_process";
 import { homedir } from "os";
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -122,7 +122,11 @@ let _gitleaksAvailability: boolean | null = null;
 function gitleaksAvailable(): boolean {
   if (_gitleaksAvailability !== null) return _gitleaksAvailability;
   try {
-    execSync("command -v gitleaks", { stdio: "ignore" });
+    execFileSync("gitleaks", ["version"], {
+      env: process.env,
+      stdio: "ignore",
+      timeout: 2_000,
+    });
     _gitleaksAvailability = true;
   } catch {
     _gitleaksAvailability = false;
@@ -157,7 +161,7 @@ export function secretScanFile(path: string): SecretScanResult {
     const out = execFileSync(
       "gitleaks",
       ["detect", "--no-git", "--source", path, "--report-format", "json", "--report-path", "/dev/stdout", "--exit-code", "0"],
-      { encoding: "utf-8", maxBuffer: 16 * 1024 * 1024 }
+      { encoding: "utf-8", env: process.env, maxBuffer: 16 * 1024 * 1024 }
     );
     const trimmed = out.trim();
     if (!trimmed) return { scanned: true, findings: [], scanner: "gitleaks" };
@@ -244,21 +248,82 @@ export function detectEngineTier(): EngineDetect {
   return fresh;
 }
 
+// Returns gbrain's config.json path, honoring GBRAIN_HOME env var with a
+// fallback to ~/.gbrain. gbrain >=0.25 dropped the top-level `engine` field
+// from doctor output, so this file is the only reliable source for engine
+// detection on that version. See #1415.
+function gbrainConfigPath(): string {
+  const root = process.env.GBRAIN_HOME || join(homedir(), ".gbrain");
+  return join(root, "config.json");
+}
+
+// Best-effort JSONL append to ~/.gstack/.gbrain-errors.jsonl. Never throws.
+function logGbrainError(kind: string, detail: string): void {
+  try {
+    const path = errorLogPath();
+    mkdirSync(dirname(path), { recursive: true });
+    appendFileSync(
+      path,
+      JSON.stringify({ ts: new Date().toISOString(), kind, detail: detail.slice(0, 500) }) + "\n",
+      "utf-8"
+    );
+  } catch { /* logging is best-effort */ }
+}
+
 function freshDetectEngineTier(): EngineDetect {
   const now = Date.now();
+  let parsed: Record<string, unknown> | null = null;
+
+  // execFileSync (not execSync) avoids shell redirection — portable to
+  // environments where `2>/dev/null` is bash-specific. The stdio array
+  // suppresses stderr without invoking a shell.
   try {
-    const out = execSync("gbrain doctor --json --fast 2>/dev/null", { encoding: "utf-8", timeout: 5000 });
-    const parsed = JSON.parse(out);
-    const engine: EngineTier = parsed?.engine === "supabase" ? "supabase" : parsed?.engine === "pglite" ? "pglite" : "unknown";
-    return {
-      engine,
-      supabase_url: parsed?.supabase_url || undefined,
-      detected_at: now,
-      schema_version: 1,
-    };
-  } catch {
-    return { engine: "unknown", detected_at: now, schema_version: 1 };
+    const out = execFileSync("gbrain", ["doctor", "--json", "--fast"], {
+      encoding: "utf-8",
+      timeout: 5000,
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    parsed = JSON.parse(out);
+  } catch (err: unknown) {
+    // execFileSync throws on non-zero exit; stdout is still on the error
+    // object. gbrain doctor exits 1 whenever health_score < 100, which is
+    // essentially always on fresh installs (resolver_health warnings are
+    // normal). Recover stdout and re-parse. See #1415.
+    try {
+      const stdout = (err as { stdout?: Buffer | string })?.stdout ?? "";
+      const stdoutStr = typeof stdout === "string" ? stdout : stdout.toString("utf-8");
+      if (stdoutStr) parsed = JSON.parse(stdoutStr);
+    } catch (parseErr) {
+      logGbrainError("doctor_parse_failure", String(parseErr));
+    }
   }
+
+  let engine: EngineTier =
+    parsed?.engine === "supabase" ? "supabase" :
+    parsed?.engine === "pglite"   ? "pglite"   : "unknown";
+
+  // gbrain >=0.25 ships schema_version:2 doctor output which dropped the
+  // top-level `engine` field. Fall back to gbrain's config.json (respects
+  // GBRAIN_HOME). "supabase" here means "remote postgres" — gbrain config
+  // uses engine:"postgres" for real Supabase AND any other remote postgres
+  // (e.g. local-postgres-for-testing). Downstream sync code treats them the
+  // same, so the label compression is intentional.
+  if (engine === "unknown") {
+    try {
+      const cfg = JSON.parse(readFileSync(gbrainConfigPath(), "utf-8"));
+      if (cfg?.engine === "pglite") engine = "pglite";
+      else if (cfg?.engine === "postgres" || cfg?.database_url) engine = "supabase";
+    } catch (cfgErr) {
+      logGbrainError("config_read_failure", String(cfgErr));
+    }
+  }
+
+  return {
+    engine,
+    supabase_url: parsed?.supabase_url as string | undefined,
+    detected_at: now,
+    schema_version: 1,
+  };
 }
 
 // ── Public: parseSkillManifest ────────────────────────────────────────────

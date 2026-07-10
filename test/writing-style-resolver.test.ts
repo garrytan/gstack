@@ -49,11 +49,17 @@ describe('Writing Style preamble section', () => {
     expect(out).toMatch(/terse|no explanations|user-turn override|current message/i);
   });
 
-  test('tier 2+ preamble inlines jargon list', () => {
+  test('tier 2+ preamble references jargon list by path (v1.45.0.0 T3 — pointer, not inline)', () => {
     const out = generatePreamble(makeCtx('claude', 2));
-    // Spot-check a few terms from scripts/jargon-list.json
-    expect(out).toContain('idempotent');
-    expect(out).toContain('race condition');
+    // T3 dedup: the 80-term jargon list lives in scripts/jargon-list.json.
+    // The Writing Style section points at the file rather than inlining it,
+    // saving ~70 KB across the corpus. Agents Read the JSON on first
+    // jargon term encountered per session.
+    expect(out).toContain('jargon-list.json');
+    expect(out).toContain('Curated jargon list');
+    // Negative check: the literal term lines should NOT be inlined any more.
+    expect(out).not.toMatch(/^- idempotent$/m);
+    expect(out).not.toMatch(/^- race condition$/m);
   });
 
   test('tier 2+ preamble includes terse-mode gate condition', () => {

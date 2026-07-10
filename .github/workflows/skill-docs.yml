@@ -2,7 +2,7 @@ name: Skill Docs Freshness
 on: [push, pull_request]
 jobs:
   check-freshness:
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-8
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2

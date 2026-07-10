@@ -2,19 +2,7 @@
 name: plan-tune
 preamble-tier: 2
 version: 1.0.0
-description: |
-  Self-tuning question sensitivity + developer psychographic for gstack (v1: observational).
-  Review which AskUserQuestion prompts fire across gstack skills, set per-question preferences
-  (never-ask / always-ask / ask-only-for-one-way), inspect the dual-track
-  profile (what you declared vs what your behavior suggests), and enable/disable
-  question tuning. Conversational interface — no CLI syntax required.
-
-  Use when asked to "tune questions", "stop asking me that", "too many questions",
-  "show my profile", "what questions have I been asked", "show my vibe",
-  "developer profile", or "turn off question tuning". (gstack)
-
-  Proactively suggest when the user says the same gstack question has come up before,
-  or when they explicitly override a recommendation for the Nth time.
+description: "Self-tuning question sensitivity + developer psychographic for gstack (v1: observational). (gstack)"
 triggers:
   - tune questions
   - stop asking me that
@@ -34,6 +22,21 @@ allowed-tools:
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
+
+
+## When to invoke this skill
+
+Review which AskUserQuestion prompts fire across gstack skills, set per-question preferences
+(never-ask / always-ask / ask-only-for-one-way), inspect the dual-track
+profile (what you declared vs what your behavior suggests), and enable/disable
+question tuning. Conversational interface — no CLI syntax required.
+
+Use when asked to "tune questions", "stop asking me that", "too many questions",
+"show my profile", "what questions have I been asked", "show my vibe",
+"developer profile", or "turn off question tuning". 
+
+Proactively suggest when the user says the same gstack question has come up before,
+or when they explicitly override a recommendation for the Nth time.
 
 ## Preamble (run first)
 
@@ -55,6 +58,27 @@ echo "SKILL_PREFIX: $_SKILL_PREFIX"
 source <(~/.claude/skills/gstack/bin/gstack-repo-mode 2>/dev/null) || true
 REPO_MODE=${REPO_MODE:-unknown}
 echo "REPO_MODE: $REPO_MODE"
+_SESSION_KIND=$(~/.claude/skills/gstack/bin/gstack-session-kind 2>/dev/null || echo "interactive")
+case "$_SESSION_KIND" in spawned|headless|interactive) ;; *) _SESSION_KIND="interactive" ;; esac
+echo "SESSION_KIND: $_SESSION_KIND"
+# Conductor host: AskUserQuestion is unreliable here (native disabled, MCP
+# variant flaky), so skills render decisions as prose instead of calling the
+# tool. Gated on !headless so an eval/CI run INSIDE Conductor (GSTACK_HEADLESS)
+# still BLOCKs rather than rendering prose to nobody.
+if [ "$_SESSION_KIND" != "headless" ] && { [ -n "${CONDUCTOR_WORKSPACE_PATH:-}" ] || [ -n "${CONDUCTOR_PORT:-}" ]; }; then
+  echo "CONDUCTOR_SESSION: true"
+fi
+_ACTIVATED=$([ -f ~/.gstack/.activated ] && echo "yes" || echo "no")
+_FIRST_LOOP_SHOWN=$([ -f ~/.gstack/.first-loop-tip-shown ] && echo "yes" || echo "no")
+echo "ACTIVATED: $_ACTIVATED"
+echo "FIRST_LOOP_SHOWN: $_FIRST_LOOP_SHOWN"
+# First-run project detection: run the detector ONLY on the first-ever skill run
+# (ACTIVATED=no, interactive) so it stays off the hot path for every run after.
+_FIRST_TASK=""
+if [ "$_ACTIVATED" = "no" ] && [ "$_SESSION_KIND" != "headless" ]; then
+  _FIRST_TASK=$(~/.claude/skills/gstack/bin/gstack-first-task-detect 2>/dev/null || true)
+fi
+echo "FIRST_TASK: $_FIRST_TASK"
 _LAKE_SEEN=$([ -f ~/.gstack/.completeness-intro-seen ] && echo "yes" || echo "no")
 echo "LAKE_INTRO: $_LAKE_SEEN"
 _TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || true)
@@ -70,7 +94,7 @@ _QUESTION_TUNING=$(~/.claude/skills/gstack/bin/gstack-config get question_tuning
 echo "QUESTION_TUNING: $_QUESTION_TUNING"
 mkdir -p ~/.gstack/analytics
 if [ "$_TEL" != "off" ]; then
-echo '{"skill":"plan-tune","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
+echo '{"skill":"plan-tune","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(_repo=$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null | tr -cd 'a-zA-Z0-9._-'); echo "${_repo:-unknown}")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 fi
 for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null); do
   if [ -f "$_PF" ]; then
@@ -112,6 +136,19 @@ _CHECKPOINT_MODE=$(~/.claude/skills/gstack/bin/gstack-config get checkpoint_mode
 _CHECKPOINT_PUSH=$(~/.claude/skills/gstack/bin/gstack-config get checkpoint_push 2>/dev/null || echo "false")
 echo "CHECKPOINT_MODE: $_CHECKPOINT_MODE"
 echo "CHECKPOINT_PUSH: $_CHECKPOINT_PUSH"
+# Plan-mode hint for skills like /spec that branch behavior on plan-mode state.
+# Claude Code exposes plan mode via system reminders; we detect best-effort
+# from CLAUDE_PLAN_FILE (set by the harness when plan mode is active) and
+# fall back to "inactive". Codex hosts and Claude execution mode both end up
+# inactive, which is the safe default (defaults to file+execute pipeline).
+if [ -n "${CLAUDE_PLAN_FILE:-}${GSTACK_PLAN_MODE_FORCE:-}" ]; then
+  export GSTACK_PLAN_MODE="active"
+elif [ "${GSTACK_PLAN_MODE:-}" = "active" ]; then
+  export GSTACK_PLAN_MODE="active"
+else
+  export GSTACK_PLAN_MODE="inactive"
+fi
+echo "GSTACK_PLAN_MODE: $GSTACK_PLAN_MODE"
 [ -n "$OPENCLAW_SESSION" ] && echo "SPAWNED_SESSION: true" || true
 ```
 
@@ -121,7 +158,7 @@ In plan mode, allowed because they inform the plan: `$B`, `$D`, `codex exec`/`co
 
 ## Skill Invocation During Plan Mode
 
-If the user invokes a skill in plan mode, the skill takes precedence over generic plan mode behavior. **Treat the skill file as executable instructions, not reference.** Follow it step by step starting from Step 0; the first AskUserQuestion is the workflow entering plan mode, not a violation of it. AskUserQuestion (any variant — `mcp__*__AskUserQuestion` or native; see "AskUserQuestion Format → Tool resolution") satisfies plan mode's end-of-turn requirement. If no variant is callable, the skill is BLOCKED — stop and report `BLOCKED — AskUserQuestion unavailable` per the AskUserQuestion Format rule. At a STOP point, stop immediately. Do not continue the workflow or call ExitPlanMode there. Commands marked "PLAN MODE EXCEPTION — ALWAYS RUN" execute. Call ExitPlanMode only after the skill workflow completes, or if the user tells you to cancel the skill or leave plan mode.
+If the user invokes a skill in plan mode, the skill takes precedence over generic plan mode behavior. **Treat the skill file as executable instructions, not reference.** Follow it step by step starting from Step 0; the first AskUserQuestion is the workflow entering plan mode, not a violation of it. AskUserQuestion (any variant — `mcp__*__AskUserQuestion` or native; see "AskUserQuestion Format → Tool resolution") satisfies plan mode's end-of-turn requirement. If AskUserQuestion is unavailable or a call fails, follow the AskUserQuestion Format failure fallback: `headless` → BLOCKED; `interactive` → the prose fallback (also satisfies end-of-turn). At a STOP point, stop immediately. Do not continue the workflow or call ExitPlanMode there. Commands marked "PLAN MODE EXCEPTION — ALWAYS RUN" execute. Call ExitPlanMode only after the skill workflow completes, or if the user tells you to cancel the skill or leave plan mode.
 
 If `PROACTIVE` is `"false"`, do not auto-invoke or proactively suggest skills. If a skill seems useful, ask: "I think /skillname might help here — want me to run it?"
 
@@ -156,7 +193,7 @@ touch ~/.gstack/.writing-style-prompted
 
 Skip if `WRITING_STYLE_PENDING` is `no`.
 
-If `LAKE_INTRO` is `no`: say "gstack follows the **Boil the Lake** principle — do the complete thing when AI makes marginal cost near-zero. Read more: https://garryslist.org/posts/boil-the-ocean" Offer to open:
+If `LAKE_INTRO` is `no`: say "gstack follows the **Boil the Ocean** principle — do the complete thing when AI makes marginal cost near-zero. Read more: https://garryslist.org/posts/boil-the-ocean" Offer to open:
 
 ```bash
 open https://garryslist.org/posts/boil-the-ocean
@@ -167,7 +204,7 @@ Only run `open` if yes. Always run `touch`.
 
 If `TEL_PROMPTED` is `no` AND `LAKE_INTRO` is `yes`: ask telemetry once via AskUserQuestion:
 
-> Help gstack get better. Share usage data only: skill, duration, crashes, stable device ID. No code, file paths, or repo names.
+> Help gstack get better. Share usage data only: skill, duration, crashes, stable device ID. No code or file paths. Your repo name is recorded locally only and stripped before any upload.
 
 Options:
 - A) Help gstack get better! (recommended)
@@ -211,6 +248,24 @@ touch ~/.gstack/.proactive-prompted
 
 Skip if `PROACTIVE_PROMPTED` is `yes`.
 
+## First-run guidance (one-time)
+
+If `ACTIVATED` is `no` (first skill run on this machine) AND the preamble printed a non-empty `FIRST_TASK:` value that is NOT `nongit`: show ONE short, project-specific line mapped from the token, as a heads-up, then CONTINUE with whatever the user actually asked — do NOT halt their task. Map the token: `greenfield` → "Fresh repo — shape it first with `/spec` or `/office-hours`." `code_node`/`code_python`/`code_rust`/`code_go`/`code_ruby`/`code_ios` → "There's code here — `/qa` to see it work, or `/investigate` if something's off." `branch_ahead` → "Unshipped work on this branch — `/review` then `/ship`." `dirty_default` → "Uncommitted changes — `/review` before committing." `clean_default` → "Pick one: `/spec`, `/investigate`, or `/qa`." Then substitute the token you saw for TASK_TOKEN and run (best-effort), and mark activated:
+```bash
+~/.claude/skills/gstack/bin/gstack-telemetry-log --event-type first_task_scaffold_shown --skill "TASK_TOKEN" --outcome shown 2>/dev/null || true
+touch ~/.gstack/.activated 2>/dev/null || true
+```
+
+If `ACTIVATED` is `no` but `FIRST_TASK:` is empty or `nongit` (headless, non-git, or nothing actionable): show nothing, just run `touch ~/.gstack/.activated 2>/dev/null || true`.
+
+Else if `ACTIVATED` is `yes` AND `FIRST_LOOP_SHOWN` is `no`: say once as a heads-up (then continue):
+
+> Tip: gstack pays off when you complete one loop — **plan → review → ship**. A common first loop: `/office-hours` or `/spec` to shape it, `/plan-eng-review` to lock it, then `/ship`.
+
+Then run `touch ~/.gstack/.first-loop-tip-shown 2>/dev/null || true`.
+
+Skip this section if `ACTIVATED` and `FIRST_LOOP_SHOWN` are both `yes`.
+
 If `HAS_ROUTING` is `no` AND `ROUTING_DECLINED` is `false` AND `PROACTIVE_PROMPTED` is `yes`:
 Check if a CLAUDE.md file exists in the project root. If it does not exist, create it.
 
@@ -243,6 +298,7 @@ Key routing rules:
 - Ship/deploy/PR → invoke /ship or /land-and-deploy
 - Save progress → invoke /context-save
 - Resume context → invoke /context-restore
+- Author a backlog-ready spec/issue → invoke /spec
 ```
 
 Then commit the change: `git add CLAUDE.md && git commit -m "chore: add gstack skill routing rules to CLAUDE.md"`
@@ -290,13 +346,39 @@ AI orchestrator (e.g., OpenClaw). In spawned sessions:
 
 "AskUserQuestion" can resolve to two tools at runtime: the **host MCP variant** (e.g. `mcp__conductor__AskUserQuestion` — appears in your tool list when the host registers it) or the **native** Claude Code tool.
 
-**Rule:** if any `mcp__*__AskUserQuestion` variant is in your tool list, prefer it. Hosts may disable native AUQ via `--disallowedTools AskUserQuestion` (Conductor does, by default) and route through their MCP variant; calling native there silently fails. Same questions/options shape; same decision-brief format applies.
+**Conductor rule (read before the MCP rule):** if `CONDUCTOR_SESSION: true` was echoed by the preamble, do NOT call AskUserQuestion at all — neither native nor any `mcp__*__AskUserQuestion` variant. Render EVERY decision brief as the **prose form** below and STOP. This is proactive, not a reaction to a failure: Conductor disables native AUQ and its MCP variant is flaky (it returns `[Tool result missing due to internal error]`), so prose is the reliable path. **Auto-decide preferences still apply first:** if a `[plan-tune auto-decide] <id> → <option>` result has already surfaced for a question, proceed with that option (no prose). Because in Conductor you go straight to prose without ever calling the tool, this auto-decide-first ordering is enforced HERE, not only by the PreToolUse hook. When you render a Conductor prose brief, also capture it with `bin/gstack-question-log` (the PostToolUse capture hook never fires on a prose path, so `/plan-tune` history/learning depends on this call).
 
-**If no AskUserQuestion variant appears in your tool list, this skill is BLOCKED.** Stop, report `BLOCKED — AskUserQuestion unavailable`, and wait for the user. Do not write decisions to the plan file as a substitute, do not emit them as prose and stop, and do not silently auto-decide (only `/plan-tune` AUTO_DECIDE opt-ins authorize auto-picking).
+**Rule (non-Conductor):** if any `mcp__*__AskUserQuestion` variant is in your tool list, prefer it. Hosts may disable native AUQ via `--disallowedTools AskUserQuestion` (Conductor does, by default) and route through their MCP variant; calling native there silently fails. Same questions/options shape; same decision-brief format applies.
+
+If AskUserQuestion is unavailable (no variant in your tool list) OR a call to it fails, do NOT silently auto-decide or write the decision to the plan file as a substitute. Follow the **failure fallback** below.
+
+### When AskUserQuestion is unavailable or a call fails
+
+Tell three outcomes apart:
+
+1. **Auto-decide denial (NOT a failure).** The result contains `[plan-tune auto-decide] <id> → <option>` — the preference hook working as designed. Proceed with that option. Do NOT retry, do NOT fall back to prose.
+2. **Genuine failure** — no variant in your tool list, OR the variant is present but the call returns an error / missing result (MCP transport error, empty result, host bug — e.g. Conductor's MCP AskUserQuestion is flaky and returns `[Tool result missing due to internal error]`).
+   - If it was present and **errored** (not absent), retry the SAME call **once** — but only if no answer could have surfaced (a missing-result error can arrive after the user already saw the question; retrying would double-prompt, so if it may have reached them, treat as pending, don't retry).
+   - Then branch on `SESSION_KIND` (echoed by the preamble; empty/absent ⇒ `interactive`):
+     - `spawned` → defer to the **Spawned session** block: auto-choose the recommended option. Never prose, never BLOCKED.
+     - `headless` → `BLOCKED — AskUserQuestion unavailable`; stop and wait (no human can answer).
+     - `interactive` → **prose fallback** (below).
+
+**Prose fallback — render the decision brief as a markdown message, not a tool call.** Same information as the tool format below, different structure (paragraphs, not ✅/❌ bullets). It MUST surface this triad:
+
+1. **A clear ELI10 of the issue itself** — plain English on what's being decided and why it matters (the question, not per-choice), naming the stakes. Lead with it.
+2. **Completeness scores per choice** — explicit `Completeness: X/10` on EACH choice (10 complete, 7 happy-path, 3 shortcut); use the kind-note when options differ in kind not coverage, but never silently drop the score.
+3. **The recommendation and why** — a `Recommendation: <choice> because <reason>` line plus the `(recommended)` marker on that choice.
+
+Layout: a `D<N>` title + a one-line note to reply with a letter (in Conductor this is the normal path; elsewhere it means AskUserQuestion was unavailable or errored); the issue ELI10; the Recommendation line; then ONE paragraph per choice carrying its `(recommended)` marker, its `Completeness: X/10`, and 2-4 sentences of reasoning — never a bare bullet list; a closing `Net:` line. Split chains / 5+ options: one prose block per per-option call, in sequence. Then STOP and wait — the user's typed answer is the decision. In plan mode this satisfies end-of-turn like a tool call.
+
+**Continuation — mapping a typed reply back to a brief.** Each brief carries a stable label (`D<N>`, or `D<N>.k` in a split chain). The user references it (e.g. "3.2: B"). A bare letter maps to the single most-recent UNANSWERED brief; if more than one is open (a split chain), do NOT guess — ask which `D<N>.k` it answers. Never apply a bare letter ambiguously across a chain.
+
+**One-way / destructive confirmations in prose.** When the decision is a one-way door (irreversible or destructive — delete, force-push, drop, overwrite), prose is a WEAKER gate than the tool, so make it stronger: require an explicit typed confirmation (the exact option letter or word), state plainly what is irreversible, and NEVER proceed on a vague, partial, or ambiguous reply — re-ask instead. Treat silence or "ok"/"sure" without the explicit choice as not-yet-confirmed.
 
 ### Format
 
-Every AskUserQuestion is a decision brief and must be sent as tool_use, not prose.
+Every AskUserQuestion is a decision brief and must be sent as tool_use, not prose — unless the documented failure fallback above applies (interactive session + the call is unavailable/erroring), in which case the prose fallback is the correct output.
 
 ```
 D<N> — <one-line question title>
@@ -329,25 +411,41 @@ Effort both-scales: when an option involves effort, label both human-team and CC
 
 Net line closes the tradeoff. Per-skill instructions may add stricter rules.
 
-12. **Non-ASCII characters — write directly, never \u-escape.** When any
-    string field (question, option label, option description) contains
-    Chinese (繁體/簡體), Japanese, Korean, or other non-ASCII text, emit
-    the literal UTF-8 characters in the JSON string. **Never escape them
-    as `\uXXXX`.** Claude Code's tool parameter pipe is UTF-8 native
-    and passes characters through unchanged. Manually escaping requires
-    recalling each codepoint from training, which is unreliable for long
-    CJK strings — the model regularly emits the wrong codepoint (e.g.
-    writes `\u3103` thinking it is 管 U+7BA1, but `\u3103` is
-    actually ㄃, so the user sees `管理工具` rendered as `㄃3用箱`).
-    The trigger is long, multi-line questions with hundreds of CJK
-    characters: that is exactly when reflexive escaping kicks in and
-    exactly when miscoding is most damaging. Long ≠ escape. Keep
-    characters literal.
+### Handling 5+ options — split, never drop
 
-    Wrong: `"question": "請選擇\uXXXX\uXXXX\uXXXX\uXXXX"`
-    Right: `"question": "請選擇管理工具"`
+AskUserQuestion caps every call at **4 options**. With 5+ real options, NEVER
+drop, merge, or silently defer one to fit. Pick a compliant shape:
 
-    Only JSON-mandatory escapes remain allowed: `\n`, `\t`, `\"`, `\\`.
+- **Batch into ≤4-groups** — for coherent alternatives (e.g. version bumps,
+  layout variants). One call, 5th surfaced only if first 4 don't fit.
+- **Split per-option** — for independent scope items (e.g. "ship E1..E6?").
+  Fire N sequential calls, one per option. Default to this when unsure.
+
+Per-option call shape: `D<N>.k` header (e.g. D3.1..D3.5), ELI10 per option,
+Recommendation, kind-note (no completeness score — Include/Defer/Cut/Hold are
+decision actions), and 4 buckets:
+**A) Include**, **B) Defer**, **C) Cut**, **D) Hold** (stop chain, discuss).
+
+After the chain, fire `D<N>.final` to validate the assembled set (reprompt
+dependency conflicts) and confirm shipping it. Use `D<N>.revise-<k>` to
+revise one option without re-running the chain.
+
+For N>6, fire a `D<N>.0` meta-AskUserQuestion first (proceed / narrow / batch).
+
+question_ids for split chains: `<skill>-split-<option-slug>` (kebab-case ASCII,
+≤64 chars, `-2`/`-3` suffix on collision). The runtime checker
+(`bin/gstack-question-preference`) refuses `never-ask` on any `*-split-*` id,
+so split chains are never AUTO_DECIDE-eligible — the user's option set is sacred.
+
+**Full rule + worked examples + Hold/dependency semantics:** see
+`docs/askuserquestion-split.md` in the gstack repo. Read on demand when N>4.
+
+**Non-ASCII characters — write directly, never \u-escape.** When any string
+field contains Chinese (繁體/簡體), Japanese, Korean, or other non-ASCII text,
+emit the literal UTF-8 characters; never escape them as `\uXXXX` (the pipe is
+UTF-8 native, and manual escaping miscodes long CJK strings). Only `\n`,
+`\t`, `\"`, `\\` remain allowed. Full rationale + worked example: see
+`docs/askuserquestion-cjk.md`. Read on demand when a question contains CJK.
 
 ### Self-check before emitting
 
@@ -360,8 +458,11 @@ Before calling AskUserQuestion, verify:
 - [ ] (recommended) label on one option (even for neutral-posture)
 - [ ] Dual-scale effort labels on effort-bearing options (human / CC)
 - [ ] Net line closes the decision
-- [ ] You are calling the tool, not writing prose
+- [ ] You are calling the tool, not writing prose — unless `CONDUCTOR_SESSION: true` (then prose is the DEFAULT, not the tool) OR the documented failure fallback applies (then: prose with the mandatory triad — issue ELI10, per-choice Completeness, Recommendation + `(recommended)` — and a "reply with a letter" instruction, then STOP)
 - [ ] Non-ASCII characters (CJK / accents) written directly, NOT \u-escaped
+- [ ] If you had 5+ options, you split (or batched into ≤4-groups) — did NOT drop any
+- [ ] If you split, you checked dependencies between options before firing the chain
+- [ ] If a per-option Hold fires, you stopped the chain immediately (didn't queue)
 
 
 ## Artifacts Sync (skill start)
@@ -544,11 +645,18 @@ if [ -d "$_PROJ" ]; then
   fi
   _LATEST_CP=$(find "$_PROJ/checkpoints" -name "*.md" -type f 2>/dev/null | xargs ls -t 2>/dev/null | head -1)
   [ -n "$_LATEST_CP" ] && echo "LATEST_CHECKPOINT: $_LATEST_CP"
+  if [ -f "$_PROJ/decisions.active.json" ]; then
+    echo "--- ACTIVE DECISIONS (recent, scope-relevant) ---"
+    ~/.claude/skills/gstack/bin/gstack-decision-search --recent 5 2>/dev/null
+    echo "--- END DECISIONS ---"
+  fi
   echo "--- END ARTIFACTS ---"
 fi
 ```
 
 If artifacts are listed, read the newest useful one. If `LAST_SESSION` or `LATEST_CHECKPOINT` appears, give a 2-sentence welcome back summary. If `RECENT_PATTERN` clearly implies a next skill, suggest it once.
+
+**Cross-session decisions.** If `ACTIVE DECISIONS` are listed, treat them as prior settled calls with their rationale — do not silently re-litigate them; if you're about to reverse one, say so explicitly. Reach for `~/.claude/skills/gstack/bin/gstack-decision-search` whenever a question touches a past decision ("what did we decide / why / did we try"). When you or the user make a DURABLE decision (architecture, scope, tool/vendor choice, or a reversal) — NOT a turn-level or trivial choice — log it with `~/.claude/skills/gstack/bin/gstack-decision-log` (`--supersede <id>` for a reversal). Reliable and local; gbrain not required.
 
 ## Writing Style (skip entirely if `EXPLAIN_LEVEL: terse` appears in the preamble echo OR the user's current message explicitly requests terse / no-explanations output)
 
@@ -561,89 +669,12 @@ Applies to AskUserQuestion, user replies, and findings. AskUserQuestion Format i
 - User-turn override wins: if the current message asks for terse / no explanations / just the answer, skip this section.
 - Terse mode (EXPLAIN_LEVEL: terse): no glosses, no outcome-framing layer, shorter responses.
 
-Jargon list, gloss on first use if the term appears:
-- idempotent
-- idempotency
-- race condition
-- deadlock
-- cyclomatic complexity
-- N+1
-- N+1 query
-- backpressure
-- memoization
-- eventual consistency
-- CAP theorem
-- CORS
-- CSRF
-- XSS
-- SQL injection
-- prompt injection
-- DDoS
-- rate limit
-- throttle
-- circuit breaker
-- load balancer
-- reverse proxy
-- SSR
-- CSR
-- hydration
-- tree-shaking
-- bundle splitting
-- code splitting
-- hot reload
-- tombstone
-- soft delete
-- cascade delete
-- foreign key
-- composite index
-- covering index
-- OLTP
-- OLAP
-- sharding
-- replication lag
-- quorum
-- two-phase commit
-- saga
-- outbox pattern
-- inbox pattern
-- optimistic locking
-- pessimistic locking
-- thundering herd
-- cache stampede
-- bloom filter
-- consistent hashing
-- virtual DOM
-- reconciliation
-- closure
-- hoisting
-- tail call
-- GIL
-- zero-copy
-- mmap
-- cold start
-- warm start
-- green-blue deploy
-- canary deploy
-- feature flag
-- kill switch
-- dead letter queue
-- fan-out
-- fan-in
-- debounce
-- throttle (UI)
-- hydration mismatch
-- memory leak
-- GC pause
-- heap fragmentation
-- stack overflow
-- null pointer
-- dangling pointer
-- buffer overflow
+Curated jargon list lives at `~/.claude/skills/gstack/scripts/jargon-list.json` (80+ terms). On the first jargon term you encounter this session, Read that file once; treat the `terms` array as the canonical list. The list is repo-owned and may grow between releases.
 
 
-## Completeness Principle — Boil the Lake
+## Completeness Principle — Boil the Ocean
 
-AI makes completeness cheap. Recommend complete lakes (tests, edge cases, error paths); flag oceans (rewrites, multi-quarter migrations).
+AI makes completeness cheap, so the complete thing is the goal. Recommend full coverage (tests, edge cases, error paths) — boil the ocean one lake at a time. The only thing out of scope is genuinely unrelated work (rewrites, multi-quarter migrations); flag that as separate scope, never as an excuse for a shortcut.
 
 When options differ in coverage, include `Completeness: X/10` (10 = all edge cases, 7 = happy path, 3 = shortcut). When options differ in kind, write: `Note: options differ in kind, not coverage — no completeness score.` Do not fabricate scores.
 
@@ -686,7 +717,11 @@ If you are looping on the same diagnostic, same file, or failed fix variants, ST
 
 Before each AskUserQuestion, choose `question_id` from `scripts/question-registry.ts` or `{skill}-{slug}`, then run `~/.claude/skills/gstack/bin/gstack-question-preference --check "<id>"`. `AUTO_DECIDE` means choose the recommended option and say "Auto-decided [summary] → [option] (your preference). Change with /plan-tune." `ASK_NORMALLY` means ask.
 
-After answer, log best-effort:
+**Embed the question_id as a marker in the question text** so hooks can identify it deterministically (plan-tune cathedral T14 / D18 progressive markers). Append `<gstack-qid:{question_id}>` somewhere in the rendered question (the leading line or trailing line is fine; the marker doesn't render visibly to the user when wrapped in HTML-style angle brackets, but the hook strips it). Without the marker the PreToolUse enforcement hook treats the AUQ as observed-only and never auto-decides — so always include it when the question matches a registered `question_id`.
+
+**Embed the option recommendation via the `(recommended)` label suffix** on exactly one option per AUQ. The PreToolUse hook parses `(recommended)` first, falls back to "Recommendation: X" prose, and refuses to auto-decide if ambiguous. Two `(recommended)` labels = refuse.
+
+After answer, log best-effort (PostToolUse hook also captures deterministically when installed; dedup on (source, tool_use_id) handles double-writes):
 ```bash
 ~/.claude/skills/gstack/bin/gstack-question-log '{"skill":"plan-tune","question_id":"<id>","question_summary":"<short>","category":"<approval|clarification|routing|cherry-pick|feedback-loop>","door_type":"<one-way|two-way>","options_count":N,"user_choice":"<key>","recommended":"<key>","session_id":"'"$_SESSION_ID"'"}' 2>/dev/null || true
 ```
@@ -753,9 +788,7 @@ Replace `SKILL_NAME`, `OUTCOME`, and `USED_BROWSE` before running.
 
 ## Plan Status Footer
 
-In plan mode before ExitPlanMode: if the plan file lacks `## GSTACK REVIEW REPORT`, run `~/.claude/skills/gstack/bin/gstack-review-read` and append the standard runs/status/findings table. With `NO_REVIEWS` or empty, append a 5-row placeholder with verdict "NO REVIEWS YET — run `/autoplan`". If a richer report exists, skip.
-
-PLAN MODE EXCEPTION — always allowed (it's the plan file).
+Skills that run plan reviews (`/plan-*-review`, `/codex review`) include the EXIT PLAN MODE GATE blocking checklist at the end of the skill, which verifies the plan file ends with `## GSTACK REVIEW REPORT` before ExitPlanMode is called. Skills that don't run plan reviews (operational skills like `/ship`, `/qa`, `/review`) typically don't operate in plan mode and have no review report to verify; this footer is a no-op for them. Writing the plan file is the one edit allowed in plan mode.
 
 # /plan-tune — Question Tuning + Developer Profile (v1 observational)
 
@@ -774,50 +807,87 @@ Canonical reference: `docs/designs/PLAN_TUNING_V0.md`.
 
 ## Step 0: Detect what the user wants
 
-Read the user's message. Route based on plain-English intent, not keywords:
+Read the user's message. Route based on plain-English intent, not keywords.
 
-1. **First-time use** (config says `question_tuning` is not yet set to `true`) →
-   run `Enable + setup` below.
-2. **"Show my profile" / "what do you know about me" / "show my vibe"** →
+**Implicit gates run first** (before user-intent routing). These exist so first-time
+users see the consent prompt, so explicit opt-ins eventually run the 5-Q setup,
+and so accumulated free-text answers get dream-cycled into actionable proposals.
+Each gate is guarded by a marker so the user is prompted at most once per choice.
+
+1. **Consent gate.** If `question_tuning` is `false` AND
+   `~/.gstack/.question-tuning-prompted` is missing → run `Consent + opt-in`
+   below. Honor the answer with a marker write either way; do not re-prompt.
+2. **Setup gate.** If `question_tuning` is `true` AND
+   `~/.gstack/developer-profile.json`'s `declared` object is empty AND
+   `~/.gstack/.declared-setup-prompted` is missing → run `5-Q setup` below.
+   Touch the marker after setup completes OR is declined.
+3. **Dream-cycle gate (Layer 8 / cathedral T10/T11).** If
+   `~/.gstack/projects/<slug>/distillation-proposals.json` exists AND has
+   `applied_at` missing on any proposal → run `Dream cycle review` below.
+   Marker: each proposal carries its own `applied_at` so re-firing this
+   gate naturally skips already-handled items.
+
+When no implicit gate fires, route by user intent:
+
+4. **"Show my profile" / "what do you know about me" / "show my vibe"** →
    run `Inspect profile`.
-3. **"Review questions" / "what have I been asked" / "show recent"** →
+5. **"Review questions" / "what have I been asked" / "show recent"** →
    run `Review question log`.
-4. **"Stop asking me about X" / "never ask about Y" / "tune: ..."** →
+6. **"Stop asking me about X" / "never ask about Y" / "tune: ..."** →
    run `Set a preference`.
-5. **"Update my profile" / "I'm more boil-the-ocean than that" / "I've changed
+7. **"Update my profile" / "I'm more boil-the-ocean than that" / "I've changed
    my mind"** → run `Edit declared profile` (confirm before writing).
-6. **"Show the gap" / "how far off is my profile"** → run `Show gap`.
-7. **"Turn it off" / "disable"** → `~/.claude/skills/gstack/bin/gstack-config set question_tuning false`
-8. **"Turn it on" / "enable"** → `~/.claude/skills/gstack/bin/gstack-config set question_tuning true`
-9. **Clear ambiguity** — if you can't tell what the user wants, ask plainly:
-   "Do you want to (a) see your profile, (b) review recent questions, (c) set
-   a preference, (d) update your declared profile, or (e) turn it off?"
+8. **"Show the gap" / "how far off is my profile"** → run `Show gap`.
+9. **"Dream cycle" / "distill" / "what have I been free-texting"** →
+   run `Dream cycle distill` below (triggers `gstack-distill-free-text`).
+10. **"Turn it off" / "disable"** → `~/.claude/skills/gstack/bin/gstack-config set question_tuning false`
+11. **"Turn it on" / "enable"** → `~/.claude/skills/gstack/bin/gstack-config set question_tuning true && touch ~/.gstack/.question-tuning-prompted`
+12. **Clear ambiguity** — if you can't tell what the user wants, ask plainly:
+    "Do you want to (a) see your profile, (b) review recent questions, (c) set
+    a preference, (d) update your declared profile, (e) run the dream cycle,
+    or (f) turn it off?"
 
 Power-user shortcuts (one-word invocations) — handle these too:
-`profile`, `vibe`, `gap`, `stats`, `review`, `enable`, `disable`, `setup`.
+`profile`, `vibe`, `gap`, `stats`, `review`, `enable`, `disable`, `setup`,
+`distill`, `dream`, `audit`.
 
 ---
 
-## Enable + setup (first-time flow)
+## Consent + opt-in
 
-**When this fires.** The user invokes `/plan-tune` and the preamble shows
-`QUESTION_TUNING: false` (the default).
+**When this fires.** Step 0's consent gate: `question_tuning` is `false` AND
+`~/.gstack/.question-tuning-prompted` is missing. The user has never been
+asked.
+
+**Privacy note.** gstack defaults `question_tuning` to `false` for every user.
+There is no auto-flip for any cohort. The consent prompt is the only path to
+enabling, and the answer is honored with a marker file so the user is never
+re-asked. Contributors are not auto-enrolled (see
+`docs/designs/PLAN_TUNING_V1.md` §"Decisions log" for the privacy posture
+rationale). If the user is a contributor (`gstack_contributor: true`), the
+prompt can mention it as additional context, but the decision is still
+explicit.
 
 **Flow:**
 
-1. Read the current state:
+1. Detect contributor state (for prompt framing only, not for auto-action):
    ```bash
    _QT=$(~/.claude/skills/gstack/bin/gstack-config get question_tuning 2>/dev/null || echo "false")
+   _CONTRIB=$(~/.claude/skills/gstack/bin/gstack-config get gstack_contributor 2>/dev/null || echo "false")
    echo "QUESTION_TUNING: $_QT"
+   echo "CONTRIBUTOR: $_CONTRIB"
    ```
 
-2. If `false`, use AskUserQuestion:
+2. AskUserQuestion (use the contributor-specific framing only if `_CONTRIB=true`,
+   otherwise use the general framing):
 
+   **General framing:**
    > Question tuning is off. gstack can learn which of its prompts you find
    > valuable vs noisy — so over time, gstack stops asking questions you've
    > already answered the same way. It takes about 2 minutes to set up your
    > initial profile. v1 is observational: gstack tracks your preferences
    > and shows you a profile, but doesn't silently change skill behavior yet.
+   > Logs stay local (`~/.gstack/projects/<slug>/question-log.jsonl`).
    >
    > RECOMMENDATION: Enable and set up your profile. Completeness: A=9/10.
    >
@@ -825,13 +895,47 @@ Power-user shortcuts (one-word invocations) — handle these too:
    > B) Enable but skip setup (I'll fill it in later)
    > C) Cancel — I'm not ready
 
-3. If A or B: enable:
+   **Contributor framing (only if `_CONTRIB=true`):**
+   > You're a gstack contributor. Question tuning isn't on by default for
+   > anyone, but contributors are the cohort whose data most helps v2 work
+   > (skills adapting to your steering style). Enabling logs every
+   > AskUserQuestion outcome locally to
+   > `~/.gstack/projects/<slug>/question-log.jsonl` — nothing leaves your
+   > machine. v1 is observational only.
+   >
+   > RECOMMENDATION: Enable and set up your profile. Completeness: A=9/10.
+   >
+   > A) Enable + set up (recommended for contributors, ~2 min)
+   > B) Enable but skip setup (I'll fill it in later)
+   > C) Cancel — I'm not ready
+
+3. ALWAYS touch the marker, regardless of choice:
+   ```bash
+   touch ~/.gstack/.question-tuning-prompted
+   ```
+
+4. If A or B: enable:
    ```bash
    ~/.claude/skills/gstack/bin/gstack-config set question_tuning true
    ```
 
-4. If A (full setup), ask FIVE one-per-dimension declaration questions via
-   individual AskUserQuestion calls (one at a time). Use plain English, no jargon:
+5. If C: do nothing else. Tell the user: "Question tuning stays off. Re-enable
+   any time with `/plan-tune enable` or `gstack-config set question_tuning true`."
+
+## 5-Q setup (post-consent, or via Setup gate)
+
+**When this fires.** Two paths:
+- Right after the consent prompt above accepts option A.
+- Standalone via Step 0's setup gate: `question_tuning` is already `true`
+  (user opted in via gstack-config or earlier `/plan-tune enable`) AND
+  `declared` is empty AND `~/.gstack/.declared-setup-prompted` is missing.
+  This catches users who set `question_tuning: true` directly without
+  running the wizard.
+
+**Flow:**
+
+1. Ask FIVE one-per-dimension declaration questions via individual
+   AskUserQuestion calls (one at a time). Use plain English, no jargon:
 
    **Q1 — scope_appetite:** "When you're planning a feature, do you lean toward
    shipping the smallest useful version fast, or building the complete, edge-
@@ -884,10 +988,18 @@ Power-user shortcuts (one-word invocations) — handle these too:
    "
    ```
 
-5. Tell the user: "Profile set. Question tuning is now on. Use `/plan-tune`
+2. Touch the marker so the Setup gate doesn't re-fire:
+   ```bash
+   touch ~/.gstack/.declared-setup-prompted
+   ```
+   Touch it even if the user bails out partway — they were asked; they chose
+   not to complete. The Setup gate respects that. They can rerun the 5-Q
+   anytime with `/plan-tune setup` (Step 0 power-user shortcut).
+
+3. Tell the user: "Profile set. Question tuning is on. Use `/plan-tune`
    again any time to inspect, adjust, or turn it off."
 
-6. Show the profile inline as a confirmation (see `Inspect profile` below).
+4. Show the profile inline as a confirmation (see `Inspect profile` below).
 
 ---
 
@@ -908,11 +1020,17 @@ Parse the JSON. Present in **plain English**, not raw floats:
   Format: "**scope_appetite:** 0.8 (boil the ocean — you prefer the complete
   version with edge cases covered)"
 
-- If `inferred.diversity` passes the calibration gate (`sample_size >= 20 AND
+- If `inferred.diversity` passes the **display gate** (`sample_size >= 20 AND
   skills_covered >= 3 AND question_ids_covered >= 8 AND days_span >= 7`), show
   the inferred column next to declared:
   "**scope_appetite:** declared 0.8 (boil the ocean) ↔ observed 0.72 (close)"
   Use words for the gap: 0.0-0.1 "close", 0.1-0.3 "drift", 0.3+ "mismatch".
+
+  This display gate is intentionally lower than the E1 **promotion gate**
+  (90+ days stable across 3+ skills, per `docs/designs/PLAN_TUNING_V0.md`).
+  Displaying inferred values is a UI affordance; shipping behavior-adapting
+  defaults based on the profile is consequential and needs a much higher
+  bar. Do NOT use the display gate as a green light for v2 E1 work.
 
 - If the calibration gate isn't met, say: "Not enough observed data yet —
   need N more events across M more skills before we can show your observed
@@ -1061,12 +1179,37 @@ the user decides whether declared is wrong or behavior is wrong.
 
 ## Stats
 
+Cathedral T13 surfaces: host-aware breakdown (claude hook vs codex import
+vs agent-enriched), marked vs hash-only, auto-decided count, and dream
+cycle cost-to-date.
+
 ```bash
 ~/.claude/skills/gstack/bin/gstack-question-preference --stats
 eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
 eval "$(~/.claude/skills/gstack/bin/gstack-paths)"
 _LOG="$GSTACK_STATE_ROOT/projects/$SLUG/question-log.jsonl"
-[ -f "$_LOG" ] && echo "TOTAL_LOGGED: $(wc -l < "$_LOG" | tr -d ' ')" || echo "TOTAL_LOGGED: 0"
+if [ -f "$_LOG" ]; then
+  bun -e "
+    const lines = require('fs').readFileSync('$_LOG','utf-8').trim().split('\n').filter(Boolean);
+    const events = [];
+    for (const l of lines) { try { events.push(JSON.parse(l)); } catch {} }
+    const total = events.length;
+    const bySource = {};
+    let marked = 0;
+    for (const e of events) {
+      const src = e.source || 'agent';
+      bySource[src] = (bySource[src] || 0) + 1;
+      if (e.question_id && !e.question_id.startsWith('hook-')) marked++;
+    }
+    console.log('TOTAL_LOGGED: ' + total);
+    console.log('MARKED: ' + marked + ' (' + (total ? Math.round(100*marked/total) : 0) + '%)');
+    for (const s of Object.keys(bySource).sort()) {
+      console.log('SOURCE_' + s.toUpperCase().replace(/-/g,'_') + ': ' + bySource[s]);
+    }
+  "
+else
+  echo 'TOTAL_LOGGED: 0'
+fi
 ~/.claude/skills/gstack/bin/gstack-developer-profile --profile | bun -e "
   const p = JSON.parse(await Bun.stdin.text());
   const d = p.inferred?.diversity || {};
@@ -1075,10 +1218,174 @@ _LOG="$GSTACK_STATE_ROOT/projects/$SLUG/question-log.jsonl"
   console.log('DAYS_SPAN: ' + (d.days_span ?? 0));
   console.log('CALIBRATED: ' + (p.inferred?.sample_size >= 20 && d.skills_covered >= 3 && d.question_ids_covered >= 8 && d.days_span >= 7));
 "
+echo '---DISTILL---'
+~/.claude/skills/gstack/bin/gstack-distill-free-text --status
 ```
 
 Present as a compact summary with plain-English calibration status ("5 more
 events across 2 more skills and you'll be calibrated" or "you're calibrated").
+Surface the source breakdown so the user can see capture is real (Codex
+correction — without source columns, the cathedral's "before:0 / after:>0"
+claim is invisible).
+
+---
+
+## Recent auto-decisions
+
+Show the last 10 questions where the PreToolUse hook auto-decided (source=
+`auto-decided` in the log). Lets the user spot-check enforcement and flip
+any that misfired via `always-ask`.
+
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+eval "$(~/.claude/skills/gstack/bin/gstack-paths)"
+_LOG="$GSTACK_STATE_ROOT/projects/$SLUG/question-log.jsonl"
+[ ! -f "$_LOG" ] && echo 'NO_LOG' || bun -e "
+  const lines = require('fs').readFileSync('$_LOG','utf-8').trim().split('\n').filter(Boolean);
+  const auto = [];
+  for (const l of lines) {
+    try { const e = JSON.parse(l); if (e.source === 'auto-decided') auto.push(e); } catch {}
+  }
+  const recent = auto.slice(-10).reverse();
+  if (!recent.length) { console.log('(no auto-decisions yet)'); process.exit(0); }
+  for (const r of recent) {
+    console.log(r.ts + '  ' + r.question_id + ' → ' + r.user_choice);
+    console.log('     ' + (r.question_summary || ''));
+  }
+"
+```
+
+If any look wrong, offer: "Want to flip `<question_id>` to `always-ask`?"
+Run `gstack-question-preference --write '{"question_id":"<id>","preference":
+"always-ask","source":"plan-tune"}'` after Y.
+
+---
+
+## Audit unmarked questions
+
+Top N hash-only question_ids by frequency. These are AUQ fires the cathedral
+hook captured but cannot enforce against (no `<gstack-qid:foo>` marker in
+the skill template — D18 progressive markers). Surfacing them drives marker
+adoption: high-traffic unmarked questions are the next candidates to retrofit.
+
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+eval "$(~/.claude/skills/gstack/bin/gstack-paths)"
+_LOG="$GSTACK_STATE_ROOT/projects/$SLUG/question-log.jsonl"
+[ ! -f "$_LOG" ] && echo 'NO_LOG' || bun -e "
+  const lines = require('fs').readFileSync('$_LOG','utf-8').trim().split('\n').filter(Boolean);
+  const counts = {};
+  const summaries = {};
+  for (const l of lines) {
+    try {
+      const e = JSON.parse(l);
+      if (e.question_id && e.question_id.startsWith('hook-')) {
+        counts[e.question_id] = (counts[e.question_id] || 0) + 1;
+        summaries[e.question_id] = e.question_summary || '';
+      }
+    } catch {}
+  }
+  const rows = Object.entries(counts).sort((a,b) => b[1] - a[1]).slice(0, 10);
+  if (!rows.length) { console.log('(no unmarked questions — coverage is 100%)'); process.exit(0); }
+  for (const [id, n] of rows) {
+    console.log(n + 'x  ' + id);
+    console.log('     ' + summaries[id]);
+  }
+"
+```
+
+For each row, suggest where the marker should land (look up the skill from
+the summary's wording, e.g. "Bundle this fix..." likely lives in
+`ship/SKILL.md.tmpl`). Don't write markers without user approval — adding
+markers changes which AUQ fires can be auto-decided, which is a substrate
+expansion.
+
+---
+
+## Dream cycle review
+
+**When this fires.** Step 0's dream-cycle gate: `distillation-proposals.json`
+has at least one proposal with `applied_at` missing. Or the user explicitly
+invokes via `/plan-tune distill` / `dream`.
+
+**Flow:**
+
+1. Show the proposals:
+   ```bash
+   ~/.claude/skills/gstack/bin/gstack-distill-apply --list
+   ```
+
+2. For each unapplied proposal, present it as a numbered item and use
+   AskUserQuestion (one per call, per skill convention). Show:
+   - Kind (`preference` / `declared-nudge` / `memory-nugget`)
+   - Confidence + rationale
+   - The source quotes verbatim (proves user-origin)
+   - What applying does (which file/key/dim changes)
+
+3. **On accept** (Y): apply via the bin. The skill also publishes the
+   nugget to gbrain when configured.
+
+   For `memory-nugget`:
+   ```bash
+   # If gbrain is configured, mirror via MCP first.
+   # (Pseudo — actual gbrain call happens at the agent layer via
+   # mcp__gbrain__put_page; the bin records the published flag.)
+   ~/.claude/skills/gstack/bin/gstack-distill-apply --proposal N --gbrain-published true|false
+   ```
+
+   For `preference`:
+   ```bash
+   ~/.claude/skills/gstack/bin/gstack-distill-apply --proposal N
+   ```
+
+   For `declared-nudge`:
+   ```bash
+   # Same bin; updates developer-profile.json declared dim with the
+   # clamped delta.
+   ~/.claude/skills/gstack/bin/gstack-distill-apply --proposal N
+   ```
+
+4. **On decline**: skip without marking. User can re-decide later (the
+   proposal stays in the file). To dismiss permanently, manually clear:
+   `gstack-distill-apply --proposal N --dismiss` (not implemented in T11;
+   for now, regenerate via next distill run with corrected free-text).
+
+5. **gbrain integration.** When `mcp__gbrain__*` tools are available in
+   this session:
+   - On `memory-nugget` apply: `mcp__gbrain__put_page` with the nugget +
+     `mcp__gbrain__extract_facts` + `mcp__gbrain__add_tag` per the cathedral
+     plan D9 routing. Then pass `--gbrain-published true` to the bin so
+     the proposals file records the mirror.
+   - When gbrain isn't configured (no MCP tools), the bin's local file
+     write is the durable source-of-truth and the PreToolUse hook reads it
+     via Layer 8 memory injection.
+
+---
+
+## Dream cycle distill (manual trigger)
+
+**When this fires.** The user invokes `/plan-tune distill` / `dream` /
+`distill` / `dream cycle`. Auto-triggered version lives in Step 0 gate #3.
+
+**Flow:**
+
+1. Run distill:
+   ```bash
+   ~/.claude/skills/gstack/bin/gstack-distill-free-text
+   ```
+
+2. If `RATE_CAPPED`: tell the user "You've hit today's 3 distills/day cap.
+   Run again tomorrow, or `/plan-tune stats` for run history."
+3. If `NO_FREE_TEXT`: tell the user "No free-text answers since the last
+   distill. Keep using gstack — `Other` responses on AskUserQuestion feed
+   this loop."
+4. If success: print the proposals count + estimated cost, then route into
+   `Dream cycle review` above for the user to approve each.
+
+For background mode (e.g., the user wants to keep working):
+```bash
+~/.claude/skills/gstack/bin/gstack-distill-free-text --background
+```
 
 ---
 

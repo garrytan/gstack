@@ -1,0 +1,55 @@
+## Step 9: Pre-Landing Review
+
+Review the diff for structural issues that tests don't catch.
+
+1. Read `.claude/skills/review/checklist.md`. If the file cannot be read, **STOP** and report the error.
+
+2. Run `git diff origin/<base>` to get the full diff (scoped to feature changes against the freshly-fetched base branch).
+
+3. Apply the review checklist in two passes:
+   - **Pass 1 (CRITICAL):** SQL & Data Safety, LLM Output Trust Boundary
+   - **Pass 2 (INFORMATIONAL):** All remaining categories
+
+{{CONFIDENCE_CALIBRATION}}
+
+{{DESIGN_REVIEW_LITE}}
+
+   Include any design findings alongside the code review findings. They follow the same Fix-First flow below.
+
+{{REVIEW_ARMY}}
+
+{{CROSS_REVIEW_DEDUP}}
+
+4. **Classify each finding from both the checklist pass and specialist review (Step 9.1-Step 9.2) as AUTO-FIX or ASK** per the Fix-First Heuristic in
+   checklist.md. Critical findings lean toward ASK; informational lean toward AUTO-FIX.
+
+5. **Auto-fix all AUTO-FIX items.** Apply each fix. Output one line per fix:
+   `[AUTO-FIXED] [file:line] Problem → what you did`
+
+6. **If ASK items remain,** present them in ONE AskUserQuestion:
+   - List each with number, severity, problem, recommended fix
+   - Per-item options: A) Fix  B) Skip
+   - Overall RECOMMENDATION
+   - If 3 or fewer ASK items, you may use individual AskUserQuestion calls instead
+
+7. **After all fixes (auto + user-approved):**
+   - If ANY fixes were applied: commit fixed files by name (`git add <fixed-files> && git commit -m "fix: pre-landing review fixes"`), then **STOP** and tell the user to run `/ship` again to re-test.
+   - If no fixes applied (all ASK items skipped, or no issues found): continue to Step 12.
+
+8. Output summary: `Pre-Landing Review: N issues — M auto-fixed, K asked (J fixed, L skipped)`
+
+   If no issues found: `Pre-Landing Review: No issues found.`
+
+9. Persist the review result to the review log:
+```bash
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"review","timestamp":"TIMESTAMP","status":"STATUS","issues_found":N,"critical":N,"informational":N,"quality_score":SCORE,"specialists":SPECIALISTS_JSON,"findings":FINDINGS_JSON,"commit":"'"$(git rev-parse --short HEAD)"'","via":"ship"}'
+```
+Substitute TIMESTAMP (ISO 8601), STATUS ("clean" if no issues, "issues_found" otherwise),
+and N values from the summary counts above. The `via:"ship"` distinguishes from standalone `/review` runs.
+- `quality_score` = the PR Quality Score computed in Step 9.2 (e.g., 7.5). If specialists were skipped (small diff), use `10.0`
+- `specialists` = the per-specialist stats object compiled in Step 9.2. Each specialist that was considered gets an entry: `{"dispatched":true/false,"findings":N,"critical":N,"informational":N}` if dispatched, or `{"dispatched":false,"reason":"scope|gated"}` if skipped. Example: `{"testing":{"dispatched":true,"findings":2,"critical":0,"informational":2},"security":{"dispatched":false,"reason":"scope"}}`
+- `findings` = array of per-finding records. For each finding (from checklist pass and specialists), include: `{"fingerprint":"path:line:category","severity":"CRITICAL|INFORMATIONAL","action":"ACTION"}`. ACTION is `"auto-fixed"`, `"fixed"` (user approved), or `"skipped"` (user chose Skip).
+
+Save the review output — it goes into the PR body in Step 19.
+
+---

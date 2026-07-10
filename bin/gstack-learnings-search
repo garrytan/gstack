@@ -27,35 +27,53 @@ done
 
 LEARNINGS_FILE="$GSTACK_HOME/projects/$SLUG/learnings.jsonl"
 
-# Collect all JSONL files to search
-FILES=()
-[ -f "$LEARNINGS_FILE" ] && FILES+=("$LEARNINGS_FILE")
+# Collect cross-project JSONL files separately so the trust gate can distinguish
+# current-project rows from rows loaded from other projects.
+CROSS_FILES=()
 
 if [ "$CROSS_PROJECT" = true ]; then
-  # Add other projects' learnings (max 5, sorted by mtime)
-  for f in $(find "$GSTACK_HOME/projects" -name "learnings.jsonl" -not -path "*/$SLUG/*" 2>/dev/null | head -5); do
-    FILES+=("$f")
-  done
+  # Add other projects' learnings (max 5)
+  while IFS= read -r f; do
+    CROSS_FILES+=("$f")
+    [ ${#CROSS_FILES[@]} -ge 5 ] && break
+  done < <(find "$GSTACK_HOME/projects" -name "learnings.jsonl" -not -path "*/$SLUG/*" 2>/dev/null)
 fi
 
-if [ ${#FILES[@]} -eq 0 ]; then
+if [ ! -f "$LEARNINGS_FILE" ] && [ ${#CROSS_FILES[@]} -eq 0 ]; then
   exit 0
 fi
 
+emit_tagged_file() {
+  local tag="$1"
+  local file="$2"
+  local line
+  while IFS= read -r line || [ -n "$line" ]; do
+    [ -n "$line" ] && printf '%s\t%s\n' "$tag" "$line"
+  done < "$file"
+}
+
 # Process all files through bun for JSON parsing, decay, dedup, filtering
-GSTACK_SEARCH_TYPE="$TYPE" GSTACK_SEARCH_QUERY="$QUERY" GSTACK_SEARCH_LIMIT="$LIMIT" GSTACK_SEARCH_SLUG="$SLUG" GSTACK_SEARCH_CROSS="$CROSS_PROJECT" \
-cat "${FILES[@]}" 2>/dev/null | GSTACK_SEARCH_TYPE="$TYPE" GSTACK_SEARCH_QUERY="$QUERY" GSTACK_SEARCH_LIMIT="$LIMIT" GSTACK_SEARCH_SLUG="$SLUG" GSTACK_SEARCH_CROSS="$CROSS_PROJECT" bun -e "
+{
+  [ -f "$LEARNINGS_FILE" ] && emit_tagged_file current "$LEARNINGS_FILE"
+  if [ ${#CROSS_FILES[@]} -gt 0 ]; then
+    for f in "${CROSS_FILES[@]}"; do
+      emit_tagged_file cross "$f"
+    done
+  fi
+} | GSTACK_SEARCH_TYPE="$TYPE" GSTACK_SEARCH_QUERY="$QUERY" GSTACK_SEARCH_LIMIT="$LIMIT" GSTACK_SEARCH_CROSS="$CROSS_PROJECT" bun -e "
 const lines = (await Bun.stdin.text()).trim().split('\n').filter(Boolean);
 const now = Date.now();
 const type = process.env.GSTACK_SEARCH_TYPE || '';
 const queryRaw = (process.env.GSTACK_SEARCH_QUERY || '').toLowerCase();
 const queryTokens = queryRaw.split(/\s+/).filter(Boolean);
 const limit = parseInt(process.env.GSTACK_SEARCH_LIMIT || '10', 10);
-const slug = process.env.GSTACK_SEARCH_SLUG || '';
 
 const entries = [];
-for (const line of lines) {
+for (const taggedLine of lines) {
   try {
+    const tabIndex = taggedLine.indexOf('\t');
+    const sourceTag = tabIndex === -1 ? 'current' : taggedLine.slice(0, tabIndex);
+    const line = tabIndex === -1 ? taggedLine : taggedLine.slice(tabIndex + 1);
     const e = JSON.parse(line);
     if (!e.key || !e.type) continue;
 
@@ -69,13 +87,19 @@ for (const line of lines) {
 
     // Determine if this is from the current project or cross-project
     // Cross-project entries are tagged for display
-    const isCrossProject = !line.includes(slug) && process.env.GSTACK_SEARCH_CROSS === 'true';
+    const isCrossProject = sourceTag === 'cross';
     e._crossProject = isCrossProject;
 
-    // Trust gate: cross-project learnings only loaded if trusted (user-stated)
+    // Trust gate: cross-project learnings only loaded if trusted (user-stated).
     // This prevents prompt injection from one project's AI-generated learnings
     // silently influencing reviews in another project.
-    if (isCrossProject && e.trusted === false) continue;
+    // #1745: this is an ALLOWLIST, not a denylist. The old equals-false check
+    // admitted any row where trusted is missing/undefined (legacy rows written
+    // before the field existed, hand-edited rows, rows from other tools).
+    // Require trusted to be exactly true. NOTE: this whole block is a
+    // double-quoted bun -e string, so bash still does command substitution
+    // inside it. Keep backticks and dollar-paren out of these comments.
+    if (isCrossProject && e.trusted !== true) continue;
 
     entries.push(e);
   } catch {}

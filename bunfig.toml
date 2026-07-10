@@ -1,0 +1,8 @@
+[test]
+# Snapshot + restore process.env after every test. Centralizes the
+# defense against per-file env mutations leaking into subsequent files
+# (e.g., PATH = '/test/bin:/usr/bin' from a security-test fixture
+# causing `Bun.which('bash')` to return null in unrelated downstream
+# tests, or `Bun.spawn(['bun', ...])` to ENOENT when looking for bun
+# via the polluted PATH).
+preload = ["./test-setup.ts"]

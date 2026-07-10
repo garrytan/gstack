@@ -55,7 +55,7 @@ beforeAll(async () => {
   serverState = 'serving';
 
   // This server mirrors the real serve.ts behavior:
-  // - Injects __GSTACK_SERVER_URL into the HTML
+  // - Serves board HTML at / (board JS uses relative URLs)
   // - Handles POST /api/feedback with file writes
   // - Handles GET /api/progress for regeneration polling
   // - Handles POST /api/reload for board swapping
@@ -67,11 +67,7 @@ beforeAll(async () => {
       const url = new URL(req.url);
 
       if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/index.html')) {
-        const injected = currentHtml.replace(
-          '</head>',
-          `<script>window.__GSTACK_SERVER_URL = '${url.origin}';</script>\n</head>`
-        );
-        return new Response(injected, {
+        return new Response(currentHtml, {
           headers: { 'Content-Type': 'text/html; charset=utf-8' },
         });
       }
@@ -140,14 +136,15 @@ describe('Submit: browser click → feedback.json on disk', () => {
     if (fs.existsSync(feedbackPath)) fs.unlinkSync(feedbackPath);
     serverState = 'serving';
 
-    // Navigate to the board (served with __GSTACK_SERVER_URL injected)
+    // Navigate to the board (board JS uses relative URLs + location.protocol detect)
     await handleWriteCommand('goto', [baseUrl], bm);
 
-    // Verify __GSTACK_SERVER_URL was injected
-    const hasServerUrl = await handleReadCommand('js', [
-      '!!window.__GSTACK_SERVER_URL'
+    // Verify the board detects HTTP mode (so postFeedback will actually fetch
+    // instead of falling into the file:// DOM-only path)
+    const httpDetected = await handleReadCommand('js', [
+      "location.protocol === 'http:' || location.protocol === 'https:'"
     ], bm);
-    expect(hasServerUrl).toBe('true');
+    expect(httpDetected).toBe('true');
 
     // User picks variant A, rates it 5 stars
     await handleReadCommand('js', [

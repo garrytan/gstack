@@ -12,7 +12,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import {
-  rotateRoot, initRegistry, validateToken, listTokens,
+  initRegistry, validateToken, listTokens, __resetRegistry,
 } from '../src/token-registry';
 import {
   handleSkillCommand,
@@ -26,7 +26,9 @@ let tmpRoot: string;
 let tiers: TierPaths;
 
 beforeEach(() => {
-  rotateRoot();
+  // __resetRegistry zeroes rootToken so the new initRegistry mismatch guard
+  // doesn't fire on the immediate initRegistry call.
+  __resetRegistry();
   initRegistry('root-token-for-tests');
   tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'browser-skill-cmd-test-'));
   tiers = {
@@ -176,7 +178,17 @@ describe('buildSpawnEnv', () => {
     process.env.LANG = 'en_US.UTF-8';
   });
   afterEach(() => {
-    process.env = origEnv;
+    // process.env = origEnv replaces only the reference; the underlying
+    // env stays mutated and leaks to later test files in the same Bun
+    // process (e.g., breaks Bun.which('bash') in security.test.ts and
+    // bun-spawn in pair-agent-tunnel-eval.test.ts). Delete every current
+    // key then re-assign from the snapshot — restores the actual env.
+    for (const k of Object.keys(process.env)) {
+      if (!(k in origEnv)) delete process.env[k];
+    }
+    for (const [k, v] of Object.entries(origEnv)) {
+      if (v !== undefined) process.env[k] = v;
+    }
   });
 
   it('untrusted: drops $HOME and secrets', () => {
@@ -291,7 +303,15 @@ describe.skipIf(SKIP_SPAWN)('spawnSkill: lifecycle', () => {
       expect(parsed.gh).toBeNull();
       expect(parsed.gstack).toBeNull();
     } finally {
-      process.env = origEnv;
+      // See afterEach comment in `buildSpawnEnv` describe — direct
+      // reassignment of process.env doesn't actually restore the
+      // underlying env in Bun. Delete + re-assign instead.
+      for (const k of Object.keys(process.env)) {
+        if (!(k in origEnv)) delete process.env[k];
+      }
+      for (const [k, v] of Object.entries(origEnv)) {
+        if (v !== undefined) process.env[k] = v;
+      }
     }
   });
 
@@ -310,7 +330,12 @@ describe.skipIf(SKIP_SPAWN)('spawnSkill: lifecycle', () => {
       const parsed = JSON.parse(result.stdout);
       expect(parsed.home).toBe('/Users/test-user');
     } finally {
-      process.env = origEnv;
+      for (const k of Object.keys(process.env)) {
+        if (!(k in origEnv)) delete process.env[k];
+      }
+      for (const [k, v] of Object.entries(origEnv)) {
+        if (v !== undefined) process.env[k] = v;
+      }
     }
   });
 

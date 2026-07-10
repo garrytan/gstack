@@ -84,9 +84,11 @@ Report what each command returned.`,
   }, 90_000);
 
   testConcurrentIfSelected('skillmd-setup-discovery', async () => {
-    const skillMd = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
+    // P2 (v1.2.0): the browse SETUP/binary-discovery block moved from the root
+    // router to browse/SKILL.md (end anchor is now ## Core QA Patterns).
+    const skillMd = fs.readFileSync(path.join(ROOT, 'browse', 'SKILL.md'), 'utf-8');
     const setupStart = skillMd.indexOf('## SETUP');
-    const setupEnd = skillMd.indexOf('## IMPORTANT');
+    const setupEnd = skillMd.indexOf('## Core QA Patterns');
     const setupBlock = skillMd.slice(setupStart, setupEnd);
 
     // Guard: verify we extracted a valid setup block
@@ -116,9 +118,11 @@ Report whether it worked.`,
     // Create a tmpdir with no browse binary — no local .claude/skills/gstack/browse/dist/browse
     const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-e2e-empty-'));
 
-    const skillMd = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
+    // P2 (v1.2.0): the browse SETUP/binary-discovery block moved from the root
+    // router to browse/SKILL.md (end anchor is now ## Core QA Patterns).
+    const skillMd = fs.readFileSync(path.join(ROOT, 'browse', 'SKILL.md'), 'utf-8');
     const setupStart = skillMd.indexOf('## SETUP');
-    const setupEnd = skillMd.indexOf('## IMPORTANT');
+    const setupEnd = skillMd.indexOf('## Core QA Patterns');
     const setupBlock = skillMd.slice(setupStart, setupEnd);
 
     const result = await runSkillTest({
@@ -151,9 +155,11 @@ Report the exact output. Do NOT try to fix or install anything — just report w
     // Create a tmpdir outside any git repo
     const nonGitDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-e2e-nogit-'));
 
-    const skillMd = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
+    // P2 (v1.2.0): the browse SETUP/binary-discovery block moved from the root
+    // router to browse/SKILL.md (end anchor is now ## Core QA Patterns).
+    const skillMd = fs.readFileSync(path.join(ROOT, 'browse', 'SKILL.md'), 'utf-8');
     const setupStart = skillMd.indexOf('## SETUP');
-    const setupEnd = skillMd.indexOf('## IMPORTANT');
+    const setupEnd = skillMd.indexOf('## Core QA Patterns');
     const setupBlock = skillMd.slice(setupStart, setupEnd);
 
     const result = await runSkillTest({
@@ -192,13 +198,25 @@ Report the exact output — either "READY: <path>" or "NEEDS_SETUP".`,
     run('git', ['add', '.']);
     run('git', ['commit', '-m', 'initial']);
 
-    // Copy bin scripts
+    // Copy bin scripts + the lib module they import. gstack-learnings-log
+    // does `import ... from '$SCRIPT_DIR/../lib/jsonl-store.ts'` (v1.57.5.0
+    // injection sanitization) — without lib/ alongside bin/, the script exits
+    // 1 before writing anything, failing this test for a fixture reason, not
+    // a model-behavior reason (root-caused during the v1.58.0.0 ship; fails
+    // identically on main).
     const binDir = path.join(opDir, 'bin');
     fs.mkdirSync(binDir, { recursive: true });
     for (const script of ['gstack-learnings-log', 'gstack-slug']) {
       fs.copyFileSync(path.join(ROOT, 'bin', script), path.join(binDir, script));
       fs.chmodSync(path.join(binDir, script), 0o755);
     }
+    // gstack-learnings-log imports $SCRIPT_DIR/../lib/jsonl-store.ts (shared
+    // injection patterns, since v1.57.5.0) — a real install always ships bin/
+    // and lib/ together, so the fixture must too. Without it the bin exits 1
+    // before writing anything and the test fails on every attempt.
+    const libDir = path.join(opDir, 'lib');
+    fs.mkdirSync(libDir, { recursive: true });
+    fs.copyFileSync(path.join(ROOT, 'lib', 'jsonl-store.ts'), path.join(libDir, 'jsonl-store.ts'));
 
     // gstack-learnings-log will create the project dir automatically via gstack-slug
 

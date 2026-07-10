@@ -15,7 +15,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubicloud-standard-2
+    runs-on: ubicloud-standard-8
     permissions:
       contents: read
       packages: write

@@ -67,8 +67,18 @@ Deno.serve(async (req) => {
       // Validate schema version
       if (event.v !== 1) continue;
 
-      // Validate event_type
-      const validTypes = ["skill_run", "upgrade_prompted", "upgrade_completed"];
+      // Validate event_type. Activation-funnel events (v1.x) join the originals:
+      // onboarding (P0 setup nudge), first_task_scaffold_shown (P4 first-run
+      // scaffold), handoff (P1 office-hours → next skill), route (gstack router).
+      const validTypes = [
+        "skill_run",
+        "upgrade_prompted",
+        "upgrade_completed",
+        "onboarding",
+        "first_task_scaffold_shown",
+        "handoff",
+        "route",
+      ];
       if (!validTypes.includes(event.event_type)) continue;
 
       rows.push({

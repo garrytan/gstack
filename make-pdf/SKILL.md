@@ -2,13 +2,7 @@
 name: make-pdf
 preamble-tier: 1
 version: 1.0.0
-description: |
-  Turn any markdown file into a publication-quality PDF. Proper 1in margins,
-  intelligent page breaks, page numbers, cover pages, running headers, curly
-  quotes and em dashes, clickable TOC, diagonal DRAFT watermark. Not a draft
-  artifact — a finished artifact. Use when asked to "make a PDF", "export to
-  PDF", "turn this markdown into a PDF", or "generate a document". (gstack)
-  Voice triggers (speech-to-text aliases): "make this a pdf", "make it a pdf", "export to pdf", "turn this into a pdf", "turn this markdown into a pdf", "generate a pdf", "make a pdf from", "pdf this markdown".
+description: Turn any markdown file into a publication-quality PDF. (gstack)
 triggers:
   - markdown to pdf
   - generate pdf
@@ -21,6 +15,17 @@ allowed-tools:
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
+
+
+## When to invoke this skill
+
+Proper 1in margins,
+intelligent page breaks, page numbers, cover pages, running headers, curly
+quotes and em dashes, clickable TOC, diagonal DRAFT watermark. Not a draft
+artifact — a finished artifact. Use when asked to "make a PDF", "export to
+PDF", "turn this markdown into a PDF", or "generate a document".
+
+Voice triggers (speech-to-text aliases): "make this a pdf", "make it a pdf", "export to pdf", "turn this into a pdf", "turn this markdown into a pdf", "generate a pdf", "make a pdf from", "pdf this markdown".
 
 ## Preamble (run first)
 
@@ -42,6 +47,27 @@ echo "SKILL_PREFIX: $_SKILL_PREFIX"
 source <(~/.claude/skills/gstack/bin/gstack-repo-mode 2>/dev/null) || true
 REPO_MODE=${REPO_MODE:-unknown}
 echo "REPO_MODE: $REPO_MODE"
+_SESSION_KIND=$(~/.claude/skills/gstack/bin/gstack-session-kind 2>/dev/null || echo "interactive")
+case "$_SESSION_KIND" in spawned|headless|interactive) ;; *) _SESSION_KIND="interactive" ;; esac
+echo "SESSION_KIND: $_SESSION_KIND"
+# Conductor host: AskUserQuestion is unreliable here (native disabled, MCP
+# variant flaky), so skills render decisions as prose instead of calling the
+# tool. Gated on !headless so an eval/CI run INSIDE Conductor (GSTACK_HEADLESS)
+# still BLOCKs rather than rendering prose to nobody.
+if [ "$_SESSION_KIND" != "headless" ] && { [ -n "${CONDUCTOR_WORKSPACE_PATH:-}" ] || [ -n "${CONDUCTOR_PORT:-}" ]; }; then
+  echo "CONDUCTOR_SESSION: true"
+fi
+_ACTIVATED=$([ -f ~/.gstack/.activated ] && echo "yes" || echo "no")
+_FIRST_LOOP_SHOWN=$([ -f ~/.gstack/.first-loop-tip-shown ] && echo "yes" || echo "no")
+echo "ACTIVATED: $_ACTIVATED"
+echo "FIRST_LOOP_SHOWN: $_FIRST_LOOP_SHOWN"
+# First-run project detection: run the detector ONLY on the first-ever skill run
+# (ACTIVATED=no, interactive) so it stays off the hot path for every run after.
+_FIRST_TASK=""
+if [ "$_ACTIVATED" = "no" ] && [ "$_SESSION_KIND" != "headless" ]; then
+  _FIRST_TASK=$(~/.claude/skills/gstack/bin/gstack-first-task-detect 2>/dev/null || true)
+fi
+echo "FIRST_TASK: $_FIRST_TASK"
 _LAKE_SEEN=$([ -f ~/.gstack/.completeness-intro-seen ] && echo "yes" || echo "no")
 echo "LAKE_INTRO: $_LAKE_SEEN"
 _TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || true)
@@ -57,7 +83,7 @@ _QUESTION_TUNING=$(~/.claude/skills/gstack/bin/gstack-config get question_tuning
 echo "QUESTION_TUNING: $_QUESTION_TUNING"
 mkdir -p ~/.gstack/analytics
 if [ "$_TEL" != "off" ]; then
-echo '{"skill":"make-pdf","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
+echo '{"skill":"make-pdf","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(_repo=$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null | tr -cd 'a-zA-Z0-9._-'); echo "${_repo:-unknown}")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 fi
 for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null); do
   if [ -f "$_PF" ]; then
@@ -99,6 +125,19 @@ _CHECKPOINT_MODE=$(~/.claude/skills/gstack/bin/gstack-config get checkpoint_mode
 _CHECKPOINT_PUSH=$(~/.claude/skills/gstack/bin/gstack-config get checkpoint_push 2>/dev/null || echo "false")
 echo "CHECKPOINT_MODE: $_CHECKPOINT_MODE"
 echo "CHECKPOINT_PUSH: $_CHECKPOINT_PUSH"
+# Plan-mode hint for skills like /spec that branch behavior on plan-mode state.
+# Claude Code exposes plan mode via system reminders; we detect best-effort
+# from CLAUDE_PLAN_FILE (set by the harness when plan mode is active) and
+# fall back to "inactive". Codex hosts and Claude execution mode both end up
+# inactive, which is the safe default (defaults to file+execute pipeline).
+if [ -n "${CLAUDE_PLAN_FILE:-}${GSTACK_PLAN_MODE_FORCE:-}" ]; then
+  export GSTACK_PLAN_MODE="active"
+elif [ "${GSTACK_PLAN_MODE:-}" = "active" ]; then
+  export GSTACK_PLAN_MODE="active"
+else
+  export GSTACK_PLAN_MODE="inactive"
+fi
+echo "GSTACK_PLAN_MODE: $GSTACK_PLAN_MODE"
 [ -n "$OPENCLAW_SESSION" ] && echo "SPAWNED_SESSION: true" || true
 ```
 
@@ -144,7 +183,7 @@ In plan mode, allowed because they inform the plan: `$B`, `$D`, `codex exec`/`co
 
 ## Skill Invocation During Plan Mode
 
-If the user invokes a skill in plan mode, the skill takes precedence over generic plan mode behavior. **Treat the skill file as executable instructions, not reference.** Follow it step by step starting from Step 0; the first AskUserQuestion is the workflow entering plan mode, not a violation of it. AskUserQuestion (any variant — `mcp__*__AskUserQuestion` or native; see "AskUserQuestion Format → Tool resolution") satisfies plan mode's end-of-turn requirement. If no variant is callable, the skill is BLOCKED — stop and report `BLOCKED — AskUserQuestion unavailable` per the AskUserQuestion Format rule. At a STOP point, stop immediately. Do not continue the workflow or call ExitPlanMode there. Commands marked "PLAN MODE EXCEPTION — ALWAYS RUN" execute. Call ExitPlanMode only after the skill workflow completes, or if the user tells you to cancel the skill or leave plan mode.
+If the user invokes a skill in plan mode, the skill takes precedence over generic plan mode behavior. **Treat the skill file as executable instructions, not reference.** Follow it step by step starting from Step 0; the first AskUserQuestion is the workflow entering plan mode, not a violation of it. AskUserQuestion (any variant — `mcp__*__AskUserQuestion` or native; see "AskUserQuestion Format → Tool resolution") satisfies plan mode's end-of-turn requirement. If AskUserQuestion is unavailable or a call fails, follow the AskUserQuestion Format failure fallback: `headless` → BLOCKED; `interactive` → the prose fallback (also satisfies end-of-turn). At a STOP point, stop immediately. Do not continue the workflow or call ExitPlanMode there. Commands marked "PLAN MODE EXCEPTION — ALWAYS RUN" execute. Call ExitPlanMode only after the skill workflow completes, or if the user tells you to cancel the skill or leave plan mode.
 
 If `PROACTIVE` is `"false"`, do not auto-invoke or proactively suggest skills. If a skill seems useful, ask: "I think /skillname might help here — want me to run it?"
 
@@ -179,7 +218,7 @@ touch ~/.gstack/.writing-style-prompted
 
 Skip if `WRITING_STYLE_PENDING` is `no`.
 
-If `LAKE_INTRO` is `no`: say "gstack follows the **Boil the Lake** principle — do the complete thing when AI makes marginal cost near-zero. Read more: https://garryslist.org/posts/boil-the-ocean" Offer to open:
+If `LAKE_INTRO` is `no`: say "gstack follows the **Boil the Ocean** principle — do the complete thing when AI makes marginal cost near-zero. Read more: https://garryslist.org/posts/boil-the-ocean" Offer to open:
 
 ```bash
 open https://garryslist.org/posts/boil-the-ocean
@@ -190,7 +229,7 @@ Only run `open` if yes. Always run `touch`.
 
 If `TEL_PROMPTED` is `no` AND `LAKE_INTRO` is `yes`: ask telemetry once via AskUserQuestion:
 
-> Help gstack get better. Share usage data only: skill, duration, crashes, stable device ID. No code, file paths, or repo names.
+> Help gstack get better. Share usage data only: skill, duration, crashes, stable device ID. No code or file paths. Your repo name is recorded locally only and stripped before any upload.
 
 Options:
 - A) Help gstack get better! (recommended)
@@ -234,6 +273,24 @@ touch ~/.gstack/.proactive-prompted
 
 Skip if `PROACTIVE_PROMPTED` is `yes`.
 
+## First-run guidance (one-time)
+
+If `ACTIVATED` is `no` (first skill run on this machine) AND the preamble printed a non-empty `FIRST_TASK:` value that is NOT `nongit`: show ONE short, project-specific line mapped from the token, as a heads-up, then CONTINUE with whatever the user actually asked — do NOT halt their task. Map the token: `greenfield` → "Fresh repo — shape it first with `/spec` or `/office-hours`." `code_node`/`code_python`/`code_rust`/`code_go`/`code_ruby`/`code_ios` → "There's code here — `/qa` to see it work, or `/investigate` if something's off." `branch_ahead` → "Unshipped work on this branch — `/review` then `/ship`." `dirty_default` → "Uncommitted changes — `/review` before committing." `clean_default` → "Pick one: `/spec`, `/investigate`, or `/qa`." Then substitute the token you saw for TASK_TOKEN and run (best-effort), and mark activated:
+```bash
+~/.claude/skills/gstack/bin/gstack-telemetry-log --event-type first_task_scaffold_shown --skill "TASK_TOKEN" --outcome shown 2>/dev/null || true
+touch ~/.gstack/.activated 2>/dev/null || true
+```
+
+If `ACTIVATED` is `no` but `FIRST_TASK:` is empty or `nongit` (headless, non-git, or nothing actionable): show nothing, just run `touch ~/.gstack/.activated 2>/dev/null || true`.
+
+Else if `ACTIVATED` is `yes` AND `FIRST_LOOP_SHOWN` is `no`: say once as a heads-up (then continue):
+
+> Tip: gstack pays off when you complete one loop — **plan → review → ship**. A common first loop: `/office-hours` or `/spec` to shape it, `/plan-eng-review` to lock it, then `/ship`.
+
+Then run `touch ~/.gstack/.first-loop-tip-shown 2>/dev/null || true`.
+
+Skip this section if `ACTIVATED` and `FIRST_LOOP_SHOWN` are both `yes`.
+
 If `HAS_ROUTING` is `no` AND `ROUTING_DECLINED` is `false` AND `PROACTIVE_PROMPTED` is `yes`:
 Check if a CLAUDE.md file exists in the project root. If it does not exist, create it.
 
@@ -266,6 +323,7 @@ Key routing rules:
 - Ship/deploy/PR → invoke /ship or /land-and-deploy
 - Save progress → invoke /context-save
 - Resume context → invoke /context-restore
+- Author a backlog-ready spec/issue → invoke /spec
 ```
 
 Then commit the change: `git add CLAUDE.md && git commit -m "chore: add gstack skill routing rules to CLAUDE.md"`
@@ -510,9 +568,7 @@ Replace `SKILL_NAME`, `OUTCOME`, and `USED_BROWSE` before running.
 
 ## Plan Status Footer
 
-In plan mode before ExitPlanMode: if the plan file lacks `## GSTACK REVIEW REPORT`, run `~/.claude/skills/gstack/bin/gstack-review-read` and append the standard runs/status/findings table. With `NO_REVIEWS` or empty, append a 5-row placeholder with verdict "NO REVIEWS YET — run `/autoplan`". If a richer report exists, skip.
-
-PLAN MODE EXCEPTION — always allowed (it's the plan file).
+Skills that run plan reviews (`/plan-*-review`, `/codex review`) include the EXIT PLAN MODE GATE blocking checklist at the end of the skill, which verifies the plan file ends with `## GSTACK REVIEW REPORT` before ExitPlanMode is called. Skills that don't run plan reviews (operational skills like `/ship`, `/qa`, `/review`) typically don't operate in plan mode and have no review report to verify; this footer is a no-op for them. Writing the plan file is the one edit allowed in plan mode.
 
 # make-pdf: publication-quality PDFs from markdown
 
@@ -524,6 +580,13 @@ Copy-paste from the PDF produces clean words, never "S a i l i n g".
 On Linux, install `fonts-liberation` for correct rendering — Helvetica and Arial
 aren't present by default, and Liberation Sans is the standard metric-compatible
 fallback. CI and Docker builds install it automatically via Dockerfile.ci.
+
+Emoji need a color-emoji font. macOS (Apple Color Emoji) and Windows (Segoe UI
+Emoji) ship one; most Linux distros and containers ship none, so emoji render as
+empty boxes (▯). `./setup` auto-installs `fonts-noto-color-emoji` on Linux
+(apt/dnf/pacman/apk, best-effort) and the print CSS falls back through Apple /
+Segoe / Noto emoji families. Set `GSTACK_SKIP_FONTS=1` to skip the install (CI
+without sudo, managed or offline machines).
 
 ## Core patterns
 
@@ -571,6 +634,79 @@ as you edit the markdown. Skip the PDF round trip until you're ready.
 $P generate --no-confidential memo.md memo.pdf
 ```
 
+### Diagrams — mermaid and excalidraw fences render as pictures
+
+A column-0 ` ```mermaid ` or ` ```excalidraw ` fence in the markdown renders
+as a crisp vector diagram, fully offline (vendored bundle, no CDN). Indented
+fences (inside lists) stay plain code blocks by design. A broken fence
+produces a visible red diagnostic block with the parse error — never silent
+raw code.
+
+Fence info-string options:
+
+```
+```mermaid title="Auth flow"        ← caption + aria-label
+```mermaid render=false             ← keep it as a code block (today's behavior)
+```mermaid page=landscape           ← force this diagram onto a landscape page
+```mermaid page=portrait            ← veto auto-landscape for this diagram
+```
+
+A ` ```excalidraw ` fence contains a full .excalidraw scene file (what
+excalidraw.com saves). Authoring NEW diagrams from English is `/diagram`'s
+job — it emits an editable triplet (source, .excalidraw, SVG/PNG) and pairs
+with this skill: embed the `.mmd` source in your markdown, not the PNG.
+
+### Images — scaled right, never truncated
+
+Local images inline automatically (relative paths resolve against the
+markdown file). Every image caps at the content box — zero truncation, ever.
+Oversized photos downscale to print resolution (300dpi) so payloads stay
+small with no visible quality loss.
+
+Remote (http/https) images are **blocked with a visible placeholder** by
+default — offline posture; pass `--allow-network` to fetch them. An image
+that resolves outside the markdown's directory (even via symlink) still
+inlines, but warns loudly; `--strict` makes it fatal. Files over 64MB or
+non-regular files (fifos, devices) degrade to a placeholder instead of
+hanging the run.
+
+Per-image directives, written immediately after the image:
+
+```
+![chart](data.png){width=full}      ← stretch to content-box width
+![chart](data.png){width=50%}       ← percentage or 3in/8cm/200px
+![wide](arch.png){page=landscape}   ← give it its own landscape page
+![wide](shot.png){page=portrait}    ← veto auto-landscape
+```
+
+Wide, small-text diagram images auto-promote to their own landscape page
+(conservative: aspect ≥ 1.8, width over ~2.5x the content box, AND a
+diagram-ish alt word — diagram/architecture/flowchart/chart/graph). The
+promoted page is vertically centered. When the heuristic guesses wrong,
+`{page=portrait}` vetoes it; false negatives just need `{page=landscape}`.
+
+### Other formats — single-file HTML and Word
+
+```bash
+$P generate readme.md out.html --to html    # ONE self-contained file: inline
+                                            # SVG diagrams, data-URI images,
+                                            # zero network refs, screen-readable
+$P generate readme.md out.docx --to docx    # Word: content fidelity (headings,
+                                            # tables, code, diagrams as PNG) —
+                                            # layout is Word's, not ours
+```
+
+`--to` is the output format. `--format` is something else entirely (a
+`--page-size` alias) — don't confuse them.
+
+### CI mode — fail loud on missing assets
+
+```bash
+$P generate docs.md --strict     # missing, remote, out-of-tree, oversized,
+                                 # and non-regular-file images exit non-zero
+                                 # instead of warn + placeholder
+```
+
 ## Common flags
 
 ```
@@ -590,6 +726,10 @@ Branding:
   --no-confidential          Suppress the CONFIDENTIAL right-footer
 
 Output:
+  --to pdf|html|docx         Output format (default: pdf). html = single
+                             self-contained file; docx = content fidelity.
+  --strict                   Missing, remote, out-of-tree, oversized, or
+                             non-regular-file images fail the run (CI mode).
   --page-numbers             "N of M" footer (default on)
   --tagged                   Accessible PDF (default on)
   --outline                  PDF bookmarks from headings (default on)
@@ -597,8 +737,9 @@ Output:
   --verbose                  Per-stage timings
 
 Network:
-  --allow-network            Fetch external images. Off by default
-                             (blocks tracking pixels).
+  --allow-network            Fetch external images. Off by default: remote
+                             images render as a visible blocked placeholder
+                             (no tracking pixels fetch at print time).
 
 Metadata:
   --title "..."              Document title (defaults to first H1)
@@ -626,8 +767,9 @@ If the user has a `.md` file open and says "make it look nice", propose
   `--no-syntax` once that flag exists. For now, remove fenced code blocks
   and regenerate.
 - Paged.js timeout → probably no headings in the markdown. Drop `--toc`.
-- External image missing → add `--allow-network` (understand you're giving
-  the markdown file permission to fetch from its image URLs).
+- "[remote image blocked]" placeholder in the output → add `--allow-network`
+  (understand you're giving the markdown file permission to fetch from its
+  image URLs).
 - Generated PDF too tall/wide → `--page-size a4` or `--margins 0.75in`.
 
 ## Output contract

@@ -25,8 +25,19 @@ import { evolve } from "./evolve";
 import { generateDesignToCodePrompt } from "./design-to-code";
 import { serve } from "./serve";
 import { gallery } from "./gallery";
+import {
+  daemonStatus as daemonStatusClient,
+  ensureDaemon,
+  publishBoard,
+  shutdownDaemon,
+} from "./daemon-client";
+import { spawn as nodeSpawn } from "child_process";
 
-function parseArgs(argv: string[]): { command: string; flags: Record<string, string | boolean> } {
+function parseArgs(argv: string[]): {
+  command: string;
+  flags: Record<string, string | boolean>;
+  positionals: string[];
+} {
   const args = argv.slice(2); // skip bun/node and script path
   if (args.length === 0) {
     printUsage();
@@ -35,6 +46,7 @@ function parseArgs(argv: string[]): { command: string; flags: Record<string, str
 
   const command = args[0];
   const flags: Record<string, string | boolean> = {};
+  const positionals: string[] = [];
 
   for (let i = 1; i < args.length; i++) {
     const arg = args[i];
@@ -47,10 +59,12 @@ function parseArgs(argv: string[]): { command: string; flags: Record<string, str
       } else {
         flags[key] = true;
       }
+    } else {
+      positionals.push(arg);
     }
   }
 
-  return { command, flags };
+  return { command, flags, positionals };
 }
 
 function printUsage(): void {
@@ -60,7 +74,8 @@ function printUsage(): void {
     console.log(`  ${name.padEnd(12)} ${info.description}`);
     console.log(`  ${"".padEnd(12)} ${info.usage}`);
   }
-  console.log("\nAuth: ~/.gstack/openai.json or OPENAI_API_KEY env var");
+  console.log("\nAuth: ~/.gstack/openai.json, then OPENAI_API_KEY env var");
+  console.log("If OPENAI_API_KEY matches a current-directory .env file, the source is reported before billing.");
   console.log("Setup: $D setup");
 }
 
@@ -107,7 +122,7 @@ async function runSetup(): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  const { command, flags } = parseArgs(process.argv);
+  const { command, flags, positionals } = parseArgs(process.argv);
 
   if (!COMMANDS.has(command)) {
     console.error(`Unknown command: ${command}`);
@@ -138,12 +153,24 @@ async function main(): Promise<void> {
       const images = await resolveImagePaths(imagesArg);
       const outputPath = (flags.output as string) || "/tmp/gstack-design-board.html";
       compare({ images, output: outputPath });
-      // If --serve flag is set, start HTTP server for the board
+      // If --serve flag is set, publish the board.
+      //   Default: ensure the persistent daemon is up, POST the board, open
+      //   the browser, exit. The daemon survives the CLI and hosts every
+      //   board the user has published this day at stable URLs.
+      //   --no-daemon: legacy single-process server in serve.ts (kept for
+      //   tests / Windows / explicit debugging).
       if (flags.serve) {
-        await serve({
-          html: outputPath,
-          timeout: flags.timeout ? parseInt(flags.timeout as string) : 600,
-        });
+        if (flags["no-daemon"]) {
+          await serve({
+            html: outputPath,
+            timeout: flags.timeout ? parseInt(flags.timeout as string) : 600,
+          });
+        } else {
+          await publishToDaemon({
+            html: outputPath,
+            title: flags.title as string | undefined,
+          });
+        }
       }
       break;
     }
@@ -246,11 +273,108 @@ async function main(): Promise<void> {
       break;
 
     case "serve":
-      await serve({
-        html: flags.html as string,
-        timeout: flags.timeout ? parseInt(flags.timeout as string) : 600,
-      });
+      if (flags["no-daemon"]) {
+        await serve({
+          html: flags.html as string,
+          timeout: flags.timeout ? parseInt(flags.timeout as string) : 600,
+        });
+      } else {
+        await publishToDaemon({
+          html: flags.html as string,
+          title: flags.title as string | undefined,
+        });
+      }
       break;
+
+    case "daemon": {
+      // Sub-commands: `$D daemon status` and `$D daemon stop [--force]`.
+      const sub = positionals[0] || "status";
+      if (sub === "status") {
+        const s = await daemonStatusClient();
+        if (!s.running) {
+          console.log(JSON.stringify({ running: false }, null, 2));
+          process.exit(0);
+        }
+        console.log(JSON.stringify(s, null, 2));
+        break;
+      }
+      if (sub === "stop") {
+        const r = await shutdownDaemon({ force: !!flags.force });
+        if (r.stopped) {
+          console.log(JSON.stringify({ stopped: true, reason: r.reason }, null, 2));
+          process.exit(0);
+        }
+        console.error(
+          `Refused to stop daemon: ${r.reason} (activeBoards=${r.activeBoards ?? 0})`,
+        );
+        console.error(
+          `Submit/close active boards first, or pass --force to drop in-memory history.`,
+        );
+        process.exit(1);
+      }
+      console.error(`Unknown daemon sub-command: ${sub}. Use 'status' or 'stop'.`);
+      process.exit(2);
+    }
+  }
+}
+
+/**
+ * Default `$D compare --serve` path: ensure the persistent daemon is up,
+ * publish the board, open the browser to its URL, then exit. The daemon
+ * survives.
+ *
+ * Stderr lines (in order):
+ *   - "DAEMON_STARTED port=N version=V"  (or "DAEMON_ATTACHED port=N ..."
+ *     if a daemon was already running)
+ *   - "BOARD_PUBLISHED: http://127.0.0.1:N/boards/<id>/"
+ *   - "BOARD_URL: <same url>"  (alias for grep-friendliness)
+ *   - "SERVE_STARTED: port=N html=<path>"  (legacy back-compat alias for
+ *     any external script that scraped the pre-daemon output — note the
+ *     daemon hosts boards under /boards/<id>/, not /, so scripts that
+ *     ALSO POSTed /api/reload at the parsed port need to switch to
+ *     BOARD_URL + ./api/reload to work end-to-end. Emitting the legacy
+ *     line keeps port-only consumers from breaking outright.)
+ */
+async function publishToDaemon(opts: { html: string; title?: string }): Promise<void> {
+  if (!opts.html) {
+    console.error("--html is required (compare --serve provides --output as the html)");
+    process.exit(1);
+  }
+  const ensured = await ensureDaemon({});
+  console.error(
+    `${ensured.spawned ? "DAEMON_STARTED" : "DAEMON_ATTACHED"} port=${ensured.port} version=${ensured.version}`,
+  );
+  const result = await publishBoard({
+    port: ensured.port,
+    html: opts.html,
+    title: opts.title,
+  });
+  console.error(`BOARD_PUBLISHED: ${result.url}`);
+  console.error(`BOARD_URL: ${result.url}`);
+  // Legacy alias so anything still grepping `SERVE_STARTED: port=` gets the
+  // port. The full back-compat story requires the caller to ALSO learn the
+  // per-board path; see publishToDaemon docstring above.
+  console.error(`SERVE_STARTED: port=${ensured.port} html=${opts.html}`);
+  console.log(JSON.stringify({ id: result.id, url: result.url, sourceDir: result.sourceDir }, null, 2));
+  openBrowser(result.url);
+  // Short-lived publisher process exits; daemon keeps serving.
+}
+
+/** Open a URL in the default browser. Stays cross-platform with serve.ts. */
+function openBrowser(url: string): void {
+  const platform = process.platform;
+  let cmd: string;
+  if (platform === "darwin") cmd = "open";
+  else if (platform === "linux") cmd = "xdg-open";
+  else {
+    console.error(`Open this URL in your browser: ${url}`);
+    return;
+  }
+  try {
+    const child = nodeSpawn(cmd, [url], { stdio: "ignore", detached: true });
+    child.unref();
+  } catch {
+    console.error(`Open this URL in your browser: ${url}`);
   }
 }
 
@@ -279,7 +403,19 @@ async function resolveImagePaths(input: string): Promise<string[]> {
   return input.split(",").map(p => p.trim());
 }
 
-main().catch(err => {
-  console.error(err.message || err);
-  process.exit(1);
-});
+// Self-execution shortcut: when invoked with --daemon-mode, this same
+// binary runs as the persistent design daemon instead of the CLI. Keeps
+// the production install to a single executable; daemon-client.ts spawns
+// `<this binary> --daemon-mode` (or `bun run cli.ts --daemon-mode` in dev)
+// rather than relying on a separate daemon.ts file at a known path.
+if (process.argv.includes("--daemon-mode")) {
+  const { start } = await import("./daemon");
+  start();
+  // start() binds Bun.serve and registers signal handlers; this branch
+  // never falls through to main(). Process stays alive on the bound port.
+} else {
+  main().catch((err) => {
+    console.error(err.message || err);
+    process.exit(1);
+  });
+}

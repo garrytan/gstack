@@ -11,9 +11,17 @@ export type FontMode = "sans"; // v1: Helvetica only. Future: "serif" | "custom"
  * Options for `$P generate` — the public CLI contract.
  * Matches the flag set documented in the CEO plan.
  */
+export type OutputFormat = "pdf" | "html" | "docx";
+
 export interface GenerateOptions {
   input: string;                  // markdown input path
-  output?: string;                // PDF output path (default: /tmp/<slug>.pdf)
+  output?: string;                // output path (default: /tmp/<slug>.<ext>)
+
+  // Output format (NOT --format, which is a --page-size alias):
+  //   pdf  — print-quality PDF via Chromium (default)
+  //   html — single self-contained file, zero network references
+  //   docx — content-fidelity Word document (diagrams embedded as PNG)
+  to?: OutputFormat;
 
   // Page layout
   margins?: string;               // "1in" | "72pt" | "25mm" | "2.54cm"
@@ -43,6 +51,10 @@ export interface GenerateOptions {
 
   // Network
   allowNetwork?: boolean;         // default: false
+
+  // Strict mode (eng-review D6.1): missing/remote images hard-fail instead of
+  // warn + placeholder. For CI docs pipelines that need determinism.
+  strict?: boolean;               // default: false
 
   // Metadata
   title?: string;

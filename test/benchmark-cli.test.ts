@@ -163,6 +163,33 @@ describe('gstack-model-benchmark prompt resolution', () => {
     }
   });
 
+  test('positional file still works when value flags come first', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'bench-prompt-'));
+    const promptFile = path.join(tmp, 'prompt.txt');
+    fs.writeFileSync(promptFile, 'hello after flags');
+    try {
+      const r = run(['--models', 'claude', '--output', 'json', promptFile, '--dry-run']);
+      expect(r.status).toBe(0);
+      expect(r.stdout).toContain('hello after flags');
+      expect(r.stdout).not.toContain('EISDIR');
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  test('positional file still works after equals-form value flags', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'bench-prompt-'));
+    const promptFile = path.join(tmp, 'prompt.txt');
+    fs.writeFileSync(promptFile, 'hello after equals flags');
+    try {
+      const r = run(['--models=claude', '--output=markdown', promptFile, '--dry-run']);
+      expect(r.status).toBe(0);
+      expect(r.stdout).toContain('hello after equals flags');
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
   test('positional non-file arg is treated as inline prompt', () => {
     const r = run(['treat-me-as-inline', '--dry-run']);
     expect(r.status).toBe(0);

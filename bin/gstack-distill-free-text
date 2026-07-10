@@ -1,0 +1,272 @@
+#!/usr/bin/env bash
+# gstack-distill-free-text — Layer 8 "dream cycle" batch distiller.
+#
+# Reads auq-other free-text events from this project's question-log.jsonl,
+# sends them to Claude via the Anthropic SDK, and writes structured proposals
+# the user can review via /plan-tune distill. Proposals require explicit
+# user Y before applying — never autonomous (Codex #15 trust boundary).
+#
+# Usage:
+#   gstack-distill-free-text                       # sync, prompts at end
+#   gstack-distill-free-text --background          # spawn detached; results
+#                                                  # surface on next /plan-tune
+#   gstack-distill-free-text --dry-run             # show prompt, no API call
+#   gstack-distill-free-text --status              # show last-run stats
+#
+# No rate cap — the natural rate of free-text events (rare; user has to type
+# "Other" then content) bounds this loop already. Each Haiku call is ~$0.01,
+# so even a runaway at one-per-minute would be ~$14/day worst case. The
+# cumulative cost log at $GSTACK_STATE_ROOT/distill-cost.jsonl gives full
+# auditability via --status when you want it.
+# Per D6: Anthropic SDK direct call, fail-loud on missing ANTHROPIC_API_KEY.
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+GSTACK_HOME="${GSTACK_STATE_ROOT:-${GSTACK_HOME:-$HOME/.gstack}}"
+eval "$("$SCRIPT_DIR/gstack-slug" 2>/dev/null || true)"
+SLUG="${SLUG:-unknown}"
+PROJECT_DIR="$GSTACK_HOME/projects/$SLUG"
+LOG_FILE="$PROJECT_DIR/question-log.jsonl"
+PROPOSAL_FILE="$PROJECT_DIR/distillation-proposals.json"
+COST_LOG="$GSTACK_HOME/distill-cost.jsonl"
+mkdir -p "$PROJECT_DIR"
+
+MODE="sync"
+case "${1:-}" in
+  --background) MODE="background" ;;
+  --dry-run)    MODE="dry-run" ;;
+  --status)     MODE="status" ;;
+  --help|-h)
+    sed -n '1,/^set -euo/p' "$0" | sed 's|^# \?||'
+    exit 0
+    ;;
+  '') ;;
+  *) echo "unknown arg: $1" >&2; exit 1 ;;
+esac
+
+# --- Status subcommand --------------------------------------------------
+
+if [ "$MODE" = "status" ]; then
+  COST_LOG_PATH="$COST_LOG" SLUG_PATH="$SLUG" bun -e '
+    const fs = require("fs");
+    const slug = process.env.SLUG_PATH;
+    const path = process.env.COST_LOG_PATH;
+    if (!fs.existsSync(path)) { console.log("no distill runs yet"); process.exit(0); }
+    const lines = fs.readFileSync(path, "utf-8").trim().split("\n").filter(Boolean);
+    const mine = lines.map((l) => JSON.parse(l)).filter((e) => e.slug === slug);
+    if (mine.length === 0) { console.log("no distill runs yet for slug=" + slug); process.exit(0); }
+    const totalUsd = mine.reduce((a, e) => a + (e.cost_usd_est || 0), 0);
+    const todayIso = new Date().toISOString().slice(0, 10);
+    const today = mine.filter((e) => (e.ts || "").startsWith(todayIso));
+    const todayUsd = today.reduce((a, e) => a + (e.cost_usd_est || 0), 0);
+    console.log("RUNS: " + mine.length);
+    console.log("TODAY: " + today.length + " run(s), $" + todayUsd.toFixed(4));
+    console.log("ESTIMATED_TOTAL_USD: $" + totalUsd.toFixed(4));
+    const last = mine[mine.length - 1];
+    console.log("LAST_RUN: " + (last.ts || "?") + " | " + (last.proposals_count || 0) + " proposals");
+  '
+  exit 0
+fi
+
+# --- Background mode: detach + invoke self synchronously ---------------
+
+if [ "$MODE" = "background" ]; then
+  nohup "$0" >/dev/null 2>&1 &
+  echo "DISTILL_SPAWNED: pid=$!"
+  exit 0
+fi
+
+# No rate cap. Natural input rate (free-text events are rare) + Haiku price
+# (~$0.01/run) keep this bounded. Use --status to audit spend.
+
+# --- Gather unprocessed auq-other events from this project -------------
+
+if [ ! -f "$LOG_FILE" ]; then
+  echo "NO_LOG: no question-log.jsonl in $PROJECT_DIR"
+  exit 0
+fi
+
+EVENTS_JSON=$(LOG_FILE_PATH="$LOG_FILE" bun -e '
+  const fs = require("fs");
+  const lines = fs.readFileSync(process.env.LOG_FILE_PATH, "utf-8").trim().split("\n").filter(Boolean);
+  const out = [];
+  for (const l of lines) {
+    try {
+      const e = JSON.parse(l);
+      if (e.source === "auq-other" && !e.distilled_at && e.free_text) {
+        out.push({
+          ts: e.ts,
+          question_id: e.question_id,
+          question_summary: e.question_summary,
+          free_text: e.free_text,
+          session_id: e.session_id,
+        });
+      }
+    } catch {}
+  }
+  process.stdout.write(JSON.stringify(out));
+')
+
+EVENT_COUNT=$(printf '%s' "$EVENTS_JSON" | bun -e 'const a = JSON.parse(await Bun.stdin.text()); console.log(a.length);')
+if [ "$EVENT_COUNT" -eq 0 ]; then
+  echo "NO_FREE_TEXT: nothing to distill"
+  exit 0
+fi
+
+# --- Build distill prompt ---------------------------------------------
+
+# Heredoc into temp file (avoids $(cat <<'PROMPT'...) which choked the
+# bash parser on apostrophes elsewhere in the script).
+DISTILL_PROMPT_FILE=$(mktemp)
+trap 'rm -f "$DISTILL_PROMPT_FILE"' EXIT
+cat > "$DISTILL_PROMPT_FILE" <<'PROMPT'
+You are gstack dream-cycle distiller. Below are free-text responses the
+user typed into AskUserQuestion prompts (option "Other") across recent gstack
+sessions. For each response, extract structured signal that should update the
+user plan-tune profile or preferences.
+
+Return strict JSON with this shape:
+{
+  "proposals": [
+    {
+      "kind": "preference" | "declared-nudge" | "memory-nugget",
+      "confidence": 0.0-1.0,
+      "source_quotes": ["<verbatim quote 1>", "<verbatim quote 2>"],
+      "question_id": "<id>",
+      "preference": "never-ask" | "always-ask" | "ask-only-for-one-way",
+      "dimension": "scope_appetite | risk_tolerance | detail_preference | autonomy | architecture_care",
+      "direction": "up | down",
+      "magnitude": "small | medium | large",
+      "rationale": "<one sentence>",
+      "nugget": "<one-line memory>",
+      "applies_to_signal_keys": ["scope-appetite", "..."]
+    }
+  ]
+}
+
+Rules:
+- Reject any proposal where confidence < 0.7.
+- Quote VERBATIM from the user free_text. Never paraphrase a source quote.
+- A single user response may produce multiple proposals.
+- If nothing meaningful to extract, return {"proposals": []}.
+- No commentary outside the JSON.
+PROMPT
+DISTILL_PROMPT=$(cat "$DISTILL_PROMPT_FILE")
+
+# --- Dry-run: emit prompt + events, exit ------------------------------
+
+if [ "$MODE" = "dry-run" ]; then
+  echo "=== DISTILL PROMPT ==="
+  echo "$DISTILL_PROMPT"
+  echo
+  echo "=== EVENTS ($EVENT_COUNT) ==="
+  echo "$EVENTS_JSON" | bun -e 'console.log(JSON.stringify(JSON.parse(await Bun.stdin.text()), null, 2));'
+  exit 0
+fi
+
+# --- SDK call: fail-loud on missing key -------------------------------
+
+if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
+  cat <<EOF >&2
+gstack-distill-free-text: ANTHROPIC_API_KEY not set.
+
+Dream-cycle distillation needs an API key for the SDK call. Set
+ANTHROPIC_API_KEY in your environment, or run with --dry-run to see
+what would be sent without actually calling.
+
+Note: this is a separate billing/auth surface from your interactive
+Claude Code session (per Codex correction in D6).
+EOF
+  exit 1
+fi
+
+# Run the SDK call in bun. Emits JSON: {proposals_count, cost_usd_est}.
+RESULT=$(EVENTS_JSON="$EVENTS_JSON" DISTILL_PROMPT="$DISTILL_PROMPT" \
+         PROPOSAL_FILE_PATH="$PROPOSAL_FILE" LOG_FILE_PATH="$LOG_FILE" \
+         ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
+         bun --cwd "$ROOT_DIR" -e '
+  const fs = require("fs");
+  const Anthropic = require("@anthropic-ai/sdk").default;
+  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+
+  const events = JSON.parse(process.env.EVENTS_JSON);
+  const prompt = process.env.DISTILL_PROMPT + "\n\nFREE-TEXT RESPONSES (JSON array):\n" + JSON.stringify(events, null, 2);
+
+  // Pricing (Haiku 4.5 — cheap, fast, sufficient for structured extraction).
+  // Per token, USD: input $0.001/1k = 1e-6, output $0.005/1k = 5e-6.
+  const INPUT_PER_TOKEN = 1e-6;
+  const OUTPUT_PER_TOKEN = 5e-6;
+
+  const resp = await client.messages.create({
+    model: "claude-haiku-4-5-20251001",
+    max_tokens: 4096,
+    messages: [{ role: "user", content: prompt }],
+  });
+
+  const text = resp.content.map((b) => (b.type === "text" ? b.text : "")).join("");
+
+  // Strip optional fenced code blocks the model may wrap JSON in.
+  const stripped = text.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim();
+  let parsed;
+  try { parsed = JSON.parse(stripped); } catch (e) {
+    process.stderr.write("DISTILL: model returned non-JSON: " + text.slice(0, 200) + "\n");
+    process.exit(1);
+  }
+
+  const proposals = Array.isArray(parsed.proposals) ? parsed.proposals : [];
+  // Keep only proposals with confidence >= 0.7 (model is told this rule;
+  // double-check in case it slipped).
+  const filtered = proposals.filter((p) => typeof p.confidence === "number" && p.confidence >= 0.7);
+
+  // Write proposals file (overwrite — only the latest run is reviewable).
+  fs.writeFileSync(process.env.PROPOSAL_FILE_PATH, JSON.stringify({
+    generated_at: new Date().toISOString(),
+    source_event_count: events.length,
+    proposals: filtered,
+  }, null, 2));
+
+  // Mark source events as distilled_at so they do not re-propose.
+  // Update question-log.jsonl in place: read all, rewrite with distilled_at
+  // set on the matching events. Match by ts + question_id.
+  const logPath = process.env.LOG_FILE_PATH;
+  const distilledAt = new Date().toISOString();
+  const matchKeys = new Set(events.map((e) => (e.ts || "") + "::" + (e.question_id || "")));
+  const lines = fs.readFileSync(logPath, "utf-8").split("\n");
+  const out = [];
+  for (const ln of lines) {
+    if (!ln.trim()) { out.push(ln); continue; }
+    try {
+      const e = JSON.parse(ln);
+      const key = (e.ts || "") + "::" + (e.question_id || "");
+      if (matchKeys.has(key)) {
+        e.distilled_at = distilledAt;
+        out.push(JSON.stringify(e));
+      } else {
+        out.push(ln);
+      }
+    } catch { out.push(ln); }
+  }
+  fs.writeFileSync(logPath, out.join("\n"));
+
+  // Cost estimate from usage tokens.
+  const usage = resp.usage || {};
+  const inTok = usage.input_tokens || 0;
+  const outTok = usage.output_tokens || 0;
+  const cost = inTok * INPUT_PER_TOKEN + outTok * OUTPUT_PER_TOKEN;
+
+  process.stdout.write(JSON.stringify({
+    proposals_count: filtered.length,
+    rejected_low_confidence: proposals.length - filtered.length,
+    input_tokens: inTok,
+    output_tokens: outTok,
+    cost_usd_est: cost,
+  }));
+')
+
+# Append cost log line.
+TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+echo "{\"ts\":\"$TS\",\"slug\":\"$SLUG\",$(echo "$RESULT" | sed 's/^{//; s/}$//')}" >> "$COST_LOG"
+
+echo "DISTILL_COMPLETE:"
+echo "  proposals_file: $PROPOSAL_FILE"
+echo "  $RESULT"

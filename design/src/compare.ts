@@ -391,6 +391,17 @@ export function generateCompareHtml(images: string[]): string {
 <div id="feedback-result"></div>
 
 <script>
+  // Feature-detect: are we being served over HTTP (by serve.ts or the
+  // daemon), or opened directly as a file:// URL? In file:// mode the
+  // board JS falls through to a DOM-only success path with no server
+  // round-trips. Using location.protocol instead of an injected global
+  // means the same generated HTML works at both / (legacy --no-daemon)
+  // and /boards/<id>/ (daemon) — relative URLs resolve against
+  // location.pathname in both cases.
+  function hasServer() {
+    return location.protocol === 'http:' || location.protocol === 'https:';
+  }
+
   // View toggle
   document.querySelectorAll('.view-toggle button').forEach(function(btn) {
     btn.addEventListener('click', function() {
@@ -465,8 +476,8 @@ export function generateCompareHtml(images: string[]): string {
   });
 
   function postFeedback(feedback) {
-    if (!window.__GSTACK_SERVER_URL) return Promise.resolve(null);
-    return fetch(window.__GSTACK_SERVER_URL + '/api/feedback', {
+    if (!hasServer()) return Promise.resolve(null);
+    return fetch('./api/feedback', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(feedback),
@@ -509,7 +520,7 @@ export function generateCompareHtml(images: string[]): string {
   }
 
   function startProgressPolling() {
-    if (!window.__GSTACK_SERVER_URL) return;
+    if (!hasServer()) return;
     var pollCount = 0;
     var maxPolls = 150; // 5 min at 2s intervals
     var pollInterval = setInterval(function() {
@@ -523,7 +534,7 @@ export function generateCompareHtml(images: string[]): string {
           '</div>';
         return;
       }
-      fetch(window.__GSTACK_SERVER_URL + '/api/progress')
+      fetch('./api/progress')
         .then(function(r) { return r.json(); })
         .then(function(data) {
           if (data.status === 'serving') {
@@ -563,7 +574,7 @@ export function generateCompareHtml(images: string[]): string {
     postFeedback(feedback).then(function(result) {
       if (result && result.received) {
         showRegeneratingState();
-      } else if (window.__GSTACK_SERVER_URL) {
+      } else if (hasServer()) {
         showPostFailure(feedback);
       }
     });
@@ -578,7 +589,7 @@ export function generateCompareHtml(images: string[]): string {
     postFeedback(feedback).then(function(result) {
       if (result && result.received) {
         showPostSubmitState();
-      } else if (window.__GSTACK_SERVER_URL) {
+      } else if (hasServer()) {
         showPostFailure(feedback);
       } else {
         // DOM-only mode (legacy / test)

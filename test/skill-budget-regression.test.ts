@@ -35,6 +35,31 @@ import {
   assertNoBudgetRegression,
   type EvalResult,
 } from './helpers/eval-store';
+import { logBudgetOverride } from './helpers/budget-override';
+
+/**
+ * v1.45.0.0 T5 — hard eval cost cap.
+ *
+ * Per-tier defaults (override via env):
+ *   EVALS_BUDGET_HARD_CAP_GATE      default $200/run
+ *   EVALS_BUDGET_HARD_CAP_PERIODIC  default $500/run
+ *   EVALS_BUDGET_HARD_CAP           umbrella cap if a tier-specific isn't set; default $300
+ *   EVALS_BUDGET_OVERRIDE_REASON    if set, override fires AND audit-logs to
+ *                                   ~/.gstack/analytics/spend-overrides.jsonl
+ *
+ * Caps are dollars-per-run, not dollars-per-test. The cap exists to catch
+ * runaway evals (infinite retry, model price change, prompt-blowup bug),
+ * NOT to gate legitimate scope growth. Set high enough that real growth
+ * never trips it — only obvious-bug territory does. Adjusted v1.52.0.0
+ * (cathedral cap audit): $25 → $200 gate, $70 → $500 periodic. Prior
+ * defaults tripped on normal-scope expansion; new ceilings are 8× the
+ * historical worst-case eval run.
+ */
+const DEFAULT_HARD_CAP_USD = Number(process.env.EVALS_BUDGET_HARD_CAP) || 300;
+const TIER_CAPS: Record<'e2e' | 'llm-judge', number> = {
+  e2e: Number(process.env.EVALS_BUDGET_HARD_CAP_GATE) || Math.min(200, DEFAULT_HARD_CAP_USD),
+  'llm-judge': Number(process.env.EVALS_BUDGET_HARD_CAP_PERIODIC) || Math.max(500, DEFAULT_HARD_CAP_USD),
+};
 
 function currentGitBranch(): string {
   try {
@@ -137,6 +162,40 @@ function checkTier(tier: 'e2e' | 'llm-judge'): void {
   );
 }
 
+/** Enforce a hard dollar cap on per-run eval cost. */
+function checkHardCap(tier: 'e2e' | 'llm-judge'): void {
+  const evalDir = getProjectEvalDir();
+  const latest = findLatestRun(evalDir, tier);
+  if (!latest) return;
+  const cap = TIER_CAPS[tier];
+  const cost = latest.result.total_cost_usd;
+  if (cost <= cap) {
+    // eslint-disable-next-line no-console
+    console.log(`[budget-hard-cap:${tier}] OK — $${cost.toFixed(2)} ≤ $${cap.toFixed(2)} cap`);
+    return;
+  }
+  const overrideReason = process.env.EVALS_BUDGET_OVERRIDE_REASON?.trim();
+  if (overrideReason) {
+    logBudgetOverride({
+      scope: `evals-cost-cap-${tier}`,
+      reason: overrideReason,
+      details: { tier, cap, observed_cost_usd: cost, run_file: latest.filepath },
+    });
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[budget-hard-cap:${tier}] OVERRIDE APPLIED ("${overrideReason}") — $${cost.toFixed(2)} > $${cap.toFixed(2)} cap`,
+    );
+    return;
+  }
+  throw new Error(
+    `Eval cost exceeded hard cap for tier ${tier}: ` +
+    `$${cost.toFixed(2)} > $${cap.toFixed(2)}. ` +
+    `Set EVALS_BUDGET_OVERRIDE_REASON="why this is OK" to allow + audit. ` +
+    `Per-tier override: EVALS_BUDGET_HARD_CAP_${tier === 'e2e' ? 'GATE' : 'PERIODIC'}=<dollars>. ` +
+    `Run: ${latest.filepath}`,
+  );
+}
+
 describe('tool budget regression (gate, free)', () => {
   test('no e2e test exceeds 2× prior tool calls or turns', () => {
     checkTier('e2e');
@@ -144,5 +203,14 @@ describe('tool budget regression (gate, free)', () => {
 
   test('no llm-judge test exceeds 2× prior tool calls or turns', () => {
     checkTier('llm-judge');
+  });
+
+  // T5: hard dollar cap on per-run cost (different from regression ratio above)
+  test('e2e run cost ≤ EVALS_BUDGET_HARD_CAP_GATE', () => {
+    checkHardCap('e2e');
+  });
+
+  test('llm-judge run cost ≤ EVALS_BUDGET_HARD_CAP_PERIODIC', () => {
+    checkHardCap('llm-judge');
   });
 });
