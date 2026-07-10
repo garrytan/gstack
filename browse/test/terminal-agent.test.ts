@@ -144,17 +144,33 @@ describe('Source-level guard: terminal-agent', () => {
 
   test('lazy spawn: claude PTY is spawned in message handler, not on upgrade', () => {
     // The whole point of lazy-spawn (codex finding #8) is that the WS
-    // upgrade itself does NOT call spawnClaude. Spawn happens on first
-    // message frame.
+    // upgrade itself does NOT spawn claude. Spawn happens on first
+    // message frame (binary input or the v1.44 explicit `start` frame),
+    // routed through the maybeSpawnPty helper, which is the only caller
+    // of spawnClaude.
     const upgradeBlock = AGENT_SRC.slice(
       AGENT_SRC.indexOf("if (url.pathname === '/ws')"),
       AGENT_SRC.indexOf("websocket: {"),
     );
     expect(upgradeBlock).not.toContain('spawnClaude(');
+    expect(upgradeBlock).not.toContain('maybeSpawnPty(');
     // Spawn must be invoked from the message handler (lazy on first byte).
     const messageHandler = AGENT_SRC.slice(AGENT_SRC.indexOf('message(ws, raw)'));
-    expect(messageHandler).toContain('spawnClaude(');
+    expect(messageHandler).toContain('maybeSpawnPty(');
     expect(messageHandler).toContain('!session.spawned');
+    // The open() upgrade handler must not spawn — it only creates the
+    // (spawned: false) session record or re-attaches a detached one.
+    const openBlock = AGENT_SRC.slice(
+      AGENT_SRC.indexOf('open(ws)'),
+      AGENT_SRC.indexOf('message(ws, raw)'),
+    );
+    expect(openBlock).not.toContain('spawnClaude(');
+    expect(openBlock).not.toContain('maybeSpawnPty(');
+    // And the helper itself is where spawnClaude actually happens, gated
+    // on session.spawned so it stays a single-shot lazy spawn.
+    const helperBlock = AGENT_SRC.slice(AGENT_SRC.indexOf('function maybeSpawnPty'));
+    expect(helperBlock).toContain('spawnClaude(');
+    expect(helperBlock).toContain('if (session.spawned) return true;');
   });
 
   test('process.on uncaughtException + unhandledRejection handlers exist', () => {

@@ -46,13 +46,19 @@ afterEach(async () => {
   serverProc = null;
 });
 
-function spawnServer(env: Record<string, string>, port: number): Subprocess {
+// No fixed BROWSE_PORT: these tests never dial the server's HTTP port —
+// they only watch stdout markers and process liveness. BROWSE_PORT=0 lets
+// the server pick a random free port (its default), so concurrent runs of
+// this file (sibling worktrees, pr-test-env checkouts) and leftover
+// servers from interrupted runs can't collide on a hardcoded port and
+// kill the fresh spawn with EADDRINUSE before the 2s liveness check.
+function spawnServer(env: Record<string, string>): Subprocess {
   const stateFile = path.join(tmpDir, 'browse-state.json');
   return spawn(['bun', 'run', SERVER_SCRIPT], {
     env: {
       ...process.env,
       BROWSE_STATE_FILE: stateFile,
-      BROWSE_PORT: String(port),
+      BROWSE_PORT: '0',
       ...env,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -97,7 +103,7 @@ async function readStdoutUntil(
 describe('parent-process watchdog (v0.18.1.0)', () => {
   test('BROWSE_PARENT_PID=0 disables the watchdog', async () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'watchdog-pid0-'));
-    serverProc = spawnServer({ BROWSE_PARENT_PID: '0' }, 34901);
+    serverProc = spawnServer({ BROWSE_PARENT_PID: '0' });
 
     const out = await readStdoutUntil(
       serverProc,
@@ -115,10 +121,7 @@ describe('parent-process watchdog (v0.18.1.0)', () => {
     // Pass a bogus parent PID to prove BROWSE_HEADED takes precedence.
     // If the server-side guard regresses, the watchdog would try to poll
     // this PID and eventually fire on the "dead parent."
-    serverProc = spawnServer(
-      { BROWSE_HEADED: '1', BROWSE_PARENT_PID: '999999' },
-      34902,
-    );
+    serverProc = spawnServer({ BROWSE_HEADED: '1', BROWSE_PARENT_PID: '999999' });
 
     const out = await readStdoutUntil(
       serverProc,
@@ -137,7 +140,7 @@ describe('parent-process watchdog (v0.18.1.0)', () => {
     const parentPid = parentProc.pid!;
 
     // Default headless: no BROWSE_HEADED, real parent PID — watchdog active.
-    serverProc = spawnServer({ BROWSE_PARENT_PID: String(parentPid) }, 34903);
+    serverProc = spawnServer({ BROWSE_PARENT_PID: String(parentPid) });
     const serverPid = serverProc.pid!;
 
     // Give the server a moment to start and register the watchdog interval.

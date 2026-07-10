@@ -5,7 +5,7 @@
  * A real browse server is started and commands are sent via the CLI HTTP interface.
  */
 
-import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
+import { describe, test, expect, beforeAll, beforeEach, afterAll } from 'bun:test';
 import { startTestServer } from './test-server';
 import { BrowserManager } from '../src/browser-manager';
 import { resolveServerScript } from '../src/cli';
@@ -138,7 +138,12 @@ describe('Navigation', () => {
 // ─── Content Extraction ─────────────────────────────────────────
 
 describe('Content extraction', () => {
-  beforeAll(async () => {
+  // beforeEach, NOT beforeAll: bun <1.3 runs every describe-scoped beforeAll
+  // eagerly at file start (in file order), so a beforeAll goto here is
+  // clobbered by later describes' beforeAll gotos before any test runs.
+  // beforeEach is scoped correctly on all bun versions, and a goto against
+  // the local fixture server costs only a few ms per test.
+  beforeEach(async () => {
     await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
   });
 
@@ -196,7 +201,9 @@ describe('Content extraction', () => {
 // ─── JavaScript / CSS / Attrs ───────────────────────────────────
 
 describe('Inspection', () => {
-  beforeAll(async () => {
+  // beforeEach, NOT beforeAll — see 'Content extraction' note (bun <1.3
+  // runs describe-scoped beforeAll hooks eagerly at file start).
+  beforeEach(async () => {
     await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
   });
 
@@ -1074,7 +1081,9 @@ describe('Dialog handling', () => {
 // ─── Element State Checks (is) ─────────────────────────────────
 
 describe('Element state checks', () => {
-  beforeAll(async () => {
+  // beforeEach, NOT beforeAll — see 'Content extraction' note (bun <1.3
+  // runs describe-scoped beforeAll hooks eagerly at file start).
+  beforeEach(async () => {
     await handleWriteCommand('goto', [baseUrl + '/states.html'], bm);
   });
 
