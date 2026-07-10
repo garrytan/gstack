@@ -1,4 +1,5 @@
-#!/usr/bin/env bash
+#!/bin/bash
+# /bin/bash, not env bash: Homebrew bash 5.3 heredocs >511B deadlock on macOS (512-byte pipe buffers, no F_GETPIPE_SZ)
 # gstack-brain-sync — drain queue, commit allowlisted paths, push to remote.
 #
 # Usage:
@@ -487,7 +488,7 @@ case "${1:-}" in
   --drop-queue) shift; subcmd_drop_queue "${1:-}" ;;
   --discover-new) subcmd_discover_new ;;
   --help|-h)
-    sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '3,19p' "$0" | sed 's/^# \{0,1\}//'
     ;;
   *)
     echo "Unknown subcommand: $1" >&2

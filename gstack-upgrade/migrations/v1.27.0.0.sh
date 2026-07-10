@@ -97,23 +97,24 @@ fi
 
 # Ask once (idempotent: if journal exists from a prior partial run, skip ask).
 if [ ! -f "$JOURNAL" ]; then
-  cat >&2 <<EOF
-
-  [v1.27.0.0] gstack-brain has been renamed to gstack-artifacts.
-  This is a clearer name for what it actually holds: CEO plans, designs,
-  /investigate reports, retros (i.e. artifacts, not behavioral memory).
-
-  This migration will:
-    1. Rename your private GitHub/GitLab repo "$OLD_REPO_NAME" → "$NEW_REPO_NAME"
-    2. mv ~/.gstack-brain-remote.txt → ~/.gstack-artifacts-remote.txt
-    3. Rename gbrain_sync_mode → artifacts_sync_mode in ~/.gstack/config.yaml
-    4. Update any "## GBrain Configuration" block in CLAUDE.md
-    5. Update gbrain federated source registration (local CLI mode)
-       OR print commands for your brain admin (remote MCP mode)
-
-  Each step is journaled so a Ctrl-C mid-flight is safe to re-run.
-
-EOF
+  # printf, not a heredoc: bash 5.3 heredocs >512B deadlock on macOS when the
+  # kernel grants 512-byte pipe buffers (pipe-KVA pressure; no F_GETPIPE_SZ).
+  printf '%s\n' \
+    '' \
+    '  [v1.27.0.0] gstack-brain has been renamed to gstack-artifacts.' \
+    '  This is a clearer name for what it actually holds: CEO plans, designs,' \
+    '  /investigate reports, retros (i.e. artifacts, not behavioral memory).' \
+    '' \
+    '  This migration will:' \
+    "    1. Rename your private GitHub/GitLab repo \"$OLD_REPO_NAME\" → \"$NEW_REPO_NAME\"" \
+    '    2. mv ~/.gstack-brain-remote.txt → ~/.gstack-artifacts-remote.txt' \
+    '    3. Rename gbrain_sync_mode → artifacts_sync_mode in ~/.gstack/config.yaml' \
+    '    4. Update any "## GBrain Configuration" block in CLAUDE.md' \
+    '    5. Update gbrain federated source registration (local CLI mode)' \
+    '       OR print commands for your brain admin (remote MCP mode)' \
+    '' \
+    '  Each step is journaled so a Ctrl-C mid-flight is safe to re-run.' \
+    '' >&2
   if [ -t 0 ]; then
     printf "  Proceed? [Y/n/skip-for-now]: " >&2
     read -r REPLY || REPLY=""

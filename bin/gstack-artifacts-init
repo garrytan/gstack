@@ -1,4 +1,5 @@
-#!/usr/bin/env bash
+#!/bin/bash
+# /bin/bash, not env bash: Homebrew bash 5.3 heredocs >511B deadlock on macOS (512-byte pipe buffers, no F_GETPIPE_SZ)
 # gstack-artifacts-init — set up ~/.gstack/ as a git repo synced to a private
 # git host (GitHub or GitLab) so a remote gbrain can ingest your artifacts
 # (CEO plans, designs, /investigate reports) as a federated source.
@@ -48,7 +49,7 @@ while [ $# -gt 0 ]; do
     --remote) REMOTE_URL="$2"; shift 2 ;;
     --host) HOST_PREF="$2"; shift 2 ;;
     --url-form-supported) URL_FORM_SUPPORTED="$2"; shift 2 ;;
-    --help|-h) sed -n '2,32p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --help|-h) sed -n '3,33p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "Unknown flag: $1" >&2; exit 1 ;;
   esac
 done

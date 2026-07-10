@@ -45,7 +45,6 @@ gbrain:
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
 
-
 ## When to invoke this skill
 
 Rethink the problem, find the 10-star product,
@@ -483,7 +482,6 @@ Before calling AskUserQuestion, verify:
 - [ ] If you split, you checked dependencies between options before firing the chain
 - [ ] If a per-option Hold fires, you stopped the chain immediately (didn't queue)
 
-
 ## Artifacts Sync (skill start)
 
 ```bash
@@ -581,8 +579,6 @@ else
 fi
 ```
 
-
-
 Privacy stop-gate: if output shows `ARTIFACTS_SYNC: off`, `artifacts_sync_mode_prompted` is `false`, and gbrain is on PATH or `gbrain doctor --fast --json` works, ask once:
 
 > gstack can publish your artifacts (CEO plans, designs, reports) to a private GitHub repo that GBrain indexes across machines. How much should sync?
@@ -608,7 +604,6 @@ At skill END before telemetry:
 "~/.claude/skills/gstack/bin/gstack-brain-sync" --discover-new 2>/dev/null || true
 "~/.claude/skills/gstack/bin/gstack-brain-sync" --once 2>/dev/null || true
 ```
-
 
 ## Model-Specific Behavioral Patch (claude)
 
@@ -689,7 +684,6 @@ Applies to AskUserQuestion, user replies, and findings. AskUserQuestion Format i
 - Terse mode (EXPLAIN_LEVEL: terse): no glosses, no outcome-framing layer, shorter responses.
 
 Curated jargon list lives at `~/.claude/skills/gstack/scripts/jargon-list.json` (80+ terms). On the first jargon term you encounter this session, Read that file once; treat the `terms` array as the canonical list. The list is repo-owned and may grow between releases.
-
 
 ## Completeness Principle — Boil the Ocean
 
@@ -1140,7 +1134,17 @@ matches a past learning, display:
 This makes the compounding visible. The user should see that gstack is getting
 smarter on their codebase over time.
 
+## Brain Context Load
 
+**Skip this entire section if `gbrain` is not on PATH.**
+
+Extract 2-4 keywords from the user's request. Search the brain:
+`gbrain search "<keywords>"`. Read the top 3 results with
+`gbrain get_page "<slug>"`. Use that context to inform your analysis.
+
+If `gbrain search` returns no results or any non-zero exit, proceed
+without brain context. Full search/read protocol + examples:
+see `docs/gbrain-write-surfaces.md` §Context Load.
 
 ## Brain Context (preflight)
 
@@ -1176,7 +1180,6 @@ rm -f /tmp/.gstack-brain-context-$$.md 2>/dev/null || true
 
 **Privacy:** Salience digest is filtered by allowlist (D9 default: `projects/`,
 `gstack/`, `concepts/` only). Personal/family/therapy content never leaks here.
-
 
 ## Section index — Read each section when its situation applies
 
@@ -1443,7 +1446,6 @@ review report. Confirm you issued a Read for it and executed every section from 
 file, not from memory. If you produced the Completion Summary or wrote the review
 report without Reading that section, STOP, Read it now, and redo the review from the
 source of truth.
-
 
 ## EXIT PLAN MODE GATE (BLOCKING)
 
