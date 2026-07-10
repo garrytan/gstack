@@ -302,7 +302,7 @@ describe('gstack-team-init', () => {
   });
 
   test('required: creates enforcement hook', () => {
-    run(`${TEAM_INIT} required`, { cwd: tmpDir });
+    const result = run(`${TEAM_INIT} required`, { cwd: tmpDir });
     const hookPath = path.join(tmpDir, '.claude', 'hooks', 'check-gstack.cjs');
     expect(fs.existsSync(hookPath)).toBe(true);
     expect(
@@ -319,6 +319,7 @@ describe('gstack-team-init', () => {
     expect(hook).toContain("permissionDecision: 'deny'");
     expect(hook).toContain('BLOCKED: gstack is not installed');
     expect(hook).not.toContain('#!/bin/bash');
+    expect(result.stdout).not.toMatch(/git add .*check-gstack\.sh/);
   });
 
   test('required: registers one shell-neutral project hook', () => {
@@ -534,22 +535,45 @@ describe('gstack-team-init', () => {
     execSync('git add .claude', { cwd: tmpDir });
     execSync('git commit -m "add legacy hook"', { cwd: tmpDir });
 
-    run(`${TEAM_INIT} required`, { cwd: tmpDir });
+    const migration = run(`${TEAM_INIT} required`, { cwd: tmpDir });
     expect(fs.existsSync(legacyHook)).toBe(false);
     expect(fs.readFileSync(unrelatedHook, 'utf-8')).toBe(unrelatedHookContents);
+    const suggestedGitAdd = migration.stdout
+      .split('\n')
+      .find(line => line.startsWith('  git add '))
+      ?.trim();
+    if (!suggestedGitAdd) {
+      throw new Error('gstack-team-init did not print a git add command');
+    }
+    expect(suggestedGitAdd.split(/\s+/)).toContain(
+      '.claude/hooks/check-gstack.sh',
+    );
+    execSync(suggestedGitAdd, { cwd: tmpDir });
+    execSync('git commit -m "migrate required hook"', { cwd: tmpDir });
+    expect(
+      execSync('git status --short', { cwd: tmpDir, encoding: 'utf-8' }),
+    ).toBe('');
 
-    run(`${TEAM_INIT} required`, { cwd: tmpDir });
+    const rerun = run(`${TEAM_INIT} required`, { cwd: tmpDir });
     const settings = JSON.parse(
       fs.readFileSync(path.join(tmpDir, '.claude', 'settings.json'), 'utf-8'),
     );
     expect(fs.existsSync(legacyHook)).toBe(false);
     expect(fs.readFileSync(unrelatedHook, 'utf-8')).toBe(unrelatedHookContents);
+    const rerunGitAdd = rerun.stdout
+      .split('\n')
+      .find(line => line.startsWith('  git add '))
+      ?.trim();
+    if (!rerunGitAdd) {
+      throw new Error('gstack-team-init rerun did not print a git add command');
+    }
+    expect(rerunGitAdd.split(/\s+/)).not.toContain(
+      '.claude/hooks/check-gstack.sh',
+    );
+    execSync(rerunGitAdd, { cwd: tmpDir });
     expect(
-      execSync('git status --short -- .claude/hooks/check-gstack.sh', {
-        cwd: tmpDir,
-        encoding: 'utf-8',
-      }),
-    ).toBe(' D .claude/hooks/check-gstack.sh\n');
+      execSync('git status --short', { cwd: tmpDir, encoding: 'utf-8' }),
+    ).toBe('');
     expect(settings.hooks.PreToolUse).toHaveLength(1);
     expect(settings.hooks.PreToolUse[0].hooks).toHaveLength(1);
     expect(settings.hooks.PreToolUse[0].hooks[0].command).toContain(

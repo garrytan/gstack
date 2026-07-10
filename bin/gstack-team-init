@@ -220,6 +220,9 @@ HOOK_EOF
     # registered successfully. Other project hooks are left untouched.
     if [ -e "$HOOKS_DIR/check-gstack.sh" ] || [ -L "$HOOKS_DIR/check-gstack.sh" ]; then
       rm "$HOOKS_DIR/check-gstack.sh"
+      if (cd "$REPO_ROOT" && git ls-files --error-unmatch -- .claude/hooks/check-gstack.sh >/dev/null 2>&1); then
+        GENERATED+=(".claude/hooks/check-gstack.sh")
+      fi
       echo "  - .claude/hooks/check-gstack.sh — removed legacy enforcement hook"
     fi
   else

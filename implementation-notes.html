@@ -18,7 +18,7 @@
       <li>The generated hook resolves the user home in <code>HOME</code>, <code>USERPROFILE</code>, then <code>os.homedir()</code> order so POSIX, Git Bash, PowerShell, and cmd runners use the expected global install root.</li>
       <li>The hook contract follows <code>docs/spikes/claude-code-hook-mutation.md</code>: pass-through writes <code>{}</code>; denial writes a <code>hookSpecificOutput</code> object for <code>PreToolUse</code> with <code>permissionDecision: "deny"</code>.</li>
       <li>Missing or unreadable gstack is an intentional denial with exit code zero. Install instructions are present in stderr and <code>permissionDecisionReason</code>, so the runner does not report a hook execution error.</li>
-      <li>Rerunning required mode replaces a matching legacy <code>check-gstack.sh</code> registration, removes duplicate matching registrations, and deletes the obsolete Bash hook only after the CommonJS hook is generated and registered successfully. Unrelated project hooks remain unchanged.</li>
+      <li>Rerunning required mode replaces a matching legacy <code>check-gstack.sh</code> registration, removes duplicate matching registrations, and deletes the obsolete Bash hook only after the CommonJS hook is generated and registered successfully. If Git tracks the deleted hook, the printed <code>git add</code> command includes its path so the suggested migration commit stages the deletion; untracked removed hooks are omitted because they have no index change. Unrelated project hooks remain unchanged.</li>
     </ul>
 
     <h2>Deviations</h2>
