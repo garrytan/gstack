@@ -1867,6 +1867,8 @@ describe('Codex generation (--host codex)', () => {
     const content = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-review', 'SKILL.md'), 'utf-8');
     expect(content).toContain('GSTACK_ROOT');
     expect(content).toContain('$_ROOT/.agents/skills/gstack');
+    expect(content).toContain('[ -x "$_ROOT/.agents/skills/gstack/bin/gstack-config" ]');
+    expect(content).not.toContain('[ -d "$_ROOT/.agents/skills/gstack" ]');
     expect(content).toContain('$GSTACK_BIN/gstack-config');
     expect(content).toContain('$GSTACK_ROOT/gstack-upgrade/SKILL.md');
     expect(content).not.toContain('~/.codex/skills/gstack/bin/gstack-config get telemetry');
@@ -2582,6 +2584,9 @@ describe('telemetry', () => {
     expect(content).toContain('TELEMETRY:');
     expect(content).toContain('TEL_PROMPTED:');
     expect(content).toContain('gstack-config get telemetry');
+    expect(content).toContain('case "$_TEL" in community|anonymous) ;; *) _TEL="off" ;; esac');
+    expect(content).toContain('echo "TELEMETRY: $_TEL"');
+    expect(content).not.toContain('echo "TELEMETRY: ${_TEL:-off}"');
   });
 
   test('generated SKILL.md contains telemetry opt-in prompt', () => {

@@ -70,10 +70,11 @@ echo "FIRST_TASK: $_FIRST_TASK"
 _LAKE_SEEN=$([ -f ~/.gstack/.completeness-intro-seen ] && echo "yes" || echo "no")
 echo "LAKE_INTRO: $_LAKE_SEEN"
 _TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || true)
+case "$_TEL" in community|anonymous) ;; *) _TEL="off" ;; esac
 _TEL_PROMPTED=$([ -f ~/.gstack/.telemetry-prompted ] && echo "yes" || echo "no")
 _TEL_START=$(date +%s)
 _SESSION_ID="$$-$(date +%s)"
-echo "TELEMETRY: ${_TEL:-off}"
+echo "TELEMETRY: $_TEL"
 echo "TEL_PROMPTED: $_TEL_PROMPTED"
 _EXPLAIN_LEVEL=$(~/.claude/skills/gstack/bin/gstack-config get explain_level 2>/dev/null || echo "default")
 if [ "$_EXPLAIN_LEVEL" != "default" ] && [ "$_EXPLAIN_LEVEL" != "terse" ]; then _EXPLAIN_LEVEL="default"; fi
