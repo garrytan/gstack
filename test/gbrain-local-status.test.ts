@@ -61,8 +61,9 @@ interface FakeEnv {
  */
 function makeEnv(opts: {
   withGbrain?: boolean;
-  gbrainBehavior?: "ok" | "broken-db" | "broken-config" | "throws" | "slow";
+  gbrainBehavior?: "ok" | "broken-db" | "broken-config" | "throws" | "fail-on-database-url" | "slow";
   withConfig?: boolean;
+  configJson?: Record<string, unknown>;
 }): FakeEnv {
   const tmp = mkdtempSync(join(tmpdir(), "gbrain-local-status-test-"));
   const bindir = join(tmp, "bin");
@@ -79,7 +80,7 @@ function makeEnv(opts: {
   if (opts.withConfig) {
     writeFileSync(
       configPath,
-      JSON.stringify({ engine: "pglite", database_url: "pglite:///fake" }),
+      JSON.stringify(opts.configJson ?? { engine: "pglite", database_url: "pglite:///fake" }),
     );
   }
 
@@ -102,7 +103,7 @@ function makeEnv(opts: {
 }
 
 function makeFakeGbrainScript(
-  behavior: "ok" | "broken-db" | "broken-config" | "throws" | "slow",
+  behavior: "ok" | "broken-db" | "broken-config" | "throws" | "fail-on-database-url" | "slow",
 ): string {
   // "slow": healthy engine on a cold pooler connection (#1964) — sleeps past
   // the (test-lowered) probe timeout, then would answer fine.
@@ -135,6 +136,14 @@ if [ "$1" = "--version" ]; then
   exit 0
 fi
 if [ "$1 $2" = "sources list" ]; then
+  if [ "${behavior}" = "fail-on-database-url" ]; then
+    if [ -n "$DATABASE_URL" ] || [ -n "$GBRAIN_DATABASE_URL" ]; then
+      echo "Cannot connect to database: leaked DATABASE_URL" >&2
+      exit 1
+    fi
+    echo '{"sources":[]}'
+    exit 0
+  fi
   if [ ${exitCode} -eq 0 ]; then
     echo '{"sources":[]}'
     exit 0
@@ -158,6 +167,8 @@ function applyEnv(env: FakeEnv): () => void {
     HOME: process.env.HOME,
     PATH: process.env.PATH,
     GSTACK_HOME: process.env.GSTACK_HOME,
+    DATABASE_URL: process.env.DATABASE_URL,
+    GBRAIN_DATABASE_URL: process.env.GBRAIN_DATABASE_URL,
     GBRAIN_HOME: process.env.GBRAIN_HOME,
     GSTACK_GBRAIN_PROBE_TIMEOUT_MS: process.env.GSTACK_GBRAIN_PROBE_TIMEOUT_MS,
   };
@@ -228,6 +239,20 @@ describe("lib/gbrain-local-status — status classification", () => {
   it("returns 'ok' when sources list succeeds", () => {
     env = makeEnv({ withGbrain: true, gbrainBehavior: "ok", withConfig: true });
     restoreEnv = applyEnv(env);
+    expect(localEngineStatus({ noCache: true })).toBe("ok");
+  });
+
+  it("does not misclassify a PGLite brain as broken-db when caller env leaks DATABASE_URL", () => {
+    env = makeEnv({
+      withGbrain: true,
+      gbrainBehavior: "fail-on-database-url",
+      withConfig: true,
+      configJson: { engine: "pglite", database_path: "local/pglite.db" },
+    });
+    restoreEnv = applyEnv(env);
+    process.env.DATABASE_URL = "sqlite:///app.db";
+    process.env.GBRAIN_DATABASE_URL = "postgresql://wrong/db";
+
     expect(localEngineStatus({ noCache: true })).toBe("ok");
   });
 
