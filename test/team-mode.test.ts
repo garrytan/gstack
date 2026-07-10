@@ -89,6 +89,8 @@ function expectStructuredDeny(
   expect(result.stderr.trim()).toBe(reason);
   expect(result.stderr).not.toContain('MODULE_NOT_FOUND');
   expect(JSON.parse(result.stdout)).toEqual({
+    permissionDecision: 'deny',
+    permissionDecisionReason: reason,
     hookSpecificOutput: {
       hookEventName: 'PreToolUse',
       permissionDecision: 'deny',
@@ -329,11 +331,11 @@ describe('gstack-team-init', () => {
     const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
     expect(settings.hooks.PreToolUse).toHaveLength(1);
     const entry = settings.hooks.PreToolUse[0];
-    expect(entry.matcher).toBe('Skill');
+    expect(entry.matcher).toBe('Skill|skill');
     expect(entry.hooks).toHaveLength(1);
     expect(entry.hooks[0]).not.toHaveProperty('shell');
     expect(entry.hooks[0].command).toBe(
-      `node -e "const deny=reason=>{console.error(reason);console.log(JSON.stringify({hookSpecificOutput:{hookEventName:'PreToolUse',permissionDecision:'deny',permissionDecisionReason:reason}}))};const projectDir=process.env.CLAUDE_PROJECT_DIR;if(!projectDir){deny('BLOCKED: CLAUDE_PROJECT_DIR is unavailable, so the required gstack hook cannot be loaded.')}else{try{require(require('node:path').join(projectDir, '.claude', 'hooks', 'check-gstack.cjs'))}catch{deny('BLOCKED: the required gstack hook could not be loaded. Verify project hook setup and retry.')}}"`,
+      `node -e "const deny=reason=>{const decision={permissionDecision:'deny',permissionDecisionReason:reason};console.error(reason);console.log(JSON.stringify({...decision,hookSpecificOutput:{hookEventName:'PreToolUse',...decision}}))};const projectDir=process.env.CLAUDE_PROJECT_DIR;if(!projectDir){deny('BLOCKED: CLAUDE_PROJECT_DIR is unavailable, so the required gstack hook cannot be loaded.')}else{try{require(require('node:path').join(projectDir, '.claude', 'hooks', 'check-gstack.cjs'))}catch{deny('BLOCKED: the required gstack hook could not be loaded. Verify project hook setup and retry.')}}"`,
     );
     expect(entry.hooks[0].command).not.toMatch(
       /\$CLAUDE_PROJECT_DIR|\$env:CLAUDE_PROJECT_DIR|%CLAUDE_PROJECT_DIR%/,
@@ -498,6 +500,10 @@ describe('gstack-team-init', () => {
     expect(result.stderr).toContain('git clone --depth 1');
     const decision = JSON.parse(result.stdout);
     expect(decision).toEqual({
+      permissionDecision: 'deny',
+      permissionDecisionReason: expect.stringContaining(
+        'Then restart your AI coding tool.',
+      ),
       hookSpecificOutput: {
         hookEventName: 'PreToolUse',
         permissionDecision: 'deny',
@@ -505,6 +511,58 @@ describe('gstack-team-init', () => {
           'Then restart your AI coding tool.',
         ),
       },
+    });
+  });
+
+  test('required: install verification errors return a structured deny', () => {
+    run(`${TEAM_INIT} required`, { cwd: tmpDir });
+    const settings = JSON.parse(
+      fs.readFileSync(path.join(tmpDir, '.claude', 'settings.json'), 'utf-8'),
+    );
+    const command = settings.hooks.PreToolUse[0].hooks[0].command;
+    const fakeHome = path.join(tmpDir, 'unreadable-home');
+    const preload = path.join(tmpDir, 'fail-gstack-stat.cjs');
+    fs.mkdirSync(fakeHome, { recursive: true });
+    fs.writeFileSync(
+      preload,
+      `'use strict';
+const fs = require('node:fs');
+const original = fs.statSync;
+fs.statSync = function (target, ...args) {
+  if (String(target).replace(/\\\\/g, '/').includes('skills/gstack/bin')) {
+    const error = new Error('injected verification failure');
+    error.code = 'EACCES';
+    throw error;
+  }
+  return original.call(this, target, ...args);
+};
+`,
+    );
+
+    const result = runHook(command, {
+      cwd: tmpDir,
+      env: {
+        CLAUDE_PROJECT_DIR: tmpDir,
+        HOME: fakeHome,
+        USERPROFILE: fakeHome,
+        NODE_OPTIONS: `--require=${preload}`,
+      },
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toContain(
+      'BLOCKED: the global gstack install could not be verified.',
+    );
+    expect(result.stderr).not.toContain('injected verification failure');
+    const decision = JSON.parse(result.stdout);
+    expect(decision.permissionDecision).toBe('deny');
+    expect(decision.permissionDecisionReason).toContain(
+      'BLOCKED: the global gstack install could not be verified.',
+    );
+    expect(decision.hookSpecificOutput).toEqual({
+      hookEventName: 'PreToolUse',
+      permissionDecision: 'deny',
+      permissionDecisionReason: decision.permissionDecisionReason,
     });
   });
 
@@ -576,6 +634,7 @@ describe('gstack-team-init', () => {
     ).toBe('');
     expect(settings.hooks.PreToolUse).toHaveLength(1);
     expect(settings.hooks.PreToolUse[0].hooks).toHaveLength(1);
+    expect(settings.hooks.PreToolUse[0].matcher).toBe('Skill|skill');
     expect(settings.hooks.PreToolUse[0].hooks[0].command).toContain(
       'check-gstack.cjs',
     );

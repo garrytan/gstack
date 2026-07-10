@@ -155,11 +155,15 @@ Then restart your AI coding tool.
 `;
 
   process.stderr.write(instructions);
+  const decision = {
+    permissionDecision: 'deny',
+    permissionDecisionReason: instructions,
+  };
   process.stdout.write(`${JSON.stringify({
+    ...decision,
     hookSpecificOutput: {
       hookEventName: 'PreToolUse',
-      permissionDecision: 'deny',
-      permissionDecisionReason: instructions,
+      ...decision,
     },
   })}\n`);
 }
@@ -179,10 +183,11 @@ HOOK_EOF
       if (!settings.hooks) settings.hooks = {};
       if (!settings.hooks.PreToolUse) settings.hooks.PreToolUse = [];
 
-      const hookCommand = \"node -e \\\"const deny=reason=>{console.error(reason);console.log(JSON.stringify({hookSpecificOutput:{hookEventName:'PreToolUse',permissionDecision:'deny',permissionDecisionReason:reason}}))};const projectDir=process.env.CLAUDE_PROJECT_DIR;if(!projectDir){deny('BLOCKED: CLAUDE_PROJECT_DIR is unavailable, so the required gstack hook cannot be loaded.')}else{try{require(require('node:path').join(projectDir, '.claude', 'hooks', 'check-gstack.cjs'))}catch{deny('BLOCKED: the required gstack hook could not be loaded. Verify project hook setup and retry.')}}\\\"\";
+      const hookMatcher = 'Skill|skill';
+      const hookCommand = \"node -e \\\"const deny=reason=>{const decision={permissionDecision:'deny',permissionDecisionReason:reason};console.error(reason);console.log(JSON.stringify({...decision,hookSpecificOutput:{hookEventName:'PreToolUse',...decision}}))};const projectDir=process.env.CLAUDE_PROJECT_DIR;if(!projectDir){deny('BLOCKED: CLAUDE_PROJECT_DIR is unavailable, so the required gstack hook cannot be loaded.')}else{try{require(require('node:path').join(projectDir, '.claude', 'hooks', 'check-gstack.cjs'))}catch{deny('BLOCKED: the required gstack hook could not be loaded. Verify project hook setup and retry.')}}\\\"\";
       let found = false;
       settings.hooks.PreToolUse = settings.hooks.PreToolUse.filter(entry => {
-        if (entry.matcher !== 'Skill' || !entry.hooks) return true;
+        if (!['Skill', hookMatcher].includes(entry.matcher) || !entry.hooks) return true;
 
         const matchingHooks = entry.hooks.filter(
           h => h.command && h.command.includes('check-gstack')
@@ -193,6 +198,7 @@ HOOK_EOF
           h => !h.command || !h.command.includes('check-gstack')
         );
         if (!found) {
+          entry.matcher = hookMatcher;
           entry.hooks.push({ type: 'command', command: hookCommand });
           found = true;
         }
@@ -201,7 +207,7 @@ HOOK_EOF
 
       if (!found) {
         settings.hooks.PreToolUse.push({
-          matcher: 'Skill',
+          matcher: hookMatcher,
           hooks: [{
             type: 'command',
             command: hookCommand

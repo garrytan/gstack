@@ -58,7 +58,7 @@ From inside your repo, paste this. Switches you to team mode, bootstraps the rep
 (cd ~/.claude/skills/gstack && ./setup --team) && ~/.claude/skills/gstack/bin/gstack-team-init required && git add .claude/ CLAUDE.md && git commit -m "require gstack for AI-assisted work"
 ```
 
-No vendored gstack install in your repo, no version drift, no manual upgrades. Required mode commits one Node 18+ CommonJS enforcement hook, so the same project hook works from POSIX and Windows hook runners without duplicate shell-specific handlers. If the hook runner omits its project directory or provides a stale path, enforcement fails closed with an intentional denial instead of a hook error. Every Claude Code session starts with a fast auto-update check (throttled to once/hour, network-failure-safe, completely silent).
+Your project stays small, and everyone gets the same up-to-date version of gstack. If gstack is missing or its safety check cannot run, Claude Code and Copilot stop and explain what to do. If everything is ready, the check stays out of the way and your usual permission questions still appear. Updates happen quietly when a Claude Code session starts, at most once an hour.
 
 Swap `required` for `optional` if you'd rather nudge teammates than block them.
 
