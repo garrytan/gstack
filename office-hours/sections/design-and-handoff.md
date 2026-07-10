@@ -209,7 +209,28 @@ Present the reviewed design doc to the user via AskUserQuestion:
 - B) Revise — specify which sections need changes (loop back to revise those sections)
 - C) Start over — return to Phase 2
 
+## Save Results to Brain
 
+**Skip this entire section if `gbrain` is not on PATH.**
+
+After completing this skill, save the output:
+
+```bash
+gbrain put "office-hours/<feature-slug>" --content "$(cat <<'EOF'
+---
+title: "Office Hours: <feature name>"
+tags: [design-doc, <feature-slug>]
+---
+<skill output in markdown>
+EOF
+)"
+```
+
+Then extract person/org entities and create stub pages for each one.
+Throttle errors (exit 1 with "throttle"/"rate limit"/"busy") and any
+other non-zero exit are transient — don't retry inline. Full entity-stub
+template, throttle handling, and backlink protocol:
+see `docs/gbrain-write-surfaces.md` §Save Template.
 
 ## Brain Calibration Write-Back (Phase 2 / gated)
 

@@ -171,3 +171,29 @@ upstream churn per release.
   upstream-owned, intentionally-tuned behaviour per the token-ceiling
   comment, so propose it upstream per-skill via the same `sections/`
   mechanism rather than forking it.
+
+---
+
+## 6. Upstream duplicate check (2026-07-05, Opus session)
+
+Ran the check the strategy said to do first. Findings on garrytan/gstack:
+
+- **#1572 (open) — "skill: cache preamble bash output within session to
+  reduce duplication"** is the closest existing issue: same preamble-duplication
+  concern, no PR carving the interaction-framework prose yet. Our proposal is
+  complementary, not a duplicate.
+- Active adjacent preamble work (do NOT collide): #2001/#2022 gate
+  upgrade-handling prose; #1150/#1188 gate telemetry session tracking; #1982
+  surface failed update-checks; #1972 shrink skill descriptions (codex budget).
+- No open PR implements a `sections/` carve of the preamble prose.
+
+Verification blockers confirming proposal-first:
+- `bun run skill:check` is **red on a clean `11de390b` checkout** — unrelated
+  cause: `.gbrain/skills/gstack-*/SKILL.md` stale under `gen:skill-docs --host
+  gbrain` detection. A fork can't cleanly prove Claude-host freshness in
+  isolation against that baseline.
+- Real behaviour gate is `test:evals` (EVALS=1, live model calls) — API-gated.
+
+Deliverable: `~/worktrees/gstack-preamble-trim/PR-PROPOSAL.md` — maintainer-ready
+text to post on #1572 for buy-in before implementing. Branch `pr/preamble-trim`
+sits on clean upstream; no code committed (proposal-first, per above).

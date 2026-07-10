@@ -70,22 +70,23 @@ is_local_engine_missing() {
 }
 
 if is_remote_http_mcp && is_local_engine_missing; then
-  cat <<'NOTICE'
-
-  ┌──────────────────────────────────────────────────────────────────┐
-  │  gstack v1.37.0.0 — split-engine gbrain                          │
-  │                                                                  │
-  │  Symbol-aware code search is now available on this machine.      │
-  │  Your remote brain at gbrain MCP keeps working as today; you can │
-  │  add a tiny local PGLite (~30s, no accounts) for `gbrain         │
-  │  code-def` / `code-refs` / `code-callers` queries per worktree.  │
-  │                                                                  │
-  │  Run /setup-gbrain to opt in at Step 4.5. Or skip this notice    │
-  │  permanently:                                                    │
-  │    gstack-config set local_code_index_offered true               │
-  └──────────────────────────────────────────────────────────────────┘
-
-NOTICE
+  # printf, not a heredoc: bash 5.3 heredocs >512B deadlock on macOS when the
+  # kernel grants 512-byte pipe buffers (pipe-KVA pressure; no F_GETPIPE_SZ).
+  printf '%s\n' \
+    '' \
+    '  ┌──────────────────────────────────────────────────────────────────┐' \
+    '  │  gstack v1.37.0.0 — split-engine gbrain                          │' \
+    '  │                                                                  │' \
+    '  │  Symbol-aware code search is now available on this machine.      │' \
+    '  │  Your remote brain at gbrain MCP keeps working as today; you can │' \
+    '  │  add a tiny local PGLite (~30s, no accounts) for `gbrain         │' \
+    '  │  code-def` / `code-refs` / `code-callers` queries per worktree.  │' \
+    '  │                                                                  │' \
+    '  │  Run /setup-gbrain to opt in at Step 4.5. Or skip this notice    │' \
+    '  │  permanently:                                                    │' \
+    '  │    gstack-config set local_code_index_offered true               │' \
+    '  └──────────────────────────────────────────────────────────────────┘' \
+    ''
 fi
 
 # Always touch done so we don't print again, regardless of state-match outcome.
