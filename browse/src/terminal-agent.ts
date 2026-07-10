@@ -26,11 +26,14 @@ import * as crypto from 'crypto';
 import { writeSecureFile, mkdirSecure } from './file-permissions';
 import { safeUnlink } from './error-handling';
 import { writeAgentRecord, clearAgentRecord } from './terminal-agent-control';
+import { GSTACK_EXTENSION_ID } from './extension-identity';
 
 const STATE_FILE = process.env.BROWSE_STATE_FILE || path.join(process.env.HOME || '/tmp', '.gstack', 'browse.json');
 const PORT_FILE = path.join(path.dirname(STATE_FILE), 'terminal-port');
 const BROWSE_SERVER_PORT = parseInt(process.env.BROWSE_SERVER_PORT || '0', 10);
-const EXTENSION_ID = process.env.BROWSE_EXTENSION_ID || ''; // optional: tighten Origin check
+// Fail closed. The static ID is derived from the bundled extension's manifest
+// key, not from a caller-controlled Origin or display name.
+const EXTENSION_ID = GSTACK_EXTENSION_ID;
 const INTERNAL_TOKEN = crypto.randomBytes(32).toString('base64url'); // shared with parent server via env at spawn
 /**
  * Per-boot generation identifier. Loopback /internal/* callers include
@@ -588,7 +591,7 @@ function buildServer() {
         if (!isExtensionOrigin) {
           return new Response('forbidden origin', { status: 403 });
         }
-        if (EXTENSION_ID && origin !== `chrome-extension://${EXTENSION_ID}`) {
+        if (origin !== `chrome-extension://${EXTENSION_ID}`) {
           return new Response('forbidden origin', { status: 403 });
         }
 
@@ -634,11 +637,10 @@ function buildServer() {
         const sessionId = validTokens.get(token) ?? null;
         const upgraded = server.upgrade(req, {
           data: { cookie: token, sessionId },
-          // Echo the protocol back so the browser accepts the upgrade.
-          // Required when the client sends Sec-WebSocket-Protocol — the
-          // server MUST select one of the offered protocols, otherwise
-          // the browser closes the connection immediately.
-          ...(acceptedProtocol ? { headers: { 'Sec-WebSocket-Protocol': acceptedProtocol } } : {}),
+          // Bun negotiates the requested subprotocol itself. Manually adding
+          // Sec-WebSocket-Protocol duplicates the response header on current
+          // Bun, causing Chrome and standards-compliant clients to abort the
+          // otherwise-successful upgrade with code 1006.
         });
         return upgraded ? undefined : new Response('upgrade failed', { status: 500 });
       }

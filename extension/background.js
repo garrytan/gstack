@@ -33,43 +33,41 @@ function getBaseUrl() {
 // ─── Auth Token Bootstrap ─────────────────────────────────────
 
 async function loadAuthToken() {
-  if (authToken) return;
-  // Get token from browse server /health endpoint (localhost-only, safe).
-  // Previously read from .auth.json in extension dir, but that breaks
-  // read-only .app bundles and codesigning.
-  const base = getBaseUrl();
-  if (!base) return;
   try {
-    const resp = await fetch(`${base}/health`, { signal: AbortSignal.timeout(3000) });
-    if (resp.ok) {
-      const data = await resp.json();
-      if (data.token) authToken = data.token;
-    }
+    // Session storage is restricted to trusted extension contexts. Content
+    // scripts run in untrusted contexts and cannot read the root bearer even
+    // though they legitimately use chrome.storage.local for non-secret state.
+    await chrome.storage.session.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' });
+    const session = await chrome.storage.session.get('gstackAuthToken');
+    const local = await chrome.storage.local.get('port');
+    if (session.gstackAuthToken) authToken = session.gstackAuthToken;
+    if (local.port) serverPort = local.port;
+    // Clean up credentials written by prerelease builds of this migration.
+    await chrome.storage.local.remove('gstackAuthToken');
   } catch (err) {
-    console.error('[gstack bg] Failed to load auth token:', err.message);
+    console.error('[gstack bg] Failed to load auth token from trusted extension storage:', err.message);
   }
 }
 
 // ─── Health Polling ────────────────────────────────────────────
 
 async function checkHealth() {
+  // Refresh before choosing the target: BrowserManager writes a new token and
+  // port whenever the daemon restarts.
+  await loadAuthToken();
   const base = getBaseUrl();
   if (!base) {
     setDisconnected();
     return;
   }
 
-  // Retry loading auth token if we don't have one yet
-  if (!authToken) await loadAuthToken();
-
   try {
     const resp = await fetch(`${base}/health`, { signal: AbortSignal.timeout(3000) });
     if (!resp.ok) { setDisconnected(); return; }
     const data = await resp.json();
     if (data.status === 'healthy') {
-      // Always refresh auth token from /health — the server generates a new
-      // token on each restart, so the old one becomes stale.
-      if (data.token) authToken = data.token;
+      // /health is intentionally status-only. Auth is delivered through the
+      // extension's isolated storage, not a caller-controlled HTTP request.
       // Forward chatEnabled so sidepanel can show/hide chat tab
       setConnected({ ...data, chatEnabled: !!data.chatEnabled });
     } else {
@@ -299,7 +297,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.type === 'getPort') {
-    sendResponse({ port: serverPort, connected: isConnected, token: authToken });
+    // Content scripts can query the port for UI behavior. Never include a
+    // credential here; only extension pages may request it via getToken.
+    sendResponse({ port: serverPort, connected: isConnected });
     return true;
   }
 

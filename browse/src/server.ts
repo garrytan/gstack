@@ -1665,8 +1665,21 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
   // `authToken` (the cfg-derived value) explicitly.
   const browserManager = cfgBrowserManager;
 
+  const isExpectedLoopbackHost = (host: string | null): boolean => {
+    if (!host) return false;
+    const normalized = host.toLowerCase();
+    return normalized === `127.0.0.1:${browsePort}` || normalized === `localhost:${browsePort}`;
+  };
 
   const makeFetchHandler = (surface: Surface) => async (req: Request): Promise<Response> => {
+    // A loopback bind is not, by itself, a DNS-rebinding defense: after a
+    // rebinding a page can send Host: attacker.example to 127.0.0.1. Reject
+    // it before dispatch. Tunnel traffic is a separately authenticated surface.
+    if (surface === 'local' && req.headers.has('host') && !isExpectedLoopbackHost(req.headers.get('host'))) {
+      return new Response(JSON.stringify({ error: 'Forbidden host' }), {
+        status: 403, headers: { 'Content-Type': 'application/json' },
+      });
+    }
     const url = new URL(req.url);
 
     // ─── Tunnel surface filter (runs before any route dispatch) ──
@@ -1777,14 +1790,8 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
           mode: browserManager.getConnectionMode(),
           uptime: Math.floor((Date.now() - startTime) / 1000),
           tabs: browserManager.getTabCount(),
-          // Auth token for extension bootstrap. Safe: /health is localhost-only.
-          // Previously served unconditionally, but that leaks the token if the
-          // server is tunneled to the internet (ngrok, SSH tunnel).
-          // In headed mode the server is always local, so return token unconditionally
-          // (fixes Playwright Chromium extensions that don't send Origin header).
-          ...(browserManager.getConnectionMode() === 'headed' ||
-              req.headers.get('origin')?.startsWith('chrome-extension://')
-              ? { token: authToken } : {}),
+          // Public liveness/status only. Origin is caller-controlled; exposing
+          // the root bearer here lets a hostile extension mint a PTY session.
           // The chat queue is gone — Terminal pane is the sole sidebar
           // surface. Keep `chatEnabled: false` so any older extension
           // build still treats the chat input as disabled.
@@ -2309,7 +2316,7 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
       // Dual-listener model: binds a SECOND Bun.serve listener on an
       // ephemeral 127.0.0.1 port dedicated to tunnel traffic, then points
       // ngrok.forward() at THAT port.  The existing local listener (which
-      // serves /health+token, /cookie-picker, /inspector/*, welcome, etc.)
+      // serves /health, /cookie-picker, /inspector/*, welcome, etc.)
       // is never exposed to ngrok.
       //
       // Hard fail if the tunnel listener bind fails — NEVER fall back to
@@ -2794,11 +2801,8 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
 
       // GET /memory — diagnostic snapshot (auth required, does NOT reset idle).
       // Same auth model as /activity/stream and /inspector/events: Bearer header
-      // OR view-only SSE-session cookie. Does NOT extend /health (which already
-      // leaks AUTH_TOKEN to any localhost caller in headed mode — see TODOS.md
-      // "Audit /health token distribution"); a separate endpoint with the
-      // standard SSE auth keeps the future /health fix from cascading into the
-      // sidebar footer poll.
+      // OR view-only SSE-session cookie. Keep this separate from /health,
+      // which is public status-only and must never carry AUTH_TOKEN.
       if (url.pathname === '/memory' && req.method === 'GET') {
         const cookieToken = extractSseCookie(req);
         if (!validateAuth(req) && !validateSseSessionToken(cookieToken)) {
@@ -2864,6 +2868,8 @@ export async function start() {
 
   const port = await findPort();
   LOCAL_LISTEN_PORT = port;
+  // The extension needs the real port before it starts and receives auth.
+  browserManager.serverPort = port;
 
   // ─── Proxy config (D8 + codex F5) ──────────────────────────────
   // BROWSE_PROXY_URL is set by the CLI when --proxy was passed. For SOCKS5
@@ -2961,6 +2967,7 @@ export async function start() {
   // write so all consumers see the same value. v1.34.x's module-level
   // AUTH_TOKEN const was deleted in v1.35.0.0.
   const envCfg = resolveConfigFromEnv();
+  browserManager.setExtensionAuthToken(envCfg.authToken);
 
   // Launch browser (headless or headed with extension)
   // BROWSE_HEADLESS_SKIP=1 skips browser launch entirely (for HTTP-only testing)
@@ -3016,8 +3023,6 @@ export async function start() {
   const tmpFile = tmpStatePath();
   fs.writeFileSync(tmpFile, JSON.stringify(state, null, 2), { mode: 0o600 });
   fs.renameSync(tmpFile, config.stateFile);
-
-  browserManager.serverPort = port;
 
   // Navigate to welcome page if in headed mode and still on about:blank
   if (browserManager.getConnectionMode() === 'headed') {

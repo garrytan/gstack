@@ -1200,6 +1200,27 @@ if [ "$INSTALL_CODEX" -eq 1 ]; then
   create_agents_sidecar "$SOURCE_GSTACK_DIR"
 fi
 
+# 7.5. Repair a missing or corrupt Playwright cache before Browse is first
+# launched. This is bounded and opt-out so setup cannot hang on a bad network.
+# The normal macOS repair uses Chrome for Testing's versioned archive because
+# Playwright's installer can leave a partial cache behind after interruption.
+if [ "${GSTACK_SKIP_BROWSER_REPAIR:-0}" != "1" ] && [ -f "$SOURCE_GSTACK_DIR/bin/gstack-browse-repair.ts" ]; then
+  log "Checking Browse browser runtime..."
+  bun "$SOURCE_GSTACK_DIR/bin/gstack-browse-repair.ts" --repair \
+    || log "warning: Browse browser runtime repair failed; run bin/gstack-browse-repair.ts --repair"
+fi
+
+# 7.6. Security migration for the pre-#1324 unpacked Browse extension. This
+# intentionally runs on every setup, not only a version transition: a fresh
+# install can reuse an existing ~/.gstack Chromium profile. The migrator is
+# idempotent and leaves a private rollback copy of only the old extension data.
+if [ -f "$SOURCE_GSTACK_DIR/bin/gstack-browse-migrate.ts" ]; then
+  log "Migrating legacy Browse extension identity..."
+  bun "$SOURCE_GSTACK_DIR/bin/gstack-browse-migrate.ts" --apply \
+    --legacy-extension-path "$SOURCE_GSTACK_DIR/extension" \
+    || log "warning: Browse migration deferred; close GStack Browser and rerun ./setup"
+fi
+
 # 8. Run pending version migrations
 # Migrations handle state fixes that ./setup alone can't cover (stale config,
 # orphaned files, directory structure changes). Each migration is idempotent.
