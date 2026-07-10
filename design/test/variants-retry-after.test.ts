@@ -72,7 +72,11 @@ describe("generateVariant Retry-After handling", () => {
 
   test("HTTP-date: honors a future date with no extra leading exponential", async () => {
     const calls: CallRecord[] = [];
-    const future = new Date(Date.now() + 3000).toUTCString();
+    // HTTP-date has whole-second granularity: toUTCString() truncates the ms
+    // component, which would shave up to 999ms off the intended wait and flake
+    // the >= 2500 floor. Align the base to the next whole second so the
+    // serialized date is a full 3s (up to 3.999s) in the future.
+    const future = new Date(Math.ceil(Date.now() / 1000) * 1000 + 3000).toUTCString();
     const fetchFn = makeStubFetch([rateLimited(future), successResponse()], calls);
 
     const result = await generateVariant(
