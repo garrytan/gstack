@@ -798,19 +798,31 @@ export class BrowserManager {
     const page = this.pages.get(tabId);
     if (!page) throw new Error(`Tab ${tabId} not found`);
 
+    // Capture BEFORE close(): the page 'close' event handler wired in
+    // wirePageEvents() can fire while page.close() is awaited. It removes
+    // the tab from the maps and reassigns activeTabId (to 0 when no tabs
+    // remain), so a post-close `tabId === this.activeTabId` check is
+    // order-dependent — whether the event dispatches before or after
+    // close() resolves varies across Playwright/Chromium versions and
+    // machines, and losing the race means the last-tab auto-create below
+    // never runs, leaving the manager with zero tabs.
+    const wasActive = tabId === this.activeTabId;
+
     await page.close();
     this.pages.delete(tabId);
     this.tabSessions.delete(tabId);
     this.tabOwnership.delete(tabId);
 
     // Switch to another tab if we closed the active one
-    if (tabId === this.activeTabId) {
+    if (wasActive) {
       const remaining = [...this.pages.keys()];
-      if (remaining.length > 0) {
-        this.activeTabId = remaining[remaining.length - 1];
-      } else {
+      if (remaining.length === 0) {
         // No tabs left — create a new blank one
         await this.newTab();
+      } else if (!this.pages.has(this.activeTabId)) {
+        // The 'close' handler may have already switched to a valid tab;
+        // only reassign when activeTabId no longer points at a live tab.
+        this.activeTabId = remaining[remaining.length - 1];
       }
     }
   }
