@@ -89,7 +89,7 @@ if (IS_WINDOWS && !NODE_SERVER_SCRIPT) {
   );
 }
 
-interface ServerState {
+export interface ServerState {
   pid: number;
   port: number;
   token: string;
@@ -103,6 +103,16 @@ interface ServerState {
   xvfbPid?: number;
   xvfbStartTime?: number;
   xvfbDisplay?: string;
+}
+
+/** A daemon whose process still exists may be busy even when HTTP health checks
+ * time out. Preserve it (and its browser session) instead of guessing that it
+ * is dead. The caller can retry once the current page load settles. */
+export function shouldPreserveUnresponsiveServer(
+  state: ServerState | null,
+  processAlive: (pid: number) => boolean = isProcessAlive,
+): boolean {
+  return !!state?.pid && processAlive(state.pid);
 }
 
 // ─── State File ────────────────────────────────────────────────
@@ -451,12 +461,14 @@ async function ensureServer(flags?: GlobalFlags): Promise<ServerState> {
     process.exit(1);
   }
 
-  // Guard: never silently replace a headed server with a headless one.
-  // Headed mode means a user-visible Chrome window is (or was) controlled.
-  // Silently replacing it would be confusing — tell the user to reconnect.
-  if (state && state.mode === 'headed' && isProcessAlive(state.pid)) {
-    console.error(`[browse] Headed server running (PID ${state.pid}) but not responding.`);
-    console.error(`[browse] Run '/open-gstack-browser' to restart.`);
+  // A live daemon can stop answering HTTP while Chromium finishes a heavy
+  // navigation. Restarting here destroys tabs, cookies, and login state. Only
+  // auto-restart after the daemon process itself is demonstrably gone.
+  if (shouldPreserveUnresponsiveServer(state)) {
+    console.error(`[browse] Server running (PID ${state!.pid}) but not responding — busy, not restarting.`);
+    console.error(state!.mode === 'headed'
+      ? `[browse] Retry shortly, or run '/open-gstack-browser' to restart intentionally.`
+      : '[browse] Retry shortly, or run `browse disconnect` to restart intentionally.');
     process.exit(1);
   }
 
@@ -590,10 +602,13 @@ async function sendCommand(state: ServerState, command: string, args: string[], 
       // can briefly stop answering HTTP while still alive. Before declaring a
       // crash, if the process is alive give /health a bounded chance to recover
       // and just retry the command — never kill+restart a live-but-busy server.
-      if (oldState?.pid && isProcessAlive(oldState.pid) && await probeHealthWithBackoff(oldState.port)) {
-        if (retries >= 1) throw new Error('[browse] Server unresponsive after retry — aborting');
-        console.error('[browse] Server was briefly unresponsive (busy); retrying command...');
-        return sendCommand(oldState, command, args, retries + 1);
+      if (shouldPreserveUnresponsiveServer(oldState)) {
+        if (await probeHealthWithBackoff(oldState!.port)) {
+          if (retries >= 1) throw new Error('[browse] Server unresponsive after retry — aborting');
+          console.error('[browse] Server was briefly unresponsive (busy); retrying command...');
+          return sendCommand(oldState!, command, args, retries + 1);
+        }
+        throw new Error('[browse] Server is still running but unresponsive — busy, not restarting. Retry shortly.');
       }
       // Truly dead (or health never recovered) → restart.
       if (retries >= 1) throw new Error('[browse] Server crashed twice in a row — aborting');
