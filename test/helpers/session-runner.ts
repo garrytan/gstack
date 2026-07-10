@@ -201,6 +201,12 @@ export async function runSkillTest(options: {
   const timeoutId = setTimeout(() => {
     timedOut = true;
     proc.kill();
+    // proc.kill() only signals the `sh -c` wrapper. The claude child it
+    // spawned can survive as an orphan that inherited our stdout/stderr
+    // pipes, so without cancel() the read loop below blocks until the
+    // orphan finally exits (observed: a 600s timeout stretching past 1400s
+    // and tripping bun's per-test timeout instead of returning a result).
+    reader.cancel().catch(() => { /* stream already closed */ });
   }, timeout);
 
   // Stream NDJSON from stdout for real-time progress
@@ -289,7 +295,18 @@ export async function runSkillTest(options: {
     collectedLines.push(buf);
   }
 
-  stderr = await stderrPromise;
+  // Same orphan hazard as stdout: an orphaned grandchild holding stderr open
+  // would block the drain forever. Race it against child exit + a short grace
+  // window; the normal path (pipes close with the child) still wins the race
+  // and keeps full stderr.
+  stderr = await Promise.race([
+    stderrPromise,
+    (async () => {
+      await proc.exited;
+      await new Promise((r) => setTimeout(r, 5_000));
+      return '';
+    })(),
+  ]);
   const exitCode = await proc.exited;
   clearTimeout(timeoutId);
 
