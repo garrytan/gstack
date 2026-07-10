@@ -606,6 +606,45 @@ link_claude_root_skill_alias() {
   _print_windows_copy_note_once
 }
 
+# ─── Helper: compatibility alias for installs not named "gstack" ──────────────
+# Every generated SKILL.md preamble hard-references the absolute self-path
+# ~/.claude/skills/gstack/bin/... (config, telemetry, update-check, and every
+# other bin/asset call). When gstack is installed at ~/.claude/skills/<name>
+# with <name> != gstack, the per-skill symlinks resolve but those in-file
+# references point at a non-existent ~/.claude/skills/gstack/ and fail SILENTLY
+# at skill-invocation time (the preamble swallows the 127 via `|| echo default`).
+# See issue #1882.
+#
+# Fix: plant a sibling alias <skills_dir>/gstack -> <install_dir> so the
+# hardcoded paths resolve with zero file edits. Claude Code already skips the
+# repo-shaped gstack directory when building the slash-command list (see
+# link_claude_root_skill_alias above), so this alias is a path-resolution
+# target only, not a duplicate skill. When the install is already named gstack
+# the references resolve natively and this is a no-op.
+link_gstack_compat_alias() {
+  local install_dir="$1"   # actual gstack checkout (INSTALL_GSTACK_DIR)
+  local skills_dir="$2"    # skills parent (INSTALL_SKILLS_DIR)
+
+  # Already named gstack — nothing to reconcile.
+  [ "$(basename "$install_dir")" = "gstack" ] && return 0
+
+  local alias="$skills_dir/gstack"
+
+  # Never clobber a real (non-symlink) gstack install already living here — its
+  # own bin/ already satisfies the hardcoded references, and it may be a
+  # separate global install we must not destroy.
+  if [ -e "$alias" ] && [ ! -L "$alias" ]; then
+    return 0
+  fi
+
+  # Idempotently (re)point a name-only/self alias. On Windows _link_or_copy
+  # falls back to a directory copy (no symlinks without Developer Mode), which
+  # is heavier but keeps the hardcoded paths resolvable there too.
+  _link_or_copy "$install_dir" "$alias"
+  echo "  linked compatibility alias: gstack -> $(basename "$install_dir") (install dir not named 'gstack', issue #1882)"
+  _print_windows_copy_note_once
+}
+
 # ─── Helper: remove old unprefixed Claude skill entries ───────────────────────
 # Migration: when switching from flat names to gstack- prefixed names,
 # clean up stale symlinks or directories that point into the gstack directory.
@@ -993,6 +1032,9 @@ if [ "$INSTALL_CLAUDE" -eq 1 ]; then
     "$SOURCE_GSTACK_DIR/bin/gstack-patch-names" "$SOURCE_GSTACK_DIR" "$SKILL_PREFIX"
     link_claude_skill_dirs "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
     link_claude_root_skill_alias "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
+    # Reconcile hardcoded ~/.claude/skills/gstack/ self-paths when the install
+    # dir isn't literally named "gstack" (issue #1882). No-op when it is.
+    link_gstack_compat_alias "$INSTALL_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
     # Self-healing: re-run gstack-relink to ensure name: fields and directory
     # names are consistent with the config. This catches cases where an interrupted
     # setup, stale git state, or gen:skill-docs left name: fields out of sync.
