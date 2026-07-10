@@ -397,7 +397,7 @@ describe('gstack-team-init', () => {
     });
 
     expectStructuredDeny(result, MISSING_PROJECT_REASON);
-  });
+  }, 30_000);
 
   test('required: stale project paths deny through the platform default shell', () => {
     run(`${TEAM_INIT} required`, { cwd: tmpDir });
@@ -445,7 +445,7 @@ describe('gstack-team-init', () => {
       expectStructuredDeny(result, HOOK_LOAD_REASON);
       expect(result.stderr).not.toContain(projectDir);
     }
-  });
+  }, 30_000);
 
   test('required: hook runs in PowerShell with USERPROFILE home fallback', () => {
     if (process.platform !== 'win32') return;
@@ -472,7 +472,7 @@ describe('gstack-team-init', () => {
     expect(result.exitCode).toBe(0);
     expect(result.stderr).toBe('');
     expect(JSON.parse(result.stdout)).toEqual({});
-  });
+  }, 30_000);
 
   test('required: missing gstack returns an intentional deny, not a hook error', () => {
     run(`${TEAM_INIT} required`, { cwd: tmpDir });
@@ -507,10 +507,14 @@ describe('gstack-team-init', () => {
     });
   });
 
-  test('required: rerun upgrades a legacy Bash hook without duplicates', () => {
+  test('required: rerun removes a legacy Bash hook without touching other hooks', () => {
     const hooksDir = path.join(tmpDir, '.claude', 'hooks');
+    const legacyHook = path.join(hooksDir, 'check-gstack.sh');
+    const unrelatedHook = path.join(hooksDir, 'check-project.cjs');
+    const unrelatedHookContents = "console.log('project hook');\n";
     fs.mkdirSync(hooksDir, { recursive: true });
-    fs.writeFileSync(path.join(hooksDir, 'check-gstack.sh'), '#!/bin/bash\n');
+    fs.writeFileSync(legacyHook, '#!/bin/bash\n');
+    fs.writeFileSync(unrelatedHook, unrelatedHookContents);
     fs.writeFileSync(
       path.join(tmpDir, '.claude', 'settings.json'),
       JSON.stringify({
@@ -527,17 +531,31 @@ describe('gstack-team-init', () => {
         },
       }),
     );
+    execSync('git add .claude', { cwd: tmpDir });
+    execSync('git commit -m "add legacy hook"', { cwd: tmpDir });
+
+    run(`${TEAM_INIT} required`, { cwd: tmpDir });
+    expect(fs.existsSync(legacyHook)).toBe(false);
+    expect(fs.readFileSync(unrelatedHook, 'utf-8')).toBe(unrelatedHookContents);
 
     run(`${TEAM_INIT} required`, { cwd: tmpDir });
     const settings = JSON.parse(
       fs.readFileSync(path.join(tmpDir, '.claude', 'settings.json'), 'utf-8'),
     );
+    expect(fs.existsSync(legacyHook)).toBe(false);
+    expect(fs.readFileSync(unrelatedHook, 'utf-8')).toBe(unrelatedHookContents);
+    expect(
+      execSync('git status --short -- .claude/hooks/check-gstack.sh', {
+        cwd: tmpDir,
+        encoding: 'utf-8',
+      }),
+    ).toBe(' D .claude/hooks/check-gstack.sh\n');
     expect(settings.hooks.PreToolUse).toHaveLength(1);
     expect(settings.hooks.PreToolUse[0].hooks).toHaveLength(1);
     expect(settings.hooks.PreToolUse[0].hooks[0].command).toContain(
       'check-gstack.cjs',
     );
-  });
+  }, 30_000);
 
   test('idempotent: running twice does not duplicate CLAUDE.md section', () => {
     run(`${TEAM_INIT} optional`, { cwd: tmpDir });

@@ -215,6 +215,13 @@ HOOK_EOF
     " 2>/dev/null
     GENERATED+=(".claude/settings.json")
     echo "  + .claude/settings.json — PreToolUse hook registered"
+
+    # Remove the obsolete Bash hook only after its replacement is generated and
+    # registered successfully. Other project hooks are left untouched.
+    if [ -e "$HOOKS_DIR/check-gstack.sh" ] || [ -L "$HOOKS_DIR/check-gstack.sh" ]; then
+      rm "$HOOKS_DIR/check-gstack.sh"
+      echo "  - .claude/hooks/check-gstack.sh — removed legacy enforcement hook"
+    fi
   else
     echo "  ! bun not found — manually add the PreToolUse hook to .claude/settings.json"
   fi
