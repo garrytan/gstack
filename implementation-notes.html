@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cross-platform gstack enforcement hook</title>
+</head>
+<body>
+  <main>
+    <h1>Cross-platform gstack enforcement hook</h1>
+
+    <h2>Design decisions</h2>
+    <ul>
+      <li>Required mode generates <code>.claude/hooks/check-gstack.cjs</code>. The explicit CommonJS extension is unaffected by a consumer repository's <code>package.json</code> module type.</li>
+      <li>The one registered command launches Node 18+ and resolves <code>CLAUDE_PROJECT_DIR</code> inside JavaScript through <code>process.env</code>. It contains no Bash, PowerShell, or cmd environment expansion.</li>
+      <li>The launcher validates <code>CLAUDE_PROJECT_DIR</code> before calling <code>path.join</code>. Missing or empty project context emits a structured <code>PreToolUse</code> denial, writes a clear reason to stderr, and exits zero instead of surfacing a hook execution error.</li>
+      <li>The generated hook resolves the user home in <code>HOME</code>, <code>USERPROFILE</code>, then <code>os.homedir()</code> order so POSIX, Git Bash, PowerShell, and cmd runners use the expected global install root.</li>
+      <li>The hook contract follows <code>docs/spikes/claude-code-hook-mutation.md</code>: pass-through writes <code>{}</code>; denial writes a <code>hookSpecificOutput</code> object for <code>PreToolUse</code> with <code>permissionDecision: "deny"</code>.</li>
+      <li>Missing or unreadable gstack is an intentional denial with exit code zero. Install instructions are present in stderr and <code>permissionDecisionReason</code>, so the runner does not report a hook execution error.</li>
+      <li>Rerunning required mode replaces a matching legacy <code>check-gstack.sh</code> registration and removes duplicate matching registrations.</li>
+    </ul>
+
+    <h2>Deviations</h2>
+    <p>None. The implementation uses the requested Node launcher, one hook handler, and the repository's documented hook output schema.</p>
+
+    <h2>Tradeoffs</h2>
+    <ul>
+      <li>The generated project now requires Node 18+ at hook execution time. This removes shell selection ambiguity and matches the requested runtime floor.</li>
+      <li>The generated hook is invoked through Node rather than as an executable file, so POSIX executable mode bits are no longer part of the contract.</li>
+    </ul>
+
+    <h2>Open questions</h2>
+    <p>None.</p>
+  </main>
+</body>
+</html>
