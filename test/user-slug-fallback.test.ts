@@ -35,6 +35,12 @@ function runConfig(args: string[], extraEnv: Record<string, string> = {}): { std
     encoding: 'utf-8',
     env: {
       ...process.env,
+      // HOME isolation: endpoint_hash() reads $HOME/.claude.json for the
+      // gbrain MCP URL. Pointing HOME at the empty TMP_HOME makes it
+      // deterministically 'local' regardless of the developer's real
+      // ~/.claude.json (which would otherwise change the persisted key
+      // namespace to user_slug_at_<sha8-of-url>).
+      HOME: TMP_HOME,
       ...extraEnv,
     },
     timeout: 5000,
@@ -92,7 +98,9 @@ describe('resolve-user-slug fallback chain', () => {
     const configFile = join(TMP_HOME, 'config.yaml');
     expect(existsSync(configFile)).toBe(true);
     const content = readFileSync(configFile, 'utf-8');
-    expect(content).toMatch(/^user_slug_at_[a-f0-9]+:\s+persisttest/m);
+    // HOME is isolated to the empty TMP_HOME, so endpoint_hash() is
+    // deterministically the literal 'local' on every machine.
+    expect(content).toMatch(/^user_slug_at_local:\s+persisttest/m);
   });
 
   test('subsequent calls return same slug (stable across sessions)', () => {
