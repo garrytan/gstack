@@ -45,6 +45,36 @@ a silent mistake breaks all 52 skills. High blast radius — needs its own focus
 
 ## Test infrastructure
 
+### P2: Periodic CI matrix covers 9 of ~66 e2e files — decide the coverage contract
+
+**Priority:** P2
+
+**What:** `evals-periodic.yml` (weekly cron, `EVALS_TIER=periodic EVALS_ALL=1`) runs a
+hard-coded 9-file matrix; `evals.yml` gate shards cover 14 files. ~57 `test/skill-e2e-*`
+files run in NEITHER workflow — they execute only when a local diff happens to select
+them via touchfiles. CLAUDE.md says "periodic tests run weekly via cron," which the
+matrix doesn't deliver. Decide: (a) expand the periodic matrix (or glob it) to all
+periodic-tier files with a budget cap, (b) shrink the claim in CLAUDE.md and mark the
+uncovered files as local-only, or (c) tier the orphans explicitly.
+
+**Why:** The autoplan-dual-voice E2E was silently broken for months (claude >= 2.x
+changed unregistered-slash-command handling) and nothing noticed until a docs PR's
+touchfiles happened to select it locally (2026-07-09). Tests that never run anywhere
+rot invisibly; each one found broken later costs a full /investigate session.
+
+**Pros:** Kills the silent-rot class for ~57 test files; makes the CLAUDE.md tiering
+claim true.
+**Cons:** Full periodic coverage costs real money weekly (rough order: ~$1/file/run);
+some orphans are deliberately manual (ios-device, opus-47 overlay harness), so a plain
+glob is wrong — needs a curated exclude list.
+
+**Context / where to start:** `.github/workflows/evals-periodic.yml:71` (matrix),
+`test/helpers/touchfiles.ts` E2E_TIERS (tier labels already exist per test), orphan
+list generated via `comm -23` between `ls test/skill-e2e-*.test.ts` and the file lists
+in `.github/workflows/evals*.yml`. Receipts from the autoplan incident:
+`~/.gstack/projects/garrytan-gstack/e2e-runs/2026-07-10-0154/` (0-turn "Unknown command"
+transcripts).
+
 ### Eval harness: live progress + incremental result persistence (kill the silent hour)
 
 **Priority:** P1
