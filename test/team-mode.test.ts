@@ -13,6 +13,10 @@ function bashCommand(filePath: string): string {
 const SETTINGS_HOOK = bashCommand(path.join(ROOT, 'bin', 'gstack-settings-hook'));
 const SESSION_UPDATE = bashCommand(path.join(ROOT, 'bin', 'gstack-session-update'));
 const TEAM_INIT = bashCommand(path.join(ROOT, 'bin', 'gstack-team-init'));
+const MISSING_PROJECT_REASON =
+  'BLOCKED: CLAUDE_PROJECT_DIR is unavailable, so the required gstack hook cannot be loaded.';
+const HOOK_LOAD_REASON =
+  'BLOCKED: the required gstack hook could not be loaded. Verify project hook setup and retry.';
 
 function mkTmpDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-team-test-'));
@@ -75,6 +79,22 @@ function runHookInPowerShell(
     stderr: result.stderr || '',
     exitCode: result.status ?? 1,
   };
+}
+
+function expectStructuredDeny(
+  result: { stdout: string; stderr: string; exitCode: number },
+  reason: string,
+): void {
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr.trim()).toBe(reason);
+  expect(result.stderr).not.toContain('MODULE_NOT_FOUND');
+  expect(JSON.parse(result.stdout)).toEqual({
+    hookSpecificOutput: {
+      hookEventName: 'PreToolUse',
+      permissionDecision: 'deny',
+      permissionDecisionReason: reason,
+    },
+  });
 }
 
 describe('gstack-settings-hook', () => {
@@ -312,7 +332,7 @@ describe('gstack-team-init', () => {
     expect(entry.hooks).toHaveLength(1);
     expect(entry.hooks[0]).not.toHaveProperty('shell');
     expect(entry.hooks[0].command).toBe(
-      `node -e "const projectDir=process.env.CLAUDE_PROJECT_DIR;if(!projectDir){const reason='BLOCKED: CLAUDE_PROJECT_DIR is unavailable, so the required gstack hook cannot be loaded.';console.error(reason);console.log(JSON.stringify({hookSpecificOutput:{hookEventName:'PreToolUse',permissionDecision:'deny',permissionDecisionReason:reason}}))}else{require(require('node:path').join(projectDir, '.claude', 'hooks', 'check-gstack.cjs'))}"`,
+      `node -e "const deny=reason=>{console.error(reason);console.log(JSON.stringify({hookSpecificOutput:{hookEventName:'PreToolUse',permissionDecision:'deny',permissionDecisionReason:reason}}))};const projectDir=process.env.CLAUDE_PROJECT_DIR;if(!projectDir){deny('BLOCKED: CLAUDE_PROJECT_DIR is unavailable, so the required gstack hook cannot be loaded.')}else{try{require(require('node:path').join(projectDir, '.claude', 'hooks', 'check-gstack.cjs'))}catch{deny('BLOCKED: the required gstack hook could not be loaded. Verify project hook setup and retry.')}}"`,
     );
     expect(entry.hooks[0].command).not.toMatch(
       /\$CLAUDE_PROJECT_DIR|\$env:CLAUDE_PROJECT_DIR|%CLAUDE_PROJECT_DIR%/,
@@ -359,16 +379,7 @@ describe('gstack-team-init', () => {
       env: { CLAUDE_PROJECT_DIR: '' },
     });
 
-    expect(result.exitCode).toBe(0);
-    expect(result.stderr).toContain('BLOCKED: CLAUDE_PROJECT_DIR is unavailable');
-    expect(JSON.parse(result.stdout)).toEqual({
-      hookSpecificOutput: {
-        hookEventName: 'PreToolUse',
-        permissionDecision: 'deny',
-        permissionDecisionReason:
-          'BLOCKED: CLAUDE_PROJECT_DIR is unavailable, so the required gstack hook cannot be loaded.',
-      },
-    });
+    expectStructuredDeny(result, MISSING_PROJECT_REASON);
   });
 
   test('required: missing project env denies through PowerShell', () => {
@@ -385,16 +396,55 @@ describe('gstack-team-init', () => {
       env: { CLAUDE_PROJECT_DIR: '' },
     });
 
-    expect(result.exitCode).toBe(0);
-    expect(result.stderr).toContain('BLOCKED: CLAUDE_PROJECT_DIR is unavailable');
-    expect(JSON.parse(result.stdout)).toEqual({
-      hookSpecificOutput: {
-        hookEventName: 'PreToolUse',
-        permissionDecision: 'deny',
-        permissionDecisionReason:
-          'BLOCKED: CLAUDE_PROJECT_DIR is unavailable, so the required gstack hook cannot be loaded.',
-      },
-    });
+    expectStructuredDeny(result, MISSING_PROJECT_REASON);
+  });
+
+  test('required: stale project paths deny through the platform default shell', () => {
+    run(`${TEAM_INIT} required`, { cwd: tmpDir });
+    const settings = JSON.parse(
+      fs.readFileSync(path.join(tmpDir, '.claude', 'settings.json'), 'utf-8'),
+    );
+    const command = settings.hooks.PreToolUse[0].hooks[0].command;
+    const existingWithoutHook = path.join(tmpDir, 'existing-without-hook');
+    fs.mkdirSync(existingWithoutHook);
+
+    for (const projectDir of [
+      path.join(tmpDir, 'nonexistent-project'),
+      existingWithoutHook,
+    ]) {
+      const result = runHook(command, {
+        cwd: tmpDir,
+        env: { CLAUDE_PROJECT_DIR: projectDir },
+      });
+
+      expectStructuredDeny(result, HOOK_LOAD_REASON);
+      expect(result.stderr).not.toContain(projectDir);
+    }
+  });
+
+  test('required: stale project paths deny through PowerShell', () => {
+    if (process.platform !== 'win32') return;
+
+    run(`${TEAM_INIT} required`, { cwd: tmpDir });
+    const settings = JSON.parse(
+      fs.readFileSync(path.join(tmpDir, '.claude', 'settings.json'), 'utf-8'),
+    );
+    const command = settings.hooks.PreToolUse[0].hooks[0].command;
+    const existingWithoutHook = path.join(tmpDir, 'powershell-without-hook');
+    fs.mkdirSync(existingWithoutHook);
+
+    for (const projectDir of [
+      path.join(tmpDir, 'powershell-nonexistent'),
+      existingWithoutHook,
+    ]) {
+      const result = runHookInPowerShell(command, {
+        cwd: tmpDir,
+        env: { CLAUDE_PROJECT_DIR: projectDir },
+      });
+
+      expectStructuredDeny(result, HOOK_LOAD_REASON);
+      expect(result.stderr).not.toContain(projectDir);
+    }
   });
 
   test('required: hook runs in PowerShell with USERPROFILE home fallback', () => {

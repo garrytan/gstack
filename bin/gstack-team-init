@@ -179,7 +179,7 @@ HOOK_EOF
       if (!settings.hooks) settings.hooks = {};
       if (!settings.hooks.PreToolUse) settings.hooks.PreToolUse = [];
 
-      const hookCommand = \"node -e \\\"const projectDir=process.env.CLAUDE_PROJECT_DIR;if(!projectDir){const reason='BLOCKED: CLAUDE_PROJECT_DIR is unavailable, so the required gstack hook cannot be loaded.';console.error(reason);console.log(JSON.stringify({hookSpecificOutput:{hookEventName:'PreToolUse',permissionDecision:'deny',permissionDecisionReason:reason}}))}else{require(require('node:path').join(projectDir, '.claude', 'hooks', 'check-gstack.cjs'))}\\\"\";
+      const hookCommand = \"node -e \\\"const deny=reason=>{console.error(reason);console.log(JSON.stringify({hookSpecificOutput:{hookEventName:'PreToolUse',permissionDecision:'deny',permissionDecisionReason:reason}}))};const projectDir=process.env.CLAUDE_PROJECT_DIR;if(!projectDir){deny('BLOCKED: CLAUDE_PROJECT_DIR is unavailable, so the required gstack hook cannot be loaded.')}else{try{require(require('node:path').join(projectDir, '.claude', 'hooks', 'check-gstack.cjs'))}catch{deny('BLOCKED: the required gstack hook could not be loaded. Verify project hook setup and retry.')}}\\\"\";
       let found = false;
       settings.hooks.PreToolUse = settings.hooks.PreToolUse.filter(entry => {
         if (entry.matcher !== 'Skill' || !entry.hooks) return true;
