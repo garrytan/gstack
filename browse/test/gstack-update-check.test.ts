@@ -22,6 +22,14 @@ function run(extraEnv: Record<string, string> = {}, args: string[] = []) {
       ...process.env,
       GSTACK_DIR: gstackDir,
       GSTACK_STATE_DIR: stateDir,
+      // gstack-config resolves its state dir as GSTACK_STATE_ROOT >
+      // GSTACK_HOME > GSTACK_STATE_DIR. Other test files in the same bun
+      // process set process.env.GSTACK_HOME mid-suite (and operator shells
+      // may export it too); a leaked value would win over GSTACK_STATE_DIR
+      // above and point gstack-config at the wrong config.yaml, making the
+      // update_check config tests order-dependent. Pin all three.
+      GSTACK_HOME: stateDir,
+      GSTACK_STATE_ROOT: stateDir,
       GSTACK_REMOTE_URL: `file://${join(gstackDir, 'REMOTE_VERSION')}`,
       ...extraEnv,
     },

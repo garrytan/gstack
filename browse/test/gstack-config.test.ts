@@ -15,12 +15,20 @@ const SCRIPT = join(import.meta.dir, '..', '..', 'bin', 'gstack-config');
 let stateDir: string;
 
 function run(args: string[] = [], extraEnv: Record<string, string> = {}) {
+  // The script resolves GSTACK_STATE_ROOT > GSTACK_HOME > GSTACK_STATE_DIR.
+  // Scrub the two higher-priority overrides from the inherited env so a
+  // leaked GSTACK_HOME/GSTACK_STATE_ROOT from another test file (or the
+  // operator shell) can never redirect reads/writes away from this test's
+  // temp stateDir.
+  const env: Record<string, string | undefined> = {
+    ...process.env,
+    GSTACK_STATE_DIR: stateDir,
+    ...extraEnv,
+  };
+  if (!('GSTACK_STATE_ROOT' in extraEnv)) delete env.GSTACK_STATE_ROOT;
+  if (!('GSTACK_HOME' in extraEnv)) delete env.GSTACK_HOME;
   const result = Bun.spawnSync(['bash', SCRIPT, ...args], {
-    env: {
-      ...process.env,
-      GSTACK_STATE_DIR: stateDir,
-      ...extraEnv,
-    },
+    env,
     stdout: 'pipe',
     stderr: 'pipe',
   });

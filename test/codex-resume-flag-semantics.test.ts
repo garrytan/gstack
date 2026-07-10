@@ -15,8 +15,21 @@
 import { describe, test, expect } from 'bun:test';
 import { spawnSync } from 'child_process';
 
+// "On PATH" is not enough: a broken install (e.g. the npm wrapper missing its
+// platform binary @openai/codex-darwin-arm64) resolves via `which` but can't
+// answer any subcommand, so every assertion would fail on wrapper stack traces
+// instead of real flag-semantics regressions. Probe `codex --version` and only
+// run when the CLI actually executes; a working codex still gets the full
+// assertions.
 const codexPath = spawnSync('which', ['codex'], { encoding: 'utf-8' }).stdout.trim();
-const codexAvailable = codexPath.length > 0;
+const codexRuns =
+  codexPath.length > 0 &&
+  spawnSync('codex', ['--version'], {
+    encoding: 'utf-8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    timeout: 10_000,
+  }).status === 0;
+const codexAvailable = codexRuns;
 
 describe.skipIf(!codexAvailable)(
   'codex exec resume — flag semantics (live CLI smoke; closes #1270 regex-only gap)',

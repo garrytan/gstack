@@ -5,7 +5,7 @@
  * A real browse server is started and commands are sent via the CLI HTTP interface.
  */
 
-import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
+import { describe, test, expect, beforeAll, beforeEach, afterAll } from 'bun:test';
 import { startTestServer } from './test-server';
 import { BrowserManager } from '../src/browser-manager';
 import { resolveServerScript } from '../src/cli';
@@ -94,11 +94,14 @@ beforeAll(async () => {
   await bm.launch();
 });
 
-afterAll(() => {
-  // Force kill browser instead of graceful close (avoids hang)
+afterAll(async () => {
   try { testServer.server.stop(); } catch {}
-  // bm.close() can hang — just let process exit handle it
-  setTimeout(() => process.exit(0), 500);
+  // Close only this file's own browser — never process.exit(): bun test runs
+  // all files in one process, so a delayed exit kills the whole suite
+  // (see test/no-suicide-exit.test.ts). close() can hang when the browser
+  // already died, and its internal 5s timeout ties bun's 5s hook timeout —
+  // so race it at 3s and abandon; the child is reaped at process exit.
+  try { await Promise.race([bm?.close(), new Promise((resolve) => setTimeout(resolve, 3000))]); } catch {}
 });
 
 // ─── Navigation ─────────────────────────────────────────────────
@@ -135,7 +138,12 @@ describe('Navigation', () => {
 // ─── Content Extraction ─────────────────────────────────────────
 
 describe('Content extraction', () => {
-  beforeAll(async () => {
+  // beforeEach, NOT beforeAll: bun <1.3 runs every describe-scoped beforeAll
+  // eagerly at file start (in file order), so a beforeAll goto here is
+  // clobbered by later describes' beforeAll gotos before any test runs.
+  // beforeEach is scoped correctly on all bun versions, and a goto against
+  // the local fixture server costs only a few ms per test.
+  beforeEach(async () => {
     await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
   });
 
@@ -193,7 +201,9 @@ describe('Content extraction', () => {
 // ─── JavaScript / CSS / Attrs ───────────────────────────────────
 
 describe('Inspection', () => {
-  beforeAll(async () => {
+  // beforeEach, NOT beforeAll — see 'Content extraction' note (bun <1.3
+  // runs describe-scoped beforeAll hooks eagerly at file start).
+  beforeEach(async () => {
     await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
   });
 
@@ -1071,7 +1081,9 @@ describe('Dialog handling', () => {
 // ─── Element State Checks (is) ─────────────────────────────────
 
 describe('Element state checks', () => {
-  beforeAll(async () => {
+  // beforeEach, NOT beforeAll — see 'Content extraction' note (bun <1.3
+  // runs describe-scoped beforeAll hooks eagerly at file start).
+  beforeEach(async () => {
     await handleWriteCommand('goto', [baseUrl + '/states.html'], bm);
   });
 

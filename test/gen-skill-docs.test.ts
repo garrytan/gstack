@@ -177,6 +177,13 @@ describe('gen-skill-docs', () => {
   // whose plain `description:` scalar contains an interior ": " (read as a nested
   // mapping). Parse EVERY generated frontmatter block with a strict YAML parser,
   // not just string-check that name:/description: exist.
+  //
+  // Bun.YAML landed in bun 1.3; older local bun has no in-process strict YAML
+  // parser (the repo is deliberately zero-dep for YAML). CI pins
+  // `bun-version: latest`, so coverage is guaranteed there — on an old local
+  // bun we skip rather than false-fail.
+  const hasBunYaml = typeof (Bun as any).YAML?.parse === 'function';
+
   function frontmatterBlock(content: string): string {
     expect(content.startsWith('---\n')).toBe(true);
     const end = content.indexOf('\n---', 4);
@@ -184,7 +191,7 @@ describe('gen-skill-docs', () => {
     return content.slice(4, end);
   }
 
-  test('every generated SKILL.md frontmatter parses as strict YAML', () => {
+  test.skipIf(!hasBunYaml)('every generated SKILL.md frontmatter parses as strict YAML', () => {
     for (const skill of CLAUDE_GENERATED_SKILLS) {
       const content = fs.readFileSync(path.join(ROOT, skill.dir, 'SKILL.md'), 'utf-8');
       const fm = frontmatterBlock(content);
@@ -196,7 +203,7 @@ describe('gen-skill-docs', () => {
     }
   });
 
-  test('every generated Codex (.agents/skills) frontmatter parses as strict YAML', () => {
+  test.skipIf(!hasBunYaml)('every generated Codex (.agents/skills) frontmatter parses as strict YAML', () => {
     const agentsDir = path.join(ROOT, '.agents', 'skills');
     if (!fs.existsSync(agentsDir)) return; // skip if external hosts not generated
     for (const entry of fs.readdirSync(agentsDir, { withFileTypes: true })) {
