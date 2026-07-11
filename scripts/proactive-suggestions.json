@@ -39,8 +39,8 @@
       "voice_line": "Voice triggers (speech-to-text aliases): \"code x\", \"code ex\", \"get another opinion\"."
     },
     "context-restore": {
-      "lead": "Restore working context saved earlier by /context-save.",
-      "routing": "Loads the most recent\nsaved state (across all branches by default) so you can pick up where you\nleft off — even across Conductor workspace handoffs.\nUse when asked to \"resume\", \"restore context\", \"where was I\", or\n\"pick up where I left off\". Pair with /context-save.\nFormerly /checkpoint resume — renamed because Claude Code treats /checkpoint\nas a native rewind alias in current environments.",
+      "lead": "Restore working context saved earlier by /save or legacy /context-save.",
+      "routing": "Loads the most recent\nsaved state (across all branches by default) so you can pick up where you\nleft off — even across Conductor workspace handoffs.\nUse when asked to \"resume\", \"restore context\", \"where was I\", or\n\"pick up where I left off\". Pair with /save.\nFormerly /checkpoint resume — renamed because Claude Code treats /checkpoint\nas a native rewind alias in current environments.",
       "voice_line": null
     },
     "context-save": {
