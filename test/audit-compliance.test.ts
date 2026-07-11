@@ -115,6 +115,22 @@ describe('Audit compliance', () => {
     expect(cdp).toContain('--remote-allow-origins=');
   });
 
+  // CVE-2026-39983 + siblings: bun overrides must pin all copies of basic-ftp to 5.3.1
+  test('bun.lock contains no basic-ftp older than 5.3.1 (override tripwire)', () => {
+    const lock = readFileSync(join(ROOT, 'bun.lock'), 'utf-8');
+    // Match every "basic-ftp@X.Y.Z" reference in the lockfile
+    const matches = [...lock.matchAll(/"basic-ftp@(\d+)\.(\d+)\.(\d+)"/g)];
+    expect(matches.length).toBeGreaterThan(0);
+    for (const m of matches) {
+      const [major, minor, patch] = [Number(m[1]), Number(m[2]), Number(m[3])];
+      const isAtLeast531 =
+        major > 5 ||
+        (major === 5 && minor > 3) ||
+        (major === 5 && minor === 3 && patch >= 1);
+      expect(isAtLeast531).toBe(true);
+    }
+  });
+
   // Fix 2+6: All generated SKILL.md files with telemetry are conditional
   test('all generated SKILL.md files with telemetry calls use conditional pattern', () => {
     const skills = getAllSkillMds();
