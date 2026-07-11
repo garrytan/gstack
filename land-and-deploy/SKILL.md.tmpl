@@ -449,7 +449,30 @@ and tell the user: "I found and fixed a few issues during the review. The fixes 
 
 ### 3.5b: Test results
 
-**Free tests — run them now:**
+**Delivery evidence hook — check before free tests:**
+
+If the repository root `package.json` defines `scripts.delivery:verify-landing`,
+run the opt-in verifier using the PR number identified in Step 1:
+
+```bash
+HOOK_OUTPUT=$(pnpm delivery:verify-landing -- --pr "$PR_NUMBER" --output json 2>&1)
+HOOK_EXIT=$?
+HOOK_JSON=$(printf '%s\n' "$HOOK_OUTPUT" | sed -n '/^{/p' | tail -1)
+HOOK_STATUS=$(printf '%s' "$HOOK_JSON" | jq -r '.status // empty' 2>/dev/null)
+```
+
+- If the command exits successfully and its only decision is
+  `{"status":"reusable"}`, report the evidence code and skip the normal local
+  test command. The current Process Guard evidence already proves the exact PR
+  head/base/merge and validation check.
+- If the command is missing, preserve legacy test behavior and run the normal
+  test command below.
+- If the command exits non-zero, emits invalid JSON, or emits any other status,
+  **BLOCKER `DELIVERY_EVIDENCE_HOOK_FAILED`:** report the returned code/output
+  and recovery guidance. Do not fall back to the normal test command, because a malformed or stale proof must
+  never become an implicit test bypass.
+
+**Free tests — run them now when the evidence hook is absent:**
 
 Read CLAUDE.md to find the project's test command. If not specified, use `bun test`.
 Run the test command and capture the exit code and output.
