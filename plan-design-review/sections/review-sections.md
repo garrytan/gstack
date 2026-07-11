@@ -367,7 +367,7 @@ After completing the review, read the review log and config to display the dashb
 ~/.claude/skills/gstack/bin/gstack-review-read
 ```
 
-Parse the output. Find the most recent entry for each skill (plan-ceo-review, plan-eng-review, review, plan-design-review, design-review-lite, adversarial-review, codex-review, codex-plan-review). Ignore entries with timestamps older than 7 days. For the Eng Review row, show whichever is more recent between `review` (diff-scoped pre-landing review) and `plan-eng-review` (plan-stage architecture review). Append "(DIFF)" or "(PLAN)" to the status to distinguish. For the Adversarial row, show whichever is more recent between `adversarial-review` (new auto-scaled) and `codex-review` (legacy). For Design Review, show whichever is more recent between `plan-design-review` (full visual audit) and `design-review-lite` (code-level check). Append "(FULL)" or "(LITE)" to the status to distinguish. For the Outside Voice row, show the most recent `codex-plan-review` entry — this captures outside voices from both /plan-ceo-review and /plan-eng-review.
+Parse the output. Find the most recent entry for each skill (plan-ceo-review, plan-eng-review, review, plan-design-review, design-review-lite, adversarial-review, codex-review, grok-review, codex-plan-review). Ignore entries with timestamps older than 7 days. For the Eng Review row, show whichever is more recent between `review` (diff-scoped pre-landing review) and `plan-eng-review` (plan-stage architecture review). Append "(DIFF)" or "(PLAN)" to the status to distinguish. For the Adversarial row, show whichever is more recent between `adversarial-review` (new auto-scaled) and `codex-review` (legacy). For Design Review, show whichever is more recent between `plan-design-review` (full visual audit) and `design-review-lite` (code-level check). Append "(FULL)" or "(LITE)" to the status to distinguish. For the Outside Voice row, show the most recent `codex-plan-review` entry — this captures outside voices from both /plan-ceo-review and /plan-eng-review.
 
 **Source attribution:** If the most recent entry for a skill has a \`"via"\` field, append it to the status label in parentheses. Examples: `plan-eng-review` with `via:"autoplan"` shows as "CLEAR (PLAN via /autoplan)". `review` with `via:"ship"` shows as "CLEAR (DIFF via /ship)". Entries without a `via` field show as "CLEAR (PLAN)" or "CLEAR (DIFF)" as before.
 
@@ -439,6 +439,8 @@ Parse each JSONL entry. Each skill logs different fields:
   → Findings: "score: {overall_score}/10, TTHW: {tthw_measured}, {dimensions_tested} tested/{dimensions_inferred} inferred"
 - **codex-review**: \`status\`, \`gate\`, \`findings\`, \`findings_fixed\`
   → Findings: "{findings} findings, {findings_fixed}/{findings} fixed"
+- **grok-review**: \`status\`, \`gate\`, \`findings\`, \`findings_fixed\`
+  → Findings: "{findings} findings, {findings_fixed}/{findings} fixed"
 
 All fields needed for the Findings column are now present in the JSONL entries.
 For the review you just completed, you may use richer details from your own Completion
@@ -452,17 +454,19 @@ Produce this markdown table:
 | Review | Trigger | Why | Runs | Status | Findings |
 |--------|---------|-----|------|--------|----------|
 | CEO Review | \`/plan-ceo-review\` | Scope & strategy | {runs} | {status} | {findings} |
-| Codex Review | \`/codex review\` | Independent 2nd opinion | {runs} | {status} | {findings} |
+| Codex Review | \`/codex review\` | Independent 2nd opinion (OpenAI) | {runs} | {status} | {findings} |
+| Grok Review | \`/grok review\` | Independent 2nd opinion (xAI) | {runs} | {status} | {findings} |
 | Eng Review | \`/plan-eng-review\` | Architecture & tests (required) | {runs} | {status} | {findings} |
 | Design Review | \`/plan-design-review\` | UI/UX gaps | {runs} | {status} | {findings} |
 | DX Review | \`/plan-devex-review\` | Developer experience gaps | {runs} | {status} | {findings} |
 \`\`\`
 
-Below the table, add these lines. **CODEX** and **CROSS-MODEL** are optional (omit when
-empty); **VERDICT** is always present:
+Below the table, add these lines. **CODEX**, **GROK**, and **CROSS-MODEL** are optional
+(omit when empty); **VERDICT** is always present:
 
 - **CODEX:** (only if codex-review ran) — one-line summary of codex fixes
-- **CROSS-MODEL:** (only if both Claude and Codex reviews exist) — overlap analysis
+- **GROK:** (only if grok-review ran) — one-line summary of grok fixes
+- **CROSS-MODEL:** (only if two or more outside-voice reviews exist) — overlap analysis
 - **VERDICT:** list reviews that are CLEAR (e.g., "CEO + ENG CLEARED — ready to implement").
   If Eng Review is not CLEAR and not skipped globally, append "eng review required".
 

@@ -98,6 +98,11 @@
       "routing": "Blocks Edit and\nWrite outside the allowed path. Use when debugging to prevent accidentally\n\"fixing\" unrelated code, or when you want to scope changes to one module.\nUse when asked to \"freeze\", \"restrict edits\", \"only edit this folder\",\nor \"lock down edits\".",
       "voice_line": null
     },
+    "grok": {
+      "lead": "Grok Build CLI wrapper — three modes.",
+      "routing": "Code review: independent diff review via\ngrok headless with pass/fail gate. Challenge: adversarial mode that tries to break\nyour code. Consult: ask Grok anything with session continuity for follow-ups.\nCross-model second opinion from xAI. Use when asked to \"grok review\",\n\"grok challenge\", \"ask grok\", \"second opinion from grok\", or \"consult grok\".",
+      "voice_line": "Voice triggers (speech-to-text aliases): \"rock review\", \"get grok opinion\", \"outside voice grok\"."
+    },
     "gstack": {
       "lead": "Router for the gstack skill suite.",
       "routing": "Sends any gstack request to the right skill\n(planning, review, QA, shipping, debugging, docs, security, design). For browser/QA\nand dogfooding it points you at /browse. Use when you invoke gstack without a specific\nskill, or ask \"which gstack skill fits this?\".",
