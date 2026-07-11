@@ -1,5 +1,34 @@
 # Changelog
 
+## [1.61.0.0] - 2026-07-10
+
+## **Turn “something broke” into a report a maintainer can reproduce and fix.**
+
+The new `/bug-report` skill reconstructs the user's actions from conversation and
+repository evidence, captures narrowly scoped diagnostics, attempts a safe local
+reproduction, and separates confirmed facts from hypotheses. It produces both a
+maintainer-ready issue draft and an honest PR implementation handoff without
+silently editing code or publishing anything.
+
+### Added
+
+- `/bug-report`: evidence-driven timeline reconstruction, environment capture,
+  bounded reproduction attempts, exact steps, regression range, and maintainer
+  verification guidance.
+- Independent exact-byte redaction gates for reports, evidence files, and PR-body
+  drafts, plus visual/OCR review and metadata stripping for screenshots.
+- Router precedence that sends bare broken-behavior requests to `/investigate`,
+  explicit retrospective reporting to `/bug-report`, and proactive web exploration
+  to `/qa-only`.
+- Deterministic coverage for routing, privacy sinks, generated host variants,
+  report-only behavior, and redaction-file lifetime.
+
+### Changed
+
+- The shared redaction documentation resolver supports retaining a scanned temp
+  file until its destination write succeeds, preventing trusted bytes from being
+  deleted and reconstructed before persistence.
+
 ## [1.60.1.0] - 2026-07-09
 
 ## **The /autoplan dual-voice eval is back on the board, catching real regressions.**
