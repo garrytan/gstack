@@ -2318,6 +2318,7 @@ describe('setup script validation', () => {
     const fnBody = setupContent.slice(fnStart, fnEnd);
     expect(fnBody).toContain('.agents/skills');
     expect(fnBody).toContain('gstack*');
+    expect(fnBody).toContain('_gstack_skill_hidden');
   });
 
   test('link_claude_skill_dirs creates real directories with absolute SKILL.md symlinks', () => {
@@ -2329,6 +2330,7 @@ describe('setup script validation', () => {
     expect(fnBody).toContain('mkdir -p "$target"');
     // v1.36.0.0: routes through _link_or_copy helper for Windows fallback (cp on MSYS2/Git Bash).
     expect(fnBody).toContain('_link_or_copy "$gstack_dir/$dir_name/SKILL.md" "$target/SKILL.md"');
+    expect(fnBody).toContain('_gstack_skill_hidden');
   });
 
   // REGRESSION: cleanup functions must handle both old symlinks AND new real-directory pattern
