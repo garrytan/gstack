@@ -30,6 +30,7 @@ Invoke them by name (e.g., `/office-hours`).
 | `/review` | Pre-landing PR review. Finds bugs that pass CI but break in prod. |
 | `/codex` | Second opinion via OpenAI Codex. Review, challenge, or consult modes. |
 | `/investigate` | Systematic root-cause debugging. No fixes without investigation. |
+| `/bug-report` | Reconstruct what happened, capture safe diagnostics, and draft an exact maintainer-ready issue plus PR guidance. |
 | `/design-review` | Live-site visual audit + fix loop with atomic commits. |
 | `/design-shotgun` | Generate multiple AI design variants, comparison board, iterate. |
 | `/design-html` | Generate production-quality Pretext-native HTML/CSS. |

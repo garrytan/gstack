@@ -12,6 +12,7 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | [`/design-consultation`](#design-consultation) | **Design Partner** | Build a complete design system from scratch. Knows the landscape, proposes creative risks, generates realistic product mockups. Design at the heart of all other phases. |
 | [`/review`](#review) | **Staff Engineer** | Find the bugs that pass CI but blow up in production. Auto-fixes the obvious ones. Flags completeness gaps. |
 | [`/investigate`](#investigate) | **Debugger** | Systematic root-cause debugging. Iron Law: no fixes without investigation. Traces data flow, tests hypotheses, stops after 3 failed fixes. |
+| [`/bug-report`](#bug-report) | **Incident Reporter** | Reconstruct what happened from conversation, Git, and safe diagnostic logs; reproduce when possible; draft an exact maintainer-ready issue and PR handoff without publishing it. |
 | [`/design-review`](#design-review) | **Designer Who Codes** | Live-site visual audit + fix loop. 80-item audit, then fixes what it finds. Atomic commits, before/after screenshots. |
 | [`/design-shotgun`](#design-shotgun) | **Design Explorer** | Generate multiple AI design variants, open a comparison board in your browser, and iterate until you approve a direction. Taste memory biases toward your preferences. |
 | [`/design-html`](#design-html) | **Design Engineer** | Generates production-quality Pretext-native HTML. Works with approved mockups, CEO plans, design reviews, or from scratch. Text reflows on resize, heights adjust to content. Smart API routing per design type. Framework detection for React/Svelte/Vue. |
@@ -592,6 +593,14 @@ I want the model imagining the production incident before it happens.
 When something is broken and you don't know why, `/investigate` is your systematic debugger. It follows the Iron Law: **no fixes without root cause investigation first.**
 
 Instead of guessing and patching, it traces data flow, matches against known bug patterns, and tests hypotheses one at a time. If three fix attempts fail, it stops and questions the architecture instead of thrashing. This prevents the "let me try one more thing" spiral that wastes hours.
+
+---
+
+## `/bug-report`
+
+Use `/bug-report` when the failure already happened and the priority is preserving evidence for a maintainer. It reconstructs the timeline from the conversation, repository state, recent changes, and narrowly scoped logs; captures the relevant environment; attempts a safe local reproduction; and separates confirmed facts from hypotheses.
+
+The output is a redacted local issue draft plus PR-body handoff with exact prerequisites, one-action-per-step reproduction instructions, expected and actual behavior, evidence links, regression range, and a maintainer verification checklist. It never fixes code, trawls sensitive histories without permission, or publishes without explicit approval. If the report reveals a credible fix path, hand it to `/investigate` next.
 
 ---
 
