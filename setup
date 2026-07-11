@@ -530,6 +530,39 @@ link_codex_skill_dirs() {
   fi
 }
 
+# ─── Helper: remove stale flat Codex skills from pre-prefixed installs ───────
+# Older Codex setup versions installed Claude-format skills as flat directories
+# like ~/.codex/skills/ship. Those stale entries can shadow the generated
+# gstack-ship skill and still point at ~/.claude/skills/gstack runtime paths.
+cleanup_stale_codex_skill_dirs() {
+  local gstack_dir="$1"
+  local skills_dir="$2"
+  local removed=()
+
+  for skill_dir in "$gstack_dir"/*/; do
+    if [ -f "$skill_dir/SKILL.md" ]; then
+      skill_name="$(basename "$skill_dir")"
+      [ "$skill_name" = "node_modules" ] && continue
+      case "$skill_name" in gstack-*) continue ;; esac
+
+      stale_target="$skills_dir/$skill_name"
+      stale_skill="$stale_target/SKILL.md"
+      [ -d "$stale_target" ] || continue
+      [ -f "$stale_skill" ] || continue
+      [ -L "$stale_skill" ] && continue
+
+      if grep -q 'AUTO-GENERATED from SKILL.md.tmpl' "$stale_skill" 2>/dev/null \
+        && grep -q '~/.claude/skills/gstack' "$stale_skill" 2>/dev/null; then
+        rm -rf "$stale_target"
+        removed+=("$skill_name")
+      fi
+    fi
+  done
+  if [ ${#removed[@]} -gt 0 ]; then
+    echo "  cleaned up stale codex entries: ${removed[*]}"
+  fi
+}
+
 # ─── Helper: create .agents/skills/gstack/ sidecar symlinks ──────────
 # Codex/Gemini/Cursor read skills from .agents/skills/. We link runtime
 # assets (bin/, browse/dist/, review/, qa/, etc.) so skill templates can
@@ -851,6 +884,8 @@ if [ "$INSTALL_CODEX" -eq 1 ]; then
   if [ "$CODEX_REPO_LOCAL" -eq 0 ]; then
     create_codex_runtime_root "$SOURCE_GSTACK_DIR" "$CODEX_GSTACK"
   fi
+  # Remove stale flat Claude-format gstack skills before linking gstack-* Codex skills.
+  cleanup_stale_codex_skill_dirs "$SOURCE_GSTACK_DIR" "$CODEX_SKILLS"
   # Install generated Codex-format skills (not Claude source dirs)
   link_codex_skill_dirs "$SOURCE_GSTACK_DIR" "$CODEX_SKILLS"
 

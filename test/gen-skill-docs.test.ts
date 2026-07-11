@@ -2290,6 +2290,25 @@ describe('setup script validation', () => {
     expect(fnBody).toContain('[ "$skill_name" = "gstack" ] && continue');
   });
 
+  test('Codex install cleans stale flat gstack-generated skill directories', () => {
+    expect(setupContent).toContain('cleanup_stale_codex_skill_dirs');
+    const fnStart = setupContent.indexOf('cleanup_stale_codex_skill_dirs()');
+    const fnEnd = setupContent.indexOf('}', setupContent.indexOf('removed[@]}', fnStart));
+    const fnBody = setupContent.slice(fnStart, fnEnd);
+    expect(fnBody).toContain('~/.claude/skills/gstack');
+    expect(fnBody).toContain('AUTO-GENERATED from SKILL.md.tmpl');
+    expect(fnBody).toContain('rm -rf "$stale_target"');
+
+    const codexSection = setupContent.slice(
+      setupContent.indexOf('# 5. Install for Codex'),
+      setupContent.indexOf('# 6. Create')
+    );
+    expect(codexSection).toContain('cleanup_stale_codex_skill_dirs "$SOURCE_GSTACK_DIR" "$CODEX_SKILLS"');
+    expect(codexSection.indexOf('cleanup_stale_codex_skill_dirs')).toBeLessThan(
+      codexSection.indexOf('link_codex_skill_dirs')
+    );
+  });
+
   // T2: Dynamic $GSTACK_ROOT paths in generated Codex preambles
   test('generated Codex preambles use dynamic GSTACK_ROOT paths', () => {
     const codexSkillDir = path.join(ROOT, '.agents', 'skills', 'gstack-ship');

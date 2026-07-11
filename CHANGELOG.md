@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.32.1.0] - 2026-07-11
+
+## **Cleanup stale flat Codex skill directories on install.**
+
+The `setup` script now detects and removes stale flat Claude-format skill directories (from pre-prefixed older Codex installs) that can shadow the generated `gstack-*` Codex skills and still point at `~/.claude/skills/gstack` runtime paths. New test coverage added for the cleanup logic.
+
+### The numbers that matter
+
+Diff against `main` at v1.32.0.0.
+
+| Metric | v1.32.0.0 | v1.32.1.0 | Δ |
+|---|---|---|---|
+| Files changed | — | 2 | — |
+| Tests added | — | 1 | — |
+
+---
+
 ## [1.32.0.0] - 2026-05-10
 
 ## **Seven contributor PRs land. Three are security or hardening.**
