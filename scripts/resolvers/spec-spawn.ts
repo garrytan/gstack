@@ -62,9 +62,31 @@ echo "Follow with: cd $SPAWN_PATH && grok --continue"
 \`\`\`
 
 **Optional Claude execute:** if the user asked for \`--execute-claude\` instead of
-default Grok execute, and \`claude\` is on PATH, you may spawn:
+default Grok execute, and \`claude\` is on PATH, you may spawn — only after the
+same ARCHIVE_PATH allowlist gate as the Grok path (reuse the block above; never
+pipe an unallowlisted archive):
 
 \`\`\`bash
+# Re-run allowlist (same fail-closed rules as Grok path) before cat|claude.
+if [ ! -f "$ARCHIVE_PATH" ]; then
+  echo "STOP: ARCHIVE_PATH missing: $ARCHIVE_PATH"; exit 1
+fi
+if command -v realpath >/dev/null 2>&1; then
+  ARCHIVE_REAL=$(realpath "$ARCHIVE_PATH")
+else
+  ARCHIVE_REAL=$(cd "$(dirname "$ARCHIVE_PATH")" && pwd -P)/$(basename "$ARCHIVE_PATH")
+fi
+SPAWN_REAL=$(cd "$SPAWN_PATH" 2>/dev/null && pwd -P || echo "")
+if [ -z "$SPAWN_REAL" ]; then
+  echo "STOP: SPAWN_PATH is not a real directory: $SPAWN_PATH"; exit 1
+fi
+STATE_PROJECTS="\${GSTACK_STATE_ROOT:-\$HOME/.gstack}/projects"
+case "$ARCHIVE_REAL" in
+  "$STATE_PROJECTS"/*|"$SPAWN_REAL"/*) ;; # allowlisted
+  *)
+    echo "STOP: ARCHIVE_PATH realpath not under SPAWN_PATH or allowlisted archive dir ($STATE_PROJECTS)."; exit 1
+    ;;
+esac
 cat "$ARCHIVE_PATH" | (cd "$SPAWN_PATH" && claude -p 2>&1) &
 \`\`\`
 

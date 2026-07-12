@@ -1046,94 +1046,114 @@ create_grok_runtime_root() {
   local gstack_dir="$1"
   local grok_gstack="$2"
   local generated_root="$gstack_dir/.grok/skills/gstack"
+  local staging=""
+  local req
 
-  if [ -L "$grok_gstack" ]; then
-    rm -f "$grok_gstack"
-  elif [ -d "$grok_gstack" ] && [ "$grok_gstack" != "$gstack_dir" ]; then
-    # Replace previous thin packages / monorepo symlinks
-    rm -rf "$grok_gstack"
+  # Preflight required monorepo assets BEFORE wiping the live install.
+  # Without this, a mid-install failure under set -e leaves an empty/half tree
+  # after rm -rf (review finding #6).
+  for req in bin browse/dist browse/src scripts review/specialists; do
+    if [ ! -e "$gstack_dir/$req" ]; then
+      echo "error: preflight — required monorepo asset missing: $gstack_dir/$req" >&2
+      echo "  Run a full monorepo build (./setup or bun run build) before installing Grok runtime." >&2
+      return 1
+    fi
+  done
+  # Core review files audited by gstack-grok-compat-audit — fail closed when monorepo has review/
+  if [ -d "$gstack_dir/review" ]; then
+    for req in checklist.md TODOS-format.md; do
+      if [ ! -f "$gstack_dir/review/$req" ]; then
+        echo "error: preflight — core review file missing: $gstack_dir/review/$req" >&2
+        return 1
+      fi
+    done
+  fi
+  # design/dist required when monorepo ships the design package
+  if [ -d "$gstack_dir/design" ] && [ ! -d "$gstack_dir/design/dist" ]; then
+    echo "error: preflight — monorepo has design/ but design/dist is missing — run design build" >&2
+    return 1
   fi
 
-  mkdir -p "$grok_gstack" \
-    "$grok_gstack/browse" \
-    "$grok_gstack/design" \
-    "$grok_gstack/make-pdf" \
-    "$grok_gstack/gstack-upgrade" \
-    "$grok_gstack/review"
+  # Stage into a sibling .next tree, then atomic rename into place so a partial
+  # link failure never leaves the live ~/.grok/skills/gstack empty.
+  staging="${grok_gstack}.next.$$"
+  rm -rf "$staging"
+  mkdir -p "$staging" \
+    "$staging/browse" \
+    "$staging/design" \
+    "$staging/make-pdf" \
+    "$staging/gstack-upgrade" \
+    "$staging/review" || return 1
+
+  # Cleanup staging on any failure from here until atomic swap
+  # shellcheck disable=SC2064
+  trap 'rm -rf "$staging"' RETURN
 
   if [ -f "$generated_root/SKILL.md" ]; then
-    _link_or_copy "$generated_root/SKILL.md" "$grok_gstack/SKILL.md"
+    _link_or_copy "$generated_root/SKILL.md" "$staging/SKILL.md"
   elif [ -f "$gstack_dir/SKILL.md" ]; then
-    _link_or_copy "$gstack_dir/SKILL.md" "$grok_gstack/SKILL.md"
+    _link_or_copy "$gstack_dir/SKILL.md" "$staging/SKILL.md"
   fi
 
-  # Required core assets (fail closed)
-  _grok_link_under_monorepo "$gstack_dir" "$gstack_dir/bin" "$grok_gstack/bin" 1 || return 1
-
-  if [ -d "$gstack_dir/browse/dist" ]; then
-    _grok_link_under_monorepo "$gstack_dir" "$gstack_dir/browse/dist" "$grok_gstack/browse/dist" 1 || return 1
-  else
-    echo "error: required monorepo target missing: $gstack_dir/browse/dist (run ./setup build first)" >&2
-    return 1
-  fi
+  # Required core assets (fail closed) — dual-write with hosts/grok-build.ts runtimeRoot
+  _grok_link_under_monorepo "$gstack_dir" "$gstack_dir/bin" "$staging/bin" 1 || return 1
+  _grok_link_under_monorepo "$gstack_dir" "$gstack_dir/browse/dist" "$staging/browse/dist" 1 || return 1
   if [ -d "$gstack_dir/browse/bin" ]; then
-    _grok_link_under_monorepo "$gstack_dir" "$gstack_dir/browse/bin" "$grok_gstack/browse/bin" 0 || return 1
+    _grok_link_under_monorepo "$gstack_dir" "$gstack_dir/browse/bin" "$staging/browse/bin" 0 || return 1
   fi
-  if [ -d "$gstack_dir/browse/src" ]; then
-    _grok_link_under_monorepo "$gstack_dir" "$gstack_dir/browse/src" "$grok_gstack/browse/src" 1 || return 1
-  else
-    echo "error: required monorepo target missing: $gstack_dir/browse/src" >&2
-    return 1
-  fi
+  _grok_link_under_monorepo "$gstack_dir" "$gstack_dir/browse/src" "$staging/browse/src" 1 || return 1
 
-  # design/dist — required when monorepo has design package
   if [ -d "$gstack_dir/design/dist" ]; then
-    _grok_link_under_monorepo "$gstack_dir" "$gstack_dir/design/dist" "$grok_gstack/design/dist" 1 || return 1
-  elif [ -d "$gstack_dir/design" ]; then
-    echo "error: monorepo has design/ but design/dist is missing — run design build" >&2
-    return 1
+    _grok_link_under_monorepo "$gstack_dir" "$gstack_dir/design/dist" "$staging/design/dist" 1 || return 1
   fi
 
   # make-pdf/dist — link when present (membership skill)
   if [ -d "$gstack_dir/make-pdf/dist" ]; then
-    _grok_link_under_monorepo "$gstack_dir" "$gstack_dir/make-pdf/dist" "$grok_gstack/make-pdf/dist" 0 || return 1
+    _grok_link_under_monorepo "$gstack_dir" "$gstack_dir/make-pdf/dist" "$staging/make-pdf/dist" 0 || return 1
   fi
 
   # extension/ — required when monorepo has it
   if [ -d "$gstack_dir/extension" ]; then
-    _grok_link_under_monorepo "$gstack_dir" "$gstack_dir/extension" "$grok_gstack/extension" 1 || return 1
+    _grok_link_under_monorepo "$gstack_dir" "$gstack_dir/extension" "$staging/extension" 1 || return 1
   fi
 
-  # Full scripts/ tree (prefer full; jargon-only is debt)
-  if [ -d "$gstack_dir/scripts" ]; then
-    _grok_link_under_monorepo "$gstack_dir" "$gstack_dir/scripts" "$grok_gstack/scripts" 1 || return 1
-  else
-    echo "error: required monorepo target missing: $gstack_dir/scripts" >&2
-    return 1
-  fi
+  _grok_link_under_monorepo "$gstack_dir" "$gstack_dir/scripts" "$staging/scripts" 1 || return 1
 
-  # Review assets + specialists
-  for f in checklist.md TODOS-format.md design-checklist.md greptile-triage.md; do
+  # Core review files — required=1 so install policy matches gstack-grok-compat-audit (#7)
+  for f in checklist.md TODOS-format.md; do
+    _grok_link_under_monorepo "$gstack_dir" "$gstack_dir/review/$f" "$staging/review/$f" 1 || return 1
+  done
+  # Optional review assets (soft when monorepo lacks them)
+  for f in design-checklist.md greptile-triage.md; do
     if [ -f "$gstack_dir/review/$f" ]; then
-      _grok_link_under_monorepo "$gstack_dir" "$gstack_dir/review/$f" "$grok_gstack/review/$f" 0 || return 1
+      _grok_link_under_monorepo "$gstack_dir" "$gstack_dir/review/$f" "$staging/review/$f" 0 || return 1
     fi
   done
-  if [ -d "$gstack_dir/review/specialists" ]; then
-    _grok_link_under_monorepo "$gstack_dir" "$gstack_dir/review/specialists" "$grok_gstack/review/specialists" 1 || return 1
-  else
-    echo "error: required monorepo target missing: $gstack_dir/review/specialists" >&2
-    return 1
-  fi
+  _grok_link_under_monorepo "$gstack_dir" "$gstack_dir/review/specialists" "$staging/review/specialists" 1 || return 1
 
   if [ -f "$gstack_dir/gstack-upgrade/SKILL.md" ] || [ -f "$gstack_dir/.grok/skills/gstack-upgrade/SKILL.md" ]; then
     if [ -f "$gstack_dir/.grok/skills/gstack-upgrade/SKILL.md" ]; then
-      _link_or_copy "$gstack_dir/.grok/skills/gstack-upgrade/SKILL.md" "$grok_gstack/gstack-upgrade/SKILL.md"
+      _link_or_copy "$gstack_dir/.grok/skills/gstack-upgrade/SKILL.md" "$staging/gstack-upgrade/SKILL.md"
     else
-      _link_or_copy "$gstack_dir/gstack-upgrade/SKILL.md" "$grok_gstack/gstack-upgrade/SKILL.md"
+      _link_or_copy "$gstack_dir/gstack-upgrade/SKILL.md" "$staging/gstack-upgrade/SKILL.md"
     fi
   fi
   if [ -f "$gstack_dir/ETHOS.md" ]; then
-    _grok_link_under_monorepo "$gstack_dir" "$gstack_dir/ETHOS.md" "$grok_gstack/ETHOS.md" 0 || return 1
+    _grok_link_under_monorepo "$gstack_dir" "$gstack_dir/ETHOS.md" "$staging/ETHOS.md" 0 || return 1
+  fi
+
+  # Atomic swap: only wipe live install after staging is fully linked
+  trap - RETURN
+  if [ -L "$grok_gstack" ]; then
+    rm -f "$grok_gstack"
+  elif [ -d "$grok_gstack" ] && [ "$grok_gstack" != "$gstack_dir" ]; then
+    rm -rf "$grok_gstack"
+  fi
+  # Prefer rename; fall back to mv -T when available for non-empty dest edge cases
+  if ! mv "$staging" "$grok_gstack" 2>/dev/null; then
+    echo "error: failed to promote staged Grok runtime root to $grok_gstack" >&2
+    rm -rf "$staging"
+    return 1
   fi
 }
 
