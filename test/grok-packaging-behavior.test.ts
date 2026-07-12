@@ -15,7 +15,8 @@ import * as os from 'os';
 import { generateSpecSpawn, generateSpecExecuteFlag } from '../scripts/resolvers/spec-spawn';
 import type { TemplateContext } from '../scripts/resolvers/types';
 import { HOST_PATHS } from '../scripts/resolvers/types';
-import { GrokAdapter } from './helpers/providers/grok';
+import { GrokAdapter, parseGrokOutput, isStructurallyValidGrokAuthFile } from './helpers/providers/grok';
+import { estimateCostUsd, PRICING } from './helpers/pricing';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const AUDIT_BIN = path.join(ROOT, 'bin', 'gstack-grok-compat-audit');
@@ -132,7 +133,7 @@ describe('GrokAdapter behavioral unit', () => {
     expect(r.reason).toMatch(/No Grok auth|XAI_API_KEY|GROK_API_KEY/i);
   });
 
-  test('available() accepts auth.json presence under HOME (boolean only)', async () => {
+  test('available() accepts non-empty auth.json object under HOME', async () => {
     const which = spawnSync('sh', ['-c', 'command -v grok'], {
       timeout: 2000,
       encoding: 'utf-8',
@@ -140,9 +141,92 @@ describe('GrokAdapter behavioral unit', () => {
     });
     if (which.status !== 0) return; // cannot exercise auth-file path without binary
     fs.mkdirSync(path.join(tmpHome, '.grok'), { recursive: true });
-    fs.writeFileSync(path.join(tmpHome, '.grok', 'auth.json'), '{}');
+    // OAuth-shaped key (URL) without logging real secrets — structure only
+    fs.writeFileSync(
+      path.join(tmpHome, '.grok', 'auth.json'),
+      JSON.stringify({ 'https://auth.x.ai::fixture-user': { access: 'x' } }),
+    );
     const r = await adapter.available();
     expect(r.ok).toBe(true);
+  });
+
+  test('available() fails closed on empty object auth.json {}', async () => {
+    const which = spawnSync('sh', ['-c', 'command -v grok'], {
+      timeout: 2000,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    if (which.status !== 0) return;
+    fs.mkdirSync(path.join(tmpHome, '.grok'), { recursive: true });
+    fs.writeFileSync(path.join(tmpHome, '.grok', 'auth.json'), '{}');
+    const r = await adapter.available();
+    expect(r.ok).toBe(false);
+    expect(r.reason).toMatch(/No Grok auth|auth\.json|XAI_API_KEY|GROK_API_KEY/i);
+    // Reason must never echo file contents / secrets
+    expect(r.reason).not.toMatch(/access_token|sk-|Bearer/i);
+  });
+
+  test('available() fails closed on zero-byte and invalid auth.json', async () => {
+    const which = spawnSync('sh', ['-c', 'command -v grok'], {
+      timeout: 2000,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    if (which.status !== 0) return;
+    fs.mkdirSync(path.join(tmpHome, '.grok'), { recursive: true });
+    const authPath = path.join(tmpHome, '.grok', 'auth.json');
+
+    fs.writeFileSync(authPath, '');
+    expect((await adapter.available()).ok).toBe(false);
+
+    fs.writeFileSync(authPath, '   \n');
+    expect((await adapter.available()).ok).toBe(false);
+
+    fs.writeFileSync(authPath, 'not-json');
+    expect((await adapter.available()).ok).toBe(false);
+
+    fs.writeFileSync(authPath, 'null');
+    expect((await adapter.available()).ok).toBe(false);
+
+    fs.writeFileSync(authPath, '[]');
+    expect((await adapter.available()).ok).toBe(false);
+  });
+
+  test('available() fails closed on whitespace-only env keys', async () => {
+    const which = spawnSync('sh', ['-c', 'command -v grok'], {
+      timeout: 2000,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    if (which.status !== 0) return;
+    process.env.XAI_API_KEY = '   ';
+    process.env.GROK_API_KEY = '\t';
+    const r = await adapter.available();
+    expect(r.ok).toBe(false);
+    expect(r.reason).not.toContain('   ');
+  });
+
+  test('available() accepts non-blank env key without auth file', async () => {
+    const which = spawnSync('sh', ['-c', 'command -v grok'], {
+      timeout: 2000,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    if (which.status !== 0) return;
+    process.env.XAI_API_KEY = 'test-not-a-real-key';
+    const r = await adapter.available();
+    expect(r.ok).toBe(true);
+  });
+
+  test('isStructurallyValidGrokAuthFile pure checks', () => {
+    const p = path.join(tmpHome, 'auth.json');
+    fs.writeFileSync(p, '');
+    expect(isStructurallyValidGrokAuthFile(p)).toBe(false);
+    fs.writeFileSync(p, '{}');
+    expect(isStructurallyValidGrokAuthFile(p)).toBe(false);
+    fs.writeFileSync(p, '{"k":1}');
+    expect(isStructurallyValidGrokAuthFile(p)).toBe(true);
+    expect(isStructurallyValidGrokAuthFile(path.join(tmpHome, 'missing.json'))).toBe(false);
   });
 
   test('run() uses --prompt-file for multi-line / large prompts (ARG_MAX safety)', async () => {
@@ -194,7 +278,125 @@ describe('GrokAdapter behavioral unit', () => {
       process.env.PATH = prevPath;
     }
   });
+
+  test('run() passes --output-format json and parses usage from fixture CLI', async () => {
+    const fakeBin = path.join(tmpHome, 'bin');
+    fs.mkdirSync(fakeBin, { recursive: true });
+    const grokSh = path.join(fakeBin, 'grok');
+    // Echo argv so we can assert --output-format json; emit usage-bearing JSON on stdout
+    const payload = JSON.stringify({
+      text: 'hello',
+      usage: { input_tokens: 1000, output_tokens: 500 },
+      model: 'grok',
+    });
+    fs.writeFileSync(
+      grokSh,
+      `#!/bin/sh
+# record argv for assertions
+printf '%s\\n' "$*" > "${tmpHome}/grok-argv.txt"
+echo '${payload}'
+`,
+      { mode: 0o755 },
+    );
+    const prevPath = process.env.PATH;
+    process.env.PATH = `${fakeBin}:${prevPath ?? ''}`;
+    try {
+      const r = await adapter.run({
+        prompt: 'hi',
+        workdir: tmpHome,
+        timeoutMs: 3000,
+      });
+      expect(r.error).toBeUndefined();
+      expect(r.output).toBe('hello');
+      expect(r.tokens).toEqual({ input: 1000, output: 500 });
+      expect(r.modelUsed).toBe('grok');
+      // Cost honesty: non-zero tokens × official rates → non-zero USD
+      const cost = adapter.estimateCost(r.tokens, r.modelUsed);
+      expect(cost).toBeGreaterThan(0);
+      const argv = fs.readFileSync(path.join(tmpHome, 'grok-argv.txt'), 'utf-8');
+      expect(argv).toMatch(/--output-format\s+json|--output-format json/);
+    } finally {
+      process.env.PATH = prevPath;
+    }
+  });
 });
+
+// ─── parseGrokOutput + pricing honesty ───────────────────────
+
+describe('parseGrokOutput + Grok pricing', () => {
+  test('parses characterized headless json shape (no usage → zero tokens)', () => {
+    const raw = JSON.stringify({
+      text: 'pong',
+      stopReason: 'EndTurn',
+      sessionId: '019f57be-82a4-7990-89ed-47a030fbaeb7',
+      requestId: 'fe579ce3-777b-42e5-aea5-f2e25c24398d',
+      thought: 'simple reply',
+    });
+    const p = parseGrokOutput(raw);
+    expect(p.output).toBe('pong');
+    expect(p.tokens).toEqual({ input: 0, output: 0 });
+  });
+
+  test('parses usage when present (input_tokens / output_tokens)', () => {
+    const p = parseGrokOutput(
+      JSON.stringify({
+        text: 'ok',
+        usage: { input_tokens: 1_000_000, output_tokens: 1_000_000 },
+      }),
+    );
+    expect(p.tokens).toEqual({ input: 1_000_000, output: 1_000_000 });
+    // With U1 rates for `grok` ($1/$2 per MTok): 1 + 2 = $3
+    expect(estimateCostUsd(p.tokens, 'grok')).toBe(3);
+  });
+
+  test('parses prompt_tokens / completion_tokens aliases', () => {
+    const p = parseGrokOutput(
+      JSON.stringify({
+        text: 'x',
+        usage: { prompt_tokens: 100, completion_tokens: 50 },
+      }),
+    );
+    expect(p.tokens).toEqual({ input: 100, output: 50 });
+  });
+
+  test('plain text without usage → zero tokens, no throw', () => {
+    const p = parseGrokOutput('just plain assistant text');
+    expect(p.output).toBe('just plain assistant text');
+    expect(p.tokens).toEqual({ input: 0, output: 0 });
+  });
+
+  test('streaming-json NDJSON accumulates text; zero tokens without usage', () => {
+    const raw = [
+      '{"type":"thought","data":"hmm"}',
+      '{"type":"text","data":"hel"}',
+      '{"type":"text","data":"lo"}',
+      '{"type":"end","stopReason":"EndTurn","sessionId":"x"}',
+    ].join('\n');
+    const p = parseGrokOutput(raw);
+    expect(p.output).toBe('hello');
+    expect(p.tokens).toEqual({ input: 0, output: 0 });
+  });
+
+  test('official Grok rates are non-zero and match rate math', () => {
+    expect(PRICING['grok']?.input_per_mtok).toBe(1);
+    expect(PRICING['grok']?.output_per_mtok).toBe(2);
+    expect(PRICING['grok-build-0.1']?.input_per_mtok).toBe(1);
+    expect(PRICING['grok-4.5']?.input_per_mtok).toBe(2);
+    expect(PRICING['grok-4.5']?.output_per_mtok).toBe(6);
+    // 1M in + 1M out at $1/$2 → $3.00
+    expect(estimateCostUsd({ input: 1_000_000, output: 1_000_000 }, 'grok')).toBe(3);
+    // 1M in + 1M out at $2/$6 → $8.00
+    expect(estimateCostUsd({ input: 1_000_000, output: 1_000_000 }, 'grok-4.5')).toBe(8);
+  });
+
+  test('unknown model returns 0 and does not throw; peer rows unchanged', () => {
+    expect(estimateCostUsd({ input: 1_000_000, output: 1_000_000 }, 'not-a-real-model-xyz')).toBe(0);
+    expect(PRICING['claude-opus-4-7']?.input_per_mtok).toBe(15);
+    expect(PRICING['gpt-5.4']?.input_per_mtok).toBe(2.5);
+    expect(PRICING['gemini-2.5-pro']?.input_per_mtok).toBe(1.25);
+  });
+});
+
 
 // ─── gstack-grok-compat-audit fixtures ───────────────────────
 
