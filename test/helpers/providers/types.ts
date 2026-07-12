@@ -55,7 +55,7 @@ export interface AvailabilityCheck {
   reason?: string;
 }
 
-export type Family = 'claude' | 'gpt' | 'gemini';
+export type Family = 'claude' | 'gpt' | 'gemini' | 'grok';
 
 export interface ProviderAdapter {
   /** Stable name used in output tables and config (e.g., 'claude', 'gpt', 'gemini'). */

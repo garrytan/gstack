@@ -7,7 +7,7 @@
  *   gstack-model-benchmark <skill-or-prompt-file> [options]
  *
  * Options:
- *   --models claude,gpt,gemini   Comma-separated provider list (default: claude)
+ *   --models claude,gpt,gemini,grok  Comma-separated provider list (default: claude)
  *   --prompt "<text>"            Inline prompt instead of a file
  *   --workdir <path>             Working dir passed to each CLI (default: cwd)
  *   --timeout-ms <n>             Per-provider timeout (default: 300000)
@@ -15,27 +15,29 @@
  *   --skip-unavailable           Skip providers that fail available() check
  *                                (default: include them with unavailable marker)
  *   --judge                      Run Anthropic SDK judge on outputs for quality score
- *                                (requires ANTHROPIC_API_KEY; adds ~$0.05 per call)
+ *                                (requires ANTHROPIC_API_KEY; Grok-only skips judge)
  *   --dry-run                    Validate flags + resolve auth, don't invoke providers
  *
  * Examples:
  *   gstack-model-benchmark --prompt "Write a haiku about databases" --models claude,gpt
  *   gstack-model-benchmark ./test-prompt.txt --models claude,gpt,gemini --judge
- *   gstack-model-benchmark --prompt "hi" --models claude,gpt,gemini --dry-run
+ *   gstack-model-benchmark --prompt "hi" --models grok --dry-run
  */
 
 import '../lib/conductor-env-shim';
 import * as fs from 'fs';
 import * as path from 'path';
-import { runBenchmark, formatTable, formatJson, formatMarkdown, type BenchmarkInput } from '../test/helpers/benchmark-runner';
+import { runBenchmark, formatTable, formatJson, formatMarkdown, type BenchmarkInput, type ProviderName } from '../test/helpers/benchmark-runner';
 import { ClaudeAdapter } from '../test/helpers/providers/claude';
 import { GptAdapter } from '../test/helpers/providers/gpt';
 import { GeminiAdapter } from '../test/helpers/providers/gemini';
+import { GrokAdapter } from '../test/helpers/providers/grok';
 
-const ADAPTER_FACTORIES = {
+const ADAPTER_FACTORIES: Record<ProviderName, () => { name: string; available: () => Promise<{ ok: boolean; reason?: string }> }> = {
   claude: () => new ClaudeAdapter(),
   gpt: () => new GptAdapter(),
   gemini: () => new GeminiAdapter(),
+  grok: () => new GrokAdapter(),
 };
 
 type OutputFormat = 'table' | 'json' | 'markdown';
@@ -76,13 +78,13 @@ function positionalArgs(args: string[]): string[] {
   return positional;
 }
 
-function parseProviders(s: string | undefined): Array<'claude' | 'gpt' | 'gemini'> {
+function parseProviders(s: string | undefined): ProviderName[] {
   if (!s) return ['claude'];
-  const seen = new Set<'claude' | 'gpt' | 'gemini'>();
+  const seen = new Set<ProviderName>();
   for (const p of s.split(',').map(x => x.trim()).filter(Boolean)) {
-    if (p === 'claude' || p === 'gpt' || p === 'gemini') seen.add(p);
+    if (p === 'claude' || p === 'gpt' || p === 'gemini' || p === 'grok') seen.add(p);
     else {
-      console.error(`WARN: unknown provider '${p}' — skipping. Valid: claude, gpt, gemini.`);
+      console.error(`WARN: unknown provider '${p}' — skipping. Valid: claude, gpt, gemini, grok.`);
     }
   }
   return seen.size ? Array.from(seen) : ['claude'];
@@ -129,11 +131,16 @@ async function main(): Promise<void> {
   const report = await runBenchmark(input);
 
   if (doJudge) {
-    try {
-      const { judgeEntries } = await import('../test/helpers/benchmark-judge');
-      await judgeEntries(report);
-    } catch (err) {
-      console.error(`WARN: judge unavailable: ${(err as Error).message}`);
+    // Grok-or-skip: judge requires Anthropic; Grok-only machines skip cleanly
+    if (!process.env.ANTHROPIC_API_KEY) {
+      console.error('WARN: judge skipped — ANTHROPIC_API_KEY not set (Grok-or-skip judge).');
+    } else {
+      try {
+        const { judgeEntries } = await import('../test/helpers/benchmark-judge');
+        await judgeEntries(report);
+      } catch (err) {
+        console.error(`WARN: judge unavailable: ${(err as Error).message}`);
+      }
     }
   }
 
@@ -149,7 +156,7 @@ async function main(): Promise<void> {
 
 async function dryRunReport(opts: {
   prompt: string;
-  providers: Array<'claude' | 'gpt' | 'gemini'>;
+  providers: ProviderName[];
   workdir: string;
   timeoutMs: number;
   output: OutputFormat;

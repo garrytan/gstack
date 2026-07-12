@@ -994,6 +994,27 @@ browser to the internet securely).
 
 STOP here. Wait for the user to install ngrok and re-invoke.
 
+**Bridge status:** Remote pair is **DEPENDENT** on ngrok until the tunnel binary
+is installed and authenticated. Local same-machine pair remains zero-extra-dep
+and must never hard-require ngrok.
+
+### Remote path security + teardown checklist
+
+Remote pairing expands attack surface vs local pair. Always:
+
+1. **Authenticated tunnel only** — never run an unauthenticated public expose.
+2. **Bind local pair endpoint to 127.0.0.1** — do not advertise LAN bind.
+3. **Authtoken out-of-band** — user pastes token into `ngrok config add-authtoken`;
+   never echo the token or tunnel URL into session transcripts beyond what the
+   CLI already printed for the user to copy.
+4. **Teardown after pair** — when pairing ends, stop the ngrok tunnel process
+   (or tell the user: `pkill -f 'ngrok http'` / dashboard stop). Do not leave
+   a long-lived public tunnel running.
+5. **Verify:** `ngrok config check` after auth; `which ngrok` for install.
+
+If ngrok is missing, report bridge DEPENDENT (install path present) — do **not**
+mark the remote primary path READY/COMPATIBLE from install prose alone.
+
 ## Step 5: Verify connection
 
 After the user pastes the instructions into the other agent, wait a moment then check:

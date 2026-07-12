@@ -30,6 +30,11 @@ modify files.
 
 The generated external invocation name is `gstack-claude`.
 
+**MULTI_CLI_BRIDGE:** Primary modes always call the Claude Code CLI. Packaging and
+Step 0 detect/install are first-class on this host; this skill does **not** work
+without Claude installed and authenticated. Residual foreign-CLI dependency is
+expected and labeled — never claim "works without Claude."
+
 ---
 
 ## Step 0: Check Claude CLI

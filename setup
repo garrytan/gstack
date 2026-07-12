@@ -24,6 +24,8 @@ FACTORY_SKILLS="$HOME/.factory/skills"
 FACTORY_GSTACK="$FACTORY_SKILLS/gstack"
 OPENCODE_SKILLS="$HOME/.config/opencode/skills"
 OPENCODE_GSTACK="$OPENCODE_SKILLS/gstack"
+GROK_SKILLS="$HOME/.grok/skills"
+GROK_GSTACK="$GROK_SKILLS/gstack"
 
 IS_WINDOWS=0
 case "$(uname -s)" in
@@ -85,7 +87,7 @@ NO_TEAM_MODE=0
 PLAN_TUNE_HOOKS_MODE=""   # "" = resolve from env/config/prompt; "yes"/"no" = explicit
 while [ $# -gt 0 ]; do
   case "$1" in
-    --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, codex, kiro, factory, opencode, openclaw, hermes, gbrain, or auto)" >&2 && exit 1; HOST="$2"; shift 2 ;;
+    --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, codex, kiro, factory, opencode, openclaw, hermes, gbrain, grok-build, grok, or auto)" >&2 && exit 1; HOST="$2"; shift 2 ;;
     --host=*) HOST="${1#--host=}"; shift ;;
     --local) LOCAL_INSTALL=1; shift ;;
     --prefix)    SKILL_PREFIX=1; SKILL_PREFIX_FLAG=1; shift ;;
@@ -100,8 +102,11 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+# Alias: --host grok → grok-build
+if [ "$HOST" = "grok" ]; then HOST="grok-build"; fi
+
 case "$HOST" in
-  claude|codex|kiro|factory|opencode|auto) ;;
+  claude|codex|kiro|factory|opencode|grok-build|auto) ;;
   openclaw)
     echo ""
     echo "OpenClaw integration uses a different model — OpenClaw spawns Claude Code"
@@ -136,7 +141,7 @@ case "$HOST" in
     echo "GBrain setup and brain skills ship from the GBrain repo."
     echo ""
     exit 0 ;;
-  *) echo "Unknown --host value: $HOST (expected claude, codex, kiro, factory, opencode, openclaw, hermes, gbrain, or auto)" >&2; exit 1 ;;
+  *) echo "Unknown --host value: $HOST (expected claude, codex, kiro, factory, opencode, openclaw, hermes, gbrain, grok-build, grok, or auto)" >&2; exit 1 ;;
 esac
 
 # ─── Resolve skill prefix preference ─────────────────────────
@@ -200,14 +205,16 @@ INSTALL_CODEX=0
 INSTALL_KIRO=0
 INSTALL_FACTORY=0
 INSTALL_OPENCODE=0
+INSTALL_GROK=0
 if [ "$HOST" = "auto" ]; then
   command -v claude >/dev/null 2>&1 && INSTALL_CLAUDE=1
   command -v codex >/dev/null 2>&1 && INSTALL_CODEX=1
   command -v kiro-cli >/dev/null 2>&1 && INSTALL_KIRO=1
   command -v droid >/dev/null 2>&1 && INSTALL_FACTORY=1
   command -v opencode >/dev/null 2>&1 && INSTALL_OPENCODE=1
+  command -v grok >/dev/null 2>&1 && INSTALL_GROK=1
   # If none found, default to claude
-  if [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ] && [ "$INSTALL_FACTORY" -eq 0 ] && [ "$INSTALL_OPENCODE" -eq 0 ]; then
+  if [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ] && [ "$INSTALL_FACTORY" -eq 0 ] && [ "$INSTALL_OPENCODE" -eq 0 ] && [ "$INSTALL_GROK" -eq 0 ]; then
     INSTALL_CLAUDE=1
   fi
 elif [ "$HOST" = "claude" ]; then
@@ -220,6 +227,8 @@ elif [ "$HOST" = "factory" ]; then
   INSTALL_FACTORY=1
 elif [ "$HOST" = "opencode" ]; then
   INSTALL_OPENCODE=1
+elif [ "$HOST" = "grok-build" ]; then
+  INSTALL_GROK=1
 fi
 
 migrate_direct_codex_install() {
@@ -472,6 +481,16 @@ if [ "$INSTALL_OPENCODE" -eq 1 ] && [ "$NEEDS_BUILD" -eq 0 ]; then
     cd "$SOURCE_GSTACK_DIR"
     bun_cmd install --frozen-lockfile 2>/dev/null || bun_cmd install
     bun_cmd run gen:skill-docs --host opencode
+  )
+fi
+
+# 1e. Generate .grok/ Grok Build skill docs
+if [ "$INSTALL_GROK" -eq 1 ] && [ "$NEEDS_BUILD" -eq 0 ]; then
+  log "Generating .grok/ skill docs for Grok Build..."
+  (
+    cd "$SOURCE_GSTACK_DIR"
+    bun_cmd install --frozen-lockfile 2>/dev/null || bun_cmd install
+    bun_cmd run gen:skill-docs --host grok-build
   )
 fi
 
@@ -972,6 +991,212 @@ link_opencode_skill_dirs() {
   fi
 }
 
+# ─── Grok Build (xAI) runtime root + skill links ───────────────────────────
+# Grok discovers skills from ~/.grok/skills/<pkg>/SKILL.md.
+# Generated packages live in <repo>/.grok/skills/gstack-* (path-rewritten).
+# Runtime assets (bin, browse, design, specialists, …) live at ~/.grok/skills/gstack.
+#
+# Security: every required link target must realpath under monorepo install root.
+# Dual-write with hosts/grok-build.ts runtimeRoot — keep lists in sync (R1 / U1).
+_grok_link_under_monorepo() {
+  local monorepo_root="$1"
+  local src="$2"
+  local dst="$3"
+  local required="${4:-0}"  # 1 = fail closed if missing when expected
+
+  if [ ! -e "$src" ]; then
+    if [ "$required" = "1" ]; then
+      echo "error: required Grok runtime asset missing: $src" >&2
+      echo "  monorepo root: $monorepo_root" >&2
+      echo "  Re-run from a full gstack checkout after builds complete." >&2
+      return 1
+    fi
+    return 0
+  fi
+
+  local src_real monorepo_real
+  src_real=$(cd "$(dirname "$src")" 2>/dev/null && pwd -P)/$(basename "$src")
+  monorepo_real=$(cd "$monorepo_root" 2>/dev/null && pwd -P)
+  case "$src_real" in
+    "$monorepo_real"|"$monorepo_real"/*) ;;
+    *)
+      echo "error: refusing Grok runtime link outside monorepo:" >&2
+      echo "  src=$src_real" >&2
+      echo "  monorepo=$monorepo_real" >&2
+      return 1
+      ;;
+  esac
+
+  _link_or_copy "$src" "$dst"
+}
+
+create_grok_runtime_root() {
+  local gstack_dir="$1"
+  local grok_gstack="$2"
+  local generated_root="$gstack_dir/.grok/skills/gstack"
+
+  if [ -L "$grok_gstack" ]; then
+    rm -f "$grok_gstack"
+  elif [ -d "$grok_gstack" ] && [ "$grok_gstack" != "$gstack_dir" ]; then
+    # Replace previous thin packages / monorepo symlinks
+    rm -rf "$grok_gstack"
+  fi
+
+  mkdir -p "$grok_gstack" \
+    "$grok_gstack/browse" \
+    "$grok_gstack/design" \
+    "$grok_gstack/make-pdf" \
+    "$grok_gstack/gstack-upgrade" \
+    "$grok_gstack/review"
+
+  if [ -f "$generated_root/SKILL.md" ]; then
+    _link_or_copy "$generated_root/SKILL.md" "$grok_gstack/SKILL.md"
+  elif [ -f "$gstack_dir/SKILL.md" ]; then
+    _link_or_copy "$gstack_dir/SKILL.md" "$grok_gstack/SKILL.md"
+  fi
+
+  # Required core assets (fail closed)
+  _grok_link_under_monorepo "$gstack_dir" "$gstack_dir/bin" "$grok_gstack/bin" 1 || return 1
+
+  if [ -d "$gstack_dir/browse/dist" ]; then
+    _grok_link_under_monorepo "$gstack_dir" "$gstack_dir/browse/dist" "$grok_gstack/browse/dist" 1 || return 1
+  else
+    echo "error: required monorepo target missing: $gstack_dir/browse/dist (run ./setup build first)" >&2
+    return 1
+  fi
+  if [ -d "$gstack_dir/browse/bin" ]; then
+    _grok_link_under_monorepo "$gstack_dir" "$gstack_dir/browse/bin" "$grok_gstack/browse/bin" 0 || return 1
+  fi
+  if [ -d "$gstack_dir/browse/src" ]; then
+    _grok_link_under_monorepo "$gstack_dir" "$gstack_dir/browse/src" "$grok_gstack/browse/src" 1 || return 1
+  else
+    echo "error: required monorepo target missing: $gstack_dir/browse/src" >&2
+    return 1
+  fi
+
+  # design/dist — required when monorepo has design package
+  if [ -d "$gstack_dir/design/dist" ]; then
+    _grok_link_under_monorepo "$gstack_dir" "$gstack_dir/design/dist" "$grok_gstack/design/dist" 1 || return 1
+  elif [ -d "$gstack_dir/design" ]; then
+    echo "error: monorepo has design/ but design/dist is missing — run design build" >&2
+    return 1
+  fi
+
+  # make-pdf/dist — link when present (membership skill)
+  if [ -d "$gstack_dir/make-pdf/dist" ]; then
+    _grok_link_under_monorepo "$gstack_dir" "$gstack_dir/make-pdf/dist" "$grok_gstack/make-pdf/dist" 0 || return 1
+  fi
+
+  # extension/ — required when monorepo has it
+  if [ -d "$gstack_dir/extension" ]; then
+    _grok_link_under_monorepo "$gstack_dir" "$gstack_dir/extension" "$grok_gstack/extension" 1 || return 1
+  fi
+
+  # Full scripts/ tree (prefer full; jargon-only is debt)
+  if [ -d "$gstack_dir/scripts" ]; then
+    _grok_link_under_monorepo "$gstack_dir" "$gstack_dir/scripts" "$grok_gstack/scripts" 1 || return 1
+  else
+    echo "error: required monorepo target missing: $gstack_dir/scripts" >&2
+    return 1
+  fi
+
+  # Review assets + specialists
+  for f in checklist.md TODOS-format.md design-checklist.md greptile-triage.md; do
+    if [ -f "$gstack_dir/review/$f" ]; then
+      _grok_link_under_monorepo "$gstack_dir" "$gstack_dir/review/$f" "$grok_gstack/review/$f" 0 || return 1
+    fi
+  done
+  if [ -d "$gstack_dir/review/specialists" ]; then
+    _grok_link_under_monorepo "$gstack_dir" "$gstack_dir/review/specialists" "$grok_gstack/review/specialists" 1 || return 1
+  else
+    echo "error: required monorepo target missing: $gstack_dir/review/specialists" >&2
+    return 1
+  fi
+
+  if [ -f "$gstack_dir/gstack-upgrade/SKILL.md" ] || [ -f "$gstack_dir/.grok/skills/gstack-upgrade/SKILL.md" ]; then
+    if [ -f "$gstack_dir/.grok/skills/gstack-upgrade/SKILL.md" ]; then
+      _link_or_copy "$gstack_dir/.grok/skills/gstack-upgrade/SKILL.md" "$grok_gstack/gstack-upgrade/SKILL.md"
+    else
+      _link_or_copy "$gstack_dir/gstack-upgrade/SKILL.md" "$grok_gstack/gstack-upgrade/SKILL.md"
+    fi
+  fi
+  if [ -f "$gstack_dir/ETHOS.md" ]; then
+    _grok_link_under_monorepo "$gstack_dir" "$gstack_dir/ETHOS.md" "$grok_gstack/ETHOS.md" 0 || return 1
+  fi
+}
+
+link_grok_skill_dirs() {
+  local gstack_dir="$1"
+  local skills_dir="$2"
+  local grok_dir="$gstack_dir/.grok/skills"
+  local linked=()
+
+  if [ ! -d "$grok_dir" ]; then
+    echo "  Generating .grok/ skill docs..."
+    ( cd "$gstack_dir" && bun run gen:skill-docs --host grok-build )
+  fi
+
+  if [ ! -d "$grok_dir" ]; then
+    echo "  warning: .grok/skills/ generation failed — run 'bun run gen:skill-docs --host grok-build' manually" >&2
+    return 1
+  fi
+
+  mkdir -p "$skills_dir"
+
+  for skill_dir in "$grok_dir"/gstack*/; do
+    if [ -f "$skill_dir/SKILL.md" ]; then
+      skill_name="$(basename "$skill_dir")"
+      # Runtime root is installed separately as ~/.grok/skills/gstack
+      [ "$skill_name" = "gstack" ] && continue
+      target="$skills_dir/$skill_name"
+      # Replace stale monorepo flat symlinks (browse → ~/gstack/browse) with generated packages
+      if [ -L "$target" ] || [ ! -e "$target" ]; then
+        _link_or_copy "$skill_dir" "$target"
+        linked+=("$skill_name")
+      elif [ -d "$target" ] && [ ! -f "$target/SKILL.md" ]; then
+        rm -rf "$target"
+        _link_or_copy "$skill_dir" "$target"
+        linked+=("$skill_name")
+      else
+        # Force refresh: generated content is authoritative for this host
+        rm -rf "$target"
+        _link_or_copy "$skill_dir" "$target"
+        linked+=("$skill_name")
+      fi
+
+      # Also expose unprefixed alias (browse) so slash names match frontmatter
+      # without depending on Grok's name: field alone.
+      # Deny bare `codex` alias (OpenAI plugin owns /codex); optional gstack-codex only.
+      bare_name="${skill_name#gstack-}"
+      if [ -n "$bare_name" ] && [ "$bare_name" != "$skill_name" ] && [ "$bare_name" != "codex" ]; then
+        bare_target="$skills_dir/$bare_name"
+        # Only alias if missing or already a symlink (don't clobber real non-gstack skills)
+        if [ -L "$bare_target" ] || [ ! -e "$bare_target" ]; then
+          _link_or_copy "$skill_dir" "$bare_target"
+        fi
+      fi
+    fi
+  done
+
+  # Backwards-compat alias: /connect-chrome → generated open-gstack-browser (U2 / KTD7)
+  # Force-refresh stale monorepo targets that pointed at source tree packages.
+  local _ogb_src=""
+  if [ -d "$skills_dir/gstack-open-gstack-browser" ]; then
+    _ogb_src="$skills_dir/gstack-open-gstack-browser"
+  elif [ -d "$grok_dir/gstack-open-gstack-browser" ]; then
+    _ogb_src="$grok_dir/gstack-open-gstack-browser"
+  fi
+  if [ -n "$_ogb_src" ]; then
+    rm -rf "$skills_dir/connect-chrome"
+    _link_or_copy "$_ogb_src" "$skills_dir/connect-chrome"
+    linked+=("connect-chrome→open-gstack-browser")
+  fi
+
+  if [ ${#linked[@]} -gt 0 ]; then
+    echo "  linked skills: ${linked[*]}"
+  fi
+}
+
 # 4. Install for Claude (default)
 SKILLS_BASENAME="$(basename "$INSTALL_SKILLS_DIR")"
 SKILLS_PARENT_BASENAME="$(basename "$(dirname "$INSTALL_SKILLS_DIR")")"
@@ -1191,6 +1416,17 @@ if [ "$INSTALL_OPENCODE" -eq 1 ]; then
   echo "gstack ready (opencode)."
   echo "  browse: $BROWSE_BIN"
   echo "  opencode skills: $OPENCODE_SKILLS"
+fi
+
+# 6d. Install for Grok Build (xAI)
+if [ "$INSTALL_GROK" -eq 1 ]; then
+  mkdir -p "$GROK_SKILLS"
+  create_grok_runtime_root "$SOURCE_GSTACK_DIR" "$GROK_GSTACK"
+  link_grok_skill_dirs "$SOURCE_GSTACK_DIR" "$GROK_SKILLS"
+  echo "gstack ready (grok-build)."
+  echo "  browse: $BROWSE_BIN"
+  echo "  grok skills: $GROK_SKILLS"
+  echo "  runtime root: $GROK_GSTACK"
 fi
 
 # 7. Create .agents/ sidecar symlinks for the real Codex skill target.

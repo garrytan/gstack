@@ -22,16 +22,18 @@ import {
   slate,
   cursor,
   openclaw,
+  grokBuild,
 } from '../hosts/index';
 import { HOST_PATHS } from '../scripts/resolvers/types';
+import { resolveDistBinary } from '../scripts/resolvers/browse';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 
 // ─── hosts/index.ts ─────────────────────────────────────────
 
 describe('hosts/index.ts', () => {
-  test('ALL_HOST_CONFIGS has 10 hosts', () => {
-    expect(ALL_HOST_CONFIGS.length).toBe(10);
+  test('ALL_HOST_CONFIGS has 11 hosts', () => {
+    expect(ALL_HOST_CONFIGS.length).toBe(11);
   });
 
   test('ALL_HOST_NAMES matches config names', () => {
@@ -409,6 +411,12 @@ describe('golden-file regression', () => {
     const current = fs.readFileSync(path.join(ROOT, '.factory', 'skills', 'gstack-ship', 'SKILL.md'), 'utf-8');
     expect(current).toBe(golden);
   });
+
+  test('Grok Build ship skill matches golden baseline', () => {
+    const golden = fs.readFileSync(path.join(GOLDEN_DIR, 'grok-build-ship-SKILL.md'), 'utf-8');
+    const current = fs.readFileSync(path.join(ROOT, '.grok', 'skills', 'gstack-ship', 'SKILL.md'), 'utf-8');
+    expect(current).toBe(golden);
+  });
 });
 
 // ─── Individual host config correctness ─────────────────────
@@ -534,5 +542,44 @@ describe('host config correctness', () => {
       expect(config.runtimeRoot.globalSymlinks).toContain('bin');
       expect(config.runtimeRoot.globalSymlinks).toContain('ETHOS.md');
     }
+  });
+
+  test('grok-build runtime root lists complete packaging assets (U1)', () => {
+    expect(grokBuild.name).toBe('grok-build');
+    expect(grokBuild.usesEnvVars).toBe(true);
+    const links = grokBuild.runtimeRoot.globalSymlinks;
+    for (const asset of [
+      'browse/src',
+      'design/dist',
+      'make-pdf/dist',
+      'extension',
+      'scripts',
+      'review/specialists',
+    ]) {
+      expect(links).toContain(asset);
+    }
+    expect(grokBuild.runtimeRoot.globalFiles?.review).toContain('checklist.md');
+    expect(grokBuild.runtimeRoot.globalFiles?.review).toContain('design-checklist.md');
+    expect(grokBuild.generation.skipSkills).toContain('codex');
+  });
+
+  test('grok-build path rewrites suppress Claude host bleed (U3)', () => {
+    expect(grokBuild.pathRewrites.some(r => r.from === 'CLAUDE.md' && r.to === 'AGENTS.md')).toBe(true);
+    expect(grokBuild.pathRewrites.some(r => r.from === 'MODEL_OVERLAY: claude' && r.to === 'MODEL_OVERLAY: none')).toBe(true);
+    expect(grokBuild.toolRewrites?.['AskUserQuestion']).toBe('ask_user_question');
+  });
+});
+
+describe('resolveDistBinary (U2 double-home fix)', () => {
+  test('env-var browseDir never prefixes $HOME', () => {
+    expect(resolveDistBinary('$GSTACK_BROWSE', 'browse')).toBe('$GSTACK_BROWSE/browse');
+    expect(resolveDistBinary('$GSTACK_DESIGN', 'design')).toBe('$GSTACK_DESIGN/design');
+    expect(resolveDistBinary('$GSTACK_MAKE_PDF', 'pdf')).toBe('$GSTACK_MAKE_PDF/pdf');
+  });
+
+  test('tilde paths keep $HOME prefix', () => {
+    expect(resolveDistBinary('~/.claude/skills/gstack/browse/dist', 'browse')).toBe(
+      '$HOME/.claude/skills/gstack/browse/dist/browse',
+    );
   });
 });

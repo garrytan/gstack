@@ -19,6 +19,7 @@ bin/gstack-global-discover*
 .opencode/
 .slate/
 .cursor/
+.grok/
 .openclaw/
 .hermes/
 .gbrain/

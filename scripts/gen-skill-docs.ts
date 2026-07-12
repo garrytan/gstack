@@ -91,9 +91,11 @@ let HOST: Host = HOST_ARG_VAL === 'all' ? 'claude' : HOST_ARG_VAL;
 
 // ─── Model Overlay Selection ────────────────────────────────
 // --model is explicit. We do NOT auto-detect from host (host ≠ model).
-// Default is 'claude'. Missing overlay file → empty string (graceful).
+// Default is 'claude' for most hosts. Grok Build suppresses the Claude
+// model overlay body unless --model is passed explicitly (U3 / KTD6).
 import { ALL_MODEL_NAMES, resolveModel, type Model } from './models';
 const MODEL_ARG = process.argv.find(a => a.startsWith('--model'));
+const MODEL_EXPLICIT = !!MODEL_ARG;
 const MODEL_ARG_VAL: Model = (() => {
   if (!MODEL_ARG) return 'claude';
   const val = MODEL_ARG.includes('=') ? MODEL_ARG.split('=')[1] : process.argv[process.argv.indexOf(MODEL_ARG) + 1];
@@ -729,9 +731,12 @@ function buildContext(
   const preambleTier = tierMatch ? parseInt(tierMatch[1], 10) : undefined;
   const interactiveMatch = tmplContent.match(/^interactive:\s*(true|false)\s*$/m);
   const interactive = interactiveMatch ? interactiveMatch[1] === 'true' : undefined;
+  // Grok-native packaging: no Claude MODEL_OVERLAY section unless user forced --model
+  const modelForHost: Model | undefined =
+    host === 'grok-build' && !MODEL_EXPLICIT ? undefined : MODEL_ARG_VAL;
   return {
     skillName, tmplPath, benefitsFrom, host, paths: HOST_PATHS[host],
-    preambleTier, model: MODEL_ARG_VAL, interactive, explainLevel: EXPLAIN_LEVEL,
+    preambleTier, model: modelForHost, interactive, explainLevel: EXPLAIN_LEVEL,
   };
 }
 
