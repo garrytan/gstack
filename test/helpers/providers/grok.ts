@@ -42,7 +42,10 @@ export class GrokAdapter implements ProviderAdapter {
       };
     }
 
-    const authPath = path.join(os.homedir(), '.grok', 'auth.json');
+    // Prefer HOME when set so hermetic tests / agent envs can isolate auth
+    // discovery. Bun's os.homedir() ignores process.env.HOME (unlike Node).
+    const home = process.env.HOME || os.homedir();
+    const authPath = path.join(home, '.grok', 'auth.json');
     const hasAuthFile = fs.existsSync(authPath);
     // Presence of env *names* only — never read/log values
     const hasKey = !!(process.env.XAI_API_KEY || process.env.GROK_API_KEY);
@@ -82,6 +85,8 @@ export class GrokAdapter implements ProviderAdapter {
         timeout: opts.timeoutMs,
         encoding: 'utf-8',
         maxBuffer: 32 * 1024 * 1024,
+        // Pipe stderr so auth-shaped tokens never inherit onto the parent console
+        stdio: ['ignore', 'pipe', 'pipe'],
         env: { ...process.env, GSTACK_HEADLESS: '1' },
       });
       return {

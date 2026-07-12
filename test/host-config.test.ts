@@ -568,6 +568,34 @@ describe('host config correctness', () => {
     expect(grokBuild.pathRewrites.some(r => r.from === 'MODEL_OVERLAY: claude' && r.to === 'MODEL_OVERLAY: none')).toBe(true);
     expect(grokBuild.toolRewrites?.['AskUserQuestion']).toBe('ask_user_question');
   });
+
+  // Dual-write parity (#5): hosts/grok-build.ts runtimeRoot must appear in setup's
+  // create_grok_runtime_root so packaging cannot skew silently.
+  test('grok-build runtimeRoot dual-write parity with create_grok_runtime_root', () => {
+    const setupPath = path.join(ROOT, 'setup');
+    const setup = fs.readFileSync(setupPath, 'utf-8');
+    const fnStart = setup.indexOf('create_grok_runtime_root()');
+    expect(fnStart).toBeGreaterThanOrEqual(0);
+    // Function ends at link_grok_skill_dirs (next sibling) — slice that range
+    const fnEnd = setup.indexOf('link_grok_skill_dirs()', fnStart);
+    expect(fnEnd).toBeGreaterThan(fnStart);
+    const fnBody = setup.slice(fnStart, fnEnd);
+
+    for (const link of grokBuild.runtimeRoot.globalSymlinks) {
+      // Each asset path must appear as a monorepo source under create_grok_runtime_root
+      expect(fnBody).toContain(link);
+    }
+    for (const f of grokBuild.runtimeRoot.globalFiles?.review ?? []) {
+      expect(fnBody).toContain(f);
+    }
+    // Preflight + atomic stage (review #6) stay wired
+    expect(fnBody).toContain('preflight');
+    expect(fnBody).toMatch(/\.next\.\$\$|staging/);
+    // Core review files fail-closed (review #7): required=1 on link
+    expect(fnBody).toMatch(
+      /for f in checklist\.md TODOS-format\.md; do[\s\S]*?_grok_link_under_monorepo[^\n]* 1 \|\| return 1/,
+    );
+  });
 });
 
 describe('resolveDistBinary (U2 double-home fix)', () => {
