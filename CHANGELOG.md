@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.61.0.0] - 2026-07-12
+
+## **Permanent Antigravity (Agy) integration and benchmark support are live.**
+## **gstack now runs on Agy, registers/updates plugins automatically, and supports Agy model benchmarks.**
+
+Agy integration is now permanent and first-class. Running setup with `--host agy` generates and imports Agy-compatible skills, excludes incompatible skills, and registers the gstack plugin in Agy's plugin configuration. This release also fixes several test-suite and helper issues that were causing CI failures, and adds Agy model benchmarking.
+
+### Itemized changes
+
+#### Added
+
+- `hosts/agy.ts`: Declarative host configuration for Agy.
+- `test/helpers/providers/agy.ts`: Agy benchmark runner adapter that executes `agy --print` with safely skipped permissions.
+- `docs/AGY.md`: User documentation for Agy installation and integration.
+
+#### Fixed
+
+- `setup`: Support `--host agy` flag, build `plugin.json` and skill directories under `.gemini/config/plugins/gstack`, and trigger `agy plugin install`.
+- `bin/gstack-codex-session-import`: Added `-r` flag to `xargs` pipeline to prevent listing files in current directory when empty.
+- `test/gbrain-detect-install.test.ts`: Appended bun's executable directory to test environment `PATH` to resolve shebang resolution failures.
+- `test/gbrain-refresh-install-render.test.ts`: Resolved regex pattern mismatch in status check.
+
 ## [1.60.1.0] - 2026-07-09
 
 ## **The /autoplan dual-voice eval is back on the board, catching real regressions.**
