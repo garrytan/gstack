@@ -65,7 +65,7 @@ case "$MODE" in
       exit 0
     fi
     LATEST=$(find "$CODEX_SESSIONS_ROOT" -type f -name "rollout-*.jsonl" -print 2>/dev/null \
-      | xargs ls -t 2>/dev/null | head -1 || true)
+      | xargs -r ls -t 2>/dev/null | head -1 || true)
     if [ -z "$LATEST" ]; then
       echo "NO_SESSIONS: no rollout-*.jsonl files under $CODEX_SESSIONS_ROOT"
       exit 0
