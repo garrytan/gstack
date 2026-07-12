@@ -2,6 +2,55 @@
 
 ## NEXT PRIORITY
 
+### P2: Grok Build full-compat follow-ups (after `feat/grok-build-host`)
+
+**What:** Finish / harden the Grok-native packaging work landed on
+`feat/grok-build-host` (runtime root, SETUP path fix, host-bleed cleanup,
+bridges, `bin/gstack-grok-compat-audit`, section pointers for token ceiling).
+These are the remaining product/ship items — not blockers for local Grok use.
+
+**Context (landed on branch):**
+- U1–U3 packaging + U4–U7 bridges + U9 audit gate
+- Setup host-scoping (no always-on Codex `.agents/` regen / Claude plan-tune
+  prompt on `--host grok-build`)
+- Option A: Grok carved skills use STOP-Read section pointers
+  (`~/.grok/skills/gstack-*/sections/`) — `/ship` always-loaded ~20k tokens
+  (was ~45k)
+
+**Follow-ups to track:**
+
+1. **Upstream PR** — open/update PR against `garrytan/gstack` for
+   `feat/grok-build-host` (VERSION/CHANGELOG/title deferred until local DoD
+   green on main merge path).
+2. **U4 behavioral smoke** — if claiming `/spec --execute` COMPATIBLE (not
+   file-only), record multi-turn tool-use / cwd isolation / fail-closed auth
+   smoke or fixture; flag-string greps alone are not enough.
+3. **Section pointers for other external hosts (optional)** — Codex ship is
+   still monolith ~39k (near soft ceiling). Reuse
+   `hostUsesSectionPointers` for Codex/Cursor/Factory when package paths are
+   portable (Codex: `.agents/skills/gstack-*` or global
+   `~/.codex/skills/gstack-*`).
+4. **R10 / U8 optional `gstack-codex`** — only if product wants suite
+   completeness; keep bare `/codex` = OpenAI plugin; deny bare `codex` alias
+   on Grok install (partial deny already in `link_grok_skill_dirs`).
+5. **Gbrain Grok MCP stretch** — optional `~/.grok/config.toml` gbrain stanza
+   (absolute path, TOML RMW, atomic write + backup; non-interactive refuse
+   overwrite without `--force`). Success path remains CLI + AGENTS.md.
+6. **Audit harness productization** — keep `bin/gstack-grok-compat-audit` as
+   long-lived multi-host CI later, or document as branch/DoD gate only
+   (open question from plan ce-doc-review).
+7. **Name collision note** — document `/review` vs compound-engineering
+   `code-review` routing in `~/.grok/AGENTS.md` (do not delete CE skill).
+
+**Why:** Branch is implementation-ready for local Grok; these items close
+honesty gaps, upstream ship, and optional suite completeness without
+reopening Phase A packaging.
+
+**Depends on / blocked by:** Nothing for local use. Upstream PR waits on
+clean validation + VERSION/CHANGELOG if that is the release process.
+
+---
+
 ### P1: #1882 — portable skill-install prefix (non-`gstack` install dirs break silently)
 
 **What:** Every generated SKILL.md hardcodes the literal `~/.claude/skills/gstack/...`
