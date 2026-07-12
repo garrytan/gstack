@@ -447,16 +447,13 @@ if [ ! -x "$BROWSE_BIN" ]; then
   exit 1
 fi
 
-# 1b. Generate .agents/ Codex skill docs — always regenerate to prevent stale descriptions.
+# 1b. Generate .agents/ Codex skill docs — only when installing for Codex.
 # .agents/ is no longer committed — generated at setup time from .tmpl templates.
 # bun run build already does this, but we need it when NEEDS_BUILD=0 (binary is fresh).
-# Always regenerate: generation is fast (<2s) and mtime-based staleness checks are fragile
-# (miss stale files when timestamps match after clone/checkout/upgrade).
-AGENTS_DIR="$SOURCE_GSTACK_DIR/.agents/skills"
-NEEDS_AGENTS_GEN=1
-
-if [ "$NEEDS_AGENTS_GEN" -eq 1 ] && [ "$NEEDS_BUILD" -eq 0 ]; then
-  log "Generating .agents/ skill docs..."
+# Host-scoped: --host grok-build / claude / factory / etc. must not pay Codex regen cost
+# or imply a Codex install is in progress.
+if [ "$INSTALL_CODEX" -eq 1 ] && [ "$NEEDS_BUILD" -eq 0 ]; then
+  log "Generating .agents/ skill docs for Codex..."
   (
     cd "$SOURCE_GSTACK_DIR"
     bun_cmd install --frozen-lockfile 2>/dev/null || bun_cmd install
@@ -1573,6 +1570,10 @@ fi
 # something at runtime instead of being agent-convention. Explicit consent UX
 # per D4 + Codex: never mutate settings.json silently.
 #
+# Host-scoped: these hooks only affect Claude Code. Skip the prompt entirely for
+# non-Claude host installs (e.g. --host grok-build) unless the user explicitly
+# passed --plan-tune-hooks. Grok /plan-tune still works via skill-text path.
+#
 # Idempotent via _gstack_source tag = 'plan-tune-cathedral'. If both hooks
 # already registered under that tag, the install is a no-op (no prompt).
 PLAN_TUNE_LOG_HOOK="$SOURCE_GSTACK_DIR/hosts/claude/hooks/question-log-hook"
@@ -1580,7 +1581,14 @@ PLAN_TUNE_PREF_HOOK="$SOURCE_GSTACK_DIR/hosts/claude/hooks/question-preference-h
 AUQ_ERROR_FALLBACK_HOOK="$SOURCE_GSTACK_DIR/hosts/claude/hooks/auq-error-fallback-hook"
 PLAN_TUNE_INSTALL_MARKER="$HOME/.gstack/.plan-tune-hooks-prompted"
 
+# Explicit --plan-tune-hooks still allowed from any host install (user intent).
+_PT_EXPLICIT_YES=0
+case "$(printf '%s' "${PLAN_TUNE_HOOKS_MODE:-}" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')" in
+  y|yes|true|install|on|1) _PT_EXPLICIT_YES=1 ;;
+esac
+
 if [ "$NO_TEAM_MODE" -ne 1 ] \
+   && { [ "$INSTALL_CLAUDE" -eq 1 ] || [ "$_PT_EXPLICIT_YES" -eq 1 ]; } \
    && [ -x "$SETTINGS_HOOK" ] \
    && [ -x "$PLAN_TUNE_LOG_HOOK" ] \
    && [ -x "$PLAN_TUNE_PREF_HOOK" ]; then

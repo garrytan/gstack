@@ -60,6 +60,16 @@ describe('setup: plan-tune hooks are non-interactive-safe', () => {
     expect(setupSrc).toMatch(/tr '\[:upper:\]' '\[:lower:\]'/);
     expect(setupSrc).toMatch(/PT_DECISION=\$\(printf .* tr/);
   });
+
+  test('plan-tune hooks are Claude-host-scoped (skip for --host grok-build)', () => {
+    // Non-Claude host installs must not prompt to mutate ~/.claude/settings.json.
+    // Explicit --plan-tune-hooks still allowed via _PT_EXPLICIT_YES.
+    expect(setupSrc).toContain('_PT_EXPLICIT_YES');
+    expect(setupSrc).toContain('[ "$INSTALL_CLAUDE" -eq 1 ] || [ "$_PT_EXPLICIT_YES" -eq 1 ]');
+    // Codex .agents/ regen is also host-scoped — not always-on during grok-only setup.
+    expect(setupSrc).toContain('[ "$INSTALL_CODEX" -eq 1 ] && [ "$NEEDS_BUILD" -eq 0 ]');
+    expect(setupSrc).toContain('Generating .agents/ skill docs for Codex...');
+  });
 });
 
 describe('dev-setup: never silently mutates global settings.json', () => {
