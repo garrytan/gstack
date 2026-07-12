@@ -25,29 +25,37 @@ if [ ! -f "$HOME/.grok/auth.json" ] && [ -z "\${XAI_API_KEY:-}\${GROK_API_KEY:-}
   echo "STOP: Grok not authenticated (no ~/.grok/auth.json and no XAI_API_KEY/GROK_API_KEY). Log in via \`grok\`, or use --no-execute."
   exit 1
 fi
-# ARCHIVE_PATH must stay under SPAWN_PATH parent or the gstack projects allowlist
-ARCHIVE_REAL=$(cd "$(dirname "$ARCHIVE_PATH")" && pwd -P)/$(basename "$ARCHIVE_PATH")
+# ARCHIVE_PATH must stay under SPAWN_PATH or the gstack projects allowlist (fail closed).
+if [ ! -f "$ARCHIVE_PATH" ]; then
+  echo "STOP: ARCHIVE_PATH missing: $ARCHIVE_PATH"; exit 1
+fi
+if command -v realpath >/dev/null 2>&1; then
+  ARCHIVE_REAL=$(realpath "$ARCHIVE_PATH")
+else
+  ARCHIVE_REAL=$(cd "$(dirname "$ARCHIVE_PATH")" && pwd -P)/$(basename "$ARCHIVE_PATH")
+fi
 SPAWN_REAL=$(cd "$SPAWN_PATH" 2>/dev/null && pwd -P || echo "")
+if [ -z "$SPAWN_REAL" ]; then
+  echo "STOP: SPAWN_PATH is not a real directory: $SPAWN_PATH"; exit 1
+fi
+STATE_PROJECTS="\${GSTACK_STATE_ROOT:-\$HOME/.gstack}/projects"
 case "$ARCHIVE_REAL" in
-  "$HOME/.gstack/projects"/*|"$HOME/.gstack/projects"/*/*) ;; # allowlisted archive dir
+  "$STATE_PROJECTS"/*|"$SPAWN_REAL"/*) ;; # allowlisted
   *)
-    if [ -n "$SPAWN_REAL" ]; then
-      case "$ARCHIVE_REAL" in
-        "$SPAWN_REAL"/*) ;;
-        *) echo "STOP: ARCHIVE_PATH realpath not under SPAWN_PATH or allowlisted archive dir."; exit 1 ;;
-      esac
-    fi
+    echo "STOP: ARCHIVE_PATH realpath not under SPAWN_PATH or allowlisted archive dir ($STATE_PROJECTS)."; exit 1
     ;;
 esac
 \`\`\`
 
-**Security:** \`--always-approve\` auto-approves tool use (elevated). Only spawn
-when the user confirmed the D16 gate. Spec archives must not contain secrets.
-Third-party note: archive body is sent to xAI for processing.
+**Security:** default spawn does **not** pass \`--always-approve\` (elevated
+auto-approve). Only spawn after the user confirmed the D16 gate. If the user
+explicitly opts into unattended tool use, append \`--always-approve\` to the
+command below — never enable it by default. Spec archives must not contain
+secrets. Third-party note: archive body is sent to xAI for processing.
 
 \`\`\`bash
-# Prefer --prompt-file (researched). Optional elevated approve is documented opt-in.
-(cd "$SPAWN_PATH" && grok --prompt-file "$ARCHIVE_PATH" --cwd "$SPAWN_PATH" --always-approve 2>&1) &
+# Prefer --prompt-file (researched). Elevated --always-approve is opt-in only.
+(cd "$SPAWN_PATH" && grok --prompt-file "$ARCHIVE_PATH" --cwd "$SPAWN_PATH" 2>&1) &
 SPAWN_PID=$!
 echo "Spawned: PID $SPAWN_PID in $SPAWN_PATH (branch $SPAWN_BRANCH)"
 echo "Follow with: cd $SPAWN_PATH && grok --continue"

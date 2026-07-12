@@ -1,12 +1,12 @@
 import type { ProviderAdapter, RunOpts, RunResult, AvailabilityCheck } from './types';
 import { estimateCostUsd } from '../pricing';
-import { execFileSync } from 'child_process';
+import { execFileSync, spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
 /**
- * Grok adapter — wraps the `grok` CLI via -p / --single.
+ * Grok adapter — wraps the `grok` CLI via -p / --single / --prompt-file.
  *
  * Auth readiness is boolean only: CLI present + (~/.grok/auth.json OR
  * XAI_API_KEY / GROK_API_KEY env names present). Never log token values.
@@ -16,12 +16,14 @@ export class GrokAdapter implements ProviderAdapter {
   readonly family = 'grok' as const;
 
   async available(): Promise<AvailabilityCheck> {
-    // Boolean PATH presence only — never log secrets
-    let hasBinary = false;
-    try {
-      execFileSync('which', ['grok'], { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] });
-      hasBinary = true;
-    } catch {
+    // Boolean PATH presence only — never log secrets. Bound to ≤2s like peer adapters.
+    const which = spawnSync('sh', ['-c', 'command -v grok'], {
+      timeout: 2000,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    let hasBinary = which.status === 0;
+    if (!hasBinary) {
       try {
         execFileSync('grok', ['--version'], {
           encoding: 'utf-8',
@@ -55,8 +57,22 @@ export class GrokAdapter implements ProviderAdapter {
 
   async run(opts: RunOpts): Promise<RunResult> {
     const start = Date.now();
-    // Short single-turn: -p / --single. Prefer file-free short prompts for benchmark.
-    const args = ['--single', opts.prompt];
+    // Prefer --prompt-file for multi-line / large prompts (ARG_MAX + quoting).
+    // Short single-line prompts use --single to avoid temp files.
+    const useFile =
+      opts.prompt.includes('\n') || opts.prompt.length > 2000 || Buffer.byteLength(opts.prompt, 'utf8') > 2000;
+    let promptFile: string | null = null;
+    let args: string[];
+    if (useFile) {
+      promptFile = path.join(
+        os.tmpdir(),
+        `gstack-grok-bench-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.txt`,
+      );
+      fs.writeFileSync(promptFile, opts.prompt, 'utf-8');
+      args = ['--prompt-file', promptFile, '--cwd', opts.workdir];
+    } else {
+      args = ['--single', opts.prompt];
+    }
     if (opts.model) args.push('--model', opts.model);
     if (opts.extraArgs) args.push(...opts.extraArgs);
 
@@ -79,19 +95,29 @@ export class GrokAdapter implements ProviderAdapter {
       const durationMs = Date.now() - start;
       const e = err as { code?: string; stderr?: Buffer; signal?: string; message?: string };
       const stderr = e.stderr?.toString() ?? '';
+      // Never surface raw stderr for auth paths (may contain token-shaped text).
+      const safeSlice = (s: string) => s.replace(/[A-Za-z0-9_\-]{20,}/g, '[redacted]').slice(0, 200);
       if (e.signal === 'SIGTERM' || e.code === 'ETIMEDOUT') {
         return this.emptyResult(durationMs, { code: 'timeout', reason: `exceeded ${opts.timeoutMs}ms` }, opts.model);
       }
       if (/unauthorized|auth|login|api.?key/i.test(stderr)) {
-        return this.emptyResult(durationMs, { code: 'auth', reason: stderr.slice(0, 400) }, opts.model);
+        return this.emptyResult(durationMs, { code: 'auth', reason: 'authentication failed (details redacted)' }, opts.model);
       }
       if (/rate[- ]?limit|429/i.test(stderr)) {
-        return this.emptyResult(durationMs, { code: 'rate_limit', reason: stderr.slice(0, 400) }, opts.model);
+        return this.emptyResult(durationMs, { code: 'rate_limit', reason: safeSlice(stderr) }, opts.model);
       }
       if (/ENOENT|not found/i.test(e.message ?? '') || e.code === 'ENOENT') {
         return this.emptyResult(durationMs, { code: 'binary_missing', reason: 'grok CLI not found' }, opts.model);
       }
-      return this.emptyResult(durationMs, { code: 'unknown', reason: (e.message ?? stderr ?? 'unknown').slice(0, 400) }, opts.model);
+      return this.emptyResult(durationMs, { code: 'unknown', reason: safeSlice(e.message ?? stderr ?? 'unknown') }, opts.model);
+    } finally {
+      if (promptFile) {
+        try {
+          fs.unlinkSync(promptFile);
+        } catch {
+          // best-effort cleanup of temp prompt file
+        }
+      }
     }
   }
 

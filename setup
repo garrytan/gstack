@@ -1012,8 +1012,23 @@ _grok_link_under_monorepo() {
   fi
 
   local src_real monorepo_real
-  src_real=$(cd "$(dirname "$src")" 2>/dev/null && pwd -P)/$(basename "$src")
   monorepo_real=$(cd "$monorepo_root" 2>/dev/null && pwd -P)
+  # Fail closed: empty monorepo_real makes "$monorepo_real"/* expand to /* and
+  # match every absolute path — never allow that.
+  if [ -z "$monorepo_real" ] || [ ! -d "$monorepo_real" ]; then
+    echo "error: refusing Grok runtime link — monorepo root unresolved: $monorepo_root" >&2
+    return 1
+  fi
+  # Prefer full realpath when available so a final-component symlink cannot escape.
+  if command -v realpath >/dev/null 2>&1; then
+    src_real=$(realpath "$src" 2>/dev/null) || src_real=""
+  else
+    src_real=$(cd "$(dirname "$src")" 2>/dev/null && pwd -P)/$(basename "$src")
+  fi
+  if [ -z "$src_real" ]; then
+    echo "error: refusing Grok runtime link — cannot realpath src: $src" >&2
+    return 1
+  fi
   case "$src_real" in
     "$monorepo_real"|"$monorepo_real"/*) ;;
     *)

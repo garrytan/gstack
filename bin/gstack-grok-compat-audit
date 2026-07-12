@@ -16,7 +16,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const args = process.argv.slice(2);
@@ -227,16 +227,24 @@ function auditBridges() {
   // Install prose alone must not claim primary READY when CLI missing
   const area = 'bridge-policy';
 
-  // benchmark-models: grok provider must exist in binary
+  // Prefer installed runtime root binary (what users run); fall back to monorepo.
+  const installedBench = path.join(GSTACK_ROOT, 'bin', 'gstack-model-benchmark');
+  const monorepoBench = path.join(ROOT, 'bin', 'gstack-model-benchmark');
+  const benchBin = exists(installedBench) ? installedBench : monorepoBench;
+  if (!exists(installedBench) && exists(monorepoBench)) {
+    warn(area, 'benchmark: using monorepo binary (installed runtime bin missing) — packaging incomplete?');
+  }
   try {
-    const help = execSync(`"${path.join(ROOT, 'bin/gstack-model-benchmark')}" --prompt "x" --models grok --dry-run 2>&1`, {
+    // No shell: argv list avoids monorepo-path injection.
+    const help = execFileSync(benchBin, ['--prompt', 'x', '--models', 'grok', '--dry-run'], {
       encoding: 'utf-8',
       timeout: 15000,
+      maxBuffer: 2 * 1024 * 1024,
     });
     if (/unknown provider.*grok/i.test(help)) {
       fail(area, 'benchmark: grok still unknown provider');
     } else if (/grok:\s*(OK|NOT READY)/i.test(help)) {
-      ok(area, 'benchmark: grok provider wired (dry-run READY/NOT READY is boolean auth)');
+      ok(area, `benchmark: grok provider wired via ${benchBin} (dry-run READY/NOT READY is boolean auth)`);
     } else {
       warn(area, `benchmark dry-run unexpected output: ${help.slice(0, 200)}`);
     }
@@ -248,30 +256,34 @@ function auditBridges() {
     else warn(area, `benchmark dry-run error: ${String(msg).slice(0, 200)}`);
   }
 
-  // spec: Grok package should not default to claude -p outside execute-claude
+  // spec: at least one installed package must exist and use Grok-native spawn
+  let specSeen = 0;
   for (const name of ['gstack-spec', 'spec']) {
     const skill = path.join(SKILLS_DIR, name, 'SKILL.md');
     if (!exists(skill)) continue;
+    specSeen++;
     const body = readText(skill);
     if (/\$\(cat\s+["']?\$ARCHIVE/.test(body) || /grok[^\n]*\$\(cat/.test(body)) {
       fail(area, `${name}: banned $(cat …) into grok argv`);
     }
-    if (/Spawned:.*claude -p/.test(body) && !/--execute-claude/.test(body) && !/optional/i.test(body)) {
-      // Default path still Claude — fail for Grok host package
-      if (/grok --prompt-file/.test(body) || /Spawn \*\*Grok\*\*/.test(body)) {
-        ok(area, `${name}: Grok-native spawn present`);
-      } else {
-        fail(area, `${name}: default execute still only claude -p (no Grok spawn)`);
-      }
-    } else if (/grok --prompt-file/.test(body)) {
-      ok(area, `${name}: uses researched grok --prompt-file`);
+    if (/grok --prompt-file/.test(body) || /Spawn \*\*Grok\*\*/.test(body)) {
+      ok(area, `${name}: Grok-native spawn present`);
+    } else if (/Spawned:.*claude -p/.test(body) && !/--execute-claude/.test(body)) {
+      fail(area, `${name}: default execute still only claude -p (no Grok spawn)`);
+    } else {
+      fail(area, `${name}: missing researched grok --prompt-file spawn`);
     }
+  }
+  if (specSeen === 0) {
+    fail(area, 'spec: neither gstack-spec nor spec package installed under skills dir');
   }
 
   // setup-gbrain: must not hard-require which claude for success
+  let gbrainSeen = 0;
   for (const name of ['gstack-setup-gbrain', 'setup-gbrain']) {
     const skill = path.join(SKILLS_DIR, name, 'SKILL.md');
     if (!exists(skill)) continue;
+    gbrainSeen++;
     const body = readText(skill);
     if (/Grok Build success path/.test(body) || /no Claude required/i.test(body)) {
       ok(area, `${name}: Grok success path documented`);
@@ -279,11 +291,16 @@ function auditBridges() {
       warn(area, `${name}: missing explicit Grok success path (CLI+AGENTS)`);
     }
   }
+  if (gbrainSeen === 0) {
+    warn(area, 'setup-gbrain: package not installed (bridge not audited)');
+  }
 
   // pair-agent: local must not hard-require ngrok; remote has install+security+teardown
+  let pairSeen = 0;
   for (const name of ['gstack-pair-agent', 'pair-agent']) {
     const skill = path.join(SKILLS_DIR, name, 'SKILL.md');
     if (!exists(skill)) continue;
+    pairSeen++;
     const body = readText(skill);
     if (/teardown/i.test(body) && /ngrok/i.test(body) && /127\.0\.0\.1|security/i.test(body)) {
       ok(area, `${name}: remote ngrok install+security+teardown present`);
@@ -291,6 +308,9 @@ function auditBridges() {
       warn(area, `${name}: remote security/teardown checklist incomplete`);
     }
     if (/DEPENDENT/.test(body)) ok(area, `${name}: honest DEPENDENT labeling`);
+  }
+  if (pairSeen === 0) {
+    warn(area, 'pair-agent: package not installed (bridge not audited)');
   }
 }
 
