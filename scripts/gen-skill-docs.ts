@@ -18,6 +18,7 @@ import * as path from 'path';
 import type { Host, TemplateContext } from './resolvers/types';
 import { HOST_PATHS, unwrapResolver } from './resolvers/types';
 import { RESOLVERS } from './resolvers/index';
+import { hostUsesSectionPointers } from './resolvers/sections';
 import { externalSkillName, extractHookSafetyProse as _extractHookSafetyProse, extractNameAndDescription as _extractNameAndDescription, condenseOpenAIShortDescription as _condenseOpenAIShortDescription, generateOpenAIYaml as _generateOpenAIYaml } from './resolvers/codex-helpers';
 import { generatePlanCompletionAuditShip, generatePlanCompletionAuditReview, generatePlanVerificationExec } from './resolvers/review';
 import { ALL_HOST_CONFIGS, ALL_HOST_NAMES, resolveHostArg, getHostConfig } from '../hosts/index';
@@ -1024,14 +1025,15 @@ for (const currentHost of hostsToRun) {
       }
     }
 
-    // ─── Section generation (v2 plan T9, Claude-first carve) ───
-    // On-demand sections/*.md for carved skills. Generated for CLAUDE ONLY:
-    // every other host inlines section content via the {{SECTION:id}} resolver
-    // (keeping the full monolith skill), so they need no section files and we
-    // sidestep host-portable section paths until that plumbing lands. No-op for
-    // any skill without a sections/ dir. Mirrors the SKILL.md DRY_RUN handling so
-    // sections participate in the freshness gate.
-    for (const sec of currentHost === 'claude' ? discoverSectionTemplates(ROOT) : []) {
+    // ─── Section generation (v2 plan T9 carve) ───
+    // On-demand sections/*.md for carved skills.
+    // Pointer hosts (Claude, Grok Build): emit section files next to the skill
+    // package; {{SECTION:id}} is a STOP-Read pointer (keeps the skeleton small).
+    // Inline hosts (Codex, Factory, …): {{SECTION:id}} inlines content into the
+    // monolith SKILL.md — no separate section files.
+    // No-op for any skill without a sections/ dir. Mirrors the SKILL.md DRY_RUN
+    // handling so sections participate in the freshness gate.
+    for (const sec of hostUsesSectionPointers(currentHost) ? discoverSectionTemplates(ROOT) : []) {
       if (currentHostConfig.generation.includeSkills?.length &&
           !currentHostConfig.generation.includeSkills.includes(sec.skillDir)) continue;
       if (currentHostConfig.generation.skipSkills?.length &&
