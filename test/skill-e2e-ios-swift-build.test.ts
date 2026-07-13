@@ -61,6 +61,38 @@ describe('template ↔ fixture parity', () => {
   });
 });
 
+// Static guards for the iOS-Release private-SPI leak. The real failure only
+// manifests in an iOS Release build (TARGET_OS_IOS true, DEBUG undefined),
+// which the macOS `swift build` host cannot produce — DebugBridgeTouch links
+// UIKit. So a host-side nm-scan of Touch always reads clean and proves
+// nothing. These cheap text assertions lock the two gates that keep the
+// private UITouch/UIEvent/IOKit SPIs out of App Store binaries (the exact
+// failure that forced a DebugBridge removal in a downstream app's PR #342).
+describe('iOS-Release private-SPI leak guard', () => {
+  test('DebugBridgeTouch.m.template gates the iOS impl behind DEBUG', () => {
+    const m = readFileSync(join(TEMPLATES_PATH, 'DebugBridgeTouch.m.template'), 'utf-8');
+    // The SPI-bearing block must require BOTH iOS AND DEBUG. A bare
+    // `#if TARGET_OS_IOS` compiles the private SPIs into iOS Release.
+    expect(m).toContain('#if TARGET_OS_IOS && defined(DEBUG)');
+    expect(m).not.toMatch(/#if\s+TARGET_OS_IOS\s*$/m);
+  });
+
+  test('Package.swift.template DEBUG-gates the Obj-C touch target via cSettings', () => {
+    const pkg = readFileSync(join(TEMPLATES_PATH, 'Package.swift.template'), 'utf-8');
+    // swiftSettings do NOT reach .m translation units — the Obj-C target
+    // needs its own cSettings DEBUG define as belt-and-suspenders.
+    const touchTarget = pkg.match(/\.target\(\s*\n\s*name:\s*"DebugBridgeTouch"[\s\S]*?\n\s{8}\)/);
+    expect(touchTarget).not.toBeNull();
+    expect(touchTarget![0]).toMatch(/cSettings:\s*\[[\s\S]*?\.define\(\s*"DEBUG",\s*to:\s*"1",\s*\.when\(configuration:\s*\.debug\)\)/);
+  });
+
+  test('tools-version directive is the first line of Package.swift.template', () => {
+    const pkg = readFileSync(join(TEMPLATES_PATH, 'Package.swift.template'), 'utf-8');
+    // Swift 6.0+ rejects a tools-version directive that is not on line 1.
+    expect(pkg.split('\n')[0]).toMatch(/^\/\/ swift-tools-version:/);
+  });
+});
+
 function hasSwift(): boolean {
   const r = spawnSync('swift', ['--version'], { stdio: 'pipe' });
   return r.status === 0;

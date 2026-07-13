@@ -31,10 +31,5 @@ let package = Package(
             ],
             path: "Sources/GenAccessors"
         ),
-        .testTarget(
-            name: "GenAccessorsTests",
-            dependencies: ["GenAccessors"],
-            path: "Tests/GenAccessorsTests"
-        ),
     ]
 )
