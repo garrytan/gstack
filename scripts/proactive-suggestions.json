@@ -15,7 +15,7 @@
     },
     "benchmark-models": {
       "lead": "Cross-model benchmark for gstack skills.",
-      "routing": "Runs the same prompt through Claude,\nGPT (via Codex CLI), and Gemini side-by-side — compares latency, tokens, cost,\nand optionally quality via LLM judge. Answers \"which model is actually best\nfor this skill?\" with data instead of vibes. Separate from /benchmark, which\nmeasures web page performance. Use when: \"benchmark models\", \"compare models\",\n\"which model is best for X\", \"cross-model comparison\", \"model shootout\".",
+      "routing": "Runs the same prompt through Claude,\nGPT (via Codex CLI), Gemini, and Agy side-by-side — compares latency, tokens, cost,\nand optionally quality via LLM judge. Answers \"which model is actually best\nfor this skill?\" with data instead of vibes. Separate from /benchmark, which\nmeasures web page performance. Use when: \"benchmark models\", \"compare models\",\n\"which model is best for X\", \"cross-model comparison\", \"model shootout\".",
       "voice_line": "Voice triggers (speech-to-text aliases): \"compare models\", \"model shootout\", \"which model is best\"."
     },
     "browse": {

@@ -1304,10 +1304,18 @@ if [ "$INSTALL_AGY" -eq 1 ]; then
   mkdir -p "$AGY_SKILLS_SOURCE"
   create_agy_runtime_root "$SOURCE_GSTACK_DIR" "$AGY_GSTACK_SOURCE"
   link_agy_skill_dirs "$SOURCE_GSTACK_DIR" "$AGY_SKILLS_SOURCE"
-  # Register/import the plugin into Agy
-  if command -v agy >/dev/null 2>&1; then
-    echo "Registering gstack plugin with Agy..."
-    agy plugin install "$AGY_GSTACK_SOURCE" >/dev/null 2>&1 || agy plugin import "$AGY_GSTACK_SOURCE" --force >/dev/null 2>&1 || true
+  # Explicit Agy setup is incomplete unless the CLI can register the plugin.
+  if ! command -v agy >/dev/null 2>&1; then
+    echo "gstack setup failed: agy CLI not found on PATH; install Agy, then rerun './setup --host agy'." >&2
+    exit 1
+  fi
+  echo "Registering gstack plugin with Agy..."
+  if ! agy plugin install "$AGY_GSTACK_SOURCE"; then
+    echo "Agy plugin install failed; trying import --force..." >&2
+    if ! agy plugin import "$AGY_GSTACK_SOURCE" --force; then
+      echo "gstack setup failed: Agy could not register the plugin at $AGY_GSTACK_SOURCE." >&2
+      exit 1
+    fi
   fi
   echo "gstack ready (agy)."
   echo "  browse: $BROWSE_BIN"

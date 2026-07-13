@@ -42,6 +42,20 @@ const gpt = new GptAdapter();
 const gemini = new GeminiAdapter();
 const agy = new AgyAdapter();
 
+test('agy adapter enforces sandboxed plan mode and rejects permission bypass', async () => {
+  const source = fs.readFileSync(path.join(import.meta.dir, 'helpers/providers/agy.ts'), 'utf8');
+  expect(source).toContain("'--mode', 'plan', '--sandbox'");
+  expect(source).not.toContain("opts.prompt, '--dangerously-skip-permissions'");
+
+  const result = await agy.run({
+    prompt: PROMPT,
+    workdir: os.tmpdir(),
+    timeoutMs: 1000,
+    extraArgs: ['--dangerously-skip-permissions'],
+  });
+  expect(result.error?.reason).toContain('not allowed');
+});
+
 // Use a temp working directory so provider CLIs can't accidentally touch the repo.
 // Created in beforeAll / cleaned in afterAll so concurrent CI runs don't leak.
 let workdir: string;

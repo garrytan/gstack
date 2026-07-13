@@ -2439,6 +2439,9 @@ describe('setup script validation', () => {
     expect(setupContent).toContain('qa/references');
     expect(setupContent).toContain('dx-hall-of-fame.md');
     expect(setupContent).toContain('agy plugin install');
+    expect(setupContent).toContain('agy CLI not found on PATH');
+    expect(setupContent).toContain('Agy could not register the plugin');
+    expect(setupContent).not.toContain('agy plugin import "$AGY_GSTACK_SOURCE" --force >/dev/null 2>&1 || true');
   });
 
   test('setup regenerates deleted agy skills and derives the plugin version from VERSION', () => {

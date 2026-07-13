@@ -30,8 +30,16 @@ export class AgyAdapter implements ProviderAdapter {
 
   async run(opts: RunOpts): Promise<RunResult> {
     const start = Date.now();
-    const args = ['--print', opts.prompt, '--dangerously-skip-permissions'];
+    // Benchmarks must never grant an agent write/tool approval in the caller's
+    // workdir. Plan mode plus the terminal sandbox is Agy's read-only boundary.
+    const args = ['--print', opts.prompt, '--mode', 'plan', '--sandbox'];
     if (opts.model) args.push('--model', opts.model);
+    if (opts.extraArgs?.includes('--dangerously-skip-permissions')) {
+      return this.emptyResult(0, {
+        code: 'unknown',
+        reason: '--dangerously-skip-permissions is not allowed in benchmarks',
+      }, opts.model);
+    }
     if (opts.extraArgs) args.push(...opts.extraArgs);
 
     try {
