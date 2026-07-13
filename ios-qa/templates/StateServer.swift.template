@@ -86,7 +86,18 @@ public final class StateServer {
     private init(port: UInt16 = 9999) {
         self.port = port
         self.bootToken = UUID().uuidString
-        self.bootTokenPath = NSTemporaryDirectory() + "gstack-ios-qa.token"
+        // Persist in Documents/ rather than NSTemporaryDirectory().
+        // iOS clears tmp/ aggressively (memory pressure, between launches,
+        // jetsam pressure when app is backgrounded for any meaningful time).
+        // The daemon's `devicectl copy from tmp/gstack-ios-qa.token` then
+        // returns ENOENT and bootstrap fails with `boot_token_unavailable`
+        // — even though StateServer is alive and responding to /healthz.
+        // Documents/ survives backgrounding + memory pressure and is
+        // reachable via the same appDataContainer domain identifier.
+        // Pair with `tunnel-bootstrap.ts` default tokenPath.
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+        self.bootTokenPath = (docs?.appendingPathComponent("gstack-ios-qa.token").path)
+            ?? (NSTemporaryDirectory() + "gstack-ios-qa.token")
     }
 
     public func start() {

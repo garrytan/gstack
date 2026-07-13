@@ -210,19 +210,115 @@ enum MutationBridgeImpl {
         }
     }
 
-    /// Tap at (x, y) in window coordinates. Delegates to DebugBridgeTouch
-    /// (KIF-derived in-process touch synthesis). The Obj-C target builds a
-    /// real UITouch + IOHIDEvent + UIEvent and dispatches via
-    /// `UIApplication.sendEvent`, which is what UIKit uses for real touches.
-    /// This works for UIControl, SwiftUI Button (via iOS 18+
-    /// `_UIHitTestContext`), gesture recognizers, and anything else that
-    /// listens to the real event-dispatch path.
+    /// Tap at (x, y) in window coordinates.
+    ///
+    /// Two-stage dispatch:
+    ///
+    ///   1. **Accessibility activation** — walk the AX tree, find the smallest
+    ///      element whose frame contains the tap point AND carries the
+    ///      `.button` trait, then call `accessibilityActivate()`. This routes
+    ///      through SwiftUI / UIKit's standard VoiceOver activation path,
+    ///      which fires `Button.action` regardless of iOS version. Required
+    ///      for SwiftUI Button hit-testing on iOS 16/17 where
+    ///      `_UIHitTestContext` is unavailable (DebugBridgeTouch's
+    ///      `sendTapAtPoint:` synthesizes a real UITouch but iOS 16/17 won't
+    ///      route it into the SwiftUI hosting controller's gesture system).
+    ///
+    ///   2. **UITouch synthesis fallback** — if the AX path doesn't match
+    ///      (gesture recognizers, UIScrollView pan, custom hit-test-only
+    ///      views, drag gestures, anything without an explicit button trait),
+    ///      delegate to `DebugBridgeTouch.sendTap`. The Obj-C target builds
+    ///      a real UITouch + IOHIDEvent + UIEvent and dispatches via
+    ///      `UIApplication.sendEvent` — what UIKit uses for real touches.
+    ///      Covers UIControl, SwiftUI Button on iOS 18+ (via
+    ///      `_UIHitTestContext`), gesture recognizers, and anything else
+    ///      that listens to the real event-dispatch path.
     private static func handleTap(_ payload: JSONDict) -> Bool {
         guard let x = payload["x"] as? NSNumber,
               let y = payload["y"] as? NSNumber else { return false }
         let point = CGPoint(x: x.doubleValue, y: y.doubleValue)
         guard let scene = activeScene(), let window = activeKeyWindow(in: scene) else { return false }
+
+        // Stage 1: AX activation (SwiftUI-friendly, iOS 16+ universal).
+        if let element = findActivatableAXElement(at: point, in: window),
+           element.accessibilityActivate() {
+            return true
+        }
+
+        // Stage 2: UITouch synthesis fallback.
         return DebugBridgeTouch.sendTap(at: point, in: window)
+    }
+
+    /// Walk the accessibility hierarchy from `window` and return the smallest
+    /// element whose accessibility frame contains `point` AND carries the
+    /// `.button` trait. "Smallest containing" mirrors how UIKit hit-testing
+    /// resolves nested taps — the deepest interactive element wins. Returns
+    /// nil if no button-trait element matches (caller falls through to
+    /// UITouch synthesis).
+    ///
+    /// Both UIView-backed AX elements (`view.isAccessibilityElement`) and
+    /// synthetic NSObject AX elements (vended by SwiftUI hosting controllers
+    /// via `accessibilityElements` / `accessibilityElementCount`) are
+    /// considered. SwiftUI Buttons typically surface as the latter on iOS
+    /// 16/17.
+    private static func findActivatableAXElement(at point: CGPoint, in window: UIWindow) -> NSObject? {
+        var best: NSObject? = nil
+        var bestArea: CGFloat = .infinity
+
+        func consider(frame: CGRect, traits: UInt, element: NSObject) {
+            guard frame.contains(point) else { return }
+            guard (traits & UIAccessibilityTraits.button.rawValue) != 0 else { return }
+            let area = frame.width * frame.height
+            if area < bestArea {
+                best = element
+                bestArea = area
+            }
+        }
+
+        func visit(_ view: UIView) {
+            // Early-out: subtree can't contain the point.
+            let frame = view.convert(view.bounds, to: nil)
+            guard frame.contains(point) else { return }
+            guard !view.isHidden, view.alpha >= 0.01 else { return }
+
+            if view.isAccessibilityElement {
+                consider(frame: frame, traits: view.accessibilityTraits.rawValue, element: view)
+            }
+
+            // SwiftUI hosting controllers vend their elements lazily; force
+            // population by reading the count first, then prefer
+            // `accessibilityElements` (eager array) over the indexed
+            // protocol when it returns non-nil.
+            _ = view.accessibilityElementCount()
+            if let elements = view.accessibilityElements {
+                for case let element as NSObject in elements {
+                    if let v = element as? UIView {
+                        visit(v)
+                    } else {
+                        let f = (element.value(forKey: "accessibilityFrame") as? CGRect) ?? .zero
+                        let t = (element.value(forKey: "accessibilityTraits") as? NSNumber)?.uintValue ?? 0
+                        consider(frame: f, traits: t, element: element)
+                    }
+                }
+            } else {
+                let count = view.accessibilityElementCount()
+                for i in 0..<count {
+                    guard let element = view.accessibilityElement(at: i) as? NSObject else { continue }
+                    if let v = element as? UIView {
+                        visit(v)
+                    } else {
+                        let f = (element.value(forKey: "accessibilityFrame") as? CGRect) ?? .zero
+                        let t = (element.value(forKey: "accessibilityTraits") as? NSNumber)?.uintValue ?? 0
+                        consider(frame: f, traits: t, element: element)
+                    }
+                }
+            }
+
+            for sub in view.subviews { visit(sub) }
+        }
+
+        visit(window)
+        return best
     }
 
     /// Set text on the first responder if it's a UITextField or UITextView.

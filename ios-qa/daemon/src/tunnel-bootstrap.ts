@@ -64,7 +64,12 @@ export type BootstrapErrorReason =
  */
 export async function bootstrapTunnel(opts: BootstrapOptions): Promise<BootstrapResult> {
   const port = opts.port ?? 9999;
-  const tokenPath = opts.bootTokenPath ?? 'tmp/gstack-ios-qa.token';
+  // Default Documents/ instead of tmp/. iOS clears tmp/ on memory
+  // pressure / between launches → `devicectl copy from tmp/...` returns
+  // ENOENT → bootstrap fails with `boot_token_unavailable` even though
+  // StateServer is alive. Documents/ persists across backgrounding.
+  // Pair with StateServer.swift.template `bootTokenPath`.
+  const tokenPath = opts.bootTokenPath ?? 'Documents/gstack-ios-qa.token';
   const startupTimeoutMs = opts.startupTimeoutMs ?? 5_000;
   const spawn = opts.spawnImpl;
   const resolve = opts.resolveImpl;
