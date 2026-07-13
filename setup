@@ -992,7 +992,9 @@ link_opencode_skill_dirs() {
 create_agy_runtime_root() {
   local gstack_dir="$1"
   local agy_gstack="$2"
-  local agy_dir="$gstack_dir/.gemini/config/plugins/gstack/skills"
+  local agy_version
+
+  agy_version="$(tr -d '[:space:]' < "$gstack_dir/VERSION")"
 
   if [ -L "$agy_gstack" ]; then
     rm -f "$agy_gstack"
@@ -1003,7 +1005,8 @@ create_agy_runtime_root() {
   mkdir -p "$agy_gstack" "$agy_gstack/browse" "$agy_gstack/design" "$agy_gstack/gstack-upgrade" "$agy_gstack/review" "$agy_gstack/qa" "$agy_gstack/plan-devex-review" "$agy_gstack/skills"
 
   # Create plugin.json for agy plugin structure
-  echo '{"name": "gstack", "version": "1.58.5.0", "description": "gstack skills for Google Antigravity", "author": {"name": "gstack"}, "license": "MIT"}' > "$agy_gstack/plugin.json"
+  printf '{"name": "gstack", "version": "%s", "description": "gstack skills for Google Antigravity", "author": {"name": "gstack"}, "license": "MIT"}\n' \
+    "$agy_version" > "$agy_gstack/plugin.json"
 
   if [ -d "$gstack_dir/bin" ]; then
     _link_or_copy "$gstack_dir/bin" "$agy_gstack/bin"
@@ -1045,12 +1048,14 @@ link_agy_skill_dirs() {
   local agy_dir="$gstack_dir/.gemini/config/plugins/gstack/skills"
   local linked=()
 
-  if [ ! -d "$agy_dir" ]; then
+  # create_agy_runtime_root intentionally replaces the generated plugin tree.
+  # A directory alone is therefore not proof that skill generation succeeded.
+  if ! find "$agy_dir" -mindepth 2 -maxdepth 2 -name SKILL.md -print -quit 2>/dev/null | grep -q .; then
     echo "  Generating .gemini/ skill docs..."
     ( cd "$gstack_dir" && bun run gen:skill-docs --host agy )
   fi
 
-  if [ ! -d "$agy_dir" ]; then
+  if ! find "$agy_dir" -mindepth 2 -maxdepth 2 -name SKILL.md -print -quit 2>/dev/null | grep -q .; then
     echo "  warning: .gemini/config/plugins/gstack/skills/ generation failed — run 'bun run gen:skill-docs --host agy' manually" >&2
     return 1
   fi

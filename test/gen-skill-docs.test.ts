@@ -2441,6 +2441,19 @@ describe('setup script validation', () => {
     expect(setupContent).toContain('agy plugin install');
   });
 
+  test('setup regenerates deleted agy skills and derives the plugin version from VERSION', () => {
+    const fnStart = setupContent.indexOf('create_agy_runtime_root()');
+    const fnEnd = setupContent.indexOf('link_agy_skill_dirs()', fnStart);
+    const runtimeFn = setupContent.slice(fnStart, fnEnd);
+    const linkFn = setupContent.slice(fnEnd, setupContent.indexOf('# 4. Install for Claude', fnEnd));
+
+    expect(runtimeFn).toContain('agy_version="$(tr -d \'[:space:]\' < "$gstack_dir/VERSION")"');
+    expect(runtimeFn).toContain('"$agy_version" > "$agy_gstack/plugin.json"');
+    expect(runtimeFn).not.toContain('"version": "1.58.5.0"');
+    expect(linkFn).toContain('-name SKILL.md');
+    expect(linkFn).toContain('bun run gen:skill-docs --host agy');
+  });
+
   test('create_agents_sidecar links runtime assets', () => {
     // Sidecar must link bin, browse, review, qa
     const fnStart = setupContent.indexOf('create_agents_sidecar()');
