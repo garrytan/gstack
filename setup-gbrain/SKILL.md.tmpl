@@ -687,7 +687,7 @@ curated `~/.gstack/` artifacts into gbrain so the retrieval surface
 
 Run the probe to size the operation:
 ```bash
-~/.claude/skills/gstack/bin/gstack-memory-ingest --probe
+bun run ~/.claude/skills/gstack/bin/gstack-memory-ingest.ts --probe
 ```
 
 Read the output. If `Total files in window: 0`, skip — there's nothing
@@ -732,7 +732,7 @@ Options:
 After answer:
 ```bash
 ~/.claude/skills/gstack/bin/gstack-config set transcript_ingest_mode <choice>
-~/.claude/skills/gstack/bin/gstack-gbrain-sync --full --no-brain-sync
+bun run ~/.claude/skills/gstack/bin/gstack-gbrain-sync.ts --full --no-brain-sync
 ```
 (`--no-brain-sync` because Step 7 already wired that path; this just
 runs the code import + memory ingest stages. Brain-sync will run on the
