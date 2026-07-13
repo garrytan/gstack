@@ -42,9 +42,16 @@ beforeAll(async () => {
   // The test needs to start a server. Let's use the existing server infrastructure.
 });
 
-afterAll(() => {
+afterAll(async () => {
   try { testServer.server.stop(); } catch {}
-  setTimeout(() => process.exit(0), 500);
+  // Close the real browser (capped at 5s — close can hang) instead of a
+  // delayed process.exit(0): that timer fired ~500ms into the NEXT test
+  // file in a full-suite run and killed the whole bun process with a green
+  // exit code and no tally, silently truncating the run.
+  await Promise.race([
+    bm.close().catch(() => {}),
+    new Promise<void>(r => setTimeout(r, 5000)),
+  ]);
 });
 
 // We need a running browse server for HTTP tests.
