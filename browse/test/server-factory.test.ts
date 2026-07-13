@@ -411,6 +411,27 @@ function makeMockBrowserManager(mode: 'launched' | 'headed') {
 }
 
 describe('idle timer + onDisconnect dual-instance fix', () => {
+  // File-scoped process.exit guard. The shutdown path is fire-and-forget
+  // async: a test's per-call exit stub can be restored while a second
+  // shutdown invocation is still in flight, and that straggler then hits the
+  // REAL process.exit(0) — truncating the whole bun test run mid-suite with
+  // a green exit code and no failure tally. Per-test stubs installed below
+  // capture-and-restore against this file stub, never the real exit.
+  const fileExitStub = mock((_code?: number) => {});
+  let realProcessExit: typeof process.exit;
+  beforeAll(() => {
+    realProcessExit = process.exit;
+    (process as any).exit = fileExitStub;
+  });
+  afterAll(async () => {
+    // Kill the leaked module-level 60s interval so it can't fire shutdown
+    // (with the real process.exit) during a later test file.
+    __testInternals__.stopIdleTimer();
+    // Grace period: let any straggler async shutdown land on the stub.
+    await new Promise<void>(r => setTimeout(r, 300));
+    (process as any).exit = realProcessExit;
+  });
+
   beforeEach(() => {
     __resetRegistry();
     // Reset module state every test. Bun memoizes the server.ts module
@@ -453,14 +474,19 @@ describe('idle timer + onDisconnect dual-instance fix', () => {
       buildFetchHandler(makeMinimalConfig({ browserManager: mockBM as any }));
       __testInternals__.setLastActivity(Date.now() - (31 * 60 * 1000));
       __testInternals__.idleCheckTick();
-      // Drain microtasks: shutdown awaits flushBuffers + cfgBrowserManager.close
-      // before reaching process.exit.
-      await Promise.resolve();
-      await Promise.resolve();
-      await new Promise<void>(r => setImmediate(r));
-      await new Promise<void>(r => setImmediate(r));
+      // Poll until the fire-and-forget shutdown reaches process.exit. A fixed
+      // microtask drain can lose the race on slower hosts — and then the REAL
+      // process.exit(0) fires after the finally restores it, killing the whole
+      // bun test run mid-suite with a green exit code and no failure tally.
+      for (let i = 0; i < 500 && exitMock.mock.calls.length === 0; i++) {
+        await new Promise<void>(r => setTimeout(r, 10));
+      }
       expect(exitMock).toHaveBeenCalled();
     } finally {
+      // Reset activity so the module-level 60s idle interval (which outlives
+      // this file) cannot re-fire shutdown with the real process.exit later
+      // in the suite.
+      __testInternals__.setLastActivity(Date.now());
       (process as any).exit = originalExit;
     }
   });

@@ -664,6 +664,11 @@ export const __testInternals__ = {
   // need shutdown to fire. Without this, the second test's shutdown
   // returns early at the `if (isShuttingDown) return;` guard.
   resetShutdownState: () => { isShuttingDown = false; },
+  // Stop the module-level 60s idle interval. In-process test runs import this
+  // module once for the whole suite; the interval otherwise outlives the test
+  // file and can fire a real process.exit(0) mid-suite, silently truncating
+  // the run with a green exit code.
+  stopIdleTimer: () => { clearInterval(idleCheckInterval); },
 };
 
 // ─── Parent-Process Watchdog ────────────────────────────────────────
