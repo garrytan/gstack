@@ -134,12 +134,12 @@ lookup_default() {
     redact_repo_visibility) echo "" ;; # empty → fall through to gh/glab detection
     redact_prepush_hook) echo "false" ;;
     # Brain-aware planning (v1.48 / T5+T10+T16). Defaults documented inline:
-    #   brain_trust_policy@<hash>  — unset on fresh install; setup-gbrain
+    #   brain_trust_policy@<endpoint-id>  — unset on fresh install; setup-gbrain
     #                                writes 'personal' for local engines,
     #                                asks the user for remote-ambiguous.
     #   salience_allowlist          — empty falls through to
     #                                SALIENCE_DEFAULT_ALLOWLIST (D9).
-    #   user_slug_at_<hash>         — empty triggers resolve-user-slug
+    #   user_slug_at_<endpoint-id>  — empty triggers resolve-user-slug
     #                                fallback chain (D4 A3) on first call.
     brain_trust_policy*) echo "unset" ;;
     salience_allowlist) echo "" ;;
@@ -260,14 +260,16 @@ resolve_user_slug() {
 case "${1:-}" in
   get)
     KEY="${2:?Usage: gstack-config get <key>}"
-    # Validate key (alphanumeric + underscore + optional @<hash> suffix for
-    # endpoint-namespaced keys introduced by the brain-aware planning layer)
-    if ! printf '%s' "$KEY" | grep -qE '^[a-zA-Z0-9_]+(@[a-f0-9]+)?$'; then
-      echo "Error: key must contain only alphanumeric characters, underscores, and an optional @<hex-hash> suffix" >&2
+    # Validate key (alphanumeric + underscore + optional @<endpoint-id> suffix for
+    # endpoint-namespaced keys introduced by the brain-aware planning layer).
+    # Endpoint ids are sha8/sha16 hex for remote MCP URLs, or the literal
+    # "local" for stdio/PGLite engines (see endpoint_hash).
+    if ! printf '%s' "$KEY" | grep -qE '^[a-zA-Z0-9_]+(@[a-zA-Z0-9]+)?$'; then
+      echo "Error: key must contain only alphanumeric characters, underscores, and an optional @<endpoint-id> suffix" >&2
       exit 1
     fi
-    # Use literal match for keys containing @ (sha hashes), regex otherwise
-    VALUE=$(grep -F "${KEY}:" "$CONFIG_FILE" 2>/dev/null | grep -E "^${KEY%@*}(@[a-f0-9]+)?:" | grep -F "${KEY}:" | tail -1 | awk '{print $2}' | tr -d '[:space:]' || true)
+    # Use literal match for keys containing @ (endpoint ids), regex otherwise
+    VALUE=$(grep -F "${KEY}:" "$CONFIG_FILE" 2>/dev/null | grep -E "^${KEY%@*}(@[a-zA-Z0-9]+)?:" | grep -F "${KEY}:" | tail -1 | awk '{print $2}' | tr -d '[:space:]' || true)
     if [ -z "$VALUE" ]; then
       VALUE=$(lookup_default "$KEY")
     fi
@@ -276,9 +278,10 @@ case "${1:-}" in
   set)
     KEY="${2:?Usage: gstack-config set <key> <value>}"
     VALUE="${3:?Usage: gstack-config set <key> <value>}"
-    # Validate key (alphanumeric + underscore + optional @<hash> suffix)
-    if ! printf '%s' "$KEY" | grep -qE '^[a-zA-Z0-9_]+(@[a-f0-9]+)?$'; then
-      echo "Error: key must contain only alphanumeric characters, underscores, and an optional @<hex-hash> suffix" >&2
+    # Validate key (alphanumeric + underscore + optional @<endpoint-id> suffix).
+    # Accepts hex hashes and the literal "local" from endpoint_hash.
+    if ! printf '%s' "$KEY" | grep -qE '^[a-zA-Z0-9_]+(@[a-zA-Z0-9]+)?$'; then
+      echo "Error: key must contain only alphanumeric characters, underscores, and an optional @<endpoint-id> suffix" >&2
       exit 1
     fi
     # Validate brain_trust_policy value domain (D4 / D11)
