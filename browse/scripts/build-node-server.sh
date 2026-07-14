@@ -26,7 +26,9 @@ bun build "$SRC_DIR/server.ts" \
   --external playwright-core \
   --external diff \
   --external "bun:sqlite" \
-  --external "@ngrok/ngrok"
+  --external "@ngrok/ngrok" \
+  --external socks \
+  --external sharp
 
 # Step 2: Post-process
 # Replace import.meta.dir with a resolvable reference
