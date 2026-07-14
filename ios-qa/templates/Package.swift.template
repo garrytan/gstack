@@ -1,3 +1,4 @@
+// swift-tools-version:5.9
 // AUTO-GENERATED from gstack/ios-qa/templates/Package.swift.template
 //
 // Drop-in SPM package definition for the DebugBridge stack. Three targets:
@@ -18,7 +19,6 @@
 // CI invariant: `swift build -c release` + `nm -j build/Release/<binary>
 // | grep -q DebugBridge && exit 1`.
 
-// swift-tools-version:5.9
 import PackageDescription
 
 let package = Package(
@@ -57,11 +57,6 @@ let package = Package(
             swiftSettings: [
                 .define("DEBUG", .when(configuration: .debug)),
             ]
-        ),
-        .testTarget(
-            name: "DebugBridgeCoreTests",
-            dependencies: ["DebugBridgeCore"],
-            path: "Tests/DebugBridgeCoreTests"
         ),
     ]
 )

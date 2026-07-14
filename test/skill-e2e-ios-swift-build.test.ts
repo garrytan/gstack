@@ -25,6 +25,7 @@ import { join } from 'path';
 const ROOT = join(import.meta.dir, '..');
 const FIXTURE_PATH = join(ROOT, 'test/fixtures/ios-qa/FixtureApp');
 const TEMPLATES_PATH = join(ROOT, 'ios-qa/templates');
+const GEN_ACCESSORS_PACKAGE = join(ROOT, 'ios-qa/scripts/gen-accessors-tool/Package.swift');
 
 // Parity: canonical Obj-C touch templates must match the fixture's working
 // copy. The fixture is the only place the .m / .h are exercised end-to-end
@@ -58,6 +59,19 @@ describe('template ↔ fixture parity', () => {
     // DebugBridgeUI must depend on the other two; that's how the consuming
     // app gets the transitive set with one dependency entry.
     expect(tmpl).toMatch(/name:\s*"DebugBridgeUI"[\s\S]*?dependencies:\s*\["DebugBridgeCore",\s*"DebugBridgeTouch"\]/);
+  });
+
+  test('generated Swift packages only reference shipped test directories', () => {
+    const genAccessorsPackage = readFileSync(GEN_ACCESSORS_PACKAGE, 'utf-8');
+    const debugBridgePackage = readFileSync(join(TEMPLATES_PATH, 'Package.swift.template'), 'utf-8');
+
+    expect(genAccessorsPackage).not.toContain('Tests/GenAccessorsTests');
+    expect(debugBridgePackage).not.toContain('Tests/DebugBridgeCoreTests');
+  });
+
+  test('Package.swift.template keeps swift-tools-version on the first line', () => {
+    const tmpl = readFileSync(join(TEMPLATES_PATH, 'Package.swift.template'), 'utf-8');
+    expect(tmpl.split(/\r?\n/, 1)[0]).toBe('// swift-tools-version:5.9');
   });
 });
 
