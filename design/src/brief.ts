@@ -54,6 +54,12 @@ export function parseBrief(input: string, isFile: boolean): string {
   // We'll read it synchronously via fs since Bun.file is async
   const fs = require("fs");
   const content = fs.readFileSync(input, "utf-8");
-  const brief: DesignBrief = JSON.parse(content);
+  // fix: name the offending file on malformed JSON instead of a cryptic SyntaxError
+  let brief: DesignBrief;
+  try {
+    brief = JSON.parse(content);
+  } catch (e) {
+    throw new Error(`invalid JSON in ${input}: ${(e as Error).message}`);
+  }
   return briefToPrompt(brief);
 }

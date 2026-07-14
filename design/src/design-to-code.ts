@@ -81,7 +81,12 @@ Be specific about every visual detail: exact hex colors, font sizes in px, spaci
 
     const data = await response.json() as any;
     const content = data.choices?.[0]?.message?.content?.trim() || "";
-    return JSON.parse(content) as DesignToCodeResult;
+    // fix: wrap parse so a malformed model response surfaces a clean error
+    try {
+      return JSON.parse(content) as DesignToCodeResult;
+    } catch (e) {
+      throw new Error(`invalid JSON in design-to-code model response: ${(e as Error).message}`);
+    }
   } finally {
     clearTimeout(timeout);
   }

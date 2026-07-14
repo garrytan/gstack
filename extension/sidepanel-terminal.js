@@ -504,7 +504,9 @@
   window.gstackScanForPTYInject = async function (text, origin) {
     if (!text) return { allow: false, verdict: 'BLOCK', reasons: ['empty-text'] };
     try {
-      const resp = await fetch('http://127.0.0.1:34567/pty-inject-scan', {
+      // fix: use dynamic server port (was hardcoded 34567 → guard failed open on any non-default port)
+      const serverPort = getServerPort();
+      const resp = await fetch(`http://127.0.0.1:${serverPort}/pty-inject-scan`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -536,7 +538,9 @@
   async function getAuthTokenForScan() {
     if (window.__gstackPtyScanToken) return window.__gstackPtyScanToken;
     try {
-      const resp = await fetch('http://127.0.0.1:34567/health');
+      // fix: use dynamic server port (was hardcoded 34567)
+      const serverPort = getServerPort();
+      const resp = await fetch(`http://127.0.0.1:${serverPort}/health`);
       const body = await resp.json();
       const token = body.AUTH_TOKEN || body.authToken || '';
       if (token) window.__gstackPtyScanToken = token;

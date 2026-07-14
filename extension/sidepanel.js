@@ -225,7 +225,19 @@ function addEntry(entry) {
   if (entry.type === 'command_start') pendingEntries.set(entry.id, el);
   el.scrollIntoView({ behavior: 'smooth', block: 'end' });
 
-  if (entry.url) document.getElementById('footer-url')?.textContent && (document.getElementById('footer-url').textContent = new URL(entry.url).hostname);
+  // fix: guard on element existence (not its initially-empty textContent, which
+  // short-circuited the assignment forever) and wrap URL parsing so a malformed
+  // entry.url can't throw out of addEntry.
+  if (entry.url) {
+    const footerUrl = document.getElementById('footer-url');
+    if (footerUrl) {
+      try {
+        footerUrl.textContent = new URL(entry.url).hostname;
+      } catch {
+        footerUrl.textContent = entry.url;
+      }
+    }
+  }
   lastId = Math.max(lastId, entry.id);
 }
 

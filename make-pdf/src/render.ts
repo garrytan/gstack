@@ -204,9 +204,40 @@ function decodeTypographicEntities(html: string): string {
  *   - <script>, <iframe>, <object>, <embed>, <link>, <meta>, <base>, <form>
  *     (and their content).
  *   - on* event handler attributes (onclick, ONCLICK, etc.).
- *   - href/src with javascript: scheme.
+ *   - href/src whose scheme isn't on the allowlist (http/https/mailto/#/relative).
  *   - <svg> tags with <script> inside them.
  */
+
+// fix: entity/control-char-aware URL scheme check. A literal-`javascript:` regex
+// blacklist is bypassed by obfuscation (`java&#115;cript:`, "java\tscript:"), so
+// decode HTML entities + strip whitespace/control chars before checking, then
+// allowlist schemes. Preferred long-term fix is an allowlist sanitizer (DOMPurify),
+// avoided here only because it pulls in a server-side jsdom dep (see above).
+function codePointOrEmpty(cp: number): string {
+  return Number.isFinite(cp) && cp >= 0 && cp <= 0x10ffff ? String.fromCodePoint(cp) : "";
+}
+
+function decodeEntitiesForScheme(value: string): string {
+  const decoded = value
+    .replace(/&#(\d+);?/g, (_, d) => codePointOrEmpty(parseInt(d, 10)))
+    .replace(/&#x([0-9a-fA-F]+);?/g, (_, h) => codePointOrEmpty(parseInt(h, 16)))
+    .replace(/&colon;/gi, ":")
+    .replace(/&tab;/gi, "\t")
+    .replace(/&newline;/gi, "\n")
+    .replace(/&amp;/gi, "&");
+  // Drop all whitespace + control chars (NUL, tab, newline, DEL, NBSP) so a
+  // scheme split across them ("java\tscript:") collapses before the check.
+  return decoded.replace(/[\u0000-\u0020\u007f-\u00a0]/g, "");
+}
+
+function isSafeUrlValue(raw: string): boolean {
+  const v = decodeEntitiesForScheme(raw).trim().toLowerCase();
+  if (v === "" || v.startsWith("#")) return true; // empty / fragment
+  const m = v.match(/^([a-z][a-z0-9+.-]*):/); // scheme:...
+  if (!m) return true; // no scheme → relative or protocol-relative URL
+  return m[1] === "http" || m[1] === "https" || m[1] === "mailto";
+}
+
 export function sanitizeUntrustedHtml(html: string): string {
   let s = html;
 
@@ -233,10 +264,20 @@ export function sanitizeUntrustedHtml(html: string): string {
   s = s.replace(/\s+on[a-zA-Z]+\s*=\s*'[^']*'/gi, "");
   s = s.replace(/\s+on[a-zA-Z]+\s*=\s*[^\s>]+/gi, "");
 
-  // javascript: URLs in href/src/action/formaction
+  // fix: allowlist URL schemes in href/src-style attrs instead of blacklisting the
+  // literal `javascript:` string. The value is entity-decoded + control-char-stripped
+  // (see isSafeUrlValue) so obfuscated schemes (java&#115;cript:, data:, vbscript:)
+  // are caught too. Unsafe values are replaced with "#".
   s = s.replace(
-    /(\s(?:href|src|action|formaction|xlink:href)\s*=\s*)(?:"javascript:[^"]*"|'javascript:[^']*'|javascript:[^\s>]+)/gi,
-    '$1"#"',
+    /(\s(?:href|src|action|formaction|xlink:href)\s*=\s*)("[^"]*"|'[^']*'|[^\s>]+)/gi,
+    (match, prefix, rawValue) => {
+      // Unwrap the quotes (if any) to get the bare attribute value.
+      const value =
+        (rawValue[0] === '"' || rawValue[0] === "'")
+          ? rawValue.slice(1, -1)
+          : rawValue;
+      return isSafeUrlValue(value) ? match : `${prefix}"#"`;
+    },
   );
 
   // srcdoc attribute (iframe escape hatch — already stripped via iframe above,

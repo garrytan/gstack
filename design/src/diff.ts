@@ -80,7 +80,12 @@ Focus on layout, typography, colors, spacing, and element presence/absence. Igno
 
     const data = await response.json() as any;
     const content = data.choices?.[0]?.message?.content?.trim() || "";
-    return JSON.parse(content) as DiffResult;
+    // fix: wrap parse so a malformed model response surfaces a clean error
+    try {
+      return JSON.parse(content) as DiffResult;
+    } catch (e) {
+      throw new Error(`invalid JSON in diff model response: ${(e as Error).message}`);
+    }
   } finally {
     clearTimeout(timeout);
   }

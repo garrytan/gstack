@@ -58,7 +58,12 @@ export function createSession(
  */
 export function readSession(sessionFilePath: string): DesignSession {
   const content = fs.readFileSync(sessionFilePath, "utf-8");
-  return JSON.parse(content);
+  // fix: name the offending file on malformed JSON instead of a cryptic SyntaxError
+  try {
+    return JSON.parse(content);
+  } catch (e) {
+    throw new Error(`invalid JSON in ${sessionFilePath}: ${(e as Error).message}`);
+  }
 }
 
 /**
