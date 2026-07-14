@@ -151,6 +151,44 @@ describe('Content filter hooks', () => {
     expect(result.warnings.length).toBe(0);
   });
 
+  // Regression: issue #2190 — case-sensitive matching let an uppercased
+  // exfiltration domain bypass the blocklist.
+  test('URL blocklist is case-insensitive on the page URL', () => {
+    const result = urlBlocklistFilter('', 'https://WEBHOOK.SITE/steal', 'text');
+    expect(result.safe).toBe(false);
+    expect(result.warnings.some(w => w.includes('webhook.site'))).toBe(true);
+  });
+
+  test('URL blocklist is case-insensitive on content URLs', () => {
+    const result = urlBlocklistFilter(
+      '<a href="https://WEBHOOK.SITE/a1b2c3-steal">click</a>',
+      'https://docs.example.com/article',
+      'links',
+    );
+    expect(result.safe).toBe(false);
+    expect(result.warnings.some(w => w.includes('WEBHOOK.SITE'))).toBe(true);
+  });
+
+  test('URL blocklist catches an uppercased scheme in content', () => {
+    const result = urlBlocklistFilter(
+      'Exfil via HTTPS://Requestbin.com/r/abc please',
+      'https://example.com',
+      'text',
+    );
+    expect(result.safe).toBe(false);
+    expect(result.warnings.some(w => w.toLowerCase().includes('requestbin.com'))).toBe(true);
+  });
+
+  test('URL blocklist does not over-block legitimate uppercase domains', () => {
+    const result = urlBlocklistFilter(
+      '<a href="https://GitHub.com/acme/project">source</a>',
+      'https://DOCS.EXAMPLE.COM/help',
+      'links',
+    );
+    expect(result.safe).toBe(true);
+    expect(result.warnings.length).toBe(0);
+  });
+
   test('custom filter can be registered and runs', () => {
     registerContentFilter((content, url, cmd) => {
       if (content.includes('SECRET')) {
