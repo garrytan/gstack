@@ -299,7 +299,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.type === 'getPort') {
-    sendResponse({ port: serverPort, connected: isConnected, token: authToken });
+    const ownExtensionOrigin = `chrome-extension://${chrome.runtime.id}`;
+    sendResponse({
+      port: serverPort,
+      connected: isConnected,
+      token: sender.origin === ownExtensionOrigin ? authToken : null,
+    });
     return true;
   }
 
