@@ -62,8 +62,10 @@ SKILL_COUNT=0
 for skill_dir in "$INSTALL_DIR"/*/; do
   [ -d "$skill_dir" ] || continue
   skill=$(basename "$skill_dir")
-  # Skip non-skill directories
-  case "$skill" in bin|browse|design|docs|extension|lib|node_modules|scripts|test|.git|.github) continue ;; esac
+  # A directory is a skill iff it carries a SKILL.md. This structural test — not a
+  # hardcoded name list — is the sole gate, so real skills whose names happen to
+  # collide with support-dir names (e.g. browse) are never dropped, and support dirs
+  # (bin, lib, node_modules, …) are skipped because they have no SKILL.md.
   [ -f "$skill_dir/SKILL.md" ] || continue
 
   if [ "$PREFIX" = "true" ]; then

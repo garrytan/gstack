@@ -406,6 +406,76 @@ describe('gstack-relink (#578)', () => {
     expect(fs.existsSync(path.join(skillsDir, 'gstack-qa'))).toBe(true);
     expect(fs.existsSync(path.join(skillsDir, 'gstack-ship'))).toBe(true);
   });
+
+  // REGRESSION: skill discovery must be structural (has SKILL.md), never name-based.
+  // A hardcoded meta-dir exclusion list silently dropped `browse` — a real, live skill
+  // (skills/gstack/browse/SKILL.md, name: browse) that benchmark + setup-browser-cookies
+  // depend on — because its name collided with a support-dir name in the exclusion list.
+  // The fix: any top-level dir with a SKILL.md is a skill, regardless of its name.
+  test('materializes every dir carrying a SKILL.md, even names once meta-excluded (browse)', () => {
+    // These names were all in the old hardcoded exclusion list. Give each a real
+    // SKILL.md: every one must now materialize.
+    const formerlyExcluded = ['bin', 'browse', 'design', 'docs', 'extension', 'lib', 'node_modules', 'scripts', 'test'];
+    setupMockInstall(['qa', ...formerlyExcluded]);
+    run(`${path.join(installDir, 'bin', 'gstack-config')} set skill_prefix false`, {
+      GSTACK_INSTALL_DIR: installDir,
+      GSTACK_SKILLS_DIR: skillsDir,
+    });
+    run(`${path.join(installDir, 'bin', 'gstack-relink')}`, {
+      GSTACK_INSTALL_DIR: installDir,
+      GSTACK_SKILLS_DIR: skillsDir,
+    });
+    for (const skill of ['qa', ...formerlyExcluded]) {
+      expect({ skill, exists: fs.existsSync(path.join(skillsDir, skill, 'SKILL.md')) })
+        .toEqual({ skill, exists: true });
+    }
+  });
+
+  // Companion invariant: dirs WITHOUT a SKILL.md are still skipped (the structural gate).
+  test('skips top-level dirs that have no SKILL.md', () => {
+    setupMockInstall(['qa']);
+    // Real support dirs carry no SKILL.md — they must not materialize as skills.
+    for (const meta of ['bin', 'node_modules', 'lib']) {
+      fs.mkdirSync(path.join(installDir, meta), { recursive: true });
+      fs.writeFileSync(path.join(installDir, meta, 'placeholder.txt'), 'not a skill');
+    }
+    run(`${path.join(installDir, 'bin', 'gstack-config')} set skill_prefix false`, {
+      GSTACK_INSTALL_DIR: installDir,
+      GSTACK_SKILLS_DIR: skillsDir,
+    });
+    run(`${path.join(installDir, 'bin', 'gstack-relink')}`, {
+      GSTACK_INSTALL_DIR: installDir,
+      GSTACK_SKILLS_DIR: skillsDir,
+    });
+    expect(fs.existsSync(path.join(skillsDir, 'qa', 'SKILL.md'))).toBe(true);
+    for (const meta of ['bin', 'node_modules', 'lib']) {
+      expect({ meta, materialized: fs.existsSync(path.join(skillsDir, meta)) })
+        .toEqual({ meta, materialized: false });
+    }
+  });
+
+  // REGRESSION: against the REAL gstack payload, every skills/gstack/*/SKILL.md must
+  // materialize. Read-only: relinks into a temp skills dir, never touches the real tree.
+  // skill_prefix=false → gstack-patch-names is a no-op on already-flat names.
+  test('real payload: every top-level */SKILL.md materializes (incl. browse)', () => {
+    const realSkills = fs.readdirSync(ROOT, { withFileTypes: true })
+      .filter((d) => d.isDirectory() && !d.name.startsWith('.'))
+      .filter((d) => fs.existsSync(path.join(ROOT, d.name, 'SKILL.md')))
+      .map((d) => d.name);
+    // Sanity: the payload actually ships browse as a real skill.
+    expect(realSkills).toContain('browse');
+
+    const realSkillsDir = path.join(tmpDir, 'real-skills');
+    fs.mkdirSync(realSkillsDir, { recursive: true });
+    run(`${BIN}/gstack-relink`, {
+      GSTACK_INSTALL_DIR: ROOT,
+      GSTACK_SKILLS_DIR: realSkillsDir,
+    });
+    const missing = realSkills.filter(
+      (s) => !fs.existsSync(path.join(realSkillsDir, s, 'SKILL.md')),
+    );
+    expect(missing).toEqual([]);
+  });
 });
 
 describe('upgrade migrations', () => {
