@@ -59,10 +59,11 @@ Be terse. For each issue: one line describing the problem, one line with the fix
 - `eval()` / `exec()` on LLM-generated code without sandboxing
 
 #### Enum & Value Completeness
-When the diff introduces a new enum value, status string, tier name, or type constant:
+When the diff introduces a new enum value, status string, tier name, or type constant — OR loosens what an input accepts (a newly-accepted MIME type, file extension, or flag; a widened validator/parser/guard):
 - **Trace it through every consumer.** Read (don't just grep — READ) each file that switches on, filters by, or displays that value. If any consumer doesn't handle the new value, flag it. Common miss: adding a value to the frontend dropdown but the backend model/compute method doesn't persist it.
 - **Check allowlists/filter arrays.** Search for arrays or `%w[]` lists containing sibling values (e.g., if adding "revise" to tiers, find every `%w[quick lfg mega]` and verify "revise" is included where needed).
 - **Check `case`/`if-elsif` chains.** If existing code branches on the enum, does the new value fall through to a wrong default?
+- **Loosened acceptance breaks UNCHANGED consumers.** Widening what one function accepts often breaks a different, unchanged function downstream — which never appears in the diff. When a guard/validator/parser starts accepting a new shape, grep every consumer of that same field (MIME type, extension, status, flag) and confirm each handles it. Real miss: a client `isPdfFile` was loosened to accept a typeless `.pdf`, but the unchanged submit-path `updateFileMimeType` still forced every typeless file to `text/plain` — the PDF was sent as garbage text, not natively.
 To do this: use Grep to find all references to the sibling values (e.g., grep for "lfg" or "mega" to find all tier consumers). Read each match. This step requires reading code OUTSIDE the diff.
 
 ### Pass 2 — INFORMATIONAL
@@ -80,6 +81,11 @@ To do this: use Grep to find all references to the sibling values (e.g., grep fo
 #### Dead Code & Consistency (version/changelog only — other items handled by maintainability specialist)
 - Version mismatch between PR title and VERSION/CHANGELOG files
 - CHANGELOG entries that describe changes inaccurately (e.g., "changed from X to Y" when X never existed)
+
+#### Stale User-Facing Strings
+When the diff changes the CONDITION that guards a user-facing string (error message, toast, label, confirmation) WITHOUT changing the string itself, re-read the string — it can silently become misleading.
+- A message describing "all files" still says so after the logic starts counting only *some* of them (real miss: a "Total file size exceeds…" message that, after the change, sums only the non-PDF files).
+- This is stale-comment / CHANGELOG review applied to in-code copy: the string is unchanged, so a diff-scoped pass skims right past it.
 
 #### LLM Prompt Issues
 - 0-indexed lists in prompts (LLMs reliably return 1-indexed)
@@ -131,6 +137,7 @@ CRITICAL (highest severity):      INFORMATIONAL (main agent):      SPECIALIST (p
                                    ├─ Time Window Safety            ├─ API Contract specialist
                                    ├─ Type Coercion at Boundaries   └─ Red Team (conditional)
                                    ├─ View/Frontend
+                                   ├─ Stale User-Facing Strings
                                    └─ Distribution & CI/CD Pipeline
 
 All findings are actioned via Fix-First Review. Severity determines
