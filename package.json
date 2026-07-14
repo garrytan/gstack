@@ -51,7 +51,7 @@
   "dependencies": {
     "@huggingface/transformers": "^4.1.0",
     "@ngrok/ngrok": "^1.7.0",
-    "diff": "^7.0.0",
+    "diff": "^9.0.0",
     "html-to-docx": "1.8.0",
     "marked": "^18.0.2",
     "playwright": "^1.58.2",
