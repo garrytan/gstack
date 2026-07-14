@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.61.0.0] - 2026-07-14
+
+## **GitHub Codex Review 现在可以作为可选、限时且可核验的合并门禁。**
+
+`/land-and-deploy` 新增了一个默认关闭的 GitHub Codex Review 检查。开启后，它只认可 `chatgpt-codex-connector[bot]` 对当前 PR HEAD 的反馈，通过 HEAD 标记避免重复请求，并分别限制确认与完成等待时间。云端超时或 API 异常只会给出明确告警，不会把未知状态伪装成通过；但当前 HEAD 上尚未解决的 Codex Review 线程会阻止合并。
+
+### 主要变化
+
+#### Added
+
+- 新增 `gstack-github-codex-review` CLI，提供 `assess`、`status` 和 `run` 三种模式；stdout 始终输出单个 JSON 文档，适合流程编排。
+- 新增 `github_codex_review: off | risk | always` 配置，以及确认、完成两个正整数超时配置；默认 `off`，不会访问 GitHub 或消耗云端 Review 额度。
+- `/land-and-deploy` 接入有界检查，并区分 `COMPLETED`、`TIMEOUT`、`ERROR`、`BLOCKED` 等确定状态。
+- `setup` 会把共享 `lib/` 与 `bin/` 一起安装到 Agents、Codex、Factory、OpenCode 和 Kiro 运行目录，保证 CLI 的模块依赖完整。
+
+#### Verification
+
+- 423 项定向测试覆盖风险判定、幂等请求、当前 HEAD 过滤、机器人身份校验、REST/GraphQL 分页、大响应管道、超时和阻塞语义。
+- 完整测试套件、构建、生成文档一致性、shell 语法和 `git diff --check` 均通过。
+
 ## [1.60.1.0] - 2026-07-09
 
 ## **The /autoplan dual-voice eval is back on the board, catching real regressions.**
