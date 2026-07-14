@@ -3,6 +3,11 @@
   "catalog_mode": "trim",
   "note": "Routing / voice-trigger prose extracted from SKILL.md frontmatter descriptions during catalog trim. Loaded on demand when routing guidance is needed.",
   "skills": {
+    "agy": {
+      "lead": "Google Antigravity CLI wrapper — three modes.",
+      "routing": "Code review: independent diff review\nvia `agy -p` (headless print mode) with pass/fail gate. Challenge: adversarial\nstress-testing of proposed designs and race conditions. Consult: multi-turn session\ncontinuation via `agy -c`. The \"200 IQ second opinion from a different AI system.\"\nUse when asked to \"agy review\", \"agy challenge\", \"antigravity review\", \"consult agy\",\nor \"second opinion\".",
+      "voice_line": "Voice triggers (speech-to-text aliases): \"a g y\", \"antigravity review\", \"get another opinion\"."
+    },
     "autoplan": {
       "lead": "Auto-review pipeline — reads the full CEO, design, eng, and DX review skills from disk and runs them sequentially with auto-decisions using 6 decision principles.",
       "routing": "Surfaces\ntaste decisions (close approaches, borderline scope, codex disagreements) at a final\napproval gate. One command, fully reviewed plan out.\nUse when asked to \"auto review\", \"autoplan\", \"run all reviews\", \"review this plan\nautomatically\", or \"make the decisions for me\".\nProactively suggest when the user has a plan file and wants to run the full review\ngauntlet without answering 15-30 intermediate questions.",
