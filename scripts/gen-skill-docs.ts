@@ -655,6 +655,17 @@ function applyHostRewrites(content: string, hostConfig: HostConfig): string {
       result = result.replaceAll(from, to);
     }
   }
+  if (hostConfig.adapter) {
+    const adapterPath = path.resolve(ROOT, hostConfig.adapter);
+    try {
+      const adapter = require(adapterPath);
+      if (adapter && adapter.transform) {
+        result = adapter.transform(result, hostConfig);
+      }
+    } catch (e) {
+      console.warn(`Failed to load adapter ${hostConfig.adapter}:`, e);
+    }
+  }
   return result;
 }
 

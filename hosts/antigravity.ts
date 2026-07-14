@@ -46,7 +46,8 @@ const antigravity: HostConfig = {
     // 'tools' lets the Desktop IDE pre-authorize tool calls per skill.
     // Keeping this list short prevents context-window bloat when the
     // multi-agent orchestrator loads all skill manifests simultaneously.
-    keepFields: ['name', 'description', 'version', 'author', 'tools'],
+    keepFields: ['name', 'description', 'version', 'author'],
+    renameFields: { 'allowed-tools': 'tools' },
     // 1024-char limit prevents any single skill description from dominating
     // the routing table context; 'truncate' avoids hard build failures on
     // edge cases while still surfacing an actionable warning in CI logs.

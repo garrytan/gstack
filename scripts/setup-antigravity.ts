@@ -31,6 +31,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import antigravityConfig from '../hosts/antigravity';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -141,7 +142,8 @@ type LinkState =
   | { kind: 'correct'; target: string } // already points at SOURCE_DIR
   | { kind: 'stale'; target: string }   // link exists but points elsewhere
   | { kind: 'broken' }                  // link exists but target is missing
-  | { kind: 'real-dir' };               // real directory (not a link) — back up
+  | { kind: 'real-dir' }                // real directory (not a link) — back up
+  | { kind: 'real-file' };              // real file (not a link) — back up
 
 function inspectTarget(): LinkState {
   if (!fs.existsSync(TARGET_LINK) && !isLink(TARGET_LINK)) {
@@ -167,7 +169,7 @@ function inspectTarget(): LinkState {
   }
 
   // Exists but is neither link nor directory (shouldn't happen, but handle gracefully)
-  return { kind: 'broken' };
+  return { kind: 'real-file' };
 }
 
 // ─── Step 4: Remove existing stale/broken link or back up real directory ────
@@ -183,10 +185,10 @@ function removeOrBackup(state: LinkState): void {
     return;
   }
 
-  if (state.kind === 'real-dir') {
+  if (state.kind === 'real-dir' || state.kind === 'real-file') {
     const backupPath = TARGET_LINK + '.backup-' + Date.now();
     warn(
-      `${TARGET_LINK} is a real directory (not a link).\n` +
+      `${TARGET_LINK} is a ${state.kind === 'real-dir' ? 'real directory' : 'real file'} (not a link).\n` +
       `  Backing it up to: ${backupPath}\n` +
       `  If this was intentional, merge it back manually after setup.`
     );
@@ -262,6 +264,9 @@ async function main(): Promise<void> {
   // 1. Verify source
   assertSourceExists();
 
+  // 1.5. Populate runtime assets
+  populateRuntimeAssets();
+
   // 2. Ensure ~/.agents/skills/ exists
   ensureTargetParent();
 
@@ -290,7 +295,41 @@ async function main(): Promise<void> {
   printDiscoveryHint();
 }
 
-main().catch((err: unknown) => {
-  const msg = err instanceof Error ? err.message : String(err);
-  die(`Unexpected error: ${msg}`);
-});
+main().catch((err) => die(`Unhandled error: ${err}`));
+
+// ─── Step 7: Populate runtime assets ──────────────────────────────────────────
+
+function populateRuntimeAssets(): void {
+  const runtime = antigravityConfig.runtimeRoot;
+  if (!runtime) return;
+
+  function linkOrCopy(src: string, dst: string) {
+    if (!fs.existsSync(src)) return;
+    if (fs.existsSync(dst)) return;
+    fs.mkdirSync(path.dirname(dst), { recursive: true });
+    
+    if (isRealDir(src)) {
+      fs.symlinkSync(src, dst, IS_WINDOWS ? 'junction' : 'dir');
+    } else {
+      if (IS_WINDOWS) {
+        fs.copyFileSync(src, dst);
+      } else {
+        fs.symlinkSync(src, dst, 'file');
+      }
+    }
+  }
+
+  if (runtime.globalSymlinks) {
+    for (const asset of runtime.globalSymlinks) {
+      linkOrCopy(path.join(REPO_ROOT, asset), path.join(SOURCE_DIR, asset));
+    }
+  }
+
+  if (runtime.globalFiles) {
+    for (const [dir, files] of Object.entries(runtime.globalFiles)) {
+      for (const file of files) {
+        linkOrCopy(path.join(REPO_ROOT, dir, file), path.join(SOURCE_DIR, dir, file));
+      }
+    }
+  }
+}
