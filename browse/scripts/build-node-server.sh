@@ -66,4 +66,24 @@ rm -f "$RAW"
 # Step 4: copy polyfill to dist/
 cp "$SRC_DIR/bun-polyfill.cjs" "$DIST_DIR/bun-polyfill.cjs"
 
+# Step 5: guard — this script only builds the Node.js server bundle. The
+# runnable `browse` CLI binary (plus find-browse/design/pdf) are *compiled*
+# artifacts produced by scripts/build.sh (bun build --compile ...). They are
+# gitignored and deleted by a bare `rm -rf browse/dist`, so a standalone run
+# of this script can leave a working server-node.mjs with no `browse` binary.
+# Warn clearly instead of letting the next `./browse/dist/browse` fail with a
+# cryptic ENOENT.
+BROWSE_BIN=""
+for _cand in "$DIST_DIR/browse" "$DIST_DIR/browse.exe"; do
+  [ -f "$_cand" ] && BROWSE_BIN="$_cand" && break
+done
+if [ -z "$BROWSE_BIN" ]; then
+  echo "WARNING: compiled CLI binary 'browse' is missing from $DIST_DIR." >&2
+  echo "         This script only produces server-node.mjs (the Node.js server" >&2
+  echo "         bundle). To build the runnable 'browse' executable, run:" >&2
+  echo "             bash scripts/build.sh" >&2
+  echo "         or compile it directly:" >&2
+  echo "             bun build --compile browse/src/cli.ts --outfile browse/dist/browse" >&2
+fi
+
 echo "Node server bundle ready: $FINAL"
