@@ -380,6 +380,8 @@ if [ ! -x "$BROWSE_BIN" ]; then
   NEEDS_BUILD=1
 elif [ -n "$(find "$SOURCE_GSTACK_DIR/browse/src" -type f -newer "$BROWSE_BIN" -print -quit 2>/dev/null)" ]; then
   NEEDS_BUILD=1
+elif [ "$IS_WINDOWS" -eq 1 ] && { [ "$SOURCE_GSTACK_DIR/browse/bin/windows-browse" -nt "$BROWSE_BIN" ] || [ "$SOURCE_GSTACK_DIR/browse/bin/stage-windows-browse-launcher" -nt "$BROWSE_BIN" ]; }; then
+  NEEDS_BUILD=1
 elif [ "$SOURCE_GSTACK_DIR/package.json" -nt "$BROWSE_BIN" ]; then
   NEEDS_BUILD=1
 elif [ -f "$SOURCE_GSTACK_DIR/bun.lock" ] && [ "$SOURCE_GSTACK_DIR/bun.lock" -nt "$BROWSE_BIN" ]; then
