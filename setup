@@ -531,6 +531,20 @@ fi
 # 3. Ensure ~/.gstack global state directory exists
 mkdir -p "$HOME/.gstack/projects"
 
+# Optional user-level visibility denylist. One exact skill name per line;
+# either source form (context-save) or projected form (gstack-context-save).
+GSTACK_HIDDEN_SKILLS_FILE="${GSTACK_HIDDEN_SKILLS_FILE:-$HOME/.gstack/hidden-skills}"
+_gstack_skill_hidden() {
+  local source_name="$1" projected_name="${2:-$1}"
+  [ -f "$GSTACK_HIDDEN_SKILLS_FILE" ] || return 1
+  grep -Fqx "$source_name" "$GSTACK_HIDDEN_SKILLS_FILE" 2>/dev/null && return 0
+  case "$source_name" in
+    gstack-*) ;;
+    *) grep -Fqx "gstack-$source_name" "$GSTACK_HIDDEN_SKILLS_FILE" 2>/dev/null && return 0 ;;
+  esac
+  grep -Fqx "$projected_name" "$GSTACK_HIDDEN_SKILLS_FILE" 2>/dev/null
+}
+
 # ─── Helper: link Claude skill subdirectories into a skills parent directory ──
 # Creates real directories (not symlinks) at the top level with a SKILL.md symlink
 # inside. This ensures Claude discovers them as top-level skills, not nested under
@@ -559,6 +573,14 @@ link_claude_skill_dirs() {
         link_name="$skill_name"
       fi
       target="$skills_dir/$link_name"
+      if _gstack_skill_hidden "$dir_name" "$link_name"; then
+        if [ -L "$target" ]; then
+          rm -f "$target"
+        elif [ -d "$target" ] && [ -L "$target/SKILL.md" ]; then
+          rm -rf "$target"
+        fi
+        continue
+      fi
       # Upgrade old directory symlinks to real directories
       if [ -L "$target" ]; then
         rm -f "$target"
@@ -726,6 +748,7 @@ link_codex_skill_dirs() {
       # browse/), not a skill. Linking it would overwrite the root gstack
       # symlink that Step 5 already pointed at the repo root.
       [ "$skill_name" = "gstack" ] && continue
+      _gstack_skill_hidden "$skill_name" "$skill_name" && continue
       target="$skills_dir/$skill_name"
       # Create or update symlink
       if [ -L "$target" ] || [ ! -e "$target" ]; then

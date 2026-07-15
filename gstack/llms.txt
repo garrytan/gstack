@@ -18,7 +18,7 @@ Conventions:
 - [/careful](careful/SKILL.md): Safety guardrails for destructive commands.
 - [/claude](claude/SKILL.md): Claude Code CLI wrapper for non-Claude hosts - three modes.
 - [/codex](codex/SKILL.md): OpenAI Codex CLI wrapper — three modes.
-- [/context-restore](context-restore/SKILL.md): Restore working context saved earlier by /context-save.
+- [/context-restore](context-restore/SKILL.md): Restore working context saved earlier by /save or legacy /context-save.
 - [/context-save](context-save/SKILL.md): Save working context.
 - [/cso](cso/SKILL.md): Chief Security Officer mode.
 - [/design-consultation](design-consultation/SKILL.md): Design consultation: understands your product, researches the landscape, proposes a complete design system (aesthetic, typography, color, layout, spacing, motion), and generates font+color preview pages.

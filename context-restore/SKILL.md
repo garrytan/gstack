@@ -2,7 +2,7 @@
 name: context-restore
 preamble-tier: 2
 version: 1.0.0
-description: Restore working context saved earlier by /context-save. (gstack)
+description: Restore working context saved earlier by /save or legacy /context-save. (gstack)
 allowed-tools:
   - Bash
   - Read
@@ -26,7 +26,7 @@ Loads the most recent
 saved state (across all branches by default) so you can pick up where you
 left off — even across Conductor workspace handoffs.
 Use when asked to "resume", "restore context", "where was I", or
-"pick up where I left off". Pair with /context-save.
+"pick up where I left off". Pair with /save.
 Formerly /checkpoint resume — renamed because Claude Code treats /checkpoint
 as a native rewind alias in current environments.
 
@@ -74,10 +74,11 @@ echo "FIRST_TASK: $_FIRST_TASK"
 _LAKE_SEEN=$([ -f ~/.gstack/.completeness-intro-seen ] && echo "yes" || echo "no")
 echo "LAKE_INTRO: $_LAKE_SEEN"
 _TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || true)
+case "$_TEL" in community|anonymous) ;; *) _TEL="off" ;; esac
 _TEL_PROMPTED=$([ -f ~/.gstack/.telemetry-prompted ] && echo "yes" || echo "no")
 _TEL_START=$(date +%s)
 _SESSION_ID="$$-$(date +%s)"
-echo "TELEMETRY: ${_TEL:-off}"
+echo "TELEMETRY: $_TEL"
 echo "TEL_PROMPTED: $_TEL_PROMPTED"
 _EXPLAIN_LEVEL=$(~/.claude/skills/gstack/bin/gstack-config get explain_level 2>/dev/null || echo "default")
 if [ "$_EXPLAIN_LEVEL" != "default" ] && [ "$_EXPLAIN_LEVEL" != "terse" ]; then _EXPLAIN_LEVEL="default"; fi
@@ -807,8 +808,8 @@ Parse the user's input:
 
 - `/context-restore` → load the most recent saved context (any branch)
 - `/context-restore <title-fragment-or-number>` → load a specific saved context
-- `/context-restore list` → tell the user "Use `/context-save list` — listing
-  lives on the save side" and exit. No mode detection here.
+- `/context-restore list` → display the same cross-branch candidate list from
+  Step 1 and exit without loading a file.
 
 ---
 
@@ -852,23 +853,60 @@ enables Conductor workspace handoff.
 
 Read the chosen file and present a summary:
 
+Then inspect the sibling Universal Save receipt without writing anything:
+
+```bash
+# Set CHOSEN_FILE to the exact checkpoint selected above.
+RECEIPT_FILE="${CHOSEN_FILE%.md}.receipt.json"
+if [ -f "$RECEIPT_FILE" ]; then
+  echo "RECEIPT_FILE=$RECEIPT_FILE"
+else
+  echo "LEGACY_CHECKPOINT_NO_RECEIPT"
+fi
 ```
-RESUMING CONTEXT
+
+If `RECEIPT_FILE` exists, read it and include:
+
+- `receipt_schema_version` (`missing` means supported legacy v0; versions above
+  `1` are unsupported and must produce a warning rather than a green claim);
+- `verification.layers` statuses for working checkpoint, Codex Brain, Obsidian
+  bridge and QMD;
+- exact `receipt_path` and `restore.command`;
+- the first item under `### Что осталось` / `### Remaining Work` as the next
+  action.
+
+If any layer is absent or not `ok`, start the result with
+`ВОССТАНОВЛЕНИЕ С ПРЕДУПРЕЖДЕНИЕМ` and name the exact layer. Do not run save,
+resume, QMD update/embed or any write from this read-only skill. A legacy
+checkpoint without a receipt remains restorable, but label its four-layer status
+as `не подтверждён`.
+
+Present the human-facing result in Russian:
+
+```
+ВОССТАНОВЛЕНИЕ КОНТЕКСТА
 ════════════════════════════════════════
-Title:       {title}
-Branch:      {branch from frontmatter}
-Saved:       {timestamp, human-readable}
-Duration:    Last session was {formatted duration} (if available)
-Status:      {status}
+Название:    {title}
+Ветка:       {branch from frontmatter}
+Сохранено:   {timestamp, human-readable}
+Длительность:{formatted duration, if available}
+Статус:      {status}
+Квитанция:   {receipt path or legacy}
 ════════════════════════════════════════
 
-### Summary
+### Кратко
 {summary from saved file}
 
-### Remaining Work
+### Состояние четырёх слоёв
+Checkpoint: {status}
+Codex Brain: {status}
+Obsidian: {status}
+QMD: {status}
+
+### Что осталось
 {remaining work items}
 
-### Notes
+### Примечания
 {notes}
 ```
 
@@ -892,14 +930,16 @@ If A, summarize the first remaining work item and suggest starting there.
 
 If Step 1 printed `NO_CHECKPOINTS`, tell the user:
 
-"No saved contexts yet. Run `/context-save` first to save your current working
-state, then `/context-restore` will find it."
+"Сохранённых контекстов пока нет. Запустите `/save`, затем
+`/context-restore` найдёт сохранение."
 
 ---
 
 ## Important Rules
 
 - **Never modify code.** This skill only reads saved files and presents them.
+- **Never mutate a receipt.** Receipt inspection and four-layer verification
+  display are read-only; repair belongs to `/save` resume flow.
 - **Always search across all branches by default.** Cross-branch resume is the
   whole point. Only filter by branch if the user explicitly asks via a
   title-fragment match that happens to be branch-specific.

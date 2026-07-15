@@ -113,6 +113,44 @@ describe('gstack-relink (#578)', () => {
     expect(output).toContain('flat');
   });
 
+  test('does not relink a skill listed in the visibility denylist', () => {
+    setupMockInstall(['context-save', 'qa']);
+    const hiddenFile = path.join(tmpDir, 'hidden-skills');
+    fs.writeFileSync(hiddenFile, 'gstack-context-save\n');
+    run(`${path.join(installDir, 'bin', 'gstack-config')} set skill_prefix true`, {
+      GSTACK_INSTALL_DIR: installDir,
+      GSTACK_SKILLS_DIR: skillsDir,
+    });
+
+    run(`${path.join(installDir, 'bin', 'gstack-relink')}`, {
+      GSTACK_INSTALL_DIR: installDir,
+      GSTACK_SKILLS_DIR: skillsDir,
+      GSTACK_HIDDEN_SKILLS_FILE: hiddenFile,
+    });
+
+    expect(fs.existsSync(path.join(skillsDir, 'gstack-context-save'))).toBe(false);
+    expect(fs.existsSync(path.join(skillsDir, 'gstack-qa'))).toBe(true);
+  });
+
+  test('visibility denylist also applies in no-prefix mode', () => {
+    setupMockInstall(['context-save', 'qa']);
+    const hiddenFile = path.join(tmpDir, 'hidden-skills');
+    fs.writeFileSync(hiddenFile, 'gstack-context-save\n');
+    run(`${path.join(installDir, 'bin', 'gstack-config')} set skill_prefix false`, {
+      GSTACK_INSTALL_DIR: installDir,
+      GSTACK_SKILLS_DIR: skillsDir,
+    });
+
+    run(`${path.join(installDir, 'bin', 'gstack-relink')}`, {
+      GSTACK_INSTALL_DIR: installDir,
+      GSTACK_SKILLS_DIR: skillsDir,
+      GSTACK_HIDDEN_SKILLS_FILE: hiddenFile,
+    });
+
+    expect(fs.existsSync(path.join(skillsDir, 'context-save'))).toBe(false);
+    expect(fs.existsSync(path.join(skillsDir, 'qa'))).toBe(true);
+  });
+
   // REGRESSION: unprefixed skills must be real directories, not symlinks (#761)
   // Claude Code auto-prefixes skills nested under a parent dir symlink.
   // e.g., `qa -> gstack/qa` gets discovered as "gstack-qa", not "qa".

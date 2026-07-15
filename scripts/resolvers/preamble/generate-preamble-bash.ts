@@ -6,7 +6,7 @@ export function generatePreambleBash(ctx: TemplateContext): string {
   const runtimeRoot = hostConfig.usesEnvVars
     ? `_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 GSTACK_ROOT="$HOME/${hostConfig.globalRoot}"
-[ -n "$_ROOT" ] && [ -d "$_ROOT/${ctx.paths.localSkillRoot}" ] && GSTACK_ROOT="$_ROOT/${ctx.paths.localSkillRoot}"
+[ -n "$_ROOT" ] && [ -x "$_ROOT/${ctx.paths.localSkillRoot}/bin/gstack-config" ] && GSTACK_ROOT="$_ROOT/${ctx.paths.localSkillRoot}"
 GSTACK_BIN="$GSTACK_ROOT/bin"
 GSTACK_BROWSE="$GSTACK_ROOT/browse/dist"
 GSTACK_DESIGN="$GSTACK_ROOT/design/dist"
@@ -57,10 +57,11 @@ echo "FIRST_TASK: $_FIRST_TASK"
 _LAKE_SEEN=$([ -f ~/.gstack/.completeness-intro-seen ] && echo "yes" || echo "no")
 echo "LAKE_INTRO: $_LAKE_SEEN"
 _TEL=$(${ctx.paths.binDir}/gstack-config get telemetry 2>/dev/null || true)
+case "$_TEL" in community|anonymous) ;; *) _TEL="off" ;; esac
 _TEL_PROMPTED=$([ -f ~/.gstack/.telemetry-prompted ] && echo "yes" || echo "no")
 _TEL_START=$(date +%s)
 _SESSION_ID="$$-$(date +%s)"
-echo "TELEMETRY: \${_TEL:-off}"
+echo "TELEMETRY: $_TEL"
 echo "TEL_PROMPTED: $_TEL_PROMPTED"
 _EXPLAIN_LEVEL=$(${ctx.paths.binDir}/gstack-config get explain_level 2>/dev/null || echo "default")
 if [ "$_EXPLAIN_LEVEL" != "default" ] && [ "$_EXPLAIN_LEVEL" != "terse" ]; then _EXPLAIN_LEVEL="default"; fi

@@ -1867,6 +1867,8 @@ describe('Codex generation (--host codex)', () => {
     const content = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-review', 'SKILL.md'), 'utf-8');
     expect(content).toContain('GSTACK_ROOT');
     expect(content).toContain('$_ROOT/.agents/skills/gstack');
+    expect(content).toContain('[ -x "$_ROOT/.agents/skills/gstack/bin/gstack-config" ]');
+    expect(content).not.toContain('[ -d "$_ROOT/.agents/skills/gstack" ]');
     expect(content).toContain('$GSTACK_BIN/gstack-config');
     expect(content).toContain('$GSTACK_ROOT/gstack-upgrade/SKILL.md');
     expect(content).not.toContain('~/.codex/skills/gstack/bin/gstack-config get telemetry');
@@ -2316,6 +2318,7 @@ describe('setup script validation', () => {
     const fnBody = setupContent.slice(fnStart, fnEnd);
     expect(fnBody).toContain('.agents/skills');
     expect(fnBody).toContain('gstack*');
+    expect(fnBody).toContain('_gstack_skill_hidden');
   });
 
   test('link_claude_skill_dirs creates real directories with absolute SKILL.md symlinks', () => {
@@ -2327,6 +2330,7 @@ describe('setup script validation', () => {
     expect(fnBody).toContain('mkdir -p "$target"');
     // v1.36.0.0: routes through _link_or_copy helper for Windows fallback (cp on MSYS2/Git Bash).
     expect(fnBody).toContain('_link_or_copy "$gstack_dir/$dir_name/SKILL.md" "$target/SKILL.md"');
+    expect(fnBody).toContain('_gstack_skill_hidden');
   });
 
   // REGRESSION: cleanup functions must handle both old symlinks AND new real-directory pattern
@@ -2582,6 +2586,9 @@ describe('telemetry', () => {
     expect(content).toContain('TELEMETRY:');
     expect(content).toContain('TEL_PROMPTED:');
     expect(content).toContain('gstack-config get telemetry');
+    expect(content).toContain('case "$_TEL" in community|anonymous) ;; *) _TEL="off" ;; esac');
+    expect(content).toContain('echo "TELEMETRY: $_TEL"');
+    expect(content).not.toContain('echo "TELEMETRY: ${_TEL:-off}"');
   });
 
   test('generated SKILL.md contains telemetry opt-in prompt', () => {
