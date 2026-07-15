@@ -36,15 +36,33 @@ echo "TITLE_SLUG=$TITLE_SLUG"
 echo "FILE=$FILE"
 `;
 
-// The exact find + sort + head used by context-restore/SKILL.md Step 1.
+// The exact selection used by context-restore/SKILL.md Step 1: scan newest 200,
+// order current-branch checkpoints first (fallback: all branches), cap at 20.
+// CURRENT_BRANCH is injected via env in tests; the skill resolves it from git.
 const RESTORE_FIND_BASH = `
 if [ ! -d "$CHECKPOINT_DIR" ]; then
   echo "NO_CHECKPOINTS"
 else
-  FILES=$(find "$CHECKPOINT_DIR" -maxdepth 1 -name "*.md" -type f 2>/dev/null | sort -r | head -20)
-  if [ -z "$FILES" ]; then
+  ALL=$(find "$CHECKPOINT_DIR" -maxdepth 1 -name "*.md" -type f 2>/dev/null | sort -r | head -200)
+  if [ -z "$ALL" ]; then
     echo "NO_CHECKPOINTS"
   else
+    : "\${CURRENT_BRANCH:=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)}"
+    SAME=""; OTHER=""
+    while IFS= read -r f; do
+      [ -n "$f" ] || continue
+      b=$(grep -m1 '^branch:' "$f" 2>/dev/null | sed 's/^branch:[[:space:]]*//')
+      if [ -n "$CURRENT_BRANCH" ] && [ "$b" = "$CURRENT_BRANCH" ]; then
+        SAME="\${SAME}\${f}
+"
+      else
+        OTHER="\${OTHER}\${f}
+"
+      fi
+    done <<EOF
+$ALL
+EOF
+    FILES=$(printf '%s%s' "$SAME" "$OTHER" | grep -v '^[[:space:]]*$' | head -20)
     echo "$FILES"
   fi
 fi
@@ -309,6 +327,73 @@ describe('context-restore: find + sort + head cap', () => {
     // Must NOT contain any .md filename from cwd.
     expect(out).not.toContain('SKILL.md');
     expect(out).not.toContain('README.md');
+  });
+});
+
+// ─── Current-branch preference (#2052) ──────────────────────────────────────
+//
+// All worktrees of a repo share one origin-derived slug → one checkpoints dir.
+// Restore must prefer the CURRENT branch's own checkpoint so a sibling
+// worktree's newer save can't shadow it, while still falling back across
+// branches (Conductor handoff) when the current branch has none.
+
+describe('context-restore: current-branch preference (#2052)', () => {
+  let tmp: string;
+  beforeEach(() => { tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ctx-branch-')); });
+  afterEach(() => { try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {} });
+
+  function writeCheckpoint(ts: string, branch: string | null): string {
+    const file = `${tmp}/${ts}-work.md`;
+    const fm = branch === null
+      ? `---\nstatus: in-progress\n---\n`
+      : `---\nstatus: in-progress\nbranch: ${branch}\n---\n`;
+    fs.writeFileSync(file, fm);
+    return file;
+  }
+
+  function firstCandidate(currentBranch?: string): string {
+    const env: Record<string, string> = { CHECKPOINT_DIR: tmp };
+    if (currentBranch !== undefined) env.CURRENT_BRANCH = currentBranch;
+    const out = runBash(RESTORE_FIND_BASH, env).stdout;
+    return out.trim().split('\n').filter(Boolean)[0] ?? '';
+  }
+
+  test('the bug: current-branch save is NOT shadowed by a newer sibling-worktree save', () => {
+    const mine = writeCheckpoint('20260101-120000', 'feature-a'); // older, my branch
+    writeCheckpoint('20260619-120000', 'feature-b');              // newer, sibling worktree
+    // On feature-a, restore must load feature-a's own (older) checkpoint.
+    expect(firstCandidate('feature-a')).toBe(mine);
+  });
+
+  test('fallback: current branch has no checkpoint → newest across all branches (Conductor handoff)', () => {
+    writeCheckpoint('20260101-120000', 'feature-a');
+    const newest = writeCheckpoint('20260619-120000', 'feature-b');
+    // On feature-c (no own checkpoint), cross-branch resume still works.
+    expect(firstCandidate('feature-c')).toBe(newest);
+  });
+
+  test('back-compat: empty current branch (non-git) → newest across all', () => {
+    writeCheckpoint('20260101-120000', 'feature-a');
+    const newest = writeCheckpoint('20260619-120000', 'feature-b');
+    expect(firstCandidate('')).toBe(newest);
+  });
+
+  test('checkpoints without a branch frontmatter still rank as fallback, never lost', () => {
+    const mine = writeCheckpoint('20260101-120000', 'feature-a');
+    writeCheckpoint('20260301-120000', null); // legacy save, no branch field
+    const out = runBash(RESTORE_FIND_BASH, { CHECKPOINT_DIR: tmp, CURRENT_BRANCH: 'feature-a' }).stdout;
+    const lines = out.trim().split('\n').filter(Boolean);
+    expect(lines[0]).toBe(mine);            // current branch first
+    expect(lines.length).toBe(2);           // legacy file is still present
+  });
+
+  test('within the current branch, ordering stays newest-first', () => {
+    const older = writeCheckpoint('20260101-120000', 'feature-a');
+    const newer = writeCheckpoint('20260619-120000', 'feature-a');
+    const out = runBash(RESTORE_FIND_BASH, { CHECKPOINT_DIR: tmp, CURRENT_BRANCH: 'feature-a' }).stdout;
+    const lines = out.trim().split('\n').filter(Boolean);
+    expect(lines[0]).toBe(newer);
+    expect(lines[1]).toBe(older);
   });
 });
 

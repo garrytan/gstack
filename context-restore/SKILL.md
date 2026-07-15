@@ -23,8 +23,8 @@ triggers:
 ## When to invoke this skill
 
 Loads the most recent
-saved state (across all branches by default) so you can pick up where you
-left off — even across Conductor workspace handoffs.
+saved state (preferring the current branch, falling back across branches) so
+you can pick up where you left off — even across Conductor workspace handoffs.
 Use when asked to "resume", "restore context", "where was I", or
 "pick up where I left off". Pair with /context-save.
 Formerly /checkpoint resume — renamed because Claude Code treats /checkpoint
@@ -791,13 +791,19 @@ context and present it clearly so the user can resume work without losing a beat
 **HARD GATE:** Do NOT implement code changes. This skill only reads saved
 context files and presents the summary.
 
-**Default: load the most recent saved context across ALL branches.** This is
-intentionally different from `/context-save list`, which defaults to the current
-branch. `/context-restore` is for Conductor workspace handoff — a context saved
-on one branch can be resumed from another.
+**Default: prefer the most recent checkpoint saved on the CURRENT branch; if
+this branch has none, fall back to the most recent across ALL branches.** The
+fallback is for Conductor workspace handoff — a context saved on one branch can
+be resumed from another. The current-branch preference exists because every
+worktree of a repo shares one checkpoints directory (same origin-derived slug),
+so without it `/context-restore` in one worktree could silently load a sibling
+worktree's newer checkpoint.
 
-**Do NOT filter the candidate set by current branch.** The `list` flow does
-that; `/context-restore` does not.
+**Do NOT hard-filter the candidate set to the current branch** — other-branch
+checkpoints stay in the set as a fallback. They are just ordered *after* the
+current branch's own, so a current-branch save is never shadowed by a newer
+sibling-worktree save. (`/context-save list` is the flow that hard-scopes to one
+branch.)
 
 ---
 
@@ -828,27 +834,53 @@ else
   #    copies/rsync). Filesystem mtime drifts and is not authoritative.
   # 2. On macOS, `find ... | xargs ls -1t` with zero results falls back to
   #    listing cwd. `sort -r` on empty input cleanly returns nothing.
-  # Cap at 20 most recent: a user with 10k saved files shouldn't blow the
-  # context window just listing them. /context-save list handles pagination.
-  FILES=$(find "$CHECKPOINT_DIR" -maxdepth 1 -name "*.md" -type f 2>/dev/null | sort -r | head -20)
-  if [ -z "$FILES" ]; then
+  # Scan the 200 newest so a current-branch checkpoint sitting below a burst of
+  # sibling-worktree saves can still be found; the result is capped at 20 below.
+  ALL=$(find "$CHECKPOINT_DIR" -maxdepth 1 -name "*.md" -type f 2>/dev/null | sort -r | head -200)
+  if [ -z "$ALL" ]; then
     echo "NO_CHECKPOINTS"
   else
+    # Order current-branch checkpoints first, other branches after. A git branch
+    # is checked out in at most one worktree, and all worktrees of a repo share
+    # one checkpoints dir (same origin-derived slug), so without this preference
+    # `/context-restore` in worktree A could load worktree B's newer checkpoint.
+    # Cross-branch resume (Conductor handoff) is preserved as the fallback: when
+    # the current branch has no checkpoint, the full newest-first set is used.
+    # CURRENT_BRANCH may be pre-set (tests); otherwise resolve it from git.
+    : "${CURRENT_BRANCH:=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)}"
+    SAME=""; OTHER=""
+    while IFS= read -r f; do
+      [ -n "$f" ] || continue
+      b=$(grep -m1 '^branch:' "$f" 2>/dev/null | sed 's/^branch:[[:space:]]*//')
+      if [ -n "$CURRENT_BRANCH" ] && [ "$b" = "$CURRENT_BRANCH" ]; then
+        SAME="${SAME}${f}
+"
+      else
+        OTHER="${OTHER}${f}
+"
+      fi
+    done <<EOF
+$ALL
+EOF
+    # Cap at 20: a user with 10k saved files shouldn't blow the context window.
+    FILES=$(printf '%s%s' "$SAME" "$OTHER" | grep -v '^[[:space:]]*$' | head -20)
     echo "$FILES"
   fi
 fi
 ```
 
-**Candidates include every `.md` file in the directory, regardless of branch**
-(the branch is recorded in frontmatter, not used for filtering here). This
-enables Conductor workspace handoff.
+**Candidates include every `.md` file in the directory**, but they are ordered
+**current-branch-first** (the branch is read from each file's `branch:`
+frontmatter). Other-branch files stay in the set as a fallback, which preserves
+Conductor workspace handoff when the current branch has no checkpoint of its own.
 
 ### Step 2: Load the right file
 
 - If the user specified a title fragment or number: find the matching file among
   the candidates.
-- Otherwise: load the **first file returned by the `sort -r` above** — that is
-  the newest `YYYYMMDD-HHMMSS` prefix, which is the canonical "most recent."
+- Otherwise: load the **first file returned by Step 1 above** — that is the
+  newest `YYYYMMDD-HHMMSS` checkpoint for the current branch, or, if the current
+  branch has none, the newest across all branches.
 
 Read the chosen file and present a summary:
 
@@ -900,9 +932,10 @@ state, then `/context-restore` will find it."
 ## Important Rules
 
 - **Never modify code.** This skill only reads saved files and presents them.
-- **Always search across all branches by default.** Cross-branch resume is the
-  whole point. Only filter by branch if the user explicitly asks via a
-  title-fragment match that happens to be branch-specific.
+- **Prefer the current branch's own checkpoint, but keep all branches in the
+  fallback set.** Cross-branch resume (Conductor handoff) still works when the
+  current branch has no checkpoint; it just no longer lets a sibling worktree's
+  newer save shadow this branch's own.
 - **"Most recent" means the filename `YYYYMMDD-HHMMSS` prefix**, not
   `ls -1t` (filesystem mtime). Filenames are stable across file-system
   operations; mtime is not.
