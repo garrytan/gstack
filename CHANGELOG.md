@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.60.2.0] - 2026-07-15
+
+## **Your builder profile's session count, tier, and the builder→founder nudge now reflect only real design sessions — the resource-tracking bookkeeping that office-hours writes after each session no longer inflates them.**
+
+After every office-hours session, gstack appends a `mode:resources` entry to your developer profile to track which founder resources it surfaced. `gstack-developer-profile read` was counting those bookkeeping entries as if they were real sessions: they padded `SESSION_COUNT`, prematurely promoted your `TIER` (introduction → welcome_back → regular → inner_circle), and helped arm `NUDGE_ELIGIBLE`. The builder→founder nudge could fire off bookkeeping alone. Now `SESSION_COUNT`, `TIER`, cross-project counts, and `NUDGE_ELIGIBLE` all filter to real sessions, and the nudge counts only `mode:builder` design sessions — so it triggers on someone who keeps coming back to *build*, which is what it was always meant to measure.
+
+### Fixed
+
+- `gstack-developer-profile read` no longer counts `mode:resources` entries toward `SESSION_COUNT` or `TIER`.
+- `NUDGE_ELIGIBLE` now requires 3+ real `mode:builder` sessions (was: any non-`startup` entry, which counted resources and excluded startup sessions), so it can no longer be armed by bookkeeping alone.
+- Added 4 regression tests covering count, tier, and nudge behavior in the presence of resource entries.
+
 ## [1.60.1.0] - 2026-07-09
 
 ## **The /autoplan dual-voice eval is back on the board, catching real regressions.**
@@ -74,7 +86,6 @@ If you just installed gstack, your first session points you at something useful 
 - New unit coverage for every detection bucket plus the eval-safe enum contract and the first-run gating (`test/preamble-first-task-scaffold.test.ts`), and a periodic E2E that runs the detector through the real harness (`test/skill-e2e-first-task-scaffold.test.ts`, classified `periodic`).
 - Browse-content test assertions (gen-skill-docs, audit-compliance, skill-validation, the LLM-judge eval) repointed from the root skill to `browse/SKILL.md` to follow the router split; a regression test pins that the router carries no browse body.
 - Parity / carve-guard size caps bumped ~1–2KB per skill to account for the shared first-run-guidance preamble section.
-
 ## [1.58.4.0] - 2026-06-18
 
 ## **A community bug-fix wave plus a test-gate that finally sees the questions it was missing.**
@@ -123,7 +134,6 @@ If you run gbrain on a Supabase transaction-mode pooler, your writes work again.
 - The PTY model now pins to `EVALS_MODEL ?? claude-sonnet-4-6` (mirrors `session-runner.ts`), removing operator-model nondeterminism from the smokes.
 - Stochastic ask-first smokes (plan-eng/plan-design plan-mode + finding-floor) reclassified `periodic` per the non-deterministic-tests rule; the deterministic ones (office-hours, plan-mode-no-op) now run in CI via a new `e2e-pty-plan-smoke` matrix suite with an in-container skill-registry install step.
 - `redactFindingSpans()` is the machine-egress redaction entry point in `lib/redact-engine.ts`.
-
 ## [1.58.3.0] - 2026-06-18
 
 ## **GBrowser masks the full set of automation tells by default, on every path a page can reach.**
@@ -162,7 +172,6 @@ If you drive GBrowser to dogfood, scrape, or QA against anti-bot-protected targe
 - `GSTACK_STEALTH=extended` layers on top of Layer C; the always-on default does not fake `navigator.plugins` (the opt-in mode still does, as the documented "may break sites" escape hatch).
 - `--gstack-suppress-prepare-stack-trace` is opt-in via `GSTACK_CDP_STEALTH=on`, so the switch never reaches a Chromium that does not understand it.
 - `--disable-blink-features=AutomationControlled` comes from one shared `STEALTH_LAUNCH_ARGS` constant across every launch path.
-
 ## [1.58.1.0] - 2026-06-14
 
 ## **Local evals stop lying. Spawned `claude` test children run in a sealed clean room,**
@@ -264,7 +273,6 @@ real `~/.claude` in the loop.
   agent executes instead of a half-document.
 - ios-qa daemon scenarios use unique pidfiles, fixing `already_running` collisions
   under `bun test --concurrent`.
-
 ## [1.58.0.0] - 2026-06-12
 
 ## **Your documents grow diagrams. Mermaid and excalidraw fences render as real pictures,**
@@ -370,7 +378,6 @@ pasting screenshots of diagrams into documents. Run `/diagram` for the picture,
   committed bundle is pinned to LF in .gitattributes.
 - Fixed the `operational-learning` E2E fixture (bin scripts now ship with the
   lib module they import).
-
 ## [1.57.10.0] - 2026-06-10
 
 ## **Codex review now runs by default everywhere it matters.**
@@ -1187,7 +1194,6 @@ Your telemetry choice screen now describes what actually happens, so you can opt
 
 #### For contributors
 - The consent copy and repo-basename handling live in `scripts/resolvers/preamble/`; all `SKILL.md` files and the ship goldens were regenerated from those resolvers.
-
 ## [1.55.0.0] - 2026-05-30
 
 ## **`/sync-gbrain` can no longer be the trigger that lets gbrain delete your repo. The headed browser stops crash-looping, and gbrain installs the current release instead of a pin 23 versions stale.**

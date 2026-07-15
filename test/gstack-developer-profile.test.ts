@@ -556,3 +556,143 @@ describe('gstack-developer-profile --log-session (#1671 fix)', () => {
   });
 });
 
+// -----------------------------------------------------------------------
+// SESSION_COUNT / TIER / NUDGE_ELIGIBLE must ignore mode:resources entries.
+//
+// Phase 6 of /office-hours auto-appends one (or more) mode:resources bookkeeping
+// entries every run, to dedupe which founder-resource links the user has seen.
+// Those are not sessions. Counting them inflated SESSION_COUNT (and therefore
+// TIER) and pushed NUDGE_ELIGIBLE over its threshold from bookkeeping alone —
+// e.g. a single real session plus three closings reported as tier `regular`
+// with the builder->founder nudge armed.
+// -----------------------------------------------------------------------
+
+describe('gstack-developer-profile resources entries do not inflate count/tier/nudge', () => {
+  function logStartup(extra: Record<string, unknown> = {}) {
+    return runDev('--log-session', JSON.stringify({
+      date: '2026-05-20T00:00:00Z', mode: 'startup', project_slug: 'p',
+      signal_count: 5, signals: ['a', 'b', 'c', 'd', 'e'], ...extra,
+    }));
+  }
+  function logResources(i: number) {
+    return runDev('--log-session', JSON.stringify({
+      date: '2026-05-20T01:00:00Z', mode: 'resources', project_slug: 'p',
+      resources_shown: [`url${i}`],
+    }));
+  }
+
+  test('SESSION_COUNT counts only real sessions, not resources entries', () => {
+    logStartup();
+    logResources(1);
+    logResources(2);
+    logResources(3);
+    const r = runDev('--read');
+    expect(r.stdout).toContain('SESSION_COUNT: 1');
+    expect(r.stdout).toContain('TIER: welcome_back');
+  });
+
+  test('TIER is not bumped to regular by resources bookkeeping', () => {
+    // 3 real sessions = welcome_back; adding resources entries must not reach the
+    // 4-session `regular` threshold.
+    logStartup();
+    logStartup();
+    logStartup();
+    for (let i = 0; i < 4; i++) logResources(i);
+    const r = runDev('--read');
+    expect(r.stdout).toContain('SESSION_COUNT: 3');
+    expect(r.stdout).toContain('TIER: welcome_back');
+  });
+
+  test('NUDGE_ELIGIBLE stays false when builder-session bar is unmet despite resources noise', () => {
+    // One startup session carrying 5 signals, plus resources entries. builderSessions
+    // (mode === "builder") is 0, so the nudge must not arm regardless of signal count.
+    logStartup();
+    logResources(1);
+    logResources(2);
+    logResources(3);
+    const r = runDev('--read');
+    expect(r.stdout).toContain('NUDGE_ELIGIBLE: false');
+  });
+
+  test('NUDGE_ELIGIBLE arms on 3 real builder sessions with enough signals', () => {
+    runDev('--log-session', JSON.stringify({
+      date: '2026-05-20T00:00:00Z', mode: 'builder', project_slug: 'p', signals: ['a', 'b'],
+    }));
+    runDev('--log-session', JSON.stringify({
+      date: '2026-05-21T00:00:00Z', mode: 'builder', project_slug: 'p', signals: ['c', 'd'],
+    }));
+    runDev('--log-session', JSON.stringify({
+      date: '2026-05-22T00:00:00Z', mode: 'builder', project_slug: 'p', signals: ['e'],
+    }));
+    logResources(1); // bookkeeping must not change the verdict either way
+    const r = runDev('--read');
+    expect(r.stdout).toContain('NUDGE_ELIGIBLE: true');
+  });
+
+  // Boundary cases around the two `>=` gates, so a future >= → > regression
+  // (or a re-loosening of the builder filter) is caught, not just the happy path.
+  function logBuilder(signals: string[], day = 20) {
+    return runDev('--log-session', JSON.stringify({
+      date: `2026-05-${day}T00:00:00Z`, mode: 'builder', project_slug: 'p', signals,
+    }));
+  }
+
+  test('NUDGE_ELIGIBLE stays false at 2 builder sessions (below the 3-session gate)', () => {
+    logBuilder(['a', 'b', 'c'], 20);
+    logBuilder(['d', 'e', 'f'], 21); // 6 signals total — signal gate met, session gate is not
+    logResources(1);
+    const r = runDev('--read');
+    expect(r.stdout).toContain('NUDGE_ELIGIBLE: false');
+  });
+
+  test('NUDGE_ELIGIBLE stays false at 3 builder sessions with too few signals', () => {
+    logBuilder(['a'], 20);
+    logBuilder(['b'], 21);
+    logBuilder(['c', 'd'], 22); // 4 signals total — session gate met, signal gate (>=5) is not
+    const r = runDev('--read');
+    expect(r.stdout).toContain('NUDGE_ELIGIBLE: false');
+  });
+
+  test('TIER reaches regular at 4 real sessions even when resources entries are present', () => {
+    logStartup();
+    logStartup();
+    logStartup();
+    logStartup();
+    for (let i = 0; i < 5; i++) logResources(i);
+    const r = runDev('--read');
+    expect(r.stdout).toContain('SESSION_COUNT: 4');
+    expect(r.stdout).toContain('TIER: regular');
+  });
+
+  test('TIER stays regular at 7 real sessions and crosses to inner_circle at 8 (resources ignored)', () => {
+    // Upper-tier boundary: the >=8 inner_circle gate must key off real sessions
+    // only, so a pile of resources bookkeeping can never tip a regular into the
+    // inner circle, and 8 genuine sessions still reach it.
+    for (let i = 0; i < 7; i++) logStartup();
+    for (let i = 0; i < 6; i++) logResources(i); // 13 raw rows; pre-fix would read inner_circle
+    let r = runDev('--read');
+    expect(r.stdout).toContain('SESSION_COUNT: 7');
+    expect(r.stdout).toContain('TIER: regular');
+
+    logStartup(); // 8th real session
+    r = runDev('--read');
+    expect(r.stdout).toContain('SESSION_COUNT: 8');
+    expect(r.stdout).toContain('TIER: inner_circle');
+  });
+
+  test('CROSS_PROJECT ignores a trailing resources entry on a different project', () => {
+    // The last two REAL sessions are the same project, so CROSS_PROJECT is false.
+    // A trailing resources row carrying a different project_slug must not become
+    // the `last` entry and flip CROSS_PROJECT true off bookkeeping.
+    logStartup({ project_slug: 'samep' });
+    logStartup({ project_slug: 'samep' });
+    runDev('--log-session', JSON.stringify({
+      date: '2026-05-20T02:00:00Z', mode: 'resources', project_slug: 'otherp',
+      resources_shown: ['url1'],
+    }));
+    const r = runDev('--read');
+    expect(r.stdout).toContain('CROSS_PROJECT: false');
+    expect(r.stdout).toContain('LAST_PROJECT: samep');
+  });
+});
+
