@@ -21,18 +21,22 @@
 //       the caller must handle), exit 2 on bad args / unresolvable base.
 //
 //   write --version <X.Y.Z.W> [--version-path <p>]
-//       Validates the 4-digit pattern, writes VERSION + package.json.version.
-//       Use for the FRESH bump (or an approved queue rebump). Exit 3 on a
-//       half-write (VERSION written, package.json failed) so the caller knows
-//       drift exists; the next classify() will report DRIFT_STALE_PKG.
+//       Validates the 4-digit pattern, writes VERSION + package.json.version +
+//       package-lock.json.version (when a lockfile is present). Use for the FRESH
+//       bump (or an approved queue rebump). Exit 2 on a lockfile we can't parse —
+//       preflighted, so nothing is written. Exit 3 on a half-write (an earlier
+//       file written, a later one failed) so the caller knows drift exists; the
+//       next classify() will report DRIFT_STALE_PKG.
 //
 //   repair [--version-path <p>]
-//       DRIFT_STALE_PKG path: sync package.json.version to the current VERSION
-//       file. No bump. Validates the VERSION pattern first.
+//       DRIFT_STALE_PKG path: sync package.json.version (+ the lockfile, when
+//       present) to the current VERSION file. No bump. Validates the VERSION
+//       pattern first.
 //
-// Contract: classify NEVER writes. write/repair mutate VERSION + package.json
-// only. No git mutation, no network. Mirrors gstack-next-version's reader/writer
-// split so /ship composes them.
+// Contract: classify NEVER writes. write/repair mutate VERSION + package.json +
+// package-lock.json only. Parse failures are preflighted before the first write,
+// so a file we can't read never leaves a partial bump behind. No git mutation, no
+// network. Mirrors gstack-next-version's reader/writer split so /ship composes them.
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
@@ -101,32 +105,74 @@ function writePkgVersion(cwd: string, version: string): void {
   writeFileSync(pkgPath, JSON.stringify(parsed, null, 2) + "\n");
 }
 
+/** A prepared package-lock.json write, or null when there's no lockfile to sync. */
+type LockPlan = { path: string; content: string } | null;
+
 /**
- * Opportunistically sync package-lock.json (lockfileVersion 3 stores the version
- * in two places: top-level `version` and `packages[""].version`). Returns true if
- * the lockfile was present and written, false if absent (yarn/pnpm/bun lockfile,
- * or no JS at all). Throws on malformed JSON or write failure.
+ * Preflight the package-lock.json sync: read, parse, and prepare the updated
+ * content in memory WITHOUT writing anything. Returns null when the lockfile is
+ * absent (yarn/pnpm/bun lockfile, or no JS at all) — a silent skip, not an error.
+ * Exits 2 on an unreadable/malformed/non-object lockfile.
  *
- * Caller decides whether absence is an error — write() and repair() both treat
- * absence as a silent skip. The state classifier intentionally does NOT inspect
- * the lockfile: a stale lockfile root version doesn't break `npm ci` or anything
- * runtime, so lockfile-only drift is opportunistically corrected on FRESH/repair
- * but is not a halt condition.
+ * Split from the write so the deterministic failure — a lockfile we can't parse —
+ * is caught BEFORE VERSION or package.json are touched. Previously this ran after
+ * both were written, so a malformed lockfile exited 2 having already bumped them,
+ * leaving the three files inconsistent.
+ *
+ * lockfileVersion 3 stores the version in two places: top-level `version` and
+ * `packages[""].version`. Both must move together or `npm ci` warns.
+ *
+ * The state classifier intentionally does NOT inspect the lockfile: a stale
+ * lockfile root version doesn't break `npm ci` or anything runtime, so lockfile-only
+ * drift is opportunistically corrected on FRESH/repair but is not a halt condition.
+ * That non-blocking stance applies to a STALE lockfile, not to a malformed one we
+ * were asked to write.
  */
-function writeLockVersion(cwd: string, version: string): boolean {
+function planLockVersion(cwd: string, version: string): LockPlan {
   const lockPath = join(cwd, "package-lock.json");
-  if (!existsSync(lockPath)) return false;
-  const raw = readFileSync(lockPath, "utf-8");
+  if (!existsSync(lockPath)) return null;
+  let raw: string;
+  try {
+    raw = readFileSync(lockPath, "utf-8");
+  } catch {
+    fail("package-lock.json exists but could not be read. Fix the file before re-running /ship.", 2);
+  }
   let parsed: Record<string, unknown>;
   try {
     parsed = JSON.parse(raw) as Record<string, unknown>;
   } catch {
     fail("package-lock.json is not valid JSON. Fix the file before re-running /ship.", 2);
   }
+  // JSON.parse happily returns a number/string/array/null. Assigning .version to a
+  // primitive throws under ESM strict mode, so reject a non-object shape up front.
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    fail("package-lock.json is not a JSON object. Fix the file before re-running /ship.", 2);
+  }
   parsed.version = version;
-  const packages = parsed.packages as Record<string, { version?: string }> | undefined;
-  if (packages && packages[""]) packages[""].version = version;
-  writeFileSync(lockPath, JSON.stringify(parsed, null, 2) + "\n");
+  // packages[""] is best-effort: absent on lockfileVersion 1, and a corrupt lockfile
+  // can put anything there. A truthy primitive would throw on property assignment
+  // under ESM strict mode, so check the shape rather than just truthiness — skipping
+  // an unusable nested root matches how we already skip an absent one.
+  const packages = parsed.packages;
+  if (packages && typeof packages === "object" && !Array.isArray(packages)) {
+    const root = (packages as Record<string, unknown>)[""];
+    if (root && typeof root === "object" && !Array.isArray(root)) {
+      (root as Record<string, unknown>).version = version;
+    }
+  }
+  return { path: lockPath, content: JSON.stringify(parsed, null, 2) + "\n" };
+}
+
+/**
+ * Commit a plan prepared by planLockVersion. Returns true if a lockfile was
+ * written, false when there was none. Throws on I/O failure; the caller maps that
+ * to exit 3 (a genuine half-write we report rather than hide — permissions can
+ * change between preflight and write, and closing that TOCTOU window fully would
+ * need temp-file + rename, which is out of scope for this fix).
+ */
+function commitLockVersion(plan: LockPlan): boolean {
+  if (!plan) return false;
+  writeFileSync(plan.path, plan.content);
   return true;
 }
 
@@ -189,6 +235,9 @@ function cmdWrite(args: string[], cwd: string): void {
     fail(`NEW_VERSION (${version}) does not match MAJOR.MINOR.PATCH.MICRO. Aborting.`, 2);
   }
   const versionPath = resolveVersionPath(cwd, argVal(args, "--version-path"));
+  // Preflight the lockfile before touching anything: a malformed lockfile must
+  // fail with VERSION and package.json untouched, not half-bumped.
+  const lockPlan = planLockVersion(cwd, version!);
   writeFileSync(versionPath, version + "\n");
   if (existsSync(join(cwd, "package.json"))) {
     try {
@@ -203,7 +252,7 @@ function cmdWrite(args: string[], cwd: string): void {
   }
   let lockfile = false;
   try {
-    lockfile = writeLockVersion(cwd, version!);
+    lockfile = commitLockVersion(lockPlan);
   } catch {
     fail(
       "failed to update package-lock.json. VERSION and package.json were written but the lockfile is now stale.",
@@ -228,6 +277,8 @@ function cmdRepair(args: string[], cwd: string): void {
   if (!existsSync(join(cwd, "package.json"))) {
     fail("repair: no package.json to sync.", 2);
   }
+  // Same preflight as write: parse the lockfile before mutating package.json.
+  const lockPlan = planLockVersion(cwd, current);
   try {
     writePkgVersion(cwd, current);
   } catch {
@@ -235,7 +286,7 @@ function cmdRepair(args: string[], cwd: string): void {
   }
   let lockfile = false;
   try {
-    lockfile = writeLockVersion(cwd, current);
+    lockfile = commitLockVersion(lockPlan);
   } catch {
     fail("drift repair failed — could not update package-lock.json.", 3);
   }
