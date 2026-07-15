@@ -42,6 +42,51 @@ import * as os from 'os';
 
 let warnedOnce = false;
 
+/**
+ * Resolve an unambiguous icacls principal for the account this process runs as.
+ *
+ * `os.userInfo().username` returns the bare login name (e.g. "lmiller"). On a
+ * domain-joined Windows box that also has a *local* account of the same name,
+ * `icacls /grant lmiller:...` resolves the bare name to the LOCAL account
+ * (e.g. OFC01\lmiller), NOT the domain account the process actually runs as
+ * (e.g. INTEGRIBILT\lmiller). Combined with `/inheritance:r`, that hands the
+ * new ACL to an account this process is *not*, locking the process out of the
+ * directory it just created — the daemon then can't create its state/lock file
+ * and startup fails. See INT-50 / INT-48.
+ *
+ * Fix: grant to the current process token's SID, which is immune to
+ * local-vs-domain name collisions. Fall back to USERDOMAIN\username, then the
+ * bare username, if the SID lookup is unavailable. Cached per process.
+ */
+let cachedIcaclsPrincipal: string | undefined;
+function currentUserIcaclsPrincipal(): string {
+  if (cachedIcaclsPrincipal !== undefined) return cachedIcaclsPrincipal;
+  try {
+    // Call System32's whoami.exe by absolute path. A bare 'whoami' can resolve
+    // to a shadowing binary earlier on PATH (e.g. Git-for-Windows' Unix
+    // `whoami`, which rejects `/user`), which would force the weaker name-based
+    // fallback below. The absolute path guarantees we get the real SID.
+    const systemRoot = process.env.SystemRoot || process.env.windir || 'C:\\Windows';
+    const whoamiExe = `${systemRoot}\\System32\\whoami.exe`;
+    const out = execFileSync(whoamiExe, ['/user', '/fo', 'csv', '/nh'], {
+      encoding: 'utf8',
+    }).trim();
+    // Format: "DOMAIN\user","S-1-5-21-..."
+    const m = out.match(/"[^"]*","(S-[0-9-]+)"/);
+    if (m) {
+      // icacls accepts a SID literal when prefixed with '*'.
+      cachedIcaclsPrincipal = `*${m[1]}`;
+      return cachedIcaclsPrincipal;
+    }
+  } catch {
+    /* fall through to name-based resolution */
+  }
+  const username = os.userInfo().username;
+  const domain = process.env.USERDOMAIN;
+  cachedIcaclsPrincipal = domain ? `${domain}\\${username}` : username;
+  return cachedIcaclsPrincipal;
+}
+
 function warnIcaclsFailure(fsPath: string, err: unknown): void {
   if (warnedOnce) return;
   warnedOnce = true;
@@ -67,7 +112,7 @@ function warnIcaclsFailure(fsPath: string, err: unknown): void {
 export function restrictFilePermissions(filePath: string): void {
   if (process.platform === 'win32') {
     try {
-      const user = os.userInfo().username;
+      const user = currentUserIcaclsPrincipal();
       execFileSync(
         'icacls',
         [filePath, '/inheritance:r', '/grant:r', `${user}:(F)`],
@@ -97,7 +142,7 @@ export function restrictFilePermissions(filePath: string): void {
 export function restrictDirectoryPermissions(dirPath: string): void {
   if (process.platform === 'win32') {
     try {
-      const user = os.userInfo().username;
+      const user = currentUserIcaclsPrincipal();
       execFileSync(
         'icacls',
         [dirPath, '/inheritance:r', '/grant:r', `${user}:(OI)(CI)(F)`],
@@ -154,4 +199,16 @@ export function mkdirSecure(dirPath: string): void {
  */
 export function __resetWarnedForTests(): void {
   warnedOnce = false;
+}
+
+/**
+ * Resolve the icacls principal for the current process token. Test-only
+ * accessor for the module-private `currentUserIcaclsPrincipal`; clears the
+ * per-process cache first so each call observes a fresh resolution.
+ */
+export function __currentUserIcaclsPrincipalForTests(): string {
+  cachedIcaclsPrincipal = undefined;
+  const principal = currentUserIcaclsPrincipal();
+  cachedIcaclsPrincipal = undefined;
+  return principal;
 }
