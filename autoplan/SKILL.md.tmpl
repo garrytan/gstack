@@ -71,7 +71,9 @@ These rules auto-answer every intermediate question:
 Every auto-decision is classified:
 
 **Mechanical** — one clearly right answer. Auto-decide silently.
-Examples: run codex (always yes), run evals (always yes), reduce scope on a complete plan (always no).
+Examples: run evals (always yes), reduce scope on a complete plan (always no).
+Running Codex is never mechanical: it requires the project-approved profile
+gate below and disclosure of the selected account path.
 
 **Taste** — reasonable people could disagree. Auto-decide with recommendation, but surface at the final gate. Three natural sources:
 1. **Close approaches** — top two are both viable with different tradeoffs.
@@ -246,6 +248,10 @@ _TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || ec
 _CODEX_CFG=$(~/.claude/skills/gstack/bin/gstack-config get codex_reviews 2>/dev/null || echo enabled)
 source ~/.claude/skills/gstack/bin/gstack-codex-probe
 
+if ! _gstack_codex_profile_gate; then
+  echo "PROFILE_REQUIRED"
+fi
+
 # Master switch first: codex_reviews=disabled turns off ALL Codex work globally,
 # including autoplan's own dual-voice orchestration. Honor it before probing.
 if [ "$_CODEX_CFG" = "disabled" ]; then
@@ -266,6 +272,13 @@ else
   _CODEX_AVAILABLE=true
 fi
 ```
+
+If `PROFILE_REQUIRED` appears, use AskUserQuestion before any Codex voice runs.
+List the discovered `~/.codex*` directories and ask which profile is approved
+for this project, plus Cancel. Save the selected absolute path as
+`codex_home: <path>` in `~/.gstack/projects/$SLUG/codex.yaml`, rerun the
+preflight, and disclose the selected path. Cancel means Claude-only voices; do
+not invoke Codex. `GSTACK_CODEX_SKIP_GATE=1` is reserved for isolated evals.
 
 If `_CODEX_AVAILABLE=false`, all Phase 1-3.5 Codex voices below degrade to
 `[codex-unavailable]` in the degradation matrix. /autoplan completes with

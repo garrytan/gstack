@@ -14,6 +14,41 @@
 #   - All functions prefix with _gstack_codex_.
 #   - No command execution at source time (only function defs).
 
+# --- Per-project profile gate ----------------------------------------------
+
+_gstack_codex_profile_gate() {
+  [ "${GSTACK_CODEX_SKIP_GATE:-}" = "1" ] && return 0
+
+  local _GSTACK_CODEX_BIN_DIR _GSTACK_CODEX_SLUG_OUTPUT _GSTACK_CODEX_SLUG
+  local _GSTACK_CODEX_STATE_ROOT _GSTACK_CODEX_CONFIG _GSTACK_CODEX_HOME
+  _GSTACK_CODEX_BIN_DIR=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)
+  _GSTACK_CODEX_SLUG_OUTPUT=$("$_GSTACK_CODEX_BIN_DIR/gstack-slug" 2>/dev/null || true)
+  _GSTACK_CODEX_SLUG=$(printf '%s\n' "$_GSTACK_CODEX_SLUG_OUTPUT" | sed -n 's/^SLUG=//p' | head -1)
+  [ -z "$_GSTACK_CODEX_SLUG" ] && _GSTACK_CODEX_SLUG=$(basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)" | tr -cs '[:alnum:]._' '-')
+  _GSTACK_CODEX_STATE_ROOT=${GSTACK_HOME:-$HOME/.gstack}
+  _GSTACK_CODEX_CONFIG="$_GSTACK_CODEX_STATE_ROOT/projects/$_GSTACK_CODEX_SLUG/codex.yaml"
+
+  if [ ! -f "$_GSTACK_CODEX_CONFIG" ]; then
+    echo "CODEX_PROFILE_REQUIRED: approve a Codex home for project $_GSTACK_CODEX_SLUG before Codex runs"
+    find "$HOME" -maxdepth 1 -type d -name '.codex*' -print 2>/dev/null | sort
+    echo "Save the selection as: $_GSTACK_CODEX_CONFIG"
+    return 78
+  fi
+
+  _GSTACK_CODEX_HOME=$(sed -n 's/^[[:space:]]*codex_home:[[:space:]]*//p' "$_GSTACK_CODEX_CONFIG" | head -1)
+  _GSTACK_CODEX_HOME=${_GSTACK_CODEX_HOME#\"}; _GSTACK_CODEX_HOME=${_GSTACK_CODEX_HOME%\"}
+  _GSTACK_CODEX_HOME=${_GSTACK_CODEX_HOME#\'}; _GSTACK_CODEX_HOME=${_GSTACK_CODEX_HOME%\'}
+  case "$_GSTACK_CODEX_HOME" in
+    '~/'*) _GSTACK_CODEX_HOME="$HOME/${_GSTACK_CODEX_HOME#\~/}" ;;
+  esac
+  if [ -z "$_GSTACK_CODEX_HOME" ] || [ ! -d "$_GSTACK_CODEX_HOME" ]; then
+    echo "CODEX_PROFILE_REQUIRED: configured Codex home is missing or invalid: $_GSTACK_CODEX_CONFIG"
+    return 78
+  fi
+  export CODEX_HOME="$_GSTACK_CODEX_HOME"
+  echo "CODEX_PROFILE: $CODEX_HOME"
+}
+
 # --- Auth probe -------------------------------------------------------------
 
 _gstack_codex_auth_probe() {
@@ -57,6 +92,9 @@ _gstack_codex_timeout_wrapper() {
   # duration in seconds; rest is the command to run.
   local _duration="$1"
   shift
+  if [ "${1##*/}" = "codex" ]; then
+    _gstack_codex_profile_gate || return $?
+  fi
   local _to
   _to=$(command -v gtimeout 2>/dev/null || command -v timeout 2>/dev/null || echo "")
   if [ -n "$_to" ]; then
