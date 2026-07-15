@@ -1,7 +1,7 @@
 ---
 name: autobuilder-loop
 preamble-tier: 3
-version: 1.2.0
+version: 1.3.0
 description: |
   Use when asked to "autobuilder", "build loop", "auto-build", "keep building
   automatically", "drive the plan to completion", or "run the build loop" on an
@@ -197,7 +197,11 @@ contract in Quick reference).
 **1.0. Re-parse from disk.** Each iteration, dispatch the **Sonnet-low** parse subagent to
 re-extract `{next_milestone, acceptance_criteria}` from the frozen plan on disk. This catches
 in-place edits to a milestone's criteria and keeps you honest — never work the next milestone
-from memory.
+from memory. When the plan carries per-milestone status markers
+(`<!-- status: pending | built-gate-pending | complete -->`, authored by `/plan-deliverables`),
+`next_milestone` is the FIRST milestone still marked `pending` — a durable selector that
+survives re-parsing instead of inferring "next" from unchecked criteria. Plans without markers
+fall back to the first milestone with unmet acceptance criteria.
 
 **a. Decompose.** A **Fable-or-Opus-max** orchestrator subagent decomposes the milestone into
 tasks, classifies each by complexity (hard / moderate / mechanical), and returns the compact
@@ -262,8 +266,9 @@ into the NEXT milestone's gate under strict bounds, all four of which hold:
    recreates the "defects compound across milestones" failure this gate exists to prevent).
 2. NEVER batch a milestone that touches security, auth, migrations, or public interfaces.
 3. The FINAL milestone's gate is never deferrable.
-4. A batched milestone is marked **"built — gate pending"** in the plan, NOT complete, until
-   its covering gate runs clean.
+4. A batched milestone is marked **"built — gate pending"** in the plan (set its status marker
+   to `<!-- status: built-gate-pending -->` when the plan carries one), NOT complete, until its
+   covering gate runs clean.
 Say so explicitly when you batch. If you cannot satisfy all four, gate the milestone now.
 
 **d. LOCAL DOCKER VERIFICATION (MANDATORY — before a milestone counts as done).**
@@ -300,7 +305,10 @@ Say so explicitly when you batch. If you cannot satisfy all four, gate the miles
 
 **e. Mark complete.** A **Sonnet-low** subagent marks the milestone complete in the plan/
 TODOS.md (or **"built — gate pending"** if its gate was batched per the deferral valve) and
-returns confirmation. Append a row to the Build Audit Trail (`$RUN_DIR/audit-trail.md`) via a
+returns confirmation. When the milestone carries a `/plan-deliverables` status marker, update it
+in place — set `<!-- status: complete -->` on a gated-clean milestone, or
+`<!-- status: built-gate-pending -->` on a batched one — so step 1.0's next-milestone selection
+advances past it. Append a row to the Build Audit Trail (`$RUN_DIR/audit-trail.md`) via a
 subagent — not in your context.
 
 **f. Report.** Emit a one-line milestone summary to the user (what shipped, gate status,

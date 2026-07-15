@@ -122,6 +122,11 @@ export const SKILL_COVERAGE: Record<string, SkillCoverage> = {
     periodic: ['test/skill-e2e-autoplan-chain.test.ts', 'test/skill-e2e-autoplan-dual-voice.test.ts'],
   },
   'autobuilder-loop': { gate: ['test/skill-coverage-floor.test.ts'], periodic: [] },
+  'plan-deliverables': {
+    gate: ['test/skill-coverage-floor.test.ts'],
+    periodic: [],
+    rationale: 'Structural floor is the eval-first minimum; authors per-milestone acceptance criteria + paired tests into the design doc (consumed by /autobuilder-loop).',
+  },
   'office-hours': {
     gate: ['test/skill-e2e-office-hours.test.ts', 'test/skill-coverage-floor.test.ts'],
     periodic: ['test/skill-e2e-office-hours-auto-mode.test.ts', 'test/skill-e2e-office-hours-phase4.test.ts'],

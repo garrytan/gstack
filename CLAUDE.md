@@ -119,6 +119,7 @@ gstack/
 ├── review/          # PR review skill
 ├── plan-ceo-review/ # /plan-ceo-review skill
 ├── plan-eng-review/ # /plan-eng-review skill
+├── plan-deliverables/ # /plan-deliverables skill
 ├── autoplan/        # /autoplan skill (auto-review pipeline: CEO → design → eng)
 ├── benchmark/       # /benchmark skill (performance regression detection)
 ├── canary/          # /canary skill (post-deploy monitoring loop)
@@ -942,6 +943,7 @@ When the user's request matches an available skill, invoke it via the Skill tool
 
 Key routing rules:
 - Product ideas/brainstorming → invoke /office-hours
+- Acceptance criteria / deliverables / definition of done for a plan → invoke /plan-deliverables
 - Strategy/scope → invoke /plan-ceo-review
 - Architecture → invoke /plan-eng-review
 - Design system/plan review → invoke /design-consultation or /plan-design-review
