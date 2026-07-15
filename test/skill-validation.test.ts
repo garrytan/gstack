@@ -759,6 +759,12 @@ describe('office-hours skill structure', () => {
     expect(content).toContain('$B screenshot');
   });
 
+  test('renders sketch through localhost instead of file URLs', () => {
+    expect(content).toContain('python3 -m http.server');
+    expect(content).toContain('http://127.0.0.1:$SKETCH_PORT/$SKETCH_NAME');
+    expect(content).not.toContain('file://$SKETCH_FILE');
+  });
+
   test('contains rough aesthetic instruction', () => {
     expect(content).toMatch(/rough|hand-drawn/i);
   });

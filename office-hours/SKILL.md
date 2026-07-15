@@ -1555,12 +1555,32 @@ SKETCH_FILE="/tmp/gstack-sketch-$(date +%s).html"
 **Step 3: Render and capture**
 
 ```bash
-$B goto "file://$SKETCH_FILE"
-$B screenshot /tmp/gstack-sketch.png
+if [ -n "$B" ] && [ -x "$B" ] && command -v python3 >/dev/null 2>&1; then
+  SKETCH_DIR=$(dirname "$SKETCH_FILE")
+  SKETCH_NAME=$(basename "$SKETCH_FILE")
+  SKETCH_PORT=$(python3 - <<'PY'
+import socket
+s = socket.socket()
+s.bind(("127.0.0.1", 0))
+print(s.getsockname()[1])
+s.close()
+PY
+)
+  (cd "$SKETCH_DIR" && python3 -m http.server "$SKETCH_PORT" --bind 127.0.0.1 >/tmp/gstack-sketch-http.log 2>&1) &
+  SKETCH_HTTP_PID=$!
+  sleep 1
+  if ! $B goto "http://127.0.0.1:$SKETCH_PORT/$SKETCH_NAME" || ! $B screenshot /tmp/gstack-sketch.png; then
+    echo "Visual sketch render failed while serving $SKETCH_FILE over localhost. The HTML file is still available for manual inspection."
+  fi
+  kill "$SKETCH_HTTP_PID" 2>/dev/null || true
+  wait "$SKETCH_HTTP_PID" 2>/dev/null || true
+else
+  echo "Visual sketch rendering requires the browse binary and python3 for the local HTTP server. Run setup for browse, or install python3, then retry."
+fi
 ```
 
-If `$B` is not available (browse binary not set up), skip the render step. Tell the
-user: "Visual sketch requires the browse binary. Run the setup script to enable it."
+Do not use `file://` for the render path. The browse binary blocks local file
+navigation, so serve the generated HTML over `127.0.0.1` as shown above.
 
 **Step 4: Present and iterate**
 
