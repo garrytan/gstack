@@ -3,6 +3,7 @@
 #
 # Output (one line, or nothing):
 #   JUST_UPGRADED <old> <new>       — marker found from recent upgrade
+#   UPGRADED <old> <new>            — --apply fast-forwarded the install
 #   UPGRADE_AVAILABLE <old> <new>   — remote VERSION differs from local
 #   (nothing)                       — up to date, snoozed, disabled, or check skipped
 #
@@ -22,8 +23,22 @@ VERSION_FILE="$GSTACK_DIR/VERSION"
 REMOTE_URL="${GSTACK_REMOTE_URL:-https://raw.githubusercontent.com/garrytan/gstack/main/VERSION}"
 REMOTE_REPO="${GSTACK_REMOTE_REPO:-https://github.com/garrytan/gstack.git}"
 
+FORCE=0
+APPLY=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --force) FORCE=1 ;;
+    --apply) APPLY=1 ;;
+    *)
+      echo "gstack-update-check: unknown argument: $1" >&2
+      exit 2
+      ;;
+  esac
+  shift
+done
+
 # ─── Force flag (busts cache + snooze for standalone /gstack-upgrade) ──
-if [ "${1:-}" = "--force" ]; then
+if [ "$FORCE" -eq 1 ]; then
   rm -f "$CACHE_FILE"
   rm -f "$SNOOZE_FILE"
 fi
@@ -101,6 +116,56 @@ check_snooze() {
   return 1  # snooze expired
 }
 
+fail_apply() {
+  echo "gstack-update-check: --apply failed: $*" >&2
+  exit 1
+}
+
+apply_upgrade() {
+  local old="$1"
+  local target="$2"
+  local branch upstream after
+
+  git -C "$GSTACK_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+    || fail_apply "$GSTACK_DIR is not a git checkout"
+
+  branch="$(git -C "$GSTACK_DIR" symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+  [ -n "$branch" ] || fail_apply "$GSTACK_DIR is on a detached HEAD"
+
+  git -C "$GSTACK_DIR" diff --quiet --ignore-submodules -- \
+    || fail_apply "$GSTACK_DIR has uncommitted tracked changes"
+  git -C "$GSTACK_DIR" diff --cached --quiet --ignore-submodules -- \
+    || fail_apply "$GSTACK_DIR has staged changes"
+
+  if ! GIT_TERMINAL_PROMPT=0 git -C "$GSTACK_DIR" fetch origin "$branch" >/dev/null 2>&1; then
+    GIT_TERMINAL_PROMPT=0 git -C "$GSTACK_DIR" fetch origin main >/dev/null 2>&1 \
+      || fail_apply "could not fetch origin/$branch or origin/main"
+  fi
+
+  upstream="origin/$branch"
+  if ! git -C "$GSTACK_DIR" rev-parse --verify "$upstream" >/dev/null 2>&1; then
+    upstream="origin/main"
+    git -C "$GSTACK_DIR" rev-parse --verify "$upstream" >/dev/null 2>&1 \
+      || fail_apply "could not resolve origin/$branch or origin/main"
+  fi
+
+  git -C "$GSTACK_DIR" merge --ff-only "$upstream" >/dev/null 2>&1 \
+    || fail_apply "could not fast-forward to $upstream"
+
+  after=""
+  if [ -f "$VERSION_FILE" ]; then
+    after="$(cat "$VERSION_FILE" 2>/dev/null | tr -d '[:space:]')"
+  fi
+  [ -n "$after" ] || fail_apply "VERSION is missing after fast-forward"
+  [ "$after" != "$old" ] || fail_apply "VERSION stayed at $old after fast-forward"
+
+  mkdir -p "$STATE_DIR"
+  echo "$old" > "$MARKER_FILE"
+  rm -f "$CACHE_FILE" "$SNOOZE_FILE"
+  echo "UPGRADED $old $after"
+  exit 0
+}
+
 # ─── Step 1: Read local version ──────────────────────────────
 LOCAL=""
 if [ -f "$VERSION_FILE" ]; then
@@ -146,6 +211,9 @@ if [ -f "$CACHE_FILE" ]; then
         CACHED_OLD="$(echo "$CACHED" | awk '{print $2}')"
         if [ "$CACHED_OLD" = "$LOCAL" ]; then
           CACHED_NEW="$(echo "$CACHED" | awk '{print $3}')"
+          if [ "$APPLY" -eq 1 ]; then
+            apply_upgrade "$LOCAL" "$CACHED_NEW"
+          fi
           if check_snooze "$CACHED_NEW"; then
             exit 0  # snoozed — stay quiet
           fi
@@ -234,6 +302,9 @@ fi
 
 # REMOTE is strictly newer — upgrade available
 echo "UPGRADE_AVAILABLE $LOCAL $REMOTE" > "$CACHE_FILE"
+if [ "$APPLY" -eq 1 ]; then
+  apply_upgrade "$LOCAL" "$REMOTE"
+fi
 if check_snooze "$REMOTE"; then
   exit 0  # snoozed — stay quiet
 fi
