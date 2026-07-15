@@ -820,7 +820,7 @@ Capture the JSON output. It contains: `gbrain_on_path`, `gbrain_version`,
 `gbrain_config_exists`, `gbrain_engine`, `gbrain_doctor_ok`, `gbrain_mcp_mode`,
 `gstack_brain_sync_mode`, `gstack_brain_git`, `gstack_artifacts_remote`, and
 the v1.34.0.0+ `gbrain_local_status` field (one of: `ok`, `no-cli`,
-`missing-config`, `broken-config`, `broken-db`, `timeout`). Treat `timeout`
+`missing-config`, `broken-config`, `broken-db`, `engine-locked`, `timeout`). Treat `timeout`
 like `ok` (slow-but-healthy engine, #1964) — it never triggers Step 1.5
 remediation.
 

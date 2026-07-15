@@ -18,7 +18,7 @@
  *     "gstack_brain_sync_mode": "off"|"artifacts-only"|"full",
  *     "gstack_brain_git": true|false,
  *     "gstack_artifacts_remote": "https://..." | "",
- *     "gbrain_local_status": "ok"|"no-cli"|"missing-config"|"broken-config"|"broken-db"|"timeout",
+ *     "gbrain_local_status": "ok"|"no-cli"|"missing-config"|"broken-config"|"broken-db"|"engine-locked"|"timeout",
  *     "gbrain_pooler_mode": "transaction"|"session"|null
  *   }
  *

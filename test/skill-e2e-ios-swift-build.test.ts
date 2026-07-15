@@ -19,38 +19,90 @@
 
 import { describe, test, expect } from 'bun:test';
 import { spawnSync } from 'child_process';
-import { existsSync, readFileSync } from 'fs';
+import { readFileSync } from 'fs';
 import { join } from 'path';
 
 const ROOT = join(import.meta.dir, '..');
 const FIXTURE_PATH = join(ROOT, 'test/fixtures/ios-qa/FixtureApp');
 const TEMPLATES_PATH = join(ROOT, 'ios-qa/templates');
+const GEN_ACCESSORS_PACKAGE = join(ROOT, 'ios-qa/scripts/gen-accessors-tool/Package.swift');
 
-// Parity: canonical Obj-C touch templates must match the fixture's working
-// copy. The fixture is the only place the .m / .h are exercised end-to-end
-// on a real device, so any divergence means consuming apps would ship a
-// stale, untested version of the SwiftUI hit-test fix.
+const COPIED_BRIDGE_TEMPLATES = [
+  ['StateServer.swift.template', 'Sources/DebugBridgeCore/StateServer.swift'],
+  ['DebugBridgeManager.swift.template', 'Sources/DebugBridgeCore/DebugBridgeManager.swift'],
+  ['DebugOverlay.swift.template', 'Sources/DebugBridgeUI/DebugOverlay.swift'],
+  ['Bridges.swift.template', 'Sources/DebugBridgeUI/Bridges.swift'],
+  ['DebugBridgeTouch.h.template', 'Sources/DebugBridgeTouch/include/DebugBridgeTouch.h'],
+  ['DebugBridgeTouch.m.template', 'Sources/DebugBridgeTouch/DebugBridgeTouch.m'],
+] as const;
+
+function readTemplate(name: string): string {
+  return readFileSync(join(TEMPLATES_PATH, name), 'utf-8');
+}
+
+function normalizeBridgePackage(source: string): string {
+  // Package.swift.template has a generated-file prologue while the fixture has
+  // a fixture-specific one. The tools-version declaration must remain first in
+  // both real files, but neither header is part of the copied bridge surface.
+  const importOffset = source.indexOf('import PackageDescription');
+  expect(importOffset).toBeGreaterThanOrEqual(0);
+  let packageBody = source.slice(importOffset);
+
+  // The fixture deliberately has its own package identity and XCTest target.
+  // Normalize only those fixture concerns; all three bridge products, targets,
+  // dependencies, settings, and paths must otherwise stay in lockstep.
+  packageBody = packageBody.replace(
+    /(let package = Package\(\s*name:)\s*"[^"]+"/,
+    '$1 "<bridge-package>"',
+  );
+  packageBody = packageBody.replace(
+    /\n\s*\.testTarget\(\s*\n\s*name:\s*"DebugBridgeCoreTests",[\s\S]*?\n\s{8}\),?/,
+    '',
+  );
+
+  // Ignore prose and formatting so a template-only explanatory comment does
+  // not conceal a meaningful manifest mismatch.
+  return packageBody
+    .replace(/\/\/.*$/gm, '')
+    .replace(/\s+/g, '')
+    .replace(/,([\])])/g, '$1');
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function bracedBlock(source: string, openBraceOffset: number): string {
+  let depth = 0;
+  for (let offset = openBraceOffset; offset < source.length; offset++) {
+    if (source[offset] === '{') depth++;
+    if (source[offset] !== '}') continue;
+    depth--;
+    if (depth === 0) return source.slice(openBraceOffset, offset + 1);
+  }
+  return '';
+}
+
+// The fixture is where the bridge is compiled and exercised end-to-end. Every
+// source copied into consuming apps must therefore be the canonical template,
+// or device QA can pass against code that /ios-qa never installs.
 describe('template ↔ fixture parity', () => {
-  test('DebugBridgeTouch.h.template matches fixture include', () => {
-    const tmpl = readFileSync(join(TEMPLATES_PATH, 'DebugBridgeTouch.h.template'), 'utf-8');
-    const fixture = readFileSync(
-      join(FIXTURE_PATH, 'Sources/DebugBridgeTouch/include/DebugBridgeTouch.h'),
-      'utf-8',
-    );
-    expect(tmpl).toBe(fixture);
-  });
+  for (const [templateName, fixtureDestination] of COPIED_BRIDGE_TEMPLATES) {
+    test(`${templateName} matches ${fixtureDestination}`, () => {
+      expect(readTemplate(templateName)).toBe(
+        readFileSync(join(FIXTURE_PATH, fixtureDestination), 'utf-8'),
+      );
+    });
+  }
 
-  test('DebugBridgeTouch.m.template matches fixture .m', () => {
-    const tmpl = readFileSync(join(TEMPLATES_PATH, 'DebugBridgeTouch.m.template'), 'utf-8');
-    const fixture = readFileSync(
-      join(FIXTURE_PATH, 'Sources/DebugBridgeTouch/DebugBridgeTouch.m'),
-      'utf-8',
-    );
-    expect(tmpl).toBe(fixture);
+  test('Package.swift bridge declarations match after fixture-only normalization', () => {
+    const template = readTemplate('Package.swift.template');
+    const fixture = readFileSync(join(FIXTURE_PATH, 'Package.swift'), 'utf-8');
+    expect(normalizeBridgePackage(template)).toBe(normalizeBridgePackage(fixture));
   });
 
   test('Package.swift.template declares all 3 DebugBridge targets', () => {
-    const tmpl = readFileSync(join(TEMPLATES_PATH, 'Package.swift.template'), 'utf-8');
+    const tmpl = readTemplate('Package.swift.template');
     // Each target must be present as a library product AND a target definition.
     for (const name of ['DebugBridgeCore', 'DebugBridgeUI', 'DebugBridgeTouch']) {
       expect(tmpl).toContain(`name: "${name}"`);
@@ -58,6 +110,190 @@ describe('template ↔ fixture parity', () => {
     // DebugBridgeUI must depend on the other two; that's how the consuming
     // app gets the transitive set with one dependency entry.
     expect(tmpl).toMatch(/name:\s*"DebugBridgeUI"[\s\S]*?dependencies:\s*\["DebugBridgeCore",\s*"DebugBridgeTouch"\]/);
+  });
+
+  test('generated Swift packages only reference shipped test directories', () => {
+    const genAccessorsPackage = readFileSync(GEN_ACCESSORS_PACKAGE, 'utf-8');
+    const debugBridgePackage = readFileSync(join(TEMPLATES_PATH, 'Package.swift.template'), 'utf-8');
+
+    expect(genAccessorsPackage).not.toContain('Tests/GenAccessorsTests');
+    expect(debugBridgePackage).not.toContain('Tests/DebugBridgeCoreTests');
+  });
+
+  test('Package.swift.template keeps swift-tools-version on the first line', () => {
+    const tmpl = readTemplate('Package.swift.template');
+    expect(tmpl.split(/\r?\n/, 1)[0]).toBe('// swift-tools-version:5.9');
+  });
+});
+
+describe('iOS tap harness regressions', () => {
+  test('manager receives app-owned generated accessors instead of a no-op package stub', () => {
+    const manager = readTemplate('DebugBridgeManager.swift.template');
+    const wiring = readTemplate('DebugBridgeWiring.swift.template');
+    const fixtureApp = readFileSync(
+      join(FIXTURE_PATH, 'Sources/FixtureApp/FixtureAppApp.swift'),
+      'utf-8',
+    );
+
+    expect(manager).toContain('func start<State>');
+    expect(manager).toContain('register: (State) -> Void');
+    expect(manager).toContain('register(appState)');
+    expect(manager).not.toContain('public enum AppStateAccessor');
+    expect(manager).not.toContain('protocol AppState');
+
+    expect(wiring).toContain('import DebugBridgeCore');
+    expect(wiring).toContain('import DebugBridgeUI');
+    expect(wiring).toContain('DebugBridgeUIWiring.installAll()');
+    expect(wiring.indexOf('DebugBridgeUIWiring.installAll()')).toBeLessThan(
+      wiring.indexOf('DebugBridgeManager.shared.start'),
+    );
+    expect(fixtureApp.indexOf('DebugBridgeUIWiring.installAll()')).toBeLessThan(
+      fixtureApp.indexOf('DebugBridgeManager.shared.start'),
+    );
+    expect(wiring).not.toContain('import DebugBridge\n');
+    expect(wiring).not.toContain('AccessibilityScanner');
+    expect(wiring).not.toContain('MutationDispatcher');
+  });
+
+  test('fixture uses an @Observable-compatible source marker, not a property wrapper', () => {
+    const state = readFileSync(
+      join(FIXTURE_PATH, 'Sources/FixtureApp/FixtureAppState.swift'),
+      'utf-8',
+    );
+    expect(state).toContain('@Observable');
+    expect(state.match(/\/\/ @Snapshotable/g)?.length).toBe(4);
+    expect(state).not.toContain('@propertyWrapper');
+    expect(state).not.toMatch(/^[\t ]*@Snapshotable[\t ]+(?:public[\t ]+)?var/m);
+  });
+
+  test('recurses through iOS automation elements to expose nested SwiftUI controls', () => {
+    const bridges = readTemplate('Bridges.swift.template');
+    expect(bridges).toContain('element.automationElements');
+    expect(bridges).toContain('debugBridgeAccessibilityChildren(of: element)');
+    expect(bridges).toContain('visited.insert(ObjectIdentifier(element)).inserted');
+    expect(bridges).toContain('var remaining = 2_048');
+  });
+
+  test('enables accessibility automation before SwiftUI AX is installed', () => {
+    const implementation = readTemplate('DebugBridgeTouch.m.template');
+    const bridges = readTemplate('Bridges.swift.template');
+    const helper = [...implementation.matchAll(
+      /static\s+void\s+([A-Za-z_]\w*)\s*\(\s*void\s*\)\s*\{/g,
+    )].find((candidate) => {
+      const body = bracedBlock(
+        implementation,
+        candidate.index! + candidate[0].lastIndexOf('{'),
+      );
+      return body.includes('_AXSAutomationEnabled') && body.includes('_AXSSetAutomationEnabled');
+    });
+    expect(helper).toBeDefined();
+
+    const helperName = helper![1];
+    const helperBody = bracedBlock(
+      implementation,
+      helper!.index! + helper![0].lastIndexOf('{'),
+    );
+    expect(helperBody).toContain('_AXSAutomationEnabled');
+    expect(helperBody).toContain('_AXSSetAutomationEnabled');
+
+    // Accept either Objective-C's eager +load hook or an explicit public
+    // bootstrap selector, but require the enabling helper to be called before
+    // Swift installs the resolver that walks SwiftUI's accessibility tree.
+    const bootstrap = [...implementation.matchAll(/\+\s*\(void\)\s*([A-Za-z_]\w*)\s*\{/g)]
+      .find((candidate) => bracedBlock(
+        implementation,
+        candidate.index! + candidate[0].lastIndexOf('{'),
+      ).match(new RegExp(`\\b${escapeRegExp(helperName)}\\s*\\(`)));
+    expect(bootstrap).toBeDefined();
+
+    if (bootstrap![1] === 'load') {
+      expect(bootstrap!.index!).toBeLessThan(implementation.indexOf('+ (BOOL)sendTapAtPoint:'));
+    } else {
+      const bootstrapCall = bridges.search(
+        new RegExp(`DebugBridgeTouch\\.${escapeRegExp(bootstrap![1])}\\s*\\(`),
+      );
+      expect(bootstrapCall).toBeGreaterThanOrEqual(0);
+      expect(bootstrapCall).toBeLessThan(bridges.indexOf('ElementsBridge.resolver'));
+    }
+  });
+
+  test('renders screenshots at one pixel per window point', () => {
+    const bridges = readTemplate('Bridges.swift.template');
+    const declaration = bridges.match(
+      /(?:let|var)\s+([A-Za-z_]\w*)\s*=\s*UIGraphicsImageRendererFormat(?:\.default)?\(\)/,
+    );
+    expect(declaration).not.toBeNull();
+
+    const formatName = declaration![1];
+    const scalePattern = new RegExp(`\\b${escapeRegExp(formatName)}\\.scale\\s*=\\s*1(?:\\.0)?\\b`);
+    const rendererPattern = new RegExp(
+      `UIGraphicsImageRenderer\\(\\s*bounds:\\s*bounds,\\s*format:\\s*${escapeRegExp(formatName)}\\s*\\)`,
+    );
+    const declarationOffset = declaration!.index!;
+    const scaleOffset = bridges.search(scalePattern);
+    const rendererOffset = bridges.search(rendererPattern);
+
+    expect(scaleOffset).toBeGreaterThan(declarationOffset);
+    expect(rendererOffset).toBeGreaterThan(scaleOffset);
+  });
+
+  test('uses accessibilityActivate for SwiftUI while retaining synthesized-touch delivery', () => {
+    const bridges = readTemplate('Bridges.swift.template');
+    const tapStart = bridges.indexOf('private static func handleTap');
+    const tapEnd = bridges.indexOf('private static func handleType', tapStart);
+    expect(tapStart).toBeGreaterThanOrEqual(0);
+    expect(tapEnd).toBeGreaterThan(tapStart);
+    const handleTap = bridges.slice(tapStart, tapEnd);
+
+    const synthesizedTouchOffset = handleTap.indexOf('DebugBridgeTouch.sendTap');
+    const fallbackCall = handleTap.match(
+      /\b([A-Za-z_]\w*)\s*\(\s*at:\s*point\s*,\s*in:\s*window\s*\)/,
+    );
+    const activationOffset = handleTap.indexOf('.accessibilityActivate()');
+    expect(synthesizedTouchOffset).toBeGreaterThanOrEqual(0);
+    expect(fallbackCall).not.toBeNull();
+    expect(activationOffset).toBeGreaterThan(fallbackCall!.index!);
+
+    const fallbackName = fallbackCall![1];
+    expect(bridges).toMatch(
+      new RegExp(`(?:private\\s+)?static\\s+func\\s+${escapeRegExp(fallbackName)}\\s*\\(`),
+    );
+  });
+
+  test('finishes programmatic scrolls before returning success to the next tap', () => {
+    const bridges = readTemplate('Bridges.swift.template');
+    expect(bridges).toContain('setContentOffset(off, animated: false)');
+    expect(bridges).not.toContain('setContentOffset(off, animated: true)');
+  });
+
+  test('serializes accessibility traits without signed Int truncation', () => {
+    const bridges = readTemplate('Bridges.swift.template');
+    expect(bridges).toMatch(/\btraits\s*:\s*UInt64\b/);
+    expect(bridges).toContain('.uint64Value');
+    expect(bridges).not.toMatch(/\bInt(?:64)?\s*\(\s*view\.accessibilityTraits\.rawValue\s*\)/);
+    expect(bridges).not.toMatch(/accessibilityTraits[\s\S]{0,120}?\.intValue\b/);
+  });
+
+  test('validates every generated model before applying any snapshot state', () => {
+    const server = readTemplate('StateServer.swift.template');
+    const validationLoop = server.indexOf('for restore in atomicRestores');
+    const applyComment = server.indexOf('Phase two applies only after every model accepted');
+    const applyLoop = server.indexOf('for restore in atomicRestores', validationLoop + 1);
+
+    expect(server).toContain('typealias AtomicRestoreFn = (JSONDict, Bool) -> RestoreResult');
+    expect(server).toContain('restore(keys, false)');
+    expect(server).toContain('restore(keys, true)');
+    expect(validationLoop).toBeGreaterThanOrEqual(0);
+    expect(applyComment).toBeGreaterThan(validationLoop);
+    expect(applyLoop).toBeGreaterThan(applyComment);
+  });
+
+  test('turns non-JSON response bodies into an explicit HTTP 500', () => {
+    const server = readTemplate('StateServer.swift.template');
+    expect(server).toContain('JSONSerialization.isValidJSONObject(body)');
+    expect(server).toContain('responseStatus = 500');
+    expect(server).toContain('response_not_json_serializable');
+    expect(server).not.toContain('?? Data("{}".utf8)');
   });
 });
 

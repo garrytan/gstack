@@ -132,6 +132,258 @@ describe('daemon — loopback listener', () => {
     expect(lastReq?.headers['x-session-id']).toBe('sess-loopback-1');
   });
 
+  test('concurrent first requests share one tunnel bootstrap', async () => {
+    let bootstraps = 0;
+    let releaseBootstrap!: () => void;
+    let markBootstrapStarted!: () => void;
+    const bootstrapStarted = new Promise<void>((resolve) => { markBootstrapStarted = resolve; });
+    const bootstrapGate = new Promise<void>((resolve) => { releaseBootstrap = resolve; });
+    const tunnel: DeviceTunnel = {
+      udid: 'STUB-UDID',
+      ipv6Addr: '127.0.0.1',
+      port: stub.port,
+      bootTokenRotated: STATE_SERVER_TOKEN,
+    };
+    const d = await startDaemon({
+      loopbackPort: 0,
+      tailnetEnabled: false,
+      pidfilePath: join(workDir, 'daemon-concurrent-bootstrap.pid'),
+      tunnelProvider: async () => {
+        bootstraps++;
+        markBootstrapStarted();
+        await bootstrapGate;
+        return tunnel;
+      },
+    });
+    if ('error' in d) throw new Error(d.error);
+
+    try {
+      const base = `http://127.0.0.1:${d.loopbackPort}`;
+      const requests = [
+        fetchWith('GET', `${base}/screenshot`),
+        fetchWith('GET', `${base}/screenshot`),
+        fetchWith('GET', `${base}/screenshot`),
+      ];
+      await bootstrapStarted;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      releaseBootstrap();
+      const responses = await Promise.all(requests);
+      expect(responses.map((response) => response.status)).toEqual([200, 200, 200]);
+      expect(bootstraps).toBe(1);
+    } finally {
+      releaseBootstrap();
+      await d.close();
+    }
+  });
+
+  test('reuses a healthy rotated tunnel beyond the old 30-second boundary', async () => {
+    let bootstraps = 0;
+    const tunnel: DeviceTunnel = {
+      udid: 'STUB-UDID',
+      ipv6Addr: '127.0.0.1',
+      port: stub.port,
+      bootTokenRotated: STATE_SERVER_TOKEN,
+    };
+    const d = await startDaemon({
+      loopbackPort: 0,
+      tailnetEnabled: false,
+      pidfilePath: join(workDir, 'daemon-one-shot-bootstrap.pid'),
+      tunnelProvider: async () => {
+        bootstraps++;
+        if (bootstraps > 1) throw new Error('one-shot boot token was already consumed');
+        return tunnel;
+      },
+    });
+    if ('error' in d) throw new Error(d.error);
+
+    const realNow = Date.now;
+    const firstRequestAt = realNow();
+    try {
+      const base = `http://127.0.0.1:${d.loopbackPort}`;
+      const first = await fetchWith('GET', `${base}/screenshot`);
+      expect(first.status).toBe(200);
+
+      Date.now = () => firstRequestAt + 30_001;
+      const later = await fetchWith('GET', `${base}/screenshot`);
+      expect(later.status).toBe(200);
+      expect(bootstraps).toBe(1);
+    } finally {
+      Date.now = realNow;
+      await d.close();
+    }
+  });
+
+  test('401 after app relaunch invalidates the token and concurrent requests share one rebootstrap', async () => {
+    let bootstraps = 0;
+    let markRefreshStarted!: () => void;
+    let releaseRefresh!: () => void;
+    const refreshStarted = new Promise<void>((resolve) => { markRefreshStarted = resolve; });
+    const refreshGate = new Promise<void>((resolve) => { releaseRefresh = resolve; });
+    const staleTunnel: DeviceTunnel = {
+      udid: 'STUB-UDID',
+      ipv6Addr: '127.0.0.1',
+      port: stub.port,
+      bootTokenRotated: 'expired-after-relaunch',
+    };
+    const refreshedTunnel: DeviceTunnel = {
+      ...staleTunnel,
+      bootTokenRotated: STATE_SERVER_TOKEN,
+    };
+    const d = await startDaemon({
+      loopbackPort: 0,
+      tailnetEnabled: false,
+      pidfilePath: join(workDir, 'daemon-relaunch-refresh.pid'),
+      tunnelProvider: async () => {
+        bootstraps++;
+        if (bootstraps === 1) return staleTunnel;
+        if (bootstraps === 2) {
+          markRefreshStarted();
+          await refreshGate;
+          return refreshedTunnel;
+        }
+        throw new Error('concurrent 401s caused duplicate bootstraps');
+      },
+    });
+    if ('error' in d) throw new Error(d.error);
+
+    const requestStart = stub.receivedRequests.length;
+    try {
+      const base = `http://127.0.0.1:${d.loopbackPort}`;
+      const requests = [
+        fetchWith('GET', `${base}/screenshot`),
+        fetchWith('GET', `${base}/screenshot`),
+        fetchWith('GET', `${base}/screenshot`),
+      ];
+      await refreshStarted;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      expect(bootstraps).toBe(2);
+      releaseRefresh();
+
+      const responses = await Promise.all(requests);
+      expect(responses.map((response) => response.status)).toEqual([200, 200, 200]);
+      const attempts = stub.receivedRequests.slice(requestStart);
+      expect(attempts.filter((request) => request.headers.authorization === 'Bearer expired-after-relaunch')).toHaveLength(3);
+      expect(attempts.filter((request) => request.headers.authorization === `Bearer ${STATE_SERVER_TOKEN}`)).toHaveLength(3);
+
+      const healthyReuse = await fetchWith('GET', `${base}/screenshot`);
+      expect(healthyReuse.status).toBe(200);
+      expect(bootstraps).toBe(2);
+    } finally {
+      releaseRefresh();
+      await d.close();
+    }
+  });
+
+  test('connection failure after redeploy reboots the tunnel once and keeps the replacement cached', async () => {
+    const deadPort = await new Promise<number>((resolve, reject) => {
+      const reservation = createServer();
+      reservation.once('error', reject);
+      reservation.listen(0, '127.0.0.1', () => {
+        const address = reservation.address();
+        const port = typeof address === 'object' && address ? address.port : 0;
+        reservation.close((err) => err ? reject(err) : resolve(port));
+      });
+    });
+    let bootstraps = 0;
+    const d = await startDaemon({
+      loopbackPort: 0,
+      tailnetEnabled: false,
+      pidfilePath: join(workDir, 'daemon-redeploy-refresh.pid'),
+      tunnelProvider: async () => {
+        bootstraps++;
+        if (bootstraps === 1) {
+          return {
+            udid: 'STUB-UDID',
+            ipv6Addr: '127.0.0.1',
+            port: deadPort,
+            bootTokenRotated: 'old-deploy-token',
+          };
+        }
+        if (bootstraps === 2) {
+          return {
+            udid: 'STUB-UDID',
+            ipv6Addr: '127.0.0.1',
+            port: stub.port,
+            bootTokenRotated: STATE_SERVER_TOKEN,
+          };
+        }
+        throw new Error('healthy replacement tunnel was not reused');
+      },
+    });
+    if ('error' in d) throw new Error(d.error);
+
+    try {
+      const base = `http://127.0.0.1:${d.loopbackPort}`;
+      const recovered = await fetchWith('GET', `${base}/screenshot`);
+      expect(recovered.status).toBe(200);
+      expect(JSON.parse(recovered.bodyText)).toEqual({ png_base64: 'abc=' });
+      expect(bootstraps).toBe(2);
+
+      const healthyReuse = await fetchWith('GET', `${base}/screenshot`);
+      expect(healthyReuse.status).toBe(200);
+      expect(bootstraps).toBe(2);
+    } finally {
+      await d.close();
+    }
+  });
+
+  test('connection failure refreshes but never replays an ambiguous tap', async () => {
+    const deadPort = await new Promise<number>((resolve, reject) => {
+      const reservation = createServer();
+      reservation.once('error', reject);
+      reservation.listen(0, '127.0.0.1', () => {
+        const address = reservation.address();
+        const port = typeof address === 'object' && address ? address.port : 0;
+        reservation.close((err) => err ? reject(err) : resolve(port));
+      });
+    });
+    let bootstraps = 0;
+    const d = await startDaemon({
+      loopbackPort: 0,
+      tailnetEnabled: false,
+      pidfilePath: join(workDir, 'daemon-mutation-no-replay.pid'),
+      tunnelProvider: async () => {
+        bootstraps++;
+        return bootstraps === 1
+          ? {
+              udid: 'STUB-UDID',
+              ipv6Addr: '127.0.0.1',
+              port: deadPort,
+              bootTokenRotated: 'old-deploy-token',
+            }
+          : {
+              udid: 'STUB-UDID',
+              ipv6Addr: '127.0.0.1',
+              port: stub.port,
+              bootTokenRotated: STATE_SERVER_TOKEN,
+            };
+      },
+    });
+    if ('error' in d) throw new Error(d.error);
+
+    const beforeTaps = stub.receivedRequests.filter((request) => request.path === '/tap').length;
+    try {
+      const base = `http://127.0.0.1:${d.loopbackPort}`;
+      const ambiguous = await fetchWith('POST', `${base}/tap`, {
+        headers: { 'x-session-id': 'old-session', 'content-type': 'application/json' },
+        body: JSON.stringify({ x: 10, y: 20 }),
+      });
+      expect(ambiguous.status).toBe(503);
+      expect(bootstraps).toBe(2);
+      expect(stub.receivedRequests.filter((request) => request.path === '/tap')).toHaveLength(beforeTaps);
+
+      const explicitRetry = await fetchWith('POST', `${base}/tap`, {
+        headers: { 'x-session-id': 'new-session', 'content-type': 'application/json' },
+        body: JSON.stringify({ x: 10, y: 20 }),
+      });
+      expect(explicitRetry.status).toBe(200);
+      expect(stub.receivedRequests.filter((request) => request.path === '/tap')).toHaveLength(beforeTaps + 1);
+      expect(bootstraps).toBe(2);
+    } finally {
+      await d.close();
+    }
+  });
+
   test('returns 503 when no device tunnel is provided', async () => {
     // Force tunnel provider to return null by closing + restarting with null provider.
     await daemon.close();

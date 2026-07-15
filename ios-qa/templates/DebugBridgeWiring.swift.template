@@ -6,22 +6,35 @@
 // the DebugBridge target.
 
 #if DEBUG
-import DebugBridge
+import Foundation
+import DebugBridgeCore
+#if canImport(UIKit)
+import DebugBridgeUI
+#endif
 
 @MainActor
-func startGstackDebugBridge(appState: AppState) {
+func startGstackDebugBridge<State>(
+    appState: State,
+    register: (State) -> Void
+) {
     // Read --recording flag from launch arguments
     let recording = ProcessInfo.processInfo.arguments.contains("--gstack-recording")
 
-    // Install accessibility + screenshot + mutation bridges before starting
-    // the server so the first authenticated request can use them.
-    ElementsBridge.resolver = { AccessibilityScanner.snapshot() }
-    ScreenshotBridge.resolver = { SnapshotCapture.capturePNG() }
-    MutationBridge.resolver = { op, payload in
-        MutationDispatcher.shared.run(op: op, payload: payload)
-    }
+    // Install the UI resolvers before opening the listener. A warm daemon can
+    // issue its first request as soon as StateServer starts; it must never see
+    // the default empty screenshot/elements/mutation handlers.
+    #if canImport(UIKit)
+    DebugBridgeUIWiring.installAll()
+    #endif
 
-    DebugBridgeManager.shared.start(appState: appState, recording: recording)
+    // Generated typed accessors live in the app target, so pass their register
+    // function into the package instead of asking DebugBridgeCore to import
+    // app-owned types.
+    DebugBridgeManager.shared.start(appState: appState, register: register)
+
+    #if canImport(UIKit)
+    DebugOverlayWindow.shared.install(recording: recording)
+    #endif
 }
 #endif
 
@@ -33,7 +46,10 @@ func startGstackDebugBridge(appState: AppState) {
 //
 //       init() {
 //           #if DEBUG
-//           startGstackDebugBridge(appState: appState)
+//           startGstackDebugBridge(
+//               appState: appState,
+//               register: MyAppStateAccessor.register
+//           )
 //           #endif
 //       }
 //

@@ -25,26 +25,14 @@ fi
 # Normalize: lowercase for case-insensitive SQL matching
 CMD_LOWER=$(printf '%s' "$CMD" | tr '[:upper:]' '[:lower:]')
 
-# --- Check for safe exceptions (rm -rf of build artifacts) ---
-if printf '%s' "$CMD" | grep -qE 'rm\s+(-[a-zA-Z]*r[a-zA-Z]*\s+|--recursive\s+)' 2>/dev/null; then
-  SAFE_ONLY=true
-  RM_ARGS=$(printf '%s' "$CMD" | sed -E 's/.*rm[[:space:]]+(-[a-zA-Z]+[[:space:]]+)*//;s/--recursive[[:space:]]*//')
-  for target in $RM_ARGS; do
-    case "$target" in
-      */node_modules|node_modules|*/\.next|\.next|*/dist|dist|*/__pycache__|__pycache__|*/\.cache|\.cache|*/build|build|*/\.turbo|\.turbo|*/coverage|coverage)
-        ;; # safe target
-      -*)
-        ;; # flag, skip
-      *)
-        SAFE_ONLY=false
-        break
-        ;;
-    esac
-  done
-  if [ "$SAFE_ONLY" = true ]; then
-    echo '{}'
-    exit 0
-  fi
+# --- Check for safe exceptions (one standalone rm of build artifacts) ---
+# Match the complete command. Parsing only the last rm is unsafe because shell
+# syntax or comments can hide an earlier destructive command, for example:
+#   rm -rf / # rm -rf node_modules
+# Unknown syntax fails closed and falls through to the destructive checks.
+if printf '%s' "$CMD" | grep -qE '^[[:space:]]*rm[[:space:]]+(-[a-zA-Z]*r[a-zA-Z]*[[:space:]]+|--recursive[[:space:]]+)(([^[:space:];&|#]*/)?(node_modules|\.next|dist|__pycache__|\.cache|build|\.turbo|coverage)[[:space:]]*)+$' 2>/dev/null; then
+  echo '{}'
+  exit 0
 fi
 
 # --- Destructive pattern checks ---

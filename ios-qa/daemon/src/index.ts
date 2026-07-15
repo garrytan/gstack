@@ -62,16 +62,36 @@ export async function startDaemon(opts: DaemonOptions): Promise<RunningDaemon | 
 
   const tokenStore = new SessionTokenStore();
   let tunnel: DeviceTunnel | null = null;
-  let cachedTunnelAt = 0;
+  let tunnelInFlight: Promise<DeviceTunnel | null> | null = null;
 
   const getTunnel = async (): Promise<DeviceTunnel | null> => {
-    // Cache the tunnel for 30s; refresh on demand.
-    if (tunnel && Date.now() - cachedTunnelAt < 30_000) return tunnel;
-    if (opts.tunnelProvider) {
-      tunnel = await opts.tunnelProvider();
-      cachedTunnelAt = Date.now();
+    // A successful bootstrap consumes and deletes the app's one-shot boot
+    // token. Keep that rotated tunnel for this daemon's lifetime instead of
+    // trying to bootstrap it again on a timer. Failed attempts are not cached.
+    if (tunnel) return tunnel;
+    if (!opts.tunnelProvider) return null;
+
+    // Multiple first requests can arrive before bootstrap completes. Share
+    // one provider call so they cannot race through independent rotations.
+    if (!tunnelInFlight) {
+      tunnelInFlight = Promise.resolve()
+        .then(() => opts.tunnelProvider!())
+        .then((candidate) => {
+          if (candidate) tunnel = candidate;
+          return candidate;
+        })
+        .finally(() => {
+          tunnelInFlight = null;
+        });
     }
-    return tunnel;
+    return tunnelInFlight;
+  };
+
+  const invalidateTunnel = (failedTunnel: DeviceTunnel): void => {
+    // A late response from the old app must not evict a tunnel that another
+    // request has already refreshed. Object identity gives each bootstrap a
+    // cheap generation token without exposing generation state elsewhere.
+    if (tunnel === failedTunnel) tunnel = null;
   };
 
   // 2. Tailnet probe (fail-closed).
@@ -86,7 +106,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<RunningDaemon | 
 
   // 3. Loopback listener (full surface).
   const loopbackServer = createServer(async (req, res) => {
-    await handleLoopback({ req, res, tokenStore, getTunnel });
+    await handleLoopback({ req, res, tokenStore, getTunnel, invalidateTunnel });
   });
   // Use port 0 for OS-assigned port when test/random port collisions are a risk.
   const requestedPort = opts.loopbackPort;
@@ -97,7 +117,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<RunningDaemon | 
   // mode this can collide; we try the actualPort first and skip ipv6 if it
   // fails (tests don't exercise ::1 explicitly).
   const loopbackServerV6 = createServer(async (req, res) => {
-    await handleLoopback({ req, res, tokenStore, getTunnel });
+    await handleLoopback({ req, res, tokenStore, getTunnel, invalidateTunnel });
   });
   let v6Bound = false;
   try {
@@ -118,6 +138,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<RunningDaemon | 
         res,
         tokenStore,
         getTunnel,
+        invalidateTunnel,
         auditPath: opts.auditPath,
         attemptsPath: opts.attemptsPath,
         allowlistPath: opts.allowlistPath,
@@ -181,10 +202,111 @@ interface HandlerCtx {
   res: ServerResponse;
   tokenStore: SessionTokenStore;
   getTunnel: () => Promise<DeviceTunnel | null>;
+  invalidateTunnel: (failedTunnel: DeviceTunnel) => void;
   // Explicit security-log + allowlist paths (default to env-derived when undefined).
   auditPath?: string;
   attemptsPath?: string;
   allowlistPath?: string;
+}
+
+type DeviceProxyResponse = Awaited<ReturnType<typeof proxyToDevice>>;
+const RECOVERABLE_SOCKET_ERRORS = new Set([
+  'ECONNABORTED',
+  'ECONNREFUSED',
+  'ECONNRESET',
+  'EHOSTUNREACH',
+  'ENETUNREACH',
+  'EPIPE',
+  'ETIMEDOUT',
+]);
+
+function localProxyError(status: number, error: string): DeviceProxyResponse {
+  const body = Buffer.from(JSON.stringify({ error }, sanitizeReplacer));
+  return {
+    status,
+    headers: { 'content-type': 'application/json', 'content-length': String(body.length) },
+    body,
+  };
+}
+
+async function proxyAttempt(opts: Parameters<typeof proxyToDevice>[0]): Promise<DeviceProxyResponse> {
+  try {
+    return await proxyToDevice(opts);
+  } catch (err) {
+    const code = (err as { code?: string }).code;
+    // CoreDevice can surface the same stale route as several different socket
+    // failures while an app is being relaunched or replaced. Normalize those
+    // failures so the cache recovery path below can handle all of them.
+    if (code && RECOVERABLE_SOCKET_ERRORS.has(code)) {
+      return localProxyError(503, 'device_disconnected');
+    }
+    throw err;
+  }
+}
+
+function shouldRefreshTunnel(upstream: DeviceProxyResponse): boolean {
+  // A relaunched app has a new in-memory bearer and rejects the daemon's old
+  // rotated token. A redeploy can instead leave the old CoreDevice route
+  // refusing connections or timing out. Both cases require a fresh bootstrap.
+  if (upstream.status === 401) return true;
+  if (upstream.status !== 503 && upstream.status !== 504) return false;
+  try {
+    const body = JSON.parse(upstream.body.toString('utf-8')) as { error?: string };
+    return body.error === 'device_disconnected' || body.error === 'upstream_timeout';
+  } catch {
+    return false;
+  }
+}
+
+function canReplayAfterRefresh(inbound: IncomingMessage, upstream: DeviceProxyResponse): boolean {
+  // A 401 proves the stale bearer was rejected before StateServer dispatched
+  // the operation, so retrying is safe even for a mutation. Connection loss
+  // is ambiguous: the app may have applied a tap/write before its response was
+  // lost. Replay only read-only requests in that case to prevent double taps.
+  if (upstream.status === 401) return true;
+  const method = inbound.method ?? 'GET';
+  return method === 'GET' || method === 'HEAD' || method === 'OPTIONS';
+}
+
+async function proxyWithTunnelRecovery(opts: {
+  inbound: IncomingMessage;
+  body: Buffer;
+  sessionId: string | null;
+  agentIdentity?: string;
+  getTunnel: HandlerCtx['getTunnel'];
+  invalidateTunnel: HandlerCtx['invalidateTunnel'];
+}): Promise<{ tunnel: DeviceTunnel; upstream: DeviceProxyResponse } | null> {
+  let tunnel = await opts.getTunnel();
+  if (!tunnel) return null;
+
+  const makeAttempt = (candidate: DeviceTunnel) => proxyAttempt({
+    inbound: opts.inbound,
+    body: opts.body,
+    tunnel: candidate,
+    sessionId: opts.sessionId,
+    agentIdentity: opts.agentIdentity,
+  });
+
+  let upstream = await makeAttempt(tunnel);
+  if (!shouldRefreshTunnel(upstream)) return { tunnel, upstream };
+
+  const failedTunnel = tunnel;
+  const replaySafe = canReplayAfterRefresh(opts.inbound, upstream);
+  opts.invalidateTunnel(tunnel);
+  const refreshed = await opts.getTunnel();
+  if (!refreshed) return replaySafe ? null : { tunnel: failedTunnel, upstream };
+
+  // The replacement is now cached for the next request, but never replay an
+  // ambiguous mutation whose response was lost: doing so could double-tap or
+  // apply a state transition twice.
+  if (!replaySafe) return { tunnel: failedTunnel, upstream };
+
+  tunnel = refreshed;
+  upstream = await makeAttempt(tunnel);
+  // Do not loop forever if the replacement app is itself unavailable. Leave
+  // the cache empty so the next independent request can bootstrap again.
+  if (shouldRefreshTunnel(upstream)) opts.invalidateTunnel(tunnel);
+  return { tunnel, upstream };
 }
 
 function readBody(req: IncomingMessage, maxBytes = 1_048_576): Promise<Buffer | { error: 'body_too_large' }> {
@@ -228,7 +350,7 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
  * loopback bind itself is the boundary).
  */
 async function handleLoopback(ctx: HandlerCtx): Promise<void> {
-  const { req, res, tokenStore, getTunnel } = ctx;
+  const { req, res, tokenStore, getTunnel, invalidateTunnel } = ctx;
   const url = parseUrl(req.url ?? '/');
   const path = url.pathname ?? '/';
   const method = req.method ?? 'GET';
@@ -262,16 +384,23 @@ async function handleLoopback(ctx: HandlerCtx): Promise<void> {
     }
 
     // Other endpoints — proxy to the device.
-    const tunnel = await getTunnel();
-    if (!tunnel) {
-      sendJson(res, 503, { error: 'device_not_connected' });
-      return;
-    }
     const body = await readBody(req);
     if ('error' in body) { sendJson(res, 413, body); return; }
     const sessionId = (req.headers['x-session-id'] as string | undefined) ?? null;
     const agentIdentity = (req.headers['x-agent-identity'] as string | undefined) ?? undefined;
-    const upstream = await proxyToDevice({ inbound: req, body, tunnel, sessionId, agentIdentity });
+    const proxied = await proxyWithTunnelRecovery({
+      inbound: req,
+      body,
+      sessionId,
+      agentIdentity,
+      getTunnel,
+      invalidateTunnel,
+    });
+    if (!proxied) {
+      sendJson(res, 503, { error: 'device_not_connected' });
+      return;
+    }
+    const { upstream } = proxied;
     res.writeHead(upstream.status, upstream.headers);
     res.end(upstream.body);
   } catch (err) {
@@ -287,7 +416,7 @@ interface TailnetCtx extends HandlerCtx {
  * Tailnet handler — locked allowlist + capability tiers.
  */
 async function handleTailnet(ctx: TailnetCtx): Promise<void> {
-  const { req, res, tokenStore, getTunnel, whoIsImpl, auditPath, attemptsPath, allowlistPath } = ctx;
+  const { req, res, tokenStore, getTunnel, invalidateTunnel, whoIsImpl, auditPath, attemptsPath, allowlistPath } = ctx;
   const url = parseUrl(req.url ?? '/');
   const path = url.pathname ?? '/';
   const method = req.method ?? 'GET';
@@ -375,19 +504,20 @@ async function handleTailnet(ctx: TailnetCtx): Promise<void> {
     }
 
     // Proxy to device.
-    const tunnel = await getTunnel();
-    if (!tunnel) {
+    const sessionId = (req.headers['x-session-id'] as string | undefined) ?? null;
+    const proxied = await proxyWithTunnelRecovery({
+      inbound: req,
+      body,
+      sessionId,
+      agentIdentity: session.identity,
+      getTunnel,
+      invalidateTunnel,
+    });
+    if (!proxied) {
       sendJson(res, 503, { error: 'device_not_connected' });
       return;
     }
-    const sessionId = (req.headers['x-session-id'] as string | undefined) ?? null;
-    const upstream = await proxyToDevice({
-      inbound: req,
-      body,
-      tunnel,
-      sessionId,
-      agentIdentity: session.identity,
-    });
+    const { tunnel, upstream } = proxied;
 
     // Audit the action (mutating endpoints only).
     if (requiredCapability !== 'observe') {

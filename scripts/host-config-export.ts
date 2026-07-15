@@ -15,6 +15,7 @@
 
 import { ALL_HOST_CONFIGS, getHostConfig, ALL_HOST_NAMES } from '../hosts/index';
 import { validateAllConfigs } from './host-config';
+import { RESOLVERS } from './resolvers';
 import { execSync } from 'child_process';
 
 const CLI_REGEX = /^[a-z][a-z0-9_-]*$/;
@@ -82,7 +83,7 @@ switch (command) {
   }
 
   case 'validate': {
-    const errors = validateAllConfigs(ALL_HOST_CONFIGS);
+    const errors = validateAllConfigs(ALL_HOST_CONFIGS, new Set(Object.keys(RESOLVERS)));
     if (errors.length > 0) {
       for (const error of errors) {
         console.error(`ERROR: ${error}`);

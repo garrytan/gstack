@@ -9,7 +9,7 @@ Everything below has been verified end-to-end on a real iPhone 17 Pro Max runnin
 - macOS with Xcode 16.0+ installed (`xcrun devicectl --version` must succeed). Xcode 16 ships the CoreDevice tunnel `devicectl` uses to reach the device over USB.
 - A real iPhone running iOS 16 or later. Unlocked, paired with your Mac, with **Developer Mode** enabled in Settings → Privacy & Security.
 - An Apple developer team — the free personal team works fine for live-device debug deploys. You'll need the team ID (e.g. `623FYQ2M88`), not the certificate ID. Find it in Xcode → Settings → Accounts → your Apple ID → team list. The setup signs the app for your device on first deploy via `-allowProvisioningUpdates -allowProvisioningDeviceRegistration`.
-- gstack installed (`./setup` complete; `bin/gstack-ios-qa-daemon` must be on disk and executable).
+- gstack installed (`./setup` complete; `gstack-ios-qa-regen` and `gstack-ios-qa-daemon` must be on PATH).
 - Bun runtime on PATH (`bun --version`). The Mac-side daemon is a bun process.
 
 For the optional remote-agent (Tailscale) mode, you'll additionally need Tailscale installed on the Mac with `/var/run/tailscale.sock` readable.
@@ -30,28 +30,49 @@ For the optional remote-agent (Tailscale) mode, you'll additionally need Tailsca
 
 The iOS `StateServer` is loopback-only **always**, even in remote mode. Identity validation happens Mac-side because the iPhone has no way to validate a Tailscale identity.
 
-## Step 1: Add the DebugBridge templates to your iOS app
+## Step 1: Generate the DebugBridge package
 
-The templates live at `~/.claude/skills/gstack/ios-qa/templates/` after `./setup`. The fastest install is to invoke the `/ios-qa` skill in Claude Code from your app's root — it reads your Swift source, codegens typed `@Observable` state accessors, and lays down the templates with your bundle ID. Or do it by hand:
+Run `/ios-qa` from the app root, or invoke the same deterministic regenerator directly:
 
-1. Copy these into a `DebugBridge/` SPM package inside your app workspace:
-   - `Sources/DebugBridgeCore/StateServer.swift` (from `StateServer.swift.template`)
-   - `Sources/DebugBridgeCore/DebugBridgeManager.swift` (from `DebugBridgeManager.swift.template`)
-   - `Sources/DebugBridgeTouch/DebugBridgeTouch.m` + `Sources/DebugBridgeTouch/include/DebugBridgeTouch.h` (from the two `.template` files)
-   - `Sources/DebugBridgeUI/Bridges.swift` (from `Bridges.swift.template`)
-   - `Sources/DebugBridgeUI/DebugOverlay.swift` (from `DebugOverlay.swift.template`)
-   - `Package.swift` (from `Package.swift.template`)
-2. Add the package as a local dependency of your app. Depend on the `DebugBridgeUI` product with `condition: .when(configuration: .debug)`. `DebugBridgeCore` and `DebugBridgeTouch` come in transitively.
-3. In your `@main` App init, gate the wiring on `#if DEBUG`:
+```bash
+gstack-ios-qa-regen \
+  --app-source "$PWD/Sources/YourApp" \
+  --bridge-dir "$PWD/DebugBridge"
+```
+
+The command copies an explicit allowlist of canonical templates into the local
+`DebugBridge/` Swift package, generates
+`DebugBridgeGenerated/StateAccessor.swift`, and writes the installed version to
+`DebugBridgeGenerated/.gstack-version`. It excludes generated output from its
+own schema hash, so rerunning it with unchanged source is a fast, byte-stable
+cache hit. It also removes the explicit legacy generated-file set from older
+flat harness layouts so stale bridge sources cannot shadow the package.
+
+1. Add `DebugBridge/` as a local package dependency. Depend on the
+   `DebugBridgeUI` product only in Debug configuration; `DebugBridgeCore` and
+   `DebugBridgeTouch` come in transitively.
+2. Add `DebugBridgeGenerated/StateAccessor.swift` to the app target.
+3. In your `@main` App init, install the UIKit resolvers before starting the
+   server, then register the generated accessor. Replace the example
+   state/accessor names with the type the generator found:
 
    ```swift
    #if DEBUG
    import DebugBridgeCore
-   StateServer.shared.start()
    #if canImport(UIKit)
    import DebugBridgeUI
+   #endif
+   #endif
+
+   // Inside App.init(), after appState is initialized:
+   #if DEBUG
+   #if canImport(UIKit)
    DebugBridgeUIWiring.installAll()
    #endif
+   DebugBridgeManager.shared.start(
+       appState: appState,
+       register: AppStateAccessor.register
+   )
    #endif
    ```
 
@@ -109,7 +130,16 @@ GSTACK_IOS_TARGET_BUNDLE_ID=com.yourorg.yourapp
 GSTACK_IOS_DAEMON_PORT=9099       # loopback listener port; default 9099
 ```
 
-If `GSTACK_IOS_TARGET_UDID` is unset, the daemon picks the first paired connected device.
+If `GSTACK_IOS_TARGET_UDID` is unset, the daemon picks the best paired,
+available iPhone.
+Automatic selection is restricted to available iPhones and prefers a wired
+phone. The daemon keeps a healthy rotated tunnel, then invalidates and
+rebootstraps once on an app-relaunch 401 or recoverable CoreDevice connection
+failure.
+If a newly started daemon reaches an already-running target whose one-use boot
+token was consumed by an earlier daemon, it verifies the bundle owner, force
+relaunches that target once, waits for a fresh token, verifies ownership again,
+and rotates normally.
 
 ## Step 4: Drive the device
 
@@ -123,15 +153,39 @@ Once the daemon is running, you have an HTTP surface at `http://127.0.0.1:9099` 
 | `POST /session/release` | Release the lock. | bearer + session |
 | `GET /screenshot` | Capture a PNG of the active window. Returns `{png_base64: "..."}`. | bearer |
 | `GET /elements` | Accessibility-tree snapshot. | bearer |
-| `GET /state/snapshot` | Dump every `@Snapshotable` field as JSON. | bearer |
-| `POST /state/restore` | Atomically restore a full snapshot. | bearer + session, mutate tier |
+| `GET /state/snapshot` | Dump every `// @Snapshotable` field as JSON. | bearer |
+| `POST /state/restore` | Validate the full snapshot, then restore it on MainActor. | bearer + session, mutate tier |
 | `POST /tap` `{x,y}` | Synthesize a real UITouch at window coordinates. SwiftUI Buttons fire. | bearer + session, interact tier |
 | `POST /swipe` `{from_x,from_y,to_x,to_y}` | Scroll the nearest enclosing UIScrollView. | bearer + session, interact tier |
 | `POST /type` `{text}` | Set text on the current first responder. | bearer + session, interact tier |
 
 Mutating requests require both an `Authorization: Bearer <token>` header AND an `X-Session-Id` header. Read endpoints (`/screenshot`, `/elements`, `GET /state/*`) only need the bearer.
 
-The state snapshot is opt-in per field via a `@Snapshotable` property wrapper on your canonical state struct. Fields you don't annotate never appear in the snapshot, which keeps tokens, PII, and auth state out of recorded fixtures by default.
+The state snapshot is opt-in per field via a standalone generator marker
+comment immediately above a property. It is intentionally not a property
+wrapper, so it compiles cleanly with Observation:
+
+```swift
+@Observable
+final class AppState {
+    // @Snapshotable
+    var username: String = ""
+
+    var authToken: String = "" // never exported
+}
+```
+
+Unmarked fields never appear in the snapshot, which keeps tokens, PII, and
+auth state out of recorded fixtures by default. A marked field must be a
+writable instance `var` on a file-scope observable class, with an explicit type
+and an internal or public setter. Supported snapshot types are JSON-native
+scalars (`String`, `Bool`, signed/unsigned integer widths, `Float`, `Double`,
+`CGFloat`), arrays, String-keyed dictionaries, and Optional compositions of
+those types. Snapshot keys must be unique across observable classes. The
+generator reports and stops on invalid declarations, custom values, implicitly
+unwrapped Optionals, nested observable classes, or duplicate keys instead of
+emitting broken or lossy Swift. Restore uses two phases: every model validates
+the complete input first, and only then are assignments applied on MainActor.
 
 ## Step 5: Make remote agents work (optional)
 

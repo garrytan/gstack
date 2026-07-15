@@ -8,7 +8,8 @@
  * Key differences from Codex session-runner:
  * - Uses `gemini -p` instead of `codex exec`
  * - Output is NDJSON with event types: init, message, tool_use, tool_result, result
- * - Uses `--output-format stream-json --yolo` instead of `--json -s read-only`
+ * - Uses `--output-format stream-json --yolo --skip-trust` instead of `--json -s read-only`
+ *   (`--skip-trust` required for headless/untrusted cwds; see gemini trusted-folders docs)
  * - No temp HOME needed — Gemini discovers skills from `.agents/skills/` in cwd
  * - Message events are streamed with `delta: true` — must concatenate
  */
@@ -121,7 +122,9 @@ export async function runGeminiSkill(opts: {
   }
 
   // Build gemini command
-  const args = ['-p', prompt, '--output-format', 'stream-json', '--yolo'];
+  // --skip-trust: headless/CI and temp cwds aren't in ~/.gemini/trustedFolders.json;
+  // without it gemini exits FatalUntrustedWorkspaceError before any model call.
+  const args = ['-p', prompt, '--output-format', 'stream-json', '--yolo', '--skip-trust'];
 
   // Spawn gemini — uses real HOME for auth (~/.gemini; HOME is allowlisted),
   // cwd for skill discovery. Hermetic scrub with gemini's auth surface

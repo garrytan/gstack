@@ -27,10 +27,33 @@ public enum DebugBridgeUIWiring {
     /// times reinstalls the same closures. Must be called on @MainActor
     /// because every UIKit access requires the main actor.
     public static func installAll() {
+        // KIF turns on accessibility automation before walking SwiftUI's AX
+        // tree. Without it SwiftUI exposes only the hosting shell and taps
+        // can report success without invoking Button.action.
+        DebugBridgeTouch.prepareForAutomation()
         ScreenshotBridge.resolver = { ScreenshotBridgeImpl.capturePNG() }
         ElementsBridge.resolver = { ElementsBridgeImpl.snapshot() }
         MutationBridge.resolver = { op, payload in MutationBridgeImpl.dispatch(op: op, payload: payload) }
     }
+}
+
+/// Return the children UIKit exposes specifically to accessibility automation.
+/// iOS 17 added `automationElements`; unlike the older container APIs it
+/// preserves identified SwiftUI descendants inside accessibility groups.
+@MainActor
+private func debugBridgeAccessibilityChildren(of element: NSObject) -> [NSObject] {
+    if #available(iOS 17.0, *),
+       let automation = element.automationElements,
+       !automation.isEmpty {
+        return automation.compactMap { $0 as? NSObject }
+    }
+    if let accessibility = element.accessibilityElements,
+       !accessibility.isEmpty {
+        return accessibility.compactMap { $0 as? NSObject }
+    }
+    let count = element.accessibilityElementCount()
+    guard count > 0, count < 512 else { return [] }
+    return (0..<count).compactMap { element.accessibilityElement(at: $0) as? NSObject }
 }
 
 // MARK: - ScreenshotBridge implementation
@@ -43,7 +66,11 @@ enum ScreenshotBridgeImpl {
     static func capturePNG() -> Data? {
         guard let scene = activeScene(), let window = activeKeyWindow(in: scene) else { return nil }
         let bounds = window.bounds
-        let renderer = UIGraphicsImageRenderer(bounds: bounds)
+        let format = UIGraphicsImageRendererFormat.default()
+        // /tap consumes UIKit window points. Render at 1x so screenshot pixels
+        // use that same coordinate space on 2x/3x devices.
+        format.scale = 1
+        let renderer = UIGraphicsImageRenderer(bounds: bounds, format: format)
         let image = renderer.image { _ in
             // drawHierarchy is the documented way to snapshot real UIKit
             // layers including layer-backed views. afterScreenUpdates: false
@@ -61,7 +88,10 @@ enum ScreenshotBridgeImpl {
     }
 
     private static func activeKeyWindow(in scene: UIWindowScene) -> UIWindow? {
-        scene.windows.first(where: { $0.isKeyWindow }) ?? scene.windows.first
+        let windows = scene.windows.filter { window in
+            !window.isHidden && !String(describing: type(of: window)).contains("PassThroughWindow")
+        }
+        return windows.first(where: { $0.isKeyWindow }) ?? windows.max(by: { $0.windowLevel < $1.windowLevel })
     }
 }
 
@@ -76,21 +106,40 @@ enum ElementsBridgeImpl {
     static func snapshot() -> [JSONDict] {
         guard let scene = activeScene(), let window = activeKeyWindow(in: scene) else { return [] }
         var elements: [JSONDict] = []
-        collect(view: window, parentPath: "", windowBounds: window.bounds, into: &elements)
+        var visited = Set<ObjectIdentifier>()
+        var remaining = 2_048
+        collect(
+            view: window,
+            parentPath: "",
+            window: window,
+            visited: &visited,
+            remaining: &remaining,
+            into: &elements
+        )
         return elements
     }
 
-    private static func collect(view: UIView, parentPath: String, windowBounds: CGRect, into elements: inout [JSONDict]) {
+    private static func collect(
+        view: UIView,
+        parentPath: String,
+        window: UIWindow,
+        visited: inout Set<ObjectIdentifier>,
+        remaining: inout Int,
+        into elements: inout [JSONDict]
+    ) {
+        guard remaining > 0, visited.insert(ObjectIdentifier(view)).inserted else { return }
+        remaining -= 1
+
         // Skip hidden / zero-size / off-screen subtrees early.
         if view.isHidden || view.alpha < 0.01 { return }
 
-        let frameInWindow = view.convert(view.bounds, to: nil)
-        if !windowBounds.intersects(frameInWindow) { return }
+        let frameInWindow = view.convert(view.bounds, to: window)
+        if !window.bounds.intersects(frameInWindow) { return }
 
         let isAccessible = view.isAccessibilityElement
         let label = view.accessibilityLabel ?? ""
         let identifier = view.accessibilityIdentifier ?? ""
-        let traits = Int(view.accessibilityTraits.rawValue)
+        let traits = NSNumber(value: view.accessibilityTraits.rawValue)
         let value = (view.accessibilityValue ?? "") as String
         let className = String(describing: type(of: view))
         let path = parentPath.isEmpty ? className : "\(parentPath) > \(className)"
@@ -120,66 +169,98 @@ enum ElementsBridgeImpl {
             ])
         }
 
-        // Recurse into accessibility-elements first (some custom views vend
-        // synthetic children), then UIView subviews. SwiftUI's host views
-        // populate accessibilityElements lazily — many return nil before
-        // VoiceOver triggers them. Force population by reading accessibilityElementCount.
-        _ = view.accessibilityElementCount()
-        if let axElements = view.accessibilityElements {
-            for case let element as NSObject in axElements {
-                if let v = element as? UIView {
-                    collect(view: v, parentPath: path, windowBounds: windowBounds, into: &elements)
-                } else {
-                    // Synthetic accessibility element (no UIView). Capture frame in screen coords.
-                    let af = (element.value(forKey: "accessibilityFrame") as? CGRect) ?? .zero
-                    elements.append([
-                        "path": "\(path) > <synthetic>",
-                        "class": "AccessibilityElement",
-                        "label": (element.value(forKey: "accessibilityLabel") as? String) ?? "",
-                        "identifier": (element.value(forKey: "accessibilityIdentifier") as? String) ?? "",
-                        "value": (element.value(forKey: "accessibilityValue") as? String) ?? "",
-                        "traits": (element.value(forKey: "accessibilityTraits") as? NSNumber)?.intValue ?? 0,
-                        "frame": [
-                            "x": Int(af.origin.x),
-                            "y": Int(af.origin.y),
-                            "w": Int(af.size.width),
-                            "h": Int(af.size.height),
-                        ],
-                        "is_user_interaction_enabled": true,
-                    ])
-                }
-            }
-        } else {
-            // accessibilityElements is nil — iterate by index. SwiftUI uses
-            // this dynamic protocol pattern; many AX elements only respond
-            // to accessibilityElementCount + accessibilityElement(at:).
-            let count = view.accessibilityElementCount()
-            for i in 0..<count {
-                guard let element = view.accessibilityElement(at: i) as? NSObject else { continue }
-                if let v = element as? UIView {
-                    collect(view: v, parentPath: path, windowBounds: windowBounds, into: &elements)
-                } else {
-                    let af = (element.value(forKey: "accessibilityFrame") as? CGRect) ?? .zero
-                    elements.append([
-                        "path": "\(path) > <ax\(i)>",
-                        "class": String(describing: type(of: element)),
-                        "label": (element.value(forKey: "accessibilityLabel") as? String) ?? "",
-                        "identifier": (element.value(forKey: "accessibilityIdentifier") as? String) ?? "",
-                        "value": (element.value(forKey: "accessibilityValue") as? String) ?? "",
-                        "traits": (element.value(forKey: "accessibilityTraits") as? NSNumber)?.intValue ?? 0,
-                        "frame": [
-                            "x": Int(af.origin.x),
-                            "y": Int(af.origin.y),
-                            "w": Int(af.size.width),
-                            "h": Int(af.size.height),
-                        ],
-                        "is_user_interaction_enabled": true,
-                    ])
-                }
+        // Walk automation children before raw subviews. On iOS 17+ this
+        // exposes identified SwiftUI controls nested inside GroupBox/List.
+        for (index, element) in debugBridgeAccessibilityChildren(of: view).enumerated() {
+            if let child = element as? UIView {
+                collect(
+                    view: child,
+                    parentPath: path,
+                    window: window,
+                    visited: &visited,
+                    remaining: &remaining,
+                    into: &elements
+                )
+            } else {
+                appendSynthetic(
+                    element,
+                    path: "\(path) > <ax\(index)>",
+                    window: window,
+                    visited: &visited,
+                    remaining: &remaining,
+                    into: &elements
+                )
             }
         }
         for sub in view.subviews {
-            collect(view: sub, parentPath: path, windowBounds: windowBounds, into: &elements)
+            collect(
+                view: sub,
+                parentPath: path,
+                window: window,
+                visited: &visited,
+                remaining: &remaining,
+                into: &elements
+            )
+        }
+    }
+
+    private static func appendSynthetic(
+        _ element: NSObject,
+        path: String,
+        window: UIWindow,
+        visited: inout Set<ObjectIdentifier>,
+        remaining: inout Int,
+        into elements: inout [JSONDict]
+    ) {
+        guard remaining > 0, visited.insert(ObjectIdentifier(element)).inserted else { return }
+        remaining -= 1
+
+        let screenFrame = (element.value(forKey: "accessibilityFrame") as? CGRect) ?? .zero
+        let frame = window.coordinateSpace.convert(screenFrame, from: window.screen.coordinateSpace)
+        let label = (element.value(forKey: "accessibilityLabel") as? String) ?? ""
+        let identifier = (element.value(forKey: "accessibilityIdentifier") as? String) ?? ""
+        let value = (element.value(forKey: "accessibilityValue") as? String) ?? ""
+        let traits = (element.value(forKey: "accessibilityTraits") as? NSNumber)?.uint64Value ?? 0
+        if !label.isEmpty || !identifier.isEmpty || !value.isEmpty || traits != 0 {
+            elements.append([
+                "path": path,
+                "class": String(describing: type(of: element)),
+                "label": label,
+                "identifier": identifier,
+                "value": value,
+                "traits": NSNumber(value: traits),
+                "frame": [
+                    "x": Int(frame.origin.x),
+                    "y": Int(frame.origin.y),
+                    "w": Int(frame.size.width),
+                    "h": Int(frame.size.height),
+                ],
+                "is_user_interaction_enabled": true,
+            ])
+        }
+
+        // Synthetic SwiftUI nodes are themselves accessibility containers.
+        // Recurse even when this grouping node has no metadata of its own.
+        for (index, child) in debugBridgeAccessibilityChildren(of: element).enumerated() {
+            if let childView = child as? UIView {
+                collect(
+                    view: childView,
+                    parentPath: path,
+                    window: window,
+                    visited: &visited,
+                    remaining: &remaining,
+                    into: &elements
+                )
+            } else {
+                appendSynthetic(
+                    child,
+                    path: "\(path) > <ax\(index)>",
+                    window: window,
+                    visited: &visited,
+                    remaining: &remaining,
+                    into: &elements
+                )
+            }
         }
     }
 
@@ -191,7 +272,10 @@ enum ElementsBridgeImpl {
     }
 
     private static func activeKeyWindow(in scene: UIWindowScene) -> UIWindow? {
-        scene.windows.first(where: { $0.isKeyWindow }) ?? scene.windows.first
+        let windows = scene.windows.filter { window in
+            !window.isHidden && !String(describing: type(of: window)).contains("PassThroughWindow")
+        }
+        return windows.first(where: { $0.isKeyWindow }) ?? windows.max(by: { $0.windowLevel < $1.windowLevel })
     }
 }
 
@@ -210,19 +294,60 @@ enum MutationBridgeImpl {
         }
     }
 
-    /// Tap at (x, y) in window coordinates. Delegates to DebugBridgeTouch
-    /// (KIF-derived in-process touch synthesis). The Obj-C target builds a
-    /// real UITouch + IOHIDEvent + UIEvent and dispatches via
-    /// `UIApplication.sendEvent`, which is what UIKit uses for real touches.
-    /// This works for UIControl, SwiftUI Button (via iOS 18+
-    /// `_UIHitTestContext`), gesture recognizers, and anything else that
-    /// listens to the real event-dispatch path.
+    /// Tap at (x, y) in window coordinates. Prefer accessibility activation,
+    /// which is stable for SwiftUI buttons across OS releases, then fall back
+    /// to KIF-derived UITouch synthesis for gesture-only/custom controls.
     private static func handleTap(_ payload: JSONDict) -> Bool {
         guard let x = payload["x"] as? NSNumber,
               let y = payload["y"] as? NSNumber else { return false }
         let point = CGPoint(x: x.doubleValue, y: y.doubleValue)
         guard let scene = activeScene(), let window = activeKeyWindow(in: scene) else { return false }
+        if let element = findActivatableAXElement(at: point, in: window),
+           element.accessibilityActivate() {
+            return true
+        }
         return DebugBridgeTouch.sendTap(at: point, in: window)
+    }
+
+    private static func findActivatableAXElement(at point: CGPoint, in window: UIWindow) -> NSObject? {
+        let screenPoint = window.screen.coordinateSpace.convert(point, from: window.coordinateSpace)
+        var best: NSObject?
+        var bestArea: CGFloat = .infinity
+        var visited = Set<ObjectIdentifier>()
+        var remaining = 2_048
+
+        func consider(frame: CGRect, traits: UInt64, element: NSObject) {
+            guard frame.contains(screenPoint),
+                  (traits & UIAccessibilityTraits.button.rawValue) != 0 else { return }
+            let area = frame.width * frame.height
+            if area > 0 && area < bestArea {
+                best = element
+                bestArea = area
+            }
+        }
+
+        func visit(_ element: NSObject) {
+            guard remaining > 0, visited.insert(ObjectIdentifier(element)).inserted else { return }
+            remaining -= 1
+
+            if let view = element as? UIView {
+                guard !view.isHidden, view.alpha >= 0.01,
+                      view.convert(view.bounds, to: window).contains(point) else { return }
+                if view.isAccessibilityElement {
+                    consider(frame: view.accessibilityFrame, traits: view.accessibilityTraits.rawValue, element: view)
+                }
+                for child in debugBridgeAccessibilityChildren(of: view) { visit(child) }
+                for child in view.subviews { visit(child) }
+            } else {
+                let frame = (element.value(forKey: "accessibilityFrame") as? CGRect) ?? .zero
+                let traits = (element.value(forKey: "accessibilityTraits") as? NSNumber)?.uint64Value ?? 0
+                consider(frame: frame, traits: traits, element: element)
+                for child in debugBridgeAccessibilityChildren(of: element) { visit(child) }
+            }
+        }
+
+        visit(window)
+        return best
     }
 
     /// Set text on the first responder if it's a UITextField or UITextView.
@@ -266,7 +391,10 @@ enum MutationBridgeImpl {
                 var off = scroll.contentOffset
                 off.x = max(0, min(scroll.contentSize.width - scroll.bounds.width, off.x + dx))
                 off.y = max(0, min(scroll.contentSize.height - scroll.bounds.height, off.y + dy))
-                scroll.setContentOffset(off, animated: true)
+                // Automation commands return synchronously; do not report
+                // success while the target is still moving underneath the
+                // next tap coordinate.
+                scroll.setContentOffset(off, animated: false)
                 return true
             }
             node = cur.superview
@@ -301,7 +429,10 @@ enum MutationBridgeImpl {
     }
 
     private static func activeKeyWindow(in scene: UIWindowScene) -> UIWindow? {
-        scene.windows.first(where: { $0.isKeyWindow }) ?? scene.windows.first
+        let windows = scene.windows.filter { window in
+            !window.isHidden && !String(describing: type(of: window)).contains("PassThroughWindow")
+        }
+        return windows.first(where: { $0.isKeyWindow }) ?? windows.max(by: { $0.windowLevel < $1.windowLevel })
     }
 }
 

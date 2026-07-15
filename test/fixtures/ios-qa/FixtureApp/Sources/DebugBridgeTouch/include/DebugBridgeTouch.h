@@ -23,6 +23,10 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface DebugBridgeTouch : NSObject
 
+/// Enable the in-process accessibility automation tree used by SwiftUI and
+/// UIKit. Call once while installing the debug bridge, before /elements.
++ (void)prepareForAutomation;
+
 /// Synthesize a single tap (TouchPhaseBegan + TouchPhaseEnded) at the given
 /// window-coordinate point. Returns YES if the touch was delivered (a hit
 /// view was found and the event passed through UIApplication.sendEvent).

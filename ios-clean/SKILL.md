@@ -821,9 +821,8 @@ Each item is reverted only after AskUserQuestion confirmation:
 1. The `DebugBridge` SPM target from `Package.swift`.
 2. The `#if DEBUG` block in the app's `@main` entry that calls
    `DebugBridgeManager.shared.start()`.
-3. Any `@Snapshotable` property wrappers on the canonical app state struct
-   (the codegen-detection markers — the wrapper file lives inside
-   DebugBridge so removing the SPM dep removes the wrapper too).
+3. Any standalone `// @Snapshotable` generator marker comments on the
+   canonical app state class.
 4. Generated `StateAccessor.swift` files anywhere under the app source.
 5. The `gstack-ios-qa.token` file under `NSTemporaryDirectory()` on the
    device (best-effort — only works if device is connected when /ios-clean

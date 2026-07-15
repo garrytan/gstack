@@ -19,6 +19,8 @@
  * Broken-config → config exists but `gbrain sources list` fails with config parse error
  *                 (or any non-recognized error — defensive default per codex #8).
  * Broken-db → config exists, DB unreachable per stderr classification.
+ * Engine-locked → PGLite probe hit gbrain's own connect timeout, usually
+ *                 because another `gbrain serve` process owns the embedded DB.
  * Timeout → probe exceeded GSTACK_GBRAIN_PROBE_TIMEOUT_MS (default 15s) with no
  *           recognized error — engine is likely healthy but slow (e.g. a cold
  *           pooler connection, #1964). Consumers treat this as usable.
@@ -47,6 +49,7 @@ export type LocalEngineStatus =
   | "missing-config"
   | "broken-config"
   | "broken-db"
+  | "engine-locked"
   | "timeout";
 
 export interface ClassifyOptions {
@@ -116,6 +119,15 @@ function gbrainConfigPath(env?: NodeJS.ProcessEnv): string {
   const e = env ?? process.env;
   const gbrainHome = e.GBRAIN_HOME || join(userHome(e), ".gbrain");
   return join(gbrainHome, "config.json");
+}
+
+function configuredEngine(env?: NodeJS.ProcessEnv): "pglite" | "postgres" | null {
+  try {
+    const parsed = JSON.parse(readFileSync(gbrainConfigPath(env), "utf-8")) as { engine?: string };
+    return parsed.engine === "pglite" || parsed.engine === "postgres" ? parsed.engine : null;
+  } catch {
+    return null;
+  }
 }
 
 function hashPath(p: string): string {
@@ -281,6 +293,7 @@ function freshClassify(env?: NodeJS.ProcessEnv): LocalEngineStatus {
       stderr?: Buffer | string;
       killed?: boolean;
       signal?: NodeJS.Signals | null;
+      status?: number | null;
     };
     const stderr = (e.stderr ? e.stderr.toString() : "") || "";
 
@@ -291,6 +304,14 @@ function freshClassify(env?: NodeJS.ProcessEnv): LocalEngineStatus {
     // "Cannot connect to database" is the more specific DB-unreachable signal.
     if (stderr.includes("Cannot connect to database")) return "broken-db";
     if (stderr.includes("config.json")) return "broken-config";
+
+    // PGLite is single-process. A long-lived `gbrain serve` can own the
+    // embedded database, causing the CLI to finish with its own exit 124 and
+    // "connect timed out" message. This is neither our watchdog timeout nor
+    // evidence that the valid config is malformed (#2194).
+    if (stderr.includes("connect timed out") || e.status === 124) {
+      return configuredEngine(env) === "pglite" ? "engine-locked" : "broken-db";
+    }
 
     // Probe killed by the timeout with no recognized error: the engine is
     // most likely healthy but slow (cold pooler connections measured at

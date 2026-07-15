@@ -59,18 +59,20 @@ public final class StateServer {
     private var writeHandlers: [String: WriteHandler] = [:]
     private var typeNames: [String: TypeName] = [:]
 
-    // Atomic-restore hook. Codegen wires this to the canonical AppState struct.
-    // Restore replaces the entire struct in one assignment so SwiftUI's Combine
-    // pipeline observes exactly one change notification — true observable
-    // atomicity. @MainActor alone doesn't guarantee that.
-    public typealias AtomicRestoreFn = (JSONDict) -> RestoreResult
+    // Validated-restore hooks. Every generated model registers one two-phase
+    // handler. The server validates all models before it lets any model mutate,
+    // so invalid input can never cause a cross-model partial restore.
+    // Valid restores apply properties on MainActor; observers may receive one
+    // change notification per property because arbitrary @Observable models do
+    // not expose a general single-assignment transaction API.
+    public typealias AtomicRestoreFn = (JSONDict, Bool) -> RestoreResult
     public enum RestoreResult {
         case ok
         case missingKey(String)
         case typeMismatch(String)
         case schemaMismatch(expected: String, got: String)
     }
-    private var atomicRestore: AtomicRestoreFn?
+    private var atomicRestores: [AtomicRestoreFn] = []
 
     // Snapshot schema hash — written by codegen, stable across builds with
     // identical accessor signatures.
@@ -109,7 +111,7 @@ public final class StateServer {
     public func register(buildId: String, accessorHash: String, atomicRestore: @escaping AtomicRestoreFn) {
         self.appBuildId = buildId
         self.accessorHash = accessorHash
-        self.atomicRestore = atomicRestore
+        self.atomicRestores.append(atomicRestore)
     }
 
     public func registerAccessor(key: String, type: String, read: @escaping ReadHandler, write: @escaping WriteHandler) {
@@ -284,6 +286,7 @@ public final class StateServer {
                 "version": "1.0.0",
                 "build": appBuildId,
                 "accessor_hash": accessorHash,
+                "bundle_id": Bundle.main.bundleIdentifier ?? "unknown",
             ])
             return
         }
@@ -476,22 +479,36 @@ public final class StateServer {
             send(connection: connection, status: 400, body: ["error": "missing_keys"])
             return
         }
-        guard let restore = atomicRestore else {
+        guard !atomicRestores.isEmpty else {
             send(connection: connection, status: 503, body: ["error": "atomic_restore_not_registered"])
             return
         }
-        // Validate-then-apply via the codegen-supplied closure. The closure does
-        // a single struct-assignment so SwiftUI sees one change notification.
-        switch restore(keys) {
-        case .ok:
-            send(connection: connection, status: 200, body: ["ok": true])
-        case .missingKey(let k):
-            send(connection: connection, status: 400, body: ["error": "validation_failed", "key": k, "reason": "missing"])
-        case .typeMismatch(let k):
-            send(connection: connection, status: 400, body: ["error": "validation_failed", "key": k, "reason": "type-mismatch"])
-        case .schemaMismatch(let expected, let got):
-            send(connection: connection, status: 409, body: ["error": "schema_mismatch", "expected_hash": expected, "got_hash": got])
+        // Phase one validates every registered model without assignment.
+        for restore in atomicRestores {
+            switch restore(keys, false) {
+            case .ok:
+                continue
+            case .missingKey(let k):
+                send(connection: connection, status: 400, body: ["error": "validation_failed", "key": k, "reason": "missing"])
+                return
+            case .typeMismatch(let k):
+                send(connection: connection, status: 400, body: ["error": "validation_failed", "key": k, "reason": "type-mismatch"])
+                return
+            case .schemaMismatch(let expected, let got):
+                send(connection: connection, status: 409, body: ["error": "schema_mismatch", "expected_hash": expected, "got_hash": got])
+                return
+            }
         }
+
+        // Phase two applies only after every model accepted the immutable input.
+        // A valid multi-field restore may notify once per property.
+        for restore in atomicRestores {
+            guard case .ok = restore(keys, true) else {
+                send(connection: connection, status: 500, body: ["error": "restore_apply_failed"])
+                return
+            }
+        }
+        send(connection: connection, status: 200, body: ["ok": true])
     }
 
     // MARK: Stubs (real impls live in DebugBridgeManager + UIKit)
@@ -522,9 +539,19 @@ public final class StateServer {
     // MARK: Response
 
     private func send(connection: NWConnection, status: Int, body: JSONDict) {
-        let json = (try? JSONSerialization.data(withJSONObject: body)) ?? Data("{}".utf8)
+        let responseStatus: Int
+        let json: Data
+        if JSONSerialization.isValidJSONObject(body),
+           let encoded = try? JSONSerialization.data(withJSONObject: body) {
+            responseStatus = status
+            json = encoded
+        } else {
+            logger.error("Refusing to send a non-JSON response body")
+            responseStatus = 500
+            json = Data("{\"error\":\"response_not_json_serializable\"}".utf8)
+        }
         let statusText: String
-        switch status {
+        switch responseStatus {
         case 200: statusText = "OK"
         case 400: statusText = "Bad Request"
         case 401: statusText = "Unauthorized"
@@ -537,7 +564,7 @@ public final class StateServer {
         case 503: statusText = "Service Unavailable"
         default: statusText = "Status"
         }
-        let header = "HTTP/1.1 \(status) \(statusText)\r\nContent-Type: application/json\r\nContent-Length: \(json.count)\r\nConnection: close\r\n\r\n"
+        let header = "HTTP/1.1 \(responseStatus) \(statusText)\r\nContent-Type: application/json\r\nContent-Length: \(json.count)\r\nConnection: close\r\n\r\n"
         var packet = Data(header.utf8)
         packet.append(json)
         connection.send(content: packet, completion: .contentProcessed { _ in

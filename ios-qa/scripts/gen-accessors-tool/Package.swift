@@ -1,8 +1,8 @@
 // swift-tools-version:5.9
 //
 // gen-accessors-tool — SwiftPM tool that reads an app's Swift source via
-// swift-syntax, finds @Observable classes with @Snapshotable-marked fields,
-// and emits StateAccessor.swift for each one.
+// swift-syntax, finds @Observable classes with `// @Snapshotable`-marked
+// fields, and emits StateAccessor.swift for each one.
 //
 // First build is 2-5 min on a cold machine (swift-syntax compile chain).
 // Subsequent runs are content-hash-cached and finish in ~50ms.
@@ -30,11 +30,6 @@ let package = Package(
                 .product(name: "SwiftParser", package: "swift-syntax"),
             ],
             path: "Sources/GenAccessors"
-        ),
-        .testTarget(
-            name: "GenAccessorsTests",
-            dependencies: ["GenAccessors"],
-            path: "Tests/GenAccessorsTests"
         ),
     ]
 )

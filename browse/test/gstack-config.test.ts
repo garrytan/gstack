@@ -108,6 +108,13 @@ describe('gstack-config', () => {
     expect(existsSync(join(nestedDir, 'config.yaml'))).toBe(true);
   });
 
+  test('brain trust policy accepts local endpoint suffix', () => {
+    const { exitCode, stderr } = run(['set', 'brain_trust_policy@local', 'personal']);
+    expect(exitCode).toBe(0);
+    expect(stderr).toBe('');
+    expect(run(['get', 'brain_trust_policy@local']).stdout).toBe('personal');
+  });
+
   // ─── list ─────────────────────────────────────────────────
   test('list shows all keys', () => {
     writeFileSync(join(stateDir, 'config.yaml'), 'auto_upgrade: true\nupdate_check: false\n');
@@ -137,6 +144,12 @@ describe('gstack-config', () => {
     const { exitCode, stderr } = run(['set', '.*', 'value']);
     expect(exitCode).toBe(1);
     expect(stderr).toContain('alphanumeric');
+  });
+
+  test('set rejects endpoint suffix with punctuation', () => {
+    const { exitCode, stderr } = run(['set', 'brain_trust_policy@local-dev', 'personal']);
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain('endpoint-id');
   });
 
   test('set preserves value with sed special chars', () => {

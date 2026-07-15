@@ -106,9 +106,15 @@ export function canonicalizeRemote(url: string | null | undefined): string {
     // strip user@ prefix on URL-style remotes
     s = s.replace(/^[^@\/]+@/, "");
   }
+  // strip trailing slash(es) first, so a URL written with a trailing slash
+  // still matches the `.git$` suffix below (e.g. ".../repo.git/" must
+  // canonicalize to ".../repo", not ".../repo.git").
+  s = s.replace(/\/+$/, "");
   // strip trailing .git
   s = s.replace(/\.git$/i, "");
-  // strip trailing slash
+  // re-strip trailing slash(es): a path remote ending in a `.git` directory
+  // component ("/repo/.git") exposes a new trailing slash once `.git` is
+  // stripped, which would split the repo into a second identity.
   s = s.replace(/\/+$/, "");
   // collapse multiple slashes (after path normalization)
   s = s.replace(/\/{2,}/g, "/");
@@ -396,6 +402,7 @@ function extractGbrainBlock(frontmatter: string): GbrainManifest | null {
       const globM = body.match(/(?:^|\n)\s*glob\s*:\s*"?([^"\n]+?)"?\s*$/m);
       const sortM = body.match(/(?:^|\n)\s*sort\s*:\s*([^\n]+)/);
       const tailM = body.match(/(?:^|\n)\s*tail\s*:\s*(\d+)/);
+      const filterMap = parseFilterMap(body);
 
       if (idM) q.id = idM[1].trim();
       if (kindM) {
@@ -408,6 +415,7 @@ function extractGbrainBlock(frontmatter: string): GbrainManifest | null {
       if (globM) q.glob = globM[1].trim();
       if (sortM) q.sort = sortM[1].trim();
       if (tailM) q.tail = parseInt(tailM[1], 10);
+      if (filterMap) q.filter = filterMap;
 
       if (q.id && q.kind && q.render_as) {
         queries.push(q as GbrainManifestQuery);
@@ -416,6 +424,39 @@ function extractGbrainBlock(frontmatter: string): GbrainManifest | null {
   }
 
   return { schema, context_queries: queries };
+}
+
+/**
+ * Parse a nested `filter:` block map out of a single context_queries item body.
+ *
+ * The block is a YAML map nested under the `filter:` key:
+ *
+ *   filter:
+ *     type: timeline
+ *     tags_contains: "repo:{repo_slug}"
+ *
+ * Each sub-key sits one indent level deeper than `filter:`. Surrounding quotes
+ * are stripped and template vars ({repo_slug}, now-7d, ...) are left intact for
+ * downstream substitution, matching how dispatchList stringifies each value
+ * into a `--filter k=v` argument. Returns undefined when there is no `filter:`
+ * block or it is empty.
+ */
+function parseFilterMap(body: string): Record<string, string> | undefined {
+  const lines = body.split("\n");
+  const filterIdx = lines.findIndex((l) => /^\s*filter\s*:\s*$/.test(l));
+  if (filterIdx === -1) return undefined;
+  const filterIndent = lines[filterIdx].match(/^\s*/)![0].length;
+
+  const filter: Record<string, string> = {};
+  for (let i = filterIdx + 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.trim() === "") continue; // tolerate blank lines within the block
+    const indent = line.match(/^\s*/)![0].length;
+    if (indent <= filterIndent) break; // dedent to a sibling key ends the block
+    const kv = line.match(/^\s*([A-Za-z0-9_]+)\s*:\s*"?(.*?)"?\s*$/);
+    if (kv) filter[kv[1]] = kv[2].trim();
+  }
+  return Object.keys(filter).length > 0 ? filter : undefined;
 }
 
 // ── Public: withErrorContext ──────────────────────────────────────────────

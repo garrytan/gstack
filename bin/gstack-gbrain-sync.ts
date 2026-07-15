@@ -717,6 +717,7 @@ function dreamMarkerPid(): number | null {
  *   missing-config → "no local engine; run /setup-gbrain to add local PGLite"
  *   broken-config  → "config file at ~/.gbrain/config.json is malformed; see /setup-gbrain Step 1.5"
  *   broken-db      → "config points at unreachable DB; see /setup-gbrain Step 1.5"
+ *   engine-locked  → PGLite is busy; stop its holder or sync outside the live session
  *   timeout        → kept for Record totality; stages PROCEED on timeout (#1964)
  *                    via the gate's warnProbeTimeout path, never this skip.
  */
@@ -733,6 +734,8 @@ function skipStageForLocalStatus(
       "config at ~/.gbrain/config.json is malformed; see /setup-gbrain Step 1.5",
     "broken-db":
       "config points at unreachable DB; see /setup-gbrain Step 1.5",
+    "engine-locked":
+      "PGLite is busy (often held by gbrain serve); stop the holding process or run /sync-gbrain outside the live Claude session, then retry",
     "timeout":
       "engine probe timed out; raise GSTACK_GBRAIN_PROBE_TIMEOUT_MS if your pooler is slow",
   };

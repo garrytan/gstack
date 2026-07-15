@@ -139,6 +139,10 @@ BEFORE invoking the orchestrator:
   slow (cold pooler connection, #1964). Tell the user in one line: "Engine
   probe timed out (>15s) — proceeding; raise `GSTACK_GBRAIN_PROBE_TIMEOUT_MS`
   if your pooler is slow." Do NOT treat this as a broken config.
+- **`engine-locked`**: STOP. "The local PGLite database is busy, usually
+  because `gbrain serve` from a live Claude session owns it. Stop that process
+  or run `/sync-gbrain` outside the live session, then retry. This identifies
+  the conflict but does not remove PGLite's single-process limit."
 - **`no-cli`**: STOP. "Local gbrain CLI not installed. Run `/setup-gbrain`
   first."
 - **`missing-config`** AND `gbrain_mcp_mode == "remote-http"`: tell the user
