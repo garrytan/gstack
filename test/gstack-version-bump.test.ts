@@ -54,7 +54,7 @@ describe('write (FRESH bump)', () => {
     fs.writeFileSync(path.join(dir, 'VERSION'), '1.0.0.0\n');
     fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'x', version: '1.0.0.0', scripts: { t: 'y' } }, null, 2) + '\n');
     const out = execFileSync('bun', [BIN, 'write', '--version', '1.1.0.0'], { cwd: dir }).toString();
-    expect(JSON.parse(out)).toEqual({ wrote: '1.1.0.0', packageJson: true });
+    expect(JSON.parse(out)).toEqual({ wrote: '1.1.0.0', packageJson: true, packageLock: false });
     expect(fs.readFileSync(path.join(dir, 'VERSION'), 'utf-8').trim()).toBe('1.1.0.0');
     const pkg = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf-8'));
     expect(pkg.version).toBe('1.1.0.0');
@@ -72,7 +72,7 @@ describe('write (FRESH bump)', () => {
     const d2 = fs.mkdtempSync(path.join(os.tmpdir(), 'vbump-noPkg-'));
     fs.writeFileSync(path.join(d2, 'VERSION'), '0.1.0.0\n');
     const out = execFileSync('bun', [BIN, 'write', '--version', '0.2.0.0'], { cwd: d2 }).toString();
-    expect(JSON.parse(out)).toEqual({ wrote: '0.2.0.0', packageJson: false });
+    expect(JSON.parse(out)).toEqual({ wrote: '0.2.0.0', packageJson: false, packageLock: false });
     expect(fs.readFileSync(path.join(d2, 'VERSION'), 'utf-8').trim()).toBe('0.2.0.0');
     fs.rmSync(d2, { recursive: true, force: true });
   });
@@ -86,7 +86,7 @@ describe('repair (DRIFT_STALE_PKG)', () => {
     fs.writeFileSync(path.join(dir, 'VERSION'), '2.0.0.0\n');
     fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'x', version: '1.9.0.0' }, null, 2) + '\n');
     const out = execFileSync('bun', [BIN, 'repair'], { cwd: dir }).toString();
-    expect(JSON.parse(out)).toEqual({ repaired: '2.0.0.0' });
+    expect(JSON.parse(out)).toEqual({ repaired: '2.0.0.0', packageLock: false });
     expect(JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf-8')).version).toBe('2.0.0.0');
     expect(fs.readFileSync(path.join(dir, 'VERSION'), 'utf-8').trim()).toBe('2.0.0.0'); // unchanged
   });
@@ -97,6 +97,143 @@ describe('repair (DRIFT_STALE_PKG)', () => {
     try { execFileSync('bun', [BIN, 'repair'], { cwd: dir, stdio: 'pipe' }); }
     catch (e: any) { code = e.status; }
     expect(code).toBe(2);
+  });
+});
+
+describe('package-lock.json sync', () => {
+  // lockfileVersion 3 stores the version in two places: top-level `version`
+  // and packages[""].version. Both must move together or `npm ci` warns.
+  const mkLock = (dir: string, version: string) =>
+    fs.writeFileSync(
+      path.join(dir, 'package-lock.json'),
+      JSON.stringify({ name: 'x', version, lockfileVersion: 3, packages: { '': { name: 'x', version } } }, null, 2) + '\n',
+    );
+
+  test('write syncs lockfile root + packages[""] version, reports packageLock: true', () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'vbump-lock-write-'));
+    fs.writeFileSync(path.join(d, 'VERSION'), '1.0.0.0\n');
+    fs.writeFileSync(path.join(d, 'package.json'), JSON.stringify({ name: 'x', version: '1.0.0.0' }, null, 2) + '\n');
+    mkLock(d, '1.0.0.0');
+    const out = execFileSync('bun', [BIN, 'write', '--version', '1.1.0.0'], { cwd: d }).toString();
+    expect(JSON.parse(out)).toEqual({ wrote: '1.1.0.0', packageJson: true, packageLock: true });
+    const lock = JSON.parse(fs.readFileSync(path.join(d, 'package-lock.json'), 'utf-8'));
+    expect(lock.version).toBe('1.1.0.0');
+    expect(lock.packages[''].version).toBe('1.1.0.0');
+    fs.rmSync(d, { recursive: true, force: true });
+  });
+
+  test('repair syncs lockfile up to VERSION, reports packageLock: true', () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'vbump-lock-repair-'));
+    fs.writeFileSync(path.join(d, 'VERSION'), '2.0.0.0\n');
+    fs.writeFileSync(path.join(d, 'package.json'), JSON.stringify({ name: 'x', version: '1.9.0.0' }, null, 2) + '\n');
+    mkLock(d, '1.9.0.0');
+    const out = execFileSync('bun', [BIN, 'repair'], { cwd: d }).toString();
+    expect(JSON.parse(out)).toEqual({ repaired: '2.0.0.0', packageLock: true });
+    const lock = JSON.parse(fs.readFileSync(path.join(d, 'package-lock.json'), 'utf-8'));
+    expect(lock.version).toBe('2.0.0.0');
+    expect(lock.packages[''].version).toBe('2.0.0.0');
+    fs.rmSync(d, { recursive: true, force: true });
+  });
+
+  test('malformed package-lock.json fails write with exit 2', () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'vbump-lock-bad-'));
+    fs.writeFileSync(path.join(d, 'VERSION'), '1.0.0.0\n');
+    fs.writeFileSync(path.join(d, 'package.json'), JSON.stringify({ name: 'x', version: '1.0.0.0' }, null, 2) + '\n');
+    fs.writeFileSync(path.join(d, 'package-lock.json'), '{ not valid json');
+    let code = 0;
+    try { execFileSync('bun', [BIN, 'write', '--version', '1.1.0.0'], { cwd: d, stdio: 'pipe' }); }
+    catch (e: any) { code = e.status; }
+    expect(code).toBe(2);
+    fs.rmSync(d, { recursive: true, force: true });
+  });
+
+  // The lockfile is parsed in a preflight, before VERSION or package.json are
+  // touched. Without it, a malformed lockfile exits 2 having already bumped both —
+  // the caller is left with three files disagreeing and no state that classify()
+  // can name. These two lock the "nothing written" half of that guarantee.
+  test('malformed package-lock.json leaves VERSION + package.json untouched on write', () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'vbump-lock-atomic-write-'));
+    fs.writeFileSync(path.join(d, 'VERSION'), '1.0.0.0\n');
+    fs.writeFileSync(path.join(d, 'package.json'), JSON.stringify({ name: 'x', version: '1.0.0.0' }, null, 2) + '\n');
+    fs.writeFileSync(path.join(d, 'package-lock.json'), '{ not valid json');
+    let code = 0;
+    try { execFileSync('bun', [BIN, 'write', '--version', '1.1.0.0'], { cwd: d, stdio: 'pipe' }); }
+    catch (e: any) { code = e.status; }
+    expect(code).toBe(2);
+    expect(fs.readFileSync(path.join(d, 'VERSION'), 'utf-8').trim()).toBe('1.0.0.0');
+    expect(JSON.parse(fs.readFileSync(path.join(d, 'package.json'), 'utf-8')).version).toBe('1.0.0.0');
+    expect(fs.readFileSync(path.join(d, 'package-lock.json'), 'utf-8')).toBe('{ not valid json');
+    fs.rmSync(d, { recursive: true, force: true });
+  });
+
+  test('malformed package-lock.json leaves package.json untouched on repair', () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'vbump-lock-atomic-repair-'));
+    fs.writeFileSync(path.join(d, 'VERSION'), '2.0.0.0\n');
+    fs.writeFileSync(path.join(d, 'package.json'), JSON.stringify({ name: 'x', version: '1.9.0.0' }, null, 2) + '\n');
+    fs.writeFileSync(path.join(d, 'package-lock.json'), '{ not valid json');
+    let code = 0;
+    try { execFileSync('bun', [BIN, 'repair'], { cwd: d, stdio: 'pipe' }); }
+    catch (e: any) { code = e.status; }
+    expect(code).toBe(2);
+    expect(JSON.parse(fs.readFileSync(path.join(d, 'package.json'), 'utf-8')).version).toBe('1.9.0.0');
+    fs.rmSync(d, { recursive: true, force: true });
+  });
+
+  test('non-object package-lock.json fails write with exit 2, nothing written', () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'vbump-lock-nonobj-'));
+    fs.writeFileSync(path.join(d, 'VERSION'), '1.0.0.0\n');
+    fs.writeFileSync(path.join(d, 'package.json'), JSON.stringify({ name: 'x', version: '1.0.0.0' }, null, 2) + '\n');
+    // Valid JSON, but not an object — assigning .version to it would throw.
+    fs.writeFileSync(path.join(d, 'package-lock.json'), '[]');
+    let code = 0;
+    try { execFileSync('bun', [BIN, 'write', '--version', '1.1.0.0'], { cwd: d, stdio: 'pipe' }); }
+    catch (e: any) { code = e.status; }
+    expect(code).toBe(2);
+    expect(fs.readFileSync(path.join(d, 'VERSION'), 'utf-8').trim()).toBe('1.0.0.0');
+    fs.rmSync(d, { recursive: true, force: true });
+  });
+
+  // A corrupt lockfile can put anything at packages[""]. A truthy primitive there
+  // throws on property assignment under strict mode; the sync must degrade to
+  // "update what I can" rather than crash out with a stack trace.
+  test('unusable packages[""] degrades to a top-level-only sync, no crash', () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'vbump-lock-badpkgs-'));
+    fs.writeFileSync(path.join(d, 'VERSION'), '1.0.0.0\n');
+    fs.writeFileSync(path.join(d, 'package.json'), JSON.stringify({ name: 'x', version: '1.0.0.0' }, null, 2) + '\n');
+    fs.writeFileSync(
+      path.join(d, 'package-lock.json'),
+      JSON.stringify({ name: 'x', version: '1.0.0.0', lockfileVersion: 3, packages: { '': 5 } }, null, 2) + '\n',
+    );
+    const out = execFileSync('bun', [BIN, 'write', '--version', '1.1.0.0'], { cwd: d }).toString();
+    expect(JSON.parse(out)).toEqual({ wrote: '1.1.0.0', packageJson: true, packageLock: true });
+    const lock = JSON.parse(fs.readFileSync(path.join(d, 'package-lock.json'), 'utf-8'));
+    expect(lock.version).toBe('1.1.0.0');
+    expect(lock.packages['']).toBe(5); // left alone, not crashed on
+    fs.rmSync(d, { recursive: true, force: true });
+  });
+
+  // The yarn/pnpm/bun (and no-JS) path: absence is a silent skip, never an error
+  // and never a created file. We only sync a lockfile that already exists; we never
+  // bring one into being.
+  test('write silently skips when no package-lock.json exists', () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'vbump-lock-absent-write-'));
+    fs.writeFileSync(path.join(d, 'VERSION'), '1.0.0.0\n');
+    fs.writeFileSync(path.join(d, 'package.json'), JSON.stringify({ name: 'x', version: '1.0.0.0' }, null, 2) + '\n');
+    const out = execFileSync('bun', [BIN, 'write', '--version', '1.1.0.0'], { cwd: d }).toString();
+    expect(JSON.parse(out)).toEqual({ wrote: '1.1.0.0', packageJson: true, packageLock: false });
+    expect(fs.existsSync(path.join(d, 'package-lock.json'))).toBe(false);
+    expect(fs.readFileSync(path.join(d, 'VERSION'), 'utf-8').trim()).toBe('1.1.0.0');
+    fs.rmSync(d, { recursive: true, force: true });
+  });
+
+  test('repair silently skips when no package-lock.json exists', () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'vbump-lock-absent-repair-'));
+    fs.writeFileSync(path.join(d, 'VERSION'), '2.0.0.0\n');
+    fs.writeFileSync(path.join(d, 'package.json'), JSON.stringify({ name: 'x', version: '1.9.0.0' }, null, 2) + '\n');
+    const out = execFileSync('bun', [BIN, 'repair'], { cwd: d }).toString();
+    expect(JSON.parse(out)).toEqual({ repaired: '2.0.0.0', packageLock: false });
+    expect(fs.existsSync(path.join(d, 'package-lock.json'))).toBe(false);
+    fs.rmSync(d, { recursive: true, force: true });
   });
 });
 
