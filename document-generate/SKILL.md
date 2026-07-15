@@ -1194,7 +1194,7 @@ docs: generate [scope] documentation (Diataxis)
 
 Quadrants: [list which quadrants were produced]
 
-Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
+Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>
 EOF
 )"
 ```
