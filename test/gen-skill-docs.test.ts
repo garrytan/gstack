@@ -319,6 +319,36 @@ describe('gen-skill-docs', () => {
     expect(content).toContain('RECOMMENDATION');
   });
 
+  // Issue #1651 Defect A: the preamble computed `_SESSIONS` but never echoed
+  // it, so CLAUDE.md rules that key on the session count had no value to
+  // read. Pin the echo across every generated SKILL.md so the fix can't
+  // regress under future resolver edits.
+  test('every generated SKILL.md echoes SESSIONS to stdout (issue #1651)', () => {
+    const offenders: string[] = [];
+    const rootSkill = path.join(ROOT, 'SKILL.md');
+    const candidates: string[] = [];
+    if (fs.existsSync(rootSkill)) candidates.push(rootSkill);
+    for (const entry of fs.readdirSync(ROOT, { withFileTypes: true })) {
+      if (!entry.isDirectory() || entry.name.startsWith('.') || entry.name === 'node_modules') continue;
+      const candidate = path.join(ROOT, entry.name, 'SKILL.md');
+      if (fs.existsSync(candidate)) candidates.push(candidate);
+    }
+    for (const file of candidates) {
+      const content = fs.readFileSync(file, 'utf-8');
+      // Only check skills that include the preamble (have `_SESSIONS=$(find`).
+      if (!content.includes('_SESSIONS=$(find')) continue;
+      if (!content.includes('echo "SESSIONS: $_SESSIONS"')) {
+        offenders.push(path.relative(ROOT, file));
+      }
+    }
+    if (offenders.length > 0) {
+      throw new Error(
+        `Found ${offenders.length} SKILL.md file(s) that compute _SESSIONS but never echo it (issue #1651 Defect A):\n  ${offenders.slice(0, 8).join('\n  ')}`,
+      );
+    }
+    expect(offenders.length).toBe(0);
+  });
+
   test('generated SKILL.md contains branch detection', () => {
     const content = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
     expect(content).toContain('_BRANCH');
