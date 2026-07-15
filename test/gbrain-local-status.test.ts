@@ -255,18 +255,32 @@ describe("lib/gbrain-local-status — status classification", () => {
   });
 
   it("honors GBRAIN_HOME for config detection (codex D11)", () => {
-    // Config lives ONLY at the alternate GBRAIN_HOME; ~/.gbrain has none.
+    // Current gbrain appends .gbrain to GBRAIN_HOME; ~/.gbrain has none.
     env = makeEnv({ withGbrain: true, gbrainBehavior: "ok", withConfig: false });
     restoreEnv = applyEnv(env);
     const altHome = join(env.tmp, "alt-gbrain");
-    mkdirSync(altHome, { recursive: true });
+    mkdirSync(join(altHome, ".gbrain"), { recursive: true });
     writeFileSync(
-      join(altHome, "config.json"),
+      join(altHome, ".gbrain", "config.json"),
       JSON.stringify({ engine: "pglite", database_url: "pglite:///fake" }),
     );
     // Without GBRAIN_HOME: misclassified as missing-config.
     expect(localEngineStatus({ noCache: true })).toBe("missing-config");
     // With GBRAIN_HOME: the relocated config is found.
+    process.env.GBRAIN_HOME = altHome;
+    expect(localEngineStatus({ noCache: true })).toBe("ok");
+  });
+
+  it("retains the legacy direct GBRAIN_HOME config fallback", () => {
+    env = makeEnv({ withGbrain: true, gbrainBehavior: "ok", withConfig: false });
+    restoreEnv = applyEnv(env);
+    const altHome = join(env.tmp, "legacy-gbrain");
+    mkdirSync(altHome, { recursive: true });
+    writeFileSync(
+      join(altHome, "config.json"),
+      JSON.stringify({ engine: "pglite", database_url: "pglite:///fake" }),
+    );
+
     process.env.GBRAIN_HOME = altHome;
     expect(localEngineStatus({ noCache: true })).toBe("ok");
   });

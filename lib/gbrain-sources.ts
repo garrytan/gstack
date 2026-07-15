@@ -28,16 +28,23 @@ export interface EnsureResult {
 }
 
 /**
- * One row of `gbrain sources list --json`. `config.remote_url` distinguishes
- * URL-managed sources (gbrain owns the clone, may auto-reclone) from
- * path-managed ones (user owns the working tree) — load-bearing for the #1734
- * destructive-op guards.
+ * One row of `gbrain sources list --json`.
+ *
+ * IMPORTANT: current gbrain CLI list rows intentionally omit `config`; callers
+ * must distinguish that missing ownership metadata from an authoritative empty
+ * config object. The #1734 destructive-op guards fail closed when `config` is
+ * absent instead of silently treating every source as path-managed.
  */
 export interface GbrainSourceRow {
   id?: string;
   local_path?: string;
   page_count?: number;
-  config?: { remote_url?: string | null } | null;
+  /** Authoritative MCP `sources_list` field; normalized into config below. */
+  remote_url?: string | null;
+  config?: {
+    remote_url?: string | null;
+    managed_clone?: boolean;
+  } | null;
 }
 
 /**
@@ -51,18 +58,67 @@ export interface GbrainSourceRow {
  * throwing — callers treat "no rows" as absent.
  */
 export function parseSourcesList(raw: unknown): GbrainSourceRow[] {
-  if (Array.isArray(raw)) return raw as GbrainSourceRow[];
+  const normalize = (rows: GbrainSourceRow[]): GbrainSourceRow[] => rows.map((row) => {
+    if (row.config !== undefined) return row;
+    if (Object.prototype.hasOwnProperty.call(row, "remote_url")) {
+      return {
+        ...row,
+        config: { remote_url: row.remote_url ?? null },
+      };
+    }
+    return row;
+  });
+  if (Array.isArray(raw)) return normalize(raw as GbrainSourceRow[]);
   if (raw && typeof raw === "object" && Array.isArray((raw as { sources?: unknown }).sources)) {
-    return (raw as { sources: GbrainSourceRow[] }).sources;
+    return normalize((raw as { sources: GbrainSourceRow[] }).sources);
   }
   return [];
+}
+
+/**
+ * Strict variant for destructive decisions. A valid empty array is distinct
+ * from an unsupported/error envelope: only the former proves that no source
+ * exists. Every row must at least carry a string id so malformed entries cannot
+ * turn a registered source into a false "absent" decision.
+ */
+export function parseSourcesListStrict(raw: unknown): GbrainSourceRow[] {
+  let rows: unknown;
+  if (Array.isArray(raw)) {
+    rows = raw;
+  } else if (
+    raw
+    && typeof raw === "object"
+    && Object.prototype.hasOwnProperty.call(raw, "sources")
+    && Array.isArray((raw as { sources?: unknown }).sources)
+  ) {
+    rows = (raw as { sources: unknown[] }).sources;
+  } else {
+    throw new Error("unsupported gbrain sources-list JSON shape");
+  }
+
+  if (!(rows as unknown[]).every((row) => (
+    !!row
+    && typeof row === "object"
+    && !Array.isArray(row)
+    && typeof (row as { id?: unknown }).id === "string"
+  ))) {
+    throw new Error("malformed gbrain sources-list row");
+  }
+  return parseSourcesList(rows);
 }
 
 export interface EnsureOptions {
   /** Pass --federated to `gbrain sources add`. Default false. */
   federated?: boolean;
-  /** When status=drift, force a remove+add to update the registered path. Default true. */
+  /** When status=drift, request a guarded remove+add to update the registered path. Default true. */
   reregister_on_drift?: boolean;
+  /**
+   * Required for drift re-registration. The caller owns the destructive-op
+   * policy (autopilot, ownership metadata, keep-storage capability) and must
+   * report whether the exact source was safely removed. Missing/refused guards
+   * fail closed; this helper never issues an unguarded `sources remove`.
+   */
+  guardedRemove?: (id: string) => { removed: boolean; reason?: string };
   /**
    * Optional env override for the spawned `gbrain` calls. Production callers
    * leave this unset (inherit process.env). Tests pass a custom env to point
@@ -124,8 +180,8 @@ export function probeSource(id: string, env?: NodeJS.ProcessEnv): SourceState {
  * Behavior:
  *   - status=absent  → `gbrain sources add <id> --path <path> [--federated]`, returns changed=true.
  *   - status=match + same path → no-op, returns changed=false.
- *   - status=match + different path → `sources remove` + `sources add`, returns changed=true.
- *     (Skip when reregister_on_drift=false; returns changed=false.)
+ *   - status=match + different path → guarded `sources remove` + `sources add`, returns changed=true.
+ *     (Skip when reregister_on_drift=false; fail closed when guardedRemove is missing/refuses.)
  *
  * Caller is responsible for catching errors. The function uses withErrorContext for
  * forensic logging to ~/.gstack/.gbrain-errors.jsonl.
@@ -156,16 +212,16 @@ export async function ensureSourceRegistered(
       return { changed: false, state };
     }
 
-    // For drift, remove first.
+    // For drift, remove first — but only through the caller's destructive-op
+    // guard. A direct `--yes` here used to bypass the autopilot and ownership
+    // checks used by every other gstack source removal.
     if (state.status === "drift") {
-      const rm = spawnSync("gbrain", ["sources", "remove", id, "--yes"], {
-        encoding: "utf-8",
-        timeout: 30_000,
-        env,
-        shell: NEEDS_SHELL_ON_WINDOWS, // #1731: gbrain is a .cmd shim on Windows
-      });
-      if (rm.status !== 0) {
-        throw new Error(`gbrain sources remove ${id} failed: ${rm.stderr || rm.stdout || `exit ${rm.status}`}`);
+      if (!options.guardedRemove) {
+        throw new Error(`source ${id} path drift requires a guarded remove; refusing re-registration`);
+      }
+      const rm = options.guardedRemove(id);
+      if (!rm.removed) {
+        throw new Error(`guarded remove of drifted source ${id} refused: ${rm.reason || "unknown reason"}`);
       }
     }
 

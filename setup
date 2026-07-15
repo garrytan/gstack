@@ -749,11 +749,14 @@ create_agents_sidecar() {
   mkdir -p "$agents_gstack"
 
   # Sidecar directories that skills reference at runtime
-  for asset in bin browse review qa; do
+  for asset in bin lib browse review qa; do
     local src="$SOURCE_GSTACK_DIR/$asset"
     local dst="$agents_gstack/$asset"
     if [ -d "$src" ] || [ -f "$src" ]; then
-      if [ -L "$dst" ] || [ ! -e "$dst" ]; then
+      # Windows installs are real copies, not symlinks. Refresh every managed
+      # sidecar asset on rerun so newly-added bins and their imported lib/
+      # modules cannot stay missing or stale after an upgrade.
+      if [ "$IS_WINDOWS" -eq 1 ] || [ -L "$dst" ] || [ ! -e "$dst" ]; then
         _link_or_copy "$src" "$dst"
       fi
     fi
@@ -764,7 +767,10 @@ create_agents_sidecar() {
     local src="$SOURCE_GSTACK_DIR/$file"
     local dst="$agents_gstack/$file"
     if [ -f "$src" ]; then
-      if [ -L "$dst" ] || [ ! -e "$dst" ]; then
+      # Managed files follow the same Windows copy-refresh contract as the
+      # sidecar directories above; otherwise ETHOS.md remains stale forever
+      # after the first non-symlink install.
+      if [ "$IS_WINDOWS" -eq 1 ] || [ -L "$dst" ] || [ ! -e "$dst" ]; then
         _link_or_copy "$src" "$dst"
       fi
     fi
@@ -795,6 +801,9 @@ create_codex_runtime_root() {
   fi
   if [ -d "$gstack_dir/bin" ]; then
     _link_or_copy "$gstack_dir/bin" "$codex_gstack/bin"
+  fi
+  if [ -d "$gstack_dir/lib" ]; then
+    _link_or_copy "$gstack_dir/lib" "$codex_gstack/lib"
   fi
   if [ -d "$gstack_dir/browse/dist" ]; then
     _link_or_copy "$gstack_dir/browse/dist" "$codex_gstack/browse/dist"
@@ -836,6 +845,9 @@ create_factory_runtime_root() {
   if [ -d "$gstack_dir/bin" ]; then
     _link_or_copy "$gstack_dir/bin" "$factory_gstack/bin"
   fi
+  if [ -d "$gstack_dir/lib" ]; then
+    _link_or_copy "$gstack_dir/lib" "$factory_gstack/lib"
+  fi
   if [ -d "$gstack_dir/browse/dist" ]; then
     _link_or_copy "$gstack_dir/browse/dist" "$factory_gstack/browse/dist"
   fi
@@ -873,6 +885,9 @@ create_opencode_runtime_root() {
   fi
   if [ -d "$gstack_dir/bin" ]; then
     _link_or_copy "$gstack_dir/bin" "$opencode_gstack/bin"
+  fi
+  if [ -d "$gstack_dir/lib" ]; then
+    _link_or_copy "$gstack_dir/lib" "$opencode_gstack/lib"
   fi
   if [ -d "$gstack_dir/browse/dist" ]; then
     _link_or_copy "$gstack_dir/browse/dist" "$opencode_gstack/browse/dist"
@@ -1115,6 +1130,7 @@ if [ "$INSTALL_KIRO" -eq 1 ]; then
   [ -L "$KIRO_GSTACK" ] && rm -f "$KIRO_GSTACK"
   mkdir -p "$KIRO_GSTACK" "$KIRO_GSTACK/browse" "$KIRO_GSTACK/gstack-upgrade" "$KIRO_GSTACK/review"
   _link_or_copy "$SOURCE_GSTACK_DIR/bin" "$KIRO_GSTACK/bin"
+  _link_or_copy "$SOURCE_GSTACK_DIR/lib" "$KIRO_GSTACK/lib"
   _link_or_copy "$SOURCE_GSTACK_DIR/browse/dist" "$KIRO_GSTACK/browse/dist"
   _link_or_copy "$SOURCE_GSTACK_DIR/browse/bin" "$KIRO_GSTACK/browse/bin"
   # ETHOS.md — referenced by "Search Before Building" in all skill preambles

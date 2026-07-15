@@ -8,11 +8,48 @@
  */
 
 import { describe, it, expect } from "bun:test";
+import { spawnSync } from "child_process";
 import { mkdtempSync, writeFileSync, readFileSync, existsSync, mkdirSync, rmSync, chmodSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
-import { ensureSourceRegistered, probeSource, sourcePageCount } from "../lib/gbrain-sources";
+import {
+  ensureSourceRegistered,
+  parseSourcesList,
+  parseSourcesListStrict,
+  probeSource,
+  sourcePageCount,
+} from "../lib/gbrain-sources";
+
+describe("parseSourcesList ownership metadata", () => {
+  it("normalizes authoritative MCP remote_url fields into guard config", () => {
+    const [managed, pathManaged] = parseSourcesList({
+      sources: [
+        { id: "managed", local_path: "/clone", remote_url: "https://example.invalid/repo.git" },
+        { id: "path", local_path: "/checkout", remote_url: null },
+      ],
+    });
+    expect(managed.config?.remote_url).toBe("https://example.invalid/repo.git");
+    expect(pathManaged.config?.remote_url).toBeNull();
+  });
+
+  it("keeps CLI rows without remote_url distinguishable as metadata-unknown", () => {
+    const [row] = parseSourcesList({ sources: [{ id: "unknown", local_path: "/checkout" }] });
+    expect(row.config).toBeUndefined();
+  });
+
+  it("strict parsing accepts only the documented array shapes, including empty", () => {
+    expect(parseSourcesListStrict([])).toEqual([]);
+    expect(parseSourcesListStrict({ sources: [] })).toEqual([]);
+    expect(parseSourcesListStrict({ sources: [{ id: "ok", local_path: "/x" }] })[0]?.id).toBe("ok");
+  });
+
+  it("strict parsing rejects valid JSON that cannot prove source absence", () => {
+    for (const raw of [{}, { sources: null }, { error: "denied" }, { sources: [{}] }]) {
+      expect(() => parseSourcesListStrict(raw)).toThrow();
+    }
+  });
+});
 
 interface FakeGbrainSetup {
   bindir: string;
@@ -162,6 +199,14 @@ describe("ensureSourceRegistered", () => {
     const result = await ensureSourceRegistered("gstack-code-foo", "/new/path", {
       federated: true,
       env: fake.env,
+      guardedRemove: (id) => {
+        const rm = spawnSync("gbrain", ["sources", "remove", id, "--yes"], {
+          encoding: "utf-8",
+          env: fake.env,
+          shell: process.platform === "win32",
+        });
+        return { removed: rm.status === 0, reason: rm.stderr || rm.stdout || undefined };
+      },
     });
     expect(result.changed).toBe(true);
     expect(result.state.status).toBe("match");
@@ -170,6 +215,21 @@ describe("ensureSourceRegistered", () => {
     const log = readFileSync(fake.logPath, "utf-8");
     expect(log).toContain("sources remove gstack-code-foo --yes");
     expect(log).toContain("sources add gstack-code-foo --path /new/path --federated");
+    fake.cleanup();
+  });
+
+  it("fails closed on path drift when no guarded remover is provided", async () => {
+    const fake = makeFakeGbrain({
+      sources: [{ id: "gstack-code-foo", local_path: "/old/path" }],
+    });
+
+    await expect(ensureSourceRegistered("gstack-code-foo", "/new/path", {
+      env: fake.env,
+    })).rejects.toThrow("requires a guarded remove");
+
+    const log = readFileSync(fake.logPath, "utf-8");
+    expect(log).not.toContain("sources remove");
+    expect(log).not.toContain("sources add");
     fake.cleanup();
   });
 
