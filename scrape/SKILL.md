@@ -859,7 +859,11 @@ zero-arg skills) and run:
 $B skill run <name> [--arg key=value ...]
 ```
 
-Emit the JSON the skill prints to stdout. Stop.
+Emit the JSON the skill prints to stdout — but sanity-check it against the
+intent first. A matched skill can return stale or empty data; if the result
+is empty, malformed, or clearly does not cover what the intent asked for,
+the skill is likely out of date, so fall through to the prototype path
+instead of emitting it. Otherwise emit it and stop.
 
 If matching is ambiguous (two skills could plausibly fit), pick the
 narrower-tier one (project > global > bundled — `$B skill list` shows the
@@ -879,11 +883,40 @@ No match. Drive the page using `$B` primitives:
 4. `$B links` — when the intent is to gather URLs.
 5. Iterate: try a selector, check the output, refine.
 
-Emit the result as JSON on stdout (one document, not pretty-printed).
-Use a stable shape — typically `{ "items": [...], "count": N }` or
-similar — so downstream consumers can treat it as data.
+Assemble the result as JSON (one document, not pretty-printed). Use a
+stable shape — typically `{ "items": [...], "count": N }` or similar — so
+downstream consumers can treat it as data. Do not emit it yet — it has to
+clear the evidence gate first.
 
-## Step 5 — Skillify nudge
+## Step 5 — Verify the prototype result against the intent
+
+A plausible-looking JSON shape is not proof you got the data right. Before
+emitting the prototype result as the answer, check it against the intent:
+
+1. **Decompose the intent into checkpoints.** Each datum, field, filter,
+   count, or ranking the intent named is one checkpoint. "Product names and
+   prices for items under $50, cheapest first" is four checkpoints: names
+   present, prices present, every price under $50, order ascending by price.
+2. **Back each checkpoint with evidence.** Evidence is a populated field in
+   the result (not null, not an empty string, not a placeholder) or a
+   capture that shows it on the page — `$B snapshot --text` for a value,
+   `$B screenshot` for a visible state. A filter or ranking checkpoint is
+   satisfied when the returned data itself demonstrates it — every row
+   genuinely under $50, the array genuinely ordered by price — whether the
+   page applied it or you filtered and sorted the extracted rows yourself.
+   What fails is asserting an order or filter the data cannot back: a
+   "cheapest first" you never actually sorted, or a "most reviewed" with no
+   review-count field to sort on.
+3. **Be harsh.** An empty `items: []` passes only if the page genuinely has
+   nothing matching, and you confirm that from a capture rather than
+   assuming it. Partial rows (half the records missing a price) or a count
+   that disagrees with an explicit quantity in the intent fail the gate.
+
+If every checkpoint is backed, emit the JSON and move to the nudge. If any
+checkpoint cannot be backed, treat it as a prototype failure (see "When the
+prototype fails") — never emit partial data as the answer.
+
+## Step 6 — Skillify nudge
 
 After a successful prototype, append exactly one line:
 
@@ -915,7 +948,8 @@ after 3-4 selector attempts:
 ## Output discipline
 
 The match path returns whatever JSON the matched skill emits. The
-prototype path returns whatever JSON you construct. In both cases:
+prototype path returns the JSON you construct, once it clears the Step 5
+evidence gate. In both cases:
 
 - One JSON document, on stdout.
 - Stderr (or chat) is for logs and the skillify nudge.
