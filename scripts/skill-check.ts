@@ -10,6 +10,7 @@
 
 import { validateSkill } from '../test/helpers/skill-parser';
 import { discoverTemplates, discoverSkillFiles } from './discover-skills';
+import { claude as PRIMARY_HOST } from '../hosts/index';
 import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
@@ -64,15 +65,25 @@ for (const file of SKILL_FILES) {
 
 console.log('\n  Templates:');
 const TEMPLATES = discoverTemplates(ROOT);
+// Repo-root SKILL.md outputs reflect what the primary host (claude) generates.
+// If a skill is in claude's skipSkills (e.g. the `/claude` outside-voice skill
+// is intentionally not bundled into the Claude host), its generated file is
+// expected to be absent — flagging it as missing here is a false positive.
+const PRIMARY_SKIP_SKILLS = new Set(PRIMARY_HOST.generation?.skipSkills ?? []);
 
 for (const { tmpl, output } of TEMPLATES) {
   const tmplPath = path.join(ROOT, tmpl);
   const outPath = path.join(ROOT, output);
+  const skillDir = output.includes('/') ? output.split('/')[0] : '';
   if (!fs.existsSync(tmplPath)) {
     console.log(`  \u26a0\ufe0f  ${output.padEnd(30)} — no template`);
     continue;
   }
   if (!fs.existsSync(outPath)) {
+    if (skillDir && PRIMARY_SKIP_SKILLS.has(skillDir)) {
+      console.log(`  -  ${output.padEnd(30)} — skipped per ${PRIMARY_HOST.name} host config`);
+      continue;
+    }
     hasErrors = true;
     console.log(`  \u274c ${output.padEnd(30)} — generated file missing! Run: bun run gen:skill-docs`);
     continue;
