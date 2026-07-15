@@ -10,7 +10,12 @@ variables:
 
 .setup-bun: &setup-bun
   - apt-get update -qq && apt-get install -qq -y curl jq git
-  - curl -fsSL https://bun.sh/install | bash -s "bun-v$BUN_VERSION"
+  - |
+    BUN_INSTALL_SCRIPT="$(mktemp)"
+    trap 'rm -f "$BUN_INSTALL_SCRIPT"' EXIT
+    curl -fsSL https://bun.sh/install -o "$BUN_INSTALL_SCRIPT"
+    test -s "$BUN_INSTALL_SCRIPT"
+    bash "$BUN_INSTALL_SCRIPT" "bun-v$BUN_VERSION"
   - export PATH="$HOME/.bun/bin:$PATH"
 
 version-gate:
