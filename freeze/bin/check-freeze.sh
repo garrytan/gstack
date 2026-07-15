@@ -52,11 +52,26 @@ esac
 FILE_PATH=$(printf '%s' "$FILE_PATH" | sed 's|/\+|/|g;s|/$||')
 
 # Resolve symlinks and .. sequences (POSIX-portable, works on macOS)
+# For directories (like FREEZE_DIR), cd into them and use pwd -P.
+# For files, resolve the parent directory and append the basename.
 _resolve_path() {
+  local _input="$1"
+
+  # If it's a directory, cd into it and resolve with pwd -P
+  if [ -d "$_input" ]; then
+    cd "$_input" 2>/dev/null && pwd -P && return 0
+  fi
+
+  # For non-directories or if cd failed, resolve component-by-component
   local _dir _base
-  _dir="$(dirname "$1")"
-  _base="$(basename "$1")"
-  _dir="$(cd "$_dir" 2>/dev/null && pwd -P || printf '%s' "$_dir")"
+  _dir="$(dirname "$_input")"
+  _base="$(basename "$_input")"
+
+  # If the parent directory exists and is accessible, resolve it
+  if [ -d "$_dir" ]; then
+    _dir="$(cd "$_dir" 2>/dev/null && pwd -P || printf '%s' "$_dir")"
+  fi
+
   printf '%s/%s' "$_dir" "$_base"
 }
 FILE_PATH=$(_resolve_path "$FILE_PATH")
