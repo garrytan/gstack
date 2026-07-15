@@ -1283,6 +1283,22 @@ Deep sessions:      3      →    5           ↑2
 
 **If no prior retros exist:** Skip the comparison section and append: "First retro recorded — run again next week to see trends."
 
+**Recommendation follow-through.** If the most recent prior snapshot has a `recommendations` array (snapshots written before this field existed won't — if it's absent, skip this block silently), check whether this window acted on each one. For every prior recommendation, scan this window's commit subjects (Step 1 git log), changed files, and the metrics you just computed for evidence it was addressed. Classify each as:
+
+- `addressed` — clear evidence in commits/files/metrics (cite it),
+- `partial` — some movement but not done,
+- `open` — no evidence this window.
+
+Surface a **Recommendation follow-through** section and feed the verdict into the narrative:
+```
+Recommendation follow-through (vs last retro):
+  [x] testing — E2E fixture reliability pass        addressed: 4 commits under test/fixtures/, flake ratio 1/4 → 0/12
+  [~] security — gitleaks on a schedule             partial: pre-commit hook added, no scheduled run yet
+  [ ] architecture — extract html_generator         open
+2 of 3 prior recommendations addressed.
+```
+When recommendations were acted on, say so explicitly in the narrative ("2 of 3 prior recommendations addressed") instead of attributing the same work to a generic metric like "fix ratio is high." This is the whole point of persisting recommendations: a week spent on retro feedback should read as follow-through, not noise.
+
 ### Step 13: Save Retro History
 
 After computing all metrics (including streak) and loading any prior history for comparison, save a JSON snapshot:
@@ -1332,6 +1348,11 @@ Use the Write tool to save the JSON file with this schema:
   "version_range": ["1.16.0.0", "1.16.1.0"],
   "streak_days": 47,
   "tweetable": "Week of Mar 1: 47 commits (3 contributors), 3.2k LOC, 38% tests, 12 PRs, peak: 10pm",
+  "recommendations": [
+    { "category": "testing", "text": "E2E fixture reliability pass — the auth setup flakes ~1 run in 4" },
+    { "category": "security", "text": "Run gitleaks on a schedule, not just pre-commit" },
+    { "category": "architecture", "text": "Extract html_generator rendering into per-format modules" }
+  ],
   "greptile": {
     "fixes": 3,
     "fps": 1,
@@ -1342,6 +1363,8 @@ Use the Write tool to save the JSON file with this schema:
 ```
 
 **Note:** Only include the `greptile` field if `~/.gstack/greptile-history.md` exists and has entries within the time window. Only include the `backlog` field if `TODOS.md` exists. Only include the `test_health` field if test files were found (command 10 returns > 0). If any has no data, omit the field entirely.
+
+**Always include the `recommendations` array.** Populate it with the exact 3 items you write in the "3 Things to Improve" narrative section (Step 14), one object per item. Each object has a one-word lowercase `category` (e.g. `testing`, `security`, `architecture`, `process`, `docs`, `performance`) and a `text` field carrying the actionable suggestion verbatim. This is what the *next* retro reads back in Step 12 to measure follow-through, so write `text` so it can be matched against future commit subjects and changed files — name the concrete artifact (a file, a script, a check), not a vague aspiration. If you genuinely have fewer than 3 improvements, record what you have; never pad with filler just to reach 3.
 
 Include test health data in the JSON when test files exist:
 ```json
@@ -1478,6 +1501,8 @@ Identify the 3 highest-impact things shipped in the window across the whole team
 
 ### 3 Things to Improve
 Specific, actionable, anchored in actual commits. Mix personal and team-level suggestions. Phrase as "to get even better, the team could..."
+
+Record these exact 3 items into the `recommendations` array of the Step 13 snapshot (one object each, with a one-word `category`). They are not just prose for this run — next week's retro reads them back in Step 12 to measure follow-through, so keep each one concrete enough to match against future commits and changed files.
 
 ### 3 Habits for Next Week
 Small, practical, realistic. Each must be something that takes <5 minutes to adopt. At least one should be team-oriented (e.g., "review each other's PRs same-day").
