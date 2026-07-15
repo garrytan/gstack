@@ -32,7 +32,7 @@ bun build "$SRC_DIR/server.ts" \
 # Replace import.meta.dir with a resolvable reference
 perl -pi -e 's/import\.meta\.dir/__browseNodeSrcDir/g' "$DIST_DIR/server-node.mjs"
 # Stub out bun:sqlite (macOS-only cookie import, not needed on Windows)
-perl -pi -e 's|import { Database } from "bun:sqlite";|const Database = null; // bun:sqlite stubbed on Node|g' "$DIST_DIR/server-node.mjs"
+perl -pi -e 's|import \{ Database \} from "bun:sqlite";|const Database = null; // bun:sqlite stubbed on Node|g' "$DIST_DIR/server-node.mjs"
 
 # Step 3: Create the final file with polyfill header injected after the first line
 {
