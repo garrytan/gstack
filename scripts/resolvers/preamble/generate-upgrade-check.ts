@@ -5,6 +5,8 @@ export function generateUpgradeCheck(ctx: TemplateContext): string {
 
 If \`SKILL_PREFIX\` is \`"true"\`, suggest/invoke \`/gstack-*\` names. Disk paths stay \`${ctx.paths.skillRoot}/[skill-name]/SKILL.md\`.
 
+If \`UPDATE_CHECK\` is \`"false"\`, skip the next two lines — the update-check binary emits nothing in that mode, so there is no \`UPGRADE_AVAILABLE\` / \`JUST_UPGRADED\` output to act on.
+
 If output shows \`UPGRADE_AVAILABLE <old> <new>\`: read \`${ctx.paths.skillRoot}/gstack-upgrade/SKILL.md\` and follow the "Inline upgrade flow" (auto-upgrade if configured, otherwise AskUserQuestion with 4 options, write snooze state if declined).
 
 If output shows \`JUST_UPGRADED <from> <to>\`: print "Running gstack v{to} (just updated!)". If \`SPAWNED_SESSION\` is true, skip feature discovery.
