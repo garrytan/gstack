@@ -37,7 +37,7 @@ import { createHash } from "crypto";
 
 import "../lib/conductor-env-shim";
 import { detectEngineTier, withErrorContext, canonicalizeRemote } from "../lib/gstack-memory-helpers";
-import { ensureSourceRegistered, sourcePageCount, parseSourcesList, cycleCompleted, type CycleStatus } from "../lib/gbrain-sources";
+import { ensureSourceRegistered, sourcePageCount, parseSourcesList, cycleCompleted, sourcePathsEqual, type CycleStatus } from "../lib/gbrain-sources";
 import { detectAutopilot, decideSourceRemove, decideCodeSync } from "../lib/gbrain-guards";
 import { localEngineStatus, type LocalEngineStatus } from "../lib/gbrain-local-status";
 import { buildGbrainEnv, spawnGbrain, execGbrainJson, NEEDS_SHELL_ON_WINDOWS } from "../lib/gbrain-exec";
@@ -499,7 +499,7 @@ export function planHostnameFoldMigration(
   if (oldPath === null) {
     return { kind: "none", reason: "no-legacy-source" };
   }
-  if (oldPath !== currentRoot) {
+  if (!sourcePathsEqual(oldPath, currentRoot)) {
     return {
       kind: "skipped-path-drift",
       oldId: legacyPathHashId,
@@ -1185,11 +1185,43 @@ export function shouldRunDream(args: CliArgs, cycle: CycleStatus | null): boolea
   return false;
 }
 
+export type SourceScopedDreamPlan =
+  | { ok: true; args: string[] }
+  | { ok: false; error: string };
+
 /**
- * Run `gbrain dream` — the brain-global maintenance cycle whose
- * resolve_symbol_edges phase builds the call graph. Runs LOCK-FREE (called
- * after the sync lock releases) so it never freezes sibling worktrees; the
- * `.dream-in-progress` marker dedupes concurrent dreams instead.
+ * Turn `gbrain dream --help` into a source-scoped command or a fail-closed
+ * compatibility error. A brain-wide `dream` is never an implicit fallback for
+ * a worktree-scoped sync request.
+ */
+export function planSourceScopedDream(
+  sourceId: string,
+  helpStatus: number | null,
+  helpOutput: string,
+): SourceScopedDreamPlan {
+  if (helpStatus !== 0) {
+    return {
+      ok: false,
+      error:
+        `could not verify source-scoped gbrain dream support (help exited ${helpStatus}); ` +
+        "upgrade gbrain or review a brain-wide maintenance run manually; refusing to widen scope",
+    };
+  }
+  if (!/--source(?:\s|=|<|\[|$)/m.test(helpOutput)) {
+    return {
+      ok: false,
+      error:
+        "installed gbrain dream does not support --source; upgrade gbrain or review a " +
+        "brain-wide maintenance run manually; refusing to widen scope",
+    };
+  }
+  return { ok: true, args: ["dream", "--source", sourceId] };
+}
+
+/**
+ * Run a proven source-scoped `gbrain dream --source <id>` maintenance cycle.
+ * Runs LOCK-FREE (called after the sync lock releases) so it never freezes
+ * sibling worktrees; the `.dream-in-progress` marker dedupes concurrent dreams.
  *
  * Returns a StageResult (never throws). SKIP (ran:false, ok:true) for: dry-run
  * preview, local engine not ok, or a fresh marker present. ERR (ran:true,
@@ -1210,7 +1242,7 @@ export async function runDream(args: CliArgs): Promise<StageResult> {
       duration_ms: 0,
       summary: sourceId
         ? `would: gbrain dream --source ${sourceId}  (build this source's call graph)`
-        : "would: gbrain dream  (call-graph build)",
+        : "would refuse: cannot derive a worktree source id (no brain-wide fallback)",
     };
   }
 
@@ -1219,6 +1251,45 @@ export async function runDream(args: CliArgs): Promise<StageResult> {
     warnProbeTimeout("dream"); // #1964: slow-but-healthy — proceed
   } else if (localStatus !== "ok") {
     return skipStageForLocalStatus("dream", localStatus, t0);
+  }
+
+  const root = repoRoot();
+  if (!root) {
+    return {
+      name: "dream",
+      ran: true,
+      ok: false,
+      duration_ms: Date.now() - t0,
+      summary: "cannot derive a worktree source id; refusing to run brain-wide gbrain dream",
+    };
+  }
+  const sourceId = deriveCodeSourceId(root);
+  let dreamPlan: SourceScopedDreamPlan;
+  try {
+    const help = spawnGbrain(["dream", "--help"], {
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: 10_000,
+      baseEnv: process.env,
+    });
+    dreamPlan = planSourceScopedDream(
+      sourceId,
+      help.status,
+      `${help.stdout || ""}${help.stderr || ""}`,
+    );
+  } catch (err) {
+    dreamPlan = {
+      ok: false,
+      error: `could not inspect gbrain dream capability: ${(err as Error).message}; refusing to widen scope`,
+    };
+  }
+  if (!dreamPlan.ok) {
+    return {
+      name: "dream",
+      ran: true,
+      ok: false,
+      duration_ms: Date.now() - t0,
+      summary: dreamPlan.error,
+    };
   }
 
   // Dedupe concurrent dreams across worktrees (lock-free path).
@@ -1240,18 +1311,6 @@ export async function runDream(args: CliArgs): Promise<StageResult> {
       DEFAULT_DREAM_TIMEOUT_MS,
     );
 
-    // Scope the cycle to THIS worktree's code source: `gbrain dream --source <id>`.
-    // Verified empirically (not just from `gbrain --help`): plain `gbrain dream`
-    // cycles the brain's default source and never runs the source-scoped `extract`
-    // phase for our code source, so the call graph for the pinned source stays
-    // empty. `gbrain dream --source <id>` runs the per-source cycle (the form
-    // `gbrain doctor` recommends for stale sources) and is what actually populates
-    // code-callers/code-callees for this worktree. Falls back to plain `dream`
-    // only when we can't derive the source id (not in a git repo).
-    const root = repoRoot();
-    const sourceId = root ? deriveCodeSourceId(root) : null;
-    const dreamArgs = sourceId ? ["dream", "--source", sourceId] : ["dream"];
-
     // spawnGbrain seeds DATABASE_URL from gbrain's config via buildGbrainEnv.
     //
     // We CAPTURE output (pipe) rather than inherit because `gbrain dream` exits 0
@@ -1265,7 +1324,7 @@ export async function runDream(args: CliArgs): Promise<StageResult> {
     }
     let result: ReturnType<typeof spawnGbrain>;
     try {
-      result = spawnGbrain(dreamArgs, {
+      result = spawnGbrain(dreamPlan.args, {
         stdio: ["ignore", "pipe", "pipe"],
         timeout: dreamTimeoutMs,
         baseEnv: process.env,

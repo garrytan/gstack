@@ -7,12 +7,59 @@
  * invocations. The same trick `test/gstack-gbrain-source-wireup.test.ts` uses.
  */
 
-import { describe, it, expect } from "bun:test";
-import { mkdtempSync, writeFileSync, readFileSync, existsSync, mkdirSync, rmSync, chmodSync } from "fs";
+import { afterAll, describe, it, expect } from "bun:test";
+import { mkdtempSync, writeFileSync, readFileSync, rmSync, chmodSync } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
+import { delimiter, join } from "path";
+import { spawnSync } from "child_process";
 
 import { ensureSourceRegistered, probeSource, sourcePageCount } from "../lib/gbrain-sources";
+
+const FAKE_BUILD_ROOT = mkdtempSync(join(tmpdir(), "gbrain-sources-fake-bin-"));
+const FAKE_SOURCE = join(FAKE_BUILD_ROOT, "fake-gbrain.ts");
+const FAKE_BINARY = join(FAKE_BUILD_ROOT, process.platform === "win32" ? "gbrain.exe" : "gbrain");
+
+writeFileSync(
+  FAKE_SOURCE,
+  `import { appendFileSync, readFileSync, writeFileSync } from "fs";
+const args = process.argv.slice(2);
+const statePath = process.env.FAKE_GBRAIN_STATE_PATH!;
+const logPath = process.env.FAKE_GBRAIN_LOG_PATH!;
+appendFileSync(logPath, args.join(" ") + "\\n");
+if (args[0] === "--version") { console.log("gbrain 0.25.1"); process.exit(0); }
+if (args[0] !== "sources") process.exit(1);
+const state = JSON.parse(readFileSync(statePath, "utf-8"));
+if (args[1] === "list") { console.log(JSON.stringify(state)); process.exit(0); }
+if (args[1] === "add") {
+  const pathIndex = args.indexOf("--path");
+  state.sources.push({
+    id: args[2],
+    local_path: pathIndex >= 0 ? args[pathIndex + 1] : "",
+    federated: args.includes("--federated"),
+    page_count: 0,
+  });
+  writeFileSync(statePath, JSON.stringify(state));
+  process.exit(0);
+}
+if (args[1] === "remove") {
+  state.sources = state.sources.filter((source: { id?: string }) => source.id !== args[2]);
+  writeFileSync(statePath, JSON.stringify(state));
+  process.exit(0);
+}
+process.exit(1);
+`,
+);
+const fakeBuild = spawnSync(
+  process.execPath,
+  ["build", FAKE_SOURCE, "--compile", "--outfile", FAKE_BINARY],
+  { encoding: "utf-8", timeout: 30_000 },
+);
+if (fakeBuild.status !== 0) {
+  throw new Error(`Could not build fake gbrain: ${fakeBuild.stderr || fakeBuild.stdout}`);
+}
+chmodSync(FAKE_BINARY, 0o755);
+
+afterAll(() => rmSync(FAKE_BUILD_ROOT, { recursive: true, force: true }));
 
 interface FakeGbrainSetup {
   bindir: string;
@@ -38,59 +85,21 @@ interface FakeGbrainSetup {
  */
 function makeFakeGbrain(initialState: { sources: Array<{ id: string; local_path: string; federated?: boolean; page_count?: number }> }): FakeGbrainSetup {
   const tmp = mkdtempSync(join(tmpdir(), "gbrain-sources-test-"));
-  const bindir = join(tmp, "bin");
-  mkdirSync(bindir, { recursive: true });
+  const bindir = FAKE_BUILD_ROOT;
   const statePath = join(tmp, "state.json");
   const logPath = join(tmp, "calls.log");
   writeFileSync(statePath, JSON.stringify(initialState));
   writeFileSync(logPath, "");
 
-  const fake = `#!/bin/sh
-echo "$@" >> "${logPath}"
-case "$1 $2" in
-  "--version ")
-    echo "gbrain 0.25.1"
-    exit 0
-    ;;
-  "sources list")
-    cat "${statePath}"
-    exit 0
-    ;;
-  "sources add")
-    ID="$3"
-    shift 3
-    PATH_VAL=""
-    FED="false"
-    while [ $# -gt 0 ]; do
-      case "$1" in
-        --path) PATH_VAL="$2"; shift 2 ;;
-        --federated) FED="true"; shift ;;
-        *) shift ;;
-      esac
-    done
-    NEW=$(jq --arg id "$ID" --arg path "$PATH_VAL" --argjson fed "$FED" \
-      '.sources += [{id: $id, local_path: $path, federated: $fed, page_count: 0}]' "${statePath}")
-    echo "$NEW" > "${statePath}"
-    exit 0
-    ;;
-  "sources remove")
-    ID="$3"
-    NEW=$(jq --arg id "$ID" '.sources = (.sources | map(select(.id != $id)))' "${statePath}")
-    echo "$NEW" > "${statePath}"
-    exit 0
-    ;;
-esac
-echo "fake gbrain: unknown command: $@" >&2
-exit 1
-`;
-  const fakePath = join(bindir, "gbrain");
-  writeFileSync(fakePath, fake);
-  chmodSync(fakePath, 0o755);
-
   // Build the env override we'll pass to helper calls. We do NOT mutate
   // process.env globally because Bun's execFileSync caches PATH at process
   // start; explicit env is the only reliable way to redirect spawn-time PATH.
-  const env: NodeJS.ProcessEnv = { ...process.env, PATH: `${bindir}:${process.env.PATH || ""}` };
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    PATH: `${bindir}${delimiter}${process.env.PATH || ""}`,
+    FAKE_GBRAIN_STATE_PATH: statePath,
+    FAKE_GBRAIN_LOG_PATH: logPath,
+  };
 
   return {
     bindir,
@@ -188,6 +197,40 @@ describe("ensureSourceRegistered", () => {
     const log = readFileSync(fake.logPath, "utf-8");
     expect(log).not.toContain("sources remove");
     expect(log).not.toContain("sources add");
+    fake.cleanup();
+  });
+
+  it("reuses equivalent Windows slash/case paths without destructive re-registration", async () => {
+    const fake = makeFakeGbrain({
+      sources: [{ id: "gstack-code-foo", local_path: "C:\\Work Trees\\Example Repo" }],
+    });
+    const result = await ensureSourceRegistered(
+      "gstack-code-foo",
+      "c:/work trees/example repo",
+      { env: fake.env },
+    );
+    expect(result.changed).toBe(false);
+    expect(result.state.status).toBe("match");
+
+    const log = readFileSync(fake.logPath, "utf-8");
+    expect(log).not.toContain("sources remove");
+    expect(log).not.toContain("sources add");
+    fake.cleanup();
+  });
+
+  it("registers a Windows worktree path containing spaces as one argument", async () => {
+    const fake = makeFakeGbrain({ sources: [] });
+    const sourcePath = "C:\\Work Trees\\Example Repo";
+    const result = await ensureSourceRegistered("gstack-code-foo", sourcePath, {
+      federated: true,
+      env: fake.env,
+    });
+    expect(result.changed).toBe(true);
+
+    const state = JSON.parse(readFileSync(fake.statePath, "utf-8")) as {
+      sources: Array<{ local_path?: string }>;
+    };
+    expect(state.sources[0]?.local_path).toBe(sourcePath);
     fake.cleanup();
   });
 });
