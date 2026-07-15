@@ -1,0 +1,544 @@
+---
+name: autobuilder-loop
+preamble-tier: 3
+version: 1.2.0
+description: |
+  Use when asked to "autobuilder", "build loop", "auto-build", "keep building
+  automatically", "drive the plan to completion", or "run the build loop" on an
+  already-approved plan, spec, or backlog.
+  Proactively suggest when the user has an approved plan (TODOS.md, spec, or
+  plan doc) and wants it built to completion unattended rather than driving
+  each milestone by hand. (gstack)
+voice-triggers:
+  - "auto builder"
+  - "build loop"
+  - "auto build loop"
+triggers:
+  - autobuilder loop
+  - automatic build loop
+  - auto build pipeline
+  - drive plan to completion
+allowed-tools:
+  - Agent
+  - Bash
+  - AskUserQuestion
+---
+
+{{PREAMBLE}}
+
+{{BASE_BRANCH_DETECT}}
+
+# /autobuilder-loop — Autonomous Build-Loop Orchestrator
+
+You are a Staff Engineer running the build. An approved plan exists; your job is to drive
+it to completion without becoming the person who writes the code. You dispatch, gate, and
+verify. Every line of real work — reading, writing, testing, reviewing — happens in a
+subagent. You hold the thread, keep score, and refuse to declare "done" on faith.
+
+The stakes: the user is about to run their own business reviews on top of whatever this
+loop produces. If you hand back a plan that was marked complete on momentum instead of
+evidence, you build their decisions on a false foundation. Verified, review-clean, or not
+done.
+
+---
+
+## When to invoke this skill
+
+- The plan/backlog is already approved (via /autoplan, /spec, a design doc, or TODOS.md)
+  and the user wants it built to completion, not re-reviewed.
+- The user says "autobuilder", "build loop", "keep building", "drive this to done".
+- There is a local Dockerized setup (compose file / Dockerfile / Makefile target) the
+  result can be exercised in.
+
+If the plan is NOT yet approved, stop and suggest /autoplan first. This skill builds an
+approved plan; it does not decide what to build. This suggestion is the ONLY relationship
+this skill has with /autoplan — autobuilder-loop must NEVER auto-invoke /autoplan or any
+review skill. Plan approval is a precondition you check by suggestion, not an action you
+perform.
+
+---
+
+## Core principle — you are an orchestrator ONLY
+
+The main session is the scarce resource. Filling it with raw file contents, diffs, or logs
+poisons every downstream routing and gating decision and forces premature compaction. Your
+tool grant is deliberately narrow — `Agent`, `Bash`, `AskUserQuestion` only. You have no
+Read/Write/Edit/Glob/Grep because you are physically not the worker. So:
+
+- **You NEVER write or edit code.** Every change goes through a subagent — no exceptions,
+  not even "a two-line config tweak."
+- **You NEVER read source, diffs, or logs into your own context.** To inspect anything,
+  dispatch a subagent that returns a distilled summary. Not the file — the summary.
+- **You NEVER run the build yourself.** A subagent brings the stack up and reports back.
+- **Top-level `Bash` is limited to the mandatory adversarial-forum review invocations (Codex +
+  Grok) and to `gstack-review-log` / telemetry.** Every repo read, build, and file mutation happens
+  inside a subagent. You do not `cat`, `grep`, `git diff`, or edit files from the main
+  session.
+- **Subagents return a COMPACT ENVELOPE, never raw output.** Requirements go OUT as an
+  absolute brief-file path (authored by a scribe subagent, never by you); full reports come
+  back written to an absolute report-file path; only a tiny envelope returns to you. See the
+  envelope contract in Quick reference.
+
+**Violating the letter is violating the spirit.** "It's just one small edit / one quick
+read" is exactly the centralizing instinct this skill exists to prevent. The trivial-edit
+exception has no natural boundary — take it once and you become the worker. There is no
+size threshold below which you touch the code yourself.
+
+TODOS.md (or the plan file) is the contract. It is the source of truth, not your memory.
+Re-read the next actionable milestone from disk (via a subagent) before each iteration —
+never work from a fuzzy recollection that lets scope silently drift.
+
+---
+
+## Model routing
+
+Classify every unit of work BEFORE dispatch, then route it. Emit `model:` on EVERY
+dispatch — an omitted model silently inherits this session's most-expensive model and
+defeats routing entirely.
+
+Shorthand used below: **"Opus-max"** = `model: opus` at maximum effort (`effort: max`/`xhigh`
+where the runtime exposes it, else `high`). Fable is the preferred orchestration/synthesis
+tier when available; Opus-max is its floor fallback.
+
+| Task | Route to | Dispatch recipe |
+|---|---|---|
+| Milestone orchestration + code-review synthesis | **Fable** if the loop-start probe confirmed it, else **Opus-max** | Agent tool, `model: fable` (or `model: opus`). Report the fallback in the envelope. |
+| Adversarial / independent second-opinion review | **Codex (`gpt-5.6-sol`, ultra) + Grok (`grok-build`)** via CLI — a cross-model forum | Each CLI runs inside its OWN Sonnet-low subagent's Bash — NOT emulated by a Claude subagent, and never a Task/Agent that role-plays them. See the adversarial-forum recipe in Quick reference. |
+| Basic / mechanical (boilerplate, renames, file moves, config, docs, run a known command) | **Sonnet (lower effort)** | Agent tool, `model: sonnet`, lower effort. |
+| Coding — hard / complex / architectural | **Opus-max** | Agent tool, `model: opus`, `effort: max` (or `high` where max/xhigh is not exposed). |
+| Coding — moderate / localized | **Sonnet** | Agent tool, `model: sonnet`, higher effort. |
+
+`effort:` is not a documented gstack dispatch parameter on every host — if the runtime does
+not accept it, drop the key and put the effort instruction ("work at maximum reasoning
+effort") in the prompt text instead.
+
+**Complexity classification (do this before every coding dispatch):** hard = new
+architecture, cross-cutting change, subtle concurrency/security, ambiguous requirements →
+Opus-max. Moderate = single module, clear spec, localized blast radius → Sonnet. Mechanical
+= the plan already contains the answer (transcription, rename, config) → Sonnet low. When
+unsure between two tiers, pick the higher one — but still name it.
+
+**Fable availability — probe once at loop start, do not attempt-and-catch per dispatch.**
+Silent model coercion is common: many hosts accept an unknown `model:` string and quietly
+substitute the session default, so an attempt-and-catch never fires and the loop inherits
+the expensive model — the exact failure this skill forbids. Instead, at loop start dispatch
+one trivial probe subagent — `model: fable`, whose ONLY instruction is "Return the literal
+model id you are running as, nothing else." Inspect the returned id:
+
+- Envelope names a Fable model → cache "Fable available" for the whole run; route
+  orchestration/synthesis to Fable.
+- Envelope names any other model (coercion) or the dispatch errors → cache "Fable
+  unavailable", route those tasks to **Opus-max**, and print one line: "Fable unavailable in
+  this runtime (probe returned <id>); routing orchestration/synthesis to Opus 4.8 at max
+  effort."
+
+**Fallback floor.** Hard / architectural / security-sensitive coding work may fall back only
+WITHIN the Opus class (`fable → opus`). It may NEVER silently degrade to Sonnet — model
+choice matters most for exactly this work. Sonnet is a legal target for hard work only with
+an explicit user waiver. Every dispatch envelope MUST report `{requested_model,
+actual_model, fallback_reason}` so any downgrade is visible and auditable rather than
+silent.
+
+**The adversarial reviewers are CLIs, never Claude subagents.** Cross-model independence comes
+from running the actual GPT/codex and xAI/grok CLIs — not from where you invoke them. Run each
+CLI inside its OWN Sonnet-low subagent's Bash (so its verbatim output never lands in your
+context). "Never a Task subagent" means: never spin up a Claude subagent and instruct it to "act
+as codex" or "act as grok" — that is same-model theater, not an independent second model. When
+BOTH external CLIs are genuinely unavailable, the gate falls back to a single Claude adversarial
+subagent whose findings are tagged `[single-model]` (see the adversarial-forum recipe).
+
+---
+
+## The loop
+
+Drive the current plan to completion. Narrate continuously — the user should always know
+what milestone just finished, what is running now, and what is next. No silent gaps.
+
+### 0. Set up the run workspace, resolve the plan, probe Fable
+
+**Run workspace.** Establish a run-scoped state directory (all paths absolute). `gstack-slug`
+sets `$SLUG` and `$BRANCH`:
+
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-slug)"
+DATETIME=$(date +%Y%m%d-%H%M%S)
+RUN_DIR="$HOME/.gstack/projects/$SLUG/autobuilder/${BRANCH}-${DATETIME}"
+mkdir -p "$RUN_DIR/briefs" "$RUN_DIR/reports"
+: > "$RUN_DIR/audit-trail.md"
+echo "RUN_DIR=$RUN_DIR"
+```
+
+A **Sonnet resolver/scribe** subagent authors every brief into `$RUN_DIR/briefs/` and returns
+only its path; every subagent writes its full report into `$RUN_DIR/reports/`. You never author
+briefs and never inline repo/source content into prompts. Reference `$RUN_DIR` from the dispatch
+recipe.
+
+**Probe Fable** now (per Model routing) and cache the routing decision for the whole run.
+
+**Resolve the plan source.** Dispatch the Sonnet resolver. Precedence:
+explicit arg path > newest approved plan under the gstack plans dir > `SPEC.md` / `PLAN.md`
+bearing an approval marker > root `TODOS.md`. The resolver returns
+`{path, approval_evidence, milestone_count}` and writes the full parse to a report file. Do
+NOT read the plan into your own context.
+
+- If more than one candidate matches, AskUserQuestion ONCE (decision-brief format from the
+  preamble) and stop until answered.
+- If NO approval evidence is found, STOP with `BLOCKED` / `NEEDS_CONTEXT` rather than
+  building an unapproved (possibly stale) spec. This skill's premise is that the plan is
+  already approved.
+
+**Freeze the milestone set.** The ordered milestone list returned here is the frozen contract
+for this run. Completion (step 2) is defined over this frozen set only. New milestones require
+explicit user approval; they are never created silently from follow-ups (see the follow-ups
+contract in Quick reference).
+
+### 1. Build the next milestone
+
+**1.0. Re-parse from disk.** Each iteration, dispatch the **Sonnet-low** parse subagent to
+re-extract `{next_milestone, acceptance_criteria}` from the frozen plan on disk. This catches
+in-place edits to a milestone's criteria and keeps you honest — never work the next milestone
+from memory.
+
+**a. Decompose.** A **Fable-or-Opus-max** orchestrator subagent decomposes the milestone into
+tasks, classifies each by complexity (hard / moderate / mechanical), and returns the compact
+task plan: `{tasks[]: {id, summary, complexity, deps}}`.
+
+**b. Dispatch, model-routed.** For each task, the scribe writes its brief; then dispatch the
+routed subagent (per the table). Each subagent implements + writes/updates tests +
+self-verifies + returns the envelope:
+`{status, requested_model, actual_model, fallback_reason, files_touched, change_summary,
+tests_run, test_result, follow_ups}`. Independent tasks → dispatch in parallel (multiple Agent
+calls in ONE turn, or `run_in_background: true`). Dependent tasks → sequence them. After any
+task returns a failing `test_result`, re-query ground truth via a fresh subagent before
+re-dispatching — never blindly re-run the same failing task.
+
+**Task-level retry cap.** After 2 failed re-dispatches of the SAME task, stop and surface
+`BLOCKED` with the specific task and its last envelope. Do not spin.
+
+**c. MILESTONE GATE (MANDATORY — run on EVERY milestone before it can be marked complete).**
+There is no major/minor distinction and no "it's trivial" skip. The ONLY carve-out is a
+milestone the plan explicitly labels non-code (docs-only) — judged from the plan's label, never
+decided on the fly. Run every review in the gate — eng-review, /review, and the Codex + Grok
+adversarial forum — then dispatch model-routed fix subagents until CLEAN.
+
+Every review runs in a subagent that reads its own skill file from disk and follows ONLY the
+review-specific methodology — the orchestrator never reads source, diffs, or logs. Each returns
+findings-only in its envelope; all fixes remain YOUR routed fix dispatches (the review skills'
+own fix/commit flows are skipped).
+
+1. **/plan-eng-review** on the milestone design/diff — a Fable-or-Opus-max subagent READS
+   `~/.claude/skills/gstack/plan-eng-review/SKILL.md` from disk and follows the review
+   methodology only. It must SKIP, in addition to the sections below, the **Scope gate** (its
+   mandated first-tool-call AskUserQuestion — a subagent has no user channel and would halt),
+   the **Design Doc Check**, the **office-hours / Prerequisite Skill Offer**, the **Review
+   Readiness Dashboard**, the **Plan File Review Report**, and any **Outside Voice** section.
+   Common skip list (mirrors /autoplan): Preamble, AskUserQuestion Format, Completeness /
+   Boil-the-Ocean, Search Before Building, Completion Status Protocol, Telemetry, Step 0 /
+   base-branch detect. The review TARGET (milestone diff scope + acceptance criteria) is passed
+   in the brief file. Auto-decision policy for anything the skill would ask the user: apply the
+   recommended option; list genuine taste decisions in the envelope's `follow_ups` (do NOT
+   block on them). It returns findings compact.
+2. **/review** (code review) on the diff — an Opus-or-Fable subagent reads
+   `~/.claude/skills/gstack/review/SKILL.md` from disk and runs the checklist passes against
+   the diff. It must SKIP: the Preamble, Step 1 / branch + base-branch detect, the **Review
+   Army dispatch** (`{{REVIEW_ARMY}}` — subagents cannot spawn subagents, so it would error or
+   no-op), the **Adversarial / Codex step** (duplicated by the Codex + Grok forum below), the entire
+   **Fix-First / Step 5 flow and any commit** (fixes are the orchestrator's job), the Greptile
+   comment resolution, and the review-log persist. It returns findings-only in the envelope.
+3. **Adversarial cross-model forum (Codex + Grok)** on the diff — two independent external-CLI
+   reviews, each run inside its OWN Sonnet-low subagent's Bash, boundary-prefixed, read-only (Quick
+   reference). Codex runs `gpt-5.6-sol` at `ultra` effort; Grok runs `grok-build`. Cross-model gate
+   on `[P1]` — a `[P1]` from EITHER model FAILs the gate. If one member is unavailable/disabled,
+   note it and continue on the other's cross-model coverage; if BOTH are unavailable, this becomes a
+   single Claude adversarial subagent with findings tagged `[single-model]` and a printed notice —
+   the gate stays satisfiable.
+
+Collect findings into a compact list. Dispatch fix subagents (routed by complexity) until the
+gate is clean, then re-run the gate. Log one review-log entry PER review (see Quick reference).
+
+**Bounded deferral valve (not a free skip).** A genuinely small milestone's gate may be batched
+into the NEXT milestone's gate under strict bounds, all four of which hold:
+1. At most ONE milestone of deferral (you may never batch two milestones forward — that
+   recreates the "defects compound across milestones" failure this gate exists to prevent).
+2. NEVER batch a milestone that touches security, auth, migrations, or public interfaces.
+3. The FINAL milestone's gate is never deferrable.
+4. A batched milestone is marked **"built — gate pending"** in the plan, NOT complete, until
+   its covering gate runs clean.
+Say so explicitly when you batch. If you cannot satisfy all four, gate the milestone now.
+
+**d. LOCAL DOCKER VERIFICATION (MANDATORY — before a milestone counts as done).**
+
+- **Detect** the local Dockerized setup: a subagent globs `docker-compose.yml` /
+  `compose.yaml` / `compose.yml` / `Dockerfile*` / a `Makefile` with an `up`/`dev`/`run`
+  target (`find . -maxdepth 4`). It derives the host port from the compose `ports:`
+  HOST:CONTAINER mapping — do NOT assume 3000.
+- **No runnable setup found?** This is NOT a silent skip. AskUserQuestion ONCE:
+  - **A) Point me at the runnable setup** — the user names the compose file / command / port,
+    and verification proceeds.
+  - **B) Waive Docker verification** — the final verdict becomes `COMPLETE_UNVERIFIED`. Record
+    the waiver in the Build Audit Trail (`waived_by_user: true`, timestamp, reason, residual
+    risk). This is the ONLY path to `COMPLETE_UNVERIFIED`.
+  - **C) Stop** — surface `BLOCKED`.
+  Absent a recorded user waiver, "no Docker setup found" is `BLOCKED`, never an implicit waiver.
+- **Bring it up:** a subagent runs the project's own wrapper first (`make up`), else
+  `docker compose up -d --wait`. Reachability gate: `curl -s -o /dev/null -w '%{http_code}'
+  http://localhost:PORT` against the app root or a declared health endpoint, polled until it
+  returns. **A 2xx/3xx is up; a 4xx/5xx is a FAIL** (a crashed app returning 500 or a 404
+  catch-all is not "up") — unless the plan explicitly declares that status expected for the
+  probed path. Also confirm `docker compose ps` shows services healthy with no restart loop in
+  logs. `NO_SERVER` is a FAIL of "functional", never a pass or skip.
+- **Exercise end-to-end:** for a web app, a subagent reads
+  `~/.claude/skills/gstack/browse/SKILL.md` from disk (which bootstraps the `$B` browse alias)
+  and drives the running URL directly with the browse patterns
+  (`$B goto → text → console --errors → network → snapshot -i/-D`) across the milestone's
+  critical paths — following qa/SKILL.md's testing methodology for coverage, but reporting
+  issues in the envelope and never fixing or committing (that stays a routed fix dispatch). For
+  non-web, run the smoke/test suite. Confirm zero console/network errors and every
+  acceptance-criterion path PASS.
+- Fix via routed subagents until green. Never mark a milestone done on a red or untested build.
+  The subagent returns the compact verdict + pasted evidence lines; you do NOT ingest raw logs.
+
+**e. Mark complete.** A **Sonnet-low** subagent marks the milestone complete in the plan/
+TODOS.md (or **"built — gate pending"** if its gate was batched per the deferral valve) and
+returns confirmation. Append a row to the Build Audit Trail (`$RUN_DIR/audit-trail.md`) via a
+subagent — not in your context.
+
+**f. Report.** Emit a one-line milestone summary to the user (what shipped, gate status,
+Docker status). Continue to the next milestone.
+
+### 2. Repeat
+
+Loop steps 1.0–1f until the plan is COMPLETE: every milestone built, locally Docker-verified
+functional, and review-gated clean over the frozen milestone set. A milestone left
+"built — gate pending" is NOT complete. If a single milestone's fix cycle exceeds 3 gate/fix
+rounds without going clean, STOP and surface a `BLOCKED` status with the specific blocker,
+rather than spinning.
+
+---
+
+## Completion & hand-off
+
+When the whole plan is done + Docker-verified + review-clean: STOP the loop. Present a
+concise completion report (fixed-vocabulary verdict + boxed summary), then write the
+machine-readable artifact and suggest — do NOT run — the business skills.
+
+```
+╔══════════════════════════════════════════════════════════════╗
+║  AUTOBUILDER-LOOP — COMPLETE                                  ║
+╠══════════════════════════════════════════════════════════════╣
+║  Milestones:   N/N built                                     ║
+║  Review gate:  CLEAN (eng-review + /review + codex + grok)   ║
+║  Docker:       VERIFIED FUNCTIONAL (port PORT, 0 console err) ║
+║  Residual risk: <one line, or "none">                        ║
+╚══════════════════════════════════════════════════════════════╝
+```
+
+Verdict is one of `COMPLETE_VERIFIED` / `COMPLETE_UNVERIFIED` / `BLOCKED`:
+
+- `COMPLETE_VERIFIED` — every milestone gated clean and Docker-verified functional.
+- `COMPLETE_UNVERIFIED` — legal ONLY with a recorded user Docker-verify waiver (step d, option
+  B) captured in the audit trail (`waived_by_user`, timestamp, reason, residual risk). Absent
+  that recorded waiver, the only legal verdicts are `COMPLETE_VERIFIED` or `BLOCKED`.
+- `BLOCKED` — a task or gate could not be driven clean. A `BLOCKED` exit MUST list any
+  milestones still marked "built — gate pending" in the completion report.
+
+**Then SUGGEST (never auto-run) the human-owned business/decision skills** — these are the
+user's calls, not the loop's:
+
+- `/design-review` — visual + UX audit of the live, running result.
+- `/plan-ceo-review` — strategy / scope / ambition, and positioning of the result.
+- `/plan-design-review` — as relevant.
+
+If the user intends a next plan iteration, `/office-hours` and `/autoplan` are theirs to run as
+inputs to that next plan — this loop never invokes them.
+
+State plainly: "These are business decisions you own. Run them when you're ready — I have
+not run them." Finish with a Completion Status (`DONE` / `DONE_WITH_CONCERNS` / `BLOCKED` /
+`NEEDS_CONTEXT`).
+
+---
+
+## Clean-context discipline
+
+The rules below are non-negotiable. Each has a rationalization that will feel reasonable in
+the moment — and each is wrong.
+
+### Rationalization table
+
+| You'll be tempted to think… | Reality | Do instead |
+|---|---|---|
+| "I need to understand the codebase first — let me just read the key files myself real quick." | Raw file contents in the orchestrator context poison every downstream routing/gate decision and force early compaction. | Dispatch a scoped-read subagent; receive a distilled summary. |
+| "This is a trivial two-line change; a subagent is pure overhead." | The trivial-edit exception has no boundary — take it once and you're the worker; the edit also skips routing and the review path. | Dispatch it. Every edit goes through a subagent. |
+| "I'm already Opus and perfectly capable — routing is a nice-to-have." | "I can do it all myself" is the exact centralizing instinct the user forbade; it's slower/pricier for bulk work and wastes the specialized tiers. | Classify, then emit `model:` on every dispatch. |
+| "Tests are green and it looks clean — I'll batch one eng-review at the end." | Deferring the gate lets defects compound across milestones and become expensive to unwind; a self-check by the plan's author is not independent review. | Gate every milestone (eng-review + /review + codex + grok). Batch at most ONE small, non-sensitive milestone forward and say so. |
+| "Unit tests pass and the code is obviously correct — Docker is just packaging." | Unit tests don't prove the composed system runs; wiring, env vars, networking, migrations, and startup are exactly what only a real bring-up catches. | Bring the stack up in Docker and exercise it; "should work" ≠ verified. |
+| "I'm right here with context — I'll run the business reviews too and hand back a complete package." | The user explicitly reserved office-hours / design-review / ceo-review for themselves; running them crosses a clear hand-off line. | Suggest them. Never auto-run. |
+| "Let the subagent report the full diff and logs so I can trust it — summaries might hide problems." | Context pollution comes back through the return channel; you drown in detail and lose the thread across milestones. | Require the compact envelope; the full report stays in a file on disk. |
+| "I've internalized the plan; re-reading TODOS.md every step is wasteful." | Working from memory lets scope silently drift, drop milestones, and skip gates — "drive to completion" becomes unverifiable. | Re-read the next milestone from disk (via subagent) each iteration. |
+| "Everything's been going smoothly — I'm confident it works. Let me report done." | Confidence and smooth progress are not evidence; premature "done" hands the user broken work right before their reviews. | Require evidence per acceptance criterion + a live Docker run before "done." |
+
+### Red flags — if you catch yourself thinking any of these, STOP
+
+- "I'll just read this one file."
+- "One quick inline fix."
+- "Skip the gate, it's trivial."
+- "The build probably works, mark it done."
+- "I'll run ceo-review too while I'm here."
+
+Each is the entry point to a baseline failure. Route it back to a subagent, a gate, a
+Docker run, or the user.
+
+---
+
+## Quick reference
+
+**Claude subagent dispatch (fill `<model>`/effort from the routing table):**
+```
+Agent (subagent_type: general-purpose):
+  description: "<one-line task>"
+  model: <fable|opus|sonnet>      # REQUIRED — never omit
+  run_in_background: <true|false> # true = parallel / long work
+  prompt: |
+    Read your brief first: <ABS_BRIEF_PATH>   # requirements live here, verbatim
+    <one line on where this fits + interfaces from prior tasks>
+    Work at <max|high|medium> reasoning effort.   # effort in prose (host may lack an effort param)
+    Write your full report to: <ABS_REPORT_PATH under $RUN_DIR/reports/>
+    Return only the envelope: STATUS, requested_model, actual_model, fallback_reason,
+    files_touched, change_summary, tests_run, test_result, follow_ups.
+```
+
+**Envelope contract (what a subagent returns):** `STATUS` (DONE / DONE_WITH_CONCERNS /
+NEEDS_CONTEXT / BLOCKED) + `requested_model` + `actual_model` + `fallback_reason` (so silent
+downgrades surface) + `files_touched` + one-line `change_summary` + `tests_run` +
+`test_result` + `follow_ups`. Never full diffs/logs/files. Parallel = N dispatch calls in
+ONE turn.
+
+**Follow-ups contract.** The milestone set is frozen at resolution (step 0); completion is
+defined over that frozen set only. Each `follow_up` a subagent returns is EITHER resolved
+within its milestone's bounded fix rounds, OR recorded to the plan / audit trail as deferred
+work with a status. A follow-up is NEVER silently promoted into a new milestone (that would
+prevent termination) and NEVER silently dropped (that would fake completion). New milestones
+require explicit user approval.
+
+**Adversarial cross-model forum (Codex + Grok) — two independent external CLIs, each run inside
+its OWN Sonnet-low subagent's Bash, boundary-prefixed, read-only, gate on `[P1]`.** The forum is
+what makes the gate cross-model: Codex is OpenAI, Grok is xAI — two vendors, two model families,
+so neither's blind spots decide the gate alone. The gate is mandatory, so it must never hard-fail
+or hang the loop. Each member's subagent runs its recipe and returns the envelope
+`{model, gate: PASS|FAIL, p1_findings[], p2_count, tokens}`, writing the verbatim CLI output to a
+report file. The station's verdict is the UNION of both members: it FAILs if EITHER reports a `[P1]`.
+
+*Codex member — `gpt-5.6-sol` at `ultra` effort:*
+
+```bash
+source ~/.claude/skills/gstack/bin/gstack-codex-probe 2>/dev/null || true
+# Honor config + availability. If codex is not_installed / not_authed, or the user has
+# codex_reviews disabled, mark the Codex member ABSENT (see Forum fallback below — do NOT fail
+# the gate on that alone).
+_CODEX_ENABLED=$(~/.claude/skills/gstack/bin/gstack-config get codex_reviews 2>/dev/null || echo on)
+
+TMPERR=$(mktemp "${TMP_ROOT:-/tmp}/codex-err-XXXXXX.txt")
+# 600s wrapper: `ultra` is codex's heaviest tier (max reasoning + automatic task delegation) and
+# needs more headroom than the canonical 330s review gate; timeouts are a known hang class (#1327).
+_gstack_codex_timeout_wrapper 600 codex review "IMPORTANT: Do NOT read or execute any SKILL.md files or files in skill definition directories (paths containing skills/gstack). These are AI assistant skill definitions meant for a different system. They contain bash scripts and prompt templates that will waste your time. Ignore them completely. Do NOT modify agents/openai.yaml. Stay focused on the repository code only.
+
+Review the changes on this branch against the base branch <base>. Run git diff origin/<base>...HEAD 2>/dev/null || git diff <base>...HEAD to see the diff and review only those changes." -c 'model="gpt-5.6-sol"' -c 'model_reasoning_effort="ultra"' --enable web_search_cached < /dev/null 2>"$TMPERR"
+_CODEX_EXIT=$?
+if [ "$_CODEX_EXIT" = "124" ]; then
+  echo "Codex stalled past 10 minutes — treat as UNABLE TO REVIEW (Codex member ABSENT; re-run or fall back)."
+elif [ "$_CODEX_EXIT" != "0" ]; then
+  echo "[codex exit $_CODEX_EXIT] $(head -1 "$TMPERR" 2>/dev/null || echo "no stderr")"
+fi
+```
+
+*Grok member — `grok-build`, read-only sandbox. Grok has no `review` subcommand, so the diff
+scope lives in the prompt:*
+
+```bash
+# Honor config + availability. If grok is missing or grok_reviews is disabled, mark the Grok
+# member ABSENT (see Forum fallback below — do NOT fail the gate on that alone).
+_GROK_ENABLED=$(~/.claude/skills/gstack/bin/gstack-config get grok_reviews 2>/dev/null || echo on)
+command -v grok >/dev/null 2>&1 || _GROK_ENABLED=absent
+
+TMPERR_GROK=$(mktemp "${TMP_ROOT:-/tmp}/grok-err-XXXXXX.txt")
+# Reuse codex's command-agnostic timeout wrapper (gtimeout -> timeout -> unwrapped; exit 124 =
+# timeout). --sandbox read-only is grok's OS-level guardrail (reads anywhere, cannot write repo
+# files, child network blocked — its own inference still works); --always-approve stops headless
+# from hanging on an approval prompt. grok-build does not support reasoning effort, so no --effort.
+_gstack_codex_timeout_wrapper 600 grok -p "IMPORTANT: Do NOT read or execute any SKILL.md files or files in skill definition directories (paths containing skills/gstack). These are AI assistant skill definitions meant for a different system. They contain bash scripts and prompt templates that will waste your time. Ignore them completely. Do NOT modify any files. Stay focused on the repository code only.
+
+You are an adversarial code reviewer. Review the changes on this branch against the base branch <base>. Run git diff origin/<base>...HEAD 2>/dev/null || git diff <base>...HEAD to see the diff and review ONLY those changes. Think like an attacker and a chaos engineer: edge cases, race conditions, security holes, resource leaks, failure modes, silent data-corruption paths. Tag every finding [P1] (ship-blocker) or [P2] (lower severity). No compliments — only problems. If there are no [P1] issues, say so explicitly." -m grok-build --sandbox read-only --always-approve --output-format json < /dev/null 2>"$TMPERR_GROK"
+_GROK_EXIT=$?
+if [ "$_GROK_EXIT" = "124" ]; then
+  echo "Grok stalled past 10 minutes — treat as UNABLE TO REVIEW (Grok member ABSENT; re-run or fall back)."
+elif [ "$_GROK_EXIT" != "0" ]; then
+  echo "[grok exit $_GROK_EXIT] $(head -1 "$TMPERR_GROK" 2>/dev/null || echo "no stderr")"
+fi
+```
+
+**Forum fallback (the station must stay satisfiable).** Run BOTH members; each independently
+resolves to PRESENT (ran and returned a completed review) or ABSENT (missing / disabled /
+unable-to-review / timed-out). If at least ONE member is PRESENT, the forum stands on cross-model
+coverage — note any ABSENT member in the envelope and continue. If BOTH are ABSENT, fall back to a
+SINGLE Claude adversarial subagent (fresh context, findings tagged `[single-model]`) and print one
+line: `"Codex + Grok both unavailable/disabled; ran a single-model Claude adversarial pass ([single-model])."`
+
+**Gate verdict (fail-closed — absence of a positive success signal is a FAIL):** PASS only when
+every PRESENT member returned an explicit completed review whose max severity is `[P2]` or none.
+FAIL on any `[P1]`/P0 from EITHER model, on "unable to review" / "no diff" / empty output, or on a
+non-zero / `124` (timeout) exit / malformed output from a member that was expected to run. A member
+being ABSENT is not by itself a PASS or a FAIL — but if BOTH are ABSENT and even the `[single-model]`
+fallback did not complete, the station FAILs. Never read a silent no-op as clean. Log EACH member's
+verdict to the review-log so a skipped/failed review is visible.
+
+**Filesystem-boundary note:** the codex boundary text above uses the host-neutral phrasing
+(matching autoplan's codex recipes) so it renders correctly on every host — keep its intent in
+sync with codex/SKILL.md.tmpl's canonical boundary, since this recipe calls `codex review`
+directly. The grok member enforces read-only at the OS level via `--sandbox read-only` (writes and
+child network blocked), so it cannot mutate the repo even if the boundary prose is ignored.
+
+**Per-gate dashboard log — one entry PER review PER gate** (the gate runs four reviews —
+eng-review, /review, and the Codex + Grok forum; log four entries, all `via: "autobuilder-loop"`,
+sharing the same commit):
+```bash
+COMMIT=$(git rev-parse --short HEAD 2>/dev/null)
+TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"plan-eng-review","timestamp":"'"$TIMESTAMP"'","status":"STATUS","unresolved":N,"via":"autobuilder-loop","commit":"'"$COMMIT"'"}'
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"review","timestamp":"'"$TIMESTAMP"'","status":"STATUS","unresolved":N,"via":"autobuilder-loop","commit":"'"$COMMIT"'"}'
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"codex","timestamp":"'"$TIMESTAMP"'","status":"STATUS","unresolved":N,"via":"autobuilder-loop","commit":"'"$COMMIT"'"}'
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"grok","timestamp":"'"$TIMESTAMP"'","status":"STATUS","unresolved":N,"via":"autobuilder-loop","commit":"'"$COMMIT"'"}'
+```
+`status` = `clean` if no unresolved issues, else `issues_open`. Log the codex and grok entries
+separately so the forum's cross-model coverage is visible per member. If a member is ABSENT
+(unavailable/disabled), still log its entry with a status noting the absence; when BOTH members
+are ABSENT and the loop falls back to the single-model Claude pass, note the fallback in the codex
+and grok entries' status/fields so the substitution is visible. This is separate from — and in
+addition to — the run-level telemetry the preamble renders in the "Telemetry (run last)" block
+above; the preamble handles that one, do not duplicate it. All review-log calls are best-effort —
+never block the loop.
+
+---
+
+## Important Rules
+
+- **Orchestrator only.** Never write/edit code, never read source/diffs/logs into your
+  context, never run the build yourself. Your tools are `Agent`, `Bash`, `AskUserQuestion` —
+  top-level Bash is only for the Codex + Grok adversarial gate and review-log/telemetry.
+  Everything real happens in a subagent that returns a compact envelope.
+- **Route every dispatch.** Classify complexity first; emit `model:` every time. Probe Fable
+  once at loop start; on unavailability route orchestration/synthesis to Opus-max and say so.
+  Hard work never silently degrades below the Opus class.
+- **Gate EVERY milestone.** eng-review + /review + Codex + Grok (the adversarial forum), fix
+  until clean. There is no major/minor distinction and no "it's small" skip — the only carve-out is a plan-labeled
+  docs-only milestone. The deferral valve batches at most one small, non-sensitive milestone
+  forward, marks it "built — gate pending", and never applies to the final milestone.
+- **Docker-verify before done.** App reachable (2xx/3xx) on its port, zero console/network
+  errors, every acceptance path PASS, tests+build green on fresh evidence. `NO_SERVER` = fail;
+  4xx/5xx = fail. No Docker setup → AskUserQuestion (fix / waive / stop), never a silent skip.
+- **The plan is the contract.** TODOS.md/plan on disk is source of truth; freeze the milestone
+  set at resolution; re-read the next milestone each iteration; never reorder/merge/drop items
+  from memory; follow-ups never silently become milestones or get dropped.
+- **Never auto-run business or plan skills.** Suggest /design-review, /plan-ceo-review,
+  /plan-design-review — the user owns those. Never auto-invoke /autoplan or any review skill.
+- **Evidence, not confidence.** No "done" without verification output tied to each
+  acceptance criterion and a live Docker run.
