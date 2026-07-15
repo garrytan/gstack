@@ -47,6 +47,73 @@ function tempHome(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-codex-probe-home-'));
 }
 
+describe('gstack-codex-probe: per-project profile gate', () => {
+  test('blocks Codex before invocation when the project has no approved profile', () => {
+    const home = tempHome();
+    const stub = tempStubCodex('');
+    try {
+      const marker = path.join(home, 'invoked');
+      fs.writeFileSync(path.join(stub.dir, 'codex'), `#!/bin/bash\ntouch ${JSON.stringify(marker)}\n`);
+      fs.chmodSync(path.join(stub.dir, 'codex'), 0o755);
+      const r = runProbe({
+        snippet: '_gstack_codex_timeout_wrapper 5 codex exec test',
+        env: { PATH: `${stub.pathEntry}:${process.env.PATH}` },
+        home,
+      });
+      expect(r.status).toBe(78);
+      expect(r.stdout).toContain('CODEX_PROFILE_REQUIRED');
+      expect(fs.existsSync(marker)).toBe(false);
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+      fs.rmSync(stub.dir, { recursive: true, force: true });
+    }
+  });
+
+  test('routes Codex through the profile approved for this project', () => {
+    const home = tempHome();
+    const approved = path.join(home, '.codex-work');
+    const configDir = path.join(home, '.gstack', 'projects', 'garrytan-gstack');
+    const stub = tempStubCodex('');
+    try {
+      fs.mkdirSync(approved, { recursive: true });
+      fs.mkdirSync(configDir, { recursive: true });
+      fs.writeFileSync(path.join(configDir, 'codex.yaml'), `codex_home: ${approved}\n`);
+      fs.writeFileSync(path.join(stub.dir, 'codex'), '#!/bin/bash\nprintf "%s" "$CODEX_HOME"\n');
+      fs.chmodSync(path.join(stub.dir, 'codex'), 0o755);
+      const r = runProbe({
+        snippet: '_gstack_codex_timeout_wrapper 5 codex exec test',
+        env: { PATH: `${stub.pathEntry}:${process.env.PATH}` },
+        home,
+      });
+      expect(r.status).toBe(0);
+      expect(r.stdout).toContain(`CODEX_PROFILE: ${approved}`);
+      expect(r.stdout.trim().endsWith(approved)).toBe(true);
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+      fs.rmSync(stub.dir, { recursive: true, force: true });
+    }
+  });
+
+  test('explicit eval bypass preserves isolated harness behavior', () => {
+    const home = tempHome();
+    const stub = tempStubCodex('');
+    try {
+      fs.writeFileSync(path.join(stub.dir, 'codex'), '#!/bin/bash\necho BYPASSED\n');
+      fs.chmodSync(path.join(stub.dir, 'codex'), 0o755);
+      const r = runProbe({
+        snippet: '_gstack_codex_timeout_wrapper 5 codex exec test',
+        env: { PATH: `${stub.pathEntry}:${process.env.PATH}`, GSTACK_CODEX_SKIP_GATE: '1' },
+        home,
+      });
+      expect(r.status).toBe(0);
+      expect(r.stdout.trim()).toBe('BYPASSED');
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+      fs.rmSync(stub.dir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('gstack-codex-probe: auth probe', () => {
   test('CODEX_API_KEY set → AUTH_OK', () => {
     const home = tempHome();

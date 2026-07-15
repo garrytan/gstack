@@ -876,12 +876,28 @@ shared helpers that both `/codex` and `/autoplan` use.
 _TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || echo off)
 source ~/.claude/skills/gstack/bin/gstack-codex-probe
 
+if ! _gstack_codex_profile_gate; then
+  echo "PROFILE_REQUIRED"
+fi
+
 if ! _gstack_codex_auth_probe >/dev/null; then
   _gstack_codex_log_event "codex_auth_failed"
   echo "AUTH_FAILED"
 fi
 _gstack_codex_version_check   # warns if known-bad, non-blocking
 ```
+
+If the output contains `PROFILE_REQUIRED`, use AskUserQuestion before doing any
+Codex work. List the discovered `~/.codex*` directories and ask which Codex
+profile is approved for this project, plus Cancel. On selection, resolve `SLUG`
+with `gstack-slug`, create `~/.gstack/projects/$SLUG/`, and write `codex.yaml`
+containing `codex_home: <selected absolute path>`. Then rerun this step and tell
+the user `Codex will use <path> for this project.` If they cancel, stop without
+invoking Codex. Never infer a choice from whichever profile was used most
+recently.
+
+`GSTACK_CODEX_SKIP_GATE=1` is only for isolated eval harnesses; normal skill
+runs must not set it.
 
 If the output contains `AUTH_FAILED`, stop and tell the user:
 "No Codex authentication found. Run `codex login` or set `$CODEX_API_KEY` / `$OPENAI_API_KEY`, then re-run this skill."

@@ -74,7 +74,8 @@ On any error: continue — ${feature} is informational, not a gate.`;
  *   5. sets ONE canonical mode var and echoes `CODEX_MODE: <mode>` so the agent
  *      gates later blocks on the echoed value.
  *
- * Mode values: `disabled` (config off) | `not_installed` | `not_authed` | `ready`.
+ * Mode values: `disabled` (config off) | `not_installed` | `profile_required` |
+ * `not_authed` | `ready`.
  * The path is host-rewritten at gen-skill-docs time (pathRewrites), so the
  * literal `~/.claude/skills/gstack` is correct here and becomes `$GSTACK_ROOT`
  * etc. for non-Claude hosts.
@@ -100,6 +101,8 @@ if [ "$_CODEX_CFG" = "disabled" ]; then
   ${m}="disabled"
 elif ! command -v codex >/dev/null 2>&1; then
   ${m}="not_installed"; _gstack_codex_log_event "codex_cli_missing" 2>/dev/null || true
+elif ! _gstack_codex_profile_gate; then
+  ${m}="profile_required"
 elif ! _gstack_codex_auth_probe >/dev/null 2>&1; then
   ${m}="not_authed"; _gstack_codex_log_event "codex_auth_failed" 2>/dev/null || true
 else
@@ -111,6 +114,7 @@ echo "CODEX_MODE: $${m}"
 Branch on the echoed \`CODEX_MODE\`:
 - **\`disabled\`** — the user turned Codex reviews off (\`codex_reviews=disabled\`). ${disabledLine}
 - **\`not_installed\`** — Codex CLI absent. Print: "Codex not installed — using Claude subagent. Install for cross-model coverage: \`npm install -g @openai/codex\`." Fall back to the Claude subagent path.
+- **\`profile_required\`** — Before invoking Codex, use AskUserQuestion to list the discovered \`~/.codex*\` directories and ask which profile is approved for this project, plus Cancel. Save the selected absolute path as \`codex_home: <path>\` in \`~/.gstack/projects/$SLUG/codex.yaml\`, then rerun this preflight and disclose the path. Cancel skips Codex. Never silently choose the last-used profile.
 - **\`not_authed\`** — installed but no credentials. Print: "Codex installed but not authenticated — using Claude subagent. Run \`codex login\` or set \`$CODEX_API_KEY\`." Fall back to the Claude subagent path.
 - **\`ready\`** — run the Codex pass below.`;
 }
