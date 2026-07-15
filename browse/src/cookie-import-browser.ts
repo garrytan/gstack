@@ -529,6 +529,7 @@ async function dpapiDecrypt(encryptedBytes: Buffer): Promise<Buffer> {
     stdin: 'pipe',
     stdout: 'pipe',
     stderr: 'pipe',
+    windowsHide: true,
   });
 
   proc.stdin.write(encryptedBytes.toString('base64'));
@@ -779,6 +780,7 @@ function isBrowserRunning(browserName: string): Promise<boolean> {
   return new Promise((resolve) => {
     const proc = Bun.spawn(['tasklist', '/FI', `IMAGENAME eq ${exe}`, '/NH'], {
       stdout: 'pipe', stderr: 'pipe',
+      windowsHide: true,
     });
     proc.exited.then(async () => {
       const out = await new Response(proc.stdout).text();
@@ -869,7 +871,7 @@ export async function importCookiesViaCdp(
     '--disable-extensions',
     '--disable-sync',
     '--no-default-browser-check',
-  ], { stdout: 'pipe', stderr: 'pipe' });
+  ], { stdout: 'pipe', stderr: 'pipe', windowsHide: true });
 
   // Wait for Chrome to start, then find a page target's WebSocket URL.
   // Network.getAllCookies is only available on page targets, not browser.

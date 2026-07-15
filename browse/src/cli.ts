@@ -143,7 +143,7 @@ async function killServer(pid: number): Promise<void> {
     try {
       Bun.spawnSync(
         ['taskkill', '/PID', String(pid), '/T', '/F'],
-        { stdout: 'pipe', stderr: 'pipe', timeout: 5000 }
+        { stdout: 'pipe', stderr: 'pipe', timeout: 5000, windowsHide: true }
       );
     } catch (err: any) {
       if (err?.code !== 'ENOENT') throw err;
@@ -323,9 +323,9 @@ async function startServer(extraEnv?: Record<string, string>): Promise<ServerSta
     const launcherCode =
       `const{spawn}=require('child_process');` +
       `spawn(process.execPath,[${JSON.stringify(NODE_SERVER_SCRIPT)}],` +
-      `{detached:true,stdio:['ignore','ignore','ignore'],env:Object.assign({},process.env,` +
+      `{detached:true,stdio:['ignore','ignore','ignore'],windowsHide:true,env:Object.assign({},process.env,` +
       `${extraEnvStr})}).unref()`;
-    Bun.spawnSync(['node', '-e', launcherCode], { stdio: ['ignore', 'ignore', 'ignore'] });
+    Bun.spawnSync(['node', '-e', launcherCode], { stdio: ['ignore', 'ignore', 'ignore'], windowsHide: true });
   } else {
     // macOS/Linux: Bun.spawn().unref() only removes the child from Bun's event
     // loop — it does NOT call setsid(), so the spawned server stays in the
@@ -499,6 +499,75 @@ async function ensureServer(flags?: GlobalFlags): Promise<ServerState> {
   } finally {
     releaseLock();
   }
+}
+
+async function printPassiveStatus(): Promise<void> {
+  const state = readState();
+  if (!state) {
+    console.log('Status: stopped');
+    return;
+  }
+
+  try {
+    const resp = await fetch(`http://127.0.0.1:${state.port}/status`, {
+      headers: { 'Authorization': `Bearer ${state.token}` },
+      signal: AbortSignal.timeout(2000),
+    });
+    if (resp.ok) {
+      const body = await resp.json() as any;
+      console.log([
+        `Status: ${body.status || 'unknown'}`,
+        `Mode: ${body.mode || state.mode || 'unknown'}`,
+        `URL: ${body.url || '(unknown)'}`,
+        `Tabs: ${body.tabs ?? '?'}`,
+        `PID: ${body.pid || state.pid}`,
+      ].join('\n'));
+      return;
+    }
+  } catch {
+    // Fall through to stopped/unavailable summary.
+  }
+
+  console.log([
+    'Status: stopped',
+    `PID: ${state.pid}`,
+    `Port: ${state.port}`,
+    'Reason: daemon is not responding',
+  ].join('\n'));
+}
+
+async function stopExistingServer(): Promise<void> {
+  const state = readState();
+  if (!state) {
+    console.log('No browse server running.');
+    return;
+  }
+
+  if (await isServerHealthy(state.port)) {
+    try {
+      await fetch(`http://127.0.0.1:${state.port}/command`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${state.token}`,
+        },
+        body: JSON.stringify({ command: 'stop', args: [] }),
+        signal: AbortSignal.timeout(1000),
+      });
+    } catch {
+      // The daemon often exits before it can return the HTTP response.
+    }
+    await Bun.sleep(500);
+  }
+
+  if (state.pid && isProcessAlive(state.pid)) {
+    await killServer(state.pid);
+  }
+
+  await killOrphanChromium();
+  cleanChromiumProfileLocks();
+  safeUnlinkQuiet(config.stateFile);
+  console.log('Browse server stopped.');
 }
 
 /**
@@ -1038,6 +1107,17 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
 
   const command = args[0];
   const commandArgs = args.slice(1);
+
+  // Passive lifecycle commands must not create a daemon.
+  if (command === 'status') {
+    await printPassiveStatus();
+    process.exit(0);
+  }
+
+  if (command === 'stop') {
+    await stopExistingServer();
+    process.exit(0);
+  }
 
   // ─── Headed Connect (pre-server command) ────────────────────
   // connect must be handled BEFORE ensureServer() because it needs

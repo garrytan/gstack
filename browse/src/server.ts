@@ -5,7 +5,7 @@
  *   Bun.serve HTTP on localhost → routes commands to Playwright
  *   Console/network/dialog buffers: CircularBuffer in-memory + async disk flush
  *   Chromium crash → server EXITS with clear error (CLI auto-restarts)
- *   Auto-shutdown after BROWSE_IDLE_TIMEOUT (default 30 min)
+ *   Auto-shutdown after BROWSE_IDLE_TIMEOUT (default 30 min, 5 min on Windows)
  *
  * State:
  *   State file: <project-root>/.gstack/browse.json (set via BROWSE_STATE_FILE env)
@@ -140,7 +140,8 @@ function sanitizeAuthToken(raw: string | undefined): string | null {
 // and factory-scoped validateAuth closes over the same value. start() reads
 // env once via resolveConfigFromEnv() and threads the result through.
 const BROWSE_PORT = parseInt(process.env.BROWSE_PORT || '0', 10);
-const IDLE_TIMEOUT_MS = parseInt(process.env.BROWSE_IDLE_TIMEOUT || '1800000', 10); // 30 min
+const DEFAULT_IDLE_TIMEOUT_MS = process.platform === 'win32' ? 300_000 : 1_800_000;
+const IDLE_TIMEOUT_MS = parseInt(process.env.BROWSE_IDLE_TIMEOUT || String(DEFAULT_IDLE_TIMEOUT_MS), 10);
 
 /**
  * Port the local listener bound to. Set once the daemon picks a port.
@@ -1800,6 +1801,28 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
           // `pty-session-cookie.ts` for the rationale (codex outside-voice
           // finding #2: don't reuse this endpoint for shell auth).
           terminalPort: readTerminalPort(),
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      // Status snapshot — auth required, does NOT reset idle timer.
+      if (url.pathname === '/status' && req.method === 'GET') {
+        if (!validateAuth(req)) {
+          return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+            status: 401,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        const healthy = await browserManager.isHealthy();
+        return new Response(JSON.stringify({
+          status: healthy ? 'healthy' : 'unhealthy',
+          mode: browserManager.getConnectionMode(),
+          uptime: Math.floor((Date.now() - startTime) / 1000),
+          url: browserManager.getCurrentUrl(),
+          tabs: browserManager.getTabCount(),
+          pid: process.pid,
         }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },

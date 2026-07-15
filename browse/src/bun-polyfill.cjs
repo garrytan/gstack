@@ -91,6 +91,7 @@ globalThis.Bun = {
       stdio,
       env: options.env,
       cwd: options.cwd,
+      windowsHide: true,
     });
 
     return {
