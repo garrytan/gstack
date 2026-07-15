@@ -606,6 +606,44 @@ link_claude_root_skill_alias() {
   _print_windows_copy_note_once
 }
 
+# Claude skill bodies still reference ~/.claude/skills/gstack/ for runtime
+# assets. If the checkout is installed as ~/.claude/skills/<other-name>, keep a
+# runtime-only gstack alias so those paths resolve without rewriting generated
+# SKILL.md files or dirtying the checkout.
+ensure_claude_runtime_alias() {
+  local gstack_dir="$1"
+  local skills_dir="$2"
+  local install_name
+  local install_parent
+  local alias
+  local existing_real
+  local claude_skills_dir
+
+  claude_skills_dir="$HOME/.claude/skills"
+  [ "$skills_dir" = "$claude_skills_dir" ] || return 0
+
+  install_name="$(basename "$gstack_dir")"
+  [ "$install_name" = "gstack" ] && return 0
+
+  install_parent="$(dirname "$gstack_dir")"
+  [ "$install_parent" = "$skills_dir" ] || return 0
+
+  alias="$skills_dir/gstack"
+  if [ -d "$alias" ] && [ ! -L "$alias" ]; then
+    existing_real=$(cd "$alias" 2>/dev/null && pwd -P || echo "")
+    if [ -n "$existing_real" ] && [ "$existing_real" != "$gstack_dir" ]; then
+      log "  warning: $alias already exists as a separate install; not replacing it"
+      return 0
+    fi
+  fi
+
+  if [ -L "$alias" ] || [ ! -e "$alias" ]; then
+    _link_or_copy "$gstack_dir" "$alias"
+    log "  linked runtime alias: $alias -> $gstack_dir"
+    _print_windows_copy_note_once
+  fi
+}
+
 # ─── Helper: remove old unprefixed Claude skill entries ───────────────────────
 # Migration: when switching from flat names to gstack- prefixed names,
 # clean up stale symlinks or directories that point into the gstack directory.
@@ -982,6 +1020,7 @@ fi
 
 if [ "$INSTALL_CLAUDE" -eq 1 ]; then
   if [ "$SKILLS_BASENAME" = "skills" ]; then
+    ensure_claude_runtime_alias "$INSTALL_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
     # Clean up stale symlinks from the opposite prefix mode
     if [ "$SKILL_PREFIX" -eq 1 ]; then
       cleanup_old_claude_symlinks "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
