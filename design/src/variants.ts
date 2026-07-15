@@ -19,6 +19,23 @@ export interface VariantsOptions {
   viewports?: string; // "desktop,tablet,mobile" — generates at multiple sizes
 }
 
+/**
+ * Normalize a requested variant count to the supported range.
+ *
+ * `--count` reaches us via `parseInt`, which yields `NaN` for non-numeric
+ * input and happily passes zero/negative values through. The generation loop
+ * only capped the upper bound, so any of those silently produced zero variants
+ * and emitted `"count": null`/`0`/negative in the JSON result. Clamp to the
+ * supported `[1, 7]` range; fall back to the default of 3 when the value is not
+ * a finite number (an unparseable flag, not an explicit out-of-range request).
+ *
+ * Exported for direct unit testing.
+ */
+export function normalizeVariantCount(count: number): number {
+  if (!Number.isFinite(count)) return 3;
+  return Math.max(1, Math.min(Math.trunc(count), 7));
+}
+
 const STYLE_VARIATIONS = [
   "", // First variant uses the brief as-is
   "Use a bolder, more dramatic visual style with stronger contrast and larger typography.",
@@ -153,7 +170,7 @@ export async function variants(options: VariantsOptions): Promise<void> {
     return;
   }
 
-  const count = Math.min(options.count, 7); // Cap at 7 style variations
+  const count = normalizeVariantCount(options.count); // Clamp to [1, 7] style variations
   const size = options.size || "1536x1024";
 
   console.error(`Generating ${count} variants...`);
