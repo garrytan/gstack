@@ -1,17 +1,19 @@
 ---
-name: gstack
+name: setup-search-mcp
 preamble-tier: 1
-version: 1.2.0
-description: Router for the gstack skill suite. (gstack)
+version: 1.0.0
+description: Set up free web search for agents in gstack's Search Before Building workflow. (gstack)
+triggers:
+  - setup search
+  - install search mcp
+  - connect parallel search mcp
+  - free web search
+  - free search mcp
+  - agent web search
+  - search before building setup
 allowed-tools:
   - Bash
-  - Read
   - AskUserQuestion
-triggers:
-  - gstack
-  - which gstack skill
-  - route this with gstack
-
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
@@ -19,10 +21,9 @@ triggers:
 
 ## When to invoke this skill
 
-Sends any gstack request to the right skill
-(planning, review, QA, shipping, debugging, docs, security, design). For browser/QA
-and dogfooding it points you at /browse. Use when you invoke gstack without a specific
-skill, or ask "which gstack skill fits this?".
+Adds Parallel Search MCP with no account or API key by default.
+Use when: "setup search", "install search mcp", "connect Parallel Search MCP",
+"free web search", "agent web search", "make Search Before Building work".
 
 ## Preamble (run first)
 
@@ -80,7 +81,7 @@ _QUESTION_TUNING=$(~/.claude/skills/gstack/bin/gstack-config get question_tuning
 echo "QUESTION_TUNING: $_QUESTION_TUNING"
 mkdir -p ~/.gstack/analytics
 if [ "$_TEL" != "off" ]; then
-echo '{"skill":"gstack","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(_repo=$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null | tr -cd 'a-zA-Z0-9._-'); echo "${_repo:-unknown}")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
+echo '{"skill":"setup-search-mcp","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(_repo=$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null | tr -cd 'a-zA-Z0-9._-'); echo "${_repo:-unknown}")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 fi
 for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null); do
   if [ -f "$_PF" ]; then
@@ -102,7 +103,7 @@ if [ -f "$_LEARN_FILE" ]; then
 else
   echo "LEARNINGS: 0"
 fi
-~/.claude/skills/gstack/bin/gstack-timeline-log '{"skill":"gstack","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
+~/.claude/skills/gstack/bin/gstack-timeline-log '{"skill":"setup-search-mcp","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
 _HAS_ROUTING="no"
 if [ -f CLAUDE.md ] && grep -q "## Skill routing" CLAUDE.md 2>/dev/null; then
   _HAS_ROUTING="yes"
@@ -531,73 +532,81 @@ Replace `SKILL_NAME`, `OUTCOME`, and `USED_BROWSE` before running.
 
 Skills that run plan reviews (`/plan-*-review`, `/codex review`) include the EXIT PLAN MODE GATE blocking checklist at the end of the skill, which verifies the plan file ends with `## GSTACK REVIEW REPORT` before ExitPlanMode is called. Skills that don't run plan reviews (operational skills like `/ship`, `/qa`, `/review`) typically don't operate in plan mode and have no review report to verify; this footer is a no-op for them. Writing the plan file is the one edit allowed in plan mode.
 
-## Route first
+# /setup-search-mcp — Free Web Search for Agents
 
-This is the gstack router. Its one job is to send the request to the right skill.
+Set up Parallel Search MCP so agents working through Search Before Building get
+free web search. The default setup is free and no-auth: no account, no API key,
+no OAuth.
 
-1. If the request is about a browser, QA, dogfooding, screenshots, or inspecting a page
-   (open a site, test a deploy, take a screenshot, check a flow visually) → invoke `/browse`.
-2. Otherwise, route by the rules below. If nothing matches, answer directly.
+This is not browser automation. Keep `/browse` and `/open-gstack-browser` for
+authenticated pages, screenshots, clicks, visual QA, and stateful browser work.
+Use Search MCP for public web search and clean markdown from public URLs.
 
-Best-effort, record which way you routed (never block on it). Set `ROUTE_OUTCOME` to
-`browse` (sent to /browse), `routed` (sent to another skill), or `direct` (answered
-directly, no skill matched):
+## User-invocable
+
+When the user types `/setup-search-mcp`, run this skill.
+
+## Rules
+
+- Prefer the current agent host. If this session is Claude Code, configure
+  Claude Code. If this session is Codex, configure Codex.
+- Do not install into a different client just because its CLI exists.
+- Do not edit private config files for unknown hosts. Print the manual MCP
+  values instead.
+- Do not configure API-key auth or OAuth unless the user explicitly asks for
+  higher rate limits. If they do, use AskUserQuestion to ask whether they want
+  API-key auth or OAuth before printing or running auth-specific commands.
+
+## MCP Values
+
+- Server URL: `https://search.parallel.ai/mcp`
+- Transport: Streamable HTTP
+- Authentication: none by default
+- Expected tools after restart: `web_search`, `web_fetch`
+- OAuth URL, only if the user opts in: `https://search.parallel.ai/mcp-oauth`
+
+## Claude Code Setup
+
+Use this path only when the current agent host is Claude Code:
+
 ```bash
-~/.claude/skills/gstack/bin/gstack-telemetry-log --event-type route --skill gstack --outcome ROUTE_OUTCOME --session-id "$_SESSION_ID" 2>/dev/null || true
+claude mcp remove -s user "Parallel-Search-MCP" 2>/dev/null || true
+claude mcp remove "Parallel-Search-MCP" 2>/dev/null || true
+claude mcp add --scope user --transport http "Parallel-Search-MCP" https://search.parallel.ai/mcp
+claude mcp list
 ```
 
-If `PROACTIVE` is `false`: do NOT proactively invoke or suggest other gstack skills during
-this session. Only run skills the user explicitly invokes. This preference persists across
-sessions via `gstack-config`.
+Then tell the user to restart Claude Code if the new MCP tools are not visible
+in the current session. After restart, Claude-style tool names usually appear as
+`mcp__Parallel-Search-MCP__web_search` and
+`mcp__Parallel-Search-MCP__web_fetch`.
 
-If `PROACTIVE` is `true` (default): **invoke the Skill tool** when the user's request
-matches a skill's purpose. Do NOT answer directly when a skill exists for the task.
-Use the Skill tool to invoke it. The skill has specialized workflows, checklists, and
-quality gates that produce better results than answering inline.
+## Codex Setup
 
-**Routing rules — when you see these patterns, INVOKE the skill via the Skill tool:**
-- User describes a new idea, asks "is this worth building", brainstorms, pitches a concept → invoke `/office-hours`
-- User asks to spec something out, file an issue, write up a ticket, "turn this into a GitHub issue", "backlog item" → invoke `/spec`
-- User asks about strategy, scope, ambition, "think bigger", "what should we build" → invoke `/plan-ceo-review`
-- User asks to review architecture, lock in the plan, "does this design make sense" → invoke `/plan-eng-review`
-- User asks about design system, brand, visual identity, "how should this look" → invoke `/design-consultation`
-- User asks to review design of a plan → invoke `/plan-design-review`
-- User asks about developer experience of a plan, API/CLI/SDK design → invoke `/plan-devex-review`
-- User wants all reviews done automatically, "review everything" → invoke `/autoplan`
-- User reports a bug, error, broken behavior, "why is this broken", "this doesn't work", "wtf", "something's wrong" → invoke `/investigate`
-- User asks to test the site, find bugs, QA, "does this work", "check the deploy" → invoke `/qa`
-- User asks to just report bugs without fixing → invoke `/qa-only`
-- User asks to review code, check the diff, pre-landing review, "look at my changes" → invoke `/review`
-- User asks about visual polish, design audit of a live site, "this looks off" → invoke `/design-review`
-- User asks to audit the live developer experience, time-to-hello-world → invoke `/devex-review`
-- User asks to ship, deploy, push, create a PR, "let's land this", "send it" → invoke `/ship`
-- User asks to merge + deploy + verify as one flow → invoke `/land-and-deploy`
-- User asks to configure deployment for the project → invoke `/setup-deploy`
-- User asks to set up search, install web search MCP, connect Parallel Search MCP, or make Search Before Building work → invoke `/setup-search-mcp`
-- User asks to monitor prod after shipping, post-deploy checks → invoke `/canary`
-- User asks to update docs after shipping → invoke `/document-release`
-- User asks to write docs from scratch, generate documentation, "document this feature/module" → invoke `/document-generate`
-- User asks for a weekly retro, what did we ship, "how'd we do" → invoke `/retro`
-- User asks for a second opinion, codex review → invoke `/codex`
-- User asks for safety mode, careful mode → invoke `/careful` or `/guard`
-- User asks to restrict edits to a directory → invoke `/freeze` or `/unfreeze`
-- User asks to upgrade gstack → invoke `/gstack-upgrade`
-- User asks to save progress, checkpoint, "save my work" → invoke `/context-save`
-- User asks to resume, restore, "where was I" → invoke `/context-restore`
-- User asks about security, OWASP, vulnerabilities, "is this secure" → invoke `/cso`
-- User asks to make a PDF, document, publication → invoke `/make-pdf`
-- User asks to launch a real browser for QA, "open the browser" → invoke `/open-gstack-browser`
-- User asks to import cookies for authenticated testing → invoke `/setup-browser-cookies`
-- User asks about page speed, performance regression, benchmarks → invoke `/benchmark`
-- User asks what gstack has learned, "show learnings" → invoke `/learn`
-- User asks to tune question sensitivity, "stop asking me that" → invoke `/plan-tune`
-- User asks for code quality dashboard, "health check" → invoke `/health`
+Use this path only when the current agent host is Codex:
 
-**When in doubt, invoke the skill.** A false positive (invoking a skill that wasn't
-needed) is cheaper than a false negative (answering ad-hoc when a structured workflow
-exists). The skill provides multi-step workflows, checklists, and quality gates that
-always produce better results than an ad-hoc answer. If no skill matches, answer
-directly as usual.
+```bash
+codex mcp remove parallel-search 2>/dev/null || true
+codex mcp add parallel-search --url https://search.parallel.ai/mcp
+codex mcp list --json
+```
 
-If the user opts out of suggestions, run `gstack-config set proactive false`.
-If they opt back in, run `gstack-config set proactive true`.
+Then tell the user to restart Codex if the new MCP tools are not visible in the
+current session.
+
+## Manual Setup
+
+For any other MCP-capable host, do not guess at the config file. Give the user
+the MCP values above and ask them to add the server through that host's normal
+MCP settings. Tell them the host may need a restart before `web_search` and
+`web_fetch` appear.
+
+## Report
+
+After setup, report:
+
+- Which host path you used.
+- That the default setup is free and no-auth.
+- Whether the host command listed the server.
+- Whether the current agent session must be restarted before the new tools are
+  available.

@@ -159,6 +159,11 @@ export const SKILL_COVERAGE: Record<string, SkillCoverage> = {
   'context-restore': { gate: ['test/skill-e2e-context-skills.test.ts', 'test/skill-coverage-floor.test.ts'], periodic: [] },
   'setup-deploy': { gate: ['test/skill-coverage-floor.test.ts'], periodic: [] },
   'setup-browser-cookies': { gate: ['test/skill-coverage-floor.test.ts'], periodic: [] },
+  'setup-search-mcp': {
+    gate: ['test/setup-search-mcp-structure.test.ts', 'test/skill-coverage-floor.test.ts'],
+    periodic: [],
+    rationale: 'Search MCP setup has deterministic structural coverage for no-auth defaults, supported host commands, and manual-host guidance.',
+  },
   'setup-gbrain': {
     gate: [
       'test/skill-e2e-setup-gbrain-bad-token.test.ts',
