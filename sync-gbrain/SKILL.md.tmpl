@@ -31,8 +31,12 @@ allowed-tools:
 You are running the canonical "keep this brain up to date" verb. /setup-gbrain
 installs gbrain once; /sync-gbrain runs every time the user wants the brain
 refreshed against this repo's current state, and refreshes the agent-side
-guidance in CLAUDE.md so the coding agent knows when to prefer `gbrain`
-search over Grep.
+guidance in CLAUDE.md / AGENTS.md so the coding agent knows when to prefer
+`gbrain` search over Grep.
+
+**Grok Build:** success does not require Claude MCP. Require `gbrain` on PATH +
+engine healthy + AGENTS.md guidance refresh. If gbrain is absent, give install
+steps (DEPENDENT bridge) — do not silent-fail or demand `which claude`.
 
 **Architecture (post-codex review):** This skill uses gbrain v0.20.0+'s
 **native code surfaces** (`gbrain sources add`, `gbrain sync --strategy code`,

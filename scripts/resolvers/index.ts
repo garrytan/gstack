@@ -36,6 +36,7 @@ import { generateMakePdfSetup } from './make-pdf';
 import { generateTasksSectionEmit, generateTasksSectionAggregate } from './tasks-section';
 import { SECTION, SECTION_INDEX } from './sections';
 import { generateRedactTaxonomyTable, generateRedactInvocationBlock } from './redact-doc';
+import { generateSpecSpawn, generateSpecExecuteFlag } from './spec-spawn';
 
 export const RESOLVERS: Record<string, ResolverValue> = {
   SLUG_EVAL: generateSlugEval,
@@ -100,6 +101,8 @@ export const RESOLVERS: Record<string, ResolverValue> = {
   MAKE_PDF_SETUP: generateMakePdfSetup,
   TASKS_SECTION_EMIT: generateTasksSectionEmit,
   TASKS_SECTION_AGGREGATE: generateTasksSectionAggregate,
+  SPEC_SPAWN: generateSpecSpawn,
+  SPEC_EXECUTE_FLAG: generateSpecExecuteFlag,
   SECTION,
   SECTION_INDEX,
 };

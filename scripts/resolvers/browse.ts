@@ -99,14 +99,24 @@ export function generateSnapshotFlags(_ctx: TemplateContext): string {
   return lines.join('\n');
 }
 
+/** Resolve dist binary path: env-var hosts use $GSTACK_* (never $HOME+$GSTACK_*). */
+export function resolveDistBinary(dir: string, binary: string): string {
+  if (dir.startsWith('$')) {
+    // e.g. $GSTACK_BROWSE already points at .../browse/dist
+    return `${dir}/${binary}`;
+  }
+  return `$HOME${dir.replace(/^~/, '')}/${binary}`;
+}
+
 export function generateBrowseSetup(ctx: TemplateContext): string {
+  const globalBrowse = resolveDistBinary(ctx.paths.browseDir, 'browse');
   return `## SETUP (run this check BEFORE any browse command)
 
 \`\`\`bash
 _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 B=""
 [ -n "$_ROOT" ] && [ -x "$_ROOT/${ctx.paths.localSkillRoot}/browse/dist/browse" ] && B="$_ROOT/${ctx.paths.localSkillRoot}/browse/dist/browse"
-[ -z "$B" ] && B="$HOME${ctx.paths.browseDir.replace(/^~/, '')}/browse"
+[ -z "$B" ] && B="${globalBrowse}"
 if [ -x "$B" ]; then
   echo "READY: $B"
 else

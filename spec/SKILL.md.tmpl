@@ -60,7 +60,7 @@ separated tokens starting with `--`. Last flag wins on conflict.
 | `--no-dedupe` | — | Skip the dedupe check. |
 | `--no-gate` | OFF (gate is ON) | Skip the codex quality-score gate between Phase 4 and Phase 5. **Redaction (Phase 4.5a semantic + 4.5b regex) still runs — there is no flag that disables it.** |
 | `--audit` | OFF | Route Phase 5 to the Audit/Cleanup template (instead of Standard). |
-| `--execute` | conditional default (see Phase 5) | Spawn `claude -p` in a fresh worktree after filing the issue. |
+{{SPEC_EXECUTE_FLAG}}
 | `--no-execute` | — | File issue only; do NOT spawn agent (alias: `--file-only`). |
 | `--file-only` | — | Same as `--no-execute`. |
 | `--plan-file <path>` | inferred from harness | Load the spec into the specified plan file instead of inferring. |
@@ -447,14 +447,7 @@ git worktree add "$SPAWN_PATH" -b "$SPAWN_BRANCH" "$PIN_SHA" 2>&1
 in-progress changes will be visible to the agent. Cancel with Ctrl+C if not
 desired." Then fall back to current dir (still spawn).
 
-If A and worktree created: spawn `claude -p` with the spec piped via stdin:
-
-```bash
-cat "$ARCHIVE_PATH" | (cd "$SPAWN_PATH" && claude -p 2>&1) &
-SPAWN_PID=$!
-echo "Spawned: PID $SPAWN_PID in $SPAWN_PATH (branch $SPAWN_BRANCH)"
-echo "Follow with: cd $SPAWN_PATH && claude --resume"
-```
+{{SPEC_SPAWN}}
 
 Update archive frontmatter with `spec_worktree_path: $SPAWN_PATH` and
 `spec_executed: true` (atomic re-write).

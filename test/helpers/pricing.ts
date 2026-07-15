@@ -6,9 +6,17 @@
  *   - Anthropic: https://www.anthropic.com/pricing#api
  *   - OpenAI: https://openai.com/api/pricing/
  *   - Google AI: https://ai.google.dev/pricing
+ *   - xAI: https://docs.x.ai/developers/pricing
  *
  * When a model isn't in the table, estimateCost returns 0 with a console warning.
  * Prefer adding a new row to the table over guessing.
+ *
+ * xAI rates (official docs, as of 2026-07): Code API grok-build-0.1 $1/$2;
+ * Chat API grok-4.5 $2/$6; grok-4.3 and grok-4.20-* $1.25/$2.50.
+ * Benchmark adapter default id `grok` maps to Code API grok-build-0.1
+ * (Grok Build headless default). Alias `grok-4` maps to Chat mid-tier
+ * grok-4.3 rates. Run cost still needs real token counts from the adapter —
+ * rates alone cannot invent usage.
  */
 
 export interface ModelPricing {
@@ -32,6 +40,16 @@ export const PRICING: Record<string, ModelPricing> = {
   // Google
   'gemini-2.5-pro':     { input_per_mtok: 1.25,  output_per_mtok: 5.00,  as_of: '2026-04' },
   'gemini-2.5-flash':   { input_per_mtok: 0.30,  output_per_mtok: 1.20,  as_of: '2026-04' },
+
+  // xAI Grok — https://docs.x.ai/developers/pricing (as of 2026-07)
+  'grok-build-0.1':     { input_per_mtok: 1.00,  output_per_mtok: 2.00,  as_of: '2026-07' },
+  'grok':               { input_per_mtok: 1.00,  output_per_mtok: 2.00,  as_of: '2026-07' }, // alias → Code API
+  'grok-4.5':           { input_per_mtok: 2.00,  output_per_mtok: 6.00,  as_of: '2026-07' },
+  'grok-4.3':           { input_per_mtok: 1.25,  output_per_mtok: 2.50,  as_of: '2026-07' },
+  'grok-4':             { input_per_mtok: 1.25,  output_per_mtok: 2.50,  as_of: '2026-07' }, // alias → Chat mid-tier
+  'grok-4.20-0309-reasoning':     { input_per_mtok: 1.25, output_per_mtok: 2.50, as_of: '2026-07' },
+  'grok-4.20-0309-non-reasoning': { input_per_mtok: 1.25, output_per_mtok: 2.50, as_of: '2026-07' },
+  'grok-4.20-multi-agent-0309':   { input_per_mtok: 1.25, output_per_mtok: 2.50, as_of: '2026-07' },
 };
 
 const WARNED = new Set<string>();

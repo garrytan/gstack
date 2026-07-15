@@ -20,11 +20,12 @@ allowed-tools:
 ## When to invoke this skill
 
 Runs the same prompt through Claude,
-GPT (via Codex CLI), and Gemini side-by-side — compares latency, tokens, cost,
-and optionally quality via LLM judge. Answers "which model is actually best
-for this skill?" with data instead of vibes. Separate from /benchmark, which
-measures web page performance. Use when: "benchmark models", "compare models",
-"which model is best for X", "cross-model comparison", "model shootout".
+GPT (via Codex CLI), Gemini, and Grok side-by-side — compares latency, tokens,
+cost, and optionally quality via LLM judge. Answers "which model is actually
+best for this skill?" with data instead of vibes. Separate from /benchmark,
+which measures web page performance. Use when: "benchmark models", "compare
+models", "which model is best for X", "cross-model comparison", "model
+shootout".
 
 Voice triggers (speech-to-text aliases): "compare models", "model shootout", "which model is best".
 
@@ -578,12 +579,12 @@ If C: ask for the path. Verify it exists. Use as positional argument.
 ## Step 2: Choose providers
 
 ```bash
-"$BIN" --prompt "unused, dry-run" --models claude,gpt,gemini --dry-run
+"$BIN" --prompt "unused, dry-run" --models claude,gpt,gemini,grok --dry-run
 ```
 
 Show the dry-run output. The "Adapter availability" section tells the user which providers will actually run (OK) vs skip (NOT READY — remediation hint included).
 
-If ALL three show NOT READY: stop with a clear message — benchmark can't run without at least one authed provider. Suggest `claude login`, `codex login`, or `gemini login` / `export GOOGLE_API_KEY`.
+If ALL show NOT READY: stop with a clear message — benchmark can't run without at least one authed provider. Suggest `claude login`, `codex login`, `gemini login` / `export GOOGLE_API_KEY`, or `grok` login / `export XAI_API_KEY`.
 
 If at least one is OK: AskUserQuestion:
 - **Simplify:** "Which models should we include? The dry-run above showed which are authed. Unauthed ones will be skipped cleanly — they won't abort the batch."
@@ -591,7 +592,8 @@ If at least one is OK: AskUserQuestion:
 - **Options:**
   - A) All authed providers. Completeness: 10/10.
   - B) Only Claude. Completeness: 6/10 (no cross-model signal — use /ship's review for solo claude benchmarks instead).
-  - C) Pick two — specify on next turn. Completeness: 8/10.
+  - C) Only Grok (Grok-only machine). Completeness: 7/10.
+  - D) Pick two — specify on next turn. Completeness: 8/10.
 
 ---
 
@@ -608,7 +610,8 @@ If judge is available, AskUserQuestion:
   - A) Enable judge (adds ~$0.05). Completeness: 10/10.
   - B) Skip judge — speed/cost/tokens only. Completeness: 7/10.
 
-If judge is NOT available, skip this question and omit the `--judge` flag.
+If judge is NOT available (Grok-only / no ANTHROPIC_API_KEY): skip this question
+and omit `--judge` (Grok-or-skip). Speed/cost/tokens still work.
 
 ---
 

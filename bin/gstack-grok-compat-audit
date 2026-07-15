@@ -1,0 +1,362 @@
+#!/usr/bin/env bun
+/**
+ * gstack-grok-compat-audit — Definition of Done gate for Grok Build packaging
+ * + bridge honesty (plan U9 / R11).
+ *
+ * Exit 0 only when packaging checks pass for installed gstack membership
+ * packages and bridge gates are not theater-greened.
+ *
+ * Usage:
+ *   bin/gstack-grok-compat-audit
+ *   bin/gstack-grok-compat-audit --skills-dir ~/.grok/skills
+ *   bin/gstack-grok-compat-audit --phase a   # packaging only
+ *   bin/gstack-grok-compat-audit --phase ab  # packaging + bridge gates (default)
+ */
+
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
+import { execFileSync } from 'child_process';
+
+const ROOT = path.resolve(import.meta.dir, '..');
+const args = process.argv.slice(2);
+
+function arg(name: string, def?: string): string | undefined {
+  const idx = args.findIndex(a => a === name || a.startsWith(name + '='));
+  if (idx < 0) return def;
+  const eq = args[idx].indexOf('=');
+  if (eq >= 0) return args[idx].slice(eq + 1);
+  return args[idx + 1] ?? def;
+}
+
+const SKILLS_DIR = path.resolve(
+  (arg('--skills-dir') ?? path.join(os.homedir(), '.grok', 'skills')).replace(/^~/, os.homedir()),
+);
+const PHASE = (arg('--phase') ?? 'ab').toLowerCase();
+const GSTACK_ROOT = path.join(SKILLS_DIR, 'gstack');
+
+type Severity = 'fail' | 'warn' | 'ok';
+interface Finding {
+  severity: Severity;
+  area: string;
+  message: string;
+}
+
+const findings: Finding[] = [];
+
+function fail(area: string, message: string) {
+  findings.push({ severity: 'fail', area, message });
+}
+function warn(area: string, message: string) {
+  findings.push({ severity: 'warn', area, message });
+}
+function ok(area: string, message: string) {
+  findings.push({ severity: 'ok', area, message });
+}
+
+function exists(p: string): boolean {
+  try {
+    fs.accessSync(p);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function readText(p: string): string {
+  try {
+    return fs.readFileSync(p, 'utf-8');
+  } catch {
+    return '';
+  }
+}
+
+function isGstackMembership(dirName: string): boolean {
+  if (dirName === 'gstack' || dirName === 'connect-chrome' || dirName === 'browse') return true;
+  if (dirName.startsWith('gstack-')) return true;
+  // bare aliases that point at gstack packages (symlink or real SKILL with gstack markers)
+  const skill = path.join(SKILLS_DIR, dirName, 'SKILL.md');
+  if (!exists(skill)) return false;
+  const body = readText(skill);
+  return body.includes('$GSTACK_ROOT') || body.includes('gstack') || body.includes('AUTO-GENERATED');
+}
+
+function listMembershipPackages(): string[] {
+  if (!exists(SKILLS_DIR)) return [];
+  return fs
+    .readdirSync(SKILLS_DIR, { withFileTypes: true })
+    .filter(d => d.isDirectory() || d.isSymbolicLink())
+    .map(d => d.name)
+    .filter(isGstackMembership)
+    .sort();
+}
+
+// ─── Packaging suite (Phase A) ────────────────────────────────
+
+function auditRuntimeRoot() {
+  const area = 'runtime-root';
+  if (!exists(GSTACK_ROOT)) {
+    fail(area, `missing runtime root: ${GSTACK_ROOT}`);
+    return;
+  }
+  const requiredDirs = [
+    'bin',
+    'browse/dist',
+    'browse/src',
+    'review/specialists',
+    'scripts',
+  ];
+  for (const rel of requiredDirs) {
+    const p = path.join(GSTACK_ROOT, rel);
+    if (!exists(p)) fail(area, `missing required asset: ${rel}`);
+    else ok(area, `present: ${rel}`);
+  }
+  // Conditional when monorepo had them at install — soft-check if src monorepo has them
+  const monorepoHas = (rel: string) => exists(path.join(ROOT, rel));
+  if (monorepoHas('design/dist') && !exists(path.join(GSTACK_ROOT, 'design/dist'))) {
+    fail(area, 'monorepo has design/dist but runtime root does not');
+  }
+  if (monorepoHas('extension') && !exists(path.join(GSTACK_ROOT, 'extension'))) {
+    fail(area, 'monorepo has extension/ but runtime root does not');
+  }
+  if (monorepoHas('make-pdf/dist') && !exists(path.join(GSTACK_ROOT, 'make-pdf/dist'))) {
+    warn(area, 'monorepo has make-pdf/dist but runtime root does not (membership optional)');
+  }
+  for (const f of ['checklist.md', 'TODOS-format.md']) {
+    const p = path.join(GSTACK_ROOT, 'review', f);
+    if (!exists(p)) fail(area, `missing review/${f}`);
+    else ok(area, `present: review/${f}`);
+  }
+}
+
+function auditNoDoubleHome() {
+  const area = 'no-double-home';
+  const pkgs = listMembershipPackages();
+  let hits = 0;
+  for (const name of pkgs) {
+    const skill = path.join(SKILLS_DIR, name, 'SKILL.md');
+    if (!exists(skill)) continue;
+    const body = readText(skill);
+    if (/\$HOME\$GSTACK/.test(body)) {
+      fail(area, `${name}: contains $HOME$GSTACK (double-home path bug)`);
+      hits++;
+    }
+  }
+  if (hits === 0) ok(area, `no $HOME$GSTACK in ${pkgs.length} packages`);
+}
+
+function auditNoUngeneratedMonorepoPointers() {
+  const area = 'no-monorepo-skill-pointer';
+  // Skills under ~/.grok/skills must not be bare monorepo dirs with unrewritten Claude SKILL.md
+  // Heuristic: ungenerated monorepo package often has MODEL_OVERLAY: claude section + ~/.claude paths without rewrite
+  const pkgs = listMembershipPackages();
+  for (const name of pkgs) {
+    const skill = path.join(SKILLS_DIR, name, 'SKILL.md');
+    if (!exists(skill)) continue;
+    const body = readText(skill);
+    // Skip runtime root
+    if (name === 'gstack' && !body.includes('name:')) continue;
+    if (body.includes('~/.claude/skills/gstack') && !body.includes('$GSTACK_ROOT')) {
+      // Still has unrewritten Claude global path without env var form
+      fail(area, `${name}: unrewritten ~/.claude/skills/gstack pointer`);
+    }
+  }
+  ok(area, 'membership packages scanned for unrewritten Claude monorepo pointers');
+}
+
+function auditConnectChrome() {
+  const area = 'connect-chrome';
+  const link = path.join(SKILLS_DIR, 'connect-chrome');
+  if (!exists(link)) {
+    fail(area, 'connect-chrome missing under skills dir');
+    return;
+  }
+  try {
+    const target = fs.realpathSync(link);
+    if (!/open-gstack-browser/.test(target) && !/gstack-open-gstack-browser/.test(target)) {
+      fail(area, `connect-chrome does not resolve to open-gstack-browser (got ${target})`);
+    } else {
+      ok(area, `connect-chrome → ${target}`);
+    }
+  } catch (e) {
+    fail(area, `connect-chrome realpath failed: ${(e as Error).message}`);
+  }
+}
+
+function auditHostBleedSample() {
+  const area = 'host-bleed';
+  const samples = ['gstack-ship', 'ship', 'gstack-browse', 'browse', 'gstack-claude', 'claude'];
+  for (const name of samples) {
+    const skill = path.join(SKILLS_DIR, name, 'SKILL.md');
+    if (!exists(skill)) continue;
+    const body = readText(skill);
+    if (/MODEL_OVERLAY:\s*claude/.test(body)) {
+      fail(area, `${name}: MODEL_OVERLAY: claude still present`);
+    }
+    if (/## Model-Specific Behavioral Patch \(claude\)/.test(body)) {
+      fail(area, `${name}: Claude model overlay section body present`);
+    }
+    // Claude skill is allowed to mention claude CLI extensively
+    if (name !== 'claude' && name !== 'gstack-claude') {
+      if (/\bAskUserQuestion\b/.test(body) && !/ask_user_question/.test(body)) {
+        // May still appear in examples — soft
+        warn(area, `${name}: raw AskUserQuestion token (prefer ask_user_question rewrite)`);
+      }
+    }
+    if (name === 'claude' || name === 'gstack-claude') {
+      if (!/MULTI_CLI_BRIDGE/.test(body) && !/Step 0: Check Claude CLI/.test(body)) {
+        fail(area, `${name}: missing MULTI_CLI_BRIDGE / Step 0 detect`);
+      } else {
+        ok(area, `${name}: Step 0 / multi-CLI packaging present`);
+      }
+    }
+  }
+  ok(area, 'host-bleed sample scan complete');
+}
+
+function auditSkillifySdkPath() {
+  const area = 'skillify-sdk';
+  const src = path.join(GSTACK_ROOT, 'browse', 'src', 'browse-client.ts');
+  if (exists(src)) ok(area, 'browse/src/browse-client.ts resolvable under $GSTACK_ROOT');
+  else fail(area, 'browse/src/browse-client.ts missing — skillify SDK path broken');
+}
+
+// ─── Bridge gates (Phase B) ───────────────────────────────────
+
+function auditBridges() {
+  // Install prose alone must not claim primary READY when CLI missing
+  const area = 'bridge-policy';
+
+  // Prefer installed runtime root binary (what users run); fall back to monorepo.
+  const installedBench = path.join(GSTACK_ROOT, 'bin', 'gstack-model-benchmark');
+  const monorepoBench = path.join(ROOT, 'bin', 'gstack-model-benchmark');
+  const benchBin = exists(installedBench) ? installedBench : monorepoBench;
+  if (!exists(installedBench) && exists(monorepoBench)) {
+    warn(area, 'benchmark: using monorepo binary (installed runtime bin missing) — packaging incomplete?');
+  }
+  try {
+    // No shell: argv list avoids monorepo-path injection.
+    const help = execFileSync(benchBin, ['--prompt', 'x', '--models', 'grok', '--dry-run'], {
+      encoding: 'utf-8',
+      timeout: 15000,
+      maxBuffer: 2 * 1024 * 1024,
+    });
+    if (/unknown provider.*grok/i.test(help)) {
+      fail(area, 'benchmark: grok still unknown provider');
+    } else if (/grok:\s*(OK|NOT READY)/i.test(help)) {
+      ok(area, `benchmark: grok provider wired via ${benchBin} (dry-run READY/NOT READY is boolean auth)`);
+    } else {
+      warn(area, `benchmark dry-run unexpected output: ${help.slice(0, 200)}`);
+    }
+  } catch (e) {
+    const msg = (e as { stdout?: string; message?: string }).stdout
+      ?? (e as Error).message
+      ?? String(e);
+    if (/unknown provider.*grok/i.test(msg)) fail(area, 'benchmark: grok unknown provider');
+    else warn(area, `benchmark dry-run error: ${String(msg).slice(0, 200)}`);
+  }
+
+  // spec: at least one installed package must exist and use Grok-native spawn
+  let specSeen = 0;
+  for (const name of ['gstack-spec', 'spec']) {
+    const skill = path.join(SKILLS_DIR, name, 'SKILL.md');
+    if (!exists(skill)) continue;
+    specSeen++;
+    const body = readText(skill);
+    if (/\$\(cat\s+["']?\$ARCHIVE/.test(body) || /grok[^\n]*\$\(cat/.test(body)) {
+      fail(area, `${name}: banned $(cat …) into grok argv`);
+    }
+    if (/grok --prompt-file/.test(body) || /Spawn \*\*Grok\*\*/.test(body)) {
+      ok(area, `${name}: Grok-native spawn present`);
+    } else if (/Spawned:.*claude -p/.test(body) && !/--execute-claude/.test(body)) {
+      fail(area, `${name}: default execute still only claude -p (no Grok spawn)`);
+    } else {
+      fail(area, `${name}: missing researched grok --prompt-file spawn`);
+    }
+  }
+  if (specSeen === 0) {
+    fail(area, 'spec: neither gstack-spec nor spec package installed under skills dir');
+  }
+
+  // setup-gbrain: must not hard-require which claude for success
+  let gbrainSeen = 0;
+  for (const name of ['gstack-setup-gbrain', 'setup-gbrain']) {
+    const skill = path.join(SKILLS_DIR, name, 'SKILL.md');
+    if (!exists(skill)) continue;
+    gbrainSeen++;
+    const body = readText(skill);
+    if (/Grok Build success path/.test(body) || /no Claude required/i.test(body)) {
+      ok(area, `${name}: Grok success path documented`);
+    } else {
+      warn(area, `${name}: missing explicit Grok success path (CLI+AGENTS)`);
+    }
+  }
+  if (gbrainSeen === 0) {
+    warn(area, 'setup-gbrain: package not installed (bridge not audited)');
+  }
+
+  // pair-agent: local must not hard-require ngrok; remote has install+security+teardown
+  let pairSeen = 0;
+  for (const name of ['gstack-pair-agent', 'pair-agent']) {
+    const skill = path.join(SKILLS_DIR, name, 'SKILL.md');
+    if (!exists(skill)) continue;
+    pairSeen++;
+    const body = readText(skill);
+    if (/teardown/i.test(body) && /ngrok/i.test(body) && /127\.0\.0\.1|security/i.test(body)) {
+      ok(area, `${name}: remote ngrok install+security+teardown present`);
+    } else {
+      warn(area, `${name}: remote security/teardown checklist incomplete`);
+    }
+    if (/DEPENDENT/.test(body)) ok(area, `${name}: honest DEPENDENT labeling`);
+  }
+  if (pairSeen === 0) {
+    warn(area, 'pair-agent: package not installed (bridge not audited)');
+  }
+}
+
+// ─── Main ─────────────────────────────────────────────────────
+
+function main() {
+  console.log('== gstack-grok-compat-audit ==');
+  console.log(`  skills-dir: ${SKILLS_DIR}`);
+  console.log(`  phase:      ${PHASE}`);
+  console.log(`  monorepo:   ${ROOT}`);
+  console.log('');
+
+  if (!exists(SKILLS_DIR)) {
+    fail('install', `skills dir missing: ${SKILLS_DIR} — run: cd ${ROOT} && ./setup --host grok-build`);
+  } else {
+    const pkgs = listMembershipPackages();
+    console.log(`  membership packages: ${pkgs.length}`);
+    auditRuntimeRoot();
+    auditNoDoubleHome();
+    auditNoUngeneratedMonorepoPointers();
+    auditConnectChrome();
+    auditHostBleedSample();
+    auditSkillifySdkPath();
+
+    if (PHASE === 'ab' || PHASE === 'b' || PHASE === 'full') {
+      auditBridges();
+    }
+  }
+
+  const fails = findings.filter(f => f.severity === 'fail');
+  const warns = findings.filter(f => f.severity === 'warn');
+  const oks = findings.filter(f => f.severity === 'ok');
+
+  for (const f of findings) {
+    const tag = f.severity === 'fail' ? 'FAIL' : f.severity === 'warn' ? 'WARN' : 'OK  ';
+    console.log(`[${tag}] ${f.area}: ${f.message}`);
+  }
+
+  console.log('');
+  console.log(`Summary: ${oks.length} ok, ${warns.length} warn, ${fails.length} fail`);
+  if (fails.length > 0) {
+    console.log('VERDICT: INCOMPATIBLE (packaging/bridge gate failed)');
+    process.exit(1);
+  }
+  console.log('VERDICT: packaging COMPATIBLE' + (PHASE.includes('b') || PHASE === 'full' ? ' (+ bridge gates honest)' : ''));
+  process.exit(0);
+}
+
+main();

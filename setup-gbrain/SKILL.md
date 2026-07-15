@@ -788,8 +788,22 @@ Claude Code) can call it as both a CLI and an MCP tool.
 
 **Scope honesty:** This skill's MCP registration step (5a) uses
 `claude mcp add` and targets Claude Code specifically. Other local hosts
-(Cursor, Codex CLI, etc.) will still get the gbrain CLI on PATH — they can
-register `gbrain serve` in their own MCP config manually after setup.
+(Cursor, Codex CLI, **Grok Build**, etc.) will still get the gbrain CLI on
+PATH — they can register `gbrain serve` in their own MCP config manually
+after setup.
+
+**Grok Build success path (no Claude required):** setup is **COMPATIBLE** when
+(1) `gbrain` is on PATH, (2) the engine is healthy (`gbrain doctor`), and
+(3) AGENTS.md (or project docs) carry gbrain guidance via `/sync-gbrain`.
+Claude MCP registration is optional. Never mark setup FAILED only because
+`claude` is missing. Optional Grok MCP into `~/.grok/config.toml` is a stretch
+(absolute path, structured TOML RMW, gbrain stanza only, atomic write +
+backup; non-interactive refuses non-equivalent overwrite unless `--force` or
+a real TTY confirm).
+
+**Bridge policy:** install prose alone does not green the primary path when
+the CLI is missing — detect/install guidance may be READY; overall bridge is
+DEPENDENT until `gbrain` is present.
 
 **Audience:** local-Mac users. openclaw/hermes agents typically run in cloud
 docker containers with their own gbrain; "sharing" a brain between them and
@@ -1258,9 +1272,14 @@ doctor output and STOP.
 
 ---
 
-## Step 5a: Register gbrain as Claude Code MCP (D18)
+## Step 5a: Register gbrain as Claude Code MCP (D18) — optional
 
-Only if `which claude` resolves. Ask: "Give Claude Code a typed tool surface
+Only if `which claude` resolves. If `claude` is **not** on PATH (typical on
+Grok-only machines): emit "MCP registration skipped — Claude Code not present.
+Grok/other hosts succeed via CLI + AGENTS.md; register `gbrain serve` in host
+MCP config only if desired." Continue to step 6 — **do not fail setup**.
+
+If `claude` is present, ask: "Give Claude Code a typed tool surface
 for gbrain? (recommended yes)"
 
 The registration form depends on the path picked in Step 2:
