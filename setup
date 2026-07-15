@@ -815,6 +815,11 @@ create_codex_runtime_root() {
   if [ -f "$gstack_dir/ETHOS.md" ]; then
     _link_or_copy "$gstack_dir/ETHOS.md" "$codex_gstack/ETHOS.md"
   fi
+  # supabase/config.sh — required by gstack-telemetry-sync to resolve GSTACK_SUPABASE_URL
+  if [ -f "$gstack_dir/supabase/config.sh" ]; then
+    mkdir -p "$codex_gstack/supabase"
+    _link_or_copy "$gstack_dir/supabase/config.sh" "$codex_gstack/supabase/config.sh"
+  fi
 }
 
 create_factory_runtime_root() {
@@ -852,6 +857,11 @@ create_factory_runtime_root() {
   done
   if [ -f "$gstack_dir/ETHOS.md" ]; then
     _link_or_copy "$gstack_dir/ETHOS.md" "$factory_gstack/ETHOS.md"
+  fi
+  # supabase/config.sh — required by gstack-telemetry-sync to resolve GSTACK_SUPABASE_URL
+  if [ -f "$gstack_dir/supabase/config.sh" ]; then
+    mkdir -p "$factory_gstack/supabase"
+    _link_or_copy "$gstack_dir/supabase/config.sh" "$factory_gstack/supabase/config.sh"
   fi
 }
 
@@ -905,6 +915,11 @@ create_opencode_runtime_root() {
   fi
   if [ -f "$gstack_dir/ETHOS.md" ]; then
     _link_or_copy "$gstack_dir/ETHOS.md" "$opencode_gstack/ETHOS.md"
+  fi
+  # supabase/config.sh — required by gstack-telemetry-sync to resolve GSTACK_SUPABASE_URL
+  if [ -f "$gstack_dir/supabase/config.sh" ]; then
+    mkdir -p "$opencode_gstack/supabase"
+    _link_or_copy "$gstack_dir/supabase/config.sh" "$opencode_gstack/supabase/config.sh"
   fi
 }
 
@@ -1120,6 +1135,11 @@ if [ "$INSTALL_KIRO" -eq 1 ]; then
   # ETHOS.md — referenced by "Search Before Building" in all skill preambles
   if [ -f "$SOURCE_GSTACK_DIR/ETHOS.md" ]; then
     _link_or_copy "$SOURCE_GSTACK_DIR/ETHOS.md" "$KIRO_GSTACK/ETHOS.md"
+  fi
+  # supabase/config.sh — required by gstack-telemetry-sync to resolve GSTACK_SUPABASE_URL
+  if [ -f "$SOURCE_GSTACK_DIR/supabase/config.sh" ]; then
+    mkdir -p "$KIRO_GSTACK/supabase"
+    _link_or_copy "$SOURCE_GSTACK_DIR/supabase/config.sh" "$KIRO_GSTACK/supabase/config.sh"
   fi
   # gstack-upgrade skill
   if [ -f "$AGENTS_DIR/gstack-upgrade/SKILL.md" ]; then
