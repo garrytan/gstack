@@ -95,31 +95,59 @@ describe('splitCatalogDescription', () => {
     expect(parts.routingProse).toBe('With routing prose afterward.');
   });
 
-  test('embedded-period descriptions: known limitation falls back to first-20-words', () => {
-    // KNOWN LIMITATION: the sentence regex `^([^.!?]*[.!?])(?:\\s|$)` stops
-    // at the FIRST `.`-then-non-whitespace because [^.!?]* is greedy and
-    // can't backtrack past a non-period char. For "DESIGN.md and v1.45.0.0
-    // in the lead. Use when..." the regex fails entirely and the lead falls
-    // back to the first 20 words (~the whole short input).
-    //
-    // The real-world impact is small: descriptions like "DESIGN.md" or "v1.45"
-    // appearing in the middle of the FIRST sentence are rare. When they do
-    // occur, the lead simply becomes the full description (no body section
-    // generated) — same as a description without a period. The trim CI gate
-    // still keeps the per-skill size budget honest.
-    //
-    // If this gap matters later, replace the regex with a sentence tokenizer
-    // (compromise.js / Intl.Segmenter) — until then we accept the fallback.
+  test('REGRESSION: embedded-period first sentence splits at real boundary', () => {
+    // The old regex `^([^.!?]*[.!?])(?:\s|$)` could not cross ANY period —
+    // [^.!?]* stops at the first `.` even mid-token ("DESIGN.md"), the
+    // boundary check then fails, and the whole match failed. The code
+    // silently fell back to a 20-word cut mid-phrase (observed with a
+    // description mentioning "TODOS.md"). The fixed regex
+    // `^((?:[^.!?]|[.!?](?!\s|$))*[.!?])(?:\s|$)` consumes terminators NOT
+    // followed by whitespace/end, so embedded periods no longer break it.
     const desc =
       'Skill that mentions DESIGN.md and v1.45.0.0 in the lead. ' +
       'Use when asked to do something.';
     const parts = splitCatalogDescription(desc);
-    // Actual behavior: lead absorbs the whole input via the word-count fallback.
-    expect(parts.lead.length).toBeGreaterThan(0);
-    // routingProse may be empty when the fallback consumes everything.
-    // The test exists to detect REGRESSIONS (lead becoming oddly short like
-    // "Skill that mentions DESIGN.") not to assert ideal behavior.
-    expect(parts.lead).toContain('Skill that mentions');
+    expect(parts.lead).toBe('Skill that mentions DESIGN.md and v1.45.0.0 in the lead.');
+    expect(parts.routingProse).toBe('Use when asked to do something.');
+  });
+
+  test('REGRESSION: "TODOS.md backlog" style sentence keeps full lead + routing', () => {
+    const desc =
+      'Drive an approved plan to completion on a TODOS.md backlog. ' +
+      'Use when asked to "autobuilder" or "run the build loop". ' +
+      'Proactively suggest after a plan is approved. (gstack)';
+    const parts = splitCatalogDescription(desc);
+    expect(parts.lead).toBe('Drive an approved plan to completion on a TODOS.md backlog.');
+    expect(parts.routingProse).toContain('Use when asked to "autobuilder"');
+    expect(parts.routingProse).toContain('Proactively suggest');
+    expect(parts.hasGstackTag).toBe(true);
+  });
+
+  test('URL in first sentence does not end the lead early', () => {
+    const desc =
+      'See https://example.com/docs/v2 for the workflow. ' +
+      'Use when asked to consult the docs.';
+    const parts = splitCatalogDescription(desc);
+    expect(parts.lead).toBe('See https://example.com/docs/v2 for the workflow.');
+    expect(parts.routingProse).toBe('Use when asked to consult the docs.');
+  });
+
+  test('>200 char first sentence WITH embedded periods still truncates with ellipsis and keeps routing', () => {
+    const firstSentence =
+      'Regenerate the iOS debug bridge against files like Bridge.swift and TODOS.md, ' +
+      'walking every target listed in Project.xcodeproj while preserving v1.45.0.0 ' +
+      'compatibility shims, custom entitlements, and the long tail of per-target ' +
+      'build settings nobody remembers configuring.';
+    expect(firstSentence.length).toBeGreaterThan(200);
+    const desc = firstSentence + ' Use when asked to resync the bridge. (gstack)';
+    const parts = splitCatalogDescription(desc);
+    // Lead is the truncated first sentence (ellipsis path), not a 20-word cut.
+    expect(parts.lead.endsWith('...')).toBe(true);
+    expect(parts.lead.length).toBeLessThanOrEqual(200);
+    expect(parts.lead).toContain('TODOS.md');
+    // Routing prose survives intact.
+    expect(parts.routingProse).toContain('Use when asked to resync the bridge.');
+    expect(parts.hasGstackTag).toBe(true);
   });
 
   test('description without a period uses first ~20 words as lead', () => {
