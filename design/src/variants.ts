@@ -125,7 +125,7 @@ export async function generateVariant(
     } catch (err: any) {
       clearTimeout(timeout);
       if (err.name === "AbortError") {
-        return { path: outputPath, success: false, error: "Timeout (120s)" };
+        return { path: outputPath, success: false, error: "Timeout (240s)" };
       }
       lastError = err.message;
     }
