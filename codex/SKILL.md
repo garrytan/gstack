@@ -1556,6 +1556,29 @@ or `/codex challenge -m gpt-5.2`), pass the `-m` flag through to codex.
 
 ---
 
+## Image Generation
+
+Codex ships a native image-generation tool (`image_gen.imagegen`) — it produces real
+raster images (illustrations, photo-style renders, diagrams) from a text prompt, not
+just code that draws SVGs. Verified by having Codex enumerate its tools and generate
+a PNG. Image *input* is separate and always available (`codex -i screenshot.png`).
+
+When a consult asks Codex to MAKE an image (not analyze one):
+
+1. **Swap the sandbox.** The tool call works in any sandbox, but saving the result
+   needs write access — run that exec with `-s workspace-write` instead of `-s read-only`.
+2. **Scope the writes to a scratch dir.** Point `-C` at a fresh directory under
+   `$TMP_ROOT` and add `--skip-git-repo-check` (the scratch dir isn't a repo). This
+   keeps generated files out of the user's repo.
+3. **Show the result.** Read the generated image and open it for the user, then
+   report the file path.
+
+This is the one exception to "Never modify files" below — image bytes can't come back
+inline through the CLI, so writing the file is the deliverable. Writes stay confined
+to the scratch directory.
+
+---
+
 ## Cost Estimation
 
 Parse token count from stderr. Codex prints `tokens used\nN` to stderr.
@@ -1583,6 +1606,8 @@ If token count is not available, display: `Tokens: unknown`
 ## Important Rules
 
 - **Never modify files.** This skill is read-only. Codex runs in read-only sandbox mode.
+  Sole exception: image-generation consults, where Codex writes the generated file to a
+  scratch directory (see Image Generation).
 - **Present output verbatim.** Do not truncate, summarize, or editorialize Codex's output
   before showing it. Show it in full inside the CODEX SAYS block.
 - **Add synthesis after, not instead of.** Any Claude commentary comes after the full output.
