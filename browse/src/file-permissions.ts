@@ -42,6 +42,42 @@ import * as os from 'os';
 
 let warnedOnce = false;
 
+let cachedGrantee: string | undefined;
+
+/**
+ * Resolve the identity to use in icacls `/grant` arguments.
+ *
+ * Granting by bare username (`os.userInfo().username`) is ambiguous:
+ * LookupAccountName can resolve the name to the wrong principal when it
+ * collides with another account object — e.g. when the machine name equals
+ * the username (user "alice" on machine "ALICE"), the bare name can resolve
+ * to the machine's *domain* SID (S-1-5-21-… with no RID), producing an ACL
+ * that denies even the owner.
+ * A SID grant (`*S-1-5-21-…-1001`) is unambiguous, so we resolve the
+ * current user's SID via `whoami /user` and fall back to the fully
+ * qualified `DOMAIN\username` (still unambiguous) only if that fails.
+ */
+function getWindowsGrantee(): string {
+  if (cachedGrantee !== undefined) return cachedGrantee;
+  try {
+    // Absolute path: a bare `whoami` can resolve to GNU coreutils' whoami
+    // (Git for Windows / MSYS2 put usr/bin on PATH), which rejects /user.
+    const whoami = `${process.env.SystemRoot || 'C:\\Windows'}\\System32\\whoami.exe`;
+    const out = execFileSync(whoami, ['/user', '/fo', 'csv', '/nh'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    const sid = out.match(/"(S-1-[0-9-]+)"/)?.[1];
+    if (sid) {
+      cachedGrantee = `*${sid}`;
+      return cachedGrantee;
+    }
+  } catch { /* fall through to name-based grant */ }
+  const user = process.env.USERNAME || os.userInfo().username;
+  cachedGrantee = process.env.USERDOMAIN ? `${process.env.USERDOMAIN}\\${user}` : user;
+  return cachedGrantee;
+}
+
 function warnIcaclsFailure(fsPath: string, err: unknown): void {
   if (warnedOnce) return;
   warnedOnce = true;
@@ -67,7 +103,7 @@ function warnIcaclsFailure(fsPath: string, err: unknown): void {
 export function restrictFilePermissions(filePath: string): void {
   if (process.platform === 'win32') {
     try {
-      const user = os.userInfo().username;
+      const user = getWindowsGrantee();
       execFileSync(
         'icacls',
         [filePath, '/inheritance:r', '/grant:r', `${user}:(F)`],
@@ -97,7 +133,7 @@ export function restrictFilePermissions(filePath: string): void {
 export function restrictDirectoryPermissions(dirPath: string): void {
   if (process.platform === 'win32') {
     try {
-      const user = os.userInfo().username;
+      const user = getWindowsGrantee();
       execFileSync(
         'icacls',
         [dirPath, '/inheritance:r', '/grant:r', `${user}:(OI)(CI)(F)`],
@@ -154,4 +190,11 @@ export function mkdirSecure(dirPath: string): void {
  */
 export function __resetWarnedForTests(): void {
   warnedOnce = false;
+}
+
+/**
+ * Expose the resolved icacls grantee. Test-only.
+ */
+export function __getWindowsGranteeForTests(): string {
+  return getWindowsGrantee();
 }
