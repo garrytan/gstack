@@ -275,14 +275,32 @@ export function buildRestartEnv(
 }
 
 /** macOS only: pull the headed Chromium window to the user's current Space.
- * "Google Chrome for Testing" frequently opens behind the active window or on
- * another Space — the first thing users read as "I can't see the browser"
- * (#1781). Best-effort, fire-and-forget, never throws. The app name is a fixed
- * literal (no interpolation). */
+ * The window frequently opens behind the active window or on another Space —
+ * the first thing users read as "I can't see the browser" (#1781).
+ *
+ * launchHeaded() patches the Chromium .app's Info.plist to rename it from
+ * "Google Chrome for Testing" to "GStack Browser" for better branding. That
+ * patch means the old hard-coded name no longer works for the osascript
+ * activate call. We try both names: "GStack Browser" first (post-patch),
+ * then "Google Chrome for Testing" as a fallback (pre-patch / patch skipped).
+ *
+ * Best-effort, fire-and-forget, never throws. App names are fixed literals —
+ * no interpolation. */
 function raiseHeadedWindowMacOS(): void {
   if (process.platform !== 'darwin') return;
+  // Try GStack Browser (Info.plist patched by launchHeaded) first; fall back
+  // to the original Playwright bundle name if the rename didn't apply.
+  const script = [
+    'try',
+    '  tell application "GStack Browser" to activate',
+    'on error',
+    '  try',
+    '    tell application "Google Chrome for Testing" to activate',
+    '  end try',
+    'end try',
+  ].join('\n');
   try {
-    nodeSpawn('osascript', ['-e', 'tell application "Google Chrome for Testing" to activate'], {
+    nodeSpawn('osascript', ['-e', script], {
       stdio: 'ignore',
       detached: true,
     }).unref();
