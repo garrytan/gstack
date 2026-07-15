@@ -460,9 +460,14 @@ describe('Hidden element stripping', () => {
     await bm.launch();
   });
 
-  afterAll(() => {
+  afterAll(async () => {
     try { testServer.server.stop(); } catch {}
-    setTimeout(() => process.exit(0), 500);
+    // Close only this file's own browser — never process.exit(): bun test
+    // runs all files in one process, so a delayed exit kills the whole suite
+    // (see test/no-suicide-exit.test.ts). close() can hang when the browser
+    // already died, and its internal 5s timeout ties bun's 5s hook timeout —
+    // so race it at 3s and abandon; the child is reaped at process exit.
+    try { await Promise.race([bm?.close(), new Promise((resolve) => setTimeout(resolve, 3000))]); } catch {}
   });
 
   test('detects CSS-hidden elements on injection-hidden page', async () => {

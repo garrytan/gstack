@@ -121,6 +121,7 @@ export const SKILL_COVERAGE: Record<string, SkillCoverage> = {
     gate: ['test/skill-coverage-floor.test.ts'],
     periodic: ['test/skill-e2e-autoplan-chain.test.ts', 'test/skill-e2e-autoplan-dual-voice.test.ts'],
   },
+  'autobuilder-loop': { gate: ['test/skill-coverage-floor.test.ts'], periodic: [] },
   'office-hours': {
     gate: ['test/skill-e2e-office-hours.test.ts', 'test/skill-coverage-floor.test.ts'],
     periodic: ['test/skill-e2e-office-hours-auto-mode.test.ts', 'test/skill-e2e-office-hours-phase4.test.ts'],

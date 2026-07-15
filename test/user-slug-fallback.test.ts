@@ -35,6 +35,12 @@ function runConfig(args: string[], extraEnv: Record<string, string> = {}): { std
     encoding: 'utf-8',
     env: {
       ...process.env,
+      // HOME isolation: endpoint_hash() reads $HOME/.claude.json for the
+      // gbrain MCP URL. Pointing HOME at the empty TMP_HOME makes it
+      // deterministically 'local' regardless of the developer's real
+      // ~/.claude.json (which would otherwise change the persisted key
+      // namespace to user_slug_at_<sha8-of-url>).
+      HOME: TMP_HOME,
       ...extraEnv,
     },
     timeout: 5000,

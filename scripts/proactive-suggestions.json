@@ -3,6 +3,11 @@
   "catalog_mode": "trim",
   "note": "Routing / voice-trigger prose extracted from SKILL.md frontmatter descriptions during catalog trim. Loaded on demand when routing guidance is needed.",
   "skills": {
+    "autobuilder-loop": {
+      "lead": "Use when asked to \"autobuilder\", \"build loop\", \"auto-build\", \"keep building automatically\", \"drive the plan to completion\", or \"run the build loop\" on an already-approved plan, spec, or backlog.",
+      "routing": "Proactively suggest when the user has an approved plan (TODOS.md, spec, or\nplan doc) and wants it built to completion unattended rather than driving\neach milestone by hand.",
+      "voice_line": "Voice triggers (speech-to-text aliases): \"auto builder\", \"build loop\", \"auto build loop\"."
+    },
     "autoplan": {
       "lead": "Auto-review pipeline — reads the full CEO, design, eng, and DX review skills from disk and runs them sequentially with auto-decisions using 6 decision principles.",
       "routing": "Surfaces\ntaste decisions (close approaches, borderline scope, codex disagreements) at a final\napproval gate. One command, fully reviewed plan out.\nUse when asked to \"auto review\", \"autoplan\", \"run all reviews\", \"review this plan\nautomatically\", or \"make the decisions for me\".\nProactively suggest when the user has a plan file and wants to run the full review\ngauntlet without answering 15-30 intermediate questions.",
@@ -79,8 +84,8 @@
       "voice_line": "Voice triggers (speech-to-text aliases): \"dx audit\", \"test the developer experience\", \"try the onboarding\", \"developer experience test\"."
     },
     "diagram": {
-      "lead": "Turn an English description (or mermaid source) into a diagram triplet: the source, an editable .excalidraw file you can open",
-      "routing": "on excalidraw.com,\nand rendered SVG + PNG (clean mermaid style; the .excalidraw carries the\nhand-drawn aesthetic). Fully offline.\nUse when asked to \"make a diagram\", \"draw the architecture\", \"create a\nflowchart\", \"diagram this\", or \"visualize this flow\".",
+      "lead": "Turn an English description (or mermaid source) into a diagram triplet: the source, an editable .excalidraw file you can open on excalidraw.com, and rendered SVG + PNG.",
+      "routing": "The SVG/PNG use clean mermaid style; the\n.excalidraw carries the hand-drawn aesthetic. Fully offline.\nUse when asked to \"make a diagram\", \"draw the architecture\", \"create a\nflowchart\", \"diagram this\", or \"visualize this flow\".",
       "voice_line": null
     },
     "document-generate": {
@@ -264,8 +269,8 @@
       "voice_line": null
     },
     "sync-gbrain": {
-      "lead": "Keep gbrain current with this repo's code and refresh agent search guidance in CLAUDE.md. Wraps the gstack-gbrain-sync orchestrator with state",
-      "routing": "probing, native code-surface registration, capability checks,\nand a verdict block. Re-runnable, idempotent. Use when: \"sync gbrain\",\n\"refresh gbrain\", \"re-index this repo\", \"gbrain search isn't finding\nthings\".",
+      "lead": "Keep gbrain current with this repo's code and refresh agent search guidance in CLAUDE.md.",
+      "routing": "Wraps the gstack-gbrain-sync orchestrator with\nstate probing, native code-surface registration, capability checks,\nand a verdict block. Re-runnable, idempotent. Use when: \"sync gbrain\",\n\"refresh gbrain\", \"re-index this repo\", \"gbrain search isn't finding\nthings\".",
       "voice_line": null
     },
     "unfreeze": {

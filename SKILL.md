@@ -564,6 +564,7 @@ quality gates that produce better results than answering inline.
 - User asks to review design of a plan → invoke `/plan-design-review`
 - User asks about developer experience of a plan, API/CLI/SDK design → invoke `/plan-devex-review`
 - User wants all reviews done automatically, "review everything" → invoke `/autoplan`
+- User asks to autonomously build out an approved plan end-to-end, drive the backlog/plan to completion via subagents, "autobuild it", "run the build loop" → invoke `/autobuilder-loop`
 - User reports a bug, error, broken behavior, "why is this broken", "this doesn't work", "wtf", "something's wrong" → invoke `/investigate`
 - User asks to test the site, find bugs, QA, "does this work", "check the deploy" → invoke `/qa`
 - User asks to just report bugs without fixing → invoke `/qa-only`

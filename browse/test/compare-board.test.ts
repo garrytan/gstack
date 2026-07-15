@@ -69,10 +69,15 @@ beforeAll(async () => {
   await handleWriteCommand('goto', [boardUrl], bm);
 });
 
-afterAll(() => {
+afterAll(async () => {
   try { server.stop(); } catch {}
   fs.rmSync(tmpDir, { recursive: true, force: true });
-  setTimeout(() => process.exit(0), 500);
+  // Close only this file's own browser — never process.exit(): bun test runs
+  // all files in one process, so a delayed exit kills the whole suite
+  // (see test/no-suicide-exit.test.ts). close() can hang when the browser
+  // already died, and its internal 5s timeout ties bun's 5s hook timeout —
+  // so race it at 3s and abandon; the child is reaped at process exit.
+  try { await Promise.race([bm?.close(), new Promise((resolve) => setTimeout(resolve, 3000))]); } catch {}
 });
 
 // ─── DOM Structure ──────────────────────────────────────────────
