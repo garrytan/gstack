@@ -585,7 +585,10 @@ export class BrowserManager {
       args: launchArgs,
       viewport: null,  // Use browser's default viewport (real window size)
       userAgent: this.customUserAgent || customUA,
-      ...(executablePath ? { executablePath } : {}),
+      // Playwright 1.49+ defaults headless:true to chrome-headless-shell, which
+      // cannot load Chrome extensions. Explicitly pin the full Chromium binary
+      // so future Playwright upgrades don't silently break /open-gstack-browser.
+      executablePath: executablePath || chromium.executablePath(),
       ...(this.proxyConfig ? { proxy: this.proxyConfig } : {}),
       ignoreDefaultArgs: STEALTH_IGNORE_DEFAULT_ARGS,
     });
