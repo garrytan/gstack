@@ -413,5 +413,9 @@ export function generateChangelogWorkflow(_ctx: TemplateContext): string {
    add it now. If the branch has N commits spanning K themes, the CHANGELOG must
    reflect all K themes.
 
-**Do NOT ask the user to describe changes.** Infer from the diff and commit history.`;
+**Do NOT ask the user to describe changes.** Infer from the diff and commit history.
+
+**Going forward, write changelog entries WITH the change, not at ship time.** This step reconstructs impact from commit archaeology — half of it gets lost that way. When implementing, add the entry in the same commit that makes the change while the impact is fresh; this step then just consolidates.
+
+**Feature-flag hygiene (if the diff adds or touches flags):** every flag gets an owner and an expiration date noted in the CHANGELOG entry; flags are cleaned up within 2 weeks of full rollout; don't nest flags; CI must exercise both states. A flag that outlives its rollout is dead code wearing a disguise.`;
 }

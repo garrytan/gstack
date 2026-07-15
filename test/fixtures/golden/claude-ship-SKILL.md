@@ -1052,6 +1052,8 @@ stay agent judgment; the slot pick stays `gstack-next-version`.
 2. **Decide the bump level** from the diff (agent judgment):
    - **MICRO**: <50 lines, trivial tweaks/config. **PATCH**: 50+ lines, no feature signals.
    - **MINOR**: **ASK** if any feature signal (new route/page, migration, new module), OR 500+ lines. **MAJOR**: **ASK** — milestones or breaking changes only.
+
+   **Breaking-change check (overrides line counts):** before settling on MICRO/PATCH, scan the diff for changes to anything a consumer relies on — API response shapes, exported function signatures, config/env formats, DB schema used by other code, URL routes. A "patch" that changes behavior consumers relied on is a major change wearing a disguise (Hyrum's Law). **When unsure whether a change is breaking, assume it is and ASK** — a surprise major is far cheaper than a broken consumer.
    Save as `BUMP_LEVEL`. The level is the user-intended bump; queue-aware placement may advance the slot without changing the level.
 
 3. **Queue-aware pick** (workspace-aware ship):
