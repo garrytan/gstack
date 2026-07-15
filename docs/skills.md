@@ -675,6 +675,17 @@ First run on a new project triggers a dry-run walk-through so you can verify the
 
 Run `/setup-deploy` first. It detects your platform (Fly.io, Render, Vercel, Netlify, Heroku, GitHub Actions, or custom), discovers your production URL and health check endpoints, and writes the config to CLAUDE.md. One-time, 60 seconds.
 
+### Optional GitHub Codex Review gate
+
+The gate is disabled by default. Set `github_codex_review` to `risk` to request connector review only for large or sensitive changes, or to `always` for every non-empty PR. The helper only accepts reviews from `chatgpt-codex-connector[bot]` for the current head SHA, avoids duplicate requests with a head marker, and uses bounded waits (120 seconds for acknowledgement, 600 seconds for completion). API failures and timeouts warn without blocking; known unresolved current-head findings block landing.
+
+```bash
+gstack-config set github_codex_review risk
+gstack-github-codex-review assess
+gstack-github-codex-review status
+gstack-github-codex-review run
+```
+
 ### Example
 
 ```

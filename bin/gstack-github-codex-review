@@ -1,0 +1,124 @@
+#!/usr/bin/env bun
+
+import {
+  createRealDependencies,
+  GithubCodexReviewError,
+  runGithubCodexReview,
+  type ReviewCommand,
+  type ReviewMode,
+  type ReviewOptions,
+  type ReviewResult,
+} from "../lib/github-codex-review";
+
+function usage(): string {
+  return `gstack-github-codex-review — 有界 GitHub Codex Review 辅助检查
+
+Usage:
+  gstack-github-codex-review assess [options]
+  gstack-github-codex-review status [options]
+  gstack-github-codex-review run [options]
+
+Options:
+  --mode off|risk|always        覆盖本次模式；默认读取 gstack-config
+  --pr <number>                 指定 PR；默认从当前分支发现
+  --ack-timeout <seconds>       等待机器人 ACK；默认 120
+  --completion-timeout <sec>    ACK 后等待完成；默认 600
+  --poll-interval <seconds>     轮询间隔；默认 5
+  --no-wait                     创建或复用请求后立即返回
+  --help                        显示帮助
+
+最快启用：
+  gstack-config set github_codex_review risk
+  gstack-github-codex-review assess
+
+该功能默认关闭。risk/always 可能消耗 GitHub Codex Review 额度。
+stdout 始终输出单个 JSON；运行进度写入 stderr。
+`;
+}
+
+function parsePositive(raw: string | undefined, flag: string): number {
+  const value = Number(raw);
+  if (!raw || !Number.isFinite(value) || value <= 0) {
+    throw new GithubCodexReviewError("invalid_argument", `${flag} 需要正数。`);
+  }
+  return value;
+}
+
+function parseArgs(argv: string[]): ReviewOptions | "help" {
+  if (argv.includes("--help") || argv.includes("-h")) return "help";
+  const command = argv.shift() as ReviewCommand | undefined;
+  if (command !== "assess" && command !== "status" && command !== "run") {
+    throw new GithubCodexReviewError("invalid_argument", "首个参数必须是 assess、status 或 run。 ");
+  }
+  const options: ReviewOptions = { command };
+  while (argv.length > 0) {
+    const flag = argv.shift();
+    switch (flag) {
+      case "--mode": {
+        const mode = argv.shift() as ReviewMode | undefined;
+        if (mode !== "off" && mode !== "risk" && mode !== "always") {
+          throw new GithubCodexReviewError("invalid_argument", "--mode 允许值：off、risk、always。 ");
+        }
+        options.mode = mode;
+        break;
+      }
+      case "--pr": {
+        const value = parsePositive(argv.shift(), "--pr");
+        if (!Number.isInteger(value)) throw new GithubCodexReviewError("invalid_argument", "--pr 需要正整数。 ");
+        options.prNumber = value;
+        break;
+      }
+      case "--ack-timeout":
+        options.ackTimeoutSeconds = parsePositive(argv.shift(), "--ack-timeout");
+        break;
+      case "--completion-timeout":
+        options.completionTimeoutSeconds = parsePositive(argv.shift(), "--completion-timeout");
+        break;
+      case "--poll-interval":
+        options.pollIntervalSeconds = parsePositive(argv.shift(), "--poll-interval");
+        break;
+      case "--no-wait":
+        options.noWait = true;
+        break;
+      default:
+        throw new GithubCodexReviewError("invalid_argument", `未知参数：${flag}`);
+    }
+  }
+  return options;
+}
+
+function argumentError(error: unknown): ReviewResult {
+  const message = error instanceof Error ? error.message : String(error);
+  return {
+    schema_version: 1,
+    status: "ERROR",
+    blocking: false,
+    reason: error instanceof GithubCodexReviewError ? error.reasonCode : "invalid_argument",
+    message,
+    mode: null,
+    config_source: "argument",
+    pr: null,
+    request: { comment_id: null, comment_url: null, created: false },
+    timeout_stage: null,
+    unresolved_threads: [],
+    warnings: [message],
+    elapsed_ms: 0,
+    exit_code: 64,
+  };
+}
+
+try {
+  const parsed = parseArgs(process.argv.slice(2));
+  if (parsed === "help") {
+    process.stdout.write(usage());
+  } else {
+    const result = await runGithubCodexReview(parsed, createRealDependencies());
+    process.stdout.write(`${JSON.stringify(result)}\n`);
+    process.exitCode = result.exit_code;
+  }
+} catch (error) {
+  const result = argumentError(error);
+  process.stdout.write(`${JSON.stringify(result)}\n`);
+  console.error(`${result.message}\n\n${usage()}`);
+  process.exitCode = result.exit_code;
+}

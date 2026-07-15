@@ -447,6 +447,43 @@ and tell the user: "I found and fixed a few issues during the review. The fixes 
 
 **If review is CURRENT:** Skip this sub-step entirely — no question asked.
 
+### 3.5a-ter: GitHub Codex Review (opt-in, bounded)
+
+Run the deterministic helper before the test checks. It reads
+`github_codex_review` (`off | risk | always`) and timeout defaults from
+`gstack-config`; `off` is the default and does not access GitHub or spend cloud
+Review quota.
+
+```bash
+_GSTACK_CODEX_RESULT=$(mktemp /tmp/gstack-github-codex-review-XXXXXXXX)
+set +e
+"$GSTACK_BIN/gstack-github-codex-review" run > "$_GSTACK_CODEX_RESULT"
+_GSTACK_CODEX_EXIT=$?
+set -e
+cat "$_GSTACK_CODEX_RESULT"
+echo "HELPER_EXIT_CODE=$_GSTACK_CODEX_EXIT"
+rm -f "$_GSTACK_CODEX_RESULT"
+```
+
+Parse the single JSON document and record its status in the readiness report:
+
+- `SKIPPED`: informational only. Do not add a warning.
+- `COMPLETED`: current HEAD has a completed GitHub Codex Review (or bot 👍)
+  and no known unresolved current-HEAD thread.
+- `TIMEOUT`: add a warning with `timeout_stage` and `message`; continue using
+  local review, tests, and CI. Never keep polling after the helper returns.
+- `ERROR`: add a warning with `reason` and `message`; this means cloud status is
+  unknown, not passed. Continue using local review, tests, and CI.
+- `BLOCKED` or helper exit `2`: add every `unresolved_threads[].url` as a
+  **BLOCKER** and do not merge.
+- `REQUESTED` / `ACKNOWLEDGED`: show the status. These normally appear only in
+  explicit `--no-wait` use; they are not proof of completion.
+- Helper exit `64`: configuration/argument error. Add a warning with the exact
+  fix from `message`; do not invent a status.
+
+This is a gstack merge-path auxiliary check, not a repository-level required
+check. It does not cover merges performed outside `/land-and-deploy`.
+
 ### 3.5b: Test results
 
 **Free tests — run them now:**
@@ -542,7 +579,8 @@ Build the full readiness report:
 ║  ├─ Eng Review:    CURRENT / STALE (N commits) / —       ║
 ║  ├─ CEO Review:    CURRENT / — (optional)                ║
 ║  ├─ Design Review: CURRENT / — (optional)                ║
-║  └─ Codex Review:  CURRENT / — (optional)                ║
+║  ├─ Codex Review:  CURRENT / — (local outside voice)     ║
+║  └─ GitHub Codex:  COMPLETED / TIMEOUT / ERROR / SKIPPED ║
 ║                                                          ║
 ║  TESTS                                                   ║
 ║  ├─ Free tests:    PASS / FAIL (blocker)                 ║

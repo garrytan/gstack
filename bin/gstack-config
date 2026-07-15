@@ -96,6 +96,15 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 #                           #   /document-release skip the outside-voice step entirely.
 #                           #   An invalid value is REJECTED (existing value preserved) so
 #                           #   a typo cannot silently turn paid Codex calls on or off.
+#
+# github_codex_review: off  # off | risk | always. Controls GitHub Connector
+#                           #   Review requested from /land-and-deploy. This is
+#                           #   separate from local cross-model codex_reviews.
+#                           #   risk/always may consume GitHub Codex Review quota.
+# github_codex_ack_timeout_seconds: 120
+#                           # Positive integer. Max wait for the bot ACK.
+# github_codex_completion_timeout_seconds: 600
+#                           # Positive integer. Max wait after ACK for completion.
 # gstack_contributor: false # true = file field reports when gstack misbehaves
 # skip_eng_review: false    # true = skip eng review gate in /ship (not recommended)
 #
@@ -123,6 +132,9 @@ lookup_default() {
     checkpoint_push) echo "false" ;;
     explain_level) echo "default" ;;
     codex_reviews) echo "enabled" ;;
+    github_codex_review) echo "off" ;;
+    github_codex_ack_timeout_seconds) echo "120" ;;
+    github_codex_completion_timeout_seconds) echo "600" ;;
     gstack_contributor) echo "false" ;;
     skip_eng_review) echo "false" ;;
     workspace_root) echo "$HOME/conductor/workspaces" ;;
@@ -321,6 +333,17 @@ case "${1:-}" in
       echo "Error: codex_reviews '$VALUE' not recognized. Valid values: enabled, disabled. Existing value left unchanged." >&2
       exit 1
     fi
+    # GitHub Connector Review can consume quota. Invalid values must never
+    # silently change whether it runs or how long /land-and-deploy waits.
+    if [ "$KEY" = "github_codex_review" ] && [ "$VALUE" != "off" ] && [ "$VALUE" != "risk" ] && [ "$VALUE" != "always" ]; then
+      echo "Error: github_codex_review '$VALUE' not recognized. Valid values: off, risk, always. Existing value left unchanged." >&2
+      exit 1
+    fi
+    if { [ "$KEY" = "github_codex_ack_timeout_seconds" ] || [ "$KEY" = "github_codex_completion_timeout_seconds" ]; } && \
+       ! printf '%s' "$VALUE" | grep -qE '^[1-9][0-9]*$'; then
+      echo "Error: $KEY must be a positive integer. Existing value left unchanged." >&2
+      exit 1
+    fi
     mkdir -p "$STATE_DIR"
     # Write annotated header on first creation
     if [ ! -f "$CONFIG_FILE" ]; then
@@ -349,7 +372,9 @@ case "${1:-}" in
     echo "# ─── Active values (including defaults for unset keys) ───"
     for KEY in proactive routing_declined telemetry auto_upgrade update_check \
                skill_prefix checkpoint_mode checkpoint_push explain_level \
-               codex_reviews gstack_contributor skip_eng_review workspace_root \
+               codex_reviews github_codex_review \
+               github_codex_ack_timeout_seconds github_codex_completion_timeout_seconds \
+               gstack_contributor skip_eng_review workspace_root \
                artifacts_sync_mode artifacts_sync_mode_prompted plan_tune_hooks; do
       VALUE=$(grep -E "^${KEY}:" "$CONFIG_FILE" 2>/dev/null | tail -1 | awk '{print $2}' | tr -d '[:space:]' || true)
       SOURCE="default"
@@ -365,7 +390,9 @@ case "${1:-}" in
     echo "# gstack-config defaults"
     for KEY in proactive routing_declined telemetry auto_upgrade update_check \
                skill_prefix checkpoint_mode checkpoint_push explain_level \
-               codex_reviews gstack_contributor skip_eng_review workspace_root \
+               codex_reviews github_codex_review \
+               github_codex_ack_timeout_seconds github_codex_completion_timeout_seconds \
+               gstack_contributor skip_eng_review workspace_root \
                artifacts_sync_mode artifacts_sync_mode_prompted plan_tune_hooks; do
       printf '  %-24s %s\n' "$KEY:" "$(lookup_default "$KEY")"
     done
