@@ -18,12 +18,19 @@ INSTALL_GSTACK_DIR="$(cd "$(dirname "$0")" && pwd)"
 SOURCE_GSTACK_DIR="$(cd "$(dirname "$0")" && pwd -P)"
 INSTALL_SKILLS_DIR="$(dirname "$INSTALL_GSTACK_DIR")"
 BROWSE_BIN="$SOURCE_GSTACK_DIR/browse/dist/browse"
+
+# Use custom Playwright browsers path if manually installed (avoids macOS cache permission issues)
+if [ -d "$SOURCE_GSTACK_DIR/.playwright-browsers" ]; then
+  export PLAYWRIGHT_BROWSERS_PATH="$SOURCE_GSTACK_DIR/.playwright-browsers"
+fi
 CODEX_SKILLS="$HOME/.codex/skills"
 CODEX_GSTACK="$CODEX_SKILLS/gstack"
 FACTORY_SKILLS="$HOME/.factory/skills"
 FACTORY_GSTACK="$FACTORY_SKILLS/gstack"
 OPENCODE_SKILLS="$HOME/.config/opencode/skills"
 OPENCODE_GSTACK="$OPENCODE_SKILLS/gstack"
+QODER_SKILLS="$HOME/.lingma/skills"
+QODER_GSTACK="$QODER_SKILLS/gstack"
 
 IS_WINDOWS=0
 case "$(uname -s)" in
@@ -82,12 +89,15 @@ SKILL_PREFIX=1
 SKILL_PREFIX_FLAG=0
 TEAM_MODE=0
 NO_TEAM_MODE=0
+CUSTOM_DIR=""
 PLAN_TUNE_HOOKS_MODE=""   # "" = resolve from env/config/prompt; "yes"/"no" = explicit
 while [ $# -gt 0 ]; do
   case "$1" in
-    --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, codex, kiro, factory, opencode, openclaw, hermes, gbrain, or auto)" >&2 && exit 1; HOST="$2"; shift 2 ;;
+    --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, codex, kiro, factory, opencode, qoder, openclaw, hermes, gbrain, or auto)" >&2 && exit 1; HOST="$2"; shift 2 ;;
     --host=*) HOST="${1#--host=}"; shift ;;
     --local) LOCAL_INSTALL=1; shift ;;
+    --dir) [ -z "$2" ] && echo "Missing value for --dir (expected a directory path)" >&2 && exit 1; CUSTOM_DIR="$2"; shift 2 ;;
+    --dir=*) CUSTOM_DIR="${1#--dir=}"; shift ;;
     --prefix)    SKILL_PREFIX=1; SKILL_PREFIX_FLAG=1; shift ;;
     --no-prefix) SKILL_PREFIX=0; SKILL_PREFIX_FLAG=1; shift ;;
     --team)    TEAM_MODE=1; shift ;;
@@ -100,8 +110,13 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+# Expand ~ in --dir argument (bash doesn't expand it inside quoted strings)
+if [ -n "$CUSTOM_DIR" ] && [ "${CUSTOM_DIR#\~}" != "$CUSTOM_DIR" ]; then
+  CUSTOM_DIR="${HOME}${CUSTOM_DIR#\~}"
+fi
+
 case "$HOST" in
-  claude|codex|kiro|factory|opencode|auto) ;;
+  claude|codex|kiro|factory|opencode|qoder|auto) ;;
   openclaw)
     echo ""
     echo "OpenClaw integration uses a different model — OpenClaw spawns Claude Code"
@@ -136,7 +151,7 @@ case "$HOST" in
     echo "GBrain setup and brain skills ship from the GBrain repo."
     echo ""
     exit 0 ;;
-  *) echo "Unknown --host value: $HOST (expected claude, codex, kiro, factory, opencode, openclaw, hermes, gbrain, or auto)" >&2; exit 1 ;;
+  *) echo "Unknown --host value: $HOST (expected claude, codex, kiro, factory, opencode, qoder, openclaw, hermes, gbrain, or auto)" >&2; exit 1 ;;
 esac
 
 # ─── Resolve skill prefix preference ─────────────────────────
@@ -200,14 +215,16 @@ INSTALL_CODEX=0
 INSTALL_KIRO=0
 INSTALL_FACTORY=0
 INSTALL_OPENCODE=0
+INSTALL_QODER=0
 if [ "$HOST" = "auto" ]; then
   command -v claude >/dev/null 2>&1 && INSTALL_CLAUDE=1
   command -v codex >/dev/null 2>&1 && INSTALL_CODEX=1
   command -v kiro-cli >/dev/null 2>&1 && INSTALL_KIRO=1
   command -v droid >/dev/null 2>&1 && INSTALL_FACTORY=1
   command -v opencode >/dev/null 2>&1 && INSTALL_OPENCODE=1
+  command -v qoder >/dev/null 2>&1 && INSTALL_QODER=1
   # If none found, default to claude
-  if [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ] && [ "$INSTALL_FACTORY" -eq 0 ] && [ "$INSTALL_OPENCODE" -eq 0 ]; then
+  if [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ] && [ "$INSTALL_FACTORY" -eq 0 ] && [ "$INSTALL_OPENCODE" -eq 0 ] && [ "$INSTALL_QODER" -eq 0 ]; then
     INSTALL_CLAUDE=1
   fi
 elif [ "$HOST" = "claude" ]; then
@@ -220,6 +237,20 @@ elif [ "$HOST" = "factory" ]; then
   INSTALL_FACTORY=1
 elif [ "$HOST" = "opencode" ]; then
   INSTALL_OPENCODE=1
+elif [ "$HOST" = "qoder" ]; then
+  INSTALL_QODER=1
+fi
+
+# ─── Apply custom directory override ──────────────────────────
+# When --dir is specified, override the target skills directory
+# for the selected host (supports project-level installations).
+if [ -n "$CUSTOM_DIR" ]; then
+  case "$HOST" in
+    qoder)
+      QODER_SKILLS="$CUSTOM_DIR"
+      QODER_GSTACK="$QODER_SKILLS/gstack"
+      ;;
+  esac
 fi
 
 migrate_direct_codex_install() {
@@ -255,12 +286,12 @@ ensure_playwright_browser() {
     # (oven-sh/bun#4253). Use Node.js to verify Chromium works instead.
     (
       cd "$SOURCE_GSTACK_DIR"
-      node -e "const { chromium } = require('playwright'); (async () => { const b = await chromium.launch(); await b.close(); })()" 2>/dev/null
+      node -e "const { chromium } = require('playwright'); (async () => { const b = await chromium.launch({ channel: 'chromium' }); await b.close(); })()" 2>/dev/null
     )
   else
     (
       cd "$SOURCE_GSTACK_DIR"
-      bun --eval 'import { chromium } from "playwright"; const browser = await chromium.launch(); await browser.close();'
+      bun --eval 'import { chromium } from "playwright"; const browser = await chromium.launch({ channel: "chromium" }); await browser.close();'
     ) >/dev/null 2>&1
   fi
 }
@@ -477,11 +508,17 @@ fi
 
 # 2. Ensure Playwright's Chromium is available
 if ! ensure_playwright_browser; then
-  echo "Installing Playwright Chromium..."
-  (
-    cd "$SOURCE_GSTACK_DIR"
-    bunx playwright install chromium
-  )
+  # Skip download if browser already exists in custom path (avoids macOS cache hang)
+  if [ -n "${PLAYWRIGHT_BROWSERS_PATH:-}" ] && [ -d "$PLAYWRIGHT_BROWSERS_PATH/chromium-1208" ]; then
+    echo "Playwright Chromium already installed at $PLAYWRIGHT_BROWSERS_PATH"
+  else
+    echo "Installing Playwright Chromium..."
+    (
+      cd "$SOURCE_GSTACK_DIR"
+      # Use timeout to avoid hanging on macOS cache issues (timeout returns 124 on macOS)
+      timeout 120 bunx playwright install chromium 2>/dev/null || echo "  Playwright install timed out or failed — browser-dependent skills may not work"
+    )
+  fi
 
   if [ "$IS_WINDOWS" -eq 1 ]; then
     # On Windows, Node.js launches Chromium (not Bun — see oven-sh/bun#4253).
@@ -506,13 +543,15 @@ fi
 
 if ! ensure_playwright_browser; then
   if [ "$IS_WINDOWS" -eq 1 ]; then
-    echo "gstack setup failed: Playwright Chromium could not be launched via Node.js" >&2
+    echo "Warning: Playwright Chromium could not be launched via Node.js" >&2
     echo "  This is a known issue with Bun on Windows (oven-sh/bun#4253)." >&2
     echo "  Ensure Node.js is installed and 'node -e \"require('playwright')\"' works." >&2
+    echo "  Browser-dependent skills (/browse, /qa) will not work until fixed." >&2
   else
-    echo "gstack setup failed: Playwright Chromium could not be launched" >&2
+    echo "Warning: Playwright Chromium could not be launched" >&2
+    echo "  Browser-dependent skills (/browse, /qa) will not work until fixed." >&2
+    echo "  To fix: 'bunx playwright install chromium' or set GSTACK_SKIP_BROWSER_CHECK=1" >&2
   fi
-  exit 1
 fi
 
 # 2b. Ensure a color-emoji font is installed so make-pdf emoji render (Linux).
@@ -908,6 +947,59 @@ create_opencode_runtime_root() {
   fi
 }
 
+create_qoder_runtime_root() {
+  local gstack_dir="$1"
+  local qoder_gstack="$2"
+  local qoder_dir="$gstack_dir/.lingma/skills"
+
+  if [ -L "$qoder_gstack" ]; then
+    rm -f "$qoder_gstack"
+  elif [ -d "$qoder_gstack" ] && [ "$qoder_gstack" != "$gstack_dir" ]; then
+    rm -rf "$qoder_gstack"
+  fi
+
+  mkdir -p "$qoder_gstack" "$qoder_gstack/browse" "$qoder_gstack/design" "$qoder_gstack/gstack-upgrade" "$qoder_gstack/review" "$qoder_gstack/qa" "$qoder_gstack/plan-devex-review"
+
+  if [ -f "$qoder_dir/gstack/SKILL.md" ]; then
+    _link_or_copy "$qoder_dir/gstack/SKILL.md" "$qoder_gstack/SKILL.md"
+  fi
+  if [ -d "$gstack_dir/bin" ]; then
+    _link_or_copy "$gstack_dir/bin" "$qoder_gstack/bin"
+  fi
+  if [ -d "$gstack_dir/browse/dist" ]; then
+    _link_or_copy "$gstack_dir/browse/dist" "$qoder_gstack/browse/dist"
+  fi
+  if [ -d "$gstack_dir/browse/bin" ]; then
+    _link_or_copy "$gstack_dir/browse/bin" "$qoder_gstack/browse/bin"
+  fi
+  if [ -d "$gstack_dir/design/dist" ]; then
+    _link_or_copy "$gstack_dir/design/dist" "$qoder_gstack/design/dist"
+  fi
+  if [ -f "$qoder_dir/gstack-upgrade/SKILL.md" ]; then
+    _link_or_copy "$qoder_dir/gstack-upgrade/SKILL.md" "$qoder_gstack/gstack-upgrade/SKILL.md"
+  fi
+  for f in checklist.md design-checklist.md greptile-triage.md TODOS-format.md; do
+    if [ -f "$gstack_dir/review/$f" ]; then
+      _link_or_copy "$gstack_dir/review/$f" "$qoder_gstack/review/$f"
+    fi
+  done
+  if [ -d "$gstack_dir/review/specialists" ]; then
+    _link_or_copy "$gstack_dir/review/specialists" "$qoder_gstack/review/specialists"
+  fi
+  if [ -d "$gstack_dir/qa/templates" ]; then
+    _link_or_copy "$gstack_dir/qa/templates" "$qoder_gstack/qa/templates"
+  fi
+  if [ -d "$gstack_dir/qa/references" ]; then
+    _link_or_copy "$gstack_dir/qa/references" "$qoder_gstack/qa/references"
+  fi
+  if [ -f "$gstack_dir/plan-devex-review/dx-hall-of-fame.md" ]; then
+    _link_or_copy "$gstack_dir/plan-devex-review/dx-hall-of-fame.md" "$qoder_gstack/plan-devex-review/dx-hall-of-fame.md"
+  fi
+  if [ -f "$gstack_dir/ETHOS.md" ]; then
+    _link_or_copy "$gstack_dir/ETHOS.md" "$qoder_gstack/ETHOS.md"
+  fi
+}
+
 link_factory_skill_dirs() {
   local gstack_dir="$1"
   local skills_dir="$2"
@@ -957,6 +1049,38 @@ link_opencode_skill_dirs() {
   fi
 
   for skill_dir in "$opencode_dir"/gstack*/; do
+    if [ -f "$skill_dir/SKILL.md" ]; then
+      skill_name="$(basename "$skill_dir")"
+      [ "$skill_name" = "gstack" ] && continue
+      target="$skills_dir/$skill_name"
+      if [ -L "$target" ] || [ ! -e "$target" ]; then
+        _link_or_copy "$skill_dir" "$target"
+        linked+=("$skill_name")
+      fi
+    fi
+  done
+  if [ ${#linked[@]} -gt 0 ]; then
+    echo "  linked skills: ${linked[*]}"
+  fi
+}
+
+link_qoder_skill_dirs() {
+  local gstack_dir="$1"
+  local skills_dir="$2"
+  local qoder_dir="$gstack_dir/.lingma/skills"
+  local linked=()
+
+  if [ ! -d "$qoder_dir" ]; then
+    echo "  Generating .lingma/ skill docs..."
+    ( cd "$gstack_dir" && bun run gen:skill-docs --host qoder )
+  fi
+
+  if [ ! -d "$qoder_dir" ]; then
+    echo "  warning: .lingma/skills/ generation failed — run 'bun run gen:skill-docs --host qoder' manually" >&2
+    return 1
+  fi
+
+  for skill_dir in "$qoder_dir"/gstack*/; do
     if [ -f "$skill_dir/SKILL.md" ]; then
       skill_name="$(basename "$skill_dir")"
       [ "$skill_name" = "gstack" ] && continue
@@ -1191,6 +1315,16 @@ if [ "$INSTALL_OPENCODE" -eq 1 ]; then
   echo "gstack ready (opencode)."
   echo "  browse: $BROWSE_BIN"
   echo "  opencode skills: $OPENCODE_SKILLS"
+fi
+
+# 6d. Install for Qoder
+if [ "$INSTALL_QODER" -eq 1 ]; then
+  mkdir -p "$QODER_SKILLS"
+  create_qoder_runtime_root "$SOURCE_GSTACK_DIR" "$QODER_GSTACK"
+  link_qoder_skill_dirs "$SOURCE_GSTACK_DIR" "$QODER_SKILLS"
+  echo "gstack ready (qoder)."
+  echo "  browse: $BROWSE_BIN"
+  echo "  qoder skills: $QODER_SKILLS"
 fi
 
 # 7. Create .agents/ sidecar symlinks for the real Codex skill target.

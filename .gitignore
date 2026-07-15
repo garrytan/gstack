@@ -23,6 +23,7 @@ bin/gstack-global-discover*
 .hermes/
 .gbrain/
 .gbrain-source
+.lingma/
 .context/
 extension/.auth.json
 # xterm assets are vendored from npm at build time; not source-of-truth.
@@ -44,3 +45,4 @@ docs/throughput-*.json
 
 # gbrain local source-staging dir (capability checks, source clones) — runtime artifact
 .sources/
+.playwright-browsers
