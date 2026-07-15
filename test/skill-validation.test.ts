@@ -299,6 +299,49 @@ describe('Update check preamble', () => {
     expect(result.exitCode).toBe(0);
     expect(result.stdout.toString().trim()).toBe('UPGRADE_AVAILABLE 0.3.3 0.4.0');
   });
+
+  test('update check bash block surfaces CHECK_FAILED when script crashes', () => {
+    const tempRoot = fs.mkdtempSync(path.join(ROOT, '.tmp-update-check-'));
+    const gstackDir = path.join(tempRoot, 'gstack');
+    const stateDir = path.join(tempRoot, 'state');
+    const binDir = path.join(gstackDir, 'bin');
+    const fallbackBinDir = path.join(tempRoot, '.agents', 'skills', 'gstack', 'bin');
+    fs.mkdirSync(binDir, { recursive: true });
+    fs.mkdirSync(fallbackBinDir, { recursive: true });
+    fs.mkdirSync(stateDir, { recursive: true });
+    fs.writeFileSync(path.join(gstackDir, 'VERSION'), '0.3.3\n');
+    fs.writeFileSync(path.join(gstackDir, 'REMOTE_VERSION'), '0.4.0\n');
+    fs.writeFileSync(path.join(stateDir, '.codex-desc-healed'), '');
+    fs.writeFileSync(path.join(stateDir, 'just-upgraded-from'), '0.2.0\n');
+    fs.symlinkSync(path.join(ROOT, 'bin', 'gstack-config'), path.join(binDir, 'gstack-config'));
+    fs.symlinkSync(path.join(ROOT, 'bin', 'gstack-update-check'), path.join(binDir, 'gstack-update-check'));
+    fs.symlinkSync(path.join(ROOT, 'bin', 'gstack-update-check'), path.join(fallbackBinDir, 'gstack-update-check'));
+
+    fs.chmodSync(stateDir, 0o555);
+    try {
+      const result = Bun.spawnSync(['bash', '-c',
+        '_UPD=$($GSTACK_BIN/gstack-update-check 2>/dev/null || .agents/skills/gstack/bin/gstack-update-check 2>/dev/null || true); [ -n "$_UPD" ] && echo "$_UPD" || true'
+      ], {
+        cwd: tempRoot,
+        env: {
+          ...process.env,
+          GSTACK_BIN: binDir,
+          GSTACK_DIR: gstackDir,
+          GSTACK_STATE_DIR: stateDir,
+          GSTACK_REMOTE_URL: `file://${path.join(gstackDir, 'REMOTE_VERSION')}`,
+        },
+        stdout: 'pipe',
+        stderr: 'pipe',
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout.toString().trim()).toContain('CHECK_FAILED');
+      expect(result.stdout.toString().trim()).toContain('rm');
+    } finally {
+      fs.chmodSync(stateDir, 0o755);
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
 });
 
 // --- Part 7: Cross-skill path consistency (A1) ---

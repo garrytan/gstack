@@ -7,7 +7,7 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-import { mkdtempSync, writeFileSync, rmSync, existsSync, readFileSync, mkdirSync, symlinkSync, utimesSync } from 'fs';
+import { mkdtempSync, writeFileSync, rmSync, existsSync, readFileSync, mkdirSync, symlinkSync, utimesSync, chmodSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
@@ -474,6 +474,23 @@ describe('gstack-update-check', () => {
     expect(forced.stdout).toBe('');
     const cache = readFileSync(join(stateDir, 'last-update-check'), 'utf-8');
     expect(cache).toContain('UP_TO_DATE');
+  });
+
+  test('--force emits CHECK_FAILED when state files cannot be removed', () => {
+    writeFileSync(join(gstackDir, 'VERSION'), '0.3.3\n');
+    writeFileSync(join(gstackDir, 'REMOTE_VERSION'), '0.4.0\n');
+    writeFileSync(join(stateDir, 'last-update-check'), 'UP_TO_DATE 0.3.3');
+    writeFileSync(join(stateDir, 'update-snoozed'), `0.4.0 1 ${nowEpoch()}`);
+
+    chmodSync(stateDir, 0o555);
+    try {
+      const { exitCode, stdout } = run({}, ['--force']);
+      expect(exitCode).toBe(0);
+      expect(stdout).toContain('CHECK_FAILED');
+      expect(stdout).toContain('rm');
+    } finally {
+      chmodSync(stateDir, 0o755);
+    }
   });
 
   test('--force clears snooze so user can upgrade after snoozing', () => {
