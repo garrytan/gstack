@@ -8,38 +8,71 @@
 set -euo pipefail
 
 CACHE_DIR="$HOME/.gstack/slug-cache"
-PROJECT_DIR="$(pwd)"
+PROJECT_DIR="$(pwd -P 2>/dev/null || pwd)"
 # Encode absolute path as cache key: /Users/j/foo → _Users_j_foo
 CACHE_KEY=$(printf '%s' "$PROJECT_DIR" | tr '/' '_')
 CACHE_FILE="${CACHE_DIR}/${CACHE_KEY}"
 
-# 1. Try cached slug first (guarantees consistency across sessions)
-if [[ -f "$CACHE_FILE" ]]; then
-  SLUG=$(cat "$CACHE_FILE")
+sanitize_slug() {
+  printf '%s' "$1" | tr -cd 'a-zA-Z0-9._-'
+}
+
+find_slug_override() {
+  local dir="$PROJECT_DIR"
+  while [[ -n "$dir" && "$dir" != "/" ]]; do
+    if [[ -f "$dir/.gstack-slug" ]]; then
+      head -n 1 "$dir/.gstack-slug" 2>/dev/null | tr -d '\r\n' || true
+      return 0
+    fi
+    dir="$(dirname "$dir")"
+  done
+  return 1
+}
+
+# 1. Explicit project overrides beat cache and git inference. This lets users
+#    recover from stale slug-cache entries without editing cache internals.
+OVERRIDE_SLUG=$(find_slug_override 2>/dev/null || true)
+if [[ -n "$OVERRIDE_SLUG" ]]; then
+  SLUG=$(sanitize_slug "$OVERRIDE_SLUG")
 fi
 
-# 2. If no cache, compute from git remote (separated from pipeline to avoid
-#    pipefail swallowing the error and producing an empty slug)
+# 2. If the current directory is the git root, compute from that repo's remote.
+#    If it is only a subdirectory of a parent repo, do not inherit the parent
+#    repo's identity; use the directory basename instead.
 if [[ -z "${SLUG:-}" ]]; then
-  REMOTE_URL=$(git remote get-url origin 2>/dev/null) || REMOTE_URL=""
-  if [[ -n "$REMOTE_URL" ]]; then
-    RAW_SLUG=$(printf '%s' "$REMOTE_URL" | sed 's|.*[:/]\([^/]*/[^/]*\)\.git$|\1|;s|.*[:/]\([^/]*/[^/]*\)$|\1|' | tr '/' '-')
-    SLUG=$(printf '%s' "$RAW_SLUG" | tr -cd 'a-zA-Z0-9._-')
+  GIT_TOPLEVEL=$(git rev-parse --show-toplevel 2>/dev/null) || GIT_TOPLEVEL=""
+  if [[ -n "$GIT_TOPLEVEL" ]]; then
+    GIT_TOPLEVEL=$(cd "$GIT_TOPLEVEL" 2>/dev/null && pwd -P) || GIT_TOPLEVEL=""
+  fi
+  if [[ -n "$GIT_TOPLEVEL" && "$GIT_TOPLEVEL" == "$PROJECT_DIR" ]]; then
+    REMOTE_URL=$(git remote get-url origin 2>/dev/null) || REMOTE_URL=""
+    if [[ -n "$REMOTE_URL" ]]; then
+      RAW_SLUG=$(printf '%s' "$REMOTE_URL" | sed 's|.*[:/]\([^/]*/[^/]*\)\.git$|\1|;s|.*[:/]\([^/]*/[^/]*\)$|\1|' | tr '/' '-')
+      SLUG=$(sanitize_slug "$RAW_SLUG")
+    fi
+  elif [[ -n "$GIT_TOPLEVEL" ]]; then
+    SLUG=$(sanitize_slug "$(basename "$PROJECT_DIR")")
   fi
 fi
 
-# 3. Fallback to basename only when there's truly no git remote configured
-SLUG="${SLUG:-$(basename "$PWD" | tr -cd 'a-zA-Z0-9._-')}"
+# 3. Cache is a fallback for transient git/remote failures, not an immutable
+#    source of truth when override or current repo inference is available.
+if [[ -z "${SLUG:-}" && -f "$CACHE_FILE" ]]; then
+  SLUG=$(sanitize_slug "$(cat "$CACHE_FILE")")
+fi
 
-# 3b. Re-sanitize unconditionally before the value is echoed into `eval`/`source`
-#     output. The compute (2) and fallback (3) paths already filter, but a value
-#     read straight from the cache file (1) does NOT — a poisoned
-#     ~/.gstack/slug-cache/<key> would otherwise inject shell into
-#     `eval "$(gstack-slug)"`. Filtering here honors the [a-zA-Z0-9._-] invariant
-#     promised in the header on every path, and heals a poisoned cache on write (4).
-SLUG=$(printf '%s' "$SLUG" | tr -cd 'a-zA-Z0-9._-')
+# 4. Fallback to basename only when there is no usable override, repo, or cache.
+SLUG="${SLUG:-$(sanitize_slug "$(basename "$PROJECT_DIR")")}"
 
-# 4. Cache the slug for future sessions (atomic write, fail silently)
+# 4b. Unconditional final sanitize before the value is echoed into `eval`/`source`
+#     output or written to cache. Every source above (override, remote, basename,
+#     and the cache read at step 3) already runs sanitize_slug, but filtering here
+#     too keeps the [a-zA-Z0-9._-] invariant promised in the header on every path —
+#     preserving the defense against a poisoned ~/.gstack/slug-cache/<key> injecting
+#     shell into `eval "$(gstack-slug)"` — and heals such a cache on the next write.
+SLUG=$(sanitize_slug "${SLUG:-}")
+
+# 5. Cache the slug for future sessions (atomic write, fail silently)
 if [[ -n "$SLUG" ]]; then
   mkdir -p "$CACHE_DIR" 2>/dev/null || true
   CACHE_TMP=$(mktemp "$CACHE_DIR/.slug-XXXXXX" 2>/dev/null) || CACHE_TMP=""
