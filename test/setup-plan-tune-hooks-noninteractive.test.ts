@@ -121,3 +121,43 @@ describe('gstack-config: plan_tune_hooks key', () => {
     expect(got).toBe('prompt');
   });
 });
+
+
+describe('gstack-config: artifacts_root key', () => {
+  let tmpHome: string;
+  let env: NodeJS.ProcessEnv;
+
+  beforeAll(() => {
+    tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-artifacts-root-cfg-'));
+    env = { ...process.env, GSTACK_HOME: tmpHome };
+  });
+
+  afterAll(() => {
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+  });
+
+  test('defaults to state and appears in defaults/list output', () => {
+    const out = execSync(`${GSTACK_CONFIG} get artifacts_root`, {
+      encoding: 'utf-8',
+      env,
+    }).trim();
+    expect(out).toBe('state');
+    const defaults = execSync(`${GSTACK_CONFIG} defaults`, { encoding: 'utf-8', env });
+    expect(defaults).toContain('artifacts_root');
+    const list = execSync(`${GSTACK_CONFIG} list`, { encoding: 'utf-8', env });
+    expect(list).toContain('artifacts_root');
+  });
+
+  test('accepts state/repo and rejects out-of-domain values', () => {
+    for (const v of ['state', 'repo']) {
+      execSync(`${GSTACK_CONFIG} set artifacts_root ${v}`, { encoding: 'utf-8', env });
+      const got = execSync(`${GSTACK_CONFIG} get artifacts_root`, { encoding: 'utf-8', env }).trim();
+      expect(got).toBe(v);
+    }
+
+    const res = execSync(`${GSTACK_CONFIG} set artifacts_root elsewhere 2>&1`, { encoding: 'utf-8', env });
+    expect(res.toLowerCase()).toContain('not recognized');
+    const got = execSync(`${GSTACK_CONFIG} get artifacts_root`, { encoding: 'utf-8', env }).trim();
+    expect(got).toBe('state');
+  });
+});

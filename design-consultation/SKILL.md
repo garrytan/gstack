@@ -853,7 +853,7 @@ Look for office-hours output:
 
 ```bash
 setopt +o nomatch 2>/dev/null || true  # zsh compat
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+eval "$(~/.claude/skills/gstack/bin/gstack-paths 2>/dev/null)" && eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && PROJECT_DIR="$GSTACK_ARTIFACTS_ROOT/projects/$SLUG"
 ls ~/.gstack/projects/$SLUG/*office-hours* 2>/dev/null | head -5
 ls .context/*office-hours* .context/attachments/*office-hours* 2>/dev/null | head -5
 ```
