@@ -164,13 +164,17 @@ context to pick up where we left off."
 
 **Mid-session detection:** During Step 0A (Premise Challenge), if the user can't
 articulate the problem, keeps changing the problem statement, answers with "I'm not
-sure," or is clearly exploring rather than reviewing — offer `/office-hours`:
+sure," or is clearly exploring rather than reviewing — offer two branches:
 
-> "It sounds like you're still figuring out what to build — that's totally fine, but
-> that's what /office-hours is designed for. Want to run /office-hours right now?
-> We'll pick up right where we left off."
+> "It sounds like you're still figuring out what to build — that's totally fine.
+> Two ways to handle it:
+> - `/office-hours` — broad design interview, opens the problem back up
+> - `/absolute-brainstorm` — precise design-interview gate for adopting a specific
+>   new proposal, when you have a concrete idea you want vetted before scoping it in
+>
+> Which one fits where you are right now?"
 
-Options: A) Yes, run /office-hours now. B) No, keep going.
+Options: A) Run /office-hours. B) Run /absolute-brainstorm. C) No, keep going.
 If they keep going, proceed normally — no guilt, no re-asking.
 
 If they choose A:
@@ -178,7 +182,29 @@ If they choose A:
 {{INVOKE_SKILL:office-hours}}
 
 Note current Step 0A progress so you don't re-ask questions already answered.
-After completion, re-run the design doc check and resume the review.
+After option A completes, re-run the design doc check and resume the review.
+
+If they choose B:
+
+Write a handoff note to `~/.gstack/projects/$SLUG/$(date -u +%Y%m%d-%H%M%S)-$BRANCH-ceo-handoff-brainstorm.md`
+with:
+- Current Step 0A progress (the questions already answered)
+- The specific proposal the user wanted vetted
+- A note that the review paused for `/absolute-brainstorm`
+
+Then say: "Saved a handoff note. Run `/absolute-brainstorm` in your next
+message. When you come back to `/plan-ceo-review`, I'll read the handoff
+plus the brainstorm output and pick up Step 0A from where we left off."
+
+**STOP here and wait for the user's next message.** Do not continue with
+the rest of `/plan-ceo-review` in this turn — `/absolute-brainstorm` is
+a sibling skill, not a sub-invocation, so control must return to the user
+before any further work in this review happens.
+
+When the user returns to `/plan-ceo-review`, the standard handoff-note
+check at the top of this skill will read `*-ceo-handoff-brainstorm.md` the
+same way it reads other handoff notes, and the review resumes from the
+recorded Step 0A point with the brainstorm's output as additional input.
 
 When reading TODOS.md, specifically:
 * Note any TODOs this plan touches, blocks, or unlocks
