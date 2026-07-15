@@ -1,0 +1,396 @@
+#!/usr/bin/env bun
+/**
+ * gstack-sprint-dashboard — sprint board in three output modes.
+ *
+ * Usage:
+ *   gstack-sprint-dashboard              # compact terminal (default)
+ *   gstack-sprint-dashboard --compact    # compact terminal (explicit)
+ *   gstack-sprint-dashboard --full       # full terminal view
+ *   gstack-sprint-dashboard --web        # write sprint.html + open in browser
+ *   gstack-sprint-dashboard --out <path> # write HTML to <path> (implies --web)
+ *   gstack-sprint-dashboard --slug <s>   # override project slug
+ *
+ * Backwards-compat positional args (mapped to --web):
+ *   gstack-sprint-dashboard open         # alias for --web
+ *   gstack-sprint-dashboard out <path>   # alias for --web --out <path>
+ */
+
+import { writeFileSync, readFileSync } from "fs";
+import { resolve } from "path";
+import { execFileSync, spawn } from "child_process";
+import { buildDashboard } from "../lib/dashboard-data";
+import { renderCompact, renderFull } from "../lib/dashboard-cli";
+
+// ─── HTML helpers (web mode only) ───────────────────────────────────────────
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function stageIcon(reached: boolean, isCurrent: boolean): string {
+  if (!reached) return "";
+  return `<span class="tick ${isCurrent ? "tick-current" : "tick-passed"}">✓</span>`;
+}
+
+function renderHtml(data: ReturnType<typeof buildDashboard>): string {
+  const { slug, branch, version, generatedAt, inFlightCount, features, activity,
+          velocity, topSkills, quality, designDocs, backlog, openDecisions, prMap } = data;
+
+  // ── Stage constants for HTML ──
+  const STAGES = [
+    { id: "office-hours", label: "OH" },
+    { id: "spec", label: "Spec" },
+    { id: "plan-review", label: "Plan" },
+    { id: "implement", label: "Impl" },
+    { id: "review", label: "Review" },
+    { id: "ship", label: "Ship" },
+    { id: "canary", label: "Canary" },
+  ] as const;
+
+  const now = new Date();
+  const HISTORY_DAYS = 30;
+
+  // ── Header stats ──
+  const statsBar = `<div class="stats-bar">
+    ${[
+      ["Version", version ? `v${version}` : null],
+      ["In-flight", inFlightCount],
+      ["Ships this month", velocity.releasesThisMonth],
+      ["Avg days/release", velocity.avgDaysBetween !== null ? velocity.avgDaysBetween.toFixed(1) : null],
+      ["P1 open", backlog?.P1 ?? null],
+      ["Open decisions", openDecisions],
+    ].map(([label, value]) =>
+      `<div class="stat-card">
+        <div class="stat-value">${value === null || value === undefined ? "—" : escapeHtml(String(value))}</div>
+        <div class="stat-label">${escapeHtml(String(label))}</div>
+      </div>`
+    ).join("")}
+  </div>`;
+
+  // ── Pipeline ──
+  const stageHeaders = STAGES.map((s) => `<th class="stage-col">${s.label}</th>`).join("");
+  const pipelineRows = features.map((f) => {
+    const stageCells = STAGES.map((s) => {
+      const reached = f.stagesReached.has(s.id as any);
+      const isCurrent = f.latestStage === s.id;
+      return `<td class="stage-col">${stageIcon(reached, isCurrent)}</td>`;
+    }).join("");
+    const pr = prMap.get(f.branch);
+    const prCell = pr
+      ? `<span class="pr-badge pr-${pr.state.toLowerCase()}">#${pr.number} ${pr.state}</span>`
+      : "—";
+    const lastAct = f.latestTs
+      ? `${escapeHtml(f.latestSkill ?? "")} · ${new Date(f.latestTs).toLocaleString()}`
+      : "—";
+    return `<tr>
+      <td class="mono">${escapeHtml(f.branch)}${f.latestStage === null ? ' <span class="dim">(untracked)</span>' : ""}</td>
+      ${stageCells}
+      <td class="mono dim">${lastAct}</td>
+      <td>${prCell}</td>
+    </tr>`;
+  }).join("\n");
+
+  const pipeline = features.length === 0
+    ? `<div class="empty">no data yet — no local git branches found</div>`
+    : `<table>
+        <thead><tr><th>Branch</th>${stageHeaders}<th>Last Activity</th><th>PR</th></tr></thead>
+        <tbody>${pipelineRows}</tbody>
+      </table>`;
+
+  // ── Activity feed ──
+  const activityHtml = activity.length === 0
+    ? `<div class="empty">no data yet</div>`
+    : `<ul class="activity-feed">${activity.map((e) =>
+        `<li>
+          <span class="mono dim">${new Date(e.ts).toLocaleString()}</span>
+          <span class="skill">${escapeHtml(e.skill)}</span>
+          <span class="mono dim">${escapeHtml(e.branch)}</span>
+          <span class="event-${escapeHtml(e.event)}">${escapeHtml(e.event)}</span>
+        </li>`).join("\n")}</ul>`;
+
+  // ── Top skills ──
+  const topSkillsHtml = topSkills.length === 0
+    ? `<div class="empty">no data yet</div>`
+    : (() => {
+        const max = topSkills[0]?.count || 1;
+        return `<div class="bar-chart">${topSkills.map((s) =>
+          `<div class="bar-row">
+            <span class="bar-label mono">${escapeHtml(s.skill)}</span>
+            <div class="bar-track"><div class="bar-fill" style="width:${(s.count / max) * 100}%"></div></div>
+            <span class="bar-count mono dim">${s.count}</span>
+          </div>`).join("\n")}</div>`;
+      })();
+
+  // ── Quality ──
+  const qualityHtml = quality.length === 0
+    ? `<div class="empty">no data yet</div>`
+    : `<table>
+        <thead><tr><th>Date</th><th>Skill</th><th>Iterations</th><th>Score</th></tr></thead>
+        <tbody>${quality.map((e) =>
+          `<tr>
+            <td class="mono dim">${new Date(e.ts).toLocaleDateString()}</td>
+            <td>${escapeHtml(e.skill)}</td>
+            <td class="mono">${e.iterations}</td>
+            <td class="mono score">${e.score}/10</td>
+          </tr>`).join("\n")}</tbody>
+      </table>`;
+
+  // ── Design docs ──
+  const designDocsHtml = designDocs.length === 0
+    ? `<div class="empty">no data yet</div>`
+    : `<ul class="design-docs">${designDocs.map((d) =>
+        `<li>
+          <a class="mono" href="file://${escapeHtml(d.fullPath)}">${escapeHtml(d.name)}</a>
+          <span class="mono dim">${d.mtime ? new Date(d.mtime).toLocaleDateString() : "—"}</span>
+        </li>`).join("\n")}</ul>`;
+
+  // ── Release velocity ──
+  const releaseVelocityHtml = (() => {
+    const recent = velocity.recentVersions;
+    if (recent.length === 0) return `<div class="empty">no releases in the last ${HISTORY_DAYS} days</div>`;
+    const blocks = " ▁▂▃▄▅▆▇█";
+    const max = Math.max(1, ...recent.map((v) => v.commitCount));
+    const sparkline = recent
+      .map((v) => `<span class="sparkline-block" title="v${escapeHtml(v.version)} — ${v.commitCount} commit(s)">${blocks[Math.min(8, Math.round((v.commitCount / max) * 8))]}</span>`)
+      .join("");
+    const versionList = recent
+      .map((v) => `<li class="mono">v${escapeHtml(v.version)} <span class="dim">— ${v.date} — ${v.commitCount} commit(s)</span></li>`)
+      .join("\n");
+    return `<div class="release-velocity"><div class="sparkline">${sparkline}</div><ul>${versionList}</ul></div>`;
+  })();
+
+  // ── Backlog ──
+  const backlogHtml = !backlog
+    ? `<div class="empty">no TODOS.md found</div>`
+    : (() => {
+        const total = Object.values(backlog).reduce((a, b) => a + b, 0);
+        if (total === 0) return `<div class="empty">no level-3 headings in TODOS.md</div>`;
+        const rows = (["P0", "P1", "P2", "P3", "P4", "unparsed"] as const)
+          .filter((p) => backlog[p] > 0)
+          .map((p) => `<tr><td class="mono">${p}</td><td class="mono">${backlog[p]}</td></tr>`)
+          .join("\n");
+        return `<table><thead><tr><th>Priority</th><th>Count</th></tr></thead><tbody>${rows}</tbody></table>`;
+      })();
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>gstack sprint dashboard — ${escapeHtml(slug)}</title>
+<style>
+  :root {
+    --amber: #F59E0B;
+    --zinc-400: #A1A1AA;
+    --zinc-600: #52525B;
+    --bg-base: #0C0C0C;
+    --bg-surface: #141414;
+    --bg-hover: #1a1a1a;
+    --border: #262626;
+    --text-heading: #FAFAFA;
+    --text-body: #e0e0e0;
+    --text-label: #A1A1AA;
+    --text-meta: #52525B;
+    --success: #22C55E;
+    --error: #EF4444;
+    --font: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg-base);
+    color: var(--text-body);
+    font-family: var(--font);
+    font-size: 13px;
+    line-height: 1.5;
+    padding: 32px;
+    background-image:
+      repeating-linear-gradient(0deg, rgba(255,255,255,0.015) 0px, transparent 1px, transparent 2px),
+      repeating-linear-gradient(90deg, rgba(255,255,255,0.015) 0px, transparent 1px, transparent 2px);
+  }
+  header { margin-bottom: 32px; }
+  h1 { color: var(--text-heading); font-size: 20px; font-weight: 600; }
+  .meta { color: var(--text-meta); margin-top: 4px; }
+  h2 {
+    color: var(--text-label);
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border-left: 2px solid var(--amber);
+    padding-left: 8px;
+    margin: 28px 0 12px;
+  }
+  section { background: var(--bg-surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; color: var(--text-label); font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  td { padding: 6px 8px; border-bottom: 1px solid #1f1f1f; }
+  tr:hover { background: var(--bg-hover); }
+  .mono { font-family: var(--font); }
+  .dim { color: var(--text-meta); }
+  .empty { color: var(--text-meta); padding: 8px; font-style: italic; }
+  .pr-badge { color: var(--success); font-size: 12px; }
+  .pr-closed { color: var(--error); }
+  .activity-feed, .design-docs { list-style: none; }
+  .activity-feed li, .design-docs li { display: flex; gap: 12px; padding: 6px 0; border-bottom: 1px solid #1f1f1f; }
+  .activity-feed li:last-child, .design-docs li:last-child { border-bottom: none; }
+  .skill { color: var(--text-heading); }
+  .design-docs a { color: var(--amber); text-decoration: none; }
+  .bar-chart { display: flex; flex-direction: column; gap: 8px; }
+  .bar-row { display: flex; align-items: center; gap: 8px; }
+  .bar-label { width: 160px; color: var(--text-label); }
+  .bar-track { flex: 1; background: var(--bg-hover); border-radius: 4px; height: 14px; overflow: hidden; }
+  .bar-fill { background: var(--amber); height: 100%; }
+  .bar-count { width: 32px; text-align: right; }
+  .sparkline { font-size: 24px; letter-spacing: 2px; color: var(--amber); margin-bottom: 12px; }
+  .release-velocity ul { list-style: none; margin-top: 8px; }
+  .release-velocity li { padding: 2px 0; }
+  .score { color: var(--success); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 16px; }
+  .stats-bar { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; margin-top: 16px; }
+  .stat-card { background: var(--bg-surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px 16px; }
+  .stat-value { color: var(--amber); font-size: 22px; font-weight: 600; }
+  .stat-label { color: var(--text-label); font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; margin-top: 4px; }
+  .stage-col { text-align: center; width: 56px; }
+  .tick { font-weight: 600; }
+  .tick-current { color: var(--amber); }
+  .tick-passed { color: var(--text-meta); }
+</style>
+</head>
+<body>
+<header>
+  <h1>gstack sprint dashboard</h1>
+  <div class="meta">project: ${escapeHtml(slug)} · branch: ${escapeHtml(branch)} · generated ${escapeHtml(generatedAt.toLocaleString())}</div>
+  ${statsBar}
+</header>
+
+<h2>Pipeline board</h2>
+<section>${pipeline}</section>
+
+<div class="grid">
+  <div>
+    <h2>Activity feed</h2>
+    <section>${activityHtml}</section>
+  </div>
+  <div>
+    <h2>Top skills (last ${HISTORY_DAYS}d)</h2>
+    <section>${topSkillsHtml}</section>
+  </div>
+</div>
+
+<div class="grid">
+  <div>
+    <h2>Quality scores (last ${HISTORY_DAYS}d)</h2>
+    <section>${qualityHtml}</section>
+  </div>
+  <div>
+    <h2>Active design docs</h2>
+    <section>${designDocsHtml}</section>
+  </div>
+</div>
+
+<div class="grid">
+  <div>
+    <h2>Release velocity (last ${HISTORY_DAYS}d)</h2>
+    <section>${releaseVelocityHtml}</section>
+  </div>
+  <div>
+    <h2>TODOS backlog health</h2>
+    <section>${backlogHtml}</section>
+  </div>
+</div>
+
+</body>
+</html>`;
+}
+
+// ─── Open helper ─────────────────────────────────────────────────────────────
+
+function isWsl(): boolean {
+  if (process.platform !== "linux") return false;
+  try {
+    return /microsoft/i.test(readFileSync("/proc/version", "utf-8"));
+  } catch {
+    return false;
+  }
+}
+
+function openInBrowser(path: string) {
+  const absPath = resolve(path);
+  let cmd: string;
+  let args: string[];
+  if (process.platform === "darwin") {
+    cmd = "open";
+    args = [absPath];
+  } else if (process.platform === "win32") {
+    cmd = "explorer.exe";
+    args = [absPath];
+  } else if (isWsl()) {
+    cmd = "explorer.exe";
+    try {
+      const winPath = execFileSync("wslpath", ["-w", absPath], {
+        encoding: "utf-8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }).trim();
+      args = [winPath];
+    } catch {
+      args = [absPath];
+    }
+  } else {
+    cmd = "xdg-open";
+    args = [absPath];
+  }
+  try {
+    const child = spawn(cmd, args, { stdio: "ignore", detached: true });
+    child.on("error", () => {
+      console.error(`Could not open ${absPath} automatically — open it manually.`);
+    });
+    child.unref();
+  } catch {
+    console.error(`Could not open ${absPath} automatically — open it manually.`);
+  }
+}
+
+// ─── Main ─────────────────────────────────────────────────────────────────────
+
+function main() {
+  const args = process.argv.slice(2).filter((a) => a !== "--");
+
+  // Backwards-compat: positional "open" and "out <path>"
+  const positionalOpen = args.includes("open");
+  const positionalOutIdx = args.indexOf("out");
+  const positionalOutPath = positionalOutIdx >= 0 ? args[positionalOutIdx + 1] : undefined;
+
+  // Determine mode
+  let mode: "compact" | "full" | "web" = "compact";
+  if (args.includes("--full")) mode = "full";
+  if (args.includes("--web") || args.includes("--open") || positionalOpen || positionalOutPath) mode = "web";
+
+  // Options
+  const outArgIdx = args.indexOf("--out");
+  const outPath = outArgIdx >= 0 ? args[outArgIdx + 1] : (positionalOutPath ?? "sprint.html");
+  const slugArgIdx = args.indexOf("--slug");
+  const slugArg = slugArgIdx >= 0 ? args[slugArgIdx + 1] : undefined;
+
+  if (mode === "compact") {
+    const data = buildDashboard({ slug: slugArg, loadPr: false, loadDecisions: false });
+    process.stdout.write(renderCompact(data));
+    return;
+  }
+
+  if (mode === "full") {
+    const data = buildDashboard({ slug: slugArg, loadPr: true, loadDecisions: true });
+    process.stdout.write(renderFull(data));
+    return;
+  }
+
+  // web mode
+  const data = buildDashboard({ slug: slugArg, loadPr: true, loadDecisions: true });
+  const html = renderHtml(data);
+  writeFileSync(outPath, html, "utf-8");
+  console.log(`Wrote ${outPath}`);
+  openInBrowser(outPath);
+}
+
+main();

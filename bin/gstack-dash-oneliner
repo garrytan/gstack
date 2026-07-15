@@ -1,0 +1,17 @@
+#!/usr/bin/env bun
+/**
+ * gstack-dash-oneliner — fast one-line project status for the PreToolUse hook.
+ *
+ * Disk-only (no gh, no decision-search). Exits 0 always — a missing project
+ * directory or malformed data silently produces no output rather than blocking.
+ */
+
+import { buildOnelinerData } from "../lib/dashboard-data";
+import { renderOneliner } from "../lib/dashboard-cli";
+
+try {
+  const data = buildOnelinerData();
+  process.stdout.write(renderOneliner(data) + "\n");
+} catch {
+  // silent — best-effort, never block a skill
+}
