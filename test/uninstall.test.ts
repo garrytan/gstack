@@ -161,5 +161,47 @@ describe('gstack-uninstall', () => {
       // Non-gstack should survive
       expect(fs.existsSync(path.join(mockHome, '.claude', 'skills', 'other-tool'))).toBe(true);
     });
+
+    test('current setup layout: real per-skill dirs with nested SKILL.md symlinks are removed (#1132)', () => {
+      // The current setup script (see setup:399-404) creates real directories at the
+      // top level of ~/.claude/skills/ with SKILL.md as a nested symlink into gstack/.
+      // The legacy loop only matched top-level symlinks, so these survived uninstall.
+      fs.mkdirSync(path.join(mockHome, '.claude', 'skills', 'gstack', 'autoplan'), { recursive: true });
+      fs.mkdirSync(path.join(mockHome, '.claude', 'skills', 'gstack', 'canary'), { recursive: true });
+      fs.writeFileSync(path.join(mockHome, '.claude', 'skills', 'gstack', 'autoplan', 'SKILL.md'), 'real');
+      fs.writeFileSync(path.join(mockHome, '.claude', 'skills', 'gstack', 'canary', 'SKILL.md'), 'real');
+
+      // Per-skill directories with nested SKILL.md symlinks
+      fs.mkdirSync(path.join(mockHome, '.claude', 'skills', 'autoplan'), { recursive: true });
+      fs.symlinkSync(
+        path.join(mockHome, '.claude', 'skills', 'gstack', 'autoplan', 'SKILL.md'),
+        path.join(mockHome, '.claude', 'skills', 'autoplan', 'SKILL.md')
+      );
+      fs.mkdirSync(path.join(mockHome, '.claude', 'skills', 'canary'), { recursive: true });
+      fs.symlinkSync(
+        path.join(mockHome, '.claude', 'skills', 'gstack', 'canary', 'SKILL.md'),
+        path.join(mockHome, '.claude', 'skills', 'canary', 'SKILL.md')
+      );
+
+      const result = spawnSync('bash', [UNINSTALL, '--force'], {
+        stdio: 'pipe',
+        env: {
+          ...process.env,
+          HOME: mockHome,
+          GSTACK_DIR: path.join(mockHome, '.claude', 'skills', 'gstack'),
+          GSTACK_STATE_DIR: path.join(mockHome, '.gstack'),
+        },
+        cwd: mockGitRoot,
+      });
+
+      expect(result.status).toBe(0);
+
+      // Per-skill directories with nested SKILL.md symlinks into gstack/ should be gone
+      expect(fs.existsSync(path.join(mockHome, '.claude', 'skills', 'autoplan'))).toBe(false);
+      expect(fs.existsSync(path.join(mockHome, '.claude', 'skills', 'canary'))).toBe(false);
+
+      // Non-gstack tool (no SKILL.md symlink) should survive
+      expect(fs.existsSync(path.join(mockHome, '.claude', 'skills', 'other-tool'))).toBe(true);
+    });
   });
 });
