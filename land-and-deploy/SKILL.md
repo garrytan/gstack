@@ -1508,6 +1508,18 @@ Capture merge SHA:
 gh pr view --json mergeCommit -q .mergeCommit.oid
 ```
 
+Squash/rebase merge readback guard:
+- Do **not** prove success by requiring the PR head SHA to be an ancestor of the base branch. GitHub squash and rebase merges deliberately create a new commit, so `git merge-base --is-ancestor <head_sha> origin/<base>` can fail even when the PR is merged.
+- Once GitHub reports `state == "MERGED"` with a non-null `mergeCommit.oid`, treat that as authoritative. Record the merge SHA and continue.
+- If local cleanup or readback is needed, fetch the base branch and compare/sync against the merge commit, not the old PR branch commit:
+```bash
+BASE=$(gh pr view --json baseRefName -q .baseRefName)
+MERGE_SHA=$(gh pr view --json mergeCommit -q .mergeCommit.oid)
+git fetch origin "$BASE"
+git diff --quiet "$MERGE_SHA" origin/"$BASE" || git log --oneline --decorate -1 "$MERGE_SHA" origin/"$BASE"
+```
+- If the worktree is clean and only needs to stop looking diverged after a squash merge, prefer a named local branch at the merge commit, for example `git switch -c "codex/post-merge-pr-$PR_NUMBER" "$MERGE_SHA"`. Avoid detached HEAD in Codex Desktop worktrees because git action workers often expect `git symbolic-ref --short HEAD` to return a branch. Do not force-push or reset a user's branch unless they explicitly ask.
+
 Worktree cleanup — non-destructive, candidate-based:
 ```bash
 git worktree list --porcelain
