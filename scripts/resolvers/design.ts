@@ -786,13 +786,20 @@ Source: [OpenAI "Designing Delightful Frontends with GPT-5.4"](https://developer
 }
 
 export function generateDesignSetup(ctx: TemplateContext): string {
+  const globalDesign = ctx.paths.designDir.startsWith('~')
+    ? `$HOME${ctx.paths.designDir.slice(1)}/design`
+    : `${ctx.paths.designDir}/design`;
+  const globalBrowse = ctx.paths.browseDir.startsWith('~')
+    ? `$HOME${ctx.paths.browseDir.slice(1)}/browse`
+    : `${ctx.paths.browseDir}/browse`;
+
   return `## DESIGN SETUP (run this check BEFORE any design mockup command)
 
 \`\`\`bash
 _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 D=""
 [ -n "$_ROOT" ] && [ -x "$_ROOT/${ctx.paths.localSkillRoot}/design/dist/design" ] && D="$_ROOT/${ctx.paths.localSkillRoot}/design/dist/design"
-[ -z "$D" ] && D="$HOME${ctx.paths.designDir.replace(/^~/, '')}/design"
+[ -z "$D" ] && D="${globalDesign}"
 if [ -x "$D" ]; then
   echo "DESIGN_READY: $D"
 else
@@ -800,7 +807,7 @@ else
 fi
 B=""
 [ -n "$_ROOT" ] && [ -x "$_ROOT/${ctx.paths.localSkillRoot}/browse/dist/browse" ] && B="$_ROOT/${ctx.paths.localSkillRoot}/browse/dist/browse"
-[ -z "$B" ] && B="$HOME${ctx.paths.browseDir.replace(/^~/, '')}/browse"
+[ -z "$B" ] && B="${globalBrowse}"
 if [ -x "$B" ]; then
   echo "BROWSE_READY: $B"
 else
@@ -831,13 +838,17 @@ data, not project files. They persist across branches, conversations, and worksp
 }
 
 export function generateDesignMockup(ctx: TemplateContext): string {
+  const globalDesign = ctx.paths.designDir.startsWith('~')
+    ? `$HOME${ctx.paths.designDir.slice(1)}/design`
+    : `${ctx.paths.designDir}/design`;
+
   return `## Visual Design Exploration
 
 \`\`\`bash
 _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 D=""
 [ -n "$_ROOT" ] && [ -x "$_ROOT/${ctx.paths.localSkillRoot}/design/dist/design" ] && D="$_ROOT/${ctx.paths.localSkillRoot}/design/dist/design"
-[ -z "$D" ] && D="$HOME${ctx.paths.designDir.replace(/^~/, '')}/design"
+[ -z "$D" ] && D="${globalDesign}"
 [ -x "$D" ] && echo "DESIGN_READY" || echo "DESIGN_NOT_AVAILABLE"
 \`\`\`
 
