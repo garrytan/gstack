@@ -1227,8 +1227,10 @@ CEO DUAL VOICES — CONSENSUS TABLE:
   5. Competitive/market risks covered? —       —      —
   6. 6-month trajectory sound?         —       —      —
 ═══════════════════════════════════════════════════════════════
-CONFIRMED = both agree. DISAGREE = models differ (→ taste decision).
-Missing voice = N/A (not CONFIRMED). Single critical finding from one voice = flagged regardless.
+CONFIRMED = both voices agree. CONFIRMED-1V = only one voice ran (other N/A); the
+orchestrator concurs with the sole reviewer, so the row is NOT dual-confirmed.
+DISAGREE = models differ (→ taste decision). A missing voice is N/A, never CONFIRMED.
+Single critical finding from one voice = flagged regardless.
 ```
 
 Sections 1-10 — for EACH section, run the evaluation criteria from the loaded skill file:
@@ -1417,8 +1419,10 @@ ENG DUAL VOICES — CONSENSUS TABLE:
   5. Error paths handled?              —       —      —
   6. Deployment risk manageable?       —       —      —
 ═══════════════════════════════════════════════════════════════
-CONFIRMED = both agree. DISAGREE = models differ (→ taste decision).
-Missing voice = N/A (not CONFIRMED). Single critical finding from one voice = flagged regardless.
+CONFIRMED = both voices agree. CONFIRMED-1V = only one voice ran (other N/A); the
+orchestrator concurs with the sole reviewer, so the row is NOT dual-confirmed.
+DISAGREE = models differ (→ taste decision). A missing voice is N/A, never CONFIRMED.
+Single critical finding from one voice = flagged regardless.
 ```
 
 3. Section 1 (Architecture): Produce ASCII dependency graph showing new components
@@ -1540,8 +1544,10 @@ DX DUAL VOICES — CONSENSUS TABLE:
   5. Upgrade path safe?                —       —      —
   6. Dev environment friction-free?    —       —      —
 ═══════════════════════════════════════════════════════════════
-CONFIRMED = both agree. DISAGREE = models differ (→ taste decision).
-Missing voice = N/A (not CONFIRMED). Single critical finding from one voice = flagged regardless.
+CONFIRMED = both voices agree. CONFIRMED-1V = only one voice ran (other N/A); the
+orchestrator concurs with the sole reviewer, so the row is NOT dual-confirmed.
+DISAGREE = models differ (→ taste decision). A missing voice is N/A, never CONFIRMED.
+Single critical finding from one voice = flagged regardless.
 ```
 
 3. Passes 1-8: Run each from loaded skill. Rate 0-10. Auto-decide each issue.
@@ -1721,6 +1727,14 @@ Present as a message, then use AskUserQuestion:
 ```
 ## /autoplan Review Complete
 
+### Review Mode
+[If any review phase ran single-voice (Codex unavailable/degraded — see the
+degradation matrix), show this banner; otherwise omit the whole section:]
+⚠ SINGLE-VOICE MODE — Codex unavailable for [N] of [M] review phases. The
+consensus columns for those phases reflect one independent reviewer, not two;
+their confirmed rows read CONFIRMED-1V (orchestrator concurs with the sole
+reviewer), not CONFIRMED.
+
 ### Plan Summary
 [1-3 sentence summary]
 
@@ -1771,6 +1785,7 @@ I recommend [X] — [principle]. But [Y] is also viable:
 ```
 
 **Cognitive load management:**
+- All review phases ran dual voices: skip the "Review Mode" banner. Any phase single-voice (Codex unavailable): show it, with N = phases that ran without Codex and M = total review phases.
 - 0 user challenges: skip "User Challenges" section
 - 0 taste decisions: skip "Your Choices" section
 - 1-7 taste decisions: flat list
