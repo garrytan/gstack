@@ -866,13 +866,16 @@ create_opencode_runtime_root() {
     rm -rf "$opencode_gstack"
   fi
 
-  mkdir -p "$opencode_gstack" "$opencode_gstack/browse" "$opencode_gstack/design" "$opencode_gstack/gstack-upgrade" "$opencode_gstack/review" "$opencode_gstack/qa" "$opencode_gstack/plan-devex-review"
+  mkdir -p "$opencode_gstack" "$opencode_gstack/browse" "$opencode_gstack/design" "$opencode_gstack/gstack-upgrade" "$opencode_gstack/lib" "$opencode_gstack/review" "$opencode_gstack/qa" "$opencode_gstack/plan-devex-review"
 
   if [ -f "$opencode_dir/gstack/SKILL.md" ]; then
     _link_or_copy "$opencode_dir/gstack/SKILL.md" "$opencode_gstack/SKILL.md"
   fi
   if [ -d "$gstack_dir/bin" ]; then
     _link_or_copy "$gstack_dir/bin" "$opencode_gstack/bin"
+  fi
+  if [ -d "$gstack_dir/lib" ]; then
+    _link_or_copy "$gstack_dir/lib" "$opencode_gstack/lib"
   fi
   if [ -d "$gstack_dir/browse/dist" ]; then
     _link_or_copy "$gstack_dir/browse/dist" "$opencode_gstack/browse/dist"
