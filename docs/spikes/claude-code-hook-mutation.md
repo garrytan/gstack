@@ -51,7 +51,18 @@ Optional in subagent context: `agent_id`, `agent_type`.
 - `"deny"` — block (feedback to Claude, NOT a synthetic answer per Codex
   correction in D-prefixed decisions)
 - `"ask"` — escalate to user
-- `"defer"` — let permission flow continue
+
+> ⚠️ **There is no `"defer"` permissionDecision value.** The spec defines only
+> `allow` / `deny` / `ask`. To express "no opinion — let the tool run and
+> permission flow continue", emit **no `permissionDecision`** (an empty
+> `hookSpecificOutput`, or no stdout at all). Earlier revisions of this spike
+> and the hook emitted `permissionDecision: "defer"`; native Claude Code
+> silently ignored the unknown value and fell through, so it appeared to work.
+> **Conductor's `mcp__conductor__AskUserQuestion` bridge does not ignore it** —
+> an unrecognized permissionDecision on its own injected tool hangs the
+> round-trip, so the question never renders and no `tool_result` is returned.
+> Always use the no-permissionDecision shape for pass-through. See the
+> pass-through example below.
 
 **`updatedInput` semantics:** shallow merge of fields present in the returned
 object onto the original `tool_input`. Only valid with
@@ -88,7 +99,8 @@ required for our hook to fire there.
   accepting.
 
 **`permissionDecision` precedence (when multiple hooks decide):**
-`deny > ask > allow > defer` — most restrictive wins.
+`deny > ask > allow > (no decision)` — most restrictive wins; a hook that
+emits no `permissionDecision` defers to whatever the others decide.
 
 ## Implementation hookSpecificOutput examples
 
@@ -107,11 +119,16 @@ required for our hook to fire there.
 ```
 
 **Pass-through (no preference, or one-way safety override):**
+
+Emit **no `permissionDecision`** — surface `additionalContext` if there is any,
+otherwise emit nothing at all (empty stdout + exit 0). Do NOT emit
+`permissionDecision: "defer"` (not a real value; breaks Conductor's AUQ bridge).
+
 ```json
 {
   "hookSpecificOutput": {
     "hookEventName": "PreToolUse",
-    "permissionDecision": "defer"
+    "additionalContext": "optional plan-tune memory context"
   }
 }
 ```
