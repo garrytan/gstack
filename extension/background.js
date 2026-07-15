@@ -299,7 +299,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.type === 'getPort') {
-    sendResponse({ port: serverPort, connected: isConnected, token: authToken });
+    // Withhold the auth token from content-script callers (content scripts have
+    // sender.tab set), mirroring the getToken guard below. port/connected stay
+    // available to any extension context, but the localhost auth token is never
+    // handed to an injected page context — without this guard getPort leaks the
+    // exact token getToken is careful to protect.
+    const token = sender.tab ? null : authToken;
+    sendResponse({ port: serverPort, connected: isConnected, token });
     return true;
   }
 
