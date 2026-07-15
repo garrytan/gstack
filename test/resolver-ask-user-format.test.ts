@@ -99,10 +99,15 @@ describe('generateAskUserFormat — v1.7.0.0 Pros/Cons format', () => {
     expect(out).toMatch(/options differ in kind, not coverage/);
   });
 
-  test('documents tool_use mandate (rule 11)', () => {
+  test('documents tool_use preference with prose fallback', () => {
     expect(out).toMatch(/tool_use/);
-    // "not a question" spans a newline in the rendered text
-    expect(out).toMatch(/not a[\s\S]*question|not[\s\S]*interactive/i);
+    expect(out).toMatch(/prose fallback/i);
+    expect(out).toMatch(/reply with a letter/i);
+  });
+
+  test('routes interactive hosts without AskUserQuestion tools to prose fallback', () => {
+    expect(out).toMatch(/interactive.*prose fallback/i);
+    expect(out).toMatch(/headless.*BLOCKED\s+—\s+AskUserQuestion unavailable/i);
   });
 
   test('includes self-check before emitting', () => {

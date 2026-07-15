@@ -1123,7 +1123,7 @@ elif ! command -v codex >/dev/null 2>&1; then
   _CODEX_AVAILABLE=false
 elif ! _gstack_codex_auth_probe >/dev/null; then
   _gstack_codex_log_event "codex_auth_failed"
-  echo "[codex-unavailable: auth missing] — proceeding with Claude subagent only. Run \`codex login\` or set \$CODEX_API_KEY to enable dual-voice review."
+  echo "[codex-unavailable: auth missing] — proceeding with Claude subagent only. Run \`codex login\`, set \$CODEX_API_KEY / \$OPENAI_API_KEY, or export the env var named by ~/.codex/config.toml env_key to enable dual-voice review."
   _CODEX_AVAILABLE=false
 else
   _gstack_codex_version_check   # non-blocking warn if known-bad
