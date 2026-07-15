@@ -9,7 +9,7 @@
  * - Uses `codex exec` instead of `claude -p`
  * - Output is JSONL with different event types (item.completed, turn.completed, thread.started)
  * - Uses `--json` flag instead of `--output-format stream-json`
- * - Needs temp HOME with skill installed at ~/.codex/skills/{skillName}/SKILL.md
+ * - Needs temp HOME with skill installed at ~/.agents/skills/{skillName}/SKILL.md
  */
 
 import * as fs from 'fs';
@@ -100,7 +100,7 @@ export function parseCodexJSONL(lines: string[]): ParsedCodexJSONL {
 
 /**
  * Install a SKILL.md into a temp HOME directory for Codex to discover.
- * Creates ~/.codex/skills/{skillName}/SKILL.md in the temp HOME and copies
+ * Creates ~/.agents/skills/{skillName}/SKILL.md in the temp HOME and copies
  * agents/openai.yaml when present so Codex sees the same metadata as a real install.
  *
  * Returns the temp HOME path. Caller is responsible for cleanup.
@@ -111,7 +111,7 @@ export function installSkillToTempHome(
   tempHome?: string,
 ): string {
   const home = tempHome || fs.mkdtempSync(path.join(os.tmpdir(), 'codex-e2e-'));
-  const destDir = path.join(home, '.codex', 'skills', skillName);
+  const destDir = path.join(home, '.agents', 'skills', skillName);
   fs.mkdirSync(destDir, { recursive: true });
 
   const srcSkill = path.join(skillDir, 'SKILL.md');

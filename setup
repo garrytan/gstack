@@ -18,7 +18,7 @@ INSTALL_GSTACK_DIR="$(cd "$(dirname "$0")" && pwd)"
 SOURCE_GSTACK_DIR="$(cd "$(dirname "$0")" && pwd -P)"
 INSTALL_SKILLS_DIR="$(dirname "$INSTALL_GSTACK_DIR")"
 BROWSE_BIN="$SOURCE_GSTACK_DIR/browse/dist/browse"
-CODEX_SKILLS="$HOME/.codex/skills"
+CODEX_SKILLS="$HOME/.agents/skills"
 CODEX_GSTACK="$CODEX_SKILLS/gstack"
 FACTORY_SKILLS="$HOME/.factory/skills"
 FACTORY_GSTACK="$FACTORY_SKILLS/gstack"
@@ -771,8 +771,8 @@ create_agents_sidecar() {
   done
 }
 
-# ─── Helper: create a minimal ~/.codex/skills/gstack runtime root ───────────
-# Codex scans ~/.codex/skills recursively. Exposing the whole repo here causes
+# ─── Helper: create a minimal ~/.agents/skills/gstack runtime root ───────────
+# Codex scans ~/.agents/skills recursively. Exposing the whole repo here causes
 # duplicate skills because source SKILL.md files and generated Codex skills are
 # both discoverable. Keep this directory limited to runtime assets + root skill.
 create_codex_runtime_root() {
@@ -1146,9 +1146,10 @@ if [ "$INSTALL_KIRO" -eq 1 ]; then
       skill_name="$(basename "$skill_dir")"
       target_dir="$KIRO_SKILLS/$skill_name"
       mkdir -p "$target_dir"
-      # Generated Codex skills use $HOME/.codex (not ~/), plus $GSTACK_ROOT variables.
+      # Generated Codex skills use $HOME/.agents (not ~/), plus $GSTACK_ROOT variables.
       # Rewrite the default GSTACK_ROOT value and any remaining literal paths.
-      sed -e 's|\$HOME/.codex/skills/gstack|$HOME/.kiro/skills/gstack|g' \
+      sed -e 's|\$HOME/.agents/skills/gstack|$HOME/.kiro/skills/gstack|g' \
+          -e 's|\$HOME/.codex/skills/gstack|$HOME/.kiro/skills/gstack|g' \
           -e "s|~/.codex/skills/gstack|~/.kiro/skills/gstack|g" \
           -e "s|~/.claude/skills/gstack|~/.kiro/skills/gstack|g" \
           "$skill_dir/SKILL.md" > "$target_dir/SKILL.md"
@@ -1160,7 +1161,8 @@ if [ "$INSTALL_KIRO" -eq 1 ]; then
         mkdir -p "$target_dir/sections"
         for section_file in "$skill_dir/sections"/*; do
           [ -f "$section_file" ] || continue
-          sed -e 's|\$HOME/.codex/skills/gstack|$HOME/.kiro/skills/gstack|g' \
+          sed -e 's|\$HOME/.agents/skills/gstack|$HOME/.kiro/skills/gstack|g' \
+              -e 's|\$HOME/.codex/skills/gstack|$HOME/.kiro/skills/gstack|g' \
               -e "s|~/.codex/skills/gstack|~/.kiro/skills/gstack|g" \
               -e "s|~/.claude/skills/gstack|~/.kiro/skills/gstack|g" \
               "$section_file" > "$target_dir/sections/$(basename "$section_file")"
