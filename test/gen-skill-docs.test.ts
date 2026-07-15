@@ -1785,6 +1785,8 @@ describe('Codex generation (--host codex)', () => {
     expect(content).toContain('--allowedTools Read,Grep,Glob');
     expect(content).toContain('--disallowedTools Bash,Edit,Write');
     expect(content).toContain('is_error');
+    expect(content).toContain('CLAUDE_AUTH_ERROR');
+    expect(content).not.toContain('.credentials.json');
   });
 
   test('Codex review step stripped from Codex-host ship and review', () => {
