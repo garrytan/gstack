@@ -476,11 +476,29 @@ if [ "$INSTALL_OPENCODE" -eq 1 ] && [ "$NEEDS_BUILD" -eq 0 ]; then
 fi
 
 # 2. Ensure Playwright's Chromium is available
+# Detect Ubuntu 26.04: Playwright does not yet ship a native chromium build for
+# ubuntu26.04-x64. Override the platform to ubuntu24.04-x64 so the installer
+# picks the correct binary. This is safe because the ubuntu24.04 build runs
+# fine on ubuntu26.04 (same glibc lineage). See #2101.
+_PLAYWRIGHT_PLATFORM_OVERRIDE=""
+if [ -f /etc/os-release ]; then
+  _os_id=$(grep '^ID=' /etc/os-release | cut -d= -f2 | tr -d '"')
+  _os_ver=$(grep '^VERSION_ID=' /etc/os-release | cut -d= -f2 | tr -d '"')
+  if [ "$_os_id" = "ubuntu" ] && [ "$_os_ver" = "26.04" ]; then
+    _PLAYWRIGHT_PLATFORM_OVERRIDE="ubuntu24.04-x64"
+    echo "Ubuntu 26.04 detected — using PLAYWRIGHT_HOST_PLATFORM_OVERRIDE=$_PLAYWRIGHT_PLATFORM_OVERRIDE"
+  fi
+fi
+
 if ! ensure_playwright_browser; then
   echo "Installing Playwright Chromium..."
   (
     cd "$SOURCE_GSTACK_DIR"
-    bunx playwright install chromium
+    if [ -n "$_PLAYWRIGHT_PLATFORM_OVERRIDE" ]; then
+      PLAYWRIGHT_HOST_PLATFORM_OVERRIDE="$_PLAYWRIGHT_PLATFORM_OVERRIDE" bunx playwright install chromium
+    else
+      bunx playwright install chromium
+    fi
   )
 
   if [ "$IS_WINDOWS" -eq 1 ]; then
