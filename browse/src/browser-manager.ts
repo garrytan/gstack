@@ -377,6 +377,10 @@ export class BrowserManager {
       // on Linux root/CI/container, where the sandbox requires unprivileged user
       // namespaces that aren't available.
       chromiumSandbox: shouldEnableChromiumSandbox(),
+      // Honor GSTACK_CHROMIUM_PATH here too. The bundled Playwright
+      // chrome-headless-shell can't load shared libs on NixOS; pointing at a
+      // system Chromium fixes headless rendering (e.g. make-pdf).
+      ...(process.env.GSTACK_CHROMIUM_PATH ? { executablePath: process.env.GSTACK_CHROMIUM_PATH } : {}),
       ...(launchArgs.length > 0 ? { args: launchArgs } : {}),
       ...(this.proxyConfig ? { proxy: this.proxyConfig } : {}),
     });
