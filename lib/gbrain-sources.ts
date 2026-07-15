@@ -9,9 +9,9 @@
  * Per /plan-eng-review D3 (DRY extraction).
  */
 
-import { execFileSync, spawnSync } from "child_process";
+import { resolve, win32 } from "path";
 import { withErrorContext } from "./gstack-memory-helpers";
-import { execGbrainJson, NEEDS_SHELL_ON_WINDOWS } from "./gbrain-exec";
+import { execGbrainJson, execGbrainText, spawnGbrain } from "./gbrain-exec";
 
 export interface SourceState {
   /** "absent" — id not registered. "match" — id at expected path. "drift" — id at different path. */
@@ -72,6 +72,34 @@ export interface EnsureOptions {
   env?: NodeJS.ProcessEnv;
 }
 
+function looksLikeWindowsPath(value: string): boolean {
+  return /^[a-z]:[\\/]/i.test(value) || /^\\\\/.test(value);
+}
+
+/**
+ * Compare source paths using the host filesystem's path semantics. Windows
+ * drive/UNC paths are resolved, separator-normalized, and case-folded before
+ * comparison so `C:\\Repo` and `c:/repo` cannot trigger destructive drift.
+ * POSIX paths remain case-sensitive.
+ */
+export function sourcePathsEqual(
+  left: string,
+  right: string,
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  const useWindowsSemantics =
+    platform === "win32" || looksLikeWindowsPath(left) || looksLikeWindowsPath(right);
+  if (useWindowsSemantics) {
+    const normalizeWindows = (value: string): string =>
+      win32
+        .resolve(value.replace(/\//g, "\\"))
+        .replace(/^\\\\\?\\/, "")
+        .toLowerCase();
+    return normalizeWindows(left) === normalizeWindows(right);
+  }
+  return resolve(left) === resolve(right);
+}
+
 /**
  * Probe the registration state of a source by id.
  *
@@ -83,13 +111,7 @@ export interface EnsureOptions {
 export function probeSource(id: string, env?: NodeJS.ProcessEnv): SourceState {
   let stdout: string;
   try {
-    stdout = execFileSync("gbrain", ["sources", "list", "--json"], {
-      encoding: "utf-8",
-      timeout: 30_000,
-      stdio: ["ignore", "pipe", "pipe"],
-      env,
-      shell: NEEDS_SHELL_ON_WINDOWS, // #1731: gbrain is a .cmd shim on Windows
-    });
+    stdout = execGbrainText(["sources", "list", "--json"], { baseEnv: env });
   } catch (err) {
     const e = err as NodeJS.ErrnoException & { stderr?: Buffer };
     const stderr = e.stderr?.toString() || "";
@@ -144,7 +166,10 @@ export async function ensureSourceRegistered(
 
     // Disambiguate match-but-different-path
     let state: SourceState = probed;
-    if (probed.status === "match" && probed.registered_path !== path) {
+    if (
+      probed.status === "match" &&
+      (!probed.registered_path || !sourcePathsEqual(probed.registered_path, path))
+    ) {
       state = { status: "drift", registered_path: probed.registered_path };
     }
 
@@ -158,12 +183,7 @@ export async function ensureSourceRegistered(
 
     // For drift, remove first.
     if (state.status === "drift") {
-      const rm = spawnSync("gbrain", ["sources", "remove", id, "--yes"], {
-        encoding: "utf-8",
-        timeout: 30_000,
-        env,
-        shell: NEEDS_SHELL_ON_WINDOWS, // #1731: gbrain is a .cmd shim on Windows
-      });
+      const rm = spawnGbrain(["sources", "remove", id, "--yes"], { baseEnv: env });
       if (rm.status !== 0) {
         throw new Error(`gbrain sources remove ${id} failed: ${rm.stderr || rm.stdout || `exit ${rm.status}`}`);
       }
@@ -172,12 +192,7 @@ export async function ensureSourceRegistered(
     // Add.
     const addArgs = ["sources", "add", id, "--path", path];
     if (federated) addArgs.push("--federated");
-    const add = spawnSync("gbrain", addArgs, {
-      encoding: "utf-8",
-      timeout: 30_000,
-      env,
-      shell: NEEDS_SHELL_ON_WINDOWS, // #1731: gbrain is a .cmd shim on Windows
-    });
+    const add = spawnGbrain(addArgs, { baseEnv: env });
     if (add.status !== 0) {
       throw new Error(`gbrain sources add ${id} failed: ${add.stderr || add.stdout || `exit ${add.status}`}`);
     }
@@ -195,27 +210,11 @@ export async function ensureSourceRegistered(
  * variant selection.
  */
 export function sourcePageCount(id: string, env?: NodeJS.ProcessEnv): number | null {
-  let stdout: string;
-  try {
-    stdout = execFileSync("gbrain", ["sources", "list", "--json"], {
-      encoding: "utf-8",
-      timeout: 30_000,
-      stdio: ["ignore", "pipe", "pipe"],
-      env,
-      shell: NEEDS_SHELL_ON_WINDOWS, // #1731: gbrain is a .cmd shim on Windows
-    });
-  } catch {
-    return null;
-  }
-
-  try {
-    const match = parseSourcesList(JSON.parse(stdout)).find((s) => s.id === id);
-    if (!match) return null;
-    if (typeof match.page_count !== "number") return null;
-    return match.page_count;
-  } catch {
-    return null;
-  }
+  const raw = execGbrainJson<unknown>(["sources", "list", "--json"], { baseEnv: env });
+  if (!raw) return null;
+  const match = parseSourcesList(raw).find((s) => s.id === id);
+  if (!match || typeof match.page_count !== "number") return null;
+  return match.page_count;
 }
 
 /**

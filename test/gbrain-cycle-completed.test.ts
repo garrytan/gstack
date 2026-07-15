@@ -9,12 +9,38 @@
  * start; explicit env is the only reliable redirect).
  */
 
-import { describe, it, expect } from "bun:test";
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync, chmodSync } from "fs";
+import { afterAll, describe, it, expect } from "bun:test";
+import { mkdtempSync, writeFileSync, rmSync, chmodSync } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
+import { delimiter, join } from "path";
+import { spawnSync } from "child_process";
 
 import { cycleCompleted } from "../lib/gbrain-sources";
+
+const FAKE_BUILD_ROOT = mkdtempSync(join(tmpdir(), "gbrain-cycle-fake-bin-"));
+const FAKE_SOURCE = join(FAKE_BUILD_ROOT, "fake-gbrain.ts");
+const FAKE_BINARY = join(FAKE_BUILD_ROOT, process.platform === "win32" ? "gbrain.exe" : "gbrain");
+
+writeFileSync(
+  FAKE_SOURCE,
+  `const args = process.argv.slice(2);
+if (args.join(" ") !== "doctor --json --fast") process.exit(1);
+const exitCode = Number(process.env.FAKE_GBRAIN_DOCTOR_EXIT || "0");
+if (exitCode !== 0) process.exit(exitCode);
+process.stdout.write(process.env.FAKE_GBRAIN_DOCTOR_JSON || "");
+`,
+);
+const fakeBuild = spawnSync(
+  process.execPath,
+  ["build", FAKE_SOURCE, "--compile", "--outfile", FAKE_BINARY],
+  { encoding: "utf-8", timeout: 30_000 },
+);
+if (fakeBuild.status !== 0) {
+  throw new Error(`Could not build fake gbrain: ${fakeBuild.stderr || fakeBuild.stdout}`);
+}
+chmodSync(FAKE_BINARY, 0o755);
+
+afterAll(() => rmSync(FAKE_BUILD_ROOT, { recursive: true, force: true }));
 
 interface FakeSetup {
   env: NodeJS.ProcessEnv;
@@ -25,33 +51,17 @@ interface FakeSetup {
  * Fake `gbrain`:
  *   doctor --json --fast   → echo $DOCTOR_JSON (or exit $DOCTOR_EXIT if set)
  *   anything else          → exit 1
- * The doctor payload is baked into the script so each test gets its own shim.
+ * Each test supplies its doctor result through the child environment while all
+ * tests reuse one compiled, cross-platform executable shim.
  */
 function makeFakeGbrain(opts: { doctorJson?: string; doctorExit?: number }): FakeSetup {
-  const tmp = mkdtempSync(join(tmpdir(), "gbrain-cycle-test-"));
-  const bindir = join(tmp, "bin");
-  mkdirSync(bindir, { recursive: true });
-
-  const exit = opts.doctorExit ?? 0;
-  // Single-quote the JSON for the heredoc-free echo; escape embedded single quotes.
-  const payload = (opts.doctorJson ?? "").replace(/'/g, "'\\''");
-  const fake = `#!/bin/sh
-case "$1 $2 $3" in
-  "doctor --json --fast")
-    if [ ${exit} -ne 0 ]; then exit ${exit}; fi
-    printf '%s' '${payload}'
-    exit 0
-    ;;
-esac
-echo "fake gbrain: unknown command: $@" >&2
-exit 1
-`;
-  const fakePath = join(bindir, "gbrain");
-  writeFileSync(fakePath, fake);
-  chmodSync(fakePath, 0o755);
-
-  const env: NodeJS.ProcessEnv = { ...process.env, PATH: `${bindir}:${process.env.PATH || ""}` };
-  return { env, cleanup: () => rmSync(tmp, { recursive: true, force: true }) };
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    PATH: `${FAKE_BUILD_ROOT}${delimiter}${process.env.PATH || ""}`,
+    FAKE_GBRAIN_DOCTOR_EXIT: String(opts.doctorExit ?? 0),
+    FAKE_GBRAIN_DOCTOR_JSON: opts.doctorJson ?? "",
+  };
+  return { env, cleanup: () => undefined };
 }
 
 const SRC = "gstack-code-gstack-c5994d95";

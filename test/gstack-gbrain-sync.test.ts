@@ -10,7 +10,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, mkdirSync, chmodSync } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
+import { delimiter, join } from "path";
 import { spawnSync } from "child_process";
 
 import {
@@ -247,10 +247,8 @@ describe("gstack-gbrain-sync CLI", () => {
     // shim on PATH so the stage runs (we only assert the preview line, never
     // invoke gbrain itself).
     const bindir = mkdtempSync(join(tmpdir(), "gstack-host-collide-bin-"));
-    const shim = join(bindir, "gbrain");
-    writeFileSync(shim, "#!/bin/sh\nexit 0\n");
-    chmodSync(shim, 0o755);
-    const PATH = `${bindir}:${process.env.PATH || ""}`;
+    makeShim(bindir, { "--help": { stdout: "gbrain\n" } });
+    const PATH = `${bindir}${delimiter}${process.env.PATH || ""}`;
 
     const runAs = (host: string) =>
       spawnSync("bun", [SCRIPT, "--dry-run", "--code-only", "--quiet"], {
@@ -563,19 +561,27 @@ describe("gstack-gbrain-sync CLI", () => {
  * (which spawn `gbrain` from PATH) without a real gbrain CLI.
  */
 function makeShim(bindir: string, responses: Record<string, { stdout?: string; stderr?: string; exit?: number }>): string {
-  const shim = join(bindir, "gbrain");
-  const cases = Object.entries(responses).map(([key, r]) => {
-    const exit = r.exit ?? 0;
-    const stdout = (r.stdout || "").replace(/'/g, "'\\''");
-    const stderr = (r.stderr || "").replace(/'/g, "'\\''");
-    // Patterns with spaces MUST be double-quoted in sh case statements,
-    // otherwise the shell parses the second word as the start of the next
-    // pattern and errors out.
-    return `  "${key}") printf '%s' '${stdout}'; printf '%s' '${stderr}' >&2; exit ${exit} ;;`;
-  }).join("\n");
-  // Match on the full argument string, joined with literal spaces.
-  const script = `#!/bin/sh\nARGS="$*"\ncase "$ARGS" in\n${cases}\n  *) echo "shim: no match for [$ARGS]" >&2; exit 1 ;;\nesac\n`;
-  writeFileSync(shim, script);
+  const source = join(bindir, "gbrain-shim.ts");
+  const shim = join(bindir, process.platform === "win32" ? "gbrain.exe" : "gbrain");
+  const script = `
+const responses = ${JSON.stringify(responses)} as Record<string, { stdout?: string; stderr?: string; exit?: number }>;
+const args = Bun.argv.slice(2).join(" ");
+const response = responses[args];
+if (!response) {
+  process.stderr.write(\`shim: no match for [\${args}]\\n\`);
+  process.exit(1);
+}
+if (response.stdout) process.stdout.write(response.stdout);
+if (response.stderr) process.stderr.write(response.stderr);
+process.exit(response.exit ?? 0);
+`;
+  writeFileSync(source, script);
+  const built = spawnSync(process.execPath, ["build", source, "--compile", "--outfile", shim], {
+    encoding: "utf-8",
+  });
+  if (built.status !== 0) {
+    throw new Error(`failed to compile gbrain shim: ${built.stderr || built.stdout}`);
+  }
   chmodSync(shim, 0o755);
   return shim;
 }
@@ -631,7 +637,7 @@ describe("derivePathOnlyHashLegacyId", () => {
         encoding: "utf-8",
         timeout: 60000,
         cwd: repo,
-        env: { ...process.env, HOME: home, GSTACK_HOME: gstackHome, GSTACK_HOSTNAME: "machine-x", PATH: `${bindir}:${process.env.PATH || ""}` },
+        env: { ...process.env, HOME: home, GSTACK_HOME: gstackHome, GSTACK_HOSTNAME: "machine-x", PATH: `${bindir}${delimiter}${process.env.PATH || ""}` },
       });
       const newId = (r.stdout || "").match(/gbrain sources add (\S+)/)?.[1];
       expect(newId).toBeTruthy();
@@ -652,7 +658,7 @@ describe("derivePathOnlyHashLegacyId", () => {
  * explicitly to each spawn for the override to take effect.
  */
 function envWithBindir(bindir: string): NodeJS.ProcessEnv {
-  return { ...process.env, PATH: `${bindir}:${process.env.PATH || ""}` };
+  return { ...process.env, PATH: `${bindir}${delimiter}${process.env.PATH || ""}` };
 }
 
 describe("planHostnameFoldMigration", () => {

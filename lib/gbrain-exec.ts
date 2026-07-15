@@ -125,16 +125,56 @@ export function buildGbrainEnv(opts: BuildGbrainEnvOptions = {}): NodeJS.Process
 }
 
 /**
- * Windows can't directly spawn the `gbrain` launcher (bun/npm install it as a
- * `gbrain.cmd`/`.ps1` shim) or a shebang script like the bash `gstack-brain-sync`
- * — `spawnSync`/`spawn` resolve those only through a shell's PATHEXT + interpreter
- * lookup. Without `shell: true` the child spawn fails ENOENT, which on the sync
- * orchestrator surfaced as "brain-sync exited undefined" (#1731). Gate on platform
- * so POSIX keeps the cheaper no-shell path. Exported so the static-grep tripwire
- * (test/gbrain-spawn-windows-shell.test.ts) can assert every gbrain/brain-sync
- * spawn carries it.
+ * Windows still needs a shell for bash helpers such as `gstack-brain-sync`.
+ * Direct gbrain calls deliberately do NOT use this flag: planGbrainSpawn resolves
+ * Bun's executable shim and preserves argv structurally (DEV-206). Exported for
+ * the remaining shebang-script spawns and legacy literal-argument probes.
  */
 export const NEEDS_SHELL_ON_WINDOWS = process.platform === "win32";
+
+export interface GbrainSpawnPlan {
+  command: string;
+  args: string[];
+  shell: boolean;
+}
+
+/**
+ * Build a structural gbrain invocation. Supported Windows installs use Bun's
+ * direct `.exe` shim, so argv values (especially worktree paths containing
+ * spaces) never pass through `cmd.exe` tokenization.
+ *
+ * A `.cmd`/`.bat`/`.ps1` launcher would require rebuilding the command as a
+ * shell string. Fail closed instead of risking argument splitting or command
+ * injection; `bin/gstack-gbrain-install` uses `bun link`, which installs the
+ * directly executable shim this contract requires.
+ */
+export function planGbrainSpawn(
+  args: string[],
+  resolvedExecutable: string | null,
+  platform: NodeJS.Platform = process.platform,
+): GbrainSpawnPlan {
+  const command = resolvedExecutable || "gbrain";
+  if (platform === "win32" && resolvedExecutable && !/\.(?:exe|com)$/i.test(resolvedExecutable)) {
+    throw new Error(
+      `unsafe Windows gbrain launcher at ${resolvedExecutable}; ` +
+        "re-run /setup-gbrain so bun link installs a direct gbrain.exe shim",
+    );
+  }
+  return { command, args: [...args], shell: false };
+}
+
+/** Resolve gbrain against the exact PATH that will be passed to the child. */
+export function resolveGbrainExecutable(env: NodeJS.ProcessEnv = process.env): string | null {
+  try {
+    return Bun.which("gbrain", { PATH: env.PATH });
+  } catch {
+    return null;
+  }
+}
+
+function gbrainSpawnPlan(args: string[], env: NodeJS.ProcessEnv): GbrainSpawnPlan {
+  return planGbrainSpawn(args, resolveGbrainExecutable(env));
+}
 
 export interface SpawnGbrainOptions {
   /** Timeout in milliseconds. Defaults to 30s. */
@@ -159,13 +199,15 @@ export interface SpawnGbrainOptions {
  * `stderr` exactly as they would with `spawnSync` directly.
  */
 export function spawnGbrain(args: string[], opts: SpawnGbrainOptions = {}): SpawnSyncReturns<string> {
-  return spawnSync("gbrain", args, {
+  const env = buildGbrainEnv({ baseEnv: opts.baseEnv, announce: opts.announce });
+  const plan = gbrainSpawnPlan(args, env);
+  return spawnSync(plan.command, plan.args, {
     encoding: "utf-8",
     timeout: opts.timeout ?? 30_000,
     cwd: opts.cwd,
     stdio: opts.stdio || ["ignore", "pipe", "pipe"],
-    env: buildGbrainEnv({ baseEnv: opts.baseEnv, announce: opts.announce }),
-    shell: NEEDS_SHELL_ON_WINDOWS, // #1731: gbrain is a .cmd shim on Windows
+    env,
+    shell: plan.shell,
   });
 }
 
@@ -194,11 +236,13 @@ export function spawnGbrainAsync(
   args: string[],
   opts: { stdio?: SpawnOptions["stdio"]; cwd?: string; baseEnv?: NodeJS.ProcessEnv } = {},
 ): ChildProcess {
-  return spawn("gbrain", args, {
+  const env = buildGbrainEnv({ baseEnv: opts.baseEnv, announce: false });
+  const plan = gbrainSpawnPlan(args, env);
+  return spawn(plan.command, plan.args, {
     stdio: opts.stdio || ["ignore", "pipe", "pipe"],
     cwd: opts.cwd,
-    env: buildGbrainEnv({ baseEnv: opts.baseEnv, announce: false }),
-    shell: NEEDS_SHELL_ON_WINDOWS, // #1731: gbrain is a .cmd shim on Windows
+    env,
+    shell: plan.shell,
   });
 }
 
@@ -207,12 +251,14 @@ export function spawnGbrainAsync(
  * for callers that want to surface gbrain's stderr as the error message.
  */
 export function execGbrainText(args: string[], opts: SpawnGbrainOptions = {}): string {
-  return execFileSync("gbrain", args, {
+  const env = buildGbrainEnv({ baseEnv: opts.baseEnv, announce: opts.announce });
+  const plan = gbrainSpawnPlan(args, env);
+  return execFileSync(plan.command, plan.args, {
     encoding: "utf-8",
     timeout: opts.timeout ?? 30_000,
     cwd: opts.cwd,
     stdio: opts.stdio || ["ignore", "pipe", "pipe"],
-    env: buildGbrainEnv({ baseEnv: opts.baseEnv, announce: opts.announce }),
-    shell: NEEDS_SHELL_ON_WINDOWS, // #1731: gbrain is a .cmd shim on Windows
+    env,
+    shell: plan.shell,
   });
 }
