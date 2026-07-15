@@ -22,15 +22,57 @@ import type { TemplateContext } from '../scripts/resolvers/types';
 import { HOST_PATHS } from '../scripts/resolvers/types';
 import { generateAskUserFormat } from '../scripts/resolvers/preamble/generate-ask-user-format';
 
-function makeCtx(): TemplateContext {
+function makeCtx(host: 'claude' | 'codex' = 'claude'): TemplateContext {
   return {
     skillName: 'test-skill',
     tmplPath: 'test.tmpl',
-    host: 'claude',
-    paths: HOST_PATHS.claude,
+    host,
+    paths: HOST_PATHS[host],
     preambleTier: 2,
   };
 }
+
+describe('generateAskUserFormat — Codex request_user_input contract', () => {
+  const out = generateAskUserFormat(makeCtx('codex'));
+
+  test('uses only the native Codex tool name and Plan-mode availability', () => {
+    expect(out).toContain('## request_user_input Format');
+    expect(out).toContain('Codex Plan mode');
+    expect(out).not.toContain('AskUserQuestion');
+    expect(out).not.toContain('mcp__');
+  });
+
+  test('blocks loudly in Default mode without auto-selecting or enabling the flag', () => {
+    expect(out).toMatch(/Default mode[\s\S]*do NOT guess/);
+    expect(out).toContain('Switch this task to Plan');
+    expect(out).toContain('Then STOP');
+    expect(out).toMatch(/Do not enable[\s\S]*default_mode_request_user_input/);
+  });
+
+  test('puts the complete decision brief in the question field', () => {
+    expect(out).toContain('The detailed brief belongs in `question`');
+    expect(out).toContain('Stakes if we pick wrong');
+    expect(out).toContain('Recommendation: <choice>');
+    expect(out).toContain('Pros / cons:');
+    expect(out).toMatch(/^Net:/m);
+  });
+
+  test('pins the Codex schema limits and concise option requirements', () => {
+    expect(out).toContain('one item in the `questions` array');
+    expect(out).toContain('at most 12 characters');
+    expect(out).toContain('stable snake_case');
+    expect(out).toContain('2-3 explicit choices');
+    expect(out).toContain('1-5 words');
+  });
+
+  test('preserves every choice by splitting 4+ options sequentially', () => {
+    expect(out).toMatch(/Handling 4\+ choices — split, never drop/);
+    expect(out).toMatch(/NEVER drop, merge, or silently defer/);
+    expect(out).toContain('More choices');
+    expect(out).toContain('Include`, `Exclude`, or `Discuss');
+    expect(out).toMatch(/Call the tool once, STOP, and wait/);
+  });
+});
 
 describe('generateAskUserFormat — v1.7.0.0 Pros/Cons format', () => {
   const out = generateAskUserFormat(makeCtx());

@@ -486,6 +486,16 @@ describe('host config correctness', () => {
     expect(codex.sidecar!.path).toBe('.agents/skills/gstack');
   });
 
+  test('codex rewrites legacy interactive-question instructions', () => {
+    expect(codex.toolRewrites).toEqual({
+      'Do NOT use AskUserQuestion for interactive prompts. Auto-choose the recommended option.':
+        'If request_user_input is unavailable, report BLOCKED and stop; never auto-choose an answer.',
+      'AskUserQuestion with 4 options': 'request_user_input using the sequential 2-3-option split rule',
+      AskUserQuestions: 'request_user_input calls',
+      AskUserQuestion: 'request_user_input',
+    });
+  });
+
   test('factory has tool rewrites', () => {
     expect(factory.toolRewrites).toBeDefined();
     expect(Object.keys(factory.toolRewrites!).length).toBeGreaterThan(0);

@@ -30,6 +30,13 @@ const codex: HostConfig = {
     { from: '.claude/skills/review', to: '.agents/skills/gstack/review' },
     { from: '.claude/skills', to: '.agents/skills' },
   ],
+  toolRewrites: {
+    'Do NOT use AskUserQuestion for interactive prompts. Auto-choose the recommended option.':
+      'If request_user_input is unavailable, report BLOCKED and stop; never auto-choose an answer.',
+    'AskUserQuestion with 4 options': 'request_user_input using the sequential 2-3-option split rule',
+    AskUserQuestions: 'request_user_input calls',
+    AskUserQuestion: 'request_user_input',
+  },
 
   suppressedResolvers: [
     'DESIGN_OUTSIDE_VOICES',  // design.ts:485 — Codex can't invoke itself

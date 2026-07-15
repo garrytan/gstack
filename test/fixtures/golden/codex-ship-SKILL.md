@@ -39,7 +39,7 @@ echo "REPO_MODE: $REPO_MODE"
 _SESSION_KIND=$($GSTACK_BIN/gstack-session-kind 2>/dev/null || echo "interactive")
 case "$_SESSION_KIND" in spawned|headless|interactive) ;; *) _SESSION_KIND="interactive" ;; esac
 echo "SESSION_KIND: $_SESSION_KIND"
-# Conductor host: AskUserQuestion is unreliable here (native disabled, MCP
+# Conductor host: request_user_input is unreliable here (native disabled, MCP
 # variant flaky), so skills render decisions as prose instead of calling the
 # tool. Gated on !headless so an eval/CI run INSIDE Conductor (GSTACK_HEADLESS)
 # still BLOCKs rather than rendering prose to nobody.
@@ -132,22 +132,30 @@ echo "GSTACK_PLAN_MODE: $GSTACK_PLAN_MODE"
 
 ## Plan Mode Safe Operations
 
-In plan mode, allowed because they inform the plan: `$B`, `$D`, `codex exec`/`codex review`, writes to `~/.gstack/`, writes to the plan file, and `open` for generated artifacts.
+In Plan mode, allowed because they inform the plan: `$B`, `$D`, writes to
+`~/.gstack/`, writes to the plan file, and opening generated artifacts.
 
 ## Skill Invocation During Plan Mode
 
-If the user invokes a skill in plan mode, the skill takes precedence over generic plan mode behavior. **Treat the skill file as executable instructions, not reference.** Follow it step by step starting from Step 0; the first AskUserQuestion is the workflow entering plan mode, not a violation of it. AskUserQuestion (any variant — `mcp__*__AskUserQuestion` or native; see "AskUserQuestion Format → Tool resolution") satisfies plan mode's end-of-turn requirement. If AskUserQuestion is unavailable or a call fails, follow the AskUserQuestion Format failure fallback: `headless` → BLOCKED; `interactive` → the prose fallback (also satisfies end-of-turn). At a STOP point, stop immediately. Do not continue the workflow or call ExitPlanMode there. Commands marked "PLAN MODE EXCEPTION — ALWAYS RUN" execute. Call ExitPlanMode only after the skill workflow completes, or if the user tells you to cancel the skill or leave plan mode.
+If the user invokes a skill in Plan mode, treat the skill file as executable
+instructions and follow it from Step 0. A `request_user_input` call satisfies
+the end-of-turn requirement: at every STOP point, call it once, stop immediately,
+and wait for the answer. Do not continue the workflow or complete the plan in the
+same turn. If the tool is unavailable, report the Plan-mode block from
+`request_user_input Format` and STOP; never infer an answer. Commands marked
+"PLAN MODE EXCEPTION — ALWAYS RUN" still execute. Complete or leave Plan mode
+only after the skill workflow finishes, or when the user cancels it.
 
 If `PROACTIVE` is `"false"`, do not auto-invoke or proactively suggest skills. If a skill seems useful, ask: "I think /skillname might help here — want me to run it?"
 
 If `SKILL_PREFIX` is `"true"`, suggest/invoke `/gstack-*` names. Disk paths stay `$GSTACK_ROOT/[skill-name]/SKILL.md`.
 
-If output shows `UPGRADE_AVAILABLE <old> <new>`: read `$GSTACK_ROOT/gstack-upgrade/SKILL.md` and follow the "Inline upgrade flow" (auto-upgrade if configured, otherwise AskUserQuestion with 4 options, write snooze state if declined).
+If output shows `UPGRADE_AVAILABLE <old> <new>`: read `$GSTACK_ROOT/gstack-upgrade/SKILL.md` and follow the "Inline upgrade flow" (auto-upgrade if configured, otherwise request_user_input using the sequential 2-3-option split rule, write snooze state if declined).
 
 If output shows `JUST_UPGRADED <from> <to>`: print "Running gstack v{to} (just updated!)". If `SPAWNED_SESSION` is true, skip feature discovery.
 
 Feature discovery, max one prompt per session:
-- Missing `$GSTACK_ROOT/.feature-prompted-continuous-checkpoint`: AskUserQuestion for Continuous checkpoint auto-commits. If accepted, run `$GSTACK_BIN/gstack-config set checkpoint_mode continuous`. Always touch marker.
+- Missing `$GSTACK_ROOT/.feature-prompted-continuous-checkpoint`: request_user_input for Continuous checkpoint auto-commits. If accepted, run `$GSTACK_BIN/gstack-config set checkpoint_mode continuous`. Always touch marker.
 - Missing `$GSTACK_ROOT/.feature-prompted-model-overlay`: inform "Model overlays are active. MODEL_OVERLAY shows the patch." Always touch marker.
 
 After upgrade prompts, continue workflow.
@@ -180,7 +188,7 @@ touch ~/.gstack/.completeness-intro-seen
 
 Only run `open` if yes. Always run `touch`.
 
-If `TEL_PROMPTED` is `no` AND `LAKE_INTRO` is `yes`: ask telemetry once via AskUserQuestion:
+If `TEL_PROMPTED` is `no` AND `LAKE_INTRO` is `yes`: ask telemetry once via request_user_input:
 
 > Help gstack get better. Share usage data only: skill, duration, crashes, stable device ID. No code or file paths. Your repo name is recorded locally only and stripped before any upload.
 
@@ -247,7 +255,7 @@ Skip this section if `ACTIVATED` and `FIRST_LOOP_SHOWN` are both `yes`.
 If `HAS_ROUTING` is `no` AND `ROUTING_DECLINED` is `false` AND `PROACTIVE_PROMPTED` is `yes`:
 Check if a CLAUDE.md file exists in the project root. If it does not exist, create it.
 
-Use AskUserQuestion:
+Use request_user_input:
 
 > gstack works best when your project's CLAUDE.md includes skill routing rules.
 
@@ -285,7 +293,7 @@ If B: run `$GSTACK_BIN/gstack-config set routing_declined true` and say they can
 
 This only happens once per project. Skip if `HAS_ROUTING` is `yes` or `ROUTING_DECLINED` is `true`.
 
-If `VENDORED_GSTACK` is `yes`, warn once via AskUserQuestion unless `~/.gstack/.vendoring-warned-$SLUG` exists:
+If `VENDORED_GSTACK` is `yes`, warn once via request_user_input unless `~/.gstack/.vendoring-warned-$SLUG` exists:
 
 > This project has gstack vendored in `.agents/skills/gstack/`. Vendoring is deprecated.
 > Migrate to team mode?
@@ -313,50 +321,40 @@ If marker exists, skip.
 
 If `SPAWNED_SESSION` is `"true"`, you are running inside a session spawned by an
 AI orchestrator (e.g., OpenClaw). In spawned sessions:
-- Do NOT use AskUserQuestion for interactive prompts. Auto-choose the recommended option.
+- If request_user_input is unavailable, report BLOCKED and stop; never auto-choose an answer.
 - Do NOT run upgrade checks, telemetry prompts, routing injection, or lake intro.
 - Focus on completing the task and reporting results via prose output.
 - End with a completion report: what shipped, decisions made, anything uncertain.
 
-## AskUserQuestion Format
+## request_user_input Format
 
-### Tool resolution (read first)
+### Availability (read first)
 
-"AskUserQuestion" can resolve to two tools at runtime: the **host MCP variant** (e.g. `mcp__conductor__AskUserQuestion` — appears in your tool list when the host registers it) or the **native** Claude Code tool.
+`request_user_input` is available in Codex Plan mode by default. Before each
+decision, confirm that it appears in the current tool list.
 
-**Conductor rule (read before the MCP rule):** if `CONDUCTOR_SESSION: true` was echoed by the preamble, do NOT call AskUserQuestion at all — neither native nor any `mcp__*__AskUserQuestion` variant. Render EVERY decision brief as the **prose form** below and STOP. This is proactive, not a reaction to a failure: Conductor disables native AUQ and its MCP variant is flaky (it returns `[Tool result missing due to internal error]`), so prose is the reliable path. **Auto-decide preferences still apply first:** if a `[plan-tune auto-decide] <id> → <option>` result has already surfaced for a question, proceed with that option (no prose). Because in Conductor you go straight to prose without ever calling the tool, this auto-decide-first ordering is enforced HERE, not only by the PreToolUse hook. When you render a Conductor prose brief, also capture it with `bin/gstack-question-log` (the PostToolUse capture hook never fires on a prose path, so `/plan-tune` history/learning depends on this call).
+If the tool is unavailable — including in Default mode — do NOT guess, silently
+choose, auto-select the recommendation, or continue the workflow. Tell the user:
+`BLOCKED — this workflow needs interactive decisions. Switch this task to Plan
+mode and rerun it.` Then STOP. Do not enable the under-development
+`default_mode_request_user_input` feature as a workaround.
 
-**Rule (non-Conductor):** if any `mcp__*__AskUserQuestion` variant is in your tool list, prefer it. Hosts may disable native AUQ via `--disallowedTools AskUserQuestion` (Conductor does, by default) and route through their MCP variant; calling native there silently fails. Same questions/options shape; same decision-brief format applies.
+### Tool-call shape
 
-If AskUserQuestion is unavailable (no variant in your tool list) OR a call to it fails, do NOT silently auto-decide or write the decision to the plan file as a substitute. Follow the **failure fallback** below.
+Send one decision per call and one item in the `questions` array. Use:
 
-### When AskUserQuestion is unavailable or a call fails
+- `header`: at most 12 characters.
+- `id`: stable snake_case.
+- `question`: the complete decision brief below, including context, stakes,
+  recommendation, completeness, pros/cons, and the closing Net line.
+- `options`: 2-3 explicit choices. Keep each label to 1-5 words, suffix the
+  recommended label with `(Recommended)`, and give each option one concise
+  sentence describing its concrete impact or tradeoff.
 
-Tell three outcomes apart:
+The detailed brief belongs in `question`; do not try to pack it into option
+labels or omit it because the tool has structured options.
 
-1. **Auto-decide denial (NOT a failure).** The result contains `[plan-tune auto-decide] <id> → <option>` — the preference hook working as designed. Proceed with that option. Do NOT retry, do NOT fall back to prose.
-2. **Genuine failure** — no variant in your tool list, OR the variant is present but the call returns an error / missing result (MCP transport error, empty result, host bug — e.g. Conductor's MCP AskUserQuestion is flaky and returns `[Tool result missing due to internal error]`).
-   - If it was present and **errored** (not absent), retry the SAME call **once** — but only if no answer could have surfaced (a missing-result error can arrive after the user already saw the question; retrying would double-prompt, so if it may have reached them, treat as pending, don't retry).
-   - Then branch on `SESSION_KIND` (echoed by the preamble; empty/absent ⇒ `interactive`):
-     - `spawned` → defer to the **Spawned session** block: auto-choose the recommended option. Never prose, never BLOCKED.
-     - `headless` → `BLOCKED — AskUserQuestion unavailable`; stop and wait (no human can answer).
-     - `interactive` → **prose fallback** (below).
-
-**Prose fallback — render the decision brief as a markdown message, not a tool call.** Same information as the tool format below, different structure (paragraphs, not ✅/❌ bullets). It MUST surface this triad:
-
-1. **A clear ELI10 of the issue itself** — plain English on what's being decided and why it matters (the question, not per-choice), naming the stakes. Lead with it.
-2. **Completeness scores per choice** — explicit `Completeness: X/10` on EACH choice (10 complete, 7 happy-path, 3 shortcut); use the kind-note when options differ in kind not coverage, but never silently drop the score.
-3. **The recommendation and why** — a `Recommendation: <choice> because <reason>` line plus the `(recommended)` marker on that choice.
-
-Layout: a `D<N>` title + a one-line note to reply with a letter (in Conductor this is the normal path; elsewhere it means AskUserQuestion was unavailable or errored); the issue ELI10; the Recommendation line; then ONE paragraph per choice carrying its `(recommended)` marker, its `Completeness: X/10`, and 2-4 sentences of reasoning — never a bare bullet list; a closing `Net:` line. Split chains / 5+ options: one prose block per per-option call, in sequence. Then STOP and wait — the user's typed answer is the decision. In plan mode this satisfies end-of-turn like a tool call.
-
-**Continuation — mapping a typed reply back to a brief.** Each brief carries a stable label (`D<N>`, or `D<N>.k` in a split chain). The user references it (e.g. "3.2: B"). A bare letter maps to the single most-recent UNANSWERED brief; if more than one is open (a split chain), do NOT guess — ask which `D<N>.k` it answers. Never apply a bare letter ambiguously across a chain.
-
-**One-way / destructive confirmations in prose.** When the decision is a one-way door (irreversible or destructive — delete, force-push, drop, overwrite), prose is a WEAKER gate than the tool, so make it stronger: require an explicit typed confirmation (the exact option letter or word), state plainly what is irreversible, and NEVER proceed on a vague, partial, or ambiguous reply — re-ask instead. Treat silence or "ok"/"sure" without the explicit choice as not-yet-confirmed.
-
-### Format
-
-Every AskUserQuestion is a decision brief and must be sent as tool_use, not prose — unless the documented failure fallback above applies (interactive session + the call is unavailable/erroring), in which case the prose fallback is the correct output.
+### Decision-brief format
 
 ```
 D<N> — <one-line question title>
@@ -368,79 +366,48 @@ Completeness: A=X/10, B=Y/10   (or: Note: options differ in kind, not coverage �
 Pros / cons:
 A) <option label> (recommended)
   ✅ <pro — concrete, observable, ≥40 chars>
+  ✅ <second pro — concrete, observable, ≥40 chars>
   ❌ <con — honest, ≥40 chars>
 B) <option label>
   ✅ <pro>
+  ✅ <second pro>
   ❌ <con>
 Net: <one-line synthesis of what you're actually trading off>
 ```
 
-D-numbering: first question in a skill invocation is `D1`; increment yourself. This is a model-level instruction, not a runtime counter.
+D-numbering starts at `D1` for each skill invocation and increments at the
+model level; it is not a runtime counter. ELI10 and Recommendation are always
+present. Use completeness scores only when options differ in coverage; when
+they differ in kind, use the kind-note. Preserve the `(recommended)` marker
+even for a neutral taste call. Label effort on both scales when relevant, for
+example `human: ~2 days / Codex: ~15 min`.
 
-ELI10 is always present, in plain English, not function names. Recommendation is ALWAYS present. Keep the `(recommended)` label; AUTO_DECIDE depends on it.
+### Handling 4+ choices — split, never drop
 
-Completeness: use `Completeness: N/10` only when options differ in coverage. 10 = complete, 7 = happy path, 3 = shortcut. If options differ in kind, write: `Note: options differ in kind, not coverage — no completeness score.`
+`request_user_input` allows at most 3 explicit options per question. With 4+
+real choices, NEVER drop, merge, or silently defer one to fit:
 
-Pros / cons: use ✅ and ❌. Minimum 2 pros and 1 con per option when the choice is real; Minimum 40 characters per bullet. Hard-stop escape for one-way/destructive confirmations: `✅ No cons — this is a hard-stop choice`.
+- For mutually exclusive choices, paginate them. While choices remain, show at
+  most 2 real choices plus a concise `More choices` option. The final page may
+  show up to 3 real choices. Preserve every original choice and repeat an earlier
+  page if the user asks to go back.
+- For independent scope items, ask one sequential 3-way question per item:
+  `Include`, `Exclude`, or `Discuss`.
 
-Neutral posture: `Recommendation: <default> — this is a taste call, no strong preference either way`; `(recommended)` STAYS on the default option for AUTO_DECIDE.
-
-Effort both-scales: when an option involves effort, label both human-team and CC+gstack time, e.g. `(human: ~2 days / CC: ~15 min)`. Makes AI compression visible at decision time.
-
-Net line closes the tradeoff. Per-skill instructions may add stricter rules.
-
-### Handling 5+ options — split, never drop
-
-AskUserQuestion caps every call at **4 options**. With 5+ real options, NEVER
-drop, merge, or silently defer one to fit. Pick a compliant shape:
-
-- **Batch into ≤4-groups** — for coherent alternatives (e.g. version bumps,
-  layout variants). One call, 5th surfaced only if first 4 don't fit.
-- **Split per-option** — for independent scope items (e.g. "ship E1..E6?").
-  Fire N sequential calls, one per option. Default to this when unsure.
-
-Per-option call shape: `D<N>.k` header (e.g. D3.1..D3.5), ELI10 per option,
-Recommendation, kind-note (no completeness score — Include/Defer/Cut/Hold are
-decision actions), and 4 buckets:
-**A) Include**, **B) Defer**, **C) Cut**, **D) Hold** (stop chain, discuss).
-
-After the chain, fire `D<N>.final` to validate the assembled set (reprompt
-dependency conflicts) and confirm shipping it. Use `D<N>.revise-<k>` to
-revise one option without re-running the chain.
-
-For N>6, fire a `D<N>.0` meta-AskUserQuestion first (proceed / narrow / batch).
-
-question_ids for split chains: `<skill>-split-<option-slug>` (kebab-case ASCII,
-≤64 chars, `-2`/`-3` suffix on collision). The runtime checker
-(`bin/gstack-question-preference`) refuses `never-ask` on any `*-split-*` id,
-so split chains are never AUTO_DECIDE-eligible — the user's option set is sacred.
-
-**Full rule + worked examples + Hold/dependency semantics:** see
-`docs/askuserquestion-split.md` in the gstack repo. Read on demand when N>4.
-
-**Non-ASCII characters — write directly, never \u-escape.** When any string
-field contains Chinese (繁體/簡體), Japanese, Korean, or other non-ASCII text,
-emit the literal UTF-8 characters; never escape them as `\uXXXX` (the pipe is
-UTF-8 native, and manual escaping miscodes long CJK strings). Only `\n`,
-`\t`, `\"`, `\\` remain allowed. Full rationale + worked example: see
-`docs/askuserquestion-cjk.md`. Read on demand when a question contains CJK.
+Call the tool once, STOP, and wait for the answer before asking the next page or
+item. Never pre-queue a split chain. Check dependencies before each next call and
+finish with a final confirmation of the assembled choice set.
 
 ### Self-check before emitting
 
-Before calling AskUserQuestion, verify:
-- [ ] D<N> header present
-- [ ] ELI10 paragraph present (stakes line too)
-- [ ] Recommendation line present with concrete reason
-- [ ] Completeness scored (coverage) OR kind-note present (kind)
-- [ ] Every option has ≥2 ✅ and ≥1 ❌, each ≥40 chars (or hard-stop escape)
-- [ ] (recommended) label on one option (even for neutral-posture)
-- [ ] Dual-scale effort labels on effort-bearing options (human / CC)
-- [ ] Net line closes the decision
-- [ ] You are calling the tool, not writing prose — unless `CONDUCTOR_SESSION: true` (then prose is the DEFAULT, not the tool) OR the documented failure fallback applies (then: prose with the mandatory triad — issue ELI10, per-choice Completeness, Recommendation + `(recommended)` — and a "reply with a letter" instruction, then STOP)
-- [ ] Non-ASCII characters (CJK / accents) written directly, NOT \u-escaped
-- [ ] If you had 5+ options, you split (or batched into ≤4-groups) — did NOT drop any
-- [ ] If you split, you checked dependencies between options before firing the chain
-- [ ] If a per-option Hold fires, you stopped the chain immediately (didn't queue)
+Before calling `request_user_input`, verify:
+- [ ] The tool is available in the current mode; otherwise emit the Plan-mode block and STOP
+- [ ] One question only, with a ≤12-character header and snake_case id
+- [ ] 2-3 concise options; one is marked `(Recommended)`
+- [ ] D<N>, ELI10, stakes, Recommendation, completeness/kind-note, pros/cons, and Net are present in `question`
+- [ ] Every real choice is preserved; 4+ choices are paginated or split sequentially
+- [ ] You will STOP after this call and wait for the answer
+- [ ] Non-ASCII characters are written directly, never \u-escaped
 
 
 ## Artifacts Sync (skill start)
@@ -572,7 +539,7 @@ At skill END before telemetry:
 ## Model-Specific Behavioral Patch (claude)
 
 The following nudges are tuned for the claude model family. They are
-**subordinate** to skill workflow, STOP points, AskUserQuestion gates, plan-mode
+**subordinate** to skill workflow, STOP points, request_user_input gates, plan-mode
 safety, and /ship review gates. If a nudge below conflicts with skill instructions,
 the skill wins. Treat these as preferences, not rules.
 
@@ -638,7 +605,7 @@ If artifacts are listed, read the newest useful one. If `LAST_SESSION` or `LATES
 
 ## Writing Style (skip entirely if `EXPLAIN_LEVEL: terse` appears in the preamble echo OR the user's current message explicitly requests terse / no-explanations output)
 
-Applies to AskUserQuestion, user replies, and findings. AskUserQuestion Format is structure; this is prose quality.
+Applies to request_user_input, user replies, and findings. request_user_input Format is structure; this is prose quality.
 
 - Gloss curated jargon on first use per skill invocation, even if the user pasted the term.
 - Frame questions in outcome terms: what pain is avoided, what capability unlocks, what user experience changes.
@@ -693,7 +660,7 @@ If you are looping on the same diagnostic, same file, or failed fix variants, ST
 
 ## Question Tuning (skip entirely if `QUESTION_TUNING: false`)
 
-Before each AskUserQuestion, choose `question_id` from `scripts/question-registry.ts` or `{skill}-{slug}`, then run `$GSTACK_BIN/gstack-question-preference --check "<id>"`. `AUTO_DECIDE` means choose the recommended option and say "Auto-decided [summary] → [option] (your preference). Change with /plan-tune." `ASK_NORMALLY` means ask.
+Before each request_user_input, choose `question_id` from `scripts/question-registry.ts` or `{skill}-{slug}`, then run `$GSTACK_BIN/gstack-question-preference --check "<id>"`. `AUTO_DECIDE` means choose the recommended option and say "Auto-decided [summary] → [option] (your preference). Change with /plan-tune." `ASK_NORMALLY` means ask.
 
 **Embed the question_id as a marker in the question text** so hooks can identify it deterministically (plan-tune cathedral T14 / D18 progressive markers). Append `<gstack-qid:{question_id}>` somewhere in the rendered question (the leading line or trailing line is fine; the marker doesn't render visibly to the user when wrapped in HTML-style angle brackets, but the hook strips it). Without the marker the PreToolUse enforcement hook treats the AUQ as observed-only and never auto-decides — so always include it when the question matches a registered `question_id`.
 
@@ -719,7 +686,7 @@ Exit code 2 = rejected as not user-originated; do not retry. On success: "Set `<
 
 `REPO_MODE` controls how to handle issues outside your branch:
 - **`solo`** — You own everything. Investigate and offer to fix proactively.
-- **`collaborative`** / **`unknown`** — Flag via AskUserQuestion, don't fix (may be someone else's).
+- **`collaborative`** / **`unknown`** — Flag via request_user_input, don't fix (may be someone else's).
 
 Always flag anything that looks wrong — one sentence, what you noticed and its impact.
 
@@ -961,7 +928,7 @@ service with existing deployment — verify that a distribution pipeline exists.
    grep -qE 'release|publish|deploy' .gitlab-ci.yml 2>/dev/null && echo "GITLAB_CI_RELEASE"
    ```
 
-3. **If no release pipeline exists and a new artifact was added:** Use AskUserQuestion:
+3. **If no release pipeline exists and a new artifact was added:** Use request_user_input:
    - "This PR adds a new binary/tool but there's no CI/CD pipeline to build and publish it.
      Users won't be able to download the artifact after merge."
    - A) Add a release workflow now (CI/CD release pipeline — GitHub Actions or GitLab CI depending on platform)
@@ -1020,7 +987,7 @@ Store conventions as prose context for use in Phase 8e.5 or Step 7. **Skip the r
 
 **If BOOTSTRAP_DECLINED** appears: Print "Test bootstrap previously declined — skipping." **Skip the rest of bootstrap.**
 
-**If NO runtime detected** (no config files found): Use AskUserQuestion:
+**If NO runtime detected** (no config files found): Use request_user_input:
 "I couldn't detect your project's language. What runtime are you using?"
 Options: A) Node.js/TypeScript B) Ruby/Rails C) Python D) Go E) Rust F) PHP G) Elixir H) This project doesn't need tests.
 If user picks H → write `.gstack/no-test-bootstrap` and continue without tests.
@@ -1048,7 +1015,7 @@ If WebSearch is unavailable, use this built-in knowledge table:
 
 ### B3. Framework selection
 
-Use AskUserQuestion:
+Use request_user_input:
 "I detected this is a [Runtime/Framework] project with no test framework. I researched current best practices. Here are the options:
 A) [Primary] — [rationale]. Includes: [packages]. Supports: unit, integration, smoke, e2e
 B) [Alternative] — [rationale]. Includes: [packages]
@@ -1193,7 +1160,7 @@ Check `REPO_MODE` from the preamble output.
 
 **If REPO_MODE is `solo`:**
 
-Use AskUserQuestion:
+Use request_user_input:
 
 > These test failures appear pre-existing (not caused by your branch changes):
 >
@@ -1208,7 +1175,7 @@ Use AskUserQuestion:
 
 **If REPO_MODE is `collaborative` or `unknown`:**
 
-Use AskUserQuestion:
+Use request_user_input:
 
 > These test failures appear pre-existing (not caused by your branch changes):
 >
@@ -1466,7 +1433,7 @@ When checking each branch, also determine whether a unit test or E2E/integration
 
 ### REGRESSION RULE (mandatory)
 
-**IRON RULE:** When the coverage audit identifies a REGRESSION — code that previously worked but the diff broke — a regression test is written immediately. No AskUserQuestion. No skipping. Regressions are the highest-priority test because they prove something broke.
+**IRON RULE:** When the coverage audit identifies a REGRESSION — code that previously worked but the diff broke — a regression test is written immediately. No request_user_input. No skipping. Regressions are the highest-priority test because they prove something broke.
 
 A regression is when:
 - The diff modifies existing behavior (not new code)
@@ -1538,18 +1505,18 @@ Before proceeding, check CLAUDE.md for a `## Test Coverage` section with `Minimu
 Using the coverage percentage from the diagram in substep 4 (the `COVERAGE: X/Y (Z%)` line):
 
 - **>= target:** Pass. "Coverage gate: PASS ({X}%)." Continue.
-- **>= minimum, < target:** Use AskUserQuestion:
+- **>= minimum, < target:** Use request_user_input:
   - "AI-assessed coverage is {X}%. {N} code paths are untested. Target is {target}%."
   - RECOMMENDATION: Choose A because untested code paths are where production bugs hide.
   - Options:
     A) Generate more tests for remaining gaps (recommended)
     B) Ship anyway — I accept the coverage risk
     C) These paths don't need tests — mark as intentionally uncovered
-  - If A: Loop back to substep 5 (generate tests) targeting the remaining gaps. After second pass, if still below target, present AskUserQuestion again with updated numbers. Maximum 2 generation passes total.
+  - If A: Loop back to substep 5 (generate tests) targeting the remaining gaps. After second pass, if still below target, present request_user_input again with updated numbers. Maximum 2 generation passes total.
   - If B: Continue. Include in PR body: "Coverage gate: {X}% — user accepted risk."
   - If C: Continue. Include in PR body: "Coverage gate: {X}% — {N} paths intentionally uncovered."
 
-- **< minimum:** Use AskUserQuestion:
+- **< minimum:** Use request_user_input:
   - "AI-assessed coverage is critically low ({X}%). {N} of {M} code paths have no tests. Minimum threshold is {minimum}%."
   - RECOMMENDATION: Choose A because less than {minimum}% means more code is untested than tested.
   - Options:
@@ -1745,7 +1712,7 @@ COMPLETION: 5/9 DONE, 1 PARTIAL, 1 NOT DONE, 1 CHANGED, 2 UNVERIFIABLE
 
 After producing the completion checklist, evaluate in priority order:
 
-1. **Any NOT DONE items** (highest priority — known missing work). Use AskUserQuestion:
+1. **Any NOT DONE items** (highest priority — known missing work). Use request_user_input:
    - Show the completion checklist above
    - "{N} items from the plan are NOT DONE. These were part of the original plan but are missing from the implementation."
    - RECOMMENDATION: depends on item count and severity. If 1-2 minor items (docs, config), recommend B. If core functionality is missing, recommend A.
@@ -1759,10 +1726,10 @@ After producing the completion checklist, evaluate in priority order:
 
 2. **Any UNVERIFIABLE items** (silent gaps — the diff cannot prove them either way). Only fires after NOT DONE is resolved or absent.
 
-   **Per-item confirmation is mandatory.** Do NOT use a single AskUserQuestion to blanket-confirm all UNVERIFIABLE items. Blanket confirmation is the failure mode that surfaced in VAS-449 (user clicks A without opening any file). Instead:
+   **Per-item confirmation is mandatory.** Do NOT use a single request_user_input to blanket-confirm all UNVERIFIABLE items. Blanket confirmation is the failure mode that surfaced in VAS-449 (user clicks A without opening any file). Instead:
 
    - Loop through UNVERIFIABLE items one at a time.
-   - For each item, use AskUserQuestion with the item's *specific* manual check (e.g., "Confirm: does `~/Development/domain-hq/docs/dashboard.md` exist?", not "Have you checked all items?").
+   - For each item, use request_user_input with the item's *specific* manual check (e.g., "Confirm: does `~/Development/domain-hq/docs/dashboard.md` exist?", not "Have you checked all items?").
    - Options per item:
      Y) Confirmed done — cite what you verified (free-text, embedded in PR body)
      N) Not done — block ship; treat as NOT DONE and re-enter the priority-1 gate
@@ -1790,10 +1757,10 @@ After producing the completion checklist, evaluate in priority order:
 
 1. Parse the LAST line of the subagent's output as JSON.
 2. Store `done`, `deferred`, `unverifiable` for Step 20 metrics; use `summary` in PR body.
-3. If `deferred > 0` or `unverifiable > 0` and no user override, present the items via the appropriate AskUserQuestion (see Gate Logic priority order above) before continuing.
+3. If `deferred > 0` or `unverifiable > 0` and no user override, present the items via the appropriate request_user_input (see Gate Logic priority order above) before continuing.
 4. Embed `summary` in PR body's `## Plan Completion` section (Step 19). If `unverifiable > 0` and the user picked option A in the UNVERIFIABLE gate, also embed `## Plan Completion — Manual Verifications` listing each user-confirmed item.
 
-**If the subagent fails or returns invalid JSON:** Fall back to running the audit inline (parent processes the same plan-extraction + classification logic). If the inline fallback also fails (e.g., plan file unreadable, parser error), do NOT silently pass — surface the failure as an explicit AskUserQuestion: "Plan Completion audit could not run ({reason}). Options: (A) Skip audit and ship anyway — record that the audit was skipped in PR body and Step 20 metrics; (B) Stop and fix the audit." Default and recommended option is (B). Silent fail-open is the failure shape that VAS-449 surfaced.
+**If the subagent fails or returns invalid JSON:** Fall back to running the audit inline (parent processes the same plan-extraction + classification logic). If the inline fallback also fails (e.g., plan file unreadable, parser error), do NOT silently pass — surface the failure as an explicit request_user_input: "Plan Completion audit could not run ({reason}). Options: (A) Skip audit and ship anyway — record that the audit was skipped in PR body and Step 20 metrics; (B) Stop and fix the audit." Default and recommended option is (B). Silent fail-open is the failure shape that VAS-449 surfaced.
 
 ---
 
@@ -1841,7 +1808,7 @@ Follow the /qa-only workflow with these modifications:
 ### 4. Gate logic
 
 - **All verification items PASS:** Continue silently. "Plan verification: PASS."
-- **Any FAIL:** Use AskUserQuestion:
+- **Any FAIL:** Use request_user_input:
   - Show the failures with screenshot evidence
   - RECOMMENDATION: Choose A if failures indicate broken functionality. Choose B if cosmetic only.
   - Options:
@@ -2054,11 +2021,11 @@ Output a summary header: `Pre-Landing Review: N issues (X critical, Y informatio
 5. **Auto-fix all AUTO-FIX items.** Apply each fix. Output one line per fix:
    `[AUTO-FIXED] [file:line] Problem → what you did`
 
-6. **If ASK items remain,** present them in ONE AskUserQuestion:
+6. **If ASK items remain,** present them in ONE request_user_input:
    - List each with number, severity, problem, recommended fix
    - Per-item options: A) Fix  B) Skip
    - Overall RECOMMENDATION
-   - If 3 or fewer ASK items, you may use individual AskUserQuestion calls instead
+   - If 3 or fewer ASK items, you may use individual request_user_input calls instead
 
 7. **After all fixes (auto + user-approved):**
    - If ANY fixes were applied: commit fixed files by name (`git add <fixed-files> && git commit -m "fix: pre-landing review fixes"`), then **STOP** and tell the user to run `/ship` again to re-test.
@@ -2107,18 +2074,18 @@ Otherwise, print: `+ {total} Greptile comments ({valid_actionable} valid, {alrea
 
 For each comment in `comments`:
 
-**VALID & ACTIONABLE:** Use AskUserQuestion with:
+**VALID & ACTIONABLE:** Use request_user_input with:
 - The comment (file:line or [top-level] + body summary + permalink URL)
 - `RECOMMENDATION: Choose A because [one-line reason]`
 - Options: A) Fix now, B) Acknowledge and ship anyway, C) It's a false positive
 - If user chooses A: apply the fix, commit the fixed files (`git add <fixed-files> && git commit -m "fix: address Greptile review — <brief description>"`), reply using the **Fix reply template** from greptile-triage.md (include inline diff + explanation), and save to both per-project and global greptile-history (type: fix).
 - If user chooses C: reply using the **False Positive reply template** from greptile-triage.md (include evidence + suggested re-rank), save to both per-project and global greptile-history (type: fp).
 
-**VALID BUT ALREADY FIXED:** Reply using the **Already Fixed reply template** from greptile-triage.md — no AskUserQuestion needed:
+**VALID BUT ALREADY FIXED:** Reply using the **Already Fixed reply template** from greptile-triage.md — no request_user_input needed:
 - Include what was done and the fixing commit SHA
 - Save to both per-project and global greptile-history (type: already-fixed)
 
-**FALSE POSITIVE:** Use AskUserQuestion:
+**FALSE POSITIVE:** Use request_user_input:
 - Show the comment and why you think it's wrong (file:line or [top-level] + body summary + permalink URL)
 - Options:
   - A) Reply to Greptile explaining the false positive (recommended if clearly wrong)
@@ -2187,7 +2154,7 @@ stay agent judgment; the slot pick stays `gstack-next-version`.
    ```
    Read the JSON `state` and dispatch:
    - **FRESH** → do the bump (steps 2-4).
-   - **ALREADY_BUMPED** → skip the bump, but run the queue-drift check (step 3) with the reported `currentVersion`. If the queue moved (next free version differs), **AskUserQuestion**: rebump to the new version (rewrites CHANGELOG header + PR title) or keep current (CI version-gate will reject until resolved).
+   - **ALREADY_BUMPED** → skip the bump, but run the queue-drift check (step 3) with the reported `currentVersion`. If the queue moved (next free version differs), **request_user_input**: rebump to the new version (rewrites CHANGELOG header + PR title) or keep current (CI version-gate will reject until resolved).
    - **DRIFT_STALE_PKG** → run `gstack-version-bump repair` (syncs package.json to VERSION). No re-bump; reuse `currentVersion` for CHANGELOG + PR.
    - **DRIFT_UNEXPECTED** → **STOP**. package.json disagrees with VERSION while VERSION matches base — a manual edit bypassed /ship. Reconcile manually, then re-run.
 
@@ -2201,7 +2168,7 @@ stay agent judgment; the slot pick stays `gstack-next-version`.
    QUEUE_JSON=$(bun run $GSTACK_ROOT/bin/gstack-next-version --base <base> --bump "$BUMP_LEVEL" --current-version "$BASE_VERSION" 2>/dev/null || echo '{"offline":true}')
    NEW_VERSION=$(echo "$QUEUE_JSON" | jq -r '.version // empty')
    ```
-   If `offline`/util fails: fall back to local `BUMP_LEVEL` arithmetic and print `⚠ workspace-aware ship offline — using local bump only`. If `claimed` is non-empty, render the queue table so the user sees landing order. If an active sibling workspace holds a version `>= NEW_VERSION`, **AskUserQuestion**: advance past (unrelated work) or abort and sync with the sibling.
+   If `offline`/util fails: fall back to local `BUMP_LEVEL` arithmetic and print `⚠ workspace-aware ship offline — using local bump only`. If `claimed` is non-empty, render the queue table so the user sees landing order. If an active sibling workspace holds a version `>= NEW_VERSION`, **request_user_input**: advance past (unrelated work) or abort and sync with the sibling.
 
 4. **Write the bump** (FRESH, or an approved rebump):
    ```bash
@@ -2267,7 +2234,7 @@ Read `.agents/skills/gstack/review/TODOS-format.md` for the canonical format ref
 
 **1. Check if TODOS.md exists** in the repository root.
 
-**If TODOS.md does not exist:** Use AskUserQuestion:
+**If TODOS.md does not exist:** Use request_user_input:
 - Message: "GStack recommends maintaining a TODOS.md organized by skill/component, then priority (P0 at top through P4, then Completed at bottom). See TODOS-format.md for the full format. Would you like to create one?"
 - Options: A) Create it now, B) Skip for now
 - If A: Create `TODOS.md` with a skeleton (# TODOS heading + ## Completed section). Continue to step 3.
@@ -2280,7 +2247,7 @@ Read TODOS.md and verify it follows the recommended structure:
 - Each item has `**Priority:**` field with P0-P4 value
 - A `## Completed` section at the bottom
 
-**If disorganized** (missing priority fields, no component groupings, no Completed section): Use AskUserQuestion:
+**If disorganized** (missing priority fields, no component groupings, no Completed section): Use request_user_input:
 - Message: "TODOS.md doesn't follow the recommended structure (skill/component groupings, P0-P4 priority, Completed section). Would you like to reorganize it?"
 - Options: A) Reorganize now (recommended), B) Leave as-is
 - If A: Reorganize in-place following TODOS-format.md. Preserve all content — only restructure, never delete items.
@@ -2372,7 +2339,7 @@ fi
 ```
 
 Decide at runtime which option applies. If unsure, prefer stopping and asking the
-user via AskUserQuestion rather than destroying non-WIP commits.
+user via request_user_input rather than destroying non-WIP commits.
 
 **Anti-footgun rules:**
 - NEVER blind `git reset --soft` if there are non-WIP commits. Codex flagged this
@@ -2478,7 +2445,7 @@ Branch on the echoed values:
    this repo uses a custom core.hooksPath; run
    `gstack-redact install-prepush-hook` manually if you want it chained."
 2. **`REDACT_PREPUSH` not true AND `PREPUSH_PROMPTED: no`** — one-time
-   offer (fires once EVER, machine-wide). AskUserQuestion:
+   offer (fires once EVER, machine-wide). request_user_input:
 
    > gstack can install a per-repo git pre-push hook that blocks pushes
    > containing credentials (API keys, tokens, private keys). It's a
@@ -2493,7 +2460,7 @@ Branch on the echoed values:
    then `$GSTACK_ROOT/bin/gstack-redact install-prepush-hook`.
    If B: run `$GSTACK_ROOT/bin/gstack-config set redact_prepush_hook false`.
    ALWAYS (after either answer, but NOT if the question itself failed to
-   render — a failed AskUserQuestion must re-offer next time):
+   render — a failed request_user_input must re-offer next time):
    ```bash
    touch "${GSTACK_HOME:-$HOME/.gstack}/.redact-prepush-prompted"
    ```
@@ -2698,7 +2665,7 @@ esac
 printf '%s' "v$NEW_VERSION <type>: <summary>" | $GSTACK_ROOT/bin/gstack-redact --repo-visibility "$REDACT_VIS" --json
 ```
 
-HIGH blocks (exit 3, no skip). MEDIUM → AskUserQuestion (PII subset offers
+HIGH blocks (exit 3, no skip). MEDIUM → request_user_input (PII subset offers
 `--auto-redact`). Same scan runs before the `gh pr edit --body` path (Step 17).
 
 **If GitHub:** create from the SCANNED file (exact bytes scanned = bytes sent):
@@ -2764,7 +2731,7 @@ _NUDGE_MARKER="$HOME/.gstack/.plan-tune-nudge-shown"
 _QT=$($GSTACK_ROOT/bin/gstack-config get question_tuning 2>/dev/null || echo "false")
 if [ ! -f "$_NUDGE_MARKER" ] && [ "$_QT" = "false" ]; then
   echo ""
-  echo "gstack can learn from your AskUserQuestion answers. Run /plan-tune to opt in"
+  echo "gstack can learn from your request_user_input answers. Run /plan-tune to opt in"
   echo "— it captures which prompts you find valuable vs noisy and (with hooks installed)"
   echo "auto-decides your never-ask preferences."
   touch "$_NUDGE_MARKER"

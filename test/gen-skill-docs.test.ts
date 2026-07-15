@@ -1768,6 +1768,37 @@ describe('Codex generation (--host codex)', () => {
     }
   });
 
+  test('all Codex markdown uses request_user_input without legacy or bogus MCP tool names', () => {
+    const violations: string[] = [];
+    let nativeToolReferences = 0;
+    for (const skill of CODEX_SKILLS) {
+      const skillDir = path.join(AGENTS_DIR, skill.codexName);
+      const pending = [skillDir];
+      while (pending.length > 0) {
+        const current = pending.pop()!;
+        for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+          const candidate = path.join(current, entry.name);
+          if (entry.isDirectory()) {
+            pending.push(candidate);
+          } else if (entry.name.endsWith('.md')) {
+            const content = fs.readFileSync(candidate, 'utf-8');
+            if (
+              content.includes('AskUserQuestion') ||
+              /mcp__.*request_user_input/.test(content) ||
+              /request_user_input[^\n]{0,80}4 options/.test(content) ||
+              /Do NOT use request_user_input[^\n]*Auto-choose/.test(content)
+            ) {
+              violations.push(path.relative(ROOT, candidate));
+            }
+            nativeToolReferences += content.match(/request_user_input/g)?.length ?? 0;
+          }
+        }
+      }
+    }
+    expect(violations).toEqual([]);
+    expect(nativeToolReferences).toBeGreaterThan(0);
+  });
+
   test('/codex skill excluded from Codex output', () => {
     expect(fs.existsSync(path.join(AGENTS_DIR, 'gstack-codex', 'SKILL.md'))).toBe(false);
     expect(fs.existsSync(path.join(AGENTS_DIR, 'gstack-codex'))).toBe(false);

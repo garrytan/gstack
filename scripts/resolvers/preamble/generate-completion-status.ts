@@ -19,7 +19,25 @@ import type { TemplateContext } from '../types';
  * gates. See ceo-plan 2026-04-24 "remove vestigial plan-mode handshake" for
  * the full rationale.
  */
-export function generatePlanModeInfo(_ctx: TemplateContext): string {
+export function generatePlanModeInfo(ctx: TemplateContext): string {
+  if (ctx.host === 'codex') {
+    return `## Plan Mode Safe Operations
+
+In Plan mode, allowed because they inform the plan: \`$B\`, \`$D\`, writes to
+\`~/.gstack/\`, writes to the plan file, and opening generated artifacts.
+
+## Skill Invocation During Plan Mode
+
+If the user invokes a skill in Plan mode, treat the skill file as executable
+instructions and follow it from Step 0. A \`request_user_input\` call satisfies
+the end-of-turn requirement: at every STOP point, call it once, stop immediately,
+and wait for the answer. Do not continue the workflow or complete the plan in the
+same turn. If the tool is unavailable, report the Plan-mode block from
+\`request_user_input Format\` and STOP; never infer an answer. Commands marked
+\"PLAN MODE EXCEPTION — ALWAYS RUN\" still execute. Complete or leave Plan mode
+only after the skill workflow finishes, or when the user cancels it.`;
+  }
+
   return `## Plan Mode Safe Operations
 
 In plan mode, allowed because they inform the plan: \`$B\`, \`$D\`, \`codex exec\`/\`codex review\`, writes to \`~/.gstack/\`, writes to the plan file, and \`open\` for generated artifacts.

@@ -1,6 +1,94 @@
 import type { TemplateContext } from '../types';
 
-export function generateAskUserFormat(_ctx: TemplateContext): string {
+function generateCodexRequestUserInputFormat(): string {
+  return `## request_user_input Format
+
+### Availability (read first)
+
+\`request_user_input\` is available in Codex Plan mode by default. Before each
+decision, confirm that it appears in the current tool list.
+
+If the tool is unavailable — including in Default mode — do NOT guess, silently
+choose, auto-select the recommendation, or continue the workflow. Tell the user:
+\`BLOCKED — this workflow needs interactive decisions. Switch this task to Plan
+mode and rerun it.\` Then STOP. Do not enable the under-development
+\`default_mode_request_user_input\` feature as a workaround.
+
+### Tool-call shape
+
+Send one decision per call and one item in the \`questions\` array. Use:
+
+- \`header\`: at most 12 characters.
+- \`id\`: stable snake_case.
+- \`question\`: the complete decision brief below, including context, stakes,
+  recommendation, completeness, pros/cons, and the closing Net line.
+- \`options\`: 2-3 explicit choices. Keep each label to 1-5 words, suffix the
+  recommended label with \`(Recommended)\`, and give each option one concise
+  sentence describing its concrete impact or tradeoff.
+
+The detailed brief belongs in \`question\`; do not try to pack it into option
+labels or omit it because the tool has structured options.
+
+### Decision-brief format
+
+\`\`\`
+D<N> — <one-line question title>
+Project/branch/task: <1 short grounding sentence using _BRANCH>
+ELI10: <plain English a 16-year-old could follow, 2-4 sentences, name the stakes>
+Stakes if we pick wrong: <one sentence on what breaks, what user sees, what's lost>
+Recommendation: <choice> because <one-line reason>
+Completeness: A=X/10, B=Y/10   (or: Note: options differ in kind, not coverage — no completeness score)
+Pros / cons:
+A) <option label> (recommended)
+  ✅ <pro — concrete, observable, ≥40 chars>
+  ✅ <second pro — concrete, observable, ≥40 chars>
+  ❌ <con — honest, ≥40 chars>
+B) <option label>
+  ✅ <pro>
+  ✅ <second pro>
+  ❌ <con>
+Net: <one-line synthesis of what you're actually trading off>
+\`\`\`
+
+D-numbering starts at \`D1\` for each skill invocation and increments at the
+model level; it is not a runtime counter. ELI10 and Recommendation are always
+present. Use completeness scores only when options differ in coverage; when
+they differ in kind, use the kind-note. Preserve the \`(recommended)\` marker
+even for a neutral taste call. Label effort on both scales when relevant, for
+example \`human: ~2 days / Codex: ~15 min\`.
+
+### Handling 4+ choices — split, never drop
+
+\`request_user_input\` allows at most 3 explicit options per question. With 4+
+real choices, NEVER drop, merge, or silently defer one to fit:
+
+- For mutually exclusive choices, paginate them. While choices remain, show at
+  most 2 real choices plus a concise \`More choices\` option. The final page may
+  show up to 3 real choices. Preserve every original choice and repeat an earlier
+  page if the user asks to go back.
+- For independent scope items, ask one sequential 3-way question per item:
+  \`Include\`, \`Exclude\`, or \`Discuss\`.
+
+Call the tool once, STOP, and wait for the answer before asking the next page or
+item. Never pre-queue a split chain. Check dependencies before each next call and
+finish with a final confirmation of the assembled choice set.
+
+### Self-check before emitting
+
+Before calling \`request_user_input\`, verify:
+- [ ] The tool is available in the current mode; otherwise emit the Plan-mode block and STOP
+- [ ] One question only, with a ≤12-character header and snake_case id
+- [ ] 2-3 concise options; one is marked \`(Recommended)\`
+- [ ] D<N>, ELI10, stakes, Recommendation, completeness/kind-note, pros/cons, and Net are present in \`question\`
+- [ ] Every real choice is preserved; 4+ choices are paginated or split sequentially
+- [ ] You will STOP after this call and wait for the answer
+- [ ] Non-ASCII characters are written directly, never \\u-escaped
+`;
+}
+
+export function generateAskUserFormat(ctx: TemplateContext): string {
+  if (ctx.host === 'codex') return generateCodexRequestUserInputFormat();
+
   return `## AskUserQuestion Format
 
 ### Tool resolution (read first)
