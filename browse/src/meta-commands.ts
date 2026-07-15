@@ -452,8 +452,8 @@ export async function handleMetaCommand(
         } else if (args[i] === '--selector') {
           flagSelector = args[++i];
           if (!flagSelector) throw new Error('Usage: screenshot --selector <css> [path]');
-        } else if (args[i] === '--clip') {
-          const coords = args[++i];
+        } else if (args[i] === '--clip' || args[i].startsWith('--clip=')) {
+          const coords = args[i] === '--clip' ? args[++i] : args[i].slice('--clip='.length);
           if (!coords) throw new Error('Usage: screenshot --clip x,y,w,h [path]');
           const parts = coords.split(',').map(Number);
           if (parts.length !== 4 || parts.some(isNaN))
