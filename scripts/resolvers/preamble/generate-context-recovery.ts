@@ -3,6 +3,13 @@ import type { TemplateContext } from '../types';
 export function generateContextRecovery(ctx: TemplateContext): string {
   const binDir = ctx.host === 'codex' ? '$GSTACK_BIN' : ctx.paths.binDir;
 
+  // Two branch forms are in play and must not be confused (#1127):
+  //   - $BRANCH  (from `eval gstack-slug`): sanitized to [a-zA-Z0-9._-], so
+  //     `feat/foo` → `featfoo`. This is the form gstack-review-log/read use for
+  //     `<branch>-reviews.jsonl` filenames, so review lookups MUST use it.
+  //   - $_BRANCH (from the preamble's `git branch --show-current`): the raw
+  //     branch, which is how timeline.jsonl records the `branch` field, so the
+  //     timeline greps below MUST keep using it.
   return `## Context Recovery
 
 At session start or after compaction, recover recent project context.
@@ -13,7 +20,7 @@ _PROJ="\${GSTACK_HOME:-$HOME/.gstack}/projects/\${SLUG:-unknown}"
 if [ -d "$_PROJ" ]; then
   echo "--- RECENT ARTIFACTS ---"
   find "$_PROJ/ceo-plans" "$_PROJ/checkpoints" -type f -name "*.md" 2>/dev/null | xargs ls -t 2>/dev/null | head -3
-  [ -f "$_PROJ/\${_BRANCH}-reviews.jsonl" ] && echo "REVIEWS: $(wc -l < "$_PROJ/\${_BRANCH}-reviews.jsonl" | tr -d ' ') entries"
+  [ -f "$_PROJ/\${BRANCH}-reviews.jsonl" ] && echo "REVIEWS: $(wc -l < "$_PROJ/\${BRANCH}-reviews.jsonl" | tr -d ' ') entries"
   [ -f "$_PROJ/timeline.jsonl" ] && tail -5 "$_PROJ/timeline.jsonl"
   if [ -f "$_PROJ/timeline.jsonl" ]; then
     _LAST=$(grep "\\"branch\\":\\"\${_BRANCH}\\"" "$_PROJ/timeline.jsonl" 2>/dev/null | grep '"event":"completed"' | tail -1)
