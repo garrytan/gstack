@@ -21,7 +21,26 @@ import { spawnTerminalAgent } from './terminal-agent-control';
 
 const config = resolveConfig();
 const IS_WINDOWS = process.platform === 'win32';
-const MAX_START_WAIT = IS_WINDOWS ? 15000 : (process.env.CI ? 30000 : 8000); // Node+Chromium takes longer on Windows
+
+/**
+ * Startup health-probe budget (ms) for a freshly spawned server. The daemon is
+ * detached + unref'd, so it keeps booting regardless of how long the CLI is
+ * willing to poll — this constant only bounds how long `startServer` waits
+ * before reporting failure.
+ *
+ * Overridable via `BROWSE_START_TIMEOUT` (ms) for hosts where even the platform
+ * ceiling isn't enough — e.g. Windows under heavy load (#1846), where the 15s
+ * budget can still elapse before a busy box finishes booting Node+Chromium.
+ * Mirrors the `BROWSE_*` tunable convention used throughout server.ts
+ * (BROWSE_PORT, BROWSE_IDLE_TIMEOUT, ...). A non-positive or unparseable value
+ * falls back to the platform default. Pure + exported for tests.
+ */
+export function resolveStartTimeout(env: NodeJS.ProcessEnv = process.env): number {
+  const platformDefault = IS_WINDOWS ? 15000 : (env.CI ? 30000 : 8000); // Node+Chromium takes longer on Windows
+  const override = parseInt(env.BROWSE_START_TIMEOUT || '', 10);
+  return Number.isFinite(override) && override > 0 ? override : platformDefault;
+}
+const MAX_START_WAIT = resolveStartTimeout();
 
 export function resolveServerScript(
   env: Record<string, string | undefined> = process.env,
@@ -355,6 +374,17 @@ async function startServer(extraEnv?: Record<string, string>): Promise<ServerSta
       return state;
     }
     await Bun.sleep(100);
+  }
+
+  // One last check before declaring failure. The daemon is detached + unref'd,
+  // so on a loaded machine it can become healthy in the gap between the poll
+  // loop's final tick and now — the probe timed out, the launch did not
+  // (#1846). Re-checking here turns that false negative into a success, and
+  // mirrors the post-loop recovery already done in ensureServer(). A genuinely
+  // failed server is still unhealthy, so this falls through to the error report.
+  const lateState = readState();
+  if (lateState && await isServerHealthy(lateState.port)) {
+    return lateState;
   }
 
   // Server didn't start in time — check the on-disk startup error log.
