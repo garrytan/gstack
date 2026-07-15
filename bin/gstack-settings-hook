@@ -26,7 +26,7 @@
 set -euo pipefail
 
 ACTION="${1:-}"
-SETTINGS_FILE="${GSTACK_SETTINGS_FILE:-$HOME/.claude/settings.json}"
+SETTINGS_FILE="${GSTACK_SETTINGS_FILE:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json}"
 
 if [ -z "$ACTION" ]; then
   cat <<EOF >&2
