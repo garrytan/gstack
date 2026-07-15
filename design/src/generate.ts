@@ -8,6 +8,7 @@ import { requireApiKey } from "./auth";
 import { parseBrief } from "./brief";
 import { createSession, sessionPath } from "./session";
 import { checkMockup } from "./check";
+import { DEFAULT_IMAGE_GEN_TIMEOUT_MS } from "./constants";
 
 export interface GenerateOptions {
   brief?: string;
@@ -17,6 +18,7 @@ export interface GenerateOptions {
   retry?: number;
   size?: string;
   quality?: string;
+  apiTimeoutMs?: number;
 }
 
 export interface GenerateResult {
@@ -35,9 +37,10 @@ async function callImageGeneration(
   prompt: string,
   size: string,
   quality: string,
+  timeoutMs: number,
 ): Promise<{ responseId: string; imageData: string }> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 240_000);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const response = await fetch("https://api.openai.com/v1/responses", {
@@ -106,6 +109,7 @@ export async function generate(options: GenerateOptions): Promise<GenerateResult
   const size = options.size || "1536x1024";
   const quality = options.quality || "high";
   const maxRetries = options.retry ?? 0;
+  const apiTimeoutMs = options.apiTimeoutMs ?? DEFAULT_IMAGE_GEN_TIMEOUT_MS;
 
   let lastResult: GenerateResult | null = null;
 
@@ -116,7 +120,7 @@ export async function generate(options: GenerateOptions): Promise<GenerateResult
 
     // Generate the image
     const startTime = Date.now();
-    const { responseId, imageData } = await callImageGeneration(apiKey, prompt, size, quality);
+    const { responseId, imageData } = await callImageGeneration(apiKey, prompt, size, quality, apiTimeoutMs);
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
 
     // Write to disk

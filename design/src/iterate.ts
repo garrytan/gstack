@@ -10,11 +10,13 @@ import fs from "fs";
 import path from "path";
 import { requireApiKey } from "./auth";
 import { readSession, updateSession } from "./session";
+import { DEFAULT_IMAGE_GEN_TIMEOUT_MS } from "./constants";
 
 export interface IterateOptions {
   session: string;   // Path to session JSON file
   feedback: string;  // User feedback text
   output: string;    // Output path for new PNG
+  apiTimeoutMs?: number;
 }
 
 /**
@@ -29,13 +31,17 @@ export async function iterate(options: IterateOptions): Promise<void> {
   console.error(`  Feedback: "${options.feedback}"`);
 
   const startTime = Date.now();
+  const apiTimeoutMs = options.apiTimeoutMs ?? DEFAULT_IMAGE_GEN_TIMEOUT_MS;
+  // Single deadline shared across threading + fallback so cumulative wait is
+  // bounded by apiTimeoutMs rather than 2×apiTimeoutMs.
+  const deadline = startTime + apiTimeoutMs;
 
   // Try multi-turn with previous_response_id first
   let success = false;
   let responseId = "";
 
   try {
-    const result = await callWithThreading(apiKey, session.lastResponseId, options.feedback);
+    const result = await callWithThreading(apiKey, session.lastResponseId, options.feedback, apiTimeoutMs);
     responseId = result.responseId;
 
     fs.mkdirSync(path.dirname(options.output), { recursive: true });
@@ -45,13 +51,19 @@ export async function iterate(options: IterateOptions): Promise<void> {
     console.error(`  Threading failed: ${err.message}`);
     console.error("  Falling back to re-generation with accumulated feedback...");
 
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) {
+      const secs = (apiTimeoutMs / 1000).toFixed(apiTimeoutMs % 1000 === 0 ? 0 : 1);
+      throw new Error(`Timeout (${secs}s)`);
+    }
+
     // Fallback: re-generate with original brief + all feedback
     const accumulatedPrompt = buildAccumulatedPrompt(
       session.originalBrief,
       [...session.feedbackHistory, options.feedback]
     );
 
-    const result = await callFresh(apiKey, accumulatedPrompt);
+    const result = await callFresh(apiKey, accumulatedPrompt, remaining);
     responseId = result.responseId;
 
     fs.mkdirSync(path.dirname(options.output), { recursive: true });
@@ -80,9 +92,10 @@ async function callWithThreading(
   apiKey: string,
   previousResponseId: string,
   feedback: string,
+  timeoutMs: number,
 ): Promise<{ responseId: string; imageData: string }> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 240_000);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const response = await fetch("https://api.openai.com/v1/responses", {
@@ -128,9 +141,10 @@ async function callWithThreading(
 async function callFresh(
   apiKey: string,
   prompt: string,
+  timeoutMs: number,
 ): Promise<{ responseId: string; imageData: string }> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 240_000);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const response = await fetch("https://api.openai.com/v1/responses", {

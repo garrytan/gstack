@@ -8,6 +8,7 @@ import fs from "fs";
 import path from "path";
 import { requireApiKey } from "./auth";
 import { parseBrief } from "./brief";
+import { DEFAULT_IMAGE_GEN_TIMEOUT_MS } from "./constants";
 
 export interface VariantsOptions {
   brief?: string;
@@ -17,6 +18,7 @@ export interface VariantsOptions {
   size?: string;
   quality?: string;
   viewports?: string; // "desktop,tablet,mobile" — generates at multiple sizes
+  apiTimeoutMs?: number;
 }
 
 const STYLE_VARIATIONS = [
@@ -42,6 +44,7 @@ export async function generateVariant(
   size: string,
   quality: string,
   fetchFn: typeof globalThis.fetch = globalThis.fetch,
+  timeoutMs: number = DEFAULT_IMAGE_GEN_TIMEOUT_MS,
 ): Promise<{ path: string; success: boolean; error?: string }> {
   const maxRetries = 3;
   const MAX_RETRY_AFTER_MS = 60_000; // cap honored Retry-After to bound stalls
@@ -58,7 +61,7 @@ export async function generateVariant(
     skipLeadingDelay = false;
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 240_000);
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
       const response = await fetchFn("https://api.openai.com/v1/responses", {
@@ -125,7 +128,8 @@ export async function generateVariant(
     } catch (err: any) {
       clearTimeout(timeout);
       if (err.name === "AbortError") {
-        return { path: outputPath, success: false, error: "Timeout (120s)" };
+        const secs = (timeoutMs / 1000).toFixed(timeoutMs % 1000 === 0 ? 0 : 1);
+        return { path: outputPath, success: false, error: `Timeout (${secs}s)` };
       }
       lastError = err.message;
     }
@@ -144,12 +148,13 @@ export async function variants(options: VariantsOptions): Promise<void> {
     : parseBrief(options.brief!, false);
 
   const quality = options.quality || "high";
+  const apiTimeoutMs = options.apiTimeoutMs ?? DEFAULT_IMAGE_GEN_TIMEOUT_MS;
 
   fs.mkdirSync(options.outputDir, { recursive: true });
 
   // If viewports specified, generate responsive variants instead of style variants
   if (options.viewports) {
-    await generateResponsiveVariants(apiKey, baseBrief, options.outputDir, options.viewports, quality);
+    await generateResponsiveVariants(apiKey, baseBrief, options.outputDir, options.viewports, quality, apiTimeoutMs);
     return;
   }
 
@@ -176,7 +181,7 @@ export async function variants(options: VariantsOptions): Promise<void> {
       new Promise(resolve => setTimeout(resolve, delay))
         .then(() => {
           console.error(`  Starting variant ${String.fromCharCode(65 + i)}...`);
-          return generateVariant(apiKey, prompt, outputPath, size, quality);
+          return generateVariant(apiKey, prompt, outputPath, size, quality, undefined, apiTimeoutMs);
         })
     );
   }
@@ -225,6 +230,7 @@ async function generateResponsiveVariants(
   outputDir: string,
   viewports: string,
   quality: string,
+  timeoutMs: number,
 ): Promise<void> {
   const viewportList = viewports.split(",").map(v => v.trim().toLowerCase());
   const configs = viewportList.map(v => VIEWPORT_CONFIGS[v]).filter(Boolean);
@@ -250,7 +256,7 @@ async function generateResponsiveVariants(
       setTimeout(resolve, delay)
     ).then(() => {
       console.error(`  Starting ${config.desc}...`);
-      return generateVariant(apiKey, prompt, outputPath, config.size, quality);
+      return generateVariant(apiKey, prompt, outputPath, config.size, quality, undefined, timeoutMs);
     });
   });
 
