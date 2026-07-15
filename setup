@@ -403,14 +403,46 @@ if [ "$NEEDS_BUILD" -eq 1 ]; then
   # macOS kills with SIGKILL (exit 137). The two-step remove+re-sign is
   # required because a naive `codesign -s - -f` fails when the existing
   # signature block is corrupt. This is idempotent and costs <1s.
+  #
+  # Some binaries (observed: find-browse, gstack-global-discover) also carry
+  # trailing zero-padding AFTER the Mach-O LC_CODE_SIGNATURE region. macOS
+  # codesign requires the signature to be the last content and extend to EOF,
+  # so the padding triggers "main executable failed strict validation" on
+  # re-sign (and "internal error in Code Signing subsystem" on remove). We
+  # truncate that trailing slack to the end of LC_CODE_SIGNATURE first, which
+  # lets the identical re-sign succeed. The binary runs either way: Bun's
+  # adhoc code-page signature satisfies the kernel's exec check even when
+  # `codesign --verify` is unhappy, so a re-sign failure only warns when the
+  # binary is genuinely SIGKILL'd on exec (exit 137).
   # See: https://github.com/garrytan/gstack/issues/997
   if [ "$(uname -s)" = "Darwin" ] && [ "$(uname -m)" = "arm64" ]; then
     for _bin in browse/dist/browse browse/dist/find-browse design/dist/design make-pdf/dist/pdf bin/gstack-global-discover; do
       _bin_path="$SOURCE_GSTACK_DIR/$_bin"
       [ -f "$_bin_path" ] && [ -x "$_bin_path" ] || continue
+      # Strip any trailing bytes past LC_CODE_SIGNATURE so codesign can re-sign.
+      # otool prints the signature's dataoff+datasize; if the file is larger,
+      # the extra bytes are Bun padding that breaks strict validation.
+      _sig_end=$(otool -l "$_bin_path" 2>/dev/null | awk '/LC_CODE_SIGNATURE/{f=1} f&&/dataoff/{o=$2} f&&/datasize/{print o+$2; exit}')
+      _fsize=$(stat -f%z "$_bin_path" 2>/dev/null)
+      if [ -n "$_sig_end" ] && [ -n "$_fsize" ] && [ "$_sig_end" -gt 0 ] 2>/dev/null && [ "$_sig_end" -lt "$_fsize" ] 2>/dev/null; then
+        _trunc_tmp=$(mktemp 2>/dev/null) || _trunc_tmp=""
+        if [ -n "$_trunc_tmp" ] && head -c "$_sig_end" "$_bin_path" > "$_trunc_tmp" 2>/dev/null; then
+          cat "$_trunc_tmp" > "$_bin_path" && chmod +x "$_bin_path"
+        fi
+        [ -n "$_trunc_tmp" ] && rm -f "$_trunc_tmp"
+      fi
       codesign --remove-signature "$_bin_path" 2>/dev/null || true
       if ! codesign -s - -f "$_bin_path" 2>/dev/null; then
-        log "warning: codesign failed for $_bin (binary may not run on Apple Silicon)"
+        # Re-sign failed. Only warn if the binary genuinely cannot execute
+        # (SIGKILL = exit 137). Otherwise Bun's adhoc code-page signature still
+        # runs fine and the codesign --verify miss is cosmetic. set -e safe.
+        _probe_rc=0
+        "$_bin_path" --help >/dev/null 2>&1 || _probe_rc=$?
+        if [ "$_probe_rc" -eq 137 ]; then
+          log "warning: codesign failed for $_bin and it is SIGKILL'd on exec (exit 137) — it may not run on Apple Silicon"
+        else
+          log "note: codesign could not re-sign $_bin, but it executes fine (Bun adhoc signature); continuing"
+        fi
       fi
     done
   fi
