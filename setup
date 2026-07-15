@@ -1277,24 +1277,26 @@ if [ "$NO_TEAM_MODE" -eq 1 ]; then
   log "Team mode disabled: auto-update hook removed."
 fi
 
-# ─── GBrain detection + conditional SKILL.md regen ──────────────────────
+# ─── User-local SKILL.md regen ───────────────────────────────────────────
 #
 # Detect whether gbrain is installed and persist the result to
 # ~/.gstack/gbrain-detection.json so gen-skill-docs can decide whether to
-# render GBRAIN_CONTEXT_LOAD and GBRAIN_SAVE_RESULTS blocks. If detected,
-# regenerate the Claude-host SKILL.md files with the un-suppressed
-# (compressed) brain-aware blocks via `bun run gen:skill-docs:user`.
+# render GBRAIN_CONTEXT_LOAD and GBRAIN_SAVE_RESULTS blocks.
 #
-# If gbrain is not detected, the canonical no-gbrain SKILL.md files
-# (which were just generated above by `gen:skill-docs --host claude` if
-# applicable, or which are checked in) stay as-is. Zero token overhead
-# for non-gbrain users.
+# Also honor user-local explain_level=terse at setup/session-update time. The
+# canonical checked-in SKILL.md files stay full-prose; `gen:skill-docs:user`
+# applies local config only when setup updates a user's installed skills.
 #
 # Users who install gbrain after running ./setup should re-run setup OR
 # call `gstack-config gbrain-refresh` + `bun run gen:skill-docs:user`.
 DETECT_BIN="$SOURCE_GSTACK_DIR/bin/gstack-gbrain-detect"
 GBRAIN_STATE_DIR="${GSTACK_HOME:-$HOME/.gstack}"
 DETECTION_FILE="$GBRAIN_STATE_DIR/gbrain-detection.json"
+USER_LOCAL_RENDER_REASON=""
+USER_EXPLAIN_LEVEL="$("$GSTACK_CONFIG" get explain_level 2>/dev/null || echo default)"
+if [ "$USER_EXPLAIN_LEVEL" = "terse" ]; then
+  USER_LOCAL_RENDER_REASON="explain_level=terse"
+fi
 # PID-unique tmp so concurrent setups (parallel Conductor workspaces) can't
 # clobber each other's in-flight detection write.
 DETECTION_TMP="$DETECTION_FILE.$$.tmp"
@@ -1306,19 +1308,10 @@ if [ -x "$DETECT_BIN" ]; then
     # detection (exit 0 iff ok), so setup, bin/dev-setup, and gstack-config
     # all gate on the same check instead of re-grepping the JSON.
     if "$DETECT_BIN" --is-ok 2>/dev/null; then
-      if [ -n "${GSTACK_SKIP_GBRAIN_REGEN:-}" ]; then
-        # Dev/source tree (set by bin/dev-setup): never regenerate tracked
-        # SKILL.md in place — that dirties checked-in source. Detection is
-        # still persisted above; the dev workspace renders the :user variant
-        # into an untracked dir, and other projects get blocks via
-        # `gstack-config gbrain-refresh`.
-        log "gbrain detected — GSTACK_SKIP_GBRAIN_REGEN set: leaving tracked SKILL.md canonical (dev/source tree)."
+      if [ -n "$USER_LOCAL_RENDER_REASON" ]; then
+        USER_LOCAL_RENDER_REASON="$USER_LOCAL_RENDER_REASON + brain-aware blocks"
       else
-        log "gbrain detected — regenerating Claude SKILL.md with brain-aware blocks (~250 token overhead per planning skill)..."
-        (
-          cd "$SOURCE_GSTACK_DIR"
-          bun_cmd run gen:skill-docs:user --host claude 2>&1 | tail -3
-        ) || log "  warning: gen:skill-docs:user failed — run 'bun run gen:skill-docs:user' manually if you want brain-aware blocks"
+        USER_LOCAL_RENDER_REASON="brain-aware blocks"
       fi
     else
       log "gbrain not detected — brain-aware blocks suppressed in planning-skill SKILL.md files (zero token overhead)."
@@ -1327,6 +1320,22 @@ if [ -x "$DETECT_BIN" ]; then
   else
     rm -f "$DETECTION_TMP"
     log "  warning: gstack-gbrain-detect failed — brain-aware blocks will stay suppressed"
+  fi
+fi
+
+if [ -n "$USER_LOCAL_RENDER_REASON" ]; then
+  if [ -n "${GSTACK_SKIP_GBRAIN_REGEN:-}" ]; then
+    # Dev/source tree (set by bin/dev-setup): never regenerate tracked
+    # SKILL.md in place — that dirties checked-in source. Detection is still
+    # persisted above; the dev workspace renders the :user variant into an
+    # untracked dir, and other projects get local blocks via setup/session-update.
+    log "user-local SKILL.md render needed ($USER_LOCAL_RENDER_REASON) — GSTACK_SKIP_GBRAIN_REGEN set: leaving tracked SKILL.md canonical (dev/source tree)."
+  else
+    log "regenerating Claude SKILL.md with user-local settings ($USER_LOCAL_RENDER_REASON)..."
+    (
+      cd "$SOURCE_GSTACK_DIR"
+      bun_cmd run gen:skill-docs:user --host claude 2>&1 | tail -3
+    ) || log "  warning: gen:skill-docs:user failed — run 'bun run gen:skill-docs:user --host claude' manually to apply user-local settings"
   fi
 fi
 
