@@ -319,11 +319,19 @@ async function startServer(extraEnv?: Record<string, string>): Promise<ServerSta
     // when the CLI exits, the server dies with it. Use Node's child_process.spawn
     // with { detached: true } instead, which is the gold standard for Windows
     // process independence. Credit: PR #191 by @fqueiro.
+    //
+    // windowsHide: true is required alongside detached. Without it the detached
+    // daemon allocates a console, and on Windows 11 with "Default terminal
+    // application = Windows Terminal" that console is handed off to a visible
+    // Windows Terminal window/tab that lingers for the daemon's whole lifetime.
+    // windowsHide maps to CREATE_NO_WINDOW, which suppresses both the console
+    // and the terminal handoff. The daemon already uses stdio:'ignore', so it
+    // never needs a console.
     const extraEnvStr = JSON.stringify({ BROWSE_STATE_FILE: config.stateFile, BROWSE_PARENT_PID: parentPid, ...(extraEnv || {}) });
     const launcherCode =
       `const{spawn}=require('child_process');` +
       `spawn(process.execPath,[${JSON.stringify(NODE_SERVER_SCRIPT)}],` +
-      `{detached:true,stdio:['ignore','ignore','ignore'],env:Object.assign({},process.env,` +
+      `{detached:true,windowsHide:true,stdio:['ignore','ignore','ignore'],env:Object.assign({},process.env,` +
       `${extraEnvStr})}).unref()`;
     Bun.spawnSync(['node', '-e', launcherCode], { stdio: ['ignore', 'ignore', 'ignore'] });
   } else {
