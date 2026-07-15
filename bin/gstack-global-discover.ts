@@ -124,8 +124,18 @@ function windowToDate(window: string): Date {
 export function normalizeRemoteUrl(url: string): string {
   let normalized = url.trim();
 
-  // SSH → HTTPS: git@github.com:user/repo → https://github.com/user/repo
-  const sshMatch = normalized.match(/^(?:ssh:\/\/)?git@([^:]+):(.+)$/);
+  // SSH URL → HTTPS: ssh://git@github.com/user/repo → https://github.com/user/repo
+  try {
+    const parsed = new URL(normalized);
+    if (parsed.protocol === "ssh:" && parsed.username === "git" && parsed.pathname.length > 1) {
+      normalized = `https://${parsed.host}${parsed.pathname}`;
+    }
+  } catch {
+    // Not a URL-style remote; try scp-style below.
+  }
+
+  // SCP-style SSH → HTTPS: git@github.com:user/repo → https://github.com/user/repo
+  const sshMatch = normalized.match(/^git@([^:]+):(.+)$/);
   if (sshMatch) {
     normalized = `https://${sshMatch[1]}/${sshMatch[2]}`;
   }
