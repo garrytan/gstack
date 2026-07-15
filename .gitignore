@@ -38,6 +38,7 @@ extension/lib/xterm-addon-fit.js
 .env.*
 !.env.example
 supabase/.temp/
+.copilot/
 
 # Throughput analysis — local-only, regenerate via scripts/garry-output-comparison.ts
 docs/throughput-*.json
