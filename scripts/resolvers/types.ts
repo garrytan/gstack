@@ -50,6 +50,16 @@ function buildHostPaths(): Record<string, HostPaths> {
 
 export const HOST_PATHS: Record<string, HostPaths> = buildHostPaths();
 
+/**
+ * Render a HostPaths binary dir as a shell-expandable absolute path.
+ * Claude-style dirs are `~`-rooted (e.g. `~/.claude/skills/gstack/browse/dist`)
+ * and expand via `$HOME`; env-var hosts already carry an absolute `$GSTACK_*`
+ * value, so they pass through untouched — prepending `$HOME` would double it.
+ */
+export function toShellPath(dir: string): string {
+  return dir.startsWith('~') ? `$HOME${dir.slice(1)}` : dir;
+}
+
 import type { Model } from '../models';
 export type { Model } from '../models';
 
