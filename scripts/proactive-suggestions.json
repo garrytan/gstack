@@ -193,6 +193,11 @@
       "routing": "Rethink the problem, find the 10-star product,\nchallenge premises, expand scope when it creates a better product. Four modes:\nSCOPE EXPANSION (dream big), SELECTIVE EXPANSION (hold scope + cherry-pick\nexpansions), HOLD SCOPE (maximum rigor), SCOPE REDUCTION (strip to essentials).\nUse when asked to \"think bigger\", \"expand scope\", \"strategy review\", \"rethink this\",\nor \"is this ambitious enough\".\nProactively suggest when the user is questioning scope or ambition of a plan,\nor when the plan feels like it could be thinking bigger.",
       "voice_line": null
     },
+    "plan-deliverables": {
+      "lead": "Turn an approved design/plan into per-milestone acceptance criteria, each measurable and paired with the specific check that validates it (the deliverable).",
+      "routing": "Bridges the gap between office-hours and the plan reviews:\n/autobuilder-loop already reads per-milestone {next_milestone,\nacceptance_criteria} from the plan on disk, but nothing upstream authors that\nfield — this skill does. Use when asked to \"define acceptance criteria\",\n\"define deliverables\", \"definition of done\", or \"bake in success criteria\"\nfor a plan. Proactively suggest after /office-hours and before the plan\nreviews / before coding — so every milestone has a testable definition of\ndone before a line of code is written.",
+      "voice_line": "Voice triggers (speech-to-text aliases): \"acceptance criteria\", \"define deliverables\", \"definition of done\", \"plan deliverables\"."
+    },
     "plan-design-review": {
       "lead": "Designer's eye plan review — interactive, like CEO and Eng review.",
       "routing": "Rates each design dimension 0-10, explains what would make it a 10,\nthen fixes the plan to get there. Works in plan mode. For live site\nvisual audits, use /design-review. Use when asked to \"review the design plan\"\nor \"design critique\".\nProactively suggest when the user has a plan with UI/UX components that\nshould be reviewed before implementation.",

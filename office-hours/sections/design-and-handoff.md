@@ -20,7 +20,7 @@ If `$PRIOR` exists, the new doc gets a `Supersedes:` field referencing it. This 
 Write to `~/.gstack/projects/{slug}/{user}-{branch}-design-{datetime}.md`.
 
 After writing the design doc, tell the user:
-**"Design doc saved to: {full path}. Other skills (/plan-ceo-review, /plan-eng-review) will find it automatically."**
+**"Design doc saved to: {full path}. Other skills (/plan-deliverables, /plan-ceo-review, /plan-eng-review) will find it automatically. A good next step is /plan-deliverables — it bakes measurable acceptance criteria and a paired test into each milestone before the reviews."**
 
 ### Startup mode design doc template:
 
@@ -540,6 +540,7 @@ strongest retention).
 
 **If `PROACTIVE` is `false` OR `CONDUCTOR_SESSION: true`:** do NOT auto-launch. Recommend
 in one line and stop, letting the user invoke:
+- any mode → "Next: `/plan-deliverables` to bake measurable acceptance criteria + a paired test into each milestone before the reviews."
 - EXPANSION / ambitious → "Next: `/plan-ceo-review` to pressure-test scope and find the 10-star product."
 - well-scoped → "Next: `/plan-eng-review` to lock architecture, tests, and edge cases."
 - visual/UX-heavy → "Next: `/plan-design-review` for a visual/UX pass."
