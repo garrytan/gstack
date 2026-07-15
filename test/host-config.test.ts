@@ -409,6 +409,17 @@ describe('golden-file regression', () => {
     const current = fs.readFileSync(path.join(ROOT, '.factory', 'skills', 'gstack-ship', 'SKILL.md'), 'utf-8');
     expect(current).toBe(golden);
   });
+
+  // Agent-runtime hosts share the regular .<host>/skills/gstack-ship layout. These lock their
+  // host-specific rewrites (Bash->terminal/exec, Agent->delegate_task/sessions_spawn,
+  // .claude->.host, CLAUDE.md->AGENTS.md) so a regression like the Agent-tool rewrite gap is caught.
+  for (const host of ['hermes', 'gbrain', 'openclaw']) {
+    test(`${host} ship skill matches golden baseline`, () => {
+      const golden = fs.readFileSync(path.join(GOLDEN_DIR, `${host}-ship-SKILL.md`), 'utf-8');
+      const current = fs.readFileSync(path.join(ROOT, `.${host}`, 'skills', 'gstack-ship', 'SKILL.md'), 'utf-8');
+      expect(current).toBe(golden);
+    });
+  }
 });
 
 // ─── Individual host config correctness ─────────────────────

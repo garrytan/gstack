@@ -41,6 +41,12 @@ const factory: HostConfig = {
     'use the Agent tool': 'dispatch a subagent',
     'use the Grep tool': 'search for',
     'use the Glob tool': 'find files matching',
+    // Agent tool: catch every phrasing, not just 'use the Agent tool'. Factory uses the plain
+    // noun 'delegation' (reads clean mid-sentence without echoing the surrounding 'subagent'
+    // prose); possessive form first, then article form, then a bare sweep.
+    "Claude Code's Agent tool": 'delegation',
+    'the Agent tool': 'delegation',
+    'Agent tool': 'delegation',
   },
 
   suppressedResolvers: ['GBRAIN_CONTEXT_LOAD', 'GBRAIN_SAVE_RESULTS'],
