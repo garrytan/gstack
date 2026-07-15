@@ -3,7 +3,7 @@
 // DebugBridgeCore (Foundation+Network) builds cross-platform.
 // DebugBridgeUI (UIKit/SwiftUI) is iOS-only.
 // DebugBridgeTouch (Objective-C) is iOS-only — in-process tap synthesis
-// derived from KIF (MIT). DEBUG-only.
+// derived from KIF (Apache-2.0). DEBUG-only.
 
 import PackageDescription
 
@@ -32,6 +32,9 @@ let package = Package(
             dependencies: [],
             path: "Sources/DebugBridgeTouch",
             publicHeadersPath: "include",
+            cSettings: [
+                .define("DEBUG", .when(configuration: .debug)),
+            ],
             linkerSettings: [
                 .linkedFramework("UIKit", .when(platforms: [.iOS])),
             ]

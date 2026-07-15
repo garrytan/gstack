@@ -1,7 +1,10 @@
 //
 //  DebugBridgeTouch.m — minimal port of KIF's in-process touch synthesis.
-//  Original code: https://github.com/kif-framework/KIF — MIT-licensed
-//  (Square, Inc. + KIF contributors). Adapted to a single-file, tap-only,
+//  Original code: https://github.com/kif-framework/KIF — Apache-2.0
+//  Copyright 2011-2016 Square, Inc. and KIF contributors.
+//  Licensed under the Apache License, Version 2.0. You may obtain a copy at
+//  https://www.apache.org/licenses/LICENSE-2.0
+//  Adapted to a single-file, tap-only,
 //  iOS 18+ aware subset for the gstack/ios-qa DebugBridge.
 //
 //  Uses these private UIKit selectors (DEBUG-only; never shipped to App Store):
@@ -19,6 +22,8 @@
 
 #import "DebugBridgeTouch.h"
 #import <TargetConditionals.h>
+
+#if DEBUG
 
 #if TARGET_OS_IOS
 
@@ -341,3 +346,5 @@ static id DBT_HitTestView(UIWindow *window, CGPoint point) {
 @end
 
 #endif // TARGET_OS_IOS
+
+#endif // DEBUG

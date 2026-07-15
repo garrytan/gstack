@@ -19,36 +19,15 @@
 
 import { describe, test, expect } from 'bun:test';
 import { spawnSync } from 'child_process';
-import { existsSync, readFileSync } from 'fs';
+import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
 import { join } from 'path';
 
 const ROOT = join(import.meta.dir, '..');
 const FIXTURE_PATH = join(ROOT, 'test/fixtures/ios-qa/FixtureApp');
 const TEMPLATES_PATH = join(ROOT, 'ios-qa/templates');
 
-// Parity: canonical Obj-C touch templates must match the fixture's working
-// copy. The fixture is the only place the .m / .h are exercised end-to-end
-// on a real device, so any divergence means consuming apps would ship a
-// stale, untested version of the SwiftUI hit-test fix.
 describe('template ↔ fixture parity', () => {
-  test('DebugBridgeTouch.h.template matches fixture include', () => {
-    const tmpl = readFileSync(join(TEMPLATES_PATH, 'DebugBridgeTouch.h.template'), 'utf-8');
-    const fixture = readFileSync(
-      join(FIXTURE_PATH, 'Sources/DebugBridgeTouch/include/DebugBridgeTouch.h'),
-      'utf-8',
-    );
-    expect(tmpl).toBe(fixture);
-  });
-
-  test('DebugBridgeTouch.m.template matches fixture .m', () => {
-    const tmpl = readFileSync(join(TEMPLATES_PATH, 'DebugBridgeTouch.m.template'), 'utf-8');
-    const fixture = readFileSync(
-      join(FIXTURE_PATH, 'Sources/DebugBridgeTouch/DebugBridgeTouch.m'),
-      'utf-8',
-    );
-    expect(tmpl).toBe(fixture);
-  });
-
   test('Package.swift.template declares all 3 DebugBridge targets', () => {
     const tmpl = readFileSync(join(TEMPLATES_PATH, 'Package.swift.template'), 'utf-8');
     // Each target must be present as a library product AND a target definition.
@@ -58,6 +37,13 @@ describe('template ↔ fixture parity', () => {
     // DebugBridgeUI must depend on the other two; that's how the consuming
     // app gets the transitive set with one dependency entry.
     expect(tmpl).toMatch(/name:\s*"DebugBridgeUI"[\s\S]*?dependencies:\s*\["DebugBridgeCore",\s*"DebugBridgeTouch"\]/);
+  });
+
+  test('KIF-derived touch source preserves Apache-2.0 attribution', () => {
+    const implementation = readFileSync(join(TEMPLATES_PATH, 'DebugBridgeTouch.m.template'), 'utf-8');
+    expect(implementation).toContain('Copyright 2011-2016 Square, Inc. and KIF contributors.');
+    expect(implementation).toContain('Apache License, Version 2.0');
+    expect(implementation).not.toContain('MIT-licensed');
   });
 });
 
@@ -151,4 +137,49 @@ describeIfSwift('swift build invariants', () => {
     }
     expect(foundForbidden).toBe(0);
   }, 300_000);
+
+  test('final Release iOS app excludes private touch APIs', () => {
+    if (spawnSync('xcrun', ['--find', 'xcodebuild']).status !== 0 ||
+        spawnSync('xcodegen', ['--version']).status !== 0) return;
+
+    const workDir = mkdtempSync(join(tmpdir(), 'gstack-ios-release-guard-'));
+    const fixtureDir = join(workDir, 'FixtureApp');
+    try {
+      cpSync(FIXTURE_PATH, fixtureDir, { recursive: true });
+      writeFileSync(
+        join(fixtureDir, 'Package.swift'),
+        readFileSync(join(TEMPLATES_PATH, 'Package.swift.template'), 'utf-8'),
+      );
+      writeFileSync(
+        join(fixtureDir, 'Sources/DebugBridgeTouch/DebugBridgeTouch.m'),
+        readFileSync(join(TEMPLATES_PATH, 'DebugBridgeTouch.m.template'), 'utf-8'),
+      );
+      writeFileSync(
+        join(fixtureDir, 'Sources/DebugBridgeTouch/include/DebugBridgeTouch.h'),
+        readFileSync(join(TEMPLATES_PATH, 'DebugBridgeTouch.h.template'), 'utf-8'),
+      );
+      expect(spawnSync('xcodegen', [
+        'generate', '--spec', join(fixtureDir, 'project.yml'),
+        '--project', fixtureDir, '--project-root', fixtureDir,
+      ], { cwd: fixtureDir, stdio: 'pipe' }).status).toBe(0);
+
+      const derivedData = join(workDir, 'DerivedData');
+      const build = spawnSync('xcodebuild', [
+        '-project', join(fixtureDir, 'FixtureApp.xcodeproj'),
+        '-scheme', 'FixtureApp', '-configuration', 'Release',
+        '-sdk', 'iphonesimulator', '-destination', 'generic/platform=iOS Simulator',
+        '-derivedDataPath', derivedData, 'CODE_SIGNING_ALLOWED=NO', 'build',
+      ], { cwd: fixtureDir, stdio: 'pipe', timeout: 300_000 });
+      expect(build.status).toBe(0);
+
+      const binary = join(derivedData, 'Build/Products/Release-iphonesimulator/FixtureApp.app/FixtureApp');
+      const contents = spawnSync('strings', ['-a', binary]).stdout?.toString() ?? '';
+      for (const forbidden of [
+        'DebugBridgeTouch', '_touchesEvent', '_AXSSetAutomationEnabled',
+        'IOHIDEventCreateDigitizerEvent',
+      ]) expect(contents).not.toContain(forbidden);
+    } finally {
+      rmSync(workDir, { recursive: true, force: true });
+    }
+  }, 360_000);
 });

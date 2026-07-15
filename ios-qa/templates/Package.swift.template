@@ -12,9 +12,10 @@
 //                       MutationBridge implementations. Depends on the other
 //                       two.
 //
-// The structural Release-build guard is the `.when(configuration: .debug)`
-// conditional on every consuming target's dependency. SwiftPM refuses to link
-// DebugBridge* in Release config.
+// The structural Release-build guard is compile-time: every Swift source is
+// wrapped in `#if DEBUG`, and the Objective-C touch target receives the same
+// DEBUG define so its private-API implementation compiles to an empty object
+// in Release.
 //
 // CI invariant: `swift build -c release` + `nm -j build/Release/<binary>
 // | grep -q DebugBridge && exit 1`.
@@ -43,6 +44,9 @@ let package = Package(
             dependencies: [],
             path: "Sources/DebugBridgeTouch",
             publicHeadersPath: "include",
+            cSettings: [
+                .define("DEBUG", .when(configuration: .debug)),
+            ],
             linkerSettings: [
                 // IOKit is loaded dynamically via dlopen at runtime (it's a
                 // private framework on iOS and can't be linked statically).
