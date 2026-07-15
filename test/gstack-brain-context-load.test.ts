@@ -14,11 +14,12 @@ import { spawnSync } from "child_process";
 
 const SCRIPT = join(import.meta.dir, "..", "bin", "gstack-brain-context-load.ts");
 
-function runScript(args: string[], env: Record<string, string> = {}): { stdout: string; stderr: string; exitCode: number } {
+function runScript(args: string[], env: Record<string, string> = {}, cwd: string = process.cwd()): { stdout: string; stderr: string; exitCode: number } {
   const result = spawnSync("bun", [SCRIPT, ...args], {
     encoding: "utf-8",
     timeout: 30000,
     env: { ...process.env, ...env },
+    cwd,
   });
   return {
     stdout: result.stdout || "",
@@ -87,6 +88,118 @@ describe("gstack-brain-context-load — manifest dispatch", () => {
     expect(r.stderr).toContain("mode=default");
     // 3 queries in default
     expect(r.stderr).toContain("queries=3");
+  });
+
+  it("default manifest keeps every list query scoped to the active repo", () => {
+    const dir = mkdtempSync(join(tmpdir(), "gstack-bcl-"));
+    const binDir = join(dir, "bin");
+    mkdirSync(binDir);
+    writeFakeGbrain(binDir);
+
+    try {
+      const r = runScript(["--skill", "nonexistent-skill-xyz", "--repo", "test-repo"], prependPath(binDir));
+      expect(r.exitCode).toBe(0);
+      const repoFilterCount = (r.stdout.match(/tags_contains=repo:test-repo/g) || []).length;
+      expect(repoFilterCount).toBe(3);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("resolves generated Codex skill directories before falling back to the default manifest", () => {
+    const home = mkdtempSync(join(tmpdir(), "gstack-home-"));
+    const skillDir = join(home, ".codex", "skills", "gstack-codex-only");
+    mkdirSync(skillDir, { recursive: true });
+    const note = join(home, "note.md");
+    writeFileSync(note, "codex manifest note\n", "utf-8");
+    writeFileSync(
+      join(skillDir, "SKILL.md"),
+      `---
+name: codex-only
+gbrain:
+  schema: 1
+  context_queries:
+    - id: codex-note
+      kind: filesystem
+      glob: "${note}"
+      render_as: "## Codex manifest note"
+---
+
+body
+`,
+      "utf-8"
+    );
+
+    try {
+      const r = runScript(["--skill", "codex-only", "--repo", "test-repo", "--explain"], { HOME: home });
+      expect(r.exitCode).toBe(0);
+      expect(r.stderr).toContain("mode=manifest");
+      expect(r.stdout).toContain("## Codex manifest note");
+      expect(r.stdout).toContain("note.md");
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it("prefers repo-local Codex skills over global Codex installs", () => {
+    const home = mkdtempSync(join(tmpdir(), "gstack-home-"));
+    const repo = mkdtempSync(join(tmpdir(), "gstack-repo-"));
+    const globalSkillDir = join(home, ".codex", "skills", "gstack-codex-only");
+    const localSkillDir = join(repo, ".agents", "skills", "gstack-codex-only");
+    mkdirSync(globalSkillDir, { recursive: true });
+    mkdirSync(localSkillDir, { recursive: true });
+
+    const globalNote = join(home, "global-note.md");
+    const localNote = join(repo, "local-note.md");
+    writeFileSync(globalNote, "global codex manifest note\n", "utf-8");
+    writeFileSync(localNote, "local codex manifest note\n", "utf-8");
+    writeFileSync(
+      join(globalSkillDir, "SKILL.md"),
+      `---
+name: codex-only
+gbrain:
+  schema: 1
+  context_queries:
+    - id: global-note
+      kind: filesystem
+      glob: "${globalNote}"
+      render_as: "## Global Codex manifest"
+---
+
+body
+`,
+      "utf-8"
+    );
+    writeFileSync(
+      join(localSkillDir, "SKILL.md"),
+      `---
+name: codex-only
+gbrain:
+  schema: 1
+  context_queries:
+    - id: local-note
+      kind: filesystem
+      glob: "${localNote}"
+      render_as: "## Local Codex manifest"
+---
+
+body
+`,
+      "utf-8"
+    );
+
+    try {
+      const r = runScript(["--skill", "codex-only", "--repo", "test-repo", "--explain"], { HOME: home }, repo);
+      expect(r.exitCode).toBe(0);
+      expect(r.stderr).toContain("mode=manifest");
+      expect(r.stdout).toContain("## Local Codex manifest");
+      expect(r.stdout).toContain("local-note.md");
+      expect(r.stdout).not.toContain("## Global Codex manifest");
+      expect(r.stdout).not.toContain("global-note.md");
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+      rmSync(repo, { recursive: true, force: true });
+    }
   });
 
   it("uses skill manifest when --skill-file points at a valid SKILL.md", () => {

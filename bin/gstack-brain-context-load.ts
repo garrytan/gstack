@@ -175,12 +175,20 @@ function resolveSkillFile(args: CliArgs): string | null {
     return resolve(args.skillFile);
   }
   if (!args.skill) return null;
+  const skill = args.skill;
+  const codexSkill = skill.startsWith("gstack-") ? skill : `gstack-${skill}`;
   // Look in common gstack skill locations
   const candidates = [
-    join(HOME, ".claude", "skills", args.skill, "SKILL.md"),
-    join(HOME, ".claude", "skills", "gstack", args.skill, "SKILL.md"),
-    join(process.cwd(), ".claude", "skills", args.skill, "SKILL.md"),
-    join(process.cwd(), args.skill, "SKILL.md"),
+    join(process.cwd(), ".agents", "skills", codexSkill, "SKILL.md"),
+    join(process.cwd(), ".agents", "skills", "gstack", skill, "SKILL.md"),
+    join(HOME, ".codex", "skills", codexSkill, "SKILL.md"),
+    join(HOME, ".codex", "skills", "gstack", skill, "SKILL.md"),
+    join(HOME, ".agents", "skills", codexSkill, "SKILL.md"),
+    join(HOME, ".agents", "skills", "gstack", skill, "SKILL.md"),
+    join(HOME, ".claude", "skills", skill, "SKILL.md"),
+    join(HOME, ".claude", "skills", "gstack", skill, "SKILL.md"),
+    join(process.cwd(), ".claude", "skills", skill, "SKILL.md"),
+    join(process.cwd(), skill, "SKILL.md"),
   ];
   for (const c of candidates) {
     if (existsSync(c)) return c;
@@ -391,7 +399,7 @@ function defaultManifest(args: CliArgs): GbrainManifest {
       {
         id: "skill-name-events",
         kind: "list",
-        filter: { type: "timeline", content_contains: "{skill_name}" },
+        filter: { type: "timeline", "tags_contains": "repo:{repo_slug}", content_contains: "{skill_name}" },
         limit: 5,
         render_as: "## Recent {skill_name} events",
       },
