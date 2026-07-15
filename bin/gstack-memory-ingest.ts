@@ -598,33 +598,56 @@ function parseTranscriptJsonl(path: string): ParsedSession | null {
   let messageCount = 0;
   let toolCalls = 0;
   const bodyParts: string[] = [];
+  const seenMessages = new Set<string>();
+  const appendMessage = (role: string, content: string): void => {
+    const normalizedRole = (role || "user").toLowerCase();
+    if (normalizedRole !== "user" && normalizedRole !== "assistant") return;
+    const dedupeKey = `${normalizedRole}\0${content}`;
+    if (seenMessages.has(dedupeKey)) return;
+    seenMessages.add(dedupeKey);
+    bodyParts.push(`## ${normalizedRole.charAt(0).toUpperCase() + normalizedRole.slice(1)}\n\n${content}`);
+    messageCount++;
+  };
+
   for (const rec of parsedLines) {
+    if (isCodex && rec?.payload) {
+      const payload = rec.payload;
+      if (payload?.type === "message" && payload.role) {
+        const content = extractContentText(payload);
+        if (content) appendMessage(payload.role, content);
+      } else if (payload?.type === "user_message" || payload?.type === "agent_message") {
+        const content = extractContentText(payload);
+        if (content) {
+          appendMessage(payload.type === "agent_message" ? "assistant" : "user", content);
+        }
+      } else if (payload?.type === "function_call") {
+        toolCalls++;
+        const tool = payload.name || "tool";
+        bodyParts.push(`### Tool call: ${tool}`);
+      } else if (payload?.message) {
+        const msg = payload.message;
+        const role = msg.role || payload.role || "user";
+        const content = extractContentText(msg);
+        if (content) appendMessage(role, content);
+      }
+      continue;
+    }
+
     if (rec?.type === "user" || rec?.message?.role === "user") {
       const content = extractContentText(rec);
       if (content) {
-        bodyParts.push(`## User\n\n${content}`);
-        messageCount++;
+        appendMessage("user", content);
       }
     } else if (rec?.type === "assistant" || rec?.message?.role === "assistant") {
       const content = extractContentText(rec);
       if (content) {
-        bodyParts.push(`## Assistant\n\n${content}`);
-        messageCount++;
+        appendMessage("assistant", content);
       }
     } else if (rec?.type === "tool" || rec?.tool_use_id || rec?.tool_call) {
       toolCalls++;
       // Collapse to one-line summary
       const tool = rec?.name || rec?.tool || rec?.tool_call?.name || "tool";
       bodyParts.push(`### Tool call: ${tool}`);
-    } else if (isCodex && rec?.payload?.message) {
-      // Codex shape: each record has payload.message
-      const msg = rec.payload.message;
-      const role = msg.role || "user";
-      const content = extractContentText(msg);
-      if (content) {
-        bodyParts.push(`## ${role.charAt(0).toUpperCase() + role.slice(1)}\n\n${content}`);
-        messageCount++;
-      }
     }
   }
 
@@ -645,18 +668,20 @@ function parseTranscriptJsonl(path: string): ParsedSession | null {
 
 function extractContentText(rec: any): string {
   if (!rec) return "";
+  if (typeof rec === "string") return rec;
   if (typeof rec.content === "string") return rec.content;
   if (typeof rec.text === "string") return rec.text;
+  if (typeof rec.message === "string") return rec.message;
   if (typeof rec.message?.content === "string") return rec.message.content;
   if (Array.isArray(rec.message?.content)) {
     return rec.message.content
-      .map((c: any) => (typeof c === "string" ? c : c?.text || ""))
+      .map((c: any) => (typeof c === "string" ? c : c?.text || c?.content || ""))
       .filter(Boolean)
       .join("\n");
   }
   if (Array.isArray(rec.content)) {
     return rec.content
-      .map((c: any) => (typeof c === "string" ? c : c?.text || ""))
+      .map((c: any) => (typeof c === "string" ? c : c?.text || c?.content || ""))
       .filter(Boolean)
       .join("\n");
   }
