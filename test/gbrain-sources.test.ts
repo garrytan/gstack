@@ -32,8 +32,11 @@ interface FakeGbrainSetup {
  * Build a temp dir with a fake `gbrain` shell script on PATH. The fake honors:
  *   gbrain sources list --json     → cat $STATE_PATH
  *   gbrain sources add <id> --path <p> [--federated]  → append to state, log
- *   gbrain sources remove <id> --yes                  → drop from state, log
- *   gbrain --version                                  → echo "gbrain 0.25.1"
+ *   gbrain sources remove <id> --confirm-destructive  → drop from state, log
+ *                                                       (#1985: remove WITHOUT
+ *                                                       --confirm-destructive
+ *                                                       fails like gbrain >= 0.42)
+ *   gbrain --version                                  → echo "gbrain 0.42.40.0"
  * Anything else exits 1.
  */
 function makeFakeGbrain(initialState: { sources: Array<{ id: string; local_path: string; federated?: boolean; page_count?: number }> }): FakeGbrainSetup {
@@ -49,7 +52,7 @@ function makeFakeGbrain(initialState: { sources: Array<{ id: string; local_path:
 echo "$@" >> "${logPath}"
 case "$1 $2" in
   "--version ")
-    echo "gbrain 0.25.1"
+    echo "gbrain 0.42.40.0"
     exit 0
     ;;
   "sources list")
@@ -75,6 +78,16 @@ case "$1 $2" in
     ;;
   "sources remove")
     ID="$3"
+    # #1985: gbrain >= 0.42 gates remove behind --confirm-destructive; --yes
+    # alone no longer suppresses the data-loss prompt. Refuse without it so the
+    # drift re-register path is exercised against real gbrain 0.42 behavior.
+    case " $* " in
+      *" --confirm-destructive "*) : ;;
+      *)
+        echo "This will permanently delete pages. To proceed, pass --confirm-destructive" >&2
+        exit 1
+        ;;
+    esac
     NEW=$(jq --arg id "$ID" '.sources = (.sources | map(select(.id != $id)))' "${statePath}")
     echo "$NEW" > "${statePath}"
     exit 0
@@ -168,8 +181,36 @@ describe("ensureSourceRegistered", () => {
     expect(result.state.registered_path).toBe("/new/path");
 
     const log = readFileSync(fake.logPath, "utf-8");
-    expect(log).toContain("sources remove gstack-code-foo --yes");
+    // #1985: the remove must carry --confirm-destructive (gbrain >= 0.42 gate).
+    expect(log).toContain("sources remove gstack-code-foo --yes --confirm-destructive");
     expect(log).toContain("sources add gstack-code-foo --path /new/path --federated");
+    fake.cleanup();
+  });
+
+  // #1985: regression. gbrain >= 0.42 refuses `sources remove` without
+  // --confirm-destructive. On the drift path that surfaces as "source
+  // registration failed" and aborts the /sync-gbrain code stage for every
+  // already-registered source whose path drifted. Before the fix the remove
+  // was issued with `--yes` only, so the guard-simulating fake rejects it and
+  // ensureSourceRegistered throws. The fix passes --confirm-destructive, so
+  // the re-register succeeds.
+  it("re-registers across the gbrain >= 0.42 destructive-remove guard (does not throw)", async () => {
+    const fake = makeFakeGbrain({
+      sources: [{ id: "gstack-code-foo", local_path: "/old/path" }],
+    });
+    const result = await ensureSourceRegistered("gstack-code-foo", "/new/path", {
+      federated: true,
+      env: fake.env,
+    });
+    expect(result.changed).toBe(true);
+    expect(result.state.status).toBe("match");
+    expect(result.state.registered_path).toBe("/new/path");
+
+    // The old source was actually removed (the guarded remove succeeded), then
+    // the new path was added — not left behind as a stale duplicate.
+    const finalState = JSON.parse(readFileSync(fake.statePath, "utf-8"));
+    expect(finalState.sources).toHaveLength(1);
+    expect(finalState.sources[0].local_path).toBe("/new/path");
     fake.cleanup();
   });
 
