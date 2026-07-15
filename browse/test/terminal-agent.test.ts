@@ -221,3 +221,19 @@ describe('Source-level guard: server.ts /pty-session route', () => {
     expect(route).toContain('buildPtySetCookie');
   });
 });
+
+describe('Source-level guard: terminal-agent /claude-available CORS', () => {
+  // Background: sidepanel-terminal.js fetches /claude-available with
+  // credentials:'include' to decide whether to show the "install Claude
+  // Code" bootstrap card. Without CORS reflection, the fetch throws and
+  // the card stays stuck on "not found" even when claude is installed.
+  test('/claude-available reflects Allow-Origin + Allow-Credentials for chrome-extension origins', () => {
+    const route = AGENT_SRC.slice(AGENT_SRC.indexOf("url.pathname === '/claude-available'"));
+    const responseBlock = route.slice(0, route.indexOf("// /ws"));
+    expect(responseBlock).toContain("origin?.startsWith('chrome-extension://')");
+    expect(responseBlock).toContain("'Access-Control-Allow-Origin'");
+    expect(responseBlock).toContain("'Access-Control-Allow-Credentials'");
+    // Must NOT wildcard.
+    expect(responseBlock).not.toContain("'Access-Control-Allow-Origin': '*'");
+  });
+});

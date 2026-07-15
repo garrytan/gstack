@@ -1665,8 +1665,41 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
   // `authToken` (the cfg-derived value) explicitly.
   const browserManager = cfgBrowserManager;
 
+  // CORS wrapper for the Side Panel. The extension's sidepanel.html runs in a
+  // chrome-extension:// origin and fetches /health, /command, /sse-session,
+  // /refs, /activity/stream, /pty-session, etc. /health is localhost-only, so
+  // reflecting Origin back is safe — we only do it for chrome-extension://
+  // requests, not arbitrary websites.
+  const withCors = (
+    handler: (req: Request) => Promise<Response>,
+  ) => async (req: Request): Promise<Response> => {
+    const origin = req.headers.get('origin');
+    const isExt = origin?.startsWith('chrome-extension://');
+    if (isExt && req.method === 'OPTIONS') {
+      return new Response(null, {
+        status: 204,
+        headers: {
+          'Access-Control-Allow-Origin': origin!,
+          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+          'Access-Control-Allow-Credentials': 'true',
+          'Access-Control-Max-Age': '86400',
+        },
+      });
+    }
+    const resp = await handler(req);
+    if (!isExt) return resp;
+    const headers = new Headers(resp.headers);
+    headers.set('Access-Control-Allow-Origin', origin!);
+    headers.set('Access-Control-Allow-Credentials', 'true');
+    return new Response(resp.body, {
+      status: resp.status,
+      statusText: resp.statusText,
+      headers,
+    });
+  };
 
-  const makeFetchHandler = (surface: Surface) => async (req: Request): Promise<Response> => {
+  const makeFetchHandler = (surface: Surface) => withCors(async (req: Request): Promise<Response> => {
     const url = new URL(req.url);
 
     // ─── Tunnel surface filter (runs before any route dispatch) ──
@@ -2846,7 +2879,7 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
       }
 
       return new Response('Not found', { status: 404 });
-  };
+  });
 
   return {
     fetchLocal: makeFetchHandler('local'),

@@ -61,6 +61,28 @@ describe('Server auth security', () => {
     expect(refsBlock).not.toContain("'*'");
   });
 
+  // Test 3a: withCors middleware exists and reflects only chrome-extension origins.
+  // Background: the Side Panel runs in a chrome-extension:// origin and fetches
+  // /health, /command, /refs, /activity/stream, etc. with credentials:'include'.
+  // Without CORS reflection, every fetch fails and the panel never reaches the
+  // "connected" state. Reflecting * would be unsafe; reflecting only
+  // chrome-extension:// keeps arbitrary websites blocked.
+  test('withCors middleware reflects only chrome-extension origins', () => {
+    expect(SERVER_SRC).toContain('const withCors = ');
+    expect(SERVER_SRC).toContain("origin?.startsWith('chrome-extension://')");
+    // Must include Allow-Credentials because the panel uses credentials:'include'.
+    expect(SERVER_SRC).toContain("'Access-Control-Allow-Credentials'");
+    // Must NOT wildcard.
+    expect(SERVER_SRC).not.toContain("'Access-Control-Allow-Origin': '*'");
+  });
+
+  // Test 3b: makeFetchHandler is wrapped with withCors so every route gets
+  // CORS handling for free (otherwise a future endpoint added without
+  // remembering CORS would silently break the Side Panel again).
+  test('makeFetchHandler is wrapped with withCors', () => {
+    expect(SERVER_SRC).toMatch(/makeFetchHandler[^=]*=[^=]*withCors\(/);
+  });
+
   // Test 4: /activity/history requires auth via validateAuth
   test('/activity/history requires authentication', () => {
     const historyBlock = sliceBetween(SERVER_SRC, "url.pathname === '/activity/history'", 'Batch endpoint');
