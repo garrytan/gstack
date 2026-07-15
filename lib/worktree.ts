@@ -245,6 +245,18 @@ export class WorktreeManager {
     } catch { /* non-fatal */ }
   }
 
+  /** Verify a path resolves inside worktreeBase (defends against symlink-plant attacks). */
+  private safeInsideWorktrees(p: string): boolean {
+    try {
+      const real = fs.realpathSync.native(p);
+      const baseReal = fs.realpathSync.native(this.worktreeBase);
+      const rel = path.relative(baseReal, real);
+      return !!rel && !rel.startsWith('..') && !path.isAbsolute(rel);
+    } catch {
+      return false;
+    }
+  }
+
   /** Remove worktrees from previous runs that weren't cleaned up. */
   pruneStale(): void {
     try {
@@ -264,6 +276,11 @@ export class WorktreeManager {
           const stat = fs.statSync(entryPath);
           const ageMs = Date.now() - stat.mtimeMs;
           if (ageMs < 3600_000) continue;
+          // Defend against symlink-plant: ensure it resolves inside worktreeBase
+          if (!this.safeInsideWorktrees(entryPath)) {
+            process.stderr.write(`  WORKTREE: skip suspicious path: ${entryPath}\n`);
+            continue;
+          }
           fs.rmSync(entryPath, { recursive: true, force: true });
         } catch { /* non-fatal */ }
       }
