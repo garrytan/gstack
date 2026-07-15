@@ -484,6 +484,7 @@ describe('host config correctness', () => {
   test('codex has sidecar config', () => {
     expect(codex.sidecar).toBeDefined();
     expect(codex.sidecar!.path).toBe('.agents/skills/gstack');
+    expect(codex.sidecar!.symlinks).toContain('lib');
   });
 
   test('factory has tool rewrites', () => {
@@ -559,6 +560,7 @@ describe('host config correctness', () => {
     for (const config of ALL_HOST_CONFIGS) {
       expect(config.runtimeRoot.globalSymlinks.length).toBeGreaterThan(0);
       expect(config.runtimeRoot.globalSymlinks).toContain('bin');
+      expect(config.runtimeRoot.globalSymlinks).toContain('lib');
       expect(config.runtimeRoot.globalSymlinks).toContain('ETHOS.md');
     }
   });

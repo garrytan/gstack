@@ -15,7 +15,7 @@ import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
-import { buildGbrainEnv, isTransactionModePooler } from "../lib/gbrain-exec";
+import { buildConfiguredGbrainEnv, buildGbrainEnv, isTransactionModePooler } from "../lib/gbrain-exec";
 
 describe("buildGbrainEnv", () => {
   let home: string;
@@ -77,15 +77,33 @@ describe("buildGbrainEnv", () => {
     expect(result.DATABASE_URL).toBe("postgresql://app/db");
   });
 
-  it("honors GBRAIN_HOME when set (config aligned with detectEngineTier)", () => {
-    // Move the config to an alternate dir; set GBRAIN_HOME to point at it.
-    const altGbrainHome = join(home, "alt-gbrain");
-    mkdirSync(altGbrainHome, { recursive: true });
-    writeFileSync(join(altGbrainHome, "config.json"), JSON.stringify({ database_url: "postgresql://alt/db" }));
+  it("honors current GBRAIN_HOME parent semantics", () => {
+    const altGbrainParent = join(home, "alt-gbrain");
+    const currentState = join(altGbrainParent, ".gbrain");
+    mkdirSync(currentState, { recursive: true });
+    writeFileSync(join(currentState, "config.json"), JSON.stringify({ database_url: "postgresql://alt/db" }));
     // No file at the default ~/.gbrain location.
-    const baseEnv = { HOME: home, GBRAIN_HOME: altGbrainHome };
+    const baseEnv = { HOME: home, GBRAIN_HOME: altGbrainParent };
     const result = buildGbrainEnv({ baseEnv });
     expect(result.DATABASE_URL).toBe("postgresql://alt/db");
+  });
+
+  it("accepts the legacy GBRAIN_HOME-as-state-directory layout", () => {
+    const legacyState = join(home, "legacy-gbrain");
+    mkdirSync(legacyState, { recursive: true });
+    writeFileSync(join(legacyState, "config.json"), JSON.stringify({ database_url: "postgresql://legacy/db" }));
+    const result = buildGbrainEnv({ baseEnv: { HOME: home, GBRAIN_HOME: legacyState } });
+    expect(result.DATABASE_URL).toBe("postgresql://legacy/db");
+  });
+
+  it("prefers the current nested config when both layouts exist", () => {
+    const parent = join(home, "both-layouts");
+    const currentState = join(parent, ".gbrain");
+    mkdirSync(currentState, { recursive: true });
+    writeFileSync(join(parent, "config.json"), JSON.stringify({ database_url: "postgresql://legacy/db" }));
+    writeFileSync(join(currentState, "config.json"), JSON.stringify({ database_url: "postgresql://current/db" }));
+    const result = buildGbrainEnv({ baseEnv: { HOME: home, GBRAIN_HOME: parent } });
+    expect(result.DATABASE_URL).toBe("postgresql://current/db");
   });
 
   it("returns a fresh env object — never the caller's env by identity", () => {
@@ -98,6 +116,55 @@ describe("buildGbrainEnv", () => {
     // Mutating result must not affect baseEnv.
     result.FOO = "changed";
     expect(baseEnv.FOO).toBe("bar");
+  });
+
+  it("strict configured env rejects a missing or malformed active config", () => {
+    expect(() => buildConfiguredGbrainEnv({ HOME: home, DATABASE_URL: "postgresql://wrong/db" }))
+      .toThrow("missing or malformed");
+    writeFileSync(join(gbrainHome, "config.json"), "{broken");
+    expect(() => buildConfiguredGbrainEnv({ HOME: home, DATABASE_URL: "postgresql://wrong/db" }))
+      .toThrow("missing or malformed");
+  });
+
+  it("strict configured env never trusts a stale direct-layout GBRAIN_HOME config", () => {
+    const legacyParent = join(home, "strict-legacy");
+    mkdirSync(legacyParent);
+    writeFileSync(
+      join(legacyParent, "config.json"),
+      JSON.stringify({ engine: "postgres", database_url: "postgresql://stale/wrong" }),
+    );
+    expect(() => buildConfiguredGbrainEnv({ HOME: home, GBRAIN_HOME: legacyParent }))
+      .toThrow(join(legacyParent, ".gbrain", "config.json"));
+  });
+
+  it("strict configured env clears hostile routing for PGLite and thin clients", () => {
+    for (const config of [
+      { engine: "pglite", database_path: join(gbrainHome, "brain.pglite") },
+      { remote_mcp: { mcp_url: "https://brain.example.invalid/mcp" } },
+    ]) {
+      writeFileSync(join(gbrainHome, "config.json"), JSON.stringify(config));
+      const result = buildConfiguredGbrainEnv({
+        HOME: home,
+        DATABASE_URL: "postgresql://wrong/db",
+        GBRAIN_DATABASE_URL: "postgresql://also-wrong/db",
+      });
+      expect(result.DATABASE_URL).toBeUndefined();
+      expect(result.GBRAIN_DATABASE_URL).toBeUndefined();
+    }
+  });
+
+  it("strict configured env pins both Postgres routing names to active config", () => {
+    writeFileSync(
+      join(gbrainHome, "config.json"),
+      JSON.stringify({ engine: "postgres", database_url: "postgresql://gbrain/db" }),
+    );
+    const result = buildConfiguredGbrainEnv({
+      HOME: home,
+      DATABASE_URL: "postgresql://wrong/db",
+      GBRAIN_DATABASE_URL: "postgresql://also-wrong/db",
+    });
+    expect(result.DATABASE_URL).toBe("postgresql://gbrain/db");
+    expect(result.GBRAIN_DATABASE_URL).toBe("postgresql://gbrain/db");
   });
 
   it("preserves unrelated env vars from the base env", () => {

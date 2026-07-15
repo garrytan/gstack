@@ -20,7 +20,17 @@
 
 import { describe, it, expect } from "bun:test";
 import { spawnSync } from "child_process";
-import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -57,10 +67,19 @@ describe("bin/ — Windows bun-import path guard (#1950)", () => {
   });
 
   it("known-affected bins carry the guard explicitly", () => {
-    for (const name of ["gstack-learnings-log", "gstack-question-log"]) {
+    for (const name of [
+      "gstack-gbrain-capability-check",
+      "gstack-learnings-log",
+      "gstack-question-log",
+    ]) {
       const content = readFileSync(join(BIN_DIR, name), "utf-8");
       expect(content).toContain("cygpath -m");
     }
+  });
+
+  it("capability temp paths are normalized before POSIX dirname/cd", () => {
+    const content = readFileSync(join(BIN_DIR, "gstack-gbrain-capability-check"), "utf-8");
+    expect(content).toContain('process.platform === "win32" ? created.replaceAll("\\\\", "/")');
   });
 });
 
@@ -114,6 +133,139 @@ describe("gstack-learnings-log — behavioral (runs on Windows CI via git-bash)"
       expect(r.stderr).toContain("invalid type");
     } finally {
       rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("gstack-gbrain-capability-check — behavioral on Windows git-bash", () => {
+  function fixture() {
+    const root = mkdtempSync(join(tmpdir(), "gstack-win-gbrain-cap-"));
+    const fake = join(root, "fake-gbrain");
+    const calls = join(root, "calls.log");
+    const sourceId = join(root, "source-id");
+    const sourcePath = join(root, "source-path");
+    const state = join(root, ".gbrain");
+    mkdirSync(state);
+    writeFileSync(
+      join(state, "config.json"),
+      JSON.stringify({ engine: "pglite", database_path: join(state, "brain.pglite") }),
+    );
+    writeFileSync(fake, `#!/usr/bin/env bash
+set -u
+cmd="\${1:-}"
+case "$cmd" in
+  --version) echo 'gbrain 0.42.59.0' ;;
+  doctor)
+    printf 'doctor\n' >> "$FIXTURE_CALLS"
+    printf '%s\n' '{"mode":"thin-client","status":"ok","checks":[{"name":"oauth_client_scopes_probe","status":"ok","detail":{"granted":"read,write","read_ok":true}}]}'
+    ;;
+  sources)
+    case "\${2:-}" in
+      add)
+        id="$3"; path=""; shift 3
+        while [ "$#" -gt 0 ]; do
+          if [ "$1" = '--path' ]; then path="$2"; shift 2; else shift; fi
+        done
+        printf '%s' "$id" > "$FIXTURE_SOURCE_ID"
+        printf '%s' "$path" > "$FIXTURE_SOURCE_PATH"
+        printf 'add:%s\n' "$id" >> "$FIXTURE_CALLS"
+        ;;
+      list)
+        if [ -f "$FIXTURE_SOURCE_ID" ]; then
+          FIXTURE_JSON_ID="$(cat "$FIXTURE_SOURCE_ID")" \
+          FIXTURE_JSON_PATH="$(cat "$FIXTURE_SOURCE_PATH")" \
+          "$BUN_BIN" -e 'process.stdout.write(JSON.stringify({sources:[{id:process.env.FIXTURE_JSON_ID,local_path:process.env.FIXTURE_JSON_PATH}]}) + "\\n")'
+        else
+          printf '%s\n' '{"sources":[]}'
+        fi
+        ;;
+      remove)
+        printf 'remove:%s\n' "$3" >> "$FIXTURE_CALLS"
+        rm -f "$FIXTURE_SOURCE_ID"
+        ;;
+      *) exit 9 ;;
+    esac
+    ;;
+  put)
+    slug="$2"; marker=$(cat); path=$(cat "$FIXTURE_SOURCE_PATH")
+    [ -n "$marker" ] || exit 14
+    printf '%s\n' "$marker" > "$path/$slug.md"
+    printf '%s' "$slug" > "$FIXTURE_SLUG"
+    printf 'put:%s\n' "$slug" >> "$FIXTURE_CALLS"
+    ;;
+  search)
+    if [ "\${FIXTURE_MODE:-}" = 'thin' ]; then
+      printf 'thin-search\n' >> "$FIXTURE_CALLS"
+    else
+      printf '[1.0] %s -- probe\n' "$(cat "$FIXTURE_SLUG")"
+    fi
+    ;;
+  *) exit 9 ;;
+esac
+`);
+    chmodSync(fake, 0o755);
+    const env = {
+      ...process.env,
+      HOME: root,
+      USERPROFILE: root,
+      GBRAIN_BIN: fake,
+      BUN_BIN: process.execPath,
+      GBRAIN_HOME: root,
+      GSTACK_HOME: join(root, "gstack-state"),
+      GSTACK_GBRAIN_CAPABILITY_RETRY_DELAY_SECONDS: "0",
+      FIXTURE_CALLS: calls,
+      FIXTURE_SOURCE_ID: sourceId,
+      FIXTURE_SOURCE_PATH: sourcePath,
+      FIXTURE_SLUG: join(root, "slug"),
+      FIXTURE_MODE: "local",
+    };
+    return { root, calls, sourcePath, env };
+  }
+
+  it.skipIf(process.platform !== "win32")(
+    "runs the local add-put-search-readback-cleanup flow end-to-end on Windows",
+    () => {
+      const f = fixture();
+      try {
+        const r = spawnSync("bash", [join(BIN_DIR, "gstack-gbrain-capability-check")], {
+          encoding: "utf-8",
+          timeout: 20_000,
+          cwd: ROOT,
+          env: f.env,
+        });
+        expect(r.status, r.stderr).toBe(0);
+        const calls = readFileSync(f.calls, "utf-8");
+        expect(calls).toContain("add:");
+        expect(calls).toContain("put:");
+        expect(calls).toContain("remove:");
+        const ownedPath = readFileSync(f.sourcePath, "utf-8");
+        expect(existsSync(ownedPath)).toBe(false);
+      } finally {
+        rmSync(f.root, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it("runs the thin-client scope plus read probe without a remote write", () => {
+    const f = fixture();
+    try {
+      const state = join(f.root, ".gbrain");
+      writeFileSync(join(state, "config.json"), JSON.stringify({ remote_mcp: { mcp_url: "https://example.invalid/mcp" } }));
+      f.env.FIXTURE_MODE = "thin";
+      const r = spawnSync("bash", [join(BIN_DIR, "gstack-gbrain-capability-check")], {
+        encoding: "utf-8",
+        timeout: 20_000,
+        cwd: ROOT,
+        env: f.env,
+      });
+      expect(r.status, r.stderr).toBe(0);
+      const calls = readFileSync(f.calls, "utf-8");
+      expect(calls).toContain("doctor");
+      expect(calls).toContain("thin-search");
+      expect(calls).not.toContain("add:");
+      expect(calls).not.toContain("put:");
+    } finally {
+      rmSync(f.root, { recursive: true, force: true });
     }
   });
 });

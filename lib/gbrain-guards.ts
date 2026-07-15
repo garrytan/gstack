@@ -17,9 +17,9 @@
  *     subcommand `--help` is generic — so capability detection is best-effort and
  *     defaults to "unsupported". When we can't protect a user-managed source's
  *     files, we FAIL CLOSED (refuse the remove) rather than delete unprotected.
- *   - The autopilot lock filename isn't documented and (gbrain #1226) ignores
- *     GBRAIN_HOME, so the live `gbrain autopilot` process is the PRIMARY signal;
- *     known lock paths under both the configured home and ~/.gbrain are secondary.
+ *   - Current gbrain treats GBRAIN_HOME as the parent of `.gbrain`; older
+ *     releases treated it as the state directory itself. The live process is
+ *     the PRIMARY signal; lock paths for both layouts are secondary.
  *   - We refuse only on an AFFIRMATIVE autopilot signal — inability to introspect
  *     never blocks a normal sync (that would brick the tool).
  *   - Path containment uses realpath so a symlink inside ~/.gbrain/clones can't
@@ -29,24 +29,65 @@
  */
 
 import { spawnSync } from "child_process";
-import { existsSync, realpathSync, readFileSync } from "fs";
+import { existsSync, lstatSync, realpathSync, readFileSync } from "fs";
 import { homedir } from "os";
 import { join, resolve, sep } from "path";
 import { execGbrainJson, execGbrainText, NEEDS_SHELL_ON_WINDOWS } from "./gbrain-exec";
-import { parseSourcesList, type GbrainSourceRow } from "./gbrain-sources";
+import { parseSourcesListStrict, type GbrainSourceRow } from "./gbrain-sources";
+
+function effectiveHome(env: NodeJS.ProcessEnv): string {
+  return env.HOME?.trim() || homedir();
+}
 
 export function gbrainHome(env: NodeJS.ProcessEnv = process.env): string {
-  return env.GBRAIN_HOME || join(homedir(), ".gbrain");
+  const override = env.GBRAIN_HOME?.trim();
+  return override ? join(override, ".gbrain") : join(effectiveHome(env), ".gbrain");
+}
+
+/** Current gbrain home first, followed by legacy/default compatibility paths. */
+function gbrainHomes(env: NodeJS.ProcessEnv = process.env): string[] {
+  const override = env.GBRAIN_HOME?.trim();
+  return [...new Set([
+    gbrainHome(env),
+    ...(override ? [override] : []),
+    join(effectiveHome(env), ".gbrain"),
+  ])];
 }
 
 /**
- * Directories gbrain owns and may delete safely. A source whose local_path
- * resolves inside one of these is gbrain-managed; outside = user-managed and
- * must be protected. Both the configured home and the default ~/.gbrain are
- * checked because gbrain #1226 shows home-resolution is inconsistent.
+ * Infer the ONE active state layout used for destructive ownership decisions.
+ * Current gbrain treats GBRAIN_HOME as a parent; a legacy config directly under
+ * GBRAIN_HOME is accepted only when the current nested config is absent.
+ * Multi-path probing is deliberately reserved for non-destructive lock checks.
  */
-function clonesDirs(env: NodeJS.ProcessEnv = process.env): string[] {
-  return [...new Set([join(gbrainHome(env), "clones"), join(homedir(), ".gbrain", "clones")])];
+function destructiveGbrainHome(env: NodeJS.ProcessEnv = process.env): string {
+  const override = env.GBRAIN_HOME?.trim();
+  if (!override) return join(effectiveHome(env), ".gbrain");
+  const current = join(override, ".gbrain");
+  if (!existsSync(join(current, "config.json")) && existsSync(join(override, "config.json"))) {
+    return override;
+  }
+  return current;
+}
+
+/**
+ * Mirror gbrain's ownership invariant: an explicit managed_clone marker, or an
+ * exact default clone path for this source. Merely living somewhere below a
+ * clones directory never proves ownership.
+ */
+function isOwnedClone(row: GbrainSourceRow, env: NodeJS.ProcessEnv): boolean {
+  if (row.config?.managed_clone === true) return true;
+  if (!row.id || !row.local_path) return false;
+  const actual = resolve(row.local_path);
+  const expected = resolve(join(destructiveGbrainHome(env), "clones", row.id));
+  if (actual !== expected) return false;
+  try {
+    return !lstatSync(actual).isSymbolicLink();
+  } catch {
+    // A missing legacy default clone still has an exact, source-specific path;
+    // there is no filesystem entry for remove to traverse.
+    return true;
+  }
 }
 
 /** True if `p` resolves (symlinks + `..` collapsed) to a location inside `dir`. */
@@ -83,14 +124,12 @@ export function detectAutopilot(
   env: NodeJS.ProcessEnv = process.env,
   probe: AutopilotProbe = {},
 ): AutopilotStatus {
-  // Secondary signal: known lock files. gbrain #1226 — the lock ignores
-  // GBRAIN_HOME, so check both the configured home and the default ~/.gbrain.
-  const lockPaths = probe.lockPaths ?? [
-    join(gbrainHome(env), "autopilot.lock"),
-    join(homedir(), ".gbrain", "autopilot.lock"),
-    join(gbrainHome(env), "autopilot.pid"),
-    join(homedir(), ".gbrain", "autopilot.pid"),
-  ];
+  // Secondary signal: current, legacy, and default lock paths. This remains
+  // sufficient on Windows where there is no reliable pgrep fallback.
+  const lockPaths = probe.lockPaths ?? gbrainHomes(env).flatMap((home) => [
+    join(home, "autopilot.lock"),
+    join(home, "autopilot.pid"),
+  ]);
   for (const lp of lockPaths) {
     if (!existsSync(lp)) continue;
     // A lock FILE alone is not proof of life — a crashed daemon leaves a stale
@@ -167,6 +206,60 @@ function gbrainIdentity(env: NodeJS.ProcessEnv): string {
   return (r.stdout || "").trim() || "unknown";
 }
 
+type GbrainVersion = [number, number, number];
+
+function parseGbrainVersion(identity: string): GbrainVersion | null {
+  const match = identity.match(/\b(\d+)\.(\d+)\.(\d+)/);
+  return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : null;
+}
+
+function versionIsBefore(version: GbrainVersion, floor: GbrainVersion): boolean {
+  for (let i = 0; i < floor.length; i += 1) {
+    if (version[i] > floor[i]) return false;
+    if (version[i] < floor[i]) return true;
+  }
+  return false;
+}
+
+/**
+ * gbrain 0.26.5 introduced --confirm-destructive for source removal. Older
+ * positively identified clients support only --yes. Unknown/new clients stay
+ * on the current fail-closed contract; never optimistically downgrade them.
+ */
+export function gbrainSourceRemoveConfirmationArgs(
+  env: NodeJS.ProcessEnv = process.env,
+): string[] {
+  return gbrainSourceRemoveConfirmationArgsForIdentity(gbrainIdentity(env));
+}
+
+/** Pure identity variant for shell helpers that invoke an explicit GBRAIN_BIN. */
+export function gbrainSourceRemoveConfirmationArgsForIdentity(identity: string): string[] {
+  const version = parseGbrainVersion(identity);
+  return version && versionIsBefore(version, [0, 26, 5])
+    ? ["--yes"]
+    : ["--confirm-destructive"];
+}
+
+/**
+ * URL-managed sources first shipped in gbrain 0.28.0. An older, positively
+ * identified CLI cannot own a remote clone, so its metadata-free `sources
+ * list --json` rows are safe to treat as path-managed. Unknown/new versions
+ * stay conservative because they may support `--url` while omitting config.
+ */
+function gbrainMaySupportUrlSources(env: NodeJS.ProcessEnv): boolean {
+  const version = parseGbrainVersion(gbrainIdentity(env));
+  return !version || !versionIsBefore(version, [0, 28, 0]);
+}
+
+/** `gbrain call --source` landed in 0.31.8; older call surfaces are global. */
+function gbrainSupportsScopedCall(env: NodeJS.ProcessEnv): boolean {
+  const version = parseGbrainVersion(gbrainIdentity(env));
+  // Unknown identities stay on the current, explicitly scoped contract. A
+  // failed scoped call then falls back to metadata-free CLI rows and the
+  // destructive callers fail closed rather than trusting ambiguous metadata.
+  return !version || !versionIsBefore(version, [0, 31, 8]);
+}
+
 export function gbrainSupportsKeepStorage(env: NodeJS.ProcessEnv = process.env): boolean {
   const key = gbrainIdentity(env);
   if (_keepStorageMemo && _keepStorageMemo.key === key) return _keepStorageMemo.value;
@@ -198,9 +291,41 @@ export function _resetCapabilityMemo(): void {
  * Injectable for hermetic tests.
  */
 export function fetchSources(env: NodeJS.ProcessEnv = process.env): GbrainSourceRow[] {
-  const raw = execGbrainJson(["sources", "list", "--json"], { baseEnv: env });
-  if (raw === null) throw new Error("gbrain sources list returned no JSON");
-  return parseSourcesList(raw);
+  // The public CLI list intentionally omits ownership config. The read-only
+  // sources_list operation exposes an authoritative (redacted) remote_url,
+  // which is exactly the bit the destructive/reclone guards need. Older gbrain
+  // releases may not have `call`; retain the CLI fallback. Metadata-free rows
+  // fail closed except on a positively identified pre-0.28 CLI, which predates
+  // the URL-managed source surface entirely.
+  // First obtain a source id through the non-scoped CLI list. Clear a stale
+  // GBRAIN_SOURCE pin; `sources list` does not need source resolution.
+  const neutralEnv = { ...env };
+  delete neutralEnv.GBRAIN_SOURCE;
+  const listed = execGbrainJson(["sources", "list", "--json"], { baseEnv: neutralEnv });
+  if (listed === null) throw new Error("gbrain sources list returned no JSON");
+  const cliRows = parseSourcesListStrict(listed);
+  if (cliRows.length === 0) return [];
+
+  // Current `gbrain call` resolves a source before dispatch, even for global
+  // metadata. Pin it explicitly to a source proven by the list above. Releases
+  // 0.28.0-0.31.7 already expose URL-managed ownership metadata but predate the
+  // `call --source` grammar; their call surface is global and must be invoked
+  // without the flag. Unknown identities stay scoped/fail-closed.
+  const anchor = cliRows.find((row) => /^[a-z0-9-]{1,32}$/.test(row.id ?? ""));
+  if (!anchor?.id) throw new Error("gbrain sources list had no usable source id");
+  const callArgs = gbrainSupportsScopedCall(neutralEnv)
+    ? ["call", "--source", anchor.id, "sources_list", "{}"]
+    : ["call", "sources_list", "{}"];
+  const authoritative = execGbrainJson(
+    callArgs,
+    { baseEnv: neutralEnv },
+  );
+  if (authoritative === null) {
+    // Older clients have no `call` surface. Preserve their CLI rows; callers
+    // still apply the version-gated metadata policy below.
+    return cliRows;
+  }
+  return parseSourcesListStrict(authoritative);
 }
 
 export interface RemoveDecision {
@@ -215,18 +340,20 @@ export interface RemoveDecision {
  *
  * Fail-closed cases (allow=false):
  *   - sources list unreadable/unparseable (can't prove the row is safe).
- *   - the row is user-managed (remote_url set AND local_path outside gbrain's
- *     clones) and gbrain has no --keep-storage to protect the files.
+ *   - ownership metadata is unavailable on a CLI that may support URL sources.
+ *   - the row is user-managed (remote_url set without an authoritative
+ *     managed-clone marker/default path) and gbrain has no --keep-storage.
  *
- * Allowed: absent row (no-op), gbrain-managed (inside clones), or path-managed
- * without a remote_url (gbrain's remove won't touch an outside-clones path that
- * it didn't clone). --keep-storage is appended whenever supported, as extra armor.
+ * Allowed: absent row (no-op), authoritatively gbrain-managed, or path-managed
+ * without a remote_url. --keep-storage is appended whenever supported.
  */
 export interface DecideRemoveOpts {
   /** Override capability detection (tests / cached caps). */
   keepStorage?: boolean;
   /** Override the source-list fetch (tests). Throwing simulates a read failure. */
   fetchRows?: (env: NodeJS.ProcessEnv) => GbrainSourceRow[];
+  /** Override whether this CLI can create URL-managed sources (tests). */
+  urlManagedSources?: boolean;
 }
 
 export function decideSourceRemove(
@@ -247,9 +374,24 @@ export function decideSourceRemove(
   const row = rows.find((r) => r.id === sourceId);
   if (!row) return { allow: true, extraArgs: extra, reason: "source absent (no-op)" };
 
+  if (!row.config || typeof row.config !== "object") {
+    const mayOwnRemoteClone = opts.urlManagedSources ?? gbrainMaySupportUrlSources(env);
+    if (!mayOwnRemoteClone) {
+      return {
+        allow: true,
+        extraArgs: extra,
+        reason: "legacy gbrain predates URL-managed sources; metadata-free row is path-managed",
+      };
+    }
+    return {
+      allow: false,
+      extraArgs: [],
+      reason: `source "${sourceId}" has no ownership metadata; refusing remove (fail closed)`,
+    };
+  }
+
   const remoteUrl = row.config?.remote_url;
-  const userManaged =
-    !!remoteUrl && !!row.local_path && !clonesDirs(env).some((d) => isInside(row.local_path!, d));
+  const userManaged = !!remoteUrl && !isOwnedClone(row, env);
 
   if (userManaged) {
     if (keepStorage) {
@@ -265,7 +407,7 @@ export function decideSourceRemove(
     };
   }
 
-  return { allow: true, extraArgs: extra, reason: "gbrain-managed or path-managed without remote_url" };
+  return { allow: true, extraArgs: extra, reason: "authoritatively gbrain-managed or path-managed" };
 }
 
 export interface SyncDecision {
@@ -273,28 +415,53 @@ export interface SyncDecision {
   reason: string;
 }
 
+export interface DecideSyncOpts {
+  /** Override whether this CLI can create URL-managed sources (tests). */
+  urlManagedSources?: boolean;
+}
+
 /**
  * Decide whether `sync --strategy code --source <id>` is safe to run.
  *
  * A source with a remote_url can trigger gbrain's auto-reclone, the ungated
  * rm-rf path behind the data loss (gbrain #1526). Require an explicit
- * --allow-reclone opt-in for URL-managed sources. Read failure here is NOT
- * itself destructive, so it fails open (proceed) — the autopilot guard, checked
- * first, is the primary protection against the race that caused the loss.
+ * --allow-reclone opt-in for URL-managed sources. A missing config field is not
+ * evidence that the source is path-managed on gbrain >=0.28: current CLI list
+ * rows omit ownership config. Only a positively identified pre-0.28 CLI may
+ * proceed, because that release line has no URL-managed source surface.
  */
 export function decideCodeSync(
   sourceId: string,
   env: NodeJS.ProcessEnv = process.env,
   allowReclone = false,
   fetchRows: (env: NodeJS.ProcessEnv) => GbrainSourceRow[] = fetchSources,
+  opts: DecideSyncOpts = {},
 ): SyncDecision {
   let rows: GbrainSourceRow[];
   try {
     rows = fetchRows(env);
   } catch {
-    return { allow: true, reason: "sources unreadable; proceeding (sync read is non-destructive)" };
+    return allowReclone
+      ? { allow: true, reason: "sources unreadable; reclone explicitly allowed" }
+      : { allow: false, reason: "sources unreadable; refusing code sync without --allow-reclone" };
   }
   const row = rows.find((r) => r.id === sourceId);
+  if (!row) return { allow: true, reason: "source absent (sync will be a no-op/error)" };
+  if (!row.config || typeof row.config !== "object") {
+    const mayOwnRemoteClone = opts.urlManagedSources ?? gbrainMaySupportUrlSources(env);
+    if (!mayOwnRemoteClone) {
+      return {
+        allow: true,
+        reason: "legacy gbrain predates URL-managed sources; metadata-free row is path-managed",
+      };
+    }
+    return allowReclone
+      ? { allow: true, reason: "ownership metadata unavailable; reclone explicitly allowed" }
+      : {
+          allow: false,
+          reason: `source "${sourceId}" has no ownership metadata; re-run with --allow-reclone to proceed`,
+        };
+  }
   if (row?.config?.remote_url && !allowReclone) {
     return {
       allow: false,

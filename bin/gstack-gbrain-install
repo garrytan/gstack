@@ -38,6 +38,12 @@
 set -euo pipefail
 
 # --- defaults ---
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+case "$(uname -s 2>/dev/null || true)" in
+  MINGW*|MSYS*|CYGWIN*) command -v cygpath >/dev/null 2>&1 && SCRIPT_DIR="$(cygpath -m "$SCRIPT_DIR")" ;;
+esac
+BUN_BIN="${BUN_BIN:-bun}"
+GBRAIN_EXEC_MODULE="$SCRIPT_DIR/../lib/gbrain-exec.ts"
 # No version pin by default — install the latest default-branch HEAD (#1744).
 # --pinned-commit <sha> overrides for reproducibility.
 PINNED_COMMIT=""
@@ -77,8 +83,9 @@ check_prereq() {
   fi
 }
 
+check_prereq "$BUN_BIN" "Install: curl -fsSL https://bun.sh/install | bash"
+
 if ! $VALIDATE_ONLY; then
-  check_prereq bun "Install: curl -fsSL https://bun.sh/install | bash"
   check_prereq git "Install: xcode-select --install (macOS) or your package manager"
 
   # GitHub reachability — fail fast if offline rather than hanging `git clone`.
@@ -172,6 +179,24 @@ fi
 # Read the version from the install-dir's package.json; compare to
 # `gbrain --version`. If they disagree, PATH is returning a DIFFERENT
 # gbrain than the one we just linked. Fail hard with remediation.
+#
+# Every gbrain probe runs from a fresh empty directory. Bun auto-loads dotenv
+# files from the current working directory before gbrain's own config guards can
+# run; invoking from the caller's project would therefore let an unrelated
+# `.env.local` redirect GBRAIN_HOME/DATABASE_URL during install validation.
+run_gbrain_safe() {
+  local safe_cwd rc
+  # Do not honor caller TMPDIR here: it may itself point into the project
+  # checkout, which would recreate the dirty-worktree hazard this isolation is
+  # meant to prevent if the process is interrupted before cleanup.
+  safe_cwd=$(TMPDIR=/tmp mktemp -d "/tmp/gstack-gbrain-install.XXXXXX") \
+    || fail "could not create an isolated directory for gbrain validation"
+  rc=0
+  ( cd "$safe_cwd" && gbrain "$@" ) || rc=$?
+  rm -rf "$safe_cwd"
+  return "$rc"
+}
+
 expected_version=$(jq -r '.version // empty' "$INSTALL_DIR/package.json" 2>/dev/null || true)
 if [ -z "$expected_version" ]; then
   fail "cannot read version from $INSTALL_DIR/package.json (install may be broken)"
@@ -181,7 +206,7 @@ if ! command -v gbrain >/dev/null 2>&1; then
   fail "bun link completed but 'gbrain' is not on PATH. Ensure ~/.bun/bin is in your PATH."
 fi
 
-actual_version=$(gbrain --version 2>/dev/null | head -1 | awk '{print $NF}' | tr -d '[:space:]' || true)
+actual_version=$(run_gbrain_safe --version 2>/dev/null | head -1 | awk '{print $NF}' | tr -d '[:space:]' || true)
 if [ -z "$actual_version" ]; then
   fail "gbrain is on PATH but 'gbrain --version' produced no output — the binary may be broken."
 fi
@@ -235,9 +260,25 @@ fi
 # a hard gate so a broken gbrain is caught at setup, not at data-loss time.
 # Pre-init installs skip this (config not written yet); the full
 # `/sync-gbrain --dry-run` self-test runs from /setup-gbrain after `gbrain init`.
-_GBRAIN_HOME_CHECK="${GBRAIN_HOME:-$HOME/.gbrain}"
-if [ -f "$_GBRAIN_HOME_CHECK/config.json" ]; then
-  if ! gbrain doctor --fast >/dev/null 2>&1; then
+resolve_gbrain_config_path() {
+  GSTACK_GBRAIN_EXEC_MODULE="$GBRAIN_EXEC_MODULE" "$BUN_BIN" --no-env-file -e '
+    import { pathToFileURL } from "url";
+    try {
+      const modulePath = process.env.GSTACK_GBRAIN_EXEC_MODULE;
+      if (!modulePath) throw new Error("gbrain exec module path is missing");
+      const { resolveGbrainConfigPath } = await import(pathToFileURL(modulePath).href);
+      process.stdout.write(resolveGbrainConfigPath(process.env));
+    } catch (error) {
+      console.error(`gstack-gbrain-install: config resolver unavailable: ${error instanceof Error ? error.message : String(error)}`);
+      process.exit(1);
+    }
+  '
+}
+
+_GBRAIN_CONFIG_CHECK=$(resolve_gbrain_config_path) \
+  || fail "could not resolve the active gbrain config for the functional self-test"
+if [ -f "$_GBRAIN_CONFIG_CHECK" ]; then
+  if ! run_gbrain_safe doctor --fast >/dev/null 2>&1; then
     echo "" >&2
     echo "gstack-gbrain-install: gbrain $actual_version installed but 'gbrain doctor --fast' failed." >&2
     echo "  Refusing to leave a broken gbrain in place. Run 'gbrain doctor' to see what's wrong," >&2
@@ -255,7 +296,7 @@ fi
 # subcommand surface is reachable (`sources` is the entry point the sync
 # stage hits first). If the probe fails, we warn but don't exit non-zero —
 # the user may still be able to use other commands.
-if ! gbrain sources --help >/dev/null 2>&1; then
+if ! run_gbrain_safe sources --help >/dev/null 2>&1; then
   echo "" >&2
   echo "gstack-gbrain-install: WARNING — gbrain installed but 'gbrain sources --help' did not exit 0." >&2
   if [ "$IS_WINDOWS" -eq 1 ]; then

@@ -1,0 +1,446 @@
+#!/usr/bin/env bash
+# Side-effect-safe write/search capability probe for /sync-gbrain.
+#
+# Local engines get a unique, non-federated source rooted in a private temp
+# directory. The probe therefore never writes into a user checkout. The EXIT /
+# INT / TERM trap removes that exact source (and its cascaded page) before it
+# removes the owned temp directory. Thin clients cannot safely remove a
+# server-side write-through file, so they use gbrain's live OAuth scope probe
+# plus a read-only search instead of issuing a write.
+
+set -u
+
+GBRAIN_BIN="${GBRAIN_BIN:-gbrain}"
+BUN_BIN="${BUN_BIN:-bun}"
+RETRY_ATTEMPTS="${GSTACK_GBRAIN_CAPABILITY_ATTEMPTS:-3}"
+RETRY_DELAY_SECONDS="${GSTACK_GBRAIN_CAPABILITY_RETRY_DELAY_SECONDS:-1}"
+# Resolve the physical bin directory. External-host installs expose bin/ as a
+# symlink without a sibling lib/ directory; a logical `bin/../lib` path is
+# normalized before Bun follows that symlink and therefore cannot import the
+# guard module.
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+# Git Bash reports /c/Users/... while native Bun expects C:/Users/.... Keep
+# module imports portable across the Windows runtime copies installed by setup.
+case "$(uname -s 2>/dev/null || true)" in
+  MINGW*|MSYS*|CYGWIN*) command -v cygpath >/dev/null 2>&1 && SCRIPT_DIR="$(cygpath -m "$SCRIPT_DIR")" ;;
+esac
+GUARD_MODULE="$SCRIPT_DIR/../lib/gbrain-guards.ts"
+SOURCES_MODULE="$SCRIPT_DIR/../lib/gbrain-sources.ts"
+EXEC_MODULE="$SCRIPT_DIR/../lib/gbrain-exec.ts"
+
+# Resolve a strict child environment from a valid active gbrain config. The
+# protocol is deliberately tiny: "postgres\n<url>" or "file". The URL stays in
+# the command-substitution pipe and is never logged. PGLite/thin-client configs
+# clear both database env names so caller state cannot redirect the probe.
+resolve_gbrain_environment() {
+  local routing mode database_url
+  routing=$(GSTACK_GBRAIN_EXEC_MODULE="$EXEC_MODULE" "$BUN_BIN" --no-env-file -e '
+    import { pathToFileURL } from "url";
+    try {
+      const modulePath = process.env.GSTACK_GBRAIN_EXEC_MODULE;
+      if (!modulePath) throw new Error("gbrain exec module path is missing");
+      const { buildConfiguredGbrainEnv } = await import(pathToFileURL(modulePath).href);
+      const env = buildConfiguredGbrainEnv(process.env);
+      if (env.GBRAIN_DATABASE_URL) {
+        process.stdout.write(`postgres\n${env.GBRAIN_DATABASE_URL}`);
+      } else {
+        process.stdout.write("file");
+      }
+    } catch (error) {
+      console.error(`gstack-gbrain-capability-check: gbrain environment unavailable: ${error instanceof Error ? error.message : String(error)}`);
+      process.exit(1);
+    }
+  ') || return 1
+  mode="${routing%%$'\n'*}"
+  case "$mode" in
+    postgres)
+      database_url="${routing#*$'\n'}"
+      [ -n "$database_url" ] || return 1
+      export DATABASE_URL="$database_url"
+      export GBRAIN_DATABASE_URL="$database_url"
+      ;;
+    file)
+      unset DATABASE_URL GBRAIN_DATABASE_URL
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+if ! resolve_gbrain_environment; then
+  exit 1
+fi
+
+case "$RETRY_ATTEMPTS" in
+  ''|*[!0-9]*)
+    echo "gstack-gbrain-capability-check: attempts must be a positive integer" >&2
+    exit 2
+    ;;
+esac
+if [ "$RETRY_ATTEMPTS" -lt 1 ]; then
+  echo "gstack-gbrain-capability-check: attempts must be a positive integer" >&2
+  exit 2
+fi
+case "$RETRY_DELAY_SECONDS" in
+  ''|*[!0-9.]*|.*|*.*.*)
+    echo "gstack-gbrain-capability-check: retry delay must be a non-negative number" >&2
+    exit 2
+    ;;
+esac
+
+RUN_TOKEN="$(date +%s)-${$}-${RANDOM}"
+SOURCE_HASH="$(printf '%s' "$RUN_TOKEN" | "$BUN_BIN" --no-env-file -e '
+  const raw = await Bun.stdin.text();
+  const hasher = new Bun.CryptoHasher("sha256");
+  hasher.update(raw);
+  process.stdout.write(hasher.digest("hex").slice(0, 20));
+' 2>/dev/null)"
+case "$SOURCE_HASH" in
+  ''|*[!0-9a-f]*) exit 1 ;;
+esac
+SOURCE_ID="gsc-$SOURCE_HASH"
+SLUG="_capability_check_${$}_$(date +%s)_${RANDOM}"
+MARKER="gstack-capability-probe:${SLUG}"
+TEMP_DIR=""
+SOURCE_ADD_ATTEMPTED=0
+ACTIVE_CHILD_PID=""
+
+# Run a potentially mutating gbrain command as a tracked background child.
+# Bash executes INT/TERM traps immediately while waiting for a background pid;
+# the signal handler can therefore terminate and reap the child before cleanup.
+run_tracked() {
+  # Bash otherwise redirects stdin of an asynchronous command from /dev/null
+  # when job control is inactive. The explicit duplicate preserves a caller's
+  # here-string/file input (the capability put payload) for the tracked child.
+  "$@" <&0 &
+  ACTIVE_CHILD_PID=$!
+  wait "$ACTIVE_CHILD_PID"
+  child_status=$?
+  ACTIVE_CHILD_PID=""
+  return "$child_status"
+}
+
+handle_signal() {
+  signal_name="$1"
+  signal_status="$2"
+  if [ -n "$ACTIVE_CHILD_PID" ]; then
+    kill -s "$signal_name" "$ACTIVE_CHILD_PID" 2>/dev/null || true
+    wait "$ACTIVE_CHILD_PID" 2>/dev/null || true
+    ACTIVE_CHILD_PID=""
+  fi
+  exit "$signal_status"
+}
+
+config_is_thin_client() {
+  "$BUN_BIN" --no-env-file -e '
+    import { homedir } from "os";
+    import { join } from "path";
+    const override = process.env.GBRAIN_HOME?.trim();
+    const candidates = override
+      ? [join(override, ".gbrain", "config.json"), join(override, "config.json")]
+      : [join(homedir(), ".gbrain", "config.json")];
+    for (const path of candidates) {
+      try {
+        const parsed = JSON.parse(await Bun.file(path).text());
+        process.exit(parsed?.remote_mcp && typeof parsed.remote_mcp === "object" ? 0 : 1);
+      } catch {
+        // Try the legacy GBRAIN_HOME-as-state-directory layout next.
+      }
+    }
+    process.exit(1);
+  ' >/dev/null 2>&1
+}
+
+remote_scope_allows_probe() {
+  "$BUN_BIN" --no-env-file -e '
+    const raw = await Bun.stdin.text();
+    try {
+      const report = JSON.parse(raw);
+      if (report?.mode !== "thin-client" || report?.status === "fail") process.exit(1);
+      const check = Array.isArray(report.checks)
+        ? report.checks.find((item) => item?.name === "oauth_client_scopes_probe")
+        : undefined;
+      const granted = String(check?.detail?.granted ?? report?.oauth_scope ?? "");
+      const scopes = granted.split(/[\s,]+/).filter(Boolean);
+      const readOk = check?.detail?.read_ok === true;
+      // The gbrain scope lattice defines admin => write => read. Do not reject a
+      // valid admin-only client merely because the literal `write` token is not
+      // repeated in the grant string.
+      const writeOk = scopes.includes("write") || scopes.includes("admin");
+      process.exit(readOk && writeOk ? 0 : 1);
+    } catch {
+      process.exit(1);
+    }
+  ' >/dev/null 2>&1
+}
+
+make_temp_dir() {
+  "$BUN_BIN" --no-env-file -e '
+    import { chmodSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from "fs";
+    import { homedir } from "os";
+    import { dirname, join, relative, resolve } from "path";
+
+    // TMPDIR is caller-controlled and may point inside the checkout being
+    // probed. Keep capability artifacts in a sibling of gstack state instead:
+    // GSTACK_HOME can itself be the supported Git-backed artifacts repository,
+    // so putting the probe below it would make every capability check fail.
+    // Reject the sibling as well when a custom GSTACK_HOME still places it in
+    // an enclosing Git working tree.
+    const stateRoot = resolve(process.env.GSTACK_HOME?.trim() || join(homedir(), ".gstack"));
+    const parent = resolve(
+      process.env.GSTACK_GBRAIN_CAPABILITY_TMP_ROOT?.trim()
+        || join(dirname(stateRoot), ".gstack-capability-tmp"),
+    );
+
+    function resolveThroughExistingAncestor(candidate) {
+      let existing = candidate;
+      while (!existsSync(existing)) {
+        const next = dirname(existing);
+        if (next === existing) break;
+        existing = next;
+      }
+      return resolve(realpathSync(existing), relative(existing, candidate));
+    }
+
+    function assertOutsideGitWorktree(candidate) {
+      const resolvedCandidate = resolveThroughExistingAncestor(candidate);
+      let cursor = resolvedCandidate;
+      while (true) {
+        if (existsSync(join(cursor, ".git"))) {
+          throw new Error(`refusing temp root inside Git worktree: ${resolvedCandidate}`);
+        }
+        const next = dirname(cursor);
+        if (next === cursor) return;
+        cursor = next;
+      }
+    }
+
+    // Identify the shallowest path mkdirSync would create so a symlink race
+    // discovered by the post-create verification can be rolled back exactly.
+    let firstCreated = null;
+    let cursor = parent;
+    while (!existsSync(cursor)) {
+      firstCreated = cursor;
+      const next = dirname(cursor);
+      if (next === cursor) break;
+      cursor = next;
+    }
+
+    try {
+      // The first check happens before mkdirSync: a rejected custom GSTACK_HOME
+      // must not leave even an empty directory in the caller checkout.
+      assertOutsideGitWorktree(parent);
+      mkdirSync(parent, { recursive: true, mode: 0o700 });
+      const resolvedParent = realpathSync(parent);
+      assertOutsideGitWorktree(resolvedParent);
+
+      const created = mkdtempSync(join(resolvedParent, "gstack-gbrain-capability-"));
+      chmodSync(created, 0o700);
+      // Bun returns native backslash paths on Windows. This value is consumed
+      // by Git Bash before it returns to Bun/gbrain; forward slashes preserve
+      // the Windows absolute path while making POSIX dirname/cd operate on it.
+      const shellPath = process.platform === "win32" ? created.replaceAll("\\", "/") : created;
+      process.stdout.write(shellPath);
+    } catch (error) {
+      if (firstCreated && existsSync(firstCreated)) {
+        rmSync(firstCreated, { recursive: true, force: true });
+      }
+      console.error(`gstack-gbrain-capability-check: ${error instanceof Error ? error.message : String(error)}`);
+      process.exit(1);
+    }
+  '
+}
+
+autopilot_guard_clear() {
+  GSTACK_GBRAIN_GUARD_MODULE="$GUARD_MODULE" "$BUN_BIN" --no-env-file -e '
+    import { pathToFileURL } from "url";
+    try {
+      const modulePath = process.env.GSTACK_GBRAIN_GUARD_MODULE;
+      if (!modulePath) throw new Error("guard module path is missing");
+      const { detectAutopilot } = await import(pathToFileURL(modulePath).href);
+      const result = detectAutopilot(process.env);
+      if (result.active) {
+        console.error(`gstack-gbrain-capability-check: autopilot active (${result.signal}); refusing temporary source mutation`);
+        process.exit(1);
+      }
+      process.exit(0);
+    } catch (error) {
+      console.error(`gstack-gbrain-capability-check: autopilot guard unavailable: ${error instanceof Error ? error.message : String(error)}`);
+      process.exit(2);
+    }
+  '
+}
+
+source_remove_confirmation_arg() {
+  local identity
+  identity=$("$GBRAIN_BIN" --version 2>/dev/null || true)
+  GSTACK_GBRAIN_GUARD_MODULE="$GUARD_MODULE" \
+    GBRAIN_IDENTITY_FOR_CHECK="$identity" "$BUN_BIN" --no-env-file -e '
+      import { pathToFileURL } from "url";
+      try {
+        const modulePath = process.env.GSTACK_GBRAIN_GUARD_MODULE;
+        if (!modulePath) throw new Error("guard module path is missing");
+        const { gbrainSourceRemoveConfirmationArgsForIdentity } = await import(pathToFileURL(modulePath).href);
+        const args = gbrainSourceRemoveConfirmationArgsForIdentity(process.env.GBRAIN_IDENTITY_FOR_CHECK ?? "");
+        process.stdout.write(args[0]);
+      } catch (error) {
+        console.error(`gstack-gbrain-capability-check: remove contract unavailable: ${error instanceof Error ? error.message : String(error)}`);
+        process.exit(1);
+      }
+    '
+}
+
+source_matches_temp_dir() {
+  LIST_OUTPUT=$("$GBRAIN_BIN" sources list --json 2>/dev/null)
+  LIST_STATUS=$?
+  [ "$LIST_STATUS" -eq 0 ] || return 2
+  printf '%s' "$LIST_OUTPUT" | \
+    GSTACK_GBRAIN_SOURCES_MODULE="$SOURCES_MODULE" \
+    SOURCE_ID_FOR_CHECK="$SOURCE_ID" TEMP_DIR_FOR_CHECK="$TEMP_DIR" "$BUN_BIN" --no-env-file -e '
+      import { pathToFileURL } from "url";
+      const raw = await Bun.stdin.text();
+      try {
+        const modulePath = process.env.GSTACK_GBRAIN_SOURCES_MODULE;
+        if (!modulePath) throw new Error("sources parser module path is missing");
+        const { parseSourcesListStrict } = await import(pathToFileURL(modulePath).href);
+        const parsed = JSON.parse(raw);
+        const source = parseSourcesListStrict(parsed)
+          .find((item) => item?.id === process.env.SOURCE_ID_FOR_CHECK);
+        process.exit(source?.local_path === process.env.TEMP_DIR_FOR_CHECK ? 0 : 1);
+      } catch {
+        process.exit(2);
+      }
+    ' >/dev/null 2>&1
+}
+
+remove_owned_temp_dir() {
+  OWNER_FILE="$TEMP_DIR/.gstack-capability-owner"
+  [ -n "$TEMP_DIR" ] && [ -f "$OWNER_FILE" ] && [ ! -L "$OWNER_FILE" ] || return 1
+  [ "$(cat "$OWNER_FILE" 2>/dev/null)" = "$SOURCE_ID" ] || return 1
+  TEMP_DIR_TO_REMOVE="$TEMP_DIR" "$BUN_BIN" --no-env-file -e '
+    import { lstatSync, rmSync } from "fs";
+    const path = process.env.TEMP_DIR_TO_REMOVE;
+    if (!path) process.exit(1);
+    const stat = lstatSync(path);
+    if (!stat.isDirectory() || stat.isSymbolicLink()) process.exit(1);
+    rmSync(path, { recursive: true, force: false });
+  ' >/dev/null 2>&1
+}
+
+cleanup() {
+  status=$?
+  trap - EXIT
+  trap '' INT TERM
+  set +e
+  cleanup_failed=0
+
+  # SOURCE_ADD_ATTEMPTED covers an interrupt after the DB row committed but
+  # before `sources add` returned. Exact id+path readback prevents a collision
+  # from ever deleting a pre-existing source.
+  if [ "$SOURCE_ADD_ATTEMPTED" -eq 1 ]; then
+    source_matches_temp_dir
+    source_match_status=$?
+    if [ "$source_match_status" -eq 0 ]; then
+      # Resolve the version-dependent removal contract before the final
+      # Autopilot check. Even this read-only version probe would otherwise open
+      # a race between the guard and the destructive operation. Exact id+path
+      # readback above supplies the source-ownership half of safeSourcesRemove
+      # without depending on PATH.
+      if ! REMOVE_CONFIRMATION_ARG=$(source_remove_confirmation_arg); then
+        cleanup_failed=1
+        echo "gstack-gbrain-capability-check: could not resolve temporary source removal contract" >&2
+      elif ! autopilot_guard_clear; then
+        cleanup_failed=1
+      # v0.26.5+ requires --confirm-destructive for a source with pages. Only a
+      # positively identified older CLI receives its supported --yes flag;
+      # unknown/new identities remain on the current fail-closed contract.
+      elif ! "$GBRAIN_BIN" sources remove "$SOURCE_ID" "$REMOVE_CONFIRMATION_ARG" \
+          >/dev/null 2>&1; then
+          cleanup_failed=1
+          echo "gstack-gbrain-capability-check: failed to remove owned temporary source $SOURCE_ID" >&2
+      fi
+    elif [ "$source_match_status" -gt 1 ]; then
+      cleanup_failed=1
+      echo "gstack-gbrain-capability-check: could not verify temporary source cleanup for $SOURCE_ID" >&2
+    fi
+  fi
+
+  # Preserve the temp directory when source cleanup failed: its exact path is
+  # still the source's recovery anchor. Otherwise remove only the directory
+  # carrying this invocation's owner sentinel.
+  if [ "$cleanup_failed" -eq 0 ] && [ -n "$TEMP_DIR" ]; then
+    if ! remove_owned_temp_dir; then
+      cleanup_failed=1
+      echo "gstack-gbrain-capability-check: failed to remove owned temporary directory $TEMP_DIR" >&2
+    fi
+  fi
+
+  if [ "$cleanup_failed" -ne 0 ] && [ "$status" -eq 0 ]; then
+    status=1
+  fi
+  exit "$status"
+}
+
+trap cleanup EXIT
+trap 'handle_signal INT 130' INT
+trap 'handle_signal TERM 143' TERM
+
+# Create the isolated source root before the first gbrain invocation, then run
+# every child from its non-repository parent. This keeps Bun's cwd dotenv loader
+# outside the caller checkout for local and thin-client probes alike. Cleanup
+# removes only TEMP_DIR; the process never has its cwd inside the removed tree.
+TEMP_DIR=$(make_temp_dir) || exit 1
+printf '%s' "$SOURCE_ID" > "$TEMP_DIR/.gstack-capability-owner" || exit 1
+SAFE_COMMAND_CWD=$(dirname -- "$TEMP_DIR")
+cd -- "$SAFE_COMMAND_CWD" || exit 1
+
+if ! "$GBRAIN_BIN" --version 2>/dev/null | grep -q '^gbrain '; then
+  exit 1
+fi
+
+if config_is_thin_client; then
+  # gbrain's thin-client doctor performs harmless live read/admin probes and
+  # reports the granted OAuth scopes. There is deliberately no remote put:
+  # delete_page is DB-only and cannot remove the host's write-through file.
+  DOCTOR_OUTPUT=$("$GBRAIN_BIN" doctor --json --fast 2>/dev/null)
+  DOCTOR_STATUS=$?
+  if [ "$DOCTOR_STATUS" -ne 0 ] || ! printf '%s' "$DOCTOR_OUTPUT" | remote_scope_allows_probe; then
+    exit 1
+  fi
+  "$GBRAIN_BIN" search "$MARKER" >/dev/null 2>&1
+  exit $?
+fi
+
+# Refuse before creating anything when Autopilot is already active. Cleanup
+# repeats the same guard immediately before source removal to close the race
+# where the daemon starts during the probe.
+if ! autopilot_guard_clear; then
+  exit 1
+fi
+
+SOURCE_ADD_ATTEMPTED=1
+if ! run_tracked "$GBRAIN_BIN" sources add "$SOURCE_ID" --path "$TEMP_DIR" --no-federated \
+  >/dev/null 2>&1; then
+  exit 1
+fi
+
+run_tracked env GBRAIN_SOURCE="$SOURCE_ID" "$GBRAIN_BIN" put "$SLUG" \
+  > /dev/null 2>&1 <<< "$MARKER"
+PUT_STATUS=$?
+if [ "$PUT_STATUS" -ne 0 ]; then
+  exit 1
+fi
+
+attempt=1
+SEARCH_RESULT_FILE="$TEMP_DIR/.gstack-capability-search-result"
+while [ "$attempt" -le "$RETRY_ATTEMPTS" ]; do
+  if run_tracked env GBRAIN_SOURCE="$SOURCE_ID" "$GBRAIN_BIN" search "$MARKER" \
+      > "$SEARCH_RESULT_FILE" 2>/dev/null && grep -Fq -- "$SLUG" "$SEARCH_RESULT_FILE"; then
+    exit 0
+  fi
+  if [ "$attempt" -lt "$RETRY_ATTEMPTS" ]; then
+    sleep "$RETRY_DELAY_SECONDS"
+  fi
+  attempt=$((attempt + 1))
+done
+
+exit 1

@@ -30,14 +30,18 @@ const SAFE_PATH = '/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bi
 let tmpHome: string;
 let tmpHomeReal: string;
 
-type RunOpts = { env?: Record<string, string>; cwd?: string };
+type RunOpts = { env?: Record<string, string | undefined>; cwd?: string };
 function run(bin: string, args: string[], opts: RunOpts = {}) {
-  const env = {
+  const env: NodeJS.ProcessEnv = {
     ...process.env,
     GSTACK_HOME: tmpHome,
     HOME: tmpHomeReal,
+    BUN_BIN: process.execPath,
     ...(opts.env || {}),
   };
+  for (const [key, value] of Object.entries(opts.env || {})) {
+    if (value === undefined) delete env[key];
+  }
   const res = spawnSync(bin, args, {
     env,
     cwd: opts.cwd,
@@ -197,11 +201,43 @@ describe('gstack-gbrain-install D19 PATH-shadow validation', () => {
     const binDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fake-bin-'));
     fs.writeFileSync(
       path.join(binDir, 'gbrain'),
-      `#!/bin/bash\necho "${version}"\nexit 0\n`,
+      `#!/bin/bash
+case "\${1:-}" in
+  --version) echo "${version}" ;;
+  doctor)
+    if [ -n "\${GBRAIN_TEST_CALL_LOG:-}" ]; then printf 'doctor\\n' >> "$GBRAIN_TEST_CALL_LOG"; fi
+    if [ -n "\${GBRAIN_TEST_STATE_LOG:-}" ]; then
+      selected_home=$("\${BUN_BIN}" -e 'process.stdout.write(process.env.GBRAIN_HOME || process.env.HOME || "")')
+      printf 'doctor|%s|%s\\n' "$PWD" "$selected_home" >> "$GBRAIN_TEST_STATE_LOG"
+    fi
+    ;;
+  sources) ;;
+esac
+exit 0
+`,
       { mode: 0o755 }
     );
     return binDir;
   }
+
+  test('validate-only reports its Bun prerequisite instead of failing later', () => {
+    const installDir = seedInstallDir('0.41.29');
+    const fakeBin = seedFakeGbrainBinary('0.41.29');
+    try {
+      const r = run(INSTALL, ['--validate-only', '--install-dir', installDir], {
+        env: {
+          PATH: `${fakeBin}:${SAFE_PATH}`,
+          BUN_BIN: path.join(tmpHome, 'missing-bun'),
+        },
+      });
+      expect(r.status).toBe(3);
+      expect(r.stderr).toContain("required tool");
+      expect(r.stderr).toContain('missing-bun');
+    } finally {
+      fs.rmSync(installDir, { recursive: true, force: true });
+      fs.rmSync(fakeBin, { recursive: true, force: true });
+    }
+  });
 
   test('passes when install-dir version matches `gbrain --version` on PATH', () => {
     // Version must be >= MIN_GBRAIN_VERSION (0.20.0) floor (#1744).
@@ -216,6 +252,126 @@ describe('gstack-gbrain-install D19 PATH-shadow validation', () => {
     } finally {
       fs.rmSync(installDir, { recursive: true, force: true });
       fs.rmSync(fakeBin, { recursive: true, force: true });
+    }
+  });
+
+  test('runs doctor for the current GBRAIN_HOME/.gbrain/config.json layout', () => {
+    const installDir = seedInstallDir('0.41.29');
+    const fakeBin = seedFakeGbrainBinary('0.41.29');
+    const gbrainHome = fs.mkdtempSync(path.join(os.tmpdir(), 'gbrain-current-home-'));
+    const callLog = path.join(gbrainHome, 'calls.log');
+    fs.mkdirSync(path.join(gbrainHome, '.gbrain'));
+    fs.writeFileSync(path.join(gbrainHome, '.gbrain', 'config.json'), '{}');
+    try {
+      const r = run(INSTALL, ['--validate-only', '--install-dir', installDir], {
+        env: {
+          PATH: `${fakeBin}:${SAFE_PATH}`,
+          BUN_BIN: process.execPath,
+          GBRAIN_HOME: gbrainHome,
+          GBRAIN_TEST_CALL_LOG: callLog,
+        },
+      });
+      expect(r.status, r.stderr).toBe(0);
+      expect(fs.readFileSync(callLog, 'utf8')).toBe('doctor\n');
+    } finally {
+      fs.rmSync(installDir, { recursive: true, force: true });
+      fs.rmSync(fakeBin, { recursive: true, force: true });
+      fs.rmSync(gbrainHome, { recursive: true, force: true });
+    }
+  });
+
+  test('runs doctor for the legacy GBRAIN_HOME/config.json layout', () => {
+    const installDir = seedInstallDir('0.41.29');
+    const fakeBin = seedFakeGbrainBinary('0.41.29');
+    const gbrainHome = fs.mkdtempSync(path.join(os.tmpdir(), 'gbrain-legacy-home-'));
+    const callLog = path.join(gbrainHome, 'calls.log');
+    fs.writeFileSync(path.join(gbrainHome, 'config.json'), '{}');
+    try {
+      const r = run(INSTALL, ['--validate-only', '--install-dir', installDir], {
+        env: {
+          PATH: `${fakeBin}:${SAFE_PATH}`,
+          BUN_BIN: process.execPath,
+          GBRAIN_HOME: gbrainHome,
+          GBRAIN_TEST_CALL_LOG: callLog,
+        },
+      });
+      expect(r.status, r.stderr).toBe(0);
+      expect(fs.readFileSync(callLog, 'utf8')).toBe('doctor\n');
+    } finally {
+      fs.rmSync(installDir, { recursive: true, force: true });
+      fs.rmSync(fakeBin, { recursive: true, force: true });
+      fs.rmSync(gbrainHome, { recursive: true, force: true });
+    }
+  });
+
+  test('ignores a project dotenv that points at a foreign configured brain', () => {
+    const installDir = seedInstallDir('0.41.29');
+    const fakeBin = seedFakeGbrainBinary('0.41.29');
+    const project = fs.mkdtempSync(path.join(os.tmpdir(), 'gbrain-install-project-'));
+    const foreignHome = fs.mkdtempSync(path.join(os.tmpdir(), 'gbrain-foreign-home-'));
+    const callLog = path.join(project, 'calls.log');
+    fs.mkdirSync(path.join(foreignHome, '.gbrain'));
+    fs.writeFileSync(path.join(foreignHome, '.gbrain', 'config.json'), '{}');
+    fs.writeFileSync(
+      path.join(project, '.env.local'),
+      `GBRAIN_HOME=${foreignHome}\nGSTACK_HOME=${path.join(project, 'foreign-gstack')}\n`,
+    );
+    try {
+      const r = run(INSTALL, ['--validate-only', '--install-dir', installDir], {
+        cwd: project,
+        env: {
+          PATH: `${fakeBin}:${SAFE_PATH}`,
+          BUN_BIN: process.execPath,
+          GBRAIN_HOME: undefined,
+          GBRAIN_TEST_CALL_LOG: callLog,
+        },
+      });
+      expect(r.status, r.stderr).toBe(0);
+      expect(fs.existsSync(callLog)).toBe(false);
+    } finally {
+      fs.rmSync(installDir, { recursive: true, force: true });
+      fs.rmSync(fakeBin, { recursive: true, force: true });
+      fs.rmSync(project, { recursive: true, force: true });
+      fs.rmSync(foreignHome, { recursive: true, force: true });
+    }
+  });
+
+  test('validates the canonical brain from an isolated cwd when project dotenv has a second config', () => {
+    const installDir = seedInstallDir('0.41.29');
+    const fakeBin = seedFakeGbrainBinary('0.41.29');
+    const project = fs.mkdtempSync(path.join(os.tmpdir(), 'gbrain-install-project-'));
+    const foreignHome = fs.mkdtempSync(path.join(os.tmpdir(), 'gbrain-foreign-home-'));
+    const stateLog = path.join(project, 'state.log');
+    fs.mkdirSync(path.join(tmpHomeReal, '.gbrain'));
+    fs.writeFileSync(path.join(tmpHomeReal, '.gbrain', 'config.json'), '{}');
+    fs.mkdirSync(path.join(foreignHome, '.gbrain'));
+    fs.writeFileSync(path.join(foreignHome, '.gbrain', 'config.json'), '{}');
+    fs.writeFileSync(
+      path.join(project, '.env.local'),
+      `GBRAIN_HOME=${foreignHome}\nGSTACK_HOME=${path.join(project, 'foreign-gstack')}\n`,
+    );
+    try {
+      const r = run(INSTALL, ['--validate-only', '--install-dir', installDir], {
+        cwd: project,
+        env: {
+          PATH: `${fakeBin}:${SAFE_PATH}`,
+          BUN_BIN: process.execPath,
+          GBRAIN_HOME: undefined,
+          GBRAIN_TEST_STATE_LOG: stateLog,
+          TMPDIR: project,
+        },
+      });
+      expect(r.status, r.stderr).toBe(0);
+      const [kind, probeCwd, selectedHome] = fs.readFileSync(stateLog, 'utf8').trim().split('|');
+      expect(kind).toBe('doctor');
+      expect(probeCwd).not.toBe(project);
+      expect(probeCwd.startsWith(`${project}${path.sep}`)).toBe(false);
+      expect(selectedHome).toBe(tmpHomeReal);
+    } finally {
+      fs.rmSync(installDir, { recursive: true, force: true });
+      fs.rmSync(fakeBin, { recursive: true, force: true });
+      fs.rmSync(project, { recursive: true, force: true });
+      fs.rmSync(foreignHome, { recursive: true, force: true });
     }
   });
 

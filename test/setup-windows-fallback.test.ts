@@ -17,6 +17,13 @@ function extractHelper(): string {
   return SETUP_SRC.slice(start, end + 2);
 }
 
+function extractFunction(name: string): string {
+  const start = SETUP_SRC.indexOf(`${name}() {`);
+  const end = SETUP_SRC.indexOf('\n}\n', start);
+  if (start < 0 || end < 0) throw new Error(`Could not locate ${name}() in setup`);
+  return SETUP_SRC.slice(start, end + 2);
+}
+
 describe('setup: _link_or_copy invariant (D7)', () => {
   test('helper function is defined near the top of setup', () => {
     expect(SETUP_SRC).toContain('_link_or_copy() {');
@@ -54,6 +61,52 @@ describe('setup: _link_or_copy invariant (D7)', () => {
     const fnEnd = SETUP_SRC.indexOf('\n}\n', fnStart);
     const fnBody = SETUP_SRC.slice(fnStart, fnEnd);
     expect(fnBody).toContain('_print_windows_copy_note_once');
+  });
+
+  test('repo-local sidecars refresh existing Windows copies after upgrades', () => {
+    const fnStart = SETUP_SRC.indexOf('create_agents_sidecar() {');
+    const fnEnd = SETUP_SRC.indexOf('\n}\n', fnStart);
+    const fnBody = SETUP_SRC.slice(fnStart, fnEnd);
+    expect(fnBody).toContain('for asset in bin lib browse review qa');
+    expect(fnBody).toContain('for file in ETHOS.md');
+    expect(fnBody).toContain('[ "$IS_WINDOWS" -eq 1 ] || [ -L "$dst" ] || [ ! -e "$dst" ]');
+  });
+
+  test('Windows sidecar upgrade refreshes copied directories and ETHOS.md behaviorally', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-sidecar-upgrade-'));
+    try {
+      const source = path.join(tmp, 'source');
+      const repo = path.join(tmp, 'repo');
+      const sidecar = path.join(repo, '.agents', 'skills', 'gstack');
+      fs.mkdirSync(path.join(source, 'bin'), { recursive: true });
+      fs.writeFileSync(path.join(source, 'bin', 'version.txt'), 'new-bin\n');
+      fs.writeFileSync(path.join(source, 'ETHOS.md'), 'new-ethos\n');
+      fs.mkdirSync(path.join(sidecar, 'bin'), { recursive: true });
+      fs.writeFileSync(path.join(sidecar, 'bin', 'version.txt'), 'old-bin\n');
+      fs.writeFileSync(path.join(sidecar, 'ETHOS.md'), 'old-ethos\n');
+
+      const script = [
+        'IS_WINDOWS=1',
+        extractHelper(),
+        extractFunction('create_agents_sidecar'),
+        'create_agents_sidecar "$FIXTURE_REPO_ROOT"',
+      ].join('\n');
+      const result = spawnSync('bash', ['-c', script], {
+        encoding: 'utf-8',
+        timeout: 5000,
+        env: {
+          ...process.env,
+          SOURCE_GSTACK_DIR: source,
+          FIXTURE_REPO_ROOT: repo,
+        },
+      });
+
+      expect(result.status, result.stderr).toBe(0);
+      expect(fs.readFileSync(path.join(sidecar, 'bin', 'version.txt'), 'utf8')).toBe('new-bin\n');
+      expect(fs.readFileSync(path.join(sidecar, 'ETHOS.md'), 'utf8')).toBe('new-ethos\n');
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
   });
 });
 

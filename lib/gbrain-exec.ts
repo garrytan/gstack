@@ -11,7 +11,8 @@
  *      caller's `.env.local`. gbrain auto-loads `.env.local` via dotenv on
  *      startup. When `/sync-gbrain` runs inside a Next.js / Prisma / Rails
  *      project with its own `DATABASE_URL`, gbrain reads that one and not
- *      its own `${GBRAIN_HOME:-$HOME/.gbrain}/config.json`. Auth fails;
+ *      its own gbrain config (`$GBRAIN_HOME/.gbrain/config.json` on current
+ *      releases, with the legacy direct layout still accepted). Auth fails;
  *      code + memory stages crash; only brain-sync's git push survives.
  *
  *   2. **Bun-aware env passing.** Mutating `process.env.DATABASE_URL` does
@@ -23,7 +24,7 @@
  *
  *   3. **`GBRAIN_HOME` honored consistently.** Other gstack helpers
  *      (`detectEngineTier`) already honor `GBRAIN_HOME`. `buildGbrainEnv`
- *      reads from `${GBRAIN_HOME:-$HOME/.gbrain}/config.json` so all
+ *      reads the current/legacy gbrain config layout so all
  *      gstack-side gbrain calls agree on which config file matters.
  *
  * **Escape hatch:** `GSTACK_RESPECT_ENV_DATABASE_URL=1` returns the
@@ -36,8 +37,11 @@ import { join } from "path";
 import { homedir } from "os";
 import { spawnSync, spawn, execFileSync, type SpawnSyncReturns, type ChildProcess, type SpawnOptions } from "child_process";
 
-interface GbrainConfig {
+export interface GbrainConfig {
+  engine?: string;
   database_url?: string;
+  database_path?: string;
+  remote_mcp?: unknown;
 }
 
 export interface BuildGbrainEnvOptions {
@@ -52,6 +56,94 @@ export interface BuildGbrainEnvOptions {
    * DATABASE_URL. Suppressed for the `--quiet` sync flow.
    */
   announce?: boolean;
+}
+
+/**
+ * Ordered gbrain config candidates for the active environment.
+ *
+ * Current gbrain treats GBRAIN_HOME as a parent and appends `.gbrain`.
+ * Older releases treated GBRAIN_HOME as the state directory itself. Keep the
+ * legacy direct path as a read-only fallback, but always prefer the current
+ * nested layout when both exist.
+ */
+export function gbrainConfigCandidates(baseEnv: NodeJS.ProcessEnv = process.env): string[] {
+  const homeBase = baseEnv.HOME || homedir();
+  const override = baseEnv.GBRAIN_HOME?.trim();
+  return override
+    ? [join(override, ".gbrain", "config.json"), join(override, "config.json")]
+    : [join(homeBase, ".gbrain", "config.json")];
+}
+
+/** Existing active config, or the current-layout path when no candidate exists. */
+export function resolveGbrainConfigPath(baseEnv: NodeJS.ProcessEnv = process.env): string {
+  const candidates = gbrainConfigCandidates(baseEnv);
+  return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0];
+}
+
+export interface ActiveGbrainConfig {
+  path: string;
+  config: GbrainConfig;
+}
+
+function readGbrainConfigFile(path: string): ActiveGbrainConfig | null {
+  if (!existsSync(path)) return null;
+  try {
+    const parsed = JSON.parse(readFileSync(path, "utf-8")) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    return { path, config: parsed as GbrainConfig };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Read the active config as an object. Missing, malformed, array, and scalar
+ * configs are rejected instead of being confused with a configured brain.
+ */
+export function readActiveGbrainConfig(
+  baseEnv: NodeJS.ProcessEnv = process.env,
+): ActiveGbrainConfig | null {
+  return readGbrainConfigFile(resolveGbrainConfigPath(baseEnv));
+}
+
+/**
+ * Strict environment for a capability probe that may mutate the brain.
+ *
+ * Unlike buildGbrainEnv(), this requires a valid active config and deliberately
+ * ignores caller database overrides. A Postgres brain receives the configured
+ * URL through both supported env names; PGLite and thin-client configs have all
+ * caller database routing removed. This prevents a project/caller DATABASE_URL
+ * from redirecting a temporary capability source into an unrelated database.
+ */
+export function buildConfiguredGbrainEnv(
+  baseEnv: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
+  // Mutating probes may use only the current upstream layout. The direct
+  // GBRAIN_HOME/config.json candidate remains a read-only compatibility
+  // fallback elsewhere, but current gbrain never reads it. Treating a stale
+  // legacy file as active here could route writes to an unrelated database.
+  const canonicalPath = gbrainConfigCandidates(baseEnv)[0];
+  const active = readGbrainConfigFile(canonicalPath);
+  if (!active) {
+    throw new Error(`active gbrain config is missing or malformed at ${canonicalPath}`);
+  }
+
+  const out: NodeJS.ProcessEnv = { ...baseEnv };
+  delete out.DATABASE_URL;
+  delete out.GBRAIN_DATABASE_URL;
+
+  const cfg = active.config;
+  if (cfg.remote_mcp && typeof cfg.remote_mcp === "object") return out;
+  if (cfg.engine === "pglite" || (typeof cfg.database_path === "string" && cfg.database_path.trim())) {
+    return out;
+  }
+  if (typeof cfg.database_url === "string" && cfg.database_url.trim()) {
+    out.DATABASE_URL = cfg.database_url;
+    out.GBRAIN_DATABASE_URL = cfg.database_url;
+    return out;
+  }
+
+  throw new Error(`active gbrain config at ${active.path} has no usable engine routing`);
 }
 
 /**
@@ -76,7 +168,7 @@ export function isTransactionModePooler(url: string): boolean {
 
 /**
  * Build an env dict with DATABASE_URL seeded from
- * `${GBRAIN_HOME:-$HOME/.gbrain}/config.json`. Returns the base env
+ * the active gbrain config. Returns the base env
  * unchanged when:
  *   - `GSTACK_RESPECT_ENV_DATABASE_URL=1` (intentional opt-out),
  *   - the config file is missing or unparseable,
@@ -98,17 +190,9 @@ export function buildGbrainEnv(opts: BuildGbrainEnvOptions = {}): NodeJS.Process
   const out: NodeJS.ProcessEnv = { ...baseEnv };
   if (baseEnv.GSTACK_RESPECT_ENV_DATABASE_URL === "1") return out;
 
-  const homeBase = baseEnv.HOME || homedir();
-  const gbrainHome = baseEnv.GBRAIN_HOME || join(homeBase, ".gbrain");
-  const configPath = join(gbrainHome, "config.json");
-  if (!existsSync(configPath)) return out;
-
-  let cfg: GbrainConfig = {};
-  try {
-    cfg = JSON.parse(readFileSync(configPath, "utf-8")) as GbrainConfig;
-  } catch {
-    return out;
-  }
+  const active = readActiveGbrainConfig(baseEnv);
+  if (!active) return out;
+  const { path: configPath, config: cfg } = active;
   if (!cfg.database_url) return out;
 
   const hadCaller = baseEnv.DATABASE_URL !== undefined;

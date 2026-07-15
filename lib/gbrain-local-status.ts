@@ -41,7 +41,7 @@ import {
 } from "fs";
 import { homedir } from "os";
 import { dirname, join } from "path";
-import { buildGbrainEnv, NEEDS_SHELL_ON_WINDOWS } from "./gbrain-exec";
+import { buildGbrainEnv, NEEDS_SHELL_ON_WINDOWS, resolveGbrainConfigPath } from "./gbrain-exec";
 
 export type LocalEngineStatus =
   | "ok"
@@ -116,9 +116,7 @@ export function cacheFilePath(): string {
 
 /** Honors GBRAIN_HOME (codex D11) — same resolution as buildGbrainEnv. */
 function gbrainConfigPath(env?: NodeJS.ProcessEnv): string {
-  const e = env ?? process.env;
-  const gbrainHome = e.GBRAIN_HOME || join(userHome(e), ".gbrain");
-  return join(gbrainHome, "config.json");
+  return resolveGbrainConfigPath(env ?? process.env);
 }
 
 function configuredEngine(env?: NodeJS.ProcessEnv): "pglite" | "postgres" | null {

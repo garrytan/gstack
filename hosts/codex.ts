@@ -42,14 +42,14 @@ const codex: HostConfig = {
   ],
 
   runtimeRoot: {
-    globalSymlinks: ['bin', 'browse/dist', 'browse/bin', 'gstack-upgrade', 'ETHOS.md'],
+    globalSymlinks: ['bin', 'lib', 'browse/dist', 'browse/bin', 'gstack-upgrade', 'ETHOS.md'],
     globalFiles: {
       'review': ['checklist.md', 'TODOS-format.md'],
     },
   },
   sidecar: {
     path: '.agents/skills/gstack',
-    symlinks: ['bin', 'browse', 'review', 'qa', 'ETHOS.md'],
+    symlinks: ['bin', 'lib', 'browse', 'review', 'qa', 'ETHOS.md'],
   },
 
   install: {

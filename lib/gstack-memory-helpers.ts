@@ -21,6 +21,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, statSync, appendFil
 import { dirname, join } from "path";
 import { execFileSync } from "child_process";
 import { homedir } from "os";
+import { resolveGbrainConfigPath } from "./gbrain-exec";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -254,13 +255,12 @@ export function detectEngineTier(): EngineDetect {
   return fresh;
 }
 
-// Returns gbrain's config.json path, honoring GBRAIN_HOME env var with a
-// fallback to ~/.gbrain. gbrain >=0.25 dropped the top-level `engine` field
-// from doctor output, so this file is the only reliable source for engine
-// detection on that version. See #1415.
+// Returns gbrain's active config.json path. Current releases append `.gbrain`
+// to GBRAIN_HOME; the shared resolver retains the legacy direct-layout fallback.
+// gbrain >=0.25 dropped the top-level `engine` field from doctor output, so this
+// file is the only reliable source for engine detection on that version. #1415.
 function gbrainConfigPath(): string {
-  const root = process.env.GBRAIN_HOME || join(homedir(), ".gbrain");
-  return join(root, "config.json");
+  return resolveGbrainConfigPath(process.env);
 }
 
 // Best-effort JSONL append to ~/.gstack/.gbrain-errors.jsonl. Never throws.

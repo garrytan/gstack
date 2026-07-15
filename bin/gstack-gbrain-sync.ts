@@ -38,7 +38,12 @@ import { createHash } from "crypto";
 import "../lib/conductor-env-shim";
 import { detectEngineTier, withErrorContext, canonicalizeRemote } from "../lib/gstack-memory-helpers";
 import { ensureSourceRegistered, sourcePageCount, parseSourcesList, cycleCompleted, type CycleStatus } from "../lib/gbrain-sources";
-import { detectAutopilot, decideSourceRemove, decideCodeSync } from "../lib/gbrain-guards";
+import {
+  detectAutopilot,
+  decideSourceRemove,
+  decideCodeSync,
+  gbrainSourceRemoveConfirmationArgs,
+} from "../lib/gbrain-guards";
 import { localEngineStatus, type LocalEngineStatus } from "../lib/gbrain-local-status";
 import { buildGbrainEnv, spawnGbrain, execGbrainJson, NEEDS_SHELL_ON_WINDOWS } from "../lib/gbrain-exec";
 import { checkOwnedStagingDir } from "../lib/staging-guard";
@@ -524,6 +529,11 @@ export interface GuardedRemoveResult {
   reason: string;
 }
 
+export interface DestructiveGuardDeps {
+  /** Injectable only for hermetic race tests; production uses live signals. */
+  detectAutopilot?: typeof detectAutopilot;
+}
+
 /**
  * #1734: run `gbrain sources remove <id> --confirm-destructive` only behind the
  * data-loss guards. Checked immediately before the destructive op (E8: as late
@@ -533,8 +543,13 @@ export interface GuardedRemoveResult {
  * caller decides whether a skip is fatal (it never is today — removes are
  * best-effort cleanup).
  */
-export function safeSourcesRemove(sourceId: string, env?: NodeJS.ProcessEnv): GuardedRemoveResult {
-  const ap = detectAutopilot(env);
+export function safeSourcesRemove(
+  sourceId: string,
+  env?: NodeJS.ProcessEnv,
+  deps: DestructiveGuardDeps = {},
+): GuardedRemoveResult {
+  const detect = deps.detectAutopilot ?? detectAutopilot;
+  const ap = detect(env);
   if (ap.active) {
     return {
       removed: false,
@@ -547,11 +562,72 @@ export function safeSourcesRemove(sourceId: string, env?: NodeJS.ProcessEnv): Gu
   if (!decision.allow) {
     return { removed: false, skipped: true, reason: decision.reason };
   }
+  // Resolve every version/capability argument before the final Autopilot
+  // check. Even a read-only `gbrain --version` subprocess widens the race if it
+  // runs between that check and the destructive spawn.
+  const confirmationArgs = gbrainSourceRemoveConfirmationArgs(env);
+  // decideSourceRemove and confirmation selection perform version/capability/
+  // source metadata probes. The daemon can start during those subprocesses, so
+  // repeat the affirmative signal check at the last possible point before the
+  // destructive spawn.
+  const apBeforeSpawn = detect(env);
+  if (apBeforeSpawn.active) {
+    return {
+      removed: false,
+      skipped: true,
+      reason: `autopilot active (${apBeforeSpawn.signal}); refusing destructive remove of ${sourceId}. ` +
+        `Stop autopilot, then re-run /sync-gbrain.`,
+    };
+  }
   const r = spawnGbrain(
-    ["sources", "remove", sourceId, "--confirm-destructive", ...decision.extraArgs],
+    ["sources", "remove", sourceId, ...confirmationArgs, ...decision.extraArgs],
     { baseEnv: env },
   );
   return { removed: r.status === 0, skipped: false, reason: decision.reason };
+}
+
+export interface CodeSyncWalkGuard {
+  allow: boolean;
+  status: "refused-autopilot" | "refused-reclone" | null;
+  reason: string;
+}
+
+/**
+ * Guard the code walk across its metadata-probe race window. The first check
+ * avoids needless probes while Autopilot is already active; the second is the
+ * authoritative last-moment gate after decideCodeSync has spawned gbrain for
+ * version/source metadata and immediately before the caller spawns code sync.
+ */
+export function guardCodeSyncBeforeWalk(
+  sourceId: string,
+  env: NodeJS.ProcessEnv,
+  allowReclone: boolean,
+  deps: DestructiveGuardDeps = {},
+): CodeSyncWalkGuard {
+  const detect = deps.detectAutopilot ?? detectAutopilot;
+  const apBeforeProbe = detect(env);
+  if (apBeforeProbe.active) {
+    return {
+      allow: false,
+      status: "refused-autopilot",
+      reason: `gbrain autopilot active (${apBeforeProbe.signal}). Stop autopilot, then re-run /sync-gbrain.`,
+    };
+  }
+
+  const reclone = decideCodeSync(sourceId, env, allowReclone);
+  if (!reclone.allow) {
+    return { allow: false, status: "refused-reclone", reason: reclone.reason };
+  }
+
+  const apBeforeSpawn = detect(env);
+  if (apBeforeSpawn.active) {
+    return {
+      allow: false,
+      status: "refused-autopilot",
+      reason: `gbrain autopilot active (${apBeforeSpawn.signal}). Stop autopilot, then re-run /sync-gbrain.`,
+    };
+  }
+  return { allow: true, status: null, reason: reclone.reason };
 }
 
 /**
@@ -844,7 +920,11 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
   // no synchronous duplicate here (per /codex review #12).
   let registered = false;
   try {
-    const result = await ensureSourceRegistered(sourceId, root, { federated: true, env: gbrainEnv });
+    const result = await ensureSourceRegistered(sourceId, root, {
+      federated: true,
+      env: gbrainEnv,
+      guardedRemove: (id) => safeSourcesRemove(id, gbrainEnv),
+    });
     registered = result.changed;
   } catch (err) {
     return {
@@ -878,20 +958,16 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
   //   - URL-managed source → the walk can auto-reclone (rm-rf); require
   //     --allow-reclone. Both surface a visible reason and fail the stage so the
   //     verdict shows ERR rather than silently skipping protection.
-  const apBeforeWalk = detectAutopilot(gbrainEnv);
-  if (apBeforeWalk.active) {
+  const walkGuard = guardCodeSyncBeforeWalk(sourceId, gbrainEnv, args.allowReclone);
+  if (!walkGuard.allow) {
     return {
       name: "code", ran: true, ok: false, duration_ms: Date.now() - t0,
-      summary: `refused: gbrain autopilot active (${apBeforeWalk.signal}). Stop autopilot, then re-run /sync-gbrain.`,
-      detail: { source_id: sourceId, source_path: root, status: "refused-autopilot" },
-    };
-  }
-  const reclone = decideCodeSync(sourceId, gbrainEnv, args.allowReclone);
-  if (!reclone.allow) {
-    return {
-      name: "code", ran: true, ok: false, duration_ms: Date.now() - t0,
-      summary: `refused: ${reclone.reason}`,
-      detail: { source_id: sourceId, source_path: root, status: "refused-reclone" },
+      summary: `refused: ${walkGuard.reason}`,
+      detail: {
+        source_id: sourceId,
+        source_path: root,
+        status: walkGuard.status ?? "refused-reclone",
+      },
     };
   }
 

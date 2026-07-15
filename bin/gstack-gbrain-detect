@@ -43,7 +43,7 @@ import {
   resolveGbrainBin,
   readGbrainVersion,
 } from "../lib/gbrain-local-status";
-import { isTransactionModePooler } from "../lib/gbrain-exec";
+import { isTransactionModePooler, resolveGbrainConfigPath } from "../lib/gbrain-exec";
 
 const STATE_DIR = process.env.GSTACK_HOME || join(userHome(), ".gstack");
 const SCRIPT_DIR = __dirname;
@@ -51,10 +51,7 @@ const CONFIG_BIN = join(SCRIPT_DIR, "gstack-config");
 // Honors GBRAIN_HOME — must stay consistent with lib/gbrain-local-status's
 // config resolution, or the detect JSON reports gbrain_local_status "ok"
 // alongside gbrain_config_exists false for relocated-home users.
-const GBRAIN_CONFIG = join(
-  process.env.GBRAIN_HOME || join(userHome(), ".gbrain"),
-  "config.json",
-);
+const GBRAIN_CONFIG = resolveGbrainConfigPath(process.env);
 const CLAUDE_JSON = join(userHome(), ".claude.json");
 
 function userHome(): string {
