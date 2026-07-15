@@ -1342,6 +1342,56 @@ git push -u origin <branch-name>
 > **STOP.** Before syncing docs and creating or updating the PR/MR (Steps 18-19), Read `~/.claude/skills/gstack/ship/sections/pr-body.md` and execute it
 > in full. Do not work from memory — that section is the source of truth for this step.
 
+## Step 19.5: Write SHIP-RECEIPT.md (for recipe-runtime detection)
+
+Write a one-page ship receipt into the phase folder Step 8 audited. Recipe runners
+(e.g. Dev OS workflow recipes) watch for this file and use it to detect successful
+ship completion. Non-GSD projects skip this step silently.
+
+1. Identify the target phase folder. From Step 8's audit output, take the highest-numbered
+   phase under `.planning/phases/`. If Step 8 audited multiple phases (cross-phase branch),
+   pick the one with the largest leading number. If Step 8 found zero plan files, or
+   `.planning/phases/` does not exist in cwd, log `[ship] no .planning/phases/ found,
+   skipping SHIP-RECEIPT.md write` and proceed to Step 20.
+
+2. Gather the field values:
+
+   ```bash
+   BRANCH=$(git branch --show-current)
+   SHA=$(git rev-parse --short HEAD)
+   PR_URL=$(gh pr view --json url -q .url 2>/dev/null || glab mr view -F json 2>/dev/null | jq -r .web_url || echo "")
+   TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+   VERSION_VAL=$(cat VERSION 2>/dev/null | tr -d '\r\n[:space:]')
+   ```
+
+3. Write the receipt to `{cwd}/.planning/phases/<highest-phase>/SHIP-RECEIPT.md`,
+   overwriting any prior receipt:
+
+   ```bash
+   cat > ".planning/phases/$PHASE_DIR/SHIP-RECEIPT.md" <<EOF
+   ## Ship Receipt
+
+   | Field | Value |
+   |-------|-------|
+   | Branch | $BRANCH |
+   | SHA | $SHA |
+   | PR URL | $PR_URL |
+   | Timestamp | $TIMESTAMP |
+   | Version | $VERSION_VAL |
+   EOF
+   ```
+
+   Replace `$PHASE_DIR` with the phase folder name identified in step 1
+   (for example, `11-ship-patch-starter-library`).
+
+4. Confirm: `ls .planning/phases/$PHASE_DIR/SHIP-RECEIPT.md` shows the file exists.
+   If the file write fails for any reason, log the error and continue to Step 20.
+   The receipt is a downstream signal for recipe runners, not a /ship correctness gate.
+
+Then proceed to Step 20.
+
+---
+
 ## Step 20: Persist ship metrics
 
 Log coverage and plan completion data so `/retro` can track trends:
