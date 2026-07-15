@@ -521,6 +521,13 @@ describe('host config correctness', () => {
     }
   });
 
+  test('every external host skips the grok skill', () => {
+    // /grok is a Claude-host wrapper around the Grok Build CLI — same shape as /codex.
+    for (const config of getExternalHosts()) {
+      expect(config.generation.skipSkills).toContain('grok');
+    }
+  });
+
   test('every host has at least one pathRewrite (except claude)', () => {
     for (const config of getExternalHosts()) {
       expect(config.pathRewrites.length).toBeGreaterThan(0);

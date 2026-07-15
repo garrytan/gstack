@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+# gstack-grok-probe: shared helper for /grok skills.
+# Sourced from template bash blocks; never execute directly.
+#
+# Functions (all prefixed with _gstack_grok_ for namespace hygiene):
+#   _gstack_grok_auth_probe      — multi-signal auth check (env + file)
+#   _gstack_grok_version_check   — emit installed Grok CLI version (non-blocking)
+#   _gstack_grok_timeout_wrapper — gtimeout -> timeout -> unwrapped fallback
+#   _gstack_grok_log_event       — telemetry emission to ~/.gstack/analytics/
+#
+# Hygiene rules (enforced by test/grok-hardening.test.ts):
+#   - Never set -e / set -u / trap / IFS= / PATH= in this file.
+#   - All internal vars prefix with _GSTACK_GROK_.
+#   - All functions prefix with _gstack_grok_.
+#   - No command execution at source time (only function defs).
+
+# --- Auth probe -------------------------------------------------------------
+
+_gstack_grok_auth_probe() {
+  # Multi-signal: env vars OR auth file. Avoids false negatives for env-auth
+  # users (CI, platform engineers) that a file-only check would reject.
+  local _grok_home="${GROK_HOME:-$HOME/.grok}"
+  local _k1 _k2
+  _k1=$(printf '%s' "${XAI_API_KEY:-}" | tr -d '[:space:]')
+  _k2=$(printf '%s' "${GROK_API_KEY:-}" | tr -d '[:space:]')
+  if [ -n "$_k1" ] || [ -n "$_k2" ] || [ -f "$_grok_home/auth.json" ]; then
+    echo "AUTH_OK"
+    return 0
+  fi
+  echo "AUTH_FAILED"
+  return 1
+}
+
+# --- Version check ----------------------------------------------------------
+
+_gstack_grok_version_check() {
+  local _ver
+  _ver=$(grok --version 2>/dev/null | head -1)
+  [ -z "$_ver" ] && return 0
+  echo "GROK_VERSION: $_ver"
+}
+
+# --- Timeout wrapper --------------------------------------------------------
+
+_gstack_grok_timeout_wrapper() {
+  local _duration="$1"
+  shift
+  local _to
+  _to=$(command -v gtimeout 2>/dev/null || command -v timeout 2>/dev/null || echo "")
+  if [ -n "$_to" ]; then
+    "$_to" "$_duration" "$@"
+  else
+    "$@"
+  fi
+}
+
+# --- Telemetry event --------------------------------------------------------
+
+_gstack_grok_log_event() {
+  local _event="$1"
+  local _duration="${2:-0}"
+  [ "${_TEL:-off}" = "off" ] && return 0
+  mkdir -p "$HOME/.gstack/analytics" 2>/dev/null || return 0
+  local _ts
+  _ts=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo unknown)
+  printf '{"skill":"grok","event":"%s","duration_s":"%s","ts":"%s"}\n' \
+    "$_event" "$_duration" "$_ts" \
+    >> "$HOME/.gstack/analytics/skill-usage.jsonl" 2>/dev/null || true
+}
+
+# --- Learnings log on hang --------------------------------------------------
+
+_gstack_grok_log_hang() {
+  local _mode="${1:-unknown}"
+  local _prompt_size="${2:-0}"
+  local _log_bin="$HOME/.claude/skills/gstack/bin/gstack-learnings-log"
+  [ -x "$_log_bin" ] || return 0
+  local _key="grok-hang-$(date +%s 2>/dev/null || echo unknown)"
+  "$_log_bin" "$(printf '{"skill":"grok","type":"operational","key":"%s","insight":"Grok timed out during [%s] invocation. Prompt size: %s. Consider splitting prompt or checking network.","confidence":8,"source":"observed","files":["grok/SKILL.md.tmpl"]}' "$_key" "$_mode" "$_prompt_size")" \
+    >/dev/null 2>&1 || true
+}

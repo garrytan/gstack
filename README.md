@@ -223,6 +223,7 @@ Each skill feeds into the next. `/office-hours` writes a design doc that `/plan-
 | Skill | What it does |
 |-------|-------------|
 | `/codex` | **Second Opinion** — independent code review from OpenAI Codex CLI. Three modes: review (pass/fail gate), adversarial challenge, and open consultation. Cross-model analysis when both `/review` and `/codex` have run. |
+| `/grok` | **Second Opinion (xAI)** — independent code review from Grok Build CLI. Same three modes as `/codex` (review/challenge/consult) with read-only `--permission-mode plan`. Cross-model analysis when `/review`, `/codex`, and `/grok` have run. |
 | `/careful` | **Safety Guardrails** — warns before destructive commands (rm -rf, DROP TABLE, force-push). Say "be careful" to activate. Override any warning. |
 | `/freeze` | **Edit Lock** — restrict file edits to one directory. Prevents accidental changes outside scope while debugging. |
 | `/guard` | **Full Safety** — `/careful` + `/freeze` in one command. Maximum safety for prod work. |
