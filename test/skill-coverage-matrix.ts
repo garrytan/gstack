@@ -59,6 +59,11 @@ export const SKILL_COVERAGE: Record<string, SkillCoverage> = {
     gate: ['test/skill-coverage-floor.test.ts'],
     periodic: [],
   },
+  'bug-report': {
+    gate: ['test/bug-report-skill.test.ts', 'test/skill-coverage-floor.test.ts'],
+    periodic: [],
+    rationale: 'Deterministic invariants pin evidence labeling, privacy gates, reproduction, and PR-draft behavior.',
+  },
   browse: {
     gate: ['test/skill-coverage-floor.test.ts'],
     periodic: [],

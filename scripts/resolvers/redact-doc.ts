@@ -120,6 +120,7 @@ const SINKS: Record<string, SinkSpec> = {
 export function generateRedactInvocationBlock(ctx: TemplateContext, args?: string[]): string {
   const sinkLabel = args?.[0] ?? 'pre-issue';
   const brief = args?.[1] === 'brief';
+  const retain = args?.includes('retain') ?? false;
   const sink = SINKS[sinkLabel] ?? SINKS['pre-issue'];
   const bin = `${ctx.paths.binDir}/gstack-redact`;
 
@@ -132,7 +133,9 @@ Run the SAME scan-at-sink procedure shown above (resolve \`$REDACT_VIS\` once an
 reuse it; write the exact bytes to \`$REDACT_FILE\`; \`${bin} --from-file "$REDACT_FILE"
 --repo-visibility "$REDACT_VIS" --json\`), now on ${sink.noun}. Apply the same
 exit-3/2/0 handling. On exit 3, do NOT ${sink.blockVerb}; HIGH has no skip. Pass the
-same \`$REDACT_FILE\` downstream so the bytes scanned are the bytes sent.`;
+same \`$REDACT_FILE\` downstream so the bytes scanned are the bytes sent.${retain ? `
+Retain \`$REDACT_FILE\` until the destination write succeeds, then remove it in a
+finally-style cleanup. Never delete or reconstruct it before the write.` : ''}`;
   }
 
   return `#### Redaction scan — ${sinkLabel} (${sink.noun})
@@ -169,9 +172,11 @@ Branch on \`$REDACT_CODE\`:
 3. **Exit 0 (clean)** — proceed; surface \`WARN\` (tool-fence degrades) + \`LOW\` as a
    one-line FYI (never blocks).
 
-\`\`\`bash
+${retain ? `Retain \`$REDACT_FILE\` for the immediate destination write. Write or send
+that exact file first, then run \`rm -f "$REDACT_FILE"\` in finally-style cleanup.
+Never delete or reconstruct it before the write.` : `\`\`\`bash
 rm -f "$REDACT_FILE"
-\`\`\`
+\`\`\``}
 
 Guardrail, not airtight enforcement — direct \`gh\`/\`git\` bypass it; it catches accidents.`;
 }
