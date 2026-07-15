@@ -44,7 +44,6 @@ _link_or_copy() {
   local src="$1"
   local dst="$2"
   if [ "$IS_WINDOWS" -eq 1 ]; then
-    rm -rf "$dst"
     # Unix `ln -snf` accepts a name-only or relative-path source even when the
     # target doesn't resolve from CWD (e.g. the connect-chrome alias points at
     # the sibling-relative "gstack/open-gstack-browser"). On Windows the
@@ -53,6 +52,19 @@ _link_or_copy() {
     if [ ! -e "$src" ]; then
       return 0
     fi
+    rm -rf "$dst"
+    # Prefer symlinks when the user has SeCreateSymbolicLinkPrivilege
+    # (Developer Mode ON, or running as admin). Real symlinks auto-refresh
+    # on `git pull`, unlike file copies. Fall back to copy on EACCES so
+    # unprivileged users without Developer Mode still get a working install.
+    if ln -sn "$src" "$dst" 2>/dev/null && [ -L "$dst" ]; then
+      return 0
+    fi
+    # Symlink attempt didn't produce a real symlink — clean up any partial
+    # artifact (e.g. ln exited 0 but created a regular file under dst) and
+    # fall through to copy. Without this, cp -R would fail with "cannot
+    # overwrite non-directory ... with directory" when src is a directory.
+    rm -rf "$dst"
     if [ -d "$src" ]; then
       cp -R "$src" "$dst"
     else
