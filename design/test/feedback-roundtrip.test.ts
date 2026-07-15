@@ -121,10 +121,15 @@ beforeAll(async () => {
   await bm.launch();
 });
 
-afterAll(() => {
+afterAll(async () => {
   try { server.stop(); } catch {}
   fs.rmSync(tmpDir, { recursive: true, force: true });
-  setTimeout(() => process.exit(0), 500);
+  // Close the browser (capped) instead of a delayed process.exit(0): that
+  // timer killed the whole bun process mid-suite with a green exit code.
+  await Promise.race([
+    bm.close().catch(() => {}),
+    new Promise(r => setTimeout(r, 5000)),
+  ]);
 });
 
 // ─── The critical test: browser click → file on disk ─────────────

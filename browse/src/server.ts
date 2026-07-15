@@ -243,6 +243,14 @@ export interface ServerConfig {
    * reference is the PID record + the file paths.
    */
   ownsTerminalAgent?: boolean;
+  /**
+   * Process-exit seam. shutdown() calls this at the very end of its async
+   * teardown; defaults to process.exit. In-process test runs inject a
+   * recording stub here — the fire-and-forget shutdown path otherwise races
+   * per-test process.exit stubs, and a straggler real exit(0) truncates the
+   * whole bun test run with a green exit code and no failure tally.
+   */
+  exitFn?: (code?: number) => void;
 }
 
 /**
@@ -664,6 +672,11 @@ export const __testInternals__ = {
   // need shutdown to fire. Without this, the second test's shutdown
   // returns early at the `if (isShuttingDown) return;` guard.
   resetShutdownState: () => { isShuttingDown = false; },
+  // Stop the module-level 60s idle interval. In-process test runs import this
+  // module once for the whole suite; the interval otherwise outlives the test
+  // file and can fire a real process.exit(0) mid-suite, silently truncating
+  // the run with a green exit code.
+  stopIdleTimer: () => { clearInterval(idleCheckInterval); },
 };
 
 // ─── Parent-Process Watchdog ────────────────────────────────────────
@@ -1489,6 +1502,9 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
   // to gstack-owns. Matches the "default-true preserves CLI bit-for-bit"
   // premise even under malformed cfg.
   const ownsTerminalAgent = cfg.ownsTerminalAgent === false ? false : true;
+  // Exit seam: production defaults to process.exit; tests inject a stub so
+  // in-process shutdowns can never terminate the test runner itself.
+  const exitFn = cfg.exitFn ?? ((code?: number) => process.exit(code));
 
   // ─── Terminal-Agent Watchdog (v1.44+) ─────────────────────────────
   //
@@ -1614,7 +1630,7 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
 
     cleanSingletonLocks(resolveChromiumProfile());
     safeUnlinkQuiet(config.stateFile);
-    process.exit(exitCode);
+    exitFn(exitCode);
   }
 
   // Named lifecycle helper (matches closeTunnel style). Logs failures so
