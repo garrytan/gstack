@@ -119,7 +119,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
       // ...while the full create/update procedure stays carved into pr-body.md
       // (out of the skeleton, present in the union). Asserts BOTH PR paths
       // survive: the create path and the idempotent update path.
-      mustMoveToSection: ['gh pr create --base', 'gh pr edit --title'],
+      mustMoveToSection: ['gh pr create --base', 'gh api -X PATCH'],
       // ship is operational (multi-STOP, not a plan review); no single post-STOP gate.
       gateAfterStop: undefined,
     },

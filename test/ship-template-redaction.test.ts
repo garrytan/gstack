@@ -32,8 +32,9 @@ describe("/ship redaction wiring", () => {
   test("creates from the scanned temp file (exact bytes)", () => {
     expect(TMPL).toMatch(/gh pr create[\s\S]{0,120}--body-file "\$PR_BODY_FILE"/);
   });
-  test("edit path also scans before sending", () => {
-    expect(TMPL).toMatch(/gh pr edit --body-file "\$PR_BODY_FILE"/);
+  test("REST edit path also scans before sending", () => {
+    expect(TMPL).toMatch(/gh api -X PATCH "repos\/\$REPO_NWO\/pulls\/\$PR_NUMBER" --input -/);
+    expect(TMPL).not.toContain("gh pr edit --body-file");
     expect(TMPL).toMatch(/same redaction scan-at-sink.*before editing/i);
   });
   test("HIGH blocks the PR (exit 3), no skip", () => {
