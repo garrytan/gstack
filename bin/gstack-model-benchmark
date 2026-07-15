@@ -31,11 +31,13 @@ import { runBenchmark, formatTable, formatJson, formatMarkdown, type BenchmarkIn
 import { ClaudeAdapter } from '../test/helpers/providers/claude';
 import { GptAdapter } from '../test/helpers/providers/gpt';
 import { GeminiAdapter } from '../test/helpers/providers/gemini';
+import { AgyAdapter } from '../test/helpers/providers/agy';
 
 const ADAPTER_FACTORIES = {
   claude: () => new ClaudeAdapter(),
   gpt: () => new GptAdapter(),
   gemini: () => new GeminiAdapter(),
+  agy: () => new AgyAdapter(),
 };
 
 type OutputFormat = 'table' | 'json' | 'markdown';
@@ -76,13 +78,13 @@ function positionalArgs(args: string[]): string[] {
   return positional;
 }
 
-function parseProviders(s: string | undefined): Array<'claude' | 'gpt' | 'gemini'> {
+function parseProviders(s: string | undefined): Array<'claude' | 'gpt' | 'gemini' | 'agy'> {
   if (!s) return ['claude'];
-  const seen = new Set<'claude' | 'gpt' | 'gemini'>();
+  const seen = new Set<'claude' | 'gpt' | 'gemini' | 'agy'>();
   for (const p of s.split(',').map(x => x.trim()).filter(Boolean)) {
-    if (p === 'claude' || p === 'gpt' || p === 'gemini') seen.add(p);
+    if (p === 'claude' || p === 'gpt' || p === 'gemini' || p === 'agy') seen.add(p);
     else {
-      console.error(`WARN: unknown provider '${p}' — skipping. Valid: claude, gpt, gemini.`);
+      console.error(`WARN: unknown provider '${p}' — skipping. Valid: claude, gpt, gemini, agy.`);
     }
   }
   return seen.size ? Array.from(seen) : ['claude'];
@@ -149,7 +151,7 @@ async function main(): Promise<void> {
 
 async function dryRunReport(opts: {
   prompt: string;
-  providers: Array<'claude' | 'gpt' | 'gemini'>;
+  providers: Array<'claude' | 'gpt' | 'gemini' | 'agy'>;
   workdir: string;
   timeoutMs: number;
   output: OutputFormat;

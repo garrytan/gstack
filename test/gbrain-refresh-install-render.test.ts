@@ -13,7 +13,7 @@ const SRC = fs.readFileSync(path.join(ROOT, 'bin', 'gstack-config'), 'utf-8');
 // satisfied by unrelated text elsewhere in the file.
 function okBranch(): string {
   const start = SRC.indexOf('gbrain-refresh)');
-  const ok = SRC.indexOf('ok)', start);
+  const ok = SRC.indexOf('ok|timeout)', start);
   const end = SRC.indexOf(';;', ok);
   if (start < 0 || ok < 0 || end < 0) throw new Error('Could not locate gbrain-refresh ok) branch');
   return SRC.slice(ok, end);

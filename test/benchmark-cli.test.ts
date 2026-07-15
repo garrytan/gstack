@@ -36,12 +36,13 @@ function run(args: string[], opts: { env?: Record<string, string> } = {}): { sta
 
 describe('gstack-model-benchmark --dry-run', () => {
   test('prints provider availability report and exits 0', () => {
-    const r = run(['--prompt', 'hi', '--models', 'claude,gpt,gemini', '--dry-run']);
+    const r = run(['--prompt', 'hi', '--models', 'claude,gpt,gemini,agy', '--dry-run']);
     expect(r.status).toBe(0);
     expect(r.stdout).toContain('gstack-model-benchmark --dry-run');
     expect(r.stdout).toContain('claude');
     expect(r.stdout).toContain('gpt');
     expect(r.stdout).toContain('gemini');
+    expect(r.stdout).toContain('agy');
     expect(r.stdout).toContain('no prompts sent');
   });
 
@@ -86,12 +87,12 @@ describe('gstack-model-benchmark --dry-run', () => {
   });
 
   test('each adapter reports either OK or NOT READY, never crashes', () => {
-    const r = run(['--prompt', 'hi', '--models', 'claude,gpt,gemini', '--dry-run']);
+    const r = run(['--prompt', 'hi', '--models', 'claude,gpt,gemini,agy', '--dry-run']);
     expect(r.status).toBe(0);
     // Each provider line must end in OK or NOT READY
     const lines = r.stdout.split('\n');
-    const adapterLines = lines.filter(l => /^\s+(claude|gpt|gemini):/.test(l));
-    expect(adapterLines.length).toBe(3);
+    const adapterLines = lines.filter(l => /^\s+(claude|gpt|gemini|agy):/.test(l));
+    expect(adapterLines.length).toBe(4);
     for (const line of adapterLines) {
       expect(line).toMatch(/(OK|NOT READY)/);
     }
@@ -116,7 +117,7 @@ describe('gstack-model-benchmark --dry-run', () => {
         TERM: process.env.TERM ?? 'xterm',
         HOME: emptyHome,
       };
-      const result = spawnSync('bun', ['run', BIN, '--prompt', 'hi', '--models', 'claude,gpt,gemini', '--dry-run'], {
+      const result = spawnSync('bun', ['run', BIN, '--prompt', 'hi', '--models', 'claude,gpt,gemini,agy', '--dry-run'], {
         cwd: ROOT,
         env: minimalEnv,
         encoding: 'utf-8',
@@ -124,14 +125,15 @@ describe('gstack-model-benchmark --dry-run', () => {
       });
       expect(result.status).toBe(0);
       const out = result.stdout?.toString() ?? '';
-      // gpt + gemini must report NOT READY in this clean env (their auth check
+      // gpt + gemini + agy must report NOT READY in this clean env (their auth check
       // reads paths under the overridden HOME).
       expect(out).toMatch(/gpt:\s+NOT READY/);
       expect(out).toMatch(/gemini:\s+NOT READY/);
+      expect(out).toMatch(/agy:\s+NOT READY/);
       // Every NOT READY line must include a concrete remediation hint so users
       // can resolve the missing auth. This is the regression we care about.
       const notReadyLines = out.split('\n').filter(l => l.includes('NOT READY'));
-      expect(notReadyLines.length).toBeGreaterThanOrEqual(2);
+      expect(notReadyLines.length).toBeGreaterThanOrEqual(3);
       for (const line of notReadyLines) {
         expect(line).toMatch(/(install|Install|login|export|Run|Log in)/);
       }

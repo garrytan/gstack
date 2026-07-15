@@ -24,8 +24,10 @@ const INSTALL = path.join(ROOT, 'bin', 'gstack-gbrain-install');
 // Minimal PATH with POSIX tools + homebrew (for jq/git/curl) but no user-bin
 // dirs — this keeps `gbrain` out of PATH deterministically across dev machines
 // while still finding jq, git, curl, sed, cat, etc. Each test can prepend a
-// fake-gbrain dir when it wants to simulate presence.
-const SAFE_PATH = '/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin';
+// fake-gbrain dir when it wants to simulate presence. We append the active Bun
+// directory so the script shebang can find bun.
+const BUN_DIR = path.dirname(process.execPath);
+const SAFE_PATH = `/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin:${BUN_DIR}`;
 
 let tmpHome: string;
 let tmpHomeReal: string;

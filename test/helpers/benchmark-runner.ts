@@ -11,15 +11,16 @@ import type { ProviderAdapter, RunOpts, RunResult } from './providers/types';
 import { ClaudeAdapter } from './providers/claude';
 import { GptAdapter } from './providers/gpt';
 import { GeminiAdapter } from './providers/gemini';
+import { AgyAdapter } from './providers/agy';
 
 export interface BenchmarkInput {
   prompt: string;
   workdir: string;
   timeoutMs?: number;
-  /** Adapter names to run (e.g., ['claude', 'gpt', 'gemini']). */
-  providers: Array<'claude' | 'gpt' | 'gemini'>;
+  /** Adapter names to run (e.g., ['claude', 'gpt', 'gemini', 'agy']). */
+  providers: Array<'claude' | 'gpt' | 'gemini' | 'agy'>;
   /** Optional per-provider model overrides. */
-  models?: Partial<Record<'claude' | 'gpt' | 'gemini', string>>;
+  models?: Partial<Record<'claude' | 'gpt' | 'gemini' | 'agy', string>>;
   /** If true, skip providers whose available() returns !ok. If false, include them with error. */
   skipUnavailable?: boolean;
 }
@@ -44,10 +45,11 @@ export interface BenchmarkReport {
   entries: BenchmarkEntry[];
 }
 
-const ADAPTERS: Record<'claude' | 'gpt' | 'gemini', () => ProviderAdapter> = {
+const ADAPTERS: Record<'claude' | 'gpt' | 'gemini' | 'agy', () => ProviderAdapter> = {
   claude: () => new ClaudeAdapter(),
   gpt: () => new GptAdapter(),
   gemini: () => new GeminiAdapter(),
+  agy: () => new AgyAdapter(),
 };
 
 export async function runBenchmark(input: BenchmarkInput): Promise<BenchmarkReport> {

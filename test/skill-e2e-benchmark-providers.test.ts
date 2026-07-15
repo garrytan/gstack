@@ -22,6 +22,7 @@ import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { ClaudeAdapter } from './helpers/providers/claude';
 import { GptAdapter } from './helpers/providers/gpt';
 import { GeminiAdapter } from './helpers/providers/gemini';
+import { AgyAdapter } from './helpers/providers/agy';
 import { runBenchmark } from './helpers/benchmark-runner';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -39,6 +40,7 @@ const PROMPT = 'Reply with exactly this text and nothing else: ok';
 const claude = new ClaudeAdapter();
 const gpt = new GptAdapter();
 const gemini = new GeminiAdapter();
+const agy = new AgyAdapter();
 
 // Use a temp working directory so provider CLIs can't accidentally touch the repo.
 // Created in beforeAll / cleaned in afterAll so concurrent CI runs don't leak.
@@ -74,6 +76,14 @@ describeIfEvals('multi-provider benchmark adapters (live)', () => {
 
   test('gemini: available() returns structured ok/reason', async () => {
     const check = await gemini.available();
+    expect(check).toHaveProperty('ok');
+    if (!check.ok) {
+      expect(typeof check.reason).toBe('string');
+    }
+  });
+
+  test('agy: available() returns structured ok/reason', async () => {
+    const check = await agy.available();
     expect(check).toHaveProperty('ok');
     if (!check.ok) {
       expect(typeof check.reason).toBe('string');
@@ -140,11 +150,31 @@ describeIfEvals('multi-provider benchmark adapters (live)', () => {
     expect(result.modelUsed.length).toBeGreaterThan(0);
   }, 150_000);
 
+  test('agy: trivial prompt produces parseable output', async () => {
+    const check = await agy.available();
+    if (!check.ok) {
+      process.stderr.write(`\nagy live smoke: SKIPPED — ${check.reason}\n`);
+      return;
+    }
+    const result = await agy.run({ prompt: PROMPT, workdir, timeoutMs: 120_000 });
+    if (result.error) {
+      throw new Error(`agy errored: ${result.error.code} — ${result.error.reason}`);
+    }
+    expect(typeof result.output).toBe('string');
+    expect(result.tokens.input).toBeGreaterThan(0);
+    expect(result.tokens.output).toBeGreaterThan(0);
+    expect(result.durationMs).toBeGreaterThan(0);
+    expect(typeof result.modelUsed).toBe('string');
+    const cost = agy.estimateCost(result.tokens, result.modelUsed);
+    expect(cost).toBeGreaterThan(0);
+  }, 150_000);
+
   test('timeout error surfaces as error.code=timeout (no exception)', async () => {
-    // Use whatever adapter is available first — all three should share timeout semantics.
+    // Use whatever adapter is available first — all should share timeout semantics.
     const adapter = (await claude.available()).ok ? claude
       : (await gpt.available()).ok ? gpt
       : (await gemini.available()).ok ? gemini
+      : (await agy.available()).ok ? agy
       : null;
     if (!adapter) {
       process.stderr.write('\ntimeout smoke: SKIPPED — no provider available\n');
@@ -160,16 +190,16 @@ describeIfEvals('multi-provider benchmark adapters (live)', () => {
   }, 30_000);
 
   test('runBenchmark: Promise.allSettled means one unavailable provider does not block others', async () => {
-    // Use the full runner with all three providers — whichever are unauthed should
+    // Use the full runner with all providers — whichever are unauthed should
     // return entries with available=false and not crash the batch.
     const report = await runBenchmark({
       prompt: PROMPT,
       workdir,
-      providers: ['claude', 'gpt', 'gemini'],
+      providers: ['claude', 'gpt', 'gemini', 'agy'],
       timeoutMs: 120_000,
       skipUnavailable: false,
     });
-    expect(report.entries).toHaveLength(3);
+    expect(report.entries).toHaveLength(4);
     for (const e of report.entries) {
       expect(['claude', 'gpt', 'gemini']).toContain(e.family);
       if (e.available) {
