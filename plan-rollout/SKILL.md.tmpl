@@ -1,0 +1,179 @@
+---
+name: plan-rollout
+preamble-tier: 3
+interactive: true
+version: 0.1.0
+description: |
+  Decomposition-as-artifact. Reads a working diff (and `SYSTEM.md` if
+  present), writes `decomposition.md` with per-slice file lists,
+  reader-time estimates, dependency edges, and reconciliation flags.
+  Runs after a diff exists. Use when asked to "decompose the diff",
+  "write a decomposition.md", or "plan-rollout". (gstack)
+voice-triggers:
+  - "decompose the diff"
+  - "write a decomposition"
+  - "plan-rollout"
+allowed-tools:
+  - Read
+  - Write
+  - Grep
+  - Glob
+  - AskUserQuestion
+  - Bash
+triggers:
+  - decompose the diff
+  - write decomposition.md
+  - plan rollout
+---
+
+{{PREAMBLE}}
+
+# /plan-rollout
+
+Write `decomposition.md` describing how a real diff should ship as a
+PR stack. Never code, never split branches, never run `/ship`.
+
+**Don't run** on diffs that are ≤1 component + ≤30 min reader time +
+no hard edges — output one line ("This is one PR. No decomposition
+needed.") and stop. False slicing is worse than no slicing.
+
+**Don't run** before code exists. Tell the user to write a real diff
+first.
+
+Out of v1: `rollout.md`, spill-check, `/ship`/`/review` integration,
+SYSTEM.md scaffolder.
+
+## Step 0 — Detect
+
+1. Repo root: `git rev-parse --show-toplevel`.
+2. Base: `gh pr view --json baseRefName -q .baseRefName`, then
+   `origin/main`, then `origin/master`. AskUserQuestion if unresolved.
+3. Head: `git rev-parse --abbrev-ref HEAD`.
+4. Plan source: arg path → `~/.gstack/projects/<slug>/...-design-*.md`
+   → AskUserQuestion (paste / path / diff-only).
+
+Echo each value in one line. Facts only.
+
+## Step 1 — Read SYSTEM.md if present
+
+```bash
+test -f SYSTEM.md && cat SYSTEM.md || echo "(no SYSTEM.md — using path heuristics)"
+```
+
+If present: parse YAML, build path→component map (longest-path-wins),
+build contract graph (`rollout-edge: hard` edges drive coordinated-
+deploy warnings later).
+
+If absent: one component = one top-level directory of change.
+
+## Step 2 — Enumerate the diff
+
+```bash
+git diff --name-status "<base>"     # tracked: committed + staged + unstaged
+git diff --numstat "<base>"
+git ls-files --others --exclude-standard   # untracked, treat as fully added
+```
+
+Use `git diff <base>` (no triple-dot) so working-tree changes count.
+Union, dedupe by path. Empty → "Nothing to decompose" + stop.
+>200 files → warn + ask before proceeding.
+
+Bucket each file: with SYSTEM.md, via the path map (unmatched →
+`(unmapped)`, flagged). Without, by top-level directory.
+
+## Step 3 — Light import discovery
+
+```bash
+grep -E "^import .* from |^const .* = require\(" <file>   # TS/JS
+grep -E "^(from |import )" <file>                          # Python
+grep -E "^import " <file>                                  # Go
+```
+
+Resolve each import to a component. Record directed edges. External
+or ambiguous imports: log + skip.
+
+## Step 4 — Propose the stack
+
+Priority order:
+
+1. `rollout-edge: hard` (SYSTEM.md): both-sides-changed → one slice
+   tagged "coordinated deploy required — \<breaks-if reason\>".
+2. Topological by import edges. Cycles flagged + merged.
+3. `rollout-order` (lower first) breaks ties.
+4. `leaf-util` / `types-only` float to slice 0.
+5. Alphabetical for remaining ties.
+
+Per slice: files, lines +/-, dependencies, reader-time
+(`ceil(lines/80) + ceil(files/5)` min; cap 30 min — split or flag),
+reader guide (2-4 sentences, tired-reviewer voice).
+
+**One-PR escape:** ≤1 component + ≤30 min + no hard edges → one-line
+decomposition.md + exit.
+
+## Step 5 — Reconciliation flags (informational, never blocking)
+
+With SYSTEM.md present, print:
+- `import-without-contract`: A imports B but no contract declared.
+- `contract-without-imports`: contract declared, no supporting import
+  edge, no `note: runtime-only`.
+- `rollout-order-inversion`: declared order ≠ discovered order.
+
+## Step 6 — Artifact location
+
+AskUserQuestion:
+- In-repo: `.gstack/plan-rollout/<branch-slug>-decomposition.md`
+- User scope: `~/.gstack/projects/<repo-slug>/<branch-slug>-decomposition.md`
+
+Recommend in-repo when other `.gstack/` planning artifacts already
+exist on the branch; user scope otherwise.
+
+## Step 7 — Write decomposition.md
+
+```markdown
+# Decomposition: <branch>
+
+**Base:** <base>  **Head:** <head>  **Diff:** <N files, +A / -D>
+**SYSTEM.md:** <present | absent — heuristics used>
+**Generated:** <ISO>  **By:** /plan-rollout vX.Y.Z
+
+## Verdict
+
+<One paragraph. "This is one PR — no decomposition needed." | "Ship
+as N PRs in this order. Total reviewer time: ~M min." | "Stop.
+<issue>. Do <X> first.">
+
+## Slices
+
+### Slice 1: <name>
+**Files (<n>):** <list>
+**Diff:** +A / -D  **Reader time:** ~M min  **Depends on:** none | Slice K
+**Coordinated deploy:** <only if hard-edge applies>
+**Reader guide.** <2-4 sentences>
+
+## Reconciliation flags (informational)
+- ...
+(Emit only if SYSTEM.md present and ≥1 flag fired.)
+
+## What's NOT in this decomposition
+<Excluded files. "All changed files allocated." if none.>
+```
+
+Write the file, print its path, stop.
+
+## Self-check before exit
+
+1. Every file → exactly one slice (or `(unmapped)` flagged).
+2. No slice depends on a later slice.
+3. Verdict matches the math. 4 min on 2 files = one PR, not a stack.
+4. With SYSTEM.md, every slice maps to a real component name.
+
+If a check fails and you can't fix it, write the file with the
+failure flagged in the verdict.
+
+## Limits
+
+- Produces a doc — never enforces, never splits branches.
+- Does not validate `breaks-if` claims (human judgment).
+- Reader-time is heuristic; v1 has no calibration data.
+- Mostly-one-component diffs with stray files: one PR with a "stray
+  files" flag, not a forced 2-slice stack.
