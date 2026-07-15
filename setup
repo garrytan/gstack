@@ -1380,16 +1380,22 @@ if [ "$NO_TEAM_MODE" -ne 1 ] \
     *)                       PT_DECISION="prompt" ;;
   esac
 
-  # Conductor host reliability: the PreToolUse preference hook also carries the
-  # Conductor-prose enforcement (deny the flaky mcp__conductor__AskUserQuestion,
-  # redirect to a prose decision brief). A Conductor workspace setup otherwise
-  # falls through to "prompt" → the non-interactive skip below, leaving Conductor
-  # users without that backstop. Treat Conductor as an implicit opt-in — but
-  # only on the silent fall-through, never overriding an explicit --no-plan-tune-hooks.
-  if [ "$PT_DECISION" = "prompt" ] && { [ -n "${CONDUCTOR_WORKSPACE_PATH:-}" ] || [ -n "${CONDUCTOR_PORT:-}" ]; }; then
-    PT_DECISION="yes"
-    _PT_CONDUCTOR_AUTO=1
-  fi
+  # Conductor host: do NOT auto-install the plan-tune AUQ hooks here.
+  #
+  # The PreToolUse preference hook participates in the Agent-SDK `canUseTool`
+  # elicitation flow that Conductor uses to render AskUserQuestion. Its mere
+  # presence corrupts that round-trip — even when it returns `defer` — so the
+  # tool comes back as `[Tool result missing due to internal error]` and no
+  # options render. In other words, native AUQ works fine in Conductor UNTIL
+  # this hook is registered; the "flaky mcp__conductor__AskUserQuestion" this
+  # backstop was meant to work around is caused by the backstop itself.
+  # (Codex sessions never read ~/.claude/settings.json, so they're unaffected —
+  # which is why AUQ works in Codex but breaks in Claude on the same workspace.)
+  #
+  # Fall through to the normal decision below: a Conductor workspace with no
+  # explicit --plan-tune-hooks / GSTACK_PLAN_TUNE_HOOKS / plan_tune_hooks config
+  # takes the non-interactive skip and keeps native AUQ working. Users who
+  # genuinely want the prose backstop can still opt in explicitly.
 
   _install_plan_tune_hooks() {
     "$SETTINGS_HOOK" add-event \
