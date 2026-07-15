@@ -367,6 +367,72 @@ describe('gstack-relink (#578)', () => {
     expect(fs.existsSync(path.join(skillsDir, 'gstack-qa'))).toBe(false);
   });
 
+  // REGRESSION: prefix-mode relink must NOT clobber a *foreign* flat skill that
+  // happens to share a gstack skill name. Only gstack-owned flat entries (whose
+  // symlink resolves into the install dir) may be cleaned — a personal `/qa` or
+  // `/review` symlink pointing into e.g. ~/.agents/skills/ must survive.
+  test('prefix mode preserves foreign flat skills sharing a gstack name', () => {
+    setupMockInstall(['qa', 'ship']);
+
+    // A user's personal skills living OUTSIDE the gstack install.
+    const foreignDir = path.join(tmpDir, 'foreign-skills');
+    fs.mkdirSync(path.join(foreignDir, 'qa'), { recursive: true });
+    fs.writeFileSync(
+      path.join(foreignDir, 'qa', 'SKILL.md'),
+      '---\nname: qa\ndescription: my own qa skill\n---\n# my qa',
+    );
+
+    // Case A: foreign entry is a directory symlink (e.g. `qa -> ~/.agents/skills/qa`).
+    fs.symlinkSync(path.join(foreignDir, 'qa'), path.join(skillsDir, 'qa'));
+    // Case B: foreign entry is a real dir whose SKILL.md symlinks OUTSIDE the install.
+    fs.mkdirSync(path.join(skillsDir, 'ship'), { recursive: true });
+    fs.symlinkSync(
+      path.join(foreignDir, 'qa', 'SKILL.md'),
+      path.join(skillsDir, 'ship', 'SKILL.md'),
+    );
+
+    run(`${path.join(installDir, 'bin', 'gstack-config')} set skill_prefix true`, {
+      GSTACK_INSTALL_DIR: installDir,
+      GSTACK_SKILLS_DIR: skillsDir,
+    });
+    run(`${path.join(installDir, 'bin', 'gstack-relink')}`, {
+      GSTACK_INSTALL_DIR: installDir,
+      GSTACK_SKILLS_DIR: skillsDir,
+    });
+
+    // Foreign /qa symlink survives, still pointing outside the install.
+    expect(fs.lstatSync(path.join(skillsDir, 'qa')).isSymbolicLink()).toBe(true);
+    expect(fs.readlinkSync(path.join(skillsDir, 'qa'))).toBe(path.join(foreignDir, 'qa'));
+    // Foreign /ship (real dir, foreign SKILL.md) survives too.
+    expect(fs.readlinkSync(path.join(skillsDir, 'ship', 'SKILL.md')))
+      .toBe(path.join(foreignDir, 'qa', 'SKILL.md'));
+    // gstack still installs under its prefixed names alongside them.
+    expect(fs.existsSync(path.join(skillsDir, 'gstack-qa'))).toBe(true);
+    expect(fs.existsSync(path.join(skillsDir, 'gstack-ship'))).toBe(true);
+  });
+
+  // REGRESSION companion: a genuinely gstack-owned stale flat entry IS still removed.
+  test('prefix mode still removes gstack-owned stale flat entries', () => {
+    setupMockInstall(['qa']);
+    // Leftover flat-mode gstack entry: real dir whose SKILL.md → into the install.
+    fs.mkdirSync(path.join(skillsDir, 'qa'), { recursive: true });
+    fs.symlinkSync(
+      path.join(installDir, 'qa', 'SKILL.md'),
+      path.join(skillsDir, 'qa', 'SKILL.md'),
+    );
+    run(`${path.join(installDir, 'bin', 'gstack-config')} set skill_prefix true`, {
+      GSTACK_INSTALL_DIR: installDir,
+      GSTACK_SKILLS_DIR: skillsDir,
+    });
+    run(`${path.join(installDir, 'bin', 'gstack-relink')}`, {
+      GSTACK_INSTALL_DIR: installDir,
+      GSTACK_SKILLS_DIR: skillsDir,
+    });
+    // The stale flat /qa (gstack-owned) is gone; only gstack-qa remains.
+    expect(fs.existsSync(path.join(skillsDir, 'gstack-qa'))).toBe(true);
+    expect(fs.readdirSync(skillsDir)).not.toContain('qa');
+  });
+
   // Test 14: error when install dir missing
   test('prints error when install dir missing', () => {
     const output = run(`${BIN}/gstack-relink`, {
