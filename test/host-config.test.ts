@@ -195,6 +195,18 @@ describe('validateHostConfig', () => {
     expect(validateHostConfig(c).some(e => e.includes('linkingStrategy'))).toBe(true);
   });
 
+  test('valid defaultModel passes', () => {
+    const c = makeValid();
+    c.defaultModel = 'gpt';
+    expect(validateHostConfig(c)).toEqual([]);
+  });
+
+  test('invalid defaultModel is caught at runtime', () => {
+    const c = makeValid();
+    (c as any).defaultModel = 'not-a-model';
+    expect(validateHostConfig(c).some(e => e.includes('defaultModel'))).toBe(true);
+  });
+
   test('paths with $ and ~ are valid', () => {
     const c = makeValid();
     c.globalRoot = '$HOME/.test/skills/gstack';
@@ -479,6 +491,11 @@ describe('host config correctness', () => {
   test('codex generates openai.yaml metadata', () => {
     expect(codex.generation.generateMetadata).toBe(true);
     expect(codex.generation.metadataFormat).toBe('openai.yaml');
+  });
+
+  test('Claude and Codex declare host-specific model defaults', () => {
+    expect(claude.defaultModel).toBe('claude');
+    expect(codex.defaultModel).toBe('gpt');
   });
 
   test('codex has sidecar config', () => {

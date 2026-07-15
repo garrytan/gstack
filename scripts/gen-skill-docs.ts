@@ -90,12 +90,13 @@ const HOST_ARG_VAL: HostArg = (() => {
 let HOST: Host = HOST_ARG_VAL === 'all' ? 'claude' : HOST_ARG_VAL;
 
 // ─── Model Overlay Selection ────────────────────────────────
-// --model is explicit. We do NOT auto-detect from host (host ≠ model).
-// Default is 'claude'. Missing overlay file → empty string (graceful).
+// --model is explicit and wins over host configuration. A host may declare a
+// defaultModel; hosts without one retain the legacy Claude fallback. Missing
+// overlay file → empty string (graceful).
 import { ALL_MODEL_NAMES, resolveModel, type Model } from './models';
 const MODEL_ARG = process.argv.find(a => a.startsWith('--model'));
-const MODEL_ARG_VAL: Model = (() => {
-  if (!MODEL_ARG) return 'claude';
+const EXPLICIT_MODEL: Model | null = (() => {
+  if (!MODEL_ARG) return null;
   const val = MODEL_ARG.includes('=') ? MODEL_ARG.split('=')[1] : process.argv[process.argv.indexOf(MODEL_ARG) + 1];
   const resolved = resolveModel(val);
   if (!resolved) {
@@ -103,6 +104,10 @@ const MODEL_ARG_VAL: Model = (() => {
   }
   return resolved;
 })();
+
+function modelForHost(hostConfig: HostConfig): Model {
+  return EXPLICIT_MODEL ?? hostConfig.defaultModel ?? 'claude';
+}
 
 // ─── Catalog Mode (v1.45.0.0 T4) ────────────────────────────
 // 'trim' (default): shorten frontmatter description to lead sentence,
@@ -731,7 +736,7 @@ function buildContext(
   const interactive = interactiveMatch ? interactiveMatch[1] === 'true' : undefined;
   return {
     skillName, tmplPath, benefitsFrom, host, paths: HOST_PATHS[host],
-    preambleTier, model: MODEL_ARG_VAL, interactive, explainLevel: EXPLAIN_LEVEL,
+    preambleTier, model: modelForHost(getHostConfig(host)), interactive, explainLevel: EXPLAIN_LEVEL,
   };
 }
 

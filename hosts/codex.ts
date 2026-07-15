@@ -10,6 +10,7 @@ const codex: HostConfig = {
   localSkillRoot: '.agents/skills/gstack',
   hostSubdir: '.agents',
   usesEnvVars: true,
+  defaultModel: 'gpt',
 
   frontmatter: {
     mode: 'allowlist',

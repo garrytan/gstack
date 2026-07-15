@@ -1705,6 +1705,28 @@ describe('Codex generation (--host codex)', () => {
     }
   });
 
+  test('--host codex defaults to the GPT model overlay', () => {
+    const content = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-ship', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('MODEL_OVERLAY: gpt');
+    expect(content).not.toContain('MODEL_OVERLAY: claude');
+  });
+
+  test('explicit --model overrides the Codex host default', () => {
+    try {
+      const result = Bun.spawnSync(
+        ['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', 'codex', '--model', 'claude'],
+        { cwd: ROOT, stdout: 'pipe', stderr: 'pipe' },
+      );
+      expect(result.exitCode).toBe(0);
+      const content = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-ship', 'SKILL.md'), 'utf-8');
+      expect(content).toContain('MODEL_OVERLAY: claude');
+    } finally {
+      Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', 'codex'], {
+        cwd: ROOT, stdout: 'pipe', stderr: 'pipe',
+      });
+    }
+  });
+
   test('root gstack bundle has OpenAI metadata for Codex skill browsing', () => {
     const rootMetadata = path.join(ROOT, 'agents', 'openai.yaml');
     expect(fs.existsSync(rootMetadata)).toBe(true);
@@ -2248,6 +2270,20 @@ describe('--host all', () => {
     for (const hostConfig of getExternalHosts()) {
       expect(output).toContain(`FRESH: ${hostConfig.hostSubdir}/skills/`);
     }
+  });
+
+  test('--host all resolves defaults independently for each host', () => {
+    const result = Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', 'all'], {
+      cwd: ROOT, stdout: 'pipe', stderr: 'pipe',
+    });
+    expect(result.exitCode).toBe(0);
+
+    const claudeSkill = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
+    const codexSkill = fs.readFileSync(path.join(ROOT, '.agents', 'skills', 'gstack-ship', 'SKILL.md'), 'utf-8');
+    const factorySkill = fs.readFileSync(path.join(ROOT, '.factory', 'skills', 'gstack-ship', 'SKILL.md'), 'utf-8');
+    expect(claudeSkill).toContain('MODEL_OVERLAY: claude');
+    expect(codexSkill).toContain('MODEL_OVERLAY: gpt');
+    expect(factorySkill).toContain('MODEL_OVERLAY: claude');
   });
 });
 

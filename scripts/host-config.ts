@@ -14,6 +14,8 @@
  *                                              platform-detect, uninstall
  */
 
+import { validateModel, type Model } from './models';
+
 export interface HostConfig {
   /** Unique host identifier (e.g., 'opencode'). Must match filename in hosts/. */
   name: string;
@@ -33,6 +35,8 @@ export interface HostConfig {
   hostSubdir: string;
   /** Whether preamble generates $GSTACK_ROOT env vars (true for non-Claude hosts). */
   usesEnvVars: boolean;
+  /** Default model overlay when --model is omitted. Legacy fallback is Claude. */
+  defaultModel?: Model;
 
   // --- Frontmatter Transformation ---
   frontmatter: {
@@ -150,6 +154,10 @@ export function validateHostConfig(config: HostConfig, validResolverNames?: Read
   }
   if (!['real-dir-symlink', 'symlink-generated'].includes(config.install.linkingStrategy)) {
     errors.push(`install.linkingStrategy must be 'real-dir-symlink' or 'symlink-generated'`);
+  }
+  if (config.defaultModel) {
+    const modelError = validateModel(config.defaultModel);
+    if (modelError) errors.push(`defaultModel ${modelError}`);
   }
 
   // Cross-check suppressedResolvers against the known resolver names (injected to avoid a
