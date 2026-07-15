@@ -4,9 +4,9 @@
  * Why this exists: WebSocket clients in browsers cannot send Authorization
  * headers on the upgrade request. The terminal-agent's /ws upgrade therefore
  * authenticates via cookie. We never put the PTY token in /health (codex
- * outside-voice finding #2: /health already leaks AUTH_TOKEN to any
- * localhost caller in headed mode; reusing that path for shell access would
- * widen an existing bug). Instead, the extension does an authenticated
+ * outside-voice finding #2: the public health endpoint must never carry
+ * AUTH_TOKEN; reusing it for shell access would widen the trust boundary).
+ * Instead, the extension does an authenticated
  * POST /pty-session with the bootstrap AUTH_TOKEN; the server mints a
  * short-lived cookie scoped to this terminal session and pushes it to the
  * agent via loopback. The browser then carries the cookie automatically on

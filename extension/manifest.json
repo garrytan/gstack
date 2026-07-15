@@ -2,7 +2,9 @@
   "manifest_version": 3,
   "name": "gstack browse",
   "version": "0.1.0",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAoXbtKYtvKA+STN/yRtOWb5ibKZXhHyTtiITl6K1qquF0g4Sd0zFO4LwmkGdzBCTUBLyVESeqjCLpP0WGJ0MS/g/YLMtmzLXWa2Bf/TNvrKIG/TxCfXLWDvdKayhS+lugLUX+tbrhRQiJ96Zoe2cFI0EXHa62mcLL9sNAwqmYNJAXK3uCJlveNa0NpeD8Jjmt3l2S9sjypVvz9JZmHnsgZbbK18VM3V65GpBs2BB/gzS8UDQbvR1vcrA5o9FHjgF0+NLrryNfyCJjm3YAHYJFKVda7uSHr4FlUZXl+IL9YynqODgx4Pp4kiY7bFCI7l9zzJIUkWnorskwzD3ziNUbJQIDAQAB",
   "description": "Live activity feed and @ref overlays for gstack browse",
+  "externally_connectable": { "ids": [] },
   "permissions": ["sidePanel", "storage", "activeTab", "scripting", "tabs"],
   "host_permissions": ["http://127.0.0.1:*/", "ws://127.0.0.1:*/"],
   "action": {

@@ -1405,22 +1405,23 @@ describe('sidebar auth race prevention', () => {
   const bgSrc = fs.readFileSync(path.join(ROOT, '..', 'extension', 'background.js'), 'utf-8');
   const spSrc = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.js'), 'utf-8');
 
-  test('getPort response includes authToken (not just port + connected)', () => {
-    // The auth race: sidepanel calls getPort, gets {port, connected} but no token.
-    // All subsequent requests fail 401. Token must be in the getPort response.
+  test('getPort response never includes authToken', () => {
+    // Content scripts can call getPort. Root auth must remain behind getToken,
+    // which rejects content-script contexts.
     const getPortHandler = bgSrc.slice(
       bgSrc.indexOf("msg.type === 'getPort'"),
       bgSrc.indexOf("msg.type === 'setPort'"),
     );
-    expect(getPortHandler).toContain('token: authToken');
+    expect(getPortHandler).not.toContain('authToken');
   });
 
-  test('tryConnect uses token from getPort response', () => {
-    // Sidepanel must pass resp.token to updateConnection, not null
+  test('tryConnect uses the extension-page-only getToken response', () => {
     const start = spSrc.indexOf('function tryConnect()');
     const end = spSrc.indexOf('\ntryConnect();', start); // top-level call after the function
     const tryConnectFn = spSrc.slice(start, end);
-    expect(tryConnectFn).toContain('resp.token');
+    expect(tryConnectFn).toContain("type: 'getToken'");
+    expect(tryConnectFn).toContain('tokenResp.token');
+    expect(tryConnectFn).not.toContain('resp.token');
     expect(tryConnectFn).not.toContain('updateConnection(url, null)');
   });
 });

@@ -83,7 +83,7 @@ The build writes `git rev-parse HEAD` to `browse/dist/.version`. On each CLI inv
 
 ### Localhost only
 
-The HTTP server binds to `127.0.0.1`, not `0.0.0.0`. It's not reachable from the network.
+The HTTP server binds to `127.0.0.1`, not `0.0.0.0`, and rejects unexpected Host headers to prevent DNS rebinding. `/health` is status-only and never returns credentials. BrowserManager provisions the root credential directly into `chrome.storage.session` for the manifest-key-pinned GStack extension; session storage is restricted to trusted extension contexts, so content scripts cannot read it.
 
 ### Dual-listener tunnel architecture (v1.6.0.0)
 
@@ -91,14 +91,14 @@ When a user runs `pair-agent --client`, the daemon starts an ngrok tunnel so a r
 
 The fix is **two HTTP listeners**, not one:
 
-- **Local listener** (`127.0.0.1:LOCAL_PORT`) — always bound. Serves bootstrap (`/health` with token delivery), `/cookie-picker`, `/inspector/*`, `/welcome`, `/refs`, the sidebar-agent API, and the full command surface. Never forwarded.
+- **Local listener** (`127.0.0.1:LOCAL_PORT`) — always bound. Serves status-only `/health`, `/cookie-picker`, `/inspector/*`, `/welcome`, `/refs`, the sidebar-agent API, and the full command surface. Never forwarded.
 - **Tunnel listener** (`127.0.0.1:TUNNEL_PORT`) — bound lazily on `/tunnel/start`, torn down on `/tunnel/stop`. Serves a locked allowlist: `/connect` (pairing ceremony, unauth + rate-limited), `/command` (scoped tokens only, further restricted to a browser-driving command allowlist), and `/sidebar-chat`. Everything else 404s.
 
 ngrok forwards only the tunnel port. The security property comes from **physical port separation**: a tunnel caller cannot reach `/health` or `/cookie-picker` because those paths don't exist on that TCP socket. Header inference (check `x-forwarded-for`, check origin) is unreliable (ngrok header behavior changes; local proxies can add these headers); socket separation isn't.
 
 | Endpoint | Local listener | Tunnel listener | Notes |
 |---|---|---|---|
-| `GET /health` | public (no token unless headed/extension) | 404 | Token bootstrap for extension happens locally only |
+| `GET /health` | public, status-only | 404 | Never returns the root token; extension auth is provisioned outside HTTP |
 | `GET /connect` | public (`{alive:true}`) | public (`{alive:true}`) | Probe path for tunnel liveness |
 | `POST /connect` | public (rate-limited 300/min) | public (rate-limited) | Setup-key exchange for pair-agent |
 | `POST /command` | auth (Bearer root OR scoped) | auth (scoped only, allowlisted commands) | Root token on tunnel = 403 |

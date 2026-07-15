@@ -1281,13 +1281,19 @@ async function tryConnect() {
 
   const port = resp.port || 34567;
 
-  // Step 2: If background says connected + has token, use that
-  if (resp.port && resp.connected && resp.token) {
+  // Step 2: Background owns the port; request the token through the separate
+  // extension-page-only channel. getPort intentionally never returns it.
+  const tokenResp = await new Promise(resolve => {
+    chrome.runtime.sendMessage({ type: 'getToken' }, (r) => {
+      resolve(r || {});
+    });
+  });
+  if (resp.port && resp.connected && tokenResp.token) {
     setLoadingStatus(
       `Server found on port ${port}, connecting...`,
       `token: yes\nStarting SSE + chat polling...`
     );
-    updateConnection(`http://127.0.0.1:${port}`, resp.token);
+    updateConnection(`http://127.0.0.1:${port}`, tokenResp.token);
     return;
   }
 
@@ -1304,12 +1310,12 @@ async function tryConnect() {
     });
     if (healthResp.ok) {
       const data = await healthResp.json();
-      if (data.status === 'healthy' && data.token) {
+      if (data.status === 'healthy' && tokenResp.token) {
         setLoadingStatus(
           `Server healthy on port ${port}, connecting...`,
-          `token: yes (from /health)\nStarting SSE + activity feed...`
+          `token: yes (from extension storage)\nStarting SSE + activity feed...`
         );
-        updateConnection(`http://127.0.0.1:${port}`, data.token);
+        updateConnection(`http://127.0.0.1:${port}`, tokenResp.token);
         // The SEC shield used to drive off /health.security via the chat
         // path's classifier; with the chat path ripped, the indicator is
         // not driven yet. Leaving the shield element hidden by default.
@@ -1317,7 +1323,7 @@ async function tryConnect() {
       }
       setLoadingStatus(
         `Server responded but not healthy (attempt ${connectAttempts})`,
-        `status: ${data.status}\ntoken: ${data.token ? 'yes' : 'no'}`
+        `status: ${data.status}\ntoken: ${tokenResp.token ? 'yes' : 'no'}`
       );
     } else {
       setLoadingStatus(

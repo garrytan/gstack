@@ -65,7 +65,8 @@ chmod +x "$APP_DIR/Contents/Resources/browse"
 
 # Extension
 cp -r "$ROOT/extension" "$APP_DIR/Contents/Resources/extension"
-# Remove .auth.json if present (auth now via /health endpoint)
+# Remove legacy file-based auth if present. Current builds provision the
+# bearer through the trusted extension's isolated Chrome storage.
 rm -f "$APP_DIR/Contents/Resources/extension/.auth.json"
 
 # Server source (needed for `bun run server.ts` subprocess)
