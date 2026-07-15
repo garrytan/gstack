@@ -114,11 +114,6 @@ describe('check-careful.sh', () => {
   });
 
   // --- SQL destructive commands ---
-  // Note: SQL commands that contain embedded double quotes (e.g., psql -c "DROP TABLE")
-  // get their command value truncated by the grep-based JSON extractor because \"
-  // terminates the [^"]* match. We use commands WITHOUT embedded quotes so the grep
-  // extraction works and the SQL keywords are visible to the pattern matcher.
-
   describe('SQL destructive commands', () => {
     test('psql DROP TABLE warns with DROP in message', () => {
       const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('psql -c DROP TABLE users;'));
@@ -139,6 +134,16 @@ describe('check-careful.sh', () => {
       expect(exitCode).toBe(0);
       expect(output.permissionDecision).toBe('ask');
       expect(output.message).toContain('TRUNCATE');
+    });
+
+    test('escaped quotes cannot hide DROP TABLE from JSON parsing', () => {
+      const { exitCode, output } = runHook(
+        CAREFUL_SCRIPT,
+        carefulInput('psql -c "DROP TABLE users"'),
+      );
+      expect(exitCode).toBe(0);
+      expect(output.permissionDecision).toBe('ask');
+      expect(output.message).toContain('DROP');
     });
   });
 
@@ -241,17 +246,14 @@ describe('check-careful.sh', () => {
       expect(output.permissionDecision).toBeUndefined();
     });
 
-    test('malformed JSON input allows gracefully (exit 0, output {})', () => {
-      const { exitCode, raw } = runHookRaw(CAREFUL_SCRIPT, 'this is not json at all{{{{');
+    test('malformed JSON input fails closed', () => {
+      const { exitCode, output } = runHookRaw(CAREFUL_SCRIPT, 'this is not json at all{{{{');
       expect(exitCode).toBe(0);
-      expect(raw).toBe('{}');
+      expect(output.permissionDecision).toBe('ask');
+      expect(output.message).toContain('parse');
     });
 
-    test('Python fallback: grep fails on multiline JSON, Python parses it', () => {
-      // Construct JSON where "command": and the value are on separate lines.
-      // grep works line-by-line, so it cannot match "command"..."value" across lines.
-      // This forces CMD to be empty, triggering the Python fallback which handles
-      // the full JSON correctly.
+    test('JSON parser handles a command value on the next line', () => {
       const rawJson = '{"tool_input":{"command":\n"rm -rf /tmp/important"}}';
       const { exitCode, output } = runHookRaw(CAREFUL_SCRIPT, rawJson);
       expect(exitCode).toBe(0);

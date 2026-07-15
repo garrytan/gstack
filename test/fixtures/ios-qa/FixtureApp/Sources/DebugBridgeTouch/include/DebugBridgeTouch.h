@@ -1,7 +1,7 @@
 //
 //  DebugBridgeTouch.h — public Objective-C interface for in-process touch
 //  synthesis. Implementation derived from KIF (https://github.com/kif-framework/KIF),
-//  MIT-licensed. The minimal subset needed to deliver a real UITouch to a
+//  Apache-2.0 licensed. The minimal subset needed to deliver a real UITouch to a
 //  point on the key window, including SwiftUI Buttons via iOS 18+
 //  _UIHitTestContext. DEBUG-only — never link in Release.
 
@@ -22,10 +22,6 @@
 NS_ASSUME_NONNULL_BEGIN
 
 @interface DebugBridgeTouch : NSObject
-
-/// Enable the in-process accessibility automation tree used by SwiftUI and
-/// UIKit. Call once while installing the debug bridge, before /elements.
-+ (void)prepareForAutomation;
 
 /// Synthesize a single tap (TouchPhaseBegan + TouchPhaseEnded) at the given
 /// window-coordinate point. Returns YES if the touch was delivered (a hit

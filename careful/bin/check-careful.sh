@@ -7,13 +7,24 @@ set -euo pipefail
 # Read stdin (JSON with tool_input)
 INPUT=$(cat)
 
-# Extract the "command" field value from tool_input
-# Try grep/sed first (handles 99% of cases), fall back to Python for escaped quotes
-CMD=$(printf '%s' "$INPUT" | grep -o '"command"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*:[[:space:]]*"//;s/"$//' || true)
-
-# Python fallback if grep returned empty (e.g., escaped quotes in command)
-if [ -z "$CMD" ]; then
-  CMD=$(printf '%s' "$INPUT" | python3 -c 'import sys,json; print(json.loads(sys.stdin.read()).get("tool_input",{}).get("command",""))' 2>/dev/null || true)
+# Parse JSON before inspecting the command. Regex extraction cannot distinguish
+# escaped quotes from the end of a JSON string and can hide a destructive tail.
+# A malformed hook payload is itself unsafe, so fail closed and ask.
+if ! CMD=$(printf '%s' "$INPUT" | python3 -c '
+import json, sys
+data = json.load(sys.stdin)
+if not isinstance(data, dict):
+    raise ValueError("hook payload must be an object")
+tool_input = data.get("tool_input", {})
+if not isinstance(tool_input, dict):
+    raise ValueError("tool_input must be an object")
+command = tool_input.get("command", "")
+if not isinstance(command, str):
+    raise ValueError("command must be a string")
+sys.stdout.write(command)
+' 2>/dev/null); then
+  echo '{"permissionDecision":"ask","message":"[careful] Could not parse the command payload safely. Review it before proceeding."}'
+  exit 0
 fi
 
 # If we still couldn't extract a command, allow
@@ -30,7 +41,7 @@ CMD_LOWER=$(printf '%s' "$CMD" | tr '[:upper:]' '[:lower:]')
 # syntax or comments can hide an earlier destructive command, for example:
 #   rm -rf / # rm -rf node_modules
 # Unknown syntax fails closed and falls through to the destructive checks.
-if printf '%s' "$CMD" | grep -qE '^[[:space:]]*rm[[:space:]]+(-[a-zA-Z]*r[a-zA-Z]*[[:space:]]+|--recursive[[:space:]]+)(([^[:space:];&|#]*/)?(node_modules|\.next|dist|__pycache__|\.cache|build|\.turbo|coverage)[[:space:]]*)+$' 2>/dev/null; then
+if [[ "$CMD" != *$'\n'* ]] && printf '%s' "$CMD" | grep -qE '^[[:space:]]*rm[[:space:]]+(-[a-zA-Z]*r[a-zA-Z]*[[:space:]]+|--recursive[[:space:]]+)(([^[:space:];&|#]*/)?(node_modules|\.next|dist|__pycache__|\.cache|build|\.turbo|coverage)[[:space:]]*)+$' 2>/dev/null; then
   echo '{}'
   exit 0
 fi

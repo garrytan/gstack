@@ -1,7 +1,10 @@
 //
 //  DebugBridgeTouch.m — minimal port of KIF's in-process touch synthesis.
-//  Original code: https://github.com/kif-framework/KIF — MIT-licensed
-//  (Square, Inc. + KIF contributors). Adapted to a single-file, tap-only,
+//  Original code: https://github.com/kif-framework/KIF — Apache-2.0
+//  Copyright 2011-2016 Square, Inc. and KIF contributors.
+//  Licensed under the Apache License, Version 2.0. You may obtain a copy at
+//  https://www.apache.org/licenses/LICENSE-2.0
+//  Adapted to a single-file, tap-only,
 //  iOS 18+ aware subset for the gstack/ios-qa DebugBridge.
 //
 //  Uses these private UIKit selectors (DEBUG-only; never shipped to App Store):
@@ -19,6 +22,8 @@
 
 #import "DebugBridgeTouch.h"
 #import <TargetConditionals.h>
+
+#if DEBUG
 
 #if TARGET_OS_IOS
 
@@ -126,36 +131,6 @@ static BOOL DBT_LoadIOKit(void) {
     return _IOKitLoaded;
 }
 
-// KIF enables accessibility automation before it asks UIKit/SwiftUI for the
-// accessibility tree. Without this switch SwiftUI exposes only its hosting
-// shell: /elements has no controls and a synthesized tap can return YES while
-// Button.action never fires. Keep this DEBUG-only with the rest of this file.
-typedef int (*DBTAXSAutomationEnabledFn)(void);
-typedef void (*DBTAXSSetAutomationEnabledFn)(int);
-static DBTAXSAutomationEnabledFn _DBTAXSAutomationEnabled;
-static DBTAXSSetAutomationEnabledFn _DBTAXSSetAutomationEnabled;
-static int _DBTInitialAutomationState = -1;
-
-static void DBT_RestoreAccessibilityAutomation(void) {
-    if (_DBTAXSSetAutomationEnabled && _DBTInitialAutomationState >= 0) {
-        _DBTAXSSetAutomationEnabled(_DBTInitialAutomationState);
-    }
-}
-
-static void DBT_EnableAccessibilityAutomation(void) {
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        void *handle = dlopen("/usr/lib/libAccessibility.dylib", RTLD_NOW | RTLD_LOCAL);
-        if (!handle) return;
-        _DBTAXSAutomationEnabled = (DBTAXSAutomationEnabledFn)dlsym(handle, "_AXSAutomationEnabled");
-        _DBTAXSSetAutomationEnabled = (DBTAXSSetAutomationEnabledFn)dlsym(handle, "_AXSSetAutomationEnabled");
-        if (!_DBTAXSAutomationEnabled || !_DBTAXSSetAutomationEnabled) return;
-        _DBTInitialAutomationState = _DBTAXSAutomationEnabled();
-        if (!_DBTInitialAutomationState) _DBTAXSSetAutomationEnabled(1);
-        atexit(DBT_RestoreAccessibilityAutomation);
-    });
-}
-
 static IOHIDEventRef DBT_IOHIDEventWithTouch(UITouch *touch) CF_RETURNS_RETAINED;
 static IOHIDEventRef DBT_IOHIDEventWithTouch(UITouch *touch) {
     if (!DBT_LoadIOKit()) return NULL;
@@ -202,7 +177,6 @@ static IOHIDEventRef DBT_IOHIDEventWithTouch(UITouch *touch) {
 - (void)setGestureView:(UIView *)view;
 - (void)_setLocationInWindow:(CGPoint)location resetPrevious:(BOOL)resetPrevious;
 - (void)_setIsFirstTouchForView:(BOOL)firstTouchForView;
-- (void)_setIsTapToClick:(BOOL)tapToClick;
 - (void)_setHidEvent:(IOHIDEventRef)event;
 @end
 
@@ -260,10 +234,6 @@ static id DBT_HitTestView(UIWindow *window, CGPoint point) {
 
 @implementation DebugBridgeTouch
 
-+ (void)prepareForAutomation {
-    DBT_EnableAccessibilityAutomation();
-}
-
 + (BOOL)sendTapAtPoint:(CGPoint)point inWindow:(UIWindow *)window {
     if (!window) return NO;
 
@@ -282,17 +252,10 @@ static id DBT_HitTestView(UIWindow *window, CGPoint point) {
     [touch setPhase:UITouchPhaseBegan];
     if ([touch respondsToSelector:@selector(_setIsFirstTouchForView:)]) {
         [touch _setIsFirstTouchForView:YES];
-    } else if ([touch respondsToSelector:@selector(_setIsTapToClick:)]) {
-        [touch _setIsTapToClick:YES];
-        Ivar flagsIvar = class_getInstanceVariable([UITouch class], "_touchFlags");
-        if (flagsIvar) {
-            ptrdiff_t offset = ivar_getOffset(flagsIvar);
-            char *flags = (__bridge void *)touch + offset;
-            *flags |= (char)0x01;
-        }
     }
     [touch setTimestamp:[[NSProcessInfo processInfo] systemUptime]];
-    if ([touch respondsToSelector:@selector(setGestureView:)]) {
+    if ([touch respondsToSelector:@selector(setGestureView:)] &&
+        [hit isKindOfClass:[UIView class]]) {
         [touch setGestureView:(UIView *)hit];
     }
 
@@ -341,3 +304,5 @@ static id DBT_HitTestView(UIWindow *window, CGPoint point) {
 @end
 
 #endif // TARGET_OS_IOS
+
+#endif // DEBUG
