@@ -1,5 +1,42 @@
 # Changelog
 
+## [1.60.2.0] - 2026-07-15
+
+## **Windows Codex installs now ship the runtime modules their GBrain tools import.**
+## **Worktree sync preserves path boundaries and refuses to widen maintenance across the whole brain.**
+
+The Windows Codex runtime could install executable GStack helpers without the sibling `lib` modules they import. Once the helpers ran, source sync had three more sharp edges: equivalent Windows path spellings looked like drift, paths containing spaces passed through shell parsing, and a source-scoped maintenance request could assume a CLI capability the installed GBrain did not expose. This release closes all four defects as one boundary-hardening patch.
+
+### The numbers that matter
+
+Source: the DEV-206 regression suite and adjacent GBrain orchestration tests (`bun test test/dev-206-windows-gbrain.test.ts test/gbrain-cycle-completed.test.ts test/gbrain-dream-stage.test.ts test/gbrain-exec-invariant.test.ts test/gbrain-sources.test.ts test/gbrain-spawn-windows-shell.test.ts test/gstack-gbrain-sync.test.ts`).
+
+| Windows worktree-sync boundary | Before | After |
+|---|---:|---:|
+| Required runtime module trees installed with Codex helpers | 0 | 1 (`lib`) |
+| Equivalent slash/case path forms that trigger re-registration | possible | 0 in regression coverage |
+| Shell parsing layers around GBrain argv | 1 | 0 |
+| Brain-wide maintenance fallbacks from a source-scoped request | possible | 0 (fails closed) |
+| Focused regression and orchestration tests | — | 92 passing |
+
+### What this means for you
+
+Codex-hosted GStack tools keep their imports after both setup and upgrade. A Windows worktree path keeps its spaces as one argument, case or slash differences do not cause a destructive source remove/re-add, and `/sync-gbrain` reports an actionable compatibility error when the installed CLI cannot perform source-scoped maintenance. It never substitutes a brain-wide cycle silently.
+
+### Itemized changes
+
+#### Fixed
+
+- Codex runtime metadata and `./setup` now install `lib` beside shipped `bin` helpers in both the global runtime and project sidecar.
+- Source drift checks resolve Windows drive/UNC paths, normalize separators, and compare case-insensitively before considering destructive re-registration or hostname-fold migration.
+- GBrain subprocesses resolve a direct executable and use structural argv with `shell: false`; Windows `.cmd`, `.bat`, and `.ps1` launchers are rejected with setup remediation instead of rebuilding a shell command.
+- The dream stage probes `gbrain dream --help` for `--source` support before acquiring its maintenance marker. Missing capability or an unresolvable worktree returns an error and never falls back to bare `gbrain dream`.
+
+#### For contributors
+
+- Cross-platform fake GBrain harnesses now compile executable test shims, so spaced-path and direct-spawn behavior is exercised without shell quoting artifacts.
+- DEV-206 coverage simulates Codex install/upgrade, verifies normalized drift, rejects unsafe Windows launchers, and runs the real wrapper against a brain-wide-only fake CLI to prove no maintenance dispatch occurs.
+
 ## [1.60.1.0] - 2026-07-09
 
 ## **The /autoplan dual-voice eval is back on the board, catching real regressions.**
