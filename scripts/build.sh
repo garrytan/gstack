@@ -30,6 +30,10 @@ esac
 "$BUN_CMD" build --compile make-pdf/src/cli.ts --outfile make-pdf/dist/pdf
 "$BUN_CMD" build --compile bin/gstack-global-discover.ts --outfile bin/gstack-global-discover
 bash browse/scripts/build-node-server.sh
+# Smart App Control can block the locally compiled unsigned browse.exe.
+# Browser skills use an extensionless source launcher through the installed Bun
+# runtime while the native binary remains available for signed release workflows.
+BUN_CMD="$BUN_CMD" bash browse/bin/stage-windows-browse-launcher "$(uname -s)" "$ROOT"
 bash scripts/write-version-files.sh browse/dist/.version design/dist/.version make-pdf/dist/.version
 chmod +x browse/dist/browse browse/dist/find-browse design/dist/design make-pdf/dist/pdf bin/gstack-global-discover
 rm -f .*.bun-build
