@@ -94,15 +94,16 @@ describe('pair-agent flow end-to-end (HTTP only, no ngrok)', () => {
     if (daemon) killDaemon(daemon);
   });
 
-  test('GET /health returns daemon status and includes token for chrome-extension origin', async () => {
+  test('GET /health never includes root token even for chrome-extension origin', async () => {
     const resp = await fetch(`${daemon.baseUrl}/health`, {
       headers: { Origin: 'chrome-extension://test-extension-id' },
     });
     expect(resp.status).toBe(200);
     const body = await resp.json() as any;
     expect(body.status).toBeDefined();
-    // Extension bootstrap — local listener delivers the token
-    expect(body.token).toBe(daemon.token);
+    // Regression #1324: Origin is caller-controlled, so /health must stay public
+    // status-only. The bundled extension gets auth via chrome.storage provisioning.
+    expect(body.token).toBeUndefined();
   });
 
   test('GET /health without chrome-extension origin does NOT include token', async () => {

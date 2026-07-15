@@ -1552,6 +1552,9 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
           stateFile: cfg.config.stateFile,
           serverPort: cfg.browsePort,
           cwd: cfg.config.projectDir,
+          extraEnv: {
+            BROWSE_EXTENSION_ID: cfgBrowserManager.getExtensionId() || '__gstack_extension_id_unavailable__',
+          },
         });
         if (pid) {
           console.log(`[browse] terminal-agent respawned by watchdog (PID: ${pid})`);
@@ -1777,14 +1780,11 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
           mode: browserManager.getConnectionMode(),
           uptime: Math.floor((Date.now() - startTime) / 1000),
           tabs: browserManager.getTabCount(),
-          // Auth token for extension bootstrap. Safe: /health is localhost-only.
-          // Previously served unconditionally, but that leaks the token if the
-          // server is tunneled to the internet (ngrok, SSH tunnel).
-          // In headed mode the server is always local, so return token unconditionally
-          // (fixes Playwright Chromium extensions that don't send Origin header).
-          ...(browserManager.getConnectionMode() === 'headed' ||
-              req.headers.get('origin')?.startsWith('chrome-extension://')
-              ? { token: authToken } : {}),
+          // Public liveness/status only. Do NOT return the root auth token here.
+          // Regression #1324: any local process can spoof Origin and use a
+          // leaked root token to mint /pty-session shell access. The trusted
+          // extension receives bootstrap auth out-of-band via chrome.storage
+          // provisioning during headed launch instead.
           // The chat queue is gone — Terminal pane is the sole sidebar
           // surface. Keep `chatEnabled: false` so any older extension
           // build still treats the chat input as disabled.
@@ -2794,11 +2794,8 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
 
       // GET /memory — diagnostic snapshot (auth required, does NOT reset idle).
       // Same auth model as /activity/stream and /inspector/events: Bearer header
-      // OR view-only SSE-session cookie. Does NOT extend /health (which already
-      // leaks AUTH_TOKEN to any localhost caller in headed mode — see TODOS.md
-      // "Audit /health token distribution"); a separate endpoint with the
-      // standard SSE auth keeps the future /health fix from cascading into the
-      // sidebar footer poll.
+      // OR view-only SSE-session cookie. Keep this separate from /health, which
+      // is public status-only and must never carry AUTH_TOKEN (#1324).
       if (url.pathname === '/memory' && req.method === 'GET') {
         const cookieToken = extractSseCookie(req);
         if (!validateAuth(req) && !validateSseSessionToken(cookieToken)) {
@@ -2864,6 +2861,10 @@ export async function start() {
 
   const port = await findPort();
   LOCAL_LISTEN_PORT = port;
+  // Extension auth bootstrap happens during browser launch, before Bun.serve
+  // writes the state file. Set the selected port now so chrome.storage gets
+  // the real daemon port instead of falling back to the historical 34567.
+  browserManager.serverPort = port;
 
   // ─── Proxy config (D8 + codex F5) ──────────────────────────────
   // BROWSE_PROXY_URL is set by the CLI when --proxy was passed. For SOCKS5
@@ -2961,6 +2962,7 @@ export async function start() {
   // write so all consumers see the same value. v1.34.x's module-level
   // AUTH_TOKEN const was deleted in v1.35.0.0.
   const envCfg = resolveConfigFromEnv();
+  browserManager.setExtensionAuthToken(envCfg.authToken);
 
   // Launch browser (headless or headed with extension)
   // BROWSE_HEADLESS_SKIP=1 skips browser launch entirely (for HTTP-only testing)
@@ -3005,6 +3007,7 @@ export async function start() {
     serverPath: path.resolve(import.meta.dir, 'server.ts'),
     binaryVersion: readVersionHash() || undefined,
     mode: browserManager.getConnectionMode(),
+    extensionId: browserManager.getExtensionId() || undefined,
     // D2 daemon-mismatch detection: CLI computes the same hash from its
     // resolved flags and refuses if it differs from this stored value.
     ...(process.env.BROWSE_CONFIG_HASH ? { configHash: process.env.BROWSE_CONFIG_HASH } : {}),
@@ -3016,8 +3019,6 @@ export async function start() {
   const tmpFile = tmpStatePath();
   fs.writeFileSync(tmpFile, JSON.stringify(state, null, 2), { mode: 0o600 });
   fs.renameSync(tmpFile, config.stateFile);
-
-  browserManager.serverPort = port;
 
   // Navigate to welcome page if in headed mode and still on about:blank
   if (browserManager.getConnectionMode() === 'headed') {
