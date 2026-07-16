@@ -303,3 +303,27 @@ describe('stealth injected on every context-creation path', () => {
     expect(sites.length).toBeGreaterThanOrEqual(2);
   });
 });
+
+// ─── Extension launch path uses new headless, not an off-screen window (#432) ───
+//
+// BROWSE_EXTENSIONS_DIR previously launched headed with --window-position=-9999
+// + browser.newContext(). On macOS the off-screen window is still shown, and the
+// isolated newContext() means the loaded extension never runs. The fix loads the
+// extension through launchPersistentContext() with Chrome's new headless mode
+// (--headless=new): the extension's service worker loads with no visible window.
+describe('extension launch path (issue #432)', () => {
+  it('loads extensions via new headless, not an off-screen headed window', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const src = readFileSync(join(import.meta.dir, '..', 'src', 'browser-manager.ts'), 'utf-8');
+
+    // The off-screen-window hack is gone (macOS ignores it; the window shows).
+    expect(src).not.toContain('--window-position=-9999,-9999');
+    // New headless keeps the window hidden while still loading extensions.
+    expect(src).toContain('--headless=new');
+    // Extensions require a persistent context — launch() + newContext() leaves
+    // them inert. All three extension-capable paths must use it now.
+    const persistent = src.match(/launchPersistentContext\(/g) || [];
+    expect(persistent.length).toBeGreaterThanOrEqual(3);
+  });
+});
