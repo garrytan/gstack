@@ -156,7 +156,12 @@ export function matchesUnnegated(text: string, pattern: RegExp): boolean {
   // to the model RATHER THAN create a separate table") — the rejected
   // alternative can otherwise match the pattern just as strongly as a real
   // recommendation would, with no single negation word anywhere near it.
-  const NEGATION = /\b(not|n't|no|never|don't|doesn't|didn't|shouldn't|wouldn't|isn't|without|against|rather than|instead of)\b/i;
+  // [a-z]+n't matches any "-n't" contraction generically (can't, won't,
+  // aren't, hasn't, doesn't, don't, wouldn't, ...) — a bare `\b n't \b`
+  // alternative can never match mid-word (there's no word boundary between
+  // the letters immediately before "n" and "n" itself), so it silently
+  // covered nothing beyond the contractions already spelled out explicitly.
+  const NEGATION = /\b(not|no|never|cannot|without|against|rather than|instead of)\b|[a-z]+n't\b/i;
   const flags = pattern.flags.includes('g') ? pattern.flags : pattern.flags + 'g';
   const re = new RegExp(pattern.source, flags);
   let m: RegExpExecArray | null;

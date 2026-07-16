@@ -456,12 +456,16 @@ Focus specifically on the data model design in the plan. Apply the data model re
     // assumptions below.
     const lower = review.toLowerCase();
     const unformatted = review.replace(/[`*_]/g, '');
+    // matchesUnnegated so a (would-be-regression) "I would NOT recommend a
+    // separate tier model here" answer doesn't get counted as a pass just
+    // for containing the words — consistent with the sibling counterexample
+    // tests below.
     const recommendsSeparateModel =
-      /separate\s+(subscription\s*)?tier\s*model/i.test(unformatted) ||
-      /new\s+(subscription\s*)?tier\s*model/i.test(unformatted) ||
-      /subscriptiontier\s*model/i.test(unformatted) ||
-      /extract[\s\S]*tier[\s\S]*model/i.test(unformatted) ||
-      /tier\s*(?:table|model)\s*(?:with|per)/i.test(unformatted);
+      matchesUnnegated(unformatted, /separate\s+(subscription\s*)?tier\s*model/i) ||
+      matchesUnnegated(unformatted, /new\s+(subscription\s*)?tier\s*model/i) ||
+      matchesUnnegated(unformatted, /subscriptiontier\s*model/i) ||
+      matchesUnnegated(unformatted, /extract[\s\S]*tier[\s\S]*model/i) ||
+      matchesUnnegated(unformatted, /tier\s*(?:table|model)\s*(?:with|per)/i);
     const pushesBackOnJsonField =
       lower.includes('jsonfield') &&
       (lower.includes('feature') || lower.includes('polymorph') || lower.includes('explicit'));

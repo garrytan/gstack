@@ -62,6 +62,22 @@ describe('matchesUnnegated', () => {
     )).toBe(false);
   });
 
+  test('recognizes "-n\'t" contractions generically (can\'t, won\'t, aren\'t, hasn\'t)', () => {
+    // A bare `\b n't \b` alternative can never match mid-word (no word
+    // boundary between the letters immediately before "n" and "n" itself),
+    // so only the contractions spelled out explicitly ever matched. Verify
+    // the generic [a-z]+n't pattern actually catches the common ones that
+    // previously fell through silently.
+    expect(matchesUnnegated("This can't promote the payload into columns.", splitPattern)).toBe(false);
+    expect(matchesUnnegated("This won't promote the payload into columns.", splitPattern)).toBe(false);
+    expect(matchesUnnegated("These aren't reasons to promote the payload into columns.", splitPattern)).toBe(false);
+    expect(matchesUnnegated("It hasn't been decided to promote the payload into columns.", splitPattern)).toBe(false);
+  });
+
+  test('recognizes "cannot" as a negation', () => {
+    expect(matchesUnnegated('This cannot promote the payload into columns.', splitPattern)).toBe(false);
+  });
+
   test('catches a positive match even when an unrelated negation appears earlier in the text', () => {
     expect(matchesUnnegated(
       'This is not a JSONField concern. Separately, I recommend you promote the payload into explicit columns.',
