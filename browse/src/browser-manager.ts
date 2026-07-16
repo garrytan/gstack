@@ -340,11 +340,14 @@ export class BrowserManager {
   async launch() {
     // ─── Extension Support ────────────────────────────────────
     // BROWSE_EXTENSIONS_DIR points to an unpacked Chrome extension directory.
-    // Extensions only work in headed mode, so we use an off-screen window.
+    // Extensions load through launchPersistentContext() + Chrome's new headless
+    // mode (--headless=new, set below). launch() + newContext() would isolate the
+    // extension so it never runs, and the old off-screen-window hack still showed a
+    // real window on macOS (issue #432).
     const extensionsDir = process.env.BROWSE_EXTENSIONS_DIR;
+    const useExtensionProfile = Boolean(extensionsDir);
     const { STEALTH_LAUNCH_ARGS, buildGStackLaunchArgs } = await import('./stealth');
     const launchArgs: string[] = [...STEALTH_LAUNCH_ARGS, ...buildGStackLaunchArgs()];
-    let useHeadless = true;
 
     // Docker/CI/root: Chromium sandbox requires unprivileged user namespaces which
     // are typically disabled in containers and are never available for the root
@@ -354,7 +357,7 @@ export class BrowserManager {
       launchArgs.push('--no-sandbox');
     }
 
-    if (extensionsDir) {
+    if (useExtensionProfile) {
       // Skip --load-extension when running against a custom Chromium build that
       // already bakes the extension in (e.g., GBrowser / GStack Browser.app).
       // Loading it twice causes a ServiceWorkerState::SetWorkerId DCHECK crash.
@@ -364,35 +367,12 @@ export class BrowserManager {
           `--load-extension=${extensionsDir}`,
         );
       }
-      launchArgs.push('--window-position=-9999,-9999', '--window-size=1,1');
-      useHeadless = false; // extensions require headed mode; off-screen window simulates headless
+      // New headless (Chromium 112+) runs extensions with no visible window, so
+      // there is no headed window to hide. Replaces the --window-position hack
+      // that macOS ignored (issue #432).
+      launchArgs.push('--headless=new');
       console.log(`[browse] Extensions loaded from: ${extensionsDir}`);
     }
-
-    this.browser = await chromium.launch({
-      headless: useHeadless,
-      // On Windows, Chromium's sandbox fails when the server is spawned through
-      // the Bun→Node process chain (GitHub #276). Disable it — local daemon
-      // browsing user-specified URLs has marginal sandbox benefit. Also disabled
-      // on Linux root/CI/container, where the sandbox requires unprivileged user
-      // namespaces that aren't available.
-      chromiumSandbox: shouldEnableChromiumSandbox(),
-      ...(launchArgs.length > 0 ? { args: launchArgs } : {}),
-      ...(this.proxyConfig ? { proxy: this.proxyConfig } : {}),
-    });
-
-    // Chromium disconnect → distinguish clean user-quit from crash. Both
-    // events look identical to Playwright (one 'disconnected' fires), but
-    // the underlying ChildProcess exit code separates them:
-    //   exitCode === 0  → clean quit (user Cmd+Q on macOS, normal shutdown)
-    //   exitCode !== 0  → crash, signal-kill, or OOM
-    // Process supervisors (gbrowser's gbd) consume our exit code: code 0
-    // means "user wanted this, don't restart"; non-zero means "crash, please
-    // bring me back." Without this distinction every Cmd+Q gets treated as
-    // a crash and the user-visible window keeps respawning.
-    this.browser.on('disconnected', () => {
-      void handleChromiumDisconnect(this.browser);
-    });
 
     const contextOptions: BrowserContextOptions = {
       viewport: { width: this.currentViewport.width, height: this.currentViewport.height },
@@ -401,7 +381,56 @@ export class BrowserManager {
     if (this.customUserAgent) {
       contextOptions.userAgent = this.customUserAgent;
     }
-    this.context = await this.browser.newContext(contextOptions);
+
+    if (useExtensionProfile) {
+      // Extensions REQUIRE launchPersistentContext — launch() + newContext() loads
+      // them into an isolated context where they never run. --headless=new (added
+      // above) keeps the window hidden. Mirrors launchHeaded()/handoff(); like those
+      // persistent-context paths, this.context.browser() is null, so the disconnect,
+      // teardown (close), and health checks below are guarded on this.context.
+      const fs = require('fs');
+      const userDataDir = resolveChromiumProfile();
+      fs.mkdirSync(userDataDir, { recursive: true });
+      cleanSingletonLocks(userDataDir);
+      const { STEALTH_IGNORE_DEFAULT_ARGS } = await import('./stealth');
+      this.context = await chromium.launchPersistentContext(userDataDir, {
+        headless: false, // --headless=new in launchArgs drives windowless new-headless
+        chromiumSandbox: shouldEnableChromiumSandbox(),
+        args: launchArgs,
+        ignoreDefaultArgs: STEALTH_IGNORE_DEFAULT_ARGS,
+        ...contextOptions,
+        ...(this.proxyConfig ? { proxy: this.proxyConfig } : {}),
+      });
+      this.browser = this.context.browser(); // null for persistent contexts
+    } else {
+      this.browser = await chromium.launch({
+        headless: true,
+        // On Windows, Chromium's sandbox fails when the server is spawned through
+        // the Bun→Node process chain (GitHub #276). Disable it — local daemon
+        // browsing user-specified URLs has marginal sandbox benefit. Also disabled
+        // on Linux root/CI/container, where the sandbox requires unprivileged user
+        // namespaces that aren't available.
+        chromiumSandbox: shouldEnableChromiumSandbox(),
+        ...(launchArgs.length > 0 ? { args: launchArgs } : {}),
+        ...(this.proxyConfig ? { proxy: this.proxyConfig } : {}),
+      });
+      this.context = await this.browser.newContext(contextOptions);
+    }
+
+    // Chromium disconnect → distinguish clean user-quit from crash. Both events
+    // look identical to Playwright (one 'disconnected' fires), but the underlying
+    // ChildProcess exit code separates them:
+    //   exitCode === 0  → clean quit (user Cmd+Q on macOS, normal shutdown)
+    //   exitCode !== 0  → crash, signal-kill, or OOM
+    // Process supervisors (gbrowser's gbd) consume our exit code: code 0 means
+    // "user wanted this, don't restart"; non-zero means "crash, please bring me
+    // back." this.browser is null on the persistent-context (extension) path, so
+    // guard the listener; that path is torn down via this.context in close().
+    if (this.browser) {
+      this.browser.on('disconnected', () => {
+        void handleChromiumDisconnect(this.browser);
+      });
+    }
 
     if (Object.keys(this.extraHeaders).length > 0) {
       await this.context.setExtraHTTPHeaders(this.extraHeaders);
@@ -723,8 +752,10 @@ export class BrowserManager {
   }
 
   async close() {
-    if (this.browser || (this.connectionMode === 'headed' && this.context)) {
-      if (this.connectionMode === 'headed') {
+    if (this.browser || this.context) {
+      // Persistent contexts (headed handoff OR headless extensions) have a null
+      // this.browser; closing the context closes the underlying browser.
+      if (this.connectionMode === 'headed' || !this.browser) {
         // Headed/persistent context mode: close the context (which closes the browser)
         this.intentionalDisconnect = true;
         if (this.browser) this.browser.removeAllListeners('disconnected');
@@ -746,7 +777,14 @@ export class BrowserManager {
 
   /** Health check — verifies Chromium is connected AND responsive */
   async isHealthy(): Promise<boolean> {
-    if (!this.browser || !this.browser.isConnected()) return false;
+    // Persistent contexts (headed handoff, headless extensions) expose no Browser
+    // handle (this.browser is null) though this.context is live. Fall through to the
+    // page-responsiveness probe in that case instead of reporting unhealthy.
+    if (this.browser) {
+      if (!this.browser.isConnected()) return false;
+    } else if (!this.context) {
+      return false;
+    }
     try {
       const page = this.pages.get(this.activeTabId);
       if (!page) return true; // connected but no pages — still healthy
