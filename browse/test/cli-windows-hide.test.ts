@@ -14,6 +14,7 @@ import * as path from 'node:path';
 const ROOT = path.resolve(import.meta.dir, '..', '..');
 const CLI = path.join(ROOT, 'browse', 'src', 'cli.ts');
 const CONFIG = path.join(ROOT, 'browse', 'src', 'config.ts');
+const FIND_BROWSE = path.join(ROOT, 'browse', 'src', 'find-browse.ts');
 const FILE_PERMISSIONS = path.join(ROOT, 'browse', 'src', 'file-permissions.ts');
 
 function read(filePath: string): string {
@@ -50,6 +51,18 @@ describe('#1784 Windows console flash suppression', () => {
     );
     expect(body).toMatch(
       /Bun\.spawnSync\(\s*\[\s*['"]git['"],\s*['"]remote['"],\s*['"]get-url['"],\s*['"]origin['"]/,
+    );
+  });
+
+  test('find-browse git probe uses hidden Node spawnSync on Windows and keeps Bun on POSIX', () => {
+    const body = read(FIND_BROWSE);
+    const hiddenGitSpawns = body.match(
+      /nodeSpawnSync\(\s*['"]git['"][\s\S]{0,250}windowsHide:\s*true/g,
+    ) || [];
+    expect(body).toContain("process.platform === 'win32'");
+    expect(hiddenGitSpawns).toHaveLength(1);
+    expect(body).toMatch(
+      /Bun\.spawnSync\(\s*\[\s*['"]git['"],\s*['"]rev-parse['"],\s*['"]--show-toplevel['"]/,
     );
   });
 
