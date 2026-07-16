@@ -103,6 +103,58 @@ export function copyDirSync(src: string, dest: string) {
 }
 
 /**
+ * Set up a throwaway git repo containing plan.md + a copy of plan-eng-review's
+ * SKILL.md (+ sections/ if the skill has been carved) for standalone-plan E2E
+ * tests. Shared by the data-model-bias / legitimate-JSON / measured-denorm
+ * regression tests, which otherwise duplicated this ~20-line setup verbatim.
+ */
+export function setupPlanEngReviewFixture(tmpPrefix: string, planMarkdown: string): string {
+  const planDir = fs.mkdtempSync(path.join(os.tmpdir(), tmpPrefix));
+  const run = (cmd: string, args: string[]) =>
+    spawnSync(cmd, args, { cwd: planDir, stdio: 'pipe', timeout: 5000 });
+
+  run('git', ['init', '-b', 'main']);
+  run('git', ['config', 'user.email', 'test@test.com']);
+  run('git', ['config', 'user.name', 'Test']);
+
+  fs.writeFileSync(path.join(planDir, 'plan.md'), planMarkdown);
+  run('git', ['add', '.']);
+  run('git', ['commit', '-m', 'add plan']);
+
+  fs.mkdirSync(path.join(planDir, 'plan-eng-review'), { recursive: true });
+  fs.copyFileSync(
+    path.join(ROOT, 'plan-eng-review', 'SKILL.md'),
+    path.join(planDir, 'plan-eng-review', 'SKILL.md'),
+  );
+  const sectionsDir = path.join(ROOT, 'plan-eng-review', 'sections');
+  if (fs.existsSync(sectionsDir)) {
+    fs.cpSync(sectionsDir, path.join(planDir, 'plan-eng-review', 'sections'), { recursive: true });
+  }
+  return planDir;
+}
+
+/**
+ * Case-insensitive check for `pattern` in `text` that ignores matches
+ * immediately preceded by a negation word (not/n't/no/never/without/...).
+ * Plain substring/regex matching can't tell "extract the payload into
+ * columns" from "would NOT extract the payload into columns" — this walks
+ * every match and inspects the text just before it for a negation cue.
+ */
+export function matchesUnnegated(text: string, pattern: RegExp): boolean {
+  const NEGATION = /\b(not|n't|no|never|don't|doesn't|didn't|shouldn't|wouldn't|isn't|without|against)\b/i;
+  const flags = pattern.flags.includes('g') ? pattern.flags : pattern.flags + 'g';
+  const re = new RegExp(pattern.source, flags);
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text))) {
+    const windowStart = Math.max(0, m.index - 20);
+    const preceding = text.slice(windowStart, m.index);
+    if (!NEGATION.test(preceding)) return true;
+    if (re.lastIndex === m.index) re.lastIndex++; // avoid infinite loop on zero-width matches
+  }
+  return false;
+}
+
+/**
  * Set up browse shims (binary symlink, find-browse, remote-slug) in a tmpDir.
  */
 export function setupBrowseShims(dir: string) {

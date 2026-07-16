@@ -5,6 +5,7 @@ import {
   describeIfSelected, testConcurrentIfSelected,
   copyDirSync, setupBrowseShims, logCost, recordE2E,
   createEvalCollector, finalizeEvalCollector,
+  setupPlanEngReviewFixture, matchesUnnegated,
 } from './helpers/e2e-helpers';
 import { judgePosture } from './helpers/llm-judge';
 import { spawnSync } from 'child_process';
@@ -380,20 +381,12 @@ describeIfSelected('Plan Eng Review Data-Model Bias E2E', ['plan-eng-review-data
   let planDir: string;
 
   beforeAll(() => {
-    planDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-e2e-plan-eng-dmb-'));
-    const run = (cmd: string, args: string[]) =>
-      spawnSync(cmd, args, { cwd: planDir, stdio: 'pipe', timeout: 5000 });
-
-    run('git', ['init', '-b', 'main']);
-    run('git', ['config', 'user.email', 'test@test.com']);
-    run('git', ['config', 'user.name', 'Test']);
-
     // Synthetic plan designed to trip the old bias: four clearly-polymorphic
     // tier variants + feature-flag bag that the user proposes to inline onto
     // User rather than create a new model. After the fix, the skill should
     // recommend a separate SubscriptionTier model and push back on the
     // JSONField for tier_features.
-    fs.writeFileSync(path.join(planDir, 'plan.md'), `# Plan: Add Subscription Tiers to User Model
+    planDir = setupPlanEngReviewFixture('skill-e2e-plan-eng-dmb-', `# Plan: Add Subscription Tiers to User Model
 
 ## Context
 I want to add a 'subscription tier' feature to my Django app. Each user can
@@ -423,18 +416,6 @@ column-add, no new FK navigation in the codebase.
 - Should feature flags be a separate table or stay as JSONField?
 - Any concerns with this approach?
 `);
-
-    run('git', ['add', '.']);
-    run('git', ['commit', '-m', 'add plan']);
-
-    fs.mkdirSync(path.join(planDir, 'plan-eng-review'), { recursive: true });
-    fs.copyFileSync(
-      path.join(ROOT, 'plan-eng-review', 'SKILL.md'),
-      path.join(planDir, 'plan-eng-review', 'SKILL.md'),
-    );
-    // Carved skills (v2 plan T9): copy sections/ so the Architecture review +
-    // Data model review checklist (now carved out of SKILL.md) are present.
-    { const _sec = path.join(ROOT, 'plan-eng-review', 'sections'); if (fs.existsSync(_sec)) fs.cpSync(_sec, path.join(planDir, 'plan-eng-review', 'sections'), { recursive: true }); }
   });
 
   afterAll(() => {
@@ -469,14 +450,18 @@ Focus specifically on the data model design in the plan. Apply the data model re
     // Behavioral assertions: the review should recommend a separate tier model
     // and push back on JSONField for the feature set. Matching is deliberately
     // loose (case-insensitive substrings) to tolerate wording variance while
-    // still catching the bias regression.
+    // still catching the bias regression. Strip markdown formatting chars
+    // (backticks, asterisks) first — LLMs commonly wrap identifiers like
+    // `SubscriptionTier` in backticks, which would otherwise break the \s*
+    // assumptions below.
     const lower = review.toLowerCase();
+    const unformatted = review.replace(/[`*_]/g, '');
     const recommendsSeparateModel =
-      /separate\s+(subscription\s*)?tier\s*model/i.test(review) ||
-      /new\s+(subscription\s*)?tier\s*model/i.test(review) ||
-      /subscriptiontier\s*model/i.test(review) ||
-      /extract.*tier.*model/i.test(review) ||
-      /tier\s*(?:table|model)\s*(?:with|per)/i.test(review);
+      /separate\s+(subscription\s*)?tier\s*model/i.test(unformatted) ||
+      /new\s+(subscription\s*)?tier\s*model/i.test(unformatted) ||
+      /subscriptiontier\s*model/i.test(unformatted) ||
+      /extract[\s\S]*tier[\s\S]*model/i.test(unformatted) ||
+      /tier\s*(?:table|model)\s*(?:with|per)/i.test(unformatted);
     const pushesBackOnJsonField =
       lower.includes('jsonfield') &&
       (lower.includes('feature') || lower.includes('polymorph') || lower.includes('explicit'));
@@ -518,18 +503,10 @@ describeIfSelected('Plan Eng Review Data-Model Legitimate JSON E2E', ['plan-eng-
   let planDir: string;
 
   beforeAll(() => {
-    planDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-e2e-plan-eng-json-'));
-    const run = (cmd: string, args: string[]) =>
-      spawnSync(cmd, args, { cwd: planDir, stdio: 'pipe', timeout: 5000 });
-
-    run('git', ['init', '-b', 'main']);
-    run('git', ['config', 'user.email', 'test@test.com']);
-    run('git', ['config', 'user.name', 'Test']);
-
     // Synthetic plan designed to NOT trip the JSONField guidance: the payload
     // is a verbatim third-party webhook body, schema owned by Stripe (not us),
     // never queried into by key — the textbook legitimate JSONField case.
-    fs.writeFileSync(path.join(planDir, 'plan.md'), `# Plan: Add Stripe Webhook Event Log
+    planDir = setupPlanEngReviewFixture('skill-e2e-plan-eng-json-', `# Plan: Add Stripe Webhook Event Log
 
 ## Context
 We need to store incoming Stripe webhook events for audit and replay. Stripe
@@ -554,16 +531,6 @@ response verbatim for audit/replay, not to model our own domain state.
 - Is storing the whole event as JSONField the right call here, or should we
   break out the commonly-used fields into columns?
 `);
-
-    run('git', ['add', '.']);
-    run('git', ['commit', '-m', 'add plan']);
-
-    fs.mkdirSync(path.join(planDir, 'plan-eng-review'), { recursive: true });
-    fs.copyFileSync(
-      path.join(ROOT, 'plan-eng-review', 'SKILL.md'),
-      path.join(planDir, 'plan-eng-review', 'SKILL.md'),
-    );
-    { const _sec = path.join(ROOT, 'plan-eng-review', 'sections'); if (fs.existsSync(_sec)) fs.cpSync(_sec, path.join(planDir, 'plan-eng-review', 'sections'), { recursive: true }); }
   });
 
   afterAll(() => {
@@ -597,11 +564,16 @@ Focus specifically on the data model design in the plan. Apply the data model re
 
     // Deliberately loose, case-insensitive matching (same tolerance as the
     // bias-regression test above) to survive wording variance while still
-    // catching an over-eager JSONField warning.
+    // catching an over-eager JSONField warning. matchesUnnegated() ignores
+    // matches preceded by a negation word — otherwise a CORRECT "I would NOT
+    // extract the payload into columns" answer would trip this check, since
+    // it contains "extract...payload...column" just like an incorrect one.
+    // Includes normali[sz]e alongside promote/split/convert/extract/move since
+    // that's the exact vocabulary the companion template edits use.
     const discussesThePayloadField = lower.includes('payload') || lower.includes('jsonfield');
     const pushesToSplitTheField =
-      /(promote|split|convert|extract|move)[^.]{0,80}payload[^.]{0,80}(column|field)/i.test(review) ||
-      /payload[^.]{0,80}(promote|split|convert to (explicit )?column|explicit column)/i.test(review);
+      matchesUnnegated(review, /(promote|split|convert|extract|move|normali[sz]e)[^.]{0,80}payload[^.]{0,80}(column|field)/i) ||
+      matchesUnnegated(review, /payload[^.]{0,80}(promote|split|convert to (explicit )?column|explicit column|normali[sz]e)/i);
     const acknowledgesLegitimateUse =
       /legitimate|appropriate|reasonable|correct (choice|call|approach)|fine as[- ](is|it)|acceptable|(third[- ]party|external).{0,40}(payload|blob|response)|verbatim|schemaless/i.test(review);
 
@@ -635,18 +607,10 @@ describeIfSelected('Plan Eng Review Data-Model Measured Denormalization E2E', ['
   let planDir: string;
 
   beforeAll(() => {
-    planDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-e2e-plan-eng-denorm-'));
-    const run = (cmd: string, args: string[]) =>
-      spawnSync(cmd, args, { cwd: planDir, stdio: 'pipe', timeout: 5000 });
-
-    run('git', ['init', '-b', 'main']);
-    run('git', ['config', 'user.email', 'test@test.com']);
-    run('git', ['config', 'user.name', 'Test']);
-
     // Synthetic plan designed to NOT trip the normalize-first guidance: the
     // denormalization is scoped to one read path and backed by a stated
     // measurement (APM p95 + load test), matching the fix's own counterexample.
-    fs.writeFileSync(path.join(planDir, 'plan.md'), `# Plan: Add OrderSummary Read Snapshot for Checkout Confirmation
+    planDir = setupPlanEngReviewFixture('skill-e2e-plan-eng-denorm-', `# Plan: Add OrderSummary Read Snapshot for Checkout Confirmation
 
 ## Context
 The checkout confirmation page currently joins Order -> Customer ->
@@ -667,16 +631,6 @@ not a general schema change.
 - Is this the right call, or should we keep reading live via the FK chain
   and instead add caching/indexing to fix the latency?
 `);
-
-    run('git', ['add', '.']);
-    run('git', ['commit', '-m', 'add plan']);
-
-    fs.mkdirSync(path.join(planDir, 'plan-eng-review'), { recursive: true });
-    fs.copyFileSync(
-      path.join(ROOT, 'plan-eng-review', 'SKILL.md'),
-      path.join(planDir, 'plan-eng-review', 'SKILL.md'),
-    );
-    { const _sec = path.join(ROOT, 'plan-eng-review', 'sections'); if (fs.existsSync(_sec)) fs.cpSync(_sec, path.join(planDir, 'plan-eng-review', 'sections'), { recursive: true }); }
   });
 
   afterAll(() => {
@@ -709,8 +663,14 @@ Focus specifically on the data model design in the plan. Apply the data model re
     const lower = review.toLowerCase();
 
     const discussesTheDenormalization = lower.includes('denormal') || lower.includes('ordersummary');
+    // Broadened per review feedback: the original pattern missed common
+    // rejection phrasings ("instead of denormalizing", "cache/index instead")
+    // and its "normali[sz]e...instead|back|it" clause was loose enough to
+    // false-positive on approving language ("stays normalized elsewhere;
+    // keep it that way") — tightened to require an explicit join/read/query
+    // + instead framing.
     const rejectsAsUnjustified =
-      /(premature|not[- ]yet justified|lacks?[- ]a measurement|no measurement|remove[^.]{0,40}(denormali[sz]ation|snapshot)|normali[sz]e[^.]{0,40}(instead|back|it)|should (read|query|join)[^.]{0,40}live)/i.test(review);
+      /(premature|not[- ]yet justified|lacks?[- ]a measurement|no measurement|remove[^.]{0,40}(denormali[sz]ation|snapshot)|normali[sz]e[^.]{0,20}(this|the)?[^.]{0,20}(join|read|query)[^.]{0,20}instead|instead of denormali[sz]ing|rather than (denormali[sz]ing|snapshot(ting)?)|(cache|index)[^.]{0,30}instead|should (read|query|join)[^.]{0,40}live)/i.test(review);
     const acceptsMeasuredJustification =
       /measur|profil|load test|p95|latency|query plan|justified|reasonable|legitimate|appropriate|scoped/i.test(review);
 
