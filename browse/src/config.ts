@@ -13,8 +13,11 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { spawnSync as nodeSpawnSync } from 'child_process';
 import { mkdirSecure } from './file-permissions';
 import { safeUnlinkQuiet } from './error-handling';
+
+const IS_WINDOWS = process.platform === 'win32';
 
 export interface BrowseConfig {
   projectDir: string;
@@ -31,6 +34,16 @@ export interface BrowseConfig {
  */
 export function getGitRoot(): string | null {
   try {
+    if (IS_WINDOWS) {
+      const proc = nodeSpawnSync('git', ['rev-parse', '--show-toplevel'], {
+        stdout: 'pipe',
+        stderr: 'pipe',
+        timeout: 2_000, // Don't hang if .git is broken
+        windowsHide: true,
+      });
+      if (proc.error || proc.status !== 0) return null;
+      return proc.stdout.toString().trim() || null;
+    }
     const proc = Bun.spawnSync(['git', 'rev-parse', '--show-toplevel'], {
       stdout: 'pipe',
       stderr: 'pipe',
@@ -123,6 +136,21 @@ export function ensureStateDir(config: BrowseConfig): void {
  */
 export function getRemoteSlug(): string {
   try {
+    if (IS_WINDOWS) {
+      const proc = nodeSpawnSync('git', ['remote', 'get-url', 'origin'], {
+        stdout: 'pipe',
+        stderr: 'pipe',
+        timeout: 2_000,
+        windowsHide: true,
+      });
+      if (proc.error || proc.status !== 0) throw new Error('no remote');
+      const url = proc.stdout.toString().trim();
+      // SSH:   git@github.com:owner/repo.git → owner-repo
+      // HTTPS: https://github.com/owner/repo.git → owner-repo
+      const match = url.match(/[:/]([^/]+)\/([^/]+?)(?:\.git)?$/);
+      if (match) return `${match[1]}-${match[2]}`;
+      throw new Error('unparseable');
+    }
     const proc = Bun.spawnSync(['git', 'remote', 'get-url', 'origin'], {
       stdout: 'pipe',
       stderr: 'pipe',
