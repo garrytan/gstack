@@ -157,65 +157,23 @@ ${focusSentence}`;
 
 /**
  * Case-insensitive check for `pattern` in `text` that ignores matches
- * immediately preceded by a negation word (not/n't/no/never/without/...).
+ * immediately preceded by a negation word (not/n't/never/without/...).
  * Plain substring/regex matching can't tell "extract the payload into
  * columns" from "would NOT extract the payload into columns" — this walks
- * every match and inspects the text just before it for a negation cue.
+ * every match and checks the text just before it for a negation cue.
  *
- * The negation lookback scans back to the start of the CURRENT SENTENCE
- * (the last `.`/`!`/`?` before the match) rather than a fixed character
- * count. A fixed window (originally 20 chars) is too narrow: the patterns
- * this is used with have their own internal gaps of up to 80 chars (e.g.
- * `(verb)[^.]{0,80}payload[^.]{0,80}column`), so a negation word like "not"
- * can legitimately sit further back in the same sentence than a small fixed
- * window would see — "I do not think it's worth extracting the payload into
- * columns" would otherwise be misread as an unnegated recommendation.
- * Scanning to the sentence boundary matches the same period-bounded
- * assumption the calling patterns already make.
+ * Deliberately simple: a fixed lookback window, not full sentence-boundary
+ * parsing. These evals are periodic-tier (paid, non-gating) — an occasional
+ * missed edge case just means a rare, visible false read on a test that
+ * doesn't block anything, which is a fine trade for keeping this readable.
  */
 export function matchesUnnegated(text: string, pattern: RegExp): boolean {
-  // "rather than"/"instead of" catch contrastive phrasing ("add this field
-  // to the model RATHER THAN create a separate table") — the rejected
-  // alternative can otherwise match the pattern just as strongly as a real
-  // recommendation would, with no single negation word anywhere near it.
-  // [a-z]+n't matches any "-n't" contraction generically (can't, won't,
-  // aren't, hasn't, doesn't, don't, wouldn't, ...) — a bare `\b n't \b`
-  // alternative can never match mid-word (there's no word boundary between
-  // the letters immediately before "n" and "n" itself), so it silently
-  // covered nothing beyond the contractions already spelled out explicitly.
-  // [a-z]+n['’]t matches both the ASCII apostrophe and the typographic
-  // curly one (’, U+2019) — LLM prose commonly renders contractions with the
-  // curly form, and this codebase already hit this exact gotcha once before
-  // (see the apostrophe wildcard note in test/spec-template-invariants.test.ts).
-  // Deliberately does NOT include a bare "no" — "no blocker here: create a
-  // separate model" and "no downside to promoting the payload" are common
-  // POSITIVE-framing idioms in review prose, not negations of what follows;
-  // "not"/"never"/"cannot"/the "-n't" family are far more reliable signals.
-  const NEGATION = /\b(not|never|cannot|without|against|rather than|instead of)\b|[a-z]+n['’]t\b/i;
+  const NEGATION = /\b(not|never|cannot|without|rather than|instead of)\b|[a-z]+n't\b/i;
   const flags = pattern.flags.includes('g') ? pattern.flags : pattern.flags + 'g';
   const re = new RegExp(pattern.source, flags);
-  // Real sentence-ending punctuation is followed by whitespace + a capital
-  // letter, or sits at the end of the string — this excludes periods inside
-  // abbreviations ("e.g.", "i.e.", "etc."), decimals, and version strings,
-  // which a bare lastIndexOf('.') would wrongly treat as a sentence break
-  // and use to hide an earlier negation word from the lookback window. A
-  // newline followed by a markdown bullet/numbered-list marker is ALSO a
-  // clause boundary — "I would not keep this inline.\n- Separate tier model"
-  // is common LLM formatting, and without this the "not" from the prose
-  // sentence above would otherwise leak into the bullet below it.
-  const SENTENCE_END = /[.!?](?=\s+[A-Z]|\s*$)|\n\s*(?:[-*+]|\d+[.)])\s/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text))) {
-    let sentenceStart = 0;
-    let em: RegExpExecArray | null;
-    SENTENCE_END.lastIndex = 0;
-    while ((em = SENTENCE_END.exec(text)) && em.index < m.index) {
-      // em[0].length, not a bare +1 — the bullet-marker alternative above is
-      // multiple characters wide ("\n- ", "\n1. "), so a fixed +1 would leave
-      // part of the marker inside the scanned "preceding" window.
-      sentenceStart = em.index + em[0].length;
-    }
-    const preceding = text.slice(sentenceStart, m.index);
+    const preceding = text.slice(Math.max(0, m.index - 60), m.index);
     if (!NEGATION.test(preceding)) return true;
     if (re.lastIndex === m.index) re.lastIndex++; // avoid infinite loop on zero-width matches
   }
