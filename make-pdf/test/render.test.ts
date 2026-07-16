@@ -56,6 +56,34 @@ describe("smartypants", () => {
     expect(out).toContain("\u201cdetails\u201d");
   });
 
+  // A URL flush against a following tag (no whitespace between) used to let
+  // URL_RE's \S+ swallow the placeholder standing in for that tag. The
+  // placeholder never restored, so the tag vanished and its styling bled
+  // into the rest of the document. The test above misses this because its
+  // URL is followed by a space.
+  test("does not leak placeholders for a bare autolinked URL", () => {
+    const input = `<p>see <a href="https://ex.com">https://ex.com</a> ok</p>`;
+    const out = smartypants(input);
+    expect(out).not.toContain("SMARTPANTS_PRESERVED");
+    expect(out).toContain("</a>");
+    expect(out).toBe(input);
+  });
+
+  test("does not leak placeholders for a bold URL", () => {
+    const input = `<p>see <strong><a href="https://ex.com">https://ex.com</a></strong> ok</p>`;
+    const out = smartypants(input);
+    expect(out).not.toContain("SMARTPANTS_PRESERVED");
+    expect(out).toContain("</a></strong>");
+    expect(out).toBe(input);
+  });
+
+  test("does not leak placeholders when a URL is followed by punctuation", () => {
+    const input = `<p>see <a href="https://ex.com">https://ex.com</a>, ok</p>`;
+    const out = smartypants(input);
+    expect(out).not.toContain("SMARTPANTS_PRESERVED");
+    expect(out).toContain("</a>");
+  });
+
   test("does NOT touch HTML attribute values", () => {
     const out = smartypants(`<a href="it's-a-test.html">link</a>`);
     expect(out).toContain(`href="it's-a-test.html"`);
