@@ -491,6 +491,13 @@ describe('gen-skill-docs', () => {
     expect(setup).toContain('_link_or_copy "$SOURCE_GSTACK_DIR/benchmark" "$_WEB_PERF_LINK"');
   });
 
+  test('active browser design docs route to the canonical command', () => {
+    const design = fs.readFileSync(path.join(ROOT, 'docs', 'designs', 'GSTACK_BROWSER_V0.md'), 'utf-8');
+
+    expect(design).toContain('| `/web-performance-benchmark` | Measure page performance');
+    expect(design).not.toContain('| `/benchmark` | Measure page performance');
+  });
+
   test('qa and qa-only templates use QA_METHODOLOGY placeholder', () => {
     const qaTmpl = fs.readFileSync(path.join(ROOT, 'qa', 'SKILL.md.tmpl'), 'utf-8');
     expect(qaTmpl).toContain('{{QA_METHODOLOGY}}');

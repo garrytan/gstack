@@ -1010,12 +1010,12 @@ if [ "$INSTALL_CLAUDE" -eq 1 ]; then
     fi
     # Compatibility aliases for the former generic benchmark command. Keep
     # both paths available while new docs use /web-performance-benchmark.
-for _WEB_PERF_ALIAS in benchmark gstack-benchmark; do
-  _WEB_PERF_LINK="$INSTALL_SKILLS_DIR/$_WEB_PERF_ALIAS"
-  if [ -L "$_WEB_PERF_LINK" ] || [ ! -e "$_WEB_PERF_LINK" ]; then
-    _link_or_copy "$SOURCE_GSTACK_DIR/benchmark" "$_WEB_PERF_LINK"
-  fi
-done
+    for _WEB_PERF_ALIAS in benchmark gstack-benchmark; do
+      _WEB_PERF_LINK="$INSTALL_SKILLS_DIR/$_WEB_PERF_ALIAS"
+      if [ -L "$_WEB_PERF_LINK" ] || [ ! -e "$_WEB_PERF_LINK" ]; then
+        _link_or_copy "$SOURCE_GSTACK_DIR/benchmark" "$_WEB_PERF_LINK"
+      fi
+    done
     if [ "$LOCAL_INSTALL" -eq 1 ]; then
       log "gstack ready (project-local)."
       log "  skills: $INSTALL_SKILLS_DIR"
