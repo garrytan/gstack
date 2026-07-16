@@ -4,6 +4,7 @@ import { execFileSync, spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { isCapacityError, providerErrorDetail } from './errors';
 
 /**
  * GPT adapter — wraps the OpenAI `codex` CLI (codex exec with --json output).
@@ -63,17 +64,20 @@ export class GptAdapter implements ProviderAdapter {
     } catch (err: unknown) {
       const durationMs = Date.now() - start;
       const e = err as { code?: string; stderr?: Buffer; signal?: string; message?: string };
-      const stderr = e.stderr?.toString() ?? '';
+      const detail = providerErrorDetail(e);
       if (e.signal === 'SIGTERM' || e.code === 'ETIMEDOUT') {
         return this.emptyResult(durationMs, { code: 'timeout', reason: `exceeded ${opts.timeoutMs}ms` }, opts.model);
       }
-      if (/unauthorized|auth|login/i.test(stderr)) {
-        return this.emptyResult(durationMs, { code: 'auth', reason: stderr.slice(0, 400) }, opts.model);
+      if (/unauthorized|auth|login/i.test(detail)) {
+        return this.emptyResult(durationMs, { code: 'auth', reason: detail.slice(0, 400) }, opts.model);
       }
-      if (/rate[- ]?limit|429/i.test(stderr)) {
-        return this.emptyResult(durationMs, { code: 'rate_limit', reason: stderr.slice(0, 400) }, opts.model);
+      if (/rate[- ]?limit|429/i.test(detail)) {
+        return this.emptyResult(durationMs, { code: 'rate_limit', reason: detail.slice(0, 400) }, opts.model);
       }
-      return this.emptyResult(durationMs, { code: 'unknown', reason: (e.message ?? stderr ?? 'unknown').slice(0, 400) }, opts.model);
+      if (isCapacityError(detail)) {
+        return this.emptyResult(durationMs, { code: 'capacity', reason: detail.slice(0, 400) }, opts.model);
+      }
+      return this.emptyResult(durationMs, { code: 'unknown', reason: (detail || 'unknown').slice(0, 400) }, opts.model);
     }
   }
 

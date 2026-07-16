@@ -2452,7 +2452,7 @@ describe('setup script validation', () => {
 
     expect(runtimeFn).toContain('agy_version="$(tr -d \'[:space:]\' < "$gstack_dir/VERSION")"');
     expect(runtimeFn).toContain('"$agy_version" > "$agy_gstack/plugin.json"');
-    expect(runtimeFn).not.toContain('"version": "1.58.5.0"');
+    expect(runtimeFn).not.toMatch(/"version": "\d+\.\d+\.\d+\.\d+"/);
     expect(linkFn).toContain('-name SKILL.md');
     expect(linkFn).toContain('bun run gen:skill-docs --host agy');
   });
