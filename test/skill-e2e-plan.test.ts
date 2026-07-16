@@ -691,6 +691,101 @@ Focus specifically on the data model design in the plan. Apply the data model re
   }, 420_000);
 });
 
+// --- Plan Eng Review Data-Model Minimal-Change Counterexample E2E ---
+//
+// Positive-case regression: the data-model bias fix narrowed the SRP-for-models
+// checklist item and cognitive pattern #12 to exempt a single trivial field
+// with no independent query pattern, write path, or consumer — that case is
+// a genuine judgment call to keep inline, not an automatic split. This
+// verifies /plan-eng-review does NOT reflexively recommend extracting a new
+// model for a plan that adds exactly one such field to an existing model.
+
+describeIfSelected('Plan Eng Review Data-Model Minimal Change E2E', ['plan-eng-review-data-model-minimal-change'], () => {
+  let planDir: string;
+
+  beforeAll(() => {
+    // Synthetic plan designed to NOT trip the SRP/normalize guidance: one
+    // trivial timestamp field, no polymorphism, no JSONField, no independent
+    // query pattern or consumer — the textbook "keep it inline" case.
+    planDir = setupPlanEngReviewFixture('skill-e2e-plan-eng-minimal-', `# Plan: Add Email Verification Timestamp to User Model
+
+## Context
+We want to show "Verified on {date}" in a single admin-dashboard column for
+each user. Nothing else in the codebase reads this value — there's no
+separate verification workflow, no independent lifecycle, and no other
+consumer planned.
+
+## Proposed changes
+Add one field to the existing User model:
+- email_verified_at: DateTimeField, nullable (null = not yet verified)
+
+No new model, no JSONField, no polymorphism — one column on User, set once
+when the verification email link is clicked.
+
+## Open questions
+- Is a single column the right call here, or should this become a separate
+  EmailVerification model?
+`);
+  });
+
+  afterAll(() => {
+    try { fs.rmSync(planDir, { recursive: true, force: true }); } catch {}
+  });
+
+  testConcurrentIfSelected('plan-eng-review-data-model-minimal-change', async () => {
+    const result = await runSkillTest({
+      prompt: `Read plan-eng-review/SKILL.md for the review workflow.
+
+Read plan.md — that's the plan to review. This is a standalone plan document, not a codebase — skip any codebase exploration steps.
+
+Proceed directly to the architecture review section. Skip any AskUserQuestion calls — this is non-interactive. Write your complete architecture review directly to ${planDir}/review-output.md
+
+Focus specifically on the data model design in the plan. Apply the data model review checklist from the skill.`,
+      workingDirectory: planDir,
+      maxTurns: 15,
+      timeout: 360_000,
+      testName: 'plan-eng-review-data-model-minimal-change',
+      runId,
+      model: 'claude-opus-4-6',
+    });
+
+    logCost('/plan-eng-review data-model-minimal-change', result);
+
+    const reviewPath = path.join(planDir, 'review-output.md');
+    const review = fs.existsSync(reviewPath)
+      ? fs.readFileSync(reviewPath, 'utf-8')
+      : '';
+    const lower = review.toLowerCase();
+
+    const discussesTheField = lower.includes('email_verified_at') || lower.includes('verification');
+    // matchesUnnegated so a CORRECT "I would NOT extract a separate model
+    // here" answer doesn't trip this check just for containing the words.
+    const recommendsSeparateModel = matchesUnnegated(
+      review,
+      /(extract|split|promote|create)[^.]{0,60}(separate|new|dedicated)[^.]{0,40}(model|table)/i,
+    ) || matchesUnnegated(review, /separate\s+email\s*verification\s*model/i);
+    const acceptsInlineAddition =
+      /(keep|stay|remain|fine|appropriate|correct|reasonable|no need)[^.]{0,60}(inline|as[- ]is|single column|one column|single field)/i.test(review) ||
+      /(single|one)\s+(trivial\s+)?field[^.]{0,60}(no|without)[^.]{0,40}(independent|separate)/i.test(review) ||
+      /doesn'?t (need|require|warrant)[^.]{0,40}(a\s+)?(separate|new|dedicated)[^.]{0,40}(model|table)/i.test(review);
+
+    recordE2E(evalCollector, '/plan-eng-review-data-model-minimal-change', 'Plan Eng Review Data-Model Minimal Change E2E', result, {
+      passed:
+        ['success', 'error_max_turns'].includes(result.exitReason) &&
+        review.length > 200 &&
+        discussesTheField &&
+        !recommendsSeparateModel &&
+        acceptsInlineAddition,
+    });
+
+    expect(['success', 'error_max_turns']).toContain(result.exitReason);
+    expect(review.length).toBeGreaterThan(200);
+    expect(discussesTheField).toBe(true);
+    expect(recommendsSeparateModel).toBe(false);
+    expect(acceptsInlineAddition).toBe(true);
+  }, 420_000);
+});
+
 // --- Plan-Eng-Review Test-Plan Artifact E2E ---
 
 describeIfSelected('Plan-Eng-Review Test-Plan Artifact E2E', ['plan-eng-review-artifact'], () => {
