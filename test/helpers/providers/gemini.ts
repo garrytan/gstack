@@ -4,6 +4,7 @@ import { execFileSync, spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { isCapacityError, providerErrorDetail } from './errors';
 
 export type GeminiStreamParse = {
   output: string;
@@ -93,6 +94,25 @@ export function resultFromGeminiStream(
   };
 }
 
+/** Decide whether local Gemini auth can support a non-interactive benchmark. */
+export function geminiAuthReadiness(hasOauth: boolean, hasKey: boolean): AvailabilityCheck {
+  if (hasKey) {
+    return { ok: true };
+  }
+  if (hasOauth) {
+    return {
+      ok: false,
+      reason:
+        'Stored Gemini OAuth is not a reliable readiness signal and may fail with UNSUPPORTED_CLIENT. To use an AI Studio key, export GEMINI_API_KEY (or GOOGLE_API_KEY).',
+    };
+  }
+  return {
+    ok: false,
+    reason:
+      'No Gemini auth found. Get an AI Studio key from https://aistudio.google.com/app/apikey, then export GEMINI_API_KEY (or GOOGLE_API_KEY) — personal OAuth free-tier is no longer supported by gemini CLI.',
+  };
+}
+
 /**
  * Gemini adapter — wraps the `gemini` CLI.
  *
@@ -120,17 +140,10 @@ export class GeminiAdapter implements ProviderAdapter {
     const legacyCfgDir = path.join(os.homedir(), '.config', 'gemini');
     const newCfgDir = path.join(os.homedir(), '.gemini');
     const newOauth = path.join(newCfgDir, 'oauth_creds.json');
-    const hasCfg = fs.existsSync(legacyCfgDir) || fs.existsSync(newOauth);
+    const hasOauth = fs.existsSync(legacyCfgDir) || fs.existsSync(newOauth);
     // CLI accepts either name; Google AI Studio keys are usually GEMINI_API_KEY.
     const hasKey = !!(process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY);
-    if (!hasCfg && !hasKey) {
-      return {
-        ok: false,
-        reason:
-          'No Gemini auth found. Export GEMINI_API_KEY (or GOOGLE_API_KEY) from https://aistudio.google.com/app/apikey — personal OAuth free-tier is no longer supported by gemini CLI.',
-      };
-    }
-    return { ok: true };
+    return geminiAuthReadiness(hasOauth, hasKey);
   }
 
   async run(opts: RunOpts): Promise<RunResult> {
@@ -161,17 +174,20 @@ export class GeminiAdapter implements ProviderAdapter {
     } catch (err: unknown) {
       const durationMs = Date.now() - start;
       const e = err as { code?: string; stderr?: Buffer; signal?: string; message?: string };
-      const stderr = e.stderr?.toString() ?? '';
+      const detail = providerErrorDetail(e);
       if (e.signal === 'SIGTERM' || e.code === 'ETIMEDOUT') {
         return this.emptyResult(durationMs, { code: 'timeout', reason: `exceeded ${opts.timeoutMs}ms` }, opts.model);
       }
-      if (/unauthorized|auth|login|api key|ineligibletier|no longer supported/i.test(stderr)) {
-        return this.emptyResult(durationMs, { code: 'auth', reason: stderr.slice(0, 400) }, opts.model);
+      if (/unauthorized|auth|login|api key|ineligibletier|no longer supported/i.test(detail)) {
+        return this.emptyResult(durationMs, { code: 'auth', reason: detail.slice(0, 400) }, opts.model);
       }
-      if (/rate[- ]?limit|429|quota/i.test(stderr)) {
-        return this.emptyResult(durationMs, { code: 'rate_limit', reason: stderr.slice(0, 400) }, opts.model);
+      if (/rate[- ]?limit|429|quota/i.test(detail)) {
+        return this.emptyResult(durationMs, { code: 'rate_limit', reason: detail.slice(0, 400) }, opts.model);
       }
-      return this.emptyResult(durationMs, { code: 'unknown', reason: (e.message ?? stderr ?? 'unknown').slice(0, 400) }, opts.model);
+      if (isCapacityError(detail)) {
+        return this.emptyResult(durationMs, { code: 'capacity', reason: detail.slice(0, 400) }, opts.model);
+      }
+      return this.emptyResult(durationMs, { code: 'unknown', reason: (detail || 'unknown').slice(0, 400) }, opts.model);
     }
   }
 

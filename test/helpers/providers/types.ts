@@ -31,6 +31,7 @@ export type RunError =
   | 'auth'       // Credentials missing or invalid.
   | 'timeout'    // Exceeded timeoutMs.
   | 'rate_limit' // Provider rate-limited us; backoff exceeded.
+  | 'capacity'   // Selected model/provider is temporarily saturated.
   | 'binary_missing' // CLI not found on PATH.
   | 'unknown';   // Catch-all with reason populated.
 
