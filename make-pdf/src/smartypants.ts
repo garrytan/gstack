@@ -20,7 +20,12 @@
 
 const CODE_ZONE_RE = /<(pre|code|script|style)\b[^>]*>[\s\S]*?<\/\1>/gi;
 const TAG_RE = /<[^>]+>/g;
-const URL_RE = /\bhttps?:\/\/\S+/g;
+// \u0000 is the placeholder sentinel (see PLACEHOLDER below). It must be
+// excluded here: URLs are carved AFTER tags, so a URL sitting flush against
+// a tag (`<a href="...">https://ex.com</a>`) would otherwise let \S+ swallow
+// the placeholder standing in for `</a>` — that placeholder then never
+// restores (restore is a single pass) and the tag is lost.
+const URL_RE = /\bhttps?:\/\/[^\s\u0000]+/g;
 
 /**
  * Apply smartypants to an HTML string. Zones that should not be touched:
