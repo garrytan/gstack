@@ -735,6 +735,19 @@ scope of that PR; deliberately deferred to keep PTY-import small.
 
 ## Testing
 
+## P2: /plan-ceo-review data-model-bias behavioral E2E coverage
+
+**What:** The v1.61.0.0 schema-consolidation-bias fix (garrytan/gstack#1048) added the same two data-model preference bullets ("right-sized diff" exception + "JSONField not an escape hatch") to both `/plan-eng-review` and `/plan-ceo-review`, but the four new periodic-tier E2E evals (`plan-eng-review-data-model-{bias,legitimate-json,measured-denorm,minimal-change}`) only drive `/plan-eng-review`. `/plan-ceo-review`'s copy of the same bullets has zero behavioral test coverage — only the static grep guardrail in `test/skill-validation.test.ts` confirms the text still exists.
+
+**Why:** `/plan-ceo-review` runs a materially different workflow (SCOPE EXPANSION / SELECTIVE EXPANSION / HOLD SCOPE modes, its own `sections/review-sections.md`) — identical prose is no guarantee the model actually applies the bias fix the same way it does in `/plan-eng-review`. `touchfiles.ts` doesn't map any test to a change in these bullets for plan-ceo-review, so a regression there would go unnoticed by diff-based test selection entirely. Flagged by the ship-workflow coverage audit during this branch's own `/ship` run.
+
+**Context:** Mirror the four `plan-eng-review-data-model-*` blocks in `test/skill-e2e-plan.test.ts` for plan-ceo-review — same synthetic plans, same `setupPlanEngReviewFixture`-style hermetic fixture (would need a `plan-ceo-review` variant), same `matchesUnnegated`-guarded regex assertions. plan-ceo-review's HOLD SCOPE mode is the simplest one that still exercises the Architecture Review, per the pattern already used in `test/skill-e2e-plan-ceo-review-section-loading.test.ts`.
+
+**Priority:** P2.
+**Effort:** M (human: ~half day / CC: ~1-2h — mostly copy-adapt of the existing plan-eng-review blocks).
+
+---
+
 ## P2: Per-finding AskUserQuestion count assertion for /plan-ceo-review
 
 **What:** PTY E2E test that drives /plan-ceo-review through Step 0 with a stable fixture diff containing N known findings, asserts that exactly N distinct AskUserQuestions fire (one per finding) before plan_ready.
