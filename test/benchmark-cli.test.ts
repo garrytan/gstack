@@ -142,6 +142,54 @@ describe('gstack-model-benchmark --dry-run', () => {
     }
   });
 
+  test('Gemini OAuth-only auth is reported as NOT READY with Antigravity remediation', () => {
+    const oauthHome = fs.mkdtempSync(path.join(os.tmpdir(), 'bench-gemini-oauth-home-'));
+    try {
+      const oauthDir = path.join(oauthHome, '.gemini');
+      fs.mkdirSync(oauthDir, { recursive: true });
+      fs.writeFileSync(path.join(oauthDir, 'oauth_creds.json'), '{}');
+      const result = spawnSync('bun', ['run', BIN, '--prompt', 'hi', '--models', 'gemini', '--dry-run'], {
+        cwd: ROOT,
+        env: {
+          PATH: process.env.PATH ?? '',
+          TERM: process.env.TERM ?? 'xterm',
+          HOME: oauthHome,
+        },
+        encoding: 'utf-8',
+        timeout: 15000,
+      });
+      expect(result.status).toBe(0);
+      const out = result.stdout?.toString() ?? '';
+      expect(out).toMatch(/gemini:\s+NOT READY/);
+      expect(out).toContain('UNSUPPORTED_CLIENT');
+      expect(out).toContain('`agy` adapter');
+      expect(out).toContain('GOOGLE_API_KEY');
+    } finally {
+      fs.rmSync(oauthHome, { recursive: true, force: true });
+    }
+  });
+
+  test('Gemini API-key auth remains locally ready', () => {
+    const emptyHome = fs.mkdtempSync(path.join(os.tmpdir(), 'bench-gemini-key-home-'));
+    try {
+      const result = spawnSync('bun', ['run', BIN, '--prompt', 'hi', '--models', 'gemini', '--dry-run'], {
+        cwd: ROOT,
+        env: {
+          PATH: process.env.PATH ?? '',
+          TERM: process.env.TERM ?? 'xterm',
+          HOME: emptyHome,
+          GOOGLE_API_KEY: 'offline-readiness-test-key',
+        },
+        encoding: 'utf-8',
+        timeout: 15000,
+      });
+      expect(result.status).toBe(0);
+      expect(result.stdout?.toString() ?? '').toMatch(/gemini:\s+OK/);
+    } finally {
+      fs.rmSync(emptyHome, { recursive: true, force: true });
+    }
+  });
+
   test('long prompt is truncated in dry-run display', () => {
     const longPrompt = 'x'.repeat(200);
     const r = run(['--prompt', longPrompt, '--dry-run']);

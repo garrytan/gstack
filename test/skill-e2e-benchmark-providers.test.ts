@@ -56,6 +56,22 @@ test('agy adapter enforces sandboxed plan mode and rejects permission bypass', a
   expect(result.error?.reason).toContain('not allowed');
 });
 
+test('gpt adapter disables inherited stdin for nested codex', () => {
+  const source = fs.readFileSync(path.join(import.meta.dir, 'helpers/providers/gpt.ts'), 'utf8');
+  expect(source).toContain("stdio: ['ignore', 'pipe', 'pipe']");
+});
+
+test('gpt adapter normalizes cached input out of Codex total input', () => {
+  const parseJsonl = (gpt as unknown as {
+    parseJsonl(raw: string): { tokens: { input: number; output: number; cached?: number } };
+  }).parseJsonl.bind(gpt);
+  const parsed = parseJsonl([
+    JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 21_155, cached_input_tokens: 9_984, output_tokens: 5 } }),
+    JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 200, cached_input_tokens: 150, output_tokens: 10 } }),
+  ].join('\n'));
+  expect(parsed.tokens).toEqual({ input: 11_221, cached: 10_134, output: 15 });
+});
+
 // Use a temp working directory so provider CLIs can't accidentally touch the repo.
 // Created in beforeAll / cleaned in afterAll so concurrent CI runs don't leak.
 let workdir: string;

@@ -46,6 +46,11 @@ export class GptAdapter implements ProviderAdapter {
         timeout: opts.timeoutMs,
         encoding: 'utf-8',
         maxBuffer: 32 * 1024 * 1024,
+        // Benchmarks can themselves run under an interactive agent process.
+        // Never let nested Codex inherit that process's stdin: it may wait for
+        // additional input instead of executing the prompt passed in `args`.
+        // Keep stdout/stderr piped so JSONL parsing and error routing still work.
+        stdio: ['ignore', 'pipe', 'pipe'],
       });
       const parsed = this.parseJsonl(out);
       return {
@@ -84,9 +89,10 @@ export class GptAdapter implements ProviderAdapter {
    *   - turn.completed → usage.input_tokens, usage.output_tokens
    *   - thread.started → session id (not used here)
    */
-  private parseJsonl(raw: string): { output: string; tokens: { input: number; output: number }; toolCalls: number; modelUsed?: string } {
+  private parseJsonl(raw: string): { output: string; tokens: { input: number; output: number; cached?: number }; toolCalls: number; modelUsed?: string } {
     let output = '';
     let input = 0;
+    let cached = 0;
     let out = 0;
     let toolCalls = 0;
     let modelUsed: string | undefined;
@@ -103,7 +109,13 @@ export class GptAdapter implements ProviderAdapter {
           }
         } else if (obj.type === 'turn.completed') {
           const u = obj.usage ?? {};
-          input += u.input_tokens ?? 0;
+          // Codex reports cached_input_tokens as a subset of input_tokens.
+          // Normalize to the benchmark contract, where input is uncached-only
+          // and cached is a separate bucket billed at the cache-read rate.
+          const turnInput = u.input_tokens ?? 0;
+          const turnCached = u.cached_input_tokens ?? 0;
+          input += Math.max(0, turnInput - turnCached);
+          cached += turnCached;
           out += u.output_tokens ?? 0;
           if (obj.model) modelUsed = obj.model;
         }
@@ -111,7 +123,7 @@ export class GptAdapter implements ProviderAdapter {
         // skip malformed lines — codex stderr can leak in
       }
     }
-    return { output, tokens: { input, output: out }, toolCalls, modelUsed };
+    return { output, tokens: { input, output: out, cached }, toolCalls, modelUsed };
   }
 
   private emptyResult(durationMs: number, error: RunResult['error'], model?: string): RunResult {

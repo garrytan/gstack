@@ -88,12 +88,12 @@ export async function runWithSecretSink(opts: SecretSinkOptions): Promise<SinkRe
     env,
     stdout: 'pipe',
     stderr: 'pipe',
-    stdin: opts.stdin ? 'pipe' : 'ignore',
+    // Supplying the complete buffer at spawn time is reliable across Bun
+    // versions and restricted runners. A writable `stdin: 'pipe'` can close
+    // before buffered bytes reach the child (Bun 1.3.14), producing empty
+    // input even when write() and end() are called in order.
+    stdin: opts.stdin === undefined ? 'ignore' : Buffer.from(opts.stdin),
   });
-  if (opts.stdin) {
-    proc.stdin!.write(opts.stdin);
-    proc.stdin!.end();
-  }
 
   const timeoutMs = opts.timeoutMs ?? 10_000;
   const timeoutHandle = setTimeout(() => {

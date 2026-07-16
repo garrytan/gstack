@@ -25,12 +25,18 @@ export class GeminiAdapter implements ProviderAdapter {
     const legacyCfgDir = path.join(os.homedir(), '.config', 'gemini');
     const newCfgDir = path.join(os.homedir(), '.gemini');
     const newOauth = path.join(newCfgDir, 'oauth_creds.json');
-    const hasCfg = fs.existsSync(legacyCfgDir) || fs.existsSync(newOauth);
+    const hasOauth = fs.existsSync(legacyCfgDir) || fs.existsSync(newOauth);
     const hasKey = !!process.env.GOOGLE_API_KEY;
-    if (!hasCfg && !hasKey) {
-      return { ok: false, reason: 'No Gemini auth found. Log in via `gemini login` or export GOOGLE_API_KEY.' };
+    if (hasKey) {
+      return { ok: true };
     }
-    return { ok: true };
+    if (hasOauth) {
+      return {
+        ok: false,
+        reason: 'Stored Gemini OAuth is not a reliable readiness signal and may fail with UNSUPPORTED_CLIENT. Use the `agy` adapter for Google subscription auth, or export GOOGLE_API_KEY.',
+      };
+    }
+    return { ok: false, reason: 'No Gemini auth found. Use the `agy` adapter for Google subscription auth, or export GOOGLE_API_KEY.' };
   }
 
   async run(opts: RunOpts): Promise<RunResult> {
