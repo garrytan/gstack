@@ -4,6 +4,7 @@ import { execFileSync, spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { isCapacityError, providerErrorDetail } from './errors';
 
 /**
  * GPT adapter — wraps the OpenAI `codex` CLI (codex exec with --json output).
@@ -46,6 +47,10 @@ export class GptAdapter implements ProviderAdapter {
         timeout: opts.timeoutMs,
         encoding: 'utf-8',
         maxBuffer: 32 * 1024 * 1024,
+        // A benchmark may itself run under an interactive agent. Never let a
+        // nested Codex process inherit that agent's stdin and wait for more
+        // input instead of executing the prompt already present in `args`.
+        stdio: ['ignore', 'pipe', 'pipe'],
       });
       const parsed = this.parseJsonl(out);
       return {
@@ -58,17 +63,20 @@ export class GptAdapter implements ProviderAdapter {
     } catch (err: unknown) {
       const durationMs = Date.now() - start;
       const e = err as { code?: string; stderr?: Buffer; signal?: string; message?: string };
-      const stderr = e.stderr?.toString() ?? '';
+      const detail = providerErrorDetail(e);
       if (e.signal === 'SIGTERM' || e.code === 'ETIMEDOUT') {
         return this.emptyResult(durationMs, { code: 'timeout', reason: `exceeded ${opts.timeoutMs}ms` }, opts.model);
       }
-      if (/unauthorized|auth|login/i.test(stderr)) {
-        return this.emptyResult(durationMs, { code: 'auth', reason: stderr.slice(0, 400) }, opts.model);
+      if (/unauthorized|auth|login/i.test(detail)) {
+        return this.emptyResult(durationMs, { code: 'auth', reason: detail.slice(0, 400) }, opts.model);
       }
-      if (/rate[- ]?limit|429/i.test(stderr)) {
-        return this.emptyResult(durationMs, { code: 'rate_limit', reason: stderr.slice(0, 400) }, opts.model);
+      if (/rate[- ]?limit|429/i.test(detail)) {
+        return this.emptyResult(durationMs, { code: 'rate_limit', reason: detail.slice(0, 400) }, opts.model);
       }
-      return this.emptyResult(durationMs, { code: 'unknown', reason: (e.message ?? stderr ?? 'unknown').slice(0, 400) }, opts.model);
+      if (isCapacityError(detail)) {
+        return this.emptyResult(durationMs, { code: 'capacity', reason: detail.slice(0, 400) }, opts.model);
+      }
+      return this.emptyResult(durationMs, { code: 'unknown', reason: (detail || 'unknown').slice(0, 400) }, opts.model);
     }
   }
 
@@ -84,9 +92,10 @@ export class GptAdapter implements ProviderAdapter {
    *   - turn.completed → usage.input_tokens, usage.output_tokens
    *   - thread.started → session id (not used here)
    */
-  private parseJsonl(raw: string): { output: string; tokens: { input: number; output: number }; toolCalls: number; modelUsed?: string } {
+  private parseJsonl(raw: string): { output: string; tokens: { input: number; output: number; cached?: number }; toolCalls: number; modelUsed?: string } {
     let output = '';
     let input = 0;
+    let cached = 0;
     let out = 0;
     let toolCalls = 0;
     let modelUsed: string | undefined;
@@ -103,7 +112,13 @@ export class GptAdapter implements ProviderAdapter {
           }
         } else if (obj.type === 'turn.completed') {
           const u = obj.usage ?? {};
-          input += u.input_tokens ?? 0;
+          // Codex reports cached_input_tokens as a subset of input_tokens.
+          // Normalize to the benchmark contract: input is uncached-only and
+          // cached is a disjoint bucket priced at the cache-read rate.
+          const turnInput = u.input_tokens ?? 0;
+          const turnCached = u.cached_input_tokens ?? 0;
+          input += Math.max(0, turnInput - turnCached);
+          cached += turnCached;
           out += u.output_tokens ?? 0;
           if (obj.model) modelUsed = obj.model;
         }
@@ -111,7 +126,7 @@ export class GptAdapter implements ProviderAdapter {
         // skip malformed lines — codex stderr can leak in
       }
     }
-    return { output, tokens: { input, output: out }, toolCalls, modelUsed };
+    return { output, tokens: { input, cached, output: out }, toolCalls, modelUsed };
   }
 
   private emptyResult(durationMs: number, error: RunResult['error'], model?: string): RunResult {

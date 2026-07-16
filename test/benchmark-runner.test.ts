@@ -37,6 +37,11 @@ test('estimateCostUsd applies cached input discount alongside uncached input', (
   expect(cost2).toBeCloseTo(8.25, 2);
 });
 
+test('estimateCostUsd prices normalized Codex cache reads at the discount', () => {
+  const cost = estimateCostUsd({ input: 11_171, cached: 9_984, output: 5 }, 'gpt-5.4');
+  expect(cost).toBeCloseTo(0.030474, 6);
+});
+
 test('PRICING table covers the key model families', () => {
   expect(PRICING['claude-opus-4-7']).toBeDefined();
   expect(PRICING['claude-sonnet-4-6']).toBeDefined();
@@ -72,7 +77,7 @@ test('formatTable handles a report with mixed success/error/unavailable entries'
         available: true,
         result: {
           output: 'ok',
-          tokens: { input: 100, output: 200 },
+          tokens: { input: 100, cached: 50, output: 200 },
           durationMs: 800,
           toolCalls: 3,
           modelUsed: 'claude-opus-4-7',
@@ -107,6 +112,8 @@ test('formatTable handles a report with mixed success/error/unavailable entries'
   expect(table).toContain('ERROR auth');
   expect(table).toContain('unavailable');
   expect(table).toContain('9.2/10');
+  expect(table).toContain('100+50→200');
+  expect(formatMarkdown(report)).toContain('100+50→200');
 });
 
 test('formatJson produces parseable JSON', () => {
