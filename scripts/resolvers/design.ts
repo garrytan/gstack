@@ -786,6 +786,52 @@ Source: [OpenAI "Designing Delightful Frontends with GPT-5.4"](https://developer
 }
 
 export function generateDesignSetup(ctx: TemplateContext): string {
+  if (ctx.host === 'codex' && ctx.skillName === 'design-shotgun') {
+    return `## CODEX IMAGE SETUP (run this check BEFORE generating design variants)
+
+This skill is running as \`gstack-design-shotgun\` in Codex. Invoke the documented
+\`$imagegen\` skill for mockup generation and editing. Its default built-in mode uses
+Codex's \`image_gen\` tool and does not require \`OPENAI_API_KEY\`.
+
+Resolve both local helpers. \`$B\` captures an existing page for screenshot evolution.
+\`$D\` is allowed only for the local comparison-board commands \`compare\` and \`serve\`:
+
+\`\`\`bash
+_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+D=""
+[ -n "$_ROOT" ] && [ -x "$_ROOT/${ctx.paths.localSkillRoot}/design/dist/design" ] && D="$_ROOT/${ctx.paths.localSkillRoot}/design/dist/design"
+[ -z "$D" ] && D="${ctx.paths.designDir}/design"
+if [ -x "$D" ]; then
+  echo "DESIGN_BOARD_READY: $D"
+else
+  echo "DESIGN_BOARD_NOT_AVAILABLE"
+fi
+B=""
+[ -n "$_ROOT" ] && [ -x "$_ROOT/${ctx.paths.localSkillRoot}/browse/dist/browse" ] && B="$_ROOT/${ctx.paths.localSkillRoot}/browse/dist/browse"
+[ -z "$B" ] && B="${ctx.paths.browseDir}/browse"
+if [ -x "$B" ]; then
+  echo "BROWSE_READY: $B"
+else
+  echo "BROWSE_NOT_AVAILABLE"
+fi
+\`\`\`
+
+If \`BROWSE_NOT_AVAILABLE\` while evolving an existing page, ask the user for a
+screenshot or stop that evolution path. New-image exploration can still proceed.
+
+If \`DESIGN_BOARD_NOT_AVAILABLE\`, show the generated images inline and collect
+feedback with AskUserQuestion. Do not create a platform-specific static-board fallback.
+
+Codex generation restrictions:
+- no \`$D generate\`, \`$D variants\`, \`$D evolve\`, \`$D iterate\`, or \`$D check\`
+- no \`$imagegen\` CLI fallback
+- no OpenAI API key setup or \`OPENAI_API_KEY\` lookup
+
+Design artifacts still belong in \`~/.gstack/projects/$SLUG/designs/\`. Copy the
+paths returned by \`$imagegen\` into the design session directory before building
+the comparison board.`;
+  }
+
   return `## DESIGN SETUP (run this check BEFORE any design mockup command)
 
 \`\`\`bash
@@ -909,7 +955,236 @@ echo '{"approved_variant":"<VARIANT>","feedback":"<FEEDBACK>","date":"'$(date -u
 Reference the saved mockup in the design doc or plan.`;
 }
 
-export function generateDesignShotgunLoop(_ctx: TemplateContext): string {
+export function generateDesignShotgunGeneration(ctx: TemplateContext): string {
+  if (ctx.host === 'codex') {
+    return `### Step 3c: Codex \`$imagegen\` Generation
+
+**Codex host rule:** Invoke the documented \`$imagegen\` skill once per confirmed
+variant. Keep it in default built-in mode so it uses the host \`image_gen\` tool.
+Do not invoke \`image_gen\` as an undocumented command, use \`scripts/image_gen.py\`,
+or run any \`$D\` generation command.
+
+**If evolving from a screenshot** (user said "I don't like THIS"), first confirm
+CODEX IMAGE SETUP printed \`BROWSE_READY\`, navigate \`$B\` to the target URL when needed, and
+capture ONE current-state screenshot:
+
+\`\`\`bash
+$B screenshot "$_DESIGN_DIR/current.png"
+\`\`\`
+
+Load \`$_DESIGN_DIR/current.png\` with the host \`view_image\` tool so it is visible
+in conversation context. Then invoke \`$imagegen\` in edit mode once per variant,
+using the screenshot as the edit target. State the invariant that the product,
+content, and interaction purpose stay recognizable while the confirmed visual
+direction changes. If \`BROWSE_NOT_AVAILABLE\`, do not invent a screenshot from text.
+
+**For a new design**, invoke \`$imagegen\` in generate mode once per variant. Each
+invocation must use the default built-in mode and a complete prompt containing:
+
+- \`Use case: ui-mockup\`
+- the product/screen brief and variant-specific direction
+- audience and job-to-be-done
+- visible states and edge cases that must appear
+- design-system constraints from DESIGN.md or the taste profile
+- hard output requirement: a polished UI mockup screenshot, no logos, no tiny
+  unreadable body text, no decorative filler
+
+Run the independent \`$imagegen\` invocations in parallel when the host supports it.
+Otherwise run them sequentially and show each result as it lands. If the built-in
+path fails or is unavailable, report the failure and stop; do not switch to the CLI
+fallback or ask for \`OPENAI_API_KEY\`.
+
+**Save returned images into the design session directory.** Copy each path returned
+by \`$imagegen\` from the Codex generated-images directory to the canonical design
+session path:
+
+\`\`\`bash
+cp "<$imagegen returned path for variant A>" "$_DESIGN_DIR/variant-A.png"
+cp "<$imagegen returned path for variant B>" "$_DESIGN_DIR/variant-B.png"
+cp "<$imagegen returned path for variant C>" "$_DESIGN_DIR/variant-C.png"
+ls -lh "$_DESIGN_DIR"/variant-*.png
+\`\`\`
+
+If the user requested a different count, save the matching letters only. If a copy
+fails, report that variant as failed and keep the successful variants.
+
+### Step 3d: Results
+
+After generation completes:
+
+1. Show every generated image inline so the user sees all variants at once.
+2. Report status: "All {N} variants generated. {successes} succeeded, {failures} failed."
+3. For any failures: report explicitly with the error. Do NOT silently skip.
+4. If zero variants succeeded: stop and say \`$imagegen\` did not return usable images.
+   Do NOT fall back to the gstack design binary on Codex.
+5. Proceed to Step 4 (comparison board or inline feedback fallback).
+
+**Build a portable image list for the comparison board.** Include every successful
+variant without relying on shell glob behavior:
+
+\`\`\`bash
+_IMAGES=$(find "$_DESIGN_DIR" -maxdepth 1 -type f -name 'variant-*.png' -print 2>/dev/null | sort | awk 'BEGIN { sep="" } { printf "%s%s", sep, $0; sep="," }')
+echo "IMAGES: $_IMAGES"
+\`\`\`
+
+Use \`$_IMAGES\` for comparison-board generation.`;
+  }
+
+  return `### Step 3c: Parallel Generation
+
+**If evolving from a screenshot** (user said "I don't like THIS"), take ONE screenshot
+first:
+
+\`\`\`bash
+$B screenshot "$_DESIGN_DIR/current.png"
+\`\`\`
+
+**Launch N Agent subagents in a single message** (parallel execution). Use the Agent
+tool with \`subagent_type: "general-purpose"\` for each variant. Each agent is independent
+and handles its own generation, quality check, verification, and retry.
+
+**Important: $D path propagation.** The \`$D\` variable from DESIGN SETUP is a shell
+variable that agents do NOT inherit. Substitute the resolved absolute path (from the
+\`DESIGN_READY: /path/to/design\` output in Step 0) into each agent prompt.
+
+**Agent prompt template** (one per variant, substitute all \`{...}\` values):
+
+\`\`\`
+Generate a design variant and save it.
+
+Design binary: {absolute path to $D binary}
+Brief: {the full variant-specific brief for this direction}
+Output: /tmp/variant-{letter}.png
+Final location: {_DESIGN_DIR absolute path}/variant-{letter}.png
+
+Steps:
+1. Run: {$D path} generate --brief "{brief}" --output /tmp/variant-{letter}.png
+2. If the command fails with a rate limit error (429 or "rate limit"), wait 5 seconds
+   and retry. Up to 3 retries.
+3. If the output file is missing or empty after the command succeeds, retry once.
+4. Copy: cp /tmp/variant-{letter}.png {_DESIGN_DIR}/variant-{letter}.png
+5. Quality check: {$D path} check --image {_DESIGN_DIR}/variant-{letter}.png --brief "{brief}"
+   If quality check fails, retry generation once.
+6. Verify: ls -lh {_DESIGN_DIR}/variant-{letter}.png
+7. Report exactly one of:
+   VARIANT_{letter}_DONE: {file size}
+   VARIANT_{letter}_FAILED: {error description}
+   VARIANT_{letter}_RATE_LIMITED: exhausted retries
+\`\`\`
+
+For the evolve path, replace step 1 with:
+\`\`\`
+{$D path} evolve --screenshot {_DESIGN_DIR}/current.png --brief "{brief}" --output /tmp/variant-{letter}.png
+\`\`\`
+
+**Why /tmp/ then cp?** In observed sessions, \`$D generate --output ~/.gstack/...\`
+failed with "The operation was aborted" while \`--output /tmp/...\` succeeded. This is
+a sandbox restriction. Always generate to \`/tmp/\` first, then \`cp\`.
+
+### Step 3d: Results
+
+After all agents complete:
+
+1. Read each generated PNG inline (Read tool) so the user sees all variants at once.
+2. Report status: "All {N} variants generated in ~{actual time}. {successes} succeeded,
+   {failures} failed."
+3. For any failures: report explicitly with the error. Do NOT silently skip.
+4. If zero variants succeeded: fall back to sequential generation (one at a time with
+   \`$D generate\`, showing each as it lands). Tell the user: "Parallel generation failed
+   (likely rate limiting). Falling back to sequential..."
+5. Proceed to Step 4 (comparison board).
+
+**Dynamic image list for comparison board:** When proceeding to Step 4, construct the
+image list from whatever variant files actually exist, not a hardcoded A/B/C list:
+
+\`\`\`bash
+setopt +o nomatch 2>/dev/null || true  # zsh compat
+_IMAGES=$(ls "$_DESIGN_DIR"/variant-*.png 2>/dev/null | tr '\\n' ',' | sed 's/,$//')
+\`\`\`
+
+Use \`$_IMAGES\` in the \`$D compare --images\` command.`;
+}
+
+export function generateDesignShotgunLoop(ctx: TemplateContext): string {
+  if (ctx.host === 'codex') {
+    return `### Comparison Board + Feedback Loop
+
+The gstack design binary remains useful here because \`compare\` and \`serve\` are
+local board operations. They do not generate images or require an OpenAI API key.
+
+**If \`DESIGN_BOARD_READY\`:** Create the board with the portable gstack board path:
+
+\`\`\`bash
+$D compare --images "$_IMAGES" --output "$_DESIGN_DIR/design-board.html" --serve
+\`\`\`
+
+This generates the board HTML, starts the cross-platform HTTP server on a random
+port, and opens the user's default browser. Run it in the background while the user
+interacts with the board. Parse \`BOARD_URL: http://127.0.0.1:N/boards/<id>/\` from
+stderr; the URL already includes the per-board path.
+
+Use AskUserQuestion only as the blocking wait mechanism. Include \`BOARD_URL\` so the
+user can reopen the board, and ask them to submit feedback there. Do not use
+AskUserQuestion as a second variant chooser while the board is available.
+
+After the user responds, check the board feedback files:
+
+\`\`\`bash
+if [ -f "$_DESIGN_DIR/feedback.json" ]; then
+  echo "SUBMIT_RECEIVED"
+  cat "$_DESIGN_DIR/feedback.json"
+elif [ -f "$_DESIGN_DIR/feedback-pending.json" ]; then
+  echo "REGENERATE_RECEIVED"
+  cat "$_DESIGN_DIR/feedback-pending.json"
+  rm "$_DESIGN_DIR/feedback-pending.json"
+else
+  echo "NO_FEEDBACK_FILE"
+fi
+\`\`\`
+
+The feedback JSON has this shape:
+\`\`\`json
+{
+  "preferred": "A",
+  "ratings": { "A": 4, "B": 3, "C": 2 },
+  "comments": { "A": "Love the spacing" },
+  "overall": "Go with A, bigger CTA",
+  "regenerated": false
+}
+\`\`\`
+
+**If \`feedback-pending.json\` is found:**
+1. Read \`regenerateAction\` (\`"different"\`, \`"match"\`, \`"more_like_B"\`,
+   \`"remix"\`, or custom text) and any \`remixSpec\`.
+2. Invoke \`$imagegen\` once per replacement variant in default built-in mode. For
+   \`more_like\` or \`remix\`, first load the selected variant PNGs with \`view_image\`
+   and use edit/reference mode. For \`different\`, generate from the updated brief.
+3. Copy every returned image into its canonical \`variant-<letter>.png\` path and
+   rebuild \`$_IMAGES\` with the portable loop from Step 3d.
+4. Rebuild the board locally:
+   \`$D compare --images "$_IMAGES" --output "$_DESIGN_DIR/design-board.html"\`
+5. Reload the same daemon board:
+   \`curl -s -X POST "\${BOARD_URL}api/reload" -H 'Content-Type: application/json' -d '{"html":"$_DESIGN_DIR/design-board.html"}'\`
+6. AskUserQuestion again with the same board URL and repeat until
+   \`feedback.json\` appears.
+
+Never use \`$D iterate\`, \`$D variants\`, or the \`$imagegen\` CLI fallback for
+regeneration on Codex.
+
+**If \`DESIGN_BOARD_NOT_AVAILABLE\` or the board server fails:** Show every variant
+inline, then use AskUserQuestion to ask which variant the user prefers and what should
+change. This fallback is host-native and does not use \`open\`, \`start\`, or
+\`xdg-open\` directly.
+
+**After receiving feedback (any path):** Output a clear summary confirming what was
+understood, then use AskUserQuestion to verify before proceeding.
+
+**Save the approved choice:**
+\`\`\`bash
+echo '{"approved_variant":"<V>","feedback":"<FB>","date":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","screen":"<SCREEN>","branch":"'$(git branch --show-current 2>/dev/null)'"}' > "$_DESIGN_DIR/approved.json"
+\`\`\``;
+  }
+
   return `### Comparison Board + Feedback Loop
 
 Create the comparison board and serve it over HTTP:
@@ -1154,4 +1429,3 @@ Flat design can strip away useful visual information that signals interactivity.
 Prioritize ruthlessly: things needed in a hurry go close at hand, everything
 else a few taps away with an obvious path to get there.`;
 }
-
