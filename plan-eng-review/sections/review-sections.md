@@ -51,7 +51,7 @@ Evaluate:
 * Data flow patterns and potential bottlenecks.
 * Scaling characteristics and single points of failure.
 * Security architecture (auth, data access, API boundaries).
-* **Data model honesty:** Does each new model/table have exactly one job? Are there nullable fields whose NULL has semantic meaning ("this row is a different kind of thing")? Are there clusters of columns that always co-vary, suggesting a hidden child model? Does any field on a parent model only have meaning when no child rows exist (parent-field-shadowed-by-child smell)? Is there a JSONField/payload column whose keys-per-variant are knowable at design time (JSONField-hiding-schema smell — promote to explicit columns + CheckConstraints)? When in doubt, normalize. Three clean models > one muddled model in all respects.
+* **Data model honesty:** Does each new model/table have exactly one job? Are there nullable fields whose NULL has semantic meaning ("this row is a different kind of thing")? Are there clusters of columns that always co-vary, suggesting a hidden child model? Does any field on a parent model only have meaning when no child rows exist (parent-field-shadowed-by-child smell)? Is there a JSONField/payload column whose keys-per-variant are knowable and stable at design time (JSONField-hiding-schema smell — promote to explicit columns + CheckConstraints)? When in doubt, normalize — but "in doubt" means genuinely unclear, not "this would add a table." A model that's already cleanly single-purpose, or a denormalization backed by a stated measurement, isn't a smell just because it isn't maximally split.
 * Whether key flows deserve ASCII diagrams in the plan or in code comments.
 * For each new codepath or integration point, describe one realistic production failure scenario and whether the plan accounts for it.
 * **Distribution architecture:** If this introduces a new artifact (binary, package, container), how does it get built, published, and updated? Is the CI/CD pipeline part of the plan or deferred?
@@ -62,7 +62,7 @@ For every new model, model change, or schema migration in this plan, run through
 
 **Single Responsibility (SRP for models)**
 - Does this model have exactly one job? Audit ≠ balance ≠ notification ≠ display.
-- If a model is doing N jobs, propose splitting it into N models.
+- If a model is doing N jobs, propose splitting it into N models — unless the "extra job" is a single trivial field with no independent query pattern, write path, or consumer, in which case surface it as a tradeoff rather than mandate the split.
 
 **Nullable with semantic meaning**
 - For every nullable column, ask: does NULL flip what kind of thing this row is?
@@ -80,9 +80,9 @@ For every new model, model change, or schema migration in this plan, run through
 - If yes, the parent's field belongs on the child. Remove from parent, require ≥1 child row, read via FK navigation.
 
 **JSONField as polymorphism escape hatch**
-- For every JSONField, ask: am I documenting "what keys appear for which variant"?
-- If yes, the JSONField has schema. Promote to explicit columns + CheckConstraints.
-- Legitimate JSONField uses: third-party API caches, opaque user preferences, schemaless attribute bags nobody queries against.
+- For every JSONField, ask: am I documenting "what keys appear for which variant," and are those variants stable?
+- If yes to both, the JSONField has schema. Promote to explicit columns + CheckConstraints.
+- Legitimate JSONField uses: caching a third-party API response verbatim (webhook payloads, OAuth profiles), a genuinely open-ended user-preferences bag nobody queries into, event/analytics payloads shaped by an external producer, and early-stage schemas whose variants aren't stable yet. None of these are escape hatches — they're cases where the DB genuinely can't add value over the JSON blob.
 
 **FK deletion strategies (CASCADE / PROTECT / SET_NULL)**
 - For every FK, ask: if the parent is deleted, what should happen to this row?
