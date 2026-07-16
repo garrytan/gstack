@@ -377,6 +377,51 @@ describe('gstack-artifacts-init push protocol (issue #1348)', () => {
   });
 });
 
+describe('gstack-artifacts-init explicit-remote protocol preservation (issue #1348)', () => {
+  // The provider-created path (--host github/gitlab) reads git_protocol. A URL
+  // the USER supplies already states its own protocol, so `auto` must keep it
+  // rather than rewrite it. The original fix keyed only on --host, so an
+  // explicit `--remote https://...` with no --host fell through to the SSH
+  // default and silently converted the user's HTTPS URL to SSH.
+  test('--remote HTTPS (no --host) keeps HTTPS instead of defaulting to SSH', () => {
+    makeFakeGh({});
+    const r = run(['--remote', 'https://github.com/testuser/gstack-artifacts-testuser.git']);
+    if (r.status !== 0) console.error('STDERR:', r.stderr);
+    expect(r.status).toBe(0);
+    const remote = spawnSync('git', ['-C', tmpHome, 'remote', 'get-url', 'origin'], { encoding: 'utf-8' }).stdout.trim();
+    expect(remote.startsWith('https://')).toBe(true);
+    expect(remote.startsWith('git@')).toBe(false);
+  });
+
+  test('--remote SSH keeps SSH', () => {
+    makeFakeGh({});
+    const r = run(['--remote', 'git@github.com:testuser/gstack-artifacts-testuser.git']);
+    expect(r.status).toBe(0);
+    const remote = spawnSync('git', ['-C', tmpHome, 'remote', 'get-url', 'origin'], { encoding: 'utf-8' }).stdout.trim();
+    expect(remote.startsWith('git@')).toBe(true);
+  });
+
+  test('explicit HTTPS --remote is NOT overridden by ambient gh git_protocol=ssh', () => {
+    // The strongest form of the regression: even with a git_protocol=ssh config
+    // reachable on PATH, a user-supplied HTTPS URL must win. Consulting config
+    // here is exactly what would reintroduce #1348.
+    makeFakeGh({ gitProtocol: 'ssh' });
+    const r = run(['--remote', 'https://github.com/testuser/gstack-artifacts-testuser.git']);
+    expect(r.status).toBe(0);
+    const remote = spawnSync('git', ['-C', tmpHome, 'remote', 'get-url', 'origin'], { encoding: 'utf-8' }).stdout.trim();
+    expect(remote.startsWith('https://')).toBe(true);
+    expect(remote.startsWith('git@')).toBe(false);
+  });
+
+  test('--push-protocol ssh still overrides an explicit HTTPS --remote', () => {
+    makeFakeGh({});
+    const r = run(['--remote', 'https://github.com/testuser/gstack-artifacts-testuser.git', '--push-protocol', 'ssh']);
+    expect(r.status).toBe(0);
+    const remote = spawnSync('git', ['-C', tmpHome, 'remote', 'get-url', 'origin'], { encoding: 'utf-8' }).stdout.trim();
+    expect(remote.startsWith('git@')).toBe(true);
+  });
+});
+
 describe('gstack-artifacts-init idempotency', () => {
   test('--remote <url> bypasses provider selection entirely', () => {
     makeFakeGh({});
