@@ -4,9 +4,13 @@ dist/
 browse/dist/
 design/dist/
 make-pdf/dist/
-bin/gstack-global-discover
+# diagram-render ships its built bundle (offline-at-install premise, eng-review D2)
+!lib/diagram-render/dist/
+!lib/diagram-render/dist/**
+bin/gstack-global-discover*
 .gstack/
 .claude/skills/
+.claude/gstack-rendered/
 .claude/scheduled_tasks.lock
 .claude/*.lock
 .agents/
@@ -37,3 +41,6 @@ supabase/.temp/
 
 # Throughput analysis — local-only, regenerate via scripts/garry-output-comparison.ts
 docs/throughput-*.json
+
+# gbrain local source-staging dir (capability checks, source clones) — runtime artifact
+.sources/

@@ -58,7 +58,7 @@ export async function generateVariant(
     skipLeadingDelay = false;
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 120_000);
+    const timeout = setTimeout(() => controller.abort(), 240_000);
 
     try {
       const response = await fetchFn("https://api.openai.com/v1/responses", {
@@ -70,7 +70,7 @@ export async function generateVariant(
         body: JSON.stringify({
           model: "gpt-4o",
           input: prompt,
-          tools: [{ type: "image_generation", size, quality }],
+          tools: [{ type: "image_generation", model: "gpt-image-2", size, quality }],
         }),
         signal: controller.signal,
       });

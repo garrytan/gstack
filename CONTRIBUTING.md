@@ -106,6 +106,22 @@ bun run build
 bin/dev-teardown
 ```
 
+### Brain-aware blocks in a dev workspace (gbrain installed)
+
+If gbrain is installed and usable (`bin/gstack-gbrain-detect --is-ok` exits 0),
+`bin/dev-setup` keeps your tracked `SKILL.md` files canonical and renders the
+brain-aware variant (the `GBRAIN_CONTEXT_LOAD` / `GBRAIN_SAVE_RESULTS` blocks)
+into `.claude/gstack-rendered/` (gitignored, per-workspace). It then repoints the
+workspace's `SKILL.md` symlinks at that render, so your Claude sessions get the
+full gbrain experience while `git status` stays clean. Under the hood, dev-setup
+passes `GSTACK_SKIP_GBRAIN_REGEN=1` inline to the nested `./setup` (so it never
+dirties tracked source) and runs `gen:skill-docs:user --out-dir .claude/gstack-rendered`,
+which rewrites only the section-base paths to point at the render. `bin/dev-teardown`
+removes the render. To make the blocks live across your *other* projects' Claude
+sessions, run `gstack-config gbrain-refresh`, which renders them into the global
+install (`~/.claude/skills/gstack`), guarded so it never touches a symlinked or
+non-gstack directory.
+
 ## Testing & evals
 
 ### Setup
@@ -160,6 +176,18 @@ EVALS=1 bun test test/skill-e2e-*.test.ts
 - Saves full NDJSON transcripts and failure JSON for debugging
 - Tests live in `test/skill-e2e-*.test.ts` (split by category), runner logic in `test/helpers/session-runner.ts`
 
+**Hermetic by default.** Every E2E runner (claude -p, the real-PTY plan-mode
+runner, the Agent SDK runner, plus the codex and gemini runners) spawns its child
+through `test/helpers/hermetic-env.ts`: an allowlist-scrubbed environment, a fresh
+seeded `CLAUDE_CONFIG_DIR`, a temp `GSTACK_HOME`, and `--strict-mcp-config`. Your
+operator `~/.claude` config, MCP servers (gbrain, Conductor), skills, `~/.gstack`
+decision logs, and `CONDUCTOR_*` env never leak into the child, so local eval
+signal matches CI instead of disagreeing for reasons unrelated to the code under
+test. Set `EVALS_HERMETIC=0` to debug against your real operator state (this also
+drops `--strict-mcp-config`). The wiring is pinned by `test/hermetic-wiring.test.ts`
+(a free static tripwire) and two gate-tier isolation canaries in
+`test/skill-e2e-hermetic-canary.test.ts`.
+
 ### E2E observability
 
 When E2E tests run, they produce machine-readable artifacts in `~/.gstack-dev/`:
@@ -181,6 +209,25 @@ bun run eval:list            # list all eval runs (turns, duration, cost per run
 bun run eval:compare         # compare two runs — shows per-test deltas + Takeaway commentary
 bun run eval:summary         # aggregate stats + per-test efficiency averages across runs
 ```
+
+**Detached runs for agents and long suites.** When an agent (or you, for a run
+you don't want to babysit) launches a long eval, use the `eval:bg*` scripts. They
+wrap the eval command in `bin/gstack-detach`: a fresh session that escapes a
+turn-boundary SIGTERM, a `caffeinate` wrapper that blocks idle-sleep, a machine-wide
+`gstack-evals` lock so concurrent worktrees serialize instead of saturating the
+model API, a run-scoped log under `~/.gstack-dev/eval-runs/`, a per-tier watchdog,
+and a guaranteed `### gstack-detach EXIT=<code> ###` sentinel so a poller never
+mistakes silence for success.
+
+```bash
+bun run eval:bg              # detached test:evals (diff-based)
+bun run eval:bg:all          # detached test:evals:all
+bun run eval:bg:gate         # detached gate-tier suite
+bun run eval:bg:periodic     # detached periodic-tier suite
+```
+
+Each prints its log path. Humans running `bun run test:evals` foreground in their
+own terminal don't need this — Ctrl-C is intended there.
 
 **Eval comparison commentary:** `eval:compare` generates natural-language Takeaway sections interpreting what changed between runs — flagging regressions, noting improvements, calling out efficiency gains (fewer turns, faster, cheaper), and producing an overall summary. This is driven by `generateCommentary()` in `eval-store.ts`.
 
@@ -231,6 +278,14 @@ bun run dev:skill
 For template authoring best practices (natural language over bash-isms, dynamic branch detection, `{{BASE_BRANCH_DETECT}}` usage), see CLAUDE.md's "Writing SKILL templates" section.
 
 To add a browse command, add it to `browse/src/commands.ts`. To add a snapshot flag, add it to `SNAPSHOT_FLAGS` in `browse/src/snapshot.ts`. Then rebuild.
+
+**Don't bundle puppeteer/Chromium in a skill.** `browse` is the one shared
+Chromium per box, including offline local-render workloads. A skill that needs to
+rasterize its own HTML/JSON (diagrams, cards, og-images) should route through
+`browse` — `screenshot --selector` for visual output, `load-html` + `js --out` for
+bytes a render function returns — instead of `npm i puppeteer` and downloading a
+second Chromium that drifts out of version sync. One install to pin, one daemon to
+manage.
 
 ## Jargon list (V1 writing style)
 
@@ -326,12 +381,16 @@ If you're using [Conductor](https://conductor.build) to run multiple Claude Code
 
 | Hook | Script | What it does |
 |------|--------|-------------|
-| `setup` | `bin/dev-setup` | Copies `.env` from main worktree, installs deps, symlinks skills |
-| `archive` | `bin/dev-teardown` | Removes skill symlinks, cleans up `.claude/` directory |
+| `setup` | `bin/dev-setup` | Copies `.env` from main worktree, installs deps, symlinks skills, runs `./setup` non-interactively, and (if gbrain is installed) renders brain-aware blocks into `.claude/gstack-rendered/` without dirtying tracked source |
+| `archive` | `bin/dev-teardown` | Removes skill symlinks, the `.claude/gstack-rendered/` render, and cleans up `.claude/` directory |
 
 When Conductor creates a new workspace, `bin/dev-setup` runs automatically. It detects the main worktree (via `git worktree list`), copies your `.env` so API keys carry over, and sets up dev mode — no manual steps needed.
 
+`bin/dev-setup` runs `./setup` fully non-interactively (it passes `--plan-tune-hooks=prompt` and closes stdin), so a forwarded Conductor TTY can never hang on a hidden setup prompt. It also never installs the plan-tune Claude Code hooks, which means a throwaway workspace can't rewrite your global `~/.claude/settings.json` to point at an ephemeral worktree path. To install the plan-tune hooks deliberately, run `./setup --plan-tune-hooks` outside dev-setup (or `gstack-config set plan_tune_hooks yes`).
+
 **First-time setup:** Put your `ANTHROPIC_API_KEY` in `.env` in the main repo (see `.env.example`). Every Conductor workspace inherits it automatically.
+
+**`GSTACK_*` env prefix (Conductor-injected keys).** Conductor explicitly strips `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` from every workspace's process env. The `.env` copy path doesn't restore them either — the strip happens after env inheritance. Users who want paid evals, `/sync-gbrain` embeddings, or `claude-agent-sdk` calls to work in a Conductor workspace must set `GSTACK_ANTHROPIC_API_KEY` and `GSTACK_OPENAI_API_KEY` in Conductor's workspace env config; Conductor passes those through untouched. On the gstack side, TS entry points import `lib/conductor-env-shim.ts` as a side effect, which promotes `GSTACK_FOO_API_KEY` to `FOO_API_KEY` when the canonical name is empty. If you add a new TS entry point that hits a paid API, add `import "../lib/conductor-env-shim";` to the top of the file. Today the shim is imported from `bin/gstack-gbrain-sync.ts`, `bin/gstack-model-benchmark`, `scripts/preflight-agent-sdk.ts`, and `test/helpers/e2e-helpers.ts`.
 
 ## Things to know
 

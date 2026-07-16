@@ -338,19 +338,28 @@ const BLOCKLIST_DOMAINS = [
 export function urlBlocklistFilter(content: string, url: string, _command: string): ContentFilterResult {
   const warnings: string[] = [];
 
+  // Matching is case-insensitive. Hostnames and URL schemes are
+  // case-insensitive (RFC 3986), so an uppercased sink like
+  // https://WEBHOOK.SITE/x must not slip past the blocklist. Normalize the
+  // haystack to lowercase; BLOCKLIST_DOMAINS entries are lowercase by
+  // construction, so a direct compare then holds.
+
   // Check page URL
+  const normalizedUrl = url.toLowerCase();
   for (const domain of BLOCKLIST_DOMAINS) {
-    if (url.includes(domain)) {
+    if (normalizedUrl.includes(domain)) {
       warnings.push(`Page URL matches blocklisted domain: ${domain}`);
     }
   }
 
-  // Check for blocklisted URLs in content (links, form actions)
-  const urlPattern = /https?:\/\/[^\s"'<>]+/g;
+  // Check for blocklisted URLs in content (links, form actions). The `i` flag
+  // keeps an uppercased scheme (HTTPS://) from evading URL extraction.
+  const urlPattern = /https?:\/\/[^\s"'<>]+/gi;
   const contentUrls = content.match(urlPattern) || [];
   for (const contentUrl of contentUrls) {
+    const normalizedContentUrl = contentUrl.toLowerCase();
     for (const domain of BLOCKLIST_DOMAINS) {
-      if (contentUrl.includes(domain)) {
+      if (normalizedContentUrl.includes(domain)) {
         warnings.push(`Content contains blocklisted URL: ${contentUrl.slice(0, 100)}`);
         break;
       }

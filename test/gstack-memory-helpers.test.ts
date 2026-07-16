@@ -12,7 +12,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterAll } from "bun:test";
-import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, mkdirSync } from "fs";
+import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, mkdirSync, chmodSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -67,6 +67,30 @@ describe("canonicalizeRemote", () => {
   it("collapses redundant slashes", () => {
     expect(canonicalizeRemote("https://github.com//foo//bar")).toBe("github.com/foo/bar");
   });
+
+  it("strips .git even when the URL has a trailing slash", () => {
+    // A remote configured with both a .git suffix and a trailing slash must
+    // canonicalize to the same key as one without — otherwise the same repo
+    // gets two dedup/source-id keys across machines.
+    expect(canonicalizeRemote("https://github.com/garrytan/gstack.git/")).toBe("github.com/garrytan/gstack");
+    expect(canonicalizeRemote("git@github.com:garrytan/gstack.git/")).toBe("github.com/garrytan/gstack");
+    expect(canonicalizeRemote("https://github.com/foo/bar.git///")).toBe("github.com/foo/bar");
+  });
+
+  it("produces the same key with or without a trailing slash", () => {
+    expect(canonicalizeRemote("https://github.com/garrytan/gstack.git/")).toBe(
+      canonicalizeRemote("https://github.com/garrytan/gstack.git")
+    );
+  });
+
+  it("canonicalizes a path remote ending in a .git directory component", () => {
+    // Stripping the `.git` suffix exposes a new trailing slash
+    // ("/repo/.git" → "/repo/") which must also be stripped, or the same
+    // repo splits into two identities.
+    expect(canonicalizeRemote("file:///Users/x/repo/.git")).toBe(
+      canonicalizeRemote("file:///Users/x/repo")
+    );
+  });
 });
 
 // ── secretScanFile ─────────────────────────────────────────────────────────
@@ -95,6 +119,47 @@ describe("secretScanFile", () => {
       expect(result.findings).toEqual([]);
     }
     rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("probes the gitleaks executable directly before scanning", () => {
+    const dir = mkdtempSync(join(tmpdir(), "gstack-test-"));
+    const binDir = join(dir, "bin");
+    const log = join(dir, "gitleaks-calls.log");
+    const file = join(dir, "clean.txt");
+    mkdirSync(binDir, { recursive: true });
+    writeFileSync(file, "no secrets here\n");
+    writeFileSync(
+      join(binDir, "gitleaks"),
+      `#!/bin/sh
+printf '%s\\n' "$*" >> "${log}"
+if [ "$1" = "version" ]; then
+  exit 0
+fi
+if [ "$1" = "detect" ]; then
+  echo '[]'
+  exit 0
+fi
+exit 2
+`,
+      "utf-8",
+    );
+    chmodSync(join(binDir, "gitleaks"), 0o755);
+
+    const oldPath = process.env.PATH;
+    process.env.PATH = `${binDir}:${oldPath || ""}`;
+    try {
+      _resetGitleaksAvailabilityCache();
+      const result = secretScanFile(file);
+      expect(result.scanner).toBe("gitleaks");
+      expect(result.findings).toEqual([]);
+      const calls = readFileSync(log, "utf-8").trim().split("\n");
+      expect(calls[0]).toBe("version");
+      expect(calls[1]).toContain("detect --no-git --source");
+    } finally {
+      if (oldPath === undefined) delete process.env.PATH;
+      else process.env.PATH = oldPath;
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -201,6 +266,62 @@ body
     expect(m).not.toBeNull();
     expect(m!.context_queries).toHaveLength(1);
     expect(m!.context_queries[0].id).toBe("complete");
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("parses a nested filter: block on a list query", () => {
+    const dir = mkdtempSync(join(tmpdir(), "gstack-test-"));
+    const file = join(dir, "filtered.md");
+    writeFileSync(
+      file,
+      `---
+name: investigate
+gbrain:
+  schema: 1
+  context_queries:
+    - id: prior-investigations
+      kind: list
+      filter:
+        type: timeline
+        tags_contains: "repo:{repo_slug}"
+        content_contains: "investigate"
+      sort: updated_at_desc
+      limit: 5
+      render_as: "## Prior investigations in this repo"
+    - id: recent-no-filter
+      kind: list
+      sort: created_at_desc
+      limit: 3
+      render_as: "## Recent (no filter)"
+---
+
+body
+`
+    );
+
+    const m = parseSkillManifest(file);
+    expect(m).not.toBeNull();
+    expect(m!.context_queries).toHaveLength(2);
+
+    // The filter: sub-block is parsed into a key/value map, with quotes
+    // stripped and template vars left intact for downstream substitution.
+    const filtered = m!.context_queries[0];
+    expect(filtered.id).toBe("prior-investigations");
+    expect(filtered.filter).toEqual({
+      type: "timeline",
+      tags_contains: "repo:{repo_slug}",
+      content_contains: "investigate",
+    });
+    // Sibling fields on the same item still parse alongside the filter.
+    expect(filtered.sort).toBe("updated_at_desc");
+    expect(filtered.limit).toBe(5);
+    expect(filtered.render_as).toBe("## Prior investigations in this repo");
+
+    // A list query with no filter: leaves filter undefined (no regression).
+    expect(m!.context_queries[1].id).toBe("recent-no-filter");
+    expect(m!.context_queries[1].filter).toBeUndefined();
+    expect(m!.context_queries[1].sort).toBe("created_at_desc");
+
     rmSync(dir, { recursive: true, force: true });
   });
 });
@@ -340,5 +461,42 @@ describe("detectEngineTier", () => {
     );
     const result = detectEngineTier();
     expect(result.engine).toBe("supabase");
+  });
+
+  it("parses schema_version:2 doctor JSON via the exec path (regression for #1418)", () => {
+    // Stronger pin than the PATH-stripped fallback above: install a fake
+    // gbrain shim that successfully exits with status 1 (health_score < 100,
+    // mirroring real-world Supabase brains) and emits the v2 doctor JSON
+    // shape — schema_version: 2, status: "warnings", no top-level `engine`.
+    // The parser must still produce a usable EngineDetect by falling back
+    // to GBRAIN_HOME/config.json when `engine` is absent from doctor output.
+    const binDir = mkdtempSync(join(tmpdir(), "gstack-gbrain-shim-"));
+    const shim = join(binDir, "gbrain");
+    writeFileSync(
+      shim,
+      `#!/bin/sh
+if [ "$1" = "doctor" ]; then
+  cat <<'JSON'
+{"schema_version":2,"status":"warnings","health_score":90,"checks":[{"name":"resolver_health","status":"ok","message":"42 skills"}]}
+JSON
+  exit 1
+fi
+if [ "$1" = "--version" ]; then
+  echo "gbrain 0.35.0.0"
+  exit 0
+fi
+exit 0
+`,
+      { mode: 0o755 }
+    );
+    process.env.PATH = `${binDir}:${process.env.PATH || ""}`;
+    writeFileSync(
+      join(testGbrainHome, "config.json"),
+      JSON.stringify({ engine: "pglite" }),
+      "utf-8"
+    );
+    const result = detectEngineTier();
+    expect(result.engine).toBe("pglite");
+    rmSync(binDir, { recursive: true, force: true });
   });
 });

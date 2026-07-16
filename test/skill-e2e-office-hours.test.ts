@@ -53,6 +53,7 @@ describeIfSelected('Office Hours Forcing Energy E2E', ['office-hours-forcing-ene
       path.join(ROOT, 'office-hours', 'SKILL.md'),
       path.join(workDir, 'office-hours', 'SKILL.md'),
     );
+    { const _sec = path.join(ROOT, 'office-hours', 'sections'); if (fs.existsSync(_sec)) fs.cpSync(_sec, path.join(workDir, 'office-hours', 'sections'), { recursive: true }); }
   });
 
   afterAll(() => {
@@ -124,6 +125,7 @@ describeIfSelected('Office Hours Builder Wildness E2E', ['office-hours-builder-w
       path.join(ROOT, 'office-hours', 'SKILL.md'),
       path.join(workDir, 'office-hours', 'SKILL.md'),
     );
+    { const _sec = path.join(ROOT, 'office-hours', 'sections'); if (fs.existsSync(_sec)) fs.cpSync(_sec, path.join(workDir, 'office-hours', 'sections'), { recursive: true }); }
   });
 
   afterAll(() => {

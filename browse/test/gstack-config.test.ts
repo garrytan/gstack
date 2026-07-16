@@ -41,8 +41,15 @@ afterEach(() => {
 
 describe('gstack-config', () => {
   // ─── get ──────────────────────────────────────────────────
-  test('get on missing file returns empty, exit 0', () => {
+  test('get on missing file returns the default, exit 0', () => {
+    // auto_upgrade has a default of false; get falls back to the defaults table.
     const { exitCode, stdout } = run(['get', 'auto_upgrade']);
+    expect(exitCode).toBe(0);
+    expect(stdout).toBe('false');
+  });
+
+  test('get unknown key on missing file returns empty, exit 0', () => {
+    const { exitCode, stdout } = run(['get', 'some_unknown_key']);
     expect(exitCode).toBe(0);
     expect(stdout).toBe('');
   });
@@ -101,6 +108,13 @@ describe('gstack-config', () => {
     expect(existsSync(join(nestedDir, 'config.yaml'))).toBe(true);
   });
 
+  test('brain trust policy accepts local endpoint suffix', () => {
+    const { exitCode, stderr } = run(['set', 'brain_trust_policy@local', 'personal']);
+    expect(exitCode).toBe(0);
+    expect(stderr).toBe('');
+    expect(run(['get', 'brain_trust_policy@local']).stdout).toBe('personal');
+  });
+
   // ─── list ─────────────────────────────────────────────────
   test('list shows all keys', () => {
     writeFileSync(join(stateDir, 'config.yaml'), 'auto_upgrade: true\nupdate_check: false\n');
@@ -110,10 +124,12 @@ describe('gstack-config', () => {
     expect(stdout).toContain('update_check: false');
   });
 
-  test('list on missing file returns empty, exit 0', () => {
+  test('list on missing file shows defaults, exit 0', () => {
+    // list prints the active-values block with defaults for unset keys.
     const { exitCode, stdout } = run(['list']);
     expect(exitCode).toBe(0);
-    expect(stdout).toBe('');
+    expect(stdout).toContain('proactive:');
+    expect(stdout).toContain('(default)');
   });
 
   // ─── usage ────────────────────────────────────────────────
@@ -128,6 +144,12 @@ describe('gstack-config', () => {
     const { exitCode, stderr } = run(['set', '.*', 'value']);
     expect(exitCode).toBe(1);
     expect(stderr).toContain('alphanumeric');
+  });
+
+  test('set rejects endpoint suffix with punctuation', () => {
+    const { exitCode, stderr } = run(['set', 'brain_trust_policy@local-dev', 'personal']);
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain('endpoint-id');
   });
 
   test('set preserves value with sed special chars', () => {
@@ -149,6 +171,29 @@ describe('gstack-config', () => {
     expect(content).toContain('routing_declined:');
     expect(content).toContain('codex_reviews:');
     expect(content).toContain('skip_eng_review:');
+  });
+
+  // ─── codex_reviews (paid-calls switch: reject-on-set, preserve existing) ──
+  test('codex_reviews defaults to enabled', () => {
+    const { exitCode, stdout } = run(['get', 'codex_reviews']);
+    expect(exitCode).toBe(0);
+    expect(stdout).toBe('enabled');
+  });
+
+  test('codex_reviews accepts enabled and disabled', () => {
+    expect(run(['set', 'codex_reviews', 'disabled']).exitCode).toBe(0);
+    expect(run(['get', 'codex_reviews']).stdout).toBe('disabled');
+    expect(run(['set', 'codex_reviews', 'enabled']).exitCode).toBe(0);
+    expect(run(['get', 'codex_reviews']).stdout).toBe('enabled');
+  });
+
+  test('codex_reviews rejects an invalid value and preserves the existing one', () => {
+    run(['set', 'codex_reviews', 'disabled']);
+    const { exitCode, stderr } = run(['set', 'codex_reviews', 'disabledd']);
+    expect(exitCode).not.toBe(0); // rejected, not warn-and-default
+    expect(stderr).toContain('not recognized');
+    // existing value must be untouched — a typo never silently flips paid Codex on/off
+    expect(run(['get', 'codex_reviews']).stdout).toBe('disabled');
   });
 
   test('header written only once, not duplicated on second set', () => {
@@ -176,9 +221,9 @@ describe('gstack-config', () => {
   });
 
   // ─── routing_declined ──────────────────────────────────────
-  test('routing_declined defaults to empty (not set)', () => {
+  test('routing_declined defaults to false (not set)', () => {
     const { stdout } = run(['get', 'routing_declined']);
-    expect(stdout).toBe('');
+    expect(stdout).toBe('false');
   });
 
   test('routing_declined can be set and read', () => {

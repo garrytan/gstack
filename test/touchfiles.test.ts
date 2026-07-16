@@ -94,7 +94,7 @@ describe('selectTests', () => {
     expect(result.selected).toContain('plan-review-prosons-hardstop-neg');
     expect(result.selected).toContain('plan-review-prosons-neutral-neg');
     // v1.13.x real-PTY E2E batch entries that also depend on plan-ceo-review/**
-    expect(result.selected).toContain('ask-user-question-format-pty');
+    expect(result.selected).toContain('auq-format-gate');
     expect(result.selected).toContain('plan-ceo-mode-routing');
     expect(result.selected).toContain('autoplan-chain-pty');
     // Per-finding count + review-report-at-bottom (v1.21.x)
@@ -105,8 +105,14 @@ describe('selectTests', () => {
     expect(result.selected).toContain('auto-decide-preserved');
     // v1.27+ gate-tier reviewCount-floor regression for transcript bug
     expect(result.selected).toContain('plan-ceo-finding-floor');
-    expect(result.selected.length).toBe(21);
-    expect(result.skipped.length).toBe(Object.keys(E2E_TOUCHFILES).length - 21);
+    // garrytan/askuserquestion-split-on-overflow: split-overflow periodic
+    // E2E test also depends on plan-ceo-review/** (5-option scope decision
+    // regression for the "drop to fit 4 options" failure mode).
+    expect(result.selected).toContain('plan-ceo-split-overflow');
+    // v2 plan Phase B carve: the section-loading E2E depends on plan-ceo-review/**.
+    expect(result.selected).toContain('plan-ceo-section-loading');
+    expect(result.selected.length).toBe(23);
+    expect(result.skipped.length).toBe(Object.keys(E2E_TOUCHFILES).length - 23);
   });
 
   test('global touchfile triggers ALL tests', () => {

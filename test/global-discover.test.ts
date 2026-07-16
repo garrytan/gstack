@@ -343,4 +343,92 @@ describe("gstack-global-discover", () => {
       expect(remotes.length).toBe(uniqueRemotes.size);
     });
   });
+
+  describe("extractCwdFromJsonl 64KB cap (PR #1169 bug #8)", () => {
+    // Regression: the old 8KB cap landed mid-line on Claude Code sessions with
+    // long headers, JSON.parse threw on the truncated tail, the catch
+    // `continue`d silently, and the project disappeared from discovery.
+    // The fix raised the cap to 64KB AND drops the trailing partial segment
+    // before parsing.
+    let extractCwdFromJsonl: (filePath: string) => string | null;
+    let tmpDir: string;
+
+    beforeEach(async () => {
+      const mod = await import("../bin/gstack-global-discover.ts");
+      extractCwdFromJsonl = mod.extractCwdFromJsonl;
+      tmpDir = mkdtempSync(join(tmpdir(), "pr1169-cwd-"));
+    });
+
+    afterEach(() => {
+      rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    test("happy path: small JSONL with obj.cwd returns it (sanity)", () => {
+      const filePath = join(tmpDir, "small.jsonl");
+      const line = JSON.stringify({ cwd: "/tmp/repo-small", type: "header" });
+      writeFileSync(filePath, line + "\n");
+      expect(extractCwdFromJsonl(filePath)).toBe("/tmp/repo-small");
+    });
+
+    test("12KB first line with obj.cwd: returns cwd (old 8KB cap returned null)", () => {
+      // Pad a JSONL header so the whole line is ~12KB ending in `}\n`.
+      // Old 8KB read would slice mid-line; JSON.parse on the truncated tail
+      // would throw, the catch would `continue`, and we'd return null.
+      const padding = "x".repeat(12 * 1024);
+      const line = JSON.stringify({
+        cwd: "/tmp/repo-12k",
+        type: "header",
+        notes: padding,
+      });
+      expect(line.length).toBeGreaterThan(8 * 1024);
+      expect(line.length).toBeLessThan(64 * 1024);
+
+      const filePath = join(tmpDir, "header-12k.jsonl");
+      writeFileSync(filePath, line + "\n");
+      expect(extractCwdFromJsonl(filePath)).toBe("/tmp/repo-12k");
+    });
+
+    test("80KB single line (overflows 64KB cap): returns null without crashing", () => {
+      // One line >64KB with no newline inside the read window. The 64KB read
+      // captures a truncated prefix, parts.length === 1, no trailing drop
+      // applies, JSON.parse throws, catch returns null. The fix's
+      // trailing-partial-drop must not crash on this shape.
+      const padding = "y".repeat(80 * 1024);
+      const line = JSON.stringify({ cwd: "/tmp/repo-80k", type: "header", notes: padding });
+      expect(line.length).toBeGreaterThan(64 * 1024);
+
+      const filePath = join(tmpDir, "header-80k.jsonl");
+      writeFileSync(filePath, line + "\n");
+      // Don't throw, just return null.
+      expect(extractCwdFromJsonl(filePath)).toBeNull();
+    });
+
+    test("complete line followed by partial second line: returns first line's cwd", () => {
+      // Line 1 ends cleanly with `\n` well within the cap.
+      // Line 2 is long enough that the 64KB read captures only its incomplete
+      // beginning. The trailing-partial drop must skip the truncated line 2
+      // and not poison the result.
+      const line1 = JSON.stringify({ cwd: "/tmp/repo-line-1", type: "header" });
+      const line2Padding = "z".repeat(80 * 1024);
+      const line2 = JSON.stringify({ cwd: "/tmp/repo-line-2", notes: line2Padding });
+
+      const filePath = join(tmpDir, "header-partial-2.jsonl");
+      writeFileSync(filePath, line1 + "\n" + line2 + "\n");
+      expect(extractCwdFromJsonl(filePath)).toBe("/tmp/repo-line-1");
+    });
+
+    test("missing file: returns null (file read error is swallowed)", () => {
+      const filePath = join(tmpDir, "nonexistent.jsonl");
+      expect(extractCwdFromJsonl(filePath)).toBeNull();
+    });
+
+    test("malformed first line then valid second line within cap: returns second", () => {
+      // Both lines fully within 64KB. First line is not valid JSON; second
+      // is. The function must skip first and return second's cwd.
+      const filePath = join(tmpDir, "bad-then-good.jsonl");
+      const good = JSON.stringify({ cwd: "/tmp/repo-skip-bad" });
+      writeFileSync(filePath, "{ not valid json\n" + good + "\n");
+      expect(extractCwdFromJsonl(filePath)).toBe("/tmp/repo-skip-bad");
+    });
+  });
 });

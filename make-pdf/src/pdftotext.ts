@@ -114,6 +114,34 @@ export function resolvePdftotext(env: NodeJS.ProcessEnv = process.env): Pdftotex
   ].join("\n"));
 }
 
+/**
+ * Locate a poppler companion tool (pdffonts, pdfimages, pdftoppm) used by the
+ * emoji render gate. Mirrors resolvePdftotext's resolution order:
+ *   1. $GSTACK_<TOOL>_BIN env override (e.g. GSTACK_PDFFONTS_BIN)
+ *   2. PATH via Bun.which
+ *   3. standard POSIX locations (Homebrew + distro)
+ *
+ * Returns null (does NOT throw) when the tool is missing — the emoji gate skips
+ * cleanly rather than failing on a box without full poppler-utils.
+ */
+export function resolvePopplerTool(
+  tool: "pdffonts" | "pdfimages" | "pdftoppm",
+  env: NodeJS.ProcessEnv = process.env,
+): string | null {
+  const override = resolveOverride(env[`GSTACK_${tool.toUpperCase()}_BIN`], env);
+  if (override) return override;
+
+  const PATH = env.PATH ?? env.Path ?? "";
+  const onPath = Bun.which(tool, { PATH });
+  if (onPath) return onPath;
+
+  for (const dir of ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"]) {
+    const candidate = findExecutable(path.join(dir, tool));
+    if (candidate) return candidate;
+  }
+  return null;
+}
+
 function isExecutable(p: string): boolean {
   try {
     fs.accessSync(p, fs.constants.X_OK);

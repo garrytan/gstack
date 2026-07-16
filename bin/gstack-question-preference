@@ -23,7 +23,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
+# GSTACK_STATE_ROOT takes precedence over GSTACK_HOME (test isolation per D16).
+GSTACK_HOME="${GSTACK_STATE_ROOT:-${GSTACK_HOME:-$HOME/.gstack}}"
 eval "$("$SCRIPT_DIR/gstack-slug" 2>/dev/null || true)"
 SLUG="${SLUG:-unknown}"
 PREF_FILE="$GSTACK_HOME/projects/$SLUG/question-preferences.json"
@@ -64,6 +65,21 @@ do_check() {
         console.log('ASK_NORMALLY');
         if (pref === 'never-ask') {
           console.log('NOTE: one-way door overrides your never-ask preference for safety.');
+        }
+        return;
+      }
+
+      // Split-chain carve-out: per-option calls in N-option splits emit
+      // question_ids of the form <skill>-split-<option-slug>. These are
+      // NEVER AUTO_DECIDE-eligible regardless of stored preferences — the
+      // whole point of splitting is restoring user sovereignty over the
+      // option set. See scripts/resolvers/preamble/generate-ask-user-format.ts
+      // \"Handling 5+ options — split, never drop\" for the surrounding
+      // mechanism that generates these ids.
+      if (/-split-/.test(qid)) {
+        console.log('ASK_NORMALLY');
+        if (pref === 'never-ask' || pref === 'ask-only-for-one-way') {
+          console.log('NOTE: split-chain per-option calls always ASK_NORMALLY; your ' + pref + ' preference does not apply to options inside a sequential split.');
         }
         return;
       }

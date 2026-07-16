@@ -197,20 +197,26 @@ describeE2E('/ship idempotency E2E (periodic, real-PTY)', () => {
             }
           }
 
-          // Positive: the idempotency-check echoed ALREADY_BUMPED.
-          if (/STATE:\s*ALREADY_BUMPED/.test(visible)) {
+          // Positive: idempotency classify reported ALREADY_BUMPED. Post-carve
+          // (T9), Step 12 runs `gstack-version-bump classify` which emits JSON
+          // (`"state":"ALREADY_BUMPED"`); the legacy inline bash echoed
+          // `STATE: ALREADY_BUMPED`. Accept either so the test survives the carve.
+          if (/STATE:\s*ALREADY_BUMPED|"state":\s*"ALREADY_BUMPED"/.test(visible)) {
             outcome = 'detected';
             evidence = visible.slice(-3000);
             break;
           }
 
           // Negative regressions:
-          //   - bump-action bash block ran (would echo on FRESH path)
+          //   - classify reported FRESH (CLI JSON or legacy echo) → would re-bump
           //   - agent attempted git commit -m "chore: bump version"
           //   - agent attempted git push
-          //   - agent rendered an Edit/Write to CHANGELOG.md or VERSION (acceptable in plan mode but flagged here)
+          //   - agent ran the CLI write path (gstack-version-bump write) — a
+          //     re-bump on an already-shipped branch
           if (
+            /"state":\s*"FRESH"/.test(visible) ||
             /STATE:\s*FRESH(?![\w-])/i.test(visible) ||
+            /gstack-version-bump\s+write/i.test(visible) ||
             /git\s+commit\s+.*chore:\s*bump\s+version/i.test(visible) ||
             /git\s+push.*origin/i.test(visible)
           ) {

@@ -326,6 +326,7 @@ describeIfSelected('Plan Design Review E2E', ['plan-design-review-plan-mode', 'p
       path.join(ROOT, 'plan-design-review', 'SKILL.md'),
       path.join(dir, 'plan-design-review', 'SKILL.md'),
     );
+    { const _sec = path.join(ROOT, 'plan-design-review', 'sections'); if (fs.existsSync(_sec)) fs.cpSync(_sec, path.join(dir, 'plan-design-review', 'sections'), { recursive: true }); }
 
     return dir;
   }

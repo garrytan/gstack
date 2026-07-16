@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-import { execSync, ExecSyncOptionsWithStringEncoding } from 'child_process';
+import { execFileSync, execSync, ExecSyncOptionsWithStringEncoding } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -37,6 +37,20 @@ function runRead(args: string = ''): string {
   };
   try {
     return execSync(`${BIN}/gstack-timeline-read ${args}`, execOpts).trim();
+  } catch {
+    return '';
+  }
+}
+
+function runReadArgs(args: string[] = []): string {
+  const execOpts: ExecSyncOptionsWithStringEncoding = {
+    cwd: ROOT,
+    env: { ...process.env, GSTACK_HOME: tmpDir },
+    encoding: 'utf-8',
+    timeout: 15000,
+  };
+  try {
+    return execFileSync(path.join(BIN, 'gstack-timeline-read'), args, execOpts).trim();
   } catch {
     return '';
   }
@@ -134,6 +148,17 @@ describe('gstack-timeline-read', () => {
     const output = runRead('--branch feature-a');
     expect(output).toContain('review');
     expect(output).not.toContain('feature-b');
+  });
+
+  test('filters branch names containing single quotes', () => {
+    runLog(JSON.stringify({ skill: 'review', event: 'completed', branch: "feature/o'hare", outcome: 'approved', ts: '2026-03-28T10:00:00Z' }));
+    runLog(JSON.stringify({ skill: 'ship', event: 'completed', branch: 'feature-other', outcome: 'merged', ts: '2026-03-28T11:00:00Z' }));
+
+    const output = runReadArgs(['--branch', "feature/o'hare"]);
+
+    expect(output).toContain('review');
+    expect(output).toContain("feature/o'hare");
+    expect(output).not.toContain('feature-other');
   });
 
   test('limits output with --limit', () => {

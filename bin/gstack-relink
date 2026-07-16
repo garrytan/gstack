@@ -46,6 +46,17 @@ _cleanup_skill_entry() {
   fi
 }
 
+_link_root_skill_alias() {
+  local target="$SKILLS_DIR/_gstack-command"
+
+  [ -f "$INSTALL_DIR/SKILL.md" ] || return 0
+  [ -L "$target" ] && rm -f "$target"
+  mkdir -p "$target"
+  ln -snf "$INSTALL_DIR/SKILL.md" "$target/SKILL.md"
+}
+
+_link_root_skill_alias
+
 # Discover skills (directories with SKILL.md, excluding meta dirs)
 SKILL_COUNT=0
 for skill_dir in "$INSTALL_DIR"/*/; do

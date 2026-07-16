@@ -61,6 +61,8 @@ We're building a new user dashboard that shows recent activity, notifications, a
       path.join(ROOT, 'plan-ceo-review', 'SKILL.md'),
       path.join(planDir, 'plan-ceo-review', 'SKILL.md'),
     );
+    // Carved skills (v2 plan T9): copy sections/ so the review workflow + report template are present.
+    { const _sec = path.join(ROOT, 'plan-ceo-review', 'sections'); if (fs.existsSync(_sec)) fs.cpSync(_sec, path.join(planDir, 'plan-ceo-review', 'sections'), { recursive: true }); }
   });
 
   afterAll(() => {
@@ -145,6 +147,8 @@ We're building a new user dashboard that shows recent activity, notifications, a
       path.join(ROOT, 'plan-ceo-review', 'SKILL.md'),
       path.join(planDir, 'plan-ceo-review', 'SKILL.md'),
     );
+    // Carved skills (v2 plan T9): copy sections/ so the review workflow + report template are present.
+    { const _sec = path.join(ROOT, 'plan-ceo-review', 'sections'); if (fs.existsSync(_sec)) fs.cpSync(_sec, path.join(planDir, 'plan-ceo-review', 'sections'), { recursive: true }); }
   });
 
   afterAll(() => {
@@ -213,6 +217,8 @@ describeIfSelected('Plan CEO Review Expansion Energy E2E', ['plan-ceo-review-exp
       path.join(ROOT, 'plan-ceo-review', 'SKILL.md'),
       path.join(planDir, 'plan-ceo-review', 'SKILL.md'),
     );
+    // Carved skills (v2 plan T9): copy sections/ so the review workflow + report template are present.
+    { const _sec = path.join(ROOT, 'plan-ceo-review', 'sections'); if (fs.existsSync(_sec)) fs.cpSync(_sec, path.join(planDir, 'plan-ceo-review', 'sections'), { recursive: true }); }
   });
 
   afterAll(() => {
@@ -240,6 +246,13 @@ Write your expansion proposals to ${planDir}/proposals.md with ONLY the proposal
     recordE2E(evalCollector, '/plan-ceo-review-expansion-energy', 'Plan CEO Review Expansion Energy E2E', result, {
       passed: ['success', 'error_max_turns'].includes(result.exitReason),
     });
+    // Transient API failure escape hatch — see /plan-review-report for the
+    // full rationale. Same shape: error_api with 0 turns means the API call
+    // never reached the model, so nothing the test verifies could have run.
+    if (result.exitReason === 'error_api' && result.costEstimate?.turnsUsed === 0) {
+      console.warn('[transient] /plan-ceo-review-expansion-energy: error_api with 0 turns — treating as inconclusive');
+      return;
+    }
     expect(['success', 'error_max_turns']).toContain(result.exitReason);
 
     const proposalsPath = path.join(planDir, 'proposals.md');
@@ -312,6 +325,8 @@ Replace session-cookie auth with JWT tokens. Currently using express-session + R
       path.join(ROOT, 'plan-eng-review', 'SKILL.md'),
       path.join(planDir, 'plan-eng-review', 'SKILL.md'),
     );
+    // Carved skills (v2 plan T9): copy sections/ so the review workflow + report template are present.
+    { const _sec = path.join(ROOT, 'plan-eng-review', 'sections'); if (fs.existsSync(_sec)) fs.cpSync(_sec, path.join(planDir, 'plan-eng-review', 'sections'), { recursive: true }); }
   });
 
   afterAll(() => {
@@ -408,6 +423,8 @@ export function main() { return Dashboard(); }
       path.join(ROOT, 'plan-eng-review', 'SKILL.md'),
       path.join(planDir, 'plan-eng-review', 'SKILL.md'),
     );
+    // Carved skills (v2 plan T9): copy sections/ so the review workflow + report template are present.
+    { const _sec = path.join(ROOT, 'plan-eng-review', 'sections'); if (fs.existsSync(_sec)) fs.cpSync(_sec, path.join(planDir, 'plan-eng-review', 'sections'), { recursive: true }); }
 
     // Set up remote-slug shim and browse shims (plan-eng-review uses remote-slug for artifact path)
     setupBrowseShims(planDir);
@@ -513,6 +530,7 @@ describeIfSelected('Office Hours Spec Review E2E', ['office-hours-spec-review'],
       path.join(ROOT, 'office-hours', 'SKILL.md'),
       path.join(ohDir, 'office-hours', 'SKILL.md'),
     );
+    { const _sec = path.join(ROOT, 'office-hours', 'sections'); if (fs.existsSync(_sec)) fs.cpSync(_sec, path.join(ohDir, 'office-hours', 'sections'), { recursive: true }); }
   });
 
   afterAll(() => {
@@ -573,6 +591,7 @@ describeIfSelected('Plan CEO Review Benefits-From E2E', ['plan-ceo-review-benefi
       path.join(ROOT, 'plan-ceo-review', 'SKILL.md'),
       path.join(benefitsDir, 'plan-ceo-review', 'SKILL.md'),
     );
+    { const _sec = path.join(ROOT, 'plan-ceo-review', 'sections'); if (fs.existsSync(_sec)) fs.cpSync(_sec, path.join(benefitsDir, 'plan-ceo-review', 'sections'), { recursive: true }); }
   });
 
   afterAll(() => {
@@ -656,6 +675,8 @@ We're building a real-time notification system for our SaaS app.
       path.join(ROOT, 'plan-eng-review', 'SKILL.md'),
       path.join(planDir, 'plan-eng-review', 'SKILL.md'),
     );
+    // Carved skills (v2 plan T9): copy sections/ so the review workflow + report template are present.
+    { const _sec = path.join(ROOT, 'plan-eng-review', 'sections'); if (fs.existsSync(_sec)) fs.cpSync(_sec, path.join(planDir, 'plan-eng-review', 'sections'), { recursive: true }); }
   });
 
   afterAll(() => {
@@ -671,7 +692,7 @@ Read plan.md — that's the plan to review. This is a standalone plan document, 
 Proceed directly to the full review. Skip any AskUserQuestion calls — this is non-interactive.
 Skip the preamble bash block, lake intro, telemetry, and contributor mode sections.
 
-CRITICAL REQUIREMENT: plan.md IS the plan file for this review session. After completing your review, you MUST write a "## GSTACK REVIEW REPORT" section to the END of plan.md, exactly as described in the "Plan File Review Report" section of SKILL.md. If gstack-review-read is not available or returns NO_REVIEWS, write the placeholder table with all four review rows (CEO, Codex, Eng, Design). Use the Edit tool to append to plan.md — do NOT overwrite the existing plan content.
+CRITICAL REQUIREMENT: plan.md IS the plan file for this review session. After completing your review, you MUST write a "## GSTACK REVIEW REPORT" section to the END of plan.md, exactly as described in the "Plan File Review Report" section of SKILL.md. If gstack-review-read is not available or returns NO_REVIEWS, write the placeholder table with all five review rows (CEO, Codex, Eng, Design, DX). The report MUST end with the mandatory unresolved-decisions status as its final line — the exact unbolded line NO UNRESOLVED DECISIONS when nothing is open, or a "**UNRESOLVED DECISIONS:**" block of bullets when items remain. Nothing may follow it. Use the Edit tool to append to plan.md — do NOT overwrite the existing plan content.
 
 This review report at the bottom of the plan is the MOST IMPORTANT deliverable of this test.`,
       workingDirectory: planDir,
@@ -686,6 +707,18 @@ This review report at the bottom of the plan is the MOST IMPORTANT deliverable o
     recordE2E(evalCollector, '/plan-review-report', 'Plan Review Report E2E', result, {
       passed: ['success', 'error_max_turns'].includes(result.exitReason),
     });
+
+    // Transient API failure escape hatch: when the SDK returns error_api with
+    // zero turns / zero tokens, the API call died before the model ever ran —
+    // no skill code executed, no file was written. Bun retries the test up to
+    // 3x; if every attempt hits the same API hiccup, surface a warning and
+    // treat as inconclusive rather than gating the build on Anthropic
+    // availability. Logic regressions still surface as success/error_max_turns
+    // with a missing artifact, which the downstream assertions catch.
+    if (result.exitReason === 'error_api' && result.costEstimate?.turnsUsed === 0) {
+      console.warn('[transient] /plan-review-report: error_api with 0 turns — treating as inconclusive (likely Anthropic API hiccup, see CLAUDE.md eval-blame protocol)');
+      return;
+    }
     expect(['success', 'error_max_turns']).toContain(result.exitReason);
 
     // Verify the review report was written to the plan file
@@ -708,7 +741,24 @@ This review report at the bottom of the plan is the MOST IMPORTANT deliverable o
     expect(afterReport).toContain('Eng Review');
     expect(afterReport).toContain('Design Review');
 
-    console.log('Plan review report found at bottom of plan.md');
+    // Mandatory unresolved-decisions status (plan-flag-unresolved-issues): the report's
+    // final non-whitespace line must be the unresolved status — the exact sentinel or a
+    // bullet of an UNRESOLVED DECISIONS block, with nothing (CODEX/CROSS-MODEL/VERDICT/
+    // prose) after it.
+    expect(afterReport).toContain('UNRESOLVED DECISIONS');
+    // Compute from afterReport (the report section to EOF), not the whole file, so a
+    // mid-file report surfaces the real trailing content in the failure message.
+    const nonEmpty = afterReport.split('\n').map(l => l.trim()).filter(l => l !== '');
+    const lastLine = nonEmpty[nonEmpty.length - 1];
+    const isSentinel = lastLine === 'NO UNRESOLVED DECISIONS';
+    const isUnresolvedBullet =
+      /^[-*]\s+/.test(lastLine) && !/VERDICT/i.test(lastLine) && afterReport.includes('UNRESOLVED DECISIONS:');
+    expect(
+      isSentinel || isUnresolvedBullet,
+      `report must end with the unresolved-decisions status; last line was: ${lastLine}`,
+    ).toBe(true);
+
+    console.log('Plan review report found at bottom of plan.md (ends with unresolved status)');
   }, 420_000);
 });
 
@@ -741,6 +791,10 @@ describeIfSelected('Codex Offering E2E', [
         path.join(ROOT, skill, 'SKILL.md'),
         path.join(testDir, skill, 'SKILL.md'),
       );
+      // Carved skills (v2 plan T9): copy sections/ so codex/outside-voice content
+      // (carved into review-sections.md) is present for the search.
+      const _sec = path.join(ROOT, skill, 'sections');
+      if (fs.existsSync(_sec)) fs.cpSync(_sec, path.join(testDir, skill, 'sections'), { recursive: true });
     }
   });
 
@@ -775,8 +829,8 @@ Write your summary to ${testDir}/${testName}-summary.md`,
     expect(fs.existsSync(summaryPath)).toBe(true);
 
     const summary = fs.readFileSync(summaryPath, 'utf-8').toLowerCase();
-    // All skills should have codex availability check
-    expect(summary).toMatch(/which codex/);
+    // All skills should have codex availability check (command -v per #1197)
+    expect(summary).toMatch(/command -v codex/);
     // All skills should have fallback behavior
     expect(summary).toMatch(/fallback|subagent|unavailable|not available|skip/);
     // All skills should show it's optional/non-blocking

@@ -120,3 +120,59 @@ export const FORCING_BATCHING_ENG = [
   'iterate the payload to recompute the dependency graph. Could cache the',
   'graph on the first attempt; not planned.',
 ].join('\n');
+
+/**
+ * Split-overflow regression seed (periodic tier).
+ *
+ * Catches the original failure mode the user complained about: when the
+ * agent has 5+ options for ONE conceptual decision, it must split into N
+ * sequential AskUserQuestion calls (or batch into compatible ≤4-groups),
+ * NOT drop an option arbitrarily to fit Conductor's 4-option cap.
+ *
+ * Fixture shape: 5 independent platform-integration candidates for ONE
+ * scope decision. Each is independent (no dependencies between them) so
+ * the natural compliant shape is a per-option split chain at parent D<N>.
+ *
+ * Used by test/skill-e2e-plan-ceo-split-overflow.test.ts to assert the
+ * agent fires >= 4 review-phase AUQs (floor uses the standard [N-1]
+ * tolerance band, accounting for one expected scope-reduction-or-merge
+ * call before the per-option chain begins).
+ *
+ * Pre-fix behavior: agent fires 1 AUQ with 4 options, "trims" the 5th
+ * via prose ("E5 is the largest lift and a natural follow-up; moving to
+ * TODOs without asking"). That's the bug. Floor of 4 detects it.
+ */
+export const FORCING_SPLIT_OVERFLOW_CEO = [
+  'Please review this plan and help me decide scope. Write your plan-mode plan to /tmp/gstack-test-plan-ceo-split-overflow.md (use Edit/Write to that exact path).',
+  '',
+  '# Plan: Pick which chat-platform integrations to ship this quarter',
+  '',
+  'We have engineering bandwidth for at most 2-3 integrations this quarter.',
+  'I need your help deciding which to prioritize. Below are 5 candidates,',
+  'each fully independent of the others (no shared infrastructure, no',
+  'dependencies between them). For each, the user can independently decide:',
+  'include in this scope, defer to next quarter, or cut entirely.',
+  '',
+  '## E1) Slack — DM bot for incident alerts',
+  'Build cost: ~2 weeks. Existing Slack auth flow we can reuse. High user',
+  'demand (top customer request in Q2 survey, ~40% of asks).',
+  '',
+  '## E2) Discord — guild bot for community channels',
+  'Build cost: ~3 weeks. Greenfield integration, no existing auth. Medium',
+  'demand (~15% of asks, but loud community).',
+  '',
+  '## E3) Microsoft Teams — webhook + bot framework',
+  'Build cost: ~4 weeks. Enterprise customers specifically asked for this.',
+  'Highest revenue impact per user but smallest user count (~5% of asks).',
+  '',
+  '## E4) Telegram — bot API integration',
+  'Build cost: ~1 week. Simplest API surface. Low strategic value but',
+  'cheap win (~8% of asks, mostly from international users).',
+  '',
+  '## E5) Mattermost — REST plugin',
+  'Build cost: ~2 weeks. Self-hosted enterprise users. Niche but locked-in',
+  'segment (~3% of asks but all from high-ARR accounts).',
+  '',
+  'Please walk me through each candidate and help me decide include/defer/cut',
+  'per option. I want individual decisions per candidate, not a bundled pick.',
+].join('\n');

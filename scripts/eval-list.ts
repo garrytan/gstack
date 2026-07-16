@@ -18,10 +18,23 @@ let filterBranch: string | null = null;
 let filterTier: string | null = null;
 let limit = 20;
 
+function parseLimit(raw: string | undefined): number {
+  if (!raw || !/^[1-9]\d*$/.test(raw)) {
+    console.error('eval:list: --limit requires a positive integer');
+    process.exit(1);
+  }
+  const parsed = Number(raw);
+  if (!Number.isSafeInteger(parsed)) {
+    console.error('eval:list: --limit requires a positive integer');
+    process.exit(1);
+  }
+  return parsed;
+}
+
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--branch' && args[i + 1]) { filterBranch = args[++i]; }
   else if (args[i] === '--tier' && args[i + 1]) { filterTier = args[++i]; }
-  else if (args[i] === '--limit' && args[i + 1]) { limit = parseInt(args[++i], 10); }
+  else if (args[i] === '--limit') { limit = parseLimit(args[++i]); }
 }
 
 // Read eval files

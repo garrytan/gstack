@@ -96,6 +96,21 @@ describe('check-careful.sh', () => {
       expect(output.permissionDecision).toBe('ask');
       expect(output.message).toContain('recursive delete');
     });
+
+    test.each([
+      'rm -rf /; rm -rf node_modules',
+      'rm -rf / && rm -rf node_modules',
+      'rm -rf / # rm -rf node_modules',
+      'rm -rf node_modules; rm -rf /',
+      'rm -rf node_modules || rm -rf /',
+      'echo ok && rm -rf /',
+      'rm -rf node_modules\nrm -rf /',
+    ])('never lets a safe-looking target hide a destructive command: %s', (command) => {
+      const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput(command));
+      expect(exitCode).toBe(0);
+      expect(output.permissionDecision).toBe('ask');
+      expect(output.message).toContain('recursive delete');
+    });
   });
 
   // --- SQL destructive commands ---

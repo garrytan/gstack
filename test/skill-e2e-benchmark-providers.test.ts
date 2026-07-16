@@ -129,19 +129,15 @@ describeIfEvals('multi-provider benchmark adapters (live)', () => {
     if (result.error) {
       throw new Error(`gemini errored: ${result.error.code} — ${result.error.reason}`);
     }
-    // Gemini CLI occasionally returns empty output even on successful runs
-    // (model returned content the CLI parser missed, intermittent stream issues).
-    // We assert the adapter ran end-to-end without erroring and reports a non-
-    // empty token count instead of grepping the literal "ok" — that string
-    // assertion was too brittle for a smoke that's really about "did the
-    // adapter wire up and the run terminate successfully?"
-    expect(typeof result.output).toBe('string');
-    // Gemini CLI sometimes returns 0 tokens in the result event (older responses);
-    // assert non-negative instead of strictly positive.
-    expect(result.tokens.input).toBeGreaterThanOrEqual(0);
-    expect(result.tokens.output).toBeGreaterThanOrEqual(0);
+    // Adapter must never report empty-success (#2159). After content/stats
+    // parsing, a healthy run has non-empty assistant text + token counts.
+    expect(result.output.trim().length).toBeGreaterThan(0);
+    expect(result.output.toLowerCase()).toContain('ok');
+    expect(result.tokens.input).toBeGreaterThan(0);
+    expect(result.tokens.output).toBeGreaterThan(0);
     expect(result.durationMs).toBeGreaterThan(0);
     expect(typeof result.modelUsed).toBe('string');
+    expect(result.modelUsed.length).toBeGreaterThan(0);
   }, 150_000);
 
   test('timeout error surfaces as error.code=timeout (no exception)', async () => {

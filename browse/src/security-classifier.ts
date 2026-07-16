@@ -135,7 +135,7 @@ export function getClassifierStatus(): ClassifierStatus {
 
 // ─── Model download + staging ────────────────────────────────
 
-async function downloadFile(url: string, dest: string): Promise<void> {
+export async function downloadFile(url: string, dest: string): Promise<void> {
   const res = await fetch(url);
   if (!res.ok || !res.body) {
     throw new Error(`Failed to fetch ${url}: ${res.status} ${res.statusText}`);
@@ -144,16 +144,30 @@ async function downloadFile(url: string, dest: string): Promise<void> {
   const writer = fs.createWriteStream(tmp);
   // @ts-ignore — Node stream compat
   const reader = res.body.getReader();
-  let done = false;
-  while (!done) {
-    const chunk = await reader.read();
-    if (chunk.done) { done = true; break; }
-    writer.write(chunk.value);
+  try {
+    let done = false;
+    while (!done) {
+      const chunk = await reader.read();
+      if (chunk.done) { done = true; break; }
+      writer.write(chunk.value);
+    }
+    await new Promise<void>((resolve, reject) => {
+      writer.end((err?: Error | null) => (err ? reject(err) : resolve()));
+    });
+    fs.renameSync(tmp, dest);
+  } catch (err) {
+    // Drop the half-written tmp so we don't ship a truncated model file to
+    // a retry's renameSync. Wait for the writer to close fully before
+    // unlinking: Node's createWriteStream lazily opens the FD and flushes
+    // buffered writes during destroy(), so a naive unlinkSync hits ENOENT
+    // first and the writer re-creates the file on the next tick.
+    await new Promise<void>((resolve) => {
+      writer.once('close', () => resolve());
+      writer.destroy();
+    });
+    try { fs.unlinkSync(tmp); } catch { /* nothing to clean */ }
+    throw err;
   }
-  await new Promise<void>((resolve, reject) => {
-    writer.end((err?: Error | null) => (err ? reject(err) : resolve()));
-  });
-  fs.renameSync(tmp, dest);
 }
 
 async function ensureTestsavantStaged(onProgress?: (msg: string) => void): Promise<void> {

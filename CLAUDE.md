@@ -27,25 +27,31 @@ bun run slop:diff     # slop findings in files changed on this branch only
 `test:evals` requires `ANTHROPIC_API_KEY`. Codex E2E tests (`test/codex-e2e.test.ts`)
 use Codex's own auth from `~/.codex/` config — no `OPENAI_API_KEY` env var needed.
 
-**Where the keys live on this machine.** Conductor workspaces don't inherit the
-user's interactive shell env, so `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` aren't
-in the default process env. Before running any paid eval / E2E, source them from
-`~/.zshrc` (that's where Garry keeps them):
+**Env keys in Conductor workspaces.** The `GSTACK_*` env-shim (v1.39.2.0+,
+`lib/conductor-env-shim.ts`) promotes `GSTACK_ANTHROPIC_API_KEY` /
+`GSTACK_OPENAI_API_KEY` to their canonical names inside gstack's TS binaries.
+Tests run through gstack entrypoints inherit this promotion automatically.
+Don't echo the key value to stdout, logs, or shell history. The historical
+"never pass `env:` to `runAgentSdkTest`" rule is retired: the failure was
+partial-env replacement (the SDK's `Options.env` REPLACES the child's entire
+environment, so an object without the key broke auth). The runner now always
+passes a COMPLETE hermetic env with per-test `env:` merged last, so per-test
+overrides are safe; ambient `process.env.ANTHROPIC_API_KEY` mutation also
+still works (the env builder reads process.env at call time).
 
-```bash
-bash -c '
-  eval "$(grep -E "^export (ANTHROPIC_API_KEY|OPENAI_API_KEY)=" ~/.zshrc)"
-  export ANTHROPIC_API_KEY OPENAI_API_KEY
-  EVALS=1 EVALS_TIER=periodic bun test test/skill-e2e-<whatever>.test.ts
-'
-```
+**Hermetic local E2E (default).** Every E2E runner (claude -p, PTY, Agent
+SDK, codex, gemini) spawns children through `test/helpers/hermetic-env.ts`:
+allowlist-scrubbed env (operator `CONDUCTOR_*`, `CLAUDE_*`, `GSTACK_*`,
+`MCP_*`, `GBRAIN_*`, and credentials like `GH_TOKEN` never reach children),
+a fresh seeded `CLAUDE_CONFIG_DIR` (no operator `~/.claude` CLAUDE.md /
+MCP servers / skills), a temp `GSTACK_HOME`, and `--strict-mcp-config`.
+Local eval signal matches CI. Debug against real operator state with
+`EVALS_HERMETIC=0` (restores the legacy env AND drops the strict-MCP flag).
+Per-test `env:` overrides merge last, so deliberate contamination
+(`CONDUCTOR_WORKSPACE_PATH`, per-test `GSTACK_HOME`) keeps working. Wiring
+is pinned by `test/hermetic-wiring.test.ts` (static tripwire) and two
+gate-tier canaries in `test/skill-e2e-hermetic-canary.test.ts`.
 
-Do not echo the key value anywhere (stdout, logs, shell history). The grep+eval
-pattern keeps it in process env only. When passing to a test's Agent SDK, do NOT
-pass `env: {...}` to `runAgentSdkTest` — the SDK's auth pipeline doesn't pick up
-the key the same way when env is supplied as an object (confirmed failure mode).
-Instead, mutate `process.env.ANTHROPIC_API_KEY` ambiently before the call and
-restore in `finally`.
 E2E tests stream progress in real-time (tool-by-tool via `--output-format stream-json
 --verbose`). Results are persisted to `~/.gstack-dev/evals/` with auto-comparison
 against the previous run.
@@ -120,6 +126,7 @@ gstack/
 ├── land-and-deploy/ # /land-and-deploy skill (merge → deploy → canary verify)
 ├── office-hours/    # /office-hours skill (YC Office Hours — startup diagnostic + builder brainstorm)
 ├── investigate/     # /investigate skill (systematic root-cause debugging)
+├── spec/            # /spec skill (five-phase spec → GitHub issue, optional agent spawn, /ship auto-closes)
 ├── retro/           # Retrospective skill (includes /retro global cross-project mode)
 ├── bin/             # CLI utilities (gstack-repo-mode, gstack-slug, gstack-config, etc.)
 ├── document-release/ # /document-release skill (post-ship doc updates + Diataxis coverage map)
@@ -145,7 +152,7 @@ gstack/
 ├── setup            # One-time setup: build binary + symlink skills
 ├── SKILL.md         # Generated from SKILL.md.tmpl (don't edit directly)
 ├── SKILL.md.tmpl    # Template: edit this, run gen:skill-docs
-├── ETHOS.md         # Builder philosophy (Boil the Lake, Search Before Building)
+├── ETHOS.md         # Builder philosophy (Boil the Ocean, Search Before Building)
 └── package.json     # Build scripts for browse
 ```
 
@@ -236,6 +243,24 @@ Activity / Refs / Inspector as debug overlays behind the footer's
 flow, dual-token model, and threat-model boundary — silent failures
 here usually trace to not understanding the cross-component flow.
 
+**Embedder terminal-agent ownership** (v1.42.1.0+, identity-based kill v1.44.0.0+).
+`buildFetchHandler` in `browse/src/server.ts` accepts `ServerConfig.ownsTerminalAgent?:
+boolean` (default `true`). When `true`, factory shutdown runs the full teardown:
+identity-based kill via `killAgentByRecord(readAgentRecord(stateDir))` from
+`browse/src/terminal-agent-control.ts` plus `safeUnlinkQuiet` on
+`<stateDir>/terminal-port`, `<stateDir>/terminal-internal-token`, and
+`<stateDir>/terminal-agent-pid` (the per-boot agent record introduced in v1.44).
+Embedders (e.g. the gbrowser phoenix overlay) that pre-launch their own PTY
+server must pass `false` so their discovery files survive gstack teardown cycles.
+The flag is the third caller-owned teardown gate in `ServerConfig` (alongside
+`xvfb?` and `proxyBridge?`); polarity is inverted (explicit bool vs presence) and
+documented in the field's JSDoc. CLI `start()` always passes `true` explicitly —
+the static-grep test in `browse/test/server-embedder-terminal-port.test.ts` fails
+CI if a refactor drops it. Pre-v1.44 used `pkill -f terminal-agent\.ts` (regex
+match) which would kill sibling gstack sessions on the same host; the new
+`browse/test/terminal-agent-pid-identity.test.ts` static-grep tripwire fails CI
+if any source file re-introduces `pkill ... terminal-agent` or `spawnSync('pkill', ...)`.
+
 **WebSocket auth uses Sec-WebSocket-Protocol, not cookies.** Browsers
 can't set `Authorization` on a WebSocket upgrade, but they CAN set
 `Sec-WebSocket-Protocol` via `new WebSocket(url, [token])`. The agent
@@ -283,6 +308,26 @@ response in `server.ts`, read
 [ARCHITECTURE.md](ARCHITECTURE.md#unicode-sanitization-at-server-egress-v13800).
 `browse/test/server-sanitize-surrogates.test.ts` pins the wiring with invariant
 tests, so bypasses fail CI.
+
+**SSE endpoint helper** (v1.51.0.0+). New SSE endpoints in `server.ts` MUST route
+through `createSseEndpoint(req, config)` from `browse/src/sse-helpers.ts`. The
+helper owns the cleanup contract (abort + enqueue-throw + heartbeat-throw, all
+idempotent) and bakes in `sanitizeLoneSurrogates` on every JSON.stringify, so
+new subscribers can't accidentally regress either invariant. Inline
+`ReadableStream` wiring leaked subscribers when the TCP connection died without
+firing `req.signal.abort` (Chromium MV3 service-worker suspend, intermediate
+proxy half-close). `/activity/stream`, `/inspector/events`, and `/memory`
+(SSE-eligible) all route through it. `browse/test/sse-helpers.test.ts` pins the
+cleanup contract.
+
+**CDP session lifecycle** (v1.51.0.0+). Direct `page.context().newCDPSession(page)`
+calls outside `browse/src/cdp-bridge.ts` fail CI via the static-grep tripwire in
+`browse/test/cdp-session-cleanup.test.ts`. Use `withCdpSession(page, async (s) => {...})`
+for one-shot CDP work (try/finally detach) or `getOrCreateCdpSession(page, cache)`
+for cached sessions tied to a page's lifetime (close-detach via `Map<page, session>`).
+Three sites migrated: cdp-bridge frame events, write-commands archive capture,
+cdp-inspector. The helpers prevent the per-session leak class where successful-path
+detach happened but error-path detach was missed.
 
 **Setup symlink hardening** (v1.38.0.0+). Every link site in `setup` MUST route
 through the `_link_or_copy SRC DST` helper near the `IS_WINDOWS` detection. On
@@ -387,6 +432,44 @@ tracked by git due to a historical mistake and should eventually be removed with
 because they're tracked despite `.gitignore` — ignore them. When staging files,
 always use specific filenames (`git add file1 file2`) — never `git add .` or
 `git add -A`, which will accidentally include the binaries.
+
+## Redaction guard (PII / secrets / legal content)
+
+Shared redaction engine catches credentials, PII, and legal/damaging content
+before it reaches an external sink (codex dispatch, GitHub issue/PR body, pushed
+commit). It is a **guardrail, not airtight enforcement** — `git push --no-verify`,
+direct `gh issue create`, and `GSTACK_REDACT_PREPUSH=skip` all bypass it. It
+catches accidents and carelessness, the 99% case. Do not claim it stops a
+determined leaker (a CHANGELOG line that does would fail a hostile screenshotter).
+
+- **Engine + taxonomy:** `lib/redact-patterns.ts` (the single source of truth —
+  3 tiers; HIGH = genuinely-secret credentials that block, MEDIUM = PII/legal/
+  internal + high-FP credential shapes that confirm via AskUserQuestion, LOW =
+  FYI) and `lib/redact-engine.ts` (pure `scan()` + `applyRedactions()`).
+  Calibration matters: a gate that cries wolf gets ignored, so context-variable
+  shapes (Stripe `pk_live_`, Google `AIza`, JWT, env `*_KEY=`) sit at MEDIUM.
+- **CLI:** `bin/gstack-redact` (exit 0 clean / 2 MEDIUM / 3 HIGH; `--json`,
+  `--auto-redact`, `--repo-visibility`, `--from-file`). `bin/gstack-redact-prepush`
+  is the opt-in git hook.
+- **Skill docs are generated** from `scripts/resolvers/redact-doc.ts`
+  (`{{REDACT_TAXONOMY_TABLE}}`, `{{REDACT_INVOCATION_BLOCK:<sink>}}`) so /spec,
+  /cso, /ship, /document-release, /document-generate never drift from the engine.
+- **Scan-at-sink:** always scan the EXACT bytes that will be sent — write to a
+  temp file, scan that file, pass the SAME file to `gh`/`git`. Never scan a string
+  then re-render (that reopens a scan-vs-send gap).
+- **Visibility (no tier promotion):** resolve once per run, order = local config
+  (`gstack-config get redact_repo_visibility`, ~/.gstack so never committed) → gh
+  → glab → unknown(=public-strict). Public repos get STERNER per-finding
+  confirmation (no batch-acknowledge, no silent-proceed); MEDIUM is never
+  auto-promoted to HIGH.
+- **Tool-attributed fences:** wrap Codex/Greptile/eval output in ` ```codex-review `
+  / ` ```greptile ` fences so example credentials those tools quote WARN-degrade
+  instead of blocking. A live-format credential inside the fence still blocks.
+- **Config keys:** `redact_repo_visibility` (public|private|unknown, local-only
+  override for repos gh/glab can't read), `redact_prepush_hook` (true|false).
+  There is intentionally NO key to disable HIGH blocking.
+- **Audit:** the /spec semantic pass appends a content-free record (categories +
+  body sha256, no spec text) to `~/.gstack/security/semantic-reviews.jsonl` (0600).
 
 ## Commit style
 
@@ -708,8 +791,10 @@ When estimating or discussing effort, always show both human-team and CC+gstack 
 | Research / exploration | 1 day | 3 hours | ~3x |
 
 Completeness is cheap. Don't recommend shortcuts when the complete implementation
-is a "lake" (achievable) not an "ocean" (multi-quarter migration). See the
-Completeness Principle in the skill preamble for the full philosophy.
+is achievable. Boil the ocean — the complete thing is the goal; only genuinely
+unrelated multi-quarter migrations are separate scope, never an excuse for a
+shortcut. See the Completeness Principle in the skill preamble for the full
+philosophy.
 
 ## Search before building
 
@@ -757,6 +842,34 @@ The full E2E suite can take 30-45 minutes. That's 10-15 polling cycles. Do all o
 them. Report progress at each check (which tests passed, which are running, any
 failures so far). The user wants to see the run complete, not a promise that
 you'll check later.
+
+## Running evals as an agent: always detach (SIGTERM-proof)
+
+When **you (an agent/harness)** launch a long eval/benchmark run, run it through
+`bin/gstack-detach` — NEVER as a plain backgrounded Bash task. A plain background
+task lives in the harness's process group, so a SIGTERM ("polite quit") on a turn
+boundary, a stopped Monitor, or an interruption kills the run mid-flight (observed:
+`script "test:gate" was terminated by signal SIGTERM` ~40 min into a run). On macOS
+the run can also die to idle-sleep. `gstack-detach` fixes both: a fresh session
+(escapes the group SIGTERM) wrapped in `caffeinate -i` (blocks idle-sleep).
+
+- Use the `eval:bg*` scripts (`eval:bg`, `eval:bg:all`, `eval:bg:gate`,
+  `eval:bg:periodic`) — they wrap the eval command in `gstack-detach` with the
+  machine-wide `gstack-evals` lock (concurrent worktrees serialize instead of
+  saturating the shared model API), a per-tier watchdog, and a **run-scoped** log
+  under `~/.gstack-dev/eval-runs/` (no shared-`/tmp` collision). Each prints its
+  log path. Or call `gstack-detach [--lock NAME] [--timeout SECS] [--label LBL] --
+  <cmd>` directly for any long agent job. Export `ANTHROPIC_API_KEY` first (never
+  pass keys in argv).
+- Then **poll the printed logfile** with a death-aware watcher: break on the
+  guaranteed `### gstack-detach EXIT=<code> ###` sentinel (success AND failure are
+  both marked, so silence is never mistaken for success). The detached run survives
+  even if your watcher gets reaped, so re-checking the log always works.
+- Why the lock: a shared dev box with several Conductor worktrees will rate-limit
+  the model API if two eval suites run at once (15-way concurrency each), which
+  mass-times-out E2E tests. The lock makes the second run WAIT, not collide.
+- Humans running `bun run test:evals` foreground in their own terminal don't need
+  this — Ctrl-C is intended there. Detachment is for agent-launched runs only.
 
 ## E2E test fixtures: extract, don't copy
 
@@ -813,6 +926,12 @@ The active skill lives at `~/.claude/skills/gstack/`. After making changes:
 2. Fetch and reset in the skill directory: `cd ~/.claude/skills/gstack && git fetch origin && git reset --hard origin/main`
 3. Rebuild: `cd ~/.claude/skills/gstack && bun run build`
 
+**If you use gbrain:** the `git reset --hard` in step 2 reverts the brain-aware
+(`GBRAIN_CONTEXT_LOAD` / `GBRAIN_SAVE_RESULTS`) blocks that `gstack-config
+gbrain-refresh` renders into the install (those generated blocks differ from
+`main` by design). After deploying, re-run `gstack-config gbrain-refresh` to
+restore them across all your projects' Claude sessions. It's idempotent.
+
 Or copy the binaries directly:
 - `cp browse/dist/browse ~/.claude/skills/gstack/browse/dist/browse`
 - `cp design/dist/design ~/.claude/skills/gstack/design/dist/design`
@@ -834,6 +953,31 @@ Key routing rules:
 - Ship/deploy/PR → invoke /ship or /land-and-deploy
 - Save progress → invoke /context-save
 - Resume context → invoke /context-restore
+
+## Cross-session decision memory
+
+Durable decisions and their rationale are captured in an append-only, event-sourced
+store at `~/.gstack/projects/<slug>/decisions.jsonl` so neither you nor the user
+re-litigates a settled call or loses the "why" across sessions. This is the reliable,
+file-only path: it works with gbrain OFF. (gbrain semantic recall is an optional
+enhancement layered on top, never a dependency.)
+
+- **Resurface** active decisions before re-deciding: `bin/gstack-decision-search`
+  (`--recent N`, `--scope repo|branch|issue`, `--query KW`, `--all`, `--json`).
+  Add `--semantic` (with `--query`) to append related hits from gbrain memory when
+  it's up; it degrades silently to the reliable file results when gbrain is off.
+  Session start already surfaces scope-relevant active decisions via Context Recovery.
+  If a decision is listed, treat it as settled with its rationale; if you're about to
+  reverse it, say so explicitly.
+- **Capture** a DURABLE decision when you or the user make one:
+  `bin/gstack-decision-log '{"decision":"...","rationale":"...","scope":"repo|branch|issue","source":"user|skill|agent","confidence":1-10}'`.
+  Reverse a prior call with `--supersede <id>`; expunge an accidental secret with
+  `--redact <id>`; rewrite the log to the active set with `--compact`. Non-interactive
+  (never prompts), injection-sanitized, and HIGH-secret-blocking on write.
+- **Durable means:** architecture choice, scope cut, tool/vendor choice, or a reversal
+  of a prior call. NOT a turn-level edit, a phrasing tweak, or anything trivially
+  re-derivable. Capture is curated at the source — log durable decisions only, or the
+  store becomes noise.
 
 ## GBrain Search Guidance (configured by /sync-gbrain)
 <!-- gstack-gbrain-search-guidance:start -->
@@ -869,5 +1013,11 @@ Grep is still right for known exact strings, regex, multiline patterns, and
 file globs. Run `/sync-gbrain` after meaningful code changes; for ongoing
 auto-sync across all worktrees, run `gbrain autopilot --install` once per
 machine — gbrain's daemon handles incremental refresh on a schedule.
+
+Safety: don't run `/sync-gbrain` while `gbrain autopilot` is active — the
+orchestrator refuses destructive source ops when it detects a running autopilot
+to avoid racing it (#1734). Prefer registering user repos with `gbrain sources
+add --path <dir>` (no `--url`): URL-managed sources can auto-reclone, and the
+sync code walk for them requires an explicit `--allow-reclone` opt-in.
 
 <!-- gstack-gbrain-search-guidance:end -->

@@ -1,7 +1,8 @@
-import { describe, test, expect, beforeEach } from 'bun:test';
+import { describe, test, expect, beforeEach, mock } from 'bun:test';
 import {
   resolveConfigFromEnv,
   buildFetchHandler,
+  __testInternals__,
   type ServerConfig,
   type ServerHandle,
   type Surface,
@@ -11,6 +12,8 @@ import { __resetRegistry, initRegistry } from '../src/token-registry';
 import { BrowserManager } from '../src/browser-manager';
 import { resolveConfig } from '../src/config';
 import * as crypto from 'crypto';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 
 /**
  * Tests for the factory-export API surface added so gbrowser (phoenix) can
@@ -379,5 +382,143 @@ describe('buildFetchHandler factory contract', () => {
     __resetRegistry();
     initRegistry('first-token-pad-to-16-chars');
     expect(() => initRegistry('second-token-pad-to-16-chars')).toThrow(/already initialized/i);
+  });
+});
+
+// ─── Idle timer + onDisconnect dual-instance fix (v1.42.3.0) ──────────
+//
+// Before this fix, module-level handlers (idleCheckTick, parent watchdog,
+// SIGTERM, onDisconnect default wire) all read the module-level
+// BrowserManager directly. For embedders (gbrowser) that pass their own
+// BrowserManager into buildFetchHandler, the module-level instance never
+// has launchHeaded() called on it — so connectionMode stays 'launched'
+// forever and headed mode never short-circuits idle-shutdown. Result:
+// 30-min auto-shutdown of overlay sessions.
+//
+// Fix: introduce `let activeBrowserManager` indirection (symmetric with
+// the existing `let activeShutdown` pattern). buildFetchHandler retargets
+// it at cfg.browserManager AND chains cfg.browserManager.onDisconnect to
+// activeShutdown (without clobbering any caller-provided handler).
+
+function makeMockBrowserManager(mode: 'launched' | 'headed') {
+  return {
+    getConnectionMode: () => mode,
+    isWatching: () => false,
+    stopWatch: () => {},
+    close: async () => {},
+    onDisconnect: null as ((code?: number) => void | Promise<void>) | null,
+  };
+}
+
+describe('idle timer + onDisconnect dual-instance fix', () => {
+  beforeEach(() => {
+    __resetRegistry();
+    // Reset module state every test. Bun memoizes the server.ts module
+    // import for the whole test process, so `lastActivity`, `tunnelActive`,
+    // `activeShutdown`, `activeBrowserManager`, and `isShuttingDown` leak
+    // between tests. We reset what we touch here; the rest is fresh
+    // because each test calls buildFetchHandler with a new mock instance.
+    __testInternals__.setTunnelActive(false);
+    __testInternals__.setLastActivity(Date.now());
+    __testInternals__.resetShutdownState();
+  });
+
+  test('CRITICAL — REGRESSION: headed embedder does not auto-shutdown at idle', () => {
+    const exitMock = mock((_code?: number) => { throw new Error('process.exit called'); });
+    const originalExit = process.exit;
+    (process as any).exit = exitMock;
+    try {
+      const mockBM = makeMockBrowserManager('headed');
+      buildFetchHandler(makeMinimalConfig({ browserManager: mockBM as any }));
+      // Drive lastActivity past the idle threshold via the test seam instead
+      // of mutating Date.now — the leaked module-level setInterval would
+      // see fake-time and could fire shutdown if the timing aligned.
+      __testInternals__.setLastActivity(Date.now() - (31 * 60 * 1000));
+      __testInternals__.idleCheckTick();
+      expect(exitMock).not.toHaveBeenCalled();
+    } finally {
+      (process as any).exit = originalExit;
+    }
+  });
+
+  test('headless still auto-shuts down at idle (paired defensive)', async () => {
+    // Non-throwing mock: idleCheckTick fires shutdown as a fire-and-forget
+    // async call. Throwing from process.exit becomes an unhandled rejection
+    // that the test runner catches. Recording the call is enough.
+    const exitMock = mock((_code?: number) => {});
+    const originalExit = process.exit;
+    (process as any).exit = exitMock;
+    try {
+      const mockBM = makeMockBrowserManager('launched');
+      buildFetchHandler(makeMinimalConfig({ browserManager: mockBM as any }));
+      __testInternals__.setLastActivity(Date.now() - (31 * 60 * 1000));
+      __testInternals__.idleCheckTick();
+      // Drain microtasks: shutdown awaits flushBuffers + cfgBrowserManager.close
+      // before reaching process.exit.
+      await Promise.resolve();
+      await Promise.resolve();
+      await new Promise<void>(r => setImmediate(r));
+      await new Promise<void>(r => setImmediate(r));
+      expect(exitMock).toHaveBeenCalled();
+    } finally {
+      (process as any).exit = originalExit;
+    }
+  });
+
+  test('buildFetchHandler chains cfgBrowserManager.onDisconnect, preserving caller-set handler', async () => {
+    const mockBM = makeMockBrowserManager('headed');
+    const callerCb = mock(async (_code?: number) => {});
+    mockBM.onDisconnect = callerCb;
+    buildFetchHandler(makeMinimalConfig({ browserManager: mockBM as any }));
+    // gstack should have wrapped the caller-installed handler instead of
+    // clobbering it (Codex finding: BrowserManager.onDisconnect is a public
+    // field; gbrowser may set it before calling buildFetchHandler).
+    expect(typeof mockBM.onDisconnect).toBe('function');
+    expect(mockBM.onDisconnect).not.toBe(callerCb);
+    // Verify the chain: invoking the wrapped handler runs the caller
+    // callback AND reaches activeShutdown (which calls process.exit at the
+    // very end of its async path). Stubbing process.exit to throw aborts
+    // the chain before isShuttingDown can leak into later tests.
+    const exitMock = mock((_code?: number) => { throw new Error('process.exit called'); });
+    const originalExit = process.exit;
+    (process as any).exit = exitMock;
+    try {
+      await expect((mockBM.onDisconnect as any)(0)).rejects.toThrow('process.exit called');
+      expect(callerCb).toHaveBeenCalledWith(0);
+      expect(exitMock).toHaveBeenCalledWith(0);
+    } finally {
+      (process as any).exit = originalExit;
+    }
+  });
+
+  test('tunnelActive blocks idle-shutdown even in headless mode', () => {
+    const exitMock = mock((_code?: number) => { throw new Error('process.exit called'); });
+    const originalExit = process.exit;
+    (process as any).exit = exitMock;
+    try {
+      const mockBM = makeMockBrowserManager('launched');
+      buildFetchHandler(makeMinimalConfig({ browserManager: mockBM as any }));
+      __testInternals__.setTunnelActive(true);
+      __testInternals__.setLastActivity(Date.now() - (31 * 60 * 1000));
+      __testInternals__.idleCheckTick();
+      expect(exitMock).not.toHaveBeenCalled();
+    } finally {
+      (process as any).exit = originalExit;
+    }
+  });
+
+  test('lifecycle handlers (idleCheckTick + parent watchdog + SIGTERM) read activeBrowserManager, not module-level browserManager', () => {
+    // Static guard against a future refactor reintroducing a stale read.
+    // The 3 lifecycle sites this plan fixed all call getConnectionMode via
+    // the indirection. Other module-level browserManager reads inside
+    // handleCommandInternalImpl (informational mode reporting in response
+    // payloads) are out of scope and intentionally untouched.
+    const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'server.ts'), 'utf-8');
+    const factoryStart = src.indexOf('export function buildFetchHandler');
+    expect(factoryStart).toBeGreaterThan(0);
+    const moduleLevel = src.slice(0, factoryStart);
+    const activeCount = (moduleLevel.match(/activeBrowserManager\.getConnectionMode\(\)/g) || []).length;
+    // Edit 2 (idleCheckTick), Edit 3 (parent watchdog), Edit 6 (SIGTERM).
+    expect(activeCount).toBe(3);
   });
 });

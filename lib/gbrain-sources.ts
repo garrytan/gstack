@@ -11,6 +11,7 @@
 
 import { execFileSync, spawnSync } from "child_process";
 import { withErrorContext } from "./gstack-memory-helpers";
+import { execGbrainJson, NEEDS_SHELL_ON_WINDOWS } from "./gbrain-exec";
 
 export interface SourceState {
   /** "absent" — id not registered. "match" — id at expected path. "drift" — id at different path. */
@@ -24,6 +25,37 @@ export interface EnsureResult {
   changed: boolean;
   /** Final source state after the call. */
   state: SourceState;
+}
+
+/**
+ * One row of `gbrain sources list --json`. `config.remote_url` distinguishes
+ * URL-managed sources (gbrain owns the clone, may auto-reclone) from
+ * path-managed ones (user owns the working tree) — load-bearing for the #1734
+ * destructive-op guards.
+ */
+export interface GbrainSourceRow {
+  id?: string;
+  local_path?: string;
+  page_count?: number;
+  config?: { remote_url?: string | null } | null;
+}
+
+/**
+ * Normalize `gbrain sources list --json` output to an array of source rows.
+ *
+ * gbrain has shipped two shapes: a wrapped `{ sources: [...] }` object (v0.20+)
+ * and, in older/other variants, a bare top-level array. #1576 was a crash when a
+ * reader assumed one shape; the parse is centralized here so every reader
+ * (probeSource, sourcePageCount, sourceLocalPath, the #1734 remote_url audit)
+ * agrees on the shape in ONE place. Returns [] for null/garbage rather than
+ * throwing — callers treat "no rows" as absent.
+ */
+export function parseSourcesList(raw: unknown): GbrainSourceRow[] {
+  if (Array.isArray(raw)) return raw as GbrainSourceRow[];
+  if (raw && typeof raw === "object" && Array.isArray((raw as { sources?: unknown }).sources)) {
+    return (raw as { sources: GbrainSourceRow[] }).sources;
+  }
+  return [];
 }
 
 export interface EnsureOptions {
@@ -53,9 +85,10 @@ export function probeSource(id: string, env?: NodeJS.ProcessEnv): SourceState {
   try {
     stdout = execFileSync("gbrain", ["sources", "list", "--json"], {
       encoding: "utf-8",
-      timeout: 10_000,
+      timeout: 30_000,
       stdio: ["ignore", "pipe", "pipe"],
       env,
+      shell: NEEDS_SHELL_ON_WINDOWS, // #1731: gbrain is a .cmd shim on Windows
     });
   } catch (err) {
     const e = err as NodeJS.ErrnoException & { stderr?: Buffer };
@@ -69,14 +102,14 @@ export function probeSource(id: string, env?: NodeJS.ProcessEnv): SourceState {
     throw err;
   }
 
-  let parsed: { sources?: Array<{ id?: string; local_path?: string }> };
+  let parsed: unknown;
   try {
     parsed = JSON.parse(stdout);
   } catch (err) {
     throw new Error(`gbrain sources list returned non-JSON output: ${(err as Error).message}`);
   }
 
-  const sources = parsed.sources || [];
+  const sources = parseSourcesList(parsed);
   const match = sources.find((s) => s.id === id);
   if (!match) return { status: "absent" };
   return {
@@ -129,6 +162,7 @@ export async function ensureSourceRegistered(
         encoding: "utf-8",
         timeout: 30_000,
         env,
+        shell: NEEDS_SHELL_ON_WINDOWS, // #1731: gbrain is a .cmd shim on Windows
       });
       if (rm.status !== 0) {
         throw new Error(`gbrain sources remove ${id} failed: ${rm.stderr || rm.stdout || `exit ${rm.status}`}`);
@@ -142,6 +176,7 @@ export async function ensureSourceRegistered(
       encoding: "utf-8",
       timeout: 30_000,
       env,
+      shell: NEEDS_SHELL_ON_WINDOWS, // #1731: gbrain is a .cmd shim on Windows
     });
     if (add.status !== 0) {
       throw new Error(`gbrain sources add ${id} failed: ${add.stderr || add.stdout || `exit ${add.status}`}`);
@@ -164,21 +199,78 @@ export function sourcePageCount(id: string, env?: NodeJS.ProcessEnv): number | n
   try {
     stdout = execFileSync("gbrain", ["sources", "list", "--json"], {
       encoding: "utf-8",
-      timeout: 10_000,
+      timeout: 30_000,
       stdio: ["ignore", "pipe", "pipe"],
       env,
+      shell: NEEDS_SHELL_ON_WINDOWS, // #1731: gbrain is a .cmd shim on Windows
     });
   } catch {
     return null;
   }
 
   try {
-    const parsed = JSON.parse(stdout) as { sources?: Array<{ id?: string; page_count?: number }> };
-    const match = (parsed.sources || []).find((s) => s.id === id);
+    const match = parseSourcesList(JSON.parse(stdout)).find((s) => s.id === id);
     if (!match) return null;
     if (typeof match.page_count !== "number") return null;
     return match.page_count;
   } catch {
     return null;
   }
+}
+
+/**
+ * Whether a source's call graph has been built.
+ *
+ *   "completed" — `gbrain dream` has run a full maintenance cycle, so the
+ *                 brain-global `resolve_symbol_edges` phase populated this
+ *                 source's call graph (`gbrain code-callers`/`code-callees`
+ *                 return edges).
+ *   "never"     — a cycle has provably NOT completed for this source.
+ *   "unknown"   — doctor is unavailable, unparseable, or reports a failure
+ *                 that doesn't name this source. Callers MUST treat unknown
+ *                 conservatively (the orchestrator skips auto-dream and WARNs
+ *                 rather than launch a ~35-min cycle on a flaky-doctor signal —
+ *                 see the `gbrain-doctor-overstrict` learning).
+ */
+export type CycleStatus = "completed" | "never" | "unknown";
+
+interface DoctorCheck {
+  name?: string;
+  status?: string;
+  message?: string;
+}
+interface DoctorReport {
+  checks?: DoctorCheck[];
+}
+
+/**
+ * Read `gbrain doctor --json --fast` and decide whether <sourceId>'s call
+ * graph is built, by inspecting the `cycle_freshness` check.
+ *
+ * Decision table (cycle_freshness.status / message):
+ *   - ok                                        → "completed"
+ *   - fail|warn AND message names <sourceId>    → "never"
+ *   - fail|warn AND message omits <sourceId>    → "unknown"  (a real failure
+ *       about OTHER sources must not be silently read as completed for us)
+ *   - check absent / doctor null / other status → "unknown"
+ *
+ * `sourceId` is matched as a LITERAL substring (not a regex) so an id with
+ * regex metacharacters can never misfire. Routes through `execGbrainJson` so
+ * DATABASE_URL is seeded from gbrain's config (consistent with every other
+ * gstack-side gbrain call). `env` is the caller's base env (tests inject a
+ * shim on PATH).
+ */
+export function cycleCompleted(sourceId: string, env?: NodeJS.ProcessEnv): CycleStatus {
+  const report = execGbrainJson<DoctorReport>(["doctor", "--json", "--fast"], { baseEnv: env });
+  if (!report || !Array.isArray(report.checks)) return "unknown";
+
+  const check = report.checks.find((c) => c.name === "cycle_freshness");
+  if (!check) return "unknown";
+
+  if (check.status === "ok") return "completed";
+  if (check.status === "fail" || check.status === "warn") {
+    const msg = check.message || "";
+    return msg.includes(sourceId) ? "never" : "unknown";
+  }
+  return "unknown";
 }

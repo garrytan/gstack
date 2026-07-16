@@ -10,7 +10,14 @@
 //
 // Usage:
 //   gstack-next-version --base <branch> --bump <major|minor|patch|micro> \
-//     --current-version <X.Y.Z.W> [--workspace-root <path>|null] [--json]
+//     --current-version <X.Y.Z.W> [--workspace-root <path>|null] \
+//     [--version-path <path>] [--json]
+//
+// VERSION path resolution (monorepo support):
+//   1. --version-path <path> CLI flag (highest priority)
+//   2. .gstack/version-path file at the repo root (single-line relative path,
+//      committed so all collaborators benefit)
+//   3. "VERSION" at the repo root (default, backward-compatible)
 //
 // Exit codes:
 //   0 — emitted JSON successfully (may include "offline":true or "host":"unknown")
@@ -45,6 +52,7 @@ type Output = {
   version: string;
   current_version: string;
   base_version: string;
+  version_path: string;
   bump: Bump;
   host: "github" | "gitlab" | "unknown";
   offline: boolean;
@@ -114,6 +122,28 @@ function runCommand(cmd: string, args: string[], timeoutMs = 15000): { ok: boole
   };
 }
 
+// VERSION-path resolution for monorepos. Priority: CLI flag > .gstack/version-path
+// at repo root > "VERSION". Pure function; takes the repo root as an argument so
+// tests can drive it with a fixture dir without mocking git.
+function resolveVersionPath(override: string | undefined, repoRoot: string): string {
+  if (override) return override.trim();
+  const configFile = join(repoRoot, ".gstack", "version-path");
+  if (existsSync(configFile)) {
+    try {
+      const firstLine = readFileSync(configFile, "utf8").split("\n")[0]?.trim() ?? "";
+      if (firstLine) return firstLine;
+    } catch {
+      // fall through to default
+    }
+  }
+  return "VERSION";
+}
+
+function repoToplevel(): string {
+  const r = runCommand("git", ["rev-parse", "--show-toplevel"]);
+  return r.ok ? r.stdout.trim() : process.cwd();
+}
+
 function detectHost(): "github" | "gitlab" | "unknown" {
   const remote = runCommand("git", ["remote", "get-url", "origin"]);
   if (remote.ok) {
@@ -128,19 +158,19 @@ function detectHost(): "github" | "gitlab" | "unknown" {
   return "unknown";
 }
 
-function readBaseVersion(base: string, warnings: string[]): string {
+function readBaseVersion(base: string, versionPath: string, warnings: string[]): string {
   // git fetch is best-effort; we tolerate failure and fall back to whatever
   // origin/<base> currently points at.
   runCommand("git", ["fetch", "origin", base, "--quiet"], 10000);
-  const r = runCommand("git", ["show", `origin/${base}:VERSION`]);
+  const r = runCommand("git", ["show", `origin/${base}:${versionPath}`]);
   if (!r.ok) {
-    warnings.push(`could not read VERSION at origin/${base}; assuming 0.0.0.0`);
+    warnings.push(`could not read ${versionPath} at origin/${base}; assuming 0.0.0.0`);
     return "0.0.0.0";
   }
   return r.stdout.trim();
 }
 
-async function fetchGithubClaimed(base: string, excludePR: number | null, warnings: string[]): Promise<{ claimed: ClaimedPR[]; offline: boolean }> {
+async function fetchGithubClaimed(base: string, versionPath: string, excludePR: number | null, warnings: string[]): Promise<{ claimed: ClaimedPR[]; offline: boolean }> {
   const list = runCommand("gh", [
     "pr",
     "list",
@@ -187,14 +217,18 @@ async function fetchGithubClaimed(base: string, excludePR: number | null, warnin
       const pr = queue.shift();
       if (!pr) return;
       // gh passes branch name via argv, not shell — safe.
+      // encodeURI handles spaces in subproject paths (e.g. "Tinas Second Brain/...")
+      // while leaving "/" untouched so the GitHub Contents API gets the path intact.
       const content = runCommand("gh", [
         "api",
-        `repos/{owner}/{repo}/contents/VERSION?ref=${encodeURIComponent(pr.headRefName)}`,
+        `repos/{owner}/{repo}/contents/${encodeURI(versionPath)}?ref=${encodeURIComponent(pr.headRefName)}`,
         "-q",
         ".content",
       ]);
       if (!content.ok) {
-        warnings.push(`PR #${pr.number}: could not fetch VERSION (fork or private)`);
+        warnings.push(
+          `PR #${pr.number}: could not fetch ${versionPath} (fork, private, or wrong path — try --version-path or .gstack/version-path)`,
+        );
         continue;
       }
       let versionStr: string;
@@ -215,7 +249,7 @@ async function fetchGithubClaimed(base: string, excludePR: number | null, warnin
   return { claimed: results, offline: false };
 }
 
-async function fetchGitlabClaimed(base: string, excludePR: number | null, warnings: string[]): Promise<{ claimed: ClaimedPR[]; offline: boolean }> {
+async function fetchGitlabClaimed(base: string, versionPath: string, excludePR: number | null, warnings: string[]): Promise<{ claimed: ClaimedPR[]; offline: boolean }> {
   const list = runCommand("glab", [
     "mr",
     "list",
@@ -243,12 +277,15 @@ async function fetchGitlabClaimed(base: string, excludePR: number | null, warnin
   }
   const results: ClaimedPR[] = [];
   for (const mr of mrs) {
+    // GitLab files API takes the full path URL-encoded (slashes become %2F).
     const content = runCommand("glab", [
       "api",
-      `projects/:id/repository/files/VERSION?ref=${encodeURIComponent(mr.source_branch)}`,
+      `projects/:id/repository/files/${encodeURIComponent(versionPath)}?ref=${encodeURIComponent(mr.source_branch)}`,
     ]);
     if (!content.ok) {
-      warnings.push(`MR !${mr.iid}: could not fetch VERSION`);
+      warnings.push(
+        `MR !${mr.iid}: could not fetch ${versionPath} (wrong path? — try --version-path or .gstack/version-path)`,
+      );
       continue;
     }
     try {
@@ -285,7 +322,7 @@ function currentRepoSlug(): string {
   return m ? m[1] : "";
 }
 
-function scanSiblings(root: string | null, claimed: ClaimedPR[], warnings: string[]): Sibling[] {
+function scanSiblings(root: string | null, versionPath: string, claimed: ClaimedPR[], warnings: string[]): Sibling[] {
   if (!root || !existsSync(root)) return [];
   const mySlug = currentRepoSlug();
   if (!mySlug) {
@@ -308,7 +345,7 @@ function scanSiblings(root: string | null, claimed: ClaimedPR[], warnings: strin
       continue;
     }
     if (!existsSync(join(p, ".git")) && !existsSync(join(p, ".git/HEAD"))) continue;
-    const versionFile = join(p, "VERSION");
+    const versionFile = join(p, versionPath);
     if (!existsSync(versionFile)) continue;
     let version: string;
     try {
@@ -346,12 +383,13 @@ function markActiveSiblings(siblings: Sibling[], baseVersion: Version): Sibling[
   });
 }
 
-function parseArgs(argv: string[]): { base: string; bump: Bump; current: string; workspaceRoot?: string; excludePR: number | null; help: boolean } {
+function parseArgs(argv: string[]): { base: string; bump: Bump; current: string; workspaceRoot?: string; excludePR: number | null; versionPath?: string; help: boolean } {
   let base = "";
   let bump: Bump | "" = "";
   let current = "";
   let workspaceRoot: string | undefined;
   let excludePR: number | null = null;
+  let versionPath: string | undefined;
   let help = false;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -359,6 +397,7 @@ function parseArgs(argv: string[]): { base: string; bump: Bump; current: string;
     else if (a === "--bump") bump = (argv[++i] ?? "") as Bump;
     else if (a === "--current-version") current = argv[++i] ?? "";
     else if (a === "--workspace-root") workspaceRoot = argv[++i];
+    else if (a === "--version-path") versionPath = argv[++i];
     else if (a === "--exclude-pr") {
       const n = Number(argv[++i]);
       excludePR = Number.isFinite(n) && n > 0 ? n : null;
@@ -375,7 +414,7 @@ function parseArgs(argv: string[]): { base: string; bump: Bump; current: string;
     console.error(`Error: --bump must be major|minor|patch|micro (got ${bump})`);
     process.exit(2);
   }
-  return { base, bump: bump as Bump, current, workspaceRoot, excludePR, help: false };
+  return { base, bump: bump as Bump, current, workspaceRoot, excludePR, versionPath, help: false };
 }
 
 // Auto-detect: if --exclude-pr wasn't passed, check whether the current branch
@@ -392,13 +431,14 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (args.help) {
     console.log(
-      "Usage: gstack-next-version --base <branch> --bump <level> --current-version <X.Y.Z.W> [--workspace-root <path|null>]",
+      "Usage: gstack-next-version --base <branch> --bump <level> --current-version <X.Y.Z.W> [--workspace-root <path|null>] [--version-path <path>]",
     );
     process.exit(0);
   }
   const warnings: string[] = [];
   const host = detectHost();
-  const baseVersion = args.current || readBaseVersion(args.base, warnings);
+  const versionPath = resolveVersionPath(args.versionPath, repoToplevel());
+  const baseVersion = args.current || readBaseVersion(args.base, versionPath, warnings);
   const baseParsed = parseVersion(baseVersion);
   if (!baseParsed) {
     console.error(`Error: could not parse base version '${baseVersion}'`);
@@ -413,9 +453,9 @@ async function main() {
   let claimed: ClaimedPR[] = [];
   let offline = false;
   if (host === "github") {
-    ({ claimed, offline } = await fetchGithubClaimed(args.base, excludePR, warnings));
+    ({ claimed, offline } = await fetchGithubClaimed(args.base, versionPath, excludePR, warnings));
   } else if (host === "gitlab") {
-    ({ claimed, offline } = await fetchGitlabClaimed(args.base, excludePR, warnings));
+    ({ claimed, offline } = await fetchGitlabClaimed(args.base, versionPath, excludePR, warnings));
   } else {
     warnings.push("host unknown; queue-awareness unavailable");
   }
@@ -433,7 +473,7 @@ async function main() {
   const { version: picked, reason } = pickNextSlot(baseParsed, claimedVersions, args.bump);
 
   const workspaceRoot = resolveWorkspaceRoot(args.workspaceRoot);
-  const siblings = markActiveSiblings(scanSiblings(workspaceRoot, claimed, warnings), baseParsed);
+  const siblings = markActiveSiblings(scanSiblings(workspaceRoot, versionPath, claimed, warnings), baseParsed);
   const activeSiblings = siblings.filter((s) => s.is_active);
 
   // If an active sibling outranks our pick, bump past it (same bump level).
@@ -453,6 +493,7 @@ async function main() {
     version: fmtVersion(finalVersion),
     current_version: args.current || baseVersion,
     base_version: baseVersion,
+    version_path: versionPath,
     bump: args.bump,
     host,
     offline,
@@ -466,7 +507,7 @@ async function main() {
 }
 
 // Pure-function exports for testing
-export { parseVersion, fmtVersion, bumpVersion, cmpVersion, pickNextSlot, markActiveSiblings };
+export { parseVersion, fmtVersion, bumpVersion, cmpVersion, pickNextSlot, markActiveSiblings, resolveVersionPath };
 
 // Only run main() when invoked as a script, not when imported by tests.
 if (import.meta.main) {

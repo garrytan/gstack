@@ -95,3 +95,35 @@ describe('canDispatchOverTunnel — alias canonicalization', () => {
     expect(canDispatchOverTunnel('closetab')).toBe(true);
   });
 });
+
+describe('canDispatchOverTunnel — --out writes are never tunnel-dispatchable', () => {
+  // `--out` turns an otherwise-readable command into a local-disk WRITE. The
+  // tunnel surface never grants disk-write to remote paired agents, so any
+  // --out invocation must be 403'd even when the bare command is allowlisted.
+  test('bare eval dispatches, but eval --out does not', () => {
+    expect(canDispatchOverTunnel('eval', ['/tmp/x.js'])).toBe(true);
+    expect(canDispatchOverTunnel('eval', ['/tmp/x.js', '--out', '/tmp/o.png'])).toBe(false);
+  });
+
+  test('--out= form is rejected too (no parser-shape bypass)', () => {
+    expect(canDispatchOverTunnel('eval', ['/tmp/x.js', '--out=/tmp/o.png'])).toBe(false);
+  });
+
+  test('--out anywhere in args is caught regardless of ordering', () => {
+    expect(canDispatchOverTunnel('eval', ['--out', '/tmp/o.png', '/tmp/x.js'])).toBe(false);
+  });
+
+  test('args without --out still dispatch', () => {
+    expect(canDispatchOverTunnel('goto', ['https://example.com'])).toBe(true);
+    expect(canDispatchOverTunnel('eval', ['/tmp/x.js'])).toBe(true);
+  });
+
+  test('omitting args preserves the old command-only behavior', () => {
+    expect(canDispatchOverTunnel('eval')).toBe(true);
+  });
+
+  test('a lookalike flag (--output) is NOT treated as --out', () => {
+    // hasOutArg matches '--out' exactly or '--out='; '--output' must not trip it.
+    expect(canDispatchOverTunnel('eval', ['/tmp/x.js', '--output', '/tmp/o'])).toBe(true);
+  });
+});
