@@ -1994,7 +1994,7 @@ describe('data-model bias guardrails', () => {
   const engReviewSections = fs.readFileSync(
     path.join(ROOT, 'plan-eng-review', 'sections', 'review-sections.md'), 'utf-8');
 
-  test('plan-eng-review preserves the "data model exception to minimal diff" bullet', () => {
+  test('plan-eng-review preserves the "data model exception to right-sized diff" bullet', () => {
     expect(engReview).toContain('Data model exception to "right-sized diff"');
     expect(engReview).toContain('Count concepts, not tables');
   });
@@ -2041,7 +2041,7 @@ describe('data-model bias guardrails', () => {
     expect(engReview).not.toMatch(/^19\. \*\*/m);
   });
 
-  test('plan-ceo-review preserves the "data model exception to minimal diff" bullet', () => {
+  test('plan-ceo-review preserves the "data model exception to right-sized diff" bullet', () => {
     expect(ceoReview).toContain('Data model exception to "right-sized diff"');
     expect(ceoReview).toContain('Count concepts, not tables');
   });

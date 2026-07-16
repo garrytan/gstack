@@ -90,6 +90,8 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'plan-eng-review':           ['plan-eng-review/**'],
   'plan-eng-review-artifact':  ['plan-eng-review/**'],
   'plan-eng-review-data-model-bias': ['plan-eng-review/**'],
+  'plan-eng-review-data-model-legitimate-json': ['plan-eng-review/**'],
+  'plan-eng-review-data-model-measured-denorm': ['plan-eng-review/**'],
   'plan-review-report':        ['plan-eng-review/**', 'scripts/gen-skill-docs.ts'],
 
   // Plan-mode smoke tests — gate-tier safety regression tests. Each test file
@@ -522,6 +524,8 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
   'plan-eng-review': 'periodic',
   'plan-eng-review-artifact': 'periodic',
   'plan-eng-review-data-model-bias': 'periodic',
+  'plan-eng-review-data-model-legitimate-json': 'periodic',
+  'plan-eng-review-data-model-measured-denorm': 'periodic',
   'plan-eng-coverage-audit': 'gate',
   'plan-review-report': 'gate',
 

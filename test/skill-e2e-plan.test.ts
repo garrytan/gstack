@@ -371,10 +371,10 @@ Focus on architecture, code quality, tests, and performance sections.`,
 // Regression test for the data-model bias fix: verifies that /plan-eng-review
 // recommends a separate model instead of inlining columns + JSONField when
 // a plan tries to merge polymorphic variant data into an existing model "to
-// keep the diff minimal." Before the fix, the skill's "minimal diff" preference
-// pushed the AI toward accepting the inline approach; after the fix, the
-// data-model exception bullet + Data model review checklist should make the
-// AI push back and recommend normalization citing SRP/3NF.
+// keep the diff right-sized." Before the fix, the skill's "right-sized diff"
+// preference pushed the AI toward accepting the inline approach; after the
+// fix, the data-model exception bullet + Data model review checklist should
+// make the AI push back and recommend normalization citing SRP/3NF.
 
 describeIfSelected('Plan Eng Review Data-Model Bias E2E', ['plan-eng-review-data-model-bias'], () => {
   let planDir: string;
@@ -432,6 +432,9 @@ column-add, no new FK navigation in the codebase.
       path.join(ROOT, 'plan-eng-review', 'SKILL.md'),
       path.join(planDir, 'plan-eng-review', 'SKILL.md'),
     );
+    // Carved skills (v2 plan T9): copy sections/ so the Architecture review +
+    // Data model review checklist (now carved out of SKILL.md) are present.
+    { const _sec = path.join(ROOT, 'plan-eng-review', 'sections'); if (fs.existsSync(_sec)) fs.cpSync(_sec, path.join(planDir, 'plan-eng-review', 'sections'), { recursive: true }); }
   });
 
   afterAll(() => {
@@ -498,6 +501,233 @@ Focus specifically on the data model design in the plan. Apply the data model re
     expect(recommendsSeparateModel).toBe(true);
     expect(pushesBackOnJsonField).toBe(true);
     expect(citesNormalization).toBe(true);
+  }, 420_000);
+});
+
+// --- Plan Eng Review Data-Model Legitimate-JSON Counterexample E2E ---
+//
+// Positive-case regression: the data-model bias fix narrowed "JSONField is not
+// an escape hatch for polymorphism" to explicitly exempt genuinely legitimate
+// uses (third-party payload caches, opaque preference bags, schemas still
+// being discovered). This verifies the narrowing actually works — that
+// /plan-eng-review does NOT push back on a JSONField that squarely matches
+// one of its own listed legitimate cases (caching a third-party webhook
+// payload verbatim, schema controlled entirely by the external producer).
+
+describeIfSelected('Plan Eng Review Data-Model Legitimate JSON E2E', ['plan-eng-review-data-model-legitimate-json'], () => {
+  let planDir: string;
+
+  beforeAll(() => {
+    planDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-e2e-plan-eng-json-'));
+    const run = (cmd: string, args: string[]) =>
+      spawnSync(cmd, args, { cwd: planDir, stdio: 'pipe', timeout: 5000 });
+
+    run('git', ['init', '-b', 'main']);
+    run('git', ['config', 'user.email', 'test@test.com']);
+    run('git', ['config', 'user.name', 'Test']);
+
+    // Synthetic plan designed to NOT trip the JSONField guidance: the payload
+    // is a verbatim third-party webhook body, schema owned by Stripe (not us),
+    // never queried into by key — the textbook legitimate JSONField case.
+    fs.writeFileSync(path.join(planDir, 'plan.md'), `# Plan: Add Stripe Webhook Event Log
+
+## Context
+We need to store incoming Stripe webhook events for audit and replay. Stripe
+sends many event types (payment_intent.succeeded, charge.refunded,
+customer.subscription.updated, etc.), each with a different JSON body shape
+that Stripe controls and can change without notice.
+
+## Proposed changes
+Add a WebhookEvent model:
+- id: primary key
+- event_type: CharField (e.g. "payment_intent.succeeded")
+- stripe_event_id: CharField, unique
+- received_at: DateTimeField
+- payload: JSONField — the verbatim JSON body Stripe sent, unmodified
+
+We will never query into specific payload keys from application code; the
+only consumer is a manual replay tool that re-POSTs the raw payload to our
+webhook handler for reprocessing. The field exists purely to cache Stripe's
+response verbatim for audit/replay, not to model our own domain state.
+
+## Open questions
+- Is storing the whole event as JSONField the right call here, or should we
+  break out the commonly-used fields into columns?
+`);
+
+    run('git', ['add', '.']);
+    run('git', ['commit', '-m', 'add plan']);
+
+    fs.mkdirSync(path.join(planDir, 'plan-eng-review'), { recursive: true });
+    fs.copyFileSync(
+      path.join(ROOT, 'plan-eng-review', 'SKILL.md'),
+      path.join(planDir, 'plan-eng-review', 'SKILL.md'),
+    );
+    { const _sec = path.join(ROOT, 'plan-eng-review', 'sections'); if (fs.existsSync(_sec)) fs.cpSync(_sec, path.join(planDir, 'plan-eng-review', 'sections'), { recursive: true }); }
+  });
+
+  afterAll(() => {
+    try { fs.rmSync(planDir, { recursive: true, force: true }); } catch {}
+  });
+
+  testConcurrentIfSelected('plan-eng-review-data-model-legitimate-json', async () => {
+    const result = await runSkillTest({
+      prompt: `Read plan-eng-review/SKILL.md for the review workflow.
+
+Read plan.md — that's the plan to review. This is a standalone plan document, not a codebase — skip any codebase exploration steps.
+
+Proceed directly to the architecture review section. Skip any AskUserQuestion calls — this is non-interactive. Write your complete architecture review directly to ${planDir}/review-output.md
+
+Focus specifically on the data model design in the plan. Apply the data model review checklist from the skill.`,
+      workingDirectory: planDir,
+      maxTurns: 15,
+      timeout: 360_000,
+      testName: 'plan-eng-review-data-model-legitimate-json',
+      runId,
+      model: 'claude-opus-4-6',
+    });
+
+    logCost('/plan-eng-review data-model-legitimate-json', result);
+
+    const reviewPath = path.join(planDir, 'review-output.md');
+    const review = fs.existsSync(reviewPath)
+      ? fs.readFileSync(reviewPath, 'utf-8')
+      : '';
+    const lower = review.toLowerCase();
+
+    // Deliberately loose, case-insensitive matching (same tolerance as the
+    // bias-regression test above) to survive wording variance while still
+    // catching an over-eager JSONField warning.
+    const discussesThePayloadField = lower.includes('payload') || lower.includes('jsonfield');
+    const pushesToSplitTheField =
+      /(promote|split|convert|extract|move)[^.]{0,80}payload[^.]{0,80}(column|field)/i.test(review) ||
+      /payload[^.]{0,80}(promote|split|convert to (explicit )?column|explicit column)/i.test(review);
+    const acknowledgesLegitimateUse =
+      /legitimate|appropriate|reasonable|correct (choice|call|approach)|fine as[- ](is|it)|acceptable|(third[- ]party|external).{0,40}(payload|blob|response)|verbatim|schemaless/i.test(review);
+
+    recordE2E(evalCollector, '/plan-eng-review-data-model-legitimate-json', 'Plan Eng Review Data-Model Legitimate JSON E2E', result, {
+      passed:
+        ['success', 'error_max_turns'].includes(result.exitReason) &&
+        review.length > 200 &&
+        discussesThePayloadField &&
+        !pushesToSplitTheField &&
+        acknowledgesLegitimateUse,
+    });
+
+    expect(['success', 'error_max_turns']).toContain(result.exitReason);
+    expect(review.length).toBeGreaterThan(200);
+    expect(discussesThePayloadField).toBe(true);
+    expect(pushesToSplitTheField).toBe(false);
+    expect(acknowledgesLegitimateUse).toBe(true);
+  }, 420_000);
+});
+
+// --- Plan Eng Review Data-Model Measured-Denormalization Counterexample E2E ---
+//
+// Positive-case regression: the data-model bias fix narrowed "normalize
+// first" to explicitly exempt denormalization backed by a stated
+// measurement (profiled hot path, load test, documented query cost). This
+// verifies /plan-eng-review accepts a denormalized snapshot field when the
+// plan cites a concrete measurement, instead of reflexively recommending a
+// return to a fully-normalized live-join design.
+
+describeIfSelected('Plan Eng Review Data-Model Measured Denormalization E2E', ['plan-eng-review-data-model-measured-denorm'], () => {
+  let planDir: string;
+
+  beforeAll(() => {
+    planDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-e2e-plan-eng-denorm-'));
+    const run = (cmd: string, args: string[]) =>
+      spawnSync(cmd, args, { cwd: planDir, stdio: 'pipe', timeout: 5000 });
+
+    run('git', ['init', '-b', 'main']);
+    run('git', ['config', 'user.email', 'test@test.com']);
+    run('git', ['config', 'user.name', 'Test']);
+
+    // Synthetic plan designed to NOT trip the normalize-first guidance: the
+    // denormalization is scoped to one read path and backed by a stated
+    // measurement (APM p95 + load test), matching the fix's own counterexample.
+    fs.writeFileSync(path.join(planDir, 'plan.md'), `# Plan: Add OrderSummary Read Snapshot for Checkout Confirmation
+
+## Context
+The checkout confirmation page currently joins Order -> Customer ->
+ShippingAddress (3 tables) to render the confirmation. APM (New Relic) shows
+this read path at p95 180ms under current traffic; a load test at 2x
+projected peak traffic showed p95 climbing to 340ms, driven almost entirely
+by this join according to the query plan.
+
+## Proposed changes
+Add an OrderSummary model that snapshots customer_name and
+shipping_address_line onto the Order row at order-creation time, used ONLY
+by the checkout confirmation read path. Order, Customer, and
+ShippingAddress remain fully normalized everywhere else in the codebase —
+this is a single, measured, scoped denormalization for one hot read path,
+not a general schema change.
+
+## Open questions
+- Is this the right call, or should we keep reading live via the FK chain
+  and instead add caching/indexing to fix the latency?
+`);
+
+    run('git', ['add', '.']);
+    run('git', ['commit', '-m', 'add plan']);
+
+    fs.mkdirSync(path.join(planDir, 'plan-eng-review'), { recursive: true });
+    fs.copyFileSync(
+      path.join(ROOT, 'plan-eng-review', 'SKILL.md'),
+      path.join(planDir, 'plan-eng-review', 'SKILL.md'),
+    );
+    { const _sec = path.join(ROOT, 'plan-eng-review', 'sections'); if (fs.existsSync(_sec)) fs.cpSync(_sec, path.join(planDir, 'plan-eng-review', 'sections'), { recursive: true }); }
+  });
+
+  afterAll(() => {
+    try { fs.rmSync(planDir, { recursive: true, force: true }); } catch {}
+  });
+
+  testConcurrentIfSelected('plan-eng-review-data-model-measured-denorm', async () => {
+    const result = await runSkillTest({
+      prompt: `Read plan-eng-review/SKILL.md for the review workflow.
+
+Read plan.md — that's the plan to review. This is a standalone plan document, not a codebase — skip any codebase exploration steps.
+
+Proceed directly to the architecture review section. Skip any AskUserQuestion calls — this is non-interactive. Write your complete architecture review directly to ${planDir}/review-output.md
+
+Focus specifically on the data model design in the plan. Apply the data model review checklist from the skill.`,
+      workingDirectory: planDir,
+      maxTurns: 15,
+      timeout: 360_000,
+      testName: 'plan-eng-review-data-model-measured-denorm',
+      runId,
+      model: 'claude-opus-4-6',
+    });
+
+    logCost('/plan-eng-review data-model-measured-denorm', result);
+
+    const reviewPath = path.join(planDir, 'review-output.md');
+    const review = fs.existsSync(reviewPath)
+      ? fs.readFileSync(reviewPath, 'utf-8')
+      : '';
+    const lower = review.toLowerCase();
+
+    const discussesTheDenormalization = lower.includes('denormal') || lower.includes('ordersummary');
+    const rejectsAsUnjustified =
+      /(premature|not[- ]yet justified|lacks?[- ]a measurement|no measurement|remove[^.]{0,40}(denormali[sz]ation|snapshot)|normali[sz]e[^.]{0,40}(instead|back|it)|should (read|query|join)[^.]{0,40}live)/i.test(review);
+    const acceptsMeasuredJustification =
+      /measur|profil|load test|p95|latency|query plan|justified|reasonable|legitimate|appropriate|scoped/i.test(review);
+
+    recordE2E(evalCollector, '/plan-eng-review-data-model-measured-denorm', 'Plan Eng Review Data-Model Measured Denormalization E2E', result, {
+      passed:
+        ['success', 'error_max_turns'].includes(result.exitReason) &&
+        review.length > 200 &&
+        discussesTheDenormalization &&
+        !rejectsAsUnjustified &&
+        acceptsMeasuredJustification,
+    });
+
+    expect(['success', 'error_max_turns']).toContain(result.exitReason);
+    expect(review.length).toBeGreaterThan(200);
+    expect(discussesTheDenormalization).toBe(true);
+    expect(rejectsAsUnjustified).toBe(false);
+    expect(acceptsMeasuredJustification).toBe(true);
   }, 420_000);
 });
 
