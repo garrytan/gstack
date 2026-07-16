@@ -1797,17 +1797,66 @@ describe('Codex generation (--host codex)', () => {
     expect(reviewContent).not.toContain('CODEX_REVIEWS');
   });
 
-  test('Codex design-shotgun uses image_gen instead of gstack design binary', () => {
+  test('Codex design-shotgun routes generation through $imagegen and keeps local helpers', () => {
     const content = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-design-shotgun', 'SKILL.md'), 'utf-8');
     expect(content).toContain('gstack-design-shotgun');
+    expect(content).toContain('$imagegen');
     expect(content).toContain('image_gen');
-    expect(content).toContain('host-native');
-    expect(content).toContain('no OpenAI API key setup');
-    expect(content).toContain('no `OPENAI_API_KEY` lookup');
+    expect(content).toContain('default built-in mode');
+    expect(content).toContain('$B screenshot "$_DESIGN_DIR/current.png"');
+    expect(content).toContain('Load `$_DESIGN_DIR/current.png` with the host `view_image` tool');
+    expect(content).toContain('DESIGN_BOARD_READY: $D');
+    expect(content).toContain('BROWSE_READY: $B');
+    expect(content).toContain('$D compare --images "$_IMAGES"');
+    expect(content).toContain('no OpenAI API key setup or `OPENAI_API_KEY` lookup');
     expect(content).not.toContain('Run: {$D path} generate');
-    expect(content).not.toContain('$D compare --images');
-    expect(content).not.toContain('DESIGN_READY: $D');
-    expect(content).not.toContain('DESIGN_NOT_AVAILABLE');
+    expect(content).not.toContain('$D evolve --screenshot');
+    expect(content).not.toContain('node - "$_DESIGN_DIR"');
+    expect(content).not.toContain('open "file://$_DESIGN_DIR/design-board.html"');
+    expect(content).not.toContain('$HOME$GSTACK_DESIGN');
+    expect(content).not.toContain('$HOME$GSTACK_BROWSE');
+  });
+
+  test('Codex design-shotgun setup resolves browser and board binaries', () => {
+    const content = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-design-shotgun', 'SKILL.md'), 'utf-8');
+    const sectionStart = content.indexOf('## CODEX IMAGE SETUP');
+    const fenceStart = content.indexOf('```bash\n', sectionStart) + '```bash\n'.length;
+    const fenceEnd = content.indexOf('\n```', fenceStart);
+    expect(sectionStart).toBeGreaterThanOrEqual(0);
+    expect(fenceStart).toBeGreaterThan(sectionStart);
+    expect(fenceEnd).toBeGreaterThan(fenceStart);
+
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-codex-design-setup-'));
+    try {
+      const designDir = path.join(tempDir, 'design', 'dist');
+      const browseDir = path.join(tempDir, 'browse', 'dist');
+      fs.mkdirSync(designDir, { recursive: true });
+      fs.mkdirSync(browseDir, { recursive: true });
+      fs.writeFileSync(path.join(designDir, 'design'), '#!/bin/sh\nexit 0\n');
+      fs.writeFileSync(path.join(browseDir, 'browse'), '#!/bin/sh\nexit 0\n');
+      fs.chmodSync(path.join(designDir, 'design'), 0o755);
+      fs.chmodSync(path.join(browseDir, 'browse'), 0o755);
+
+      const result = Bun.spawnSync(['bash', '-c', content.slice(fenceStart, fenceEnd)], {
+        cwd: tempDir,
+        env: {
+          ...process.env,
+          HOME: tempDir,
+          GSTACK_DESIGN: designDir,
+          GSTACK_BROWSE: browseDir,
+        },
+        stdout: 'pipe',
+        stderr: 'pipe',
+      });
+
+      expect(result.exitCode).toBe(0);
+      const output = result.stdout.toString();
+      expect(output).toContain(`DESIGN_BOARD_READY: ${path.join(designDir, 'design')}`);
+      expect(output).toContain(`BROWSE_READY: ${path.join(browseDir, 'browse')}`);
+      expect(result.stderr.toString()).toBe('');
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 
   test('--host codex --dry-run freshness', () => {
