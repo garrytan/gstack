@@ -2,9 +2,9 @@
 
 ## [1.61.0.0] - 2026-07-16
 
-## **`/plan-eng-review` and `/plan-ceo-review` stop pushing you toward fewer tables and JSONField shortcuts — without swinging to the opposite extreme.**
+## **`/plan-eng-review` stops pushing you toward fewer tables and JSONField shortcuts — without swinging to the opposite extreme.**
 
-Both skills' "right-sized diff" preference was quietly biased against schema normalization: adding a new model touches more files than adding a column, so reviewers kept steering people toward merging new fields into existing tables and reaching for JSONField as a polymorphism shortcut. This release adds an explicit data-model exception — normalize first, denormalize when you have a measured reason — plus a full "Data model review checklist" in `/plan-eng-review`'s Architecture Review (SRP, nullable-semantic smells, hidden polymorphism, FK deletion strategy, and seven more). Early feedback flagged the fix as too absolute in the other direction, so this release also adds explicit counterexamples: legitimate JSONField uses (caching a third-party webhook payload verbatim, an open-ended preference bag), denormalization backed by a real measurement (a profiled hot path, a load test), and the case where keeping a single trivial field inline is genuinely the right, minimal call.
+The "right-sized diff" preference was quietly biased against schema normalization: adding a new model touches more files than adding a column, so the skill kept steering people toward merging new fields into existing tables and reaching for JSONField as a polymorphism shortcut. This release adds a terse data-model exception to that preference — normalize first, denormalize when you have a measured reason — plus a new, standalone "Data model review" section (11 proactive checks: SRP, nullable-semantic smells, hidden polymorphism, FK deletion strategy, and seven more) that runs on every plan touching a model. Early feedback flagged the fix as too absolute in the other direction, so this release also adds explicit counterexamples: legitimate JSONField uses (caching a third-party webhook payload verbatim, an open-ended preference bag), denormalization backed by a real measurement (a profiled hot path, a load test), and the case where keeping a single trivial field inline is genuinely the right, minimal call.
 
 ### What this means for you
 
@@ -13,15 +13,13 @@ Ask `/plan-eng-review` to review a schema change and it will push back on mergin
 ### Itemized changes
 
 #### Changed
-- `/plan-eng-review` and `/plan-ceo-review`: added a "data model exception to right-sized diff" — normalize first, denormalize for a measured reason, don't split reflexively when a field has no independent query pattern or consumer.
-- `/plan-eng-review` and `/plan-ceo-review`: added explicit JSONField guidance — not an escape hatch for known, stable polymorphism, but legitimately fine for third-party payload caches, open-ended preference bags, and schemas still being discovered.
-- `/plan-eng-review`: Architecture Review gained a "Data model honesty" check and a full Data Model Review Checklist (11 proactive checks) that runs on every model touched by a plan, instead of waiting for the user to push back on model shape.
-- `/plan-eng-review`: three new cognitive patterns (normalize-first, SRP-for-data-models, structure-beats-blobs-for-known-polymorphism).
+- `/plan-eng-review`: added a terse "data model exception to right-sized diff" preference — normalize first, denormalize for a measured reason, don't split reflexively when a field has no independent query pattern or consumer.
+- `/plan-eng-review`: added a terse JSONField preference — not an escape hatch for known, stable polymorphism, but legitimately fine for third-party payload caches, open-ended preference bags, and schemas still being discovered.
+- `/plan-eng-review`: the Data Model Review Checklist is now its own standalone review section (previously a subsection tacked onto Architecture Review), covering SRP, nullable-semantic smells, hidden polymorphism, FK deletion strategy, snapshot-vs-render-live, cross-scope FK consistency, derived state, field naming, and DB constraints over app validation.
 
 #### For contributors
-- New periodic-tier E2E evals, all against `/plan-eng-review` (not yet `/plan-ceo-review` — tracked as a follow-up in TODOS.md), exercising all three review-feedback categories end-to-end: a plan that should trigger pushback (polymorphic data inlined with JSONField), one that shouldn't (a legitimate third-party payload cache), one testing measured denormalization is accepted, and one testing a minimal single-field addition isn't over-split.
-- New free unit tests for the negation-aware text matcher these evals rely on (`test/helpers/e2e-helpers.test.ts`), covering sentence-boundary scanning, curly-apostrophe contractions, contrastive phrasing ("rather than"/"instead of"), and markdown-bullet clause boundaries — all real gaps found across four rounds of specialist and adversarial review during this branch's own `/ship`.
-- Extracted shared E2E fixture setup (`setupPlanEngReviewFixture`) and a hermetic, absolute-path-pinned prompt builder (`planEngReviewDataModelPrompt`) so these new tests can't accidentally grade against a machine's globally-installed skill instead of the branch under test.
+- New periodic-tier E2E evals against `/plan-eng-review`, exercising all three review-feedback categories end-to-end: a plan that should trigger pushback (polymorphic data inlined with JSONField), one that shouldn't (a legitimate third-party payload cache), one testing measured denormalization is accepted, and one testing a minimal single-field addition isn't over-split.
+- `/plan-ceo-review` deliberately does not carry these bullets — CEO review stays high-level on "right-sized diff"; data-model pushback is `/plan-eng-review`'s job.
 
 ## [1.60.1.0] - 2026-07-09
 
