@@ -762,7 +762,7 @@ when the verification email link is clicked.
     const acceptsInlineAddition =
       matchesUnnegated(review, /(keep|stay|remain|fine|appropriate|correct|reasonable|no need)[^.]{0,60}(inline|as[- ]is|single column|one column|single field)/i) ||
       matchesUnnegated(review, /(single|one)\s+(trivial\s+)?field[^.]{0,60}(no|without)[^.]{0,40}(independent|separate)/i) ||
-      /doesn'?t (need|require|warrant)[^.]{0,40}(a\s+)?(separate|new|dedicated)[^.]{0,40}(model|table)/i.test(review);
+      /doesn['’]?t (need|require|warrant)[^.]{0,40}(a\s+)?(separate|new|dedicated)[^.]{0,40}(model|table)/i.test(review);
 
     recordE2E(evalCollector, '/plan-eng-review-data-model-minimal-change', 'Plan Eng Review Data-Model Minimal Change E2E', result, {
       passed:

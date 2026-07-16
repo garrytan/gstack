@@ -107,6 +107,30 @@ describe('matchesUnnegated', () => {
     )).toBe(true);
   });
 
+  test('does not treat a bare "no" idiom as a negation ("no blocker", "no downside")', () => {
+    // "No blocker here: create a separate tier model" and "there's no
+    // downside to promoting the payload" are positive-framing idioms in
+    // review prose, not negations of the recommendation that follows.
+    expect(matchesUnnegated(
+      'No blocker here: create a separate tier model.',
+      /create[^.]{0,60}separate[^.]{0,20}tier[^.]{0,20}model/i,
+    )).toBe(true);
+    expect(matchesUnnegated(
+      'There is no downside to promoting the payload into explicit columns.',
+      /promoting[^.]{0,60}payload[^.]{0,60}column/i,
+    )).toBe(true);
+  });
+
+  test('treats a newline + markdown bullet as a clause boundary', () => {
+    // "I would not keep this inline.\n- Separate tier model" is common LLM
+    // formatting — without treating the bullet as a boundary, the "not" from
+    // the prose sentence above would leak into the bullet line below it.
+    expect(matchesUnnegated(
+      'I would not keep this inline.\n- Separate subscription tier model',
+      /separate[^.]{0,20}subscription[^.]{0,20}tier[^.]{0,20}model/i,
+    )).toBe(true);
+  });
+
   test('catches a positive match even when an unrelated negation appears earlier in the text', () => {
     expect(matchesUnnegated(
       'This is not a JSONField concern. Separately, I recommend you promote the payload into explicit columns.',

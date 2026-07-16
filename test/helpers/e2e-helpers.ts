@@ -187,22 +187,33 @@ export function matchesUnnegated(text: string, pattern: RegExp): boolean {
   // curly one (’, U+2019) — LLM prose commonly renders contractions with the
   // curly form, and this codebase already hit this exact gotcha once before
   // (see the apostrophe wildcard note in test/spec-template-invariants.test.ts).
-  const NEGATION = /\b(not|no|never|cannot|without|against|rather than|instead of)\b|[a-z]+n['’]t\b/i;
+  // Deliberately does NOT include a bare "no" — "no blocker here: create a
+  // separate model" and "no downside to promoting the payload" are common
+  // POSITIVE-framing idioms in review prose, not negations of what follows;
+  // "not"/"never"/"cannot"/the "-n't" family are far more reliable signals.
+  const NEGATION = /\b(not|never|cannot|without|against|rather than|instead of)\b|[a-z]+n['’]t\b/i;
   const flags = pattern.flags.includes('g') ? pattern.flags : pattern.flags + 'g';
   const re = new RegExp(pattern.source, flags);
   // Real sentence-ending punctuation is followed by whitespace + a capital
   // letter, or sits at the end of the string — this excludes periods inside
   // abbreviations ("e.g.", "i.e.", "etc."), decimals, and version strings,
   // which a bare lastIndexOf('.') would wrongly treat as a sentence break
-  // and use to hide an earlier negation word from the lookback window.
-  const SENTENCE_END = /[.!?](?=\s+[A-Z]|\s*$)/g;
+  // and use to hide an earlier negation word from the lookback window. A
+  // newline followed by a markdown bullet/numbered-list marker is ALSO a
+  // clause boundary — "I would not keep this inline.\n- Separate tier model"
+  // is common LLM formatting, and without this the "not" from the prose
+  // sentence above would otherwise leak into the bullet below it.
+  const SENTENCE_END = /[.!?](?=\s+[A-Z]|\s*$)|\n\s*(?:[-*+]|\d+[.)])\s/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text))) {
     let sentenceStart = 0;
     let em: RegExpExecArray | null;
     SENTENCE_END.lastIndex = 0;
     while ((em = SENTENCE_END.exec(text)) && em.index < m.index) {
-      sentenceStart = em.index + 1;
+      // em[0].length, not a bare +1 — the bullet-marker alternative above is
+      // multiple characters wide ("\n- ", "\n1. "), so a fixed +1 would leave
+      // part of the marker inside the scanned "preceding" window.
+      sentenceStart = em.index + em[0].length;
     }
     const preceding = text.slice(sentenceStart, m.index);
     if (!NEGATION.test(preceding)) return true;
