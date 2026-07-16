@@ -367,6 +367,8 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'journey-retro':          ['*/SKILL.md.tmpl', 'SKILL.md.tmpl', 'scripts/gen-skill-docs.ts'],
   'journey-design-system':  ['*/SKILL.md.tmpl', 'SKILL.md.tmpl', 'scripts/gen-skill-docs.ts'],
   'journey-visual-qa':      ['*/SKILL.md.tmpl', 'SKILL.md.tmpl', 'scripts/gen-skill-docs.ts'],
+  'journey-web-performance-benchmark': ['benchmark/**', 'scripts/gen-skill-docs.ts'],
+  'journey-web-performance-benchmark-legacy-alias': ['benchmark/**', 'scripts/gen-skill-docs.ts', 'setup'],
 
   // Opus 4.7 behavior evals — keys match testName: values in the test file.
   // Routing sub-tests use template literal `routing-${c.name}` testNames,
@@ -735,6 +737,8 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
   'journey-retro': 'periodic',
   'journey-design-system': 'periodic',
   'journey-visual-qa': 'periodic',
+  'journey-web-performance-benchmark': 'periodic',
+  'journey-web-performance-benchmark-legacy-alias': 'periodic',
 
   // Opus 4.7 overlay evals — periodic (non-deterministic LLM behavior + Opus cost)
   'fanout-arm-overlay-on': 'periodic',

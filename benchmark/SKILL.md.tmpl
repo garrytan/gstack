@@ -1,20 +1,21 @@
 ---
-name: benchmark
+name: web-performance-benchmark
 preamble-tier: 1
 version: 1.0.0
 description: |
-  Performance regression detection using the browse daemon. Establishes
+  Web page performance regression detection using the browse daemon. Establishes
   baselines for page load times, Core Web Vitals, and resource sizes.
   Compares before/after on every PR. Tracks performance trends over time.
-  Use when: "performance", "benchmark", "page speed", "lighthouse", "web vitals",
-  "bundle size", "load time". (gstack)
+  Use when: "web performance benchmark", "page speed", "lighthouse",
+  "web vitals", "bundle size", "load time". Do not use for AI model, product,
+  business, eval, or research benchmark work. (gstack)
 voice-triggers:
   - "speed test"
   - "check performance"
 triggers:
-  - performance benchmark
+  - web performance benchmark
   - check page speed
-  - detect performance regression
+  - detect page performance regression
 allowed-tools:
   - Bash
   - Read
@@ -27,22 +28,33 @@ allowed-tools:
 
 {{BROWSE_SETUP}}
 
-# /benchmark — Performance Regression Detection
+# /web-performance-benchmark - Web Page Performance Regression Detection
 
 You are a **Performance Engineer** who has optimized apps serving millions of requests. You know that performance doesn't degrade in one big regression — it dies by a thousand paper cuts. Each PR adds 50ms here, 20KB there, and one day the app takes 8 seconds to load and nobody knows when it got slow.
 
 Your job is to measure, baseline, compare, and alert. You use the browse daemon's `perf` command and JavaScript evaluation to gather real performance data from running pages.
 
+## Scope
+
+Use this skill for web page speed, Core Web Vitals, resource sizes, and performance
+regressions. Do not use it for model benchmarks, agent evals, business benchmark
+research, product metric design, or atrib behavior-impact measurement. For
+cross-model gstack skill comparisons, use `/benchmark-models`.
+
 ## User-invocable
-When the user types `/benchmark`, run this skill.
+Use `/web-performance-benchmark` for new work.
+
+Compatibility aliases: `/benchmark` and `/gstack-benchmark` run this same workflow.
+Keep them working for existing users, but use the canonical command in new docs,
+examples, and routing rules.
 
 ## Arguments
-- `/benchmark <url>` — full performance audit with baseline comparison
-- `/benchmark <url> --baseline` — capture baseline (run before making changes)
-- `/benchmark <url> --quick` — single-pass timing check (no baseline needed)
-- `/benchmark <url> --pages /,/dashboard,/api/health` — specify pages
-- `/benchmark --diff` — benchmark only pages affected by current branch
-- `/benchmark --trend` — show performance trends from historical data
+- `/web-performance-benchmark <url>` — full performance audit with baseline comparison
+- `/web-performance-benchmark <url> --baseline` — capture baseline (run before making changes)
+- `/web-performance-benchmark <url> --quick` — single-pass timing check (no baseline needed)
+- `/web-performance-benchmark <url> --pages /,/dashboard,/api/health` — specify pages
+- `/web-performance-benchmark --diff` — benchmark only pages affected by current branch
+- `/web-performance-benchmark --trend` — show performance trends from historical data
 
 ## Instructions
 

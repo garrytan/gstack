@@ -467,6 +467,37 @@ describe('gen-skill-docs', () => {
     }
   });
 
+  test('benchmark skill is scoped to web performance', () => {
+    const generated = fs.readFileSync(path.join(ROOT, 'benchmark', 'SKILL.md'), 'utf-8');
+    const template = fs.readFileSync(path.join(ROOT, 'benchmark', 'SKILL.md.tmpl'), 'utf-8');
+
+    for (const content of [generated, template]) {
+      const frontmatter = content.match(/^---\n([\s\S]*?)\n---/)?.[1] ?? '';
+      expect(frontmatter).toContain('name: web-performance-benchmark');
+      expect(frontmatter).not.toContain('name: benchmark\n');
+      expect(frontmatter).toContain('web performance benchmark');
+      expect(content).toContain('Use `/web-performance-benchmark` for new work.');
+      expect(content).toContain('Compatibility aliases: `/benchmark` and `/gstack-benchmark` run this same workflow.');
+      expect(content).toContain('/web-performance-benchmark <url>');
+    }
+
+    expect(template).toContain('cross-model gstack skill comparisons, use `/benchmark-models`.');
+  });
+
+  test('setup retains benchmark command compatibility aliases', () => {
+    const setup = fs.readFileSync(path.join(ROOT, 'setup'), 'utf-8');
+
+    expect(setup).toContain('for _WEB_PERF_ALIAS in benchmark gstack-benchmark; do');
+    expect(setup).toContain('_link_or_copy "$SOURCE_GSTACK_DIR/benchmark" "$_WEB_PERF_LINK"');
+  });
+
+  test('active browser design docs route to the canonical command', () => {
+    const design = fs.readFileSync(path.join(ROOT, 'docs', 'designs', 'GSTACK_BROWSER_V0.md'), 'utf-8');
+
+    expect(design).toContain('| `/web-performance-benchmark` | Measure page performance');
+    expect(design).not.toContain('| `/benchmark` | Measure page performance');
+  });
+
   test('qa and qa-only templates use QA_METHODOLOGY placeholder', () => {
     const qaTmpl = fs.readFileSync(path.join(ROOT, 'qa', 'SKILL.md.tmpl'), 'utf-8');
     expect(qaTmpl).toContain('{{QA_METHODOLOGY}}');
@@ -1691,7 +1722,9 @@ describe('Codex generation (--host codex)', () => {
       if (!entry.isDirectory() || entry.name.startsWith('.') || entry.name === 'node_modules') continue;
       if (entry.name === 'codex') continue; // /codex is excluded from Codex output
       if (!fs.existsSync(path.join(ROOT, entry.name, 'SKILL.md.tmpl'))) continue;
-      const codexName = entry.name.startsWith('gstack-') ? entry.name : `gstack-${entry.name}`;
+      const template = fs.readFileSync(path.join(ROOT, entry.name, 'SKILL.md.tmpl'), 'utf-8');
+      const frontmatterName = template.match(/^name:\s*(.+)$/m)?.[1]?.trim() ?? entry.name;
+      const codexName = frontmatterName.startsWith('gstack-') ? frontmatterName : `gstack-${frontmatterName}`;
       if (isSymlinkLoop(codexName)) continue;
       skills.push({ dir: entry.name, codexName });
     }
@@ -2010,7 +2043,9 @@ describe('Factory generation (--host factory)', () => {
       if (!entry.isDirectory() || entry.name.startsWith('.') || entry.name === 'node_modules') continue;
       if (entry.name === 'codex') continue;
       if (!fs.existsSync(path.join(ROOT, entry.name, 'SKILL.md.tmpl'))) continue;
-      const factoryName = entry.name.startsWith('gstack-') ? entry.name : `gstack-${entry.name}`;
+      const template = fs.readFileSync(path.join(ROOT, entry.name, 'SKILL.md.tmpl'), 'utf-8');
+      const frontmatterName = template.match(/^name:\s*(.+)$/m)?.[1]?.trim() ?? entry.name;
+      const factoryName = frontmatterName.startsWith('gstack-') ? frontmatterName : `gstack-${frontmatterName}`;
       if (isSymlinkLoop(factoryName)) continue;
       skills.push({ dir: entry.name, factoryName });
     }

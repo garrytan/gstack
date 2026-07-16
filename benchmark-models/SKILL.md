@@ -22,7 +22,7 @@ allowed-tools:
 Runs the same prompt through Claude,
 GPT (via Codex CLI), and Gemini side-by-side — compares latency, tokens, cost,
 and optionally quality via LLM judge. Answers "which model is actually best
-for this skill?" with data instead of vibes. Separate from /benchmark, which
+for this skill?" with data instead of vibes. Separate from /web-performance-benchmark, which
 measures web page performance. Use when: "benchmark models", "compare models",
 "which model is best for X", "cross-model comparison", "model shootout".
 
@@ -539,7 +539,7 @@ Skills that run plan reviews (`/plan-*-review`, `/codex review`) include the EXI
 
 You are running the `/benchmark-models` workflow. Wraps the `gstack-model-benchmark` binary with an interactive flow that picks a prompt, confirms providers, previews auth, and runs the benchmark.
 
-Different from `/benchmark` — that skill measures web page performance (Core Web Vitals, load times). This skill measures AI model performance on gstack skills or arbitrary prompts.
+Different from `/web-performance-benchmark` — that skill measures web page performance (Core Web Vitals, load times). This skill measures AI model performance on gstack skills or arbitrary prompts.
 
 ---
 

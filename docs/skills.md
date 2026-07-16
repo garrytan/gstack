@@ -22,7 +22,7 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | [`/ship`](#ship) | **Release Engineer** | Sync main, run tests, audit coverage, push, open PR. Bootstraps test frameworks if you don't have one. One command. |
 | [`/land-and-deploy`](#land-and-deploy) | **Release Engineer** | Merge the PR, wait for CI and deploy, verify production health. One command from "approved" to "verified in production." |
 | [`/canary`](#canary) | **SRE** | Post-deploy monitoring loop. Watches for console errors, performance regressions, and page failures using the browse daemon. |
-| [`/benchmark`](#benchmark) | **Performance Engineer** | Baseline page load times, Core Web Vitals, and resource sizes. Compare before/after on every PR. Track trends over time. |
+| [`/web-performance-benchmark`](#web-performance-benchmark) | **Performance Engineer** | Baseline page load times, Core Web Vitals, and resource sizes. Compare before/after on every PR. Track trends over time. |
 | [`/cso`](#cso) | **Chief Security Officer** | OWASP Top 10 + STRIDE threat modeling security audit. Scans for injection, auth, crypto, and access control issues. |
 | [`/document-release`](#document-release) | **Technical Writer** | Update all project docs to match what you just shipped. Catches stale READMEs automatically. |
 | [`/document-generate`](#document-generate) | **Technical Writer** | Generate Diataxis docs (tutorial / how-to / reference / explanation) for a feature from code. |
@@ -715,16 +715,16 @@ Claude: Monitoring 8 pages every 2 minutes...
 
 ---
 
-## `/benchmark`
+## `/web-performance-benchmark`
 
 This is my **performance engineer mode**.
 
-`/benchmark` establishes performance baselines for your pages: load time, Core Web Vitals (LCP, CLS, INP), resource counts, and total transfer size. Run it before and after a PR to catch regressions.
+`/web-performance-benchmark` establishes performance baselines for your pages: load time, Core Web Vitals (LCP, CLS, INP), resource counts, and total transfer size. Run it before and after a PR to catch regressions.
 
 It uses the browse daemon for real Chromium measurements, not synthetic estimates. Multiple runs averaged. Results persist so you can track trends across PRs.
 
 ```
-You:   /benchmark https://myapp.com
+You:   /web-performance-benchmark https://myapp.com
 
 Claude: Benchmarking 5 pages (3 runs each)...
 
