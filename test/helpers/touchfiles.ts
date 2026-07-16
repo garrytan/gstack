@@ -243,6 +243,9 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'cso-full-audit':   ['cso/**'],
   'cso-diff-mode':    ['cso/**'],
   'cso-infra-scope':  ['cso/**'],
+  'cso-tier3-malicious': ['cso/**'],
+  'cso-tier3-benign':    ['cso/**'],
+  'cso-tier3-daily':     ['cso/**'],
 
   // Learnings
   'learnings-show': ['learn/**', 'bin/gstack-learnings-search', 'bin/gstack-learnings-log', 'scripts/resolvers/learnings.ts'],
@@ -664,6 +667,9 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
   'cso-full-audit': 'gate',      // Hardcoded secrets detection
   'cso-diff-mode': 'gate',
   'cso-infra-scope': 'periodic',
+  'cso-tier3-malicious': 'periodic',  // comprehensive-mode, non-deterministic quality benchmark
+  'cso-tier3-benign': 'periodic',     // comprehensive-mode FP-guard benchmark
+  'cso-tier3-daily': 'periodic',      // comprehensive-mode routing benchmark
 
   // Learnings — gate (functional guardrail: seeded learnings must appear)
   'learnings-show': 'gate',
