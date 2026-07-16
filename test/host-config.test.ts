@@ -24,8 +24,10 @@ import {
   openclaw,
 } from '../hosts/index';
 import { HOST_PATHS } from '../scripts/resolvers/types';
+import { RESOLVERS } from '../scripts/resolvers';
 
 const ROOT = path.resolve(import.meta.dir, '..');
+const RESOLVER_NAMES = new Set(Object.keys(RESOLVERS));
 
 // ─── hosts/index.ts ─────────────────────────────────────────
 
@@ -205,13 +207,32 @@ describe('validateHostConfig', () => {
     c.cliCommand = 'opencode;rm -rf /';
     expect(validateHostConfig(c).some(e => e.includes('cliCommand'))).toBe(true);
   });
+
+  test('valid suppressedResolvers pass when resolver names provided', () => {
+    const c = makeValid();
+    c.suppressedResolvers = ['DESIGN_OUTSIDE_VOICES', 'REVIEW_ARMY'];
+    expect(validateHostConfig(c, RESOLVER_NAMES)).toEqual([]);
+  });
+
+  test('unknown suppressedResolvers entry is caught', () => {
+    const c = makeValid();
+    c.suppressedResolvers = ['DESIGN_OUTSIDE_VOICES', 'NONEXISTENT_RESOLVER'];
+    const errors = validateHostConfig(c, RESOLVER_NAMES);
+    expect(errors.some(e => e.includes('NONEXISTENT_RESOLVER'))).toBe(true);
+  });
+
+  test('suppressedResolvers unchecked when resolver names omitted', () => {
+    const c = makeValid();
+    c.suppressedResolvers = ['TYPO_RESOLVER'];
+    expect(validateHostConfig(c)).toEqual([]);
+  });
 });
 
 // ─── validateAllConfigs ─────────────────────────────────────
 
 describe('validateAllConfigs', () => {
   test('real configs all pass validation', () => {
-    const errors = validateAllConfigs(ALL_HOST_CONFIGS);
+    const errors = validateAllConfigs(ALL_HOST_CONFIGS, RESOLVER_NAMES);
     expect(errors).toEqual([]);
   });
 
@@ -231,6 +252,12 @@ describe('validateAllConfigs', () => {
     const dup = { ...codex, name: 'dup-host', hostSubdir: '.dup', globalRoot: '.claude/skills/gstack' } as HostConfig;
     const errors = validateAllConfigs([claude, dup]);
     expect(errors.some(e => e.includes('Duplicate globalRoot'))).toBe(true);
+  });
+
+  test('unknown suppressedResolvers entry surfaces with host-name prefix', () => {
+    const bad = { ...codex, name: 'bad-host', hostSubdir: '.bad', globalRoot: '.bad/skills/gstack', suppressedResolvers: ['BOGUS_RESOLVER'] } as HostConfig;
+    const errors = validateAllConfigs([bad], RESOLVER_NAMES);
+    expect(errors.some(e => e.startsWith('[bad-host]') && e.includes('BOGUS_RESOLVER'))).toBe(true);
   });
 
   test('per-config validation errors are prefixed with host name', () => {

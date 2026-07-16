@@ -111,12 +111,53 @@ describe('Sidebar prompt injection defense', () => {
     // The agent should use args from the queue entry
     // It should NOT rebuild args from scratch (the old bug)
     expect(AGENT_SRC).toContain('args || [');
-    // Verify the destructured args come from queueEntry
-    expect(AGENT_SRC).toContain('const { prompt, args, stateFile, cwd, tabId } = queueEntry');
+    // Verify args come from queueEntry. Regex tolerates additional destructured
+    // fields like `canary` and `pageUrl` added by the security module.
+    expect(AGENT_SRC).toMatch(
+      /const \{[^}]*\bprompt\b[^}]*\bargs\b[^}]*\bstateFile\b[^}]*\bcwd\b[^}]*\btabId\b[^}]*\} = queueEntry/
+    );
   });
 
   test('sidebar-agent falls back to defaults if queue has no args', () => {
     // Backward compatibility: if old queue entries lack args, use defaults
     expect(AGENT_SRC).toContain("'--allowedTools', 'Bash,Read,Glob,Grep,Write'");
+  });
+
+  // --- Tool-result ML scan (Read/Glob/Grep ingress coverage) ---
+
+  test('sidebar-agent registers tool_use IDs for later correlation', () => {
+    // Tool results arrive in user-role messages with tool_use_id pointing
+    // back to the original tool_use block. We need a registry to know which
+    // tool produced the content we're scanning.
+    expect(AGENT_SRC).toContain('toolUseRegistry');
+    expect(AGENT_SRC).toContain('toolUseRegistry.set');
+  });
+
+  test('sidebar-agent scans Read/Glob/Grep/WebFetch tool outputs', () => {
+    // Codex review gap: untrusted content read via these tools enters
+    // Claude's context without passing through content-security.ts.
+    // Verify the SCANNED_TOOLS set includes each.
+    const scannedToolsMatch = AGENT_SRC.match(/SCANNED_TOOLS = new Set\(\[([^\]]+)\]\)/);
+    expect(scannedToolsMatch).toBeTruthy();
+    const toolList = scannedToolsMatch![1];
+    expect(toolList).toContain("'Read'");
+    expect(toolList).toContain("'Grep'");
+    expect(toolList).toContain("'Glob'");
+    expect(toolList).toContain("'WebFetch'");
+  });
+
+  test('sidebar-agent extracts text from tool_result content (string or blocks)', () => {
+    // Content can be a string OR an array of content blocks (text, image).
+    // Only text blocks matter for injection detection.
+    expect(AGENT_SRC).toContain('extractToolResultText');
+    expect(AGENT_SRC).toContain('typeof content === \'string\'');
+    expect(AGENT_SRC).toContain('b.type === \'text\'');
+  });
+
+  test('sidebar-agent handles user-role messages for tool_result events', () => {
+    // Tool results come in user-role messages. Without this handler the
+    // entire ingress gap stays open.
+    expect(AGENT_SRC).toContain("event.type === 'user'");
+    expect(AGENT_SRC).toContain("block.type === 'tool_result'");
   });
 });

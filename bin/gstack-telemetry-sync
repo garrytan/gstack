@@ -107,7 +107,13 @@ BATCH="$BATCH]"
 [ "$COUNT" -eq 0 ] && exit 0
 
 # ─── POST to edge function ───────────────────────────────────
-RESP_FILE="$(mktemp /tmp/gstack-sync-XXXXXX 2>/dev/null || echo "/tmp/gstack-sync-$$")"
+# Create response file atomically. If mktemp fails, refuse to continue rather
+# than fall back to a predictable $$-based path (race + overwrite footgun).
+RESP_FILE="$(mktemp "${TMPDIR:-/tmp}/gstack-sync-XXXXXX")" || {
+  echo "gstack-telemetry-sync: mktemp failed — skipping this run" >&2
+  exit 0
+}
+trap 'rm -f "$RESP_FILE"' EXIT
 HTTP_CODE="$(curl -s -w '%{http_code}' --max-time 10 \
   -X POST "${SUPABASE_URL}/functions/v1/telemetry-ingest" \
   -H "Content-Type: application/json" \

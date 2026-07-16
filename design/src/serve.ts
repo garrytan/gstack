@@ -1,12 +1,18 @@
 /**
  * HTTP server for the design comparison board feedback loop.
  *
- * Replaces the broken file:// + DOM polling approach. The server:
- * 1. Serves the comparison board HTML over HTTP
- * 2. Injects __GSTACK_SERVER_URL so the board POSTs feedback here
- * 3. Prints feedback JSON to stdout (agent reads it)
- * 4. Stays alive across regeneration rounds (stateful)
- * 5. Auto-opens in the user's default browser
+ * Legacy single-process path: spawned by `$D compare --serve --no-daemon`.
+ * The daemon (`design/src/daemon.ts`) handles default invocations and hosts
+ * multiple boards under `/boards/<id>/`; this file stays as the escape hatch
+ * for tests and debugging. Board JS uses relative URLs and a
+ * location.protocol feature-detect, so the same generated HTML works at
+ * both `/` (here) and `/boards/<id>/` (daemon).
+ *
+ * The server:
+ * 1. Serves the comparison board HTML over HTTP at `/`
+ * 2. Prints feedback JSON to stdout (agent reads it)
+ * 3. Stays alive across regeneration rounds (stateful)
+ * 4. Auto-opens in the user's default browser
  *
  * State machine:
  *
@@ -47,7 +53,7 @@ export interface ServeOptions {
 type ServerState = "serving" | "regenerating" | "done";
 
 export async function serve(options: ServeOptions): Promise<void> {
-  const { html, port = 0, hostname = '127.0.0.1', timeout = 600 } = options;
+  const { html, port = 0, hostname = "127.0.0.1", timeout = 600 } = options;
 
   // Validate HTML file exists
   if (!fs.existsSync(html)) {
@@ -69,14 +75,14 @@ export async function serve(options: ServeOptions): Promise<void> {
     fetch(req) {
       const url = new URL(req.url);
 
-      // Serve the comparison board HTML
-      if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/index.html")) {
-        // Inject the server URL so the board can POST feedback
-        const injected = htmlContent.replace(
-          "</head>",
-          `<script>window.__GSTACK_SERVER_URL = '${url.origin}';</script>\n</head>`
-        );
-        return new Response(injected, {
+      // Serve the comparison board HTML. The board JS uses relative paths
+      // (./api/feedback, ./api/progress) and a location.protocol
+      // feature-detect, so no per-request injection is needed.
+      if (
+        req.method === "GET" &&
+        (url.pathname === "/" || url.pathname === "/index.html")
+      ) {
+        return new Response(htmlContent, {
           headers: { "Content-Type": "text/html; charset=utf-8" },
         });
       }
@@ -130,7 +136,9 @@ export async function serve(options: ServeOptions): Promise<void> {
 
     const isSubmit = body.regenerated === false;
     const isRegenerate = body.regenerated === true;
-    const action = isSubmit ? "submitted" : (body.regenerateAction || "regenerate");
+    const action = isSubmit
+      ? "submitted"
+      : body.regenerateAction || "regenerate";
 
     console.error(`SERVE_FEEDBACK_RECEIVED: type=${action}`);
 
@@ -185,18 +193,27 @@ export async function serve(options: ServeOptions): Promise<void> {
     if (!newHtmlPath || !fs.existsSync(newHtmlPath)) {
       return Response.json(
         { error: `HTML file not found: ${newHtmlPath}` },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
-    // Security: resolve symlinks and validate the reload path is within the
-    // allowed directory (anchored to the initial HTML file's parent).
-    // Prevents path traversal via /api/reload reading arbitrary files.
+    // Security: resolve symlinks and validate the reload path is a FILE
+    // inside the allowed directory (anchored to the initial HTML file's
+    // parent). Prevents path traversal via /api/reload reading arbitrary
+    // files. A path resolving to the allowedDir itself (a directory) used
+    // to pass the guard and then crash readFileSync with EISDIR — reject
+    // it explicitly with a clear 400 instead.
     const resolvedReload = fs.realpathSync(path.resolve(newHtmlPath));
-    if (!resolvedReload.startsWith(allowedDir + path.sep) && resolvedReload !== allowedDir) {
+    if (!resolvedReload.startsWith(allowedDir + path.sep)) {
       return Response.json(
         { error: `Path must be within: ${allowedDir}` },
-        { status: 403 }
+        { status: 403 },
+      );
+    }
+    if (!fs.statSync(resolvedReload).isFile()) {
+      return Response.json(
+        { error: `Path must be a file, not a directory: ${newHtmlPath}` },
+        { status: 400 },
       );
     }
 

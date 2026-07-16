@@ -496,6 +496,40 @@ describe('gstack-update-check', () => {
 
   // ─── Split TTL tests ─────────────────────────────────────────
 
+  // ─── Semver-order guard ─────────────────────────────────────
+  // When the upstream raw CDN serves a stale (older) VERSION right after a
+  // release, the script previously emitted a backwards UPGRADE_AVAILABLE
+  // line. The guard treats REMOTE < LOCAL as up-to-date.
+
+  test('remote older than local (stale CDN) → silent, cache UP_TO_DATE', () => {
+    writeFileSync(join(gstackDir, 'VERSION'), '1.34.0.0\n');
+    writeFileSync(join(gstackDir, 'REMOTE_VERSION'), '1.33.2.0\n');
+
+    const { exitCode, stdout } = run();
+    expect(exitCode).toBe(0);
+    expect(stdout).toBe('');
+    const cache = readFileSync(join(stateDir, 'last-update-check'), 'utf-8');
+    expect(cache).toContain('UP_TO_DATE 1.34.0.0');
+  });
+
+  test('multi-segment sort: 1.9.0.0 < 1.10.0.0', () => {
+    writeFileSync(join(gstackDir, 'VERSION'), '1.9.0.0\n');
+    writeFileSync(join(gstackDir, 'REMOTE_VERSION'), '1.10.0.0\n');
+
+    const { stdout } = run();
+    expect(stdout).toBe('UPGRADE_AVAILABLE 1.9.0.0 1.10.0.0');
+  });
+
+  test('multi-segment reverse sort: 1.10.0.0 > 1.9.0.0 → no rewind', () => {
+    writeFileSync(join(gstackDir, 'VERSION'), '1.10.0.0\n');
+    writeFileSync(join(gstackDir, 'REMOTE_VERSION'), '1.9.0.0\n');
+
+    const { stdout } = run();
+    expect(stdout).toBe('');
+    const cache = readFileSync(join(stateDir, 'last-update-check'), 'utf-8');
+    expect(cache).toContain('UP_TO_DATE 1.10.0.0');
+  });
+
   test('UP_TO_DATE cache expires after 60 min (not 720)', () => {
     writeFileSync(join(gstackDir, 'VERSION'), '0.3.3\n');
     writeFileSync(join(gstackDir, 'REMOTE_VERSION'), '0.4.0\n');

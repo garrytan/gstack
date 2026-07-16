@@ -149,9 +149,16 @@ export class TabSession {
    * Use this for operations that work on both Page and Frame (locator, evaluate, etc.).
    */
   getActiveFrameOrPage(): Page | Frame {
-    // Auto-recover from detached frames (iframe removed/navigated)
+    // Auto-recover from detached frames (iframe removed/navigated). Clear
+    // refs alongside the activeFrame — same staleness condition as
+    // onMainFrameNavigated() below: refs were captured against a frame
+    // that no longer exists. Without this, refMap entries linger against
+    // a dead frame after silently falling back to the main page; the
+    // next snapshot's role+name keys collide with stale entries and the
+    // resolver picks one at random.
     if (this.activeFrame?.isDetached()) {
       this.activeFrame = null;
+      this.clearRefs();
     }
     return this.activeFrame ?? this.page;
   }

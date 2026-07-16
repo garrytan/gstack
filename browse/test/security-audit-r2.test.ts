@@ -15,7 +15,13 @@ import * as os from 'os';
 const META_SRC = fs.readFileSync(path.join(import.meta.dir, '../src/meta-commands.ts'), 'utf-8');
 const WRITE_SRC = fs.readFileSync(path.join(import.meta.dir, '../src/write-commands.ts'), 'utf-8');
 const SERVER_SRC = fs.readFileSync(path.join(import.meta.dir, '../src/server.ts'), 'utf-8');
-const AGENT_SRC = fs.readFileSync(path.join(import.meta.dir, '../src/sidebar-agent.ts'), 'utf-8');
+// sidebar-agent.ts was ripped (chat queue replaced by interactive PTY).
+// AGENT_SRC kept as empty string so the legacy describe block below skips
+// without crashing module load on a missing file.
+const AGENT_SRC = (() => {
+  try { return fs.readFileSync(path.join(import.meta.dir, '../src/sidebar-agent.ts'), 'utf-8'); }
+  catch { return ''; }
+})();
 const SNAPSHOT_SRC = fs.readFileSync(path.join(import.meta.dir, '../src/snapshot.ts'), 'utf-8');
 const PATH_SECURITY_SRC = fs.readFileSync(path.join(import.meta.dir, '../src/path-security.ts'), 'utf-8');
 
@@ -51,53 +57,12 @@ function extractFunction(src: string, name: string): string {
   return src.slice(start);
 }
 
-// ─── Task 4: Agent queue poisoning — full schema validation + permissions ───
-
-describe('Agent queue security', () => {
-  it('server queue directory must use restricted permissions', () => {
-    const queueSection = SERVER_SRC.slice(SERVER_SRC.indexOf('agentQueue'), SERVER_SRC.indexOf('agentQueue') + 2000);
-    expect(queueSection).toMatch(/0o700/);
-  });
-
-  it('sidebar-agent queue directory must use restricted permissions', () => {
-    // The mkdirSync for the queue dir lives in main() — search the main() body
-    const mainStart = AGENT_SRC.indexOf('async function main');
-    const queueSection = AGENT_SRC.slice(mainStart);
-    expect(queueSection).toMatch(/0o700/);
-  });
-
-  it('cli.ts queue file creation must use restricted permissions', () => {
-    const CLI_SRC = fs.readFileSync(path.join(import.meta.dir, '../src/cli.ts'), 'utf-8');
-    const queueSection = CLI_SRC.slice(CLI_SRC.indexOf('queue') || 0, CLI_SRC.indexOf('queue') + 2000);
-    expect(queueSection).toMatch(/0o700|0o600|mode/);
-  });
-
-  it('queue reader must have a validator function covering all fields', () => {
-    // Extract ONLY the validator function body by walking braces
-    const validatorStart = AGENT_SRC.indexOf('function isValidQueueEntry');
-    expect(validatorStart).toBeGreaterThan(-1);
-    let depth = 0;
-    let bodyStart = AGENT_SRC.indexOf('{', validatorStart);
-    let bodyEnd = bodyStart;
-    for (let i = bodyStart; i < AGENT_SRC.length; i++) {
-      if (AGENT_SRC[i] === '{') depth++;
-      if (AGENT_SRC[i] === '}') depth--;
-      if (depth === 0) { bodyEnd = i + 1; break; }
-    }
-    const validatorBlock = AGENT_SRC.slice(validatorStart, bodyEnd);
-
-    expect(validatorBlock).toMatch(/prompt.*string/);
-    expect(validatorBlock).toMatch(/Array\.isArray/);
-    expect(validatorBlock).toMatch(/\.\./);
-    expect(validatorBlock).toContain('stateFile');
-    expect(validatorBlock).toContain('tabId');
-    expect(validatorBlock).toMatch(/number/);
-    expect(validatorBlock).toContain('null');
-    expect(validatorBlock).toContain('message');
-    expect(validatorBlock).toContain('pageUrl');
-    expect(validatorBlock).toContain('sessionId');
-  });
-});
+// ─── Agent queue security ──────────────────────────────────────────────────
+// Original block validated the chat queue's filesystem permissions and
+// schema validator on sidebar-agent.ts. Both are gone (chat queue ripped
+// in favor of the interactive Terminal PTY). The remaining 0o700 / 0o600
+// invariants on extension queue paths are now covered by terminal-agent
+// integration tests and the sidebar-tabs regression suite.
 
 // ─── Shared source reads for CSS validator tests ────────────────────────────
 const CDP_SRC = fs.readFileSync(path.join(import.meta.dir, '../src/cdp-inspector.ts'), 'utf-8');
@@ -325,30 +290,13 @@ describe('Round-2 finding 2: snapshot.ts annotated path uses realpathSync', () =
   });
 });
 
-// ─── Round-2 finding 3: stateFile path traversal check in isValidQueueEntry ─
-
-describe('Round-2 finding 3: isValidQueueEntry checks stateFile for path traversal', () => {
-  it('isValidQueueEntry checks stateFile for .. traversal sequences', () => {
-    const fn = extractFunction(AGENT_SRC, 'isValidQueueEntry');
-    expect(fn).toBeTruthy();
-    // Must check stateFile for '..' — find the stateFile block and look for '..' string
-    const stateFileIdx = fn.indexOf('stateFile');
-    expect(stateFileIdx).toBeGreaterThan(-1);
-    const stateFileBlock = fn.slice(stateFileIdx, stateFileIdx + 200);
-    // The block must contain a check for the two-dot traversal sequence
-    expect(stateFileBlock).toMatch(/'\.\.'|"\.\."|\.\./);
-  });
-
-  it('isValidQueueEntry stateFile block contains both type check and traversal check', () => {
-    const fn = extractFunction(AGENT_SRC, 'isValidQueueEntry');
-    const stateFileIdx = fn.indexOf('stateFile');
-    const stateBlock = fn.slice(stateFileIdx, stateFileIdx + 300);
-    // Must contain the type check
-    expect(stateBlock).toContain('typeof obj.stateFile');
-    // Must contain the includes('..') call
-    expect(stateBlock).toMatch(/includes\s*\(\s*['"]\.\.['"]\s*\)/);
-  });
-});
+// ─── Round-2 finding 3: stateFile path traversal check ─────────────────────
+// Tested isValidQueueEntry's stateFile validator on sidebar-agent.ts. Both
+// the function and the file are gone (chat queue ripped). The terminal-agent
+// PTY path no longer takes a queue entry — it accepts WebSocket frames
+// gated on Origin + session token, no on-disk queue to traverse. Path
+// traversal in browse-server's tab-state writer is covered by
+// browse/test/terminal-agent.test.ts (handleTabState atomic-write tests).
 
 // ─── Task 5: /health endpoint must not expose sensitive fields ───────────────
 
@@ -421,24 +369,11 @@ describe('cookie-import domain validation', () => {
   });
 });
 
-// ─── Task 9: loadSession ID validation ──────────────────────────────────────
-
-describe('loadSession session ID validation', () => {
-  it('loadSession validates session ID format before using it in a path', () => {
-    const fn = extractFunction(SERVER_SRC, 'loadSession');
-    expect(fn).toBeTruthy();
-    // Must contain the alphanumeric regex guard
-    expect(fn).toMatch(/\[a-zA-Z0-9_-\]/);
-  });
-
-  it('loadSession returns null on invalid session ID', () => {
-    const fn = extractFunction(SERVER_SRC, 'loadSession');
-    const block = fn.slice(fn.indexOf('activeData.id'));
-    // Must warn and return null
-    expect(block).toContain('Invalid session ID');
-    expect(block).toContain('return null');
-  });
-});
+// loadSession session ID validation — loadSession lived inside the chat
+// agent state block (sidebar-agent.ts session persistence). Chat queue
+// is gone, so the function and its session-ID validator are gone. The
+// terminal-agent's PTY session has no on-disk session ID — the WebSocket
+// holds the session for its lifetime.
 
 // ─── Task 10: Responsive screenshot path validation ──────────────────────────
 
@@ -520,40 +455,11 @@ describe('Task 11: state load cookie validation', () => {
   });
 });
 
-// ─── Task 12: Validate activeTabUrl before syncActiveTabByUrl ─────────────────
-
-describe('Task 12: activeTabUrl sanitized before syncActiveTabByUrl', () => {
-  it('sidebar-tabs route sanitizes activeUrl before syncActiveTabByUrl', () => {
-    const block = sliceBetween(SERVER_SRC, "url.pathname === '/sidebar-tabs'", "url.pathname === '/sidebar-tabs/switch'");
-    expect(block).toContain('sanitizeExtensionUrl');
-    expect(block).toContain('syncActiveTabByUrl');
-    const sanitizeIdx = block.indexOf('sanitizeExtensionUrl');
-    const syncIdx = block.indexOf('syncActiveTabByUrl');
-    expect(sanitizeIdx).toBeLessThan(syncIdx);
-  });
-
-  it('sidebar-command route sanitizes extensionUrl before syncActiveTabByUrl', () => {
-    const block = sliceBetween(SERVER_SRC, "url.pathname === '/sidebar-command'", "url.pathname === '/sidebar-chat/clear'");
-    expect(block).toContain('sanitizeExtensionUrl');
-    expect(block).toContain('syncActiveTabByUrl');
-    const sanitizeIdx = block.indexOf('sanitizeExtensionUrl');
-    const syncIdx = block.indexOf('syncActiveTabByUrl');
-    expect(sanitizeIdx).toBeLessThan(syncIdx);
-  });
-
-  it('direct unsanitized syncActiveTabByUrl calls are not present (all calls go through sanitize)', () => {
-    // Every syncActiveTabByUrl call should be preceded by sanitizeExtensionUrl in the nearby code
-    // We verify there are no direct browserManager.syncActiveTabByUrl(activeUrl) or
-    // browserManager.syncActiveTabByUrl(extensionUrl) patterns (without sanitize wrapper)
-    const block1 = sliceBetween(SERVER_SRC, "url.pathname === '/sidebar-tabs'", "url.pathname === '/sidebar-tabs/switch'");
-    // Should NOT contain direct call with raw activeUrl
-    expect(block1).not.toMatch(/syncActiveTabByUrl\(activeUrl\)/);
-
-    const block2 = sliceBetween(SERVER_SRC, "url.pathname === '/sidebar-command'", "url.pathname === '/sidebar-chat/clear'");
-    // Should NOT contain direct call with raw extensionUrl
-    expect(block2).not.toMatch(/syncActiveTabByUrl\(extensionUrl\)/);
-  });
-});
+// activeTabUrl sanitized before syncActiveTabByUrl — tested URL sanitization
+// on the now-deleted /sidebar-tabs and /sidebar-command routes. The
+// terminal-agent reads tab URLs from the live tabs.json file (atomic write
+// from background.js), and chrome:// / chrome-extension:// pages are
+// filtered server-side in handleTabState — see browse/test/terminal-agent.test.ts.
 
 // ─── Task 13: Inbox output wrapped as untrusted ──────────────────────────────
 
@@ -581,107 +487,17 @@ describe('Task 13: inbox output wrapped as untrusted content', () => {
   });
 });
 
-// ─── Task 14: DOM serialization round-trip replaced with DocumentFragment ─────
+// switchChatTab DocumentFragment + pollChat reentrancy guard tests targeted
+// now-deleted chat-tab DOM logic and chat-polling reentrancy. Both are gone
+// (Terminal pane is the sole sidebar surface; xterm.js owns its own DOM
+// lifecycle, and the WebSocket has no reentrancy hazard).
 
-const SIDEPANEL_SRC = fs.readFileSync(path.join(import.meta.dir, '../../extension/sidepanel.js'), 'utf-8');
-
-describe('Task 14: switchChatTab uses DocumentFragment, not innerHTML round-trip', () => {
-  it('switchChatTab does NOT use innerHTML to restore chat (string-based re-parse removed)', () => {
-    const fn = extractFunction(SIDEPANEL_SRC, 'switchChatTab');
-    expect(fn).toBeTruthy();
-    // Must NOT have the dangerous pattern of assigning chatDomByTab value back to innerHTML
-    expect(fn).not.toMatch(/chatMessages\.innerHTML\s*=\s*chatDomByTab/);
-  });
-
-  it('switchChatTab uses createDocumentFragment to save chat DOM', () => {
-    const fn = extractFunction(SIDEPANEL_SRC, 'switchChatTab');
-    expect(fn).toContain('createDocumentFragment');
-  });
-
-  it('switchChatTab moves nodes via appendChild/firstChild (not innerHTML assignment)', () => {
-    const fn = extractFunction(SIDEPANEL_SRC, 'switchChatTab');
-    // Must use appendChild to restore nodes from fragment
-    expect(fn).toContain('chatMessages.appendChild');
-  });
-
-  it('chatDomByTab comment documents that values are DocumentFragments, not strings', () => {
-    // Check module-level comment on chatDomByTab
-    const commentIdx = SIDEPANEL_SRC.indexOf('chatDomByTab');
-    const commentLine = SIDEPANEL_SRC.slice(commentIdx, commentIdx + 120);
-    expect(commentLine).toMatch(/DocumentFragment|fragment/i);
-  });
-
-  it('welcome screen is built with DOM methods in the else branch (not innerHTML)', () => {
-    const fn = extractFunction(SIDEPANEL_SRC, 'switchChatTab');
-    // The else branch must use createElement, not innerHTML template literal
-    expect(fn).toContain('createElement');
-    // The specific innerHTML template with chat-welcome must be gone
-    expect(fn).not.toMatch(/innerHTML\s*=\s*`[\s\S]*?chat-welcome/);
-  });
-});
-
-// ─── Task 15: pollChat/switchChatTab reentrancy guard ────────────────────────
-
-describe('Task 15: pollChat reentrancy guard and deferred call in switchChatTab', () => {
-  it('pollInProgress guard variable is declared at module scope', () => {
-    // Must be declared before any function definitions (within first 2000 chars)
-    const moduleTop = SIDEPANEL_SRC.slice(0, 2000);
-    expect(moduleTop).toContain('pollInProgress');
-  });
-
-  it('pollChat function checks and sets pollInProgress', () => {
-    const fn = extractFunction(SIDEPANEL_SRC, 'pollChat');
-    expect(fn).toBeTruthy();
-    expect(fn).toContain('pollInProgress');
-  });
-
-  it('pollChat resets pollInProgress in finally block', () => {
-    const fn = extractFunction(SIDEPANEL_SRC, 'pollChat');
-    // The finally block must contain the reset
-    const finallyIdx = fn.indexOf('finally');
-    expect(finallyIdx).toBeGreaterThan(-1);
-    const finallyBlock = fn.slice(finallyIdx, finallyIdx + 60);
-    expect(finallyBlock).toContain('pollInProgress');
-  });
-
-  it('switchChatTab calls pollChat via setTimeout (not directly)', () => {
-    const fn = extractFunction(SIDEPANEL_SRC, 'switchChatTab');
-    // Must use setTimeout to defer pollChat — no direct call at the end
-    expect(fn).toMatch(/setTimeout\s*\(\s*pollChat/);
-    // Must NOT have a bare direct call `pollChat()` at the end (outside setTimeout)
-    // We check that there is no standalone `pollChat()` call (outside setTimeout wrapper)
-    const withoutSetTimeout = fn.replace(/setTimeout\s*\(\s*pollChat[^)]*\)/g, '');
-    expect(withoutSetTimeout).not.toMatch(/\bpollChat\s*\(\s*\)/);
-  });
-});
-
-// ─── Task 16: SIGKILL escalation in sidebar-agent timeout ────────────────────
-
-describe('Task 16: sidebar-agent timeout handler uses SIGTERM→SIGKILL escalation', () => {
-  it('timeout block sends SIGTERM first', () => {
-    // Slice from "Timed out" / setTimeout block to processingTabs.delete
-    const timeoutStart = AGENT_SRC.indexOf("SIDEBAR_AGENT_TIMEOUT");
-    expect(timeoutStart).toBeGreaterThan(-1);
-    const timeoutBlock = AGENT_SRC.slice(timeoutStart, timeoutStart + 600);
-    expect(timeoutBlock).toContain('SIGTERM');
-  });
-
-  it('timeout block escalates to SIGKILL after delay', () => {
-    const timeoutStart = AGENT_SRC.indexOf("SIDEBAR_AGENT_TIMEOUT");
-    const timeoutBlock = AGENT_SRC.slice(timeoutStart, timeoutStart + 600);
-    expect(timeoutBlock).toContain('SIGKILL');
-  });
-
-  it('SIGTERM appears before SIGKILL in timeout block', () => {
-    const timeoutStart = AGENT_SRC.indexOf("SIDEBAR_AGENT_TIMEOUT");
-    const timeoutBlock = AGENT_SRC.slice(timeoutStart, timeoutStart + 600);
-    const sigtermIdx = timeoutBlock.indexOf('SIGTERM');
-    const sigkillIdx = timeoutBlock.indexOf('SIGKILL');
-    expect(sigtermIdx).toBeGreaterThan(-1);
-    expect(sigkillIdx).toBeGreaterThan(-1);
-    expect(sigtermIdx).toBeLessThan(sigkillIdx);
-  });
-});
+// ─── Task 16: SIGKILL escalation ────────────────────────────────────────────
+// Originally tested sidebar-agent's SIDEBAR_AGENT_TIMEOUT block. The chat
+// queue and its watchdog are gone. terminal-agent.ts disposes claude with
+// the same SIGINT-then-SIGKILL-after-3s pattern; that's covered by
+// browse/test/terminal-agent.test.ts ("cleanup escalates SIGINT to SIGKILL
+// after 3s on close").
 
 // ─── Task 17: viewport and wait bounds clamping ──────────────────────────────
 

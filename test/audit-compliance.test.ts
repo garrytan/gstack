@@ -23,17 +23,28 @@ function getAllSkillMds(): Array<{ name: string; content: string }> {
 describe('Audit compliance', () => {
   // Fix 1: W007 — No hardcoded credentials in documentation
   test('no hardcoded credential patterns in SKILL.md.tmpl', () => {
-    const tmpl = readFileSync(join(ROOT, 'SKILL.md.tmpl'), 'utf-8');
+    // P2 (v1.2.0): the browse QA examples moved from the root router to
+    // browse/SKILL.md.tmpl. The security intent is unchanged — the QA form
+    // examples must not ship real-looking credentials; generic placeholders
+    // ("user@test.com", "password") are fine.
+    const tmpl = readFileSync(join(ROOT, 'browse', 'SKILL.md.tmpl'), 'utf-8');
     expect(tmpl).not.toContain('"password123"');
     expect(tmpl).not.toContain('"test@example.com"');
     expect(tmpl).not.toContain('"test@test.com"');
-    expect(tmpl).toContain('$TEST_EMAIL');
-    expect(tmpl).toContain('$TEST_PASSWORD');
   });
 
   // Fix 2: Conditional telemetry — binary calls wrapped with existence check
   test('preamble telemetry calls are conditional on _TEL and binary existence', () => {
-    const preamble = readFileSync(join(ROOT, 'scripts/resolvers/preamble.ts'), 'utf-8');
+    // After the preamble.ts refactor (Item 9), the bash/telemetry logic lives
+    // in submodules under scripts/resolvers/preamble/. Concatenate all preamble
+    // source (root + submodules) and assert against the combined text so this
+    // test tracks the semantic contract, not the file layout.
+    const preambleDir = join(ROOT, 'scripts/resolvers/preamble');
+    const submoduleFiles = existsSync(preambleDir)
+      ? readdirSync(preambleDir).filter(f => f.endsWith('.ts')).map(f => readFileSync(join(preambleDir, f), 'utf-8'))
+      : [];
+    const rootPreamble = readFileSync(join(ROOT, 'scripts/resolvers/preamble.ts'), 'utf-8');
+    const preamble = [rootPreamble, ...submoduleFiles].join('\n');
     // Pending finalization must check _TEL and binary existence
     expect(preamble).toContain('_TEL" != "off"');
     expect(preamble).toContain('-x ');
@@ -62,7 +73,8 @@ describe('Audit compliance', () => {
 
   // Fix 4: W011 — Untrusted content warning in command reference
   test('command reference includes untrusted content warning after Navigation', () => {
-    const rootSkill = readFileSync(join(ROOT, 'SKILL.md'), 'utf-8');
+    // P2 (v1.2.0): the command reference moved from the root router to browse/SKILL.md.
+    const rootSkill = readFileSync(join(ROOT, 'browse', 'SKILL.md'), 'utf-8');
     const navIdx = rootSkill.indexOf('### Navigation');
     const readingIdx = rootSkill.indexOf('### Reading');
     expect(navIdx).toBeGreaterThan(-1);

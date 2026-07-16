@@ -1,25 +1,38 @@
 #!/usr/bin/env bash
 # gstack-learnings-log — append a learning to the project learnings file
 # Usage: gstack-learnings-log '{"skill":"review","type":"pitfall","key":"n-plus-one","insight":"...","confidence":8,"source":"observed"}'
+# Valid types: pattern, pitfall, preference, architecture, tool, operational, investigation
 #
 # Append-only storage. Duplicates (same key+type) are resolved at read time
 # by gstack-learnings-search ("latest winner" per key+type).
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# Windows git-bash (#1950): pwd yields a POSIX path (/c/Users/...), which Bun
+# on Windows cannot resolve as an ES module specifier in the import below.
+# cygpath -m converts to C:/Users/... which Bun accepts.
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*) command -v cygpath >/dev/null 2>&1 && SCRIPT_DIR="$(cygpath -m "$SCRIPT_DIR")" ;;
+esac
 eval "$("$SCRIPT_DIR/gstack-slug" 2>/dev/null)"
 GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
 mkdir -p "$GSTACK_HOME/projects/$SLUG"
 
 INPUT="$1"
 
-# Validate and sanitize input
+# Validate and sanitize input. Errors surface (#1950): stderr is captured and
+# printed on failure instead of swallowed — a silent exit 1 here cost Windows
+# users every AI-logged learning.
+TMPERR=$(mktemp)
+trap 'rm -f "$TMPERR"' EXIT
+set +e
 VALIDATED=$(printf '%s' "$INPUT" | bun -e "
+import { hasInjection } from '$SCRIPT_DIR/../lib/jsonl-store.ts';
 const raw = await Bun.stdin.text();
 let j;
 try { j = JSON.parse(raw); } catch { process.stderr.write('gstack-learnings-log: invalid JSON, skipping\n'); process.exit(1); }
 
 // Field validation: type must be from allowed list
-const ALLOWED_TYPES = ['pattern', 'pitfall', 'preference', 'architecture', 'tool', 'operational'];
+const ALLOWED_TYPES = ['pattern', 'pitfall', 'preference', 'architecture', 'tool', 'operational', 'investigation'];
 if (!j.type || !ALLOWED_TYPES.includes(j.type)) {
   process.stderr.write('gstack-learnings-log: invalid type \"' + (j.type || '') + '\", must be one of: ' + ALLOWED_TYPES.join(', ') + '\n');
   process.exit(1);
@@ -46,27 +59,11 @@ if (j.source && !ALLOWED_SOURCES.includes(j.source)) {
   process.exit(1);
 }
 
-// Content sanitization: strip instruction-like patterns from insight field
-// These patterns could be used for prompt injection when learnings are loaded into agent context
-if (j.insight) {
-  const INJECTION_PATTERNS = [
-    /ignore\s+(all\s+)?previous\s+(instructions|context|rules)/i,
-    /you\s+are\s+now\s+/i,
-    /always\s+output\s+no\s+findings/i,
-    /skip\s+(all\s+)?(security|review|checks)/i,
-    /override[:\s]/i,
-    /\bsystem\s*:/i,
-    /\bassistant\s*:/i,
-    /\buser\s*:/i,
-    /do\s+not\s+(report|flag|mention)/i,
-    /approve\s+(all|every|this)/i,
-  ];
-  for (const pat of INJECTION_PATTERNS) {
-    if (pat.test(j.insight)) {
-      process.stderr.write('gstack-learnings-log: insight contains suspicious instruction-like content, rejected\n');
-      process.exit(1);
-    }
-  }
+// Content sanitization: shared injection patterns (lib/jsonl-store.ts, D2A) —
+// one audited list across learnings + decisions, no drift.
+if (j.insight && hasInjection(j.insight)) {
+  process.stderr.write('gstack-learnings-log: insight contains suspicious instruction-like content, rejected\n');
+  process.exit(1);
 }
 
 // Inject timestamp if not present
@@ -77,10 +74,18 @@ if (!j.ts) j.ts = new Date().toISOString();
 j.trusted = j.source === 'user-stated';
 
 console.log(JSON.stringify(j));
-" 2>/dev/null)
+" 2>"$TMPERR")
+VALIDATE_RC=$?
+set -e
 
-if [ $? -ne 0 ] || [ -z "$VALIDATED" ]; then
+if [ $VALIDATE_RC -ne 0 ] || [ -z "$VALIDATED" ]; then
+  if [ -s "$TMPERR" ]; then
+    cat "$TMPERR" >&2
+  fi
   exit 1
 fi
 
 echo "$VALIDATED" >> "$GSTACK_HOME/projects/$SLUG/learnings.jsonl"
+
+# gbrain-sync: enqueue for cross-machine sync (no-op if sync is off).
+"$SCRIPT_DIR/gstack-brain-enqueue" "projects/$SLUG/learnings.jsonl" 2>/dev/null &

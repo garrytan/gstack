@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# gstack-brain-enqueue — atomically append a path to the GBrain sync queue.
+#
+# Usage:
+#   gstack-brain-enqueue <file-path>
+#
+# Called by writer scripts (gstack-learnings-log, gstack-timeline-log, etc.)
+# after their local write. Fire-and-forget; failures are silent (never blocks
+# the writer). Queue is drained by `gstack-brain-sync --once` invoked from the
+# preamble at skill START and END boundaries.
+#
+# No-op when:
+#   - artifacts_sync_mode is off (the default)
+#   - ~/.gstack/.git doesn't exist (feature not initialized)
+#   - <file-path> matches a line in ~/.gstack/.brain-skip.txt
+#
+# Env:
+#   GSTACK_HOME — override ~/.gstack state directory (aligns with writers).
+#                 Tests use GSTACK_HOME=/tmp/test-$$ for isolation.
+#
+# Concurrency: POSIX append is atomic up to PIPE_BUF (~4KB Linux, 512 BSD).
+# Queue lines are ~200 bytes, safe under concurrent callers.
+
+# No `-e` — writer shims rely on this never failing loudly.
+set -uo pipefail
+
+FILE="${1:-}"
+[ -z "$FILE" ] && exit 0
+
+GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
+QUEUE="$GSTACK_HOME/.brain-queue.jsonl"
+SKIP_FILE="$GSTACK_HOME/.brain-skip.txt"
+
+# Fast exits: no git repo, no sync.
+[ ! -d "$GSTACK_HOME/.git" ] && exit 0
+
+# Check sync mode. off → silent no-op.
+SCRIPT_DIR="$(cd "$(dirname "$0")" 2>/dev/null && pwd)"
+MODE=$("$SCRIPT_DIR/gstack-config" get artifacts_sync_mode 2>/dev/null || echo off)
+[ "$MODE" = "off" ] && exit 0
+
+# User-maintained skip list (for secret-scan false positives).
+if [ -f "$SKIP_FILE" ]; then
+  if grep -Fxq "$FILE" "$SKIP_FILE" 2>/dev/null; then
+    exit 0
+  fi
+fi
+
+# JSON-escape the file path (backslash + quotes only; paths shouldn't have other specials).
+ESC_FILE=$(printf '%s' "$FILE" | sed 's/\\/\\\\/g; s/"/\\"/g')
+TS=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "")
+
+printf '{"file":"%s","ts":"%s"}\n' "$ESC_FILE" "$TS" >> "$QUEUE" 2>/dev/null
+
+exit 0

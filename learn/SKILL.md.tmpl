@@ -141,8 +141,8 @@ Show summary statistics about the project's learnings.
 
 ```bash
 eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
-GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
-LEARN_FILE="$GSTACK_HOME/projects/$SLUG/learnings.jsonl"
+eval "$(~/.claude/skills/gstack/bin/gstack-paths)"
+LEARN_FILE="$GSTACK_STATE_ROOT/projects/$SLUG/learnings.jsonl"
 if [ -f "$LEARN_FILE" ]; then
   TOTAL=$(wc -l < "$LEARN_FILE" | tr -d ' ')
   echo "TOTAL: $TOTAL entries"

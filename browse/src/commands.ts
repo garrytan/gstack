@@ -30,7 +30,7 @@ export const WRITE_COMMANDS = new Set([
 ]);
 
 export const META_COMMANDS = new Set([
-  'tabs', 'tab', 'newtab', 'closetab',
+  'tabs', 'tab', 'tab-each', 'newtab', 'closetab',
   'status', 'stop', 'restart',
   'screenshot', 'pdf', 'responsive',
   'chain', 'diff',
@@ -42,6 +42,10 @@ export const META_COMMANDS = new Set([
   'state',
   'frame',
   'ux-audit',
+  'domain-skill',
+  'skill',
+  'cdp',
+  'memory',
 ]);
 
 export const ALL_COMMANDS = new Set([...READ_COMMANDS, ...WRITE_COMMANDS, ...META_COMMANDS]);
@@ -52,6 +56,27 @@ export const PAGE_CONTENT_COMMANDS = new Set([
   'console', 'dialog',
   'media', 'data',
   'ux-audit',
+  // snapshot emits aria tree with attacker-controlled aria-label strings.
+  // The sidebar's system prompt pushes agents to run `$B snapshot` as the
+  // primary read path, so unwrapped snapshot output is the biggest ingress
+  // for indirect prompt injection. Envelope it like every other read.
+  'snapshot',
+]);
+
+/**
+ * Subset of PAGE_CONTENT_COMMANDS whose output is derived from the
+ * live page DOM. These channels can carry hidden elements or
+ * ARIA-injection payloads that the centralized envelope wrap alone
+ * does not neutralize, so the scoped-token pipeline runs
+ * `markHiddenElements` on the page before the read and surfaces any
+ * hits as CONTENT WARNINGS to the LLM.
+ *
+ * `console`, `dialog` intentionally excluded — they read separate
+ * runtime state (console capture, dialog events), not the DOM tree.
+ */
+export const DOM_CONTENT_COMMANDS = new Set([
+  'text', 'html', 'links', 'forms', 'accessibility', 'attrs',
+  'media', 'data', 'ux-audit',
 ]);
 
 /** Wrap output from untrusted-content commands with trust boundary markers */
@@ -65,8 +90,9 @@ export function wrapUntrustedContent(result: string, url: string): string {
 
 export const COMMAND_DESCRIPTIONS: Record<string, { category: string; description: string; usage?: string }> = {
   // Navigation
+  'memory':  { category: 'Server', description: 'Snapshot Bun heap + per-tab JS heap + Chromium process tree + bounded buffer sizes. JSON output with --json.', usage: 'memory [--json]' },
   'goto':    { category: 'Navigation', description: 'Navigate to URL (http://, https://, or file:// scoped to cwd/TEMP_DIR)', usage: 'goto <url>' },
-  'load-html': { category: 'Navigation', description: 'Load a local HTML file via setContent (no HTTP server needed). For self-contained HTML (inline CSS/JS, data URIs). For HTML on disk, goto file://... is often cleaner.', usage: 'load-html <file> [--wait-until load|domcontentloaded|networkidle]' },
+  'load-html': { category: 'Navigation', description: 'Load HTML via setContent. Accepts a file path under safe-dirs (validated), OR --from-file <payload.json> with {"html":"...","waitUntil":"..."} for large inline HTML (Windows argv safe).', usage: 'load-html <file> [--wait-until load|domcontentloaded|networkidle] [--tab-id <N>]  |  load-html --from-file <payload.json> [--tab-id <N>]' },
   'back':    { category: 'Navigation', description: 'History back' },
   'forward': { category: 'Navigation', description: 'History forward' },
   'reload':  { category: 'Navigation', description: 'Reload page' },
@@ -80,16 +106,16 @@ export const COMMAND_DESCRIPTIONS: Record<string, { category: string; descriptio
   'media':   { category: 'Reading', description: 'All media elements (images, videos, audio) with URLs, dimensions, types', usage: 'media [--images|--videos|--audio] [selector]' },
   'data':    { category: 'Reading', description: 'Structured data: JSON-LD, Open Graph, Twitter Cards, meta tags', usage: 'data [--jsonld|--og|--meta|--twitter]' },
   // Inspection
-  'js':      { category: 'Inspection', description: 'Run JavaScript expression and return result as string', usage: 'js <expr>' },
-  'eval':    { category: 'Inspection', description: 'Run JavaScript from file and return result as string (path must be under /tmp or cwd)', usage: 'eval <file>' },
+  'js':      { category: 'Inspection', description: 'Run inline JavaScript expression in the page context and return result as string. Same JS sandbox as eval; the only difference is js takes an inline expr while eval reads from a file. With --out <file>, the result is written to disk instead of returned (a base64 data URL is decoded to raw bytes unless --raw is given) — ideal for rasterizing local renders to PNG without serializing megabytes back through the CLI. --out makes the invocation a WRITE (needs write scope, never allowed over the tunnel).', usage: 'js <expr> [--out <file>] [--raw]' },
+  'eval':    { category: 'Inspection', description: 'Run JavaScript from a file in the page context and return result as string. Path must resolve under /tmp or cwd (no traversal). Use eval for multi-line scripts; use js for one-liners. With --out <file>, the result is written to disk (base64 data URL decoded to bytes unless --raw); --out makes the invocation a WRITE (needs write scope, never allowed over the tunnel).', usage: 'eval <file> [--out <file>] [--raw]' },
   'css':     { category: 'Inspection', description: 'Computed CSS value', usage: 'css <sel> <prop>' },
   'attrs':   { category: 'Inspection', description: 'Element attributes as JSON', usage: 'attrs <sel|@ref>' },
-  'is':      { category: 'Inspection', description: 'State check (visible/hidden/enabled/disabled/checked/editable/focused)', usage: 'is <prop> <sel>' },
+  'is':      { category: 'Inspection', description: 'State check on element. Valid <prop> values: visible, hidden, enabled, disabled, checked, editable, focused (case-sensitive). <sel> accepts a CSS selector OR an @ref token from a prior snapshot (e.g. @e3, @c1) — refs are interchangeable with selectors anywhere a selector is expected.', usage: 'is <prop> <sel|@ref>' },
   'console': { category: 'Inspection', description: 'Console messages (--errors filters to error/warning)', usage: 'console [--clear|--errors]' },
   'network': { category: 'Inspection', description: 'Network requests', usage: 'network [--clear]' },
   'dialog':  { category: 'Inspection', description: 'Dialog messages', usage: 'dialog [--clear]' },
   'cookies': { category: 'Inspection', description: 'All cookies as JSON' },
-  'storage': { category: 'Inspection', description: 'Read all localStorage + sessionStorage as JSON, or set <key> <value> to write localStorage', usage: 'storage [set k v]' },
+  'storage': { category: 'Inspection', description: 'Read both localStorage and sessionStorage as JSON. With "set <key> <value>", write to localStorage only (sessionStorage is read-only via this command — set it with `js sessionStorage.setItem(...)`).', usage: 'storage  |  storage set <key> <value>' },
   'perf':    { category: 'Inspection', description: 'Page load timings' },
   // Interaction
   'click':   { category: 'Interaction', description: 'Click element', usage: 'click <sel>' },
@@ -97,8 +123,8 @@ export const COMMAND_DESCRIPTIONS: Record<string, { category: string; descriptio
   'select':  { category: 'Interaction', description: 'Select dropdown option by value, label, or visible text', usage: 'select <sel> <val>' },
   'hover':   { category: 'Interaction', description: 'Hover element', usage: 'hover <sel>' },
   'type':    { category: 'Interaction', description: 'Type into focused element', usage: 'type <text>' },
-  'press':   { category: 'Interaction', description: 'Press key — Enter, Tab, Escape, ArrowUp/Down/Left/Right, Backspace, Delete, Home, End, PageUp, PageDown, or modifiers like Shift+Enter', usage: 'press <key>' },
-  'scroll':  { category: 'Interaction', description: 'Scroll element into view, or scroll to page bottom if no selector', usage: 'scroll [sel]' },
+  'press':   { category: 'Interaction', description: 'Press a Playwright keyboard key against the focused element. Names are case-sensitive: Enter, Tab, Escape, ArrowUp/Down/Left/Right, Backspace, Delete, Home, End, PageUp, PageDown. Modifiers combine with +: Shift+Enter, Control+A, Meta+K. Single printable chars (a, A, 1) work too. Full key list: https://playwright.dev/docs/api/class-keyboard#keyboard-press', usage: 'press <key>' },
+  'scroll':  { category: 'Interaction', description: 'With a selector, smooth-scrolls the element into view. Without a selector, jumps to page bottom. No --by/--to amount option; for pixel-precise scrolling use `js window.scrollTo(0, N)`.', usage: 'scroll [sel|@ref]' },
   'wait':    { category: 'Interaction', description: 'Wait for element, network idle, or page load (timeout: 15s)', usage: 'wait <sel|--networkidle|--load>' },
   'upload':  { category: 'Interaction', description: 'Upload file(s)', usage: 'upload <sel> <file> [file2...]' },
   'viewport':{ category: 'Interaction', description: 'Set viewport size and optional deviceScaleFactor (1-3, for retina screenshots). --scale requires a context rebuild.', usage: 'viewport [<WxH>] [--scale <n>]' },
@@ -110,26 +136,27 @@ export const COMMAND_DESCRIPTIONS: Record<string, { category: string; descriptio
   'dialog-accept': { category: 'Interaction', description: 'Auto-accept next alert/confirm/prompt. Optional text is sent as the prompt response', usage: 'dialog-accept [text]' },
   'dialog-dismiss': { category: 'Interaction', description: 'Auto-dismiss next dialog' },
   // Data extraction
-  'download': { category: 'Extraction', description: 'Download URL or media element to disk using browser cookies', usage: 'download <url|@ref> [path] [--base64]' },
+  'download': { category: 'Extraction', description: 'Download URL or media element to disk using browser cookies. Use --navigate for URLs that trigger browser downloads (CDN redirects, Content-Disposition, anti-bot protected sites)', usage: 'download <url|@ref> [path] [--base64] [--navigate]' },
   'scrape':   { category: 'Extraction', description: 'Bulk download all media from page. Writes manifest.json', usage: 'scrape <images|videos|media> [--selector sel] [--dir path] [--limit N]' },
   'archive':  { category: 'Extraction', description: 'Save complete page as MHTML via CDP', usage: 'archive [path]' },
   // Visual
   'screenshot': { category: 'Visual', description: 'Save screenshot. --selector targets a specific element (explicit flag form). Positional selectors starting with ./#/@/[ still work.', usage: 'screenshot [--selector <css>] [--viewport] [--clip x,y,w,h] [--base64] [selector|@ref] [path]' },
-  'pdf':     { category: 'Visual', description: 'Save as PDF', usage: 'pdf [path]' },
+  'pdf':     { category: 'Visual', description: 'Save the current page as PDF. Supports page layout (--format, --width, --height, --margins, --margin-*), structure (--toc waits for Paged.js), branding (--header-template, --footer-template, --page-numbers), accessibility (--tagged, --outline), and --from-file <payload.json> for large payloads. Use --tab-id <N> to target a specific tab.', usage: 'pdf [path] [--format letter|a4|legal] [--width <dim> --height <dim>] [--margins <dim>] [--margin-top <dim> --margin-right <dim> --margin-bottom <dim> --margin-left <dim>] [--header-template <html>] [--footer-template <html>] [--page-numbers] [--tagged] [--outline] [--print-background] [--prefer-css-page-size] [--toc] [--tab-id <N>]  |  pdf --from-file <payload.json> [--tab-id <N>]' },
   'responsive': { category: 'Visual', description: 'Screenshots at mobile (375x812), tablet (768x1024), desktop (1280x720). Saves as {prefix}-mobile.png etc.', usage: 'responsive [prefix]' },
   'diff':    { category: 'Visual', description: 'Text diff between pages', usage: 'diff <url1> <url2>' },
   // Tabs
   'tabs':    { category: 'Tabs', description: 'List open tabs' },
   'tab':     { category: 'Tabs', description: 'Switch to tab', usage: 'tab <id>' },
-  'newtab':  { category: 'Tabs', description: 'Open new tab', usage: 'newtab [url]' },
+  'newtab':  { category: 'Tabs', description: 'Open new tab. With --json, returns {"tabId":N,"url":...} for programmatic use (make-pdf).', usage: 'newtab [url] [--json]' },
   'closetab':{ category: 'Tabs', description: 'Close tab', usage: 'closetab [id]' },
+  'tab-each':{ category: 'Tabs', description: 'Run a command on every open tab. Returns JSON with per-tab results.', usage: 'tab-each <command> [args...]' },
   // Server
   'status':  { category: 'Server', description: 'Health check' },
   'stop':    { category: 'Server', description: 'Shutdown server' },
   'restart': { category: 'Server', description: 'Restart server' },
   // Meta
   'snapshot':{ category: 'Snapshot', description: 'Accessibility tree with @e refs for element selection. Flags: -i interactive only, -c compact, -d N depth limit, -s sel scope, -D diff vs previous, -a annotated screenshot, -o path output, -C cursor-interactive @c refs', usage: 'snapshot [flags]' },
-  'chain':   { category: 'Meta', description: 'Run commands from JSON stdin. Format: [["cmd","arg1",...],...]' },
+  'chain':   { category: 'Meta', description: 'Run a sequence of commands from JSON on stdin. One JSON array of arrays, each inner array is [cmd, ...args]. Output is one JSON result per command. Pipe a JSON array (e.g. `[["goto","https://example.com"],["text","h1"]]`) to `$B chain` and it runs the goto then the text command in order. Stops at the first error.', usage: 'chain  (JSON via stdin)' },
   // Handoff
   'handoff': { category: 'Server', description: 'Open visible Chrome at current page for user takeover', usage: 'handoff [message]' },
   'resume':  { category: 'Server', description: 'Re-snapshot after user takeover, return control to AI', usage: 'resume' },
@@ -152,6 +179,12 @@ export const COMMAND_DESCRIPTIONS: Record<string, { category: string; descriptio
   'prettyscreenshot': { category: 'Visual', description: 'Clean screenshot with optional cleanup, scroll positioning, and element hiding', usage: 'prettyscreenshot [--scroll-to sel|text] [--cleanup] [--hide sel...] [--width px] [path]' },
   // UX Audit
   'ux-audit': { category: 'Inspection', description: 'Extract page structure for UX behavioral analysis — site ID, nav, headings, text blocks, interactive elements. Returns JSON for agent interpretation.', usage: 'ux-audit' },
+  // Domain skills (per-site notes the agent writes for itself)
+  'domain-skill': { category: 'Meta', description: 'Per-site notes the agent writes for itself. Host is derived from the active tab. Lifecycle: `save` adds a quarantined note → after N=3 successful uses without the prompt-injection classifier flagging it, the note auto-promotes to "active" → `promote-to-global` lifts it to the global tier (machine-wide, all projects). The classifier flag is set automatically by the L4 prompt-injection scan; agents do not set it manually. Use `list` / `show` to inspect, `edit` to revise, `rollback` to demote, `rm` to tombstone.', usage: 'domain-skill save|list|show|edit|promote-to-global|rollback|rm <host?>' },
+  // Browser-skills (hand-written or generated Playwright scripts the runtime spawns)
+  'skill':        { category: 'Meta', description: 'Run a browser-skill: deterministic Playwright script that drives the daemon over loopback HTTP. 3-tier lookup (project > global > bundled). Spawned scripts get a per-spawn scoped token (read+write only) — never the daemon root token.', usage: 'skill list|show|run|test|rm <name?> [--arg k=v]... [--timeout=Ns]' },
+  // CDP escape hatch (deny-default; see browse/src/cdp-allowlist.ts)
+  'cdp':          { category: 'Inspection', description: 'Raw Chrome DevTools Protocol method dispatch. Deny-default: only methods enumerated in `browse/src/cdp-allowlist.ts` (CDP_ALLOWLIST const) are reachable; any other method 403s. Each allowlist entry declares scope (tab vs browser) and output (trusted vs untrusted) — untrusted methods (data-exfil-shaped, e.g. Network.getResponseBody) get UNTRUSTED-envelope wrapped output. To discover allowed methods: read `browse/src/cdp-allowlist.ts`. Example: `$B cdp Page.getLayoutMetrics`.', usage: 'cdp <Domain.method> [json-params]' },
 };
 
 // Load-time validation: descriptions must cover exactly the command sets

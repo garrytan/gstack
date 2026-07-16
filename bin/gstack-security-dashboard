@@ -1,0 +1,162 @@
+#!/usr/bin/env bash
+# gstack-security-dashboard — community prompt-injection attack stats
+#
+# Reads the `security` section of the community-pulse edge function response
+# (supabase/functions/community-pulse/index.ts). Shows aggregated attack
+# data across all gstack users on telemetry=community.
+#
+# Call signature:
+#   gstack-security-dashboard           # human-readable dashboard
+#   gstack-security-dashboard --json    # machine-readable (CI / scripts)
+#
+# Env overrides (for testing):
+#   GSTACK_DIR                    — override auto-detected gstack root
+#   GSTACK_SUPABASE_URL           — override Supabase project URL
+#   GSTACK_SUPABASE_ANON_KEY     — override Supabase anon key
+set -uo pipefail
+
+GSTACK_DIR="${GSTACK_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
+
+# Source Supabase config
+if [ -z "${GSTACK_SUPABASE_URL:-}" ] && [ -f "$GSTACK_DIR/supabase/config.sh" ]; then
+  . "$GSTACK_DIR/supabase/config.sh"
+fi
+SUPABASE_URL="${GSTACK_SUPABASE_URL:-}"
+ANON_KEY="${GSTACK_SUPABASE_ANON_KEY:-}"
+
+JSON_MODE=0
+[ "${1:-}" = "--json" ] && JSON_MODE=1
+
+if [ -z "$SUPABASE_URL" ] || [ -z "$ANON_KEY" ]; then
+  if [ "$JSON_MODE" = "1" ]; then
+    echo '{"error":"supabase_not_configured"}'
+    exit 0
+  fi
+  echo "gstack security dashboard"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  echo "Supabase not configured. Local log at ~/.gstack/security/attempts.jsonl"
+  echo "still captures every attempt — tail it with:"
+  echo "  cat ~/.gstack/security/attempts.jsonl | tail -20"
+  exit 0
+fi
+
+# Fetch with the HTTP status captured (#1947). A backend failure must read
+# as "unknown", never as a healthy "0 attacks" — fake zeros on a security
+# surface are indistinguishable from good news.
+TMPBODY="$(mktemp)"
+trap 'rm -f "$TMPBODY"' EXIT
+HTTP_CODE="$(curl -s --max-time 15 -w '%{http_code}' -o "$TMPBODY" \
+  "${SUPABASE_URL}/functions/v1/community-pulse" \
+  -H "apikey: ${ANON_KEY}" \
+  2>/dev/null || true)"
+# curl prints its own 000 before a non-zero exit — a `|| echo` here would
+# double it to "000000" in user-facing output. Normalize to the last 3 chars.
+HTTP_CODE="$(printf '%s' "$HTTP_CODE" | tr -d '[:space:]' | tail -c 3)"
+[ -n "$HTTP_CODE" ] || HTTP_CODE="000"
+DATA="$(cat "$TMPBODY" 2>/dev/null || echo "")"
+
+# Classify the response:
+#   ok      — 200 from the new backend (carries "status":"ok"); figures authoritative
+#   legacy  — 200 with a security section but no marker (pre-#1947 backend);
+#             figures shown but flagged unverified (old backend masked errors as zeros)
+#   unknown — non-200 / network failure / error body / missing section / no jq
+STATE="ok"
+REASON=""
+if [ "$HTTP_CODE" != "200" ] || [ -z "$DATA" ]; then
+  STATE="unknown"; REASON="backend_error"
+elif ! command -v jq >/dev/null 2>&1; then
+  # No lossy-grep fallback: the old regex broke on nested arrays and
+  # under-reported attacks as zero. Without jq the honest answer is unknown.
+  STATE="unknown"; REASON="jq_missing"
+elif ! echo "$DATA" | jq -e '.security' >/dev/null 2>&1; then
+  STATE="unknown"; REASON="backend_error"
+elif [ "$(echo "$DATA" | jq -r '.status // empty' 2>/dev/null)" != "ok" ]; then
+  STATE="legacy"
+fi
+
+if [ "$JSON_MODE" = "1" ]; then
+  case "$STATE" in
+    unknown)
+      echo "{\"security\":null,\"status\":\"unknown\",\"reason\":\"${REASON}\"}"
+      ;;
+    legacy)
+      echo "$DATA" | jq -c '{security: .security, status: "legacy_unverified"}'
+      ;;
+    ok)
+      echo "$DATA" | jq -c '{security: .security, status: "ok", stale: (.stale // false)}'
+      ;;
+  esac
+  exit 0
+fi
+
+# Human-readable dashboard
+echo "gstack security dashboard"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+
+if [ "$STATE" = "unknown" ]; then
+  if [ "$REASON" = "jq_missing" ]; then
+    echo "Attacks detected last 7 days: unknown — install jq for exact figures"
+  else
+    echo "Attacks detected last 7 days: unknown — backend error (HTTP ${HTTP_CODE})"
+  fi
+  echo ""
+  echo "Your local log: ~/.gstack/security/attempts.jsonl"
+  echo "Your telemetry mode: $(${GSTACK_DIR}/bin/gstack-config get telemetry 2>/dev/null || echo unknown)"
+  exit 0
+fi
+
+# jq is guaranteed here (jq-missing classified as unknown above). The old
+# grep chain matched the digit 7 inside "attacks_last_7_days" itself and
+# misreported every count as 7.
+TOTAL="$(echo "$DATA" | jq -r '.security.attacks_last_7_days // 0' 2>/dev/null || echo "0")"
+echo "Attacks detected last 7 days: ${TOTAL}"
+if [ "$STATE" = "legacy" ]; then
+  echo "  (unverified — legacy backend response; deploy the latest community-pulse for verified figures)"
+elif [ "$(echo "$DATA" | jq -r '.stale // false' 2>/dev/null)" = "true" ]; then
+  # The backend serves its last good snapshot when recompute fails — figures
+  # are real but frozen. Don't present them as current.
+  echo "  (stale snapshot — backend recompute failing; figures may be out of date)"
+elif [ "$TOTAL" = "0" ]; then
+  echo "  (No attack attempts reported by the community yet. Good news.)"
+fi
+echo ""
+
+# Array sections — jq is guaranteed past the state gate; the old sed/grep
+# parsing truncated at the first ']' and dropped entries on any nesting
+# (the same bug class as the "every count is 7" TOTAL grep).
+DOMAINS="$(echo "$DATA" | jq -r '.security.top_attack_domains[]? | "\(.domain)\t\(.count)"' 2>/dev/null)"
+if [ -n "$DOMAINS" ]; then
+  echo "Top attacked domains"
+  echo "────────────────────"
+  printf '%s\n' "$DOMAINS" | head -10 | while IFS="$(printf '\t')" read -r DOMAIN COUNT; do
+    [ -n "$DOMAIN" ] && [ -n "$COUNT" ] && printf "  %-40s %s attempts\n" "$DOMAIN" "$COUNT"
+  done
+  echo ""
+fi
+
+# Which layer catches attacks
+LAYERS="$(echo "$DATA" | jq -r '.security.top_attack_layers[]? | "\(.layer)\t\(.count)"' 2>/dev/null)"
+if [ -n "$LAYERS" ]; then
+  echo "Top detection layers"
+  echo "────────────────────"
+  printf '%s\n' "$LAYERS" | while IFS="$(printf '\t')" read -r LAYER COUNT; do
+    [ -n "$LAYER" ] && [ -n "$COUNT" ] && printf "  %-28s %s\n" "$LAYER" "$COUNT"
+  done
+  echo ""
+fi
+
+# Verdict distribution
+VERDICTS="$(echo "$DATA" | jq -r '.security.verdict_distribution[]? | "\(.verdict)\t\(.count)"' 2>/dev/null)"
+if [ -n "$VERDICTS" ]; then
+  echo "Verdict distribution"
+  echo "────────────────────"
+  printf '%s\n' "$VERDICTS" | while IFS="$(printf '\t')" read -r VERDICT COUNT; do
+    [ -n "$VERDICT" ] && [ -n "$COUNT" ] && printf "  %-14s %s\n" "$VERDICT" "$COUNT"
+  done
+  echo ""
+fi
+
+echo "Your local log: ~/.gstack/security/attempts.jsonl"
+echo "Your telemetry mode: $(${GSTACK_DIR}/bin/gstack-config get telemetry 2>/dev/null || echo unknown)"

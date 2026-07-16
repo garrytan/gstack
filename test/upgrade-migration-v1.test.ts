@@ -26,9 +26,13 @@ afterEach(() => {
 });
 
 function run(): { stdout: string; stderr: string; status: number } {
+  // Override HOME too — the migration reads `${HOME}/.claude/skills/gstack/bin/gstack-config`,
+  // and the developer's real config may have `explain_level` set, which the
+  // migration interprets as "user already decided" and short-circuits without
+  // writing the pending-prompt flag (breaking these tests).
   const res = spawnSync('bash', [MIGRATION], {
     encoding: 'utf-8',
-    env: { ...process.env, GSTACK_HOME: tmpHome },
+    env: { ...process.env, GSTACK_HOME: tmpHome, HOME: tmpHome },
   });
   return {
     stdout: (res.stdout ?? '').trim(),

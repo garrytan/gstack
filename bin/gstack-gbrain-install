@@ -1,0 +1,282 @@
+#!/usr/bin/env bash
+# gstack-gbrain-install — install the gbrain CLI on a local Mac.
+#
+# Usage:
+#   gstack-gbrain-install [--install-dir <dir>] [--pinned-commit <sha>] [--dry-run]
+#
+# D5 detect-first: before cloning anywhere, probe likely pre-existing
+# locations (~/git/gbrain and ~/gbrain) and reuse a working clone if one
+# exists. Falls back to a fresh clone of the pinned commit at ~/gbrain
+# (override with GBRAIN_INSTALL_DIR or --install-dir).
+#
+# D19 PATH-shadowing: after `bun link`, compare `gbrain --version` output
+# to the install-dir's package.json version. On mismatch, abort with an
+# actionable error listing every gbrain on PATH. Never "silently fixes"
+# PATH; setup skills should refuse broken environments.
+#
+# Prerequisites (checked before doing anything):
+#   - bun   (install: curl -fsSL https://bun.sh/install | bash)
+#   - git
+#   - network reachability to https://github.com
+#
+# gbrain installs at the latest default-branch HEAD by default — the hard pin
+# was removed in #1744 (it had drifted ~23 versions behind). Pass
+# --pinned-commit <sha> to install a specific commit for reproducibility. A
+# minimum-version floor (MIN_GBRAIN_VERSION) hard-fails the install when the
+# resulting gbrain is too old for gstack's sync integration, and a fast
+# `gbrain doctor` self-test hard-fails a broken install when gbrain is already
+# configured. This keeps the version gate that the pin used to provide without
+# freezing users 23 releases behind.
+#
+# Env:
+#   GBRAIN_INSTALL_DIR — override default install path (~/gbrain)
+#
+# Exit codes:
+#   0 — success (or --dry-run printed the plan)
+#   2 — prerequisite missing or invalid argument
+#   3 — post-install validation failed (PATH shadow, broken binary, etc.)
+set -euo pipefail
+
+# --- defaults ---
+# No version pin by default — install the latest default-branch HEAD (#1744).
+# --pinned-commit <sha> overrides for reproducibility.
+PINNED_COMMIT=""
+PINNED_TAG=""
+# Minimum gbrain version gstack's integration is known to work with. The
+# `sources list --json` wrapped-object shape + federated sources landed by 0.20;
+# older predates the surface gstack drives. Hard-fail below this floor (#1744).
+MIN_GBRAIN_VERSION="0.20.0"
+GBRAIN_REPO_URL="https://github.com/garrytan/gbrain.git"
+DEFAULT_INSTALL_DIR="${GBRAIN_INSTALL_DIR:-$HOME/gbrain}"
+INSTALL_DIR="$DEFAULT_INSTALL_DIR"
+DRY_RUN=false
+VALIDATE_ONLY=false
+
+die() { echo "gstack-gbrain-install: $*" >&2; exit 2; }
+fail() { echo "gstack-gbrain-install: $*" >&2; exit 3; }
+log()  { echo "gstack-gbrain-install: $*"; }
+
+# --- parse args ---
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --install-dir) INSTALL_DIR="$2"; shift 2 ;;
+    --pinned-commit) PINNED_COMMIT="$2"; PINNED_TAG=""; shift 2 ;;
+    --dry-run) DRY_RUN=true; shift ;;
+    --validate-only) VALIDATE_ONLY=true; shift ;;
+    --help|-h) sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) die "unknown flag: $1" ;;
+  esac
+done
+
+# --- prerequisites ---
+check_prereq() {
+  local bin="$1"
+  local hint="$2"
+  if ! command -v "$bin" >/dev/null 2>&1; then
+    fail "required tool '$bin' not found. $hint"
+  fi
+}
+
+if ! $VALIDATE_ONLY; then
+  check_prereq bun "Install: curl -fsSL https://bun.sh/install | bash"
+  check_prereq git "Install: xcode-select --install (macOS) or your package manager"
+
+  # GitHub reachability — fail fast if offline rather than hanging `git clone`.
+  # --max-time 10, --head (no body), quiet. Status code 200-4xx means we reached
+  # the server (even 404 is reachability proof).
+  if ! curl -s --head --max-time 10 https://github.com >/dev/null 2>&1; then
+    fail "cannot reach https://github.com. Check your network and try again."
+  fi
+fi
+
+# --- D5 detect-first: probe common locations before cloning fresh ---
+# Accept any directory that looks like a gbrain clone: has package.json
+# with name "gbrain" and a `bin.gbrain` entry. Don't accept version mismatches
+# here — we'll let bun link run and then D19-validate.
+is_valid_clone() {
+  local dir="$1"
+  [ -d "$dir" ] || return 1
+  [ -f "$dir/package.json" ] || return 1
+  local name
+  name=$(jq -r '.name // empty' "$dir/package.json" 2>/dev/null || true)
+  [ "$name" = "gbrain" ] || return 1
+  local bin
+  bin=$(jq -r '.bin.gbrain // empty' "$dir/package.json" 2>/dev/null || true)
+  [ -n "$bin" ] || return 1
+  return 0
+}
+
+DETECTED_CLONE=""
+if ! $VALIDATE_ONLY; then
+  for candidate in "$HOME/git/gbrain" "$HOME/gbrain" "$INSTALL_DIR"; do
+    if is_valid_clone "$candidate"; then
+      DETECTED_CLONE="$candidate"
+      break
+    fi
+  done
+fi
+
+if $VALIDATE_ONLY; then
+  log "validate-only mode: skipping detect + clone + install + link"
+elif [ -n "$DETECTED_CLONE" ]; then
+  log "detected existing gbrain clone at $DETECTED_CLONE — reusing"
+  INSTALL_DIR="$DETECTED_CLONE"
+else
+  # Fresh clone path.
+  if $DRY_RUN; then
+    log "DRY RUN: would clone $GBRAIN_REPO_URL ${PINNED_COMMIT:+@ $PINNED_COMMIT }→ $INSTALL_DIR (latest HEAD unless --pinned-commit)"
+    exit 0
+  fi
+  if [ -d "$INSTALL_DIR" ]; then
+    fail "install dir $INSTALL_DIR exists but is not a valid gbrain clone. Remove it or pass --install-dir <other>."
+  fi
+  log "cloning $GBRAIN_REPO_URL → $INSTALL_DIR"
+  git clone --quiet "$GBRAIN_REPO_URL" "$INSTALL_DIR"
+  if [ -n "$PINNED_COMMIT" ]; then
+    ( cd "$INSTALL_DIR" && git checkout --quiet "$PINNED_COMMIT" )
+    log "checked out pinned commit $PINNED_COMMIT${PINNED_TAG:+ ($PINNED_TAG)}"
+  else
+    log "installed latest gbrain (default-branch HEAD)"
+  fi
+fi
+
+if $DRY_RUN; then
+  log "DRY RUN: would run bun install + bun link in $INSTALL_DIR"
+  exit 0
+fi
+
+# --- install + link ---
+# On Windows MSYS/Cygwin shells, bun's postinstall scripts (notably gbrain's
+# native-bindings setup) fail to parse path arguments correctly and abort
+# `bun install` with a non-zero exit. The package itself installs fine
+# without scripts, so detect Windows and pass --ignore-scripts there. The
+# `bun link` step below is unaffected.
+IS_WINDOWS=0
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*|Windows_NT) IS_WINDOWS=1 ;;
+esac
+
+if ! $VALIDATE_ONLY; then
+  if [ "$IS_WINDOWS" -eq 1 ]; then
+    log "running bun install --ignore-scripts in $INSTALL_DIR (Windows shell detected)"
+    ( cd "$INSTALL_DIR" && bun install --silent --ignore-scripts )
+  else
+    log "running bun install in $INSTALL_DIR"
+    ( cd "$INSTALL_DIR" && bun install --silent )
+  fi
+  log "running bun link in $INSTALL_DIR"
+  ( cd "$INSTALL_DIR" && bun link --silent )
+fi
+
+# --- D19 PATH-shadowing validation ---
+# Read the version from the install-dir's package.json; compare to
+# `gbrain --version`. If they disagree, PATH is returning a DIFFERENT
+# gbrain than the one we just linked. Fail hard with remediation.
+expected_version=$(jq -r '.version // empty' "$INSTALL_DIR/package.json" 2>/dev/null || true)
+if [ -z "$expected_version" ]; then
+  fail "cannot read version from $INSTALL_DIR/package.json (install may be broken)"
+fi
+
+if ! command -v gbrain >/dev/null 2>&1; then
+  fail "bun link completed but 'gbrain' is not on PATH. Ensure ~/.bun/bin is in your PATH."
+fi
+
+actual_version=$(gbrain --version 2>/dev/null | head -1 | awk '{print $NF}' | tr -d '[:space:]' || true)
+if [ -z "$actual_version" ]; then
+  fail "gbrain is on PATH but 'gbrain --version' produced no output — the binary may be broken."
+fi
+
+# Tolerate a leading "v" (gbrain may print either "0.18.2" or "v0.18.2").
+expected_norm="${expected_version#v}"
+actual_norm="${actual_version#v}"
+
+if [ "$actual_norm" != "$expected_norm" ]; then
+  echo "" >&2
+  echo "gstack-gbrain-install: PATH SHADOWING DETECTED" >&2
+  echo "" >&2
+  echo "  We just linked gbrain $expected_version from $INSTALL_DIR," >&2
+  echo "  but PATH is returning gbrain $actual_version." >&2
+  echo "" >&2
+  echo "  All gbrain binaries on PATH:" >&2
+  type -a gbrain 2>&1 | sed 's/^/    /' >&2 || true
+  echo "" >&2
+  echo "  Fix one of the following, then re-run /setup-gbrain:" >&2
+  echo "    a) rm the shadowing binary: rm \$(which gbrain)" >&2
+  echo "    b) prepend ~/.bun/bin to PATH in your shell rc" >&2
+  echo "    c) point GBRAIN_INSTALL_DIR at the shadowing binary's install dir" >&2
+  echo "" >&2
+  exit 3
+fi
+
+log "installed gbrain $actual_version from $INSTALL_DIR"
+
+# --- minimum-version floor (#1744) ---
+# Unpinning means new installs track gbrain HEAD. Hard-fail if the resulting
+# version is below the floor gstack's sync integration needs — same exit-3 posture
+# as the PATH-shadow / version-mismatch failures above. A warning here is exactly
+# how the data-loss class slipped through, so this gate fails closed.
+version_lt() {
+  # 0 (true) when $1 < $2 by version sort; equal versions are NOT less-than.
+  [ "$1" = "$2" ] && return 1
+  [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -1)" = "$1" ]
+}
+if version_lt "$actual_norm" "$MIN_GBRAIN_VERSION"; then
+  echo "" >&2
+  echo "gstack-gbrain-install: gbrain $actual_version is below the minimum gstack-tested version ($MIN_GBRAIN_VERSION)." >&2
+  echo "  gstack's sync integration needs the v0.20+ source/list surface." >&2
+  echo "  Fix: update the gbrain clone at $INSTALL_DIR to a newer release (git pull), then" >&2
+  echo "  re-run /setup-gbrain. Or pass --pinned-commit <sha> to install a specific newer commit." >&2
+  echo "" >&2
+  exit 3
+fi
+
+# --- functional self-test when gbrain is already configured (#1744) ---
+# When a brain config exists (re-install / detected clone), run a fast doctor as
+# a hard gate so a broken gbrain is caught at setup, not at data-loss time.
+# Pre-init installs skip this (config not written yet); the full
+# `/sync-gbrain --dry-run` self-test runs from /setup-gbrain after `gbrain init`.
+_GBRAIN_HOME_CHECK="${GBRAIN_HOME:-$HOME/.gbrain}"
+if [ -f "$_GBRAIN_HOME_CHECK/config.json" ]; then
+  if ! gbrain doctor --fast >/dev/null 2>&1; then
+    echo "" >&2
+    echo "gstack-gbrain-install: gbrain $actual_version installed but 'gbrain doctor --fast' failed." >&2
+    echo "  Refusing to leave a broken gbrain in place. Run 'gbrain doctor' to see what's wrong," >&2
+    echo "  fix it, then re-run /setup-gbrain." >&2
+    echo "" >&2
+    exit 3
+  fi
+  log "gbrain doctor --fast passed"
+fi
+
+# v1.40.0.0 post-install validation (T6 / codex review #19): --ignore-scripts
+# may skip artifacts gbrain needs at runtime, especially on Windows
+# MSYS/MINGW where we DID pass --ignore-scripts. `gbrain --version` above
+# already confirmed the binary runs; this second probe checks that the
+# subcommand surface is reachable (`sources` is the entry point the sync
+# stage hits first). If the probe fails, we warn but don't exit non-zero —
+# the user may still be able to use other commands.
+if ! gbrain sources --help >/dev/null 2>&1; then
+  echo "" >&2
+  echo "gstack-gbrain-install: WARNING — gbrain installed but 'gbrain sources --help' did not exit 0." >&2
+  if [ "$IS_WINDOWS" -eq 1 ]; then
+    echo "  Windows shells skip bun postinstall scripts; some gbrain features may need native build tools." >&2
+    echo "  If /sync-gbrain fails to find subcommands, install gbrain from a non-MSYS shell," >&2
+    echo "  or run: cd $INSTALL_DIR && bun install   (without --ignore-scripts)" >&2
+  else
+    echo "  This may be a transient gbrain CLI issue or a missing native dependency." >&2
+    echo "  If /sync-gbrain fails, re-run: cd $INSTALL_DIR && bun install" >&2
+  fi
+  echo "" >&2
+fi
+
+echo ""
+if [ -n "${VOYAGE_API_KEY:-}" ]; then
+  echo "Next: gbrain init --pglite --embedding-model voyage:voyage-code-3 --embedding-dimensions 1024"
+  echo "      (or run /setup-gbrain for the full setup flow)"
+else
+  echo "Next: gbrain init --pglite   (or run /setup-gbrain for the full setup flow)"
+  echo ""
+  echo "Tip: set VOYAGE_API_KEY before init to use voyage-code-3 (best embedding"
+  echo "model for code retrieval on Voyage). Without it, gbrain falls back to its"
+  echo "auto-selected provider (OpenAI when OPENAI_API_KEY is set, etc.)."
+fi

@@ -1,0 +1,293 @@
+#!/usr/bin/env bun
+// gstack-taste-update — update the persistent taste profile at
+// ~/.gstack/projects/$SLUG/taste-profile.json
+//
+// Usage:
+//   gstack-taste-update approved <variant-path> [--reason "<why>"]
+//   gstack-taste-update rejected <variant-path> [--reason "<why>"]
+//   gstack-taste-update show                       — print current profile summary
+//   gstack-taste-update migrate                    — upgrade legacy approved.json to v1
+//
+// Schema v1 at ~/.gstack/projects/$SLUG/taste-profile.json:
+//
+//   {
+//     "version": 1,
+//     "updated_at": "<ISO 8601>",
+//     "dimensions": {
+//       "fonts":      { "approved": [...], "rejected": [...] },
+//       "colors":     { "approved": [...], "rejected": [...] },
+//       "layouts":    { "approved": [...], "rejected": [...] },
+//       "aesthetics": { "approved": [...], "rejected": [...] }
+//     },
+//     "sessions": [  // last 50 only — truncated via decay
+//       { "ts": "<ISO>", "action": "approved"|"rejected", "variant": "<path>", "reason": "<optional>" }
+//     ]
+//   }
+//
+// Each Preference entry:
+//   { value: string, confidence: number (0-1), approved_count, rejected_count, last_seen }
+//
+// Confidence is computed with Laplace smoothing + 5% weekly decay at read time.
+
+import * as fs from 'fs';
+import * as path from 'path';
+import { execSync } from 'child_process';
+
+const STATE_DIR = process.env.GSTACK_STATE_DIR || path.join(process.env.HOME || '/', '.gstack');
+const SCHEMA_VERSION = 1;
+const SESSION_CAP = 50;
+const DECAY_PER_WEEK = 0.05;
+
+type Dimension = 'fonts' | 'colors' | 'layouts' | 'aesthetics';
+const DIMENSIONS: Dimension[] = ['fonts', 'colors', 'layouts', 'aesthetics'];
+
+interface Preference {
+  value: string;
+  confidence: number;
+  approved_count: number;
+  rejected_count: number;
+  last_seen: string;
+}
+
+interface SessionRecord {
+  ts: string;
+  action: 'approved' | 'rejected';
+  variant: string;
+  reason?: string;
+}
+
+interface TasteProfile {
+  version: number;
+  updated_at: string;
+  dimensions: Record<Dimension, { approved: Preference[]; rejected: Preference[] }>;
+  sessions: SessionRecord[];
+}
+
+function getSlug(): string {
+  try {
+    const output = execSync('git rev-parse --show-toplevel', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+    return path.basename(output);
+  } catch {
+    return 'unknown';
+  }
+}
+
+function profilePath(slug: string): string {
+  return path.join(STATE_DIR, 'projects', slug, 'taste-profile.json');
+}
+
+function emptyProfile(): TasteProfile {
+  return {
+    version: SCHEMA_VERSION,
+    updated_at: new Date().toISOString(),
+    dimensions: {
+      fonts: { approved: [], rejected: [] },
+      colors: { approved: [], rejected: [] },
+      layouts: { approved: [], rejected: [] },
+      aesthetics: { approved: [], rejected: [] },
+    },
+    sessions: [],
+  };
+}
+
+function load(slug: string): TasteProfile {
+  const p = profilePath(slug);
+  if (!fs.existsSync(p)) return emptyProfile();
+  try {
+    const raw = JSON.parse(fs.readFileSync(p, 'utf-8'));
+    if (!raw.version || raw.version < SCHEMA_VERSION) {
+      return migrate(raw);
+    }
+    return raw as TasteProfile;
+  } catch (err) {
+    console.error(`WARN: could not parse ${p}:`, (err as Error).message);
+    return emptyProfile();
+  }
+}
+
+function save(slug: string, profile: TasteProfile): void {
+  const p = profilePath(slug);
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  profile.updated_at = new Date().toISOString();
+  fs.writeFileSync(p, JSON.stringify(profile, null, 2) + '\n');
+}
+
+/**
+ * Migrate a legacy profile (no version or version < SCHEMA_VERSION) into the
+ * current schema, preserving data where possible. Legacy approved.json aggregates
+ * get normalized into empty-but-valid v1 profiles so the next write populates them.
+ */
+function migrate(legacy: unknown): TasteProfile {
+  const fresh = emptyProfile();
+  if (legacy && typeof legacy === 'object') {
+    const anyLegacy = legacy as Record<string, unknown>;
+    // Preserve sessions if present
+    if (Array.isArray(anyLegacy.sessions)) {
+      fresh.sessions = anyLegacy.sessions.slice(-SESSION_CAP) as SessionRecord[];
+    }
+    // Preserve dimensions if present and well-formed
+    if (anyLegacy.dimensions && typeof anyLegacy.dimensions === 'object') {
+      for (const dim of DIMENSIONS) {
+        const src = (anyLegacy.dimensions as Record<string, unknown>)[dim];
+        if (src && typeof src === 'object') {
+          const ss = src as Record<string, unknown>;
+          if (Array.isArray(ss.approved)) fresh.dimensions[dim].approved = ss.approved as Preference[];
+          if (Array.isArray(ss.rejected)) fresh.dimensions[dim].rejected = ss.rejected as Preference[];
+        }
+      }
+    }
+  }
+  return fresh;
+}
+
+/**
+ * Apply 5% per-week decay to confidence values at read/show time.
+ * Returns a copy; does NOT mutate or persist the input.
+ */
+function applyDecay(profile: TasteProfile): TasteProfile {
+  const now = Date.now();
+  const decayed = JSON.parse(JSON.stringify(profile)) as TasteProfile;
+  for (const dim of DIMENSIONS) {
+    for (const bucket of ['approved', 'rejected'] as const) {
+      for (const pref of decayed.dimensions[dim][bucket]) {
+        const lastSeen = new Date(pref.last_seen).getTime();
+        const weeks = Math.max(0, (now - lastSeen) / (7 * 24 * 60 * 60 * 1000));
+        pref.confidence = Math.max(0, pref.confidence * Math.pow(1 - DECAY_PER_WEEK, weeks));
+      }
+    }
+  }
+  return decayed;
+}
+
+/**
+ * Extract dimension values from a variant description. V1 keeps this simple:
+ * the variant is a path/name like "variant-A" — we can't extract real design
+ * tokens without the mockup's metadata. Callers should pass a reason string
+ * that mentions fonts/colors/layouts/aesthetics. If the reason is missing,
+ * the session is recorded but dimensions don't get updated.
+ *
+ * Future v2: parse the variant PNG's EXIF, or read an accompanying manifest
+ * that design-shotgun writes next to each variant.
+ */
+function extractSignals(reason?: string): Partial<Record<Dimension, string[]>> {
+  if (!reason) return {};
+  const out: Partial<Record<Dimension, string[]>> = {};
+  // naive pattern: "fonts: X, Y; colors: Z" — split by dimension label
+  const labelRe = /(fonts|colors|layouts|aesthetics):\s*([^;]+)/gi;
+  let m: RegExpExecArray | null;
+  while ((m = labelRe.exec(reason)) !== null) {
+    const dim = m[1].toLowerCase() as Dimension;
+    const values = m[2].split(',').map(s => s.trim()).filter(Boolean);
+    out[dim] = values;
+  }
+  return out;
+}
+
+function bumpPref(list: Preference[], value: string, opposite: Preference[], action: 'approved' | 'rejected'): Preference[] {
+  const now = new Date().toISOString();
+  let entry = list.find(p => p.value.toLowerCase() === value.toLowerCase());
+  if (!entry) {
+    entry = { value, confidence: 0, approved_count: 0, rejected_count: 0, last_seen: now };
+    list.push(entry);
+  }
+  if (action === 'approved') {
+    entry.approved_count += 1;
+  } else {
+    entry.rejected_count += 1;
+  }
+  entry.last_seen = now;
+  // Laplace-smoothed confidence
+  const total = entry.approved_count + entry.rejected_count;
+  entry.confidence = entry.approved_count / (total + 1);
+  // Flag conflict if the opposite bucket has a strong entry for this value
+  const opp = opposite.find(p => p.value.toLowerCase() === value.toLowerCase());
+  if (opp && opp.approved_count + opp.rejected_count >= 3 && opp.confidence >= 0.6) {
+    console.error(`NOTE: taste drift — "${value}" previously ${action === 'approved' ? 'rejected' : 'approved'} with confidence ${opp.confidence.toFixed(2)}. Keep both signals; aggregate confidence will rebalance.`);
+  }
+  return list;
+}
+
+function cmdUpdate(action: 'approved' | 'rejected', variant: string, reason?: string): void {
+  const slug = getSlug();
+  const profile = load(slug);
+  const signals = extractSignals(reason);
+
+  for (const dim of DIMENSIONS) {
+    const values = signals[dim];
+    if (!values) continue;
+    const bucket = profile.dimensions[dim][action];
+    const opposite = profile.dimensions[dim][action === 'approved' ? 'rejected' : 'approved'];
+    for (const v of values) bumpPref(bucket, v, opposite, action);
+  }
+
+  // Always record the session even if no dimensions were extracted
+  profile.sessions.push({ ts: new Date().toISOString(), action, variant, reason });
+  // Truncate sessions to last SESSION_CAP entries (FIFO)
+  if (profile.sessions.length > SESSION_CAP) {
+    profile.sessions = profile.sessions.slice(-SESSION_CAP);
+  }
+
+  save(slug, profile);
+  console.log(`${action}: ${variant} → ${profilePath(slug)}`);
+}
+
+function cmdShow(): void {
+  const slug = getSlug();
+  const profile = applyDecay(load(slug));
+  console.log(`taste-profile.json (slug: ${slug}, sessions: ${profile.sessions.length})`);
+  for (const dim of DIMENSIONS) {
+    const top = [...profile.dimensions[dim].approved]
+      .sort((a, b) => b.confidence * b.approved_count - a.confidence * a.approved_count)
+      .slice(0, 3);
+    const topRej = [...profile.dimensions[dim].rejected]
+      .sort((a, b) => b.confidence * b.rejected_count - a.confidence * a.rejected_count)
+      .slice(0, 3);
+    if (top.length || topRej.length) {
+      console.log(`\n[${dim}]`);
+      if (top.length) {
+        console.log('  approved (decayed):');
+        for (const p of top) console.log(`    ${p.value} — conf ${p.confidence.toFixed(2)} (+${p.approved_count}/-${p.rejected_count})`);
+      }
+      if (topRej.length) {
+        console.log('  rejected:');
+        for (const p of topRej) console.log(`    ${p.value} — conf ${p.confidence.toFixed(2)} (+${p.approved_count}/-${p.rejected_count})`);
+      }
+    }
+  }
+}
+
+function cmdMigrate(): void {
+  const slug = getSlug();
+  const profile = load(slug);
+  save(slug, profile);
+  console.log(`migrated taste profile to v${SCHEMA_VERSION} at ${profilePath(slug)}`);
+}
+
+// ─── CLI entry ────────────────────────────────────────────────
+
+const args = process.argv.slice(2);
+const cmd = args[0];
+
+switch (cmd) {
+  case 'approved':
+  case 'rejected': {
+    const variant = args[1];
+    if (!variant) {
+      console.error(`Usage: gstack-taste-update ${cmd} <variant-path> [--reason "<why>"]`);
+      process.exit(1);
+    }
+    const reasonIdx = args.indexOf('--reason');
+    const reason = reasonIdx >= 0 ? args[reasonIdx + 1] : undefined;
+    cmdUpdate(cmd as 'approved' | 'rejected', variant, reason);
+    break;
+  }
+  case 'show':
+    cmdShow();
+    break;
+  case 'migrate':
+    cmdMigrate();
+    break;
+  default:
+    console.error('Usage: gstack-taste-update {approved|rejected|show|migrate} [args]');
+    process.exit(1);
+}

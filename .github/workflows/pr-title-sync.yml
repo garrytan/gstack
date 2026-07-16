@@ -1,0 +1,98 @@
+name: PR Title Sync
+
+# WHY pull_request_target (not pull_request): the default GITHUB_TOKEN is
+# READ-ONLY on fork PRs under `pull_request`, so the title-sync backstop could
+# never `gh pr edit` a fork/agent PR. `pull_request_target` runs in the base-repo
+# context with a write token, which fixes fork coverage.
+#
+# WHY this is SAFE (pull_request_target is the most dangerous trigger):
+#   - We check out the BASE repo (no `ref:`), so the only code we execute is
+#     trusted base-repo infra (bin/gstack-pr-title-rewrite.sh). We NEVER check
+#     out or run PR-head/fork code.
+#   - Every attacker-controlled PR field (title, head repo, head sha) arrives via
+#     `env:` and is referenced as a shell-quoted "$VAR". We NEVER inline a
+#     `${{ github.event.pull_request.* }}` expression inside the run: script
+#     (that would execute a crafted title as shell).
+#   - The PR-head VERSION is read as DATA via the API (raw media type), from the
+#     head repo at the head sha — never by checking out the head.
+# test/pr-title-sync-workflow-safety.test.ts is the static tripwire for all of
+# the above and fails CI if any of it regresses.
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, edited]
+    paths:
+      - 'VERSION'
+
+concurrency:
+  group: pr-title-sync-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  sync:
+    name: Sync PR title to VERSION
+    runs-on: ubicloud-standard-8
+    permissions:
+      contents: read
+      pull-requests: write
+    if: github.actor != 'github-actions[bot]'
+    steps:
+      # Base repo only — trusted infra (the rewrite helper). No PR-head checkout.
+      - name: Checkout base repo (trusted)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Rewrite PR title to match VERSION
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUM: ${{ github.event.pull_request.number }}
+          # Attacker-controlled on fork PRs — env-only, never inlined into run:.
+          OLD_TITLE: ${{ github.event.pull_request.title }}
+          BASE_REPO: ${{ github.repository }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          chmod +x ./bin/gstack-pr-title-rewrite.sh
+
+          if [ "$HEAD_REPO" = "$BASE_REPO" ]; then IS_FORK=0; else IS_FORK=1; fi
+
+          # Read the PR-head VERSION as data (raw bytes), from the head repo at
+          # the head sha. Guard the assignment itself: under `set -e` a bare
+          # `VERSION=$(...)` would abort the step before any later [ -z ] check.
+          if ! VERSION=$(gh api -H "Accept: application/vnd.github.raw" \
+              "repos/$HEAD_REPO/contents/VERSION?ref=$HEAD_SHA" 2>/dev/null | tr -d '[:space:]'); then
+            VERSION=""
+          fi
+
+          if [ -z "$VERSION" ]; then
+            # Same-repo read failure should never happen — fail loudly so we
+            # notice. A fork miss (public-contents quirk, private fork) is a
+            # convenience gap, not a gate — warn and skip so the check stays green.
+            if [ "$IS_FORK" = "0" ]; then
+              echo "::error::Could not read VERSION from same-repo PR head ($HEAD_SHA)."
+              exit 1
+            fi
+            echo "::warning::Could not read VERSION from fork $HEAD_REPO ($HEAD_SHA); skipping title sync."
+            exit 0
+          fi
+
+          # The helper rejects a malformed VERSION (exit 2). Same policy: loud for
+          # same-repo, soft for forks. Never echo the raw (attacker-controlled)
+          # title — Actions still parses ::workflow-command:: from stdout.
+          if ! NEW_TITLE=$(./bin/gstack-pr-title-rewrite.sh "$VERSION" "$OLD_TITLE"); then
+            if [ "$IS_FORK" = "0" ]; then
+              echo "::error::Could not compute title for VERSION '$VERSION' on PR #$PR_NUM."
+              exit 1
+            fi
+            echo "::warning::Could not compute title for fork PR #$PR_NUM; skipping."
+            exit 0
+          fi
+
+          if [ "$NEW_TITLE" = "$OLD_TITLE" ]; then
+            echo "PR #$PR_NUM title already correct; no change."
+            exit 0
+          fi
+          gh pr edit "$PR_NUM" --title "$NEW_TITLE"
+          echo "PR #$PR_NUM title synced to VERSION."

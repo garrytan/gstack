@@ -103,7 +103,7 @@ Write DESIGN.md and CLAUDE.md (or update it) in the working directory.`,
       timeout: 360_000,
       testName: 'design-consultation-core',
       runId,
-      model: 'claude-opus-4-6',
+      model: 'claude-opus-4-7',
     });
 
     logCost('/design-consultation core', result);
@@ -227,7 +227,7 @@ Skip research. Skip font preview. Skip any AskUserQuestion calls — this is non
       timeout: 360_000,
       testName: 'design-consultation-existing',
       runId,
-      model: 'claude-opus-4-6',
+      model: 'claude-opus-4-7',
     });
 
     logCost('/design-consultation existing', result);
@@ -326,6 +326,7 @@ describeIfSelected('Plan Design Review E2E', ['plan-design-review-plan-mode', 'p
       path.join(ROOT, 'plan-design-review', 'SKILL.md'),
       path.join(dir, 'plan-design-review', 'SKILL.md'),
     );
+    { const _sec = path.join(ROOT, 'plan-design-review', 'sections'); if (fs.existsSync(_sec)) fs.cpSync(_sec, path.join(dir, 'plan-design-review', 'sections'), { recursive: true }); }
 
     return dir;
   }

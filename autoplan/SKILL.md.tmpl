@@ -216,7 +216,7 @@ Read each file using the Read tool:
 (they are already handled by /autoplan):**
 - Preamble (run first)
 - AskUserQuestion Format
-- Completeness Principle — Boil the Lake
+- Completeness Principle — Boil the Ocean
 - Search Before Building
 - Completion Status Protocol
 - Telemetry (run last)
@@ -243,11 +243,17 @@ workflow.
 
 ```bash
 _TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || echo off)
+_CODEX_CFG=$(~/.claude/skills/gstack/bin/gstack-config get codex_reviews 2>/dev/null || echo enabled)
 source ~/.claude/skills/gstack/bin/gstack-codex-probe
 
+# Master switch first: codex_reviews=disabled turns off ALL Codex work globally,
+# including autoplan's own dual-voice orchestration. Honor it before probing.
+if [ "$_CODEX_CFG" = "disabled" ]; then
+  echo "[codex disabled by config — Claude-only voices] Re-enable: gstack-config set codex_reviews enabled"
+  _CODEX_AVAILABLE=false
 # Check Codex binary. If missing, tag the degradation matrix and continue
 # with Claude subagent only (autoplan's existing degradation fallback).
-if ! command -v codex >/dev/null 2>&1; then
+elif ! command -v codex >/dev/null 2>&1; then
   _gstack_codex_log_event "codex_cli_missing"
   echo "[codex-unavailable: binary not found] — proceeding with Claude subagent only"
   _CODEX_AVAILABLE=false
@@ -769,6 +775,8 @@ noting which items are incomplete. Do not loop indefinitely.
 
 ## Phase 4: Final Approval Gate
 
+{{TASKS_SECTION_AGGREGATE}}
+
 **STOP here and present the final state to the user.**
 
 Present as a message, then use AskUserQuestion:
@@ -819,6 +827,10 @@ I recommend [X] — [principle]. But [Y] is also viable:
 
 ### Deferred to TODOS.md
 [Items auto-deferred with reasons]
+
+### Implementation Tasks (aggregated across phases)
+[Substitute the contents of $AGGREGATED_TASKS computed above. If empty:
+"_No per-phase task lists found in $TASKS_DIR for branch $BRANCH._"]
 ```
 
 **Cognitive load management:**

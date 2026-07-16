@@ -1,0 +1,502 @@
+/**
+ * Unit tests for lib/gstack-memory-helpers.ts (Lane 0 foundation).
+ *
+ * Covers the public surface used by Lanes A, B, C:
+ *   - canonicalizeRemote: 8 cases across https/ssh/git@/.git/empty
+ *   - secretScanFile: gitleaks-missing fallback + redactMatch behavior
+ *   - parseSkillManifest: valid manifest + missing manifest + multi-kind
+ *   - withErrorContext: success path + error path + log writing
+ *   - detectEngineTier: cache TTL + fresh-detect fallback
+ *
+ * Free-tier (~50ms total). Runs in `bun test`.
+ */
+
+import { describe, it, expect, beforeEach, afterAll } from "bun:test";
+import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, mkdirSync, chmodSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+
+import {
+  canonicalizeRemote,
+  secretScanFile,
+  parseSkillManifest,
+  withErrorContext,
+  detectEngineTier,
+  _resetGitleaksAvailabilityCache,
+} from "../lib/gstack-memory-helpers";
+
+// ── canonicalizeRemote ─────────────────────────────────────────────────────
+
+describe("canonicalizeRemote", () => {
+  it("strips https scheme and .git suffix", () => {
+    expect(canonicalizeRemote("https://github.com/garrytan/gstack.git")).toBe("github.com/garrytan/gstack");
+  });
+
+  it("normalizes git@host:path scp-style remotes", () => {
+    expect(canonicalizeRemote("git@github.com:garrytan/gstack.git")).toBe("github.com/garrytan/gstack");
+  });
+
+  it("strips ssh:// scheme", () => {
+    expect(canonicalizeRemote("ssh://git@gitlab.com/foo/bar")).toBe("gitlab.com/foo/bar");
+  });
+
+  it("returns empty string for null/undefined/empty input", () => {
+    expect(canonicalizeRemote("")).toBe("");
+    expect(canonicalizeRemote(null)).toBe("");
+    expect(canonicalizeRemote(undefined)).toBe("");
+  });
+
+  it("strips surrounding quotes", () => {
+    expect(canonicalizeRemote(`"https://github.com/foo/bar.git"`)).toBe("github.com/foo/bar");
+  });
+
+  it("strips trailing slashes", () => {
+    expect(canonicalizeRemote("https://github.com/foo/bar/")).toBe("github.com/foo/bar");
+  });
+
+  it("lowercases the result", () => {
+    expect(canonicalizeRemote("https://GitHub.com/Foo/Bar.git")).toBe("github.com/foo/bar");
+  });
+
+  it("handles paths with multiple segments", () => {
+    expect(canonicalizeRemote("https://gitlab.example.com/group/subgroup/project.git")).toBe(
+      "gitlab.example.com/group/subgroup/project"
+    );
+  });
+
+  it("collapses redundant slashes", () => {
+    expect(canonicalizeRemote("https://github.com//foo//bar")).toBe("github.com/foo/bar");
+  });
+
+  it("strips .git even when the URL has a trailing slash", () => {
+    // A remote configured with both a .git suffix and a trailing slash must
+    // canonicalize to the same key as one without — otherwise the same repo
+    // gets two dedup/source-id keys across machines.
+    expect(canonicalizeRemote("https://github.com/garrytan/gstack.git/")).toBe("github.com/garrytan/gstack");
+    expect(canonicalizeRemote("git@github.com:garrytan/gstack.git/")).toBe("github.com/garrytan/gstack");
+    expect(canonicalizeRemote("https://github.com/foo/bar.git///")).toBe("github.com/foo/bar");
+  });
+
+  it("produces the same key with or without a trailing slash", () => {
+    expect(canonicalizeRemote("https://github.com/garrytan/gstack.git/")).toBe(
+      canonicalizeRemote("https://github.com/garrytan/gstack.git")
+    );
+  });
+
+  it("canonicalizes a path remote ending in a .git directory component", () => {
+    // Stripping the `.git` suffix exposes a new trailing slash
+    // ("/repo/.git" → "/repo/") which must also be stripped, or the same
+    // repo splits into two identities.
+    expect(canonicalizeRemote("file:///Users/x/repo/.git")).toBe(
+      canonicalizeRemote("file:///Users/x/repo")
+    );
+  });
+});
+
+// ── secretScanFile ─────────────────────────────────────────────────────────
+
+describe("secretScanFile", () => {
+  beforeEach(() => {
+    _resetGitleaksAvailabilityCache();
+  });
+
+  it("returns scanner=error for non-existent file", () => {
+    const result = secretScanFile("/nonexistent/path/that/does/not/exist");
+    expect(result.scanned).toBe(false);
+    expect(result.scanner).toBe("error");
+    expect(result.findings).toEqual([]);
+  });
+
+  it("returns scanner=missing or runs gitleaks (env-dependent)", () => {
+    // We can't assume gitleaks is installed in CI; we just verify the shape.
+    const dir = mkdtempSync(join(tmpdir(), "gstack-test-"));
+    const file = join(dir, "clean.txt");
+    writeFileSync(file, "no secrets here\n");
+    const result = secretScanFile(file);
+    expect(["gitleaks", "missing", "error"]).toContain(result.scanner);
+    if (result.scanner === "gitleaks") {
+      // Clean file should produce no findings
+      expect(result.findings).toEqual([]);
+    }
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("probes the gitleaks executable directly before scanning", () => {
+    const dir = mkdtempSync(join(tmpdir(), "gstack-test-"));
+    const binDir = join(dir, "bin");
+    const log = join(dir, "gitleaks-calls.log");
+    const file = join(dir, "clean.txt");
+    mkdirSync(binDir, { recursive: true });
+    writeFileSync(file, "no secrets here\n");
+    writeFileSync(
+      join(binDir, "gitleaks"),
+      `#!/bin/sh
+printf '%s\\n' "$*" >> "${log}"
+if [ "$1" = "version" ]; then
+  exit 0
+fi
+if [ "$1" = "detect" ]; then
+  echo '[]'
+  exit 0
+fi
+exit 2
+`,
+      "utf-8",
+    );
+    chmodSync(join(binDir, "gitleaks"), 0o755);
+
+    const oldPath = process.env.PATH;
+    process.env.PATH = `${binDir}:${oldPath || ""}`;
+    try {
+      _resetGitleaksAvailabilityCache();
+      const result = secretScanFile(file);
+      expect(result.scanner).toBe("gitleaks");
+      expect(result.findings).toEqual([]);
+      const calls = readFileSync(log, "utf-8").trim().split("\n");
+      expect(calls[0]).toBe("version");
+      expect(calls[1]).toContain("detect --no-git --source");
+    } finally {
+      if (oldPath === undefined) delete process.env.PATH;
+      else process.env.PATH = oldPath;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+// ── parseSkillManifest ─────────────────────────────────────────────────────
+
+describe("parseSkillManifest", () => {
+  it("returns null for non-existent file", () => {
+    expect(parseSkillManifest("/nonexistent/skill.md")).toBeNull();
+  });
+
+  it("returns null for file without frontmatter", () => {
+    const dir = mkdtempSync(join(tmpdir(), "gstack-test-"));
+    const file = join(dir, "no-fm.md");
+    writeFileSync(file, "# Just a heading\n\nbody text\n");
+    expect(parseSkillManifest(file)).toBeNull();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("returns null when frontmatter has no gbrain: key", () => {
+    const dir = mkdtempSync(join(tmpdir(), "gstack-test-"));
+    const file = join(dir, "no-gbrain.md");
+    writeFileSync(file, `---\nname: foo\ndescription: bar\n---\n\nbody\n`);
+    expect(parseSkillManifest(file)).toBeNull();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("parses a multi-kind manifest correctly", () => {
+    const dir = mkdtempSync(join(tmpdir(), "gstack-test-"));
+    const file = join(dir, "multi.md");
+    writeFileSync(
+      file,
+      `---
+name: office-hours
+description: YC Office Hours
+gbrain:
+  schema: 1
+  context_queries:
+    - id: prior-sessions
+      kind: vector
+      query: "office-hours sessions for {repo_slug}"
+      limit: 5
+      render_as: "## Prior office-hours sessions in this repo"
+    - id: builder-profile
+      kind: filesystem
+      glob: "~/.gstack/builder-profile.jsonl"
+      tail: 1
+      render_as: "## Your builder profile snapshot"
+    - id: prior-assignments
+      kind: list
+      sort: created_at_desc
+      limit: 5
+      render_as: "## Open assignments from past sessions"
+triggers:
+  - office-hours
+---
+
+body
+`
+    );
+
+    const m = parseSkillManifest(file);
+    expect(m).not.toBeNull();
+    expect(m!.schema).toBe(1);
+    expect(m!.context_queries).toHaveLength(3);
+
+    const ids = m!.context_queries.map((q) => q.id);
+    expect(ids).toEqual(["prior-sessions", "builder-profile", "prior-assignments"]);
+
+    const kinds = m!.context_queries.map((q) => q.kind);
+    expect(kinds).toEqual(["vector", "filesystem", "list"]);
+
+    expect(m!.context_queries[0].query).toBe("office-hours sessions for {repo_slug}");
+    expect(m!.context_queries[0].limit).toBe(5);
+    expect(m!.context_queries[1].glob).toBe("~/.gstack/builder-profile.jsonl");
+    expect(m!.context_queries[1].tail).toBe(1);
+    expect(m!.context_queries[2].sort).toBe("created_at_desc");
+
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("ignores incomplete query items (missing kind)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "gstack-test-"));
+    const file = join(dir, "incomplete.md");
+    writeFileSync(
+      file,
+      `---
+name: bad
+gbrain:
+  schema: 1
+  context_queries:
+    - id: missing-kind
+      render_as: "## Should be skipped"
+    - id: complete
+      kind: vector
+      query: "x"
+      render_as: "## OK"
+---
+
+body
+`
+    );
+
+    const m = parseSkillManifest(file);
+    expect(m).not.toBeNull();
+    expect(m!.context_queries).toHaveLength(1);
+    expect(m!.context_queries[0].id).toBe("complete");
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("parses a nested filter: block on a list query", () => {
+    const dir = mkdtempSync(join(tmpdir(), "gstack-test-"));
+    const file = join(dir, "filtered.md");
+    writeFileSync(
+      file,
+      `---
+name: investigate
+gbrain:
+  schema: 1
+  context_queries:
+    - id: prior-investigations
+      kind: list
+      filter:
+        type: timeline
+        tags_contains: "repo:{repo_slug}"
+        content_contains: "investigate"
+      sort: updated_at_desc
+      limit: 5
+      render_as: "## Prior investigations in this repo"
+    - id: recent-no-filter
+      kind: list
+      sort: created_at_desc
+      limit: 3
+      render_as: "## Recent (no filter)"
+---
+
+body
+`
+    );
+
+    const m = parseSkillManifest(file);
+    expect(m).not.toBeNull();
+    expect(m!.context_queries).toHaveLength(2);
+
+    // The filter: sub-block is parsed into a key/value map, with quotes
+    // stripped and template vars left intact for downstream substitution.
+    const filtered = m!.context_queries[0];
+    expect(filtered.id).toBe("prior-investigations");
+    expect(filtered.filter).toEqual({
+      type: "timeline",
+      tags_contains: "repo:{repo_slug}",
+      content_contains: "investigate",
+    });
+    // Sibling fields on the same item still parse alongside the filter.
+    expect(filtered.sort).toBe("updated_at_desc");
+    expect(filtered.limit).toBe(5);
+    expect(filtered.render_as).toBe("## Prior investigations in this repo");
+
+    // A list query with no filter: leaves filter undefined (no regression).
+    expect(m!.context_queries[1].id).toBe("recent-no-filter");
+    expect(m!.context_queries[1].filter).toBeUndefined();
+    expect(m!.context_queries[1].sort).toBe("created_at_desc");
+
+    rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+// ── withErrorContext ───────────────────────────────────────────────────────
+
+describe("withErrorContext", () => {
+  let savedHome: string | undefined;
+  let testHome: string;
+
+  beforeEach(() => {
+    savedHome = process.env.GSTACK_HOME;
+    testHome = mkdtempSync(join(tmpdir(), "gstack-test-home-"));
+    process.env.GSTACK_HOME = testHome;
+  });
+
+  afterAll(() => {
+    if (savedHome === undefined) delete process.env.GSTACK_HOME;
+    else process.env.GSTACK_HOME = savedHome;
+  });
+
+  it("returns the value on success and writes an ok entry", async () => {
+    const result = await withErrorContext("test-op-success", () => 42, "test-caller");
+    expect(result).toBe(42);
+
+    const log = readFileSync(join(testHome, ".gbrain-errors.jsonl"), "utf-8");
+    const entry = JSON.parse(log.trim().split("\n").pop()!);
+    expect(entry.op).toBe("test-op-success");
+    expect(entry.outcome).toBe("ok");
+    expect(entry.schema_version).toBe(1);
+    expect(entry.last_writer).toBe("test-caller");
+    expect(typeof entry.duration_ms).toBe("number");
+    expect(entry.duration_ms).toBeGreaterThanOrEqual(0);
+  });
+
+  it("rethrows the error on failure and writes an error entry", async () => {
+    let caught: unknown = null;
+    try {
+      await withErrorContext("test-op-fail", () => {
+        throw new Error("boom");
+      }, "test-caller");
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(Error);
+    expect((caught as Error).message).toBe("boom");
+
+    const log = readFileSync(join(testHome, ".gbrain-errors.jsonl"), "utf-8");
+    const entry = JSON.parse(log.trim().split("\n").pop()!);
+    expect(entry.op).toBe("test-op-fail");
+    expect(entry.outcome).toBe("error");
+    expect(entry.error).toBe("boom");
+  });
+
+  it("supports async functions", async () => {
+    const result = await withErrorContext(
+      "async-op",
+      async () => {
+        await new Promise((r) => setTimeout(r, 5));
+        return "done";
+      },
+      "test-caller"
+    );
+    expect(result).toBe("done");
+  });
+});
+
+// ── detectEngineTier ───────────────────────────────────────────────────────
+
+describe("detectEngineTier", () => {
+  let savedHome: string | undefined;
+  let savedGbrainHome: string | undefined;
+  let savedRealHome: string | undefined;
+  let savedPath: string | undefined;
+  let testHome: string;
+  let testGbrainHome: string;
+
+  beforeEach(() => {
+    savedHome = process.env.GSTACK_HOME;
+    savedGbrainHome = process.env.GBRAIN_HOME;
+    savedRealHome = process.env.HOME;
+    savedPath = process.env.PATH;
+    testHome = mkdtempSync(join(tmpdir(), "gstack-test-engine-"));
+    testGbrainHome = mkdtempSync(join(tmpdir(), "gstack-test-gbrain-"));
+    process.env.GSTACK_HOME = testHome;
+    process.env.GBRAIN_HOME = testGbrainHome;
+    // Isolate HOME too — even though gbrainConfigPath() prefers GBRAIN_HOME
+    // when set, defense-in-depth against future code reading ~/.gbrain
+    // directly. See #1415 codex review finding #6.
+    process.env.HOME = testHome;
+  });
+
+  afterAll(() => {
+    if (savedHome === undefined) delete process.env.GSTACK_HOME;
+    else process.env.GSTACK_HOME = savedHome;
+    if (savedGbrainHome === undefined) delete process.env.GBRAIN_HOME;
+    else process.env.GBRAIN_HOME = savedGbrainHome;
+    if (savedRealHome === undefined) delete process.env.HOME;
+    else process.env.HOME = savedRealHome;
+    if (savedPath === undefined) delete process.env.PATH;
+    else process.env.PATH = savedPath;
+  });
+
+  it("returns a valid EngineDetect shape (engine, detected_at, schema_version)", () => {
+    const result = detectEngineTier();
+    expect(["pglite", "supabase", "unknown"]).toContain(result.engine);
+    expect(result.schema_version).toBe(1);
+    expect(typeof result.detected_at).toBe("number");
+    expect(result.detected_at).toBeGreaterThan(0);
+  });
+
+  it("writes a cache file at ~/.gstack/.gbrain-engine-cache.json", () => {
+    detectEngineTier();
+    const cachePath = join(testHome, ".gbrain-engine-cache.json");
+    expect(existsSync(cachePath)).toBe(true);
+    const cached = JSON.parse(readFileSync(cachePath, "utf-8"));
+    expect(cached.schema_version).toBe(1);
+    expect(cached.last_writer).toBe("gstack-memory-helpers.detectEngineTier");
+  });
+
+  it("returns the cached value on second call within TTL", () => {
+    const first = detectEngineTier();
+    const second = detectEngineTier();
+    expect(second.detected_at).toBe(first.detected_at);
+  });
+
+  it("falls back to GBRAIN_HOME/config.json when gbrain doctor omits engine (schema_version:2 case)", () => {
+    // Regression test for #1415: gbrain >=0.25 doctor output dropped the
+    // top-level `engine` field. The detect path must fall back to config.json.
+    // We force the doctor call to fail (PATH stripped of gbrain) and write a
+    // synthetic config to GBRAIN_HOME so the fallback path is deterministic.
+    process.env.PATH = "/nonexistent-no-gbrain-here";
+    writeFileSync(
+      join(testGbrainHome, "config.json"),
+      JSON.stringify({ engine: "postgres", database_url: "postgresql://test/example" }),
+      "utf-8"
+    );
+    const result = detectEngineTier();
+    expect(result.engine).toBe("supabase");
+  });
+
+  it("parses schema_version:2 doctor JSON via the exec path (regression for #1418)", () => {
+    // Stronger pin than the PATH-stripped fallback above: install a fake
+    // gbrain shim that successfully exits with status 1 (health_score < 100,
+    // mirroring real-world Supabase brains) and emits the v2 doctor JSON
+    // shape — schema_version: 2, status: "warnings", no top-level `engine`.
+    // The parser must still produce a usable EngineDetect by falling back
+    // to GBRAIN_HOME/config.json when `engine` is absent from doctor output.
+    const binDir = mkdtempSync(join(tmpdir(), "gstack-gbrain-shim-"));
+    const shim = join(binDir, "gbrain");
+    writeFileSync(
+      shim,
+      `#!/bin/sh
+if [ "$1" = "doctor" ]; then
+  cat <<'JSON'
+{"schema_version":2,"status":"warnings","health_score":90,"checks":[{"name":"resolver_health","status":"ok","message":"42 skills"}]}
+JSON
+  exit 1
+fi
+if [ "$1" = "--version" ]; then
+  echo "gbrain 0.35.0.0"
+  exit 0
+fi
+exit 0
+`,
+      { mode: 0o755 }
+    );
+    process.env.PATH = `${binDir}:${process.env.PATH || ""}`;
+    writeFileSync(
+      join(testGbrainHome, "config.json"),
+      JSON.stringify({ engine: "pglite" }),
+      "utf-8"
+    );
+    const result = detectEngineTier();
+    expect(result.engine).toBe("pglite");
+    rmSync(binDir, { recursive: true, force: true });
+  });
+});

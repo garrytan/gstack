@@ -80,10 +80,39 @@ describe('selectTests', () => {
     expect(result.selected).toContain('plan-ceo-review');
     expect(result.selected).toContain('plan-ceo-review-selective');
     expect(result.selected).toContain('plan-ceo-review-benefits');
+    expect(result.selected).toContain('plan-ceo-review-expansion-energy');
     expect(result.selected).toContain('autoplan-core');
     expect(result.selected).toContain('codex-offered-ceo-review');
-    expect(result.selected.length).toBe(5);
-    expect(result.skipped.length).toBe(Object.keys(E2E_TOUCHFILES).length - 5);
+    expect(result.selected).toContain('plan-ceo-review-format-mode');
+    expect(result.selected).toContain('plan-ceo-review-format-approach');
+    // v1.10.2.0 plan-mode handshake entries also depend on plan-ceo-review/**
+    expect(result.selected).toContain('plan-ceo-review-plan-mode');
+    expect(result.selected).toContain('plan-mode-no-op');
+    expect(result.selected).toContain('e2e-harness-audit');
+    expect(result.selected).toContain('plan-ceo-review-prosons-cadence');
+    expect(result.selected).toContain('plan-review-prosons-format');
+    expect(result.selected).toContain('plan-review-prosons-hardstop-neg');
+    expect(result.selected).toContain('plan-review-prosons-neutral-neg');
+    // v1.13.x real-PTY E2E batch entries that also depend on plan-ceo-review/**
+    expect(result.selected).toContain('auq-format-gate');
+    expect(result.selected).toContain('plan-ceo-mode-routing');
+    expect(result.selected).toContain('autoplan-chain-pty');
+    // Per-finding count + review-report-at-bottom (v1.21.x)
+    expect(result.selected).toContain('plan-ceo-finding-count');
+    // v1.22+ AskUserQuestion-blocked regression: auto-decide-preserved
+    // also depends on plan-ceo-review/** (autoplan-auto-mode test was
+    // removed in v1.28 — see commit message for the rationale).
+    expect(result.selected).toContain('auto-decide-preserved');
+    // v1.27+ gate-tier reviewCount-floor regression for transcript bug
+    expect(result.selected).toContain('plan-ceo-finding-floor');
+    // garrytan/askuserquestion-split-on-overflow: split-overflow periodic
+    // E2E test also depends on plan-ceo-review/** (5-option scope decision
+    // regression for the "drop to fit 4 options" failure mode).
+    expect(result.selected).toContain('plan-ceo-split-overflow');
+    // v2 plan Phase B carve: the section-loading E2E depends on plan-ceo-review/**.
+    expect(result.selected).toContain('plan-ceo-section-loading');
+    expect(result.selected.length).toBe(23);
+    expect(result.skipped.length).toBe(Object.keys(E2E_TOUCHFILES).length - 23);
   });
 
   test('global touchfile triggers ALL tests', () => {

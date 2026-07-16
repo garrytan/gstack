@@ -50,6 +50,24 @@ function regenerateAndValidate() {
       console.log(`  [check] \u2705 ${output} — ${totalValid} commands, all valid`);
     }
   }
+
+  // Dev workspace render isolation: the default in-place regen above keeps the
+  // worktree canonical. If bin/dev-setup set up an untracked brain-aware render
+  // (.claude/gstack-rendered), refresh it too so live template edits reflect at
+  // this workspace's runtime. Only runs when the render dir already exists — we
+  // never create it during plain template dev.
+  const RENDER_DIR = path.join(ROOT, '.claude', 'gstack-rendered');
+  if (fs.existsSync(RENDER_DIR)) {
+    try {
+      execSync(
+        `bun run scripts/gen-skill-docs.ts --respect-detection --host claude --out-dir ${JSON.stringify(RENDER_DIR)}`,
+        { cwd: ROOT, stdio: 'pipe' },
+      );
+      console.log('  [render] refreshed .claude/gstack-rendered (brain-aware workspace copy)');
+    } catch (err: any) {
+      console.log(`  [render] ERROR: ${err.stderr?.toString().trim() || err.message}`);
+    }
+  }
 }
 
 // Initial run
