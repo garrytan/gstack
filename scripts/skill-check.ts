@@ -13,6 +13,7 @@ import { discoverTemplates, discoverSkillFiles } from './discover-skills';
 import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
+import { claude, getExternalHosts } from '../hosts/index';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const ROOT_REALPATH = fs.realpathSync(ROOT);
@@ -64,12 +65,24 @@ for (const file of SKILL_FILES) {
 
 console.log('\n  Templates:');
 const TEMPLATES = discoverTemplates(ROOT);
+const CLAUDE_SKIPPED_SKILLS = new Set(claude.generation.skipSkills ?? []);
 
 for (const { tmpl, output } of TEMPLATES) {
   const tmplPath = path.join(ROOT, tmpl);
   const outPath = path.join(ROOT, output);
+  const skillDir = path.dirname(tmpl);
+  const skillName = skillDir === '.' ? null : skillDir.split(path.sep)[0];
   if (!fs.existsSync(tmplPath)) {
     console.log(`  \u26a0\ufe0f  ${output.padEnd(30)} — no template`);
+    continue;
+  }
+  if (skillName && CLAUDE_SKIPPED_SKILLS.has(skillName)) {
+    if (fs.existsSync(outPath)) {
+      hasErrors = true;
+      console.log(`  \u274c ${output.padEnd(30)} — generated file exists but Claude Code skips this skill`);
+    } else {
+      console.log(`  \u23ed\ufe0f  ${output.padEnd(30)} — intentionally skipped for Claude Code`);
+    }
     continue;
   }
   if (!fs.existsSync(outPath)) {
@@ -89,8 +102,6 @@ for (const file of SKILL_FILES) {
 }
 
 // ─── External Host Skills (config-driven) ───────────────────
-
-import { getExternalHosts } from '../hosts/index';
 
 for (const hostConfig of getExternalHosts()) {
   const hostDir = path.join(ROOT, hostConfig.hostSubdir, 'skills');
