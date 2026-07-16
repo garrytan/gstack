@@ -103,6 +103,84 @@ export function copyDirSync(src: string, dest: string) {
 }
 
 /**
+ * Set up a throwaway git repo containing plan.md + a copy of plan-eng-review's
+ * SKILL.md (+ sections/ if the skill has been carved) for standalone-plan E2E
+ * tests. Shared by the data-model-bias / legitimate-JSON / measured-denorm
+ * regression tests, which otherwise duplicated this ~20-line setup verbatim.
+ */
+export function setupPlanEngReviewFixture(tmpPrefix: string, planMarkdown: string): string {
+  const planDir = fs.mkdtempSync(path.join(os.tmpdir(), tmpPrefix));
+  const run = (cmd: string, args: string[]) =>
+    spawnSync(cmd, args, { cwd: planDir, stdio: 'pipe', timeout: 5000 });
+
+  run('git', ['init', '-b', 'main']);
+  run('git', ['config', 'user.email', 'test@test.com']);
+  run('git', ['config', 'user.name', 'Test']);
+
+  fs.writeFileSync(path.join(planDir, 'plan.md'), planMarkdown);
+  run('git', ['add', '.']);
+  run('git', ['commit', '-m', 'add plan']);
+
+  fs.mkdirSync(path.join(planDir, 'plan-eng-review'), { recursive: true });
+  fs.copyFileSync(
+    path.join(ROOT, 'plan-eng-review', 'SKILL.md'),
+    path.join(planDir, 'plan-eng-review', 'SKILL.md'),
+  );
+  const sectionsDir = path.join(ROOT, 'plan-eng-review', 'sections');
+  if (fs.existsSync(sectionsDir)) {
+    fs.cpSync(sectionsDir, path.join(planDir, 'plan-eng-review', 'sections'), { recursive: true });
+  }
+  return planDir;
+}
+
+/**
+ * Prompt for the data-model-bias/legitimate-json/measured-denorm/minimal-change
+ * E2E blocks (paired with setupPlanEngReviewFixture). Pins the ABSOLUTE path to
+ * the sandboxed SKILL.md and explicitly forbids reading any other SKILL.md —
+ * especially not the operator's globally-installed ~/.claude/skills/gstack —
+ * because plan-eng-review/SKILL.md's own STOP-Read directive references that
+ * absolute path for its carved sections/ file. Without this, a machine that
+ * has gstack installed globally could have the agent read (and get graded
+ * against) the REAL installed skill instead of this branch's copy, silently
+ * defeating the whole point of the sandbox.
+ */
+export function planEngReviewDataModelPrompt(planDir: string, focusSentence: string): string {
+  const skillPath = path.join(planDir, 'plan-eng-review', 'SKILL.md');
+  return `Read the ONLY skill file you may read, this absolute path: ${skillPath}. Do NOT Glob, find, or search for any other SKILL.md anywhere — especially nothing under ~/.claude or /Users. Follow its review workflow for this scenario.
+
+Read plan.md — that's the plan to review. This is a standalone plan document, not a codebase — skip any codebase exploration steps.
+
+Proceed directly to the architecture review section. Skip any AskUserQuestion calls — this is non-interactive. Write your complete architecture review directly to ${planDir}/review-output.md
+
+${focusSentence}`;
+}
+
+/**
+ * Case-insensitive check for `pattern` in `text` that ignores matches
+ * immediately preceded by a negation word (not/n't/never/without/...).
+ * Plain substring/regex matching can't tell "extract the payload into
+ * columns" from "would NOT extract the payload into columns" — this walks
+ * every match and checks the text just before it for a negation cue.
+ *
+ * Deliberately simple: a fixed lookback window, not full sentence-boundary
+ * parsing. These evals are periodic-tier (paid, non-gating) — an occasional
+ * missed edge case just means a rare, visible false read on a test that
+ * doesn't block anything, which is a fine trade for keeping this readable.
+ */
+export function matchesUnnegated(text: string, pattern: RegExp): boolean {
+  const NEGATION = /\b(not|never|cannot|without|rather than|instead of)\b|[a-z]+n't\b/i;
+  const flags = pattern.flags.includes('g') ? pattern.flags : pattern.flags + 'g';
+  const re = new RegExp(pattern.source, flags);
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text))) {
+    const preceding = text.slice(Math.max(0, m.index - 60), m.index);
+    if (!NEGATION.test(preceding)) return true;
+    if (re.lastIndex === m.index) re.lastIndex++; // avoid infinite loop on zero-width matches
+  }
+  return false;
+}
+
+/**
  * Set up browse shims (binary symlink, find-browse, remote-slug) in a tmpDir.
  */
 export function setupBrowseShims(dir: string) {

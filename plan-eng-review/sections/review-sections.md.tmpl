@@ -21,6 +21,72 @@ For each issue found in this section, call AskUserQuestion individually. One iss
 
 **STOP.** Do NOT proceed to the next review section, edit the plan file with the proposed fix, or call ExitPlanMode until the user responds. An issue with an "obvious fix" is still an issue and still needs explicit user approval before it lands in the plan. Loading the AskUserQuestion schema via ToolSearch and then writing the recommendation as chat prose is the failure mode this gate exists to prevent.
 
+### Data model review
+
+**Data model honesty:** Does each new model/table have exactly one job? Are there nullable fields whose NULL has semantic meaning ("this row is a different kind of thing")? Are there clusters of columns that always co-vary, suggesting a hidden child model? Does any field on a parent model only have meaning when no child rows exist (parent-field-shadowed-by-child smell)? Is there a JSONField/payload column whose keys-per-variant are knowable and stable at design time (JSONField-hiding-schema smell — promote to explicit columns + CheckConstraints)? When in doubt, normalize — but "in doubt" means genuinely unclear, not "this would add a table." A model that's already cleanly single-purpose, or a denormalization backed by a stated measurement, isn't a smell just because it isn't maximally split.
+
+For every new model, model change, or schema migration in this plan, run through this checklist proactively — don't wait for the user to push back on model shape. Each check is a smell; presence of a smell doesn't mean "reject the plan," it means "surface the tradeoff and recommend the normalized alternative."
+
+**Single Responsibility (SRP for models)**
+- Does this model have exactly one job? Audit ≠ balance ≠ notification ≠ display.
+- If a model is doing N jobs, propose splitting it into N models — unless the "extra job" is a single trivial field with no independent query pattern, write path, or consumer, in which case surface it as a tradeoff rather than mandate the split.
+
+**Nullable with semantic meaning**
+- For every nullable column, ask: does NULL flip what kind of thing this row is?
+- If yes, the model is hiding polymorphism behind sentinels. Decompose or add a CheckConstraint tying the nullability to an explicit type column.
+- Always-meaningful nullables (timestamps, optional notes) are fine.
+
+**Models hiding as columns**
+- For every cluster of 2+ columns, ask: do these always co-vary? Would I ever want column A without column B?
+- If they always co-vary, they belong in their own model.
+- For every column, ask: is this only meaningful when another column has a specific value?
+- If yes, you have polymorphism. Promote to a child model or use a CheckConstraint.
+
+**Parent-field-shadowed-by-child**
+- For every field on a parent model, ask: would a child row of this parent have the same field with case-specific values?
+- If yes, the parent's field belongs on the child. Remove from parent, require ≥1 child row, read via FK navigation.
+
+**JSONField as polymorphism escape hatch**
+- For every JSONField, ask: am I documenting "what keys appear for which variant," and are those variants stable?
+- If yes to both, the JSONField has schema. Promote to explicit columns + CheckConstraints.
+- Legitimate JSONField uses: caching a third-party API response verbatim (webhook payloads, OAuth profiles), a genuinely open-ended user-preferences bag nobody queries into, event/analytics payloads shaped by an external producer, and early-stage schemas whose variants aren't stable yet. None of these are escape hatches — they're cases where the DB genuinely can't add value over the JSON blob.
+
+**FK deletion strategies (CASCADE / PROTECT / SET_NULL)**
+- For every FK, ask: if the parent is deleted, what should happen to this row?
+- CASCADE only when the child only exists BECAUSE of the parent.
+- PROTECT when deleting the parent would silently destroy user-facing state.
+- SET_NULL when the child should outlive the parent (audit/log rows).
+- Never accept the ORM default without thinking.
+
+**Snapshot vs render-live**
+- For every value stored in a model, ask: is this a NUMERIC INPUT to a calculation, or DISPLAY COPY?
+- Numeric inputs to calculations should be SNAPSHOTTED at the moment of the calculation (so math is reproducible later, immune to source drift).
+- Display copy should be rendered at view time from current FK chains (so renames retroactively update history).
+- Mixing the two is a smell.
+
+**Cross-scope FK consistency**
+- For every model with FKs spanning a "scope" (household, tenant, organization), the DB does not enforce that all FKs resolve to the same scope.
+- Add a validation check that all FKs resolve to the same scope.
+- Single-tenant doesn't need it but adding it now is cheap and future-proofs.
+
+**Derived state beats stored state when read is cheap**
+- For every column that could be derived from another column or query, ask: is the derivation cost acceptable for the read pattern?
+- If yes, derive (single source of truth, can't disagree).
+- Only store derived state when read cost is unacceptable.
+
+**Field naming**
+- For every field, ask: does the name describe WHY it exists (semantics) or HOW it works (implementation)?
+- Bad names: order, position, sequence, type, status, value, data, payload, info, meta.
+- Good names: domain words for the actual concept (step, kind, learning_bonus, role).
+
+**Validation: DB constraints over app validation**
+- For every cross-field invariant, prefer a DB CheckConstraint over app-layer validation.
+- Bulk-insert paths often skip app-layer validation entirely. CheckConstraints catch bugs at write time regardless of how the row was inserted.
+
+For each issue found in this section, call AskUserQuestion individually. One issue per call. Present options, state your recommendation, explain WHY. Do NOT batch multiple issues into one AskUserQuestion. Use the preamble's AskUserQuestion Format section. The AskUserQuestion call is a tool_use, not prose — call the tool directly.
+
+**STOP.** Do NOT proceed to the next review section, edit the plan file with the proposed fix, or call ExitPlanMode until the user responds. An issue with an "obvious fix" is still an issue and still needs explicit user approval before it lands in the plan. Loading the AskUserQuestion schema via ToolSearch and then writing the recommendation as chat prose is the failure mode this gate exists to prevent.
+
 {{CONFIDENCE_CALIBRATION}}
 
 ### 2. Code quality review

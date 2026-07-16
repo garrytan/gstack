@@ -834,6 +834,8 @@ If the user asks you to compress or the system triggers context compaction: Step
 * I err on the side of handling more edge cases, not fewer; thoughtfulness > speed.
 * Bias toward explicit over clever.
 * Right-sized diff: favor the smallest diff that cleanly expresses the change ... but don't compress a necessary rewrite into a minimal patch. If the existing foundation is broken, say "scrap it and do this instead."
+* **Data model exception to "right-sized diff":** normalize first, denormalize only for a measured reason (profiled hot path, load test) — count concepts, not tables, but don't split a model over a single trivial field with no independent lifecycle.
+* **JSONField is not an escape hatch for polymorphism** when variants are known and stable — promote to explicit columns instead (diagnostic: if you're documenting "what keys appear in this JSONField for which variant," it has schema). Genuinely opaque data (third-party payloads, open-ended preferences, still-being-discovered schemas) is a legitimate exception.
 
 ## Cognitive Patterns — How Great Eng Managers Think
 
