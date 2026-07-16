@@ -89,10 +89,13 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'plan-ceo-review-expansion-energy': ['plan-ceo-review/**', 'scripts/resolvers/preamble.ts', 'test/fixtures/mode-posture/**', 'test/helpers/llm-judge.ts'],
   'plan-eng-review':           ['plan-eng-review/**'],
   'plan-eng-review-artifact':  ['plan-eng-review/**'],
-  'plan-eng-review-data-model-bias': ['plan-eng-review/**'],
-  'plan-eng-review-data-model-legitimate-json': ['plan-eng-review/**'],
-  'plan-eng-review-data-model-measured-denorm': ['plan-eng-review/**'],
-  'plan-eng-review-data-model-minimal-change': ['plan-eng-review/**'],
+  // Behavior lives partly in test/helpers/e2e-helpers.ts (setupPlanEngReviewFixture,
+  // matchesUnnegated, planEngReviewDataModelPrompt) — without this, a regression
+  // in that shared helper wouldn't get these tests re-selected by diff-based CI.
+  'plan-eng-review-data-model-bias': ['plan-eng-review/**', 'test/helpers/e2e-helpers.ts'],
+  'plan-eng-review-data-model-legitimate-json': ['plan-eng-review/**', 'test/helpers/e2e-helpers.ts'],
+  'plan-eng-review-data-model-measured-denorm': ['plan-eng-review/**', 'test/helpers/e2e-helpers.ts'],
+  'plan-eng-review-data-model-minimal-change': ['plan-eng-review/**', 'test/helpers/e2e-helpers.ts'],
   'plan-review-report':        ['plan-eng-review/**', 'scripts/gen-skill-docs.ts'],
 
   // Plan-mode smoke tests — gate-tier safety regression tests. Each test file

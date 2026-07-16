@@ -134,6 +134,28 @@ export function setupPlanEngReviewFixture(tmpPrefix: string, planMarkdown: strin
 }
 
 /**
+ * Prompt for the data-model-bias/legitimate-json/measured-denorm/minimal-change
+ * E2E blocks (paired with setupPlanEngReviewFixture). Pins the ABSOLUTE path to
+ * the sandboxed SKILL.md and explicitly forbids reading any other SKILL.md —
+ * especially not the operator's globally-installed ~/.claude/skills/gstack —
+ * because plan-eng-review/SKILL.md's own STOP-Read directive references that
+ * absolute path for its carved sections/ file. Without this, a machine that
+ * has gstack installed globally could have the agent read (and get graded
+ * against) the REAL installed skill instead of this branch's copy, silently
+ * defeating the whole point of the sandbox.
+ */
+export function planEngReviewDataModelPrompt(planDir: string, focusSentence: string): string {
+  const skillPath = path.join(planDir, 'plan-eng-review', 'SKILL.md');
+  return `Read the ONLY skill file you may read, this absolute path: ${skillPath}. Do NOT Glob, find, or search for any other SKILL.md anywhere — especially nothing under ~/.claude or /Users. Follow its review workflow for this scenario.
+
+Read plan.md — that's the plan to review. This is a standalone plan document, not a codebase — skip any codebase exploration steps.
+
+Proceed directly to the architecture review section. Skip any AskUserQuestion calls — this is non-interactive. Write your complete architecture review directly to ${planDir}/review-output.md
+
+${focusSentence}`;
+}
+
+/**
  * Case-insensitive check for `pattern` in `text` that ignores matches
  * immediately preceded by a negation word (not/n't/no/never/without/...).
  * Plain substring/regex matching can't tell "extract the payload into
@@ -161,16 +183,27 @@ export function matchesUnnegated(text: string, pattern: RegExp): boolean {
   // alternative can never match mid-word (there's no word boundary between
   // the letters immediately before "n" and "n" itself), so it silently
   // covered nothing beyond the contractions already spelled out explicitly.
-  const NEGATION = /\b(not|no|never|cannot|without|against|rather than|instead of)\b|[a-z]+n't\b/i;
+  // [a-z]+n['’]t matches both the ASCII apostrophe and the typographic
+  // curly one (’, U+2019) — LLM prose commonly renders contractions with the
+  // curly form, and this codebase already hit this exact gotcha once before
+  // (see the apostrophe wildcard note in test/spec-template-invariants.test.ts).
+  const NEGATION = /\b(not|no|never|cannot|without|against|rather than|instead of)\b|[a-z]+n['’]t\b/i;
   const flags = pattern.flags.includes('g') ? pattern.flags : pattern.flags + 'g';
   const re = new RegExp(pattern.source, flags);
+  // Real sentence-ending punctuation is followed by whitespace + a capital
+  // letter, or sits at the end of the string — this excludes periods inside
+  // abbreviations ("e.g.", "i.e.", "etc."), decimals, and version strings,
+  // which a bare lastIndexOf('.') would wrongly treat as a sentence break
+  // and use to hide an earlier negation word from the lookback window.
+  const SENTENCE_END = /[.!?](?=\s+[A-Z]|\s*$)/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text))) {
-    const sentenceStart = Math.max(
-      text.lastIndexOf('.', m.index),
-      text.lastIndexOf('!', m.index),
-      text.lastIndexOf('?', m.index),
-    ) + 1;
+    let sentenceStart = 0;
+    let em: RegExpExecArray | null;
+    SENTENCE_END.lastIndex = 0;
+    while ((em = SENTENCE_END.exec(text)) && em.index < m.index) {
+      sentenceStart = em.index + 1;
+    }
     const preceding = text.slice(sentenceStart, m.index);
     if (!NEGATION.test(preceding)) return true;
     if (re.lastIndex === m.index) re.lastIndex++; // avoid infinite loop on zero-width matches

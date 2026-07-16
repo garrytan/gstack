@@ -78,6 +78,35 @@ describe('matchesUnnegated', () => {
     expect(matchesUnnegated('This cannot promote the payload into columns.', splitPattern)).toBe(false);
   });
 
+  test('recognizes a typographic curly apostrophe ("doesn’t") as a negation', () => {
+    // LLM prose commonly renders contractions with U+2019 rather than the
+    // ASCII apostrophe — a plain [a-z]+n't pattern misses this entirely.
+    expect(matchesUnnegated(
+      'This doesn’t need extraction — promote the payload to explicit columns is unnecessary here.',
+      /promote the payload to explicit columns/i,
+    )).toBe(false);
+  });
+
+  test('does not let an abbreviation period (e.g., i.e., etc.) hide an earlier negation', () => {
+    // A bare lastIndexOf('.') treats every period as a sentence break,
+    // including ones inside abbreviations — which would incorrectly cut the
+    // negation lookback window short and hide "not" from the scan.
+    expect(matchesUnnegated(
+      'I would not recommend, e.g., promoting this payload to explicit columns.',
+      /promoting this payload to explicit columns/i,
+    )).toBe(false);
+  });
+
+  test('still treats a real sentence boundary as a boundary (does not over-widen the window)', () => {
+    // Guards against overcorrecting the abbreviation fix into ignoring
+    // genuine sentence breaks — an earlier, unrelated negation must NOT
+    // suppress a later, unnegated positive match.
+    expect(matchesUnnegated(
+      'This is not a JSONField concern. Separately, I recommend you promote the payload into explicit columns.',
+      /promote the payload into explicit columns/i,
+    )).toBe(true);
+  });
+
   test('catches a positive match even when an unrelated negation appears earlier in the text', () => {
     expect(matchesUnnegated(
       'This is not a JSONField concern. Separately, I recommend you promote the payload into explicit columns.',

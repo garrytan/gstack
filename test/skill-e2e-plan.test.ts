@@ -5,7 +5,7 @@ import {
   describeIfSelected, testConcurrentIfSelected,
   copyDirSync, setupBrowseShims, logCost, recordE2E,
   createEvalCollector, finalizeEvalCollector,
-  setupPlanEngReviewFixture, matchesUnnegated,
+  setupPlanEngReviewFixture, matchesUnnegated, planEngReviewDataModelPrompt,
 } from './helpers/e2e-helpers';
 import { judgePosture } from './helpers/llm-judge';
 import { spawnSync } from 'child_process';
@@ -424,13 +424,10 @@ column-add, no new FK navigation in the codebase.
 
   testConcurrentIfSelected('plan-eng-review-data-model-bias', async () => {
     const result = await runSkillTest({
-      prompt: `Read plan-eng-review/SKILL.md for the review workflow.
-
-Read plan.md — that's the plan to review. This is a standalone plan document, not a codebase — skip any codebase exploration steps.
-
-Proceed directly to the architecture review section. Skip any AskUserQuestion calls — this is non-interactive. Write your complete architecture review directly to ${planDir}/review-output.md
-
-Focus specifically on the data model design in the plan. Apply the data model review checklist from the skill.`,
+      prompt: planEngReviewDataModelPrompt(
+        planDir,
+        'Focus specifically on the data model design in the plan. Apply the data model review checklist from the skill.',
+      ),
       workingDirectory: planDir,
       maxTurns: 15,
       timeout: 360_000,
@@ -543,13 +540,10 @@ response verbatim for audit/replay, not to model our own domain state.
 
   testConcurrentIfSelected('plan-eng-review-data-model-legitimate-json', async () => {
     const result = await runSkillTest({
-      prompt: `Read plan-eng-review/SKILL.md for the review workflow.
-
-Read plan.md — that's the plan to review. This is a standalone plan document, not a codebase — skip any codebase exploration steps.
-
-Proceed directly to the architecture review section. Skip any AskUserQuestion calls — this is non-interactive. Write your complete architecture review directly to ${planDir}/review-output.md
-
-Focus specifically on the data model design in the plan. Apply the data model review checklist from the skill.`,
+      prompt: planEngReviewDataModelPrompt(
+        planDir,
+        'Focus specifically on the data model design in the plan. Apply the data model review checklist from the skill.',
+      ),
       workingDirectory: planDir,
       maxTurns: 15,
       timeout: 360_000,
@@ -643,13 +637,10 @@ not a general schema change.
 
   testConcurrentIfSelected('plan-eng-review-data-model-measured-denorm', async () => {
     const result = await runSkillTest({
-      prompt: `Read plan-eng-review/SKILL.md for the review workflow.
-
-Read plan.md — that's the plan to review. This is a standalone plan document, not a codebase — skip any codebase exploration steps.
-
-Proceed directly to the architecture review section. Skip any AskUserQuestion calls — this is non-interactive. Write your complete architecture review directly to ${planDir}/review-output.md
-
-Focus specifically on the data model design in the plan. Apply the data model review checklist from the skill.`,
+      prompt: planEngReviewDataModelPrompt(
+        planDir,
+        'Focus specifically on the data model design in the plan. Apply the data model review checklist from the skill.',
+      ),
       workingDirectory: planDir,
       maxTurns: 15,
       timeout: 360_000,
@@ -738,13 +729,10 @@ when the verification email link is clicked.
 
   testConcurrentIfSelected('plan-eng-review-data-model-minimal-change', async () => {
     const result = await runSkillTest({
-      prompt: `Read plan-eng-review/SKILL.md for the review workflow.
-
-Read plan.md — that's the plan to review. This is a standalone plan document, not a codebase — skip any codebase exploration steps.
-
-Proceed directly to the architecture review section. Skip any AskUserQuestion calls — this is non-interactive. Write your complete architecture review directly to ${planDir}/review-output.md
-
-Focus specifically on the data model design in the plan. Apply the data model review checklist from the skill.`,
+      prompt: planEngReviewDataModelPrompt(
+        planDir,
+        'Focus specifically on the data model design in the plan. Apply the data model review checklist from the skill.',
+      ),
       workingDirectory: planDir,
       maxTurns: 15,
       timeout: 360_000,
