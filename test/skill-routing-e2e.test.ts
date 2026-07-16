@@ -65,20 +65,23 @@ if (evalsEnabled && process.env.EVALS_TIER) {
  *  install that point to different worktrees or dangling targets. */
 function installSkills(tmpDir: string) {
   const skillDirs = [
-    '', // root gstack SKILL.md
-    'qa', 'qa-only', 'ship', 'review', 'plan-ceo-review', 'plan-eng-review',
-    'plan-design-review', 'design-review', 'design-consultation', 'retro',
-    'document-release', 'investigate', 'office-hours', 'browse', 'setup-browser-cookies',
-    'gstack-upgrade', 'humanizer',
+    { source: '', command: 'gstack' },
+    { source: 'qa' }, { source: 'qa-only' }, { source: 'ship' }, { source: 'review' },
+    { source: 'plan-ceo-review' }, { source: 'plan-eng-review' },
+    { source: 'plan-design-review' }, { source: 'design-review' },
+    { source: 'design-consultation' }, { source: 'retro' },
+    { source: 'document-release' }, { source: 'investigate' }, { source: 'office-hours' },
+    { source: 'browse' }, { source: 'benchmark', command: 'web-performance-benchmark' },
+    { source: 'setup-browser-cookies' }, { source: 'gstack-upgrade' }, { source: 'humanizer' },
   ];
 
   const targetBase = path.join(tmpDir, '.claude', 'skills');
 
   for (const skill of skillDirs) {
-    const srcPath = path.join(ROOT, skill, 'SKILL.md');
+    const srcPath = path.join(ROOT, skill.source, 'SKILL.md');
     if (!fs.existsSync(srcPath)) continue;
 
-    const skillName = skill || 'gstack';
+    const skillName = skill.command || skill.source;
     const destDir = path.join(targetBase, skillName);
     fs.mkdirSync(destDir, { recursive: true });
     fs.copyFileSync(srcPath, path.join(destDir, 'SKILL.md'));
@@ -107,6 +110,7 @@ Key routing rules:
 - Design system, brand → invoke design-consultation
 - Visual audit, design polish → invoke design-review
 - Architecture review → invoke plan-eng-review
+- Web page speed, Core Web Vitals, or performance regression → invoke web-performance-benchmark
 `);
 }
 
@@ -180,6 +184,34 @@ describeE2E('Skill Routing E2E — Developer Journey', () => {
   afterAll(() => {
     evalCollector?.finalize();
   });
+
+  testIfSelected('journey-web-performance-benchmark', async () => {
+    const tmpDir = createRoutingWorkDir('web-performance-benchmark');
+    try {
+      const testName = 'journey-web-performance-benchmark';
+      const expectedSkill = 'web-performance-benchmark';
+      const result = await runSkillTest({
+        prompt: 'Our checkout page got slower after the latest release. Measure Core Web Vitals, compare the current page load against a baseline, and identify any web performance regression.',
+        workingDirectory: tmpDir,
+        maxTurns: 5,
+        allowedTools: ['Skill', 'Read', 'Bash', 'Glob', 'Grep'],
+        timeout: 60_000,
+        testName,
+        runId,
+      });
+
+      const skillCalls = result.toolCalls.filter(tc => tc.tool === 'Skill');
+      const actualSkill = skillCalls[0]?.input?.skill;
+
+      logCost(`journey: ${testName}`, result);
+      recordRouting(testName, result, expectedSkill, actualSkill);
+
+      expect(skillCalls.length, `Expected Skill tool to be called but got 0 calls. Claude may have answered directly without invoking a skill. Tool calls: ${result.toolCalls.map(tc => tc.tool).join(', ')}`).toBeGreaterThan(0);
+      expect(actualSkill).toBe(expectedSkill);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  }, 150_000);
 
   testIfSelected('journey-ideation', async () => {
     const tmpDir = createRoutingWorkDir('ideation');

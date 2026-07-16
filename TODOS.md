@@ -2191,7 +2191,7 @@ Shipped in v0.6.5. TemplateContext in gen-skill-docs.ts bakes skill name into pr
 ### Deploy pipeline (v0.9.8.0)
 - /land-and-deploy — merge PR, wait for CI/deploy, canary verification
 - /canary — post-deploy monitoring loop with anomaly detection
-- /benchmark — performance regression detection with Core Web Vitals
+- /web-performance-benchmark — performance regression detection with Core Web Vitals
 - /setup-deploy — one-time deploy platform configuration
 - /review Performance & Bundle Impact pass
 - E2E model pinning (Sonnet default, Opus for quality tests)

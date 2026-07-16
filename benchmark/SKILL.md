@@ -1,5 +1,5 @@
 ---
-name: gstack-benchmark
+name: web-performance-benchmark
 preamble-tier: 1
 version: 1.0.0
 description: Web page performance regression detection using the browse daemon. (gstack)
@@ -85,7 +85,7 @@ _QUESTION_TUNING=$(~/.claude/skills/gstack/bin/gstack-config get question_tuning
 echo "QUESTION_TUNING: $_QUESTION_TUNING"
 mkdir -p ~/.gstack/analytics
 if [ "$_TEL" != "off" ]; then
-echo '{"skill":"gstack-benchmark","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(_repo=$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null | tr -cd 'a-zA-Z0-9._-'); echo "${_repo:-unknown}")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
+echo '{"skill":"web-performance-benchmark","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(_repo=$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null | tr -cd 'a-zA-Z0-9._-'); echo "${_repo:-unknown}")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 fi
 for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null); do
   if [ -f "$_PF" ]; then
@@ -107,7 +107,7 @@ if [ -f "$_LEARN_FILE" ]; then
 else
   echo "LEARNINGS: 0"
 fi
-~/.claude/skills/gstack/bin/gstack-timeline-log '{"skill":"gstack-benchmark","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
+~/.claude/skills/gstack/bin/gstack-timeline-log '{"skill":"web-performance-benchmark","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
 _HAS_ROUTING="no"
 if [ -f CLAUDE.md ] && grep -q "## Skill routing" CLAUDE.md 2>/dev/null; then
   _HAS_ROUTING="yes"
@@ -572,29 +572,33 @@ If `NEEDS_SETUP`:
    fi
    ```
 
-# /gstack-benchmark - Web Page Performance Regression Detection
+# /web-performance-benchmark - Web Page Performance Regression Detection
 
 You are a **Performance Engineer** who has optimized apps serving millions of requests. You know that performance doesn't degrade in one big regression — it dies by a thousand paper cuts. Each PR adds 50ms here, 20KB there, and one day the app takes 8 seconds to load and nobody knows when it got slow.
 
 Your job is to measure, baseline, compare, and alert. You use the browse daemon's `perf` command and JavaScript evaluation to gather real performance data from running pages.
 
-## Not For
+## Scope
 
-Do not run this skill for the bare word "benchmark" unless the request is clearly
-about web page performance. Skip this skill for model benchmarks, agent evals,
-business benchmark research, product metric design, or atrib behavior-impact
-measurement. For cross-model gstack skill comparisons, use `/benchmark-models`.
+Use this skill for web page speed, Core Web Vitals, resource sizes, and performance
+regressions. Do not use it for model benchmarks, agent evals, business benchmark
+research, product metric design, or atrib behavior-impact measurement. For
+cross-model gstack skill comparisons, use `/benchmark-models`.
 
 ## User-invocable
-When the user types `/gstack-benchmark`, run this skill.
+Use `/web-performance-benchmark` for new work.
+
+Compatibility aliases: `/benchmark` and `/gstack-benchmark` run this same workflow.
+Keep them working for existing users, but use the canonical command in new docs,
+examples, and routing rules.
 
 ## Arguments
-- `/gstack-benchmark <url>` — full performance audit with baseline comparison
-- `/gstack-benchmark <url> --baseline` — capture baseline (run before making changes)
-- `/gstack-benchmark <url> --quick` — single-pass timing check (no baseline needed)
-- `/gstack-benchmark <url> --pages /,/dashboard,/api/health` — specify pages
-- `/gstack-benchmark --diff` — benchmark only pages affected by current branch
-- `/gstack-benchmark --trend` — show performance trends from historical data
+- `/web-performance-benchmark <url>` — full performance audit with baseline comparison
+- `/web-performance-benchmark <url> --baseline` — capture baseline (run before making changes)
+- `/web-performance-benchmark <url> --quick` — single-pass timing check (no baseline needed)
+- `/web-performance-benchmark <url> --pages /,/dashboard,/api/health` — specify pages
+- `/web-performance-benchmark --diff` — benchmark only pages affected by current branch
+- `/web-performance-benchmark --trend` — show performance trends from historical data
 
 ## Instructions
 

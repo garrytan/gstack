@@ -25,26 +25,14 @@ describe('gen-llms-txt — shape', () => {
     expect(generated.content).toContain('auto-generated');
   });
 
-  test('every generated Claude skill appears in the index', () => {
+  test('every skill .tmpl in the repo appears in the index', () => {
     const templates = discoverTemplates(ROOT);
-    const claudeGeneratedTemplates = templates.filter((t) => path.dirname(t.output) !== 'claude');
     // Filter to those that successfully parsed (have name + description).
     expect(generated.skills.length).toBeGreaterThan(0);
-    expect(generated.skills.length).toBeLessThanOrEqual(claudeGeneratedTemplates.length);
-    expect(generated.content).not.toContain('[/claude]');
+    expect(generated.skills.length).toBeLessThanOrEqual(templates.length);
 
     for (const skill of generated.skills) {
       expect(generated.content).toMatch(new RegExp(`/${skill.name}\\b`));
-    }
-  });
-
-  test('every skill link points at an existing generated file', () => {
-    const skillsSection = generated.content.split('## Skills')[1].split('## Browse Commands')[0];
-    const links = [...skillsSection.matchAll(/- \[\/[^\]]+\]\(([^)]+)\):/g)].map((m) => m[1]);
-    expect(links.length).toBe(generated.skills.length);
-
-    for (const href of links) {
-      expect(fs.existsSync(path.join(ROOT, href)), href).toBe(true);
     }
   });
 

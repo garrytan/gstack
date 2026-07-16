@@ -1898,7 +1898,7 @@ If verdict is REVERTED: Tell the user "The merge was reverted. Your changes are 
 
 Then suggest relevant follow-ups:
 - If a production URL was verified: "Want extended monitoring? Run `/canary <url>` to watch the site for the next 10 minutes."
-- If performance data was collected: "Want a deeper performance analysis? Run `/benchmark <url>`."
+- If performance data was collected: "Want a deeper performance analysis? Run `/web-performance-benchmark <url>`."
 - "Need to update docs? Run `/document-release` to sync README, CHANGELOG, and other docs with what you just shipped."
 
 ---
