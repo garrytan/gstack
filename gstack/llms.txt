@@ -31,6 +31,7 @@ Conventions:
 - [/document-release](document-release/SKILL.md): Post-ship documentation update.
 - [/freeze](freeze/SKILL.md): Restrict file edits to a specific directory for the session.
 - [/gstack](gstack/SKILL.md): Router for the gstack skill suite.
+- [/gstack](gstack/SKILL.md): Fast headless browser for QA testing and site dogfooding.
 - [/gstack-upgrade](gstack-upgrade/SKILL.md): Upgrade gstack to the latest version.
 - [/guard](guard/SKILL.md): Full safety mode: destructive command warnings + directory-scoped edits.
 - [/health](health/SKILL.md): Code quality dashboard.
