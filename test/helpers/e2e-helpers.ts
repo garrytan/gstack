@@ -139,15 +139,34 @@ export function setupPlanEngReviewFixture(tmpPrefix: string, planMarkdown: strin
  * Plain substring/regex matching can't tell "extract the payload into
  * columns" from "would NOT extract the payload into columns" — this walks
  * every match and inspects the text just before it for a negation cue.
+ *
+ * The negation lookback scans back to the start of the CURRENT SENTENCE
+ * (the last `.`/`!`/`?` before the match) rather than a fixed character
+ * count. A fixed window (originally 20 chars) is too narrow: the patterns
+ * this is used with have their own internal gaps of up to 80 chars (e.g.
+ * `(verb)[^.]{0,80}payload[^.]{0,80}column`), so a negation word like "not"
+ * can legitimately sit further back in the same sentence than a small fixed
+ * window would see — "I do not think it's worth extracting the payload into
+ * columns" would otherwise be misread as an unnegated recommendation.
+ * Scanning to the sentence boundary matches the same period-bounded
+ * assumption the calling patterns already make.
  */
 export function matchesUnnegated(text: string, pattern: RegExp): boolean {
-  const NEGATION = /\b(not|n't|no|never|don't|doesn't|didn't|shouldn't|wouldn't|isn't|without|against)\b/i;
+  // "rather than"/"instead of" catch contrastive phrasing ("add this field
+  // to the model RATHER THAN create a separate table") — the rejected
+  // alternative can otherwise match the pattern just as strongly as a real
+  // recommendation would, with no single negation word anywhere near it.
+  const NEGATION = /\b(not|n't|no|never|don't|doesn't|didn't|shouldn't|wouldn't|isn't|without|against|rather than|instead of)\b/i;
   const flags = pattern.flags.includes('g') ? pattern.flags : pattern.flags + 'g';
   const re = new RegExp(pattern.source, flags);
   let m: RegExpExecArray | null;
   while ((m = re.exec(text))) {
-    const windowStart = Math.max(0, m.index - 20);
-    const preceding = text.slice(windowStart, m.index);
+    const sentenceStart = Math.max(
+      text.lastIndexOf('.', m.index),
+      text.lastIndexOf('!', m.index),
+      text.lastIndexOf('?', m.index),
+    ) + 1;
+    const preceding = text.slice(sentenceStart, m.index);
     if (!NEGATION.test(preceding)) return true;
     if (re.lastIndex === m.index) re.lastIndex++; // avoid infinite loop on zero-width matches
   }

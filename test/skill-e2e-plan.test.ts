@@ -760,13 +760,16 @@ Focus specifically on the data model design in the plan. Apply the data model re
     const discussesTheField = lower.includes('email_verified_at') || lower.includes('verification');
     // matchesUnnegated so a CORRECT "I would NOT extract a separate model
     // here" answer doesn't trip this check just for containing the words.
+    // Verb list deliberately excludes "add" — "add this new field to the
+    // existing model" is exactly how a CORRECT (inline) recommendation gets
+    // phrased, so including it would false-positive on the desired answer.
     const recommendsSeparateModel = matchesUnnegated(
       review,
-      /(extract|split|promote|create)[^.]{0,60}(separate|new|dedicated)[^.]{0,40}(model|table)/i,
+      /(extract|split|promote|create|introduce|build|spin[- ]?out|break[- ]?out)[^.]{0,60}(separate|new|dedicated)[^.]{0,40}(model|table)/i,
     ) || matchesUnnegated(review, /separate\s+email\s*verification\s*model/i);
     const acceptsInlineAddition =
-      /(keep|stay|remain|fine|appropriate|correct|reasonable|no need)[^.]{0,60}(inline|as[- ]is|single column|one column|single field)/i.test(review) ||
-      /(single|one)\s+(trivial\s+)?field[^.]{0,60}(no|without)[^.]{0,40}(independent|separate)/i.test(review) ||
+      matchesUnnegated(review, /(keep|stay|remain|fine|appropriate|correct|reasonable|no need)[^.]{0,60}(inline|as[- ]is|single column|one column|single field)/i) ||
+      matchesUnnegated(review, /(single|one)\s+(trivial\s+)?field[^.]{0,60}(no|without)[^.]{0,40}(independent|separate)/i) ||
       /doesn'?t (need|require|warrant)[^.]{0,40}(a\s+)?(separate|new|dedicated)[^.]{0,40}(model|table)/i.test(review);
 
     recordE2E(evalCollector, '/plan-eng-review-data-model-minimal-change', 'Plan Eng Review Data-Model Minimal Change E2E', result, {
