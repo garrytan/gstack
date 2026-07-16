@@ -71,7 +71,10 @@ function installSkills(tmpDir: string) {
     { source: 'plan-design-review' }, { source: 'design-review' },
     { source: 'design-consultation' }, { source: 'retro' },
     { source: 'document-release' }, { source: 'investigate' }, { source: 'office-hours' },
-    { source: 'browse' }, { source: 'benchmark', command: 'web-performance-benchmark' },
+    { source: 'browse' },
+    { source: 'benchmark', command: 'web-performance-benchmark' },
+    { source: 'benchmark', command: 'benchmark' },
+    { source: 'benchmark', command: 'gstack-benchmark' },
     { source: 'setup-browser-cookies' }, { source: 'gstack-upgrade' }, { source: 'humanizer' },
   ];
 
@@ -111,6 +114,7 @@ Key routing rules:
 - Visual audit, design polish → invoke design-review
 - Architecture review → invoke plan-eng-review
 - Web page speed, Core Web Vitals, or performance regression → invoke web-performance-benchmark
+- /benchmark and /gstack-benchmark are compatibility aliases for web-performance-benchmark
 `);
 }
 
@@ -192,6 +196,34 @@ describeE2E('Skill Routing E2E — Developer Journey', () => {
       const expectedSkill = 'web-performance-benchmark';
       const result = await runSkillTest({
         prompt: 'Our checkout page got slower after the latest release. Measure Core Web Vitals, compare the current page load against a baseline, and identify any web performance regression.',
+        workingDirectory: tmpDir,
+        maxTurns: 5,
+        allowedTools: ['Skill', 'Read', 'Bash', 'Glob', 'Grep'],
+        timeout: 60_000,
+        testName,
+        runId,
+      });
+
+      const skillCalls = result.toolCalls.filter(tc => tc.tool === 'Skill');
+      const actualSkill = skillCalls[0]?.input?.skill;
+
+      logCost(`journey: ${testName}`, result);
+      recordRouting(testName, result, expectedSkill, actualSkill);
+
+      expect(skillCalls.length, `Expected Skill tool to be called but got 0 calls. Claude may have answered directly without invoking a skill. Tool calls: ${result.toolCalls.map(tc => tc.tool).join(', ')}`).toBeGreaterThan(0);
+      expect(actualSkill).toBe(expectedSkill);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  }, 150_000);
+
+  testIfSelected('journey-web-performance-benchmark-legacy-alias', async () => {
+    const tmpDir = createRoutingWorkDir('web-performance-benchmark-legacy-alias');
+    try {
+      const testName = 'journey-web-performance-benchmark-legacy-alias';
+      const expectedSkill = 'web-performance-benchmark';
+      const result = await runSkillTest({
+        prompt: 'Run /benchmark for the checkout page. Compare the current Core Web Vitals against the baseline and identify any performance regression.',
         workingDirectory: tmpDir,
         maxTurns: 5,
         allowedTools: ['Skill', 'Read', 'Bash', 'Glob', 'Grep'],
