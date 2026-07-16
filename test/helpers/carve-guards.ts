@@ -144,11 +144,11 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     },
     behavioral: 'external',
     externalTest: 'test/skill-e2e-plan-ceo-review-section-loading.test.ts',
-    // Data-model bias fix (garrytan/gstack#1048) adds the "right-sized diff" schema
-    // exception + JSONField-polymorphism warning to the always-loaded preferences
-    // list, then review feedback narrowed both bullets and added legitimate-JSON /
-    // measured-denormalization counterexamples — pushes past the prior 90_000 budget.
-    maxSkeletonBytes: 92_000,
+    // Data-model bias fix (garrytan/gstack#1048): the schema-normalization bullets
+    // were dropped from plan-ceo-review entirely per PR #1071 review feedback (CEO
+    // review stays high-level on "right-sized diff"; data-model pushback belongs to
+    // plan-eng-review) — this skill is back to its original, unchanged budget.
+    maxSkeletonBytes: 90_000,
     minUnionBytes: 80_000,
     mustContain: ['SCOPE EXPANSION', 'SELECTIVE EXPANSION', 'HOLD SCOPE', 'SCOPE REDUCTION'],
     // Default-on Codex outside-voice (codexPreflight block + CODEX_MODE branch
@@ -168,23 +168,20 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     },
     behavioral: 'plan',
     // v1.2.0 activation lift (shared first-run-guidance preamble) + #2077 ask-first scope gate.
-    // Data-model bias fix (garrytan/gstack#1048) adds the schema-normalization
-    // preference exception + JSONField warning + 3 cognitive patterns (Codd/Knuth/
-    // Beck normalize-first, Martin SRP-for-models, structure-beats-blobs) to the
-    // always-loaded skeleton, then review feedback narrowed the absolute language
-    // and added legitimate-JSON / measured-denormalization counterexamples —
-    // pushes past the prior 67_000 budget.
-    maxSkeletonBytes: 70_000,
+    // Data-model bias fix (garrytan/gstack#1048) adds a terse schema-normalization
+    // preference exception + JSONField warning to the always-loaded skeleton (the
+    // 3 cognitive patterns and the Architecture-review checklist detail were moved
+    // out per PR #1071 review feedback — trimmed to fit within the original budget).
+    maxSkeletonBytes: 67_500,
     minUnionBytes: 70_000,
     mustContain: ['Architecture', 'Code Quality', 'Test', 'Performance'],
     // Cross-cutting preamble growth (v1.57.2.0 AUQ-failure prose fallback + the
     // decision-memory nudge + the v1.57.4.0 Boil-the-Ocean rename) plus the
     // default-on Codex outside-voice (codexPreflight block + CODEX_MODE branch
     // prose, replacing the smaller opt-in question) land this at ~6.6% over the
-    // v1.53.0.0 baseline. Headroom for those intentional additions. The data-model
-    // bias fix (garrytan/gstack#1048) adds another ~6.5% on top for the same
-    // preferences/cognitive-pattern additions noted above.
-    maxSizeRatio: 1.15,
+    // v1.53.0.0 baseline (~6.6%), plus the data-model bias fix's terse remaining
+    // preference bullets (garrytan/gstack#1048) push this to ~12.6% measured.
+    maxSizeRatio: 1.13,
   },
   'plan-design-review': {
     skill: 'plan-design-review',

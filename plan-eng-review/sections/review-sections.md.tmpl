@@ -13,12 +13,17 @@ Evaluate:
 * Data flow patterns and potential bottlenecks.
 * Scaling characteristics and single points of failure.
 * Security architecture (auth, data access, API boundaries).
-* **Data model honesty:** Does each new model/table have exactly one job? Are there nullable fields whose NULL has semantic meaning ("this row is a different kind of thing")? Are there clusters of columns that always co-vary, suggesting a hidden child model? Does any field on a parent model only have meaning when no child rows exist (parent-field-shadowed-by-child smell)? Is there a JSONField/payload column whose keys-per-variant are knowable and stable at design time (JSONField-hiding-schema smell — promote to explicit columns + CheckConstraints)? When in doubt, normalize — but "in doubt" means genuinely unclear, not "this would add a table." A model that's already cleanly single-purpose, or a denormalization backed by a stated measurement, isn't a smell just because it isn't maximally split.
 * Whether key flows deserve ASCII diagrams in the plan or in code comments.
 * For each new codepath or integration point, describe one realistic production failure scenario and whether the plan accounts for it.
 * **Distribution architecture:** If this introduces a new artifact (binary, package, container), how does it get built, published, and updated? Is the CI/CD pipeline part of the plan or deferred?
 
-#### Data model review checklist
+For each issue found in this section, call AskUserQuestion individually. One issue per call. Present options, state your recommendation, explain WHY. Do NOT batch multiple issues into one AskUserQuestion. Use the preamble's AskUserQuestion Format section. The AskUserQuestion call is a tool_use, not prose — call the tool directly.
+
+**STOP.** Do NOT proceed to the next review section, edit the plan file with the proposed fix, or call ExitPlanMode until the user responds. An issue with an "obvious fix" is still an issue and still needs explicit user approval before it lands in the plan. Loading the AskUserQuestion schema via ToolSearch and then writing the recommendation as chat prose is the failure mode this gate exists to prevent.
+
+### Data model review
+
+**Data model honesty:** Does each new model/table have exactly one job? Are there nullable fields whose NULL has semantic meaning ("this row is a different kind of thing")? Are there clusters of columns that always co-vary, suggesting a hidden child model? Does any field on a parent model only have meaning when no child rows exist (parent-field-shadowed-by-child smell)? Is there a JSONField/payload column whose keys-per-variant are knowable and stable at design time (JSONField-hiding-schema smell — promote to explicit columns + CheckConstraints)? When in doubt, normalize — but "in doubt" means genuinely unclear, not "this would add a table." A model that's already cleanly single-purpose, or a denormalization backed by a stated measurement, isn't a smell just because it isn't maximally split.
 
 For every new model, model change, or schema migration in this plan, run through this checklist proactively — don't wait for the user to push back on model shape. Each check is a smell; presence of a smell doesn't mean "reject the plan," it means "surface the tradeoff and recommend the normalized alternative."
 

@@ -1985,9 +1985,11 @@ describe('Bundled browser-skills frontmatter contract', () => {
 // refactor (templates regenerated, sections rewritten), the bias returns silently.
 // Static grep beats LLM judge here because the real failure mode is "bullet
 // silently deleted during an unrelated edit," which greps catch in milliseconds.
+// plan-ceo-review deliberately does NOT carry these bullets (PR #1071 review
+// feedback: CEO review should stay high-level on "right-sized diff"; data-model
+// pushback is plan-eng-review's job) — no guardrails for plan-ceo-review here.
 describe('data-model bias guardrails', () => {
   const engReview = fs.readFileSync(path.join(ROOT, 'plan-eng-review', 'SKILL.md'), 'utf-8');
-  const ceoReview = fs.readFileSync(path.join(ROOT, 'plan-ceo-review', 'SKILL.md'), 'utf-8');
   // Architecture review content renders into sections/review-sections.md (the skeleton
   // points at it), not the always-loaded SKILL.md skeleton — see the Codex-outside-voice
   // guardrail above for the same pattern.
@@ -1996,24 +1998,12 @@ describe('data-model bias guardrails', () => {
 
   test('plan-eng-review preserves the "data model exception to right-sized diff" bullet', () => {
     expect(engReview).toContain('Data model exception to "right-sized diff"');
-    expect(engReview).toContain('Count concepts, not tables');
+    expect(engReview).toContain('count concepts, not tables');
   });
 
   test('plan-eng-review preserves the JSONField polymorphism warning', () => {
     expect(engReview).toContain('JSONField is not an escape hatch for polymorphism');
     expect(engReview).toContain('what keys appear in this JSONField for which variant');
-  });
-
-  test('plan-eng-review preserves the Normalize-first cognitive pattern', () => {
-    expect(engReview).toContain('Normalize first, denormalize for measured reasons');
-  });
-
-  test('plan-eng-review preserves the SRP-for-data-models cognitive pattern', () => {
-    expect(engReview).toContain('Single Responsibility Principle applies to data models');
-  });
-
-  test('plan-eng-review preserves the Structure-beats-blobs cognitive pattern', () => {
-    expect(engReview).toContain('Structure beats blobs for known polymorphism');
   });
 
   test('plan-eng-review Architecture section preserves Data model honesty check', () => {
@@ -2022,8 +2012,8 @@ describe('data-model bias guardrails', () => {
     expect(engReviewSections).toContain('JSONField-hiding-schema');
   });
 
-  test('plan-eng-review preserves the Data model review checklist subsection', () => {
-    expect(engReviewSections).toContain('Data model review checklist');
+  test('plan-eng-review preserves the Data model review section', () => {
+    expect(engReviewSections).toContain('### Data model review');
     // A few load-bearing checklist items — if any disappear, the checklist was gutted
     expect(engReviewSections).toContain('Single Responsibility (SRP for models)');
     expect(engReviewSections).toContain('Nullable with semantic meaning');
@@ -2032,21 +2022,12 @@ describe('data-model bias guardrails', () => {
     expect(engReviewSections).toContain('Snapshot vs render-live');
   });
 
-  test('plan-eng-review cognitive patterns list is contiguous 1–18', () => {
+  test('plan-eng-review cognitive patterns list is contiguous 1–15', () => {
     // If someone inserts/removes a pattern without renumbering, catch it here
-    for (let i = 1; i <= 18; i++) {
+    for (let i = 1; i <= 15; i++) {
       expect(engReview).toMatch(new RegExp(`^${i}\\. \\*\\*`, 'm'));
     }
-    // And item 19 should NOT exist (the list ends at 18)
-    expect(engReview).not.toMatch(/^19\. \*\*/m);
-  });
-
-  test('plan-ceo-review preserves the "data model exception to right-sized diff" bullet', () => {
-    expect(ceoReview).toContain('Data model exception to "right-sized diff"');
-    expect(ceoReview).toContain('Count concepts, not tables');
-  });
-
-  test('plan-ceo-review preserves the JSONField polymorphism warning', () => {
-    expect(ceoReview).toContain('JSONField is not an escape hatch for polymorphism');
+    // And item 16 should NOT exist (the list ends at 15)
+    expect(engReview).not.toMatch(/^16\. \*\*/m);
   });
 });
