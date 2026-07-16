@@ -22,6 +22,7 @@ import {
   slate,
   cursor,
   openclaw,
+  agy,
 } from '../hosts/index';
 import { HOST_PATHS } from '../scripts/resolvers/types';
 
@@ -53,6 +54,7 @@ describe('hosts/index.ts', () => {
     expect(slate.name).toBe('slate');
     expect(cursor.name).toBe('cursor');
     expect(openclaw.name).toBe('openclaw');
+    expect(agy.name).toBe('agy');
   });
 
   test('getHostConfig returns correct config', () => {
@@ -533,6 +535,34 @@ describe('host config correctness', () => {
       expect(config.runtimeRoot.globalSymlinks.length).toBeGreaterThan(0);
       expect(config.runtimeRoot.globalSymlinks).toContain('bin');
       expect(config.runtimeRoot.globalSymlinks).toContain('ETHOS.md');
+    }
+  });
+});
+
+// ─── agy specific tests ─────────────────────────────────────
+
+describe('agy specific config', () => {
+  test('agy has correct global root path', () => {
+    expect(agy.globalRoot).toBe('.gemini/config/skills/gstack');
+  });
+
+  test('agy has correct local skill root', () => {
+    expect(agy.localSkillRoot).toBe('.agents/skills/gstack');
+  });
+
+  test('agy runtime root includes all expected sidecars', () => {
+    expect(agy.runtimeRoot.globalSymlinks).toContain('bin');
+    expect(agy.runtimeRoot.globalSymlinks).toContain('browse/dist');
+    expect(agy.runtimeRoot.globalSymlinks).toContain('ETHOS.md');
+  });
+
+  test('agy skill generation produces at least one SKILL.md', () => {
+    const agySkillDir = path.join(ROOT, '.agy', 'skills');
+    if (fs.existsSync(agySkillDir)) {
+      const skills = fs.readdirSync(agySkillDir, { withFileTypes: true });
+      const hasSkillMd = skills.some(d => d.isDirectory() &&
+        fs.existsSync(path.join(agySkillDir, d.name, 'SKILL.md')));
+      expect(hasSkillMd).toBe(true);
     }
   });
 });
