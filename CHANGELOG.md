@@ -19,7 +19,7 @@ Ask `/plan-eng-review` to review a schema change and it will push back on mergin
 - `/plan-eng-review`: three new cognitive patterns (normalize-first, SRP-for-data-models, structure-beats-blobs-for-known-polymorphism).
 
 #### For contributors
-- New periodic-tier E2E evals exercising all three review-feedback categories end-to-end: a plan that should trigger pushback (polymorphic data inlined with JSONField), one that shouldn't (a legitimate third-party payload cache), one testing measured denormalization is accepted, and one testing a minimal single-field addition isn't over-split.
+- New periodic-tier E2E evals, all against `/plan-eng-review` (not yet `/plan-ceo-review` — tracked as a follow-up in TODOS.md), exercising all three review-feedback categories end-to-end: a plan that should trigger pushback (polymorphic data inlined with JSONField), one that shouldn't (a legitimate third-party payload cache), one testing measured denormalization is accepted, and one testing a minimal single-field addition isn't over-split.
 - New free unit tests for the negation-aware text matcher these evals rely on (`test/helpers/e2e-helpers.test.ts`), covering sentence-boundary scanning, curly-apostrophe contractions, contrastive phrasing ("rather than"/"instead of"), and markdown-bullet clause boundaries — all real gaps found across four rounds of specialist and adversarial review during this branch's own `/ship`.
 - Extracted shared E2E fixture setup (`setupPlanEngReviewFixture`) and a hermetic, absolute-path-pinned prompt builder (`planEngReviewDataModelPrompt`) so these new tests can't accidentally grade against a machine's globally-installed skill instead of the branch under test.
 
