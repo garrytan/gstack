@@ -30,6 +30,14 @@ bin/*        text eol=lf
 *.mjs        text eol=lf
 *.cjs        text eol=lf
 
+# Runtime and generated iOS assets are copied byte-for-byte and hash-pinned in
+# the GStack 2 provenance manifests. Keep their source bytes platform-neutral
+# so a Windows checkout cannot turn CRLF conversion into generated drift.
+*.swift      text eol=lf
+*.h          text eol=lf
+*.m          text eol=lf
+*.template   text eol=lf
+
 # Binary files — never touch.
 *.png        binary
 *.jpg        binary

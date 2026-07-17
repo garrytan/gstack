@@ -15,6 +15,14 @@ describe('GStack 2 skill parity', () => {
       .toBe(blobShaForPath('cso/SKILL.md.tmpl'));
   });
 
+  test('pins hash-provenance asset sources to LF on every checkout', () => {
+    const attributes = readFileSync(join(ROOT, '.gitattributes'), 'utf8');
+    const normalizedLines = attributes.split(/\r?\n/).map((line) => line.trim().replace(/\s+/g, ' '));
+    for (const pattern of ['*.swift', '*.h', '*.m', '*.template']) {
+      expect(normalizedLines).toContain(`${pattern} text eol=lf`);
+    }
+  });
+
   test('preserves the pinned specialist corpus and generated evidence', () => {
     const result = runParity();
     expect(result.sources).toBe(55);
