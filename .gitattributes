@@ -8,6 +8,7 @@
 *.yaml       text eol=lf
 *.json       text eol=lf
 *.toml       text eol=lf
+*.txt        text eol=lf
 
 # Bash scripts must always use LF — CRLF in bash scripts produces bizarre
 # "Bad interpreter" / "command not found" errors on Linux runners.
