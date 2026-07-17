@@ -47,6 +47,9 @@ export type BootstrapResult =
   | { ok: false; error: BootstrapErrorReason; detail?: string };
 
 export type BootstrapErrorReason =
+  | 'device_discovery_unavailable'
+  | 'device_discovery_failed'
+  | 'device_discovery_bad_response'
   | 'no_devices'
   | 'no_paired_device'
   | 'device_not_found'
@@ -71,12 +74,21 @@ export async function bootstrapTunnel(opts: BootstrapOptions): Promise<Bootstrap
   const fetchFn = opts.fetchImpl ?? fetch;
 
   // Step 1: pick a device
-  const devices = listDevices(spawn);
+  const listed = listDevices(spawn);
+  if (!listed.ok) {
+    const error: BootstrapErrorReason = listed.error === 'devicectl_unavailable'
+      ? 'device_discovery_unavailable'
+      : listed.error === 'devicectl_bad_response'
+        ? 'device_discovery_bad_response'
+        : 'device_discovery_failed';
+    return { ok: false, error, detail: listed.detail };
+  }
+  const devices = listed.devices;
   if (devices.length === 0) {
     return { ok: false, error: 'no_devices' };
   }
   const target = opts.udid
-    ? devices.find((d) => d.identifier === opts.udid)
+    ? devices.find((d) => d.identifier === opts.udid || d.hardwareUdid === opts.udid)
     : devices.find((d) => d.paired) ?? devices[0];
   if (!target) {
     return { ok: false, error: 'device_not_found', detail: opts.udid };
@@ -166,6 +178,7 @@ export async function bootstrapTunnel(opts: BootstrapOptions): Promise<Bootstrap
     ok: true,
     tunnel: {
       udid: target.identifier,
+      bundleId: opts.bundleId,
       ipv6Addr: ipv6,
       port,
       bootTokenRotated: rotatedToken,

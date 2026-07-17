@@ -81,6 +81,37 @@ describe('bootstrapTunnel', () => {
     if (!r.ok) expect(r.error).toBe('no_devices');
   });
 
+  test('does not misclassify a devicectl failure as no_devices', async () => {
+    const spawn = makeSpawn([
+      {
+        argsMatch: /devicectl list devices/,
+        exitCode: 1,
+        stderr: 'xcrun: error: unable to find utility devicectl',
+      },
+    ]);
+    const r = await bootstrapTunnel({ bundleId: 'com.test', spawnImpl: spawn });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.error).toBe('device_discovery_failed');
+      expect(r.detail).toContain('devicectl');
+    }
+  });
+
+  test('does not turn malformed devicectl JSON into an empty successful list', async () => {
+    const spawn = makeSpawn([
+      {
+        argsMatch: /devicectl list devices/,
+        jsonOutput: { result: { unexpected: [] } },
+      },
+    ]);
+    const r = await bootstrapTunnel({ bundleId: 'com.test', spawnImpl: spawn });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.error).toBe('device_discovery_bad_response');
+      expect(r.detail).toContain('result.devices');
+    }
+  });
+
   test('returns no_paired_device when device is connected but not paired', async () => {
     const spawn = makeSpawn([
       {
@@ -225,6 +256,7 @@ describe('bootstrapTunnel', () => {
       expect(r.tunnel.udid).toBe('TEST-UDID');
       expect(r.tunnel.ipv6Addr).toBe('fd99::beef');
       expect(r.tunnel.port).toBe(9999);
+      expect(r.tunnel.bundleId).toBe('com.test');
       expect(r.tunnel.bootTokenRotated).toMatch(/^[A-Za-z0-9_-]+$/);
       expect(r.tunnel.bootTokenRotated).not.toBe('BOOT-TOKEN-XYZ-123');
       expect(r.tunnel.bootTokenRotated.length).toBeGreaterThan(20);
@@ -265,39 +297,39 @@ describe('bootstrapTunnel', () => {
     if (!r.ok) expect(r.error).toBe('resolve_failed');
   });
 
-  test('respects explicit udid when set', async () => {
+  test('accepts a hardware UDID but uses the matching CoreDevice UUID for commands', async () => {
     const spawn = makeSpawn([
       {
         argsMatch: /devicectl list devices/,
         jsonOutput: {
           result: { devices: [
             { identifier: 'A', connectionProperties: { tunnelState: 'connected', pairingState: 'paired' }, deviceProperties: { name: 'A' }, hardwareProperties: { productType: 'iPhone18,2' } },
-            { identifier: 'B', connectionProperties: { tunnelState: 'connected', pairingState: 'paired' }, deviceProperties: { name: 'B' }, hardwareProperties: { productType: 'iPhone18,2' } },
+            { identifier: 'COREDEVICE-B', connectionProperties: { tunnelState: 'connected', pairingState: 'paired' }, deviceProperties: { name: 'B' }, hardwareProperties: { productType: 'iPhone18,2', udid: 'HARDWARE-B' } },
           ] },
         },
       },
       {
-        argsMatch: /devicectl device info processes -d B/,
+        argsMatch: /devicectl device info processes -d COREDEVICE-B/,
         jsonOutput: { result: { runningProcesses: [{ executable: 'file:///var/containers/Bundle/Application/X/com.test.app/com.test' }] } },
       },
       {
-        argsMatch: /devicectl device info details --device B/,
+        argsMatch: /devicectl device info details --device COREDEVICE-B/,
         jsonOutput: { result: { connectionProperties: { tunnelIPAddress: 'fd00::b' } } },
       },
       {
-        argsMatch: /devicectl device copy from --device B/,
+        argsMatch: /devicectl device copy from --device COREDEVICE-B/,
         destOutput: 'TOKEN\n',
       },
     ]);
     const r = await bootstrapTunnel({
-      udid: 'B',
+      udid: 'HARDWARE-B',
       bundleId: 'com.test',
       spawnImpl: spawn,
       resolveImpl: async () => ['fd00::b'],
       fetchImpl: (async () => new Response('{"ok":true}', { status: 200 })) as typeof fetch,
     });
     expect(r.ok).toBe(true);
-    if (r.ok) expect(r.tunnel.udid).toBe('B');
+    if (r.ok) expect(r.tunnel.udid).toBe('COREDEVICE-B');
   });
 });
 

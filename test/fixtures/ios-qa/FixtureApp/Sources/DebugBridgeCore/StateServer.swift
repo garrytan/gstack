@@ -284,6 +284,7 @@ public final class StateServer {
                 "version": "1.0.0",
                 "build": appBuildId,
                 "accessor_hash": accessorHash,
+                "bundle_id": Bundle.main.bundleIdentifier ?? "unknown",
             ])
             return
         }
@@ -511,12 +512,35 @@ public final class StateServer {
 
     private func handleMutation(connection: NWConnection, request: ParsedRequest, op: String) {
         guard requireSession(in: request, connection: connection) else { return }
+        let bundleBefore = Bundle.main.bundleIdentifier ?? "unknown"
+        if let expected = request.headers["x-gstack-expected-bundle-id"], expected != bundleBefore {
+            send(connection: connection, status: 409, body: [
+                "error": "active_bundle_mismatch",
+                "expected_bundle": expected,
+                "active_bundle": bundleBefore,
+            ])
+            return
+        }
         guard let payload = try? JSONSerialization.jsonObject(with: request.body) as? JSONDict else {
             send(connection: connection, status: 400, body: ["error": "invalid_json"])
             return
         }
         let ok = MutationBridge.dispatch(op: op, payload: payload)
-        send(connection: connection, status: ok ? 200 : 400, body: ["op": op, "ok": ok])
+        let bundleAfter = Bundle.main.bundleIdentifier ?? "unknown"
+        guard bundleAfter == bundleBefore else {
+            send(connection: connection, status: 409, body: [
+                "error": "active_bundle_changed",
+                "before_bundle": bundleBefore,
+                "after_bundle": bundleAfter,
+            ])
+            return
+        }
+        send(connection: connection, status: ok ? 200 : 400, body: [
+            "op": op,
+            "ok": ok,
+            "active_bundle_before": bundleBefore,
+            "active_bundle_after": bundleAfter,
+        ])
     }
 
     // MARK: Response

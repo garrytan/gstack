@@ -13,6 +13,7 @@ const MAX_BODY = 1_048_576; // 1MB hard cap on tailnet ingress
 
 export interface DeviceTunnel {
   udid: string;
+  bundleId?: string;
   ipv6Addr: string;
   port: number;
   bootTokenRotated: string; // the rotated bearer the daemon uses to talk to StateServer
@@ -33,6 +34,7 @@ export async function proxyToDevice(opts: {
   tunnel: DeviceTunnel;
   sessionId: string | null;
   agentIdentity?: string;
+  timeoutMs?: number;
 }): Promise<{ status: number; headers: Record<string, string>; body: Buffer }> {
   const { inbound, body, tunnel, sessionId, agentIdentity } = opts;
   if (body.length > MAX_BODY) {
@@ -46,6 +48,9 @@ export async function proxyToDevice(opts: {
   };
   if (sessionId) headers['x-session-id'] = sessionId;
   if (agentIdentity) headers['x-agent-identity'] = agentIdentity;
+  if (tunnel.bundleId && isCoordinateMutation(inbound.method, inbound.url)) {
+    headers['x-gstack-expected-bundle-id'] = tunnel.bundleId;
+  }
 
   // Bracket IPv6 literals; pass IPv4 + hostnames bare. The CoreDevice tunnel
   // is always IPv6 in production, but tests inject 127.0.0.1 to talk to a
@@ -54,11 +59,17 @@ export async function proxyToDevice(opts: {
   const isIPv6 = (tunnel.ipv6Addr.match(/:/g)?.length ?? 0) >= 2;
   const hostPart = isIPv6 ? `[${tunnel.ipv6Addr}]` : tunnel.ipv6Addr;
   const url = `http://${hostPart}:${tunnel.port}${inbound.url ?? '/'}`;
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (result: { status: number; headers: Record<string, string>; body: Buffer }) => {
+      if (settled) return;
+      settled = true;
+      resolve(result);
+    };
     const req = httpRequest(url, {
       method: inbound.method,
       headers,
-      timeout: 30_000,
+      timeout: opts.timeoutMs ?? 30_000,
     }, (res) => {
       const chunks: Buffer[] = [];
       res.on('data', (c) => chunks.push(c));
@@ -67,26 +78,39 @@ export async function proxyToDevice(opts: {
         for (const [k, v] of Object.entries(res.headers)) {
           if (typeof v === 'string') respHeaders[k] = v;
         }
-        resolve({
+        finish({
           status: res.statusCode ?? 502,
           headers: respHeaders,
           body: Buffer.concat(chunks),
         });
       });
+      res.on('aborted', () => finish(makeError(503, 'device_disconnected')));
+    });
+    req.on('timeout', () => {
+      // Node's request timeout is advisory: without destroying the socket it
+      // can hang forever while a suspended app keeps the CoreDevice route but
+      // stops servicing HTTP. Resolve first, then destroy; the resulting error
+      // event is ignored by the settled guard.
+      finish(makeError(504, 'upstream_timeout'));
+      req.destroy();
     });
     req.on('error', (err) => {
       const e = err as { code?: string };
       if (e.code === 'ECONNREFUSED' || e.code === 'EHOSTUNREACH') {
-        resolve(makeError(503, 'device_disconnected'));
+        finish(makeError(503, 'device_disconnected'));
       } else if (e.code === 'ETIMEDOUT') {
-        resolve(makeError(504, 'upstream_timeout'));
+        finish(makeError(504, 'upstream_timeout'));
       } else {
-        reject(err);
+        finish(makeError(502, 'upstream_error'));
       }
     });
     req.write(body);
     req.end();
   });
+}
+
+function isCoordinateMutation(method: string | undefined, path: string | undefined): boolean {
+  return method === 'POST' && path !== undefined && ['/tap', '/swipe', '/type'].includes(path.split('?')[0]!);
 }
 
 function makeError(status: number, error: string): { status: number; headers: Record<string, string>; body: Buffer } {

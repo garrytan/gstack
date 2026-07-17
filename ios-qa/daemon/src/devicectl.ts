@@ -10,12 +10,23 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 
 export interface DeviceEntry {
+  /** CoreDevice UUID used by `devicectl --device`. */
   identifier: string;
+  /** Hardware UDID shown by Xcode and commonly supplied by users/CI. */
+  hardwareUdid: string | null;
   name: string;
   model: string;
   state: string; // "connected" | "available" | "available (paired)" | ...
   paired: boolean;
 }
+
+export type DeviceListResult =
+  | { ok: true; devices: DeviceEntry[] }
+  | {
+      ok: false;
+      error: 'devicectl_unavailable' | 'devicectl_failed' | 'devicectl_bad_response';
+      detail: string;
+    };
 
 export interface SpawnImpl {
   (cmd: string, args: string[]): SpawnSyncReturns<Buffer>;
@@ -66,29 +77,59 @@ const legacyResolve6: ResolveImpl = async (hostname) => {
  * List devices currently known to CoreDevice. Includes connected, paired,
  * and pairing-in-progress devices.
  */
-export function listDevices(spawn: SpawnImpl = defaultSpawn): DeviceEntry[] {
+export function listDevices(spawn: SpawnImpl = defaultSpawn): DeviceListResult {
   const tmp = join(tmpdir(), `devicectl-list-${process.pid}-${Date.now()}.json`);
   try {
     const r = spawn('xcrun', ['devicectl', 'list', 'devices', '--json-output', tmp]);
-    if (r.status !== 0) return [];
+    if (r.error) {
+      const code = (r.error as NodeJS.ErrnoException).code;
+      return {
+        ok: false,
+        error: code === 'ENOENT' ? 'devicectl_unavailable' : 'devicectl_failed',
+        detail: code ? `${code}: ${r.error.message}` : r.error.message,
+      };
+    }
+    if (r.status !== 0) {
+      const stderr = r.stderr?.toString().trim();
+      return {
+        ok: false,
+        error: 'devicectl_failed',
+        detail: stderr || `devicectl exited ${r.status ?? 'without a status'}`,
+      };
+    }
     const raw = readFileSync(tmp, 'utf-8');
     const obj = JSON.parse(raw);
-    const list = (obj.result?.devices ?? []) as Array<Record<string, unknown>>;
-    return list.map((d) => {
+    const list = obj?.result?.devices;
+    if (!Array.isArray(list)) {
+      return {
+        ok: false,
+        error: 'devicectl_bad_response',
+        detail: 'JSON response is missing result.devices[]',
+      };
+    }
+    const devices = (list as Array<Record<string, unknown>>).map((d) => {
       const conn = d.connectionProperties as Record<string, unknown> | undefined;
       const props = d.deviceProperties as Record<string, unknown> | undefined;
       const hw = d.hardwareProperties as Record<string, unknown> | undefined;
       const pairingState = String(conn?.pairingState ?? '');
+      const identifier = String(d.identifier ?? '');
+      if (!identifier) throw new Error('device entry is missing identifier');
       return {
-        identifier: String(d.identifier ?? ''),
+        identifier,
+        hardwareUdid: typeof hw?.udid === 'string' && hw.udid ? hw.udid : null,
         name: String(props?.name ?? 'unknown'),
         model: String(hw?.productType ?? 'unknown'),
         state: String(conn?.tunnelState ?? 'unknown'),
         paired: pairingState === 'paired',
       };
     });
-  } catch {
-    return [];
+    return { ok: true, devices };
+  } catch (err) {
+    return {
+      ok: false,
+      error: 'devicectl_bad_response',
+      detail: err instanceof Error ? err.message : String(err),
+    };
   } finally {
     try { rmSync(tmp, { force: true }); } catch { /* ignore */ }
   }
