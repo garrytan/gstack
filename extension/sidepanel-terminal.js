@@ -39,7 +39,17 @@
     ended: document.getElementById('terminal-ended'),
     restart: document.getElementById('terminal-restart'),
     restartNow: document.getElementById('terminal-restart-now'),
+    fontSize: document.getElementById('terminal-fontsize'),
   };
+
+  // Sidebar text-size selector. sm = 13px is the shipped default (do not change it — it is
+  // what every existing session renders at); the others step around it. Persisted per user
+  // in chrome.storage.local and applied to the live xterm.
+  const FONT_SIZES = { xs: 11, sm: 13, md: 15, lg: 17, xl: 20 };
+  const FONT_SIZE_DEFAULT = 'sm';
+  const FONT_SIZE_KEY = 'terminalFontSize';
+  let fontSizeKey = FONT_SIZE_DEFAULT; // the chosen T-shirt size; px comes from FONT_SIZES
+  const fontPx = () => FONT_SIZES[fontSizeKey] || FONT_SIZES[FONT_SIZE_DEFAULT];
 
   /** State machine. */
   const STATE = {
@@ -392,7 +402,7 @@
     if (term) return;
     term = new Terminal({
       fontFamily: '"JetBrains Mono", "SF Mono", Menlo, "Noto Sans Mono CJK KR", "Malgun Gothic", monospace',
-      fontSize: 13,
+      fontSize: fontPx(), // the persisted size (default 13 = sm); see FONT_SIZES
       theme: { background: '#0a0a0a', foreground: '#e5e5e5' },
       cursorBlink: true,
       scrollback: 5000,
@@ -930,6 +940,40 @@
     //     force a fresh claude mid-session without waiting for it to exit).
     els.restart?.addEventListener('click', forceRestart);
     els.restartNow?.addEventListener('click', forceRestart);
+
+    // Re-measure the terminal and tell the PTY its new size. Same body the first-fit and the
+    // ResizeObserver use — a bare fitAddon.fit() is not enough: without the resize message
+    // claude keeps wrapping to the old cols/rows.
+    const refitTerminal = () => {
+      try {
+        fitAddon && fitAddon.fit();
+        if (term && ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+        }
+      } catch {}
+    };
+
+    // Sidebar text-size selector: restore the saved size, then apply on change. Changing the
+    // font is asynchronous inside xterm — it re-measures the character cell on the next render
+    // frame, so fitting in the same tick reads the OLD cell and leaves the grid clipped (the
+    // bug that made a live change need a close/reopen). Two rAFs let the new metrics land
+    // before we fit + resize. If the terminal isn't up yet, ensureXterm reads fontPx() at
+    // creation, so no refit is needed then.
+    const applyFontSize = (key, persist) => {
+      fontSizeKey = FONT_SIZES[key] ? key : FONT_SIZE_DEFAULT;
+      if (els.fontSize) els.fontSize.value = fontSizeKey;
+      if (term) {
+        term.options.fontSize = fontPx();
+        requestAnimationFrame(() => requestAnimationFrame(refitTerminal));
+      }
+      if (persist) { try { chrome.storage.local.set({ [FONT_SIZE_KEY]: fontSizeKey }); } catch {} }
+    };
+    els.fontSize?.addEventListener('change', (e) => applyFontSize(e.target.value, true));
+    try {
+      chrome.storage.local.get([FONT_SIZE_KEY], (r) => applyFontSize(r?.[FONT_SIZE_KEY] || FONT_SIZE_DEFAULT, false));
+    } catch {
+      applyFontSize(FONT_SIZE_DEFAULT, false);
+    }
 
 
     // Live browser-tab state. background.js → sidepanel.js → us. We

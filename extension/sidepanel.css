@@ -719,6 +719,38 @@ body::after {
   color: #f59e0b;
   border-color: #f59e0b;
 }
+/* Right cluster: text-size selector + Restart, kept together on the toolbar's right end. */
+.terminal-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.terminal-fontsize {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  color: #a1a1aa;
+}
+/* The glyph is a size hint, not decoration — a small 'A' beside the picker. */
+.terminal-fontsize-icon {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  line-height: 1;
+}
+.terminal-fontsize select {
+  background: #0a0a0a;
+  color: #a1a1aa;
+  border: 1px solid #27272a;
+  border-radius: 3px;
+  padding: 3px 4px;
+  font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
+  cursor: pointer;
+  color-scheme: dark; /* keep the native option list dark, not a white flash over the panel */
+}
+.terminal-fontsize select:hover { color: #f59e0b; border-color: #f59e0b; }
+.terminal-fontsize select:focus-visible { outline: 2px solid #f59e0b; outline-offset: 1px; }
 .terminal-bootstrap {
   flex: 1;
   display: flex;
