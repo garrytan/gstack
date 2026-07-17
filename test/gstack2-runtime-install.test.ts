@@ -173,8 +173,8 @@ describe("GStack 2 managed runtime installer", () => {
       const browserDependencies = await runCommand("node", [
         "--input-type=module",
         "--eval",
-        'await import("@anthropic-ai/sdk"); await import("sharp"); await import("@ngrok/ngrok");',
-      ], { capture: true, cwd: result.path });
+        'await import("@anthropic-ai/sdk"); await import("sharp"); await import("@ngrok/ngrok"); process.exit(0);',
+      ], { capture: true, cwd: result.path, timeoutMs: 15_000 });
       expect(browserDependencies.code).toBe(0);
 
       const next = await runCommand(path.join(home, "bin", "gstack-next-version"), ["--help"], { capture: true });
@@ -195,6 +195,31 @@ describe("GStack 2 managed runtime installer", () => {
       expect(await fs.readFile(path.join(home, "security", "semantic-reviews.jsonl"), "utf8")).toContain('"outcome":"clean"');
     }, { createDefaultSource: false });
   }, 30_000);
+
+  test("bounded subprocess execution confirms a timed-out command has exited", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "gstack-command-timeout-"));
+    const pidPath = path.join(root, "pid.txt");
+    try {
+      await expect(runCommand(process.execPath, [
+        "--eval",
+        `require("node:fs").writeFileSync(${JSON.stringify(pidPath)}, String(process.pid)); setInterval(() => {}, 1000);`,
+      ], {
+        capture: true,
+        timeoutMs: 1_500,
+      })).rejects.toMatchObject({ code: "INSTALL_COMMAND_TIMEOUT", timeoutMs: 1_500 });
+
+      const pid = Number(await fs.readFile(pidPath, "utf8"));
+      let alive = true;
+      try {
+        process.kill(pid, 0);
+      } catch {
+        alive = false;
+      }
+      expect(alive).toBe(false);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
 
   test("selects one deterministic native dependency closure per supported host", () => {
     expect(runtimeNativePackagePaths({ platform: "darwin", arch: "arm64" })).toEqual([
@@ -515,16 +540,18 @@ describe("GStack 2 managed runtime installer", () => {
 
   test("default runtime smoke explicitly invokes Node, not the host running the installer", async () => {
     await withFixture(async ({ source, home }) => {
-      const calls: Array<{ command: string; args: string[] }> = [];
+      const calls: Array<{ command: string; args: string[]; options: { timeoutMs?: number } }> = [];
       await installFixture(source, home, "1.0.0", {
-        runCommand: async (command: string, args: string[]) => {
-          calls.push({ command, args });
+        commandTimeoutMs: 4_321,
+        runCommand: async (command: string, args: string[], options: { timeoutMs?: number }) => {
+          calls.push({ command, args, options });
           if (args[0] === "--version") return { code: 0, stdout: "v20.18.0\n", stderr: "" };
           return { code: 0, stdout: "gstack runtime fixture\n", stderr: "" };
         },
       });
       expect(calls).toHaveLength(2);
       expect(calls.every((call) => call.command === "node")).toBe(true);
+      expect(calls.every((call) => call.options.timeoutMs === 4_321)).toBe(true);
       expect(calls[0].args).toEqual(["--version"]);
     });
   });

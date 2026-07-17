@@ -415,7 +415,10 @@ export class ContextClient {
     const controller = new AbortController();
     const timeoutMs = options.timeoutMs ?? this.timeoutMs;
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
-    timeout.unref?.();
+    // This timer is part of the public operation contract, so keep it
+    // referenced until the request settles. Bun on Windows may otherwise
+    // leave a caller awaiting an unresolving fetch/body without delivering
+    // the unref'ed abort timer.
     let response;
     try {
       try {
@@ -733,7 +736,9 @@ function raceWithAbort(promise, signal) {
 async function withTimeout(promise, timeoutMs) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  timeout.unref?.();
+  // Keep the deadline referenced while the caller is awaiting `promise`.
+  // An unref'ed timer is only appropriate for optional background cleanup;
+  // this timer is the mechanism that guarantees the operation completes.
   try {
     return await raceWithAbort(promise, controller.signal);
   } finally {

@@ -349,6 +349,7 @@ export async function installManagedRuntime(options = {}) {
             version,
             nodeCommand: options.nodeCommand ?? process.env.GSTACK_NODE ?? "node",
             run: options.runCommand ?? runCommand,
+            commandTimeoutMs: options.commandTimeoutMs,
           });
         },
         beforeActivate: async ({ active, previous, previousExists, destination }) => {
@@ -549,7 +550,8 @@ export async function validateRuntimeBundle(directory, context = {}) {
 export async function smokeRuntimeBundle(directory, options = {}) {
   const command = options.nodeCommand ?? process.env.GSTACK_NODE ?? "node";
   const run = options.run ?? runCommand;
-  const version = await run(command, ["--version"], { capture: true });
+  const timeoutMs = options.commandTimeoutMs ?? 15_000;
+  const version = await run(command, ["--version"], { capture: true, timeoutMs });
   const versionText = `${version?.stdout ?? ""}${version?.stderr ?? ""}`.trim();
   const nodeMajor = Number(versionText.match(/v?(\d+)\./)?.[1]);
   if (!Number.isInteger(nodeMajor) || nodeMajor < 18) {
@@ -558,6 +560,7 @@ export async function smokeRuntimeBundle(directory, options = {}) {
   const result = await run(command, [path.join(directory, "bin", "gstack"), "--version"], {
     cwd: directory,
     capture: true,
+    timeoutMs,
   });
   if (!/gstack/i.test(`${result?.stdout ?? ""}${result?.stderr ?? ""}`)) {
     throw installError("Runtime launcher smoke test returned an unexpected response", "INSTALL_SMOKE_FAILED");
@@ -573,8 +576,8 @@ export async function smokeRuntimeBundle(directory, options = {}) {
       await run(command, [
         "--input-type=module",
         "--eval",
-        nativeImports.map((packageName) => `await import(${JSON.stringify(packageName)});`).join(" "),
-      ], { cwd: directory, capture: true });
+        `${nativeImports.map((packageName) => `await import(${JSON.stringify(packageName)});`).join(" ")} process.exit(0);`,
+      ], { cwd: directory, capture: true, timeoutMs });
     } catch (cause) {
       throw installError("Runtime native dependency smoke test failed", "INSTALL_SMOKE_FAILED", cause);
     }
@@ -1271,9 +1274,46 @@ export function runCommand(command, args, options = {}) {
     child.stderr?.setEncoding("utf8");
     child.stdout?.on("data", (chunk) => { stdout += chunk; });
     child.stderr?.on("data", (chunk) => { stderr += chunk; });
-    child.once("error", reject);
+    let settled = false;
+    let timeout = null;
+    let killGrace = null;
+    let timeoutError = null;
+    const finish = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      if (timeout) clearTimeout(timeout);
+      if (killGrace) clearTimeout(killGrace);
+      callback(value);
+    };
+    const timeoutMs = Number(options.timeoutMs);
+    const killGraceMs = Number.isFinite(Number(options.killGraceMs)) && Number(options.killGraceMs) > 0
+      ? Number(options.killGraceMs)
+      : 5_000;
+    child.once("error", (error) => {
+      if (!timeoutError) return finish(reject, error);
+      // A kill error is evidence that termination is not yet confirmed. Keep
+      // waiting for `exit` or the bounded kill-grace deadline.
+      timeoutError.cause ??= error;
+    });
     child.once("exit", (code, signal) => {
-      if (code === 0) resolve({ code, stdout, stderr });
+      if (!timeoutError && timeout) {
+        clearTimeout(timeout);
+        timeout = null;
+      }
+      // A timeout is not complete until the direct child is confirmed dead.
+      // Timed installer probes are deliberately single-process commands; this
+      // helper does not claim to supervise commands that daemonize descendants.
+      if (timeoutError) {
+        timeoutError.exitCode = code;
+        timeoutError.signal = signal;
+        child.stdout?.destroy();
+        child.stderr?.destroy();
+        finish(reject, timeoutError);
+      }
+    });
+    child.once("close", (code, signal) => {
+      if (timeoutError) return finish(reject, timeoutError);
+      if (code === 0) finish(resolve, { code, stdout, stderr });
       else {
         const error = new Error(`Command failed (${signal ?? code}): ${command} ${args.join(" ")}`);
         error.code = "INSTALL_COMMAND_FAILED";
@@ -1281,9 +1321,29 @@ export function runCommand(command, args, options = {}) {
         error.signal = signal;
         error.stdout = stdout;
         error.stderr = stderr;
-        reject(error);
+        finish(reject, error);
       }
     });
+    if (Number.isFinite(timeoutMs) && timeoutMs > 0) {
+      timeout = setTimeout(() => {
+        timeoutError = new Error(`Command timed out after ${timeoutMs}ms: ${command}`);
+        timeoutError.code = "INSTALL_COMMAND_TIMEOUT";
+        timeoutError.timeoutMs = timeoutMs;
+        try {
+          child.kill("SIGKILL");
+        } catch (cause) {
+          timeoutError.cause = cause;
+        }
+        killGrace = setTimeout(() => {
+          const error = new Error(`Timed-out command did not terminate within ${killGraceMs}ms: ${command}`);
+          error.code = "INSTALL_COMMAND_KILL_TIMEOUT";
+          error.timeoutMs = timeoutMs;
+          error.killGraceMs = killGraceMs;
+          error.cause = timeoutError;
+          finish(reject, error);
+        }, killGraceMs);
+      }, timeoutMs);
+    }
   });
 }
 
