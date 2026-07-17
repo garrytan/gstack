@@ -54,7 +54,7 @@ describe("GStack 2 managed runtime installer", () => {
       const result = await installFixture(source, home, "2.0.1");
 
       expect(result.path).toBe(path.join(home, "versions", "2.0.1"));
-      const launched = await runCommand(path.join(home, "bin", "gstack"), ["version"], { capture: true });
+      const launched = await runInstalledLauncher(home, "gstack", ["version"], { capture: true });
       expect(launched.stdout).toContain("gstack fixture");
     }, { createDefaultSource: false });
   });
@@ -177,18 +177,18 @@ describe("GStack 2 managed runtime installer", () => {
       ], { capture: true, cwd: result.path, timeoutMs: 15_000 });
       expect(browserDependencies.code).toBe(0);
 
-      const next = await runCommand(path.join(home, "bin", "gstack-next-version"), ["--help"], { capture: true });
+      const next = await runInstalledLauncher(home, "gstack-next-version", ["--help"], { capture: true });
       expect(next.stdout).toContain("Usage: gstack-next-version");
       const sourced = await runCommand("bash", ["-c", '. "$1"; type read_secret_to_env', "_", path.join(home, "bin", "gstack-gbrain-lib.sh")], { capture: true });
       expect(sourced.stdout).toContain("read_secret_to_env");
-      const syncAlias = await runCommand(path.join(home, "bin", "gstack-gbrain-sync"), ["--help"], { capture: true });
+      const syncAlias = await runInstalledLauncher(home, "gstack-gbrain-sync", ["--help"], { capture: true });
       expect(`${syncAlias.stdout}${syncAlias.stderr}`).toContain("gstack-gbrain-sync");
       const syncTypeScriptAlias = await runCommand("bun", [path.join(home, "bin", "gstack-gbrain-sync.ts"), "--help"], { capture: true });
       expect(`${syncTypeScriptAlias.stdout}${syncTypeScriptAlias.stderr}`).toContain("gstack-gbrain-sync");
 
       const body = path.join(home, "audit-body.txt");
       await fs.writeFile(body, "safe body\n");
-      await runCommand(path.join(home, "bin", "gstack-redact-audit-log"), [
+      await runInstalledLauncher(home, "gstack-redact-audit-log", [
         '{"repo_visibility":"public","outcome":"clean","categories_flagged":[]}',
         body,
       ], { capture: true, env: { ...process.env, GSTACK_HOME: home } });
@@ -333,15 +333,15 @@ describe("GStack 2 managed runtime installer", () => {
   test("stable POSIX and Windows launchers resolve the active version", async () => {
     await withFixture(async ({ source, home }) => {
       await installFixture(source, home, "1.0.0");
-      const first = await runCommand(path.join(home, "bin", "gstack"), ["doctor"], { capture: true });
+      const first = await runInstalledLauncher(home, "gstack", ["doctor"], { capture: true });
       expect(first.stdout).toContain("gstack fixture doctor");
 
       await fs.writeFile(path.join(source, "runtime", "cli.js"), fixtureCli("second"));
       await installFixture(source, home, "2.0.0");
-      const second = await runCommand(path.join(home, "bin", "gstack"), ["doctor"], { capture: true });
+      const second = await runInstalledLauncher(home, "gstack", ["doctor"], { capture: true });
       expect(second.stdout).toContain("gstack fixture second doctor");
 
-      const capability = await runCommand(path.join(home, "bin", "fixture-tool"), ["hello world"], { capture: true });
+      const capability = await runInstalledLauncher(home, "fixture-tool", ["hello world"], { capture: true });
       expect(capability.stdout).toContain("fixture capability hello world");
       const windowsLauncher = await fs.readFile(path.join(home, "bin", "gstack.cmd"), "utf8");
       expect(windowsLauncher).toContain("%~dp0gstack-launcher.mjs");
@@ -362,7 +362,7 @@ describe("GStack 2 managed runtime installer", () => {
         lastKnownGood: "1.0.0",
       }, null, 2)}\n`);
 
-      const launched = await runCommand(path.join(home, "bin", "gstack"), ["doctor"], { capture: true });
+      const launched = await runInstalledLauncher(home, "gstack", ["doctor"], { capture: true });
       expect(launched.stdout).toContain("gstack fixture doctor");
       expect(launched.stdout).not.toContain("candidate");
       expect(await readJson(path.join(home, "versions", "current.json"))).toMatchObject({
@@ -418,7 +418,7 @@ describe("GStack 2 managed runtime installer", () => {
       expect(await readJson(path.join(home, "versions", "current.json"))).toEqual(pointerBefore);
       expect(await fs.readFile(path.join(home, "runtime-install.json"), "utf8")).toBe(manifestBefore);
       expect(await fs.readFile(path.join(home, "bin", "gstack"), "utf8")).toBe(launcherBefore);
-      const launched = await runCommand(path.join(home, "bin", "gstack"), ["doctor"], { capture: true });
+      const launched = await runInstalledLauncher(home, "gstack", ["doctor"], { capture: true });
       expect(launched.stdout).toContain("gstack fixture doctor");
     });
   });
@@ -458,7 +458,7 @@ describe("GStack 2 managed runtime installer", () => {
         hostname: os.hostname(),
       })}\n`);
 
-      const launched = await runCommand(path.join(home, "bin", "gstack"), ["doctor"], { capture: true });
+      const launched = await runInstalledLauncher(home, "gstack", ["doctor"], { capture: true });
       expect(launched.stdout).toContain("gstack fixture doctor");
       expect(await readJson(path.join(home, "versions", "current.json"))).toEqual(pointer);
       expect(await fs.readFile(path.join(home, "runtime-install.json"))).toEqual(manifest);
@@ -728,6 +728,21 @@ async function installFixture(source: string, home: string, version: string, ove
     capabilities: CAPABILITIES,
     ...overrides,
   });
+}
+
+function runInstalledLauncher(
+  home: string,
+  name: string,
+  args: string[],
+  options: Record<string, unknown> = {},
+) {
+  if (!/^[A-Za-z0-9._-]+$/.test(name)) throw new TypeError("Invalid installed launcher name");
+  if (process.platform === "win32") {
+    return runCommand(process.env.ComSpec || "cmd.exe", [
+      "/d", "/s", "/c", "call", path.join(home, "bin", `${name}.cmd`), ...args,
+    ], options);
+  }
+  return runCommand(path.join(home, "bin", name), args, options);
 }
 
 async function createSource(source: string) {
