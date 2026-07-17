@@ -1,11 +1,20 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { blobShaForPath, pinnedRevisionPath } from '../scripts/gstack2/render-legacy';
 import { runParity } from '../scripts/gstack2/run-parity';
 
 const ROOT = join(import.meta.dir, '..');
 
 describe('GStack 2 skill parity', () => {
+  test('normalizes Windows-style repository paths for pinned Git lookups', () => {
+    const windowsPath = String.raw`cso\SKILL.md.tmpl`;
+    expect(pinnedRevisionPath(windowsPath))
+      .toBe(pinnedRevisionPath('cso/SKILL.md.tmpl'));
+    expect(blobShaForPath(windowsPath))
+      .toBe(blobShaForPath('cso/SKILL.md.tmpl'));
+  });
+
   test('preserves the pinned specialist corpus and generated evidence', () => {
     const result = runParity();
     expect(result.sources).toBe(55);

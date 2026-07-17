@@ -13,6 +13,7 @@ import { BrowserManager } from '../src/browser-manager';
 import { resolveConfig } from '../src/config';
 import * as crypto from 'crypto';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 
 /**
@@ -236,6 +237,54 @@ describe('buildFetchHandler factory contract', () => {
     expect(typeof handle.fetchTunnel).toBe('function');
     expect(typeof handle.shutdown).toBe('function');
     expect(typeof handle.stopListeners).toBe('function');
+  });
+
+  test('shutdown revokes its credential state before awaiting browser teardown', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'browse-shutdown-revoke-'));
+    const stateFile = path.join(root, '.gstack', 'browse.json');
+    fs.mkdirSync(path.dirname(stateFile), { recursive: true });
+    fs.writeFileSync(stateFile, JSON.stringify({ token: 'must-not-survive-sigint' }), { mode: 0o600 });
+
+    let releaseClose: (() => void) | undefined;
+    const slowBrowserManager = {
+      ...makeMockBrowserManager('launched'),
+      close: () => new Promise<void>((resolve) => { releaseClose = resolve; }),
+    };
+    const exitMock = mock((_code?: number) => {});
+    const originalExit = process.exit;
+    (process as any).exit = exitMock;
+    __testInternals__.resetShutdownState();
+    try {
+      const handle = buildFetchHandler(makeMinimalConfig({
+        config: resolveConfig({ BROWSE_STATE_FILE: stateFile }),
+        browserManager: slowBrowserManager as any,
+      }));
+      const pendingShutdown = handle.shutdown();
+
+      expect(fs.existsSync(stateFile)).toBe(false);
+      const duringShutdown = await handle.fetchLocal(new Request('http://localhost/refs', {
+        headers: { authorization: 'Bearer must-not-survive-sigint' },
+      }), {});
+      expect(duringShutdown.status).toBe(503);
+      expect(await duringShutdown.json()).toEqual({ error: 'Shutting down' });
+      const healthDuringShutdown = await handle.fetchLocal(
+        new Request('http://localhost/health'),
+        {},
+      );
+      expect(healthDuringShutdown.status).toBe(503);
+      expect(await healthDuringShutdown.text()).not.toContain('must-not-survive-sigint');
+      for (let attempt = 0; attempt < 20 && !releaseClose; attempt += 1) {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
+      expect(releaseClose).toBeDefined();
+      releaseClose!();
+      await pendingShutdown;
+      expect(exitMock).toHaveBeenCalledWith(0);
+    } finally {
+      __testInternals__.resetShutdownState();
+      (process as any).exit = originalExit;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 
   test('2a. cfg.authToken authenticates /health (positive — bearer accepted)', async () => {

@@ -21,7 +21,10 @@ trap cleanup EXIT INT TERM
 REPO="$ROOT/source tree"
 HOME_DIR="$ROOT/runtime home"
 mkdir -p "$REPO"
-cp -a "$SOURCE/." "$REPO/"
+# Do not preserve the bind mount's numeric ownership. Git correctly rejects a
+# copied repository whose .git directory still belongs to the host runner,
+# even though the destination itself was created inside the container.
+cp -R "$SOURCE/." "$REPO/"
 rm -rf "$REPO/node_modules"
 rm -f \
   "$REPO/browse/dist/browse" "$REPO/browse/dist/browse.exe" \
@@ -47,9 +50,15 @@ test ! -e "$REPO/node_modules/onnxruntime-node"
   node --input-type=module --eval 'await import("@anthropic-ai/sdk"); await import("sharp"); await import("@ngrok/ngrok");'
 )
 
-"$HOME_DIR/bin/gstack" setup
-"$HOME_DIR/bin/gstack" doctor --json
-"$HOME_DIR/bin/gstack" --version
+(
+  # Exercise project identity against the disposable, container-owned copy.
+  # The workflow checkout is a read-only host bind mount whose ownership is
+  # intentionally not trusted by Git inside the container.
+  cd "$REPO"
+  "$HOME_DIR/bin/gstack" setup
+  "$HOME_DIR/bin/gstack" doctor --json
+  "$HOME_DIR/bin/gstack" --version
+)
 ACTIVE_VERSION="$(jq -r .current "$HOME_DIR/versions/current.json")"
 test -x "$HOME_DIR/versions/$ACTIVE_VERSION/browse/dist/browse"
 test -x "$HOME_DIR/bin/browse"

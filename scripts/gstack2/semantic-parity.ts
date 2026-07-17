@@ -5,7 +5,14 @@ import * as path from 'node:path';
 import { contractFor, assignmentBySource } from './assignments';
 import { overlaysForSource } from './bug-fix-overlays';
 import { extractLegacyBody, normalizeGolden } from './run-parity';
-import { legacySections, renderLegacyBody, renderPortedLegacyBody, renderPortedLegacySection, ROOT } from './render-legacy';
+import {
+  legacySections,
+  renderLegacyBody,
+  renderPortedLegacyBody,
+  renderPortedLegacySection,
+  repositoryRelativePath,
+  ROOT,
+} from './render-legacy';
 import { routeAndAuthorize, routeStructured } from './route';
 import {
   AUTHORITY_POLICY_CASES,
@@ -111,7 +118,7 @@ function deterministicTranscript(execution: SemanticExecution) {
         allowed_difference: 'Package-local skill, section, support-artifact, and stable runtime path relocation only.',
       },
       candidate: {
-        target_path: path.relative(ROOT, candidateFile),
+        target_path: repositoryRelativePath(candidateFile),
         rendered_legacy_body_sha256: sha256(candidate),
         semantic_signature: candidateSignature,
       },
@@ -168,7 +175,7 @@ function sectionTranscript() {
     return {
       source_path: section.relativePath,
       parent_source: section.source,
-      target_path: path.relative(ROOT, target),
+      target_path: repositoryRelativePath(target),
       baseline_render_sha256: sha256(section.rendered),
       ported_render_sha256: sha256(ported),
       candidate_occurrences: occurrences,

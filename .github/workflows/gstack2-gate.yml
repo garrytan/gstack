@@ -37,6 +37,8 @@ jobs:
           git config --global user.name "GStack 2 CI"
           git config --global init.defaultBranch main
       - run: bun install --frozen-lockfile
+      - name: Prove generation from an artifact-free checkout
+        run: bun run verify:gstack2-clean-generation
       - name: Canonical six-skill, parity, state, and runtime gates
         run: bun run test:gstack2
       - name: Standard installer discovery

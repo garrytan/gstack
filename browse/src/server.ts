@@ -1571,17 +1571,32 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
   // Factory-scoped validateAuth. Closes over cfg.authToken so every internal
   // auth check sees the same token the routes receive. Module-level
   // validateAuth was deleted in v1.35.0.0.
+  let acceptingRequests = true;
   function validateAuth(req: Request): boolean {
     const header = req.headers.get('authorization');
-    return header === `Bearer ${authToken}`;
+    return acceptingRequests && header === `Bearer ${authToken}`;
   }
 
   // Factory-scoped shutdown. Closes the cfg-provided browserManager so
   // embedders that pass their own BrowserManager get correct teardown.
   // Module-level shutdown was deleted in v1.35.0.0.
   async function shutdown(exitCode: number = 0) {
-    if (isShuttingDown) return;
+    if (!acceptingRequests || isShuttingDown) return;
+    // Close the in-memory authorization gate before deleting discovery state
+    // or awaiting teardown. Existing listeners may remain bound briefly while
+    // Chromium flushes, but no new request can use the root/scoped token or
+    // reach an unauthenticated endpoint that returns the root token.
+    acceptingRequests = false;
     isShuttingDown = true;
+
+    // Revoke the root bearer before the first await. A SIGINT can terminate
+    // the Bun process while buffer flushing or Chromium teardown is still in
+    // flight; leaving browse.json until the end strands a live credential for
+    // a daemon that no longer exists. The path must come from this factory's
+    // config so embedded/isolated servers never clean a sibling session.
+    const shutdownStateFile = cfg.config.stateFile;
+    const shutdownStateDir = path.dirname(shutdownStateFile);
+    safeUnlinkQuiet(shutdownStateFile);
 
     console.log('[browse] Shutting down...');
     if (ownsTerminalAgent) {
@@ -1590,15 +1605,14 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
       // sessions on the same host. Only the PID recorded in
       // `<stateDir>/terminal-agent-pid` by THIS daemon's agent is signaled.
       try {
-        const stateDir = path.dirname(config.stateFile);
-        const record = readAgentRecord(stateDir);
+        const record = readAgentRecord(shutdownStateDir);
         if (record) killAgentByRecord(record, 'SIGTERM');
       } catch (err: any) {
         console.warn('[browse] Failed to kill terminal-agent:', err.message);
       }
-      safeUnlinkQuiet(path.join(path.dirname(config.stateFile), 'terminal-port'));
-      safeUnlinkQuiet(path.join(path.dirname(config.stateFile), 'terminal-internal-token'));
-      safeUnlinkQuiet(agentRecordPath(path.dirname(config.stateFile)));
+      safeUnlinkQuiet(path.join(shutdownStateDir, 'terminal-port'));
+      safeUnlinkQuiet(path.join(shutdownStateDir, 'terminal-internal-token'));
+      safeUnlinkQuiet(agentRecordPath(shutdownStateDir));
     }
     try { detachSession(); } catch (err: any) {
       console.warn('[browse] Failed to detach CDP session:', err.message);
@@ -1613,7 +1627,7 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
     await cfgBrowserManager.close();
 
     cleanSingletonLocks(resolveChromiumProfile());
-    safeUnlinkQuiet(config.stateFile);
+    safeUnlinkQuiet(shutdownStateFile);
     process.exit(exitCode);
   }
 
@@ -1667,6 +1681,12 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
 
 
   const makeFetchHandler = (surface: Surface) => async (req: Request): Promise<Response> => {
+    if (!acceptingRequests) {
+      return new Response(JSON.stringify({ error: 'Shutting down' }), {
+        status: 503,
+        headers: { 'Content-Type': 'application/json', 'Connection': 'close' },
+      });
+    }
     const url = new URL(req.url);
 
     // ─── Tunnel surface filter (runs before any route dispatch) ──

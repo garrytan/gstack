@@ -30,6 +30,13 @@ describe("GStack 2 CI supply-chain and browser smoke", () => {
     for (const reference of actionRefs) expect(reference).toMatch(/^[0-9a-f]{40}$/);
   });
 
+  test("proves clean-checkout generation before the native GStack 2 gate", () => {
+    const cleanProbe = workflow.indexOf("run: bun run verify:gstack2-clean-generation");
+    const nativeGate = workflow.indexOf("run: bun run test:gstack2");
+    expect(cleanProbe).toBeGreaterThan(-1);
+    expect(nativeGate).toBeGreaterThan(cleanProbe);
+  });
+
   test("mounts the checkout read-only for every development-container run", () => {
     const workspaceMounts = [...workflow.matchAll(/--volume "\$\{\{ github\.workspace \}\}:([^"]+)"/g)]
       .map((match) => match[1]);
@@ -131,6 +138,22 @@ touch node_modules/container-only
     expect(smoke).toContain('"$HOME_DIR/bin/browse" click "#verify"');
     expect(smoke).toContain('grep -F "verified:GStack 2"');
     expect(smoke).toContain('"$HOME_DIR/bin/browse" screenshot "$ROOT/runtime-full.png"');
+  });
+
+  test("runs installed runtime probes from the disposable copy without weakening Git trust", () => {
+    expect(smoke).toContain('cp -R "$SOURCE/." "$REPO/"');
+    expect(smoke).not.toContain('cp -a "$SOURCE/." "$REPO/"');
+    expect(smoke).toContain(`(
+  # Exercise project identity against the disposable, container-owned copy.
+  # The workflow checkout is a read-only host bind mount whose ownership is
+  # intentionally not trusted by Git inside the container.
+  cd "$REPO"
+  "$HOME_DIR/bin/gstack" setup
+  "$HOME_DIR/bin/gstack" doctor --json
+  "$HOME_DIR/bin/gstack" --version
+)`);
+    expect(smoke).not.toMatch(/git config[^\n]*safe\.directory/);
+    expect(smoke).not.toContain("GIT_CONFIG_COUNT");
   });
 
   test("keeps cloud-browser and local-model packages outside the production runtime", () => {

@@ -8,6 +8,19 @@ import { GSTACK2_BASE_SHA } from './types';
 
 export const ROOT = path.resolve(import.meta.dir, '..', '..');
 
+/** Convert a filesystem-relative path into Git's repository path format. */
+export function normalizeRepositoryPath(relativePath: string): string {
+  return relativePath.replaceAll(path.win32.sep, path.posix.sep);
+}
+
+export function repositoryRelativePath(absolutePath: string): string {
+  return normalizeRepositoryPath(path.relative(ROOT, absolutePath));
+}
+
+export function pinnedRevisionPath(relativePath: string): string {
+  return `${GSTACK2_BASE_SHA}:${normalizeRepositoryPath(relativePath)}`;
+}
+
 export function legacyTemplatePath(source: string): string {
   return source === 'gstack'
     ? path.join(ROOT, 'SKILL.md.tmpl')
@@ -15,12 +28,12 @@ export function legacyTemplatePath(source: string): string {
 }
 
 export function legacyRelativePath(source: string): string {
-  return path.relative(ROOT, legacyTemplatePath(source));
+  return repositoryRelativePath(legacyTemplatePath(source));
 }
 
 function pinnedText(relativePath: string): string {
   const result = Bun.spawnSync({
-    cmd: ['git', 'show', `${GSTACK2_BASE_SHA}:${relativePath}`],
+    cmd: ['git', 'show', pinnedRevisionPath(relativePath)],
     cwd: ROOT,
     stdout: 'pipe',
     stderr: 'pipe',
@@ -100,7 +113,7 @@ function applyCodexRewrites(content: string): string {
  */
 export function renderLegacyBody(source: string): string {
   const templatePath = legacyTemplatePath(source);
-  const relativePath = path.relative(ROOT, templatePath);
+  const relativePath = repositoryRelativePath(templatePath);
   const template = pinnedText(relativePath);
   const context = buildContext(template, templatePath);
   let body = stripFrontmatter(resolvePlaceholders(template, context, relativePath));
@@ -319,11 +332,11 @@ export function legacySections(): LegacySection[] {
     if (!fs.existsSync(sectionDir)) continue;
     const parentPath = legacyTemplatePath(sourceDir.name);
     if (!fs.existsSync(parentPath)) continue;
-    const parent = pinnedText(path.relative(ROOT, parentPath));
+    const parent = pinnedText(repositoryRelativePath(parentPath));
     const context = buildContext(parent, parentPath);
     for (const file of fs.readdirSync(sectionDir).filter((name) => name.endsWith('.md.tmpl')).sort()) {
       const absolutePath = path.join(sectionDir, file);
-      const relativePath = path.relative(ROOT, absolutePath);
+      const relativePath = repositoryRelativePath(absolutePath);
       const template = pinnedText(relativePath);
       const rendered = `${applyCodexRewrites(resolvePlaceholders(template, context, relativePath)).trim()}\n`;
       sections.push({ source: sourceDir.name, absolutePath, relativePath, rendered });
@@ -339,7 +352,7 @@ export function sourceBlobSha(source: string): string {
 
 export function blobShaForPath(relativePath: string): string {
   const result = Bun.spawnSync({
-    cmd: ['git', 'rev-parse', `${GSTACK2_BASE_SHA}:${relativePath}`],
+    cmd: ['git', 'rev-parse', pinnedRevisionPath(relativePath)],
     cwd: ROOT,
     stdout: 'pipe',
     stderr: 'pipe',
