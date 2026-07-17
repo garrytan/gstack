@@ -177,7 +177,7 @@ cd "$_REPO_ROOT"
 # only fires if Bash's own timeout doesn't.
 _gstack_codex_timeout_wrapper 330 codex review "IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. Do NOT modify agents/openai.yaml. Stay focused on repository code only.
 
-Review the changes on this branch against the base branch <base>. Run git diff origin/<base>...HEAD 2>/dev/null || git diff <base>...HEAD to see the diff and review only those changes." -c 'model_reasoning_effort="high"' --enable web_search_cached < /dev/null 2>"$TMPERR"
+Review the changes on this branch against the base branch <base>. Run git diff origin/<base>...HEAD 2>/dev/null || git diff <base>...HEAD to see the diff and review only those changes." -c 'model_reasoning_effort="high"' -c 'web_search="cached"' < /dev/null 2>"$TMPERR"
 _CODEX_EXIT=$?
 if [ "$_CODEX_EXIT" = "124" ]; then
   _gstack_codex_log_event "codex_timeout" "330"
@@ -215,7 +215,7 @@ _PROMPT_FILE=$(mktemp "$TMP_ROOT/codex-prompt-XXXXXX.txt")
   git diff "<base>...HEAD" 2>/dev/null
   printf '\nDIFF_END\n'
 } > "$_PROMPT_FILE"
-_gstack_codex_timeout_wrapper 330 codex exec -s read-only "$(cat "$_PROMPT_FILE")" -c 'model_reasoning_effort="high"' --enable web_search_cached < /dev/null 2>"$TMPERR"
+_gstack_codex_timeout_wrapper 330 codex exec -s read-only "$(cat "$_PROMPT_FILE")" -c 'model_reasoning_effort="high"' -c 'web_search="cached"' < /dev/null 2>"$TMPERR"
 _CODEX_EXIT=$?
 rm -f "$_PROMPT_FILE"
 if [ "$_CODEX_EXIT" = "124" ]; then
@@ -336,7 +336,7 @@ fi
 # Fix 1+2: wrap with timeout (gtimeout/timeout fallback chain via probe helper),
 # capture stderr to $TMPERR for auth error detection (was: 2>/dev/null).
 TMPERR=${TMPERR:-$(mktemp "$TMP_ROOT/codex-err-XXXXXX.txt")}
-_gstack_codex_timeout_wrapper 600 codex exec "<prompt>" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached --json < /dev/null 2>"$TMPERR" | PYTHONUNBUFFERED=1 "$PYTHON_CMD" -u -c "
+_gstack_codex_timeout_wrapper 600 codex exec "<prompt>" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' -c 'web_search="cached"' --json < /dev/null 2>"$TMPERR" | PYTHONUNBUFFERED=1 "$PYTHON_CMD" -u -c "
 import sys, json
 turn_completed_count = 0
 for line in sys.stdin:
@@ -491,7 +491,7 @@ if [ -z "$PYTHON_CMD" ]; then
   exit 1
 fi
 # Fix 1: wrap with timeout (gtimeout/timeout fallback chain via probe helper)
-_gstack_codex_timeout_wrapper 600 codex exec "<prompt>" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="medium"' --enable web_search_cached --json < /dev/null 2>"$TMPERR" | PYTHONUNBUFFERED=1 "$PYTHON_CMD" -u -c "
+_gstack_codex_timeout_wrapper 600 codex exec "<prompt>" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="medium"' -c 'web_search="cached"' --json < /dev/null 2>"$TMPERR" | PYTHONUNBUFFERED=1 "$PYTHON_CMD" -u -c "
 import sys, json
 for line in sys.stdin:
     line = line.strip()
@@ -545,7 +545,7 @@ if [ -z "$PYTHON_CMD" ]; then
 fi
 cd "$_REPO_ROOT" || exit 1
 # Fix 1: wrap with timeout (gtimeout/timeout fallback chain via probe helper)
-_gstack_codex_timeout_wrapper 600 codex exec resume <session-id> "<prompt>" -c 'sandbox_mode="read-only"' -c 'model_reasoning_effort="medium"' --enable web_search_cached --json < /dev/null 2>"$TMPERR" | PYTHONUNBUFFERED=1 "$PYTHON_CMD" -u -c "
+_gstack_codex_timeout_wrapper 600 codex exec resume <session-id> "<prompt>" -c 'sandbox_mode="read-only"' -c 'model_reasoning_effort="medium"' -c 'web_search="cached"' --json < /dev/null 2>"$TMPERR" | PYTHONUNBUFFERED=1 "$PYTHON_CMD" -u -c "
 <same python streaming parser as above, with flush=True on all print() calls>
 "
 # Fix 1: same hang detection pattern as new-session block
@@ -617,8 +617,10 @@ uses them. If the user wants a specific model, pass `-m` through to codex.
 tasks (OpenAI issues #8545, #8402, #6931). Users can override with `--xhigh` flag
 (e.g., `/codex review --xhigh`) when they want maximum reasoning and are willing to wait.
 
-**Web search:** All codex commands use `--enable web_search_cached` so Codex can look up
-docs and APIs during review. This is OpenAI's cached index — fast, no extra cost.
+**Web search:** All codex commands pass `-c 'web_search="cached"'` so Codex can look up
+docs and APIs during review. This is OpenAI's cached index — fast, no extra cost. (Codex
+CLI ≥ 0.144 deprecated the older `--enable web_search_cached` flag; the `-c` override
+pins cached mode now that web search is on by default.)
 
 If the user specifies a model (e.g., `/codex review -m gpt-5.1-codex-max`
 or `/codex challenge -m gpt-5.2`), pass the `-m` flag through to codex.
