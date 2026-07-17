@@ -42,8 +42,9 @@ async function fixture(label = "gstack workflow state ", initialize = true) {
 }
 
 afterEach(async () => {
-  await Promise.all(temporaryRoots.splice(0).map((root) =>
-    fs.rm(root, { recursive: true, force: true })));
+  for (const root of temporaryRoots.splice(0)) {
+    await fs.rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
 });
 
 describe("GStack 2 authoritative workflow state", () => {
@@ -150,7 +151,7 @@ describe("GStack 2 authoritative workflow state", () => {
   test("all workflow mutations are locked and concurrent evidence writes are not lost", async () => {
     const { home, identity } = await fixture();
     await beginRun(home, identity.projectId, "qa", { runId: "run_concurrent" });
-    await Promise.all(Array.from({ length: 24 }, (_, index) =>
+    const updates = await Promise.allSettled(Array.from({ length: 24 }, (_, index) =>
       updateRunWorkflow(home, identity.projectId, "run_concurrent", {
         addEvidenceProvenance: {
           source: "local-test",
@@ -158,6 +159,7 @@ describe("GStack 2 authoritative workflow state", () => {
           capturedAt: `2026-07-16T10:${String(index).padStart(2, "0")}:00.000Z`,
         },
       })));
+    expect(updates.filter((result) => result.status === "rejected")).toEqual([]);
     const inspected = await inspectRun(home, identity.projectId, "run_concurrent");
     expect(inspected.reconstruction.evidenceProvenance).toHaveLength(24);
     expect(new Set(inspected.reconstruction.evidenceProvenance.map((entry: any) => entry.reference)).size).toBe(24);

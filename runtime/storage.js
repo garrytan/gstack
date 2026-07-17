@@ -5,6 +5,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const WINDOWS_TRANSIENT_FS_ERRORS = new Set(["EACCES", "EBUSY", "EPERM"]);
 
 export async function pathExists(file) {
   try {
@@ -83,29 +84,65 @@ async function replaceFile(source, destination) {
   }
 }
 
-async function syncDirectory(directory) {
+export async function syncDirectory(directory, options = {}) {
   // Directory fsync is supported on Unix and not consistently on Windows.
+  const open = options.open ?? fs.open;
+  let handle;
+  let operationError;
   try {
-    const handle = await fs.open(directory, "r");
+    handle = await open(directory, "r");
     await handle.sync();
-    await handle.close();
   } catch (error) {
-    if (!(["EINVAL", "ENOTSUP", "EISDIR", "EPERM", "EACCES"].includes(error?.code))) {
-      throw error;
+    operationError = error;
+  }
+  let closeError;
+  if (handle) {
+    try {
+      await handle.close();
+    } catch (error) {
+      closeError = error;
     }
   }
+  const unsupported = operationError && ["EINVAL", "ENOTSUP", "EISDIR", "EPERM", "EACCES"].includes(operationError?.code);
+  if (operationError && !unsupported) {
+    if (closeError) throw new AggregateError([operationError, closeError], `Directory sync and close failed: ${directory}`);
+    throw operationError;
+  }
+  if (closeError) throw closeError;
 }
 
 export async function acquireLock(lockPath, options = {}) {
   const timeoutMs = options.timeoutMs ?? 10_000;
   const staleMs = options.staleMs ?? 120_000;
+  const platform = options.platform ?? process.platform;
+  const mkdir = options.mkdir ?? fs.mkdir;
   const started = Date.now();
   const token = randomUUID();
-  await fs.mkdir(path.dirname(lockPath), { recursive: true, mode: 0o700 });
+  await mkdir(path.dirname(lockPath), { recursive: true, mode: 0o700 });
 
   for (let attempt = 0; ; attempt += 1) {
+    let mkdirError;
     try {
-      await fs.mkdir(lockPath, { mode: 0o700 });
+      await mkdir(lockPath, { mode: 0o700 });
+    } catch (error) {
+      mkdirError = error;
+    }
+    if (mkdirError) {
+      const contended = mkdirError?.code === "EEXIST";
+      const windowsDeleteRace = platform === "win32" && mkdirError?.code === "EPERM";
+      if (!contended && !windowsDeleteRace) throw mkdirError;
+      if (contended) await reapStaleLock(lockPath, staleMs, platform);
+      if (Date.now() - started >= timeoutMs) {
+        const timeout = new Error(`Timed out waiting for lock ${lockPath}`);
+        timeout.code = "LOCK_TIMEOUT";
+        throw timeout;
+      }
+      const delay = Math.min(20, 2 + Math.floor(attempt / 3));
+      await sleep(delay);
+      continue;
+    }
+
+    try {
       const owner = { token, pid: process.pid, hostname: os.hostname(), createdAt: new Date().toISOString() };
       await atomicWriteJson(path.join(lockPath, "owner.json"), owner, { mode: 0o600 });
       const heartbeatMs = Math.max(1_000, Math.min(30_000, Math.floor(staleMs / 3)));
@@ -125,32 +162,44 @@ export async function acquireLock(lockPath, options = {}) {
         if (current?.token === token) await fs.rm(lockPath, { recursive: true, force: true });
       };
     } catch (error) {
-      if (error?.code !== "EEXIST") throw error;
-      await reapStaleLock(lockPath, staleMs);
-      if (Date.now() - started >= timeoutMs) {
-        const timeout = new Error(`Timed out waiting for lock ${lockPath}`);
-        timeout.code = "LOCK_TIMEOUT";
-        throw timeout;
-      }
-      const delay = Math.min(20, 2 + Math.floor(attempt / 3));
-      await sleep(delay);
+      await fs.rm(lockPath, { recursive: true, force: true }).catch(() => {});
+      throw error;
     }
   }
 }
 
-async function reapStaleLock(lockPath, staleMs) {
+async function reapStaleLock(lockPath, staleMs, platform = process.platform) {
   try {
     const stat = await fs.stat(lockPath);
     if (Date.now() - stat.mtimeMs <= staleMs) return false;
     const owner = await readJson(path.join(lockPath, "owner.json"), null).catch(() => null);
     if (owner?.hostname === os.hostname() && processIsAlive(owner.pid)) return false;
     const staleName = `${lockPath}.stale-${process.pid}-${randomUUID()}`;
-    await fs.rename(lockPath, staleName);
+    await renameWithRetry(lockPath, staleName, { platform });
     await fs.rm(staleName, { recursive: true, force: true });
     return true;
   } catch (error) {
     if (["ENOENT", "EEXIST", "ENOTEMPTY"].includes(error?.code)) return false;
+    if (platform === "win32" && error?.code === "EPERM") return false;
     throw error;
+  }
+}
+
+/** Retry Windows rename races without weakening permanent errors elsewhere. */
+export async function renameWithRetry(source, destination, options = {}) {
+  const platform = options.platform ?? process.platform;
+  const rename = options.rename ?? fs.rename;
+  const timeoutMs = options.timeoutMs ?? 2_000;
+  const started = Date.now();
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await rename(source, destination);
+    } catch (error) {
+      if (platform !== "win32" || !WINDOWS_TRANSIENT_FS_ERRORS.has(error?.code) || Date.now() - started >= timeoutMs) {
+        throw error;
+      }
+      await sleep(Math.min(50, 5 + attempt * 5));
+    }
   }
 }
 

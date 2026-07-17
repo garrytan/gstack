@@ -7,8 +7,10 @@ import {
   cleanupRuntime,
   ensureManagedHome,
   pathExists,
+  renameWithRetry,
   resolveRuntimePaths,
   runtimeLifecycleLockPath,
+  syncDirectory,
 } from "../runtime/index.js";
 
 const roots: string[] = [];
@@ -31,6 +33,44 @@ afterEach(async () => {
 });
 
 describe("runtime cleanup boundary", () => {
+  test("retries transient Windows lock creation and rename races", async () => {
+    const home = await temporaryHome();
+    const lockPath = path.join(home, "locks", "windows-race.lock");
+    let mkdirAttempts = 0;
+    const release = await acquireLock(lockPath, {
+      platform: "win32",
+      mkdir: async (target: string, options: Record<string, unknown>) => {
+        if (target === lockPath && mkdirAttempts++ === 0) {
+          throw Object.assign(new Error("simulated Windows delete race"), { code: "EPERM" });
+        }
+        return fs.mkdir(target, options);
+      },
+    });
+    expect(mkdirAttempts).toBe(2);
+    await release();
+
+    let renameAttempts = 0;
+    await renameWithRetry("source", "destination", {
+      platform: "win32",
+      timeoutMs: 100,
+      rename: async () => {
+        if (renameAttempts++ < 2) throw Object.assign(new Error("simulated scanner race"), { code: "EPERM" });
+      },
+    });
+    expect(renameAttempts).toBe(3);
+  });
+
+  test("closes a directory handle when Windows does not support directory fsync", async () => {
+    let closes = 0;
+    await expect(syncDirectory("fixture", {
+      open: async () => ({
+        sync: async () => { throw Object.assign(new Error("unsupported directory sync"), { code: "EPERM" }); },
+        close: async () => { closes += 1; },
+      }),
+    })).resolves.toBeUndefined();
+    expect(closes).toBe(1);
+  });
+
   test("removes only allowlisted stale runtime scratch and dead locks", async () => {
     const home = await temporaryHome();
     const paths = resolveRuntimePaths({ home });

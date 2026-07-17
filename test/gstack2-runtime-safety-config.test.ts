@@ -164,7 +164,7 @@ describe("managed-home destructive boundary", () => {
 describe("one config authority", () => {
   test("compatibility helper and runtime config share config.json", async () => {
     const home = path.join(await root(), "state");
-    const run = (args: string[]) => spawnSync(configBin, args, {
+    const run = (args: string[]) => spawnSync(process.execPath, [configBin, ...args], {
       encoding: "utf8",
       env: { ...process.env, GSTACK_HOME: home },
     });
@@ -201,20 +201,20 @@ describe("one config authority", () => {
     const home = path.join(await root(), "legacy");
     await fs.mkdir(home);
     await fs.writeFile(path.join(home, "config.yaml"), "telemetry: community\n");
-    const get = spawnSync(configBin, ["get", "telemetry"], {
+    const get = spawnSync(process.execPath, [configBin, "get", "telemetry"], {
       encoding: "utf8",
       env: { ...process.env, GSTACK_HOME: home },
     });
     expect(get.status).toBe(0);
     expect(get.stdout).toBe("community");
-    const set = spawnSync(configBin, ["set", "telemetry", "off"], {
+    const set = spawnSync(process.execPath, [configBin, "set", "telemetry", "off"], {
       encoding: "utf8",
       env: { ...process.env, GSTACK_HOME: home },
     });
     expect(set.status).toBe(0);
     expect(await fs.readFile(path.join(home, "config.yaml"), "utf8")).toBe("telemetry: community\n");
     expect(JSON.parse(await fs.readFile(path.join(home, "config.json"), "utf8")).telemetry).toBe("off");
-    const reread = spawnSync(configBin, ["get", "telemetry"], {
+    const reread = spawnSync(process.execPath, [configBin, "get", "telemetry"], {
       encoding: "utf8",
       env: { ...process.env, GSTACK_HOME: home },
     });

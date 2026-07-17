@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { assertPathInside, resolveRuntimePaths } from "./paths.js";
-import { atomicWriteJson, pathExists, readJson } from "./storage.js";
+import { atomicWriteJson, pathExists, readJson, renameWithRetry } from "./storage.js";
 import {
   assertManagedHome,
   ensureManagedHome,
@@ -55,7 +55,7 @@ export async function stageUpgradeUnlocked(options) {
       }, { mode: 0o644 });
       await assertTreeContainsNoLinks(stage);
       if (options.verify) await options.verify(stage);
-      await fs.rename(stage, destination);
+      await renameWithRetry(stage, destination);
       staged = true;
     } catch (error) {
       await fs.rm(stage, { recursive: true, force: true }).catch(() => {});
@@ -263,7 +263,7 @@ export async function purgeManagedHomeUnlocked(home) {
     for (const entry of present.filter((name) => managedEntries.has(name) && !preexisting.has(name))) {
       const source = assertPathInside(resolved, path.join(resolved, entry));
       const destination = assertPathInside(quarantine, path.join(quarantine, entry));
-      await fs.rename(source, destination);
+      await renameWithRetry(source, destination);
       moved.push({ source, destination });
     }
     await fs.rm(quarantine, { recursive: true, force: true });
@@ -273,7 +273,7 @@ export async function purgeManagedHomeUnlocked(home) {
     return { purged: true, home: resolved, preserved };
   } catch (error) {
     for (const item of moved.reverse()) {
-      await fs.rename(item.destination, item.source).catch(() => {});
+      await renameWithRetry(item.destination, item.source).catch(() => {});
     }
     await fs.rmdir(quarantine).catch(() => {});
     throw error;

@@ -389,6 +389,7 @@ describe("GStack 2 managed runtime installer", () => {
         const cli = path.join(result.path, "runtime", "cli.js");
         const originalMode = (await fs.stat(cli)).mode & 0o777;
         await fs.chmod(cli, originalMode === 0o600 ? 0o644 : 0o600);
+        await expect(validateRuntimeBundle(result.path, { version: "2.0.0", platform: "win32" })).resolves.toBe(true);
         await expect(validateRuntimeBundle(result.path, { version: "2.0.0" })).rejects.toMatchObject({
           code: "INSTALL_VALIDATION_FAILED",
         });

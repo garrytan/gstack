@@ -31,8 +31,10 @@ async function temporaryRoot(label = "gstack2 runtime ") {
 }
 
 afterEach(async () => {
-  await Promise.all(temporaryRoots.splice(0).map((root) =>
-    fs.chmod(root, 0o700).catch(() => {}).then(() => fs.rm(root, { recursive: true, force: true }))));
+  for (const root of temporaryRoots.splice(0)) {
+    await fs.chmod(root, 0o700).catch(() => {});
+    await fs.rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
 });
 
 describe("gstack 2 host-neutral paths and state", () => {
@@ -92,10 +94,11 @@ describe("gstack 2 host-neutral paths and state", () => {
       gitDir: path.join(root, "repo", ".git"),
     });
     await initializeProject(home, identity);
-    await Promise.all(Array.from({ length: 60 }, () =>
+    const updates = await Promise.allSettled(Array.from({ length: 60 }, () =>
       updateProjectState(home, identity.projectId, (state) => {
         state.concurrentCounter = Number(state.concurrentCounter ?? 0) + 1;
       })));
+    expect(updates.filter((result) => result.status === "rejected")).toEqual([]);
     const { state } = await inspectProject(home, identity);
     expect(state.concurrentCounter).toBe(60);
     expect(state.revision).toBe(60);

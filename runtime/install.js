@@ -531,7 +531,8 @@ export async function validateRuntimeBundle(directory, context = {}) {
     const stat = await fs.lstat(absolute).catch(() => null);
     if (!stat?.isFile()) throw installError(`Runtime bundle file is missing: ${relative}`, "INSTALL_VALIDATION_FAILED");
     const digest = await sha256File(absolute);
-    if (digest !== file.sha256 || stat.size !== file.size || (stat.mode & 0o777) !== file.mode) {
+    const modeMatches = (context.platform ?? process.platform) === "win32" || (stat.mode & 0o777) === file.mode;
+    if (digest !== file.sha256 || stat.size !== file.size || !modeMatches) {
       throw installError(`Runtime bundle file failed integrity validation: ${relative}`, "INSTALL_VALIDATION_FAILED");
     }
   }
