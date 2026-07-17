@@ -2,9 +2,10 @@
 
 Context.dev is the only newly authorized external service in GStack 2. It is
 optional and restricted to public web context. The current automated contract
-is green at 22 pass / 0 fail and 139 assertions. No verified account key was
-available, so the live smoke has not run and provider behavior remains
-unverified; see [TEST-EVIDENCE.md](./TEST-EVIDENCE.md).
+is green at 22 pass / 0 fail and 139 assertions. A verified-key live smoke also
+passed against the official Markdown scrape endpoint on 2026-07-17; see the
+[redacted evidence artifact](../../evals/context-dev/live-smoke-2026-07-17.json)
+and [TEST-EVIDENCE.md](./TEST-EVIDENCE.md).
 
 ## Choose a public-web mode
 
@@ -158,5 +159,5 @@ gstack uninstall --purge --yes
 ```
 
 Standard skill installation and pure judgment do not require a Context.dev
-account. The 22-test deterministic contract is not a substitute for the
-blocked verified-key live smoke.
+account. The live smoke used protected input and an isolated temporary home;
+it did not persist the key in the repository or permanent GStack state.

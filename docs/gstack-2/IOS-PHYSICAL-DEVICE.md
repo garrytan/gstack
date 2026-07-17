@@ -6,7 +6,8 @@ The harness is intentionally fail-closed. A setup problem is not a product failu
 
 ## Current validation status
 
-Validated locally at the July 17, 2026 checkpoint with Xcode 26.6 and the wired iPhone supplied for this work:
+The earlier target was validated locally at the July 17, 2026 checkpoint with
+Xcode 26.6:
 
 | Identifier kind | Example form | Used for |
 |---|---|---|
@@ -15,14 +16,15 @@ Validated locally at the July 17, 2026 checkpoint with Xcode 26.6 and the wired 
 
 Exact local identifiers are deliberately not committed. Successful evidence stores only a SHA-256 fingerprint derived from both identifiers and omits the user-assigned device name.
 
-The daemon suite is green at 95 pass / 0 fail and 229 assertions. The physical
-E2E preflight records 9 pass / 0 fail / 1 deploy skip and 29 assertions. The
-host, pairing/trust, Developer Mode, wired transport, `devicectl`, `xcodegen`,
-and DevToolsSecurity gates pass. The unsigned Release build also passes and
-contains no DebugBridge module symbols or artifacts.
+The daemon suite is green at 95 pass / 0 fail and 229 assertions. For that
+earlier target, the physical E2E preflight records 9 pass / 0 fail / 1 deploy
+skip and 29 assertions. Its host, pairing/trust, Developer Mode, wired
+transport, `devicectl`, `xcodegen`, and DevToolsSecurity gates pass. The
+unsigned Release build also passes and contains no DebugBridge module symbols
+or artifacts.
 
-The direct physical-device smoke is externally blocked at automatic signing.
-It returned typed code `signing_unavailable`, category `setup_gate`. The
+The earlier direct physical-device smoke was externally blocked at automatic
+signing. It returned typed code `signing_unavailable`, category `setup_gate`. The
 underlying Xcode diagnostic is:
 
 ```text
@@ -32,6 +34,15 @@ Signing for "FixtureApp" requires a development team.
 That is a setup gate, not a DebugBridge failure. No app was installed or
 launched, and no pass artifact was written. The deploy skip and typed smoke
 failure must not be represented as a physical-device pass.
+
+The latest user-selected target was a legacy iPhone (`iPhone10,6`) on iOS
+16.7.10. Its lockdown/USB pairing validates, but `devicectl` reports
+`pairingState=unsupported`, no wired CoreDevice transport, and pairing fails
+with CoreDevice error 1011. The harness therefore returns typed code
+`device_not_wired` before build or deploy. The other connected phone was not
+used. Because CoreDevice is the locked backend, substituting a legacy or
+third-party device driver would not satisfy this gate; a CoreDevice-compatible
+iPhone is required.
 
 ## Hardware UDID versus CoreDevice UUID
 

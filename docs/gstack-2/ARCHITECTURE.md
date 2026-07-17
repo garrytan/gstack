@@ -193,8 +193,10 @@ Context.dev consent false; `context setup` is the only path that selects
 Context.dev and persists export consent with the protected key.
 
 The deterministic Context contract is green at 22 pass / 0 fail and 139
-assertions. No verified key was available for a live provider smoke, so provider
-behavior remains blocked rather than inferred from the contract suite.
+assertions. A verified-key live smoke also passed the official Markdown scrape
+endpoint with protected input and an isolated temporary home. The redacted
+artifact records the endpoint and cleanup guarantees without storing the key or
+provider response body.
 
 See [CONTEXT-DEV.md](./CONTEXT-DEV.md) and [PRIVACY.md](./PRIVACY.md).
 
@@ -210,12 +212,14 @@ The existing DebugBridge/CoreDevice harness remains the sole physical-iOS
 backend. The candidate distinguishes hardware UDID from CoreDevice UUID,
 returns bounded 504 responses for a suspended app, asserts the expected bundle
 around coordinate mutations, preserves typed snapshot/mutation/restoration,
-and keeps bridge symbols debug-only. Device signing and provisioning are
-remediable setup gates, not product failures. A live signed-device pass is
-still required before release. Current preflight evidence is 9 pass / 0 fail /
-1 deploy skip and 29 assertions. The direct smoke returned
-`signing_unavailable` / `setup_gate`; no app was installed and no pass artifact
-was written.
+and keeps bridge symbols debug-only. Device signing, provisioning, and
+CoreDevice compatibility are setup gates, not product failures. A live
+signed-device pass is still required before release. The earlier target's
+preflight evidence is 9 pass / 0 fail / 1 deploy skip and 29 assertions; its
+direct smoke returned `signing_unavailable`. The latest explicitly selected
+target returned `device_not_wired` because iOS 16.7.10 exposes no supported
+CoreDevice service. Neither attempt installed or launched an app, and no pass
+artifact was written.
 
 PDF rendering and Mermaid/Excalidraw remain internal capabilities. GStack does
 not add Typst, hosted document rendering, alternate diagram services, local
@@ -251,7 +255,7 @@ means the replacement still lacks its required release evidence.
 | 20 | Partial ship failures are not reliably idempotent | **Implemented at runtime primitive:** claimed effects become uncertain and are not automatically repeated. | Crash/resume and completed-effect tests pass. End-to-end ship resume remains pending. |
 | 21 | Parser failures become empty success | **Implemented in iOS device discovery:** parse/tool failures are typed errors. | `tunnel-bootstrap.test.ts` malformed-JSON regression passes in the focused daemon suite. |
 | 22 | Setup failures become product failures | **Partly implemented:** iOS discovery/setup categories and runtime doctor return actionable setup state. | Automated categories exist; live signing/provisioning gate pending. |
-| 23 | Runtime network activity is not obvious | **Implemented for Context runtime:** selection, mode, and consent are explicit; status/doctor report them; zero lookup/fetch before Context selection+consent. | Context contract: 22 pass / 0 fail / 139 assertions, including persisted non-export fallbacks. Verified-key live smoke remains blocked. |
+| 23 | Runtime network activity is not obvious | **Implemented for Context runtime:** selection, mode, and consent are explicit; status/doctor report them; zero lookup/fetch before Context selection+consent. | Context contract: 22 pass / 0 fail / 139 assertions, including persisted non-export fallbacks; verified-key official-endpoint live smoke passed. |
 | 24 | Context restore selects another worktree | **Implemented for canonical state resume:** current repo+worktree project ID scopes inspection/resume. | Linked-worktree identity test passes; compatibility end-to-end restore test pending. |
 | 25 | Preambles repeat large sections in every skill | **Implemented structurally:** six thin lazy dispatchers share infrastructure and load one preserved module on demand. | Current generated six-name/description catalog is 982 characters, about 246 token-equivalents versus the correctly parsed baseline of about 1,100 (77.6% lower). Re-measure if frontmatter changes. |
 

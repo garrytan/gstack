@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-07-17T19:36:40Z",
+  "sourceGitCommit": "8b7c31d8a448bf56adf17d5968eaae8aebd4be4e",
+  "ok": true,
+  "endpoint": "/web/scrape/markdown",
+  "url": "https://www.context.dev",
+  "creditMetadataReturned": true,
+  "keyIngress": "protected-stdin-to-environment",
+  "temporarySecretsMode": "0600",
+  "permanentSecretPersisted": false,
+  "temporaryHomeRemoved": true,
+  "safeOutputSha256": "ed2eea7831acd8e73505103246b5faa6134079650df55eb701053c48ad06bda7"
+}

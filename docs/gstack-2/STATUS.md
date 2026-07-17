@@ -4,11 +4,10 @@
 
 The candidate contains substantial implementation, but it is not a released or
 verified GStack 2. `DONE` is prohibited until every P0 gate is backed by the
-required evidence layer. Current blockers include physical-iPhone signing, a
-verified Context.dev key smoke, native Windows CI, a passing live v3
-installed-host adversarial run, native Linux evidence, and the signed physical
-iPhone loop. No branch push, draft PR, or PR-ready claim is authorized by this
-status.
+required evidence layer. Current blockers include a CoreDevice-compatible
+signed physical iPhone, native Windows CI, a passing live v3 installed-host
+adversarial run, native Linux evidence, and the signed physical-iPhone loop. No
+branch push, draft PR, or PR-ready claim is authorized by this status.
 
 ## Implemented candidate surface
 
@@ -79,7 +78,9 @@ status.
   fail and 139 assertions; deprecated search is typed unsupported rather than
   fabricated. `context options` and explicit
   `context select host|local-browser|none` choices persist without granting
-  Context.dev consent. No verified key was available for the live smoke.
+  Context.dev consent. A verified-key live smoke passed the official Markdown
+  scrape endpoint using protected input and an isolated temporary home; the key
+  was not persisted in the repository or permanent GStack state.
 - [x] iOS candidate fixes implemented for UDID/CoreDevice identity, malformed
   device-list errors, suspended-app bounded timeout, and active-bundle checks.
 - [x] Default/free-test roots now include `design/test` and
@@ -92,7 +93,9 @@ status.
 - [x] Physical-iOS preflight recorded 9 pass / 0 fail / 1 deploy skip and 29
   assertions. The direct smoke then returned typed code
   `signing_unavailable`, category `setup_gate`; it installed no app and wrote no
-  pass artifact.
+  pass artifact. A later attempt against the explicitly selected iPhone10,6 on
+  iOS 16.7.10 returned `device_not_wired`; legacy USB pairing validates, but
+  CoreDevice pairing is unsupported. The other connected phone was not used.
 - [x] Installed-host adversarial evidence is retained without relabeling:
   v1 **failed**; immutable v2 **failed** even though QA passed because the
   classifier produced false negatives for debug, review, and ship; v3 offline
@@ -125,17 +128,18 @@ status.
 - [ ] Complete native Linux and Windows matrices. The uninterrupted macOS
   broad singleton run is green at 6,240/226/0 across 383 files, and the local
   Windows-safe singleton lane is green at 2,815/57/0 across 213 files. Neither
-  substitutes for native execution on its named platform.
+  substitutes for native execution on its named platform. The candidate
+  workflow targets GitHub-hosted `ubuntu-24.04` and `windows-latest`, but remote
+  execution requires explicit authorization for a CI-only ref because this
+  candidate is intentionally local-only before P0 passes.
 - [ ] Integrate the passing complete local-browser suite and live journey into
   final cancellation/leak evidence. The production dependency and managed
   bundle audit contains no cloud-browser provider/path.
-- [ ] Complete a live Context.dev smoke with a verified account/key. No verified
-  key was available at this checkpoint; the 22-test automated contract is not
-  provider evidence.
 - [ ] Complete the physical-iPhone five-check loop with a signed test app. The
-  unsigned Release guard and preflight passed, but the direct smoke returned
-  `signing_unavailable` / `setup_gate`; no app was installed and no pass artifact
-  exists. This is a remediable account/provisioning gate.
+  unsigned Release guard and earlier preflight passed, but the latest authorized
+  target cannot expose the required CoreDevice service on iOS 16.7.10. Provide
+  a CoreDevice-compatible iPhone without broadening the locked backend. No app
+  was installed and no pass artifact exists.
 - [ ] Verify in one real cancellation run that no subprocess, listener,
   credential, browser, or device-session remains after interruption. Existing
   component tests cover each cleanup contract separately but not this aggregate
@@ -157,10 +161,10 @@ status.
 | Installed-host adversarial | [eval overview](../../evals/host-adversarial/README.md), [immutable v2 artifact](../../evals/host-adversarial/runs/2026-07-17T04-09-01-809Z-3d23a270.json) | V1 failed; immutable V2 failed; V3 offline 18/111 green, live V3 not run; no passing live run |
 | Structured scenarios | [SCENARIOS.md](./SCENARIOS.md) | 25/25 structured routing fixtures green |
 | Backlog traceability | [BACKLOG-MAP.json](./BACKLOG-MAP.json) | 755 unique items mapped |
-| Context integration | [CONTEXT-DEV.md](./CONTEXT-DEV.md) | Automated contract 22/139 green; live smoke blocked on verified key |
+| Context integration | [CONTEXT-DEV.md](./CONTEXT-DEV.md) | Automated contract 22/139 green; verified-key official-endpoint live smoke passed |
 | Host matrix | [HOST-COMPATIBILITY.md](./HOST-COMPATIBILITY.md) | 470/470 checks; six hosts Verified at installer layer; live v3/UI launch pending |
 | Privacy boundary | [PRIVACY.md](./PRIVACY.md) | Implemented contract; full retained-tool egress audit pending |
-| Physical iOS | [IOS-PHYSICAL-DEVICE.md](./IOS-PHYSICAL-DEVICE.md) | Preflight 9 pass / 1 deploy skip / 29 assertions; signing blocked; no app/pass artifact |
+| Physical iOS | [IOS-PHYSICAL-DEVICE.md](./IOS-PHYSICAL-DEVICE.md) | Earlier preflight 9 pass / 1 deploy skip / 29 assertions; latest selected target lacks a supported CoreDevice service; no app/pass artifact |
 | Upgrade/recovery | [UPGRADE-AND-ROLLBACK.md](./UPGRADE-AND-ROLLBACK.md) | Runtime installer 24 pass / 336 assertions; deterministic clean macOS arm64 bundle audit recorded |
 
 ## Interpretation rules

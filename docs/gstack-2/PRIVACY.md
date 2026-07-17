@@ -24,8 +24,10 @@ Context client requires persisted selection `context`, mode `context`, and
 `local-browser`, and `none` persist with consent false.
 
 The deterministic Context contract is green at 22 pass / 0 fail and 139
-assertions. No verified key was available for a live provider smoke; those unit
-results are not live-egress evidence.
+assertions. A verified-key live provider smoke also passed the official
+Markdown scrape endpoint. It used explicit consent, protected key input, and
+an isolated temporary home that was removed afterward; the committed artifact
+contains no credential or response body.
 
 ## Public Context.dev gate
 
