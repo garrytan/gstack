@@ -106,7 +106,7 @@ status.
   screenshot, status, and stop cleanup. The stop acknowledgement regression
   has a 2 pass / 0 fail focused test.
 - [x] The uninterrupted macOS broad suite is green under singleton isolation:
-  6,240 pass / 226 expected skips / 0 fail and 25,450 assertions across all
+  6,240 pass / 226 expected skips / 0 fail and 25,449 assertions across all
   383 files. This includes the complete local-browser suite. The local
   Windows-safe singleton lane is also green at 2,815 pass / 57 expected skips
   / 0 fail and 8,586 assertions across all 213 curated files; it is not native
