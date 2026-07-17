@@ -541,6 +541,12 @@ interface ParsedSession {
   partial: boolean;
 }
 
+// Roles whose content may be ingested as memory. `developer` (and any other
+// system-level role) carries instructions to the agent, not user memory, so it
+// must never be captured — otherwise an injected developer instruction in a
+// rollout would resurface later as trusted memory content.
+const INGESTIBLE_ROLES = new Set(["user", "assistant"]);
+
 function parseTranscriptJsonl(path: string): ParsedSession | null {
   // Best-effort tolerant parser. Handles truncated last lines (D10 partial-flag).
   let raw: string;
@@ -617,10 +623,21 @@ function parseTranscriptJsonl(path: string): ParsedSession | null {
       const tool = rec?.name || rec?.tool || rec?.tool_call?.name || "tool";
       bodyParts.push(`### Tool call: ${tool}`);
     } else if (isCodex && rec?.payload?.message) {
-      // Codex shape: each record has payload.message
+      // Legacy Codex shape: each record has payload.message
       const msg = rec.payload.message;
-      const role = msg.role || "user";
+      const role = (msg.role || "user").toLowerCase();
+      if (!INGESTIBLE_ROLES.has(role)) continue; // skip developer/system instructions
       const content = extractContentText(msg);
+      if (content) {
+        bodyParts.push(`## ${role.charAt(0).toUpperCase() + role.slice(1)}\n\n${content}`);
+        messageCount++;
+      }
+    } else if (isCodex && rec?.payload?.type === "message") {
+      // Current Codex rollout shape: a `response_item` record carries
+      // payload.{role, content[]} directly, with no payload.message wrapper.
+      const role = (rec.payload.role || "user").toLowerCase();
+      if (!INGESTIBLE_ROLES.has(role)) continue; // skip developer/system instructions
+      const content = extractContentText(rec.payload);
       if (content) {
         bodyParts.push(`## ${role.charAt(0).toUpperCase() + role.slice(1)}\n\n${content}`);
         messageCount++;
