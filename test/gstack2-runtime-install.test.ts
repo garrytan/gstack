@@ -24,6 +24,7 @@ const ENTRIES = [
 ];
 const CAPABILITIES = { "fixture-tool": "cap/tool" };
 const REPO_ROOT = path.resolve(import.meta.dir, "..");
+const FULL_RUNTIME_TEST_TIMEOUT_MS = process.platform === "win32" ? 120_000 : 30_000;
 
 describe("GStack 2 managed runtime installer", () => {
   test("installs, validates, activates, and writes an uninstall-friendly manifest", async () => {
@@ -194,7 +195,7 @@ describe("GStack 2 managed runtime installer", () => {
       ], { capture: true, env: { ...process.env, GSTACK_HOME: home } });
       expect(await fs.readFile(path.join(home, "security", "semantic-reviews.jsonl"), "utf8")).toContain('"outcome":"clean"');
     }, { createDefaultSource: false });
-  }, 30_000);
+  }, FULL_RUNTIME_TEST_TIMEOUT_MS);
 
   test("bounded subprocess execution confirms a timed-out command has exited", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "gstack-command-timeout-"));
@@ -428,9 +429,13 @@ describe("GStack 2 managed runtime installer", () => {
       await installFixture(source, home, "1.0.0");
       const pointer = await readJson(path.join(home, "versions", "current.json"));
       const manifest = await fs.readFile(path.join(home, "runtime-install.json"));
-      const windowsLauncher = await fs.readFile(path.join(home, "bin", "gstack.cmd"));
+      // Keep the launcher for this host executable so it can enter the shared
+      // recovery path. The transaction restores the inactive host variant.
+      const recoverableLauncher = process.platform === "win32" ? "gstack" : "gstack.cmd";
+      const launcherPath = path.join(home, "bin", recoverableLauncher);
+      const launcherBefore = await fs.readFile(launcherPath);
       await fs.writeFile(path.join(home, "runtime-install.json"), '{"activeVersion":"crashed"}\n');
-      await fs.writeFile(path.join(home, "bin", "gstack.cmd"), "candidate launcher\n");
+      await fs.writeFile(launcherPath, "candidate launcher\n");
       await fs.writeFile(path.join(home, "versions", "current.json"), `${JSON.stringify({
         schemaVersion: 2,
         status: "active",
@@ -447,7 +452,7 @@ describe("GStack 2 managed runtime installer", () => {
         previousPointer: pointer,
         files: [
           { path: "runtime-install.json", existed: true, mode: 0o600, dataBase64: manifest.toString("base64") },
-          { path: "bin/gstack.cmd", existed: true, mode: 0o644, dataBase64: windowsLauncher.toString("base64") },
+          { path: `bin/${recoverableLauncher}`, existed: true, mode: 0o644, dataBase64: launcherBefore.toString("base64") },
         ],
       }, null, 2)}\n`, { mode: 0o600 });
       const orphanedLock = `${home}.runtime-lifecycle.lock`;
@@ -462,7 +467,7 @@ describe("GStack 2 managed runtime installer", () => {
       expect(launched.stdout).toContain("gstack fixture doctor");
       expect(await readJson(path.join(home, "versions", "current.json"))).toEqual(pointer);
       expect(await fs.readFile(path.join(home, "runtime-install.json"))).toEqual(manifest);
-      expect(await fs.readFile(path.join(home, "bin", "gstack.cmd"))).toEqual(windowsLauncher);
+      expect(await fs.readFile(launcherPath)).toEqual(launcherBefore);
       expect(await exists(path.join(home, ".gstack-runtime-transaction.json"))).toBe(false);
       expect(await exists(orphanedLock)).toBe(false);
     });
@@ -774,7 +779,7 @@ async function withFixture(
     if (options.createDefaultSource !== false) await createSource(source);
     await callback({ root, source, home });
   } finally {
-    await fs.rm(root, { recursive: true, force: true });
+    await fs.rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 }
 

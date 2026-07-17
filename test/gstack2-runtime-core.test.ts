@@ -227,7 +227,11 @@ describe("gstack 2 host-neutral paths and state", () => {
     const repo = path.join(root, "main repo");
     const linked = path.join(root, "linked worktree");
     await fs.mkdir(repo);
-    const git = (args: string[], cwd = repo) => spawnSync("git", args, { cwd, encoding: "utf8" });
+    const git = (args: string[], cwd = repo) => spawnSync("git", args, {
+      cwd,
+      encoding: "utf8",
+      timeout: 15_000,
+    });
     expect(git(["init", "--quiet", "-b", "main"]).status).toBe(0);
     git(["config", "user.email", "runtime@example.com"]);
     git(["config", "user.name", "Runtime Test"]);

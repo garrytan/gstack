@@ -27,7 +27,12 @@ async function fixture() {
 }
 
 afterEach(async () => {
-  await Promise.all(temporaryRoots.splice(0).map((root) => fs.rm(root, { recursive: true, force: true })));
+  await Promise.all(temporaryRoots.splice(0).map((root) => fs.rm(root, {
+    recursive: true,
+    force: true,
+    maxRetries: 5,
+    retryDelay: 50,
+  })));
 });
 
 describe('gstack state external-effect CLI', () => {
@@ -37,6 +42,7 @@ describe('gstack state external-effect CLI', () => {
     const git = async (args: string[], workingDirectory = cwd) => (await execFile('git', args, {
       cwd: workingDirectory,
       encoding: 'utf8',
+      timeout: 15_000,
     })).stdout.trim();
     await git(['init']);
     await git(['config', 'user.name', 'GStack Test']);
