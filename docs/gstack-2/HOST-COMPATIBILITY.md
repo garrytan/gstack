@@ -163,9 +163,9 @@ nor model weights and reports the L4 capability unavailable.
 | Platform | Source-level target | Candidate evidence |
 |---|---|---|
 | macOS | Node runtime + local browser + physical iOS where applicable | Runtime installer 21/307 and current bundle audit pass. The uninterrupted broad singleton run is green at 6,234 pass / 226 expected skips / 0 fail across 383 files. The signed-device gate remains pending. |
-| Linux | Node runtime + local browser | Declared Dev Container focused suite passed at 43/0 with 265 assertions. A clean Linux arm64 container used production-only install with the development SDK absent, passed a local-browser journey and Sharp full-page screenshot, and uninstalled while preserving state. Native-host broad Linux remains pending. |
+| Linux | Node runtime + local browser | Declared Dev Container GStack 2 suite passed at 130/0 with 1,070 assertions across 15 files. A clean Linux arm64 container used production-only install with the development SDK and model runtime absent, passed a local-browser journey and Sharp full-page screenshot, and uninstalled while preserving state. Native-host broad Linux remains pending. |
 | Native Windows | Node runtime; curated free tests; browser fallback where retained | **Blocked:** native Windows CI pending. The local Windows-safe singleton lane is green at 2,813 pass / 57 expected skips / 0 fail across 213 files, but it is not native evidence. |
-| Dev Container | Pure skills and optional runtime; browser only when container supports it | Declared image builds; focused GStack 2 suite and clean runtime install smoke pass. Full broad/browser coverage remains pending. |
+| Dev Container | Pure skills and optional runtime; browser only when container supports it | Declared image builds; generated freshness and the 130-test GStack 2 suite pass, as does the clean runtime install/browser smoke. Full broad Linux coverage remains pending. |
 
 The six portable skills remain useful when runtime installation fails. A
 runtime failure must not remove or corrupt their standard-installer placement.
