@@ -69,7 +69,7 @@ written under `$GSTACK_HOME/bin` (default `~/.gstack/bin`), alongside
 `runtime-install.json`, which distinguishes managed paths from preserved
 config, secrets, projects, and plans.
 
-Twenty-four focused installer tests pass with 336 assertions. They cover paths
+Twenty-five focused installer tests pass with 341 assertions. They cover paths
 with spaces, a symlinked source root, internal-link rejection, runtime-only
 builder selection, deterministic exact Sharp/ngrok platform closure, failed
 build/validation/smoke rollback including native-load rollback smoke,
@@ -90,9 +90,9 @@ with spaces, installed only frozen production dependencies with the development
 SDK absent, rebuilt runtime capabilities without Git history or skill
 regeneration, passed setup/doctor/version/design/PDF checks, completed a local
 browser journey and Sharp full-page screenshot, and uninstalled while
-preserving state. Non-Darwin bundles omit the physical-iOS capability. Native
-Windows execution remains a separate gate; source-level Windows launchers are
-not native evidence.
+preserving state. Non-Darwin bundles omit the physical-iOS capability. The
+native Windows GStack 2 gate later passed 150/0 with 1,145 assertions in run
+`29615621805`; source-level Windows launchers alone were not used as evidence.
 
 ## Runtime upgrade transaction
 
@@ -193,11 +193,10 @@ newer-schema refusal, and non-mutating cleanup preview. The standard installer
 matrix separately passed 470/470 checks across six hosts, 16 installs, scopes,
 selections, and two removals; its artifact is
 [`evals/installation/install-matrix.json`](../../evals/installation/install-matrix.json).
-The runtime installer is green at 24 pass / 0 fail and 336 assertions, and the
+The runtime installer is green at 25 pass / 0 fail and 341 assertions, and the
 deterministic clean macOS arm64 110-component bundle audit is recorded. Its
 byte count is platform-specific because platform-native package payloads
 differ. The clean Linux Dev Container install/uninstall smoke passed.
-Interrupted network acquisition/stage at OS level, a passing live v3 host run,
-actual host UI execution, native-host Linux, and native Windows runs remain
-gates. See
+Interrupted network acquisition/stage at OS level, a passing installed-host
+adversarial gate, and representative host UI execution remain gates. See
 [TEST-EVIDENCE.md](./TEST-EVIDENCE.md).

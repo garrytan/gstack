@@ -1,0 +1,129 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-07-17T21:46:03Z",
+  "repository": "time-attack/gstack",
+  "workflow": ".github/workflows/gstack2-gate.yml",
+  "temporaryRef": "codex/gstack-2-ci-20260717-39bc307b",
+  "releaseBranchPushed": false,
+  "finalRun": {
+    "id": 29615621805,
+    "url": "https://github.com/time-attack/gstack/actions/runs/29615621805",
+    "event": "workflow_dispatch",
+    "headSha": "a8a5fa1aa381f9b948dfc57af26016092fc33277",
+    "status": "completed",
+    "conclusion": "success",
+    "createdAt": "2026-07-17T21:42:54Z",
+    "completedAt": "2026-07-17T21:46:03Z",
+    "jobs": [
+      {
+        "name": "installer-matrix",
+        "conclusion": "success",
+        "startedAt": "2026-07-17T21:42:59Z",
+        "completedAt": "2026-07-17T21:43:42Z",
+        "skillsCliVersion": "1.5.19",
+        "checks": 470,
+        "checksPassed": 470,
+        "installCases": 16,
+        "removalCases": 2
+      },
+      {
+        "name": "Native ubuntu-24.04",
+        "conclusion": "success",
+        "startedAt": "2026-07-17T21:42:59Z",
+        "completedAt": "2026-07-17T21:43:44Z",
+        "tests": 150,
+        "passed": 150,
+        "failed": 0,
+        "assertions": 1189,
+        "files": 16,
+        "testDurationSeconds": 14.13,
+        "standardInstallerDiscoveredSkills": 6
+      },
+      {
+        "name": "Native macos-14",
+        "conclusion": "success",
+        "startedAt": "2026-07-17T21:43:00Z",
+        "completedAt": "2026-07-17T21:43:47Z",
+        "tests": 150,
+        "passed": 150,
+        "failed": 0,
+        "assertions": 1189,
+        "files": 16,
+        "testDurationSeconds": 13.98,
+        "standardInstallerDiscoveredSkills": 6
+      },
+      {
+        "name": "dev-container",
+        "conclusion": "success",
+        "startedAt": "2026-07-17T21:42:59Z",
+        "completedAt": "2026-07-17T21:45:09Z",
+        "tests": 150,
+        "passed": 150,
+        "failed": 0,
+        "assertions": 1188,
+        "files": 16,
+        "testDurationSeconds": 19.49,
+        "cleanRuntimeInstallBrowserSmokeAndUninstall": "success"
+      },
+      {
+        "name": "Native windows-latest",
+        "conclusion": "success",
+        "startedAt": "2026-07-17T21:43:01Z",
+        "completedAt": "2026-07-17T21:46:02Z",
+        "tests": 150,
+        "passed": 150,
+        "failed": 0,
+        "assertions": 1145,
+        "files": 16,
+        "testDurationSeconds": 52.27,
+        "standardInstallerDiscoveredSkills": 6
+      }
+    ]
+  },
+  "historicalDiagnosticRuns": [
+    {
+      "id": 29608904265,
+      "conclusion": "failure",
+      "disposition": "superseded diagnostic",
+      "finding": "Ignored runtime payloads, Windows path assumptions, and Git safe.directory setup were incomplete."
+    },
+    {
+      "id": 29611504979,
+      "conclusion": "failure",
+      "disposition": "superseded diagnostic",
+      "finding": "Windows exposed CRLF drift in generated Swift assets."
+    },
+    {
+      "id": 29611757175,
+      "conclusion": "failure",
+      "disposition": "superseded diagnostic",
+      "finding": "Ubuntu exposed a lock-stress timeout and Windows exposed platform-dependent manifests."
+    },
+    {
+      "id": 29612056517,
+      "conclusion": "cancelled",
+      "disposition": "superseded diagnostic",
+      "finding": "The Windows job hung in Context.dev DNS timeout coverage; the other matrix jobs were green."
+    },
+    {
+      "id": 29613668419,
+      "conclusion": "failure",
+      "disposition": "superseded diagnostic",
+      "finding": "Windows completed after timer repair and exposed 21 filesystem, mode-validation, and launcher-harness failures."
+    },
+    {
+      "id": 29614448170,
+      "conclusion": "failure",
+      "disposition": "superseded diagnostic",
+      "finding": "Windows passed 144 tests and exposed six test-only extensionless-launcher assumptions."
+    },
+    {
+      "id": 29614899434,
+      "url": "https://github.com/time-attack/gstack/actions/runs/29614899434",
+      "headSha": "6d3eb795e83e98c2a5c607298a5adaec20ec4ded",
+      "conclusion": "failure",
+      "disposition": "superseded diagnostic",
+      "finding": "Windows passed 141 tests; eight integration tests exceeded Bun's 5-second default and one fixture corrupted the batch launcher it then executed."
+    }
+  ]
+}

@@ -4,10 +4,11 @@
 
 The candidate contains substantial implementation, but it is not a released or
 verified GStack 2. `DONE` is prohibited until every P0 gate is backed by the
-required evidence layer. Current blockers include a CoreDevice-compatible
-signed physical iPhone, native Windows CI, a passing live v3 installed-host
-adversarial run, native Linux evidence, and the signed physical-iPhone loop. No
-branch push, draft PR, or PR-ready claim is authorized by this status.
+required evidence layer. Current blockers include the waived physical-iPhone P0
+gate and the failed live v3 installed-host adversarial gate, including
+incomplete representative host UI/process coverage. Native CI is green on
+macOS, Ubuntu, Windows, and the Dev Container. No release-branch push, draft
+PR, or PR-ready claim is authorized by this status.
 
 ## Implemented candidate surface
 
@@ -27,6 +28,15 @@ branch push, draft PR, or PR-ready claim is authorized by this status.
   compatibility-alias cases, paths with spaces, source symlink, physical
   copies, and canonical hashes passed. The committed artifact is
   [`evals/installation/install-matrix.json`](../../evals/installation/install-matrix.json).
+- [x] A standards-based Codex runtime-absent run passed. The canonical root
+  `--list` returned exactly six skills; the selected install used
+  `time-attack/gstack/skills --skill qa` and installed only byte-identical
+  `qa`. `skills` 1.5.19 can count hidden aliases in its pre-filter display, so
+  that display is not the installed subset count. Codex then preserved pure
+  judgment, reported the capability setup gate and one approval prompt, made
+  no file changes, started no browser, created no runtime, and contacted no
+  GStack external service. Artifact:
+  [`evals/installation/standard-codex-runtime-absent-2026-07-17.json`](../../evals/installation/standard-codex-runtime-absent-2026-07-17.json).
 - [x] Current six names/descriptions measure 982 characters (about 246
   four-character token-equivalents), roughly 77.6% below the correctly parsed
   baseline of about 1,100 in the regenerated tree.
@@ -47,14 +57,12 @@ branch push, draft PR, or PR-ready claim is authorized by this status.
   three retained Claude Haiku live samples are classified `REGRESSION`; they
   are preserved as noisy supplemental evidence, never cherry-picked as a
   primary gate or represented as green.
-- [x] The focused macOS GStack 2 suite is green: 136 pass / 0 fail, 1,128
-  assertions across 15 files. Log: `/tmp/gstack2-test-command-candidate-final2.log`.
-  This focused surface does not substitute for the broad or native-platform
-  gates.
+- [x] The current macOS GStack 2 suite is green at commit `a8a5fa1a`: 150 pass
+  / 0 fail and 1,189 assertions across 16 files.
 - [x] Optional host-neutral runtime implemented with canonical paths,
   repo/worktree state identity, locks, atomic writes, effect claims,
   doctor/config/state/cleanup, migrations, upgrade/rollback, and uninstall.
-- [x] Managed runtime installer coverage is green at 24 pass / 0 fail and 336
+- [x] Managed runtime installer coverage is green at 25 pass / 0 fail and 341
   assertions. The deterministic clean macOS arm64 managed-bundle audit records
   110 components, 1,829 files, 450,044,315 bytes, and 50 capability launchers.
   This is a platform-specific bundle measurement, not a universal byte count;
@@ -95,77 +103,84 @@ branch push, draft PR, or PR-ready claim is authorized by this status.
   `signing_unavailable`, category `setup_gate`; it installed no app and wrote no
   pass artifact. A later attempt against the explicitly selected iPhone10,6 on
   iOS 16.7.10 returned `device_not_wired`; legacy USB pairing validates, but
-  CoreDevice pairing is unsupported. The other connected phone was not used.
+  CoreDevice pairing is unsupported. After the user explicitly authorized the
+  other connected phone, pairing/signing/build/install/launch/tunnel setup
+  passed, but `POST /session/acquire` closed its socket before the five-check
+  loop completed. At harness stop, no device session remained attached and the
+  fixture app was left installed. These are retained operator observations;
+  no pass artifact exists.
+- [x] The user explicitly stopped and waived further physical-iPhone testing.
+  No more device access is authorized. The earlier partial/setup-gate evidence
+  remains retained, but it is not a physical-device P0 pass.
 - [x] Installed-host adversarial evidence is retained without relabeling:
   v1 **failed**; immutable v2 **failed** even though QA passed because the
   classifier produced false negatives for debug, review, and ship; v3 offline
-  harness coverage is green at 18 pass / 0 fail and 111 assertions. Live v3
-  has not run and has no artifact, so there is no passing live installed-host
-  adversarial result.
+  harness coverage is green at 18 pass / 0 fail and 111 assertions. Paid live
+  v3 was a one-shot run and **failed 3/4** because review failed compound
+  inspection. It was not retried or relabeled. Artifact SHA-256:
+  `fcffdf2b0ee7bb9ac1351e246546af2cd352779bda7b1f8dc4a08f51fc66ef2f`.
 - [x] A current managed-bundle audit confirms no model-weight download path in
   setup. The standard Agent Skills installation remains Markdown-only and
   independent of the optional runtime.
 - [x] An isolated local-browser journey completed navigation, snapshot,
   screenshot, status, and stop cleanup. The stop acknowledgement regression
   has a 2 pass / 0 fail focused test.
+- [x] The live aggregate SIGINT cancellation gate passed against an isolated
+  local-file fixture: shutdown returned an in-memory authenticated `503`, all
+  five owned processes exited, and no listener, root credential state,
+  credential-shaped file, or device session remained; an unrelated browser
+  daemon survived. The focused server-factory regression passed 34/0 with 62
+  assertions. Artifact:
+  [`evals/browser/cancellation-2026-07-17.json`](../../evals/browser/cancellation-2026-07-17.json).
 - [x] The uninterrupted macOS broad suite is green under singleton isolation:
-  6,240 pass / 226 expected skips / 0 fail and 25,449 assertions across all
-  383 files. This includes the complete local-browser suite. The local
-  Windows-safe singleton lane is also green at 2,815 pass / 57 expected skips
-  / 0 fail and 8,586 assertions across all 213 curated files; it is not native
-  Windows evidence.
+  6,255 pass / 226 expected skips / 0 fail and 25,509 assertions across all
+  384 files. This includes the complete local-browser suite. The local
+  Windows-safe singleton lane is also green at 2,829 pass / 57 expected skips
+  / 0 fail and 8,648 assertions across all 214 selected files.
+- [x] Native CI run
+  [`29615621805`](https://github.com/time-attack/gstack/actions/runs/29615621805)
+  passed at commit `a8a5fa1a`: macOS 150/0/1,189, Ubuntu 150/0/1,189,
+  Windows 150/0/1,145, Dev Container 150/0/1,188, and the standard installer
+  470/470. Each native installer discovery found exactly six skills. Sanitized
+  artifact:
+  [`evals/ci/native-2026-07-17.json`](../../evals/ci/native-2026-07-17.json).
 - [x] Architecture, privacy, Context.dev, host compatibility, upgrade/rollback,
   migration, and governance documentation added.
 
 ## Blocking or incomplete P0 evidence
 
-- [ ] Record a passing live v3 installed-host adversarial run and execute the
-  installed skill in each representative host UI. The six hosts are **Verified
-  at the installer layer only**; v1 and v2 are retained failed runs, and v3 is
-  offline-harness evidence only.
-- [ ] Prove runtime-absent judgment behavior through an actual host invocation.
-  Runtime install failure and the real default capability lifecycle are covered.
-- [ ] Complete native Linux and Windows matrices. The uninterrupted macOS
-  broad singleton run is green at 6,240/226/0 across 383 files, and the local
-  Windows-safe singleton lane is green at 2,815/57/0 across 213 files. Neither
-  substitutes for native execution on its named platform. The candidate
-  workflow targets GitHub-hosted `ubuntu-24.04` and `windows-latest`, but remote
-  execution requires explicit authorization for a CI-only ref because this
-  candidate is intentionally local-only before P0 passes.
-- [ ] Integrate the passing complete local-browser suite and live journey into
-  final cancellation/leak evidence. The production dependency and managed
-  bundle audit contains no cloud-browser provider/path.
-- [ ] Complete the physical-iPhone five-check loop with a signed test app. The
-  unsigned Release guard and earlier preflight passed, but the latest authorized
-  target cannot expose the required CoreDevice service on iOS 16.7.10. Provide
-  a CoreDevice-compatible iPhone without broadening the locked backend. No app
-  was installed and no pass artifact exists.
-- [ ] Verify in one real cancellation run that no subprocess, listener,
-  credential, browser, or device-session remains after interruption. Existing
-  component tests cover each cleanup contract separately but not this aggregate
-  live gate.
+- [ ] The paid live v3 installed-host adversarial gate is failed, not pending:
+  the immutable one-shot result is **3/4**, with review failing compound
+  inspection. Do not retry or relabel it. The six hosts remain **Verified at
+  the installer layer only**; representative UI/process coverage is incomplete.
+- [ ] The physical-iPhone five-check loop remains incomplete and is explicitly
+  waived by the user. No further device access is authorized. The unsigned
+  Release guard and earlier preflight/setup-gate observations remain useful
+  partial evidence. A signed fixture was later installed and launched, but its
+  session-acquire request failed; no pass artifact exists and P0 remains open.
 - [ ] Finish final evidence-linked disposition for every infrastructure item;
   see the 25-row table in [ARCHITECTURE.md](./ARCHITECTURE.md). Current focused
-  evidence does not replace the remaining live and native-platform gates.
+  evidence does not replace the remaining live gates.
 
 ## Evidence index
 
 | Evidence | Path | State |
 |---|---|---|
 | Measured baseline | [BASELINE.md](./BASELINE.md) | Recorded |
-| Candidate and baseline command ledger | [TEST-EVIDENCE.md](./TEST-EVIDENCE.md) | Broad macOS and local Windows-safe singleton runs green; live/native-platform gates pending |
+| Candidate and baseline command ledger | [TEST-EVIDENCE.md](./TEST-EVIDENCE.md) | Runtime-absent, SIGINT, and native matrix pass; live v3 failed |
+| Native CI matrix | [native-2026-07-17.json](../../evals/ci/native-2026-07-17.json) | macOS, Ubuntu, Windows, installer, and Dev Container green |
 | Complete skill migration | [SKILL-MIGRATION.md](./SKILL-MIGRATION.md) | Generated; 55/55 assignments |
 | Judgment provenance | [JUDGMENT-PROVENANCE.json](./JUDGMENT-PROVENANCE.json) | Generated; 4,681-check parity rerun green |
 | Parity contract | [JUDGMENT-PARITY.md](./JUDGMENT-PARITY.md) | Green for source/render/contract/asset fixtures |
 | Semantic parity | [SEMANTIC-PARITY.md](./SEMANTIC-PARITY.md) | Deterministic 295-check corpus green; retained live samples are regressions |
-| Installed-host adversarial | [eval overview](../../evals/host-adversarial/README.md), [immutable v2 artifact](../../evals/host-adversarial/runs/2026-07-17T04-09-01-809Z-3d23a270.json) | V1 failed; immutable V2 failed; V3 offline 18/111 green, live V3 not run; no passing live run |
+| Installed-host adversarial | [eval overview](../../evals/host-adversarial/README.md), [immutable live v3 artifact](../../evals/host-adversarial/runs/2026-07-17T19-48-45Z-v3-live-gpt-5-4.json) | V1/V2 failed; V3 offline 18/111 green; paid live V3 one-shot failed 3/4 (review) |
 | Structured scenarios | [SCENARIOS.md](./SCENARIOS.md) | 25/25 structured routing fixtures green |
 | Backlog traceability | [BACKLOG-MAP.json](./BACKLOG-MAP.json) | 755 unique items mapped |
 | Context integration | [CONTEXT-DEV.md](./CONTEXT-DEV.md) | Automated contract 22/139 green; verified-key official-endpoint live smoke passed |
-| Host matrix | [HOST-COMPATIBILITY.md](./HOST-COMPATIBILITY.md) | 470/470 checks; six hosts Verified at installer layer; live v3/UI launch pending |
+| Host matrix | [HOST-COMPATIBILITY.md](./HOST-COMPATIBILITY.md) | 470/470 checks; Codex runtime-absent run passed; live v3 failed; other UI launches pending |
 | Privacy boundary | [PRIVACY.md](./PRIVACY.md) | Implemented contract; full retained-tool egress audit pending |
-| Physical iOS | [IOS-PHYSICAL-DEVICE.md](./IOS-PHYSICAL-DEVICE.md) | Earlier preflight 9 pass / 1 deploy skip / 29 assertions; latest selected target lacks a supported CoreDevice service; no app/pass artifact |
-| Upgrade/recovery | [UPGRADE-AND-ROLLBACK.md](./UPGRADE-AND-ROLLBACK.md) | Runtime installer 24 pass / 336 assertions; deterministic clean macOS arm64 bundle audit recorded |
+| Physical iOS | [IOS-PHYSICAL-DEVICE.md](./IOS-PHYSICAL-DEVICE.md) | Partial setup evidence only; user stopped/waived further device testing; no P0 pass artifact |
+| Upgrade/recovery | [UPGRADE-AND-ROLLBACK.md](./UPGRADE-AND-ROLLBACK.md) | Runtime installer 25 pass / 341 assertions; deterministic clean macOS arm64 bundle audit recorded |
 
 ## Interpretation rules
 

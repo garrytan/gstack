@@ -28,8 +28,8 @@ Review its detected-host prompt; detection must never silently enroll a host.
 Examples supported by the installer interface:
 
 ```bash
-# One public skill only
-npx skills add time-attack/gstack --skill plan
+# One public skill only (point selection at the canonical skill directory)
+npx skills add time-attack/gstack/skills --skill qa
 
 # Installer-managed global scope
 npx skills add time-attack/gstack -g
@@ -54,6 +54,13 @@ ship
 appear as additional skills. Installing a subset must not pull the other five
 public entries unless the user selected them.
 
+With `skills` CLI 1.5.19, the repository-root `--list` result is exactly these
+six names. For selected installation, use the canonical `skills/` source as in
+the example above. That CLI version's pre-filter display can count hidden
+compatibility aliases, but the committed actual-host artifact proves that only
+the selected `qa` directory was installed; the display count is not an
+installed-skill count.
+
 ## Candidate installer matrix
 
 The isolated standard-installer matrix passed 470/470 checks with `skills` CLI
@@ -69,7 +76,7 @@ does not install the optional runtime. The committed evidence artifact is
 | Host | Portable | Project all-six | Global all-six | Selected-skill coverage | Installer tier | Host UI/process |
 |---|---|---|---|---|---|---|
 | Claude Code | yes | pass | pass | no separate subset case | **Verified — installer** | pending |
-| OpenAI Codex | yes | pass | pass | global `qa`, `review`, `ship` pass + removal pass; opt-in alias covered | **Verified — installer** | v1/v2 failed; live v3 pending |
+| OpenAI Codex | yes | pass | pass | global `qa`, `review`, `ship` pass + removal pass; actual selected `qa` runtime-absent run; opt-in alias covered | **Verified — installer**; runtime-absent invocation passed | live v1/v2/v3 failed; v3 was 3/4 |
 | Cursor | yes | pass | pass | project `qa`, `review`, `ship` pass + removal pass | **Verified — installer** | pending |
 | Pi | yes | pass | pass | no separate subset case | **Verified — installer** | pending |
 | OpenClaw | yes | pass | pass | project `ship` single-skill pass | **Verified — installer** | pending |
@@ -83,11 +90,16 @@ Codex; neither alias nor unselected canonical skill was silently enrolled.
 `--copy` was advertised and used.
 
 This is filesystem/installer verification, not a claim that six host UIs loaded
-or executed the skills. The Codex adversarial lane has no passing live result:
-v1 and immutable v2 failed, while v3 is green only in its offline 18-test /
-111-assertion harness and has not run live. The installer matrix used the
-current local canonical projection through the published `npx skills` CLI, not
-the still-unpushed GitHub branch URL.
+or executed the skills. A separate actual Codex invocation installed only `qa`
+from `time-attack/gstack/skills`, with the optional runtime absent, and passed
+the judgment/setup-gate behavior without changing its workspace or creating a
+runtime or browser. The Codex adversarial lane still has no passing live result:
+v1 and immutable v2 failed; the v3 offline harness is green at 18 tests / 111
+assertions, but paid live v3 was a one-shot **3/4 failure** because review
+failed compound inspection. It was not retried or relabeled. The installer
+matrix used the current local canonical projection through the published
+`npx skills` CLI. The release branch remained unpushed; native CI used the
+temporary `codex/gstack-2-ci-20260717-39bc307b` ref only.
 
 Legacy generators currently know ten host names. That is historical breadth,
 not proof that all ten install correctly. Kiro's old Codex-rewrite behavior and
@@ -125,8 +137,11 @@ bun run scripts/gstack2/test-install-matrix.ts --full \
 The current matrix passed 470/470 installer CLI checks across 16 installs and two
 removals; its JSON artifact is committed at
 [`evals/installation/install-matrix.json`](../../evals/installation/install-matrix.json).
-Steps 8–9, a passing live v3 adversarial run, and actual host UI loading remain
-separate behavioral gates.
+Steps 8–9 passed for the recorded Codex runtime-absent invocation; actual UI
+loading for the other representative hosts remains separate. The paid live v3
+adversarial run is retained as a failed 3/4 gate, not a pending run. Evidence:
+[`standard-codex-runtime-absent-2026-07-17.json`](../../evals/installation/standard-codex-runtime-absent-2026-07-17.json)
+and [`2026-07-17T19-48-45Z-v3-live-gpt-5-4.json`](../../evals/host-adversarial/runs/2026-07-17T19-48-45Z-v3-live-gpt-5-4.json).
 
 ## Optional runtime/platform matrix
 
@@ -147,7 +162,7 @@ activates the version, and writes stable POSIX and Windows launchers under
 Windows and includes the CoreDevice/iOS bundle only on Darwin. Add the bin
 directory to `PATH` if the short `gstack` command is desired.
 
-Twenty-four focused installer tests pass with 336 assertions. They cover
+Twenty-five focused installer tests pass with 341 assertions. They cover
 manifests, paths with spaces,
 source-root symlinks, internal-link/path-escape rejection, failed build/
 validation/smoke rollback including native-load rollback smoke,
@@ -166,10 +181,19 @@ nor model weights and reports the L4 capability unavailable.
 
 | Platform | Source-level target | Candidate evidence |
 |---|---|---|
-| macOS | Node runtime + local browser + physical iOS where applicable | Runtime installer 24/336 and deterministic clean macOS arm64 bundle audit pass. The uninterrupted broad singleton run is green at 6,240 pass / 226 expected skips / 0 fail across 383 files. The signed-device gate remains pending. |
-| Linux | Node runtime + local browser | Declared Dev Container GStack 2 suite passed at 136/0 with 1,127 assertions across 15 files; log: `/tmp/gstack2-devcontainer-gate-candidate-final4.log`. The one-assertion difference from the focused macOS result is the platform-conditional read-only-mode check. A clean Linux arm64 container used production-only install with the development SDK and model runtime absent, passed a local-browser journey and Sharp full-page screenshot, and uninstalled while preserving state. The candidate workflow targets GitHub-hosted `ubuntu-24.04`, but this local-only HEAD has no remote ref for that runner. Native-host broad Linux remains pending. |
-| Native Windows | Node runtime; curated free tests; browser fallback where retained | **Blocked:** native Windows CI pending. The local Windows-safe singleton lane is green at 2,815 pass / 57 expected skips / 0 fail across 213 files, but it is not native evidence. The candidate workflow targets GitHub-hosted `windows-latest`; it cannot access this local-only HEAD without an explicitly authorized remote test ref. |
-| Dev Container | Pure skills and optional runtime; browser only when container supports it | Declared image builds; generated freshness and the 136-test GStack 2 suite pass, as does the clean runtime install/browser smoke. Full broad Linux coverage remains pending. |
+| macOS | Node runtime + local browser + physical iOS where applicable | Runtime installer 25/341 and the deterministic clean macOS arm64 bundle audit pass. The final native job passed 150/0 with 1,189 assertions. The uninterrupted broad singleton run is green at 6,255 pass / 226 expected skips / 0 fail and 25,509 assertions across 384 files. The signed-device gate is open but user-waived; no further device access is authorized. |
+| Linux | Node runtime + local browser | Final native Ubuntu passed 150/0 with 1,189 assertions across 16 files. A clean Linux arm64 container also passed the production-only runtime/browser lifecycle. |
+| Native Windows | Node runtime; curated free tests; browser fallback where retained | Final native Windows passed 150/0 with 1,145 assertions across 16 files and standard-installer discovery found exactly six skills. The local Windows-safe singleton lane also passed 2,829 / 57 expected skips / 0 fail with 8,648 assertions across all 214 selected files. |
+| Dev Container | Pure skills and optional runtime; browser only when container supports it | The declared image built; the GStack 2 suite passed 150/0 with 1,188 assertions across 16 files, followed by the clean runtime install/browser smoke and state-preserving uninstall. |
+
+Native CI run [`29615621805`](https://github.com/time-attack/gstack/actions/runs/29615621805)
+passed every job at commit `a8a5fa1aa381f9b948dfc57af26016092fc33277`:
+macOS, Ubuntu, native Windows, the 470-check installer matrix, and the Dev
+Container. The sanitized committed record is
+[`evals/ci/native-2026-07-17.json`](../../evals/ci/native-2026-07-17.json).
+Runs `29608904265`, `29611504979`, `29611757175`, `29612056517` (cancelled),
+`29613668419`, `29614448170`, and `29614899434` are retained as superseded
+diagnostic evidence, not substituted for the passing run.
 
 The six portable skills remain useful when runtime installation fails. A
 runtime failure must not remove or corrupt their standard-installer placement.

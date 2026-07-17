@@ -35,14 +35,27 @@ That is a setup gate, not a DebugBridge failure. No app was installed or
 launched, and no pass artifact was written. The deploy skip and typed smoke
 failure must not be represented as a physical-device pass.
 
-The latest user-selected target was a legacy iPhone (`iPhone10,6`) on iOS
+The next user-selected target was a legacy iPhone (`iPhone10,6`) on iOS
 16.7.10. Its lockdown/USB pairing validates, but `devicectl` reports
 `pairingState=unsupported`, no wired CoreDevice transport, and pairing fails
 with CoreDevice error 1011. The harness therefore returns typed code
-`device_not_wired` before build or deploy. The other connected phone was not
-used. Because CoreDevice is the locked backend, substituting a legacy or
-third-party device driver would not satisfy this gate; a CoreDevice-compatible
-iPhone is required.
+`device_not_wired` before build or deploy. Because CoreDevice is the locked
+backend, substituting a legacy or third-party device driver would not satisfy
+this gate; a CoreDevice-compatible iPhone is required.
+
+The user then explicitly authorized the other connected, CoreDevice-compatible
+iPhone. That run passed pairing, signing, build, install, launch, and tunnel
+setup. The full five-check loop did not complete: `POST /session/acquire`
+closed the socket before returning a session. At harness stop, the fixture app
+was left installed with its data intact and no console/device session remained
+attached. This is a retained operator observation, not a pass artifact; no pass
+artifact was written.
+
+The user then explicitly stopped and waived further iPhone testing. No more
+device access is authorized for this checkpoint. The preflight, Release guard,
+typed setup-gate failures, and partial signed deployment above remain valid
+evidence, but the waiver does not convert them into a P0 pass: the five-check
+loop did not complete and no pass artifact exists.
 
 ## Hardware UDID versus CoreDevice UUID
 
