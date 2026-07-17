@@ -75,6 +75,10 @@ globalThis.Bun = {
       timeout: options.timeout,
       env: options.env,
       cwd: options.cwd,
+      // Node defaults windowsHide to false, so every child opens a console
+      // window on Windows. Bun.spawnSync has no such behaviour, so the
+      // polyfill has to opt in to stay faithful to the API it's emulating.
+      windowsHide: options.windowsHide !== false,
     });
 
     return {
@@ -91,6 +95,10 @@ globalThis.Bun = {
       stdio,
       env: options.env,
       cwd: options.cwd,
+      // See spawnSync above. This one is the visible offender: the detached
+      // terminal-agent the browse watchdog respawns every 60s left an empty
+      // console window on screen each time.
+      windowsHide: options.windowsHide !== false,
     });
 
     return {

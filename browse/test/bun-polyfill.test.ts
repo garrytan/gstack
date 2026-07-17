@@ -48,6 +48,44 @@ describe('bun-polyfill', () => {
     expect(lines[2]).toBe('HAS_UNREF');
   });
 
+  // Regression: Node defaults windowsHide to false, so before this the browse
+  // server flashed an empty console window on Windows for every child it
+  // spawned -- most visibly the terminal-agent the watchdog respawns on a 60s
+  // tick. Asserts the option reaches child_process rather than trying to
+  // observe a window, so it is meaningful on every platform.
+  test('Bun.spawn/spawnSync pass windowsHide to child_process', () => {
+    const result = Bun.spawnSync(['node', '-e', `
+      const cp = require('child_process');
+      const realSpawn = cp.spawn, realSpawnSync = cp.spawnSync;
+      const seen = {};
+      cp.spawn = (c, a, o) => { seen.spawn = o.windowsHide; return realSpawn(c, a, o); };
+      cp.spawnSync = (c, a, o) => { seen.spawnSync = o.windowsHide; return realSpawnSync(c, a, o); };
+      require('${polyfillPath}');
+      Bun.spawnSync([process.execPath, '-e', ''], { stdout: 'pipe' });
+      Bun.spawn([process.execPath, '-e', ''], { stdio: ['ignore', 'ignore', 'ignore'] });
+      console.log('spawnSync:' + seen.spawnSync);
+      console.log('spawn:' + seen.spawn);
+    `], { stdout: 'pipe', stderr: 'pipe' });
+    const lines = result.stdout.toString().trim().split('\n');
+    expect(lines[0]).toBe('spawnSync:true');
+    expect(lines[1]).toBe('spawn:true');
+  });
+
+  // An explicit windowsHide: false must still win, so a caller that genuinely
+  // wants a visible console (e.g. debugging a child) keeps that escape hatch.
+  test('Bun.spawn honours an explicit windowsHide: false', () => {
+    const result = Bun.spawnSync(['node', '-e', `
+      const cp = require('child_process');
+      const realSpawn = cp.spawn;
+      const seen = {};
+      cp.spawn = (c, a, o) => { seen.spawn = o.windowsHide; return realSpawn(c, a, o); };
+      require('${polyfillPath}');
+      Bun.spawn([process.execPath, '-e', ''], { stdio: ['ignore', 'ignore', 'ignore'], windowsHide: false });
+      console.log('spawn:' + seen.spawn);
+    `], { stdout: 'pipe', stderr: 'pipe' });
+    expect(result.stdout.toString().trim()).toBe('spawn:false');
+  });
+
   test('Bun.serve creates an HTTP server that responds', async () => {
     const result = Bun.spawnSync(['node', '-e', `
       require('${polyfillPath}');
