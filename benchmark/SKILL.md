@@ -1,5 +1,5 @@
 ---
-name: benchmark
+name: gstack-1-benchmark
 preamble-tier: 1
 version: 1.0.0
 description: Performance regression detection using the browse daemon. (gstack)
@@ -13,6 +13,8 @@ allowed-tools:
   - Write
   - Glob
   - AskUserQuestion
+metadata:
+  internal: true
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->

@@ -10,11 +10,15 @@
  *   1. Prefer node on PATH + a bundled JS entry at
  *      browse/dist/security-sidecar.js (built by package.json's
  *      build:security-sidecar script).
- *   2. Dev fallback: node + browse/src/security-sidecar-entry.ts via tsx
- *      (only available in the source checkout, not the compiled install).
- *   3. If Node is missing or no entry resolves, return null. The /pty-inject-scan
+ *   2. If Node is missing or no compiled entry resolves, return null. The
+ *      /pty-inject-scan
  *      endpoint then responds with l4 { available: false } and the extension
  *      degrades to WARN+confirm (D7).
+ *
+ * A plain-Node TypeScript fallback is intentionally not offered. It was not
+ * executable on the supported Node 18 floor and, if partially executed by a
+ * newer Node, could begin downloading local model weights before failing.
+ * GStack 2 does not bundle that model runtime or its weights.
  */
 
 import { existsSync } from "fs";
@@ -46,9 +50,6 @@ function browseRoot(): string {
     if (existsSync(join(candidate, "browse", "dist", "security-sidecar.js"))) {
       return candidate;
     }
-    if (existsSync(join(candidate, "src", "security-sidecar-entry.ts"))) {
-      return candidate;
-    }
     const next = dirname(candidate);
     if (next === candidate) break;
     candidate = next;
@@ -65,13 +66,6 @@ export function findSecuritySidecar(): SidecarLocation | null {
   const compiled = join(root, "browse", "dist", "security-sidecar.js");
   if (existsSync(compiled)) {
     return { node, entry: compiled, mode: "compiled" };
-  }
-
-  // Dev fallback. Compiled installs won't have src/ on disk so this only
-  // resolves when running from the source checkout.
-  const devEntry = join(root, "src", "security-sidecar-entry.ts");
-  if (existsSync(devEntry)) {
-    return { node, entry: devEntry, mode: "dev" };
   }
 
   return null;

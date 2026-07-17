@@ -1,5 +1,5 @@
 ---
-name: benchmark-models
+name: gstack-1-benchmark-models
 preamble-tier: 1
 version: 1.0.0
 description: Cross-model benchmark for gstack skills. (gstack)
@@ -12,6 +12,8 @@ allowed-tools:
   - Bash
   - Read
   - AskUserQuestion
+metadata:
+  internal: true
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->

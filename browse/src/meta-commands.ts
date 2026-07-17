@@ -421,14 +421,17 @@ export async function handleMetaCommand(
     }
 
     case 'stop': {
-      await shutdown();
+      // Return the acknowledgement before closing the listener. Shutting down
+      // inline resets the CLI's fetch, which it reasonably interprets as a
+      // crash and then restarts the daemon it was asked to stop.
+      setTimeout(() => { void shutdown(); }, 25).unref?.();
       return 'Server stopped';
     }
 
     case 'restart': {
       // Signal that we want a restart — the CLI will detect exit and restart
       console.log('[browse] Restart requested. Exiting for CLI to restart.');
-      await shutdown();
+      setTimeout(() => { void shutdown(); }, 25).unref?.();
       return 'Restarting...';
     }
 

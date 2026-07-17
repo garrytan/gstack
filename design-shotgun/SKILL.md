@@ -1,5 +1,5 @@
 ---
-name: design-shotgun
+name: gstack-1-design-shotgun
 preamble-tier: 2
 version: 1.0.0
 description: "Design shotgun: generate multiple AI design variants, open a comparison board, collect structured feedback, and iterate. (gstack)"
@@ -34,6 +34,8 @@ gbrain:
       sort: mtime_desc
       limit: 3
       render_as: "## Recent design docs"
+metadata:
+  internal: true
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->

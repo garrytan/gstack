@@ -1,5 +1,5 @@
 ---
-name: scrape
+name: gstack-1-scrape
 version: 1.0.0
 description: Pull data from a web page. (gstack)
 allowed-tools:
@@ -12,6 +12,8 @@ triggers:
   - pull from
   - extract from
   - what is on
+metadata:
+  internal: true
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->

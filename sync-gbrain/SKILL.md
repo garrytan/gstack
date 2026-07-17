@@ -1,5 +1,5 @@
 ---
-name: sync-gbrain
+name: gstack-1-sync-gbrain
 preamble-tier: 2
 version: 1.0.0
 description: Keep gbrain current with this repo's code and refresh agent search guidance in CLAUDE.md. Wraps the gstack-gbrain-sync orchestrator with state (gstack)
@@ -16,6 +16,8 @@ allowed-tools:
   - Glob
   - Grep
   - AskUserQuestion
+metadata:
+  internal: true
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->

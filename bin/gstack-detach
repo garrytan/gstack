@@ -69,7 +69,7 @@ def acquire_lock(name, log):
     Returns the held fd (kept open for the process lifetime)."""
     import fcntl
 
-    d = os.path.expanduser("~/.gstack/locks")
+    d = os.path.join(os.environ.get("GSTACK_HOME", os.path.expanduser("~/.gstack")), "locks")
     os.makedirs(d, exist_ok=True)
     fd = open(os.path.join(d, f"{name}.lock"), "w")
     try:

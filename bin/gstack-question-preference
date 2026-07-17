@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # gstack-question-preference — read/write/check explicit per-question preferences.
 #
-# Preference file: ~/.gstack/projects/{SLUG}/question-preferences.json
+# Preference file: $GSTACK_HOME/projects/{PROJECT_ID}/question-preferences.json
 # Schema: { "<question_id>": "always-ask" | "never-ask" | "ask-only-for-one-way" }
 #
 # Subcommands:
@@ -25,11 +25,12 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 # GSTACK_STATE_ROOT takes precedence over GSTACK_HOME (test isolation per D16).
 GSTACK_HOME="${GSTACK_STATE_ROOT:-${GSTACK_HOME:-$HOME/.gstack}}"
-eval "$("$SCRIPT_DIR/gstack-slug" 2>/dev/null || true)"
-SLUG="${SLUG:-unknown}"
-PREF_FILE="$GSTACK_HOME/projects/$SLUG/question-preferences.json"
-EVENT_FILE="$GSTACK_HOME/projects/$SLUG/question-events.jsonl"
-mkdir -p "$GSTACK_HOME/projects/$SLUG"
+eval "$(GSTACK_HOME="$GSTACK_HOME" "$SCRIPT_DIR/gstack-slug" 2>/dev/null || true)"
+PROJECT_ID="${PROJECT_ID:?gstack project identity unavailable}"
+PROJECT_DIR="$GSTACK_HOME/projects/$PROJECT_ID"
+PREF_FILE="$PROJECT_DIR/question-preferences.json"
+EVENT_FILE="$PROJECT_DIR/question-events.jsonl"
+mkdir -p "$PROJECT_DIR"
 
 CMD="${1:-}"
 shift || true

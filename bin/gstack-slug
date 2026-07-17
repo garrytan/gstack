@@ -1,55 +1,93 @@
-#!/usr/bin/env bash
-# gstack-slug — output project slug and sanitized branch name
-# Usage: eval "$(gstack-slug)"  → sets SLUG and BRANCH variables
-# Or:    gstack-slug            → prints SLUG=... and BRANCH=... lines
-#
-# Security: output is sanitized to [a-zA-Z0-9._-] only, preventing
-# shell injection when consumed via source or eval.
-set -euo pipefail
+#!/usr/bin/env node
+/**
+ * gstack-slug — emit human and local project identities for shell callers.
+ *
+ * Usage: eval "$(gstack-slug)"
+ *
+ * SLUG remains the sanitized, human-facing repository slug used by remote
+ * namespaces. PROJECT_ID is the canonical local-state key from
+ * runtime/identity.js; unlike SLUG, it separates linked Git worktrees.
+ * Every emitted value is restricted to [a-zA-Z0-9._-] so the output remains
+ * safe to consume with eval/source.
+ */
 
-CACHE_DIR="$HOME/.gstack/slug-cache"
-PROJECT_DIR="$(pwd)"
-# Encode absolute path as cache key: /Users/j/foo → _Users_j_foo
-CACHE_KEY=$(printf '%s' "$PROJECT_DIR" | tr '/' '_')
-CACHE_FILE="${CACHE_DIR}/${CACHE_KEY}"
+import fs from "node:fs/promises";
+import path from "node:path";
+import { execFile as execFileCallback } from "node:child_process";
+import { promisify } from "node:util";
+import { discoverProjectIdentity } from "../runtime/identity.js";
+import { resolveGstackHome } from "../runtime/paths.js";
 
-# 1. Try cached slug first (guarantees consistency across sessions)
-if [[ -f "$CACHE_FILE" ]]; then
-  SLUG=$(cat "$CACHE_FILE")
-fi
+const execFile = promisify(execFileCallback);
+const cwd = await canonicalPath(process.cwd());
+const identity = await discoverProjectIdentity(cwd);
+const home = resolveGstackHome({ cwd });
+const cacheDir = path.join(home, "slug-cache");
 
-# 2. If no cache, compute from git remote (separated from pipeline to avoid
-#    pipefail swallowing the error and producing an empty slug)
-if [[ -z "${SLUG:-}" ]]; then
-  REMOTE_URL=$(git remote get-url origin 2>/dev/null) || REMOTE_URL=""
-  if [[ -n "$REMOTE_URL" ]]; then
-    RAW_SLUG=$(printf '%s' "$REMOTE_URL" | sed 's|.*[:/]\([^/]*/[^/]*\)\.git$|\1|;s|.*[:/]\([^/]*/[^/]*\)$|\1|' | tr '/' '-')
-    SLUG=$(printf '%s' "$RAW_SLUG" | tr -cd 'a-zA-Z0-9._-')
-  fi
-fi
+// The canonical key is a safe, worktree-stable ID. Read the 1.x path-derived
+// key once as a compatibility fallback (it was not valid on native Windows).
+const cacheFile = path.join(cacheDir, identity.worktreeId);
+const legacyCacheFile = path.join(cacheDir, cwd.replace(/[\\/]/g, "_"));
 
-# 3. Fallback to basename only when there's truly no git remote configured
-SLUG="${SLUG:-$(basename "$PWD" | tr -cd 'a-zA-Z0-9._-')}"
+let slug = sanitize(await fs.readFile(cacheFile, "utf8").catch(() => ""));
+if (!slug) slug = sanitize(await fs.readFile(legacyCacheFile, "utf8").catch(() => ""));
+if (!slug) {
+  const remote = await git(["remote", "get-url", "origin"], cwd).catch(() => "");
+  slug = sanitize(slugFromRemote(remote));
+}
+if (!slug) slug = sanitize(path.basename(cwd)) || "unknown";
 
-# 3b. Re-sanitize unconditionally before the value is echoed into `eval`/`source`
-#     output. The compute (2) and fallback (3) paths already filter, but a value
-#     read straight from the cache file (1) does NOT — a poisoned
-#     ~/.gstack/slug-cache/<key> would otherwise inject shell into
-#     `eval "$(gstack-slug)"`. Filtering here honors the [a-zA-Z0-9._-] invariant
-#     promised in the header on every path, and heals a poisoned cache on write (4).
-SLUG=$(printf '%s' "$SLUG" | tr -cd 'a-zA-Z0-9._-')
+await writeCache(cacheDir, cacheFile, slug);
 
-# 4. Cache the slug for future sessions (atomic write, fail silently)
-if [[ -n "$SLUG" ]]; then
-  mkdir -p "$CACHE_DIR" 2>/dev/null || true
-  CACHE_TMP=$(mktemp "$CACHE_DIR/.slug-XXXXXX" 2>/dev/null) || CACHE_TMP=""
-  if [[ -n "$CACHE_TMP" ]]; then
-    printf '%s' "$SLUG" > "$CACHE_TMP" && mv "$CACHE_TMP" "$CACHE_FILE" 2>/dev/null || rm -f "$CACHE_TMP" 2>/dev/null
-  fi
-fi
+const rawBranch = await git(["rev-parse", "--abbrev-ref", "HEAD"], cwd).catch(() => "");
+const branch = sanitize(rawBranch === "HEAD" ? "" : rawBranch) || "unknown";
 
-RAW_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null) || RAW_BRANCH=""
-BRANCH=$(printf '%s' "${RAW_BRANCH:-}" | tr -cd 'a-zA-Z0-9._-')
-BRANCH="${BRANCH:-unknown}"
-echo "SLUG=$SLUG"
-echo "BRANCH=$BRANCH"
+for (const [name, value] of [
+  ["SLUG", slug],
+  ["BRANCH", branch],
+  ["PROJECT_ID", identity.projectId],
+  ["REPO_ID", identity.repoId],
+  ["WORKTREE_ID", identity.worktreeId],
+]) {
+  process.stdout.write(`${name}=${sanitize(value) || "unknown"}\n`);
+}
+
+function sanitize(value) {
+  return String(value ?? "").replace(/[^a-zA-Z0-9._-]/g, "");
+}
+
+function slugFromRemote(remote) {
+  const normalized = String(remote ?? "").trim().replace(/\/+$/, "").replace(/\.git$/, "");
+  const match = normalized.match(/(?:^|[:/])([^/:]+\/[^/]+)$/);
+  return match ? match[1].replace("/", "-") : "";
+}
+
+async function git(args, directory) {
+  const { stdout } = await execFile("git", args, {
+    cwd: directory,
+    encoding: "utf8",
+    timeout: 5_000,
+    maxBuffer: 1024 * 1024,
+    windowsHide: true,
+  });
+  return stdout.replace(/[\r\n]+$/, "");
+}
+
+async function canonicalPath(value) {
+  const absolute = path.resolve(value);
+  return fs.realpath(absolute).catch((error) => {
+    if (error?.code === "ENOENT") return absolute;
+    throw error;
+  });
+}
+
+async function writeCache(directory, file, value) {
+  try {
+    await fs.mkdir(directory, { recursive: true, mode: 0o700 });
+    const temporary = path.join(directory, `.slug-${process.pid}-${Date.now()}`);
+    await fs.writeFile(temporary, value, { mode: 0o600 });
+    await fs.rename(temporary, file);
+  } catch {
+    // Display-slug caching is a best-effort compatibility optimization.
+  }
+}

@@ -1,0 +1,4 @@
+interface:
+  display_name: "GStack Debug"
+  short_description: "Prove root cause before applying a safe fix"
+  default_prompt: "Use $debug to reproduce this failure and prove the root cause before changing code."

@@ -1,5 +1,5 @@
 ---
-name: plan-design-review
+name: gstack-1-plan-design-review
 preamble-tier: 3
 interactive: true
 version: 2.0.0
@@ -15,6 +15,8 @@ triggers:
   - design plan review
   - review ux plan
   - check design decisions
+metadata:
+  internal: true
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->

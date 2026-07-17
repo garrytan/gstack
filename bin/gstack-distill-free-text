@@ -23,9 +23,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 GSTACK_HOME="${GSTACK_STATE_ROOT:-${GSTACK_HOME:-$HOME/.gstack}}"
-eval "$("$SCRIPT_DIR/gstack-slug" 2>/dev/null || true)"
+eval "$(GSTACK_HOME="$GSTACK_HOME" "$SCRIPT_DIR/gstack-slug" 2>/dev/null || true)"
 SLUG="${SLUG:-unknown}"
-PROJECT_DIR="$GSTACK_HOME/projects/$SLUG"
+PROJECT_ID="${PROJECT_ID:?gstack project identity unavailable}"
+PROJECT_DIR="$GSTACK_HOME/projects/$PROJECT_ID"
 LOG_FILE="$PROJECT_DIR/question-log.jsonl"
 PROPOSAL_FILE="$PROJECT_DIR/distillation-proposals.json"
 COST_LOG="$GSTACK_HOME/distill-cost.jsonl"
@@ -47,14 +48,14 @@ esac
 # --- Status subcommand --------------------------------------------------
 
 if [ "$MODE" = "status" ]; then
-  COST_LOG_PATH="$COST_LOG" SLUG_PATH="$SLUG" bun -e '
+  COST_LOG_PATH="$COST_LOG" PROJECT_ID_PATH="$PROJECT_ID" bun -e '
     const fs = require("fs");
-    const slug = process.env.SLUG_PATH;
+    const projectId = process.env.PROJECT_ID_PATH;
     const path = process.env.COST_LOG_PATH;
     if (!fs.existsSync(path)) { console.log("no distill runs yet"); process.exit(0); }
     const lines = fs.readFileSync(path, "utf-8").trim().split("\n").filter(Boolean);
-    const mine = lines.map((l) => JSON.parse(l)).filter((e) => e.slug === slug);
-    if (mine.length === 0) { console.log("no distill runs yet for slug=" + slug); process.exit(0); }
+    const mine = lines.map((l) => JSON.parse(l)).filter((e) => e.project_id === projectId);
+    if (mine.length === 0) { console.log("no distill runs yet for project=" + projectId); process.exit(0); }
     const totalUsd = mine.reduce((a, e) => a + (e.cost_usd_est || 0), 0);
     const todayIso = new Date().toISOString().slice(0, 10);
     const today = mine.filter((e) => (e.ts || "").startsWith(todayIso));
@@ -265,7 +266,7 @@ RESULT=$(EVENTS_JSON="$EVENTS_JSON" DISTILL_PROMPT="$DISTILL_PROMPT" \
 
 # Append cost log line.
 TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-echo "{\"ts\":\"$TS\",\"slug\":\"$SLUG\",$(echo "$RESULT" | sed 's/^{//; s/}$//')}" >> "$COST_LOG"
+echo "{\"ts\":\"$TS\",\"project_id\":\"$PROJECT_ID\",\"slug\":\"$SLUG\",$(echo "$RESULT" | sed 's/^{//; s/}$//')}" >> "$COST_LOG"
 
 echo "DISTILL_COMPLETE:"
 echo "  proposals_file: $PROPOSAL_FILE"

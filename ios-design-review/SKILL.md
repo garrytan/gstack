@@ -1,5 +1,5 @@
 ---
-name: ios-design-review
+name: gstack-1-ios-design-review
 preamble-tier: 3
 version: 1.0.0
 description: Visual design audit for iOS apps on real hardware. (gstack)
@@ -13,6 +13,8 @@ triggers:
   - review the ios design
   - audit the iphone app visuals
   - design qa the ios app
+metadata:
+  internal: true
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->

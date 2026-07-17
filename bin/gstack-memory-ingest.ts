@@ -18,10 +18,10 @@
  *   ~/.claude/projects/<encoded-cwd>/<uuid>.jsonl   — Claude Code sessions
  *   ~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl    — Codex CLI sessions
  *   ~/Library/Application Support/Cursor/User/*.vscdb — Cursor (V1.0.1 follow-up)
- *   ~/.gstack/projects/<slug>/learnings.jsonl       — typed: learning
- *   ~/.gstack/projects/<slug>/timeline.jsonl        — typed: timeline
- *   ~/.gstack/projects/<slug>/ceo-plans/*.md        — typed: ceo-plan
- *   ~/.gstack/projects/<slug>/*-design-*.md         — typed: design-doc
+ *   $GSTACK_HOME/projects/<project-id>/learnings.jsonl — typed: learning
+ *   $GSTACK_HOME/projects/<project-id>/timeline.jsonl  — typed: timeline
+ *   $GSTACK_HOME/projects/<project-id>/ceo-plans/*.md — typed: ceo-plan
+ *   $GSTACK_HOME/projects/<project-id>/*-design-*.md   — typed: design-doc
  *   ~/.gstack/analytics/eureka.jsonl                — typed: eureka
  *   ~/.gstack/builder-profile.jsonl                 — typed: builder-profile-entry
  *
@@ -53,7 +53,7 @@ import {
   closeSync,
   rmSync,
 } from "fs";
-import { join, basename, dirname } from "path";
+import { join, basename, dirname, relative as pathRelative } from "path";
 import { execFileSync, spawnSync, spawn, type ChildProcess } from "child_process";
 import { homedir } from "os";
 import { createHash } from "crypto";
@@ -438,14 +438,14 @@ function* walkGstackArtifacts(ctx: WalkContext): Generator<{ path: string; type:
   }
 
   if (!existsSync(projectsRoot)) return;
-  let slugs: string[];
+  let projectIds: string[];
   try {
-    slugs = readdirSync(projectsRoot);
+    projectIds = readdirSync(projectsRoot);
   } catch {
     return;
   }
-  for (const slug of slugs) {
-    const projDir = join(projectsRoot, slug);
+  for (const projectId of projectIds) {
+    const projDir = join(projectsRoot, projectId);
     let st;
     try {
       st = statSync(projDir);
@@ -758,10 +758,11 @@ function buildArtifactPage(path: string, type: MemoryType): PageRecord {
   const sha = fileSha256(path);
   const raw = readFileSync(path, "utf-8");
 
-  // Extract repo slug from path: ~/.gstack/projects/<slug>/...
+  // Local project IDs are intentionally worktree-specific. Resolve relative to
+  // GSTACK_HOME so custom state roots and Windows separators remain supported.
   let slug_repo = "_unattributed";
-  const m = path.match(/\/\.gstack\/projects\/([^/]+)\//);
-  if (m) slug_repo = m[1];
+  const relative = pathRelative(GSTACK_HOME, path).split(/[\\/]/);
+  if (relative[0] === "projects" && relative[1]) slug_repo = relative[1];
 
   const date = new Date(stats.mtimeMs).toISOString().slice(0, 10);
   const baseName = basename(path, path.endsWith(".jsonl") ? ".jsonl" : ".md");

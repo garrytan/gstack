@@ -1,5 +1,5 @@
 ---
-name: design-html
+name: gstack-1-design-html
 preamble-tier: 2
 version: 1.0.0
 description: "Design finalization: generates production-quality Pretext-native HTML/CSS. (gstack)"
@@ -16,6 +16,8 @@ allowed-tools:
   - Grep
   - Agent
   - AskUserQuestion
+metadata:
+  internal: true
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->

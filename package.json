@@ -6,21 +6,28 @@
   "type": "module",
   "bin": {
     "browse": "./browse/dist/browse",
+    "gstack": "./bin/gstack",
     "make-pdf": "./make-pdf/dist/pdf"
   },
   "scripts": {
     "build": "bash scripts/build.sh",
+    "build:runtime": "bash scripts/build.sh --runtime-only",
     "vendor:xterm": "mkdir -p extension/lib && cp node_modules/xterm/lib/xterm.js extension/lib/xterm.js && cp node_modules/xterm/css/xterm.css extension/lib/xterm.css && cp node_modules/xterm-addon-fit/lib/xterm-addon-fit.js extension/lib/xterm-addon-fit.js",
     "dev:make-pdf": "bun run make-pdf/src/cli.ts",
     "dev:design": "bun run design/src/cli.ts",
     "build:diagram-render": "cd lib/diagram-render && bun install && bun run scripts/build.ts",
+    "gen:gstack2": "bun run scripts/gstack2/generate-skill-tree.ts",
     "gen:skill-docs": "bun run scripts/gen-skill-docs.ts",
     "gen:skill-docs:user": "bun run scripts/gen-skill-docs.ts --respect-detection",
     "dev": "bun run browse/src/cli.ts",
     "server": "bun run browse/src/server.ts",
-    "test": "bun test browse/test/ test/ make-pdf/test/ --ignore 'test/skill-e2e-*.test.ts' --ignore test/skill-llm-eval.test.ts --ignore test/skill-routing-e2e.test.ts --ignore test/codex-e2e.test.ts --ignore test/gemini-e2e.test.ts && (bun run slop:diff 2>/dev/null || true)",
+    "test": "bun run scripts/test-free-strict.ts",
+    "check:gstack2-generated": "bun run scripts/gstack2/check-generated.ts",
+    "test:gstack2": "bun run gen:gstack2 && bun run check:gstack2-generated && bun test test/gstack2-*.test.ts",
+    "test:gstack2:install": "bun run scripts/gstack2/test-install-matrix.ts --full",
+    "test:gstack2:parity": "bun run scripts/gstack2/run-parity.ts",
     "test:free": "bun run scripts/test-free-shards.ts",
-    "test:windows": "bun run scripts/test-free-shards.ts --windows-only",
+    "test:windows": "bun run scripts/test-free-shards.ts --windows-only --shards 10000",
     "test:evals": "EVALS=1 bun test --retry 2 --concurrent --max-concurrency ${EVALS_CONCURRENCY:-15} test/skill-llm-eval.test.ts test/skill-e2e-*.test.ts test/skill-routing-e2e.test.ts test/codex-e2e.test.ts test/gemini-e2e.test.ts",
     "test:evals:all": "EVALS=1 EVALS_ALL=1 bun test --retry 2 --concurrent --max-concurrency ${EVALS_CONCURRENCY:-15} test/skill-llm-eval.test.ts test/skill-e2e-*.test.ts test/skill-routing-e2e.test.ts test/codex-e2e.test.ts test/gemini-e2e.test.ts",
     "test:e2e": "EVALS=1 bun test --retry 2 --concurrent --max-concurrency ${EVALS_CONCURRENCY:-15} test/skill-e2e-*.test.ts test/skill-routing-e2e.test.ts test/codex-e2e.test.ts test/gemini-e2e.test.ts",
@@ -49,17 +56,21 @@
     "slop:diff": "bun run scripts/slop-diff.ts"
   },
   "dependencies": {
-    "@huggingface/transformers": "^4.1.0",
+    "@anthropic-ai/sdk": "^0.78.0",
     "@ngrok/ngrok": "^1.7.0",
     "diff": "^9.0.0",
     "html-to-docx": "1.8.0",
     "marked": "^18.0.2",
     "playwright": "^1.58.2",
     "puppeteer-core": "^24.40.0",
-    "socks": "^2.8.8"
+    "sharp": "^0.34.5",
+    "socks": "^2.8.8",
+    "xterm": "5",
+    "xterm-addon-fit": "^0.8.0"
   },
   "engines": {
-    "bun": ">=1.0.0"
+    "bun": ">=1.0.0",
+    "node": ">=18.0.0"
   },
   "keywords": [
     "browser",
@@ -73,8 +84,6 @@
   ],
   "devDependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.2.117",
-    "@anthropic-ai/sdk": "^0.78.0",
-    "xterm": "5",
-    "xterm-addon-fit": "^0.8.0"
+    "@huggingface/transformers": "^4.1.0"
   }
 }

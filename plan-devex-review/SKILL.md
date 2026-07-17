@@ -1,5 +1,5 @@
 ---
-name: plan-devex-review
+name: gstack-1-plan-devex-review
 preamble-tier: 3
 interactive: true
 version: 2.0.0
@@ -17,6 +17,8 @@ triggers:
   - developer experience review
   - dx plan review
   - check developer onboarding
+metadata:
+  internal: true
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->

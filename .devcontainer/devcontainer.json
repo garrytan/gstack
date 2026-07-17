@@ -1,0 +1,17 @@
+{
+  "name": "GStack 2",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "remoteUser": "root",
+  "postCreateCommand": "bun install --frozen-lockfile",
+  "containerEnv": {
+    "PLAYWRIGHT_BROWSERS_PATH": "/workspaces/gstack/.cache/ms-playwright"
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": []
+    }
+  }
+}

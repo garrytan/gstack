@@ -1,0 +1,4 @@
+interface:
+  display_name: "GStack Review"
+  short_description: "Validate code, security, data, and test findings"
+  default_prompt: "Use $review to inspect this diff and validate every consequential finding."

@@ -1,5 +1,5 @@
 ---
-name: plan-ceo-review
+name: gstack-1-plan-ceo-review
 preamble-tier: 3
 interactive: true
 version: 1.0.0
@@ -41,6 +41,8 @@ gbrain:
       sort: updated_at_desc
       limit: 5
       render_as: "## Recent CEO review activity"
+metadata:
+  internal: true
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->

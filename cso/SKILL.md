@@ -1,5 +1,5 @@
 ---
-name: cso
+name: gstack-1-cso
 preamble-tier: 2
 version: 2.0.0
 description: Chief Security Officer mode. (gstack)
@@ -16,6 +16,8 @@ triggers:
   - security audit
   - check for vulnerabilities
   - owasp review
+metadata:
+  internal: true
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->

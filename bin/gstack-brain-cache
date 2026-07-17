@@ -13,7 +13,7 @@
  *
  * Cache layout:
  *   ~/.gstack/brain-cache/                     ← cross-project (user-profile only)
- *   ~/.gstack/projects/<slug>/brain-cache/     ← per-project (everything else)
+ *   $GSTACK_HOME/projects/<project-id>/brain-cache/ ← local, worktree-specific
  *
  * Atomic writes via .tmp + rename. Stale-but-usable fallback when brain
  * unreachable. Concurrent-refresh dedup is a follow-up commit (T15).
@@ -24,6 +24,7 @@ import { join, dirname } from 'path';
 import { homedir, hostname } from 'os';
 import { spawnSync } from 'child_process';
 import { execGbrainJson, spawnGbrain } from '../lib/gbrain-exec';
+import { discoverProjectIdentity } from '../runtime/identity.js';
 import {
   BRAIN_CACHE_ENTITIES,
   CACHE_REFRESH_LOCK_TIMEOUT_MS,
@@ -39,6 +40,25 @@ import {
 
 const GSTACK_HOME = process.env.GSTACK_HOME || join(homedir(), '.gstack');
 
+interface ProjectTarget {
+  /** Human-facing namespace used for GBrain page slugs. */
+  slug: string;
+  /** Worktree-specific local storage key from runtime/identity.js. */
+  stateId: string;
+}
+
+type ProjectRef = string | ProjectTarget | null;
+
+function projectNamespace(project: ProjectRef): string | null {
+  if (!project) return null;
+  return typeof project === 'string' ? project : project.slug;
+}
+
+function projectStateId(project: ProjectRef): string | null {
+  if (!project) return null;
+  return typeof project === 'string' ? project : project.stateId;
+}
+
 interface CacheMeta {
   /** Version of the schema pack the cache was built against. Mismatch → full rebuild. */
   schema_version: string;
@@ -51,34 +71,36 @@ interface CacheMeta {
 }
 
 /** Returns the directory holding a given entity's cache file. */
-export function entityDir(entity: BrainCacheEntity, projectSlug: string | null): string {
+export function entityDir(entity: BrainCacheEntity, project: ProjectRef): string {
   if (entity.scope === 'cross-project') {
     return join(GSTACK_HOME, 'brain-cache');
   }
-  if (!projectSlug) {
+  const stateId = projectStateId(project);
+  if (!stateId) {
     throw new Error(`Per-project entity needs a project slug: ${entity.file}`);
   }
-  return join(GSTACK_HOME, 'projects', projectSlug, 'brain-cache');
+  return join(GSTACK_HOME, 'projects', stateId, 'brain-cache');
 }
 
 /** Returns the path to the cache file for a given entity. */
-export function entityPath(entityName: string, projectSlug: string | null): string {
+export function entityPath(entityName: string, project: ProjectRef): string {
   const entity = BRAIN_CACHE_ENTITIES[entityName];
   if (!entity) throw new Error(`Unknown brain cache entity: ${entityName}`);
-  return join(entityDir(entity, projectSlug), entity.file);
+  return join(entityDir(entity, project), entity.file);
 }
 
 /** Returns the path to the _meta.json for a given scope. */
-export function metaPath(scope: 'cross-project' | 'per-project', projectSlug: string | null): string {
+export function metaPath(scope: 'cross-project' | 'per-project', project: ProjectRef): string {
   if (scope === 'cross-project') {
     return join(GSTACK_HOME, 'brain-cache', '_meta.json');
   }
-  if (!projectSlug) throw new Error('Per-project meta needs a project slug');
-  return join(GSTACK_HOME, 'projects', projectSlug, 'brain-cache', '_meta.json');
+  const stateId = projectStateId(project);
+  if (!stateId) throw new Error('Per-project meta needs a project slug');
+  return join(GSTACK_HOME, 'projects', stateId, 'brain-cache', '_meta.json');
 }
 
-function loadMeta(scope: 'cross-project' | 'per-project', projectSlug: string | null): CacheMeta {
-  const path = metaPath(scope, projectSlug);
+function loadMeta(scope: 'cross-project' | 'per-project', project: ProjectRef): CacheMeta {
+  const path = metaPath(scope, project);
   if (!existsSync(path)) {
     return { schema_version: GSTACK_SCHEMA_PACK_VERSION, endpoint_hash: detectEndpointHash(), last_refresh: {}, last_attempt: {} };
   }
@@ -106,8 +128,8 @@ function loadMeta(scope: 'cross-project' | 'per-project', projectSlug: string | 
   }
 }
 
-function saveMeta(scope: 'cross-project' | 'per-project', projectSlug: string | null, meta: CacheMeta): void {
-  const path = metaPath(scope, projectSlug);
+function saveMeta(scope: 'cross-project' | 'per-project', project: ProjectRef, meta: CacheMeta): void {
+  const path = metaPath(scope, project);
   mkdirSync(dirname(path), { recursive: true });
   atomicWrite(path, JSON.stringify(meta, null, 2));
 }
@@ -128,17 +150,8 @@ function sha8(input: string): string {
  * (different endpoint → different cache).
  */
 export function detectEndpointHash(): string {
-  const claudeJsonPath = join(homedir(), '.claude.json');
-  if (existsSync(claudeJsonPath)) {
-    try {
-      const cfg = JSON.parse(readFileSync(claudeJsonPath, 'utf-8'));
-      const gbrainServer = cfg?.mcpServers?.gbrain;
-      const url = gbrainServer?.url || gbrainServer?.transport?.url;
-      if (typeof url === 'string' && url.length > 0) {
-        return sha8(url);
-      }
-    } catch { /* fall through to local */ }
-  }
+  const endpoint = process.env.GSTACK_GBRAIN_ENDPOINT || process.env.GBRAIN_URL;
+  if (typeof endpoint === 'string' && endpoint.length > 0) return sha8(endpoint);
   // Local engine — no endpoint URL; use a stable literal hash.
   return 'local';
 }
@@ -168,8 +181,8 @@ function isStale(entityName: string, meta: CacheMeta): boolean {
 }
 
 /** Returns true if the cache file exists on disk. */
-function hasFile(entityName: string, projectSlug: string | null): boolean {
-  return existsSync(entityPath(entityName, projectSlug));
+function hasFile(entityName: string, project: ProjectRef): boolean {
+  return existsSync(entityPath(entityName, project));
 }
 
 /** Returns true if schema version recorded in meta differs from current pack version. */
@@ -195,39 +208,39 @@ interface GetResult {
   message?: string;
 }
 
-export function cmdGet(entityName: string, projectSlug: string | null): GetResult {
+export function cmdGet(entityName: string, project: ProjectRef): GetResult {
   const entity = BRAIN_CACHE_ENTITIES[entityName];
   if (!entity) throw new Error(`Unknown entity: ${entityName}`);
   const scope = entity.scope;
-  const meta = loadMeta(scope, projectSlug);
+  const meta = loadMeta(scope, project);
 
   // Schema-version mismatch → full rebuild (D4 A4).
   if (schemaVersionMismatch(meta) || endpointSwitched(meta)) {
-    rebuildAllForScope(scope, projectSlug);
+    rebuildAllForScope(scope, project);
     // After rebuild, meta is fresh; fall through to warm path.
-    const newMeta = loadMeta(scope, projectSlug);
-    if (hasFile(entityName, projectSlug) && !isStale(entityName, newMeta)) {
-      return { path: entityPath(entityName, projectSlug), state: 'warm' };
+    const newMeta = loadMeta(scope, project);
+    if (hasFile(entityName, project) && !isStale(entityName, newMeta)) {
+      return { path: entityPath(entityName, project), state: 'warm' };
     }
     // Rebuild may have failed for this entity specifically.
-    return { path: entityPath(entityName, projectSlug), state: 'missing', message: 'rebuild after schema/endpoint change' };
+    return { path: entityPath(entityName, project), state: 'missing', message: 'rebuild after schema/endpoint change' };
   }
 
-  if (hasFile(entityName, projectSlug) && !isStale(entityName, meta)) {
-    return { path: entityPath(entityName, projectSlug), state: 'warm' };
+  if (hasFile(entityName, project) && !isStale(entityName, meta)) {
+    return { path: entityPath(entityName, project), state: 'warm' };
   }
 
   // Stale or missing — try cold refresh.
-  const refreshed = refreshEntity(entityName, projectSlug);
+  const refreshed = refreshEntity(entityName, project);
   if (refreshed) {
-    return { path: entityPath(entityName, projectSlug), state: 'cold-refreshed' };
+    return { path: entityPath(entityName, project), state: 'cold-refreshed' };
   }
   // Refresh failed. Use stale-but-usable if file exists.
-  if (hasFile(entityName, projectSlug)) {
-    return { path: entityPath(entityName, projectSlug), state: 'stale-fallback', message: 'brain unreachable; using stale cache' };
+  if (hasFile(entityName, project)) {
+    return { path: entityPath(entityName, project), state: 'stale-fallback', message: 'brain unreachable; using stale cache' };
   }
   // No cache and no refresh = missing.
-  return { path: entityPath(entityName, projectSlug), state: 'missing', message: 'brain unreachable; no cache available' };
+  return { path: entityPath(entityName, project), state: 'missing', message: 'brain unreachable; no cache available' };
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -244,9 +257,10 @@ export function cmdGet(entityName: string, projectSlug: string | null): GetResul
  * concurrent attempts from different projects on cross-project entities
  * serialize naturally because they're rare and the lock window is short.
  */
-function lockPath(projectSlug: string | null): string {
-  const dir = projectSlug
-    ? join(GSTACK_HOME, 'projects', projectSlug, 'brain-cache')
+function lockPath(project: ProjectRef): string {
+  const stateId = projectStateId(project);
+  const dir = stateId
+    ? join(GSTACK_HOME, 'projects', stateId, 'brain-cache')
     : join(GSTACK_HOME, 'brain-cache');
   return join(dir, '.refresh.lock');
 }
@@ -261,8 +275,8 @@ interface LockHandle {
  * (and the lock is fresh). Stale locks (process dead OR older than the
  * timeout) are taken over.
  */
-function tryAcquireLock(projectSlug: string | null): LockHandle | null {
-  const path = lockPath(projectSlug);
+function tryAcquireLock(project: ProjectRef): LockHandle | null {
+  const path = lockPath(project);
   mkdirSync(dirname(path), { recursive: true });
 
   // If a lock exists, see if it's stale
@@ -325,8 +339,8 @@ function isPidAlive(pid: number): boolean {
  * (the resolver does this) or fall through to stale-but-usable. Stale locks
  * (process dead, or older than CACHE_REFRESH_LOCK_TIMEOUT_MS) are taken over.
  */
-export function withRefreshLock<T>(projectSlug: string | null, fn: () => T): T | 'dedup' {
-  const handle = tryAcquireLock(projectSlug);
+export function withRefreshLock<T>(project: ProjectRef, fn: () => T): T | 'dedup' {
+  const handle = tryAcquireLock(project);
   if (!handle) return 'dedup';
   try {
     return fn();
@@ -336,12 +350,12 @@ export function withRefreshLock<T>(projectSlug: string | null, fn: () => T): T |
 }
 
 /** Refreshes one entity from the brain. Returns true on success. */
-export function refreshEntity(entityName: string, projectSlug: string | null): boolean {
+export function refreshEntity(entityName: string, project: ProjectRef): boolean {
   const entity = BRAIN_CACHE_ENTITIES[entityName];
   if (!entity) return false;
 
   // Mark attempt
-  const meta = loadMeta(entity.scope, projectSlug);
+  const meta = loadMeta(entity.scope, project);
   meta.last_attempt = meta.last_attempt || {};
   meta.last_attempt[entityName] = Date.now();
 
@@ -349,9 +363,9 @@ export function refreshEntity(entityName: string, projectSlug: string | null): b
   // (recent-decisions, salience) need different queries from direct page reads.
   // For T2a we implement the direct-page path; derived digests get filled in by
   // the resolver / write-back paths in later commits.
-  const digestContent = fetchAndCompressEntity(entityName, projectSlug);
+  const digestContent = fetchAndCompressEntity(entityName, project);
   if (digestContent === null) {
-    saveMeta(entity.scope, projectSlug, meta);
+    saveMeta(entity.scope, project, meta);
     return false;
   }
 
@@ -363,12 +377,12 @@ export function refreshEntity(entityName: string, projectSlug: string | null): b
     final = truncateToBudget(final, entity.budget_bytes);
   }
 
-  atomicWrite(entityPath(entityName, projectSlug), final);
+  atomicWrite(entityPath(entityName, project), final);
   meta.last_refresh[entityName] = Date.now();
   // Keep schema/endpoint identity fresh.
   meta.schema_version = GSTACK_SCHEMA_PACK_VERSION;
   meta.endpoint_hash = detectEndpointHash();
-  saveMeta(entity.scope, projectSlug, meta);
+  saveMeta(entity.scope, project, meta);
   return true;
 }
 
@@ -376,24 +390,24 @@ export function refreshEntity(entityName: string, projectSlug: string | null): b
  * Refresh all entities for a scope (per-project or cross-project).
  * Used by --full and by schema/endpoint-change rebuilds.
  */
-export function refreshAll(projectSlug: string | null): { success: number; failed: number } {
+export function refreshAll(project: ProjectRef): { success: number; failed: number } {
   let success = 0;
   let failed = 0;
   for (const [name, entity] of Object.entries(BRAIN_CACHE_ENTITIES)) {
     // Cross-project entities only refresh when explicitly targeted via no-slug calls
-    if (entity.scope === 'cross-project' && projectSlug) continue;
-    if (entity.scope === 'per-project' && !projectSlug) continue;
-    if (refreshEntity(name, projectSlug)) success++; else failed++;
+    if (entity.scope === 'cross-project' && project) continue;
+    if (entity.scope === 'per-project' && !project) continue;
+    if (refreshEntity(name, project)) success++; else failed++;
   }
   return { success, failed };
 }
 
 /** Rebuild on schema-version mismatch or endpoint switch. Wipes affected scope first. */
-function rebuildAllForScope(scope: 'cross-project' | 'per-project', projectSlug: string | null): void {
+function rebuildAllForScope(scope: 'cross-project' | 'per-project', project: ProjectRef): void {
   // Wipe files but preserve dir; meta gets fully rewritten by refreshes below.
   for (const [name, entity] of Object.entries(BRAIN_CACHE_ENTITIES)) {
     if (entity.scope !== scope) continue;
-    const p = entityPath(name, projectSlug);
+    const p = entityPath(name, project);
     if (existsSync(p)) {
       try { unlinkSync(p); } catch { /* best effort */ }
     }
@@ -405,11 +419,11 @@ function rebuildAllForScope(scope: 'cross-project' | 'per-project', projectSlug:
     last_refresh: {},
     last_attempt: {},
   };
-  saveMeta(scope, projectSlug, fresh);
+  saveMeta(scope, project, fresh);
   // Refresh all entities in this scope
   for (const [name, entity] of Object.entries(BRAIN_CACHE_ENTITIES)) {
     if (entity.scope !== scope) continue;
-    refreshEntity(name, projectSlug);
+    refreshEntity(name, project);
   }
 }
 
@@ -417,12 +431,12 @@ function rebuildAllForScope(scope: 'cross-project' | 'per-project', projectSlug:
 // Subcommand: invalidate
 // ──────────────────────────────────────────────────────────────────────────
 
-export function cmdInvalidate(entityName: string, projectSlug: string | null): void {
+export function cmdInvalidate(entityName: string, project: ProjectRef): void {
   const entity = BRAIN_CACHE_ENTITIES[entityName];
   if (!entity) throw new Error(`Unknown entity: ${entityName}`);
-  const meta = loadMeta(entity.scope, projectSlug);
+  const meta = loadMeta(entity.scope, project);
   delete meta.last_refresh[entityName];
-  saveMeta(entity.scope, projectSlug, meta);
+  saveMeta(entity.scope, project, meta);
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -436,7 +450,8 @@ export function cmdInvalidate(entityName: string, projectSlug: string | null): v
  * For T2a we implement the entity → page-slug mapping for the simple cases.
  * Derived digests (recent-decisions, salience) get specialized paths.
  */
-function fetchAndCompressEntity(entityName: string, projectSlug: string | null): string | null {
+function fetchAndCompressEntity(entityName: string, project: ProjectRef): string | null {
+  const projectSlug = projectNamespace(project);
   switch (entityName) {
     case 'user-profile':
       return fetchUserProfile();
@@ -541,8 +556,7 @@ export function getSalienceAllowlist(): ReadonlyArray<string> {
   // Shell out to gstack-config with a tight timeout. Falls back to defaults
   // on any failure (config script missing, command non-zero, parse error).
   try {
-    const skillRoot = join(homedir(), '.claude', 'skills', 'gstack');
-    const bin = join(skillRoot, 'bin', 'gstack-config');
+    const bin = join(process.env.GSTACK_BIN || join(GSTACK_HOME, 'bin'), 'gstack-config');
     if (!existsSync(bin)) return SALIENCE_DEFAULT_ALLOWLIST;
     const result = spawnSync(bin, ['get', 'salience_allowlist'], { timeout: 2000, encoding: 'utf-8' });
     if (result.status !== 0 || !result.stdout) return SALIENCE_DEFAULT_ALLOWLIST;
@@ -639,8 +653,8 @@ export function cmdDigest(slug: string): string | null {
 // Subcommand: meta
 // ──────────────────────────────────────────────────────────────────────────
 
-export function cmdMeta(projectSlug: string | null): CacheMeta {
-  if (projectSlug) return loadMeta('per-project', projectSlug);
+export function cmdMeta(project: ProjectRef): CacheMeta {
+  if (project) return loadMeta('per-project', project);
   return loadMeta('cross-project', null);
 }
 
@@ -665,8 +679,10 @@ export interface BootstrapDraft {
   competitive_intel?: { slug: string; title: string; body: string };
 }
 
-export function cmdBootstrap(projectSlug: string): BootstrapDraft {
+export function cmdBootstrap(project: Exclude<ProjectRef, null>): BootstrapDraft {
   const draft: BootstrapDraft = {};
+  const projectSlug = projectNamespace(project) as string;
+  const stateId = projectStateId(project) as string;
   const repoRoot = process.env.GSTACK_REPO_ROOT || process.cwd();
 
   // Product synthesis: CLAUDE.md headline + README first paragraph
@@ -685,7 +701,7 @@ export function cmdBootstrap(projectSlug: string): BootstrapDraft {
   }
 
   // Goals: try learnings.jsonl + recent commit messages mentioning "goal" or "ship"
-  const learningsPath = join(GSTACK_HOME, 'projects', projectSlug, 'learnings.jsonl');
+  const learningsPath = join(GSTACK_HOME, 'projects', stateId, 'learnings.jsonl');
   const goalsHints = synthesizeGoalsHints(learningsPath, repoRoot);
   if (goalsHints.length > 0) {
     draft.goals = goalsHints.slice(0, 3).map((hint, idx) => ({
@@ -757,7 +773,8 @@ function synthesizeGoalsHints(learningsPath: string, repoRoot: string): Array<{ 
  * Lists all gstack-owned pages currently in the brain for a project, grouped
  * by type. Powers the user's ability to audit what gstack has written.
  */
-export function cmdList(projectSlug: string | null): Array<{ type: string; slug: string; title?: string }> {
+export function cmdList(project: ProjectRef): Array<{ type: string; slug: string; title?: string }> {
+  const projectSlug = projectNamespace(project);
   // We probe each gstack/<type>/ namespace via list-pages with a type filter.
   const types = ['gstack/user-profile', 'gstack/product', 'gstack/goal', 'gstack/developer-persona', 'gstack/brand', 'gstack/competitive-intel', 'gstack/skill-run', 'gstack/take'];
   const all: Array<{ type: string; slug: string; title?: string }> = [];
@@ -827,9 +844,15 @@ function parseArgs(argv: string[]): { cmd: string; positional: string[]; flags: 
   return { cmd, positional, flags };
 }
 
-function projectSlugFromFlag(flags: Record<string, string | boolean>): string | null {
+async function projectTargetFromFlag(flags: Record<string, string | boolean>): Promise<ProjectRef> {
   const v = flags.project;
-  return typeof v === 'string' ? v : null;
+  if (typeof v !== 'string') return null;
+
+  // --project is the human namespace for GBrain pages. Local cache placement
+  // always follows the checkout in which the command runs; callers inspecting
+  // another checkout should run there, which also avoids path-key injection.
+  const identity = await discoverProjectIdentity();
+  return { slug: v, stateId: identity.projectId };
 }
 
 function printUsage(): void {
@@ -849,14 +872,14 @@ Subcommands:
 
 async function main(): Promise<number> {
   const { cmd, positional, flags } = parseArgs(process.argv);
-  const projectSlug = projectSlugFromFlag(flags);
+  const project = await projectTargetFromFlag(flags);
 
   try {
     switch (cmd) {
       case 'get': {
         const entityName = positional[0];
         if (!entityName) { printUsage(); return 1; }
-        const result = cmdGet(entityName, projectSlug);
+        const result = cmdGet(entityName, project);
         if (result.state === 'missing') {
           process.stderr.write(`(${result.state}: ${result.message ?? 'no cache'})\n`);
           return 2;
@@ -872,7 +895,7 @@ async function main(): Promise<number> {
         // another process is already mid-refresh on the same project.
         if (flags.entity) {
           const entityName = String(flags.entity);
-          const result = withRefreshLock(projectSlug, () => refreshEntity(entityName, projectSlug));
+          const result = withRefreshLock(project, () => refreshEntity(entityName, project));
           if (result === 'dedup') {
             process.stderr.write(`(dedup: another refresh in flight)\n`);
             return 3;
@@ -880,7 +903,7 @@ async function main(): Promise<number> {
           process.stdout.write(result ? `refreshed ${entityName}\n` : `failed to refresh ${entityName}\n`);
           return result ? 0 : 1;
         }
-        const allResult = withRefreshLock(projectSlug, () => refreshAll(projectSlug));
+        const allResult = withRefreshLock(project, () => refreshAll(project));
         if (allResult === 'dedup') {
           process.stderr.write(`(dedup: another refresh in flight)\n`);
           return 3;
@@ -891,7 +914,7 @@ async function main(): Promise<number> {
       case 'invalidate': {
         const entityName = positional[0];
         if (!entityName) { printUsage(); return 1; }
-        cmdInvalidate(entityName, projectSlug);
+        cmdInvalidate(entityName, project);
         process.stdout.write(`invalidated ${entityName}\n`);
         return 0;
       }
@@ -907,21 +930,21 @@ async function main(): Promise<number> {
         return 0;
       }
       case 'meta': {
-        const meta = cmdMeta(projectSlug);
+        const meta = cmdMeta(project);
         process.stdout.write(JSON.stringify(meta, null, 2) + '\n');
         return 0;
       }
       case 'bootstrap': {
-        if (!projectSlug) {
+        if (!project) {
           process.stderr.write('bootstrap requires --project <slug>\n');
           return 1;
         }
-        const draft = cmdBootstrap(projectSlug);
+        const draft = cmdBootstrap(project);
         process.stdout.write(JSON.stringify(draft, null, 2) + '\n');
         return 0;
       }
       case 'list': {
-        const pages = cmdList(projectSlug);
+        const pages = cmdList(project);
         if (flags.json) {
           process.stdout.write(JSON.stringify(pages, null, 2) + '\n');
         } else {

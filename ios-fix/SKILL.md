@@ -1,5 +1,5 @@
 ---
-name: ios-fix
+name: gstack-1-ios-fix
 preamble-tier: 3
 version: 1.0.0
 description: Autonomous iOS bug fixer. (gstack)
@@ -15,6 +15,8 @@ triggers:
   - fix this ios bug
   - patch the iphone app
   - auto-fix the ios issue
+metadata:
+  internal: true
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->

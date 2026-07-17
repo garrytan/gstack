@@ -1,5 +1,5 @@
 ---
-name: document-release
+name: gstack-1-document-release
 preamble-tier: 2
 version: 1.0.0
 description: Post-ship documentation update. (gstack)
@@ -15,6 +15,8 @@ triggers:
   - update docs after ship
   - document what changed
   - post-ship docs
+metadata:
+  internal: true
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->

@@ -1,5 +1,5 @@
 ---
-name: browse
+name: gstack-1-browse
 preamble-tier: 1
 version: 1.1.0
 description: Fast headless browser for QA testing and site dogfooding. (gstack)
@@ -12,6 +12,8 @@ allowed-tools:
   - Read
   - AskUserQuestion
 
+metadata:
+  internal: true
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->

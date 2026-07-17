@@ -1,0 +1,4 @@
+interface:
+  display_name: "GStack QA"
+  short_description: "Test, evidence, fix, and monitor products"
+  default_prompt: "Use $qa to test this product and choose report-only or fix-and-verify behavior."

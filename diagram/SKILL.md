@@ -1,5 +1,5 @@
 ---
-name: diagram
+name: gstack-1-diagram
 version: 1.0.0
 description: "Turn an English description (or mermaid source) into a diagram triplet: the source, an editable .excalidraw file you can open (gstack)"
 allowed-tools:
@@ -14,6 +14,8 @@ triggers:
   - diagram this
   - visualize this flow
   - architecture diagram
+metadata:
+  internal: true
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->

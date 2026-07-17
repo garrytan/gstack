@@ -54,10 +54,10 @@ export interface DecisionPaths {
   archive: string;
 }
 
-/** Resolve the per-project decision store paths. Bins pass slug + GSTACK_HOME. */
-export function decisionPaths(slug: string, gstackHome?: string): DecisionPaths {
+/** Resolve the per-worktree decision store paths. Bins pass projectId + GSTACK_HOME. */
+export function decisionPaths(projectId: string, gstackHome?: string): DecisionPaths {
   const home = gstackHome || process.env.GSTACK_HOME || join(homedir(), ".gstack");
-  const dir = join(home, "projects", slug || "unknown");
+  const dir = join(home, "projects", projectId || "unknown");
   return {
     log: join(dir, "decisions.jsonl"),
     snapshot: join(dir, "decisions.active.json"),

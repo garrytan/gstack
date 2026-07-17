@@ -1,5 +1,5 @@
 ---
-name: spec
+name: gstack-1-spec
 version: 0.1.0
 description: Turn vague intent into a precise, executable spec in five phases. (gstack)
 allowed-tools:
@@ -15,6 +15,8 @@ triggers:
   - turn this into an issue
   - make this a github issue
   - turn this into a backlog item
+metadata:
+  internal: true
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->

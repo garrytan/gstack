@@ -1,5 +1,5 @@
 ---
-name: guard
+name: gstack-1-guard
 version: 0.1.0
 description: "Full safety mode: destructive command warnings + directory-scoped edits. (gstack)"
 triggers:
@@ -27,6 +27,8 @@ hooks:
         - type: command
           command: "bash $HOME/.claude/skills/gstack/freeze/bin/check-freeze.sh"
           statusMessage: "Checking freeze boundary..."
+metadata:
+  internal: true
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->

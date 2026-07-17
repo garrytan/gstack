@@ -1,5 +1,5 @@
 ---
-name: setup-browser-cookies
+name: gstack-1-setup-browser-cookies
 preamble-tier: 1
 version: 1.0.0
 description: Import cookies from your real Chromium browser into the headless browse session. (gstack)
@@ -11,6 +11,8 @@ allowed-tools:
   - Bash
   - Read
   - AskUserQuestion
+metadata:
+  internal: true
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->

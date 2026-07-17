@@ -1,5 +1,5 @@
 ---
-name: skillify
+name: gstack-1-skillify
 version: 1.0.0
 description: Codify the most recent successful /scrape flow into a permanent browser-skill on disk. (gstack)
 allowed-tools:
@@ -12,6 +12,8 @@ triggers:
   - codify this scrape
   - save this scrape
   - make this permanent
+metadata:
+  internal: true
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->

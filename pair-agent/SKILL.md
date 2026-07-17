@@ -1,5 +1,5 @@
 ---
-name: pair-agent
+name: gstack-1-pair-agent
 version: 0.1.0
 description: Pair a remote AI agent with your browser. (gstack)
 triggers:
@@ -11,6 +11,8 @@ allowed-tools:
   - Read
   - AskUserQuestion
 
+metadata:
+  internal: true
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->

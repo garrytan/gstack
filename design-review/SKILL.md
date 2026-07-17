@@ -1,5 +1,5 @@
 ---
-name: design-review
+name: gstack-1-design-review
 preamble-tier: 4
 version: 2.0.0
 description: "Designer's eye QA: finds visual inconsistency, spacing issues, hierarchy problems, AI slop patterns, and slow interactions — then fixes them. (gstack)"
@@ -16,6 +16,8 @@ triggers:
   - visual design audit
   - design qa
   - fix design issues
+metadata:
+  internal: true
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->

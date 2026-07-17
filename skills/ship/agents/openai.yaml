@@ -1,0 +1,4 @@
+interface:
+  display_name: "GStack Ship"
+  short_description: "Ship, land, deploy, monitor, and roll back safely"
+  default_prompt: "Use $ship to take this change through the safest appropriate release stage."

@@ -1,5 +1,5 @@
 ---
-name: land-and-deploy
+name: gstack-1-land-and-deploy
 preamble-tier: 4
 version: 1.0.0
 description: Land and deploy workflow. (gstack)
@@ -13,6 +13,8 @@ triggers:
   - merge and deploy
   - land the pr
   - ship to production
+metadata:
+  internal: true
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->

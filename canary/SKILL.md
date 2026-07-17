@@ -1,5 +1,5 @@
 ---
-name: canary
+name: gstack-1-canary
 preamble-tier: 2
 version: 1.0.0
 description: Post-deploy canary monitoring. (gstack)
@@ -13,6 +13,8 @@ triggers:
   - monitor after deploy
   - canary check
   - watch for errors post-deploy
+metadata:
+  internal: true
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->

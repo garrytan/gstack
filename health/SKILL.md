@@ -1,5 +1,5 @@
 ---
-name: health
+name: gstack-1-health
 preamble-tier: 2
 version: 1.0.0
 description: Code quality dashboard. (gstack)
@@ -15,6 +15,8 @@ allowed-tools:
   - Glob
   - Grep
   - AskUserQuestion
+metadata:
+  internal: true
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->

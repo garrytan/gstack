@@ -1,5 +1,5 @@
 ---
-name: codex
+name: gstack-1-codex
 preamble-tier: 3
 version: 1.0.0
 description: OpenAI Codex CLI wrapper — three modes. (gstack)
@@ -14,6 +14,8 @@ allowed-tools:
   - Glob
   - Grep
   - AskUserQuestion
+metadata:
+  internal: true
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->

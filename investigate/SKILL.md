@@ -1,5 +1,5 @@
 ---
-name: investigate
+name: gstack-1-investigate
 preamble-tier: 2
 version: 1.0.0
 description: Systematic debugging with root cause investigation. (gstack)
@@ -52,6 +52,8 @@ gbrain:
       glob: "~/.gstack/analytics/eureka.jsonl"
       tail: 5
       render_as: "## Recent eureka moments (cross-project)"
+metadata:
+  internal: true
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->

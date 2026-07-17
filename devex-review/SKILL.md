@@ -1,5 +1,5 @@
 ---
-name: devex-review
+name: gstack-1-devex-review
 preamble-tier: 3
 version: 1.0.0
 description: Live developer experience audit. (gstack)
@@ -15,6 +15,8 @@ allowed-tools:
   - Bash
   - AskUserQuestion
   - WebSearch
+metadata:
+  internal: true
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->

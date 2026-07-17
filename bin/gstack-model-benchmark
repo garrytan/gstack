@@ -27,10 +27,10 @@
 import '../lib/conductor-env-shim';
 import * as fs from 'fs';
 import * as path from 'path';
-import { runBenchmark, formatTable, formatJson, formatMarkdown, type BenchmarkInput } from '../test/helpers/benchmark-runner';
-import { ClaudeAdapter } from '../test/helpers/providers/claude';
-import { GptAdapter } from '../test/helpers/providers/gpt';
-import { GeminiAdapter } from '../test/helpers/providers/gemini';
+import { runBenchmark, formatTable, formatJson, formatMarkdown, type BenchmarkInput } from '../lib/model-benchmark/runner';
+import { ClaudeAdapter } from '../lib/model-benchmark/providers/claude';
+import { GptAdapter } from '../lib/model-benchmark/providers/gpt';
+import { GeminiAdapter } from '../lib/model-benchmark/providers/gemini';
 
 const ADAPTER_FACTORIES = {
   claude: () => new ClaudeAdapter(),
@@ -130,7 +130,7 @@ async function main(): Promise<void> {
 
   if (doJudge) {
     try {
-      const { judgeEntries } = await import('../test/helpers/benchmark-judge');
+      const { judgeEntries } = await import('../lib/model-benchmark/judge');
       await judgeEntries(report);
     } catch (err) {
       console.error(`WARN: judge unavailable: ${(err as Error).message}`);

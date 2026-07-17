@@ -11,9 +11,11 @@
 # Validation failure → skip silently (non-blocking).
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-eval "$("$SCRIPT_DIR/gstack-slug" 2>/dev/null)"
 GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
-mkdir -p "$GSTACK_HOME/projects/$SLUG"
+eval "$(GSTACK_HOME="$GSTACK_HOME" "$SCRIPT_DIR/gstack-slug" 2>/dev/null)"
+PROJECT_ID="${PROJECT_ID:?gstack project identity unavailable}"
+PROJECT_DIR="$GSTACK_HOME/projects/$PROJECT_ID"
+mkdir -p "$PROJECT_DIR"
 
 INPUT="$1"
 
@@ -34,7 +36,7 @@ if ! printf '%s' "$INPUT" | bun -e "const j=JSON.parse(await Bun.stdin.text()); 
   " 2>/dev/null) || true
 fi
 
-echo "$INPUT" >> "$GSTACK_HOME/projects/$SLUG/timeline.jsonl"
+echo "$INPUT" >> "$PROJECT_DIR/timeline.jsonl"
 
 # gbrain-sync: enqueue for cross-machine sync (no-op if sync is off).
-"$SCRIPT_DIR/gstack-brain-enqueue" "projects/$SLUG/timeline.jsonl" 2>/dev/null &
+"$SCRIPT_DIR/gstack-brain-enqueue" "projects/$PROJECT_ID/timeline.jsonl" 2>/dev/null &

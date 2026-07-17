@@ -16,6 +16,14 @@ import { execSync } from 'child_process';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const ROOT_REALPATH = fs.realpathSync(ROOT);
+const GSTACK2_PUBLIC_SKILLS = ['debug', 'design', 'plan', 'qa', 'review', 'ship'];
+const RETIRED_GSTACK2_MONOLITH_OUTPUTS = new Set(['SKILL.md', 'claude/SKILL.md']);
+
+function hasGStack2Package(): boolean {
+  return GSTACK2_PUBLIC_SKILLS.every((skill) =>
+    fs.existsSync(path.join(ROOT, 'skills', skill, 'SKILL.md')),
+  );
+}
 
 function isRepoRootSymlink(candidateDir: string): boolean {
   try {
@@ -27,6 +35,7 @@ function isRepoRootSymlink(candidateDir: string): boolean {
 
 // Find all SKILL.md files (dynamic discovery — no hardcoded list)
 const SKILL_FILES = discoverSkillFiles(ROOT);
+const GSTACK2_PACKAGE = hasGStack2Package();
 
 let hasErrors = false;
 
@@ -60,6 +69,20 @@ for (const file of SKILL_FILES) {
   }
 }
 
+if (GSTACK2_PACKAGE) {
+  const publicSkills = fs.readdirSync(path.join(ROOT, 'skills'), { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
+    .filter((entry) => fs.existsSync(path.join(ROOT, 'skills', entry.name, 'SKILL.md')))
+    .map((entry) => entry.name)
+    .sort();
+  if (JSON.stringify(publicSkills) === JSON.stringify(GSTACK2_PUBLIC_SKILLS)) {
+    console.log(`  \u2705 skills/ public package          — exactly six dispatchers (${publicSkills.join(', ')})`);
+  } else {
+    hasErrors = true;
+    console.log(`  \u274c skills/ public package          — expected ${GSTACK2_PUBLIC_SKILLS.join(', ')}, found ${publicSkills.join(', ') || 'none'}`);
+  }
+}
+
 // ─── Templates ──────────────────────────────────────────────
 
 console.log('\n  Templates:');
@@ -70,6 +93,10 @@ for (const { tmpl, output } of TEMPLATES) {
   const outPath = path.join(ROOT, output);
   if (!fs.existsSync(tmplPath)) {
     console.log(`  \u26a0\ufe0f  ${output.padEnd(30)} — no template`);
+    continue;
+  }
+  if (GSTACK2_PACKAGE && RETIRED_GSTACK2_MONOLITH_OUTPUTS.has(output)) {
+    console.log(`  \u23ed\ufe0f  ${tmpl.padEnd(30)} — retained source; monolith output retired by GStack 2`);
     continue;
   }
   if (!fs.existsSync(outPath)) {

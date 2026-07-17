@@ -1,5 +1,5 @@
 ---
-name: qa-only
+name: gstack-1-qa-only
 preamble-tier: 4
 version: 1.0.0
 description: Report-only QA testing. (gstack)
@@ -13,6 +13,8 @@ triggers:
   - qa report only
   - just report bugs
   - test but dont fix
+metadata:
+  internal: true
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->

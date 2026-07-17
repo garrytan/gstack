@@ -1,5 +1,5 @@
 ---
-name: open-gstack-browser
+name: gstack-1-open-gstack-browser
 version: 0.2.0
 description: Launch GStack Browser — AI-controlled Chromium with the sidebar extension baked in.
 triggers:
@@ -11,6 +11,8 @@ allowed-tools:
   - Read
   - AskUserQuestion
 
+metadata:
+  internal: true
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->

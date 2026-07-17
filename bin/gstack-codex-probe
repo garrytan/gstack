@@ -78,12 +78,13 @@ _gstack_codex_log_event() {
   local _event="$1"
   local _duration="${2:-0}"
   [ "${_TEL:-off}" = "off" ] && return 0
-  mkdir -p "$HOME/.gstack/analytics" 2>/dev/null || return 0
+  local _state_home="${GSTACK_HOME:-$HOME/.gstack}"
+  mkdir -p "$_state_home/analytics" 2>/dev/null || return 0
   local _ts
   _ts=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo unknown)
   printf '{"skill":"codex","event":"%s","duration_s":"%s","ts":"%s"}\n' \
     "$_event" "$_duration" "$_ts" \
-    >> "$HOME/.gstack/analytics/skill-usage.jsonl" 2>/dev/null || true
+    >> "$_state_home/analytics/skill-usage.jsonl" 2>/dev/null || true
 }
 
 # --- Learnings log on hang --------------------------------------------------
@@ -94,7 +95,10 @@ _gstack_codex_log_hang() {
   # Best-effort: errors swallowed.
   local _mode="${1:-unknown}"
   local _prompt_size="${2:-0}"
-  local _log_bin="$HOME/.claude/skills/gstack/bin/gstack-learnings-log"
+  local _log_bin="${GSTACK_BIN:-}/gstack-learnings-log"
+  if [ ! -x "$_log_bin" ]; then
+    _log_bin=$(command -v gstack-learnings-log 2>/dev/null || true)
+  fi
   [ -x "$_log_bin" ] || return 0
   local _key="codex-hang-$(date +%s 2>/dev/null || echo unknown)"
   "$_log_bin" "$(printf '{"skill":"codex","type":"operational","key":"%s","insight":"Codex timed out after 600s during [%s] invocation. Prompt size: %s. Consider splitting prompt or checking network.","confidence":8,"source":"observed","files":["codex/SKILL.md.tmpl","autoplan/SKILL.md.tmpl"]}' "$_key" "$_mode" "$_prompt_size")" \

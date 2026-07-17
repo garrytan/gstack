@@ -1,5 +1,5 @@
 ---
-name: design-consultation
+name: gstack-1-design-consultation
 preamble-tier: 3
 version: 1.0.0
 description: "Design consultation: understands your product, researches the landscape, proposes a complete design system (aesthetic, typography, color, layout, spacing, motion), and generates font+color preview... (gstack)"
@@ -39,6 +39,8 @@ gbrain:
       sort: updated_at_desc
       limit: 3
       render_as: "## Brand-related notes from CEO plans"
+metadata:
+  internal: true
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->

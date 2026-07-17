@@ -1,0 +1,83 @@
+name: GStack 2 Gate
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: gstack2-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native:
+    name: Native ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, ubuntu-24.04, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.14
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+      - name: Configure isolated test identity
+        run: |
+          git config --global user.email "gstack2-ci@example.invalid"
+          git config --global user.name "GStack 2 CI"
+          git config --global init.defaultBranch main
+      - run: bun install --frozen-lockfile
+      - name: Canonical six-skill, parity, state, and runtime gates
+        run: bun run test:gstack2
+      - name: Standard installer discovery
+        run: npx --yes skills@1.5.19 add . --list
+
+  installer-matrix:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.14
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+      - run: bun install --frozen-lockfile
+      - run: bun run test:gstack2:install
+
+  dev-container:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+      - name: Build the declared development container
+        run: docker build --file .devcontainer/Dockerfile --tag gstack2-devcontainer .
+      - name: Run the GStack 2 gate inside the container
+        run: >-
+          docker run --rm
+          --volume "${{ github.workspace }}:/workspaces/gstack"
+          --workdir /workspaces/gstack
+          gstack2-devcontainer
+          /workspaces/gstack/scripts/gstack2/devcontainer-gate.sh
+      - name: Exercise a clean Linux runtime install inside the container
+        run: >-
+          docker run --rm
+          --volume "${{ github.workspace }}:/source:ro"
+          --workdir /source
+          gstack2-devcontainer
+          /source/scripts/gstack2/runtime-install-smoke.sh /source

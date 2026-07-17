@@ -1,0 +1,4 @@
+interface:
+  display_name: "GStack Design"
+  short_description: "Create and audit product design systems"
+  default_prompt: "Use $design to choose a design direction or audit this interface."

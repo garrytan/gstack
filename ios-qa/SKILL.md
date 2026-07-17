@@ -1,5 +1,5 @@
 ---
-name: ios-qa
+name: gstack-1-ios-qa
 preamble-tier: 3
 version: 1.0.0
 description: Live-device iOS QA for SwiftUI apps. (gstack)
@@ -17,6 +17,8 @@ triggers:
   - test my ios app
   - find bugs on the device
   - qa the ios app
+metadata:
+  internal: true
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->

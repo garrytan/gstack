@@ -28,13 +28,14 @@ import {
   datamark,
   type ActiveDecision,
 } from "../lib/gstack-decision";
-import { resolveSlug, gitBranch, flagValue } from "../lib/bin-context";
+import { gitBranch, flagValue } from "../lib/bin-context";
+import { discoverProjectIdentity } from "../runtime/identity.js";
 
 const HERE = import.meta.dir;
 const args = process.argv.slice(2);
 
-const slug = resolveSlug(`${HERE}/gstack-slug`);
-const paths = decisionPaths(slug);
+const projectId = (await discoverProjectIdentity()).projectId;
+const paths = decisionPaths(projectId);
 const queryRaw = flagValue(args, "--query");
 const query = queryRaw?.toLowerCase();
 const scope = flagValue(args, "--scope");

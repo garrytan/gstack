@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 // gstack-taste-update — update the persistent taste profile at
-// ~/.gstack/projects/$SLUG/taste-profile.json
+// $GSTACK_HOME/projects/$PROJECT_ID/taste-profile.json
 //
 // Usage:
 //   gstack-taste-update approved <variant-path> [--reason "<why>"]
@@ -8,7 +8,7 @@
 //   gstack-taste-update show                       — print current profile summary
 //   gstack-taste-update migrate                    — upgrade legacy approved.json to v1
 //
-// Schema v1 at ~/.gstack/projects/$SLUG/taste-profile.json:
+// Schema v1 at $GSTACK_HOME/projects/$PROJECT_ID/taste-profile.json:
 //
 //   {
 //     "version": 1,
@@ -31,12 +31,13 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { execSync } from 'child_process';
+import { discoverProjectIdentity } from '../runtime/identity.js';
 
-const STATE_DIR = process.env.GSTACK_STATE_DIR || path.join(process.env.HOME || '/', '.gstack');
+const STATE_DIR = process.env.GSTACK_HOME || process.env.GSTACK_STATE_DIR || path.join(process.env.HOME || '/', '.gstack');
 const SCHEMA_VERSION = 1;
 const SESSION_CAP = 50;
 const DECAY_PER_WEEK = 0.05;
+const CURRENT_PROJECT_ID = (await discoverProjectIdentity()).projectId;
 
 type Dimension = 'fonts' | 'colors' | 'layouts' | 'aesthetics';
 const DIMENSIONS: Dimension[] = ['fonts', 'colors', 'layouts', 'aesthetics'];
@@ -63,17 +64,12 @@ interface TasteProfile {
   sessions: SessionRecord[];
 }
 
-function getSlug(): string {
-  try {
-    const output = execSync('git rev-parse --show-toplevel', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
-    return path.basename(output);
-  } catch {
-    return 'unknown';
-  }
+function getProjectId(): string {
+  return CURRENT_PROJECT_ID;
 }
 
-function profilePath(slug: string): string {
-  return path.join(STATE_DIR, 'projects', slug, 'taste-profile.json');
+function profilePath(projectId: string): string {
+  return path.join(STATE_DIR, 'projects', projectId, 'taste-profile.json');
 }
 
 function emptyProfile(): TasteProfile {
@@ -90,8 +86,8 @@ function emptyProfile(): TasteProfile {
   };
 }
 
-function load(slug: string): TasteProfile {
-  const p = profilePath(slug);
+function load(projectId: string): TasteProfile {
+  const p = profilePath(projectId);
   if (!fs.existsSync(p)) return emptyProfile();
   try {
     const raw = JSON.parse(fs.readFileSync(p, 'utf-8'));
@@ -105,8 +101,8 @@ function load(slug: string): TasteProfile {
   }
 }
 
-function save(slug: string, profile: TasteProfile): void {
-  const p = profilePath(slug);
+function save(projectId: string, profile: TasteProfile): void {
+  const p = profilePath(projectId);
   fs.mkdirSync(path.dirname(p), { recursive: true });
   profile.updated_at = new Date().toISOString();
   fs.writeFileSync(p, JSON.stringify(profile, null, 2) + '\n');
@@ -208,8 +204,8 @@ function bumpPref(list: Preference[], value: string, opposite: Preference[], act
 }
 
 function cmdUpdate(action: 'approved' | 'rejected', variant: string, reason?: string): void {
-  const slug = getSlug();
-  const profile = load(slug);
+  const projectId = getProjectId();
+  const profile = load(projectId);
   const signals = extractSignals(reason);
 
   for (const dim of DIMENSIONS) {
@@ -227,14 +223,14 @@ function cmdUpdate(action: 'approved' | 'rejected', variant: string, reason?: st
     profile.sessions = profile.sessions.slice(-SESSION_CAP);
   }
 
-  save(slug, profile);
-  console.log(`${action}: ${variant} → ${profilePath(slug)}`);
+  save(projectId, profile);
+  console.log(`${action}: ${variant} → ${profilePath(projectId)}`);
 }
 
 function cmdShow(): void {
-  const slug = getSlug();
-  const profile = applyDecay(load(slug));
-  console.log(`taste-profile.json (slug: ${slug}, sessions: ${profile.sessions.length})`);
+  const projectId = getProjectId();
+  const profile = applyDecay(load(projectId));
+  console.log(`taste-profile.json (project: ${projectId}, sessions: ${profile.sessions.length})`);
   for (const dim of DIMENSIONS) {
     const top = [...profile.dimensions[dim].approved]
       .sort((a, b) => b.confidence * b.approved_count - a.confidence * a.approved_count)
@@ -257,10 +253,10 @@ function cmdShow(): void {
 }
 
 function cmdMigrate(): void {
-  const slug = getSlug();
-  const profile = load(slug);
-  save(slug, profile);
-  console.log(`migrated taste profile to v${SCHEMA_VERSION} at ${profilePath(slug)}`);
+  const projectId = getProjectId();
+  const profile = load(projectId);
+  save(projectId, profile);
+  console.log(`migrated taste profile to v${SCHEMA_VERSION} at ${profilePath(projectId)}`);
 }
 
 // ─── CLI entry ────────────────────────────────────────────────

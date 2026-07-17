@@ -1,5 +1,5 @@
 ---
-name: gstack-upgrade
+name: gstack-1-upgrade
 version: 1.1.0
 description: Upgrade gstack to the latest version.
 triggers:
@@ -11,6 +11,8 @@ allowed-tools:
   - Read
   - Write
   - AskUserQuestion
+metadata:
+  internal: true
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->

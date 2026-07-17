@@ -2,13 +2,14 @@
 # gstack-learnings-search — read and filter project learnings
 # Usage: gstack-learnings-search [--type TYPE] [--query KEYWORD] [--limit N] [--cross-project]
 #
-# Reads ~/.gstack/projects/$SLUG/learnings.jsonl, applies confidence decay,
+# Reads the current worktree's learnings.jsonl, applies confidence decay,
 # resolves duplicates (latest winner per key+type), and outputs formatted text.
 # Exit 0 silently if no learnings file exists.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-eval "$("$SCRIPT_DIR/gstack-slug" 2>/dev/null)"
 GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
+eval "$(GSTACK_HOME="$GSTACK_HOME" "$SCRIPT_DIR/gstack-slug" 2>/dev/null)"
+PROJECT_ID="${PROJECT_ID:?gstack project identity unavailable}"
 
 TYPE=""
 QUERY=""
@@ -25,7 +26,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-LEARNINGS_FILE="$GSTACK_HOME/projects/$SLUG/learnings.jsonl"
+LEARNINGS_FILE="$GSTACK_HOME/projects/$PROJECT_ID/learnings.jsonl"
 
 # Collect cross-project JSONL files separately so the trust gate can distinguish
 # current-project rows from rows loaded from other projects.
@@ -36,7 +37,7 @@ if [ "$CROSS_PROJECT" = true ]; then
   while IFS= read -r f; do
     CROSS_FILES+=("$f")
     [ ${#CROSS_FILES[@]} -ge 5 ] && break
-  done < <(find "$GSTACK_HOME/projects" -name "learnings.jsonl" -not -path "*/$SLUG/*" 2>/dev/null)
+  done < <(find "$GSTACK_HOME/projects" -name "learnings.jsonl" -not -path "*/$PROJECT_ID/*" 2>/dev/null)
 fi
 
 if [ ! -f "$LEARNINGS_FILE" ] && [ ${#CROSS_FILES[@]} -eq 0 ]; then

@@ -1,5 +1,5 @@
 ---
-name: document-generate
+name: gstack-1-document-generate
 preamble-tier: 2
 version: 1.0.0
 description: Generate missing documentation from scratch for a feature, module, or entire project. (gstack)
@@ -19,6 +19,8 @@ triggers:
   - write a how-to
   - explain this module
   - docs for this project
+metadata:
+  internal: true
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->

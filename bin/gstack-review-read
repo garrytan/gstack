@@ -3,9 +3,10 @@
 # Usage: gstack-review-read
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-eval "$("$SCRIPT_DIR/gstack-slug" 2>/dev/null)"
 GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
-cat "$GSTACK_HOME/projects/$SLUG/$BRANCH-reviews.jsonl" 2>/dev/null || echo "NO_REVIEWS"
+eval "$(GSTACK_HOME="$GSTACK_HOME" "$SCRIPT_DIR/gstack-slug" 2>/dev/null)"
+PROJECT_ID="${PROJECT_ID:?gstack project identity unavailable}"
+cat "$GSTACK_HOME/projects/$PROJECT_ID/$BRANCH-reviews.jsonl" 2>/dev/null || echo "NO_REVIEWS"
 echo "---CONFIG---"
 "$SCRIPT_DIR/gstack-config" get skip_eng_review 2>/dev/null || echo "false"
 echo "---HEAD---"

@@ -1,5 +1,5 @@
 ---
-name: qa
+name: gstack-1-qa
 preamble-tier: 4
 version: 2.0.0
 description: Systematically QA test a web application and fix bugs found. (gstack)
@@ -16,6 +16,8 @@ triggers:
   - qa test this
   - find bugs on site
   - test the site
+metadata:
+  internal: true
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->

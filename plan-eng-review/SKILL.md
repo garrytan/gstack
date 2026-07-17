@@ -1,5 +1,5 @@
 ---
-name: plan-eng-review
+name: gstack-1-plan-eng-review
 preamble-tier: 3
 interactive: true
 version: 1.0.0
@@ -17,6 +17,8 @@ triggers:
   - review architecture
   - eng plan review
   - check the implementation plan
+metadata:
+  internal: true
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->

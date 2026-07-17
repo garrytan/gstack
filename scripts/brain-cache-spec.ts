@@ -12,7 +12,7 @@
  */
 
 export interface BrainCacheEntity {
-  /** Filename inside ~/.gstack/{,projects/<slug>/}brain-cache/ */
+  /** Filename inside $GSTACK_HOME/{,projects/<project-id>/}brain-cache/ */
   file: string;
   /** Time-to-live in milliseconds before cache is considered stale and triggers cold refresh. */
   ttl_ms: number;

@@ -1,5 +1,5 @@
 ---
-name: landing-report
+name: gstack-1-landing-report
 version: 0.1.0
 description: Read-only queue dashboard for workspace-aware ship. (gstack)
 triggers:
@@ -11,6 +11,8 @@ triggers:
 allowed-tools:
   - Bash
   - Read
+metadata:
+  internal: true
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->

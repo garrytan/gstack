@@ -8,18 +8,20 @@
 #   Collaborative: top author < 80%
 #
 # Override: gstack-config set repo_mode solo|collaborative
-# Cache:    ~/.gstack/projects/$SLUG/repo-mode.json (7-day TTL)
+# Cache:    $GSTACK_HOME/projects/$PROJECT_ID/repo-mode.json (7-day TTL)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-# Compute SLUG directly (avoid eval of gstack-slug — branch names can contain shell metacharacters)
+GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
 REMOTE_URL=$(git remote get-url origin 2>/dev/null || true)
 if [ -z "$REMOTE_URL" ]; then
   echo "REPO_MODE=unknown"
   exit 0
 fi
-SLUG=$(echo "$REMOTE_URL" | sed 's|.*[:/]\([^/]*/[^/]*\)\.git$|\1|;s|.*[:/]\([^/]*/[^/]*\)$|\1|' | tr '/' '-')
-[ -z "${SLUG:-}" ] && { echo "REPO_MODE=unknown"; exit 0; }
+# gstack-slug emits only eval-safe values and derives PROJECT_ID from Git's
+# common-dir + worktree slot, so linked worktrees cannot share this cache.
+eval "$(GSTACK_HOME="$GSTACK_HOME" "$SCRIPT_DIR/gstack-slug" 2>/dev/null || true)"
+PROJECT_ID="${PROJECT_ID:?gstack project identity unavailable}"
 
 # Validate: only allow known values (prevent shell injection via source <(...))
 validate_mode() {
@@ -34,7 +36,7 @@ if [ -n "$OVERRIDE" ] && [ "$OVERRIDE" != "null" ]; then
 fi
 
 # Check cache (7-day TTL)
-CACHE_DIR="$HOME/.gstack/projects/$SLUG"
+CACHE_DIR="$GSTACK_HOME/projects/$PROJECT_ID"
 CACHE_FILE="$CACHE_DIR/repo-mode.json"
 if [ -f "$CACHE_FILE" ]; then
   CACHE_AGE=$(( $(date +%s) - $(stat -f %m "$CACHE_FILE" 2>/dev/null || stat -c %Y "$CACHE_FILE" 2>/dev/null || echo 0) ))

@@ -3,12 +3,13 @@
 # Usage: gstack-timeline-read [--since "7 days ago"] [--limit N] [--branch NAME]
 #
 # Session timeline: local-only, never sent anywhere.
-# Reads ~/.gstack/projects/$SLUG/timeline.jsonl, filters, formats.
+# Reads the current worktree's timeline.jsonl, filters, and formats.
 # Exit 0 silently if no timeline file exists.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-eval "$("$SCRIPT_DIR/gstack-slug" 2>/dev/null)"
 GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
+eval "$(GSTACK_HOME="$GSTACK_HOME" "$SCRIPT_DIR/gstack-slug" 2>/dev/null)"
+PROJECT_ID="${PROJECT_ID:?gstack project identity unavailable}"
 
 SINCE=""
 LIMIT=20
@@ -23,7 +24,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-TIMELINE_FILE="$GSTACK_HOME/projects/$SLUG/timeline.jsonl"
+TIMELINE_FILE="$GSTACK_HOME/projects/$PROJECT_ID/timeline.jsonl"
 
 if [ ! -f "$TIMELINE_FILE" ]; then
   exit 0

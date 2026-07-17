@@ -86,6 +86,8 @@ let idleExtensions = 0;
 let shuttingDown = false;
 let serverRef: ReturnType<typeof Bun.serve> | null = null;
 let idleInterval: ReturnType<typeof setInterval> | null = null;
+let shutdownRequestTimer: ReturnType<typeof setTimeout> | null = null;
+let exitTimer: ReturnType<typeof setTimeout> | null = null;
 const startTime = Date.now();
 const daemonLog = openDaemonLog();
 
@@ -203,7 +205,7 @@ async function gracefulShutdown(exitCode = 0): Promise<void> {
   }
   removeStateFile();
   if (daemonLog) daemonLog.end();
-  setTimeout(() => process.exit(exitCode), 50);
+  exitTimer = setTimeout(() => process.exit(exitCode), 50);
 }
 
 export function idleCheckTick(): void {
@@ -486,7 +488,10 @@ export async function fetchHandler(req: Request): Promise<Response> {
         { status: 409 },
       );
     }
-    setTimeout(() => gracefulShutdown(0), 50);
+    shutdownRequestTimer = setTimeout(() => {
+      shutdownRequestTimer = null;
+      void gracefulShutdown(0);
+    }, 50);
     return Response.json({ shuttingDown: true });
   }
 
@@ -573,6 +578,10 @@ export const __testInternals__ = {
   idleCheckTick,
   markMeaningfulActivity,
   resetForTest: (): void => {
+    if (shutdownRequestTimer) clearTimeout(shutdownRequestTimer);
+    if (exitTimer) clearTimeout(exitTimer);
+    shutdownRequestTimer = null;
+    exitTimer = null;
     boards.clear();
     boardMutex.clear();
     lastMeaningfulActivity = Date.now();

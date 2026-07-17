@@ -41,6 +41,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { spawnSync } from 'child_process';
 import { isConductor } from '../../../lib/is-conductor';
+import { discoverProjectIdentity } from '../../../runtime/identity.js';
 
 interface HookStdin {
   session_id?: string;
@@ -128,14 +129,16 @@ interface PreferenceLookup {
   source: 'project' | 'global' | 'none';
 }
 
-function lookupPreference(slug: string, questionId: string): PreferenceLookup {
+function lookupPreference(projectId: string | null, questionId: string): PreferenceLookup {
   const sr = stateRoot();
-  const projectFile = path.join(sr, 'projects', slug, 'question-preferences.json');
   const globalFile = path.join(sr, 'global-question-preferences.json');
 
-  const project = readJsonSafe(projectFile);
-  if (project && typeof project[questionId] === 'string') {
-    return { preference: project[questionId] as string, source: 'project' };
+  if (projectId) {
+    const projectFile = path.join(sr, 'projects', projectId, 'question-preferences.json');
+    const project = readJsonSafe(projectFile);
+    if (project && typeof project[questionId] === 'string') {
+      return { preference: project[questionId] as string, source: 'project' };
+    }
   }
   const global = readJsonSafe(globalFile);
   if (global && typeof global[questionId] === 'string') {
@@ -281,13 +284,14 @@ function extractRecommended(
   return { recommended: undefined, ambiguous: false };
 }
 
-function slugFromCwd(cwd: string | undefined): string {
-  // Mirror gstack-slug's basename fallback. The full slug resolver shells out
-  // to git, which is too expensive on a hot hook path; the basename is close
-  // enough for preference lookup (preferences are keyed by question_id, slug
-  // is just the directory bucket).
-  if (!cwd) return 'unknown';
-  return path.basename(cwd);
+async function projectIdFromCwd(cwd: string | undefined): Promise<string | null> {
+  if (!cwd) return null;
+  try {
+    return (await discoverProjectIdentity(cwd)).projectId;
+  } catch (e) {
+    logHookError(`project identity failed: ${(e as Error).message}`);
+    return null;
+  }
 }
 
 function markAutoDecided(sessionId: string | undefined, toolUseId: string | undefined): void {
@@ -378,7 +382,7 @@ async function main(): Promise<void> {
   // we deny only if ALL questions have marker + never-ask + safe door type.
   // Mixed cases pass through (defer) so the user still gets to answer.
   const registry = loadRegistry();
-  const slug = slugFromCwd(stdin.cwd);
+  const projectId = await projectIdFromCwd(stdin.cwd);
   const memoryNuggets = loadMemoryNuggets(stdin.session_id);
 
   // Compute Layer 8 memory context inline: any nuggets matching the
@@ -414,7 +418,7 @@ async function main(): Promise<void> {
     const marker = qText.match(MARKER_RE);
     if (!marker) { fullyAutoDecidable = false; break; }
     const questionId = marker[1];
-    const pref = lookupPreference(slug, questionId);
+    const pref = lookupPreference(projectId, questionId);
     if (!pref.preference || pref.preference === 'always-ask') { fullyAutoDecidable = false; break; }
 
     const entry = registry[questionId];

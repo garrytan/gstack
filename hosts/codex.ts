@@ -16,6 +16,13 @@ const codex: HostConfig = {
     keepFields: ['name', 'description'],
     descriptionLimit: 1024,
     descriptionLimitBehavior: 'error',
+    // GStack 2.0 installs the six canonical skills from skills/. These
+    // generated 1.x host copies remain available for the two-release
+    // compatibility window, but standard Agent Skills installers must not
+    // discover them by default.
+    extraFields: {
+      metadata: '\n  internal: true',
+    },
   },
 
   generation: {

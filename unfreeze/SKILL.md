@@ -1,5 +1,5 @@
 ---
-name: unfreeze
+name: gstack-1-unfreeze
 version: 0.1.0
 description: Clear the freeze boundary set by /freeze, allowing edits to all directories again. (gstack)
 triggers:
@@ -9,6 +9,8 @@ triggers:
 allowed-tools:
   - Bash
   - Read
+metadata:
+  internal: true
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->

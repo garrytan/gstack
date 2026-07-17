@@ -1,5 +1,5 @@
 ---
-name: office-hours
+name: gstack-1-office-hours
 preamble-tier: 3
 version: 2.0.0
 description: YC Office Hours — two modes. (gstack)
@@ -44,6 +44,8 @@ gbrain:
       glob: "~/.gstack/analytics/eureka.jsonl"
       tail: 5
       render_as: "## Recent eureka moments"
+metadata:
+  internal: true
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->

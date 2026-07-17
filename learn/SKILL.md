@@ -1,5 +1,5 @@
 ---
-name: learn
+name: gstack-1-learn
 preamble-tier: 2
 version: 1.0.0
 description: Manage project learnings.
@@ -15,6 +15,8 @@ allowed-tools:
   - AskUserQuestion
   - Glob
   - Grep
+metadata:
+  internal: true
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->

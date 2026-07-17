@@ -1,5 +1,5 @@
 ---
-name: context-restore
+name: gstack-1-context-restore
 preamble-tier: 2
 version: 1.0.0
 description: Restore working context saved earlier by /context-save. (gstack)
@@ -15,6 +15,8 @@ triggers:
   - where was i
   - pick up where i left off
   - context restore
+metadata:
+  internal: true
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->

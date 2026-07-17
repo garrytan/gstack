@@ -722,7 +722,7 @@ export class BrowserManager {
     this.consecutiveFailures = 0;
   }
 
-  async close() {
+  async close(timeoutMs = 5000) {
     if (this.browser || (this.connectionMode === 'headed' && this.context)) {
       if (this.connectionMode === 'headed') {
         // Headed/persistent context mode: close the context (which closes the browser)
@@ -730,14 +730,14 @@ export class BrowserManager {
         if (this.browser) this.browser.removeAllListeners('disconnected');
         await Promise.race([
           this.context ? this.context.close() : Promise.resolve(),
-          new Promise(resolve => setTimeout(resolve, 5000)),
+          new Promise(resolve => setTimeout(resolve, timeoutMs)),
         ]).catch(() => {});
       } else {
         // Launched mode: close the browser we spawned
         this.browser.removeAllListeners('disconnected');
         await Promise.race([
           this.browser.close(),
-          new Promise(resolve => setTimeout(resolve, 5000)),
+          new Promise(resolve => setTimeout(resolve, timeoutMs)),
         ]).catch(() => {});
       }
       this.browser = null;
@@ -797,6 +797,11 @@ export class BrowserManager {
     const tabId = id ?? this.activeTabId;
     const page = this.pages.get(tabId);
     if (!page) throw new Error(`Tab ${tabId} not found`);
+    // Capture before page.close(): Playwright may synchronously deliver the
+    // close event, whose map cleanup changes activeTabId to 0. The public
+    // closeTab promise still owns the invariant that closing the active last
+    // tab leaves one usable blank tab.
+    const wasActive = tabId === this.activeTabId;
 
     await page.close();
     this.pages.delete(tabId);
@@ -804,7 +809,7 @@ export class BrowserManager {
     this.tabOwnership.delete(tabId);
 
     // Switch to another tab if we closed the active one
-    if (tabId === this.activeTabId) {
+    if (wasActive) {
       const remaining = [...this.pages.keys()];
       if (remaining.length > 0) {
         this.activeTabId = remaining[remaining.length - 1];
@@ -1568,8 +1573,14 @@ export class BrowserManager {
         console.log('[browse] Handoff: extension not found — headed mode without side panel');
       }
 
-      const userDataDir = path.join(process.env.HOME || '/tmp', '.gstack', 'chromium-profile');
+      const userDataDir = resolveChromiumProfile();
       fs.mkdirSync(userDataDir, { recursive: true });
+
+      // The handoff profile follows the same host-neutral resolution and
+      // stale-lock cleanup contract as launchHeaded(). The current browser is
+      // headless and does not own this persistent profile, so cleanup cannot
+      // disrupt the live rollback path retained below.
+      cleanSingletonLocks(userDataDir);
 
       // T1: same automation-tell-stripping defaults as launchHeaded().
       // The handoff path (headless → headed re-launch) takes the same

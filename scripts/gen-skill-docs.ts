@@ -556,7 +556,12 @@ function transformFrontmatter(content: string, host: Host): string {
   if (fm.extraFields) {
     for (const [key, value] of Object.entries(fm.extraFields)) {
       if (key !== 'name' && key !== 'description') {
-        newFm += `${key}: ${value}\n`;
+        // Multiline YAML values begin on the next line. Avoid leaving a
+        // trailing space after the key, which makes generated fixtures fail
+        // whitespace checks and is unnecessary YAML noise.
+        newFm += typeof value === 'string' && value.startsWith('\n')
+          ? `${key}:${value}\n`
+          : `${key}: ${value}\n`;
       }
     }
   }
@@ -752,7 +757,7 @@ function processExternalHost(
 
   const name = externalSkillName(skillDir === '.' ? '' : skillDir, frontmatterName);
   const outputDir = path.join(ROOT, hostConfig.hostSubdir, 'skills', name);
-  fs.mkdirSync(outputDir, { recursive: true });
+  if (!DRY_RUN) fs.mkdirSync(outputDir, { recursive: true });
   const outputPath = path.join(outputDir, 'SKILL.md');
 
   // Guard against symlink loops
@@ -785,7 +790,7 @@ function processExternalHost(
   result = applyHostRewrites(result, hostConfig);
 
   // Config-driven: generate metadata (e.g., openai.yaml for Codex)
-  if (hostConfig.generation.generateMetadata && !symlinkLoop) {
+  if (hostConfig.generation.generateMetadata && !symlinkLoop && !DRY_RUN) {
     const agentsDir = path.join(outputDir, 'agents');
     fs.mkdirSync(agentsDir, { recursive: true });
     const shortDescription = condenseOpenAIShortDescription(extractedDescription);
@@ -793,6 +798,21 @@ function processExternalHost(
   }
 
   return { content: result, outputPath, outputDir, symlinkLoop };
+}
+
+/**
+ * GStack 2 exposes only the six canonical skills under skills/. Legacy
+ * generated files remain installable by explicit name during the compatibility
+ * window, but standards-based installers must not discover them by default.
+ */
+function markLegacySkillInternal(content: string): string {
+  const fmEnd = content.indexOf('\n---', 4);
+  if (!content.startsWith('---\n') || fmEnd === -1) return content;
+  const frontmatter = content.slice(4, fmEnd);
+  if (/^metadata:\s*\n(?:[ \t]+.*\n)*?[ \t]+internal:\s*true\s*$/m.test(frontmatter)) {
+    return content;
+  }
+  return `${content.slice(0, fmEnd)}\nmetadata:\n  internal: true${content.slice(fmEnd)}`;
 }
 
 function processTemplate(tmplPath: string, host: Host = 'claude'): { outputPath: string; content: string; symlinkLoop?: boolean; catalogParts?: CatalogParts | null } {
@@ -842,6 +862,17 @@ function processTemplate(tmplPath: string, host: Host = 'claude'): { outputPath:
     outputPath = result.outputPath;
     symlinkLoop = result.symlinkLoop;
   }
+
+  // All generated 1.x skills are internal implementation snapshots. Their
+  // original names belong to thin opt-in compatibility aliases generated
+  // under skills/.compat/, so an explicit standard-installer selection never
+  // installs a full duplicate judgment prompt.
+  if (extractedName) {
+    const suffix = extractedName.startsWith('gstack-') ? extractedName.slice('gstack-'.length) : extractedName;
+    content = content.replace(/^name:\s*[^\n]+$/m, `name: gstack-1-${suffix}`);
+  }
+
+  content = markLegacySkillInternal(content);
 
   // Prepend generated header (after frontmatter)
   const header = GENERATED_HEADER.replace('{{SOURCE}}', path.basename(tmplPath));
@@ -953,6 +984,20 @@ for (const currentHost of hostsToRun) {
     const currentHostConfig = getHostConfig(currentHost);
     for (const tmplPath of findTemplates()) {
       const dir = path.basename(path.dirname(tmplPath));
+
+      // The historical repository-root router makes standards installers stop
+      // before they reach skills/. Its compatibility route now lives in
+      // compat/gstack.md, so no root SKILL.md may be emitted for Claude.
+      if (currentHost === 'claude' && path.dirname(tmplPath) === ROOT) {
+        const staleRootSkill = path.join(ROOT, 'SKILL.md');
+        if (DRY_RUN && fs.existsSync(staleRootSkill)) {
+          console.log('STALE (must be absent): SKILL.md');
+          hasChanges = true;
+        } else if (!DRY_RUN && fs.existsSync(staleRootSkill)) {
+          fs.rmSync(staleRootSkill);
+        }
+        continue;
+      }
 
       // includeSkills allowlist (union logic: include minus skip)
       if (currentHostConfig.generation.includeSkills?.length) {
@@ -1183,12 +1228,10 @@ The orchestrator will persist the plan link to its own memory/knowledge store.
   }
 }
 
-// --host all: any host failure fails the build. Previously only claude failures
-// exited nonzero, which let a stale or broken external-host output (e.g. a
-// section that failed to generate for Factory) slip through the freshness gate
-// silently. With sections fanned out across every host, "all hosts regenerated
-// in the same commit" is only a real gate if every host failure is fatal here.
-if (failures.length > 0 && HOST_ARG_VAL === 'all') {
+// Every requested host is a build contract. A single-host failure must be as
+// fatal as one member of --host all; warning-and-continuing leaves stale output
+// in place and lets setup misclassify generation failure as success.
+if (failures.length > 0) {
   console.error(`\n${failures.length} host(s) failed: ${failures.map(f => f.host).join(', ')}`);
   process.exit(1);
 }

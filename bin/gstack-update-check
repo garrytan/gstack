@@ -10,11 +10,12 @@
 #   GSTACK_DIR          — override auto-detected gstack root
 #   GSTACK_REMOTE_URL   — override remote VERSION URL (branch-pinned fallback)
 #   GSTACK_REMOTE_REPO  — override remote git URL for ls-remote SHA resolution
-#   GSTACK_STATE_DIR    — override ~/.gstack state directory
+#   GSTACK_HOME         — canonical GStack state/runtime root
+#   GSTACK_STATE_DIR    — legacy fallback when GSTACK_HOME is unset
 set -euo pipefail
 
 GSTACK_DIR="${GSTACK_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
-STATE_DIR="${GSTACK_STATE_DIR:-$HOME/.gstack}"
+STATE_DIR="${GSTACK_HOME:-${GSTACK_STATE_DIR:-$HOME/.gstack}}"
 CACHE_FILE="$STATE_DIR/last-update-check"
 MARKER_FILE="$STATE_DIR/just-upgraded-from"
 SNOOZE_FILE="$STATE_DIR/update-snoozed"

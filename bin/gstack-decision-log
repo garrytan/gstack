@@ -26,18 +26,19 @@ import {
   compact,
   type DecisionEvent,
 } from "../lib/gstack-decision";
-import { resolveSlug, gitBranch, flagValue } from "../lib/bin-context";
+import { gitBranch, flagValue } from "../lib/bin-context";
+import { discoverProjectIdentity } from "../runtime/identity.js";
 
 const HERE = import.meta.dir;
 
 const args = process.argv.slice(2);
-const slug = resolveSlug(`${HERE}/gstack-slug`);
-const paths = decisionPaths(slug);
+const project = await discoverProjectIdentity();
+const paths = decisionPaths(project.projectId);
 mkdirSync(dirname(paths.log), { recursive: true });
 
 function enqueue(): void {
   // Fire-and-forget cross-machine sync (no-op when artifacts_sync is off).
-  spawnSync(`${HERE}/gstack-brain-enqueue`, [`projects/${slug}/decisions.jsonl`], { stdio: "ignore" });
+  spawnSync(`${HERE}/gstack-brain-enqueue`, [`projects/${project.projectId}/decisions.jsonl`], { stdio: "ignore" });
 }
 
 if (args.includes("--compact")) {

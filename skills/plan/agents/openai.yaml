@@ -1,0 +1,4 @@
+interface:
+  display_name: "GStack Plan"
+  short_description: "Frame and review plans before implementation"
+  default_prompt: "Use $plan to review this idea or implementation plan and choose the right planning depth."

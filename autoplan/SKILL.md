@@ -1,5 +1,5 @@
 ---
-name: autoplan
+name: gstack-1-autoplan
 preamble-tier: 3
 version: 1.0.0
 description: Auto-review pipeline — reads the full CEO, design, eng, and DX review skills from disk and runs them sequentially with auto-decisions using 6 decision principles. (gstack)
@@ -17,6 +17,8 @@ allowed-tools:
   - Grep
   - WebSearch
   - AskUserQuestion
+metadata:
+  internal: true
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->

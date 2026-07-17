@@ -1,5 +1,5 @@
 ---
-name: review
+name: gstack-1-review
 preamble-tier: 4
 version: 1.0.0
 description: Pre-landing PR review. (gstack)
@@ -18,6 +18,8 @@ triggers:
   - code review
   - check my diff
   - pre-landing review
+metadata:
+  internal: true
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->

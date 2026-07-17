@@ -1,0 +1,5 @@
+#!/usr/bin/env node
+import { main } from "../runtime/cli.js";
+
+const code = await main();
+process.exitCode = code;

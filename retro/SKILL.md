@@ -1,5 +1,5 @@
 ---
-name: retro
+name: gstack-1-retro
 preamble-tier: 2
 version: 2.0.0
 description: Weekly engineering retrospective. (gstack)
@@ -32,6 +32,8 @@ gbrain:
       glob: "~/.gstack/projects/{repo_slug}/learnings.jsonl"
       tail: 10
       render_as: "## Recent learnings"
+metadata:
+  internal: true
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->

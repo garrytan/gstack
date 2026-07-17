@@ -25,9 +25,9 @@
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 GSTACK_HOME="${GSTACK_STATE_ROOT:-${GSTACK_HOME:-$HOME/.gstack}}"
-eval "$("$SCRIPT_DIR/gstack-slug" 2>/dev/null || true)"
-SLUG="${SLUG:-unknown}"
-PROJECT_DIR="$GSTACK_HOME/projects/$SLUG"
+eval "$(GSTACK_HOME="$GSTACK_HOME" "$SCRIPT_DIR/gstack-slug" 2>/dev/null || true)"
+PROJECT_ID="${PROJECT_ID:?gstack project identity unavailable}"
+PROJECT_DIR="$GSTACK_HOME/projects/$PROJECT_ID"
 PROPOSAL_FILE="$PROJECT_DIR/distillation-proposals.json"
 MEMORY_FILE="$GSTACK_HOME/free-text-memory.json"
 PROFILE_FILE="$GSTACK_HOME/developer-profile.json"
