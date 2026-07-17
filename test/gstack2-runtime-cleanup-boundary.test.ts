@@ -37,6 +37,7 @@ describe("runtime cleanup boundary", () => {
     const home = await temporaryHome();
     const lockPath = path.join(home, "locks", "windows-race.lock");
     let mkdirAttempts = 0;
+    let releaseOptions: Record<string, unknown> | undefined;
     const release = await acquireLock(lockPath, {
       platform: "win32",
       mkdir: async (target: string, options: Record<string, unknown>) => {
@@ -45,9 +46,25 @@ describe("runtime cleanup boundary", () => {
         }
         return fs.mkdir(target, options);
       },
+      rm: async (target: string, options: Record<string, unknown>) => {
+        releaseOptions = options;
+        return fs.rm(target, options);
+      },
     });
     expect(mkdirAttempts).toBe(2);
     await release();
+    expect(releaseOptions).toMatchObject({ recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+
+    await expect(acquireLock(path.join(home, "locks", "permanently-denied.lock"), {
+      platform: "win32",
+      transientPermissionMs: 20,
+      mkdir: async (target: string, options: Record<string, unknown>) => {
+        if (target.endsWith("permanently-denied.lock")) {
+          throw Object.assign(new Error("permanent permission denial"), { code: "EPERM" });
+        }
+        return fs.mkdir(target, options);
+      },
+    })).rejects.toMatchObject({ code: "EPERM" });
 
     let renameAttempts = 0;
     await renameWithRetry("source", "destination", {

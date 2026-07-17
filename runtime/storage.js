@@ -116,7 +116,10 @@ export async function acquireLock(lockPath, options = {}) {
   const staleMs = options.staleMs ?? 120_000;
   const platform = options.platform ?? process.platform;
   const mkdir = options.mkdir ?? fs.mkdir;
+  const remove = options.rm ?? fs.rm;
+  const transientPermissionMs = options.transientPermissionMs ?? 1_000;
   const started = Date.now();
+  let firstUnconfirmedEpermAt = null;
   const token = randomUUID();
   await mkdir(path.dirname(lockPath), { recursive: true, mode: 0o700 });
 
@@ -128,10 +131,27 @@ export async function acquireLock(lockPath, options = {}) {
       mkdirError = error;
     }
     if (mkdirError) {
-      const contended = mkdirError?.code === "EEXIST";
-      const windowsDeleteRace = platform === "win32" && mkdirError?.code === "EPERM";
-      if (!contended && !windowsDeleteRace) throw mkdirError;
-      if (contended) await reapStaleLock(lockPath, staleMs, platform);
+      let contended = mkdirError?.code === "EEXIST";
+      const windowsEperm = platform === "win32" && mkdirError?.code === "EPERM";
+      if (windowsEperm) {
+        let observed = "unknown";
+        try {
+          observed = (await fs.lstat(lockPath)).isDirectory() ? "directory" : "other";
+        } catch (probeError) {
+          if (probeError?.code !== "ENOENT" && !WINDOWS_TRANSIENT_FS_ERRORS.has(probeError?.code)) throw mkdirError;
+        }
+        if (observed === "other") throw mkdirError;
+        contended = observed === "directory";
+        if (!contended) {
+          firstUnconfirmedEpermAt ??= Date.now();
+          if (Date.now() - firstUnconfirmedEpermAt >= transientPermissionMs) throw mkdirError;
+        }
+      }
+      if (!contended && !windowsEperm) throw mkdirError;
+      if (contended) {
+        firstUnconfirmedEpermAt = null;
+        await reapStaleLock(lockPath, staleMs, platform);
+      }
       if (Date.now() - started >= timeoutMs) {
         const timeout = new Error(`Timed out waiting for lock ${lockPath}`);
         timeout.code = "LOCK_TIMEOUT";
@@ -159,10 +179,12 @@ export async function acquireLock(lockPath, options = {}) {
         // Locks are leases. A stale-lock reaper may already have removed it,
         // which readJson represents as null; other failures remain actionable.
         const current = await readJson(path.join(lockPath, "owner.json"), null);
-        if (current?.token === token) await fs.rm(lockPath, { recursive: true, force: true });
+        if (current?.token === token) {
+          await remove(lockPath, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+        }
       };
     } catch (error) {
-      await fs.rm(lockPath, { recursive: true, force: true }).catch(() => {});
+      await remove(lockPath, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }).catch(() => {});
       throw error;
     }
   }
