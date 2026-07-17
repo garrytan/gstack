@@ -1,0 +1,31 @@
+{
+  "id": "browser-fix-and-verify",
+  "prompt": "Exercise checkout, repair validated defects, and repeat the same interactions to prove each repair.",
+  "signals": {
+    "surface": "web",
+    "implementation_exists": true,
+    "mutation_authorized": true,
+    "verification_after_mutation": true
+  },
+  "expected": {
+    "tree": "qa",
+    "mode": "Fix",
+    "depth": "deep",
+    "mutation": "fix-safe",
+    "active_modules": [
+      "qa"
+    ],
+    "web_context": "local-browser",
+    "decision_basis": [
+      "surface=web",
+      "mutation_authorized=true"
+    ],
+    "skipped_modules": [
+      "qa-only",
+      "ios-qa",
+      "devex-review",
+      "benchmark",
+      "canary"
+    ]
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "source": "diagram",
+  "tree": "design",
+  "public_mode": "Generate",
+  "mode": "diagram",
+  "mandatory": false,
+  "visibility": "internal",
+  "replacement": "$design --mode Generate --module diagram",
+  "source_path": "diagram/SKILL.md.tmpl",
+  "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
+  "blob_sha": "9e19a52c6b7f727ce4faf5c1f9c14514ecb52f50",
+  "normalized_render_sha256": "88d1b8810d6ae95c6cf984825e2fe96712dfe4a7f7dba3e03d8a3634cf9e97ca",
+  "target": "skills/design/references/legacy/diagram.md",
+  "overlays": [
+    679
+  ],
+  "contract": {
+    "question_order": "Preserve the source workflow order; gather prerequisites before consequential questions.",
+    "pressure": "Preserve the source forcing questions, recommendation pressure, and one-question-at-a-time cadence.",
+    "smart_skips": "Skip only when the source condition is false, and name every skipped module with evidence.",
+    "stop_approval_gates": "Preserve every STOP, hard gate, approval boundary, and no-mutation-before-approval rule.",
+    "evidence": "Ground conclusions in inspected code, commands, browser/device observations, or source artifacts.",
+    "artifacts": "Produce every report, plan, log, screenshot, manifest, or handoff required by the source.",
+    "mutation": "Use the source mutation boundary; never broaden writes, commits, pushes, merges, or deploys.",
+    "exit": "Preserve source completion checks, unresolved-decision reporting, and explicit blocked exits.",
+    "voice": "Direct builder voice; match the user language and retain source-specific tone constraints."
+  }
+}

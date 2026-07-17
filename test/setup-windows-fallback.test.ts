@@ -7,6 +7,7 @@ import * as os from 'os';
 const ROOT = path.resolve(import.meta.dir, '..');
 const SETUP_SCRIPT = path.join(ROOT, 'setup');
 const SETUP_SRC = fs.readFileSync(SETUP_SCRIPT, 'utf-8');
+const GSTACK2_RUNTIME_ONLY = SETUP_SRC.includes('optional GStack 2 runtime');
 
 // Slice out the _link_or_copy helper body via awk-style anchors so the test is
 // resilient to line-number drift.
@@ -17,7 +18,7 @@ function extractHelper(): string {
   return SETUP_SRC.slice(start, end + 2);
 }
 
-describe('setup: _link_or_copy invariant (D7)', () => {
+describe.skipIf(GSTACK2_RUNTIME_ONLY)('legacy setup: _link_or_copy invariant (retired with standard Agent Skills installation)', () => {
   test('helper function is defined near the top of setup', () => {
     expect(SETUP_SRC).toContain('_link_or_copy() {');
     expect(SETUP_SRC).toContain('if [ "$IS_WINDOWS" -eq 1 ]; then');
@@ -63,7 +64,7 @@ describe('setup: _link_or_copy invariant (D7)', () => {
 // that's literally the bug this helper exists to work around. Skip the whole
 // matrix on Windows; the static-invariant tests above already pin the helper
 // shape that the Windows install relies on.
-describe.skipIf(process.platform === 'win32')('setup: _link_or_copy helper — behavior matrix', () => {
+describe.skipIf(GSTACK2_RUNTIME_ONLY || process.platform === 'win32')('legacy setup: _link_or_copy helper — behavior matrix', () => {
   // Source the helper into a temp shell with IS_WINDOWS set and exercise
   // each cell of the file/dir × Windows/Unix matrix.
   function runHelper(

@@ -6,12 +6,17 @@ import { execFileSync } from 'child_process';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const BIN = path.join(ROOT, 'bin', 'gstack-learnings-search');
+const SLUG_BIN = path.join(ROOT, 'bin', 'gstack-slug');
 
 const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-search-test-'));
 const tmpCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-search-cwd-'));
-// gstack-slug derives slug from git remote (none here) → falls back to basename of cwd.
-const slug = path.basename(tmpCwd).replace(/[^a-zA-Z0-9._-]/g, '');
-const projDir = path.join(tmpHome, 'projects', slug);
+const identityOutput = execFileSync(SLUG_BIN, [], {
+  env: { ...process.env, GSTACK_HOME: tmpHome },
+  cwd: tmpCwd,
+  encoding: 'utf-8',
+});
+const projectId = identityOutput.match(/^PROJECT_ID=([a-zA-Z0-9._-]+)$/m)?.[1] ?? 'unknown';
+const projDir = path.join(tmpHome, 'projects', projectId);
 const otherProjDir = path.join(tmpHome, 'projects', 'other-project');
 
 function run(args: string[]): string {

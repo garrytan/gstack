@@ -19,10 +19,10 @@
  */
 
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
-import { ClaudeAdapter } from './helpers/providers/claude';
-import { GptAdapter } from './helpers/providers/gpt';
-import { GeminiAdapter } from './helpers/providers/gemini';
-import { runBenchmark } from './helpers/benchmark-runner';
+import { ClaudeAdapter } from '../lib/model-benchmark/providers/claude';
+import { GptAdapter } from '../lib/model-benchmark/providers/gpt';
+import { GeminiAdapter } from '../lib/model-benchmark/providers/gemini';
+import { runBenchmark } from '../lib/model-benchmark/runner';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';

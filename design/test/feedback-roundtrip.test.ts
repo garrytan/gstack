@@ -15,8 +15,8 @@
 
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { BrowserManager } from '../../browse/src/browser-manager';
-import { handleReadCommand } from '../../browse/src/read-commands';
-import { handleWriteCommand } from '../../browse/src/write-commands';
+import { handleReadCommand as dispatchReadCommand } from '../../browse/src/read-commands';
+import { handleWriteCommand as dispatchWriteCommand } from '../../browse/src/write-commands';
 import { generateCompareHtml } from '../src/compare';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -27,6 +27,14 @@ let server: ReturnType<typeof Bun.serve>;
 let tmpDir: string;
 let boardHtmlPath: string;
 let serverState: string;
+
+function handleReadCommand(command: string, args: string[]) {
+  return dispatchReadCommand(command, args, bm.getActiveSession(), bm);
+}
+
+function handleWriteCommand(command: string, args: string[]) {
+  return dispatchWriteCommand(command, args, bm.getActiveSession(), bm);
+}
 
 function createTestPng(filePath: string): void {
   const png = Buffer.from(
@@ -121,10 +129,10 @@ beforeAll(async () => {
   await bm.launch();
 });
 
-afterAll(() => {
+afterAll(async () => {
   try { server.stop(); } catch {}
+  try { await bm.close(1000); } catch {}
   fs.rmSync(tmpDir, { recursive: true, force: true });
-  setTimeout(() => process.exit(0), 500);
 });
 
 // ─── The critical test: browser click → file on disk ─────────────

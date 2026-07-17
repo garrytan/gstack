@@ -1,0 +1,164 @@
+{
+  "schema_version": 1,
+  "kind": "deterministic-semantic-transcript",
+  "suite": "Design alternatives",
+  "execution_id": "design-alternatives",
+  "fixture": {
+    "id": "compare-directions",
+    "prompt": "I do not know which visual direction is right. Show several concrete options I can react to.",
+    "signals": {
+      "surface": "visual-direction",
+      "implementation_exists": false,
+      "alternatives_requested": true,
+      "output": "comparison"
+    },
+    "rationale": "Concrete alternatives before convergence."
+  },
+  "baseline_invocation": {
+    "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
+    "modules": [
+      "design-shotgun"
+    ],
+    "input": "I do not know which visual direction is right. Show several concrete options I can react to."
+  },
+  "candidate_invocation": {
+    "dispatcher": "design",
+    "mode": "Explore",
+    "depth": "deep",
+    "mutation": "design-artifacts",
+    "active_modules": [
+      "design-shotgun"
+    ],
+    "skipped_modules": [
+      "design-consultation",
+      "design-html",
+      "plan-design-review",
+      "design-review",
+      "ios-design-review"
+    ],
+    "web_context": "optional",
+    "input": "I do not know which visual direction is right. Show several concrete options I can react to."
+  },
+  "source_comparisons": [
+    {
+      "source": "design-shotgun",
+      "baseline": {
+        "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
+        "source_path": "design-shotgun/SKILL.md.tmpl",
+        "rendered_sha256": "08818e1cfbd831a8f30fc673facc0cf6a2821b88cef641007e7516ed795610e8",
+        "semantic_signature": {
+          "normalized_sha256": "08818e1cfbd831a8f30fc673facc0cf6a2821b88cef641007e7516ed795610e8",
+          "headings_sha256": "2aa7a234cd1a43b129ddd0910297825adca7f7f352893366652379f726c1deb3",
+          "questions_sha256": "e45860eb7041f89de92a46fbca979596fb2ce3b9264b808ebad57bd36ed08489",
+          "obligations_sha256": "8a09814695bdac15376e0fd36a02f2f6e5e68bb9119f6aa29ec4f990c95b08c6",
+          "heading_count": 46,
+          "question_count": 8,
+          "obligation_count": 84
+        }
+      },
+      "mechanical_port": {
+        "rendered_sha256": "2ffa676332b91cb2f4f0ae4a08d917dd43a767995b33d960895c15e93fb7c73c",
+        "differs_from_baseline": true,
+        "allowed_difference": "Package-local skill, section, support-artifact, and stable runtime path relocation only."
+      },
+      "candidate": {
+        "target_path": "skills/design/references/legacy/design-shotgun.md",
+        "rendered_legacy_body_sha256": "2ffa676332b91cb2f4f0ae4a08d917dd43a767995b33d960895c15e93fb7c73c",
+        "semantic_signature": {
+          "normalized_sha256": "2ffa676332b91cb2f4f0ae4a08d917dd43a767995b33d960895c15e93fb7c73c",
+          "headings_sha256": "2aa7a234cd1a43b129ddd0910297825adca7f7f352893366652379f726c1deb3",
+          "questions_sha256": "8b62e62ce14abee95f662f8c9ae8dec575b928254949b3e5a1115e878e609b56",
+          "obligations_sha256": "67396cd25988a1d56b935b32b085895f1eda72af5021c69d429ccadf198f681e",
+          "heading_count": 46,
+          "question_count": 7,
+          "obligation_count": 85
+        }
+      },
+      "deterministic_comparison": {
+        "normalized_body_equal": false,
+        "installable_port_equal": true,
+        "contract_equal": true,
+        "classification": "EQUIVALENT"
+      },
+      "differences": [
+        {
+          "classification": "INTENTIONAL_IMPROVEMENT",
+          "issue_or_pr": "https://github.com/garrytan/gstack/pull/679",
+          "reproduced_defect": "Match the user language",
+          "regression_fixture": "evals/parity/regressions/pr-679.json",
+          "explanation": "### User-language rule\n\nWrite questions, progress updates, reports, and artifacts in the language used by the user. Source material, code identifiers, commands, and quotations may remain in their original language when translating them would reduce accuracy."
+        },
+        {
+          "classification": "INTENTIONAL_IMPROVEMENT",
+          "issue_or_pr": "https://github.com/garrytan/gstack/pull/1777",
+          "reproduced_defect": "Retain rejection confidence in design exploration",
+          "regression_fixture": "evals/parity/regressions/pr-1777.json",
+          "explanation": "### Rejection-strength memory\n\nWhen recording design feedback, preserve how explicit and confident a rejection was. A hard rejection becomes a strong negative constraint; tentative dislike remains a weak signal that can be revisited. Never flatten rejected directions into evidence equivalent to approved directions."
+        }
+      ]
+    }
+  ],
+  "semantic_dimensions": {
+    "questions": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "question_order": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "follow_up_pressure": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "smart_skips": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "pushback_strength": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "scope_recommendation": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "active_reasoning_modules": {
+      "classification": "EQUIVALENT",
+      "evidence": "Structured route selected design-shotgun from product/evidence signals."
+    },
+    "findings": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "evidence": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "artifacts": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "approval_gates": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "mutation_behavior": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "completion_status": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "recommended_next_action": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "voice": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    }
+  },
+  "verdict": "PASS"
+}

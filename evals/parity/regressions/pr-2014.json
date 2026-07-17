@@ -1,0 +1,22 @@
+{
+  "pr": 2014,
+  "url": "https://github.com/garrytan/gstack/pull/2014",
+  "title": "Make autoplan phase skips auditable",
+  "targets": [
+    "autoplan"
+  ],
+  "anchor": "GSTACK2_FIX_2014_AUTOPLAN_SCOPE_COUNTS",
+  "body": "### Auditable phase routing\n\nBefore design and DX phases, print the detected scope signals and counts that drove activation. Every phase is either run or explicitly skipped with a reason; zero detected evidence is not a silent skip. The final plan records active phases, skipped phases, and the evidence for each decision.",
+  "regression": {
+    "input": {
+      "ui_file_count": 0,
+      "sdk_file_count": 0,
+      "user_mentions_ui": true
+    },
+    "expected": {
+      "design_phase": "run",
+      "printed_signals": true,
+      "silent_skips": false
+    }
+  }
+}

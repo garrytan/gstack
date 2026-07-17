@@ -5,7 +5,7 @@
  * 5%/week decay, dimension extraction from reason strings, session cap, schema
  * migration, conflict detection (taste drift), malformed-input recovery.
  *
- * All tests use GSTACK_STATE_DIR pointing at a temp dir so no real home dir is
+ * All tests use GSTACK_HOME pointing at a temp dir so no real home dir is
  * touched. Each test isolates its own state directory.
  */
 
@@ -17,6 +17,7 @@ import * as os from 'os';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const BIN = path.join(ROOT, 'bin', 'gstack-taste-update');
+const SLUG_BIN = path.join(ROOT, 'bin', 'gstack-slug');
 
 interface Preference {
   value: string;
@@ -39,7 +40,7 @@ let workdir: string;
 beforeEach(() => {
   stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'taste-state-'));
   workdir = fs.mkdtempSync(path.join(os.tmpdir(), 'taste-work-'));
-  // Initialize a git repo so gstack-taste-update's getSlug() finds a toplevel
+  // Initialize a git repo so both identity adapters resolve the same worktree.
   spawnSync('git', ['init', '-b', 'main'], { cwd: workdir, stdio: 'pipe' });
 });
 
@@ -51,7 +52,7 @@ afterEach(() => {
 function run(args: string[]): { status: number | null; stdout: string; stderr: string } {
   const result = spawnSync('bun', ['run', BIN, ...args], {
     cwd: workdir,
-    env: { ...process.env, GSTACK_STATE_DIR: stateDir, HOME: stateDir },
+    env: { ...process.env, GSTACK_HOME: stateDir, HOME: stateDir },
     encoding: 'utf-8',
     timeout: 10000,
   });
@@ -63,8 +64,19 @@ function run(args: string[]): { status: number | null; stdout: string; stderr: s
 }
 
 function profilePath(): string {
-  const slug = path.basename(workdir);
-  return path.join(stateDir, 'projects', slug, 'taste-profile.json');
+  const identity = spawnSync(SLUG_BIN, [], {
+    cwd: workdir,
+    env: { ...process.env, GSTACK_HOME: stateDir },
+    encoding: 'utf8',
+  });
+  if (identity.status !== 0) {
+    throw new Error(`gstack-slug failed: ${identity.stderr || `exit ${identity.status}`}`);
+  }
+  const projectId = identity.stdout?.match(/^PROJECT_ID=([a-zA-Z0-9._-]+)$/m)?.[1];
+  if (!projectId || projectId === 'unknown') {
+    throw new Error(`gstack-slug did not return a safe project identity: ${identity.stdout}`);
+  }
+  return path.join(stateDir, 'projects', projectId, 'taste-profile.json');
 }
 
 function readProfile(): TasteProfile {

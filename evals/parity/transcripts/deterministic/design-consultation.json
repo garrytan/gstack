@@ -1,0 +1,171 @@
+{
+  "schema_version": 1,
+  "kind": "deterministic-semantic-transcript",
+  "suite": "Design consultation",
+  "execution_id": "design-consultation",
+  "fixture": {
+    "id": "new-visual-system",
+    "prompt": "Define the typography, color, layout, motion, and interaction rationale for a calm clinical product.",
+    "signals": {
+      "surface": "design-system",
+      "implementation_exists": false,
+      "alternatives_requested": false,
+      "output": "system-artifacts"
+    },
+    "rationale": "Coherent design thesis and system artifacts."
+  },
+  "baseline_invocation": {
+    "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
+    "modules": [
+      "design-consultation"
+    ],
+    "input": "Define the typography, color, layout, motion, and interaction rationale for a calm clinical product."
+  },
+  "candidate_invocation": {
+    "dispatcher": "design",
+    "mode": "Generate",
+    "depth": "deep",
+    "mutation": "design-artifacts",
+    "active_modules": [
+      "design-consultation"
+    ],
+    "skipped_modules": [
+      "design-shotgun",
+      "design-html",
+      "plan-design-review",
+      "design-review",
+      "ios-design-review"
+    ],
+    "web_context": "optional",
+    "input": "Define the typography, color, layout, motion, and interaction rationale for a calm clinical product."
+  },
+  "source_comparisons": [
+    {
+      "source": "design-consultation",
+      "baseline": {
+        "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
+        "source_path": "design-consultation/SKILL.md.tmpl",
+        "rendered_sha256": "62b8141e0b3edb26dcfd175c25c7021d4713b64add121137ace0a123e6e6ea8a",
+        "semantic_signature": {
+          "normalized_sha256": "62b8141e0b3edb26dcfd175c25c7021d4713b64add121137ace0a123e6e6ea8a",
+          "headings_sha256": "4262d542408dd44833fd9f12ec4f55ac87d651adb5fa493ee12bda77c1e4b466",
+          "questions_sha256": "77af612290e4a981453b7a13481b844a35d63263a91647a22663d89af557c802",
+          "obligations_sha256": "b5760fdcd4aebdaab832fdc78d4acbca4e078835688ae75cced7f1eb0737c748",
+          "heading_count": 46,
+          "question_count": 6,
+          "obligation_count": 82
+        }
+      },
+      "mechanical_port": {
+        "rendered_sha256": "2753c3423f22f9ef2b3baf31069bd2ac6951e7bc69cc70f28c8da5c07580ab26",
+        "differs_from_baseline": true,
+        "allowed_difference": "Package-local skill, section, support-artifact, and stable runtime path relocation only."
+      },
+      "candidate": {
+        "target_path": "skills/design/references/legacy/design-consultation.md",
+        "rendered_legacy_body_sha256": "2753c3423f22f9ef2b3baf31069bd2ac6951e7bc69cc70f28c8da5c07580ab26",
+        "semantic_signature": {
+          "normalized_sha256": "2753c3423f22f9ef2b3baf31069bd2ac6951e7bc69cc70f28c8da5c07580ab26",
+          "headings_sha256": "4262d542408dd44833fd9f12ec4f55ac87d651adb5fa493ee12bda77c1e4b466",
+          "questions_sha256": "a19d5d23a525813c590a16d8f36c9e781b612aad6fd94fdc844f38d4ef4fdc02",
+          "obligations_sha256": "b7d5417c5d371550dcf22b1364e2dfa5a6719dc521e31dbfebd5427ae351b59c",
+          "heading_count": 46,
+          "question_count": 5,
+          "obligation_count": 83
+        }
+      },
+      "deterministic_comparison": {
+        "normalized_body_equal": false,
+        "installable_port_equal": true,
+        "contract_equal": true,
+        "classification": "EQUIVALENT"
+      },
+      "differences": [
+        {
+          "classification": "INTENTIONAL_IMPROVEMENT",
+          "issue_or_pr": "https://github.com/garrytan/gstack/pull/679",
+          "reproduced_defect": "Match the user language",
+          "regression_fixture": "evals/parity/regressions/pr-679.json",
+          "explanation": "### User-language rule\n\nWrite questions, progress updates, reports, and artifacts in the language used by the user. Source material, code identifiers, commands, and quotations may remain in their original language when translating them would reduce accuracy."
+        },
+        {
+          "classification": "INTENTIONAL_IMPROVEMENT",
+          "issue_or_pr": "https://github.com/garrytan/gstack/pull/2030",
+          "reproduced_defect": "Record only signal-bearing learnings",
+          "regression_fixture": "evals/parity/regressions/pr-2030.json",
+          "explanation": "### Signal-gated learning\n\nPersist a learning only when the interaction contains a useful, reusable signal such as an explicit preference, correction, accepted recommendation, or rejected direction. Track helpful and harmful outcomes separately. Do not manufacture a learning merely because a workflow completed."
+        },
+        {
+          "classification": "INTENTIONAL_IMPROVEMENT",
+          "issue_or_pr": "https://github.com/garrytan/gstack/pull/2189",
+          "reproduced_defect": "Accept coherent design-thesis framing",
+          "regression_fixture": "evals/parity/regressions/pr-2189.json",
+          "explanation": "### Design-thesis equivalence\n\nAccept a coherent design thesis expressed through product principles, visual rationale, interaction philosophy, or equivalent framing. Evaluate substance and consistency; do not require a literal “design thesis” heading or one exact vocabulary to award credit."
+        }
+      ]
+    }
+  ],
+  "semantic_dimensions": {
+    "questions": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "question_order": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "follow_up_pressure": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "smart_skips": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "pushback_strength": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "scope_recommendation": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "active_reasoning_modules": {
+      "classification": "EQUIVALENT",
+      "evidence": "Structured route selected design-consultation from product/evidence signals."
+    },
+    "findings": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "evidence": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "artifacts": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "approval_gates": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "mutation_behavior": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "completion_status": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "recommended_next_action": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "voice": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    }
+  },
+  "verdict": "PASS"
+}

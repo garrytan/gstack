@@ -1,0 +1,28 @@
+{
+  "source": "context-save",
+  "tree": "plan",
+  "public_mode": "Discovery",
+  "mode": "context-save",
+  "mandatory": false,
+  "visibility": "internal",
+  "replacement": "$plan --mode Discovery --module context-save",
+  "source_path": "context-save/SKILL.md.tmpl",
+  "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
+  "blob_sha": "a3702bc95439cddd87841aba836708bf511ef55d",
+  "normalized_render_sha256": "06a3ef8d7c9d361e7497252b69082ee51786ef4fd2bb62d9e7c5d97817bfdb0d",
+  "target": "skills/plan/references/legacy/context-save.md",
+  "overlays": [
+    679
+  ],
+  "contract": {
+    "question_order": "Preserve the source workflow order; gather prerequisites before consequential questions.",
+    "pressure": "Preserve the source forcing questions, recommendation pressure, and one-question-at-a-time cadence.",
+    "smart_skips": "Skip only when the source condition is false, and name every skipped module with evidence.",
+    "stop_approval_gates": "Preserve every STOP, hard gate, approval boundary, and no-mutation-before-approval rule.",
+    "evidence": "Ground conclusions in inspected code, commands, browser/device observations, or source artifacts.",
+    "artifacts": "Produce every report, plan, log, screenshot, manifest, or handoff required by the source.",
+    "mutation": "Use the source mutation boundary; never broaden writes, commits, pushes, merges, or deploys.",
+    "exit": "Preserve source completion checks, unresolved-decision reporting, and explicit blocked exits.",
+    "voice": "Direct builder voice; match the user language and retain source-specific tone constraints."
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "source": "canary",
+  "tree": "qa",
+  "public_mode": "Report",
+  "mode": "canary",
+  "mandatory": true,
+  "visibility": "primary",
+  "replacement": "$qa --mode Report --module canary",
+  "source_path": "canary/SKILL.md.tmpl",
+  "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
+  "blob_sha": "d1eb2950aba2fa2b09d90f13143492c60d46793c",
+  "normalized_render_sha256": "551c32a7bbbdc5dec6f88751e885869df9d1a26286df233cb78b51beb2e0987a",
+  "target": "skills/qa/references/legacy/canary.md",
+  "overlays": [
+    679,
+    2186
+  ],
+  "contract": {
+    "question_order": "Preserve the source workflow order; gather prerequisites before consequential questions.",
+    "pressure": "Preserve the source forcing questions, recommendation pressure, and one-question-at-a-time cadence.",
+    "smart_skips": "Skip only when the source condition is false, and name every skipped module with evidence.",
+    "stop_approval_gates": "Preserve every STOP, hard gate, approval boundary, and no-mutation-before-approval rule.",
+    "evidence": "Ground conclusions in inspected code, commands, browser/device observations, or source artifacts.",
+    "artifacts": "Produce every report, plan, log, screenshot, manifest, or handoff required by the source.",
+    "mutation": "Use the source mutation boundary; never broaden writes, commits, pushes, merges, or deploys.",
+    "exit": "Preserve source completion checks, unresolved-decision reporting, and explicit blocked exits.",
+    "voice": "Direct builder voice; match the user language and retain source-specific tone constraints."
+  }
+}

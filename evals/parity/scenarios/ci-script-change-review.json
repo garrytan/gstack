@@ -1,0 +1,34 @@
+{
+  "id": "ci-script-change-review",
+  "prompt": "Inspect this branch before landing; most edits are workflow and release scripts, and I want consequential findings validated.",
+  "signals": {
+    "change_exists": true,
+    "changed_file_classes": {
+      "ci": 4,
+      "scripts": 2,
+      "application": 0
+    },
+    "audit_focus": "broad",
+    "mutation_authorized": true
+  },
+  "expected": {
+    "tree": "review",
+    "mode": "Normal",
+    "depth": "deep",
+    "mutation": "fix-safe",
+    "active_modules": [
+      "review"
+    ],
+    "web_context": "optional",
+    "decision_basis": [
+      "change_exists=true",
+      "audit_focus=broad"
+    ],
+    "skipped_modules": [
+      "cso",
+      "health",
+      "codex",
+      "claude"
+    ]
+  }
+}

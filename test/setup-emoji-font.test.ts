@@ -7,6 +7,7 @@ import * as os from 'os';
 const ROOT = path.resolve(import.meta.dir, '..');
 const SETUP_SCRIPT = path.join(ROOT, 'setup');
 const SETUP_SRC = fs.readFileSync(SETUP_SCRIPT, 'utf-8');
+const GSTACK2_RUNTIME_ONLY = SETUP_SRC.includes('optional GStack 2 runtime');
 
 // Slice out the ensure_emoji_font helper body via anchors so the test is
 // resilient to line-number drift (same pattern as setup-windows-fallback).
@@ -17,8 +18,8 @@ function extractHelper(): string {
   return SETUP_SRC.slice(start, end + 2);
 }
 
-describe('setup: ensure_emoji_font static invariants', () => {
-  const helper = extractHelper();
+describe.skipIf(GSTACK2_RUNTIME_ONLY)('legacy setup: ensure_emoji_font static invariants (runtime installer does not mutate system fonts)', () => {
+  const helper = GSTACK2_RUNTIME_ONLY ? '' : extractHelper();
 
   test('helper is defined and Linux-guarded', () => {
     expect(SETUP_SRC).toContain('ensure_emoji_font() {');
@@ -97,7 +98,7 @@ describe('setup: ensure_emoji_font static invariants', () => {
 // We fake `uname` to report Linux so the guard doesn't short-circuit on the
 // macOS/Linux test runner, and fake the package managers with sentinel-touching
 // stubs so we can assert whether an install was attempted.
-describe.skipIf(process.platform === 'win32')('setup: ensure_emoji_font behavior', () => {
+describe.skipIf(GSTACK2_RUNTIME_ONLY || process.platform === 'win32')('legacy setup: ensure_emoji_font behavior', () => {
   function runHelper(fcMatchOutput: string): {
     exit: number;
     installInstalled: string;

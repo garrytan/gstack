@@ -14,6 +14,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 const SETUP = fs.readFileSync(path.join(import.meta.dir, '..', 'setup'), 'utf-8');
+const GSTACK2_RUNTIME_ONLY = SETUP.includes('optional GStack 2 runtime');
 
 /** Body of a shell function `name() { ... }` up to the closing line `}`. */
 function fnBody(src: string, name: string): string {
@@ -23,7 +24,7 @@ function fnBody(src: string, name: string): string {
   return src.slice(start, end === -1 ? undefined : end);
 }
 
-describe('setup links sections/ for cherry-pick install targets', () => {
+describe.skipIf(GSTACK2_RUNTIME_ONLY)('legacy setup links sections/ for cherry-pick install targets (retired with canonical tree)', () => {
   test('link_claude_skill_dirs links sections/ via _link_or_copy', () => {
     const body = fnBody(SETUP, 'link_claude_skill_dirs');
     expect(body).toContain('sections');

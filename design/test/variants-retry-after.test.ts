@@ -82,8 +82,12 @@ describe("generateVariant Retry-After handling", () => {
     expect(result.success).toBe(true);
     expect(calls.length).toBe(2);
     const gap = calls[1].ts - calls[0].ts;
-    expect(gap).toBeGreaterThanOrEqual(2500);
-    expect(gap).toBeLessThan(4500);
+    // HTTP-date has whole-second precision, so a value created "3 seconds
+    // from now" encodes an actual delay between 2s and 3s. Compare against
+    // the encoded deadline instead of a phase-dependent fixed 2.5s floor.
+    const encodedWait = Date.parse(future) - calls[0].ts;
+    expect(gap).toBeGreaterThanOrEqual(encodedWait - 150);
+    expect(gap).toBeLessThan(encodedWait + 1000);
   });
 
   test("invalid Retry-After (alphanumeric): falls through to exponential", async () => {

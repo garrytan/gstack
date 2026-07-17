@@ -1,0 +1,30 @@
+{
+  "id": "branch-to-pull-request",
+  "prompt": "The work is ready. Run the required checks, prepare the release metadata, publish the branch, and open the review request.",
+  "signals": {
+    "release_stage": "working-branch",
+    "external_mutation_authorized": true,
+    "pr_exists": false,
+    "deploy_requested": false
+  },
+  "expected": {
+    "tree": "ship",
+    "mode": "Prepare",
+    "depth": "deep",
+    "mutation": "commit-push-pr",
+    "active_modules": [
+      "ship"
+    ],
+    "web_context": "optional",
+    "decision_basis": [
+      "release_stage=working-branch",
+      "pr_exists=false"
+    ],
+    "skipped_modules": [
+      "land-and-deploy",
+      "landing-report",
+      "document-release",
+      "setup-deploy"
+    ]
+  }
+}

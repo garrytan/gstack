@@ -6,8 +6,9 @@ import * as os from 'os';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const SETUP_SCRIPT = path.join(ROOT, 'setup');
+const GSTACK2_RUNTIME_ONLY = fs.readFileSync(SETUP_SCRIPT, 'utf-8').includes('optional GStack 2 runtime');
 
-describe('setup: Conductor worktree guard', () => {
+describe.skipIf(GSTACK2_RUNTIME_ONLY)('legacy setup: Conductor worktree guard (host registration is installer-owned)', () => {
   test('setup contains the real-dir guard before the symlink-or-copy into ~/.claude/skills/', () => {
     const content = fs.readFileSync(SETUP_SCRIPT, 'utf-8');
     const guardIdx = content.indexOf('_SKIP_CLAUDE_REGISTER=0');

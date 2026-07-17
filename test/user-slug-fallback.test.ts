@@ -89,10 +89,10 @@ describe('resolve-user-slug fallback chain', () => {
 
   test('persists resolution to user_slug_at_<hash> on first call', () => {
     runConfig(['resolve-user-slug'], { GSTACK_HOME: TMP_HOME, USER: 'persisttest' });
-    const configFile = join(TMP_HOME, 'config.yaml');
+    const configFile = join(TMP_HOME, 'config.json');
     expect(existsSync(configFile)).toBe(true);
-    const content = readFileSync(configFile, 'utf-8');
-    expect(content).toMatch(/^user_slug_at_[a-f0-9]+:\s+persisttest/m);
+    const content = JSON.parse(readFileSync(configFile, 'utf-8'));
+    expect(content.user_slug_at_local).toBe('persisttest');
   });
 
   test('subsequent calls return same slug (stable across sessions)', () => {

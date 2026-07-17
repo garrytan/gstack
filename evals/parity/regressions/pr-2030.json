@@ -1,0 +1,38 @@
+{
+  "pr": 2030,
+  "url": "https://github.com/garrytan/gstack/pull/2030",
+  "title": "Record only signal-bearing learnings",
+  "targets": [
+    "office-hours",
+    "plan-ceo-review",
+    "plan-eng-review",
+    "plan-devex-review",
+    "learn",
+    "design-consultation",
+    "plan-design-review",
+    "design-review",
+    "qa",
+    "qa-only",
+    "devex-review",
+    "scrape",
+    "skillify",
+    "investigate",
+    "review",
+    "cso",
+    "ship"
+  ],
+  "anchor": "GSTACK2_FIX_2030_SIGNAL_GATED_LEARNING",
+  "body": "### Signal-gated learning\n\nPersist a learning only when the interaction contains a useful, reusable signal such as an explicit preference, correction, accepted recommendation, or rejected direction. Track helpful and harmful outcomes separately. Do not manufacture a learning merely because a workflow completed.",
+  "regression": {
+    "input": {
+      "workflow_completed": true,
+      "explicit_feedback": null,
+      "observed_outcome": null
+    },
+    "expected": {
+      "learning_written": false,
+      "helpful_counter_incremented": false,
+      "harmful_counter_incremented": false
+    }
+  }
+}

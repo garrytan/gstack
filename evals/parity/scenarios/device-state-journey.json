@@ -1,0 +1,31 @@
+{
+  "id": "device-state-journey",
+  "prompt": "Drive the account flow on the plugged-in phone, recording state and screenshots at each transition.",
+  "signals": {
+    "surface": "ios",
+    "real_device": true,
+    "interaction_required": true,
+    "mutation_authorized": false
+  },
+  "expected": {
+    "tree": "qa",
+    "mode": "Report",
+    "depth": "deep",
+    "mutation": "report-only",
+    "active_modules": [
+      "ios-qa"
+    ],
+    "web_context": "none",
+    "decision_basis": [
+      "surface=ios",
+      "real_device=true"
+    ],
+    "skipped_modules": [
+      "qa",
+      "qa-only",
+      "devex-review",
+      "benchmark",
+      "canary"
+    ]
+  }
+}

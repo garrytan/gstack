@@ -1,0 +1,158 @@
+{
+  "schema_version": 1,
+  "kind": "deterministic-semantic-transcript",
+  "suite": "DX/specification",
+  "execution_id": "specification",
+  "fixture": {
+    "id": "backlog-ready-handoff",
+    "prompt": "Turn this rough intent into acceptance criteria, edge cases, validation, rollback, and a handoff another engineer can execute.",
+    "signals": {
+      "phase": "handoff",
+      "artifact_exists": false,
+      "output": "executable-backlog-item",
+      "issue_mutation_allowed": true
+    },
+    "rationale": "Executable acceptance criteria and handoff artifact."
+  },
+  "baseline_invocation": {
+    "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
+    "modules": [
+      "spec"
+    ],
+    "input": "Turn this rough intent into acceptance criteria, edge cases, validation, rollback, and a handoff another engineer can execute."
+  },
+  "candidate_invocation": {
+    "dispatcher": "plan",
+    "mode": "Specification",
+    "depth": "deep",
+    "mutation": "spec-and-issue",
+    "active_modules": [
+      "spec"
+    ],
+    "skipped_modules": [
+      "office-hours",
+      "plan-ceo-review",
+      "plan-eng-review",
+      "plan-devex-review",
+      "autoplan",
+      "plan-tune"
+    ],
+    "web_context": "optional",
+    "input": "Turn this rough intent into acceptance criteria, edge cases, validation, rollback, and a handoff another engineer can execute."
+  },
+  "source_comparisons": [
+    {
+      "source": "spec",
+      "baseline": {
+        "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
+        "source_path": "spec/SKILL.md.tmpl",
+        "rendered_sha256": "0a2be9d256d347193b69a6b542de7bde5f4aff9b18983654ab8852bdfac61d60",
+        "semantic_signature": {
+          "normalized_sha256": "0a2be9d256d347193b69a6b542de7bde5f4aff9b18983654ab8852bdfac61d60",
+          "headings_sha256": "5d9a342b2cbefecc34b83f9c7fe5f5e65a1905cab08f1862bb390f71a9fa5f3d",
+          "questions_sha256": "e2113ed52556a49cf506bc3c9d217e01903625e0418b430db77193e5fb3712fd",
+          "obligations_sha256": "b85cf3d72a0a434fe93a1349bb66b880709763692262c5a5d6bbd62074770504",
+          "heading_count": 93,
+          "question_count": 13,
+          "obligation_count": 162
+        }
+      },
+      "mechanical_port": {
+        "rendered_sha256": "1693c430139d43e80d2981d95a61dc9d3674435690d5d838f4ca92f4d592694a",
+        "differs_from_baseline": true,
+        "allowed_difference": "Package-local skill, section, support-artifact, and stable runtime path relocation only."
+      },
+      "candidate": {
+        "target_path": "skills/plan/references/legacy/spec.md",
+        "rendered_legacy_body_sha256": "1693c430139d43e80d2981d95a61dc9d3674435690d5d838f4ca92f4d592694a",
+        "semantic_signature": {
+          "normalized_sha256": "1693c430139d43e80d2981d95a61dc9d3674435690d5d838f4ca92f4d592694a",
+          "headings_sha256": "5d9a342b2cbefecc34b83f9c7fe5f5e65a1905cab08f1862bb390f71a9fa5f3d",
+          "questions_sha256": "7172d84e358157f2a1bcdb7c26f3c72e2081a025b0da0768e45547a6ed814ef8",
+          "obligations_sha256": "8833c6a70bdade52727c4d115f4c360071cd3a151172b72c32802c3463c1a6ba",
+          "heading_count": 93,
+          "question_count": 11,
+          "obligation_count": 164
+        }
+      },
+      "deterministic_comparison": {
+        "normalized_body_equal": false,
+        "installable_port_equal": true,
+        "contract_equal": true,
+        "classification": "EQUIVALENT"
+      },
+      "differences": [
+        {
+          "classification": "INTENTIONAL_IMPROVEMENT",
+          "issue_or_pr": "https://github.com/garrytan/gstack/pull/679",
+          "reproduced_defect": "Match the user language",
+          "regression_fixture": "evals/parity/regressions/pr-679.json",
+          "explanation": "### User-language rule\n\nWrite questions, progress updates, reports, and artifacts in the language used by the user. Source material, code identifiers, commands, and quotations may remain in their original language when translating them would reduce accuracy."
+        }
+      ]
+    }
+  ],
+  "semantic_dimensions": {
+    "questions": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "question_order": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "follow_up_pressure": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "smart_skips": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "pushback_strength": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "scope_recommendation": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "active_reasoning_modules": {
+      "classification": "EQUIVALENT",
+      "evidence": "Structured route selected spec from product/evidence signals."
+    },
+    "findings": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "evidence": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "artifacts": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "approval_gates": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "mutation_behavior": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "completion_status": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "recommended_next_action": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "voice": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    }
+  },
+  "verdict": "PASS"
+}

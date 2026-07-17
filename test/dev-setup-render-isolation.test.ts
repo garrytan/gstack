@@ -11,8 +11,9 @@ const read = (rel: string) => fs.readFileSync(path.join(ROOT, rel), 'utf-8');
 describe('dev-setup: worktree stays canonical', () => {
   const devSetup = read('bin/dev-setup');
 
-  test('passes GSTACK_SKIP_GBRAIN_REGEN inline on the nested setup call', () => {
-    expect(devSetup).toContain('GSTACK_SKIP_GBRAIN_REGEN=1 "$GSTACK_LINK/setup"');
+  test('does not invoke the per-user runtime installer from a development worktree', () => {
+    expect(devSetup).not.toMatch(/\$GSTACK_LINK\/setup/);
+    expect(devSetup).toContain('Do not call the user runtime installer');
   });
 
   test('never exports GSTACK_SKIP_GBRAIN_REGEN (would leak into other setup paths)', () => {
@@ -29,7 +30,7 @@ describe('dev-setup: worktree stays canonical', () => {
   });
 });
 
-describe('setup: honors GSTACK_SKIP_GBRAIN_REGEN', () => {
+describe.skipIf(read('setup').includes('optional GStack 2 runtime'))('legacy setup: honors GSTACK_SKIP_GBRAIN_REGEN', () => {
   const setup = read('setup');
 
   test('skips the in-place :user regen when the guard is set', () => {

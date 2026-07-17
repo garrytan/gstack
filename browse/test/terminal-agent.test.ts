@@ -142,19 +142,54 @@ describe('Source-level guard: terminal-agent', () => {
     expect(wsHandler).toContain('acceptedProtocol');
   });
 
-  test('lazy spawn: claude PTY is spawned in message handler, not on upgrade', () => {
-    // The whole point of lazy-spawn (codex finding #8) is that the WS
-    // upgrade itself does NOT call spawnClaude. Spawn happens on first
-    // message frame.
+  test('lazy spawn: upgrade/open never spawn and both message triggers share maybeSpawnPty', () => {
+    // The whole point of lazy-spawn (codex finding #8) is that neither the
+    // HTTP upgrade nor websocket open creates a PTY. Only message frames may
+    // enter maybeSpawnPty: an explicit start frame or the first binary byte.
     const upgradeBlock = AGENT_SRC.slice(
       AGENT_SRC.indexOf("if (url.pathname === '/ws')"),
       AGENT_SRC.indexOf("websocket: {"),
     );
     expect(upgradeBlock).not.toContain('spawnClaude(');
-    // Spawn must be invoked from the message handler (lazy on first byte).
-    const messageHandler = AGENT_SRC.slice(AGENT_SRC.indexOf('message(ws, raw)'));
-    expect(messageHandler).toContain('spawnClaude(');
-    expect(messageHandler).toContain('!session.spawned');
+    expect(upgradeBlock).not.toContain('maybeSpawnPty(');
+
+    const openHandler = AGENT_SRC.slice(
+      AGENT_SRC.indexOf('open(ws) {'),
+      AGENT_SRC.indexOf('message(ws, raw)'),
+    );
+    expect(openHandler).toContain('spawned: false');
+    expect(openHandler).not.toContain('spawnClaude(');
+    expect(openHandler).not.toContain('maybeSpawnPty(');
+
+    // maybeSpawnPty is the sole production call site for spawnClaude. Keeping
+    // that ownership centralized ensures both triggers share idempotency and
+    // failure handling instead of acquiring subtly different spawn paths.
+    const spawnOwner = AGENT_SRC.slice(
+      AGENT_SRC.indexOf('function maybeSpawnPty'),
+      AGENT_SRC.indexOf('function buildServer'),
+    );
+    expect(spawnOwner).toContain('if (session.spawned) return true');
+    expect(spawnOwner).toContain('spawnClaude(session.cols, session.rows');
+    expect(AGENT_SRC.match(/\bspawnClaude\s*\(/g)).toHaveLength(2); // declaration + owner call
+
+    const messageHandler = AGENT_SRC.slice(
+      AGENT_SRC.indexOf('message(ws, raw)'),
+      AGENT_SRC.indexOf('close(ws, code'),
+    );
+    expect(messageHandler).not.toContain('spawnClaude(');
+
+    const startTrigger = messageHandler.slice(
+      messageHandler.indexOf("if (msg?.type === 'start')"),
+      messageHandler.indexOf('// Unknown text frame'),
+    );
+    expect(startTrigger).toContain('maybeSpawnPty(ws, session)');
+
+    const binaryTrigger = messageHandler.slice(
+      messageHandler.indexOf('// Binary input. Lazy-spawn'),
+    );
+    expect(binaryTrigger).toContain('if (!session.spawned)');
+    expect(binaryTrigger).toContain('if (!maybeSpawnPty(ws, session)) return');
+    expect(AGENT_SRC.match(/\bmaybeSpawnPty\s*\(/g)).toHaveLength(3); // declaration + two triggers
   });
 
   test('process.on uncaughtException + unhandledRejection handlers exist', () => {

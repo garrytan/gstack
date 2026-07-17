@@ -1,0 +1,28 @@
+{
+  "source": "health",
+  "tree": "review",
+  "public_mode": "Deep",
+  "mode": "health",
+  "mandatory": true,
+  "visibility": "primary",
+  "replacement": "$review --mode Deep --module health",
+  "source_path": "health/SKILL.md.tmpl",
+  "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
+  "blob_sha": "f92eb7347ec4f77dd8dbf464d63fcdf6a3459908",
+  "normalized_render_sha256": "3e478e5673d54ce0e227e589ab0800bd14de65cb8df4e12661e330b57018465c",
+  "target": "skills/review/references/legacy/health.md",
+  "overlays": [
+    679
+  ],
+  "contract": {
+    "question_order": "Preserve the source workflow order; gather prerequisites before consequential questions.",
+    "pressure": "Preserve the source forcing questions, recommendation pressure, and one-question-at-a-time cadence.",
+    "smart_skips": "Skip only when the source condition is false, and name every skipped module with evidence.",
+    "stop_approval_gates": "Preserve every STOP, hard gate, approval boundary, and no-mutation-before-approval rule.",
+    "evidence": "Ground conclusions in inspected code, commands, browser/device observations, or source artifacts.",
+    "artifacts": "Produce every report, plan, log, screenshot, manifest, or handoff required by the source.",
+    "mutation": "Use the source mutation boundary; never broaden writes, commits, pushes, merges, or deploys.",
+    "exit": "Preserve source completion checks, unresolved-decision reporting, and explicit blocked exits.",
+    "voice": "Direct builder voice; match the user language and retain source-specific tone constraints."
+  }
+}

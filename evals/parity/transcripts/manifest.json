@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "generated_by": "bun run scripts/gstack2/semantic-parity.ts",
+  "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
+  "deterministic_primary": true,
+  "live_model_required_for_primary_verdict": false,
+  "dimensions": [
+    "questions",
+    "question_order",
+    "follow_up_pressure",
+    "smart_skips",
+    "pushback_strength",
+    "scope_recommendation",
+    "active_reasoning_modules",
+    "findings",
+    "evidence",
+    "artifacts",
+    "approval_gates",
+    "mutation_behavior",
+    "completion_status",
+    "recommended_next_action",
+    "voice"
+  ],
+  "result": {
+    "suites": 14,
+    "executions": 15,
+    "dimensions": 15,
+    "sections": 16,
+    "policyUnits": 9,
+    "checks": 295
+  },
+  "classifications": {
+    "allowed": [
+      "EQUIVALENT",
+      "INTENTIONAL_IMPROVEMENT",
+      "REGRESSION"
+    ],
+    "unexplained_loss_is_blocking": true
+  }
+}

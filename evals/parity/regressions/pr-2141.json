@@ -1,0 +1,21 @@
+{
+  "pr": 2141,
+  "url": "https://github.com/garrytan/gstack/pull/2141",
+  "title": "Trace changed inputs into unchanged consumers",
+  "targets": [
+    "review"
+  ],
+  "anchor": "GSTACK2_FIX_2141_UNCHANGED_CONSUMER_TRACE",
+  "body": "### Changed-input consumer trace\n\nWhen a patch widens an accepted input, loosens validation, changes a default, or alters a condition, trace that value into unchanged downstream consumers. Re-read unchanged user-facing strings whose truth may depend on the changed condition. Review the behavioral boundary, not only the edited lines.",
+  "regression": {
+    "input": {
+      "change": "allow null reviewer",
+      "unchanged_consumer": "review banner formatter"
+    },
+    "expected": {
+      "trace_unchanged_consumer": true,
+      "reread_user_strings": true,
+      "diff_only_review": false
+    }
+  }
+}

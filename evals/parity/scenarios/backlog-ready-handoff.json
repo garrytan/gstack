@@ -1,0 +1,32 @@
+{
+  "id": "backlog-ready-handoff",
+  "prompt": "Turn this rough intent into acceptance criteria, edge cases, validation, rollback, and a handoff another engineer can execute.",
+  "signals": {
+    "phase": "handoff",
+    "artifact_exists": false,
+    "output": "executable-backlog-item",
+    "issue_mutation_allowed": true
+  },
+  "expected": {
+    "tree": "plan",
+    "mode": "Specification",
+    "depth": "deep",
+    "mutation": "spec-and-issue",
+    "active_modules": [
+      "spec"
+    ],
+    "web_context": "optional",
+    "decision_basis": [
+      "output=executable-backlog-item",
+      "phase=handoff"
+    ],
+    "skipped_modules": [
+      "office-hours",
+      "plan-ceo-review",
+      "plan-eng-review",
+      "plan-devex-review",
+      "autoplan",
+      "plan-tune"
+    ]
+  }
+}

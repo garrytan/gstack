@@ -1,0 +1,32 @@
+{
+  "id": "architecture-data-contracts",
+  "prompt": "Pressure-test the persistence model, failure paths, migration, and rollback before anyone codes it.",
+  "signals": {
+    "phase": "implementation-design",
+    "artifact_exists": true,
+    "uncertainty": "architecture-data",
+    "developer_product": false
+  },
+  "expected": {
+    "tree": "plan",
+    "mode": "Engineering",
+    "depth": "deep",
+    "mutation": "plan-only",
+    "active_modules": [
+      "plan-eng-review"
+    ],
+    "web_context": "none",
+    "decision_basis": [
+      "uncertainty=architecture-data",
+      "phase=implementation-design"
+    ],
+    "skipped_modules": [
+      "office-hours",
+      "plan-ceo-review",
+      "plan-devex-review",
+      "autoplan",
+      "spec",
+      "plan-tune"
+    ]
+  }
+}

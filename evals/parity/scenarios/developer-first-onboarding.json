@@ -1,0 +1,33 @@
+{
+  "id": "developer-first-onboarding",
+  "prompt": "A new SDK user should get their first successful response in five minutes. Review the proposed journey.",
+  "signals": {
+    "phase": "proposal",
+    "artifact_exists": true,
+    "audience": "developers",
+    "journey": "onboarding",
+    "measurement_needed": true
+  },
+  "expected": {
+    "tree": "plan",
+    "mode": "DX",
+    "depth": "deep",
+    "mutation": "plan-only",
+    "active_modules": [
+      "plan-devex-review"
+    ],
+    "web_context": "optional",
+    "decision_basis": [
+      "audience=developers",
+      "journey=onboarding"
+    ],
+    "skipped_modules": [
+      "office-hours",
+      "plan-ceo-review",
+      "plan-eng-review",
+      "autoplan",
+      "spec",
+      "plan-tune"
+    ]
+  }
+}

@@ -1,0 +1,163 @@
+{
+  "schema_version": 1,
+  "kind": "deterministic-semantic-transcript",
+  "suite": "Security review",
+  "execution_id": "security-review",
+  "fixture": {
+    "id": "threat-surface-audit",
+    "prompt": "Assess authentication, secrets, dependencies, CI trust boundaries, and abuse paths across the repository.",
+    "signals": {
+      "change_exists": false,
+      "audit_focus": "security",
+      "threat_model_required": true,
+      "mutation_authorized": false
+    },
+    "rationale": "Infrastructure-first security and threat modeling."
+  },
+  "baseline_invocation": {
+    "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
+    "modules": [
+      "cso"
+    ],
+    "input": "Assess authentication, secrets, dependencies, CI trust boundaries, and abuse paths across the repository."
+  },
+  "candidate_invocation": {
+    "dispatcher": "review",
+    "mode": "Security",
+    "depth": "deep",
+    "mutation": "report-only",
+    "active_modules": [
+      "cso"
+    ],
+    "skipped_modules": [
+      "review",
+      "health",
+      "codex",
+      "claude"
+    ],
+    "web_context": "optional",
+    "input": "Assess authentication, secrets, dependencies, CI trust boundaries, and abuse paths across the repository."
+  },
+  "source_comparisons": [
+    {
+      "source": "cso",
+      "baseline": {
+        "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
+        "source_path": "cso/SKILL.md.tmpl",
+        "rendered_sha256": "1878443a5ffe2b5535bb39106a97b9003e180501c0dfd4fd77ce873cdb737e79",
+        "semantic_signature": {
+          "normalized_sha256": "1878443a5ffe2b5535bb39106a97b9003e180501c0dfd4fd77ce873cdb737e79",
+          "headings_sha256": "8b7bef1dfbbfeb4ee6d5886bdb9016a05fd8fcc03583449b2a9f9fe157e4f502",
+          "questions_sha256": "24f748d3b016feec4d8727b03558d1923f0ecac73201b324fda50400dea15cbc",
+          "obligations_sha256": "763f41ebf1ee47b9889fb7750f036e46c84ae016e95ae5ab86125d9a47a69a42",
+          "heading_count": 61,
+          "question_count": 30,
+          "obligation_count": 99
+        }
+      },
+      "mechanical_port": {
+        "rendered_sha256": "59017ba27aaa93a62bda7ddca3c995f7231edb3fa86009e555b724b43fc1afd7",
+        "differs_from_baseline": true,
+        "allowed_difference": "Package-local skill, section, support-artifact, and stable runtime path relocation only."
+      },
+      "candidate": {
+        "target_path": "skills/review/references/legacy/cso.md",
+        "rendered_legacy_body_sha256": "59017ba27aaa93a62bda7ddca3c995f7231edb3fa86009e555b724b43fc1afd7",
+        "semantic_signature": {
+          "normalized_sha256": "59017ba27aaa93a62bda7ddca3c995f7231edb3fa86009e555b724b43fc1afd7",
+          "headings_sha256": "8b7bef1dfbbfeb4ee6d5886bdb9016a05fd8fcc03583449b2a9f9fe157e4f502",
+          "questions_sha256": "2e0c9ac21cb3ff6d699b9b9ef3631e45e00aa46018f13908404c8751dab025ae",
+          "obligations_sha256": "51d03410baf08dd530ec8a3ee196226e3747729a13202ab9e66c1c1cce934478",
+          "heading_count": 61,
+          "question_count": 29,
+          "obligation_count": 100
+        }
+      },
+      "deterministic_comparison": {
+        "normalized_body_equal": false,
+        "installable_port_equal": true,
+        "contract_equal": true,
+        "classification": "EQUIVALENT"
+      },
+      "differences": [
+        {
+          "classification": "INTENTIONAL_IMPROVEMENT",
+          "issue_or_pr": "https://github.com/garrytan/gstack/pull/679",
+          "reproduced_defect": "Match the user language",
+          "regression_fixture": "evals/parity/regressions/pr-679.json",
+          "explanation": "### User-language rule\n\nWrite questions, progress updates, reports, and artifacts in the language used by the user. Source material, code identifiers, commands, and quotations may remain in their original language when translating them would reduce accuracy."
+        },
+        {
+          "classification": "INTENTIONAL_IMPROVEMENT",
+          "issue_or_pr": "https://github.com/garrytan/gstack/pull/2030",
+          "reproduced_defect": "Record only signal-bearing learnings",
+          "regression_fixture": "evals/parity/regressions/pr-2030.json",
+          "explanation": "### Signal-gated learning\n\nPersist a learning only when the interaction contains a useful, reusable signal such as an explicit preference, correction, accepted recommendation, or rejected direction. Track helpful and harmful outcomes separately. Do not manufacture a learning merely because a workflow completed."
+        }
+      ]
+    }
+  ],
+  "semantic_dimensions": {
+    "questions": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "question_order": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "follow_up_pressure": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "smart_skips": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "pushback_strength": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "scope_recommendation": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "active_reasoning_modules": {
+      "classification": "EQUIVALENT",
+      "evidence": "Structured route selected cso from product/evidence signals."
+    },
+    "findings": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "evidence": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "artifacts": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "approval_gates": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "mutation_behavior": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "completion_status": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "recommended_next_action": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "voice": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    }
+  },
+  "verdict": "PASS"
+}

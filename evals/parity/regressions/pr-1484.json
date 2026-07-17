@@ -1,0 +1,25 @@
+{
+  "pr": 1484,
+  "url": "https://github.com/garrytan/gstack/pull/1484",
+  "title": "Capture QA evidence per finding",
+  "targets": [
+    "qa",
+    "qa-only"
+  ],
+  "anchor": "GSTACK2_FIX_1484_EVIDENCE_PER_FINDING",
+  "body": "### Evidence-per-finding mode\n\nWhen evidence per finding is requested, capture the screenshot immediately after reproducing each issue, name the file with the issue identifier, and include an issue-to-evidence map in the report. Do not postpone all screenshots until the end of the run, because later page state may no longer prove the finding.",
+  "regression": {
+    "input": {
+      "flag": "--evidence-per-finding",
+      "findings": [
+        "QA-001",
+        "QA-002"
+      ]
+    },
+    "expected": {
+      "capture_timing": "immediate-after-each-reproduction",
+      "filenames_include_issue_id": true,
+      "report_has_evidence_map": true
+    }
+  }
+}

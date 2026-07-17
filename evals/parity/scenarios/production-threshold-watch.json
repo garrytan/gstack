@@ -1,0 +1,31 @@
+{
+  "id": "production-threshold-watch",
+  "prompt": "Watch the newly deployed site against its baseline and alert only when the declared rollback limits are crossed.",
+  "signals": {
+    "surface": "production",
+    "deployed": true,
+    "repeated_samples": true,
+    "thresholds_declared": true
+  },
+  "expected": {
+    "tree": "qa",
+    "mode": "Report",
+    "depth": "deep",
+    "mutation": "report-only",
+    "active_modules": [
+      "canary"
+    ],
+    "web_context": "production",
+    "decision_basis": [
+      "deployed=true",
+      "thresholds_declared=true"
+    ],
+    "skipped_modules": [
+      "qa",
+      "qa-only",
+      "ios-qa",
+      "devex-review",
+      "benchmark"
+    ]
+  }
+}

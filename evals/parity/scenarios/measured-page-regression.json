@@ -1,0 +1,31 @@
+{
+  "id": "measured-page-regression",
+  "prompt": "Compare this branch with the baseline using load timing, web vitals, and resource-size evidence.",
+  "signals": {
+    "surface": "web",
+    "measurement": "performance",
+    "baseline_exists": true,
+    "repeated_samples": true
+  },
+  "expected": {
+    "tree": "qa",
+    "mode": "Report",
+    "depth": "standard",
+    "mutation": "report-only",
+    "active_modules": [
+      "benchmark"
+    ],
+    "web_context": "local-browser",
+    "decision_basis": [
+      "measurement=performance",
+      "baseline_exists=true"
+    ],
+    "skipped_modules": [
+      "qa",
+      "qa-only",
+      "ios-qa",
+      "devex-review",
+      "canary"
+    ]
+  }
+}

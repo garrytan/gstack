@@ -1,0 +1,37 @@
+{
+  "id": "cli-api-journey",
+  "prompt": "Time a new developer from installation through the first successful API call and evaluate the errors they encounter.",
+  "signals": {
+    "surface": "developer-workflow",
+    "channels": [
+      "cli",
+      "api"
+    ],
+    "functional_backend_harness": true,
+    "journey_measurement": true
+  },
+  "expected": {
+    "tree": "qa",
+    "mode": "Report",
+    "depth": "deep",
+    "mutation": "report-only",
+    "active_modules": [
+      "devex-review",
+      "qa-only",
+      "investigate",
+      "system-functional"
+    ],
+    "web_context": "optional",
+    "decision_basis": [
+      "surface=developer-workflow",
+      "journey_measurement=true",
+      "functional_backend_harness=true"
+    ],
+    "skipped_modules": [
+      "qa",
+      "ios-qa",
+      "benchmark",
+      "canary"
+    ]
+  }
+}

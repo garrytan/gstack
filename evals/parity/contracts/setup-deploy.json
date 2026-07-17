@@ -1,0 +1,28 @@
+{
+  "source": "setup-deploy",
+  "tree": "ship",
+  "public_mode": "Deploy",
+  "mode": "setup",
+  "mandatory": true,
+  "visibility": "primary",
+  "replacement": "$ship --mode Deploy --module setup-deploy",
+  "source_path": "setup-deploy/SKILL.md.tmpl",
+  "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
+  "blob_sha": "587a993c01b6964b5437534527f25368cc265ec9",
+  "normalized_render_sha256": "796e0aefff64a98a33fd93028247bf76b8073121487cae13b66ad3081f551a87",
+  "target": "skills/ship/references/legacy/setup-deploy.md",
+  "overlays": [
+    679
+  ],
+  "contract": {
+    "question_order": "Preserve the source workflow order; gather prerequisites before consequential questions.",
+    "pressure": "Preserve the source forcing questions, recommendation pressure, and one-question-at-a-time cadence.",
+    "smart_skips": "Skip only when the source condition is false, and name every skipped module with evidence.",
+    "stop_approval_gates": "Preserve every STOP, hard gate, approval boundary, and no-mutation-before-approval rule.",
+    "evidence": "Ground conclusions in inspected code, commands, browser/device observations, or source artifacts.",
+    "artifacts": "Produce every report, plan, log, screenshot, manifest, or handoff required by the source.",
+    "mutation": "Use the source mutation boundary; never broaden writes, commits, pushes, merges, or deploys.",
+    "exit": "Preserve source completion checks, unresolved-decision reporting, and explicit blocked exits.",
+    "voice": "Direct builder voice; match the user language and retain source-specific tone constraints."
+  }
+}

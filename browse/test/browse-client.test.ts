@@ -52,7 +52,7 @@ async function startMockServer(): Promise<MockServer> {
     port: server.port,
     requests,
     setResponse(status: number, body: string) { response = { status, body }; },
-    async stop() { server.stop(true); },
+    async stop() { await server.stop(true); },
   };
 }
 

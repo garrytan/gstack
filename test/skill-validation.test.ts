@@ -6,6 +6,11 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 const ROOT = path.resolve(import.meta.dir, '..');
+const PUBLIC_SKILLS = ['debug', 'design', 'plan', 'qa', 'review', 'ship'] as const;
+
+function publicSkillPath(skill: string): string {
+  return path.join(ROOT, 'skills', skill, 'SKILL.md');
+}
 
 // Carved-skill aware (v2 plan T9 / Phase B): a carved skill is a skeleton SKILL.md
 // plus sections/*.md. Read the union so validations of content that moved into a
@@ -26,18 +31,22 @@ function readShipUnion(): string {
 }
 
 describe('SKILL.md command validation', () => {
-  // P2 (v1.2.0): the top-level gstack skill is a pure ROUTER, not the browse
-  // skill. The browse body lives only in browse/SKILL.md now. This regression
-  // pins the split: the router carries routing rules and zero browse commands,
-  // while browse/SKILL.md still advertises the full QA surface (asserted below).
-  test('top-level SKILL.md is a router with no browse body (P2)', () => {
-    const md = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
-    expect(md).not.toContain('gstack browse: QA Testing'); // browse body removed
-    expect(md).toContain('## Route first'); // router head present
-    expect(md).toContain('invoke `/investigate`'); // routing rules present
-    const result = validateSkill(path.join(ROOT, 'SKILL.md'));
-    expect(result.invalid).toHaveLength(0); // no INVALID browse commands
-    expect(result.valid.length).toBe(0); // and no browse commands at all — it routes, not browses
+  test('root SKILL.md is absent and the public surface is exactly six dispatchers', () => {
+    expect(fs.existsSync(path.join(ROOT, 'SKILL.md'))).toBe(false);
+
+    const discovered = fs.readdirSync(path.join(ROOT, 'skills'), { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && fs.existsSync(publicSkillPath(entry.name)))
+      .map((entry) => entry.name)
+      .sort();
+    expect(discovered).toEqual([...PUBLIC_SKILLS]);
+
+    for (const skill of PUBLIC_SKILLS) {
+      const md = fs.readFileSync(publicSkillPath(skill), 'utf-8');
+      expect(md).toMatch(new RegExp(`^---\\nname: ${skill}\\n`));
+      expect(md).toContain('## Required execution header');
+      const result = validateSkill(publicSkillPath(skill));
+      expect(result.invalid).toHaveLength(0);
+    }
   });
 
   test('all $B commands in browse/SKILL.md are valid browse commands', () => {
@@ -226,10 +235,12 @@ describe('Usage string consistency', () => {
 });
 
 describe('Generated SKILL.md freshness', () => {
-  test('no unresolved {{placeholders}} in generated SKILL.md', () => {
-    const content = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
-    const unresolved = content.match(/\{\{\w+\}\}/g);
-    expect(unresolved).toBeNull();
+  test('no unresolved {{placeholders}} in the six public dispatchers', () => {
+    for (const skill of PUBLIC_SKILLS) {
+      const content = fs.readFileSync(publicSkillPath(skill), 'utf-8');
+      const unresolved = content.match(/\{\{\w+\}\}/g);
+      expect(unresolved).toBeNull();
+    }
   });
 
   test('no unresolved {{placeholders}} in generated browse/SKILL.md', () => {
@@ -238,9 +249,13 @@ describe('Generated SKILL.md freshness', () => {
     expect(unresolved).toBeNull();
   });
 
-  test('generated SKILL.md has AUTO-GENERATED header', () => {
-    const content = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
-    expect(content).toContain('AUTO-GENERATED');
+  test('retired root stays absent and public dispatchers route to preserved judgment', () => {
+    expect(fs.existsSync(path.join(ROOT, 'SKILL.md'))).toBe(false);
+    for (const skill of PUBLIC_SKILLS) {
+      const content = fs.readFileSync(publicSkillPath(skill), 'utf-8');
+      expect(content).toContain('references/legacy/');
+      expect(content).toContain('references/SHARED-JUDGMENT.md');
+    }
   });
 });
 
@@ -248,7 +263,7 @@ describe('Generated SKILL.md freshness', () => {
 
 describe('Update check preamble', () => {
   const skillsWithUpdateCheck = [
-    'SKILL.md', 'browse/SKILL.md', 'qa/SKILL.md',
+    'browse/SKILL.md', 'qa/SKILL.md',
     'qa-only/SKILL.md',
     'setup-browser-cookies/SKILL.md',
     'ship/SKILL.md', 'review/SKILL.md',
@@ -566,7 +581,7 @@ describe('TODOS-format.md reference consistency', () => {
 
 describe('v0.4.1 preamble features', () => {
   // Tier 1 skills have core preamble only (no AskUserQuestion format)
-  const tier1Skills = ['SKILL.md', 'browse/SKILL.md', 'setup-browser-cookies/SKILL.md', 'benchmark/SKILL.md'];
+  const tier1Skills = ['browse/SKILL.md', 'setup-browser-cookies/SKILL.md', 'benchmark/SKILL.md'];
 
   // Tier 2+ skills have AskUserQuestion format with RECOMMENDATION
   const tier2PlusSkills = [
@@ -961,12 +976,15 @@ describe('gstack-slug', () => {
     expect(stat.mode & 0o111).toBeGreaterThan(0);
   });
 
-  test('outputs SLUG and BRANCH lines in a git repo', () => {
+  test('outputs display and canonical worktree identities in a git repo', () => {
     const result = Bun.spawnSync([SLUG_BIN], { cwd: ROOT, stdout: 'pipe', stderr: 'pipe' });
     expect(result.exitCode).toBe(0);
     const output = result.stdout.toString();
     expect(output).toContain('SLUG=');
     expect(output).toContain('BRANCH=');
+    expect(output).toContain('PROJECT_ID=project_');
+    expect(output).toContain('REPO_ID=repo_');
+    expect(output).toContain('WORKTREE_ID=worktree_');
   });
 
   test('SLUG does not contain forward slashes', () => {
@@ -986,9 +1004,12 @@ describe('gstack-slug', () => {
   test('output is eval-compatible (KEY=VALUE format)', () => {
     const result = Bun.spawnSync([SLUG_BIN], { cwd: ROOT, stdout: 'pipe', stderr: 'pipe' });
     const lines = result.stdout.toString().trim().split('\n');
-    expect(lines.length).toBe(2);
+    expect(lines.length).toBe(5);
     expect(lines[0]).toMatch(/^SLUG=.+/);
     expect(lines[1]).toMatch(/^BRANCH=.+/);
+    expect(lines[2]).toMatch(/^PROJECT_ID=project_[a-f0-9]+$/);
+    expect(lines[3]).toMatch(/^REPO_ID=repo_[a-f0-9]+$/);
+    expect(lines[4]).toMatch(/^WORKTREE_ID=worktree_[a-f0-9]+$/);
   });
 
   test('output values contain only safe characters (no shell metacharacters)', () => {
@@ -1299,7 +1320,8 @@ describe('QA report template', () => {
 describe('Codex skill', () => {
   test('codex/SKILL.md exists and has correct frontmatter', () => {
     const content = fs.readFileSync(path.join(ROOT, 'codex', 'SKILL.md'), 'utf-8');
-    expect(content).toContain('name: codex');
+    expect(content).toContain('name: gstack-1-codex');
+    expect(content).toMatch(/^metadata:\s*\n(?:[ \t]+.*\n)*?[ \t]+internal:\s*true\s*$/m);
     expect(content).toContain('version: 1.0.0');
     expect(content).toContain('allowed-tools:');
   });
@@ -1627,9 +1649,9 @@ describe('Private-path leak detection', () => {
 
 // ─── Doc-inventory cross-check ───────────────────────────────
 //
-// Every skill directory (with a SKILL.md.tmpl) must appear in both AGENTS.md
-// and docs/skills.md. Catches the inventory drift codex flagged (/debug
-// → /investigate; missing /autoplan, /context-save, /plan-devex-review, etc.).
+// GStack 2 exposes only six public dispatchers in AGENTS.md. Legacy templates
+// remain internal compatibility modules and must instead be represented by the
+// exhaustive machine-readable migration map and legacy docs.
 
 describe('Doc inventory cross-check', () => {
   // Skills that don't get user-invocation lines in agent-facing docs.
@@ -1654,14 +1676,31 @@ describe('Doc inventory cross-check', () => {
     return dirs.sort();
   }
 
-  test('every skill is documented in AGENTS.md', () => {
+  test('AGENTS.md documents the exact six-skill public surface', () => {
     const agents = fs.readFileSync(path.join(ROOT, 'AGENTS.md'), 'utf-8');
-    const missing: string[] = [];
-    for (const skill of discoverSkillDirs()) {
-      // Match `/skill-name` as a token boundary.
-      if (!new RegExp(`/${skill}\\b`).test(agents)) missing.push(skill);
+    expect(agents).toContain('GStack 2 exposes exactly six default public skills');
+    for (const skill of PUBLIC_SKILLS) {
+      expect(agents).toContain(`| \`/${skill}\` |`);
     }
-    expect(missing).toEqual([]);
+
+    const publicDirs = fs.readdirSync(path.join(ROOT, 'skills'), { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && fs.existsSync(publicSkillPath(entry.name)))
+      .map((entry) => entry.name)
+      .sort();
+    expect(publicDirs).toEqual([...PUBLIC_SKILLS]);
+  });
+
+  test('every legacy template is represented in the compatibility map', () => {
+    const migration = JSON.parse(
+      fs.readFileSync(path.join(ROOT, 'compat', 'migration-map.json'), 'utf-8'),
+    );
+    const mapped = migration.aliases
+      .map((entry: { legacy_invocation: string }) => entry.legacy_invocation.replace(/^\//, ''))
+      .sort();
+    const legacyTemplates = fs.readdirSync(ROOT, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && fs.existsSync(path.join(ROOT, entry.name, 'SKILL.md.tmpl')))
+      .map((entry) => entry.name);
+    expect(mapped).toEqual(['gstack', ...legacyTemplates].sort());
   });
 
   test('every skill is documented in docs/skills.md', () => {
@@ -1712,9 +1751,10 @@ describe('Codex skill validation', () => {
       const codexMd = path.join(AGENTS_DIR, codexName, 'SKILL.md');
       expect(fs.existsSync(codexMd)).toBe(true);
     }
-    // Root template has both too
-    expect(fs.existsSync(path.join(ROOT, 'SKILL.md'))).toBe(true);
-    expect(fs.existsSync(path.join(AGENTS_DIR, 'gstack', 'SKILL.md'))).toBe(true);
+    // GStack 2 deliberately removes the public root router. Host-specific
+    // legacy output may retain an internal compatibility alias, but the
+    // canonical source tree must not recreate a root SKILL.md.
+    expect(fs.existsSync(path.join(ROOT, 'SKILL.md'))).toBe(false);
   });
 
   test('/codex skill is Claude-only — no Codex variant', () => {
@@ -1760,10 +1800,17 @@ describe('Codex skill validation', () => {
 // --- Repo mode and test failure triage validation ---
 
 describe('Repo mode preamble validation', () => {
-  test('generated SKILL.md preamble contains REPO_MODE output', () => {
-    const content = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
-    expect(content).toContain('REPO_MODE:');
-    expect(content).toContain('gstack-repo-mode');
+  test('all public dispatchers require the ordered GStack 2 execution header', () => {
+    const labels = ['Target:', 'Mode:', 'Depth:', 'Mutation:', 'Active modules:', 'Skipped modules:', 'Web context:'];
+    for (const skill of PUBLIC_SKILLS) {
+      const content = fs.readFileSync(publicSkillPath(skill), 'utf-8');
+      let previous = -1;
+      for (const label of labels) {
+        const current = content.indexOf(label);
+        expect(current).toBeGreaterThan(previous);
+        previous = current;
+      }
+    }
   });
 
   test('tier 3+ skills contain See Something Say Something section', () => {

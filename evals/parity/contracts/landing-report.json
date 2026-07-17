@@ -1,0 +1,28 @@
+{
+  "source": "landing-report",
+  "tree": "ship",
+  "public_mode": "Prepare",
+  "mode": "queue",
+  "mandatory": true,
+  "visibility": "primary",
+  "replacement": "$ship --mode Prepare --module landing-report",
+  "source_path": "landing-report/SKILL.md.tmpl",
+  "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
+  "blob_sha": "32a8cc1ab036b1ff8692f0400b68d8b56224a251",
+  "normalized_render_sha256": "64c9e05978be3c8d900dc9b9b4dd77e495776718d77e7b926ff6c5250b825a01",
+  "target": "skills/ship/references/legacy/landing-report.md",
+  "overlays": [
+    679
+  ],
+  "contract": {
+    "question_order": "Preserve the source workflow order; gather prerequisites before consequential questions.",
+    "pressure": "Preserve the source forcing questions, recommendation pressure, and one-question-at-a-time cadence.",
+    "smart_skips": "Skip only when the source condition is false, and name every skipped module with evidence.",
+    "stop_approval_gates": "Preserve every STOP, hard gate, approval boundary, and no-mutation-before-approval rule.",
+    "evidence": "Ground conclusions in inspected code, commands, browser/device observations, or source artifacts.",
+    "artifacts": "Produce every report, plan, log, screenshot, manifest, or handoff required by the source.",
+    "mutation": "Use the source mutation boundary; never broaden writes, commits, pushes, merges, or deploys.",
+    "exit": "Preserve source completion checks, unresolved-decision reporting, and explicit blocked exits.",
+    "voice": "Direct builder voice; match the user language and retain source-specific tone constraints."
+  }
+}

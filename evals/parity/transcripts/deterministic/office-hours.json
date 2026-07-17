@@ -1,0 +1,165 @@
+{
+  "schema_version": 1,
+  "kind": "deterministic-semantic-transcript",
+  "suite": "Office hours",
+  "execution_id": "office-hours",
+  "fixture": {
+    "id": "idea-before-solution",
+    "prompt": "People abandon restaurant waitlists. Help me decide whether there is a real product here.",
+    "signals": {
+      "phase": "pre-solution",
+      "premise_confidence": "low",
+      "artifact_exists": false,
+      "user_surface": "consumer"
+    },
+    "rationale": "Forcing questions and demand-first product pressure."
+  },
+  "baseline_invocation": {
+    "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
+    "modules": [
+      "office-hours"
+    ],
+    "input": "People abandon restaurant waitlists. Help me decide whether there is a real product here."
+  },
+  "candidate_invocation": {
+    "dispatcher": "plan",
+    "mode": "Discovery",
+    "depth": "deep",
+    "mutation": "design-doc-only",
+    "active_modules": [
+      "office-hours"
+    ],
+    "skipped_modules": [
+      "plan-ceo-review",
+      "plan-eng-review",
+      "plan-devex-review",
+      "autoplan",
+      "spec",
+      "plan-tune"
+    ],
+    "web_context": "optional",
+    "input": "People abandon restaurant waitlists. Help me decide whether there is a real product here."
+  },
+  "source_comparisons": [
+    {
+      "source": "office-hours",
+      "baseline": {
+        "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
+        "source_path": "office-hours/SKILL.md.tmpl",
+        "rendered_sha256": "5af4dc503ee149ac5052617ec4d5ad1947c9fbf28c663f40457b0eb07f5fcea3",
+        "semantic_signature": {
+          "normalized_sha256": "5af4dc503ee149ac5052617ec4d5ad1947c9fbf28c663f40457b0eb07f5fcea3",
+          "headings_sha256": "0eda5f7edd88be7d836c59847e64e7811e3872ae9e1a25d126ba8d2ae54cb3a8",
+          "questions_sha256": "30e4f21e54de8e457a7a1c8d347e97a8ea129e9228fd8e90f094248588678885",
+          "obligations_sha256": "1e30acebeeecd688d14b4d80645d6cbd9febf56b59294b33f149a623b90c2e29",
+          "heading_count": 73,
+          "question_count": 23,
+          "obligation_count": 115
+        }
+      },
+      "mechanical_port": {
+        "rendered_sha256": "0f0017a3752dd58d013c11d4d19af956724b6eeea89899f045dc3f41a3aa89b1",
+        "differs_from_baseline": true,
+        "allowed_difference": "Package-local skill, section, support-artifact, and stable runtime path relocation only."
+      },
+      "candidate": {
+        "target_path": "skills/plan/references/legacy/office-hours.md",
+        "rendered_legacy_body_sha256": "0f0017a3752dd58d013c11d4d19af956724b6eeea89899f045dc3f41a3aa89b1",
+        "semantic_signature": {
+          "normalized_sha256": "0f0017a3752dd58d013c11d4d19af956724b6eeea89899f045dc3f41a3aa89b1",
+          "headings_sha256": "0eda5f7edd88be7d836c59847e64e7811e3872ae9e1a25d126ba8d2ae54cb3a8",
+          "questions_sha256": "8c3eac0a1132a42024b30197a148c45991eb67a4d41e9c7534a8299e1542f1b2",
+          "obligations_sha256": "3c495f1973cc9f202438ca178446723bcf32b0e27aa042c7537a9ad41c17ecff",
+          "heading_count": 73,
+          "question_count": 22,
+          "obligation_count": 116
+        }
+      },
+      "deterministic_comparison": {
+        "normalized_body_equal": false,
+        "installable_port_equal": true,
+        "contract_equal": true,
+        "classification": "EQUIVALENT"
+      },
+      "differences": [
+        {
+          "classification": "INTENTIONAL_IMPROVEMENT",
+          "issue_or_pr": "https://github.com/garrytan/gstack/pull/679",
+          "reproduced_defect": "Match the user language",
+          "regression_fixture": "evals/parity/regressions/pr-679.json",
+          "explanation": "### User-language rule\n\nWrite questions, progress updates, reports, and artifacts in the language used by the user. Source material, code identifiers, commands, and quotations may remain in their original language when translating them would reduce accuracy."
+        },
+        {
+          "classification": "INTENTIONAL_IMPROVEMENT",
+          "issue_or_pr": "https://github.com/garrytan/gstack/pull/2030",
+          "reproduced_defect": "Record only signal-bearing learnings",
+          "regression_fixture": "evals/parity/regressions/pr-2030.json",
+          "explanation": "### Signal-gated learning\n\nPersist a learning only when the interaction contains a useful, reusable signal such as an explicit preference, correction, accepted recommendation, or rejected direction. Track helpful and harmful outcomes separately. Do not manufacture a learning merely because a workflow completed."
+        }
+      ]
+    }
+  ],
+  "semantic_dimensions": {
+    "questions": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "question_order": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "follow_up_pressure": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "smart_skips": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "pushback_strength": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "scope_recommendation": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "active_reasoning_modules": {
+      "classification": "EQUIVALENT",
+      "evidence": "Structured route selected office-hours from product/evidence signals."
+    },
+    "findings": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "evidence": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "artifacts": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "approval_gates": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "mutation_behavior": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "completion_status": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "recommended_next_action": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "voice": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    }
+  },
+  "verdict": "PASS"
+}

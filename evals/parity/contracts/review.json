@@ -1,0 +1,32 @@
+{
+  "source": "review",
+  "tree": "review",
+  "public_mode": "Normal",
+  "mode": "diff",
+  "mandatory": true,
+  "visibility": "primary",
+  "replacement": "$review --mode Normal --module review",
+  "source_path": "review/SKILL.md.tmpl",
+  "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
+  "blob_sha": "ba1ea88068de4b09cf717eb4ae42aa247d198314",
+  "normalized_render_sha256": "25e07cb6ea0831bd9e7bd7d4606714ba38b743107a970f2b6491a246b90c7dd4",
+  "target": "skills/review/references/legacy/review.md",
+  "overlays": [
+    610,
+    645,
+    679,
+    2030,
+    2141
+  ],
+  "contract": {
+    "question_order": "Preserve the source workflow order; gather prerequisites before consequential questions.",
+    "pressure": "Preserve the source forcing questions, recommendation pressure, and one-question-at-a-time cadence.",
+    "smart_skips": "Skip only when the source condition is false, and name every skipped module with evidence.",
+    "stop_approval_gates": "Preserve every STOP, hard gate, approval boundary, and no-mutation-before-approval rule.",
+    "evidence": "Ground conclusions in inspected code, commands, browser/device observations, or source artifacts.",
+    "artifacts": "Produce every report, plan, log, screenshot, manifest, or handoff required by the source.",
+    "mutation": "Use the source mutation boundary; never broaden writes, commits, pushes, merges, or deploys.",
+    "exit": "Preserve source completion checks, unresolved-decision reporting, and explicit blocked exits.",
+    "voice": "Direct builder voice; match the user language and retain source-specific tone constraints."
+  }
+}

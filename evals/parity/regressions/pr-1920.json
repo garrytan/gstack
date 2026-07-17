@@ -1,0 +1,21 @@
+{
+  "pr": 1920,
+  "url": "https://github.com/garrytan/gstack/pull/1920",
+  "title": "Infer the design system before auditing deviations",
+  "targets": [
+    "design-review"
+  ],
+  "anchor": "GSTACK2_FIX_1920_INFER_DESIGN_SYSTEM",
+  "body": "### Design-system-first audit\n\nInfer the product's existing design thesis, typography, color, spacing, component language, and motion before scoring inconsistencies. Audit the implementation against that inferred system and the product domain, not against a generic house style. Include domain-appropriate trust, registration, empty-state, and user-facing copy checks before declaring the surface complete.",
+  "regression": {
+    "input": {
+      "surface": "financial registration flow",
+      "explicit_design_doc": false
+    },
+    "expected": {
+      "infer_system_first": true,
+      "domain_copy_checks": true,
+      "generic_style_substitution": false
+    }
+  }
+}

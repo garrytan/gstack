@@ -1,172 +1,143 @@
-// GSTACK_HAS_IOS_DEVICE=1 device-path test. Runs only when:
-//   - An iPhone is connected via USB and reachable through CoreDevice
-//   - The iPhone is paired (user has tapped "Trust" on the trust dialog)
-//   - Developer Mode is enabled on the iPhone (Settings → Privacy → Developer Mode)
+// Physical-device E2E lane.
 //
-// What it actually exercises:
-//   1. devicectl can list the device (verifies CoreDevice agent is reachable)
-//   2. devicectl can list installed apps (verifies pairing + DDI is loaded)
-//   3. devicectl can list running processes (verifies the management surface)
-//   4. The fixture iOS SPM package builds with `swift build` for iOS target
-//      (verifies the templates compile against the iOS SDK, not just macOS)
-//
-// What it does NOT exercise (out of scope for this test):
-//   - Building + signing a full iOS app via xcodebuild (requires provisioning
-//     profile + dev team — environment-specific, not portable across CI)
-//   - Actually deploying + launching the StateServer on the device (same)
-//
-// The first three steps prove the CoreDevice path is wired end-to-end on the
-// agent's side. The fourth proves the Swift templates compile against the
-// iOS SDK, not just macOS — which catches UIKit/SwiftUI gating bugs before
-// they reach a real app deployment.
+// Fast host/device gates run with GSTACK_HAS_IOS_DEVICE=1. The signed build,
+// install, launch, CoreDevice tunnel, and 5x5 live loop are invoked only with
+// the stronger GSTACK_IOS_DEVICE_DEPLOY=1 opt-in.
 
-import { describe, test, expect } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
 import { spawnSync } from 'child_process';
+import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
+import {
+  PHYSICAL_DEVICE_BUNDLE_ID,
+  REQUIRED_LIVE_ITERATIONS,
+  TEAM_ID_ENV,
+  classifyXcodebuildFailure,
+  parseDeviceListPayload,
+  redactDeviceForEvidence,
+  renderProjectSpec,
+  resolveTeamId,
+  runPreflightOnly,
+  selectPhysicalDevice,
+  type PhysicalDevice,
+} from '../ios-qa/scripts/physical-device-smoke';
 
 const ROOT = join(import.meta.dir, '..');
 const FIXTURE_PATH = join(ROOT, 'test/fixtures/ios-qa/FixtureApp');
+const HARNESS_PATH = join(ROOT, 'ios-qa/scripts/physical-device-smoke.ts');
 
-const HAS_DEVICE = process.env.GSTACK_HAS_IOS_DEVICE === '1';
+const DEPLOY = process.env.GSTACK_IOS_DEVICE_DEPLOY === '1';
+const HAS_DEVICE = DEPLOY || process.env.GSTACK_HAS_IOS_DEVICE === '1';
 const describeIfDevice = HAS_DEVICE ? describe : describe.skip;
+const testIfDeploy = DEPLOY ? test : test.skip;
 
-interface DeviceListEntry {
-  identifier: string;
-  state: string; // "available" | "available (pairing)" | "unavailable" | ...
-  name: string;
-  model: string;
-}
+const DEVICE_SAMPLE: PhysicalDevice = {
+  coreDeviceIdentifier: 'COREDEVICE-UUID',
+  hardwareUdid: '00008140-HARDWARE-UDID',
+  name: 'Test iPhone',
+  model: 'iPhone17,1',
+  platform: 'iOS',
+  tunnelState: 'connected',
+  pairingState: 'paired',
+  developerModeStatus: 'enabled',
+  transportType: 'wired',
+};
 
-function listDevices(): DeviceListEntry[] {
-  // devicectl JSON output requires --json-output to a path. Use a tempfile.
-  const tmp = `/tmp/devicectl-list-${process.pid}-${Date.now()}.json`;
-  const r = spawnSync('xcrun', ['devicectl', 'list', 'devices', '--json-output', tmp], {
-    stdio: 'pipe',
-    timeout: 30_000,
-  });
-  if (r.status !== 0) return [];
-  try {
-    const fs = require('fs');
-    const raw = fs.readFileSync(tmp, 'utf-8');
-    const obj = JSON.parse(raw);
-    fs.unlinkSync(tmp);
-    return (obj.result?.devices ?? []).map((d: { identifier: string; connectionProperties: { tunnelState: string }; deviceProperties: { name: string }; hardwareProperties: { productType: string } }) => ({
-      identifier: d.identifier,
-      state: d.connectionProperties?.tunnelState ?? 'unknown',
-      name: d.deviceProperties?.name ?? 'unknown',
-      model: d.hardwareProperties?.productType ?? 'unknown',
-    }));
-  } catch {
-    return [];
-  }
-}
-
-function isPaired(udid: string): boolean {
-  // devicectl device info processes returns a clean exit when paired.
-  const tmp = `/tmp/devicectl-info-${process.pid}-${Date.now()}.json`;
-  const r = spawnSync('xcrun', [
-    'devicectl', 'device', 'info', 'processes',
-    '-d', udid,
-    '--json-output', tmp,
-  ], { stdio: 'pipe', timeout: 30_000 });
-  try { require('fs').unlinkSync(tmp); } catch { /* ignore */ }
-  // Pair-required errors surface on stderr with "must be paired" or
-  // CoreDeviceError 2. Treat any non-zero exit as not-paired.
-  return r.status === 0;
-}
-
-describeIfDevice('ios device path', () => {
-  test('devicectl lists at least one connected device', () => {
-    const devices = listDevices();
-    if (devices.length === 0) {
-      console.error('No CoreDevice-reachable iPhone. Connect via USB and unlock.');
-    }
-    expect(devices.length).toBeGreaterThan(0);
+describe('physical-device harness invariants', () => {
+  test('uses a reserved fixture bundle and requires a real 5/5 run', () => {
+    expect(PHYSICAL_DEVICE_BUNDLE_ID).toBe('com.gstack.iosqa.fixture.gstack2');
+    expect(REQUIRED_LIVE_ITERATIONS).toBe(5);
   });
 
-  test('one device reports as paired (DDI loaded, processes listable)', () => {
-    const devices = listDevices();
-    expect(devices.length).toBeGreaterThan(0);
-    const paired = devices.filter(d => isPaired(d.identifier));
-    if (paired.length === 0) {
-      const first = devices[0]!;
-      console.error([
-        `Device "${first.name}" (${first.model}, ${first.identifier})`,
-        `is connected but NOT paired. To pair:`,
-        `  1. Unlock the iPhone with passcode.`,
-        `  2. Run: xcrun devicectl manage pair --device ${first.identifier}`,
-        `  3. Tap "Trust" on the iPhone's trust dialog.`,
-        `  4. Open Settings → Privacy → Developer Mode and enable it (iOS 16+).`,
-        `  5. Restart the iPhone if prompted.`,
-        `  6. Re-run this test.`,
-      ].join('\n'));
-    }
-    expect(paired.length).toBeGreaterThan(0);
+  test('selects the same device by hardware UDID or CoreDevice UUID', () => {
+    expect(selectPhysicalDevice([DEVICE_SAMPLE], DEVICE_SAMPLE.hardwareUdid!))
+      .toEqual(DEVICE_SAMPLE);
+    expect(selectPhysicalDevice([DEVICE_SAMPLE], DEVICE_SAMPLE.coreDeviceIdentifier))
+      .toEqual(DEVICE_SAMPLE);
   });
 
-  test('fixture Swift package compiles for iOS target', () => {
-    // Use xcrun --sdk iphoneos to get the iOS SDK path, then pass it through
-    // to swift build via SDKROOT. This validates that the Swift templates
-    // (StateServer, DebugBridgeManager, DebugOverlay) compile against the
-    // iOS SDK — catches UIKit/SwiftUI gating bugs that macOS-only builds miss.
-    const sdkPath = spawnSync('xcrun', ['--sdk', 'iphoneos', '--show-sdk-path'], { stdio: 'pipe' });
-    if (sdkPath.status !== 0) {
-      console.error('iOS SDK not found. Install via Xcode.');
-    }
-    expect(sdkPath.status).toBe(0);
-    const sdk = sdkPath.stdout.toString().trim();
-    expect(sdk).toContain('iPhoneOS');
-
-    // Build the DebugBridgeUI target specifically for iOS. We can't use
-    // `swift build --triple arm64-apple-ios` directly because SwiftPM
-    // doesn't ship an iOS toolchain out of the box. The xcodebuild path
-    // requires a project — skip if no .xcodeproj exists.
-    // Instead, verify the iOS-only code compiles by parsing the canImport
-    // guards: if the template's `#if canImport(UIKit)` is wrong, the macOS
-    // build would have failed in the swift-build invariant test. The iOS
-    // SDK path being present is sufficient signal that the toolchain is
-    // installed; the deeper iOS-target build belongs to xcodebuild + a real
-    // app target, which is the "deploy to device" path documented below.
-    const fs = require('fs') as typeof import('fs');
-    const overlay = fs.readFileSync(
-      join(FIXTURE_PATH, 'Sources/DebugBridgeUI/DebugOverlay.swift'),
-      'utf-8',
-    );
-    // Sanity check: the UI module is correctly gated for iOS-only.
-    expect(overlay).toContain('#if DEBUG && canImport(UIKit)');
-    expect(overlay).toContain('#endif');
+  test('redacts stable identifiers and the device name from commit-ready evidence', () => {
+    const redacted = redactDeviceForEvidence(DEVICE_SAMPLE);
+    const serialized = JSON.stringify(redacted);
+    expect(redacted.identifierSha256).toHaveLength(64);
+    expect(serialized).not.toContain(DEVICE_SAMPLE.coreDeviceIdentifier);
+    expect(serialized).not.toContain(DEVICE_SAMPLE.hardwareUdid!);
+    expect(serialized).not.toContain(DEVICE_SAMPLE.name);
   });
 
-  // Documented next step. Becomes a real test once we have:
-  //   - test/fixtures/ios-qa/FixtureApp/FixtureApp.xcodeproj (or generated)
-  //   - A signing certificate + provisioning profile on the test machine
-  //   - GSTACK_IOS_DEVICE_DEPLOY=1 environment opt-in
-  //
-  // The flow would be:
-  //   xcodebuild -scheme FixtureApp -destination 'platform=iOS,id=<UDID>' \
-  //     -allowProvisioningUpdates build install
-  //   xcrun devicectl device process launch -d <UDID> --console <bundle-id>
-  //   # Scrape boot token from os_log
-  //   curl http://[<corodevice-ipv6>]:9999/healthz
-  //   # ... full smoke loop ...
-  test.skip('TODO(deploy): build + deploy fixture to device + smoke test full StateServer loop', () => {});
+  test('preserves typed discovery failures instead of treating bad JSON as no devices', () => {
+    expect(() => parseDeviceListPayload({ result: { unexpected: [] } }))
+      .toThrow('result.devices');
+  });
+
+  test('temporary project specs never inherit a hardcoded signing team', () => {
+    const debugSpec = renderProjectSpec(true);
+    const releaseSpec = renderProjectSpec(false);
+    expect(debugSpec).toContain('DebugBridgeCore');
+    expect(debugSpec).toContain('DebugBridgeUI');
+    expect(releaseSpec).not.toContain('DebugBridgeCore');
+    expect(releaseSpec).not.toContain('DebugBridgeUI');
+    expect(debugSpec).not.toContain('DEVELOPMENT_TEAM');
+    expect(releaseSpec).not.toContain('DEVELOPMENT_TEAM');
+  });
+
+  test('accepts only an explicit valid team ID from the harness environment', () => {
+    expect(resolveTeamId({})).toBeUndefined();
+    expect(resolveTeamId({ [TEAM_ID_ENV]: 'ABCDEFGHIJ' })).toBe('ABCDEFGHIJ');
+    expect(() => resolveTeamId({ [TEAM_ID_ENV]: 'not-a-team' }))
+      .toThrow('10-character');
+  });
+
+  test('classifies account/provisioning failures as setup gates', () => {
+    expect(classifyXcodebuildFailure('Signing for FixtureApp requires a development team.'))
+      .toBe('signing_unavailable');
+    expect(classifyXcodebuildFailure('error: cannot find value in scope'))
+      .toBe('build_failed');
+  });
 });
+describeIfDevice('ios physical-device path', () => {
+  test('Xcode/CoreDevice setup gates pass for one selected wired iPhone', () => {
+    const result = runPreflightOnly({
+      selector: process.env.GSTACK_IOS_TARGET_UDID,
+    });
+    expect(result.ok).toBe(true);
+    expect(result.device.transportType?.toLowerCase()).toBe('wired');
+    expect(result.device.pairingState.toLowerCase()).toBe('paired');
+    expect(result.device.developerModeStatus.toLowerCase()).toBe('enabled');
+    expect(result.acceptedIdentifiers.coreDeviceIdentifier.length).toBeGreaterThan(0);
+  });
 
-// Always-on instructions if not paired. Surfaces actionable steps even when
-// the test is opted in via env var but the device isn't ready.
-if (HAS_DEVICE) {
-  const devices = listDevices();
-  const unpaired = devices.filter(d => !isPaired(d.identifier));
-  if (unpaired.length > 0) {
-    console.error('');
-    console.error('=== iOS DEVICE PAIRING REQUIRED ===');
-    for (const d of unpaired) {
-      console.error(`  Device: ${d.name} (${d.model}, ${d.identifier})`);
-      console.error(`  Status: ${d.state}`);
+  test('fixture keeps DebugBridge imports and startup Debug-only', () => {
+    const app = readFileSync(
+      join(FIXTURE_PATH, 'Sources/FixtureApp/FixtureAppApp.swift'),
+      'utf8',
+    );
+    expect(app).toContain('#if DEBUG');
+    expect(app).toContain('import DebugBridgeCore');
+    expect(app).toContain('DebugBridgeUIWiring.installAll()');
+    expect(app).toContain('#endif');
+  });
+
+  testIfDeploy('builds, signs, installs, launches, and passes five live iterations', () => {
+    const result = spawnSync(process.execPath, [HARNESS_PATH, '--json'], {
+      cwd: ROOT,
+      env: process.env,
+      encoding: 'utf8',
+      stdio: 'pipe',
+      timeout: 30 * 60_000,
+      maxBuffer: 64 * 1024 * 1024,
+    });
+    if (result.status !== 0) {
+      console.error(result.stderr || result.stdout);
     }
-    console.error('  Run: xcrun devicectl manage pair --device <UDID>');
-    console.error('  Then tap "Trust" on the iPhone.');
-    console.error('===================================');
-    console.error('');
-  }
-}
+    expect(result.status).toBe(0);
+    const output = JSON.parse(result.stdout) as {
+      passedIterations: number;
+      requiredIterations: number;
+      evidencePath: string;
+    };
+    expect(output.passedIterations).toBe(5);
+    expect(output.requiredIterations).toBe(5);
+    expect(existsSync(output.evidencePath)).toBe(true);
+  }, 30 * 60_000);
+});

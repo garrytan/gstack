@@ -22,10 +22,12 @@ import { spawnSync } from 'child_process';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const BIN = path.join(ROOT, 'bin', 'gstack-distill-apply');
+const SLUG_BIN = path.join(ROOT, 'bin', 'gstack-slug');
 
 let stateRoot: string;
 let fixtureCwd: string;
 let cwdSlug: string;
+let projectId: string;
 let proposalFile: string;
 
 beforeEach(() => {
@@ -33,8 +35,12 @@ beforeEach(() => {
   cwdSlug = 'apply-fixture';
   fixtureCwd = path.join(stateRoot, cwdSlug);
   fs.mkdirSync(fixtureCwd, { recursive: true });
-  fs.mkdirSync(path.join(stateRoot, 'projects', cwdSlug), { recursive: true });
-  proposalFile = path.join(stateRoot, 'projects', cwdSlug, 'distillation-proposals.json');
+  const identityOutput = spawnSync(SLUG_BIN, [], {
+    env: { ...process.env, GSTACK_HOME: stateRoot }, cwd: fixtureCwd, encoding: 'utf8',
+  }).stdout || '';
+  projectId = identityOutput.match(/^PROJECT_ID=([a-zA-Z0-9._-]+)$/m)?.[1] ?? 'unknown';
+  fs.mkdirSync(path.join(stateRoot, 'projects', projectId), { recursive: true });
+  proposalFile = path.join(stateRoot, 'projects', projectId, 'distillation-proposals.json');
 });
 
 afterEach(() => {
@@ -183,7 +189,7 @@ describe('preference apply', () => {
     expect(r.status).toBe(0);
     expect(r.stdout).toContain('APPLIED: preference');
 
-    const prefPath = path.join(stateRoot, 'projects', cwdSlug, 'question-preferences.json');
+    const prefPath = path.join(stateRoot, 'projects', projectId, 'question-preferences.json');
     const prefs = JSON.parse(fs.readFileSync(prefPath, 'utf-8'));
     expect(prefs['ship-changelog-voice-polish']).toBe('never-ask');
   });

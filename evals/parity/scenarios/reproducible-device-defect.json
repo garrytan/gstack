@@ -1,0 +1,28 @@
+{
+  "id": "reproducible-device-defect",
+  "prompt": "The crash reproduces on the connected phone. Repair it and preserve the failing state as a regression fixture.",
+  "signals": {
+    "failure": true,
+    "cause_known": false,
+    "reproducible": true,
+    "platform": "ios",
+    "mutation_authorized": true
+  },
+  "expected": {
+    "tree": "debug",
+    "mode": "Fix",
+    "depth": "deep",
+    "mutation": "fix-safe",
+    "active_modules": [
+      "ios-fix"
+    ],
+    "web_context": "none",
+    "decision_basis": [
+      "platform=ios",
+      "reproducible=true"
+    ],
+    "skipped_modules": [
+      "investigate"
+    ]
+  }
+}

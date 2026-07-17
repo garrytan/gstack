@@ -18,8 +18,9 @@ const SETUP = path.join(ROOT, 'setup');
 const GSTACK_CONFIG = path.join(ROOT, 'bin', 'gstack-config');
 
 const setupSrc = fs.readFileSync(SETUP, 'utf-8');
+const GSTACK2_RUNTIME_ONLY = setupSrc.includes('optional GStack 2 runtime');
 
-describe('setup: plan-tune hooks are non-interactive-safe', () => {
+describe.skipIf(GSTACK2_RUNTIME_ONLY)('legacy setup: plan-tune hooks are non-interactive-safe (host settings are no longer setup-owned)', () => {
   test('exposes --plan-tune-hooks / --no-plan-tune-hooks / =value flags', () => {
     expect(setupSrc).toContain('--plan-tune-hooks)');
     expect(setupSrc).toContain('--no-plan-tune-hooks)');
@@ -66,11 +67,9 @@ describe('dev-setup: never silently mutates global settings.json', () => {
   const DEV_SETUP = path.join(ROOT, 'bin', 'dev-setup');
   const devSetupSrc = fs.readFileSync(DEV_SETUP, 'utf-8');
 
-  test('runs setup with stdin detached AND --plan-tune-hooks=prompt pin', () => {
-    // stdin alone only suppresses the prompt branch; the flag (highest
-    // precedence) is what stops a saved `plan_tune_hooks: yes` / env opt-in
-    // from rewriting global hooks to the ephemeral worktree path.
-    expect(devSetupSrc).toMatch(/setup" --plan-tune-hooks=prompt <\/dev\/null/);
+  test('does not invoke the optional user runtime installer from a worktree', () => {
+    expect(devSetupSrc).not.toMatch(/\$GSTACK_LINK\/setup/);
+    expect(devSetupSrc).toContain('Do not call the user runtime installer');
   });
 });
 

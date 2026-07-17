@@ -1,0 +1,22 @@
+{
+  "pr": 2189,
+  "url": "https://github.com/garrytan/gstack/pull/2189",
+  "title": "Accept coherent design-thesis framing",
+  "targets": [
+    "design-consultation",
+    "plan-design-review",
+    "design-review"
+  ],
+  "anchor": "GSTACK2_FIX_2189_DESIGN_THESIS_EQUIVALENCE",
+  "body": "### Design-thesis equivalence\n\nAccept a coherent design thesis expressed through product principles, visual rationale, interaction philosophy, or equivalent framing. Evaluate substance and consistency; do not require a literal “design thesis” heading or one exact vocabulary to award credit.",
+  "regression": {
+    "input": {
+      "heading": "Experience principles",
+      "content": "calm, high-trust, data-dense rationale"
+    },
+    "expected": {
+      "thesis_recognized": true,
+      "literal_heading_required": false
+    }
+  }
+}

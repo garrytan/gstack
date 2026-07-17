@@ -9,6 +9,9 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, chmodSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import { SALIENCE_DEFAULT_ALLOWLIST } from '../scripts/brain-cache-spec';
 
 const ORIGINAL_ENV = process.env.GSTACK_SALIENCE_ALLOWLIST;
@@ -83,6 +86,27 @@ describe('salience allowlist gate', () => {
     const mod = await importCache();
     const list = mod.getSalienceAllowlist();
     expect(list.length).toBeGreaterThan(0);
+  });
+
+  test('managed GSTACK_BIN config controls salience without a Claude install path', async () => {
+    if (process.platform === 'win32') return;
+    const root = mkdtempSync(join(tmpdir(), 'gstack-salience-bin-'));
+    const bin = join(root, 'bin');
+    mkdirSync(bin, { recursive: true });
+    const config = join(bin, 'gstack-config');
+    writeFileSync(config, '#!/bin/sh\nprintf "%s" "custom-safe/,projects/"\n');
+    chmodSync(config, 0o755);
+    const previousBin = process.env.GSTACK_BIN;
+    try {
+      process.env.GSTACK_BIN = bin;
+      delete process.env.GSTACK_SALIENCE_ALLOWLIST;
+      const mod = await importCache();
+      expect(mod.getSalienceAllowlist()).toEqual(['custom-safe/', 'projects/']);
+    } finally {
+      if (previousBin) process.env.GSTACK_BIN = previousBin;
+      else delete process.env.GSTACK_BIN;
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   test('default allowlist contains nothing sensitive', async () => {

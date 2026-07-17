@@ -6,6 +6,9 @@
  */
 
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { startTestServer } from './test-server';
 import { BrowserManager, type BrowserState } from '../src/browser-manager';
 import { handleWriteCommand as _handleWriteCommand } from '../src/write-commands';
@@ -17,8 +20,13 @@ const handleWriteCommand = (cmd: string, args: string[], b: BrowserManager) =>
 let testServer: ReturnType<typeof startTestServer>;
 let bm: BrowserManager;
 let baseUrl: string;
+let testRoot: string;
+let previousChromiumProfile: string | undefined;
 
 beforeAll(async () => {
+  testRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-handoff-'));
+  previousChromiumProfile = process.env.CHROMIUM_PROFILE;
+  process.env.CHROMIUM_PROFILE = path.join(testRoot, 'chromium-profile');
   testServer = startTestServer(0);
   baseUrl = testServer.url;
 
@@ -26,9 +34,12 @@ beforeAll(async () => {
   await bm.launch();
 });
 
-afterAll(() => {
+afterAll(async () => {
+  try { await bm?.close(); } catch {}
   try { testServer.server.stop(); } catch {}
-  setTimeout(() => process.exit(0), 500);
+  if (previousChromiumProfile === undefined) delete process.env.CHROMIUM_PROFILE;
+  else process.env.CHROMIUM_PROFILE = previousChromiumProfile;
+  try { fs.rmSync(testRoot, { recursive: true, force: true }); } catch {}
 });
 
 // ─── Unit Tests: Failure Tracking (no browser needed) ────────────

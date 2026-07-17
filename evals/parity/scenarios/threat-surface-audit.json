@@ -1,0 +1,30 @@
+{
+  "id": "threat-surface-audit",
+  "prompt": "Assess authentication, secrets, dependencies, CI trust boundaries, and abuse paths across the repository.",
+  "signals": {
+    "change_exists": false,
+    "audit_focus": "security",
+    "threat_model_required": true,
+    "mutation_authorized": false
+  },
+  "expected": {
+    "tree": "review",
+    "mode": "Security",
+    "depth": "deep",
+    "mutation": "report-only",
+    "active_modules": [
+      "cso"
+    ],
+    "web_context": "optional",
+    "decision_basis": [
+      "audit_focus=security",
+      "threat_model_required=true"
+    ],
+    "skipped_modules": [
+      "review",
+      "health",
+      "codex",
+      "claude"
+    ]
+  }
+}

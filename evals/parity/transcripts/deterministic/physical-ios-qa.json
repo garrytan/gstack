@@ -1,0 +1,157 @@
+{
+  "schema_version": 1,
+  "kind": "deterministic-semantic-transcript",
+  "suite": "Physical-iOS QA",
+  "execution_id": "physical-ios-qa",
+  "fixture": {
+    "id": "device-state-journey",
+    "prompt": "Drive the account flow on the plugged-in phone, recording state and screenshots at each transition.",
+    "signals": {
+      "surface": "ios",
+      "real_device": true,
+      "interaction_required": true,
+      "mutation_authorized": false
+    },
+    "rationale": "Physical-device state and screenshot evidence."
+  },
+  "baseline_invocation": {
+    "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
+    "modules": [
+      "ios-qa"
+    ],
+    "input": "Drive the account flow on the plugged-in phone, recording state and screenshots at each transition."
+  },
+  "candidate_invocation": {
+    "dispatcher": "qa",
+    "mode": "Report",
+    "depth": "deep",
+    "mutation": "report-only",
+    "active_modules": [
+      "ios-qa"
+    ],
+    "skipped_modules": [
+      "qa",
+      "qa-only",
+      "devex-review",
+      "benchmark",
+      "canary"
+    ],
+    "web_context": "none",
+    "input": "Drive the account flow on the plugged-in phone, recording state and screenshots at each transition."
+  },
+  "source_comparisons": [
+    {
+      "source": "ios-qa",
+      "baseline": {
+        "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
+        "source_path": "ios-qa/SKILL.md.tmpl",
+        "rendered_sha256": "5e84e675bafd3c598f971309f0e062f7a27f14d2415d32a90aea841210f0464a",
+        "semantic_signature": {
+          "normalized_sha256": "5e84e675bafd3c598f971309f0e062f7a27f14d2415d32a90aea841210f0464a",
+          "headings_sha256": "c3956fd2f080109a7f972d1e7d4f32bafa760290665757c74e8f6b16b9acbe31",
+          "questions_sha256": "6c75f2c3d1416853604508a8b35b58fb2b99072d7f9b62ba428fb07d437cf2f1",
+          "obligations_sha256": "6551c5757149ae606579c3a161524de1a5214a81e10138db518148f757650d1e",
+          "heading_count": 37,
+          "question_count": 4,
+          "obligation_count": 60
+        }
+      },
+      "mechanical_port": {
+        "rendered_sha256": "37b9baf014dcfa6ed3266ae3241dad17956a0b6b3f332dc44bdb728daa3c8f01",
+        "differs_from_baseline": true,
+        "allowed_difference": "Package-local skill, section, support-artifact, and stable runtime path relocation only."
+      },
+      "candidate": {
+        "target_path": "skills/qa/references/legacy/ios-qa.md",
+        "rendered_legacy_body_sha256": "37b9baf014dcfa6ed3266ae3241dad17956a0b6b3f332dc44bdb728daa3c8f01",
+        "semantic_signature": {
+          "normalized_sha256": "37b9baf014dcfa6ed3266ae3241dad17956a0b6b3f332dc44bdb728daa3c8f01",
+          "headings_sha256": "c3956fd2f080109a7f972d1e7d4f32bafa760290665757c74e8f6b16b9acbe31",
+          "questions_sha256": "bbb25cde83f6642c277e650261bc10a5078d25ad245e90ab2ea42bad9c5d12aa",
+          "obligations_sha256": "f58f6abc13eff384e423c7d1cded5c454b97b99576014b4360fc1176abd50168",
+          "heading_count": 37,
+          "question_count": 3,
+          "obligation_count": 61
+        }
+      },
+      "deterministic_comparison": {
+        "normalized_body_equal": false,
+        "installable_port_equal": true,
+        "contract_equal": true,
+        "classification": "EQUIVALENT"
+      },
+      "differences": [
+        {
+          "classification": "INTENTIONAL_IMPROVEMENT",
+          "issue_or_pr": "https://github.com/garrytan/gstack/pull/679",
+          "reproduced_defect": "Match the user language",
+          "regression_fixture": "evals/parity/regressions/pr-679.json",
+          "explanation": "### User-language rule\n\nWrite questions, progress updates, reports, and artifacts in the language used by the user. Source material, code identifiers, commands, and quotations may remain in their original language when translating them would reduce accuracy."
+        }
+      ]
+    }
+  ],
+  "semantic_dimensions": {
+    "questions": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "question_order": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "follow_up_pressure": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "smart_skips": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "pushback_strength": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "scope_recommendation": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "active_reasoning_modules": {
+      "classification": "EQUIVALENT",
+      "evidence": "Structured route selected ios-qa from product/evidence signals."
+    },
+    "findings": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "evidence": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "artifacts": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "approval_gates": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "mutation_behavior": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "completion_status": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "recommended_next_action": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "voice": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    }
+  },
+  "verdict": "PASS"
+}

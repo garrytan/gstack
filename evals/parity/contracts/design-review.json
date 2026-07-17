@@ -1,0 +1,31 @@
+{
+  "source": "design-review",
+  "tree": "design",
+  "public_mode": "Implement",
+  "mode": "live-review",
+  "mandatory": true,
+  "visibility": "primary",
+  "replacement": "$design --mode Implement --module design-review",
+  "source_path": "design-review/SKILL.md.tmpl",
+  "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
+  "blob_sha": "bdcda48e29b489a1cc49faa333922412251d4b41",
+  "normalized_render_sha256": "8711f4910f9cb9d022d024c432093bccbcf8d4e74250a3a25f915eb086de6c5a",
+  "target": "skills/design/references/legacy/design-review.md",
+  "overlays": [
+    679,
+    1920,
+    2030,
+    2189
+  ],
+  "contract": {
+    "question_order": "Preserve the source workflow order; gather prerequisites before consequential questions.",
+    "pressure": "Preserve the source forcing questions, recommendation pressure, and one-question-at-a-time cadence.",
+    "smart_skips": "Skip only when the source condition is false, and name every skipped module with evidence.",
+    "stop_approval_gates": "Preserve every STOP, hard gate, approval boundary, and no-mutation-before-approval rule.",
+    "evidence": "Ground conclusions in inspected code, commands, browser/device observations, or source artifacts.",
+    "artifacts": "Produce every report, plan, log, screenshot, manifest, or handoff required by the source.",
+    "mutation": "Use the source mutation boundary; never broaden writes, commits, pushes, merges, or deploys.",
+    "exit": "Preserve source completion checks, unresolved-decision reporting, and explicit blocked exits.",
+    "voice": "Direct builder voice; match the user language and retain source-specific tone constraints."
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "id": "approved-change-to-production",
+  "prompt": "The open change is approved. Merge it, wait for delivery, verify production, and be ready to reverse it.",
+  "signals": {
+    "release_stage": "approved-pr",
+    "external_mutation_authorized": true,
+    "pr_exists": true,
+    "deploy_requested": true
+  },
+  "expected": {
+    "tree": "ship",
+    "mode": "Land",
+    "depth": "deep",
+    "mutation": "merge-deploy",
+    "active_modules": [
+      "land-and-deploy"
+    ],
+    "web_context": "production",
+    "decision_basis": [
+      "release_stage=approved-pr",
+      "deploy_requested=true"
+    ],
+    "skipped_modules": [
+      "ship",
+      "landing-report",
+      "document-release",
+      "setup-deploy"
+    ]
+  }
+}

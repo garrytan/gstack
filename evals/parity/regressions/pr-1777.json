@@ -1,0 +1,21 @@
+{
+  "pr": 1777,
+  "url": "https://github.com/garrytan/gstack/pull/1777",
+  "title": "Retain rejection confidence in design exploration",
+  "targets": [
+    "design-shotgun"
+  ],
+  "anchor": "GSTACK2_FIX_1777_REJECTION_CONFIDENCE",
+  "body": "### Rejection-strength memory\n\nWhen recording design feedback, preserve how explicit and confident a rejection was. A hard rejection becomes a strong negative constraint; tentative dislike remains a weak signal that can be revisited. Never flatten rejected directions into evidence equivalent to approved directions.",
+  "regression": {
+    "input": {
+      "feedback": "Absolutely no glassmorphism",
+      "explicitness": "strong"
+    },
+    "expected": {
+      "constraint": "negative",
+      "confidence": "strong",
+      "treated_as_approval": false
+    }
+  }
+}

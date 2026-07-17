@@ -3,10 +3,12 @@
  * test-free-shards — enumerate, shard, and curate the free test suite.
  *
  * Three jobs:
- *   1. Enumeration. Walk `browse/test/`, `test/`, `make-pdf/test/` and return
+ *   1. Enumeration. Walk all five free-test roots and return
  *      every `*.test.{ts,tsx,js,jsx,mjs,cjs}` that isn't a paid-eval test.
- *   2. Sharding. Stable-hash assign each test to one of N shards. Used by CI
- *      to parallelize the free suite when needed.
+ *   2. Sharding. Build deterministic, size-bounded shards and isolate tests
+ *      whose module setup mutates process.env or whose cleanup schedules
+ *      process.exit(0). Used by CI to parallelize the free suite without
+ *      letting one file leak state into, or truncate, unrelated work.
  *   3. Curation (Windows-safe filter). Scan each test's content for POSIX-only
  *      patterns (`/bin/bash`, `sh -c`, raw `/tmp/`, `chmod`, `xargs`). Files
  *      that match are excluded from the Windows-safe subset — they would fail
@@ -26,10 +28,15 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { spawnSync } from 'child_process';
 
 const ROOT = path.resolve(import.meta.dir, '..');
-const TEST_ROOTS = ['browse/test', 'test', 'make-pdf/test'] as const;
+export const FREE_TEST_ROOTS = [
+  'browse/test',
+  'test',
+  'make-pdf/test',
+  'design/test',
+  'ios-qa/daemon/test',
+] as const;
 const TEST_FILE_REGEX = /\.test\.(?:[cm]?[jt]s|tsx|jsx)$/;
 
 // Tests that require API spend, external services, or e2e harnesses.
@@ -109,7 +116,13 @@ const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }> = [
 ];
 
 export const DEFAULT_SHARD_COUNT = 20;
+export const DEFAULT_MAX_FILES_PER_SHARD = 20;
 export const FREE_TEST_TIMEOUT_MS = 10_000;
+
+const SCHEDULED_EXIT_ZERO = /\b(?:setTimeout|setInterval|setImmediate|queueMicrotask)\s*\(\s*(?:(?:async\s*)?(?:\([^)]*\)|[$\w]+)\s*=>|function(?:\s+[$\w]+)?\s*\([^)]*\)\s*\{)[\s\S]{0,256}?\bprocess\.exit\s*\(\s*0\s*\)/;
+// Deliberately require column zero. That identifies conventional module-scope
+// setup while avoiding process.env changes indented inside hooks and tests.
+const TOP_LEVEL_PROCESS_ENV_MUTATION = /^(?:process\.env\.[A-Za-z_][A-Za-z0-9_]*[ \t]*=(?!=)|delete[ \t]+process\.env\.[A-Za-z_][A-Za-z0-9_]*(?:[ \t]*;)?[ \t]*(?:\/\/.*)?$)/m;
 
 export function normalizeRelativePath(filePath: string): string {
   return filePath.replace(/\\/g, '/');
@@ -155,7 +168,7 @@ function walkTestFiles(dirPath: string): string[] {
 
 export function collectFreeTestFiles(rootDir = ROOT): string[] {
   const discovered = new Set<string>();
-  for (const testRoot of TEST_ROOTS) {
+  for (const testRoot of FREE_TEST_ROOTS) {
     const absoluteRoot = path.join(rootDir, testRoot);
     if (!fs.existsSync(absoluteRoot)) continue;
     for (const fullPath of walkTestFiles(absoluteRoot)) {
@@ -219,6 +232,69 @@ export function assignFilesToShards(files: string[], shardCount: number): string
     .filter(filesInShard => filesInShard.length > 0);
 }
 
+export function containsScheduledProcessExitZero(source: string): boolean {
+  return SCHEDULED_EXIT_ZERO.test(source);
+}
+
+export function hasScheduledProcessExitZero(absolutePath: string): boolean {
+  try {
+    return containsScheduledProcessExitZero(fs.readFileSync(absolutePath, 'utf8'));
+  } catch {
+    return false;
+  }
+}
+
+export function containsTopLevelProcessEnvMutation(source: string): boolean {
+  return TOP_LEVEL_PROCESS_ENV_MUTATION.test(source);
+}
+
+export function hasTopLevelProcessEnvMutation(absolutePath: string): boolean {
+  try {
+    return containsTopLevelProcessEnvMutation(fs.readFileSync(absolutePath, 'utf8'));
+  } catch {
+    return false;
+  }
+}
+
+export interface BoundedShardOptions {
+  rootDir?: string;
+  maxFilesPerShard?: number;
+}
+
+/**
+ * Produce deterministically bounded shards. Tests with module-scope process.env
+ * mutations are isolated so state cannot leak across files. Tests that schedule
+ * process.exit(0) are isolated so cleanup cannot terminate unrelated files.
+ */
+export function planBoundedFreeTestShards(
+  files: string[],
+  options: BoundedShardOptions = {},
+): string[][] {
+  const rootDir = options.rootDir ?? ROOT;
+  const maxFilesPerShard = options.maxFilesPerShard ?? DEFAULT_MAX_FILES_PER_SHARD;
+  if (!Number.isInteger(maxFilesPerShard) || maxFilesPerShard <= 0) {
+    throw new Error(`Maximum files per shard must be a positive integer. Received: ${maxFilesPerShard}`);
+  }
+
+  const normal: string[] = [];
+  const isolated: string[] = [];
+  for (const file of [...new Set(files)].sort()) {
+    const absolutePath = path.join(rootDir, file);
+    if (
+      hasScheduledProcessExitZero(absolutePath)
+      || hasTopLevelProcessEnvMutation(absolutePath)
+    ) isolated.push(file);
+    else normal.push(file);
+  }
+
+  const shards: string[][] = [];
+  for (let index = 0; index < normal.length; index += maxFilesPerShard) {
+    shards.push(normal.slice(index, index + maxFilesPerShard));
+  }
+  for (const file of isolated) shards.push([file]);
+  return shards;
+}
+
 export function buildShardArgs(files: string[]): string[] {
   return ['test', ...files, '--max-concurrency=1', `--timeout=${FREE_TEST_TIMEOUT_MS}`];
 }
@@ -271,21 +347,18 @@ function formatShardSummary(shards: string[][]): string[] {
   });
 }
 
-function runShard(files: string[], shardNumber: number, totalShards: number): number {
+async function runShard(files: string[], shardNumber: number, totalShards: number): Promise<number> {
   const header = `[test:free] shard ${shardNumber}/${totalShards} (${files.length} files)`;
   console.log(header);
-  const result = spawnSync(process.execPath, buildShardArgs(files), {
-    cwd: ROOT,
-    stdio: 'inherit',
-    env: process.env,
-  });
-  if (result.status !== 0) {
-    console.error(`${header} failed with exit code ${result.status ?? 1}`);
+  const { runStrictTestShard } = await import('./test-free-strict');
+  const exitCode = await runStrictTestShard(files);
+  if (exitCode !== 0) {
+    console.error(`${header} failed with exit code ${exitCode}`);
   }
-  return result.status ?? 1;
+  return exitCode;
 }
 
-function main(): number {
+async function main(): Promise<number> {
   const options = parseCliOptions(process.argv.slice(2));
   const allFiles = collectFreeTestFiles();
   if (allFiles.length === 0) {
@@ -312,7 +385,11 @@ function main(): number {
     return 0;
   }
 
-  const shards = assignFilesToShards(files, options.shardCount);
+  if (!Number.isInteger(options.shardCount) || options.shardCount <= 0) {
+    throw new Error(`--shards must be a positive integer. Received: ${options.shardCount}`);
+  }
+  const maxFilesPerShard = Math.max(1, Math.ceil(files.length / options.shardCount));
+  const shards = planBoundedFreeTestShards(files, { maxFilesPerShard });
   if (options.dryRun) {
     console.log(`\nWould run ${files.length} files across ${shards.length} shards.`);
     for (const line of formatShardSummary(shards)) console.log(line);
@@ -323,11 +400,11 @@ function main(): number {
     if (!Number.isInteger(options.shardIndex) || options.shardIndex < 1 || options.shardIndex > shards.length) {
       throw new Error(`--shard must be between 1 and ${shards.length}. Received: ${options.shardIndex}`);
     }
-    return runShard(shards[options.shardIndex - 1], options.shardIndex, shards.length);
+    return await runShard(shards[options.shardIndex - 1], options.shardIndex, shards.length);
   }
 
   for (let index = 0; index < shards.length; index += 1) {
-    const exitCode = runShard(shards[index], index + 1, shards.length);
+    const exitCode = await runShard(shards[index], index + 1, shards.length);
     if (exitCode !== 0) return exitCode;
   }
 
@@ -335,5 +412,5 @@ function main(): number {
 }
 
 if (import.meta.main) {
-  process.exitCode = main();
+  process.exitCode = await main();
 }

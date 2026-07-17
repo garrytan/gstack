@@ -45,6 +45,13 @@ describe("security-sidecar-client — availability probe", () => {
       expect(typeof result.reason).toBe("string");
     }
   });
+
+  test("never sends the TypeScript model downloader directly to plain Node", async () => {
+    const { findSecuritySidecar } = await import("../src/find-security-sidecar");
+    const location = findSecuritySidecar();
+    expect(location === null || location.mode === "compiled").toBe(true);
+    expect(location?.entry.endsWith(".ts") ?? false).toBe(false);
+  });
 });
 
 describe("security-sidecar-client — circuit breaker after repeated failures", () => {

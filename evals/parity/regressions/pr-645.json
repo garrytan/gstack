@@ -1,0 +1,26 @@
+{
+  "pr": 645,
+  "url": "https://github.com/garrytan/gstack/pull/645",
+  "title": "Classify non-application changes before review",
+  "targets": [
+    "review"
+  ],
+  "anchor": "GSTACK2_FIX_645_PR_TYPE_TRIAGE",
+  "body": "### Change-type triage\n\nClassify the change from its files as **APPLICATION**, **CI_INFRA**, **SCRIPTS**, **CONFIG**, **DOCS**, **TESTS**, or **MIXED**, and print the file counts behind that classification. Prioritize the relevant checklist rather than forcing application-runtime questions onto every diff. Relevance skips are guides, never permission to ignore an unexpected risk in the actual patch.",
+  "regression": {
+    "input": {
+      "changed_files": [
+        ".github/workflows/test.yml",
+        "scripts/release.ts"
+      ]
+    },
+    "expected": {
+      "classification": "MIXED",
+      "prioritized_checks": [
+        "CI_INFRA",
+        "SCRIPTS"
+      ],
+      "show_counts": true
+    }
+  }
+}

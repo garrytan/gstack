@@ -1,0 +1,31 @@
+{
+  "id": "coded-marketing-surface",
+  "prompt": "Produce the responsive page implementation with real text reflow and accessible interactions.",
+  "signals": {
+    "surface": "web",
+    "implementation_exists": false,
+    "output": "html-css",
+    "runtime_verification": true
+  },
+  "expected": {
+    "tree": "design",
+    "mode": "Implement",
+    "depth": "standard",
+    "mutation": "design-artifacts",
+    "active_modules": [
+      "design-html"
+    ],
+    "web_context": "local-browser",
+    "decision_basis": [
+      "output=html-css",
+      "runtime_verification=true"
+    ],
+    "skipped_modules": [
+      "design-consultation",
+      "design-shotgun",
+      "plan-design-review",
+      "design-review",
+      "ios-design-review"
+    ]
+  }
+}

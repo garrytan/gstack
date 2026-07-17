@@ -170,10 +170,10 @@ describe("fail closed on unscannable diffs (#1946)", () => {
 describe("install UX surfaces (#1946 / eng review D3+D10)", () => {
   const ROOT = path.resolve(import.meta.dir, "..");
 
-  test("setup carries the hint only — never a per-repo install (it runs in the wrong repo)", () => {
+  test("setup delegates skill placement and owns no per-repo hook hint or install", () => {
     const setup = fs.readFileSync(path.join(ROOT, "setup"), "utf8");
-    expect(setup).toContain("redact_prepush_hook");
-    // The hint must not invoke the installer from setup.
+    expect(setup).toContain("npx skills add time-attack/gstack");
+    expect(setup).not.toContain("redact_prepush_hook");
     expect(setup).not.toContain("install-prepush-hook");
   });
 

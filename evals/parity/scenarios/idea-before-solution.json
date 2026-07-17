@@ -1,0 +1,32 @@
+{
+  "id": "idea-before-solution",
+  "prompt": "People abandon restaurant waitlists. Help me decide whether there is a real product here.",
+  "signals": {
+    "phase": "pre-solution",
+    "premise_confidence": "low",
+    "artifact_exists": false,
+    "user_surface": "consumer"
+  },
+  "expected": {
+    "tree": "plan",
+    "mode": "Discovery",
+    "depth": "deep",
+    "mutation": "design-doc-only",
+    "active_modules": [
+      "office-hours"
+    ],
+    "web_context": "optional",
+    "decision_basis": [
+      "phase=pre-solution",
+      "premise_confidence=low"
+    ],
+    "skipped_modules": [
+      "plan-ceo-review",
+      "plan-eng-review",
+      "plan-devex-review",
+      "autoplan",
+      "spec",
+      "plan-tune"
+    ]
+  }
+}

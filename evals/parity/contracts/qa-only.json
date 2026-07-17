@@ -1,0 +1,30 @@
+{
+  "source": "qa-only",
+  "tree": "qa",
+  "public_mode": "Report",
+  "mode": "report",
+  "mandatory": true,
+  "visibility": "primary",
+  "replacement": "$qa --mode Report --module qa-only",
+  "source_path": "qa-only/SKILL.md.tmpl",
+  "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
+  "blob_sha": "75c4123cc5c406ffdd36c71a094335c137135b1e",
+  "normalized_render_sha256": "90f138a7ded37476397e3399ed686a92f9317161ba6e2256d6c7ed7c2893e273",
+  "target": "skills/qa/references/legacy/qa-only.md",
+  "overlays": [
+    679,
+    1484,
+    2030
+  ],
+  "contract": {
+    "question_order": "Preserve the source workflow order; gather prerequisites before consequential questions.",
+    "pressure": "Preserve the source forcing questions, recommendation pressure, and one-question-at-a-time cadence.",
+    "smart_skips": "Skip only when the source condition is false, and name every skipped module with evidence.",
+    "stop_approval_gates": "Preserve every STOP, hard gate, approval boundary, and no-mutation-before-approval rule.",
+    "evidence": "Ground conclusions in inspected code, commands, browser/device observations, or source artifacts.",
+    "artifacts": "Produce every report, plan, log, screenshot, manifest, or handoff required by the source.",
+    "mutation": "Use the source mutation boundary; never broaden writes, commits, pushes, merges, or deploys.",
+    "exit": "Preserve source completion checks, unresolved-decision reporting, and explicit blocked exits.",
+    "voice": "Direct builder voice; match the user language and retain source-specific tone constraints."
+  }
+}

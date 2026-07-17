@@ -148,7 +148,8 @@ describe('lease lifecycle interplay (via pty-session-lease)', () => {
     const vb = validateLease(b.sessionId);
     expect(va.ok && vb.ok).toBe(true);
     if (va.ok && vb.ok) {
-      expect(va.expiresAt).toBe(vb.expiresAt);
+      expect(va.expiresAt).toBe(a.expiresAt);
+      expect(vb.expiresAt).toBe(b.expiresAt);
     }
   });
 });

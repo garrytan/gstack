@@ -1,0 +1,23 @@
+{
+  "pr": 884,
+  "url": "https://github.com/garrytan/gstack/pull/884",
+  "title": "Treat requested human review as a hard landing gate",
+  "targets": [
+    "ship",
+    "land-and-deploy"
+  ],
+  "anchor": "GSTACK2_FIX_884_HUMAN_REVIEW_GATE",
+  "body": "### Human-review landing gate\n\nWhen shipping, resolve the requested reviewer, request that reviewer on the PR, print a prominent pending-review banner, and do not merge in the same invocation. When landing, query the review decision, review requests, and submitted reviews: approval passes; changes requested or a pending requested review blocks; a true solo repository may proceed; collaborator activity without a review emits a warning. Only the dedicated explicit review override may bypass this gate.",
+  "regression": {
+    "input": {
+      "requested_reviewer": "alice",
+      "review_decision": "REVIEW_REQUIRED",
+      "override_review": false
+    },
+    "expected": {
+      "merge_allowed": false,
+      "pending_review_banner": true,
+      "bypass_requires": "--override-review"
+    }
+  }
+}

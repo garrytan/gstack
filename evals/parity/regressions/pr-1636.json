@@ -1,0 +1,21 @@
+{
+  "pr": 1636,
+  "url": "https://github.com/garrytan/gstack/pull/1636",
+  "title": "Detect stale retrospective windows",
+  "targets": [
+    "retro"
+  ],
+  "anchor": "GSTACK2_FIX_1636_STALE_RETRO_WINDOW",
+  "body": "### Retrospective freshness gate\n\nCompare the requested window, the current date, and the date of the latest included commit before writing a current-period narrative. If the repository history is stale for that window, print a stale-data warning and describe only what the evidence supports. Do not present old activity as this week's work.",
+  "regression": {
+    "input": {
+      "current_date": "2026-07-16",
+      "latest_commit_date": "2026-03-01",
+      "requested_window_days": 7
+    },
+    "expected": {
+      "stale_warning": true,
+      "current_week_claims": false
+    }
+  }
+}

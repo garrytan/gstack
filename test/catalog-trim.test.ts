@@ -283,21 +283,28 @@ describe('proactive-suggestions.json determinism (regression for v1.45.0.0 CI fr
     expect(keys).toEqual(sorted);
   });
 
-  test('root skill is keyed as "gstack" (not the checkout directory name)', () => {
-    // Catches the bug where the root SKILL.md.tmpl's catalog parts get
-    // registered under the directory basename ("seville-v3" in a Conductor
-    // worktree, "gstack" on CI).
+  test('retired root skill is absent and the public tree has exactly six dispatchers', () => {
+    // GStack 2 intentionally has no public root router. The legacy catalog is
+    // still generated for compatibility modules, but neither "gstack" nor a
+    // checkout-specific basename may leak back into that catalog. The
+    // standards-based public surface lives under skills/ and is exactly six.
     const fs = require('fs');
     const path = require('path');
     const json = JSON.parse(
       fs.readFileSync(path.join(__dirname, '..', 'scripts', 'proactive-suggestions.json'), 'utf-8'),
     );
-    expect(json.skills).toHaveProperty('gstack');
-    // The directory the test runs in must NOT appear as a key.
-    const repoDir = path.basename(path.resolve(__dirname, '..'));
-    if (repoDir !== 'gstack') {
-      expect(json.skills).not.toHaveProperty(repoDir);
-    }
+    expect(json.skills).not.toHaveProperty('gstack');
+
+    const repoRoot = path.resolve(__dirname, '..');
+    const repoDir = path.basename(repoRoot);
+    expect(json.skills).not.toHaveProperty(repoDir);
+    expect(fs.existsSync(path.join(repoRoot, 'SKILL.md'))).toBe(false);
+
+    const publicSkills = fs.readdirSync(path.join(repoRoot, 'skills'), { withFileTypes: true })
+      .filter((entry: { isDirectory(): boolean; name: string }) => entry.isDirectory() && !entry.name.startsWith('.'))
+      .map((entry: { name: string }) => entry.name)
+      .sort();
+    expect(publicSkills).toEqual(['debug', 'design', 'plan', 'qa', 'review', 'ship']);
   });
 
   test('schema + catalog_mode + note fields are stable', () => {

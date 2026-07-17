@@ -1,0 +1,31 @@
+{
+  "id": "real-device-hig-audit",
+  "prompt": "Score every screen of the installed phone app against platform conventions and capture device evidence.",
+  "signals": {
+    "surface": "ios",
+    "implementation_exists": true,
+    "real_device": true,
+    "mutation_authorized": false
+  },
+  "expected": {
+    "tree": "design",
+    "mode": "Critique",
+    "depth": "deep",
+    "mutation": "report-only",
+    "active_modules": [
+      "ios-design-review"
+    ],
+    "web_context": "none",
+    "decision_basis": [
+      "surface=ios",
+      "real_device=true"
+    ],
+    "skipped_modules": [
+      "design-consultation",
+      "design-shotgun",
+      "design-html",
+      "plan-design-review",
+      "design-review"
+    ]
+  }
+}

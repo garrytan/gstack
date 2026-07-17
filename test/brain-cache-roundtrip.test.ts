@@ -24,10 +24,14 @@ import { tmpdir } from 'os';
 
 let TMP_HOME: string;
 const ORIGINAL_HOME = process.env.GSTACK_HOME;
+const ORIGINAL_ENDPOINT = process.env.GSTACK_GBRAIN_ENDPOINT;
+const ORIGINAL_GBRAIN_URL = process.env.GBRAIN_URL;
 
 beforeEach(() => {
   TMP_HOME = mkdtempSync(join(tmpdir(), 'gstack-cache-test-'));
   process.env.GSTACK_HOME = TMP_HOME;
+  delete process.env.GSTACK_GBRAIN_ENDPOINT;
+  delete process.env.GBRAIN_URL;
   // Reload the cache module fresh per test so it picks up the new HOME.
   delete require.cache[require.resolve('../bin/gstack-brain-cache')];
 });
@@ -35,6 +39,10 @@ beforeEach(() => {
 afterEach(() => {
   if (ORIGINAL_HOME) process.env.GSTACK_HOME = ORIGINAL_HOME;
   else delete process.env.GSTACK_HOME;
+  if (ORIGINAL_ENDPOINT) process.env.GSTACK_GBRAIN_ENDPOINT = ORIGINAL_ENDPOINT;
+  else delete process.env.GSTACK_GBRAIN_ENDPOINT;
+  if (ORIGINAL_GBRAIN_URL) process.env.GBRAIN_URL = ORIGINAL_GBRAIN_URL;
+  else delete process.env.GBRAIN_URL;
   try { rmSync(TMP_HOME, { recursive: true, force: true }); } catch { /* best effort */ }
 });
 
@@ -122,14 +130,16 @@ describe('brain-cache malformed _meta.json (#1879)', () => {
 });
 
 describe('brain-cache endpoint detection', () => {
-  test('detectEndpointHash returns "local" when no ~/.claude.json gbrain MCP', async () => {
-    // We don't write ~/.claude.json in the temp env, so this falls through to local.
+  test('detectEndpointHash is host-neutral and separates explicit endpoints', async () => {
     const mod = await importCache();
-    // The user's real ~/.claude.json may have an MCP server; in that case the hash
-    // will be a real sha8. Either way, it's a stable string.
-    const hash = mod.detectEndpointHash();
-    expect(typeof hash).toBe('string');
-    expect(hash.length).toBeGreaterThan(0);
+    expect(mod.detectEndpointHash()).toBe('local');
+    process.env.GSTACK_GBRAIN_ENDPOINT = 'https://brain-a.example/api';
+    const first = mod.detectEndpointHash();
+    process.env.GSTACK_GBRAIN_ENDPOINT = 'https://brain-b.example/api';
+    const second = mod.detectEndpointHash();
+    expect(first).toMatch(/^[a-f0-9]{8}$/);
+    expect(second).toMatch(/^[a-f0-9]{8}$/);
+    expect(first).not.toBe(second);
   });
 });
 

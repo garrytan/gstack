@@ -1,0 +1,30 @@
+{
+  "source": "plan-eng-review",
+  "tree": "plan",
+  "public_mode": "Engineering",
+  "mode": "eng",
+  "mandatory": true,
+  "visibility": "primary",
+  "replacement": "$plan --mode Engineering --module plan-eng-review",
+  "source_path": "plan-eng-review/SKILL.md.tmpl",
+  "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
+  "blob_sha": "1d5be0e6f47f0896ee831b53c56818850b1dcfe4",
+  "normalized_render_sha256": "02dad060f44bffacc9cbc16532816930dbd0f2aa21466d0e97eaf36250a80833",
+  "target": "skills/plan/references/legacy/plan-eng-review.md",
+  "overlays": [
+    679,
+    1071,
+    2030
+  ],
+  "contract": {
+    "question_order": "Preserve the source workflow order; gather prerequisites before consequential questions.",
+    "pressure": "Preserve the source forcing questions, recommendation pressure, and one-question-at-a-time cadence.",
+    "smart_skips": "Skip only when the source condition is false, and name every skipped module with evidence.",
+    "stop_approval_gates": "Preserve every STOP, hard gate, approval boundary, and no-mutation-before-approval rule.",
+    "evidence": "Ground conclusions in inspected code, commands, browser/device observations, or source artifacts.",
+    "artifacts": "Produce every report, plan, log, screenshot, manifest, or handoff required by the source.",
+    "mutation": "Use the source mutation boundary; never broaden writes, commits, pushes, merges, or deploys.",
+    "exit": "Preserve source completion checks, unresolved-decision reporting, and explicit blocked exits.",
+    "voice": "Direct builder voice; match the user language and retain source-specific tone constraints."
+  }
+}

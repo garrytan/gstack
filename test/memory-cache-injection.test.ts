@@ -15,16 +15,22 @@ import { spawnSync } from 'child_process';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const HOOK = path.join(ROOT, 'hosts', 'claude', 'hooks', 'question-preference-hook');
+const SLUG_BIN = path.join(ROOT, 'bin', 'gstack-slug');
 
 let stateRoot: string;
 let fixtureCwd: string;
 let cwdSlug: string;
+let projectId: string;
 
 beforeEach(() => {
   stateRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-memcache-'));
   cwdSlug = 'memcache-fixture';
   fixtureCwd = path.join(stateRoot, cwdSlug);
   fs.mkdirSync(fixtureCwd, { recursive: true });
+  const identityOutput = spawnSync(SLUG_BIN, [], {
+    env: { ...process.env, GSTACK_HOME: stateRoot }, cwd: fixtureCwd, encoding: 'utf8',
+  }).stdout || '';
+  projectId = identityOutput.match(/^PROJECT_ID=([a-zA-Z0-9._-]+)$/m)?.[1] ?? 'unknown';
 });
 
 afterEach(() => {
@@ -156,9 +162,9 @@ describe('memory injection', () => {
       },
     ]);
     // Set a never-ask preference and check both deny AND memory are surfaced.
-    fs.mkdirSync(path.join(stateRoot, 'projects', cwdSlug), { recursive: true });
+    fs.mkdirSync(path.join(stateRoot, 'projects', projectId), { recursive: true });
     fs.writeFileSync(
-      path.join(stateRoot, 'projects', cwdSlug, 'question-preferences.json'),
+      path.join(stateRoot, 'projects', projectId, 'question-preferences.json'),
       JSON.stringify({ 'ship-todos-reorganize': 'never-ask' }),
     );
     const r = runHook({

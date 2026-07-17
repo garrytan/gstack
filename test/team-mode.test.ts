@@ -323,15 +323,13 @@ describe('gstack-team-init', () => {
 });
 
 describe('setup --team / --no-team / -q', () => {
-  // `./setup` does a full install + build + skill regeneration. On a cold cache
-  // it routinely takes 60-90s. Give both tests a 3-minute budget so CI doesn't
-  // report pre-existing timeouts as failures.
   test(
-    'setup -q produces no stdout',
+    'setup help exposes only the optional runtime contract',
     () => {
-      const result = run(`${path.join(ROOT, 'setup')} -q`, { cwd: ROOT });
-      // -q should suppress informational output (may still have some output from build)
-      // The key test is that the "Skill naming:" prompt and "gstack ready" messages are suppressed
+      const result = run(`${path.join(ROOT, 'setup')} --help -q`, { cwd: ROOT });
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('optional host-neutral runtime');
+      expect(result.stdout).toContain('npx skills add time-attack/gstack');
       expect(result.stdout).not.toContain('Skill naming:');
       expect(result.stdout).not.toContain('gstack ready');
     },
@@ -341,8 +339,8 @@ describe('setup --team / --no-team / -q', () => {
   test(
     'setup --local prints deprecation warning',
     () => {
-      // stderr capture: run via bash redirect so we can capture stderr
-      const result = run(`bash -c '${path.join(ROOT, 'setup')} --local -q 2>&1'`, { cwd: ROOT });
+      const result = run(`bash -c '${path.join(ROOT, 'setup')} --local --help 2>&1'`, { cwd: ROOT });
+      expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain('deprecated');
     },
     180_000,

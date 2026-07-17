@@ -1,0 +1,31 @@
+{
+  "id": "prebuild-interface-critique",
+  "prompt": "Before implementation, check the states, hierarchy, accessibility, responsive behavior, and interaction decisions in this document.",
+  "signals": {
+    "surface": "web",
+    "implementation_exists": false,
+    "artifact_exists": true,
+    "output": "plan-revision"
+  },
+  "expected": {
+    "tree": "design",
+    "mode": "Critique",
+    "depth": "deep",
+    "mutation": "plan-only",
+    "active_modules": [
+      "plan-design-review"
+    ],
+    "web_context": "optional",
+    "decision_basis": [
+      "implementation_exists=false",
+      "artifact_exists=true"
+    ],
+    "skipped_modules": [
+      "design-consultation",
+      "design-shotgun",
+      "design-html",
+      "design-review",
+      "ios-design-review"
+    ]
+  }
+}

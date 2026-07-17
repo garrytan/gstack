@@ -1,0 +1,28 @@
+{
+  "source": "claude",
+  "tree": "review",
+  "public_mode": "Deep",
+  "mode": "outside-claude",
+  "mandatory": true,
+  "visibility": "primary",
+  "replacement": "$review --mode Deep --module claude",
+  "source_path": "claude/SKILL.md.tmpl",
+  "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
+  "blob_sha": "94552cbe4efebc908f70f03880e584879db80aca",
+  "normalized_render_sha256": "f8b5964bf630d0716ad5cfd729f6d4e62bb89d4eab64a210090fb0e875f0b59d",
+  "target": "skills/review/references/legacy/claude.md",
+  "overlays": [
+    679
+  ],
+  "contract": {
+    "question_order": "Preserve the source workflow order; gather prerequisites before consequential questions.",
+    "pressure": "Preserve the source forcing questions, recommendation pressure, and one-question-at-a-time cadence.",
+    "smart_skips": "Skip only when the source condition is false, and name every skipped module with evidence.",
+    "stop_approval_gates": "Preserve every STOP, hard gate, approval boundary, and no-mutation-before-approval rule.",
+    "evidence": "Ground conclusions in inspected code, commands, browser/device observations, or source artifacts.",
+    "artifacts": "Produce every report, plan, log, screenshot, manifest, or handoff required by the source.",
+    "mutation": "Use the source mutation boundary; never broaden writes, commits, pushes, merges, or deploys.",
+    "exit": "Preserve source completion checks, unresolved-decision reporting, and explicit blocked exits.",
+    "voice": "Direct builder voice; match the user language and retain source-specific tone constraints."
+  }
+}

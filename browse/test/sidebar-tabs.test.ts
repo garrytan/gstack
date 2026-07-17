@@ -154,12 +154,14 @@ describe('sidepanel-terminal.js: eager auto-connect + injection API', () => {
     expect(closeOnly).not.toContain('connect()');
   });
 
-  test('forceRestart helper closes ws, disposes xterm, returns to IDLE', () => {
+  test('forceRestart uses the session-scoped restart transaction and resets local state', () => {
     expect(TERM_JS).toContain('function forceRestart');
     const fn = TERM_JS.slice(TERM_JS.indexOf('function forceRestart'));
-    expect(fn).toContain('ws && ws.close()');
+    expect(fn).toContain("ws && ws.close(4001, 'intentional-restart')");
     expect(fn).toContain('term.dispose()');
     expect(fn).toContain('STATE.IDLE');
+    expect(fn).toContain('/pty-restart');
+    expect(fn).toContain('priorSessionId');
     expect(fn).toContain('tryAutoConnect()');
   });
 
@@ -222,8 +224,8 @@ describe('cli.ts: sidebar-agent is no longer spawned', () => {
   });
 
   test('Terminal-agent spawn survives', () => {
-    expect(CLI_SRC).toContain('terminal-agent.ts');
-    expect(CLI_SRC).toMatch(/Bun\.spawn\(\['bun',\s*'run',\s*termAgentScript\]/);
+    expect(CLI_SRC).toContain("import { spawnTerminalAgent } from './terminal-agent-control'");
+    expect(CLI_SRC).toMatch(/spawnTerminalAgent\(\{[\s\S]*?stateFile:[\s\S]*?serverPort:[\s\S]*?cwd:/);
   });
 });
 

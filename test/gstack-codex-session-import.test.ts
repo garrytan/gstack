@@ -16,16 +16,22 @@ import { spawnSync } from 'child_process';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const BIN = path.join(ROOT, 'bin', 'gstack-codex-session-import');
+const SLUG_BIN = path.join(ROOT, 'bin', 'gstack-slug');
 
 let stateRoot: string;
 let fixtureCwd: string;
 let cwdSlug: string;
+let projectId: string;
 
 beforeEach(() => {
   stateRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-cdximp-'));
   cwdSlug = 'codex-fixture-slug';
   fixtureCwd = path.join(stateRoot, cwdSlug);
   fs.mkdirSync(fixtureCwd, { recursive: true });
+  const identityOutput = spawnSync(SLUG_BIN, [], {
+    env: { ...process.env, GSTACK_HOME: stateRoot }, cwd: fixtureCwd, encoding: 'utf8',
+  }).stdout || '';
+  projectId = identityOutput.match(/^PROJECT_ID=([a-zA-Z0-9._-]+)$/m)?.[1] ?? 'unknown';
 });
 
 afterEach(() => {
@@ -77,7 +83,7 @@ function runImport(sessionPath: string): { stdout: string; stderr: string; statu
 }
 
 function readImportedEvents(): Array<Record<string, unknown>> {
-  const f = path.join(stateRoot, 'projects', cwdSlug, 'question-log.jsonl');
+  const f = path.join(stateRoot, 'projects', projectId, 'question-log.jsonl');
   if (!fs.existsSync(f)) return [];
   return fs
     .readFileSync(f, 'utf-8')

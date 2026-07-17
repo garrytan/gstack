@@ -1,0 +1,31 @@
+{
+  "id": "new-visual-system",
+  "prompt": "Define the typography, color, layout, motion, and interaction rationale for a calm clinical product.",
+  "signals": {
+    "surface": "design-system",
+    "implementation_exists": false,
+    "alternatives_requested": false,
+    "output": "system-artifacts"
+  },
+  "expected": {
+    "tree": "design",
+    "mode": "Generate",
+    "depth": "deep",
+    "mutation": "design-artifacts",
+    "active_modules": [
+      "design-consultation"
+    ],
+    "web_context": "optional",
+    "decision_basis": [
+      "surface=design-system",
+      "implementation_exists=false"
+    ],
+    "skipped_modules": [
+      "design-shotgun",
+      "design-html",
+      "plan-design-review",
+      "design-review",
+      "ios-design-review"
+    ]
+  }
+}

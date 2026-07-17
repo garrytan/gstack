@@ -1,0 +1,31 @@
+{
+  "id": "browser-findings-only",
+  "prompt": "Exercise checkout in the running site and give me reproducible findings, but do not change the repository.",
+  "signals": {
+    "surface": "web",
+    "implementation_exists": true,
+    "mutation_authorized": false,
+    "evidence_required": true
+  },
+  "expected": {
+    "tree": "qa",
+    "mode": "Report",
+    "depth": "deep",
+    "mutation": "report-only",
+    "active_modules": [
+      "qa-only"
+    ],
+    "web_context": "local-browser",
+    "decision_basis": [
+      "surface=web",
+      "mutation_authorized=false"
+    ],
+    "skipped_modules": [
+      "qa",
+      "ios-qa",
+      "devex-review",
+      "benchmark",
+      "canary"
+    ]
+  }
+}

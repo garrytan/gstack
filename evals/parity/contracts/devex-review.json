@@ -1,0 +1,29 @@
+{
+  "source": "devex-review",
+  "tree": "qa",
+  "public_mode": "Report",
+  "mode": "dx",
+  "mandatory": true,
+  "visibility": "primary",
+  "replacement": "$qa --mode Report --module devex-review",
+  "source_path": "devex-review/SKILL.md.tmpl",
+  "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
+  "blob_sha": "081d4f35bbdec0c6b3da8ae71615ec4d41a84551",
+  "normalized_render_sha256": "849895ef49f7c855bfa819620e94d41da9909eb5baf214719b004130ecd741d6",
+  "target": "skills/qa/references/legacy/devex-review.md",
+  "overlays": [
+    679,
+    2030
+  ],
+  "contract": {
+    "question_order": "Preserve the source workflow order; gather prerequisites before consequential questions.",
+    "pressure": "Preserve the source forcing questions, recommendation pressure, and one-question-at-a-time cadence.",
+    "smart_skips": "Skip only when the source condition is false, and name every skipped module with evidence.",
+    "stop_approval_gates": "Preserve every STOP, hard gate, approval boundary, and no-mutation-before-approval rule.",
+    "evidence": "Ground conclusions in inspected code, commands, browser/device observations, or source artifacts.",
+    "artifacts": "Produce every report, plan, log, screenshot, manifest, or handoff required by the source.",
+    "mutation": "Use the source mutation boundary; never broaden writes, commits, pushes, merges, or deploys.",
+    "exit": "Preserve source completion checks, unresolved-decision reporting, and explicit blocked exits.",
+    "voice": "Direct builder voice; match the user language and retain source-specific tone constraints."
+  }
+}

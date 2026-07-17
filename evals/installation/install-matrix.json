@@ -1,0 +1,3234 @@
+{
+  "schemaVersion": 1,
+  "mode": "full",
+  "generatedAt": "2026-07-17T03:32:07.629Z",
+  "platform": "darwin",
+  "architecture": "arm64",
+  "repositoryRoot": "<REPOSITORY_ROOT>",
+  "sourceProjection": "repository-root-and-canonical-projection",
+  "cli": {
+    "executable": "npx",
+    "version": "1.5.19",
+    "supportsCopy": true,
+    "supportsRemoval": true,
+    "versionCommand": {
+      "argv": [
+        "npx",
+        "--yes",
+        "skills",
+        "--version"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "durationMs": 1695,
+      "stdout": "1.5.19",
+      "stderr": ""
+    },
+    "helpCommand": {
+      "argv": [
+        "npx",
+        "--yes",
+        "skills",
+        "--help"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "durationMs": 1027,
+      "stdout": "Usage: skills <command> [options]\n\nManage Skills:\n  add <package>        Add a skill package (alias: a)\n                       e.g. vercel-labs/agent-skills\n                            https://github.com/vercel-labs/agent-skills\n  use <package>@<skill>\n                       Generate a prompt for using one skill without installing it\n  remove [skills]      Remove installed skills\n  list, ls             List installed skills\n  find [query]         Search for skills interactively\n\nFind Options:\n  --owner <owner>        Search only repositories from a GitHub owner\n\nUpdates:\n  update [skills...]   Update skills to latest versions (alias: upgrade)\n\nUpdate Options:\n  -g, --global           Update global skills only\n  -p, --project          Update project skills only\n  -y, --yes              Skip scope prompt (auto-detect: project if in a project, else global)\n\nProject:\n  experimental_install Restore skills from skills-lock.json\n  init [name]          Initialize a skill (creates <name>/SKILL.md or ./SKILL.md)\n  experimental_sync    Sync skills from node_modules into agent directories\n\nAdd Options:\n  -g, --global           Install skill globally (user-level) instead of project-level\n  -a, --agent <agents>   Specify agents to install to (use '*' for all agents)\n  -s, --skill <skills>   Specify skill names to install (use '*' for all skills)\n  -l, --list             List available skills in the repository without installing\n  -y, --yes              Skip confirmation prompts\n  --copy                 Copy files instead of symlinking to agent directories\n  --metadata <json>      Attach valid JSON to the install telemetry event\n  --subagent <names>     Install to Eve subagents (use 'root' for the root agent)\n  --all                  Shorthand for --skill '*' --agent '*' -y\n  --full-depth           Search all subdirectories even when a root SKILL.md exists\n\nUse Options:\n  -s, --skill <skill>    Specify the skill to use\n  -a, --agent <agent>    Start one supported agent interactively\n  --full-depth           Search all subdirectories even when a root SKILL.md exists\n  --dangerously-accept-openclaw-risks\n                         Allow unverified OpenClaw community skills\n\nRemove Options:\n  -g, --global           Remove from global scope\n  -a, --agent <agents>   Remove from specific agents (use '*' for all agents)\n  -s, --skill <skills>   Specify skills to remove (use '*' for all skills)\n  -y, --yes              Skip confirmation prompts\n  --all                  Shorthand for --skill '*' --agent '*' -y\n  \nExperimental Sync Options:\n  -a, --agent <agents>   Specify agents to install to (use '*' for all agents)\n  -y, --yes              Skip confirmation prompts\n\nList Options:\n  -g, --global           List global skills (default: project)\n  -a, --agent <agents>   Filter by specific agents\n  --json                 Output as JSON (machine-readable, no ANSI codes)\n\nOptions:\n  --help, -h        Show this help message\n  --version, -v     Show version number\n\nExamples:\n  $ skills add vercel-labs/agent-skills\n  $ skills use vercel-labs/agent-skills@vercel-optimize | claude\n  $ skills use vercel-labs/agent-skills --skill vercel-optimize --agent claude-code\n  $ skills add vercel-labs/agent-skills -g\n  $ skills add vercel-labs/agent-skills --agent claude-code cursor\n  $ skills add vercel-labs/agent-skills --skill pr-review commit\n  $ skills remove                        # interactive remove\n  $ skills remove web-design             # remove by name\n  $ skills rm --global frontend-design\n  $ skills list                          # list project skills\n  $ skills ls -g                         # list global skills\n  $ skills ls -a claude-code             # filter by agent\n  $ skills ls --json                      # JSON output\n  $ skills find                          # interactive search\n  $ skills find typescript               # search by keyword\n  $ skills find react --owner vercel     # search within an owner\n  $ skills update\n  $ skills update my-skill             # update a single skill\n  $ skills update -g                    # update global skills only\n  $ skills experimental_install            # restore from skills-lock.json\n  $ skills init my-skill\n  $ skills experimental_sync              # sync from node_modules\n  $ skills experimental_sync -y           # sync without prompts\n\nDiscover more skills at https://skills.sh/",
+      "stderr": ""
+    }
+  },
+  "repository": {
+    "publicSkills": [
+      "debug",
+      "design",
+      "plan",
+      "qa",
+      "review",
+      "ship"
+    ],
+    "skillFiles": [
+      "debug/SKILL.md",
+      "design/SKILL.md",
+      "plan/SKILL.md",
+      "qa/SKILL.md",
+      "review/SKILL.md",
+      "ship/SKILL.md"
+    ],
+    "checks": [
+      {
+        "id": "repository.public-skill-names",
+        "passed": true,
+        "detail": "expected debug, design, plan, qa, review, ship; found debug, design, plan, qa, review, ship"
+      },
+      {
+        "id": "repository.public-skill-files",
+        "passed": true,
+        "detail": "expected only debug/SKILL.md, design/SKILL.md, plan/SKILL.md, qa/SKILL.md, review/SKILL.md, ship/SKILL.md; found debug/SKILL.md, design/SKILL.md, plan/SKILL.md, qa/SKILL.md, review/SKILL.md, ship/SKILL.md"
+      },
+      {
+        "id": "repository.debug.exists",
+        "passed": true,
+        "detail": "skills/debug/SKILL.md"
+      },
+      {
+        "id": "repository.debug.frontmatter-name",
+        "passed": true,
+        "detail": "expected debug; found debug"
+      },
+      {
+        "id": "repository.debug.unique-name",
+        "passed": true,
+        "detail": "debug is unique"
+      },
+      {
+        "id": "repository.debug.preserved-modules",
+        "passed": true,
+        "detail": "7 preserved module files"
+      },
+      {
+        "id": "repository.design.exists",
+        "passed": true,
+        "detail": "skills/design/SKILL.md"
+      },
+      {
+        "id": "repository.design.frontmatter-name",
+        "passed": true,
+        "detail": "expected design; found design"
+      },
+      {
+        "id": "repository.design.unique-name",
+        "passed": true,
+        "detail": "design is unique"
+      },
+      {
+        "id": "repository.design.preserved-modules",
+        "passed": true,
+        "detail": "9 preserved module files"
+      },
+      {
+        "id": "repository.plan.exists",
+        "passed": true,
+        "detail": "skills/plan/SKILL.md"
+      },
+      {
+        "id": "repository.plan.frontmatter-name",
+        "passed": true,
+        "detail": "expected plan; found plan"
+      },
+      {
+        "id": "repository.plan.unique-name",
+        "passed": true,
+        "detail": "plan is unique"
+      },
+      {
+        "id": "repository.plan.preserved-modules",
+        "passed": true,
+        "detail": "16 preserved module files"
+      },
+      {
+        "id": "repository.qa.exists",
+        "passed": true,
+        "detail": "skills/qa/SKILL.md"
+      },
+      {
+        "id": "repository.qa.frontmatter-name",
+        "passed": true,
+        "detail": "expected qa; found qa"
+      },
+      {
+        "id": "repository.qa.unique-name",
+        "passed": true,
+        "detail": "qa is unique"
+      },
+      {
+        "id": "repository.qa.preserved-modules",
+        "passed": true,
+        "detail": "15 preserved module files"
+      },
+      {
+        "id": "repository.review.exists",
+        "passed": true,
+        "detail": "skills/review/SKILL.md"
+      },
+      {
+        "id": "repository.review.frontmatter-name",
+        "passed": true,
+        "detail": "expected review; found review"
+      },
+      {
+        "id": "repository.review.unique-name",
+        "passed": true,
+        "detail": "review is unique"
+      },
+      {
+        "id": "repository.review.preserved-modules",
+        "passed": true,
+        "detail": "6 preserved module files"
+      },
+      {
+        "id": "repository.ship.exists",
+        "passed": true,
+        "detail": "skills/ship/SKILL.md"
+      },
+      {
+        "id": "repository.ship.frontmatter-name",
+        "passed": true,
+        "detail": "expected ship; found ship"
+      },
+      {
+        "id": "repository.ship.unique-name",
+        "passed": true,
+        "detail": "ship is unique"
+      },
+      {
+        "id": "repository.ship.preserved-modules",
+        "passed": true,
+        "detail": "12 preserved module files"
+      },
+      {
+        "id": "repository.collision.qa.canonical",
+        "passed": true,
+        "detail": "frontmatter name qa resolves to skills/qa/SKILL.md"
+      },
+      {
+        "id": "repository.collision.review.canonical",
+        "passed": true,
+        "detail": "frontmatter name review resolves to skills/review/SKILL.md"
+      },
+      {
+        "id": "repository.collision.ship.canonical",
+        "passed": true,
+        "detail": "frontmatter name ship resolves to skills/ship/SKILL.md"
+      },
+      {
+        "id": "repository.compatibility-aliases",
+        "passed": true,
+        "detail": "expected 52 aliases; found 52"
+      },
+      {
+        "id": "repository.compat.gstack.name",
+        "passed": true,
+        "detail": "name=gstack"
+      },
+      {
+        "id": "repository.compat.gstack.internal",
+        "passed": true,
+        "detail": "alias is internal"
+      },
+      {
+        "id": "repository.compat.gstack.thin",
+        "passed": true,
+        "detail": "replacement=$plan --mode Discovery --module gstack"
+      },
+      {
+        "id": "repository.compat.office-hours.name",
+        "passed": true,
+        "detail": "name=office-hours"
+      },
+      {
+        "id": "repository.compat.office-hours.internal",
+        "passed": true,
+        "detail": "alias is internal"
+      },
+      {
+        "id": "repository.compat.office-hours.thin",
+        "passed": true,
+        "detail": "replacement=$plan --mode Discovery --module office-hours"
+      },
+      {
+        "id": "repository.compat.plan-ceo-review.name",
+        "passed": true,
+        "detail": "name=plan-ceo-review"
+      },
+      {
+        "id": "repository.compat.plan-ceo-review.internal",
+        "passed": true,
+        "detail": "alias is internal"
+      },
+      {
+        "id": "repository.compat.plan-ceo-review.thin",
+        "passed": true,
+        "detail": "replacement=$plan --mode Product --module plan-ceo-review"
+      },
+      {
+        "id": "repository.compat.plan-eng-review.name",
+        "passed": true,
+        "detail": "name=plan-eng-review"
+      },
+      {
+        "id": "repository.compat.plan-eng-review.internal",
+        "passed": true,
+        "detail": "alias is internal"
+      },
+      {
+        "id": "repository.compat.plan-eng-review.thin",
+        "passed": true,
+        "detail": "replacement=$plan --mode Engineering --module plan-eng-review"
+      },
+      {
+        "id": "repository.compat.plan-devex-review.name",
+        "passed": true,
+        "detail": "name=plan-devex-review"
+      },
+      {
+        "id": "repository.compat.plan-devex-review.internal",
+        "passed": true,
+        "detail": "alias is internal"
+      },
+      {
+        "id": "repository.compat.plan-devex-review.thin",
+        "passed": true,
+        "detail": "replacement=$plan --mode DX --module plan-devex-review"
+      },
+      {
+        "id": "repository.compat.autoplan.name",
+        "passed": true,
+        "detail": "name=autoplan"
+      },
+      {
+        "id": "repository.compat.autoplan.internal",
+        "passed": true,
+        "detail": "alias is internal"
+      },
+      {
+        "id": "repository.compat.autoplan.thin",
+        "passed": true,
+        "detail": "replacement=$plan --mode Full chain --module autoplan"
+      },
+      {
+        "id": "repository.compat.spec.name",
+        "passed": true,
+        "detail": "name=spec"
+      },
+      {
+        "id": "repository.compat.spec.internal",
+        "passed": true,
+        "detail": "alias is internal"
+      },
+      {
+        "id": "repository.compat.spec.thin",
+        "passed": true,
+        "detail": "replacement=$plan --mode Specification --module spec"
+      },
+      {
+        "id": "repository.compat.plan-tune.name",
+        "passed": true,
+        "detail": "name=plan-tune"
+      },
+      {
+        "id": "repository.compat.plan-tune.internal",
+        "passed": true,
+        "detail": "alias is internal"
+      },
+      {
+        "id": "repository.compat.plan-tune.thin",
+        "passed": true,
+        "detail": "replacement=$plan --mode Discovery --module plan-tune"
+      },
+      {
+        "id": "repository.compat.context-save.name",
+        "passed": true,
+        "detail": "name=context-save"
+      },
+      {
+        "id": "repository.compat.context-save.internal",
+        "passed": true,
+        "detail": "alias is internal"
+      },
+      {
+        "id": "repository.compat.context-save.thin",
+        "passed": true,
+        "detail": "replacement=$plan --mode Discovery --module context-save"
+      },
+      {
+        "id": "repository.compat.context-restore.name",
+        "passed": true,
+        "detail": "name=context-restore"
+      },
+      {
+        "id": "repository.compat.context-restore.internal",
+        "passed": true,
+        "detail": "alias is internal"
+      },
+      {
+        "id": "repository.compat.context-restore.thin",
+        "passed": true,
+        "detail": "replacement=$plan --mode Discovery --module context-restore"
+      },
+      {
+        "id": "repository.compat.learn.name",
+        "passed": true,
+        "detail": "name=learn"
+      },
+      {
+        "id": "repository.compat.learn.internal",
+        "passed": true,
+        "detail": "alias is internal"
+      },
+      {
+        "id": "repository.compat.learn.thin",
+        "passed": true,
+        "detail": "replacement=$plan --mode Discovery --module learn"
+      },
+      {
+        "id": "repository.compat.retro.name",
+        "passed": true,
+        "detail": "name=retro"
+      },
+      {
+        "id": "repository.compat.retro.internal",
+        "passed": true,
+        "detail": "alias is internal"
+      },
+      {
+        "id": "repository.compat.retro.thin",
+        "passed": true,
+        "detail": "replacement=$plan --mode Discovery --module retro"
+      },
+      {
+        "id": "repository.compat.setup-gbrain.name",
+        "passed": true,
+        "detail": "name=setup-gbrain"
+      },
+      {
+        "id": "repository.compat.setup-gbrain.internal",
+        "passed": true,
+        "detail": "alias is internal"
+      },
+      {
+        "id": "repository.compat.setup-gbrain.thin",
+        "passed": true,
+        "detail": "replacement=$plan --mode Discovery --module setup-gbrain"
+      },
+      {
+        "id": "repository.compat.sync-gbrain.name",
+        "passed": true,
+        "detail": "name=sync-gbrain"
+      },
+      {
+        "id": "repository.compat.sync-gbrain.internal",
+        "passed": true,
+        "detail": "alias is internal"
+      },
+      {
+        "id": "repository.compat.sync-gbrain.thin",
+        "passed": true,
+        "detail": "replacement=$plan --mode Discovery --module sync-gbrain"
+      },
+      {
+        "id": "repository.compat.design-consultation.name",
+        "passed": true,
+        "detail": "name=design-consultation"
+      },
+      {
+        "id": "repository.compat.design-consultation.internal",
+        "passed": true,
+        "detail": "alias is internal"
+      },
+      {
+        "id": "repository.compat.design-consultation.thin",
+        "passed": true,
+        "detail": "replacement=$design --mode Generate --module design-consultation"
+      },
+      {
+        "id": "repository.compat.design-shotgun.name",
+        "passed": true,
+        "detail": "name=design-shotgun"
+      },
+      {
+        "id": "repository.compat.design-shotgun.internal",
+        "passed": true,
+        "detail": "alias is internal"
+      },
+      {
+        "id": "repository.compat.design-shotgun.thin",
+        "passed": true,
+        "detail": "replacement=$design --mode Explore --module design-shotgun"
+      },
+      {
+        "id": "repository.compat.design-html.name",
+        "passed": true,
+        "detail": "name=design-html"
+      },
+      {
+        "id": "repository.compat.design-html.internal",
+        "passed": true,
+        "detail": "alias is internal"
+      },
+      {
+        "id": "repository.compat.design-html.thin",
+        "passed": true,
+        "detail": "replacement=$design --mode Implement --module design-html"
+      },
+      {
+        "id": "repository.compat.plan-design-review.name",
+        "passed": true,
+        "detail": "name=plan-design-review"
+      },
+      {
+        "id": "repository.compat.plan-design-review.internal",
+        "passed": true,
+        "detail": "alias is internal"
+      },
+      {
+        "id": "repository.compat.plan-design-review.thin",
+        "passed": true,
+        "detail": "replacement=$design --mode Critique --module plan-design-review"
+      },
+      {
+        "id": "repository.compat.design-review.name",
+        "passed": true,
+        "detail": "name=design-review"
+      },
+      {
+        "id": "repository.compat.design-review.internal",
+        "passed": true,
+        "detail": "alias is internal"
+      },
+      {
+        "id": "repository.compat.design-review.thin",
+        "passed": true,
+        "detail": "replacement=$design --mode Implement --module design-review"
+      },
+      {
+        "id": "repository.compat.ios-design-review.name",
+        "passed": true,
+        "detail": "name=ios-design-review"
+      },
+      {
+        "id": "repository.compat.ios-design-review.internal",
+        "passed": true,
+        "detail": "alias is internal"
+      },
+      {
+        "id": "repository.compat.ios-design-review.thin",
+        "passed": true,
+        "detail": "replacement=$design --mode Critique --module ios-design-review"
+      },
+      {
+        "id": "repository.compat.diagram.name",
+        "passed": true,
+        "detail": "name=diagram"
+      },
+      {
+        "id": "repository.compat.diagram.internal",
+        "passed": true,
+        "detail": "alias is internal"
+      },
+      {
+        "id": "repository.compat.diagram.thin",
+        "passed": true,
+        "detail": "replacement=$design --mode Generate --module diagram"
+      },
+      {
+        "id": "repository.compat.make-pdf.name",
+        "passed": true,
+        "detail": "name=make-pdf"
+      },
+      {
+        "id": "repository.compat.make-pdf.internal",
+        "passed": true,
+        "detail": "alias is internal"
+      },
+      {
+        "id": "repository.compat.make-pdf.thin",
+        "passed": true,
+        "detail": "replacement=$design --mode Generate --module make-pdf"
+      },
+      {
+        "id": "repository.compat.qa-only.name",
+        "passed": true,
+        "detail": "name=qa-only"
+      },
+      {
+        "id": "repository.compat.qa-only.internal",
+        "passed": true,
+        "detail": "alias is internal"
+      },
+      {
+        "id": "repository.compat.qa-only.thin",
+        "passed": true,
+        "detail": "replacement=$qa --mode Report --module qa-only"
+      },
+      {
+        "id": "repository.compat.ios-qa.name",
+        "passed": true,
+        "detail": "name=ios-qa"
+      },
+      {
+        "id": "repository.compat.ios-qa.internal",
+        "passed": true,
+        "detail": "alias is internal"
+      },
+      {
+        "id": "repository.compat.ios-qa.thin",
+        "passed": true,
+        "detail": "replacement=$qa --mode Report --module ios-qa"
+      },
+      {
+        "id": "repository.compat.devex-review.name",
+        "passed": true,
+        "detail": "name=devex-review"
+      },
+      {
+        "id": "repository.compat.devex-review.internal",
+        "passed": true,
+        "detail": "alias is internal"
+      },
+      {
+        "id": "repository.compat.devex-review.thin",
+        "passed": true,
+        "detail": "replacement=$qa --mode Report --module devex-review"
+      },
+      {
+        "id": "repository.compat.benchmark.name",
+        "passed": true,
+        "detail": "name=benchmark"
+      },
+      {
+        "id": "repository.compat.benchmark.internal",
+        "passed": true,
+        "detail": "alias is internal"
+      },
+      {
+        "id": "repository.compat.benchmark.thin",
+        "passed": true,
+        "detail": "replacement=$qa --mode Report --module benchmark"
+      },
+      {
+        "id": "repository.compat.canary.name",
+        "passed": true,
+        "detail": "name=canary"
+      },
+      {
+        "id": "repository.compat.canary.internal",
+        "passed": true,
+        "detail": "alias is internal"
+      },
+      {
+        "id": "repository.compat.canary.thin",
+        "passed": true,
+        "detail": "replacement=$qa --mode Report --module canary"
+      },
+      {
+        "id": "repository.compat.browse.name",
+        "passed": true,
+        "detail": "name=browse"
+      },
+      {
+        "id": "repository.compat.browse.internal",
+        "passed": true,
+        "detail": "alias is internal"
+      },
+      {
+        "id": "repository.compat.browse.thin",
+        "passed": true,
+        "detail": "replacement=$qa --mode Report --module browse"
+      },
+      {
+        "id": "repository.compat.open-gstack-browser.name",
+        "passed": true,
+        "detail": "name=open-gstack-browser"
+      },
+      {
+        "id": "repository.compat.open-gstack-browser.internal",
+        "passed": true,
+        "detail": "alias is internal"
+      },
+      {
+        "id": "repository.compat.open-gstack-browser.thin",
+        "passed": true,
+        "detail": "replacement=$qa --mode Report --module open-gstack-browser"
+      },
+      {
+        "id": "repository.compat.setup-browser-cookies.name",
+        "passed": true,
+        "detail": "name=setup-browser-cookies"
+      },
+      {
+        "id": "repository.compat.setup-browser-cookies.internal",
+        "passed": true,
+        "detail": "alias is internal"
+      },
+      {
+        "id": "repository.compat.setup-browser-cookies.thin",
+        "passed": true,
+        "detail": "replacement=$qa --mode Report --module setup-browser-cookies"
+      },
+      {
+        "id": "repository.compat.pair-agent.name",
+        "passed": true,
+        "detail": "name=pair-agent"
+      },
+      {
+        "id": "repository.compat.pair-agent.internal",
+        "passed": true,
+        "detail": "alias is internal"
+      },
+      {
+        "id": "repository.compat.pair-agent.thin",
+        "passed": true,
+        "detail": "replacement=$qa --mode Report --module pair-agent"
+      },
+      {
+        "id": "repository.compat.scrape.name",
+        "passed": true,
+        "detail": "name=scrape"
+      },
+      {
+        "id": "repository.compat.scrape.internal",
+        "passed": true,
+        "detail": "alias is internal"
+      },
+      {
+        "id": "repository.compat.scrape.thin",
+        "passed": true,
+        "detail": "replacement=$qa --mode Report --module scrape"
+      },
+      {
+        "id": "repository.compat.skillify.name",
+        "passed": true,
+        "detail": "name=skillify"
+      },
+      {
+        "id": "repository.compat.skillify.internal",
+        "passed": true,
+        "detail": "alias is internal"
+      },
+      {
+        "id": "repository.compat.skillify.thin",
+        "passed": true,
+        "detail": "replacement=$qa --mode Report --module skillify"
+      },
+      {
+        "id": "repository.compat.benchmark-models.name",
+        "passed": true,
+        "detail": "name=benchmark-models"
+      },
+      {
+        "id": "repository.compat.benchmark-models.internal",
+        "passed": true,
+        "detail": "alias is internal"
+      },
+      {
+        "id": "repository.compat.benchmark-models.thin",
+        "passed": true,
+        "detail": "replacement=$qa --mode Report --module benchmark-models"
+      },
+      {
+        "id": "repository.compat.investigate.name",
+        "passed": true,
+        "detail": "name=investigate"
+      },
+      {
+        "id": "repository.compat.investigate.internal",
+        "passed": true,
+        "detail": "alias is internal"
+      },
+      {
+        "id": "repository.compat.investigate.thin",
+        "passed": true,
+        "detail": "replacement=$debug --mode Diagnose-only --module investigate"
+      },
+      {
+        "id": "repository.compat.ios-fix.name",
+        "passed": true,
+        "detail": "name=ios-fix"
+      },
+      {
+        "id": "repository.compat.ios-fix.internal",
+        "passed": true,
+        "detail": "alias is internal"
+      },
+      {
+        "id": "repository.compat.ios-fix.thin",
+        "passed": true,
+        "detail": "replacement=$debug --mode Fix --module ios-fix"
+      },
+      {
+        "id": "repository.compat.careful.name",
+        "passed": true,
+        "detail": "name=careful"
+      },
+      {
+        "id": "repository.compat.careful.internal",
+        "passed": true,
+        "detail": "alias is internal"
+      },
+      {
+        "id": "repository.compat.careful.thin",
+        "passed": true,
+        "detail": "replacement=$debug --mode Diagnose-only --module careful"
+      },
+      {
+        "id": "repository.compat.freeze.name",
+        "passed": true,
+        "detail": "name=freeze"
+      },
+      {
+        "id": "repository.compat.freeze.internal",
+        "passed": true,
+        "detail": "alias is internal"
+      },
+      {
+        "id": "repository.compat.freeze.thin",
+        "passed": true,
+        "detail": "replacement=$debug --mode Diagnose-only --module freeze"
+      },
+      {
+        "id": "repository.compat.guard.name",
+        "passed": true,
+        "detail": "name=guard"
+      },
+      {
+        "id": "repository.compat.guard.internal",
+        "passed": true,
+        "detail": "alias is internal"
+      },
+      {
+        "id": "repository.compat.guard.thin",
+        "passed": true,
+        "detail": "replacement=$debug --mode Diagnose-only --module guard"
+      },
+      {
+        "id": "repository.compat.unfreeze.name",
+        "passed": true,
+        "detail": "name=unfreeze"
+      },
+      {
+        "id": "repository.compat.unfreeze.internal",
+        "passed": true,
+        "detail": "alias is internal"
+      },
+      {
+        "id": "repository.compat.unfreeze.thin",
+        "passed": true,
+        "detail": "replacement=$debug --mode Diagnose-only --module unfreeze"
+      },
+      {
+        "id": "repository.compat.cso.name",
+        "passed": true,
+        "detail": "name=cso"
+      },
+      {
+        "id": "repository.compat.cso.internal",
+        "passed": true,
+        "detail": "alias is internal"
+      },
+      {
+        "id": "repository.compat.cso.thin",
+        "passed": true,
+        "detail": "replacement=$review --mode Security --module cso"
+      },
+      {
+        "id": "repository.compat.health.name",
+        "passed": true,
+        "detail": "name=health"
+      },
+      {
+        "id": "repository.compat.health.internal",
+        "passed": true,
+        "detail": "alias is internal"
+      },
+      {
+        "id": "repository.compat.health.thin",
+        "passed": true,
+        "detail": "replacement=$review --mode Deep --module health"
+      },
+      {
+        "id": "repository.compat.codex.name",
+        "passed": true,
+        "detail": "name=codex"
+      },
+      {
+        "id": "repository.compat.codex.internal",
+        "passed": true,
+        "detail": "alias is internal"
+      },
+      {
+        "id": "repository.compat.codex.thin",
+        "passed": true,
+        "detail": "replacement=$review --mode Deep --module codex"
+      },
+      {
+        "id": "repository.compat.claude.name",
+        "passed": true,
+        "detail": "name=claude"
+      },
+      {
+        "id": "repository.compat.claude.internal",
+        "passed": true,
+        "detail": "alias is internal"
+      },
+      {
+        "id": "repository.compat.claude.thin",
+        "passed": true,
+        "detail": "replacement=$review --mode Deep --module claude"
+      },
+      {
+        "id": "repository.compat.land-and-deploy.name",
+        "passed": true,
+        "detail": "name=land-and-deploy"
+      },
+      {
+        "id": "repository.compat.land-and-deploy.internal",
+        "passed": true,
+        "detail": "alias is internal"
+      },
+      {
+        "id": "repository.compat.land-and-deploy.thin",
+        "passed": true,
+        "detail": "replacement=$ship --mode Land --module land-and-deploy"
+      },
+      {
+        "id": "repository.compat.landing-report.name",
+        "passed": true,
+        "detail": "name=landing-report"
+      },
+      {
+        "id": "repository.compat.landing-report.internal",
+        "passed": true,
+        "detail": "alias is internal"
+      },
+      {
+        "id": "repository.compat.landing-report.thin",
+        "passed": true,
+        "detail": "replacement=$ship --mode Prepare --module landing-report"
+      },
+      {
+        "id": "repository.compat.document-release.name",
+        "passed": true,
+        "detail": "name=document-release"
+      },
+      {
+        "id": "repository.compat.document-release.internal",
+        "passed": true,
+        "detail": "alias is internal"
+      },
+      {
+        "id": "repository.compat.document-release.thin",
+        "passed": true,
+        "detail": "replacement=$ship --mode Prepare --module document-release"
+      },
+      {
+        "id": "repository.compat.setup-deploy.name",
+        "passed": true,
+        "detail": "name=setup-deploy"
+      },
+      {
+        "id": "repository.compat.setup-deploy.internal",
+        "passed": true,
+        "detail": "alias is internal"
+      },
+      {
+        "id": "repository.compat.setup-deploy.thin",
+        "passed": true,
+        "detail": "replacement=$ship --mode Deploy --module setup-deploy"
+      },
+      {
+        "id": "repository.compat.document-generate.name",
+        "passed": true,
+        "detail": "name=document-generate"
+      },
+      {
+        "id": "repository.compat.document-generate.internal",
+        "passed": true,
+        "detail": "alias is internal"
+      },
+      {
+        "id": "repository.compat.document-generate.thin",
+        "passed": true,
+        "detail": "replacement=$ship --mode Prepare --module document-generate"
+      },
+      {
+        "id": "repository.compat.gstack-upgrade.name",
+        "passed": true,
+        "detail": "name=gstack-upgrade"
+      },
+      {
+        "id": "repository.compat.gstack-upgrade.internal",
+        "passed": true,
+        "detail": "alias is internal"
+      },
+      {
+        "id": "repository.compat.gstack-upgrade.thin",
+        "passed": true,
+        "detail": "replacement=$ship --mode Prepare --module gstack-upgrade"
+      },
+      {
+        "id": "repository.compat.ios-clean.name",
+        "passed": true,
+        "detail": "name=ios-clean"
+      },
+      {
+        "id": "repository.compat.ios-clean.internal",
+        "passed": true,
+        "detail": "alias is internal"
+      },
+      {
+        "id": "repository.compat.ios-clean.thin",
+        "passed": true,
+        "detail": "replacement=$ship --mode Prepare --module ios-clean"
+      },
+      {
+        "id": "repository.compat.ios-sync.name",
+        "passed": true,
+        "detail": "name=ios-sync"
+      },
+      {
+        "id": "repository.compat.ios-sync.internal",
+        "passed": true,
+        "detail": "alias is internal"
+      },
+      {
+        "id": "repository.compat.ios-sync.thin",
+        "passed": true,
+        "detail": "replacement=$ship --mode Prepare --module ios-sync"
+      }
+    ],
+    "passed": true
+  },
+  "discovery": {
+    "count": 6,
+    "names": [
+      "debug",
+      "design",
+      "plan",
+      "qa",
+      "review",
+      "ship"
+    ],
+    "checks": [
+      {
+        "id": "discovery.command",
+        "passed": true,
+        "detail": "exit=0"
+      },
+      {
+        "id": "discovery.copy-supported",
+        "passed": true,
+        "detail": "--copy is supported"
+      },
+      {
+        "id": "discovery.count",
+        "passed": true,
+        "detail": "expected 6; found 6"
+      },
+      {
+        "id": "discovery.names",
+        "passed": true,
+        "detail": "expected debug, design, plan, qa, review, ship; found debug, design, plan, qa, review, ship"
+      }
+    ],
+    "command": {
+      "argv": [
+        "npx",
+        "--yes",
+        "skills",
+        "add",
+        "<REPOSITORY_ROOT>",
+        "--list"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "durationMs": 1132,
+      "stdout": "│\n●   codex  Agent detected — installing non-interactively\n│\n◇  Source: <REPOSITORY_ROOT>\n│\n◇  Local path validated\n│\n◒  Discovering skills…◇  Found 6 skills\n\n│\n◇  Available Skills\n│\n│    debug\n│\n│      Diagnose root causes before changing code, or fix a reproduced defect. Use for failures, regressions, flaky behavior, and iOS repair.\n│\n│    design\n│\n│      Explore, generate, critique, or implement product design. Use for design systems, visual alternatives, HTML, live web UI, accessibility, or iOS HIG review.\n│\n│    plan\n│\n│      Plan products, scope, architecture, developer experience, or executable specs before implementation. Use for ideas, strategic or engineering reviews, autoplan, and planning preferences.\n│\n│    qa\n│\n│      Report on or fix validated product defects. Use for web/browser QA, real-device iOS, developer journeys, accessibility, performance baselines, or production canaries.\n│\n│    review\n│\n│      Review code with validated evidence. Use for normal, security, performance, or deep audits of diffs, architecture, data, tests, dependencies, docs, and code health.\n│\n│    ship\n│\n│      Prepare, land, deploy, monitor, or resume a release. Use for checks, versioning, docs, commits, PRs, merge gates, production verification, and rollback.\n\n│\n└  Use --skill <name> to install specific skills",
+      "stderr": ""
+    },
+    "passed": true
+  },
+  "installs": [
+    {
+      "id": "claude-code-project-default",
+      "agent": "claude-code",
+      "agentLabel": "Claude Code",
+      "scope": "project",
+      "sourceKind": "path-with-spaces",
+      "expectedRoot": "<TEMP_MATRIX_ROOT>/cases/claude-code-project-default/project with spaces/.claude/skills",
+      "expectedSkills": [
+        "debug",
+        "design",
+        "plan",
+        "qa",
+        "review",
+        "ship"
+      ],
+      "installedSkills": [
+        "debug",
+        "design",
+        "plan",
+        "qa",
+        "review",
+        "ship"
+      ],
+      "checks": [
+        {
+          "id": "claude-code-project-default.command",
+          "passed": true,
+          "detail": "exit=0; signal=none"
+        },
+        {
+          "id": "claude-code-project-default.selected-skills",
+          "passed": true,
+          "detail": "expected debug, design, plan, qa, review, ship; found debug, design, plan, qa, review, ship"
+        },
+        {
+          "id": "claude-code-project-default.debug.content",
+          "passed": true,
+          "detail": "source=8900ccd55bc62260eb9e7e3a7a2d0e6288d7771102f7a8b3b5655a741de80f59; installed=8900ccd55bc62260eb9e7e3a7a2d0e6288d7771102f7a8b3b5655a741de80f59"
+        },
+        {
+          "id": "claude-code-project-default.debug.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "claude-code-project-default.debug.canonical-name",
+          "passed": true,
+          "detail": "expected debug; found debug"
+        },
+        {
+          "id": "claude-code-project-default.design.content",
+          "passed": true,
+          "detail": "source=4d171487d24fb6742f82f75d724c84989a4b0fb6b7ff0dc1dba433ca4c528085; installed=4d171487d24fb6742f82f75d724c84989a4b0fb6b7ff0dc1dba433ca4c528085"
+        },
+        {
+          "id": "claude-code-project-default.design.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "claude-code-project-default.design.canonical-name",
+          "passed": true,
+          "detail": "expected design; found design"
+        },
+        {
+          "id": "claude-code-project-default.plan.content",
+          "passed": true,
+          "detail": "source=8fb64e9ac13541aaca65cafbfcf97ce3c6dfabcc781d83cfdd4f2b15c31b7e6f; installed=8fb64e9ac13541aaca65cafbfcf97ce3c6dfabcc781d83cfdd4f2b15c31b7e6f"
+        },
+        {
+          "id": "claude-code-project-default.plan.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "claude-code-project-default.plan.canonical-name",
+          "passed": true,
+          "detail": "expected plan; found plan"
+        },
+        {
+          "id": "claude-code-project-default.qa.content",
+          "passed": true,
+          "detail": "source=0ec2e2b726c872c1ccaf8a72cac987f694f6aa85ded7ece5f52bcfef31e5a8d0; installed=0ec2e2b726c872c1ccaf8a72cac987f694f6aa85ded7ece5f52bcfef31e5a8d0"
+        },
+        {
+          "id": "claude-code-project-default.qa.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "claude-code-project-default.qa.canonical-name",
+          "passed": true,
+          "detail": "expected qa; found qa"
+        },
+        {
+          "id": "claude-code-project-default.review.content",
+          "passed": true,
+          "detail": "source=b68b7f15eb0ef866a29e8fada17223ace2ebf73d66fc1c60f6fd776c762a4551; installed=b68b7f15eb0ef866a29e8fada17223ace2ebf73d66fc1c60f6fd776c762a4551"
+        },
+        {
+          "id": "claude-code-project-default.review.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "claude-code-project-default.review.canonical-name",
+          "passed": true,
+          "detail": "expected review; found review"
+        },
+        {
+          "id": "claude-code-project-default.ship.content",
+          "passed": true,
+          "detail": "source=2d43c0634596f7c3a48b1b82e23f099ada6b27f6f2f2d538964fad6eb1f4b242; installed=2d43c0634596f7c3a48b1b82e23f099ada6b27f6f2f2d538964fad6eb1f4b242"
+        },
+        {
+          "id": "claude-code-project-default.ship.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "claude-code-project-default.ship.canonical-name",
+          "passed": true,
+          "detail": "expected ship; found ship"
+        }
+      ],
+      "command": {
+        "argv": [
+          "npx",
+          "--yes",
+          "skills",
+          "add",
+          "<TEMP_MATRIX_ROOT>/canonical package/source with spaces",
+          "--agent",
+          "claude-code",
+          "--copy",
+          "--yes"
+        ],
+        "exitCode": 0,
+        "signal": null,
+        "durationMs": 1071,
+        "stdout": "│\n●   codex  Agent detected — installing non-interactively\n│\n◇  Source: <TEMP_MATRIX_ROOT>/canonical package/source with spaces\n│\n◇  Local path validated\n│\n◒  Discovering skills…◇  Found 6 skills\n│\n●  Installing all 6 skills\n\n│\n◇  Installation Summary ────╮\n│                           │\n│  ./.agents/skills/debug   │\n│    copy → Claude Code     │\n│                           │\n│  ./.agents/skills/design  │\n│    copy → Claude Code     │\n│                           │\n│  ./.agents/skills/plan    │\n│    copy → Claude Code     │\n│                           │\n│  ./.agents/skills/qa      │\n│    copy → Claude Code     │\n│                           │\n│  ./.agents/skills/review  │\n│    copy → Claude Code     │\n│                           │\n│  ./.agents/skills/ship    │\n│    copy → Claude Code     │\n│                           │\n├───────────────────────────╯\n│\n◇  Installation complete\n\n│\n◇  Installed 6 skills ──────────╮\n│                               │\n│  ✓ debug (copied)             │\n│    → ./.claude/skills/debug   │\n│  ✓ design (copied)            │\n│    → ./.claude/skills/design  │\n│  ✓ plan (copied)              │\n│    → ./.claude/skills/plan    │\n│  ✓ qa (copied)                │\n│    → ./.claude/skills/qa      │\n│  ✓ review (copied)            │\n│    → ./.claude/skills/review  │\n│  ✓ ship (copied)              │\n│    → ./.claude/skills/ship    │\n│                               │\n├───────────────────────────────╯\n\n│\n└  Done!  Review skills before use; they run with full agent permissions.",
+        "stderr": ""
+      },
+      "passed": true
+    },
+    {
+      "id": "claude-code-global-default",
+      "agent": "claude-code",
+      "agentLabel": "Claude Code",
+      "scope": "global",
+      "sourceKind": "source-symlink",
+      "expectedRoot": "<TEMP_MATRIX_ROOT>/cases/claude-code-global-default/home with spaces/.claude/skills",
+      "expectedSkills": [
+        "debug",
+        "design",
+        "plan",
+        "qa",
+        "review",
+        "ship"
+      ],
+      "installedSkills": [
+        "debug",
+        "design",
+        "plan",
+        "qa",
+        "review",
+        "ship"
+      ],
+      "checks": [
+        {
+          "id": "claude-code-global-default.command",
+          "passed": true,
+          "detail": "exit=0; signal=none"
+        },
+        {
+          "id": "claude-code-global-default.selected-skills",
+          "passed": true,
+          "detail": "expected debug, design, plan, qa, review, ship; found debug, design, plan, qa, review, ship"
+        },
+        {
+          "id": "claude-code-global-default.debug.content",
+          "passed": true,
+          "detail": "source=8900ccd55bc62260eb9e7e3a7a2d0e6288d7771102f7a8b3b5655a741de80f59; installed=8900ccd55bc62260eb9e7e3a7a2d0e6288d7771102f7a8b3b5655a741de80f59"
+        },
+        {
+          "id": "claude-code-global-default.debug.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "claude-code-global-default.debug.canonical-name",
+          "passed": true,
+          "detail": "expected debug; found debug"
+        },
+        {
+          "id": "claude-code-global-default.design.content",
+          "passed": true,
+          "detail": "source=4d171487d24fb6742f82f75d724c84989a4b0fb6b7ff0dc1dba433ca4c528085; installed=4d171487d24fb6742f82f75d724c84989a4b0fb6b7ff0dc1dba433ca4c528085"
+        },
+        {
+          "id": "claude-code-global-default.design.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "claude-code-global-default.design.canonical-name",
+          "passed": true,
+          "detail": "expected design; found design"
+        },
+        {
+          "id": "claude-code-global-default.plan.content",
+          "passed": true,
+          "detail": "source=8fb64e9ac13541aaca65cafbfcf97ce3c6dfabcc781d83cfdd4f2b15c31b7e6f; installed=8fb64e9ac13541aaca65cafbfcf97ce3c6dfabcc781d83cfdd4f2b15c31b7e6f"
+        },
+        {
+          "id": "claude-code-global-default.plan.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "claude-code-global-default.plan.canonical-name",
+          "passed": true,
+          "detail": "expected plan; found plan"
+        },
+        {
+          "id": "claude-code-global-default.qa.content",
+          "passed": true,
+          "detail": "source=0ec2e2b726c872c1ccaf8a72cac987f694f6aa85ded7ece5f52bcfef31e5a8d0; installed=0ec2e2b726c872c1ccaf8a72cac987f694f6aa85ded7ece5f52bcfef31e5a8d0"
+        },
+        {
+          "id": "claude-code-global-default.qa.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "claude-code-global-default.qa.canonical-name",
+          "passed": true,
+          "detail": "expected qa; found qa"
+        },
+        {
+          "id": "claude-code-global-default.review.content",
+          "passed": true,
+          "detail": "source=b68b7f15eb0ef866a29e8fada17223ace2ebf73d66fc1c60f6fd776c762a4551; installed=b68b7f15eb0ef866a29e8fada17223ace2ebf73d66fc1c60f6fd776c762a4551"
+        },
+        {
+          "id": "claude-code-global-default.review.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "claude-code-global-default.review.canonical-name",
+          "passed": true,
+          "detail": "expected review; found review"
+        },
+        {
+          "id": "claude-code-global-default.ship.content",
+          "passed": true,
+          "detail": "source=2d43c0634596f7c3a48b1b82e23f099ada6b27f6f2f2d538964fad6eb1f4b242; installed=2d43c0634596f7c3a48b1b82e23f099ada6b27f6f2f2d538964fad6eb1f4b242"
+        },
+        {
+          "id": "claude-code-global-default.ship.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "claude-code-global-default.ship.canonical-name",
+          "passed": true,
+          "detail": "expected ship; found ship"
+        }
+      ],
+      "command": {
+        "argv": [
+          "npx",
+          "--yes",
+          "skills",
+          "add",
+          "<TEMP_MATRIX_ROOT>/linked canonical source",
+          "--agent",
+          "claude-code",
+          "--copy",
+          "--yes",
+          "--global"
+        ],
+        "exitCode": 0,
+        "signal": null,
+        "durationMs": 1029,
+        "stdout": "│\n●   codex  Agent detected — installing non-interactively\n│\n◇  Source: <TEMP_MATRIX_ROOT>/linked canonical source\n│\n◇  Local path validated\n│\n◇  Found 6 skills\n│\n●  Installing all 6 skills\n\n│\n◇  Installation Summary ────╮\n│                           │\n│  ~/.agents/skills/debug   │\n│    copy → Claude Code     │\n│                           │\n│  ~/.agents/skills/design  │\n│    copy → Claude Code     │\n│                           │\n│  ~/.agents/skills/plan    │\n│    copy → Claude Code     │\n│                           │\n│  ~/.agents/skills/qa      │\n│    copy → Claude Code     │\n│                           │\n│  ~/.agents/skills/review  │\n│    copy → Claude Code     │\n│                           │\n│  ~/.agents/skills/ship    │\n│    copy → Claude Code     │\n│                           │\n├───────────────────────────╯\n│\n◇  Installation complete\n\n│\n◇  Installed 6 skills ──────────╮\n│                               │\n│  ✓ debug (copied)             │\n│    → ~/.claude/skills/debug   │\n│  ✓ design (copied)            │\n│    → ~/.claude/skills/design  │\n│  ✓ plan (copied)              │\n│    → ~/.claude/skills/plan    │\n│  ✓ qa (copied)                │\n│    → ~/.claude/skills/qa      │\n│  ✓ review (copied)            │\n│    → ~/.claude/skills/review  │\n│  ✓ ship (copied)              │\n│    → ~/.claude/skills/ship    │\n│                               │\n├───────────────────────────────╯\n\n│\n└  Done!  Review skills before use; they run with full agent permissions.",
+        "stderr": ""
+      },
+      "passed": true
+    },
+    {
+      "id": "codex-project-default",
+      "agent": "codex",
+      "agentLabel": "Codex",
+      "scope": "project",
+      "sourceKind": "source-symlink",
+      "expectedRoot": "<TEMP_MATRIX_ROOT>/cases/codex-project-default/project with spaces/.agents/skills",
+      "expectedSkills": [
+        "debug",
+        "design",
+        "plan",
+        "qa",
+        "review",
+        "ship"
+      ],
+      "installedSkills": [
+        "debug",
+        "design",
+        "plan",
+        "qa",
+        "review",
+        "ship"
+      ],
+      "checks": [
+        {
+          "id": "codex-project-default.command",
+          "passed": true,
+          "detail": "exit=0; signal=none"
+        },
+        {
+          "id": "codex-project-default.selected-skills",
+          "passed": true,
+          "detail": "expected debug, design, plan, qa, review, ship; found debug, design, plan, qa, review, ship"
+        },
+        {
+          "id": "codex-project-default.debug.content",
+          "passed": true,
+          "detail": "source=8900ccd55bc62260eb9e7e3a7a2d0e6288d7771102f7a8b3b5655a741de80f59; installed=8900ccd55bc62260eb9e7e3a7a2d0e6288d7771102f7a8b3b5655a741de80f59"
+        },
+        {
+          "id": "codex-project-default.debug.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "codex-project-default.debug.canonical-name",
+          "passed": true,
+          "detail": "expected debug; found debug"
+        },
+        {
+          "id": "codex-project-default.design.content",
+          "passed": true,
+          "detail": "source=4d171487d24fb6742f82f75d724c84989a4b0fb6b7ff0dc1dba433ca4c528085; installed=4d171487d24fb6742f82f75d724c84989a4b0fb6b7ff0dc1dba433ca4c528085"
+        },
+        {
+          "id": "codex-project-default.design.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "codex-project-default.design.canonical-name",
+          "passed": true,
+          "detail": "expected design; found design"
+        },
+        {
+          "id": "codex-project-default.plan.content",
+          "passed": true,
+          "detail": "source=8fb64e9ac13541aaca65cafbfcf97ce3c6dfabcc781d83cfdd4f2b15c31b7e6f; installed=8fb64e9ac13541aaca65cafbfcf97ce3c6dfabcc781d83cfdd4f2b15c31b7e6f"
+        },
+        {
+          "id": "codex-project-default.plan.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "codex-project-default.plan.canonical-name",
+          "passed": true,
+          "detail": "expected plan; found plan"
+        },
+        {
+          "id": "codex-project-default.qa.content",
+          "passed": true,
+          "detail": "source=0ec2e2b726c872c1ccaf8a72cac987f694f6aa85ded7ece5f52bcfef31e5a8d0; installed=0ec2e2b726c872c1ccaf8a72cac987f694f6aa85ded7ece5f52bcfef31e5a8d0"
+        },
+        {
+          "id": "codex-project-default.qa.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "codex-project-default.qa.canonical-name",
+          "passed": true,
+          "detail": "expected qa; found qa"
+        },
+        {
+          "id": "codex-project-default.review.content",
+          "passed": true,
+          "detail": "source=b68b7f15eb0ef866a29e8fada17223ace2ebf73d66fc1c60f6fd776c762a4551; installed=b68b7f15eb0ef866a29e8fada17223ace2ebf73d66fc1c60f6fd776c762a4551"
+        },
+        {
+          "id": "codex-project-default.review.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "codex-project-default.review.canonical-name",
+          "passed": true,
+          "detail": "expected review; found review"
+        },
+        {
+          "id": "codex-project-default.ship.content",
+          "passed": true,
+          "detail": "source=2d43c0634596f7c3a48b1b82e23f099ada6b27f6f2f2d538964fad6eb1f4b242; installed=2d43c0634596f7c3a48b1b82e23f099ada6b27f6f2f2d538964fad6eb1f4b242"
+        },
+        {
+          "id": "codex-project-default.ship.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "codex-project-default.ship.canonical-name",
+          "passed": true,
+          "detail": "expected ship; found ship"
+        }
+      ],
+      "command": {
+        "argv": [
+          "npx",
+          "--yes",
+          "skills",
+          "add",
+          "<TEMP_MATRIX_ROOT>/linked canonical source",
+          "--agent",
+          "codex",
+          "--copy",
+          "--yes"
+        ],
+        "exitCode": 0,
+        "signal": null,
+        "durationMs": 1047,
+        "stdout": "│\n●   codex  Agent detected — installing non-interactively\n│\n◇  Source: <TEMP_MATRIX_ROOT>/linked canonical source\n│\n◇  Local path validated\n│\n◇  Found 6 skills\n│\n●  Installing all 6 skills\n\n│\n◇  Installation Summary ────╮\n│                           │\n│  ./.agents/skills/debug   │\n│    copy → Codex           │\n│                           │\n│  ./.agents/skills/design  │\n│    copy → Codex           │\n│                           │\n│  ./.agents/skills/plan    │\n│    copy → Codex           │\n│                           │\n│  ./.agents/skills/qa      │\n│    copy → Codex           │\n│                           │\n│  ./.agents/skills/review  │\n│    copy → Codex           │\n│                           │\n│  ./.agents/skills/ship    │\n│    copy → Codex           │\n│                           │\n├───────────────────────────╯\n│\n◇  Installation complete\n\n│\n◇  Installed 6 skills ──────────╮\n│                               │\n│  ✓ debug (copied)             │\n│    → ./.agents/skills/debug   │\n│  ✓ design (copied)            │\n│    → ./.agents/skills/design  │\n│  ✓ plan (copied)              │\n│    → ./.agents/skills/plan    │\n│  ✓ qa (copied)                │\n│    → ./.agents/skills/qa      │\n│  ✓ review (copied)            │\n│    → ./.agents/skills/review  │\n│  ✓ ship (copied)              │\n│    → ./.agents/skills/ship    │\n│                               │\n├───────────────────────────────╯\n\n│\n└  Done!  Review skills before use; they run with full agent permissions.",
+        "stderr": ""
+      },
+      "passed": true
+    },
+    {
+      "id": "codex-global-default",
+      "agent": "codex",
+      "agentLabel": "Codex",
+      "scope": "global",
+      "sourceKind": "path-with-spaces",
+      "expectedRoot": "<TEMP_MATRIX_ROOT>/cases/codex-global-default/home with spaces/.agents/skills",
+      "expectedSkills": [
+        "debug",
+        "design",
+        "plan",
+        "qa",
+        "review",
+        "ship"
+      ],
+      "installedSkills": [
+        "debug",
+        "design",
+        "plan",
+        "qa",
+        "review",
+        "ship"
+      ],
+      "checks": [
+        {
+          "id": "codex-global-default.command",
+          "passed": true,
+          "detail": "exit=0; signal=none"
+        },
+        {
+          "id": "codex-global-default.selected-skills",
+          "passed": true,
+          "detail": "expected debug, design, plan, qa, review, ship; found debug, design, plan, qa, review, ship"
+        },
+        {
+          "id": "codex-global-default.debug.content",
+          "passed": true,
+          "detail": "source=8900ccd55bc62260eb9e7e3a7a2d0e6288d7771102f7a8b3b5655a741de80f59; installed=8900ccd55bc62260eb9e7e3a7a2d0e6288d7771102f7a8b3b5655a741de80f59"
+        },
+        {
+          "id": "codex-global-default.debug.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "codex-global-default.debug.canonical-name",
+          "passed": true,
+          "detail": "expected debug; found debug"
+        },
+        {
+          "id": "codex-global-default.design.content",
+          "passed": true,
+          "detail": "source=4d171487d24fb6742f82f75d724c84989a4b0fb6b7ff0dc1dba433ca4c528085; installed=4d171487d24fb6742f82f75d724c84989a4b0fb6b7ff0dc1dba433ca4c528085"
+        },
+        {
+          "id": "codex-global-default.design.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "codex-global-default.design.canonical-name",
+          "passed": true,
+          "detail": "expected design; found design"
+        },
+        {
+          "id": "codex-global-default.plan.content",
+          "passed": true,
+          "detail": "source=8fb64e9ac13541aaca65cafbfcf97ce3c6dfabcc781d83cfdd4f2b15c31b7e6f; installed=8fb64e9ac13541aaca65cafbfcf97ce3c6dfabcc781d83cfdd4f2b15c31b7e6f"
+        },
+        {
+          "id": "codex-global-default.plan.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "codex-global-default.plan.canonical-name",
+          "passed": true,
+          "detail": "expected plan; found plan"
+        },
+        {
+          "id": "codex-global-default.qa.content",
+          "passed": true,
+          "detail": "source=0ec2e2b726c872c1ccaf8a72cac987f694f6aa85ded7ece5f52bcfef31e5a8d0; installed=0ec2e2b726c872c1ccaf8a72cac987f694f6aa85ded7ece5f52bcfef31e5a8d0"
+        },
+        {
+          "id": "codex-global-default.qa.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "codex-global-default.qa.canonical-name",
+          "passed": true,
+          "detail": "expected qa; found qa"
+        },
+        {
+          "id": "codex-global-default.review.content",
+          "passed": true,
+          "detail": "source=b68b7f15eb0ef866a29e8fada17223ace2ebf73d66fc1c60f6fd776c762a4551; installed=b68b7f15eb0ef866a29e8fada17223ace2ebf73d66fc1c60f6fd776c762a4551"
+        },
+        {
+          "id": "codex-global-default.review.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "codex-global-default.review.canonical-name",
+          "passed": true,
+          "detail": "expected review; found review"
+        },
+        {
+          "id": "codex-global-default.ship.content",
+          "passed": true,
+          "detail": "source=2d43c0634596f7c3a48b1b82e23f099ada6b27f6f2f2d538964fad6eb1f4b242; installed=2d43c0634596f7c3a48b1b82e23f099ada6b27f6f2f2d538964fad6eb1f4b242"
+        },
+        {
+          "id": "codex-global-default.ship.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "codex-global-default.ship.canonical-name",
+          "passed": true,
+          "detail": "expected ship; found ship"
+        }
+      ],
+      "command": {
+        "argv": [
+          "npx",
+          "--yes",
+          "skills",
+          "add",
+          "<TEMP_MATRIX_ROOT>/canonical package/source with spaces",
+          "--agent",
+          "codex",
+          "--copy",
+          "--yes",
+          "--global"
+        ],
+        "exitCode": 0,
+        "signal": null,
+        "durationMs": 1029,
+        "stdout": "│\n●   codex  Agent detected — installing non-interactively\n│\n◇  Source: <TEMP_MATRIX_ROOT>/canonical package/source with spaces\n│\n◇  Local path validated\n│\n◇  Found 6 skills\n│\n●  Installing all 6 skills\n\n│\n◇  Installation Summary ────╮\n│                           │\n│  ~/.agents/skills/debug   │\n│    copy → Codex           │\n│                           │\n│  ~/.agents/skills/design  │\n│    copy → Codex           │\n│                           │\n│  ~/.agents/skills/plan    │\n│    copy → Codex           │\n│                           │\n│  ~/.agents/skills/qa      │\n│    copy → Codex           │\n│                           │\n│  ~/.agents/skills/review  │\n│    copy → Codex           │\n│                           │\n│  ~/.agents/skills/ship    │\n│    copy → Codex           │\n│                           │\n├───────────────────────────╯\n│\n◇  Installation complete\n\n│\n◇  Installed 6 skills ──────────╮\n│                               │\n│  ✓ debug (copied)             │\n│    → ~/.agents/skills/debug   │\n│  ✓ design (copied)            │\n│    → ~/.agents/skills/design  │\n│  ✓ plan (copied)              │\n│    → ~/.agents/skills/plan    │\n│  ✓ qa (copied)                │\n│    → ~/.agents/skills/qa      │\n│  ✓ review (copied)            │\n│    → ~/.agents/skills/review  │\n│  ✓ ship (copied)              │\n│    → ~/.agents/skills/ship    │\n│                               │\n├───────────────────────────────╯\n\n│\n└  Done!  Review skills before use; they run with full agent permissions.",
+        "stderr": ""
+      },
+      "passed": true
+    },
+    {
+      "id": "cursor-project-default",
+      "agent": "cursor",
+      "agentLabel": "Cursor",
+      "scope": "project",
+      "sourceKind": "path-with-spaces",
+      "expectedRoot": "<TEMP_MATRIX_ROOT>/cases/cursor-project-default/project with spaces/.agents/skills",
+      "expectedSkills": [
+        "debug",
+        "design",
+        "plan",
+        "qa",
+        "review",
+        "ship"
+      ],
+      "installedSkills": [
+        "debug",
+        "design",
+        "plan",
+        "qa",
+        "review",
+        "ship"
+      ],
+      "checks": [
+        {
+          "id": "cursor-project-default.command",
+          "passed": true,
+          "detail": "exit=0; signal=none"
+        },
+        {
+          "id": "cursor-project-default.selected-skills",
+          "passed": true,
+          "detail": "expected debug, design, plan, qa, review, ship; found debug, design, plan, qa, review, ship"
+        },
+        {
+          "id": "cursor-project-default.debug.content",
+          "passed": true,
+          "detail": "source=8900ccd55bc62260eb9e7e3a7a2d0e6288d7771102f7a8b3b5655a741de80f59; installed=8900ccd55bc62260eb9e7e3a7a2d0e6288d7771102f7a8b3b5655a741de80f59"
+        },
+        {
+          "id": "cursor-project-default.debug.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "cursor-project-default.debug.canonical-name",
+          "passed": true,
+          "detail": "expected debug; found debug"
+        },
+        {
+          "id": "cursor-project-default.design.content",
+          "passed": true,
+          "detail": "source=4d171487d24fb6742f82f75d724c84989a4b0fb6b7ff0dc1dba433ca4c528085; installed=4d171487d24fb6742f82f75d724c84989a4b0fb6b7ff0dc1dba433ca4c528085"
+        },
+        {
+          "id": "cursor-project-default.design.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "cursor-project-default.design.canonical-name",
+          "passed": true,
+          "detail": "expected design; found design"
+        },
+        {
+          "id": "cursor-project-default.plan.content",
+          "passed": true,
+          "detail": "source=8fb64e9ac13541aaca65cafbfcf97ce3c6dfabcc781d83cfdd4f2b15c31b7e6f; installed=8fb64e9ac13541aaca65cafbfcf97ce3c6dfabcc781d83cfdd4f2b15c31b7e6f"
+        },
+        {
+          "id": "cursor-project-default.plan.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "cursor-project-default.plan.canonical-name",
+          "passed": true,
+          "detail": "expected plan; found plan"
+        },
+        {
+          "id": "cursor-project-default.qa.content",
+          "passed": true,
+          "detail": "source=0ec2e2b726c872c1ccaf8a72cac987f694f6aa85ded7ece5f52bcfef31e5a8d0; installed=0ec2e2b726c872c1ccaf8a72cac987f694f6aa85ded7ece5f52bcfef31e5a8d0"
+        },
+        {
+          "id": "cursor-project-default.qa.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "cursor-project-default.qa.canonical-name",
+          "passed": true,
+          "detail": "expected qa; found qa"
+        },
+        {
+          "id": "cursor-project-default.review.content",
+          "passed": true,
+          "detail": "source=b68b7f15eb0ef866a29e8fada17223ace2ebf73d66fc1c60f6fd776c762a4551; installed=b68b7f15eb0ef866a29e8fada17223ace2ebf73d66fc1c60f6fd776c762a4551"
+        },
+        {
+          "id": "cursor-project-default.review.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "cursor-project-default.review.canonical-name",
+          "passed": true,
+          "detail": "expected review; found review"
+        },
+        {
+          "id": "cursor-project-default.ship.content",
+          "passed": true,
+          "detail": "source=2d43c0634596f7c3a48b1b82e23f099ada6b27f6f2f2d538964fad6eb1f4b242; installed=2d43c0634596f7c3a48b1b82e23f099ada6b27f6f2f2d538964fad6eb1f4b242"
+        },
+        {
+          "id": "cursor-project-default.ship.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "cursor-project-default.ship.canonical-name",
+          "passed": true,
+          "detail": "expected ship; found ship"
+        }
+      ],
+      "command": {
+        "argv": [
+          "npx",
+          "--yes",
+          "skills",
+          "add",
+          "<TEMP_MATRIX_ROOT>/canonical package/source with spaces",
+          "--agent",
+          "cursor",
+          "--copy",
+          "--yes"
+        ],
+        "exitCode": 0,
+        "signal": null,
+        "durationMs": 1034,
+        "stdout": "│\n●   codex  Agent detected — installing non-interactively\n│\n◇  Source: <TEMP_MATRIX_ROOT>/canonical package/source with spaces\n│\n◇  Local path validated\n│\n◇  Found 6 skills\n│\n●  Installing all 6 skills\n\n│\n◇  Installation Summary ────╮\n│                           │\n│  ./.agents/skills/debug   │\n│    copy → Cursor          │\n│                           │\n│  ./.agents/skills/design  │\n│    copy → Cursor          │\n│                           │\n│  ./.agents/skills/plan    │\n│    copy → Cursor          │\n│                           │\n│  ./.agents/skills/qa      │\n│    copy → Cursor          │\n│                           │\n│  ./.agents/skills/review  │\n│    copy → Cursor          │\n│                           │\n│  ./.agents/skills/ship    │\n│    copy → Cursor          │\n│                           │\n├───────────────────────────╯\n│\n◇  Installation complete\n\n│\n◇  Installed 6 skills ──────────╮\n│                               │\n│  ✓ debug (copied)             │\n│    → ./.agents/skills/debug   │\n│  ✓ design (copied)            │\n│    → ./.agents/skills/design  │\n│  ✓ plan (copied)              │\n│    → ./.agents/skills/plan    │\n│  ✓ qa (copied)                │\n│    → ./.agents/skills/qa      │\n│  ✓ review (copied)            │\n│    → ./.agents/skills/review  │\n│  ✓ ship (copied)              │\n│    → ./.agents/skills/ship    │\n│                               │\n├───────────────────────────────╯\n\n│\n└  Done!  Review skills before use; they run with full agent permissions.",
+        "stderr": ""
+      },
+      "passed": true
+    },
+    {
+      "id": "cursor-global-default",
+      "agent": "cursor",
+      "agentLabel": "Cursor",
+      "scope": "global",
+      "sourceKind": "source-symlink",
+      "expectedRoot": "<TEMP_MATRIX_ROOT>/cases/cursor-global-default/home with spaces/.agents/skills",
+      "expectedSkills": [
+        "debug",
+        "design",
+        "plan",
+        "qa",
+        "review",
+        "ship"
+      ],
+      "installedSkills": [
+        "debug",
+        "design",
+        "plan",
+        "qa",
+        "review",
+        "ship"
+      ],
+      "checks": [
+        {
+          "id": "cursor-global-default.command",
+          "passed": true,
+          "detail": "exit=0; signal=none"
+        },
+        {
+          "id": "cursor-global-default.selected-skills",
+          "passed": true,
+          "detail": "expected debug, design, plan, qa, review, ship; found debug, design, plan, qa, review, ship"
+        },
+        {
+          "id": "cursor-global-default.debug.content",
+          "passed": true,
+          "detail": "source=8900ccd55bc62260eb9e7e3a7a2d0e6288d7771102f7a8b3b5655a741de80f59; installed=8900ccd55bc62260eb9e7e3a7a2d0e6288d7771102f7a8b3b5655a741de80f59"
+        },
+        {
+          "id": "cursor-global-default.debug.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "cursor-global-default.debug.canonical-name",
+          "passed": true,
+          "detail": "expected debug; found debug"
+        },
+        {
+          "id": "cursor-global-default.design.content",
+          "passed": true,
+          "detail": "source=4d171487d24fb6742f82f75d724c84989a4b0fb6b7ff0dc1dba433ca4c528085; installed=4d171487d24fb6742f82f75d724c84989a4b0fb6b7ff0dc1dba433ca4c528085"
+        },
+        {
+          "id": "cursor-global-default.design.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "cursor-global-default.design.canonical-name",
+          "passed": true,
+          "detail": "expected design; found design"
+        },
+        {
+          "id": "cursor-global-default.plan.content",
+          "passed": true,
+          "detail": "source=8fb64e9ac13541aaca65cafbfcf97ce3c6dfabcc781d83cfdd4f2b15c31b7e6f; installed=8fb64e9ac13541aaca65cafbfcf97ce3c6dfabcc781d83cfdd4f2b15c31b7e6f"
+        },
+        {
+          "id": "cursor-global-default.plan.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "cursor-global-default.plan.canonical-name",
+          "passed": true,
+          "detail": "expected plan; found plan"
+        },
+        {
+          "id": "cursor-global-default.qa.content",
+          "passed": true,
+          "detail": "source=0ec2e2b726c872c1ccaf8a72cac987f694f6aa85ded7ece5f52bcfef31e5a8d0; installed=0ec2e2b726c872c1ccaf8a72cac987f694f6aa85ded7ece5f52bcfef31e5a8d0"
+        },
+        {
+          "id": "cursor-global-default.qa.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "cursor-global-default.qa.canonical-name",
+          "passed": true,
+          "detail": "expected qa; found qa"
+        },
+        {
+          "id": "cursor-global-default.review.content",
+          "passed": true,
+          "detail": "source=b68b7f15eb0ef866a29e8fada17223ace2ebf73d66fc1c60f6fd776c762a4551; installed=b68b7f15eb0ef866a29e8fada17223ace2ebf73d66fc1c60f6fd776c762a4551"
+        },
+        {
+          "id": "cursor-global-default.review.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "cursor-global-default.review.canonical-name",
+          "passed": true,
+          "detail": "expected review; found review"
+        },
+        {
+          "id": "cursor-global-default.ship.content",
+          "passed": true,
+          "detail": "source=2d43c0634596f7c3a48b1b82e23f099ada6b27f6f2f2d538964fad6eb1f4b242; installed=2d43c0634596f7c3a48b1b82e23f099ada6b27f6f2f2d538964fad6eb1f4b242"
+        },
+        {
+          "id": "cursor-global-default.ship.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "cursor-global-default.ship.canonical-name",
+          "passed": true,
+          "detail": "expected ship; found ship"
+        }
+      ],
+      "command": {
+        "argv": [
+          "npx",
+          "--yes",
+          "skills",
+          "add",
+          "<TEMP_MATRIX_ROOT>/linked canonical source",
+          "--agent",
+          "cursor",
+          "--copy",
+          "--yes",
+          "--global"
+        ],
+        "exitCode": 0,
+        "signal": null,
+        "durationMs": 1037,
+        "stdout": "│\n●   codex  Agent detected — installing non-interactively\n│\n◇  Source: <TEMP_MATRIX_ROOT>/linked canonical source\n│\n◇  Local path validated\n│\n◇  Found 6 skills\n│\n●  Installing all 6 skills\n\n│\n◇  Installation Summary ────╮\n│                           │\n│  ~/.agents/skills/debug   │\n│    copy → Cursor          │\n│                           │\n│  ~/.agents/skills/design  │\n│    copy → Cursor          │\n│                           │\n│  ~/.agents/skills/plan    │\n│    copy → Cursor          │\n│                           │\n│  ~/.agents/skills/qa      │\n│    copy → Cursor          │\n│                           │\n│  ~/.agents/skills/review  │\n│    copy → Cursor          │\n│                           │\n│  ~/.agents/skills/ship    │\n│    copy → Cursor          │\n│                           │\n├───────────────────────────╯\n│\n◇  Installation complete\n\n│\n◇  Installed 6 skills ──────────╮\n│                               │\n│  ✓ debug (copied)             │\n│    → ~/.agents/skills/debug   │\n│  ✓ design (copied)            │\n│    → ~/.agents/skills/design  │\n│  ✓ plan (copied)              │\n│    → ~/.agents/skills/plan    │\n│  ✓ qa (copied)                │\n│    → ~/.agents/skills/qa      │\n│  ✓ review (copied)            │\n│    → ~/.agents/skills/review  │\n│  ✓ ship (copied)              │\n│    → ~/.agents/skills/ship    │\n│                               │\n├───────────────────────────────╯\n\n│\n└  Done!  Review skills before use; they run with full agent permissions.",
+        "stderr": ""
+      },
+      "passed": true
+    },
+    {
+      "id": "pi-project-default",
+      "agent": "pi",
+      "agentLabel": "Pi",
+      "scope": "project",
+      "sourceKind": "source-symlink",
+      "expectedRoot": "<TEMP_MATRIX_ROOT>/cases/pi-project-default/project with spaces/.pi/skills",
+      "expectedSkills": [
+        "debug",
+        "design",
+        "plan",
+        "qa",
+        "review",
+        "ship"
+      ],
+      "installedSkills": [
+        "debug",
+        "design",
+        "plan",
+        "qa",
+        "review",
+        "ship"
+      ],
+      "checks": [
+        {
+          "id": "pi-project-default.command",
+          "passed": true,
+          "detail": "exit=0; signal=none"
+        },
+        {
+          "id": "pi-project-default.selected-skills",
+          "passed": true,
+          "detail": "expected debug, design, plan, qa, review, ship; found debug, design, plan, qa, review, ship"
+        },
+        {
+          "id": "pi-project-default.debug.content",
+          "passed": true,
+          "detail": "source=8900ccd55bc62260eb9e7e3a7a2d0e6288d7771102f7a8b3b5655a741de80f59; installed=8900ccd55bc62260eb9e7e3a7a2d0e6288d7771102f7a8b3b5655a741de80f59"
+        },
+        {
+          "id": "pi-project-default.debug.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "pi-project-default.debug.canonical-name",
+          "passed": true,
+          "detail": "expected debug; found debug"
+        },
+        {
+          "id": "pi-project-default.design.content",
+          "passed": true,
+          "detail": "source=4d171487d24fb6742f82f75d724c84989a4b0fb6b7ff0dc1dba433ca4c528085; installed=4d171487d24fb6742f82f75d724c84989a4b0fb6b7ff0dc1dba433ca4c528085"
+        },
+        {
+          "id": "pi-project-default.design.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "pi-project-default.design.canonical-name",
+          "passed": true,
+          "detail": "expected design; found design"
+        },
+        {
+          "id": "pi-project-default.plan.content",
+          "passed": true,
+          "detail": "source=8fb64e9ac13541aaca65cafbfcf97ce3c6dfabcc781d83cfdd4f2b15c31b7e6f; installed=8fb64e9ac13541aaca65cafbfcf97ce3c6dfabcc781d83cfdd4f2b15c31b7e6f"
+        },
+        {
+          "id": "pi-project-default.plan.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "pi-project-default.plan.canonical-name",
+          "passed": true,
+          "detail": "expected plan; found plan"
+        },
+        {
+          "id": "pi-project-default.qa.content",
+          "passed": true,
+          "detail": "source=0ec2e2b726c872c1ccaf8a72cac987f694f6aa85ded7ece5f52bcfef31e5a8d0; installed=0ec2e2b726c872c1ccaf8a72cac987f694f6aa85ded7ece5f52bcfef31e5a8d0"
+        },
+        {
+          "id": "pi-project-default.qa.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "pi-project-default.qa.canonical-name",
+          "passed": true,
+          "detail": "expected qa; found qa"
+        },
+        {
+          "id": "pi-project-default.review.content",
+          "passed": true,
+          "detail": "source=b68b7f15eb0ef866a29e8fada17223ace2ebf73d66fc1c60f6fd776c762a4551; installed=b68b7f15eb0ef866a29e8fada17223ace2ebf73d66fc1c60f6fd776c762a4551"
+        },
+        {
+          "id": "pi-project-default.review.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "pi-project-default.review.canonical-name",
+          "passed": true,
+          "detail": "expected review; found review"
+        },
+        {
+          "id": "pi-project-default.ship.content",
+          "passed": true,
+          "detail": "source=2d43c0634596f7c3a48b1b82e23f099ada6b27f6f2f2d538964fad6eb1f4b242; installed=2d43c0634596f7c3a48b1b82e23f099ada6b27f6f2f2d538964fad6eb1f4b242"
+        },
+        {
+          "id": "pi-project-default.ship.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "pi-project-default.ship.canonical-name",
+          "passed": true,
+          "detail": "expected ship; found ship"
+        }
+      ],
+      "command": {
+        "argv": [
+          "npx",
+          "--yes",
+          "skills",
+          "add",
+          "<TEMP_MATRIX_ROOT>/linked canonical source",
+          "--agent",
+          "pi",
+          "--copy",
+          "--yes"
+        ],
+        "exitCode": 0,
+        "signal": null,
+        "durationMs": 1038,
+        "stdout": "│\n●   codex  Agent detected — installing non-interactively\n│\n◇  Source: <TEMP_MATRIX_ROOT>/linked canonical source\n│\n◇  Local path validated\n│\n◇  Found 6 skills\n│\n●  Installing all 6 skills\n\n│\n◇  Installation Summary ────╮\n│                           │\n│  ./.agents/skills/debug   │\n│    copy → Pi              │\n│                           │\n│  ./.agents/skills/design  │\n│    copy → Pi              │\n│                           │\n│  ./.agents/skills/plan    │\n│    copy → Pi              │\n│                           │\n│  ./.agents/skills/qa      │\n│    copy → Pi              │\n│                           │\n│  ./.agents/skills/review  │\n│    copy → Pi              │\n│                           │\n│  ./.agents/skills/ship    │\n│    copy → Pi              │\n│                           │\n├───────────────────────────╯\n│\n◇  Installation complete\n\n│\n◇  Installed 6 skills ──────╮\n│                           │\n│  ✓ debug (copied)         │\n│    → ./.pi/skills/debug   │\n│  ✓ design (copied)        │\n│    → ./.pi/skills/design  │\n│  ✓ plan (copied)          │\n│    → ./.pi/skills/plan    │\n│  ✓ qa (copied)            │\n│    → ./.pi/skills/qa      │\n│  ✓ review (copied)        │\n│    → ./.pi/skills/review  │\n│  ✓ ship (copied)          │\n│    → ./.pi/skills/ship    │\n│                           │\n├───────────────────────────╯\n\n│\n└  Done!  Review skills before use; they run with full agent permissions.",
+        "stderr": ""
+      },
+      "passed": true
+    },
+    {
+      "id": "pi-global-default",
+      "agent": "pi",
+      "agentLabel": "Pi",
+      "scope": "global",
+      "sourceKind": "path-with-spaces",
+      "expectedRoot": "<TEMP_MATRIX_ROOT>/cases/pi-global-default/home with spaces/.pi/agent/skills",
+      "expectedSkills": [
+        "debug",
+        "design",
+        "plan",
+        "qa",
+        "review",
+        "ship"
+      ],
+      "installedSkills": [
+        "debug",
+        "design",
+        "plan",
+        "qa",
+        "review",
+        "ship"
+      ],
+      "checks": [
+        {
+          "id": "pi-global-default.command",
+          "passed": true,
+          "detail": "exit=0; signal=none"
+        },
+        {
+          "id": "pi-global-default.selected-skills",
+          "passed": true,
+          "detail": "expected debug, design, plan, qa, review, ship; found debug, design, plan, qa, review, ship"
+        },
+        {
+          "id": "pi-global-default.debug.content",
+          "passed": true,
+          "detail": "source=8900ccd55bc62260eb9e7e3a7a2d0e6288d7771102f7a8b3b5655a741de80f59; installed=8900ccd55bc62260eb9e7e3a7a2d0e6288d7771102f7a8b3b5655a741de80f59"
+        },
+        {
+          "id": "pi-global-default.debug.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "pi-global-default.debug.canonical-name",
+          "passed": true,
+          "detail": "expected debug; found debug"
+        },
+        {
+          "id": "pi-global-default.design.content",
+          "passed": true,
+          "detail": "source=4d171487d24fb6742f82f75d724c84989a4b0fb6b7ff0dc1dba433ca4c528085; installed=4d171487d24fb6742f82f75d724c84989a4b0fb6b7ff0dc1dba433ca4c528085"
+        },
+        {
+          "id": "pi-global-default.design.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "pi-global-default.design.canonical-name",
+          "passed": true,
+          "detail": "expected design; found design"
+        },
+        {
+          "id": "pi-global-default.plan.content",
+          "passed": true,
+          "detail": "source=8fb64e9ac13541aaca65cafbfcf97ce3c6dfabcc781d83cfdd4f2b15c31b7e6f; installed=8fb64e9ac13541aaca65cafbfcf97ce3c6dfabcc781d83cfdd4f2b15c31b7e6f"
+        },
+        {
+          "id": "pi-global-default.plan.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "pi-global-default.plan.canonical-name",
+          "passed": true,
+          "detail": "expected plan; found plan"
+        },
+        {
+          "id": "pi-global-default.qa.content",
+          "passed": true,
+          "detail": "source=0ec2e2b726c872c1ccaf8a72cac987f694f6aa85ded7ece5f52bcfef31e5a8d0; installed=0ec2e2b726c872c1ccaf8a72cac987f694f6aa85ded7ece5f52bcfef31e5a8d0"
+        },
+        {
+          "id": "pi-global-default.qa.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "pi-global-default.qa.canonical-name",
+          "passed": true,
+          "detail": "expected qa; found qa"
+        },
+        {
+          "id": "pi-global-default.review.content",
+          "passed": true,
+          "detail": "source=b68b7f15eb0ef866a29e8fada17223ace2ebf73d66fc1c60f6fd776c762a4551; installed=b68b7f15eb0ef866a29e8fada17223ace2ebf73d66fc1c60f6fd776c762a4551"
+        },
+        {
+          "id": "pi-global-default.review.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "pi-global-default.review.canonical-name",
+          "passed": true,
+          "detail": "expected review; found review"
+        },
+        {
+          "id": "pi-global-default.ship.content",
+          "passed": true,
+          "detail": "source=2d43c0634596f7c3a48b1b82e23f099ada6b27f6f2f2d538964fad6eb1f4b242; installed=2d43c0634596f7c3a48b1b82e23f099ada6b27f6f2f2d538964fad6eb1f4b242"
+        },
+        {
+          "id": "pi-global-default.ship.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "pi-global-default.ship.canonical-name",
+          "passed": true,
+          "detail": "expected ship; found ship"
+        }
+      ],
+      "command": {
+        "argv": [
+          "npx",
+          "--yes",
+          "skills",
+          "add",
+          "<TEMP_MATRIX_ROOT>/canonical package/source with spaces",
+          "--agent",
+          "pi",
+          "--copy",
+          "--yes",
+          "--global"
+        ],
+        "exitCode": 0,
+        "signal": null,
+        "durationMs": 1171,
+        "stdout": "│\n●   codex  Agent detected — installing non-interactively\n│\n◇  Source: <TEMP_MATRIX_ROOT>/canonical package/source with spaces\n│\n◇  Local path validated\n│\n◇  Found 6 skills\n│\n●  Installing all 6 skills\n\n│\n◇  Installation Summary ────╮\n│                           │\n│  ~/.agents/skills/debug   │\n│    copy → Pi              │\n│                           │\n│  ~/.agents/skills/design  │\n│    copy → Pi              │\n│                           │\n│  ~/.agents/skills/plan    │\n│    copy → Pi              │\n│                           │\n│  ~/.agents/skills/qa      │\n│    copy → Pi              │\n│                           │\n│  ~/.agents/skills/review  │\n│    copy → Pi              │\n│                           │\n│  ~/.agents/skills/ship    │\n│    copy → Pi              │\n│                           │\n├───────────────────────────╯\n│\n◇  Installation complete\n\n│\n◇  Installed 6 skills ────────────╮\n│                                 │\n│  ✓ debug (copied)               │\n│    → ~/.pi/agent/skills/debug   │\n│  ✓ design (copied)              │\n│    → ~/.pi/agent/skills/design  │\n│  ✓ plan (copied)                │\n│    → ~/.pi/agent/skills/plan    │\n│  ✓ qa (copied)                  │\n│    → ~/.pi/agent/skills/qa      │\n│  ✓ review (copied)              │\n│    → ~/.pi/agent/skills/review  │\n│  ✓ ship (copied)                │\n│    → ~/.pi/agent/skills/ship    │\n│                                 │\n├─────────────────────────────────╯\n\n│\n└  Done!  Review skills before use; they run with full agent permissions.",
+        "stderr": ""
+      },
+      "passed": true
+    },
+    {
+      "id": "openclaw-project-default",
+      "agent": "openclaw",
+      "agentLabel": "OpenClaw",
+      "scope": "project",
+      "sourceKind": "path-with-spaces",
+      "expectedRoot": "<TEMP_MATRIX_ROOT>/cases/openclaw-project-default/project with spaces/skills",
+      "expectedSkills": [
+        "debug",
+        "design",
+        "plan",
+        "qa",
+        "review",
+        "ship"
+      ],
+      "installedSkills": [
+        "debug",
+        "design",
+        "plan",
+        "qa",
+        "review",
+        "ship"
+      ],
+      "checks": [
+        {
+          "id": "openclaw-project-default.command",
+          "passed": true,
+          "detail": "exit=0; signal=none"
+        },
+        {
+          "id": "openclaw-project-default.selected-skills",
+          "passed": true,
+          "detail": "expected debug, design, plan, qa, review, ship; found debug, design, plan, qa, review, ship"
+        },
+        {
+          "id": "openclaw-project-default.debug.content",
+          "passed": true,
+          "detail": "source=8900ccd55bc62260eb9e7e3a7a2d0e6288d7771102f7a8b3b5655a741de80f59; installed=8900ccd55bc62260eb9e7e3a7a2d0e6288d7771102f7a8b3b5655a741de80f59"
+        },
+        {
+          "id": "openclaw-project-default.debug.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "openclaw-project-default.debug.canonical-name",
+          "passed": true,
+          "detail": "expected debug; found debug"
+        },
+        {
+          "id": "openclaw-project-default.design.content",
+          "passed": true,
+          "detail": "source=4d171487d24fb6742f82f75d724c84989a4b0fb6b7ff0dc1dba433ca4c528085; installed=4d171487d24fb6742f82f75d724c84989a4b0fb6b7ff0dc1dba433ca4c528085"
+        },
+        {
+          "id": "openclaw-project-default.design.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "openclaw-project-default.design.canonical-name",
+          "passed": true,
+          "detail": "expected design; found design"
+        },
+        {
+          "id": "openclaw-project-default.plan.content",
+          "passed": true,
+          "detail": "source=8fb64e9ac13541aaca65cafbfcf97ce3c6dfabcc781d83cfdd4f2b15c31b7e6f; installed=8fb64e9ac13541aaca65cafbfcf97ce3c6dfabcc781d83cfdd4f2b15c31b7e6f"
+        },
+        {
+          "id": "openclaw-project-default.plan.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "openclaw-project-default.plan.canonical-name",
+          "passed": true,
+          "detail": "expected plan; found plan"
+        },
+        {
+          "id": "openclaw-project-default.qa.content",
+          "passed": true,
+          "detail": "source=0ec2e2b726c872c1ccaf8a72cac987f694f6aa85ded7ece5f52bcfef31e5a8d0; installed=0ec2e2b726c872c1ccaf8a72cac987f694f6aa85ded7ece5f52bcfef31e5a8d0"
+        },
+        {
+          "id": "openclaw-project-default.qa.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "openclaw-project-default.qa.canonical-name",
+          "passed": true,
+          "detail": "expected qa; found qa"
+        },
+        {
+          "id": "openclaw-project-default.review.content",
+          "passed": true,
+          "detail": "source=b68b7f15eb0ef866a29e8fada17223ace2ebf73d66fc1c60f6fd776c762a4551; installed=b68b7f15eb0ef866a29e8fada17223ace2ebf73d66fc1c60f6fd776c762a4551"
+        },
+        {
+          "id": "openclaw-project-default.review.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "openclaw-project-default.review.canonical-name",
+          "passed": true,
+          "detail": "expected review; found review"
+        },
+        {
+          "id": "openclaw-project-default.ship.content",
+          "passed": true,
+          "detail": "source=2d43c0634596f7c3a48b1b82e23f099ada6b27f6f2f2d538964fad6eb1f4b242; installed=2d43c0634596f7c3a48b1b82e23f099ada6b27f6f2f2d538964fad6eb1f4b242"
+        },
+        {
+          "id": "openclaw-project-default.ship.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "openclaw-project-default.ship.canonical-name",
+          "passed": true,
+          "detail": "expected ship; found ship"
+        }
+      ],
+      "command": {
+        "argv": [
+          "npx",
+          "--yes",
+          "skills",
+          "add",
+          "<TEMP_MATRIX_ROOT>/canonical package/source with spaces",
+          "--agent",
+          "openclaw",
+          "--copy",
+          "--yes"
+        ],
+        "exitCode": 0,
+        "signal": null,
+        "durationMs": 1128,
+        "stdout": "│\n●   codex  Agent detected — installing non-interactively\n│\n◇  Source: <TEMP_MATRIX_ROOT>/canonical package/source with spaces\n│\n◇  Local path validated\n│\n◇  Found 6 skills\n│\n●  Installing all 6 skills\n\n│\n◇  Installation Summary ────╮\n│                           │\n│  ./.agents/skills/debug   │\n│    copy → OpenClaw        │\n│                           │\n│  ./.agents/skills/design  │\n│    copy → OpenClaw        │\n│                           │\n│  ./.agents/skills/plan    │\n│    copy → OpenClaw        │\n│                           │\n│  ./.agents/skills/qa      │\n│    copy → OpenClaw        │\n│                           │\n│  ./.agents/skills/review  │\n│    copy → OpenClaw        │\n│                           │\n│  ./.agents/skills/ship    │\n│    copy → OpenClaw        │\n│                           │\n├───────────────────────────╯\n│\n◇  Installation complete\n\n│\n◇  Installed 6 skills ──╮\n│                       │\n│  ✓ debug (copied)     │\n│    → ./skills/debug   │\n│  ✓ design (copied)    │\n│    → ./skills/design  │\n│  ✓ plan (copied)      │\n│    → ./skills/plan    │\n│  ✓ qa (copied)        │\n│    → ./skills/qa      │\n│  ✓ review (copied)    │\n│    → ./skills/review  │\n│  ✓ ship (copied)      │\n│    → ./skills/ship    │\n│                       │\n├───────────────────────╯\n\n│\n└  Done!  Review skills before use; they run with full agent permissions.",
+        "stderr": ""
+      },
+      "passed": true
+    },
+    {
+      "id": "openclaw-global-default",
+      "agent": "openclaw",
+      "agentLabel": "OpenClaw",
+      "scope": "global",
+      "sourceKind": "source-symlink",
+      "expectedRoot": "<TEMP_MATRIX_ROOT>/cases/openclaw-global-default/home with spaces/.openclaw/skills",
+      "expectedSkills": [
+        "debug",
+        "design",
+        "plan",
+        "qa",
+        "review",
+        "ship"
+      ],
+      "installedSkills": [
+        "debug",
+        "design",
+        "plan",
+        "qa",
+        "review",
+        "ship"
+      ],
+      "checks": [
+        {
+          "id": "openclaw-global-default.command",
+          "passed": true,
+          "detail": "exit=0; signal=none"
+        },
+        {
+          "id": "openclaw-global-default.selected-skills",
+          "passed": true,
+          "detail": "expected debug, design, plan, qa, review, ship; found debug, design, plan, qa, review, ship"
+        },
+        {
+          "id": "openclaw-global-default.debug.content",
+          "passed": true,
+          "detail": "source=8900ccd55bc62260eb9e7e3a7a2d0e6288d7771102f7a8b3b5655a741de80f59; installed=8900ccd55bc62260eb9e7e3a7a2d0e6288d7771102f7a8b3b5655a741de80f59"
+        },
+        {
+          "id": "openclaw-global-default.debug.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "openclaw-global-default.debug.canonical-name",
+          "passed": true,
+          "detail": "expected debug; found debug"
+        },
+        {
+          "id": "openclaw-global-default.design.content",
+          "passed": true,
+          "detail": "source=4d171487d24fb6742f82f75d724c84989a4b0fb6b7ff0dc1dba433ca4c528085; installed=4d171487d24fb6742f82f75d724c84989a4b0fb6b7ff0dc1dba433ca4c528085"
+        },
+        {
+          "id": "openclaw-global-default.design.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "openclaw-global-default.design.canonical-name",
+          "passed": true,
+          "detail": "expected design; found design"
+        },
+        {
+          "id": "openclaw-global-default.plan.content",
+          "passed": true,
+          "detail": "source=8fb64e9ac13541aaca65cafbfcf97ce3c6dfabcc781d83cfdd4f2b15c31b7e6f; installed=8fb64e9ac13541aaca65cafbfcf97ce3c6dfabcc781d83cfdd4f2b15c31b7e6f"
+        },
+        {
+          "id": "openclaw-global-default.plan.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "openclaw-global-default.plan.canonical-name",
+          "passed": true,
+          "detail": "expected plan; found plan"
+        },
+        {
+          "id": "openclaw-global-default.qa.content",
+          "passed": true,
+          "detail": "source=0ec2e2b726c872c1ccaf8a72cac987f694f6aa85ded7ece5f52bcfef31e5a8d0; installed=0ec2e2b726c872c1ccaf8a72cac987f694f6aa85ded7ece5f52bcfef31e5a8d0"
+        },
+        {
+          "id": "openclaw-global-default.qa.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "openclaw-global-default.qa.canonical-name",
+          "passed": true,
+          "detail": "expected qa; found qa"
+        },
+        {
+          "id": "openclaw-global-default.review.content",
+          "passed": true,
+          "detail": "source=b68b7f15eb0ef866a29e8fada17223ace2ebf73d66fc1c60f6fd776c762a4551; installed=b68b7f15eb0ef866a29e8fada17223ace2ebf73d66fc1c60f6fd776c762a4551"
+        },
+        {
+          "id": "openclaw-global-default.review.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "openclaw-global-default.review.canonical-name",
+          "passed": true,
+          "detail": "expected review; found review"
+        },
+        {
+          "id": "openclaw-global-default.ship.content",
+          "passed": true,
+          "detail": "source=2d43c0634596f7c3a48b1b82e23f099ada6b27f6f2f2d538964fad6eb1f4b242; installed=2d43c0634596f7c3a48b1b82e23f099ada6b27f6f2f2d538964fad6eb1f4b242"
+        },
+        {
+          "id": "openclaw-global-default.ship.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "openclaw-global-default.ship.canonical-name",
+          "passed": true,
+          "detail": "expected ship; found ship"
+        }
+      ],
+      "command": {
+        "argv": [
+          "npx",
+          "--yes",
+          "skills",
+          "add",
+          "<TEMP_MATRIX_ROOT>/linked canonical source",
+          "--agent",
+          "openclaw",
+          "--copy",
+          "--yes",
+          "--global"
+        ],
+        "exitCode": 0,
+        "signal": null,
+        "durationMs": 1211,
+        "stdout": "│\n●   codex  Agent detected — installing non-interactively\n│\n◇  Source: <TEMP_MATRIX_ROOT>/linked canonical source\n│\n◇  Local path validated\n│\n◇  Found 6 skills\n│\n●  Installing all 6 skills\n\n│\n◇  Installation Summary ────╮\n│                           │\n│  ~/.agents/skills/debug   │\n│    copy → OpenClaw        │\n│                           │\n│  ~/.agents/skills/design  │\n│    copy → OpenClaw        │\n│                           │\n│  ~/.agents/skills/plan    │\n│    copy → OpenClaw        │\n│                           │\n│  ~/.agents/skills/qa      │\n│    copy → OpenClaw        │\n│                           │\n│  ~/.agents/skills/review  │\n│    copy → OpenClaw        │\n│                           │\n│  ~/.agents/skills/ship    │\n│    copy → OpenClaw        │\n│                           │\n├───────────────────────────╯\n│\n◇  Installation complete\n\n│\n◇  Installed 6 skills ────────────╮\n│                                 │\n│  ✓ debug (copied)               │\n│    → ~/.openclaw/skills/debug   │\n│  ✓ design (copied)              │\n│    → ~/.openclaw/skills/design  │\n│  ✓ plan (copied)                │\n│    → ~/.openclaw/skills/plan    │\n│  ✓ qa (copied)                  │\n│    → ~/.openclaw/skills/qa      │\n│  ✓ review (copied)              │\n│    → ~/.openclaw/skills/review  │\n│  ✓ ship (copied)                │\n│    → ~/.openclaw/skills/ship    │\n│                                 │\n├─────────────────────────────────╯\n\n│\n└  Done!  Review skills before use; they run with full agent permissions.",
+        "stderr": ""
+      },
+      "passed": true
+    },
+    {
+      "id": "github-copilot-project-default",
+      "agent": "github-copilot",
+      "agentLabel": "GitHub Copilot",
+      "scope": "project",
+      "sourceKind": "source-symlink",
+      "expectedRoot": "<TEMP_MATRIX_ROOT>/cases/github-copilot-project-default/project with spaces/.agents/skills",
+      "expectedSkills": [
+        "debug",
+        "design",
+        "plan",
+        "qa",
+        "review",
+        "ship"
+      ],
+      "installedSkills": [
+        "debug",
+        "design",
+        "plan",
+        "qa",
+        "review",
+        "ship"
+      ],
+      "checks": [
+        {
+          "id": "github-copilot-project-default.command",
+          "passed": true,
+          "detail": "exit=0; signal=none"
+        },
+        {
+          "id": "github-copilot-project-default.selected-skills",
+          "passed": true,
+          "detail": "expected debug, design, plan, qa, review, ship; found debug, design, plan, qa, review, ship"
+        },
+        {
+          "id": "github-copilot-project-default.debug.content",
+          "passed": true,
+          "detail": "source=8900ccd55bc62260eb9e7e3a7a2d0e6288d7771102f7a8b3b5655a741de80f59; installed=8900ccd55bc62260eb9e7e3a7a2d0e6288d7771102f7a8b3b5655a741de80f59"
+        },
+        {
+          "id": "github-copilot-project-default.debug.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "github-copilot-project-default.debug.canonical-name",
+          "passed": true,
+          "detail": "expected debug; found debug"
+        },
+        {
+          "id": "github-copilot-project-default.design.content",
+          "passed": true,
+          "detail": "source=4d171487d24fb6742f82f75d724c84989a4b0fb6b7ff0dc1dba433ca4c528085; installed=4d171487d24fb6742f82f75d724c84989a4b0fb6b7ff0dc1dba433ca4c528085"
+        },
+        {
+          "id": "github-copilot-project-default.design.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "github-copilot-project-default.design.canonical-name",
+          "passed": true,
+          "detail": "expected design; found design"
+        },
+        {
+          "id": "github-copilot-project-default.plan.content",
+          "passed": true,
+          "detail": "source=8fb64e9ac13541aaca65cafbfcf97ce3c6dfabcc781d83cfdd4f2b15c31b7e6f; installed=8fb64e9ac13541aaca65cafbfcf97ce3c6dfabcc781d83cfdd4f2b15c31b7e6f"
+        },
+        {
+          "id": "github-copilot-project-default.plan.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "github-copilot-project-default.plan.canonical-name",
+          "passed": true,
+          "detail": "expected plan; found plan"
+        },
+        {
+          "id": "github-copilot-project-default.qa.content",
+          "passed": true,
+          "detail": "source=0ec2e2b726c872c1ccaf8a72cac987f694f6aa85ded7ece5f52bcfef31e5a8d0; installed=0ec2e2b726c872c1ccaf8a72cac987f694f6aa85ded7ece5f52bcfef31e5a8d0"
+        },
+        {
+          "id": "github-copilot-project-default.qa.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "github-copilot-project-default.qa.canonical-name",
+          "passed": true,
+          "detail": "expected qa; found qa"
+        },
+        {
+          "id": "github-copilot-project-default.review.content",
+          "passed": true,
+          "detail": "source=b68b7f15eb0ef866a29e8fada17223ace2ebf73d66fc1c60f6fd776c762a4551; installed=b68b7f15eb0ef866a29e8fada17223ace2ebf73d66fc1c60f6fd776c762a4551"
+        },
+        {
+          "id": "github-copilot-project-default.review.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "github-copilot-project-default.review.canonical-name",
+          "passed": true,
+          "detail": "expected review; found review"
+        },
+        {
+          "id": "github-copilot-project-default.ship.content",
+          "passed": true,
+          "detail": "source=2d43c0634596f7c3a48b1b82e23f099ada6b27f6f2f2d538964fad6eb1f4b242; installed=2d43c0634596f7c3a48b1b82e23f099ada6b27f6f2f2d538964fad6eb1f4b242"
+        },
+        {
+          "id": "github-copilot-project-default.ship.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "github-copilot-project-default.ship.canonical-name",
+          "passed": true,
+          "detail": "expected ship; found ship"
+        }
+      ],
+      "command": {
+        "argv": [
+          "npx",
+          "--yes",
+          "skills",
+          "add",
+          "<TEMP_MATRIX_ROOT>/linked canonical source",
+          "--agent",
+          "github-copilot",
+          "--copy",
+          "--yes"
+        ],
+        "exitCode": 0,
+        "signal": null,
+        "durationMs": 1177,
+        "stdout": "│\n●   codex  Agent detected — installing non-interactively\n│\n◇  Source: <TEMP_MATRIX_ROOT>/linked canonical source\n│\n◇  Local path validated\n│\n◇  Found 6 skills\n│\n●  Installing all 6 skills\n\n│\n◇  Installation Summary ────╮\n│                           │\n│  ./.agents/skills/debug   │\n│    copy → GitHub Copilot  │\n│                           │\n│  ./.agents/skills/design  │\n│    copy → GitHub Copilot  │\n│                           │\n│  ./.agents/skills/plan    │\n│    copy → GitHub Copilot  │\n│                           │\n│  ./.agents/skills/qa      │\n│    copy → GitHub Copilot  │\n│                           │\n│  ./.agents/skills/review  │\n│    copy → GitHub Copilot  │\n│                           │\n│  ./.agents/skills/ship    │\n│    copy → GitHub Copilot  │\n│                           │\n├───────────────────────────╯\n│\n◇  Installation complete\n\n│\n◇  Installed 6 skills ──────────╮\n│                               │\n│  ✓ debug (copied)             │\n│    → ./.agents/skills/debug   │\n│  ✓ design (copied)            │\n│    → ./.agents/skills/design  │\n│  ✓ plan (copied)              │\n│    → ./.agents/skills/plan    │\n│  ✓ qa (copied)                │\n│    → ./.agents/skills/qa      │\n│  ✓ review (copied)            │\n│    → ./.agents/skills/review  │\n│  ✓ ship (copied)              │\n│    → ./.agents/skills/ship    │\n│                               │\n├───────────────────────────────╯\n\n│\n└  Done!  Review skills before use; they run with full agent permissions.",
+        "stderr": ""
+      },
+      "passed": true
+    },
+    {
+      "id": "github-copilot-global-default",
+      "agent": "github-copilot",
+      "agentLabel": "GitHub Copilot",
+      "scope": "global",
+      "sourceKind": "path-with-spaces",
+      "expectedRoot": "<TEMP_MATRIX_ROOT>/cases/github-copilot-global-default/home with spaces/.agents/skills",
+      "expectedSkills": [
+        "debug",
+        "design",
+        "plan",
+        "qa",
+        "review",
+        "ship"
+      ],
+      "installedSkills": [
+        "debug",
+        "design",
+        "plan",
+        "qa",
+        "review",
+        "ship"
+      ],
+      "checks": [
+        {
+          "id": "github-copilot-global-default.command",
+          "passed": true,
+          "detail": "exit=0; signal=none"
+        },
+        {
+          "id": "github-copilot-global-default.selected-skills",
+          "passed": true,
+          "detail": "expected debug, design, plan, qa, review, ship; found debug, design, plan, qa, review, ship"
+        },
+        {
+          "id": "github-copilot-global-default.debug.content",
+          "passed": true,
+          "detail": "source=8900ccd55bc62260eb9e7e3a7a2d0e6288d7771102f7a8b3b5655a741de80f59; installed=8900ccd55bc62260eb9e7e3a7a2d0e6288d7771102f7a8b3b5655a741de80f59"
+        },
+        {
+          "id": "github-copilot-global-default.debug.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "github-copilot-global-default.debug.canonical-name",
+          "passed": true,
+          "detail": "expected debug; found debug"
+        },
+        {
+          "id": "github-copilot-global-default.design.content",
+          "passed": true,
+          "detail": "source=4d171487d24fb6742f82f75d724c84989a4b0fb6b7ff0dc1dba433ca4c528085; installed=4d171487d24fb6742f82f75d724c84989a4b0fb6b7ff0dc1dba433ca4c528085"
+        },
+        {
+          "id": "github-copilot-global-default.design.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "github-copilot-global-default.design.canonical-name",
+          "passed": true,
+          "detail": "expected design; found design"
+        },
+        {
+          "id": "github-copilot-global-default.plan.content",
+          "passed": true,
+          "detail": "source=8fb64e9ac13541aaca65cafbfcf97ce3c6dfabcc781d83cfdd4f2b15c31b7e6f; installed=8fb64e9ac13541aaca65cafbfcf97ce3c6dfabcc781d83cfdd4f2b15c31b7e6f"
+        },
+        {
+          "id": "github-copilot-global-default.plan.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "github-copilot-global-default.plan.canonical-name",
+          "passed": true,
+          "detail": "expected plan; found plan"
+        },
+        {
+          "id": "github-copilot-global-default.qa.content",
+          "passed": true,
+          "detail": "source=0ec2e2b726c872c1ccaf8a72cac987f694f6aa85ded7ece5f52bcfef31e5a8d0; installed=0ec2e2b726c872c1ccaf8a72cac987f694f6aa85ded7ece5f52bcfef31e5a8d0"
+        },
+        {
+          "id": "github-copilot-global-default.qa.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "github-copilot-global-default.qa.canonical-name",
+          "passed": true,
+          "detail": "expected qa; found qa"
+        },
+        {
+          "id": "github-copilot-global-default.review.content",
+          "passed": true,
+          "detail": "source=b68b7f15eb0ef866a29e8fada17223ace2ebf73d66fc1c60f6fd776c762a4551; installed=b68b7f15eb0ef866a29e8fada17223ace2ebf73d66fc1c60f6fd776c762a4551"
+        },
+        {
+          "id": "github-copilot-global-default.review.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "github-copilot-global-default.review.canonical-name",
+          "passed": true,
+          "detail": "expected review; found review"
+        },
+        {
+          "id": "github-copilot-global-default.ship.content",
+          "passed": true,
+          "detail": "source=2d43c0634596f7c3a48b1b82e23f099ada6b27f6f2f2d538964fad6eb1f4b242; installed=2d43c0634596f7c3a48b1b82e23f099ada6b27f6f2f2d538964fad6eb1f4b242"
+        },
+        {
+          "id": "github-copilot-global-default.ship.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "github-copilot-global-default.ship.canonical-name",
+          "passed": true,
+          "detail": "expected ship; found ship"
+        }
+      ],
+      "command": {
+        "argv": [
+          "npx",
+          "--yes",
+          "skills",
+          "add",
+          "<TEMP_MATRIX_ROOT>/canonical package/source with spaces",
+          "--agent",
+          "github-copilot",
+          "--copy",
+          "--yes",
+          "--global"
+        ],
+        "exitCode": 0,
+        "signal": null,
+        "durationMs": 1091,
+        "stdout": "│\n●   codex  Agent detected — installing non-interactively\n│\n◇  Source: <TEMP_MATRIX_ROOT>/canonical package/source with spaces\n│\n◇  Local path validated\n│\n◇  Found 6 skills\n│\n●  Installing all 6 skills\n\n│\n◇  Installation Summary ────╮\n│                           │\n│  ~/.agents/skills/debug   │\n│    copy → GitHub Copilot  │\n│                           │\n│  ~/.agents/skills/design  │\n│    copy → GitHub Copilot  │\n│                           │\n│  ~/.agents/skills/plan    │\n│    copy → GitHub Copilot  │\n│                           │\n│  ~/.agents/skills/qa      │\n│    copy → GitHub Copilot  │\n│                           │\n│  ~/.agents/skills/review  │\n│    copy → GitHub Copilot  │\n│                           │\n│  ~/.agents/skills/ship    │\n│    copy → GitHub Copilot  │\n│                           │\n├───────────────────────────╯\n│\n◇  Installation complete\n\n│\n◇  Installed 6 skills ──────────╮\n│                               │\n│  ✓ debug (copied)             │\n│    → ~/.agents/skills/debug   │\n│  ✓ design (copied)            │\n│    → ~/.agents/skills/design  │\n│  ✓ plan (copied)              │\n│    → ~/.agents/skills/plan    │\n│  ✓ qa (copied)                │\n│    → ~/.agents/skills/qa      │\n│  ✓ review (copied)            │\n│    → ~/.agents/skills/review  │\n│  ✓ ship (copied)              │\n│    → ~/.agents/skills/ship    │\n│                               │\n├───────────────────────────────╯\n\n│\n└  Done!  Review skills before use; they run with full agent permissions.",
+        "stderr": ""
+      },
+      "passed": true
+    },
+    {
+      "id": "collision-selection-project",
+      "agent": "cursor",
+      "agentLabel": "Cursor",
+      "scope": "project",
+      "sourceKind": "repository-root",
+      "expectedRoot": "<TEMP_MATRIX_ROOT>/cases/collision-selection-project/project with spaces/.agents/skills",
+      "expectedSkills": [
+        "qa",
+        "review",
+        "ship"
+      ],
+      "installedSkills": [
+        "qa",
+        "review",
+        "ship"
+      ],
+      "checks": [
+        {
+          "id": "collision-selection-project.command",
+          "passed": true,
+          "detail": "exit=0; signal=none"
+        },
+        {
+          "id": "collision-selection-project.selected-skills",
+          "passed": true,
+          "detail": "expected qa, review, ship; found qa, review, ship"
+        },
+        {
+          "id": "collision-selection-project.qa.content",
+          "passed": true,
+          "detail": "source=0ec2e2b726c872c1ccaf8a72cac987f694f6aa85ded7ece5f52bcfef31e5a8d0; installed=0ec2e2b726c872c1ccaf8a72cac987f694f6aa85ded7ece5f52bcfef31e5a8d0"
+        },
+        {
+          "id": "collision-selection-project.qa.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "collision-selection-project.qa.canonical-name",
+          "passed": true,
+          "detail": "expected qa; found qa"
+        },
+        {
+          "id": "collision-selection-project.review.content",
+          "passed": true,
+          "detail": "source=b68b7f15eb0ef866a29e8fada17223ace2ebf73d66fc1c60f6fd776c762a4551; installed=b68b7f15eb0ef866a29e8fada17223ace2ebf73d66fc1c60f6fd776c762a4551"
+        },
+        {
+          "id": "collision-selection-project.review.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "collision-selection-project.review.canonical-name",
+          "passed": true,
+          "detail": "expected review; found review"
+        },
+        {
+          "id": "collision-selection-project.ship.content",
+          "passed": true,
+          "detail": "source=2d43c0634596f7c3a48b1b82e23f099ada6b27f6f2f2d538964fad6eb1f4b242; installed=2d43c0634596f7c3a48b1b82e23f099ada6b27f6f2f2d538964fad6eb1f4b242"
+        },
+        {
+          "id": "collision-selection-project.ship.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "collision-selection-project.ship.canonical-name",
+          "passed": true,
+          "detail": "expected ship; found ship"
+        }
+      ],
+      "command": {
+        "argv": [
+          "npx",
+          "--yes",
+          "skills",
+          "add",
+          "<REPOSITORY_ROOT>",
+          "--skill",
+          "qa",
+          "review",
+          "ship",
+          "--agent",
+          "cursor",
+          "--copy",
+          "--yes"
+        ],
+        "exitCode": 0,
+        "signal": null,
+        "durationMs": 1197,
+        "stdout": "│\n●   codex  Agent detected — installing non-interactively\n│\n◇  Source: <REPOSITORY_ROOT>\n│\n◇  Local path validated\n│\n◒  Discovering skills…◇  Found 113 skills\n│\n●  Selected 3 skills: qa, review, ship\n\n│\n◇  Installation Summary ────╮\n│                           │\n│  ./.agents/skills/qa      │\n│    copy → Cursor          │\n│                           │\n│  ./.agents/skills/review  │\n│    copy → Cursor          │\n│                           │\n│  ./.agents/skills/ship    │\n│    copy → Cursor          │\n│                           │\n├───────────────────────────╯\n│\n◇  Installation complete\n\n│\n◇  Installed 3 skills ──────────╮\n│                               │\n│  ✓ qa (copied)                │\n│    → ./.agents/skills/qa      │\n│  ✓ review (copied)            │\n│    → ./.agents/skills/review  │\n│  ✓ ship (copied)              │\n│    → ./.agents/skills/ship    │\n│                               │\n├───────────────────────────────╯\n\n│\n└  Done!  Review skills before use; they run with full agent permissions.",
+        "stderr": ""
+      },
+      "passed": true
+    },
+    {
+      "id": "collision-selection-global",
+      "agent": "codex",
+      "agentLabel": "Codex",
+      "scope": "global",
+      "sourceKind": "path-with-spaces",
+      "expectedRoot": "<TEMP_MATRIX_ROOT>/cases/collision-selection-global/home with spaces/.agents/skills",
+      "expectedSkills": [
+        "qa",
+        "review",
+        "ship"
+      ],
+      "installedSkills": [
+        "qa",
+        "review",
+        "ship"
+      ],
+      "checks": [
+        {
+          "id": "collision-selection-global.command",
+          "passed": true,
+          "detail": "exit=0; signal=none"
+        },
+        {
+          "id": "collision-selection-global.selected-skills",
+          "passed": true,
+          "detail": "expected qa, review, ship; found qa, review, ship"
+        },
+        {
+          "id": "collision-selection-global.qa.content",
+          "passed": true,
+          "detail": "source=0ec2e2b726c872c1ccaf8a72cac987f694f6aa85ded7ece5f52bcfef31e5a8d0; installed=0ec2e2b726c872c1ccaf8a72cac987f694f6aa85ded7ece5f52bcfef31e5a8d0"
+        },
+        {
+          "id": "collision-selection-global.qa.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "collision-selection-global.qa.canonical-name",
+          "passed": true,
+          "detail": "expected qa; found qa"
+        },
+        {
+          "id": "collision-selection-global.review.content",
+          "passed": true,
+          "detail": "source=b68b7f15eb0ef866a29e8fada17223ace2ebf73d66fc1c60f6fd776c762a4551; installed=b68b7f15eb0ef866a29e8fada17223ace2ebf73d66fc1c60f6fd776c762a4551"
+        },
+        {
+          "id": "collision-selection-global.review.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "collision-selection-global.review.canonical-name",
+          "passed": true,
+          "detail": "expected review; found review"
+        },
+        {
+          "id": "collision-selection-global.ship.content",
+          "passed": true,
+          "detail": "source=2d43c0634596f7c3a48b1b82e23f099ada6b27f6f2f2d538964fad6eb1f4b242; installed=2d43c0634596f7c3a48b1b82e23f099ada6b27f6f2f2d538964fad6eb1f4b242"
+        },
+        {
+          "id": "collision-selection-global.ship.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "collision-selection-global.ship.canonical-name",
+          "passed": true,
+          "detail": "expected ship; found ship"
+        }
+      ],
+      "command": {
+        "argv": [
+          "npx",
+          "--yes",
+          "skills",
+          "add",
+          "<TEMP_MATRIX_ROOT>/canonical package/source with spaces",
+          "--skill",
+          "qa",
+          "review",
+          "ship",
+          "--agent",
+          "codex",
+          "--copy",
+          "--yes",
+          "--global"
+        ],
+        "exitCode": 0,
+        "signal": null,
+        "durationMs": 1114,
+        "stdout": "│\n●   codex  Agent detected — installing non-interactively\n│\n◇  Source: <TEMP_MATRIX_ROOT>/canonical package/source with spaces\n│\n◇  Local path validated\n│\n◇  Found 111 skills\n│\n●  Selected 3 skills: qa, review, ship\n\n│\n◇  Installation Summary ────╮\n│                           │\n│  ~/.agents/skills/qa      │\n│    copy → Codex           │\n│                           │\n│  ~/.agents/skills/review  │\n│    copy → Codex           │\n│                           │\n│  ~/.agents/skills/ship    │\n│    copy → Codex           │\n│                           │\n├───────────────────────────╯\n│\n◇  Installation complete\n\n│\n◇  Installed 3 skills ──────────╮\n│                               │\n│  ✓ qa (copied)                │\n│    → ~/.agents/skills/qa      │\n│  ✓ review (copied)            │\n│    → ~/.agents/skills/review  │\n│  ✓ ship (copied)              │\n│    → ~/.agents/skills/ship    │\n│                               │\n├───────────────────────────────╯\n\n│\n└  Done!  Review skills before use; they run with full agent permissions.",
+        "stderr": ""
+      },
+      "passed": true
+    },
+    {
+      "id": "single-skill-ship-project",
+      "agent": "openclaw",
+      "agentLabel": "OpenClaw",
+      "scope": "project",
+      "sourceKind": "path-with-spaces",
+      "expectedRoot": "<TEMP_MATRIX_ROOT>/cases/single-skill-ship-project/project with spaces/skills",
+      "expectedSkills": [
+        "ship"
+      ],
+      "installedSkills": [
+        "ship"
+      ],
+      "checks": [
+        {
+          "id": "single-skill-ship-project.command",
+          "passed": true,
+          "detail": "exit=0; signal=none"
+        },
+        {
+          "id": "single-skill-ship-project.selected-skills",
+          "passed": true,
+          "detail": "expected ship; found ship"
+        },
+        {
+          "id": "single-skill-ship-project.ship.content",
+          "passed": true,
+          "detail": "source=2d43c0634596f7c3a48b1b82e23f099ada6b27f6f2f2d538964fad6eb1f4b242; installed=2d43c0634596f7c3a48b1b82e23f099ada6b27f6f2f2d538964fad6eb1f4b242"
+        },
+        {
+          "id": "single-skill-ship-project.ship.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "single-skill-ship-project.ship.canonical-name",
+          "passed": true,
+          "detail": "expected ship; found ship"
+        }
+      ],
+      "command": {
+        "argv": [
+          "npx",
+          "--yes",
+          "skills",
+          "add",
+          "<TEMP_MATRIX_ROOT>/canonical package/source with spaces",
+          "--skill",
+          "ship",
+          "--agent",
+          "openclaw",
+          "--copy",
+          "--yes"
+        ],
+        "exitCode": 0,
+        "signal": null,
+        "durationMs": 1374,
+        "stdout": "│\n●   codex  Agent detected — installing non-interactively\n│\n◇  Source: <TEMP_MATRIX_ROOT>/canonical package/source with spaces\n│\n◇  Local path validated\n│\n◇  Found 111 skills\n│\n●  Selected 1 skill: ship\n\n│\n◇  Installation Summary ──╮\n│                         │\n│  ./.agents/skills/ship  │\n│    copy → OpenClaw      │\n│                         │\n├─────────────────────────╯\n│\n◇  Installation complete\n\n│\n◇  Installed 1 skill ─╮\n│                     │\n│  ✓ ship (copied)    │\n│    → ./skills/ship  │\n│                     │\n├─────────────────────╯\n\n│\n└  Done!  Review skills before use; they run with full agent permissions.",
+        "stderr": ""
+      },
+      "passed": true
+    },
+    {
+      "id": "compatibility-alias-office-hours",
+      "agent": "codex",
+      "agentLabel": "Codex",
+      "scope": "project",
+      "sourceKind": "repository-root",
+      "expectedRoot": "<TEMP_MATRIX_ROOT>/cases/compatibility-alias-office-hours/project with spaces/.agents/skills",
+      "expectedSkills": [
+        "office-hours"
+      ],
+      "installedSkills": [
+        "office-hours"
+      ],
+      "checks": [
+        {
+          "id": "compatibility-alias-office-hours.command",
+          "passed": true,
+          "detail": "exit=0; signal=none"
+        },
+        {
+          "id": "compatibility-alias-office-hours.selected-skills",
+          "passed": true,
+          "detail": "expected office-hours; found office-hours"
+        },
+        {
+          "id": "compatibility-alias-office-hours.office-hours.content",
+          "passed": true,
+          "detail": "source=716383160ed907a43766f896a7bbb34e24c29de2dc9bad357018fde95a8b3709; installed=716383160ed907a43766f896a7bbb34e24c29de2dc9bad357018fde95a8b3709"
+        },
+        {
+          "id": "compatibility-alias-office-hours.office-hours.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "compatibility-alias-office-hours.office-hours.canonical-name",
+          "passed": true,
+          "detail": "expected office-hours; found office-hours"
+        }
+      ],
+      "command": {
+        "argv": [
+          "npx",
+          "--yes",
+          "skills",
+          "add",
+          "<REPOSITORY_ROOT>",
+          "--skill",
+          "office-hours",
+          "--agent",
+          "codex",
+          "--copy",
+          "--yes"
+        ],
+        "exitCode": 0,
+        "signal": null,
+        "durationMs": 1089,
+        "stdout": "│\n●   codex  Agent detected — installing non-interactively\n│\n◇  Source: <REPOSITORY_ROOT>\n│\n◇  Local path validated\n│\n◒  Discovering skills…◇  Found 113 skills\n│\n●  Selected 1 skill: office-hours\n\n│\n◇  Installation Summary ──────────╮\n│                                 │\n│  ./.agents/skills/office-hours  │\n│    copy → Codex                 │\n│                                 │\n├─────────────────────────────────╯\n│\n◇  Installation complete\n\n│\n◇  Installed 1 skill ─────────────────╮\n│                                     │\n│  ✓ office-hours (copied)            │\n│    → ./.agents/skills/office-hours  │\n│                                     │\n├─────────────────────────────────────╯\n\n│\n└  Done!  Review skills before use; they run with full agent permissions.",
+        "stderr": ""
+      },
+      "passed": true
+    }
+  ],
+  "removals": [
+    {
+      "id": "collision-removal-project",
+      "agent": "cursor",
+      "scope": "project",
+      "supported": true,
+      "removedSkills": [
+        "qa",
+        "review",
+        "ship"
+      ],
+      "checks": [
+        {
+          "id": "collision-removal-project.command",
+          "passed": true,
+          "detail": "exit=0; signal=none"
+        },
+        {
+          "id": "collision-removal-project.qa.removed",
+          "passed": true,
+          "detail": "removed"
+        },
+        {
+          "id": "collision-removal-project.review.removed",
+          "passed": true,
+          "detail": "removed"
+        },
+        {
+          "id": "collision-removal-project.ship.removed",
+          "passed": true,
+          "detail": "removed"
+        }
+      ],
+      "command": {
+        "argv": [
+          "npx",
+          "--yes",
+          "skills",
+          "remove",
+          "--skill",
+          "qa",
+          "review",
+          "ship",
+          "--agent",
+          "cursor",
+          "--yes"
+        ],
+        "exitCode": 0,
+        "signal": null,
+        "durationMs": 936,
+        "stdout": "│\n●   codex  Agent detected — removing non-interactively\n│\n◇  Found 3 unique installed skill(s)\n│\n◇  Removal process complete\n│\n◆  Successfully removed 3 skill(s)\n\n│\n└  Done!",
+        "stderr": ""
+      },
+      "passed": true
+    },
+    {
+      "id": "collision-removal-global",
+      "agent": "codex",
+      "scope": "global",
+      "supported": true,
+      "removedSkills": [
+        "qa",
+        "review",
+        "ship"
+      ],
+      "checks": [
+        {
+          "id": "collision-removal-global.command",
+          "passed": true,
+          "detail": "exit=0; signal=none"
+        },
+        {
+          "id": "collision-removal-global.qa.removed",
+          "passed": true,
+          "detail": "removed"
+        },
+        {
+          "id": "collision-removal-global.review.removed",
+          "passed": true,
+          "detail": "removed"
+        },
+        {
+          "id": "collision-removal-global.ship.removed",
+          "passed": true,
+          "detail": "removed"
+        }
+      ],
+      "command": {
+        "argv": [
+          "npx",
+          "--yes",
+          "skills",
+          "remove",
+          "--skill",
+          "qa",
+          "review",
+          "ship",
+          "--agent",
+          "codex",
+          "--yes",
+          "--global"
+        ],
+        "exitCode": 0,
+        "signal": null,
+        "durationMs": 901,
+        "stdout": "│\n●   codex  Agent detected — removing non-interactively\n│\n◇  Found 3 unique installed skill(s)\n│\n◇  Removal process complete\n│\n◆  Successfully removed 3 skill(s)\n\n│\n└  Done!",
+        "stderr": ""
+      },
+      "passed": true
+    }
+  ],
+  "summary": {
+    "passed": true,
+    "checks": 470,
+    "passedChecks": 470,
+    "failedChecks": 0,
+    "installCases": 16,
+    "removalCases": 2
+  },
+  "limitations": [
+    "The full matrix exercises the current local canonical skills/ tree through the published npx skills CLI; it does not fetch the not-yet-published branch from GitHub.",
+    "The source projection excludes ignored/generated legacy host trees because those files are not part of a clean standards-based package checkout.",
+    "This run proves filesystem installation/removal contracts; launching each host UI or agent process is outside the installer matrix."
+  ]
+}

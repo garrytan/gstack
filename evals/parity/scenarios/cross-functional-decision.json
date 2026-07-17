@@ -1,0 +1,37 @@
+{
+  "id": "cross-functional-decision",
+  "prompt": "Run the complete set of product, interface, architecture, and developer-experience checks on this proposal.",
+  "signals": {
+    "phase": "proposal",
+    "artifact_exists": true,
+    "review_axes": [
+      "product",
+      "interface",
+      "architecture",
+      "developer-experience"
+    ],
+    "automatic_decisions": true
+  },
+  "expected": {
+    "tree": "plan",
+    "mode": "Full chain",
+    "depth": "deep",
+    "mutation": "plan-only",
+    "active_modules": [
+      "autoplan"
+    ],
+    "web_context": "optional",
+    "decision_basis": [
+      "review_axes_count=4",
+      "automatic_decisions=true"
+    ],
+    "skipped_modules": [
+      "office-hours",
+      "plan-ceo-review",
+      "plan-eng-review",
+      "plan-devex-review",
+      "spec",
+      "plan-tune"
+    ]
+  }
+}

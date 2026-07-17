@@ -1,0 +1,31 @@
+{
+  "id": "compare-directions",
+  "prompt": "I do not know which visual direction is right. Show several concrete options I can react to.",
+  "signals": {
+    "surface": "visual-direction",
+    "implementation_exists": false,
+    "alternatives_requested": true,
+    "output": "comparison"
+  },
+  "expected": {
+    "tree": "design",
+    "mode": "Explore",
+    "depth": "deep",
+    "mutation": "design-artifacts",
+    "active_modules": [
+      "design-shotgun"
+    ],
+    "web_context": "optional",
+    "decision_basis": [
+      "alternatives_requested=true",
+      "output=comparison"
+    ],
+    "skipped_modules": [
+      "design-consultation",
+      "design-html",
+      "plan-design-review",
+      "design-review",
+      "ios-design-review"
+    ]
+  }
+}

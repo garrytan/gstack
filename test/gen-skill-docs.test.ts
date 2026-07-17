@@ -7,6 +7,7 @@ import * as os from 'os';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const MAX_SKILL_DESCRIPTION_LENGTH = 1024;
+const PUBLIC_SKILL_NAMES = ['debug', 'design', 'plan', 'qa', 'review', 'ship'] as const;
 
 // Carved-skill aware (v2 plan T9): ship is now a skeleton SKILL.md + sections/*.md.
 // Read the union so assertions about content that MOVED into a section still pass.
@@ -103,7 +104,11 @@ const ALL_SKILLS = (() => {
   return skills;
 })();
 
-const CLAUDE_SKIPPED_SKILL_DIRS = new Set(['claude']);
+// The root template is now an internal compatibility router. The Claude
+// generator intentionally removes ROOT/SKILL.md so standards installers can
+// discover the canonical skills/ tree; legacy generated docs remain in their
+// non-root directories for provenance and compatibility coverage.
+const CLAUDE_SKIPPED_SKILL_DIRS = new Set(['.', 'claude']);
 const CLAUDE_GENERATED_SKILLS = ALL_SKILLS.filter(skill => !CLAUDE_SKIPPED_SKILL_DIRS.has(skill.dir));
 
 describe('gen-skill-docs', () => {
@@ -137,10 +142,19 @@ describe('gen-skill-docs', () => {
     expect(commands).toEqual(sorted);
   });
 
-  test('generated header is present in SKILL.md', () => {
-    const content = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
-    expect(content).toContain('AUTO-GENERATED from SKILL.md.tmpl');
-    expect(content).toContain('Regenerate: bun run gen:skill-docs');
+  test('GStack 2 exposes exactly six canonical public skills and no root SKILL.md', () => {
+    expect(fs.existsSync(path.join(ROOT, 'SKILL.md'))).toBe(false);
+
+    const publicSkills = fs.readdirSync(path.join(ROOT, 'skills'), { withFileTypes: true })
+      .filter(entry => entry.isDirectory() && fs.existsSync(path.join(ROOT, 'skills', entry.name, 'SKILL.md')))
+      .map(entry => entry.name)
+      .sort();
+    expect(publicSkills).toEqual([...PUBLIC_SKILL_NAMES]);
+
+    for (const name of PUBLIC_SKILL_NAMES) {
+      const content = fs.readFileSync(path.join(ROOT, 'skills', name, 'SKILL.md'), 'utf-8');
+      expect(content).toMatch(new RegExp(`^---\\nname: ${name}\\n`));
+    }
   });
 
   test('generated header is present in browse/SKILL.md', () => {
@@ -283,13 +297,14 @@ describe('gen-skill-docs', () => {
     }
   });
 
-  test('templates contain placeholders', () => {
-    // P2 (v1.2.0): the root template is a pure router — only {{PREAMBLE}}.
-    // The browse command/snapshot placeholders live in browse/SKILL.md.tmpl now.
+  test('internal root router has no generator placeholders; legacy templates still do', () => {
     const rootTmpl = fs.readFileSync(path.join(ROOT, 'SKILL.md.tmpl'), 'utf-8');
-    expect(rootTmpl).toContain('{{PREAMBLE}}');
-    expect(rootTmpl).not.toContain('{{COMMAND_REFERENCE}}');
-    expect(rootTmpl).not.toContain('{{SNAPSHOT_FLAGS}}');
+    expect(rootTmpl).toContain('internal: true');
+    expect(rootTmpl).toContain('six public skills');
+    expect(rootTmpl.match(/\{\{[A-Z_]+\}\}/g)).toBeNull();
+    for (const name of PUBLIC_SKILL_NAMES) {
+      expect(rootTmpl).toContain(`: \`/${name}\``);
+    }
 
     const browseTmpl = fs.readFileSync(path.join(ROOT, 'browse', 'SKILL.md.tmpl'), 'utf-8');
     expect(browseTmpl).toContain('{{COMMAND_REFERENCE}}');
@@ -297,8 +312,8 @@ describe('gen-skill-docs', () => {
     expect(browseTmpl).toContain('{{PREAMBLE}}');
   });
 
-  test('generated SKILL.md contains operational self-improvement (replaced contributor mode)', () => {
-    const content = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
+  test('generated legacy review skill contains operational self-improvement', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
     expect(content).not.toContain('Contributor Mode');
     expect(content).not.toContain('gstack_contributor');
     expect(content).not.toContain('contributor-logs');
@@ -313,14 +328,14 @@ describe('gen-skill-docs', () => {
     expect(content).toContain('operational');
   });
 
-  test('generated SKILL.md contains session awareness', () => {
-    const content = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
+  test('generated legacy review skill contains session awareness', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
     expect(content).toContain('_SESSIONS');
     expect(content).toContain('RECOMMENDATION');
   });
 
-  test('generated SKILL.md contains branch detection', () => {
-    const content = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
+  test('generated legacy review skill contains branch detection', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
     expect(content).toContain('_BRANCH');
     expect(content).toContain('git branch --show-current');
   });
@@ -341,8 +356,8 @@ describe('gen-skill-docs', () => {
     expect(content).not.toContain('## Completeness Principle');
   });
 
-  test('generated SKILL.md contains telemetry line', () => {
-    const content = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
+  test('generated legacy review skill contains telemetry line', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
     expect(content).toContain('skill-usage.jsonl');
     expect(content).toContain('~/.gstack/analytics');
   });
@@ -455,7 +470,6 @@ describe('gen-skill-docs', () => {
 
   test('preamble-using skills have correct skill name in telemetry', () => {
     const PREAMBLE_SKILLS = [
-      { dir: '.', name: 'gstack' },
       { dir: 'ship', name: 'ship' },
       { dir: 'review', name: 'review' },
       { dir: 'qa', name: 'qa' },
@@ -2243,8 +2257,10 @@ describe('--host all', () => {
     });
     expect(result.exitCode).toBe(0);
     const output = result.stdout.toString();
-    // All hosts should appear in output
-    expect(output).toContain('FRESH: SKILL.md');           // claude
+    // All hosts should appear in output. Claude intentionally has no root
+    // SKILL.md; use a representative internal legacy output as its marker.
+    expect(output).toContain('FRESH: review/SKILL.md');    // claude
+    expect(output).not.toContain('FRESH: SKILL.md');
     for (const hostConfig of getExternalHosts()) {
       expect(output).toContain(`FRESH: ${hostConfig.hostSubdir}/skills/`);
     }
@@ -2256,7 +2272,11 @@ describe('--host all', () => {
 // what the generator produces — catching the bug where setup
 // installed Claude-format source dirs for Codex users.
 
-describe('setup script validation', () => {
+// Obsolete under GStack 2: host detection, placement, prefixing, and cleanup
+// are delegated to the standards-based Agent Skills installer. Keep these
+// historical assertions visible for provenance, but do not validate the
+// compatibility runtime setup entrypoint against the retired installer.
+describe.skip('setup script validation (obsolete: host placement belongs to the Agent Skills installer)', () => {
   const setupContent = fs.readFileSync(path.join(ROOT, 'setup'), 'utf-8');
 
   test('setup has separate link functions for Claude and Codex', () => {
@@ -2575,8 +2595,8 @@ describe('discover-skills hidden directory filtering', () => {
 });
 
 describe('telemetry', () => {
-  test('generated SKILL.md contains telemetry start block', () => {
-    const content = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
+  test('generated legacy review skill contains telemetry start block', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
     expect(content).toContain('_TEL_START');
     expect(content).toContain('_SESSION_ID');
     expect(content).toContain('TELEMETRY:');
@@ -2584,8 +2604,8 @@ describe('telemetry', () => {
     expect(content).toContain('gstack-config get telemetry');
   });
 
-  test('generated SKILL.md contains telemetry opt-in prompt', () => {
-    const content = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
+  test('generated legacy review skill contains telemetry opt-in prompt', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
     expect(content).toContain('.telemetry-prompted');
     expect(content).toContain('Help gstack get better');
     expect(content).toContain('gstack-config set telemetry community');
@@ -2593,8 +2613,8 @@ describe('telemetry', () => {
     expect(content).toContain('gstack-config set telemetry off');
   });
 
-  test('generated SKILL.md contains telemetry epilogue', () => {
-    const content = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
+  test('generated legacy review skill contains telemetry epilogue', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
     expect(content).toContain('Telemetry (run last)');
     expect(content).toContain('gstack-telemetry-log');
     expect(content).toContain('_TEL_END');
@@ -2604,8 +2624,8 @@ describe('telemetry', () => {
     expect(content).toContain('PLAN MODE EXCEPTION');
   });
 
-  test('generated SKILL.md contains pending marker handling', () => {
-    const content = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
+  test('generated legacy review skill contains pending marker handling', () => {
+    const content = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
     expect(content).toContain('.pending');
     expect(content).toContain('_pending_finalize');
   });
@@ -2651,15 +2671,20 @@ describe('community fixes wave', () => {
     }
   });
 
-  // #594 — Discoverability: first line of each description is under 120 chars
-  test('every SKILL.md.tmpl description first line is under 120 chars', () => {
-    for (const skill of ALL_SKILLS) {
+  // #594 — Discoverability: legacy public descriptions stay compact. The root
+  // compatibility router is internal and follows the 1024-char Agent Skills
+  // description limit instead of the historical catalog warning threshold.
+  test('every legacy public SKILL.md.tmpl description first line is under 120 chars', () => {
+    for (const skill of ALL_SKILLS.filter(skill => skill.dir !== '.')) {
       const tmplPath = skill.dir === '.' ? path.join(ROOT, 'SKILL.md.tmpl') : path.join(ROOT, skill.dir, 'SKILL.md.tmpl');
       const content = fs.readFileSync(tmplPath, 'utf-8');
       const desc = extractDescription(content);
       const firstLine = desc.split('\n')[0];
       expect(firstLine.length).toBeLessThanOrEqual(120);
     }
+
+    const rootDescription = extractDescription(fs.readFileSync(path.join(ROOT, 'SKILL.md.tmpl'), 'utf-8'));
+    expect(rootDescription.length).toBeLessThanOrEqual(MAX_SKILL_DESCRIPTION_LENGTH);
   });
 
   // #573 — Feature signals: ship/SKILL.md contains feature signal detection

@@ -15,16 +15,22 @@ import { spawnSync } from 'child_process';
 const ROOT = path.resolve(import.meta.dir, '..');
 const BIN = path.join(ROOT, 'bin', 'gstack-distill-free-text');
 const QLOG_BIN = path.join(ROOT, 'bin', 'gstack-question-log');
+const SLUG_BIN = path.join(ROOT, 'bin', 'gstack-slug');
 
 let stateRoot: string;
 let fixtureCwd: string;
 let cwdSlug: string;
+let projectId: string;
 
 beforeEach(() => {
   stateRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-dist-'));
   cwdSlug = 'distill-fixture';
   fixtureCwd = path.join(stateRoot, cwdSlug);
   fs.mkdirSync(fixtureCwd, { recursive: true });
+  const identityOutput = spawnSync(SLUG_BIN, [], {
+    env: { ...process.env, GSTACK_HOME: stateRoot }, cwd: fixtureCwd, encoding: 'utf8',
+  }).stdout || '';
+  projectId = identityOutput.match(/^PROJECT_ID=([a-zA-Z0-9._-]+)$/m)?.[1] ?? 'unknown';
 });
 
 afterEach(() => {
@@ -79,11 +85,11 @@ function writeAuqOtherEvent(text: string): void {
   );
 }
 
-function writeCostLogEntry(slug: string, dateIso: string): void {
+function writeCostLogEntry(projectId: string, dateIso: string): void {
   fs.mkdirSync(stateRoot, { recursive: true });
   fs.appendFileSync(
     path.join(stateRoot, 'distill-cost.jsonl'),
-    JSON.stringify({ ts: dateIso, slug, proposals_count: 0, cost_usd_est: 0 }) + '\n',
+    JSON.stringify({ ts: dateIso, project_id: projectId, slug: cwdSlug, proposals_count: 0, cost_usd_est: 0 }) + '\n',
   );
 }
 
@@ -99,8 +105,8 @@ describe('--status', () => {
   });
 
   test('reports counts when prior runs exist', () => {
-    writeCostLogEntry(cwdSlug, new Date().toISOString());
-    writeCostLogEntry(cwdSlug, new Date().toISOString());
+    writeCostLogEntry(projectId, new Date().toISOString());
+    writeCostLogEntry(projectId, new Date().toISOString());
     const r = run(['--status']);
     expect(r.status).toBe(0);
     expect(r.stdout).toContain('RUNS: 2');
@@ -117,7 +123,7 @@ describe('--status', () => {
 describe('no rate cap (audit removed)', () => {
   test('never exits with RATE_CAPPED, even with many runs today', () => {
     const today = new Date().toISOString();
-    for (let i = 0; i < 10; i++) writeCostLogEntry(cwdSlug, today);
+    for (let i = 0; i < 10; i++) writeCostLogEntry(projectId, today);
     const r = run([]);
     expect(r.status).toBe(0);
     expect(r.stdout).not.toMatch(/RATE_CAPPED/);

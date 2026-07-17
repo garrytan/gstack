@@ -64,20 +64,17 @@ describe('gstack-config explain_level', () => {
 
   test('get with unset explain_level returns the documented default', () => {
     // gstack-config returns the documented default ("default") when the
-    // key is absent from config.yaml — see bin/gstack-config:103. Earlier
+    // key is absent from config.json. Earlier
     // versions of this test expected "" (preamble shell substitution),
     // but the script ships defaults inline so callers always get a
     // usable value without bash fallback gymnastics.
     expect(run('get', 'explain_level').stdout).toBe('default');
   });
 
-  test('config header documents explain_level', () => {
-    // Trigger file creation with any set
+  test('config.json records explain_level', () => {
     run('set', 'explain_level', 'default');
-    const cfg = fs.readFileSync(path.join(tmpHome, 'config.yaml'), 'utf-8');
-    expect(cfg).toContain('explain_level');
-    expect(cfg).toContain('default');
-    expect(cfg).toContain('terse');
+    const cfg = JSON.parse(fs.readFileSync(path.join(tmpHome, 'config.json'), 'utf-8'));
+    expect(cfg.explain_level).toBe('default');
   });
 
   test('set terse, then set garbage restores default', () => {

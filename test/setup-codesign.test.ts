@@ -6,8 +6,9 @@ import * as os from 'os';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const SETUP_SCRIPT = path.join(ROOT, 'setup');
+const GSTACK2_RUNTIME_ONLY = fs.readFileSync(SETUP_SCRIPT, 'utf-8').includes('optional GStack 2 runtime');
 
-describe('setup: Apple Silicon codesign', () => {
+describe.skipIf(GSTACK2_RUNTIME_ONLY)('legacy setup: Apple Silicon codesign (capability build is runtime-installer-owned)', () => {
   test('setup script contains codesign block for Darwin arm64', () => {
     const content = fs.readFileSync(SETUP_SCRIPT, 'utf-8');
     // Verify the codesign guard checks both Darwin and arm64

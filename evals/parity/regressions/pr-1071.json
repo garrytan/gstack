@@ -1,0 +1,21 @@
+{
+  "pr": 1071,
+  "url": "https://github.com/garrytan/gstack/pull/1071",
+  "title": "Make normalized data models the default",
+  "targets": [
+    "plan-eng-review"
+  ],
+  "anchor": "GSTACK2_FIX_1071_DATA_MODEL_DEFAULTS",
+  "body": "### Data-model judgment\n\nDefault to a normalized relational model. Denormalization needs a measured performance reason plus a consistency plan. A JSON field is appropriate for genuinely opaque or externally owned payloads, but not as an escape hatch for known, stable variants that deserve typed columns or tables. The engineering review must state entities, ownership, cardinality, constraints, indexes, migration/backfill, rollback, and how invalid combinations are prevented.",
+  "regression": {
+    "input": {
+      "proposal": "Store known subscription variants in a JSON blob",
+      "measured_bottleneck": false
+    },
+    "expected": {
+      "recommendation": "normalize",
+      "require_constraints": true,
+      "json_escape_hatch_rejected": true
+    }
+  }
+}

@@ -97,18 +97,18 @@ describe('gstack-config gbrain keys', () => {
   });
 
   test('GSTACK_HOME overrides real config dir', () => {
-    // Real ~/.gstack/config.yaml must not change, regardless of what it
+    // Real ~/.gstack/config.json must not change, regardless of what it
     // already contains on the developer's machine.
-    const realConfig = path.join(os.homedir(), '.gstack', 'config.yaml');
+    const realConfig = path.join(os.homedir(), '.gstack', 'config.json');
     const before = fs.existsSync(realConfig) ? fs.readFileSync(realConfig, 'utf-8') : null;
 
     run(['gstack-config', 'set', 'artifacts_sync_mode', 'full']);
 
     // The override actually took effect — temp config got the new value.
-    const tempConfig = fs.readFileSync(path.join(tmpHome, 'config.yaml'), 'utf-8');
-    expect(tempConfig).toContain('artifacts_sync_mode: full');
+    const tempConfig = JSON.parse(fs.readFileSync(path.join(tmpHome, 'config.json'), 'utf-8'));
+    expect(tempConfig.artifacts_sync_mode).toBe('full');
 
-    // Real ~/.gstack/config.yaml must not be touched.
+    // Real ~/.gstack/config.json must not be touched.
     const after = fs.existsSync(realConfig) ? fs.readFileSync(realConfig, 'utf-8') : null;
     expect(after).toBe(before);
   });
@@ -132,8 +132,9 @@ describe('gstack-brain-enqueue', () => {
   });
 
   test('enqueues when mode is full and .git exists', () => {
+    const set = run(['gstack-config', 'set', 'artifacts_sync_mode', 'full']);
+    expect(set.status).toBe(0);
     fs.mkdirSync(path.join(tmpHome, '.git'), { recursive: true });
-    run(['gstack-config', 'set', 'artifacts_sync_mode', 'full']);
     run(['gstack-brain-enqueue', 'projects/foo/learnings.jsonl']);
     const queue = fs.readFileSync(path.join(tmpHome, '.brain-queue.jsonl'), 'utf-8');
     expect(queue).toContain('projects/foo/learnings.jsonl');
@@ -143,8 +144,9 @@ describe('gstack-brain-enqueue', () => {
   });
 
   test('skip list honored', () => {
+    const set = run(['gstack-config', 'set', 'artifacts_sync_mode', 'full']);
+    expect(set.status).toBe(0);
     fs.mkdirSync(path.join(tmpHome, '.git'), { recursive: true });
-    run(['gstack-config', 'set', 'artifacts_sync_mode', 'full']);
     fs.writeFileSync(path.join(tmpHome, '.brain-skip.txt'), 'projects/foo/secret.jsonl\n');
     run(['gstack-brain-enqueue', 'projects/foo/secret.jsonl']);
     run(['gstack-brain-enqueue', 'projects/foo/ok.jsonl']);
@@ -154,8 +156,9 @@ describe('gstack-brain-enqueue', () => {
   });
 
   test('concurrent enqueues all land (atomic append)', async () => {
+    const set = run(['gstack-config', 'set', 'artifacts_sync_mode', 'full']);
+    expect(set.status).toBe(0);
     fs.mkdirSync(path.join(tmpHome, '.git'), { recursive: true });
-    run(['gstack-config', 'set', 'artifacts_sync_mode', 'full']);
     const procs = [];
     for (let i = 0; i < 10; i++) {
       procs.push(new Promise<void>((resolve) => {

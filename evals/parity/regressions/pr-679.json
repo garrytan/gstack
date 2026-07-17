@@ -1,0 +1,20 @@
+{
+  "pr": 679,
+  "url": "https://github.com/garrytan/gstack/pull/679",
+  "title": "Match the user language",
+  "targets": [
+    "*"
+  ],
+  "anchor": "GSTACK2_FIX_679_MATCH_USER_LANGUAGE",
+  "body": "### User-language rule\n\nWrite questions, progress updates, reports, and artifacts in the language used by the user. Source material, code identifiers, commands, and quotations may remain in their original language when translating them would reduce accuracy.",
+  "regression": {
+    "input": {
+      "user_language": "Japanese",
+      "repository_language": "English"
+    },
+    "expected": {
+      "response_language": "Japanese",
+      "code_identifiers_translated": false
+    }
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "source": "make-pdf",
+  "tree": "design",
+  "public_mode": "Generate",
+  "mode": "pdf",
+  "mandatory": false,
+  "visibility": "internal",
+  "replacement": "$design --mode Generate --module make-pdf",
+  "source_path": "make-pdf/SKILL.md.tmpl",
+  "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
+  "blob_sha": "9133a711d4f3d056a21f790e8ec3b98f13fbaa50",
+  "normalized_render_sha256": "7901a455bf36750224e05468d0123c32e8b9bc98c7334fb0973228bdbba80997",
+  "target": "skills/design/references/legacy/make-pdf.md",
+  "overlays": [
+    679
+  ],
+  "contract": {
+    "question_order": "Preserve the source workflow order; gather prerequisites before consequential questions.",
+    "pressure": "Preserve the source forcing questions, recommendation pressure, and one-question-at-a-time cadence.",
+    "smart_skips": "Skip only when the source condition is false, and name every skipped module with evidence.",
+    "stop_approval_gates": "Preserve every STOP, hard gate, approval boundary, and no-mutation-before-approval rule.",
+    "evidence": "Ground conclusions in inspected code, commands, browser/device observations, or source artifacts.",
+    "artifacts": "Produce every report, plan, log, screenshot, manifest, or handoff required by the source.",
+    "mutation": "Use the source mutation boundary; never broaden writes, commits, pushes, merges, or deploys.",
+    "exit": "Preserve source completion checks, unresolved-decision reporting, and explicit blocked exits.",
+    "voice": "Direct builder voice; match the user language and retain source-specific tone constraints."
+  }
+}

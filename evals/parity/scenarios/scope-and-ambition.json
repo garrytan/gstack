@@ -1,0 +1,32 @@
+{
+  "id": "scope-and-ambition",
+  "prompt": "This proposal works, but I am unsure whether it is the right-sized bet for the company.",
+  "signals": {
+    "phase": "proposal",
+    "artifact_exists": true,
+    "uncertainty": "scope-strategy",
+    "architecture_locked": false
+  },
+  "expected": {
+    "tree": "plan",
+    "mode": "Product",
+    "depth": "deep",
+    "mutation": "plan-only",
+    "active_modules": [
+      "plan-ceo-review"
+    ],
+    "web_context": "optional",
+    "decision_basis": [
+      "artifact_exists=true",
+      "uncertainty=scope-strategy"
+    ],
+    "skipped_modules": [
+      "office-hours",
+      "plan-eng-review",
+      "plan-devex-review",
+      "autoplan",
+      "spec",
+      "plan-tune"
+    ]
+  }
+}

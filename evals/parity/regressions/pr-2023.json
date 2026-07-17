@@ -1,0 +1,23 @@
+{
+  "pr": 2023,
+  "url": "https://github.com/garrytan/gstack/pull/2023",
+  "title": "Label single-model autoplan output honestly",
+  "targets": [
+    "autoplan"
+  ],
+  "anchor": "GSTACK2_FIX_2023_SINGLE_VOICE_LABELS",
+  "body": "### Single-voice labeling\n\nWhen only one model produced a review row, label it **Claude-only** or **Codex-only** and print a visible single-voice banner. Never describe a one-model result as consensus, agreement, or cross-model validation.",
+  "regression": {
+    "input": {
+      "available_models": [
+        "Codex"
+      ],
+      "review_rows": 4
+    },
+    "expected": {
+      "label": "Codex-only",
+      "banner": true,
+      "consensus_claim": false
+    }
+  }
+}

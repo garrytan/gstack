@@ -25,7 +25,7 @@ function run(cmd: string, env: Record<string, string> = {}, expectFail = false):
   try {
     return execSync(cmd, {
       cwd: ROOT,
-      env: { ...process.env, GSTACK_STATE_DIR: tmpDir, ...env },
+      env: { ...process.env, GSTACK_HOME: path.join(tmpDir, 'state'), ...env },
       encoding: 'utf-8',
       timeout: 10000,
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -43,9 +43,12 @@ function setupMockInstall(skills: string[]): void {
   fs.mkdirSync(installDir, { recursive: true });
   fs.mkdirSync(skillsDir, { recursive: true });
 
-  // Copy the real gstack-config and gstack-relink to the mock install
+  // Copy the complete dependency closure used by the legacy relink command.
+  // gstack-config is a compatibility adapter over the shared GStack 2 runtime,
+  // so copying the binary alone is not a valid installed-package shape.
   const mockBin = path.join(installDir, 'bin');
   fs.mkdirSync(mockBin, { recursive: true });
+  fs.cpSync(path.join(ROOT, 'runtime'), path.join(installDir, 'runtime'), { recursive: true });
   fs.copyFileSync(path.join(BIN, 'gstack-config'), path.join(mockBin, 'gstack-config'));
   fs.chmodSync(path.join(mockBin, 'gstack-config'), 0o755);
   if (fs.existsSync(path.join(BIN, 'gstack-relink'))) {
@@ -394,15 +397,21 @@ describe('gstack-relink (#578)', () => {
     expect(fs.existsSync(path.join(skillsDir, 'gstack-qa'))).toBe(true);
   });
 
-  // Test 15: gstack-config set skill_prefix triggers relink
-  test('gstack-config set skill_prefix triggers relink', () => {
+  // GStack 2 keeps config persistence separate from host skill placement. The
+  // compatibility relinker remains explicit and consumes the persisted value.
+  test('gstack-config persists skill_prefix without silently relinking', () => {
     setupMockInstall(['qa', 'ship']);
-    // Run gstack-config set which should auto-trigger relink
     run(`${path.join(installDir, 'bin', 'gstack-config')} set skill_prefix true`, {
       GSTACK_INSTALL_DIR: installDir,
       GSTACK_SKILLS_DIR: skillsDir,
     });
-    // If relink was triggered, symlinks should exist
+    expect(fs.existsSync(path.join(skillsDir, 'gstack-qa'))).toBe(false);
+    expect(fs.existsSync(path.join(skillsDir, 'gstack-ship'))).toBe(false);
+
+    run(`${path.join(installDir, 'bin', 'gstack-relink')}`, {
+      GSTACK_INSTALL_DIR: installDir,
+      GSTACK_SKILLS_DIR: skillsDir,
+    });
     expect(fs.existsSync(path.join(skillsDir, 'gstack-qa'))).toBe(true);
     expect(fs.existsSync(path.join(skillsDir, 'gstack-ship'))).toBe(true);
   });

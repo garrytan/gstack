@@ -1,5 +1,5 @@
 ---
-name: ship
+name: gstack-1-ship
 preamble-tier: 4
 version: 1.0.0
 description: "Ship workflow: detect + merge base branch, run tests, review diff, bump VERSION, update CHANGELOG, commit, push, create PR. (gstack)"
@@ -18,6 +18,8 @@ triggers:
   - create a pr
   - push to main
   - deploy this
+metadata:
+  internal: true
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->

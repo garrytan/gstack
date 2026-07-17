@@ -11,8 +11,8 @@
  */
 
 import { test, expect } from 'bun:test';
-import { formatTable, formatJson, formatMarkdown, type BenchmarkReport } from './helpers/benchmark-runner';
-import { estimateCostUsd, PRICING } from './helpers/pricing';
+import { formatTable, formatJson, formatMarkdown, type BenchmarkReport } from '../lib/model-benchmark/runner';
+import { estimateCostUsd, PRICING } from '../lib/model-benchmark/pricing';
 import { missingTools, TOOL_COMPATIBILITY } from './helpers/tool-map';
 
 test('estimateCostUsd returns 0 for unknown model (no crash)', () => {

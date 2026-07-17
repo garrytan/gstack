@@ -1,0 +1,25 @@
+{
+  "pr": 610,
+  "url": "https://github.com/garrytan/gstack/pull/610",
+  "title": "Validate review findings before acting on them",
+  "targets": [
+    "review"
+  ],
+  "anchor": "GSTACK2_FIX_610_FINDING_VALIDATION",
+  "body": "### Finding validation and provenance gate\n\nBefore fix-first behavior, independently confirm each finding against the current code. Check whether it is already handled elsewhere, whether the branch introduced it, and whether the claimed consequence is reachable. Classify it as **VALIDATED**, **REJECTED**, or **UNCERTAIN**. Remove rejected findings; downgrade uncertain findings and say what evidence is missing. High-stakes findings require the strongest available reviewer. Every retained finding cites the inspected file/line or observed evidence.",
+  "regression": {
+    "input": {
+      "finding": "A helper may permit an unsafe write",
+      "evidence": "reviewer assertion only"
+    },
+    "expected": {
+      "action": "validate-before-fix",
+      "statuses": [
+        "VALIDATED",
+        "REJECTED",
+        "UNCERTAIN"
+      ],
+      "rejected_removed": true
+    }
+  }
+}

@@ -1,26 +1,39 @@
 /**
- * Tests for bin/gstack-config bash script.
+ * Behavioral tests for the Node compatibility adapter in bin/gstack-config.
  *
- * Uses Bun.spawnSync to invoke the script with temp dirs and
- * GSTACK_STATE_DIR env override for full isolation.
+ * config.json is the sole writable authority. A legacy config.yaml remains
+ * read-only migration input, and every mutation must first claim GSTACK_HOME.
  */
 
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-import { mkdtempSync, writeFileSync, rmSync, readFileSync, existsSync } from 'fs';
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
 const SCRIPT = join(import.meta.dir, '..', '..', 'bin', 'gstack-config');
+const NODE = Bun.which('node') ?? 'node';
 
 let stateDir: string;
 
-function run(args: string[] = [], extraEnv: Record<string, string> = {}) {
-  const result = Bun.spawnSync(['bash', SCRIPT, ...args], {
-    env: {
-      ...process.env,
-      GSTACK_STATE_DIR: stateDir,
-      ...extraEnv,
-    },
+function environment(home = stateDir) {
+  return {
+    ...process.env,
+    GSTACK_HOME: home,
+    GSTACK_STATE_ROOT: home,
+    GSTACK_STATE_DIR: home,
+  };
+}
+
+function run(args: string[] = [], home = stateDir) {
+  const result = Bun.spawnSync([NODE, SCRIPT, ...args], {
+    env: environment(home),
     stdout: 'pipe',
     stderr: 'pipe',
   });
@@ -29,6 +42,10 @@ function run(args: string[] = [], extraEnv: Record<string, string> = {}) {
     stdout: result.stdout.toString().trim(),
     stderr: result.stderr.toString().trim(),
   };
+}
+
+function readConfig(home = stateDir) {
+  return JSON.parse(readFileSync(join(home, 'config.json'), 'utf8'));
 }
 
 beforeEach(() => {
@@ -40,189 +57,205 @@ afterEach(() => {
 });
 
 describe('gstack-config', () => {
-  // ─── get ──────────────────────────────────────────────────
-  test('get on missing file returns the default, exit 0', () => {
-    // auto_upgrade has a default of false; get falls back to the defaults table.
-    const { exitCode, stdout } = run(['get', 'auto_upgrade']);
-    expect(exitCode).toBe(0);
-    expect(stdout).toBe('false');
+  describe('defaults, get, and list', () => {
+    test('defaults prints the compatibility defaults without claiming the home', () => {
+      const { exitCode, stdout, stderr } = run(['defaults']);
+
+      expect(exitCode).toBe(0);
+      expect(stderr).toBe('');
+      expect(stdout).toContain('auto_upgrade: false');
+      expect(stdout).toContain('codex_reviews: enabled');
+      expect(stdout).toContain('proactive: true');
+      expect(stdout).toContain('routing_declined: false');
+      expect(readdirSync(stateDir)).toEqual([]);
+    });
+
+    test('get returns a documented default and an empty unknown value', () => {
+      expect(run(['get', 'auto_upgrade'])).toMatchObject({
+        exitCode: 0,
+        stdout: 'false',
+        stderr: '',
+      });
+      expect(run(['get', 'some_unknown_key'])).toMatchObject({
+        exitCode: 0,
+        stdout: '',
+        stderr: '',
+      });
+      expect(readdirSync(stateDir)).toEqual([]);
+    });
+
+    test('list merges and flattens stored JSON over compatibility defaults', () => {
+      expect(run(['set', 'telemetry', 'community']).exitCode).toBe(0);
+
+      const { exitCode, stdout, stderr } = run(['list']);
+      expect(exitCode).toBe(0);
+      expect(stderr).toBe('');
+      expect(stdout).toContain('network.mode: off');
+      expect(stdout).toContain('proactive: true');
+      expect(stdout).toContain('telemetry: community');
+    });
   });
 
-  test('get unknown key on missing file returns empty, exit 0', () => {
-    const { exitCode, stdout } = run(['get', 'some_unknown_key']);
-    expect(exitCode).toBe(0);
-    expect(stdout).toBe('');
+  describe('legacy YAML migration input', () => {
+    test('get falls back to YAML and returns the last matching value', () => {
+      writeFileSync(
+        join(stateDir, 'config.yaml'),
+        'telemetry: off\ntelemetry: "community" # latest choice\n',
+      );
+
+      expect(run(['get', 'telemetry'])).toMatchObject({
+        exitCode: 0,
+        stdout: 'community',
+      });
+      expect(existsSync(join(stateDir, 'config.json'))).toBe(false);
+    });
+
+    test('list reads legacy values without mutating the YAML-only home', () => {
+      const yaml = 'auto_upgrade: true\nupdate_check: false\n';
+      writeFileSync(join(stateDir, 'config.yaml'), yaml);
+
+      const { exitCode, stdout } = run(['list']);
+      expect(exitCode).toBe(0);
+      expect(stdout).toContain('auto_upgrade: true');
+      expect(stdout).toContain('update_check: false');
+      expect(readFileSync(join(stateDir, 'config.yaml'), 'utf8')).toBe(yaml);
+      expect(existsSync(join(stateDir, 'config.json'))).toBe(false);
+    });
+
+    test('set adopts recognized legacy state, preserves YAML, and gives JSON authority', () => {
+      const yaml = 'telemetry: community\nproactive: false\n';
+      writeFileSync(join(stateDir, 'config.yaml'), yaml);
+
+      expect(run(['set', 'telemetry', 'off']).exitCode).toBe(0);
+      expect(readFileSync(join(stateDir, 'config.yaml'), 'utf8')).toBe(yaml);
+      expect(readConfig()).toMatchObject({ telemetry: 'off', proactive: false });
+      expect(run(['get', 'telemetry']).stdout).toBe('off');
+      expect(JSON.parse(readFileSync(join(stateDir, '.gstack-managed-home.json'), 'utf8'))).toMatchObject({
+        kind: 'gstack-managed-home',
+        home: stateDir,
+        adoptedLegacy: true,
+        preexistingTopLevel: ['config.yaml'],
+      });
+    });
   });
 
-  test('get existing key returns value', () => {
-    writeFileSync(join(stateDir, 'config.yaml'), 'auto_upgrade: true\n');
-    const { exitCode, stdout } = run(['get', 'auto_upgrade']);
-    expect(exitCode).toBe(0);
-    expect(stdout).toBe('true');
+  describe('JSON writes and managed-home ownership', () => {
+    test('first set claims the home and atomically commits valid config.json', () => {
+      expect(run(['set', 'auto_upgrade', 'true'])).toMatchObject({
+        exitCode: 0,
+        stdout: '',
+        stderr: '',
+      });
+
+      expect(readConfig()).toMatchObject({
+        schemaVersion: 2,
+        auto_upgrade: true,
+      });
+      expect(JSON.parse(readFileSync(join(stateDir, '.gstack-managed-home.json'), 'utf8'))).toMatchObject({
+        kind: 'gstack-managed-home',
+        home: stateDir,
+      });
+      expect(existsSync(join(stateDir, 'secrets.json'))).toBe(true);
+      expect(existsSync(join(stateDir, 'config.yaml'))).toBe(false);
+      expect(readdirSync(stateDir).some((name) => /\.tmp-|\.replace-/.test(name))).toBe(false);
+    });
+
+    test('subsequent sets replace values without losing unrelated JSON state', () => {
+      expect(run(['set', 'first_setting', 'first-value']).exitCode).toBe(0);
+      expect(run(['set', 'auto_upgrade', 'true']).exitCode).toBe(0);
+      expect(run(['set', 'first_setting', 'replacement']).exitCode).toBe(0);
+
+      expect(readConfig()).toMatchObject({
+        first_setting: 'replacement',
+        auto_upgrade: true,
+        network: { mode: 'off', consent: false, selection: null },
+      });
+      expect(readdirSync(stateDir).some((name) => /\.tmp-|\.replace-/.test(name))).toBe(false);
+    });
+
+    test('set creates and claims a nested GSTACK_HOME', () => {
+      const nested = join(stateDir, 'nested', 'state');
+
+      expect(run(['set', 'telemetry', 'anonymous'], nested).exitCode).toBe(0);
+      expect(readConfig(nested).telemetry).toBe('anonymous');
+      expect(JSON.parse(readFileSync(join(nested, '.gstack-managed-home.json'), 'utf8'))).toMatchObject({
+        kind: 'gstack-managed-home',
+        home: nested,
+      });
+    });
+
+    test('set refuses to claim an unrelated non-empty directory', () => {
+      writeFileSync(join(stateDir, 'user-file.txt'), 'keep me\n');
+
+      const { exitCode, stderr } = run(['set', 'telemetry', 'off']);
+      expect(exitCode).toBe(1);
+      expect(stderr).toContain('Refusing to claim a non-empty directory as managed home');
+      expect(readFileSync(join(stateDir, 'user-file.txt'), 'utf8')).toBe('keep me\n');
+      expect(existsSync(join(stateDir, 'config.json'))).toBe(false);
+    });
   });
 
-  test('get missing key returns empty', () => {
-    writeFileSync(join(stateDir, 'config.yaml'), 'auto_upgrade: true\n');
-    const { exitCode, stdout } = run(['get', 'nonexistent']);
-    expect(exitCode).toBe(0);
-    expect(stdout).toBe('');
+  describe('key and value validation', () => {
+    test('set rejects keys with metacharacters before writing state', () => {
+      const { exitCode, stderr } = run(['set', '.*', 'value']);
+
+      expect(exitCode).toBe(1);
+      expect(stderr).toContain('alphanumeric');
+      expect(readdirSync(stateDir)).toEqual([]);
+    });
+
+    test('set preserves string values containing former sed metacharacters', () => {
+      expect(run(['set', 'test_special', 'a/b&c\\d']).exitCode).toBe(0);
+      expect(run(['get', 'test_special']).stdout).toBe('a/b&c\\d');
+      expect(readConfig().test_special).toBe('a/b&c\\d');
+    });
+
+    test('closed-domain values warn and store their safe fallback', () => {
+      const { exitCode, stderr } = run(['set', 'artifacts_sync_mode', 'bogus']);
+
+      expect(exitCode).toBe(0);
+      expect(stderr).toContain('not recognized');
+      expect(stderr).toContain('Using off');
+      expect(run(['get', 'artifacts_sync_mode']).stdout).toBe('off');
+    });
   });
 
-  test('get returns last value when key appears multiple times', () => {
-    writeFileSync(join(stateDir, 'config.yaml'), 'foo: bar\nfoo: baz\n');
-    const { exitCode, stdout } = run(['get', 'foo']);
-    expect(exitCode).toBe(0);
-    expect(stdout).toBe('baz');
+  describe('codex_reviews', () => {
+    test('defaults to enabled and accepts both supported values', () => {
+      expect(run(['get', 'codex_reviews']).stdout).toBe('enabled');
+      expect(run(['set', 'codex_reviews', 'disabled']).exitCode).toBe(0);
+      expect(run(['get', 'codex_reviews']).stdout).toBe('disabled');
+      expect(run(['set', 'codex_reviews', 'enabled']).exitCode).toBe(0);
+      expect(run(['get', 'codex_reviews']).stdout).toBe('enabled');
+    });
+
+    test('rejects an invalid value and preserves the existing choice', () => {
+      expect(run(['set', 'codex_reviews', 'disabled']).exitCode).toBe(0);
+
+      const { exitCode, stderr } = run(['set', 'codex_reviews', 'disabledd']);
+      expect(exitCode).toBe(1);
+      expect(stderr).toContain('not recognized');
+      expect(run(['get', 'codex_reviews']).stdout).toBe('disabled');
+      expect(readConfig().codex_reviews).toBe('disabled');
+    });
   });
 
-  // ─── set ──────────────────────────────────────────────────
-  test('set creates file and writes key on missing file', () => {
-    const { exitCode } = run(['set', 'auto_upgrade', 'true']);
-    expect(exitCode).toBe(0);
-    const content = readFileSync(join(stateDir, 'config.yaml'), 'utf-8');
-    expect(content).toContain('auto_upgrade: true');
+  describe('routing_declined', () => {
+    test('defaults false and round-trips true then false', () => {
+      expect(run(['get', 'routing_declined']).stdout).toBe('false');
+      expect(run(['set', 'routing_declined', 'true']).exitCode).toBe(0);
+      expect(run(['get', 'routing_declined']).stdout).toBe('true');
+      expect(run(['set', 'routing_declined', 'false']).exitCode).toBe(0);
+      expect(run(['get', 'routing_declined']).stdout).toBe('false');
+      expect(readConfig().routing_declined).toBe(false);
+    });
   });
 
-  test('set appends new key to existing file', () => {
-    writeFileSync(join(stateDir, 'config.yaml'), 'foo: bar\n');
-    const { exitCode } = run(['set', 'auto_upgrade', 'true']);
-    expect(exitCode).toBe(0);
-    const content = readFileSync(join(stateDir, 'config.yaml'), 'utf-8');
-    expect(content).toContain('foo: bar');
-    expect(content).toContain('auto_upgrade: true');
-  });
+  test('usage errors write stderr, not stdout', () => {
+    const { exitCode, stdout, stderr } = run([]);
 
-  test('set replaces existing key in-place', () => {
-    writeFileSync(join(stateDir, 'config.yaml'), 'auto_upgrade: false\n');
-    const { exitCode } = run(['set', 'auto_upgrade', 'true']);
-    expect(exitCode).toBe(0);
-    const content = readFileSync(join(stateDir, 'config.yaml'), 'utf-8');
-    expect(content).toContain('auto_upgrade: true');
-    expect(content).not.toContain('auto_upgrade: false');
-  });
-
-  test('set creates state dir if missing', () => {
-    const nestedDir = join(stateDir, 'nested', 'dir');
-    const { exitCode } = run(['set', 'foo', 'bar'], { GSTACK_STATE_DIR: nestedDir });
-    expect(exitCode).toBe(0);
-    expect(existsSync(join(nestedDir, 'config.yaml'))).toBe(true);
-  });
-
-  // ─── list ─────────────────────────────────────────────────
-  test('list shows all keys', () => {
-    writeFileSync(join(stateDir, 'config.yaml'), 'auto_upgrade: true\nupdate_check: false\n');
-    const { exitCode, stdout } = run(['list']);
-    expect(exitCode).toBe(0);
-    expect(stdout).toContain('auto_upgrade: true');
-    expect(stdout).toContain('update_check: false');
-  });
-
-  test('list on missing file shows defaults, exit 0', () => {
-    // list prints the active-values block with defaults for unset keys.
-    const { exitCode, stdout } = run(['list']);
-    expect(exitCode).toBe(0);
-    expect(stdout).toContain('proactive:');
-    expect(stdout).toContain('(default)');
-  });
-
-  // ─── usage ────────────────────────────────────────────────
-  test('no args shows usage and exits 1', () => {
-    const { exitCode, stdout } = run([]);
     expect(exitCode).toBe(1);
-    expect(stdout).toContain('Usage');
-  });
-
-  // ─── security: input validation ─────────────────────────
-  test('set rejects key with regex metacharacters', () => {
-    const { exitCode, stderr } = run(['set', '.*', 'value']);
-    expect(exitCode).toBe(1);
-    expect(stderr).toContain('alphanumeric');
-  });
-
-  test('set preserves value with sed special chars', () => {
-    run(['set', 'test_special', 'a/b&c\\d']);
-    const { stdout } = run(['get', 'test_special']);
-    expect(stdout).toBe('a/b&c\\d');
-  });
-
-  // ─── annotated header ──────────────────────────────────────
-  test('first set writes annotated header with docs', () => {
-    run(['set', 'telemetry', 'off']);
-    const content = readFileSync(join(stateDir, 'config.yaml'), 'utf-8');
-    expect(content).toContain('# gstack configuration');
-    expect(content).toContain('edit freely');
-    expect(content).toContain('proactive:');
-    expect(content).toContain('telemetry:');
-    expect(content).toContain('auto_upgrade:');
-    expect(content).toContain('skill_prefix:');
-    expect(content).toContain('routing_declined:');
-    expect(content).toContain('codex_reviews:');
-    expect(content).toContain('skip_eng_review:');
-  });
-
-  // ─── codex_reviews (paid-calls switch: reject-on-set, preserve existing) ──
-  test('codex_reviews defaults to enabled', () => {
-    const { exitCode, stdout } = run(['get', 'codex_reviews']);
-    expect(exitCode).toBe(0);
-    expect(stdout).toBe('enabled');
-  });
-
-  test('codex_reviews accepts enabled and disabled', () => {
-    expect(run(['set', 'codex_reviews', 'disabled']).exitCode).toBe(0);
-    expect(run(['get', 'codex_reviews']).stdout).toBe('disabled');
-    expect(run(['set', 'codex_reviews', 'enabled']).exitCode).toBe(0);
-    expect(run(['get', 'codex_reviews']).stdout).toBe('enabled');
-  });
-
-  test('codex_reviews rejects an invalid value and preserves the existing one', () => {
-    run(['set', 'codex_reviews', 'disabled']);
-    const { exitCode, stderr } = run(['set', 'codex_reviews', 'disabledd']);
-    expect(exitCode).not.toBe(0); // rejected, not warn-and-default
-    expect(stderr).toContain('not recognized');
-    // existing value must be untouched — a typo never silently flips paid Codex on/off
-    expect(run(['get', 'codex_reviews']).stdout).toBe('disabled');
-  });
-
-  test('header written only once, not duplicated on second set', () => {
-    run(['set', 'foo', 'bar']);
-    run(['set', 'baz', 'qux']);
-    const content = readFileSync(join(stateDir, 'config.yaml'), 'utf-8');
-    const headerCount = (content.match(/# gstack configuration/g) || []).length;
-    expect(headerCount).toBe(1);
-  });
-
-  test('header does not break get on commented-out keys', () => {
-    run(['set', 'telemetry', 'community']);
-    // Header contains "# telemetry: anonymous" as a comment example.
-    // get should return the real value, not the comment.
-    const { stdout } = run(['get', 'telemetry']);
-    expect(stdout).toBe('community');
-  });
-
-  test('existing config file is not overwritten with header', () => {
-    writeFileSync(join(stateDir, 'config.yaml'), 'existing: value\n');
-    run(['set', 'new_key', 'new_value']);
-    const content = readFileSync(join(stateDir, 'config.yaml'), 'utf-8');
-    expect(content).toContain('existing: value');
-    expect(content).not.toContain('# gstack configuration');
-  });
-
-  // ─── routing_declined ──────────────────────────────────────
-  test('routing_declined defaults to false (not set)', () => {
-    const { stdout } = run(['get', 'routing_declined']);
-    expect(stdout).toBe('false');
-  });
-
-  test('routing_declined can be set and read', () => {
-    run(['set', 'routing_declined', 'true']);
-    const { stdout } = run(['get', 'routing_declined']);
-    expect(stdout).toBe('true');
-  });
-
-  test('routing_declined can be reset to false', () => {
-    run(['set', 'routing_declined', 'true']);
-    run(['set', 'routing_declined', 'false']);
-    const { stdout } = run(['get', 'routing_declined']);
-    expect(stdout).toBe('false');
+    expect(stdout).toBe('');
+    expect(stderr).toContain('Usage: gstack-config');
   });
 });

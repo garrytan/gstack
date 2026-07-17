@@ -24,20 +24,28 @@ import { spawnSync } from 'child_process';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const HOOK = path.join(ROOT, 'hosts', 'claude', 'hooks', 'question-preference-hook');
+const SLUG_BIN = path.join(ROOT, 'bin', 'gstack-slug');
 
 let stateRoot: string;
 let cwdSlug: string;
+let projectId: string;
 
 let fixtureCwd: string;
 
 beforeEach(() => {
   stateRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-prefhook-'));
   cwdSlug = 'fixture-slug';
-  fs.mkdirSync(path.join(stateRoot, 'projects', cwdSlug), { recursive: true });
   // Real directory that the hook can chdir() into. gstack-slug derives the
-  // slug from the basename of this cwd (no .git => basename fallback path).
+  // canonical non-Git project ID from this cwd.
   fixtureCwd = path.join(stateRoot, cwdSlug);
   fs.mkdirSync(fixtureCwd, { recursive: true });
+  const identityOutput = spawnSync(SLUG_BIN, [], {
+    env: { ...process.env, GSTACK_HOME: stateRoot },
+    cwd: fixtureCwd,
+    encoding: 'utf8',
+  }).stdout || '';
+  projectId = identityOutput.match(/^PROJECT_ID=([a-zA-Z0-9._-]+)$/m)?.[1] ?? 'unknown';
+  fs.mkdirSync(path.join(stateRoot, 'projects', projectId), { recursive: true });
 });
 
 afterEach(() => {
@@ -45,7 +53,7 @@ afterEach(() => {
 });
 
 function writeProjectPref(questionId: string, preference: string): void {
-  const f = path.join(stateRoot, 'projects', cwdSlug, 'question-preferences.json');
+  const f = path.join(stateRoot, 'projects', projectId, 'question-preferences.json');
   let prefs: Record<string, string> = {};
   if (fs.existsSync(f)) prefs = JSON.parse(fs.readFileSync(f, 'utf-8'));
   prefs[questionId] = preference;
@@ -98,7 +106,7 @@ function runHook(stdin: object, cwd?: string, extraEnv?: Record<string, string>)
 }
 
 function autoDecidedEvents(): Array<Record<string, unknown>> {
-  const f = path.join(stateRoot, 'projects', cwdSlug, 'question-log.jsonl');
+  const f = path.join(stateRoot, 'projects', projectId, 'question-log.jsonl');
   if (!fs.existsSync(f)) return [];
   return fs
     .readFileSync(f, 'utf-8')

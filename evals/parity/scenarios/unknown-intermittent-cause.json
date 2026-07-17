@@ -1,0 +1,27 @@
+{
+  "id": "unknown-intermittent-cause",
+  "prompt": "This race appears once every few runs. Establish the cause with discriminating evidence before proposing a change.",
+  "signals": {
+    "failure": true,
+    "cause_known": false,
+    "intermittent": true,
+    "platform": "general"
+  },
+  "expected": {
+    "tree": "debug",
+    "mode": "Diagnose-only",
+    "depth": "deep",
+    "mutation": "investigate-only",
+    "active_modules": [
+      "investigate"
+    ],
+    "web_context": "optional",
+    "decision_basis": [
+      "cause_known=false",
+      "intermittent=true"
+    ],
+    "skipped_modules": [
+      "ios-fix"
+    ]
+  }
+}

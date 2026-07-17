@@ -1,0 +1,30 @@
+{
+  "id": "post-release-doc-alignment",
+  "prompt": "The feature has shipped. Bring the guides, reference, architecture notes, and release narrative into agreement with it.",
+  "signals": {
+    "release_stage": "post-ship",
+    "external_mutation_authorized": false,
+    "docs_drift": true,
+    "output": "documentation"
+  },
+  "expected": {
+    "tree": "ship",
+    "mode": "Prepare",
+    "depth": "deep",
+    "mutation": "docs-only",
+    "active_modules": [
+      "document-release"
+    ],
+    "web_context": "optional",
+    "decision_basis": [
+      "release_stage=post-ship",
+      "docs_drift=true"
+    ],
+    "skipped_modules": [
+      "ship",
+      "land-and-deploy",
+      "landing-report",
+      "setup-deploy"
+    ]
+  }
+}

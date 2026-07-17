@@ -1,0 +1,28 @@
+{
+  "source": "open-gstack-browser",
+  "tree": "qa",
+  "public_mode": "Report",
+  "mode": "browser-visible",
+  "mandatory": false,
+  "visibility": "internal",
+  "replacement": "$qa --mode Report --module open-gstack-browser",
+  "source_path": "open-gstack-browser/SKILL.md.tmpl",
+  "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
+  "blob_sha": "ef91a527890a3ac3622cc7dc84bad1ff7b64443b",
+  "normalized_render_sha256": "54c16f55549393a6a2080c5d3f4c0055ce92ca63bdb3966965d96ec5cae3f405",
+  "target": "skills/qa/references/legacy/open-gstack-browser.md",
+  "overlays": [
+    679
+  ],
+  "contract": {
+    "question_order": "Preserve the source workflow order; gather prerequisites before consequential questions.",
+    "pressure": "Preserve the source forcing questions, recommendation pressure, and one-question-at-a-time cadence.",
+    "smart_skips": "Skip only when the source condition is false, and name every skipped module with evidence.",
+    "stop_approval_gates": "Preserve every STOP, hard gate, approval boundary, and no-mutation-before-approval rule.",
+    "evidence": "Ground conclusions in inspected code, commands, browser/device observations, or source artifacts.",
+    "artifacts": "Produce every report, plan, log, screenshot, manifest, or handoff required by the source.",
+    "mutation": "Use the source mutation boundary; never broaden writes, commits, pushes, merges, or deploys.",
+    "exit": "Preserve source completion checks, unresolved-decision reporting, and explicit blocked exits.",
+    "voice": "Direct builder voice; match the user language and retain source-specific tone constraints."
+  }
+}

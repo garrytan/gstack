@@ -1,0 +1,29 @@
+{
+  "source": "land-and-deploy",
+  "tree": "ship",
+  "public_mode": "Land",
+  "mode": "land",
+  "mandatory": true,
+  "visibility": "primary",
+  "replacement": "$ship --mode Land --module land-and-deploy",
+  "source_path": "land-and-deploy/SKILL.md.tmpl",
+  "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
+  "blob_sha": "98976ad020d541d251cc7e34802a13458ddc88e2",
+  "normalized_render_sha256": "d17a1d9f397b57f59c5cced24c07c35e3950050612dba9c36bb68c4997f03a2f",
+  "target": "skills/ship/references/legacy/land-and-deploy.md",
+  "overlays": [
+    679,
+    884
+  ],
+  "contract": {
+    "question_order": "Preserve the source workflow order; gather prerequisites before consequential questions.",
+    "pressure": "Preserve the source forcing questions, recommendation pressure, and one-question-at-a-time cadence.",
+    "smart_skips": "Skip only when the source condition is false, and name every skipped module with evidence.",
+    "stop_approval_gates": "Preserve every STOP, hard gate, approval boundary, and no-mutation-before-approval rule.",
+    "evidence": "Ground conclusions in inspected code, commands, browser/device observations, or source artifacts.",
+    "artifacts": "Produce every report, plan, log, screenshot, manifest, or handoff required by the source.",
+    "mutation": "Use the source mutation boundary; never broaden writes, commits, pushes, merges, or deploys.",
+    "exit": "Preserve source completion checks, unresolved-decision reporting, and explicit blocked exits.",
+    "voice": "Direct builder voice; match the user language and retain source-specific tone constraints."
+  }
+}

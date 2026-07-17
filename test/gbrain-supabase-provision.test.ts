@@ -28,7 +28,7 @@ type Handler = (req: Request) => Response | Promise<Response>;
 
 interface MockServer {
   url: string;
-  close: () => void;
+  close: () => Promise<void>;
   requests: Array<{ method: string; path: string; body?: string }>;
 }
 
@@ -52,10 +52,13 @@ function startMock(routes: Record<string, Handler>): MockServer {
       return handler(req);
     },
   });
-  const base = `http://localhost:${server.port}`;
+  // Pin IPv4 so curl cannot intermittently choose ::1 while Bun.serve is
+  // listening on an IPv4 socket. That mismatch turns a six-second retry test
+  // into three 30-second network timeouts.
+  const base = `http://127.0.0.1:${server.port}`;
   return {
     url: base,
-    close: () => server.stop(true),
+    close: async () => { await server.stop(true); },
     requests,
   };
 }
@@ -89,8 +92,8 @@ function jsonResp(body: any, status = 200): Response {
 
 let mock: MockServer;
 
-afterEach(() => {
-  if (mock) mock.close();
+afterEach(async () => {
+  if (mock) await mock.close();
 });
 
 describe('list-orgs', () => {

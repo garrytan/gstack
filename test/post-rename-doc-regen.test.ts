@@ -28,17 +28,22 @@ const FORBIDDEN_PATTERNS = [
 // identifiers only.
 
 function findSkillMdFiles(): string[] {
-  const skillMd = path.join(ROOT, 'SKILL.md');
-  const files: string[] = [skillMd];
-  // Top-level skill directories with their own SKILL.md.
-  const entries = fs.readdirSync(ROOT, { withFileTypes: true });
-  for (const e of entries) {
-    if (e.isDirectory() && !e.name.startsWith('.') && !['node_modules', 'test'].includes(e.name)) {
-      const inner = path.join(ROOT, e.name, 'SKILL.md');
-      if (fs.existsSync(inner)) files.push(inner);
+  const files: string[] = [];
+  const excluded = new Set(['.git', '.agents', '.factory', 'node_modules', 'test']);
+
+  function walk(dir: string): void {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        if (excluded.has(entry.name)) continue;
+        walk(path.join(dir, entry.name));
+      } else if (entry.name === 'SKILL.md') {
+        files.push(path.join(dir, entry.name));
+      }
     }
   }
-  return files;
+
+  walk(ROOT);
+  return files.sort();
 }
 
 describe('post-rename doc-regen regression (codex Finding #12)', () => {
@@ -68,7 +73,12 @@ describe('post-rename doc-regen regression (codex Finding #12)', () => {
     expect(offenders).toEqual([]);
   });
 
-  test('top-level SKILL.md exists and is regenerated', () => {
-    expect(fs.existsSync(path.join(ROOT, 'SKILL.md'))).toBe(true);
+  test('top-level SKILL.md stays absent and exactly six public dispatchers exist', () => {
+    expect(fs.existsSync(path.join(ROOT, 'SKILL.md'))).toBe(false);
+    const publicSkills = fs.readdirSync(path.join(ROOT, 'skills'), { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && fs.existsSync(path.join(ROOT, 'skills', entry.name, 'SKILL.md')))
+      .map((entry) => entry.name)
+      .sort();
+    expect(publicSkills).toEqual(['debug', 'design', 'plan', 'qa', 'review', 'ship']);
   });
 });

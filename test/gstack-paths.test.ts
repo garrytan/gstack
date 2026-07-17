@@ -1,5 +1,6 @@
 import { describe, test, expect } from 'bun:test';
 import { spawnSync } from 'child_process';
+import { existsSync } from 'fs';
 import * as path from 'path';
 
 const ROOT = path.resolve(import.meta.dir, '..');
@@ -16,7 +17,10 @@ const BIN = path.join(ROOT, 'bin', 'gstack-paths');
 // silently breaks the "HOME unset" test scenarios. Clearing USERPROFILE
 // alongside HOME prevents that auto-population on Windows runners.
 function run(env: Record<string, string | undefined>): Record<string, string> {
-  const result = spawnSync('bash', [BIN], {
+  const result = spawnSync('bash', ['-c', [
+    'eval "$("$1")"',
+    'printf "GSTACK_STATE_ROOT=%s\\nPLAN_ROOT=%s\\nTMP_ROOT=%s\\n" "$GSTACK_STATE_ROOT" "$PLAN_ROOT" "$TMP_ROOT"',
+  ].join('\n'), 'gstack-paths-test', BIN], {
     env: { PATH: process.env.PATH, USERPROFILE: '', ...env } as Record<string, string>,
     encoding: 'utf-8',
   });
@@ -56,13 +60,13 @@ describe('gstack-paths', () => {
     expect(wrongRoot.GSTACK_STATE_ROOT).toBe('/tmp/home/.gstack');
   });
 
-  test('CLAUDE_PLUGIN_DATA respected when CLAUDE_PLUGIN_ROOT identifies gstack', () => {
+  test('host-specific plugin paths never override the canonical runtime home', () => {
     const got = run({
       CLAUDE_PLUGIN_DATA: '/tmp/gstack-plugin-data',
       CLAUDE_PLUGIN_ROOT: '/tmp/gstack-garrytan',
       HOME: '/tmp/home',
     });
-    expect(got.GSTACK_STATE_ROOT).toBe('/tmp/gstack-plugin-data');
+    expect(got.GSTACK_STATE_ROOT).toBe('/tmp/home/.gstack');
   });
 
   test('HOME-derived state root when GSTACK_HOME and CLAUDE_PLUGIN_DATA unset', () => {
@@ -70,31 +74,17 @@ describe('gstack-paths', () => {
     expect(got.GSTACK_STATE_ROOT).toBe('/tmp/myhome/.gstack');
   });
 
-  test('CWD fallback when HOME also unset (container env)', () => {
-    // Skip on Windows: Git Bash auto-derives HOME from USERPROFILE,
-    // HOMEDRIVE, and HOMEPATH at shell startup. Even with all three
-    // cleared, bash falls back to /c/Users/<user>. The container env
-    // (HOME genuinely unset) is unreachable on Windows runners. The bash
-    // script's CWD fallback IS correct — exercised on Linux/Mac CI.
-    if (process.platform === 'win32') return;
-    const got = run({ HOME: '' });
-    expect(got.GSTACK_STATE_ROOT).toBe('.gstack');
+  test('plans and temporary files stay under the one canonical runtime home', () => {
+    expect(run({ GSTACK_PLAN_DIR: '/tmp/ignored', CLAUDE_PLANS_DIR: '/tmp/ignored-too', HOME: '/tmp/myhome' }).PLAN_ROOT)
+      .toBe('/tmp/myhome/.gstack/plans');
+    expect(run({ GSTACK_HOME: '/tmp/state', TMPDIR: '/tmp/ignored' }).TMP_ROOT).toBe('/tmp/state/tmp');
   });
 
-  test('PLAN_ROOT chain: GSTACK_PLAN_DIR > CLAUDE_PLANS_DIR > HOME > CWD', () => {
-    expect(run({ GSTACK_PLAN_DIR: '/tmp/explicit', HOME: '/h' }).PLAN_ROOT).toBe('/tmp/explicit');
-    expect(run({ CLAUDE_PLANS_DIR: '/tmp/claude', HOME: '/h' }).PLAN_ROOT).toBe('/tmp/claude');
-    expect(run({ HOME: '/tmp/myhome' }).PLAN_ROOT).toBe('/tmp/myhome/.claude/plans');
-    // CWD fallback only verifiable on POSIX — Git Bash auto-populates HOME.
-    if (process.platform !== 'win32') {
-      expect(run({ HOME: '' }).PLAN_ROOT).toBe('.claude/plans');
-    }
-  });
-
-  test('TMP_ROOT chain: TMPDIR > TMP > .gstack/tmp', () => {
-    expect(run({ TMPDIR: '/tmp/x', HOME: '/h' }).TMP_ROOT).toBe('/tmp/x');
-    expect(run({ TMP: '/tmp/y', HOME: '/h' }).TMP_ROOT).toBe('/tmp/y');
-    expect(run({ HOME: '' }).TMP_ROOT).toBe('.gstack/tmp');
+  test('shell-looking path values remain literal when output is evaled', () => {
+    const marker = `/tmp/gstack-paths-injection-${process.pid}`;
+    const got = run({ GSTACK_HOME: `/tmp/state with spaces'; touch ${marker}; echo '`, HOME: '/tmp/home' });
+    expect(got.GSTACK_STATE_ROOT).toContain('state with spaces');
+    expect(existsSync(marker)).toBe(false);
   });
 
   test('emits all three exports on every invocation', () => {
@@ -110,8 +100,6 @@ describe('gstack-paths', () => {
       encoding: 'utf-8',
     });
     const lines = result.stdout.split('\n').filter(Boolean);
-    for (const line of lines) {
-      expect(line).toMatch(/^[A-Z_]+=.*/);
-    }
+    for (const line of lines) expect(line).toMatch(/^[A-Z_]+='.*'$/);
   });
 });

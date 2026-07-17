@@ -1,0 +1,24 @@
+{
+  "pr": 2037,
+  "url": "https://github.com/garrytan/gstack/pull/2037",
+  "title": "Keep retrospectives language-agnostic and evidence-backed",
+  "targets": [
+    "retro"
+  ],
+  "anchor": "GSTACK2_FIX_2037_RETRO_TEST_EVIDENCE",
+  "body": "### Language-agnostic test evidence\n\nDetect tests using repository conventions across languages rather than a single filename pattern. Derive per-commit test figures from the exact commit diff or command evidence. If baseline coverage is unavailable, say so; never invent a bootstrap percentage or attribute aggregate repository figures to an individual commit.",
+  "regression": {
+    "input": {
+      "files": [
+        "pkg/foo_test.go",
+        "tests/test_api.py"
+      ],
+      "baseline_coverage": null
+    },
+    "expected": {
+      "tests_detected": 2,
+      "invented_coverage": false,
+      "per_commit_evidence_required": true
+    }
+  }
+}

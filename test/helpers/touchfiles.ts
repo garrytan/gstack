@@ -331,7 +331,7 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'autoplan-dual-voice': ['autoplan/**', 'codex/**', 'bin/gstack-codex-probe', 'scripts/resolvers/review.ts', 'scripts/resolvers/design.ts'],
 
   // Multi-provider benchmark adapters — live API smoke against real claude/codex/gemini CLIs
-  'benchmark-providers-live': ['bin/gstack-model-benchmark', 'test/helpers/providers/**', 'test/helpers/benchmark-runner.ts', 'test/helpers/pricing.ts'],
+  'benchmark-providers-live': ['bin/gstack-model-benchmark', 'lib/model-benchmark/**', 'test/benchmark-production-boundary.test.ts'],
 
   // Browser-skills Phase 2a — /scrape + /skillify (v1.19.0.0). Gate-tier
   // E2E covers the D1 (provenance guard), D3 (atomic write) contracts plus

@@ -1,0 +1,28 @@
+{
+  "source": "document-generate",
+  "tree": "ship",
+  "public_mode": "Prepare",
+  "mode": "docs-generate",
+  "mandatory": false,
+  "visibility": "internal",
+  "replacement": "$ship --mode Prepare --module document-generate",
+  "source_path": "document-generate/SKILL.md.tmpl",
+  "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
+  "blob_sha": "d3ef0cbc3786c4010b3c692fb94246f56a7e1d7b",
+  "normalized_render_sha256": "aa5092d5c96e73aa97bcebd200d08d2ce8abcaabae534711162d29444f780229",
+  "target": "skills/ship/references/legacy/document-generate.md",
+  "overlays": [
+    679
+  ],
+  "contract": {
+    "question_order": "Preserve the source workflow order; gather prerequisites before consequential questions.",
+    "pressure": "Preserve the source forcing questions, recommendation pressure, and one-question-at-a-time cadence.",
+    "smart_skips": "Skip only when the source condition is false, and name every skipped module with evidence.",
+    "stop_approval_gates": "Preserve every STOP, hard gate, approval boundary, and no-mutation-before-approval rule.",
+    "evidence": "Ground conclusions in inspected code, commands, browser/device observations, or source artifacts.",
+    "artifacts": "Produce every report, plan, log, screenshot, manifest, or handoff required by the source.",
+    "mutation": "Use the source mutation boundary; never broaden writes, commits, pushes, merges, or deploys.",
+    "exit": "Preserve source completion checks, unresolved-decision reporting, and explicit blocked exits.",
+    "voice": "Direct builder voice; match the user language and retain source-specific tone constraints."
+  }
+}

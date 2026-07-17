@@ -1,0 +1,149 @@
+{
+  "schema_version": 1,
+  "sections": [
+    {
+      "source_path": "cso/sections/audit-phases.md.tmpl",
+      "parent_source": "cso",
+      "target_path": "skills/review/references/legacy/cso.md",
+      "baseline_render_sha256": "c38fd2a45788de0fefde11f46b5defc8e389a466baaefa49c81f250ee16d7a31",
+      "ported_render_sha256": "3cdacdfacc9cd3b494cfa89613ad74c7702c2f3ed10dbd88ed66bf1220f04260",
+      "candidate_occurrences": 1,
+      "classification": "EQUIVALENT"
+    },
+    {
+      "source_path": "design-consultation/sections/proposal-and-preview.md.tmpl",
+      "parent_source": "design-consultation",
+      "target_path": "skills/design/references/legacy/design-consultation.md",
+      "baseline_render_sha256": "232f019dead6cb913c6b0845f265fd9993383a05147ac4260369853053492d8b",
+      "ported_render_sha256": "2ca1a8fff531a5ff46c16b786eb139c31994a874f24d47d8f8bb8b4e8771f0b5",
+      "candidate_occurrences": 1,
+      "classification": "EQUIVALENT"
+    },
+    {
+      "source_path": "document-release/sections/release-body.md.tmpl",
+      "parent_source": "document-release",
+      "target_path": "skills/ship/references/legacy/document-release.md",
+      "baseline_render_sha256": "68c4d42fce344fc9d834e1cd2bbe21dea119d416668ebb32ebe9e7c52b130f32",
+      "ported_render_sha256": "18629e13adba829b14ace992e523431733b1b383863fefff640a1c53dbe34fbe",
+      "candidate_occurrences": 1,
+      "classification": "EQUIVALENT"
+    },
+    {
+      "source_path": "office-hours/sections/design-and-handoff.md.tmpl",
+      "parent_source": "office-hours",
+      "target_path": "skills/plan/references/legacy/office-hours.md",
+      "baseline_render_sha256": "ca4ffc09d9515971a9c116e3acf12ae7d6ab2b93c79da0e69ac5f5105b4527b5",
+      "ported_render_sha256": "8ff3b11362cb41ca336651af3a2bb2561a2f788fac59fbb59d41ed41925a859f",
+      "candidate_occurrences": 1,
+      "classification": "EQUIVALENT"
+    },
+    {
+      "source_path": "plan-ceo-review/sections/review-sections.md.tmpl",
+      "parent_source": "plan-ceo-review",
+      "target_path": "skills/plan/references/legacy/plan-ceo-review.md",
+      "baseline_render_sha256": "5df219bd5d3f838021964cf93170feddf1564b90894424de51931e2de184f444",
+      "ported_render_sha256": "0e0b90a422094f019e42f90be5bc4bc2aa6469449fd4a08e7a33d6883ac12c79",
+      "candidate_occurrences": 1,
+      "classification": "EQUIVALENT"
+    },
+    {
+      "source_path": "plan-design-review/sections/review-sections.md.tmpl",
+      "parent_source": "plan-design-review",
+      "target_path": "skills/design/references/legacy/plan-design-review.md",
+      "baseline_render_sha256": "f70fee1c656304193e213adb3aa12b882f4b4841826652fc7df4defcd00994f9",
+      "ported_render_sha256": "6768a45e4f168bac7fb9af348cf221fec54bf55465c545577893415849c35ea8",
+      "candidate_occurrences": 1,
+      "classification": "EQUIVALENT"
+    },
+    {
+      "source_path": "plan-devex-review/sections/review-sections.md.tmpl",
+      "parent_source": "plan-devex-review",
+      "target_path": "skills/plan/references/legacy/plan-devex-review.md",
+      "baseline_render_sha256": "4567898687b5b4566e5566735e86e0a71db1e6d69e1b55006d599794401f89aa",
+      "ported_render_sha256": "9be109595821a4674f116c79060bc65d87606c3c07c31c4cd014040f3e802676",
+      "candidate_occurrences": 1,
+      "classification": "EQUIVALENT"
+    },
+    {
+      "source_path": "plan-eng-review/sections/review-sections.md.tmpl",
+      "parent_source": "plan-eng-review",
+      "target_path": "skills/plan/references/legacy/plan-eng-review.md",
+      "baseline_render_sha256": "780b427bfd6b28886538f8eccbfed8f600cf532fc102d81f7499f37469dcb61d",
+      "ported_render_sha256": "dadb7aede4f2fc530e45be2df1c147375acec488d9861b6ac6ace9aacc1d5d43",
+      "candidate_occurrences": 1,
+      "classification": "EQUIVALENT"
+    },
+    {
+      "source_path": "ship/sections/adversarial.md.tmpl",
+      "parent_source": "ship",
+      "target_path": "skills/ship/references/legacy/ship.md",
+      "baseline_render_sha256": "c3ee106fbb6513ae45ddf0cb9498ad72a63f6b63c1af6807420d7ee7cf3abc80",
+      "ported_render_sha256": "80c5b8c8b833e895479360ade3227a956ea2eba41c183840f163064e9d35dc5b",
+      "candidate_occurrences": 1,
+      "classification": "EQUIVALENT"
+    },
+    {
+      "source_path": "ship/sections/changelog.md.tmpl",
+      "parent_source": "ship",
+      "target_path": "skills/ship/references/legacy/ship.md",
+      "baseline_render_sha256": "e84b0e33f0dab6bef8cc66b8088630dbfa2d1868bd02c2c938ebfe3cccaeb970",
+      "ported_render_sha256": "e84b0e33f0dab6bef8cc66b8088630dbfa2d1868bd02c2c938ebfe3cccaeb970",
+      "candidate_occurrences": 1,
+      "classification": "EQUIVALENT"
+    },
+    {
+      "source_path": "ship/sections/greptile.md.tmpl",
+      "parent_source": "ship",
+      "target_path": "skills/ship/references/legacy/ship.md",
+      "baseline_render_sha256": "48c59e532a5878215272cebfa1feecf466a35c44aee1fc1cbbf1691b6bfcd6a7",
+      "ported_render_sha256": "2d457433edd3bd049a63aae9aac5d93701b3b141f2c6b03ca434173238854e06",
+      "candidate_occurrences": 1,
+      "classification": "EQUIVALENT"
+    },
+    {
+      "source_path": "ship/sections/plan-completion.md.tmpl",
+      "parent_source": "ship",
+      "target_path": "skills/ship/references/legacy/ship.md",
+      "baseline_render_sha256": "7aef2bc76d8a43d5618017d7b12482b341bd5691b4183271b0027f6a8055b1b2",
+      "ported_render_sha256": "9ad216289c2fdbcf2f7e1f8a5ca2257ab2875ea86b0681174a4065132a32c171",
+      "candidate_occurrences": 1,
+      "classification": "EQUIVALENT"
+    },
+    {
+      "source_path": "ship/sections/pr-body.md.tmpl",
+      "parent_source": "ship",
+      "target_path": "skills/ship/references/legacy/ship.md",
+      "baseline_render_sha256": "813c4c75f1cc8c85ab3121f0a76966673118cf759d283c3ef5f6aa1ba64dd764",
+      "ported_render_sha256": "650dc896bf54eb2ab86a0fa1f4a1d759fb951452553581d5c685318cf6e8fa66",
+      "candidate_occurrences": 1,
+      "classification": "EQUIVALENT"
+    },
+    {
+      "source_path": "ship/sections/review-army.md.tmpl",
+      "parent_source": "ship",
+      "target_path": "skills/ship/references/legacy/ship.md",
+      "baseline_render_sha256": "21cbb6b729ac4069fb1c9626979ad821e5227463d783b16b70f67526208d697b",
+      "ported_render_sha256": "cbfee41463032434762b1c6abcbb6372b841832f733f102f4e8c6c49f1407bb2",
+      "candidate_occurrences": 1,
+      "classification": "EQUIVALENT"
+    },
+    {
+      "source_path": "ship/sections/test-coverage.md.tmpl",
+      "parent_source": "ship",
+      "target_path": "skills/ship/references/legacy/ship.md",
+      "baseline_render_sha256": "e60f59bd59b913c3092734f538b446a52dcccaa00ff69277e0551b13ac8ac1cd",
+      "ported_render_sha256": "50e493e72caa15cd5e5cf91db9557b7d861571dc583a84b76a73eb557f90dce0",
+      "candidate_occurrences": 1,
+      "classification": "EQUIVALENT"
+    },
+    {
+      "source_path": "ship/sections/tests.md.tmpl",
+      "parent_source": "ship",
+      "target_path": "skills/ship/references/legacy/ship.md",
+      "baseline_render_sha256": "4335d2e4bf76e164cc767330d96dc69ce7478ec2298690ee6fe873b654c6cb3e",
+      "ported_render_sha256": "34f688383d85bc0cc76f9e4a669554a4b5c799b374c56b491f86c5daf1ff74b4",
+      "candidate_occurrences": 1,
+      "classification": "EQUIVALENT"
+    }
+  ]
+}

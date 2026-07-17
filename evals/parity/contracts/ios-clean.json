@@ -1,0 +1,28 @@
+{
+  "source": "ios-clean",
+  "tree": "ship",
+  "public_mode": "Prepare",
+  "mode": "ios-clean",
+  "mandatory": false,
+  "visibility": "internal",
+  "replacement": "$ship --mode Prepare --module ios-clean",
+  "source_path": "ios-clean/SKILL.md.tmpl",
+  "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
+  "blob_sha": "3a64481a99fab0d7247c23df0a07c428c1c5f3da",
+  "normalized_render_sha256": "4616b4a2f3def37440add4010a89426e85bd3f2786fd71d199063a60ce073615",
+  "target": "skills/ship/references/legacy/ios-clean.md",
+  "overlays": [
+    679
+  ],
+  "contract": {
+    "question_order": "Preserve the source workflow order; gather prerequisites before consequential questions.",
+    "pressure": "Preserve the source forcing questions, recommendation pressure, and one-question-at-a-time cadence.",
+    "smart_skips": "Skip only when the source condition is false, and name every skipped module with evidence.",
+    "stop_approval_gates": "Preserve every STOP, hard gate, approval boundary, and no-mutation-before-approval rule.",
+    "evidence": "Ground conclusions in inspected code, commands, browser/device observations, or source artifacts.",
+    "artifacts": "Produce every report, plan, log, screenshot, manifest, or handoff required by the source.",
+    "mutation": "Use the source mutation boundary; never broaden writes, commits, pushes, merges, or deploys.",
+    "exit": "Preserve source completion checks, unresolved-decision reporting, and explicit blocked exits.",
+    "voice": "Direct builder voice; match the user language and retain source-specific tone constraints."
+  }
+}

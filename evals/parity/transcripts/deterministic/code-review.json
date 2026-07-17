@@ -1,0 +1,188 @@
+{
+  "schema_version": 1,
+  "kind": "deterministic-semantic-transcript",
+  "suite": "Code review",
+  "execution_id": "code-review",
+  "fixture": {
+    "id": "ci-script-change-review",
+    "prompt": "Inspect this branch before landing; most edits are workflow and release scripts, and I want consequential findings validated.",
+    "signals": {
+      "change_exists": true,
+      "changed_file_classes": {
+        "ci": 4,
+        "scripts": 2,
+        "application": 0
+      },
+      "audit_focus": "broad",
+      "mutation_authorized": true
+    },
+    "rationale": "Validated consequential findings over the actual diff."
+  },
+  "baseline_invocation": {
+    "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
+    "modules": [
+      "review"
+    ],
+    "input": "Inspect this branch before landing; most edits are workflow and release scripts, and I want consequential findings validated."
+  },
+  "candidate_invocation": {
+    "dispatcher": "review",
+    "mode": "Normal",
+    "depth": "deep",
+    "mutation": "fix-safe",
+    "active_modules": [
+      "review"
+    ],
+    "skipped_modules": [
+      "cso",
+      "health",
+      "codex",
+      "claude"
+    ],
+    "web_context": "optional",
+    "input": "Inspect this branch before landing; most edits are workflow and release scripts, and I want consequential findings validated."
+  },
+  "source_comparisons": [
+    {
+      "source": "review",
+      "baseline": {
+        "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
+        "source_path": "review/SKILL.md.tmpl",
+        "rendered_sha256": "d1fb8cf7b1a058fe144dc47ce29c69332aaa68f553b424e85b0d34d9e4918f06",
+        "semantic_signature": {
+          "normalized_sha256": "d1fb8cf7b1a058fe144dc47ce29c69332aaa68f553b424e85b0d34d9e4918f06",
+          "headings_sha256": "768372517b06ffe1ce586fa63f42b3d76cd76ca5dcaccbad8eec9067a588f605",
+          "questions_sha256": "7a7356b54a5306959a26997819f5a800f467661fc18fecba69dd8000057fb47f",
+          "obligations_sha256": "7563e4bc448637e35e5bec1ba3972d2e30ae29d045a045a4dd492eb4d7544c5e",
+          "heading_count": 61,
+          "question_count": 7,
+          "obligation_count": 106
+        }
+      },
+      "mechanical_port": {
+        "rendered_sha256": "25e07cb6ea0831bd9e7bd7d4606714ba38b743107a970f2b6491a246b90c7dd4",
+        "differs_from_baseline": true,
+        "allowed_difference": "Package-local skill, section, support-artifact, and stable runtime path relocation only."
+      },
+      "candidate": {
+        "target_path": "skills/review/references/legacy/review.md",
+        "rendered_legacy_body_sha256": "25e07cb6ea0831bd9e7bd7d4606714ba38b743107a970f2b6491a246b90c7dd4",
+        "semantic_signature": {
+          "normalized_sha256": "25e07cb6ea0831bd9e7bd7d4606714ba38b743107a970f2b6491a246b90c7dd4",
+          "headings_sha256": "768372517b06ffe1ce586fa63f42b3d76cd76ca5dcaccbad8eec9067a588f605",
+          "questions_sha256": "f7f3fcefd4cbaf2194b4ac5daaf570f9f1c6cbdb278d5df521501d92786302d3",
+          "obligations_sha256": "edddd4dbefea6bc978ebd45b879891e212d1bb5948c55e97144d77e18af4f2a2",
+          "heading_count": 61,
+          "question_count": 6,
+          "obligation_count": 107
+        }
+      },
+      "deterministic_comparison": {
+        "normalized_body_equal": false,
+        "installable_port_equal": true,
+        "contract_equal": true,
+        "classification": "EQUIVALENT"
+      },
+      "differences": [
+        {
+          "classification": "INTENTIONAL_IMPROVEMENT",
+          "issue_or_pr": "https://github.com/garrytan/gstack/pull/610",
+          "reproduced_defect": "Validate review findings before acting on them",
+          "regression_fixture": "evals/parity/regressions/pr-610.json",
+          "explanation": "### Finding validation and provenance gate\n\nBefore fix-first behavior, independently confirm each finding against the current code. Check whether it is already handled elsewhere, whether the branch introduced it, and whether the claimed consequence is reachable. Classify it as **VALIDATED**, **REJECTED**, or **UNCERTAIN**. Remove rejected findings; downgrade uncertain findings and say what evidence is missing. High-stakes findings require the strongest available reviewer. Every retained finding cites the inspected file/line or observed evidence."
+        },
+        {
+          "classification": "INTENTIONAL_IMPROVEMENT",
+          "issue_or_pr": "https://github.com/garrytan/gstack/pull/645",
+          "reproduced_defect": "Classify non-application changes before review",
+          "regression_fixture": "evals/parity/regressions/pr-645.json",
+          "explanation": "### Change-type triage\n\nClassify the change from its files as **APPLICATION**, **CI_INFRA**, **SCRIPTS**, **CONFIG**, **DOCS**, **TESTS**, or **MIXED**, and print the file counts behind that classification. Prioritize the relevant checklist rather than forcing application-runtime questions onto every diff. Relevance skips are guides, never permission to ignore an unexpected risk in the actual patch."
+        },
+        {
+          "classification": "INTENTIONAL_IMPROVEMENT",
+          "issue_or_pr": "https://github.com/garrytan/gstack/pull/679",
+          "reproduced_defect": "Match the user language",
+          "regression_fixture": "evals/parity/regressions/pr-679.json",
+          "explanation": "### User-language rule\n\nWrite questions, progress updates, reports, and artifacts in the language used by the user. Source material, code identifiers, commands, and quotations may remain in their original language when translating them would reduce accuracy."
+        },
+        {
+          "classification": "INTENTIONAL_IMPROVEMENT",
+          "issue_or_pr": "https://github.com/garrytan/gstack/pull/2030",
+          "reproduced_defect": "Record only signal-bearing learnings",
+          "regression_fixture": "evals/parity/regressions/pr-2030.json",
+          "explanation": "### Signal-gated learning\n\nPersist a learning only when the interaction contains a useful, reusable signal such as an explicit preference, correction, accepted recommendation, or rejected direction. Track helpful and harmful outcomes separately. Do not manufacture a learning merely because a workflow completed."
+        },
+        {
+          "classification": "INTENTIONAL_IMPROVEMENT",
+          "issue_or_pr": "https://github.com/garrytan/gstack/pull/2141",
+          "reproduced_defect": "Trace changed inputs into unchanged consumers",
+          "regression_fixture": "evals/parity/regressions/pr-2141.json",
+          "explanation": "### Changed-input consumer trace\n\nWhen a patch widens an accepted input, loosens validation, changes a default, or alters a condition, trace that value into unchanged downstream consumers. Re-read unchanged user-facing strings whose truth may depend on the changed condition. Review the behavioral boundary, not only the edited lines."
+        }
+      ]
+    }
+  ],
+  "semantic_dimensions": {
+    "questions": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "question_order": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "follow_up_pressure": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "smart_skips": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "pushback_strength": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "scope_recommendation": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "active_reasoning_modules": {
+      "classification": "EQUIVALENT",
+      "evidence": "Structured route selected review from product/evidence signals."
+    },
+    "findings": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "evidence": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "artifacts": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "approval_gates": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "mutation_behavior": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "completion_status": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "recommended_next_action": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    },
+    "voice": {
+      "classification": "EQUIVALENT",
+      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+    }
+  },
+  "verdict": "PASS"
+}

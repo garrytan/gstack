@@ -14,7 +14,7 @@
  */
 
 import { describe, it, expect } from "bun:test";
-import { readFileSync, readdirSync, statSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 import { execFileSync } from "child_process";
 
@@ -32,7 +32,13 @@ function listTrackedSkillMd(): string[] {
     cwd: REPO_ROOT,
     encoding: "utf-8",
   });
-  return out.split("\n").filter((line) => line.trim().length > 0);
+  return out
+    .split("\n")
+    .filter((line) => line.trim().length > 0)
+    // `git ls-files` includes tracked deletions in an in-progress migration.
+    // GStack 2 intentionally deletes the root SKILL.md, so only inspect files
+    // that still exist in the candidate worktree.
+    .filter((line) => existsSync(join(REPO_ROOT, line)));
 }
 
 describe("scripts/resolvers/gbrain.ts — no `gbrain put_page` CLI subcommand in emitted instructions (regression for #1346)", () => {
