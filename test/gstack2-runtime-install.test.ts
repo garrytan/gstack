@@ -128,6 +128,16 @@ describe("GStack 2 managed runtime installer", () => {
 
   test("generated helper closure is fully declared and selected helpers resolve from the managed home", async () => {
     const contract = await readJson(path.join(REPO_ROOT, "evals", "parity", "runtime-helper-closure.json"));
+    const compiledHelpers = Object.fromEntries(
+      contract.helpers
+        .filter((helper) => helper.platform_source_paths)
+        .map((helper) => [helper.name, helper.platform_source_paths]),
+    );
+    expect(compiledHelpers).toEqual({
+      browse: { posix: "browse/dist/browse", win32: "browse/dist/browse.exe" },
+      "gstack-design": { posix: "design/dist/design", win32: "design/dist/design.exe" },
+      "make-pdf": { posix: "make-pdf/dist/pdf", win32: "make-pdf/dist/pdf.exe" },
+    });
     const bundlePaths = new Set(DEFAULT_RUNTIME_BUNDLE.map((item) => item.path));
     for (const dependency of [
       "node_modules/sharp",
@@ -139,10 +149,12 @@ describe("GStack 2 managed runtime installer", () => {
     expect(bundlePaths.has("node_modules/@ngrok")).toBe(false);
     expect([...bundlePaths].some((item) => item.includes("@huggingface"))).toBe(false);
     for (const helper of contract.helpers) {
-      expect(bundlePaths.has(helper.source_path)).toBe(true);
+      const sourcePath = helper.platform_source_paths?.[process.platform === "win32" ? "win32" : "posix"]
+        ?? helper.source_path;
+      expect(bundlePaths.has(sourcePath)).toBe(true);
       if (helper.name === "gstack") continue;
       const declaredTarget = DEFAULT_RUNTIME_HELPERS[helper.name]?.target ?? DEFAULT_CAPABILITY_LAUNCHERS[helper.name];
-      expect(declaredTarget).toBe(helper.source_path);
+      expect(declaredTarget).toBe(sourcePath);
     }
 
     await withFixture(async ({ home }) => {

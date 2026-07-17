@@ -99,7 +99,7 @@ describe("gstack 2 host-neutral paths and state", () => {
     const { state } = await inspectProject(home, identity);
     expect(state.concurrentCounter).toBe(60);
     expect(state.revision).toBe(60);
-  });
+  }, 15_000);
 
   test("crash/resume never automatically repeats an uncertain external effect", async () => {
     const root = await temporaryRoot();

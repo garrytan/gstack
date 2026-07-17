@@ -248,7 +248,9 @@ export function runParity(): ParityResult {
   const helperClosure = json(path.join(ROOT, 'evals', 'parity', 'runtime-helper-closure.json'));
   check(JSON.stringify(helperClosure.helpers) === JSON.stringify(manifest.runtime_helpers), 'Runtime helper closure and provenance differ');
   for (const helper of helperClosure.helpers) {
-    check(fs.existsSync(path.join(ROOT, helper.source_path)), `Preserved helper ${helper.name} has no source payload at ${helper.source_path}`);
+    const sourcePath = helper.platform_source_paths?.[process.platform === 'win32' ? 'win32' : 'posix']
+      ?? helper.source_path;
+    check(fs.existsSync(path.join(ROOT, sourcePath)), `Preserved helper ${helper.name} has no source payload at ${sourcePath}`);
     check(Array.isArray(helper.consumer_modules) && helper.consumer_modules.length > 0, `Preserved helper ${helper.name} has no consumer provenance`);
   }
   for (const record of [...manifest.sources, ...manifest.sections]) {

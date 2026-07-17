@@ -599,22 +599,28 @@ function runtimeHelperClosure(rendered: Map<string, RenderedModuleRecord>): Arra
       consumers.set(match[1], sources);
     }
   }
+  const platformSourceOverrides: Record<string, { posix: string; win32: string }> = {
+    browse: { posix: 'browse/dist/browse', win32: 'browse/dist/browse.exe' },
+    'gstack-design': { posix: 'design/dist/design', win32: 'design/dist/design.exe' },
+    'make-pdf': { posix: 'make-pdf/dist/pdf', win32: 'make-pdf/dist/pdf.exe' },
+  };
   const sourceOverrides: Record<string, string> = {
-    browse: process.platform === 'win32' ? 'browse/dist/browse.exe' : 'browse/dist/browse',
-    'gstack-design': process.platform === 'win32' ? 'design/dist/design.exe' : 'design/dist/design',
-    'make-pdf': process.platform === 'win32' ? 'make-pdf/dist/pdf.exe' : 'make-pdf/dist/pdf',
     'remote-slug': 'browse/bin/remote-slug',
     'gstack-gbrain-sync': 'bin/gstack-gbrain-sync.ts',
     'gstack-memory-ingest': 'bin/gstack-memory-ingest.ts',
     'gstack-global-discover': 'bin/gstack-global-discover.ts',
     'gstack-redact-audit-log': 'bin/gstack-redact-audit-log',
   };
-  return [...consumers].sort(([left], [right]) => left.localeCompare(right)).map(([name, sources]) => ({
-    name,
-    source_path: sourceOverrides[name] ?? `bin/${name}`,
-    consumer_modules: [...sources].sort(),
-    stable_path: `\${GSTACK_HOME:-$HOME/.gstack}/bin/${name}`,
-  }));
+  return [...consumers].sort(([left], [right]) => left.localeCompare(right)).map(([name, sources]) => {
+    const platformPaths = platformSourceOverrides[name];
+    return {
+      name,
+      source_path: platformPaths?.posix ?? sourceOverrides[name] ?? `bin/${name}`,
+      ...(platformPaths ? { platform_source_paths: platformPaths } : {}),
+      consumer_modules: [...sources].sort(),
+      stable_path: `\${GSTACK_HOME:-$HOME/.gstack}/bin/${name}`,
+    };
+  });
 }
 
 interface SectionCopyRecord {

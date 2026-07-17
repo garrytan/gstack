@@ -6,6 +6,10 @@
     {
       "name": "browse",
       "source_path": "browse/dist/browse",
+      "platform_source_paths": {
+        "posix": "browse/dist/browse",
+        "win32": "browse/dist/browse.exe"
+      },
       "consumer_modules": [
         "benchmark",
         "browse",
@@ -294,6 +298,10 @@
     {
       "name": "gstack-design",
       "source_path": "design/dist/design",
+      "platform_source_paths": {
+        "posix": "design/dist/design",
+        "win32": "design/dist/design.exe"
+      },
       "consumer_modules": [
         "design-consultation",
         "design-html",
@@ -1175,6 +1183,10 @@
     {
       "name": "make-pdf",
       "source_path": "make-pdf/dist/pdf",
+      "platform_source_paths": {
+        "posix": "make-pdf/dist/pdf",
+        "win32": "make-pdf/dist/pdf.exe"
+      },
       "consumer_modules": [
         "make-pdf"
       ],
