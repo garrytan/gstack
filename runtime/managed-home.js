@@ -4,6 +4,8 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { assertPathInside, resolveRuntimePaths } from "./paths.js";
 import { atomicWriteFile, atomicWriteJson, readJson, withLock } from "./storage.js";
+import { errorWithCode as managedHomeError } from "./errors.js";
+import { currentIsoTimestamp as isoNow } from "./time.js";
 
 export const MANAGED_HOME_SCHEMA_VERSION = 1;
 export const MANAGED_HOME_SENTINEL = ".gstack-managed-home.json";
@@ -142,7 +144,8 @@ async function inspectRecognizedLegacyHome(home, entries) {
   try {
     privacyMap = JSON.parse(privacyText);
   } catch {
-    return null;
+    // Invalid legacy metadata is not sufficient proof that this home is ours.
+    privacyMap = null;
   }
   const hasCanonicalPrivacyEntry = Array.isArray(privacyMap) && privacyMap.some((entry) =>
     entry?.pattern === "projects/*/learnings.jsonl" && entry?.class === "artifact",
@@ -301,14 +304,4 @@ function validBase64(value) {
 function isSameOrAncestor(candidate, target) {
   const relative = path.relative(candidate, target);
   return relative === "" || relative === "." || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative));
-}
-
-function managedHomeError(message, code) {
-  const error = new Error(message);
-  error.code = code;
-  return error;
-}
-
-function isoNow(now) {
-  return (now ? now() : new Date()).toISOString();
 }

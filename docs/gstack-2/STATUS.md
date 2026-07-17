@@ -48,15 +48,18 @@ status.
   three retained Claude Haiku live samples are classified `REGRESSION`; they
   are preserved as noisy supplemental evidence, never cherry-picked as a
   primary gate or represented as green.
-- [x] The focused GStack 2 suite is green: 130 pass / 0 fail, 1,071
-  assertions across 15 files. This focused surface does not substitute for the
-  broad or native-platform gates.
+- [x] The focused macOS GStack 2 suite is green: 136 pass / 0 fail, 1,128
+  assertions across 15 files. Log: `/tmp/gstack2-test-command-candidate-final2.log`.
+  This focused surface does not substitute for the broad or native-platform
+  gates.
 - [x] Optional host-neutral runtime implemented with canonical paths,
   repo/worktree state identity, locks, atomic writes, effect claims,
   doctor/config/state/cleanup, migrations, upgrade/rollback, and uninstall.
-- [x] Managed runtime installer coverage is green at 21 pass / 0 fail and 307
-  assertions. The current managed bundle audit records 107 components, 1,830
-  files, 459,056,031 bytes, and 50 launchers. Setup installs frozen
+- [x] Managed runtime installer coverage is green at 24 pass / 0 fail and 336
+  assertions. The deterministic clean macOS arm64 managed-bundle audit records
+  110 components, 1,829 files, 450,044,315 bytes, and 50 capability launchers.
+  This is a platform-specific bundle measurement, not a universal byte count;
+  platform-native package payloads differ. Setup installs frozen
   production-only dependencies; the development-only Claude Agent SDK is
   excluded. The Sharp/ngrok closure is included. The Hugging Face sidecar is
   excluded and its package is development-only, so setup installs neither its
@@ -103,10 +106,10 @@ status.
   screenshot, status, and stop cleanup. The stop acknowledgement regression
   has a 2 pass / 0 fail focused test.
 - [x] The uninterrupted macOS broad suite is green under singleton isolation:
-  6,234 pass / 226 expected skips / 0 fail and 25,392 assertions across all
+  6,240 pass / 226 expected skips / 0 fail and 25,450 assertions across all
   383 files. This includes the complete local-browser suite. The local
-  Windows-safe singleton lane is also green at 2,813 pass / 57 expected skips
-  / 0 fail and 8,562 assertions across all 213 curated files; it is not native
+  Windows-safe singleton lane is also green at 2,815 pass / 57 expected skips
+  / 0 fail and 8,586 assertions across all 213 curated files; it is not native
   Windows evidence.
 - [x] Architecture, privacy, Context.dev, host compatibility, upgrade/rollback,
   migration, and governance documentation added.
@@ -120,8 +123,8 @@ status.
 - [ ] Prove runtime-absent judgment behavior through an actual host invocation.
   Runtime install failure and the real default capability lifecycle are covered.
 - [ ] Complete native Linux and Windows matrices. The uninterrupted macOS
-  broad singleton run is green at 6,234/226/0 across 383 files, and the local
-  Windows-safe singleton lane is green at 2,813/57/0 across 213 files. Neither
+  broad singleton run is green at 6,240/226/0 across 383 files, and the local
+  Windows-safe singleton lane is green at 2,815/57/0 across 213 files. Neither
   substitutes for native execution on its named platform.
 - [ ] Integrate the passing complete local-browser suite and live journey into
   final cancellation/leak evidence. The production dependency and managed
@@ -158,7 +161,7 @@ status.
 | Host matrix | [HOST-COMPATIBILITY.md](./HOST-COMPATIBILITY.md) | 470/470 checks; six hosts Verified at installer layer; live v3/UI launch pending |
 | Privacy boundary | [PRIVACY.md](./PRIVACY.md) | Implemented contract; full retained-tool egress audit pending |
 | Physical iOS | [IOS-PHYSICAL-DEVICE.md](./IOS-PHYSICAL-DEVICE.md) | Preflight 9 pass / 1 deploy skip / 29 assertions; signing blocked; no app/pass artifact |
-| Upgrade/recovery | [UPGRADE-AND-ROLLBACK.md](./UPGRADE-AND-ROLLBACK.md) | Runtime installer 21 pass / 307 assertions; current bundle audit recorded |
+| Upgrade/recovery | [UPGRADE-AND-ROLLBACK.md](./UPGRADE-AND-ROLLBACK.md) | Runtime installer 24 pass / 336 assertions; deterministic clean macOS arm64 bundle audit recorded |
 
 ## Interpretation rules
 

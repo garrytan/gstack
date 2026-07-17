@@ -119,10 +119,11 @@ export const DEFAULT_SHARD_COUNT = 20;
 export const DEFAULT_MAX_FILES_PER_SHARD = 20;
 export const FREE_TEST_TIMEOUT_MS = 10_000;
 
-const SCHEDULED_EXIT_ZERO = /\b(?:setTimeout|setInterval|setImmediate|queueMicrotask)\s*\(\s*(?:(?:async\s*)?(?:\([^)]*\)|[$\w]+)\s*=>|function(?:\s+[$\w]+)?\s*\([^)]*\)\s*\{)[\s\S]{0,256}?\bprocess\.exit\s*\(\s*0\s*\)/;
+const SCHEDULED_CALLBACK_START = /\b(?:setTimeout|setInterval|setImmediate|queueMicrotask)\s*\(\s*(?:(?:async\s*)?(?:\([^)]*\)|[$\w]+)\s*=>|function(?:\s+[$\w]+)?\s*\([^)]*\)\s*\{)/g;
+const PROCESS_EXIT_ZERO = /\bprocess\.exit\s*\(\s*0\s*\)/;
 // Deliberately require column zero. That identifies conventional module-scope
 // setup while avoiding process.env changes indented inside hooks and tests.
-const TOP_LEVEL_PROCESS_ENV_MUTATION = /^(?:process\.env\.[A-Za-z_][A-Za-z0-9_]*[ \t]*=(?!=)|delete[ \t]+process\.env\.[A-Za-z_][A-Za-z0-9_]*(?:[ \t]*;)?[ \t]*(?:\/\/.*)?$)/m;
+const TOP_LEVEL_PROCESS_ENV_MUTATION = /^(?:process\.env\.[A-Za-z_][A-Za-z0-9_]*[ \t]*=(?!=)|delete[ \t]+process\.env\.[A-Za-z_][A-Za-z0-9_]*(?:[ \t]*;)?[ \t]*(?:\/\/.*)?$)/;
 
 export function normalizeRelativePath(filePath: string): string {
   return filePath.replace(/\\/g, '/');
@@ -233,27 +234,29 @@ export function assignFilesToShards(files: string[], shardCount: number): string
 }
 
 export function containsScheduledProcessExitZero(source: string): boolean {
-  return SCHEDULED_EXIT_ZERO.test(source);
+  for (const callback of source.matchAll(SCHEDULED_CALLBACK_START)) {
+    const bodyStart = (callback.index ?? 0) + callback[0].length;
+    const exit = PROCESS_EXIT_ZERO.exec(source.slice(bodyStart, bodyStart + 320));
+    if (exit !== null && exit.index <= 256) return true;
+  }
+  return false;
 }
 
 export function hasScheduledProcessExitZero(absolutePath: string): boolean {
-  try {
-    return containsScheduledProcessExitZero(fs.readFileSync(absolutePath, 'utf8'));
-  } catch {
-    return false;
-  }
+  const source = fs.readFileSync(absolutePath, 'utf8');
+  return containsScheduledProcessExitZero(source);
 }
 
 export function containsTopLevelProcessEnvMutation(source: string): boolean {
-  return TOP_LEVEL_PROCESS_ENV_MUTATION.test(source);
+  for (const line of source.split(/\r?\n/)) {
+    if (TOP_LEVEL_PROCESS_ENV_MUTATION.test(line)) return true;
+  }
+  return false;
 }
 
 export function hasTopLevelProcessEnvMutation(absolutePath: string): boolean {
-  try {
-    return containsTopLevelProcessEnvMutation(fs.readFileSync(absolutePath, 'utf8'));
-  } catch {
-    return false;
-  }
+  const source = fs.readFileSync(absolutePath, 'utf8');
+  return containsTopLevelProcessEnvMutation(source);
 }
 
 export interface BoundedShardOptions {
@@ -276,13 +279,17 @@ export function planBoundedFreeTestShards(
     throw new Error(`Maximum files per shard must be a positive integer. Received: ${maxFilesPerShard}`);
   }
 
+  const orderedFiles = [...new Set(files)].sort();
+  if (maxFilesPerShard === 1) return orderedFiles.map((file) => [file]);
+
   const normal: string[] = [];
   const isolated: string[] = [];
-  for (const file of [...new Set(files)].sort()) {
+  for (const file of orderedFiles) {
     const absolutePath = path.join(rootDir, file);
+    const source = fs.readFileSync(absolutePath, 'utf8');
     if (
-      hasScheduledProcessExitZero(absolutePath)
-      || hasTopLevelProcessEnvMutation(absolutePath)
+      containsScheduledProcessExitZero(source)
+      || containsTopLevelProcessEnvMutation(source)
     ) isolated.push(file);
     else normal.push(file);
   }

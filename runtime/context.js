@@ -20,6 +20,7 @@ const PREFIXED_CREDENTIAL = /(?:^|[^A-Za-z0-9])(?:AIza[0-9A-Za-z_-]{20,}|AKIA[0-
 // path segment is still scanned independently, avoiding false positives where
 // a long mixed-case documentation path looked like one credential.
 const OPAQUE_TOKEN_CANDIDATE = /[A-Za-z0-9._~+=-]{32,}/g;
+const UUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 const MAX_CREDENTIAL_DECODE_PASSES = 8;
 const MIN_OPAQUE_TOKEN_ENTROPY = 4.25;
 
@@ -125,6 +126,10 @@ export class ContextError extends Error {
     this.unsupported = Boolean(options.unsupported);
   }
 
+  static fromCause(code, message, cause, options = {}) {
+    return new ContextError(code, message, { ...options, cause });
+  }
+
   toJSON() {
     return {
       name: this.name,
@@ -171,7 +176,7 @@ export function assertPublicUrl(input) {
   try {
     url = input instanceof URL ? new URL(input.href) : new URL(String(input));
   } catch (cause) {
-    throw new ContextError("CONTEXT_BLOCKED", "Target must be an absolute public HTTP(S) URL", { cause });
+    throw ContextError.fromCause("CONTEXT_BLOCKED", "Target must be an absolute public HTTP(S) URL", cause);
   }
   if (!["http:", "https:"].includes(url.protocol)) {
     throw new ContextError("CONTEXT_BLOCKED", "Only HTTP and HTTPS target URLs are allowed");
@@ -245,7 +250,7 @@ export async function assertPublicUrlResolved(input, options = {}) {
   try {
     records = await lookup(hostname, { all: true, verbatim: true });
   } catch (cause) {
-    throw new ContextError("CONTEXT_BLOCKED", "Target hostname could not be resolved publicly", { cause });
+    throw ContextError.fromCause("CONTEXT_BLOCKED", "Target hostname could not be resolved publicly", cause);
   }
   const list = Array.isArray(records) ? records : [records];
   if (!list.length || list.some((record) => !isPublicIp(record?.address ?? record))) {
@@ -440,9 +445,8 @@ export class ContextClient {
       try {
         payload = text ? JSON.parse(text) : null;
       } catch (cause) {
-        throw new ContextError("CONTEXT_BAD_RESPONSE", "Context.dev returned malformed JSON", {
+        throw ContextError.fromCause("CONTEXT_BAD_RESPONSE", "Context.dev returned malformed JSON", cause, {
           status: response.status,
-          cause,
           secrets: [key],
         });
       }
@@ -564,7 +568,7 @@ function validateBaseUrl(input) {
   try {
     url = new URL(String(input));
   } catch (cause) {
-    throw new ContextError("CONTEXT_BAD_RESPONSE", "Invalid Context.dev API base URL", { cause });
+    throw ContextError.fromCause("CONTEXT_BAD_RESPONSE", "Invalid Context.dev API base URL", cause);
   }
   if (url.origin !== "https://api.context.dev" || url.username || url.password ||
       !["/v1", "/v1/"].includes(url.pathname) || url.search || url.hash) {
@@ -580,9 +584,7 @@ export function redactSensitiveText(message, knownSecrets = []) {
     const raw = String(secret ?? "");
     if (raw.length < 8) continue;
     exactSecrets.add(raw);
-    try {
-      exactSecrets.add(encodeURIComponent(raw));
-    } catch {}
+    if (hasWellFormedUtf16(raw)) exactSecrets.add(encodeURIComponent(raw));
   }
   for (const secret of exactSecrets) safe = safe.split(secret).join("[REDACTED]");
   safe = safe.replace(/(\bAuthorization\s*[:=]\s*)[^\r\n,}]+/gi, "$1[REDACTED]");
@@ -644,14 +646,10 @@ function containsCredentialMaterial(value) {
 
 function looksOpaqueCredential(candidate) {
   const token = candidate.replace(/[.,;:!?]+$/, "");
-  if (token.length < 32 || /^[a-f0-9]{32,}$/i.test(token) || isUuid(token) || isReadablePublicSlug(token)) return false;
+  if (token.length < 32 || /^[a-f0-9]{32,}$/i.test(token) || UUID.test(token) || isReadablePublicSlug(token)) return false;
   const categories = [/[a-z]/, /[A-Z]/, /\d/, /[._~+/=-]/]
     .reduce((count, pattern) => count + Number(pattern.test(token)), 0);
   return categories >= 3 && shannonEntropy(token) >= MIN_OPAQUE_TOKEN_ENTROPY;
-}
-
-function isUuid(value) {
-  return /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value);
 }
 
 function isReadablePublicSlug(value) {
@@ -691,6 +689,20 @@ function isSensitiveFieldName(key) {
   }
   return /(?:access|api|auth|client|oauth|refresh|private|security|session|xamz|xgoog)(?:credential|key|password|secret|signature|token)$/.test(normalized) ||
     /(?:credential|password|secret|signature|token)$/.test(normalized);
+}
+
+function hasWellFormedUtf16(value) {
+  for (let index = 0; index < value.length; index += 1) {
+    const unit = value.charCodeAt(index);
+    if (unit >= 0xd800 && unit <= 0xdbff) {
+      const next = value.charCodeAt(index + 1);
+      if (next < 0xdc00 || next > 0xdfff) return false;
+      index += 1;
+    } else if (unit >= 0xdc00 && unit <= 0xdfff) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function containsCredentialLabel(value) {
@@ -787,12 +799,8 @@ function inIpv4Cidr(value, base, bits) {
 }
 
 function isPublicIpv6(address) {
-  let value;
-  try {
-    value = ipv6BigInt(address);
-  } catch {
-    return false;
-  }
+  // isPublicIp has already required Node's IPv6 parser to accept the address.
+  const value = ipv6BigInt(address);
   if ((value >> 32n) === 0xffffn) {
     const ipv4 = Number(value & 0xffffffffn);
     return isPublicIpv4(`${ipv4 >>> 24}.${(ipv4 >>> 16) & 255}.${(ipv4 >>> 8) & 255}.${ipv4 & 255}`);

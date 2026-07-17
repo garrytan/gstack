@@ -541,10 +541,6 @@ interface RenderedModuleRecord {
   disposition: string;
 }
 
-function referencedModules(content: string): string[] {
-  return [...new Set([...content.matchAll(/references\/legacy\/([a-z0-9-]+)\.md/g)].map((match) => match[1]))].sort();
-}
-
 /**
  * Compute the complete module graph for each independently installable public
  * skill. Owner modules are roots because compatibility aliases may select any
@@ -570,7 +566,11 @@ function packageModuleClosure(rendered: Map<string, RenderedModuleRecord>): Map<
       for (const source of [...sources]) {
         const module = rendered.get(source);
         if (!module) throw new Error(`${tree} references unknown preserved module ${source}`);
-        for (const dependency of referencedModules(module.content)) {
+        const dependencies = new Set(
+          [...module.content.matchAll(/references\/legacy\/([a-z0-9-]+)\.md/g)]
+            .map((match) => match[1]),
+        );
+        for (const dependency of [...dependencies].sort()) {
           if (!rendered.has(dependency)) throw new Error(`${source} references unknown preserved module ${dependency}`);
           if (!sources.has(dependency)) {
             sources.add(dependency);

@@ -9,6 +9,8 @@ import {
   recoverRuntimeTransactionUnlocked,
   withRuntimeLifecycleLock,
 } from "./managed-home.js";
+import { errorWithCode as upgradeError } from "./errors.js";
+import { currentIsoTimestamp as isoNow } from "./time.js";
 
 export async function stageUpgrade(options) {
   const home = path.resolve(options.home);
@@ -132,6 +134,13 @@ export async function stageUpgradeUnlocked(options) {
       });
     } catch (error) {
       rollbackErrors.push(error);
+    }
+    if (staged) {
+      try {
+        await fs.rm(destination, { recursive: true, force: true });
+      } catch (error) {
+        rollbackErrors.push(error);
+      }
     }
     const error = upgradeError(`Upgrade ${version} failed health checks and was rolled back`, "UPGRADE_ROLLED_BACK", cause);
     if (rollbackErrors.length === 1) error.rollbackError = rollbackErrors[0];
@@ -334,14 +343,4 @@ async function isRealDirectory(directory) {
 
 function emptyPointer() {
   return { schemaVersion: 2, status: "inactive", current: null, lastKnownGood: null };
-}
-
-function isoNow(now) {
-  return (now ? now() : new Date()).toISOString();
-}
-
-function upgradeError(message, code, cause) {
-  const error = cause === undefined ? new Error(message) : new Error(message, { cause });
-  error.code = code;
-  return error;
 }

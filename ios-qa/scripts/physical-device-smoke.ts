@@ -151,6 +151,10 @@ interface JsonCommandResult {
   command: CommandResult;
 }
 
+type ParsedJson =
+  | { ok: true; payload: unknown }
+  | { ok: false; detail: string };
+
 interface ApiResponse {
   status: number;
   body: Record<string, unknown>;
@@ -283,6 +287,14 @@ function commandDetail(result: CommandResult, lines = 80): string {
   return combined.split('\n').slice(-lines).join('\n');
 }
 
+function parseJson(raw: string): ParsedJson {
+  try {
+    return { ok: true, payload: JSON.parse(raw) };
+  } catch (error) {
+    return { ok: false, detail: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 function runJsonDevicectl(args: string[], phase: string): JsonCommandResult {
   const dir = mkdtempSync(join(tmpdir(), 'gstack-ios-devicectl-'));
   const output = join(dir, 'result.json');
@@ -309,18 +321,18 @@ function runJsonDevicectl(args: string[], phase: string): JsonCommandResult {
         ['Run `sudo xcodebuild -runFirstLaunch`, reconnect the iPhone, and retry.'],
       );
     }
-    try {
-      return { payload: JSON.parse(readFileSync(output, 'utf8')), command };
-    } catch (error) {
+    const parsed = parseJson(readFileSync(output, 'utf8'));
+    if (!parsed.ok) {
       throw new HarnessError(
         'device_discovery_bad_response',
         'setup_gate',
         phase,
         'devicectl returned malformed JSON',
         ['Upgrade or repair Xcode, then verify `xcrun devicectl list devices --json-output <path>` manually.'],
-        error instanceof Error ? error.message : String(error),
+        parsed.detail,
       );
     }
+    return { payload: parsed.payload, command };
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -1224,6 +1236,7 @@ async function runLiveIteration(
 ): Promise<LiveIterationResult> {
   let sessionId: string | undefined;
   let released = false;
+  let primaryError: unknown;
   try {
     const healthBefore = await deviceRequest(tunnel, '/healthz', { token: null });
     requireStatus(healthBefore, 200, 'health before tap');
@@ -1423,13 +1436,23 @@ async function runLiveIteration(
         },
       },
     };
+  } catch (error) {
+    primaryError = error;
+    throw error;
   } finally {
     if (sessionId && !released) {
       try {
-        await deviceRequest(tunnel, '/session/release', { method: 'POST', sessionId });
-      } catch {
-        // The aggregate result remains failed. The outer cleanup performs one
-        // final release attempt before the tunnel keepalive is stopped.
+        const cleanupRelease = await deviceRequest(tunnel, '/session/release', { method: 'POST', sessionId });
+        requireStatus(cleanupRelease, 200, 'failed-iteration session cleanup');
+      } catch (cleanupError) {
+        if (primaryError) {
+          throw new AggregateError(
+            [primaryError, cleanupError],
+            'Live iteration failed and its session cleanup also failed',
+            { cause: primaryError },
+          );
+        }
+        throw cleanupError;
       }
     }
   }
@@ -1437,6 +1460,13 @@ async function runLiveIteration(
 
 function serializeUnknownError(error: unknown): Record<string, unknown> {
   if (error instanceof HarnessError) return error.toJSON();
+  if (error instanceof AggregateError) {
+    return {
+      name: error.name,
+      message: error.message,
+      errors: [...error.errors].map((nested) => serializeUnknownError(nested)),
+    };
+  }
   if (error instanceof Error) return { name: error.name, message: error.message };
   return { message: String(error) };
 }

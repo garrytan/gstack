@@ -4,6 +4,8 @@ import { appendJsonLine, atomicWriteJson, readJson, withLock } from "./storage.j
 import { projectPaths } from "./paths.js";
 import { discoverProjectIdentity } from "./identity.js";
 import { RUNTIME_SCHEMA_VERSION } from "./migrations.js";
+import { errorWithCode } from "./errors.js";
+import { currentIsoTimestamp as isoNow } from "./time.js";
 
 const PROJECT_DIRECTORIES = ["evidence", "artifacts", "reviews", "checkpoints"];
 export const WORKFLOW_STATE_SCHEMA_VERSION = 1;
@@ -126,9 +128,7 @@ export async function inspectProject(home, identityOrId) {
   const paths = projectPaths(home, id);
   const state = await readJson(paths.state, null);
   if (!state) {
-    const error = new Error(`No state found for project ${id}`);
-    error.code = "STATE_NOT_FOUND";
-    throw error;
+    throw errorWithCode(`No state found for project ${id}`, "STATE_NOT_FOUND");
   }
   assertSupportedState(state, paths.state);
   return { paths, state };
@@ -143,7 +143,7 @@ export async function inspectRun(home, projectId, runId) {
   validateRunId(runId);
   const { paths, state } = await inspectProject(home, projectId);
   const run = Object.hasOwn(state.runs, runId) ? state.runs[runId] : null;
-  if (!run) throw codedError("RUN_NOT_FOUND", `Run not found: ${runId}`);
+  if (!run) throw errorWithCode(`Run not found: ${runId}`, "RUN_NOT_FOUND");
   return {
     paths,
     state,
@@ -173,9 +173,7 @@ export async function beginRun(home, projectId, command, options = {}) {
   const now = isoNow(options.now);
   const { state, result } = await updateWithEvent(paths, async (state) => {
     if (Object.hasOwn(state.runs, runId)) {
-      const error = new Error(`Run already exists: ${runId}`);
-      error.code = "RUN_EXISTS";
-      throw error;
+      throw errorWithCode(`Run already exists: ${runId}`, "RUN_EXISTS");
     }
     const workflow = createWorkflowState(command, options, now);
     state.runs[runId] = {
@@ -206,14 +204,10 @@ export async function resumeRun(home, projectId, runId, options = {}) {
     if (selected) validateRunId(selected);
     const run = selected && Object.hasOwn(state.runs, selected) ? state.runs[selected] : null;
     if (!run) {
-      const error = new Error(selected ? `Run not found: ${selected}` : "No resumable run found");
-      error.code = "RUN_NOT_FOUND";
-      throw error;
+      throw errorWithCode(selected ? `Run not found: ${selected}` : "No resumable run found", "RUN_NOT_FOUND");
     }
     if (run.status === "completed") {
-      const error = new Error(`Run is already complete: ${run.id}`);
-      error.code = "RUN_COMPLETED";
-      throw error;
+      throw errorWithCode(`Run is already complete: ${run.id}`, "RUN_COMPLETED");
     }
     for (const effect of Object.values(run.effects ?? {})) {
       if (effect.status === "in_progress") {
@@ -242,14 +236,14 @@ export async function completeRun(home, projectId, runId, options = {}) {
   const now = isoNow(options.now);
   const { state, result } = await updateWithEvent(paths, async (state) => {
     const run = Object.hasOwn(state.runs, runId) ? state.runs[runId] : null;
-    if (!run) throw codedError("RUN_NOT_FOUND", `Run not found: ${runId}`);
+    if (!run) throw errorWithCode(`Run not found: ${runId}`, "RUN_NOT_FOUND");
     const unresolved = Object.values(run.effects ?? {}).filter((effect) =>
       ["ready", "in_progress", "uncertain"].includes(effect.status));
     if (unresolved.length && !options.allowUncertain) {
-      throw codedError("EFFECTS_UNCERTAIN", "Run has unresolved external effects");
+      throw errorWithCode("Run has unresolved external effects", "EFFECTS_UNCERTAIN");
     }
     if (run.workflow.pendingApprovalGates.length) {
-      throw codedError("APPROVAL_GATES_PENDING", "Run has pending approval gates");
+      throw errorWithCode("Run has pending approval gates", "APPROVAL_GATES_PENDING");
     }
     run.status = "completed";
     run.completedAt = now;
@@ -277,10 +271,10 @@ export async function updateRunWorkflow(home, projectId, runId, transition, opti
   const now = isoNow(options.now);
   const { state, result } = await updateWithEvent(paths, async (state) => {
     const run = Object.hasOwn(state.runs, runId) ? state.runs[runId] : null;
-    if (!run) throw codedError("RUN_NOT_FOUND", `Run not found: ${runId}`);
-    if (run.status === "completed") throw codedError("RUN_COMPLETED", `Run is already complete: ${runId}`);
+    if (!run) throw errorWithCode(`Run not found: ${runId}`, "RUN_NOT_FOUND");
+    if (run.status === "completed") throw errorWithCode(`Run is already complete: ${runId}`, "RUN_COMPLETED");
     if (state.activeRunId !== runId) {
-      throw codedError("RUN_NOT_ACTIVE", `Run is not active; resume it before updating: ${runId}`);
+      throw errorWithCode(`Run is not active; resume it before updating: ${runId}`, "RUN_NOT_ACTIVE");
     }
 
     const changes = applyWorkflowTransition(run.workflow, transition, now);
@@ -313,18 +307,18 @@ export async function runExternalEffect(home, projectId, runId, effectKey, execu
   const now = isoNow(options.now);
   const claimed = await updateWithEvent(paths, async (state) => {
     const run = Object.hasOwn(state.runs, runId) ? state.runs[runId] : null;
-    if (!run) throw codedError("RUN_NOT_FOUND", `Run not found: ${runId}`);
-    if (run.status === "completed") throw codedError("RUN_COMPLETED", `Run is already complete: ${runId}`);
+    if (!run) throw errorWithCode(`Run not found: ${runId}`, "RUN_NOT_FOUND");
+    if (run.status === "completed") throw errorWithCode(`Run is already complete: ${runId}`, "RUN_COMPLETED");
     if (state.activeRunId !== runId) {
-      throw codedError("RUN_NOT_ACTIVE", `Run is not active; resume it before an external effect: ${runId}`);
+      throw errorWithCode(`Run is not active; resume it before an external effect: ${runId}`, "RUN_NOT_ACTIVE");
     }
     if (run.workflow.pendingApprovalGates.length) {
-      throw codedError("APPROVAL_REQUIRED", "Resolve pending approval gates before external effects");
+      throw errorWithCode("Resolve pending approval gates before external effects", "APPROVAL_REQUIRED");
     }
     if (!EXTERNAL_EFFECT_AUTHORITIES.has(run.workflow.mutationAuthority)) {
-      throw codedError(
-        "MUTATION_NOT_AUTHORIZED",
+      throw errorWithCode(
         `Mutation authority ${run.workflow.mutationAuthority} does not permit external effects`,
+        "MUTATION_NOT_AUTHORIZED",
       );
     }
     run.effects = normalizeRecord(run.effects, validateEffectKey, "effects");
@@ -385,9 +379,9 @@ export async function completeExternalEffect(home, projectId, runId, effectKey, 
   const now = isoNow(options.now);
   return updateWithEvent(paths, async (state) => {
     const effect = ownedEffect(state, runId, effectKey);
-    if (!effect) throw codedError("EFFECT_NOT_FOUND", `Effect not found: ${effectKey}`);
+    if (!effect) throw errorWithCode(`Effect not found: ${effectKey}`, "EFFECT_NOT_FOUND");
     if (effect.status !== "in_progress") {
-      throw codedError("EFFECT_NOT_IN_PROGRESS", `Effect is not in progress: ${effectKey}`);
+      throw errorWithCode(`Effect is not in progress: ${effectKey}`, "EFFECT_NOT_IN_PROGRESS");
     }
     effect.status = "completed";
     effect.completedAt = now;
@@ -406,9 +400,9 @@ export async function markEffectNotApplied(home, projectId, runId, effectKey, op
   const paths = projectPaths(home, projectId);
   return updateWithEvent(paths, async (state) => {
     const effect = ownedEffect(state, runId, effectKey);
-    if (!effect) throw codedError("EFFECT_NOT_FOUND", `Effect not found: ${effectKey}`);
+    if (!effect) throw errorWithCode(`Effect not found: ${effectKey}`, "EFFECT_NOT_FOUND");
     if (effect.status !== "uncertain") {
-      throw codedError("EFFECT_NOT_UNCERTAIN", `Only an uncertain effect can be reconciled as not applied: ${effectKey}`);
+      throw errorWithCode(`Only an uncertain effect can be reconciled as not applied: ${effectKey}`, "EFFECT_NOT_UNCERTAIN");
     }
     effect.status = "ready";
     effect.reconciledAt = isoNow(options.now);
@@ -430,9 +424,9 @@ export async function markEffectApplied(home, projectId, runId, effectKey, evide
   const now = isoNow(options.now);
   return updateWithEvent(paths, async (state) => {
     const effect = ownedEffect(state, runId, effectKey);
-    if (!effect) throw codedError("EFFECT_NOT_FOUND", `Effect not found: ${effectKey}`);
+    if (!effect) throw errorWithCode(`Effect not found: ${effectKey}`, "EFFECT_NOT_FOUND");
     if (effect.status !== "uncertain") {
-      throw codedError("EFFECT_NOT_UNCERTAIN", `Only an uncertain effect can be reconciled as applied: ${effectKey}`);
+      throw errorWithCode(`Only an uncertain effect can be reconciled as applied: ${effectKey}`, "EFFECT_NOT_UNCERTAIN");
     }
     effect.status = "completed";
     effect.completedAt = now;
@@ -460,7 +454,7 @@ async function markEffectUncertain(home, projectId, runId, effectKey, cause, opt
   const now = isoNow(options.now);
   return updateWithEvent(paths, async (state) => {
     const effect = ownedEffect(state, runId, effectKey);
-    if (!effect) throw codedError("EFFECT_NOT_FOUND", `Effect not found: ${effectKey}`);
+    if (!effect) throw errorWithCode(`Effect not found: ${effectKey}`, "EFFECT_NOT_FOUND");
     effect.status = "uncertain";
     effect.uncertainAt = now;
     effect.reason = String(cause?.message ?? cause ?? "unknown external error").slice(0, 500);
@@ -507,7 +501,7 @@ function assertSupportedState(state, file) {
     throw new Error(`Invalid state schema in ${file}`);
   }
   if (state.schemaVersion > RUNTIME_SCHEMA_VERSION) {
-    throw codedError("STATE_NEWER_THAN_RUNTIME", `State schema is newer than this runtime: ${file}`);
+    throw errorWithCode(`State schema is newer than this runtime: ${file}`, "STATE_NEWER_THAN_RUNTIME");
   }
   if (!Number.isInteger(state.revision) || state.revision < 0) throw new Error(`Invalid state revision in ${file}`);
   state.runs = normalizeRecord(state.runs, validateRunId, "runs");
@@ -607,7 +601,7 @@ function createWorkflowState(command, options, now) {
 function validateWorkflowState(workflow, label) {
   assertPlainRecord(workflow, label, WORKFLOW_KEYS);
   if (workflow.schemaVersion !== WORKFLOW_STATE_SCHEMA_VERSION) {
-    throw codedError("WORKFLOW_SCHEMA_UNSUPPORTED", `Unsupported workflow schema in ${label}`);
+    throw errorWithCode(`Unsupported workflow schema in ${label}`, "WORKFLOW_SCHEMA_UNSUPPORTED");
   }
   validateOptionalPointer(workflow.currentPlanPointer);
   validateGoal(workflow.originalGoal, "original goal");
@@ -705,7 +699,7 @@ function applyWorkflowTransition(workflow, transition, now) {
     changes.push("detourStack.push");
   }
   if (transition.popDetour === true) {
-    if (workflow.detourStack.length === 0) throw codedError("DETOUR_STACK_EMPTY", "No detour is available to pop");
+    if (workflow.detourStack.length === 0) throw errorWithCode("No detour is available to pop", "DETOUR_STACK_EMPTY");
     workflow.detourStack.pop();
     changes.push("detourStack.pop");
   }
@@ -732,7 +726,7 @@ function applyWorkflowTransition(workflow, transition, now) {
   if (Object.hasOwn(transition, "addApprovalGate")) {
     const input = transition.addApprovalGate;
     if (workflow.pendingApprovalGates.some((gate) => gate.id === input.id)) {
-      throw codedError("APPROVAL_GATE_EXISTS", `Approval gate already exists: ${input.id}`);
+      throw errorWithCode(`Approval gate already exists: ${input.id}`, "APPROVAL_GATE_EXISTS");
     }
     workflow.pendingApprovalGates.push({
       id: input.id,
@@ -744,7 +738,7 @@ function applyWorkflowTransition(workflow, transition, now) {
   if (Object.hasOwn(transition, "resolveApprovalGate")) {
     const index = workflow.pendingApprovalGates.findIndex((gate) => gate.id === transition.resolveApprovalGate);
     if (index === -1) {
-      throw codedError("APPROVAL_GATE_NOT_FOUND", `Approval gate not found: ${transition.resolveApprovalGate}`);
+      throw errorWithCode(`Approval gate not found: ${transition.resolveApprovalGate}`, "APPROVAL_GATE_NOT_FOUND");
     }
     workflow.pendingApprovalGates.splice(index, 1);
     changes.push("pendingApprovalGates.resolve");
@@ -950,10 +944,6 @@ function stableIdempotencyKey(projectId, runId, effectKey) {
   return `gstack_${digest}`;
 }
 
-function isoNow(now) {
-  return (now ? now() : new Date()).toISOString();
-}
-
 function jsonSafe(value) {
   if (value === undefined) return null;
   try {
@@ -961,10 +951,4 @@ function jsonSafe(value) {
   } catch {
     return String(value);
   }
-}
-
-function codedError(code, message) {
-  const error = new Error(message);
-  error.code = code;
-  return error;
 }

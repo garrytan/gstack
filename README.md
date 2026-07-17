@@ -29,7 +29,7 @@ modules, and web-context choice, then lazily reads the preserved specialist
 module. See the complete [old-command mapping](docs/gstack-2/SKILL-MIGRATION.md)
 and [architecture](docs/gstack-2/ARCHITECTURE.md).
 
-## GStack 2 quick start — under five minutes
+## GStack 2 quick start
 
 Install with the standard Agent Skills installer; it owns host detection,
 scope, destination paths, updates, removal, and selected-skill installation:
@@ -50,9 +50,10 @@ Start with `/plan`, or invoke the skill syntax your host displays. Pure
 judgment modes work without a shared executable. Capability-dependent modes
 may offer the optional, host-neutral runtime. From a repository checkout,
 `./setup` installs that runtime once per user without placing host skills. Its
-real default-capability lifecycle passes on macOS, and a clean Linux arm64 Dev
-Container install/build/uninstall smoke also passes. Native-host Linux and
-Windows remain release gates, so consult
+real default-capability lifecycle and 383-file broad suite pass on macOS. The
+declared Linux Dev Container passes the 136-test GStack 2 suite, and a clean
+Linux arm64 install/build/browser/uninstall smoke also passes. Native-host
+Linux and Windows remain release gates, so consult
 [`HOST-COMPATIBILITY.md`](docs/gstack-2/HOST-COMPATIBILITY.md) before relying on
 it.
 
@@ -364,7 +365,7 @@ gstack works well with one sprint. It gets interesting with ten running at once.
 
 **Personal automation.** The sidebar agent isn't just for dev workflows. Example: "Browse my kid's school parent portal and add all the other parents' names, phone numbers, and photos to my Google Contacts." Two ways to get authenticated: (1) log in once in the headed browser, your session persists, or (2) click the "cookies" button in the sidebar footer to import cookies from your real Chrome. Once authenticated, Claude navigates the directory, extracts the data, and creates the contacts.
 
-**Prompt injection defense.** Hostile web pages try to hijack your sidebar agent. gstack ships a layered defense: a 22MB ML classifier bundled with the browser scans every page and tool output locally, a Claude Haiku transcript check votes on the full conversation shape, a random canary token in the system prompt catches session exfil attempts across text, tool args, URLs, and file writes, and a verdict combiner requires two classifiers to agree before blocking (prevents single-model false positives on Stack Overflow-style instruction pages). A shield icon in the sidebar header shows status (green/amber/red). Opt in to a 721MB DeBERTa-v3 ensemble via `GSTACK_SECURITY_ENSEMBLE=deberta` for 2-of-3 agreement. Emergency kill switch: `GSTACK_SECURITY_OFF=1`. See [ARCHITECTURE.md](ARCHITECTURE.md#prompt-injection-defense-sidebar-agent) for the full stack.
+**Prompt injection defense.** Hostile web pages try to hijack your sidebar agent. Deterministic content stripping, datamarking, URL checks, canary exfiltration detection, and scoped tool boundaries remain active. The retained 1.x source also documents an ML sidecar and optional ensemble, but the GStack 2 production setup does not build or install that sidecar, Hugging Face/ONNX, or model weights; it reports L4 unavailable. See [ARCHITECTURE.md](ARCHITECTURE.md#prompt-injection-defense-sidebar-agent) for the retained stack and the GStack 2 boundary.
 
 **Browser handoff when the AI gets stuck.** Hit a CAPTCHA, auth wall, or MFA prompt? `$B handoff` opens a visible Chrome at the exact same page with all your cookies and tabs intact. Solve the problem, tell Claude you're done, `$B resume` picks up right where it left off. The agent even suggests it automatically after 3 consecutive failures.
 

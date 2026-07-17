@@ -239,6 +239,12 @@ Page content harvested by CDP can contain lone UTF-16 surrogate halves (orphaned
 
 The Chrome sidebar agent has tools (Bash, Read, Glob, Grep, WebFetch) and reads hostile web pages, so it's the part of gstack most exposed to prompt injection. Defense is layered, not single-point.
 
+> **GStack 2 production boundary:** the ML sidecar described below is retained
+> as 1.x source and test material only. The managed runtime does not build or
+> copy the sidecar, keeps `@huggingface/transformers` development-only, installs
+> no ONNX runtime or model weights, and reports L4 unavailable. The generator
+> preserves this historical judgment without promoting it into 2.0 setup.
+
 1. **L1-L3 content security (`browse/src/content-security.ts`).** Runs on every page-content command and every tool output: datamarking, hidden-element strip, ARIA regex, URL blocklist, and a trust-boundary envelope wrapper. Applied at both the server and the agent.
 
 2. **L4 ML classifier — TestSavantAI (`browse/src/security-classifier.ts`).** A 22MB BERT-small ONNX model (int8 quantized) bundled with the agent. Runs locally, no network. Scans every user message and every Read/Glob/Grep/WebFetch tool output before Claude sees it. Opt-in 721MB DeBERTa-v3 ensemble via `GSTACK_SECURITY_ENSEMBLE=deberta`.

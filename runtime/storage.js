@@ -119,12 +119,10 @@ export async function acquireLock(lockPath, options = {}) {
         if (released) return;
         released = true;
         clearInterval(heartbeat);
-        try {
-          const current = await readJson(path.join(lockPath, "owner.json"), null);
-          if (current?.token === token) await fs.rm(lockPath, { recursive: true, force: true });
-        } catch {
-          // Locks are leases. A stale-lock reaper may already have removed it.
-        }
+        // Locks are leases. A stale-lock reaper may already have removed it,
+        // which readJson represents as null; other failures remain actionable.
+        const current = await readJson(path.join(lockPath, "owner.json"), null);
+        if (current?.token === token) await fs.rm(lockPath, { recursive: true, force: true });
       };
     } catch (error) {
       if (error?.code !== "EEXIST") throw error;
@@ -168,10 +166,27 @@ function processIsAlive(pid) {
 
 export async function withLock(lockPath, callback, options = {}) {
   const release = await acquireLock(lockPath, options);
+  let callbackError;
+  let callbackFailed = false;
   try {
     return await callback();
+  } catch (error) {
+    callbackFailed = true;
+    callbackError = error;
+    throw error;
   } finally {
-    await release();
+    try {
+      await release();
+    } catch (releaseError) {
+      if (callbackFailed) {
+        throw new AggregateError(
+          [callbackError, releaseError],
+          `Locked operation and lock release both failed: ${lockPath}`,
+          { cause: callbackError },
+        );
+      }
+      throw releaseError;
+    }
   }
 }
 

@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "platform": "darwin",
+  "arch": "arm64",
+  "sourceBundleVersion": "1.60.1.0",
+  "generatedAt": "2026-07-17T18:55:46.252Z",
+  "sourceGitCommit": "20d2840bd3f0d5b40f0b88050713eceb97f71cbb",
+  "sourceGitDirty": true,
+  "components": 110,
+  "files": 1829,
+  "bytes": 450044315,
+  "capabilityLaunchers": 50,
+  "nativeComponents": [
+    "node_modules/@img/colour",
+    "node_modules/@img/sharp-darwin-arm64",
+    "node_modules/@img/sharp-libvips-darwin-arm64",
+    "node_modules/@ngrok/ngrok-darwin-universal",
+    "node_modules/@ngrok/ngrok"
+  ],
+  "forbiddenComponents": [],
+  "bundleManifestSha256": "8afc56f329a3b1fc3d6258e5e981cd0387a67d2c890ce761be28502bff23c341",
+  "reproductionCommand": "bun run scripts/gstack2/audit-runtime-bundle.ts --output evals/runtime-bundle/darwin-arm64.json"
+}

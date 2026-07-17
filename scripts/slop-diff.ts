@@ -18,13 +18,24 @@ import * as path from "path";
 
 const base = process.argv[2] || "main";
 
+// `skills/` is a committed, deterministic projection of the preserved source
+// corpus. Its support files are intentionally copied into self-contained Agent
+// Skills packages, so duplicate-signature findings there describe the package
+// format rather than new handwritten implementation. Scan the generator and
+// original source files instead; freshness/parity separately prove the output.
+function isGeneratedCanonicalOutput(file: string): boolean {
+  return file.startsWith("skills/");
+}
+
 // 1. Find changed files
 const diffResult = spawnSync("git", ["diff", "--name-only", `${base}...HEAD`], {
   encoding: "utf-8",
   timeout: 10000,
 });
 const changedFiles = new Set(
-  (diffResult.stdout || "").trim().split("\n").filter(Boolean),
+  (diffResult.stdout || "").trim().split("\n")
+    .filter(Boolean)
+    .filter((file) => !isGeneratedCanonicalOutput(file)),
 );
 if (changedFiles.size === 0) {
   console.log("No files changed vs", base, "— nothing to check.");

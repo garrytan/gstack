@@ -130,10 +130,18 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  try { server.stop(); } catch {}
-  try { await bm.close(1000); } catch {}
-  fs.rmSync(tmpDir, { recursive: true, force: true });
-});
+  const cleanupFailures = (await Promise.allSettled([
+    server?.stop(true),
+    bm?.close(1000),
+  ])).filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+    .map((result) => result.reason);
+  try {
+    if (tmpDir) fs.rmSync(tmpDir, { recursive: true, force: true });
+  } catch (error) {
+    cleanupFailures.push(error);
+  }
+  if (cleanupFailures.length > 0) throw new AggregateError(cleanupFailures, 'Feedback test cleanup failed');
+}, 10_000);
 
 // ─── The critical test: browser click → file on disk ─────────────
 

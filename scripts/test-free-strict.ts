@@ -53,17 +53,6 @@ const DEFAULT_TERMINATION_TIMER: TerminationTimerApi = {
   cancel: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
 };
 
-function killWithoutThrowing(
-  child: Pick<ChildProcess, 'kill'>,
-  signal: NodeJS.Signals,
-): void {
-  try {
-    child.kill(signal);
-  } catch {
-    // The child may have exited between close detection and signal delivery.
-  }
-}
-
 /**
  * Bind one active child to the parent's termination lifecycle. SIGINT and
  * SIGTERM get a grace period so Bun can clean up; a repeated signal, timeout,
@@ -82,19 +71,19 @@ export function installChildSignalForwarding(
   const forward = (signal: ForwardedTerminationSignal): void => {
     if (disposed) return;
     if (receivedSignal !== null) {
-      killWithoutThrowing(child, 'SIGKILL');
+      child.kill('SIGKILL');
       return;
     }
     receivedSignal = signal;
-    killWithoutThrowing(child, signal);
+    child.kill(signal);
     forceTimer = timer.schedule(() => {
       forceTimer = null;
-      killWithoutThrowing(child, 'SIGKILL');
+      child.kill('SIGKILL');
     }, graceMs);
   };
   const onSigint = () => forward('SIGINT');
   const onSigterm = () => forward('SIGTERM');
-  const onExit = () => killWithoutThrowing(child, 'SIGKILL');
+  const onExit = () => { child.kill('SIGKILL'); };
 
   source.on('SIGINT', onSigint);
   source.on('SIGTERM', onSigterm);
@@ -283,7 +272,7 @@ export async function runStrictTestShard(files: string[]): Promise<number> {
   const forwarding = installChildSignalForwarding(child);
 
   if (!child.stdout || !child.stderr) {
-    killWithoutThrowing(child, 'SIGKILL');
+    child.kill('SIGKILL');
     forwarding.dispose();
     throw new Error('Bun test output pipes were not created');
   }

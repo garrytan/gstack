@@ -123,8 +123,10 @@ operations are setup, doctor, config, state
 inspection/resume, Context.dev status/options/select/setup/smoke, cleanup,
 upgrade/rollback, and uninstall.
 
-The current managed-bundle audit records 107 components, 1,830 files,
-459,056,031 bytes, and 50 launchers. Setup installs frozen production-only
+The deterministic clean macOS arm64 managed-bundle audit records 110
+components, 1,829 files, 450,044,315 bytes, and 50 capability launchers. This
+is a platform-specific bundle measurement, not a universal byte count;
+platform-native package payloads differ. Setup installs frozen production-only
 dependencies; the development-only Claude Agent SDK is excluded. The
 Sharp/ngrok dependency closure is included. The Hugging Face sidecar is
 excluded and its package is development-only, so setup installs neither its

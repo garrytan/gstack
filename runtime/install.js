@@ -4,6 +4,7 @@ import process from "node:process";
 import { createHash, randomUUID } from "node:crypto";
 import { spawn as nodeSpawn } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { familySync as detectLibcFamilySync, GLIBC, MUSL } from "detect-libc";
 import { resolveGstackHome, resolveRuntimePaths, assertPathInside } from "./paths.js";
 import { atomicWriteFile, atomicWriteJson, pathExists, readJson } from "./storage.js";
 import { purgeManagedHomeUnlocked, stageUpgradeUnlocked } from "./upgrade.js";
@@ -15,6 +16,8 @@ import {
   RUNTIME_TRANSACTION_FILE,
   withRuntimeLifecycleLock,
 } from "./managed-home.js";
+import { errorWithCode as installError } from "./errors.js";
+import { currentIsoTimestamp as isoNow } from "./time.js";
 
 const INSTALL_SCHEMA_VERSION = 2;
 
@@ -132,6 +135,50 @@ const RUNTIME_HELPER_TARGETS = Object.freeze([...new Set(
 )]);
 
 /**
+ * Resolve only the native packages loaded on this host. Package managers may
+ * leave optional binaries for several platforms in node_modules; copying an
+ * entire scope would make the managed bundle depend on that incidental state.
+ */
+export function runtimeNativePackagePaths(options = {}) {
+  const platform = options.platform ?? process.platform;
+  const arch = options.arch ?? process.arch;
+  const supportedArch = ["x64", "arm64"].includes(arch);
+  if (!["darwin", "linux", "win32"].includes(platform) || !supportedArch) {
+    throw new TypeError(`Unsupported managed-runtime platform: ${platform}-${arch}`);
+  }
+
+  const paths = ["node_modules/@img/colour"];
+  if (platform === "darwin") {
+    paths.push(
+      `node_modules/@img/sharp-darwin-${arch}`,
+      `node_modules/@img/sharp-libvips-darwin-${arch}`,
+      // The ngrok loader tries its universal macOS binary before the
+      // architecture-specific fallback, so retain that single canonical copy.
+      "node_modules/@ngrok/ngrok-darwin-universal",
+    );
+  } else if (platform === "win32") {
+    paths.push(
+      `node_modules/@img/sharp-win32-${arch}`,
+      `node_modules/@ngrok/ngrok-win32-${arch}-msvc`,
+    );
+  } else {
+    const libc = options.libc ?? detectLibcFamilySync();
+    if (![GLIBC, MUSL].includes(libc)) {
+      throw new TypeError(`Unsupported managed-runtime libc: ${String(libc)}`);
+    }
+    const sharpPlatform = libc === MUSL ? `linuxmusl-${arch}` : `linux-${arch}`;
+    const ngrokLibc = libc === MUSL ? "musl" : "gnu";
+    paths.push(
+      `node_modules/@img/sharp-${sharpPlatform}`,
+      `node_modules/@img/sharp-libvips-${sharpPlatform}`,
+      `node_modules/@ngrok/ngrok-linux-${arch}-${ngrokLibc}`,
+    );
+  }
+  paths.push("node_modules/@ngrok/ngrok");
+  return Object.freeze(paths);
+}
+
+/**
  * The managed bundle is deliberately narrow. Skills remain installed by a
  * standards-based Agent Skills installer; this list contains only optional
  * local runtime capabilities.
@@ -166,10 +213,9 @@ export const DEFAULT_RUNTIME_BUNDLE = Object.freeze([
   // the compiled CLI: Sharp powers full-page screenshot resizing, while
   // ngrok is an explicit opt-in tunnel for pair-agent (never a cloud browser).
   entry("node_modules/sharp"),
-  entry("node_modules/@img"),
+  ...runtimeNativePackagePaths().map((target) => entry(target)),
   entry("node_modules/detect-libc"),
   entry("node_modules/semver"),
-  entry("node_modules/@ngrok"),
   entry("node_modules/@anthropic-ai/sdk"),
   entry(platformBinary("design/dist/design"), "core", true),
   entry("design/dist/.version", "core"),
@@ -515,6 +561,23 @@ export async function smokeRuntimeBundle(directory, options = {}) {
   });
   if (!/gstack/i.test(`${result?.stdout ?? ""}${result?.stderr ?? ""}`)) {
     throw installError("Runtime launcher smoke test returned an unexpected response", "INSTALL_SMOKE_FAILED");
+  }
+  const nativeImports = [];
+  for (const packageName of ["sharp", "@ngrok/ngrok"]) {
+    if (await pathExists(path.join(directory, "node_modules", packageName, "package.json"))) {
+      nativeImports.push(packageName);
+    }
+  }
+  if (nativeImports.length > 0) {
+    try {
+      await run(command, [
+        "--input-type=module",
+        "--eval",
+        nativeImports.map((packageName) => `await import(${JSON.stringify(packageName)});`).join(" "),
+      ], { cwd: directory, capture: true });
+    } catch (cause) {
+      throw installError("Runtime native dependency smoke test failed", "INSTALL_SMOKE_FAILED", cause);
+    }
   }
 }
 
@@ -1248,16 +1311,6 @@ function installerUsage() {
   return `Usage: ./setup [--home <path>] [--version <version>] [--json] [--quiet]\n\n` +
     "Installs only the optional host-neutral runtime and local capability bundle.\n" +
     "Install the six skills separately with: npx skills add time-attack/gstack\n";
-}
-
-function installError(message, code, cause) {
-  const error = cause === undefined ? new Error(message) : new Error(message, { cause });
-  error.code = code;
-  return error;
-}
-
-function isoNow(now) {
-  return (now ? now() : new Date()).toISOString();
 }
 
 const invokedPath = process.argv[1] ? pathToFileURL(path.resolve(process.argv[1])).href : null;

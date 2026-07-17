@@ -103,8 +103,10 @@ support the claim and must follow the source system's retention policy.
 
 ## Models, images, and documents
 
-The current managed-bundle audit records 107 components, 1,830 files,
-459,056,031 bytes, and 50 launchers. Setup installs frozen production-only
+The deterministic clean macOS arm64 managed-bundle audit records 110
+components, 1,829 files, 450,044,315 bytes, and 50 capability launchers. This
+is a platform-specific bundle measurement, not a universal byte count;
+platform-native package payloads differ. Setup installs frozen production-only
 dependencies. The Sharp/ngrok closure is included; the development-only Claude
 Agent SDK is excluded. The Hugging Face sidecar is excluded and its package is
 development-only, so setup installs neither its inference runtime nor model

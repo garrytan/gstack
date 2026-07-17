@@ -69,17 +69,21 @@ written under `$GSTACK_HOME/bin` (default `~/.gstack/bin`), alongside
 `runtime-install.json`, which distinguishes managed paths from preserved
 config, secrets, projects, and plans.
 
-Twenty-one focused installer tests pass with 307 assertions. They cover paths
+Twenty-four focused installer tests pass with 336 assertions. They cover paths
 with spaces, a symlinked source root, internal-link rejection, runtime-only
-builder selection, production dependency closure, failed build/validation/
-smoke rollback, interrupted recovery, launchers, manifests, wrapper neutrality,
-and state-preserving uninstall.
+builder selection, deterministic exact Sharp/ngrok platform closure, failed
+build/validation/smoke rollback including native-load rollback smoke,
+interrupted recovery, launchers, manifests, wrapper neutrality, and
+state-preserving uninstall.
 
-The current managed-bundle audit records 107 components, 1,830 files,
-459,056,031 bytes, and 50 launchers. The Sharp/ngrok closure is included. The
-development-only Claude Agent SDK and Hugging Face sidecar are excluded; the
-Hugging Face package is development-only. Setup therefore installs neither its
-inference runtime nor model weights and reports the L4 capability unavailable.
+The deterministic clean macOS arm64 managed-bundle audit records 110
+components, 1,829 files, 450,044,315 bytes, and 50 capability launchers. This
+is a platform-specific bundle measurement, not a universal byte count;
+platform-native package payloads differ. The Sharp/ngrok closure is included.
+The development-only Claude Agent SDK and Hugging Face sidecar are excluded;
+the Hugging Face package is development-only. Setup therefore installs neither
+its inference runtime nor model weights and reports the L4 capability
+unavailable.
 
 A separate clean Linux arm64 container smoke copied the source through a path
 with spaces, installed only frozen production dependencies with the development
@@ -189,9 +193,11 @@ newer-schema refusal, and non-mutating cleanup preview. The standard installer
 matrix separately passed 470/470 checks across six hosts, 16 installs, scopes,
 selections, and two removals; its artifact is
 [`evals/installation/install-matrix.json`](../../evals/installation/install-matrix.json).
-The runtime installer is green at 21 pass / 0 fail and 307 assertions, and the
-current 107-component bundle audit is recorded. The clean Linux Dev Container
-install/uninstall smoke passed. Interrupted network acquisition/stage at OS
-level, a passing live v3 host run, actual host UI execution, native-host Linux,
-and native Windows runs remain gates. See
+The runtime installer is green at 24 pass / 0 fail and 336 assertions, and the
+deterministic clean macOS arm64 110-component bundle audit is recorded. Its
+byte count is platform-specific because platform-native package payloads
+differ. The clean Linux Dev Container install/uninstall smoke passed.
+Interrupted network acquisition/stage at OS level, a passing live v3 host run,
+actual host UI execution, native-host Linux, and native Windows runs remain
+gates. See
 [TEST-EVIDENCE.md](./TEST-EVIDENCE.md).

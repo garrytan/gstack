@@ -37,8 +37,8 @@ import {
 import { rollbackUpgrade } from "./upgrade.js";
 import { installManagedRuntime, uninstallManagedRuntime } from "./install.js";
 import { assertManagedHome, withRuntimeLifecycleLock } from "./managed-home.js";
-
-const RUNTIME_VERSION = "2.0.0";
+import { errorWithCode as cliError } from "./errors.js";
+import { RUNTIME_VERSION } from "./index.js";
 
 export async function main(argv = process.argv.slice(2), options = {}) {
   const env = options.env ?? process.env;
@@ -85,7 +85,7 @@ export async function main(argv = process.argv.slice(2), options = {}) {
     }
   } catch (error) {
     const json = args.includes("--json");
-    const safeMessage = redactSecrets(error?.message ?? String(error));
+    const safeMessage = redactSensitiveText(error?.message ?? String(error));
     if (json) {
       write(stderr, `${JSON.stringify({ ok: false, error: error?.code ?? "ERROR", message: safeMessage })}\n`);
     } else {
@@ -619,20 +619,10 @@ function write(stream, value) {
   stream.write(value);
 }
 
-function cliError(message, code) {
-  const error = new Error(message);
-  error.code = code;
-  return error;
-}
-
 function exitCodeFor(error) {
   if (error?.code === "USAGE") return 2;
   if (["CONTEXT_KEY_MISSING", "CONTEXT_KEY_INVALID", "CONTEXT_EMAIL_UNVERIFIED", "CONTEXT_CREDITS_EXHAUSTED", "CONTEXT_RATE_LIMITED", "CONTEXT_TIMEOUT", "CONTEXT_BLOCKED", "CONTEXT_BAD_RESPONSE"].includes(error?.code)) return 3;
   return 1;
-}
-
-function redactSecrets(message) {
-  return redactSensitiveText(message);
 }
 
 function usage() {

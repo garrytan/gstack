@@ -1,3 +1,7 @@
+// Public runtime metadata lives with the public runtime surface so the CLI and
+// embedders report one version.
+export const RUNTIME_VERSION = "2.0.0";
+
 export * from "./paths.js";
 export * from "./managed-home.js";
 export * from "./storage.js";

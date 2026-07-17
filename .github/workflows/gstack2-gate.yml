@@ -70,10 +70,10 @@ jobs:
       - name: Run the GStack 2 gate inside the container
         run: >-
           docker run --rm
-          --volume "${{ github.workspace }}:/workspaces/gstack"
-          --workdir /workspaces/gstack
+          --volume "${{ github.workspace }}:/source:ro"
+          --workdir /source
           gstack2-devcontainer
-          /workspaces/gstack/scripts/gstack2/devcontainer-gate.sh
+          /source/scripts/gstack2/devcontainer-gate.sh /source
       - name: Exercise a clean Linux runtime install inside the container
         run: >-
           docker run --rm

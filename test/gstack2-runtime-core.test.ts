@@ -19,6 +19,7 @@ import {
   runExternalEffect,
   setupRuntime,
   updateProjectState,
+  withLock,
 } from "../runtime/index.js";
 
 const temporaryRoots: string[] = [];
@@ -279,5 +280,25 @@ describe("gstack 2 host-neutral paths and state", () => {
     } finally {
       await fs.chmod(readOnly, 0o700);
     }
+  });
+
+  test("lock cleanup preserves both the operation and release failures", async () => {
+    const root = await temporaryRoot("gstack2 lock aggregate ");
+    const lock = path.join(root, "state.lock");
+    const operationError = null;
+    let caught: unknown;
+    try {
+      await withLock(lock, async () => {
+        await fs.writeFile(path.join(lock, "owner.json"), "{malformed\n");
+        throw operationError;
+      });
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(AggregateError);
+    const failures = [...(caught as AggregateError).errors];
+    expect(failures[0]).toBe(operationError);
+    expect(failures[1]).toBeInstanceOf(SyntaxError);
+    expect((caught as Error & { cause?: unknown }).cause).toBe(operationError);
   });
 });

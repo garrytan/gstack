@@ -645,10 +645,13 @@ export function validateStructuredResult(value: unknown): value is StructuredHos
 
 function parseJsonCandidate(text: string): unknown {
   const trimmed = text.trim();
-  try { return JSON.parse(trimmed); } catch { /* try a fenced payload */ }
   const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i)?.[1];
-  if (fenced) return JSON.parse(fenced);
-  throw new Error('final agent message was not JSON');
+  try {
+    return JSON.parse(fenced ?? trimmed);
+  } catch (error) {
+    if (error instanceof SyntaxError) throw new Error('final agent message was not JSON');
+    throw error;
+  }
 }
 
 export function parseStructuredFinal(messages: string[]): {
@@ -842,7 +845,9 @@ function stageAuthentication(codexHome: string): void {
   if (!fs.existsSync(source)) return;
   const destination = path.join(codexHome, 'auth.json');
   fs.copyFileSync(source, destination);
-  try { fs.chmodSync(destination, 0o600); } catch { /* Windows and restrictive filesystems may ignore chmod. */ }
+  // Windows has no POSIX owner-only mode. On POSIX, failing to secure copied
+  // credentials is fatal rather than silently continuing with broad access.
+  if (os.platform() !== 'win32') fs.chmodSync(destination, 0o600);
 }
 
 async function runFixture(options: {

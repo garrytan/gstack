@@ -49,16 +49,9 @@ if ! command -v bun >/dev/null 2>&1; then
   exit 1
 fi
 
-if ! "$NODE_COMMAND" -e '
-  const fs = require("node:fs");
-  const path = require("node:path");
-  const root = process.argv[1];
-  const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
-  const dependencies = Object.keys(pkg.dependencies || {});
-  process.exit(dependencies.every((name) => fs.existsSync(path.join(root, "node_modules", name, "package.json"))) ? 0 : 1);
-' "$ROOT"; then
-  (cd "$ROOT" && bun install --production --frozen-lockfile)
-fi
+# Reconcile on every setup. Presence checks cannot distinguish the lockfile's
+# exact versions from stale but loadable packages copied from another checkout.
+(cd "$ROOT" && bun install --production --frozen-lockfile)
 
 if [ "${#ARGS[@]}" -gt 0 ]; then
   exec "$NODE_COMMAND" "$ROOT/runtime/install.js" --source "$ROOT" "${ARGS[@]}"

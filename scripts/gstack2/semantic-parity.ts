@@ -221,9 +221,7 @@ function policyUnitTranscript() {
   });
 }
 
-function containsSensitiveMaterial(value: string): boolean {
-  return /(?:sk-[A-Za-z0-9_-]{12,}|AKIA[0-9A-Z]{16}|gh[opusr]_[A-Za-z0-9]{20,}|-----BEGIN [A-Z ]+PRIVATE KEY-----)/.test(value);
-}
+const SENSITIVE_MATERIAL = /(?:sk-[A-Za-z0-9_-]{12,}|AKIA[0-9A-Z]{16}|gh[opusr]_[A-Za-z0-9]{20,}|-----BEGIN [A-Z ]+PRIVATE KEY-----)/;
 
 function sanitizeLivePrompt(value: string): string {
   return value
@@ -237,7 +235,7 @@ const LIVE_OUTPUT_SCHEMA = `Return one JSON object and no prose with exactly the
 const LIVE_JUDGE_SCHEMA = `Return one JSON object and no prose with fields verdict and dimensions. verdict must be EQUIVALENT, INTENTIONAL_IMPROVEMENT, or REGRESSION. dimensions must be an object with exactly these keys: ${SEMANTIC_DIMENSIONS.join(', ')}. Each dimension value must be an object with classification (one of the same three values) and a concise reason. Treat any loss of pressure, gates, evidence, mutation restraint, recommendation, or voice as REGRESSION. Do not call tools.`;
 
 async function runClaude(prompt: string, model: string, maxBudgetUsd: number): Promise<{ raw: string; parsed: Record<string, string> }> {
-  if (containsSensitiveMaterial(prompt)) throw new Error('Refusing live semantic eval: prompt matched a credential pattern');
+  if (SENSITIVE_MATERIAL.test(prompt)) throw new Error('Refusing live semantic eval: prompt matched a credential pattern');
   const proc = Bun.spawn([
     'claude', '-p', '--bare', '--no-session-persistence', '--disable-slash-commands', '--no-chrome',
     '--model', model, '--max-turns', '1', '--max-budget-usd', maxBudgetUsd.toFixed(2),

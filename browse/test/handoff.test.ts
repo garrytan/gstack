@@ -35,12 +35,24 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  try { await bm?.close(); } catch {}
-  try { testServer.server.stop(); } catch {}
-  if (previousChromiumProfile === undefined) delete process.env.CHROMIUM_PROFILE;
-  else process.env.CHROMIUM_PROFILE = previousChromiumProfile;
-  try { fs.rmSync(testRoot, { recursive: true, force: true }); } catch {}
-});
+  const cleanupFailures = (await Promise.allSettled([
+    bm?.close(1000),
+    testServer?.server.stop(true),
+  ])).filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+    .map((result) => result.reason);
+  try {
+    if (previousChromiumProfile === undefined) delete process.env.CHROMIUM_PROFILE;
+    else process.env.CHROMIUM_PROFILE = previousChromiumProfile;
+  } catch (error) {
+    cleanupFailures.push(error);
+  }
+  try {
+    if (testRoot) fs.rmSync(testRoot, { recursive: true, force: true });
+  } catch (error) {
+    cleanupFailures.push(error);
+  }
+  if (cleanupFailures.length > 0) throw new AggregateError(cleanupFailures, 'Handoff test cleanup failed');
+}, 10_000);
 
 // ─── Unit Tests: Failure Tracking (no browser needed) ────────────
 

@@ -138,7 +138,8 @@ checkout, the one host-neutral setup entrypoint is:
 ~/.gstack/bin/gstack doctor --json
 ```
 
-`./setup` resolves a symlinked checkout, installs dependencies only when absent,
+`./setup` resolves a symlinked checkout, reinstalls the frozen production
+dependency set on every run,
 builds missing allowlisted capabilities through the runtime-only build target,
 validates and hashes every staged file, smoke-tests the CLI, atomically
 activates the version, and writes stable POSIX and Windows launchers under
@@ -146,15 +147,18 @@ activates the version, and writes stable POSIX and Windows launchers under
 Windows and includes the CoreDevice/iOS bundle only on Darwin. Add the bin
 directory to `PATH` if the short `gstack` command is desired.
 
-Twenty-one focused installer tests pass with 307 assertions. They cover
+Twenty-four focused installer tests pass with 336 assertions. They cover
 manifests, paths with spaces,
 source-root symlinks, internal-link/path-escape rejection, failed build/
-validation/smoke rollback, interrupted-pointer recovery, stable POSIX/Windows
-launchers, runtime-only builder selection, managed uninstall, and the
-host-neutral wrapper.
+validation/smoke rollback including native-load rollback smoke,
+interrupted-pointer recovery, stable POSIX/Windows launchers, runtime-only
+builder selection, deterministic exact Sharp/ngrok platform closure, managed
+uninstall, and the host-neutral wrapper.
 
-The current managed-bundle audit records 107 components, 1,830 files,
-459,056,031 bytes, and 50 launchers. Setup installs frozen production-only
+The deterministic clean macOS arm64 managed-bundle audit records 110
+components, 1,829 files, 450,044,315 bytes, and 50 capability launchers. This
+is a platform-specific bundle measurement, not a universal byte count;
+platform-native package payloads differ. Setup installs frozen production-only
 dependencies and excludes the development-only Claude Agent SDK. The
 Sharp/ngrok closure is included. The Hugging Face sidecar is excluded and its
 package is development-only, so setup installs neither its inference runtime
@@ -162,10 +166,10 @@ nor model weights and reports the L4 capability unavailable.
 
 | Platform | Source-level target | Candidate evidence |
 |---|---|---|
-| macOS | Node runtime + local browser + physical iOS where applicable | Runtime installer 21/307 and current bundle audit pass. The uninterrupted broad singleton run is green at 6,234 pass / 226 expected skips / 0 fail across 383 files. The signed-device gate remains pending. |
-| Linux | Node runtime + local browser | Declared Dev Container GStack 2 suite passed at 130/0 with 1,070 assertions across 15 files. A clean Linux arm64 container used production-only install with the development SDK and model runtime absent, passed a local-browser journey and Sharp full-page screenshot, and uninstalled while preserving state. Native-host broad Linux remains pending. |
-| Native Windows | Node runtime; curated free tests; browser fallback where retained | **Blocked:** native Windows CI pending. The local Windows-safe singleton lane is green at 2,813 pass / 57 expected skips / 0 fail across 213 files, but it is not native evidence. |
-| Dev Container | Pure skills and optional runtime; browser only when container supports it | Declared image builds; generated freshness and the 130-test GStack 2 suite pass, as does the clean runtime install/browser smoke. Full broad Linux coverage remains pending. |
+| macOS | Node runtime + local browser + physical iOS where applicable | Runtime installer 24/336 and deterministic clean macOS arm64 bundle audit pass. The uninterrupted broad singleton run is green at 6,240 pass / 226 expected skips / 0 fail across 383 files. The signed-device gate remains pending. |
+| Linux | Node runtime + local browser | Declared Dev Container GStack 2 suite passed at 136/0 with 1,127 assertions across 15 files; log: `/tmp/gstack2-devcontainer-gate-candidate-final4.log`. The one-assertion difference from the focused macOS result is the platform-conditional read-only-mode check. A clean Linux arm64 container used production-only install with the development SDK and model runtime absent, passed a local-browser journey and Sharp full-page screenshot, and uninstalled while preserving state. Native-host broad Linux remains pending. |
+| Native Windows | Node runtime; curated free tests; browser fallback where retained | **Blocked:** native Windows CI pending. The local Windows-safe singleton lane is green at 2,815 pass / 57 expected skips / 0 fail across 213 files, but it is not native evidence. |
+| Dev Container | Pure skills and optional runtime; browser only when container supports it | Declared image builds; generated freshness and the 136-test GStack 2 suite pass, as does the clean runtime install/browser smoke. Full broad Linux coverage remains pending. |
 
 The six portable skills remain useful when runtime installation fails. A
 runtime failure must not remove or corrupt their standard-installer placement.

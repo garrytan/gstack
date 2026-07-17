@@ -3,14 +3,17 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { main as runtimeMain } from "../runtime/cli.js";
+import { summarizeRuntimeBundle } from "../scripts/gstack2/audit-runtime-bundle";
 import {
   DEFAULT_CAPABILITY_LAUNCHERS,
   DEFAULT_RUNTIME_BUNDLE,
   DEFAULT_RUNTIME_HELPERS,
   defaultBunBuilder,
   installManagedRuntime,
+  runtimeNativePackagePaths,
   uninstallManagedRuntime,
   runCommand,
+  smokeRuntimeBundle,
   validateRuntimeBundle,
 } from "../runtime/install.js";
 
@@ -128,11 +131,12 @@ describe("GStack 2 managed runtime installer", () => {
     const bundlePaths = new Set(DEFAULT_RUNTIME_BUNDLE.map((item) => item.path));
     for (const dependency of [
       "node_modules/sharp",
-      "node_modules/@img",
       "node_modules/detect-libc",
       "node_modules/semver",
-      "node_modules/@ngrok",
+      ...runtimeNativePackagePaths(),
     ]) expect(bundlePaths.has(dependency)).toBe(true);
+    expect(bundlePaths.has("node_modules/@img")).toBe(false);
+    expect(bundlePaths.has("node_modules/@ngrok")).toBe(false);
     expect([...bundlePaths].some((item) => item.includes("@huggingface"))).toBe(false);
     for (const helper of contract.helpers) {
       expect(bundlePaths.has(helper.source_path)).toBe(true);
@@ -180,6 +184,75 @@ describe("GStack 2 managed runtime installer", () => {
     }, { createDefaultSource: false });
   }, 30_000);
 
+  test("selects one deterministic native dependency closure per supported host", () => {
+    expect(runtimeNativePackagePaths({ platform: "darwin", arch: "arm64" })).toEqual([
+      "node_modules/@img/colour",
+      "node_modules/@img/sharp-darwin-arm64",
+      "node_modules/@img/sharp-libvips-darwin-arm64",
+      "node_modules/@ngrok/ngrok-darwin-universal",
+      "node_modules/@ngrok/ngrok",
+    ]);
+    expect(runtimeNativePackagePaths({ platform: "darwin", arch: "x64" })).toContain(
+      "node_modules/@img/sharp-libvips-darwin-x64",
+    );
+    expect(runtimeNativePackagePaths({ platform: "linux", arch: "x64", libc: "glibc" })).toEqual([
+      "node_modules/@img/colour",
+      "node_modules/@img/sharp-linux-x64",
+      "node_modules/@img/sharp-libvips-linux-x64",
+      "node_modules/@ngrok/ngrok-linux-x64-gnu",
+      "node_modules/@ngrok/ngrok",
+    ]);
+    expect(runtimeNativePackagePaths({ platform: "linux", arch: "arm64", libc: "glibc" })).toContain(
+      "node_modules/@ngrok/ngrok-linux-arm64-gnu",
+    );
+    expect(runtimeNativePackagePaths({ platform: "linux", arch: "arm64", libc: "musl" })).toEqual([
+      "node_modules/@img/colour",
+      "node_modules/@img/sharp-linuxmusl-arm64",
+      "node_modules/@img/sharp-libvips-linuxmusl-arm64",
+      "node_modules/@ngrok/ngrok-linux-arm64-musl",
+      "node_modules/@ngrok/ngrok",
+    ]);
+    expect(runtimeNativePackagePaths({ platform: "linux", arch: "x64", libc: "musl" })).toContain(
+      "node_modules/@img/sharp-libvips-linuxmusl-x64",
+    );
+    expect(runtimeNativePackagePaths({ platform: "win32", arch: "x64" })).toEqual([
+      "node_modules/@img/colour",
+      "node_modules/@img/sharp-win32-x64",
+      "node_modules/@ngrok/ngrok-win32-x64-msvc",
+      "node_modules/@ngrok/ngrok",
+    ]);
+    expect(runtimeNativePackagePaths({ platform: "win32", arch: "arm64" })).toContain(
+      "node_modules/@ngrok/ngrok-win32-arm64-msvc",
+    );
+    expect(() => runtimeNativePackagePaths({ platform: "linux", arch: "x64", libc: "unknown" }))
+      .toThrow("Unsupported managed-runtime libc");
+    expect(() => runtimeNativePackagePaths({ platform: "freebsd", arch: "x64" }))
+      .toThrow("Unsupported managed-runtime platform");
+  });
+
+  test("summarizes a runtime bundle as deterministic, reproducible evidence", () => {
+    const audit = summarizeRuntimeBundle({
+      version: "fixture-version",
+      components: ["runtime", ...runtimeNativePackagePaths()],
+      files: [
+        { path: "runtime/index.js", size: 17, mode: 0o644, sha256: "a".repeat(64) },
+        { path: "runtime/cli.js", size: 23, mode: 0o755, sha256: "b".repeat(64) },
+      ],
+    });
+    expect(audit).toMatchObject({
+      schemaVersion: 1,
+      sourceBundleVersion: "fixture-version",
+      components: 1 + runtimeNativePackagePaths().length,
+      files: 2,
+      bytes: 40,
+      forbiddenComponents: [],
+    });
+    expect(audit.nativeComponents).toEqual(runtimeNativePackagePaths());
+    expect(typeof audit.sourceGitDirty).toBe("boolean");
+    expect(audit.bundleManifestSha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(audit.reproductionCommand).toContain(`evals/runtime-bundle/${process.platform}-${process.arch}.json`);
+  });
+
   test("failed validation and failed smoke checks roll back activation", async () => {
     await withFixture(async ({ source, home }) => {
       await installFixture(source, home, "1.0.0");
@@ -193,6 +266,10 @@ describe("GStack 2 managed runtime installer", () => {
         smokeTest: async () => { throw new Error("smoke failed"); },
       })).rejects.toMatchObject({ code: "UPGRADE_ROLLED_BACK" });
       expect(await activeVersion(home)).toBe("1.0.0");
+      expect(await exists(path.join(home, "versions", "2.0.1"))).toBe(false);
+
+      const repaired = await installFixture(source, home, "2.0.1");
+      expect(repaired.pointer.current).toBe("2.0.1");
     });
   });
 
@@ -440,6 +517,45 @@ describe("GStack 2 managed runtime installer", () => {
     });
   });
 
+  test("default runtime smoke rejects an unloadable native dependency closure", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "gstack native smoke "));
+    try {
+      await fs.mkdir(path.join(root, "bin"), { recursive: true });
+      await fs.mkdir(path.join(root, "node_modules", "sharp"), { recursive: true });
+      await fs.writeFile(path.join(root, "bin", "gstack"), "fixture\n");
+      await fs.writeFile(path.join(root, "node_modules", "sharp", "package.json"), '{"name":"sharp"}\n');
+      const calls: string[][] = [];
+      await expect(smokeRuntimeBundle(root, {
+        run: async (_command: string, args: string[]) => {
+          calls.push(args);
+          if (args[0] === "--version") return { code: 0, stdout: "v20.18.0\n", stderr: "" };
+          if (args[0] === "--input-type=module") throw new Error("native binding unavailable");
+          return { code: 0, stdout: "gstack fixture\n", stderr: "" };
+        },
+      })).rejects.toMatchObject({ code: "INSTALL_SMOKE_FAILED" });
+      expect(calls.at(-1)?.[0]).toBe("--input-type=module");
+      expect(calls.at(-1)?.at(-1)).toContain('import("sharp")');
+      expect(calls.at(-1)?.at(-1)).not.toContain("@ngrok/ngrok");
+
+      await fs.rm(path.join(root, "node_modules", "sharp"), { recursive: true, force: true });
+      await fs.mkdir(path.join(root, "node_modules", "@ngrok", "ngrok"), { recursive: true });
+      await fs.writeFile(path.join(root, "node_modules", "@ngrok", "ngrok", "package.json"), '{"name":"@ngrok/ngrok"}\n');
+      calls.length = 0;
+      await expect(smokeRuntimeBundle(root, {
+        run: async (_command: string, args: string[]) => {
+          calls.push(args);
+          if (args[0] === "--version") return { code: 0, stdout: "v20.18.0\n", stderr: "" };
+          if (args[0] === "--input-type=module") throw new Error("native binding unavailable");
+          return { code: 0, stdout: "gstack fixture\n", stderr: "" };
+        },
+      })).rejects.toMatchObject({ code: "INSTALL_SMOKE_FAILED" });
+      expect(calls.at(-1)?.at(-1)).toContain('import("@ngrok/ngrok")');
+      expect(calls.at(-1)?.at(-1)).not.toContain('import("sharp")');
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   test("public upgrade reuses managed validation and rejects arbitrary or symlinked sources", async () => {
     if (process.platform === "win32") return;
     await withFixture(async ({ root, source, home }) => {
@@ -478,15 +594,18 @@ describe("GStack 2 managed runtime installer", () => {
       const log = path.join(root, "bun.log");
       await fs.mkdir(fakeBin);
       await fs.mkdir(runtime);
-      await fs.mkdir(path.join(root, "node_modules"));
+      await fs.mkdir(path.join(root, "node_modules", "sharp"), { recursive: true });
       await fs.copyFile(path.join(REPO_ROOT, "setup"), path.join(root, "setup"));
       await fs.chmod(path.join(root, "setup"), 0o755);
-      await fs.writeFile(path.join(root, "package.json"), '{"type":"module","dependencies":{"fixture-dependency":"1.0.0"},"devDependencies":{"test-only-sdk":"1.0.0"}}\n');
+      await fs.writeFile(path.join(root, "package.json"), '{"type":"module","dependencies":{"sharp":"1.0.0"},"devDependencies":{"test-only-sdk":"1.0.0"}}\n');
+      await fs.writeFile(path.join(root, "node_modules", "sharp", "package.json"), '{"name":"sharp","main":"index.js"}\n');
+      await fs.writeFile(path.join(root, "node_modules", "sharp", "index.js"), 'module.exports = require("@img/sharp-fixture");\n');
       await fs.writeFile(path.join(runtime, "install.js"), 'console.log(`installer=${process.release.name}`);\n');
       await fs.writeFile(path.join(fakeBin, "bun"), `#!/bin/sh
 printf '%s\\n' "$*" >> "$BUN_LOG"
-mkdir -p "$FIXTURE_ROOT/node_modules/fixture-dependency"
-printf '{"name":"fixture-dependency"}\\n' > "$FIXTURE_ROOT/node_modules/fixture-dependency/package.json"
+mkdir -p "$FIXTURE_ROOT/node_modules/@img/sharp-fixture"
+printf '{"name":"@img/sharp-fixture","main":"index.js"}\\n' > "$FIXTURE_ROOT/node_modules/@img/sharp-fixture/package.json"
+printf 'module.exports = {}\\n' > "$FIXTURE_ROOT/node_modules/@img/sharp-fixture/index.js"
 `, { mode: 0o755 });
 
       const result = await runCommand(path.join(root, "setup"), [], {
@@ -513,7 +632,10 @@ printf '{"name":"fixture-dependency"}\\n' > "$FIXTURE_ROOT/node_modules/fixture-
         },
       });
       const installs = (await fs.readFile(log, "utf8")).trim().split("\n");
-      expect(installs).toEqual(["install --production --frozen-lockfile"]);
+      expect(installs).toEqual([
+        "install --production --frozen-lockfile",
+        "install --production --frozen-lockfile",
+      ]);
       expect(await exists(path.join(root, "node_modules", "test-only-sdk"))).toBe(false);
       expect(second.stdout).toContain("installer=node");
     } finally {

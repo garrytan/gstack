@@ -344,11 +344,14 @@ function listInstalledSkills(root: string): string[] {
 }
 
 export function stripTerminalControls(value: string): string {
-  return value
-    .replace(/\x1B\][^\x07]*(?:\x07|\x1B\\)/g, '')
-    .replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '')
-    .replace(/\r(?=[^\n])/g, '')
-    .trim();
+  const terminalControls = [
+    /\x1B\][^\x07]*(?:\x07|\x1B\\)/g,
+    /\x1B\[[0-?]*[ -/]*[@-~]/g,
+    /\r(?=[^\n])/g,
+  ];
+  let clean = value;
+  for (const control of terminalControls) clean = clean.replace(control, '');
+  return clean.trim();
 }
 
 function trimEvidenceOutput(value: string, maxCharacters = 16_000): string {
@@ -555,9 +558,7 @@ function runRemoval(options: {
   };
 }
 
-export function runFastChecks(repoRoot = DEFAULT_REPO_ROOT): RepositoryInspection {
-  return inspectRepository(repoRoot);
-}
+export const runFastChecks = inspectRepository;
 
 export function runFullMatrix(options: FullMatrixOptions): InstallMatrixEvidence {
   if (!options.outputPath) throw new Error('Full install matrix requires a caller-supplied outputPath');
