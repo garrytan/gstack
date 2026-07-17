@@ -2,6 +2,82 @@
 
 This document explains **why** gstack is built the way it is. For setup and commands, see CLAUDE.md. For contributing, see CONTRIBUTING.md.
 
+## GStack 2 judgment-layer architecture
+
+GStack 2 has one canonical Agent Skills tree under `skills/` and exactly six
+default-discoverable entry points: `plan`, `design`, `qa`, `debug`, `review`,
+and `ship`. The entries are thin dispatchers, not rewritten specialist
+prompts. A dispatcher chooses from structured product-stage, surface,
+authorization, and evidence signals, prints its execution header, and lazily
+loads the full preserved module from `skills/<skill>/references/legacy/`.
+
+```text
+request
+  -> one of six public dispatchers
+  -> explicit mode / depth / mutation / web-context decision
+  -> preserved specialist module (loaded only when selected)
+  -> local capability or optional host-neutral runtime, when needed
+  -> evidence + artifact + unresolved-gate report
+```
+
+The generated parity corpus pins 55 legacy templates and 16 carved sections
+to base `bb57306d98c97011b0919c6132705a15b1579781`. It records source blobs,
+normalized render hashes, behavioral contracts, assets, and 16 deliberate
+upstream bug-fix overlays. Compatibility aliases contain routing only; they do
+not copy judgment. The exhaustive map is
+[`docs/gstack-2/SKILL-MIGRATION.md`](docs/gstack-2/SKILL-MIGRATION.md).
+The current structural run is green at 4,681 checks. Its deterministic semantic
+companion is green at 295 checks across 14 suites, 15 executions, 15 dimensions,
+16 carved sections, and nine authority-policy units; retained live-model
+samples remain supplemental and are not green release evidence.
+
+Skill placement is delegated to standards-compatible Agent Skills installers.
+The repository does not make host-path detection part of the GStack 2
+architecture. Compatibility is classified as Portable, Verified, or Native;
+see [`docs/gstack-2/HOST-COMPATIBILITY.md`](docs/gstack-2/HOST-COMPATIBILITY.md)
+for the evidence attached to each tier.
+
+The current installer-layer matrix passed 470/470 checks for project/global
+copies across Claude Code, Codex, Cursor, Pi, OpenClaw, and GitHub Copilot,
+including representative selected installs/removals and canonical hashes. Host
+UI execution is a separate, still-pending evidence layer.
+
+Pure judgment requires no shared executable. The optional `gstack` runtime is
+host-neutral and uses Node built-ins with human-readable JSON/JSONL state under
+`$GSTACK_HOME` or `~/.gstack`. It provides atomic writes, leases/locks,
+repository-plus-worktree identity, forward-only migrations, explicit external
+effect claims, inspection, cleanup, doctor, upgrade, rollback, and uninstall.
+It is a bounded support layer, not a provider marketplace or workflow engine.
+The branch's `./setup` entrypoint now installs only this managed runtime: an
+allowlisted, hash-validated bundle with atomic activation and stable POSIX/
+Windows launchers. Capability builds use a runtime-only target, `.exe` targets
+on Windows, and omit Darwin-only iOS assets on other platforms. The full
+macOS lifecycle and a clean Linux arm64 container build/install/uninstall smoke
+pass; native Windows execution is still pending. It does not place skills or
+detect hosts.
+
+Context.dev is the only new external service. Network mode and consent both
+default off. Only public URLs may cross that boundary; authenticated pages,
+private addresses, private DNS resolutions, cookies, repository contents, and
+user files are rejected. Search is not fabricated: the current runtime treats
+the deprecated general search endpoint as typed unsupported and falls back to
+host-native public search, the local browser, or an explicitly unverified
+no-web result. See [`docs/gstack-2/CONTEXT-DEV.md`](docs/gstack-2/CONTEXT-DEV.md).
+Fallback choice is explicit and persistent through `gstack context select
+host|local-browser|none`; these choices do not grant Context.dev consent.
+
+The existing Chromium browser stays local and remains the only browser
+automation backend. The existing physical-iPhone DebugBridge remains the only
+iOS backend. PDF and Mermaid/Excalidraw rendering remain internal capabilities.
+No cloud browser, cloud iPhone, alternate device driver, ComfyUI, local image
+model, generic provider layer, or new state database is part of GStack 2.
+
+The rest of this document describes retained 1.x subsystem internals. Those
+details still govern a preserved module when it invokes that subsystem, but
+the 1.x generated multi-host skill surface is not the GStack 2 distribution
+architecture. The full 2.0 design and defect disposition are in
+[`docs/gstack-2/ARCHITECTURE.md`](docs/gstack-2/ARCHITECTURE.md).
+
 ## The core idea
 
 gstack gives Claude Code a persistent browser and a set of opinionated workflow skills. The browser is the hard part — everything else is Markdown.

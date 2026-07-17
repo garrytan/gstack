@@ -13,7 +13,7 @@ This doc serves two audiences:
 
 | Host + detection state | What renders in the planning-skill SKILL.md |
 |---|---|
-| Any host + `gstack-config gbrain-refresh` reports `gbrain_local_status: "ok"` | Compressed brain-aware blocks render. Agent reads this doc on-demand when it actually saves. ~250 token overhead per planning skill. |
+| Any host + `gstack-config gbrain-refresh` reports `gbrain_local_status: "ok"` | Managed detection state is refreshed. Rerun the standard Agent Skills installer if that state must change installed skill content; GStack does not rewrite a host tree in place. |
 | Any host + gbrain not detected | Blocks suppressed at gen-time. Zero token overhead. Calibration takes still render (separate resolver, host-agnostic). |
 | GBrain or Hermes host | Blocks always render regardless of detection — these hosts ship gbrain integration as a first-class concern. |
 

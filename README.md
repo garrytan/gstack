@@ -1,5 +1,74 @@
 # gstack
 
+> **GStack 2.0 is under verification on `codex/gstack-2`.** It is not a
+> released 2.0 until every gate in
+> [`docs/gstack-2/STATUS.md`](docs/gstack-2/STATUS.md) passes. The material
+> below the GStack 2 quick start remains useful background, but host-specific
+> `./setup` instructions and the many-command catalog describe the 1.x
+> compatibility surface.
+
+GStack 2 presents one engineering judgment layer through exactly six public
+skills:
+
+| Skill | Start here when… |
+|---|---|
+| `/plan` | The product, scope, architecture, DX, or specification is unsettled. |
+| `/design` | You need a visual direction, alternatives, implementation, or design audit. |
+| `/qa` | You need report-only or fix-and-verify evidence from the local browser or a physical iPhone. |
+| `/debug` | A failure needs root-cause proof before a fix. |
+| `/review` | A diff or repository needs correctness, security, compatibility, or health review. |
+| `/ship` | A change is ready for PR preparation, landing, deployment, monitoring, or documentation. |
+
+`/plan` has exactly six top-level modes: **Discovery, Product, Engineering,
+DX, Specification, and Full chain**. The other dispatchers refine their small
+public mode set into the preserved specialist modules only after selection.
+
+The specialist judgment was not flattened into six generic prompts. Each
+dispatcher states its mode, depth, mutation boundary, active and skipped
+modules, and web-context choice, then lazily reads the preserved specialist
+module. See the complete [old-command mapping](docs/gstack-2/SKILL-MIGRATION.md)
+and [architecture](docs/gstack-2/ARCHITECTURE.md).
+
+## GStack 2 quick start — under five minutes
+
+Install with the standard Agent Skills installer; it owns host detection,
+scope, destination paths, updates, removal, and selected-skill installation:
+
+```bash
+npx skills add time-attack/gstack
+```
+
+That installs the six judgment skills. Install a subset with the installer's
+`--skill` option, or use `-g` for its global scope. GStack does not silently
+enroll detected hosts.
+
+The candidate installer matrix passes project/global placement for Claude
+Code, Codex, Cursor, Pi, OpenClaw, and GitHub Copilot. This verifies files and
+canonical hashes; host UI execution remains a separate release gate.
+
+Start with `/plan`, or invoke the skill syntax your host displays. Pure
+judgment modes work without a shared executable. Capability-dependent modes
+may offer the optional, host-neutral runtime. From a repository checkout,
+`./setup` installs that runtime once per user without placing host skills. Its
+real default-capability lifecycle passes on macOS, and a clean Linux arm64 Dev
+Container install/build/uninstall smoke also passes. Native-host Linux and
+Windows remain release gates, so consult
+[`HOST-COMPATIBILITY.md`](docs/gstack-2/HOST-COMPATIBILITY.md) before relying on
+it.
+
+Public web research is optional. Context.dev is the only new external service,
+is disabled until explicit consent, and may receive only public URLs. If it is
+not configured, choose host-native public search, GStack's local browser, or no
+web research with `gstack context select host|local-browser|none`. The browser
+remains local; no cloud-browser backend was added.
+See [Context.dev setup](docs/gstack-2/CONTEXT-DEV.md) and the
+[privacy boundary](docs/gstack-2/PRIVACY.md).
+
+Compatibility is reported as **Portable**, **Verified**, or **Native**; these
+terms are evidence levels, not marketing synonyms. Current verified-platform
+results are recorded in
+[`TEST-EVIDENCE.md`](docs/gstack-2/TEST-EVIDENCE.md).
+
 > "I don't think I've typed like a line of code probably since December, basically, which is an extremely large change." — [Andrej Karpathy](https://fortune.com/2026/03/21/andrej-karpathy-openai-cofounder-ai-agents-coding-state-of-psychosis-openclaw/), No Priors podcast, March 2026
 
 When I heard Karpathy say this, I wanted to find out how. How does one person ship like a team of twenty? Peter Steinberger built [OpenClaw](https://github.com/openclaw/openclaw) — 247K GitHub stars — essentially solo with AI agents. The revolution is here. A single builder with the right tooling can move faster than a traditional team.
@@ -20,7 +89,7 @@ I'm [Garry Tan](https://x.com/garrytan), President & CEO of [Y Combinator](https
 
 Same person. Different era. The difference is the tooling.
 
-**gstack is how I do it.** It turns Claude Code into a virtual engineering team — a CEO who rethinks the product, an eng manager who locks architecture, a designer who catches AI slop, a reviewer who finds production bugs, a QA lead who opens a real browser, a security officer who runs OWASP + STRIDE audits, and a release engineer who ships the PR. Twenty-three specialists and eight power tools, all slash commands, all Markdown, all free, MIT license.
+**gstack is how I do it.** It turns an AI coding host into a virtual engineering team — a CEO who rethinks the product, an eng manager who locks architecture, a designer who catches AI slop, a reviewer who finds production bugs, a QA lead who opens a real browser, a security officer who runs OWASP + STRIDE audits, and a release engineer who ships the PR. In GStack 2 those preserved specialists sit behind six lazy dispatchers rather than dozens of default commands. It remains MIT licensed.
 
 This is my open source software factory. I use it every day. I'm sharing it because these tools should be available to everyone.
 
@@ -31,7 +100,7 @@ Fork it. Improve it. Make it yours. And if you want to hate on free open source 
 - **First-time Claude Code users** — structured roles instead of a blank prompt
 - **Tech leads and staff engineers** — rigorous review, QA, and release automation on every PR
 
-## Quick start
+## Legacy 1.x workflow example
 
 1. Install gstack (30 seconds — see below)
 2. Run `/office-hours` — describe what you're building
@@ -40,7 +109,13 @@ Fork it. Improve it. Make it yours. And if you want to hate on free open source 
 5. Run `/qa` on your staging URL
 6. Stop there. You'll know if this is for you.
 
-## Install — 30 seconds
+## Legacy 1.x host-specific install (compatibility only)
+
+Do not use this section for a new GStack 2 install. Use
+`npx skills add time-attack/gstack` above. These instructions remain while old
+commands are documented as opt-in aliases. They describe a 1.x release/tag:
+the current branch's `./setup` is runtime-only and will not perform the
+host-specific actions shown below.
 
 **Requirements:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Git](https://git-scm.com/), [Bun](https://bun.sh/) v1.0+, [Node.js](https://nodejs.org/) (Windows only)
 
@@ -317,7 +392,25 @@ right skill activates. You don't need to remember slash command names or acronym
 
 ## Uninstall
 
-### Option 1: Run the uninstall script
+For GStack 2, remove skills through the same standard installer that placed
+them. Confirm the agent/scope with `npx skills remove --help`; a noninteractive
+selected removal has this shape:
+
+```bash
+npx skills remove --skill plan design qa debug review ship \
+  --agent <host> --yes
+```
+
+Remove managed runtime versions separately while preserving configuration and
+project history:
+
+```bash
+~/.gstack/bin/gstack uninstall
+```
+
+The options below are the legacy 1.x uninstall flow.
+
+### Legacy option 1: Run the uninstall script
 
 If gstack is installed on your machine:
 
@@ -327,7 +420,7 @@ If gstack is installed on your machine:
 
 This handles skills, symlinks, global state (`~/.gstack/`), project-local state, browse daemons, and temp files. Use `--keep-state` to preserve config and analytics. Use `--force` to skip confirmation.
 
-### Option 2: Manual removal (no local repo)
+### Legacy option 2: Manual removal (no local repo)
 
 If you don't have the repo cloned (e.g. you installed via a Claude Code paste and later deleted the clone):
 
@@ -430,6 +523,12 @@ Other references: [docs/gbrain-sync.md](docs/gbrain-sync.md) (sync-specific guid
 
 | Doc | What it covers |
 |-----|---------------|
+| [GStack 2 status](docs/gstack-2/STATUS.md) | Release gates, blockers, and evidence links; the authoritative completion state |
+| [GStack 2 architecture](docs/gstack-2/ARCHITECTURE.md) | Six-skill judgment layer, lazy modules, runtime, browser, iOS, and Context.dev boundaries |
+| [GStack 2 host compatibility](docs/gstack-2/HOST-COMPATIBILITY.md) | Portable / Verified / Native definitions and install matrix |
+| [GStack 2 semantic parity](docs/gstack-2/SEMANTIC-PARITY.md) | Deterministic primary evidence and the non-green supplemental live-model samples |
+| [GStack 2 upgrade and rollback](docs/gstack-2/UPGRADE-AND-ROLLBACK.md) | Atomic runtime upgrades, rollback, and 1.x alias migration |
+| [GStack 2 physical iPhone](docs/gstack-2/IOS-PHYSICAL-DEVICE.md) | DebugBridge preflight, signing/provisioning recovery, safe install, and five-check live evidence |
 | [Skill Deep Dives](docs/skills.md) | Philosophy, examples, and workflow for every skill (includes Greptile integration) |
 | [Diagrams & Document Formats](docs/howto-diagrams-and-formats.md) | Mermaid/excalidraw fences in PDFs, image sizing and safety defaults, `--to html\|docx`, `/diagram` triplets |
 | [Builder Ethos](ETHOS.md) | Builder philosophy: Boil the Ocean, Search Before Building, three layers of knowledge |
@@ -442,20 +541,31 @@ Other references: [docs/gbrain-sync.md](docs/gbrain-sync.md) (sync-specific guid
 
 ## Privacy & Telemetry
 
-gstack includes **opt-in** usage telemetry to help improve the project. Here's exactly what happens:
+GStack 2's runtime starts with network mode **off**. It performs no Context.dev
+DNS lookup or request until both the Context mode and consent flag have been
+persisted. It rejects local, private, credential-bearing, and private-resolving
+URLs before a Context.dev fetch. See
+[`docs/gstack-2/PRIVACY.md`](docs/gstack-2/PRIVACY.md) for the full boundary.
+
+The retained 1.x compatibility tooling includes **opt-in** usage telemetry:
 
 - **Default is off.** Nothing is sent anywhere unless you explicitly say yes.
 - **On first run,** gstack asks if you want to share anonymous usage data. You can say no.
 - **What's sent (if you opt in):** skill name, duration, success/fail, gstack version, OS. That's it.
 - **What's never sent:** code, file paths, repo names, branch names, prompts, or any user-generated content.
 - **Change anytime:** `gstack-config set telemetry off` disables everything instantly.
-- **Update checks:** Once per hour, gstack fetches the current version number from `raw.githubusercontent.com` to check for upgrades. This is a plain GET request — no auth, no payload — but it does reach GitHub's servers regardless of your telemetry setting. Set `update_check: false` in `~/.gstack/config.yaml` to disable it entirely.
+- **Legacy update checks:** 1.x can fetch the current version number from `raw.githubusercontent.com`. Set `update_check: false` in `~/.gstack/config.yaml` to disable this legacy path. It is not the GStack 2 runtime's default behavior.
 
 Data is stored in [Supabase](https://supabase.com) (open source Firebase alternative). The schema is in [`supabase/migrations/`](supabase/migrations/) — you can verify exactly what's collected. The Supabase publishable key in the repo is a public key (like a Firebase API key) — row-level security policies deny all direct access. Telemetry flows through validated edge functions that enforce schema checks, event type allowlists, and field length limits.
 
 **Local analytics are always available.** Run `gstack-analytics` to see your personal usage dashboard from the local JSONL file — no remote data needed.
 
 ## Troubleshooting
+
+For GStack 2, first run `gstack doctor` (or `gstack doctor --json`) when the
+optional runtime is installed. For skill discovery problems, use the standard
+installer's list and reinstall commands; do not manually copy host paths. The
+entries below apply to legacy 1.x installations.
 
 **Skill not showing up?** `cd ~/.claude/skills/gstack && ./setup`
 

@@ -1,5 +1,55 @@
 # gstack development
 
+## GStack 2 canonical contract
+
+The public surface is exactly `/plan`, `/design`, `/qa`, `/debug`, `/review`,
+and `/ship`. They are lazy dispatchers over the preserved modules under
+`skills/*/references/legacy/`; do not rewrite or summarize away the original
+question pressure, rubrics, pushback, approval gates, evidence, artifacts,
+mutation boundaries, recommendations, or voice. Compatibility files under
+`compat/` route old names and contain no judgment.
+
+`/plan` has exactly six top-level modes: Discovery, Product, Engineering, DX,
+Specification, and Full chain. Do not expose its internal aliases as more
+top-level modes.
+
+Canonical install is `npx skills add time-attack/gstack`. Standard installers
+own host placement and scope. Do not add host-specific install logic to the 2.0
+path. Pure judgment must work without the optional `bin/gstack` runtime.
+The host-neutral `./setup` installs only that managed runtime/capability bundle;
+it never owns host skill placement.
+
+GStack 2 source workflow:
+
+```bash
+bun run gen:gstack2
+bun run test:gstack2
+```
+
+The generator owns `skills/*/references/legacy/`, `compat/`, `evals/parity/`,
+and the migration/provenance/parity/scenario documents under `docs/gstack-2/`.
+Edit `scripts/gstack2/` inputs or the pinned canonical template as appropriate,
+then regenerate. Preserve the source-blob and normalized-render evidence.
+
+The runtime is host-neutral, uses `$GSTACK_HOME` or `~/.gstack`, and keeps state
+as locked/atomically written JSON and JSONL. Network mode defaults off.
+Context.dev is the only newly authorized external service, may receive only
+public URLs after explicit consent, and must use the exact typed failure codes.
+`gstack context options` and `context select host|local-browser|none` persist
+fallback selection without granting Context.dev consent.
+The existing browser stays local. Physical iOS uses only DebugBridge/CoreDevice.
+Do not add cloud browsers, alternate iOS drivers, local image models, provider
+marketplaces, workflow engines, or a new state database.
+
+Current completion claims must come from
+[`docs/gstack-2/STATUS.md`](docs/gstack-2/STATUS.md) and
+[`docs/gstack-2/TEST-EVIDENCE.md`](docs/gstack-2/TEST-EVIDENCE.md). A generated
+plan, static keyword test, or narrow green suite is not release evidence.
+
+The remaining sections describe the retained 1.x development and subsystem
+details. They continue to apply when touching those components, but their
+multi-host generation/setup path is not the canonical GStack 2 distribution.
+
 ## Commands
 
 ```bash
@@ -920,39 +970,29 @@ Repeat for each skill: `gstack-openclaw-ceo-review`, `gstack-openclaw-investigat
 
 ## Deploying to the active skill
 
-The active skill lives at `~/.claude/skills/gstack/`. After making changes:
+The standard Agent Skills installer owns host detection, scope, placement,
+updates, and removal. Do not deploy by resetting or copying into a
+host-specific skill directory. After a release is published, refresh the
+installed skills through the same standard installer used for installation.
 
-1. Push your branch
-2. Fetch and reset in the skill directory: `cd ~/.claude/skills/gstack && git fetch origin && git reset --hard origin/main`
-3. Rebuild: `cd ~/.claude/skills/gstack && bun run build`
-
-**If you use gbrain:** the `git reset --hard` in step 2 reverts the brain-aware
-(`GBRAIN_CONTEXT_LOAD` / `GBRAIN_SAVE_RESULTS`) blocks that `gstack-config
-gbrain-refresh` renders into the install (those generated blocks differ from
-`main` by design). After deploying, re-run `gstack-config gbrain-refresh` to
-restore them across all your projects' Claude sessions. It's idempotent.
-
-Or copy the binaries directly:
-- `cp browse/dist/browse ~/.claude/skills/gstack/browse/dist/browse`
-- `cp design/dist/design ~/.claude/skills/gstack/design/dist/design`
+For local development, run `bin/dev-setup`; it links the current worktree and
+keeps any brain-aware render in the ignored `.claude/gstack-rendered/`
+directory. `gstack-config gbrain-refresh` refreshes managed detection state
+only. If that changes generated skill content, rerun the standard Agent Skills
+installer rather than mutating an installed host tree in place.
 
 ## Skill routing
 
 When the user's request matches an available skill, invoke it via the Skill tool. When in doubt, invoke the skill.
 
 Key routing rules:
-- Product ideas/brainstorming → invoke /office-hours
-- Strategy/scope → invoke /plan-ceo-review
-- Architecture → invoke /plan-eng-review
-- Design system/plan review → invoke /design-consultation or /plan-design-review
-- Full review pipeline → invoke /autoplan
-- Bugs/errors → invoke /investigate
-- QA/testing site behavior → invoke /qa or /qa-only
-- Code review/diff check → invoke /review
-- Visual polish → invoke /design-review
-- Ship/deploy/PR → invoke /ship or /land-and-deploy
-- Save progress → invoke /context-save
-- Resume context → invoke /context-restore
+- Product framing, strategy, scope, architecture, DX, specs, or a full planning pipeline → invoke `/plan` with the preserved specialist mode.
+- Design systems, alternatives, coded visual output, plan review, web audit, or HIG audit → invoke `/design`.
+- Web/device QA, report-only versus fixes, DX journeys, performance, or canaries → invoke `/qa`.
+- Bugs and unknown failures → invoke `/debug`; prove root cause before mutation.
+- Diff, security, compatibility, or repository-health review → invoke `/review`.
+- PR preparation, landing, deploy, monitoring, release docs, or rollback → invoke `/ship`.
+- Old names such as `/office-hours`, `/investigate`, and `/qa-only` route through `compat/README.md`; they are not additional public skills.
 
 ## Cross-session decision memory
 
