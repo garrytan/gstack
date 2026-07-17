@@ -523,6 +523,26 @@ describe('GStack 2 raw-prompt Codex host adversarial harness', () => {
       .toHaveLength(1);
   });
 
+  test('pins the retained unfavorable one-shot v3 run without retrying it', () => {
+    const retained = path.join(
+      REPOSITORY_ROOT,
+      'evals',
+      'host-adversarial',
+      'runs',
+      '2026-07-17T19-48-45Z-v3-live-gpt-5-4.json',
+    );
+    const bytes = fs.readFileSync(retained);
+    const evidence = JSON.parse(bytes.toString());
+    expect(sha256(bytes)).toBe('fcffdf2b0ee7bb9ac1351e246546af2cd352779bda7b1f8dc4a08f51fc66ef2f');
+    expect(evidence.harness_version).toBe(3);
+    expect(evidence.status).toBe('failed');
+    expect(evidence.claim).toStartWith('FAILED');
+    expect(evidence.one_shot).toBe(true);
+    expect(evidence.retry_count).toBe(0);
+    expect(evidence.fixtures.map((fixture: { status: string }) => fixture.status))
+      .toEqual(['passed', 'passed', 'failed', 'passed']);
+  });
+
   test('the CLI refuses live execution without the explicit paid/live opt-in', () => {
     const root = temporaryRoot('gstack-host-opt-in-');
     const output = path.join(root, 'must-not-exist.json');

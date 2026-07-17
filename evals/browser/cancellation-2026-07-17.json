@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-07-17T20:28:18Z",
+  "sourceGitCommit": "c0f280dbf7b68e3212bd68741a62ad146f38f9cc",
+  "workingTreePatchSha256": "fc32e4d8023ea42b4708820afac0d1ca70ccf6dffc22bf11e39e04af1e4f4b81",
+  "platform": {
+    "os": "darwin",
+    "arch": "arm64",
+    "macosVersion": "26.4",
+    "bunVersion": "1.3.14",
+    "nodeVersion": "v24.16.0"
+  },
+  "journey": {
+    "startedAt": "2026-07-17T20:27:06.041Z",
+    "completedAt": "2026-07-17T20:27:06.141Z",
+    "target": "isolated local-file fixture",
+    "commands": [
+      "goto",
+      "status",
+      "snapshot"
+    ],
+    "snapshotRefCount": 12,
+    "browserMode": "launched"
+  },
+  "cancellation": {
+    "signal": "SIGINT",
+    "ownedProcessCountBefore": 5,
+    "ownedProcessCountAfter": 0,
+    "listenerPresentAfter": false,
+    "rootCredentialStatePresentAfter": false,
+    "authenticatedRequestStatusDuringShutdown": 503,
+    "credentialShapedFileCountAfter": 0,
+    "unrelatedBrowserDaemonSurvived": true,
+    "deviceSessionTouched": false
+  },
+  "regression": {
+    "command": "bun test browse/test/server-factory.test.ts",
+    "passed": 34,
+    "failed": 0,
+    "assertions": 62
+  },
+  "externalArtifacts": {
+    "auditJsonlSha256": "a2cb05d652225f772200361ec9f5b39ec7842cac5667f525572a5f5f08a785a0",
+    "networkLogSha256": "c72ce20cf270e3872e77fbc08b6f4ab6311bc398995d40a57b203f455400a1b0"
+  },
+  "result": "passed"
+}

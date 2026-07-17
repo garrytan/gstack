@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-07-17T20:13:45Z",
+  "sourceGitCommit": "c0f280dbf7b68e3212bd68741a62ad146f38f9cc",
+  "installer": {
+    "name": "skills",
+    "version": "1.5.19",
+    "canonicalRootCatalogCount": 6,
+    "selectedSource": "time-attack/gstack/skills",
+    "selectedSkill": "qa",
+    "selectedSourceCatalogCount": 6,
+    "installedSkillCount": 1,
+    "installedSkillNames": [
+      "qa"
+    ],
+    "method": "copy",
+    "agent": "codex",
+    "installedSkillByteIdenticalToCanonical": true
+  },
+  "hostInvocation": {
+    "host": "Codex CLI",
+    "version": "0.144.5",
+    "model": "gpt-5.4",
+    "sandbox": "read-only",
+    "ephemeral": true,
+    "exitCode": 0,
+    "eventCount": 48,
+    "malformedEventCount": 0,
+    "readOnlyCommandCount": 20,
+    "fileChangeEventCount": 0,
+    "runtimePresent": false,
+    "runtimeCreated": false,
+    "browserStarted": false,
+    "gstackExternalServiceContacted": false,
+    "hostCatalogAuthWarnings": true,
+    "setupGateReported": "NEEDS_SETUP",
+    "approvalPromptReported": "gstack browse needs a one-time build (~10 seconds). OK to proceed?",
+    "pageTested": false,
+    "inputTokens": 123099,
+    "cachedInputTokens": 86528,
+    "outputTokens": 4064,
+    "reasoningOutputTokens": 1782
+  },
+  "workspaceSnapshot": {
+    "beforeSha256": "25e66e399c794fb00e63d3a112ce32bcc780d30debdcf2269b6088cc788588a0",
+    "afterSha256": "25e66e399c794fb00e63d3a112ce32bcc780d30debdcf2269b6088cc788588a0",
+    "fileCountBefore": 44,
+    "fileCountAfter": 44,
+    "byteCountBefore": 932363,
+    "byteCountAfter": 932363
+  },
+  "externalArtifacts": {
+    "jsonlSha256": "9551806f2fe52d1fee1b40bb0c6a2d94059549c1ebbd3248bef720dcdce593ef",
+    "stderrSha256": "415a0e2bf6b5e6ab5cff7aef97624f303d7280bc64ab1e548c6b67402d99a15a",
+    "finalOutputSha256": "7dbdfb2245eaadd57e649b541e8f26c24c7b120836d83581cbb119534affc3a4"
+  },
+  "result": "passed"
+}
