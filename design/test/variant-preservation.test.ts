@@ -4,6 +4,7 @@ import os from "os";
 import path from "path";
 import {
   planRoundArtifacts,
+  recordRoundAttempt,
   resolveImagePaths,
 } from "../src/cli";
 
@@ -49,6 +50,40 @@ describe("plan-design-review round variant preservation", () => {
 
     const second = planRoundArtifacts(alias);
     expect(second?.primaryOutput).toBe(path.join(tmpDir, "variant-recommended-B.png"));
+  });
+
+  test("concurrent round reservations claim distinct paths and preserve every variant", async () => {
+    const alias = path.join(tmpDir, "variant-recommended.png");
+    const plans = await Promise.all(
+      Array.from({ length: 3 }, async () => {
+        const plan = planRoundArtifacts(alias)!;
+        await Promise.resolve();
+        writePng(plan.primaryOutput);
+        recordRoundAttempt(plan, true);
+        return plan;
+      }),
+    );
+
+    expect(plans.map(plan => plan.label).sort()).toEqual(["A", "B", "C"]);
+    expect(new Set(plans.map(plan => plan.primaryOutput)).size).toBe(3);
+    expect(plans.every(plan => fs.existsSync(plan.primaryOutput))).toBe(true);
+    await expect(resolveImagePaths(alias)).resolves.toEqual(
+      plans.map(plan => plan.primaryOutput),
+    );
+  });
+
+  test("failed reservations are recorded without blocking a later variant", () => {
+    const alias = path.join(tmpDir, "variant-recommended.png");
+    const failed = planRoundArtifacts(alias)!;
+    recordRoundAttempt(failed, false, "API error");
+
+    const retry = planRoundArtifacts(alias)!;
+    writePng(retry.primaryOutput);
+    recordRoundAttempt(retry, true);
+
+    expect(retry.label).toBe("B");
+    expect(fs.existsSync(failed.primaryOutput)).toBe(false);
+    expect(fs.existsSync(retry.primaryOutput)).toBe(true);
   });
 
   test("recommended round alias expands to every successful generated candidate", async () => {

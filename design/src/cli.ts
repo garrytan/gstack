@@ -321,12 +321,15 @@ async function main(argv = process.argv): Promise<void> {
 }
 
 const ROUND_MANIFEST = ".gstack-design-rounds.json";
+const ROUND_MANIFEST_LOCK = ".gstack-design-rounds.lock";
+const ROUND_RESERVATION_LIMIT = 1000;
 
 interface RoundAttempt {
   label: string;
   path: string;
   success: boolean;
   error?: string;
+  reserved?: boolean;
 }
 
 type RoundManifest = Record<string, RoundAttempt[]>;
@@ -368,7 +371,37 @@ function readRoundManifest(dir: string): RoundManifest {
 
 function writeRoundManifest(dir: string, manifest: RoundManifest): void {
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, ROUND_MANIFEST), JSON.stringify(manifest, null, 2));
+  const manifestPath = path.join(dir, ROUND_MANIFEST);
+  const tempPath = path.join(dir, `${ROUND_MANIFEST}.${process.pid}.${Date.now()}.tmp`);
+  fs.writeFileSync(tempPath, JSON.stringify(manifest, null, 2));
+  fs.renameSync(tempPath, manifestPath);
+}
+
+function withRoundManifestLock<T>(dir: string, action: () => T): T {
+  fs.mkdirSync(dir, { recursive: true });
+  const lockPath = path.join(dir, ROUND_MANIFEST_LOCK);
+  let lockFd: number | undefined;
+
+  for (let attempt = 0; attempt < ROUND_RESERVATION_LIMIT; attempt++) {
+    try {
+      lockFd = fs.openSync(lockPath, "wx");
+      break;
+    } catch (err: any) {
+      if (err.code !== "EEXIST") throw err;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1);
+    }
+  }
+
+  if (lockFd === undefined) {
+    throw new Error(`Timed out reserving design round artifacts in ${dir}`);
+  }
+
+  try {
+    return action();
+  } finally {
+    fs.closeSync(lockFd);
+    fs.unlinkSync(lockPath);
+  }
 }
 
 function planRoundArtifacts(outputPath: string): RoundArtifactPlan | null {
@@ -376,32 +409,50 @@ function planRoundArtifacts(outputPath: string): RoundArtifactPlan | null {
   if (!baseName) return null;
 
   const dir = path.dirname(outputPath);
-  const manifest = readRoundManifest(dir);
   const key = roundKey(outputPath, baseName);
-  const attempts = manifest[key] || [];
-  const label = labelForIndex(attempts.length);
+  return withRoundManifestLock(dir, () => {
+    const manifest = readRoundManifest(dir);
+    const attempts = manifest[key] || [];
 
-  return {
-    aliasOutput: outputPath,
-    primaryOutput: path.join(dir, `${baseName}-${label}.png`),
-    roundKey: key,
-    label,
-  };
+    for (let index = attempts.length; index < attempts.length + ROUND_RESERVATION_LIMIT; index++) {
+      const label = labelForIndex(index);
+      const primaryOutput = path.join(dir, `${baseName}-${label}.png`);
+      try {
+        fs.closeSync(fs.openSync(primaryOutput, "wx"));
+      } catch (err: any) {
+        if (err.code === "EEXIST") continue;
+        throw err;
+      }
+
+      attempts.push({ label, path: primaryOutput, success: false, reserved: true });
+      manifest[key] = attempts;
+      writeRoundManifest(dir, manifest);
+      return { aliasOutput: outputPath, primaryOutput, roundKey: key, label };
+    }
+
+    throw new Error(`Unable to reserve a design round artifact after ${ROUND_RESERVATION_LIMIT} attempts`);
+  });
 }
 
 function recordRoundAttempt(plan: RoundArtifactPlan, success: boolean, error?: string): void {
   const dir = path.dirname(plan.aliasOutput);
-  const manifest = readRoundManifest(dir);
-  const attempts = manifest[plan.roundKey] || [];
-  const existing = attempts.find(attempt => attempt.label === plan.label);
-  const attempt = { label: plan.label, path: plan.primaryOutput, success, error };
-  if (existing) {
-    Object.assign(existing, attempt);
-  } else {
-    attempts.push(attempt);
-  }
-  manifest[plan.roundKey] = attempts;
-  writeRoundManifest(dir, manifest);
+  withRoundManifestLock(dir, () => {
+    const manifest = readRoundManifest(dir);
+    const attempts = manifest[plan.roundKey] || [];
+    const existing = attempts.find(attempt => attempt.label === plan.label);
+    const attempt = { label: plan.label, path: plan.primaryOutput, success, error };
+    if (existing) {
+      Object.assign(existing, attempt);
+    } else {
+      attempts.push(attempt);
+    }
+    manifest[plan.roundKey] = attempts;
+    writeRoundManifest(dir, manifest);
+
+    if (!success && fs.existsSync(plan.primaryOutput) && fs.statSync(plan.primaryOutput).size === 0) {
+      fs.unlinkSync(plan.primaryOutput);
+    }
+  });
 }
 
 function copyRoundAlias(plan: RoundArtifactPlan): void {
@@ -630,5 +681,6 @@ export {
   main,
   resolveImagePaths,
   planRoundArtifacts,
+  recordRoundAttempt,
   resolveRoundImageAlias,
 };
