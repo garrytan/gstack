@@ -180,6 +180,17 @@ are created; malformed base64 errors instead of writing corrupt bytes. Pick A wh
 you can (no CDP transfer at all); reach for B only when the bytes come back as a
 return value.
 
+### 15. Test WebAuthn / passkey flows
+```bash
+$B webauthn                      # enable a virtual authenticator on this tab (bare = on)
+$B click "#create-passkey"       # navigator.credentials.create()/get() now resolves automatically
+$B snapshot -D                   # verify the app's post-auth state
+$B webauthn off                  # remove the authenticator and its credentials
+```
+Without this, `navigator.credentials.create()`/`.get()` hang waiting for a platform
+authenticator that headless Chromium doesn't have. `webauthn` attaches a CDP virtual
+authenticator scoped to the tab — no OS-level passkey UI, no manual approval needed.
+
 ## Puppeteer → browse cheatsheet
 
 Migrating from Puppeteer? Here's the 1:1 mapping for the core workflow:

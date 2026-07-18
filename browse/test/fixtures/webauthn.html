@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Test Page - WebAuthn</title>
+</head>
+<body>
+  <h1>WebAuthn Test</h1>
+  <button id="create-btn">Create Passkey</button>
+  <p id="create-result"></p>
+  <script>
+    document.getElementById('create-btn').addEventListener('click', async () => {
+      const resultEl = document.getElementById('create-result');
+      try {
+        const credential = await navigator.credentials.create({
+          publicKey: {
+            rp: { name: 'browse test', id: location.hostname },
+            user: {
+              id: Uint8Array.from('test-user', c => c.charCodeAt(0)),
+              name: 'test-user',
+              displayName: 'Test User',
+            },
+            challenge: Uint8Array.from('test-challenge', c => c.charCodeAt(0)),
+            pubKeyCredParams: [{ type: 'public-key', alg: -7 }],
+            authenticatorSelection: { userVerification: 'required' },
+            timeout: 5000,
+          },
+        });
+        resultEl.textContent = credential ? 'created:' + credential.id : 'created:no-credential';
+      } catch (err) {
+        resultEl.textContent = 'error:' + err.name;
+      }
+    });
+  </script>
+</body>
+</html>

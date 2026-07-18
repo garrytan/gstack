@@ -22,7 +22,7 @@ import { emitActivity } from './activity';
 import { validateNavigationUrl } from './url-validation';
 import { TabSession, type RefEntry } from './tab-session';
 import { resolveChromiumProfile, cleanSingletonLocks } from './config';
-import { withCdpSession } from './cdp-bridge';
+import { withCdpSession, getOrCreateCdpSession } from './cdp-bridge';
 import type { MemorySnapshot, MemoryStructureStats, MemoryTabSnapshot, MemoryProcess } from './memory-snapshot';
 
 /**
@@ -1194,6 +1194,41 @@ export class BrowserManager {
 
   getDialogPromptText(): string | null {
     return this.dialogPromptText;
+  }
+
+  // ─── WebAuthn Virtual Authenticator ────────────────────────
+  // Virtual authenticator state lives on the CDP session, so the session must
+  // stay attached for the page's lifetime — getOrCreateCdpSession detaches and
+  // evicts on page close, which is exactly the required lifecycle.
+  private webauthnSessions: WeakMap<Page, any> = new WeakMap();
+  private webauthnAuthenticators: WeakMap<Page, string> = new WeakMap();
+
+  async enableWebAuthn(page: Page): Promise<{ alreadyEnabled: boolean }> {
+    if (this.webauthnAuthenticators.has(page)) return { alreadyEnabled: true };
+    const session = await getOrCreateCdpSession(page, this.webauthnSessions);
+    await session.send('WebAuthn.enable', { enableUI: false });
+    const { authenticatorId } = await session.send('WebAuthn.addVirtualAuthenticator', {
+      options: {
+        protocol: 'ctap2',
+        transport: 'internal',
+        hasResidentKey: true,
+        hasUserVerification: true,
+        isUserVerified: true,
+        automaticPresenceSimulation: true,
+      },
+    });
+    this.webauthnAuthenticators.set(page, authenticatorId);
+    return { alreadyEnabled: false };
+  }
+
+  async disableWebAuthn(page: Page): Promise<{ wasEnabled: boolean }> {
+    const authenticatorId = this.webauthnAuthenticators.get(page);
+    if (!authenticatorId) return { wasEnabled: false };
+    const session = await getOrCreateCdpSession(page, this.webauthnSessions);
+    await session.send('WebAuthn.removeVirtualAuthenticator', { authenticatorId });
+    await session.send('WebAuthn.disable');
+    this.webauthnAuthenticators.delete(page);
+    return { wasEnabled: true };
   }
 
   // ─── Cookie Origin Tracking ────────────────────────────────

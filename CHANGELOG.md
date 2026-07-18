@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.60.2.0] - 2026-07-18
+
+## **`$B webauthn` unblocks passkey/WebAuthn flows in headless Chromium.**
+
+`navigator.credentials.create()`/`.get()` previously hung indefinitely in headless
+Chromium — there's no platform authenticator to satisfy the ceremony. The new
+`webauthn [on|off]` command attaches a CDP virtual authenticator (`ctap2`,
+resident keys, automatic presence simulation) to the active tab, so passkey
+registration and sign-in resolve automatically without any manual approval UI.
+`off` removes the authenticator and its credentials.
+
+### Itemized changes
+
+#### Added
+- `webauthn [on|off]` command (`browse/src/commands.ts`, `browse/src/write-commands.ts`): registers a CDP virtual authenticator per tab via the existing `getOrCreateCdpSession` cache, so its lifecycle matches the page's (detaches and evicts on close). Bare invocation defaults to `on`.
+- `BrowserManager.enableWebAuthn`/`disableWebAuthn` (`browse/src/browser-manager.ts`): idempotent enable (reports `alreadyEnabled` on a repeat call) and a safe no-op disable when nothing is enabled.
+- Documented under "Test WebAuthn / passkey flows" in `browse/SKILL.md.tmpl`.
+
+#### For contributors
+- `browse/test/browser-manager-unit.test.ts`: unit coverage for `enableWebAuthn`/`disableWebAuthn` against a mocked CDP session (enable, idempotent re-enable, disable, no-op disable, re-enable after disable).
+- `browse/test/commands.test.ts` + `browse/test/fixtures/webauthn.html`: integration coverage proving `navigator.credentials.create()` hangs without the authenticator and resolves once `webauthn on` is set, plus the on/off/bare-invocation/invalid-subcommand dispatch paths.
+
 ## [1.60.1.0] - 2026-07-09
 
 ## **The /autoplan dual-voice eval is back on the board, catching real regressions.**
