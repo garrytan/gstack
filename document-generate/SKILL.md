@@ -19,6 +19,7 @@ triggers:
   - write a how-to
   - explain this module
   - docs for this project
+disable-model-invocation: true
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->

@@ -17,6 +17,7 @@ triggers:
   - developer experience review
   - dx plan review
   - check developer onboarding
+disable-model-invocation: true
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->

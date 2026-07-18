@@ -15,6 +15,7 @@ triggers:
   - turn this into an issue
   - make this a github issue
   - turn this into a backlog item
+disable-model-invocation: true
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->

@@ -15,6 +15,7 @@ triggers:
   - fix this ios bug
   - patch the iphone app
   - auto-fix the ios issue
+disable-model-invocation: true
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
