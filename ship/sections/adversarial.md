@@ -179,28 +179,7 @@ staleness detection: if those files are later deleted, the learning can be flagg
 **Only log genuine discoveries.** Don't log obvious things. Don't log things the user
 already knows. A good test: would this insight save time in a future session? If yes, log it.
 
-## Save Results to Brain
 
-**Skip this entire section if `gbrain` is not on PATH.**
-
-After completing this skill, save the output:
-
-```bash
-gbrain put "releases/<feature-slug>" --content "$(cat <<'EOF'
----
-title: "Release: <feature name>"
-tags: [release, <feature-slug>]
----
-<skill output in markdown>
-EOF
-)"
-```
-
-Then extract person/org entities and create stub pages for each one.
-Throttle errors (exit 1 with "throttle"/"rate limit"/"busy") and any
-other non-zero exit are transient — don't retry inline. Full entity-stub
-template, throttle handling, and backlink protocol:
-see `docs/gbrain-write-surfaces.md` §Save Template.
 
 ### Refresh learnings for the headline feature on this branch
 
