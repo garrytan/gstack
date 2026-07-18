@@ -846,17 +846,7 @@ branch name wherever the instructions say "the base branch" or `<default>`.
 
 ---
 
-## Brain Context Load
 
-**Skip this entire section if `gbrain` is not on PATH.**
-
-Extract 2-4 keywords from the user's request. Search the brain:
-`gbrain search "<keywords>"`. Read the top 3 results with
-`gbrain get_page "<slug>"`. Use that context to inform your analysis.
-
-If `gbrain search` returns no results or any non-zero exit, proceed
-without brain context. Full search/read protocol + examples:
-see `docs/gbrain-write-surfaces.md` §Context Load.
 
 # /qa: Test → Fix → Verify
 
@@ -1686,14 +1676,7 @@ staleness detection: if those files are later deleted, the learning can be flagg
 **Only log genuine discoveries.** Don't log obvious things. Don't log things the user
 already knows. A good test: would this insight save time in a future session? If yes, log it.
 
-## Save Results to Brain
 
-**Skip this entire section if `gbrain` is not on PATH.**
-
-If the skill output is worth preserving, save it via
-`gbrain put "<slug>" --content "<frontmatter + markdown>"`. Full template
-(heredoc body, frontmatter shape, entity-stub instructions, throttle
-handling): see `docs/gbrain-write-surfaces.md` §Save Template.
 
 ## Additional Rules (qa-specific)
 
