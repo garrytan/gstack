@@ -639,6 +639,23 @@ export async function handleWriteCommand(
       return 'Dialogs will be dismissed';
     }
 
+    case 'webauthn': {
+      const sub = (args[0] ?? 'on').toLowerCase();
+      if (sub === 'on') {
+        const { alreadyEnabled } = await bm.enableWebAuthn(page);
+        return alreadyEnabled
+          ? 'WebAuthn virtual authenticator already enabled for this tab'
+          : 'WebAuthn virtual authenticator enabled — navigator.credentials.create()/get() will now resolve automatically';
+      }
+      if (sub === 'off') {
+        const { wasEnabled } = await bm.disableWebAuthn(page);
+        return wasEnabled
+          ? 'WebAuthn virtual authenticator removed — the tab is back to having no platform authenticator'
+          : 'WebAuthn virtual authenticator is not enabled for this tab';
+      }
+      throw new Error('Usage: browse webauthn [on|off]');
+    }
+
     case 'cookie-import': {
       const filePath = args[0];
       if (!filePath) throw new Error('Usage: browse cookie-import <json-file>');

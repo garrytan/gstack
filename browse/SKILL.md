@@ -725,6 +725,17 @@ are created; malformed base64 errors instead of writing corrupt bytes. Pick A wh
 you can (no CDP transfer at all); reach for B only when the bytes come back as a
 return value.
 
+### 15. Test WebAuthn / passkey flows
+```bash
+$B webauthn                      # enable a virtual authenticator on this tab (bare = on)
+$B click "#create-passkey"       # navigator.credentials.create()/get() now resolves automatically
+$B snapshot -D                   # verify the app's post-auth state
+$B webauthn off                  # remove the authenticator and its credentials
+```
+Without this, `navigator.credentials.create()`/`.get()` hang waiting for a platform
+authenticator that headless Chromium doesn't have. `webauthn` attaches a CDP virtual
+authenticator scoped to the tab — no OS-level passkey UI, no manual approval needed.
+
 ## Puppeteer → browse cheatsheet
 
 Migrating from Puppeteer? Here's the 1:1 mapping for the core workflow:
@@ -955,6 +966,7 @@ $B prettyscreenshot --cleanup --scroll-to ".pricing" --width 1440 ~/Desktop/hero
 | `useragent <string>` | Set user agent |
 | `viewport [<WxH>] [--scale <n>]` | Set viewport size and optional deviceScaleFactor (1-3, for retina screenshots). --scale requires a context rebuild. |
 | `wait <sel|--networkidle|--load>` | Wait for element, network idle, or page load (timeout: 15s) |
+| `webauthn [on|off]` | Enable/disable a CDP virtual authenticator on the active tab so passkey/WebAuthn navigator.credentials calls resolve automatically instead of hanging. Bare invocation means on. off removes the authenticator and its credentials. |
 
 ### Inspection
 | Command | Description |

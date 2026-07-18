@@ -303,3 +303,93 @@ describe('stealth injected on every context-creation path', () => {
     expect(sites.length).toBeGreaterThanOrEqual(2);
   });
 });
+
+// ─── WebAuthn Virtual Authenticator ──────────────────────────────
+
+describe('BrowserManager.enableWebAuthn / disableWebAuthn', () => {
+  // Fake Page surface mirroring the pattern in cdp-session-cleanup.test.ts —
+  // enable/disableWebAuthn only touch page.context().newCDPSession(page) and
+  // the returned session's .send(), so this is enough to unit-test them
+  // without a real browser.
+  function makeFakePage() {
+    const sent: Array<{ method: string; params?: unknown }> = [];
+    let nextAuthenticatorId = 'auth-1';
+    const session = {
+      send: async (method: string, params?: unknown) => {
+        sent.push({ method, params });
+        if (method === 'WebAuthn.addVirtualAuthenticator') {
+          return { authenticatorId: nextAuthenticatorId };
+        }
+        return {};
+      },
+    };
+    const page = {
+      context: () => ({
+        newCDPSession: async (_p: unknown) => session,
+      }),
+      once: () => {},
+    };
+    return { page: page as unknown as import('playwright').Page, sent };
+  }
+
+  it('enableWebAuthn adds a virtual authenticator and reports alreadyEnabled=false the first time', async () => {
+    const { BrowserManager } = await import('../src/browser-manager');
+    const bm = new BrowserManager();
+    const { page, sent } = makeFakePage();
+
+    const result = await bm.enableWebAuthn(page);
+    expect(result).toEqual({ alreadyEnabled: false });
+    expect(sent.map((s) => s.method)).toEqual([
+      'WebAuthn.enable',
+      'WebAuthn.addVirtualAuthenticator',
+    ]);
+  });
+
+  it('enableWebAuthn is idempotent — a second call reports alreadyEnabled=true and sends nothing new', async () => {
+    const { BrowserManager } = await import('../src/browser-manager');
+    const bm = new BrowserManager();
+    const { page, sent } = makeFakePage();
+
+    await bm.enableWebAuthn(page);
+    const second = await bm.enableWebAuthn(page);
+    expect(second).toEqual({ alreadyEnabled: true });
+    expect(sent.length).toBe(2); // still just the first call's two sends
+  });
+
+  it('disableWebAuthn removes the authenticator when one is enabled', async () => {
+    const { BrowserManager } = await import('../src/browser-manager');
+    const bm = new BrowserManager();
+    const { page, sent } = makeFakePage();
+
+    await bm.enableWebAuthn(page);
+    const result = await bm.disableWebAuthn(page);
+    expect(result).toEqual({ wasEnabled: true });
+    expect(sent.map((s) => s.method)).toEqual([
+      'WebAuthn.enable',
+      'WebAuthn.addVirtualAuthenticator',
+      'WebAuthn.removeVirtualAuthenticator',
+      'WebAuthn.disable',
+    ]);
+  });
+
+  it('disableWebAuthn is a no-op when nothing is enabled', async () => {
+    const { BrowserManager } = await import('../src/browser-manager');
+    const bm = new BrowserManager();
+    const { page, sent } = makeFakePage();
+
+    const result = await bm.disableWebAuthn(page);
+    expect(result).toEqual({ wasEnabled: false });
+    expect(sent.length).toBe(0);
+  });
+
+  it('enableWebAuthn after disableWebAuthn re-enables cleanly', async () => {
+    const { BrowserManager } = await import('../src/browser-manager');
+    const bm = new BrowserManager();
+    const { page } = makeFakePage();
+
+    await bm.enableWebAuthn(page);
+    await bm.disableWebAuthn(page);
+    const result = await bm.enableWebAuthn(page);
+    expect(result).toEqual({ alreadyEnabled: false });
+  });
+});

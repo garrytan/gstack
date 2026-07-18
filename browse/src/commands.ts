@@ -25,6 +25,7 @@ export const WRITE_COMMANDS = new Set([
   'click', 'fill', 'select', 'hover', 'type', 'press', 'scroll', 'wait',
   'viewport', 'cookie', 'cookie-import', 'cookie-import-browser', 'header', 'useragent',
   'upload', 'dialog-accept', 'dialog-dismiss',
+  'webauthn',
   'style', 'cleanup', 'prettyscreenshot',
   'download', 'scrape', 'archive',
 ]);
@@ -135,6 +136,7 @@ export const COMMAND_DESCRIPTIONS: Record<string, { category: string; descriptio
   'useragent': { category: 'Interaction', description: 'Set user agent', usage: 'useragent <string>' },
   'dialog-accept': { category: 'Interaction', description: 'Auto-accept next alert/confirm/prompt. Optional text is sent as the prompt response', usage: 'dialog-accept [text]' },
   'dialog-dismiss': { category: 'Interaction', description: 'Auto-dismiss next dialog' },
+  'webauthn': { category: 'Interaction', description: 'Enable/disable a CDP virtual authenticator on the active tab so passkey/WebAuthn navigator.credentials calls resolve automatically instead of hanging. Bare invocation means on. off removes the authenticator and its credentials.', usage: 'webauthn [on|off]' },
   // Data extraction
   'download': { category: 'Extraction', description: 'Download URL or media element to disk using browser cookies. Use --navigate for URLs that trigger browser downloads (CDN redirects, Content-Disposition, anti-bot protected sites)', usage: 'download <url|@ref> [path] [--base64] [--navigate]' },
   'scrape':   { category: 'Extraction', description: 'Bulk download all media from page. Writes manifest.json', usage: 'scrape <images|videos|media> [--selector sel] [--dir path] [--limit N]' },

@@ -1068,6 +1068,64 @@ describe('Dialog handling', () => {
   });
 });
 
+// ─── WebAuthn Virtual Authenticator ──────────────────────────
+
+describe('webauthn command', () => {
+  // WebAuthn rp.id must be a valid domain string, not an IP literal, so these
+  // tests navigate via `localhost` (which resolves to the same 127.0.0.1 test
+  // server) instead of the shared `baseUrl`. Computed lazily since `baseUrl`
+  // isn't assigned until the top-level beforeAll runs.
+  const webauthnUrl = (path: string) => baseUrl.replace('127.0.0.1', 'localhost') + path;
+
+  test('navigator.credentials.create() fails without a virtual authenticator, succeeds once webauthn is on', async () => {
+    await handleWriteCommand('goto', [webauthnUrl('/webauthn.html')], bm);
+
+    // Without a platform authenticator, headless Chromium rejects the
+    // ceremony outright (SecurityError) rather than resolving it.
+    await handleWriteCommand('click', ['#create-btn'], bm);
+    await new Promise((r) => setTimeout(r, 200));
+    const withoutAuthenticator = await handleReadCommand('js', ['document.querySelector("#create-result").textContent'], bm);
+    expect(withoutAuthenticator).not.toContain('created:');
+
+    const onResult = await handleWriteCommand('webauthn', ['on'], bm);
+    expect(onResult).toContain('enabled');
+
+    await handleWriteCommand('goto', [webauthnUrl('/webauthn.html')], bm);
+    await handleWriteCommand('click', ['#create-btn'], bm);
+    await new Promise((r) => setTimeout(r, 200));
+    const result = await handleReadCommand('js', ['document.querySelector("#create-result").textContent'], bm);
+    expect(result).toContain('created:');
+
+    const offResult = await handleWriteCommand('webauthn', ['off'], bm);
+    expect(offResult).toContain('removed');
+  });
+
+  test('webauthn on is idempotent and off is a no-op when not enabled', async () => {
+    await handleWriteCommand('goto', [webauthnUrl('/webauthn.html')], bm);
+
+    const first = await handleWriteCommand('webauthn', ['on'], bm);
+    expect(first).toContain('enabled');
+    const second = await handleWriteCommand('webauthn', ['on'], bm);
+    expect(second).toContain('already enabled');
+
+    const off = await handleWriteCommand('webauthn', ['off'], bm);
+    expect(off).toContain('removed');
+    const offAgain = await handleWriteCommand('webauthn', ['off'], bm);
+    expect(offAgain).toContain('not enabled');
+  });
+
+  test('bare invocation defaults to on', async () => {
+    await handleWriteCommand('goto', [webauthnUrl('/webauthn.html')], bm);
+    const result = await handleWriteCommand('webauthn', [], bm);
+    expect(result).toContain('enabled');
+    await handleWriteCommand('webauthn', ['off'], bm);
+  });
+
+  test('invalid subcommand throws a usage error', async () => {
+    await expect(handleWriteCommand('webauthn', ['sideways'], bm)).rejects.toThrow('Usage: browse webauthn [on|off]');
+  });
+});
+
 // ─── Element State Checks (is) ─────────────────────────────────
 
 describe('Element state checks', () => {
