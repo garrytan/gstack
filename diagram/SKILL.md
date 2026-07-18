@@ -14,6 +14,7 @@ triggers:
   - diagram this
   - visualize this flow
   - architecture diagram
+disable-model-invocation: true
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->

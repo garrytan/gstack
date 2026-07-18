@@ -17,6 +17,7 @@ triggers:
   - test my ios app
   - find bugs on the device
   - qa the ios app
+disable-model-invocation: true
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->

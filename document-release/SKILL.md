@@ -15,6 +15,7 @@ triggers:
   - update docs after ship
   - document what changed
   - post-ship docs
+disable-model-invocation: true
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
