@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.60.2.0] - 2026-07-19
+
+## **Every `/ship` handoff now starts by reminding you what the work was actually about.**
+## **Installed hosts now receive the shared runtime modules their gstack commands import.**
+
+Long ship sessions used to end with a technically complete status report that could still be hard to understand after the conversation had scrolled away: summaries could begin with "Before" and "Now" without naming the product or problem. The completion contract now opens with a short, self-contained orientation before the engineering summary, and its final plain-language section must name the concrete subject. Separately, host-specific installs copied or linked `bin/` without the sibling `lib/` modules many commands load at runtime, leaving otherwise-correct installations vulnerable to missing-module failures.
+
+### What this means for builders
+
+You can return to a `/ship` result later and immediately recover the context, motivation, and intended outcome before reading implementation details. Codex, Factory, OpenCode, Kiro, and agent-sidecar installations also carry a complete runtime: command scripts and their shared modules travel together.
+
+### Itemized changes
+
+#### Fixed
+
+- `/ship` completion reports now begin with `What this work was about`, naming the product, prior behavior, concrete problem, and intended outcome before the engineering summary. The final `Put simply` section must also stand alone instead of relying on context-free pronouns.
+- The setup paths for agent sidecars, Codex, Factory, OpenCode, and Kiro now link or copy `lib/` beside `bin/`, preserving the relative imports used by shared runtime commands.
+
+#### For contributors
+
+- Added a completion-report contract test across the source template, generated skill, and Claude/Codex/Factory golden fixtures.
+- Extended setup assertions across every affected host runtime and regenerated the ship skill fixtures.
+
 ## [1.60.1.0] - 2026-07-09
 
 ## **The /autoplan dual-voice eval is back on the board, catching real regressions.**
