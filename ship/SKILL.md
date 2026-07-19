@@ -395,6 +395,8 @@ ELI10 is always present, in plain English, not function names. Recommendation is
 
 Completeness: use `Completeness: N/10` only when options differ in coverage. 10 = complete, 7 = happy path, 3 = shortcut. If options differ in kind, write: `Note: options differ in kind, not coverage — no completeness score.`
 
+Single-select is the DEFAULT — options are mutually exclusive. Set `multiSelect: true` only when every option is an independently-selectable atom whose pro/con/effort stands alone; then score `Completeness: <atom>=X/10` per atom. Bundles or combinations of the same underlying items (`E1+E3`, `All three`, `E1 only`, `Defer all`) are mutually exclusive by construction — `multiSelect: false`, score per option LETTER, and never write "Multi-select" into the question text. Tell: a defer/none option or a do-everything option in the list proves the question is single-select. With 5+ independent atoms use the split chain below, not multiSelect.
+
 Pros / cons: use ✅ and ❌. Minimum 2 pros and 1 con per option when the choice is real; Minimum 40 characters per bullet. Hard-stop escape for one-way/destructive confirmations: `✅ No cons — this is a hard-stop choice`.
 
 Neutral posture: `Recommendation: <default> — this is a taste call, no strong preference either way`; `(recommended)` STAYS on the default option for AUTO_DECIDE.
@@ -446,6 +448,7 @@ Before calling AskUserQuestion, verify:
 - [ ] ELI10 paragraph present (stakes line too)
 - [ ] Recommendation line present with concrete reason
 - [ ] Completeness scored (coverage) OR kind-note present (kind)
+- [ ] `multiSelect: false` unless every option is an independently-selectable atom (bundles/combinations ⇒ single-select)
 - [ ] Every option has ≥2 ✅ and ≥1 ❌, each ≥40 chars (or hard-stop escape)
 - [ ] (recommended) label on one option (even for neutral-posture)
 - [ ] Dual-scale effort labels on effort-bearing options (human / CC)
@@ -969,7 +972,55 @@ If CEO Review is missing, mention as informational ("CEO Review not run — reco
 
 For Design Review: run `source <(~/.claude/skills/gstack/bin/gstack-diff-scope <base> 2>/dev/null)`. If `SCOPE_FRONTEND=true` and no design review (plan-design-review or design-review-lite) exists in the dashboard, mention: "Design Review not run — this PR changes frontend code. The lite design check will run automatically in Step 9, but consider running /design-review for a full visual audit post-implementation." Still never block.
 
-Continue to Step 2 — do NOT block or ask. Ship runs its own review in Step 9.
+Continue to Step 1.5 — do NOT block or ask. Ship runs its own review in Step 9.
+
+---
+
+## Step 1.5: Upstream duplicate audit (pr-prep gate)
+
+Catches the case where a contributor's branch would file a PR that
+duplicates an already-open upstream PR or issue. Without this gate
+the duplicate gets filed and is closed days later, costing reviewer
+time + contributor goodwill.
+
+Skip on:
+- Forks that don't have a tracked upstream remote
+- Branches where the base is the user's own fork (no upstream to dup)
+- Explicit `--skip-pr-prep` flag
+
+Otherwise run `/pr-prep` inline with `GSTACK_FROM_SHIP=1`:
+
+```bash
+# Skip if no upstream remote configured (solo-repo case)
+if ! gh repo view --json nameWithOwner -q .nameWithOwner >/dev/null 2>&1; then
+  echo "[ship] no upstream repo detected, skipping pr-prep audit"
+else
+  GSTACK_FROM_SHIP=1 ~/.claude/skills/gstack/bin/gstack-skill pr-prep --base "$BASE_BRANCH" --json > /tmp/ship-pr-prep.json 2>&1
+  PR_PREP_EXIT=$?
+  if [ "$PR_PREP_EXIT" -eq 1 ]; then
+    # EXACT_DUP found
+    cat /tmp/ship-pr-prep.json
+    echo ""
+    echo "✗ Ship aborted: pr-prep found exact duplicate upstream work."
+    echo "  Resolution paths:"
+    echo "    1. Close your version, comment on the upstream PR with your angle"
+    echo "    2. Cherry-pick unique parts to a new branch + file separately"
+    echo "    3. Override with /ship --skip-pr-prep if coordinated with the upstream PR author"
+    exit 1
+  fi
+  # CLEAN / OVERLAP / SIBLING — render summary, continue
+  jq -r '.summary' /tmp/ship-pr-prep.json 2>/dev/null || true
+fi
+```
+
+Note: the JSON report path (`/tmp/ship-pr-prep.json`) is read again in
+Step 19 (PR body assembly) to surface SIBLING / OVERLAP findings as a
+collapsed "Upstream context" section in the PR body. SIBLING context
+helps reviewers triage faster; it does NOT block ship.
+
+If the pr-prep skill is not installed (older gstack install), fall
+through with a stderr warn and continue. Don't hard-fail ship on a
+missing skill.
 
 ---
 

@@ -1,0 +1,153 @@
+#!/usr/bin/env bun
+/**
+ * gstack-pr-prep-score — pure collision scorer for the /pr-prep audit.
+ *
+ * Extracts the Step 4 bucketing rules from pr-prep/SKILL.md into one
+ * deterministic, unit-tested place (the v0.2.0 seed the skill flags). The
+ * skill's inline bash remains the spec; this is the canonical implementation
+ * it points to. No network, no git — pure function of its JSON input.
+ *
+ * Input (stdin or --file <path>), one commit's candidate set:
+ *   {
+ *     "commitKeywords": ["reindex", "cli", "fix"],
+ *     "changedFiles":   ["src/reindex.ts"],
+ *     "candidates": [
+ *       { "state": "open_pr",       "titleKeywords": [...], "changedFiles": [...] },
+ *       { "state": "open_issue",    "titleKeywords": [...] },
+ *       { "state": "merged_recent", "titleKeywords": [...] },
+ *       { "state": "closed_issue",  "titleKeywords": [...] }
+ *     ]
+ *   }
+ *
+ * Output (stdout): { "bucket", "topScore", "openIssueCount", "reasons": [...] }
+ * Buckets: EXACT_DUP | OVERLAP | SIBLING | CLEAN  (precedence in that order).
+ * Exit 0 always; the bucket is the signal (the skill maps EXACT_DUP -> exit 1).
+ */
+
+export type CandidateState = 'open_pr' | 'open_issue' | 'merged_recent' | 'closed_issue';
+
+export interface Candidate {
+  state: CandidateState;
+  titleKeywords?: string[];
+  changedFiles?: string[];
+  ref?: string; // e.g. "#1358" — passed through into reasons
+}
+
+export interface ScoreInput {
+  commitKeywords?: string[];
+  changedFiles?: string[];
+  candidates?: Candidate[];
+}
+
+export type Bucket = 'EXACT_DUP' | 'OVERLAP' | 'SIBLING' | 'CLEAN';
+
+export interface ScoreResult {
+  bucket: Bucket;
+  topScore: number;
+  openIssueCount: number;
+  reasons: string[];
+}
+
+// State weighting from SKILL.md Step 4.
+const STATE_WEIGHT: Record<CandidateState, number> = {
+  open_pr: 1.0,
+  open_issue: 0.7,
+  merged_recent: 0.6,
+  closed_issue: 0.2,
+};
+
+function norm(tokens: string[] | undefined): Set<string> {
+  return new Set((tokens ?? []).map((t) => t.toLowerCase().trim()).filter(Boolean));
+}
+
+export function jaccard(a: string[] | undefined, b: string[] | undefined): number {
+  const sa = norm(a);
+  const sb = norm(b);
+  if (sa.size === 0 || sb.size === 0) return 0;
+  let inter = 0;
+  for (const x of sa) if (sb.has(x)) inter++;
+  const union = sa.size + sb.size - inter;
+  return union === 0 ? 0 : inter / union;
+}
+
+export function score(input: ScoreInput): ScoreResult {
+  const candidates = input.candidates ?? [];
+  const reasons: string[] = [];
+  let topScore = 0;
+  let exactDup = false;
+  let overlap = false;
+  let sibling = false;
+  let openIssueCount = 0;
+  let hasOpenPr = false;
+  let onlyClosed = candidates.length > 0;
+
+  for (const c of candidates) {
+    const titleJ = jaccard(input.commitKeywords, c.titleKeywords);
+    // File overlap only meaningful for open PRs (we can read their diff).
+    const fileJ =
+      c.state === 'open_pr' ? jaccard(input.changedFiles, c.changedFiles) : 0;
+    const overlapJ = Math.max(titleJ, fileJ);
+    const s = overlapJ * STATE_WEIGHT[c.state];
+    if (s > topScore) topScore = s;
+    if (c.state !== 'closed_issue') onlyClosed = false;
+    if (c.state === 'open_issue') openIssueCount++;
+    if (c.state === 'open_pr') hasOpenPr = true;
+
+    const ref = c.ref ? `${c.ref} ` : '';
+    // EXACT_DUP: any OPEN PR with title Jaccard >=0.6 OR file overlap >=0.6.
+    if (c.state === 'open_pr' && (titleJ >= 0.6 || fileJ >= 0.6)) {
+      exactDup = true;
+      reasons.push(
+        `${ref}EXACT_DUP: open PR titleJ=${titleJ.toFixed(2)} fileJ=${fileJ.toFixed(2)}`,
+      );
+      continue;
+    }
+    // OVERLAP: any OPEN PR/issue with score >=0.3.
+    if ((c.state === 'open_pr' || c.state === 'open_issue') && s >= 0.3) {
+      overlap = true;
+      reasons.push(`${ref}OVERLAP: open ${c.state} score=${s.toFixed(2)}`);
+      continue;
+    }
+    // SIBLING: merged-recently with any overlap.
+    if (c.state === 'merged_recent' && overlapJ > 0) {
+      sibling = true;
+      reasons.push(`${ref}SIBLING: merged-recent overlap=${overlapJ.toFixed(2)}`);
+    }
+  }
+
+  // OVERLAP also triggers on >=3 OPEN issues even when none individually scores high.
+  if (openIssueCount >= 3) {
+    overlap = true;
+    reasons.push(`OVERLAP: ${openIssueCount} open issues`);
+  }
+  // SIBLING: OPEN issues present but no OPEN PR (and not already EXACT_DUP/OVERLAP).
+  if (openIssueCount > 0 && !hasOpenPr) sibling = true;
+
+  let bucket: Bucket;
+  if (exactDup) bucket = 'EXACT_DUP';
+  else if (overlap) bucket = 'OVERLAP';
+  else if (sibling) bucket = 'SIBLING';
+  else bucket = 'CLEAN';
+
+  if (bucket === 'CLEAN' && reasons.length === 0) {
+    reasons.push(onlyClosed ? 'only closed issues' : 'no hits above threshold');
+  }
+  return { bucket, topScore: Number(topScore.toFixed(4)), openIssueCount, reasons };
+}
+
+// CLI entry — skip when imported by the test.
+if (import.meta.main) {
+  const fileArg = process.argv.indexOf('--file');
+  const raw =
+    fileArg !== -1
+      ? await Bun.file(process.argv[fileArg + 1]).text()
+      : await Bun.stdin.text();
+  let input: ScoreInput;
+  try {
+    input = JSON.parse(raw || '{}');
+  } catch {
+    console.error('gstack-pr-prep-score: input is not valid JSON');
+    process.exit(2);
+  }
+  process.stdout.write(JSON.stringify(score(input)) + '\n');
+}

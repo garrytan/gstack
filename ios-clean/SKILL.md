@@ -14,6 +14,7 @@ triggers:
   - clean the ios debug bridge
   - remove debugbridge
   - strip the gstack ios instrumentation
+disable-model-invocation: true
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
@@ -395,6 +396,8 @@ ELI10 is always present, in plain English, not function names. Recommendation is
 
 Completeness: use `Completeness: N/10` only when options differ in coverage. 10 = complete, 7 = happy path, 3 = shortcut. If options differ in kind, write: `Note: options differ in kind, not coverage — no completeness score.`
 
+Single-select is the DEFAULT — options are mutually exclusive. Set `multiSelect: true` only when every option is an independently-selectable atom whose pro/con/effort stands alone; then score `Completeness: <atom>=X/10` per atom. Bundles or combinations of the same underlying items (`E1+E3`, `All three`, `E1 only`, `Defer all`) are mutually exclusive by construction — `multiSelect: false`, score per option LETTER, and never write "Multi-select" into the question text. Tell: a defer/none option or a do-everything option in the list proves the question is single-select. With 5+ independent atoms use the split chain below, not multiSelect.
+
 Pros / cons: use ✅ and ❌. Minimum 2 pros and 1 con per option when the choice is real; Minimum 40 characters per bullet. Hard-stop escape for one-way/destructive confirmations: `✅ No cons — this is a hard-stop choice`.
 
 Neutral posture: `Recommendation: <default> — this is a taste call, no strong preference either way`; `(recommended)` STAYS on the default option for AUTO_DECIDE.
@@ -446,6 +449,7 @@ Before calling AskUserQuestion, verify:
 - [ ] ELI10 paragraph present (stakes line too)
 - [ ] Recommendation line present with concrete reason
 - [ ] Completeness scored (coverage) OR kind-note present (kind)
+- [ ] `multiSelect: false` unless every option is an independently-selectable atom (bundles/combinations ⇒ single-select)
 - [ ] Every option has ≥2 ✅ and ≥1 ❌, each ≥40 chars (or hard-stop escape)
 - [ ] (recommended) label on one option (even for neutral-posture)
 - [ ] Dual-scale effort labels on effort-bearing options (human / CC)

@@ -1,0 +1,411 @@
+---
+name: pr-prep
+preamble-tier: 4
+version: 0.1.0
+description: |
+  Pre-PR upstream duplicate audit. Walks `git log base..HEAD`, derives
+  search keywords from commit subjects + changed file paths, queries
+  upstream issues + PRs via `gh`, scores each commit against upstream
+  collisions (EXACT_DUP / OVERLAP / SIBLING / CLEAN), and refuses to
+  proceed when EXACT_DUP found. Use when asked to "audit my PR",
+  "check for duplicates", "pr-prep", "is this already filed",
+  "upstream check before PR", or "pre-PR audit".
+  Proactively invoke this skill (do NOT skip the audit) before any
+  `gh pr create` against a tracked upstream repo. Hooks into /ship
+  as Step 0. (gstack)
+allowed-tools:
+  - Bash
+  - Read
+  - Grep
+  - Glob
+  - AskUserQuestion
+triggers:
+  - pr-prep
+  - audit my PR
+  - check for duplicates
+  - upstream check
+  - pre-PR audit
+  - is this already filed
+  - dup PR check
+disable-model-invocation: true
+---
+
+{{PREAMBLE}}
+
+{{BASE_BRANCH_DETECT}}
+
+# pr-prep: Pre-PR Upstream Duplicate Audit
+
+You are running the `/pr-prep` workflow. This is a **read-only audit** that
+verifies your branch's commits against upstream issues + PRs before you
+file a duplicate. Refuses to proceed only on hard duplicates; everything
+else is informational.
+
+**Why this exists:** every contributor faces the upstream-dup risk.
+Open issues sit for weeks. Multiple PRs converge on the same surface.
+Filing a dup wastes reviewer time, contributor goodwill, and your own
+branch cleanup. This skill catches dups in ~30s of `gh` queries
+*before* the PR exists.
+
+**Output:** per-commit collision report with severity buckets +
+recommended action.
+
+---
+
+## Step 1: Pre-flight
+
+1. Run `git status` (never with `-uall`). Working tree must be clean
+   or have only the commits-being-audited. Abort cleanly if the
+   working tree has unrelated mid-edit state.
+
+2. Determine the base branch (already set by `{{BASE_BRANCH_DETECT}}`
+   into `$BASE_BRANCH`). Honor `--base <name>` flag override.
+
+3. Resolve the upstream repo via `gh repo view --json nameWithOwner -q .nameWithOwner`.
+   Default uses `origin`; override via `--repo owner/name`.
+
+4. **Read the upstream `CONTRIBUTING.md` (if present)** and surface its
+   pre-push gates + test requirements so the agent knows what must
+   pass BEFORE filing. Cache to `/tmp/pr-prep-contributing.md` for
+   the rest of the run.
+
+   ```bash
+   gh api "repos/$REPO/contents/CONTRIBUTING.md" --jq .content 2>/dev/null \
+     | base64 -d > /tmp/pr-prep-contributing.md || \
+     gh api "repos/$REPO/contents/contributing.md" --jq .content 2>/dev/null \
+     | base64 -d > /tmp/pr-prep-contributing.md || \
+     echo "" > /tmp/pr-prep-contributing.md
+   ```
+
+   Extract + echo at this step (no need to dump the whole file in the
+   final report — the agent uses it inline when writing PR bodies):
+   - Required pre-push commands (e.g. `bun run verify`, `npm test`,
+     `cargo test`). Look for "before pushing", "pre-push", "verify",
+     "must pass", "required" headings.
+   - Test layout conventions (where do unit / e2e / regression tests
+     belong). Look for "Writing tests", "test structure" sections.
+   - Branch naming / commit message conventions. Look for "branch
+     name", "commit format", "conventional commits". If
+     `CONTRIBUTING.md` is silent on commit format, infer the
+     de-facto standard from real history:
+     `git log upstream/$BASE_BRANCH --no-merges -20 --format='%s%n%b%n--'`.
+     Note the subject shape (e.g. `type(scope): subject`), whether
+     bodies are prose or bullets, and any required trailer (e.g. a
+     `Co-Authored-By:` line). This is the **authoritative** commit
+     style for the PR — see Step 4.6.
+   - Welcomed PR areas (if listed). Skips contributions that conflict
+     with the repo's roadmap.
+   - Banned patterns (e.g. "never add to allowlist", "no new mocks",
+     "no breaking changes"). Treat as hard gates.
+
+5. Sanity-check: at least 1 commit in `$BASE_BRANCH..HEAD`. If zero,
+   abort with "no commits to audit; you're already on $BASE_BRANCH".
+
+```bash
+BASE="${BASE_BRANCH:-main}"
+REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null)
+COMMITS=$(git log "$BASE"..HEAD --pretty='%H' 2>/dev/null)
+if [ -z "$COMMITS" ]; then
+  echo "No commits to audit: $(git branch --show-current) is at $BASE."
+  exit 0
+fi
+echo "Auditing $(echo "$COMMITS" | wc -l | tr -d ' ') commits against $REPO@$BASE"
+```
+
+## Step 2: Walk each commit, extract search signals
+
+For each commit hash:
+- **Subject**: `git show -s --format=%s <sha>` — strip conventional-commit
+  prefix (`fix(scope):`, `feat:`, `chore(deps):`, etc).
+- **Changed files**: `git show --stat --name-only --format= <sha>`.
+- **Keywords**: from subject, drop stop words + verbs (fix/add/update/
+  bump/remove). Keep 3-6 meaningful tokens.
+
+Build a search query per commit by joining keywords. Example:
+- Subject: `fix(synopsis): tail-truncate documentText for small-model chat handlers`
+- Keywords: `synopsis tail-truncate documentText small-model chat`
+- Query: `synopsis documentText truncate`
+
+Cap query to ~5 tokens. Too long → zero matches. Too short → noisy
+matches.
+
+## Step 3: Query upstream issues + PRs
+
+For each commit's query, run:
+
+```bash
+# Open issues + PRs (highest collision risk)
+gh issue list --repo "$REPO" --state open --search "$QUERY" --limit 8 --json number,title,url,labels
+gh pr    list --repo "$REPO" --state open --search "$QUERY" --limit 8 --json number,title,url,headRefName,author
+
+# Closed in last 90 days (might be unreleased master fix)
+gh issue list --repo "$REPO" --state closed --search "$QUERY" --limit 5 --json number,title,url,closedAt
+gh pr    list --repo "$REPO" --state merged --search "$QUERY" --limit 5 --json number,title,url,mergedAt
+```
+
+Hard guard: skip if the search call returns rate-limit (HTTP 429).
+Print warning + suggest `gh auth refresh`. Don't false-clear on
+rate-limit silence.
+
+## Step 4: Score each upstream hit
+
+For every issue/PR returned, compute a collision score:
+
+- **Title token overlap (Jaccard)**: intersect commit-subject keywords
+  with upstream-title keywords. ≥0.5 = strong match.
+- **File overlap (open PRs only)**: `gh pr diff <number> --name-only`
+  vs the commit's changed files. ≥0.5 = strong match.
+- **State weighting**:
+  - OPEN PR → 1.0× (highest dup risk)
+  - OPEN issue → 0.7× (someone's tracking it)
+  - MERGED last 14 days → 0.6× (might be unreleased)
+  - CLOSED issue → 0.2× (low risk, but useful context)
+
+Final severity bucket per commit:
+
+| Bucket | Trigger |
+|---|---|
+| **EXACT_DUP** | Any OPEN PR with title Jaccard ≥0.6 OR file overlap ≥0.6 |
+| **OVERLAP** | Any OPEN PR/issue with score ≥0.3, or ≥3 OPEN issues |
+| **SIBLING** | OPEN issues but no PR; or merged-recently with overlap |
+| **CLEAN** | No hits, or only old closed issues |
+
+This bucketing is implemented deterministically in `bin/gstack-pr-prep-score`
+(pure function, unit-tested in `test/pr-prep-score.test.ts`) — the canonical
+scorer. Pipe each commit's candidate set through it as JSON rather than
+re-deriving the thresholds inline:
+
+```bash
+echo "$CANDIDATE_JSON" | ~/.claude/skills/gstack/bin/gstack-pr-prep-score
+# -> {"bucket":"EXACT_DUP","topScore":1,"openIssueCount":0,"reasons":[...]}
+```
+
+## Step 4.4: Second-opinion review via codex (CLEAN commits only)
+
+For each commit bucketed CLEAN (i.e. not duplicating upstream work),
+run an independent second-opinion code review BEFORE the PR is opened.
+Catches bugs the author missed without spending reviewer attention
+upstream.
+
+The skill assumes `codex` CLI is on PATH (OpenAI's official CLI;
+`brew install codex` on macOS). If absent, emit a soft warning + skip
+this step — don't block. Different model family from Claude gives
+genuine independent signal.
+
+```bash
+if command -v codex >/dev/null 2>&1; then
+  for sha in $CLEAN_COMMIT_SHAS; do
+    diff=$(git show "$sha" --stat --pretty=format:"%s")
+    subject=$(git log -1 --format=%s "$sha")
+    codex review "Review commit ${sha:0:8} '${subject}' for correctness,
+      edge cases, and CONTRIBUTING.md compliance. Focus on: regression
+      risk on adjacent code paths, missing tests, hash/version-bump
+      invariants if touching cache keys, ordering bugs if touching
+      conditionals or dispatchers. Flag P0/P1/P2 issues with file:line."
+  done
+else
+  echo "[pr-prep] codex CLI not found — skipping second-opinion review.
+   Install via 'brew install codex' or pin a fork-specific reviewer in
+   your skill config."
+fi
+```
+
+Surface findings in the report under each commit as a `Codex P{N}`
+line. P0/P1 findings escalate the commit's severity to OVERLAP at
+minimum (don't file as CLEAN until addressed). P2 findings stay
+CLEAN — author decides whether to fix-before-file or note-in-PR-body.
+
+Real-world example (2026-05-26 motivating case):
+- PR #1427 (synopsis doc truncate) → codex P2: env-overridable cap
+  not folded into `computeCorpusGeneration` hash. Different caps
+  produce same `corpus_generation` → cache invalidation breaks.
+  Fixed pre-merge, pushed as follow-up commit, comment posted to PR.
+- PR #1428 (models doctor args[0]) → codex P2: `--help` regressed
+  into running network probes. Reorder ternary so `hasHelp` checked
+  first. Fixed pre-merge.
+
+Both findings were structural, not stylistic. Author missed them
+during own write-up. Net cost avoided: 2 review-cycle ping-pongs
+upstream + a follow-up fix PR per finding.
+
+## Step 4.5: Surface CONTRIBUTING.md pre-push gates per commit
+
+For each commit that survives audit (CLEAN / OVERLAP / SIBLING — not
+EXACT_DUP), check whether the changed files trigger any
+CONTRIBUTING.md-stated test path. Example: a commit touching
+`src/core/search/*` should run the eval-replay loop per the gbrain
+CONTRIBUTING.md "Trigger paths" section.
+
+Annotate each CLEAN/OVERLAP/SIBLING row with:
+
+```
+  Pre-push gate: bun run verify  (from CONTRIBUTING.md)
+  Trigger paths matched: none  (no retrieval / no special test required)
+  Tests added in commit: yes / no / not required
+```
+
+If `Tests added: no` AND `not required` is unclear, surface as a
+soft warning in the report but don't block — let the human decide.
+
+## Step 4.6: Commit-message style conformance
+
+You are contributing to someone else's repo. Match THEIR commit-message
+convention, never your own (or your global `CLAUDE.md`) house style. A
+PR whose commits read in a different voice than the project signals
+"drive-by fork" and costs reviewer goodwill before a line is read.
+
+Establish the authoritative style once, from Step 1.4 (in priority
+order): the upstream `CONTRIBUTING.md` commit rules if present; else the
+de-facto shape sampled from `git log upstream/$BASE_BRANCH --no-merges`;
+else the conventional-commits baseline (`type(scope): imperative
+subject`, blank line, prose body explaining what + why).
+
+Then check each commit in `$BASE_BRANCH..HEAD` against it:
+
+- **Subject**: matches the repo's shape (type/scope vocabulary, case,
+  length, imperative mood). Flag a subject that promises content it
+  doesn't contain (e.g. "+ tests" with no test files in the diff).
+- **Body**: present when the change is non-trivial; same form as the
+  repo (prose vs bullets). Flag a personal template (emoji section
+  headers, bullet glyphs) that the upstream history doesn't use.
+- **Trailer**: present if upstream requires one. If upstream commits
+  carry a `Co-Authored-By:` (or `Signed-off-by:`) line, every commit
+  here must carry the identical line; if upstream has none, add none.
+
+Annotate each surviving commit row:
+
+```
+  Commit style: OK  (matches upstream type(scope): + prose + Co-Authored-By)
+```
+
+or, on mismatch:
+
+```
+  Commit style: NON-CONFORMANT
+    - body uses 📝/• house template; upstream uses prose
+    - missing Co-Authored-By trailer that upstream commits carry
+    Fix: git rebase to reword these N commits before filing.
+```
+
+Soft warning, never a block — style is not a duplicate. But surface it
+loudly: it is the cheapest reviewer-goodwill win in the whole audit, and
+re-wording is far cheaper before the PR exists than after review starts.
+
+## Step 5: Render report
+
+Markdown table per commit:
+
+```
+## Audit: branch `feat/foo-bar` vs garrytan/gstack@main
+
+### commit 20ed0eee fix(models): dispatch subcommand reads args[0] not args[1]
+
+| Severity | # | Title | State | Author | Score |
+|---|---|---|---|---|---|
+| CLEAN | — | (no matches above threshold) | — | — | — |
+
+  Commit style: OK  (matches upstream type(scope): + prose + Co-Authored-By)
+
+**Action:** safe to file.
+
+### commit ac213aa6 feat(synopsis): tail-truncate documentText
+
+| Severity | # | Title | State | Author | Score |
+|---|---|---|---|---|---|
+| EXACT_DUP | #1358 | fix: allow contextual synopsis model env override | OPEN | lost9999 | 0.78 |
+| OVERLAP | #1356 | fix: classify contextual synopsis transient errors | OPEN | lost9999 | 0.34 |
+
+**Action:** close mine, comment on #1358 with my angle. DO NOT file new PR.
+```
+
+Print summary at end:
+
+```
+Summary: 1 EXACT_DUP, 1 CLEAN. 1 commit blocked.
+```
+
+## Step 6: Refusal on EXACT_DUP
+
+If ANY commit is EXACT_DUP and `--force` is NOT set, exit non-zero
+with a pinpoint message:
+
+```
+✗ Blocked: 1 commit duplicates open upstream work.
+
+  - ac213aa6 → #1358 (lost9999, OPEN 14d)
+
+  Resolutions:
+    1. Close your version, comment on #1358 with your angle.
+    2. Cherry-pick the unique parts to a new branch + file separately.
+    3. Override with `/pr-prep --force` if you've coordinated with
+       the existing PR author.
+```
+
+Always exit 0 on OVERLAP / SIBLING / CLEAN — those are informational.
+
+## Step 7: /ship integration
+
+When invoked by `/ship` (env `GSTACK_FROM_SHIP=1`):
+- Skip the interactive AskUserQuestion confirmations
+- Exit 0 on CLEAN/OVERLAP/SIBLING
+- Exit 1 on EXACT_DUP (blocks /ship)
+- Print machine-readable JSON to a known path so /ship can render
+  collisions in the PR body
+
+## Flags
+
+| Flag | Default | Effect |
+|---|---|---|
+| `--base <name>` | `main` | Base branch for commit walk |
+| `--repo owner/name` | from `gh repo view` | Upstream repo for queries |
+| `--force` | off | Proceed past EXACT_DUP (still print report) |
+| `--json` | off | Machine-readable output, no markdown table |
+| `--limit N` | 8 | Per-query result cap |
+| `--no-file-diff` | off | Skip `gh pr diff` calls (faster, less accurate) |
+
+## Cost + speed
+
+- ~30-60s for a 5-commit branch
+- 4 `gh` calls per commit (open issues, open PRs, closed issues, merged PRs)
+- 1 extra `gh pr diff` per OPEN PR hit (capped at 5)
+- ~25-50 `gh` calls total on a typical branch
+- gh CLI personal rate limit: 5000/hr authenticated. Safe headroom.
+
+## Real-world example (motivating case 2026-05-26)
+
+User's branch on `garrytan/gbrain` had 8 commits ready for upstream
+PRs. Without pr-prep, 4 of 4 unverified commits would have been
+duplicates:
+- `e96332c5` (reindex CLI_ONLY one-char fix) → #913 OPEN 14 days, same fix
+- `74819cec` (sourceId fallback) → #836 OPEN, threads sourceId
+- `787da2af` + `829099f9` (synopsis env-override) → #1358 OPEN, same env-override
+- `e0133d8a` (LM Studio recipe) → #1051 + #1329, crowded space
+
+Cost avoided: 4 noise PRs, 4 reviewer triage rounds, contributor
+goodwill hit, 4 branch closures. pr-prep catches all 4 in ~45s.
+
+---
+
+## Implementation note for future maintainers
+
+Two reasonable build modes:
+1. **Inline bash in SKILL.md** (current) — agent walks the steps,
+   composes `gh` calls, computes Jaccard via `comm` + `wc`. Slower,
+   more transparent.
+2. **Helper script `bin/gstack-pr-prep`** — bash entry point that
+   does the heavy lifting, agent just orchestrates + renders.
+   Faster, more testable. Migration path when v0.2.0 lands tests.
+
+v0.1.0 ships mode 1 because it's reviewable in a single file. v0.2.0
+should move the Jaccard math + report rendering into `bin/`.
+
+## Out of scope (v0.1.0)
+
+- Diff-content (not just file-name) similarity scoring. Useful but
+  expensive (`gh pr diff` × N × full body).
+- Cross-repo audit (e.g., fix in fork A applies to upstream B).
+- LLM-judged semantic dup detection. Out of scope for a deterministic
+  pre-flight check.
+- Auto-comment on the upstream PR. Owner must decide what to say.
+
+These belong in a v0.2+ wave once the deterministic gate proves out.
