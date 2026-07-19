@@ -19,7 +19,7 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | [`/qa-only`](#qa) | **QA Reporter** | Same methodology as /qa but report only. Use when you want a pure bug report without code changes. |
 | [`/scrape`](#scrape) | **Browser Data Extractor** | Pull data from a web page. First call prototypes via `$B`; subsequent calls on a matching intent run a codified browser-skill in ~200ms. |
 | [`/skillify`](#skillify) | **Skill Codifier** | Walks back through your conversation, finds the last `/scrape` prototype, synthesizes script + test + fixture, runs the test, asks before committing. |
-| [`/ship`](#ship) | **Release Engineer** | Sync main, run tests, audit coverage, push, open PR. Bootstraps test frameworks if you don't have one. One command. |
+| [`/ship`](#ship) | **Release Engineer** | Sync main, run tests, audit coverage, push, open PR, then return a full engineering handoff plus concise Why / What / How. UI changes require matched Before/After proof before push. |
 | [`/land-and-deploy`](#land-and-deploy) | **Release Engineer** | Merge the PR, wait for CI and deploy, verify production health. One command from "approved" to "verified in production." |
 | [`/canary`](#canary) | **SRE** | Post-deploy monitoring loop. Watches for console errors, performance regressions, and page failures using the browse daemon. |
 | [`/benchmark`](#benchmark) | **Performance Engineer** | Baseline page load times, Core Web Vitals, and resource sizes. Compare before/after on every PR. Track trends over time. |
@@ -656,6 +656,12 @@ Every `/ship` run builds a code path map from your diff, searches for correspond
 ### Review gate
 
 `/ship` checks the [Review Readiness Dashboard](#review-readiness-dashboard) before creating the PR. If the Eng Review is missing, it asks — but won't block you. Decisions are saved per-branch so you're never re-asked.
+
+### Engineering handoff and UI proof
+
+Every `/ship` attempt ends with the same complete report, whether it succeeds or stops: outcome, root cause, decisions, implementation, verification, operational risk, remaining work, and any decision you need to make. The last section compresses the result into an extremely concise **Why / What / How**.
+
+For a user-visible UI change, `/ship` captures matched **Before** and **After** screenshots from faithful base and current states before push. Route, app state, data, viewport, theme, and zoom must match. If the comparison cannot be produced safely and faithfully, `/ship` stops before pushing or creating the PR instead of waiving the evidence.
 
 A lot of branches die when the interesting work is done and only the boring release work is left. Humans procrastinate that part. AI should not.
 

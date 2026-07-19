@@ -43,7 +43,7 @@ Invoke them by name (e.g., `/office-hours`).
 
 | Skill | What it does |
 |-------|-------------|
-| `/ship` | Run tests, review, push, open PR. Workspace-aware version queue. |
+| `/ship` | Run tests, review, push, open PR, and return a full engineering handoff plus concise Why / What / How. UI changes require matched Before/After proof before push. Workspace-aware version queue. |
 | `/land-and-deploy` | Merge the PR, wait for CI and deploy, verify production health. |
 | `/canary` | Post-deploy monitoring loop using the browse daemon. |
 | `/landing-report` | Read-only dashboard for the workspace-aware ship queue. |

@@ -163,7 +163,10 @@ You:    /qa https://staging.myapp.com
         [opens real browser, clicks through flows, finds and fixes a bug]
 
 You:    /ship
+Claude: [full engineering handoff: outcome, root cause, decisions,
+         implementation, verification, risk, remaining work, next decision]
         Tests: 42 → 51 (+9 new). PR: github.com/you/app/pull/42
+        Put simply: Why / What / How
 ```
 
 You said "daily briefing app." The agent said "you're building a chief of staff AI" — because it listened to your pain, not your feature request. Eight commands, end to end. That is not a copilot. That is a team.
@@ -194,7 +197,7 @@ Each skill feeds into the next. `/office-hours` writes a design doc that `/plan-
 | `/qa-only` | **QA Reporter** | Same methodology as /qa but report only. Pure bug report without code changes. |
 | `/pair-agent` | **Multi-Agent Coordinator** | Share your browser with any AI agent. One command, one paste, connected. Works with OpenClaw, Hermes, Codex, Cursor, or anything that can curl. Each agent gets its own tab. Auto-launches headed mode so you watch everything. Auto-starts ngrok tunnel for remote agents. Scoped tokens, tab isolation, rate limiting, activity attribution. |
 | `/cso` | **Chief Security Officer** | OWASP Top 10 + STRIDE threat model. Zero-noise: 17 false positive exclusions, 8/10+ confidence gate, independent finding verification. Each finding includes a concrete exploit scenario. |
-| `/ship` | **Release Engineer** | Sync main, run tests, audit coverage, push, open PR. Bootstraps test frameworks if you don't have one. |
+| `/ship` | **Release Engineer** | Sync main, run tests, audit coverage, push, open PR, then return a full engineering handoff plus concise Why / What / How. UI changes require matched Before/After proof before push. |
 | `/land-and-deploy` | **Release Engineer** | Merge the PR, wait for CI and deploy, verify production health. One command from "approved" to "verified in production." |
 | `/canary` | **SRE** | Post-deploy monitoring loop. Watches for console errors, performance regressions, and page failures. |
 | `/benchmark` | **Performance Engineer** | Baseline page load times, Core Web Vitals, and resource sizes. Compare before/after on every PR. |
