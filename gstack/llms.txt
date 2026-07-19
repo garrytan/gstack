@@ -11,7 +11,7 @@ Conventions:
 ## Skills
 
 - [/autoplan](autoplan/SKILL.md): Auto-review pipeline — reads the full CEO, design, eng, and DX review skills from disk and runs them sequentially with auto-decisions using 6 decision principles.
-- [/benchmark](benchmark/SKILL.md): Performance regression detection using the browse daemon.
+- [/benchmark](benchmark/SKILL.md): Web page performance regression detection using the browse daemon.
 - [/benchmark-models](benchmark-models/SKILL.md): Cross-model benchmark for gstack skills.
 - [/browse](browse/SKILL.md): Fast headless browser for QA testing and site dogfooding.
 - [/canary](canary/SKILL.md): Post-deploy canary monitoring.

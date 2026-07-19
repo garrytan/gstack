@@ -467,6 +467,21 @@ describe('gen-skill-docs', () => {
     }
   });
 
+  test('benchmark skill is scoped to web page performance', () => {
+    const generated = fs.readFileSync(path.join(ROOT, 'benchmark', 'SKILL.md'), 'utf-8');
+    const template = fs.readFileSync(path.join(ROOT, 'benchmark', 'SKILL.md.tmpl'), 'utf-8');
+
+    for (const content of [generated, template]) {
+      const frontmatter = content.match(/^---\n([\s\S]*?)\n---/)?.[1] ?? '';
+      expect(frontmatter).toContain('name: benchmark');
+      expect(frontmatter).toContain('web performance benchmark');
+      expect(frontmatter).not.toMatch(/Use when: [^\n]*["']benchmark["']/);
+      expect(content).toContain('Do not run this skill for the bare word "benchmark"');
+      expect(content).toContain('For\ncross-model gstack skill comparisons, use `/benchmark-models`.');
+      expect(content).toContain('/benchmark <url>');
+    }
+  });
+
   test('qa and qa-only templates use QA_METHODOLOGY placeholder', () => {
     const qaTmpl = fs.readFileSync(path.join(ROOT, 'qa', 'SKILL.md.tmpl'), 'utf-8');
     expect(qaTmpl).toContain('{{QA_METHODOLOGY}}');
