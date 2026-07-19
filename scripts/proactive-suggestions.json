@@ -113,6 +113,11 @@
       "routing": "Combines /careful (warns before rm -rf, DROP TABLE, force-push, etc.) with\n/freeze (blocks edits outside a specified directory). Use for maximum safety\nwhen touching prod or debugging live systems. Use when asked to \"guard mode\",\n\"full safety\", \"lock it down\", or \"maximum safety\".",
       "voice_line": null
     },
+    "handoff": {
+      "lead": "Hand a task off to another agentic harness, or claim one that was handed off.",
+      "routing": "Emits one canonical [handoff] block into three sinks (Plane comment, context-save\nNotes, gbrain page) so any harness — Claude Code, Codex, Hermes, Antigravity — can\nresume without re-ingesting a transcript. Token-optimized: pointer-based handoff,\nnot context dump. Use when asked to \"hand off\", \"release this task\", \"claim a\nhandoff\", or \"pick up a handed-off task\".",
+      "voice_line": null
+    },
     "health": {
       "lead": "Code quality dashboard.",
       "routing": "Wraps existing project tools (type checker, linter,\ntest runner, dead code detector, shell linter), computes a weighted composite\n0-10 score, and tracks trends over time. Use when: \"health check\",\n\"code quality\", \"how healthy is the codebase\", \"run all checks\",\n\"quality score\".",
