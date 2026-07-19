@@ -33,6 +33,37 @@ The orphan fix matters beyond one eval: any timed-out `claude -p` child that lea
 #### For contributors
 
 - TODOS.md: filed the periodic-CI coverage decision: `evals-periodic.yml` runs 9 of ~66 e2e files, so ~57 run only when local diff-selection happens to pick them, which is how this eval rotted unnoticed.
+## [1.60.0.0] - 2026-07-03
+
+## **Hand a task from one AI harness to another without re-explaining it.**
+## **`/handoff` packages what's done, what's next, and what failed into one block any harness can claim.**
+
+Running work across Codex, Hermes, Antigravity, and Claude Code used to mean each new harness started cold: re-reading the transcript, re-deriving decisions, re-hitting the same dead ends. `/handoff` makes a task portable. It emits one canonical `[handoff]` block, keyed to a task id, into three places at once: a live Plane comment, your `/context-save` notes, and (for durable research) a gbrain page. Another harness reads only that block, fires one or two targeted gbrain lookups for anything deeper, and claims the task. Release with `/handoff`, pick up with `/handoff take <TASK-ID>`. The join key is the task id, not the git branch, so a handoff survives across machines and workspaces.
+
+### The numbers that matter
+
+Source: the design target of the protocol, not a post-ship measurement. The mechanism is pointer-based handoff (read a fixed-size block plus a couple of semantic lookups) instead of transcript re-ingest (re-read the prior session).
+
+| Handoff cost | Pointer-based (`/handoff`) | Transcript re-ingest | What it means |
+|---|---|---|---|
+| Tokens to resume a task cold | ~3-4K | 50K+ | The next harness reads a block, not a history |
+| What stops a repeated dead end | the mandatory `failed:` field | nothing | The most expensive mistake is not re-run |
+| Where the claim is atomic | Plane state (live) | n/a | Two harnesses cannot grab the same task |
+
+No post-ship token measurement exists yet; the numbers above are the architecture's target, reproducible by comparing a filled `[handoff]` block against a full session transcript.
+
+### What this means for builders
+
+If you run more than one AI harness, `/handoff` is the seam between them. Pause work in one, claim it in another, and the second one starts from a 400-token brief plus pointers instead of your whole session. The `failed:` field is mandatory on purpose: it is what keeps the next agent from burning a context window re-deriving something you already ruled out. The durable protocol lives in gbrain (`gbrain recall "multiplayer handoff protocol"`) so every harness reads the same rules.
+
+### Itemized changes
+
+#### Added
+- **`/handoff` skill:** release a task (`/handoff <TASK-ID>`), claim one (`/handoff take <TASK-ID>`), or list what's waiting (`/handoff list`). Emits one `[handoff]` block into a Plane comment, `/context-save` notes, and a gbrain page. Reads only the latest handoff block plus targeted gbrain lookups on claim, so resuming a task does not re-ingest a transcript.
+- **Canonical handoff schema:** `task / repo / branch / commit / by / status / goal / done / next / worked / failed / refs / blockers`. `refs` are pointers only (gbrain slug, PR number, file:line); `failed` is mandatory; the block is capped near 400 tokens with overflow linked from `refs`.
+
+#### For contributors
+- New skill lives in `handoff/SKILL.md.tmpl` (generated `handoff/SKILL.md`), auto-discovered by `discoverTemplates` and fanned out to every host by `./setup` / `gen:skill-docs`. Documented in `AGENTS.md` and `docs/skills.md`; skill-validation doc-inventory cross-check passes.
 
 ## [1.58.5.0] - 2026-06-21
 

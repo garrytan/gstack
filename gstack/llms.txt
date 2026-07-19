@@ -33,6 +33,7 @@ Conventions:
 - [/gstack](gstack/SKILL.md): Router for the gstack skill suite.
 - [/gstack-upgrade](gstack-upgrade/SKILL.md): Upgrade gstack to the latest version.
 - [/guard](guard/SKILL.md): Full safety mode: destructive command warnings + directory-scoped edits.
+- [/handoff](handoff/SKILL.md): Hand a task off to another agentic harness, or claim one that was handed off.
 - [/health](health/SKILL.md): Code quality dashboard.
 - [/investigate](investigate/SKILL.md): Systematic debugging with root cause investigation.
 - [/ios-clean](ios-clean/SKILL.md): Remove the DebugBridge SPM package and all #if DEBUG wiring from an iOS app.
