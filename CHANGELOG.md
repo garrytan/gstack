@@ -1,5 +1,30 @@
 # Changelog
 
+## [1.60.2.0] - 2026-07-19
+
+## **Every `/ship` now ends with a complete engineering handoff and a plain-language answer.**
+## **UI changes cannot be pushed without faithful before/after evidence.**
+
+`/ship` previously optimized the mechanics of landing code but left its final user-facing report underspecified. A successful run could end at a PR URL, omit important engineering context, or describe a UI change without proving what visually changed. This release makes the completion contract explicit across supported hosts.
+
+### What this means for builders
+
+Every ship attempt now reports the outcome, root cause, decisions, implementation, verification, operational risk, remaining work, and any decision required. The literal final section is an extremely concise **Why / What / How** explanation. User-visible UI changes additionally require matched Before/After screenshots from faithful base and current states before the push; missing evidence blocks the ship instead of becoming a waivable footnote.
+
+### Itemized changes
+
+#### Changed
+
+- `ship/SKILL.md.tmpl`: adds the mandatory full engineering handoff, makes `### Put simply` the final response section, and moves UI screenshot evidence into the pre-push verification gate.
+- Generated Claude, Codex, and Factory ship skills and golden fixtures carry the same completion contract.
+- The UI evidence contract pins provenance, route/state/data/viewport/theme/zoom parity, safe test data, inline artifact paths, and a hard stop before push or PR creation when a faithful comparison is impossible.
+
+#### For contributors
+
+- `test/ship-completion-report.test.ts` regression-locks every required heading, ordering, UI gate, screenshot contract, and final plain-language section across the template and three host variants.
+- `test/skill-llm-eval.test.ts` adds both an instruction-quality judge and a three-scenario behavior eval covering non-UI success, complete UI evidence, and blocked incomplete UI evidence.
+- Ship coverage/touchfile routing now selects the deterministic and LLM completion tests. Focused verification: 505 passed, 27 evals skipped without API credentials, 0 failed; a manual authenticated Sonnet behavior run passed all three scenarios.
+
 ## [1.60.1.0] - 2026-07-09
 
 ## **The /autoplan dual-voice eval is back on the board, catching real regressions.**
