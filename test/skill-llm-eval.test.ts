@@ -537,6 +537,7 @@ async function runWorkflowJudge(opts: {
   judgeContext: string;
   judgeGoal: string;
   thresholds?: { clarity: number; completeness: number; actionability: number };
+  includeCarvedSections?: boolean;
 }) {
   const t0 = Date.now();
   const defaults = { clarity: 4, completeness: 3, actionability: 4 };
@@ -549,7 +550,7 @@ async function runWorkflowJudge(opts: {
   let content = fs.readFileSync(path.join(ROOT, opts.skillPath), 'utf-8');
   const secDir = path.join(ROOT, path.dirname(opts.skillPath), 'sections');
   const sectionBodies: string[] = [];
-  if (fs.existsSync(secDir)) {
+  if (opts.includeCarvedSections !== false && fs.existsSync(secDir)) {
     for (const f of fs.readdirSync(secDir).sort()) {
       if (f.endsWith('.md') && !f.endsWith('.md.tmpl')) {
         const body = fs.readFileSync(path.join(secDir, f), 'utf-8');
@@ -617,7 +618,12 @@ ${section}`);
 }
 
 // Block 1: Ship & Release skills
-describeIfSelected('Ship & Release skill evals', ['ship/SKILL.md workflow', 'document-release/SKILL.md workflow'], () => {
+describeIfSelected('Ship & Release skill evals', [
+  'ship/SKILL.md workflow',
+  'ship/SKILL.md completion handoff',
+  'ship/SKILL.md completion behavior',
+  'document-release/SKILL.md workflow',
+], () => {
   testIfSelected('ship/SKILL.md workflow', async () => {
     await runWorkflowJudge({
       testName: 'ship/SKILL.md workflow',
@@ -629,6 +635,96 @@ describeIfSelected('Ship & Release skill evals', ['ship/SKILL.md workflow', 'doc
       judgeGoal: 'how to create a PR: merge base branch, run tests, review diff, bump version, update changelog, push, and open PR',
     });
   }, 30_000);
+
+  testIfSelected('ship/SKILL.md completion handoff', async () => {
+    await runWorkflowJudge({
+      testName: 'ship/SKILL.md completion handoff',
+      suite: 'Ship & Release skill evals',
+      skillPath: 'ship/SKILL.md',
+      startMarker: '## Step 22: Full engineering handoff',
+      endMarker: null,
+      judgeContext: 'the final user-facing handoff contract for a ship workflow',
+      judgeGoal:
+        'how to report the complete engineering outcome and evidence, require matched before/after screenshots only for UI changes, disclose incomplete UI evidence, and finish with an extremely concise Why/What/How explanation',
+      thresholds: { clarity: 4, completeness: 4, actionability: 4 },
+      includeCarvedSections: false,
+    });
+  }, 30_000);
+
+  testIfSelected('ship/SKILL.md completion behavior', async () => {
+    const t0 = Date.now();
+    const skill = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md'), 'utf-8');
+    const handoffStart = skill.indexOf('## Step 22: Full engineering handoff');
+    expect(handoffStart).toBeGreaterThan(-1);
+    const handoff = skill.slice(handoffStart);
+    const client = new Anthropic();
+    const response = await client.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 4096,
+      messages: [{
+        role: 'user',
+        content: `Follow the ship handoff instructions below and produce three final user-facing responses.
+Return ONLY JSON with string fields "non_ui", "ui_complete", and "ui_incomplete". Do not use a JSON code fence.
+
+SCENARIO non_ui: v1.2.3.4 shipped on feat/report at commit abc123; PR https://example.test/pr/1; root cause was a missing output contract; implementation added it; 505 tests passed; no UI changed; no remaining work or decision.
+
+SCENARIO ui_complete: v1.2.3.4 shipped on feat/ui at commit def456; PR https://example.test/pr/2; a button alignment bug was fixed; 505 tests passed; matched evidence is Before /tmp/before.png and After /tmp/after.png on the same route, state, data, viewport, theme, and zoom; no remaining work or decision.
+
+SCENARIO ui_incomplete: a UI changed, but the base revision cannot be rendered, so faithful Before evidence is unavailable; the workflow reached the UI evidence gate before push and must report the blocker without claiming completion or inventing a PR URL.
+
+INSTRUCTIONS:
+${handoff}`,
+      }],
+    });
+
+    const text = response.content[0].type === 'text' ? response.content[0].text : '';
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error(`Completion behavior eval returned non-JSON: ${text.slice(0, 300)}`);
+    const outputs = JSON.parse(jsonMatch[0]) as Record<string, string>;
+    const headings = [
+      '## Engineering summary',
+      '### Outcome',
+      '### Problem and root cause',
+      '### Investigation and decisions',
+      '### Implementation',
+      '### Verification',
+      '### Risks and operational impact',
+      '### Remaining work',
+      '### Decision required',
+      '### Put simply',
+    ];
+
+    for (const key of ['non_ui', 'ui_complete', 'ui_incomplete']) {
+      const output = outputs[key];
+      expect(typeof output).toBe('string');
+      for (const heading of headings) expect(output).toContain(heading);
+      expect(output.match(/^### .+$/gm)?.at(-1)).toBe('### Put simply');
+      expect(output.slice(output.lastIndexOf('### Put simply'))).toContain('- **Why:**');
+      expect(output.slice(output.lastIndexOf('### Put simply'))).toContain('- **What:**');
+      expect(output.slice(output.lastIndexOf('### Put simply'))).toContain('- **How:**');
+    }
+
+    expect(outputs.non_ui).not.toMatch(/!\[[^\]]*(Before|After)/i);
+    expect(outputs.ui_complete).toContain('/tmp/before.png');
+    expect(outputs.ui_complete).toContain('/tmp/after.png');
+    expect(outputs.ui_complete).toMatch(/Before[\s\S]*After/i);
+    expect(outputs.ui_complete).toMatch(/!\[Before\]\([^)]*before\.png\)/i);
+    expect(outputs.ui_complete).toMatch(/!\[After\]\([^)]*after\.png\)/i);
+    expect(outputs.ui_incomplete).toMatch(/incomplete/i);
+    expect(outputs.ui_incomplete).toMatch(/stop|block|cannot claim|not complete/i);
+    expect(outputs.ui_incomplete).not.toContain('https://example.test/pr/');
+    expect(outputs.ui_incomplete).not.toMatch(/waiv/i);
+
+    evalCollector?.addTest({
+      name: 'ship/SKILL.md completion behavior',
+      suite: 'Ship & Release skill evals',
+      tier: 'llm-judge',
+      passed: true,
+      duration_ms: Date.now() - t0,
+      cost_usd: 0.08,
+      judge_reasoning: 'Generated non-UI, complete-UI, and blocked-UI handoffs satisfied the deterministic output contract.',
+    });
+  }, 60_000);
 
   testIfSelected('document-release/SKILL.md workflow', async () => {
     await runWorkflowJudge({

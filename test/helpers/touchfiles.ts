@@ -772,6 +772,8 @@ export const LLM_JUDGE_TOUCHFILES: Record<string, string[]> = {
 
   // Ship & Release
   'ship/SKILL.md workflow':               ['ship/SKILL.md', 'ship/SKILL.md.tmpl'],
+  'ship/SKILL.md completion handoff':     ['ship/SKILL.md', 'ship/SKILL.md.tmpl'],
+  'ship/SKILL.md completion behavior':    ['ship/SKILL.md', 'ship/SKILL.md.tmpl'],
   'document-release/SKILL.md workflow':   ['document-release/SKILL.md', 'document-release/SKILL.md.tmpl'],
 
   // Plan Reviews
