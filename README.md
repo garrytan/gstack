@@ -42,20 +42,40 @@ That installs the six judgment skills. Install a subset with the installer's
 `--skill` option, or use `-g` for its global scope. GStack does not silently
 enroll detected hosts.
 
+The standard installer also owns the complete skill lifecycle:
+
+```bash
+npx skills list                 # inspect installed skills
+npx skills check                # report available updates
+npx skills update               # update while preserving source and scope
+npx skills remove plan          # remove a selected skill
+```
+
+GStack's verified installer matrix pins `skills` CLI 1.5.19. Those commands
+are installer behavior, not a GStack background updater. The upstream CLI
+collects anonymous command-usage telemetry by default; set
+`DISABLE_TELEMETRY=1` or `DO_NOT_TRACK=1` before invoking it to opt out. GStack
+does not proxy or add fields to that telemetry.
+
 The candidate installer matrix passes project/global placement for Claude
 Code, Codex, Cursor, Pi, OpenClaw, and GitHub Copilot. This verifies files and
 canonical hashes; host UI execution remains a separate release gate.
 
 Start with `/plan`, or invoke the skill syntax your host displays. Pure
 judgment modes work without a shared executable. Capability-dependent modes
-may offer the optional, host-neutral runtime. From a repository checkout,
-`./setup` installs that runtime once per user without placing host skills. Its
-real default-capability lifecycle and 383-file broad suite pass on macOS. The
-declared Linux Dev Container passes the 136-test GStack 2 suite, and a clean
-Linux arm64 install/build/browser/uninstall smoke also passes. Native-host
-Linux and Windows remain release gates, so consult
-[`HOST-COMPATIBILITY.md`](docs/gstack-2/HOST-COMPATIBILITY.md) before relying on
-it.
+may offer the optional, host-neutral runtime only when the selected work needs
+one. The skill explains the local capability and network/download boundary,
+then asks whether to install now or later. Nothing is downloaded before that
+approval, and installing a capability never enrolls another coding host.
+Approved installs fetch the pinned official GitHub Release artifact, verify its
+declared byte count and SHA-256, and use Sigstore metadata when Cosign is
+already available. Cosign is not an end-user prerequisite.
+
+The npm package is deliberately not the skill installer and does not contain
+the six skill tree or compiled browser/design/PDF payloads. It is the small
+host-neutral runtime control/bootstrap surface used by release tooling. New
+users should install skills with `npx skills add time-attack/gstack`; optional
+capabilities are downloaded by a skill after consent.
 
 Public web research is optional. Context.dev is the only new external service,
 is disabled until explicit consent, and may receive only public URLs. If it is
@@ -101,7 +121,13 @@ Fork it. Improve it. Make it yours. And if you want to hate on free open source 
 - **First-time Claude Code users** — structured roles instead of a blank prompt
 - **Tech leads and staff engineers** — rigorous review, QA, and release automation on every PR
 
+<details>
+<summary>Legacy 1.x workflow and host-specific documentation</summary>
+
 ## Legacy 1.x workflow example
+
+Everything from this heading through the old host tables is a compatibility
+archive. It is not the GStack 2 installation or first-run path.
 
 1. Install gstack (30 seconds — see below)
 2. Run `/office-hours` — describe what you're building
@@ -555,7 +581,7 @@ The retained 1.x compatibility tooling includes **opt-in** usage telemetry:
 - **What's sent (if you opt in):** skill name, duration, success/fail, gstack version, OS. That's it.
 - **What's never sent:** code, file paths, repo names, branch names, prompts, or any user-generated content.
 - **Change anytime:** `gstack-config set telemetry off` disables everything instantly.
-- **Legacy update checks:** 1.x can fetch the current version number from `raw.githubusercontent.com`. Set `update_check: false` in `~/.gstack/config.yaml` to disable this legacy path. It is not the GStack 2 runtime's default behavior.
+- **Updates are installer-owned:** GStack skill preambles perform no passive release request. Use `npx skills update` (optionally `-p` or `-g`) so the Agent Skills installer preserves the source, scope, host placement, and selected-skill set. The retained 1.x `gstack-update-check --force` path runs only when explicitly requested.
 
 Data is stored in [Supabase](https://supabase.com) (open source Firebase alternative). The schema is in [`supabase/migrations/`](supabase/migrations/) — you can verify exactly what's collected. The Supabase publishable key in the repo is a public key (like a Firebase API key) — row-level security policies deny all direct access. Telemetry flows through validated edge functions that enforce schema checks, event type allowlists, and field length limits.
 
@@ -572,7 +598,7 @@ entries below apply to legacy 1.x installations.
 
 **`/browse` fails?** `cd ~/.claude/skills/gstack && bun install && bun run build`
 
-**Stale install?** Run `/gstack-upgrade` — or set `auto_upgrade: true` in `~/.gstack/config.yaml`
+**Stale GStack 2 skills?** Run `npx skills update` (`-p` for project scope or `-g` for global scope). The installer owns host placement and selection. `/gstack-upgrade` is retained only for legacy 1.x installations.
 
 **Want shorter commands?** `cd ~/.claude/skills/gstack && ./setup --no-prefix` — switches from `/gstack-qa` to `/qa`. Your choice is remembered for future upgrades.
 
@@ -596,6 +622,8 @@ Available skills: /office-hours, /plan-ceo-review, /plan-eng-review, /plan-desig
 /document-release, /document-generate, /codex, /cso, /autoplan, /pair-agent, /careful, /freeze,
 /guard, /unfreeze, /gstack-upgrade, /learn.
 ```
+
+</details>
 
 ## License
 

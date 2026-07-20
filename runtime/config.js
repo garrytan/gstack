@@ -6,7 +6,10 @@ import { resolveRuntimePaths } from "./paths.js";
 export const DEFAULT_CONFIG = Object.freeze({
   schemaVersion: 2,
   network: Object.freeze({ mode: "off", consent: false, selection: null }),
-  context: Object.freeze({ baseUrl: "https://api.context.dev/v1" }),
+  context: Object.freeze({
+    baseUrl: "https://api.context.dev/v1",
+    validation: Object.freeze({ status: "unverified", checkedAt: null }),
+  }),
   cleanup: Object.freeze({ retentionDays: 30 }),
 });
 
@@ -197,6 +200,15 @@ function validateConfig(config) {
     if (url.origin !== "https://api.context.dev" || !["/v1", "/v1/"].includes(url.pathname) ||
         url.search || url.hash || url.username || url.password) {
       throw new TypeError("context.baseUrl must be the official credential-free Context.dev v1 HTTPS endpoint");
+    }
+  }
+  if (config.context?.validation != null) {
+    if (!["verified", "unverified"].includes(config.context.validation.status)) {
+      throw new TypeError("context.validation.status must be `verified` or `unverified`");
+    }
+    if (config.context.validation.checkedAt != null &&
+        !Number.isFinite(Date.parse(config.context.validation.checkedAt))) {
+      throw new TypeError("context.validation.checkedAt must be an ISO timestamp or null");
     }
   }
 }

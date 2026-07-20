@@ -6,7 +6,7 @@ Resolve these paths relative to `skills/plan/`. Files come from base bb57306d98c
 | Legacy path | New path | Disposition | Git blob |
 |---|---|---|---|
 | `plan-devex-review/dx-hall-of-fame.md` | `references/artifacts/plan-devex-review/dx-hall-of-fame.md` | `VERBATIM_PORT` | `99f8bdd216f7c55455c23c33aecfd4c06cc5afc9` |
-| `review/TODOS-format.md` | `references/artifacts/review/TODOS-format.md` | `VERBATIM_PORT` | `eb2f4d9418f9930f0ca6af7f8eed6ca5f1685628` |
+| `review/TODOS-format.md` | `references/artifacts/review/TODOS-format.md` | `MECHANICAL_PORT` | `eb2f4d9418f9930f0ca6af7f8eed6ca5f1685628` |
 | `docs/askuserquestion-cjk.md` | `references/support/docs/askuserquestion-cjk.md` | `VERBATIM_PORT` | `54f4ac34509ecb094b266108958eb73aac19ca86` |
 | `docs/askuserquestion-split.md` | `references/support/docs/askuserquestion-split.md` | `VERBATIM_PORT` | `ec2f880cef9d64d37b1da5b101531172509fdcf2` |
 | `ETHOS.md` | `references/support/ETHOS.md` | `VERBATIM_PORT` | `3dbd5e570807a4f11cd75cfcaa8e77cb52d9fb7a` |

@@ -80,12 +80,15 @@ export function resolveNodeServerScript(
   return null;
 }
 
-const NODE_SERVER_SCRIPT = IS_WINDOWS ? resolveNodeServerScript() : null;
+const NODE_SERVER_SCRIPT = resolveNodeServerScript();
+const IS_COMPILED = import.meta.dir.includes('$bunfs');
 
-// On Windows, hard-fail if server-node.mjs is missing — the Bun path is known broken.
-if (IS_WINDOWS && !NODE_SERVER_SCRIPT) {
+// Every installed/compiled client must use the adjacent Node-compatible daemon.
+// Source development may fall back to `bun run server.ts` when dist has not
+// been built yet, but an installed capability must never require host-global Bun.
+if (IS_COMPILED && !NODE_SERVER_SCRIPT) {
   throw new Error(
-    'server-node.mjs not found. Run `bun run build` to generate the Windows server bundle.'
+    'server-node.mjs not found. Rebuild the managed browser runtime and run `gstack doctor --skill-api 2.0`.'
   );
 }
 
@@ -314,30 +317,20 @@ async function startServer(extraEnv?: Record<string, string>): Promise<ServerSta
   // server's own parseInt at server.ts:760.
   const parentPid = parseInt(process.env.BROWSE_PARENT_PID || '', 10) === 0 ? '0' : String(process.pid);
 
-  if (IS_WINDOWS && NODE_SERVER_SCRIPT) {
-    // Windows: Bun.spawn() + proc.unref() doesn't truly detach on Windows —
-    // when the CLI exits, the server dies with it. Use Node's child_process.spawn
-    // with { detached: true } instead, which is the gold standard for Windows
-    // process independence. Credit: PR #191 by @fqueiro.
+  if (NODE_SERVER_SCRIPT) {
+    // Installed clients on every platform use the adjacent Node-compatible
+    // daemon. Besides correct Windows detachment, this means the base browser
+    // capability needs Node (already required by bootstrap) but no global Bun.
     const extraEnvStr = JSON.stringify({ BROWSE_STATE_FILE: config.stateFile, BROWSE_PARENT_PID: parentPid, ...(extraEnv || {}) });
     const launcherCode =
       `const{spawn}=require('child_process');` +
       `spawn(process.execPath,[${JSON.stringify(NODE_SERVER_SCRIPT)}],` +
       `{detached:true,stdio:['ignore','ignore','ignore'],env:Object.assign({},process.env,` +
       `${extraEnvStr})}).unref()`;
-    Bun.spawnSync(['node', '-e', launcherCode], { stdio: ['ignore', 'ignore', 'ignore'] });
+    Bun.spawnSync([process.env.GSTACK_NODE || 'node', '-e', launcherCode], { stdio: ['ignore', 'ignore', 'ignore'] });
   } else {
-    // macOS/Linux: Bun.spawn().unref() only removes the child from Bun's event
-    // loop — it does NOT call setsid(), so the spawned server stays in the
-    // parent's process session. When the CLI runs inside a session-managed
-    // shell (e.g. Claude Code's per-command Bash sandbox, Conductor, CI
-    // step runners), the session leader's exit sends SIGHUP to every PID in
-    // the session, killing the bun server (and its Chromium grandchildren).
-    // Even with BROWSE_PARENT_PID=0 disabling the watchdog, SIGHUP still
-    // reaps the server. Use Node's child_process.spawn with detached:true,
-    // which calls setsid() so the server becomes its own session leader
-    // (PPID=1, STAT=Ss) and survives the spawning shell's exit. Mirrors
-    // the Windows path's rationale — same root cause, different OS API.
+    // Reviewed source-development fallback only. Node's detached spawn still
+    // calls setsid() on macOS/Linux, so the Bun dev server survives SIGHUP.
     nodeSpawn('bun', ['run', SERVER_SCRIPT], {
       detached: true,
       stdio: ['ignore', 'ignore', 'ignore'],

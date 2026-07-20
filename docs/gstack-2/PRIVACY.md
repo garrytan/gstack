@@ -17,6 +17,12 @@ unit test is not a substitute for the remaining live egress audit listed in
 | Physical iPhone | local Mac/device bridge | optional pre-existing Tailscale path only when explicitly configured | device session to a cloud-device farm or alternate driver provider |
 | Telemetry | off in the GStack 2 contract | minimal legacy telemetry only after its independent opt-in | code, prompts, paths, repo/branch names, user content |
 
+Skill update discovery and installation belong to the user-invoked Agent
+Skills installer (`npx skills update`). GStack preambles make no passive
+release request. The retained `gstack-update-check` compatibility helper exits
+before state or network access unless the operator explicitly passes
+`--force`; `update_check` also defaults to false.
+
 Network installation is not Context.dev consent. Browser navigation is not
 Context.dev consent. A key present in the environment is not consent. The
 Context client requires persisted selection `context`, mode `context`, and

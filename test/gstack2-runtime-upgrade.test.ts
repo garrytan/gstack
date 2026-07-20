@@ -105,6 +105,22 @@ describe("gstack 2 upgrade, migration, and cleanup", () => {
     expect(await readJson(paths.versionPointer)).toMatchObject({ status: "active", current: "2.0.0" });
   });
 
+  test("public upgrades never consume caller-owned input even when given the internal option name", async () => {
+    const root = await temporaryRoot();
+    const home = path.join(root, "state");
+    const source = path.join(root, "caller-source");
+    await fs.mkdir(source);
+    await fs.writeFile(path.join(source, "keep"), "caller-owned\n");
+    const result = await stageUpgrade({
+      home,
+      sourceDir: source,
+      version: "1.0.0",
+      consumeInstallerScratch: true,
+    });
+    expect(result.consumedSource).toBe(false);
+    expect(await fs.readFile(path.join(source, "keep"), "utf8")).toBe("caller-owned\n");
+  });
+
   test("raw staging rejects empty and symlinked source directories", async () => {
     const root = await temporaryRoot();
     const home = path.join(root, "state");

@@ -193,7 +193,7 @@ Evaluate:
 - **Journey analytics**: Where do devs drop off?
 - **Feedback mechanisms**: Bug reports? NPS? Feedback button?
 - **Friction audits**: Periodic reviews planned?
-- **Boomerang readiness**: Will /devex-review be able to measure reality vs. plan?
+- **Boomerang readiness**: Will $qa --mode Report --module devex-review be able to measure reality vs. plan?
 
 **STOP.** AskUserQuestion once per issue. Recommend + WHY.
 
@@ -342,7 +342,7 @@ DX IMPLEMENTATION CHECKLIST
 
 Before closing this review, synthesize the findings above into a flat list of
 build-actionable tasks. Each task derives from a specific finding — no padding.
-Emit the markdown section AND write a JSONL artifact that `/autoplan` can
+Emit the markdown section AND write a JSONL artifact that `$plan --mode Full chain --module autoplan` can
 aggregate across phases.
 
 ### Markdown section (always emit)
@@ -367,7 +367,7 @@ Rules:
 
 ### JSONL artifact (always write, even if zero tasks)
 
-`/autoplan` reads this file to aggregate across phases. Build each line with
+`$plan --mode Full chain --module autoplan` reads this file to aggregate across phases. Build each line with
 `jq -nc` so titles and source findings containing quotes, newlines, or
 backslashes serialize cleanly — never use hand-rolled `echo` / `printf`.
 
@@ -432,9 +432,9 @@ After completing the review, read the review log and config to display the dashb
 $GSTACK_BIN/gstack-review-read
 ```
 
-Parse the output. Find the most recent entry for each skill (plan-ceo-review, plan-eng-review, review, plan-design-review, design-review-lite, adversarial-review, codex-review, codex-plan-review). Ignore entries with timestamps older than 7 days. For the Eng Review row, show whichever is more recent between `review` (diff-scoped pre-landing review) and `plan-eng-review` (plan-stage architecture review). Append "(DIFF)" or "(PLAN)" to the status to distinguish. For the Adversarial row, show whichever is more recent between `adversarial-review` (new auto-scaled) and `codex-review` (legacy). For Design Review, show whichever is more recent between `plan-design-review` (full visual audit) and `design-review-lite` (code-level check). Append "(FULL)" or "(LITE)" to the status to distinguish. For the Outside Voice row, show the most recent `codex-plan-review` entry — this captures outside voices from both /plan-ceo-review and /plan-eng-review.
+Parse the output. Find the most recent entry for each skill (plan-ceo-review, plan-eng-review, review, plan-design-review, design-review-lite, adversarial-review, codex-review, codex-plan-review). Ignore entries with timestamps older than 7 days. For the Eng Review row, show whichever is more recent between `review` (diff-scoped pre-landing review) and `plan-eng-review` (plan-stage architecture review). Append "(DIFF)" or "(PLAN)" to the status to distinguish. For the Adversarial row, show whichever is more recent between `adversarial-review` (new auto-scaled) and `codex-review` (legacy). For Design Review, show whichever is more recent between `plan-design-review` (full visual audit) and `design-review-lite` (code-level check). Append "(FULL)" or "(LITE)" to the status to distinguish. For the Outside Voice row, show the most recent `codex-plan-review` entry — this captures outside voices from both $plan --mode Product --module plan-ceo-review and $plan --mode Engineering --module plan-eng-review.
 
-**Source attribution:** If the most recent entry for a skill has a \`"via"\` field, append it to the status label in parentheses. Examples: `plan-eng-review` with `via:"autoplan"` shows as "CLEAR (PLAN via /autoplan)". `review` with `via:"ship"` shows as "CLEAR (DIFF via /ship)". Entries without a `via` field show as "CLEAR (PLAN)" or "CLEAR (DIFF)" as before.
+**Source attribution:** If the most recent entry for a skill has a \`"via"\` field, append it to the status label in parentheses. Examples: `plan-eng-review` with `via:"autoplan"` shows as "CLEAR (PLAN via $plan --mode Full chain --module autoplan)". `review` with `via:"ship"` shows as "CLEAR (DIFF via /ship)". Entries without a `via` field show as "CLEAR (PLAN)" or "CLEAR (DIFF)" as before.
 
 Note: `autoplan-voices` and `design-outside-voices` entries are audit-trail-only (forensic data for cross-model consensus analysis). They do not appear in the dashboard and are not checked by any consumer.
 
@@ -461,7 +461,7 @@ Display:
 - **CEO Review (optional):** Use your judgment. Recommend it for big product/business changes, new user-facing features, or scope decisions. Skip for bug fixes, refactors, infra, and cleanup.
 - **Design Review (optional):** Use your judgment. Recommend it for UI/UX changes. Skip for backend-only, infra, or prompt-only changes.
 - **Adversarial Review (automatic):** Always-on for every review. Every diff gets both Claude adversarial subagent and Codex adversarial challenge. Large diffs (200+ lines) additionally get Codex structured review with P1 gate. No configuration needed.
-- **Outside Voice (optional):** Independent plan review from a different AI model. Offered after all review sections complete in /plan-ceo-review and /plan-eng-review. Falls back to Claude subagent if Codex is unavailable. Never gates shipping.
+- **Outside Voice (optional):** Independent plan review from a different AI model. Offered after all review sections complete in $plan --mode Product --module plan-ceo-review and $plan --mode Engineering --module plan-eng-review. Falls back to Claude subagent if Codex is unavailable. Never gates shipping.
 
 **Verdict logic:**
 - **CLEARED**: Eng Review has >= 1 entry within 7 days from either \`review\` or \`plan-eng-review\` with status "clean" (or \`skip_eng_review\` is \`true\`)
@@ -517,7 +517,7 @@ Produce this markdown table:
 | Review | Trigger | Why | Runs | Status | Findings |
 |--------|---------|-----|------|--------|----------|
 | CEO Review | \`/plan-ceo-review\` | Scope & strategy | {runs} | {status} | {findings} |
-| Codex Review | \`/codex review\` | Independent 2nd opinion | {runs} | {status} | {findings} |
+| Codex Review | \`$review --mode Deep --module codex review\` | Independent 2nd opinion | {runs} | {status} | {findings} |
 | Eng Review | \`/plan-eng-review\` | Architecture & tests (required) | {runs} | {status} | {findings} |
 | Design Review | \`/plan-design-review\` | UI/UX gaps | {runs} | {status} | {findings} |
 | DX Review | \`/plan-devex-review\` | Developer experience gaps | {runs} | {status} | {findings} |
@@ -653,22 +653,22 @@ eval "$($GSTACK_BIN/gstack-slug 2>/dev/null)" 2>/dev/null || true
 
 After displaying the Review Readiness Dashboard, recommend next reviews:
 
-**Recommend /plan-eng-review if eng review is not skipped globally** — DX issues often
+**Recommend $plan --mode Engineering --module plan-eng-review if eng review is not skipped globally** — DX issues often
 have architectural implications. If this DX review found API design problems, error
 handling gaps, or CLI ergonomics issues, eng review should validate the fixes.
 
-**Suggest /plan-design-review if user-facing UI exists** — DX review focuses on
+**Suggest $design --mode Critique --module plan-design-review if user-facing UI exists** — DX review focuses on
 developer-facing surfaces; design review covers end-user-facing UI.
 
-**Recommend /devex-review after implementation** — the boomerang. Plan said TTHW would
-be [target from 0C]. Did reality match? Run /devex-review on the live product to find
+**Recommend $qa --mode Report --module devex-review after implementation** — the boomerang. Plan said TTHW would
+be [target from 0C]. Did reality match? Run $qa --mode Report --module devex-review on the live product to find
 out. This is where the competitive benchmark pays off: you have a concrete target to
 measure against.
 
 Use AskUserQuestion with applicable options:
-- **A)** Run /plan-eng-review next (required gate)
-- **B)** Run /plan-design-review (only if UI scope detected)
-- **C)** Ready to implement, run /devex-review after shipping
+- **A)** Run $plan --mode Engineering --module plan-eng-review next (required gate)
+- **B)** Run $design --mode Critique --module plan-design-review (only if UI scope detected)
+- **C)** Ready to implement, run $qa --mode Report --module devex-review after shipping
 - **D)** Skip, I'll handle next steps manually
 
 ## Mode Quick Reference

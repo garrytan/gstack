@@ -9,7 +9,7 @@
   "source_path": "ios-fix/SKILL.md.tmpl",
   "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
   "blob_sha": "94655e282f535b846eada11143e95df58d29263b",
-  "normalized_render_sha256": "1a94ad8852821684d4806b10c5464f7adef80cb28817800f1e88dfe808f0a26d",
+  "normalized_render_sha256": "cc38b71471c1fefc015419e768c5b40f060f03b232cbad850cd7d9c985a6cc90",
   "target": "skills/debug/references/legacy/ios-fix.md",
   "overlays": [
     679

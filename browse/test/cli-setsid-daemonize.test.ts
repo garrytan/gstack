@@ -55,7 +55,7 @@ describe("#1612 macOS/Linux daemonize via Node setsid path", () => {
     expect(body).toMatch(/SIGHUP/);
   });
 
-  test("the spawn call on macOS/Linux is nodeSpawn, not Bun.spawn", () => {
+  test("installed clients prefer the adjacent Node daemon and source development keeps a detached Bun fallback", () => {
     const body = read();
     // Strip line comments before regex matching, so the "Bun.spawn().unref()"
     // mentions inside the explanatory comment don't trigger false positives.
@@ -63,13 +63,14 @@ describe("#1612 macOS/Linux daemonize via Node setsid path", () => {
       .split("\n")
       .filter((line) => !line.trim().startsWith("//"))
       .join("\n");
-    // Find the non-Windows branch. The `} else {` block following the
-    // Windows branch. We then require its first ~400 chars contain a
-    // nodeSpawn() call and NOT a Bun.spawn() call (excluding the comment).
-    const nonWindowsStart = codeOnly.indexOf("nodeSpawn('bun'");
-    expect(nonWindowsStart).toBeGreaterThan(-1);
-    const slice = codeOnly.slice(nonWindowsStart, nonWindowsStart + 400);
-    expect(slice).toMatch(/nodeSpawn\(/);
-    expect(slice).not.toMatch(/Bun\.spawn\(/);
+    expect(codeOnly).toContain("if (NODE_SERVER_SCRIPT)");
+    expect(codeOnly).toContain("spawn(process.execPath");
+    expect(codeOnly).toContain("nodeSpawn('bun', ['run', SERVER_SCRIPT]");
+    expect(codeOnly).not.toMatch(/Bun\.spawn\([^\n]*SERVER_SCRIPT/);
+  });
+
+  test("installed daemon detachment honors the bootstrap-selected Node executable", () => {
+    const body = read();
+    expect(body).toContain("process.env.GSTACK_NODE || 'node'");
   });
 });

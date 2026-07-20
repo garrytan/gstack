@@ -213,13 +213,13 @@ backend. The candidate distinguishes hardware UDID from CoreDevice UUID,
 returns bounded 504 responses for a suspended app, asserts the expected bundle
 around coordinate mutations, preserves typed snapshot/mutation/restoration,
 and keeps bridge symbols debug-only. Device signing, provisioning, and
-CoreDevice compatibility are setup gates, not product failures. A live
-signed-device pass is still required before release. The earlier target's
-preflight evidence is 9 pass / 0 fail / 1 deploy skip and 29 assertions; its
-direct smoke returned `signing_unavailable`. The latest explicitly selected
-target returned `device_not_wired` because iOS 16.7.10 exposes no supported
-CoreDevice service. Neither attempt installed or launched an app, and no pass
-artifact was written.
+CoreDevice compatibility are setup gates, not product failures. Earlier
+`signing_unavailable`, `device_not_wired`, and partial session-acquire results
+remain retained as failures. After explicit re-authorization, the live lane
+passed 12/12 harness checks and all five required iterations on a wired paired
+`iPhone17,1`, including Release-symbol exclusion, ten screenshots, session
+cleanup, tunnel shutdown, and workspace cleanup. The redacted artifact is
+[`evidence/ios-physical-device-2026-07-20T17-49-19-302Z.json`](./evidence/ios-physical-device-2026-07-20T17-49-19-302Z.json).
 
 PDF rendering and Mermaid/Excalidraw remain internal capabilities. GStack does
 not add Typst, hosted document rendering, alternate diagram services, local
@@ -254,7 +254,7 @@ means the replacement still lacks its required release evidence.
 | 19 | State identity crosses worktrees | **Implemented:** repo plus stable worktree identity selects state. | Linked-worktree core test passes. |
 | 20 | Partial ship failures are not reliably idempotent | **Implemented at runtime primitive:** claimed effects become uncertain and are not automatically repeated. | Crash/resume and completed-effect tests pass. End-to-end ship resume remains pending. |
 | 21 | Parser failures become empty success | **Implemented in iOS device discovery:** parse/tool failures are typed errors. | `tunnel-bootstrap.test.ts` malformed-JSON regression passes in the focused daemon suite. |
-| 22 | Setup failures become product failures | **Partly implemented:** iOS discovery/setup categories and runtime doctor return actionable setup state. | Automated categories exist; live signing/build/install/launch/tunnel passed, while session acquisition and the five-check loop remain open and user-waived. |
+| 22 | Setup failures become product failures | **Implemented for the tested paths:** iOS discovery/setup categories and runtime doctor return actionable setup state. | Earlier setup failures stayed typed and unpromoted; the separately authorized live lane later passed signing through five iterations and cleanup. |
 | 23 | Runtime network activity is not obvious | **Implemented for Context runtime:** selection, mode, and consent are explicit; status/doctor report them; zero lookup/fetch before Context selection+consent. | Context contract: 22 pass / 0 fail / 139 assertions, including persisted non-export fallbacks; verified-key official-endpoint live smoke passed. |
 | 24 | Context restore selects another worktree | **Implemented for canonical state resume:** current repo+worktree project ID scopes inspection/resume. | Linked-worktree identity test passes; compatibility end-to-end restore test pending. |
 | 25 | Preambles repeat large sections in every skill | **Implemented structurally:** six thin lazy dispatchers share infrastructure and load one preserved module on demand. | Current generated six-name/description catalog is 982 characters, about 246 token-equivalents versus the correctly parsed baseline of about 1,100 (77.6% lower). Re-measure if frontmatter changes. |

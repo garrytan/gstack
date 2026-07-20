@@ -236,7 +236,7 @@ Use AskUserQuestion:
 ### Step T4: Execute the chosen action
 
 **If "Investigate and fix now":**
-- Switch to /investigate mindset: root cause first, then minimal fix.
+- Switch to $debug --mode Diagnose-only --module investigate mindset: root cause first, then minimal fix.
 - Fix the pre-existing failure.
 - Commit the fix separately from the branch's changes: `git commit -m "fix: pre-existing test failure in <test-file>"`
 - Continue with the workflow.

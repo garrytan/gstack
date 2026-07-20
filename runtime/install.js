@@ -1,10 +1,11 @@
+import { constants as fsConstants, createReadStream } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
+import readline from "node:readline/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { spawn as nodeSpawn } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { familySync as detectLibcFamilySync, GLIBC, MUSL } from "detect-libc";
 import { resolveGstackHome, resolveRuntimePaths, assertPathInside } from "./paths.js";
 import { atomicWriteFile, atomicWriteJson, pathExists, readJson } from "./storage.js";
 import { purgeManagedHomeUnlocked, stageUpgradeUnlocked } from "./upgrade.js";
@@ -12,6 +13,7 @@ import {
   assertManagedHome,
   assertSafeManagedHomePath,
   ensureManagedHome,
+  ensureManagedRuntimeDirectory,
   recoverRuntimeTransactionUnlocked,
   RUNTIME_TRANSACTION_FILE,
   withRuntimeLifecycleLock,
@@ -20,6 +22,60 @@ import { errorWithCode as installError } from "./errors.js";
 import { currentIsoTimestamp as isoNow } from "./time.js";
 
 const INSTALL_SCHEMA_VERSION = 2;
+export const MAX_RUNTIME_BUNDLE_BYTES = 2 * 1024 * 1024 * 1024;
+export const RUNTIME_COMPATIBILITY = Object.freeze({
+  schemaVersion: 1,
+  runtimeVersion: "2.0.0",
+  skillApi: "2.0",
+});
+
+export function managedBunRelativePath(platform = process.platform) {
+  return `.gstack-runtime-tools/${platform === "win32" ? "bun.exe" : "bun"}`;
+}
+
+export const OPTIONAL_RUNTIME_CAPABILITIES = Object.freeze([
+  "browser",
+  "design",
+  "pdf",
+  "diagram",
+  ...(process.platform === "darwin" ? ["ios"] : []),
+]);
+// Internal capability used only when a workflow reaches a headed browser,
+// extension, or handoff. It is deliberately excluded from the setup-time
+// `all` selection so ordinary headless QA never downloads visible Chromium.
+export const INTERNAL_RUNTIME_CAPABILITIES = Object.freeze(["browser-visible"]);
+export const RUNTIME_CAPABILITIES = Object.freeze([
+  ...OPTIONAL_RUNTIME_CAPABILITIES,
+  ...INTERNAL_RUNTIME_CAPABILITIES,
+]);
+export const RUNTIME_CAPABILITY_DEPENDENCIES = Object.freeze({
+  browser: Object.freeze([]),
+  "browser-visible": Object.freeze([]),
+  design: Object.freeze([]),
+  pdf: Object.freeze(["browser", "diagram"]),
+  diagram: Object.freeze(["browser"]),
+  ...(process.platform === "darwin" ? { ios: Object.freeze([]) } : {}),
+});
+
+export const RUNTIME_COMPONENT_DEPENDENCIES = Object.freeze({
+  core: Object.freeze([]),
+  "browser-code": Object.freeze(["core"]),
+  "browser-headless": Object.freeze(["browser-code"]),
+  "browser-visible": Object.freeze(["browser-code"]),
+  design: Object.freeze(["core"]),
+  diagram: Object.freeze(["browser-headless"]),
+  pdf: Object.freeze(["diagram"]),
+  ...(process.platform === "darwin" ? { ios: Object.freeze(["core"]) } : {}),
+});
+
+export const RUNTIME_CAPABILITY_COMPONENTS = Object.freeze({
+  browser: Object.freeze(["browser-code", "browser-headless"]),
+  "browser-visible": Object.freeze(["browser-code", "browser-visible"]),
+  design: Object.freeze(["design"]),
+  diagram: Object.freeze(["diagram"]),
+  pdf: Object.freeze(["pdf"]),
+  ...(process.platform === "darwin" ? { ios: Object.freeze(["ios"]) } : {}),
+});
 
 /**
  * Audited stable helper surface used by retained specialist modules. Targets
@@ -162,12 +218,12 @@ export function runtimeNativePackagePaths(options = {}) {
       `node_modules/@ngrok/ngrok-win32-${arch}-msvc`,
     );
   } else {
-    const libc = options.libc ?? detectLibcFamilySync();
-    if (![GLIBC, MUSL].includes(libc)) {
+    const libc = options.libc ?? detectRuntimeLibc();
+    if (!["glibc", "musl"].includes(libc)) {
       throw new TypeError(`Unsupported managed-runtime libc: ${String(libc)}`);
     }
-    const sharpPlatform = libc === MUSL ? `linuxmusl-${arch}` : `linux-${arch}`;
-    const ngrokLibc = libc === MUSL ? "musl" : "gnu";
+    const sharpPlatform = libc === "musl" ? `linuxmusl-${arch}` : `linux-${arch}`;
+    const ngrokLibc = libc === "musl" ? "musl" : "gnu";
     paths.push(
       `node_modules/@img/sharp-${sharpPlatform}`,
       `node_modules/@img/sharp-libvips-${sharpPlatform}`,
@@ -176,6 +232,12 @@ export function runtimeNativePackagePaths(options = {}) {
   }
   paths.push("node_modules/@ngrok/ngrok");
   return Object.freeze(paths);
+}
+
+function detectRuntimeLibc() {
+  if (process.platform !== "linux") return null;
+  const report = typeof process.report?.getReport === "function" ? process.report.getReport() : null;
+  return report?.header?.glibcVersionRuntime ? "glibc" : "musl";
 }
 
 /**
@@ -205,6 +267,8 @@ export const DEFAULT_RUNTIME_BUNDLE = Object.freeze([
   entry("extension"),
   entry("node_modules/playwright"),
   entry("node_modules/playwright-core"),
+  entry(managedBunRelativePath(), "managed-bun", true),
+  entry(".gstack-runtime-browsers", "browser"),
   entry("node_modules/diff"),
   entry("node_modules/socks"),
   entry("node_modules/smart-buffer"),
@@ -233,6 +297,7 @@ export const DEFAULT_RUNTIME_BUNDLE = Object.freeze([
 ]);
 
 export const DEFAULT_CAPABILITY_LAUNCHERS = Object.freeze({
+  bun: managedBunRelativePath(),
   browse: platformBinary("browse/dist/browse"),
   "gstack-design": platformBinary("design/dist/design"),
   "make-pdf": platformBinary("make-pdf/dist/pdf"),
@@ -242,6 +307,135 @@ export const DEFAULT_CAPABILITY_LAUNCHERS = Object.freeze({
     "gstack-ios-qa-mint": "ios-qa/dist/gstack-ios-qa-mint",
   } : {}),
 });
+
+const CAPABILITY_PATH_PREFIXES = Object.freeze({
+  browser: Object.freeze([
+    "browse/", "extension/", ".gstack-runtime-browsers", "node_modules/playwright", "node_modules/diff", "node_modules/socks",
+    "node_modules/smart-buffer", "node_modules/ip-address", "node_modules/sharp", "node_modules/@img/",
+    "node_modules/@ngrok/", "node_modules/detect-libc", "node_modules/semver",
+  ]),
+  design: Object.freeze(["design/"]),
+  pdf: Object.freeze(["make-pdf/"]),
+  diagram: Object.freeze(["lib/diagram-render/"]),
+  ios: Object.freeze(["ios-qa/"]),
+});
+
+/** Resolve the audited core plus only explicitly selected optional capabilities. */
+export function runtimeSurfaceForCapabilities(input = OPTIONAL_RUNTIME_CAPABILITIES) {
+  const selected = normalizeCapabilitySelection(input);
+  const includesBrowserCode = selected.includes("browser") || selected.includes("browser-visible");
+  const entries = DEFAULT_RUNTIME_BUNDLE.filter((item) => {
+    const owner = capabilityForPath(item.path);
+    return owner == null || selected.includes(owner) || (owner === "browser" && includesBrowserCode);
+  });
+  const capabilities = Object.fromEntries(Object.entries(DEFAULT_CAPABILITY_LAUNCHERS).filter(([name]) => {
+    const owner = capabilityForLauncher(name);
+    return owner == null || selected.includes(owner) || (owner === "browser" && includesBrowserCode);
+  }));
+  return Object.freeze({ selected, entries: Object.freeze(entries), capabilities: Object.freeze(capabilities) });
+}
+
+/** Expand logical runtime capabilities into the signed internal components. */
+export function runtimeComponentsForCapabilities(input = OPTIONAL_RUNTIME_CAPABILITIES) {
+  const capabilities = normalizeCapabilitySelection(input);
+  const selected = new Set(["core"]);
+  for (const capability of capabilities) {
+    for (const component of RUNTIME_CAPABILITY_COMPONENTS[capability] ?? []) selected.add(component);
+  }
+  const pending = [...selected];
+  while (pending.length) {
+    for (const dependency of RUNTIME_COMPONENT_DEPENDENCIES[pending.pop()] ?? []) {
+      if (!selected.has(dependency)) {
+        selected.add(dependency);
+        pending.push(dependency);
+      }
+    }
+  }
+  return Object.freeze([...selected].sort());
+}
+
+export function runtimeSlotVersion(releaseVersion, capabilityIds) {
+  validateVersion(releaseVersion);
+  const selected = normalizeCapabilitySelection(capabilityIds);
+  const digest = createHash("sha256").update(selected.join(",") || "core").digest("hex").slice(0, 12);
+  const prefix = String(releaseVersion).slice(0, 60);
+  return `${prefix}-caps-${digest}`;
+}
+
+export async function previewManagedRuntime(options = {}) {
+  if (!options.sourceDir) throw installError("sourceDir is required", "INSTALL_SOURCE_REQUIRED");
+  const sourceDir = await resolvePhysicalSource(options.sourceDir);
+  const surface = runtimeSurfaceForCapabilities(options.capabilityIds);
+  let bytes = 0;
+  let files = 0;
+  const missing = [];
+  const materializations = [];
+  const preparedSource = options.preparedSource === true;
+  for (const item of surface.entries) {
+    if (!preparedSource && item.path === managedBunRelativePath()) {
+      const bunCommand = options.bunCommand ?? process.env.BUN_CMD ?? "bun";
+      try {
+        const bun = await probeBunExecutable(bunCommand, options.runCommand ?? runCommand);
+        bytes += bun.bytes;
+        files += 1;
+        materializations.push({
+          kind: "managed-bun-capture",
+          target: item.path,
+          source: bun.path,
+          version: bun.version,
+          bytes: bun.bytes,
+          available: true,
+        });
+      } catch {
+        materializations.push({
+          kind: "managed-bun-capture",
+          target: item.path,
+          command: bunCommand,
+          bytes: null,
+          available: false,
+        });
+      }
+      continue;
+    }
+    if (!preparedSource && item.path === ".gstack-runtime-browsers") {
+      materializations.push({
+        kind: "playwright-chromium-download",
+        target: item.path,
+        bytes: null,
+      });
+      continue;
+    }
+    const target = assertPathInside(sourceDir, path.join(sourceDir, item.path));
+    const stat = await fs.lstat(target).catch((error) => error?.code === "ENOENT" ? null : Promise.reject(error));
+    if (!stat) {
+      missing.push({ path: item.path, build: item.build ?? null });
+      continue;
+    }
+    if (stat.isSymbolicLink()) throw installError(`Refusing symlink in runtime source: ${target}`, "INSTALL_SOURCE_LINK");
+    const size = await treeSize(target);
+    bytes += size.bytes;
+    files += size.files;
+  }
+  return Object.freeze({
+    sourceDir,
+    capabilities: surface.selected,
+    components: surface.entries.length,
+    files,
+    bytes,
+    humanSize: formatBytes(bytes),
+    missing,
+    materializations,
+    buildsRequired: [...new Set(missing.map((item) => item.build).filter(Boolean))],
+    externalPrerequisites: [
+      process.platform === "win32"
+        ? "Git for Windows Bash (required by retained shell helpers; GStack does not install it)"
+        : "Bash (required by retained shell helpers; GStack does not install it)",
+      "Python 3 (required only by explicitly selected specialist flows such as gbrain/Codex parsing; GStack does not install it)",
+    ],
+    dependencyPreparation: "bun install --production --frozen-lockfile (after approval only)",
+    payloadComplete: missing.length === 0 && materializations.every((item) => Number.isSafeInteger(item.bytes)),
+  });
+}
 
 /**
  * Install one immutable runtime bundle and atomically activate it.
@@ -265,8 +459,11 @@ export async function installManagedRuntime(options = {}) {
   validateVersion(version);
   if (options.requirePackageIdentity) validatePackageIdentity(packageMetadata, version);
 
-  const entries = normalizeEntries(options.entries ?? DEFAULT_RUNTIME_BUNDLE);
-  const capabilities = normalizeCapabilities(options.capabilities ?? DEFAULT_CAPABILITY_LAUNCHERS, entries);
+  const selectedSurface = options.entries == null
+    ? runtimeSurfaceForCapabilities(options.capabilityIds)
+    : null;
+  const entries = normalizeEntries(options.entries ?? selectedSurface.entries);
+  const capabilities = normalizeCapabilities(options.capabilities ?? selectedSurface.capabilities, entries);
   const useDefaultHelperSurface = options.entries == null;
   const stableSourceFiles = normalizeCapabilities(
     options.stableSourceFiles ?? (useDefaultHelperSurface ? DEFAULT_STABLE_SOURCE_FILES : {}),
@@ -277,13 +474,27 @@ export async function installManagedRuntime(options = {}) {
     entries,
   );
   const launcherSurface = Object.freeze({ capabilities, stableSourceFiles, bunProxyHelpers });
+  const phase = (name, details = {}) => options.onPhase?.({ phase: name, at: new Date().toISOString(), ...details });
   const launcherFiles = launcherRelativePaths(launcherSurface);
   if (new Set(launcherFiles).size !== launcherFiles.length) {
     throw new TypeError("Stable launcher names collide");
   }
 
+  const managedBrowserPath = ".gstack-runtime-browsers";
+  const managedBunPath = managedBunRelativePath();
+  const includesManagedBrowser = entries.some((item) => item.path === managedBrowserPath);
+  const includesManagedBun = entries.some((item) => item.path === managedBunPath);
+  // A browser cache found in an ordinary checkout is untracked executable
+  // input. Never copy or trust it. Only a prepared source that arrived inside
+  // the already size/SHA-verified release artifact may carry its browser cache
+  // forward without another download.
+  const trustPreparedBrowser = options.preparedSource === true && options.buildMissing === false;
+  const trustPreparedBun = options.preparedSource === true && options.buildMissing === false;
+  let materializeBrowser = includesManagedBrowser && !trustPreparedBrowser;
+  const materializeBun = includesManagedBun && !trustPreparedBun;
   let missing = await missingEntries(sourceDir, entries);
-  if (missing.length > 0) {
+  let builderMissing = missing.filter((item) => ![managedBrowserPath, managedBunPath].includes(item.path));
+  if (builderMissing.length > 0) {
     if (options.buildMissing === false) {
       throw installError(
         `Runtime source is incomplete: ${missing.map((item) => item.path).join(", ")}`,
@@ -294,7 +505,7 @@ export async function installManagedRuntime(options = {}) {
     try {
       await builder({
         sourceDir,
-        missing: Object.freeze(missing.map((item) => Object.freeze({ ...item }))),
+        missing: Object.freeze(builderMissing.map((item) => Object.freeze({ ...item }))),
         bunCommand: options.bunCommand ?? process.env.BUN_CMD ?? "bun",
         run: options.runCommand ?? runCommand,
       });
@@ -302,41 +513,97 @@ export async function installManagedRuntime(options = {}) {
       throw installError("Runtime capability build failed; the active version was not changed", "INSTALL_BUILD_FAILED", cause);
     }
     missing = await missingEntries(sourceDir, entries);
-    if (missing.length > 0) {
-      const names = missing.map((item) => item.path).join(", ");
+    builderMissing = missing.filter((item) => ![managedBrowserPath, managedBunPath].includes(item.path));
+    if (builderMissing.length > 0) {
+      const names = builderMissing.map((item) => item.path).join(", ");
       throw installError(`Runtime builder did not produce required components: ${names}`, "INSTALL_BUILD_INCOMPLETE");
     }
+  }
+  const unmaterialized = missing.filter((item) =>
+    !(item.path === managedBrowserPath && materializeBrowser) &&
+    !(item.path === managedBunPath && materializeBun));
+  if (unmaterialized.length > 0) {
+    throw installError(
+      `Runtime source is incomplete: ${unmaterialized.map((item) => item.path).join(", ")}`,
+      "INSTALL_SOURCE_INCOMPLETE",
+    );
   }
 
   return withRuntimeLifecycleLock(home, async () => {
     await ensureManagedHome(home, options);
     await recoverRuntimeTransactionUnlocked(home);
     const paths = resolveRuntimePaths({ home });
-    await fs.mkdir(paths.tmp, { recursive: true, mode: 0o700 });
+    await ensureManagedRuntimeDirectory(home, paths.tmp);
     const scratch = assertPathInside(paths.tmp, path.join(paths.tmp, `install-${randomUUID()}`));
+    let preserveScratch = false;
     try {
       await fs.mkdir(scratch, { recursive: true, mode: 0o700 });
-      const files = await copyAllowlistedBundle(sourceDir, scratch, entries);
+      phase("copy-source:start");
+      const materializedPaths = new Set([
+        ...(materializeBrowser ? [managedBrowserPath] : []),
+        ...(materializeBun ? [managedBunPath] : []),
+      ]);
+      const copiedEntries = entries.filter((item) => !materializedPaths.has(item.path));
+      const files = await copyAllowlistedBundle(sourceDir, scratch, copiedEntries);
+      phase("copy-source:complete", { files: files.length });
+      if (materializeBun) {
+        phase("managed-bun:start");
+        await materializeManagedBun(scratch, files, {
+          bunCommand: options.bunCommand ?? process.env.BUN_CMD ?? "bun",
+          run: options.runCommand ?? runCommand,
+        });
+        phase("managed-bun:complete");
+      }
+      if (materializeBrowser) {
+        const browserInstallerCommand = includesManagedBun
+          ? path.join(scratch, managedBunPath)
+          : options.nodeCommand ?? process.env.GSTACK_NODE ?? process.execPath;
+        const browserInstallerRunner = includesManagedBun ? "managed-bun" : "node-fallback";
+        phase("managed-chromium:start", { runner: browserInstallerRunner });
+        const browserMaterialization = await materializeManagedChromium(sourceDir, scratch, files, {
+          runtimeCommand: browserInstallerCommand,
+          run: options.runCommand ?? runCommand,
+          timeoutMs: options.browserDownloadTimeoutMs ?? 15 * 60_000,
+          includeHeadless: selectedSurface?.selected.includes("browser") !== false,
+          includeVisible: selectedSurface?.selected.includes("browser-visible") === true,
+        });
+        phase("managed-chromium:complete", {
+          runner: browserInstallerRunner,
+          dereferencedLinks: browserMaterialization.dereferencedLinks,
+          browserBytes: browserMaterialization.browserBytes,
+        });
+      }
+      const managedBun = includesManagedBun
+        ? await inspectManagedBun(scratch, options.runCommand ?? runCommand)
+        : null;
       const bundleManifest = {
         schemaVersion: INSTALL_SCHEMA_VERSION,
         version,
+        compatibility: RUNTIME_COMPATIBILITY,
+        selectedCapabilities: selectedSurface?.selected ?? null,
+        runtimeComponents: selectedSurface ? runtimeComponentsForCapabilities(selectedSurface.selected) : null,
         components: entries.map(({ path: component }) => component),
         capabilities,
         stableSourceFiles,
         bunProxyHelpers,
+        tools: managedBun ? { bun: managedBun } : {},
         files,
       };
       await atomicWriteJson(path.join(scratch, ".gstack-bundle.json"), bundleManifest, { mode: 0o644 });
 
       const validate = options.validate ?? validateRuntimeBundle;
+      phase("bundle-validation:start");
       await validate(scratch, { version, entries, manifest: bundleManifest });
       await validateLauncherTargets(scratch, launcherSurface);
+      phase("bundle-validation:complete");
 
       const snapshot = await captureInstallSurface(paths, launcherSurface);
       let installManifest;
+      phase("activation:start");
       const result = await stageUpgradeUnlocked({
         home,
         sourceDir: scratch,
+        consumeInstallerScratch: true,
         version,
         now: options.now,
         verify: async (candidate) => {
@@ -369,6 +636,7 @@ export async function installManagedRuntime(options = {}) {
           if (!pointerRollbackError) await fs.rm(path.join(home, RUNTIME_TRANSACTION_FILE), { force: true });
         },
       });
+      phase("activation:complete", { consumedScratch: result.consumedSource });
 
       return {
         home,
@@ -376,11 +644,15 @@ export async function installManagedRuntime(options = {}) {
         path: result.path,
         pointer: result.pointer,
         staged: result.staged,
+        consumedScratch: result.consumedSource,
         manifest: installManifest,
         launchers: launcherPaths(paths.home, launcherSurface),
       };
+    } catch (error) {
+      preserveScratch = error?.preserveScratch === true;
+      throw error;
     } finally {
-      await fs.rm(scratch, { recursive: true, force: true }).catch(() => {});
+      if (!preserveScratch) await fs.rm(scratch, { recursive: true, force: true }).catch(() => {});
     }
   }, options);
 }
@@ -406,6 +678,7 @@ export async function uninstallManagedRuntime(home, options = {}) {
     const manifestPath = path.join(resolvedHome, "runtime-install.json");
     const manifest = await readJson(manifestPath, null);
     const managedLaunchers = validateInstallManifestForUninstall(manifest);
+    await ensureManagedRuntimeDirectory(resolvedHome, paths.tmp);
     const quarantine = assertPathInside(paths.tmp, path.join(paths.tmp, `uninstall-${randomUUID()}`));
     await fs.mkdir(quarantine, { recursive: true, mode: 0o700 });
     const moved = [];
@@ -518,6 +791,7 @@ export async function validateRuntimeBundle(directory, context = {}) {
     }
   }
   const listed = new Set();
+  let declaredBytes = 0;
   for (const file of manifest.files) {
     const relative = normalizeRelativePath(file.path, "bundle manifest path");
     if (file.path !== relative || relative === ".gstack-bundle.json" || relative === ".gstack-version.json" || listed.has(relative) ||
@@ -525,6 +799,10 @@ export async function validateRuntimeBundle(directory, context = {}) {
         !Number.isInteger(file.mode) || file.mode < 0 || file.mode > 0o777 ||
         typeof file.sha256 !== "string" || !/^[0-9a-f]{64}$/.test(file.sha256)) {
       throw installError(`Runtime bundle manifest entry is invalid: ${relative}`, "INSTALL_VALIDATION_FAILED");
+    }
+    declaredBytes += file.size;
+    if (!Number.isSafeInteger(declaredBytes) || declaredBytes > MAX_RUNTIME_BUNDLE_BYTES) {
+      throw installError("Runtime bundle exceeds the 2 GiB artifact limit", "INSTALL_VALIDATION_FAILED");
     }
     listed.add(relative);
     const absolute = assertPathInside(directory, path.join(directory, relative));
@@ -558,6 +836,9 @@ export async function smokeRuntimeBundle(directory, options = {}) {
   if (!Number.isInteger(nodeMajor) || nodeMajor < 18) {
     throw installError(`Node 18+ is required by managed launchers (found ${versionText || "unknown"})`, "INSTALL_NODE_REQUIRED");
   }
+  if (await pathExists(path.join(directory, managedBunRelativePath()))) {
+    await inspectManagedBun(directory, run);
+  }
   const result = await run(command, [path.join(directory, "bin", "gstack"), "--version"], {
     cwd: directory,
     capture: true,
@@ -583,6 +864,38 @@ export async function smokeRuntimeBundle(directory, options = {}) {
       throw installError("Runtime native dependency smoke test failed", "INSTALL_SMOKE_FAILED", cause);
     }
   }
+  const managedBrowsers = path.join(directory, ".gstack-runtime-browsers");
+  if (await pathExists(managedBrowsers)) {
+    const playwrightModule = pathToFileURL(path.join(directory, "node_modules", "playwright", "index.mjs")).href;
+    const runtimeManifest = await readJson(path.join(directory, ".gstack-bundle.json"), null);
+    const selected = new Set(Array.isArray(runtimeManifest?.selectedCapabilities) ? runtimeManifest.selectedCapabilities : []);
+    const modes = selected.size === 0
+      ? [{ name: "headless", launch: "{ headless: true }" }]
+      : [
+          ...(selected.has("browser") ? [{ name: "headless", launch: "{ headless: true }" }] : []),
+          ...(selected.has("browser-visible") ? [{ name: "visible payload", launch: '{ headless: true, channel: "chromium" }' }] : []),
+        ];
+    try {
+      for (const mode of modes) {
+        await run(command, [
+          "--input-type=module",
+          "--eval",
+          `const { chromium } = await import(${JSON.stringify(playwrightModule)}); const browser = await chromium.launch(${mode.launch}); await browser.close();`,
+        ], {
+          cwd: directory,
+          capture: true,
+          timeoutMs: Math.max(timeoutMs, 30_000),
+          env: { ...process.env, PLAYWRIGHT_BROWSERS_PATH: managedBrowsers },
+        });
+      }
+    } catch (cause) {
+      throw installError(
+        "Managed Chromium failed its launch smoke test; install required OS libraries separately and retry (GStack never runs Playwright --with-deps or sudo implicitly)",
+        "INSTALL_SMOKE_FAILED",
+        cause,
+      );
+    }
+  }
 }
 
 export async function runInstallerCli(argv = process.argv.slice(2), options = {}) {
@@ -596,20 +909,76 @@ export async function runInstallerCli(argv = process.argv.slice(2), options = {}
     const sourceDir = parsed.sourceDir ?? options.sourceDir ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
     const env = options.env ?? process.env;
     const home = parsed.home ?? resolveGstackHome({ env, homeDir: options.homeDir, cwd: options.cwd });
+    const stdin = options.stdin ?? process.stdin;
+    const stdout = options.stdout ?? process.stdout;
+    const bunCommand = parsed.bunCommand ?? env.BUN_CMD ?? "bun";
+    let capabilityIds = parsed.capabilityIds;
+    if (parsed.installMode == null && !parsed.dryRun && stdin.isTTY && !parsed.json) {
+      const answer = await askInstallerQuestion(
+        stdin,
+        options.stderr ?? process.stderr,
+        `Optional capabilities (${OPTIONAL_RUNTIME_CAPABILITIES.join(", ")}). Comma-separated selection [all]: `,
+      );
+      capabilityIds = parseCapabilityList(answer || "all");
+    }
+    capabilityIds = await mergeActiveCapabilities(home, capabilityIds, parsed.replaceCapabilities);
+    const preview = await previewManagedRuntime({
+      sourceDir,
+      capabilityIds,
+      bunCommand,
+      preparedSource: parsed.prepared,
+      runCommand: options.installOptions?.runCommand,
+    });
+    if (parsed.json && (parsed.dryRun || parsed.installMode === "later" || parsed.installMode == null)) {
+      stdout.write(`${JSON.stringify({ ok: true, action: parsed.dryRun ? "dry-run" : "install-later", mutated: false, preview }, null, 2)}\n`);
+    } else if (!parsed.quiet) {
+      printInstallPreview(stdout, preview);
+    }
+    if (parsed.dryRun || parsed.installMode === "later") return 0;
+
+    let approved = parsed.installMode === "now" && parsed.yes;
+    if (!approved && stdin.isTTY && !parsed.json) {
+      const answer = await askInstallerQuestion(
+        stdin,
+        options.stderr ?? process.stderr,
+        "Install this optional local runtime now? Type yes to continue [later]: ",
+      );
+      approved = answer.trim().toLowerCase() === "yes";
+    }
+    if (!approved) {
+      if (parsed.installMode === "now") {
+        throw installError("Non-interactive installation requires --install-now --yes", "INSTALL_CONSENT_REQUIRED");
+      }
+      if (!parsed.json && !parsed.quiet) {
+        stdout.write("No runtime was installed. Judgment-only skills remain usable.\n");
+        stdout.write("To install later, rerun with --install-now --yes and the desired --capabilities list.\n");
+      }
+      return 0;
+    }
+
+    const prepare = options.prepareDependencies ?? (async () => runCommand(
+      bunCommand,
+      ["install", "--production", "--frozen-lockfile"],
+      { cwd: sourceDir },
+    ));
+    if (!parsed.prepared) await prepare({ sourceDir, bunCommand, preview });
+    const releaseVersion = parsed.version ?? RUNTIME_COMPATIBILITY.runtimeVersion;
     const result = await installManagedRuntime({
       sourceDir,
       home,
-      version: parsed.version,
-      bunCommand: parsed.bunCommand,
+      version: runtimeSlotVersion(releaseVersion, capabilityIds),
+      bunCommand,
+      capabilityIds,
+      buildMissing: parsed.prepared ? false : undefined,
       nodeCommand: env.GSTACK_NODE ?? "node",
       launcherNodeCommand: env.GSTACK_NODE ?? "node",
       ...options.installOptions,
+      preparedSource: parsed.prepared,
     });
-    const stdout = options.stdout ?? process.stdout;
     if (parsed.json) {
-      stdout.write(`${JSON.stringify({ ok: true, home: result.home, version: result.version, path: result.path, launchers: result.launchers }, null, 2)}\n`);
+      stdout.write(`${JSON.stringify({ ok: true, action: "installed", preview, home: result.home, runtimeVersion: releaseVersion, slot: result.version, path: result.path, launchers: result.launchers }, null, 2)}\n`);
     } else if (!parsed.quiet) {
-      stdout.write(`Installed gstack runtime ${result.version}\n`);
+      stdout.write(`Installed gstack runtime ${releaseVersion}\n`);
       stdout.write(`Runtime home: ${result.home}\n`);
       stdout.write(`Launcher directory: ${path.join(result.home, "bin")}\n`);
       stdout.write("Skills are installed separately with: npx skills add time-attack/gstack\n");
@@ -633,6 +1002,102 @@ function helper(target, launcher = "exec") {
 
 function platformBinary(componentPath) {
   return process.platform === "win32" ? `${componentPath}.exe` : componentPath;
+}
+
+function normalizeCapabilitySelection(input) {
+  const values = Array.isArray(input)
+    ? input
+    : String(input ?? "").split(",");
+  const selected = [...new Set(values.map((value) => String(value).trim()).filter(Boolean))];
+  const available = new Set(RUNTIME_CAPABILITIES);
+  for (const capability of selected) {
+    if (!available.has(capability)) {
+      throw installError(
+        `Unknown or unavailable runtime capability: ${capability}. Available: ${RUNTIME_CAPABILITIES.join(", ")}`,
+        "INSTALL_CAPABILITY_INVALID",
+      );
+    }
+  }
+  const expanded = new Set(selected);
+  const pending = [...selected];
+  while (pending.length) {
+    const capability = pending.pop();
+    for (const dependency of RUNTIME_CAPABILITY_DEPENDENCIES[capability] ?? []) {
+      if (!expanded.has(dependency)) {
+        expanded.add(dependency);
+        pending.push(dependency);
+      }
+    }
+  }
+  return Object.freeze([...expanded].sort());
+}
+
+function capabilityForPath(component) {
+  for (const [capability, prefixes] of Object.entries(CAPABILITY_PATH_PREFIXES)) {
+    if (prefixes.some((prefix) => component === prefix.replace(/\/$/, "") || component.startsWith(prefix))) {
+      return capability;
+    }
+  }
+  return null;
+}
+
+/** Classify a concrete installed file into one disjoint release component. */
+export function runtimeReleaseComponentForPath(value) {
+  const component = normalizeRelativePath(value, "runtime release file");
+  const browserRoot = ".gstack-runtime-browsers/";
+  if (component.startsWith(browserRoot)) {
+    const relative = component.slice(browserRoot.length);
+    if (relative === ".links" || relative.startsWith(".links/")) return null;
+    const top = relative.split("/")[0];
+    if (top.startsWith("chromium_headless_shell-") || top.startsWith("ffmpeg-")) return "browser-headless";
+    if (/^chromium-\d/.test(top)) return "browser-visible";
+    throw installError(`Unknown managed browser payload path: ${component}`, "INSTALL_BROWSER_PAYLOAD_INVALID");
+  }
+  const owner = capabilityForPath(component);
+  if (owner === "browser") return "browser-code";
+  if (["design", "diagram", "pdf", "ios"].includes(owner)) return owner;
+  return "core";
+}
+
+function capabilityForLauncher(name) {
+  if (["browse", "remote-slug"].includes(name)) return "browser";
+  if (name === "gstack-design") return "design";
+  if (name === "make-pdf") return "pdf";
+  if (name.startsWith("gstack-ios-qa-")) return "ios";
+  return null;
+}
+
+async function treeSize(root) {
+  const pending = [root];
+  let bytes = 0;
+  let files = 0;
+  while (pending.length) {
+    const target = pending.pop();
+    const stat = await fs.lstat(target);
+    if (stat.isSymbolicLink()) throw installError(`Refusing symlink in runtime source: ${target}`, "INSTALL_SOURCE_LINK");
+    if (stat.isDirectory()) {
+      for (const child of await fs.readdir(target)) pending.push(path.join(target, child));
+    } else if (stat.isFile()) {
+      bytes += stat.size;
+      files += 1;
+    } else {
+      throw installError(`Unsupported runtime source entry: ${target}`, "INSTALL_SOURCE_TYPE");
+    }
+  }
+  return { bytes, files };
+}
+
+function formatBytes(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ["KiB", "MiB", "GiB"];
+  let value = bytes;
+  let unit = "B";
+  for (const candidate of units) {
+    value /= 1024;
+    unit = candidate;
+    if (value < 1024) break;
+  }
+  return `${value.toFixed(value >= 10 ? 1 : 2)} ${unit}`;
 }
 
 async function resolvePhysicalSource(source, options = {}) {
@@ -710,6 +1175,252 @@ async function copyAllowlistedBundle(sourceDir, destination, entries) {
   }
   files.sort((left, right) => left.path.localeCompare(right.path));
   return files;
+}
+
+async function materializeManagedChromium(sourceDir, bundleRoot, files, options = {}) {
+  const target = assertPathInside(bundleRoot, path.join(bundleRoot, ".gstack-runtime-browsers"));
+  const playwrightCli = assertPathInside(sourceDir, path.join(sourceDir, "node_modules", "playwright", "cli.js"));
+  let complete = false;
+  let cleanupSafe = true;
+  try {
+    // Headless QA gets only Playwright's compact shell. Full visible Chromium
+    // is a separate point-of-use component and is downloaded only when the
+    // internal browser-visible capability was explicitly approved.
+    const installs = [];
+    if (options.includeHeadless !== false) installs.push("--only-shell");
+    if (options.includeVisible === true) installs.push("--no-shell");
+    if (installs.length === 0) throw installError("Managed browser selection is empty", "INSTALL_BROWSER_PAYLOAD_INVALID");
+    for (const mode of installs) {
+      await options.run(options.runtimeCommand, [playwrightCli, "install", mode, "chromium"], {
+        cwd: sourceDir,
+        env: { ...process.env, PLAYWRIGHT_BROWSERS_PATH: target },
+        timeoutMs: options.timeoutMs,
+        superviseTree: true,
+      });
+    }
+  } catch (cause) {
+    if (cause?.code === "INSTALL_COMMAND_KILL_TIMEOUT") cleanupSafe = false;
+    const error = installError(
+      "Playwright Chromium download failed after explicit browser-capability approval; no runtime version was activated",
+      "INSTALL_BROWSER_DOWNLOAD_FAILED",
+      cause,
+    );
+    if (!cleanupSafe) error.preserveScratch = true;
+    throw error;
+  }
+  try {
+    const dereferencedLinks = await normalizeManagedBrowserTree(target);
+    await assertTreeContainsNoLinks(target);
+    await appendTreeManifest(target, bundleRoot, files);
+    files.sort((left, right) => left.path.localeCompare(right.path));
+    const browserBytes = files
+      .filter((file) => file.path.startsWith(".gstack-runtime-browsers/"))
+      .reduce((total, file) => total + file.size, 0);
+    if (browserBytes > MAX_RUNTIME_BUNDLE_BYTES) {
+      throw installError("Normalized managed browser payload exceeds the 2 GiB artifact limit", "INSTALL_BROWSER_PAYLOAD_INVALID");
+    }
+    complete = true;
+    return { dereferencedLinks, browserBytes };
+  } catch (cause) {
+    throw installError(
+      "Downloaded Playwright Chromium failed managed-runtime safety validation; no runtime version was activated",
+      "INSTALL_BROWSER_PAYLOAD_INVALID",
+      cause,
+    );
+  } finally {
+    if (!complete && cleanupSafe) await fs.rm(target, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+export async function normalizeManagedBrowserTree(root) {
+  const physicalRoot = await fs.realpath(root);
+  const links = new Set();
+  await validateBrowserNode(root, physicalRoot, new Set(), links);
+  const ordered = [...links].sort((left, right) => {
+    const depth = right.split(path.sep).length - left.split(path.sep).length;
+    return depth || left.localeCompare(right);
+  });
+  let count = 0;
+  for (const current of ordered) {
+    const stat = await fs.lstat(current).catch(() => null);
+    if (!stat?.isSymbolicLink()) continue;
+    const physical = await resolveBrowserLink(current);
+    assertPhysicalBrowserPath(physicalRoot, physical);
+    const replacement = assertPathInside(root, `${current}.dereference-${randomUUID()}`);
+    try {
+      await copyValidatedBrowserNode(physical, replacement, physicalRoot, new Set());
+      await fs.rm(current, { force: true });
+      await fs.rename(replacement, current);
+    } catch (error) {
+      await fs.rm(replacement, { recursive: true, force: true }).catch(() => {});
+      throw error;
+    }
+    count += 1;
+  }
+  await assertTreeContainsNoLinks(root);
+  return count;
+}
+
+async function validateBrowserNode(current, physicalRoot, ancestors, links) {
+  const stat = await fs.lstat(current);
+  if (stat.isSymbolicLink()) {
+    const rawTarget = await fs.readlink(current);
+    if (path.isAbsolute(rawTarget)) {
+      throw installError(`Managed browser contains an absolute link: ${current}`, "INSTALL_BROWSER_PAYLOAD_INVALID");
+    }
+    const physical = await resolveBrowserLink(current);
+    assertPhysicalBrowserPath(physicalRoot, physical);
+    links.add(current);
+    return validateBrowserNode(physical, physicalRoot, ancestors, links);
+  }
+  if (stat.isFile()) return;
+  if (!stat.isDirectory()) {
+    throw installError(`Managed browser contains an unsupported entry: ${current}`, "INSTALL_BROWSER_PAYLOAD_INVALID");
+  }
+  const physical = await fs.realpath(current);
+  assertPhysicalBrowserPath(physicalRoot, physical);
+  if (ancestors.has(physical)) {
+    throw installError(`Managed browser contains a directory-link cycle: ${current}`, "INSTALL_BROWSER_PAYLOAD_INVALID");
+  }
+  const nextAncestors = new Set(ancestors).add(physical);
+  const children = await fs.readdir(current);
+  children.sort();
+  for (const child of children) {
+    await validateBrowserNode(path.join(current, child), physicalRoot, nextAncestors, links);
+  }
+}
+
+async function copyValidatedBrowserNode(source, destination, physicalRoot, ancestors) {
+  const stat = await fs.lstat(source);
+  if (stat.isSymbolicLink()) {
+    const rawTarget = await fs.readlink(source);
+    if (path.isAbsolute(rawTarget)) throw installError("Managed browser contains an absolute nested link", "INSTALL_BROWSER_PAYLOAD_INVALID");
+    const physical = await resolveBrowserLink(source);
+    assertPhysicalBrowserPath(physicalRoot, physical);
+    return copyValidatedBrowserNode(physical, destination, physicalRoot, ancestors);
+  }
+  if (stat.isFile()) {
+    await fs.copyFile(source, destination, fsConstants.COPYFILE_FICLONE);
+    await fs.chmod(destination, stat.mode & 0o777);
+    return;
+  }
+  if (!stat.isDirectory()) throw installError("Managed browser link targets an unsupported entry", "INSTALL_BROWSER_PAYLOAD_INVALID");
+  const physical = await fs.realpath(source);
+  assertPhysicalBrowserPath(physicalRoot, physical);
+  if (ancestors.has(physical)) throw installError("Managed browser contains a directory-link cycle", "INSTALL_BROWSER_PAYLOAD_INVALID");
+  const nextAncestors = new Set(ancestors).add(physical);
+  await fs.mkdir(destination, { mode: stat.mode & 0o777 });
+  const children = await fs.readdir(source);
+  children.sort();
+  for (const child of children) {
+    await copyValidatedBrowserNode(
+      path.join(source, child),
+      path.join(destination, child),
+      physicalRoot,
+      nextAncestors,
+    );
+  }
+  await fs.chmod(destination, stat.mode & 0o777);
+}
+
+function assertPhysicalBrowserPath(physicalRoot, candidate) {
+  const relative = path.relative(physicalRoot, candidate);
+  if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    throw installError(`Managed browser link escapes its payload: ${candidate}`, "INSTALL_BROWSER_PAYLOAD_INVALID");
+  }
+}
+
+async function resolveBrowserLink(link) {
+  try {
+    return await fs.realpath(link);
+  } catch (cause) {
+    throw installError(`Managed browser contains a dangling or cyclic link: ${link}`, "INSTALL_BROWSER_PAYLOAD_INVALID", cause);
+  }
+}
+
+async function materializeManagedBun(bundleRoot, files, options = {}) {
+  const target = assertPathInside(bundleRoot, path.join(bundleRoot, managedBunRelativePath()));
+  try {
+    const bun = await probeBunExecutable(options.bunCommand, options.run);
+    await fs.mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
+    await fs.copyFile(bun.path, target, fsConstants.COPYFILE_EXCL);
+    if (process.platform !== "win32") await fs.chmod(target, 0o755);
+    const targetStat = await fs.lstat(target);
+    files.push({
+      path: managedBunRelativePath(),
+      size: targetStat.size,
+      mode: targetStat.mode & 0o777,
+      sha256: await sha256File(target),
+    });
+    files.sort((left, right) => left.path.localeCompare(right.path));
+  } catch (cause) {
+    throw installError(
+      "Capturing the approved Bun executable into the managed runtime failed; no runtime version was activated",
+      "INSTALL_BUN_CAPTURE_FAILED",
+      cause,
+    );
+  }
+}
+
+async function probeBunExecutable(command, run) {
+  const resolved = await run(command, [
+    "--eval",
+    "process.stdout.write(process.execPath)",
+  ], { capture: true, timeoutMs: 15_000 });
+  const reported = String(resolved.stdout ?? "").trim();
+  if (!reported || !path.isAbsolute(reported)) {
+    throw new Error("Bun did not report an absolute executable path");
+  }
+  const physical = await fs.realpath(reported);
+  const stat = await fs.lstat(physical);
+  if (!stat.isFile() || stat.isSymbolicLink()) throw new Error("Bun executable is not a safe regular file");
+  const versionResult = await run(physical, ["--version"], { capture: true, timeoutMs: 15_000 });
+  const version = String(versionResult.stdout ?? "").trim();
+  if (!/^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$/.test(version)) {
+    throw new Error(`Bun returned an unexpected version: ${version || "<empty>"}`);
+  }
+  return { path: physical, version, bytes: stat.size };
+}
+
+async function inspectManagedBun(bundleRoot, run) {
+  const relative = managedBunRelativePath();
+  const executable = assertPathInside(bundleRoot, path.join(bundleRoot, relative));
+  const stat = await fs.lstat(executable).catch(() => null);
+  if (!stat?.isFile() || stat.isSymbolicLink()) {
+    throw installError("Managed Bun executable is missing or unsafe", "INSTALL_BUN_INVALID");
+  }
+  try {
+    const result = await run(executable, ["--version"], { capture: true, timeoutMs: 15_000 });
+    const version = String(result.stdout ?? "").trim();
+    if (!/^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$/.test(version)) {
+      throw new Error(`unexpected version output: ${version || "<empty>"}`);
+    }
+    return { path: relative, version };
+  } catch (cause) {
+    throw installError("Managed Bun executable failed its version probe", "INSTALL_BUN_INVALID", cause);
+  }
+}
+
+async function appendTreeManifest(root, bundleRoot, files) {
+  const pending = [root];
+  while (pending.length) {
+    const current = pending.pop();
+    const stat = await fs.lstat(current);
+    if (stat.isSymbolicLink()) throw installError(`Runtime browser contains a symlink: ${current}`, "INSTALL_VALIDATION_FAILED");
+    if (stat.isDirectory()) {
+      const children = await fs.readdir(current);
+      children.sort().reverse();
+      for (const child of children) pending.push(path.join(current, child));
+      continue;
+    }
+    if (!stat.isFile()) throw installError(`Runtime browser contains an unsupported entry: ${current}`, "INSTALL_VALIDATION_FAILED");
+    files.push({
+      path: path.relative(bundleRoot, current).split(path.sep).join("/"),
+      size: stat.size,
+      mode: stat.mode & 0o777,
+      sha256: await sha256File(current),
+    });
+  }
 }
 
 async function copyNodeWithoutLinks(source, destination, bundleRoot, files, forceExecutable = false) {
@@ -810,7 +1521,7 @@ const { home, root } = await resolveActiveRoot(import.meta.url);
 process.env.GSTACK_HOME ||= home;
 const cli = path.join(root, "runtime", "cli.js");
 const stat = await fs.lstat(cli).catch(() => null);
-if (!stat?.isFile() || stat.isSymbolicLink()) throw new Error("Active gstack CLI is missing or unsafe; rerun ./setup");
+if (!stat?.isFile() || stat.isSymbolicLink()) throw new Error("Active gstack CLI is missing or unsafe; inspect with gstack doctor, then use an explicitly approved capability bootstrap to reinstall the optional runtime");
 const { main } = await import(pathToFileURL(cli).href);
 process.exitCode = await main(process.argv.slice(2));
 `;
@@ -821,6 +1532,7 @@ function capabilityLauncherSource() {
 import fs from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import { pathToFileURL } from "node:url";
 import { resolveActiveRoot } from "./gstack-resolve.mjs";
 const [relative, ...args] = process.argv.slice(2);
 if (!relative || path.isAbsolute(relative) || relative.split(/[\\\\/]/).includes("..")) throw new Error("Invalid capability target");
@@ -830,6 +1542,14 @@ const inside = path.relative(root, target);
 if (inside === ".." || inside.startsWith(".." + path.sep) || path.isAbsolute(inside)) throw new Error("Capability target escaped the active runtime");
 const stat = await fs.lstat(target).catch(() => null);
 if (!stat?.isFile() || stat.isSymbolicLink()) throw new Error("Active capability target is missing or unsafe");
+const managedBrowsers = path.join(root, ".gstack-runtime-browsers");
+const browserStat = await fs.lstat(managedBrowsers).catch(() => null);
+if (browserStat?.isSymbolicLink()) throw new Error("Managed browser directory is unsafe");
+const managedBun = path.join(root, ${JSON.stringify(managedBunRelativePath())});
+const bunStat = await fs.lstat(managedBun).catch(() => null);
+const hasManagedBun = bunStat?.isFile() && !bunStat.isSymbolicLink();
+const tooling = await import(pathToFileURL(path.join(root, "runtime", "tooling.js")).href);
+const bashCommand = await tooling.resolveBashCommand(process.env, process.platform);
 const handle = await fs.open(target, "r");
 const headerBuffer = Buffer.alloc(192);
 const { bytesRead } = await handle.read(headerBuffer, 0, headerBuffer.length, 0);
@@ -838,22 +1558,33 @@ const header = headerBuffer.subarray(0, bytesRead).toString("utf8").split(/\\r?\
 let command = target;
 let commandArgs = args;
 if (/^#!.*\\bbun(?:\\s|$)/.test(header)) {
-  command = process.env.BUN_CMD || "bun";
+  if (!hasManagedBun) throw new Error("Managed Bun executable is missing or unsafe; inspect with gstack doctor");
+  command = managedBun;
   commandArgs = [target, ...args];
 } else if (/^#!.*\\b(?:bash|sh)(?:\\s|$)/.test(header)) {
-  command = process.env.GSTACK_BASH || "bash";
+  command = bashCommand;
   commandArgs = [target, ...args];
 } else if (/^#!.*\\bpython3?(?:\\s|$)/.test(header)) {
   command = process.env.GSTACK_PYTHON || (process.platform === "win32" ? "python" : "python3");
   commandArgs = [target, ...args];
 } else if (/^#!.*\\bnode(?:\\s|$)/.test(header)) {
-  command = process.env.GSTACK_NODE || "node";
+  command = process.env.GSTACK_NODE || process.execPath;
   commandArgs = [target, ...args];
 }
 const child = spawn(command, commandArgs, {
   stdio: "inherit",
   windowsHide: true,
-  env: { ...process.env, GSTACK_HOME: process.env.GSTACK_HOME || home },
+  env: {
+    ...process.env,
+    GSTACK_HOME: process.env.GSTACK_HOME || home,
+    GSTACK_NODE: process.env.GSTACK_NODE || process.execPath,
+    GSTACK_BASH: bashCommand,
+    ...(hasManagedBun ? {
+      BUN_CMD: managedBun,
+      PATH: path.dirname(managedBun) + path.delimiter + (process.env.PATH || ""),
+    } : {}),
+    ...(browserStat?.isDirectory() ? { PLAYWRIGHT_BROWSERS_PATH: managedBrowsers } : {}),
+  },
 });
 child.once("error", error => { console.error(error.message); process.exitCode = 1; });
 child.once("exit", (code, signal) => { if (signal) process.kill(process.pid, signal); else process.exitCode = code ?? 1; });
@@ -875,11 +1606,11 @@ export async function resolveActiveRoot(metaUrl) {
   let pointer = JSON.parse(await fs.readFile(pointerPath, "utf8"));
   if (pointer.status === "pending") pointer = await recoverPending(pointerPath, home, pointer);
   if (pointer.status !== "active" || !validVersion(pointer.current)) {
-    throw new Error("No verified active gstack runtime; run ./setup");
+    throw new Error("No verified active gstack runtime; inspect with gstack doctor, then use an explicitly approved capability bootstrap");
   }
   const root = path.join(home, "versions", pointer.current);
   const stat = await fs.lstat(root).catch(() => null);
-  if (!stat?.isDirectory() || stat.isSymbolicLink()) throw new Error("Active gstack runtime is missing or unsafe; rerun ./setup");
+  if (!stat?.isDirectory() || stat.isSymbolicLink()) throw new Error("Active gstack runtime is missing or unsafe; inspect with gstack doctor, then use an explicitly approved capability bootstrap");
   return { home, root, pointer };
 }
 
@@ -897,7 +1628,7 @@ async function recoverInterruptedInstall(home) {
     if (journal.schemaVersion !== 1 || journal.kind !== "gstack-runtime-install-transaction" ||
         journal.status !== "prepared" || journalHome !== physicalHome || !Array.isArray(journal.files) ||
         typeof journal.previousPointerExists !== "boolean") {
-      throw new Error("Managed runtime transaction journal is invalid; rerun ./setup");
+      throw new Error("Managed runtime transaction journal is invalid; inspect with gstack doctor before explicitly reinstalling optional capabilities");
     }
     for (const file of journal.files) {
       const relative = validTransactionPath(file?.path);
@@ -1040,18 +1771,33 @@ function validVersion(value) {
 }
 
 function bunProxySource(relativeTarget) {
-  return `#!/usr/bin/env bun
+  return `#!/usr/bin/env node
+import fs from "node:fs/promises";
 import path from "node:path";
+import { spawn } from "node:child_process";
+import { pathToFileURL } from "node:url";
 import { resolveActiveRoot } from "./gstack-resolve.mjs";
 const { home, root } = await resolveActiveRoot(import.meta.url);
 const target = path.join(root, ${JSON.stringify(relativeTarget)});
-const child = Bun.spawn([process.env.BUN_CMD || "bun", target, ...process.argv.slice(2)], {
-  stdin: "inherit",
-  stdout: "inherit",
-  stderr: "inherit",
-  env: { ...process.env, GSTACK_HOME: process.env.GSTACK_HOME || home },
+const managedBun = path.join(root, ${JSON.stringify(managedBunRelativePath())});
+const stat = await fs.lstat(managedBun).catch(() => null);
+if (!stat?.isFile() || stat.isSymbolicLink()) throw new Error("Managed Bun executable is missing or unsafe; inspect with gstack doctor");
+const tooling = await import(pathToFileURL(path.join(root, "runtime", "tooling.js")).href);
+const bashCommand = await tooling.resolveBashCommand(process.env, process.platform);
+const child = spawn(managedBun, [target, ...process.argv.slice(2)], {
+  stdio: "inherit",
+  windowsHide: true,
+  env: {
+    ...process.env,
+    GSTACK_HOME: process.env.GSTACK_HOME || home,
+    GSTACK_NODE: process.env.GSTACK_NODE || process.execPath,
+    GSTACK_BASH: bashCommand,
+    BUN_CMD: managedBun,
+    PATH: path.dirname(managedBun) + path.delimiter + (process.env.PATH || ""),
+  },
 });
-process.exitCode = await child.exited;
+child.once("error", error => { console.error(error.message); process.exitCode = 1; });
+child.once("exit", (code, signal) => { if (signal) process.kill(process.pid, signal); else process.exitCode = code ?? 1; });
 `;
 }
 
@@ -1107,6 +1853,7 @@ async function writeInstallManifest(paths, _pointer, launcherSurface, now) {
   const manifest = {
     schemaVersion: INSTALL_SCHEMA_VERSION,
     kind: "gstack-managed-runtime",
+    compatibility: RUNTIME_COMPATIBILITY,
     versionStore: "versions",
     versionPointer: "versions/current.json",
     managedPaths: [
@@ -1235,8 +1982,7 @@ function validateVersion(value) {
 
 async function sha256File(file) {
   const hash = createHash("sha256");
-  const data = await fs.readFile(file);
-  hash.update(data);
+  for await (const chunk of createReadStream(file)) hash.update(chunk);
   return hash.digest("hex");
 }
 
@@ -1262,12 +2008,14 @@ function sameStringArray(left, right) {
 
 export function runCommand(command, args, options = {}) {
   return new Promise((resolve, reject) => {
+    const superviseTree = options.superviseTree === true;
     const child = nodeSpawn(command, args, {
       cwd: options.cwd,
       env: options.env ?? process.env,
       stdio: options.capture ? ["ignore", "pipe", "pipe"] : "inherit",
       windowsHide: true,
       shell: false,
+      detached: superviseTree && process.platform !== "win32",
     });
     let stdout = "";
     let stderr = "";
@@ -1279,17 +2027,54 @@ export function runCommand(command, args, options = {}) {
     let timeout = null;
     let killGrace = null;
     let timeoutError = null;
+    let directExited = false;
+    let treeTerminationComplete = !superviseTree;
+    const signalHandlers = [];
     const finish = (callback, value) => {
       if (settled) return;
       settled = true;
       if (timeout) clearTimeout(timeout);
       if (killGrace) clearTimeout(killGrace);
+      for (const [signal, handler] of signalHandlers) process.removeListener(signal, handler);
       callback(value);
     };
     const timeoutMs = Number(options.timeoutMs);
     const killGraceMs = Number.isFinite(Number(options.killGraceMs)) && Number(options.killGraceMs) > 0
       ? Number(options.killGraceMs)
       : 5_000;
+    const beginTermination = async (error) => {
+      if (settled || timeoutError) return;
+      timeoutError = error;
+      killGrace = setTimeout(() => {
+        const killError = new Error(`Command tree did not terminate within ${killGraceMs}ms: ${command}`);
+        killError.code = "INSTALL_COMMAND_KILL_TIMEOUT";
+        killError.timeoutMs = error.timeoutMs;
+        killError.killGraceMs = killGraceMs;
+        killError.cause = timeoutError;
+        killError.preserveScratch = true;
+        finish(reject, killError);
+      }, killGraceMs);
+      try {
+        if (superviseTree) await terminateProcessTree(child);
+        else child.kill("SIGKILL");
+        treeTerminationComplete = true;
+        if (directExited) finish(reject, timeoutError);
+      } catch (cause) {
+        timeoutError.cause = cause;
+      }
+    };
+    if (superviseTree) {
+      for (const signal of ["SIGINT", "SIGTERM"]) {
+        const handler = () => {
+          const error = new Error(`Command cancelled by ${signal}: ${command}`);
+          error.code = "INSTALL_COMMAND_CANCELLED";
+          error.signal = signal;
+          void beginTermination(error);
+        };
+        signalHandlers.push([signal, handler]);
+        process.once(signal, handler);
+      }
+    }
     child.once("error", (error) => {
       if (!timeoutError) return finish(reject, error);
       // A kill error is evidence that termination is not yet confirmed. Keep
@@ -1297,23 +2082,27 @@ export function runCommand(command, args, options = {}) {
       timeoutError.cause ??= error;
     });
     child.once("exit", (code, signal) => {
+      directExited = true;
       if (!timeoutError && timeout) {
         clearTimeout(timeout);
         timeout = null;
       }
-      // A timeout is not complete until the direct child is confirmed dead.
-      // Timed installer probes are deliberately single-process commands; this
-      // helper does not claim to supervise commands that daemonize descendants.
+      // A timeout is not complete until the direct child is confirmed dead and
+      // an explicitly supervised process tree has been terminated.
       if (timeoutError) {
         timeoutError.exitCode = code;
         timeoutError.signal = signal;
         child.stdout?.destroy();
         child.stderr?.destroy();
-        finish(reject, timeoutError);
+        if (treeTerminationComplete) finish(reject, timeoutError);
       }
     });
     child.once("close", (code, signal) => {
-      if (timeoutError) return finish(reject, timeoutError);
+      if (timeoutError) {
+        directExited = true;
+        if (treeTerminationComplete) finish(reject, timeoutError);
+        return;
+      }
       if (code === 0) finish(resolve, { code, stdout, stderr });
       else {
         const error = new Error(`Command failed (${signal ?? code}): ${command} ${args.join(" ")}`);
@@ -1327,51 +2116,145 @@ export function runCommand(command, args, options = {}) {
     });
     if (Number.isFinite(timeoutMs) && timeoutMs > 0) {
       timeout = setTimeout(() => {
-        timeoutError = new Error(`Command timed out after ${timeoutMs}ms: ${command}`);
-        timeoutError.code = "INSTALL_COMMAND_TIMEOUT";
-        timeoutError.timeoutMs = timeoutMs;
-        try {
-          child.kill("SIGKILL");
-        } catch (cause) {
-          timeoutError.cause = cause;
-        }
-        killGrace = setTimeout(() => {
-          const error = new Error(`Timed-out command did not terminate within ${killGraceMs}ms: ${command}`);
-          error.code = "INSTALL_COMMAND_KILL_TIMEOUT";
-          error.timeoutMs = timeoutMs;
-          error.killGraceMs = killGraceMs;
-          error.cause = timeoutError;
-          finish(reject, error);
-        }, killGraceMs);
+        const error = new Error(`Command timed out after ${timeoutMs}ms: ${command}`);
+        error.code = "INSTALL_COMMAND_TIMEOUT";
+        error.timeoutMs = timeoutMs;
+        void beginTermination(error);
       }, timeoutMs);
     }
   });
 }
 
+async function terminateProcessTree(child) {
+  if (!Number.isInteger(child.pid) || child.pid <= 0) throw new Error("Cannot supervise a child without a PID");
+  if (process.platform !== "win32") {
+    try {
+      process.kill(-child.pid, "SIGKILL");
+    } catch (error) {
+      if (error?.code !== "ESRCH") throw error;
+    }
+    return;
+  }
+  await new Promise((resolve, reject) => {
+    const killer = nodeSpawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], {
+      stdio: "ignore",
+      windowsHide: true,
+      shell: false,
+    });
+    killer.once("error", reject);
+    killer.once("close", (code) => code === 0 || code === 128 ? resolve() : reject(new Error(`taskkill failed (${code})`)));
+  });
+}
+
 function parseInstallerArgs(argv) {
-  const result = { sourceDir: null, home: null, version: undefined, bunCommand: undefined, quiet: false, json: false, help: false };
+  const result = {
+    sourceDir: null,
+    home: null,
+    version: undefined,
+    bunCommand: undefined,
+    capabilityIds: OPTIONAL_RUNTIME_CAPABILITIES,
+    installMode: null,
+    yes: false,
+    dryRun: false,
+    prepared: false,
+    replaceCapabilities: false,
+    quiet: false,
+    json: false,
+    help: false,
+  };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (["-h", "--help"].includes(arg)) result.help = true;
     else if (["-q", "--quiet"].includes(arg)) result.quiet = true;
     else if (arg === "--json") result.json = true;
-    else if (["--source", "--home", "--version", "--bun"].includes(arg)) {
+    else if (arg === "--yes") result.yes = true;
+    else if (arg === "--dry-run") result.dryRun = true;
+    else if (arg === "--prepared") result.prepared = true;
+    else if (arg === "--replace-capabilities") result.replaceCapabilities = true;
+    else if (arg === "--install-now") result.installMode = "now";
+    else if (arg === "--install-later") result.installMode = "later";
+    else if (["--source", "--home", "--version", "--bun", "--capabilities"].includes(arg)) {
       const value = argv[index + 1];
       if (!value || value.startsWith("--")) throw new TypeError(`Missing value for ${arg}`);
       index += 1;
-      const key = { "--source": "sourceDir", "--home": "home", "--version": "version", "--bun": "bunCommand" }[arg];
-      result[key] = value;
+      if (arg === "--capabilities") result.capabilityIds = parseCapabilityList(value);
+      else {
+        const key = { "--source": "sourceDir", "--home": "home", "--version": "version", "--bun": "bunCommand" }[arg];
+        result[key] = value;
+      }
     } else {
       throw new TypeError(`Unknown setup option: ${arg}. Skill placement is delegated to: npx skills add time-attack/gstack`);
     }
   }
+  if (result.installMode === "later" && result.yes) throw new TypeError("--install-later cannot be combined with --yes");
+  if (result.prepared && result.installMode !== "now") throw new TypeError("--prepared is reserved for an explicit prepared artifact install");
+  if (result.dryRun && (result.installMode != null || result.yes)) throw new TypeError("--dry-run cannot be combined with install/consent flags");
   return result;
 }
 
 function installerUsage() {
-  return `Usage: ./setup [--home <path>] [--version <version>] [--json] [--quiet]\n\n` +
-    "Installs only the optional host-neutral runtime and local capability bundle.\n" +
+  return `Usage: ./setup [--capabilities <list>] [--replace-capabilities] [--dry-run|--install-now [--yes]|--install-later]\n` +
+    `               [--home <path>] [--version <version>] [--json] [--quiet]\n\n` +
+    `Optional capabilities: ${OPTIONAL_RUNTIME_CAPABILITIES.join(", ")}\n` +
+    "Without --install-now, non-interactive use previews and installs nothing.\n" +
+    "--dry-run and --install-later never modify the runtime, state, or host setup.\n" +
+    "Installs only the optional host-neutral runtime and selected local capabilities.\n" +
     "Install the six skills separately with: npx skills add time-attack/gstack\n";
+}
+
+function parseCapabilityList(value) {
+  const normalized = String(value).trim().toLowerCase();
+  if (normalized === "all") return OPTIONAL_RUNTIME_CAPABILITIES;
+  if (["none", "core"].includes(normalized)) return [];
+  return normalizeCapabilitySelection(normalized.split(","));
+}
+
+async function askInstallerQuestion(input, output, prompt) {
+  const interface_ = readline.createInterface({ input, output, terminal: true });
+  try {
+    return await interface_.question(prompt);
+  } finally {
+    interface_.close();
+  }
+}
+
+function printInstallPreview(stdout, preview) {
+  stdout.write("GStack optional runtime preview\n");
+  stdout.write(`Capabilities: ${preview.capabilities.length ? preview.capabilities.join(", ") : "core only"}\n`);
+  stdout.write(`Projected local payload before unknown downloads: ${preview.humanSize} (${preview.files} files, ${preview.components} components)\n`);
+  for (const item of preview.materializations) {
+    if (item.kind === "managed-bun-capture") {
+      if (item.available) {
+        stdout.write(`Runtime-owned Bun: capture ${item.version} from ${item.source} (${formatBytes(item.bytes)}) after approval.\n`);
+      } else {
+        stdout.write(`Runtime-owned Bun: ${item.command} is unavailable for a reviewed-source build; use the prepared official bootstrap or install/select Bun before approving a source build.\n`);
+      }
+    } else if (item.kind === "playwright-chromium-download") {
+      stdout.write("Managed Chromium: Playwright download into transaction scratch after browser-capability approval (download bytes not known yet).\n");
+    }
+  }
+  if (preview.buildsRequired.length) stdout.write(`Builds required: ${preview.buildsRequired.join(", ")}\n`);
+  if (preview.missing.length) {
+    stdout.write(`${preview.missing.length} component(s) are absent; download size depends on the frozen-lockfile cache and is not yet known.\n`);
+  }
+  stdout.write(`Dependency preparation after approval: ${preview.dependencyPreparation}\n`);
+  for (const prerequisite of preview.externalPrerequisites) stdout.write(`External prerequisite: ${prerequisite}\n`);
+  stdout.write("This installs only under GSTACK_HOME; it does not enroll or configure any coding host.\n");
+}
+
+async function mergeActiveCapabilities(home, requested, replace) {
+  const selected = normalizeCapabilitySelection(requested);
+  if (replace) return selected;
+  const paths = resolveRuntimePaths({ home });
+  const pointer = await readJson(paths.versionPointer, null);
+  const current = pointer?.current;
+  if (typeof current !== "string" || !/^[0-9A-Za-z][0-9A-Za-z._-]{0,79}$/.test(current)) return selected;
+  const root = assertPathInside(paths.versions, path.join(paths.versions, current));
+  const stat = await fs.lstat(root).catch(() => null);
+  if (!stat?.isDirectory() || stat.isSymbolicLink()) return selected;
+  const manifest = await readJson(path.join(root, ".gstack-bundle.json"), null);
+  const retained = Array.isArray(manifest?.selectedCapabilities) ? manifest.selectedCapabilities : [];
+  return normalizeCapabilitySelection([...retained, ...selected]);
 }
 
 const invokedPath = process.argv[1] ? pathToFileURL(path.resolve(process.argv[1])).href : null;

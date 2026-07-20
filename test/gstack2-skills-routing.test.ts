@@ -41,6 +41,17 @@ describe('GStack 2 structured dispatch', () => {
     expect(localSpec.mutation).toBe('spec-only');
   });
 
+  test('missing review mutation authority fails closed', () => {
+    for (const audit_focus of ['broad', 'performance', 'deep']) {
+      const review = routeStructured({ audit_focus });
+      expect(review.tree, audit_focus).toBe('review');
+      expect(review.mutation, audit_focus).toBe('report-only');
+    }
+
+    expect(routeStructured({ audit_focus: 'broad', mutation_authorized: true }).mutation)
+      .toBe('fix-safe');
+  });
+
   test('system-functional QA loads preserved report/fix and root-cause modules', () => {
     expect(routeStructured({ surface: 'developer-workflow', channels: ['cli', 'api'], mutation_authorized: false }))
       .toMatchObject({

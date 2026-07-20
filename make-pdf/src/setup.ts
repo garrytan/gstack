@@ -41,8 +41,8 @@ export async function runSetup(): Promise<void> {
   } catch (err: any) {
     process.stderr.write(" FAIL\n");
     process.stderr.write(`\nChromium failed to launch: ${err.message}\n`);
-    process.stderr.write("\nTo fix: run gstack setup from the gstack repo:\n");
-    process.stderr.write("  cd ~/.claude/skills/gstack && ./setup\n");
+    process.stderr.write("\nRun `gstack doctor --skill-api 2.0` to inspect readiness.\n");
+    process.stderr.write("If browser is uninstalled, explicitly approve the current skill's runtime bootstrap for `--capability pdf`; PDF also selects browser and diagram.\n");
     process.exit(4);
   } finally {
     if (chromiumTab !== null) {

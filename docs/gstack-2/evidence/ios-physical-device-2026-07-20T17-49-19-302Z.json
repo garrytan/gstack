@@ -1,0 +1,277 @@
+{
+  "schemaVersion": 1,
+  "kind": "gstack-ios-qa-physical-device",
+  "passed": true,
+  "generatedAt": "2026-07-20T17:49:19.302Z",
+  "requiredIterations": 5,
+  "passedIterations": 5,
+  "toolchain": {
+    "developerDir": "/Applications/Xcode.app/Contents/Developer",
+    "xcodeVersion": "Xcode 26.6",
+    "xcodeBuildVersion": "Build version 17F113",
+    "xcodegenVersion": "Version: 2.45.4",
+    "devicectlPath": "/Applications/Xcode.app/Contents/Developer/usr/bin/devicectl",
+    "devToolsSecurity": "enabled"
+  },
+  "device": {
+    "identifierSha256": "0f99cfc90afe9f65b2657efde10b259bfe6d1e12e8b4ee18a9123ff1a367bdda",
+    "model": "iPhone17,1",
+    "platform": "iOS",
+    "transportType": "wired",
+    "pairingState": "paired",
+    "developerModeStatus": "enabled"
+  },
+  "bundleId": "com.gstack.iosqa.fixture.gstack2",
+  "signing": {
+    "automatic": true,
+    "explicitTeamFromEnvironment": true
+  },
+  "installSafety": {
+    "existingBundle": "related_fixture",
+    "appDataDeleted": false,
+    "appUninstalled": false
+  },
+  "releaseGuard": {
+    "built": true,
+    "debugBridgeSymbolsAbsent": true,
+    "executableSha256": "796a3e70e0a9a414018738e606b1bbf40d30de9d552eb497b41c2ac5cba4c6b8"
+  },
+  "bootstrap": {
+    "transport": "CoreDevice IPv6",
+    "daemonBootstrap": true,
+    "tokenRotated": true,
+    "stateServerPort": 9999
+  },
+  "iterations": [
+    {
+      "iteration": 1,
+      "passed": true,
+      "checks": {
+        "health_bundle": {
+          "passed": true,
+          "bundleBefore": "com.gstack.iosqa.fixture.gstack2",
+          "bundleAfter": "com.gstack.iosqa.fixture.gstack2"
+        },
+        "token_rotation": {
+          "passed": true,
+          "originalBootTokenRejected": true
+        },
+        "session_acquire": {
+          "passed": true,
+          "sessionIdIssued": true,
+          "released": true
+        },
+        "screenshot_elements": {
+          "passed": true,
+          "elementCountBefore": 2,
+          "elementCountAfter": 2,
+          "screenshotBefore": {
+            "sha256": "79c12380fb2d917da3be02c642866ed6d0cb0b69daa835966e8c4791e153cb15",
+            "bytes": 101454,
+            "width": 1206,
+            "height": 2622
+          },
+          "screenshotAfter": {
+            "sha256": "3cbeef4d8909457b95321d94197a830ca394ba744d0a6e3d89058c98b5b6e72e",
+            "bytes": 102531,
+            "width": 1206,
+            "height": 2622
+          }
+        },
+        "coordinate_tap_state_cleanup": {
+          "passed": true,
+          "buttonLabelBefore": "Tap (0)",
+          "buttonLabelAfter": "Tap (1)",
+          "activeBundleBefore": "com.gstack.iosqa.fixture.gstack2",
+          "activeBundleAfter": "com.gstack.iosqa.fixture.gstack2",
+          "stateCleanup": "unchanged"
+        }
+      }
+    },
+    {
+      "iteration": 2,
+      "passed": true,
+      "checks": {
+        "health_bundle": {
+          "passed": true,
+          "bundleBefore": "com.gstack.iosqa.fixture.gstack2",
+          "bundleAfter": "com.gstack.iosqa.fixture.gstack2"
+        },
+        "token_rotation": {
+          "passed": true,
+          "originalBootTokenRejected": true
+        },
+        "session_acquire": {
+          "passed": true,
+          "sessionIdIssued": true,
+          "released": true
+        },
+        "screenshot_elements": {
+          "passed": true,
+          "elementCountBefore": 2,
+          "elementCountAfter": 2,
+          "screenshotBefore": {
+            "sha256": "53b4df2d0be8fdc02e9f27f878b717783869c3de17dd7883bdae2eb3fff3e7b6",
+            "bytes": 100757,
+            "width": 1206,
+            "height": 2622
+          },
+          "screenshotAfter": {
+            "sha256": "eb3d92cc191c017d1d5f83b0812959facb17679931f31cb0c2e922997b86c17a",
+            "bytes": 102447,
+            "width": 1206,
+            "height": 2622
+          }
+        },
+        "coordinate_tap_state_cleanup": {
+          "passed": true,
+          "buttonLabelBefore": "Tap (1)",
+          "buttonLabelAfter": "Tap (2)",
+          "activeBundleBefore": "com.gstack.iosqa.fixture.gstack2",
+          "activeBundleAfter": "com.gstack.iosqa.fixture.gstack2",
+          "stateCleanup": "unchanged"
+        }
+      }
+    },
+    {
+      "iteration": 3,
+      "passed": true,
+      "checks": {
+        "health_bundle": {
+          "passed": true,
+          "bundleBefore": "com.gstack.iosqa.fixture.gstack2",
+          "bundleAfter": "com.gstack.iosqa.fixture.gstack2"
+        },
+        "token_rotation": {
+          "passed": true,
+          "originalBootTokenRejected": true
+        },
+        "session_acquire": {
+          "passed": true,
+          "sessionIdIssued": true,
+          "released": true
+        },
+        "screenshot_elements": {
+          "passed": true,
+          "elementCountBefore": 2,
+          "elementCountAfter": 2,
+          "screenshotBefore": {
+            "sha256": "4656fc665904354173d8a427508e718f82cac1925fe9ad99b8f864fbb21a3157",
+            "bytes": 101174,
+            "width": 1206,
+            "height": 2622
+          },
+          "screenshotAfter": {
+            "sha256": "33249251e1616368eafdaea731765bac837deea42faa34372850d1119c69c53e",
+            "bytes": 101832,
+            "width": 1206,
+            "height": 2622
+          }
+        },
+        "coordinate_tap_state_cleanup": {
+          "passed": true,
+          "buttonLabelBefore": "Tap (2)",
+          "buttonLabelAfter": "Tap (3)",
+          "activeBundleBefore": "com.gstack.iosqa.fixture.gstack2",
+          "activeBundleAfter": "com.gstack.iosqa.fixture.gstack2",
+          "stateCleanup": "unchanged"
+        }
+      }
+    },
+    {
+      "iteration": 4,
+      "passed": true,
+      "checks": {
+        "health_bundle": {
+          "passed": true,
+          "bundleBefore": "com.gstack.iosqa.fixture.gstack2",
+          "bundleAfter": "com.gstack.iosqa.fixture.gstack2"
+        },
+        "token_rotation": {
+          "passed": true,
+          "originalBootTokenRejected": true
+        },
+        "session_acquire": {
+          "passed": true,
+          "sessionIdIssued": true,
+          "released": true
+        },
+        "screenshot_elements": {
+          "passed": true,
+          "elementCountBefore": 2,
+          "elementCountAfter": 2,
+          "screenshotBefore": {
+            "sha256": "51f8f4accf7672ffb8b6514573e01e5eac920fbd1969ee9e461af4deca61d517",
+            "bytes": 101364,
+            "width": 1206,
+            "height": 2622
+          },
+          "screenshotAfter": {
+            "sha256": "fdc38ca399448b6ae9e0d7c8f0309b41c760493e050fad540d334e0c7c75fd9c",
+            "bytes": 100190,
+            "width": 1206,
+            "height": 2622
+          }
+        },
+        "coordinate_tap_state_cleanup": {
+          "passed": true,
+          "buttonLabelBefore": "Tap (3)",
+          "buttonLabelAfter": "Tap (4)",
+          "activeBundleBefore": "com.gstack.iosqa.fixture.gstack2",
+          "activeBundleAfter": "com.gstack.iosqa.fixture.gstack2",
+          "stateCleanup": "unchanged"
+        }
+      }
+    },
+    {
+      "iteration": 5,
+      "passed": true,
+      "checks": {
+        "health_bundle": {
+          "passed": true,
+          "bundleBefore": "com.gstack.iosqa.fixture.gstack2",
+          "bundleAfter": "com.gstack.iosqa.fixture.gstack2"
+        },
+        "token_rotation": {
+          "passed": true,
+          "originalBootTokenRejected": true
+        },
+        "session_acquire": {
+          "passed": true,
+          "sessionIdIssued": true,
+          "released": true
+        },
+        "screenshot_elements": {
+          "passed": true,
+          "elementCountBefore": 2,
+          "elementCountAfter": 2,
+          "screenshotBefore": {
+            "sha256": "a69d045e493ca32f15646deed3e59da2873841171cde618236c03483299c40f9",
+            "bytes": 100881,
+            "width": 1206,
+            "height": 2622
+          },
+          "screenshotAfter": {
+            "sha256": "025a192e2e542836141fb85ef350d22e30362df1fbd4ddd15bae35b86a7b6f59",
+            "bytes": 102183,
+            "width": 1206,
+            "height": 2622
+          }
+        },
+        "coordinate_tap_state_cleanup": {
+          "passed": true,
+          "buttonLabelBefore": "Tap (4)",
+          "buttonLabelAfter": "Tap (5)",
+          "activeBundleBefore": "com.gstack.iosqa.fixture.gstack2",
+          "activeBundleAfter": "com.gstack.iosqa.fixture.gstack2",
+          "stateCleanup": "unchanged"
+        }
+      }
+    }
+  ],
+  "cleanup": {
+    "sessionsReleased": true,
+    "tunnelKeepaliveStopped": true,
+    "temporaryWorkspaceRemoved": true
+  }
+}

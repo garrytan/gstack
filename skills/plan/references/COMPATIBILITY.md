@@ -57,6 +57,6 @@ This package is self-contained. Route every retired invocation to the exact repl
 | `/document-release` | `$ship --mode Prepare --module document-release` | install `ship` |
 | `/setup-deploy` | `$ship --mode Deploy --module setup-deploy` | install `ship` |
 | `/document-generate` | `$ship --mode Prepare --module document-generate` | install `ship` |
-| `/gstack-upgrade` | `$ship --mode Prepare --module gstack-upgrade` | `legacy/gstack-upgrade.md` |
+| `/gstack-upgrade` | `$ship --mode Prepare --module gstack-upgrade` | install `ship` |
 | `/ios-clean` | `$ship --mode Prepare --module ios-clean` | install `ship` |
 | `/ios-sync` | `$ship --mode Prepare --module ios-sync` | install `ship` |

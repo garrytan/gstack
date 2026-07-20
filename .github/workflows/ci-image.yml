@@ -1,4 +1,7 @@
 name: Build CI Image
+permissions:
+  contents: read
+
 on:
   # Rebuild weekly (Monday 6am UTC) to pick up CLI updates
   schedule:
@@ -20,18 +23,18 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       # Copy lockfile + package.json into Docker build context
       - run: cp package.json bun.lock .github/docker/
 
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .github/docker
           file: .github/docker/Dockerfile.ci

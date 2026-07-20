@@ -94,6 +94,20 @@ describe('physical-device harness invariants', () => {
     expect(classifyXcodebuildFailure('error: cannot find value in scope'))
       .toBe('build_failed');
   });
+
+  test('uses fresh HTTP connections for StateServer close responses', () => {
+    const harness = readFileSync(HARNESS_PATH, 'utf8');
+    expect(harness).toContain("connection: 'close'");
+  });
+
+  test('fixture exposes a public UIKit accessibility control to the in-process scanner', () => {
+    const app = readFileSync(
+      join(FIXTURE_PATH, 'Sources/FixtureApp/FixtureAppApp.swift'),
+      'utf8',
+    );
+    expect(app).toContain('struct FixtureButton: UIViewRepresentable');
+    expect(app).toContain('button.accessibilityIdentifier = "tap-button"');
+  });
 });
 describeIfDevice('ios physical-device path', () => {
   test('Xcode/CoreDevice setup gates pass for one selected wired iPhone', () => {

@@ -61,7 +61,8 @@ export async function main(argv = process.argv.slice(2), options = {}) {
   try {
     switch (command) {
       case "setup":
-        return await setupCommand({ args, home, cwd, stdout });
+      case "init":
+        return await initCommand({ args, home, cwd, stdout, legacyAlias: command === "setup" });
       case "doctor":
         return await doctorCommand({ args, home, cwd, stdout });
       case "paths":
@@ -73,7 +74,10 @@ export async function main(argv = process.argv.slice(2), options = {}) {
       case "state":
         return await stateCommand({ args, home, cwd, env, stdout, stderr });
       case "context":
-        return await contextCommand({ args, home, cwd, env, stdin, stdout, stderr });
+        return await contextCommand({
+          args, home, cwd, env, stdin, stdout, stderr,
+          clientFactory: options.contextClientFactory ?? ((clientOptions) => new ContextClient(clientOptions)),
+        });
       case "cleanup":
         return await cleanupCommand({ args, home, stdout });
       case "upgrade":
@@ -140,17 +144,18 @@ async function pathsCommand({ args, home, stdout }) {
   return 0;
 }
 
-async function setupCommand({ args, home, cwd, stdout }) {
+async function initCommand({ args, home, cwd, stdout, legacyAlias = false }) {
   rejectUnknown(args, []);
   const result = await setupRuntime({ home, cwd });
-  write(stdout, `gstack is ready\nhome: ${result.paths.home}\nproject: ${result.identity.projectId}\nnetwork: off\nContext.dev key setup: https://www.context.dev/auth.md\n`);
+  write(stdout, `${legacyAlias ? "Note: `gstack setup` initializes state only; use `gstack init` for this operation.\n" : ""}GStack state initialized\nhome: ${result.paths.home}\nproject: ${result.identity.projectId}\nnetwork: ${result.config.network.mode}\noptional runtime: unchanged (run \`gstack doctor\` for capability readiness)\n`);
   return 0;
 }
 
 async function doctorCommand({ args, home, cwd, stdout }) {
-  rejectUnknown(args, ["--json"]);
-  const report = await runDoctor({ home, cwd });
-  write(stdout, args.includes("--json") ? `${JSON.stringify(report, null, 2)}\n` : formatDoctor(report));
+  const parsed = parseFlags(args, new Set(["--json", "--skill-api"]));
+  if (parsed.positionals.length) throw cliError("Doctor accepts only named options", "USAGE");
+  const report = await runDoctor({ home, cwd, expectedSkillApi: parsed.values.get("--skill-api") });
+  write(stdout, parsed.flags.has("--json") ? `${JSON.stringify(report, null, 2)}\n` : formatDoctor(report));
   return report.ok ? 0 : 1;
 }
 
@@ -372,14 +377,14 @@ async function withOwnedRuntimeMutation(home, callback) {
   });
 }
 
-async function contextCommand({ args, home, cwd, env, stdin, stdout, stderr }) {
+async function contextCommand({ args, home, cwd, env, stdin, stdout, stderr, clientFactory }) {
   const [action, ...rest] = args;
   if (action === "status") {
     rejectUnknown(rest, ["--json"]);
     const status = await contextStatus(home, env);
     if (rest.includes("--json")) write(stdout, `${JSON.stringify(status, null, 2)}\n`);
     else {
-      write(stdout, `Context.dev: ${status.contextReady ? "ready" : "not ready"}\nkey: ${status.configured ? `configured (${status.keySource})` : "missing"}\nweb context: ${status.selection ?? "not selected"}\nconsent: ${status.consent ? "yes" : "no"}\n`);
+      write(stdout, `Context.dev: ${status.contextReady ? "ready" : "not ready"}\nkey: ${status.configured ? `configured (${status.keySource})` : "missing"}\nvalidation: ${status.validation}\nweb context: ${status.selection ?? "not selected"}\nconsent: ${status.consent ? "yes" : "no"}\n`);
     }
     return status.ready ? 0 : 1;
   }
@@ -407,7 +412,7 @@ async function contextCommand({ args, home, cwd, env, stdin, stdout, stderr }) {
     if (rest.some((arg) => /key|token|secret/i.test(arg) || /^ctxt_secret_/i.test(arg))) {
       throw cliError("API keys must be supplied through hidden stdin or CONTEXT_DEV_API_KEY, never argv", "KEY_ON_COMMAND_LINE");
     }
-    rejectUnknown(rest, ["--consent"]);
+    rejectUnknown(rest, ["--consent", "--offline"]);
     await setupRuntime({ home, cwd });
     let consent = rest.includes("--consent");
     if (!consent) {
@@ -430,6 +435,24 @@ async function contextCommand({ args, home, cwd, env, stdin, stdout, stderr }) {
         : (await readStream(stdin)).trim();
     }
     validateContextKey(key);
+    const offline = rest.includes("--offline");
+    let verification = { status: "unverified", checkedAt: null };
+    if (!offline) {
+      const client = clientFactory({
+        home,
+        env,
+        key,
+        config: {
+          network: { mode: "context", consent: true, selection: "context" },
+          context: { baseUrl: "https://api.context.dev/v1", validation: { status: "verified" } },
+        },
+      });
+      await client.scrapeMarkdown("https://www.context.dev", {
+        useMainContentOnly: true,
+        maxAgeMs: 86_400_000,
+      });
+      verification = { status: "verified", checkedAt: new Date().toISOString() };
+    }
     await withOwnedRuntimeMutation(home, async () => {
       await secretSet(home, "context.apiKey", key);
       await configSetNetworkChoice(home, {
@@ -437,14 +460,18 @@ async function contextCommand({ args, home, cwd, env, stdin, stdout, stderr }) {
         consent: true,
         selection: "context",
       });
+      await configSet(home, "context.validation", verification);
     });
-    write(stdout, "Context.dev configured. The key is stored privately; network mode is context.\nKey source: https://www.context.dev/auth.md\n");
+    write(stdout, offline
+      ? "Context.dev key saved but unverified. Provider operations remain blocked until `gstack context setup --consent` verifies it online.\n"
+      : "Context.dev configured and verified. The key is stored privately; network mode is context.\nKey source: https://www.context.dev/auth.md\n");
     return 0;
   }
   if (action === "smoke") {
     const parsed = parseFlags(rest, new Set(["--url", "--json"]));
+    if (parsed.positionals.length) throw cliError("Context smoke accepts only --url and --json", "USAGE");
     const url = parsed.values.get("--url") ?? "https://www.context.dev";
-    const client = new ContextClient({ home, env });
+    const client = clientFactory({ home, env });
     const response = await client.scrapeMarkdown(url, { useMainContentOnly: true, maxAgeMs: 86_400_000 });
     const result = {
       ok: true,
@@ -456,11 +483,55 @@ async function contextCommand({ args, home, cwd, env, stdin, stdout, stderr }) {
       `Context.dev smoke test passed for ${url}${result.creditsRemaining == null ? "" : ` (${result.creditsRemaining} credits remaining)`}\n`);
     return 0;
   }
-  throw cliError("Usage: gstack context status|options|select|setup|smoke", "USAGE");
+  if (["scrape-markdown", "scrape-html", "crawl", "sitemap", "screenshot"].includes(action)) {
+    return contextOperation({ action, args: rest, home, env, stdout, clientFactory });
+  }
+  throw cliError("Usage: gstack context status|options|select|setup|smoke|scrape-markdown|scrape-html|crawl|sitemap|screenshot", "USAGE");
+}
+
+async function contextOperation({ action, args, home, env, stdout, clientFactory }) {
+  const parsed = parseFlags(args, new Set([
+    "--json", "--main-content", "--full-page", "--max-pages", "--max-depth", "--max-links",
+  ]));
+  const target = parsed.positionals?.[0];
+  if (!target || parsed.positionals.length !== 1) {
+    throw cliError(`Usage: gstack context ${action} <public-url-or-domain> [options]`, "USAGE");
+  }
+  const client = clientFactory({ home, env });
+  let response;
+  if (action === "scrape-markdown") {
+    response = await client.scrapeMarkdown(target, { useMainContentOnly: parsed.flags.has("--main-content") });
+  } else if (action === "scrape-html") {
+    response = await client.scrapeHtml(target, { useMainContentOnly: parsed.flags.has("--main-content") });
+  } else if (action === "crawl") {
+    response = await client.crawl(target, numericContextOptions(parsed.values, [["--max-pages", "maxPages"], ["--max-depth", "maxDepth"]]));
+  } else if (action === "sitemap") {
+    response = await client.sitemap(target, numericContextOptions(parsed.values, [["--max-links", "maxLinks"]]));
+  } else {
+    response = await client.screenshot(target, { fullScreenshot: parsed.flags.has("--full-page") });
+  }
+  if (parsed.flags.has("--json")) write(stdout, `${JSON.stringify(response, null, 2)}\n`);
+  else {
+    const preferred = action === "scrape-markdown" ? response.markdown : action === "scrape-html" ? response.html : null;
+    write(stdout, typeof preferred === "string" ? `${preferred}\n` : `${JSON.stringify(response, null, 2)}\n`);
+  }
+  return 0;
+}
+
+function numericContextOptions(values, mappings) {
+  const result = {};
+  for (const [flag, key] of mappings) {
+    if (!values.has(flag)) continue;
+    const value = Number(values.get(flag));
+    if (!Number.isSafeInteger(value) || value < 1) throw cliError(`${flag} must be a positive integer`, "USAGE");
+    result[key] = value;
+  }
+  return result;
 }
 
 async function cleanupCommand({ args, home, stdout }) {
   const parsed = parseFlags(args, new Set(["--dry-run", "--older-than-hours", "--json"]));
+  if (parsed.positionals.length) throw cliError("Cleanup accepts only named options", "USAGE");
   const hoursRaw = parsed.values.get("--older-than-hours");
   const hours = hoursRaw == null ? 24 : Number(hoursRaw);
   if (!Number.isFinite(hours) || hours < 0) throw cliError("--older-than-hours must be a non-negative number", "USAGE");
@@ -475,6 +546,7 @@ async function cleanupCommand({ args, home, stdout }) {
 
 async function upgradeCommand({ args, home, stdout, installOptions = {} }) {
   const parsed = parseFlags(args, new Set(["--source", "--version", "--rollback", "--json"]));
+  if (parsed.positionals.length) throw cliError("Upgrade accepts only named options", "USAGE");
   if (parsed.flags.has("--rollback")) {
     if (parsed.values.has("--source") || parsed.values.has("--version")) throw cliError("--rollback cannot be combined with staging options", "USAGE");
     const pointer = await rollbackUpgrade(home);
@@ -550,16 +622,21 @@ function parseModuleList(value) {
 function parseFlags(args, allowed) {
   const flags = new Set();
   const values = new Map();
+  const positionals = [];
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
+    if (!arg.startsWith("--")) {
+      positionals.push(arg);
+      continue;
+    }
     if (!allowed.has(arg)) throw cliError(`Unknown option: ${arg}`, "USAGE");
-    if (["--source", "--version", "--url", "--older-than-hours"].includes(arg)) {
+    if (["--source", "--version", "--url", "--older-than-hours", "--max-pages", "--max-depth", "--max-links", "--skill-api"].includes(arg)) {
       const value = args[++index];
       if (value == null || value.startsWith("--")) throw cliError(`${arg} requires a value`, "USAGE");
       values.set(arg, value);
     } else flags.add(arg);
   }
-  return { flags, values };
+  return { flags, values, positionals };
 }
 
 function rejectUnknown(args, allowed) {
@@ -628,8 +705,9 @@ function exitCodeFor(error) {
 function usage() {
   return `gstack ${RUNTIME_VERSION}\n\n` +
     "Usage:\n" +
-    "  gstack setup\n" +
-    "  gstack doctor [--json]\n" +
+    "  gstack init                         # initialize state only\n" +
+    "  gstack setup                        # compatibility alias for init\n" +
+    "  gstack doctor [--skill-api <version>] [--json]\n" +
     "  gstack paths [--json|--shell]\n" +
     "  gstack runtime path <bundle-relative-path>\n" +
     "  gstack config get [key]\n" +
@@ -649,6 +727,10 @@ function usage() {
     "  gstack context select host|local-browser|none\n" +
     "  gstack context setup [--consent]   # key from hidden stdin or env\n" +
     "  gstack context smoke [--url <public-url>]\n" +
+    "  gstack context scrape-markdown|scrape-html <public-url> [--main-content] [--json]\n" +
+    "  gstack context crawl <public-url> [--max-pages N] [--max-depth N] [--json]\n" +
+    "  gstack context sitemap <public-domain> [--max-links N] [--json]\n" +
+    "  gstack context screenshot <public-url-or-domain> [--full-page] [--json]\n" +
     "  gstack cleanup [--dry-run] [--older-than-hours N]\n" +
     "  gstack upgrade --source <complete-gstack-package> --version <version> | --rollback\n" +
     "  gstack uninstall [--purge --yes]\n";

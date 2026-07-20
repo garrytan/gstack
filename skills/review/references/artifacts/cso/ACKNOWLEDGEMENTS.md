@@ -1,6 +1,6 @@
 # Acknowledgements
 
-/cso v2 was informed by research across the security audit landscape. Credits to:
+$review --mode Security --module cso v2 was informed by research across the security audit landscape. Credits to:
 
 - **[Sentry Security Review](https://github.com/getsentry/skills)** — The confidence-based reporting system (only HIGH confidence findings get reported) and the "research before reporting" methodology (trace data flow, check upstream validation) validated our 8/10 daily confidence gate. TimOnWeb rated it the only security skill worth installing out of 5 tested.
 - **[Trail of Bits Skills](https://github.com/trailofbits/skills)** — The audit-context-building methodology (build a mental model before hunting bugs) directly inspired Phase 0. Their variant analysis concept (found one vuln? Search the whole codebase for the same pattern) inspired Phase 12's variant analysis step.

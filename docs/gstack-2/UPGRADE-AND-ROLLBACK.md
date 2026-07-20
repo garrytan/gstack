@@ -6,17 +6,27 @@ remains Markdown-only; runtime dependencies are never smuggled into that path.
 
 ## Skill updates
 
-Install and update the canonical Agent Skills source with the same standard
-installer that placed it:
+Install the canonical Agent Skills source, then use that installer's tracked
+source and lock metadata for discovery, updates, and removal:
 
 ```bash
 npx skills add time-attack/gstack
+npx skills update              # interactive scope
+npx skills update -p           # project installs only
+npx skills update -g           # global installs only
+npx skills remove              # interactive removal
 ```
 
 Use that installer's update/remove commands and scope. It owns project/global
 placement, host destination paths, and selected-skill choices. GStack must not
 re-detect hosts during an update or enroll a host/skill the user did not
 previously select.
+
+The current installer exposes update rather than a separate dry-run/check
+command. GStack skill preambles do not phone GitHub for releases. The retained
+`gstack-update-check --force` path exists only for an explicitly requested 1.x
+compatibility check; it is never run passively by GStack 2. Optional runtime
+activation remains the separate reviewed-source transaction documented below.
 
 Before accepting an update, list the source and confirm that the defaults are
 still exactly `plan`, `design`, `qa`, `debug`, `review`, and `ship`. Pure

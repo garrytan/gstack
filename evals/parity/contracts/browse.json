@@ -9,7 +9,7 @@
   "source_path": "browse/SKILL.md.tmpl",
   "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
   "blob_sha": "9a159e4c9820172c229e2174d4a62a8f9668ab93",
-  "normalized_render_sha256": "9d5a75a6e20d40bf2d275ca39375899bb6c51abd4e8ce1042e8db4450e891196",
+  "normalized_render_sha256": "b7fd526a00444003cad654abb15c2d17606cc5295f38533754e95108038d3467",
   "target": "skills/qa/references/legacy/browse.md",
   "overlays": [
     679,

@@ -46,7 +46,7 @@ describe("Context.dev privacy and failure contract", () => {
     const home = path.join(root, "state");
     const stream = { write: (_value: string) => {} };
     try {
-      expect(await main(["context", "setup", "--consent"], {
+      expect(await main(["context", "setup", "--consent", "--offline"], {
         env: { GSTACK_HOME: home, CONTEXT_DEV_API_KEY: "future-format-12345" },
         cwd: root,
         stdout: stream,
@@ -54,7 +54,62 @@ describe("Context.dev privacy and failure contract", () => {
       })).toBe(0);
       expect(await loadConfig(home)).toMatchObject({
         network: { mode: "context", consent: true, selection: "context" },
+        context: { validation: { status: "unverified", checkedAt: null } },
       });
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("Context setup becomes ready only after provider validation succeeds", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "gstack-context-verified-"));
+    const home = path.join(root, "state");
+    const stream = { write: (_value: string) => {} };
+    let validated = 0;
+    try {
+      expect(await main(["context", "setup", "--consent"], {
+        env: { GSTACK_HOME: home, CONTEXT_DEV_API_KEY: "future-format-12345" },
+        cwd: root,
+        stdout: stream,
+        stderr: stream,
+        contextClientFactory: () => ({
+          scrapeMarkdown: async () => { validated += 1; return { success: true }; },
+        }),
+      })).toBe(0);
+      expect(validated).toBe(1);
+      expect(await loadConfig(home)).toMatchObject({
+        network: { mode: "context", consent: true, selection: "context" },
+        context: { validation: { status: "verified" } },
+      });
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("CLI exposes only the allowlisted public Context.dev operations", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "gstack-context-cli-"));
+    const home = path.join(root, "state");
+    let output = "";
+    const stream = { write: (value: string) => { output += value; } };
+    const calls: Array<[string, unknown, unknown]> = [];
+    const client = {
+      scrapeMarkdown: async (target: string, options: unknown) => { calls.push(["markdown", target, options]); return { markdown: "hello" }; },
+      scrapeHtml: async (target: string, options: unknown) => { calls.push(["html", target, options]); return { html: "<p>hello</p>" }; },
+      crawl: async (target: string, options: unknown) => { calls.push(["crawl", target, options]); return { pages: [] }; },
+      sitemap: async (target: string, options: unknown) => { calls.push(["sitemap", target, options]); return { links: [] }; },
+      screenshot: async (target: string, options: unknown) => { calls.push(["screenshot", target, options]); return { image: "omitted" }; },
+    };
+    const common = {
+      env: { GSTACK_HOME: home }, cwd: root, stdout: stream, stderr: stream,
+      contextClientFactory: () => client,
+    };
+    try {
+      expect(await main(["context", "scrape-markdown", "https://example.com", "--main-content"], common)).toBe(0);
+      expect(output).toBe("hello\n");
+      output = "";
+      expect(await main(["context", "crawl", "https://example.com", "--max-pages", "2", "--max-depth", "1", "--json"], common)).toBe(0);
+      expect(calls).toContainEqual(["crawl", "https://example.com", { maxPages: 2, maxDepth: 1 }]);
+      expect(await main(["context", "sitemap", "example.com", "--max-links", "0"], common)).toBe(2);
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }

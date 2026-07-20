@@ -9,7 +9,7 @@
   "source_path": "SKILL.md.tmpl",
   "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
   "blob_sha": "402bd0d7b0f2bf02f6c9e4754e0e2a655f5f4057",
-  "normalized_render_sha256": "8e28cf7aa8c1c858ffaa4936d05a66bd4522bd6c6438be719f569b01c5afbcd8",
+  "normalized_render_sha256": "daa2b069d1945c1e1bf8eef23417899b4eacb98087f6c146c0b726eb21fd2776",
   "target": "skills/plan/references/legacy/gstack.md",
   "overlays": [
     679

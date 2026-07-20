@@ -162,6 +162,14 @@ activates the version, and writes stable POSIX and Windows launchers under
 Windows and includes the CoreDevice/iOS bundle only on Darwin. Add the bin
 directory to `PATH` if the short `gstack` command is desired.
 
+Official bundles capture the pinned Bun 1.3.14 executable inside the immutable
+runtime and expose it as `$GSTACK_HOME/bin/bun`; browser/design/PDF launchers do
+not use host-global Bun. Node remains the bootstrap/launcher floor. On Windows,
+Git for Windows Bash is required only for retained shell helpers and is a
+separate doctor check. Python 3 is an optional prerequisite only for specialist
+flows that name it. Doctor reports both tools independently of native
+browser/design/PDF readiness.
+
 Twenty-five focused installer tests pass with 341 assertions. They cover
 manifests, paths with spaces,
 source-root symlinks, internal-link/path-escape rejection, failed build/
@@ -181,9 +189,9 @@ nor model weights and reports the L4 capability unavailable.
 
 | Platform | Source-level target | Candidate evidence |
 |---|---|---|
-| macOS | Node runtime + local browser + physical iOS where applicable | Runtime installer 25/341 and the deterministic clean macOS arm64 bundle audit pass. The final native job passed 150/0 with 1,189 assertions. The uninterrupted broad singleton run is green at 6,255 pass / 226 expected skips / 0 fail and 25,509 assertions across 384 files. The signed-device gate is open but user-waived; no further device access is authorized. |
-| Linux | Node runtime + local browser | Final native Ubuntu passed 150/0 with 1,189 assertions across 16 files. A clean Linux arm64 container also passed the production-only runtime/browser lifecycle. |
-| Native Windows | Node runtime; curated free tests; browser fallback where retained | Final native Windows passed 150/0 with 1,145 assertions across 16 files and standard-installer discovery found exactly six skills. The local Windows-safe singleton lane also passed 2,829 / 57 expected skips / 0 fail with 8,648 assertions across all 214 selected files. |
+| macOS | Node runtime + local browser + physical iOS where applicable | Runtime installer 25/341 and the deterministic clean macOS arm64 bundle audit pass. The final native job passed 150/0 with 1,189 assertions. The uninterrupted broad singleton run is green at 6,255 pass / 226 expected skips / 0 fail and 25,509 assertions across 384 files. The physical lane later passed 12/12 harness checks and five-of-five live iterations on an explicitly authorized wired paired `iPhone17,1`; this is device-specific evidence, not universal iOS coverage. Artifact: [`ios-physical-device-2026-07-20T17-49-19-302Z.json`](./evidence/ios-physical-device-2026-07-20T17-49-19-302Z.json). |
+| Linux | Node runtime + local browser | Official release artifacts currently target glibc on x64 and arm64; musl is rejected before network and is not claimed. Final native Ubuntu passed 150/0 with 1,189 assertions across 16 files. A clean glibc Linux arm64 container also passed the production-only runtime/browser lifecycle. |
+| Native Windows | Node bootstrap/launcher; managed Bun; native browser/design/PDF. Git for Windows Bash only for retained shell helpers; Python 3 only for labeled specialist flows. | Doctor verifies and discloses Bun, Bash, and Python separately. Final native Windows passed 150/0 with 1,145 assertions across 16 files and standard-installer discovery found exactly six skills. The local Windows-safe singleton lane also passed 2,829 / 57 expected skips / 0 fail with 8,648 assertions across all 214 selected files. The older run predates the managed-Bun release artifact, so the new six-target release workflow remains the evidence gate for that layer. |
 | Dev Container | Pure skills and optional runtime; browser only when container supports it | The declared image built; the GStack 2 suite passed 150/0 with 1,188 assertions across 16 files, followed by the clean runtime install/browser smoke and state-preserving uninstall. |
 
 Native CI run [`29615621805`](https://github.com/time-attack/gstack/actions/runs/29615621805)

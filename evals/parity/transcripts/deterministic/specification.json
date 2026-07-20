@@ -58,21 +58,21 @@
         }
       },
       "mechanical_port": {
-        "rendered_sha256": "1693c430139d43e80d2981d95a61dc9d3674435690d5d838f4ca92f4d592694a",
+        "rendered_sha256": "059ec7a95791f6fc559f4e2321d7340ef5ae7e4ba89949df401f74d91411bfd3",
         "differs_from_baseline": true,
-        "allowed_difference": "Package-local skill, section, support-artifact, and stable runtime path relocation only."
+        "allowed_difference": "Canonical GStack 2 carve: exclude the retired shared onboarding wrapper and host hook advisory; resolve retired invocations to six public routes; relocate host/runtime paths; lazy-load pinned carved sections from package-local references."
       },
       "candidate": {
         "target_path": "skills/plan/references/legacy/spec.md",
-        "rendered_legacy_body_sha256": "1693c430139d43e80d2981d95a61dc9d3674435690d5d838f4ca92f4d592694a",
+        "rendered_legacy_body_sha256": "059ec7a95791f6fc559f4e2321d7340ef5ae7e4ba89949df401f74d91411bfd3",
         "semantic_signature": {
-          "normalized_sha256": "1693c430139d43e80d2981d95a61dc9d3674435690d5d838f4ca92f4d592694a",
-          "headings_sha256": "5d9a342b2cbefecc34b83f9c7fe5f5e65a1905cab08f1862bb390f71a9fa5f3d",
-          "questions_sha256": "7172d84e358157f2a1bcdb7c26f3c72e2081a025b0da0768e45547a6ed814ef8",
-          "obligations_sha256": "8833c6a70bdade52727c4d115f4c360071cd3a151172b72c32802c3463c1a6ba",
-          "heading_count": 93,
-          "question_count": 11,
-          "obligation_count": 164
+          "normalized_sha256": "059ec7a95791f6fc559f4e2321d7340ef5ae7e4ba89949df401f74d91411bfd3",
+          "headings_sha256": "339ccc4b1c0d870b7c696ef28b1116ee22742a81d7b8713040a2766a3e36c3c3",
+          "questions_sha256": "d98a7e322b838c543487c19d59332501a4393513b5f1a58b2ba4ac6cf911aa67",
+          "obligations_sha256": "7f6a3078d1b84288b26cf37943d7a036d8f7a50d7a1dcea6aefe96c297662a6b",
+          "heading_count": 42,
+          "question_count": 5,
+          "obligation_count": 55
         }
       },
       "deterministic_comparison": {
@@ -95,27 +95,27 @@
   "semantic_dimensions": {
     "questions": {
       "classification": "EQUIVALENT",
-      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+      "evidence": "The candidate exactly matches the deterministic canonical specialist render of the pinned workflow. The retired shared onboarding wrapper is excluded and carved specialist phases are package-local lazy references; specialist questions, pressure, gates, evidence, artifacts, mutation boundaries, exit behavior, and voice remain governed by their source contracts."
     },
     "question_order": {
       "classification": "EQUIVALENT",
-      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+      "evidence": "The candidate exactly matches the deterministic canonical specialist render of the pinned workflow. The retired shared onboarding wrapper is excluded and carved specialist phases are package-local lazy references; specialist questions, pressure, gates, evidence, artifacts, mutation boundaries, exit behavior, and voice remain governed by their source contracts."
     },
     "follow_up_pressure": {
       "classification": "EQUIVALENT",
-      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+      "evidence": "The candidate exactly matches the deterministic canonical specialist render of the pinned workflow. The retired shared onboarding wrapper is excluded and carved specialist phases are package-local lazy references; specialist questions, pressure, gates, evidence, artifacts, mutation boundaries, exit behavior, and voice remain governed by their source contracts."
     },
     "smart_skips": {
       "classification": "EQUIVALENT",
-      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+      "evidence": "The candidate exactly matches the deterministic canonical specialist render of the pinned workflow. The retired shared onboarding wrapper is excluded and carved specialist phases are package-local lazy references; specialist questions, pressure, gates, evidence, artifacts, mutation boundaries, exit behavior, and voice remain governed by their source contracts."
     },
     "pushback_strength": {
       "classification": "EQUIVALENT",
-      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+      "evidence": "The candidate exactly matches the deterministic canonical specialist render of the pinned workflow. The retired shared onboarding wrapper is excluded and carved specialist phases are package-local lazy references; specialist questions, pressure, gates, evidence, artifacts, mutation boundaries, exit behavior, and voice remain governed by their source contracts."
     },
     "scope_recommendation": {
       "classification": "EQUIVALENT",
-      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+      "evidence": "The candidate exactly matches the deterministic canonical specialist render of the pinned workflow. The retired shared onboarding wrapper is excluded and carved specialist phases are package-local lazy references; specialist questions, pressure, gates, evidence, artifacts, mutation boundaries, exit behavior, and voice remain governed by their source contracts."
     },
     "active_reasoning_modules": {
       "classification": "EQUIVALENT",
@@ -123,35 +123,35 @@
     },
     "findings": {
       "classification": "EQUIVALENT",
-      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+      "evidence": "The candidate exactly matches the deterministic canonical specialist render of the pinned workflow. The retired shared onboarding wrapper is excluded and carved specialist phases are package-local lazy references; specialist questions, pressure, gates, evidence, artifacts, mutation boundaries, exit behavior, and voice remain governed by their source contracts."
     },
     "evidence": {
       "classification": "EQUIVALENT",
-      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+      "evidence": "The candidate exactly matches the deterministic canonical specialist render of the pinned workflow. The retired shared onboarding wrapper is excluded and carved specialist phases are package-local lazy references; specialist questions, pressure, gates, evidence, artifacts, mutation boundaries, exit behavior, and voice remain governed by their source contracts."
     },
     "artifacts": {
       "classification": "EQUIVALENT",
-      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+      "evidence": "The candidate exactly matches the deterministic canonical specialist render of the pinned workflow. The retired shared onboarding wrapper is excluded and carved specialist phases are package-local lazy references; specialist questions, pressure, gates, evidence, artifacts, mutation boundaries, exit behavior, and voice remain governed by their source contracts."
     },
     "approval_gates": {
       "classification": "EQUIVALENT",
-      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+      "evidence": "The candidate exactly matches the deterministic canonical specialist render of the pinned workflow. The retired shared onboarding wrapper is excluded and carved specialist phases are package-local lazy references; specialist questions, pressure, gates, evidence, artifacts, mutation boundaries, exit behavior, and voice remain governed by their source contracts."
     },
     "mutation_behavior": {
       "classification": "EQUIVALENT",
-      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+      "evidence": "The candidate exactly matches the deterministic canonical specialist render of the pinned workflow. The retired shared onboarding wrapper is excluded and carved specialist phases are package-local lazy references; specialist questions, pressure, gates, evidence, artifacts, mutation boundaries, exit behavior, and voice remain governed by their source contracts."
     },
     "completion_status": {
       "classification": "EQUIVALENT",
-      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+      "evidence": "The candidate exactly matches the deterministic canonical specialist render of the pinned workflow. The retired shared onboarding wrapper is excluded and carved specialist phases are package-local lazy references; specialist questions, pressure, gates, evidence, artifacts, mutation boundaries, exit behavior, and voice remain governed by their source contracts."
     },
     "recommended_next_action": {
       "classification": "EQUIVALENT",
-      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+      "evidence": "The candidate exactly matches the deterministic canonical specialist render of the pinned workflow. The retired shared onboarding wrapper is excluded and carved specialist phases are package-local lazy references; specialist questions, pressure, gates, evidence, artifacts, mutation boundaries, exit behavior, and voice remain governed by their source contracts."
     },
     "voice": {
       "classification": "EQUIVALENT",
-      "evidence": "The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle."
+      "evidence": "The candidate exactly matches the deterministic canonical specialist render of the pinned workflow. The retired shared onboarding wrapper is excluded and carved specialist phases are package-local lazy references; specialist questions, pressure, gates, evidence, artifacts, mutation boundaries, exit behavior, and voice remain governed by their source contracts."
     }
   },
   "verdict": "PASS"

@@ -145,8 +145,8 @@ export function resolveBrowseBin(env: NodeJS.ProcessEnv = process.env): string {
       `  - global: ${globalPath}`,
       "  - PATH: `browse`",
       "",
-      "To fix: run gstack setup from the gstack repo:",
-      "  cd ~/.claude/skills/gstack && ./setup",
+      "Run `gstack doctor --skill-api 2.0` to inspect readiness.",
+      "If browser is uninstalled, explicitly approve the current skill's runtime bootstrap for `--capability pdf`; PDF also selects browser and diagram.",
       "",
       "Or set GSTACK_BROWSE_BIN explicitly:",
       process.platform === "win32"

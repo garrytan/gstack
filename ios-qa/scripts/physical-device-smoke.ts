@@ -1083,7 +1083,15 @@ async function deviceRequest(
 ): Promise<ApiResponse> {
   const host = tunnel.ipv6Addr.includes(':') ? `[${tunnel.ipv6Addr}]` : tunnel.ipv6Addr;
   const token = options.token === undefined ? tunnel.bootTokenRotated : options.token;
-  const headers: Record<string, string> = { 'content-type': 'application/json' };
+  // StateServer intentionally closes every response. Bun's fetch pool can
+  // otherwise race to reuse that just-closed CoreDevice IPv6 socket: the first
+  // two requests succeed and the next request fails with "socket connection
+  // was closed unexpectedly". Mark each request non-persistent so every live
+  // check gets a fresh tunnel connection, matching the server contract.
+  const headers: Record<string, string> = {
+    'content-type': 'application/json',
+    connection: 'close',
+  };
   if (token) headers.authorization = `Bearer ${token}`;
   if (options.sessionId) headers['x-session-id'] = options.sessionId;
   if (options.expectedBundle) headers['x-gstack-expected-bundle-id'] = options.expectedBundle;
@@ -1195,6 +1203,7 @@ function findTapButton(elements: FixtureElement[]): FixtureElement {
       'elements',
       'The live accessibility tree does not contain the fixture tap button',
       ['Keep FixtureApp foregrounded and inspect /elements for tap-button.'],
+      JSON.stringify(elements.slice(0, 20)),
     );
   }
   return button;

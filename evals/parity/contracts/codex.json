@@ -9,7 +9,7 @@
   "source_path": "codex/SKILL.md.tmpl",
   "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
   "blob_sha": "333de7d8d590cc78184b0e2371171f6121408f73",
-  "normalized_render_sha256": "5621d3e33242350806eb3489b5c933c5ebaa5105f250e941c4205962c447b28d",
+  "normalized_render_sha256": "0df6ff685d230f87763b4c43f957e20854fe1319d78247d683e5250e2accb188",
   "target": "skills/review/references/legacy/codex.md",
   "overlays": [
     679

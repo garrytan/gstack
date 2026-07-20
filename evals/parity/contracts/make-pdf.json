@@ -9,7 +9,7 @@
   "source_path": "make-pdf/SKILL.md.tmpl",
   "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
   "blob_sha": "9133a711d4f3d056a21f790e8ec3b98f13fbaa50",
-  "normalized_render_sha256": "7901a455bf36750224e05468d0123c32e8b9bc98c7334fb0973228bdbba80997",
+  "normalized_render_sha256": "c092bc644ff9b8929d9cbdfedb6f2761b40ce8e1fca53d13ad350ba91195104d",
   "target": "skills/design/references/legacy/make-pdf.md",
   "overlays": [
     679

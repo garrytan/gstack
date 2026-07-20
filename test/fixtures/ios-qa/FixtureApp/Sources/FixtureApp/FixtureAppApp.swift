@@ -10,6 +10,10 @@
 
 import SwiftUI
 
+#if canImport(UIKit)
+import UIKit
+#endif
+
 #if DEBUG
 import DebugBridgeCore
 #endif
@@ -48,13 +52,47 @@ struct ContentView: View {
             Text("StateServer should be on :9999")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
-            Button("Tap (\(counter))") {
-                counter += 1
-            }
-            .buttonStyle(.borderedProminent)
-            .accessibilityIdentifier("tap-button")
+            #if canImport(UIKit)
+            FixtureButton(counter: $counter)
+                .frame(minWidth: 120, minHeight: 44)
+            #else
+            Button("Tap (\(counter))") { counter += 1 }
+                .accessibilityIdentifier("tap-button")
+            #endif
         }
         .padding()
         .accessibilityIdentifier("fixture-content")
     }
 }
+
+#if canImport(UIKit)
+/// A real UIKit control inside the SwiftUI fixture. The DebugBridge scanner is
+/// intentionally in-process (not XCTest's private accessibility daemon), so a
+/// UIViewRepresentable gives the physical-device lane a public, enumerable
+/// accessibility element while still exercising SwiftUI state updates.
+struct FixtureButton: UIViewRepresentable {
+    @Binding var counter: Int
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeUIView(context: Context) -> UIButton {
+        let button = UIButton(type: .system)
+        button.configuration = .borderedProminent()
+        button.accessibilityIdentifier = "tap-button"
+        button.addTarget(context.coordinator, action: #selector(Coordinator.tap), for: .touchUpInside)
+        return button
+    }
+
+    func updateUIView(_ button: UIButton, context: Context) {
+        context.coordinator.parent = self
+        button.setTitle("Tap (\(counter))", for: .normal)
+        button.accessibilityLabel = "Tap (\(counter))"
+    }
+
+    final class Coordinator: NSObject {
+        var parent: FixtureButton
+        init(_ parent: FixtureButton) { self.parent = parent }
+        @objc func tap() { parent.counter += 1 }
+    }
+}
+#endif

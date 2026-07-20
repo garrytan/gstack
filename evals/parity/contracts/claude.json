@@ -9,7 +9,7 @@
   "source_path": "claude/SKILL.md.tmpl",
   "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
   "blob_sha": "94552cbe4efebc908f70f03880e584879db80aca",
-  "normalized_render_sha256": "f8b5964bf630d0716ad5cfd729f6d4e62bb89d4eab64a210090fb0e875f0b59d",
+  "normalized_render_sha256": "e0257ec3df4432da9b0fb10e6af66da8ed15548a3fae987778fc14a6747f4b30",
   "target": "skills/review/references/legacy/claude.md",
   "overlays": [
     679

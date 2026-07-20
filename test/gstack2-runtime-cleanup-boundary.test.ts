@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { hostname } from "node:os";
 import {
   acquireLock,
   cleanupRuntime,
@@ -33,6 +34,22 @@ afterEach(async () => {
 });
 
 describe("runtime cleanup boundary", () => {
+  test("immediately reclaims a same-host lock whose owner PID is dead", async () => {
+    const home = await temporaryHome();
+    const lockPath = runtimeLifecycleLockPath(home);
+    await fs.mkdir(lockPath, { mode: 0o700 });
+    await fs.writeFile(path.join(lockPath, "owner.json"), JSON.stringify({
+      token: "dead-owner",
+      pid: 2_147_483_647,
+      hostname: hostname(),
+      createdAt: new Date().toISOString(),
+    }));
+    const started = Date.now();
+    const release = await acquireLock(lockPath, { staleMs: 60 * 60 * 1000, timeoutMs: 1_000 });
+    expect(Date.now() - started).toBeLessThan(1_000);
+    await release();
+  });
+
   test("retries transient Windows lock creation and rename races", async () => {
     const home = await temporaryHome();
     const lockPath = path.join(home, "locks", "windows-race.lock");

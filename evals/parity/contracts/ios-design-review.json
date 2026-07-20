@@ -9,7 +9,7 @@
   "source_path": "ios-design-review/SKILL.md.tmpl",
   "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
   "blob_sha": "dd9e2518f53edf939a1e425806abc871a9b33022",
-  "normalized_render_sha256": "38bb6ba7876611f5ae63566820f67a48f9b1797c33d000c866540a4e6f766d50",
+  "normalized_render_sha256": "53741f7f044faa413f1725bada27514d2528d834f327e83f040de67668d24dae",
   "target": "skills/design/references/legacy/ios-design-review.md",
   "overlays": [
     679

@@ -1,6 +1,6 @@
 # GStack 2.0 test evidence
 
-## Candidate checkpoint — 2026-07-17
+## Candidate checkpoint — 2026-07-20
 
 These results describe the working tree at the documentation checkpoint. They
 are deliberately narrower than the P0 release matrix. Commands that need a
@@ -10,7 +10,7 @@ pass from deterministic, offline, or filesystem-only evidence.
 | Command / probe | Observed result | What it proves / does not prove |
 |---|---|---|
 | Earlier focused macOS `bun test test/gstack2-*.test.ts` candidate run | **Exit 0: 136 pass / 0 fail**, 1,128 assertions across 15 files. Log: `/tmp/gstack2-test-command-candidate-final2.log`. | Historical focused checkpoint retained rather than overwritten. |
-| Current macOS `bun run test:gstack2`, commit `a8a5fa1a` | **Exit 0: 150 pass / 0 fail**, 1,189 assertions across 16 files. | Current generated freshness, routing, runtime, privacy, installer, upgrade, parity, and adversarial-harness surface is green. Native and broad evidence are recorded separately. |
+| Current macOS `bun run test:gstack2` | **Exit 0: 151 pass / 0 fail**, 1,194 assertions across 16 files. | Current generated freshness, routing, runtime, privacy, installer, upgrade, parity, and adversarial-harness surface is green. Native and broad evidence are recorded separately; this working-tree result is not attributed to the earlier native-CI commit. |
 | `bun test --timeout 30000 test/gstack2-skills.test.ts test/gstack2-skills-routing.test.ts` after regeneration | **Exit 0: 3 pass / 0 fail**, 81 assertions. | The pinned corpus/parity test and both 25-scenario structured-routing tests are green. This remains structural/fixture evidence, not specialist live execution. |
 | `bun run scripts/gstack2/run-parity.ts`, 2026-07-17 rerun | **Exit 0: 4,681 checks passed**; 55 modules, 16 sections, 25 scenarios, 16 regressions, 78 assets. | Current source/render/provenance/contract/asset/fixture parity is green. It is deterministic parity, not live-host behavior. |
 | Earlier regenerated structural parity checkpoint | **Exit 0: 2,403 checks passed** with the then-current 55/16/25/16/45 inventory. | Historical candidate checkpoint before later thin-prelude and asset coverage; superseded by the current 4,681-check rerun. |
@@ -24,8 +24,8 @@ pass from deterministic, offline, or filesystem-only evidence.
 | Six-skill catalog measurement after regeneration | Six names/descriptions total 982 characters, about 246 four-character token-equivalents; baseline correctly parsed catalog was about 1,100. | 77.6% reduction, above the 75% gate. Re-measure if frontmatter changes. The buggy 4,214 baseline estimate is not used. |
 | `bun test ios-qa/daemon/test` | **95 pass / 0 fail**, 229 assertions. | Covers daemon regressions including malformed device JSON, hardware-UDID/CoreDevice selection, bounded proxy timeout, and expected-bundle mutation header. It is not a signed-app live pass. |
 | Focused DebugBridge/template build tests | **33 pass / 0 fail** in the candidate run, including Swift debug compilation/XCTest and Release symbol absence. | Static/build evidence for debug-only bridge wiring; still not an installed physical-app journey. |
-| Physical-iOS E2E preflight | **9 pass / 0 fail / 1 deploy check skipped**, 29 assertions. | The earlier connected-device/setup and unsigned Release checks pass. The deploy skip leaves the signed-device P0 gate open. |
-| Direct physical-device smoke | **Incomplete, not a pass:** one target returned `signing_unavailable`; the legacy iPhone10,6 target returned `device_not_wired` / CoreDevice error 1011; the subsequently authorized CoreDevice-compatible phone passed pairing, signing, build, install, launch, and tunnel setup but `POST /session/acquire` closed its socket before the five-check loop completed. | The harness process was stopped at the user's request. At harness stop, the signed fixture was left installed with data intact and no device session remained attached. These are retained operator observations; no pass artifact was written. Further iPhone testing is waived and unauthorized for this checkpoint. |
+| Earlier physical-iOS setup attempts | **Incomplete, not passes:** the preflight recorded 9 pass / 0 fail / 1 deploy check skipped and 29 assertions; one target returned `signing_unavailable`; the legacy iPhone10,6 target returned `device_not_wired` / CoreDevice error 1011; a later authorized phone reached tunnel setup but its first session-acquire socket closed. | Immutable historical setup/partial evidence. The later pass does not erase or relabel these attempts. |
+| Physical-device smoke, 2026-07-20 | **PASS:** 12/12 harness checks and all five required live iterations. Release symbols were absent; signing, safe in-place install, launch, CoreDevice bootstrap, boot-token rotation, five session acquire/release cycles, ten screenshots, accessibility reads, coordinate taps, bundle checks, state cleanup, tunnel shutdown, and temporary-workspace cleanup passed. | Closes the physical-iPhone evidence layer for the tested wired paired `iPhone17,1`; it is not a claim about every iPhone or iOS release. Redacted artifact: [`ios-physical-device-2026-07-20T17-49-19-302Z.json`](./evidence/ios-physical-device-2026-07-20T17-49-19-302Z.json). |
 | Context.dev contract (`gstack2-runtime-context.test.ts`) | **22 pass / 0 fail**, 139 assertions. | Persists explicit host/local-browser/none choices without consent, rejects private/credential URLs and request material plus private DNS, proves zero lookup/fetch before mode+consent, validates documented endpoint paths and exact failure taxonomy, and makes search typed unsupported without network. |
 | `gstack context smoke --url https://www.context.dev --json` | **PASS:** the official `/web/scrape/markdown` endpoint returned `ok: true` and credit metadata. | The verified key entered through protected stdin/environment worked. The temporary secrets file was mode `0600`, the isolated home was removed, and the safe output did not contain the key. Committed redacted artifact: [`evals/context-dev/live-smoke-2026-07-17.json`](../../evals/context-dev/live-smoke-2026-07-17.json). |
 | Standard installer matrix | **PASS: 470/470 checks**, 16 install cases, two removal cases, `skills` CLI 1.5.19. | Project/global installs pass for six hosts, selected-skill and opt-in compatibility-alias cases, copies, and hashes. This remains installer/filesystem evidence. Committed artifact: [`evals/installation/install-matrix.json`](../../evals/installation/install-matrix.json). |
@@ -70,7 +70,7 @@ macOS + Linux + native Windows + Dev Container
 local browser live journey + cancellation/leak cleanup (passed)
 PDF strict + diagram suites
 Context.dev verified-key public-page smoke
-physical signed-iPhone five-check loop + Release symbol check (waived; partial evidence is not a pass)
+physical signed-iPhone five-check loop + Release symbol check (passed on 2026-07-20; retain earlier failures separately)
 upgrade/fail/recover/rollback/uninstall end-to-end
 ```
 

@@ -9,7 +9,7 @@
   "source_path": "document-release/SKILL.md.tmpl",
   "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
   "blob_sha": "7621cb31290217b5c7cc8fb000e910b3dd38128f",
-  "normalized_render_sha256": "369c595ec2fac76f441d008401929295898e98a5c521d176bafbe4af0e6054f9",
+  "normalized_render_sha256": "e5aa85ac93b36b638d075d152f9d7108c0108727056f61331b25fe33de569a59",
   "target": "skills/ship/references/legacy/document-release.md",
   "overlays": [
     679

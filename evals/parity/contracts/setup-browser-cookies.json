@@ -9,7 +9,7 @@
   "source_path": "setup-browser-cookies/SKILL.md.tmpl",
   "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
   "blob_sha": "f812d9f56f27c32fb5f102083bbe418344c1a652",
-  "normalized_render_sha256": "5e27829f87a537e233ac1d0b2fe96cfe21ad6263c70044d8672b1f14c83e7506",
+  "normalized_render_sha256": "8ab5dfb05136a637ce41067d9e50ade76c4a8b957587e4eab134eaa260b29ac3",
   "target": "skills/qa/references/legacy/setup-browser-cookies.md",
   "overlays": [
     679

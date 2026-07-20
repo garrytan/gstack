@@ -23,17 +23,17 @@ VERSION_FILE="$GSTACK_DIR/VERSION"
 REMOTE_URL="${GSTACK_REMOTE_URL:-https://raw.githubusercontent.com/garrytan/gstack/main/VERSION}"
 REMOTE_REPO="${GSTACK_REMOTE_REPO:-https://github.com/garrytan/gstack.git}"
 
-# ─── Force flag (busts cache + snooze for standalone /gstack-upgrade) ──
-if [ "${1:-}" = "--force" ]; then
-  rm -f "$CACHE_FILE"
-  rm -f "$SNOOZE_FILE"
-fi
-
-# ─── Step 0: Check if updates are disabled ────────────────────
-_UC=$("$GSTACK_DIR/bin/gstack-config" get update_check 2>/dev/null || true)
-if [ "$_UC" = "false" ]; then
+# Agent Skills owns normal update discovery and installation (`npx skills
+# update`). Skill preambles still call this compatibility
+# helper, so fail closed before any state mutation or network access unless a
+# user explicitly invoked the legacy forced check.
+if [ "${1:-}" != "--force" ]; then
   exit 0
 fi
+
+# ─── Explicit legacy check: bust cache + snooze ───────────────
+rm -f "$CACHE_FILE"
+rm -f "$SNOOZE_FILE"
 
 # ─── Migration: fix stale Codex descriptions (one-time) ───────
 # Existing installs may have .agents/skills/gstack/SKILL.md with oversized

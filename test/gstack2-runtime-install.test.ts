@@ -2,14 +2,18 @@ import { describe, expect, test } from "bun:test";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { spawn } from "node:child_process";
+import { pathToFileURL } from "node:url";
 import { main as runtimeMain } from "../runtime/cli.js";
 import { summarizeRuntimeBundle } from "../scripts/gstack2/audit-runtime-bundle";
 import {
   DEFAULT_CAPABILITY_LAUNCHERS,
   DEFAULT_RUNTIME_BUNDLE,
   DEFAULT_RUNTIME_HELPERS,
+  MAX_RUNTIME_BUNDLE_BYTES,
   defaultBunBuilder,
   installManagedRuntime,
+  normalizeManagedBrowserTree,
   runtimeNativePackagePaths,
   uninstallManagedRuntime,
   runCommand,
@@ -27,12 +31,50 @@ const REPO_ROOT = path.resolve(import.meta.dir, "..");
 const FULL_RUNTIME_TEST_TIMEOUT_MS = process.platform === "win32" ? 120_000 : 30_000;
 
 describe("GStack 2 managed runtime installer", () => {
+  test("browser link normalization accepts internal macOS-style links and rejects escape graphs", async () => {
+    if (process.platform === "win32") return;
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "gstack-browser-links-"));
+    try {
+      const valid = path.join(root, "valid");
+      const version = path.join(valid, "Framework", "Versions", "145");
+      await fs.mkdir(version, { recursive: true });
+      await fs.writeFile(path.join(version, "Chrome Framework"), "binary\n", { mode: 0o755 });
+      await fs.symlink("145", path.join(valid, "Framework", "Versions", "Current"), "dir");
+      await fs.symlink("Versions/Current/Chrome Framework", path.join(valid, "Framework", "Chrome Framework"), "file");
+      expect(await normalizeManagedBrowserTree(valid)).toBe(2);
+      expect((await fs.lstat(path.join(valid, "Framework", "Versions", "Current"))).isDirectory()).toBe(true);
+      const executable = path.join(valid, "Framework", "Chrome Framework");
+      expect((await fs.lstat(executable)).isFile()).toBe(true);
+      expect((await fs.stat(executable)).mode & 0o111).not.toBe(0);
+
+      const cases = ["escape", "absolute", "dangling", "loop", "nested-escape"];
+      for (const name of cases) await fs.mkdir(path.join(root, name));
+      await fs.writeFile(path.join(root, "outside"), "outside\n");
+      await fs.symlink("../outside", path.join(root, "escape", "link"));
+      await fs.symlink(path.join(root, "absolute"), path.join(root, "absolute", "link"));
+      await fs.symlink("missing", path.join(root, "dangling", "link"));
+      await fs.symlink("b", path.join(root, "loop", "a"));
+      await fs.symlink("a", path.join(root, "loop", "b"));
+      const nestedTarget = path.join(root, "nested-escape", "target");
+      await fs.mkdir(nestedTarget);
+      await fs.symlink("../../outside", path.join(nestedTarget, "evil"));
+      await fs.symlink("target", path.join(root, "nested-escape", "link"), "dir");
+      for (const name of cases) {
+        await expect(normalizeManagedBrowserTree(path.join(root, name)))
+          .rejects.toMatchObject({ code: "INSTALL_BROWSER_PAYLOAD_INVALID" });
+      }
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   test("installs, validates, activates, and writes an uninstall-friendly manifest", async () => {
     await withFixture(async ({ source, home }) => {
       const result = await installFixture(source, home, "2.0.0");
 
       expect(result.pointer.status).toBe("active");
       expect(result.pointer.current).toBe("2.0.0");
+      expect(result.consumedScratch).toBe(true);
       expect(await readJson(path.join(home, "versions", "current.json"))).toMatchObject({ current: "2.0.0" });
       expect(await fs.readFile(path.join(result.path, "cap", "tool"), "utf8")).toContain("fixture capability");
       expect((await fs.lstat(path.join(result.path, "runtime", "cli.js"))).isSymbolicLink()).toBe(false);
@@ -114,6 +156,159 @@ describe("GStack 2 managed runtime installer", () => {
     });
   });
 
+  test("managed Chromium stages transactionally without mutating the source checkout", async () => {
+    await withFixture(async ({ source, home }) => {
+      await fs.mkdir(path.join(source, "node_modules", "playwright"), { recursive: true });
+      await fs.writeFile(path.join(source, "node_modules", "playwright", "cli.js"), "fixture\n");
+      const entries = [
+        { path: "runtime" },
+        { path: "bin/gstack", executable: true },
+        { path: ".gstack-runtime-browsers", build: "browser" },
+      ];
+      const phases: string[] = [];
+      const run = async (_command: string, args: string[], options: { env?: Record<string, string>; superviseTree?: boolean; timeoutMs?: number } = {}) => {
+        if (!args[0]?.endsWith(path.join("node_modules", "playwright", "cli.js"))) return { code: 0, stdout: "", stderr: "" };
+        expect(args.slice(1)).toEqual(["install", "--no-shell", "chromium"]);
+        expect(options.superviseTree).toBe(true);
+        expect(options.timeoutMs).toBe(15 * 60_000);
+        const target = options.env?.PLAYWRIGHT_BROWSERS_PATH;
+        if (!target) throw new Error("missing fixture browser destination");
+        await fs.mkdir(path.join(target, "chromium-fixture"), { recursive: true });
+        await fs.writeFile(path.join(target, "chromium-fixture", "chrome"), "fixture\n", { mode: 0o755 });
+        return { code: 0, stdout: "", stderr: "" };
+      };
+      const result = await installManagedRuntime({
+        sourceDir: source,
+        home,
+        version: "browser-transaction",
+        entries,
+        capabilities: { browse: ".gstack-runtime-browsers/chromium-fixture/chrome" },
+        runCommand: run,
+        smokeTest: async () => {},
+        onPhase: (event: { phase: string }) => phases.push(event.phase),
+      });
+      expect(await exists(path.join(source, ".gstack-runtime-browsers"))).toBe(false);
+      expect(await exists(path.join(result.path, ".gstack-runtime-browsers", "chromium-fixture", "chrome"))).toBe(true);
+      expect((await fs.readdir(path.join(home, "tmp"))).some((name) => name.startsWith("install-"))).toBe(false);
+      expect(phases).toEqual([
+        "copy-source:start",
+        "copy-source:complete",
+        "managed-chromium:start",
+        "managed-chromium:complete",
+        "bundle-validation:start",
+        "bundle-validation:complete",
+        "activation:start",
+        "activation:complete",
+      ]);
+
+      await expect(installManagedRuntime({
+        sourceDir: source,
+        home: path.join(home, "failed"),
+        version: "browser-failure",
+        entries,
+        capabilities: { browse: ".gstack-runtime-browsers/chromium-fixture/chrome" },
+        runCommand: async () => { throw new Error("download failed"); },
+        smokeTest: async () => {},
+      })).rejects.toMatchObject({ code: "INSTALL_BROWSER_DOWNLOAD_FAILED" });
+      expect(await exists(path.join(source, ".gstack-runtime-browsers"))).toBe(false);
+    });
+  });
+
+  test("ordinary source installs ignore an untracked browser cache while prepared artifacts retain their verified cache", async () => {
+    await withFixture(async ({ source, home }) => {
+      await fs.mkdir(path.join(source, "node_modules", "playwright"), { recursive: true });
+      await fs.writeFile(path.join(source, "node_modules", "playwright", "cli.js"), "fixture\n");
+      await fs.mkdir(path.join(source, ".gstack-runtime-browsers", "untrusted"), { recursive: true });
+      await fs.writeFile(path.join(source, ".gstack-runtime-browsers", "untrusted", "chrome"), "untrusted\n", { mode: 0o755 });
+      const entries = [
+        { path: "runtime" },
+        { path: "bin/gstack", executable: true },
+        { path: ".gstack-runtime-browsers", build: "browser" },
+      ];
+      let downloads = 0;
+      const result = await installManagedRuntime({
+        sourceDir: source,
+        home,
+        version: "browser-source-cache-ignored",
+        entries,
+        capabilities: { browse: ".gstack-runtime-browsers/fresh/chrome" },
+        runCommand: async (_command: string, args: string[], options: { env?: Record<string, string> } = {}) => {
+          downloads += 1;
+          expect(args.slice(1)).toEqual(["install", "--no-shell", "chromium"]);
+          const target = options.env?.PLAYWRIGHT_BROWSERS_PATH;
+          if (!target) throw new Error("missing fixture browser destination");
+          await fs.mkdir(path.join(target, "fresh"), { recursive: true });
+          await fs.writeFile(path.join(target, "fresh", "chrome"), "fresh\n", { mode: 0o755 });
+          return { code: 0, stdout: "", stderr: "" };
+        },
+        smokeTest: async () => {},
+      });
+      expect(downloads).toBe(1);
+      expect(await exists(path.join(result.path, ".gstack-runtime-browsers", "fresh", "chrome"))).toBe(true);
+      expect(await exists(path.join(result.path, ".gstack-runtime-browsers", "untrusted", "chrome"))).toBe(false);
+      expect(await fs.readFile(path.join(source, ".gstack-runtime-browsers", "untrusted", "chrome"), "utf8")).toBe("untrusted\n");
+
+      let preparedDownloadAttempted = false;
+      const prepared = await installManagedRuntime({
+        sourceDir: source,
+        home: path.join(home, "prepared-home"),
+        version: "browser-prepared-cache",
+        entries,
+        capabilities: { browse: ".gstack-runtime-browsers/untrusted/chrome" },
+        buildMissing: false,
+        preparedSource: true,
+        runCommand: async () => {
+          preparedDownloadAttempted = true;
+          throw new Error("prepared artifacts must not download Chromium again");
+        },
+        smokeTest: async () => {},
+      });
+      expect(preparedDownloadAttempted).toBe(false);
+      expect(await fs.readFile(path.join(prepared.path, ".gstack-runtime-browsers", "untrusted", "chrome"), "utf8")).toBe("untrusted\n");
+    });
+  });
+
+  test("ordinary source installs ignore an untracked Bun executable while prepared artifacts retain and probe theirs", async () => {
+    await withFixture(async ({ source, home }) => {
+      const relative = path.join(".gstack-runtime-tools", process.platform === "win32" ? "bun.exe" : "bun");
+      const sourceBun = path.join(source, relative);
+      await fs.mkdir(path.dirname(sourceBun), { recursive: true });
+      await fs.writeFile(sourceBun, "untrusted checkout executable\n", { mode: 0o755 });
+      const entries = [
+        { path: "runtime" },
+        { path: "bin/gstack", executable: true },
+        { path: relative, build: "managed-bun", executable: true },
+      ];
+      const installed = await installManagedRuntime({
+        sourceDir: source,
+        home,
+        version: "bun-source-cache-ignored",
+        entries,
+        capabilities: { bun: relative },
+        bunCommand: process.execPath,
+        smokeTest: async () => {},
+      });
+      expect(await fs.readFile(sourceBun, "utf8")).toBe("untrusted checkout executable\n");
+      expect((await fs.stat(path.join(installed.path, relative))).size).toBeGreaterThan(1024 * 1024);
+      expect(installed.pointer.current).toBe("bun-source-cache-ignored");
+
+      await fs.copyFile(process.execPath, sourceBun);
+      if (process.platform !== "win32") await fs.chmod(sourceBun, 0o755);
+      const prepared = await installManagedRuntime({
+        sourceDir: source,
+        home: path.join(home, "prepared"),
+        version: "bun-prepared-cache",
+        entries,
+        capabilities: { bun: relative },
+        buildMissing: false,
+        preparedSource: true,
+        smokeTest: async () => {},
+      });
+      expect(prepared.pointer.current).toBe("bun-prepared-cache");
+      expect((await readJson(path.join(prepared.path, ".gstack-bundle.json"))).tools.bun.version).toBe("1.3.14");
+    });
+  });
+
   test("default capability builds never regenerate the Agent Skills tree", async () => {
     const calls: Array<{ command: string; args: string[] }> = [];
     await defaultBunBuilder({
@@ -159,7 +354,28 @@ describe("GStack 2 managed runtime installer", () => {
     }
 
     await withFixture(async ({ home }) => {
-      const result = await installManagedRuntime({ sourceDir: REPO_ROOT, home, version: "helper-contract-test" });
+      const result = await installManagedRuntime({
+        sourceDir: REPO_ROOT,
+        home,
+        version: "helper-contract-test",
+        runCommand: async (command: string, args: string[], options: { env?: Record<string, string> } = {}) => {
+          if (args[0] === "--eval" && args[1]?.includes("process.execPath")) {
+            return { code: 0, stdout: process.execPath, stderr: "" };
+          }
+          if (args[0]?.endsWith(path.join("node_modules", "playwright", "cli.js"))) {
+            const browserRoot = options.env?.PLAYWRIGHT_BROWSERS_PATH;
+            if (!browserRoot) throw new Error("fixture browser root missing");
+            await fs.mkdir(path.join(browserRoot, "chromium-fixture"), { recursive: true });
+            await fs.writeFile(path.join(browserRoot, "chromium-fixture", "chrome"), "fixture\n", { mode: 0o755 });
+            return { code: 0, stdout: "", stderr: "" };
+          }
+          if (args[0] === "--version" && (command === process.execPath || command.includes(".gstack-runtime-tools"))) {
+            return { code: 0, stdout: "1.3.14\n", stderr: "" };
+          }
+          if (args[0] === "--version") return { code: 0, stdout: "v20.18.0\n", stderr: "" };
+          return { code: 0, stdout: "gstack runtime fixture\n", stderr: "" };
+        },
+      });
       for (const helper of contract.helpers) {
         const stable = path.join(home, "bin", helper.name);
         const stat = await fs.lstat(stable);
@@ -180,11 +396,24 @@ describe("GStack 2 managed runtime installer", () => {
 
       const next = await runInstalledLauncher(home, "gstack-next-version", ["--help"], { capture: true });
       expect(next.stdout).toContain("Usage: gstack-next-version");
+      if (process.platform !== "win32") {
+        const node = (await runCommand("node", ["-p", "process.execPath"], { capture: true })).stdout.trim();
+        const nodeOnlyEnv = {
+          ...process.env,
+          PATH: "/usr/bin:/bin",
+          GSTACK_NODE: node,
+          BUN_CMD: "",
+        };
+        const managedBun = await runInstalledLauncher(home, "bun", ["--version"], { capture: true, env: nodeOnlyEnv });
+        expect(managedBun.stdout.trim()).toBe("1.3.14");
+        const nodeOnlyHelper = await runInstalledLauncher(home, "gstack-next-version", ["--help"], { capture: true, env: nodeOnlyEnv });
+        expect(nodeOnlyHelper.stdout).toContain("Usage: gstack-next-version");
+      }
       const sourced = await runCommand("bash", ["-c", '. "$1"; type read_secret_to_env', "_", path.join(home, "bin", "gstack-gbrain-lib.sh")], { capture: true });
       expect(sourced.stdout).toContain("read_secret_to_env");
       const syncAlias = await runInstalledLauncher(home, "gstack-gbrain-sync", ["--help"], { capture: true });
       expect(`${syncAlias.stdout}${syncAlias.stderr}`).toContain("gstack-gbrain-sync");
-      const syncTypeScriptAlias = await runCommand("bun", [path.join(home, "bin", "gstack-gbrain-sync.ts"), "--help"], { capture: true });
+      const syncTypeScriptAlias = await runInstalledLauncher(home, "gstack-gbrain-sync.ts", ["--help"], { capture: true });
       expect(`${syncTypeScriptAlias.stdout}${syncTypeScriptAlias.stderr}`).toContain("gstack-gbrain-sync");
 
       const body = path.join(home, "audit-body.txt");
@@ -217,6 +446,57 @@ describe("GStack 2 managed runtime installer", () => {
         alive = false;
       }
       expect(alive).toBe(false);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("supervised timeout terminates descendants before returning cleanup authority", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "gstack-command-tree-timeout-"));
+    const marker = path.join(root, "descendant-wrote-after-timeout");
+    const childProgram = `setTimeout(() => require("node:fs").writeFileSync(${JSON.stringify(marker)}, "unsafe"), 500); setInterval(() => {}, 1000);`;
+    const parentProgram = `require("node:child_process").spawn(process.execPath, ["--eval", ${JSON.stringify(childProgram)}], { stdio: "ignore" }); setInterval(() => {}, 1000);`;
+    try {
+      await expect(runCommand(process.execPath, ["--eval", parentProgram], {
+        capture: true,
+        timeoutMs: 100,
+        killGraceMs: 5_000,
+        superviseTree: true,
+      })).rejects.toMatchObject({ code: "INSTALL_COMMAND_TIMEOUT" });
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      expect(await exists(marker)).toBe(false);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("supervised cancellation terminates descendants before the installer process exits", async () => {
+    if (process.platform === "win32") return;
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "gstack-command-tree-cancel-"));
+    const ready = path.join(root, "ready");
+    const marker = path.join(root, "descendant-wrote-after-cancel");
+    const childProgram = `setTimeout(() => require("node:fs").writeFileSync(${JSON.stringify(marker)}, "unsafe"), 700); setInterval(() => {}, 1000);`;
+    const parentProgram = `require("node:child_process").spawn(process.execPath, ["--eval", ${JSON.stringify(childProgram)}], { stdio: "ignore" }); setInterval(() => {}, 1000);`;
+    const harness = [
+      `import { runCommand } from ${JSON.stringify(pathToFileURL(path.join(REPO_ROOT, "runtime", "install.js")).href)};`,
+      `import fs from "node:fs";`,
+      `fs.writeFileSync(${JSON.stringify(ready)}, "ready");`,
+      `try { await runCommand(process.execPath, ["--eval", ${JSON.stringify(parentProgram)}], { superviseTree: true, timeoutMs: 60000 }); } catch { process.exitCode = 0; }`,
+    ].join("\n");
+    try {
+      const process_ = spawn("node", ["--input-type=module", "--eval", harness], { stdio: "ignore" });
+      for (let attempt = 0; attempt < 100 && !await exists(ready); attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      expect(await exists(ready)).toBe(true);
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      process_.kill("SIGINT");
+      await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error("cancellation harness did not exit")), 5_000);
+        process_.once("exit", () => { clearTimeout(timeout); resolve(null); });
+      });
+      await new Promise((resolve) => setTimeout(resolve, 900));
+      expect(await exists(marker)).toBe(false);
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }
@@ -396,6 +676,15 @@ describe("GStack 2 managed runtime installer", () => {
         });
         await fs.chmod(cli, originalMode);
       }
+
+      await fs.writeFile(manifestPath, `${JSON.stringify({
+        ...manifest,
+        files: manifest.files.map((file: { size: number }, index: number) =>
+          index === 0 ? { ...file, size: MAX_RUNTIME_BUNDLE_BYTES + 1 } : file),
+      }, null, 2)}\n`);
+      await expect(validateRuntimeBundle(result.path, { version: "2.0.0" })).rejects.toMatchObject({
+        code: "INSTALL_VALIDATION_FAILED",
+      });
 
       await fs.writeFile(manifestPath, `${JSON.stringify({ ...manifest, files: [] }, null, 2)}\n`);
       await expect(validateRuntimeBundle(result.path, { version: "2.0.0" })).rejects.toMatchObject({
@@ -645,7 +934,11 @@ describe("GStack 2 managed runtime installer", () => {
       await fs.writeFile(path.join(root, "package.json"), '{"type":"module","dependencies":{"sharp":"1.0.0"},"devDependencies":{"test-only-sdk":"1.0.0"}}\n');
       await fs.writeFile(path.join(root, "node_modules", "sharp", "package.json"), '{"name":"sharp","main":"index.js"}\n');
       await fs.writeFile(path.join(root, "node_modules", "sharp", "index.js"), 'module.exports = require("@img/sharp-fixture");\n');
-      await fs.writeFile(path.join(runtime, "install.js"), 'console.log(`installer=${process.release.name}`);\n');
+      await fs.writeFile(path.join(runtime, "install.js"), `import { spawnSync } from "node:child_process";
+const result = spawnSync(process.env.BUN_CMD || "bun", ["install", "--production", "--frozen-lockfile"], { stdio: "inherit" });
+if (result.status !== 0) process.exit(result.status || 1);
+console.log(\`installer=\${process.release.name}\`);
+`);
       await fs.writeFile(path.join(fakeBin, "bun"), `#!/bin/sh
 printf '%s\\n' "$*" >> "$BUN_LOG"
 mkdir -p "$FIXTURE_ROOT/node_modules/@img/sharp-fixture"
@@ -653,7 +946,7 @@ printf '{"name":"@img/sharp-fixture","main":"index.js"}\\n' > "$FIXTURE_ROOT/nod
 printf 'module.exports = {}\\n' > "$FIXTURE_ROOT/node_modules/@img/sharp-fixture/index.js"
 `, { mode: 0o755 });
 
-      const result = await runCommand(path.join(root, "setup"), [], {
+      const result = await runCommand(path.join(root, "setup"), ["--install-now", "--yes"], {
         capture: true,
         env: {
           ...process.env,
@@ -666,7 +959,7 @@ printf 'module.exports = {}\\n' > "$FIXTURE_ROOT/node_modules/@img/sharp-fixture
       expect(await fs.readFile(log, "utf8")).toContain("install --production --frozen-lockfile");
       expect(result.stdout).toContain("installer=node");
 
-      const second = await runCommand(path.join(root, "setup"), [], {
+      const second = await runCommand(path.join(root, "setup"), ["--install-now", "--yes"], {
         capture: true,
         env: {
           ...process.env,
@@ -756,6 +1049,8 @@ async function createSource(source: string) {
   await fs.mkdir(path.join(source, "cap"), { recursive: true });
   await fs.writeFile(path.join(source, "package.json"), '{"name":"gstack","version":"2.0.0","type":"module"}\n');
   await fs.writeFile(path.join(source, "runtime", "cli.js"), fixtureCli(""));
+  await fs.writeFile(path.join(source, "runtime", "tooling.js"),
+    'export async function resolveBashCommand(env = process.env) { return env.GSTACK_BASH || "bash"; }\n');
   await fs.writeFile(path.join(source, "bin", "gstack"), `#!/usr/bin/env node
 import { main } from "../runtime/cli.js";
 process.exitCode = await main(process.argv.slice(2));

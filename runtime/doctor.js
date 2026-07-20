@@ -1,6 +1,7 @@
 import { constants as fsConstants } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { spawn as nodeSpawn } from "node:child_process";
 import { resolveRuntimePaths } from "./paths.js";
 import { readJson, pathExists } from "./storage.js";
@@ -8,18 +9,29 @@ import { discoverProjectIdentity } from "./identity.js";
 import { RUNTIME_SCHEMA_VERSION, RUNTIME_MIGRATION_ID } from "./migrations.js";
 import { assertManagedHome } from "./managed-home.js";
 import { recoverPendingUpgrade } from "./upgrade.js";
+import { bashCandidates } from "./tooling.js";
+import {
+  OPTIONAL_RUNTIME_CAPABILITIES,
+  RUNTIME_CAPABILITY_DEPENDENCIES,
+  RUNTIME_COMPATIBILITY,
+  managedBunRelativePath,
+} from "./install.js";
 
 export async function runDoctor(options = {}) {
   const paths = resolveRuntimePaths(options);
   const checks = [];
   const add = (id, status, message, details) => checks.push({ id, status, message, ...(details ? { details } : {}) });
   const now = options.now ? options.now() : new Date();
+  const expectedSkillApi = options.expectedSkillApi ?? RUNTIME_COMPATIBILITY.skillApi;
+  if (typeof expectedSkillApi !== "string" || !/^[0-9A-Za-z][0-9A-Za-z._-]{0,31}$/.test(expectedSkillApi)) {
+    throw new TypeError("Expected skill API must be a short version identifier");
+  }
 
   const node = await inspectLauncherNode(options.nodeCommand ?? process.env.GSTACK_NODE ?? "node");
-  add("runtime", node.ok ? "pass" : "fail", node.message, node.details);
+  add("launcher-node", node.ok ? "pass" : "fail", node.message, node.details);
 
   if (!(await pathExists(paths.home))) {
-    add("home", "fail", `State home does not exist: ${paths.home}`, { remedy: "Run `gstack setup`." });
+    add("home", "fail", `State home does not exist: ${paths.home}`, { remedy: "Run `gstack init`." });
   } else {
     try {
       await fs.access(paths.home, fsConstants.R_OK | fsConstants.W_OK);
@@ -33,7 +45,7 @@ export async function runDoctor(options = {}) {
     } catch (error) {
       add("ownership", "fail", `Managed home ownership cannot be verified: ${error.message}`, {
         code: error.code,
-        remedy: "Run `gstack setup` with the intended GSTACK_HOME.",
+        remedy: "Run `gstack init` with the intended GSTACK_HOME.",
       });
     }
   }
@@ -79,7 +91,7 @@ export async function runDoctor(options = {}) {
       add("project", valid ? "pass" : "fail",
         valid ? `Project state found for ${identity.projectId}` : "Project state identity/schema does not match");
     } else {
-      add("project", "warn", `No state initialized for ${identity.projectId}`, { remedy: "Run `gstack setup`." });
+      add("project", "warn", `No state initialized for ${identity.projectId}`, { remedy: "Run `gstack init`." });
     }
     add("git", identity.isGit ? "pass" : "warn",
       identity.isGit ? `Git worktree ${identity.worktreeId}` : "Current directory is not a Git worktree");
@@ -90,14 +102,77 @@ export async function runDoctor(options = {}) {
   try {
     const recovery = await recoverPendingUpgrade(paths.home, options);
     const pointer = recovery.pointer;
-    if (!pointer) add("upgrade", "pass", "No managed version pointer (package-managed install)");
-    else if (recovery.recovered) {
-      add("upgrade", pointer.current ? "warn" : "fail", pointer.current
-        ? `Recovered interrupted upgrade to last-known-good version: ${pointer.current}`
-        : "Interrupted upgrade had no valid last-known-good version");
-    } else add("upgrade", "pass", pointer.current ? `Active managed version: ${pointer.current}` : "No active managed version");
+    add("upgrade", recovery.recovered ? "warn" : "pass", recovery.recovered
+      ? `Recovered interrupted upgrade${pointer?.current ? ` to ${pointer.current}` : " without a last-known-good version"}`
+      : pointer?.current ? `Version pointer is active: ${pointer.current}` : "No pending managed runtime transaction");
+    if (!pointer?.current) {
+      add("managed-runtime", "fail", "No active managed runtime", {
+        remedy: "Install the optional runtime explicitly from the GStack bootstrap package; judgment-only skills remain available.",
+      });
+      for (const capability of OPTIONAL_RUNTIME_CAPABILITIES) {
+        add(`capability:${capability}`, "warn", "not installed");
+      }
+    } else {
+      const activeRoot = path.join(paths.versions, pointer.current);
+      const stat = await fs.lstat(activeRoot).catch(() => null);
+      if (!stat?.isDirectory() || stat.isSymbolicLink()) {
+        add("managed-runtime", "fail", `Active managed runtime is missing or unsafe: ${pointer.current}`);
+        for (const capability of OPTIONAL_RUNTIME_CAPABILITIES) add(`capability:${capability}`, "warn", "runtime unavailable");
+      } else {
+        const manifest = await readJson(path.join(activeRoot, ".gstack-bundle.json"), null);
+        const compatible = manifest?.compatibility?.skillApi === expectedSkillApi;
+        add("managed-runtime", compatible ? (recovery.recovered ? "warn" : "pass") : "fail",
+          compatible
+            ? `${recovery.recovered ? "Recovered" : "Active"} managed runtime ${pointer.current} (skill API ${manifest.compatibility.skillApi})`
+            : `Managed runtime ${pointer.current} is missing compatible skill API metadata`,
+          compatible ? { skillApi: manifest.compatibility.skillApi } : {
+            expectedSkillApi,
+            remedy: "Upgrade the GStack runtime to match the installed skills.",
+          });
+        const bun = await inspectRuntimeBun(activeRoot, manifest, options.nodeCommand ?? process.env.GSTACK_NODE ?? "node");
+        add("runtime-tool:bun", bun.ok ? "pass" : "fail", bun.message, bun.details);
+        const shell = await inspectBash(options.env ?? process.env);
+        add("helper-shell:bash", shell.ok ? "pass" : "fail", shell.message, shell.details);
+        const python = await inspectPython(options.env ?? process.env);
+        add("specialist-tool:python", python.ok ? "pass" : "warn", python.message, python.details);
+        const selected = new Set(Array.isArray(manifest?.selectedCapabilities) ? manifest.selectedCapabilities : []);
+        const launchers = manifest?.capabilities ?? {};
+        for (const capability of OPTIONAL_RUNTIME_CAPABILITIES) {
+          if (!selected.has(capability)) {
+            add(`capability:${capability}`, "warn", "not selected");
+            continue;
+          }
+          const missingDependencies = (RUNTIME_CAPABILITY_DEPENDENCIES[capability] ?? [])
+            .filter((dependency) => !selected.has(dependency));
+          if (missingDependencies.length) {
+            add(`capability:${capability}`, "fail", `installed without required dependencies: ${missingDependencies.join(", ")}`);
+            continue;
+          }
+          if (!capabilityLaunchersReady(capability, launchers)) {
+            add(`capability:${capability}`, "fail", "selected but required launcher metadata is missing");
+            continue;
+          }
+          if (capability === "browser") {
+            const browser = await inspectManagedChromium(activeRoot, options.nodeCommand ?? process.env.GSTACK_NODE ?? "node");
+            add(`capability:${capability}`, browser.ok ? "pass" : "fail", browser.message, browser.details);
+            continue;
+          }
+          if (capability === "ios") {
+            const ios = await inspectXcrun();
+            add(`capability:${capability}`, ios.ok ? "pass" : "fail", ios.message, ios.details);
+            continue;
+          }
+          add(`capability:${capability}`, "pass", "installed with required dependencies and launcher metadata");
+        }
+      }
+    }
   } catch (error) {
-    add("upgrade", "fail", `Version pointer cannot be read: ${error.message}`);
+    add("managed-runtime", "fail", `Managed runtime cannot be inspected: ${error.message}`);
+    for (const capability of OPTIONAL_RUNTIME_CAPABILITIES) {
+      if (!checks.some((check) => check.id === `capability:${capability}`)) {
+        add(`capability:${capability}`, "warn", "readiness unknown because runtime inspection failed");
+      }
+    }
   }
 
   return {
@@ -106,6 +181,102 @@ export async function runDoctor(options = {}) {
     checkedAt: now.toISOString(),
     checks,
   };
+}
+
+async function inspectRuntimeBun(activeRoot, manifest) {
+  const relative = managedBunRelativePath();
+  const declared = manifest?.tools?.bun;
+  if (declared?.path !== relative || typeof declared?.version !== "string") {
+    return { ok: false, message: "managed Bun metadata is missing or incompatible" };
+  }
+  const executable = path.join(activeRoot, relative);
+  const stat = await fs.lstat(executable).catch(() => null);
+  if (!stat?.isFile() || stat.isSymbolicLink()) return { ok: false, message: "managed Bun executable is missing or unsafe" };
+  try {
+    if (process.platform !== "win32") await fs.access(executable, fsConstants.X_OK);
+    const result = await captureCommand(executable, ["--version"]);
+    const version = result.stdout.trim();
+    if (version !== declared.version) return { ok: false, message: "managed Bun version does not match its bundle metadata" };
+    return { ok: true, message: `managed Bun ${version} is runnable`, details: { executable, version } };
+  } catch (error) {
+    return { ok: false, message: `managed Bun is not runnable: ${error.message}` };
+  }
+}
+
+async function inspectBash(env) {
+  for (const command of bashCandidates(env)) {
+    try {
+      const result = await captureCommand(command, ["--version"]);
+      return { ok: true, message: "retained shell-helper Bash is available", details: { command, version: result.stdout.split(/\r?\n/, 1)[0] } };
+    } catch { /* try the next explicit candidate */ }
+  }
+  return {
+    ok: false,
+    message: process.platform === "win32"
+      ? "retained shell helpers require Git for Windows Bash (set GSTACK_BASH or install Git for Windows)"
+      : "retained shell helpers require Bash (set GSTACK_BASH)",
+  };
+}
+
+async function inspectPython(env) {
+  const candidates = [env.GSTACK_PYTHON, ...(process.platform === "win32" ? ["python", "python3"] : ["python3", "python"])]
+    .filter((entry, index, list) => entry && list.indexOf(entry) === index);
+  for (const command of candidates) {
+    try {
+      const result = await captureCommand(command, ["--version"]);
+      return { ok: true, message: "optional specialist Python is available", details: { command, version: `${result.stdout}${result.stderr}`.trim() } };
+    } catch { /* optional candidate */ }
+  }
+  return { ok: false, message: "Python 3 is absent; only specialist flows that explicitly request it are unavailable" };
+}
+
+async function inspectManagedChromium(activeRoot, nodeCommand) {
+  const browserRoot = path.join(activeRoot, ".gstack-runtime-browsers");
+  const modulePath = path.join(activeRoot, "node_modules", "playwright", "index.mjs");
+  const [browserStat, moduleStat] = await Promise.all([
+    fs.lstat(browserRoot).catch(() => null),
+    fs.lstat(modulePath).catch(() => null),
+  ]);
+  if (!browserStat?.isDirectory() || browserStat.isSymbolicLink() || !moduleStat?.isFile() || moduleStat.isSymbolicLink()) {
+    return { ok: false, message: "managed Chromium or Playwright module is missing/unsafe" };
+  }
+  try {
+    const moduleUrl = pathToFileURL(modulePath).href;
+    const result = await captureCommand(nodeCommand, [
+      "--input-type=module",
+      "--eval",
+      `const { chromium } = await import(${JSON.stringify(moduleUrl)}); process.stdout.write(chromium.executablePath());`,
+    ], { env: { ...process.env, PLAYWRIGHT_BROWSERS_PATH: browserRoot } });
+    const executable = result.stdout.trim();
+    const stat = await fs.lstat(executable).catch(() => null);
+    if (!stat?.isFile() || stat.isSymbolicLink()) return { ok: false, message: "Playwright could not resolve a safe managed Chromium executable" };
+    if (process.platform !== "win32") await fs.access(executable, fsConstants.X_OK);
+    return { ok: true, message: "managed Chromium executable is present", details: { executable } };
+  } catch (error) {
+    return { ok: false, message: `managed Chromium is not runnable: ${error.message}` };
+  }
+}
+
+async function inspectXcrun() {
+  if (process.platform !== "darwin") return { ok: false, message: "physical-iOS capability requires macOS" };
+  try {
+    const result = await captureCommand("xcrun", ["--find", "devicectl"]);
+    return { ok: true, message: "CoreDevice tooling is present", details: { devicectl: result.stdout.trim() } };
+  } catch (error) {
+    return { ok: false, message: `CoreDevice tooling is unavailable: ${error.message}` };
+  }
+}
+
+function capabilityLaunchersReady(capability, launchers) {
+  if (capability === "browser") return typeof launchers.browse === "string";
+  if (capability === "design") return typeof launchers["gstack-design"] === "string";
+  if (capability === "pdf") return typeof launchers["make-pdf"] === "string";
+  if (capability === "diagram") return true;
+  if (capability === "ios") {
+    return typeof launchers["gstack-ios-qa-daemon"] === "string" &&
+      typeof launchers["gstack-ios-qa-mint"] === "string";
+  }
+  return false;
 }
 
 async function inspectLauncherNode(command) {
@@ -126,12 +297,14 @@ async function inspectLauncherNode(command) {
   }
 }
 
-function captureCommand(command, args) {
+function captureCommand(command, args, options = {}) {
   return new Promise((resolve, reject) => {
     const child = nodeSpawn(command, args, {
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
       shell: false,
+      cwd: options.cwd,
+      env: options.env ?? process.env,
     });
     let stdout = "";
     let stderr = "";

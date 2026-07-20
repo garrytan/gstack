@@ -9,7 +9,7 @@
   "source_path": "ios-sync/SKILL.md.tmpl",
   "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
   "blob_sha": "156a33c4c35d3bad804e44c93ae4c931878489f3",
-  "normalized_render_sha256": "6d1fa485d589dff65412cdd855b683f09cb442e35b8a40ee0db3451241016ea9",
+  "normalized_render_sha256": "c51e8865876efae833e92d54b37780afd4fa6240c13231dfb7d4635948fbc73f",
   "target": "skills/ship/references/legacy/ios-sync.md",
   "overlays": [
     679

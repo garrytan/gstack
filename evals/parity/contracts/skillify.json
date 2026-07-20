@@ -9,7 +9,7 @@
   "source_path": "skillify/SKILL.md.tmpl",
   "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
   "blob_sha": "21fb2f503e3d40683fa782b21abf05a8f0fef69b",
-  "normalized_render_sha256": "13920affe83c53e5d459a077b68433682fd6c445389bf2024d2e5f4d5a021994",
+  "normalized_render_sha256": "b0743c957157e19bd90b457fd3ac9d6924c3aedce969c10af8d7973c2bcd6c9f",
   "target": "skills/qa/references/legacy/skillify.md",
   "overlays": [
     679,

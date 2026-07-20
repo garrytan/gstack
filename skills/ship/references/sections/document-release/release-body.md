@@ -225,7 +225,7 @@ glab mr view -F json 2>/dev/null | python3 -c "import sys,json; print(json.load(
 3. The Documentation section should include:
 
    a. **Doc diff preview** — for each file modified, describe what specifically changed (e.g.,
-      "README.md: added /document-release to skills table, updated skill count from 9 to 10").
+      "README.md: added $ship --mode Prepare --module document-release to skills table, updated skill count from 9 to 10").
 
    b. **Documentation debt** — if the coverage map from Step 1.5 found gaps, append a
       `### Documentation Debt` subsection listing:

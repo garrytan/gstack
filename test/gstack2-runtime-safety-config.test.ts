@@ -8,12 +8,14 @@ import {
   ensureManagedHome,
   purgeManagedHomeUnlocked,
   setupRuntime,
+  stageUpgrade,
   uninstallManagedRuntime,
 } from "../runtime/index.js";
 
 const roots: string[] = [];
 const configBin = path.resolve(import.meta.dir, "../bin/gstack-config");
 const gstackBin = path.resolve(import.meta.dir, "../bin/gstack");
+const updateCheckBin = path.resolve(import.meta.dir, "../bin/gstack-update-check");
 
 async function root() {
   const result = await fs.mkdtemp(path.join(os.tmpdir(), "gstack2-safety-config-"));
@@ -26,6 +28,29 @@ afterEach(async () => {
 });
 
 describe("managed-home destructive boundary", () => {
+  test("rejects symlinked tmp and versions directories before runtime mutation", async () => {
+    if (process.platform === "win32") return;
+    const base = await root();
+    const home = path.join(base, "home");
+    const outside = path.join(base, "outside");
+    await ensureManagedHome(home);
+    await fs.mkdir(outside);
+    await fs.writeFile(path.join(outside, "keep"), "keep\n");
+
+    await fs.symlink(outside, path.join(home, "tmp"), "dir");
+    await expect(uninstallManagedRuntime(home)).rejects.toMatchObject({ code: "MANAGED_HOME_SUBDIRECTORY_UNSAFE" });
+    await fs.rm(path.join(home, "tmp"));
+
+    const source = path.join(base, "source");
+    await fs.mkdir(source);
+    await fs.writeFile(path.join(source, "payload"), "payload\n");
+    await fs.symlink(outside, path.join(home, "versions"), "dir");
+    await expect(stageUpgrade({ home, sourceDir: source, version: "1.0.0" }))
+      .rejects.toMatchObject({ code: "MANAGED_HOME_SUBDIRECTORY_UNSAFE" });
+    expect(await fs.readFile(path.join(outside, "keep"), "utf8")).toBe("keep\n");
+    expect(await fs.readdir(outside)).toEqual(["keep"]);
+  });
+
   test("claims only a new or empty directory and leaves nonempty input untouched", async () => {
     const base = await root();
     const occupied = path.join(base, "occupied");
@@ -162,6 +187,32 @@ describe("managed-home destructive boundary", () => {
 });
 
 describe("one config authority", () => {
+  test("Agent Skills owns updates and passive GStack release requests are off", async () => {
+    const base = await root();
+    const home = path.join(base, "state");
+    const remoteVersion = path.join(base, "remote-version");
+    await fs.writeFile(remoteVersion, "999.0.0\n");
+
+    const config = spawnSync(process.execPath, [configBin, "get", "update_check"], {
+      encoding: "utf8",
+      env: { ...process.env, GSTACK_HOME: home },
+    });
+    expect(config.status).toBe(0);
+    expect(config.stdout).toBe("false");
+
+    const passive = spawnSync(updateCheckBin, [], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        GSTACK_HOME: home,
+        GSTACK_REMOTE_URL: `file://${remoteVersion}`,
+      },
+    });
+    expect(passive.status).toBe(0);
+    expect(passive.stdout).toBe("");
+    expect(await fs.stat(path.join(home, "last-update-check")).catch(() => null)).toBeNull();
+  });
+
   test("compatibility helper and runtime config share config.json", async () => {
     const home = path.join(await root(), "state");
     const run = (args: string[]) => spawnSync(process.execPath, [configBin, ...args], {
@@ -194,7 +245,8 @@ describe("one config authority", () => {
     expect(JSON.parse(await fs.readFile(path.join(home, "config.json"), "utf8")).telemetry).toBe("anonymous");
     const setup = run(["setup"]);
     expect(setup.status).toBe(0);
-    expect(setup.stdout).toContain("gstack is ready");
+    expect(setup.stdout).toContain("GStack state initialized");
+    expect(setup.stdout).toContain("optional runtime: unchanged");
   });
 
   test("legacy YAML is read-only migration input and JSON takes authority on write", async () => {
@@ -230,5 +282,22 @@ describe("one config authority", () => {
     const config = await fs.readFile(configBin, "utf8");
     expect(install).not.toContain('"gstack-team-init": helper');
     expect(config).not.toMatch(/\.claude\/skills|gstack-relink|gen:skill-docs:user/);
+  });
+
+  test("runtime remediation never assumes a host-specific skill path or legacy setup script", async () => {
+    const sources = [
+      "runtime/install.js",
+      "make-pdf/src/setup.ts",
+      "make-pdf/src/browseClient.ts",
+      "make-pdf/src/diagram-prepass.ts",
+    ];
+    for (const relative of sources) {
+      const source = await fs.readFile(path.resolve(import.meta.dir, "..", relative), "utf8");
+      expect(source, relative).not.toMatch(/(?:re-?run|run)\s+`?\.\/setup/i);
+      expect(source, relative).not.toMatch(/(?:to fix|missing|unsafe|invalid)[\s\S]{0,240}(?:~\/)?\.claude\/skills/i);
+    }
+    const pdfSetup = await fs.readFile(path.resolve(import.meta.dir, "../make-pdf/src/setup.ts"), "utf8");
+    expect(pdfSetup).toContain("gstack doctor --skill-api 2.0");
+    expect(pdfSetup).toContain("--capability pdf");
   });
 });

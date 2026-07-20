@@ -34,7 +34,9 @@ const defaults = Object.freeze({
   routing_declined: false,
   telemetry: "off",
   auto_upgrade: false,
-  update_check: true,
+  // Skill installation and update discovery belong to the Agent Skills CLI.
+  // GStack never performs a passive network update check by default.
+  update_check: false,
   skill_prefix: false,
   checkpoint_mode: "explicit",
   checkpoint_push: false,

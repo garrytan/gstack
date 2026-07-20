@@ -9,7 +9,7 @@
   "source_path": "ios-clean/SKILL.md.tmpl",
   "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
   "blob_sha": "3a64481a99fab0d7247c23df0a07c428c1c5f3da",
-  "normalized_render_sha256": "4616b4a2f3def37440add4010a89426e85bd3f2786fd71d199063a60ce073615",
+  "normalized_render_sha256": "6a0080b7678f9e1df7ae2da27c4a7e3e85e7bfb83525a2c5651c24c0ab024b4b",
   "target": "skills/ship/references/legacy/ios-clean.md",
   "overlays": [
     679

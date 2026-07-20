@@ -9,7 +9,7 @@
   "source_path": "careful/SKILL.md.tmpl",
   "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
   "blob_sha": "5c128a00e180bec4fad281486d3ca8c02dc67e7e",
-  "normalized_render_sha256": "9c806d1102794aeab5c83990c72dcadc7bdad7134f3962da5609ab13bc7feb0f",
+  "normalized_render_sha256": "f5fe3aa0755e04ad328ed67a4e42c21d9f9b5509167a69d91158a59cce8111ea",
   "target": "skills/debug/references/legacy/careful.md",
   "overlays": [
     679

@@ -22,6 +22,18 @@ ROOT="$(cd -P "$(dirname "$SOURCE")" >/dev/null 2>&1 && pwd)"
 ARGS=()
 for arg in "$@"; do
   case "$arg" in
+    -h|--help)
+      printf '%s\n' \
+        'Usage: ./setup [--capabilities <list>] [--replace-capabilities] [--dry-run|--install-now [--yes]|--install-later]' \
+        '               [--home <path>] [--version <version>] [--json] [--quiet]' \
+        '' \
+        'Optional capabilities: browser, design, pdf, diagram, ios (iOS is macOS-only).' \
+        'Without --install-now, non-interactive use previews and installs nothing.' \
+        '--dry-run and --install-later never modify runtime state or host setup.' \
+        'Installs only the optional host-neutral runtime and selected local capabilities.' \
+        'Skills are installed separately with: npx skills add time-attack/gstack'
+      exit 0
+      ;;
     --local|--team|--no-team)
       echo "gstack setup: $arg is deprecated; skill placement is delegated to: npx skills add time-attack/gstack" >&2
       ;;
@@ -41,17 +53,6 @@ if ! "$NODE_COMMAND" -e 'process.exit(Number(process.versions.node.split(".")[0]
   echo "gstack setup: Node 18+ is required by the managed runtime launchers." >&2
   exit 1
 fi
-
-if ! command -v bun >/dev/null 2>&1; then
-  echo "gstack setup: Bun is required to build the optional local runtime." >&2
-  echo "Install Bun from https://bun.sh, or install judgment-only skills with:" >&2
-  echo "  npx skills add time-attack/gstack" >&2
-  exit 1
-fi
-
-# Reconcile on every setup. Presence checks cannot distinguish the lockfile's
-# exact versions from stale but loadable packages copied from another checkout.
-(cd "$ROOT" && bun install --production --frozen-lockfile)
 
 if [ "${#ARGS[@]}" -gt 0 ]; then
   exec "$NODE_COMMAND" "$ROOT/runtime/install.js" --source "$ROOT" "${ARGS[@]}"

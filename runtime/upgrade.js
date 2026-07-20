@@ -6,6 +6,7 @@ import { atomicWriteJson, pathExists, readJson, renameWithRetry } from "./storag
 import {
   assertManagedHome,
   ensureManagedHome,
+  ensureManagedRuntimeDirectory,
   recoverRuntimeTransactionUnlocked,
   withRuntimeLifecycleLock,
 } from "./managed-home.js";
@@ -17,7 +18,10 @@ export async function stageUpgrade(options) {
   return withRuntimeLifecycleLock(home, async () => {
     await ensureManagedHome(home, options);
     await recoverRuntimeTransactionUnlocked(home);
-    return stageUpgradeUnlocked({ ...options, home });
+    // Consuming input is reserved for the installer's validated scratch.
+    // Public upgrades always preserve and copy caller-owned sources.
+    const { consumeInstallerScratch: _ignored, ...publicOptions } = options;
+    return stageUpgradeUnlocked({ ...publicOptions, home });
   }, options);
 }
 
@@ -32,7 +36,12 @@ export async function stageUpgradeUnlocked(options) {
   const paths = resolveRuntimePaths({ home });
   const source = path.resolve(sourceDir);
   await validateStageSource(source);
-  await fs.mkdir(paths.versions, { recursive: true, mode: 0o700 });
+  const consumeSource = options.consumeInstallerScratch === true;
+  if (consumeSource) {
+    await ensureManagedRuntimeDirectory(home, paths.tmp);
+    await assertInstallerScratchSource(source, paths.tmp);
+  }
+  await ensureManagedRuntimeDirectory(home, paths.versions);
 
   await recoverPendingUpgradeUnlocked(paths, options);
   const previousExists = await pathExists(paths.versionPointer);
@@ -47,7 +56,8 @@ export async function stageUpgradeUnlocked(options) {
       path.join(paths.versions, `.stage-${version}-${randomUUID()}`),
     );
     try {
-      await copyDirectory(source, stage);
+      if (consumeSource) await renameWithRetry(source, stage);
+      else await copyDirectory(source, stage);
       await atomicWriteJson(path.join(stage, ".gstack-version.json"), {
         schemaVersion: 2,
         version,
@@ -102,7 +112,7 @@ export async function stageUpgradeUnlocked(options) {
       staged,
       paths,
     });
-    return { pointer: active, path: destination, staged };
+    return { pointer: active, path: destination, staged, consumedSource: staged && consumeSource };
   } catch (cause) {
     const rollbackErrors = [];
     let pointerRollbackError = null;
@@ -318,6 +328,20 @@ async function copyDirectory(source, destination) {
     preserveTimestamps: true,
     verbatimSymlinks: true,
   });
+}
+
+async function assertInstallerScratchSource(source, tmpRoot) {
+  const [physicalSource, physicalTmp] = await Promise.all([
+    fs.realpath(source),
+    fs.realpath(tmpRoot),
+  ]);
+  if (path.dirname(physicalSource) !== physicalTmp || !path.basename(physicalSource).startsWith("install-")) {
+    throw upgradeError("Only a direct installer-owned scratch may be consumed", "UPGRADE_SOURCE_CONSUME_INVALID");
+  }
+  const stat = await fs.lstat(physicalSource);
+  if (!stat.isDirectory() || stat.isSymbolicLink()) {
+    throw upgradeError("Installer scratch must be a real directory", "UPGRADE_SOURCE_CONSUME_INVALID");
+  }
 }
 
 async function assertTreeContainsNoLinks(root) {

@@ -522,7 +522,8 @@ function isPlainObject(value) {
 function hasContextNetworkConsent(config) {
   return config?.network?.selection === "context" &&
     config?.network?.mode === "context" &&
-    config?.network?.consent === true;
+    config?.network?.consent === true &&
+    config?.context?.validation?.status !== "unverified";
 }
 
 export async function contextStatus(home, env = process.env) {
@@ -533,13 +534,15 @@ export async function contextStatus(home, env = process.env) {
   } catch (error) {
     if (error?.code !== "CONTEXT_KEY_MISSING") throw error;
   }
-  const contextReady = Boolean(keySource) && hasContextNetworkConsent(config);
+  const validation = config.context?.validation?.status ?? "unverified";
+  const contextReady = Boolean(keySource) && hasContextNetworkConsent(config) && validation === "verified";
   return {
     configured: Boolean(keySource),
     keySource,
     networkMode: config.network.mode,
     selection: config.network.selection,
     consent: config.network.consent === true,
+    validation,
     contextReady,
     ready: config.network.selection === "context"
       ? contextReady

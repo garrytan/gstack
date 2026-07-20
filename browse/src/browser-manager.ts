@@ -16,6 +16,7 @@
  */
 
 import { chromium, type Browser, type BrowserContext, type BrowserContextOptions, type Page, type Locator, type Cookie } from 'playwright';
+import { readdirSync } from 'node:fs';
 import { writeSecureFile, mkdirSecure } from './file-permissions';
 import { addConsoleEntry, addNetworkEntry, addDialogEntry, networkBuffer, type DialogEntry } from './buffers';
 import { emitActivity } from './activity';
@@ -71,6 +72,21 @@ export function shouldEnableChromiumSandbox(): boolean {
   if (process.env.GSTACK_CHROMIUM_NO_SANDBOX === '1') return false;
   const isRoot = typeof process.getuid === 'function' && process.getuid() === 0;
   return !(process.env.CI || process.env.CONTAINER || isRoot);
+}
+
+/** Select full Chromium only when a managed visible-only cache has no shell. */
+export function managedHeadlessChannel(env: NodeJS.ProcessEnv = process.env): 'chromium' | undefined {
+  const root = env.PLAYWRIGHT_BROWSERS_PATH;
+  if (!root) return undefined;
+  try {
+    const names = readdirSync(root, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name);
+    if (names.some((name) => name.startsWith('chromium_headless_shell-'))) return undefined;
+    return names.some((name) => /^chromium-\d/.test(name)) ? 'chromium' : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -371,6 +387,7 @@ export class BrowserManager {
 
     this.browser = await chromium.launch({
       headless: useHeadless,
+      ...(useHeadless && managedHeadlessChannel() ? { channel: 'chromium' as const } : {}),
       // On Windows, Chromium's sandbox fails when the server is spawned through
       // the Bun→Node process chain (GitHub #276). Disable it — local daemon
       // browsing user-specified URLs has marginal sandbox benefit. Also disabled
@@ -585,7 +602,7 @@ export class BrowserManager {
       args: launchArgs,
       viewport: null,  // Use browser's default viewport (real window size)
       userAgent: this.customUserAgent || customUA,
-      ...(executablePath ? { executablePath } : {}),
+      ...(executablePath ? { executablePath } : { channel: 'chromium' }),
       ...(this.proxyConfig ? { proxy: this.proxyConfig } : {}),
       ignoreDefaultArgs: STEALTH_IGNORE_DEFAULT_ARGS,
     });
@@ -1588,6 +1605,7 @@ export class BrowserManager {
       const { STEALTH_IGNORE_DEFAULT_ARGS } = await import('./stealth');
       newContext = await chromium.launchPersistentContext(userDataDir, {
         headless: false,
+        channel: 'chromium',
         // Match the sandbox policy used by launchHeaded() / launch(). The
         // handoff path is the headless→headed re-launch and shares the same
         // anti-detection posture, including no spurious --no-sandbox infobar.

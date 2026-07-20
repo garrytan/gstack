@@ -1,10 +1,12 @@
 name: Windows Setup E2E
 
-# End-to-end fresh-install gate for Windows. Runs `./setup` on a clean
-# windows-latest checkout and asserts the build completes, binaries
-# resolve via find-browse, and the gstack-paths state root resolves
-# cleanly. Catches Bun shell-parser regressions in package.json's build
-# chain (#1538, #1537, #1530, #1457, #1561) before they reach users.
+permissions:
+  contents: read
+
+# End-to-end optional-runtime gate for Windows. It first proves dry-run is
+# non-mutating, then performs an explicit browser-capability install, checks
+# doctor and the native artifact, and uninstalls. Agent Skills host placement
+# is deliberately outside this workflow and is covered by gstack2-gate.yml.
 #
 # Separate from windows-free-tests.yml because that one runs a curated
 # unit-test subset; this one exercises the install path itself.
@@ -19,6 +21,7 @@ on:
       - 'scripts/build.sh'
       - 'scripts/write-version-files.sh'
       - 'setup'
+      - 'runtime/**'
       - 'browse/src/cli.ts'
       - 'browse/src/find-browse.ts'
       - 'bin/gstack-paths'
@@ -35,11 +38,18 @@ jobs:
     timeout-minutes: 15
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
-      - uses: oven-sh/setup-bun@v1
+      - name: Configure isolated runtime home
+        run: echo "GSTACK_HOME=$RUNNER_TEMP/gstack-setup-e2e" >> "$GITHUB_ENV"
+        shell: bash
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: latest
+          bun-version: 1.3.14
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22.23.1
 
       - name: Configure git identity
         run: |
@@ -52,45 +62,34 @@ jobs:
         run: bun install --frozen-lockfile
         shell: bash
 
-      - name: Run bun run build (the previously-broken path)
-        # This is the regression gate. Bun's Windows shell parser rejected
-        # multiple constructs the old inline build chain used; the wave
-        # moved the build to scripts/build.sh. If this step fails on
-        # Windows, the build chain regressed.
-        run: bun run build
-        shell: bash
-        env:
-          GSTACK_SKIP_PLAYWRIGHT: '1'
-
-      - name: Verify binaries exist (with .exe extension on Windows)
+      - name: Preview without mutating state
         run: |
           set -e
-          test -f browse/dist/browse.exe || test -f browse/dist/browse || (echo "MISSING: browse" && exit 1)
-          test -f browse/dist/find-browse.exe || test -f browse/dist/find-browse || (echo "MISSING: find-browse" && exit 1)
-          test -f design/dist/design.exe || test -f design/dist/design || (echo "MISSING: design" && exit 1)
-          test -f bin/gstack-global-discover.exe || test -f bin/gstack-global-discover || (echo "MISSING: gstack-global-discover" && exit 1)
-          echo "All binaries present"
+          bash ./setup --dry-run --capabilities browser
+          test ! -e "$GSTACK_HOME" || (echo "dry-run mutated GSTACK_HOME" && exit 1)
         shell: bash
 
-      - name: Verify find-browse resolves to the .exe variant
+      - name: Explicitly install the browser capability
         run: |
           set -e
-          OUT=$(bun browse/src/find-browse.ts 2>&1) || true
-          echo "find-browse output: $OUT"
-          # On Windows, find-browse should successfully resolve to a binary,
-          # whether or not it has the .exe extension on disk. Empty output
-          # or "not found" means the .exe extension resolver regressed.
-          echo "$OUT" | grep -qE '(browse\.exe|browse)$' || (echo "find-browse failed to resolve binary on Windows" && exit 1)
+          bash ./setup --install-now --yes --capabilities browser
+          test -f "$GSTACK_HOME/versions/current.json"
+          test -f "$GSTACK_HOME/bin/gstack.cmd"
         shell: bash
 
-      - name: Verify gstack-paths state root resolves
+      - name: Verify doctor and installed native browser
         run: |
           set -e
-          eval "$(bash bin/gstack-paths)"
-          test -n "$GSTACK_STATE_ROOT" || (echo "GSTACK_STATE_ROOT empty" && exit 1)
-          test -n "$PLAN_ROOT" || (echo "PLAN_ROOT empty" && exit 1)
-          test -n "$TMP_ROOT" || (echo "TMP_ROOT empty" && exit 1)
-          echo "GSTACK_STATE_ROOT=$GSTACK_STATE_ROOT"
-          echo "PLAN_ROOT=$PLAN_ROOT"
-          echo "TMP_ROOT=$TMP_ROOT"
+          node runtime/cli.js doctor --json > doctor.json
+          node -e 'const r=require("./doctor.json");if(!r.checks.some(x=>x.id==="managed-runtime"&&x.status==="pass"))process.exit(1);if(!r.checks.some(x=>x.id==="capability:browser"&&x.status==="pass"))process.exit(1)'
+          browser=$(node runtime/cli.js runtime path browse/dist/browse.exe)
+          test -f "$browser"
+        shell: bash
+
+      - name: Uninstall the runtime and preserve user state
+        run: |
+          set -e
+          node runtime/cli.js uninstall
+          test ! -e "$GSTACK_HOME/versions/current.json"
+          test -d "$GSTACK_HOME/projects"
         shell: bash

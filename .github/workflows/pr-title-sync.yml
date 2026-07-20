@@ -1,5 +1,8 @@
 name: PR Title Sync
 
+permissions:
+  contents: read
+
 # WHY pull_request_target (not pull_request): the default GITHUB_TOKEN is
 # READ-ONLY on fork PRs under `pull_request`, so the title-sync backstop could
 # never `gh pr edit` a fork/agent PR. `pull_request_target` runs in the base-repo
@@ -39,7 +42,7 @@ jobs:
     steps:
       # Base repo only — trusted infra (the rewrite helper). No PR-head checkout.
       - name: Checkout base repo (trusted)
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 1
 

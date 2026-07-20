@@ -2,7 +2,7 @@
 
 Pinned baseline: `bb57306d98c97011b0919c6132705a15b1579781`.
 
-GStack 2 exposes exactly six public Codex skills: `plan`, `design`, `qa`, `debug`, `review`, and `ship`. The 55 legacy templates remain mechanically rendered as internal reference modules; all 16 carved section templates are inlined with the canonical Codex resolver path. Thirty-one primary modules are mandatory specialist inputs, and 24 supporting modules remain reachable through compatibility routing.
+GStack 2 exposes exactly six public skills: `plan`, `design`, `qa`, `debug`, `review`, and `ship`. The specialist bodies from 55 legacy templates remain provenance-pinned internal reference modules. The retired 1.x shared onboarding wrapper is excluded from canonical execution, and all 16 carved specialist sections are package-local lazy references loaded only at their original workflow point. Thirty-one primary modules are mandatory specialist inputs, and 24 supporting modules remain reachable through compatibility routing.
 
 The fixed public modes are: Design = `Explore | Generate | Critique | Implement`; QA = `Report | Fix`; Debug = `Diagnose-only | Fix`; Review = `Normal | Security | Performance | Deep`; Ship = `Prepare | Land | Deploy | Monitor | Resume`. Richer legacy modes are internal aliases only.
 
@@ -74,6 +74,6 @@ The fixed public modes are: Design = `Explore | Generate | Critique | Implement`
 
 ## Mechanical versus judgment changes
 
-- `MECHANICAL_PORT`: canonical Codex resolver expansion, section inlining, safety prose, and path rewrites only.
-- `BUG_FIX`: the mechanical body plus a clearly delimited judgment overlay sourced from one of the 16 upstream PRs and its regression fixture.
+- `JUDGMENT_PRESERVING_CARVE`: pinned specialist workflow with the retired shared onboarding wrapper excluded, retired invocations resolved to six public routes, host/runtime paths normalized, and large carved phases loaded lazily from package-local pinned references.
+- `BUG_FIX`: the canonical carved body plus a clearly delimited judgment overlay sourced from one of the 16 upstream PRs and its regression fixture.
 - Asset relocation is byte-for-byte from the pinned Git blob and is indexed per tree.

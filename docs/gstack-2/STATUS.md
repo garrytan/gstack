@@ -1,11 +1,11 @@
 # GStack 2 status
 
-**Status at the 2026-07-17 documentation checkpoint: `BLOCKED`.**
+**Status at the 2026-07-20 documentation checkpoint: `BLOCKED`.**
 
 The candidate contains substantial implementation, but it is not a released or
 verified GStack 2. `DONE` is prohibited until every P0 gate is backed by the
-required evidence layer. Current blockers include the waived physical-iPhone P0
-gate and the failed live v3 installed-host adversarial gate, including
+required evidence layer. The physical-iPhone P0 gate is now green. The current
+blocker is the failed live v3 installed-host adversarial gate, including
 incomplete representative host UI/process coverage. Native CI is green on
 macOS, Ubuntu, Windows, and the Dev Container. No release-branch push, draft
 PR, or PR-ready claim is authorized by this status.
@@ -57,8 +57,8 @@ PR, or PR-ready claim is authorized by this status.
   three retained Claude Haiku live samples are classified `REGRESSION`; they
   are preserved as noisy supplemental evidence, never cherry-picked as a
   primary gate or represented as green.
-- [x] The current macOS GStack 2 suite is green at commit `a8a5fa1a`: 150 pass
-  / 0 fail and 1,189 assertions across 16 files.
+- [x] The current macOS GStack 2 suite is green: 151 pass / 0 fail and 1,194
+  assertions across 16 files.
 - [x] Optional host-neutral runtime implemented with canonical paths,
   repo/worktree state identity, locks, atomic writes, effect claims,
   doctor/config/state/cleanup, migrations, upgrade/rollback, and uninstall.
@@ -75,6 +75,15 @@ PR, or PR-ready claim is authorized by this status.
   production-only install with the development SDK absent, completed a local
   browser journey and Sharp full-page screenshot, and uninstalled while
   preserving state.
+- [x] The current candidate additionally captures a runtime-owned Bun 1.3.14
+  executable under `.gstack-runtime-tools`, records its path/version in the
+  bundle manifest, vendors the tagged license/source notices, and routes the
+  compiled browser to adjacent `server-node.mjs` on every platform. Focused
+  tests cover managed-Bun launch with host Bun absent. The older native-CI and
+  bundle-size evidence above predates this payload; the new six-target signed
+  release workflow must execute before this layer is called verified. Windows
+  Bash and specialist Python checks are reported separately and are not native
+  browser/design/PDF dependencies.
 - [x] Filesystem lifecycle coverage passes for clean install/uninstall,
   paths with spaces, source symlinks with internal-link rejection, read-only
   destination reporting on macOS, interrupted-pointer rollback, crash-journal
@@ -98,20 +107,14 @@ PR, or PR-ready claim is authorized by this status.
   fail / 398 assertions; and diagram 51 pass / 0 fail / 1 skip / 120
   assertions. The opt-in paid diagram lane recorded two skips and is not live
   provider evidence.
-- [x] Physical-iOS preflight recorded 9 pass / 0 fail / 1 deploy skip and 29
-  assertions. The direct smoke then returned typed code
-  `signing_unavailable`, category `setup_gate`; it installed no app and wrote no
-  pass artifact. A later attempt against the explicitly selected iPhone10,6 on
-  iOS 16.7.10 returned `device_not_wired`; legacy USB pairing validates, but
-  CoreDevice pairing is unsupported. After the user explicitly authorized the
-  other connected phone, pairing/signing/build/install/launch/tunnel setup
-  passed, but `POST /session/acquire` closed its socket before the five-check
-  loop completed. At harness stop, no device session remained attached and the
-  fixture app was left installed. These are retained operator observations;
-  no pass artifact exists.
-- [x] The user explicitly stopped and waived further physical-iPhone testing.
-  No more device access is authorized. The earlier partial/setup-gate evidence
-  remains retained, but it is not a physical-device P0 pass.
+- [x] After the user re-authorized the connected test phone, the physical-iOS
+  lane passed 12/12. The existing Apple-signed wildcard development profile and
+  matching private key signed the reserved fixture; no fabricated profile was
+  needed. Release guard, safe in-place install, launch, CoreDevice bootstrap,
+  boot-token rotation, all five session acquire/release cycles, ten live
+  screenshots, accessibility elements, coordinate taps, bundle checks, state
+  cleanup, tunnel shutdown, and temporary-workspace cleanup passed. Artifact:
+  [`evidence/ios-physical-device-2026-07-20T17-49-19-302Z.json`](./evidence/ios-physical-device-2026-07-20T17-49-19-302Z.json).
 - [x] Installed-host adversarial evidence is retained without relabeling:
   v1 **failed**; immutable v2 **failed** even though QA passed because the
   classifier produced false negatives for debug, review, and ship; v3 offline
@@ -153,11 +156,6 @@ PR, or PR-ready claim is authorized by this status.
   the immutable one-shot result is **3/4**, with review failing compound
   inspection. Do not retry or relabel it. The six hosts remain **Verified at
   the installer layer only**; representative UI/process coverage is incomplete.
-- [ ] The physical-iPhone five-check loop remains incomplete and is explicitly
-  waived by the user. No further device access is authorized. The unsigned
-  Release guard and earlier preflight/setup-gate observations remain useful
-  partial evidence. A signed fixture was later installed and launched, but its
-  session-acquire request failed; no pass artifact exists and P0 remains open.
 - [ ] Finish final evidence-linked disposition for every infrastructure item;
   see the 25-row table in [ARCHITECTURE.md](./ARCHITECTURE.md). Current focused
   evidence does not replace the remaining live gates.
@@ -179,7 +177,7 @@ PR, or PR-ready claim is authorized by this status.
 | Context integration | [CONTEXT-DEV.md](./CONTEXT-DEV.md) | Automated contract 22/139 green; verified-key official-endpoint live smoke passed |
 | Host matrix | [HOST-COMPATIBILITY.md](./HOST-COMPATIBILITY.md) | 470/470 checks; Codex runtime-absent run passed; live v3 failed; other UI launches pending |
 | Privacy boundary | [PRIVACY.md](./PRIVACY.md) | Implemented contract; full retained-tool egress audit pending |
-| Physical iOS | [IOS-PHYSICAL-DEVICE.md](./IOS-PHYSICAL-DEVICE.md) | Partial setup evidence only; user stopped/waived further device testing; no P0 pass artifact |
+| Physical iOS | [IOS-PHYSICAL-DEVICE.md](./IOS-PHYSICAL-DEVICE.md), [live artifact](./evidence/ios-physical-device-2026-07-20T17-49-19-302Z.json) | 12/12 harness tests and five-of-five live iterations passed on a wired paired iPhone |
 | Upgrade/recovery | [UPGRADE-AND-ROLLBACK.md](./UPGRADE-AND-ROLLBACK.md) | Runtime installer 25 pass / 341 assertions; deterministic clean macOS arm64 bundle audit recorded |
 
 ## Interpretation rules

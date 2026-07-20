@@ -450,7 +450,7 @@ export function resolveBundlePath(env: NodeJS.ProcessEnv = process.env): string 
   throw new Error(
     "diagram-render bundle not found. Tried:\n" +
     candidates.map((c) => `  - ${c}`).join("\n") +
-    "\nRun `bun run build:diagram-render` (repo) or re-run ./setup (install).",
+    "\nRun `bun run build:diagram-render` in a reviewed checkout, or run `gstack doctor --skill-api 2.0` and explicitly approve the current skill's runtime bootstrap for `--capability pdf`.",
   );
 }
 

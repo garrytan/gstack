@@ -4,6 +4,7 @@ import { getHostConfig } from '../../hosts/index';
 import { extractHookSafetyProse, extractNameAndDescription } from '../resolvers/codex-helpers';
 import { RESOLVERS } from '../resolvers/index';
 import { HOST_PATHS, unwrapResolver, type TemplateContext } from '../resolvers/types';
+import { SOURCE_ASSIGNMENTS } from './assignments';
 import { GSTACK2_BASE_SHA } from './types';
 
 export const ROOT = path.resolve(import.meta.dir, '..', '..');
@@ -70,13 +71,21 @@ function buildContext(tmplContent: string, tmplPath: string): TemplateContext {
   };
 }
 
-function resolvePlaceholders(template: string, context: TemplateContext, relativePath: string): string {
+type ResolverOverrides = Readonly<Record<string, string>>;
+
+function resolvePlaceholders(
+  template: string,
+  context: TemplateContext,
+  relativePath: string,
+  overrides: ResolverOverrides = {},
+): string {
   const config = getHostConfig('codex');
   const suppressed = new Set(config.suppressedResolvers ?? []);
   const onePass = (input: string): string => input.replace(
     /\{\{(\w+(?::[^}]+)?)\}\}/g,
     (_match, fullKey: string) => {
       const [resolverName, ...args] = fullKey.split(':');
+      if (Object.hasOwn(overrides, resolverName)) return overrides[resolverName];
       if (suppressed.has(resolverName)) return '';
       const entry = RESOLVERS[resolverName];
       if (!entry) throw new Error(`Unknown placeholder {{${resolverName}}} in ${relativePath}`);
@@ -95,6 +104,53 @@ function resolvePlaceholders(template: string, context: TemplateContext, relativ
   const remaining = content.match(/\{\{(\w+(?::[^}]+)?)\}\}/g);
   if (remaining) throw new Error(`Unresolved placeholders in ${relativePath}: ${remaining.join(', ')}`);
   return content;
+}
+
+/**
+ * The 1.x PREAMBLE resolver is host installation and engagement machinery, not
+ * specialist judgment. It performs first-run writes, telemetry/proactive
+ * prompts, update checks, model overlays, checkpoint promotion, artifact-sync
+ * enrollment, and CLAUDE.md mutation. GStack 2 keeps that immutable expansion
+ * as the parity oracle while deliberately excluding it from normal canonical
+ * execution. Runtime and authority are owned once by package-local contracts.
+ */
+export const CANONICAL_EXCLUDED_RESOLVERS = ['PREAMBLE'] as const;
+
+const RETIRED_ASSIGNMENTS = [...SOURCE_ASSIGNMENTS]
+  .filter((entry) => !['plan', 'design', 'qa', 'debug', 'review', 'ship'].includes(entry.source))
+  .sort((a, b) => b.source.length - a.source.length);
+
+export function retiredInvocationPattern(): RegExp {
+  const sources = RETIRED_ASSIGNMENTS
+    .map((entry) => entry.source.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join('|');
+  return new RegExp(`(?<![A-Za-z0-9_.-])/(?:${sources})(?=$|[\\s\\x60'\"),.;:*_|\\]}>])`);
+}
+
+export function replaceRetiredInvocations(value: string): string {
+  let rewritten = value;
+  for (const assignment of RETIRED_ASSIGNMENTS) {
+    // A preceding word/path character means this slash is part of a file path
+    // or URL, not an invocation. The trailing set includes Markdown emphasis,
+    // table, and link punctuation in addition to prose punctuation.
+    rewritten = rewritten.replace(
+      new RegExp(`(?<![A-Za-z0-9_.-])/${assignment.source}(?=$|[\\s\\x60'\"),.;:*_|\\]}>])`, 'g'),
+      assignment.replacement,
+    );
+  }
+  return rewritten;
+}
+
+function renderCanonicalSpecialistBody(source: string): string {
+  const templatePath = legacyTemplatePath(source);
+  const relativePath = repositoryRelativePath(templatePath);
+  const template = pinnedText(relativePath);
+  const context = buildContext(template, templatePath);
+  const overrides = Object.fromEntries(CANONICAL_EXCLUDED_RESOLVERS.map((name) => [name, '']));
+  // Hook advisories are part of the host-specific 1.x wrapper. Canonical
+  // authority/safety policy is generated once beside every public dispatcher.
+  const body = stripFrontmatter(resolvePlaceholders(template, context, relativePath, overrides));
+  return `${applyCodexRewrites(body).trim()}\n`;
 }
 
 function applyCodexRewrites(content: string): string {
@@ -135,6 +191,11 @@ function portLegacyText(value: string, source: string): string {
     return `# Legacy upgrade compatibility\n\nThe 1.x host-directory detector, vendored-copy synchronizer, and destructive Git replacement blocks were duplicated installation infrastructure. GStack 2 delegates skill placement and updates to the standard Agent Skills installer and manages the optional shared runtime atomically.\n\n- Update selected skills with \`npx skills add time-attack/gstack\` using the user's existing project/global choice. Never infer or enroll a host.\n- Upgrade a complete local runtime package with \`gstack upgrade --source <complete-gstack-package> --version <version>\`.\n- Roll back the runtime with \`gstack upgrade --rollback\`.\n- Run \`gstack doctor\` after either operation.\n- Do not reset, delete, move, or rewrite a host skill directory. Do not infer Context.dev choice or consent.\n\nThis compatibility module contains no specialist judgment; release readiness and rollback judgment remain in the preserved ship modules.\n`;
   }
   let body = value;
+
+  // Retired names remain valid only as opt-in compatibility aliases. Normal
+  // canonical execution must recommend one of the six public routes, with the
+  // exact internal refinement retained for deterministic dispatch.
+  body = replaceRetiredInvocations(body);
   // Every state read/write follows the canonical override. Quote the root so
   // custom homes containing spaces remain valid. Compatibility pointer files
   // such as ~/.gstack-artifacts-remote.txt are outside this state root and are
@@ -237,6 +298,36 @@ function portLegacyText(value: string, source: string): string {
     .replaceAll('~/.codex/skills/gstack/browse-remote.json', '${GSTACK_HOME:-$HOME/.gstack}/browse-remote.json')
     .replaceAll('${HOME}/.agents/skills/gstack/document-release/SKILL.md', 'references/legacy/document-release.md');
 
+  // The managed runtime owns a pinned Bun executable. Remove the old
+  // per-skill curl installer and route GStack-owned helpers through their
+  // stable launchers. Project-owned commands such as a repository's `bun
+  // test` are intentionally untouched.
+  body = body
+    .replace(
+      /3\. If `bun` is not installed:\n\s+```bash\n[\s\S]*?\n\s+```/g,
+      '3. The approved managed runtime includes its own pinned Bun at `$GSTACK_BIN/bun`; never download or install another Bun from a skill workflow.',
+    )
+    .replaceAll('bun run $GSTACK_BIN/gstack-gbrain-sync.ts', '$GSTACK_BIN/gstack-gbrain-sync')
+    .replaceAll('bun run $GSTACK_BIN/gstack-next-version', '$GSTACK_BIN/gstack-next-version')
+    .replaceAll('bun run $GSTACK_BIN/gstack-version-bump', '$GSTACK_BIN/gstack-version-bump')
+    .replaceAll('DISCOVER_BIN="bun run $GSTACK_BIN/gstack-global-discover"', 'DISCOVER_BIN="$GSTACK_BIN/gstack-global-discover"')
+    .replaceAll('Tell the user: "gstack browse needs a one-time build (~10 seconds). OK to proceed?" Then STOP and wait.', 'Tell the user: "The optional managed headless browser capability is missing. Do you want to preview its exact dependency-closed component plan and compressed bytes now?" Then STOP and wait.')
+    .replace(/^command -v bun >\/dev\/null 2>&1 \|\| echo "redaction scan skipped — bun not on PATH"\n/gm, '');
+
+  body = body
+    .replaceAll(
+      'Run: `cd <SKILL_DIR> && ./setup`',
+      'Read `references/RUNTIME.md` and follow its explicit capability bootstrap. Never assume a standard-installed skill directory contains `./setup`.',
+    )
+    .replaceAll(
+      'run `cd <SKILL_DIR> && ./setup`',
+      'read `references/RUNTIME.md` and follow its explicit capability bootstrap; never assume a standard-installed skill directory contains `./setup`',
+    )
+    .replaceAll(
+      'Run `cd <SKILL_DIR> && ./setup`',
+      'Read `references/RUNTIME.md` and follow its explicit capability bootstrap. Never assume a standard-installed skill directory contains `./setup`.',
+    );
+
   for (const helper of [
     'gstack-codex-probe',
     'gstack-global-discover.ts',
@@ -249,6 +340,12 @@ function portLegacyText(value: string, source: string): string {
     const stableName = helper === 'gstack-global-discover.ts' ? 'gstack-global-discover' : helper;
     body = body.replaceAll(`bin/${helper}`, `$GSTACK_BIN/${stableName}`);
   }
+  body = body
+    .replaceAll('bun run $GSTACK_BIN/gstack-gbrain-sync.ts', '$GSTACK_BIN/gstack-gbrain-sync')
+    .replaceAll('bun run $GSTACK_BIN/gstack-gbrain-sync', '$GSTACK_BIN/gstack-gbrain-sync')
+    .replaceAll('bun run $GSTACK_BIN/gstack-next-version', '$GSTACK_BIN/gstack-next-version')
+    .replaceAll('bun run $GSTACK_BIN/gstack-version-bump', '$GSTACK_BIN/gstack-version-bump')
+    .replaceAll('DISCOVER_BIN="bun run $GSTACK_BIN/gstack-global-discover"', 'DISCOVER_BIN="$GSTACK_BIN/gstack-global-discover"');
 
   body = body.replace(
     /BUNDLE=""\nfor c in "\$HOME\/\.agents\/skills\/gstack\/lib\/diagram-render\/dist\/diagram-render\.html" \\\n\s+"\$\(git rev-parse --show-toplevel 2>\/dev\/null\)\/lib\/diagram-render\/dist\/diagram-render\.html"; do\n\s+\[ -f "\$c" \] && BUNDLE="\$c" && break\ndone/,
@@ -288,11 +385,92 @@ function portLegacyText(value: string, source: string): string {
     );
   }
 
+  // Canonical skills do not run engagement instrumentation. Remove the few
+  // source-local remnants that are outside {{PREAMBLE}} while leaving actual
+  // specialist reports, requested context saves, and explicit setup modules
+  // intact.
+  body = body.replace(/```bash\n([\s\S]*?)```/g, (block, commands: string) => {
+    const writesAnalytics = /(?:mkdir\s+-p|>>)[^\n]*\/(?:analytics|skill-usage\.jsonl)/.test(commands);
+    return writesAnalytics
+      ? 'Canonical execution does not write engagement analytics or telemetry.'
+      : block;
+  });
+  body = body
+    .replace(/^.*gstack-telemetry-log.*\n?/gm, '')
+    .replace(/^\s*_gstack_codex_log_event\s+.*\n?/gm, '')
+    .replace(/^_TEL=\$\([^\n]*\)$/gm, '_TEL=off # Canonical execution does not emit GStack telemetry.')
+    .replace(/Best-effort, record which way you routed[\s\S]*?directly, no skill matched\):\nCanonical execution does not write engagement analytics or telemetry\.\n*/g, '')
+    .replace(/If `PROACTIVE` is `false`:[\s\S]*?Use the Skill tool to invoke it\. The skill has specialized workflows, checklists, and\nquality gates that produce better results than answering inline\.\n\n/g, '')
+    .replace(/\nIf the user opts out of suggestions,[\s\S]*?gstack-config set proactive true`\.\n?/g, '\n')
+    .replace(/#### TTHW telemetry \(DX11\/F7\)[\s\S]*?\n---\n/g, '---\n')
+    .replace(/\n3\. Append metrics:\nCanonical execution does not write engagement analytics or telemetry\.\nReplace ITERATIONS,[\s\S]*?actual values from the review\.\n/g, '\n3. Report the iteration counts and quality score in the user-facing result; do not persist engagement analytics.\n');
+
   return `${body.trim()}\n`;
 }
 
 export function renderPortedLegacyBody(source: string): string {
-  return portLegacyText(renderLegacyBody(source), source);
+  let body = portLegacyText(renderCanonicalSpecialistBody(source), source);
+  if (source === 'make-pdf') {
+    body = [
+      '## Optional runtime binding',
+      '',
+      'This workflow requires the `pdf` capability. Read `references/RUNTIME.md` before attempting installation. Pure planning or document review can continue without it.',
+      'If unavailable, follow the consent-first `pdf` capability handoff in `references/RUNTIME.md`. It expands to `pdf`, `diagram`, and `browser`; do not guess a checkout-relative setup command.',
+      '',
+      body,
+    ].join('\n');
+  }
+  body = body.replace(
+    '`./setup` auto-installs `fonts-noto-color-emoji` on Linux',
+    'the explicitly approved `pdf` runtime capability attempts to install `fonts-noto-color-emoji` on Linux',
+  );
+  if (['open-gstack-browser', 'pair-agent', 'setup-browser-cookies'].includes(source)) {
+    body = [
+      '## Visible-browser point-of-use gate',
+      '',
+      'This workflow may require internal `browser-visible` because it reaches a headed browser, extension, interactive cookie picker, or browser handoff. Do not offer visible Chromium during ordinary headless QA.',
+      '',
+      'At the first actual visible-browser step, ask whether the user wants to check official setup options and exact sizes. Disclose that an uncached preview makes one public GitHub signed-manifest request and sends no repository/private data, then STOP. Only after that approval run `node references/support/runtime-bootstrap.mjs preview --capability browser-visible`. It expands to `core + browser-code + browser-visible` for a first install, but an existing verified headless runtime downloads only missing `browser-visible`; it never requires `browser-headless`. Show the exact missing components and summed incremental compressed bytes, then STOP again for separate install approval. Only after install approval run `node references/support/runtime-bootstrap.mjs install --capability browser-visible --yes`, recheck readiness, and resume the interrupted step.',
+      '',
+      body,
+    ].join('\n');
+  }
+  if (/\$(?:GSTACK_BIN|GSTACK_ROOT|GSTACK_STATE_ROOT)\b|\$(?:B|D|P)\b/.test(body)) {
+    const bindings = [
+      '## Host-neutral runtime bindings',
+      '',
+      'These assignments select stable paths only; they do not install anything or grant consent:',
+      '',
+      '```bash',
+      'GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"',
+      'GSTACK_ROOT="$GSTACK_HOME"',
+      'GSTACK_STATE_ROOT="$GSTACK_HOME"',
+      'GSTACK_BIN="$GSTACK_HOME/bin"',
+      'BUN_CMD="$GSTACK_BIN/bun"',
+      'B="$GSTACK_BIN/browse"',
+      'D="$GSTACK_BIN/gstack-design"',
+      'P="$GSTACK_BIN/make-pdf"',
+      '```',
+      '',
+    ].join('\n');
+    body = `${bindings}${body}`;
+  }
+  // Large specialist phases remain byte-derived from the pinned source, but
+  // are packaged as lazy references instead of duplicated inline. The active
+  // workflow loads one only when it reaches that phase.
+  for (const section of legacySections().filter((entry) => entry.source === source)) {
+    const ported = portLegacyText(section.rendered, section.source).trim();
+    const filename = path.basename(section.relativePath).replace(/\.tmpl$/, '');
+    const reference = `references/sections/${source}/${filename}`;
+    const directive = [
+      `## Lazy specialist phase: ${filename.replace(/\.md$/, '')}`,
+      '',
+      `When the workflow reaches this phase, read \`${reference}\` completely and execute it before continuing. Do not summarize or skip its questions, pressure, gates, evidence, artifacts, mutation boundary, or exit behavior.`,
+    ].join('\n');
+    if (!body.includes(ported)) throw new Error(`Unable to carve canonical section ${section.relativePath} from ${source}`);
+    body = body.replace(ported, directive);
+  }
+  return `${body.trim()}\n`;
 }
 
 export function renderPortedLegacySection(section: LegacySection): string {
@@ -302,7 +480,7 @@ export function renderPortedLegacySection(section: LegacySection): string {
 /** Apply host-neutral runtime-path mechanics to linked text assets. */
 export function renderPortedAssetBytes(relativePath: string, input: Uint8Array): Uint8Array {
   if (!relativePath.endsWith('.md')) return input;
-  const ported = Buffer.from(input).toString('utf8')
+  const ported = replaceRetiredInvocations(Buffer.from(input).toString('utf8')
     .replaceAll(
       '~/.claude/skills/gstack/bin/gstack-diff-scope',
       '${GSTACK_HOME:-$HOME/.gstack}/bin/gstack-diff-scope',
@@ -310,7 +488,7 @@ export function renderPortedAssetBytes(relativePath: string, input: Uint8Array):
     .replaceAll(
       'browse/bin/remote-slug 2>/dev/null || ~/.claude/skills/gstack/browse/bin/remote-slug',
       '${GSTACK_HOME:-$HOME/.gstack}/bin/remote-slug',
-    );
+    ));
   return Buffer.from(ported, 'utf8');
 }
 

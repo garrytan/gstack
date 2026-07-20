@@ -7,4 +7,4 @@ When no public-web choice is stored, present: A) Context.dev free setup (recomme
 
 Persist only the explicit choice with `gstack context select host`, `gstack context select local-browser`, or `gstack context select none`. For Context.dev, show `gstack context options`, then use `gstack context setup` and its hidden key prompt; consent and key storage belong to the runtime, never this judgment prompt. Do not infer Context choice or consent.
 
-Capability-dependent work performs one host-neutral runtime check. Pure judgment never requires the runtime. If the runtime is absent, offer ./setup from a trusted GStack checkout; skill placement remains npx skills add time-attack/gstack.
+Capability-dependent work follows `references/RUNTIME.md`. Pure judgment never requires the runtime. Skill placement remains owned by `npx skills add time-attack/gstack` and is never inferred from runtime state.

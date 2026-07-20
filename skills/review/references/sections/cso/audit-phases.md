@@ -6,10 +6,10 @@ Scan git history for leaked credentials, check tracked `.env` files, find CI con
 
 **Canonical pattern catalog.** The HIGH-tier credential prefixes the archaeology
 greps below target (AKIA, ghp_, sk-ant-, sk_live_, xoxb-, `-----BEGIN ... PRIVATE
-KEY-----`, etc.) are the same set `/spec`'s in-flight redaction blocks on. The full
+KEY-----`, etc.) are the same set `$plan --mode Specification --module spec`'s in-flight redaction blocks on. The full
 3-tier taxonomy (HIGH credentials, MEDIUM PII/legal/internal, LOW) is generated from
 and lives in `references/support/lib/redact-patterns.ts` — the single source of truth shared by the
-`gstack-redact` engine, `/spec`, `/ship`, and the `/document-*` skills.
+`gstack-redact` engine, `$plan --mode Specification --module spec`, `/ship`, and the `/document-*` skills.
 
 **Git history — known secret prefixes:**
 ```bash

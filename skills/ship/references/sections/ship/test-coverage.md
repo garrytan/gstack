@@ -213,7 +213,7 @@ Using the coverage percentage from the diagram in substep 4 (the `COVERAGE: X/Y 
 
 ### Test Plan Artifact
 
-After producing the coverage diagram, write a test plan artifact so `/qa` and `/qa-only` can consume it:
+After producing the coverage diagram, write a test plan artifact so `/qa` and `$qa --mode Report --module qa-only` can consume it:
 
 ```bash
 eval "$($GSTACK_BIN/gstack-slug 2>/dev/null)" && mkdir -p "${GSTACK_HOME:-$HOME/.gstack}"/projects/${PROJECT_ID:-unknown}

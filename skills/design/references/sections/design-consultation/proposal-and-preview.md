@@ -378,7 +378,7 @@ If `$D extract` was used in Phase 5 (Path A), use the extracted tokens as the pr
 ## Decisions Log
 | Date | Decision | Rationale |
 |------|----------|-----------|
-| [today] | Initial design system created | Created by /design-consultation based on [product context / research] |
+| [today] | Initial design system created | Created by $design --mode Generate --module design-consultation based on [product context / research] |
 ```
 
 **Update CLAUDE.md** (or create it if it doesn't exist) — append this section:
@@ -400,6 +400,6 @@ List all decisions. Flag any that used agent defaults without explicit user conf
 
 After shipping DESIGN.md, if the session produced screen-level mockups or page layouts
 (not just system-level tokens), suggest:
-"Want to see this design system as working Pretext-native HTML? Run /design-html."
+"Want to see this design system as working Pretext-native HTML? Run $design --mode Implement --module design-html."
 
 ---

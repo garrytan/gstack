@@ -4,15 +4,15 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { BUG_FIX_OVERLAYS, evaluateBugFixRegression, overlaysForSource } from './bug-fix-overlays';
 import { contractFor, DISPATCHERS, SOURCE_ASSIGNMENTS } from './assignments';
-import { ROOT, blobShaForPath, legacySections, renderLegacyBody, renderPortedAssetBytes, renderPortedLegacyBody, renderPortedLegacySection, sourceBlobSha } from './render-legacy';
+import { ROOT, blobShaForPath, legacySections, renderLegacyBody, renderPortedAssetBytes, renderPortedLegacyBody, renderPortedLegacySection, retiredInvocationPattern, sourceBlobSha } from './render-legacy';
 import { routeStructured } from './route';
 import { SCENARIOS } from './scenarios';
 import { GSTACK2_BASE_SHA, TREE_NAMES } from './types';
 
 const CONTRACT_KEYS = ['question_order', 'pressure', 'smart_skips', 'stop_approval_gates', 'evidence', 'artifacts', 'mutation', 'exit', 'voice'];
 const PROVENANCE_KEYS = ['original_source_file', 'original_line_range', 'purpose', 'invocation_conditions', 'modes', 'question_sequence', 'follow_up_behavior', 'smart_skip_rules', 'pushback_rules', 'stop_gates', 'approval_gates', 'rubrics_and_scoring', 'cognitive_frameworks', 'evidence_requirements', 'artifacts_produced', 'mutation_authority', 'exit_states', 'voice', 'response_posture', 'new_location', 'parity_test'];
-const ALLOWED_DISPOSITIONS = new Set(['VERBATIM_PORT', 'MECHANICAL_PORT', 'SHARED_MODULE', 'BUG_FIX', 'DUPLICATE_INFRASTRUCTURE', 'REMOVE_WITH_USER_APPROVAL']);
-export const EXPECTED_PARITY_CHECKS = 4681;
+const ALLOWED_DISPOSITIONS = new Set(['VERBATIM_PORT', 'MECHANICAL_PORT', 'JUDGMENT_PRESERVING_CARVE', 'SHARED_MODULE', 'BUG_FIX', 'DUPLICATE_INFRASTRUCTURE', 'REMOVE_WITH_USER_APPROVAL']);
+export const EXPECTED_PARITY_CHECKS = 4697;
 
 function sha256(value: string | Uint8Array): string {
   return createHash('sha256').update(value).digest('hex');
@@ -56,6 +56,7 @@ export function runParity(): ParityResult {
     checks += 1;
     if (!condition) failures.push(message);
   };
+  const retiredInvocation = retiredInvocationPattern();
 
   const publicSkills = fs.readdirSync(path.join(ROOT, 'skills'), { withFileTypes: true })
     .filter((entry) => entry.isDirectory() && fs.existsSync(path.join(ROOT, 'skills', entry.name, 'SKILL.md')))
@@ -184,6 +185,18 @@ export function runParity(): ParityResult {
     check(!/^\s*#{1,6}\s|^\s*[-*]\s|^\s*\d+\.\s/m.test(prelude), `${assignment.source} has visible generated prose before preserved judgment`);
     check(prelude.split('\n').length <= 5, `${assignment.source} generated prelude is not thin`);
     check(generatedBody === expectedBody, `${assignment.source} normalized legacy body differs`);
+    check(!generatedBody.includes('## Preamble (run first)'), `${assignment.source} still executes the retired shared onboarding preamble`);
+    check(!/MODEL_OVERLAY: claude|CLAUDE_PLAN_FILE|Add routing rules to CLAUDE\.md|Boil the Ocean principle|TEL_PROMPTED|PROACTIVE_PROMPTED/.test(generatedBody), `${assignment.source} retains host-specific onboarding, engagement, or telemetry machinery`);
+    check(!/cd <SKILL_DIR> && \.\/setup/.test(generatedBody), `${assignment.source} tells a standard-installed skill to run a nonexistent local setup script`);
+    check(!retiredInvocation.test(generatedBody), `${assignment.source} recommends a retired public invocation instead of a six-skill route`);
+    const usesRuntimeBinding = /\$(?:GSTACK_BIN|GSTACK_ROOT|GSTACK_STATE_ROOT)\b|\$(?:B|D|P)\b/.test(generatedBody);
+    check(!usesRuntimeBinding || generatedBody.includes('## Host-neutral runtime bindings'), `${assignment.source} uses an unbound retained runtime helper variable`);
+    check(!/bun\.sh\/install|bun run \$GSTACK_BIN|command -v bun/.test(generatedBody), `${assignment.source} retains GStack-owned host Bun onboarding or invocation`);
+    const visiblePointOfUse = ['open-gstack-browser', 'pair-agent', 'setup-browser-cookies'].includes(assignment.source);
+    check(
+      generatedBody.includes('## Visible-browser point-of-use gate') === visiblePointOfUse,
+      `${assignment.source} visible-browser point-of-use gate classification is wrong`,
+    );
     check(module.includes(`blob=${baseBlob}`), `${assignment.source} module lacks source blob provenance`);
     check(module.includes(`baseline_render_sha256=${sha256(baselineBody)}`), `${assignment.source} module lacks immutable baseline render hash`);
     check(module.includes(`ported_render_sha256=${sha256(expectedBody)}`), `${assignment.source} module lacks installable port render hash`);
@@ -197,6 +210,10 @@ export function runParity(): ParityResult {
     }
   }
 
+  const baselinePromptBytes = SOURCE_ASSIGNMENTS.reduce((total, assignment) => total + Buffer.byteLength(renderLegacyBody(assignment.source)), 0);
+  const canonicalPromptBytes = SOURCE_ASSIGNMENTS.reduce((total, assignment) => total + Buffer.byteLength(renderPortedLegacyBody(assignment.source)), 0);
+  check(canonicalPromptBytes < baselinePromptBytes * 0.5, `Canonical specialist corpus did not cut prompt bytes by at least 50% (${canonicalPromptBytes}/${baselinePromptBytes})`);
+
   const sections = legacySections();
   check(sections.length === 16, `Expected 16 section templates; got ${sections.length}`);
   for (const section of sections) {
@@ -204,8 +221,9 @@ export function runParity(): ParityResult {
     const assignment = SOURCE_ASSIGNMENTS.find((entry) => entry.source === section.source)!;
     const module = fs.readFileSync(path.join(ROOT, 'skills', assignment.tree, 'references', 'legacy', `${assignment.source}.md`), 'utf8');
     const portedSection = renderPortedLegacySection(section);
-    check(module.includes(portedSection.trim()), `${section.relativePath} was not mechanically inlined`);
     const sectionName = path.basename(section.relativePath).replace(/\.tmpl$/, '');
+    check(module.includes(`references/sections/${section.source}/${sectionName}`), `${section.relativePath} lacks its package-local lazy reference`);
+    check(!module.includes(portedSection.trim()), `${section.relativePath} is still duplicated inline instead of lazy-loaded`);
     const packaged = path.join(ROOT, 'skills', assignment.tree, 'references', 'sections', section.source, sectionName);
     check(fs.existsSync(packaged), `${section.relativePath} is referenced but not packaged`);
     if (fs.existsSync(packaged)) check(normalizeGolden(fs.readFileSync(packaged, 'utf8')) === normalizeGolden(portedSection), `${section.relativePath} packaged content drifted`);
@@ -279,6 +297,7 @@ export function runParity(): ParityResult {
         check(sha256(installed) === sha256(expected), `Relocated asset hash mismatch: ${asset.target_path}`);
         if (asset.target_path.endsWith('.md')) {
           check(!/~\/.claude\/skills\/gstack|browse\/bin\/remote-slug/.test(installed.toString()), `Relocated asset retains a host-specific runtime path: ${asset.target_path}`);
+          check(!retiredInvocationPattern().test(installed.toString()), `Relocated executable asset recommends a retired public invocation: ${asset.target_path}`);
         }
       }
     }
@@ -286,7 +305,11 @@ export function runParity(): ParityResult {
   for (const sectionCopy of manifest.section_copies ?? []) {
     const target = path.join(ROOT, sectionCopy.target_path);
     check(fs.existsSync(target), `Missing packaged section ${sectionCopy.target_path}`);
-    if (fs.existsSync(target)) check(sha256(fs.readFileSync(target)) === sectionCopy.sha256, `Packaged section hash mismatch: ${sectionCopy.target_path}`);
+    if (fs.existsSync(target)) {
+      const content = fs.readFileSync(target);
+      check(sha256(content) === sectionCopy.sha256, `Packaged section hash mismatch: ${sectionCopy.target_path}`);
+      check(!retiredInvocationPattern().test(content.toString()), `Packaged section recommends a retired public invocation: ${sectionCopy.target_path}`);
+    }
   }
   for (const dependency of manifest.dependency_copies ?? []) {
     const target = path.join(ROOT, dependency.target);
@@ -321,7 +344,7 @@ export function runParity(): ParityResult {
   for (const tree of TREE_NAMES) {
     const compatibility = fs.readFileSync(path.join(ROOT, 'skills', tree, 'references', 'COMPATIBILITY.md'), 'utf8');
     check(!compatibility.includes('../../../') && !compatibility.includes('compat/README.md'), `${tree} compatibility map escapes the selected package`);
-    for (const reference of ['SHARED-JUDGMENT.md', 'WEB-CONTEXT.md']) {
+    for (const reference of ['SHARED-JUDGMENT.md', 'WEB-CONTEXT.md', 'RUNTIME.md']) {
       const referencePath = path.join(ROOT, 'skills', tree, 'references', reference);
       check(fs.existsSync(referencePath), `${tree} lacks ${reference}`);
       if (fs.existsSync(referencePath)) {
@@ -331,6 +354,16 @@ export function runParity(): ParityResult {
         );
       }
     }
+    const runtimeContract = fs.readFileSync(path.join(ROOT, 'skills', tree, 'references', 'RUNTIME.md'), 'utf8');
+    const packagedBootstrap = fs.readFileSync(path.join(ROOT, 'skills', tree, 'references', 'support', 'runtime-bootstrap.mjs'));
+    check(packagedBootstrap.equals(fs.readFileSync(path.join(ROOT, 'runtime', 'runtime-bootstrap.mjs'))), `${tree} packaged runtime bootstrap drifted from its source`);
+    check(runtimeContract.includes('preview --capability <name>') && runtimeContract.includes('It never downloads components or mutates runtime state.'), `${tree} runtime contract lacks non-mutating exact-byte preview`);
+    check(runtimeContract.includes('install --capability <name> --yes'), `${tree} runtime contract lacks explicit approved install invocation`);
+    check(runtimeContract.includes('Logical `browser` expands to `browser-code + browser-headless`') && runtimeContract.includes('`browser-visible` expands to `browser-code + browser-visible` and does not require headless') && runtimeContract.includes('`pdf` depends on `diagram`'), `${tree} runtime contract omits component dependency closure`);
+    check(runtimeContract.includes('`all` means those five and intentionally excludes visible Chromium'), `${tree} runtime contract lets eager setup install visible Chromium`);
+    check(runtimeContract.includes('B=$GSTACK_BIN/browse') && runtimeContract.includes('P=$GSTACK_BIN/make-pdf'), `${tree} runtime contract omits stable launcher bindings`);
+    check(runtimeContract.includes('BUN_CMD=$GSTACK_BIN/bun'), `${tree} runtime contract omits the managed Bun binding`);
+    check(runtimeContract.includes('discovers Git for Windows Bash') && runtimeContract.includes('Python is not a global GStack prerequisite'), `${tree} runtime contract omits retained shell/Python prerequisite disclosure`);
   }
   for (const required of ['SKILL-MIGRATION.md', 'JUDGMENT-PROVENANCE.json', 'JUDGMENT-PARITY.md', 'SCENARIOS.md']) {
     check(fs.existsSync(path.join(ROOT, 'docs', 'gstack-2', required)), `Missing docs/gstack-2/${required}`);

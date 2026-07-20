@@ -100,6 +100,32 @@ export async function ensureManagedHome(home, options = {}) {
   return { home: resolved, sentinel, created: false };
 }
 
+/** Create/verify one direct runtime-owned directory without following links. */
+export async function ensureManagedRuntimeDirectory(home, directory) {
+  const resolvedHome = path.resolve(home);
+  const resolvedDirectory = path.resolve(directory);
+  if (path.dirname(resolvedDirectory) !== resolvedHome) {
+    throw managedHomeError("Managed runtime directory must be a direct child of GSTACK_HOME", "MANAGED_HOME_SUBDIRECTORY_UNSAFE");
+  }
+  try {
+    await fs.mkdir(resolvedDirectory, { mode: 0o700 });
+  } catch (error) {
+    if (error?.code !== "EEXIST") throw error;
+  }
+  const stat = await fs.lstat(resolvedDirectory).catch(() => null);
+  if (!stat?.isDirectory() || stat.isSymbolicLink()) {
+    throw managedHomeError(`Managed runtime directory is missing or unsafe: ${resolvedDirectory}`, "MANAGED_HOME_SUBDIRECTORY_UNSAFE");
+  }
+  const [physicalHome, physicalDirectory] = await Promise.all([
+    fs.realpath(resolvedHome),
+    fs.realpath(resolvedDirectory),
+  ]);
+  if (path.dirname(physicalDirectory) !== physicalHome) {
+    throw managedHomeError(`Managed runtime directory escaped GSTACK_HOME: ${resolvedDirectory}`, "MANAGED_HOME_SUBDIRECTORY_UNSAFE");
+  }
+  return resolvedDirectory;
+}
+
 async function inspectRecognizedLegacyHome(home, entries) {
   // Record all pre-existing top-level entries in the sentinel so purge can
   // never remove them, even if their names later overlap the managed runtime

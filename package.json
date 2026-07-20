@@ -1,14 +1,25 @@
 {
   "name": "gstack",
   "version": "1.60.1.0",
-  "description": "Garry's Stack — Claude Code skills + fast headless browser. One repo, one install, entire AI engineering workflow.",
+  "description": "GStack 2 — six portable Agent Skills with an optional host-neutral runtime.",
   "license": "MIT",
   "type": "module",
-  "bin": {
-    "browse": "./browse/dist/browse",
-    "gstack": "./bin/gstack",
-    "make-pdf": "./make-pdf/dist/pdf"
+  "gstack": {
+    "packageRole": "runtime-control",
+    "runtimeVersion": "2.0.0",
+    "skillApi": "2.0"
   },
+  "bin": {
+    "gstack": "./bin/gstack",
+    "gstack-runtime-bootstrap": "./runtime/runtime-bootstrap.mjs"
+  },
+  "files": [
+    "bin/gstack",
+    "runtime",
+    "README.md",
+    "LICENSE",
+    "VERSION"
+  ],
   "scripts": {
     "build": "bash scripts/build.sh",
     "build:runtime": "bash scripts/build.sh --runtime-only",
@@ -54,6 +65,7 @@
     "eval:select": "bun run scripts/eval-select.ts",
     "analytics": "bun run scripts/analytics.ts",
     "test:audit": "bun test test/audit-compliance.test.ts",
+    "check:release": "bun test test/release-hardening.test.ts",
     "slop": "npx slop-scan scan . 2>/dev/null || echo 'slop-scan not available (install with: npm i -g slop-scan)'",
     "slop:diff": "bun run scripts/slop-diff.ts"
   },
@@ -64,7 +76,6 @@
     "html-to-docx": "1.8.0",
     "marked": "^18.0.2",
     "playwright": "^1.58.2",
-    "puppeteer-core": "^24.40.0",
     "sharp": "^0.34.5",
     "socks": "^2.8.8",
     "xterm": "5",

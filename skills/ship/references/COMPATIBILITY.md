@@ -28,7 +28,7 @@ This package is self-contained. Route every retired invocation to the exact repl
 | `/diagram` | `$design --mode Generate --module diagram` | install `design` |
 | `/make-pdf` | `$design --mode Generate --module make-pdf` | install `design` |
 | `/qa` | `$qa --mode Fix --module qa` | install `qa` |
-| `/qa-only` | `$qa --mode Report --module qa-only` | `legacy/qa-only.md` |
+| `/qa-only` | `$qa --mode Report --module qa-only` | install `qa` |
 | `/ios-qa` | `$qa --mode Report --module ios-qa` | install `qa` |
 | `/devex-review` | `$qa --mode Report --module devex-review` | install `qa` |
 | `/benchmark` | `$qa --mode Report --module benchmark` | install `qa` |

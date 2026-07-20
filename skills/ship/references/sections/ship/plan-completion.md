@@ -188,7 +188,7 @@ After producing the completion checklist, evaluate in priority order:
 
 ## Step 8.1: Plan Verification
 
-Automatically verify the plan's testing/verification steps using the `/qa-only` skill.
+Automatically verify the plan's testing/verification steps using the `$qa --mode Report --module qa-only` skill.
 
 ### 1. Check for verification section
 
@@ -210,17 +210,17 @@ curl -s -o /dev/null -w '%{http_code}' http://localhost:4000 2>/dev/null || echo
 
 **If NO_SERVER:** Skip with "No dev server detected — skipping plan verification. Run /qa separately after deploying."
 
-### 3. Invoke /qa-only inline
+### 3. Invoke $qa --mode Report --module qa-only inline
 
-Read the `/qa-only` skill from disk:
+Read the `$qa --mode Report --module qa-only` skill from disk:
 
 ```bash
 cat references/legacy/qa-only.md
 ```
 
-**If unreadable:** Skip with "Could not load /qa-only — skipping plan verification."
+**If unreadable:** Skip with "Could not load $qa --mode Report --module qa-only — skipping plan verification."
 
-Follow the /qa-only workflow with these modifications:
+Follow the $qa --mode Report --module qa-only workflow with these modifications:
 - **Skip the preamble** (already handled by /ship)
 - **Use the plan's verification section as the primary test input** — treat each verification item as a test case
 - **Use the detected dev server URL** as the base URL

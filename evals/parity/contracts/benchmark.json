@@ -9,7 +9,7 @@
   "source_path": "benchmark/SKILL.md.tmpl",
   "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
   "blob_sha": "038f16f5fba4ae4e9eae922e3276bba8ef88149e",
-  "normalized_render_sha256": "c579dad9e78a12bf7547a6dd752daaa3299c66c55d8170290c075caa5d1fa660",
+  "normalized_render_sha256": "a4554b8b139ee95c9f25c2e747f9e2214b2f0db64401057529e5ec775be323cd",
   "target": "skills/qa/references/legacy/benchmark.md",
   "overlays": [
     679

@@ -37,19 +37,28 @@ export function validateOutputPath(filePath: string): void {
   // Without this, a symlink at /tmp/evil.png → /etc/crontab passes the
   // parent-directory check (parent is /tmp, which is safe) but the actual
   // write follows the symlink to /etc/crontab.
+  let stat: fs.Stats | undefined;
   try {
-    const stat = fs.lstatSync(resolved);
-    if (stat.isSymbolicLink()) {
-      const realTarget = fs.realpathSync(resolved);
-      const isSafe = SAFE_DIRECTORIES.some(dir => isPathWithin(realTarget, dir));
-      if (!isSafe) {
-        throw new Error(`Path must be within: ${SAFE_DIRECTORIES.join(', ')}`);
-      }
-      return; // symlink target verified, no need to check parent
-    }
+    stat = fs.lstatSync(resolved);
   } catch (e: any) {
-    // ENOENT = file doesn't exist yet, fall through to parent-dir check
+    // ENOENT from lstat means the output file itself does not exist yet.
+    // Do not put realpathSync in this catch: ENOENT there means an existing
+    // dangling symlink, which must fail closed instead of being treated as a
+    // new file whose parent is safe.
     if (e.code !== 'ENOENT') throw e;
+  }
+  if (stat?.isSymbolicLink()) {
+    let realTarget: string;
+    try {
+      realTarget = fs.realpathSync(resolved);
+    } catch {
+      throw new Error(`Path must be within: ${SAFE_DIRECTORIES.join(', ')}`);
+    }
+    const isSafe = SAFE_DIRECTORIES.some(dir => isPathWithin(realTarget, dir));
+    if (!isSafe) {
+      throw new Error(`Path must be within: ${SAFE_DIRECTORIES.join(', ')}`);
+    }
+    return; // symlink target verified, no need to check parent
   }
 
   // For new files (no existing symlink), verify the parent directory.

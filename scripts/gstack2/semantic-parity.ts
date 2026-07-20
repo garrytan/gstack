@@ -78,7 +78,7 @@ function dimensionEvidence(execution: SemanticExecution, preservedPorts: boolean
     return [dimension, {
       classification: preservedPorts ? 'EQUIVALENT' : 'REGRESSION',
       evidence: preservedPorts
-        ? 'The candidate exactly matches the deterministic installable port of the pinned 1.x workflow; only enumerated package-local path mechanics differ from the immutable oracle.'
+        ? 'The candidate exactly matches the deterministic canonical specialist render of the pinned workflow. The retired shared onboarding wrapper is excluded and carved specialist phases are package-local lazy references; specialist questions, pressure, gates, evidence, artifacts, mutation boundaries, exit behavior, and voice remain governed by their source contracts.'
         : 'The candidate lost or changed authoritative workflow prose.',
     }];
   }));
@@ -115,7 +115,7 @@ function deterministicTranscript(execution: SemanticExecution) {
       mechanical_port: {
         rendered_sha256: sha256(expectedPort),
         differs_from_baseline: baseline !== expectedPort,
-        allowed_difference: 'Package-local skill, section, support-artifact, and stable runtime path relocation only.',
+        allowed_difference: 'Canonical GStack 2 carve: exclude the retired shared onboarding wrapper and host hook advisory; resolve retired invocations to six public routes; relocate host/runtime paths; lazy-load pinned carved sections from package-local references.',
       },
       candidate: {
         target_path: repositoryRelativePath(candidateFile),
@@ -171,15 +171,24 @@ function sectionTranscript() {
     const target = path.join(ROOT, 'skills', assignment.tree, 'references', 'legacy', `${section.source}.md`);
     const candidate = fs.readFileSync(target, 'utf8');
     const ported = renderPortedLegacySection(section);
+    const filename = path.basename(section.relativePath).replace(/\.tmpl$/, '');
+    const reference = `references/sections/${section.source}/${filename}`;
+    const packagedPath = path.join(ROOT, 'skills', assignment.tree, reference);
+    const packaged = fs.existsSync(packagedPath) ? fs.readFileSync(packagedPath, 'utf8') : '';
     const occurrences = candidate.split(ported.trim()).length - 1;
+    const referenceOccurrences = candidate.split(reference).length - 1;
     return {
       source_path: section.relativePath,
       parent_source: section.source,
       target_path: repositoryRelativePath(target),
       baseline_render_sha256: sha256(section.rendered),
       ported_render_sha256: sha256(ported),
-      candidate_occurrences: occurrences,
-      classification: occurrences === 1 ? 'EQUIVALENT' : 'REGRESSION',
+      candidate_inline_occurrences: occurrences,
+      candidate_lazy_reference_occurrences: referenceOccurrences,
+      packaged_sha256: packaged ? sha256(packaged) : null,
+      classification: occurrences === 0 && referenceOccurrences >= 1 && normalizeGolden(packaged) === normalizeGolden(ported)
+        ? 'EQUIVALENT'
+        : 'REGRESSION',
     };
   });
 }

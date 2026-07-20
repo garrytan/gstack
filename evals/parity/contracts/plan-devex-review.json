@@ -9,7 +9,7 @@
   "source_path": "plan-devex-review/SKILL.md.tmpl",
   "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
   "blob_sha": "1ef723c10997a08ef87940daceb08bf8d60dd810",
-  "normalized_render_sha256": "5be964b8b6e8ddf87df7b44bb7713e0c31a3de32cf261682793bc7db45c7cba1",
+  "normalized_render_sha256": "fff989dcab1f37d0c219378caef6b1e627c23c2537a717564be0d8567229bccc",
   "target": "skills/plan/references/legacy/plan-devex-review.md",
   "overlays": [
     679,

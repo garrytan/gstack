@@ -6,8 +6,7 @@ The harness is intentionally fail-closed. A setup problem is not a product failu
 
 ## Current validation status
 
-The earlier target was validated locally at the July 17, 2026 checkpoint with
-Xcode 26.6:
+The live lane was validated locally on July 20, 2026 with Xcode 26.6:
 
 | Identifier kind | Example form | Used for |
 |---|---|---|
@@ -16,46 +15,28 @@ Xcode 26.6:
 
 Exact local identifiers are deliberately not committed. Successful evidence stores only a SHA-256 fingerprint derived from both identifiers and omits the user-assigned device name.
 
-The daemon suite is green at 95 pass / 0 fail and 229 assertions. For that
-earlier target, the physical E2E preflight records 9 pass / 0 fail / 1 deploy
-skip and 29 assertions. Its host, pairing/trust, Developer Mode, wired
-transport, `devicectl`, `xcodegen`, and DevToolsSecurity gates pass. The
-unsigned Release build also passes and contains no DebugBridge module symbols
-or artifacts.
+The daemon suite is green at 95 pass / 0 fail and 229 assertions. The final
+physical lane passed 12/12 harness checks and all five required live iterations
+on an explicitly authorized wired, paired `iPhone17,1` with Developer Mode
+enabled. The existing Apple development identity signed the reserved fixture;
+the harness did not generate or fabricate a profile. The Release guard found no
+DebugBridge symbols. Safe in-place install, launch, CoreDevice IPv6 bootstrap,
+boot-token rotation, five session acquire/release cycles, ten 1206×2622 PNG
+screenshots, accessibility reads, coordinate taps, bundle checks, state
+cleanup, tunnel shutdown, and temporary-workspace cleanup all passed. The
+fixture was not uninstalled and app data was not deleted.
 
-The earlier direct physical-device smoke was externally blocked at automatic
-signing. It returned typed code `signing_unavailable`, category `setup_gate`. The
-underlying Xcode diagnostic is:
+The redacted atomic evidence is
+[`evidence/ios-physical-device-2026-07-20T17-49-19-302Z.json`](./evidence/ios-physical-device-2026-07-20T17-49-19-302Z.json).
+It stores only a SHA-256 fingerprint of the local identifiers, plus the device
+model and non-secret verification results.
 
-```text
-Signing for "FixtureApp" requires a development team.
-```
-
-That is a setup gate, not a DebugBridge failure. No app was installed or
-launched, and no pass artifact was written. The deploy skip and typed smoke
-failure must not be represented as a physical-device pass.
-
-The next user-selected target was a legacy iPhone (`iPhone10,6`) on iOS
-16.7.10. Its lockdown/USB pairing validates, but `devicectl` reports
-`pairingState=unsupported`, no wired CoreDevice transport, and pairing fails
-with CoreDevice error 1011. The harness therefore returns typed code
-`device_not_wired` before build or deploy. Because CoreDevice is the locked
-backend, substituting a legacy or third-party device driver would not satisfy
-this gate; a CoreDevice-compatible iPhone is required.
-
-The user then explicitly authorized the other connected, CoreDevice-compatible
-iPhone. That run passed pairing, signing, build, install, launch, and tunnel
-setup. The full five-check loop did not complete: `POST /session/acquire`
-closed the socket before returning a session. At harness stop, the fixture app
-was left installed with its data intact and no console/device session remained
-attached. This is a retained operator observation, not a pass artifact; no pass
-artifact was written.
-
-The user then explicitly stopped and waived further iPhone testing. No more
-device access is authorized for this checkpoint. The preflight, Release guard,
-typed setup-gate failures, and partial signed deployment above remain valid
-evidence, but the waiver does not convert them into a P0 pass: the five-check
-loop did not complete and no pass artifact exists.
+Earlier attempts remain part of the record and are not relabeled by the later
+pass: one target returned `signing_unavailable`; an `iPhone10,6` on iOS 16.7.10
+returned `device_not_wired` / CoreDevice error 1011; and one authorized run
+reached tunnel setup before its first session-acquire socket closed. Those were
+correctly classified as setup or partial evidence and produced no pass
+artifact.
 
 ## Hardware UDID versus CoreDevice UUID
 

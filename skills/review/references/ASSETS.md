@@ -5,7 +5,7 @@ Resolve these paths relative to `skills/review/`. Files come from base bb57306d9
 
 | Legacy path | New path | Disposition | Git blob |
 |---|---|---|---|
-| `cso/ACKNOWLEDGEMENTS.md` | `references/artifacts/cso/ACKNOWLEDGEMENTS.md` | `VERBATIM_PORT` | `c4b89aebd4d6d129bc508215f2b07ce21014e933` |
+| `cso/ACKNOWLEDGEMENTS.md` | `references/artifacts/cso/ACKNOWLEDGEMENTS.md` | `MECHANICAL_PORT` | `c4b89aebd4d6d129bc508215f2b07ce21014e933` |
 | `review/checklist.md` | `references/artifacts/review/checklist.md` | `VERBATIM_PORT` | `238c2acc4d111e51b670e76b3a70c040bc3898b2` |
 | `review/design-checklist.md` | `references/artifacts/review/design-checklist.md` | `MECHANICAL_PORT` | `e9d2b7117c039f82b78daec8f7db63998ee1480c` |
 | `review/greptile-triage.md` | `references/artifacts/review/greptile-triage.md` | `MECHANICAL_PORT` | `3cb6e8d597fd04462b5c2fe18174be2c9ce75c8f` |
@@ -16,7 +16,7 @@ Resolve these paths relative to `skills/review/`. Files come from base bb57306d9
 | `review/specialists/red-team.md` | `references/artifacts/review/specialists/red-team.md` | `VERBATIM_PORT` | `12654da877f4f036e7f994fbd587b8cafe1e1d62` |
 | `review/specialists/security.md` | `references/artifacts/review/specialists/security.md` | `VERBATIM_PORT` | `b1d2e30c1ff0cc83d5d4e4e4f4fe5b1f4bd581e2` |
 | `review/specialists/testing.md` | `references/artifacts/review/specialists/testing.md` | `VERBATIM_PORT` | `b2ea12e57c882ef307daee1abaa7066429b4425f` |
-| `review/TODOS-format.md` | `references/artifacts/review/TODOS-format.md` | `VERBATIM_PORT` | `eb2f4d9418f9930f0ca6af7f8eed6ca5f1685628` |
+| `review/TODOS-format.md` | `references/artifacts/review/TODOS-format.md` | `MECHANICAL_PORT` | `eb2f4d9418f9930f0ca6af7f8eed6ca5f1685628` |
 | `docs/askuserquestion-cjk.md` | `references/support/docs/askuserquestion-cjk.md` | `VERBATIM_PORT` | `54f4ac34509ecb094b266108958eb73aac19ca86` |
 | `docs/askuserquestion-split.md` | `references/support/docs/askuserquestion-split.md` | `VERBATIM_PORT` | `ec2f880cef9d64d37b1da5b101531172509fdcf2` |
 | `ETHOS.md` | `references/support/ETHOS.md` | `VERBATIM_PORT` | `3dbd5e570807a4f11cd75cfcaa8e77cb52d9fb7a` |

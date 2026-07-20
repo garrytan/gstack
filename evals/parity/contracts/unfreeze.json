@@ -9,7 +9,7 @@
   "source_path": "unfreeze/SKILL.md.tmpl",
   "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
   "blob_sha": "88e413fe5a49a45d46d8867b2d80ace30b3b45aa",
-  "normalized_render_sha256": "9128912f4c79a423d4e52a7a27a9c560bf7ab58e85bcf32db1442f4ded6576ae",
+  "normalized_render_sha256": "51d6183901e866697382b7e900e2154e8bfb6a9ebf4f3e1bb3ad29925fad0e20",
   "target": "skills/debug/references/legacy/unfreeze.md",
   "overlays": [
     679

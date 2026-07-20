@@ -193,9 +193,16 @@ export async function acquireLock(lockPath, options = {}) {
 async function reapStaleLock(lockPath, staleMs, platform = process.platform) {
   try {
     const stat = await fs.stat(lockPath);
-    if (Date.now() - stat.mtimeMs <= staleMs) return false;
     const owner = await readJson(path.join(lockPath, "owner.json"), null).catch(() => null);
-    if (owner?.hostname === os.hostname() && processIsAlive(owner.pid)) return false;
+    const sameHostPid = owner?.hostname === os.hostname() && Number.isInteger(owner?.pid) && owner.pid > 0;
+    if (sameHostPid) {
+      // A dead same-host PID is conclusive enough to recover immediately.
+      // A live/reused PID remains protected; remote or malformed ownership
+      // falls back to the heartbeat age lease below.
+      if (processIsAlive(owner.pid)) return false;
+    } else if (Date.now() - stat.mtimeMs <= staleMs) {
+      return false;
+    }
     const staleName = `${lockPath}.stale-${process.pid}-${randomUUID()}`;
     await renameWithRetry(lockPath, staleName, { platform });
     await fs.rm(staleName, { recursive: true, force: true });

@@ -134,10 +134,11 @@ export function routeStructured(signals: Record<string, unknown>): StructuredRou
     ? 'fix-safe-after-root-cause'
     : specialist.defaultMutation;
 
-  // Structured routing may select a useful review/release mode without
-  // granting the mutation that mode can perform. Explicit denials always win,
-  // and irreversible ship stages require an affirmative external grant.
-  if (signals.mutation_authorized === false && ['fix-safe', 'fix-safe-after-root-cause', 'code-generation'].includes(mutation)) {
+  // Structured routing may select a useful review mode without granting the
+  // mutation that specialist can perform. Missing authority fails closed;
+  // fixing code requires an affirmative grant, not merely the absence of a
+  // denial. Irreversible ship stages use their separate external grant below.
+  if (signals.mutation_authorized !== true && ['fix-safe', 'fix-safe-after-root-cause', 'code-generation'].includes(mutation)) {
     mutation = 'report-only';
   }
   if (source === 'spec' && mutation === 'spec-and-issue' && signals.issue_mutation_allowed !== true) {

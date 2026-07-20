@@ -1,12 +1,12 @@
 ## Step 18: Documentation sync (via subagent, before PR creation)
 
-**Dispatch /document-release as a subagent** using the Agent tool with `subagent_type: "general-purpose"`. The subagent gets a fresh context window — zero rot from the preceding 17 steps. It also runs the **full** `/document-release` workflow (with CHANGELOG clobber protection, doc exclusions, risky-change gates, named staging, race-safe PR body editing) rather than a weaker reimplementation.
+**Dispatch $ship --mode Prepare --module document-release as a subagent** using the Agent tool with `subagent_type: "general-purpose"`. The subagent gets a fresh context window — zero rot from the preceding 17 steps. It also runs the **full** `$ship --mode Prepare --module document-release` workflow (with CHANGELOG clobber protection, doc exclusions, risky-change gates, named staging, race-safe PR body editing) rather than a weaker reimplementation.
 
 **Sequencing:** This step runs AFTER Step 17 (Push) and BEFORE Step 19 (Create PR). The PR is created once from final HEAD with the `## Documentation` section baked into the initial body. No create-then-re-edit dance.
 
 **Subagent prompt:**
 
-> You are executing the /document-release workflow after a code push. Read the full skill file `references/legacy/document-release.md` and execute its complete workflow end-to-end, including CHANGELOG clobber protection, doc exclusions, risky-change gates, and named staging. Do NOT attempt to edit the PR body — no PR exists yet. Branch: `<branch>`, base: `<base>`.
+> You are executing the $ship --mode Prepare --module document-release workflow after a code push. Read the full skill file `references/legacy/document-release.md` and execute its complete workflow end-to-end, including CHANGELOG clobber protection, doc exclusions, risky-change gates, and named staging. Do NOT attempt to edit the PR body — no PR exists yet. Branch: `<branch>`, base: `<base>`.
 >
 > After completing the workflow, output a single JSON object on the LAST LINE of your response (no other text after it):
 > `{"files_updated":["README.md","CLAUDE.md",...],"commit_sha":"abc1234","pushed":true,"documentation_section":"<markdown block for PR body's ## Documentation section>"}`
@@ -21,7 +21,7 @@
 3. If `files_updated` is non-empty, print: `Documentation synced: {files_updated.length} files updated, committed as {commit_sha}`.
 4. If `files_updated` is empty, print: `Documentation is current — no updates needed.`
 
-**If the subagent fails or returns invalid JSON:** Print a warning and proceed to Step 19 without a `## Documentation` section. Do not block /ship on subagent failure. The user can run `/document-release` manually after the PR lands.
+**If the subagent fails or returns invalid JSON:** Print a warning and proceed to Step 19 without a `## Documentation` section. Do not block /ship on subagent failure. The user can run `$ship --mode Prepare --module document-release` manually after the PR lands.
 
 ---
 
@@ -94,7 +94,7 @@ you missed it.>
 <If plan items deferred: list deferred items>
 
 ## Linked Spec
-<Auto-detect: look for /spec archives matching this branch via:
+<Auto-detect: look for $plan --mode Specification --module spec archives matching this branch via:
   eval "$($GSTACK_BIN/gstack-paths)"
   eval "$($GSTACK_BIN/gstack-slug)"
   CURRENT_BRANCH=$(git branch --show-current)
@@ -124,7 +124,7 @@ you missed it.>
   Deferred items: <list from Plan Completion>.
   Close #<N> manually after follow-up lands.>
 
-<If no /spec archive matches this branch: omit this entire section.>
+<If no $plan --mode Specification --module spec archive matches this branch: omit this entire section.>
 
 ## Verification Results
 <If verification ran: summary from Step 8.1 (N PASS, M FAIL, K SKIPPED)>
@@ -145,7 +145,7 @@ you missed it.>
 - [x] All Rails tests pass (N runs, 0 failures)
 - [x] All Vitest tests pass (N tests)
 
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
+🤖 Generated with [Claude Code](https:/$review --mode Deep --module claude.com/claude-code)
 ```
 
 #### Redaction scan (PR body + title) — runs before create AND edit

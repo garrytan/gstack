@@ -112,10 +112,16 @@ describe('validateReadPath', () => {
 });
 
 describe('validateOutputPath — symlink resolution', () => {
-  it('blocks symlink inside /tmp pointing outside safe dirs', () => {
-    const linkPath = join(tmpdir(), 'test-output-symlink-' + Date.now() + '.png');
+  it('blocks a dangling symlink inside /tmp pointing outside safe dirs', () => {
+    // Keep the link in the validator's canonical safe temp root instead of
+    // os.tmpdir(), which is /var/folders/... on default macOS test runs. The
+    // missing target makes this a regression test for realpathSync ENOENT.
+    const realTmp = realpathSync('/tmp');
+    const unique = `${process.pid}-${Date.now()}`;
+    const linkPath = join(realTmp, `test-output-dangling-${unique}.png`);
+    const missingTarget = `/etc/gstack-missing-output-${unique}`;
     try {
-      symlinkSync('/etc/crontab', linkPath);
+      symlinkSync(missingTarget, linkPath);
       expect(() => validateOutputPath(linkPath)).toThrow(/Path must be within/);
     } finally {
       try { unlinkSync(linkPath); } catch {}

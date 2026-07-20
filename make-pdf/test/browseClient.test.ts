@@ -85,7 +85,8 @@ describe("resolveBrowseBin", () => {
     if (thrown) {
       expect(thrown).toBeInstanceOf(BrowseClientError);
       expect((thrown as BrowseClientError).message).toContain("browse binary not found");
-      expect((thrown as BrowseClientError).message).toContain("./setup");
+      expect((thrown as BrowseClientError).message).toContain("gstack doctor --skill-api 2.0");
+      expect((thrown as BrowseClientError).message).toContain("--capability pdf");
       expect((thrown as BrowseClientError).message).toContain("GSTACK_BROWSE_BIN");
       // Back-compat alias still surfaces in the diagnostic.
       expect((thrown as BrowseClientError).message).toContain("BROWSE_BIN");
