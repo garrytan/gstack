@@ -1,6 +1,7 @@
 import { DISPATCHERS, SOURCE_ASSIGNMENTS, assignmentBySource } from './assignments';
 import type { ScenarioFixture, TreeName } from './types';
 import { evaluateAuthorityPolicy, type AdversarialAttempt } from './authority-policy';
+import { inferExecutionProfile } from './execution-profiles';
 
 export interface StructuredRoute {
   tree: TreeName;
@@ -154,7 +155,7 @@ export function routeStructured(signals: Record<string, unknown>): StructuredRou
   return {
     tree,
     mode,
-    depth: specialist.defaultDepth,
+    depth: inferExecutionProfile(signals, specialist.defaultDepth),
     mutation,
     active_modules: active,
     skipped_modules: primary.filter((candidate) => !active.includes(candidate)),

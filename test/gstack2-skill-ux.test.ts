@@ -45,6 +45,21 @@ describe('GStack 2 canonical skill UX', () => {
     }
   });
 
+  test('packages one binding inferred execution-profile contract in every dispatcher', () => {
+    for (const tree of TREE_NAMES) {
+      const dispatcher = fs.readFileSync(path.join(ROOT, 'skills', tree, 'SKILL.md'), 'utf8');
+      const profiles = fs.readFileSync(path.join(ROOT, 'skills', tree, 'references', 'EXECUTION-PROFILES.md'), 'utf8');
+      expect(dispatcher, tree).toContain('Depth: <readiness, standard, or deep>');
+      expect(dispatcher, tree).toContain('Read `references/EXECUTION-PROFILES.md`');
+      expect(profiles, tree).toContain('## Smoke/readiness');
+      expect(profiles, tree).toContain('Readiness profile — not a complete review.');
+      expect(profiles, tree).toContain('Every selected specialist module remains mandatory.');
+      expect(profiles, tree).toContain('## Standard');
+      expect(profiles, tree).toContain('## Deep');
+      expect(profiles, tree).toContain('never overrides a specialist’s binding question order');
+    }
+  });
+
   test('resolves retired user-facing recommendations without rewriting package paths', () => {
     for (const assignment of SOURCE_ASSIGNMENTS) {
       const body = fs.readFileSync(ownerModule(assignment.source), 'utf8');

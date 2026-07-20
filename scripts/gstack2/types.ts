@@ -2,6 +2,7 @@ export const GSTACK2_BASE_SHA = 'bb57306d98c97011b0919c6132705a15b1579781';
 
 export const TREE_NAMES = ['plan', 'design', 'qa', 'debug', 'review', 'ship'] as const;
 export type TreeName = (typeof TREE_NAMES)[number];
+export type ExecutionProfile = 'readiness' | 'standard' | 'deep';
 
 export type ModuleVisibility = 'primary' | 'internal';
 
@@ -27,7 +28,7 @@ export interface SourceAssignment {
   mandatory: boolean;
   replacement: string;
   summary: string;
-  defaultDepth: 'quick' | 'standard' | 'deep';
+  defaultDepth: ExecutionProfile;
   defaultMutation: string;
   webContext: 'none' | 'optional' | 'local-browser' | 'production';
   overlays?: number[];
@@ -39,7 +40,7 @@ export interface DispatcherMode {
   target: string;
   modules: string[];
   inferWhen: string;
-  depth: 'quick' | 'standard' | 'deep';
+  depth: ExecutionProfile;
   mutation: string;
   webContext: 'none' | 'optional' | 'local-browser' | 'production';
 }
@@ -75,7 +76,7 @@ export interface ScenarioFixture {
   expected: {
     tree: TreeName;
     mode: string;
-    depth: 'quick' | 'standard' | 'deep';
+    depth: ExecutionProfile;
     mutation: string;
     active_modules: string[];
     skipped_modules: string[];
