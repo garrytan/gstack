@@ -9,7 +9,7 @@
   "source_path": "design-shotgun/SKILL.md.tmpl",
   "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
   "blob_sha": "230dbc2922f05bf272bf5168a958a12604fac1bc",
-  "normalized_render_sha256": "1db4cd23ee115ce841d2db898cc442141588635d43018393703aa28ce40d48f2",
+  "normalized_render_sha256": "e27c29760f1edffffee08f131b2c0ee76720eb447d3bb05eee4278467d785620",
   "target": "skills/design/references/legacy/design-shotgun.md",
   "overlays": [
     679,

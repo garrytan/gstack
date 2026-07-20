@@ -58,15 +58,15 @@
         }
       },
       "mechanical_port": {
-        "rendered_sha256": "ee268f1d24769509b89b7db998372a773d9e7bc376306a68319af4f74c6fe713",
+        "rendered_sha256": "0ed7d4a6ec9dadf363ef5d9311392067a3d90bddac9c1ec781d0f25db55e13ae",
         "differs_from_baseline": true,
         "allowed_difference": "Canonical GStack 2 carve: exclude the retired shared onboarding wrapper and host hook advisory; resolve retired invocations to six public routes; relocate host/runtime paths; lazy-load pinned carved sections from package-local references."
       },
       "candidate": {
         "target_path": "skills/plan/references/legacy/plan-eng-review.md",
-        "rendered_legacy_body_sha256": "ee268f1d24769509b89b7db998372a773d9e7bc376306a68319af4f74c6fe713",
+        "rendered_legacy_body_sha256": "0ed7d4a6ec9dadf363ef5d9311392067a3d90bddac9c1ec781d0f25db55e13ae",
         "semantic_signature": {
-          "normalized_sha256": "ee268f1d24769509b89b7db998372a773d9e7bc376306a68319af4f74c6fe713",
+          "normalized_sha256": "0ed7d4a6ec9dadf363ef5d9311392067a3d90bddac9c1ec781d0f25db55e13ae",
           "headings_sha256": "0200c83cdde0bdc56f79527a4e38884bf075c09b1d829a4244e979b324dc52fc",
           "questions_sha256": "b74758da3f085a457fc0f9cf1b5c34dfe849fd713a5882849da0abb2edc1a73f",
           "obligations_sha256": "186b9e3bb712898fa6e8544ba2f6fc932a161e9bb388cb7b8f7bdecb782b57f9",

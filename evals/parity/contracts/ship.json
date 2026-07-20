@@ -9,7 +9,7 @@
   "source_path": "ship/SKILL.md.tmpl",
   "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
   "blob_sha": "068ac4fe54bcb46572295d48263b11bd38fcde18",
-  "normalized_render_sha256": "ab7a7219653b0fc5cdad0bb2959394798bc50ae4db4dc24b76c0454dd1b1397a",
+  "normalized_render_sha256": "ca55c56483c524c732cf4cd1a7b7ef36f379666577549ef989823b98bce8c5b5",
   "target": "skills/ship/references/legacy/ship.md",
   "overlays": [
     679,

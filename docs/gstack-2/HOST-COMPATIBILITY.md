@@ -63,8 +63,8 @@ installed-skill count.
 
 ## Candidate installer matrix
 
-The isolated standard-installer matrix passed 470/470 checks with `skills` CLI
-1.5.19: 16 install cases and two removal cases. Default discovery projected
+The isolated standard-installer matrix passed 510/510 checks with `skills` CLI
+1.5.19: 18 install cases and two removal cases. Default discovery projected
 only canonical `skills/`; separate explicit-selection cases covered a single
 canonical skill and an opt-in legacy alias. The matrix used symlinked and spaced
 source paths matching a clean checkout where ignored legacy host trees are
@@ -77,6 +77,7 @@ does not install the optional runtime. The committed evidence artifact is
 |---|---|---|---|---|---|---|
 | Claude Code | yes | pass | pass | no separate subset case | **Verified — installer** | pending |
 | OpenAI Codex | yes | pass | pass | global `qa`, `review`, `ship` pass + removal pass; actual selected `qa` runtime-absent run; opt-in alias covered | **Verified — installer**; runtime-absent invocation passed | live v1/v2/v3 failed; v3 was 3/4 |
+| Kimi Code CLI | yes | pass | pass | no separate subset case | **Verified — installer** | browser automation uses the consented GStack local-browser fallback; host skill invocation pending |
 | Cursor | yes | pass | pass | project `qa`, `review`, `ship` pass + removal pass | **Verified — installer** | pending |
 | Pi | yes | pass | pass | no separate subset case | **Verified — installer** | pending |
 | OpenClaw | yes | pass | pass | project `ship` single-skill pass | **Verified — installer** | pending |
@@ -89,7 +90,7 @@ OpenClaw and explicitly selected the `office-hours` compatibility alias for
 Codex; neither alias nor unselected canonical skill was silently enrolled.
 `--copy` was advertised and used.
 
-This is filesystem/installer verification, not a claim that six host UIs loaded
+This is filesystem/installer verification, not a claim that seven host UIs loaded
 or executed the skills. A separate actual Codex invocation installed only `qa`
 from `time-attack/gstack/skills`, with the optional runtime absent, and passed
 the judgment/setup-gate behavior without changing its workspace or creating a
@@ -134,7 +135,7 @@ bun run scripts/gstack2/test-install-matrix.ts --full \
   --output /tmp/gstack2-install-matrix.json
 ```
 
-The current matrix passed 470/470 installer CLI checks across 16 installs and two
+The current matrix passed 510/510 installer CLI checks across 18 installs and two
 removals; its JSON artifact is committed at
 [`evals/installation/install-matrix.json`](../../evals/installation/install-matrix.json).
 Steps 8–9 passed for the recorded Codex runtime-absent invocation; actual UI

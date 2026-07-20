@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "mode": "full",
-  "generatedAt": "2026-07-17T03:32:07.629Z",
+  "generatedAt": "2026-07-20T21:38:49.315Z",
   "platform": "darwin",
   "architecture": "arm64",
   "repositoryRoot": "<REPOSITORY_ROOT>",
@@ -20,7 +20,7 @@
       ],
       "exitCode": 0,
       "signal": null,
-      "durationMs": 1695,
+      "durationMs": 743,
       "stdout": "1.5.19",
       "stderr": ""
     },
@@ -33,7 +33,7 @@
       ],
       "exitCode": 0,
       "signal": null,
-      "durationMs": 1027,
+      "durationMs": 585,
       "stdout": "Usage: skills <command> [options]\n\nManage Skills:\n  add <package>        Add a skill package (alias: a)\n                       e.g. vercel-labs/agent-skills\n                            https://github.com/vercel-labs/agent-skills\n  use <package>@<skill>\n                       Generate a prompt for using one skill without installing it\n  remove [skills]      Remove installed skills\n  list, ls             List installed skills\n  find [query]         Search for skills interactively\n\nFind Options:\n  --owner <owner>        Search only repositories from a GitHub owner\n\nUpdates:\n  update [skills...]   Update skills to latest versions (alias: upgrade)\n\nUpdate Options:\n  -g, --global           Update global skills only\n  -p, --project          Update project skills only\n  -y, --yes              Skip scope prompt (auto-detect: project if in a project, else global)\n\nProject:\n  experimental_install Restore skills from skills-lock.json\n  init [name]          Initialize a skill (creates <name>/SKILL.md or ./SKILL.md)\n  experimental_sync    Sync skills from node_modules into agent directories\n\nAdd Options:\n  -g, --global           Install skill globally (user-level) instead of project-level\n  -a, --agent <agents>   Specify agents to install to (use '*' for all agents)\n  -s, --skill <skills>   Specify skill names to install (use '*' for all skills)\n  -l, --list             List available skills in the repository without installing\n  -y, --yes              Skip confirmation prompts\n  --copy                 Copy files instead of symlinking to agent directories\n  --metadata <json>      Attach valid JSON to the install telemetry event\n  --subagent <names>     Install to Eve subagents (use 'root' for the root agent)\n  --all                  Shorthand for --skill '*' --agent '*' -y\n  --full-depth           Search all subdirectories even when a root SKILL.md exists\n\nUse Options:\n  -s, --skill <skill>    Specify the skill to use\n  -a, --agent <agent>    Start one supported agent interactively\n  --full-depth           Search all subdirectories even when a root SKILL.md exists\n  --dangerously-accept-openclaw-risks\n                         Allow unverified OpenClaw community skills\n\nRemove Options:\n  -g, --global           Remove from global scope\n  -a, --agent <agents>   Remove from specific agents (use '*' for all agents)\n  -s, --skill <skills>   Specify skills to remove (use '*' for all skills)\n  -y, --yes              Skip confirmation prompts\n  --all                  Shorthand for --skill '*' --agent '*' -y\n  \nExperimental Sync Options:\n  -a, --agent <agents>   Specify agents to install to (use '*' for all agents)\n  -y, --yes              Skip confirmation prompts\n\nList Options:\n  -g, --global           List global skills (default: project)\n  -a, --agent <agents>   Filter by specific agents\n  --json                 Output as JSON (machine-readable, no ANSI codes)\n\nOptions:\n  --help, -h        Show this help message\n  --version, -v     Show version number\n\nExamples:\n  $ skills add vercel-labs/agent-skills\n  $ skills use vercel-labs/agent-skills@vercel-optimize | claude\n  $ skills use vercel-labs/agent-skills --skill vercel-optimize --agent claude-code\n  $ skills add vercel-labs/agent-skills -g\n  $ skills add vercel-labs/agent-skills --agent claude-code cursor\n  $ skills add vercel-labs/agent-skills --skill pr-review commit\n  $ skills remove                        # interactive remove\n  $ skills remove web-design             # remove by name\n  $ skills rm --global frontend-design\n  $ skills list                          # list project skills\n  $ skills ls -g                         # list global skills\n  $ skills ls -a claude-code             # filter by agent\n  $ skills ls --json                      # JSON output\n  $ skills find                          # interactive search\n  $ skills find typescript               # search by keyword\n  $ skills find react --owner vercel     # search within an owner\n  $ skills update\n  $ skills update my-skill             # update a single skill\n  $ skills update -g                    # update global skills only\n  $ skills experimental_install            # restore from skills-lock.json\n  $ skills init my-skill\n  $ skills experimental_sync              # sync from node_modules\n  $ skills experimental_sync -y           # sync without prompts\n\nDiscover more skills at https://skills.sh/",
       "stderr": ""
     }
@@ -84,7 +84,7 @@
       {
         "id": "repository.debug.preserved-modules",
         "passed": true,
-        "detail": "7 preserved module files"
+        "detail": "6 preserved module files"
       },
       {
         "id": "repository.design.exists",
@@ -104,7 +104,7 @@
       {
         "id": "repository.design.preserved-modules",
         "passed": true,
-        "detail": "9 preserved module files"
+        "detail": "8 preserved module files"
       },
       {
         "id": "repository.plan.exists",
@@ -124,7 +124,7 @@
       {
         "id": "repository.plan.preserved-modules",
         "passed": true,
-        "detail": "16 preserved module files"
+        "detail": "15 preserved module files"
       },
       {
         "id": "repository.qa.exists",
@@ -144,7 +144,7 @@
       {
         "id": "repository.qa.preserved-modules",
         "passed": true,
-        "detail": "15 preserved module files"
+        "detail": "14 preserved module files"
       },
       {
         "id": "repository.review.exists",
@@ -164,7 +164,7 @@
       {
         "id": "repository.review.preserved-modules",
         "passed": true,
-        "detail": "6 preserved module files"
+        "detail": "5 preserved module files"
       },
       {
         "id": "repository.ship.exists",
@@ -184,7 +184,7 @@
       {
         "id": "repository.ship.preserved-modules",
         "passed": true,
-        "detail": "12 preserved module files"
+        "detail": "11 preserved module files"
       },
       {
         "id": "repository.collision.qa.canonical",
@@ -1032,8 +1032,8 @@
       ],
       "exitCode": 0,
       "signal": null,
-      "durationMs": 1132,
-      "stdout": "│\n●   codex  Agent detected — installing non-interactively\n│\n◇  Source: <REPOSITORY_ROOT>\n│\n◇  Local path validated\n│\n◒  Discovering skills…◇  Found 6 skills\n\n│\n◇  Available Skills\n│\n│    debug\n│\n│      Diagnose root causes before changing code, or fix a reproduced defect. Use for failures, regressions, flaky behavior, and iOS repair.\n│\n│    design\n│\n│      Explore, generate, critique, or implement product design. Use for design systems, visual alternatives, HTML, live web UI, accessibility, or iOS HIG review.\n│\n│    plan\n│\n│      Plan products, scope, architecture, developer experience, or executable specs before implementation. Use for ideas, strategic or engineering reviews, autoplan, and planning preferences.\n│\n│    qa\n│\n│      Report on or fix validated product defects. Use for web/browser QA, real-device iOS, developer journeys, accessibility, performance baselines, or production canaries.\n│\n│    review\n│\n│      Review code with validated evidence. Use for normal, security, performance, or deep audits of diffs, architecture, data, tests, dependencies, docs, and code health.\n│\n│    ship\n│\n│      Prepare, land, deploy, monitor, or resume a release. Use for checks, versioning, docs, commits, PRs, merge gates, production verification, and rollback.\n\n│\n└  Use --skill <name> to install specific skills",
+      "durationMs": 609,
+      "stdout": "│\n●   codex  Agent detected — installing non-interactively\n│\n◇  Source: <REPOSITORY_ROOT>\n│\n◇  Local path validated\n│\n◇  Found 6 skills\n\n│\n◇  Available Skills\n│\n│    debug\n│\n│      Diagnose root causes before changing code, or fix a reproduced defect. Use for failures, regressions, flaky behavior, and iOS repair.\n│\n│    design\n│\n│      Explore, generate, critique, or implement product design. Use for design systems, visual alternatives, HTML, live web UI, accessibility, or iOS HIG review.\n│\n│    plan\n│\n│      Plan products, scope, architecture, developer experience, or executable specs before implementation. Use for ideas, strategic or engineering reviews, autoplan, and planning preferences.\n│\n│    qa\n│\n│      Report on or fix validated product defects. Use for web/browser QA, real-device iOS, developer journeys, accessibility, performance baselines, or production canaries.\n│\n│    review\n│\n│      Review code with validated evidence. Use for normal, security, performance, or deep audits of diffs, architecture, data, tests, dependencies, docs, and code health.\n│\n│    ship\n│\n│      Prepare, land, deploy, monitor, or resume a release. Use for checks, versioning, docs, commits, PRs, merge gates, production verification, and rollback.\n\n│\n└  Use --skill <name> to install specific skills",
       "stderr": ""
     },
     "passed": true
@@ -1076,7 +1076,7 @@
         {
           "id": "claude-code-project-default.debug.content",
           "passed": true,
-          "detail": "source=8900ccd55bc62260eb9e7e3a7a2d0e6288d7771102f7a8b3b5655a741de80f59; installed=8900ccd55bc62260eb9e7e3a7a2d0e6288d7771102f7a8b3b5655a741de80f59"
+          "detail": "source=f351222a3e7840bb8f9c6ea37e7fe9571164fb66591a27c9538c37c9f3fcfdc2; installed=f351222a3e7840bb8f9c6ea37e7fe9571164fb66591a27c9538c37c9f3fcfdc2"
         },
         {
           "id": "claude-code-project-default.debug.copy",
@@ -1091,7 +1091,7 @@
         {
           "id": "claude-code-project-default.design.content",
           "passed": true,
-          "detail": "source=4d171487d24fb6742f82f75d724c84989a4b0fb6b7ff0dc1dba433ca4c528085; installed=4d171487d24fb6742f82f75d724c84989a4b0fb6b7ff0dc1dba433ca4c528085"
+          "detail": "source=ab7e7b7a404004602e5aa80e919bdc4a301e2da7eb5232acb799fa27702fb48d; installed=ab7e7b7a404004602e5aa80e919bdc4a301e2da7eb5232acb799fa27702fb48d"
         },
         {
           "id": "claude-code-project-default.design.copy",
@@ -1106,7 +1106,7 @@
         {
           "id": "claude-code-project-default.plan.content",
           "passed": true,
-          "detail": "source=8fb64e9ac13541aaca65cafbfcf97ce3c6dfabcc781d83cfdd4f2b15c31b7e6f; installed=8fb64e9ac13541aaca65cafbfcf97ce3c6dfabcc781d83cfdd4f2b15c31b7e6f"
+          "detail": "source=4f951aee4525ac358833486c28339c706e9b372282c22c258577d20cf36a57c6; installed=4f951aee4525ac358833486c28339c706e9b372282c22c258577d20cf36a57c6"
         },
         {
           "id": "claude-code-project-default.plan.copy",
@@ -1121,7 +1121,7 @@
         {
           "id": "claude-code-project-default.qa.content",
           "passed": true,
-          "detail": "source=0ec2e2b726c872c1ccaf8a72cac987f694f6aa85ded7ece5f52bcfef31e5a8d0; installed=0ec2e2b726c872c1ccaf8a72cac987f694f6aa85ded7ece5f52bcfef31e5a8d0"
+          "detail": "source=773e53fef2af6b948402a5fe36be7c18022734277b2c95a4609395339a5d95ef; installed=773e53fef2af6b948402a5fe36be7c18022734277b2c95a4609395339a5d95ef"
         },
         {
           "id": "claude-code-project-default.qa.copy",
@@ -1136,7 +1136,7 @@
         {
           "id": "claude-code-project-default.review.content",
           "passed": true,
-          "detail": "source=b68b7f15eb0ef866a29e8fada17223ace2ebf73d66fc1c60f6fd776c762a4551; installed=b68b7f15eb0ef866a29e8fada17223ace2ebf73d66fc1c60f6fd776c762a4551"
+          "detail": "source=f6b28db16774cbeebff99ab7f968eb35fa3d4076201eec075389b7ab5a5107e6; installed=f6b28db16774cbeebff99ab7f968eb35fa3d4076201eec075389b7ab5a5107e6"
         },
         {
           "id": "claude-code-project-default.review.copy",
@@ -1151,7 +1151,7 @@
         {
           "id": "claude-code-project-default.ship.content",
           "passed": true,
-          "detail": "source=2d43c0634596f7c3a48b1b82e23f099ada6b27f6f2f2d538964fad6eb1f4b242; installed=2d43c0634596f7c3a48b1b82e23f099ada6b27f6f2f2d538964fad6eb1f4b242"
+          "detail": "source=45d26c47b04cdff6c9fa2cf055e4f4f30af3ef331a3b18b52711be1394291202; installed=45d26c47b04cdff6c9fa2cf055e4f4f30af3ef331a3b18b52711be1394291202"
         },
         {
           "id": "claude-code-project-default.ship.copy",
@@ -1178,8 +1178,8 @@
         ],
         "exitCode": 0,
         "signal": null,
-        "durationMs": 1071,
-        "stdout": "│\n●   codex  Agent detected — installing non-interactively\n│\n◇  Source: <TEMP_MATRIX_ROOT>/canonical package/source with spaces\n│\n◇  Local path validated\n│\n◒  Discovering skills…◇  Found 6 skills\n│\n●  Installing all 6 skills\n\n│\n◇  Installation Summary ────╮\n│                           │\n│  ./.agents/skills/debug   │\n│    copy → Claude Code     │\n│                           │\n│  ./.agents/skills/design  │\n│    copy → Claude Code     │\n│                           │\n│  ./.agents/skills/plan    │\n│    copy → Claude Code     │\n│                           │\n│  ./.agents/skills/qa      │\n│    copy → Claude Code     │\n│                           │\n│  ./.agents/skills/review  │\n│    copy → Claude Code     │\n│                           │\n│  ./.agents/skills/ship    │\n│    copy → Claude Code     │\n│                           │\n├───────────────────────────╯\n│\n◇  Installation complete\n\n│\n◇  Installed 6 skills ──────────╮\n│                               │\n│  ✓ debug (copied)             │\n│    → ./.claude/skills/debug   │\n│  ✓ design (copied)            │\n│    → ./.claude/skills/design  │\n│  ✓ plan (copied)              │\n│    → ./.claude/skills/plan    │\n│  ✓ qa (copied)                │\n│    → ./.claude/skills/qa      │\n│  ✓ review (copied)            │\n│    → ./.claude/skills/review  │\n│  ✓ ship (copied)              │\n│    → ./.claude/skills/ship    │\n│                               │\n├───────────────────────────────╯\n\n│\n└  Done!  Review skills before use; they run with full agent permissions.",
+        "durationMs": 684,
+        "stdout": "│\n●   codex  Agent detected — installing non-interactively\n│\n◇  Source: <TEMP_MATRIX_ROOT>/canonical package/source with spaces\n│\n◇  Local path validated\n│\n◇  Found 6 skills\n│\n●  Installing all 6 skills\n\n│\n◇  Installation Summary ────╮\n│                           │\n│  ./.agents/skills/debug   │\n│    copy → Claude Code     │\n│                           │\n│  ./.agents/skills/design  │\n│    copy → Claude Code     │\n│                           │\n│  ./.agents/skills/plan    │\n│    copy → Claude Code     │\n│                           │\n│  ./.agents/skills/qa      │\n│    copy → Claude Code     │\n│                           │\n│  ./.agents/skills/review  │\n│    copy → Claude Code     │\n│                           │\n│  ./.agents/skills/ship    │\n│    copy → Claude Code     │\n│                           │\n├───────────────────────────╯\n│\n◇  Installation complete\n\n│\n◇  Installed 6 skills ──────────╮\n│                               │\n│  ✓ debug (copied)             │\n│    → ./.claude/skills/debug   │\n│  ✓ design (copied)            │\n│    → ./.claude/skills/design  │\n│  ✓ plan (copied)              │\n│    → ./.claude/skills/plan    │\n│  ✓ qa (copied)                │\n│    → ./.claude/skills/qa      │\n│  ✓ review (copied)            │\n│    → ./.claude/skills/review  │\n│  ✓ ship (copied)              │\n│    → ./.claude/skills/ship    │\n│                               │\n├───────────────────────────────╯\n\n│\n└  Done!  Review skills before use; they run with full agent permissions.",
         "stderr": ""
       },
       "passed": true
@@ -1221,7 +1221,7 @@
         {
           "id": "claude-code-global-default.debug.content",
           "passed": true,
-          "detail": "source=8900ccd55bc62260eb9e7e3a7a2d0e6288d7771102f7a8b3b5655a741de80f59; installed=8900ccd55bc62260eb9e7e3a7a2d0e6288d7771102f7a8b3b5655a741de80f59"
+          "detail": "source=f351222a3e7840bb8f9c6ea37e7fe9571164fb66591a27c9538c37c9f3fcfdc2; installed=f351222a3e7840bb8f9c6ea37e7fe9571164fb66591a27c9538c37c9f3fcfdc2"
         },
         {
           "id": "claude-code-global-default.debug.copy",
@@ -1236,7 +1236,7 @@
         {
           "id": "claude-code-global-default.design.content",
           "passed": true,
-          "detail": "source=4d171487d24fb6742f82f75d724c84989a4b0fb6b7ff0dc1dba433ca4c528085; installed=4d171487d24fb6742f82f75d724c84989a4b0fb6b7ff0dc1dba433ca4c528085"
+          "detail": "source=ab7e7b7a404004602e5aa80e919bdc4a301e2da7eb5232acb799fa27702fb48d; installed=ab7e7b7a404004602e5aa80e919bdc4a301e2da7eb5232acb799fa27702fb48d"
         },
         {
           "id": "claude-code-global-default.design.copy",
@@ -1251,7 +1251,7 @@
         {
           "id": "claude-code-global-default.plan.content",
           "passed": true,
-          "detail": "source=8fb64e9ac13541aaca65cafbfcf97ce3c6dfabcc781d83cfdd4f2b15c31b7e6f; installed=8fb64e9ac13541aaca65cafbfcf97ce3c6dfabcc781d83cfdd4f2b15c31b7e6f"
+          "detail": "source=4f951aee4525ac358833486c28339c706e9b372282c22c258577d20cf36a57c6; installed=4f951aee4525ac358833486c28339c706e9b372282c22c258577d20cf36a57c6"
         },
         {
           "id": "claude-code-global-default.plan.copy",
@@ -1266,7 +1266,7 @@
         {
           "id": "claude-code-global-default.qa.content",
           "passed": true,
-          "detail": "source=0ec2e2b726c872c1ccaf8a72cac987f694f6aa85ded7ece5f52bcfef31e5a8d0; installed=0ec2e2b726c872c1ccaf8a72cac987f694f6aa85ded7ece5f52bcfef31e5a8d0"
+          "detail": "source=773e53fef2af6b948402a5fe36be7c18022734277b2c95a4609395339a5d95ef; installed=773e53fef2af6b948402a5fe36be7c18022734277b2c95a4609395339a5d95ef"
         },
         {
           "id": "claude-code-global-default.qa.copy",
@@ -1281,7 +1281,7 @@
         {
           "id": "claude-code-global-default.review.content",
           "passed": true,
-          "detail": "source=b68b7f15eb0ef866a29e8fada17223ace2ebf73d66fc1c60f6fd776c762a4551; installed=b68b7f15eb0ef866a29e8fada17223ace2ebf73d66fc1c60f6fd776c762a4551"
+          "detail": "source=f6b28db16774cbeebff99ab7f968eb35fa3d4076201eec075389b7ab5a5107e6; installed=f6b28db16774cbeebff99ab7f968eb35fa3d4076201eec075389b7ab5a5107e6"
         },
         {
           "id": "claude-code-global-default.review.copy",
@@ -1296,7 +1296,7 @@
         {
           "id": "claude-code-global-default.ship.content",
           "passed": true,
-          "detail": "source=2d43c0634596f7c3a48b1b82e23f099ada6b27f6f2f2d538964fad6eb1f4b242; installed=2d43c0634596f7c3a48b1b82e23f099ada6b27f6f2f2d538964fad6eb1f4b242"
+          "detail": "source=45d26c47b04cdff6c9fa2cf055e4f4f30af3ef331a3b18b52711be1394291202; installed=45d26c47b04cdff6c9fa2cf055e4f4f30af3ef331a3b18b52711be1394291202"
         },
         {
           "id": "claude-code-global-default.ship.copy",
@@ -1324,7 +1324,7 @@
         ],
         "exitCode": 0,
         "signal": null,
-        "durationMs": 1029,
+        "durationMs": 724,
         "stdout": "│\n●   codex  Agent detected — installing non-interactively\n│\n◇  Source: <TEMP_MATRIX_ROOT>/linked canonical source\n│\n◇  Local path validated\n│\n◇  Found 6 skills\n│\n●  Installing all 6 skills\n\n│\n◇  Installation Summary ────╮\n│                           │\n│  ~/.agents/skills/debug   │\n│    copy → Claude Code     │\n│                           │\n│  ~/.agents/skills/design  │\n│    copy → Claude Code     │\n│                           │\n│  ~/.agents/skills/plan    │\n│    copy → Claude Code     │\n│                           │\n│  ~/.agents/skills/qa      │\n│    copy → Claude Code     │\n│                           │\n│  ~/.agents/skills/review  │\n│    copy → Claude Code     │\n│                           │\n│  ~/.agents/skills/ship    │\n│    copy → Claude Code     │\n│                           │\n├───────────────────────────╯\n│\n◇  Installation complete\n\n│\n◇  Installed 6 skills ──────────╮\n│                               │\n│  ✓ debug (copied)             │\n│    → ~/.claude/skills/debug   │\n│  ✓ design (copied)            │\n│    → ~/.claude/skills/design  │\n│  ✓ plan (copied)              │\n│    → ~/.claude/skills/plan    │\n│  ✓ qa (copied)                │\n│    → ~/.claude/skills/qa      │\n│  ✓ review (copied)            │\n│    → ~/.claude/skills/review  │\n│  ✓ ship (copied)              │\n│    → ~/.claude/skills/ship    │\n│                               │\n├───────────────────────────────╯\n\n│\n└  Done!  Review skills before use; they run with full agent permissions.",
         "stderr": ""
       },
@@ -1367,7 +1367,7 @@
         {
           "id": "codex-project-default.debug.content",
           "passed": true,
-          "detail": "source=8900ccd55bc62260eb9e7e3a7a2d0e6288d7771102f7a8b3b5655a741de80f59; installed=8900ccd55bc62260eb9e7e3a7a2d0e6288d7771102f7a8b3b5655a741de80f59"
+          "detail": "source=f351222a3e7840bb8f9c6ea37e7fe9571164fb66591a27c9538c37c9f3fcfdc2; installed=f351222a3e7840bb8f9c6ea37e7fe9571164fb66591a27c9538c37c9f3fcfdc2"
         },
         {
           "id": "codex-project-default.debug.copy",
@@ -1382,7 +1382,7 @@
         {
           "id": "codex-project-default.design.content",
           "passed": true,
-          "detail": "source=4d171487d24fb6742f82f75d724c84989a4b0fb6b7ff0dc1dba433ca4c528085; installed=4d171487d24fb6742f82f75d724c84989a4b0fb6b7ff0dc1dba433ca4c528085"
+          "detail": "source=ab7e7b7a404004602e5aa80e919bdc4a301e2da7eb5232acb799fa27702fb48d; installed=ab7e7b7a404004602e5aa80e919bdc4a301e2da7eb5232acb799fa27702fb48d"
         },
         {
           "id": "codex-project-default.design.copy",
@@ -1397,7 +1397,7 @@
         {
           "id": "codex-project-default.plan.content",
           "passed": true,
-          "detail": "source=8fb64e9ac13541aaca65cafbfcf97ce3c6dfabcc781d83cfdd4f2b15c31b7e6f; installed=8fb64e9ac13541aaca65cafbfcf97ce3c6dfabcc781d83cfdd4f2b15c31b7e6f"
+          "detail": "source=4f951aee4525ac358833486c28339c706e9b372282c22c258577d20cf36a57c6; installed=4f951aee4525ac358833486c28339c706e9b372282c22c258577d20cf36a57c6"
         },
         {
           "id": "codex-project-default.plan.copy",
@@ -1412,7 +1412,7 @@
         {
           "id": "codex-project-default.qa.content",
           "passed": true,
-          "detail": "source=0ec2e2b726c872c1ccaf8a72cac987f694f6aa85ded7ece5f52bcfef31e5a8d0; installed=0ec2e2b726c872c1ccaf8a72cac987f694f6aa85ded7ece5f52bcfef31e5a8d0"
+          "detail": "source=773e53fef2af6b948402a5fe36be7c18022734277b2c95a4609395339a5d95ef; installed=773e53fef2af6b948402a5fe36be7c18022734277b2c95a4609395339a5d95ef"
         },
         {
           "id": "codex-project-default.qa.copy",
@@ -1427,7 +1427,7 @@
         {
           "id": "codex-project-default.review.content",
           "passed": true,
-          "detail": "source=b68b7f15eb0ef866a29e8fada17223ace2ebf73d66fc1c60f6fd776c762a4551; installed=b68b7f15eb0ef866a29e8fada17223ace2ebf73d66fc1c60f6fd776c762a4551"
+          "detail": "source=f6b28db16774cbeebff99ab7f968eb35fa3d4076201eec075389b7ab5a5107e6; installed=f6b28db16774cbeebff99ab7f968eb35fa3d4076201eec075389b7ab5a5107e6"
         },
         {
           "id": "codex-project-default.review.copy",
@@ -1442,7 +1442,7 @@
         {
           "id": "codex-project-default.ship.content",
           "passed": true,
-          "detail": "source=2d43c0634596f7c3a48b1b82e23f099ada6b27f6f2f2d538964fad6eb1f4b242; installed=2d43c0634596f7c3a48b1b82e23f099ada6b27f6f2f2d538964fad6eb1f4b242"
+          "detail": "source=45d26c47b04cdff6c9fa2cf055e4f4f30af3ef331a3b18b52711be1394291202; installed=45d26c47b04cdff6c9fa2cf055e4f4f30af3ef331a3b18b52711be1394291202"
         },
         {
           "id": "codex-project-default.ship.copy",
@@ -1469,7 +1469,7 @@
         ],
         "exitCode": 0,
         "signal": null,
-        "durationMs": 1047,
+        "durationMs": 693,
         "stdout": "│\n●   codex  Agent detected — installing non-interactively\n│\n◇  Source: <TEMP_MATRIX_ROOT>/linked canonical source\n│\n◇  Local path validated\n│\n◇  Found 6 skills\n│\n●  Installing all 6 skills\n\n│\n◇  Installation Summary ────╮\n│                           │\n│  ./.agents/skills/debug   │\n│    copy → Codex           │\n│                           │\n│  ./.agents/skills/design  │\n│    copy → Codex           │\n│                           │\n│  ./.agents/skills/plan    │\n│    copy → Codex           │\n│                           │\n│  ./.agents/skills/qa      │\n│    copy → Codex           │\n│                           │\n│  ./.agents/skills/review  │\n│    copy → Codex           │\n│                           │\n│  ./.agents/skills/ship    │\n│    copy → Codex           │\n│                           │\n├───────────────────────────╯\n│\n◇  Installation complete\n\n│\n◇  Installed 6 skills ──────────╮\n│                               │\n│  ✓ debug (copied)             │\n│    → ./.agents/skills/debug   │\n│  ✓ design (copied)            │\n│    → ./.agents/skills/design  │\n│  ✓ plan (copied)              │\n│    → ./.agents/skills/plan    │\n│  ✓ qa (copied)                │\n│    → ./.agents/skills/qa      │\n│  ✓ review (copied)            │\n│    → ./.agents/skills/review  │\n│  ✓ ship (copied)              │\n│    → ./.agents/skills/ship    │\n│                               │\n├───────────────────────────────╯\n\n│\n└  Done!  Review skills before use; they run with full agent permissions.",
         "stderr": ""
       },
@@ -1512,7 +1512,7 @@
         {
           "id": "codex-global-default.debug.content",
           "passed": true,
-          "detail": "source=8900ccd55bc62260eb9e7e3a7a2d0e6288d7771102f7a8b3b5655a741de80f59; installed=8900ccd55bc62260eb9e7e3a7a2d0e6288d7771102f7a8b3b5655a741de80f59"
+          "detail": "source=f351222a3e7840bb8f9c6ea37e7fe9571164fb66591a27c9538c37c9f3fcfdc2; installed=f351222a3e7840bb8f9c6ea37e7fe9571164fb66591a27c9538c37c9f3fcfdc2"
         },
         {
           "id": "codex-global-default.debug.copy",
@@ -1527,7 +1527,7 @@
         {
           "id": "codex-global-default.design.content",
           "passed": true,
-          "detail": "source=4d171487d24fb6742f82f75d724c84989a4b0fb6b7ff0dc1dba433ca4c528085; installed=4d171487d24fb6742f82f75d724c84989a4b0fb6b7ff0dc1dba433ca4c528085"
+          "detail": "source=ab7e7b7a404004602e5aa80e919bdc4a301e2da7eb5232acb799fa27702fb48d; installed=ab7e7b7a404004602e5aa80e919bdc4a301e2da7eb5232acb799fa27702fb48d"
         },
         {
           "id": "codex-global-default.design.copy",
@@ -1542,7 +1542,7 @@
         {
           "id": "codex-global-default.plan.content",
           "passed": true,
-          "detail": "source=8fb64e9ac13541aaca65cafbfcf97ce3c6dfabcc781d83cfdd4f2b15c31b7e6f; installed=8fb64e9ac13541aaca65cafbfcf97ce3c6dfabcc781d83cfdd4f2b15c31b7e6f"
+          "detail": "source=4f951aee4525ac358833486c28339c706e9b372282c22c258577d20cf36a57c6; installed=4f951aee4525ac358833486c28339c706e9b372282c22c258577d20cf36a57c6"
         },
         {
           "id": "codex-global-default.plan.copy",
@@ -1557,7 +1557,7 @@
         {
           "id": "codex-global-default.qa.content",
           "passed": true,
-          "detail": "source=0ec2e2b726c872c1ccaf8a72cac987f694f6aa85ded7ece5f52bcfef31e5a8d0; installed=0ec2e2b726c872c1ccaf8a72cac987f694f6aa85ded7ece5f52bcfef31e5a8d0"
+          "detail": "source=773e53fef2af6b948402a5fe36be7c18022734277b2c95a4609395339a5d95ef; installed=773e53fef2af6b948402a5fe36be7c18022734277b2c95a4609395339a5d95ef"
         },
         {
           "id": "codex-global-default.qa.copy",
@@ -1572,7 +1572,7 @@
         {
           "id": "codex-global-default.review.content",
           "passed": true,
-          "detail": "source=b68b7f15eb0ef866a29e8fada17223ace2ebf73d66fc1c60f6fd776c762a4551; installed=b68b7f15eb0ef866a29e8fada17223ace2ebf73d66fc1c60f6fd776c762a4551"
+          "detail": "source=f6b28db16774cbeebff99ab7f968eb35fa3d4076201eec075389b7ab5a5107e6; installed=f6b28db16774cbeebff99ab7f968eb35fa3d4076201eec075389b7ab5a5107e6"
         },
         {
           "id": "codex-global-default.review.copy",
@@ -1587,7 +1587,7 @@
         {
           "id": "codex-global-default.ship.content",
           "passed": true,
-          "detail": "source=2d43c0634596f7c3a48b1b82e23f099ada6b27f6f2f2d538964fad6eb1f4b242; installed=2d43c0634596f7c3a48b1b82e23f099ada6b27f6f2f2d538964fad6eb1f4b242"
+          "detail": "source=45d26c47b04cdff6c9fa2cf055e4f4f30af3ef331a3b18b52711be1394291202; installed=45d26c47b04cdff6c9fa2cf055e4f4f30af3ef331a3b18b52711be1394291202"
         },
         {
           "id": "codex-global-default.ship.copy",
@@ -1615,8 +1615,299 @@
         ],
         "exitCode": 0,
         "signal": null,
-        "durationMs": 1029,
+        "durationMs": 939,
         "stdout": "│\n●   codex  Agent detected — installing non-interactively\n│\n◇  Source: <TEMP_MATRIX_ROOT>/canonical package/source with spaces\n│\n◇  Local path validated\n│\n◇  Found 6 skills\n│\n●  Installing all 6 skills\n\n│\n◇  Installation Summary ────╮\n│                           │\n│  ~/.agents/skills/debug   │\n│    copy → Codex           │\n│                           │\n│  ~/.agents/skills/design  │\n│    copy → Codex           │\n│                           │\n│  ~/.agents/skills/plan    │\n│    copy → Codex           │\n│                           │\n│  ~/.agents/skills/qa      │\n│    copy → Codex           │\n│                           │\n│  ~/.agents/skills/review  │\n│    copy → Codex           │\n│                           │\n│  ~/.agents/skills/ship    │\n│    copy → Codex           │\n│                           │\n├───────────────────────────╯\n│\n◇  Installation complete\n\n│\n◇  Installed 6 skills ──────────╮\n│                               │\n│  ✓ debug (copied)             │\n│    → ~/.agents/skills/debug   │\n│  ✓ design (copied)            │\n│    → ~/.agents/skills/design  │\n│  ✓ plan (copied)              │\n│    → ~/.agents/skills/plan    │\n│  ✓ qa (copied)                │\n│    → ~/.agents/skills/qa      │\n│  ✓ review (copied)            │\n│    → ~/.agents/skills/review  │\n│  ✓ ship (copied)              │\n│    → ~/.agents/skills/ship    │\n│                               │\n├───────────────────────────────╯\n\n│\n└  Done!  Review skills before use; they run with full agent permissions.",
+        "stderr": ""
+      },
+      "passed": true
+    },
+    {
+      "id": "kimi-code-cli-project-default",
+      "agent": "kimi-code-cli",
+      "agentLabel": "Kimi Code CLI",
+      "scope": "project",
+      "sourceKind": "path-with-spaces",
+      "expectedRoot": "<TEMP_MATRIX_ROOT>/cases/kimi-code-cli-project-default/project with spaces/.agents/skills",
+      "expectedSkills": [
+        "debug",
+        "design",
+        "plan",
+        "qa",
+        "review",
+        "ship"
+      ],
+      "installedSkills": [
+        "debug",
+        "design",
+        "plan",
+        "qa",
+        "review",
+        "ship"
+      ],
+      "checks": [
+        {
+          "id": "kimi-code-cli-project-default.command",
+          "passed": true,
+          "detail": "exit=0; signal=none"
+        },
+        {
+          "id": "kimi-code-cli-project-default.selected-skills",
+          "passed": true,
+          "detail": "expected debug, design, plan, qa, review, ship; found debug, design, plan, qa, review, ship"
+        },
+        {
+          "id": "kimi-code-cli-project-default.debug.content",
+          "passed": true,
+          "detail": "source=f351222a3e7840bb8f9c6ea37e7fe9571164fb66591a27c9538c37c9f3fcfdc2; installed=f351222a3e7840bb8f9c6ea37e7fe9571164fb66591a27c9538c37c9f3fcfdc2"
+        },
+        {
+          "id": "kimi-code-cli-project-default.debug.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "kimi-code-cli-project-default.debug.canonical-name",
+          "passed": true,
+          "detail": "expected debug; found debug"
+        },
+        {
+          "id": "kimi-code-cli-project-default.design.content",
+          "passed": true,
+          "detail": "source=ab7e7b7a404004602e5aa80e919bdc4a301e2da7eb5232acb799fa27702fb48d; installed=ab7e7b7a404004602e5aa80e919bdc4a301e2da7eb5232acb799fa27702fb48d"
+        },
+        {
+          "id": "kimi-code-cli-project-default.design.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "kimi-code-cli-project-default.design.canonical-name",
+          "passed": true,
+          "detail": "expected design; found design"
+        },
+        {
+          "id": "kimi-code-cli-project-default.plan.content",
+          "passed": true,
+          "detail": "source=4f951aee4525ac358833486c28339c706e9b372282c22c258577d20cf36a57c6; installed=4f951aee4525ac358833486c28339c706e9b372282c22c258577d20cf36a57c6"
+        },
+        {
+          "id": "kimi-code-cli-project-default.plan.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "kimi-code-cli-project-default.plan.canonical-name",
+          "passed": true,
+          "detail": "expected plan; found plan"
+        },
+        {
+          "id": "kimi-code-cli-project-default.qa.content",
+          "passed": true,
+          "detail": "source=773e53fef2af6b948402a5fe36be7c18022734277b2c95a4609395339a5d95ef; installed=773e53fef2af6b948402a5fe36be7c18022734277b2c95a4609395339a5d95ef"
+        },
+        {
+          "id": "kimi-code-cli-project-default.qa.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "kimi-code-cli-project-default.qa.canonical-name",
+          "passed": true,
+          "detail": "expected qa; found qa"
+        },
+        {
+          "id": "kimi-code-cli-project-default.review.content",
+          "passed": true,
+          "detail": "source=f6b28db16774cbeebff99ab7f968eb35fa3d4076201eec075389b7ab5a5107e6; installed=f6b28db16774cbeebff99ab7f968eb35fa3d4076201eec075389b7ab5a5107e6"
+        },
+        {
+          "id": "kimi-code-cli-project-default.review.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "kimi-code-cli-project-default.review.canonical-name",
+          "passed": true,
+          "detail": "expected review; found review"
+        },
+        {
+          "id": "kimi-code-cli-project-default.ship.content",
+          "passed": true,
+          "detail": "source=45d26c47b04cdff6c9fa2cf055e4f4f30af3ef331a3b18b52711be1394291202; installed=45d26c47b04cdff6c9fa2cf055e4f4f30af3ef331a3b18b52711be1394291202"
+        },
+        {
+          "id": "kimi-code-cli-project-default.ship.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "kimi-code-cli-project-default.ship.canonical-name",
+          "passed": true,
+          "detail": "expected ship; found ship"
+        }
+      ],
+      "command": {
+        "argv": [
+          "npx",
+          "--yes",
+          "skills",
+          "add",
+          "<TEMP_MATRIX_ROOT>/canonical package/source with spaces",
+          "--agent",
+          "kimi-code-cli",
+          "--copy",
+          "--yes"
+        ],
+        "exitCode": 0,
+        "signal": null,
+        "durationMs": 679,
+        "stdout": "│\n●   codex  Agent detected — installing non-interactively\n│\n◇  Source: <TEMP_MATRIX_ROOT>/canonical package/source with spaces\n│\n◇  Local path validated\n│\n◇  Found 6 skills\n│\n●  Installing all 6 skills\n\n│\n◇  Installation Summary ────╮\n│                           │\n│  ./.agents/skills/debug   │\n│    copy → Kimi Code CLI   │\n│                           │\n│  ./.agents/skills/design  │\n│    copy → Kimi Code CLI   │\n│                           │\n│  ./.agents/skills/plan    │\n│    copy → Kimi Code CLI   │\n│                           │\n│  ./.agents/skills/qa      │\n│    copy → Kimi Code CLI   │\n│                           │\n│  ./.agents/skills/review  │\n│    copy → Kimi Code CLI   │\n│                           │\n│  ./.agents/skills/ship    │\n│    copy → Kimi Code CLI   │\n│                           │\n├───────────────────────────╯\n│\n◇  Installation complete\n\n│\n◇  Installed 6 skills ──────────╮\n│                               │\n│  ✓ debug (copied)             │\n│    → ./.agents/skills/debug   │\n│  ✓ design (copied)            │\n│    → ./.agents/skills/design  │\n│  ✓ plan (copied)              │\n│    → ./.agents/skills/plan    │\n│  ✓ qa (copied)                │\n│    → ./.agents/skills/qa      │\n│  ✓ review (copied)            │\n│    → ./.agents/skills/review  │\n│  ✓ ship (copied)              │\n│    → ./.agents/skills/ship    │\n│                               │\n├───────────────────────────────╯\n\n│\n└  Done!  Review skills before use; they run with full agent permissions.",
+        "stderr": ""
+      },
+      "passed": true
+    },
+    {
+      "id": "kimi-code-cli-global-default",
+      "agent": "kimi-code-cli",
+      "agentLabel": "Kimi Code CLI",
+      "scope": "global",
+      "sourceKind": "source-symlink",
+      "expectedRoot": "<TEMP_MATRIX_ROOT>/cases/kimi-code-cli-global-default/home with spaces/.agents/skills",
+      "expectedSkills": [
+        "debug",
+        "design",
+        "plan",
+        "qa",
+        "review",
+        "ship"
+      ],
+      "installedSkills": [
+        "debug",
+        "design",
+        "plan",
+        "qa",
+        "review",
+        "ship"
+      ],
+      "checks": [
+        {
+          "id": "kimi-code-cli-global-default.command",
+          "passed": true,
+          "detail": "exit=0; signal=none"
+        },
+        {
+          "id": "kimi-code-cli-global-default.selected-skills",
+          "passed": true,
+          "detail": "expected debug, design, plan, qa, review, ship; found debug, design, plan, qa, review, ship"
+        },
+        {
+          "id": "kimi-code-cli-global-default.debug.content",
+          "passed": true,
+          "detail": "source=f351222a3e7840bb8f9c6ea37e7fe9571164fb66591a27c9538c37c9f3fcfdc2; installed=f351222a3e7840bb8f9c6ea37e7fe9571164fb66591a27c9538c37c9f3fcfdc2"
+        },
+        {
+          "id": "kimi-code-cli-global-default.debug.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "kimi-code-cli-global-default.debug.canonical-name",
+          "passed": true,
+          "detail": "expected debug; found debug"
+        },
+        {
+          "id": "kimi-code-cli-global-default.design.content",
+          "passed": true,
+          "detail": "source=ab7e7b7a404004602e5aa80e919bdc4a301e2da7eb5232acb799fa27702fb48d; installed=ab7e7b7a404004602e5aa80e919bdc4a301e2da7eb5232acb799fa27702fb48d"
+        },
+        {
+          "id": "kimi-code-cli-global-default.design.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "kimi-code-cli-global-default.design.canonical-name",
+          "passed": true,
+          "detail": "expected design; found design"
+        },
+        {
+          "id": "kimi-code-cli-global-default.plan.content",
+          "passed": true,
+          "detail": "source=4f951aee4525ac358833486c28339c706e9b372282c22c258577d20cf36a57c6; installed=4f951aee4525ac358833486c28339c706e9b372282c22c258577d20cf36a57c6"
+        },
+        {
+          "id": "kimi-code-cli-global-default.plan.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "kimi-code-cli-global-default.plan.canonical-name",
+          "passed": true,
+          "detail": "expected plan; found plan"
+        },
+        {
+          "id": "kimi-code-cli-global-default.qa.content",
+          "passed": true,
+          "detail": "source=773e53fef2af6b948402a5fe36be7c18022734277b2c95a4609395339a5d95ef; installed=773e53fef2af6b948402a5fe36be7c18022734277b2c95a4609395339a5d95ef"
+        },
+        {
+          "id": "kimi-code-cli-global-default.qa.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "kimi-code-cli-global-default.qa.canonical-name",
+          "passed": true,
+          "detail": "expected qa; found qa"
+        },
+        {
+          "id": "kimi-code-cli-global-default.review.content",
+          "passed": true,
+          "detail": "source=f6b28db16774cbeebff99ab7f968eb35fa3d4076201eec075389b7ab5a5107e6; installed=f6b28db16774cbeebff99ab7f968eb35fa3d4076201eec075389b7ab5a5107e6"
+        },
+        {
+          "id": "kimi-code-cli-global-default.review.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "kimi-code-cli-global-default.review.canonical-name",
+          "passed": true,
+          "detail": "expected review; found review"
+        },
+        {
+          "id": "kimi-code-cli-global-default.ship.content",
+          "passed": true,
+          "detail": "source=45d26c47b04cdff6c9fa2cf055e4f4f30af3ef331a3b18b52711be1394291202; installed=45d26c47b04cdff6c9fa2cf055e4f4f30af3ef331a3b18b52711be1394291202"
+        },
+        {
+          "id": "kimi-code-cli-global-default.ship.copy",
+          "passed": true,
+          "detail": "directory and SKILL.md are physical copies"
+        },
+        {
+          "id": "kimi-code-cli-global-default.ship.canonical-name",
+          "passed": true,
+          "detail": "expected ship; found ship"
+        }
+      ],
+      "command": {
+        "argv": [
+          "npx",
+          "--yes",
+          "skills",
+          "add",
+          "<TEMP_MATRIX_ROOT>/linked canonical source",
+          "--agent",
+          "kimi-code-cli",
+          "--copy",
+          "--yes",
+          "--global"
+        ],
+        "exitCode": 0,
+        "signal": null,
+        "durationMs": 618,
+        "stdout": "│\n●   codex  Agent detected — installing non-interactively\n│\n◇  Source: <TEMP_MATRIX_ROOT>/linked canonical source\n│\n◇  Local path validated\n│\n◇  Found 6 skills\n│\n●  Installing all 6 skills\n\n│\n◇  Installation Summary ────╮\n│                           │\n│  ~/.agents/skills/debug   │\n│    copy → Kimi Code CLI   │\n│                           │\n│  ~/.agents/skills/design  │\n│    copy → Kimi Code CLI   │\n│                           │\n│  ~/.agents/skills/plan    │\n│    copy → Kimi Code CLI   │\n│                           │\n│  ~/.agents/skills/qa      │\n│    copy → Kimi Code CLI   │\n│                           │\n│  ~/.agents/skills/review  │\n│    copy → Kimi Code CLI   │\n│                           │\n│  ~/.agents/skills/ship    │\n│    copy → Kimi Code CLI   │\n│                           │\n├───────────────────────────╯\n│\n◇  Installation complete\n\n│\n◇  Installed 6 skills ──────────╮\n│                               │\n│  ✓ debug (copied)             │\n│    → ~/.agents/skills/debug   │\n│  ✓ design (copied)            │\n│    → ~/.agents/skills/design  │\n│  ✓ plan (copied)              │\n│    → ~/.agents/skills/plan    │\n│  ✓ qa (copied)                │\n│    → ~/.agents/skills/qa      │\n│  ✓ review (copied)            │\n│    → ~/.agents/skills/review  │\n│  ✓ ship (copied)              │\n│    → ~/.agents/skills/ship    │\n│                               │\n├───────────────────────────────╯\n\n│\n└  Done!  Review skills before use; they run with full agent permissions.",
         "stderr": ""
       },
       "passed": true
@@ -1626,7 +1917,7 @@
       "agent": "cursor",
       "agentLabel": "Cursor",
       "scope": "project",
-      "sourceKind": "path-with-spaces",
+      "sourceKind": "source-symlink",
       "expectedRoot": "<TEMP_MATRIX_ROOT>/cases/cursor-project-default/project with spaces/.agents/skills",
       "expectedSkills": [
         "debug",
@@ -1658,7 +1949,7 @@
         {
           "id": "cursor-project-default.debug.content",
           "passed": true,
-          "detail": "source=8900ccd55bc62260eb9e7e3a7a2d0e6288d7771102f7a8b3b5655a741de80f59; installed=8900ccd55bc62260eb9e7e3a7a2d0e6288d7771102f7a8b3b5655a741de80f59"
+          "detail": "source=f351222a3e7840bb8f9c6ea37e7fe9571164fb66591a27c9538c37c9f3fcfdc2; installed=f351222a3e7840bb8f9c6ea37e7fe9571164fb66591a27c9538c37c9f3fcfdc2"
         },
         {
           "id": "cursor-project-default.debug.copy",
@@ -1673,7 +1964,7 @@
         {
           "id": "cursor-project-default.design.content",
           "passed": true,
-          "detail": "source=4d171487d24fb6742f82f75d724c84989a4b0fb6b7ff0dc1dba433ca4c528085; installed=4d171487d24fb6742f82f75d724c84989a4b0fb6b7ff0dc1dba433ca4c528085"
+          "detail": "source=ab7e7b7a404004602e5aa80e919bdc4a301e2da7eb5232acb799fa27702fb48d; installed=ab7e7b7a404004602e5aa80e919bdc4a301e2da7eb5232acb799fa27702fb48d"
         },
         {
           "id": "cursor-project-default.design.copy",
@@ -1688,7 +1979,7 @@
         {
           "id": "cursor-project-default.plan.content",
           "passed": true,
-          "detail": "source=8fb64e9ac13541aaca65cafbfcf97ce3c6dfabcc781d83cfdd4f2b15c31b7e6f; installed=8fb64e9ac13541aaca65cafbfcf97ce3c6dfabcc781d83cfdd4f2b15c31b7e6f"
+          "detail": "source=4f951aee4525ac358833486c28339c706e9b372282c22c258577d20cf36a57c6; installed=4f951aee4525ac358833486c28339c706e9b372282c22c258577d20cf36a57c6"
         },
         {
           "id": "cursor-project-default.plan.copy",
@@ -1703,7 +1994,7 @@
         {
           "id": "cursor-project-default.qa.content",
           "passed": true,
-          "detail": "source=0ec2e2b726c872c1ccaf8a72cac987f694f6aa85ded7ece5f52bcfef31e5a8d0; installed=0ec2e2b726c872c1ccaf8a72cac987f694f6aa85ded7ece5f52bcfef31e5a8d0"
+          "detail": "source=773e53fef2af6b948402a5fe36be7c18022734277b2c95a4609395339a5d95ef; installed=773e53fef2af6b948402a5fe36be7c18022734277b2c95a4609395339a5d95ef"
         },
         {
           "id": "cursor-project-default.qa.copy",
@@ -1718,7 +2009,7 @@
         {
           "id": "cursor-project-default.review.content",
           "passed": true,
-          "detail": "source=b68b7f15eb0ef866a29e8fada17223ace2ebf73d66fc1c60f6fd776c762a4551; installed=b68b7f15eb0ef866a29e8fada17223ace2ebf73d66fc1c60f6fd776c762a4551"
+          "detail": "source=f6b28db16774cbeebff99ab7f968eb35fa3d4076201eec075389b7ab5a5107e6; installed=f6b28db16774cbeebff99ab7f968eb35fa3d4076201eec075389b7ab5a5107e6"
         },
         {
           "id": "cursor-project-default.review.copy",
@@ -1733,7 +2024,7 @@
         {
           "id": "cursor-project-default.ship.content",
           "passed": true,
-          "detail": "source=2d43c0634596f7c3a48b1b82e23f099ada6b27f6f2f2d538964fad6eb1f4b242; installed=2d43c0634596f7c3a48b1b82e23f099ada6b27f6f2f2d538964fad6eb1f4b242"
+          "detail": "source=45d26c47b04cdff6c9fa2cf055e4f4f30af3ef331a3b18b52711be1394291202; installed=45d26c47b04cdff6c9fa2cf055e4f4f30af3ef331a3b18b52711be1394291202"
         },
         {
           "id": "cursor-project-default.ship.copy",
@@ -1752,7 +2043,7 @@
           "--yes",
           "skills",
           "add",
-          "<TEMP_MATRIX_ROOT>/canonical package/source with spaces",
+          "<TEMP_MATRIX_ROOT>/linked canonical source",
           "--agent",
           "cursor",
           "--copy",
@@ -1760,8 +2051,8 @@
         ],
         "exitCode": 0,
         "signal": null,
-        "durationMs": 1034,
-        "stdout": "│\n●   codex  Agent detected — installing non-interactively\n│\n◇  Source: <TEMP_MATRIX_ROOT>/canonical package/source with spaces\n│\n◇  Local path validated\n│\n◇  Found 6 skills\n│\n●  Installing all 6 skills\n\n│\n◇  Installation Summary ────╮\n│                           │\n│  ./.agents/skills/debug   │\n│    copy → Cursor          │\n│                           │\n│  ./.agents/skills/design  │\n│    copy → Cursor          │\n│                           │\n│  ./.agents/skills/plan    │\n│    copy → Cursor          │\n│                           │\n│  ./.agents/skills/qa      │\n│    copy → Cursor          │\n│                           │\n│  ./.agents/skills/review  │\n│    copy → Cursor          │\n│                           │\n│  ./.agents/skills/ship    │\n│    copy → Cursor          │\n│                           │\n├───────────────────────────╯\n│\n◇  Installation complete\n\n│\n◇  Installed 6 skills ──────────╮\n│                               │\n│  ✓ debug (copied)             │\n│    → ./.agents/skills/debug   │\n│  ✓ design (copied)            │\n│    → ./.agents/skills/design  │\n│  ✓ plan (copied)              │\n│    → ./.agents/skills/plan    │\n│  ✓ qa (copied)                │\n│    → ./.agents/skills/qa      │\n│  ✓ review (copied)            │\n│    → ./.agents/skills/review  │\n│  ✓ ship (copied)              │\n│    → ./.agents/skills/ship    │\n│                               │\n├───────────────────────────────╯\n\n│\n└  Done!  Review skills before use; they run with full agent permissions.",
+        "durationMs": 729,
+        "stdout": "│\n●   codex  Agent detected — installing non-interactively\n│\n◇  Source: <TEMP_MATRIX_ROOT>/linked canonical source\n│\n◇  Local path validated\n│\n◇  Found 6 skills\n│\n●  Installing all 6 skills\n\n│\n◇  Installation Summary ────╮\n│                           │\n│  ./.agents/skills/debug   │\n│    copy → Cursor          │\n│                           │\n│  ./.agents/skills/design  │\n│    copy → Cursor          │\n│                           │\n│  ./.agents/skills/plan    │\n│    copy → Cursor          │\n│                           │\n│  ./.agents/skills/qa      │\n│    copy → Cursor          │\n│                           │\n│  ./.agents/skills/review  │\n│    copy → Cursor          │\n│                           │\n│  ./.agents/skills/ship    │\n│    copy → Cursor          │\n│                           │\n├───────────────────────────╯\n│\n◒  Installing skills…◇  Installation complete\n\n│\n◇  Installed 6 skills ──────────╮\n│                               │\n│  ✓ debug (copied)             │\n│    → ./.agents/skills/debug   │\n│  ✓ design (copied)            │\n│    → ./.agents/skills/design  │\n│  ✓ plan (copied)              │\n│    → ./.agents/skills/plan    │\n│  ✓ qa (copied)                │\n│    → ./.agents/skills/qa      │\n│  ✓ review (copied)            │\n│    → ./.agents/skills/review  │\n│  ✓ ship (copied)              │\n│    → ./.agents/skills/ship    │\n│                               │\n├───────────────────────────────╯\n\n│\n└  Done!  Review skills before use; they run with full agent permissions.",
         "stderr": ""
       },
       "passed": true
@@ -1771,7 +2062,7 @@
       "agent": "cursor",
       "agentLabel": "Cursor",
       "scope": "global",
-      "sourceKind": "source-symlink",
+      "sourceKind": "path-with-spaces",
       "expectedRoot": "<TEMP_MATRIX_ROOT>/cases/cursor-global-default/home with spaces/.agents/skills",
       "expectedSkills": [
         "debug",
@@ -1803,7 +2094,7 @@
         {
           "id": "cursor-global-default.debug.content",
           "passed": true,
-          "detail": "source=8900ccd55bc62260eb9e7e3a7a2d0e6288d7771102f7a8b3b5655a741de80f59; installed=8900ccd55bc62260eb9e7e3a7a2d0e6288d7771102f7a8b3b5655a741de80f59"
+          "detail": "source=f351222a3e7840bb8f9c6ea37e7fe9571164fb66591a27c9538c37c9f3fcfdc2; installed=f351222a3e7840bb8f9c6ea37e7fe9571164fb66591a27c9538c37c9f3fcfdc2"
         },
         {
           "id": "cursor-global-default.debug.copy",
@@ -1818,7 +2109,7 @@
         {
           "id": "cursor-global-default.design.content",
           "passed": true,
-          "detail": "source=4d171487d24fb6742f82f75d724c84989a4b0fb6b7ff0dc1dba433ca4c528085; installed=4d171487d24fb6742f82f75d724c84989a4b0fb6b7ff0dc1dba433ca4c528085"
+          "detail": "source=ab7e7b7a404004602e5aa80e919bdc4a301e2da7eb5232acb799fa27702fb48d; installed=ab7e7b7a404004602e5aa80e919bdc4a301e2da7eb5232acb799fa27702fb48d"
         },
         {
           "id": "cursor-global-default.design.copy",
@@ -1833,7 +2124,7 @@
         {
           "id": "cursor-global-default.plan.content",
           "passed": true,
-          "detail": "source=8fb64e9ac13541aaca65cafbfcf97ce3c6dfabcc781d83cfdd4f2b15c31b7e6f; installed=8fb64e9ac13541aaca65cafbfcf97ce3c6dfabcc781d83cfdd4f2b15c31b7e6f"
+          "detail": "source=4f951aee4525ac358833486c28339c706e9b372282c22c258577d20cf36a57c6; installed=4f951aee4525ac358833486c28339c706e9b372282c22c258577d20cf36a57c6"
         },
         {
           "id": "cursor-global-default.plan.copy",
@@ -1848,7 +2139,7 @@
         {
           "id": "cursor-global-default.qa.content",
           "passed": true,
-          "detail": "source=0ec2e2b726c872c1ccaf8a72cac987f694f6aa85ded7ece5f52bcfef31e5a8d0; installed=0ec2e2b726c872c1ccaf8a72cac987f694f6aa85ded7ece5f52bcfef31e5a8d0"
+          "detail": "source=773e53fef2af6b948402a5fe36be7c18022734277b2c95a4609395339a5d95ef; installed=773e53fef2af6b948402a5fe36be7c18022734277b2c95a4609395339a5d95ef"
         },
         {
           "id": "cursor-global-default.qa.copy",
@@ -1863,7 +2154,7 @@
         {
           "id": "cursor-global-default.review.content",
           "passed": true,
-          "detail": "source=b68b7f15eb0ef866a29e8fada17223ace2ebf73d66fc1c60f6fd776c762a4551; installed=b68b7f15eb0ef866a29e8fada17223ace2ebf73d66fc1c60f6fd776c762a4551"
+          "detail": "source=f6b28db16774cbeebff99ab7f968eb35fa3d4076201eec075389b7ab5a5107e6; installed=f6b28db16774cbeebff99ab7f968eb35fa3d4076201eec075389b7ab5a5107e6"
         },
         {
           "id": "cursor-global-default.review.copy",
@@ -1878,7 +2169,7 @@
         {
           "id": "cursor-global-default.ship.content",
           "passed": true,
-          "detail": "source=2d43c0634596f7c3a48b1b82e23f099ada6b27f6f2f2d538964fad6eb1f4b242; installed=2d43c0634596f7c3a48b1b82e23f099ada6b27f6f2f2d538964fad6eb1f4b242"
+          "detail": "source=45d26c47b04cdff6c9fa2cf055e4f4f30af3ef331a3b18b52711be1394291202; installed=45d26c47b04cdff6c9fa2cf055e4f4f30af3ef331a3b18b52711be1394291202"
         },
         {
           "id": "cursor-global-default.ship.copy",
@@ -1897,7 +2188,7 @@
           "--yes",
           "skills",
           "add",
-          "<TEMP_MATRIX_ROOT>/linked canonical source",
+          "<TEMP_MATRIX_ROOT>/canonical package/source with spaces",
           "--agent",
           "cursor",
           "--copy",
@@ -1906,8 +2197,8 @@
         ],
         "exitCode": 0,
         "signal": null,
-        "durationMs": 1037,
-        "stdout": "│\n●   codex  Agent detected — installing non-interactively\n│\n◇  Source: <TEMP_MATRIX_ROOT>/linked canonical source\n│\n◇  Local path validated\n│\n◇  Found 6 skills\n│\n●  Installing all 6 skills\n\n│\n◇  Installation Summary ────╮\n│                           │\n│  ~/.agents/skills/debug   │\n│    copy → Cursor          │\n│                           │\n│  ~/.agents/skills/design  │\n│    copy → Cursor          │\n│                           │\n│  ~/.agents/skills/plan    │\n│    copy → Cursor          │\n│                           │\n│  ~/.agents/skills/qa      │\n│    copy → Cursor          │\n│                           │\n│  ~/.agents/skills/review  │\n│    copy → Cursor          │\n│                           │\n│  ~/.agents/skills/ship    │\n│    copy → Cursor          │\n│                           │\n├───────────────────────────╯\n│\n◇  Installation complete\n\n│\n◇  Installed 6 skills ──────────╮\n│                               │\n│  ✓ debug (copied)             │\n│    → ~/.agents/skills/debug   │\n│  ✓ design (copied)            │\n│    → ~/.agents/skills/design  │\n│  ✓ plan (copied)              │\n│    → ~/.agents/skills/plan    │\n│  ✓ qa (copied)                │\n│    → ~/.agents/skills/qa      │\n│  ✓ review (copied)            │\n│    → ~/.agents/skills/review  │\n│  ✓ ship (copied)              │\n│    → ~/.agents/skills/ship    │\n│                               │\n├───────────────────────────────╯\n\n│\n└  Done!  Review skills before use; they run with full agent permissions.",
+        "durationMs": 893,
+        "stdout": "│\n●   codex  Agent detected — installing non-interactively\n│\n◇  Source: <TEMP_MATRIX_ROOT>/canonical package/source with spaces\n│\n◇  Local path validated\n│\n◇  Found 6 skills\n│\n●  Installing all 6 skills\n\n│\n◇  Installation Summary ────╮\n│                           │\n│  ~/.agents/skills/debug   │\n│    copy → Cursor          │\n│                           │\n│  ~/.agents/skills/design  │\n│    copy → Cursor          │\n│                           │\n│  ~/.agents/skills/plan    │\n│    copy → Cursor          │\n│                           │\n│  ~/.agents/skills/qa      │\n│    copy → Cursor          │\n│                           │\n│  ~/.agents/skills/review  │\n│    copy → Cursor          │\n│                           │\n│  ~/.agents/skills/ship    │\n│    copy → Cursor          │\n│                           │\n├───────────────────────────╯\n│\n◇  Installation complete\n\n│\n◇  Installed 6 skills ──────────╮\n│                               │\n│  ✓ debug (copied)             │\n│    → ~/.agents/skills/debug   │\n│  ✓ design (copied)            │\n│    → ~/.agents/skills/design  │\n│  ✓ plan (copied)              │\n│    → ~/.agents/skills/plan    │\n│  ✓ qa (copied)                │\n│    → ~/.agents/skills/qa      │\n│  ✓ review (copied)            │\n│    → ~/.agents/skills/review  │\n│  ✓ ship (copied)              │\n│    → ~/.agents/skills/ship    │\n│                               │\n├───────────────────────────────╯\n\n│\n└  Done!  Review skills before use; they run with full agent permissions.",
         "stderr": ""
       },
       "passed": true
@@ -1917,7 +2208,7 @@
       "agent": "pi",
       "agentLabel": "Pi",
       "scope": "project",
-      "sourceKind": "source-symlink",
+      "sourceKind": "path-with-spaces",
       "expectedRoot": "<TEMP_MATRIX_ROOT>/cases/pi-project-default/project with spaces/.pi/skills",
       "expectedSkills": [
         "debug",
@@ -1949,7 +2240,7 @@
         {
           "id": "pi-project-default.debug.content",
           "passed": true,
-          "detail": "source=8900ccd55bc62260eb9e7e3a7a2d0e6288d7771102f7a8b3b5655a741de80f59; installed=8900ccd55bc62260eb9e7e3a7a2d0e6288d7771102f7a8b3b5655a741de80f59"
+          "detail": "source=f351222a3e7840bb8f9c6ea37e7fe9571164fb66591a27c9538c37c9f3fcfdc2; installed=f351222a3e7840bb8f9c6ea37e7fe9571164fb66591a27c9538c37c9f3fcfdc2"
         },
         {
           "id": "pi-project-default.debug.copy",
@@ -1964,7 +2255,7 @@
         {
           "id": "pi-project-default.design.content",
           "passed": true,
-          "detail": "source=4d171487d24fb6742f82f75d724c84989a4b0fb6b7ff0dc1dba433ca4c528085; installed=4d171487d24fb6742f82f75d724c84989a4b0fb6b7ff0dc1dba433ca4c528085"
+          "detail": "source=ab7e7b7a404004602e5aa80e919bdc4a301e2da7eb5232acb799fa27702fb48d; installed=ab7e7b7a404004602e5aa80e919bdc4a301e2da7eb5232acb799fa27702fb48d"
         },
         {
           "id": "pi-project-default.design.copy",
@@ -1979,7 +2270,7 @@
         {
           "id": "pi-project-default.plan.content",
           "passed": true,
-          "detail": "source=8fb64e9ac13541aaca65cafbfcf97ce3c6dfabcc781d83cfdd4f2b15c31b7e6f; installed=8fb64e9ac13541aaca65cafbfcf97ce3c6dfabcc781d83cfdd4f2b15c31b7e6f"
+          "detail": "source=4f951aee4525ac358833486c28339c706e9b372282c22c258577d20cf36a57c6; installed=4f951aee4525ac358833486c28339c706e9b372282c22c258577d20cf36a57c6"
         },
         {
           "id": "pi-project-default.plan.copy",
@@ -1994,7 +2285,7 @@
         {
           "id": "pi-project-default.qa.content",
           "passed": true,
-          "detail": "source=0ec2e2b726c872c1ccaf8a72cac987f694f6aa85ded7ece5f52bcfef31e5a8d0; installed=0ec2e2b726c872c1ccaf8a72cac987f694f6aa85ded7ece5f52bcfef31e5a8d0"
+          "detail": "source=773e53fef2af6b948402a5fe36be7c18022734277b2c95a4609395339a5d95ef; installed=773e53fef2af6b948402a5fe36be7c18022734277b2c95a4609395339a5d95ef"
         },
         {
           "id": "pi-project-default.qa.copy",
@@ -2009,7 +2300,7 @@
         {
           "id": "pi-project-default.review.content",
           "passed": true,
-          "detail": "source=b68b7f15eb0ef866a29e8fada17223ace2ebf73d66fc1c60f6fd776c762a4551; installed=b68b7f15eb0ef866a29e8fada17223ace2ebf73d66fc1c60f6fd776c762a4551"
+          "detail": "source=f6b28db16774cbeebff99ab7f968eb35fa3d4076201eec075389b7ab5a5107e6; installed=f6b28db16774cbeebff99ab7f968eb35fa3d4076201eec075389b7ab5a5107e6"
         },
         {
           "id": "pi-project-default.review.copy",
@@ -2024,7 +2315,7 @@
         {
           "id": "pi-project-default.ship.content",
           "passed": true,
-          "detail": "source=2d43c0634596f7c3a48b1b82e23f099ada6b27f6f2f2d538964fad6eb1f4b242; installed=2d43c0634596f7c3a48b1b82e23f099ada6b27f6f2f2d538964fad6eb1f4b242"
+          "detail": "source=45d26c47b04cdff6c9fa2cf055e4f4f30af3ef331a3b18b52711be1394291202; installed=45d26c47b04cdff6c9fa2cf055e4f4f30af3ef331a3b18b52711be1394291202"
         },
         {
           "id": "pi-project-default.ship.copy",
@@ -2043,7 +2334,7 @@
           "--yes",
           "skills",
           "add",
-          "<TEMP_MATRIX_ROOT>/linked canonical source",
+          "<TEMP_MATRIX_ROOT>/canonical package/source with spaces",
           "--agent",
           "pi",
           "--copy",
@@ -2051,8 +2342,8 @@
         ],
         "exitCode": 0,
         "signal": null,
-        "durationMs": 1038,
-        "stdout": "│\n●   codex  Agent detected — installing non-interactively\n│\n◇  Source: <TEMP_MATRIX_ROOT>/linked canonical source\n│\n◇  Local path validated\n│\n◇  Found 6 skills\n│\n●  Installing all 6 skills\n\n│\n◇  Installation Summary ────╮\n│                           │\n│  ./.agents/skills/debug   │\n│    copy → Pi              │\n│                           │\n│  ./.agents/skills/design  │\n│    copy → Pi              │\n│                           │\n│  ./.agents/skills/plan    │\n│    copy → Pi              │\n│                           │\n│  ./.agents/skills/qa      │\n│    copy → Pi              │\n│                           │\n│  ./.agents/skills/review  │\n│    copy → Pi              │\n│                           │\n│  ./.agents/skills/ship    │\n│    copy → Pi              │\n│                           │\n├───────────────────────────╯\n│\n◇  Installation complete\n\n│\n◇  Installed 6 skills ──────╮\n│                           │\n│  ✓ debug (copied)         │\n│    → ./.pi/skills/debug   │\n│  ✓ design (copied)        │\n│    → ./.pi/skills/design  │\n│  ✓ plan (copied)          │\n│    → ./.pi/skills/plan    │\n│  ✓ qa (copied)            │\n│    → ./.pi/skills/qa      │\n│  ✓ review (copied)        │\n│    → ./.pi/skills/review  │\n│  ✓ ship (copied)          │\n│    → ./.pi/skills/ship    │\n│                           │\n├───────────────────────────╯\n\n│\n└  Done!  Review skills before use; they run with full agent permissions.",
+        "durationMs": 1324,
+        "stdout": "│\n●   codex  Agent detected — installing non-interactively\n│\n◇  Source: <TEMP_MATRIX_ROOT>/canonical package/source with spaces\n│\n◇  Local path validated\n│\n◒  Discovering skills…◇  Found 6 skills\n│\n●  Installing all 6 skills\n\n│\n◇  Installation Summary ────╮\n│                           │\n│  ./.agents/skills/debug   │\n│    copy → Pi              │\n│                           │\n│  ./.agents/skills/design  │\n│    copy → Pi              │\n│                           │\n│  ./.agents/skills/plan    │\n│    copy → Pi              │\n│                           │\n│  ./.agents/skills/qa      │\n│    copy → Pi              │\n│                           │\n│  ./.agents/skills/review  │\n│    copy → Pi              │\n│                           │\n│  ./.agents/skills/ship    │\n│    copy → Pi              │\n│                           │\n├───────────────────────────╯\n│\n◒  Installing skills…◐  Installing skills…◇  Installation complete\n\n│\n◇  Installed 6 skills ──────╮\n│                           │\n│  ✓ debug (copied)         │\n│    → ./.pi/skills/debug   │\n│  ✓ design (copied)        │\n│    → ./.pi/skills/design  │\n│  ✓ plan (copied)          │\n│    → ./.pi/skills/plan    │\n│  ✓ qa (copied)            │\n│    → ./.pi/skills/qa      │\n│  ✓ review (copied)        │\n│    → ./.pi/skills/review  │\n│  ✓ ship (copied)          │\n│    → ./.pi/skills/ship    │\n│                           │\n├───────────────────────────╯\n\n│\n└  Done!  Review skills before use; they run with full agent permissions.",
         "stderr": ""
       },
       "passed": true
@@ -2062,7 +2353,7 @@
       "agent": "pi",
       "agentLabel": "Pi",
       "scope": "global",
-      "sourceKind": "path-with-spaces",
+      "sourceKind": "source-symlink",
       "expectedRoot": "<TEMP_MATRIX_ROOT>/cases/pi-global-default/home with spaces/.pi/agent/skills",
       "expectedSkills": [
         "debug",
@@ -2094,7 +2385,7 @@
         {
           "id": "pi-global-default.debug.content",
           "passed": true,
-          "detail": "source=8900ccd55bc62260eb9e7e3a7a2d0e6288d7771102f7a8b3b5655a741de80f59; installed=8900ccd55bc62260eb9e7e3a7a2d0e6288d7771102f7a8b3b5655a741de80f59"
+          "detail": "source=f351222a3e7840bb8f9c6ea37e7fe9571164fb66591a27c9538c37c9f3fcfdc2; installed=f351222a3e7840bb8f9c6ea37e7fe9571164fb66591a27c9538c37c9f3fcfdc2"
         },
         {
           "id": "pi-global-default.debug.copy",
@@ -2109,7 +2400,7 @@
         {
           "id": "pi-global-default.design.content",
           "passed": true,
-          "detail": "source=4d171487d24fb6742f82f75d724c84989a4b0fb6b7ff0dc1dba433ca4c528085; installed=4d171487d24fb6742f82f75d724c84989a4b0fb6b7ff0dc1dba433ca4c528085"
+          "detail": "source=ab7e7b7a404004602e5aa80e919bdc4a301e2da7eb5232acb799fa27702fb48d; installed=ab7e7b7a404004602e5aa80e919bdc4a301e2da7eb5232acb799fa27702fb48d"
         },
         {
           "id": "pi-global-default.design.copy",
@@ -2124,7 +2415,7 @@
         {
           "id": "pi-global-default.plan.content",
           "passed": true,
-          "detail": "source=8fb64e9ac13541aaca65cafbfcf97ce3c6dfabcc781d83cfdd4f2b15c31b7e6f; installed=8fb64e9ac13541aaca65cafbfcf97ce3c6dfabcc781d83cfdd4f2b15c31b7e6f"
+          "detail": "source=4f951aee4525ac358833486c28339c706e9b372282c22c258577d20cf36a57c6; installed=4f951aee4525ac358833486c28339c706e9b372282c22c258577d20cf36a57c6"
         },
         {
           "id": "pi-global-default.plan.copy",
@@ -2139,7 +2430,7 @@
         {
           "id": "pi-global-default.qa.content",
           "passed": true,
-          "detail": "source=0ec2e2b726c872c1ccaf8a72cac987f694f6aa85ded7ece5f52bcfef31e5a8d0; installed=0ec2e2b726c872c1ccaf8a72cac987f694f6aa85ded7ece5f52bcfef31e5a8d0"
+          "detail": "source=773e53fef2af6b948402a5fe36be7c18022734277b2c95a4609395339a5d95ef; installed=773e53fef2af6b948402a5fe36be7c18022734277b2c95a4609395339a5d95ef"
         },
         {
           "id": "pi-global-default.qa.copy",
@@ -2154,7 +2445,7 @@
         {
           "id": "pi-global-default.review.content",
           "passed": true,
-          "detail": "source=b68b7f15eb0ef866a29e8fada17223ace2ebf73d66fc1c60f6fd776c762a4551; installed=b68b7f15eb0ef866a29e8fada17223ace2ebf73d66fc1c60f6fd776c762a4551"
+          "detail": "source=f6b28db16774cbeebff99ab7f968eb35fa3d4076201eec075389b7ab5a5107e6; installed=f6b28db16774cbeebff99ab7f968eb35fa3d4076201eec075389b7ab5a5107e6"
         },
         {
           "id": "pi-global-default.review.copy",
@@ -2169,7 +2460,7 @@
         {
           "id": "pi-global-default.ship.content",
           "passed": true,
-          "detail": "source=2d43c0634596f7c3a48b1b82e23f099ada6b27f6f2f2d538964fad6eb1f4b242; installed=2d43c0634596f7c3a48b1b82e23f099ada6b27f6f2f2d538964fad6eb1f4b242"
+          "detail": "source=45d26c47b04cdff6c9fa2cf055e4f4f30af3ef331a3b18b52711be1394291202; installed=45d26c47b04cdff6c9fa2cf055e4f4f30af3ef331a3b18b52711be1394291202"
         },
         {
           "id": "pi-global-default.ship.copy",
@@ -2188,7 +2479,7 @@
           "--yes",
           "skills",
           "add",
-          "<TEMP_MATRIX_ROOT>/canonical package/source with spaces",
+          "<TEMP_MATRIX_ROOT>/linked canonical source",
           "--agent",
           "pi",
           "--copy",
@@ -2197,8 +2488,8 @@
         ],
         "exitCode": 0,
         "signal": null,
-        "durationMs": 1171,
-        "stdout": "│\n●   codex  Agent detected — installing non-interactively\n│\n◇  Source: <TEMP_MATRIX_ROOT>/canonical package/source with spaces\n│\n◇  Local path validated\n│\n◇  Found 6 skills\n│\n●  Installing all 6 skills\n\n│\n◇  Installation Summary ────╮\n│                           │\n│  ~/.agents/skills/debug   │\n│    copy → Pi              │\n│                           │\n│  ~/.agents/skills/design  │\n│    copy → Pi              │\n│                           │\n│  ~/.agents/skills/plan    │\n│    copy → Pi              │\n│                           │\n│  ~/.agents/skills/qa      │\n│    copy → Pi              │\n│                           │\n│  ~/.agents/skills/review  │\n│    copy → Pi              │\n│                           │\n│  ~/.agents/skills/ship    │\n│    copy → Pi              │\n│                           │\n├───────────────────────────╯\n│\n◇  Installation complete\n\n│\n◇  Installed 6 skills ────────────╮\n│                                 │\n│  ✓ debug (copied)               │\n│    → ~/.pi/agent/skills/debug   │\n│  ✓ design (copied)              │\n│    → ~/.pi/agent/skills/design  │\n│  ✓ plan (copied)                │\n│    → ~/.pi/agent/skills/plan    │\n│  ✓ qa (copied)                  │\n│    → ~/.pi/agent/skills/qa      │\n│  ✓ review (copied)              │\n│    → ~/.pi/agent/skills/review  │\n│  ✓ ship (copied)                │\n│    → ~/.pi/agent/skills/ship    │\n│                                 │\n├─────────────────────────────────╯\n\n│\n└  Done!  Review skills before use; they run with full agent permissions.",
+        "durationMs": 846,
+        "stdout": "│\n●   codex  Agent detected — installing non-interactively\n│\n◇  Source: <TEMP_MATRIX_ROOT>/linked canonical source\n│\n◇  Local path validated\n│\n◇  Found 6 skills\n│\n●  Installing all 6 skills\n\n│\n◇  Installation Summary ────╮\n│                           │\n│  ~/.agents/skills/debug   │\n│    copy → Pi              │\n│                           │\n│  ~/.agents/skills/design  │\n│    copy → Pi              │\n│                           │\n│  ~/.agents/skills/plan    │\n│    copy → Pi              │\n│                           │\n│  ~/.agents/skills/qa      │\n│    copy → Pi              │\n│                           │\n│  ~/.agents/skills/review  │\n│    copy → Pi              │\n│                           │\n│  ~/.agents/skills/ship    │\n│    copy → Pi              │\n│                           │\n├───────────────────────────╯\n│\n◇  Installation complete\n\n│\n◇  Installed 6 skills ────────────╮\n│                                 │\n│  ✓ debug (copied)               │\n│    → ~/.pi/agent/skills/debug   │\n│  ✓ design (copied)              │\n│    → ~/.pi/agent/skills/design  │\n│  ✓ plan (copied)                │\n│    → ~/.pi/agent/skills/plan    │\n│  ✓ qa (copied)                  │\n│    → ~/.pi/agent/skills/qa      │\n│  ✓ review (copied)              │\n│    → ~/.pi/agent/skills/review  │\n│  ✓ ship (copied)                │\n│    → ~/.pi/agent/skills/ship    │\n│                                 │\n├─────────────────────────────────╯\n\n│\n└  Done!  Review skills before use; they run with full agent permissions.",
         "stderr": ""
       },
       "passed": true
@@ -2208,7 +2499,7 @@
       "agent": "openclaw",
       "agentLabel": "OpenClaw",
       "scope": "project",
-      "sourceKind": "path-with-spaces",
+      "sourceKind": "source-symlink",
       "expectedRoot": "<TEMP_MATRIX_ROOT>/cases/openclaw-project-default/project with spaces/skills",
       "expectedSkills": [
         "debug",
@@ -2240,7 +2531,7 @@
         {
           "id": "openclaw-project-default.debug.content",
           "passed": true,
-          "detail": "source=8900ccd55bc62260eb9e7e3a7a2d0e6288d7771102f7a8b3b5655a741de80f59; installed=8900ccd55bc62260eb9e7e3a7a2d0e6288d7771102f7a8b3b5655a741de80f59"
+          "detail": "source=f351222a3e7840bb8f9c6ea37e7fe9571164fb66591a27c9538c37c9f3fcfdc2; installed=f351222a3e7840bb8f9c6ea37e7fe9571164fb66591a27c9538c37c9f3fcfdc2"
         },
         {
           "id": "openclaw-project-default.debug.copy",
@@ -2255,7 +2546,7 @@
         {
           "id": "openclaw-project-default.design.content",
           "passed": true,
-          "detail": "source=4d171487d24fb6742f82f75d724c84989a4b0fb6b7ff0dc1dba433ca4c528085; installed=4d171487d24fb6742f82f75d724c84989a4b0fb6b7ff0dc1dba433ca4c528085"
+          "detail": "source=ab7e7b7a404004602e5aa80e919bdc4a301e2da7eb5232acb799fa27702fb48d; installed=ab7e7b7a404004602e5aa80e919bdc4a301e2da7eb5232acb799fa27702fb48d"
         },
         {
           "id": "openclaw-project-default.design.copy",
@@ -2270,7 +2561,7 @@
         {
           "id": "openclaw-project-default.plan.content",
           "passed": true,
-          "detail": "source=8fb64e9ac13541aaca65cafbfcf97ce3c6dfabcc781d83cfdd4f2b15c31b7e6f; installed=8fb64e9ac13541aaca65cafbfcf97ce3c6dfabcc781d83cfdd4f2b15c31b7e6f"
+          "detail": "source=4f951aee4525ac358833486c28339c706e9b372282c22c258577d20cf36a57c6; installed=4f951aee4525ac358833486c28339c706e9b372282c22c258577d20cf36a57c6"
         },
         {
           "id": "openclaw-project-default.plan.copy",
@@ -2285,7 +2576,7 @@
         {
           "id": "openclaw-project-default.qa.content",
           "passed": true,
-          "detail": "source=0ec2e2b726c872c1ccaf8a72cac987f694f6aa85ded7ece5f52bcfef31e5a8d0; installed=0ec2e2b726c872c1ccaf8a72cac987f694f6aa85ded7ece5f52bcfef31e5a8d0"
+          "detail": "source=773e53fef2af6b948402a5fe36be7c18022734277b2c95a4609395339a5d95ef; installed=773e53fef2af6b948402a5fe36be7c18022734277b2c95a4609395339a5d95ef"
         },
         {
           "id": "openclaw-project-default.qa.copy",
@@ -2300,7 +2591,7 @@
         {
           "id": "openclaw-project-default.review.content",
           "passed": true,
-          "detail": "source=b68b7f15eb0ef866a29e8fada17223ace2ebf73d66fc1c60f6fd776c762a4551; installed=b68b7f15eb0ef866a29e8fada17223ace2ebf73d66fc1c60f6fd776c762a4551"
+          "detail": "source=f6b28db16774cbeebff99ab7f968eb35fa3d4076201eec075389b7ab5a5107e6; installed=f6b28db16774cbeebff99ab7f968eb35fa3d4076201eec075389b7ab5a5107e6"
         },
         {
           "id": "openclaw-project-default.review.copy",
@@ -2315,7 +2606,7 @@
         {
           "id": "openclaw-project-default.ship.content",
           "passed": true,
-          "detail": "source=2d43c0634596f7c3a48b1b82e23f099ada6b27f6f2f2d538964fad6eb1f4b242; installed=2d43c0634596f7c3a48b1b82e23f099ada6b27f6f2f2d538964fad6eb1f4b242"
+          "detail": "source=45d26c47b04cdff6c9fa2cf055e4f4f30af3ef331a3b18b52711be1394291202; installed=45d26c47b04cdff6c9fa2cf055e4f4f30af3ef331a3b18b52711be1394291202"
         },
         {
           "id": "openclaw-project-default.ship.copy",
@@ -2334,7 +2625,7 @@
           "--yes",
           "skills",
           "add",
-          "<TEMP_MATRIX_ROOT>/canonical package/source with spaces",
+          "<TEMP_MATRIX_ROOT>/linked canonical source",
           "--agent",
           "openclaw",
           "--copy",
@@ -2342,8 +2633,8 @@
         ],
         "exitCode": 0,
         "signal": null,
-        "durationMs": 1128,
-        "stdout": "│\n●   codex  Agent detected — installing non-interactively\n│\n◇  Source: <TEMP_MATRIX_ROOT>/canonical package/source with spaces\n│\n◇  Local path validated\n│\n◇  Found 6 skills\n│\n●  Installing all 6 skills\n\n│\n◇  Installation Summary ────╮\n│                           │\n│  ./.agents/skills/debug   │\n│    copy → OpenClaw        │\n│                           │\n│  ./.agents/skills/design  │\n│    copy → OpenClaw        │\n│                           │\n│  ./.agents/skills/plan    │\n│    copy → OpenClaw        │\n│                           │\n│  ./.agents/skills/qa      │\n│    copy → OpenClaw        │\n│                           │\n│  ./.agents/skills/review  │\n│    copy → OpenClaw        │\n│                           │\n│  ./.agents/skills/ship    │\n│    copy → OpenClaw        │\n│                           │\n├───────────────────────────╯\n│\n◇  Installation complete\n\n│\n◇  Installed 6 skills ──╮\n│                       │\n│  ✓ debug (copied)     │\n│    → ./skills/debug   │\n│  ✓ design (copied)    │\n│    → ./skills/design  │\n│  ✓ plan (copied)      │\n│    → ./skills/plan    │\n│  ✓ qa (copied)        │\n│    → ./skills/qa      │\n│  ✓ review (copied)    │\n│    → ./skills/review  │\n│  ✓ ship (copied)      │\n│    → ./skills/ship    │\n│                       │\n├───────────────────────╯\n\n│\n└  Done!  Review skills before use; they run with full agent permissions.",
+        "durationMs": 754,
+        "stdout": "│\n●   codex  Agent detected — installing non-interactively\n│\n◇  Source: <TEMP_MATRIX_ROOT>/linked canonical source\n│\n◇  Local path validated\n│\n◇  Found 6 skills\n│\n●  Installing all 6 skills\n\n│\n◇  Installation Summary ────╮\n│                           │\n│  ./.agents/skills/debug   │\n│    copy → OpenClaw        │\n│                           │\n│  ./.agents/skills/design  │\n│    copy → OpenClaw        │\n│                           │\n│  ./.agents/skills/plan    │\n│    copy → OpenClaw        │\n│                           │\n│  ./.agents/skills/qa      │\n│    copy → OpenClaw        │\n│                           │\n│  ./.agents/skills/review  │\n│    copy → OpenClaw        │\n│                           │\n│  ./.agents/skills/ship    │\n│    copy → OpenClaw        │\n│                           │\n├───────────────────────────╯\n│\n◇  Installation complete\n\n│\n◇  Installed 6 skills ──╮\n│                       │\n│  ✓ debug (copied)     │\n│    → ./skills/debug   │\n│  ✓ design (copied)    │\n│    → ./skills/design  │\n│  ✓ plan (copied)      │\n│    → ./skills/plan    │\n│  ✓ qa (copied)        │\n│    → ./skills/qa      │\n│  ✓ review (copied)    │\n│    → ./skills/review  │\n│  ✓ ship (copied)      │\n│    → ./skills/ship    │\n│                       │\n├───────────────────────╯\n\n│\n└  Done!  Review skills before use; they run with full agent permissions.",
         "stderr": ""
       },
       "passed": true
@@ -2353,7 +2644,7 @@
       "agent": "openclaw",
       "agentLabel": "OpenClaw",
       "scope": "global",
-      "sourceKind": "source-symlink",
+      "sourceKind": "path-with-spaces",
       "expectedRoot": "<TEMP_MATRIX_ROOT>/cases/openclaw-global-default/home with spaces/.openclaw/skills",
       "expectedSkills": [
         "debug",
@@ -2385,7 +2676,7 @@
         {
           "id": "openclaw-global-default.debug.content",
           "passed": true,
-          "detail": "source=8900ccd55bc62260eb9e7e3a7a2d0e6288d7771102f7a8b3b5655a741de80f59; installed=8900ccd55bc62260eb9e7e3a7a2d0e6288d7771102f7a8b3b5655a741de80f59"
+          "detail": "source=f351222a3e7840bb8f9c6ea37e7fe9571164fb66591a27c9538c37c9f3fcfdc2; installed=f351222a3e7840bb8f9c6ea37e7fe9571164fb66591a27c9538c37c9f3fcfdc2"
         },
         {
           "id": "openclaw-global-default.debug.copy",
@@ -2400,7 +2691,7 @@
         {
           "id": "openclaw-global-default.design.content",
           "passed": true,
-          "detail": "source=4d171487d24fb6742f82f75d724c84989a4b0fb6b7ff0dc1dba433ca4c528085; installed=4d171487d24fb6742f82f75d724c84989a4b0fb6b7ff0dc1dba433ca4c528085"
+          "detail": "source=ab7e7b7a404004602e5aa80e919bdc4a301e2da7eb5232acb799fa27702fb48d; installed=ab7e7b7a404004602e5aa80e919bdc4a301e2da7eb5232acb799fa27702fb48d"
         },
         {
           "id": "openclaw-global-default.design.copy",
@@ -2415,7 +2706,7 @@
         {
           "id": "openclaw-global-default.plan.content",
           "passed": true,
-          "detail": "source=8fb64e9ac13541aaca65cafbfcf97ce3c6dfabcc781d83cfdd4f2b15c31b7e6f; installed=8fb64e9ac13541aaca65cafbfcf97ce3c6dfabcc781d83cfdd4f2b15c31b7e6f"
+          "detail": "source=4f951aee4525ac358833486c28339c706e9b372282c22c258577d20cf36a57c6; installed=4f951aee4525ac358833486c28339c706e9b372282c22c258577d20cf36a57c6"
         },
         {
           "id": "openclaw-global-default.plan.copy",
@@ -2430,7 +2721,7 @@
         {
           "id": "openclaw-global-default.qa.content",
           "passed": true,
-          "detail": "source=0ec2e2b726c872c1ccaf8a72cac987f694f6aa85ded7ece5f52bcfef31e5a8d0; installed=0ec2e2b726c872c1ccaf8a72cac987f694f6aa85ded7ece5f52bcfef31e5a8d0"
+          "detail": "source=773e53fef2af6b948402a5fe36be7c18022734277b2c95a4609395339a5d95ef; installed=773e53fef2af6b948402a5fe36be7c18022734277b2c95a4609395339a5d95ef"
         },
         {
           "id": "openclaw-global-default.qa.copy",
@@ -2445,7 +2736,7 @@
         {
           "id": "openclaw-global-default.review.content",
           "passed": true,
-          "detail": "source=b68b7f15eb0ef866a29e8fada17223ace2ebf73d66fc1c60f6fd776c762a4551; installed=b68b7f15eb0ef866a29e8fada17223ace2ebf73d66fc1c60f6fd776c762a4551"
+          "detail": "source=f6b28db16774cbeebff99ab7f968eb35fa3d4076201eec075389b7ab5a5107e6; installed=f6b28db16774cbeebff99ab7f968eb35fa3d4076201eec075389b7ab5a5107e6"
         },
         {
           "id": "openclaw-global-default.review.copy",
@@ -2460,7 +2751,7 @@
         {
           "id": "openclaw-global-default.ship.content",
           "passed": true,
-          "detail": "source=2d43c0634596f7c3a48b1b82e23f099ada6b27f6f2f2d538964fad6eb1f4b242; installed=2d43c0634596f7c3a48b1b82e23f099ada6b27f6f2f2d538964fad6eb1f4b242"
+          "detail": "source=45d26c47b04cdff6c9fa2cf055e4f4f30af3ef331a3b18b52711be1394291202; installed=45d26c47b04cdff6c9fa2cf055e4f4f30af3ef331a3b18b52711be1394291202"
         },
         {
           "id": "openclaw-global-default.ship.copy",
@@ -2479,7 +2770,7 @@
           "--yes",
           "skills",
           "add",
-          "<TEMP_MATRIX_ROOT>/linked canonical source",
+          "<TEMP_MATRIX_ROOT>/canonical package/source with spaces",
           "--agent",
           "openclaw",
           "--copy",
@@ -2488,8 +2779,8 @@
         ],
         "exitCode": 0,
         "signal": null,
-        "durationMs": 1211,
-        "stdout": "│\n●   codex  Agent detected — installing non-interactively\n│\n◇  Source: <TEMP_MATRIX_ROOT>/linked canonical source\n│\n◇  Local path validated\n│\n◇  Found 6 skills\n│\n●  Installing all 6 skills\n\n│\n◇  Installation Summary ────╮\n│                           │\n│  ~/.agents/skills/debug   │\n│    copy → OpenClaw        │\n│                           │\n│  ~/.agents/skills/design  │\n│    copy → OpenClaw        │\n│                           │\n│  ~/.agents/skills/plan    │\n│    copy → OpenClaw        │\n│                           │\n│  ~/.agents/skills/qa      │\n│    copy → OpenClaw        │\n│                           │\n│  ~/.agents/skills/review  │\n│    copy → OpenClaw        │\n│                           │\n│  ~/.agents/skills/ship    │\n│    copy → OpenClaw        │\n│                           │\n├───────────────────────────╯\n│\n◇  Installation complete\n\n│\n◇  Installed 6 skills ────────────╮\n│                                 │\n│  ✓ debug (copied)               │\n│    → ~/.openclaw/skills/debug   │\n│  ✓ design (copied)              │\n│    → ~/.openclaw/skills/design  │\n│  ✓ plan (copied)                │\n│    → ~/.openclaw/skills/plan    │\n│  ✓ qa (copied)                  │\n│    → ~/.openclaw/skills/qa      │\n│  ✓ review (copied)              │\n│    → ~/.openclaw/skills/review  │\n│  ✓ ship (copied)                │\n│    → ~/.openclaw/skills/ship    │\n│                                 │\n├─────────────────────────────────╯\n\n│\n└  Done!  Review skills before use; they run with full agent permissions.",
+        "durationMs": 903,
+        "stdout": "│\n●   codex  Agent detected — installing non-interactively\n│\n◇  Source: <TEMP_MATRIX_ROOT>/canonical package/source with spaces\n│\n◇  Local path validated\n│\n◇  Found 6 skills\n│\n●  Installing all 6 skills\n\n│\n◇  Installation Summary ────╮\n│                           │\n│  ~/.agents/skills/debug   │\n│    copy → OpenClaw        │\n│                           │\n│  ~/.agents/skills/design  │\n│    copy → OpenClaw        │\n│                           │\n│  ~/.agents/skills/plan    │\n│    copy → OpenClaw        │\n│                           │\n│  ~/.agents/skills/qa      │\n│    copy → OpenClaw        │\n│                           │\n│  ~/.agents/skills/review  │\n│    copy → OpenClaw        │\n│                           │\n│  ~/.agents/skills/ship    │\n│    copy → OpenClaw        │\n│                           │\n├───────────────────────────╯\n│\n◇  Installation complete\n\n│\n◇  Installed 6 skills ────────────╮\n│                                 │\n│  ✓ debug (copied)               │\n│    → ~/.openclaw/skills/debug   │\n│  ✓ design (copied)              │\n│    → ~/.openclaw/skills/design  │\n│  ✓ plan (copied)                │\n│    → ~/.openclaw/skills/plan    │\n│  ✓ qa (copied)                  │\n│    → ~/.openclaw/skills/qa      │\n│  ✓ review (copied)              │\n│    → ~/.openclaw/skills/review  │\n│  ✓ ship (copied)                │\n│    → ~/.openclaw/skills/ship    │\n│                                 │\n├─────────────────────────────────╯\n\n│\n└  Done!  Review skills before use; they run with full agent permissions.",
         "stderr": ""
       },
       "passed": true
@@ -2499,7 +2790,7 @@
       "agent": "github-copilot",
       "agentLabel": "GitHub Copilot",
       "scope": "project",
-      "sourceKind": "source-symlink",
+      "sourceKind": "path-with-spaces",
       "expectedRoot": "<TEMP_MATRIX_ROOT>/cases/github-copilot-project-default/project with spaces/.agents/skills",
       "expectedSkills": [
         "debug",
@@ -2531,7 +2822,7 @@
         {
           "id": "github-copilot-project-default.debug.content",
           "passed": true,
-          "detail": "source=8900ccd55bc62260eb9e7e3a7a2d0e6288d7771102f7a8b3b5655a741de80f59; installed=8900ccd55bc62260eb9e7e3a7a2d0e6288d7771102f7a8b3b5655a741de80f59"
+          "detail": "source=f351222a3e7840bb8f9c6ea37e7fe9571164fb66591a27c9538c37c9f3fcfdc2; installed=f351222a3e7840bb8f9c6ea37e7fe9571164fb66591a27c9538c37c9f3fcfdc2"
         },
         {
           "id": "github-copilot-project-default.debug.copy",
@@ -2546,7 +2837,7 @@
         {
           "id": "github-copilot-project-default.design.content",
           "passed": true,
-          "detail": "source=4d171487d24fb6742f82f75d724c84989a4b0fb6b7ff0dc1dba433ca4c528085; installed=4d171487d24fb6742f82f75d724c84989a4b0fb6b7ff0dc1dba433ca4c528085"
+          "detail": "source=ab7e7b7a404004602e5aa80e919bdc4a301e2da7eb5232acb799fa27702fb48d; installed=ab7e7b7a404004602e5aa80e919bdc4a301e2da7eb5232acb799fa27702fb48d"
         },
         {
           "id": "github-copilot-project-default.design.copy",
@@ -2561,7 +2852,7 @@
         {
           "id": "github-copilot-project-default.plan.content",
           "passed": true,
-          "detail": "source=8fb64e9ac13541aaca65cafbfcf97ce3c6dfabcc781d83cfdd4f2b15c31b7e6f; installed=8fb64e9ac13541aaca65cafbfcf97ce3c6dfabcc781d83cfdd4f2b15c31b7e6f"
+          "detail": "source=4f951aee4525ac358833486c28339c706e9b372282c22c258577d20cf36a57c6; installed=4f951aee4525ac358833486c28339c706e9b372282c22c258577d20cf36a57c6"
         },
         {
           "id": "github-copilot-project-default.plan.copy",
@@ -2576,7 +2867,7 @@
         {
           "id": "github-copilot-project-default.qa.content",
           "passed": true,
-          "detail": "source=0ec2e2b726c872c1ccaf8a72cac987f694f6aa85ded7ece5f52bcfef31e5a8d0; installed=0ec2e2b726c872c1ccaf8a72cac987f694f6aa85ded7ece5f52bcfef31e5a8d0"
+          "detail": "source=773e53fef2af6b948402a5fe36be7c18022734277b2c95a4609395339a5d95ef; installed=773e53fef2af6b948402a5fe36be7c18022734277b2c95a4609395339a5d95ef"
         },
         {
           "id": "github-copilot-project-default.qa.copy",
@@ -2591,7 +2882,7 @@
         {
           "id": "github-copilot-project-default.review.content",
           "passed": true,
-          "detail": "source=b68b7f15eb0ef866a29e8fada17223ace2ebf73d66fc1c60f6fd776c762a4551; installed=b68b7f15eb0ef866a29e8fada17223ace2ebf73d66fc1c60f6fd776c762a4551"
+          "detail": "source=f6b28db16774cbeebff99ab7f968eb35fa3d4076201eec075389b7ab5a5107e6; installed=f6b28db16774cbeebff99ab7f968eb35fa3d4076201eec075389b7ab5a5107e6"
         },
         {
           "id": "github-copilot-project-default.review.copy",
@@ -2606,7 +2897,7 @@
         {
           "id": "github-copilot-project-default.ship.content",
           "passed": true,
-          "detail": "source=2d43c0634596f7c3a48b1b82e23f099ada6b27f6f2f2d538964fad6eb1f4b242; installed=2d43c0634596f7c3a48b1b82e23f099ada6b27f6f2f2d538964fad6eb1f4b242"
+          "detail": "source=45d26c47b04cdff6c9fa2cf055e4f4f30af3ef331a3b18b52711be1394291202; installed=45d26c47b04cdff6c9fa2cf055e4f4f30af3ef331a3b18b52711be1394291202"
         },
         {
           "id": "github-copilot-project-default.ship.copy",
@@ -2625,7 +2916,7 @@
           "--yes",
           "skills",
           "add",
-          "<TEMP_MATRIX_ROOT>/linked canonical source",
+          "<TEMP_MATRIX_ROOT>/canonical package/source with spaces",
           "--agent",
           "github-copilot",
           "--copy",
@@ -2633,8 +2924,8 @@
         ],
         "exitCode": 0,
         "signal": null,
-        "durationMs": 1177,
-        "stdout": "│\n●   codex  Agent detected — installing non-interactively\n│\n◇  Source: <TEMP_MATRIX_ROOT>/linked canonical source\n│\n◇  Local path validated\n│\n◇  Found 6 skills\n│\n●  Installing all 6 skills\n\n│\n◇  Installation Summary ────╮\n│                           │\n│  ./.agents/skills/debug   │\n│    copy → GitHub Copilot  │\n│                           │\n│  ./.agents/skills/design  │\n│    copy → GitHub Copilot  │\n│                           │\n│  ./.agents/skills/plan    │\n│    copy → GitHub Copilot  │\n│                           │\n│  ./.agents/skills/qa      │\n│    copy → GitHub Copilot  │\n│                           │\n│  ./.agents/skills/review  │\n│    copy → GitHub Copilot  │\n│                           │\n│  ./.agents/skills/ship    │\n│    copy → GitHub Copilot  │\n│                           │\n├───────────────────────────╯\n│\n◇  Installation complete\n\n│\n◇  Installed 6 skills ──────────╮\n│                               │\n│  ✓ debug (copied)             │\n│    → ./.agents/skills/debug   │\n│  ✓ design (copied)            │\n│    → ./.agents/skills/design  │\n│  ✓ plan (copied)              │\n│    → ./.agents/skills/plan    │\n│  ✓ qa (copied)                │\n│    → ./.agents/skills/qa      │\n│  ✓ review (copied)            │\n│    → ./.agents/skills/review  │\n│  ✓ ship (copied)              │\n│    → ./.agents/skills/ship    │\n│                               │\n├───────────────────────────────╯\n\n│\n└  Done!  Review skills before use; they run with full agent permissions.",
+        "durationMs": 878,
+        "stdout": "│\n●   codex  Agent detected — installing non-interactively\n│\n◇  Source: <TEMP_MATRIX_ROOT>/canonical package/source with spaces\n│\n◇  Local path validated\n│\n◇  Found 6 skills\n│\n●  Installing all 6 skills\n\n│\n◇  Installation Summary ────╮\n│                           │\n│  ./.agents/skills/debug   │\n│    copy → GitHub Copilot  │\n│                           │\n│  ./.agents/skills/design  │\n│    copy → GitHub Copilot  │\n│                           │\n│  ./.agents/skills/plan    │\n│    copy → GitHub Copilot  │\n│                           │\n│  ./.agents/skills/qa      │\n│    copy → GitHub Copilot  │\n│                           │\n│  ./.agents/skills/review  │\n│    copy → GitHub Copilot  │\n│                           │\n│  ./.agents/skills/ship    │\n│    copy → GitHub Copilot  │\n│                           │\n├───────────────────────────╯\n│\n◇  Installation complete\n\n│\n◇  Installed 6 skills ──────────╮\n│                               │\n│  ✓ debug (copied)             │\n│    → ./.agents/skills/debug   │\n│  ✓ design (copied)            │\n│    → ./.agents/skills/design  │\n│  ✓ plan (copied)              │\n│    → ./.agents/skills/plan    │\n│  ✓ qa (copied)                │\n│    → ./.agents/skills/qa      │\n│  ✓ review (copied)            │\n│    → ./.agents/skills/review  │\n│  ✓ ship (copied)              │\n│    → ./.agents/skills/ship    │\n│                               │\n├───────────────────────────────╯\n\n│\n└  Done!  Review skills before use; they run with full agent permissions.",
         "stderr": ""
       },
       "passed": true
@@ -2644,7 +2935,7 @@
       "agent": "github-copilot",
       "agentLabel": "GitHub Copilot",
       "scope": "global",
-      "sourceKind": "path-with-spaces",
+      "sourceKind": "source-symlink",
       "expectedRoot": "<TEMP_MATRIX_ROOT>/cases/github-copilot-global-default/home with spaces/.agents/skills",
       "expectedSkills": [
         "debug",
@@ -2676,7 +2967,7 @@
         {
           "id": "github-copilot-global-default.debug.content",
           "passed": true,
-          "detail": "source=8900ccd55bc62260eb9e7e3a7a2d0e6288d7771102f7a8b3b5655a741de80f59; installed=8900ccd55bc62260eb9e7e3a7a2d0e6288d7771102f7a8b3b5655a741de80f59"
+          "detail": "source=f351222a3e7840bb8f9c6ea37e7fe9571164fb66591a27c9538c37c9f3fcfdc2; installed=f351222a3e7840bb8f9c6ea37e7fe9571164fb66591a27c9538c37c9f3fcfdc2"
         },
         {
           "id": "github-copilot-global-default.debug.copy",
@@ -2691,7 +2982,7 @@
         {
           "id": "github-copilot-global-default.design.content",
           "passed": true,
-          "detail": "source=4d171487d24fb6742f82f75d724c84989a4b0fb6b7ff0dc1dba433ca4c528085; installed=4d171487d24fb6742f82f75d724c84989a4b0fb6b7ff0dc1dba433ca4c528085"
+          "detail": "source=ab7e7b7a404004602e5aa80e919bdc4a301e2da7eb5232acb799fa27702fb48d; installed=ab7e7b7a404004602e5aa80e919bdc4a301e2da7eb5232acb799fa27702fb48d"
         },
         {
           "id": "github-copilot-global-default.design.copy",
@@ -2706,7 +2997,7 @@
         {
           "id": "github-copilot-global-default.plan.content",
           "passed": true,
-          "detail": "source=8fb64e9ac13541aaca65cafbfcf97ce3c6dfabcc781d83cfdd4f2b15c31b7e6f; installed=8fb64e9ac13541aaca65cafbfcf97ce3c6dfabcc781d83cfdd4f2b15c31b7e6f"
+          "detail": "source=4f951aee4525ac358833486c28339c706e9b372282c22c258577d20cf36a57c6; installed=4f951aee4525ac358833486c28339c706e9b372282c22c258577d20cf36a57c6"
         },
         {
           "id": "github-copilot-global-default.plan.copy",
@@ -2721,7 +3012,7 @@
         {
           "id": "github-copilot-global-default.qa.content",
           "passed": true,
-          "detail": "source=0ec2e2b726c872c1ccaf8a72cac987f694f6aa85ded7ece5f52bcfef31e5a8d0; installed=0ec2e2b726c872c1ccaf8a72cac987f694f6aa85ded7ece5f52bcfef31e5a8d0"
+          "detail": "source=773e53fef2af6b948402a5fe36be7c18022734277b2c95a4609395339a5d95ef; installed=773e53fef2af6b948402a5fe36be7c18022734277b2c95a4609395339a5d95ef"
         },
         {
           "id": "github-copilot-global-default.qa.copy",
@@ -2736,7 +3027,7 @@
         {
           "id": "github-copilot-global-default.review.content",
           "passed": true,
-          "detail": "source=b68b7f15eb0ef866a29e8fada17223ace2ebf73d66fc1c60f6fd776c762a4551; installed=b68b7f15eb0ef866a29e8fada17223ace2ebf73d66fc1c60f6fd776c762a4551"
+          "detail": "source=f6b28db16774cbeebff99ab7f968eb35fa3d4076201eec075389b7ab5a5107e6; installed=f6b28db16774cbeebff99ab7f968eb35fa3d4076201eec075389b7ab5a5107e6"
         },
         {
           "id": "github-copilot-global-default.review.copy",
@@ -2751,7 +3042,7 @@
         {
           "id": "github-copilot-global-default.ship.content",
           "passed": true,
-          "detail": "source=2d43c0634596f7c3a48b1b82e23f099ada6b27f6f2f2d538964fad6eb1f4b242; installed=2d43c0634596f7c3a48b1b82e23f099ada6b27f6f2f2d538964fad6eb1f4b242"
+          "detail": "source=45d26c47b04cdff6c9fa2cf055e4f4f30af3ef331a3b18b52711be1394291202; installed=45d26c47b04cdff6c9fa2cf055e4f4f30af3ef331a3b18b52711be1394291202"
         },
         {
           "id": "github-copilot-global-default.ship.copy",
@@ -2770,7 +3061,7 @@
           "--yes",
           "skills",
           "add",
-          "<TEMP_MATRIX_ROOT>/canonical package/source with spaces",
+          "<TEMP_MATRIX_ROOT>/linked canonical source",
           "--agent",
           "github-copilot",
           "--copy",
@@ -2779,8 +3070,8 @@
         ],
         "exitCode": 0,
         "signal": null,
-        "durationMs": 1091,
-        "stdout": "│\n●   codex  Agent detected — installing non-interactively\n│\n◇  Source: <TEMP_MATRIX_ROOT>/canonical package/source with spaces\n│\n◇  Local path validated\n│\n◇  Found 6 skills\n│\n●  Installing all 6 skills\n\n│\n◇  Installation Summary ────╮\n│                           │\n│  ~/.agents/skills/debug   │\n│    copy → GitHub Copilot  │\n│                           │\n│  ~/.agents/skills/design  │\n│    copy → GitHub Copilot  │\n│                           │\n│  ~/.agents/skills/plan    │\n│    copy → GitHub Copilot  │\n│                           │\n│  ~/.agents/skills/qa      │\n│    copy → GitHub Copilot  │\n│                           │\n│  ~/.agents/skills/review  │\n│    copy → GitHub Copilot  │\n│                           │\n│  ~/.agents/skills/ship    │\n│    copy → GitHub Copilot  │\n│                           │\n├───────────────────────────╯\n│\n◇  Installation complete\n\n│\n◇  Installed 6 skills ──────────╮\n│                               │\n│  ✓ debug (copied)             │\n│    → ~/.agents/skills/debug   │\n│  ✓ design (copied)            │\n│    → ~/.agents/skills/design  │\n│  ✓ plan (copied)              │\n│    → ~/.agents/skills/plan    │\n│  ✓ qa (copied)                │\n│    → ~/.agents/skills/qa      │\n│  ✓ review (copied)            │\n│    → ~/.agents/skills/review  │\n│  ✓ ship (copied)              │\n│    → ~/.agents/skills/ship    │\n│                               │\n├───────────────────────────────╯\n\n│\n└  Done!  Review skills before use; they run with full agent permissions.",
+        "durationMs": 905,
+        "stdout": "│\n●   codex  Agent detected — installing non-interactively\n│\n◇  Source: <TEMP_MATRIX_ROOT>/linked canonical source\n│\n◇  Local path validated\n│\n◇  Found 6 skills\n│\n●  Installing all 6 skills\n\n│\n◇  Installation Summary ────╮\n│                           │\n│  ~/.agents/skills/debug   │\n│    copy → GitHub Copilot  │\n│                           │\n│  ~/.agents/skills/design  │\n│    copy → GitHub Copilot  │\n│                           │\n│  ~/.agents/skills/plan    │\n│    copy → GitHub Copilot  │\n│                           │\n│  ~/.agents/skills/qa      │\n│    copy → GitHub Copilot  │\n│                           │\n│  ~/.agents/skills/review  │\n│    copy → GitHub Copilot  │\n│                           │\n│  ~/.agents/skills/ship    │\n│    copy → GitHub Copilot  │\n│                           │\n├───────────────────────────╯\n│\n◇  Installation complete\n\n│\n◇  Installed 6 skills ──────────╮\n│                               │\n│  ✓ debug (copied)             │\n│    → ~/.agents/skills/debug   │\n│  ✓ design (copied)            │\n│    → ~/.agents/skills/design  │\n│  ✓ plan (copied)              │\n│    → ~/.agents/skills/plan    │\n│  ✓ qa (copied)                │\n│    → ~/.agents/skills/qa      │\n│  ✓ review (copied)            │\n│    → ~/.agents/skills/review  │\n│  ✓ ship (copied)              │\n│    → ~/.agents/skills/ship    │\n│                               │\n├───────────────────────────────╯\n\n│\n└  Done!  Review skills before use; they run with full agent permissions.",
         "stderr": ""
       },
       "passed": true
@@ -2816,7 +3107,7 @@
         {
           "id": "collision-selection-project.qa.content",
           "passed": true,
-          "detail": "source=0ec2e2b726c872c1ccaf8a72cac987f694f6aa85ded7ece5f52bcfef31e5a8d0; installed=0ec2e2b726c872c1ccaf8a72cac987f694f6aa85ded7ece5f52bcfef31e5a8d0"
+          "detail": "source=773e53fef2af6b948402a5fe36be7c18022734277b2c95a4609395339a5d95ef; installed=773e53fef2af6b948402a5fe36be7c18022734277b2c95a4609395339a5d95ef"
         },
         {
           "id": "collision-selection-project.qa.copy",
@@ -2831,7 +3122,7 @@
         {
           "id": "collision-selection-project.review.content",
           "passed": true,
-          "detail": "source=b68b7f15eb0ef866a29e8fada17223ace2ebf73d66fc1c60f6fd776c762a4551; installed=b68b7f15eb0ef866a29e8fada17223ace2ebf73d66fc1c60f6fd776c762a4551"
+          "detail": "source=f6b28db16774cbeebff99ab7f968eb35fa3d4076201eec075389b7ab5a5107e6; installed=f6b28db16774cbeebff99ab7f968eb35fa3d4076201eec075389b7ab5a5107e6"
         },
         {
           "id": "collision-selection-project.review.copy",
@@ -2846,7 +3137,7 @@
         {
           "id": "collision-selection-project.ship.content",
           "passed": true,
-          "detail": "source=2d43c0634596f7c3a48b1b82e23f099ada6b27f6f2f2d538964fad6eb1f4b242; installed=2d43c0634596f7c3a48b1b82e23f099ada6b27f6f2f2d538964fad6eb1f4b242"
+          "detail": "source=45d26c47b04cdff6c9fa2cf055e4f4f30af3ef331a3b18b52711be1394291202; installed=45d26c47b04cdff6c9fa2cf055e4f4f30af3ef331a3b18b52711be1394291202"
         },
         {
           "id": "collision-selection-project.ship.copy",
@@ -2877,7 +3168,7 @@
         ],
         "exitCode": 0,
         "signal": null,
-        "durationMs": 1197,
+        "durationMs": 954,
         "stdout": "│\n●   codex  Agent detected — installing non-interactively\n│\n◇  Source: <REPOSITORY_ROOT>\n│\n◇  Local path validated\n│\n◒  Discovering skills…◇  Found 113 skills\n│\n●  Selected 3 skills: qa, review, ship\n\n│\n◇  Installation Summary ────╮\n│                           │\n│  ./.agents/skills/qa      │\n│    copy → Cursor          │\n│                           │\n│  ./.agents/skills/review  │\n│    copy → Cursor          │\n│                           │\n│  ./.agents/skills/ship    │\n│    copy → Cursor          │\n│                           │\n├───────────────────────────╯\n│\n◇  Installation complete\n\n│\n◇  Installed 3 skills ──────────╮\n│                               │\n│  ✓ qa (copied)                │\n│    → ./.agents/skills/qa      │\n│  ✓ review (copied)            │\n│    → ./.agents/skills/review  │\n│  ✓ ship (copied)              │\n│    → ./.agents/skills/ship    │\n│                               │\n├───────────────────────────────╯\n\n│\n└  Done!  Review skills before use; they run with full agent permissions.",
         "stderr": ""
       },
@@ -2914,7 +3205,7 @@
         {
           "id": "collision-selection-global.qa.content",
           "passed": true,
-          "detail": "source=0ec2e2b726c872c1ccaf8a72cac987f694f6aa85ded7ece5f52bcfef31e5a8d0; installed=0ec2e2b726c872c1ccaf8a72cac987f694f6aa85ded7ece5f52bcfef31e5a8d0"
+          "detail": "source=773e53fef2af6b948402a5fe36be7c18022734277b2c95a4609395339a5d95ef; installed=773e53fef2af6b948402a5fe36be7c18022734277b2c95a4609395339a5d95ef"
         },
         {
           "id": "collision-selection-global.qa.copy",
@@ -2929,7 +3220,7 @@
         {
           "id": "collision-selection-global.review.content",
           "passed": true,
-          "detail": "source=b68b7f15eb0ef866a29e8fada17223ace2ebf73d66fc1c60f6fd776c762a4551; installed=b68b7f15eb0ef866a29e8fada17223ace2ebf73d66fc1c60f6fd776c762a4551"
+          "detail": "source=f6b28db16774cbeebff99ab7f968eb35fa3d4076201eec075389b7ab5a5107e6; installed=f6b28db16774cbeebff99ab7f968eb35fa3d4076201eec075389b7ab5a5107e6"
         },
         {
           "id": "collision-selection-global.review.copy",
@@ -2944,7 +3235,7 @@
         {
           "id": "collision-selection-global.ship.content",
           "passed": true,
-          "detail": "source=2d43c0634596f7c3a48b1b82e23f099ada6b27f6f2f2d538964fad6eb1f4b242; installed=2d43c0634596f7c3a48b1b82e23f099ada6b27f6f2f2d538964fad6eb1f4b242"
+          "detail": "source=45d26c47b04cdff6c9fa2cf055e4f4f30af3ef331a3b18b52711be1394291202; installed=45d26c47b04cdff6c9fa2cf055e4f4f30af3ef331a3b18b52711be1394291202"
         },
         {
           "id": "collision-selection-global.ship.copy",
@@ -2976,7 +3267,7 @@
         ],
         "exitCode": 0,
         "signal": null,
-        "durationMs": 1114,
+        "durationMs": 853,
         "stdout": "│\n●   codex  Agent detected — installing non-interactively\n│\n◇  Source: <TEMP_MATRIX_ROOT>/canonical package/source with spaces\n│\n◇  Local path validated\n│\n◇  Found 111 skills\n│\n●  Selected 3 skills: qa, review, ship\n\n│\n◇  Installation Summary ────╮\n│                           │\n│  ~/.agents/skills/qa      │\n│    copy → Codex           │\n│                           │\n│  ~/.agents/skills/review  │\n│    copy → Codex           │\n│                           │\n│  ~/.agents/skills/ship    │\n│    copy → Codex           │\n│                           │\n├───────────────────────────╯\n│\n◇  Installation complete\n\n│\n◇  Installed 3 skills ──────────╮\n│                               │\n│  ✓ qa (copied)                │\n│    → ~/.agents/skills/qa      │\n│  ✓ review (copied)            │\n│    → ~/.agents/skills/review  │\n│  ✓ ship (copied)              │\n│    → ~/.agents/skills/ship    │\n│                               │\n├───────────────────────────────╯\n\n│\n└  Done!  Review skills before use; they run with full agent permissions.",
         "stderr": ""
       },
@@ -3009,7 +3300,7 @@
         {
           "id": "single-skill-ship-project.ship.content",
           "passed": true,
-          "detail": "source=2d43c0634596f7c3a48b1b82e23f099ada6b27f6f2f2d538964fad6eb1f4b242; installed=2d43c0634596f7c3a48b1b82e23f099ada6b27f6f2f2d538964fad6eb1f4b242"
+          "detail": "source=45d26c47b04cdff6c9fa2cf055e4f4f30af3ef331a3b18b52711be1394291202; installed=45d26c47b04cdff6c9fa2cf055e4f4f30af3ef331a3b18b52711be1394291202"
         },
         {
           "id": "single-skill-ship-project.ship.copy",
@@ -3038,7 +3329,7 @@
         ],
         "exitCode": 0,
         "signal": null,
-        "durationMs": 1374,
+        "durationMs": 760,
         "stdout": "│\n●   codex  Agent detected — installing non-interactively\n│\n◇  Source: <TEMP_MATRIX_ROOT>/canonical package/source with spaces\n│\n◇  Local path validated\n│\n◇  Found 111 skills\n│\n●  Selected 1 skill: ship\n\n│\n◇  Installation Summary ──╮\n│                         │\n│  ./.agents/skills/ship  │\n│    copy → OpenClaw      │\n│                         │\n├─────────────────────────╯\n│\n◇  Installation complete\n\n│\n◇  Installed 1 skill ─╮\n│                     │\n│  ✓ ship (copied)    │\n│    → ./skills/ship  │\n│                     │\n├─────────────────────╯\n\n│\n└  Done!  Review skills before use; they run with full agent permissions.",
         "stderr": ""
       },
@@ -3100,7 +3391,7 @@
         ],
         "exitCode": 0,
         "signal": null,
-        "durationMs": 1089,
+        "durationMs": 758,
         "stdout": "│\n●   codex  Agent detected — installing non-interactively\n│\n◇  Source: <REPOSITORY_ROOT>\n│\n◇  Local path validated\n│\n◒  Discovering skills…◇  Found 113 skills\n│\n●  Selected 1 skill: office-hours\n\n│\n◇  Installation Summary ──────────╮\n│                                 │\n│  ./.agents/skills/office-hours  │\n│    copy → Codex                 │\n│                                 │\n├─────────────────────────────────╯\n│\n◇  Installation complete\n\n│\n◇  Installed 1 skill ─────────────────╮\n│                                     │\n│  ✓ office-hours (copied)            │\n│    → ./.agents/skills/office-hours  │\n│                                     │\n├─────────────────────────────────────╯\n\n│\n└  Done!  Review skills before use; they run with full agent permissions.",
         "stderr": ""
       },
@@ -3156,7 +3447,7 @@
         ],
         "exitCode": 0,
         "signal": null,
-        "durationMs": 936,
+        "durationMs": 761,
         "stdout": "│\n●   codex  Agent detected — removing non-interactively\n│\n◇  Found 3 unique installed skill(s)\n│\n◇  Removal process complete\n│\n◆  Successfully removed 3 skill(s)\n\n│\n└  Done!",
         "stderr": ""
       },
@@ -3211,7 +3502,7 @@
         ],
         "exitCode": 0,
         "signal": null,
-        "durationMs": 901,
+        "durationMs": 859,
         "stdout": "│\n●   codex  Agent detected — removing non-interactively\n│\n◇  Found 3 unique installed skill(s)\n│\n◇  Removal process complete\n│\n◆  Successfully removed 3 skill(s)\n\n│\n└  Done!",
         "stderr": ""
       },
@@ -3220,10 +3511,10 @@
   ],
   "summary": {
     "passed": true,
-    "checks": 470,
-    "passedChecks": 470,
+    "checks": 510,
+    "passedChecks": 510,
     "failedChecks": 0,
-    "installCases": 16,
+    "installCases": 18,
     "removalCases": 2
   },
   "limitations": [

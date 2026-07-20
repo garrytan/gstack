@@ -168,7 +168,7 @@ describe("GStack 2 managed runtime installer", () => {
       const phases: string[] = [];
       const run = async (_command: string, args: string[], options: { env?: Record<string, string>; superviseTree?: boolean; timeoutMs?: number } = {}) => {
         if (!args[0]?.endsWith(path.join("node_modules", "playwright", "cli.js"))) return { code: 0, stdout: "", stderr: "" };
-        expect(args.slice(1)).toEqual(["install", "--no-shell", "chromium"]);
+        expect(args.slice(1)).toEqual(["install", "--only-shell", "chromium"]);
         expect(options.superviseTree).toBe(true);
         expect(options.timeoutMs).toBe(15 * 60_000);
         const target = options.env?.PLAYWRIGHT_BROWSERS_PATH;
@@ -234,7 +234,7 @@ describe("GStack 2 managed runtime installer", () => {
         capabilities: { browse: ".gstack-runtime-browsers/fresh/chrome" },
         runCommand: async (_command: string, args: string[], options: { env?: Record<string, string> } = {}) => {
           downloads += 1;
-          expect(args.slice(1)).toEqual(["install", "--no-shell", "chromium"]);
+          expect(args.slice(1)).toEqual(["install", "--only-shell", "chromium"]);
           const target = options.env?.PLAYWRIGHT_BROWSERS_PATH;
           if (!target) throw new Error("missing fixture browser destination");
           await fs.mkdir(path.join(target, "fresh"), { recursive: true });
@@ -308,6 +308,43 @@ describe("GStack 2 managed runtime installer", () => {
       expect((await readJson(path.join(prepared.path, ".gstack-bundle.json"))).tools.bun.version).toBe("1.3.14");
     });
   });
+
+  test("browser-visible materializes full Chromium without also downloading the headless shell", async () => {
+    await withFixture(async ({ home }) => {
+      const installModes: string[] = [];
+      const result = await installManagedRuntime({
+        sourceDir: REPO_ROOT,
+        home,
+        version: "browser-visible-only",
+        capabilityIds: ["browser-visible"],
+        bunCommand: process.execPath,
+        runCommand: async (command: string, args: string[], options: { env?: Record<string, string> } = {}) => {
+          if (args[0] === "--eval" && args[1]?.includes("process.execPath")) {
+            return { code: 0, stdout: process.execPath, stderr: "" };
+          }
+          if (args[0]?.endsWith(path.join("node_modules", "playwright", "cli.js"))) {
+            installModes.push(args[2]);
+            expect(args.slice(1)).toEqual(["install", "--no-shell", "chromium"]);
+            const browserRoot = options.env?.PLAYWRIGHT_BROWSERS_PATH;
+            if (!browserRoot) throw new Error("fixture browser root missing");
+            await fs.mkdir(path.join(browserRoot, "chromium-fixture"), { recursive: true });
+            await fs.writeFile(path.join(browserRoot, "chromium-fixture", "chrome"), "fixture\n", { mode: 0o755 });
+            return { code: 0, stdout: "", stderr: "" };
+          }
+          if (args[0] === "--version" && (command === process.execPath || command.includes(".gstack-runtime-tools"))) {
+            return { code: 0, stdout: "1.3.14\n", stderr: "" };
+          }
+          return { code: 0, stdout: "", stderr: "" };
+        },
+        smokeTest: async () => {},
+      });
+      expect(installModes).toEqual(["--no-shell"]);
+      const bundleManifest = await readJson(path.join(result.path, ".gstack-bundle.json"));
+      expect(bundleManifest.selectedCapabilities).toEqual(["browser-visible"]);
+      expect(bundleManifest.runtimeComponents).toContain("browser-visible");
+      expect(bundleManifest.runtimeComponents).not.toContain("browser-headless");
+    }, { createDefaultSource: false });
+  }, FULL_RUNTIME_TEST_TIMEOUT_MS);
 
   test("default capability builds never regenerate the Agent Skills tree", async () => {
     const calls: Array<{ command: string; args: string[] }> = [];

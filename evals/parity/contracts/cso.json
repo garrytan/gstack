@@ -9,7 +9,7 @@
   "source_path": "cso/SKILL.md.tmpl",
   "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
   "blob_sha": "413fb099597b55dadca116e45a202aa693a94b74",
-  "normalized_render_sha256": "2cecaf39e950a0ec848f85c11f9678b6a7644c0251c07be42cd52d4b2e6b61a6",
+  "normalized_render_sha256": "d79cf702cef33e878da8569c63936e3bdf811b194d8abbce925b6bb759f05cf7",
   "target": "skills/review/references/legacy/cso.md",
   "overlays": [
     679,

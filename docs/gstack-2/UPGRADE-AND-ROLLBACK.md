@@ -200,7 +200,7 @@ or iPhone data.
 Focused candidate tests cover the managed installer plus atomic activation,
 failed-health rollback, interrupted-pointer recovery, manual rollback,
 newer-schema refusal, and non-mutating cleanup preview. The standard installer
-matrix separately passed 470/470 checks across six hosts, 16 installs, scopes,
+matrix separately passed 510/510 checks across seven hosts, 18 installs, scopes,
 selections, and two removals; its artifact is
 [`evals/installation/install-matrix.json`](../../evals/installation/install-matrix.json).
 The runtime installer is green at 25 pass / 0 fail and 341 assertions, and the

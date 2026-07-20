@@ -9,7 +9,7 @@
   "source_path": "plan-design-review/SKILL.md.tmpl",
   "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
   "blob_sha": "7178c991e41277410de500298cf81372543861af",
-  "normalized_render_sha256": "2f7a5d113c466d75ca4524e424c072044d92ae7ab93009f1fbe3ae5965e8aa34",
+  "normalized_render_sha256": "1ff3644728bee14a4a002b91bada44b1c95a20ee5779ed458dabca2485a19e78",
   "target": "skills/design/references/legacy/plan-design-review.md",
   "overlays": [
     679,

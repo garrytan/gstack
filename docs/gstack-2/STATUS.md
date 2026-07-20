@@ -22,9 +22,9 @@ PR, or PR-ready claim is authorized by this status.
   `debug`, `review`, and `ship`.
 - [x] The six `/plan` top-level modes are exactly **Discovery, Product,
   Engineering, DX, Specification, and Full chain**.
-- [x] Standard installer matrix is green: 470/470 checks, 16 installs and two
+- [x] Standard installer matrix is green: 510/510 checks, 18 installs and two
   removals with CLI 1.5.19. Project/global installs passed for Claude Code,
-  Codex, Cursor, Pi, OpenClaw, and GitHub Copilot; selected-skill and opt-in
+  Codex, Kimi Code CLI, Cursor, Pi, OpenClaw, and GitHub Copilot; selected-skill and opt-in
   compatibility-alias cases, paths with spaces, source symlink, physical
   copies, and canonical hashes passed. The committed artifact is
   [`evals/installation/install-matrix.json`](../../evals/installation/install-matrix.json).
@@ -154,7 +154,7 @@ PR, or PR-ready claim is authorized by this status.
 
 - [ ] The paid live v3 installed-host adversarial gate is failed, not pending:
   the immutable one-shot result is **3/4**, with review failing compound
-  inspection. Do not retry or relabel it. The six hosts remain **Verified at
+  inspection. Do not retry or relabel it. The seven hosts remain **Verified at
   the installer layer only**; representative UI/process coverage is incomplete.
 - [ ] Finish final evidence-linked disposition for every infrastructure item;
   see the 25-row table in [ARCHITECTURE.md](./ARCHITECTURE.md). Current focused
@@ -175,7 +175,7 @@ PR, or PR-ready claim is authorized by this status.
 | Structured scenarios | [SCENARIOS.md](./SCENARIOS.md) | 25/25 structured routing fixtures green |
 | Backlog traceability | [BACKLOG-MAP.json](./BACKLOG-MAP.json) | 755 unique items mapped |
 | Context integration | [CONTEXT-DEV.md](./CONTEXT-DEV.md) | Automated contract 22/139 green; verified-key official-endpoint live smoke passed |
-| Host matrix | [HOST-COMPATIBILITY.md](./HOST-COMPATIBILITY.md) | 470/470 checks; Codex runtime-absent run passed; live v3 failed; other UI launches pending |
+| Host matrix | [HOST-COMPATIBILITY.md](./HOST-COMPATIBILITY.md) | 510/510 checks; Codex runtime-absent run passed; live v3 failed; other UI launches pending |
 | Privacy boundary | [PRIVACY.md](./PRIVACY.md) | Implemented contract; full retained-tool egress audit pending |
 | Physical iOS | [IOS-PHYSICAL-DEVICE.md](./IOS-PHYSICAL-DEVICE.md), [live artifact](./evidence/ios-physical-device-2026-07-20T17-49-19-302Z.json) | 12/12 harness tests and five-of-five live iterations passed on a wired paired iPhone |
 | Upgrade/recovery | [UPGRADE-AND-ROLLBACK.md](./UPGRADE-AND-ROLLBACK.md) | Runtime installer 25 pass / 341 assertions; deterministic clean macOS arm64 bundle audit recorded |

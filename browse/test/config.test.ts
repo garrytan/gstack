@@ -227,6 +227,35 @@ describe('resolveNodeServerScript', () => {
   });
 });
 
+describe('resolveServerLaunchTarget', () => {
+  const { resolveServerLaunchTarget } = require('../src/cli');
+
+  test('compiled clients select adjacent server-node.mjs without requiring source server.ts', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'browse-compiled-launch-'));
+    const distDir = path.join(root, 'browse', 'dist');
+    fs.mkdirSync(distDir, { recursive: true });
+    const executable = path.join(distDir, 'browse');
+    const nodeServer = path.join(distDir, 'server-node.mjs');
+    fs.writeFileSync(executable, 'fixture');
+    fs.writeFileSync(nodeServer, 'fixture');
+    try {
+      expect(resolveServerLaunchTarget({}, '/$bunfs/root', executable)).toEqual({
+        isCompiled: true,
+        nodeServerScript: nodeServer,
+        sourceServerScript: null,
+      });
+      expect(fs.existsSync(path.join(root, 'browse', 'src', 'server.ts'))).toBe(false);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('compiled clients fail with the managed-runtime remedy when the Node daemon is absent', () => {
+    expect(() => resolveServerLaunchTarget({}, '/$bunfs/root', '/nonexistent/browse'))
+      .toThrow('server-node.mjs not found');
+  });
+});
+
 describe('version mismatch detection', () => {
   test('detects when versions differ', () => {
     const stateVersion = 'abc123';

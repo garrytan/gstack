@@ -9,7 +9,7 @@
   "source_path": "plan-tune/SKILL.md.tmpl",
   "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
   "blob_sha": "dc1214d4c023ed2b126aca8aedb4153b222e73c5",
-  "normalized_render_sha256": "306bbf971a2867e1f39cce82d64289d6c457bceb07439ddd6f4a3ff8f8ae5e9a",
+  "normalized_render_sha256": "f2204078e497a347b48a2b0899400baf3b6ab54f097bbd57d06deb5f71126ce9",
   "target": "skills/plan/references/legacy/plan-tune.md",
   "overlays": [
     679

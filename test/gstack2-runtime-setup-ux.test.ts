@@ -9,7 +9,10 @@ import { resolveRuntimePaths } from "../runtime/paths.js";
 import { setupRuntime } from "../runtime/setup.js";
 import { bashCandidates, resolveBashCommand } from "../runtime/tooling.js";
 import {
+  BOOTSTRAP_SCHEMA_VERSION,
   BOOTSTRAP_RUNTIME_VERSION,
+  CAPABILITY_COMPONENTS,
+  COMPONENT_DEPENDENCIES,
   OFFICIAL_MANIFEST_URL,
   main as bootstrapMain,
 } from "../runtime/runtime-bootstrap.mjs";
@@ -17,6 +20,29 @@ import {
 function capture() {
   let value = "";
   return { stream: { write: (chunk: string) => { value += chunk; } }, value: () => value };
+}
+
+function officialManifestFixture(target: string, customize?: (component: string, artifact: Record<string, unknown>) => void) {
+  const components = Object.fromEntries(Object.keys(COMPONENT_DEPENDENCIES)
+    .filter((component) => component !== "ios" || target.startsWith("darwin-"))
+    .map((component) => {
+      const artifact: Record<string, unknown> = {
+        url: `https://github.com/time-attack/gstack/releases/download/v${BOOTSTRAP_RUNTIME_VERSION}/${component}.tar.gz`,
+        sha256: "0".repeat(64),
+        bytes: 8,
+        format: "tar.gz",
+      };
+      customize?.(component, artifact);
+      return [component, artifact];
+    }));
+  return {
+    schemaVersion: BOOTSTRAP_SCHEMA_VERSION,
+    version: BOOTSTRAP_RUNTIME_VERSION,
+    skillApi: "2.0",
+    capabilityComponents: CAPABILITY_COMPONENTS,
+    componentDependencies: COMPONENT_DEPENDENCIES,
+    targets: { [target]: { components } },
+  };
 }
 
 describe("GStack runtime setup UX", () => {
@@ -221,7 +247,7 @@ describe("GStack runtime setup UX", () => {
     }
   });
 
-  test("doctor resolves the exact Chromium executable from the managed slot", async () => {
+  test("doctor launches the managed headless Chromium slot instead of requiring full Chromium", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "gstack-doctor-browser-"));
     const home = path.join(root, "home");
     try {
@@ -231,15 +257,13 @@ describe("GStack runtime setup UX", () => {
       const browserRoot = path.join(active, ".gstack-runtime-browsers");
       const managedBun = path.join(active, ".gstack-runtime-tools", process.platform === "win32" ? "bun.exe" : "bun");
       const playwright = path.join(active, "node_modules", "playwright");
-      const executable = path.join(browserRoot, "chromium-fixture", process.platform === "win32" ? "chrome.exe" : "chrome");
-      await fs.mkdir(path.dirname(executable), { recursive: true });
+      await fs.mkdir(path.join(browserRoot, "chromium-headless-shell-fixture"), { recursive: true });
       await fs.mkdir(path.dirname(managedBun), { recursive: true });
       await fs.mkdir(playwright, { recursive: true });
-      await fs.writeFile(executable, "fixture\n", { mode: 0o755 });
       await fs.copyFile(process.execPath, managedBun);
       if (process.platform !== "win32") await fs.chmod(managedBun, 0o755);
       await fs.writeFile(path.join(playwright, "index.mjs"),
-        `export const chromium = { executablePath: () => ${JSON.stringify(executable)} };\n`);
+        `export const chromium = { launch: async ({ headless }) => { if (headless !== true) throw new Error("expected headless"); return { version: () => "fixture-chromium", close: async () => {} }; } };\n`);
       await fs.writeFile(path.join(active, ".gstack-bundle.json"), JSON.stringify({
         compatibility: { skillApi: "2.0" },
         selectedCapabilities: ["browser"],
@@ -252,7 +276,7 @@ describe("GStack runtime setup UX", () => {
       const report = await runDoctor({ home, cwd: root, nodeCommand: process.execPath });
       expect(report.checks.find((check) => check.id === "capability:browser")).toMatchObject({
         status: "pass",
-        details: { executable },
+        details: { browserRoot, version: "fixture-chromium" },
       });
       expect(report.checks.find((check) => check.id === "runtime-tool:bun")).toMatchObject({ status: "pass" });
     } finally {
@@ -289,7 +313,6 @@ describe("GStack runtime setup UX", () => {
   test("bootstrap refuses an artifact whose SHA-256 does not match the official manifest", async () => {
     const output = capture();
     const target = `${process.platform === "win32" ? "windows" : process.platform}-${process.arch}`;
-    const artifactUrl = `https://github.com/time-attack/gstack/releases/download/v${BOOTSTRAP_RUNTIME_VERSION}/fixture.tar.gz`;
     let calls = 0;
     const fetch_ = async (url: string) => {
       calls += 1;
@@ -297,21 +320,16 @@ describe("GStack runtime setup UX", () => {
         return {
           ok: true,
           url,
-          json: async () => ({
-            schemaVersion: 1,
-            version: BOOTSTRAP_RUNTIME_VERSION,
-            skillApi: "2.0",
-            artifacts: { [target]: { url: artifactUrl, sha256: "0".repeat(64), bytes: 8, format: "tar.gz" } },
-          }),
+          json: async () => officialManifestFixture(target),
         };
       }
       return {
         ok: true,
-        url: artifactUrl,
+        url,
         arrayBuffer: async () => new TextEncoder().encode("tampered").buffer,
       };
     };
-    expect(await bootstrapMain(["install", "--capability", "browser"], {
+    expect(await bootstrapMain(["install", "--capability", "browser", "--yes"], {
       stdout: output.stream,
       stderr: output.stream,
       fetch: fetch_,
@@ -352,9 +370,8 @@ describe("GStack runtime setup UX", () => {
   test("declared Cosign bundles must bind the official release workflow identity", async () => {
     const output = capture();
     const target = `${process.platform === "win32" ? "windows" : process.platform}-${process.arch}`;
-    const artifactUrl = `https://github.com/time-attack/gstack/releases/download/v${BOOTSTRAP_RUNTIME_VERSION}/fixture.tar.gz`;
     let calls = 0;
-    expect(await bootstrapMain(["install", "--capability", "browser"], {
+    expect(await bootstrapMain(["install", "--capability", "browser", "--yes"], {
       stdout: output.stream,
       stderr: output.stream,
       fetch: async (url: string) => {
@@ -362,19 +379,9 @@ describe("GStack runtime setup UX", () => {
         return {
           ok: true,
           url,
-          json: async () => ({
-            schemaVersion: 1,
-            version: BOOTSTRAP_RUNTIME_VERSION,
-            skillApi: "2.0",
-            artifacts: {
-              [target]: {
-                url: artifactUrl,
-                sha256: "0".repeat(64),
-                bytes: 8,
-                format: "tar.gz",
-                cosignBundleUrl: `${artifactUrl}.sigstore.json`,
-              },
-            },
+          json: async () => officialManifestFixture(target, (component, artifact) => {
+            if (component !== "core") return;
+            artifact.cosignBundleUrl = `${artifact.url}.sigstore.json`;
           }),
         };
       },
@@ -396,7 +403,7 @@ describe("GStack runtime setup UX", () => {
       process.env.BOOTSTRAP_TEST_LOG = log;
       try {
         expect(await bootstrapMain([
-          "install", "--source", root, "--capability", "pdf", "--home", path.join(root, "home"),
+          "install", "--source", root, "--capability", "pdf", "--home", path.join(root, "home"), "--yes",
         ], { stdout: output.stream, stderr: output.stream })).toBe(0);
       } finally {
         if (previous == null) delete process.env.BOOTSTRAP_TEST_LOG;

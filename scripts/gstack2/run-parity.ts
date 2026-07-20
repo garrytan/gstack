@@ -12,7 +12,11 @@ import { GSTACK2_BASE_SHA, TREE_NAMES } from './types';
 const CONTRACT_KEYS = ['question_order', 'pressure', 'smart_skips', 'stop_approval_gates', 'evidence', 'artifacts', 'mutation', 'exit', 'voice'];
 const PROVENANCE_KEYS = ['original_source_file', 'original_line_range', 'purpose', 'invocation_conditions', 'modes', 'question_sequence', 'follow_up_behavior', 'smart_skip_rules', 'pushback_rules', 'stop_gates', 'approval_gates', 'rubrics_and_scoring', 'cognitive_frameworks', 'evidence_requirements', 'artifacts_produced', 'mutation_authority', 'exit_states', 'voice', 'response_posture', 'new_location', 'parity_test'];
 const ALLOWED_DISPOSITIONS = new Set(['VERBATIM_PORT', 'MECHANICAL_PORT', 'JUDGMENT_PRESERVING_CARVE', 'SHARED_MODULE', 'BUG_FIX', 'DUPLICATE_INFRASTRUCTURE', 'REMOVE_WITH_USER_APPROVAL']);
-export const EXPECTED_PARITY_CHECKS = 4697;
+// Inventory history: the componentized-runtime parity expansion added 152
+// checks to the previously verified 4,681-check corpus. The first update only
+// accounted for the 16 lazy-section checks; the remaining 136 cover runtime
+// contracts, retired-invocation guards, and generated package closure.
+export const EXPECTED_PARITY_CHECKS = 4833;
 
 function sha256(value: string | Uint8Array): string {
   return createHash('sha256').update(value).digest('hex');
@@ -266,9 +270,20 @@ export function runParity(): ParityResult {
   const helperClosure = json(path.join(ROOT, 'evals', 'parity', 'runtime-helper-closure.json'));
   check(JSON.stringify(helperClosure.helpers) === JSON.stringify(manifest.runtime_helpers), 'Runtime helper closure and provenance differ');
   for (const helper of helperClosure.helpers) {
-    const sourcePath = helper.platform_source_paths?.[process.platform === 'win32' ? 'win32' : 'posix']
-      ?? helper.source_path;
-    check(fs.existsSync(path.join(ROOT, sourcePath)), `Preserved helper ${helper.name} has no source payload at ${sourcePath}`);
+    if (helper.delivery === 'managed-runtime-artifact') {
+      check(
+        helper.name === 'bun'
+          && helper.component === 'core'
+          && helper.build_step === 'managed-bun'
+          && helper.source_path === '.gstack-runtime-tools/bun'
+          && helper.stable_path.endsWith('/bin/bun'),
+        `Managed runtime helper ${helper.name} lacks core-component provenance`,
+      );
+    } else {
+      const sourcePath = helper.platform_source_paths?.[process.platform === 'win32' ? 'win32' : 'posix']
+        ?? helper.source_path;
+      check(fs.existsSync(path.join(ROOT, sourcePath)), `Preserved helper ${helper.name} has no source payload at ${sourcePath}`);
+    }
     check(Array.isArray(helper.consumer_modules) && helper.consumer_modules.length > 0, `Preserved helper ${helper.name} has no consumer provenance`);
   }
   for (const record of [...manifest.sources, ...manifest.sections]) {

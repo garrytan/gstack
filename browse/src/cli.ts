@@ -55,8 +55,6 @@ export function resolveServerScript(
   );
 }
 
-const SERVER_SCRIPT = resolveServerScript();
-
 /**
  * On Windows, resolve the Node.js-compatible server bundle.
  * Falls back to null if not found (server will use Bun instead).
@@ -80,17 +78,37 @@ export function resolveNodeServerScript(
   return null;
 }
 
-const NODE_SERVER_SCRIPT = resolveNodeServerScript();
-const IS_COMPILED = import.meta.dir.includes('$bunfs');
+export function resolveServerLaunchTarget(
+  env: Record<string, string | undefined> = process.env,
+  metaDir: string = import.meta.dir,
+  execPath: string = process.execPath
+): { isCompiled: boolean; nodeServerScript: string | null; sourceServerScript: string | null } {
+  const isCompiled = metaDir.includes('$bunfs');
+  const nodeServerScript = resolveNodeServerScript(metaDir, execPath);
+  if (isCompiled) {
+    if (!nodeServerScript) {
+      throw new Error(
+        'server-node.mjs not found. Rebuild the managed browser runtime and run `gstack doctor --skill-api 2.0`.'
+      );
+    }
+    return { isCompiled, nodeServerScript, sourceServerScript: null };
+  }
+  return {
+    isCompiled,
+    nodeServerScript,
+    sourceServerScript: resolveServerScript(env, metaDir, execPath),
+  };
+}
+
+const {
+  isCompiled: IS_COMPILED,
+  nodeServerScript: NODE_SERVER_SCRIPT,
+  sourceServerScript: SERVER_SCRIPT,
+} = resolveServerLaunchTarget();
 
 // Every installed/compiled client must use the adjacent Node-compatible daemon.
 // Source development may fall back to `bun run server.ts` when dist has not
 // been built yet, but an installed capability must never require host-global Bun.
-if (IS_COMPILED && !NODE_SERVER_SCRIPT) {
-  throw new Error(
-    'server-node.mjs not found. Rebuild the managed browser runtime and run `gstack doctor --skill-api 2.0`.'
-  );
-}
 
 interface ServerState {
   pid: number;
@@ -331,6 +349,7 @@ async function startServer(extraEnv?: Record<string, string>): Promise<ServerSta
   } else {
     // Reviewed source-development fallback only. Node's detached spawn still
     // calls setsid() on macOS/Linux, so the Bun dev server survives SIGHUP.
+    if (!SERVER_SCRIPT) throw new Error('Source browser server is unavailable.');
     nodeSpawn('bun', ['run', SERVER_SCRIPT], {
       detached: true,
       stdio: ['ignore', 'ignore', 'ignore'],

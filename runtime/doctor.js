@@ -245,13 +245,11 @@ async function inspectManagedChromium(activeRoot, nodeCommand) {
     const result = await captureCommand(nodeCommand, [
       "--input-type=module",
       "--eval",
-      `const { chromium } = await import(${JSON.stringify(moduleUrl)}); process.stdout.write(chromium.executablePath());`,
+      `const { chromium } = await import(${JSON.stringify(moduleUrl)}); const browser = await chromium.launch({ headless: true }); try { process.stdout.write(browser.version()); } finally { await browser.close(); }`,
     ], { env: { ...process.env, PLAYWRIGHT_BROWSERS_PATH: browserRoot } });
-    const executable = result.stdout.trim();
-    const stat = await fs.lstat(executable).catch(() => null);
-    if (!stat?.isFile() || stat.isSymbolicLink()) return { ok: false, message: "Playwright could not resolve a safe managed Chromium executable" };
-    if (process.platform !== "win32") await fs.access(executable, fsConstants.X_OK);
-    return { ok: true, message: "managed Chromium executable is present", details: { executable } };
+    const version = result.stdout.trim();
+    if (!version) return { ok: false, message: "managed Chromium launched without reporting a browser version" };
+    return { ok: true, message: `managed headless Chromium ${version} launches and exits cleanly`, details: { browserRoot, version } };
   } catch (error) {
     return { ok: false, message: `managed Chromium is not runnable: ${error.message}` };
   }

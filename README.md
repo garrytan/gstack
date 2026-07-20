@@ -57,9 +57,10 @@ collects anonymous command-usage telemetry by default; set
 `DISABLE_TELEMETRY=1` or `DO_NOT_TRACK=1` before invoking it to opt out. GStack
 does not proxy or add fields to that telemetry.
 
-The candidate installer matrix passes project/global placement for Claude
-Code, Codex, Cursor, Pi, OpenClaw, and GitHub Copilot. This verifies files and
-canonical hashes; host UI execution remains a separate release gate.
+The candidate installer matrix covers project/global placement for Claude
+Code, Codex, Kimi Code CLI, Cursor, Pi, OpenClaw, and GitHub Copilot. This
+verifies files and canonical hashes; host UI execution remains a separate
+release gate.
 
 Start with `/plan`, or invoke the skill syntax your host displays. Pure
 judgment modes work without a shared executable. Capability-dependent modes
@@ -70,6 +71,27 @@ approval, and installing a capability never enrolls another coding host.
 Approved installs fetch the pinned official GitHub Release artifact, verify its
 declared byte count and SHA-256, and use Sigstore metadata when Cosign is
 already available. Cosign is not an end-user prerequisite.
+
+Browser setup is provider-aware and optional. During onboarding, a user can ask
+to configure it immediately; otherwise GStack waits until a workflow first
+needs interactive browser evidence. It then detects the active host from its
+actual tool surface, explains the required user-controlled setup, and runs a
+local navigation/read/click readiness fixture. Supported host-native paths
+include Claude in Chrome, the Codex desktop browser, Gemini CLI's experimental
+browser agent, VS Code/GitHub Copilot's integrated browser, OpenClaw's browser
+plugin, and any interactive Cursor provider actually exposed to the current
+session. Kimi Code has fetch/search but no native interactive browser, while Pi
+requires an explicitly installed extension; neither is silently upgraded.
+Inherited host environment variables never count as provider detection. No
+extension, connector, MCP, settings entry, profile, alternate host, or browser
+runtime is configured without consent, and `./setup` is never a GStack 2
+browser setup command.
+
+Install through `npx skills add time-attack/gstack`; do not clone the repository
+under `.agents/skills/gstack`. A standards installation exposes exactly one
+canonical QA skill at `.agents/skills/qa/SKILL.md`. The cloned compatibility
+tree contains legacy GStack 1 entry points and is not the GStack 2 install
+surface.
 
 The npm package is deliberately not the skill installer and does not contain
 the six skill tree or compiled browser/design/PDF payloads. It is the small

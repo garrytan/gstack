@@ -9,7 +9,7 @@
   "source_path": "diagram/SKILL.md.tmpl",
   "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
   "blob_sha": "9e19a52c6b7f727ce4faf5c1f9c14514ecb52f50",
-  "normalized_render_sha256": "21f18fa4957b79bf5941abfebd1b222dee3eb960520e0deac1c32d0b6fd62a38",
+  "normalized_render_sha256": "18b1db5eb50d85a6da26b60ac72a19c144e95bb4a2d92b2d23a87086c49c01b7",
   "target": "skills/design/references/legacy/diagram.md",
   "overlays": [
     679

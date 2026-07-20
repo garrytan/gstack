@@ -9,7 +9,7 @@
   "source_path": "setup-gbrain/SKILL.md.tmpl",
   "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
   "blob_sha": "f48581543b46ecf889f4f86fb7a0d9e75d0bd6ca",
-  "normalized_render_sha256": "244ebee93e8871d59c1b0eac040bed362783e48a9b134171d743750ce9a59b29",
+  "normalized_render_sha256": "ea0759f957601c05a6e131ee3d1d9e07c732b7852d8a7b10c1fdc259e6e12c3b",
   "target": "skills/plan/references/legacy/setup-gbrain.md",
   "overlays": [
     679

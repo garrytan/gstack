@@ -7,7 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { createHash } from "node:crypto";
-import { createReadStream } from "node:fs";
+import { constants as fsConstants, createReadStream } from "node:fs";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
@@ -104,7 +104,7 @@ export async function main(argv = process.argv.slice(2), options = {}) {
       const root = path.join(temporary, "merged", "gstack");
       await fs.mkdir(root, { recursive: true, mode: 0o700 });
       const claimedFiles = new Set();
-      if (reusable) await seedReusableRuntime(reusable.root, root, claimedFiles);
+      if (reusable) await seedReusableRuntime(reusable, root, claimedFiles);
       for (const item of plan.downloads) {
         const archive = path.join(temporary, `${item.component}.tar.gz`);
         await downloadVerified(fetch_, item.artifact.url, archive, item.artifact.sha256, item.artifact.bytes);
@@ -204,6 +204,100 @@ function sameGraph(actual, expected) {
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([key, values]) => [key, Array.isArray(values) ? [...values].sort() : values]));
   return JSON.stringify(normalize(actual)) === JSON.stringify(normalize(expected));
+}
+
+function selectedComponents(capabilities) {
+  const selected = new Set(["core"]);
+  for (const capability of capabilities) {
+    for (const component of CAPABILITY_COMPONENTS[capability] ?? []) selected.add(component);
+  }
+  const pending = [...selected];
+  while (pending.length) {
+    for (const dependency of COMPONENT_DEPENDENCIES[pending.pop()] ?? []) {
+      if (!selected.has(dependency)) {
+        selected.add(dependency);
+        pending.push(dependency);
+      }
+    }
+  }
+  return [...selected].sort();
+}
+
+function buildComponentPlan(manifest, target, capabilities, reusable) {
+  const components = selectedComponents(capabilities);
+  const retained = new Set(reusable?.components ?? []);
+  const downloads = components
+    .filter((component) => !retained.has(component))
+    .map((component) => ({ component, artifact: manifest.targets[target].components[component] }));
+  const downloadBytes = downloads.reduce((total, item) => total + item.artifact.bytes, 0);
+  return {
+    target,
+    version: manifest.version,
+    capabilities,
+    components,
+    reusedComponents: components.filter((component) => retained.has(component)),
+    downloads,
+    downloadBytes,
+  };
+}
+
+function printComponentPlan(stdout, plan) {
+  stdout.write(`GStack optional runtime ${plan.version} for ${plan.target}\n`);
+  stdout.write(`Capabilities: ${plan.capabilities.join(", ")}\n`);
+  stdout.write(`Components: ${plan.components.join(", ")}\n`);
+  if (plan.reusedComponents.length) stdout.write(`Reusing: ${plan.reusedComponents.join(", ")}\n`);
+  stdout.write(`Download: ${plan.downloadBytes} bytes across ${plan.downloads.length} component(s)\n`);
+}
+
+async function inspectReusableRuntime(home, version) {
+  const versions = path.join(home, "versions");
+  const pointer = JSON.parse(await fs.readFile(path.join(versions, "current.json"), "utf8"));
+  if (pointer?.schemaVersion !== 2 || pointer?.status !== "active" ||
+      typeof pointer.current !== "string" || !/^[A-Za-z0-9._-]{1,128}$/.test(pointer.current)) return null;
+  const root = path.join(versions, pointer.current);
+  const stat = await fs.lstat(root);
+  if (!stat.isDirectory() || stat.isSymbolicLink()) return null;
+  const bundle = JSON.parse(await fs.readFile(path.join(root, ".gstack-bundle.json"), "utf8"));
+  if (bundle?.schemaVersion !== 2 || bundle?.version !== version || !Array.isArray(bundle.runtimeComponents) ||
+      !Array.isArray(bundle.files)) return null;
+  const components = [...new Set(bundle.runtimeComponents)];
+  if (!components.length || components.some((component) => !Object.hasOwn(COMPONENT_DEPENDENCIES, component))) return null;
+  await assertNoLinks(root);
+  const files = [];
+  const seen = new Set();
+  for (const entry of bundle.files) {
+    const relative = entry?.path;
+    if (typeof relative !== "string" || !relative || relative.includes("\\") || path.posix.isAbsolute(relative) ||
+        path.posix.normalize(relative) !== relative || relative.split("/").includes("..") || seen.has(relative) ||
+        !Number.isSafeInteger(entry.size) || entry.size < 0 || !/^[a-f0-9]{64}$/.test(entry.sha256)) return null;
+    seen.add(relative);
+    const file = path.join(root, ...relative.split("/"));
+    const fileStat = await fs.lstat(file).catch(() => null);
+    if (!fileStat?.isFile() || fileStat.isSymbolicLink() || fileStat.size !== entry.size ||
+        await sha256File(file) !== entry.sha256) return null;
+    files.push(relative);
+  }
+  return { root, components, files };
+}
+
+async function seedReusableRuntime(reusable, destination, claimedFiles) {
+  for (const relative of reusable.files) {
+    if (claimedFiles.has(relative)) throw bootstrapError(`Runtime components overlap at ${relative}`, "BOOTSTRAP_MANIFEST_INVALID");
+    claimedFiles.add(relative);
+    const target = path.join(destination, ...relative.split("/"));
+    await fs.mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
+    await fs.copyFile(path.join(reusable.root, ...relative.split("/")), target, fsConstants.COPYFILE_EXCL);
+  }
+}
+
+function sha256File(file) {
+  return new Promise((resolve, reject) => {
+    const hash = createHash("sha256");
+    const stream = createReadStream(file);
+    stream.on("error", reject);
+    stream.on("data", (chunk) => hash.update(chunk));
+    stream.on("end", () => resolve(hash.digest("hex")));
+  });
 }
 
 async function fetchJson(fetch_, url) {
@@ -338,6 +432,31 @@ function safeArtifactRoot(extracted, relative) {
   const target = path.resolve(extracted, relative);
   if (path.relative(extracted, target).startsWith(`..${path.sep}`)) throw bootstrapError("Artifact root escaped extraction", "BOOTSTRAP_ARCHIVE_UNSAFE");
   return target;
+}
+
+async function mergeComponentRoot(source, destination, claimedFiles, component) {
+  async function visit(relative = "") {
+    for (const entry of await fs.readdir(path.join(source, relative), { withFileTypes: true })) {
+      const child = relative ? `${relative}/${entry.name}` : entry.name;
+      const from = path.join(source, ...child.split("/"));
+      const to = path.join(destination, ...child.split("/"));
+      if (entry.isSymbolicLink() || (!entry.isDirectory() && !entry.isFile())) {
+        throw bootstrapError(`Runtime component ${component} contains a link or special file`, "BOOTSTRAP_ARCHIVE_UNSAFE");
+      }
+      if (entry.isDirectory()) {
+        await fs.mkdir(to, { recursive: true, mode: 0o700 });
+        await visit(child);
+      } else {
+        if (claimedFiles.has(child)) {
+          throw bootstrapError(`Runtime components overlap at ${child}`, "BOOTSTRAP_MANIFEST_INVALID");
+        }
+        claimedFiles.add(child);
+        await fs.mkdir(path.dirname(to), { recursive: true, mode: 0o700 });
+        await fs.copyFile(from, to, fsConstants.COPYFILE_EXCL);
+      }
+    }
+  }
+  await visit();
 }
 
 async function assertNoLinks(root) {

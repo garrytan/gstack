@@ -5,6 +5,7 @@
   "helpers": [
     {
       "name": "browse",
+      "delivery": "repository-payload",
       "source_path": "browse/dist/browse",
       "platform_source_paths": {
         "posix": "browse/dist/browse",
@@ -62,7 +63,65 @@
       "stable_path": "${GSTACK_HOME:-$HOME/.gstack}/bin/browse"
     },
     {
+      "name": "bun",
+      "delivery": "managed-runtime-artifact",
+      "component": "core",
+      "build_step": "managed-bun",
+      "source_path": ".gstack-runtime-tools/bun",
+      "consumer_modules": [
+        "autoplan",
+        "benchmark",
+        "benchmark-models",
+        "browse",
+        "canary",
+        "codex",
+        "context-restore",
+        "context-save",
+        "cso",
+        "design-consultation",
+        "design-html",
+        "design-review",
+        "design-shotgun",
+        "devex-review",
+        "diagram",
+        "document-generate",
+        "document-release",
+        "freeze",
+        "guard",
+        "health",
+        "investigate",
+        "ios-qa",
+        "ios-sync",
+        "land-and-deploy",
+        "landing-report",
+        "learn",
+        "make-pdf",
+        "office-hours",
+        "open-gstack-browser",
+        "pair-agent",
+        "plan-ceo-review",
+        "plan-design-review",
+        "plan-devex-review",
+        "plan-eng-review",
+        "plan-tune",
+        "qa",
+        "qa-only",
+        "retro",
+        "review",
+        "scrape",
+        "setup-browser-cookies",
+        "setup-gbrain",
+        "ship",
+        "skillify",
+        "spec",
+        "sync-gbrain",
+        "unfreeze"
+      ],
+      "stable_path": "${GSTACK_HOME:-$HOME/.gstack}/bin/bun"
+    },
+    {
       "name": "gstack",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack",
       "consumer_modules": [
         "diagram",
@@ -75,6 +134,7 @@
     },
     {
       "name": "gstack-artifacts-init",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-artifacts-init",
       "consumer_modules": [
         "setup-gbrain"
@@ -83,6 +143,7 @@
     },
     {
       "name": "gstack-brain-cache",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-brain-cache",
       "consumer_modules": [
         "office-hours",
@@ -95,6 +156,7 @@
     },
     {
       "name": "gstack-codex-probe",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-codex-probe",
       "consumer_modules": [
         "autoplan",
@@ -104,6 +166,7 @@
     },
     {
       "name": "gstack-config",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-config",
       "consumer_modules": [
         "autoplan",
@@ -118,6 +181,7 @@
     },
     {
       "name": "gstack-decision-log",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-decision-log",
       "consumer_modules": [
         "ship",
@@ -127,6 +191,7 @@
     },
     {
       "name": "gstack-design",
+      "delivery": "repository-payload",
       "source_path": "design/dist/design",
       "platform_source_paths": {
         "posix": "design/dist/design",
@@ -185,6 +250,7 @@
     },
     {
       "name": "gstack-developer-profile",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-developer-profile",
       "consumer_modules": [
         "office-hours",
@@ -194,6 +260,7 @@
     },
     {
       "name": "gstack-diff-scope",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-diff-scope",
       "consumer_modules": [
         "land-and-deploy",
@@ -203,6 +270,7 @@
     },
     {
       "name": "gstack-distill-apply",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-distill-apply",
       "consumer_modules": [
         "plan-tune"
@@ -211,6 +279,7 @@
     },
     {
       "name": "gstack-distill-free-text",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-distill-free-text",
       "consumer_modules": [
         "plan-tune"
@@ -219,6 +288,7 @@
     },
     {
       "name": "gstack-gbrain-detect",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-gbrain-detect",
       "consumer_modules": [
         "setup-gbrain",
@@ -228,6 +298,7 @@
     },
     {
       "name": "gstack-gbrain-install",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-gbrain-install",
       "consumer_modules": [
         "setup-gbrain"
@@ -236,6 +307,7 @@
     },
     {
       "name": "gstack-gbrain-lib.sh",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-gbrain-lib.sh",
       "consumer_modules": [
         "setup-gbrain"
@@ -244,6 +316,7 @@
     },
     {
       "name": "gstack-gbrain-mcp-verify",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-gbrain-mcp-verify",
       "consumer_modules": [
         "setup-gbrain"
@@ -252,6 +325,7 @@
     },
     {
       "name": "gstack-gbrain-repo-policy",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-gbrain-repo-policy",
       "consumer_modules": [
         "setup-gbrain"
@@ -260,6 +334,7 @@
     },
     {
       "name": "gstack-gbrain-source-wireup",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-gbrain-source-wireup",
       "consumer_modules": [
         "setup-gbrain"
@@ -268,6 +343,7 @@
     },
     {
       "name": "gstack-gbrain-supabase-provision",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-gbrain-supabase-provision",
       "consumer_modules": [
         "setup-gbrain"
@@ -276,6 +352,7 @@
     },
     {
       "name": "gstack-gbrain-supabase-verify",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-gbrain-supabase-verify",
       "consumer_modules": [
         "setup-gbrain"
@@ -284,14 +361,17 @@
     },
     {
       "name": "gstack-gbrain-sync",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-gbrain-sync.ts",
       "consumer_modules": [
-        "setup-gbrain"
+        "setup-gbrain",
+        "sync-gbrain"
       ],
       "stable_path": "${GSTACK_HOME:-$HOME/.gstack}/bin/gstack-gbrain-sync"
     },
     {
       "name": "gstack-gbrain-sync.ts",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-gbrain-sync.ts",
       "consumer_modules": [
         "sync-gbrain"
@@ -300,6 +380,7 @@
     },
     {
       "name": "gstack-global-discover",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-global-discover.ts",
       "consumer_modules": [
         "retro"
@@ -308,6 +389,7 @@
     },
     {
       "name": "gstack-learnings-log",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-learnings-log",
       "consumer_modules": [
         "cso",
@@ -328,6 +410,7 @@
     },
     {
       "name": "gstack-learnings-search",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-learnings-search",
       "consumer_modules": [
         "cso",
@@ -346,6 +429,7 @@
     },
     {
       "name": "gstack-memory-ingest",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-memory-ingest.ts",
       "consumer_modules": [
         "setup-gbrain"
@@ -354,6 +438,7 @@
     },
     {
       "name": "gstack-model-benchmark",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-model-benchmark",
       "consumer_modules": [
         "benchmark-models"
@@ -362,6 +447,7 @@
     },
     {
       "name": "gstack-next-version",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-next-version",
       "consumer_modules": [
         "land-and-deploy",
@@ -373,6 +459,7 @@
     },
     {
       "name": "gstack-paths",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-paths",
       "consumer_modules": [
         "codex",
@@ -390,6 +477,7 @@
     },
     {
       "name": "gstack-pr-title-rewrite.sh",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-pr-title-rewrite.sh",
       "consumer_modules": [
         "ship"
@@ -398,6 +486,7 @@
     },
     {
       "name": "gstack-question-preference",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-question-preference",
       "consumer_modules": [
         "plan-tune"
@@ -406,6 +495,7 @@
     },
     {
       "name": "gstack-redact",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-redact",
       "consumer_modules": [
         "document-generate",
@@ -416,6 +506,7 @@
     },
     {
       "name": "gstack-redact-audit-log",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-redact-audit-log",
       "consumer_modules": [
         "spec"
@@ -424,6 +515,7 @@
     },
     {
       "name": "gstack-review-log",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-review-log",
       "consumer_modules": [
         "autoplan",
@@ -435,6 +527,7 @@
     },
     {
       "name": "gstack-review-read",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-review-read",
       "consumer_modules": [
         "devex-review",
@@ -446,6 +539,7 @@
     },
     {
       "name": "gstack-slug",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-slug",
       "consumer_modules": [
         "autoplan",
@@ -477,6 +571,7 @@
     },
     {
       "name": "gstack-taste-update",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-taste-update",
       "consumer_modules": [
         "design-consultation",
@@ -486,6 +581,7 @@
     },
     {
       "name": "gstack-version-bump",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-version-bump",
       "consumer_modules": [
         "ship"
@@ -494,6 +590,7 @@
     },
     {
       "name": "make-pdf",
+      "delivery": "repository-payload",
       "source_path": "make-pdf/dist/pdf",
       "platform_source_paths": {
         "posix": "make-pdf/dist/pdf",
@@ -552,6 +649,7 @@
     },
     {
       "name": "remote-slug",
+      "delivery": "repository-payload",
       "source_path": "browse/bin/remote-slug",
       "consumer_modules": [
         "autoplan",

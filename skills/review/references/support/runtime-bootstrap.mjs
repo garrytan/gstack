@@ -7,20 +7,40 @@ import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { createHash } from "node:crypto";
+import { constants as fsConstants, createReadStream } from "node:fs";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-export const BOOTSTRAP_SCHEMA_VERSION = 1;
+export const BOOTSTRAP_SCHEMA_VERSION = 2;
 export const BOOTSTRAP_RUNTIME_VERSION = "2.0.0";
 export const OFFICIAL_MANIFEST_URL =
   `https://github.com/time-attack/gstack/releases/download/v${BOOTSTRAP_RUNTIME_VERSION}/gstack-runtime-manifest.json`;
-const CAPABILITIES = new Set(["browser", "design", "pdf", "diagram", "ios"]);
+const CAPABILITIES = new Set(["browser", "browser-visible", "design", "pdf", "diagram", "ios"]);
 const CAPABILITY_DEPENDENCIES = Object.freeze({
   browser: Object.freeze([]),
+  "browser-visible": Object.freeze([]),
   design: Object.freeze([]),
   pdf: Object.freeze(["browser", "diagram"]),
   diagram: Object.freeze(["browser"]),
   ios: Object.freeze([]),
+});
+export const COMPONENT_DEPENDENCIES = Object.freeze({
+  core: Object.freeze([]),
+  "browser-code": Object.freeze(["core"]),
+  "browser-headless": Object.freeze(["browser-code"]),
+  "browser-visible": Object.freeze(["browser-code"]),
+  design: Object.freeze(["core"]),
+  diagram: Object.freeze(["browser-headless"]),
+  pdf: Object.freeze(["diagram"]),
+  ios: Object.freeze(["core"]),
+});
+export const CAPABILITY_COMPONENTS = Object.freeze({
+  browser: Object.freeze(["browser-code", "browser-headless"]),
+  "browser-visible": Object.freeze(["browser-code", "browser-visible"]),
+  design: Object.freeze(["design"]),
+  diagram: Object.freeze(["diagram"]),
+  pdf: Object.freeze(["pdf"]),
+  ios: Object.freeze(["ios"]),
 });
 const ALLOWED_DOWNLOAD_HOSTS = new Set([
   "github.com",
@@ -43,18 +63,26 @@ export async function main(argv = process.argv.slice(2), options = {}) {
       io.stdout.write(usage());
       return 0;
     }
-    if (parsed.action !== "install") throw bootstrapError("Expected `install`", "BOOTSTRAP_USAGE");
+    if (!["preview", "install"].includes(parsed.action)) {
+      throw bootstrapError("Expected `preview` or `install`", "BOOTSTRAP_USAGE");
+    }
+
+    const platform = options.platform ?? process.platform;
+    if (parsed.capabilities.includes("ios") && platform !== "darwin") {
+      throw bootstrapError("The physical-iOS capability is available only on macOS", "BOOTSTRAP_PLATFORM_UNSUPPORTED");
+    }
     if (parsed.source) {
+      if (parsed.action === "preview") {
+        io.stdout.write("Reviewed-source fallback has no signed compressed-byte manifest; the local installer can provide an on-disk preview only.\n");
+        return 0;
+      }
+      if (!parsed.yes) throw bootstrapError("Installation requires explicit --yes after review", "BOOTSTRAP_CONSENT_REQUIRED");
       io.stderr.write("Developer-only source install: only continue with a checkout you reviewed and trust.\n");
       return await installFromSource(parsed.source, parsed, { ...options, ...io, prepared: false });
     }
 
     const fetch_ = options.fetch ?? globalThis.fetch;
     if (typeof fetch_ !== "function") throw bootstrapError("Node 18+ with fetch is required", "BOOTSTRAP_NODE_UNSUPPORTED");
-    const platform = options.platform ?? process.platform;
-    if (parsed.capabilities.includes("ios") && platform !== "darwin") {
-      throw bootstrapError("The physical-iOS capability is available only on macOS", "BOOTSTRAP_PLATFORM_UNSUPPORTED");
-    }
     const target = platformTarget(
       platform,
       options.arch ?? process.arch,
@@ -63,19 +91,32 @@ export async function main(argv = process.argv.slice(2), options = {}) {
     const manifestUrl = options.manifestUrl ?? OFFICIAL_MANIFEST_URL;
     assertOfficialUrl(manifestUrl, { manifest: true });
     const manifest = await fetchJson(fetch_, manifestUrl);
-    const artifact = validateManifest(manifest, target);
-    io.stdout.write(`Official runtime artifact: ${formatBytes(artifact.bytes)} for ${target}.\n`);
+    validateManifest(manifest, target);
+    const home = path.resolve(parsed.home ?? process.env.GSTACK_HOME ?? path.join(os.homedir(), ".gstack"));
+    const reusable = await inspectReusableRuntime(home, manifest.version).catch(() => null);
+    const plan = buildComponentPlan(manifest, target, parsed.capabilities, reusable);
+    if (parsed.json) io.stdout.write(`${JSON.stringify({ ok: true, action: parsed.action, ...plan }, null, 2)}\n`);
+    else printComponentPlan(io.stdout, plan);
+    if (parsed.action === "preview") return 0;
+    if (!parsed.yes) throw bootstrapError("Installation requires explicit --yes after reviewing this exact component plan", "BOOTSTRAP_CONSENT_REQUIRED");
     const temporary = await fs.mkdtemp(path.join(options.tmpDir ?? os.tmpdir(), "gstack-bootstrap-"));
     try {
-      const archive = path.join(temporary, "runtime.tar.gz");
-      await downloadVerified(fetch_, artifact.url, archive, artifact.sha256, artifact.bytes);
-      io.stdout.write(`Verified SHA-256 for GStack runtime ${manifest.version} (${target}).\n`);
-      await verifyCosignWhenAvailable(archive, artifact, temporary, { ...options, fetch: fetch_, ...io });
-      const extracted = path.join(temporary, "extracted");
-      await fs.mkdir(extracted, { mode: 0o700 });
-      await extractTarSafely(archive, extracted, options);
-      const root = safeArtifactRoot(extracted, artifact.root ?? "gstack");
-      await assertNoLinks(root);
+      const root = path.join(temporary, "merged", "gstack");
+      await fs.mkdir(root, { recursive: true, mode: 0o700 });
+      const claimedFiles = new Set();
+      if (reusable) await seedReusableRuntime(reusable, root, claimedFiles);
+      for (const item of plan.downloads) {
+        const archive = path.join(temporary, `${item.component}.tar.gz`);
+        await downloadVerified(fetch_, item.artifact.url, archive, item.artifact.sha256, item.artifact.bytes);
+        io.stdout.write(`Verified SHA-256 for ${item.component} (${target}).\n`);
+        await verifyCosignWhenAvailable(archive, item.artifact, path.join(temporary, item.component), { ...options, fetch: fetch_, ...io });
+        const extracted = path.join(temporary, "extracted", item.component);
+        await fs.mkdir(extracted, { recursive: true, mode: 0o700 });
+        await extractTarSafely(archive, extracted, options);
+        const componentRoot = safeArtifactRoot(extracted, item.artifact.root ?? "gstack");
+        await assertNoLinks(componentRoot);
+        await mergeComponentRoot(componentRoot, root, claimedFiles, item.component);
+      }
       return await installFromSource(root, parsed, { ...options, ...io, prepared: true, version: manifest.version });
     } finally {
       await fs.rm(temporary, { recursive: true, force: true });
@@ -87,10 +128,12 @@ export async function main(argv = process.argv.slice(2), options = {}) {
 }
 
 function parseArgs(argv) {
-  const result = { action: null, capabilities: [], source: null, home: null, help: false };
+  const result = { action: null, capabilities: [], source: null, home: null, yes: false, json: false, help: false };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (["-h", "--help"].includes(arg)) result.help = true;
+    else if (arg === "--yes") result.yes = true;
+    else if (arg === "--json") result.json = true;
     else if (!result.action && !arg.startsWith("-")) result.action = arg;
     else if (["--capability", "--source", "--home"].includes(arg)) {
       const value = argv[++index];
@@ -101,6 +144,7 @@ function parseArgs(argv) {
     } else throw bootstrapError(`Unknown option: ${arg}`, "BOOTSTRAP_USAGE");
   }
   if (result.help) return result;
+  if (result.action === "preview" && result.yes) throw bootstrapError("preview cannot be combined with --yes", "BOOTSTRAP_USAGE");
   if (!result.capabilities.length) throw bootstrapError("At least one --capability is required", "BOOTSTRAP_USAGE");
   result.capabilities = [...new Set(result.capabilities)].sort();
   for (const capability of result.capabilities) {
@@ -122,25 +166,138 @@ function parseArgs(argv) {
 
 function validateManifest(manifest, target) {
   if (manifest?.schemaVersion !== BOOTSTRAP_SCHEMA_VERSION || manifest?.version !== BOOTSTRAP_RUNTIME_VERSION ||
-      manifest?.skillApi !== "2.0" || typeof manifest?.artifacts !== "object") {
+      manifest?.skillApi !== "2.0" || typeof manifest?.targets !== "object" ||
+      !sameGraph(manifest.capabilityComponents, CAPABILITY_COMPONENTS) ||
+      !sameGraph(manifest.componentDependencies, COMPONENT_DEPENDENCIES)) {
     throw bootstrapError("Official runtime manifest is incompatible", "BOOTSTRAP_MANIFEST_INVALID");
   }
-  const artifact = manifest.artifacts[target];
-  if (!artifact || artifact.format !== "tar.gz" || !/^[a-f0-9]{64}$/.test(artifact.sha256) ||
-      !Number.isSafeInteger(artifact.bytes) || artifact.bytes < 1 || artifact.bytes > 2 * 1024 * 1024 * 1024) {
+  const targetRecord = manifest.targets[target];
+  const expected = Object.keys(COMPONENT_DEPENDENCIES)
+    .filter((component) => component !== "ios" || target.startsWith("darwin-"))
+    .sort();
+  if (!targetRecord || typeof targetRecord.components !== "object" ||
+      JSON.stringify(Object.keys(targetRecord.components).sort()) !== JSON.stringify(expected)) {
     throw bootstrapError(`No valid official runtime artifact for ${target}`, "BOOTSTRAP_ARTIFACT_UNAVAILABLE");
   }
-  assertOfficialReleaseAssetUrl(artifact.url);
-  if (artifact.cosignBundleUrl) {
-    assertOfficialReleaseAssetUrl(artifact.cosignBundleUrl);
-    if (artifact.certificateIdentity !== OFFICIAL_CERTIFICATE_IDENTITY ||
-        artifact.certificateOidcIssuer !== GITHUB_OIDC_ISSUER) {
-      throw bootstrapError("Cosign metadata does not bind the official GStack release workflow", "BOOTSTRAP_MANIFEST_INVALID");
+  for (const [component, artifact] of Object.entries(targetRecord.components)) {
+    if (!artifact || artifact.format !== "tar.gz" || !/^[a-f0-9]{64}$/.test(artifact.sha256) ||
+        !Number.isSafeInteger(artifact.bytes) || artifact.bytes < 1 || artifact.bytes > 2 * 1024 * 1024 * 1024) {
+      throw bootstrapError(`Invalid ${component} artifact for ${target}`, "BOOTSTRAP_ARTIFACT_UNAVAILABLE");
     }
-  } else if (artifact.certificateIdentity || artifact.certificateOidcIssuer) {
-    throw bootstrapError("Cosign certificate metadata requires a bundle URL", "BOOTSTRAP_MANIFEST_INVALID");
+    assertOfficialReleaseAssetUrl(artifact.url);
+    if (artifact.cosignBundleUrl) {
+      assertOfficialReleaseAssetUrl(artifact.cosignBundleUrl);
+      if (artifact.certificateIdentity !== OFFICIAL_CERTIFICATE_IDENTITY ||
+          artifact.certificateOidcIssuer !== GITHUB_OIDC_ISSUER) {
+        throw bootstrapError("Cosign metadata does not bind the official GStack release workflow", "BOOTSTRAP_MANIFEST_INVALID");
+      }
+    } else if (artifact.certificateIdentity || artifact.certificateOidcIssuer) {
+      throw bootstrapError("Cosign certificate metadata requires a bundle URL", "BOOTSTRAP_MANIFEST_INVALID");
+    }
   }
-  return artifact;
+  return targetRecord;
+}
+
+function sameGraph(actual, expected) {
+  if (!actual || typeof actual !== "object" || Array.isArray(actual)) return false;
+  const normalize = (graph) => Object.fromEntries(Object.entries(graph)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, values]) => [key, Array.isArray(values) ? [...values].sort() : values]));
+  return JSON.stringify(normalize(actual)) === JSON.stringify(normalize(expected));
+}
+
+function selectedComponents(capabilities) {
+  const selected = new Set(["core"]);
+  for (const capability of capabilities) {
+    for (const component of CAPABILITY_COMPONENTS[capability] ?? []) selected.add(component);
+  }
+  const pending = [...selected];
+  while (pending.length) {
+    for (const dependency of COMPONENT_DEPENDENCIES[pending.pop()] ?? []) {
+      if (!selected.has(dependency)) {
+        selected.add(dependency);
+        pending.push(dependency);
+      }
+    }
+  }
+  return [...selected].sort();
+}
+
+function buildComponentPlan(manifest, target, capabilities, reusable) {
+  const components = selectedComponents(capabilities);
+  const retained = new Set(reusable?.components ?? []);
+  const downloads = components
+    .filter((component) => !retained.has(component))
+    .map((component) => ({ component, artifact: manifest.targets[target].components[component] }));
+  const downloadBytes = downloads.reduce((total, item) => total + item.artifact.bytes, 0);
+  return {
+    target,
+    version: manifest.version,
+    capabilities,
+    components,
+    reusedComponents: components.filter((component) => retained.has(component)),
+    downloads,
+    downloadBytes,
+  };
+}
+
+function printComponentPlan(stdout, plan) {
+  stdout.write(`GStack optional runtime ${plan.version} for ${plan.target}\n`);
+  stdout.write(`Capabilities: ${plan.capabilities.join(", ")}\n`);
+  stdout.write(`Components: ${plan.components.join(", ")}\n`);
+  if (plan.reusedComponents.length) stdout.write(`Reusing: ${plan.reusedComponents.join(", ")}\n`);
+  stdout.write(`Download: ${plan.downloadBytes} bytes across ${plan.downloads.length} component(s)\n`);
+}
+
+async function inspectReusableRuntime(home, version) {
+  const versions = path.join(home, "versions");
+  const pointer = JSON.parse(await fs.readFile(path.join(versions, "current.json"), "utf8"));
+  if (pointer?.schemaVersion !== 2 || pointer?.status !== "active" ||
+      typeof pointer.current !== "string" || !/^[A-Za-z0-9._-]{1,128}$/.test(pointer.current)) return null;
+  const root = path.join(versions, pointer.current);
+  const stat = await fs.lstat(root);
+  if (!stat.isDirectory() || stat.isSymbolicLink()) return null;
+  const bundle = JSON.parse(await fs.readFile(path.join(root, ".gstack-bundle.json"), "utf8"));
+  if (bundle?.schemaVersion !== 2 || bundle?.version !== version || !Array.isArray(bundle.runtimeComponents) ||
+      !Array.isArray(bundle.files)) return null;
+  const components = [...new Set(bundle.runtimeComponents)];
+  if (!components.length || components.some((component) => !Object.hasOwn(COMPONENT_DEPENDENCIES, component))) return null;
+  await assertNoLinks(root);
+  const files = [];
+  const seen = new Set();
+  for (const entry of bundle.files) {
+    const relative = entry?.path;
+    if (typeof relative !== "string" || !relative || relative.includes("\\") || path.posix.isAbsolute(relative) ||
+        path.posix.normalize(relative) !== relative || relative.split("/").includes("..") || seen.has(relative) ||
+        !Number.isSafeInteger(entry.size) || entry.size < 0 || !/^[a-f0-9]{64}$/.test(entry.sha256)) return null;
+    seen.add(relative);
+    const file = path.join(root, ...relative.split("/"));
+    const fileStat = await fs.lstat(file).catch(() => null);
+    if (!fileStat?.isFile() || fileStat.isSymbolicLink() || fileStat.size !== entry.size ||
+        await sha256File(file) !== entry.sha256) return null;
+    files.push(relative);
+  }
+  return { root, components, files };
+}
+
+async function seedReusableRuntime(reusable, destination, claimedFiles) {
+  for (const relative of reusable.files) {
+    if (claimedFiles.has(relative)) throw bootstrapError(`Runtime components overlap at ${relative}`, "BOOTSTRAP_MANIFEST_INVALID");
+    claimedFiles.add(relative);
+    const target = path.join(destination, ...relative.split("/"));
+    await fs.mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
+    await fs.copyFile(path.join(reusable.root, ...relative.split("/")), target, fsConstants.COPYFILE_EXCL);
+  }
+}
+
+function sha256File(file) {
+  return new Promise((resolve, reject) => {
+    const hash = createHash("sha256");
+    const stream = createReadStream(file);
+    stream.on("error", reject);
+    stream.on("data", (chunk) => hash.update(chunk));
+    stream.on("end", () => resolve(hash.digest("hex")));
+  });
 }
 
 async function fetchJson(fetch_, url) {
@@ -275,6 +432,31 @@ function safeArtifactRoot(extracted, relative) {
   const target = path.resolve(extracted, relative);
   if (path.relative(extracted, target).startsWith(`..${path.sep}`)) throw bootstrapError("Artifact root escaped extraction", "BOOTSTRAP_ARCHIVE_UNSAFE");
   return target;
+}
+
+async function mergeComponentRoot(source, destination, claimedFiles, component) {
+  async function visit(relative = "") {
+    for (const entry of await fs.readdir(path.join(source, relative), { withFileTypes: true })) {
+      const child = relative ? `${relative}/${entry.name}` : entry.name;
+      const from = path.join(source, ...child.split("/"));
+      const to = path.join(destination, ...child.split("/"));
+      if (entry.isSymbolicLink() || (!entry.isDirectory() && !entry.isFile())) {
+        throw bootstrapError(`Runtime component ${component} contains a link or special file`, "BOOTSTRAP_ARCHIVE_UNSAFE");
+      }
+      if (entry.isDirectory()) {
+        await fs.mkdir(to, { recursive: true, mode: 0o700 });
+        await visit(child);
+      } else {
+        if (claimedFiles.has(child)) {
+          throw bootstrapError(`Runtime components overlap at ${child}`, "BOOTSTRAP_MANIFEST_INVALID");
+        }
+        claimedFiles.add(child);
+        await fs.mkdir(path.dirname(to), { recursive: true, mode: 0o700 });
+        await fs.copyFile(from, to, fsConstants.COPYFILE_EXCL);
+      }
+    }
+  }
+  await visit();
 }
 
 async function assertNoLinks(root) {

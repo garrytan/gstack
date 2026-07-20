@@ -9,7 +9,7 @@
   "source_path": "retro/SKILL.md.tmpl",
   "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
   "blob_sha": "b0819c8a6b736baf489179ba587442cf9973b9d2",
-  "normalized_render_sha256": "c92e69da5c62e4bb5a426f4fb5623b41215e538315e2faebece8ba118cacaf71",
+  "normalized_render_sha256": "d2dd2fe80fbeb5573266700052e0ce5e781dcd31ed986cd9203880bc98c9d9c8",
   "target": "skills/plan/references/legacy/retro.md",
   "overlays": [
     679,

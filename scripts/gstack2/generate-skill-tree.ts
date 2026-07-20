@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import { BUG_FIX_OVERLAYS, overlaysForSource } from './bug-fix-overlays';
+import { renderBrowserProviderContract } from './browser-provider-contract';
 import { contractFor, DISPATCHERS, SOURCE_ASSIGNMENTS } from './assignments';
 import { SCENARIOS } from './scenarios';
 import { runDeterministicSemanticParity } from './semantic-parity';
@@ -493,6 +494,8 @@ function runtimeContract(): string {
 
 The six Agent Skills are useful without a GStack runtime. Never install, download, build, select, update, or remove runtime capabilities merely because a skill was invoked.
 
+Before interactive browser work, read \`references/BROWSER-PROVIDERS.md\` in full. It owns provider detection, consented host setup, the common readiness journey, and the explicit GStack fallback. Skill installation never proves browser readiness.
+
 When an active specialist first reaches a capability it cannot use, name the exact capability and why it is needed. Offer to continue without it when the judgment-only or host-native path remains valid. Before any network preview, ask whether the user wants to check official setup options and exact sizes. Disclose that an uncached preview makes one public GitHub request for signed manifest metadata and sends no repository content, private URL, file, cookie, token, or credential; then STOP. A cached already-verified manifest may preview offline, but never silently fetch.
 
 Only after the user approves that metadata check, run the non-mutating preview from this skill root: \`node references/support/runtime-bootstrap.mjs preview --capability <name>\` (repeat \`--capability\` for additional requested capabilities). It dependency-expands, reports already verified local components, exact missing components, and their summed compressed bytes. It never downloads components or mutates runtime state. Preview consent is not install consent.
@@ -559,12 +562,15 @@ Do not put secrets in run IDs, effect keys, or command arguments. Existing appro
 
 function writeSharedContracts(): void {
   const bootstrap = fs.readFileSync(path.join(ROOT, 'runtime', 'runtime-bootstrap.mjs'));
+  const browserSmoke = fs.readFileSync(path.join(ROOT, 'runtime', 'browser-provider-smoke.mjs'));
   for (const tree of TREE_NAMES) {
     write(path.join(ROOT, 'skills', tree, 'references', 'SHARED-JUDGMENT.md'), sharedJudgmentContract());
     write(path.join(ROOT, 'skills', tree, 'references', 'AUTHORITY-POLICY.md'), authorityPolicyContract());
     write(path.join(ROOT, 'skills', tree, 'references', 'WEB-CONTEXT.md'), webContextContract());
     write(path.join(ROOT, 'skills', tree, 'references', 'RUNTIME.md'), runtimeContract());
+    write(path.join(ROOT, 'skills', tree, 'references', 'BROWSER-PROVIDERS.md'), `${GENERATED}\n${renderBrowserProviderContract()}`);
     write(path.join(ROOT, 'skills', tree, 'references', 'support', 'runtime-bootstrap.mjs'), bootstrap);
+    write(path.join(ROOT, 'skills', tree, 'references', 'support', 'browser-provider-smoke.mjs'), browserSmoke);
     writeJson(path.join(ROOT, 'skills', tree, 'references', 'support', 'runtime-contract.json'), RUNTIME_SKILL_CONTRACT);
   }
   write(path.join(ROOT, 'skills', 'qa', 'references', 'SYSTEM-FUNCTIONAL.md'), systemFunctionalContract());
@@ -644,9 +650,20 @@ function runtimeHelperClosure(rendered: Map<string, RenderedModuleRecord>): Arra
   };
   return [...consumers].sort(([left], [right]) => left.localeCompare(right)).map(([name, sources]) => {
     const platformPaths = platformSourceOverrides[name];
+    const managedRuntimeArtifact = name === 'bun';
     return {
       name,
-      source_path: platformPaths?.posix ?? sourceOverrides[name] ?? `bin/${name}`,
+      ...(managedRuntimeArtifact
+        ? {
+            delivery: 'managed-runtime-artifact',
+            component: 'core',
+            build_step: 'managed-bun',
+            source_path: '.gstack-runtime-tools/bun',
+          }
+        : {
+            delivery: 'repository-payload',
+            source_path: platformPaths?.posix ?? sourceOverrides[name] ?? `bin/${name}`,
+          }),
       ...(platformPaths ? { platform_source_paths: platformPaths } : {}),
       consumer_modules: [...sources].sort(),
       stable_path: `\${GSTACK_HOME:-$HOME/.gstack}/bin/${name}`,

@@ -116,7 +116,7 @@ their header; edit `scripts/gstack2/` inputs and regenerate instead.
 ## Platform contract
 
 Portable means the canonical skill tree follows the Agent Skills specification.
-Verified must name its layer. The six-host project/global/selection/removal
+Verified must name its layer. The seven-host project/global/selection/removal
 matrix is **Verified — installer**; host UI/process execution is still pending.
 Native means a necessary host API is covered while consuming the same canonical
 judgment. These labels require evidence; see

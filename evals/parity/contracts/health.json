@@ -9,7 +9,7 @@
   "source_path": "health/SKILL.md.tmpl",
   "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
   "blob_sha": "f92eb7347ec4f77dd8dbf464d63fcdf6a3459908",
-  "normalized_render_sha256": "ff664221e7de57e66c1b45d719982d90f38e0288914b34731ba4dd73541347e8",
+  "normalized_render_sha256": "514ff165b393a25707c9ed336869ac0b50c63a00d90a21b1656276e1b97842d9",
   "target": "skills/review/references/legacy/health.md",
   "overlays": [
     679

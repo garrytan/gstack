@@ -62,6 +62,7 @@ describe('GStack 2 standard installer surface', () => {
     expect(AGENT_MATRIX.map((entry) => entry.agent)).toEqual([
       'claude-code',
       'codex',
+      'kimi-code-cli',
       'cursor',
       'pi',
       'openclaw',
@@ -105,7 +106,9 @@ describe('GStack 2 standard installer surface', () => {
 
     expect(result.summary.passed).toBe(true);
     expect(result.discovery).toMatchObject({ count: 6, names: [...PUBLIC_SKILLS], passed: true });
-    expect(result.installs).toHaveLength(AGENT_MATRIX.length * 2 + 2);
+    // Two default scopes per host plus project/global collision selection,
+    // the OpenClaw single-skill case, and the opt-in compatibility alias.
+    expect(result.installs).toHaveLength(AGENT_MATRIX.length * 2 + 4);
     expect(result.removals).toHaveLength(2);
     expect(fs.existsSync(output)).toBe(true);
   }, 600_000);

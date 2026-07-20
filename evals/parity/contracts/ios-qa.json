@@ -9,7 +9,7 @@
   "source_path": "ios-qa/SKILL.md.tmpl",
   "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
   "blob_sha": "e93d2831a31df65ec8e4e8693919ef5bf148457f",
-  "normalized_render_sha256": "a9353a4d837240f85c0e13144e66575f9e267926090cfc0f344a08b5fb09b98c",
+  "normalized_render_sha256": "73ea0aabaa9e7c8fdd4ae279f519303a78682540b2340816f97e239718908e62",
   "target": "skills/qa/references/legacy/ios-qa.md",
   "overlays": [
     679

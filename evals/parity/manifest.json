@@ -20,7 +20,7 @@
     "bug_fix_ports": 16,
     "assets": 78,
     "dependency_copies": 4,
-    "runtime_helpers": 40
+    "runtime_helpers": 41
   },
   "sources": [
     {
@@ -83,7 +83,7 @@
       "source_path": "office-hours/SKILL.md.tmpl",
       "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
       "blob_sha": "8568fe73cca76a80805fab3092cacd10db7e1d7f",
-      "normalized_render_sha256": "b633a6ef87928ca2434f3a2b1ce88946cbe528a9e3659469e0f9cbbe8a7b146b",
+      "normalized_render_sha256": "1a5c9dbda769631df4c3e909fde6b97917780f6a7e9eca5a4edc8c2d0f302052",
       "target": "skills/plan/references/legacy/office-hours.md",
       "disposition": "BUG_FIX",
       "overlays": [
@@ -197,7 +197,7 @@
       "source_path": "plan-ceo-review/SKILL.md.tmpl",
       "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
       "blob_sha": "c43cfe64146fe79df74a974f1673fe36defcce00",
-      "normalized_render_sha256": "b2f811568920dfdbd500372df13855041ecb2b8b73e3629f3c71d87c5a78e034",
+      "normalized_render_sha256": "811b50b2cf2e20768138c50ef67471402ad1e361bd07958c63107c5081cf21b7",
       "target": "skills/plan/references/legacy/plan-ceo-review.md",
       "disposition": "BUG_FIX",
       "overlays": [
@@ -337,7 +337,7 @@
       "source_path": "plan-eng-review/SKILL.md.tmpl",
       "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
       "blob_sha": "1d5be0e6f47f0896ee831b53c56818850b1dcfe4",
-      "normalized_render_sha256": "ee268f1d24769509b89b7db998372a773d9e7bc376306a68319af4f74c6fe713",
+      "normalized_render_sha256": "0ed7d4a6ec9dadf363ef5d9311392067a3d90bddac9c1ec781d0f25db55e13ae",
       "target": "skills/plan/references/legacy/plan-eng-review.md",
       "disposition": "BUG_FIX",
       "overlays": [
@@ -457,7 +457,7 @@
       "source_path": "plan-devex-review/SKILL.md.tmpl",
       "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
       "blob_sha": "1ef723c10997a08ef87940daceb08bf8d60dd810",
-      "normalized_render_sha256": "fff989dcab1f37d0c219378caef6b1e627c23c2537a717564be0d8567229bccc",
+      "normalized_render_sha256": "2d39acb36fdc7f4f4b3492ff7dd21081fad98b256fa40d00aeee67bd41343f15",
       "target": "skills/plan/references/legacy/plan-devex-review.md",
       "disposition": "BUG_FIX",
       "overlays": [
@@ -590,7 +590,7 @@
       "source_path": "autoplan/SKILL.md.tmpl",
       "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
       "blob_sha": "b2eaca9fde8f46001bea9961b8ed651d0f6f9e13",
-      "normalized_render_sha256": "b11bef3e060400cd59a16e41c9b6f8395ace065867a1c2a70329319153a2c4dc",
+      "normalized_render_sha256": "dffedf321083151a10e7377dba6dcfd5507b678c5279f5d47a1b0d91bfe53e09",
       "target": "skills/plan/references/legacy/autoplan.md",
       "disposition": "BUG_FIX",
       "overlays": [
@@ -681,7 +681,7 @@
       "source_path": "spec/SKILL.md.tmpl",
       "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
       "blob_sha": "6c0c14e1b37e1e56d85427e9c8d080a6df908992",
-      "normalized_render_sha256": "059ec7a95791f6fc559f4e2321d7340ef5ae7e4ba89949df401f74d91411bfd3",
+      "normalized_render_sha256": "76b7c03e6d8e7b852beda0a58409d97153771dd8f7b870bbdda23e996ac23fc1",
       "target": "skills/plan/references/legacy/spec.md",
       "disposition": "BUG_FIX",
       "overlays": [
@@ -814,7 +814,7 @@
       "source_path": "plan-tune/SKILL.md.tmpl",
       "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
       "blob_sha": "dc1214d4c023ed2b126aca8aedb4153b222e73c5",
-      "normalized_render_sha256": "306bbf971a2867e1f39cce82d64289d6c457bceb07439ddd6f4a3ff8f8ae5e9a",
+      "normalized_render_sha256": "f2204078e497a347b48a2b0899400baf3b6ab54f097bbd57d06deb5f71126ce9",
       "target": "skills/plan/references/legacy/plan-tune.md",
       "disposition": "BUG_FIX",
       "overlays": [
@@ -893,7 +893,7 @@
       "source_path": "context-save/SKILL.md.tmpl",
       "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
       "blob_sha": "a3702bc95439cddd87841aba836708bf511ef55d",
-      "normalized_render_sha256": "348b840c60cecd8818d75f63ebb8e3effae659437137ce75c1ba6124177120b6",
+      "normalized_render_sha256": "f457da8b2cc1f9a4ed8ba82f4ea570a69460ce0147e171b5023d66324b6dc899",
       "target": "skills/plan/references/legacy/context-save.md",
       "disposition": "BUG_FIX",
       "overlays": [
@@ -968,7 +968,7 @@
       "source_path": "context-restore/SKILL.md.tmpl",
       "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
       "blob_sha": "55889f6e06d3ba896f33a16969959c700bc24f1e",
-      "normalized_render_sha256": "c14726232c67616485c115dd7ca0898992bab9c7990629b40dc3b6f1c0dec0ee",
+      "normalized_render_sha256": "44c64ae4a63d0ed0fbc427ee2e4f0330d5074c14cdc589baa660dd7a22dbcdf9",
       "target": "skills/plan/references/legacy/context-restore.md",
       "disposition": "BUG_FIX",
       "overlays": [
@@ -1040,7 +1040,7 @@
       "source_path": "learn/SKILL.md.tmpl",
       "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
       "blob_sha": "90d08d2298cccd0d5090f194a2cd76a5361b4323",
-      "normalized_render_sha256": "0d1bbdf1bba2eaae206a350d47fb25ab50d49611262cb376861e83f78822f762",
+      "normalized_render_sha256": "b56cfcec0690c47124cf62e40aea16658933b61d44adbe821449f8c65a96a7c4",
       "target": "skills/plan/references/legacy/learn.md",
       "disposition": "BUG_FIX",
       "overlays": [
@@ -1113,7 +1113,7 @@
       "source_path": "retro/SKILL.md.tmpl",
       "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
       "blob_sha": "b0819c8a6b736baf489179ba587442cf9973b9d2",
-      "normalized_render_sha256": "c92e69da5c62e4bb5a426f4fb5623b41215e538315e2faebece8ba118cacaf71",
+      "normalized_render_sha256": "d2dd2fe80fbeb5573266700052e0ce5e781dcd31ed986cd9203880bc98c9d9c8",
       "target": "skills/plan/references/legacy/retro.md",
       "disposition": "BUG_FIX",
       "overlays": [
@@ -1240,7 +1240,7 @@
       "source_path": "setup-gbrain/SKILL.md.tmpl",
       "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
       "blob_sha": "f48581543b46ecf889f4f86fb7a0d9e75d0bd6ca",
-      "normalized_render_sha256": "244ebee93e8871d59c1b0eac040bed362783e48a9b134171d743750ce9a59b29",
+      "normalized_render_sha256": "ea0759f957601c05a6e131ee3d1d9e07c732b7852d8a7b10c1fdc259e6e12c3b",
       "target": "skills/plan/references/legacy/setup-gbrain.md",
       "disposition": "BUG_FIX",
       "overlays": [
@@ -1340,7 +1340,7 @@
       "source_path": "sync-gbrain/SKILL.md.tmpl",
       "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
       "blob_sha": "2ec065472e263a07f3818ed87ee9a6a2e13ca3ae",
-      "normalized_render_sha256": "175e7d0d2998bd4c8ddcd9a84228c41ba4a5cf3aca3a8bc09ddfc5a303c1df30",
+      "normalized_render_sha256": "973d3d126e97f2c720bc048e6a124e51c0195f9bc7a714ffc41fd57af37f4e73",
       "target": "skills/plan/references/legacy/sync-gbrain.md",
       "disposition": "BUG_FIX",
       "overlays": [
@@ -1416,7 +1416,7 @@
       "source_path": "design-consultation/SKILL.md.tmpl",
       "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
       "blob_sha": "64af56ecdbd132cb7c28344e8e4ecb2e5dacf811",
-      "normalized_render_sha256": "afa1f2b58d22d9f0f9064336ce7e9836430a298e1deb56f5330390f91df3f680",
+      "normalized_render_sha256": "d323457820291635bc4c46e4559ce6f4d194b940607b76208e95df0c86ffcb0b",
       "target": "skills/design/references/legacy/design-consultation.md",
       "disposition": "BUG_FIX",
       "overlays": [
@@ -1504,7 +1504,7 @@
       "source_path": "design-shotgun/SKILL.md.tmpl",
       "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
       "blob_sha": "230dbc2922f05bf272bf5168a958a12604fac1bc",
-      "normalized_render_sha256": "1db4cd23ee115ce841d2db898cc442141588635d43018393703aa28ce40d48f2",
+      "normalized_render_sha256": "e27c29760f1edffffee08f131b2c0ee76720eb447d3bb05eee4278467d785620",
       "target": "skills/design/references/legacy/design-shotgun.md",
       "disposition": "BUG_FIX",
       "overlays": [
@@ -1591,7 +1591,7 @@
       "source_path": "design-html/SKILL.md.tmpl",
       "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
       "blob_sha": "3cdec9a14d62d2e046ed924c972efc30a7d43aca",
-      "normalized_render_sha256": "cbb1b4357bedbb0fffe23c3e0ad31ee8c2a198a31443edb660e5c836e67e94e6",
+      "normalized_render_sha256": "40682d97ac83aa9178487348d5abf176334fd439e2d12f8e5cda1f8b20cd2c30",
       "target": "skills/design/references/legacy/design-html.md",
       "disposition": "BUG_FIX",
       "overlays": [
@@ -1687,7 +1687,7 @@
       "source_path": "plan-design-review/SKILL.md.tmpl",
       "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
       "blob_sha": "7178c991e41277410de500298cf81372543861af",
-      "normalized_render_sha256": "2f7a5d113c466d75ca4524e424c072044d92ae7ab93009f1fbe3ae5965e8aa34",
+      "normalized_render_sha256": "1ff3644728bee14a4a002b91bada44b1c95a20ee5779ed458dabca2485a19e78",
       "target": "skills/design/references/legacy/plan-design-review.md",
       "disposition": "BUG_FIX",
       "overlays": [
@@ -1820,7 +1820,7 @@
       "source_path": "design-review/SKILL.md.tmpl",
       "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
       "blob_sha": "bdcda48e29b489a1cc49faa333922412251d4b41",
-      "normalized_render_sha256": "33584047a11aa46a1b6a2bef5bf97a4d0b443bb6c9542685732e7d4dff795a2e",
+      "normalized_render_sha256": "fe15a4fae62fba41432ae18bbf4ef5620058b784b7bf9768304d0d1dd17bf45b",
       "target": "skills/design/references/legacy/design-review.md",
       "disposition": "BUG_FIX",
       "overlays": [
@@ -2022,7 +2022,7 @@
       "source_path": "diagram/SKILL.md.tmpl",
       "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
       "blob_sha": "9e19a52c6b7f727ce4faf5c1f9c14514ecb52f50",
-      "normalized_render_sha256": "21f18fa4957b79bf5941abfebd1b222dee3eb960520e0deac1c32d0b6fd62a38",
+      "normalized_render_sha256": "18b1db5eb50d85a6da26b60ac72a19c144e95bb4a2d92b2d23a87086c49c01b7",
       "target": "skills/design/references/legacy/diagram.md",
       "disposition": "BUG_FIX",
       "overlays": [
@@ -2095,7 +2095,7 @@
       "source_path": "make-pdf/SKILL.md.tmpl",
       "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
       "blob_sha": "9133a711d4f3d056a21f790e8ec3b98f13fbaa50",
-      "normalized_render_sha256": "c092bc644ff9b8929d9cbdfedb6f2761b40ce8e1fca53d13ad350ba91195104d",
+      "normalized_render_sha256": "ece1cfa64bb3cbb3979ce06890e09bbc2ccab4e1d49310c57dc28e70e1236ee9",
       "target": "skills/design/references/legacy/make-pdf.md",
       "disposition": "BUG_FIX",
       "overlays": [
@@ -2162,7 +2162,7 @@
       "source_path": "qa/SKILL.md.tmpl",
       "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
       "blob_sha": "11997f7b878282c34b6bfd3d4b7a8131f9ad4da8",
-      "normalized_render_sha256": "b1387290067842593297c8d64dc578a890a336ce5a8b60085e51b52c55ebaade",
+      "normalized_render_sha256": "e7cd5615adaf54413daa97838cb364810317dd7d661cec5cc4ed40eb48192e55",
       "target": "skills/qa/references/legacy/qa.md",
       "disposition": "BUG_FIX",
       "overlays": [
@@ -2288,7 +2288,7 @@
       "source_path": "qa-only/SKILL.md.tmpl",
       "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
       "blob_sha": "75c4123cc5c406ffdd36c71a094335c137135b1e",
-      "normalized_render_sha256": "e360ea826399287e00b030c9aa0bcda16e06ab004f5dcdb14db309bad0ccea25",
+      "normalized_render_sha256": "376eff42459f5b8755bd95934cce615db0fca16504c8e82f84b2704c63f62af3",
       "target": "skills/qa/references/legacy/qa-only.md",
       "disposition": "BUG_FIX",
       "overlays": [
@@ -2389,7 +2389,7 @@
       "source_path": "ios-qa/SKILL.md.tmpl",
       "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
       "blob_sha": "e93d2831a31df65ec8e4e8693919ef5bf148457f",
-      "normalized_render_sha256": "a9353a4d837240f85c0e13144e66575f9e267926090cfc0f344a08b5fb09b98c",
+      "normalized_render_sha256": "73ea0aabaa9e7c8fdd4ae279f519303a78682540b2340816f97e239718908e62",
       "target": "skills/qa/references/legacy/ios-qa.md",
       "disposition": "BUG_FIX",
       "overlays": [
@@ -2466,7 +2466,7 @@
       "source_path": "devex-review/SKILL.md.tmpl",
       "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
       "blob_sha": "081d4f35bbdec0c6b3da8ae71615ec4d41a84551",
-      "normalized_render_sha256": "9fbc11b3fe252c281581512d67f6915c72e34bb2fdc7bc795e3077ee0e48d34e",
+      "normalized_render_sha256": "4a907c759b6cf4202fbacaea504b1eb601a53dd35b206109d6c5105168ade7e1",
       "target": "skills/qa/references/legacy/devex-review.md",
       "disposition": "BUG_FIX",
       "overlays": [
@@ -2565,7 +2565,7 @@
       "source_path": "benchmark/SKILL.md.tmpl",
       "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
       "blob_sha": "038f16f5fba4ae4e9eae922e3276bba8ef88149e",
-      "normalized_render_sha256": "a4554b8b139ee95c9f25c2e747f9e2214b2f0db64401057529e5ec775be323cd",
+      "normalized_render_sha256": "05ac1b123a605201546a7e95899a5b55708ca7fbb7569c58b4d755c52b45a92d",
       "target": "skills/qa/references/legacy/benchmark.md",
       "disposition": "BUG_FIX",
       "overlays": [
@@ -2631,7 +2631,7 @@
       "source_path": "canary/SKILL.md.tmpl",
       "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
       "blob_sha": "d1eb2950aba2fa2b09d90f13143492c60d46793c",
-      "normalized_render_sha256": "329b61120f60893d023533cbc493389d1c7476819fb785422de0e7d34e0c2c0b",
+      "normalized_render_sha256": "89be5f218da2bd812303c87b8c177081727727e5e0d2dc74eb7a73299794d5ef",
       "target": "skills/qa/references/legacy/canary.md",
       "disposition": "BUG_FIX",
       "overlays": [
@@ -2710,7 +2710,7 @@
       "source_path": "browse/SKILL.md.tmpl",
       "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
       "blob_sha": "9a159e4c9820172c229e2174d4a62a8f9668ab93",
-      "normalized_render_sha256": "b7fd526a00444003cad654abb15c2d17606cc5295f38533754e95108038d3467",
+      "normalized_render_sha256": "1b532bd904b1fa1686113e8c96b70015ea6b2e6df7319a72c299de901fe5e81b",
       "target": "skills/qa/references/legacy/browse.md",
       "disposition": "BUG_FIX",
       "overlays": [
@@ -2798,7 +2798,7 @@
       "source_path": "open-gstack-browser/SKILL.md.tmpl",
       "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
       "blob_sha": "ef91a527890a3ac3622cc7dc84bad1ff7b64443b",
-      "normalized_render_sha256": "9e4a08db3e17badfc67703f7c5e66f80a7f05e0b96fad31fc48b8216964d7449",
+      "normalized_render_sha256": "df626d71b8cea4a02d2fb7aef3169563dd132bf17a9d6d84f287894cad84d2cf",
       "target": "skills/qa/references/legacy/open-gstack-browser.md",
       "disposition": "BUG_FIX",
       "overlays": [
@@ -2873,7 +2873,7 @@
       "source_path": "setup-browser-cookies/SKILL.md.tmpl",
       "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
       "blob_sha": "f812d9f56f27c32fb5f102083bbe418344c1a652",
-      "normalized_render_sha256": "8ab5dfb05136a637ce41067d9e50ade76c4a8b957587e4eab134eaa260b29ac3",
+      "normalized_render_sha256": "04c161a58c1a9010efe38095b383b0e1d445a2b678e5bf931a1281d45196940d",
       "target": "skills/qa/references/legacy/setup-browser-cookies.md",
       "disposition": "BUG_FIX",
       "overlays": [
@@ -2934,7 +2934,7 @@
       "source_path": "pair-agent/SKILL.md.tmpl",
       "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
       "blob_sha": "75ed42d590f99c46cd0883c37bb1f2f9f499211c",
-      "normalized_render_sha256": "6882bc549c689ff50fb06d5e72a597939aa651926c50067330d1e6fd86cd6b58",
+      "normalized_render_sha256": "8557ca390d0b6548f956d2c0e9316f1cf137689d4dc17d40a4525d19f22bc457",
       "target": "skills/qa/references/legacy/pair-agent.md",
       "disposition": "BUG_FIX",
       "overlays": [
@@ -3017,7 +3017,7 @@
       "source_path": "scrape/SKILL.md.tmpl",
       "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
       "blob_sha": "4cb4f17c074edcdce0bc8d133f19a6a739964851",
-      "normalized_render_sha256": "03ef708a4c9a1f3de961c48767617502c564690faa7240b3ca39b20496a17f98",
+      "normalized_render_sha256": "82b7214021c997000822b2b4adcae19443490198556a7e6af54d8937ae504943",
       "target": "skills/qa/references/legacy/scrape.md",
       "disposition": "BUG_FIX",
       "overlays": [
@@ -3094,7 +3094,7 @@
       "source_path": "skillify/SKILL.md.tmpl",
       "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
       "blob_sha": "21fb2f503e3d40683fa782b21abf05a8f0fef69b",
-      "normalized_render_sha256": "b0743c957157e19bd90b457fd3ac9d6924c3aedce969c10af8d7973c2bcd6c9f",
+      "normalized_render_sha256": "8743671a165c951e852d1f37418aa6c0bd7eeb4f32866dc25f55f7d8eb26f1d5",
       "target": "skills/qa/references/legacy/skillify.md",
       "disposition": "BUG_FIX",
       "overlays": [
@@ -3177,7 +3177,7 @@
       "source_path": "benchmark-models/SKILL.md.tmpl",
       "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
       "blob_sha": "034cda182406dc04a82c4336ac3ebc36b5fc41b1",
-      "normalized_render_sha256": "2ef0679d45f21bacc09cd774ff96bb3b82853a8e89d8606847c4f9416a47a48b",
+      "normalized_render_sha256": "3ea3c6cd3542350d4130ee0d5e170c905d0c5c3da096b1fc0e805e095af9321c",
       "target": "skills/qa/references/legacy/benchmark-models.md",
       "disposition": "BUG_FIX",
       "overlays": [
@@ -3237,7 +3237,7 @@
       "source_path": "investigate/SKILL.md.tmpl",
       "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
       "blob_sha": "67e254d743ffb9060f48e3f6d4b715c077ee688d",
-      "normalized_render_sha256": "91f19c8d736a9a6077941f63f52853634325059e5ac4d8808c4ba6dbceca1a30",
+      "normalized_render_sha256": "ee817d27e0b303b1e173ab2c572c70f55ef2211225d366a166d2e26cbbe3b2ab",
       "target": "skills/debug/references/legacy/investigate.md",
       "disposition": "BUG_FIX",
       "overlays": [
@@ -3433,7 +3433,7 @@
       "source_path": "freeze/SKILL.md.tmpl",
       "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
       "blob_sha": "c0b31aa7f9f216fc5a351d91f4bcff68c828d090",
-      "normalized_render_sha256": "433bb7c1909852c83978ae282c582590c5136abe56020e7d0be39749822c345b",
+      "normalized_render_sha256": "036fe2c7d5c154982ba3509e9b9ab1f5867f86c1d71beb569802d7f7be46ed7c",
       "target": "skills/debug/references/legacy/freeze.md",
       "disposition": "BUG_FIX",
       "overlays": [
@@ -3477,7 +3477,7 @@
       "source_path": "guard/SKILL.md.tmpl",
       "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
       "blob_sha": "3d34ee0c181ec7b263bf6092ba8f384619c5efb6",
-      "normalized_render_sha256": "ff8170babcc9ad20f6de292db838d2c4545f0ed98dddd184ab5e7c52c073dc7e",
+      "normalized_render_sha256": "36072a06a2a2ab6c1beec2a888417fb96eb1a50f284cb26ee3796b7c69857be8",
       "target": "skills/debug/references/legacy/guard.md",
       "disposition": "BUG_FIX",
       "overlays": [
@@ -3520,7 +3520,7 @@
       "source_path": "unfreeze/SKILL.md.tmpl",
       "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
       "blob_sha": "88e413fe5a49a45d46d8867b2d80ace30b3b45aa",
-      "normalized_render_sha256": "51d6183901e866697382b7e900e2154e8bfb6a9ebf4f3e1bb3ad29925fad0e20",
+      "normalized_render_sha256": "19cd17084af59cb912f9507bf8ffdc81e38aa1fbef14605a838efbc6521e9534",
       "target": "skills/debug/references/legacy/unfreeze.md",
       "disposition": "BUG_FIX",
       "overlays": [
@@ -3562,7 +3562,7 @@
       "source_path": "review/SKILL.md.tmpl",
       "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
       "blob_sha": "ba1ea88068de4b09cf717eb4ae42aa247d198314",
-      "normalized_render_sha256": "9d6398fe0d2900fcce8ae1eb0b390e21f05c94d6ae3a4e21c911025cdc1fd963",
+      "normalized_render_sha256": "0afa76278ec061e56a36048eb9034a2cda6e56ea70bba321a0414bc279ddf84b",
       "target": "skills/review/references/legacy/review.md",
       "disposition": "BUG_FIX",
       "overlays": [
@@ -3667,7 +3667,7 @@
       "source_path": "cso/SKILL.md.tmpl",
       "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
       "blob_sha": "413fb099597b55dadca116e45a202aa693a94b74",
-      "normalized_render_sha256": "2cecaf39e950a0ec848f85c11f9678b6a7644c0251c07be42cd52d4b2e6b61a6",
+      "normalized_render_sha256": "d79cf702cef33e878da8569c63936e3bdf811b194d8abbce925b6bb759f05cf7",
       "target": "skills/review/references/legacy/cso.md",
       "disposition": "BUG_FIX",
       "overlays": [
@@ -3769,7 +3769,7 @@
       "source_path": "health/SKILL.md.tmpl",
       "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
       "blob_sha": "f92eb7347ec4f77dd8dbf464d63fcdf6a3459908",
-      "normalized_render_sha256": "ff664221e7de57e66c1b45d719982d90f38e0288914b34731ba4dd73541347e8",
+      "normalized_render_sha256": "514ff165b393a25707c9ed336869ac0b50c63a00d90a21b1656276e1b97842d9",
       "target": "skills/review/references/legacy/health.md",
       "disposition": "BUG_FIX",
       "overlays": [
@@ -3842,7 +3842,7 @@
       "source_path": "codex/SKILL.md.tmpl",
       "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
       "blob_sha": "333de7d8d590cc78184b0e2371171f6121408f73",
-      "normalized_render_sha256": "0df6ff685d230f87763b4c43f957e20854fe1319d78247d683e5250e2accb188",
+      "normalized_render_sha256": "94ebbe955a1063f88712c51723023765519eab8986b029bf1222d0ec19b79e12",
       "target": "skills/review/references/legacy/codex.md",
       "disposition": "BUG_FIX",
       "overlays": [
@@ -4001,7 +4001,7 @@
       "source_path": "ship/SKILL.md.tmpl",
       "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
       "blob_sha": "068ac4fe54bcb46572295d48263b11bd38fcde18",
-      "normalized_render_sha256": "ab7a7219653b0fc5cdad0bb2959394798bc50ae4db4dc24b76c0454dd1b1397a",
+      "normalized_render_sha256": "ca55c56483c524c732cf4cd1a7b7ef36f379666577549ef989823b98bce8c5b5",
       "target": "skills/ship/references/legacy/ship.md",
       "disposition": "BUG_FIX",
       "overlays": [
@@ -4136,7 +4136,7 @@
       "source_path": "land-and-deploy/SKILL.md.tmpl",
       "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
       "blob_sha": "98976ad020d541d251cc7e34802a13458ddc88e2",
-      "normalized_render_sha256": "3fab0678a9a7a76664330c74db2bd25b56c335ac72ce4e691c2f2564a7ede819",
+      "normalized_render_sha256": "6920f3d97ce474b8f20c8b3e38ca9d3c03973e47af33103a60bab7c02eb867bd",
       "target": "skills/ship/references/legacy/land-and-deploy.md",
       "disposition": "BUG_FIX",
       "overlays": [
@@ -4244,7 +4244,7 @@
       "source_path": "landing-report/SKILL.md.tmpl",
       "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
       "blob_sha": "32a8cc1ab036b1ff8692f0400b68d8b56224a251",
-      "normalized_render_sha256": "4f9512bafcfd995c4c35cdff869ed60f8a9a9ef12f20bc18bf7b898cbd2faa53",
+      "normalized_render_sha256": "ae5050b0558b5324f58ee9181dc83ac0189b63da70d94f86792c08e112765fe9",
       "target": "skills/ship/references/legacy/landing-report.md",
       "disposition": "BUG_FIX",
       "overlays": [
@@ -4318,7 +4318,7 @@
       "source_path": "document-release/SKILL.md.tmpl",
       "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
       "blob_sha": "7621cb31290217b5c7cc8fb000e910b3dd38128f",
-      "normalized_render_sha256": "e5aa85ac93b36b638d075d152f9d7108c0108727056f61331b25fe33de569a59",
+      "normalized_render_sha256": "21de7096aa788e3c4206587761f3122016f4cfc3080ec07f07cd7698075307a5",
       "target": "skills/ship/references/legacy/document-release.md",
       "disposition": "BUG_FIX",
       "overlays": [
@@ -4475,7 +4475,7 @@
       "source_path": "document-generate/SKILL.md.tmpl",
       "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
       "blob_sha": "d3ef0cbc3786c4010b3c692fb94246f56a7e1d7b",
-      "normalized_render_sha256": "71726ef3082b6c00a5cad19d28da4d830f8e9b261d213a7938c4e1ce3b8c54bb",
+      "normalized_render_sha256": "d91adb16f1749c24bc7a05aa6cff3ff00bb0db005872751f417e66de2057e620",
       "target": "skills/ship/references/legacy/document-generate.md",
       "disposition": "BUG_FIX",
       "overlays": [
@@ -4677,7 +4677,7 @@
       "source_path": "ios-sync/SKILL.md.tmpl",
       "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
       "blob_sha": "156a33c4c35d3bad804e44c93ae4c931878489f3",
-      "normalized_render_sha256": "c51e8865876efae833e92d54b37780afd4fa6240c13231dfb7d4635948fbc73f",
+      "normalized_render_sha256": "88f9f20aa406c13098ebd2709afc6487bb42c5466ac9f757bf4d9baff7f028d0",
       "target": "skills/ship/references/legacy/ios-sync.md",
       "disposition": "BUG_FIX",
       "overlays": [
@@ -5759,7 +5759,7 @@
       "owner_tree": "design",
       "consumer_tree": "plan",
       "target": "skills/plan/references/legacy/plan-design-review.md",
-      "sha256": "0c9930db5c50e873318cbbf00b9147edff82a210fdbdf2aacb2a8edfdf1f6463",
+      "sha256": "5ff3595a7a6e9136d68678e2810001033beb0b92c3f139b1c749e73398ed4b9a",
       "disposition": "SHARED_MODULE"
     },
     {
@@ -5767,7 +5767,7 @@
       "owner_tree": "debug",
       "consumer_tree": "qa",
       "target": "skills/qa/references/legacy/investigate.md",
-      "sha256": "abc5ef0411163a0959605f259e54623033f0936942a347e74ed82f13af001a3c",
+      "sha256": "ebd663fead64cc7d92969742d06bbb18be6f21be7010bba82fc82a27f84efc5e",
       "disposition": "SHARED_MODULE"
     },
     {
@@ -5775,7 +5775,7 @@
       "owner_tree": "qa",
       "consumer_tree": "ship",
       "target": "skills/ship/references/legacy/canary.md",
-      "sha256": "21252c073bfa2c90f5ad6883feb8ee63d893febbd981a842ec5f7611b8807f2e",
+      "sha256": "9fcf4fdea7d52113c8f5b5cc81c1fb36df591cf9e07bcc38c4ee106b15245997",
       "disposition": "SHARED_MODULE"
     },
     {
@@ -5783,7 +5783,7 @@
       "owner_tree": "plan",
       "consumer_tree": "ship",
       "target": "skills/ship/references/legacy/context-restore.md",
-      "sha256": "8658c29bfbe2097aa9e3cc4e6b04fd0c15f77fd3c256c238415dffa93e120982",
+      "sha256": "1b1bd416815b759ea2f60565f0959c129d62e88991118680aab45669e54da82f",
       "disposition": "SHARED_MODULE"
     }
   ],
@@ -6494,6 +6494,7 @@
   "runtime_helpers": [
     {
       "name": "browse",
+      "delivery": "repository-payload",
       "source_path": "browse/dist/browse",
       "platform_source_paths": {
         "posix": "browse/dist/browse",
@@ -6551,7 +6552,65 @@
       "stable_path": "${GSTACK_HOME:-$HOME/.gstack}/bin/browse"
     },
     {
+      "name": "bun",
+      "delivery": "managed-runtime-artifact",
+      "component": "core",
+      "build_step": "managed-bun",
+      "source_path": ".gstack-runtime-tools/bun",
+      "consumer_modules": [
+        "autoplan",
+        "benchmark",
+        "benchmark-models",
+        "browse",
+        "canary",
+        "codex",
+        "context-restore",
+        "context-save",
+        "cso",
+        "design-consultation",
+        "design-html",
+        "design-review",
+        "design-shotgun",
+        "devex-review",
+        "diagram",
+        "document-generate",
+        "document-release",
+        "freeze",
+        "guard",
+        "health",
+        "investigate",
+        "ios-qa",
+        "ios-sync",
+        "land-and-deploy",
+        "landing-report",
+        "learn",
+        "make-pdf",
+        "office-hours",
+        "open-gstack-browser",
+        "pair-agent",
+        "plan-ceo-review",
+        "plan-design-review",
+        "plan-devex-review",
+        "plan-eng-review",
+        "plan-tune",
+        "qa",
+        "qa-only",
+        "retro",
+        "review",
+        "scrape",
+        "setup-browser-cookies",
+        "setup-gbrain",
+        "ship",
+        "skillify",
+        "spec",
+        "sync-gbrain",
+        "unfreeze"
+      ],
+      "stable_path": "${GSTACK_HOME:-$HOME/.gstack}/bin/bun"
+    },
+    {
       "name": "gstack",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack",
       "consumer_modules": [
         "diagram",
@@ -6564,6 +6623,7 @@
     },
     {
       "name": "gstack-artifacts-init",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-artifacts-init",
       "consumer_modules": [
         "setup-gbrain"
@@ -6572,6 +6632,7 @@
     },
     {
       "name": "gstack-brain-cache",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-brain-cache",
       "consumer_modules": [
         "office-hours",
@@ -6584,6 +6645,7 @@
     },
     {
       "name": "gstack-codex-probe",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-codex-probe",
       "consumer_modules": [
         "autoplan",
@@ -6593,6 +6655,7 @@
     },
     {
       "name": "gstack-config",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-config",
       "consumer_modules": [
         "autoplan",
@@ -6607,6 +6670,7 @@
     },
     {
       "name": "gstack-decision-log",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-decision-log",
       "consumer_modules": [
         "ship",
@@ -6616,6 +6680,7 @@
     },
     {
       "name": "gstack-design",
+      "delivery": "repository-payload",
       "source_path": "design/dist/design",
       "platform_source_paths": {
         "posix": "design/dist/design",
@@ -6674,6 +6739,7 @@
     },
     {
       "name": "gstack-developer-profile",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-developer-profile",
       "consumer_modules": [
         "office-hours",
@@ -6683,6 +6749,7 @@
     },
     {
       "name": "gstack-diff-scope",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-diff-scope",
       "consumer_modules": [
         "land-and-deploy",
@@ -6692,6 +6759,7 @@
     },
     {
       "name": "gstack-distill-apply",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-distill-apply",
       "consumer_modules": [
         "plan-tune"
@@ -6700,6 +6768,7 @@
     },
     {
       "name": "gstack-distill-free-text",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-distill-free-text",
       "consumer_modules": [
         "plan-tune"
@@ -6708,6 +6777,7 @@
     },
     {
       "name": "gstack-gbrain-detect",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-gbrain-detect",
       "consumer_modules": [
         "setup-gbrain",
@@ -6717,6 +6787,7 @@
     },
     {
       "name": "gstack-gbrain-install",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-gbrain-install",
       "consumer_modules": [
         "setup-gbrain"
@@ -6725,6 +6796,7 @@
     },
     {
       "name": "gstack-gbrain-lib.sh",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-gbrain-lib.sh",
       "consumer_modules": [
         "setup-gbrain"
@@ -6733,6 +6805,7 @@
     },
     {
       "name": "gstack-gbrain-mcp-verify",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-gbrain-mcp-verify",
       "consumer_modules": [
         "setup-gbrain"
@@ -6741,6 +6814,7 @@
     },
     {
       "name": "gstack-gbrain-repo-policy",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-gbrain-repo-policy",
       "consumer_modules": [
         "setup-gbrain"
@@ -6749,6 +6823,7 @@
     },
     {
       "name": "gstack-gbrain-source-wireup",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-gbrain-source-wireup",
       "consumer_modules": [
         "setup-gbrain"
@@ -6757,6 +6832,7 @@
     },
     {
       "name": "gstack-gbrain-supabase-provision",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-gbrain-supabase-provision",
       "consumer_modules": [
         "setup-gbrain"
@@ -6765,6 +6841,7 @@
     },
     {
       "name": "gstack-gbrain-supabase-verify",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-gbrain-supabase-verify",
       "consumer_modules": [
         "setup-gbrain"
@@ -6773,14 +6850,17 @@
     },
     {
       "name": "gstack-gbrain-sync",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-gbrain-sync.ts",
       "consumer_modules": [
-        "setup-gbrain"
+        "setup-gbrain",
+        "sync-gbrain"
       ],
       "stable_path": "${GSTACK_HOME:-$HOME/.gstack}/bin/gstack-gbrain-sync"
     },
     {
       "name": "gstack-gbrain-sync.ts",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-gbrain-sync.ts",
       "consumer_modules": [
         "sync-gbrain"
@@ -6789,6 +6869,7 @@
     },
     {
       "name": "gstack-global-discover",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-global-discover.ts",
       "consumer_modules": [
         "retro"
@@ -6797,6 +6878,7 @@
     },
     {
       "name": "gstack-learnings-log",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-learnings-log",
       "consumer_modules": [
         "cso",
@@ -6817,6 +6899,7 @@
     },
     {
       "name": "gstack-learnings-search",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-learnings-search",
       "consumer_modules": [
         "cso",
@@ -6835,6 +6918,7 @@
     },
     {
       "name": "gstack-memory-ingest",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-memory-ingest.ts",
       "consumer_modules": [
         "setup-gbrain"
@@ -6843,6 +6927,7 @@
     },
     {
       "name": "gstack-model-benchmark",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-model-benchmark",
       "consumer_modules": [
         "benchmark-models"
@@ -6851,6 +6936,7 @@
     },
     {
       "name": "gstack-next-version",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-next-version",
       "consumer_modules": [
         "land-and-deploy",
@@ -6862,6 +6948,7 @@
     },
     {
       "name": "gstack-paths",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-paths",
       "consumer_modules": [
         "codex",
@@ -6879,6 +6966,7 @@
     },
     {
       "name": "gstack-pr-title-rewrite.sh",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-pr-title-rewrite.sh",
       "consumer_modules": [
         "ship"
@@ -6887,6 +6975,7 @@
     },
     {
       "name": "gstack-question-preference",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-question-preference",
       "consumer_modules": [
         "plan-tune"
@@ -6895,6 +6984,7 @@
     },
     {
       "name": "gstack-redact",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-redact",
       "consumer_modules": [
         "document-generate",
@@ -6905,6 +6995,7 @@
     },
     {
       "name": "gstack-redact-audit-log",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-redact-audit-log",
       "consumer_modules": [
         "spec"
@@ -6913,6 +7004,7 @@
     },
     {
       "name": "gstack-review-log",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-review-log",
       "consumer_modules": [
         "autoplan",
@@ -6924,6 +7016,7 @@
     },
     {
       "name": "gstack-review-read",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-review-read",
       "consumer_modules": [
         "devex-review",
@@ -6935,6 +7028,7 @@
     },
     {
       "name": "gstack-slug",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-slug",
       "consumer_modules": [
         "autoplan",
@@ -6966,6 +7060,7 @@
     },
     {
       "name": "gstack-taste-update",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-taste-update",
       "consumer_modules": [
         "design-consultation",
@@ -6975,6 +7070,7 @@
     },
     {
       "name": "gstack-version-bump",
+      "delivery": "repository-payload",
       "source_path": "bin/gstack-version-bump",
       "consumer_modules": [
         "ship"
@@ -6983,6 +7079,7 @@
     },
     {
       "name": "make-pdf",
+      "delivery": "repository-payload",
       "source_path": "make-pdf/dist/pdf",
       "platform_source_paths": {
         "posix": "make-pdf/dist/pdf",
@@ -7041,6 +7138,7 @@
     },
     {
       "name": "remote-slug",
+      "delivery": "repository-payload",
       "source_path": "browse/bin/remote-slug",
       "consumer_modules": [
         "autoplan",

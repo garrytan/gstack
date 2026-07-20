@@ -40,6 +40,12 @@ export const AGENT_MATRIX: readonly AgentMatrixEntry[] = [
     globalPath: ['.agents', 'skills'],
   },
   {
+    agent: 'kimi-code-cli',
+    label: 'Kimi Code CLI',
+    projectPath: ['.agents', 'skills'],
+    globalPath: ['.agents', 'skills'],
+  },
+  {
     agent: 'cursor',
     label: 'Cursor',
     projectPath: ['.agents', 'skills'],

@@ -95,8 +95,8 @@ host-placement behavior of `./setup` and ten-host generated trees is historical
 compatibility/development machinery, not the 2.0 installation architecture;
 the current `./setup` installs only the optional runtime described below.
 
-The standards installer matrix passed 470/470 checks with CLI 1.5.19. It
-verified project/global copies for Claude Code, Codex, Cursor, Pi, OpenClaw, and
+The standards installer matrix passed 510/510 checks with CLI 1.5.19. It
+verified project/global copies for Claude Code, Codex, Kimi Code CLI, Cursor, Pi, OpenClaw, and
 GitHub Copilot plus selected-skill and opt-in compatibility-alias cases,
 removal, spaces, source symlink, copy mode, and canonical hashes across 16
 installs and two removals. The committed artifact is
@@ -233,8 +233,8 @@ means the replacement still lacks its required release evidence.
 
 | # | Legacy defect | GStack 2 disposition / replacement | Replacement evidence |
 |---:|---|---|---|
-| 1 | Ten registered hosts; setup fully installs five | **Contained:** placement is delegated to the standard installer. | 470/470 checks across six hosts, 16 installs, two removals, project/global scopes, and selections. Passing live v3/host UI launch remains separate. |
-| 2 | Kiro rewrites Codex output | **Contained:** one canonical standards tree; no Kiro rewrite in the 2.0 path. | Six-host matrix installs byte-matching canonical copies without host rewrites. |
+| 1 | Ten registered hosts; setup fully installs five | **Contained:** placement is delegated to the standard installer. | 510/510 checks across seven hosts, 18 installs, two removals, project/global scopes, and selections. Passing live v3/host UI launch remains separate. |
+| 2 | Kiro rewrites Codex output | **Contained:** one canonical standards tree; no Kiro rewrite in the 2.0 path. | Seven-host matrix installs byte-matching canonical copies without host rewrites. |
 | 3 | Gitignored external trees defeat freshness CI | **Implemented:** canonical `skills/`, `compat/`, and parity fixtures are committed. | 4,681 parity checks plus installed-file hash equality. |
 | 4 | External `--dry-run` mutates files | **Contained:** external host generation/dry-run is not used for 2.0 distribution. | Canonical regeneration/parity check exists; a non-mutating canonical check mode is not yet present. |
 | 5 | Single-host generation failures only warn | **Contained:** no per-host generation in the canonical path; canonical generation throws on failure. | Generator/parity suite and final build rerun are green. |
@@ -248,9 +248,9 @@ means the replacement still lacks its required release evidence.
 | 13 | Production model benchmark imports test helpers | **Implemented:** the runner, pricing, providers, and optional judge live under `lib/model-benchmark/`; the production CLI imports only production modules. | `benchmark-production-boundary.test.ts` rejects imports from `test/` across `bin/` and `lib/`; focused runner and CLI tests exercise the relocated implementation. |
 | 14 | Default tests omit `design/test` | **Implemented:** package default and free-test roots include `design/test`. | Design is green at 101/0/381 and is included in the uninterrupted 384-file broad pass. |
 | 15 | Default tests omit `ios-qa/daemon/test` | **Implemented:** package default and free-test roots include the daemon tests. | Focused daemon run: 95 pass / 0 fail / 229 assertions; daemon tests are also included in the uninterrupted broad pass. |
-| 16 | Host setup contradicts config-driven claim | **Contained:** host setup is no longer a 2.0 responsibility. | Standard installer CLI 1.5.19 passed all six configured host targets. |
+| 16 | Host setup contradicts config-driven claim | **Contained:** host setup is no longer a 2.0 responsibility. | Standard installer CLI 1.5.19 passed all seven configured host targets. |
 | 17 | Host-generated judgment copies drift | **Implemented:** one canonical module corpus with source-blob/render hashes. | 4,681 parity checks and installed-copy hashes pass. |
-| 18 | Updating one host leaves another stale | **Contained:** one tree is installed by each host's standard installer. | Project/global copies across six hosts matched canonical hashes; remote update flow remains installer-owned. |
+| 18 | Updating one host leaves another stale | **Contained:** one tree is installed by each host's standard installer. | Project/global copies across seven hosts matched canonical hashes; remote update flow remains installer-owned. |
 | 19 | State identity crosses worktrees | **Implemented:** repo plus stable worktree identity selects state. | Linked-worktree core test passes. |
 | 20 | Partial ship failures are not reliably idempotent | **Implemented at runtime primitive:** claimed effects become uncertain and are not automatically repeated. | Crash/resume and completed-effect tests pass. End-to-end ship resume remains pending. |
 | 21 | Parser failures become empty success | **Implemented in iOS device discovery:** parse/tool failures are typed errors. | `tunnel-bootstrap.test.ts` malformed-JSON regression passes in the focused daemon suite. |
