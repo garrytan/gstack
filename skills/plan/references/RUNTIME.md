@@ -21,4 +21,6 @@ Some retained helpers are shell scripts. `gstack doctor` verifies Bash and, on W
 
 The package/runtime compatibility tuple is `schemaVersion=1`, `runtimeVersion=2.0.0`, and `skillApi=2.0`; the machine-readable copy is `references/support/runtime-contract.json`. An incompatible active runtime is unavailable, not permission to upgrade it.
 
+Every optional-runtime tool result must satisfy `references/support/execution-result-contract.json` before it is presented as success. Success requires non-empty evidence. Empty or malformed output and explicit degraded, unsupported, or failed statuses remain non-success with stable codes; human renderings must preserve that status and code.
+
 The developer-only fallback is `node references/support/runtime-bootstrap.mjs install --source <reviewed-checkout> --capability <name> --yes`; show its trust warning and use it only when the user explicitly selects a checkout they reviewed. If the packaged bootstrap is unavailable, stop capability setup instead of guessing a checkout-relative command. Deferring installation records no consent and must not block pure judgment.

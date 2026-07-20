@@ -95,4 +95,23 @@ describe('gstack state external-effect CLI', () => {
       { cwd, env, stdout: out, stderr: err },
     )).toBe(2);
   });
+
+  test('an empty exit-zero tool result is uncertain, never successful', async () => {
+    const { cwd, env } = await fixture();
+    const out = sink();
+    const err = sink();
+    await main(['state', 'begin', 'ship', '--run-id', 'run_empty'], { cwd, env, stdout: out, stderr: err });
+    const silent = path.join(cwd, 'silent.sh');
+    await fs.writeFile(silent, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+    const code = await main([
+      'state', 'effect', 'run_empty', 'silent.tool', '--', silent,
+    ], { cwd, env, stdout: out, stderr: err });
+    expect(code).toBe(1);
+    expect(err.value()).toContain('may have occurred');
+    expect(out.value()).not.toContain('"status":"success"');
+    expect(await main([
+      'state', 'effect', 'run_empty', 'silent.tool', '--', silent,
+    ], { cwd, env, stdout: out, stderr: err })).toBe(1);
+    expect(err.value()).toContain('was already claimed');
+  });
 });

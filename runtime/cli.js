@@ -39,6 +39,11 @@ import { installManagedRuntime, uninstallManagedRuntime } from "./install.js";
 import { assertManagedHome, withRuntimeLifecycleLock } from "./managed-home.js";
 import { errorWithCode as cliError } from "./errors.js";
 import { RUNTIME_VERSION } from "./index.js";
+import {
+  EXECUTION_RESULT_ERROR_CODES,
+  executionResult,
+  renderExecutionResult,
+} from "./execution-result.js";
 
 export async function main(argv = process.argv.slice(2), options = {}) {
   const env = options.env ?? process.env;
@@ -313,7 +318,7 @@ async function stateCommand({ args, home, cwd, env, stdout, stderr }) {
         "EXTERNAL_EFFECT_UNCERTAIN",
       );
     }
-    write(stdout, `${JSON.stringify({ status: result.status, effectKey, idempotencyKey: result.idempotencyKey ?? null, result: result.result })}\n`);
+    write(stdout, renderExecutionResult(result.result, { json: true }));
     return 0;
   }
   if (action === "reconcile-not-applied") {
@@ -345,6 +350,7 @@ async function stateCommand({ args, home, cwd, env, stdout, stderr }) {
 }
 
 async function runExternalCommand(command, { cwd, env, stdout, stderr }) {
+  const maxCapturedBytes = 1024 * 1024;
   const [executable, ...args] = command;
   return new Promise((resolve, reject) => {
     const child = spawn(executable, args, {
@@ -353,12 +359,49 @@ async function runExternalCommand(command, { cwd, env, stdout, stderr }) {
       shell: false,
       stdio: ["inherit", "pipe", "pipe"],
     });
-    child.stdout?.on("data", (chunk) => write(stdout, chunk));
-    child.stderr?.on("data", (chunk) => write(stderr, chunk));
+    const captured = { stdout: "", stderr: "", bytes: 0, truncated: false };
+    const capture = (key, chunk) => {
+      const remaining = maxCapturedBytes - captured.bytes;
+      if (remaining <= 0) { captured.truncated = true; return; }
+      const buffer = Buffer.from(chunk);
+      captured[key] += buffer.subarray(0, remaining).toString();
+      captured.bytes += Math.min(buffer.length, remaining);
+      if (buffer.length > remaining) captured.truncated = true;
+    };
+    child.stdout?.on("data", (chunk) => capture("stdout", chunk));
+    child.stderr?.on("data", (chunk) => capture("stderr", chunk));
     child.once("error", reject);
     child.once("close", (code, signal) => {
       if (code === 0) {
-        resolve({ exitCode: 0, executable: path.basename(executable) });
+        if (captured.truncated) {
+          reject(cliError(
+            `External command ${path.basename(executable)} exceeded the ${maxCapturedBytes}-byte result limit; verify its side effect before reconciling it as applied.`,
+            EXECUTION_RESULT_ERROR_CODES.DEGRADED,
+          ));
+          return;
+        }
+        const evidence = [];
+        if (captured.stdout.trim()) evidence.push("non-empty stdout");
+        if (captured.stderr.trim()) evidence.push("non-empty stderr");
+        const name = path.basename(executable);
+        if (evidence.length === 0) {
+          reject(cliError(
+            `External command ${name} exited 0 but produced no output; verify its side effect before reconciling it as applied.`,
+            EXECUTION_RESULT_ERROR_CODES.EMPTY,
+          ));
+          return;
+        }
+        resolve(executionResult({
+          status: "success",
+          summary: `External command ${name} completed`,
+          evidence: [`exit code 0`, ...evidence],
+          data: {
+            exitCode: 0,
+            executable: name,
+            stdout: captured.stdout,
+            stderr: captured.stderr,
+          },
+        }));
         return;
       }
       const error = cliError(

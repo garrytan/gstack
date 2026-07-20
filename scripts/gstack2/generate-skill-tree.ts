@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { BUG_FIX_OVERLAYS, overlaysForSource } from './bug-fix-overlays';
 import { renderBrowserProviderContract } from './browser-provider-contract';
+import { EXECUTION_RESULT_SCHEMA } from '../../runtime/execution-result.js';
 import { contractFor, DISPATCHERS, SOURCE_ASSIGNMENTS } from './assignments';
 import { SCENARIOS } from './scenarios';
 import { runDeterministicSemanticParity } from './semantic-parity';
@@ -512,6 +513,8 @@ Some retained helpers are shell scripts. \`gstack doctor\` verifies Bash and, on
 
 The package/runtime compatibility tuple is \`schemaVersion=1\`, \`runtimeVersion=2.0.0\`, and \`skillApi=2.0\`; the machine-readable copy is \`references/support/runtime-contract.json\`. An incompatible active runtime is unavailable, not permission to upgrade it.
 
+Every optional-runtime tool result must satisfy \`references/support/execution-result-contract.json\` before it is presented as success. Success requires non-empty evidence. Empty or malformed output and explicit degraded, unsupported, or failed statuses remain non-success with stable codes; human renderings must preserve that status and code.
+
 The developer-only fallback is \`node references/support/runtime-bootstrap.mjs install --source <reviewed-checkout> --capability <name> --yes\`; show its trust warning and use it only when the user explicitly selects a checkout they reviewed. If the packaged bootstrap is unavailable, stop capability setup instead of guessing a checkout-relative command. Deferring installation records no consent and must not block pure judgment.
 `;
 }
@@ -572,6 +575,7 @@ function writeSharedContracts(): void {
     write(path.join(ROOT, 'skills', tree, 'references', 'support', 'runtime-bootstrap.mjs'), bootstrap);
     write(path.join(ROOT, 'skills', tree, 'references', 'support', 'browser-provider-smoke.mjs'), browserSmoke);
     writeJson(path.join(ROOT, 'skills', tree, 'references', 'support', 'runtime-contract.json'), RUNTIME_SKILL_CONTRACT);
+    writeJson(path.join(ROOT, 'skills', tree, 'references', 'support', 'execution-result-contract.json'), EXECUTION_RESULT_SCHEMA);
   }
   write(path.join(ROOT, 'skills', 'qa', 'references', 'SYSTEM-FUNCTIONAL.md'), systemFunctionalContract());
   write(path.join(ROOT, 'skills', 'ship', 'references', 'EXTERNAL-EFFECTS.md'), externalEffectsContract());
