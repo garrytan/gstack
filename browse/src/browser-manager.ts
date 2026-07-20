@@ -1551,7 +1551,6 @@ export class BrowserManager {
     let newContext: BrowserContext;
     try {
       const fs = require('fs');
-      const path = require('path');
       const extensionPath = this.findExtensionPath();
       const { STEALTH_LAUNCH_ARGS, buildGStackLaunchArgs } = await import('./stealth');
       // Same blink-level stealth flags as launch()/launchHeaded(). Without
@@ -1568,8 +1567,17 @@ export class BrowserManager {
         console.log('[browse] Handoff: extension not found — headed mode without side panel');
       }
 
-      const userDataDir = path.join(process.env.HOME || '/tmp', '.gstack', 'chromium-profile');
+      const userDataDir = resolveChromiumProfile();
       fs.mkdirSync(userDataDir, { recursive: true });
+
+      // Pre-launch cleanup of stale SingletonLock/Socket/Cookie, same as
+      // launchHeaded(). Without this, a prior hard-killed/crashed headed
+      // session leaves lockfiles pointing at a dead PID; Chromium's
+      // ProcessSingleton then silently hands off startup to the (dead or
+      // zombie) old process instead of launching cleanly, and the new
+      // process exits shortly after — which reads as a clean disconnect
+      // and takes the whole daemon down with it.
+      cleanSingletonLocks(userDataDir);
 
       // T1: same automation-tell-stripping defaults as launchHeaded().
       // The handoff path (headless → headed re-launch) takes the same
