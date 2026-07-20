@@ -53,8 +53,6 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22.23.1
-      - uses: sigstore/cosign-installer@d7543c93d881b35a8faa02e8e3605f69b7a1ce62 # v3.10.0
-
       - name: Install frozen dependencies
         run: bun install --frozen-lockfile --ignore-scripts
         shell: bash
@@ -114,8 +112,9 @@ jobs:
               "$GSTACK_HOME/bin/browse" stop >/dev/null 2>&1 || true
           }
           trap browser_cleanup EXIT
+          smoke_url=$(node -e 'const fs=require("fs"),p=require("path").join(process.env.RUNNER_TEMP,"gstack-runtime-smoke.html");fs.writeFileSync(p,"<!doctype html><title>GStack runtime smoke</title>\n");process.stdout.write(require("url").pathToFileURL(p).href)')
           PATH="$clean_path" GSTACK_NODE="$node_command" BROWSE_PARENT_PID=0 \
-            "$GSTACK_HOME/bin/browse" goto about:blank
+            "$GSTACK_HOME/bin/browse" goto "$smoke_url"
           PATH="$clean_path" GSTACK_NODE="$node_command" BROWSE_PARENT_PID=0 \
             "$GSTACK_HOME/bin/browse" status
           browser_cleanup
@@ -129,14 +128,6 @@ jobs:
             archive="$GITHUB_WORKSPACE/release-output/gstack-runtime-2.0.0-$TARGET-$component.tar.gz"
             tar -czf "$archive" -C "$component_dir" gstack
             node -e 'const fs=require("fs"),c=require("crypto"),p=process.argv[1];const b=fs.readFileSync(p);fs.writeFileSync(p+".sha256",c.createHash("sha256").update(b).digest("hex")+"  "+require("path").basename(p)+"\n")' "$archive"
-          done
-        shell: bash
-
-      - name: Keyless-sign component archives
-        run: |
-          set -euo pipefail
-          for archive in release-output/*.tar.gz; do
-            cosign sign-blob --yes --bundle "$archive.sigstore.json" "$archive"
           done
         shell: bash
 
@@ -170,6 +161,14 @@ jobs:
           path: release-output
           merge-multiple: true
       - uses: sigstore/cosign-installer@d7543c93d881b35a8faa02e8e3605f69b7a1ce62 # v3.10.0
+
+      - name: Keyless-sign component archives
+        run: |
+          set -euo pipefail
+          for archive in release-output/*.tar.gz; do
+            cosign sign-blob --yes --bundle "$archive.sigstore.json" "$archive"
+          done
+        shell: bash
 
       - name: Create strict six-target manifest
         run: node .github/scripts/create-runtime-release-manifest.mjs release-output "$GITHUB_REPOSITORY" 2.0.0 "$GITHUB_REF_NAME"

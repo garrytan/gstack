@@ -53,14 +53,20 @@ describe("release and CI hardening", () => {
     expect(workflow).toContain("versions/current.json");
     expect(workflow).not.toContain('active="$GSTACK_HOME/versions/2.0.0"');
     expect(workflow).toContain(".gstack-runtime-browsers");
-    expect(workflow).toContain('chromium.launch({ headless: true, channel: "chromium" })');
+    // Exercise both the bundled browser and the explicit Chromium channel. Keep
+    // this semantic: the workflow intentionally loops over launch options so a
+    // harmless refactor does not invalidate release hardening.
+    expect(workflow).toMatch(/for \(const options of \[\{ headless: true \}, \{ headless: true, channel: ["']chromium["'] \}\]\)/);
+    expect(workflow).toContain("chromium.launch(options)");
+    expect(workflow).toContain("await browser.close()");
     expect(workflow).not.toContain("--with-deps");
     expect(workflow).toContain(".gstack-runtime-tools/bun");
     expect(workflow).toContain('"$GSTACK_HOME/bin/bun" --version');
     expect(workflow).toContain("BUN-LICENSE-1.3.14.md");
     expect(workflow).toContain("command -v bun");
     expect(workflow).toContain("GSTACK_NODE=\"$node_command\"");
-    expect(workflow).toContain("goto about:blank");
+    expect(workflow).toContain("pathToFileURL(p).href");
+    expect(workflow).not.toContain("goto about:blank");
     const manifest = read(".github/scripts/create-runtime-release-manifest.mjs");
     expect(manifest).toContain("bytes: stat.size");
     expect(manifest).toContain('certificateOidcIssuer: "https://token.actions.githubusercontent.com"');
@@ -80,7 +86,8 @@ describe("release and CI hardening", () => {
     expect(installer).toContain('entry(managedBunRelativePath(), "managed-bun", true)');
     const browser = read("browse/src/cli.ts");
     expect(browser).toContain("Every installed/compiled client must use the adjacent Node-compatible daemon");
-    expect(browser).toContain("if (IS_COMPILED && !NODE_SERVER_SCRIPT)");
+    expect(browser).toContain("export function resolveServerLaunchTarget(");
+    expect(browser).toContain("server-node.mjs not found. Rebuild the managed browser runtime");
   });
 
   test("Windows setup lane installs, doctors, and uninstalls rather than only building", () => {

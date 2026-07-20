@@ -57,10 +57,18 @@ describe("GStack runtime release channel", () => {
 
   test("release workflow publishes both RC and stable tags through the same signed manifest path", async () => {
     const workflow = await fs.readFile(WORKFLOW, "utf8");
+    const buildSection = workflow.slice(workflow.indexOf("  build:"), workflow.indexOf("\n  manifest:"));
+    const manifestSection = workflow.slice(workflow.indexOf("\n  manifest:"));
     expect(workflow).toContain("v2.0.0-rc.*");
     expect(workflow).toContain('2.0.0 "$GITHUB_REF_NAME"');
     expect(workflow).toContain("PRERELEASE_FLAG:");
     expect(workflow).toContain("--prerelease");
     expect(workflow).toContain('gh release create "$GITHUB_REF_NAME"');
+    expect(workflow).toContain("pathToFileURL(p).href");
+    expect(workflow).not.toContain("goto about:blank");
+    expect(buildSection).not.toContain("sigstore/cosign-installer");
+    expect(manifestSection).toContain("sigstore/cosign-installer");
+    expect(manifestSection.indexOf("Keyless-sign component archives"))
+      .toBeLessThan(manifestSection.indexOf("Create strict six-target manifest"));
   });
 });
