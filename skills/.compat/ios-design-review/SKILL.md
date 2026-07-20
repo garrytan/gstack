@@ -12,4 +12,4 @@ Print this replacement invocation, then dispatch to it exactly:
 
 `$design --mode Critique --module ios-design-review`
 
-Do not reproduce or summarize the retired specialist here. The canonical dispatcher must load its preserved `ios-design-review` module. If that dispatcher is not installed, tell the user to install it with `npx skills add time-attack/gstack --skill design`.
+Do not reproduce or summarize the retired specialist here. The canonical dispatcher must load its preserved `ios-design-review` module. If that dispatcher is not installed, tell the user to install it with `npx skills add time-attack/gstack/skills --skill design`.

@@ -13,8 +13,12 @@ import { fileURLToPath } from "node:url";
 
 export const BOOTSTRAP_SCHEMA_VERSION = 2;
 export const BOOTSTRAP_RUNTIME_VERSION = "2.0.0";
+// Keep the runtime compatibility version separate from the immutable release
+// channel. Release candidates carry the 2.0.0 runtime contract while letting
+// fresh-machine production journeys run before the stable v2.0.0 tag exists.
+export const BOOTSTRAP_RELEASE_TAG = "v2.0.0-rc.1";
 export const OFFICIAL_MANIFEST_URL =
-  `https://github.com/time-attack/gstack/releases/download/v${BOOTSTRAP_RUNTIME_VERSION}/gstack-runtime-manifest.json`;
+  `https://github.com/time-attack/gstack/releases/download/${BOOTSTRAP_RELEASE_TAG}/gstack-runtime-manifest.json`;
 const CAPABILITIES = new Set(["browser", "browser-visible", "design", "pdf", "diagram", "ios"]);
 const CAPABILITY_DEPENDENCIES = Object.freeze({
   browser: Object.freeze([]),
@@ -47,9 +51,9 @@ const ALLOWED_DOWNLOAD_HOSTS = new Set([
   "objects.githubusercontent.com",
   "release-assets.githubusercontent.com",
 ]);
-const OFFICIAL_RELEASE_PREFIX = `/time-attack/gstack/releases/download/v${BOOTSTRAP_RUNTIME_VERSION}/`;
+const OFFICIAL_RELEASE_PREFIX = `/time-attack/gstack/releases/download/${BOOTSTRAP_RELEASE_TAG}/`;
 const OFFICIAL_CERTIFICATE_IDENTITY =
-  `https://github.com/time-attack/gstack/.github/workflows/release-artifacts.yml@refs/tags/v${BOOTSTRAP_RUNTIME_VERSION}`;
+  `https://github.com/time-attack/gstack/.github/workflows/release-artifacts.yml@refs/tags/${BOOTSTRAP_RELEASE_TAG}`;
 const GITHUB_OIDC_ISSUER = "https://token.actions.githubusercontent.com";
 
 export async function main(argv = process.argv.slice(2), options = {}) {
@@ -90,7 +94,9 @@ export async function main(argv = process.argv.slice(2), options = {}) {
     );
     const manifestUrl = options.manifestUrl ?? OFFICIAL_MANIFEST_URL;
     assertOfficialUrl(manifestUrl, { manifest: true });
-    const manifest = await fetchJson(fetch_, manifestUrl);
+    const manifest = await fetchJson(fetch_, manifestUrl, {
+      official: manifestUrl === OFFICIAL_MANIFEST_URL,
+    });
     validateManifest(manifest, target);
     const home = path.resolve(parsed.home ?? process.env.GSTACK_HOME ?? path.join(os.homedir(), ".gstack"));
     const reusable = await inspectReusableRuntime(home, manifest.version).catch(() => null);
@@ -300,10 +306,18 @@ function sha256File(file) {
   });
 }
 
-async function fetchJson(fetch_, url) {
+async function fetchJson(fetch_, url, options = {}) {
   const response = await fetch_(url, { headers: { Accept: "application/json" }, redirect: "follow" });
   assertFinalDownloadUrl(response.url || url);
-  if (!response.ok) throw bootstrapError(`Download failed with HTTP ${response.status}`, "BOOTSTRAP_DOWNLOAD_FAILED");
+  if (!response.ok) {
+    if (options.official && response.status === 404) {
+      throw bootstrapError(
+        `Official runtime release ${BOOTSTRAP_RELEASE_TAG} is not published at ${url}. No files were downloaded or installed.`,
+        "BOOTSTRAP_RELEASE_UNAVAILABLE",
+      );
+    }
+    throw bootstrapError(`Manifest download failed with HTTP ${response.status} from ${url}. No files were downloaded or installed.`, "BOOTSTRAP_DOWNLOAD_FAILED");
+  }
   const value = await response.json();
   if (!value || typeof value !== "object") throw bootstrapError("Manifest returned invalid JSON", "BOOTSTRAP_MANIFEST_INVALID");
   return value;

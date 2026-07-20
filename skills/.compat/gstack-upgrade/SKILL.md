@@ -12,4 +12,4 @@ Print this replacement invocation, then dispatch to it exactly:
 
 `$ship --mode Prepare --module gstack-upgrade`
 
-Do not reproduce or summarize the retired specialist here. The canonical dispatcher must load its preserved `gstack-upgrade` module. If that dispatcher is not installed, tell the user to install it with `npx skills add time-attack/gstack --skill ship`.
+Do not reproduce or summarize the retired specialist here. The canonical dispatcher must load its preserved `gstack-upgrade` module. If that dispatcher is not installed, tell the user to install it with `npx skills add time-attack/gstack/skills --skill ship`.

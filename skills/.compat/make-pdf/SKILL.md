@@ -12,4 +12,4 @@ Print this replacement invocation, then dispatch to it exactly:
 
 `$design --mode Generate --module make-pdf`
 
-Do not reproduce or summarize the retired specialist here. The canonical dispatcher must load its preserved `make-pdf` module. If that dispatcher is not installed, tell the user to install it with `npx skills add time-attack/gstack --skill design`.
+Do not reproduce or summarize the retired specialist here. The canonical dispatcher must load its preserved `make-pdf` module. If that dispatcher is not installed, tell the user to install it with `npx skills add time-attack/gstack/skills --skill design`.

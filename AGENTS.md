@@ -60,7 +60,7 @@ they contain no copied judgment. Representative mappings:
 Canonical installation is standards-based:
 
 ```bash
-npx skills add time-attack/gstack
+npx skills add time-attack/gstack/skills
 ```
 
 Delegate host detection, placement, project/global scope, selected-skill

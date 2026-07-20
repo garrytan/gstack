@@ -2,10 +2,18 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 
-const [directory, repository = process.env.GITHUB_REPOSITORY, version = "2.0.0"] = process.argv.slice(2);
+const [
+  directory,
+  repository = process.env.GITHUB_REPOSITORY,
+  version = "2.0.0",
+  releaseTag = `v${version}`,
+] = process.argv.slice(2);
 if (!directory || !repository) {
-  console.error("Usage: create-runtime-release-manifest.mjs <artifact-dir> <owner/repo> [version]");
+  console.error("Usage: create-runtime-release-manifest.mjs <artifact-dir> <owner/repo> [version] [release-tag]");
   process.exit(2);
+}
+if (!/^v\d+\.\d+\.\d+(?:-rc\.\d+)?$/.test(releaseTag)) {
+  throw new Error(`Invalid runtime release tag: ${releaseTag}`);
 }
 
 const targets = [
@@ -35,8 +43,8 @@ const capabilityComponents = {
   ios: ["ios"],
 };
 const commonComponents = ["core", "browser-code", "browser-headless", "browser-visible", "design", "diagram", "pdf"];
-const release = `https://github.com/${repository}/releases/download/v${version}`;
-const certificateIdentity = `https://github.com/${repository}/.github/workflows/release-artifacts.yml@refs/tags/v${version}`;
+const release = `https://github.com/${repository}/releases/download/${releaseTag}`;
+const certificateIdentity = `https://github.com/${repository}/.github/workflows/release-artifacts.yml@refs/tags/${releaseTag}`;
 const targetRecords = {};
 
 for (const target of targets) {

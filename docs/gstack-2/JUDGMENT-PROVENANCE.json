@@ -4552,7 +4552,7 @@
       "source_path": "gstack-upgrade/SKILL.md.tmpl",
       "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
       "blob_sha": "5402a1da3c857cbf50668085fce53172b72bba0d",
-      "normalized_render_sha256": "a913cf77f76c4d68c576a06190b498e3d8d3b60b85498a68f173b23a7f800828",
+      "normalized_render_sha256": "2c8cf9e505b7da27730bf646a33ee38e8092259f3335a524c71e57ba5b602541",
       "target": "skills/ship/references/legacy/gstack-upgrade.md",
       "disposition": "DUPLICATE_INFRASTRUCTURE",
       "overlays": [

@@ -10,6 +10,7 @@ import { setupRuntime } from "../runtime/setup.js";
 import { bashCandidates, resolveBashCommand } from "../runtime/tooling.js";
 import {
   BOOTSTRAP_SCHEMA_VERSION,
+  BOOTSTRAP_RELEASE_TAG,
   BOOTSTRAP_RUNTIME_VERSION,
   CAPABILITY_COMPONENTS,
   COMPONENT_DEPENDENCIES,
@@ -27,7 +28,7 @@ function officialManifestFixture(target: string, customize?: (component: string,
     .filter((component) => component !== "ios" || target.startsWith("darwin-"))
     .map((component) => {
       const artifact: Record<string, unknown> = {
-        url: `https://github.com/time-attack/gstack/releases/download/v${BOOTSTRAP_RUNTIME_VERSION}/${component}.tar.gz`,
+        url: `https://github.com/time-attack/gstack/releases/download/${BOOTSTRAP_RELEASE_TAG}/${component}.tar.gz`,
         sha256: "0".repeat(64),
         bytes: 8,
         format: "tar.gz",
@@ -294,6 +295,31 @@ describe("GStack runtime setup UX", () => {
     })).toBe(0);
     expect(output.value()).toContain("--capability");
     expect(fetches).toBe(0);
+  });
+
+  test("missing official release stops before install with an actionable immutable-tag error", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "gstack-bootstrap-missing-release-"));
+    const output = capture();
+    let calls = 0;
+    try {
+      expect(await bootstrapMain([
+        "preview", "--capability", "browser-visible", "--home", path.join(root, "home"),
+      ], {
+        stdout: output.stream,
+        stderr: output.stream,
+        fetch: async (url: string) => {
+          calls += 1;
+          return { ok: false, status: 404, url };
+        },
+      })).toBe(1);
+      expect(calls).toBe(1);
+      expect(output.value()).toContain(`Official runtime release ${BOOTSTRAP_RELEASE_TAG} is not published`);
+      expect(output.value()).toContain(OFFICIAL_MANIFEST_URL);
+      expect(output.value()).toContain("No files were downloaded or installed");
+      expect(await fs.readdir(root)).toEqual([]);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
   });
 
   test("bootstrap executes through a symlinked or aliased filesystem path", async () => {

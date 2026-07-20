@@ -2,7 +2,9 @@ name: Release runtime artifacts
 
 on:
   push:
-    tags: [v2.0.0]
+    tags:
+      - v2.0.0
+      - v2.0.0-rc.*
   workflow_dispatch:
 
 permissions:
@@ -170,7 +172,7 @@ jobs:
       - uses: sigstore/cosign-installer@d7543c93d881b35a8faa02e8e3605f69b7a1ce62 # v3.10.0
 
       - name: Create strict six-target manifest
-        run: node .github/scripts/create-runtime-release-manifest.mjs release-output "$GITHUB_REPOSITORY" 2.0.0
+        run: node .github/scripts/create-runtime-release-manifest.mjs release-output "$GITHUB_REPOSITORY" 2.0.0 "$GITHUB_REF_NAME"
 
       - name: Checksum and keyless-sign manifest
         run: |
@@ -188,11 +190,13 @@ jobs:
       - name: Publish immutable release assets
         env:
           GH_TOKEN: ${{ github.token }}
+          PRERELEASE_FLAG: ${{ contains(github.ref_name, '-rc.') && '--prerelease' || '' }}
         run: |
           set -euo pipefail
           gh release create "$GITHUB_REF_NAME" \
             --verify-tag \
-            --title "GStack runtime 2.0.0" \
+            $PRERELEASE_FLAG \
+            --title "GStack runtime $GITHUB_REF_NAME" \
             --notes "Signed optional runtime artifacts for the six portable GStack skills." \
             release-output/*
         shell: bash

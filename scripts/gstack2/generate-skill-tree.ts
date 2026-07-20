@@ -384,7 +384,7 @@ Print this replacement invocation, then dispatch to it exactly:
 
 \`${assignment.replacement}\`
 
-Do not reproduce or summarize the retired specialist here. The canonical dispatcher must load its preserved \`${assignment.source}\` module. If that dispatcher is not installed, tell the user to install it with \`npx skills add time-attack/gstack --skill ${assignment.tree}\`.
+Do not reproduce or summarize the retired specialist here. The canonical dispatcher must load its preserved \`${assignment.source}\` module. If that dispatcher is not installed, tell the user to install it with \`npx skills add time-attack/gstack/skills --skill ${assignment.tree}\`.
 `);
     rows.push(`| \`/${assignment.source}\` | \`${assignment.replacement}\` | \`skills/${assignment.tree}/references/legacy/${assignment.source}.md\` |`);
     aliases.push({
@@ -483,7 +483,7 @@ function webContextContract(): string {
     '',
     'Persist only the explicit choice with `gstack context select host`, `gstack context select local-browser`, or `gstack context select none`. For Context.dev, show `gstack context options`, then use `gstack context setup` and its hidden key prompt; consent and key storage belong to the runtime, never this judgment prompt. Do not infer Context choice or consent.',
     '',
-    'Capability-dependent work follows `references/RUNTIME.md`. Pure judgment never requires the runtime. Skill placement remains owned by `npx skills add time-attack/gstack` and is never inferred from runtime state.',
+    'Capability-dependent work follows `references/RUNTIME.md`. Pure judgment never requires the runtime. Skill placement remains owned by `npx skills add time-attack/gstack/skills` and is never inferred from runtime state.',
     '',
   ].join('\n');
 }

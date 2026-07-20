@@ -18,7 +18,7 @@ bundle.
 ## Canonical installation
 
 ```bash
-npx skills add time-attack/gstack
+npx skills add time-attack/gstack/skills
 ```
 
 The standards installer owns host detection, destination paths, project/global
@@ -32,7 +32,7 @@ Examples supported by the installer interface:
 npx skills add time-attack/gstack/skills --skill qa
 
 # Installer-managed global scope
-npx skills add time-attack/gstack -g
+npx skills add time-attack/gstack/skills -g
 ```
 
 Run `npx skills add --help` for the installed CLI version before scripting

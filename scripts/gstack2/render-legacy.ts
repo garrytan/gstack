@@ -188,7 +188,7 @@ export function renderLegacyBody(source: string): string {
  */
 function portLegacyText(value: string, source: string): string {
   if (source === 'gstack-upgrade') {
-    return `# Legacy upgrade compatibility\n\nThe 1.x host-directory detector, vendored-copy synchronizer, and destructive Git replacement blocks were duplicated installation infrastructure. GStack 2 delegates skill placement and updates to the standard Agent Skills installer and manages the optional shared runtime atomically.\n\n- Update selected skills with \`npx skills add time-attack/gstack\` using the user's existing project/global choice. Never infer or enroll a host.\n- Upgrade a complete local runtime package with \`gstack upgrade --source <complete-gstack-package> --version <version>\`.\n- Roll back the runtime with \`gstack upgrade --rollback\`.\n- Run \`gstack doctor\` after either operation.\n- Do not reset, delete, move, or rewrite a host skill directory. Do not infer Context.dev choice or consent.\n\nThis compatibility module contains no specialist judgment; release readiness and rollback judgment remain in the preserved ship modules.\n`;
+    return `# Legacy upgrade compatibility\n\nThe 1.x host-directory detector, vendored-copy synchronizer, and destructive Git replacement blocks were duplicated installation infrastructure. GStack 2 delegates skill placement and updates to the standard Agent Skills installer and manages the optional shared runtime atomically.\n\n- Update selected skills with \`npx skills add time-attack/gstack/skills\` using the user's existing project/global choice. Never infer or enroll a host.\n- Upgrade a complete local runtime package with \`gstack upgrade --source <complete-gstack-package> --version <version>\`.\n- Roll back the runtime with \`gstack upgrade --rollback\`.\n- Run \`gstack doctor\` after either operation.\n- Do not reset, delete, move, or rewrite a host skill directory. Do not infer Context.dev choice or consent.\n\nThis compatibility module contains no specialist judgment; release readiness and rollback judgment remain in the preserved ship modules.\n`;
   }
   let body = value;
 
@@ -280,7 +280,7 @@ function portLegacyText(value: string, source: string): string {
     .replaceAll('$GSTACK_ROOT/lib/redact-audit-log.ts', '$GSTACK_BIN/gstack-redact-audit-log')
     .replaceAll('bun $GSTACK_BIN/gstack-redact-audit-log', '$GSTACK_BIN/gstack-redact-audit-log')
     .replaceAll('Disk paths stay `$GSTACK_ROOT/[skill-name]/SKILL.md`.', 'Resolve retired names through `references/COMPATIBILITY.md`; skill placement is installer-owned.')
-    .replaceAll('Tell the user: "Done. Each developer now runs: `cd $GSTACK_ROOT && ./setup --team`"', 'Tell the user: "Done. Each developer installs the selected canonical skills with `npx skills add time-attack/gstack`; the optional runtime remains user-scoped."');
+    .replaceAll('Tell the user: "Done. Each developer now runs: `cd $GSTACK_ROOT && ./setup --team`"', 'Tell the user: "Done. Each developer installs the selected canonical skills with `npx skills add time-attack/gstack/skills`; the optional runtime remains user-scoped."');
 
   body = body
     .replace(/_VENDORED="no"\nif \[ -d "\.agents\/skills\/gstack" \][\s\S]*?echo "VENDORED_GSTACK: \$_VENDORED"/g, '_VENDORED="managed-by-standard-installer"\necho "VENDORED_GSTACK: $_VENDORED"')
