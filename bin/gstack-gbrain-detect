@@ -51,8 +51,16 @@ const CONFIG_BIN = join(SCRIPT_DIR, "gstack-config");
 // Honors GBRAIN_HOME — must stay consistent with lib/gbrain-local-status's
 // config resolution, or the detect JSON reports gbrain_local_status "ok"
 // alongside gbrain_config_exists false for relocated-home users.
+// The real `gbrain` CLI always nests state under a `.gbrain` dir inside
+// GBRAIN_HOME (GBRAIN_HOME is the workspace root, not the state dir itself —
+// confirmed empirically: pointing GBRAIN_HOME straight at the `.gbrain` dir
+// breaks the CLI with "No brain configured"). This used to join GBRAIN_HOME
+// directly with "config.json" when set, only adding the nested ".gbrain" in
+// the unset/default-to-userHome fallback — a relocated-GBRAIN_HOME user
+// always got a false gbrain_config_exists:false.
 const GBRAIN_CONFIG = join(
-  process.env.GBRAIN_HOME || join(userHome(), ".gbrain"),
+  process.env.GBRAIN_HOME || userHome(),
+  ".gbrain",
   "config.json",
 );
 const CLAUDE_JSON = join(userHome(), ".claude.json");

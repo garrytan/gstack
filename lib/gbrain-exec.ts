@@ -98,8 +98,13 @@ export function buildGbrainEnv(opts: BuildGbrainEnvOptions = {}): NodeJS.Process
   const out: NodeJS.ProcessEnv = { ...baseEnv };
   if (baseEnv.GSTACK_RESPECT_ENV_DATABASE_URL === "1") return out;
 
+  // GBRAIN_HOME is the workspace root; the real `gbrain` CLI always nests
+  // its state under a `.gbrain` dir inside it (confirmed empirically —
+  // pointing GBRAIN_HOME straight at `.gbrain` breaks the CLI). This used
+  // to join GBRAIN_HOME directly with "config.json", silently failing to
+  // seed DATABASE_URL for any relocated-GBRAIN_HOME user.
   const homeBase = baseEnv.HOME || homedir();
-  const gbrainHome = baseEnv.GBRAIN_HOME || join(homeBase, ".gbrain");
+  const gbrainHome = join(baseEnv.GBRAIN_HOME || homeBase, ".gbrain");
   const configPath = join(gbrainHome, "config.json");
   if (!existsSync(configPath)) return out;
 

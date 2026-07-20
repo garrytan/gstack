@@ -114,10 +114,18 @@ export function cacheFilePath(): string {
   );
 }
 
-/** Honors GBRAIN_HOME (codex D11) — same resolution as buildGbrainEnv. */
+/**
+ * Honors GBRAIN_HOME (codex D11) — same resolution as buildGbrainEnv.
+ * GBRAIN_HOME is the workspace root; the real `gbrain` CLI always nests its
+ * state under a `.gbrain` dir inside it (confirmed empirically — pointing
+ * GBRAIN_HOME straight at `.gbrain` breaks the CLI). This used to join
+ * GBRAIN_HOME directly with "config.json" when set, only nesting under
+ * ".gbrain" in the unset/default fallback — a relocated-GBRAIN_HOME user
+ * always got a false gbrain_config_exists:false.
+ */
 function gbrainConfigPath(env?: NodeJS.ProcessEnv): string {
   const e = env ?? process.env;
-  const gbrainHome = e.GBRAIN_HOME || join(userHome(e), ".gbrain");
+  const gbrainHome = join(e.GBRAIN_HOME || userHome(e), ".gbrain");
   return join(gbrainHome, "config.json");
 }
 
