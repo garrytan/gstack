@@ -4,6 +4,10 @@ on: [push, pull_request]
 permissions:
   contents: read
 
+concurrency:
+  group: skill-docs-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   check-freshness:
     runs-on: ubicloud-standard-8

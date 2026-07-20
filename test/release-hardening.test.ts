@@ -12,6 +12,7 @@ describe("release and CI hardening", () => {
     for (const name of fs.readdirSync(workflowRoot).filter((entry) => entry.endsWith(".yml"))) {
       const source = fs.readFileSync(path.join(workflowRoot, name), "utf8");
       expect(source, `${name} must declare top-level permissions`).toMatch(/^permissions:\s*$/m);
+      expect(source, `${name} must declare workflow concurrency`).toMatch(/^concurrency:\s*$/m);
       for (const match of source.matchAll(/\buses:\s*[^\s@]+@([^\s#]+)/g)) {
         expect(match[1], `${name} contains a mutable action ref`).toMatch(/^[a-f0-9]{40}$/);
       }
@@ -22,6 +23,24 @@ describe("release and CI hardening", () => {
     const source = read(".github/workflows/evals.yml");
     const guard = "github.event.pull_request.head.repo.full_name == github.repository";
     expect(source.match(new RegExp(guard.replaceAll(".", "\\."), "g"))?.length).toBeGreaterThanOrEqual(3);
+  });
+
+  test("public dependency and repository security workflows stay enabled and least-privileged", () => {
+    const dependencyReview = read(".github/workflows/dependency-review.yml");
+    expect(dependencyReview).toContain("actions/dependency-review-action@");
+    expect(dependencyReview).toContain("fail-on-severity: high");
+    expect(dependencyReview).not.toContain("pull_request_target:");
+
+    const osv = read(".github/workflows/osv-scanner.yml");
+    expect(osv).toContain("google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@");
+    expect(osv).toContain("security-events: write");
+    expect(osv).toContain("schedule:");
+
+    const scorecard = read(".github/workflows/scorecard.yml");
+    expect(scorecard).toContain("ossf/scorecard-action@");
+    expect(scorecard).toContain("github/codeql-action/upload-sarif@");
+    expect(scorecard).toContain("publish_results: false");
+    expect(scorecard).not.toContain("id-token: write");
   });
 
   test("npm package is an explicit small runtime-control surface", () => {
