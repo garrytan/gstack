@@ -259,9 +259,9 @@ $B snapshot -i -a -o "$REPORT_DIR/screenshots/issue-002.png"
 
 #### Evidence layout: flat (default) vs per-finding
 
-By default, evidence files share one \`screenshots/\` directory and the report references them by filename (\`issue-001-step-1.png\`, etc). This stays compact and works well for 1-5 findings.
+**Default is flat.** Evidence files share one \`screenshots/\` directory and the report references them by filename (\`issue-001-step-1.png\`, etc). Flat is used unless the user explicitly opts in. This stays compact and works well for 1-5 findings.
 
-When the run is invoked with **\`--evidence-per-finding\`**, switch to one folder per finding:
+**Opt-in nested layout.** When the run is invoked with **\`--evidence-per-finding\`** (or natural-language variants: \`evidence per finding\`, \`one folder per bug\`), switch to one folder per finding:
 
 \`\`\`
 .gstack/qa-reports/
@@ -270,16 +270,45 @@ When the run is invoked with **\`--evidence-per-finding\`**, switch to one folde
     ├── findings/
     │   ├── 001-critical-checkout-500-on-submit/
     │   │   ├── finding.md                 # severity + repro + env + expected/actual
-    │   │   ├── step-1.png                 # before action
-    │   │   ├── step-2.png                 # after action
-    │   │   ├── result.png                 # final state
-    │   │   └── repro.webm                 # OPTIONAL — present iff \`$B record\` was active
+    │   │   ├── step-1.png                 # before action (when capture succeeded)
+    │   │   ├── step-2.png                 # after action (when capture succeeded)
+    │   │   └── result.png                 # final state (when capture succeeded)
     │   ├── 002-high-search-no-results/
     │   │   └── ...
     │   └── 003-low-cosmetic-spacing/
     │       └── ...
     └── baseline.json                       # unchanged
 \`\`\`
+
+**Directory / file creation and naming:**
+
+1. **Flat (default):**
+   - Ensure \`.gstack/qa-reports/screenshots/\` exists (\`mkdir -p\`).
+   - Report file: \`qa-report-{domain}-{YYYY-MM-DD}.md\` under the output dir.
+   - Evidence files: \`issue-{NNN}-step-{K}.png\`, \`issue-{NNN}-result.png\` (and for /qa fix loop: \`issue-{NNN}-before.png\` / \`issue-{NNN}-after.png\`).
+   - \`{NNN}\` is a sequential zero-padded index starting at \`001\`. Assign the next free index by scanning existing \`issue-*.png\` / report issue IDs and taking max + 1.
+2. **Per-finding (opt-in):**
+   - Create a per-run report directory: \`qa-report-{domain}-{YYYY-MM-DD}/\` with \`findings/\` inside (\`mkdir -p\`).
+   - Top-level report is \`REPORT.md\` inside that directory (not a sibling \`.md\` file).
+   - Each finding folder: \`{NNN}-{severity}-{kebab-slug}/\` where \`{NNN}\` is sequential (\`001\`, \`002\`, …), severity is lowercase (\`critical\`/\`high\`/\`medium\`/\`low\`/\`cosmetic\`), and slug is a short kebab-case title stem (alphanumeric + hyphens only, max ~40 chars).
+   - Inside each finding folder write \`finding.md\` first, then only the screenshot files that capture actually produced (\`step-1.png\`, \`step-2.png\`, \`result.png\`; /qa fix loop may add \`before.png\` / \`after.png\`).
+   - Create a finding folder only when that finding is documented — do not pre-create empty finding dirs.
+
+**Collisions (must not silently overwrite evidence):**
+
+- Never overwrite an existing evidence file or finding directory. If a target path already exists, pick a deterministic free name:
+  - **Sequential IDs first:** prefer the next free \`{NNN}\` (flat filenames and nested folder prefixes). Scan existing siblings, take max + 1.
+  - **Same-day report path collision:** if \`qa-report-{domain}-{YYYY-MM-DD}.md\` (flat) or \`qa-report-{domain}-{YYYY-MM-DD}/\` (nested) already exists from an earlier run, append \`-2\`, then \`-3\`, etc. (\`qa-report-{domain}-{YYYY-MM-DD}-2.md\` / \`…-2/\`) until the path is free. Do not clobber the prior run.
+  - **Nested folder slug collision under the same NNN:** if \`findings/{NNN}-{severity}-{slug}/\` exists, append \`-2\`, \`-3\`, … to the folder name before writing.
+  - **Flat filename collision:** if \`issue-{NNN}-….png\` exists for the chosen NNN, bump NNN (auto-increment) rather than overwriting.
+- This matches the existing regression-test collision rule: check existing names, take max number + 1 / next free suffix — never silent overwrite.
+
+**Missing or unreadable evidence assets:**
+
+- Capture failures are normal (timeout, navigation error, permission). **Do not invent placeholder image files** and do not write empty/dummy PNGs.
+- In \`finding.md\` / the report **Evidence** section, list only files that exist on disk after a successful write. For a failed capture, note it inline, e.g. \`_(capture failed: {short reason})_\`, and continue the run.
+- If a referenced path is unreadable at report time, treat it as missing: omit the file link, note \`_(unreadable: {path})_\`, continue. Never block the rest of documentation on one bad asset.
+- Top-level \`REPORT.md\` / flat report screenshot counts must reflect files that actually exist.
 
 **finding.md** (per-finding) MUST have this shape:
 
@@ -312,18 +341,18 @@ When the run is invoked with **\`--evidence-per-finding\`**, switch to one folde
 - \`step-1.png\` — before the action
 - \`step-2.png\` — after the action
 - \`result.png\` — final state
-- \`repro.webm\` — full interactive repro (if recorded)
 \`\`\`
+
+(Only list evidence files that exist. If a step capture failed, replace that bullet with \`_(capture failed: {reason})_\`.)
 
 **When per-finding is the right call:**
 - Run produces ≥5 findings (the flat layout gets noisy past that).
 - Any finding is critical or high severity — those tickets travel further, need self-contained evidence.
-- An interactive bug needs video evidence — \`record start\` then \`record stop\` (Playwright \`recordVideo\`) writes a \`.webm\`; move it into the corresponding finding folder during Phase 6.
 - Findings will be handed off as Linear/Jira tickets — each folder zips into a self-contained attachment.
 
 **When per-finding is overkill:** quick smoke runs, 1-2 findings, regression-mode reruns where the baseline is the canonical artifact. Stick with the flat layout.
 
-Top-level \`REPORT.md\` content is identical between the two layouts; only the on-disk filing differs.
+Top-level \`REPORT.md\` content is identical between the two layouts; only the on-disk filing differs. Screenshots remain the evidence format — video recording is not part of this layout.
 
 ### Phase 6: Wrap Up
 

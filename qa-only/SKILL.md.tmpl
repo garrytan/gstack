@@ -107,7 +107,7 @@ Write to `~/.gstack/projects/{slug}/{user}-{branch}-test-outcome-{datetime}.md`
 
 Report filenames use the domain and date: `qa-report-myapp-com-2026-03-12.md`
 
-**With `--evidence-per-finding`:** one folder per finding under a per-run report dir. Each folder is self-contained — `finding.md` plus step screenshots and (if `$B record` was active) a `repro.webm`. See "Evidence layout: flat vs per-finding" in the Document phase above for the full structure and `finding.md` template.
+**With `--evidence-per-finding`:** one folder per finding under a per-run report dir. Each folder is self-contained — `finding.md` plus step screenshots when those captures succeeded. Default remains flat (`screenshots/` + single report `.md`). Nested mode must not silently overwrite prior evidence; see "Evidence layout: flat vs per-finding" in the Document phase above for naming, collision, and missing-asset rules.
 
 ---
 
