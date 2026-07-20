@@ -17,6 +17,14 @@ import {
   managedBunRelativePath,
 } from "./install.js";
 
+export const CAPABILITY_READINESS_CAPABILITIES = Object.freeze([
+  "browser",
+  "design",
+  "diagram",
+  "pdf",
+  "ios",
+]);
+
 export async function runDoctor(options = {}) {
   const paths = resolveRuntimePaths(options);
   const checks = [];
@@ -183,6 +191,82 @@ export async function runDoctor(options = {}) {
   };
 }
 
+export function capabilityReadiness(report, capability, options = {}) {
+  if (!CAPABILITY_READINESS_CAPABILITIES.includes(capability)) {
+    throw new TypeError(`Unknown capability: ${capability}`);
+  }
+  const platform = options.platform ?? process.platform;
+  const checkedAt = report.checkedAt;
+  const judgment = {
+    status: "available",
+    message: "Pure-judgment skill guidance is available without the optional runtime.",
+  };
+  if (capability === "ios" && platform !== "darwin") {
+    return {
+      ok: false,
+      capability,
+      checkedAt,
+      judgment,
+      platform: { status: "unsupported", platform, message: "Physical iOS requires macOS and the existing CoreDevice harness." },
+      consent: {
+        preview: { status: "not-applicable", granted: false },
+        install: { status: "not-applicable", granted: false },
+      },
+      readiness: { status: "unsupported", message: "The runtime capability is unsupported on this platform." },
+      nextAction: "Continue with pure judgment or move the physical-iOS workflow to macOS.",
+    };
+  }
+
+  const capabilityCheck = report.checks.find((check) => check.id === `capability:${capability}`);
+  const runtimeCheck = report.checks.find((check) => check.id === "managed-runtime");
+  let status;
+  if (capabilityCheck?.status === "pass" && runtimeCheck?.status === "pass") status = "ready";
+  else if (capabilityCheck?.status === "pass") status = "degraded";
+  else if (capabilityCheck?.status === "fail") status = "failed";
+  else status = "unavailable";
+
+  const needsSetup = status === "unavailable" || status === "failed";
+  const messages = {
+    ready: "The selected capability passed its runtime readiness checks.",
+    degraded: "The capability check passed, but the managed runtime reported a degraded condition.",
+    unavailable: "The optional runtime capability is not installed or cannot currently be inspected.",
+    failed: "The selected capability is installed but failed readiness checks.",
+  };
+  return {
+    ok: status === "ready" || status === "degraded",
+    capability,
+    checkedAt,
+    judgment,
+    platform: { status: "supported", platform },
+    consent: {
+      preview: {
+        status: needsSetup ? "required" : "not-required",
+        granted: false,
+        message: needsSetup
+          ? "Consent is required before an uncached signed-manifest metadata preview; this command does not grant it."
+          : "No setup preview is needed for the current readiness state.",
+      },
+      install: {
+        status: needsSetup ? "required-after-preview" : "not-required",
+        granted: false,
+        message: needsSetup
+          ? "Install consent is separate and may be requested only after the complete preview; this command does not grant it."
+          : "No install is needed for the current readiness state.",
+      },
+    },
+    readiness: {
+      status,
+      message: messages[status],
+      evidence: [runtimeCheck, capabilityCheck].filter(Boolean),
+    },
+    nextAction: needsSetup
+      ? `Ask for preview consent, then run the packaged bootstrap preview for ${capability}; continue judgment-only work if setup is deferred.`
+      : status === "degraded"
+        ? "Review the managed-runtime warning before capability-dependent evidence work."
+        : "Proceed with capability-dependent work.",
+  };
+}
+
 async function inspectRuntimeBun(activeRoot, manifest) {
   const relative = managedBunRelativePath();
   const declared = manifest?.tools?.bun;
@@ -326,5 +410,18 @@ export function formatDoctor(report) {
   const symbol = { pass: "OK", warn: "WARN", fail: "FAIL" };
   const lines = [`gstack doctor: ${report.ok ? "healthy" : "needs attention"}`, `home: ${report.home}`];
   for (const check of report.checks) lines.push(`${symbol[check.status]}  ${check.id}: ${check.message}`);
+  return `${lines.join("\n")}\n`;
+}
+
+export function formatCapabilityReadiness(report) {
+  const lines = [
+    `gstack capability readiness: ${report.capability}`,
+    `judgment: ${report.judgment.status}`,
+    `platform: ${report.platform.status}`,
+    `preview consent: ${report.consent.preview.status}`,
+    `install consent: ${report.consent.install.status}`,
+    `readiness: ${report.readiness.status}`,
+    `next: ${report.nextAction}`,
+  ];
   return `${lines.join("\n")}\n`;
 }

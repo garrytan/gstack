@@ -611,8 +611,12 @@ Data is stored in [Supabase](https://supabase.com) (open source Firebase alterna
 
 ## Troubleshooting
 
-For GStack 2, first run `gstack doctor` (or `gstack doctor --json`) when the
-optional runtime is installed. For skill discovery problems, use the standard
+For GStack 2, run `gstack doctor --capability browser|design|diagram|pdf|ios`
+(optionally `--json`) for a focused, non-mutating readiness result. It reports
+pure-judgment availability, platform support, preview consent, install consent,
+and runtime readiness separately; see
+[`docs/gstack-2/CAPABILITY-READINESS.md`](docs/gstack-2/CAPABILITY-READINESS.md).
+For skill discovery problems, use the standard
 installer's list and reinstall commands; do not manually copy host paths. The
 entries below apply to legacy 1.x installations.
 

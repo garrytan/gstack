@@ -25,7 +25,13 @@ import {
   runExternalEffect,
   updateRunWorkflow,
 } from "./state.js";
-import { runDoctor, formatDoctor } from "./doctor.js";
+import {
+  CAPABILITY_READINESS_CAPABILITIES,
+  capabilityReadiness,
+  formatCapabilityReadiness,
+  runDoctor,
+  formatDoctor,
+} from "./doctor.js";
 import { cleanupRuntime } from "./cleanup.js";
 import {
   ContextClient,
@@ -157,11 +163,18 @@ async function initCommand({ args, home, cwd, stdout, legacyAlias = false }) {
 }
 
 async function doctorCommand({ args, home, cwd, stdout }) {
-  const parsed = parseFlags(args, new Set(["--json", "--skill-api"]));
+  const parsed = parseFlags(args, new Set(["--json", "--skill-api", "--capability"]));
   if (parsed.positionals.length) throw cliError("Doctor accepts only named options", "USAGE");
+  const capability = parsed.values.get("--capability");
+  if (capability && !CAPABILITY_READINESS_CAPABILITIES.includes(capability)) {
+    throw cliError(`Unknown capability: ${capability}. Choose ${CAPABILITY_READINESS_CAPABILITIES.join(", ")}.`, "USAGE");
+  }
   const report = await runDoctor({ home, cwd, expectedSkillApi: parsed.values.get("--skill-api") });
-  write(stdout, parsed.flags.has("--json") ? `${JSON.stringify(report, null, 2)}\n` : formatDoctor(report));
-  return report.ok ? 0 : 1;
+  const result = capability ? capabilityReadiness(report, capability) : report;
+  write(stdout, parsed.flags.has("--json")
+    ? `${JSON.stringify(result, null, 2)}\n`
+    : capability ? formatCapabilityReadiness(result) : formatDoctor(result));
+  return result.ok ? 0 : 1;
 }
 
 async function configCommand({ args, home, cwd, stdout }) {
@@ -673,7 +686,7 @@ function parseFlags(args, allowed) {
       continue;
     }
     if (!allowed.has(arg)) throw cliError(`Unknown option: ${arg}`, "USAGE");
-    if (["--source", "--version", "--url", "--older-than-hours", "--max-pages", "--max-depth", "--max-links", "--skill-api"].includes(arg)) {
+    if (["--source", "--version", "--url", "--older-than-hours", "--max-pages", "--max-depth", "--max-links", "--skill-api", "--capability"].includes(arg)) {
       const value = args[++index];
       if (value == null || value.startsWith("--")) throw cliError(`${arg} requires a value`, "USAGE");
       values.set(arg, value);
@@ -750,7 +763,7 @@ function usage() {
     "Usage:\n" +
     "  gstack init                         # initialize state only\n" +
     "  gstack setup                        # compatibility alias for init\n" +
-    "  gstack doctor [--skill-api <version>] [--json]\n" +
+    "  gstack doctor [--capability browser|design|diagram|pdf|ios] [--skill-api <version>] [--json]\n" +
     "  gstack paths [--json|--shell]\n" +
     "  gstack runtime path <bundle-relative-path>\n" +
     "  gstack config get [key]\n" +
