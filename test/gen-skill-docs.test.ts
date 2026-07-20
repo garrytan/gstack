@@ -530,6 +530,101 @@ describe('gen-skill-docs', () => {
   });
 });
 
+/**
+ * Evidence layout contract for /qa and /qa-only.
+ *
+ * Shared methodology (via {{QA_METHODOLOGY}}) plus each leaf's Setup row and
+ * Output Structure pointer must stay aligned: flat default, opt-in nested
+ * layout, no unavailable recording claims, explicit collision and missing-asset
+ * rules.
+ */
+describe('QA evidence layout contract (qa + qa-only)', () => {
+  const qaContent = () => fs.readFileSync(path.join(ROOT, 'qa', 'SKILL.md'), 'utf-8');
+  const qaOnlyContent = () => fs.readFileSync(path.join(ROOT, 'qa-only', 'SKILL.md'), 'utf-8');
+  const both = () => [
+    { name: 'qa', content: qaContent() },
+    { name: 'qa-only', content: qaOnlyContent() },
+  ];
+
+  test('both modes document flat default and --evidence-per-finding opt-in', () => {
+    for (const { name, content } of both()) {
+      expect(content, name).toContain('--evidence-per-finding');
+      expect(content, name).toMatch(/Evidence layout.*flat \(default\)/s);
+      expect(content, name).toContain('Evidence layout: flat (default) vs per-finding');
+      expect(content, name).toContain('findings/');
+      expect(content, name).toContain('finding.md');
+      // Flat remains the default on-disk shape
+      expect(content, name).toContain('screenshots/');
+      expect(content, name).toMatch(/Default \(flat layout\)/);
+    }
+  });
+
+  test('both modes define finding folder naming and nested tree shape', () => {
+    for (const { name, content } of both()) {
+      // Canonical nested paths from the shared methodology section
+      expect(content, name).toContain('001-critical-checkout-500-on-submit/');
+      expect(content, name).toContain('step-1.png');
+      expect(content, name).toContain('result.png');
+      expect(content, name).toContain('REPORT.md');
+      // finding.md shape fields
+      expect(content, name).toContain('**Severity:**');
+      expect(content, name).toContain('## Repro steps');
+      expect(content, name).toContain('## Evidence');
+    }
+  });
+
+  test('both modes ban unavailable video recording claims', () => {
+    for (const { name, content } of both()) {
+      // $B record / recordVideo / repro.webm are not implemented in browse —
+      // skills must not advertise them (reviewer feedback on PR #1484).
+      expect(content, name).not.toMatch(/\$B record\b/);
+      expect(content, name).not.toMatch(/\brepro\.webm\b/);
+      expect(content, name).not.toMatch(/\brecordVideo\b/);
+      expect(content, name).not.toMatch(/`record start`/);
+      expect(content, name).not.toMatch(/`record stop`/);
+    }
+  });
+
+  test('both modes specify collision handling (no silent overwrite)', () => {
+    for (const { name, content } of both()) {
+      expect(content, name).toMatch(/collision|must not silently overwrite|never overwrite/i);
+      // Deterministic conflict resolution: sequential NNN and/or -2, -3 suffix
+      expect(content, name).toMatch(/-2|-3|auto-increment|sequential/i);
+    }
+  });
+
+  test('both modes specify missing/unreadable evidence asset behavior', () => {
+    for (const { name, content } of both()) {
+      expect(content, name).toMatch(/missing|unreadable|capture failed/i);
+      // Do not invent placeholder files; report and continue
+      expect(content, name).toMatch(/do not invent|must not invent|never invent|omit/i);
+    }
+  });
+
+  test('leaf templates carry Setup row and Output Structure pointer without recording', () => {
+    const qaTmpl = fs.readFileSync(path.join(ROOT, 'qa', 'SKILL.md.tmpl'), 'utf-8');
+    const qaOnlyTmpl = fs.readFileSync(path.join(ROOT, 'qa-only', 'SKILL.md.tmpl'), 'utf-8');
+    for (const { name, tmpl } of [
+      { name: 'qa', tmpl: qaTmpl },
+      { name: 'qa-only', tmpl: qaOnlyTmpl },
+    ]) {
+      expect(tmpl, name).toContain('| Evidence layout | flat (default) |');
+      expect(tmpl, name).toContain('`--evidence-per-finding`');
+      expect(tmpl, name).toMatch(/With `--evidence-per-finding`:/);
+      expect(tmpl, name).not.toMatch(/\$B record\b/);
+      expect(tmpl, name).not.toMatch(/\brepro\.webm\b/);
+    }
+  });
+
+  test('/qa nested pointer keeps fix before/after; /qa-only does not claim fix assets', () => {
+    const qaTmpl = fs.readFileSync(path.join(ROOT, 'qa', 'SKILL.md.tmpl'), 'utf-8');
+    const qaOnlyTmpl = fs.readFileSync(path.join(ROOT, 'qa-only', 'SKILL.md.tmpl'), 'utf-8');
+    expect(qaTmpl).toMatch(/fix before\/after|before\/after/);
+    // qa-only is report-only — no fix-loop evidence language required
+    expect(qaOnlyTmpl).toContain('finding.md');
+  });
+});
+
 describe('BASE_BRANCH_DETECT resolver', () => {
   // Find a generated SKILL.md that uses the placeholder (ship is guaranteed to)
   const shipContent = readShipUnion();

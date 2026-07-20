@@ -443,6 +443,36 @@ describe('QA skill structure validation', () => {
     expect(qaContent).toContain('screenshots/');
     expect(qaContent).toContain('.gstack/qa-reports/');
   });
+
+  test('evidence layout: flat default, opt-in nested, no recording claims', () => {
+    expect(qaContent).toContain('--evidence-per-finding');
+    expect(qaContent).toContain('Evidence layout: flat (default) vs per-finding');
+    expect(qaContent).toContain('findings/');
+    expect(qaContent).toContain('finding.md');
+    // Unavailable browse capability — must not advertise
+    expect(qaContent).not.toMatch(/\brepro\.webm\b/);
+    expect(qaContent).not.toMatch(/\$B record\b/);
+    expect(qaContent).not.toMatch(/\brecordVideo\b/);
+    // Edge cases required by the layout contract
+    expect(qaContent).toMatch(/must not silently overwrite|never overwrite/i);
+    expect(qaContent).toMatch(/missing|unreadable|capture failed/i);
+  });
+});
+
+describe('QA-only evidence layout contract', () => {
+  const qaOnlyContent = fs.readFileSync(path.join(ROOT, 'qa-only', 'SKILL.md'), 'utf-8');
+
+  test('mirrors nested evidence contract without recording claims', () => {
+    expect(qaOnlyContent).toContain('--evidence-per-finding');
+    expect(qaOnlyContent).toContain('Evidence layout: flat (default) vs per-finding');
+    expect(qaOnlyContent).toContain('findings/');
+    expect(qaOnlyContent).toContain('finding.md');
+    expect(qaOnlyContent).not.toMatch(/\brepro\.webm\b/);
+    expect(qaOnlyContent).not.toMatch(/\$B record\b/);
+    expect(qaOnlyContent).not.toMatch(/\brecordVideo\b/);
+    expect(qaOnlyContent).toMatch(/must not silently overwrite|never overwrite/i);
+    expect(qaOnlyContent).toMatch(/missing|unreadable|capture failed/i);
+  });
 });
 
 // --- Part 7: Greptile history format consistency (A3) ---
