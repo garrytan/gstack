@@ -61,6 +61,30 @@ describe("smartypants", () => {
     expect(out).toContain(`href="it's-a-test.html"`);
   });
 
+  test("does NOT leak SMARTPANTS_PRESERVED placeholders into autolinked URLs", () => {
+    // Regression test: found 2026-07-20 in AI4LD ebook PDF reference
+    // lists. A bare autolinked URL (anchor text == href, zero whitespace
+    // before the closing tag) previously had its </a> placeholder
+    // swallowed by the URL regex's greedy \S+, leaking raw
+    // "SMARTPANTS_PRESERVED_N" text into the rendered link.
+    const input = `<p>See <a href="https://doi.org/10.1016/j.caeai.2026.100637">https://doi.org/10.1016/j.caeai.2026.100637</a> for details.</p>`;
+    const out = smartypants(input);
+    expect(out).not.toContain("SMARTPANTS_PRESERVED");
+    expect(out).toContain(
+      `<a href="https://doi.org/10.1016/j.caeai.2026.100637">https://doi.org/10.1016/j.caeai.2026.100637</a>`
+    );
+  });
+
+  test("does NOT leak placeholders when a linked URL is immediately followed by another tag", () => {
+    // Same bug, different adjacency: URL directly abutting a second tag
+    // (e.g. two consecutive auto-linked references with no separating
+    // whitespace) must not bleed a placeholder into either link.
+    const input = `<p><a href="https://a.example/x">https://a.example/x</a><a href="https://b.example/y">https://b.example/y</a></p>`;
+    const out = smartypants(input);
+    expect(out).not.toContain("SMARTPANTS_PRESERVED");
+    expect(out).toBe(input);
+  });
+
   test("does NOT convert -- in CLI flags", () => {
     // Prose like "try --verbose mode" should not turn -- into em dash
     const out = smartypants(`<p>Try --verbose mode.</p>`);
@@ -157,6 +181,25 @@ describe("render (end-to-end)", () => {
     expect(result.html).toContain("\u2014");
   });
 
+  test("wraps a References section for APA hanging-indent styling", () => {
+    const result = render({
+      markdown: `# My Ebook\n\nBody text.\n\n# References\n\nSmith, J. (2020). A paper.\n\nJones, K. (2021). Another paper.\n`,
+    });
+    expect(result.html).toMatch(
+      /<div class="references">[\s\S]*Smith, J\. \(2020\)[\s\S]*Jones, K\. \(2021\)[\s\S]*<\/div>/
+    );
+    // The heading itself stays outside the wrapper.
+    expect(result.html).not.toMatch(/<div class="references">\s*<h1/);
+  });
+
+  test("References wrapping is case-insensitive and a no-op with no such heading", () => {
+    const lower = render({ markdown: `# Doc\n\nBody.\n\n# references\n\nRef one.\n` });
+    expect(lower.html).toContain('<div class="references">');
+
+    const none = render({ markdown: `# Doc\n\nJust body text, no references section.\n` });
+    expect(none.html).not.toContain('<div class="references">');
+  });
+
   test("derives title from first H1 when --title is not passed", () => {
     const result = render({ markdown: `# My Title\n\nBody.` });
     expect(result.meta.title).toBe("My Title");
@@ -236,12 +279,19 @@ describe("render (end-to-end)", () => {
     expect(result.html).toContain("Safe");
   });
 
-  test("respects text-align: left — no justify in print CSS", () => {
+  test("respects text-align: left — no justify or first-line indent on body paragraphs", () => {
     const result = render({ markdown: `para1\n\npara2\n` });
-    // The rule from the design-review fix: no p + p indent, text-align: left.
+    // The rule from the design-review fix: no p + p first-line indent, text-align: left.
     expect(result.printCss).toContain("text-align: left");
     expect(result.printCss).not.toContain("text-align: justify");
-    expect(result.printCss).not.toContain("text-indent");
+    // Ordinary paragraphs (the bare `p { ... }` rule) must not carry a
+    // first-line text-indent. This does NOT ban text-indent everywhere —
+    // `.references p` intentionally uses a negative text-indent for the
+    // APA hanging-indent pattern (see the "wraps a References section"
+    // test above); scope the check to the base rule specifically.
+    const baseParagraphRule = result.printCss.match(/(?<!\.references )\bp\s*\{[^}]*\}/);
+    expect(baseParagraphRule?.[0]).toBeDefined();
+    expect(baseParagraphRule?.[0]).not.toContain("text-indent");
   });
 
   test("includes CJK font fallback in body", () => {

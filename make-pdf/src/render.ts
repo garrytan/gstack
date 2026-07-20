@@ -128,7 +128,7 @@ export function render(opts: RenderOptions): RenderResult {
   // that already carry an id keep it — the ids array records the ACTUAL id
   // per heading so TOC entries always link to something real.
   const anchored = opts.toc ? addHeadingIds(typographicHtml) : { html: typographicHtml, ids: [] };
-  const anchoredHtml = anchored.html;
+  const anchoredHtml = wrapReferencesSection(anchored.html);
 
   const tocBlock = opts.toc
     ? buildTocBlock(anchoredHtml, anchored.ids)
@@ -366,6 +366,43 @@ function wrapChaptersByH1(html: string): string {
     chunks.push(`<section class="chapter">${html.slice(start, end)}</section>`);
   }
   return chunks.join("\n");
+}
+
+/**
+ * Wrap an APA-style "References" section in a `.references` container so
+ * print CSS can apply a hanging indent to each entry without touching
+ * ordinary body paragraphs. Detects an <h1> whose text is exactly
+ * "References" (case-insensitive) and wraps everything from there to the
+ * next <h1> (or end of document) in <div class="references">...</div>.
+ * The heading itself stays outside the wrapper so its own styling is
+ * unaffected. No-op if no such heading exists.
+ */
+function wrapReferencesSection(html: string): string {
+  const h1Re = /<h1\b[^>]*>([\s\S]*?)<\/h1>/gi;
+  let m: RegExpExecArray | null;
+  let headingStart = -1;
+  let headingEnd = -1;
+  while ((m = h1Re.exec(html)) !== null) {
+    const text = decodeTextEntities(stripTags(m[1])).trim().toLowerCase();
+    if (text === "references") {
+      headingStart = m.index;
+      headingEnd = m.index + m[0].length;
+      break;
+    }
+  }
+  if (headingStart === -1) return html;
+
+  // Find the next H1 after the References heading (end of section), or EOF.
+  const nextH1Re = /<h1\b[^>]*>/gi;
+  nextH1Re.lastIndex = headingEnd;
+  const next = nextH1Re.exec(html);
+  const sectionEnd = next ? next.index : html.length;
+
+  const before = html.slice(0, headingEnd);
+  const body = html.slice(headingEnd, sectionEnd);
+  const after = html.slice(sectionEnd);
+
+  return `${before}<div class="references">${body}</div>${after}`;
 }
 
 function extractFirstHeading(html: string): string | null {
