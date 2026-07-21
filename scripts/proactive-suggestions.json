@@ -169,8 +169,8 @@
       "voice_line": null
     },
     "open-gstack-browser": {
-      "lead": "Launch GStack Browser — AI-controlled Chromium with the sidebar extension baked in.",
-      "routing": "Opens a visible browser window where you can watch every action in real time.\nThe sidebar shows a live activity feed and chat. Anti-bot stealth built in.\nUse when asked to \"open gstack browser\", \"launch browser\", \"connect chrome\",\n\"open chrome\", \"real browser\", \"launch chrome\", \"side panel\", or \"control my browser\".",
+      "lead": "Launch GStack Browser — AI-controlled Chromium you can watch in real time.",
+      "routing": "Opens a visible browser window where you see every action as it happens.\nAnti-bot stealth built in.\nUse when asked to \"open gstack browser\", \"launch browser\", \"connect chrome\",\n\"open chrome\", \"real browser\", \"launch chrome\", or \"control my browser\".",
       "voice_line": "Voice triggers (speech-to-text aliases): \"show me the browser\"."
     },
     "pair-agent": {
