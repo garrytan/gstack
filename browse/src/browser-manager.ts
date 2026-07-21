@@ -45,6 +45,30 @@ export function isCustomChromium(): boolean {
 }
 
 /**
+ * Return the explicitly selected Chromium executable for both headless and
+ * headed launches. Keeping this opt-in preserves the managed browser fallback
+ * while allowing the lightweight playwright-core adapter to reuse a system or
+ * host-managed Chrome without downloading Playwright's browser package.
+ */
+export function configuredChromiumExecutable(
+  env: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  const value = env.GSTACK_CHROMIUM_PATH?.trim();
+  return value || undefined;
+}
+
+/** Installed-system Chromium is supported only for headless automation. */
+export function assertHeadedBrowserProvider(
+  env: NodeJS.ProcessEnv = process.env,
+): void {
+  if (env.GSTACK_BROWSER_PROVIDER === 'installed') {
+    throw new Error(
+      'Visible GStack Browser requires managed Chromium; installed Chrome-family browsers are headless-only',
+    );
+  }
+}
+
+/**
  * Decide whether Playwright should request Chromium's sandbox.
  *
  * Returns false on Windows (Bun→Node→Chromium chain breaks the sandbox,
@@ -361,6 +385,7 @@ export class BrowserManager {
     const { STEALTH_LAUNCH_ARGS, buildGStackLaunchArgs } = await import('./stealth');
     const launchArgs: string[] = [...STEALTH_LAUNCH_ARGS, ...buildGStackLaunchArgs()];
     let useHeadless = true;
+    const executablePath = configuredChromiumExecutable();
 
     // Docker/CI/root: Chromium sandbox requires unprivileged user namespaces which
     // are typically disabled in containers and are never available for the root
@@ -387,7 +412,11 @@ export class BrowserManager {
 
     this.browser = await chromium.launch({
       headless: useHeadless,
-      ...(useHeadless && managedHeadlessChannel() ? { channel: 'chromium' as const } : {}),
+      ...(executablePath
+        ? { executablePath }
+        : useHeadless && managedHeadlessChannel()
+          ? { channel: 'chromium' as const }
+          : {}),
       // On Windows, Chromium's sandbox fails when the server is spawned through
       // the Bun→Node process chain (GitHub #276). Disable it — local daemon
       // browsing user-specified URLs has marginal sandbox benefit. Also disabled
@@ -447,6 +476,7 @@ export class BrowserManager {
    * every action Claude takes in real time.
    */
   async launchHeaded(authToken?: string): Promise<void> {
+    assertHeadedBrowserProvider();
     // Clear old state before repopulating
     this.pages.clear();
     this.tabSessions.clear();
@@ -515,7 +545,7 @@ export class BrowserManager {
 
     // Support custom Chromium binary via GSTACK_CHROMIUM_PATH env var.
     // Used by GStack Browser.app to point at the bundled Chromium.
-    const executablePath = process.env.GSTACK_CHROMIUM_PATH || undefined;
+    const executablePath = configuredChromiumExecutable();
 
     // Rebrand Chromium → GStack Browser in macOS menu bar / Dock / Cmd+Tab.
     // Patch the Chromium .app's Info.plist so macOS shows our name.

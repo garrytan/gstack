@@ -34,6 +34,7 @@ describe("release and CI hardening", () => {
     });
     expect(pkg.files).toEqual(["bin/gstack", "runtime", "README.md", "LICENSE", "VERSION"]);
     expect(pkg.dependencies["puppeteer-core"]).toBeUndefined();
+    expect(pkg.dependencies.playwright).toBe("npm:playwright-core@^1.58.2");
   });
 
   test("runtime identity is aligned independently of the legacy four-slot release counter", () => {
@@ -53,6 +54,7 @@ describe("release and CI hardening", () => {
     expect(workflow).toContain("versions/current.json");
     expect(workflow).not.toContain('active="$GSTACK_HOME/versions/2.0.0"');
     expect(workflow).toContain(".gstack-runtime-browsers");
+    expect(workflow).toContain("--browser managed");
     // Exercise both the bundled browser and the explicit Chromium channel. Keep
     // this semantic: the workflow intentionally loops over launch options so a
     // harmless refactor does not invalidate release hardening.
@@ -68,6 +70,8 @@ describe("release and CI hardening", () => {
     expect(workflow).toContain("pathToFileURL(p).href");
     expect(workflow).toContain('path").join(process.env.GITHUB_WORKSPACE,".gstack-runtime-smoke.html")');
     expect(workflow).not.toContain("goto about:blank");
+    expect(read("scripts/gstack2/runtime-install-smoke.sh"))
+      .toContain('./setup --home "$HOME_DIR" --browser managed --install-now --yes --json');
     const manifest = read(".github/scripts/create-runtime-release-manifest.mjs");
     expect(manifest).toContain("bytes: stat.size");
     expect(manifest).toContain('certificateOidcIssuer: "https://token.actions.githubusercontent.com"');
@@ -85,6 +89,7 @@ describe("release and CI hardening", () => {
     const installer = read("runtime/install.js");
     expect(installer).toContain('entry("runtime")');
     expect(installer).toContain('entry(managedBunRelativePath(), "managed-bun", true)');
+    expect(installer).not.toContain('entry("node_modules/playwright-core")');
     const browser = read("browse/src/cli.ts");
     expect(browser).toContain("Every installed/compiled client must use the adjacent Node-compatible daemon");
     expect(browser).toContain("export function resolveServerLaunchTarget(");
@@ -93,8 +98,8 @@ describe("release and CI hardening", () => {
 
   test("Windows setup lane installs, doctors, and uninstalls rather than only building", () => {
     const workflow = read(".github/workflows/windows-setup-e2e.yml");
-    expect(workflow).toContain("--dry-run --capabilities browser");
-    expect(workflow).toContain("--install-now --yes --capabilities browser");
+    expect(workflow).toContain("--dry-run --capabilities browser --browser managed");
+    expect(workflow).toContain("--install-now --yes --capabilities browser --browser managed");
     expect(workflow).toContain("doctor --json");
     expect(workflow).toContain("runtime/cli.js uninstall");
   });

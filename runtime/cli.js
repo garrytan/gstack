@@ -9,10 +9,12 @@ import { setupRuntime } from "./setup.js";
 import {
   configGet,
   configSet,
+  configSetBrowserChoice,
   configSetNetworkChoice,
   parseConfigValue,
   secretSet,
 } from "./config.js";
+import { resolveBrowserChoice } from "./browser-choice.mjs";
 import { discoverProjectIdentity } from "./identity.js";
 import {
   beginRun,
@@ -172,12 +174,88 @@ async function configCommand({ args, home, cwd, stdout }) {
   if (action === "set") {
     const [key, value, ...rest] = tail;
     if (!key || value === undefined || rest.length) throw cliError("Usage: gstack config set <key> <value>", "USAGE");
+    if (key === "browser" || key.startsWith("browser.")) {
+      throw cliError(
+        "Browser selection is coherent state; use `gstack config browser managed`, `gstack config browser installed <absolute-path>`, or `gstack config browser clear`.",
+        "CONFIG_BROWSER_COMMAND_REQUIRED",
+      );
+    }
     await setupRuntime({ home, cwd });
     const result = await withOwnedRuntimeMutation(home, () => configSet(home, key, parseConfigValue(value)));
     write(stdout, `${key} = ${typeof result === "string" ? result : JSON.stringify(result)}\n`);
     return 0;
   }
-  throw cliError("Usage: gstack config get [key] | gstack config set <key> <value>", "USAGE");
+  if (action === "browser") {
+    const [provider, executablePath, ...rest] = tail;
+    if (rest.length || !["managed", "installed", "clear"].includes(provider) ||
+        (provider === "installed" ? !executablePath : executablePath != null)) {
+      throw cliError("Usage: gstack config browser managed | installed <absolute-executable-path> | clear", "USAGE");
+    }
+    await setupRuntime({ home, cwd });
+    const choice = provider === "clear"
+      ? null
+      : await resolveBrowserChoice({ provider, executablePath });
+    await assertBrowserChoiceCompatibleWithActiveRuntime(home, choice);
+    const result = await withOwnedRuntimeMutation(home, () => configSetBrowserChoice(home, choice));
+    write(stdout, provider === "clear"
+      ? "browser selection cleared\n"
+      : `browser = ${JSON.stringify(result)}\n`);
+    return 0;
+  }
+  throw cliError("Usage: gstack config get [key] | gstack config set <key> <value> | gstack config browser managed | installed <path> | clear", "USAGE");
+}
+
+async function activeRuntimeBrowserChoice(home) {
+  const paths = resolveRuntimePaths({ home });
+  const pointer = await readJson(paths.versionPointer, null);
+  if (typeof pointer?.current !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(pointer.current)) return null;
+  return runtimeBrowserChoiceAtPath(path.join(paths.versions, pointer.current));
+}
+
+async function runtimeBrowserChoiceAtPath(runtimePath) {
+  const manifest = await readJson(path.join(runtimePath, ".gstack-bundle.json"), null);
+  if (!manifest || typeof manifest !== "object") return null;
+  const selected = Array.isArray(manifest.selectedCapabilities) ? manifest.selectedCapabilities : [];
+  const components = Array.isArray(manifest.runtimeComponents) ? manifest.runtimeComponents : [];
+  if (!selected.includes("browser") && !selected.includes("browser-visible")) return null;
+  const explicit = manifest.browserChoice;
+  const provider = explicit?.provider ?? (
+    components.includes("browser-headless") || components.includes("browser-visible")
+      ? "managed"
+      : components.includes("browser-code")
+        ? "installed"
+        : null
+  );
+  return provider ? {
+    provider,
+    executablePath: provider === "installed" ? explicit?.executablePath ?? null : null,
+    visible: selected.includes("browser-visible"),
+  } : null;
+}
+
+async function assertBrowserChoiceCompatibleWithActiveRuntime(home, choice) {
+  if (!choice) return;
+  const active = await activeRuntimeBrowserChoice(home);
+  if (!active) return;
+  if (choice.provider !== active.provider) {
+    throw cliError(
+      `The active runtime was installed for ${active.provider} Chromium. Use the signed capability bootstrap to install a ${choice.provider} browser slot before switching providers.`,
+      "BROWSER_PROVIDER_SLOT_MISMATCH",
+    );
+  }
+  if (choice.provider === "installed" && active.visible) {
+    throw cliError("Visible GStack Browser is managed-only; install a managed browser slot before selecting it", "BROWSER_PROVIDER_UNSUPPORTED");
+  }
+}
+
+async function resolvedBrowserChoiceForRuntimePath(runtimePath) {
+  const choice = await runtimeBrowserChoiceAtPath(runtimePath);
+  if (!choice) return null;
+  if (choice.provider === "managed") return { provider: "managed", executablePath: null };
+  if (typeof choice.executablePath !== "string") {
+    throw cliError("The rollback slot does not record its installed browser executable", "BROWSER_PATH_REQUIRED");
+  }
+  return resolveBrowserChoice({ provider: "installed", executablePath: choice.executablePath });
 }
 
 async function stateCommand({ args, home, cwd, env, stdout, stderr }) {
@@ -549,7 +627,13 @@ async function upgradeCommand({ args, home, stdout, installOptions = {} }) {
   if (parsed.positionals.length) throw cliError("Upgrade accepts only named options", "USAGE");
   if (parsed.flags.has("--rollback")) {
     if (parsed.values.has("--source") || parsed.values.has("--version")) throw cliError("--rollback cannot be combined with staging options", "USAGE");
-    const pointer = await rollbackUpgrade(home);
+    let rollbackBrowserChoice = null;
+    const pointer = await rollbackUpgrade(home, {
+      healthCheck: async (fallbackPath) => {
+        rollbackBrowserChoice = await resolvedBrowserChoiceForRuntimePath(fallbackPath);
+      },
+    });
+    if (rollbackBrowserChoice) await configSetBrowserChoice(home, rollbackBrowserChoice);
     write(stdout, parsed.flags.has("--json") ? `${JSON.stringify(pointer, null, 2)}\n` : `Rolled back to ${pointer.current}\n`);
     return 0;
   }
@@ -558,10 +642,22 @@ async function upgradeCommand({ args, home, stdout, installOptions = {} }) {
   if (!sourceDir || !version) {
     throw cliError("Usage: gstack upgrade --source <complete-gstack-package> --version <version> | --rollback", "USAGE");
   }
+  let browserChoice;
+  if (installOptions.entries == null) {
+    const configuredBrowser = await configGet(home, "browser");
+    if (!configuredBrowser?.provider) {
+      throw cliError(
+        "Upgrade needs the browser choice that setup normally records. Run `gstack config browser managed` or `gstack config browser installed <absolute-path>` first.",
+        "BROWSER_CHOICE_REQUIRED",
+      );
+    }
+    browserChoice = await resolveBrowserChoice(configuredBrowser);
+  }
   const result = await installManagedRuntime({
     home,
     sourceDir,
     version,
+    ...(browserChoice ? { browserChoice } : {}),
     ...installOptions,
     buildMissing: false,
     rejectSourceRootLink: true,
@@ -712,6 +808,7 @@ function usage() {
     "  gstack runtime path <bundle-relative-path>\n" +
     "  gstack config get [key]\n" +
     "  gstack config set <key> <value>\n" +
+    "  gstack config browser managed|installed <absolute-path>|clear\n" +
     "  gstack state inspect [run-id]\n" +
     "  gstack state begin <workflow> [--run-id <id>] [--goal <goal>] [--plan <pointer>] [--stage <stage>] [--depth quick|standard|deep] [--mutation <authority>] [--modules <a,b>]\n" +
     "  gstack state update <run-id> [--plan <pointer>|--clear-plan] [--stage <stage>] [--depth quick|standard|deep] [--mutation <authority>] [--modules <a,b>] [--push-detour <goal>|--pop-detour]\n" +

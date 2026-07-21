@@ -7,7 +7,7 @@
 
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { startTestServer } from './test-server';
-import { BrowserManager } from '../src/browser-manager';
+import { BrowserManager, assertHeadedBrowserProvider, configuredChromiumExecutable } from '../src/browser-manager';
 import { resolveServerScript } from '../src/cli';
 import { handleReadCommand as _handleReadCommand, parseOutArgs, hasOutArg, resultToString } from '../src/read-commands';
 import { handleWriteCommand as _handleWriteCommand } from '../src/write-commands';
@@ -22,6 +22,25 @@ const handleReadCommand = (cmd: string, args: string[], b: BrowserManager) =>
   _handleReadCommand(cmd, args, b.getActiveSession());
 const handleWriteCommand = (cmd: string, args: string[], b: BrowserManager) =>
   _handleWriteCommand(cmd, args, b.getActiveSession(), b);
+
+describe('configuredChromiumExecutable', () => {
+  test('returns and trims an explicitly selected system browser', () => {
+    expect(configuredChromiumExecutable({
+      GSTACK_CHROMIUM_PATH: '  /Applications/Google Chrome.app/Contents/MacOS/Google Chrome  ',
+    })).toBe('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome');
+  });
+
+  test('keeps the managed-browser path when no override is selected', () => {
+    expect(configuredChromiumExecutable({})).toBeUndefined();
+    expect(configuredChromiumExecutable({ GSTACK_CHROMIUM_PATH: '   ' })).toBeUndefined();
+  });
+
+  test('rejects headed launch when setup selected an installed system browser', () => {
+    expect(() => assertHeadedBrowserProvider({ GSTACK_BROWSER_PROVIDER: 'installed' }))
+      .toThrow('Visible GStack Browser requires managed Chromium');
+    expect(() => assertHeadedBrowserProvider({ GSTACK_BROWSER_PROVIDER: 'managed' })).not.toThrow();
+  });
+});
 
 // ─── Pure arg-parser + result-conversion unit tests (no browser) ───
 describe('parseOutArgs / hasOutArg', () => {

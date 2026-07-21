@@ -5,6 +5,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { main as runtimeMain } from "../runtime/cli.js";
+import { configSetBrowserChoice } from "../runtime/config.js";
 import { summarizeRuntimeBundle } from "../scripts/gstack2/audit-runtime-bundle";
 import {
   DEFAULT_CAPABILITY_LAUNCHERS,
@@ -14,6 +15,7 @@ import {
   defaultBunBuilder,
   installManagedRuntime,
   normalizeManagedBrowserTree,
+  runInstallerCli,
   runtimeReleaseComponentForPath,
   runtimeNativePackagePaths,
   uninstallManagedRuntime,
@@ -28,6 +30,12 @@ const ENTRIES = [
   { path: "cap/tool", build: "fixture", executable: true },
 ];
 const CAPABILITIES = { "fixture-tool": "cap/tool" };
+const BROWSER_ENTRIES = [
+  { path: "runtime" },
+  { path: "bin/gstack", executable: true },
+  { path: "browse/dist/browse", build: "fixture", executable: true },
+];
+const BROWSER_CAPABILITIES = { browse: "browse/dist/browse" };
 const REPO_ROOT = path.resolve(import.meta.dir, "..");
 const FULL_RUNTIME_TEST_TIMEOUT_MS = process.platform === "win32" ? 120_000 : 30_000;
 
@@ -111,6 +119,185 @@ describe("GStack 2 managed runtime installer", () => {
       const launched = await runInstalledLauncher(home, "gstack", ["version"], { capture: true });
       expect(launched.stdout).toContain("gstack fixture");
     }, { createDefaultSource: false });
+  });
+
+  test("stable launchers inject the persisted installed-browser choice and honor clearing it", async () => {
+    await withFixture(async ({ source, home }) => {
+      await installFixture(source, home, "browser-config-launcher", {
+        entries: BROWSER_ENTRIES,
+        capabilities: BROWSER_CAPABILITIES,
+      });
+      const executable = await fs.realpath(process.execPath);
+      await configSetBrowserChoice(home, { provider: "installed", executablePath: executable });
+      const ambient = { ...process.env, GSTACK_CHROMIUM_PATH: path.join(home, "ambient-browser-must-not-win") };
+      const selected = await runInstalledLauncher(home, "browse", [], { capture: true, env: ambient });
+      expect(selected.stdout).toBe(executable);
+
+      await configSetBrowserChoice(home, { provider: "managed", executablePath: null });
+      await expect(runInstalledLauncher(home, "browse", [], { capture: true, env: ambient }))
+        .rejects.toThrow("Command failed");
+
+      await configSetBrowserChoice(home, null);
+      await expect(runInstalledLauncher(home, "browse", [], { capture: true, env: ambient }))
+        .rejects.toThrow("Command failed");
+    });
+  });
+
+  test("installed-browser launchers refuse visible commands before starting the browser binary", async () => {
+    await withFixture(async ({ source, home }) => {
+      const executable = await fs.realpath(process.execPath);
+      await installFixture(source, home, "installed-visible-refusal", {
+        entries: BROWSER_ENTRIES,
+        capabilities: BROWSER_CAPABILITIES,
+        browserChoice: { provider: "installed", executablePath: executable },
+      });
+      await configSetBrowserChoice(home, { provider: "installed", executablePath: executable });
+      await expect(runInstalledLauncher(home, "browse", ["connect"], { capture: true }))
+        .rejects.toMatchObject({ stderr: expect.stringContaining("Visible GStack Browser requires managed Chromium") });
+      await expect(runInstalledLauncher(home, "browse", ["pair-agent"], { capture: true }))
+        .rejects.toMatchObject({ stderr: expect.stringContaining("Visible GStack Browser requires managed Chromium") });
+      await expect(runInstalledLauncher(home, "browse", ["handoff"], { capture: true }))
+        .rejects.toMatchObject({ stderr: expect.stringContaining("Visible GStack Browser requires managed Chromium") });
+    });
+  });
+
+  test("design-only launchers do not require an unrelated browser selection", async () => {
+    await withFixture(async ({ source, home }) => {
+      const design = path.join(source, "design", "dist", "design");
+      await fs.mkdir(path.dirname(design), { recursive: true });
+      await fs.writeFile(design, "#!/bin/sh\nprintf 'design ready\\n'\n", { mode: 0o755 });
+      await installManagedRuntime({
+        sourceDir: source,
+        home,
+        version: "design-without-browser",
+        entries: [...ENTRIES, { path: "design/dist/design", build: "fixture", executable: true }],
+        capabilities: { ...CAPABILITIES, "gstack-design": "design/dist/design" },
+      });
+      await configSetBrowserChoice(home, null);
+      expect((await runInstalledLauncher(home, "gstack-design", [], { capture: true })).stdout)
+        .toContain("design ready");
+    });
+  });
+
+  test("browser config refuses a provider that does not match the active runtime slot", async () => {
+    await withFixture(async ({ source, home }) => {
+      const result = await installFixture(source, home, "installed-slot");
+      const manifestPath = path.join(result.path, ".gstack-bundle.json");
+      const manifest = await readJson(manifestPath);
+      await fs.writeFile(manifestPath, JSON.stringify({
+        ...manifest,
+        selectedCapabilities: ["browser"],
+        runtimeComponents: ["browser-code", "core"],
+        browserChoice: { provider: "installed", executablePath: process.execPath },
+      }));
+      const output = captureStream();
+      expect(await runtimeMain(["config", "browser", "managed"], {
+        cwd: source,
+        env: { ...process.env, GSTACK_HOME: home },
+        stdout: output.stream,
+        stderr: output.stream,
+      })).toBe(1);
+      expect(output.value()).toContain("active runtime was installed for installed Chromium");
+
+      const selected = captureStream();
+      expect(await runtimeMain(["config", "browser", "installed", process.execPath], {
+        cwd: source,
+        env: { ...process.env, GSTACK_HOME: home },
+        stdout: selected.stream,
+        stderr: selected.stream,
+      })).toBe(0);
+      expect((await readJson(path.join(home, "config.json"))).browser.provider).toBe("installed");
+    });
+  });
+
+  test("rollback validates a recorded installed browser before switching runtime slots", async () => {
+    await withFixture(async ({ root, source, home }) => {
+      const fallback = await installFixture(source, home, "installed-fallback");
+      const staleBrowser = path.join(root, "removed-chromium");
+      const fallbackManifestPath = path.join(fallback.path, ".gstack-bundle.json");
+      const fallbackManifest = await readJson(fallbackManifestPath);
+      await fs.writeFile(fallbackManifestPath, JSON.stringify({
+        ...fallbackManifest,
+        selectedCapabilities: ["browser"],
+        runtimeComponents: ["browser-code", "core"],
+        browserChoice: { provider: "installed", executablePath: staleBrowser },
+      }));
+
+      const current = await installFixture(source, home, "managed-current");
+      const currentManifestPath = path.join(current.path, ".gstack-bundle.json");
+      const currentManifest = await readJson(currentManifestPath);
+      await fs.writeFile(currentManifestPath, JSON.stringify({
+        ...currentManifest,
+        selectedCapabilities: ["browser"],
+        runtimeComponents: ["browser-headless", "core"],
+        browserChoice: { provider: "managed", executablePath: null },
+      }));
+      await configSetBrowserChoice(home, { provider: "managed", executablePath: null });
+
+      const output = captureStream();
+      expect(await runtimeMain(["upgrade", "--rollback"], {
+        cwd: source,
+        env: { ...process.env, GSTACK_HOME: home },
+        stdout: output.stream,
+        stderr: output.stream,
+      })).toBe(1);
+      expect(output.value()).toContain("unavailable or not executable");
+      expect((await readJson(path.join(home, "versions", "current.json"))).current).toBe("managed-current");
+      expect((await readJson(path.join(home, "config.json"))).browser)
+        .toEqual({ provider: "managed", executablePath: null });
+    });
+  });
+
+  test("an installed-browser setup persists the choice only after activation and launches through it", async () => {
+    await withFixture(async ({ root, source, home }) => {
+      await fs.writeFile(path.join(source, "cap", "tool"), `#!/usr/bin/env node
+process.stdout.write(process.env.GSTACK_CHROMIUM_PATH || "unset");
+`, { mode: 0o755 });
+      const executable = await fs.realpath(process.execPath);
+      const output = captureStream();
+      expect(await runInstallerCli([
+        "--source", source,
+        "--home", home,
+        "--capabilities", "browser",
+        "--browser", "installed",
+        "--browser-path", executable,
+        "--install-now",
+        "--yes",
+        "--json",
+      ], {
+        stdout: output.stream,
+        stderr: output.stream,
+        prepareDependencies: async () => {},
+        installOptions: { entries: BROWSER_ENTRIES, capabilities: BROWSER_CAPABILITIES },
+      })).toBe(0);
+      expect((await readJson(path.join(home, "config.json"))).browser)
+        .toEqual({ provider: "installed", executablePath: executable });
+      expect((await runInstalledLauncher(home, "browse", [], { capture: true })).stdout)
+        .toBe(executable);
+
+      const failedHome = path.join(root, "failed-home", ".gstack");
+      const failed = captureStream();
+      expect(await runInstallerCli([
+        "--source", source,
+        "--home", failedHome,
+        "--capabilities", "browser",
+        "--browser", "installed",
+        "--browser-path", executable,
+        "--install-now",
+        "--yes",
+        "--json",
+      ], {
+        stdout: failed.stream,
+        stderr: failed.stream,
+        prepareDependencies: async () => {},
+        installOptions: {
+          entries: BROWSER_ENTRIES,
+          capabilities: BROWSER_CAPABILITIES,
+          smokeTest: async () => { throw new Error("fixture smoke failure"); },
+        },
+      })).toBe(1);
+      expect(await exists(path.join(failedHome, "config.json"))).toBe(false);
+    });
   });
 
   test("accepts a symlink to the source root but rejects links inside the allowlist", async () => {
@@ -415,6 +602,13 @@ describe("GStack 2 managed runtime installer", () => {
             if (!browserRoot) throw new Error("fixture browser root missing");
             await fs.mkdir(path.join(browserRoot, "chromium-fixture"), { recursive: true });
             await fs.writeFile(path.join(browserRoot, "chromium-fixture", "chrome"), "fixture\n", { mode: 0o755 });
+            return { code: 0, stdout: "", stderr: "" };
+          }
+          const outfileIndex = args.indexOf("--outfile");
+          if (outfileIndex >= 0 && typeof args[outfileIndex + 1] === "string") {
+            const outfile = path.join(REPO_ROOT, args[outfileIndex + 1]);
+            await fs.mkdir(path.dirname(outfile), { recursive: true });
+            await fs.writeFile(outfile, "fixture runtime helper\n", { mode: 0o755 });
             return { code: 0, stdout: "", stderr: "" };
           }
           if (args[0] === "--version" && (command === process.execPath || command.includes(".gstack-runtime-tools"))) {
@@ -1095,15 +1289,20 @@ async function createSource(source: string) {
   await fs.mkdir(path.join(source, "runtime"), { recursive: true });
   await fs.mkdir(path.join(source, "bin"), { recursive: true });
   await fs.mkdir(path.join(source, "cap"), { recursive: true });
+  await fs.mkdir(path.join(source, "browse", "dist"), { recursive: true });
   await fs.writeFile(path.join(source, "package.json"), '{"name":"gstack","version":"2.0.0","type":"module"}\n');
   await fs.writeFile(path.join(source, "runtime", "cli.js"), fixtureCli(""));
   await fs.writeFile(path.join(source, "runtime", "tooling.js"),
     'export async function resolveBashCommand(env = process.env) { return env.GSTACK_BASH || "bash"; }\n');
+  await fs.copyFile(path.join(REPO_ROOT, "runtime", "browser-choice.mjs"), path.join(source, "runtime", "browser-choice.mjs"));
   await fs.writeFile(path.join(source, "bin", "gstack"), `#!/usr/bin/env node
 import { main } from "../runtime/cli.js";
 process.exitCode = await main(process.argv.slice(2));
 `, { mode: 0o755 });
   await fs.writeFile(path.join(source, "cap", "tool"), "#!/bin/sh\nprintf 'fixture capability %s\\n' \"$*\"\n", { mode: 0o755 });
+  await fs.writeFile(path.join(source, "browse", "dist", "browse"), `#!/usr/bin/env node
+process.stdout.write(process.env.GSTACK_CHROMIUM_PATH || "unset");
+`, { mode: 0o755 });
 }
 
 function fixtureCli(label: string) {

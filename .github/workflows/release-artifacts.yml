@@ -70,6 +70,7 @@ jobs:
             --version 2.0.0 \
             --install-now \
             --yes \
+            --browser managed \
             --capabilities "$CAPABILITIES"
           active_slot=$(node -e 'const fs=require("fs"),p=process.argv[1];const v=JSON.parse(fs.readFileSync(p,"utf8")).current;if(typeof v!=="string"||!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(v))process.exit(1);process.stdout.write(v)' "$GSTACK_HOME/versions/current.json")
           active="$GSTACK_HOME/versions/$active_slot"
@@ -199,6 +200,6 @@ jobs:
             --verify-tag \
             $PRERELEASE_FLAG \
             --title "GStack runtime $GITHUB_REF_NAME" \
-            --notes "Signed optional runtime artifacts for the six portable GStack skills." \
+            --notes "Signed optional runtime artifacts for the six portable GStack skills. This release adds an explicit managed-versus-installed Chromium consent gate before browser preview or installation." \
             release-output/*
         shell: bash

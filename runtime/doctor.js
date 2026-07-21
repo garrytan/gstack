@@ -10,6 +10,7 @@ import { RUNTIME_SCHEMA_VERSION, RUNTIME_MIGRATION_ID } from "./migrations.js";
 import { assertManagedHome } from "./managed-home.js";
 import { recoverPendingUpgrade } from "./upgrade.js";
 import { bashCandidates } from "./tooling.js";
+import { resolveBrowserChoice } from "./browser-choice.mjs";
 import {
   OPTIONAL_RUNTIME_CAPABILITIES,
   RUNTIME_CAPABILITY_DEPENDENCIES,
@@ -23,6 +24,7 @@ export async function runDoctor(options = {}) {
   const add = (id, status, message, details) => checks.push({ id, status, message, ...(details ? { details } : {}) });
   const now = options.now ? options.now() : new Date();
   const expectedSkillApi = options.expectedSkillApi ?? RUNTIME_COMPATIBILITY.skillApi;
+  let runtimeConfig = null;
   if (typeof expectedSkillApi !== "string" || !/^[0-9A-Za-z][0-9A-Za-z._-]{0,31}$/.test(expectedSkillApi)) {
     throw new TypeError("Expected skill API must be a short version identifier");
   }
@@ -51,12 +53,16 @@ export async function runDoctor(options = {}) {
   }
 
   try {
-    const config = await readJson(paths.config);
-    add("config", config?.schemaVersion <= RUNTIME_SCHEMA_VERSION ? "pass" : "fail",
-      `Config schema ${config?.schemaVersion ?? "unknown"}`);
-    const enabled = config?.network?.mode === "context" && config?.network?.consent === true;
+    runtimeConfig = await readJson(paths.config);
+    add("config", runtimeConfig?.schemaVersion <= RUNTIME_SCHEMA_VERSION ? "pass" : "fail",
+      `Config schema ${runtimeConfig?.schemaVersion ?? "unknown"}`);
+    const enabled = runtimeConfig?.network?.mode === "context" && runtimeConfig?.network?.consent === true;
     add("network", enabled ? "pass" : "warn",
       enabled ? "Context.dev network mode has explicit consent" : "Network access is off (safe default)");
+    const browserProvider = runtimeConfig?.browser?.provider;
+    add("browser-selection", browserProvider ? "pass" : "warn", browserProvider
+      ? `Browser provider explicitly selected: ${browserProvider}`
+      : "No browser provider selected; browser-backed skills will ask at first use");
   } catch (error) {
     add("config", "fail", `Config cannot be read: ${error.message}`);
   }
@@ -153,7 +159,16 @@ export async function runDoctor(options = {}) {
             continue;
           }
           if (capability === "browser") {
-            const browser = await inspectManagedChromium(activeRoot, options.nodeCommand ?? process.env.GSTACK_NODE ?? "node");
+            const browser = runtimeConfig?.browser?.provider === "installed"
+              ? await inspectInstalledChromium(
+                activeRoot,
+                options.nodeCommand ?? process.env.GSTACK_NODE ?? "node",
+                runtimeConfig.browser,
+                options,
+              )
+              : runtimeConfig?.browser?.provider === "managed"
+                ? await inspectManagedChromium(activeRoot, options.nodeCommand ?? process.env.GSTACK_NODE ?? "node")
+                : { ok: false, message: "browser capability is installed, but no browser provider was explicitly selected" };
             add(`capability:${capability}`, browser.ok ? "pass" : "fail", browser.message, browser.details);
             continue;
           }
@@ -252,6 +267,36 @@ async function inspectManagedChromium(activeRoot, nodeCommand) {
     return { ok: true, message: `managed headless Chromium ${version} launches and exits cleanly`, details: { browserRoot, version } };
   } catch (error) {
     return { ok: false, message: `managed Chromium is not runnable: ${error.message}` };
+  }
+}
+
+async function inspectInstalledChromium(activeRoot, nodeCommand, configured, options = {}) {
+  const modulePath = path.join(activeRoot, "node_modules", "playwright", "index.mjs");
+  const moduleStat = await fs.lstat(modulePath).catch(() => null);
+  if (!moduleStat?.isFile() || moduleStat.isSymbolicLink()) {
+    return { ok: false, message: "Playwright module for the installed-browser adapter is missing/unsafe" };
+  }
+  try {
+    const choice = await resolveBrowserChoice(configured, {
+      platform: options.platform,
+      env: options.env,
+      homeDir: options.homeDir,
+    });
+    const moduleUrl = pathToFileURL(modulePath).href;
+    const result = await captureCommand(nodeCommand, [
+      "--input-type=module",
+      "--eval",
+      `const { chromium } = await import(${JSON.stringify(moduleUrl)}); const browser = await chromium.launch({ headless: true, executablePath: ${JSON.stringify(choice.executablePath)} }); try { process.stdout.write(browser.version()); } finally { await browser.close(); }`,
+    ]);
+    const version = result.stdout.trim();
+    if (!version) return { ok: false, message: "installed Chromium launched without reporting a browser version" };
+    return {
+      ok: true,
+      message: `installed Chromium ${version} launches through the Playwright adapter and exits cleanly`,
+      details: { provider: "installed", executablePath: choice.executablePath, version },
+    };
+  } catch (error) {
+    return { ok: false, message: `installed Chromium is not runnable through the Playwright adapter: ${error.message}` };
   }
 }
 
