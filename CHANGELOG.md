@@ -1,5 +1,12 @@
 # Changelog
 
+> **GStack 2 draft in progress.** This branch (`codex/gstack-2`) is the working
+> draft of GStack 2 — not a released version. Current status is **BLOCKED**
+> pending live host-adversarial verification. See
+> [`docs/gstack-2/STATUS.md`](docs/gstack-2/STATUS.md) for the authoritative
+> completion state and remaining P0 gates. No version bump or release claim is
+> made here while that status holds.
+
 ## [1.60.1.0] - 2026-07-09
 
 ## **The /autoplan dual-voice eval is back on the board, catching real regressions.**
