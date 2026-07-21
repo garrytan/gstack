@@ -1049,6 +1049,10 @@ export function runtimeReleaseComponentForPath(value) {
     const relative = component.slice(browserRoot.length);
     if (relative === ".links" || relative.startsWith(".links/")) return null;
     const top = relative.split("/")[0];
+    // Playwright downloads winldd on Windows only to validate browser DLL
+    // dependencies during installation. It is not required to launch Chromium
+    // from the completed managed runtime, so keep it out of release artifacts.
+    if (/^winldd-\d/.test(top)) return null;
     if (top.startsWith("chromium_headless_shell-") || top.startsWith("ffmpeg-")) return "browser-headless";
     if (/^chromium-\d/.test(top)) return "browser-visible";
     throw installError(`Unknown managed browser payload path: ${component}`, "INSTALL_BROWSER_PAYLOAD_INVALID");

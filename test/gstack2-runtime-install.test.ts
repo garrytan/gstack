@@ -14,6 +14,7 @@ import {
   defaultBunBuilder,
   installManagedRuntime,
   normalizeManagedBrowserTree,
+  runtimeReleaseComponentForPath,
   runtimeNativePackagePaths,
   uninstallManagedRuntime,
   runCommand,
@@ -31,6 +32,16 @@ const REPO_ROOT = path.resolve(import.meta.dir, "..");
 const FULL_RUNTIME_TEST_TIMEOUT_MS = process.platform === "win32" ? 120_000 : 30_000;
 
 describe("GStack 2 managed runtime installer", () => {
+  test("release staging excludes Playwright bookkeeping and Windows dependency validators", () => {
+    expect(runtimeReleaseComponentForPath(".gstack-runtime-browsers/.links/example")).toBeNull();
+    expect(runtimeReleaseComponentForPath(".gstack-runtime-browsers/winldd-1007/DEPENDENCIES_VALIDATED")).toBeNull();
+    expect(runtimeReleaseComponentForPath(".gstack-runtime-browsers/winldd-1007/winldd.exe")).toBeNull();
+    expect(runtimeReleaseComponentForPath(".gstack-runtime-browsers/chromium_headless_shell-1208/chrome.exe"))
+      .toBe("browser-headless");
+    expect(() => runtimeReleaseComponentForPath(".gstack-runtime-browsers/unknown-1/payload"))
+      .toThrow("Unknown managed browser payload path");
+  });
+
   test("browser link normalization accepts internal macOS-style links and rejects escape graphs", async () => {
     if (process.platform === "win32") return;
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "gstack-browser-links-"));
