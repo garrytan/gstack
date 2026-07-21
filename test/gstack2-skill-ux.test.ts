@@ -76,19 +76,22 @@ describe('GStack 2 canonical skill UX', () => {
     for (const tree of TREE_NAMES) {
       const runtime = fs.readFileSync(path.join(ROOT, 'skills', tree, 'references', 'RUNTIME.md'), 'utf8');
       const bootstrap = fs.readFileSync(path.join(ROOT, 'skills', tree, 'references', 'support', 'runtime-bootstrap.mjs'));
+      const browserChoice = fs.readFileSync(path.join(ROOT, 'skills', tree, 'references', 'support', 'browser-choice.mjs'));
       const contract = JSON.parse(fs.readFileSync(path.join(ROOT, 'skills', tree, 'references', 'support', 'runtime-contract.json'), 'utf8'));
       const resultContract = JSON.parse(fs.readFileSync(path.join(ROOT, 'skills', tree, 'references', 'support', 'execution-result-contract.json'), 'utf8'));
       expect(bootstrap, tree).toEqual(source);
+      expect(browserChoice, tree).toEqual(fs.readFileSync(path.join(ROOT, 'runtime', 'browser-choice.mjs')));
       expect(contract, tree).toEqual({ schemaVersion: 1, runtimeVersion: '2.0.0', skillApi: '2.0' });
       expect(resultContract.properties.status.enum, tree).toEqual(['success', 'degraded', 'unsupported', 'failed']);
       expect(resultContract.allOf[0].then.properties.evidence.minItems, tree).toBe(1);
       expect(runtime, tree).toContain('preview --capability <name>');
       expect(runtime, tree).toContain('It never downloads components or mutates runtime state.');
-      expect(runtime, tree).toContain('install --capability <name> --yes');
+      expect(runtime, tree).toContain('options --capability <name>');
+      expect(runtime, tree).toContain('gstack config browser clear');
       expect(runtime, tree).toContain('Never run `./setup` inside a standard-installed skill directory');
       expect(runtime, tree).toContain('Deferring installation records no consent');
-      expect(runtime, tree).toContain('Logical `browser` expands to `browser-code + browser-headless`');
-      expect(runtime, tree).toContain('`browser-visible` expands to `browser-code + browser-visible` and does not require headless');
+      expect(runtime, tree).toContain('With managed Chromium, logical `browser` expands to `browser-code + browser-headless`');
+      expect(runtime, tree).toContain('Internal `browser-visible` expands to `browser-code + browser-visible` and is managed-only');
       expect(runtime, tree).toContain('`pdf` depends on `diagram`');
       expect(runtime, tree).toContain('`all` means those five and intentionally excludes visible Chromium');
       expect(runtime, tree).toContain('summed compressed bytes');
@@ -103,8 +106,8 @@ describe('GStack 2 canonical skill UX', () => {
     for (const source of ['open-gstack-browser', 'pair-agent', 'setup-browser-cookies']) {
       const body = fs.readFileSync(ownerModule(source), 'utf8');
       expect(body, source).toContain('## Visible-browser point-of-use gate');
-      expect(body, source).toContain('preview --capability browser-visible');
-      expect(body, source).toContain('install --capability browser-visible --yes');
+      expect(body, source).toContain('preview --capability browser-visible --browser managed');
+      expect(body, source).toContain('install --capability browser-visible --browser managed --yes');
       expect(body, source).toContain('never requires `browser-headless`');
     }
     expect(fs.readFileSync(ownerModule('browse'), 'utf8')).not.toContain('browser-visible');
@@ -142,7 +145,7 @@ describe('GStack 2 canonical skill UX', () => {
     let stdout = '';
     let stderr = '';
     const code = await module.main([
-      'install', '--source', source, '--capability', 'browser', '--home', home, '--yes',
+      'install', '--source', source, '--capability', 'browser', '--browser', 'managed', '--home', home, '--yes',
     ], {
       stdout: { write: (chunk: string) => { stdout += chunk; } },
       stderr: { write: (chunk: string) => { stderr += chunk; } },

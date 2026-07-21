@@ -5,10 +5,11 @@ GStack has two explicit version identities during the 2.0 migration:
 - `VERSION` and `package.json.version` are the repository/package release
   counter. They remain byte-equal and retain the existing four-slot format so
   the 1.x compatibility ship queue does not silently fail open.
-- `package.json.gstack.runtimeVersion`, `runtime/index.js`,
-  `runtime/install.js`, and every standards-installed bootstrap declare the
-  managed-runtime protocol release `2.0.0`. The official artifact tag and
-  manifest use that value.
+- `package.json.gstack.runtimeVersion`, `runtime/index.js`, and
+  `runtime/install.js` declare the managed-runtime protocol release `2.0.0`.
+  Each standards-installed bootstrap separately pins one immutable artifact
+  release tag. Candidate bootstraps use `v2.0.0-rc.N`; the manifest and bundle
+  remain runtime-compatible with `2.0.0`. Stable bootstraps use `v2.0.0`.
 
 They are intentionally different namespaces. CI fails if either identity
 drifts inside its own namespace.
@@ -24,6 +25,14 @@ linux-arm64   linux-x64   (glibc)
 windows-arm64 windows-x64
 ```
 
+Both `v2.0.0-rc.*` and `v2.0.0` tags use the same build, signing, manifest,
+attestation, and smoke path. RC tags publish GitHub prereleases so the exact
+fresh-machine production bootstrap can be exercised before the stable tag is
+created. Runtime compatibility and release-channel identity are deliberately
+separate: archive names and manifest `version` remain `2.0.0`, while URLs and
+Sigstore certificate identity bind to the immutable RC or stable tag that
+actually published them.
+
 Each archive has one `gstack/` root and no symlinks. CI records an exact byte
 count and SHA-256, signs the archive keylessly with Cosign, emits a Sigstore
 bundle, and also creates a GitHub build-provenance attestation. The release
@@ -31,7 +40,7 @@ manifest contains only official GitHub Release URLs and the fixed workflow
 certificate identity.
 
 Browser-capable archives include the Playwright-managed Chromium directory at
-`.gstack-runtime-browsers`. The builder runs `playwright install chromium`
+`.gstack-runtime-browsers`. The builder runs `playwright-core install chromium`
 only—never `--with-deps` or `sudo`—copies physical files into the immutable
 slot, and launch-smokes that exact Chromium on every native release runner.
 The stable capability launcher sets `PLAYWRIGHT_BROWSERS_PATH` to the active

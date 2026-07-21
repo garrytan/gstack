@@ -188,7 +188,7 @@ export function renderLegacyBody(source: string): string {
  */
 function portLegacyText(value: string, source: string): string {
   if (source === 'gstack-upgrade') {
-    return `# Legacy upgrade compatibility\n\nThe 1.x host-directory detector, vendored-copy synchronizer, and destructive Git replacement blocks were duplicated installation infrastructure. GStack 2 delegates skill placement and updates to the standard Agent Skills installer and manages the optional shared runtime atomically.\n\n- Update selected skills with \`npx skills add time-attack/gstack\` using the user's existing project/global choice. Never infer or enroll a host.\n- Upgrade a complete local runtime package with \`gstack upgrade --source <complete-gstack-package> --version <version>\`.\n- Roll back the runtime with \`gstack upgrade --rollback\`.\n- Run \`gstack doctor\` after either operation.\n- Do not reset, delete, move, or rewrite a host skill directory. Do not infer Context.dev choice or consent.\n\nThis compatibility module contains no specialist judgment; release readiness and rollback judgment remain in the preserved ship modules.\n`;
+    return `# Legacy upgrade compatibility\n\nThe 1.x host-directory detector, vendored-copy synchronizer, and destructive Git replacement blocks were duplicated installation infrastructure. GStack 2 delegates skill placement and updates to the standard Agent Skills installer and manages the optional shared runtime atomically.\n\n- Update selected skills with \`npx skills add time-attack/gstack/skills\` using the user's existing project/global choice. Never infer or enroll a host.\n- Upgrade a complete local runtime package with \`gstack upgrade --source <complete-gstack-package> --version <version>\`.\n- Roll back the runtime with \`gstack upgrade --rollback\`.\n- Run \`gstack doctor\` after either operation.\n- Do not reset, delete, move, or rewrite a host skill directory. Do not infer Context.dev choice or consent.\n\nThis compatibility module contains no specialist judgment; release readiness and rollback judgment remain in the preserved ship modules.\n`;
   }
   let body = value;
 
@@ -280,7 +280,7 @@ function portLegacyText(value: string, source: string): string {
     .replaceAll('$GSTACK_ROOT/lib/redact-audit-log.ts', '$GSTACK_BIN/gstack-redact-audit-log')
     .replaceAll('bun $GSTACK_BIN/gstack-redact-audit-log', '$GSTACK_BIN/gstack-redact-audit-log')
     .replaceAll('Disk paths stay `$GSTACK_ROOT/[skill-name]/SKILL.md`.', 'Resolve retired names through `references/COMPATIBILITY.md`; skill placement is installer-owned.')
-    .replaceAll('Tell the user: "Done. Each developer now runs: `cd $GSTACK_ROOT && ./setup --team`"', 'Tell the user: "Done. Each developer installs the selected canonical skills with `npx skills add time-attack/gstack`; the optional runtime remains user-scoped."');
+    .replaceAll('Tell the user: "Done. Each developer now runs: `cd $GSTACK_ROOT && ./setup --team`"', 'Tell the user: "Done. Each developer installs the selected canonical skills with `npx skills add time-attack/gstack/skills`; the optional runtime remains user-scoped."');
 
   body = body
     .replace(/_VENDORED="no"\nif \[ -d "\.agents\/skills\/gstack" \][\s\S]*?echo "VENDORED_GSTACK: \$_VENDORED"/g, '_VENDORED="managed-by-standard-installer"\necho "VENDORED_GSTACK: $_VENDORED"')
@@ -311,7 +311,8 @@ function portLegacyText(value: string, source: string): string {
     .replaceAll('bun run $GSTACK_BIN/gstack-next-version', '$GSTACK_BIN/gstack-next-version')
     .replaceAll('bun run $GSTACK_BIN/gstack-version-bump', '$GSTACK_BIN/gstack-version-bump')
     .replaceAll('DISCOVER_BIN="bun run $GSTACK_BIN/gstack-global-discover"', 'DISCOVER_BIN="$GSTACK_BIN/gstack-global-discover"')
-    .replaceAll('Tell the user: "gstack browse needs a one-time build (~10 seconds). OK to proceed?" Then STOP and wait.', 'Tell the user: "The optional managed headless browser capability is missing. Do you want to preview its exact dependency-closed component plan and compressed bytes now?" Then STOP and wait.')
+    .replaceAll('Tell the user: "gstack browse needs a one-time build (~10 seconds). OK to proceed?" Then STOP and wait.', 'Tell the user: "The browser-backed capability is not ready. Do you want to see the local setup options—GStack-managed Chromium or a detected installed Chromium executable—with no network access or changes?" Then STOP and wait.')
+    .replaceAll('Tell the user: "The optional managed headless browser capability is missing. Do you want to preview its exact dependency-closed component plan and compressed bytes now?" Then STOP and wait.', 'Tell the user: "The browser-backed capability is not ready. Do you want to see the local setup options—GStack-managed Chromium or a detected installed Chromium executable—with no network access or changes?" Then STOP and wait.')
     .replace(/^command -v bun >\/dev\/null 2>&1 \|\| echo "redaction scan skipped — bun not on PATH"\n/gm, '');
 
   body = body
@@ -430,7 +431,7 @@ export function renderPortedLegacyBody(source: string): string {
       '',
       'This workflow may require internal `browser-visible` because it reaches a headed browser, extension, interactive cookie picker, or browser handoff. Do not offer visible Chromium during ordinary headless QA.',
       '',
-      'At the first actual visible-browser step, ask whether the user wants to check official setup options and exact sizes. Disclose that an uncached preview makes one public GitHub signed-manifest request and sends no repository/private data, then STOP. Only after that approval run `node references/support/runtime-bootstrap.mjs preview --capability browser-visible`. It expands to `core + browser-code + browser-visible` for a first install, but an existing verified headless runtime downloads only missing `browser-visible`; it never requires `browser-headless`. Show the exact missing components and summed incremental compressed bytes, then STOP again for separate install approval. Only after install approval run `node references/support/runtime-bootstrap.mjs install --capability browser-visible --yes`, recheck readiness, and resume the interrupted step.',
+      'At the first actual visible-browser step, run the local-only `node references/support/runtime-bootstrap.mjs options --capability browser-visible`, explain that this extension-bearing flow requires managed Chromium because installed Chrome-family builds can block automation extension loading, and ask whether the user wants to check exact official sizes. Disclose that an uncached preview makes one public GitHub signed-manifest request and sends no repository/private data, then STOP. Only after approval run `node references/support/runtime-bootstrap.mjs preview --capability browser-visible --browser managed`. It expands to `core + browser-code + browser-visible` for a first install, but an existing verified headless runtime downloads only missing `browser-visible`; it never requires `browser-headless`. Show the exact missing components and summed incremental compressed bytes, then STOP again for separate install approval. Only after install approval run `node references/support/runtime-bootstrap.mjs install --capability browser-visible --browser managed --yes`, recheck readiness, and resume the interrupted step.',
       '',
       body,
     ].join('\n');

@@ -66,7 +66,7 @@ jobs:
           fc-match -f '%{family[0]}\t%{color}\n' ':lang=und-zsye:charset=1F600' || true
 
       - name: Install Playwright Chromium
-        run: bunx playwright install chromium
+        run: bunx playwright-core install chromium
 
       - name: Build binaries
         run: bun run build

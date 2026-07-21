@@ -35,7 +35,7 @@ Install with the standard Agent Skills installer; it owns host detection,
 scope, destination paths, updates, removal, and selected-skill installation:
 
 ```bash
-npx skills add time-attack/gstack
+npx skills add time-attack/gstack/skills
 ```
 
 That installs the six judgment skills. Install a subset with the installer's
@@ -87,7 +87,7 @@ extension, connector, MCP, settings entry, profile, alternate host, or browser
 runtime is configured without consent, and `./setup` is never a GStack 2
 browser setup command.
 
-Install through `npx skills add time-attack/gstack`; do not clone the repository
+Install through `npx skills add time-attack/gstack/skills`; do not clone the repository
 under `.agents/skills/gstack`. A standards installation exposes exactly one
 canonical QA skill at `.agents/skills/qa/SKILL.md`. The cloned compatibility
 tree contains legacy GStack 1 entry points and is not the GStack 2 install
@@ -96,7 +96,7 @@ surface.
 The npm package is deliberately not the skill installer and does not contain
 the six skill tree or compiled browser/design/PDF payloads. It is the small
 host-neutral runtime control/bootstrap surface used by release tooling. New
-users should install skills with `npx skills add time-attack/gstack`; optional
+users should install skills with `npx skills add time-attack/gstack/skills`; optional
 capabilities are downloaded by a skill after consent.
 
 Public web research is optional. Context.dev is the only new external service,
@@ -161,7 +161,7 @@ archive. It is not the GStack 2 installation or first-run path.
 ## Legacy 1.x host-specific install (compatibility only)
 
 Do not use this section for a new GStack 2 install. Use
-`npx skills add time-attack/gstack` above. These instructions remain while old
+`npx skills add time-attack/gstack/skills` above. These instructions remain while old
 commands are documented as opt-in aliases. They describe a 1.x release/tag:
 the current branch's `./setup` is runtime-only and will not perform the
 host-specific actions shown below.

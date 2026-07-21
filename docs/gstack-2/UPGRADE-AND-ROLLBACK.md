@@ -10,7 +10,7 @@ Install the canonical Agent Skills source, then use that installer's tracked
 source and lock metadata for discovery, updates, and removal:
 
 ```bash
-npx skills add time-attack/gstack
+npx skills add time-attack/gstack/skills
 npx skills update              # interactive scope
 npx skills update -p           # project installs only
 npx skills update -g           # global installs only

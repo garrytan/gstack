@@ -65,14 +65,14 @@ jobs:
       - name: Preview without mutating state
         run: |
           set -e
-          bash ./setup --dry-run --capabilities browser
+          bash ./setup --dry-run --capabilities browser --browser managed
           test ! -e "$GSTACK_HOME" || (echo "dry-run mutated GSTACK_HOME" && exit 1)
         shell: bash
 
       - name: Explicitly install the browser capability
         run: |
           set -e
-          bash ./setup --install-now --yes --capabilities browser
+          bash ./setup --install-now --yes --capabilities browser --browser managed
           test -f "$GSTACK_HOME/versions/current.json"
           test -f "$GSTACK_HOME/bin/gstack.cmd"
         shell: bash

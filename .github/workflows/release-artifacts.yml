@@ -2,7 +2,9 @@ name: Release runtime artifacts
 
 on:
   push:
-    tags: [v2.0.0]
+    tags:
+      - v2.0.0
+      - v2.0.0-rc.*
   workflow_dispatch:
 
 permissions:
@@ -51,8 +53,6 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22.23.1
-      - uses: sigstore/cosign-installer@d7543c93d881b35a8faa02e8e3605f69b7a1ce62 # v3.10.0
-
       - name: Install frozen dependencies
         run: bun install --frozen-lockfile --ignore-scripts
         shell: bash
@@ -70,6 +70,7 @@ jobs:
             --version 2.0.0 \
             --install-now \
             --yes \
+            --browser managed \
             --capabilities "$CAPABILITIES"
           active_slot=$(node -e 'const fs=require("fs"),p=process.argv[1];const v=JSON.parse(fs.readFileSync(p,"utf8")).current;if(typeof v!=="string"||!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(v))process.exit(1);process.stdout.write(v)' "$GSTACK_HOME/versions/current.json")
           active="$GSTACK_HOME/versions/$active_slot"
@@ -112,29 +113,25 @@ jobs:
               "$GSTACK_HOME/bin/browse" stop >/dev/null 2>&1 || true
           }
           trap browser_cleanup EXIT
+          smoke_url=$(node -e 'const fs=require("fs"),p=require("path").join(process.env.GITHUB_WORKSPACE,".gstack-runtime-smoke.html");fs.writeFileSync(p,"<!doctype html><title>GStack runtime smoke</title>\n");process.stdout.write(require("url").pathToFileURL(p).href)')
           PATH="$clean_path" GSTACK_NODE="$node_command" BROWSE_PARENT_PID=0 \
-            "$GSTACK_HOME/bin/browse" goto about:blank
+            "$GSTACK_HOME/bin/browse" goto "$smoke_url"
           PATH="$clean_path" GSTACK_NODE="$node_command" BROWSE_PARENT_PID=0 \
             "$GSTACK_HOME/bin/browse" status
           browser_cleanup
           trap - EXIT
           stage="$RUNNER_TEMP/runtime-components"
-          mkdir -p "$stage" "$GITHUB_WORKSPACE/release-output"
+          # GNU tar treats a Windows drive colon in an archive path as a
+          # remote-host separator. Keep archive output in Git Bash's POSIX view.
+          release_dir="$(pwd -P)/release-output"
+          mkdir -p "$stage" "$release_dir"
           node .github/scripts/stage-runtime-components.mjs "$active" "$stage"
           for component_dir in "$stage"/*; do
             test -d "$component_dir" || continue
             component=$(basename "$component_dir")
-            archive="$GITHUB_WORKSPACE/release-output/gstack-runtime-2.0.0-$TARGET-$component.tar.gz"
+            archive="$release_dir/gstack-runtime-2.0.0-$TARGET-$component.tar.gz"
             tar -czf "$archive" -C "$component_dir" gstack
             node -e 'const fs=require("fs"),c=require("crypto"),p=process.argv[1];const b=fs.readFileSync(p);fs.writeFileSync(p+".sha256",c.createHash("sha256").update(b).digest("hex")+"  "+require("path").basename(p)+"\n")' "$archive"
-          done
-        shell: bash
-
-      - name: Keyless-sign component archives
-        run: |
-          set -euo pipefail
-          for archive in release-output/*.tar.gz; do
-            cosign sign-blob --yes --bundle "$archive.sigstore.json" "$archive"
           done
         shell: bash
 
@@ -169,8 +166,16 @@ jobs:
           merge-multiple: true
       - uses: sigstore/cosign-installer@d7543c93d881b35a8faa02e8e3605f69b7a1ce62 # v3.10.0
 
+      - name: Keyless-sign component archives
+        run: |
+          set -euo pipefail
+          for archive in release-output/*.tar.gz; do
+            cosign sign-blob --yes --bundle "$archive.sigstore.json" "$archive"
+          done
+        shell: bash
+
       - name: Create strict six-target manifest
-        run: node .github/scripts/create-runtime-release-manifest.mjs release-output "$GITHUB_REPOSITORY" 2.0.0
+        run: node .github/scripts/create-runtime-release-manifest.mjs release-output "$GITHUB_REPOSITORY" 2.0.0 "$GITHUB_REF_NAME"
 
       - name: Checksum and keyless-sign manifest
         run: |
@@ -188,11 +193,13 @@ jobs:
       - name: Publish immutable release assets
         env:
           GH_TOKEN: ${{ github.token }}
+          PRERELEASE_FLAG: ${{ contains(github.ref_name, '-rc.') && '--prerelease' || '' }}
         run: |
           set -euo pipefail
           gh release create "$GITHUB_REF_NAME" \
             --verify-tag \
-            --title "GStack runtime 2.0.0" \
-            --notes "Signed optional runtime artifacts for the six portable GStack skills." \
+            $PRERELEASE_FLAG \
+            --title "GStack runtime $GITHUB_REF_NAME" \
+            --notes "Signed optional runtime artifacts for the six portable GStack skills. This release adds an explicit managed-versus-installed Chromium consent gate before browser preview or installation." \
             release-output/*
         shell: bash

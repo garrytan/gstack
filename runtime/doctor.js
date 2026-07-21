@@ -10,6 +10,7 @@ import { RUNTIME_SCHEMA_VERSION, RUNTIME_MIGRATION_ID } from "./migrations.js";
 import { assertManagedHome } from "./managed-home.js";
 import { recoverPendingUpgrade } from "./upgrade.js";
 import { bashCandidates } from "./tooling.js";
+import { resolveBrowserChoice } from "./browser-choice.mjs";
 import {
   OPTIONAL_RUNTIME_CAPABILITIES,
   RUNTIME_CAPABILITY_DEPENDENCIES,
@@ -31,6 +32,7 @@ export async function runDoctor(options = {}) {
   const add = (id, status, message, details) => checks.push({ id, status, message, ...(details ? { details } : {}) });
   const now = options.now ? options.now() : new Date();
   const expectedSkillApi = options.expectedSkillApi ?? RUNTIME_COMPATIBILITY.skillApi;
+  let runtimeConfig = null;
   if (typeof expectedSkillApi !== "string" || !/^[0-9A-Za-z][0-9A-Za-z._-]{0,31}$/.test(expectedSkillApi)) {
     throw new TypeError("Expected skill API must be a short version identifier");
   }
@@ -59,12 +61,16 @@ export async function runDoctor(options = {}) {
   }
 
   try {
-    const config = await readJson(paths.config);
-    add("config", config?.schemaVersion <= RUNTIME_SCHEMA_VERSION ? "pass" : "fail",
-      `Config schema ${config?.schemaVersion ?? "unknown"}`);
-    const enabled = config?.network?.mode === "context" && config?.network?.consent === true;
+    runtimeConfig = await readJson(paths.config);
+    add("config", runtimeConfig?.schemaVersion <= RUNTIME_SCHEMA_VERSION ? "pass" : "fail",
+      `Config schema ${runtimeConfig?.schemaVersion ?? "unknown"}`);
+    const enabled = runtimeConfig?.network?.mode === "context" && runtimeConfig?.network?.consent === true;
     add("network", enabled ? "pass" : "warn",
       enabled ? "Context.dev network mode has explicit consent" : "Network access is off (safe default)");
+    const browserProvider = runtimeConfig?.browser?.provider;
+    add("browser-selection", browserProvider ? "pass" : "warn", browserProvider
+      ? `Browser provider explicitly selected: ${browserProvider}`
+      : "No browser provider selected; browser-backed skills will ask at first use");
   } catch (error) {
     add("config", "fail", `Config cannot be read: ${error.message}`);
   }
@@ -145,7 +151,11 @@ export async function runDoctor(options = {}) {
         add("specialist-tool:python", python.ok ? "pass" : "warn", python.message, python.details);
         const selected = new Set(Array.isArray(manifest?.selectedCapabilities) ? manifest.selectedCapabilities : []);
         const launchers = manifest?.capabilities ?? {};
-        for (const capability of OPTIONAL_RUNTIME_CAPABILITIES) {
+        const capabilitiesToInspect = [
+          ...OPTIONAL_RUNTIME_CAPABILITIES,
+          ...(selected.has("browser-visible") ? ["browser-visible"] : []),
+        ];
+        for (const capability of capabilitiesToInspect) {
           if (!selected.has(capability)) {
             add(`capability:${capability}`, "warn", "not selected");
             continue;
@@ -160,8 +170,24 @@ export async function runDoctor(options = {}) {
             add(`capability:${capability}`, "fail", "selected but required launcher metadata is missing");
             continue;
           }
-          if (capability === "browser") {
-            const browser = await inspectManagedChromium(activeRoot, options.nodeCommand ?? process.env.GSTACK_NODE ?? "node");
+          if (capability === "browser" || capability === "browser-visible") {
+            const visible = capability === "browser-visible";
+            const browser = visible && runtimeConfig?.browser?.provider !== "managed"
+              ? { ok: false, message: "visible GStack Browser requires the managed Chromium provider" }
+              : runtimeConfig?.browser?.provider === "installed"
+              ? await inspectInstalledChromium(
+                activeRoot,
+                options.nodeCommand ?? process.env.GSTACK_NODE ?? "node",
+                runtimeConfig.browser,
+                options,
+              )
+              : runtimeConfig?.browser?.provider === "managed"
+                ? await inspectManagedChromium(
+                  activeRoot,
+                  options.nodeCommand ?? process.env.GSTACK_NODE ?? "node",
+                  { visible },
+                )
+                : { ok: false, message: "browser capability is installed, but no browser provider was explicitly selected" };
             add(`capability:${capability}`, browser.ok ? "pass" : "fail", browser.message, browser.details);
             continue;
           }
@@ -314,7 +340,7 @@ async function inspectPython(env) {
   return { ok: false, message: "Python 3 is absent; only specialist flows that explicitly request it are unavailable" };
 }
 
-async function inspectManagedChromium(activeRoot, nodeCommand) {
+async function inspectManagedChromium(activeRoot, nodeCommand, options = {}) {
   const browserRoot = path.join(activeRoot, ".gstack-runtime-browsers");
   const modulePath = path.join(activeRoot, "node_modules", "playwright", "index.mjs");
   const [browserStat, moduleStat] = await Promise.all([
@@ -329,13 +355,47 @@ async function inspectManagedChromium(activeRoot, nodeCommand) {
     const result = await captureCommand(nodeCommand, [
       "--input-type=module",
       "--eval",
-      `const { chromium } = await import(${JSON.stringify(moduleUrl)}); const browser = await chromium.launch({ headless: true }); try { process.stdout.write(browser.version()); } finally { await browser.close(); }`,
+      `const { chromium } = await import(${JSON.stringify(moduleUrl)}); const browser = await chromium.launch(${options.visible ? '{ headless: true, channel: "chromium" }' : "{ headless: true }"}); try { process.stdout.write(browser.version()); } finally { await browser.close(); }`,
     ], { env: { ...process.env, PLAYWRIGHT_BROWSERS_PATH: browserRoot } });
     const version = result.stdout.trim();
     if (!version) return { ok: false, message: "managed Chromium launched without reporting a browser version" };
-    return { ok: true, message: `managed headless Chromium ${version} launches and exits cleanly`, details: { browserRoot, version } };
+    return {
+      ok: true,
+      message: `managed ${options.visible ? "visible-capable" : "headless"} Chromium ${version} launches and exits cleanly`,
+      details: { browserRoot, version },
+    };
   } catch (error) {
     return { ok: false, message: `managed Chromium is not runnable: ${error.message}` };
+  }
+}
+
+async function inspectInstalledChromium(activeRoot, nodeCommand, configured, options = {}) {
+  const modulePath = path.join(activeRoot, "node_modules", "playwright", "index.mjs");
+  const moduleStat = await fs.lstat(modulePath).catch(() => null);
+  if (!moduleStat?.isFile() || moduleStat.isSymbolicLink()) {
+    return { ok: false, message: "Playwright module for the installed-browser adapter is missing/unsafe" };
+  }
+  try {
+    const choice = await resolveBrowserChoice(configured, {
+      platform: options.platform,
+      env: options.env,
+      homeDir: options.homeDir,
+    });
+    const moduleUrl = pathToFileURL(modulePath).href;
+    const result = await captureCommand(nodeCommand, [
+      "--input-type=module",
+      "--eval",
+      `const { chromium } = await import(${JSON.stringify(moduleUrl)}); const browser = await chromium.launch({ headless: true, executablePath: ${JSON.stringify(choice.executablePath)} }); try { process.stdout.write(browser.version()); } finally { await browser.close(); }`,
+    ]);
+    const version = result.stdout.trim();
+    if (!version) return { ok: false, message: "installed Chromium launched without reporting a browser version" };
+    return {
+      ok: true,
+      message: `installed Chromium ${version} launches through the Playwright adapter and exits cleanly`,
+      details: { provider: "installed", executablePath: choice.executablePath, version },
+    };
+  } catch (error) {
+    return { ok: false, message: `installed Chromium is not runnable through the Playwright adapter: ${error.message}` };
   }
 }
 
@@ -350,7 +410,7 @@ async function inspectXcrun() {
 }
 
 function capabilityLaunchersReady(capability, launchers) {
-  if (capability === "browser") return typeof launchers.browse === "string";
+  if (capability === "browser" || capability === "browser-visible") return typeof launchers.browse === "string";
   if (capability === "design") return typeof launchers["gstack-design"] === "string";
   if (capability === "pdf") return typeof launchers["make-pdf"] === "string";
   if (capability === "diagram") return true;

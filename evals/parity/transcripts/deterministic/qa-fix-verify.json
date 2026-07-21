@@ -57,18 +57,18 @@
         }
       },
       "mechanical_port": {
-        "rendered_sha256": "e7cd5615adaf54413daa97838cb364810317dd7d661cec5cc4ed40eb48192e55",
+        "rendered_sha256": "63135ad3f73ea195fffc535166396bbf66bc223378686670c6d7d362f80e5848",
         "differs_from_baseline": true,
         "allowed_difference": "Canonical GStack 2 carve: exclude the retired shared onboarding wrapper and host hook advisory; resolve retired invocations to six public routes; relocate host/runtime paths; lazy-load pinned carved sections from package-local references."
       },
       "candidate": {
         "target_path": "skills/qa/references/legacy/qa.md",
-        "rendered_legacy_body_sha256": "e7cd5615adaf54413daa97838cb364810317dd7d661cec5cc4ed40eb48192e55",
+        "rendered_legacy_body_sha256": "63135ad3f73ea195fffc535166396bbf66bc223378686670c6d7d362f80e5848",
         "semantic_signature": {
-          "normalized_sha256": "e7cd5615adaf54413daa97838cb364810317dd7d661cec5cc4ed40eb48192e55",
+          "normalized_sha256": "63135ad3f73ea195fffc535166396bbf66bc223378686670c6d7d362f80e5848",
           "headings_sha256": "dd0b56f79cee31c4c3c71f32fb0a4438f686c6ae517625a7d59475deecd4c75e",
           "questions_sha256": "8fece376011d8a8606bcd05d52332f77b56de551b7f1abde94bff1f33ef0a9c1",
-          "obligations_sha256": "c9a3696553c10b1338568d728f86f47c9a7a06b2defa37bd557c662d4a9086d8",
+          "obligations_sha256": "8c9e044c4224e4c35838d6ae9241405a5df42c2372c2ce272e0a11f37ab68c86",
           "heading_count": 58,
           "question_count": 6,
           "obligation_count": 65

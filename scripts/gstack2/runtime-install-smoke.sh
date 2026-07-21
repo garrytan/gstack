@@ -34,7 +34,7 @@ rm -f \
 
 (
   cd "$REPO"
-  ./setup --home "$HOME_DIR" --json
+  ./setup --home "$HOME_DIR" --browser managed --install-now --yes --json
 )
 
 # The optional runtime setup installs only its production/build closure. The

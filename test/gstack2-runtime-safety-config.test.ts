@@ -249,6 +249,25 @@ describe("one config authority", () => {
     expect(setup.stdout).toContain("optional runtime: unchanged");
   });
 
+  test("generic config writes cannot create an incoherent browser selection", async () => {
+    const base = await root();
+    const home = path.join(base, "state");
+    const project = path.join(base, "project");
+    await fs.mkdir(project);
+    const run = (args: string[]) => spawnSync(process.execPath, [gstackBin, ...args], {
+      cwd: project,
+      encoding: "utf8",
+      env: { ...process.env, GSTACK_HOME: home },
+    });
+
+    for (const key of ["browser", "browser.provider", "browser.executablePath"]) {
+      const result = run(["config", "set", key, "installed"]);
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("gstack config browser");
+    }
+    expect(await fs.stat(path.join(home, "config.json")).catch(() => null)).toBeNull();
+  });
+
   test("legacy YAML is read-only migration input and JSON takes authority on write", async () => {
     const home = path.join(await root(), "legacy");
     await fs.mkdir(home);

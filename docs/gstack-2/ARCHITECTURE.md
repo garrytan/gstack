@@ -85,7 +85,7 @@ judgment. This prevents an alias from drifting away from the canonical source.
 The standard Agent Skills tree is the unit of distribution:
 
 ```bash
-npx skills add time-attack/gstack
+npx skills add time-attack/gstack/skills
 ```
 
 The installer—not GStack—owns host detection, project/global scope, destination

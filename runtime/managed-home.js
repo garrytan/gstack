@@ -319,7 +319,7 @@ function validateTransactionPath(value) {
     throw managedHomeError("Invalid runtime transaction path", "RUNTIME_TRANSACTION_INVALID");
   }
   const normalized = value.replaceAll("\\", "/");
-  if (normalized === "runtime-install.json" || /^bin\/[A-Za-z0-9._-]+$/.test(normalized)) return normalized;
+  if (normalized === "config.json" || normalized === "runtime-install.json" || /^bin\/[A-Za-z0-9._-]+$/.test(normalized)) return normalized;
   throw managedHomeError(`Invalid runtime transaction path: ${value}`, "RUNTIME_TRANSACTION_INVALID");
 }
 

@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { atomicWriteJson, readJson, withLock } from "./storage.js";
 import { resolveRuntimePaths } from "./paths.js";
+import { BROWSER_PROVIDERS } from "./browser-choice.mjs";
 
 export const DEFAULT_CONFIG = Object.freeze({
   schemaVersion: 2,
@@ -10,6 +11,7 @@ export const DEFAULT_CONFIG = Object.freeze({
     baseUrl: "https://api.context.dev/v1",
     validation: Object.freeze({ status: "unverified", checkedAt: null }),
   }),
+  browser: Object.freeze({ provider: null, executablePath: null }),
   cleanup: Object.freeze({ retentionDays: 30 }),
 });
 
@@ -125,6 +127,18 @@ export async function configSetNetworkChoice(home, choice) {
   });
 }
 
+/** Persist one coherent browser-engine choice or clear it atomically. */
+export async function configSetBrowserChoice(home, choice) {
+  const normalized = choice == null
+    ? { provider: null, executablePath: null }
+    : { provider: choice.provider, executablePath: choice.executablePath ?? null };
+  validateBrowserChoice(normalized);
+  return updateConfig(home, (config) => {
+    config.browser = normalized;
+    return { ...config.browser };
+  });
+}
+
 async function updateConfig(home, mutate) {
   const paths = resolveRuntimePaths({ home });
   return withLock(path.join(paths.locks, "config.lock"), async () => {
@@ -211,6 +225,31 @@ function validateConfig(config) {
       throw new TypeError("context.validation.checkedAt must be an ISO timestamp or null");
     }
   }
+  validateBrowserChoice(config.browser ?? { provider: null, executablePath: null });
+}
+
+function validateBrowserChoice(browser) {
+  if (browser == null || typeof browser !== "object" || Array.isArray(browser)) {
+    throw new TypeError("browser must be an object");
+  }
+  const keys = Object.keys(browser).sort();
+  if (keys.join(",") !== "executablePath,provider") {
+    throw new TypeError("browser requires exactly provider and executablePath");
+  }
+  if (browser.provider == null) {
+    if (browser.executablePath != null) throw new TypeError("An unselected browser cannot have an executable path");
+    return;
+  }
+  if (!BROWSER_PROVIDERS.includes(browser.provider)) {
+    throw new TypeError("browser.provider must be `managed`, `installed`, or null");
+  }
+  if (browser.provider === "managed" && browser.executablePath != null) {
+    throw new TypeError("Managed Chromium cannot have an installed executable path");
+  }
+  if (browser.provider === "installed" &&
+      (typeof browser.executablePath !== "string" || !path.isAbsolute(browser.executablePath))) {
+    throw new TypeError("An installed browser requires an absolute executable path");
+  }
 }
 
 function cloneDefaultConfig() {
@@ -223,6 +262,7 @@ function mergeDefaults(stored) {
     ...stored,
     network: { ...DEFAULT_CONFIG.network, ...(stored.network ?? {}) },
     context: { ...DEFAULT_CONFIG.context, ...(stored.context ?? {}) },
+    browser: { ...DEFAULT_CONFIG.browser, ...(stored.browser ?? {}) },
     cleanup: { ...DEFAULT_CONFIG.cleanup, ...(stored.cleanup ?? {}) },
   };
 }

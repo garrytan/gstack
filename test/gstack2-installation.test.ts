@@ -29,6 +29,13 @@ afterEach(() => {
 });
 
 describe('GStack 2 standard installer surface', () => {
+  test('documents the canonical public subpath instead of the legacy-bearing repository root', () => {
+    for (const file of ['AGENTS.md', 'CLAUDE.md', 'README.md']) {
+      const content = fs.readFileSync(path.join(DEFAULT_REPO_ROOT, file), 'utf8');
+      expect(content, file).toContain('npx skills add time-attack/gstack/skills');
+    }
+  });
+
   test('publishes exactly six uniquely named canonical skills', () => {
     const result = inspectRepository(DEFAULT_REPO_ROOT);
 

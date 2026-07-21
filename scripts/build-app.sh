@@ -38,7 +38,7 @@ CHROMIUM_DIR=$(ls -d "$PW_CACHE"/chromium-*/chrome-mac-arm64 2>/dev/null | sort 
 
 if [ -z "$CHROMIUM_DIR" ]; then
   echo "ERROR: Playwright Chromium not found in $PW_CACHE"
-  echo "Run: bunx playwright install chromium"
+  echo "Run: bunx playwright-core install chromium"
   exit 1
 fi
 

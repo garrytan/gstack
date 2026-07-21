@@ -10,11 +10,22 @@ import { createHash } from "node:crypto";
 import { constants as fsConstants, createReadStream } from "node:fs";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import {
+  applyBrowserProviderToComponents,
+  assertBrowserChoiceSupportsCapabilities,
+  browserChoiceRequired,
+  detectInstalledBrowsers,
+  resolveBrowserChoice,
+} from "./browser-choice.mjs";
 
 export const BOOTSTRAP_SCHEMA_VERSION = 2;
 export const BOOTSTRAP_RUNTIME_VERSION = "2.0.0";
+// Keep the runtime compatibility version separate from the immutable release
+// channel. Release candidates carry the 2.0.0 runtime contract while letting
+// fresh-machine production journeys run before the stable v2.0.0 tag exists.
+export const BOOTSTRAP_RELEASE_TAG = "v2.0.0-rc.6";
 export const OFFICIAL_MANIFEST_URL =
-  `https://github.com/time-attack/gstack/releases/download/v${BOOTSTRAP_RUNTIME_VERSION}/gstack-runtime-manifest.json`;
+  `https://github.com/time-attack/gstack/releases/download/${BOOTSTRAP_RELEASE_TAG}/gstack-runtime-manifest.json`;
 const CAPABILITIES = new Set(["browser", "browser-visible", "design", "pdf", "diagram", "ios"]);
 const CAPABILITY_DEPENDENCIES = Object.freeze({
   browser: Object.freeze([]),
@@ -47,9 +58,9 @@ const ALLOWED_DOWNLOAD_HOSTS = new Set([
   "objects.githubusercontent.com",
   "release-assets.githubusercontent.com",
 ]);
-const OFFICIAL_RELEASE_PREFIX = `/time-attack/gstack/releases/download/v${BOOTSTRAP_RUNTIME_VERSION}/`;
+const OFFICIAL_RELEASE_PREFIX = `/time-attack/gstack/releases/download/${BOOTSTRAP_RELEASE_TAG}/`;
 const OFFICIAL_CERTIFICATE_IDENTITY =
-  `https://github.com/time-attack/gstack/.github/workflows/release-artifacts.yml@refs/tags/v${BOOTSTRAP_RUNTIME_VERSION}`;
+  `https://github.com/time-attack/gstack/.github/workflows/release-artifacts.yml@refs/tags/${BOOTSTRAP_RELEASE_TAG}`;
 const GITHUB_OIDC_ISSUER = "https://token.actions.githubusercontent.com";
 
 export async function main(argv = process.argv.slice(2), options = {}) {
@@ -63,22 +74,85 @@ export async function main(argv = process.argv.slice(2), options = {}) {
       io.stdout.write(usage());
       return 0;
     }
-    if (!["preview", "install"].includes(parsed.action)) {
-      throw bootstrapError("Expected `preview` or `install`", "BOOTSTRAP_USAGE");
+    if (!["options", "preview", "install"].includes(parsed.action)) {
+      throw bootstrapError("Expected `options`, `preview`, or `install`", "BOOTSTRAP_USAGE");
     }
 
     const platform = options.platform ?? process.platform;
     if (parsed.capabilities.includes("ios") && platform !== "darwin") {
       throw bootstrapError("The physical-iOS capability is available only on macOS", "BOOTSTRAP_PLATFORM_UNSUPPORTED");
     }
+    const requiresBrowser = browserChoiceRequired(parsed.capabilities);
+    if (parsed.action === "options") {
+      if (!requiresBrowser) {
+        throw bootstrapError("Browser options apply only to browser-backed capabilities", "BOOTSTRAP_USAGE");
+      }
+      const detected = await detectInstalledBrowsers({
+        platform,
+        env: options.env,
+        homeDir: options.homeDir,
+        candidates: options.browserCandidates,
+      });
+      const installedSupported = !parsed.capabilities.includes("browser-visible");
+      const installed = detected.map((browser) => ({
+        ...browser,
+        supported: installedSupported,
+        ...(installedSupported ? {} : { reason: "Visible GStack Browser requires managed Chromium for extension loading" }),
+      }));
+      const result = {
+        managed: {
+          provider: "managed",
+          description: "GStack-managed isolated Chromium; exact signed component bytes are shown by preview before consent",
+        },
+        installed,
+        mutated: false,
+        network: false,
+      };
+      if (parsed.json) io.stdout.write(`${JSON.stringify({ ok: true, action: "options", ...result }, null, 2)}\n`);
+      else printBrowserOptions(io.stdout, result);
+      return 0;
+    }
+    let browserChoice = null;
+    if (requiresBrowser) {
+      browserChoice = await resolveBrowserChoice({
+        provider: parsed.browserProvider,
+        executablePath: parsed.browserPath,
+      }, { platform, env: options.env, homeDir: options.homeDir });
+      assertBrowserChoiceSupportsCapabilities(browserChoice, parsed.capabilities);
+    } else if (parsed.browserProvider || parsed.browserPath) {
+      throw bootstrapError("Browser options require a browser-backed capability", "BOOTSTRAP_USAGE");
+    }
     if (parsed.source) {
+      const sourceHome = path.resolve(parsed.home ?? process.env.GSTACK_HOME ?? path.join(os.homedir(), ".gstack"));
+      const active = await inspectReusableRuntime(sourceHome, BOOTSTRAP_RUNTIME_VERSION).catch(() => null);
+      if (!browserChoice && active?.browserChoice) {
+        browserChoice = await resolveBrowserChoice(active.browserChoice, {
+          platform,
+          env: options.env,
+          homeDir: options.homeDir,
+        });
+      }
+      parsed.capabilities = mergeRetainedCapabilities(parsed.capabilities, active, browserChoice);
+      if (browserChoiceRequired(parsed.capabilities) && !browserChoice) {
+        throw bootstrapError(
+          "The active browser capability does not record a reusable browser provider; choose a browser provider before changing this runtime.",
+          "BOOTSTRAP_BROWSER_CHOICE_REQUIRED",
+        );
+      }
+      if (browserChoice) assertBrowserChoiceSupportsCapabilities(browserChoice, parsed.capabilities);
       if (parsed.action === "preview") {
         io.stdout.write("Reviewed-source fallback has no signed compressed-byte manifest; the local installer can provide an on-disk preview only.\n");
         return 0;
       }
       if (!parsed.yes) throw bootstrapError("Installation requires explicit --yes after review", "BOOTSTRAP_CONSENT_REQUIRED");
       io.stderr.write("Developer-only source install: only continue with a checkout you reviewed and trust.\n");
-      return await installFromSource(parsed.source, parsed, { ...options, ...io, prepared: false });
+      return await installFromSource(parsed.source, parsed, {
+        ...options,
+        ...io,
+        prepared: false,
+        replaceCapabilities: true,
+        browserChoice,
+      });
     }
 
     const fetch_ = options.fetch ?? globalThis.fetch;
@@ -90,11 +164,29 @@ export async function main(argv = process.argv.slice(2), options = {}) {
     );
     const manifestUrl = options.manifestUrl ?? OFFICIAL_MANIFEST_URL;
     assertOfficialUrl(manifestUrl, { manifest: true });
-    const manifest = await fetchJson(fetch_, manifestUrl);
+    const manifest = await fetchJson(fetch_, manifestUrl, {
+      official: manifestUrl === OFFICIAL_MANIFEST_URL,
+    });
     validateManifest(manifest, target);
     const home = path.resolve(parsed.home ?? process.env.GSTACK_HOME ?? path.join(os.homedir(), ".gstack"));
-    const reusable = await inspectReusableRuntime(home, manifest.version).catch(() => null);
-    const plan = buildComponentPlan(manifest, target, parsed.capabilities, reusable);
+    const active = await inspectReusableRuntime(home, manifest.version).catch(() => null);
+    const reusable = active?.releaseMatches ? active : null;
+    if (!browserChoice && active?.browserChoice) {
+      browserChoice = await resolveBrowserChoice(active.browserChoice, {
+        platform,
+        env: options.env,
+        homeDir: options.homeDir,
+      });
+    }
+    parsed.capabilities = mergeRetainedCapabilities(parsed.capabilities, active, browserChoice);
+    if (browserChoiceRequired(parsed.capabilities) && !browserChoice) {
+      throw bootstrapError(
+        "The active browser capability does not record a reusable browser provider; preview browser setup options before changing this runtime.",
+        "BOOTSTRAP_BROWSER_CHOICE_REQUIRED",
+      );
+    }
+    if (browserChoice) assertBrowserChoiceSupportsCapabilities(browserChoice, parsed.capabilities);
+    const plan = buildComponentPlan(manifest, target, parsed.capabilities, reusable, browserChoice);
     if (parsed.json) io.stdout.write(`${JSON.stringify({ ok: true, action: parsed.action, ...plan }, null, 2)}\n`);
     else printComponentPlan(io.stdout, plan);
     if (parsed.action === "preview") return 0;
@@ -117,7 +209,7 @@ export async function main(argv = process.argv.slice(2), options = {}) {
         await assertNoLinks(componentRoot);
         await mergeComponentRoot(componentRoot, root, claimedFiles, item.component);
       }
-      return await installFromSource(root, parsed, { ...options, ...io, prepared: true, version: manifest.version });
+      return await installFromSource(root, parsed, { ...options, ...io, prepared: true, version: manifest.version, browserChoice });
     } finally {
       await fs.rm(temporary, { recursive: true, force: true });
     }
@@ -128,23 +220,47 @@ export async function main(argv = process.argv.slice(2), options = {}) {
 }
 
 function parseArgs(argv) {
-  const result = { action: null, capabilities: [], source: null, home: null, yes: false, json: false, help: false };
+  const result = {
+    action: null,
+    capabilities: [],
+    source: null,
+    home: null,
+    browserProvider: null,
+    browserPath: null,
+    yes: false,
+    json: false,
+    help: false,
+  };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (["-h", "--help"].includes(arg)) result.help = true;
     else if (arg === "--yes") result.yes = true;
     else if (arg === "--json") result.json = true;
     else if (!result.action && !arg.startsWith("-")) result.action = arg;
-    else if (["--capability", "--source", "--home"].includes(arg)) {
+    else if (["--capability", "--source", "--home", "--browser", "--browser-path"].includes(arg)) {
       const value = argv[++index];
       if (!value || value.startsWith("--")) throw bootstrapError(`${arg} requires a value`, "BOOTSTRAP_USAGE");
       if (arg === "--capability") result.capabilities.push(value);
       else if (arg === "--source") result.source = value;
-      else result.home = value;
+      else if (arg === "--home") result.home = value;
+      else if (arg === "--browser") result.browserProvider = value;
+      else result.browserPath = value;
     } else throw bootstrapError(`Unknown option: ${arg}`, "BOOTSTRAP_USAGE");
   }
   if (result.help) return result;
   if (result.action === "preview" && result.yes) throw bootstrapError("preview cannot be combined with --yes", "BOOTSTRAP_USAGE");
+  if (result.action === "options" && (result.yes || result.source || result.browserProvider || result.browserPath)) {
+    throw bootstrapError("options cannot be combined with install or browser-selection flags", "BOOTSTRAP_USAGE");
+  }
+  if (result.browserProvider != null && !["managed", "installed"].includes(result.browserProvider)) {
+    throw bootstrapError("--browser must be `managed` or `installed`", "BOOTSTRAP_USAGE");
+  }
+  if (result.browserProvider === "managed" && result.browserPath != null) {
+    throw bootstrapError("--browser-path is valid only with `--browser installed`", "BOOTSTRAP_USAGE");
+  }
+  if (result.browserPath != null && result.browserProvider !== "installed") {
+    throw bootstrapError("--browser-path requires `--browser installed`", "BOOTSTRAP_USAGE");
+  }
   if (!result.capabilities.length) throw bootstrapError("At least one --capability is required", "BOOTSTRAP_USAGE");
   result.capabilities = [...new Set(result.capabilities)].sort();
   for (const capability of result.capabilities) {
@@ -206,7 +322,7 @@ function sameGraph(actual, expected) {
   return JSON.stringify(normalize(actual)) === JSON.stringify(normalize(expected));
 }
 
-function selectedComponents(capabilities) {
+function selectedComponents(capabilities, browserChoice) {
   const selected = new Set(["core"]);
   for (const capability of capabilities) {
     for (const component of CAPABILITY_COMPONENTS[capability] ?? []) selected.add(component);
@@ -220,11 +336,29 @@ function selectedComponents(capabilities) {
       }
     }
   }
+  return applyBrowserProviderToComponents([...selected], browserChoice);
+}
+
+function mergeRetainedCapabilities(requested, reusable, browserChoice) {
+  const selected = new Set([
+    ...(Array.isArray(reusable?.selectedCapabilities) ? reusable.selectedCapabilities : []),
+    ...requested,
+  ]);
+  if (browserChoice?.provider === "installed") selected.delete("browser-visible");
+  const pending = [...selected];
+  while (pending.length) {
+    for (const dependency of CAPABILITY_DEPENDENCIES[pending.pop()] ?? []) {
+      if (!selected.has(dependency)) {
+        selected.add(dependency);
+        pending.push(dependency);
+      }
+    }
+  }
   return [...selected].sort();
 }
 
-function buildComponentPlan(manifest, target, capabilities, reusable) {
-  const components = selectedComponents(capabilities);
+function buildComponentPlan(manifest, target, capabilities, reusable, browserChoice) {
+  const components = selectedComponents(capabilities, browserChoice);
   const retained = new Set(reusable?.components ?? []);
   const downloads = components
     .filter((component) => !retained.has(component))
@@ -234,6 +368,7 @@ function buildComponentPlan(manifest, target, capabilities, reusable) {
     target,
     version: manifest.version,
     capabilities,
+    browser: browserChoice,
     components,
     reusedComponents: components.filter((component) => retained.has(component)),
     downloads,
@@ -244,6 +379,11 @@ function buildComponentPlan(manifest, target, capabilities, reusable) {
 function printComponentPlan(stdout, plan) {
   stdout.write(`GStack optional runtime ${plan.version} for ${plan.target}\n`);
   stdout.write(`Capabilities: ${plan.capabilities.join(", ")}\n`);
+  if (plan.browser?.provider === "installed") {
+    stdout.write(`Browser: installed Chromium at ${plan.browser.executablePath}; isolated automation profile, no Chromium download\n`);
+  } else if (plan.browser?.provider === "managed") {
+    stdout.write("Browser: managed isolated Chromium\n");
+  }
   stdout.write(`Components: ${plan.components.join(", ")}\n`);
   if (plan.reusedComponents.length) stdout.write(`Reusing: ${plan.reusedComponents.join(", ")}\n`);
   stdout.write(`Download: ${plan.downloadBytes} bytes across ${plan.downloads.length} component(s)\n`);
@@ -258,10 +398,31 @@ async function inspectReusableRuntime(home, version) {
   const stat = await fs.lstat(root);
   if (!stat.isDirectory() || stat.isSymbolicLink()) return null;
   const bundle = JSON.parse(await fs.readFile(path.join(root, ".gstack-bundle.json"), "utf8"));
-  if (bundle?.schemaVersion !== 2 || bundle?.version !== version || !Array.isArray(bundle.runtimeComponents) ||
+  const releaseMatches = bundle?.version === version ||
+    (typeof bundle?.version === "string" && bundle.version.startsWith(`${version}-caps-`));
+  if (bundle?.schemaVersion !== 2 || typeof bundle.version !== "string" ||
+      !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(bundle.version) || !Array.isArray(bundle.runtimeComponents) ||
       !Array.isArray(bundle.files)) return null;
   const components = [...new Set(bundle.runtimeComponents)];
   if (!components.length || components.some((component) => !Object.hasOwn(COMPONENT_DEPENDENCIES, component))) return null;
+  const selectedCapabilities = Array.isArray(bundle.selectedCapabilities)
+    ? [...new Set(bundle.selectedCapabilities)]
+    : [];
+  if (selectedCapabilities.some((capability) => !CAPABILITIES.has(capability))) return null;
+  let browserChoice = null;
+  if (browserChoiceRequired(selectedCapabilities)) {
+    const explicit = bundle.browserChoice;
+    if (!explicit || !["managed", "installed"].includes(explicit.provider)) return null;
+    if (explicit.provider === "installed") {
+      if (selectedCapabilities.includes("browser-visible") ||
+          typeof explicit.executablePath !== "string" || !path.isAbsolute(explicit.executablePath) ||
+          components.includes("browser-headless") || components.includes("browser-visible")) return null;
+      browserChoice = { provider: "installed", executablePath: explicit.executablePath };
+    } else {
+      if (!components.includes("browser-headless") && !components.includes("browser-visible")) return null;
+      browserChoice = { provider: "managed", executablePath: null };
+    }
+  }
   await assertNoLinks(root);
   const files = [];
   const seen = new Set();
@@ -277,7 +438,7 @@ async function inspectReusableRuntime(home, version) {
         await sha256File(file) !== entry.sha256) return null;
     files.push(relative);
   }
-  return { root, components, files };
+  return { root, components, files, selectedCapabilities, browserChoice, releaseMatches };
 }
 
 async function seedReusableRuntime(reusable, destination, claimedFiles) {
@@ -300,10 +461,18 @@ function sha256File(file) {
   });
 }
 
-async function fetchJson(fetch_, url) {
+async function fetchJson(fetch_, url, options = {}) {
   const response = await fetch_(url, { headers: { Accept: "application/json" }, redirect: "follow" });
   assertFinalDownloadUrl(response.url || url);
-  if (!response.ok) throw bootstrapError(`Download failed with HTTP ${response.status}`, "BOOTSTRAP_DOWNLOAD_FAILED");
+  if (!response.ok) {
+    if (options.official && response.status === 404) {
+      throw bootstrapError(
+        `Official runtime release ${BOOTSTRAP_RELEASE_TAG} is not published at ${url}. No files were downloaded or installed.`,
+        "BOOTSTRAP_RELEASE_UNAVAILABLE",
+      );
+    }
+    throw bootstrapError(`Manifest download failed with HTTP ${response.status} from ${url}. No files were downloaded or installed.`, "BOOTSTRAP_DOWNLOAD_FAILED");
+  }
   const value = await response.json();
   if (!value || typeof value !== "object") throw bootstrapError("Manifest returned invalid JSON", "BOOTSTRAP_MANIFEST_INVALID");
   return value;
@@ -398,9 +567,14 @@ async function installFromSource(source, parsed, options) {
   const stat = await fs.lstat(installer).catch(() => null);
   if (!stat?.isFile() || stat.isSymbolicLink()) throw bootstrapError("Source does not contain a safe runtime installer", "BOOTSTRAP_SOURCE_INVALID");
   const args = [installer, "--source", physical, "--install-now", "--yes", "--capabilities", parsed.capabilities.join(",")];
+  if (options.browserChoice) {
+    args.push("--browser", options.browserChoice.provider);
+    if (options.browserChoice.executablePath) args.push("--browser-path", options.browserChoice.executablePath);
+  }
   if (parsed.home) args.push("--home", path.resolve(parsed.home));
   if (options.version) args.push("--version", options.version);
   if (options.prepared) args.push("--prepared");
+  if (options.prepared || options.replaceCapabilities) args.push("--replace-capabilities");
   await run(options.nodeCommand ?? process.execPath, args);
   options.stdout.write(`Installed optional capabilities: ${parsed.capabilities.join(", ")}. No coding host was enrolled.\n`);
   return 0;
@@ -521,10 +695,22 @@ function formatBytes(bytes) {
 }
 
 function usage() {
-  return "Usage: node runtime-bootstrap.mjs install --capability <name> [--capability <name>...]\n" +
-    "       node runtime-bootstrap.mjs install --source <reviewed-checkout> --capability <name>\n\n" +
+  return "Usage: node runtime-bootstrap.mjs options --capability <browser-backed-name>\n" +
+    "       node runtime-bootstrap.mjs preview|install --capability <name> [--capability <name>...]\n" +
+    "              --browser managed|installed [--browser-path <absolute-path>] [--yes]\n" +
+    "       node runtime-bootstrap.mjs install --source <reviewed-checkout> --capability <name> --browser <choice>\n\n" +
     "Downloads only a versioned official GStack runtime release and never enrolls a coding host.\n" +
     "--source is a developer-only fallback for a checkout you have reviewed and trust.\n";
+}
+
+function printBrowserOptions(stdout, result) {
+  stdout.write("GStack browser setup options (no network access and no changes made)\n");
+  stdout.write(`managed: ${result.managed.description}\n`);
+  if (!result.installed.length) stdout.write("installed: no supported Chromium executable detected; an absolute path may be supplied explicitly\n");
+  for (const browser of result.installed) stdout.write(browser.supported
+    ? `installed: ${browser.name} — ${browser.executablePath}\n`
+    : `installed (unavailable for this capability): ${browser.name} — ${browser.executablePath}; ${browser.reason}\n`);
+  stdout.write("No provider is selected until the user chooses one and separately approves the previewed install.\n");
 }
 
 async function isDirectExecution() {

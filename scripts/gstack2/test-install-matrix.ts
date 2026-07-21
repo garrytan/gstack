@@ -438,6 +438,15 @@ function verifyInstalledCase(
   const installedSkills = listInstalledSkills(targetRoot);
   const sortedExpected = [...expectedSkills].sort();
   record(checks, `${id}.command`, command.exitCode === 0, `exit=${command.exitCode}; signal=${command.signal ?? 'none'}`);
+  if (sourceSkillSegments.length === 1 && sourceSkillSegments[0] === 'skills') {
+    const reported = Number(stripTerminalControls(command.stdout).match(/Found\s+(\d+)\s+skills?/)?.[1]);
+    record(
+      checks,
+      `${id}.public-discovery-count`,
+      reported === PUBLIC_SKILLS.length,
+      `expected installer to report 6 public skills; found ${Number.isFinite(reported) ? reported : '(unparsed)'}`,
+    );
+  }
   record(
     checks,
     `${id}.selected-skills`,
@@ -595,10 +604,10 @@ export function runFullMatrix(options: FullMatrixOptions): InstallMatrixEvidence
     const supportsRemoval = /remove\s+\[skills\]/.test(helpCommand.stdout) && /Remove Options/.test(helpCommand.stdout);
 
     const discoveryCommand = execute(
-      // Exercise the repository root exactly as the documented
-      // `npx skills add time-attack/gstack` path will after checkout. The
-      // curated projection alone could hide stray root-level SKILL.md files.
-      skillsCliArgv(npxExecutable, ['add', repoRoot, '--list']),
+      // Exercise the documented public source directly. The repository root
+      // also contains opt-in 1.x compatibility aliases; skills@1.5.19 counts
+      // those internal entries before applying an explicit --skill filter.
+      skillsCliArgv(npxExecutable, ['add', path.join(repoRoot, 'skills'), '--list']),
       controlProject,
       controlEnv,
     );
@@ -626,7 +635,7 @@ export function runFullMatrix(options: FullMatrixOptions): InstallMatrixEvidence
           entry,
           scope,
           sourceKind,
-          sourceArgument: sourceKind === 'source-symlink' ? sourceLink : sourceRoot,
+          sourceArgument: path.join(sourceKind === 'source-symlink' ? sourceLink : sourceRoot, 'skills'),
           sourceRoot,
           expectedSkills: PUBLIC_SKILLS,
           explicitSelection: false,
@@ -643,7 +652,7 @@ export function runFullMatrix(options: FullMatrixOptions): InstallMatrixEvidence
       entry: cursor,
       scope: 'project',
       sourceKind: 'repository-root',
-      sourceArgument: repoRoot,
+      sourceArgument: path.join(repoRoot, 'skills'),
       sourceRoot: repoRoot,
       expectedSkills: COLLISION_SKILLS,
       explicitSelection: true,
@@ -659,7 +668,7 @@ export function runFullMatrix(options: FullMatrixOptions): InstallMatrixEvidence
       entry: codex,
       scope: 'global',
       sourceKind: 'path-with-spaces',
-      sourceArgument: sourceRoot,
+      sourceArgument: path.join(sourceRoot, 'skills'),
       sourceRoot,
       expectedSkills: COLLISION_SKILLS,
       explicitSelection: true,
@@ -675,7 +684,7 @@ export function runFullMatrix(options: FullMatrixOptions): InstallMatrixEvidence
       entry: openclaw,
       scope: 'project',
       sourceKind: 'path-with-spaces',
-      sourceArgument: sourceRoot,
+      sourceArgument: path.join(sourceRoot, 'skills'),
       sourceRoot,
       expectedSkills: ['ship'],
       explicitSelection: true,
@@ -747,7 +756,7 @@ export function runFullMatrix(options: FullMatrixOptions): InstallMatrixEvidence
       platform: process.platform,
       architecture: process.arch,
       repositoryRoot: repoRoot,
-    sourceProjection: 'repository-root-and-canonical-projection',
+    sourceProjection: 'canonical-skills-subpath-and-opt-in-compatibility-root',
       cli: {
         executable: npxExecutable,
         version,

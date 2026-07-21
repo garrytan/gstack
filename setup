@@ -25,17 +25,18 @@ for arg in "$@"; do
     -h|--help)
       printf '%s\n' \
         'Usage: ./setup [--capabilities <list>] [--replace-capabilities] [--dry-run|--install-now [--yes]|--install-later]' \
+        '               [--browser managed|installed [--browser-path <absolute-path>]]' \
         '               [--home <path>] [--version <version>] [--json] [--quiet]' \
         '' \
         'Optional capabilities: browser, design, pdf, diagram, ios (iOS is macOS-only).' \
         'Without --install-now, non-interactive use previews and installs nothing.' \
         '--dry-run and --install-later never modify runtime state or host setup.' \
         'Installs only the optional host-neutral runtime and selected local capabilities.' \
-        'Skills are installed separately with: npx skills add time-attack/gstack'
+        'Skills are installed separately with: npx skills add time-attack/gstack/skills'
       exit 0
       ;;
     --local|--team|--no-team)
-      echo "gstack setup: $arg is deprecated; skill placement is delegated to: npx skills add time-attack/gstack" >&2
+      echo "gstack setup: $arg is deprecated; skill placement is delegated to: npx skills add time-attack/gstack/skills" >&2
       ;;
     *) ARGS+=("$arg") ;;
   esac
@@ -45,7 +46,7 @@ NODE_COMMAND="${GSTACK_NODE:-node}"
 if ! command -v "$NODE_COMMAND" >/dev/null 2>&1; then
   echo "gstack setup: Node 18+ is required by the managed runtime launchers." >&2
   echo "Install Node from https://nodejs.org, or install judgment-only skills with:" >&2
-  echo "  npx skills add time-attack/gstack" >&2
+  echo "  npx skills add time-attack/gstack/skills" >&2
   exit 1
 fi
 

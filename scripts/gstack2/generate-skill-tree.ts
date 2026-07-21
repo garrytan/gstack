@@ -386,7 +386,7 @@ Print this replacement invocation, then dispatch to it exactly:
 
 \`${assignment.replacement}\`
 
-Do not reproduce or summarize the retired specialist here. The canonical dispatcher must load its preserved \`${assignment.source}\` module. If that dispatcher is not installed, tell the user to install it with \`npx skills add time-attack/gstack --skill ${assignment.tree}\`.
+Do not reproduce or summarize the retired specialist here. The canonical dispatcher must load its preserved \`${assignment.source}\` module. If that dispatcher is not installed, tell the user to install it with \`npx skills add time-attack/gstack/skills --skill ${assignment.tree}\`.
 `);
     rows.push(`| \`/${assignment.source}\` | \`${assignment.replacement}\` | \`skills/${assignment.tree}/references/legacy/${assignment.source}.md\` |`);
     aliases.push({
@@ -485,7 +485,7 @@ function webContextContract(): string {
     '',
     'Persist only the explicit choice with `gstack context select host`, `gstack context select local-browser`, or `gstack context select none`. For Context.dev, show `gstack context options`, then use `gstack context setup` and its hidden key prompt; consent and key storage belong to the runtime, never this judgment prompt. Do not infer Context choice or consent.',
     '',
-    'Capability-dependent work follows `references/RUNTIME.md`. Pure judgment never requires the runtime. Skill placement remains owned by `npx skills add time-attack/gstack` and is never inferred from runtime state.',
+    'Capability-dependent work follows `references/RUNTIME.md`. Pure judgment never requires the runtime. Skill placement remains owned by `npx skills add time-attack/gstack/skills` and is never inferred from runtime state.',
     '',
   ].join('\n');
 }
@@ -496,15 +496,17 @@ function runtimeContract(): string {
 
 The six Agent Skills are useful without a GStack runtime. Never install, download, build, select, update, or remove runtime capabilities merely because a skill was invoked.
 
-Before interactive browser work, read \`references/BROWSER-PROVIDERS.md\` in full. It owns provider detection, consented host setup, the common readiness journey, and the explicit GStack fallback. Skill installation never proves browser readiness.
+Before interactive browser work, read \`references/BROWSER-PROVIDERS.md\` in full. It owns host-provider detection, consented host setup, and the common readiness journey. The GStack fallback uses the local Playwright adapter with one explicit engine choice; skill installation never proves browser readiness.
 
 When an active specialist first reaches a capability it cannot use, name the exact capability and why it is needed. Offer to continue without it when the judgment-only or host-native path remains valid. Before any network preview, ask whether the user wants to check official setup options and exact sizes. Disclose that an uncached preview makes one public GitHub request for signed manifest metadata and sends no repository content, private URL, file, cookie, token, or credential; then STOP. A cached already-verified manifest may preview offline, but never silently fetch.
 
-Only after the user approves that metadata check, run the non-mutating preview from this skill root: \`node references/support/runtime-bootstrap.mjs preview --capability <name>\` (repeat \`--capability\` for additional requested capabilities). It dependency-expands, reports already verified local components, exact missing components, and their summed compressed bytes. It never downloads components or mutates runtime state. Preview consent is not install consent.
+For a browser-backed capability, first run \`node references/support/runtime-bootstrap.mjs options --capability <name>\`. This local-only command performs no network request or mutation. Show the detected installed Chromium executables plus managed Chromium, explain that either choice uses an isolated automation profile, and STOP for a choice. Never infer or silently record one. Installed Chromium avoids browser-binary downloads; managed Chromium is isolated and reproducible. Internal \`browser-visible\` requires managed Chromium because installed Chrome-family builds can block automation extension loading.
+
+Only after the user approves the metadata check and, when applicable, chooses a browser engine, run the non-mutating preview from this skill root: \`node references/support/runtime-bootstrap.mjs preview --capability <name> --browser managed\` or \`node references/support/runtime-bootstrap.mjs preview --capability <name> --browser installed --browser-path <absolute-path>\` (repeat \`--capability\` for additional requested capabilities). Omit browser flags for capabilities that do not depend on a browser. It dependency-expands, reports already verified local components, exact missing components, and their summed compressed bytes. It never downloads components or mutates runtime state. Preview consent is not install consent.
 
 User-facing setup capabilities are exactly \`browser\`, \`design\`, \`diagram\`, \`pdf\`, and \`ios\`. \`all\` means those five and intentionally excludes visible Chromium. The internal \`browser-visible\` capability is additive and is offered only when a workflow actually reaches a headed browser, extension, or browser-handoff step. Never offer it during ordinary headless QA.
 
-After showing the complete preview, STOP for explicit approval. Only after approval run \`node references/support/runtime-bootstrap.mjs install --capability <name> --yes\`; install must reprint the identical dependency-closed plan before downloading. Signed internal components are \`core\`, \`browser-code\` (browse code and dependencies), \`browser-headless\` (Playwright headless shell and FFmpeg), \`browser-visible\` (full Chromium), \`design\`, \`diagram\`, \`pdf\`, and \`ios\`. Logical \`browser\` expands to \`browser-code + browser-headless\`; internal \`browser-visible\` expands to \`browser-code + browser-visible\` and does not require headless. Component dependencies are \`browser-code → core\`, \`browser-headless → browser-code\`, and \`browser-visible → browser-code\`. \`diagram\` depends on logical \`browser\`; \`pdf\` depends on \`diagram\`; \`ios\` is Darwin-only. Therefore a first-time headed flow previews \`core + browser-code + browser-visible\`, while an existing verified headless runtime downloads only missing \`browser-visible\`. The manifest schema is v2 with global \`capabilityComponents\` and \`componentDependencies\`, plus \`targets[target].components[id]\` carrying signed exact-byte artifacts.
+After showing the complete preview, STOP for explicit approval. Only after approval run the matching \`install\` command with the same capabilities and browser flags plus \`--yes\`; install must reprint the identical dependency-closed plan before downloading. The approved browser choice is then persisted atomically in \`$GSTACK_HOME/config.json\`. \`gstack config browser clear\` disables browser-backed launchers; the managed/installed config commands can reselect only a provider compatible with the active slot. Switching providers requires a fresh preview and install so configuration cannot point at a runtime missing that engine. Signed internal components are \`core\`, \`browser-code\` (adapter code and dependencies), \`browser-headless\` (managed Playwright headless shell and FFmpeg), \`browser-visible\` (managed full Chromium), \`design\`, \`diagram\`, \`pdf\`, and \`ios\`. With managed Chromium, logical \`browser\` expands to \`browser-code + browser-headless\`; with an installed browser, the same logical capability downloads \`browser-code\` only and the stable launcher injects the validated executable path. Internal \`browser-visible\` expands to \`browser-code + browser-visible\` and is managed-only. \`diagram\` depends on logical \`browser\`; \`pdf\` depends on \`diagram\`; \`ios\` is Darwin-only. The manifest schema is v2 with global \`capabilityComponents\` and \`componentDependencies\`, plus \`targets[target].components[id]\` carrying signed exact-byte artifacts.
 
 The dependency-free Node 18+ bootstrap accepts only official GStack GitHub Release hosts, validates manifest/runtime/skill API/platform/component metadata and SHA-256, verifies a declared Cosign bundle when Cosign is available, rejects unsafe archive paths/links, and invokes the atomic managed installer. Never run \`./setup\` inside a standard-installed skill directory, enroll a host, or treat skill installation as runtime consent.
 
@@ -518,7 +520,7 @@ Every optional-runtime tool result must satisfy \`references/support/execution-r
 
 Use \`gstack doctor --capability browser|design|diagram|pdf|ios\` (optionally \`--json\`) for a non-mutating, capability-specific readiness result. Its independent axes must remain distinct: pure judgment availability, platform support, preview consent, install consent, and runtime readiness. Readiness is exactly \`ready\`, \`degraded\`, \`unavailable\`, \`unsupported\`, or \`failed\`. Doctor never grants or persists consent, previews metadata, or installs anything. \`unavailable\` means setup may be offered; \`failed\` means selected runtime evidence failed; \`unsupported\` is a platform boundary; and \`degraded\` means the capability passed while the managed runtime has a warning.
 
-The developer-only fallback is \`node references/support/runtime-bootstrap.mjs install --source <reviewed-checkout> --capability <name> --yes\`; show its trust warning and use it only when the user explicitly selects a checkout they reviewed. If the packaged bootstrap is unavailable, stop capability setup instead of guessing a checkout-relative command. Deferring installation records no consent and must not block pure judgment.
+The developer-only fallback is \`node references/support/runtime-bootstrap.mjs install --source <reviewed-checkout> --capability <name> [matching browser flags] --yes\`; show its trust warning and use it only when the user explicitly selects a checkout they reviewed. If the packaged bootstrap is unavailable, stop capability setup instead of guessing a checkout-relative command. Deferring installation records no consent and must not block pure judgment.
 `;
 }
 
@@ -568,6 +570,7 @@ Do not put secrets in run IDs, effect keys, or command arguments. Existing appro
 
 function writeSharedContracts(): void {
   const bootstrap = fs.readFileSync(path.join(ROOT, 'runtime', 'runtime-bootstrap.mjs'));
+  const browserChoice = fs.readFileSync(path.join(ROOT, 'runtime', 'browser-choice.mjs'));
   const browserSmoke = fs.readFileSync(path.join(ROOT, 'runtime', 'browser-provider-smoke.mjs'));
   for (const tree of TREE_NAMES) {
     write(path.join(ROOT, 'skills', tree, 'references', 'EXECUTION-PROFILES.md'), `${GENERATED}\n${renderExecutionProfiles()}`);
@@ -577,6 +580,7 @@ function writeSharedContracts(): void {
     write(path.join(ROOT, 'skills', tree, 'references', 'RUNTIME.md'), runtimeContract());
     write(path.join(ROOT, 'skills', tree, 'references', 'BROWSER-PROVIDERS.md'), `${GENERATED}\n${renderBrowserProviderContract()}`);
     write(path.join(ROOT, 'skills', tree, 'references', 'support', 'runtime-bootstrap.mjs'), bootstrap);
+    write(path.join(ROOT, 'skills', tree, 'references', 'support', 'browser-choice.mjs'), browserChoice);
     write(path.join(ROOT, 'skills', tree, 'references', 'support', 'browser-provider-smoke.mjs'), browserSmoke);
     writeJson(path.join(ROOT, 'skills', tree, 'references', 'support', 'runtime-contract.json'), RUNTIME_SKILL_CONTRACT);
     writeJson(path.join(ROOT, 'skills', tree, 'references', 'support', 'execution-result-contract.json'), EXECUTION_RESULT_SCHEMA);

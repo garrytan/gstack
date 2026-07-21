@@ -57,13 +57,13 @@ PR, or PR-ready claim is authorized by this status.
   three retained Claude Haiku live samples are classified `REGRESSION`; they
   are preserved as noisy supplemental evidence, never cherry-picked as a
   primary gate or represented as green.
-- [x] The current macOS GStack 2 suite is green: 151 pass / 0 fail and 1,194
-  assertions across 16 files.
+- [x] The current macOS GStack 2 suite is green: 218 pass / 0 fail and 2,229
+  assertions across 20 files.
 - [x] Optional host-neutral runtime implemented with canonical paths,
   repo/worktree state identity, locks, atomic writes, effect claims,
   doctor/config/state/cleanup, migrations, upgrade/rollback, and uninstall.
-- [x] Managed runtime installer coverage is green at 25 pass / 0 fail and 341
-  assertions. The deterministic clean macOS arm64 managed-bundle audit records
+- [x] Managed runtime installer coverage is green at 34 pass / 0 fail. The
+  deterministic clean macOS arm64 managed-bundle audit records
   110 components, 1,829 files, 450,044,315 bytes, and 50 capability launchers.
   This is a platform-specific bundle measurement, not a universal byte count;
   platform-native package payloads differ. Setup installs frozen
@@ -75,6 +75,18 @@ PR, or PR-ready claim is authorized by this status.
   production-only install with the development SDK absent, completed a local
   browser journey and Sharp full-page screenshot, and uninstalled while
   preserving state.
+- [x] Browser-backed setup now fails closed until the user explicitly chooses
+  GStack-managed Chromium or one detected installed Chromium executable. The
+  local-only options step performs no network or state mutation; the signed
+  preview reports exact incremental bytes before a separate install approval;
+  only a successful install persists the host-neutral choice. Installed-browser
+  mode keeps the Playwright adapter while omitting managed Chromium payloads.
+  Visible extension-bearing GStack Browser remains managed-only. Focused setup
+  UX coverage is green at 22 pass / 0 fail, including no-network refusal,
+  provider-aware component planning, launcher propagation, and doctor launch.
+  The official live bootstrap remains pending until the corresponding signed
+  `v2.0.0-rc.6` component release is published; deterministic local evidence
+  does not relabel that production gate as passed.
 - [x] The current candidate additionally captures a runtime-owned Bun 1.3.14
   executable under `.gstack-runtime-tools`, records its path/version in the
   bundle manifest, vendors the tagged license/source notices, and routes the

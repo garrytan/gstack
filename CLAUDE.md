@@ -13,7 +13,7 @@ mutation boundaries, recommendations, or voice. Compatibility files under
 Specification, and Full chain. Do not expose its internal aliases as more
 top-level modes.
 
-Canonical install is `npx skills add time-attack/gstack`. Standard installers
+Canonical install is `npx skills add time-attack/gstack/skills`. Standard installers
 own host placement and scope. Do not add host-specific install logic to the 2.0
 path. Pure judgment must work without the optional `bin/gstack` runtime.
 The host-neutral `./setup` installs only that managed runtime/capability bundle;

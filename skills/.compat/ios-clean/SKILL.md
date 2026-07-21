@@ -12,4 +12,4 @@ Print this replacement invocation, then dispatch to it exactly:
 
 `$ship --mode Prepare --module ios-clean`
 
-Do not reproduce or summarize the retired specialist here. The canonical dispatcher must load its preserved `ios-clean` module. If that dispatcher is not installed, tell the user to install it with `npx skills add time-attack/gstack --skill ship`.
+Do not reproduce or summarize the retired specialist here. The canonical dispatcher must load its preserved `ios-clean` module. If that dispatcher is not installed, tell the user to install it with `npx skills add time-attack/gstack/skills --skill ship`.

@@ -2,14 +2,16 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { assertPathInside, resolveRuntimePaths } from "./paths.js";
-import { atomicWriteJson, pathExists, readJson, renameWithRetry } from "./storage.js";
+import { atomicWriteFile, atomicWriteJson, pathExists, readJson, renameWithRetry } from "./storage.js";
 import {
   assertManagedHome,
   ensureManagedHome,
   ensureManagedRuntimeDirectory,
   recoverRuntimeTransactionUnlocked,
+  RUNTIME_TRANSACTION_FILE,
   withRuntimeLifecycleLock,
 } from "./managed-home.js";
+import { configSetBrowserChoice } from "./config.js";
 import { errorWithCode as upgradeError } from "./errors.js";
 import { currentIsoTimestamp as isoNow } from "./time.js";
 
@@ -214,6 +216,11 @@ export async function rollbackUpgrade(home, options = {}) {
     }
     await assertTreeContainsNoLinks(fallbackPath);
     if (options.healthCheck) await options.healthCheck(fallbackPath);
+    const activation = options.prepareActivation
+      ? await options.prepareActivation(fallbackPath)
+      : null;
+    const syncBrowserChoice = activation != null &&
+      Object.prototype.hasOwnProperty.call(activation, "browserChoice");
     const rolledBack = {
       schemaVersion: 2,
       status: "active",
@@ -222,9 +229,68 @@ export async function rollbackUpgrade(home, options = {}) {
       rolledBackFrom: pointer.current ?? null,
       rolledBackAt: isoNow(options.now),
     };
-    await atomicWriteJson(paths.versionPointer, rolledBack, { mode: 0o600 });
+    if (!syncBrowserChoice) {
+      await atomicWriteJson(paths.versionPointer, rolledBack, { mode: 0o600 });
+      return rolledBack;
+    }
+
+    const configSnapshot = await snapshotRollbackConfig(paths.config);
+    const journalPath = path.join(resolved, RUNTIME_TRANSACTION_FILE);
+    await atomicWriteJson(journalPath, {
+      schemaVersion: 1,
+      kind: "gstack-runtime-install-transaction",
+      status: "prepared",
+      home: resolved,
+      version: fallbackVersion,
+      previousPointerExists: true,
+      previousPointer: pointer,
+      files: [configSnapshot == null
+        ? { path: "config.json", existed: false }
+        : {
+            path: "config.json",
+            existed: true,
+            mode: configSnapshot.mode,
+            dataBase64: configSnapshot.data.toString("base64"),
+          }],
+      preparedAt: isoNow(options.now),
+    }, { mode: 0o600 });
+    try {
+      await configSetBrowserChoice(resolved, activation.browserChoice);
+      await atomicWriteJson(paths.versionPointer, rolledBack, { mode: 0o600 });
+      await fs.rm(journalPath, { force: true });
+    } catch (cause) {
+      const rollbackErrors = [];
+      try {
+        if (configSnapshot == null) await fs.rm(paths.config, { force: true });
+        else await atomicWriteFile(paths.config, configSnapshot.data, { mode: configSnapshot.mode });
+      } catch (error) {
+        rollbackErrors.push(error);
+      }
+      try {
+        await atomicWriteJson(paths.versionPointer, pointer, { mode: 0o600 });
+      } catch (error) {
+        rollbackErrors.push(error);
+      }
+      if (rollbackErrors.length === 0) await fs.rm(journalPath, { force: true });
+      const error = upgradeError("Rollback activation failed and the previous runtime was restored", "ROLLBACK_ACTIVATION_FAILED", cause);
+      if (rollbackErrors.length === 1) error.rollbackError = rollbackErrors[0];
+      else if (rollbackErrors.length > 1) error.rollbackError = new AggregateError(rollbackErrors, "Runtime rollback restoration was incomplete");
+      throw error;
+    }
     return rolledBack;
   }, options);
+}
+
+async function snapshotRollbackConfig(configPath) {
+  const stat = await fs.lstat(configPath).catch((error) => {
+    if (error?.code === "ENOENT") return null;
+    throw error;
+  });
+  if (!stat) return null;
+  if (!stat.isFile() || stat.isSymbolicLink()) {
+    throw upgradeError("Refusing unsafe browser configuration during rollback", "RUNTIME_TRANSACTION_INVALID");
+  }
+  return { data: await fs.readFile(configPath), mode: stat.mode & 0o777 };
 }
 
 export async function activeVersion(home, options = {}) {

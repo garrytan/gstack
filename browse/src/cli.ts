@@ -118,7 +118,7 @@ interface ServerState {
   serverPath: string;
   binaryVersion?: string;
   mode?: 'launched' | 'headed';
-  /** Hash of (proxyUrl + headed flag), used by D2 daemon-mismatch check. */
+  /** Hash of proxy, headed mode, and browser-provider intent, used by daemon-mismatch checks. */
   configHash?: string;
   /** Xvfb child PID for cleanup on disconnect. */
   xvfbPid?: number;
@@ -431,8 +431,8 @@ async function ensureServer(flags?: GlobalFlags): Promise<ServerState> {
     // hint. No silent restart — that would drop tab state, cookies, and
     // logged-in sessions without warning.
     if (desiredHash && state.configHash && state.configHash !== desiredHash) {
-      console.error(`[browse] existing daemon has different config (proxy/headed mismatch).`);
-      console.error(`[browse] run 'browse disconnect' first to apply --proxy/--headed.`);
+      console.error(`[browse] existing daemon has different config (browser provider, proxy, or headed mode).`);
+      console.error(`[browse] run 'browse disconnect' first to apply the selected browser configuration.`);
       process.exit(1);
     }
     // Same path: existing daemon is plain (no flags) but caller passes
@@ -782,7 +782,7 @@ export interface GlobalFlags {
   proxyUrl: string | null;
   /** Whether --headed was passed. */
   headed: boolean;
-  /** Hash of (proxy + headed) for daemon-mismatch check. */
+  /** Hash of proxy, headed mode, and browser-provider intent for daemon-mismatch checks. */
   configHash: string;
   /** Redacted form of proxyUrl, safe for logs. */
   redactedProxyUrl: string;
@@ -842,7 +842,12 @@ export function extractGlobalFlags(rawArgs: string[], env: NodeJS.ProcessEnv): G
     args: out,
     proxyUrl: canonicalProxyUrl,
     headed,
-    configHash: computeConfigHash({ proxyUrl: canonicalProxyUrl, headed }),
+    configHash: computeConfigHash({
+      proxyUrl: canonicalProxyUrl,
+      headed,
+      browserProvider: env.GSTACK_BROWSER_PROVIDER,
+      browserExecutable: env.GSTACK_CHROMIUM_PATH,
+    }),
     redactedProxyUrl: redactProxyUrl(canonicalProxyUrl),
   };
 }
