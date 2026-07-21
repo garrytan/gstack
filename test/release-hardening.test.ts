@@ -66,6 +66,7 @@ describe("release and CI hardening", () => {
     expect(workflow).toContain("command -v bun");
     expect(workflow).toContain("GSTACK_NODE=\"$node_command\"");
     expect(workflow).toContain("pathToFileURL(p).href");
+    expect(workflow).toContain('path").join(process.env.GITHUB_WORKSPACE,".gstack-runtime-smoke.html")');
     expect(workflow).not.toContain("goto about:blank");
     const manifest = read(".github/scripts/create-runtime-release-manifest.mjs");
     expect(manifest).toContain("bytes: stat.size");

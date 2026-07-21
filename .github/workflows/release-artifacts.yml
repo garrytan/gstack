@@ -112,7 +112,7 @@ jobs:
               "$GSTACK_HOME/bin/browse" stop >/dev/null 2>&1 || true
           }
           trap browser_cleanup EXIT
-          smoke_url=$(node -e 'const fs=require("fs"),p=require("path").join(process.env.RUNNER_TEMP,"gstack-runtime-smoke.html");fs.writeFileSync(p,"<!doctype html><title>GStack runtime smoke</title>\n");process.stdout.write(require("url").pathToFileURL(p).href)')
+          smoke_url=$(node -e 'const fs=require("fs"),p=require("path").join(process.env.GITHUB_WORKSPACE,".gstack-runtime-smoke.html");fs.writeFileSync(p,"<!doctype html><title>GStack runtime smoke</title>\n");process.stdout.write(require("url").pathToFileURL(p).href)')
           PATH="$clean_path" GSTACK_NODE="$node_command" BROWSE_PARENT_PID=0 \
             "$GSTACK_HOME/bin/browse" goto "$smoke_url"
           PATH="$clean_path" GSTACK_NODE="$node_command" BROWSE_PARENT_PID=0 \
