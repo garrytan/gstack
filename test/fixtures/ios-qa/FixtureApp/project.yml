@@ -47,3 +47,73 @@ targets:
         SWIFT_VERSION: "5.9"
         IPHONEOS_DEPLOYMENT_TARGET: "16.0"
         ENABLE_PREVIEWS: YES
+
+  AdaptiveSwiftUIFixture:
+    type: application
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: Sources/AdaptiveSwiftUIFixture
+    info:
+      path: Sources/AdaptiveSwiftUIFixture/Info.plist
+      properties:
+        CFBundleDisplayName: SwiftUI QA Gallery
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.gstack.iosqa.adaptive.swiftui
+        CODE_SIGNING_ALLOWED: NO
+        TARGETED_DEVICE_FAMILY: "1"
+        SWIFT_VERSION: "5.9"
+
+  AdaptiveUIKitFixture:
+    type: application
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: Sources/AdaptiveUIKitFixture
+    info:
+      path: Sources/AdaptiveUIKitFixture/Info.plist
+      properties:
+        CFBundleDisplayName: UIKit QA Gallery
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.gstack.iosqa.adaptive.uikit
+        CODE_SIGNING_ALLOWED: NO
+        TARGETED_DEVICE_FAMILY: "1"
+        SWIFT_VERSION: "5.9"
+
+  AdaptiveFixtureUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: Tests/AdaptiveFixtureUITests
+    dependencies:
+      - target: AdaptiveSwiftUIFixture
+      - target: AdaptiveUIKitFixture
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.gstack.iosqa.adaptive.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGNING_ALLOWED: NO
+        SWIFT_VERSION: "5.9"
+
+schemes:
+  AdaptiveFixtureUITests:
+    build:
+      targets:
+        AdaptiveSwiftUIFixture: all
+        AdaptiveUIKitFixture: all
+        AdaptiveFixtureUITests: [test]
+    test:
+      config: Debug
+      targets:
+        - AdaptiveFixtureUITests
+      environmentVariables:
+        GSTACK_IOS_QA_FLOW_PATH: $(GSTACK_IOS_QA_FLOW_PATH_VALUE)
+        GSTACK_IOS_QA_FLOW_JSON_BASE64: $(GSTACK_IOS_QA_FLOW_JSON_BASE64_VALUE)
+        GSTACK_IOS_QA_TARGET_KIND: $(GSTACK_IOS_QA_TARGET_KIND_VALUE)
