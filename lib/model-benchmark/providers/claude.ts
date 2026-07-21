@@ -1,5 +1,4 @@
-import type { ProviderAdapter, RunOpts, RunResult, AvailabilityCheck } from './types';
-import { estimateCostUsd } from '../pricing';
+import type { ProviderAdapter, RunOpts, RunResult, AvailabilityCheck, RunError } from './types';
 import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -7,12 +6,10 @@ import * as os from 'os';
 import { resolveClaudeCommand } from '../../../browse/src/claude-bin';
 
 /**
- * Claude adapter — wraps the `claude` CLI via claude -p.
+ * Claude adapter — wraps the `claude` CLI via `claude -p` in plain-text mode.
  *
- * For brevity and to avoid duplicating the full stream-json parser, this adapter
- * uses claude CLI in non-interactive mode (--print) with the simpler JSON output
- * format. If richer event-level metrics are needed (per-tool timing etc.),
- * swap to session-runner's full stream-json parser.
+ * We capture stdout as the answer and do not parse Claude's JSON output shape:
+ * scoring is Braintrust's job and it only needs the text.
  */
 export class ClaudeAdapter implements ProviderAdapter {
   readonly name = 'claude';
@@ -41,7 +38,7 @@ export class ClaudeAdapter implements ProviderAdapter {
     if (!resolved) {
       throw new Error('claude CLI not resolvable (set GSTACK_CLAUDE_BIN or install)');
     }
-    const args = [...resolved.argsPrefix, '-p', '--output-format', 'json'];
+    const args = [...resolved.argsPrefix, '-p'];
     if (opts.model) args.push('--model', opts.model);
     if (opts.extraArgs) args.push(...opts.extraArgs);
 
@@ -56,70 +53,25 @@ export class ClaudeAdapter implements ProviderAdapter {
         // AskUserQuestion failure BLOCKs rather than emitting unanswerable prose).
         env: { ...process.env, GSTACK_HEADLESS: '1' },
       });
-      const parsed = this.parseOutput(out);
       return {
-        output: parsed.output,
-        tokens: parsed.tokens,
+        output: out.trim(),
         durationMs: Date.now() - start,
-        toolCalls: parsed.toolCalls,
-        modelUsed: parsed.modelUsed || opts.model || 'claude-opus-4-7',
+        modelUsed: opts.model ?? 'claude',
       };
     } catch (err: unknown) {
-      const durationMs = Date.now() - start;
-      const e = err as { code?: string; stderr?: Buffer; signal?: string; message?: string };
-      const stderr = e.stderr?.toString() ?? '';
-      if (e.signal === 'SIGTERM' || e.code === 'ETIMEDOUT') {
-        return this.emptyResult(durationMs, { code: 'timeout', reason: `exceeded ${opts.timeoutMs}ms` }, opts.model);
-      }
-      if (/unauthorized|auth|login/i.test(stderr)) {
-        return this.emptyResult(durationMs, { code: 'auth', reason: stderr.slice(0, 400) }, opts.model);
-      }
-      if (/rate[- ]?limit|429/i.test(stderr)) {
-        return this.emptyResult(durationMs, { code: 'rate_limit', reason: stderr.slice(0, 400) }, opts.model);
-      }
-      return this.emptyResult(durationMs, { code: 'unknown', reason: (e.message ?? stderr ?? 'unknown').slice(0, 400) }, opts.model);
+      return this.errorResult(Date.now() - start, err, opts.model);
     }
   }
 
-  estimateCost(tokens: { input: number; output: number; cached?: number }, model?: string): number {
-    return estimateCostUsd(tokens, model ?? 'claude-opus-4-7');
-  }
-
-  /**
-   * Parse claude -p --output-format json output. Shape (as of 2026-04):
-   *   { type: "result", result: "<assistant text>", usage: { input_tokens, output_tokens, ... },
-   *     num_turns, session_id, ... }
-   * Older formats may differ — adapter is best-effort.
-   */
-  private parseOutput(raw: string): { output: string; tokens: { input: number; output: number; cached?: number }; toolCalls: number; modelUsed?: string } {
-    try {
-      const obj = JSON.parse(raw);
-      const result = typeof obj.result === 'string' ? obj.result : String(obj.result ?? '');
-      const u = obj.usage ?? {};
-      return {
-        output: result,
-        tokens: {
-          input: u.input_tokens ?? 0,
-          output: u.output_tokens ?? 0,
-          cached: u.cache_read_input_tokens,
-        },
-        toolCalls: obj.num_turns ?? 0,
-        modelUsed: obj.model,
-      };
-    } catch {
-      // Non-JSON output: treat as plain text.
-      return { output: raw, tokens: { input: 0, output: 0 }, toolCalls: 0 };
-    }
-  }
-
-  private emptyResult(durationMs: number, error: RunResult['error'], model?: string): RunResult {
-    return {
-      output: '',
-      tokens: { input: 0, output: 0 },
-      durationMs,
-      toolCalls: 0,
-      modelUsed: model ?? 'claude-opus-4-7',
-      error,
-    };
+  private errorResult(durationMs: number, err: unknown, model?: string): RunResult {
+    const e = err as { code?: string; stderr?: Buffer; signal?: string; message?: string };
+    const stderr = e.stderr?.toString() ?? '';
+    let code: RunError;
+    if (e.signal === 'SIGTERM' || e.code === 'ETIMEDOUT') code = 'timeout';
+    else if (/unauthorized|auth|login/i.test(stderr)) code = 'auth';
+    else if (/rate[- ]?limit|429/i.test(stderr)) code = 'rate_limit';
+    else code = 'unknown';
+    const reason = code === 'timeout' ? 'exceeded timeout' : (e.message ?? stderr ?? 'unknown').slice(0, 400);
+    return { output: '', durationMs, modelUsed: model ?? 'claude', error: { code, reason } };
   }
 }

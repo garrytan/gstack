@@ -1,8 +1,12 @@
 /**
  * Provider adapter interface — uniform contract for Claude, GPT, Gemini.
  *
- * Each adapter normalizes its provider's result shape into the RunResult below.
- * The benchmark runner only talks to adapters through this interface.
+ * Adapters shell out to the provider's CLI and return its plain-text output. We
+ * deliberately do NOT parse each vendor's proprietary JSON stream for tokens or
+ * cost: that coupling is brittle (it breaks every time a vendor reshuffles its
+ * output) and redundant — Braintrust owns scoring, and token/cost tracking
+ * belongs to whatever instruments the actual model call. The CLI's text answer
+ * is all the benchmark needs.
  */
 
 export interface RunOpts {
@@ -18,13 +22,6 @@ export interface RunOpts {
   extraArgs?: string[];
 }
 
-export interface TokenUsage {
-  input: number;
-  output: number;
-  /** Cached input tokens (Anthropic/OpenAI support). Undefined if provider doesn't report. */
-  cached?: number;
-}
-
 export type RunError =
   | 'auth'       // Credentials missing or invalid.
   | 'timeout'    // Exceeded timeoutMs.
@@ -33,17 +30,13 @@ export type RunError =
   | 'unknown';   // Catch-all with reason populated.
 
 export interface RunResult {
-  /** Provider's textual output for the prompt. */
+  /** Provider's plain-text output for the prompt. */
   output: string;
-  /** Normalized token usage. 0s if unreported. */
-  tokens: TokenUsage;
   /** Wall-clock duration. */
   durationMs: number;
-  /** Count of tool/function calls made during the run (0 if unsupported). */
-  toolCalls: number;
-  /** Actual model ID the provider reports using (may be a variant of the family). */
+  /** Model label — the requested model or the family name. Not parsed from output. */
   modelUsed: string;
-  /** If the run failed, error code + human reason. output/tokens may be partial. */
+  /** If the run failed, error code + human reason. output may be empty/partial. */
   error?: { code: RunError; reason: string };
 }
 
@@ -67,6 +60,4 @@ export interface ProviderAdapter {
   available(): Promise<AvailabilityCheck>;
   /** Run a prompt and return normalized RunResult. Non-throwing. Errors go in result.error. */
   run(opts: RunOpts): Promise<RunResult>;
-  /** Estimate USD cost for the reported token usage and model. */
-  estimateCost(tokens: TokenUsage, model?: string): number;
 }

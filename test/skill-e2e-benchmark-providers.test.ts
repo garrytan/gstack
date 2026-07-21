@@ -7,15 +7,12 @@
  * to keep cost near $0.001/provider/run.
  *
  * What this catches that unit tests don't:
- *   - CLI output-format drift (the #1 silent breakage path)
- *   - Token parsing from real provider responses
+ *   - CLI invocation drift (a flag rename or trust-prompt change breaking a run)
  *   - Auth-failure vs timeout vs rate-limit error code routing
- *   - Cost estimation on real token counts
- *   - Parallel execution via Promise.allSettled — slow provider doesn't block fast
+ *   - The adapter terminates without throwing and returns plain-text output
  *
  * NOT covered here (would need dedicated test files):
  *   - Quality judge integration (autoevals ClosedQA, opt-in)
- *   - Multi-turn tool-using prompts — our single-turn smoke skips `toolCalls > 0`
  */
 
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
@@ -91,13 +88,9 @@ describeIfEvals('multi-provider benchmark adapters (live)', () => {
       throw new Error(`claude errored: ${result.error.code} — ${result.error.reason}`);
     }
     expect(result.output.toLowerCase()).toContain('ok');
-    expect(result.tokens.input).toBeGreaterThan(0);
-    expect(result.tokens.output).toBeGreaterThan(0);
     expect(result.durationMs).toBeGreaterThan(0);
     expect(typeof result.modelUsed).toBe('string');
     expect(result.modelUsed.length).toBeGreaterThan(0);
-    const cost = claude.estimateCost(result.tokens, result.modelUsed);
-    expect(cost).toBeGreaterThan(0);
   }, 150_000);
 
   test('gpt: trivial prompt produces parseable output', async () => {
@@ -111,12 +104,8 @@ describeIfEvals('multi-provider benchmark adapters (live)', () => {
       throw new Error(`gpt errored: ${result.error.code} — ${result.error.reason}`);
     }
     expect(result.output.toLowerCase()).toContain('ok');
-    expect(result.tokens.input).toBeGreaterThan(0);
-    expect(result.tokens.output).toBeGreaterThan(0);
     expect(result.durationMs).toBeGreaterThan(0);
     expect(typeof result.modelUsed).toBe('string');
-    const cost = gpt.estimateCost(result.tokens, result.modelUsed);
-    expect(cost).toBeGreaterThan(0);
   }, 150_000);
 
   test('gemini: trivial prompt produces parseable output', async () => {
@@ -129,17 +118,10 @@ describeIfEvals('multi-provider benchmark adapters (live)', () => {
     if (result.error) {
       throw new Error(`gemini errored: ${result.error.code} — ${result.error.reason}`);
     }
-    // Gemini CLI occasionally returns empty output even on successful runs
-    // (model returned content the CLI parser missed, intermittent stream issues).
-    // We assert the adapter ran end-to-end without erroring and reports a non-
-    // empty token count instead of grepping the literal "ok" — that string
-    // assertion was too brittle for a smoke that's really about "did the
-    // adapter wire up and the run terminate successfully?"
+    // Gemini CLI can return empty output on otherwise-successful runs in some
+    // environments. This smoke is about "did the adapter wire up and terminate
+    // without throwing" — assert the shape, not the content.
     expect(typeof result.output).toBe('string');
-    // Gemini CLI sometimes returns 0 tokens in the result event (older responses);
-    // assert non-negative instead of strictly positive.
-    expect(result.tokens.input).toBeGreaterThanOrEqual(0);
-    expect(result.tokens.output).toBeGreaterThanOrEqual(0);
     expect(result.durationMs).toBeGreaterThan(0);
     expect(typeof result.modelUsed).toBe('string');
   }, 150_000);

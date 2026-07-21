@@ -40,14 +40,10 @@ export interface BenchOpts {
   judge?: boolean;
 }
 
-/** Per-case operational metrics the adapter reports — Braintrust doesn't time the CLI for us. */
+/** Per-case operational metric Braintrust doesn't capture for a CLI subprocess: wall-clock. */
 export interface CaseOps {
   id: string;
   durationMs: number;
-  tokensIn: number;
-  tokensOut: number;
-  costUsd: number;
-  toolCalls: number;
   modelUsed: string;
   error?: string;
 }
@@ -126,23 +122,17 @@ export async function runProviderBenchmark(
         const workdir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-bench-'));
         try {
           const r = await adapter.run({ prompt: input, workdir, timeoutMs });
-          const costUsd = adapter.estimateCost(r.tokens, r.modelUsed);
-          const op: CaseOps = {
+          ops.push({
             id: c?.id ?? input.slice(0, 24),
             durationMs: r.durationMs,
-            tokensIn: r.tokens.input,
-            tokensOut: r.tokens.output,
-            costUsd,
-            toolCalls: r.toolCalls,
             modelUsed: r.modelUsed,
             error: r.error ? `${r.error.code}: ${r.error.reason}` : undefined,
-          };
-          ops.push(op);
+          });
           if (r.error) throw new Error(`${provider} failed: ${r.error.code} — ${r.error.reason}`);
-          // Empty output + zero tokens = provider never answered (silent auth/CLI failure).
-          // Fail loud so it can't masquerade as a 0.0 score.
-          if (!r.output.trim() && r.tokens.input === 0 && r.tokens.output === 0) {
-            throw new Error(`${provider} returned empty output with zero tokens (likely auth/CLI failure, not a real result)`);
+          // Empty output = provider never answered (silent auth/CLI failure). Fail
+          // loud so it can't masquerade as a 0.0 score.
+          if (!r.output.trim()) {
+            throw new Error(`${provider} returned empty output (likely auth/CLI failure, not a real result)`);
           }
           return r.output;
         } finally {

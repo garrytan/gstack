@@ -128,18 +128,15 @@ async function main(): Promise<void> {
 }
 
 function formatTable(results: ProviderBenchmark[]): string {
-  const header = `Provider   Score    Cases  Latency(avg)  Tokens(in→out)  Cost      Errors`;
+  const header = `Provider   Score    Cases  Latency(avg)  Errors`;
   const rows: string[] = [header, '-'.repeat(header.length)];
   for (const r of results) {
     const n = r.ops.length || 1;
     const avgMs = r.ops.reduce((s, o) => s + o.durationMs, 0) / n;
-    const tin = r.ops.reduce((s, o) => s + o.tokensIn, 0);
-    const tout = r.ops.reduce((s, o) => s + o.tokensOut, 0);
-    const cost = r.ops.reduce((s, o) => s + o.costUsd, 0);
     const errs = r.ops.filter(o => o.error).length;
     const score = r.score === null ? '—' : `${(r.score * 100).toFixed(1)}%`;
     rows.push(
-      `${pad(r.provider, 10)} ${pad(score, 8)} ${pad(String(r.ops.length), 6)} ${pad(msToStr(avgMs), 13)} ${pad(`${tin}→${tout}`, 15)} ${pad(fmtCost(cost), 9)} ${errs || ''}`,
+      `${pad(r.provider, 10)} ${pad(score, 8)} ${pad(String(r.ops.length), 6)} ${pad(msToStr(avgMs), 13)} ${errs || ''}`,
     );
   }
   return rows.join('\n');
@@ -191,11 +188,6 @@ function pad(s: string, n: number): string {
 function msToStr(ms: number): string {
   if (ms < 1000) return `${Math.round(ms)}ms`;
   return `${(ms / 1000).toFixed(1)}s`;
-}
-function fmtCost(usd: number): string {
-  if (usd === 0) return '$0';
-  if (usd < 0.01) return `$${usd.toFixed(4)}`;
-  return `$${usd.toFixed(2)}`;
 }
 
 main().catch(err => {

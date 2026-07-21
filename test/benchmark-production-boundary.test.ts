@@ -42,8 +42,6 @@ test('production modules do not import from test directories', () => {
 
 test('former test-helper paths re-export the production benchmark API', async () => {
   const [
-    pricing,
-    helperPricing,
     claude,
     helperClaude,
     gpt,
@@ -51,8 +49,6 @@ test('former test-helper paths re-export the production benchmark API', async ()
     gemini,
     helperGemini,
   ] = await Promise.all([
-    import('../lib/model-benchmark/pricing'),
-    import('./helpers/pricing'),
     import('../lib/model-benchmark/providers/claude'),
     import('./helpers/providers/claude'),
     import('../lib/model-benchmark/providers/gpt'),
@@ -61,7 +57,6 @@ test('former test-helper paths re-export the production benchmark API', async ()
     import('./helpers/providers/gemini'),
   ]);
 
-  expect(helperPricing.estimateCostUsd).toBe(pricing.estimateCostUsd);
   expect(helperClaude.ClaudeAdapter).toBe(claude.ClaudeAdapter);
   expect(helperGpt.GptAdapter).toBe(gpt.GptAdapter);
   expect(helperGemini.GeminiAdapter).toBe(gemini.GeminiAdapter);
