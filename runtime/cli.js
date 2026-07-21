@@ -27,7 +27,12 @@ import {
   runExternalEffect,
   updateRunWorkflow,
 } from "./state.js";
-import { runDoctor, formatDoctor } from "./doctor.js";
+import {
+  CAPABILITY_READINESS_CAPABILITIES,
+  capabilityReadiness,
+  runDoctor,
+  formatDoctor,
+} from "./doctor.js";
 import { cleanupRuntime } from "./cleanup.js";
 import {
   ContextClient,
@@ -41,6 +46,11 @@ import { installManagedRuntime, uninstallManagedRuntime } from "./install.js";
 import { assertManagedHome, withRuntimeLifecycleLock } from "./managed-home.js";
 import { errorWithCode as cliError } from "./errors.js";
 import { RUNTIME_VERSION } from "./index.js";
+import {
+  EXECUTION_RESULT_ERROR_CODES,
+  executionResult,
+  renderExecutionResult,
+} from "./execution-result.js";
 
 export async function main(argv = process.argv.slice(2), options = {}) {
   const env = options.env ?? process.env;
@@ -90,6 +100,11 @@ export async function main(argv = process.argv.slice(2), options = {}) {
         throw cliError(`Unknown command: ${command}`, "USAGE");
     }
   } catch (error) {
+    const structuredResult = error?.executionResult ?? error?.cause?.executionResult;
+    if (structuredResult) {
+      write(stderr, renderExecutionResult(structuredResult, { json: true }));
+      return 1;
+    }
     const json = args.includes("--json");
     const safeMessage = redactSensitiveText(error?.message ?? String(error));
     if (json) {
@@ -154,11 +169,53 @@ async function initCommand({ args, home, cwd, stdout, legacyAlias = false }) {
 }
 
 async function doctorCommand({ args, home, cwd, stdout }) {
-  const parsed = parseFlags(args, new Set(["--json", "--skill-api"]));
+  const parsed = parseFlags(args, new Set(["--json", "--skill-api", "--capability"]));
   if (parsed.positionals.length) throw cliError("Doctor accepts only named options", "USAGE");
+  const capability = parsed.values.get("--capability");
+  if (capability && !CAPABILITY_READINESS_CAPABILITIES.includes(capability)) {
+    throw cliError(`Unknown capability: ${capability}. Choose ${CAPABILITY_READINESS_CAPABILITIES.join(", ")}.`, "USAGE");
+  }
   const report = await runDoctor({ home, cwd, expectedSkillApi: parsed.values.get("--skill-api") });
-  write(stdout, parsed.flags.has("--json") ? `${JSON.stringify(report, null, 2)}\n` : formatDoctor(report));
-  return report.ok ? 0 : 1;
+  const result = capability ? capabilityReadiness(report, capability) : report;
+  if (capability) {
+    const envelope = capabilityExecutionResult(result);
+    write(stdout, renderExecutionResult(envelope, { json: parsed.flags.has("--json") }));
+    return envelope.status === "success" ? 0 : 1;
+  }
+  write(stdout, parsed.flags.has("--json")
+    ? `${JSON.stringify(result, null, 2)}\n`
+    : formatDoctor(result));
+  return result.ok ? 0 : 1;
+}
+
+function capabilityExecutionResult(result) {
+  const statusByReadiness = {
+    ready: "success",
+    degraded: "degraded",
+    unavailable: "degraded",
+    unsupported: "unsupported",
+    failed: "failed",
+  };
+  const codeByReadiness = {
+    ready: null,
+    degraded: EXECUTION_RESULT_ERROR_CODES.DEGRADED,
+    unavailable: EXECUTION_RESULT_ERROR_CODES.CAPABILITY_UNAVAILABLE,
+    unsupported: EXECUTION_RESULT_ERROR_CODES.CAPABILITY_UNSUPPORTED,
+    failed: EXECUTION_RESULT_ERROR_CODES.CAPABILITY_FAILED,
+  };
+  const readiness = result.readiness.status;
+  const evidence = result.readiness.evidence?.map((item) =>
+    `${item.id}: ${item.status} — ${item.message}`) ?? [
+    `platform: ${result.platform.status}`,
+    `judgment: ${result.judgment.status}`,
+  ];
+  return executionResult({
+    status: statusByReadiness[readiness],
+    code: codeByReadiness[readiness],
+    summary: result.readiness.message,
+    evidence,
+    data: result,
+  });
 }
 
 async function configCommand({ args, home, cwd, stdout }) {
@@ -391,7 +448,7 @@ async function stateCommand({ args, home, cwd, env, stdout, stderr }) {
         "EXTERNAL_EFFECT_UNCERTAIN",
       );
     }
-    write(stdout, `${JSON.stringify({ status: result.status, effectKey, idempotencyKey: result.idempotencyKey ?? null, result: result.result })}\n`);
+    write(stdout, renderExecutionResult(result.result, { json: true }));
     return 0;
   }
   if (action === "reconcile-not-applied") {
@@ -423,6 +480,7 @@ async function stateCommand({ args, home, cwd, env, stdout, stderr }) {
 }
 
 async function runExternalCommand(command, { cwd, env, stdout, stderr }) {
+  const maxCapturedBytes = 1024 * 1024;
   const [executable, ...args] = command;
   return new Promise((resolve, reject) => {
     const child = spawn(executable, args, {
@@ -431,21 +489,79 @@ async function runExternalCommand(command, { cwd, env, stdout, stderr }) {
       shell: false,
       stdio: ["inherit", "pipe", "pipe"],
     });
-    child.stdout?.on("data", (chunk) => write(stdout, chunk));
-    child.stderr?.on("data", (chunk) => write(stderr, chunk));
+    const captured = { stdout: "", stderr: "", bytes: 0, truncated: false };
+    const capture = (key, chunk) => {
+      const remaining = maxCapturedBytes - captured.bytes;
+      if (remaining <= 0) { captured.truncated = true; return; }
+      const buffer = Buffer.from(chunk);
+      captured[key] += buffer.subarray(0, remaining).toString();
+      captured.bytes += Math.min(buffer.length, remaining);
+      if (buffer.length > remaining) captured.truncated = true;
+    };
+    child.stdout?.on("data", (chunk) => capture("stdout", chunk));
+    child.stderr?.on("data", (chunk) => capture("stderr", chunk));
     child.once("error", reject);
     child.once("close", (code, signal) => {
       if (code === 0) {
-        resolve({ exitCode: 0, executable: path.basename(executable) });
+        if (captured.truncated) {
+          reject(executionResultError(
+            `External command ${path.basename(executable)} exceeded the ${maxCapturedBytes}-byte result limit; verify its side effect before reconciling it as applied.`,
+            EXECUTION_RESULT_ERROR_CODES.DEGRADED,
+            "degraded",
+            ["output exceeded 1048576-byte capture limit"],
+            { executable: path.basename(executable), exitCode: 0, truncated: true },
+          ));
+          return;
+        }
+        const evidence = [];
+        if (captured.stdout.trim()) evidence.push("non-empty stdout");
+        if (captured.stderr.trim()) evidence.push("non-empty stderr");
+        const name = path.basename(executable);
+        if (evidence.length === 0) {
+          reject(executionResultError(
+            `External command ${name} exited 0 but produced no output; verify its side effect before reconciling it as applied.`,
+            EXECUTION_RESULT_ERROR_CODES.EMPTY,
+            "degraded",
+            ["exit code 0", "stdout and stderr were empty"],
+            { executable: name, exitCode: 0, stdout: "", stderr: "" },
+          ));
+          return;
+        }
+        resolve(executionResult({
+          status: "success",
+          summary: `External command ${name} completed`,
+          evidence: [`exit code 0`, ...evidence],
+          data: {
+            exitCode: 0,
+            executable: name,
+            stdout: captured.stdout,
+            stderr: captured.stderr,
+          },
+        }));
         return;
       }
-      const error = cliError(
+      const error = executionResultError(
         `External command ${path.basename(executable)} ${signal ? `ended by ${signal}` : `exited ${code}`}`,
-        "EXTERNAL_COMMAND_FAILED",
+        EXECUTION_RESULT_ERROR_CODES.FAILED,
+        "failed",
+        [signal ? `terminated by signal ${signal}` : `exit code ${code}`],
+        {
+          executable: path.basename(executable),
+          exitCode: code,
+          signal: signal ?? null,
+          stdout: captured.stdout,
+          stderr: captured.stderr,
+        },
       );
       reject(error);
     });
   });
+}
+
+function executionResultError(summary, code, status, evidence, data) {
+  const error = cliError(summary, code);
+  error.executionResult = executionResult({ status, code, summary, evidence, data });
+  return error;
 }
 
 async function withOwnedRuntimeMutation(home, callback) {
@@ -724,7 +840,7 @@ function parseFlags(args, allowed) {
       continue;
     }
     if (!allowed.has(arg)) throw cliError(`Unknown option: ${arg}`, "USAGE");
-    if (["--source", "--version", "--url", "--older-than-hours", "--max-pages", "--max-depth", "--max-links", "--skill-api"].includes(arg)) {
+    if (["--source", "--version", "--url", "--older-than-hours", "--max-pages", "--max-depth", "--max-links", "--skill-api", "--capability"].includes(arg)) {
       const value = args[++index];
       if (value == null || value.startsWith("--")) throw cliError(`${arg} requires a value`, "USAGE");
       values.set(arg, value);
@@ -801,7 +917,7 @@ function usage() {
     "Usage:\n" +
     "  gstack init                         # initialize state only\n" +
     "  gstack setup                        # compatibility alias for init\n" +
-    "  gstack doctor [--skill-api <version>] [--json]\n" +
+    "  gstack doctor [--capability browser|design|diagram|pdf|ios] [--skill-api <version>] [--json]\n" +
     "  gstack paths [--json|--shell]\n" +
     "  gstack runtime path <bundle-relative-path>\n" +
     "  gstack config get [key]\n" +

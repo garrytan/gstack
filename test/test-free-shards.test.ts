@@ -5,6 +5,7 @@ import * as os from 'os';
 import {
   DEFAULT_MAX_FILES_PER_SHARD,
   FREE_TEST_ROOTS,
+  buildShardArgs,
   isFreeTestFile,
   collectFreeTestFiles,
   containsScheduledProcessExitZero,
@@ -136,6 +137,16 @@ describe('test-free-shards: sharding', () => {
   test('assignFilesToShards rejects invalid shard counts', () => {
     expect(() => assignFilesToShards(['a.test.ts'], 0)).toThrow();
     expect(() => assignFilesToShards(['a.test.ts'], -1)).toThrow();
+  });
+
+  test('buildShardArgs accepts a suite-specific timeout without enabling file concurrency', () => {
+    expect(buildShardArgs(['test/gstack2-skills.test.ts'], 30_000)).toEqual([
+      'test',
+      'test/gstack2-skills.test.ts',
+      '--max-concurrency=1',
+      '--timeout=30000',
+    ]);
+    expect(() => buildShardArgs(['test/example.test.ts'], 0)).toThrow();
   });
 
   test('shards are stable across runs (same files always land in same shard)', () => {

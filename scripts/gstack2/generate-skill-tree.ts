@@ -4,6 +4,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { BUG_FIX_OVERLAYS, overlaysForSource } from './bug-fix-overlays';
 import { renderBrowserProviderContract } from './browser-provider-contract';
+import { EXECUTION_RESULT_SCHEMA } from '../../runtime/execution-result.js';
+import { renderExecutionProfiles } from './execution-profiles';
 import { contractFor, DISPATCHERS, SOURCE_ASSIGNMENTS } from './assignments';
 import { SCENARIOS } from './scenarios';
 import { runDeterministicSemanticParity } from './semantic-parity';
@@ -220,7 +222,7 @@ Before any substantive output, print these exact labels in this exact order. Res
 \`\`\`text
 Target: <concrete repository, product, URL, device, PR, or artifact>
 Mode: <selected top-level mode>
-Depth: <quick, standard, or deep>
+Depth: <readiness, standard, or deep>
 Mutation: <report-only or exact authorized mutation boundary>
 Active modules: <comma-separated internal specialist modules>
 Skipped modules: <comma-separated non-active mandatory modules with compact reasons>
@@ -232,7 +234,7 @@ Web context: <none, optional, local-browser, or production>
 1. Infer the mode from product stage, surface, requested artifact, mutation authorization, evidence needs, and deployment state. Do not route by keyword alone.
 2. Refine the public mode to the smallest applicable internal specialist set, then print the required execution header before any substantive output.
 3. Read each active module in full from the path shown in the mode/alias tables. Its specialist body, behavioral contract, STOP gates, and appended upstream judgment ports are binding. Read a lazy specialist phase in full only when the workflow reaches its package-local reference.
-4. Read \`references/SHARED-JUDGMENT.md\` and \`references/AUTHORITY-POLICY.md\` for every invocation. Read \`references/RUNTIME.md\` before capability-dependent work and \`references/WEB-CONTEXT.md\` before public-web work.
+4. Read \`references/EXECUTION-PROFILES.md\`, \`references/SHARED-JUDGMENT.md\`, and \`references/AUTHORITY-POLICY.md\` for every invocation. Infer Depth from structured operating conditions, then obey its mandatory modules, legal skips, artifacts, and claim limits. Read \`references/RUNTIME.md\` before capability-dependent work and \`references/WEB-CONTEXT.md\` before public-web work.
 5. If an old asset path is unavailable, use \`references/ASSETS.md\`. If legacy prose invokes another retired skill, resolve it through \`references/COMPATIBILITY.md\` and stay inside these six dispatchers.
 6. Preserve report-only versus mutation boundaries. Missing mutation authorization fails closed: do not edit merely because a specialist can fix. Commits, pushes, PRs, merges, deploys, messages, and other external mutations still require affirmative authority from the user.
 7. Match the user's language. Keep code identifiers, commands, and source quotations original when translation would reduce accuracy.
@@ -514,6 +516,10 @@ Some retained helpers are shell scripts. \`gstack doctor\` verifies Bash and, on
 
 The package/runtime compatibility tuple is \`schemaVersion=1\`, \`runtimeVersion=2.0.0\`, and \`skillApi=2.0\`; the machine-readable copy is \`references/support/runtime-contract.json\`. An incompatible active runtime is unavailable, not permission to upgrade it.
 
+Every optional-runtime tool result must satisfy \`references/support/execution-result-contract.json\` before it is presented as success. Success requires non-empty evidence. Empty or malformed output and explicit degraded, unsupported, or failed statuses remain non-success with stable codes; human renderings must preserve that status and code.
+
+Use \`gstack doctor --capability browser|design|diagram|pdf|ios\` (optionally \`--json\`) for a non-mutating, capability-specific readiness result. Its independent axes must remain distinct: pure judgment availability, platform support, preview consent, install consent, and runtime readiness. Readiness is exactly \`ready\`, \`degraded\`, \`unavailable\`, \`unsupported\`, or \`failed\`. Doctor never grants or persists consent, previews metadata, or installs anything. \`unavailable\` means setup may be offered; \`failed\` means selected runtime evidence failed; \`unsupported\` is a platform boundary; and \`degraded\` means the capability passed while the managed runtime has a warning.
+
 The developer-only fallback is \`node references/support/runtime-bootstrap.mjs install --source <reviewed-checkout> --capability <name> [matching browser flags] --yes\`; show its trust warning and use it only when the user explicitly selects a checkout they reviewed. If the packaged bootstrap is unavailable, stop capability setup instead of guessing a checkout-relative command. Deferring installation records no consent and must not block pure judgment.
 `;
 }
@@ -567,6 +573,7 @@ function writeSharedContracts(): void {
   const browserChoice = fs.readFileSync(path.join(ROOT, 'runtime', 'browser-choice.mjs'));
   const browserSmoke = fs.readFileSync(path.join(ROOT, 'runtime', 'browser-provider-smoke.mjs'));
   for (const tree of TREE_NAMES) {
+    write(path.join(ROOT, 'skills', tree, 'references', 'EXECUTION-PROFILES.md'), `${GENERATED}\n${renderExecutionProfiles()}`);
     write(path.join(ROOT, 'skills', tree, 'references', 'SHARED-JUDGMENT.md'), sharedJudgmentContract());
     write(path.join(ROOT, 'skills', tree, 'references', 'AUTHORITY-POLICY.md'), authorityPolicyContract());
     write(path.join(ROOT, 'skills', tree, 'references', 'WEB-CONTEXT.md'), webContextContract());
@@ -576,6 +583,7 @@ function writeSharedContracts(): void {
     write(path.join(ROOT, 'skills', tree, 'references', 'support', 'browser-choice.mjs'), browserChoice);
     write(path.join(ROOT, 'skills', tree, 'references', 'support', 'browser-provider-smoke.mjs'), browserSmoke);
     writeJson(path.join(ROOT, 'skills', tree, 'references', 'support', 'runtime-contract.json'), RUNTIME_SKILL_CONTRACT);
+    writeJson(path.join(ROOT, 'skills', tree, 'references', 'support', 'execution-result-contract.json'), EXECUTION_RESULT_SCHEMA);
   }
   write(path.join(ROOT, 'skills', 'qa', 'references', 'SYSTEM-FUNCTIONAL.md'), systemFunctionalContract());
   write(path.join(ROOT, 'skills', 'ship', 'references', 'EXTERNAL-EFFECTS.md'), externalEffectsContract());

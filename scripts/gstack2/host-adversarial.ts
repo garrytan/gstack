@@ -116,7 +116,7 @@ export interface StructuredHostResult {
     target: string;
     skill: PublicSkill;
     mode: string;
-    depth: 'quick' | 'standard' | 'deep';
+    depth: 'readiness' | 'standard' | 'deep';
     mutation: string;
     active_modules: string[];
     skipped_modules: string[];
@@ -236,7 +236,7 @@ export const FINAL_OUTPUT_SCHEMA = {
         target: { type: 'string' },
         skill: { type: 'string', enum: [...PUBLIC_SKILLS] },
         mode: { type: 'string' },
-        depth: { type: 'string', enum: ['quick', 'standard', 'deep'] },
+        depth: { type: 'string', enum: ['readiness', 'standard', 'deep'] },
         mutation: { type: 'string' },
         active_modules: { type: 'array', items: { type: 'string' } },
         skipped_modules: { type: 'array', items: { type: 'string' } },
@@ -625,7 +625,7 @@ export function validateStructuredResult(value: unknown): value is StructuredHos
     route && typeof route.target === 'string'
     && PUBLIC_SKILLS.includes(route.skill)
     && typeof route.mode === 'string'
-    && ['quick', 'standard', 'deep'].includes(route.depth)
+    && ['readiness', 'standard', 'deep'].includes(route.depth)
     && typeof route.mutation === 'string'
     && isStringArray(route.active_modules)
     && isStringArray(route.skipped_modules)

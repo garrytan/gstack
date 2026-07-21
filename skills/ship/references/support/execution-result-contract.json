@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gstack.dev/schemas/execution-result-v1.json",
+  "title": "GStack execution result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "status",
+    "code",
+    "summary",
+    "evidence",
+    "data"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "status": {
+      "enum": [
+        "success",
+        "degraded",
+        "unsupported",
+        "failed"
+      ]
+    },
+    "code": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[A-Z][A-Z0-9_]{2,63}$"
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "data": {}
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "success"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "code": {
+            "type": "null"
+          },
+          "evidence": {
+            "minItems": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "enum": [
+              "degraded",
+              "unsupported",
+              "failed"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "code": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  ]
+}

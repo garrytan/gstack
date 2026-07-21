@@ -630,6 +630,9 @@ process.stdout.write(process.env.GSTACK_CHROMIUM_PATH || "unset");
       "node_modules/sharp",
       "node_modules/detect-libc",
       "node_modules/semver",
+      "node_modules/standardwebhooks",
+      "node_modules/@stablelib/base64",
+      "node_modules/fast-sha256",
       ...runtimeNativePackagePaths(),
     ]) expect(bundlePaths.has(dependency)).toBe(true);
     expect(bundlePaths.has("node_modules/@img")).toBe(false);

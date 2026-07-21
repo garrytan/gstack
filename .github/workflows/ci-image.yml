@@ -16,6 +16,10 @@ on:
   # Manual trigger
   workflow_dispatch:
 
+concurrency:
+  group: ci-image
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: ubicloud-standard-8

@@ -15,3 +15,4 @@ export * from "./doctor.js";
 export * from "./cleanup.js";
 export * from "./upgrade.js";
 export * from "./install.js";
+export * from "./execution-result.js";

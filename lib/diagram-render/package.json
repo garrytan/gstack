@@ -7,10 +7,15 @@
     "build": "bun run scripts/build.ts"
   },
   "dependencies": {
-    "@excalidraw/excalidraw": "0.18.0",
-    "@excalidraw/mermaid-to-excalidraw": "1.1.2",
-    "mermaid": "11.12.2",
+    "@excalidraw/excalidraw": "0.18.1",
+    "@excalidraw/mermaid-to-excalidraw": "2.2.2",
+    "mermaid": "11.16.0",
     "react": "18.3.1",
     "react-dom": "18.3.1"
+  },
+  "overrides": {
+    "dompurify": "3.4.11",
+    "lodash-es": "4.18.1",
+    "nanoid": "5.0.9"
   }
 }

@@ -261,9 +261,12 @@ export async function runDefaultFreeTests(): Promise<number> {
   return slopSignal === null ? 0 : terminationSignalExitCode(slopSignal);
 }
 
-export async function runStrictTestShard(files: string[]): Promise<number> {
+export async function runStrictTestShard(
+  files: string[],
+  timeoutMs?: number,
+): Promise<number> {
   if (files.length === 0) throw new Error('Cannot run an empty free-test shard.');
-  const child = spawn(process.execPath, buildShardArgs(exactTestFileSelectors(files)), {
+  const child = spawn(process.execPath, buildShardArgs(exactTestFileSelectors(files), timeoutMs), {
     cwd: ROOT,
     env: process.env,
     stdio: ['inherit', 'pipe', 'pipe'],

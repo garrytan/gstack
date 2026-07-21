@@ -24,6 +24,41 @@ describe('GStack 2 structured dispatch', () => {
     expect(routeStructured({ ...scenario.signals })).toEqual(original);
   });
 
+  test('infers readiness only from bounded structured operating conditions', () => {
+    const readiness = routeStructured({
+      surface: 'web',
+      implementation_exists: true,
+      evidence_need: 'readiness',
+      scope: 'narrow',
+      deployment_state: 'pre-deployment',
+    });
+    expect(readiness.depth).toBe('readiness');
+    expect(readiness.active_modules).toEqual(['qa-only']);
+
+    expect(routeStructured({
+      surface: 'web',
+      implementation_exists: true,
+      evidence_need: 'readiness',
+      scope: 'broad',
+    }).depth).not.toBe('readiness');
+  });
+
+  test('risk and deployment evidence promote work to deep', () => {
+    expect(routeStructured({ surface: 'web', implementation_exists: true, risk: 'high' }).depth)
+      .toBe('deep');
+    expect(routeStructured({ surface: 'web', implementation_exists: true, deployment_state: 'production' }).depth)
+      .toBe('deep');
+    expect(routeStructured({ surface: 'web', implementation_exists: true, mutation_scope: 'consequential' }).depth)
+      .toBe('deep');
+    expect(routeStructured({
+      surface: 'web',
+      implementation_exists: true,
+      evidence_need: 'readiness',
+      scope: 'narrow',
+      irreversible: true,
+    }).depth).toBe('deep');
+  });
+
   test('explicit mutation denials override otherwise mutating modes', () => {
     const review = routeStructured({ audit_focus: 'broad', mutation_authorized: false });
     expect(review.mode).toBe('Normal');

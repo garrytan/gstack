@@ -1,0 +1,15 @@
+# OSV-Scanner configuration.
+# Direct/transitive dependency versions are pinned to their fixed releases via
+# the `overrides` block in package.json; this file only records advisories we
+# have assessed as not-reachable or not-fixable without disproportionate risk.
+
+[[IgnoredVulns]]
+id = "GHSA-frvp-7c67-39w9"
+# @hono/node-server 1.19.x. Reachable only through @modelcontextprotocol/sdk,
+# which is an unused transitive dependency (no source file imports it) and never
+# starts a Hono HTTP server, so the advisory's request path is not exercised.
+# The only fix is @hono/node-server 2.0.5, a major bump the MCP SDK pins against
+# (^1.19.9); forcing it via override risks breaking the SDK at runtime for a
+# vulnerability we do not expose. Re-evaluate if the MCP SDK becomes a direct,
+# server-hosting dependency.
+reason = "Unreachable transitive (unused @modelcontextprotocol/sdk); fix requires a risky major override on a pinned peer dep."
