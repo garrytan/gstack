@@ -247,7 +247,8 @@ export function capabilityReadiness(report, capability, options = {}) {
   const runtimeCheck = report.checks.find((check) => check.id === "managed-runtime");
   let status;
   if (capabilityCheck?.status === "pass" && runtimeCheck?.status === "pass") status = "ready";
-  else if (capabilityCheck?.status === "pass") status = "degraded";
+  else if (capabilityCheck?.status === "pass" && runtimeCheck?.status === "warn") status = "degraded";
+  else if (capabilityCheck?.status === "pass") status = "failed";
   else if (capabilityCheck?.status === "fail") status = "failed";
   else status = "unavailable";
 

@@ -52,11 +52,18 @@ describe("capability readiness", () => {
       { id: "managed-runtime", status: "pass", message: "active" },
       { id: "capability:diagram", status: "fail", message: "launcher metadata missing" },
     ]), "diagram");
+    // A hard runtime failure under a launchable capability is not a warning:
+    // it must not report ok:true, matching plain `gstack doctor`'s exit code.
+    const runtimeFailed = capabilityReadiness(report([
+      { id: "managed-runtime", status: "fail", message: "incompatible skill API" },
+      { id: "capability:browser", status: "pass", message: "launched" },
+    ]), "browser");
 
     expect(ready).toMatchObject({ ok: true, readiness: { status: "ready" } });
     expect(degraded).toMatchObject({ ok: true, readiness: { status: "degraded" } });
     expect(failed).toMatchObject({ ok: false, readiness: { status: "failed" } });
     expect(failed.consent.install.status).toBe("required-after-preview");
+    expect(runtimeFailed).toMatchObject({ ok: false, readiness: { status: "failed" } });
   });
 
   test("reports physical iOS as unsupported without turning off pure judgment", () => {
