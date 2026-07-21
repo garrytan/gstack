@@ -8,7 +8,8 @@ import * as os from 'os';
 /**
  * Gemini adapter — wraps the `gemini` CLI.
  *
- * Gemini CLI auth comes from either ~/.config/gemini/ or GOOGLE_API_KEY. Output
+ * Gemini CLI auth comes from its OAuth files, ~/.gemini/.env, or the
+ * GOOGLE_API_KEY/GEMINI_API_KEY environment variables. Output
  * format is NDJSON with `message`/`tool_use`/`result` events when `--output-format
  * stream-json` is requested. This adapter uses a single-response form for simplicity
  * in benchmarks; richer streaming lives in gemini-session-runner.ts.
@@ -25,19 +26,22 @@ export class GeminiAdapter implements ProviderAdapter {
     const legacyCfgDir = path.join(os.homedir(), '.config', 'gemini');
     const newCfgDir = path.join(os.homedir(), '.gemini');
     const newOauth = path.join(newCfgDir, 'oauth_creds.json');
+    const geminiEnv = path.join(newCfgDir, '.env');
     const hasCfg = fs.existsSync(legacyCfgDir) || fs.existsSync(newOauth);
-    const hasKey = !!process.env.GOOGLE_API_KEY;
+    const hasEnvFileKey = fs.existsSync(geminiEnv)
+      && /^(?:GOOGLE_API_KEY|GEMINI_API_KEY)\s*=/m.test(fs.readFileSync(geminiEnv, 'utf-8'));
+    const hasKey = !!process.env.GOOGLE_API_KEY || !!process.env.GEMINI_API_KEY || hasEnvFileKey;
     if (!hasCfg && !hasKey) {
-      return { ok: false, reason: 'No Gemini auth found. Log in via `gemini login` or export GOOGLE_API_KEY.' };
+      return { ok: false, reason: 'No Gemini auth found. Log in via `gemini login` or export GOOGLE_API_KEY/GEMINI_API_KEY.' };
     }
     return { ok: true };
   }
 
   async run(opts: RunOpts): Promise<RunResult> {
     const start = Date.now();
-    // Default to --yolo (non-interactive) and stream-json output so we can parse
-    // tokens + tool calls. Callers can override via extraArgs.
-    const args = ['-p', opts.prompt, '--output-format', 'stream-json', '--yolo'];
+    // Benchmarks are report-only. Plan mode keeps the CLI non-interactive while
+    // preventing a benchmark prompt from mutating the target worktree.
+    const args = ['-p', opts.prompt, '--output-format', 'stream-json', '--approval-mode', 'plan', '--skip-trust'];
     if (opts.model) args.push('--model', opts.model);
     if (opts.extraArgs) args.push(...opts.extraArgs);
 
@@ -48,7 +52,7 @@ export class GeminiAdapter implements ProviderAdapter {
         encoding: 'utf-8',
         maxBuffer: 32 * 1024 * 1024,
       });
-      const parsed = this.parseStreamJson(out);
+      const parsed = parseGeminiStreamJson(out);
       return {
         output: parsed.output,
         tokens: parsed.tokens,
@@ -77,41 +81,6 @@ export class GeminiAdapter implements ProviderAdapter {
     return estimateCostUsd(tokens, model ?? 'gemini-2.5-pro');
   }
 
-  /**
-   * Parse gemini NDJSON stream events:
-   *   init  → session id (discarded here)
-   *   message { delta: true, text } → concat to output
-   *   tool_use { name } → increment toolCalls
-   *   result { usage: { input_token_count, output_token_count } } → tokens
-   */
-  private parseStreamJson(raw: string): { output: string; tokens: { input: number; output: number }; toolCalls: number; modelUsed?: string } {
-    let output = '';
-    let input = 0;
-    let out = 0;
-    let toolCalls = 0;
-    let modelUsed: string | undefined;
-    for (const line of raw.split('\n')) {
-      const s = line.trim();
-      if (!s) continue;
-      try {
-        const obj = JSON.parse(s);
-        if (obj.type === 'message' && typeof obj.text === 'string') {
-          output += obj.text;
-        } else if (obj.type === 'tool_use') {
-          toolCalls += 1;
-        } else if (obj.type === 'result') {
-          const u = obj.usage ?? {};
-          input += u.input_token_count ?? u.prompt_tokens ?? 0;
-          out += u.output_token_count ?? u.completion_tokens ?? 0;
-          if (obj.model) modelUsed = obj.model;
-        }
-      } catch {
-        // skip malformed lines
-      }
-    }
-    return { output, tokens: { input, output: out }, toolCalls, modelUsed };
-  }
-
   private emptyResult(durationMs: number, error: RunResult['error'], model?: string): RunResult {
     return {
       output: '',
@@ -122,4 +91,44 @@ export class GeminiAdapter implements ProviderAdapter {
       error,
     };
   }
+}
+
+/** Parse both legacy `usage` events and current Gemini CLI `stats` events. */
+export function parseGeminiStreamJson(raw: string): {
+  output: string;
+  tokens: { input: number; output: number };
+  toolCalls: number;
+  modelUsed?: string;
+} {
+    let output = '';
+    let input = 0;
+    let out = 0;
+    let toolCalls = 0;
+    let modelUsed: string | undefined;
+    for (const line of raw.split('\n')) {
+      const s = line.trim();
+      if (!s) continue;
+      try {
+        const obj = JSON.parse(s);
+        if (obj.type === 'init' && typeof obj.model === 'string' && obj.model !== 'auto') {
+          modelUsed = obj.model;
+        } else if (obj.type === 'message' && obj.role === 'assistant') {
+          const content = typeof obj.content === 'string' ? obj.content : obj.text;
+          if (typeof content === 'string') output += content;
+        } else if (obj.type === 'tool_use') {
+          toolCalls += 1;
+        } else if (obj.type === 'result') {
+          const u = obj.usage ?? obj.stats ?? {};
+          input += u.input_token_count ?? u.prompt_tokens ?? u.input_tokens ?? u.input ?? 0;
+          out += u.output_token_count ?? u.completion_tokens ?? u.output_tokens ?? 0;
+          if (obj.model) modelUsed = obj.model;
+          if (!modelUsed && u.models && typeof u.models === 'object') {
+            modelUsed = Object.keys(u.models)[0];
+          }
+        }
+      } catch {
+        // skip malformed lines
+      }
+    }
+  return { output, tokens: { input, output: out }, toolCalls, modelUsed };
 }
