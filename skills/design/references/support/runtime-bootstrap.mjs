@@ -16,7 +16,7 @@ export const BOOTSTRAP_RUNTIME_VERSION = "2.0.0";
 // Keep the runtime compatibility version separate from the immutable release
 // channel. Release candidates carry the 2.0.0 runtime contract while letting
 // fresh-machine production journeys run before the stable v2.0.0 tag exists.
-export const BOOTSTRAP_RELEASE_TAG = "v2.0.0-rc.4";
+export const BOOTSTRAP_RELEASE_TAG = "v2.0.0-rc.5";
 export const OFFICIAL_MANIFEST_URL =
   `https://github.com/time-attack/gstack/releases/download/${BOOTSTRAP_RELEASE_TAG}/gstack-runtime-manifest.json`;
 const CAPABILITIES = new Set(["browser", "browser-visible", "design", "pdf", "diagram", "ios"]);

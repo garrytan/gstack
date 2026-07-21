@@ -120,12 +120,15 @@ jobs:
           browser_cleanup
           trap - EXIT
           stage="$RUNNER_TEMP/runtime-components"
-          mkdir -p "$stage" "$GITHUB_WORKSPACE/release-output"
+          # GNU tar treats a Windows drive colon in an archive path as a
+          # remote-host separator. Keep archive output in Git Bash's POSIX view.
+          release_dir="$(pwd -P)/release-output"
+          mkdir -p "$stage" "$release_dir"
           node .github/scripts/stage-runtime-components.mjs "$active" "$stage"
           for component_dir in "$stage"/*; do
             test -d "$component_dir" || continue
             component=$(basename "$component_dir")
-            archive="$GITHUB_WORKSPACE/release-output/gstack-runtime-2.0.0-$TARGET-$component.tar.gz"
+            archive="$release_dir/gstack-runtime-2.0.0-$TARGET-$component.tar.gz"
             tar -czf "$archive" -C "$component_dir" gstack
             node -e 'const fs=require("fs"),c=require("crypto"),p=process.argv[1];const b=fs.readFileSync(p);fs.writeFileSync(p+".sha256",c.createHash("sha256").update(b).digest("hex")+"  "+require("path").basename(p)+"\n")' "$archive"
           done

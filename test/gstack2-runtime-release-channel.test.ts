@@ -66,6 +66,9 @@ describe("GStack runtime release channel", () => {
     expect(workflow).toContain('gh release create "$GITHUB_REF_NAME"');
     expect(workflow).toContain("pathToFileURL(p).href");
     expect(workflow).toContain('path").join(process.env.GITHUB_WORKSPACE,".gstack-runtime-smoke.html")');
+    expect(workflow).toContain('release_dir="$(pwd -P)/release-output"');
+    expect(workflow).toContain('archive="$release_dir/gstack-runtime-2.0.0-$TARGET-$component.tar.gz"');
+    expect(workflow).not.toContain('archive="$GITHUB_WORKSPACE/release-output/');
     expect(workflow).not.toContain("goto about:blank");
     expect(buildSection).not.toContain("sigstore/cosign-installer");
     expect(manifestSection).toContain("sigstore/cosign-installer");
