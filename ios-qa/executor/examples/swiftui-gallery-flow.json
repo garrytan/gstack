@@ -1,0 +1,49 @@
+{
+  "version": 1,
+  "name": "swiftui-gallery-smoke",
+  "bundleIdentifier": "com.gstack.iosqa.adaptive.swiftui",
+  "steps": [
+    { "id": "launch", "action": "launch" },
+    {
+      "id": "increment",
+      "action": "tap",
+      "selector": { "identifier": "swiftui.increment", "label": "Increment", "role": "button" },
+      "verify": {
+        "kind": "labelEquals",
+        "selector": { "identifier": "swiftui.count", "role": "staticText" },
+        "value": "Count: 1"
+      }
+    },
+    {
+      "id": "search",
+      "action": "typeText",
+      "selector": { "identifier": "swiftui.search", "label": "Search terms", "role": "textField" },
+      "text": "adaptive",
+      "verify": {
+        "kind": "labelEquals",
+        "selector": { "identifier": "swiftui.echo", "role": "staticText" },
+        "value": "Echo: adaptive"
+      }
+    },
+    {
+      "id": "open-sheet",
+      "action": "tap",
+      "selector": { "identifier": "swiftui.sheet.open", "role": "button" },
+      "verify": {
+        "kind": "exists",
+        "selector": { "identifier": "swiftui.sheet.content" },
+        "timeoutMs": 2000
+      }
+    },
+    {
+      "id": "close-sheet",
+      "action": "tap",
+      "selector": { "identifier": "swiftui.sheet.done", "role": "button" },
+      "verify": {
+        "kind": "notExists",
+        "selector": { "identifier": "swiftui.sheet.content" },
+        "timeoutMs": 2000
+      }
+    }
+  ]
+}
