@@ -123,13 +123,36 @@ export async function main(argv = process.argv.slice(2), options = {}) {
       throw bootstrapError("Browser options require a browser-backed capability", "BOOTSTRAP_USAGE");
     }
     if (parsed.source) {
+      const sourceHome = path.resolve(parsed.home ?? process.env.GSTACK_HOME ?? path.join(os.homedir(), ".gstack"));
+      const active = await inspectReusableRuntime(sourceHome, BOOTSTRAP_RUNTIME_VERSION).catch(() => null);
+      if (!browserChoice && active?.browserChoice) {
+        browserChoice = await resolveBrowserChoice(active.browserChoice, {
+          platform,
+          env: options.env,
+          homeDir: options.homeDir,
+        });
+      }
+      parsed.capabilities = mergeRetainedCapabilities(parsed.capabilities, active, browserChoice);
+      if (browserChoiceRequired(parsed.capabilities) && !browserChoice) {
+        throw bootstrapError(
+          "The active browser capability does not record a reusable browser provider; choose a browser provider before changing this runtime.",
+          "BOOTSTRAP_BROWSER_CHOICE_REQUIRED",
+        );
+      }
+      if (browserChoice) assertBrowserChoiceSupportsCapabilities(browserChoice, parsed.capabilities);
       if (parsed.action === "preview") {
         io.stdout.write("Reviewed-source fallback has no signed compressed-byte manifest; the local installer can provide an on-disk preview only.\n");
         return 0;
       }
       if (!parsed.yes) throw bootstrapError("Installation requires explicit --yes after review", "BOOTSTRAP_CONSENT_REQUIRED");
       io.stderr.write("Developer-only source install: only continue with a checkout you reviewed and trust.\n");
-      return await installFromSource(parsed.source, parsed, { ...options, ...io, prepared: false, browserChoice });
+      return await installFromSource(parsed.source, parsed, {
+        ...options,
+        ...io,
+        prepared: false,
+        replaceCapabilities: true,
+        browserChoice,
+      });
     }
 
     const fetch_ = options.fetch ?? globalThis.fetch;
@@ -146,7 +169,23 @@ export async function main(argv = process.argv.slice(2), options = {}) {
     });
     validateManifest(manifest, target);
     const home = path.resolve(parsed.home ?? process.env.GSTACK_HOME ?? path.join(os.homedir(), ".gstack"));
-    const reusable = await inspectReusableRuntime(home, manifest.version).catch(() => null);
+    const active = await inspectReusableRuntime(home, manifest.version).catch(() => null);
+    const reusable = active?.releaseMatches ? active : null;
+    if (!browserChoice && active?.browserChoice) {
+      browserChoice = await resolveBrowserChoice(active.browserChoice, {
+        platform,
+        env: options.env,
+        homeDir: options.homeDir,
+      });
+    }
+    parsed.capabilities = mergeRetainedCapabilities(parsed.capabilities, active, browserChoice);
+    if (browserChoiceRequired(parsed.capabilities) && !browserChoice) {
+      throw bootstrapError(
+        "The active browser capability does not record a reusable browser provider; preview browser setup options before changing this runtime.",
+        "BOOTSTRAP_BROWSER_CHOICE_REQUIRED",
+      );
+    }
+    if (browserChoice) assertBrowserChoiceSupportsCapabilities(browserChoice, parsed.capabilities);
     const plan = buildComponentPlan(manifest, target, parsed.capabilities, reusable, browserChoice);
     if (parsed.json) io.stdout.write(`${JSON.stringify({ ok: true, action: parsed.action, ...plan }, null, 2)}\n`);
     else printComponentPlan(io.stdout, plan);
@@ -300,6 +339,24 @@ function selectedComponents(capabilities, browserChoice) {
   return applyBrowserProviderToComponents([...selected], browserChoice);
 }
 
+function mergeRetainedCapabilities(requested, reusable, browserChoice) {
+  const selected = new Set([
+    ...(Array.isArray(reusable?.selectedCapabilities) ? reusable.selectedCapabilities : []),
+    ...requested,
+  ]);
+  if (browserChoice?.provider === "installed") selected.delete("browser-visible");
+  const pending = [...selected];
+  while (pending.length) {
+    for (const dependency of CAPABILITY_DEPENDENCIES[pending.pop()] ?? []) {
+      if (!selected.has(dependency)) {
+        selected.add(dependency);
+        pending.push(dependency);
+      }
+    }
+  }
+  return [...selected].sort();
+}
+
 function buildComponentPlan(manifest, target, capabilities, reusable, browserChoice) {
   const components = selectedComponents(capabilities, browserChoice);
   const retained = new Set(reusable?.components ?? []);
@@ -341,10 +398,31 @@ async function inspectReusableRuntime(home, version) {
   const stat = await fs.lstat(root);
   if (!stat.isDirectory() || stat.isSymbolicLink()) return null;
   const bundle = JSON.parse(await fs.readFile(path.join(root, ".gstack-bundle.json"), "utf8"));
-  if (bundle?.schemaVersion !== 2 || bundle?.version !== version || !Array.isArray(bundle.runtimeComponents) ||
+  const releaseMatches = bundle?.version === version ||
+    (typeof bundle?.version === "string" && bundle.version.startsWith(`${version}-caps-`));
+  if (bundle?.schemaVersion !== 2 || typeof bundle.version !== "string" ||
+      !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(bundle.version) || !Array.isArray(bundle.runtimeComponents) ||
       !Array.isArray(bundle.files)) return null;
   const components = [...new Set(bundle.runtimeComponents)];
   if (!components.length || components.some((component) => !Object.hasOwn(COMPONENT_DEPENDENCIES, component))) return null;
+  const selectedCapabilities = Array.isArray(bundle.selectedCapabilities)
+    ? [...new Set(bundle.selectedCapabilities)]
+    : [];
+  if (selectedCapabilities.some((capability) => !CAPABILITIES.has(capability))) return null;
+  let browserChoice = null;
+  if (browserChoiceRequired(selectedCapabilities)) {
+    const explicit = bundle.browserChoice;
+    if (!explicit || !["managed", "installed"].includes(explicit.provider)) return null;
+    if (explicit.provider === "installed") {
+      if (selectedCapabilities.includes("browser-visible") ||
+          typeof explicit.executablePath !== "string" || !path.isAbsolute(explicit.executablePath) ||
+          components.includes("browser-headless") || components.includes("browser-visible")) return null;
+      browserChoice = { provider: "installed", executablePath: explicit.executablePath };
+    } else {
+      if (!components.includes("browser-headless") && !components.includes("browser-visible")) return null;
+      browserChoice = { provider: "managed", executablePath: null };
+    }
+  }
   await assertNoLinks(root);
   const files = [];
   const seen = new Set();
@@ -360,7 +438,7 @@ async function inspectReusableRuntime(home, version) {
         await sha256File(file) !== entry.sha256) return null;
     files.push(relative);
   }
-  return { root, components, files };
+  return { root, components, files, selectedCapabilities, browserChoice, releaseMatches };
 }
 
 async function seedReusableRuntime(reusable, destination, claimedFiles) {
@@ -496,6 +574,7 @@ async function installFromSource(source, parsed, options) {
   if (parsed.home) args.push("--home", path.resolve(parsed.home));
   if (options.version) args.push("--version", options.version);
   if (options.prepared) args.push("--prepared");
+  if (options.prepared || options.replaceCapabilities) args.push("--replace-capabilities");
   await run(options.nodeCommand ?? process.execPath, args);
   options.stdout.write(`Installed optional capabilities: ${parsed.capabilities.join(", ")}. No coding host was enrolled.\n`);
   return 0;

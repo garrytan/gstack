@@ -58,18 +58,18 @@
         }
       },
       "mechanical_port": {
-        "rendered_sha256": "1a5c9dbda769631df4c3e909fde6b97917780f6a7e9eca5a4edc8c2d0f302052",
+        "rendered_sha256": "ebb8816907a17722d1e1d227de782684870805368fcdc07f69347f32d907a9ba",
         "differs_from_baseline": true,
         "allowed_difference": "Canonical GStack 2 carve: exclude the retired shared onboarding wrapper and host hook advisory; resolve retired invocations to six public routes; relocate host/runtime paths; lazy-load pinned carved sections from package-local references."
       },
       "candidate": {
         "target_path": "skills/plan/references/legacy/office-hours.md",
-        "rendered_legacy_body_sha256": "1a5c9dbda769631df4c3e909fde6b97917780f6a7e9eca5a4edc8c2d0f302052",
+        "rendered_legacy_body_sha256": "ebb8816907a17722d1e1d227de782684870805368fcdc07f69347f32d907a9ba",
         "semantic_signature": {
-          "normalized_sha256": "1a5c9dbda769631df4c3e909fde6b97917780f6a7e9eca5a4edc8c2d0f302052",
+          "normalized_sha256": "ebb8816907a17722d1e1d227de782684870805368fcdc07f69347f32d907a9ba",
           "headings_sha256": "f50aa767e26cdfc3c8fa4c6bdcabd10e061ca0ab59e2aff4c204eaf68bfd1d56",
           "questions_sha256": "92d854d47b2f92f30cc34a59cfb6f3e18449beddcb8ebd5490162545bc8384c7",
-          "obligations_sha256": "c6f9f220f431b50b7721ac9baa3ae3d7be5de88b489c80a45350028c96a9db84",
+          "obligations_sha256": "a8abcb960325c146cb555a71821d702b593bb7dc4f12646d4ecaea11a9cf6b68",
           "heading_count": 34,
           "question_count": 13,
           "obligation_count": 43

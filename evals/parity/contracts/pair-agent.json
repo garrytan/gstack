@@ -9,7 +9,7 @@
   "source_path": "pair-agent/SKILL.md.tmpl",
   "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
   "blob_sha": "75ed42d590f99c46cd0883c37bb1f2f9f499211c",
-  "normalized_render_sha256": "256fd576911cc286ddd2510daec8f4c68501cc5534f46edc044c1908574ac64a",
+  "normalized_render_sha256": "e75661246495412102632a49d626bc313875ef479d2c570002ec66a2ccd2757a",
   "target": "skills/qa/references/legacy/pair-agent.md",
   "overlays": [
     679

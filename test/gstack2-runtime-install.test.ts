@@ -161,6 +161,23 @@ describe("GStack 2 managed runtime installer", () => {
     });
   });
 
+  test("managed headless launchers require the separately approved visible-browser slot", async () => {
+    await withFixture(async ({ source, home }) => {
+      await installFixture(source, home, "managed-visible-refusal", {
+        entries: BROWSER_ENTRIES,
+        capabilities: BROWSER_CAPABILITIES,
+        browserChoice: { provider: "managed", executablePath: null },
+      });
+      await configSetBrowserChoice(home, { provider: "managed", executablePath: null });
+      await expect(runInstalledLauncher(home, "browse", ["--headed"], { capture: true }))
+        .rejects.toMatchObject({ stderr: expect.stringContaining("does not include visible Chromium") });
+      await expect(runInstalledLauncher(home, "browse", ["connect"], { capture: true }))
+        .rejects.toMatchObject({ stderr: expect.stringContaining("does not include visible Chromium") });
+      await expect(runInstalledLauncher(home, "browse", ["handoff"], { capture: true }))
+        .rejects.toMatchObject({ stderr: expect.stringContaining("does not include visible Chromium") });
+    });
+  });
+
   test("design-only launchers do not require an unrelated browser selection", async () => {
     await withFixture(async ({ source, home }) => {
       const design = path.join(source, "design", "dist", "design");
@@ -245,6 +262,45 @@ describe("GStack 2 managed runtime installer", () => {
       expect((await readJson(path.join(home, "versions", "current.json"))).current).toBe("managed-current");
       expect((await readJson(path.join(home, "config.json"))).browser)
         .toEqual({ provider: "managed", executablePath: null });
+    });
+  });
+
+  test("rollback switches the runtime pointer and recorded browser choice in one recoverable transaction", async () => {
+    await withFixture(async ({ source, home }) => {
+      const executable = await fs.realpath(process.execPath);
+      const fallback = await installFixture(source, home, "installed-fallback-valid");
+      const fallbackManifestPath = path.join(fallback.path, ".gstack-bundle.json");
+      const fallbackManifest = await readJson(fallbackManifestPath);
+      await fs.writeFile(fallbackManifestPath, JSON.stringify({
+        ...fallbackManifest,
+        selectedCapabilities: ["browser"],
+        runtimeComponents: ["browser-code", "core"],
+        browserChoice: { provider: "installed", executablePath: executable },
+      }));
+
+      const current = await installFixture(source, home, "managed-current-valid");
+      const currentManifestPath = path.join(current.path, ".gstack-bundle.json");
+      const currentManifest = await readJson(currentManifestPath);
+      await fs.writeFile(currentManifestPath, JSON.stringify({
+        ...currentManifest,
+        selectedCapabilities: ["browser"],
+        runtimeComponents: ["browser-headless", "core"],
+        browserChoice: { provider: "managed", executablePath: null },
+      }));
+      await configSetBrowserChoice(home, { provider: "managed", executablePath: null });
+
+      const output = captureStream();
+      expect(await runtimeMain(["upgrade", "--rollback"], {
+        cwd: source,
+        env: { ...process.env, GSTACK_HOME: home },
+        stdout: output.stream,
+        stderr: output.stream,
+      })).toBe(0);
+      expect(await readJson(path.join(home, "versions", "current.json")))
+        .toMatchObject({ current: "installed-fallback-valid", lastKnownGood: "managed-current-valid" });
+      expect((await readJson(path.join(home, "config.json"))).browser)
+        .toEqual({ provider: "installed", executablePath: executable });
+      expect(await exists(path.join(home, ".gstack-runtime-transaction.json"))).toBe(false);
     });
   });
 
@@ -958,14 +1014,17 @@ process.stdout.write(process.env.GSTACK_CHROMIUM_PATH || "unset");
   test("a launcher repairs a crash journal before resolving any runtime", async () => {
     await withFixture(async ({ source, home }) => {
       await installFixture(source, home, "1.0.0");
+      await configSetBrowserChoice(home, { provider: "managed", executablePath: null });
       const pointer = await readJson(path.join(home, "versions", "current.json"));
       const manifest = await fs.readFile(path.join(home, "runtime-install.json"));
+      const config = await fs.readFile(path.join(home, "config.json"));
       // Keep the launcher for this host executable so it can enter the shared
       // recovery path. The transaction restores the inactive host variant.
       const recoverableLauncher = process.platform === "win32" ? "gstack" : "gstack.cmd";
       const launcherPath = path.join(home, "bin", recoverableLauncher);
       const launcherBefore = await fs.readFile(launcherPath);
       await fs.writeFile(path.join(home, "runtime-install.json"), '{"activeVersion":"crashed"}\n');
+      await configSetBrowserChoice(home, { provider: "installed", executablePath: process.execPath });
       await fs.writeFile(launcherPath, "candidate launcher\n");
       await fs.writeFile(path.join(home, "versions", "current.json"), `${JSON.stringify({
         schemaVersion: 2,
@@ -982,6 +1041,7 @@ process.stdout.write(process.env.GSTACK_CHROMIUM_PATH || "unset");
         previousPointerExists: true,
         previousPointer: pointer,
         files: [
+          { path: "config.json", existed: true, mode: 0o644, dataBase64: config.toString("base64") },
           { path: "runtime-install.json", existed: true, mode: 0o600, dataBase64: manifest.toString("base64") },
           { path: `bin/${recoverableLauncher}`, existed: true, mode: 0o644, dataBase64: launcherBefore.toString("base64") },
         ],
@@ -997,6 +1057,7 @@ process.stdout.write(process.env.GSTACK_CHROMIUM_PATH || "unset");
       const launched = await runInstalledLauncher(home, "gstack", ["doctor"], { capture: true });
       expect(launched.stdout).toContain("gstack fixture doctor");
       expect(await readJson(path.join(home, "versions", "current.json"))).toEqual(pointer);
+      expect(await fs.readFile(path.join(home, "config.json"))).toEqual(config);
       expect(await fs.readFile(path.join(home, "runtime-install.json"))).toEqual(manifest);
       expect(await fs.readFile(launcherPath)).toEqual(launcherBefore);
       expect(await exists(path.join(home, ".gstack-runtime-transaction.json"))).toBe(false);

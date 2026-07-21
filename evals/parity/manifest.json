@@ -83,7 +83,7 @@
       "source_path": "office-hours/SKILL.md.tmpl",
       "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
       "blob_sha": "8568fe73cca76a80805fab3092cacd10db7e1d7f",
-      "normalized_render_sha256": "1a5c9dbda769631df4c3e909fde6b97917780f6a7e9eca5a4edc8c2d0f302052",
+      "normalized_render_sha256": "ebb8816907a17722d1e1d227de782684870805368fcdc07f69347f32d907a9ba",
       "target": "skills/plan/references/legacy/office-hours.md",
       "disposition": "BUG_FIX",
       "overlays": [
@@ -1416,7 +1416,7 @@
       "source_path": "design-consultation/SKILL.md.tmpl",
       "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
       "blob_sha": "64af56ecdbd132cb7c28344e8e4ecb2e5dacf811",
-      "normalized_render_sha256": "d323457820291635bc4c46e4559ce6f4d194b940607b76208e95df0c86ffcb0b",
+      "normalized_render_sha256": "13d5aa11be43cf78f7d77b9f8da081c5fedd3b7e767815ff9d650c6bc5d0738b",
       "target": "skills/design/references/legacy/design-consultation.md",
       "disposition": "BUG_FIX",
       "overlays": [
@@ -1591,7 +1591,7 @@
       "source_path": "design-html/SKILL.md.tmpl",
       "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
       "blob_sha": "3cdec9a14d62d2e046ed924c972efc30a7d43aca",
-      "normalized_render_sha256": "40682d97ac83aa9178487348d5abf176334fd439e2d12f8e5cda1f8b20cd2c30",
+      "normalized_render_sha256": "775dfc9fdcc6b96d6e267f2b8c5e7eedcf8a1d98b764c134d7111a39f3f07301",
       "target": "skills/design/references/legacy/design-html.md",
       "disposition": "BUG_FIX",
       "overlays": [
@@ -1820,7 +1820,7 @@
       "source_path": "design-review/SKILL.md.tmpl",
       "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
       "blob_sha": "bdcda48e29b489a1cc49faa333922412251d4b41",
-      "normalized_render_sha256": "fe15a4fae62fba41432ae18bbf4ef5620058b784b7bf9768304d0d1dd17bf45b",
+      "normalized_render_sha256": "9d6828dd60fbe4ab9647c5f4456b0953c514ce22ddb1a9c1c3e572c70491f900",
       "target": "skills/design/references/legacy/design-review.md",
       "disposition": "BUG_FIX",
       "overlays": [
@@ -2162,7 +2162,7 @@
       "source_path": "qa/SKILL.md.tmpl",
       "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
       "blob_sha": "11997f7b878282c34b6bfd3d4b7a8131f9ad4da8",
-      "normalized_render_sha256": "e7cd5615adaf54413daa97838cb364810317dd7d661cec5cc4ed40eb48192e55",
+      "normalized_render_sha256": "63135ad3f73ea195fffc535166396bbf66bc223378686670c6d7d362f80e5848",
       "target": "skills/qa/references/legacy/qa.md",
       "disposition": "BUG_FIX",
       "overlays": [
@@ -2288,7 +2288,7 @@
       "source_path": "qa-only/SKILL.md.tmpl",
       "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
       "blob_sha": "75c4123cc5c406ffdd36c71a094335c137135b1e",
-      "normalized_render_sha256": "376eff42459f5b8755bd95934cce615db0fca16504c8e82f84b2704c63f62af3",
+      "normalized_render_sha256": "601eded52ee9e7c5c5ad7c0ce8a7d63377aa64cdaa56a90c0fe40f972939794a",
       "target": "skills/qa/references/legacy/qa-only.md",
       "disposition": "BUG_FIX",
       "overlays": [
@@ -2466,7 +2466,7 @@
       "source_path": "devex-review/SKILL.md.tmpl",
       "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
       "blob_sha": "081d4f35bbdec0c6b3da8ae71615ec4d41a84551",
-      "normalized_render_sha256": "4a907c759b6cf4202fbacaea504b1eb601a53dd35b206109d6c5105168ade7e1",
+      "normalized_render_sha256": "6b26b22ae5cbe9483a10ad084cd6b1e8ea32d2c01e482f75b9f8b32944287d0e",
       "target": "skills/qa/references/legacy/devex-review.md",
       "disposition": "BUG_FIX",
       "overlays": [
@@ -2565,7 +2565,7 @@
       "source_path": "benchmark/SKILL.md.tmpl",
       "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
       "blob_sha": "038f16f5fba4ae4e9eae922e3276bba8ef88149e",
-      "normalized_render_sha256": "05ac1b123a605201546a7e95899a5b55708ca7fbb7569c58b4d755c52b45a92d",
+      "normalized_render_sha256": "5fd14a7da7e31c24451c26d9123fcbcc376b7875c1a723bf7b69a1474e4f1c6d",
       "target": "skills/qa/references/legacy/benchmark.md",
       "disposition": "BUG_FIX",
       "overlays": [
@@ -2631,7 +2631,7 @@
       "source_path": "canary/SKILL.md.tmpl",
       "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
       "blob_sha": "d1eb2950aba2fa2b09d90f13143492c60d46793c",
-      "normalized_render_sha256": "89be5f218da2bd812303c87b8c177081727727e5e0d2dc74eb7a73299794d5ef",
+      "normalized_render_sha256": "b7f753ba0b98d8c7378dc797dca5950b14ebe26565bac25b5bbaa56b8ea8e13b",
       "target": "skills/qa/references/legacy/canary.md",
       "disposition": "BUG_FIX",
       "overlays": [
@@ -2710,7 +2710,7 @@
       "source_path": "browse/SKILL.md.tmpl",
       "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
       "blob_sha": "9a159e4c9820172c229e2174d4a62a8f9668ab93",
-      "normalized_render_sha256": "1b532bd904b1fa1686113e8c96b70015ea6b2e6df7319a72c299de901fe5e81b",
+      "normalized_render_sha256": "fee4ae0bd69412a6c3b1fd6737064301240b39731695b53fa10096ba48495019",
       "target": "skills/qa/references/legacy/browse.md",
       "disposition": "BUG_FIX",
       "overlays": [
@@ -2798,7 +2798,7 @@
       "source_path": "open-gstack-browser/SKILL.md.tmpl",
       "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
       "blob_sha": "ef91a527890a3ac3622cc7dc84bad1ff7b64443b",
-      "normalized_render_sha256": "e6e8271ecd89761627e6e67745750b22e64596d0e51e4a2350dccd8e2ce8ebd6",
+      "normalized_render_sha256": "f32ab85292ae920d811f4014480c48941d9b34d3ad8141840b4fd33bfdccc7dd",
       "target": "skills/qa/references/legacy/open-gstack-browser.md",
       "disposition": "BUG_FIX",
       "overlays": [
@@ -2873,7 +2873,7 @@
       "source_path": "setup-browser-cookies/SKILL.md.tmpl",
       "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
       "blob_sha": "f812d9f56f27c32fb5f102083bbe418344c1a652",
-      "normalized_render_sha256": "7d539b2113f8cc9bf0b8b2f6e1da3dde7028176a6f71de8f47de0a98c45663e8",
+      "normalized_render_sha256": "9e8ee39b557d1fbd032a94f5fbe16b675bdd89fe64b1c85a9af6a2ebe54aa976",
       "target": "skills/qa/references/legacy/setup-browser-cookies.md",
       "disposition": "BUG_FIX",
       "overlays": [
@@ -2934,7 +2934,7 @@
       "source_path": "pair-agent/SKILL.md.tmpl",
       "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
       "blob_sha": "75ed42d590f99c46cd0883c37bb1f2f9f499211c",
-      "normalized_render_sha256": "256fd576911cc286ddd2510daec8f4c68501cc5534f46edc044c1908574ac64a",
+      "normalized_render_sha256": "e75661246495412102632a49d626bc313875ef479d2c570002ec66a2ccd2757a",
       "target": "skills/qa/references/legacy/pair-agent.md",
       "disposition": "BUG_FIX",
       "overlays": [
@@ -4136,7 +4136,7 @@
       "source_path": "land-and-deploy/SKILL.md.tmpl",
       "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
       "blob_sha": "98976ad020d541d251cc7e34802a13458ddc88e2",
-      "normalized_render_sha256": "6920f3d97ce474b8f20c8b3e38ca9d3c03973e47af33103a60bab7c02eb867bd",
+      "normalized_render_sha256": "405924730c4e328c1a45de26576cda686d0d7da1fc4a36e840458683e1396aa2",
       "target": "skills/ship/references/legacy/land-and-deploy.md",
       "disposition": "BUG_FIX",
       "overlays": [
@@ -5775,7 +5775,7 @@
       "owner_tree": "qa",
       "consumer_tree": "ship",
       "target": "skills/ship/references/legacy/canary.md",
-      "sha256": "9fcf4fdea7d52113c8f5b5cc81c1fb36df591cf9e07bcc38c4ee106b15245997",
+      "sha256": "155174e829ef7895707ff1fad1f130fc1c7150bad9fb3598428a2efc939c5ad6",
       "disposition": "SHARED_MODULE"
     },
     {

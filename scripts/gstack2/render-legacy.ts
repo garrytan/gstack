@@ -311,7 +311,8 @@ function portLegacyText(value: string, source: string): string {
     .replaceAll('bun run $GSTACK_BIN/gstack-next-version', '$GSTACK_BIN/gstack-next-version')
     .replaceAll('bun run $GSTACK_BIN/gstack-version-bump', '$GSTACK_BIN/gstack-version-bump')
     .replaceAll('DISCOVER_BIN="bun run $GSTACK_BIN/gstack-global-discover"', 'DISCOVER_BIN="$GSTACK_BIN/gstack-global-discover"')
-    .replaceAll('Tell the user: "gstack browse needs a one-time build (~10 seconds). OK to proceed?" Then STOP and wait.', 'Tell the user: "The optional managed headless browser capability is missing. Do you want to preview its exact dependency-closed component plan and compressed bytes now?" Then STOP and wait.')
+    .replaceAll('Tell the user: "gstack browse needs a one-time build (~10 seconds). OK to proceed?" Then STOP and wait.', 'Tell the user: "The browser-backed capability is not ready. Do you want to see the local setup options—GStack-managed Chromium or a detected installed Chromium executable—with no network access or changes?" Then STOP and wait.')
+    .replaceAll('Tell the user: "The optional managed headless browser capability is missing. Do you want to preview its exact dependency-closed component plan and compressed bytes now?" Then STOP and wait.', 'Tell the user: "The browser-backed capability is not ready. Do you want to see the local setup options—GStack-managed Chromium or a detected installed Chromium executable—with no network access or changes?" Then STOP and wait.')
     .replace(/^command -v bun >\/dev\/null 2>&1 \|\| echo "redaction scan skipped — bun not on PATH"\n/gm, '');
 
   body = body

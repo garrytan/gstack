@@ -1641,6 +1641,12 @@ const bundle = await fs.readFile(path.join(root, ".gstack-bundle.json"), "utf8")
 const browserBacked = relative.startsWith("browse/") || relative.startsWith("make-pdf/");
 const selectedCapabilities = Array.isArray(bundle?.selectedCapabilities) ? bundle.selectedCapabilities : [];
 const runtimeComponents = Array.isArray(bundle?.runtimeComponents) ? bundle.runtimeComponents : [];
+const visibleRequested = relative.startsWith("browse/") && (
+  args.includes("connect") ||
+  args.includes("handoff") ||
+  args.includes("--headed") ||
+  (args[0] === "pair-agent" && !args.includes("--headless"))
+);
 const slotProvider = bundle?.browserChoice?.provider ?? (
   runtimeComponents.includes("browser-headless") || runtimeComponents.includes("browser-visible")
     ? "managed"
@@ -1656,16 +1662,16 @@ if (browserBacked) {
   if (slotProvider && browserChoice.provider !== slotProvider) {
     throw new Error("The selected browser provider does not match the active runtime slot; run the signed browser capability bootstrap for the selected provider");
   }
+  if (visibleRequested && !selectedCapabilities.includes("browser-visible")) {
+    if (browserChoice.provider === "installed") {
+      throw new Error("Visible GStack Browser requires managed Chromium; preview and approve the browser-visible capability first");
+    }
+    throw new Error("The active runtime slot does not include visible Chromium; preview and approve the browser-visible capability first");
+  }
   if (browserChoice.provider === "installed") {
     if (selectedCapabilities.includes("browser-visible")) {
       throw new Error("Visible GStack Browser requires a managed Chromium runtime slot");
     }
-    const visibleRequested = relative.startsWith("browse/") && (
-      args.includes("connect") ||
-      args.includes("handoff") ||
-      args.includes("--headed") ||
-      (args[0] === "pair-agent" && !args.includes("--headless"))
-    );
     if (visibleRequested) {
       throw new Error("Visible GStack Browser requires managed Chromium; preview and approve the browser-visible capability first");
     }
@@ -1835,7 +1841,8 @@ function processIsAlive(pid) {
 }
 
 function validTransactionPath(value) {
-  if (value === "runtime-install.json" || (typeof value === "string" && /^bin\\/[A-Za-z0-9._-]+$/.test(value))) return value;
+  if (value === "config.json" || value === "runtime-install.json" ||
+      (typeof value === "string" && /^bin\\/[A-Za-z0-9._-]+$/.test(value))) return value;
   throw new Error("Invalid managed runtime transaction path");
 }
 

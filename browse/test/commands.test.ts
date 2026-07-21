@@ -478,6 +478,20 @@ describe('Interaction', () => {
     }
   }, 15000);
 
+  test('click on a missing selector does not start a second locator wait', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
+    const started = performance.now();
+    try {
+      await handleWriteCommand('click', ['#definitely-missing-regression-node'], bm);
+      expect(true).toBe(false); // Should not reach here
+    } catch (err: any) {
+      expect(err.message).toContain('#definitely-missing-regression-node');
+    }
+    // click() intentionally retains Playwright's 5s auto-wait. The regression
+    // was a second default locator wait that pushed the total beyond 8s.
+    expect(performance.now() - started).toBeLessThan(6500);
+  }, 8000);
+
   test('hover works', async () => {
     const result = await handleWriteCommand('hover', ['h1'], bm);
     expect(result).toContain('Hovered');

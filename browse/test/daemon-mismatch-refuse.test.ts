@@ -92,6 +92,47 @@ describe('D2 daemon-mismatch refuse (CLI integration)', () => {
     }
   }, 15000);
 
+  test('refuses to reuse a same-version daemon from a different browser provider', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'browse-provider-mismatch-'));
+    const stateFile = path.join(tmpDir, 'browse.json');
+    const fakeServer = await startFakeHealthServer('fake-token');
+    const { computeConfigHash } = await import('../src/proxy-config');
+    const managedHash = computeConfigHash({
+      proxyUrl: null,
+      headed: false,
+      browserProvider: 'managed',
+    });
+
+    fs.writeFileSync(stateFile, JSON.stringify({
+      pid: process.pid,
+      port: fakeServer.port,
+      token: 'fake-token',
+      startedAt: new Date().toISOString(),
+      serverPath: '',
+      mode: 'launched',
+      configHash: managedHash,
+    }, null, 2));
+
+    const cliEnv: Record<string, string> = {};
+    for (const [key, value] of Object.entries(process.env)) {
+      if (value !== undefined) cliEnv[key] = value;
+    }
+    cliEnv.BROWSE_STATE_FILE = stateFile;
+    cliEnv.GSTACK_BROWSER_PROVIDER = 'installed';
+    cliEnv.GSTACK_CHROMIUM_PATH = process.execPath;
+
+    try {
+      const result = await runCli(['status'], cliEnv);
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain('different config');
+      expect(result.stderr).toContain('browse disconnect');
+    } finally {
+      await fakeServer.close();
+      try { fs.unlinkSync(stateFile); } catch { /* ignore */ }
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  }, 15000);
+
   test('refuses when existing plain daemon meets a --proxy invocation', async () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'browse-mismatch-plain-'));
     const stateFile = path.join(tmpDir, 'browse.json');

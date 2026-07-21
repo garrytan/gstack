@@ -9,7 +9,7 @@
   "source_path": "design-review/SKILL.md.tmpl",
   "base_sha": "bb57306d98c97011b0919c6132705a15b1579781",
   "blob_sha": "bdcda48e29b489a1cc49faa333922412251d4b41",
-  "normalized_render_sha256": "fe15a4fae62fba41432ae18bbf4ef5620058b784b7bf9768304d0d1dd17bf45b",
+  "normalized_render_sha256": "9d6828dd60fbe4ab9647c5f4456b0953c514ce22ddb1a9c1c3e572c70491f900",
   "target": "skills/design/references/legacy/design-review.md",
   "overlays": [
     679,

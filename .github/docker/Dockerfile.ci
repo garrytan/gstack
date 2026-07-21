@@ -70,11 +70,11 @@ RUN curl --retry 5 --retry-delay 5 --retry-connrefused -fsSL https://bun.sh/inst
 RUN npm i -g @anthropic-ai/claude-code
 
 # Playwright system deps (Chromium) — needed for browse E2E tests
-RUN npx playwright install-deps chromium
+RUN npx playwright-core install-deps chromium
 
 # Linux has neither Helvetica nor Arial. make-pdf's print CSS stacks fall back
 # to Liberation Sans (metric-compatible Arial clone, SIL OFL 1.1) so PDFs don't
-# render in DejaVu Sans. playwright install-deps happens to pull this in today,
+# render in DejaVu Sans. playwright-core install-deps happens to pull this in today,
 # but the dep is implicit and could change — install explicitly so upgrades
 # can't silently regress rendering.
 #
@@ -100,12 +100,12 @@ RUN bun install --frozen-lockfile && rm -rf /tmp/*
 
 # Install Playwright Chromium to a shared location accessible by all users
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
-RUN npx playwright install chromium \
+RUN npx playwright-core install chromium \
     && chmod -R a+rX /opt/playwright-browsers
 
 # Verify everything works
 RUN bun --version && node --version && claude --version && jq --version && gh --version \
-    && npx playwright --version \
+    && npx playwright-core --version \
     && fc-match "Liberation Sans" | grep -qi "Liberation" \
         || (echo "ERROR: fonts-liberation not installed — make-pdf PDFs will render in DejaVu Sans" && exit 1)
 

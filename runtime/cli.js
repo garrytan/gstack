@@ -627,13 +627,11 @@ async function upgradeCommand({ args, home, stdout, installOptions = {} }) {
   if (parsed.positionals.length) throw cliError("Upgrade accepts only named options", "USAGE");
   if (parsed.flags.has("--rollback")) {
     if (parsed.values.has("--source") || parsed.values.has("--version")) throw cliError("--rollback cannot be combined with staging options", "USAGE");
-    let rollbackBrowserChoice = null;
     const pointer = await rollbackUpgrade(home, {
-      healthCheck: async (fallbackPath) => {
-        rollbackBrowserChoice = await resolvedBrowserChoiceForRuntimePath(fallbackPath);
-      },
+      prepareActivation: async (fallbackPath) => ({
+        browserChoice: await resolvedBrowserChoiceForRuntimePath(fallbackPath),
+      }),
     });
-    if (rollbackBrowserChoice) await configSetBrowserChoice(home, rollbackBrowserChoice);
     write(stdout, parsed.flags.has("--json") ? `${JSON.stringify(pointer, null, 2)}\n` : `Rolled back to ${pointer.current}\n`);
     return 0;
   }

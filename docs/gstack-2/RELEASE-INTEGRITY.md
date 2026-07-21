@@ -40,7 +40,7 @@ manifest contains only official GitHub Release URLs and the fixed workflow
 certificate identity.
 
 Browser-capable archives include the Playwright-managed Chromium directory at
-`.gstack-runtime-browsers`. The builder runs `playwright install chromium`
+`.gstack-runtime-browsers`. The builder runs `playwright-core install chromium`
 only—never `--with-deps` or `sudo`—copies physical files into the immutable
 slot, and launch-smokes that exact Chromium on every native release runner.
 The stable capability launcher sets `PLAYWRIGHT_BROWSERS_PATH` to the active

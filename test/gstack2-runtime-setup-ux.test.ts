@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { PassThrough, Readable } from "node:stream";
 import { runDoctor } from "../runtime/doctor.js";
 import { runInstallerCli, runtimeSlotVersion, runtimeSurfaceForCapabilities } from "../runtime/install.js";
@@ -47,6 +48,36 @@ function officialManifestFixture(target: string, customize?: (component: string,
     componentDependencies: COMPONENT_DEPENDENCIES,
     targets: { [target]: { components } },
   };
+}
+
+async function createActiveRuntimeFixture(home: string, options: {
+  bundleVersion: string;
+  selectedCapabilities: string[];
+  runtimeComponents: string[];
+  browserChoice: { provider: "managed" | "installed"; executablePath: string | null };
+}) {
+  const root = path.join(home, "versions", "active-slot");
+  const payload = Buffer.from("verified active runtime payload\n");
+  await fs.mkdir(root, { recursive: true });
+  await fs.writeFile(path.join(root, "payload.txt"), payload);
+  await fs.writeFile(path.join(root, ".gstack-bundle.json"), JSON.stringify({
+    schemaVersion: 2,
+    version: options.bundleVersion,
+    selectedCapabilities: options.selectedCapabilities,
+    runtimeComponents: options.runtimeComponents,
+    browserChoice: options.browserChoice,
+    files: [{
+      path: "payload.txt",
+      size: payload.byteLength,
+      sha256: createHash("sha256").update(payload).digest("hex"),
+    }],
+  }));
+  await fs.writeFile(path.join(home, "versions", "current.json"), JSON.stringify({
+    schemaVersion: 2,
+    status: "active",
+    current: "active-slot",
+    lastKnownGood: null,
+  }));
 }
 
 describe("GStack runtime setup UX", () => {
@@ -277,6 +308,32 @@ describe("GStack runtime setup UX", () => {
     }
   });
 
+  test("explicit install-later needs no browser selection and does not prompt or mutate", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "gstack-browser-later-"));
+    try {
+      const home = path.join(root, "home");
+      const output = capture();
+      const input = Readable.from([]) as Readable & { isTTY: boolean };
+      input.isTTY = false;
+      expect(await runInstallerCli([
+        "--source", path.resolve(import.meta.dir, ".."),
+        "--home", home,
+        "--capabilities", "browser",
+        "--install-later",
+        "--json",
+      ], { stdin: input, stdout: output.stream, stderr: output.stream })).toBe(0);
+      expect(JSON.parse(output.value())).toMatchObject({
+        ok: true,
+        action: "install-later",
+        mutated: false,
+        preview: null,
+      });
+      await expect(fs.stat(home)).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   test("browser bootstrap options are local-only and browser preview requires an explicit choice", async () => {
     const output = capture();
     let fetches = 0;
@@ -330,6 +387,76 @@ describe("GStack runtime setup UX", () => {
     expect(result.downloads.map((item) => item.component)).toEqual(["browser-code", "core"]);
     expect(result.downloadBytes).toBe(16);
     expect(fetches).toBe(1);
+  });
+
+  test("official previews retain an active installed-browser choice across same- and cross-release additions", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "gstack-bootstrap-retain-browser-"));
+    const executable = await fs.realpath(process.execPath);
+    const target = `${process.platform === "win32" ? "windows" : process.platform}-${process.arch}`;
+    try {
+      for (const [name, bundleVersion, expectsReuse] of [
+        ["same", `${BOOTSTRAP_RUNTIME_VERSION}-caps-installed`, true],
+        ["cross", "1.9.0-caps-installed", false],
+      ] as const) {
+        const home = path.join(root, name);
+        await createActiveRuntimeFixture(home, {
+          bundleVersion,
+          selectedCapabilities: ["browser"],
+          runtimeComponents: ["browser-code", "core"],
+          browserChoice: { provider: "installed", executablePath: executable },
+        });
+        const output = capture();
+        expect(await bootstrapMain([
+          "preview", "--capability", "design", "--home", home, "--json",
+        ], {
+          stdout: output.stream,
+          stderr: output.stream,
+          libc: process.platform === "linux" ? "glibc" : undefined,
+          fetch: async (url: string) => ({ ok: true, url, json: async () => officialManifestFixture(target) }),
+        })).toBe(0);
+        const result = JSON.parse(output.value());
+        expect(result.capabilities).toEqual(["browser", "design"]);
+        expect(result.browser).toEqual({ provider: "installed", executablePath: executable });
+        expect(result.components).toEqual(["browser-code", "core", "design"]);
+        expect(result.components).not.toContain("browser-headless");
+        expect(result.reusedComponents.length > 0).toBe(expectsReuse);
+      }
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("switching a reusable managed visible slot to installed drops visible payload from the exact plan", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "gstack-bootstrap-provider-switch-"));
+    const home = path.join(root, "home");
+    const executable = await fs.realpath(process.execPath);
+    const target = `${process.platform === "win32" ? "windows" : process.platform}-${process.arch}`;
+    try {
+      await createActiveRuntimeFixture(home, {
+        bundleVersion: `${BOOTSTRAP_RUNTIME_VERSION}-caps-managed-visible`,
+        selectedCapabilities: ["browser-visible"],
+        runtimeComponents: ["browser-code", "browser-visible", "core"],
+        browserChoice: { provider: "managed", executablePath: null },
+      });
+      const output = capture();
+      expect(await bootstrapMain([
+        "preview", "--capability", "browser", "--browser", "installed",
+        "--browser-path", executable, "--home", home, "--json",
+      ], {
+        stdout: output.stream,
+        stderr: output.stream,
+        libc: process.platform === "linux" ? "glibc" : undefined,
+        fetch: async (url: string) => ({ ok: true, url, json: async () => officialManifestFixture(target) }),
+      })).toBe(0);
+      const result = JSON.parse(output.value());
+      expect(result.capabilities).toEqual(["browser"]);
+      expect(result.browser.provider).toBe("installed");
+      expect(result.components).toEqual(["browser-code", "core"]);
+      expect(result.components).not.toContain("browser-visible");
+      expect(result.components).not.toContain("browser-headless");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
   });
 
   test("visible GStack Browser refuses installed Chrome before any network request", async () => {
@@ -463,6 +590,43 @@ describe("GStack runtime setup UX", () => {
         details: { browserRoot, version: "fixture-chromium" },
       });
       expect(report.checks.find((check) => check.id === "runtime-tool:bun")).toMatchObject({ status: "pass" });
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("doctor reports and launches an internal managed visible-browser slot", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "gstack-doctor-visible-browser-"));
+    const home = path.join(root, "home");
+    try {
+      await setupRuntime({ home, cwd: root });
+      const paths = resolveRuntimePaths({ home });
+      const active = path.join(paths.versions, "fixture");
+      const browserRoot = path.join(active, ".gstack-runtime-browsers");
+      const managedBun = path.join(active, ".gstack-runtime-tools", process.platform === "win32" ? "bun.exe" : "bun");
+      const playwright = path.join(active, "node_modules", "playwright");
+      await fs.mkdir(path.join(browserRoot, "chromium-fixture"), { recursive: true });
+      await fs.mkdir(path.dirname(managedBun), { recursive: true });
+      await fs.mkdir(playwright, { recursive: true });
+      await fs.copyFile(process.execPath, managedBun);
+      if (process.platform !== "win32") await fs.chmod(managedBun, 0o755);
+      await fs.writeFile(path.join(playwright, "index.mjs"),
+        `export const chromium = { launch: async ({ headless, channel }) => { if (headless !== true || channel !== "chromium") throw new Error("expected full Chromium channel"); return { version: () => "fixture-visible", close: async () => {} }; } };\n`);
+      await fs.writeFile(path.join(active, ".gstack-bundle.json"), JSON.stringify({
+        compatibility: { skillApi: "2.0" },
+        selectedCapabilities: ["browser-visible"],
+        capabilities: { browse: "browse/dist/browse" },
+        tools: { bun: { path: path.relative(active, managedBun).split(path.sep).join("/"), version: "1.3.14" } },
+      }));
+      await fs.writeFile(paths.versionPointer, JSON.stringify({
+        schemaVersion: 2, status: "active", current: "fixture", lastKnownGood: "fixture",
+      }));
+      await configSetBrowserChoice(home, { provider: "managed", executablePath: null });
+      const report = await runDoctor({ home, cwd: root, nodeCommand: process.execPath });
+      expect(report.checks.find((check) => check.id === "capability:browser-visible")).toMatchObject({
+        status: "pass",
+        details: { browserRoot, version: "fixture-visible" },
+      });
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }
@@ -660,7 +824,48 @@ describe("GStack runtime setup UX", () => {
       expect(args).toContain("--yes");
       expect(args).toContain("browser,diagram,pdf");
       expect(args).not.toContain("--prepared");
+      expect(args).toContain("--replace-capabilities");
       expect(output.value()).toContain("Developer-only source install");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("developer source fallback can switch a retained managed visible slot to installed", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "gstack-bootstrap-source-switch-"));
+    const source = path.join(root, "source");
+    const runtime = path.join(source, "runtime");
+    const home = path.join(root, "home");
+    const log = path.join(root, "args.json");
+    const executable = await fs.realpath(process.execPath);
+    const output = capture();
+    try {
+      await fs.mkdir(runtime, { recursive: true });
+      await fs.writeFile(path.join(runtime, "install.js"),
+        `import fs from "node:fs"; fs.writeFileSync(process.env.BOOTSTRAP_TEST_LOG, JSON.stringify(process.argv.slice(2)));\n`);
+      await createActiveRuntimeFixture(home, {
+        bundleVersion: `${BOOTSTRAP_RUNTIME_VERSION}-caps-managed-visible`,
+        selectedCapabilities: ["browser-visible"],
+        runtimeComponents: ["browser-code", "browser-visible", "core"],
+        browserChoice: { provider: "managed", executablePath: null },
+      });
+      const previous = process.env.BOOTSTRAP_TEST_LOG;
+      process.env.BOOTSTRAP_TEST_LOG = log;
+      try {
+        expect(await bootstrapMain([
+          "install", "--source", source, "--capability", "browser", "--browser", "installed",
+          "--browser-path", executable, "--home", home, "--yes",
+        ], { stdout: output.stream, stderr: output.stream })).toBe(0);
+      } finally {
+        if (previous == null) delete process.env.BOOTSTRAP_TEST_LOG;
+        else process.env.BOOTSTRAP_TEST_LOG = previous;
+      }
+      const args = JSON.parse(await fs.readFile(log, "utf8"));
+      expect(args).toContain("browser");
+      expect(args).toContain("installed");
+      expect(args).toContain(executable);
+      expect(args).toContain("--replace-capabilities");
+      expect(args).not.toContain("browser-visible");
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }

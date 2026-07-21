@@ -186,4 +186,20 @@ describe('extractGlobalFlags', () => {
     );
     expect(a.configHash).not.toBe(b.configHash);
   });
+
+  test('configHash changes with browser provider and installed executable', () => {
+    const managed = extractGlobalFlags(['goto', 'x'], {
+      GSTACK_BROWSER_PROVIDER: 'managed',
+    } as NodeJS.ProcessEnv);
+    const installedA = extractGlobalFlags(['goto', 'x'], {
+      GSTACK_BROWSER_PROVIDER: 'installed',
+      GSTACK_CHROMIUM_PATH: '/browser/a',
+    } as NodeJS.ProcessEnv);
+    const installedB = extractGlobalFlags(['goto', 'x'], {
+      GSTACK_BROWSER_PROVIDER: 'installed',
+      GSTACK_CHROMIUM_PATH: '/browser/b',
+    } as NodeJS.ProcessEnv);
+    expect(managed.configHash).not.toBe(installedA.configHash);
+    expect(installedA.configHash).not.toBe(installedB.configHash);
+  });
 });
