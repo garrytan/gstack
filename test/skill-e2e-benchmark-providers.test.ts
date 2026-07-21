@@ -14,7 +14,7 @@
  *   - Parallel execution via Promise.allSettled — slow provider doesn't block fast
  *
  * NOT covered here (would need dedicated test files):
- *   - Quality judge integration (benchmark-judge.ts, adds ~$0.05/run)
+ *   - Quality judge integration (autoevals ClosedQA, opt-in)
  *   - Multi-turn tool-using prompts — our single-turn smoke skips `toolCalls > 0`
  */
 
@@ -22,7 +22,7 @@ import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { ClaudeAdapter } from '../lib/model-benchmark/providers/claude';
 import { GptAdapter } from '../lib/model-benchmark/providers/gpt';
 import { GeminiAdapter } from '../lib/model-benchmark/providers/gemini';
-import { runBenchmark } from '../lib/model-benchmark/runner';
+import { runProviderBenchmark } from '../lib/model-benchmark/braintrust-eval';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -163,30 +163,23 @@ describeIfEvals('multi-provider benchmark adapters (live)', () => {
     expect(result.durationMs).toBeGreaterThan(0);
   }, 30_000);
 
-  test('runBenchmark: Promise.allSettled means one unavailable provider does not block others', async () => {
-    // Use the full runner with all three providers — whichever are unauthed should
-    // return entries with available=false and not crash the batch.
-    const report = await runBenchmark({
-      prompt: PROMPT,
-      workdir,
-      providers: ['claude', 'gpt', 'gemini'],
-      timeoutMs: 120_000,
-      skipUnavailable: false,
-    });
-    expect(report.entries).toHaveLength(3);
-    for (const e of report.entries) {
-      expect(['claude', 'gpt', 'gemini']).toContain(e.family);
-      if (e.available) {
-        expect(e.result).toBeDefined();
-      } else {
-        expect(typeof e.unavailable_reason).toBe('string');
-      }
+  test('runProviderBenchmark: an unauthed/failing provider returns a result, never throws', async () => {
+    // Braintrust owns orchestration now. The property we care about: a provider
+    // that's unavailable or errors comes back as a ProviderBenchmark (score null,
+    // ops carrying the error) instead of throwing and aborting the batch.
+    const cases = [{ id: 'smoke', input: PROMPT, required: ['ok'] }];
+    const results = await Promise.all(
+      (['claude', 'gpt', 'gemini'] as const).map(p => runProviderBenchmark(p, cases, { timeoutMs: 120_000 })),
+    );
+    expect(results).toHaveLength(3);
+    for (const r of results) {
+      expect(['claude', 'gpt', 'gemini']).toContain(r.provider);
+      expect(r.score === null || (typeof r.score === 'number' && r.score >= 0 && r.score <= 1)).toBe(true);
+      expect(Array.isArray(r.ops)).toBe(true);
     }
-    // At least one available provider should have produced a non-error result in a healthy CI env.
-    const hadSuccess = report.entries.some(e => e.available && e.result && !e.result.error);
-    // We don't hard-assert this: if NO providers are authed, skip silently.
+    const hadSuccess = results.some(r => typeof r.score === 'number' && r.ops.some(o => !o.error));
     if (!hadSuccess) {
-      process.stderr.write('\nrunBenchmark live: no provider produced a clean result (no auth?)\n');
+      process.stderr.write('\nbenchmark live: no provider produced a clean result (no auth?)\n');
     }
   }, 300_000);
 });

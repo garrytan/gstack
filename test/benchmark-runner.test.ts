@@ -1,17 +1,12 @@
 /**
- * Unit tests for the benchmark runner.
+ * Unit tests for benchmark pricing + tool-compatibility helpers.
  *
- * Mocks adapters to verify:
- * - All adapters run in parallel (Promise.allSettled not serial)
- * - Unavailable adapters are skipped or marked depending on flag
- * - Per-adapter errors don't abort the batch
- * - Output formatters (table, json, markdown) produce non-empty strings
- *
- * Does NOT exercise live CLIs — see test/providers.e2e.test.ts for those.
+ * Orchestration, scoring, and reporting moved to Braintrust
+ * (lib/model-benchmark/braintrust-eval.ts); those are covered by
+ * model-benchmark-braintrust.test.ts and the live e2e suite.
  */
 
 import { test, expect } from 'bun:test';
-import { formatTable, formatJson, formatMarkdown, type BenchmarkReport } from '../lib/model-benchmark/runner';
 import { estimateCostUsd, PRICING } from '../lib/model-benchmark/pricing';
 import { missingTools, TOOL_COMPATIBILITY } from './helpers/tool-map';
 
@@ -57,81 +52,4 @@ test('TOOL_COMPATIBILITY is populated for all three families', () => {
   expect(TOOL_COMPATIBILITY.claude).toBeDefined();
   expect(TOOL_COMPATIBILITY.gpt).toBeDefined();
   expect(TOOL_COMPATIBILITY.gemini).toBeDefined();
-});
-
-test('formatTable handles a report with mixed success/error/unavailable entries', () => {
-  const report: BenchmarkReport = {
-    prompt: 'test prompt',
-    workdir: '/tmp',
-    startedAt: '2026-04-16T20:00:00Z',
-    durationMs: 1500,
-    entries: [
-      {
-        provider: 'claude',
-        family: 'claude',
-        available: true,
-        result: {
-          output: 'ok',
-          tokens: { input: 100, output: 200 },
-          durationMs: 800,
-          toolCalls: 3,
-          modelUsed: 'claude-opus-4-7',
-        },
-        costUsd: 0.0165,
-        qualityScore: 9.2,
-      },
-      {
-        provider: 'gpt',
-        family: 'gpt',
-        available: true,
-        result: {
-          output: '',
-          tokens: { input: 0, output: 0 },
-          durationMs: 200,
-          toolCalls: 0,
-          modelUsed: 'gpt-5.4',
-          error: { code: 'auth', reason: 'codex login required' },
-        },
-      },
-      {
-        provider: 'gemini',
-        family: 'gemini',
-        available: false,
-        unavailable_reason: 'gemini CLI not on PATH',
-      },
-    ],
-  };
-
-  const table = formatTable(report);
-  expect(table).toContain('claude-opus-4-7');
-  expect(table).toContain('ERROR auth');
-  expect(table).toContain('unavailable');
-  expect(table).toContain('9.2/10');
-});
-
-test('formatJson produces parseable JSON', () => {
-  const report: BenchmarkReport = {
-    prompt: 'x',
-    workdir: '/tmp',
-    startedAt: '2026-04-16T20:00:00Z',
-    durationMs: 100,
-    entries: [],
-  };
-  const json = formatJson(report);
-  const parsed = JSON.parse(json);
-  expect(parsed.prompt).toBe('x');
-  expect(parsed.entries).toEqual([]);
-});
-
-test('formatMarkdown produces a table header', () => {
-  const report: BenchmarkReport = {
-    prompt: 'x',
-    workdir: '/tmp',
-    startedAt: '2026-04-16T20:00:00Z',
-    durationMs: 100,
-    entries: [],
-  };
-  const md = formatMarkdown(report);
-  expect(md).toContain('# Benchmark report');
-  expect(md).toContain('| Model | Latency |');
 });
