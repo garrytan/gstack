@@ -33,13 +33,15 @@ then regenerate. Preserve the source-blob and normalized-render evidence.
 
 The runtime is host-neutral, uses `$GSTACK_HOME` or `~/.gstack`, and keeps state
 as locked/atomically written JSON and JSONL. Network mode defaults off.
-Context.dev is the only newly authorized external service, may receive only
-public URLs after explicit consent, and must use the exact typed failure codes.
+New external services (Context.dev, benchmark/eval backends, and the like) are
+allowed, but each must be optional, off by default, and consent-gated: send only
+what the user approves, and use typed failure codes. Context.dev specifically may
+receive only public URLs after explicit consent.
 `gstack context options` and `context select host|local-browser|none` persist
 fallback selection without granting Context.dev consent.
 The existing browser stays local. Physical iOS uses only DebugBridge/CoreDevice.
-Do not add cloud browsers, alternate iOS drivers, local image models, provider
-marketplaces, workflow engines, or a new state database.
+Do not add cloud browsers, alternate iOS drivers, local image models,
+workflow engines, or a new state database.
 
 Current completion claims must come from
 [`docs/gstack-2/STATUS.md`](docs/gstack-2/STATUS.md) and

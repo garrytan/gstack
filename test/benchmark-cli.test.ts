@@ -1,7 +1,7 @@
 /**
  * gstack-model-benchmark CLI tests (offline).
  *
- * Covers CLI wiring that unit tests against benchmark-runner.ts can't see:
+ * Covers CLI wiring that unit tests can't see:
  *   - --dry-run auth/provider-list resolution
  *   - unknown provider WARN path
  *   - provider default (claude) when --models omitted
@@ -66,11 +66,22 @@ describe('gstack-model-benchmark --dry-run', () => {
     expect(r.stdout).toContain('providers:  claude');
   });
 
-  test('--timeout-ms and --workdir flags flow through to dry-run report', () => {
-    const r = run(['--prompt', 'hi', '--timeout-ms', '9999', '--workdir', '/tmp', '--dry-run']);
+  test('--timeout-ms flows through to dry-run report', () => {
+    const r = run(['--prompt', 'hi', '--timeout-ms', '9999', '--dry-run']);
     expect(r.status).toBe(0);
     expect(r.stdout).toContain('timeout_ms: 9999');
-    expect(r.stdout).toContain('workdir:    /tmp');
+  });
+
+  test('no prompt falls back to the corpus (not an error)', () => {
+    const r = run(['--models', 'claude', '--dry-run']);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toMatch(/corpus:\s+\d+ case/);
+  });
+
+  test('upload is off by default (local only, nothing uploaded)', () => {
+    const r = run(['--prompt', 'hi', '--dry-run'], { env: { BRAINTRUST_API_KEY: '' } });
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain('local only');
   });
 
   test('--judge flag reported in dry-run output', () => {
@@ -196,9 +207,9 @@ describe('gstack-model-benchmark prompt resolution', () => {
     expect(r.stdout).toContain('treat-me-as-inline');
   });
 
-  test('missing prompt exits non-zero', () => {
+  test('no positional and no --prompt runs the corpus', () => {
     const r = run(['--dry-run']);
-    expect(r.status).not.toBe(0);
-    expect(r.stderr).toContain('specify a prompt');
+    expect(r.status).toBe(0);
+    expect(r.stdout).toMatch(/corpus:\s+\d+ case/);
   });
 });

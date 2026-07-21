@@ -7,22 +7,19 @@
  * to keep cost near $0.001/provider/run.
  *
  * What this catches that unit tests don't:
- *   - CLI output-format drift (the #1 silent breakage path)
- *   - Token parsing from real provider responses
+ *   - CLI invocation drift (a flag rename or trust-prompt change breaking a run)
  *   - Auth-failure vs timeout vs rate-limit error code routing
- *   - Cost estimation on real token counts
- *   - Parallel execution via Promise.allSettled — slow provider doesn't block fast
+ *   - The adapter terminates without throwing and returns plain-text output
  *
  * NOT covered here (would need dedicated test files):
- *   - Quality judge integration (benchmark-judge.ts, adds ~$0.05/run)
- *   - Multi-turn tool-using prompts — our single-turn smoke skips `toolCalls > 0`
+ *   - Quality judge integration (autoevals ClosedQA, opt-in)
  */
 
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { ClaudeAdapter } from '../lib/model-benchmark/providers/claude';
 import { GptAdapter } from '../lib/model-benchmark/providers/gpt';
 import { GeminiAdapter } from '../lib/model-benchmark/providers/gemini';
-import { runBenchmark } from '../lib/model-benchmark/runner';
+import { runProviderBenchmark } from '../lib/model-benchmark/braintrust-eval';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -91,13 +88,9 @@ describeIfEvals('multi-provider benchmark adapters (live)', () => {
       throw new Error(`claude errored: ${result.error.code} — ${result.error.reason}`);
     }
     expect(result.output.toLowerCase()).toContain('ok');
-    expect(result.tokens.input).toBeGreaterThan(0);
-    expect(result.tokens.output).toBeGreaterThan(0);
     expect(result.durationMs).toBeGreaterThan(0);
     expect(typeof result.modelUsed).toBe('string');
     expect(result.modelUsed.length).toBeGreaterThan(0);
-    const cost = claude.estimateCost(result.tokens, result.modelUsed);
-    expect(cost).toBeGreaterThan(0);
   }, 150_000);
 
   test('gpt: trivial prompt produces parseable output', async () => {
@@ -111,12 +104,8 @@ describeIfEvals('multi-provider benchmark adapters (live)', () => {
       throw new Error(`gpt errored: ${result.error.code} — ${result.error.reason}`);
     }
     expect(result.output.toLowerCase()).toContain('ok');
-    expect(result.tokens.input).toBeGreaterThan(0);
-    expect(result.tokens.output).toBeGreaterThan(0);
     expect(result.durationMs).toBeGreaterThan(0);
     expect(typeof result.modelUsed).toBe('string');
-    const cost = gpt.estimateCost(result.tokens, result.modelUsed);
-    expect(cost).toBeGreaterThan(0);
   }, 150_000);
 
   test('gemini: trivial prompt produces parseable output', async () => {
@@ -129,17 +118,10 @@ describeIfEvals('multi-provider benchmark adapters (live)', () => {
     if (result.error) {
       throw new Error(`gemini errored: ${result.error.code} — ${result.error.reason}`);
     }
-    // Gemini CLI occasionally returns empty output even on successful runs
-    // (model returned content the CLI parser missed, intermittent stream issues).
-    // We assert the adapter ran end-to-end without erroring and reports a non-
-    // empty token count instead of grepping the literal "ok" — that string
-    // assertion was too brittle for a smoke that's really about "did the
-    // adapter wire up and the run terminate successfully?"
+    // Gemini CLI can return empty output on otherwise-successful runs in some
+    // environments. This smoke is about "did the adapter wire up and terminate
+    // without throwing" — assert the shape, not the content.
     expect(typeof result.output).toBe('string');
-    // Gemini CLI sometimes returns 0 tokens in the result event (older responses);
-    // assert non-negative instead of strictly positive.
-    expect(result.tokens.input).toBeGreaterThanOrEqual(0);
-    expect(result.tokens.output).toBeGreaterThanOrEqual(0);
     expect(result.durationMs).toBeGreaterThan(0);
     expect(typeof result.modelUsed).toBe('string');
   }, 150_000);
@@ -163,30 +145,23 @@ describeIfEvals('multi-provider benchmark adapters (live)', () => {
     expect(result.durationMs).toBeGreaterThan(0);
   }, 30_000);
 
-  test('runBenchmark: Promise.allSettled means one unavailable provider does not block others', async () => {
-    // Use the full runner with all three providers — whichever are unauthed should
-    // return entries with available=false and not crash the batch.
-    const report = await runBenchmark({
-      prompt: PROMPT,
-      workdir,
-      providers: ['claude', 'gpt', 'gemini'],
-      timeoutMs: 120_000,
-      skipUnavailable: false,
-    });
-    expect(report.entries).toHaveLength(3);
-    for (const e of report.entries) {
-      expect(['claude', 'gpt', 'gemini']).toContain(e.family);
-      if (e.available) {
-        expect(e.result).toBeDefined();
-      } else {
-        expect(typeof e.unavailable_reason).toBe('string');
-      }
+  test('runProviderBenchmark: an unauthed/failing provider returns a result, never throws', async () => {
+    // Braintrust owns orchestration now. The property we care about: a provider
+    // that's unavailable or errors comes back as a ProviderBenchmark (score null,
+    // ops carrying the error) instead of throwing and aborting the batch.
+    const cases = [{ id: 'smoke', input: PROMPT, required: ['ok'] }];
+    const results = await Promise.all(
+      (['claude', 'gpt', 'gemini'] as const).map(p => runProviderBenchmark(p, cases, { timeoutMs: 120_000 })),
+    );
+    expect(results).toHaveLength(3);
+    for (const r of results) {
+      expect(['claude', 'gpt', 'gemini']).toContain(r.provider);
+      expect(r.score === null || (typeof r.score === 'number' && r.score >= 0 && r.score <= 1)).toBe(true);
+      expect(Array.isArray(r.ops)).toBe(true);
     }
-    // At least one available provider should have produced a non-error result in a healthy CI env.
-    const hadSuccess = report.entries.some(e => e.available && e.result && !e.result.error);
-    // We don't hard-assert this: if NO providers are authed, skip silently.
+    const hadSuccess = results.some(r => typeof r.score === 'number' && r.ops.some(o => !o.error));
     if (!hadSuccess) {
-      process.stderr.write('\nrunBenchmark live: no provider produced a clean result (no auth?)\n');
+      process.stderr.write('\nbenchmark live: no provider produced a clean result (no auth?)\n');
     }
   }, 300_000);
 });

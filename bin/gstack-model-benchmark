@@ -1,33 +1,37 @@
 #!/usr/bin/env bun
 /**
- * gstack-model-benchmark — run the same prompt across multiple providers
- * and compare latency, tokens, cost, quality, and tool-call count.
+ * gstack-model-benchmark — run the same prompt(s) across providers and compare,
+ * with scoring, experiments, and reporting owned by Braintrust (local by default;
+ * nothing is uploaded unless BRAINTRUST_API_KEY is set — that key is the consent
+ * boundary for the cloud dashboard).
  *
  * Usage:
- *   gstack-model-benchmark <skill-or-prompt-file> [options]
+ *   gstack-model-benchmark [<prompt-file>] [options]
  *
  * Options:
  *   --models claude,gpt,gemini   Comma-separated provider list (default: claude)
- *   --prompt "<text>"            Inline prompt instead of a file
- *   --workdir <path>             Working dir passed to each CLI (default: cwd)
- *   --timeout-ms <n>             Per-provider timeout (default: 300000)
- *   --output table|json|markdown Output format (default: table)
- *   --skip-unavailable           Skip providers that fail available() check
- *                                (default: include them with unavailable marker)
- *   --judge                      Run Anthropic SDK judge on outputs for quality score
- *                                (requires ANTHROPIC_API_KEY; adds ~$0.05 per call)
+ *   --prompt "<text>"            Ad-hoc single-case prompt instead of the corpus
+ *   --corpus <path>              Corpus JSON (default: evals/model-benchmark/corpus.json)
+ *   --timeout-ms <n>             Per-provider-per-case timeout (default: 300000)
+ *   --output table|json          Output format (default: table)
+ *   --judge                      Add the autoevals ClosedQA LLM judge (needs OPENAI_API_KEY)
  *   --dry-run                    Validate flags + resolve auth, don't invoke providers
  *
  * Examples:
  *   gstack-model-benchmark --prompt "Write a haiku about databases" --models claude,gpt
- *   gstack-model-benchmark ./test-prompt.txt --models claude,gpt,gemini --judge
+ *   gstack-model-benchmark --models claude,gpt,gemini            # runs the corpus
  *   gstack-model-benchmark --prompt "hi" --models claude,gpt,gemini --dry-run
  */
 
 import '../lib/conductor-env-shim';
 import * as fs from 'fs';
-import * as path from 'path';
-import { runBenchmark, formatTable, formatJson, formatMarkdown, type BenchmarkInput } from '../lib/model-benchmark/runner';
+import {
+  loadCorpus,
+  runProviderBenchmark,
+  type BenchCase,
+  type ProviderBenchmark,
+  type ProviderName,
+} from '../lib/model-benchmark/braintrust-eval';
 import { ClaudeAdapter } from '../lib/model-benchmark/providers/claude';
 import { GptAdapter } from '../lib/model-benchmark/providers/gpt';
 import { GeminiAdapter } from '../lib/model-benchmark/providers/gemini';
@@ -38,10 +42,10 @@ const ADAPTER_FACTORIES = {
   gemini: () => new GeminiAdapter(),
 };
 
-type OutputFormat = 'table' | 'json' | 'markdown';
+type OutputFormat = 'table' | 'json';
 
 const CLI_ARGS = process.argv.slice(2);
-const VALUE_FLAGS = new Set(['--models', '--prompt', '--workdir', '--timeout-ms', '--output']);
+const VALUE_FLAGS = new Set(['--models', '--prompt', '--corpus', '--timeout-ms', '--output']);
 
 function arg(name: string, def?: string): string | undefined {
   const idx = CLI_ARGS.findIndex(a => a === name || a.startsWith(name + '='));
@@ -76,93 +80,89 @@ function positionalArgs(args: string[]): string[] {
   return positional;
 }
 
-function parseProviders(s: string | undefined): Array<'claude' | 'gpt' | 'gemini'> {
+function parseProviders(s: string | undefined): ProviderName[] {
   if (!s) return ['claude'];
-  const seen = new Set<'claude' | 'gpt' | 'gemini'>();
+  const seen = new Set<ProviderName>();
   for (const p of s.split(',').map(x => x.trim()).filter(Boolean)) {
     if (p === 'claude' || p === 'gpt' || p === 'gemini') seen.add(p);
-    else {
-      console.error(`WARN: unknown provider '${p}' — skipping. Valid: claude, gpt, gemini.`);
-    }
+    else console.error(`WARN: unknown provider '${p}' — skipping. Valid: claude, gpt, gemini.`);
   }
   return seen.size ? Array.from(seen) : ['claude'];
 }
 
-function resolvePrompt(positional: string | undefined): string {
+/** Resolve the cases: --prompt/file → single ad-hoc case; else the corpus. */
+function resolveCases(positional: string | undefined): BenchCase[] {
   const inline = arg('--prompt');
-  if (inline) return inline;
-  if (!positional) {
-    console.error('ERROR: specify a prompt via positional path or --prompt "<text>"');
-    process.exit(1);
+  if (inline) return [{ id: 'adhoc', input: inline, required: [] }];
+  if (positional && fs.existsSync(positional)) {
+    return [{ id: 'adhoc', input: fs.readFileSync(positional, 'utf-8'), required: [] }];
   }
-  if (fs.existsSync(positional)) {
-    return fs.readFileSync(positional, 'utf-8');
-  }
-  // Not a file — treat as inline prompt
-  return positional;
+  if (positional) return [{ id: 'adhoc', input: positional, required: [] }];
+  return loadCorpus(arg('--corpus'));
 }
 
 async function main(): Promise<void> {
   const positional = positionalArgs(CLI_ARGS)[0];
-  const prompt = resolvePrompt(positional);
   const providers = parseProviders(arg('--models'));
-  const workdir = arg('--workdir', process.cwd())!;
   const timeoutMs = parseInt(arg('--timeout-ms', '300000')!, 10);
   const output = (arg('--output', 'table') as OutputFormat);
-  const skipUnavailable = flag('--skip-unavailable');
   const doJudge = flag('--judge');
   const dryRun = flag('--dry-run');
 
   if (dryRun) {
-    await dryRunReport({ prompt, providers, workdir, timeoutMs, output, doJudge });
+    await dryRunReport({ cases: resolveCases(positional), providers, timeoutMs, output, doJudge });
     return;
   }
 
-  const input: BenchmarkInput = {
-    prompt,
-    workdir,
-    providers,
-    timeoutMs,
-    skipUnavailable,
-  };
-
-  const report = await runBenchmark(input);
-
-  if (doJudge) {
-    try {
-      const { judgeEntries } = await import('../lib/model-benchmark/judge');
-      await judgeEntries(report);
-    } catch (err) {
-      console.error(`WARN: judge unavailable: ${(err as Error).message}`);
-    }
+  if (doJudge && !process.env.OPENAI_API_KEY) {
+    console.error('WARN: --judge needs OPENAI_API_KEY for the autoevals ClosedQA judge — running with the deterministic scorer only.');
   }
 
-  let out: string;
-  switch (output) {
-    case 'json':     out = formatJson(report); break;
-    case 'markdown': out = formatMarkdown(report); break;
-    case 'table':
-    default:         out = formatTable(report); break;
+  const cases = resolveCases(positional);
+  const results: ProviderBenchmark[] = [];
+  for (const provider of providers) {
+    results.push(await runProviderBenchmark(provider, cases, { timeoutMs, judge: doJudge && !!process.env.OPENAI_API_KEY }));
   }
-  process.stdout.write(out + '\n');
+
+  process.stdout.write((output === 'json' ? JSON.stringify(results, null, 2) : formatTable(results)) + '\n');
+}
+
+function formatTable(results: ProviderBenchmark[]): string {
+  const header = `Provider   Score    Cases  Latency(avg)  Errors`;
+  const rows: string[] = [header, '-'.repeat(header.length)];
+  for (const r of results) {
+    const n = r.ops.length || 1;
+    const avgMs = r.ops.reduce((s, o) => s + o.durationMs, 0) / n;
+    const errs = r.ops.filter(o => o.error).length;
+    const score = r.score === null ? '—' : `${(r.score * 100).toFixed(1)}%`;
+    rows.push(
+      `${pad(r.provider, 10)} ${pad(score, 8)} ${pad(String(r.ops.length), 6)} ${pad(msToStr(avgMs), 13)} ${errs || ''}`,
+    );
+  }
+  return rows.join('\n');
 }
 
 async function dryRunReport(opts: {
-  prompt: string;
-  providers: Array<'claude' | 'gpt' | 'gemini'>;
-  workdir: string;
+  cases: BenchCase[];
+  providers: ProviderName[];
   timeoutMs: number;
   output: OutputFormat;
   doJudge: boolean;
 }): Promise<void> {
+  const adhoc = opts.cases.length === 1 && opts.cases[0].id === 'adhoc';
   const lines: string[] = [];
   lines.push('== gstack-model-benchmark --dry-run ==');
-  lines.push(`  prompt:     ${opts.prompt.length > 80 ? opts.prompt.slice(0, 80) + '…' : opts.prompt}`);
+  if (adhoc) {
+    const p = opts.cases[0].input;
+    lines.push(`  prompt:     ${p.length > 80 ? p.slice(0, 80) + '…' : p}`);
+  } else {
+    lines.push(`  corpus:     ${opts.cases.length} case(s)`);
+  }
   lines.push(`  providers:  ${opts.providers.join(', ')}`);
-  lines.push(`  workdir:    ${opts.workdir}`);
   lines.push(`  timeout_ms: ${opts.timeoutMs}`);
   lines.push(`  output:     ${opts.output}`);
-  lines.push(`  judge:      ${opts.doJudge ? 'on (Anthropic SDK)' : 'off'}`);
+  lines.push(`  judge:      ${opts.doJudge ? 'on (autoevals ClosedQA)' : 'off'}`);
+  lines.push(`  upload:     ${process.env.BRAINTRUST_API_KEY ? 'ON — BRAINTRUST_API_KEY set (cloud dashboard)' : 'off (local only, nothing uploaded)'}`);
   lines.push('');
   lines.push('Adapter availability:');
   let authFailures = 0;
@@ -173,18 +173,21 @@ async function dryRunReport(opts: {
       authFailures += 1;
       continue;
     }
-    const adapter = factory();
-    const check = await adapter.available();
-    if (check.ok) {
-      lines.push(`  ${adapter.name}: OK`);
-    } else {
-      lines.push(`  ${adapter.name}: NOT READY — ${check.reason}`);
-      authFailures += 1;
-    }
+    const check = await factory().available();
+    if (check.ok) lines.push(`  ${name}: OK`);
+    else { lines.push(`  ${name}: NOT READY — ${check.reason}`); authFailures += 1; }
   }
   lines.push('');
   lines.push(`(--dry-run — no prompts sent. ${authFailures} provider(s) unavailable.)`);
   process.stdout.write(lines.join('\n') + '\n');
+}
+
+function pad(s: string, n: number): string {
+  return s.length >= n ? s.slice(0, n) : s + ' '.repeat(n - s.length);
+}
+function msToStr(ms: number): string {
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
 }
 
 main().catch(err => {
