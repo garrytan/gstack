@@ -93,7 +93,6 @@
     "devtools"
   ],
   "devDependencies": {
-    "@anthropic-ai/claude-agent-sdk": "0.2.117",
-    "@huggingface/transformers": "^4.1.0"
+    "@anthropic-ai/claude-agent-sdk": "0.2.117"
   }
 }

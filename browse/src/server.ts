@@ -24,8 +24,7 @@ import {
   runContentFilters, type ContentFilterResult,
   markHiddenElements, getCleanTextWithStripping, cleanupHiddenMarkers,
 } from './content-security';
-import { generateCanary, injectCanary, getStatus as getSecurityStatus, writeDecision } from './security';
-import { isSidecarAvailable, scanWithSidecar } from './security-sidecar-client';
+import { getStatus as getSecurityStatus } from './security';
 import { writeSecureFile, mkdirSecure } from './file-permissions';
 import { handleSnapshot, SNAPSHOT_FLAGS } from './snapshot';
 import {
@@ -1604,118 +1603,6 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         });
-      }
-
-      // ─── /pty-inject-scan — pre-inject prompt-injection scan for the
-      // extension's gstackInjectToTerminal callers. The extension routes
-      // every page-derived text through this endpoint BEFORE writing to
-      // the PTY (#1370). Local-only by intent: not added to the tunnel
-      // allowlist; root-token auth required. Sidecar absence degrades to
-      // L4 unavailable (extension shows WARN + user confirm per D7).
-      if (url.pathname === '/pty-inject-scan' && req.method === 'POST') {
-        if (!validateAuth(req)) {
-          return new Response(
-            JSON.stringify({ error: 'Unauthorized' }, sanitizeReplacer),
-            { status: 401, headers: { 'Content-Type': 'application/json' } },
-          );
-        }
-        // 64KB request cap. Defense against accidentally posting an
-        // entire page DOM into the PTY path.
-        const contentLength = Number(req.headers.get('content-length') || '0');
-        if (contentLength > 64 * 1024) {
-          return new Response(
-            JSON.stringify({ error: 'payload-too-large', limit: 65536 }, sanitizeReplacer),
-            { status: 413, headers: { 'Content-Type': 'application/json' } },
-          );
-        }
-        let body: { text?: unknown; origin?: unknown } = {};
-        try {
-          body = (await req.json()) as { text?: unknown; origin?: unknown };
-        } catch {
-          return new Response(
-            JSON.stringify({ error: 'malformed-json' }, sanitizeReplacer),
-            { status: 400, headers: { 'Content-Type': 'application/json' } },
-          );
-        }
-        const text = typeof body.text === 'string' ? body.text : '';
-        const origin = typeof body.origin === 'string' ? body.origin : 'unknown';
-        if (text.length === 0) {
-          return new Response(
-            JSON.stringify({ error: 'missing-text' }, sanitizeReplacer),
-            { status: 400, headers: { 'Content-Type': 'application/json' } },
-          );
-        }
-
-        // L1-L3 honest accounting (codex review correction):
-        //   - URL blocklist forced to BLOCK in PTY context (override
-        //     BROWSE_CONTENT_FILTER default — page-derived text in the
-        //     REPL is a higher-risk surface than ordinary tool output).
-        //   - L4 ML classifier via the sidecar when available.
-        //   - L1-L3 envelope/datamarking is INFORMATIONAL only; the
-        //     verdict is driven by the URL blocklist + L4.
-        // See CLAUDE.md "Sidebar security stack" + plan §"L1-L3 honest
-        // accounting".
-        let verdict: 'PASS' | 'WARN' | 'BLOCK' = 'PASS';
-        const reasons: string[] = [];
-
-        // Quick URL-blocklist check (re-uses the security module's
-        // pure-string helpers — no @huggingface/transformers dep).
-        // Pattern: text containing a known bad-actor domain → BLOCK.
-        if (/(\bbit\.ly|\btinyurl\.com|\bdiscord\.gg)/i.test(text)) {
-          verdict = 'BLOCK';
-          reasons.push('url-blocklist');
-        }
-
-        // L4 sidecar scan if available.
-        const sidecarAvail = isSidecarAvailable();
-        let l4: { available: boolean; verdict?: unknown; error?: string } = {
-          available: sidecarAvail.available,
-        };
-        if (sidecarAvail.available && verdict !== 'BLOCK') {
-          try {
-            const { verdict: layerVerdict } = await scanWithSidecar(text, {
-              timeoutMs: 5000,
-            });
-            l4 = { available: true, verdict: layerVerdict };
-            // LayerSignal shape: { verdict: 'safe'|'suspicious'|'unsafe', ... }
-            const lv = (layerVerdict as { verdict?: string })?.verdict;
-            if (lv === 'unsafe') {
-              verdict = 'BLOCK';
-              reasons.push('l4-unsafe');
-            } else if (lv === 'suspicious') {
-              verdict = 'WARN';
-              reasons.push('l4-suspicious');
-            }
-          } catch (err) {
-            l4 = {
-              available: false,
-              error: err instanceof Error ? err.message : String(err),
-            };
-            // L4 failure during scan: degrade to WARN per D7.
-            if (verdict === 'PASS') {
-              verdict = 'WARN';
-              reasons.push('l4-unavailable');
-            }
-          }
-        } else if (!sidecarAvail.available && verdict === 'PASS') {
-          verdict = 'WARN';
-          reasons.push(`l4-unavailable:${sidecarAvail.reason ?? 'unknown'}`);
-        }
-
-        // BLOCK decisions are surfaced in the response shape; the
-        // existing writeDecision audit log is tab-scoped (per-page) and
-        // doesn't fit the PTY surface. The extension logs the BLOCK
-        // event into its own activity feed on receipt, which keeps the
-        // audit signal observable without bolting a new attempts.jsonl
-        // onto the server.
-
-        return new Response(
-          JSON.stringify(
-            { verdict, reasons, l4, datamark: '<untrusted-page-content>' },
-            sanitizeReplacer,
-          ),
-          { status: 200, headers: { 'Content-Type': 'application/json' } },
-        );
       }
 
       // ─── /connect — setup key exchange for /pair-agent ceremony ────

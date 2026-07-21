@@ -12,17 +12,8 @@
  * the bypasses both adversarial reviewers (Claude + Codex) flagged.
  */
 import { describe, test, expect } from 'bun:test';
-import * as fs from 'fs';
-import * as path from 'path';
 import { combineVerdict, THRESHOLDS } from '../src/security';
 import { PAGE_CONTENT_COMMANDS } from '../src/commands';
-
-const REPO_ROOT = path.resolve(__dirname, '..', '..');
-
-// canary stream-chunk split detection — tested detectCanaryLeak inside
-// sidebar-agent.ts. Both the chat-stream pipeline and the function are
-// gone (Terminal pane uses an interactive PTY; user keystrokes are the
-// trust source, no chunked LLM stream to canary-scan).
 
 describe('tool-output ensemble rule (single-layer BLOCK)', () => {
   test('user-input context: single layer at BLOCK degrades to WARN', () => {
@@ -67,47 +58,8 @@ describe('tool-output ensemble rule (single-layer BLOCK)', () => {
   });
 });
 
-describe('sidepanel escapeHtml quote escaping', () => {
-  test('escapeHtml helper replaces double + single quotes', () => {
-    const src = fs.readFileSync(
-      path.join(REPO_ROOT, 'extension', 'sidepanel.js'),
-      'utf-8',
-    );
-    expect(src).toContain(".replace(/\"/g, '&quot;')");
-    expect(src).toContain(".replace(/'/g, '&#39;')");
-  });
-});
-
 describe('snapshot in PAGE_CONTENT_COMMANDS', () => {
   test('snapshot is wrapped by untrusted-content envelope', () => {
     expect(PAGE_CONTENT_COMMANDS.has('snapshot')).toBe(true);
-  });
-});
-
-describe('transcript classifier tool_output parameter', () => {
-  test('checkTranscript accepts optional tool_output', () => {
-    const src = fs.readFileSync(
-      path.join(REPO_ROOT, 'browse', 'src', 'security-classifier.ts'),
-      'utf-8',
-    );
-    expect(src).toContain('tool_output?: string');
-    expect(src).toContain('tool_output');
-    // Haiku prompt mentions tool_output
-    expect(src).toContain('tool_output');
-  });
-
-  // sidebar-agent passed tool text to the transcript classifier on
-  // tool-result scans. That whole pipeline is gone — Terminal pane has
-  // no LLM stream to scan, and security-classifier.ts is dead code with
-  // no production caller (a separate v1.1+ cleanup TODO).
-});
-
-describe('GSTACK_SECURITY_OFF kill switch', () => {
-  test('loadTestsavant honors env var early', () => {
-    const src = fs.readFileSync(
-      path.join(REPO_ROOT, 'browse', 'src', 'security-classifier.ts'),
-      'utf-8',
-    );
-    expect(src).toContain("process.env.GSTACK_SECURITY_OFF === '1'");
   });
 });

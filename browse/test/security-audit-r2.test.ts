@@ -15,13 +15,6 @@ import * as os from 'os';
 const META_SRC = fs.readFileSync(path.join(import.meta.dir, '../src/meta-commands.ts'), 'utf-8');
 const WRITE_SRC = fs.readFileSync(path.join(import.meta.dir, '../src/write-commands.ts'), 'utf-8');
 const SERVER_SRC = fs.readFileSync(path.join(import.meta.dir, '../src/server.ts'), 'utf-8');
-// sidebar-agent.ts was ripped (chat queue replaced by interactive PTY).
-// AGENT_SRC kept as empty string so the legacy describe block below skips
-// without crashing module load on a missing file.
-const AGENT_SRC = (() => {
-  try { return fs.readFileSync(path.join(import.meta.dir, '../src/sidebar-agent.ts'), 'utf-8'); }
-  catch { return ''; }
-})();
 const SNAPSHOT_SRC = fs.readFileSync(path.join(import.meta.dir, '../src/snapshot.ts'), 'utf-8');
 const PATH_SECURITY_SRC = fs.readFileSync(path.join(import.meta.dir, '../src/path-security.ts'), 'utf-8');
 
@@ -66,10 +59,6 @@ function extractFunction(src: string, name: string): string {
 
 // ─── Shared source reads for CSS validator tests ────────────────────────────
 const CDP_SRC = fs.readFileSync(path.join(import.meta.dir, '../src/cdp-inspector.ts'), 'utf-8');
-const EXTENSION_SRC = fs.readFileSync(
-  path.join(import.meta.dir, '../../extension/inspector.js'),
-  'utf-8'
-);
 
 // ─── Task 2: Shared CSS value validator ─────────────────────────────────────
 
@@ -99,24 +88,6 @@ describe('Task 2: CSS value validator blocks dangerous patterns', () => {
     it('cdp-inspector.ts modifyStyle blocks @import', () => {
       const fn = extractFunction(CDP_SRC, 'modifyStyle');
       expect(fn).toContain('@import');
-    });
-
-    it('extension injectCSS validates id format', () => {
-      const fn = extractFunction(EXTENSION_SRC, 'injectCSS');
-      expect(fn).toBeTruthy();
-      // Should contain a regex test for valid id characters
-      expect(fn).toMatch(/\^?\[a-zA-Z0-9_-\]/);
-    });
-
-    it('extension injectCSS blocks dangerous CSS patterns', () => {
-      const fn = extractFunction(EXTENSION_SRC, 'injectCSS');
-      expect(fn).toMatch(/url\\s\*\\\(/);
-    });
-
-    it('extension toggleClass validates className format', () => {
-      const fn = extractFunction(EXTENSION_SRC, 'toggleClass');
-      expect(fn).toBeTruthy();
-      expect(fn).toMatch(/\^?\[a-zA-Z0-9_-\]/);
     });
   });
 });
@@ -216,56 +187,6 @@ describe('Task 1: validateOutputPath uses realpathSync', () => {
       expect(() => mod.validateOutputPath('/home/user/secret.png')).toThrow(/Path must be within/);
       expect(() => mod.validateOutputPath('/var/log/access.log')).toThrow(/Path must be within/);
     });
-  });
-});
-
-// ─── Round-2 review findings: applyStyle CSS check ──────────────────────────
-
-describe('Round-2 finding 1: extension applyStyle blocks dangerous CSS values', () => {
-  const INSPECTOR_SRC = fs.readFileSync(
-    path.join(import.meta.dir, '../../extension/inspector.js'),
-    'utf-8'
-  );
-
-  it('applyStyle function exists in inspector.js', () => {
-    const fn = extractFunction(INSPECTOR_SRC, 'applyStyle');
-    expect(fn).toBeTruthy();
-  });
-
-  it('applyStyle validates CSS value with url() block', () => {
-    const fn = extractFunction(INSPECTOR_SRC, 'applyStyle');
-    // Source contains literal regex /url\s*\(/ — match the source-level escape sequence
-    expect(fn).toMatch(/url\\s\*\\\(/);
-  });
-
-  it('applyStyle blocks expression()', () => {
-    const fn = extractFunction(INSPECTOR_SRC, 'applyStyle');
-    expect(fn).toMatch(/expression\\s\*\\\(/);
-  });
-
-  it('applyStyle blocks @import', () => {
-    const fn = extractFunction(INSPECTOR_SRC, 'applyStyle');
-    expect(fn).toContain('@import');
-  });
-
-  it('applyStyle blocks javascript: scheme', () => {
-    const fn = extractFunction(INSPECTOR_SRC, 'applyStyle');
-    expect(fn).toContain('javascript:');
-  });
-
-  it('applyStyle blocks data: scheme', () => {
-    const fn = extractFunction(INSPECTOR_SRC, 'applyStyle');
-    expect(fn).toContain('data:');
-  });
-
-  it('applyStyle value check appears before setProperty call', () => {
-    const fn = extractFunction(INSPECTOR_SRC, 'applyStyle');
-    // Check that the CSS value guard (url\s*\() appears before setProperty
-    const valueCheckIdx = fn.search(/url\\s\*\\\(/);
-    const setPropIdx = fn.indexOf('setProperty');
-    expect(valueCheckIdx).toBeGreaterThan(-1);
-    expect(setPropIdx).toBeGreaterThan(-1);
-    expect(valueCheckIdx).toBeLessThan(setPropIdx);
   });
 });
 
