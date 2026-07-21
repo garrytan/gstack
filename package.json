@@ -97,6 +97,8 @@
   ],
   "devDependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.2.117",
-    "@huggingface/transformers": "^4.1.0"
+    "@huggingface/transformers": "^4.1.0",
+    "autoevals": "^0.3.0",
+    "braintrust": "^3.24.0"
   }
 }
