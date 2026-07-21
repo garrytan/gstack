@@ -72,7 +72,8 @@ describe("release and CI hardening", () => {
     expect(workflow).toContain("versions/current.json");
     expect(workflow).not.toContain('active="$GSTACK_HOME/versions/2.0.0"');
     expect(workflow).toContain(".gstack-runtime-browsers");
-    expect(workflow).toContain('chromium.launch({ headless: true, channel: "chromium" })');
+    expect(workflow).toContain('for (const options of [{ headless: true }, { headless: true, channel: "chromium" }])');
+    expect(workflow).toContain("chromium.launch(options)");
     expect(workflow).not.toContain("--with-deps");
     expect(workflow).toContain(".gstack-runtime-tools/bun");
     expect(workflow).toContain('"$GSTACK_HOME/bin/bun" --version');
@@ -99,7 +100,9 @@ describe("release and CI hardening", () => {
     expect(installer).toContain('entry(managedBunRelativePath(), "managed-bun", true)');
     const browser = read("browse/src/cli.ts");
     expect(browser).toContain("Every installed/compiled client must use the adjacent Node-compatible daemon");
-    expect(browser).toContain("if (IS_COMPILED && !NODE_SERVER_SCRIPT)");
+    expect(browser).toContain("if (isCompiled)");
+    expect(browser).toContain("if (!nodeServerScript)");
+    expect(browser).toContain("return { isCompiled, nodeServerScript, sourceServerScript: null }");
   });
 
   test("Windows setup lane installs, doctors, and uninstalls rather than only building", () => {

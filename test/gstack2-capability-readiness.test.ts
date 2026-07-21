@@ -101,10 +101,15 @@ describe("capability readiness", () => {
       expect(exit).toBe(1);
       expect(stderr.value()).toBe("");
       expect(result).toMatchObject({
-        ok: false,
-        capability: "pdf",
-        judgment: { status: "available" },
-        readiness: { status: "unavailable" },
+        schemaVersion: 1,
+        status: "degraded",
+        code: "CAPABILITY_UNAVAILABLE",
+        data: {
+          ok: false,
+          capability: "pdf",
+          judgment: { status: "available" },
+          readiness: { status: "unavailable" },
+        },
       });
     } finally {
       await fs.rm(root, { recursive: true, force: true });

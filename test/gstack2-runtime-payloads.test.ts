@@ -45,7 +45,9 @@ describe('GStack 2 generated runtime payload prerequisites', () => {
     expect(result.built).toBe(true);
     expect(calls).toHaveLength(1);
     expect(calls[0].map((entry) => entry.path)).toEqual(REQUIRED_RUNTIME_PAYLOADS.map((entry) => entry.path));
-    expect(new Set(calls[0].map((entry) => entry.build))).toEqual(new Set(['core']));
+    expect(new Set(calls[0].map((entry) => entry.build))).toEqual(
+      new Set(process.platform === 'darwin' ? ['core', 'ios'] : ['core']),
+    );
   });
 
   test('does not rebuild payloads that already exist', async () => {

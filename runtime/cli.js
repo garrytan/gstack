@@ -28,7 +28,6 @@ import {
 import {
   CAPABILITY_READINESS_CAPABILITIES,
   capabilityReadiness,
-  formatCapabilityReadiness,
   runDoctor,
   formatDoctor,
 } from "./doctor.js";
@@ -99,6 +98,11 @@ export async function main(argv = process.argv.slice(2), options = {}) {
         throw cliError(`Unknown command: ${command}`, "USAGE");
     }
   } catch (error) {
+    const structuredResult = error?.executionResult ?? error?.cause?.executionResult;
+    if (structuredResult) {
+      write(stderr, renderExecutionResult(structuredResult, { json: true }));
+      return 1;
+    }
     const json = args.includes("--json");
     const safeMessage = redactSensitiveText(error?.message ?? String(error));
     if (json) {
@@ -171,10 +175,45 @@ async function doctorCommand({ args, home, cwd, stdout }) {
   }
   const report = await runDoctor({ home, cwd, expectedSkillApi: parsed.values.get("--skill-api") });
   const result = capability ? capabilityReadiness(report, capability) : report;
+  if (capability) {
+    const envelope = capabilityExecutionResult(result);
+    write(stdout, renderExecutionResult(envelope, { json: parsed.flags.has("--json") }));
+    return envelope.status === "success" ? 0 : 1;
+  }
   write(stdout, parsed.flags.has("--json")
     ? `${JSON.stringify(result, null, 2)}\n`
-    : capability ? formatCapabilityReadiness(result) : formatDoctor(result));
+    : formatDoctor(result));
   return result.ok ? 0 : 1;
+}
+
+function capabilityExecutionResult(result) {
+  const statusByReadiness = {
+    ready: "success",
+    degraded: "degraded",
+    unavailable: "degraded",
+    unsupported: "unsupported",
+    failed: "failed",
+  };
+  const codeByReadiness = {
+    ready: null,
+    degraded: EXECUTION_RESULT_ERROR_CODES.DEGRADED,
+    unavailable: EXECUTION_RESULT_ERROR_CODES.CAPABILITY_UNAVAILABLE,
+    unsupported: EXECUTION_RESULT_ERROR_CODES.CAPABILITY_UNSUPPORTED,
+    failed: EXECUTION_RESULT_ERROR_CODES.CAPABILITY_FAILED,
+  };
+  const readiness = result.readiness.status;
+  const evidence = result.readiness.evidence?.map((item) =>
+    `${item.id}: ${item.status} — ${item.message}`) ?? [
+    `platform: ${result.platform.status}`,
+    `judgment: ${result.judgment.status}`,
+  ];
+  return executionResult({
+    status: statusByReadiness[readiness],
+    code: codeByReadiness[readiness],
+    summary: result.readiness.message,
+    evidence,
+    data: result,
+  });
 }
 
 async function configCommand({ args, home, cwd, stdout }) {
@@ -387,9 +426,12 @@ async function runExternalCommand(command, { cwd, env, stdout, stderr }) {
     child.once("close", (code, signal) => {
       if (code === 0) {
         if (captured.truncated) {
-          reject(cliError(
+          reject(executionResultError(
             `External command ${path.basename(executable)} exceeded the ${maxCapturedBytes}-byte result limit; verify its side effect before reconciling it as applied.`,
             EXECUTION_RESULT_ERROR_CODES.DEGRADED,
+            "degraded",
+            ["output exceeded 1048576-byte capture limit"],
+            { executable: path.basename(executable), exitCode: 0, truncated: true },
           ));
           return;
         }
@@ -398,9 +440,12 @@ async function runExternalCommand(command, { cwd, env, stdout, stderr }) {
         if (captured.stderr.trim()) evidence.push("non-empty stderr");
         const name = path.basename(executable);
         if (evidence.length === 0) {
-          reject(cliError(
+          reject(executionResultError(
             `External command ${name} exited 0 but produced no output; verify its side effect before reconciling it as applied.`,
             EXECUTION_RESULT_ERROR_CODES.EMPTY,
+            "degraded",
+            ["exit code 0", "stdout and stderr were empty"],
+            { executable: name, exitCode: 0, stdout: "", stderr: "" },
           ));
           return;
         }
@@ -417,13 +462,28 @@ async function runExternalCommand(command, { cwd, env, stdout, stderr }) {
         }));
         return;
       }
-      const error = cliError(
+      const error = executionResultError(
         `External command ${path.basename(executable)} ${signal ? `ended by ${signal}` : `exited ${code}`}`,
-        "EXTERNAL_COMMAND_FAILED",
+        EXECUTION_RESULT_ERROR_CODES.FAILED,
+        "failed",
+        [signal ? `terminated by signal ${signal}` : `exit code ${code}`],
+        {
+          executable: path.basename(executable),
+          exitCode: code,
+          signal: signal ?? null,
+          stdout: captured.stdout,
+          stderr: captured.stderr,
+        },
       );
       reject(error);
     });
   });
+}
+
+function executionResultError(summary, code, status, evidence, data) {
+  const error = cliError(summary, code);
+  error.executionResult = executionResult({ status, code, summary, evidence, data });
+  return error;
 }
 
 async function withOwnedRuntimeMutation(home, callback) {

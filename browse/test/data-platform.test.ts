@@ -118,10 +118,14 @@ describe('validateTempPath', () => {
     expect(() => validateTempPath('/tmp/nonexistent-file-12345.jpg')).toThrow(/not found/i);
   });
 
-  it('rejects paths in cwd', () => {
-    // Create a real file in cwd to test the path check (not the existence check)
-    const cwdFile = path.join(process.cwd(), 'package.json');
-    expect(() => validateTempPath(cwdFile)).toThrow(/temp directory/i);
+  it('rejects a temp-directory symlink that resolves outside temp', () => {
+    const link = path.join(TEMP_DIR, `test-temp-link-${Date.now()}`);
+    fs.symlinkSync('/etc/passwd', link);
+    try {
+      expect(() => validateTempPath(link)).toThrow(/temp directory/i);
+    } finally {
+      fs.unlinkSync(link);
+    }
   });
 
   it('rejects absolute paths outside safe dirs', () => {

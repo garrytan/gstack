@@ -49,5 +49,5 @@ bin/*        text eol=lf
 # The committed diagram-render bundle is hash-pinned (BUILD_INFO sha256);
 # a CRLF rewrite on Windows checkout would break the drift test and change
 # the content-addressed staged filename.
-lib/diagram-render/dist/*.html text eol=lf
+lib/diagram-render/dist/*.html text eol=lf whitespace=-trailing-space
 lib/diagram-render/dist/*.json text eol=lf

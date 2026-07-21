@@ -302,8 +302,11 @@ export function planBoundedFreeTestShards(
   return shards;
 }
 
-export function buildShardArgs(files: string[]): string[] {
-  return ['test', ...files, '--max-concurrency=1', `--timeout=${FREE_TEST_TIMEOUT_MS}`];
+export function buildShardArgs(files: string[], timeoutMs = FREE_TEST_TIMEOUT_MS): string[] {
+  if (!Number.isInteger(timeoutMs) || timeoutMs <= 0) {
+    throw new Error(`Test timeout must be a positive integer. Received: ${timeoutMs}`);
+  }
+  return ['test', ...files, '--max-concurrency=1', `--timeout=${timeoutMs}`];
 }
 
 type CliOptions = {

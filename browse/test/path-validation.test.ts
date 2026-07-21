@@ -4,7 +4,7 @@ import { validateReadPath, SENSITIVE_COOKIE_NAME, SENSITIVE_COOKIE_VALUE } from 
 import { BLOCKED_METADATA_HOSTS } from '../src/url-validation';
 import { readFileSync, symlinkSync, unlinkSync, writeFileSync, realpathSync } from 'fs';
 import { tmpdir } from 'os';
-import { join } from 'path';
+import { join, relative } from 'path';
 
 describe('validateOutputPath', () => {
   it('allows paths within /tmp', () => {
@@ -82,7 +82,8 @@ describe('validateReadPath', () => {
   });
 
   it('blocks nested path traversal', () => {
-    expect(() => validateReadPath('src/../../etc/passwd')).toThrow(/Path must be within/);
+    const escapeToEtc = relative(process.cwd(), '/etc/passwd');
+    expect(() => validateReadPath(`src/../${escapeToEtc}`)).toThrow(/Path must be within/);
   });
 
   it('blocks symlink inside safe dir pointing outside', () => {
