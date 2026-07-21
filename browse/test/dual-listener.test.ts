@@ -48,9 +48,9 @@ describe('Dual-listener surface types', () => {
 });
 
 describe('Tunnel path allowlist', () => {
-  test('TUNNEL_PATHS is a closed set containing exactly /connect, /command, /sidebar-chat', () => {
+  test('TUNNEL_PATHS is a closed set containing exactly /connect, /command', () => {
     const paths = extractSetContents(SERVER_SRC, 'TUNNEL_PATHS');
-    expect(paths).toEqual(new Set(['/connect', '/command', '/sidebar-chat']));
+    expect(paths).toEqual(new Set(['/connect', '/command']));
   });
 
   test('TUNNEL_PATHS does NOT contain bootstrap or admin paths', () => {

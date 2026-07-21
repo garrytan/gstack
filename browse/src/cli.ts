@@ -17,7 +17,6 @@ import { writeSecureFile, mkdirSecure } from './file-permissions';
 import { resolveConfig, ensureStateDir, readVersionHash } from './config';
 import { parseProxyConfig, computeConfigHash, ProxyConfigError } from './proxy-config';
 import { redactProxyUrl } from './proxy-redact';
-import { spawnTerminalAgent } from './terminal-agent-control';
 
 const config = resolveConfig();
 const IS_WINDOWS = process.platform === 'win32';
@@ -1095,14 +1094,13 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
     // Delete stale state file
     safeUnlinkQuiet(config.stateFile);
 
-    console.log('Launching headed Chromium with extension + terminal agent...');
+    console.log('Launching headed Chromium...');
     try {
-      // Start server in headed mode with extension auto-loaded
-      // Use a well-known port so the Chrome extension auto-connects
+      // Start server in headed mode.
+      // Use a well-known port so callers auto-connect.
       const serverEnv: Record<string, string> = {
         BROWSE_HEADED: '1',
         BROWSE_PORT: '34567',
-        BROWSE_SIDEBAR_CHAT: '1',
         // Disable parent-process watchdog: the user controls the headed browser
         // window lifecycle. The CLI exits immediately after connect, so watching
         // it would kill the server ~15s later. Cleanup happens via browser
@@ -1134,28 +1132,6 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
         console.log('(If you still don\'t see it, check Mission Control / other Spaces.)');
       }
 
-      // sidebar-agent.ts spawn was here. Ripped alongside the chat queue —
-      // the Terminal pane runs an interactive PTY now, no more one-shot
-      // claude -p subprocesses to multiplex.
-
-      // Auto-start terminal agent (non-compiled bun process). Owns the PTY
-      // WebSocket for the sidebar Terminal pane. Routes through the shared
-      // spawnTerminalAgent helper so the CLI cold-start path and the
-      // server.ts watchdog respawn path share one implementation. The
-      // helper handles prior-PID cleanup, script lookup, and env wiring.
-      try {
-        const newPid = spawnTerminalAgent({
-          stateFile: config.stateFile,
-          serverPort: newState.port,
-          cwd: config.projectDir,
-        });
-        if (newPid) {
-          console.log(`[browse] Terminal agent started (PID: ${newPid})`);
-        }
-      } catch (err: any) {
-        // Non-fatal: chat still works without the terminal agent.
-        console.error(`[browse] Terminal agent failed to start: ${err.message}`);
-      }
     } catch (err: any) {
       console.error(`[browse] Connect failed: ${err.message}`);
       process.exit(1);
@@ -1234,16 +1210,6 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
       try {
         const respawned = await startServer(serverEnv);
         console.log(`[browse] Supervisor: server respawned (PID ${respawned.pid}, port ${respawned.port}).`);
-        // Re-spawn the terminal-agent too; same env wiring as the initial connect.
-        try {
-          spawnTerminalAgent({
-            stateFile: config.stateFile,
-            serverPort: respawned.port,
-            cwd: config.projectDir,
-          });
-        } catch (err: any) {
-          console.warn(`[browse] Supervisor: terminal-agent respawn failed: ${err?.message || err}`);
-        }
       } catch (err: any) {
         console.error(`[browse] Supervisor: server respawn failed: ${err?.message || err}`);
         // Let the next tick try again — the crash-loop guard already

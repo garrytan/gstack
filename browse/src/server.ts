@@ -18,7 +18,6 @@ import { handleReadCommand, hasOutArg } from './read-commands';
 import { handleWriteCommand } from './write-commands';
 import { handleMetaCommand } from './meta-commands';
 import { handleCookiePickerRoute, hasActivePicker } from './cookie-picker-routes';
-import { sanitizeExtensionUrl } from './sidebar-utils';
 import { COMMAND_DESCRIPTIONS, PAGE_CONTENT_COMMANDS, DOM_CONTENT_COMMANDS, wrapUntrustedContent, canonicalizeCommand, buildUnknownCommandError, ALL_COMMANDS } from './commands';
 import {
   wrapUntrustedPageContent, datamarkContent,
@@ -44,8 +43,6 @@ import { inspectElement, modifyStyle, resetModifications, getModificationHistory
 // Bun.spawn used instead of child_process.spawn (compiled bun binaries
 // fail posix_spawn on all executables including /bin/bash)
 import { safeUnlink, safeUnlinkQuiet, safeKill } from './error-handling';
-import { readAgentRecord, killAgentByRecord, clearAgentRecord, agentRecordPath, spawnTerminalAgent } from './terminal-agent-control';
-import { isProcessAlive } from './error-handling';
 import { sanitizeBody, stripLoneSurrogateEscapes } from './sanitize';
 import { startSocksBridge, testUpstream, type BridgeHandle } from './socks-bridge';
 import { parseProxyConfig, toUpstreamConfig, ProxyConfigError } from './proxy-config';
@@ -56,12 +53,6 @@ import {
   mintSseSessionToken, validateSseSessionToken, extractSseCookie,
   buildSseSetCookie, SSE_COOKIE_NAME,
 } from './sse-session-cookie';
-import {
-  mintPtySessionToken, buildPtySetCookie, revokePtySessionToken,
-} from './pty-session-cookie';
-import {
-  mintLease, validateLease, refreshLease, revokeLease,
-} from './pty-session-lease';
 import * as fs from 'fs';
 import * as net from 'net';
 import * as path from 'path';
@@ -211,38 +202,6 @@ export interface ServerConfig {
    * dispatch; returning null falls through.
    */
   beforeRoute?: (req: Request, surface: Surface, auth: TokenInfo | null) => Promise<Response | null>;
-  /**
-   * Whether gstack owns the lifecycle of the terminal-agent process and its
-   * discovery files (`<stateDir>/terminal-port`, `<stateDir>/terminal-internal-token`,
-   * `<stateDir>/terminal-agent-pid`).
-   *
-   * When true (default), shutdown() runs four side effects:
-   *   1. Identity-based kill via `killAgentByRecord(readAgentRecord(stateDir))`
-   *      (v1.44+). Only signals the PID recorded by THIS daemon's agent.
-   *      Replaced the historical `pkill -f terminal-agent\.ts` regex that
-   *      matched sibling gstack sessions on the same host — see
-   *      terminal-agent-control.ts for rationale.
-   *   2. `safeUnlinkQuiet(<stateDir>/terminal-port)`
-   *   3. `safeUnlinkQuiet(<stateDir>/terminal-internal-token)`
-   *   4. `safeUnlinkQuiet(<stateDir>/terminal-agent-pid)` (the v1.44 record)
-   *
-   * This is correct for gstack's CLI path, which spawns `terminal-agent.ts` as
-   * the producer of those files (see cli.ts:1037-1063).
-   *
-   * Embedders (gbrowser phoenix overlay, future hosts) that run their own PTY
-   * server and write those files themselves should pass `false`. When `false`,
-   * the embedder owns BOTH the agent process AND all three discovery files.
-   * Note that terminal-agent.ts's own SIGTERM cleanup removes `terminal-port`
-   * and `terminal-agent-pid` (the agent writes both at boot), so embedders
-   * that pre-launch their own agent must ensure their cleanup matches.
-   *
-   * Polarity note: this differs from `xvfb?` and `proxyBridge?`, which gate by
-   * the *presence* of a caller-owned handle (presence ⇒ don't close). This
-   * field gates by an explicit boolean because there is no handle object —
-   * the terminal-agent is started elsewhere (cli.ts), and shutdown's only
-   * reference is the PID record + the file paths.
-   */
-  ownsTerminalAgent?: boolean;
 }
 
 /**
@@ -253,7 +212,7 @@ export interface ServerHandle {
   fetchLocal: (req: Request, server: any) => Promise<Response>;
   fetchTunnel: (req: Request, server: any) => Promise<Response>;
   /**
-   * Drains buffers, kills terminal-agent, closes browser, clears intervals,
+   * Drains buffers, closes browser, clears intervals,
    * removes state files. Does NOT stop bound Bun.Server listeners — call
    * stopListeners() for that. CLI relies on process.exit() to drop sockets.
    */
@@ -302,7 +261,6 @@ export function resolveConfigFromEnv(): Omit<ServerConfig, 'browserManager' | 's
 const TUNNEL_PATHS = new Set<string>([
   '/connect',
   '/command',
-  '/sidebar-chat',
 ]);
 
 /**
@@ -394,77 +352,6 @@ async function closeTunnel(): Promise<void> {
 // Module-level validateAuth deleted in v1.35.0.0. Factory-scoped equivalent
 // in buildFetchHandler closes over cfg.authToken so every internal auth check
 // sees the same token the routes receive.
-
-/**
- * Terminal-agent discovery. The non-compiled bun process at
- * `browse/src/terminal-agent.ts` writes its chosen port to
- * `<stateDir>/terminal-port` and the loopback handshake token to
- * `<stateDir>/terminal-internal-token` once it boots. Read on demand —
- * lazy so we don't break tests that don't spawn the agent.
- */
-function readTerminalPort(): number | null {
-  try {
-    const f = path.join(path.dirname(config.stateFile), 'terminal-port');
-    const v = parseInt(fs.readFileSync(f, 'utf-8').trim(), 10);
-    return Number.isFinite(v) && v > 0 ? v : null;
-  } catch { return null; }
-}
-function readTerminalInternalToken(): string | null {
-  try {
-    const f = path.join(path.dirname(config.stateFile), 'terminal-internal-token');
-    const t = fs.readFileSync(f, 'utf-8').trim();
-    return t.length > 16 ? t : null;
-  } catch { return null; }
-}
-
-/**
- * Push a freshly-minted PTY cookie token to the terminal-agent so its
- * /ws upgrade can validate the cookie. v1.44+: also pushes the bound
- * sessionId so the agent can route /internal/restart and (Commit 3)
- * re-attach back to the same PtySession. Loopback POST authenticated
- * with the internal token written by the agent at startup. If the agent
- * isn't up yet, the extension just retries /pty-session.
- */
-async function grantPtyToken(token: string, sessionId?: string): Promise<boolean> {
-  const port = readTerminalPort();
-  const internal = readTerminalInternalToken();
-  if (!port || !internal) return false;
-  try {
-    const resp = await fetch(`http://127.0.0.1:${port}/internal/grant`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${internal}`,
-      },
-      body: JSON.stringify(sessionId ? { token, sessionId } : { token }),
-      signal: AbortSignal.timeout(2000),
-    });
-    return resp.ok;
-  } catch { return false; }
-}
-
-/**
- * Ask the terminal-agent to dispose the PtySession bound to `sessionId`.
- * Scoped to one caller's session — sibling tabs/agents untouched. Used by
- * /pty-restart and /pty-dispose. Returns true on agent ack.
- */
-async function restartPtySession(sessionId: string): Promise<boolean> {
-  const port = readTerminalPort();
-  const internal = readTerminalInternalToken();
-  if (!port || !internal) return false;
-  try {
-    const resp = await fetch(`http://127.0.0.1:${port}/internal/restart`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${internal}`,
-      },
-      body: JSON.stringify({ sessionId }),
-      signal: AbortSignal.timeout(5000),
-    });
-    return resp.ok;
-  } catch { return false; }
-}
 
 /** Extract bearer token from request. Returns the token string or null. */
 function extractToken(req: Request): string | null {
@@ -1450,11 +1337,9 @@ if (import.meta.main) {
 /**
  * Build a request handler set for the browse daemon. Embedders (gbrowser
  * phoenix overlay) call this directly with their own cfg to compose overlay
- * routes via cfg.beforeRoute, pass a pre-launched cfg.browserManager, and
- * opt out of terminal-agent teardown via cfg.ownsTerminalAgent (default
- * true, set to false when the embedder runs its own PTY server). The CLI
- * path calls this through start() with env-derived defaults and explicit
- * cfg.ownsTerminalAgent: true — externally-observable behavior is identical.
+ * routes via cfg.beforeRoute and pass a pre-launched cfg.browserManager. The
+ * CLI path calls this through start() with env-derived defaults —
+ * externally-observable behavior is identical.
  *
  * Auth state lives ENTIRELY inside the factory closure: cfg.authToken is the
  * single source of truth for the bearer secret, factory-scoped validateAuth
@@ -1484,89 +1369,6 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
   initRegistry(cfg.authToken);
 
   const { authToken, browserManager: cfgBrowserManager, startTime, beforeRoute, browsePort } = cfg;
-  // Strict opt-out: only explicit `false` flips the gate. Any other value
-  // (undefined, truthy non-bool from a JS caller bypassing TS, etc.) defaults
-  // to gstack-owns. Matches the "default-true preserves CLI bit-for-bit"
-  // premise even under malformed cfg.
-  const ownsTerminalAgent = cfg.ownsTerminalAgent === false ? false : true;
-
-  // ─── Terminal-Agent Watchdog (v1.44+) ─────────────────────────────
-  //
-  // The terminal-agent process can die independently of the server: SIGKILL
-  // from the OS OOM killer, an uncaught exception under load, an external
-  // `pkill` from a sibling debugging session. Pre-v1.44 the sidebar would
-  // see the broken connection and stay broken until the user reloaded.
-  // Now: 60s ticker checks the recorded agent PID, respawns via the shared
-  // spawnTerminalAgent helper if dead.
-  //
-  // Identity-based — uses readAgentRecord + isProcessAlive, NOT a process
-  // name probe. Critical: prevents respawning around a slow-but-alive agent
-  // (which would create split-brain — two agents writing the port file,
-  // tokens diverging between them, mystery PTY upgrade failures).
-  //
-  // Crash-loop guard: 3 respawn attempts inside 60s → stop trying and emit
-  // a one-line error. Manual `forceRestart` from the sidebar clears the
-  // history (the user is the explicit signal to retry).
-  //
-  // Only active when ownsTerminalAgent === true. Embedders that pre-launch
-  // their own PTY server (gbrowser phoenix overlay) must not be auto-respawned
-  // by us — their lifecycle is their concern.
-  let agentWatchdogInterval: ReturnType<typeof setInterval> | null = null;
-  const respawnHistory: number[] = [];
-  const AGENT_WATCHDOG_TICK_MS = parseInt(
-    process.env.GSTACK_AGENT_WATCHDOG_TICK_MS || '60000',
-    10,
-  );
-  const RESPAWN_GUARD_WINDOW_MS = 60_000;
-  const RESPAWN_GUARD_MAX = 3;
-  let agentRespawnGuardTripped = false;
-
-  if (ownsTerminalAgent) {
-    agentWatchdogInterval = setInterval(() => {
-      if (isShuttingDown) return;
-      if (agentRespawnGuardTripped) return;
-      const stateDir = path.dirname(cfg.config.stateFile);
-      const record = readAgentRecord(stateDir);
-      // If the record exists and the PID is alive, the agent is healthy
-      // (or at least still answering signal 0). Slow-but-alive agents
-      // intentionally fall through here — split-brain is worse than
-      // unresponsiveness, and slow recovery is handled by the user via
-      // restart.
-      if (record && isProcessAlive(record.pid)) return;
-      // Either no record (never spawned, or cleaned up after crash) or
-      // PID is dead. Try to respawn.
-      const now = Date.now();
-      while (respawnHistory.length && now - respawnHistory[0] > RESPAWN_GUARD_WINDOW_MS) {
-        respawnHistory.shift();
-      }
-      if (respawnHistory.length >= RESPAWN_GUARD_MAX) {
-        agentRespawnGuardTripped = true;
-        console.error(
-          `[browse] terminal-agent respawn guard tripped (${RESPAWN_GUARD_MAX} crashes in ${RESPAWN_GUARD_WINDOW_MS / 1000}s) — manual restart required`,
-        );
-        return;
-      }
-      respawnHistory.push(now);
-      try {
-        const pid = spawnTerminalAgent({
-          stateFile: cfg.config.stateFile,
-          serverPort: cfg.browsePort,
-          cwd: cfg.config.projectDir,
-        });
-        if (pid) {
-          console.log(`[browse] terminal-agent respawned by watchdog (PID: ${pid})`);
-        } else {
-          console.warn('[browse] terminal-agent respawn skipped — script not found on disk');
-        }
-      } catch (err: any) {
-        console.warn('[browse] terminal-agent respawn failed:', err?.message || err);
-      }
-    }, AGENT_WATCHDOG_TICK_MS);
-    // Detach the watchdog timer from Node's event-loop ref count so a
-    // healthy idle process can still exit cleanly if everything else is
-    // also unref'd. Bun's setInterval returns a Timer with unref().
-    (agentWatchdogInterval as any)?.unref?.();
-  }
 
   // Factory-scoped validateAuth. Closes over cfg.authToken so every internal
   // auth check sees the same token the routes receive. Module-level
@@ -1595,25 +1397,9 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
     // a daemon that no longer exists. The path must come from this factory's
     // config so embedded/isolated servers never clean a sibling session.
     const shutdownStateFile = cfg.config.stateFile;
-    const shutdownStateDir = path.dirname(shutdownStateFile);
     safeUnlinkQuiet(shutdownStateFile);
 
     console.log('[browse] Shutting down...');
-    if (ownsTerminalAgent) {
-      // Identity-based kill (v1.44+). Replaces the v1.43- `pkill -f
-      // terminal-agent\.ts` regex teardown which matched sibling gstack
-      // sessions on the same host. Only the PID recorded in
-      // `<stateDir>/terminal-agent-pid` by THIS daemon's agent is signaled.
-      try {
-        const record = readAgentRecord(shutdownStateDir);
-        if (record) killAgentByRecord(record, 'SIGTERM');
-      } catch (err: any) {
-        console.warn('[browse] Failed to kill terminal-agent:', err.message);
-      }
-      safeUnlinkQuiet(path.join(shutdownStateDir, 'terminal-port'));
-      safeUnlinkQuiet(path.join(shutdownStateDir, 'terminal-internal-token'));
-      safeUnlinkQuiet(agentRecordPath(shutdownStateDir));
-    }
     try { detachSession(); } catch (err: any) {
       console.warn('[browse] Failed to detach CDP session:', err.message);
     }
@@ -1621,7 +1407,6 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
     if (cfgBrowserManager.isWatching()) cfgBrowserManager.stopWatch();
     clearInterval(flushInterval);
     clearInterval(idleCheckInterval);
-    if (agentWatchdogInterval) clearInterval(agentWatchdogInterval);
     await flushBuffers();
 
     await cfgBrowserManager.close();
@@ -1815,234 +1600,9 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
           // sidebar-agent.ts was ripped; only the page-content side
           // (canary, content-security) keeps reporting in.
           security: getSecurityStatus(),
-          // Terminal-agent discovery. ONLY a port number — never a token.
-          // Tokens flow via the /pty-session HttpOnly cookie path. See
-          // `pty-session-cookie.ts` for the rationale (codex outside-voice
-          // finding #2: don't reuse this endpoint for shell auth).
-          terminalPort: readTerminalPort(),
         }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
-        });
-      }
-
-      // ─── /pty-session — mint sessionId + lease + attachToken ─────────
-      //
-      // v1.44+ four-tuple shape:
-      //   { terminalPort, sessionId, attachToken, leaseExpiresAt }
-      //
-      //  - sessionId    : stable, non-secret. Safe to log. Identifies "this
-      //                   terminal" across re-attaches.
-      //  - attachToken  : short-lived (30 min wall, single attach in practice
-      //                   since the agent revokes on WS close). Bearer for
-      //                   the /ws upgrade.
-      //  - leaseExpiresAt: client-visible deadline for the lease. Re-attach
-      //                   only works inside this window.
-      //
-      // The lease + attachToken are minted together so a successful
-      // /pty-session is one round trip. Re-attach mints a fresh attachToken
-      // for the SAME sessionId via /pty-session/reattach.
-      //
-      // NEVER added to TUNNEL_PATHS — the tunnel surface 404s any
-      // /pty-session attempt by default-deny.
-      if (url.pathname === '/pty-session' && req.method === 'POST') {
-        if (!validateAuth(req)) {
-          return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-            status: 401, headers: { 'Content-Type': 'application/json' },
-          });
-        }
-        const port = readTerminalPort();
-        if (!port) {
-          return new Response(JSON.stringify({
-            error: 'terminal-agent not ready',
-          }), { status: 503, headers: { 'Content-Type': 'application/json' } });
-        }
-        const lease = mintLease();
-        const minted = mintPtySessionToken();
-        const granted = await grantPtyToken(minted.token, lease.sessionId);
-        if (!granted) {
-          revokePtySessionToken(minted.token);
-          revokeLease(lease.sessionId);
-          return new Response(JSON.stringify({
-            error: 'failed to grant terminal session',
-          }), { status: 503, headers: { 'Content-Type': 'application/json' } });
-        }
-        return new Response(JSON.stringify({
-          terminalPort: port,
-          sessionId: lease.sessionId,
-          attachToken: minted.token,
-          leaseExpiresAt: lease.expiresAt,
-          // Legacy alias — extensions still on the v1.43 wire shape keep
-          // working. Drop after one minor release once dogfood confirms.
-          ptySessionToken: minted.token,
-          expiresAt: minted.expiresAt,
-        }), {
-          status: 200,
-          headers: {
-            'Content-Type': 'application/json',
-            'Set-Cookie': buildPtySetCookie(minted.token),
-          },
-        });
-      }
-
-      // ─── /pty-session/reattach — mint fresh attachToken for existing sessionId
-      //
-      // Used by Commit 3's re-attach loop on the client. Validates the
-      // lease (rejects unknown/expired sessionId with 410 Gone), mints a
-      // fresh short-lived attachToken bound to the same sessionId, and
-      // pushes it to the agent. The client opens a new WS with the new
-      // token; the agent matches the sessionId binding and re-attaches
-      // to the existing PtySession (kept alive for the 60s detach
-      // window — Commit 3 wires that side).
-      if (url.pathname === '/pty-session/reattach' && req.method === 'POST') {
-        if (!validateAuth(req)) {
-          return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-            status: 401, headers: { 'Content-Type': 'application/json' },
-          });
-        }
-        const port = readTerminalPort();
-        if (!port) {
-          return new Response(JSON.stringify({ error: 'terminal-agent not ready' }), {
-            status: 503, headers: { 'Content-Type': 'application/json' },
-          });
-        }
-        let body: any;
-        try { body = await req.json(); } catch { body = null; }
-        const sessionId = typeof body?.sessionId === 'string' ? body.sessionId : null;
-        const v = sessionId ? validateLease(sessionId) : { ok: false };
-        if (!v.ok) {
-          // 410 Gone — session window has closed (lease expired or never
-          // existed). Client must fall back to /pty-session for a brand-new
-          // session.
-          return new Response(JSON.stringify({ error: 'lease expired or unknown' }), {
-            status: 410, headers: { 'Content-Type': 'application/json' },
-          });
-        }
-        const minted = mintPtySessionToken();
-        const granted = await grantPtyToken(minted.token, sessionId!);
-        if (!granted) {
-          revokePtySessionToken(minted.token);
-          return new Response(JSON.stringify({ error: 'failed to grant attach token' }), {
-            status: 503, headers: { 'Content-Type': 'application/json' },
-          });
-        }
-        return new Response(JSON.stringify({
-          terminalPort: port,
-          sessionId,
-          attachToken: minted.token,
-          leaseExpiresAt: v.ok ? v.expiresAt : 0,
-        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
-      }
-
-      // ─── /pty-restart — one-transaction kill + fresh mint ────────────
-      //
-      // The Restart button. Synchronously disposes the caller's existing
-      // PtySession on the agent, revokes the old lease, mints a fresh
-      // sessionId + lease + attachToken, and returns the new 4-tuple in
-      // one response. Zero race window between kill and mint (codex T2
-      // + D8 of the eng review).
-      if (url.pathname === '/pty-restart' && req.method === 'POST') {
-        if (!validateAuth(req)) {
-          return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-            status: 401, headers: { 'Content-Type': 'application/json' },
-          });
-        }
-        const port = readTerminalPort();
-        if (!port) {
-          return new Response(JSON.stringify({ error: 'terminal-agent not ready' }), {
-            status: 503, headers: { 'Content-Type': 'application/json' },
-          });
-        }
-        let body: any;
-        try { body = await req.json(); } catch { body = null; }
-        const oldSessionId = typeof body?.sessionId === 'string' ? body.sessionId : null;
-        // Best-effort dispose. Missing/unknown sessionId is non-fatal —
-        // the client may be doing a "restart from scratch" with no prior
-        // session (e.g. ENDED state). The fresh mint always proceeds.
-        if (oldSessionId) {
-          await restartPtySession(oldSessionId);
-          revokeLease(oldSessionId);
-        }
-        const lease = mintLease();
-        const minted = mintPtySessionToken();
-        const granted = await grantPtyToken(minted.token, lease.sessionId);
-        if (!granted) {
-          revokePtySessionToken(minted.token);
-          revokeLease(lease.sessionId);
-          return new Response(JSON.stringify({ error: 'failed to grant terminal session' }), {
-            status: 503, headers: { 'Content-Type': 'application/json' },
-          });
-        }
-        return new Response(JSON.stringify({
-          terminalPort: port,
-          sessionId: lease.sessionId,
-          attachToken: minted.token,
-          leaseExpiresAt: lease.expiresAt,
-        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
-      }
-
-      // ─── /pty-dispose — explicit teardown (pagehide / browser quit) ──
-      //
-      // sendBeacon-compatible: accepts the auth token in the BODY so the
-      // extension's pagehide handler can fire it without setting headers
-      // (sendBeacon doesn't support custom headers). Codex T3 fix —
-      // without this, every browser quit + sidebar close leaves a zombie
-      // PTY alive for the 60s detach window (Commit 3).
-      if (url.pathname === '/pty-dispose' && req.method === 'POST') {
-        let body: any;
-        try { body = await req.json(); } catch { body = null; }
-        const authTokenFromBody = typeof body?.authToken === 'string' ? body.authToken : null;
-        // Accept either header bearer OR body authToken. Both must match
-        // the root auth token; otherwise reject.
-        const headerToken = extractToken(req);
-        const authedByHeader = headerToken !== null && headerToken === authToken;
-        const authedByBody = authTokenFromBody !== null && authTokenFromBody === authToken;
-        if (!authedByHeader && !authedByBody) {
-          return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-            status: 401, headers: { 'Content-Type': 'application/json' },
-          });
-        }
-        const sessionId = typeof body?.sessionId === 'string' ? body.sessionId : null;
-        if (sessionId) {
-          await restartPtySession(sessionId);
-          revokeLease(sessionId);
-        }
-        return new Response(JSON.stringify({ ok: true }), {
-          status: 200, headers: { 'Content-Type': 'application/json' },
-        });
-      }
-
-      // ─── /internal/lease-refresh — loopback from terminal-agent on keepalive
-      //
-      // T6 PTY-only idle reset (codex outside-voice fix): the headless
-      // daemon's idle timer must reset only on active PTY usage, not on
-      // every passive SSE consumer. Terminal-agent calls this endpoint
-      // (lazily, only when its cached lease is within 5 min of expiry)
-      // on its 25s keepalive cycle. Refreshing the lease here also bumps
-      // lastActivity so the daemon stays alive while a sidebar terminal
-      // is actively in use.
-      //
-      // INTERNAL endpoint — bound to the root authToken so an external
-      // caller can't refresh another user's lease. Body: {sessionId}.
-      if (url.pathname === '/internal/lease-refresh' && req.method === 'POST') {
-        if (!validateAuth(req)) {
-          return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-            status: 401, headers: { 'Content-Type': 'application/json' },
-          });
-        }
-        let body: any;
-        try { body = await req.json(); } catch { body = null; }
-        const sessionId = typeof body?.sessionId === 'string' ? body.sessionId : null;
-        const r = sessionId ? refreshLease(sessionId) : { ok: false };
-        if (!r.ok) {
-          return new Response(JSON.stringify({ error: 'lease expired or unknown' }), {
-            status: 410, headers: { 'Content-Type': 'application/json' },
-          });
-        }
-        // T6: PTY activity resets the daemon idle timer.
-        resetIdleTimer();
-        return new Response(JSON.stringify({ ok: true, expiresAt: r.expiresAt }), {
-          status: 200, headers: { 'Content-Type': 'application/json' },
         });
       }
 
@@ -3007,7 +2567,6 @@ export async function start() {
     xvfb,
     proxyBridge,
     startTime,
-    ownsTerminalAgent: true, // CLI spawns terminal-agent.ts itself (see cli.ts:1037-1063)
   });
 
   const server = Bun.serve({
