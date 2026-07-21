@@ -272,7 +272,6 @@ export const DEFAULT_RUNTIME_BUNDLE = Object.freeze([
   // Keep its small, audited dependency closure explicit instead of copying all
   // node_modules or introducing a cloud browser.
   entry("browse/src"),
-  entry("extension"),
   entry("node_modules/playwright"),
   entry(managedBunRelativePath(), "managed-bun", true),
   entry(".gstack-runtime-browsers", "browser"),
@@ -317,7 +316,7 @@ export const DEFAULT_CAPABILITY_LAUNCHERS = Object.freeze({
 
 const CAPABILITY_PATH_PREFIXES = Object.freeze({
   browser: Object.freeze([
-    "browse/", "extension/", ".gstack-runtime-browsers", "node_modules/playwright", "node_modules/diff", "node_modules/socks",
+    "browse/", ".gstack-runtime-browsers", "node_modules/playwright", "node_modules/diff", "node_modules/socks",
     "node_modules/smart-buffer", "node_modules/ip-address", "node_modules/sharp", "node_modules/@img/",
     "node_modules/@ngrok/", "node_modules/detect-libc", "node_modules/semver",
   ]),

@@ -13,8 +13,6 @@
         "playwright": "npm:playwright-core@^1.58.2",
         "sharp": "^0.34.5",
         "socks": "^2.8.8",
-        "xterm": "5",
-        "xterm-addon-fit": "^0.8.0",
       },
       "devDependencies": {
         "@anthropic-ai/claude-agent-sdk": "0.2.117",
@@ -520,10 +518,6 @@
     "xmlbuilder2": ["xmlbuilder2@2.1.2", "", { "dependencies": { "@oozcitak/dom": "1.15.5", "@oozcitak/infra": "1.0.5", "@oozcitak/util": "8.3.3" } }, "sha512-PI710tmtVlQ5VmwzbRTuhmVhKnj9pM8Si+iOZCV2g2SNo3gCrpzR2Ka9wNzZtqfD+mnP+xkrqoNy0sjKZqP4Dg=="],
 
     "xtend": ["xtend@4.0.2", "", {}, "sha512-LKYU1iAXJXUgAXn9URjiu+MWhyUXHsvfp7mcuYm9dSUKK0/CjtrUwFAxD82/mCWbtLsGjFIad0wIsod4zrTAEQ=="],
-
-    "xterm": ["xterm@5.3.0", "", {}, "sha512-8QqjlekLUFTrU6x7xck1MsPzPA571K5zNqWm0M0oroYEWVOptZ0+ubQSkQ3uxIEhcIHRujJy6emDWX4A7qyFzg=="],
-
-    "xterm-addon-fit": ["xterm-addon-fit@0.8.0", "", { "peerDependencies": { "xterm": "^5.0.0" } }, "sha512-yj3Np7XlvxxhYF/EJ7p3KHaMt6OdwQ+HDu573Vx1lRXsVxOcnVJs51RgjZOouIZOczTsskaS+CpXspK81/DLqw=="],
 
     "zod": ["zod@3.25.76", "", {}, "sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ=="],
 
