@@ -81,6 +81,21 @@ bun run test:evals   # run before shipping — paid, diff-based (~$4/run max)
 integration tests. `bun run test:evals` runs LLM-judge quality evals and E2E
 tests via `claude -p`. Both must pass before creating a PR.
 
+## Health Stack
+
+The `/health` skill auto-detects nothing useful here: there's no `tsconfig.json`
+(Bun runs TypeScript directly), no biome/eslint, no knip, and shellcheck usually
+isn't installed. The real quality gates are the test suite and slop-scan. The full
+`bun test` script also spawns browser integration tests that hang in non-interactive
+agent shells, so `/health` targets the fast deterministic tier instead. slop-scan is
+this repo's linter (see the Slop-scan section below).
+
+- test: bun test test/skill-validation.test.ts test/gen-skill-docs.test.ts test/hermetic-wiring.test.ts
+- lint: npx slop-scan scan .
+
+Run the full `bun test` yourself in a real terminal before a PR — the `/health` entry
+above is the subset that completes without a browser, not a replacement for it.
+
 ## Project structure
 
 ```
