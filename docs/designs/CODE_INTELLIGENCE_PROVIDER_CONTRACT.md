@@ -123,9 +123,9 @@ consent; egress requires a separate explicit step.
 
 | Op | GBrain (recommend first) | Sourcebot | Graphify |
 |----|--------------------------|-----------|----------|
-| `register_source` | ✓ `sources add` | ✓ repo added to index config | ✓ index a local dir |
-| `refresh` | ✓ `sync --strategy code` | ✓ reindex | ✓ re-parse tree-sitter graph |
-| `search` | ✓ `gbrain search` (federated corpora) | ✓ `POST /api/search` (regex, zoekt) | ✓ `graphify query "<q>"` |
+| `register_source` | ✓ `sources add` | ✓ local `git` connection in config.json | ✓ `graphify update <dir>` (local, no LLM) |
+| `refresh` | ✓ `sync --source` | ✓ auto (config change + reindexIntervalMs) | ✓ `graphify update <dir>` |
+| `search` | ✓ `gbrain search` (federated corpora) | ✓ `POST /api/search` + Bearer key (v5) | ✓ `graphify query "<q>" --graph <graph.json>` |
 | `status` | ✓ `sources list` + page_count | ~ partial (server liveness) | ~ partial (graph.json present + node count) |
 | `add` | ✓ `put <slug>` | ✗ declines | ✗ declines |
 | `delete` | ✓ `delete <slug>` | ✗ declines | ✗ declines |
@@ -142,15 +142,20 @@ All three are driven directly from the runtime — no MCP client:
 - **Sourcebot** (`github.com/sourcebot-dev/sourcebot`, YC Fall 2025): self-hosted
   whole-repo regex search. `register_source` adds a local `{ "type": "git", "url":
   "file:///path" }` connection to the server's `config.json` (it re-indexes on
-  config change); `search` is `POST {baseUrl}/api/search`; `status` is a liveness
-  probe. Declines `add`/`delete`/`export`. A loopback `baseUrl` keeps content on
-  the machine (local); a remote one requires egress consent.
+  config change); `search` is `POST {baseUrl}/api/search`; `status` probes that
+  endpoint. Declines `add`/`delete`/`export`. **Sourcebot v5 gates `/api/search`
+  behind auth**, so the adapter sends `Authorization: Bearer <SOURCEBOT_API_KEY>`.
+  A loopback `baseUrl` keeps content on the machine (local); a remote one requires
+  egress consent.
 - **Graphify** (`github.com/Graphify-Labs/graphify`, YC-backed): local
-  tree-sitter code graph via the `graphify` CLI. `graphify <dir>` builds
-  `graphify-out/graph.json`; `graphify query "<q>"` searches it; `export` reads
-  the graph JSON. Fully local — nothing leaves the machine. Optional, **install
-  only with explicit user action** (`pip install graphifyy && graphify install`);
-  never auto-installed.
+  tree-sitter code graph via the `graphify` CLI. The adapter uses **`graphify
+  update <dir>`** — the local, no-LLM build (writes `graphify-out/graph.json`);
+  it deliberately avoids the bare `graphify <dir>` build, which runs an LLM
+  extraction backend needing an API key + network. `graphify query "<q>" --graph
+  <graph.json>` searches it (its `NODE ...`/`EDGE ...` output carries the file at
+  `src=`/`at=`); `export` reads the graph JSON. Fully local — nothing leaves the
+  machine. Optional, **install only with explicit user action** (`pip install
+  graphifyy && graphify install`, needs Python >= 3.10); never auto-installed.
 
 **No local-index option is offered** (deliberately excluded — a naive local
 index degrades result quality; we route to a real provider or to file-only grep,
@@ -228,6 +233,33 @@ a later phase precisely so the first slices do not trigger the
   `bun run test:gstack2`, re-baseline parity intentionally.
 - **Phase 4: retire bespoke glue.** Once every consumer is on the contract,
   delete the sync/ingest/cache entrypoints and their tests provider-by-provider.
+
+## Verified against real environments
+
+The three adapters were tested against the real tools in isolated environments
+(parallel agents, one worktree each), not just unit fakes. What that surfaced and
+fixed:
+
+- **Graphify (real install, graphify 0.9.23).** The first cut ran `graphify <dir>`
+  — which invokes an LLM extraction backend (needs a key + network), breaking the
+  "local, no egress" promise — and parsed a made-up output format. Fixed to the
+  real local `graphify update` build and a parser written against the real
+  `NODE`/`EDGE` output (file at `src=`/`at=`). Also fixed `search` ignoring the
+  indexed repo (now persists the indexed root) and `options` mislabeling an
+  installed-but-unindexed provider as unavailable.
+- **Sourcebot (live v5 in Docker).** Endpoint, request body, and response parsing
+  were correct against the real server. But v5 gates `/api/search` behind auth, so
+  the adapter got HTTP 401; added `Authorization: Bearer` support and made `status`
+  stop following the login redirect (it was falsely reporting "ready").
+- **GBrain (real gbrain 0.42.56, pglite engine).** The engine was broken on the
+  host (upstream macOS WASM bug), which exposed two bugs: engine-down failures were
+  reported as hard `PROVIDER_ERROR` with a raw stack dump instead of a clean
+  `PROVIDER_UNAVAILABLE` degrade (fixed), and the adapter sent flags the real
+  `gbrain` CLI does not define (`sync --strategy`, `search --source`) — corrected
+  to the real surface.
+
+Live end-to-end index+search-with-results was proven for Graphify and Sourcebot;
+GBrain's was blocked only by the host's broken engine, not by adapter code.
 
 ## What this does NOT change
 
