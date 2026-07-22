@@ -21,6 +21,11 @@ GSTACK_BIN="$GSTACK_ROOT/bin"
 GSTACK_BROWSE="$GSTACK_ROOT/browse/dist"
 GSTACK_DESIGN="$GSTACK_ROOT/design/dist"
 GSTACK_MAKE_PDF="$GSTACK_ROOT/make-pdf/dist"
+${ctx.host === 'codex' ? `if ! $GSTACK_BIN/gstack-codex-runtime-health --root "$GSTACK_ROOT" --entrypoint "${ctx.skillName}" --quiet; then
+  echo "GSTACK_RUNTIME_HEALTH: failed. Run gstack setup --host codex, then restart Codex." >&2
+  exit 1
+fi
+echo "GSTACK_RUNTIME_HEALTH: verified"` : ''}
 `
     : '';
 

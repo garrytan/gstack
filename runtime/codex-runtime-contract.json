@@ -190,7 +190,7 @@
         "sidecar"
       ],
       "present": true,
-      "content_sha256": "cdcb575dff0aa3f57e4f47c29a83f34a48f1806ea6843ae5c35e1c0a25ffaf46"
+      "content_sha256": "4461c6958d06c52eea3f014998c9dbd1df9342f337c479c87bdd337f3efaa097"
     },
     {
       "source": ".agents/skills/gstack/agents/openai.yaml",
@@ -223,7 +223,7 @@
         "sidecar"
       ],
       "present": true,
-      "content_sha256": "4754be5ec0154c3f7146f1e8003a3eacef6c61c7eb030210c23c5ebcc529ad0a"
+      "content_sha256": "33c2cf71a1c289fadda4a0c5d6ddb02cf35daf90fd40954a611aab9a183316b6"
     },
     {
       "source": "browse/dist",
@@ -234,7 +234,7 @@
         "sidecar"
       ],
       "materializeAtInstall": true,
-      "present": false,
+      "present": true,
       "content_sha256": null
     },
     {
@@ -257,7 +257,7 @@
         "sidecar"
       ],
       "materializeAtInstall": true,
-      "present": false,
+      "present": true,
       "content_sha256": null
     },
     {
@@ -269,7 +269,7 @@
         "sidecar"
       ],
       "materializeAtInstall": true,
-      "present": false,
+      "present": true,
       "content_sha256": null
     },
     {
@@ -380,7 +380,7 @@
         "sidecar"
       ],
       "present": true,
-      "content_sha256": "2bbbd10d5b9fe785df99f35fc1629273a2881c79e7584e3ff6bbfef33ca18b46"
+      "content_sha256": "ef193ae95494125d4f3b8d3788070b3537534469e5c4ad8e2656deea53daeb02"
     },
     {
       "source": "scripts/jargon-list.json",
@@ -434,8 +434,8 @@
         "global",
         "sidecar"
       ],
-      "present": false,
-      "content_sha256": null
+      "present": true,
+      "content_sha256": "155c8f53ecc02e583ea6d5014a512b8e33a84daf9fdeba19b24c2479bb4666b9"
     },
     {
       "source": "codex/hooks/ensure-gstack-model.sh",
@@ -445,8 +445,8 @@
         "global",
         "sidecar"
       ],
-      "present": false,
-      "content_sha256": null
+      "present": true,
+      "content_sha256": "a9a453247aef9b15c7e534b1d53c8d90891b8084f0a11335555ee32b3a91336b"
     },
     {
       "source": "scripts/codex-hook-config.ts",
@@ -456,8 +456,8 @@
         "global",
         "sidecar"
       ],
-      "present": false,
-      "content_sha256": null
+      "present": true,
+      "content_sha256": "d3c0ffa3cfb561f999ae45ba2ca7de527e0fd36e916405cd7f6a2039b0fed9ff"
     },
     {
       "source": "scripts/codex-hook-state.ts",
@@ -467,8 +467,8 @@
         "global",
         "sidecar"
       ],
-      "present": false,
-      "content_sha256": null
+      "present": true,
+      "content_sha256": "49f8d1bdd4b741e294af0aaaacf5a8ab2b0f6b6a70255cfd1b075ceea918e3a7"
     },
     {
       "source": "ETHOS.md",
@@ -486,7 +486,7 @@
     {
       "name": "gstack-autoplan",
       "source_skill": "autoplan",
-      "content_sha256": "2b0bccccde094d605bd32a1db88786ff68678082d9410e600b7e54b750fa1230",
+      "content_sha256": "3b8c0752bcf9b971d695c16c02afe058fbee520d5845fbd7bb16043c697f4294",
       "requirements": {
         "inherited": [
           "codex-cli",
@@ -588,7 +588,7 @@
     {
       "name": "gstack-benchmark",
       "source_skill": "benchmark",
-      "content_sha256": "db7e786a1fc52d08457555ddd9e832ab5154bfdb1be15591f4d4e94a8d5004da",
+      "content_sha256": "57acda934faf03973e5db37b42b0713c07d83a309feef0cbdc39cc534d7a14ae",
       "requirements": {
         "inherited": [
           "codex-cli",
@@ -651,7 +651,7 @@
     {
       "name": "gstack-benchmark-models",
       "source_skill": "benchmark-models",
-      "content_sha256": "2f7e679164800b1f722c071d4df50840b2a6bd3722327fce13fbb04bc5cbb2f6",
+      "content_sha256": "6f9f4d3b38f9a37a9be2dbdcd34df37d6d57b581431be4cd26d4db31101abc67",
       "requirements": {
         "inherited": [
           "codex-cli",
@@ -711,7 +711,7 @@
     {
       "name": "gstack-browse",
       "source_skill": "browse",
-      "content_sha256": "1b515fa7419c7fbce3b97d2a0a1bf8f35300fbe90ece98c374829bd6ab3139a4",
+      "content_sha256": "af773c0014b6f438ef3dcfee5a4ec6d079f97c1b5275ad98a311b30ad196ea9c",
       "requirements": {
         "inherited": [
           "codex-cli",
@@ -774,7 +774,7 @@
     {
       "name": "gstack-canary",
       "source_skill": "canary",
-      "content_sha256": "9b3a7c120fdb5a213469e5a127ea054dfc940109703423ae32815d7543c68859",
+      "content_sha256": "80b8f70e7528f16f5a29687eb4e3f0ff871ecce62e0ec5d3238aa12ef663671a",
       "requirements": {
         "inherited": [
           "codex-cli",
@@ -860,7 +860,7 @@
     {
       "name": "gstack-claude",
       "source_skill": "claude",
-      "content_sha256": "522e31cdeae085325cc80a602ce3982998e1cb3eb5274a6d37008e6781111024",
+      "content_sha256": "25723c10fbda15f0fcacf4a12dd167f6c063abc7f8c093a2df77d2c6c9a5bb18",
       "requirements": {
         "inherited": [
           "codex-cli",
@@ -926,7 +926,7 @@
     {
       "name": "gstack-context-restore",
       "source_skill": "context-restore",
-      "content_sha256": "66ebdec7d3e73f4b3decf9ec012ef407339c64c26019b93971c5ec8eca9675a7",
+      "content_sha256": "0a09a0e60867b37c08715ced2bdf49a8b3da4227055a30fba0683a3db343e341",
       "requirements": {
         "inherited": [
           "codex-cli",
@@ -992,7 +992,7 @@
     {
       "name": "gstack-context-save",
       "source_skill": "context-save",
-      "content_sha256": "87d5d67f9453869e47c2ac8070e4a9d05852e45e290eccfa8f501adce6bd1faa",
+      "content_sha256": "fc447b50e160c991dadff3b0afe6719d3651f569b985fbf956327350d397f2d0",
       "requirements": {
         "inherited": [
           "codex-cli",
@@ -1058,7 +1058,7 @@
     {
       "name": "gstack-cso",
       "source_skill": "cso",
-      "content_sha256": "3ea079573b7f9791eb75e4146843c6af542215a552fcf87f18918f6cde6b26d6",
+      "content_sha256": "7b5f818ddb89e6ee50893423242b94d67efd7706bb17cc98fd3d5e5f8d06d385",
       "requirements": {
         "inherited": [
           "codex-cli",
@@ -1124,7 +1124,7 @@
     {
       "name": "gstack-design-consultation",
       "source_skill": "design-consultation",
-      "content_sha256": "a1c49a7c6ea9abca12d25f4f0c637e450d2baac527304d1a07de136785138894",
+      "content_sha256": "8a07f2168f9d3463b4798550d8dde11c3d075432e2edb291889a15bac8291a2f",
       "requirements": {
         "inherited": [
           "codex-cli",
@@ -1193,7 +1193,7 @@
     {
       "name": "gstack-design-html",
       "source_skill": "design-html",
-      "content_sha256": "ed9319c4d1871b78b3ae4d72dedfdc9ccf8205c677e012bc28489e53ec4d1021",
+      "content_sha256": "37c99094bc07c4b1b0c85a7f9f52e28ce0118deba211d2e10e85cfe7e3b58fa9",
       "requirements": {
         "inherited": [
           "codex-cli",
@@ -1268,7 +1268,7 @@
     {
       "name": "gstack-design-review",
       "source_skill": "design-review",
-      "content_sha256": "8a6f6e7447534906426add656233dabfa6482a1ac060ef66f6d8fc87ca5dfdd1",
+      "content_sha256": "38b842a388d682ac12032a87170c8729b6eca4ad3ee0196a40d93d1fb693b874",
       "requirements": {
         "inherited": [
           "codex-cli",
@@ -1337,7 +1337,7 @@
     {
       "name": "gstack-design-shotgun",
       "source_skill": "design-shotgun",
-      "content_sha256": "f0ea71167d71a8b9e22c6fd8a9225733aadcd9d7c71cda2987611ba8b102632d",
+      "content_sha256": "1e4d3707fe2f7440c343261bc1e673aae7a61f35bd5c8f20eaaa97431d023c03",
       "requirements": {
         "inherited": [
           "codex-cli",
@@ -1406,7 +1406,7 @@
     {
       "name": "gstack-devex-review",
       "source_skill": "devex-review",
-      "content_sha256": "c375141aa4a2bb8454c4301e451665e027aeaef718181a2568ef2d0874d704d5",
+      "content_sha256": "ca8c640c142a4b33b9d97cf1117898c2447c01fd378d470aac37919f008b5783",
       "requirements": {
         "inherited": [
           "codex-cli",
@@ -1478,7 +1478,7 @@
     {
       "name": "gstack-diagram",
       "source_skill": "diagram",
-      "content_sha256": "120c13f5a3447c690c721abd10c7e1e1bf2bf17d604c3ff13ed6843ce03c6e94",
+      "content_sha256": "1d0e5217ebd2b78d5ac33227554c55009a6fbf663f1b855cf5b890a96d71a11d",
       "requirements": {
         "inherited": [
           "codex-cli",
@@ -1544,7 +1544,7 @@
     {
       "name": "gstack-document-generate",
       "source_skill": "document-generate",
-      "content_sha256": "864cc3240bc1e3f10591c079207f0a9b3fefe4f2f00484ebdaab4e7fcfaf064f",
+      "content_sha256": "55674164c9c63b7d1a028fe25c2c1caf08bb1e3a89e9a3d15eccacdacc1afc15",
       "requirements": {
         "inherited": [
           "codex-cli",
@@ -1613,7 +1613,7 @@
     {
       "name": "gstack-document-release",
       "source_skill": "document-release",
-      "content_sha256": "cd6cd28c01efcf6de5dc083c63c20756eac5046bf9e3b89ff36325b92716f4f0",
+      "content_sha256": "803e5f6ece6b9a35da4f8cbe42bc887a84b16e657debd4b045df72ba85ea4cab",
       "requirements": {
         "inherited": [
           "codex-cli",
@@ -1706,7 +1706,7 @@
     {
       "name": "gstack",
       "source_skill": "gstack",
-      "content_sha256": "f441fdf2f894df28e4459717812698a89c010cd149a2102362f250c819d92c6b",
+      "content_sha256": "5b35a47ea94302b59d5e4a17e2e6432b27ee5ee9ade084ac9ce150979e6f4149",
       "requirements": {
         "inherited": [
           "codex-cli",
@@ -1814,7 +1814,7 @@
     {
       "name": "gstack-health",
       "source_skill": "health",
-      "content_sha256": "23c1957e3a62a39b6db7e8a199b6de1756ce5190c2f86428c2a91d6d9617bf74",
+      "content_sha256": "903f8499bd4c1d5a0dbec82b67ed742bf986f492f3812bc43770ecf9a78f7125",
       "requirements": {
         "inherited": [
           "codex-cli",
@@ -1880,7 +1880,7 @@
     {
       "name": "gstack-investigate",
       "source_skill": "investigate",
-      "content_sha256": "1e4a0764cfc484967ac3afe6356262b7b3f8676cdd8e445ab3f21c2582e6a973",
+      "content_sha256": "3eca415a5390f2bb23194b0063c28e2de908ad070b58bbe9b1517084d2e198c2",
       "requirements": {
         "inherited": [
           "codex-cli",
@@ -1946,7 +1946,7 @@
     {
       "name": "gstack-ios-clean",
       "source_skill": "ios-clean",
-      "content_sha256": "6bedd7cb979db18ba9f12335414498868bfa9ce084174c46be823e8e0025857b",
+      "content_sha256": "40532aea64720722e6ed49d4628edc20562bd3807525bc3300a058a54e0f1c47",
       "requirements": {
         "inherited": [
           "codex-cli",
@@ -2012,7 +2012,7 @@
     {
       "name": "gstack-ios-design-review",
       "source_skill": "ios-design-review",
-      "content_sha256": "0f47527fab3016a9d16d3744e623ae16e1ef0b610972168501c757f4ada1c7e7",
+      "content_sha256": "efe60cd0b1996c1c3052dcce0b288357ad6db4777530b964e4f1662ccd0a9f1a",
       "requirements": {
         "inherited": [
           "codex-cli",
@@ -2078,7 +2078,7 @@
     {
       "name": "gstack-ios-fix",
       "source_skill": "ios-fix",
-      "content_sha256": "f2208520e76f95ebf9e36f4242d5e07ee2826e5cb351510a7ea69200ab4aa412",
+      "content_sha256": "eb87c48711a13648d2e41b3b6bc16c8cea849c025c2614e69a1cb0b7d75d3c80",
       "requirements": {
         "inherited": [
           "codex-cli",
@@ -2144,7 +2144,7 @@
     {
       "name": "gstack-ios-qa",
       "source_skill": "ios-qa",
-      "content_sha256": "18050f4f0e18f437c4bd4ff77db8952abbb1e62fa675ab12232d6103e571d73f",
+      "content_sha256": "89df438203d8b3f80c900030e6fb97c461c908e13a030a44be7260ddcccdf407",
       "requirements": {
         "inherited": [
           "codex-cli",
@@ -2210,7 +2210,7 @@
     {
       "name": "gstack-ios-sync",
       "source_skill": "ios-sync",
-      "content_sha256": "71aabf26c3940db41e2c5e0059e2ffefc128267545cda66dc2e3496b8d91ad96",
+      "content_sha256": "e7d2ed572cbee00da801e61ac0a4b7ddbbd424c9db4e18a28735087b4bdae719",
       "requirements": {
         "inherited": [
           "codex-cli",
@@ -2276,7 +2276,7 @@
     {
       "name": "gstack-land-and-deploy",
       "source_skill": "land-and-deploy",
-      "content_sha256": "27fa2949742a3f4c21a5298e768d3770b3efd6cd0cbbccf3a50235a9c383351a",
+      "content_sha256": "06f70630c7ce6c3b5c1c2133c339cc00c2745fed78d04f3c64590fbea8279a5e",
       "requirements": {
         "inherited": [
           "codex-cli",
@@ -2351,7 +2351,7 @@
     {
       "name": "gstack-landing-report",
       "source_skill": "landing-report",
-      "content_sha256": "8dc1b97adfc4cf9bda815cdcf817928086cb17f12857b90f335048922ca40428",
+      "content_sha256": "907113159662e1196af73b9fab771e6166a073c4a9cc71874d677a2f06a13364",
       "requirements": {
         "inherited": [
           "codex-cli",
@@ -2420,7 +2420,7 @@
     {
       "name": "gstack-learn",
       "source_skill": "learn",
-      "content_sha256": "cb7260c96a4e4bf7a610c676571d941fe9003f69980e964cb2935f4056610f24",
+      "content_sha256": "9df95c60349ca6251efbe3061c741c10495d2fcdc774cdf7893ac00d7ccbd573",
       "requirements": {
         "inherited": [
           "codex-cli",
@@ -2486,7 +2486,7 @@
     {
       "name": "gstack-make-pdf",
       "source_skill": "make-pdf",
-      "content_sha256": "d46f516e657ebb193f6d961e9b70f2160c9d84543bc029159a78e5c745c63911",
+      "content_sha256": "ace0a727818f80bdb257ae439f7d51e2bbc1a9afc83a52021f5e51d447b2e4ea",
       "requirements": {
         "inherited": [
           "codex-cli",
@@ -2546,7 +2546,7 @@
     {
       "name": "gstack-office-hours",
       "source_skill": "office-hours",
-      "content_sha256": "f5e2b64951656f7cdca7df63259be656e27a97abf9a218b0307067e3e546a406",
+      "content_sha256": "403a0c8d6018fca56a636b6885706170987be26ef0f3e16ab198fa7d852c2ec7",
       "requirements": {
         "inherited": [
           "codex-cli",
@@ -2612,7 +2612,7 @@
     {
       "name": "gstack-open-gstack-browser",
       "source_skill": "open-gstack-browser",
-      "content_sha256": "fd312ddeec4429905efd5e0224ec144605500319b67f37926b87b63212605a9e",
+      "content_sha256": "d6e81eea843b304a08134d7fe37d12aedf11cf26a3717bd54475bcb9c4ab713a",
       "requirements": {
         "inherited": [
           "codex-cli",
@@ -2681,7 +2681,7 @@
     {
       "name": "gstack-pair-agent",
       "source_skill": "pair-agent",
-      "content_sha256": "5ecfeaa9c27bcca90e75fe9a3300d7c16d4f43d933b43cc88d72af336944d7f0",
+      "content_sha256": "eb3353dc6c0ee467b7265c8aeab7d48931a245cfadf0a8e4b1f3a42215bf57df",
       "requirements": {
         "inherited": [
           "codex-cli",
@@ -2750,7 +2750,7 @@
     {
       "name": "gstack-plan-ceo-review",
       "source_skill": "plan-ceo-review",
-      "content_sha256": "a914549618d8d20fb95e2dcd481eade3cea8ae2b9bf27324f0425f2597706da2",
+      "content_sha256": "85ca40034bdde970f3eb4d6cd59db991a7d39bb93d404c821f9773b3275dad0d",
       "requirements": {
         "inherited": [
           "codex-cli",
@@ -2834,7 +2834,7 @@
     {
       "name": "gstack-plan-design-review",
       "source_skill": "plan-design-review",
-      "content_sha256": "7d6d736cddbc96241b23e4a424e79e40970be4d7470ec7b68b67f91e7e359610",
+      "content_sha256": "d8c3fc884d5a843d67e95aa66cba8f8a176bec92dd44efb14912f29f38a7bb4e",
       "requirements": {
         "inherited": [
           "codex-cli",
@@ -2900,7 +2900,7 @@
     {
       "name": "gstack-plan-devex-review",
       "source_skill": "plan-devex-review",
-      "content_sha256": "48371b002cd509e286c7f14e3571b04a1ea971b853369fc8ebd072421575bc8a",
+      "content_sha256": "bfde10788a3e846c93838541cde8f06a42740ea28c1fc31ee7f64c0dff0208bc",
       "requirements": {
         "inherited": [
           "codex-cli",
@@ -2984,7 +2984,7 @@
     {
       "name": "gstack-plan-eng-review",
       "source_skill": "plan-eng-review",
-      "content_sha256": "3d7c9fcef7c01864fd9dd5a5659f4fa48d4ed0f3c3ad115ad6124dc842bd41ee",
+      "content_sha256": "102114d773b39428e6d92052f17e6a6cad0f6ff85ca7aac146fa84ffa2be1754",
       "requirements": {
         "inherited": [
           "codex-cli",
@@ -3068,7 +3068,7 @@
     {
       "name": "gstack-plan-tune",
       "source_skill": "plan-tune",
-      "content_sha256": "297f813dd1970b8adc861c8677ff36ef779d2eb6f4cf4e569635e4a7fd8a5add",
+      "content_sha256": "913e1fdededf1fb91a8b62e1b4da0ce8bfbaf28630fe5a215a2dfadbbf2877fc",
       "requirements": {
         "inherited": [
           "codex-cli",
@@ -3134,7 +3134,7 @@
     {
       "name": "gstack-qa",
       "source_skill": "qa",
-      "content_sha256": "27cceebcd7ba95d446740744cc1b0c78a464fb7c683178897c586e77857bd678",
+      "content_sha256": "2445114948d6bc52e2c084e2142b7e81c6079c1130a856595a0af6f7541ebdcf",
       "requirements": {
         "inherited": [
           "codex-cli",
@@ -3203,7 +3203,7 @@
     {
       "name": "gstack-qa-only",
       "source_skill": "qa-only",
-      "content_sha256": "b3908a1e37c79d301f58ce328f8a97b15a2a2e9d00a77731cac6d9fcc06db5f3",
+      "content_sha256": "32e7cd6e81a7b9d86b057f6b81d5ed6455ff209e8cdac7e00b36c888864e706a",
       "requirements": {
         "inherited": [
           "codex-cli",
@@ -3272,7 +3272,7 @@
     {
       "name": "gstack-retro",
       "source_skill": "retro",
-      "content_sha256": "29aec202e0317646dd3692af2995590aee745253d4f08df2560a13d6a037e734",
+      "content_sha256": "0452a728ff9b54dacb3d35cf82cc498e6598008f9c182e3d4ea319a7aacf566a",
       "requirements": {
         "inherited": [
           "codex-cli",
@@ -3338,7 +3338,7 @@
     {
       "name": "gstack-review",
       "source_skill": "review",
-      "content_sha256": "89926b111229ecd7f378e720544562c16c6086c7ac087201e49d1c86e979c77c",
+      "content_sha256": "aca154c8746e9613a41dafd4dbb49fff7b5c9f886569b4de7b508dc60364212a",
       "requirements": {
         "inherited": [
           "codex-cli",
@@ -3419,7 +3419,7 @@
     {
       "name": "gstack-scrape",
       "source_skill": "scrape",
-      "content_sha256": "4c3122aa1db72bdb3f7be58ec84e326f6867890a5d50ac4c798b816a434b8f19",
+      "content_sha256": "0764edf6a28e4796136136ca73367736d35eacb95896c6e19eb78ee78ef40fba",
       "requirements": {
         "inherited": [
           "codex-cli",
@@ -3488,7 +3488,7 @@
     {
       "name": "gstack-setup-browser-cookies",
       "source_skill": "setup-browser-cookies",
-      "content_sha256": "d07da45a825693abdc856b9793c6c3d895a44e4c8d8af8d9f7b063c0cfdf2313",
+      "content_sha256": "4141939de6a93df282f632444e28e160bfe7a1a739e991f216130fd73ad60547",
       "requirements": {
         "inherited": [
           "codex-cli",
@@ -3551,7 +3551,7 @@
     {
       "name": "gstack-setup-deploy",
       "source_skill": "setup-deploy",
-      "content_sha256": "fa01a5366b8b2d76d92154e9cdc7f3f621e5bc65a17ad21807a6bbf66bab9267",
+      "content_sha256": "fe3bf87427521b3a353f5221372da09aa73760c24414fe199c93de734c5ecaf9",
       "requirements": {
         "inherited": [
           "codex-cli",
@@ -3617,7 +3617,7 @@
     {
       "name": "gstack-setup-gbrain",
       "source_skill": "setup-gbrain",
-      "content_sha256": "1f6cda209e0798283e48ddfdbe25ebc240c4c09a986145e23ed098fcf43ce006",
+      "content_sha256": "d4340519d456fc04281ef628189e6c05c0b3efc1aa887c2d7dee75baeb4993ce",
       "requirements": {
         "inherited": [
           "codex-cli",
@@ -3683,7 +3683,7 @@
     {
       "name": "gstack-ship",
       "source_skill": "ship",
-      "content_sha256": "ecb277ae5528ae206a5652e6d805f23e3fec09a6a63c9a2734684a81dd5ea0f7",
+      "content_sha256": "991b6d03a54452416e623dfc192dc1a3cc36d69d4cefc191199e67c103d0f920",
       "requirements": {
         "inherited": [
           "codex-cli",
@@ -3776,7 +3776,7 @@
     {
       "name": "gstack-skillify",
       "source_skill": "skillify",
-      "content_sha256": "6baac4f433afd3c938b06325f9b0a3ccaa564c83c8625568b456d10fa0c17b09",
+      "content_sha256": "9f3b7a4308fee0d07b563b439c02d9f2104884a0f6b4b428aca45efd8f0a9e6b",
       "requirements": {
         "inherited": [
           "codex-cli",
@@ -3842,7 +3842,7 @@
     {
       "name": "gstack-spec",
       "source_skill": "spec",
-      "content_sha256": "21b696bf2788d34be28c5a0e195889cc0cca665eeacd84b55b10d1043063cace",
+      "content_sha256": "efc7809468580e04ff892142edf9b12a2071c4bd9ef3708f8c2c3ace754d562d",
       "requirements": {
         "inherited": [
           "codex-cli",
@@ -3917,7 +3917,7 @@
     {
       "name": "gstack-sync-gbrain",
       "source_skill": "sync-gbrain",
-      "content_sha256": "9137920bd68f92dada8e164a93ab911deca70ba072a5b5e54bd47ec24ba4e6cb",
+      "content_sha256": "4092081255df205cf53a3ac6c7996f9790aa54882ebdc5f19627b66a3ca5bcf1",
       "requirements": {
         "inherited": [
           "codex-cli",
@@ -4007,7 +4007,7 @@
   ],
   "identifiers": {
     "capability_registry_digest": "c43c1cda10bb59663b17a8b212678223e44c325ae924fc2dd095d2038101e7ab",
-    "runtime_asset_digest": "49ee20618d827445334536a2cf41b2ec505a21fde48ec2fdc8b9752a65fb36be",
-    "release_artifact_digest": "02729af6025cc42ae0b6d74ec9502f85d3e34e6a8c89d719ff9c79eff21ec58c"
+    "runtime_asset_digest": "9b1e6a99c0529d2198e45d785ace39b224101958ad8e12e1b640236b33bb7be0",
+    "release_artifact_digest": "c52140d08ce23dca7b35b547e00a3bb7d09c01960fde5dd96056459060a04f0a"
   }
 }

@@ -91,6 +91,15 @@ fi
 
 REMOVED=()
 
+# Remove only the gstack-managed Codex hook. The merger preserves every
+# unrelated hook and top-level setting in hooks.json.
+if command -v bun >/dev/null 2>&1 && [ -f "$GSTACK_DIR/scripts/codex-hook-config.ts" ]; then
+  if bun run "$GSTACK_DIR/scripts/codex-hook-config.ts" uninstall \
+    "${CODEX_HOME:-$HOME/.codex}/hooks.json" >/dev/null 2>&1; then
+    REMOVED+=("Codex runtime health hook")
+  fi
+fi
+
 # ─── Stop running browse daemons ─────────────────────────────
 # Browse servers write PID to {project}/.gstack/browse.json.
 # Stop any we can find before removing state directories.

@@ -1,0 +1,6 @@
+#!/usr/bin/env bun
+import { verifyCodexRuntime } from '../lib/codex-runtime-health';
+const value=(name:string)=>{const i=process.argv.indexOf(name);return i<0?undefined:process.argv[i+1]};
+const result=verifyCodexRuntime({root:value('--root'),cwd:value('--cwd'),entrypoint:value('--entrypoint'),skipEnvironment:process.argv.includes('--skip-environment'),allowDirtySource:process.argv.includes('--allow-dirty-source')});
+if(process.argv.includes('--json'))console.log(JSON.stringify(result,null,2));else if(!process.argv.includes('--quiet')||!result.ok)result.checks.forEach(c=>console.log(`${c.status.toUpperCase()} ${c.id}: ${c.detail}`));
+process.exit(result.ok?0:1);

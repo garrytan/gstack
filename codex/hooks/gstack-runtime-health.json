@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "event": "SessionStart",
+  "matcher": "startup|resume|clear|compact",
+  "handler": { "type": "command", "command": "~/.codex/skills/gstack/bin/gstack-codex-runtime-health --quiet", "timeout": 10, "statusMessage": "Checking gstack runtime" },
+  "failure_semantics": "advisory: SessionStart nonzero is reported but does not prevent execution",
+  "blocking_gate": "generated skill invocation preamble"
+}

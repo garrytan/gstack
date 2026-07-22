@@ -2423,31 +2423,20 @@ describe('setup script validation', () => {
     expect(setupContent).toContain('dx-hall-of-fame.md');
   });
 
-  test('create_agents_sidecar links runtime assets', () => {
-    // Sidecar must link bin, browse, review, qa
-    const fnStart = setupContent.indexOf('create_agents_sidecar()');
-    const fnEnd = setupContent.indexOf('}', setupContent.indexOf('done', fnStart));
-    const fnBody = setupContent.slice(fnStart, fnEnd);
-    expect(fnBody).toContain('bin');
-    expect(fnBody).toContain('browse');
-    expect(fnBody).toContain('review');
-    expect(fnBody).toContain('qa');
+  test('create_agents_sidecar consumes the typed Codex sidecar plan', () => {
+    const codexHost = fs.readFileSync(path.join(ROOT, 'hosts/codex.ts'), 'utf8');
+    expect(setupContent).toContain('materialize_codex_install_plan "$repo_root" "$repo_root/.agents/skills/gstack" sidecar');
+    for (const asset of ['bin', 'browse/dist', 'review/checklist.md', 'qa/templates']) {
+      expect(codexHost).toContain(`destination: '${asset}'`);
+    }
   });
 
-  test('create_codex_runtime_root exposes only runtime assets', () => {
-    const fnStart = setupContent.indexOf('create_codex_runtime_root()');
-    const fnEnd = setupContent.indexOf('}', setupContent.indexOf('done', setupContent.indexOf('review/', fnStart)));
-    const fnBody = setupContent.slice(fnStart, fnEnd);
-    expect(fnBody).toContain('gstack/SKILL.md');
-    expect(fnBody).toContain('browse/dist');
-    expect(fnBody).toContain('browse/bin');
-    expect(fnBody).toContain('gstack-upgrade/SKILL.md');
-    // Review runtime assets (individual files, not the whole dir)
-    expect(fnBody).toContain('checklist.md');
-    expect(fnBody).toContain('design-checklist.md');
-    expect(fnBody).toContain('greptile-triage.md');
-    expect(fnBody).toContain('TODOS-format.md');
-    expect(fnBody).not.toContain('_link_or_copy "$gstack_dir" "$codex_gstack"');
+  test('create_codex_runtime_root stages and validates the exported global plan', () => {
+    expect(setupContent).toContain('materialize_codex_install_plan "$gstack_dir" "$candidate" global');
+    expect(setupContent).toContain('codex-install-receipt.ts');
+    expect(setupContent).toContain('gstack-codex-runtime-health');
+    expect(setupContent).toContain('Codex runtime activation rolled back');
+    expect(setupContent).not.toContain('for asset in bin browse review qa');
   });
 
   test('direct Codex installs are migrated out of ~/.codex/skills/gstack', () => {

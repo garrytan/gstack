@@ -19,6 +19,12 @@ GSTACK_ROOT="$HOME/.codex/skills/gstack"
 GSTACK_BIN="$GSTACK_ROOT/bin"
 GSTACK_BROWSE="$GSTACK_ROOT/browse/dist"
 GSTACK_DESIGN="$GSTACK_ROOT/design/dist"
+GSTACK_MAKE_PDF="$GSTACK_ROOT/make-pdf/dist"
+if ! $GSTACK_BIN/gstack-codex-runtime-health --root "$GSTACK_ROOT" --entrypoint "ship" --quiet; then
+  echo "GSTACK_RUNTIME_HEALTH: failed. Run gstack setup --host codex, then restart Codex." >&2
+  exit 1
+fi
+echo "GSTACK_RUNTIME_HEALTH: verified"
 _UPD=$($GSTACK_BIN/gstack-update-check 2>/dev/null || .agents/skills/gstack/bin/gstack-update-check 2>/dev/null || true)
 [ -n "$_UPD" ] && echo "$_UPD" || true
 mkdir -p ~/.gstack/sessions
@@ -109,7 +115,7 @@ if [ -d ".agents/skills/gstack" ] && [ ! -L ".agents/skills/gstack" ]; then
   fi
 fi
 echo "VENDORED_GSTACK: $_VENDORED"
-echo "MODEL_OVERLAY: gpt"
+echo "MODEL_OVERLAY: claude"
 _CHECKPOINT_MODE=$($GSTACK_BIN/gstack-config get checkpoint_mode 2>/dev/null || echo "explicit")
 _CHECKPOINT_PUSH=$($GSTACK_BIN/gstack-config get checkpoint_push 2>/dev/null || echo "false")
 echo "CHECKPOINT_MODE: $_CHECKPOINT_MODE"
@@ -569,45 +575,23 @@ At skill END before telemetry:
 ```
 
 
-## Model-Specific Behavioral Patch (gpt)
+## Model-Specific Behavioral Patch (claude)
 
-The following nudges are tuned for the gpt model family. They are
+The following nudges are tuned for the claude model family. They are
 **subordinate** to skill workflow, STOP points, AskUserQuestion gates, plan-mode
 safety, and /ship review gates. If a nudge below conflicts with skill instructions,
 the skill wins. Treat these as preferences, not rules.
 
-**Completion bias.** Do not end your turn with a partial solution when the full
-solution is reachable. If you encounter an error, debug it. If a test fails, fix it.
-If something is ambiguous, make your best judgment and proceed — don't stop and ask
-unless you're genuinely blocked.
+**Todo-list discipline.** When working through a multi-step plan, mark each task
+complete individually as you finish it. Do not batch-complete at the end. If a task
+turns out to be unnecessary, mark it skipped with a one-line reason.
 
-**Prefer doing over listing.** When you'd be tempted to write "you could also try X,
-Y, or Z," try the best option yourself. Pick, execute, report results.
+**Think before heavy actions.** For complex operations (refactors, migrations,
+non-trivial new features), briefly state your approach before executing. This lets
+the user course-correct cheaply instead of mid-flight.
 
-**No preamble.** Skip "Great question!", "Let me help with that", and restating the
-user's request. Start with the work.
-
-**AskUserQuestion is NOT preamble.** The "No preamble" and "Prefer doing over listing"
-rules above do NOT apply to AskUserQuestion content. When you invoke AskUserQuestion,
-the user is about to make a decision — they need context, not terseness. Always emit
-the full format from the preamble's AskUserQuestion Format section:
-
-1. **Re-ground** (project + branch + task — 1-2 sentences).
-2. **Simplify (ELI10)** — explain what's happening in plain English a 16-year-old could
-   follow. Concrete stakes, not abstract tradeoffs. Non-negotiable; this is NOT preamble.
-3. **Recommend** — `RECOMMENDATION: Choose [X] because [one-line reason]` on its own
-   line. Never omit this line. Never collapse it into the options list.
-4. **Options** — lettered `A) B) C)` with Completeness scores (coverage-differentiated)
-   or the "options differ in kind" note (kind-differentiated).
-
-If you find yourself about to present an AskUserQuestion without the Simplify/ELI10
-paragraph, without a RECOMMENDATION line, or by just listing options and asking "which
-one?" — stop, back up, and emit the full format. The user will ask you to do it anyway,
-so do it the first time.
-
-**Reminder: subordination applies.** When a skill workflow says STOP, stop. When the
-skill asks via AskUserQuestion, that is the wait-for-user gate, not an ambiguity.
-Completion bias does not override safety gates.
+**Dedicated tools over Bash.** Prefer Read, Edit, Write, Glob, Grep over shell
+equivalents (cat, sed, find, grep). The dedicated tools are cheaper and clearer.
 
 ## Voice
 
@@ -1253,7 +1237,7 @@ Use AskUserQuestion:
 - Continue with the workflow.
 
 **If "Add as P0 TODO":**
-- If `TODOS.md` exists, add the entry following the format in `review/TODOS-format.md` (or `.agents/skills/gstack/review/TODOS-format.md`).
+- If `TODOS.md` exists, add the entry following the format in `review/TODOS-format.md` (or `$GSTACK_ROOT/review/TODOS-format.md`).
 - If `TODOS.md` does not exist, create it with the standard header and add the entry.
 - Entry should include: title, the error output, which branch it was noticed on, and priority P0.
 - Continue with the workflow — treat the pre-existing failure as non-blocking.
@@ -1929,7 +1913,7 @@ Before reviewing code quality, check: **did they build what was requested — no
 
 Review the diff for structural issues that tests don't catch.
 
-1. Read `.agents/skills/gstack/review/checklist.md`. If the file cannot be read, **STOP** and report the error.
+1. Read `$GSTACK_ROOT/review/checklist.md`. If the file cannot be read, **STOP** and report the error.
 
 2. Run `git diff origin/<base>` to get the full diff (scoped to feature changes against the freshly-fetched base branch).
 
@@ -2013,7 +1997,7 @@ source <($GSTACK_BIN/gstack-diff-scope <base> 2>/dev/null)
 
 1. **Check for DESIGN.md.** If `DESIGN.md` or `design-system.md` exists in the repo root, read it. All design findings are calibrated against it — patterns blessed in DESIGN.md are not flagged. If not found, use universal design principles.
 
-2. **Read `.agents/skills/gstack/review/design-checklist.md`.** If the file cannot be read, skip design review with a note: "Design checklist not found — skipping design review."
+2. **Read `$GSTACK_ROOT/review/design-checklist.md`.** If the file cannot be read, skip design review with a note: "Design checklist not found — skipping design review."
 
 3. **Read each changed frontend file** (full file, not just diff hunks). Frontend files are identified by the patterns listed in the checklist.
 
@@ -2110,7 +2094,7 @@ Save the review output — it goes into the PR body in Step 19.
 
 **Subagent prompt:**
 
-> You are classifying Greptile review comments for a /ship workflow. Read `.agents/skills/gstack/review/greptile-triage.md` and follow the fetch, filter, classify, and **escalation detection** steps. Do NOT fix code, do NOT reply to comments, do NOT commit — report only.
+> You are classifying Greptile review comments for a /ship workflow. Read `$GSTACK_ROOT/review/greptile-triage.md` and follow the fetch, filter, classify, and **escalation detection** steps. Do NOT fix code, do NOT reply to comments, do NOT commit — report only.
 >
 > For each comment, assign: `classification` (`valid_actionable`, `already_fixed`, `false_positive`, `suppressed`), `escalation_tier` (1 or 2), the file:line or [top-level] tag, body summary, and permalink URL.
 >
@@ -2285,7 +2269,7 @@ stay agent judgment; the slot pick stays `gstack-next-version`.
 
 Cross-reference the project's TODOS.md against the changes being shipped. Mark completed items automatically; prompt only if the file is missing or disorganized.
 
-Read `.agents/skills/gstack/review/TODOS-format.md` for the canonical format reference.
+Read `$GSTACK_ROOT/review/TODOS-format.md` for the canonical format reference.
 
 **1. Check if TODOS.md exists** in the repository root.
 
