@@ -19,6 +19,7 @@ import { TEMP_DIR, isPathWithin } from './platform';
 import { SAFE_DIRECTORIES } from './path-security';
 import { modifyStyle, undoModification, resetModifications, getModificationHistory } from './cdp-inspector';
 import { withCdpSession } from './cdp-bridge';
+import { NETWORK_SETTLE_MS } from './commands';
 
 /**
  * Aggressive page cleanup selectors and heuristics.
@@ -374,8 +375,11 @@ export async function handleWriteCommand(
         }
         throw err;
       }
-      // Wait for network to settle (catches XHR/fetch triggered by clicks)
-      await page.waitForLoadState('networkidle', { timeout: 2000 }).catch(() => {});
+      // Settle window for XHR/fetch triggered by the click. Idle pages resolve
+      // instantly; only busy/polling pages ever wait. Capped low so analytics-
+      // heavy apps that never reach networkidle don't tax every action 2s.
+      // Explicit `wait --networkidle` stays available when a full wait is needed.
+      await page.waitForLoadState('networkidle', { timeout: NETWORK_SETTLE_MS }).catch(() => {});
       return `Clicked ${selector} → now at ${page.url()}`;
     }
 
@@ -389,8 +393,8 @@ export async function handleWriteCommand(
       } else {
         await target.locator(resolved.selector).fill(value, { timeout: 5000 });
       }
-      // Wait for network to settle (form validation XHRs)
-      await page.waitForLoadState('networkidle', { timeout: 2000 }).catch(() => {});
+      // Settle window for form-validation XHRs (see NETWORK_SETTLE_MS note above).
+      await page.waitForLoadState('networkidle', { timeout: NETWORK_SETTLE_MS }).catch(() => {});
       return `Filled ${selector}`;
     }
 
@@ -404,8 +408,8 @@ export async function handleWriteCommand(
       } else {
         await target.locator(resolved.selector).selectOption(value, { timeout: 5000 });
       }
-      // Wait for network to settle (dropdown-triggered requests)
-      await page.waitForLoadState('networkidle', { timeout: 2000 }).catch(() => {});
+      // Settle window for dropdown-triggered requests (see NETWORK_SETTLE_MS note above).
+      await page.waitForLoadState('networkidle', { timeout: NETWORK_SETTLE_MS }).catch(() => {});
       return `Selected "${value}" in ${selector}`;
     }
 

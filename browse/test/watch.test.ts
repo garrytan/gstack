@@ -4,6 +4,9 @@
  * Pure unit tests — no browser needed. Just instantiate BrowserManager
  * and test the watch state methods (startWatch, stopWatch, addWatchSnapshot,
  * isWatching).
+ *
+ * watch stop only ever displayed the latest snapshot, so the manager keeps
+ * just the last snapshot + a count rather than retaining every 5s capture.
  */
 
 import { describe, test, expect } from 'bun:test';
@@ -21,7 +24,7 @@ describe('watch mode — state machine', () => {
     expect(bm.isWatching()).toBe(true);
   });
 
-  test('stopWatch clears isWatching and returns snapshots', () => {
+  test('stopWatch clears isWatching and returns count + last snapshot', () => {
     const bm = new BrowserManager();
     bm.startWatch();
     bm.addWatchSnapshot('snapshot-1');
@@ -29,8 +32,8 @@ describe('watch mode — state machine', () => {
 
     const result = bm.stopWatch();
     expect(bm.isWatching()).toBe(false);
-    expect(result.snapshots).toEqual(['snapshot-1', 'snapshot-2']);
-    expect(result.snapshots.length).toBe(2);
+    expect(result.count).toBe(2);
+    expect(result.last).toBe('snapshot-2');
   });
 
   test('stopWatch returns correct duration (approximately)', async () => {
@@ -47,7 +50,7 @@ describe('watch mode — state machine', () => {
     expect(result.duration).toBeLessThan(5000);
   });
 
-  test('addWatchSnapshot stores snapshots', () => {
+  test('addWatchSnapshot only retains the latest snapshot + count', () => {
     const bm = new BrowserManager();
     bm.startWatch();
 
@@ -56,25 +59,25 @@ describe('watch mode — state machine', () => {
     bm.addWatchSnapshot('page C content');
 
     const result = bm.stopWatch();
-    expect(result.snapshots.length).toBe(3);
-    expect(result.snapshots[0]).toBe('page A content');
-    expect(result.snapshots[1]).toBe('page B content');
-    expect(result.snapshots[2]).toBe('page C content');
+    expect(result.count).toBe(3);
+    expect(result.last).toBe('page C content');
   });
 
-  test('stopWatch resets snapshots for next cycle', () => {
+  test('stopWatch resets state for next cycle', () => {
     const bm = new BrowserManager();
 
     // First cycle
     bm.startWatch();
     bm.addWatchSnapshot('first-cycle-snapshot');
     const result1 = bm.stopWatch();
-    expect(result1.snapshots.length).toBe(1);
+    expect(result1.count).toBe(1);
+    expect(result1.last).toBe('first-cycle-snapshot');
 
     // Second cycle — should start fresh
     bm.startWatch();
     const result2 = bm.stopWatch();
-    expect(result2.snapshots.length).toBe(0);
+    expect(result2.count).toBe(0);
+    expect(result2.last).toBeNull();
   });
 
   test('multiple start/stop cycles work correctly', () => {
@@ -86,7 +89,8 @@ describe('watch mode — state machine', () => {
     bm.addWatchSnapshot('snap-1');
     const r1 = bm.stopWatch();
     expect(bm.isWatching()).toBe(false);
-    expect(r1.snapshots).toEqual(['snap-1']);
+    expect(r1.count).toBe(1);
+    expect(r1.last).toBe('snap-1');
 
     // Cycle 2
     bm.startWatch();
@@ -95,14 +99,16 @@ describe('watch mode — state machine', () => {
     bm.addWatchSnapshot('snap-2b');
     const r2 = bm.stopWatch();
     expect(bm.isWatching()).toBe(false);
-    expect(r2.snapshots).toEqual(['snap-2a', 'snap-2b']);
+    expect(r2.count).toBe(2);
+    expect(r2.last).toBe('snap-2b');
 
     // Cycle 3 — no snapshots added
     bm.startWatch();
     expect(bm.isWatching()).toBe(true);
     const r3 = bm.stopWatch();
     expect(bm.isWatching()).toBe(false);
-    expect(r3.snapshots).toEqual([]);
+    expect(r3.count).toBe(0);
+    expect(r3.last).toBeNull();
   });
 
   test('stopWatch clears watchInterval if set', () => {
@@ -122,7 +128,8 @@ describe('watch mode — state machine', () => {
 
     // Calling stopWatch without startWatch should not throw
     const result = bm.stopWatch();
-    expect(result.snapshots).toEqual([]);
+    expect(result.count).toBe(0);
+    expect(result.last).toBeNull();
     expect(result.duration).toBeLessThanOrEqual(Date.now()); // duration = now - 0
     expect(bm.isWatching()).toBe(false);
   });

@@ -230,7 +230,10 @@ export class BrowserManager {
   // ─── Watch Mode ─────────────────────────────────────────
   private watching = false;
   public watchInterval: ReturnType<typeof setInterval> | null = null;
-  private watchSnapshots: string[] = [];
+  // watch stop only ever shows the most recent snapshot, so we keep just that
+  // plus a count instead of retaining every 5s snapshot (~126 MB/hr of dead strings).
+  private lastWatchSnapshot: string | null = null;
+  private watchSnapshotCount = 0;
   private watchStartTime: number = 0;
 
   // ─── Headed State ────────────────────────────────────────
@@ -299,25 +302,29 @@ export class BrowserManager {
 
   startWatch(): void {
     this.watching = true;
-    this.watchSnapshots = [];
+    this.lastWatchSnapshot = null;
+    this.watchSnapshotCount = 0;
     this.watchStartTime = Date.now();
   }
 
-  stopWatch(): { snapshots: string[]; duration: number } {
+  stopWatch(): { count: number; last: string | null; duration: number } {
     this.watching = false;
     if (this.watchInterval) {
       clearInterval(this.watchInterval);
       this.watchInterval = null;
     }
-    const snapshots = this.watchSnapshots;
+    const count = this.watchSnapshotCount;
+    const last = this.lastWatchSnapshot;
     const duration = Date.now() - this.watchStartTime;
-    this.watchSnapshots = [];
+    this.lastWatchSnapshot = null;
+    this.watchSnapshotCount = 0;
     this.watchStartTime = 0;
-    return { snapshots, duration };
+    return { count, last, duration };
   }
 
   addWatchSnapshot(snapshot: string): void {
-    this.watchSnapshots.push(snapshot);
+    this.lastWatchSnapshot = snapshot;
+    this.watchSnapshotCount++;
   }
 
   /**
