@@ -28,6 +28,7 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | [`/document-generate`](#document-generate) | **Technical Writer** | Generate Diataxis docs (tutorial / how-to / reference / explanation) for a feature from code. |
 | [`/retro`](#retro) | **Eng Manager** | Team-aware weekly retro. Per-person breakdowns, shipping streaks, test health trends, growth opportunities. |
 | [`/browse`](#browse) | **QA Engineer** | Give the agent eyes. Real Chromium browser, real clicks, real screenshots. ~100ms per command. |
+| [`/visual-proof`](#visual-proof) | **Demo Producer** | Capture focused frontend screenshots, an H.264 browser walkthrough, and a verified reviewer manifest. Local by default; PR publication requires confirmation. |
 | [`/setup-browser-cookies`](#setup-browser-cookies) | **Session Manager** | Import cookies from your real browser (Chrome, Arc, Brave, Edge) into the headless session. Test authenticated pages. |
 | [`/autoplan`](#autoplan) | **Review Pipeline** | One command, fully reviewed plan. Runs CEO → design → eng → DX review automatically with encoded decision principles. Surfaces only taste decisions for your approval. |
 | [`/plan-devex-review`](#plan-devex-review) | **DX Reviewer** | Plan-stage DX review. TTHW (time-to-hello-world), magical moments, friction points, persona traces. Three modes: Expansion, Polish, Triage. |
@@ -889,6 +890,32 @@ The browser preserves all state (cookies, localStorage, tabs) across the handoff
 **Security note:** `/browse` runs a persistent Chromium session. Cookies, localStorage, and session state carry over between commands. Do not use it against sensitive production environments unless you intend to — it is a real browser with real state. The session auto-shuts down after 30 minutes of idle time.
 
 For the full command reference, see [BROWSER.md](../BROWSER.md).
+
+---
+
+## `/visual-proof`
+
+This is my **frontend demo producer mode**.
+
+`/visual-proof` turns a finished browser UI change into evidence an engineer can review without checking out the branch. It uses the same persistent gstack Chromium session as `/browse`, so authenticated state, cookies, tabs, and the current viewport carry straight into the recording.
+
+The workflow captures a small proof package in `/tmp`: an initial screenshot, a result screenshot, an H.264 MP4, a non-sensitive JSON interaction timeline, representative inspection frames, and a short README describing the verified flow. The native `record start`, `record mark`, `record status`, and `record stop` commands attach to the active tab through Chrome's screencast protocol and finalize the changed frames with ffmpeg.
+
+```text
+You:   /visual-proof the new team invitation flow
+
+Agent: Recording the existing browser tab at 1280×720...
+       ✓ Opened the invite modal
+       ✓ Submitted demo data
+       ✓ Verified the success state
+       ✓ Inspected representative video frames
+
+       PASS — MP4, screenshots, timeline, and manifest are ready locally.
+```
+
+Interactions receive brief intent labels and recording-only pacing so intermediate UI states remain readable. Values entered into fields, cookies, and headers are never copied into timeline labels. The skill is deliberately for browser frontends only; it may launch a dev server in a terminal, but it does not record CLI or TUI applications.
+
+Artifacts stay local unless the user confirms publication at action time. With confirmation, the workflow can attach the MP4 and result screenshot through the authenticated GitHub PR composer, then reload the comment to verify the hosted links before reporting success.
 
 ---
 

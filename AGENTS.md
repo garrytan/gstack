@@ -36,6 +36,7 @@ Invoke them by name (e.g., `/office-hours`).
 | `/devex-review` | Live developer experience audit (TTHW measured against the real flow). |
 | `/qa` | Open a real browser, find bugs, fix them, re-verify. |
 | `/qa-only` | Same methodology as /qa but report only — no code changes. |
+| `/visual-proof` | Capture frontend screenshots, a browser MP4, and a verified reviewer manifest. |
 | `/scrape` | Pull data from a web page. First call prototypes; codified call runs in ~200ms. |
 | `/skillify` | Codify the most recent successful `/scrape` flow into a permanent browser-skill. |
 

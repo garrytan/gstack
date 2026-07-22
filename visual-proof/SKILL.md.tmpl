@@ -1,0 +1,196 @@
+---
+name: visual-proof
+preamble-tier: 2
+version: 1.0.0
+description: |
+  Capture review-ready screenshots, MP4 browser video, and a verification
+  manifest for frontend changes. Use after implementing or fixing web UI, when
+  asked to demo a feature, or before a PR needs visual evidence.
+  Browser frontends only — never terminal or TUI apps. Proactively suggest after
+  user-visible frontend work. (gstack)
+triggers:
+  - record frontend demo
+  - capture visual proof
+  - add video to pull request
+  - screenshot and video evidence
+allowed-tools:
+  - Bash
+  - Read
+  - Write
+  - AskUserQuestion
+---
+
+{{PREAMBLE}}
+
+# Visual Proof
+
+Create compact, trustworthy evidence that lets an engineer review a browser UI change without running it locally.
+
+This workflow is for **web frontends rendered in a browser**. It may use a terminal to launch a dev server, but it never records terminal, CLI, or TUI applications. For those, explain that this skill is intentionally out of scope.
+
+## Non-negotiable rules
+
+1. Exercise the real feature in the existing gstack browser session. Do not launch a second automation browser.
+2. Capture screenshots **and** a short MP4 when motion, interaction, state transitions, or a multi-step flow changed. A screenshot alone is enough only for a truly static visual change.
+3. Keep each video focused, normally 15–60 seconds and one coherent flow.
+4. Never put passwords, tokens, private customer data, cookie values, or sensitive query strings in marker labels, filenames, the manifest, or PR text. Use seeded/demo data.
+5. Validate the output media and inspect representative frames before claiming success.
+6. Keep artifacts local by default. Upload, comment, commit, or otherwise publish them only after the user confirms at action time.
+7. Do not report a successful PR attachment until the posted comment has been reopened and the media link is visible.
+
+## 1. Set up the shared browser
+
+{{BROWSE_SETUP}}
+
+Check that recording dependencies and the browser are ready:
+
+```bash
+command -v ffmpeg
+command -v ffprobe
+$B status
+```
+
+If ffmpeg is missing, stop and give the platform-specific install command. `record start` will otherwise preserve captured frames and report their temporary path.
+
+## 2. Choose the evidence flow
+
+Read the diff and the requested behavior. Write a tiny capture plan before touching the browser:
+
+```text
+Flow: <one user goal>
+Start state: <where the recording begins>
+Actions: <2–6 meaningful actions>
+Proof state: <what visibly demonstrates success>
+Viewports: <desktop plus mobile only when responsive behavior changed>
+```
+
+Prefer the smallest flow that proves the change. If the app is not running, use the repository's documented dev command and wait for its health endpoint or page to respond. Terminal usage is only infrastructure here; the evidence remains browser-only.
+
+## 3. Create an isolated artifact directory
+
+Do not dirty the product source tree by default:
+
+```bash
+BRANCH=$(git branch --show-current 2>/dev/null | tr '/ ' '--')
+STAMP=$(date +%Y%m%d-%H%M%S)
+PROOF_DIR="/tmp/visual-proof-${BRANCH:-workspace}-${STAMP}"
+mkdir -p "$PROOF_DIR"
+```
+
+Use descriptive filenames such as `01-start.png`, `02-result.png`, and `demo-checkout.mp4`.
+
+## 4. Capture screenshots and video
+
+Navigate and establish a deterministic viewport:
+
+```bash
+$B viewport 1280x720
+$B goto "$APP_URL/<route>"
+$B wait --networkidle
+$B screenshot --viewport "$PROOF_DIR/01-start.png"
+```
+
+Record the interaction flow in the same tab:
+
+```bash
+$B record start "$PROOF_DIR/demo.mp4"
+$B record mark "Open settings"
+# Drive the page with snapshot/click/fill/select/press/wait commands.
+# Normal interactions receive safe automatic markers; explicit marks should
+# describe user intent, not values entered into fields.
+$B record mark "Saved state"
+$B screenshot --viewport "$PROOF_DIR/02-result.png"
+$B record stop
+```
+
+`record stop` writes both `demo.mp4` and `demo.json`. The JSON sidecar contains dimensions, duration, URLs, frame count, and the non-sensitive marker timeline.
+
+When responsive behavior changed, repeat the proof state at the relevant viewport. Do not make a long tour of every breakpoint:
+
+```bash
+$B viewport 375x812
+$B screenshot --viewport "$PROOF_DIR/03-mobile-result.png"
+```
+
+If a command fails mid-flow, stop the active recording, discard the failed take, restore the start state, and record a clean take. Never present a stitched collection of accidental states as proof.
+
+## 5. Validate what the reviewer will receive
+
+Check the media container and extract three representative frames:
+
+```bash
+ffprobe -v error -select_streams v:0 \
+  -show_entries stream=codec_name,width,height,avg_frame_rate:format=duration,size \
+  -of json "$PROOF_DIR/demo.mp4" > "$PROOF_DIR/media-check.json"
+
+ffmpeg -y -hide_banner -loglevel error -i "$PROOF_DIR/demo.mp4" \
+  -vf "fps=1/5,scale=960:-2" -frames:v 3 "$PROOF_DIR/check-%02d.png"
+```
+
+Read the start screenshot, result screenshot, and extracted frames with the host's image-capable file viewer. Confirm:
+
+- The intended control and final state are clearly visible.
+- No loading spinner, broken layout, browser error page, private data, or accidental overlay appears.
+- Video dimensions match the planned viewport, duration is non-zero, codec is H.264, and file size is non-zero.
+- The page's visible result and semantic state agree (`snapshot`, `is`, or targeted text check).
+
+If any check fails, recapture. Do not merely note the defect in the handoff.
+
+## 6. Write the reviewer manifest
+
+Create `$PROOF_DIR/README.md`:
+
+```markdown
+# Visual proof: <feature>
+
+## What changed
+<one or two sentences>
+
+## Verified flow
+1. <start state>
+2. <action>
+3. <visible result>
+
+## Evidence
+- `demo.mp4` — <flow and duration>
+- `01-start.png` — <state>
+- `02-result.png` — <proof state>
+- `demo.json` — capture timeline and metadata
+
+## Environment
+- URL/route: <non-sensitive route>
+- Viewport: 1280×720
+- Browser: gstack Chromium
+- Result: PASS
+```
+
+Report the absolute artifact directory and direct file paths to the user. The local handoff is complete at this point.
+
+## 7. Optional PR attachment — confirmation required
+
+If a pull request exists, ask: **“The visual proof is ready locally. Do you want me to upload the MP4 and result screenshot to PR #N and post the verification summary?”**
+
+Do not upload until the user answers yes. After confirmation:
+
+1. Resolve the PR URL with `gh pr view --json number,url`.
+2. Open that URL in gstack's existing browser session.
+3. Use `snapshot` to locate the PR comment composer and its file input.
+4. Use `$B upload <file-input-selector-or-ref> "$PROOF_DIR/demo.mp4" "$PROOF_DIR/02-result.png"`.
+5. Wait until GitHub has replaced the local attachments with hosted Markdown links.
+6. Fill a concise comment containing the verified flow, result, viewport, and generated attachment links.
+7. Submit the comment.
+8. Reopen or reload the PR, locate the new comment, and verify that both attachment links are present. Capture a local confirmation screenshot.
+
+If the browser is not authenticated, the uploader is unavailable, GitHub rejects the format/size, or attachment verification fails, do not improvise a public host. Leave the files local and tell the user exactly what remains. Committing binary proof files into the repository also requires separate confirmation.
+
+## Final handoff
+
+Lead with the result. Include:
+
+- PASS/FAIL for the verified user flow.
+- Absolute links/paths to the MP4, screenshots, and manifest.
+- Viewport and duration.
+- Whether artifacts are local-only or attached to a specific PR.
+- Any deliberately untested state.
+
+Never claim that screenshots or video “look good” without the media validation and frame inspection above.
