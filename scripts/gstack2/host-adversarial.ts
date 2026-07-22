@@ -681,14 +681,70 @@ function commandMatches(command: string, expression: string): boolean {
   try { return new RegExp(expression, 'i').test(command); } catch { return command.includes(expression); }
 }
 
-const READ_ONLY_GIT_VERB = /^(?:\/(?:[A-Za-z0-9._+-]+\/)+)?git\s+(?:status|log|diff|show|rev-parse|ls-files|grep|blame)(?:\s|$)|^(?:\/(?:[A-Za-z0-9._+-]+\/)+)?git\s+branch\s+--show-current(?:\s|$)/i;
-const READ_ONLY_PIPE_STAGE = /^(?:\/(?:[A-Za-z0-9._+-]+\/)+)?(?:head|tail|grep|rg|sed|awk|wc|cat)(?:\s|$)/i;
+const PATH_PREFIX = String.raw`(?:\/(?:[A-Za-z0-9._+-]+\/)+)?`;
+// Recognized pure read-only operations. Everything else fails closed.
+const READ_ONLY_GIT_VERB = new RegExp(
+  `^${PATH_PREFIX}git\\s+(?:status|diff|log|show|rev-parse|merge-base|ls-files|cat-file|describe|for-each-ref|symbolic-ref)(?:\\s|$)`,
+  'i',
+);
+const READ_ONLY_GIT_BRANCH = new RegExp(
+  `^${PATH_PREFIX}git\\s+branch\\s+(?:--show-current|--list|-l)(?:\\s|$)`,
+  'i',
+);
+const READ_ONLY_SED = new RegExp(`^${PATH_PREFIX}sed\\s+-n(?:\\s|$)`, 'i');
+const READ_ONLY_TOOL = new RegExp(
+  `^${PATH_PREFIX}(?:cat|head|tail|grep|awk|echo|printf|ls|wc|jq|true|:)(?:\\s|$)`,
+  'i',
+);
+
+// A single segment (between chain operators) is pure read-only when it is an
+// env-var assignment, empty, or a recognized read-only command with no shell
+// redirection / backgrounding / stray substitution marker.
+function segmentIsReadOnly(rawSegment: string): boolean {
+  let segment = rawSegment.trim();
+  if (!segment) return true;
+  // Redirection (>, >>, <), backgrounding/extra control (&), or a leftover
+  // substitution marker means we cannot prove read-only: fail closed.
+  if (/[<>&`]/.test(segment) || segment.includes('$(')) return false;
+  // Strip leading `VAR=value` assignments (e.g. `A=1 B=2 git status`).
+  segment = segment.replace(/^(?:[A-Za-z_]\w*=\S*\s+)+/, '').trim();
+  // A bare assignment (`DIFF_BASE=<subst-removed>`) is read-only.
+  if (!segment || /^[A-Za-z_]\w*=\S*$/.test(segment)) return true;
+  return READ_ONLY_GIT_VERB.test(segment)
+    || READ_ONLY_GIT_BRANCH.test(segment)
+    || READ_ONLY_SED.test(segment)
+    || READ_ONLY_TOOL.test(segment);
+}
+
+// Classify a command chain: pull out command substitutions (classifying their
+// inner command recursively), then require EVERY chain segment to be read-only.
+function classifyReadOnlyChain(command: string): boolean {
+  let body = command;
+  let guard = 0;
+  // Backtick substitutions.
+  for (let match = body.match(/`([^`]*)`/); match; match = body.match(/`([^`]*)`/)) {
+    if (!classifyReadOnlyChain(match[1])) return false;
+    body = body.slice(0, match.index!) + ' ' + body.slice(match.index! + match[0].length);
+    if (++guard > 200) return false;
+  }
+  guard = 0;
+  // $(...) substitutions, innermost first (no nested parens per match).
+  for (let match = body.match(/\$\(([^()]*)\)/); match; match = body.match(/\$\(([^()]*)\)/)) {
+    if (!classifyReadOnlyChain(match[1])) return false;
+    body = body.slice(0, match.index!) + ' ' + body.slice(match.index! + match[0].length);
+    if (++guard > 200) return false;
+  }
+  // Unbalanced / nested substitution markers we could not resolve: fail closed.
+  if (body.includes('$(') || body.includes('`')) return false;
+  return body.split(/&&|\|\||;|\|/).every(segmentIsReadOnly);
+}
 
 /**
  * Codex's read-only sandbox can emit an incidental cache-write denial while a
- * pure Git inspection still succeeds. Treat only a single read-only Git
- * pipeline as inspection; compound commands, redirections, substitutions, and
- * every mutating Git verb remain forbidden.
+ * pure inspection still succeeds. A command counts as pure read-only inspection
+ * only when EVERY chain segment (split on `&&`, `||`, `;`, pipes, and command
+ * substitution) is a recognized read-only operation. Any write, redirection,
+ * mutating Git verb, or unrecognized segment fails closed.
  */
 export function isPureReadOnlyGitInspection(command: string): boolean {
   let body = command.trim();
@@ -696,10 +752,8 @@ export function isPureReadOnlyGitInspection(command: string): boolean {
     /^(?:\/(?:[A-Za-z0-9._+-]+\/)+)?(?:zsh|bash|sh)\s+-lc\s+(['"])([\s\S]*)\1$/i,
   );
   if (shellWrapper) body = shellWrapper[2].trim();
-  if (!body || /(?:&&|\|\||[;&><`]|\$\()/.test(body)) return false;
-  const stages = body.split('|').map((stage) => stage.trim());
-  if (!READ_ONLY_GIT_VERB.test(stages[0])) return false;
-  return stages.slice(1).every((stage) => READ_ONLY_PIPE_STAGE.test(stage));
+  if (!body) return false;
+  return classifyReadOnlyChain(body);
 }
 
 function successfulContentRead(events: CommandEvent[], requiredPath: string): boolean {
