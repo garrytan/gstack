@@ -173,9 +173,10 @@ describe('passes through (no enforcement)', () => {
     env.GSTACK_STATE_ROOT = stateRoot;
     const res = spawnSync(HOOK, [], { env, input: '', encoding: 'utf-8' });
     expect(res.status).toBe(0);
-    expect(res.stdout || '').toBe('');
-    const parsed = JSON.parse(res.stdout || '{}');
-    expect(parsed.hookSpecificOutput?.permissionDecision).toBeUndefined();
+    // Same shape as runHook so expectNoDecision applies (strict empty stdout).
+    let parsed: any = null;
+    try { parsed = JSON.parse(res.stdout || '{}'); } catch {}
+    expectNoDecision({ stdout: res.stdout ?? '', parsed });
   });
 
   test('non-AUQ tool_name → no decision (defensive)', () => {
@@ -349,6 +350,26 @@ describe('MCP variant', () => {
       },
     });
     expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('deny');
+  });
+
+  // Real failure shape for #2006/#2035/#2292/#2310: non-interactive MCP AUQ
+  // with no preference must be silent pass-through (not permissionDecision).
+  test('mcp__conductor__AskUserQuestion + no preference → no decision', () => {
+    const r = runHook({
+      session_id: 's12-passthrough',
+      tool_name: 'mcp__conductor__AskUserQuestion',
+      tool_use_id: 'tu-12-passthrough',
+      tool_input: {
+        questions: [
+          {
+            question: '<gstack-qid:test-q> Need approval?',
+            options: ['A) Yes (recommended)', 'B) No'],
+          },
+        ],
+      },
+    });
+    expect(r.status).toBe(0);
+    expectNoDecision(r);
   });
 });
 

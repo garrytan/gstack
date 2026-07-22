@@ -1,6 +1,8 @@
 # Spike: Claude Code hook mutation for plan-tune cathedral
 
 **Status:** complete (2026-05-27)
+**Revised:** 2026-07-22 — pass-through is empty stdout (not `defer`); restored
+decision-precedence facts alongside defer semantics.
 **Surfaces:** D10 (does PreToolUse allow mutating AUQ input?), D19/Codex (matcher must cover MCP variants)
 **Downstream consumers:** T3, T5, T6, T8
 
@@ -51,8 +53,10 @@ Optional in subagent context: `agent_id`, `agent_type`.
 - `"deny"` — block (feedback to Claude, NOT a synthetic answer per Codex
   correction in D-prefixed decisions)
 - `"ask"` — escalate to user
-- No output — let permission flow continue
 - `"defer"` — pause a non-interactive SDK/tool caller so it can resume later
+
+No output (exit 0, empty stdout) is not a `permissionDecision` value. It is
+the pass-through path that lets the permission flow continue unchanged.
 
 **`updatedInput` semantics:** shallow merge of fields present in the returned
 object onto the original `tool_input`. Only valid with
@@ -89,7 +93,10 @@ required for our hook to fire there.
   accepting.
 
 **`permissionDecision` precedence (when multiple hooks decide):**
-Claude Code treats `defer` as an explicit pause/resume decision, not as the normal pass-through path. Hooks that do not need to decide should exit 0 with no output.
+`deny > ask > allow` — most restrictive wins.
+Claude Code treats `defer` as an explicit pause/resume decision, not as the
+normal pass-through path. Hooks that do not need to decide should exit 0 with
+no output (empty stdout), not emit `permissionDecision: "defer"`.
 
 ## Implementation hookSpecificOutput examples
 
