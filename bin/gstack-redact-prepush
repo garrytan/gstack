@@ -208,8 +208,10 @@ function addedLinesFor(
   // Partition the changed paths against the ignore globs in-process (Bun.Glob,
   // so `**` spans directories). We match paths ourselves rather than lean on
   // git pathspec glob magic, which keeps the ignore semantics predictable and
-  // lets us report exactly what was skipped.
-  const names = gitStrict(["diff", "--name-only", range])
+  // lets us report exactly what was skipped. core.quotePath=false so non-ASCII
+  // filenames arrive as raw UTF-8 — otherwise git C-quotes them (`"caf\303\251"`)
+  // and the glob silently fails to match, so the user's ignore rule wouldn't apply.
+  const names = gitStrict(["-c", "core.quotePath=false", "diff", "--name-only", range])
     .split("\n")
     .map((n) => n.trim())
     .filter(Boolean);
@@ -221,23 +223,31 @@ function addedLinesFor(
     return { added: extractAdded(diff), skip: emptySkip };
   }
 
-  // Scan diff: everything EXCEPT the ignored paths. `.` anchors at the pre-push
-  // cwd (repo root); each ignored path is a literal `:(exclude)` pathspec, so no
-  // glob magic and a small, bounded argv (ignored sets are typically tiny).
-  const excludeSpecs = ignored.map((n) => `:(exclude)${n}`);
+  // Scan diff: everything EXCEPT the ignored paths. `:/` anchors inclusion at
+  // the repo root regardless of cwd (matches the fast-path's whole-repo
+  // semantics). Each exclude uses `:(top,exclude,literal)`: `literal` is
+  // load-bearing — a plain `:(exclude)<name>` is glob-ENABLED, so a real
+  // filename holding a `?`/`[`/`]` metacharacter (legal on disk) would be read
+  // as a PATTERN and could drop OTHER, non-ignored files from the scan — a
+  // fail-open of the #1946 invariant. `top` anchors each exclude at the repo
+  // root so it lines up with the root-relative names from `--name-only`.
+  const excludeSpecs = ignored.map((n) => `:(top,exclude,literal)${n}`);
   const scanDiff = gitStrict([
     "diff",
     "--unified=0",
     "--no-color",
     range,
     "--",
-    ".",
+    ":/",
     ...excludeSpecs,
   ]);
 
-  // Skip accounting: diff ONLY the ignored paths to report added bytes. This is
-  // for the visibility notice; the bytes never reach scan().
-  const skippedDiff = gitStrict(["diff", "--unified=0", "--no-color", range, "--", ...ignored]);
+  // Skip accounting: diff ONLY the ignored paths to report added bytes. Same
+  // `:(top,literal)` anchoring/literalness as the exclude specs so the notice
+  // reports exactly the paths the scan dropped (no glob-overreach divergence).
+  // The bytes never reach scan().
+  const skippedSpecs = ignored.map((n) => `:(top,literal)${n}`);
+  const skippedDiff = gitStrict(["diff", "--unified=0", "--no-color", range, "--", ...skippedSpecs]);
 
   return {
     added: extractAdded(scanDiff),
