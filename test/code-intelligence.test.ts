@@ -1,18 +1,11 @@
 /**
  * Tests for lib/code-intelligence — the OPTIONAL, repo-oriented provider contract
- * with three REAL adapters (GBrain CLI, Graphify CLI, Sourcebot HTTP) plus the
+ * with three REAL adapters (GBrain CLI, Graphify CLI, Sourcebot HTTP) and the
  * selection store the `gstack-code-intelligence` CLI drives.
  *
- * Load-bearing properties:
- *  - Capability matrix: every provider advertises the four required ops; only
- *    GBrain advertises the document ops (add/delete/export).
- *  - Consent: non-local providers refuse to index without per-repo consent; a
- *    localhost Sourcebot and Graphify are local and need none.
- *  - GBrain search + status work end-to-end against a fake `gbrain` shim.
- *  - Graphify index/search/status work end-to-end against a fake `graphify` shim.
- *  - Sourcebot register (config.json edit) + search work against an injected fetch.
- *  - Selection persists to $GSTACK_HOME; no selection = provider-OFF (null).
- *  - Every adapter degrades to PROVIDER_UNAVAILABLE when its tool/server is absent.
+ * The Graphify and Sourcebot expectations here are pinned to the REAL formats
+ * captured from live tools (graphify 0.9.23 NODE/EDGE query output; Sourcebot v5
+ * `/api/search` response + Bearer auth), not invented shapes.
  */
 
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
@@ -31,6 +24,8 @@ import {
   setProvider,
   setConsent,
   hasConsent,
+  setRoot,
+  getRoot,
   resolveSelectedProvider,
   RECOMMENDED_ORDER,
 } from "../lib/code-intelligence";
@@ -59,28 +54,44 @@ describe("capability matrix", () => {
   });
 
   test("RECOMMENDED_ORDER puts GBrain first", () => {
-    expect(RECOMMENDED_ORDER[0]).toBe("gbrain");
     expect([...RECOMMENDED_ORDER]).toEqual(["gbrain", "sourcebot", "graphify"]);
   });
 });
 
-describe("parsers", () => {
+describe("parsers (pinned to real tool output)", () => {
   test("parseGbrainSearch (text surface)", () => {
     const hits = parseGbrainSearch("[0.91] slug/a -- one\nbanner\n[0.05] slug/b -- low", 0.1, 10);
     expect(hits).toEqual([{ ref: "slug/a", score: 0.91, snippet: "one", kind: "document" }]);
   });
 
-  test("parseGraphifyQuery maps path-like lines to refs", () => {
-    const hits = parseGraphifyQuery("src/a.ts calls foo()\njust prose here", 10);
-    expect(hits[0]).toMatchObject({ ref: "src/a.ts", kind: "graph-node" });
-    expect(hits[1]).toMatchObject({ ref: "graphify" });
+  test("parseGraphifyQuery reads file:line from real NODE/EDGE lines", () => {
+    // Verbatim shape from graphify 0.9.23 `query ... --graph`.
+    const real = [
+      "Traversal: BFS depth=2 | Start: ['query()'] | Context: call (heuristic) | 4 nodes found",
+      "",
+      "NODE query() [src=db.py loc=L4 community=login]",
+      "EDGE query() --calls [EXTRACTED context=call]--> login() at=auth.py:L8",
+    ].join("\n");
+    const hits = parseGraphifyQuery(real, 10);
+    expect(hits.map((h) => h.ref)).toEqual(["db.py:L4", "auth.py:L8"]); // NOT "graphify"
+    expect(hits.every((h) => h.kind === "graph-node")).toBe(true);
+    // The Traversal header must NOT become a bogus hit.
+    expect(hits.some((h) => h.snippet?.startsWith("Traversal:"))).toBe(false);
   });
 
-  test("parseSourcebotSearch maps files to file:line hits, tolerates garbage", () => {
-    const payload = {
-      files: [{ fileName: { text: "src/x.ts" }, chunks: [{ content: "hit", matchRanges: [{ start: { lineNumber: 12 } }] }] }],
+  test("parseSourcebotSearch maps files to file:line hits (real v5 shape)", () => {
+    const real = {
+      files: [
+        {
+          fileName: { text: "src/checksum.ts", matchRanges: [] },
+          repository: "github.com/example/sb-sample",
+          chunks: [{ content: "export function computeChecksum(data: string): number {", matchRanges: [{ start: { byteOffset: 58, column: 17, lineNumber: 2 } }] }],
+        },
+      ],
     };
-    expect(parseSourcebotSearch(payload, 10)).toEqual([{ ref: "src/x.ts:12", snippet: "hit", kind: "file" }]);
+    expect(parseSourcebotSearch(real, 10)).toEqual([
+      { ref: "src/checksum.ts:2", snippet: "export function computeChecksum(data: string): number {", kind: "file" },
+    ]);
     expect(parseSourcebotSearch("nope", 10)).toEqual([]);
   });
 });
@@ -112,6 +123,12 @@ describe("selection store + provider-OFF", () => {
     expect(hasConsent(repo, env)).toBe(true);
     expect(hasConsent(path.join(home, "repoB"), env)).toBe(false);
   });
+
+  test("indexed root persists per provider (so search reads the same graph)", () => {
+    expect(getRoot("graphify", env)).toBeUndefined();
+    setRoot("graphify", "/tmp/some/repo", env);
+    expect(getRoot("graphify", env)).toBe(path.resolve("/tmp/some/repo"));
+  });
 });
 
 describe("egress consent gate", () => {
@@ -122,15 +139,13 @@ describe("egress consent gate", () => {
   });
 
   test("Graphify (local) is exempt from the egress gate", async () => {
-    // Local → no consent needed; it reaches the CLI (absent here → UNAVAILABLE),
-    // NOT a consent rejection.
     await expect(
       new GraphifyProvider({ env: { PATH: "/nonexistent" } }).registerSource({ id: "r", path: os.tmpdir() }),
     ).rejects.toMatchObject({ code: "PROVIDER_UNAVAILABLE" });
   });
 });
 
-describe("Graphify adapter (fake graphify shim on PATH)", () => {
+describe("Graphify adapter (fake graphify shim, real NODE/EDGE format)", () => {
   let binDir: string;
   let repo: string;
   function env(): NodeJS.ProcessEnv {
@@ -139,65 +154,85 @@ describe("Graphify adapter (fake graphify shim on PATH)", () => {
   beforeEach(() => {
     binDir = fs.mkdtempSync(path.join(os.tmpdir(), "ci-gf-bin-"));
     repo = fs.mkdtempSync(path.join(os.tmpdir(), "ci-gf-repo-"));
+    // Shim emulates real graphify 0.9.23: `update <path>` writes graph.json (no LLM);
+    // `query <q> --graph <path>` prints NODE/EDGE lines.
+    fs.writeFileSync(
+      path.join(binDir, "graphify"),
+      `#!/usr/bin/env bash
+case "$1" in
+  --version) echo "graphify 0.9.23"; exit 0;;
+  update) mkdir -p "$2/graphify-out"; echo '{"nodes":[1,2,3,4,5],"edges":[]}' > "$2/graphify-out/graph.json"; echo "Rebuilt: 5 nodes, 8 edges"; exit 0;;
+  query)
+    echo "Traversal: BFS depth=2 | Start: ['query()'] | 4 nodes found"
+    echo ""
+    echo "NODE query() [src=db.py loc=L4 community=login]"
+    echo "EDGE query() --calls [EXTRACTED context=call]--> login() at=auth.py:L8"
+    exit 0;;
+esac
+exit 1
+`,
+      { mode: 0o755 },
+    );
   });
   afterEach(() => {
     fs.rmSync(binDir, { recursive: true, force: true });
     fs.rmSync(repo, { recursive: true, force: true });
   });
 
-  test("index builds a graph and status reports ready + node count", async () => {
-    // Shim: `graphify .` writes graphify-out/graph.json in cwd; `graphify query` prints a hit line.
-    fs.writeFileSync(
-      path.join(binDir, "graphify"),
-      `#!/usr/bin/env bash
-if [ "$1" = "query" ]; then echo "src/a.ts -> src/b.ts (calls)"; exit 0; fi
-mkdir -p "$PWD/graphify-out"
-echo '{"nodes":[1,2,3]}' > "$PWD/graphify-out/graph.json"
-exit 0
-`,
-      { mode: 0o755 },
-    );
+  test("index builds a graph (via `graphify update`) and status counts nodes", async () => {
     const gf = new GraphifyProvider({ root: repo, env: env() });
-    const reg = await gf.registerSource({ id: "r", path: repo });
+    const reg = await gf.registerSource({ id: repo, path: repo });
     expect(reg.state).toBe("ready");
-    expect(reg.itemCount).toBe(3);
+    expect(reg.itemCount).toBe(5);
+    expect(fs.existsSync(path.join(repo, "graphify-out", "graph.json"))).toBe(true);
+  });
 
-    const hits = await gf.search("what calls b", { source: repo });
-    expect(hits[0].ref).toBe("src/a.ts");
+  test("search reads file:line refs from real query output", async () => {
+    const gf = new GraphifyProvider({ root: repo, env: env() });
+    await gf.registerSource({ id: repo, path: repo });
+    const hits = await gf.search("what calls db", { source: repo });
+    expect(hits.map((h) => h.ref)).toEqual(["db.py:L4", "auth.py:L8"]);
   });
 
   test("missing graphify CLI degrades to PROVIDER_UNAVAILABLE", async () => {
     await expect(
-      new GraphifyProvider({ root: repo, env: { PATH: binDir } }).search("q"),
+      new GraphifyProvider({ root: repo, env: { PATH: os.tmpdir() } }).search("q"),
     ).rejects.toMatchObject({ code: "PROVIDER_UNAVAILABLE" });
   });
 });
 
-describe("Sourcebot adapter (injected fetch + temp config)", () => {
+describe("Sourcebot adapter (injected fetch, real v5 auth + shape)", () => {
   test("registerSource writes a local git connection to config.json", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ci-sb-"));
     const configPath = path.join(dir, "config.json");
-    const sb = new SourcebotProvider({ baseUrl: "http://localhost:3000", configPath });
-    await sb.registerSource({ id: "myrepo", path: "/abs/repo" });
+    await new SourcebotProvider({ baseUrl: "http://localhost:3000", configPath }).registerSource({ id: "myrepo", path: "/abs/repo" });
     const written = JSON.parse(fs.readFileSync(configPath, "utf-8"));
     expect(written.connections.myrepo).toEqual({ type: "git", url: "file:///abs/repo" });
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
-  test("search POSTs /api/search and maps files to hits", async () => {
-    const calls: Array<{ url: string; body: unknown }> = [];
+  test("search sends Bearer auth and maps the real v5 response to hits", async () => {
+    const seen: Array<{ url: string; auth: string | null }> = [];
     const fetchStub = (async (url: string, init: RequestInit) => {
-      calls.push({ url: String(url), body: JSON.parse(String(init.body)) });
+      seen.push({ url: String(url), auth: (init.headers as Record<string, string>)?.Authorization ?? null });
       return new Response(
         JSON.stringify({ files: [{ fileName: { text: "a.ts" }, chunks: [{ content: "x", matchRanges: [{ start: { lineNumber: 3 } }] }] }] }),
         { status: 200, headers: { "Content-Type": "application/json" } },
       );
     }) as unknown as typeof fetch;
-    const sb = new SourcebotProvider({ baseUrl: "http://localhost:3000", fetch: fetchStub });
-    const hits = await sb.search("foo", { limit: 5 });
-    expect(calls[0].url).toBe("http://localhost:3000/api/search");
-    expect((calls[0].body as { isRegexEnabled: boolean }).isRegexEnabled).toBe(true);
+    const sb = new SourcebotProvider({ baseUrl: "http://localhost:3000", apiKey: "sbk_test", fetch: fetchStub });
+    const hits = await sb.search("foo");
+    expect(seen[0].url).toBe("http://localhost:3000/api/search");
+    expect(seen[0].auth).toBe("Bearer sbk_test");
     expect(hits).toEqual([{ ref: "a.ts:3", snippet: "x", kind: "file" }]);
+  });
+
+  test("401 (no API key) degrades to PROVIDER_UNAVAILABLE, not PROVIDER_ERROR", async () => {
+    const fetchStub = (async () =>
+      new Response(JSON.stringify({ errorCode: "NOT_AUTHENTICATED" }), { status: 401 })) as unknown as typeof fetch;
+    await expect(
+      new SourcebotProvider({ baseUrl: "http://localhost:3000", fetch: fetchStub }).search("q"),
+    ).rejects.toMatchObject({ code: "PROVIDER_UNAVAILABLE" });
   });
 
   test("unreachable server degrades to PROVIDER_UNAVAILABLE", async () => {
@@ -210,16 +245,20 @@ describe("Sourcebot adapter (injected fetch + temp config)", () => {
   });
 
   test("registerSource without SOURCEBOT_CONFIG → PROVIDER_UNAVAILABLE", async () => {
-    const sb = new SourcebotProvider({ baseUrl: "http://localhost:3000", env: {} });
-    await expect(sb.registerSource({ id: "r", path: "/x" })).rejects.toMatchObject({ code: "PROVIDER_UNAVAILABLE" });
+    await expect(
+      new SourcebotProvider({ baseUrl: "http://localhost:3000", env: {} }).registerSource({ id: "r", path: "/x" }),
+    ).rejects.toMatchObject({ code: "PROVIDER_UNAVAILABLE" });
   });
 });
 
-describe("GBrain adapter end-to-end (fake gbrain shim on PATH)", () => {
+describe("GBrain adapter (fake gbrain shim)", () => {
   let binDir: string;
   let homeDir: string;
   function env(): NodeJS.ProcessEnv {
     return { PATH: `${binDir}:${process.env.PATH}`, HOME: homeDir };
+  }
+  function writeShim(body: string): void {
+    fs.writeFileSync(path.join(binDir, "gbrain"), body, { mode: 0o755 });
   }
   beforeEach(() => {
     binDir = fs.mkdtempSync(path.join(os.tmpdir(), "ci-gb-bin-"));
@@ -230,21 +269,28 @@ describe("GBrain adapter end-to-end (fake gbrain shim on PATH)", () => {
     fs.rmSync(homeDir, { recursive: true, force: true });
   });
 
-  test("search scopes to source and parses hits", async () => {
-    fs.writeFileSync(
-      path.join(binDir, "gbrain"),
-      `#!/usr/bin/env bash
+  test("search parses hits (and sends no --source: gbrain search is global)", async () => {
+    writeShim(`#!/usr/bin/env bash
 if [ "$1" = "search" ]; then
-  if printf '%s ' "$@" | grep -q -- "--source code"; then echo "[0.88] src/x.ts -- match"; else echo "[0.10] wrong -- unscoped"; fi
-  exit 0
+  if printf '%s ' "$@" | grep -q -- "--source"; then echo "[0.0] ERR -- adapter sent phantom --source"; exit 0; fi
+  echo "[0.88] src/x.ts -- match"; exit 0
 fi
 exit 1
-`,
-      { mode: 0o755 },
-    );
-    const hits = await new GbrainProvider().search("where", { env: env(), source: "code" });
-    expect(hits).toHaveLength(1);
-    expect(hits[0].ref).toBe("src/x.ts");
+`);
+    const hits = await new GbrainProvider().search("where", { env: env() });
+    expect(hits).toEqual([{ ref: "src/x.ts", score: 0.88, snippet: "match", kind: "document" }]);
+  });
+
+  test("engine-down (pglite WASM) degrades to PROVIDER_UNAVAILABLE, not PROVIDER_ERROR", async () => {
+    // Reproduces garrytan/gbrain#223: engine fails to init; must degrade cleanly.
+    writeShim(`#!/usr/bin/env bash
+echo "PGLite failed to initialize its WASM runtime." >&2
+echo "  Original error: Aborted()." >&2
+exit 1
+`);
+    await expect(new GbrainProvider().search("q", { env: env() })).rejects.toMatchObject({
+      code: "PROVIDER_UNAVAILABLE",
+    });
   });
 
   test("missing CLI degrades to PROVIDER_UNAVAILABLE", async () => {
