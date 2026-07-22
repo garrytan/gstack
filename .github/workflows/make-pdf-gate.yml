@@ -74,7 +74,7 @@ jobs:
       - name: ad-hoc codesign (Apple Silicon)
         if: matrix.os == 'macos-latest'
         run: |
-          for bin in browse/dist/browse browse/dist/find-browse design/dist/design make-pdf/dist/pdf; do
+          for bin in browse/dist/browse design/dist/design make-pdf/dist/pdf; do
             codesign --remove-signature "$bin" 2>/dev/null || true
             codesign -s - -f "$bin" || true
           done

@@ -34,12 +34,11 @@ esac
 
 "$BUN_CMD" run vendor:xterm
 "$BUN_CMD" build --compile browse/src/cli.ts --outfile browse/dist/browse
-"$BUN_CMD" build --compile browse/src/find-browse.ts --outfile browse/dist/find-browse
 "$BUN_CMD" build --compile design/src/cli.ts --outfile design/dist/design
 "$BUN_CMD" build --compile make-pdf/src/cli.ts --outfile make-pdf/dist/pdf
 bash browse/scripts/build-node-server.sh
 bash scripts/write-version-files.sh browse/dist/.version design/dist/.version make-pdf/dist/.version
-chmod +x browse/dist/browse browse/dist/find-browse design/dist/design make-pdf/dist/pdf
+chmod +x browse/dist/browse design/dist/design make-pdf/dist/pdf
 if [ "$RUNTIME_ONLY" -eq 0 ]; then
   "$BUN_CMD" run gen:gstack2
   "$BUN_CMD" run gen:skill-docs --host all

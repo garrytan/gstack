@@ -28,7 +28,6 @@ cp -R "$SOURCE/." "$REPO/"
 rm -rf "$REPO/node_modules"
 rm -f \
   "$REPO/browse/dist/browse" "$REPO/browse/dist/browse.exe" \
-  "$REPO/browse/dist/find-browse" "$REPO/browse/dist/find-browse.exe" \
   "$REPO/design/dist/design" "$REPO/design/dist/design.exe" \
   "$REPO/make-pdf/dist/pdf" "$REPO/make-pdf/dist/pdf.exe"
 

@@ -23,7 +23,6 @@ on:
       - 'setup'
       - 'runtime/**'
       - 'browse/src/cli.ts'
-      - 'browse/src/find-browse.ts'
       - 'bin/gstack-paths'
       - '.github/workflows/windows-setup-e2e.yml'
   workflow_dispatch:
