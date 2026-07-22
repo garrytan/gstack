@@ -66,6 +66,25 @@ export async function withCdpSession<T>(
 }
 
 /**
+ * Open an explicitly long-lived CDP session and return an idempotent detach
+ * function. Streaming features such as screencast cannot use withCdpSession,
+ * because their event subscription must outlive one function call.
+ */
+export async function openCdpSession(page: Page): Promise<{ session: any; detach: () => Promise<void> }> {
+  const session = await page.context().newCDPSession(page);
+  let detached = false;
+  const detach = async () => {
+    if (detached) return;
+    detached = true;
+    page.off('close', onClose);
+    try { await session.detach(); } catch { /* target/context may already be gone */ }
+  };
+  const onClose = () => { void detach(); };
+  page.once('close', onClose);
+  return { session, detach };
+}
+
+/**
  * Cached long-lived CDP session keyed by Page. First call creates the
  * session and registers a `page.once('close', ...)` hook that removes the
  * cache entry AND calls `session.detach()`. Pre-helper code only removed

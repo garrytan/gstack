@@ -26,6 +26,7 @@ export const WRITE_COMMANDS = new Set([
   'viewport', 'cookie', 'cookie-import', 'cookie-import-browser', 'header', 'useragent',
   'upload', 'dialog-accept', 'dialog-dismiss',
   'style', 'cleanup', 'prettyscreenshot',
+  'record',
   'download', 'scrape', 'archive',
 ]);
 
@@ -177,6 +178,7 @@ export const COMMAND_DESCRIPTIONS: Record<string, { category: string; descriptio
   'style':   { category: 'Interaction', description: 'Modify CSS property on element (with undo support)', usage: 'style <sel> <prop> <value> | style --undo [N]' },
   'cleanup': { category: 'Interaction', description: 'Remove page clutter (ads, cookie banners, sticky elements, social widgets)', usage: 'cleanup [--ads] [--cookies] [--sticky] [--social] [--all]' },
   'prettyscreenshot': { category: 'Visual', description: 'Clean screenshot with optional cleanup, scroll positioning, and element hiding', usage: 'prettyscreenshot [--scroll-to sel|text] [--cleanup] [--hide sel...] [--width px] [path]' },
+  'record': { category: 'Visual', description: 'Record the active browser tab to an H.264 MP4 while preserving the current gstack session. Interactions receive safe on-video markers and a JSON timeline is saved beside the video.', usage: 'record start [output.mp4] | record mark <label> | record status | record stop' },
   // UX Audit
   'ux-audit': { category: 'Inspection', description: 'Extract page structure for UX behavioral analysis — site ID, nav, headings, text blocks, interactive elements. Returns JSON for agent interpretation.', usage: 'ux-audit' },
   // Domain skills (per-site notes the agent writes for itself)

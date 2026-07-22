@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Northstar — Team</title>
+  <style>
+    * { box-sizing: border-box; }
+    :root { color-scheme: light; font-family: Inter, ui-sans-serif, system-ui, -apple-system, sans-serif; }
+    body { margin: 0; min-height: 100vh; color: #172033; background: #f5f7fb; }
+    button, input, select { font: inherit; }
+    .shell { display: grid; grid-template-columns: 228px 1fr; min-height: 100vh; }
+    aside { padding: 24px 18px; color: #dbe4ff; background: #111a33; }
+    .brand { display: flex; align-items: center; gap: 10px; margin: 0 8px 34px; color: white; font-weight: 750; }
+    .mark { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 10px; background: #6f7cff; }
+    nav a { display: block; margin: 5px 0; padding: 10px 12px; border-radius: 9px; color: #9eabd0; text-decoration: none; }
+    nav a.active { color: white; background: #253052; }
+    main { padding: 40px 46px; }
+    .topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 30px; }
+    h1 { margin: 0 0 6px; font-size: 30px; letter-spacing: -.03em; }
+    .subtitle { margin: 0; color: #667089; }
+    .primary { padding: 11px 16px; border: 0; border-radius: 10px; color: white; background: #5365e8; box-shadow: 0 5px 16px rgba(83,101,232,.25); cursor: pointer; }
+    .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 20px; }
+    .stat, .card { border: 1px solid #e2e6ef; border-radius: 14px; background: white; box-shadow: 0 1px 2px rgba(20,30,60,.03); }
+    .stat { padding: 20px; }
+    .stat span { color: #737d95; font-size: 13px; }
+    .stat strong { display: block; margin-top: 8px; font-size: 24px; }
+    .card { overflow: hidden; }
+    .card-head { display: flex; align-items: center; justify-content: space-between; padding: 20px 22px; border-bottom: 1px solid #edf0f5; }
+    .card h2 { margin: 0; font-size: 17px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 15px 22px; border-bottom: 1px solid #f0f2f6; text-align: left; }
+    th { color: #7a849b; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+    .person { display: flex; align-items: center; gap: 12px; font-weight: 650; }
+    .avatar { display: grid; width: 34px; height: 34px; place-items: center; border-radius: 50%; color: #4050bb; background: #e9ecff; font-size: 12px; }
+    .pill { display: inline-block; padding: 5px 9px; border-radius: 999px; color: #226a48; background: #e7f7ef; font-size: 12px; }
+    dialog { width: min(460px, calc(100vw - 40px)); padding: 0; border: 0; border-radius: 16px; box-shadow: 0 24px 70px rgba(20,28,55,.25); }
+    dialog::backdrop { background: rgba(18,25,45,.44); backdrop-filter: blur(2px); }
+    .modal { padding: 26px; }
+    .modal h2 { margin: 0 0 7px; font-size: 22px; }
+    .modal p { margin: 0 0 22px; color: #68728a; }
+    label { display: block; margin: 15px 0 7px; color: #424c64; font-size: 13px; font-weight: 650; }
+    input, select { width: 100%; padding: 11px 12px; border: 1px solid #cfd5e1; border-radius: 9px; outline: none; background: white; }
+    input:focus, select:focus { border-color: #6877ee; box-shadow: 0 0 0 3px #e8eaff; }
+    .actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px; }
+    .secondary { padding: 10px 14px; border: 1px solid #d6dbe5; border-radius: 9px; background: white; cursor: pointer; }
+    .toast { position: fixed; right: 28px; bottom: 28px; display: flex; align-items: center; gap: 10px; padding: 14px 17px; border-radius: 12px; color: white; background: #17283a; box-shadow: 0 12px 32px rgba(19,31,48,.25); transform: translateY(18px); opacity: 0; pointer-events: none; transition: .22s ease; }
+    .toast.show { transform: none; opacity: 1; }
+    .check { display: grid; width: 22px; height: 22px; place-items: center; border-radius: 50%; background: #34b27b; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside>
+      <div class="brand"><span class="mark">N</span> Northstar</div>
+      <nav aria-label="Primary">
+        <a href="#">Overview</a><a href="#">Projects</a><a class="active" href="#">Team</a><a href="#">Settings</a>
+      </nav>
+    </aside>
+    <main>
+      <header class="topbar">
+        <div><h1>Team</h1><p class="subtitle">Manage access and keep everyone moving together.</p></div>
+        <button class="primary" id="invite-button">Invite teammate</button>
+      </header>
+      <section class="stats" aria-label="Team summary">
+        <div class="stat"><span>Active teammates</span><strong id="member-count">12</strong></div>
+        <div class="stat"><span>Pending invites</span><strong id="invite-count">2</strong></div>
+        <div class="stat"><span>Seats available</span><strong id="seat-count">6</strong></div>
+      </section>
+      <section class="card">
+        <div class="card-head"><h2>Workspace members</h2><span class="subtitle">Updated just now</span></div>
+        <table><thead><tr><th>Member</th><th>Role</th><th>Status</th></tr></thead>
+          <tbody>
+            <tr><td><div class="person"><span class="avatar">AR</span> Ava Rodriguez</div></td><td>Owner</td><td><span class="pill">Active</span></td></tr>
+            <tr><td><div class="person"><span class="avatar">JL</span> Jamie Lee</div></td><td>Editor</td><td><span class="pill">Active</span></td></tr>
+            <tr><td><div class="person"><span class="avatar">MK</span> Morgan Kim</div></td><td>Viewer</td><td><span class="pill">Active</span></td></tr>
+          </tbody>
+        </table>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="invite-dialog">
+    <form class="modal" method="dialog" id="invite-form">
+      <h2>Invite a teammate</h2>
+      <p>They’ll receive an email with a secure link to join this workspace.</p>
+      <label for="invite-email">Work email</label>
+      <input id="invite-email" type="email" required>
+      <label for="invite-role">Role</label>
+      <select id="invite-role"><option value="editor">Editor</option><option value="viewer">Viewer</option><option value="admin">Admin</option></select>
+      <div class="actions"><button class="secondary" value="cancel">Cancel</button><button class="primary" id="send-invite" value="default">Send invitation</button></div>
+    </form>
+  </dialog>
+  <div class="toast" role="status" id="toast"><span class="check">✓</span><span>Invitation sent successfully</span></div>
+  <script>
+    const dialog = document.getElementById('invite-dialog');
+    document.getElementById('invite-button').addEventListener('click', () => dialog.showModal());
+    document.getElementById('invite-form').addEventListener('submit', (event) => {
+      event.preventDefault();
+      if (!document.getElementById('invite-email').reportValidity()) return;
+      dialog.close();
+      document.getElementById('invite-count').textContent = '3';
+      document.getElementById('seat-count').textContent = '5';
+      const toast = document.getElementById('toast');
+      toast.classList.add('show');
+      window.setTimeout(() => toast.classList.remove('show'), 4000);
+    });
+  </script>
+</body>
+</html>

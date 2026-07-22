@@ -19,6 +19,7 @@ import { TEMP_DIR, isPathWithin } from './platform';
 import { SAFE_DIRECTORIES } from './path-security';
 import { modifyStyle, undoModification, resetModifications, getModificationHistory } from './cdp-inspector';
 import { withCdpSession } from './cdp-bridge';
+import { handleRecordCommand, markRecordedInteraction } from './recording';
 
 /**
  * Aggressive page cleanup selectors and heuristics.
@@ -139,6 +140,11 @@ export async function handleWriteCommand(
   // Frame-aware target for locator-based operations (click, fill, etc.)
   const target = session.getActiveFrameOrPage();
   const inFrame = session.getFrame() !== null;
+
+  if (command === 'record') return handleRecordCommand(args, bm);
+  // Best-effort demo labels. Values entered into fields, cookies, and headers
+  // are intentionally never included in the video or timeline marker text.
+  await markRecordedInteraction(bm, command, args).catch(() => undefined);
 
   switch (command) {
     case 'goto': {
