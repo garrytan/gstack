@@ -1,0 +1,159 @@
+#!/usr/bin/env bun
+/**
+ * gstack-code-intelligence — pick a code-intelligence provider and use it to
+ * index and search this repo. OPTIONAL: with nothing selected, gstack works
+ * fine and callers use grep / the file-only decision store.
+ *
+ * Usage:
+ *   gstack-code-intelligence options                 # list providers (GBrain first) + availability
+ *   gstack-code-intelligence status                  # current selection + availability
+ *   gstack-code-intelligence select <gbrain|sourcebot|graphify|none>
+ *   gstack-code-intelligence consent [repo-path]     # allow indexing this repo (per-repo)
+ *   gstack-code-intelligence index [repo-path]       # index the repo with the selected provider
+ *   gstack-code-intelligence search <query...>       # search via the selected provider
+ *
+ * Non-local providers (GBrain, or a Sourcebot on a remote host) refuse to index
+ * until you consent for that repo. Graphify and a localhost Sourcebot are local:
+ * nothing leaves the machine, so no consent is needed. Graphify is never
+ * auto-installed.
+ */
+
+import { basename, resolve } from "path";
+import {
+  CodeProviderError,
+  RECOMMENDED_ORDER,
+  detectAvailable,
+  hasConsent,
+  providerById,
+  readSelection,
+  resolveSelectedProvider,
+  setConsent,
+  setProvider,
+  type CodeProviderId,
+} from "../lib/code-intelligence";
+
+const PROVIDER_IDS = new Set<CodeProviderId>(["gbrain", "sourcebot", "graphify"]);
+const LABEL: Record<CodeProviderId, string> = { gbrain: "GBrain", sourcebot: "Sourcebot", graphify: "Graphify" };
+const NOTE: Record<CodeProviderId, string> = {
+  gbrain: "recommended; federated memory + code (sends content to your GBrain DB)",
+  sourcebot: "self-hosted whole-repo regex search (local when on localhost)",
+  graphify: "local tree-sitter code graph, nothing leaves the machine (install it yourself)",
+};
+
+function out(s: string): void {
+  process.stdout.write(`${s}\n`);
+}
+function fail(s: string): never {
+  process.stderr.write(`gstack-code-intelligence: ${s}\n`);
+  process.exit(1);
+}
+
+async function cmdOptions(): Promise<void> {
+  out("Code-intelligence providers (indexing is optional; GBrain recommended):\n");
+  const avail = await detectAvailable();
+  const byId = new Map(avail.map((a) => [a.id, a]));
+  for (const id of RECOMMENDED_ORDER) {
+    const a = byId.get(id);
+    const mark = a?.available ? "available" : "not available";
+    out(`  ${id === "gbrain" ? "*" : " "} ${LABEL[id].padEnd(10)} [${mark}] — ${NOTE[id]}`);
+    if (a?.detail) out(`      ${a.detail}`);
+  }
+  out("\nSelect one with: gstack-code-intelligence select <provider>");
+}
+
+async function cmdStatus(): Promise<void> {
+  const sel = readSelection();
+  out(`selected: ${sel.provider ?? "none (grep / file-only fallback)"}`);
+  const avail = await detectAvailable();
+  for (const a of avail) out(`  ${LABEL[a.id]}: ${a.available ? "available" : "unavailable"} (${a.detail})`);
+}
+
+function cmdSelect(arg: string | undefined): void {
+  if (arg === "none") {
+    setProvider(null);
+    out("code-intelligence provider cleared; gstack uses grep / file-only fallback");
+    return;
+  }
+  if (!arg || !PROVIDER_IDS.has(arg as CodeProviderId)) {
+    fail("Usage: select <gbrain|sourcebot|graphify|none>");
+  }
+  const id = arg as CodeProviderId;
+  setProvider(id);
+  out(`selected ${LABEL[id]}.`);
+  const provider = providerById(id);
+  if (!provider.local) out(`${LABEL[id]} sends repo content off this machine — run \`consent\` in a repo before indexing it.`);
+}
+
+function cmdConsent(pathArg: string | undefined): void {
+  const repoPath = resolve(pathArg ?? process.cwd());
+  setConsent(repoPath, true);
+  out(`indexing consent recorded for ${repoPath}`);
+}
+
+async function cmdIndex(pathArg: string | undefined): Promise<void> {
+  const provider = resolveSelectedProvider();
+  if (!provider) fail("no provider selected; run `select <provider>` first");
+  const repoPath = resolve(pathArg ?? process.cwd());
+  const consented = hasConsent(repoPath);
+  if (!provider!.local && !consented) {
+    fail(`${provider!.label} would send this repo's content off the machine. Run \`gstack-code-intelligence consent ${repoPath}\` first.`);
+  }
+  const repo = { id: basename(repoPath), path: repoPath };
+  try {
+    const registered = await provider!.registerSource(repo, { consented });
+    out(`registered ${repo.id} with ${provider!.label} (${registered.state})`);
+    const refreshed = await provider!.refresh({ id: registered.id }, { consented });
+    out(`indexed: ${refreshed.state}${refreshed.itemCount != null ? ` (${refreshed.itemCount} items)` : ""}`);
+  } catch (err) {
+    handleProviderError(err, provider!.label);
+  }
+}
+
+async function cmdSearch(terms: string[]): Promise<void> {
+  const query = terms.join(" ").trim();
+  if (!query) fail("Usage: search <query...>");
+  const provider = resolveSelectedProvider();
+  if (!provider) fail("no provider selected; run `select <provider>` first (or use grep)");
+  try {
+    const hits = await provider!.search(query, { limit: 10 });
+    if (!hits.length) {
+      out("(no results)");
+      return;
+    }
+    for (const h of hits) out(`${h.score != null ? `[${h.score.toFixed(2)}] ` : ""}${h.ref}${h.snippet ? ` — ${h.snippet}` : ""}`);
+  } catch (err) {
+    handleProviderError(err, provider!.label);
+  }
+}
+
+function handleProviderError(err: unknown, label: string): never {
+  if (err instanceof CodeProviderError) {
+    if (err.code === "PROVIDER_UNAVAILABLE") {
+      fail(`${label} is unavailable (${err.message}). gstack still works — fall back to grep / file-only.`);
+    }
+    fail(`${label} ${err.code}: ${err.message}`);
+  }
+  fail(err instanceof Error ? err.message : String(err));
+}
+
+async function main(): Promise<void> {
+  const [action, ...rest] = process.argv.slice(2);
+  switch (action) {
+    case "options":
+      return cmdOptions();
+    case "status":
+      return cmdStatus();
+    case "select":
+      return cmdSelect(rest[0]);
+    case "consent":
+      return cmdConsent(rest[0]);
+    case "index":
+      return cmdIndex(rest[0]);
+    case "search":
+      return cmdSearch(rest);
+    default:
+      fail("Usage: options | status | select <provider> | consent [path] | index [path] | search <query...>");
+  }
+}
+
+main().catch((err) => fail(err instanceof Error ? err.message : String(err)));
