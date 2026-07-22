@@ -12,11 +12,11 @@
  *   2. Look up door_type from scripts/question-registry.ts (default two-way).
  *   3. Read preferences with precedence: project-local > global (D8).
  *   4. Apply:
- *        never-ask + one-way → defer (safety override; one-way always asks).
+ *        never-ask + one-way → no decision (safety override; one-way always asks).
  *        never-ask + two-way + marker → deny with auto-decided recommendation
  *          in reason. Mark tool_use_id so PostToolUse logs as 'auto-decided'.
  *        ask-only-for-one-way + two-way + marker → same as never-ask.
- *        always-ask, or no preference → defer.
+ *        always-ask, or no preference → no decision.
  *
  * Why deny+reason instead of allow+updatedInput:
  *   AskUserQuestion's `updatedInput` shape for "pre-resolve this question"
@@ -31,7 +31,7 @@
  *   - First: (recommended) label suffix on an option.
  *   - Fall back: "Recommendation: X" prose match against option labels.
  *   - Refuse to auto-decide if ambiguous (multiple labels OR no parseable
- *     recommendation): defer instead of silent-wrong.
+ *     recommendation): no decision instead of silent-wrong.
  *
  * Always exits 0. Hook errors land in ~/.gstack/hook-errors.log.
  * See docs/spikes/claude-code-hook-mutation.md for the protocol contract.
@@ -92,13 +92,24 @@ function readStdin(): Promise<string> {
   });
 }
 
-function defer(additionalContext?: string): void {
-  const out: Record<string, unknown> = {
-    hookEventName: 'PreToolUse',
-    permissionDecision: 'defer',
-  };
-  if (additionalContext) out.additionalContext = additionalContext;
-  process.stdout.write(JSON.stringify({ hookSpecificOutput: out }));
+function passThrough(additionalContext?: string): void {
+  // "No opinion" must be a SILENT exit 0 (optionally with additionalContext
+  // only), never an explicit `permissionDecision: 'defer'`. `defer` is a real
+  // value in Claude Code, but it means "pause this tool call and hand control
+  // back" and is honored in print/non-interactive mode. Emitting it here made
+  // every AskUserQuestion get deferred in non-interactive sessions (e.g. the
+  // desktop app) — the question UI never rendered. Interactive mode merely
+  // warns and ignores it.
+  if (additionalContext) {
+    process.stdout.write(
+      JSON.stringify({
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          additionalContext,
+        },
+      }),
+    );
+  }
   process.exit(0);
 }
 
@@ -347,7 +358,7 @@ function logAutoDecided(
 async function main(): Promise<void> {
   const raw = await readStdin();
   if (!raw.trim()) {
-    defer();
+    passThrough();
     return;
   }
   let stdin: HookStdin;
@@ -355,7 +366,7 @@ async function main(): Promise<void> {
     stdin = JSON.parse(raw);
   } catch (e) {
     logHookError(`stdin parse failed: ${(e as Error).message}`);
-    defer();
+    passThrough();
     return;
   }
 
@@ -364,26 +375,26 @@ async function main(): Promise<void> {
     toolName !== 'AskUserQuestion' &&
     !toolName.match(/^mcp__.+__AskUserQuestion$/)
   ) {
-    defer();
+    passThrough();
     return;
   }
 
   const questions = stdin.tool_input?.questions || [];
   if (questions.length === 0) {
-    defer();
+    passThrough();
     return;
   }
 
   // For multi-question AUQ, enforcement is all-or-nothing per call:
   // we deny only if ALL questions have marker + never-ask + safe door type.
-  // Mixed cases pass through (defer) so the user still gets to answer.
+  // Mixed cases pass through so the user still gets to answer.
   const registry = loadRegistry();
   const slug = slugFromCwd(stdin.cwd);
   const memoryNuggets = loadMemoryNuggets(stdin.session_id);
 
   // Compute Layer 8 memory context inline: any nuggets matching the
   // signal_keys of the questions in this AUQ get surfaced as additionalContext.
-  // This applies whether we defer OR deny — gives the agent + user the
+  // This applies whether we pass through OR deny — gives the agent + user the
   // relevant prior context either way.
   const contextNuggets: string[] = [];
   for (const q of questions) {
@@ -402,11 +413,11 @@ async function main(): Promise<void> {
     : undefined;
 
   // Determine whether EVERY question is eligible for never-ask auto-decide.
-  // We deliberately do NOT early-return defer on the first ineligible question:
-  // a Conductor session still needs the [conductor] prose deny as a fallback,
-  // so we compute eligibility, then branch. memoryContext is preserved on every
-  // non-enforcing exit. (All-or-nothing per-call semantics are unchanged: any
-  // ineligible question makes the whole call not auto-decidable.)
+  // We deliberately do NOT early-return passThrough on the first ineligible
+  // question: a Conductor session still needs the [conductor] prose deny as a
+  // fallback, so we compute eligibility, then branch. memoryContext is preserved
+  // on every non-enforcing exit. (All-or-nothing per-call semantics are unchanged:
+  // any ineligible question makes the whole call not auto-decidable.)
   const autoDecisions: Array<{ id: string; recommended: string }> = [];
   let fullyAutoDecidable = true;
   for (const q of questions) {
@@ -471,10 +482,10 @@ async function main(): Promise<void> {
     return;
   }
 
-  defer(memoryContext);
+  passThrough(memoryContext);
 }
 
 main().catch((e) => {
   logHookError(`main crash: ${(e as Error).message}`);
-  defer();
+  passThrough();
 });
