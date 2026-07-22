@@ -93,9 +93,14 @@ function readStdin(): Promise<string> {
 }
 
 function defer(additionalContext?: string): void {
+  // NOTE: do NOT emit `permissionDecision: 'defer'`. Claude Code's PreToolUse
+  // schema only accepts 'allow' | 'deny' | 'ask'; as of 2.1.14 an unrecognized
+  // 'defer' is interpreted as "defer the tool call", which SWALLOWS the
+  // AskUserQuestion widget — it never renders and the user sees nothing.
+  // Omitting permissionDecision entirely is the correct "no opinion" signal:
+  // normal permission flow continues and additionalContext is still delivered.
   const out: Record<string, unknown> = {
     hookEventName: 'PreToolUse',
-    permissionDecision: 'defer',
   };
   if (additionalContext) out.additionalContext = additionalContext;
   process.stdout.write(JSON.stringify({ hookSpecificOutput: out }));

@@ -91,7 +91,7 @@ describe('memory injection', () => {
         ],
       },
     });
-    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('defer');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBeUndefined();
     expect(r.parsed?.hookSpecificOutput?.additionalContext).toContain('verbose explanations');
   });
 
@@ -115,7 +115,7 @@ describe('memory injection', () => {
         ],
       },
     });
-    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('defer');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBeUndefined();
     expect(r.parsed?.hookSpecificOutput?.additionalContext).toBeUndefined();
   });
 
@@ -219,7 +219,7 @@ describe('per-session memory cache', () => {
         ],
       },
     });
-    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('defer');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBeUndefined();
     expect(r.parsed?.hookSpecificOutput?.additionalContext).toBeUndefined();
   });
 });
