@@ -5,10 +5,20 @@
 
 export * from "./contract";
 export { GbrainProvider, parseGbrainSearch } from "./gbrain-adapter";
-export { SourcebotProvider, GraphifyProvider } from "./mcp-adapters";
+export { GraphifyProvider, parseGraphifyQuery, type GraphifyOptions } from "./graphify-adapter";
+export { SourcebotProvider, parseSourcebotSearch, type SourcebotOptions } from "./sourcebot-adapter";
 export {
-  recommendCodeProvider,
-  resolveCodeProvider,
+  readSelection,
+  setProvider,
+  setConsent,
+  hasConsent,
+  type Selection,
+} from "./selection";
+export {
   RECOMMENDED_ORDER,
+  providerById,
+  resolveSelectedProvider,
+  detectAvailable,
   type PickerOptions,
+  type Availability,
 } from "./picker";

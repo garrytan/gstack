@@ -1,43 +1,93 @@
 /**
- * Picker — recommends a code-intelligence provider, GBrain first.
+ * Picker — constructs the code-intelligence provider the user selected, and
+ * offers the recommendation order (GBrain first) for the selection UX.
  *
- * RECOMMENDED_ORDER is the static "GBrain first" fact the options UX and phase-2
- * resolution filter against. In phase 1 only GBrain is drivable from the runtime
- * (it has a CLI the runtime can spawn); Sourcebot and Graphify are MCP tools in
- * the host session and become resolvable in phase 2 once a host transport is
- * wired. So recommendCodeProvider returns GBrain-or-nothing today, and
- * resolveCodeProvider degrades to null — the provider-OFF path — when GBrain is
- * unavailable. Callers then use grep / the file-only decision store.
+ * `resolveSelectedProvider()` reads the persisted selection and constructs that
+ * provider, or returns null when nothing is selected — the provider-OFF path,
+ * where callers degrade to grep / the file-only decision store. Availability is
+ * proven at call time: a selected provider whose tool/server is absent throws
+ * PROVIDER_UNAVAILABLE from its ops, which callers catch and degrade on. The
+ * `detectAvailable()` probe drives the `options`/`status` display.
  *
- * GBrain availability uses the real detector, localEngineStatus() ("ok"/"timeout"
- * are usable). Graphify is NEVER auto-installed or auto-offered.
+ * GBrain is recommended first. Graphify is NEVER auto-installed — it appears in
+ * the options only once its CLI is present (a user install).
  */
 
-import { localEngineStatus, type LocalEngineStatus } from "../gbrain-local-status";
+import { localEngineStatus } from "../gbrain-local-status";
 import { GbrainProvider } from "./gbrain-adapter";
+import { GraphifyProvider, type GraphifyOptions } from "./graphify-adapter";
+import { SourcebotProvider, type SourcebotOptions } from "./sourcebot-adapter";
+import { readSelection } from "./selection";
 import type { CodeProvider, CodeProviderId } from "./contract";
 
-/** Recommendation order — GBrain first. Sourcebot/Graphify join in phase 2. */
+/** Recommendation order — GBrain first. */
 export const RECOMMENDED_ORDER: readonly CodeProviderId[] = ["gbrain", "sourcebot", "graphify"];
 
 export interface PickerOptions {
   env?: NodeJS.ProcessEnv;
-  /** Inject GBrain status for tests; otherwise probed via localEngineStatus(). */
-  gbrainStatus?: LocalEngineStatus;
+  graphify?: GraphifyOptions;
+  sourcebot?: SourcebotOptions;
 }
 
-const GBRAIN_USABLE: ReadonlySet<LocalEngineStatus> = new Set(["ok", "timeout"]);
-
-/** Drivable providers, in recommendation order (GBrain first). */
-export function recommendCodeProvider(opts: PickerOptions = {}): CodeProvider[] {
-  const status = opts.gbrainStatus ?? localEngineStatus({ env: opts.env });
-  return GBRAIN_USABLE.has(status) ? [new GbrainProvider()] : [];
+/** Construct a provider by id (no availability check — ops degrade at call time). */
+export function providerById(id: CodeProviderId, opts: PickerOptions = {}): CodeProvider {
+  switch (id) {
+    case "gbrain":
+      return new GbrainProvider();
+    case "graphify":
+      return new GraphifyProvider({ env: opts.env, ...opts.graphify });
+    case "sourcebot":
+      return new SourcebotProvider({ env: opts.env, ...opts.sourcebot });
+  }
 }
 
 /**
- * The single recommended provider, or null when none is drivable. Null is the
- * provider-OFF path: callers MUST degrade to grep / file-only, never fail.
+ * The provider the user selected, constructed, or null when none is selected.
+ * Null is the provider-OFF path: callers MUST degrade to grep / file-only.
  */
-export function resolveCodeProvider(opts: PickerOptions = {}): CodeProvider | null {
-  return recommendCodeProvider(opts)[0] ?? null;
+export function resolveSelectedProvider(opts: PickerOptions = {}): CodeProvider | null {
+  const { provider } = readSelection(opts.env);
+  return provider ? providerById(provider, opts) : null;
+}
+
+export interface Availability {
+  id: CodeProviderId;
+  available: boolean;
+  detail: string;
+}
+
+/**
+ * Probe which providers are usable right now, in recommendation order. Used by
+ * the `options`/`status` display. GBrain via the real localEngineStatus();
+ * Graphify via its CLI status; Sourcebot via an HTTP liveness probe.
+ */
+export async function detectAvailable(opts: PickerOptions = {}): Promise<Availability[]> {
+  const gbrainStatus = localEngineStatus({ env: opts.env });
+  const gbrainOk = gbrainStatus === "ok" || gbrainStatus === "timeout";
+
+  let graphifyOk = false;
+  let graphifyDetail = "graphify CLI not installed";
+  try {
+    const s = await new GraphifyProvider({ env: opts.env, ...opts.graphify }).status();
+    graphifyOk = s.state === "ready";
+    graphifyDetail = graphifyOk ? "graph indexed in this repo" : "installed; no graph in this repo yet";
+  } catch {
+    graphifyOk = false;
+  }
+
+  let sourcebotOk = false;
+  let sourcebotDetail = "server unreachable";
+  try {
+    const s = await new SourcebotProvider({ env: opts.env, ...opts.sourcebot }).status();
+    sourcebotOk = s.state === "ready";
+    sourcebotDetail = s.detail ?? "";
+  } catch {
+    sourcebotOk = false;
+  }
+
+  return [
+    { id: "gbrain", available: gbrainOk, detail: `gbrain engine: ${gbrainStatus}` },
+    { id: "sourcebot", available: sourcebotOk, detail: sourcebotDetail },
+    { id: "graphify", available: graphifyOk, detail: graphifyDetail },
+  ];
 }
