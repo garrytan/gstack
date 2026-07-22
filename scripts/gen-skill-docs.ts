@@ -530,7 +530,19 @@ function transformFrontmatter(content: string, host: Host): string {
   if (fmEnd === -1) return content;
   const frontmatter = content.slice(fmStart + 4, fmEnd);
   const body = content.slice(fmEnd + 4);
-  const { name, description } = extractNameAndDescription(content);
+  const extracted = extractNameAndDescription(content);
+  const description = extracted.description;
+  const namePrefix = fm.namePrefix || '';
+  const name = namePrefix && extracted.name !== namePrefix.replace(/-$/, '') && !extracted.name.startsWith(namePrefix)
+    ? `${namePrefix}${extracted.name}`
+    : extracted.name;
+
+  if (fm.nameLimit && name.length > fm.nameLimit) {
+    throw new Error(
+      `${hostConfig.displayName} frontmatter name exceeds ${fm.nameLimit} characters: ` +
+      `${name} (${name.length})`
+    );
+  }
 
   // Description limit enforcement
   if (fm.descriptionLimit) {

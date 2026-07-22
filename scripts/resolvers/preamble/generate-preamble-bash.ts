@@ -3,9 +3,14 @@ import { getHostConfig } from '../../../hosts/index';
 
 export function generatePreambleBash(ctx: TemplateContext): string {
   const hostConfig = getHostConfig(ctx.host);
+  const globalRoot = (() => {
+    if (!hostConfig.globalRootEnv) return `$HOME/${hostConfig.globalRoot}`;
+    const [defaultBase, ...rest] = hostConfig.globalRoot.split('/');
+    return `\${${hostConfig.globalRootEnv}:-$HOME/${defaultBase}}/${rest.join('/')}`;
+  })();
   const runtimeRoot = hostConfig.usesEnvVars
     ? `_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
-GSTACK_ROOT="$HOME/${hostConfig.globalRoot}"
+GSTACK_ROOT="${globalRoot}"
 [ -n "$_ROOT" ] && [ -d "$_ROOT/${ctx.paths.localSkillRoot}" ] && GSTACK_ROOT="$_ROOT/${ctx.paths.localSkillRoot}"
 GSTACK_BIN="$GSTACK_ROOT/bin"
 GSTACK_BROWSE="$GSTACK_ROOT/browse/dist"
