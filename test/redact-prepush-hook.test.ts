@@ -305,6 +305,44 @@ describe("path-ignore for generated data files (#1946 follow-up)", () => {
     expect(stderr).toContain("engine.input_too_large");
     expect(stderr).not.toContain("skipped");
   });
+
+  test("(g) an ignore glob applies to a non-ASCII filename (core.quotePath=false)", () => {
+    // Regression: git C-quotes non-ASCII paths by default (`"caf\303\251.csv"`),
+    // which the glob can't match — the ignore rule would silently fail to apply
+    // and the large export would still oversize-block. The hook forces
+    // core.quotePath=false so the raw UTF-8 path matches.
+    writeIgnoreFile("prospecting/exports/**/*.csv\n");
+    const base = git(["rev-parse", "HEAD"]);
+    fs.mkdirSync(path.join(repo, "prospecting", "exports"), { recursive: true });
+    fs.writeFileSync(path.join(repo, "prospecting", "exports", "café.csv"), BIG);
+    git(["add", "-A"]);
+    git(["commit", "-q", "-m", "big export with non-ascii name"]);
+    const head = git(["rev-parse", "HEAD"]);
+    const { code, stderr } = runHook(`refs/heads/main ${head} refs/heads/main ${base}\n`);
+    expect(code).toBe(0);
+    expect(stderr).toContain("skipped 1 path(s)");
+    expect(stderr).toContain("café.csv");
+  });
+
+  test("(h) a glob metacharacter in an ignored filename does NOT exclude a sibling (fail-open guard)", () => {
+    // Fail-open regression (adversarial review): a real filename holding a `?`
+    // is a legal path. A plain `:(exclude)export?.csv` pathspec is glob-ENABLED,
+    // so git would ALSO drop `exportX.csv` (a sibling holding a real secret) from
+    // the scan. `:(top,exclude,literal)` treats the name literally, so only the
+    // exact ignored file is exempted and the sibling secret still blocks.
+    // The glob is `export\?.csv` (escaped) so Bun.Glob matches ONLY the literal
+    // `export?.csv` — isolating the git pathspec overreach, not Bun.Glob's own.
+    writeIgnoreFile("export\\?.csv\n");
+    const base = git(["rev-parse", "HEAD"]);
+    fs.writeFileSync(path.join(repo, "export?.csv"), "benign generated data\n");
+    fs.writeFileSync(path.join(repo, "exportX.csv"), "key AKIA1234567890ABCDEF\n");
+    git(["add", "-A"]);
+    git(["commit", "-q", "-m", "ignored ? file + sibling with a secret"]);
+    const head = git(["rev-parse", "HEAD"]);
+    const { code, stderr } = runHook(`refs/heads/main ${head} refs/heads/main ${base}\n`);
+    expect(code).toBe(1); // the sibling's credential must still block
+    expect(stderr).toContain("aws.access_key");
+  });
 });
 
 describe("install / chaining", () => {
