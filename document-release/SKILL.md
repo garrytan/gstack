@@ -26,9 +26,11 @@ Reads all project docs, cross-references the
 diff, builds a Diataxis coverage map (reference/how-to/tutorial/explanation),
 updates README/ARCHITECTURE/CONTRIBUTING/CLAUDE.md to match what shipped,
 detects architecture diagram drift, polishes CHANGELOG voice with a sell-test
-rubric, cleans up TODOS, and optionally bumps VERSION. Surfaces documentation
-debt in the PR body. Use when asked to "update the docs", "sync documentation",
-or "post-ship docs". Proactively suggest after a PR is merged or code is shipped.
+rubric, cleans up TODOS, and optionally bumps VERSION. Also detects and audits
+an in-app public docs site (Next.js/Docusaurus/Mintlify/VitePress/Nextra-style
+page trees), not just root markdown. Surfaces documentation debt in the PR
+body. Use when asked to "update the docs", "sync documentation", or "post-ship
+docs". Proactively suggest after a PR is merged or code is shipped.
 
 ## Preamble (run first)
 
@@ -887,6 +889,28 @@ git diff <base>...HEAD --name-only
 find . -maxdepth 2 -name "*.md" -not -path "./.git/*" -not -path "./node_modules/*" -not -path "./.gstack/*" -not -path "./.context/*" | sort
 ```
 
+3.5. Discover an in-app public docs site, if one exists. Root-level `*.md` files are internal/
+contributor docs — many projects *also* ship a user-facing docs site as app pages, not markdown
+(Next.js App Router `page.tsx`/`page.mdx`, Docusaurus/Mintlify/VitePress/Nextra `.md`/`.mdx`
+content trees). These live arbitrarily deep and won't show up in the find above, but they're the
+docs actual users read — don't skip them.
+
+```bash
+find . \( -path "*/node_modules" -o -path "*/.git" -o -path "*/.gstack" -o -path "*/.context" -o -path "*/dist" -o -path "*/build" \) -prune -o -type d -iname "docs" -print 2>/dev/null | sort
+```
+
+For each directory found (besides a root-level `./docs` already covered by the markdown find
+above, unless it also contains non-`.md` page files), list its content pages:
+
+```bash
+find "<docs-dir>" -type f \( -iname "page.tsx" -o -iname "page.jsx" -o -iname "*.mdx" \) 2>/dev/null | sort
+```
+
+If nothing is found, there's no in-app docs site in this repo — move on, this step is a no-op.
+If pages are found, treat them as first-class documentation for the rest of this workflow
+(coverage map in Step 1.5, audit in Step 2) — see the framework-native docs heuristic there for
+how to handle edits safely.
+
 4. Classify the changes into categories relevant to documentation:
    - **New features** — new files, new commands, new skills, new capabilities
    - **Changed behavior** — modified services, updated APIs, config changes
@@ -920,10 +944,14 @@ Coverage map:
 ```
 
 Use these definitions:
-- **Reference** — factual description of what it is, its API, its options (README tables, AGENTS.md skill lists, API docs)
-- **How-to** — task-oriented: "how to do X with this" (README examples, CONTRIBUTING workflows)
-- **Tutorial** — learning-oriented: step-by-step walkthrough for newcomers (getting started guides)
+- **Reference** — factual description of what it is, its API, its options (README tables, AGENTS.md skill lists, API docs, in-app docs-site reference pages)
+- **How-to** — task-oriented: "how to do X with this" (README examples, CONTRIBUTING workflows, in-app docs-site guides)
+- **Tutorial** — learning-oriented: step-by-step walkthrough for newcomers (getting started guides, docs-site quickstart pages)
 - **Explanation** — understanding-oriented: "why this works this way" (ARCHITECTURE decisions, design rationale)
+
+If Step 1.3.5 found an in-app docs site, its pages count toward coverage exactly like a root
+`.md` file — a new feature with a docs-site page but no README mention is `❌ README ✅ docs-site`,
+not a gap.
 
 3. **Output the coverage map.** Items with zero coverage are **critical gaps** — flag them for
    Step 3. Items with reference-only coverage are **common gaps** — note them for the PR body.
@@ -957,5 +985,11 @@ When significant gaps are found, suggest running `/document-generate` to fill th
   are found, suggest `/document-generate` as the follow-up skill.
 - **Diagram drift is advisory.** Flag stale architecture diagrams in the PR body but do not
   auto-edit ASCII art or Mermaid blocks — they require human judgment to update correctly.
+- **In-app docs sites are in scope, not just root `.md`.** Detect them (Step 1.3.5) and fold
+  their pages into the coverage map and audit — they're the docs real users read.
+- **Framework-native docs pages get the CHANGELOG treatment.** `page.tsx`/`page.mdx` files mix
+  prose with JSX/component structure — a bad Edit can break the build. Auto-update plain copy
+  (a stale flag name, a wrong path, a count) with exact `old_string` matches same as any other
+  doc. Anything touching structure, new sections, or components is "ask user," never auto-write.
 - **Voice: friendly, user-forward, not obscure.** Write like you're explaining to a smart person
   who hasn't seen the code.
