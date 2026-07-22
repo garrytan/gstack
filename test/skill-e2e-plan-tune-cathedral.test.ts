@@ -263,7 +263,7 @@ describeIfSelected('PlanTune cathedral E2E: annotation', ['plan-tune-annotation'
     cleanupFixture(fixture.workDir);
   });
 
-  testConcurrentIfSelected('PreToolUse hook surfaces memory nugget on defer', async () => {
+  testConcurrentIfSelected('PreToolUse hook surfaces memory nugget while passing through', async () => {
     const hookPath = path.join(
       fixture.workDir,
       'hosts',
@@ -296,7 +296,7 @@ describeIfSelected('PlanTune cathedral E2E: annotation', ['plan-tune-annotation'
     });
     expect(res.status).toBe(0);
     const parsed = JSON.parse(res.stdout || '{}');
-    expect(parsed.hookSpecificOutput?.permissionDecision).toBe('defer');
+    expect(parsed.hookSpecificOutput?.permissionDecision).toBeUndefined();
     expect(parsed.hookSpecificOutput?.additionalContext).toContain('verbose explanations');
   });
 });

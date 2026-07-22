@@ -1,6 +1,8 @@
 # Spike: Claude Code hook mutation for plan-tune cathedral
 
 **Status:** complete (2026-05-27)
+**Revised:** 2026-07-22 — pass-through is empty stdout (not `defer`); restored
+decision-precedence facts alongside defer semantics.
 **Surfaces:** D10 (does PreToolUse allow mutating AUQ input?), D19/Codex (matcher must cover MCP variants)
 **Downstream consumers:** T3, T5, T6, T8
 
@@ -11,8 +13,9 @@ answer via `updatedInput`? If yes, what's the exact protocol?
 
 ## Answer
 
-**Yes.** `updatedInput` is the supported mechanism. Source:
-https://code.claude.com/docs/en/hooks (confirmed 2026-04 reference).
+**Yes.** `updatedInput` is the supported mechanism (platform capability;
+this plan-tune hook does not take that path — see Implementation examples).
+Source: https://code.claude.com/docs/en/hooks (confirmed 2026-04 reference).
 
 ## Hook stdin schema (PreToolUse + PostToolUse)
 
@@ -51,12 +54,16 @@ Optional in subagent context: `agent_id`, `agent_type`.
 - `"deny"` — block (feedback to Claude, NOT a synthetic answer per Codex
   correction in D-prefixed decisions)
 - `"ask"` — escalate to user
-- `"defer"` — let permission flow continue
+- `"defer"` — pause a non-interactive SDK/tool caller so it can resume later
+
+No output (exit 0, empty stdout) is not a `permissionDecision` value. It is
+the pass-through path that lets the permission flow continue unchanged.
 
 **`updatedInput` semantics:** shallow merge of fields present in the returned
 object onto the original `tool_input`. Only valid with
-`permissionDecision: "allow"`. This is what lets us substitute an
-auto-decided answer for `never-ask` preferences.
+`permissionDecision: "allow"`. This is what would let a hook substitute an
+auto-decided answer for `never-ask` preferences; the live plan-tune hook
+instead uses `deny` + reason (see Implementation examples).
 
 ## Matcher schema
 
@@ -88,30 +95,36 @@ required for our hook to fire there.
   accepting.
 
 **`permissionDecision` precedence (when multiple hooks decide):**
-`deny > ask > allow > defer` — most restrictive wins.
+`deny > ask > allow` — most restrictive wins.
+Claude Code treats `defer` as an explicit pause/resume decision, not as the
+normal pass-through path. Hooks that do not need to decide should exit 0 with
+no output (empty stdout), not emit `permissionDecision: "defer"`.
 
 ## Implementation hookSpecificOutput examples
 
 **Auto-decide (PreToolUse, `never-ask` preference + non-one-way):**
+
+The live hook uses `deny` + reason (not `allow` + `updatedInput`). See the
+hook header: AskUserQuestion's pre-resolve `updatedInput` shape is not
+structurally pinned, so deny naming the recommended option is the reliable
+path; the model reads the reason and proceeds without re-firing AUQ.
 ```json
 {
   "hookSpecificOutput": {
     "hookEventName": "PreToolUse",
-    "permissionDecision": "allow",
-    "permissionDecisionReason": "plan-tune: never-ask preference on ship-test-failure-triage",
-    "updatedInput": {
-      "questions": [{ /* same as input, but with auto-selected answer */ }]
-    }
+    "permissionDecision": "deny",
+    "permissionDecisionReason": "[plan-tune auto-decide] ship-pre-landing-review-fix → A) Fix now (recommended) (your never-ask preference). Proceed with that option without re-prompting. Change with /plan-tune."
   }
 }
 ```
 
 **Pass-through (no preference, or one-way safety override):**
+Exit 0 with no stdout. If the hook has context to add, omit `permissionDecision`:
 ```json
 {
   "hookSpecificOutput": {
     "hookEventName": "PreToolUse",
-    "permissionDecision": "defer"
+    "additionalContext": "optional context for Claude"
   }
 }
 ```
@@ -206,12 +219,11 @@ shells into bun.
    examples: ship/SKILL.md.tmpl emits options like `"A) Fix now"
    (recommended)`.
 
-2. **Auto-decided event tagging.** When hook returns `updatedInput`, the
-   PostToolUse hook will see the resolved input and log a normal event.
-   Need an extra field on the PostToolUse payload (e.g.,
-   `was_auto_decided: true`) that the hook can set via session state
-   tracking — write a marker file in `~/.gstack/sessions/<id>/.auto-decided-<tool_use_id>`
-   from PreToolUse, read it from PostToolUse, delete on read.
+2. **Auto-decided event tagging.** Auto-decide is `deny` + reason, so
+   PostToolUse never fires on that tool call. The PreToolUse hook itself
+   writes a session marker and logs `source=auto-decided` events before
+   deny (see `markAutoDecided` / `logAutoDecided` in the hook). No
+   PostToolUse payload field is required for the current path.
 
 3. **Timeout behavior.** Default hook timeout is 60s but the docs are
    thin on what happens at timeout. Set explicit `timeout: 5` so the
