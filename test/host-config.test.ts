@@ -555,11 +555,13 @@ describe('host config correctness', () => {
     expect(claude.pathRewrites.length).toBe(0);
   });
 
-  test('every host has runtimeRoot.globalSymlinks', () => {
+  test('every host has a runtime asset inventory', () => {
     for (const config of ALL_HOST_CONFIGS) {
-      expect(config.runtimeRoot.globalSymlinks.length).toBeGreaterThan(0);
-      expect(config.runtimeRoot.globalSymlinks).toContain('bin');
-      expect(config.runtimeRoot.globalSymlinks).toContain('ETHOS.md');
+      const destinations = config.runtimeRoot.contract?.assets.map(asset => asset.destination)
+        || config.runtimeRoot.globalSymlinks || [];
+      expect(destinations.length).toBeGreaterThan(0);
+      expect(destinations).toContain('bin');
+      expect(destinations).toContain('ETHOS.md');
     }
   });
 });

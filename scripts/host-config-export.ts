@@ -101,7 +101,9 @@ switch (command) {
       process.exit(1);
     }
     const config = getHostConfig(hostName);
-    for (const link of config.runtimeRoot.globalSymlinks) {
+    for (const link of config.runtimeRoot.contract
+      ? config.runtimeRoot.contract.assets.filter(asset => asset.targets.includes('global')).map(asset => asset.destination)
+      : config.runtimeRoot.globalSymlinks || []) {
       console.log(link);
     }
     if (config.runtimeRoot.globalFiles) {
@@ -114,7 +116,21 @@ switch (command) {
     break;
   }
 
+  case 'install-plan': {
+    const [hostName, target] = args;
+    if (!hostName || (target !== 'global' && target !== 'sidecar')) {
+      console.error('Usage: host-config-export.ts install-plan <host> <global|sidecar>');
+      process.exit(1);
+    }
+    const contract = getHostConfig(hostName).runtimeRoot.contract;
+    if (!contract) throw new Error(`Host '${hostName}' has no typed runtime contract`);
+    for (const asset of contract.assets.filter(asset => asset.targets.includes(target))) {
+      console.log([asset.source, asset.destination, asset.kind, asset.optional ? 'optional' : 'required'].join('|'));
+    }
+    break;
+  }
+
   default:
-    console.error('Usage: host-config-export.ts <list|get|detect|validate|symlinks> [args]');
+    console.error('Usage: host-config-export.ts <list|get|detect|validate|symlinks|install-plan> [args]');
     process.exit(1);
 }

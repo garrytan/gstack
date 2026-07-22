@@ -14,6 +14,38 @@
  *                                              platform-detect, uninstall
  */
 
+export type RuntimeInstallTarget = 'global' | 'sidecar';
+export type RuntimeAssetKind = 'file' | 'directory' | 'generated-file';
+
+export interface RuntimeAsset {
+  source: string;
+  destination: string;
+  kind: RuntimeAssetKind;
+  targets: RuntimeInstallTarget[];
+  materializeAtInstall?: boolean;
+  optional?: boolean;
+}
+
+export type RuntimeRequirementKind = 'executable-version' | 'config-presence' | 'tool-provider' | 'permission' | 'network' | 'platform';
+export interface RuntimeRequirement {
+  id: string;
+  kind: RuntimeRequirementKind;
+  required: boolean;
+  versionRange?: string;
+  names?: string[];
+  platforms?: string[];
+  description: string;
+}
+export interface RuntimeCapability { id: string; version: string; description: string; }
+export interface HostRuntimeContract {
+  schemaVersion: number;
+  contractVersion: string;
+  assets: RuntimeAsset[];
+  capabilities: RuntimeCapability[];
+  requirements: RuntimeRequirement[];
+  entrypointRequirements: Record<string, string[]>;
+}
+
 export interface HostConfig {
   /** Unique host identifier (e.g., 'opencode'). Must match filename in hosts/. */
   name: string;
@@ -76,8 +108,9 @@ export interface HostConfig {
 
   // --- Runtime Root ---
   runtimeRoot: {
+    contract?: HostRuntimeContract;
     /** Explicit asset list for global install symlinks (no globs). */
-    globalSymlinks: string[];
+    globalSymlinks?: string[];
     /** Dir → explicit file list for selective file linking. */
     globalFiles?: Record<string, string[]>;
   };
@@ -86,7 +119,7 @@ export interface HostConfig {
     /** Sidecar path relative to repo root (e.g., '.agents/skills/gstack'). */
     path: string;
     /** Assets to symlink into sidecar (different set than global). */
-    symlinks: string[];
+    symlinks?: string[];
   };
 
   // --- Install Behavior ---
