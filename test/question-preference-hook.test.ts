@@ -173,10 +173,8 @@ describe('passes through (no enforcement)', () => {
     env.GSTACK_STATE_ROOT = stateRoot;
     const res = spawnSync(HOOK, [], { env, input: '', encoding: 'utf-8' });
     expect(res.status).toBe(0);
-    // Same shape as runHook so expectNoDecision applies (strict empty stdout).
-    let parsed: any = null;
-    try { parsed = JSON.parse(res.stdout || '{}'); } catch {}
-    expectNoDecision({ stdout: res.stdout ?? '', parsed });
+    // Crash-safety pass-through: empty stdout only (no permissionDecision).
+    expect(res.stdout ?? '').toBe('');
   });
 
   test('non-AUQ tool_name → no decision (defensive)', () => {

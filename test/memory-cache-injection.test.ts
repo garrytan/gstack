@@ -91,6 +91,7 @@ describe('memory injection', () => {
         ],
       },
     });
+    expect(r.parsed?.hookSpecificOutput?.hookEventName).toBe('PreToolUse');
     expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBeUndefined();
     expect(r.parsed?.hookSpecificOutput?.additionalContext).toContain('verbose explanations');
   });

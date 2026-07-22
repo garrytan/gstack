@@ -101,15 +101,17 @@ no output (empty stdout), not emit `permissionDecision: "defer"`.
 ## Implementation hookSpecificOutput examples
 
 **Auto-decide (PreToolUse, `never-ask` preference + non-one-way):**
+
+The live hook uses `deny` + reason (not `allow` + `updatedInput`). See the
+hook header: AskUserQuestion's pre-resolve `updatedInput` shape is not
+structurally pinned, so deny naming the recommended option is the reliable
+path; the model reads the reason and proceeds without re-firing AUQ.
 ```json
 {
   "hookSpecificOutput": {
     "hookEventName": "PreToolUse",
-    "permissionDecision": "allow",
-    "permissionDecisionReason": "plan-tune: never-ask preference on ship-test-failure-triage",
-    "updatedInput": {
-      "questions": [{ /* same as input, but with auto-selected answer */ }]
-    }
+    "permissionDecision": "deny",
+    "permissionDecisionReason": "[plan-tune auto-decide] ship-pre-landing-review-fix → A) Fix now (recommended) (your never-ask preference). Proceed with that option without re-prompting. Change with /plan-tune."
   }
 }
 ```
@@ -215,12 +217,11 @@ shells into bun.
    examples: ship/SKILL.md.tmpl emits options like `"A) Fix now"
    (recommended)`.
 
-2. **Auto-decided event tagging.** When hook returns `updatedInput`, the
-   PostToolUse hook will see the resolved input and log a normal event.
-   Need an extra field on the PostToolUse payload (e.g.,
-   `was_auto_decided: true`) that the hook can set via session state
-   tracking — write a marker file in `~/.gstack/sessions/<id>/.auto-decided-<tool_use_id>`
-   from PreToolUse, read it from PostToolUse, delete on read.
+2. **Auto-decided event tagging.** Auto-decide is `deny` + reason, so
+   PostToolUse never fires on that tool call. The PreToolUse hook itself
+   writes a session marker and logs `source=auto-decided` events before
+   deny (see `markAutoDecided` / `logAutoDecided` in the hook). No
+   PostToolUse payload field is required for the current path.
 
 3. **Timeout behavior.** Default hook timeout is 60s but the docs are
    thin on what happens at timeout. Set explicit `timeout: 5` so the
