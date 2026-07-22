@@ -23,10 +23,14 @@ export interface HostConfig {
   cliCommand: string;
   /** Alternative binary names (e.g., ['droid'] for factory). */
   cliAliases?: string[];
+  /** Product surfaces covered by this host contract. Defaults to ['cli']. */
+  supportedSurfaces?: Array<'cli' | 'app'>;
 
   // --- Path Configuration ---
   /** Global install path relative to $HOME (e.g., '.config/opencode/skills/gstack'). */
   globalRoot: string;
+  /** Optional config-root override env var (e.g., COPILOT_HOME for ~/.copilot). */
+  globalRootEnv?: string;
   /** Project-local skill path relative to repo root (e.g., '.opencode/skills/gstack'). */
   localSkillRoot: string;
   /** Gitignored directory under repo root for generated docs (e.g., '.opencode'). */
@@ -50,6 +54,10 @@ export interface HostConfig {
     extraFields?: Record<string, unknown>;
     /** Rename fields from template (e.g., { 'voice-triggers': 'triggers' }). */
     renameFields?: Record<string, string>;
+    /** Prefix generated skill names when the host requires name === directory. */
+    namePrefix?: string;
+    /** Maximum generated skill name length enforced by the host contract. */
+    nameLimit?: number;
     /** Conditionally add fields based on template frontmatter values. */
     conditionalFields?: Array<{ if: Record<string, unknown>; add: Record<string, unknown> }>;
   };
@@ -116,6 +124,7 @@ export interface HostConfig {
 const NAME_REGEX = /^[a-z][a-z0-9-]*$/;
 const PATH_REGEX = /^[a-zA-Z0-9_.\/${}~-]+$/;
 const CLI_REGEX = /^[a-z][a-z0-9_-]*$/;
+const ENV_REGEX = /^[A-Z][A-Z0-9_]*$/;
 
 export function validateHostConfig(config: HostConfig, validResolverNames?: ReadonlySet<string>): string[] {
   const errors: string[] = [];
@@ -139,6 +148,9 @@ export function validateHostConfig(config: HostConfig, validResolverNames?: Read
   if (!PATH_REGEX.test(config.globalRoot)) {
     errors.push(`globalRoot '${config.globalRoot}' contains invalid characters`);
   }
+  if (config.globalRootEnv && !ENV_REGEX.test(config.globalRootEnv)) {
+    errors.push(`globalRootEnv '${config.globalRootEnv}' must be an uppercase environment variable name`);
+  }
   if (!PATH_REGEX.test(config.localSkillRoot)) {
     errors.push(`localSkillRoot '${config.localSkillRoot}' contains invalid characters`);
   }
@@ -147,6 +159,13 @@ export function validateHostConfig(config: HostConfig, validResolverNames?: Read
   }
   if (!['allowlist', 'denylist'].includes(config.frontmatter.mode)) {
     errors.push(`frontmatter.mode must be 'allowlist' or 'denylist'`);
+  }
+  if (config.frontmatter.namePrefix && !NAME_REGEX.test(config.frontmatter.namePrefix.replace(/-$/, ''))) {
+    errors.push(`frontmatter.namePrefix '${config.frontmatter.namePrefix}' must be lowercase alphanumeric with hyphens`);
+  }
+  if (config.frontmatter.nameLimit !== undefined &&
+      (!Number.isInteger(config.frontmatter.nameLimit) || config.frontmatter.nameLimit < 1)) {
+    errors.push(`frontmatter.nameLimit must be a positive integer`);
   }
   if (!['real-dir-symlink', 'symlink-generated'].includes(config.install.linkingStrategy)) {
     errors.push(`install.linkingStrategy must be 'real-dir-symlink' or 'symlink-generated'`);

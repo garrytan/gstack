@@ -22,6 +22,7 @@ import {
   slate,
   cursor,
   openclaw,
+  copilot,
 } from '../hosts/index';
 import { HOST_PATHS } from '../scripts/resolvers/types';
 import { RESOLVERS } from '../scripts/resolvers';
@@ -32,8 +33,8 @@ const RESOLVER_NAMES = new Set(Object.keys(RESOLVERS));
 // ─── hosts/index.ts ─────────────────────────────────────────
 
 describe('hosts/index.ts', () => {
-  test('ALL_HOST_CONFIGS has 10 hosts', () => {
-    expect(ALL_HOST_CONFIGS.length).toBe(10);
+  test('ALL_HOST_CONFIGS has 11 hosts', () => {
+    expect(ALL_HOST_CONFIGS.length).toBe(11);
   });
 
   test('ALL_HOST_NAMES matches config names', () => {
@@ -55,6 +56,7 @@ describe('hosts/index.ts', () => {
     expect(slate.name).toBe('slate');
     expect(cursor.name).toBe('cursor');
     expect(openclaw.name).toBe('openclaw');
+    expect(copilot.name).toBe('copilot');
   });
 
   test('getHostConfig returns correct config', () => {
@@ -484,6 +486,34 @@ describe('host config correctness', () => {
   test('codex has sidecar config', () => {
     expect(codex.sidecar).toBeDefined();
     expect(codex.sidecar!.path).toBe('.agents/skills/gstack');
+  });
+
+  test('copilot uses the shared CLI and app skill contract without .agents collision', () => {
+    expect(copilot.cliCommand).toBe('copilot');
+    expect(copilot.cliAliases).toEqual([]);
+    expect(copilot.globalRoot).toBe('.copilot/skills/gstack');
+    expect(copilot.globalRootEnv).toBe('COPILOT_HOME');
+    expect(copilot.localSkillRoot).toBe('.github/skills/gstack');
+    expect(copilot.hostSubdir).toBe('.copilot');
+    expect(copilot.globalRoot).not.toBe(codex.globalRoot);
+    expect(copilot.localSkillRoot).not.toBe(codex.localSkillRoot);
+    expect(copilot.hostSubdir).not.toBe(codex.hostSubdir);
+  });
+
+  test('copilot enforces Agent Skills frontmatter limits', () => {
+    expect(copilot.frontmatter.mode).toBe('allowlist');
+    expect(copilot.frontmatter.keepFields).toEqual(['name', 'description']);
+    expect(copilot.frontmatter.namePrefix).toBe('gstack-');
+    expect(copilot.frontmatter.nameLimit).toBe(64);
+    expect(copilot.frontmatter.descriptionLimit).toBe(1024);
+    expect(copilot.frontmatter.descriptionLimitBehavior).toBe('error');
+  });
+
+  test('copilot keeps supported task orchestration and rewrites Claude tool names', () => {
+    expect(copilot.suppressedResolvers).not.toContain('REVIEW_ARMY');
+    expect(copilot.suppressedResolvers).not.toContain('DESIGN_OUTSIDE_VOICES');
+    expect(copilot.toolRewrites?.AskUserQuestion).toBe('ask_user');
+    expect(copilot.toolRewrites?.['use the Agent tool']).toBe('use the task tool');
   });
 
   test('factory has tool rewrites', () => {

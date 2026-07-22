@@ -24,11 +24,22 @@ FACTORY_SKILLS="$HOME/.factory/skills"
 FACTORY_GSTACK="$FACTORY_SKILLS/gstack"
 OPENCODE_SKILLS="$HOME/.config/opencode/skills"
 OPENCODE_GSTACK="$OPENCODE_SKILLS/gstack"
+HOST_CONFIG_EXPORT="$SOURCE_GSTACK_DIR/scripts/host-config-export.ts"
+
+host_config_get() {
+  bun run "$HOST_CONFIG_EXPORT" get "$1" "$2"
+}
 
 IS_WINDOWS=0
 case "$(uname -s)" in
   MINGW*|MSYS*|CYGWIN*|Windows_NT) IS_WINDOWS=1 ;;
 esac
+
+COPILOT_GSTACK="$(bun run "$HOST_CONFIG_EXPORT" resolve-global-root copilot)"
+if [ "$IS_WINDOWS" -eq 1 ] && command -v cygpath >/dev/null 2>&1; then
+  COPILOT_GSTACK="$(cygpath -u "$COPILOT_GSTACK")"
+fi
+COPILOT_SKILLS="$(dirname "$COPILOT_GSTACK")"
 
 # ─── Symlink-or-copy helper ───────────────────────────────────
 # On macOS/Linux: create a symlink (existing behavior).
@@ -85,7 +96,7 @@ NO_TEAM_MODE=0
 PLAN_TUNE_HOOKS_MODE=""   # "" = resolve from env/config/prompt; "yes"/"no" = explicit
 while [ $# -gt 0 ]; do
   case "$1" in
-    --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, codex, kiro, factory, opencode, openclaw, hermes, gbrain, or auto)" >&2 && exit 1; HOST="$2"; shift 2 ;;
+    --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, copilot, codex, kiro, factory, opencode, openclaw, hermes, gbrain, or auto)" >&2 && exit 1; HOST="$2"; shift 2 ;;
     --host=*) HOST="${1#--host=}"; shift ;;
     --local) LOCAL_INSTALL=1; shift ;;
     --prefix)    SKILL_PREFIX=1; SKILL_PREFIX_FLAG=1; shift ;;
@@ -101,7 +112,7 @@ while [ $# -gt 0 ]; do
 done
 
 case "$HOST" in
-  claude|codex|kiro|factory|opencode|auto) ;;
+  claude|copilot|codex|kiro|factory|opencode|auto) ;;
   openclaw)
     echo ""
     echo "OpenClaw integration uses a different model — OpenClaw spawns Claude Code"
@@ -136,7 +147,7 @@ case "$HOST" in
     echo "GBrain setup and brain skills ship from the GBrain repo."
     echo ""
     exit 0 ;;
-  *) echo "Unknown --host value: $HOST (expected claude, codex, kiro, factory, opencode, openclaw, hermes, gbrain, or auto)" >&2; exit 1 ;;
+  *) echo "Unknown --host value: $HOST (expected claude, copilot, codex, kiro, factory, opencode, openclaw, hermes, gbrain, or auto)" >&2; exit 1 ;;
 esac
 
 # ─── Resolve skill prefix preference ─────────────────────────
@@ -180,18 +191,21 @@ else
   "$GSTACK_CONFIG" set skill_prefix "$([ "$SKILL_PREFIX" -eq 1 ] && echo true || echo false)" 2>/dev/null || true
 fi
 
-# --local: install to .claude/skills/ in the current working directory (deprecated)
+# --local: install to the host's repository skill root.
 if [ "$LOCAL_INSTALL" -eq 1 ]; then
-  echo "Warning: --local is deprecated. Use global install + --team instead." >&2
-  echo "  See: https://github.com/garrytan/gstack#team-mode" >&2
   if [ "$HOST" = "codex" ]; then
     echo "Error: --local is only supported for Claude Code (not Codex)." >&2
     exit 1
+  elif [ "$HOST" = "copilot" ]; then
+    INSTALL_SKILLS_DIR="$(pwd)/$(dirname "$(host_config_get copilot localSkillRoot)")"
+    mkdir -p "$INSTALL_SKILLS_DIR"
+  else
+    echo "Warning: --local is deprecated for Claude Code. Use global install + --team instead." >&2
+    echo "  See: https://github.com/garrytan/gstack#team-mode" >&2
+    INSTALL_SKILLS_DIR="$(pwd)/.claude/skills"
+    mkdir -p "$INSTALL_SKILLS_DIR"
+    HOST="claude"
   fi
-  INSTALL_SKILLS_DIR="$(pwd)/.claude/skills"
-  mkdir -p "$INSTALL_SKILLS_DIR"
-  HOST="claude"
-  INSTALL_CODEX=0
 fi
 
 # For auto: detect which agents are installed
@@ -200,18 +214,22 @@ INSTALL_CODEX=0
 INSTALL_KIRO=0
 INSTALL_FACTORY=0
 INSTALL_OPENCODE=0
+INSTALL_COPILOT=0
 if [ "$HOST" = "auto" ]; then
   command -v claude >/dev/null 2>&1 && INSTALL_CLAUDE=1
+  command -v copilot >/dev/null 2>&1 && INSTALL_COPILOT=1
   command -v codex >/dev/null 2>&1 && INSTALL_CODEX=1
   command -v kiro-cli >/dev/null 2>&1 && INSTALL_KIRO=1
   command -v droid >/dev/null 2>&1 && INSTALL_FACTORY=1
   command -v opencode >/dev/null 2>&1 && INSTALL_OPENCODE=1
   # If none found, default to claude
-  if [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ] && [ "$INSTALL_FACTORY" -eq 0 ] && [ "$INSTALL_OPENCODE" -eq 0 ]; then
+  if [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_COPILOT" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ] && [ "$INSTALL_FACTORY" -eq 0 ] && [ "$INSTALL_OPENCODE" -eq 0 ]; then
     INSTALL_CLAUDE=1
   fi
 elif [ "$HOST" = "claude" ]; then
   INSTALL_CLAUDE=1
+elif [ "$HOST" = "copilot" ]; then
+  INSTALL_COPILOT=1
 elif [ "$HOST" = "codex" ]; then
   INSTALL_CODEX=1
 elif [ "$HOST" = "kiro" ]; then
@@ -376,7 +394,9 @@ trap cleanup_copied_bun EXIT
 
 # 1. Build browse binary if needed (smart rebuild: stale sources, package.json, lock)
 NEEDS_BUILD=0
-if [ ! -x "$BROWSE_BIN" ]; then
+if [ "${GSTACK_TEST_INSTALL_ONLY:-0}" = "1" ]; then
+  NEEDS_BUILD=0
+elif [ ! -x "$BROWSE_BIN" ]; then
   NEEDS_BUILD=1
 elif [ -n "$(find "$SOURCE_GSTACK_DIR/browse/src" -type f -newer "$BROWSE_BIN" -print -quit 2>/dev/null)" ]; then
   NEEDS_BUILD=1
@@ -433,7 +453,7 @@ if [ "$NEEDS_BUILD" -eq 1 ]; then
   fi
 fi
 
-if [ ! -x "$BROWSE_BIN" ]; then
+if [ "${GSTACK_TEST_INSTALL_ONLY:-0}" != "1" ] && [ ! -x "$BROWSE_BIN" ]; then
   echo "gstack setup failed: browse binary missing at $BROWSE_BIN" >&2
   exit 1
 fi
@@ -475,8 +495,20 @@ if [ "$INSTALL_OPENCODE" -eq 1 ] && [ "$NEEDS_BUILD" -eq 0 ]; then
   )
 fi
 
+# 1e. Generate Copilot skill docs from the dedicated .copilot staging tree.
+if [ "$INSTALL_COPILOT" -eq 1 ] && [ "$NEEDS_BUILD" -eq 0 ]; then
+  log "Generating .copilot/ skill docs..."
+  (
+    cd "$SOURCE_GSTACK_DIR"
+    if [ "${GSTACK_TEST_INSTALL_ONLY:-0}" != "1" ]; then
+      bun_cmd install --frozen-lockfile 2>/dev/null || bun_cmd install
+    fi
+    bun_cmd run gen:skill-docs --host copilot
+  )
+fi
+
 # 2. Ensure Playwright's Chromium is available
-if ! ensure_playwright_browser; then
+if [ "${GSTACK_TEST_INSTALL_ONLY:-0}" != "1" ] && ! ensure_playwright_browser; then
   echo "Installing Playwright Chromium..."
   (
     cd "$SOURCE_GSTACK_DIR"
@@ -504,7 +536,7 @@ if ! ensure_playwright_browser; then
   fi
 fi
 
-if ! ensure_playwright_browser; then
+if [ "${GSTACK_TEST_INSTALL_ONLY:-0}" != "1" ] && ! ensure_playwright_browser; then
   if [ "$IS_WINDOWS" -eq 1 ]; then
     echo "gstack setup failed: Playwright Chromium could not be launched via Node.js" >&2
     echo "  This is a known issue with Bun on Windows (oven-sh/bun#4253)." >&2
@@ -517,15 +549,17 @@ fi
 
 # 2b. Ensure a color-emoji font is installed so make-pdf emoji render (Linux).
 #     Best-effort: warn instead of failing if it can't install.
-if ! ensure_emoji_font; then
-  echo "  Note: could not auto-install a color-emoji font. Emoji in make-pdf" >&2
-  echo "  output may render as boxes (▯). Install one manually, e.g.:" >&2
-  echo "    Debian/Ubuntu: sudo apt-get install fonts-noto-color-emoji" >&2
-  echo "    Fedora:        sudo dnf install google-noto-color-emoji-fonts" >&2
-  echo "    Arch:          sudo pacman -S noto-fonts-emoji" >&2
-  echo "    Alpine:        sudo apk add font-noto-emoji" >&2
-else
-  refresh_browse_daemon_for_fonts
+if [ "${GSTACK_TEST_INSTALL_ONLY:-0}" != "1" ]; then
+  if ! ensure_emoji_font; then
+    echo "  Note: could not auto-install a color-emoji font. Emoji in make-pdf" >&2
+    echo "  output may render as boxes (▯). Install one manually, e.g.:" >&2
+    echo "    Debian/Ubuntu: sudo apt-get install fonts-noto-color-emoji" >&2
+    echo "    Fedora:        sudo dnf install google-noto-color-emoji-fonts" >&2
+    echo "    Arch:          sudo pacman -S noto-fonts-emoji" >&2
+    echo "    Alpine:        sudo apk add font-noto-emoji" >&2
+  else
+    refresh_browse_daemon_for_fonts
+  fi
 fi
 
 # 3. Ensure ~/.gstack global state directory exists
@@ -972,6 +1006,86 @@ link_opencode_skill_dirs() {
   fi
 }
 
+# ─── Helpers: install config-driven generated skills ──────────
+# Used by Copilot, whose generated staging tree (.copilot/skills) intentionally
+# differs from its repository discovery root (.github/skills).
+link_configured_skill_dirs() {
+  local gstack_dir="$1"
+  local host="$2"
+  local skills_dir="$3"
+  local host_subdir
+  local generated_dir
+  local linked=()
+
+  host_subdir="$(host_config_get "$host" hostSubdir)"
+  generated_dir="$gstack_dir/$host_subdir/skills"
+  if [ ! -d "$generated_dir" ]; then
+    echo "  Generating $host skill docs..."
+    ( cd "$gstack_dir" && bun run gen:skill-docs --host "$host" )
+  fi
+  if [ ! -d "$generated_dir" ]; then
+    echo "  warning: $host skill generation failed" >&2
+    return 1
+  fi
+
+  for skill_dir in "$generated_dir"/gstack*/; do
+    [ -f "$skill_dir/SKILL.md" ] || continue
+    skill_name="$(basename "$skill_dir")"
+    [ "$skill_name" = "gstack" ] && continue
+    target="$skills_dir/$skill_name"
+    if [ -L "$target" ] || [ ! -e "$target" ] || [ "$IS_WINDOWS" -eq 1 ]; then
+      _link_or_copy "$skill_dir" "$target"
+      linked+=("$skill_name")
+    fi
+  done
+  if [ ${#linked[@]} -gt 0 ]; then
+    echo "  linked skills: ${linked[*]}"
+  fi
+}
+
+create_configured_runtime_root() {
+  local gstack_dir="$1"
+  local host="$2"
+  local runtime_root="$3"
+  local host_subdir
+  local generated_dir
+
+  host_subdir="$(host_config_get "$host" hostSubdir)"
+  generated_dir="$gstack_dir/$host_subdir/skills"
+
+  if [ -L "$runtime_root" ]; then
+    rm -f "$runtime_root"
+  elif [ -d "$runtime_root" ] && [ "$runtime_root" != "$gstack_dir" ]; then
+    rm -rf "$runtime_root"
+  fi
+  mkdir -p "$runtime_root"
+  printf '%s\n' "$gstack_dir" > "$runtime_root/.source-path"
+
+  if [ -f "$generated_dir/gstack/SKILL.md" ]; then
+    _link_or_copy "$generated_dir/gstack/SKILL.md" "$runtime_root/SKILL.md"
+  fi
+
+  while IFS= read -r asset; do
+    [ -n "$asset" ] || continue
+    src="$gstack_dir/$asset"
+    if [ "${asset%/SKILL.md}" != "$asset" ]; then
+      skill_dir="${asset%/SKILL.md}"
+      case "$skill_dir" in
+        gstack-*) generated_skill="$skill_dir" ;;
+        *) generated_skill="gstack-$skill_dir" ;;
+      esac
+      if [ -f "$generated_dir/$generated_skill/SKILL.md" ]; then
+        src="$generated_dir/$generated_skill/SKILL.md"
+      fi
+    fi
+    dst="$runtime_root/$asset"
+    [ -e "$src" ] || continue
+    [ "$src" = "$dst" ] && continue
+    mkdir -p "$(dirname "$dst")"
+    _link_or_copy "$src" "$dst"
+  done < <(bun run "$HOST_CONFIG_EXPORT" symlinks "$host")
+}
+
 # 4. Install for Claude (default)
 SKILLS_BASENAME="$(basename "$INSTALL_SKILLS_DIR")"
 SKILLS_PARENT_BASENAME="$(basename "$(dirname "$INSTALL_SKILLS_DIR")")"
@@ -1191,6 +1305,20 @@ if [ "$INSTALL_OPENCODE" -eq 1 ]; then
   echo "gstack ready (opencode)."
   echo "  browse: $BROWSE_BIN"
   echo "  opencode skills: $OPENCODE_SKILLS"
+fi
+
+# 6d. Install for GitHub Copilot CLI and app.
+if [ "$INSTALL_COPILOT" -eq 1 ]; then
+  if [ "$LOCAL_INSTALL" -eq 1 ]; then
+    COPILOT_SKILLS="$INSTALL_SKILLS_DIR"
+    COPILOT_GSTACK="$COPILOT_SKILLS/gstack"
+  fi
+  mkdir -p "$COPILOT_SKILLS"
+  create_configured_runtime_root "$SOURCE_GSTACK_DIR" copilot "$COPILOT_GSTACK"
+  link_configured_skill_dirs "$SOURCE_GSTACK_DIR" copilot "$COPILOT_SKILLS"
+  log "gstack ready (copilot CLI + app)."
+  log "  browse: $BROWSE_BIN"
+  log "  copilot skills: $COPILOT_SKILLS"
 fi
 
 # 7. Create .agents/ sidecar symlinks for the real Codex skill target.

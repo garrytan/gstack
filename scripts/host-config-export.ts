@@ -8,6 +8,7 @@
  *   list                    Print all host names, one per line
  *   get <host> <field>      Print a single config field value
  *   detect                  Print names of hosts whose CLI binary is on PATH
+ *   resolve-global-root <host> Print the absolute global root, honoring config env
  *   validate                Validate all configs, exit 1 on error
  *
  * All output is shell-safe (single-quoted values, no eval needed).
@@ -17,6 +18,7 @@ import { ALL_HOST_CONFIGS, getHostConfig, ALL_HOST_NAMES } from '../hosts/index'
 import { validateAllConfigs } from './host-config';
 import { RESOLVERS } from './resolvers';
 import { execSync } from 'child_process';
+import * as path from 'path';
 
 const CLI_REGEX = /^[a-z][a-z0-9_-]*$/;
 const PATH_REGEX = /^[a-zA-Z0-9_.\/${}~-]+$/;
@@ -82,6 +84,23 @@ switch (command) {
     break;
   }
 
+  case 'resolve-global-root': {
+    const [hostName] = args;
+    if (!hostName) {
+      console.error('Usage: host-config-export.ts resolve-global-root <host>');
+      process.exit(1);
+    }
+    const config = getHostConfig(hostName);
+    const parts = config.globalRoot.split('/');
+    // Setup consumes this output from a POSIX shell, including Git Bash on Windows.
+    const defaultBase = path.posix.join(process.env.HOME || '', parts.shift() || '');
+    const base = config.globalRootEnv
+      ? process.env[config.globalRootEnv] || defaultBase
+      : defaultBase;
+    console.log(path.posix.join(base, ...parts));
+    break;
+  }
+
   case 'validate': {
     const errors = validateAllConfigs(ALL_HOST_CONFIGS, new Set(Object.keys(RESOLVERS)));
     if (errors.length > 0) {
@@ -115,6 +134,6 @@ switch (command) {
   }
 
   default:
-    console.error('Usage: host-config-export.ts <list|get|detect|validate|symlinks> [args]');
+    console.error('Usage: host-config-export.ts <list|get|detect|resolve-global-root|validate|symlinks> [args]');
     process.exit(1);
 }

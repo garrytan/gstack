@@ -12,8 +12,10 @@ printf "%-16s %-10s %-40s %s\n" "-----" "-------" "----------" "------"
 
 for host in $(bun run "$GSTACK_DIR/scripts/host-config-export.ts" list 2>/dev/null); do
   cmd=$(bun run "$GSTACK_DIR/scripts/host-config-export.ts" get "$host" cliCommand 2>/dev/null)
-  root=$(bun run "$GSTACK_DIR/scripts/host-config-export.ts" get "$host" globalRoot 2>/dev/null)
-  spath="$HOME/$root"
+  spath=$(bun run "$GSTACK_DIR/scripts/host-config-export.ts" resolve-global-root "$host" 2>/dev/null)
+  if command -v cygpath >/dev/null 2>&1; then
+    spath=$(cygpath -u "$spath")
+  fi
 
   if command -v "$cmd" >/dev/null 2>&1; then
     ver=$("$cmd" --version 2>/dev/null | head -1 || echo "unknown")
