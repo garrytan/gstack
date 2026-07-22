@@ -90,7 +90,8 @@
         679,
         2030,
         1049,
-        1116
+        1116,
+        886
       ],
       "original_source_file": "office-hours/SKILL.md.tmpl",
       "original_line_range": "1-526",
@@ -7412,6 +7413,15 @@
         "office-hours"
       ],
       "anchor": "GSTACK2_FIX_1116_INLINE_APPROVAL_DOC"
+    },
+    {
+      "pr": 886,
+      "url": "https://github.com/garrytan/gstack/issues/886",
+      "title": "Right-size discovery for session-scale builds",
+      "targets": [
+        "office-hours"
+      ],
+      "anchor": "GSTACK2_FIX_886_PROPORTIONAL_DISCOVERY"
     },
     {
       "pr": 452,

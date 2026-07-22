@@ -11,7 +11,7 @@ The fixed public modes are: Design = `Explore | Generate | Critique | Implement`
 | Legacy invocation | Replacement | Visibility | Mandatory | Judgment overlays |
 |---|---|---|---|---|
 | `/gstack` | `$plan --mode Discovery --module gstack` | internal (internal) | no | #679 |
-| `/office-hours` | `$plan --mode Discovery --module office-hours` | internal (primary) | yes | #679, #2030, #1049, #1116 |
+| `/office-hours` | `$plan --mode Discovery --module office-hours` | internal (primary) | yes | #679, #2030, #1049, #1116, #886 |
 | `/plan-ceo-review` | `$plan --mode Product --module plan-ceo-review` | internal (primary) | yes | #679, #2030 |
 | `/plan-eng-review` | `$plan --mode Engineering --module plan-eng-review` | internal (primary) | yes | #679, #1071, #2030, #592 |
 | `/plan-devex-review` | `$plan --mode DX --module plan-devex-review` | internal (primary) | yes | #679, #2030 |
@@ -75,5 +75,5 @@ The fixed public modes are: Design = `Explore | Generate | Critique | Implement`
 ## Mechanical versus judgment changes
 
 - `JUDGMENT_PRESERVING_CARVE`: pinned specialist workflow with the retired shared onboarding wrapper excluded, retired invocations resolved to six public routes, host/runtime paths normalized, and large carved phases loaded lazily from package-local pinned references.
-- `BUG_FIX`: the canonical carved body plus a clearly delimited judgment overlay sourced from one of the 25 upstream PRs and its regression fixture.
+- `BUG_FIX`: the canonical carved body plus a clearly delimited judgment overlay sourced from one of the 26 upstream PRs and issues and its regression fixture.
 - Asset relocation is byte-for-byte from the pinned Git blob and is indexed per tree.

@@ -770,3 +770,15 @@ The design doc file is the artifact of this session. Before the telemetry block 
 
 At the Phase 5 approval gate, print the full design-doc body as direct assistant text before the Approve/Revise/Start-over AskUserQuestion. Do not point the user at the file path and do not rely on a `Bash cat` or `Read` tool call to display it: tool outputs are frequently collapsed in the Claude Code UI, which leaves the user approving a document they cannot see. The assistant message is the one surface guaranteed to render, so emit a short preamble naming the saved path followed by the verbatim document body, then ask for approval.
 <!-- GSTACK2_BUG_FIX_END pr=1116 -->
+
+<!-- GSTACK2_BUG_FIX_START pr=886 anchor=GSTACK2_FIX_886_PROPORTIONAL_DISCOVERY -->
+## Upstream judgment port: issue #886
+
+[Right-size discovery for session-scale builds](https://github.com/garrytan/gstack/issues/886)
+
+### Proportional discovery for session-scale builds
+
+After Phase 1 mode selection, classify the build scale from structured evidence: who it is for, whether external users or revenue exist, whether anything deploys, and the stated time horizon. A personal, for-fun, learning, or single-session build with no external users and nothing deployed is **session-scale**; everything else is **product-scale**. Print the classification and its evidence before Phase 2.
+
+For a session-scale builder session, proportionality is the default rather than an escape hatch the user must trigger; a polite user answering every question is not evidence the full machinery is wanted. Batch every Phase 2B question the initial prompt left unanswered into one AskUserQuestion call (this refines the one-at-a-time rule, whose pressure exists for startup diagnostics). Skip the Phase 2.75 landscape search unless the user asks for it; the privacy gate is unchanged whenever it runs. Offer the visual sketch and outside design voices only when the user asks for visual or design help. Keep Phase 4 alternatives and both approval gates, each in a single round. Cap the adversarial spec review at one iteration. Keep the design doc near one page with Next Steps sized in hours or days, never a phased multi-week roadmap or a Distribution Plan the user did not ask for. The user can always ask for the complete treatment.
+<!-- GSTACK2_BUG_FIX_END pr=886 -->
