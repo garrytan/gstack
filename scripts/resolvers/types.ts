@@ -50,6 +50,17 @@ function buildHostPaths(): Record<string, HostPaths> {
 
 export const HOST_PATHS: Record<string, HostPaths> = buildHostPaths();
 
+/**
+ * shellPath — resolve a HostPaths dir for inline shell snippets.
+ * Tilde-prefixed dirs (Claude host) get a $HOME prefix at runtime.
+ * $GSTACK_* env-var dirs (non-Claude hosts) are already absolute via the
+ * preamble (GSTACK_ROOT="$HOME/..."), so they must NOT be prefixed —
+ * otherwise you get the "$HOME$GSTACK_BROWSE/browse" double-prefix bug.
+ */
+export function shellPath(dir: string): string {
+  return dir.startsWith('~') ? `$HOME${dir.replace(/^~/, '')}` : dir;
+}
+
 import type { Model } from '../models';
 export type { Model } from '../models';
 
