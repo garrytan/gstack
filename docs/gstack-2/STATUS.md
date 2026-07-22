@@ -178,11 +178,19 @@ PR, or PR-ready claim is authorized by this status.
   and no mutation or forbidden-command attempts. Broad per-host UI launch
   coverage across all seven hosts remains partial (still verified at the
   installer layer plus this four-skill live run).
-- [ ] Finish evidence-linked disposition for the still-pending infrastructure
-  rows in [ARCHITECTURE.md](./ARCHITECTURE.md): row 4 (non-mutating canonical
-  check mode), row 7 (stale-public-directory pruning fixture), row 20
-  (end-to-end ship resume), and row 24 (compatibility end-to-end restore). Most
-  of the 25 rows are implemented or contained with evidence; these four remain.
+- [x] RESOLVED: the four previously-pending infrastructure rows now carry
+  evidence-linked tests — row 4 (`test/gstack2-generation-check-nonmutating.test.ts`,
+  non-mutating `--check`), row 7 (`test/gstack2-stale-skill-pruning.test.ts`),
+  row 20 (`test/gstack2-ship-resume-e2e.test.ts`, real process-kill + cross-process
+  resume), row 24 (`test/gstack2-context-restore-e2e.test.ts`, real linked-worktree
+  scoping). All 25 rows in [ARCHITECTURE.md](./ARCHITECTURE.md) are now
+  implemented/contained with evidence.
+- [ ] Remaining before `DONE`: (a) broad per-host UI launch coverage across all
+  seven hosts (currently verified at the installer layer plus the four-skill
+  live adversarial run; full per-host UI execution is partial); (b) the official
+  signed `v2.0.0-rc.6` runtime bootstrap exercised through the production install
+  path; (c) the full retained-tool egress (privacy) audit. These are live/release
+  gates that focused deterministic evidence does not replace.
 
 ## Evidence index
 
