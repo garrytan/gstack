@@ -45,6 +45,12 @@ export interface SourcebotOptions {
   baseUrl?: string;
   /** Path to the server's config.json (for register_source). Defaults to SOURCEBOT_CONFIG. */
   configPath?: string;
+  /**
+   * API key for the Sourcebot REST API. Defaults to SOURCEBOT_API_KEY. Sourcebot
+   * v5 gates `/api/search` behind auth (`Authorization: Bearer <key>`); without
+   * it, `search` gets HTTP 401. Generate one in Settings -> API Keys.
+   */
+  apiKey?: string;
   /** Injectable fetch for tests. */
   fetch?: FetchLike;
   env?: NodeJS.ProcessEnv;
@@ -66,15 +72,21 @@ export class SourcebotProvider implements CodeProvider {
   readonly local: boolean;
   readonly #baseUrl: string;
   readonly #configPath?: string;
+  readonly #apiKey?: string;
   readonly #fetch: FetchLike;
 
   constructor(opts: SourcebotOptions = {}) {
     const env = opts.env ?? process.env;
     this.#baseUrl = (opts.baseUrl ?? env.SOURCEBOT_URL ?? DEFAULT_URL).replace(/\/$/, "");
     this.#configPath = opts.configPath ?? env.SOURCEBOT_CONFIG;
+    this.#apiKey = opts.apiKey ?? env.SOURCEBOT_API_KEY;
     this.#fetch = opts.fetch ?? globalThis.fetch;
     this.local = isLoopback(this.#baseUrl);
     assertRequiredCapabilities(this.id, this.capabilities);
+  }
+
+  #authHeaders(): Record<string, string> {
+    return this.#apiKey ? { Authorization: `Bearer ${this.#apiKey}` } : {};
   }
 
   has(capability: CodeProviderCapability): boolean {
@@ -127,8 +139,17 @@ export class SourcebotProvider implements CodeProvider {
   }
 
   async status(_source?: SourceRef, opts: OpOptions = {}): Promise<SourceStatus> {
+    // `redirect: manual` so an auth-gated server (307 -> /login) reads as
+    // not-usable instead of following to a 200 and falsely reporting "ready".
     try {
-      const res = await this.#fetchWithTimeout(this.#baseUrl, { method: "GET" }, opts.timeout ?? DEFAULT_TIMEOUT_MS);
+      const res = await this.#fetchWithTimeout(
+        `${this.#baseUrl}/api/search`,
+        { method: "POST", headers: { "Content-Type": "application/json", ...this.#authHeaders() }, body: JSON.stringify({ query: "sourcebot", matches: 1, isRegexEnabled: false }), redirect: "manual" },
+        opts.timeout ?? DEFAULT_TIMEOUT_MS,
+      );
+      if (res.status === 401 || res.status === 403) {
+        return { id: "*", state: "unknown", partial: true, detail: "reachable but not authenticated (set SOURCEBOT_API_KEY)" };
+      }
       return { id: "*", state: res.ok ? "ready" : "unknown", partial: true, detail: `HTTP ${res.status}` };
     } catch {
       return { id: "*", state: "unknown", partial: true, detail: `unreachable at ${this.#baseUrl}` };
@@ -140,11 +161,14 @@ export class SourcebotProvider implements CodeProvider {
     try {
       res = await this.#fetchWithTimeout(`${this.#baseUrl}${path}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        headers: { "Content-Type": "application/json", Accept: "application/json", ...this.#authHeaders() },
         body: JSON.stringify(body),
       }, timeout);
     } catch (err) {
       throw new CodeProviderError("PROVIDER_UNAVAILABLE", `Sourcebot unreachable at ${this.#baseUrl}: ${(err as Error).message}`, this.id);
+    }
+    if (res.status === 401 || res.status === 403) {
+      throw new CodeProviderError("PROVIDER_UNAVAILABLE", `Sourcebot requires authentication; set SOURCEBOT_API_KEY (HTTP ${res.status})`, this.id);
     }
     if (!res.ok) throw new CodeProviderError("PROVIDER_ERROR", `Sourcebot ${path} returned HTTP ${res.status}`, this.id);
     try {

@@ -1,15 +1,19 @@
 /**
  * Graphify adapter — real CLI integration (github.com/Graphify-Labs/graphify).
  *
- * Graphify is a LOCAL tree-sitter knowledge graph: `graphify <dir>` builds a
- * `graphify-out/` (graph.json + report) in that dir, `graphify query "<q>"`
- * queries it, and nothing leaves the machine (no embeddings, no network). So it
- * needs no egress consent and no MCP — the runtime just shells out to the CLI,
- * the same shape as the GBrain adapter.
+ * Graphify is a LOCAL tree-sitter knowledge graph. The genuinely local, no-LLM
+ * build is `graphify update <dir>` — it writes `<dir>/graphify-out/graph.json`
+ * with NO embeddings and NO network (verified against graphify 0.9.23). NOTE:
+ * the bare `graphify <dir>` build instead runs LLM semantic extraction (a gemini
+ * backend needing an API key + network), so this adapter deliberately uses
+ * `graphify update`, which keeps the "local, no egress consent" invariant true.
  *
- * Never auto-installed: install is `pip install graphifyy && graphify install`,
- * a user action the picker gates on. When the CLI is absent every op throws
- * PROVIDER_UNAVAILABLE and callers degrade to file-only.
+ * Query is `graphify query "<q>" --graph <dir>/graphify-out/graph.json`; the
+ * `--graph` flag points at the built graph so search never depends on cwd.
+ *
+ * Never auto-installed: install is `pip install graphifyy && graphify install`
+ * (needs Python >= 3.10), a user action the picker surfaces. When the CLI is
+ * absent every op throws PROVIDER_UNAVAILABLE and callers degrade to file-only.
  *
  * Path-based, not id-based: for Graphify a source "id" IS the absolute repo path
  * (that is where `graphify-out/` lives), unlike GBrain's short source ids.
@@ -86,29 +90,28 @@ export class GraphifyProvider implements CodeProvider {
     throw new CodeProviderError("PROVIDER_ERROR", stderr || `graphify exited ${r.status}`, this.id);
   }
 
-  /** Build the graph over repo.path (local; no egress consent needed). */
+  /** Build the graph over repo.path locally (no LLM, no egress consent needed). */
   async registerSource(repo: RepoRef, opts: OpOptions = {}): Promise<SourceStatus> {
-    this.#assertOk(this.#run(["."], repo.path, opts.timeout ?? DEFAULT_TIMEOUT_MS));
+    this.#assertOk(this.#run(["update", repo.path], repo.path, opts.timeout ?? DEFAULT_TIMEOUT_MS));
     return this.status({ id: repo.path }, opts);
   }
 
-  /** Re-parse and merge changes into the existing graph. */
+  /** Re-parse and rebuild the graph (same local `graphify update` path). */
   async refresh(source: SourceRef, opts: OpOptions = {}): Promise<SourceStatus> {
-    this.#assertOk(this.#run([".", "--update"], source.id, opts.timeout ?? DEFAULT_TIMEOUT_MS));
+    this.#assertOk(this.#run(["update", source.id], source.id, opts.timeout ?? DEFAULT_TIMEOUT_MS));
     return this.status(source, opts);
   }
 
   /**
-   * `graphify query "<q>"` returns a traced answer over the graph. Its stdout is
-   * an answer, not a fixed hit schema (the CLI reference documents the command
-   * but not a machine format), so we map non-empty output lines to hits
-   * tolerantly: a leading path-like token becomes the ref, the line the snippet.
-   * Reconcile against a live graphify if a stricter schema is needed.
+   * `graphify query "<q>" --graph <graph.json>` traces the graph and prints
+   * `NODE ...` / `EDGE ...` lines (plus a `Traversal:` header). We pass `--graph`
+   * explicitly so the query reads the indexed repo's graph regardless of cwd.
    */
   async search(query: string, opts: SearchOptions = {}): Promise<CodeSearchHit[]> {
     if (!query.trim()) return [];
-    const cwd = opts.source ?? this.#root;
-    const r = this.#run(["query", query], cwd, opts.timeout ?? DEFAULT_TIMEOUT_MS);
+    const root = opts.source ?? this.#root;
+    const graphPath = join(root, OUT_DIR, GRAPH_JSON);
+    const r = this.#run(["query", query, "--graph", graphPath], root, opts.timeout ?? DEFAULT_TIMEOUT_MS);
     this.#assertOk(r);
     return parseGraphifyQuery(r.stdout || "", opts.limit ?? 10);
   }
@@ -138,19 +141,38 @@ export class GraphifyProvider implements CodeProvider {
 }
 
 /**
- * Map `graphify query` stdout to hits. Tolerant: each non-empty line becomes a
- * hit; a leading `path` or `path:line` token becomes the ref, else the whole
- * line is the snippet. Exported for deterministic unit testing.
+ * Parse real `graphify query` output into hits. The format (graphify 0.9.23):
+ *   Traversal: BFS depth=2 | Start: ['query()'] | ... | 4 nodes found
+ *   NODE query() [src=db.py loc=L4 community=login]
+ *   EDGE query() --calls [EXTRACTED context=call]--> login() at=auth.py:L8
+ * The file lives mid-line (`src=<file> loc=L<n>` on NODE, `at=<file>:L<n>` on
+ * EDGE), so the ref is `<file>:L<n>`. The `Traversal:` header and any other line
+ * are skipped. Exported for deterministic unit testing against the real format.
  */
 export function parseGraphifyQuery(stdout: string, limit: number): CodeSearchHit[] {
   const hits: CodeSearchHit[] = [];
   for (const raw of stdout.split("\n")) {
     const line = raw.trim();
-    if (!line) continue;
-    const token = line.split(/\s+/)[0];
-    const looksPath = /[/\\.]/.test(token) && !token.includes(" ");
-    hits.push({ ref: looksPath ? token : "graphify", snippet: line, kind: "graph-node" });
+    let ref: string | undefined;
+    const node = line.match(/^NODE\b.*?\[src=(\S+)\s+loc=(L\d+)/);
+    const edge = line.match(/^EDGE\b.*?\bat=(\S+?):(L\d+)\b/);
+    if (node) ref = `${node[1]}:${node[2]}`;
+    else if (edge) ref = `${edge[1]}:${edge[2]}`;
+    else continue; // skip the Traversal header and anything non-NODE/EDGE
+    hits.push({ ref, snippet: line, kind: "graph-node" });
     if (hits.length >= limit) break;
   }
   return hits;
+}
+
+/** Whether the `graphify` CLI is installed (for the picker's availability probe). */
+export function graphifyInstalled(env?: NodeJS.ProcessEnv): boolean {
+  const r = spawnSync("graphify", ["--version"], {
+    encoding: "utf-8",
+    timeout: 5_000,
+    stdio: ["ignore", "ignore", "ignore"],
+    env,
+    shell: NEEDS_SHELL_ON_WINDOWS,
+  });
+  return r.status === 0;
 }

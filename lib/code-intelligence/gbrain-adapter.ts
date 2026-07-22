@@ -9,7 +9,8 @@
  * so it advertises all seven capabilities.
  */
 
-import { spawnGbrain } from "../gbrain-exec";
+import { spawnSync } from "child_process";
+import { spawnGbrain, buildGbrainEnv, NEEDS_SHELL_ON_WINDOWS } from "../gbrain-exec";
 import { ensureSourceRegistered, probeSource, sourcePageCount } from "../gbrain-sources";
 import {
   assertCapability,
@@ -89,7 +90,8 @@ export class GbrainProvider implements CodeProvider {
 
   async refresh(source: SourceRef, opts: OpOptions = {}): Promise<SourceStatus> {
     assertEgressConsent(this, opts);
-    this.#assertOk(spawnGbrain(["sync", "--strategy", "code", "--source", source.id], {
+    // `gbrain sync` has no `--strategy` flag (verified against gbrain 0.42.x --help).
+    this.#assertOk(spawnGbrain(["sync", "--source", source.id], {
       baseEnv: opts.env,
       timeout: opts.timeout ?? DEFAULT_TIMEOUT_MS,
     }));
@@ -98,8 +100,10 @@ export class GbrainProvider implements CodeProvider {
 
   async search(query: string, opts: SearchOptions = {}): Promise<CodeSearchHit[]> {
     if (!query.trim()) return [];
+    // `gbrain search` is global and has no `--source` flag; `--limit` is real
+    // (verified against gbrain 0.42.x --help).
     const args = ["search", query];
-    if (opts.source) args.push("--source", opts.source);
+    if (opts.limit) args.push("--limit", String(opts.limit));
     const r = spawnGbrain(args, { baseEnv: opts.env, timeout: opts.timeout ?? DEFAULT_TIMEOUT_MS });
     this.#assertOk(r);
     return parseGbrainSearch(r.stdout || "", opts.minScore ?? 0.1, opts.limit ?? 10);
@@ -129,34 +133,45 @@ export class GbrainProvider implements CodeProvider {
     }
   }
 
+  // Document ops (add/delete/export) are GBrain-only and secondary; they match
+  // gbrain's documented CLI surface (`put <slug>` reads stdin; `delete <slug>`;
+  // `export`) but could not be exercised against a live engine on the test host
+  // (pglite WASM broken, garrytan/gbrain#223), so treat them as best-effort.
   async add(doc: { slug: string; body: string }, opts: OpOptions = {}): Promise<SourceStatus> {
     assertCapability(this, "add");
     assertEgressConsent(this, opts);
-    const r = spawnGbrain(["put", doc.slug, "--body", doc.body], {
-      baseEnv: opts.env,
-      timeout: opts.timeout ?? DEFAULT_TIMEOUT_MS,
-    });
-    this.#assertOk(r);
+    // `gbrain put <slug>` reads the document body from stdin.
+    this.#assertOk(this.#runInput(["put", doc.slug], doc.body, opts));
     return { id: doc.slug, state: "ready" };
   }
 
   async delete(slug: string, opts: OpOptions = {}): Promise<SourceStatus> {
     assertCapability(this, "delete");
-    this.#assertOk(spawnGbrain(["delete", slug, "--yes"], {
-      baseEnv: opts.env,
-      timeout: opts.timeout ?? DEFAULT_TIMEOUT_MS,
-    }));
+    // stdin closed ("") so any confirmation prompt gets EOF rather than hanging.
+    this.#assertOk(this.#runInput(["delete", slug], "", opts));
     return { id: slug, state: "absent" };
   }
 
-  async export(source: SourceRef, opts: OpOptions = {}): Promise<string> {
+  async export(_source: SourceRef, opts: OpOptions = {}): Promise<string> {
     assertCapability(this, "export");
-    const r = spawnGbrain(["export", "--source", source.id], {
+    // `gbrain export` is brain-wide (no per-source flag); returns whatever it prints.
+    const r = spawnGbrain(["export"], {
       baseEnv: opts.env,
       timeout: opts.timeout ?? DEFAULT_TIMEOUT_MS,
     });
     this.#assertOk(r);
     return r.stdout || "";
+  }
+
+  /** spawn gbrain with `input` on stdin, seeded env, Windows-shim aware. */
+  #runInput(args: string[], input: string, opts: OpOptions) {
+    return spawnSync("gbrain", args, {
+      input,
+      encoding: "utf-8",
+      timeout: opts.timeout ?? DEFAULT_TIMEOUT_MS,
+      env: buildGbrainEnv({ baseEnv: opts.env }),
+      shell: NEEDS_SHELL_ON_WINDOWS,
+    });
   }
 
   /**
@@ -178,21 +193,29 @@ export class GbrainProvider implements CodeProvider {
     if (r.error?.code === "ETIMEDOUT" || r.signal === "SIGTERM") {
       throw new CodeProviderError("PROVIDER_TIMEOUT", "gbrain timed out", this.id);
     }
-    if (/not configured|Cannot connect to database|config\.json/.test(stderr)) {
-      throw new CodeProviderError("PROVIDER_UNAVAILABLE", stderr || "gbrain not configured", this.id);
+    // Engine / DB / config problems are ENVIRONMENTAL — degrade to UNAVAILABLE
+    // (caller falls back to file-only), not a hard PROVIDER_ERROR with a raw dump.
+    // Covers the real case where gbrain's pglite engine fails to init its WASM
+    // runtime (garrytan/gbrain#223) as well as unreachable/unconfigured databases.
+    if (/PGLite|WASM|failed to initialize|Aborted|Cannot connect to database|not configured|config\.json|database (is )?un(reachable|available)/i.test(stderr)) {
+      throw new CodeProviderError("PROVIDER_UNAVAILABLE", firstLine(stderr) || "gbrain engine unavailable", this.id);
     }
-    throw new CodeProviderError("PROVIDER_ERROR", stderr || `gbrain exited ${r.status}`, this.id);
+    throw new CodeProviderError("PROVIDER_ERROR", firstLine(stderr) || `gbrain exited ${r.status}`, this.id);
   }
 
   #wrap(err: unknown): CodeProviderError {
     if (err instanceof CodeProviderError) return err;
     const message = err instanceof Error ? err.message : String(err);
-    if (/not on PATH|command not found/.test(message)) {
-      return new CodeProviderError("PROVIDER_UNAVAILABLE", message, this.id);
+    // Same environmental-vs-real split as #assertOk: missing CLI, or engine/DB/
+    // config problems, degrade to UNAVAILABLE so callers fall back to file-only.
+    if (/not on PATH|command not found|PGLite|WASM|failed to initialize|Aborted|Cannot connect to database|not configured|config\.json/i.test(message)) {
+      return new CodeProviderError("PROVIDER_UNAVAILABLE", firstLine(message), this.id);
     }
-    if (/not configured/.test(message)) {
-      return new CodeProviderError("PROVIDER_UNAVAILABLE", message, this.id);
-    }
-    return new CodeProviderError("PROVIDER_ERROR", message, this.id);
+    return new CodeProviderError("PROVIDER_ERROR", firstLine(message), this.id);
   }
+}
+
+/** First non-empty line, so a multi-line WASM/stack dump never reaches the user. */
+function firstLine(text: string): string {
+  return (text || "").split("\n").map((l) => l.trim()).find(Boolean) ?? "";
 }
