@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.61.0.0] - 2026-07-21
+
+### Added
+
+- Codex installs now publish a versioned, immutable runtime contract that covers every generated skill, its runtime dependencies, required capabilities, and content digests.
+- Codex skill startup now fails closed when its installed runtime is missing, stale, incompatible, or tampered with, with project sidecars taking precedence over the global installation.
+
+### Changed
+
+- Global and project-local Codex setup now consume one typed install plan, validate a staged candidate before activation, preserve the previous installation for rollback, and keep unrelated Codex hooks intact during install, update, and uninstall.
+- Existing Codex model-hook installs remain compatible while the generated skill preamble provides the authoritative blocking runtime gate.
+
 ## [1.60.1.0] - 2026-07-09
 
 ## **The /autoplan dual-voice eval is back on the board, catching real regressions.**

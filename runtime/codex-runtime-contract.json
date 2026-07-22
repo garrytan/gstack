@@ -223,7 +223,7 @@
         "sidecar"
       ],
       "present": true,
-      "content_sha256": "33c2cf71a1c289fadda4a0c5d6ddb02cf35daf90fd40954a611aab9a183316b6"
+      "content_sha256": "4cda3b96afb9e488ec594485ea7b0c782d16b918e062470b095dece75a98c836"
     },
     {
       "source": "browse/dist",
@@ -413,7 +413,7 @@
         "sidecar"
       ],
       "present": true,
-      "content_sha256": "a05442e1220521c44bac111462a2a311da807c141cbefba49249f2e8599f44bb"
+      "content_sha256": "fae55dac8882876e2a3b123886a9ce07ea412974fcfa13fa5a6637a1f412cf37"
     },
     {
       "source": "runtime/codex-runtime-contract.json",
@@ -4007,7 +4007,7 @@
   ],
   "identifiers": {
     "capability_registry_digest": "c43c1cda10bb59663b17a8b212678223e44c325ae924fc2dd095d2038101e7ab",
-    "runtime_asset_digest": "9b1e6a99c0529d2198e45d785ace39b224101958ad8e12e1b640236b33bb7be0",
-    "release_artifact_digest": "c52140d08ce23dca7b35b547e00a3bb7d09c01960fde5dd96056459060a04f0a"
+    "runtime_asset_digest": "4ce8586f27dc73dafc3e2cc75f65d6f83e4dfc09f5164a13321ccceddf83ef91",
+    "release_artifact_digest": "2ba1f214a554f8043222a4adccb7b5c7088b42b4f9d845dd337ae2bed3a1ca46"
   }
 }
