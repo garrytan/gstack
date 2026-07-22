@@ -13,7 +13,8 @@
   "target": "skills/plan/references/legacy/office-hours.md",
   "overlays": [
     679,
-    2030
+    2030,
+    1049
   ],
   "contract": {
     "question_order": "Preserve the source workflow order; gather prerequisites before consequential questions.",

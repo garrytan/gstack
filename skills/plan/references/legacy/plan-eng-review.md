@@ -285,3 +285,13 @@ Default to a normalized relational model. Denormalization needs a measured perfo
 
 Persist a learning only when the interaction contains a useful, reusable signal such as an explicit preference, correction, accepted recommendation, or rejected direction. Track helpful and harmful outcomes separately. Do not manufacture a learning merely because a workflow completed.
 <!-- GSTACK2_BUG_FIX_END pr=2030 -->
+
+<!-- GSTACK2_BUG_FIX_START pr=592 anchor=GSTACK2_FIX_592_PRE_MORTEM -->
+## Upstream judgment port: PR #592
+
+[Run a pre-mortem before challenging scope](https://github.com/garrytan/gstack/pull/592)
+
+### Pre-mortem before scope challenge
+
+Before reviewing anything, run a pre-mortem: it is three months later and this plan failed, name the top three reasons why. Reason from production reality, not the plan's internal logic, and name concrete failure modes (data loss, performance cliff, security hole, team confusion), not abstract worries. Present those three failure modes to the user before the scope challenge, which follows the pre-mortem rather than opening the review.
+<!-- GSTACK2_BUG_FIX_END pr=592 -->

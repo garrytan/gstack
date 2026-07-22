@@ -11,9 +11,9 @@ The fixed public modes are: Design = `Explore | Generate | Critique | Implement`
 | Legacy invocation | Replacement | Visibility | Mandatory | Judgment overlays |
 |---|---|---|---|---|
 | `/gstack` | `$plan --mode Discovery --module gstack` | internal (internal) | no | #679 |
-| `/office-hours` | `$plan --mode Discovery --module office-hours` | internal (primary) | yes | #679, #2030 |
+| `/office-hours` | `$plan --mode Discovery --module office-hours` | internal (primary) | yes | #679, #2030, #1049 |
 | `/plan-ceo-review` | `$plan --mode Product --module plan-ceo-review` | internal (primary) | yes | #679, #2030 |
-| `/plan-eng-review` | `$plan --mode Engineering --module plan-eng-review` | internal (primary) | yes | #679, #1071, #2030 |
+| `/plan-eng-review` | `$plan --mode Engineering --module plan-eng-review` | internal (primary) | yes | #679, #1071, #2030, #592 |
 | `/plan-devex-review` | `$plan --mode DX --module plan-devex-review` | internal (primary) | yes | #679, #2030 |
 | `/autoplan` | `$plan --mode Full chain --module autoplan` | internal (primary) | yes | #679, #2014, #2023 |
 | `/spec` | `$plan --mode Specification --module spec` | internal (primary) | yes | #679 |
@@ -28,7 +28,7 @@ The fixed public modes are: Design = `Explore | Generate | Critique | Implement`
 | `/design-shotgun` | `$design --mode Explore --module design-shotgun` | internal (primary) | yes | #679, #1777 |
 | `/design-html` | `$design --mode Implement --module design-html` | internal (primary) | yes | #679 |
 | `/plan-design-review` | `$design --mode Critique --module plan-design-review` | internal (primary) | yes | #679, #2030, #2189 |
-| `/design-review` | `$design --mode Implement --module design-review` | internal (primary) | yes | #679, #1920, #2030, #2189 |
+| `/design-review` | `$design --mode Implement --module design-review` | internal (primary) | yes | #679, #1920, #2030, #2189, #696 |
 | `/ios-design-review` | `$design --mode Critique --module ios-design-review` | internal (primary) | yes | #679 |
 | `/diagram` | `$design --mode Generate --module diagram` | internal (internal) | no | #679 |
 | `/make-pdf` | `$design --mode Generate --module make-pdf` | internal (internal) | no | #679 |
@@ -52,11 +52,11 @@ The fixed public modes are: Design = `Explore | Generate | Critique | Implement`
 | `/guard` | `$debug --mode Diagnose-only --module guard` | internal (internal) | no | #679 |
 | `/unfreeze` | `$debug --mode Diagnose-only --module unfreeze` | internal (internal) | no | #679 |
 | `/review` | `$review --mode Normal --module review` | internal (primary) | yes | #610, #645, #679, #2030, #2141 |
-| `/cso` | `$review --mode Security --module cso` | internal (primary) | yes | #679, #2030 |
+| `/cso` | `$review --mode Security --module cso` | internal (primary) | yes | #679, #2030, #1523, #1053 |
 | `/health` | `$review --mode Deep --module health` | internal (primary) | yes | #679 |
 | `/codex` | `$review --mode Deep --module codex` | internal (primary) | yes | #679 |
 | `/claude` | `$review --mode Deep --module claude` | internal (primary) | yes | #679 |
-| `/ship` | `$ship --mode Prepare --module ship` | internal (primary) | yes | #679, #884, #2030, #2186 |
+| `/ship` | `$ship --mode Prepare --module ship` | internal (primary) | yes | #679, #884, #2030, #2186, #1102 |
 | `/land-and-deploy` | `$ship --mode Land --module land-and-deploy` | internal (primary) | yes | #679, #884 |
 | `/landing-report` | `$ship --mode Prepare --module landing-report` | internal (primary) | yes | #679 |
 | `/document-release` | `$ship --mode Prepare --module document-release` | internal (primary) | yes | #679 |
@@ -75,5 +75,5 @@ The fixed public modes are: Design = `Explore | Generate | Critique | Implement`
 ## Mechanical versus judgment changes
 
 - `JUDGMENT_PRESERVING_CARVE`: pinned specialist workflow with the retired shared onboarding wrapper excluded, retired invocations resolved to six public routes, host/runtime paths normalized, and large carved phases loaded lazily from package-local pinned references.
-- `BUG_FIX`: the canonical carved body plus a clearly delimited judgment overlay sourced from one of the 16 upstream PRs and its regression fixture.
+- `BUG_FIX`: the canonical carved body plus a clearly delimited judgment overlay sourced from one of the 22 upstream PRs and its regression fixture.
 - Asset relocation is byte-for-byte from the pinned Git blob and is indexed per tree.

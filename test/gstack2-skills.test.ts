@@ -27,7 +27,7 @@ describe('GStack 2 skill parity', () => {
     const result = runParity();
     expect(result.sources).toBe(55);
     expect(result.sections).toBe(16);
-    expect(result.regressions).toBe(16);
+    expect(result.regressions).toBe(22);
   }, 30_000);
 
   test('keeps image generation host-native, optional, and provider-free', () => {

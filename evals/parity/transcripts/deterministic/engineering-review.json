@@ -102,6 +102,13 @@
           "reproduced_defect": "Record only signal-bearing learnings",
           "regression_fixture": "evals/parity/regressions/pr-2030.json",
           "explanation": "### Signal-gated learning\n\nPersist a learning only when the interaction contains a useful, reusable signal such as an explicit preference, correction, accepted recommendation, or rejected direction. Track helpful and harmful outcomes separately. Do not manufacture a learning merely because a workflow completed."
+        },
+        {
+          "classification": "INTENTIONAL_IMPROVEMENT",
+          "issue_or_pr": "https://github.com/garrytan/gstack/pull/592",
+          "reproduced_defect": "Run a pre-mortem before challenging scope",
+          "regression_fixture": "evals/parity/regressions/pr-592.json",
+          "explanation": "### Pre-mortem before scope challenge\n\nBefore reviewing anything, run a pre-mortem: it is three months later and this plan failed, name the top three reasons why. Reason from production reality, not the plan's internal logic, and name concrete failure modes (data loss, performance cliff, security hole, team confusion), not abstract worries. Present those three failure modes to the user before the scope challenge, which follows the pre-mortem rather than opening the review."
         }
       ]
     }

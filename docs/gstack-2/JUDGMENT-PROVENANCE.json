@@ -17,7 +17,7 @@
     "packaged_section_copies": 17,
     "internal_execution_adapters": 1,
     "scenarios": 25,
-    "bug_fix_ports": 16,
+    "bug_fix_ports": 22,
     "assets": 78,
     "dependency_copies": 4,
     "runtime_helpers": 41
@@ -88,7 +88,8 @@
       "disposition": "BUG_FIX",
       "overlays": [
         679,
-        2030
+        2030,
+        1049
       ],
       "original_source_file": "office-hours/SKILL.md.tmpl",
       "original_line_range": "1-526",
@@ -343,7 +344,8 @@
       "overlays": [
         679,
         1071,
-        2030
+        2030,
+        592
       ],
       "original_source_file": "plan-eng-review/SKILL.md.tmpl",
       "original_line_range": "1-158",
@@ -1827,7 +1829,8 @@
         679,
         1920,
         2030,
-        2189
+        2189,
+        696
       ],
       "original_source_file": "design-review/SKILL.md.tmpl",
       "original_line_range": "1-313",
@@ -3672,7 +3675,9 @@
       "disposition": "BUG_FIX",
       "overlays": [
         679,
-        2030
+        2030,
+        1523,
+        1053
       ],
       "original_source_file": "cso/SKILL.md.tmpl",
       "original_line_range": "1-408",
@@ -4008,7 +4013,8 @@
         679,
         884,
         2030,
-        2186
+        2186,
+        1102
       ],
       "original_source_file": "ship/SKILL.md.tmpl",
       "original_line_range": "1-538",
@@ -7331,6 +7337,60 @@
         "design-review"
       ],
       "anchor": "GSTACK2_FIX_2189_DESIGN_THESIS_EQUIVALENCE"
+    },
+    {
+      "pr": 1102,
+      "url": "https://github.com/garrytan/gstack/pull/1102",
+      "title": "Read the test command from CLAUDE.md instead of hardcoding it",
+      "targets": [
+        "ship"
+      ],
+      "anchor": "GSTACK2_FIX_1102_TEST_COMMAND_FROM_CLAUDEMD"
+    },
+    {
+      "pr": 1049,
+      "url": "https://github.com/garrytan/gstack/pull/1049",
+      "title": "Refuse to log success without a persisted design doc",
+      "targets": [
+        "office-hours"
+      ],
+      "anchor": "GSTACK2_FIX_1049_NO_DOC_OUTCOME"
+    },
+    {
+      "pr": 592,
+      "url": "https://github.com/garrytan/gstack/pull/592",
+      "title": "Run a pre-mortem before challenging scope",
+      "targets": [
+        "plan-eng-review"
+      ],
+      "anchor": "GSTACK2_FIX_592_PRE_MORTEM"
+    },
+    {
+      "pr": 696,
+      "url": "https://github.com/garrytan/gstack/pull/696",
+      "title": "Score each screen on a cognitive-load scale",
+      "targets": [
+        "design-review"
+      ],
+      "anchor": "GSTACK2_FIX_696_COGNITIVE_LOAD"
+    },
+    {
+      "pr": 1523,
+      "url": "https://github.com/garrytan/gstack/pull/1523",
+      "title": "Detect the shai-hulud campaign in comprehensive mode only",
+      "targets": [
+        "cso"
+      ],
+      "anchor": "GSTACK2_FIX_1523_SHAI_HULUD"
+    },
+    {
+      "pr": 1053,
+      "url": "https://github.com/garrytan/gstack/pull/1053",
+      "title": "Keep the audit report-only unless --fix is passed",
+      "targets": [
+        "cso"
+      ],
+      "anchor": "GSTACK2_FIX_1053_FIX_MODE"
     }
   ]
 }

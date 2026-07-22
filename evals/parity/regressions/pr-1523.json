@@ -1,0 +1,20 @@
+{
+  "pr": 1523,
+  "url": "https://github.com/garrytan/gstack/pull/1523",
+  "title": "Detect the shai-hulud campaign in comprehensive mode only",
+  "targets": [
+    "cso"
+  ],
+  "anchor": "GSTACK2_FIX_1523_SHAI_HULUD",
+  "body": "### Known-campaign IOC tier\n\nAdd Tier 3 rules that detect the mini-shai-hulud supply-chain campaign: `/proc/*/mem` reads from Claude Code settings hooks, auto-run persistence bridges (folderOpen tasks or settings hooks invoking payloads), packed droppers that decrypt or decompress an embedded blob at load, and the getsession.org C2 IOCs. Every rule matches a deterministic primary-source indicator, surfaces only under comprehensive mode, and carries a TENTATIVE marking. Daily mode's zero-noise contract stays unchanged: none of these rules add findings there.",
+  "regression": {
+    "input": {
+      "mode": "comprehensive"
+    },
+    "expected": {
+      "tier3_active": true,
+      "tentative": true,
+      "daily_noise_added": false
+    }
+  }
+}

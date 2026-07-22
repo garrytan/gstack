@@ -230,6 +230,90 @@ Accept a coherent design thesis expressed through product principles, visual rat
       expected: { thesis_recognized: true, literal_heading_required: false },
     },
   },
+  {
+    pr: 1102,
+    url: 'https://github.com/garrytan/gstack/pull/1102',
+    title: 'Read the test command from CLAUDE.md instead of hardcoding it',
+    targets: ['ship'],
+    anchor: 'GSTACK2_FIX_1102_TEST_COMMAND_FROM_CLAUDEMD',
+    body: `### Project-owned test command
+
+Resolve the test command from the project, never from a hardcoded stack assumption. Read the CLAUDE.md \`## Testing\` section first and use the command it declares. If that section is absent, search the project for its actual test entry point (package.json test script, Gemfile rake tasks, pytest configuration, and so on) and use what you find. If no test framework is detectable, print that Step 5 is skipped and continue. Never fall back to a baked-in Rails or Node command against a repository that does not use it.`,
+    regression: {
+      input: { claude_md_testing: 'bun run test:custom', has_package_json: false },
+      expected: { test_command: 'bun run test:custom', source: 'CLAUDE.md', hardcoded_fallback_used: false },
+    },
+  },
+  {
+    pr: 1049,
+    url: 'https://github.com/garrytan/gstack/pull/1049',
+    title: 'Refuse to log success without a persisted design doc',
+    targets: ['office-hours'],
+    anchor: 'GSTACK2_FIX_1049_NO_DOC_OUTCOME',
+    body: `### Artifact-verified outcome
+
+The design doc file is the artifact of this session. Before the telemetry block runs, verify that a design doc actually persisted to disk. When no doc was written, the outcome must be \`no_doc\`, never \`success\`, no matter how productive the conversation felt. A session without a persisted artifact is not a successful session, and downstream analytics depend on that distinction to catch skipped review phases.`,
+    regression: {
+      input: { design_doc_written: false },
+      expected: { outcome: 'no_doc', success_allowed: false },
+    },
+  },
+  {
+    pr: 592,
+    url: 'https://github.com/garrytan/gstack/pull/592',
+    title: 'Run a pre-mortem before challenging scope',
+    targets: ['plan-eng-review'],
+    anchor: 'GSTACK2_FIX_592_PRE_MORTEM',
+    body: `### Pre-mortem before scope challenge
+
+Before reviewing anything, run a pre-mortem: it is three months later and this plan failed, name the top three reasons why. Reason from production reality, not the plan's internal logic, and name concrete failure modes (data loss, performance cliff, security hole, team confusion), not abstract worries. Present those three failure modes to the user before the scope challenge, which follows the pre-mortem rather than opening the review.`,
+    regression: {
+      input: { stage: 'engineering-review' },
+      expected: { premortem_first: true, failure_modes_named: 3, runs_before_scope: true },
+    },
+  },
+  {
+    pr: 696,
+    url: 'https://github.com/garrytan/gstack/pull/696',
+    title: 'Score each screen on a cognitive-load scale',
+    targets: ['design-review'],
+    anchor: 'GSTACK2_FIX_696_COGNITIVE_LOAD',
+    body: `### Cognitive-load audit
+
+Rate every audited screen on a System 1 to System 2 scale from 0 to 10, grounded in browse data already collected (element counts, link counts, load times), not impression. Most screens should sit at S1 (0-3); higher scores are acceptable only as intentional friction such as destructive or financial decisions. For any screen above the threshold that is not deliberate friction, name the specific UX laws it breaks (Fitts, Hick, Jakob, Miller, Peak-End, Von Restorff, Zeigarnik, Gestalt) and cite the measurement that proves it.`,
+    regression: {
+      input: { screen_elements: 93, threshold: 3 },
+      expected: { cognitive_load_scored: true, flagged: true, names_ux_laws: true },
+    },
+  },
+  {
+    pr: 1523,
+    url: 'https://github.com/garrytan/gstack/pull/1523',
+    title: 'Detect the shai-hulud campaign in comprehensive mode only',
+    targets: ['cso'],
+    anchor: 'GSTACK2_FIX_1523_SHAI_HULUD',
+    body: `### Known-campaign IOC tier
+
+Add Tier 3 rules that detect the mini-shai-hulud supply-chain campaign: \`/proc/*/mem\` reads from Claude Code settings hooks, auto-run persistence bridges (folderOpen tasks or settings hooks invoking payloads), packed droppers that decrypt or decompress an embedded blob at load, and the getsession.org C2 IOCs. Every rule matches a deterministic primary-source indicator, surfaces only under comprehensive mode, and carries a TENTATIVE marking. Daily mode's zero-noise contract stays unchanged: none of these rules add findings there.`,
+    regression: {
+      input: { mode: 'comprehensive' },
+      expected: { tier3_active: true, tentative: true, daily_noise_added: false },
+    },
+  },
+  {
+    pr: 1053,
+    url: 'https://github.com/garrytan/gstack/pull/1053',
+    title: 'Keep the audit report-only unless --fix is passed',
+    targets: ['cso'],
+    anchor: 'GSTACK2_FIX_1053_FIX_MODE',
+    body: `### Opt-in auto-fix boundary
+
+The default audit is strictly report-only and mutates nothing. Auto-fixes apply only under an explicit \`--fix\` flag, and only for provably safe patterns where the correct change is deterministic and the breakage risk is near-zero (additive gitignore hardening, TLS-verification flips, non-breaking dependency patches). No business logic and no guessing. Without \`--fix\`, produce findings and remediation plans and change no files.`,
+    regression: {
+      input: { fix_flag: false },
+      expected: { mutations_allowed: false, fix_requires: '--fix' },
+    },
+  },
 ];
 
 export function overlaysForSource(source: string): BugFixOverlay[] {
@@ -365,6 +449,36 @@ export function evaluateBugFixRegression(pr: number, rawInput: unknown): Record<
       const coherent = /principles|thesis|rationale|philosophy|calm|trust|hierarchy|interaction/i.test(framing);
       return { thesis_recognized: coherent, literal_heading_required: false };
     }
+    case 1102: {
+      const fromClaudeMd = typeof input.claude_md_testing === 'string' && input.claude_md_testing.trim().length > 0;
+      const fromProject = !fromClaudeMd && input.has_package_json === true;
+      return {
+        test_command: fromClaudeMd ? String(input.claude_md_testing) : fromProject ? 'project-detected' : null,
+        source: fromClaudeMd ? 'CLAUDE.md' : fromProject ? 'project-search' : 'none',
+        hardcoded_fallback_used: false,
+      };
+    }
+    case 1049: {
+      const docWritten = input.design_doc_written === true;
+      return { outcome: docWritten ? 'success' : 'no_doc', success_allowed: docWritten };
+    }
+    case 592: {
+      const engReview = input.stage === 'engineering-review';
+      return { premortem_first: engReview, failure_modes_named: 3, runs_before_scope: engReview };
+    }
+    case 696: {
+      const elements = Number(input.screen_elements ?? 0);
+      const threshold = Number(input.threshold ?? 3);
+      const score = Math.min(10, Math.round(elements / 13));
+      const flagged = score > threshold;
+      return { cognitive_load_scored: true, flagged, names_ux_laws: flagged };
+    }
+    case 1523: {
+      const comprehensive = input.mode === 'comprehensive';
+      return { tier3_active: comprehensive, tentative: true, daily_noise_added: false };
+    }
+    case 1053:
+      return { mutations_allowed: input.fix_flag === true, fix_requires: '--fix' };
     default:
       throw new Error(`No executable GStack 2 regression evaluator for PR #${pr}`);
   }

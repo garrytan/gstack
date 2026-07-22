@@ -502,3 +502,23 @@ Write questions, progress updates, reports, and artifacts in the language used b
 
 Persist a learning only when the interaction contains a useful, reusable signal such as an explicit preference, correction, accepted recommendation, or rejected direction. Track helpful and harmful outcomes separately. Do not manufacture a learning merely because a workflow completed.
 <!-- GSTACK2_BUG_FIX_END pr=2030 -->
+
+<!-- GSTACK2_BUG_FIX_START pr=1523 anchor=GSTACK2_FIX_1523_SHAI_HULUD -->
+## Upstream judgment port: PR #1523
+
+[Detect the shai-hulud campaign in comprehensive mode only](https://github.com/garrytan/gstack/pull/1523)
+
+### Known-campaign IOC tier
+
+Add Tier 3 rules that detect the mini-shai-hulud supply-chain campaign: `/proc/*/mem` reads from Claude Code settings hooks, auto-run persistence bridges (folderOpen tasks or settings hooks invoking payloads), packed droppers that decrypt or decompress an embedded blob at load, and the getsession.org C2 IOCs. Every rule matches a deterministic primary-source indicator, surfaces only under comprehensive mode, and carries a TENTATIVE marking. Daily mode's zero-noise contract stays unchanged: none of these rules add findings there.
+<!-- GSTACK2_BUG_FIX_END pr=1523 -->
+
+<!-- GSTACK2_BUG_FIX_START pr=1053 anchor=GSTACK2_FIX_1053_FIX_MODE -->
+## Upstream judgment port: PR #1053
+
+[Keep the audit report-only unless --fix is passed](https://github.com/garrytan/gstack/pull/1053)
+
+### Opt-in auto-fix boundary
+
+The default audit is strictly report-only and mutates nothing. Auto-fixes apply only under an explicit `--fix` flag, and only for provably safe patterns where the correct change is deterministic and the breakage risk is near-zero (additive gitignore hardening, TLS-verification flips, non-breaking dependency patches). No business logic and no guessing. Without `--fix`, produce findings and remediation plans and change no files.
+<!-- GSTACK2_BUG_FIX_END pr=1053 -->

@@ -1,0 +1,20 @@
+{
+  "pr": 592,
+  "url": "https://github.com/garrytan/gstack/pull/592",
+  "title": "Run a pre-mortem before challenging scope",
+  "targets": [
+    "plan-eng-review"
+  ],
+  "anchor": "GSTACK2_FIX_592_PRE_MORTEM",
+  "body": "### Pre-mortem before scope challenge\n\nBefore reviewing anything, run a pre-mortem: it is three months later and this plan failed, name the top three reasons why. Reason from production reality, not the plan's internal logic, and name concrete failure modes (data loss, performance cliff, security hole, team confusion), not abstract worries. Present those three failure modes to the user before the scope challenge, which follows the pre-mortem rather than opening the review.",
+  "regression": {
+    "input": {
+      "stage": "engineering-review"
+    },
+    "expected": {
+      "premortem_first": true,
+      "failure_modes_named": 3,
+      "runs_before_scope": true
+    }
+  }
+}

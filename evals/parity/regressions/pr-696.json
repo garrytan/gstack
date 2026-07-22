@@ -1,0 +1,21 @@
+{
+  "pr": 696,
+  "url": "https://github.com/garrytan/gstack/pull/696",
+  "title": "Score each screen on a cognitive-load scale",
+  "targets": [
+    "design-review"
+  ],
+  "anchor": "GSTACK2_FIX_696_COGNITIVE_LOAD",
+  "body": "### Cognitive-load audit\n\nRate every audited screen on a System 1 to System 2 scale from 0 to 10, grounded in browse data already collected (element counts, link counts, load times), not impression. Most screens should sit at S1 (0-3); higher scores are acceptable only as intentional friction such as destructive or financial decisions. For any screen above the threshold that is not deliberate friction, name the specific UX laws it breaks (Fitts, Hick, Jakob, Miller, Peak-End, Von Restorff, Zeigarnik, Gestalt) and cite the measurement that proves it.",
+  "regression": {
+    "input": {
+      "screen_elements": 93,
+      "threshold": 3
+    },
+    "expected": {
+      "cognitive_load_scored": true,
+      "flagged": true,
+      "names_ux_laws": true
+    }
+  }
+}

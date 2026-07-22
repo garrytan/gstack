@@ -75,9 +75,9 @@ function publicModeFor(source: string, tree: SourceAssignment['tree'], legacyMod
 export const SOURCE_ASSIGNMENTS: SourceAssignment[] = [
   // Shared catalog and planning/memory family.
   A('gstack', 'plan', 'catalog', 'Legacy catalog and top-level workflow routing.', { visibility: 'internal' }),
-  A('office-hours', 'plan', 'product', 'Reframe a product idea through YC-style office hours.', { mandatory: true, overlays: [2030], defaultDepth: 'deep', defaultMutation: 'design-doc-only', webContext: 'optional' }),
+  A('office-hours', 'plan', 'product', 'Reframe a product idea through YC-style office hours.', { mandatory: true, overlays: [1049, 2030], defaultDepth: 'deep', defaultMutation: 'design-doc-only', webContext: 'optional' }),
   A('plan-ceo-review', 'plan', 'ceo', 'Challenge scope, strategy, and the ten-star product shape.', { mandatory: true, overlays: [2030], defaultDepth: 'deep', defaultMutation: 'plan-only', webContext: 'optional' }),
-  A('plan-eng-review', 'plan', 'eng', 'Review architecture, data flow, tests, performance, and failure modes.', { mandatory: true, overlays: [1071, 2030], defaultDepth: 'deep', defaultMutation: 'plan-only' }),
+  A('plan-eng-review', 'plan', 'eng', 'Review architecture, data flow, tests, performance, and failure modes.', { mandatory: true, overlays: [592, 1071, 2030], defaultDepth: 'deep', defaultMutation: 'plan-only' }),
   A('plan-devex-review', 'plan', 'dx', 'Review developer personas, time-to-hello-world, friction, and DX measurement.', { mandatory: true, overlays: [2030], defaultDepth: 'deep', defaultMutation: 'plan-only', webContext: 'optional' }),
   A('autoplan', 'plan', 'auto', 'Run CEO, design, engineering, and DX plan reviews with an auditable decision trail.', { mandatory: true, overlays: [2014, 2023], defaultDepth: 'deep', defaultMutation: 'plan-only', webContext: 'optional' }),
   A('spec', 'plan', 'spec', 'Turn intent into a backlog-ready issue/spec and optional execution handoff.', { mandatory: true, defaultDepth: 'deep', defaultMutation: 'spec-and-issue', webContext: 'optional' }),
@@ -94,7 +94,7 @@ export const SOURCE_ASSIGNMENTS: SourceAssignment[] = [
   A('design-shotgun', 'design', 'alternatives', 'Generate and compare multiple visual directions.', { mandatory: true, overlays: [1777], defaultDepth: 'deep', defaultMutation: 'design-artifacts', webContext: 'optional' }),
   A('design-html', 'design', 'html', 'Generate production-quality Pretext-native HTML/CSS.', { mandatory: true, defaultMutation: 'design-artifacts', webContext: 'local-browser' }),
   A('plan-design-review', 'design', 'plan-review', 'Review a plan for interaction states, visual quality, and accessibility.', { mandatory: true, overlays: [2030, 2189], defaultDepth: 'deep', defaultMutation: 'plan-only', webContext: 'optional' }),
-  A('design-review', 'design', 'live-review', 'Audit, fix, and verify an implemented web UI.', { mandatory: true, overlays: [1920, 2030, 2189], defaultDepth: 'deep', defaultMutation: 'fix-safe', webContext: 'local-browser' }),
+  A('design-review', 'design', 'live-review', 'Audit, fix, and verify an implemented web UI.', { mandatory: true, overlays: [696, 1920, 2030, 2189], defaultDepth: 'deep', defaultMutation: 'fix-safe', webContext: 'local-browser' }),
   A('ios-design-review', 'design', 'ios-review', 'Score and iterate a real iOS interface against Apple HIG.', { mandatory: true, defaultDepth: 'deep', defaultMutation: 'report-only', webContext: 'none' }),
   A('diagram', 'design', 'diagram', 'Render diagrams from English descriptions.', { visibility: 'internal', defaultMutation: 'design-artifacts' }),
   A('make-pdf', 'design', 'pdf', 'Render publication-quality PDFs from Markdown.', { visibility: 'internal', defaultMutation: 'design-artifacts' }),
@@ -124,13 +124,13 @@ export const SOURCE_ASSIGNMENTS: SourceAssignment[] = [
 
   // Review family.
   A('review', 'review', 'diff', 'Review a diff, validate findings, and apply safe fixes.', { mandatory: true, overlays: [610, 645, 2030, 2141], defaultDepth: 'deep', defaultMutation: 'fix-safe', webContext: 'optional' }),
-  A('cso', 'review', 'security', 'Run OWASP, STRIDE, secrets, supply-chain, and infrastructure audits.', { mandatory: true, overlays: [2030], defaultDepth: 'deep', defaultMutation: 'report-only', webContext: 'optional' }),
+  A('cso', 'review', 'security', 'Run OWASP, STRIDE, secrets, supply-chain, and infrastructure audits.', { mandatory: true, overlays: [1053, 1523, 2030], defaultDepth: 'deep', defaultMutation: 'report-only', webContext: 'optional' }),
   A('health', 'review', 'health', 'Run the code-quality dashboard and trend analysis.', { mandatory: true, defaultMutation: 'report-only' }),
   A('codex', 'review', 'outside-codex', 'Request an OpenAI Codex review, challenge, or consultation.', { mandatory: true, defaultMutation: 'report-only' }),
   A('claude', 'review', 'outside-claude', 'Request a read-only Claude outside voice.', { mandatory: true, defaultMutation: 'report-only' }),
 
   // Ship/release family.
-  A('ship', 'ship', 'ship', 'Test, review, version, document, commit, push, and open a PR.', { mandatory: true, overlays: [884, 2030, 2186], defaultDepth: 'deep', defaultMutation: 'commit-push-pr', webContext: 'optional' }),
+  A('ship', 'ship', 'ship', 'Test, review, version, document, commit, push, and open a PR.', { mandatory: true, overlays: [884, 1102, 2030, 2186], defaultDepth: 'deep', defaultMutation: 'commit-push-pr', webContext: 'optional' }),
   A('land-and-deploy', 'ship', 'land', 'Merge an approved PR, deploy, verify, and offer rollback.', { mandatory: true, overlays: [884], defaultDepth: 'deep', defaultMutation: 'merge-deploy', webContext: 'production' }),
   A('landing-report', 'ship', 'queue', 'Render the workspace-aware version and landing queue.', { mandatory: true, defaultMutation: 'report-only' }),
   A('document-release', 'ship', 'docs', 'Update documentation and release narrative after shipping.', { mandatory: true, defaultDepth: 'deep', defaultMutation: 'docs-only', webContext: 'optional' }),

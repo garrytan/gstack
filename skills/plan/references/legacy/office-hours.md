@@ -750,3 +750,13 @@ Write questions, progress updates, reports, and artifacts in the language used b
 
 Persist a learning only when the interaction contains a useful, reusable signal such as an explicit preference, correction, accepted recommendation, or rejected direction. Track helpful and harmful outcomes separately. Do not manufacture a learning merely because a workflow completed.
 <!-- GSTACK2_BUG_FIX_END pr=2030 -->
+
+<!-- GSTACK2_BUG_FIX_START pr=1049 anchor=GSTACK2_FIX_1049_NO_DOC_OUTCOME -->
+## Upstream judgment port: PR #1049
+
+[Refuse to log success without a persisted design doc](https://github.com/garrytan/gstack/pull/1049)
+
+### Artifact-verified outcome
+
+The design doc file is the artifact of this session. Before the telemetry block runs, verify that a design doc actually persisted to disk. When no doc was written, the outcome must be `no_doc`, never `success`, no matter how productive the conversation felt. A session without a persisted artifact is not a successful session, and downstream analytics depend on that distinction to catch skipped review phases.
+<!-- GSTACK2_BUG_FIX_END pr=1049 -->

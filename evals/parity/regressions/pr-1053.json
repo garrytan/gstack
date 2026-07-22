@@ -1,0 +1,19 @@
+{
+  "pr": 1053,
+  "url": "https://github.com/garrytan/gstack/pull/1053",
+  "title": "Keep the audit report-only unless --fix is passed",
+  "targets": [
+    "cso"
+  ],
+  "anchor": "GSTACK2_FIX_1053_FIX_MODE",
+  "body": "### Opt-in auto-fix boundary\n\nThe default audit is strictly report-only and mutates nothing. Auto-fixes apply only under an explicit `--fix` flag, and only for provably safe patterns where the correct change is deterministic and the breakage risk is near-zero (additive gitignore hardening, TLS-verification flips, non-breaking dependency patches). No business logic and no guessing. Without `--fix`, produce findings and remediation plans and change no files.",
+  "regression": {
+    "input": {
+      "fix_flag": false
+    },
+    "expected": {
+      "mutations_allowed": false,
+      "fix_requires": "--fix"
+    }
+  }
+}

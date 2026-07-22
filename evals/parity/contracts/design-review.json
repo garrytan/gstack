@@ -15,7 +15,8 @@
     679,
     1920,
     2030,
-    2189
+    2189,
+    696
   ],
   "contract": {
     "question_order": "Preserve the source workflow order; gather prerequisites before consequential questions.",

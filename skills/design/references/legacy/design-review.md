@@ -1124,3 +1124,13 @@ Persist a learning only when the interaction contains a useful, reusable signal 
 
 Accept a coherent design thesis expressed through product principles, visual rationale, interaction philosophy, or equivalent framing. Evaluate substance and consistency; do not require a literal “design thesis” heading or one exact vocabulary to award credit.
 <!-- GSTACK2_BUG_FIX_END pr=2189 -->
+
+<!-- GSTACK2_BUG_FIX_START pr=696 anchor=GSTACK2_FIX_696_COGNITIVE_LOAD -->
+## Upstream judgment port: PR #696
+
+[Score each screen on a cognitive-load scale](https://github.com/garrytan/gstack/pull/696)
+
+### Cognitive-load audit
+
+Rate every audited screen on a System 1 to System 2 scale from 0 to 10, grounded in browse data already collected (element counts, link counts, load times), not impression. Most screens should sit at S1 (0-3); higher scores are acceptable only as intentional friction such as destructive or financial decisions. For any screen above the threshold that is not deliberate friction, name the specific UX laws it breaks (Fitts, Hick, Jakob, Miller, Peak-End, Von Restorff, Zeigarnik, Gestalt) and cite the measurement that proves it.
+<!-- GSTACK2_BUG_FIX_END pr=696 -->
