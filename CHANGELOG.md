@@ -1,5 +1,45 @@
 # Changelog
 
+## [1.61.0.0] - 2026-07-22
+
+## **Browser work now ships with proof, not a request to trust the agent.**
+## **One tab becomes screenshots, a clean MP4, and a checked reviewer handoff.**
+
+gstack can now record the active browser tab without opening a second automation session or losing its cookies, viewport, and current state. The new `/visual-proof` skill turns a finished frontend change into a focused evidence package: start and result screenshots, an H.264 walkthrough when interaction or motion changed, a scrubbed JSON timeline, inspected frames, and a short verification manifest. It is deliberately browser-only. Terminal, CLI, and TUI applications remain outside the workflow, and every artifact stays local until the user explicitly approves publication.
+
+### The numbers that matter
+
+Source: `bun test browse/test/recording.test.ts`, which drives the real browser manager, records a form flow, probes the resulting media with ffprobe, and checks the timeline for leaked test values.
+
+| Metric | Before | After | Δ |
+|--------|--------|-------|---|
+| Native recording actions | 0 | 4 (`start`, `mark`, `status`, `stop`) | +4 |
+| Reviewable browser video formats | 0 | H.264, yuv420p MP4 | +1 |
+| Recording regression assertions | 0 | 18 across 2 tests | +18 |
+| Seeded sensitive values copied into the timeline | not guarded | 0 of 3 | fail closed |
+
+The recorder reuses one persistent Chromium tab and strips query strings and fragments from timeline metadata. Generic interaction markers describe intent without copying selectors, field values, cookies, or headers.
+
+### What this means for frontend engineers
+
+An agent can now finish a UI change and hand you evidence you can review immediately, using the same authenticated browser state it used for QA. Invoke `/visual-proof` directly or call it from a higher-level gate such as Jetpack. You still control the publishing boundary: local capture is automatic, PR attachment is a separate confirmation.
+
+### Itemized changes
+
+#### Added
+
+- `browse record start|mark|status|stop`, backed by Chrome screencast frames and ffmpeg finalization, with a JSON marker timeline beside the MP4.
+- `/visual-proof`, a cross-host workflow for capture planning, screenshots, interactive video, media validation, frame inspection, manifests, and confirmation-gated PR attachment.
+- Browser integration coverage for playable media, viewport dimensions, duration, pixel format, recording state, and timeline redaction.
+
+#### Changed
+
+- Browser command references, skill discovery, proactive routing, and user documentation now expose the recording and visual-proof workflow.
+
+#### For contributors
+
+- Contributed by @thomasrichmond.
+
 ## [1.60.1.0] - 2026-07-09
 
 ## **The /autoplan dual-voice eval is back on the board, catching real regressions.**
