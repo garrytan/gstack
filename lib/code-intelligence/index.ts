@@ -12,6 +12,8 @@ export {
   setProvider,
   setConsent,
   hasConsent,
+  setRoot,
+  getRoot,
   type Selection,
 } from "./selection";
 export {

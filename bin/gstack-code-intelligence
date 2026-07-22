@@ -29,6 +29,7 @@ import {
   resolveSelectedProvider,
   setConsent,
   setProvider,
+  setRoot,
   type CodeProviderId,
 } from "../lib/code-intelligence";
 
@@ -98,11 +99,15 @@ async function cmdIndex(pathArg: string | undefined): Promise<void> {
   if (!provider!.local && !consented) {
     fail(`${provider!.label} would send this repo's content off the machine. Run \`gstack-code-intelligence consent ${repoPath}\` first.`);
   }
-  const repo = { id: basename(repoPath), path: repoPath };
+  // Graphify keys sources on the repo path; GBrain/Sourcebot on a short id.
+  const sourceId = provider!.id === "graphify" ? repoPath : basename(repoPath);
+  const repo = { id: sourceId, path: repoPath };
   try {
     const registered = await provider!.registerSource(repo, { consented });
     out(`registered ${repo.id} with ${provider!.label} (${registered.state})`);
     const refreshed = await provider!.refresh({ id: registered.id }, { consented });
+    // Remember which repo this provider indexed so `search` reads the same graph.
+    setRoot(provider!.id, repoPath);
     out(`indexed: ${refreshed.state}${refreshed.itemCount != null ? ` (${refreshed.itemCount} items)` : ""}`);
   } catch (err) {
     handleProviderError(err, provider!.label);

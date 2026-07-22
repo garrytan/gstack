@@ -15,9 +15,9 @@
 
 import { localEngineStatus } from "../gbrain-local-status";
 import { GbrainProvider } from "./gbrain-adapter";
-import { GraphifyProvider, type GraphifyOptions } from "./graphify-adapter";
+import { GraphifyProvider, graphifyInstalled, type GraphifyOptions } from "./graphify-adapter";
 import { SourcebotProvider, type SourcebotOptions } from "./sourcebot-adapter";
-import { readSelection } from "./selection";
+import { readSelection, getRoot } from "./selection";
 import type { CodeProvider, CodeProviderId } from "./contract";
 
 /** Recommendation order — GBrain first. */
@@ -34,8 +34,12 @@ export function providerById(id: CodeProviderId, opts: PickerOptions = {}): Code
   switch (id) {
     case "gbrain":
       return new GbrainProvider();
-    case "graphify":
-      return new GraphifyProvider({ env: opts.env, ...opts.graphify });
+    case "graphify": {
+      // Default the graph root to the repo Graphify last indexed, so `search`
+      // reads the same graph `index` built (not whatever cwd happens to be).
+      const root = opts.graphify?.root ?? getRoot("graphify", opts.env);
+      return new GraphifyProvider({ env: opts.env, ...opts.graphify, ...(root ? { root } : {}) });
+    }
     case "sourcebot":
       return new SourcebotProvider({ env: opts.env, ...opts.sourcebot });
   }
@@ -65,14 +69,17 @@ export async function detectAvailable(opts: PickerOptions = {}): Promise<Availab
   const gbrainStatus = localEngineStatus({ env: opts.env });
   const gbrainOk = gbrainStatus === "ok" || gbrainStatus === "timeout";
 
-  let graphifyOk = false;
-  let graphifyDetail = "graphify CLI not installed";
-  try {
-    const s = await new GraphifyProvider({ env: opts.env, ...opts.graphify }).status();
-    graphifyOk = s.state === "ready";
-    graphifyDetail = graphifyOk ? "graph indexed in this repo" : "installed; no graph in this repo yet";
-  } catch {
-    graphifyOk = false;
+  // Available = the CLI is installed and selectable (NOT "a graph already exists
+  // here"). A freshly installed Graphify with no graph yet is still available.
+  const graphifyOk = graphifyInstalled(opts.env);
+  let graphifyDetail = "graphify CLI not installed (pip install graphifyy, Python >= 3.10)";
+  if (graphifyOk) {
+    try {
+      const s = await new GraphifyProvider({ env: opts.env, ...opts.graphify }).status();
+      graphifyDetail = s.state === "ready" ? "installed; graph built in this repo" : "installed; run `index` to build a graph";
+    } catch {
+      graphifyDetail = "installed";
+    }
   }
 
   let sourcebotOk = false;
