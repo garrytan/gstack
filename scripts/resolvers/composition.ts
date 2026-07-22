@@ -1,4 +1,4 @@
-import type { TemplateContext } from './types';
+import { runtimeRef, type TemplateContext } from './types';
 
 /**
  * {{INVOKE_SKILL:skill-name}} — emits prose instructing Claude to read
@@ -37,7 +37,11 @@ export function generateInvokeSkill(ctx: TemplateContext, args?: string[]): stri
 
   const allSkips = [...DEFAULT_SKIPS, ...extraSkips];
 
-  return `Read the \`/${skillName}\` skill file at \`${ctx.paths.skillRoot}/${skillName}/SKILL.md\` using the Read tool.
+  const externalName = skillName.startsWith('gstack-') ? skillName : `gstack-${skillName}`;
+  const skillPath = ctx.host === 'codex'
+    ? runtimeRef(ctx, `$GSTACK_SKILLS_DIR/${externalName}/SKILL.md`, `${externalName}/SKILL.md`, 'generated-entrypoint')
+    : `${ctx.paths.skillRoot}/${skillName}/SKILL.md`;
+  return `Read the \`/${skillName}\` skill file at \`${skillPath}\` using the Read tool.
 
 **If unreadable:** Skip with "Could not load /${skillName} — skipping." and continue.
 

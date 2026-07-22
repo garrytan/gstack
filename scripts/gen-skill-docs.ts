@@ -645,9 +645,14 @@ const GENERATED_HEADER = `<!-- AUTO-GENERATED from {{SOURCE}} — do not edit di
  * identical per-host treatment — a section's cross-references must rewrite the
  * same way the parent skill's do, or external hosts get wrong paths.
  */
-function applyHostRewrites(content: string, hostConfig: HostConfig): string {
+function applyHostRewrites(content: string, hostConfig: HostConfig, ctx?: TemplateContext): string {
   let result = content;
   for (const rewrite of hostConfig.pathRewrites) {
+    if (ctx && rewrite.dependency && result.includes(rewrite.from)) {
+      ctx.runtimeDependencies ??= [];
+      const edge = { ...rewrite.dependency, required: true as const, producer: 'typed-runtime-reference' as const };
+      if (!ctx.runtimeDependencies.some(item => item.destination === edge.destination && item.kind === edge.kind)) ctx.runtimeDependencies.push(edge);
+    }
     result = result.replaceAll(rewrite.from, rewrite.to);
   }
   if (hostConfig.toolRewrites) {
@@ -782,7 +787,7 @@ function processExternalHost(
 
   // Config-driven path + tool rewrites (shared with processSectionTemplate so
   // section cross-references get the same per-host treatment as SKILL.md).
-  result = applyHostRewrites(result, hostConfig);
+  result = applyHostRewrites(result, hostConfig, ctx);
 
   // Config-driven: generate metadata (e.g., openai.yaml for Codex)
   if (hostConfig.generation.generateMetadata && !symlinkLoop) {
@@ -795,7 +800,7 @@ function processExternalHost(
   return { content: result, outputPath, outputDir, symlinkLoop };
 }
 
-function processTemplate(tmplPath: string, host: Host = 'claude'): { outputPath: string; content: string; symlinkLoop?: boolean; catalogParts?: CatalogParts | null } {
+function processTemplate(tmplPath: string, host: Host = 'claude'): { outputPath: string; content: string; symlinkLoop?: boolean; catalogParts?: CatalogParts | null; runtimeDependencies: TemplateContext['runtimeDependencies'] } {
   const tmplContent = fs.readFileSync(tmplPath, 'utf-8');
   const relTmplPath = path.relative(ROOT, tmplPath);
   let outputPath = tmplPath.replace(/\.tmpl$/, '');
@@ -866,7 +871,7 @@ function processTemplate(tmplPath: string, host: Host = 'claude'): { outputPath:
   // --out-dir: repoint section-base paths to the out-dir (no-op otherwise).
   if (host === 'claude') content = rewriteSectionBase(content);
 
-  return { outputPath, content, symlinkLoop, catalogParts };
+  return { outputPath, content, symlinkLoop, catalogParts, runtimeDependencies: ctx.runtimeDependencies || [] };
 }
 
 /**
@@ -903,7 +908,7 @@ function processSectionTemplate(
 
   // External hosts: rewrite cross-reference paths/tools (no frontmatter to transform).
   if (host !== 'claude') {
-    content = applyHostRewrites(content, hostConfig);
+    content = applyHostRewrites(content, hostConfig, ctx);
   } else {
     // --out-dir: a section may cross-reference another section by absolute path;
     // repoint those to the out-dir too (no-op when --out-dir is unset).
@@ -963,7 +968,7 @@ for (const currentHost of hostsToRun) {
         if (currentHostConfig.generation.skipSkills.includes(dir)) continue;
       }
 
-      const { outputPath, content, symlinkLoop, catalogParts } = processTemplate(tmplPath, currentHost);
+      const { outputPath, content, symlinkLoop, catalogParts, runtimeDependencies } = processTemplate(tmplPath, currentHost);
       if (catalogParts) {
         // Root-skill detection: when the template lives at ROOT/SKILL.md.tmpl,
         // path.basename(path.dirname(tmplPath)) returns the repo's directory
@@ -998,6 +1003,9 @@ for (const currentHost of hostsToRun) {
         // skill dir created first.
         if (OUT_DIR) fs.mkdirSync(path.dirname(outputPath), { recursive: true });
         fs.writeFileSync(outputPath, content);
+        if (currentHost === 'codex') {
+          fs.writeFileSync(path.join(path.dirname(outputPath), 'runtime-dependencies.json'), `${JSON.stringify({ entrypoint: path.basename(path.dirname(outputPath)), dependencies: runtimeDependencies }, null, 2)}\n`);
+        }
         console.log(`GENERATED: ${relOutput}`);
       }
 

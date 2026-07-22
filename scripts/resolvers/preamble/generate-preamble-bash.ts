@@ -1,8 +1,18 @@
 import type { TemplateContext } from '../types';
 import { getHostConfig } from '../../../hosts/index';
+import { runtimeRef } from '../types';
 
 export function generatePreambleBash(ctx: TemplateContext): string {
   const hostConfig = getHostConfig(ctx.host);
+  const binDir = runtimeRef(ctx, ctx.paths.binDir, 'bin', 'executable');
+  if (ctx.host === 'codex') {
+    runtimeRef(ctx, '$GSTACK_BROWSE', 'browse/dist', 'executable');
+    runtimeRef(ctx, '$GSTACK_DESIGN', 'design/dist', 'executable');
+    runtimeRef(ctx, '$GSTACK_MAKE_PDF', 'make-pdf/dist', 'executable');
+    runtimeRef(ctx, '$GSTACK_ROOT/gstack-upgrade/SKILL.md', 'gstack-upgrade/SKILL.md', 'file');
+    runtimeRef(ctx, '$GSTACK_ROOT/ETHOS.md', 'ETHOS.md', 'file');
+    runtimeRef(ctx, '$GSTACK_ROOT/VERSION', 'VERSION', 'file');
+  }
   const runtimeRoot = hostConfig.usesEnvVars
     ? `_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 GSTACK_ROOT="$HOME/${hostConfig.globalRoot}"
@@ -10,13 +20,14 @@ GSTACK_ROOT="$HOME/${hostConfig.globalRoot}"
 GSTACK_BIN="$GSTACK_ROOT/bin"
 GSTACK_BROWSE="$GSTACK_ROOT/browse/dist"
 GSTACK_DESIGN="$GSTACK_ROOT/design/dist"
+GSTACK_MAKE_PDF="$GSTACK_ROOT/make-pdf/dist"
 `
     : '';
 
   return `## Preamble (run first)
 
 \`\`\`bash
-${runtimeRoot}_UPD=$(${ctx.paths.binDir}/gstack-update-check 2>/dev/null || ${ctx.paths.localSkillRoot}/bin/gstack-update-check 2>/dev/null || true)
+${runtimeRoot}_UPD=$(${binDir}/gstack-update-check 2>/dev/null || ${ctx.paths.localSkillRoot}/bin/gstack-update-check 2>/dev/null || true)
 [ -n "$_UPD" ] && echo "$_UPD" || true
 mkdir -p ~/.gstack/sessions
 touch ~/.gstack/sessions/"$PPID"

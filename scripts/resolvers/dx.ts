@@ -8,10 +8,10 @@
  * plan-devex-review/dx-hall-of-fame.md and are loaded on-demand per pass
  * to avoid prompt bloat.
  */
-import type { TemplateContext } from './types';
+import { runtimeRef, type TemplateContext } from './types';
 
 export function generateDxFramework(ctx: TemplateContext): string {
-  const hallOfFamePath = `${ctx.paths.skillRoot}/plan-devex-review/dx-hall-of-fame.md`;
+  const hallOfFamePath = runtimeRef(ctx, `${ctx.paths.skillRoot}/plan-devex-review/dx-hall-of-fame.md`, 'plan-devex-review/dx-hall-of-fame.md', 'file');
 
   return `## DX First Principles
 

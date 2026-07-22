@@ -1,4 +1,4 @@
-import type { TemplateContext } from '../types';
+import { runtimeRef, type TemplateContext } from '../types';
 
 /**
  * Writing Style preamble section.
@@ -18,7 +18,7 @@ export function generateWritingStyle(ctx: TemplateContext): string {
     return `## Writing Style\n\nTerse mode (build-time): skip jargon glossing, outcome-framing layer, and decision-impact closers. Lead with the answer.\n`;
   }
 
-  const jargonPath = `${ctx.paths.skillRoot}/scripts/jargon-list.json`;
+  const jargonPath = runtimeRef(ctx, `${ctx.paths.skillRoot}/scripts/jargon-list.json`, 'scripts/jargon-list.json', 'file');
 
   return `## Writing Style (skip entirely if \`EXPLAIN_LEVEL: terse\` appears in the preamble echo OR the user's current message explicitly requests terse / no-explanations output)
 

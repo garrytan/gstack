@@ -15,6 +15,8 @@
     "dev:design": "bun run design/src/cli.ts",
     "build:diagram-render": "cd lib/diagram-render && bun install && bun run scripts/build.ts",
     "gen:skill-docs": "bun run scripts/gen-skill-docs.ts",
+    "codex:contract": "bun run gen:skill-docs --host codex --model gpt && bun run scripts/codex-runtime-contract.ts generate",
+    "codex:contract:check": "bun run gen:skill-docs --host codex --model gpt --dry-run && bun run scripts/codex-runtime-contract.ts check",
     "gen:skill-docs:user": "bun run scripts/gen-skill-docs.ts --respect-detection",
     "dev": "bun run browse/src/cli.ts",
     "server": "bun run browse/src/server.ts",

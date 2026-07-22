@@ -94,3 +94,11 @@ export const SECTION_INDEX: ResolverFn = (ctx: TemplateContext, args?: string[])
   }
   return lines.join('\n');
 };
+
+export const SECTION_SELF_CHECK: ResolverFn = (ctx: TemplateContext, args?: string[]): string => {
+  const file = args?.[0];
+  if (!file) throw new Error('{{SECTION_SELF_CHECK:file}} requires a section filename');
+  return ctx.host === 'claude'
+    ? `Confirm you Read \`sections/${file}\` and executed it in full. If not, stop and Read it now.`
+    : `Confirm you executed the inlined \`${file}\` section in full, including every required output. If not, stop and complete it now.`;
+};

@@ -1879,7 +1879,7 @@ describe('Codex generation (--host codex)', () => {
     // but setup puts sidecars under .agents/skills/gstack/review/. Must match setup layout.
     const content = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-review', 'SKILL.md'), 'utf-8');
     // Correct: references to sidecar files use gstack/review/ path
-    expect(content).toContain('.agents/skills/gstack/review/checklist.md');
+    expect(content).toContain('$GSTACK_ROOT/review/checklist.md');
     // design-checklist.md is now referenced via Review Army specialist (Claude only, stripped for Codex)
     // Wrong: must NOT reference gstack-review/checklist.md (file doesn't exist there)
     expect(content).not.toContain('.agents/skills/gstack-review/checklist.md');
@@ -1889,7 +1889,7 @@ describe('Codex generation (--host codex)', () => {
     const content = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-ship', 'SKILL.md'), 'utf-8');
     // Ship references the review checklist in its pre-landing review step
     if (content.includes('checklist.md')) {
-      expect(content).toContain('.agents/skills/gstack/review/');
+      expect(content).toContain('$GSTACK_ROOT/review/');
       expect(content).not.toContain('.agents/skills/gstack-review/checklist');
     }
   });
@@ -1897,7 +1897,7 @@ describe('Codex generation (--host codex)', () => {
   test('greptile-triage sidecar path is correct', () => {
     const content = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-review', 'SKILL.md'), 'utf-8');
     if (content.includes('greptile-triage')) {
-      expect(content).toContain('.agents/skills/gstack/review/greptile-triage.md');
+      expect(content).toContain('$GSTACK_ROOT/review/greptile-triage.md');
       expect(content).not.toContain('.agents/skills/gstack-review/greptile-triage');
     }
   });

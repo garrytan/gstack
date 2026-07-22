@@ -1656,7 +1656,7 @@ selection in Phase 6 Beat 3.5.
 
 ## Section self-check (before you finish)
 
-Confirm you Read every section the Section index named as applying to this run, and executed it in full. The design doc and the handoff are the deliverables — if you produced them from memory without Reading `sections/design-and-handoff.md`, stop and Read it now.
+Confirm you Read `sections/design-and-handoff.md` and executed it in full. If not, stop and Read it now.
 
 ---
 

@@ -1481,7 +1481,7 @@ descriptions of what 10/10 looks like.
 
 ## Section self-check (before you finish)
 
-Confirm you Read the review section the Section index named, and executed all 7 design passes, the required outputs, and the review report in full. If you produced findings or the review report from memory without Reading `sections/review-sections.md`, stop and Read it now.
+Confirm you Read `sections/review-sections.md` and executed it in full. If not, stop and Read it now.
 
 ## EXIT PLAN MODE GATE (BLOCKING)
 

@@ -1017,7 +1017,7 @@ Always work through the full interactive review: one section at a time (Architec
 
 ## Section self-check (before you finish)
 
-Confirm you Read the review section the Section index named, and executed every review section (Architecture, Code Quality, Tests, Performance), the outside voice, and the required outputs in full. If you produced findings or the review report from memory without Reading `sections/review-sections.md`, stop and Read it now.
+Confirm you Read `sections/review-sections.md` and executed it in full. If not, stop and Read it now.
 
 ## EXIT PLAN MODE GATE (BLOCKING)
 

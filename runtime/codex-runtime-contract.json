@@ -1,0 +1,4013 @@
+{
+  "schema_version": 1,
+  "contract_version": "1.0.0",
+  "capabilities": [
+    {
+      "id": "gstack.spec",
+      "version": "1.0.0",
+      "description": "Codex spec workflow capability"
+    },
+    {
+      "id": "gstack.browse",
+      "version": "1.0.0",
+      "description": "Codex browse workflow capability"
+    },
+    {
+      "id": "gstack.qa",
+      "version": "1.0.0",
+      "description": "Codex qa workflow capability"
+    },
+    {
+      "id": "gstack.design-review",
+      "version": "1.0.0",
+      "description": "Codex design-review workflow capability"
+    },
+    {
+      "id": "gstack.investigate",
+      "version": "1.0.0",
+      "description": "Codex investigate workflow capability"
+    },
+    {
+      "id": "gstack.office-hours",
+      "version": "1.0.0",
+      "description": "Codex office-hours workflow capability"
+    },
+    {
+      "id": "gstack.workflow-routing",
+      "version": "1.0.0",
+      "description": "Codex workflow-routing workflow capability"
+    },
+    {
+      "id": "agent.dispatch",
+      "version": "1.0.0",
+      "description": "Native Codex subagent dispatch in generated workflows"
+    },
+    {
+      "id": "codex.runtime.asset-plan",
+      "version": "1.0.0",
+      "description": "Codex runtime asset-plan"
+    },
+    {
+      "id": "codex.runtime.dependency-closure",
+      "version": "1.0.0",
+      "description": "Codex runtime dependency-closure"
+    },
+    {
+      "id": "codex.runtime.read-only-health",
+      "version": "1.0.0",
+      "description": "Codex runtime read-only-health"
+    },
+    {
+      "id": "codex.runtime.atomic-install",
+      "version": "1.0.0",
+      "description": "Codex runtime atomic-install"
+    },
+    {
+      "id": "codex.runtime.invocation-preflight",
+      "version": "1.0.0",
+      "description": "Codex runtime invocation-preflight"
+    }
+  ],
+  "requirements": [
+    {
+      "id": "codex-cli",
+      "kind": "executable-version",
+      "required": true,
+      "names": [
+        "codex"
+      ],
+      "versionRange": ">=0.144.0",
+      "description": "Codex CLI with hooks and repository skill support"
+    },
+    {
+      "id": "bun-runtime",
+      "kind": "executable-version",
+      "required": true,
+      "names": [
+        "bun"
+      ],
+      "versionRange": ">=1.2.0",
+      "description": "Runtime executor"
+    },
+    {
+      "id": "git-runtime",
+      "kind": "executable-version",
+      "required": true,
+      "names": [
+        "git"
+      ],
+      "versionRange": ">=2.30.0",
+      "description": "Source identity"
+    },
+    {
+      "id": "codex-auth-config",
+      "kind": "config-presence",
+      "required": true,
+      "names": [
+        "auth.json",
+        "config.toml"
+      ],
+      "description": "Codex auth/config present without recording values"
+    },
+    {
+      "id": "filesystem-trust",
+      "kind": "permission",
+      "required": true,
+      "names": [
+        "read-runtime-root",
+        "execute-bin"
+      ],
+      "description": "Runtime readable and executable"
+    },
+    {
+      "id": "provider-tools",
+      "kind": "tool-provider",
+      "required": false,
+      "names": [
+        "mcp",
+        "connectors"
+      ],
+      "description": "Optional providers"
+    },
+    {
+      "id": "network-runtime",
+      "kind": "network",
+      "required": false,
+      "description": "Optional outbound network"
+    },
+    {
+      "id": "network-required",
+      "kind": "network",
+      "required": true,
+      "description": "Outbound network"
+    },
+    {
+      "id": "github-cli",
+      "kind": "executable-version",
+      "required": true,
+      "names": [
+        "gh"
+      ],
+      "versionRange": ">=2.40.0",
+      "description": "GitHub operations"
+    },
+    {
+      "id": "browser-runtime",
+      "kind": "tool-provider",
+      "required": true,
+      "names": [
+        "gstack-browse"
+      ],
+      "description": "Bundled browser runtime"
+    },
+    {
+      "id": "openai-image-config",
+      "kind": "config-presence",
+      "required": true,
+      "names": [
+        "OPENAI_API_KEY"
+      ],
+      "description": "OpenAI image configuration"
+    },
+    {
+      "id": "supported-os",
+      "kind": "platform",
+      "required": true,
+      "platforms": [
+        "darwin",
+        "linux"
+      ],
+      "description": "Supported OS"
+    }
+  ],
+  "assets": [
+    {
+      "source": ".agents/skills/gstack/SKILL.md",
+      "destination": "SKILL.md",
+      "kind": "generated-file",
+      "targets": [
+        "global",
+        "sidecar"
+      ],
+      "present": true,
+      "content_sha256": "cdcb575dff0aa3f57e4f47c29a83f34a48f1806ea6843ae5c35e1c0a25ffaf46"
+    },
+    {
+      "source": ".agents/skills/gstack/agents/openai.yaml",
+      "destination": "agents/openai.yaml",
+      "kind": "generated-file",
+      "targets": [
+        "global",
+        "sidecar"
+      ],
+      "present": true,
+      "content_sha256": "24e83693496d89d2bc9ae73b022a098574c725d04c9deda6ebe4acdae0b8082b"
+    },
+    {
+      "source": ".agents/skills/gstack/runtime-dependencies.json",
+      "destination": "runtime-dependencies.json",
+      "kind": "generated-file",
+      "targets": [
+        "global",
+        "sidecar"
+      ],
+      "present": true,
+      "content_sha256": "ff5fff5cf570ba0b33e2ce458386d2ee1424b416760ff25e29c1d7de9b73db1a"
+    },
+    {
+      "source": "bin",
+      "destination": "bin",
+      "kind": "directory",
+      "targets": [
+        "global",
+        "sidecar"
+      ],
+      "present": true,
+      "content_sha256": "4754be5ec0154c3f7146f1e8003a3eacef6c61c7eb030210c23c5ebcc529ad0a"
+    },
+    {
+      "source": "browse/dist",
+      "destination": "browse/dist",
+      "kind": "directory",
+      "targets": [
+        "global",
+        "sidecar"
+      ],
+      "materializeAtInstall": true,
+      "present": false,
+      "content_sha256": null
+    },
+    {
+      "source": "browse/bin",
+      "destination": "browse/bin",
+      "kind": "directory",
+      "targets": [
+        "global",
+        "sidecar"
+      ],
+      "present": true,
+      "content_sha256": "4c9d3efb39a5169780906a70c947e8f6ea9c6b5d09c1d2455573fff0033a1700"
+    },
+    {
+      "source": "design/dist",
+      "destination": "design/dist",
+      "kind": "directory",
+      "targets": [
+        "global",
+        "sidecar"
+      ],
+      "materializeAtInstall": true,
+      "present": false,
+      "content_sha256": null
+    },
+    {
+      "source": "make-pdf/dist",
+      "destination": "make-pdf/dist",
+      "kind": "directory",
+      "targets": [
+        "global",
+        "sidecar"
+      ],
+      "materializeAtInstall": true,
+      "present": false,
+      "content_sha256": null
+    },
+    {
+      "source": ".agents/skills/gstack-upgrade/SKILL.md",
+      "destination": "gstack-upgrade/SKILL.md",
+      "kind": "generated-file",
+      "targets": [
+        "global",
+        "sidecar"
+      ],
+      "present": true,
+      "content_sha256": "d2d1a605a2da2afa87bc0d2ea2952bbe13a57da397c0b67213dd26f34f5e60a3"
+    },
+    {
+      "source": "review/checklist.md",
+      "destination": "review/checklist.md",
+      "kind": "file",
+      "targets": [
+        "global",
+        "sidecar"
+      ],
+      "present": true,
+      "content_sha256": "1fb9c5eafa0db7c95156559deea07c77f388fb47db27aeee8ab3ca1ee1f7ad7c"
+    },
+    {
+      "source": "review/design-checklist.md",
+      "destination": "review/design-checklist.md",
+      "kind": "file",
+      "targets": [
+        "global",
+        "sidecar"
+      ],
+      "present": true,
+      "content_sha256": "e6f4ac34f034005c7fc91e4008bb8101a0973a26230b86b50c4f580182e6c8bb"
+    },
+    {
+      "source": "review/greptile-triage.md",
+      "destination": "review/greptile-triage.md",
+      "kind": "file",
+      "targets": [
+        "global",
+        "sidecar"
+      ],
+      "present": true,
+      "content_sha256": "60fbc224b9b54c0d1fea884d5caf5b1b03957c07fccddb9ba7cedff988920bbd"
+    },
+    {
+      "source": "review/TODOS-format.md",
+      "destination": "review/TODOS-format.md",
+      "kind": "file",
+      "targets": [
+        "global",
+        "sidecar"
+      ],
+      "present": true,
+      "content_sha256": "faf7774c45356ee7990cba0289ca71bf77491394608052e4f711f5436046613c"
+    },
+    {
+      "source": "review/specialists",
+      "destination": "review/specialists",
+      "kind": "directory",
+      "targets": [
+        "global",
+        "sidecar"
+      ],
+      "present": true,
+      "content_sha256": "a307b462f785c5de9cad0f117f1e7c590ec30c617f2e3b68c831a1058f184539"
+    },
+    {
+      "source": "qa/templates",
+      "destination": "qa/templates",
+      "kind": "directory",
+      "targets": [
+        "global",
+        "sidecar"
+      ],
+      "present": true,
+      "content_sha256": "6eb8c48d26fcce18566ba61250278c7bc355719c2187899f0fc75a8d86ae93ce"
+    },
+    {
+      "source": "qa/references",
+      "destination": "qa/references",
+      "kind": "directory",
+      "targets": [
+        "global",
+        "sidecar"
+      ],
+      "present": true,
+      "content_sha256": "ace79c6b89f8b0bc8c577392236f37889302810994ab52ac9d7295a589c86e8c"
+    },
+    {
+      "source": "plan-devex-review/dx-hall-of-fame.md",
+      "destination": "plan-devex-review/dx-hall-of-fame.md",
+      "kind": "file",
+      "targets": [
+        "global",
+        "sidecar"
+      ],
+      "present": true,
+      "content_sha256": "661c199d78437f0b9f7f94d1691c3dd70076dd3dfaca8274bec36d41597b83a2"
+    },
+    {
+      "source": "lib",
+      "destination": "lib",
+      "kind": "directory",
+      "targets": [
+        "global",
+        "sidecar"
+      ],
+      "present": true,
+      "content_sha256": "2bbbd10d5b9fe785df99f35fc1629273a2881c79e7584e3ff6bbfef33ca18b46"
+    },
+    {
+      "source": "scripts/jargon-list.json",
+      "destination": "scripts/jargon-list.json",
+      "kind": "file",
+      "targets": [
+        "global",
+        "sidecar"
+      ],
+      "present": true,
+      "content_sha256": "cde02f2478022a5cd82e12cf07bfbfe8faed8a9b331026b68efb0aee2a9728b2"
+    },
+    {
+      "source": "design-html/vendor/pretext.js",
+      "destination": "design-html/vendor/pretext.js",
+      "kind": "file",
+      "targets": [
+        "global",
+        "sidecar"
+      ],
+      "present": true,
+      "content_sha256": "c85e755d86d33718e66978d18a2733eb5d11cf44747f58846bd390ed0d6f24e7"
+    },
+    {
+      "source": "VERSION",
+      "destination": "VERSION",
+      "kind": "file",
+      "targets": [
+        "global",
+        "sidecar"
+      ],
+      "present": true,
+      "content_sha256": "a05442e1220521c44bac111462a2a311da807c141cbefba49249f2e8599f44bb"
+    },
+    {
+      "source": "runtime/codex-runtime-contract.json",
+      "destination": "runtime/codex-runtime-contract.json",
+      "kind": "file",
+      "targets": [
+        "global",
+        "sidecar"
+      ],
+      "present": true,
+      "content_sha256": null
+    },
+    {
+      "source": "codex/hooks/gstack-runtime-health.json",
+      "destination": "codex/hooks/gstack-runtime-health.json",
+      "kind": "file",
+      "targets": [
+        "global",
+        "sidecar"
+      ],
+      "present": false,
+      "content_sha256": null
+    },
+    {
+      "source": "codex/hooks/ensure-gstack-model.sh",
+      "destination": "codex/hooks/ensure-gstack-model.sh",
+      "kind": "file",
+      "targets": [
+        "global",
+        "sidecar"
+      ],
+      "present": false,
+      "content_sha256": null
+    },
+    {
+      "source": "scripts/codex-hook-config.ts",
+      "destination": "scripts/codex-hook-config.ts",
+      "kind": "file",
+      "targets": [
+        "global",
+        "sidecar"
+      ],
+      "present": false,
+      "content_sha256": null
+    },
+    {
+      "source": "scripts/codex-hook-state.ts",
+      "destination": "scripts/codex-hook-state.ts",
+      "kind": "file",
+      "targets": [
+        "global",
+        "sidecar"
+      ],
+      "present": false,
+      "content_sha256": null
+    },
+    {
+      "source": "ETHOS.md",
+      "destination": "ETHOS.md",
+      "kind": "file",
+      "targets": [
+        "global",
+        "sidecar"
+      ],
+      "present": true,
+      "content_sha256": "dedb0b945ce542b6a5da8af99b974a88a71465870978f3831c4a01d18db8e57b"
+    }
+  ],
+  "entrypoints": [
+    {
+      "name": "gstack-autoplan",
+      "source_skill": "autoplan",
+      "content_sha256": "2b0bccccde094d605bd32a1db88786ff68678082d9410e600b7e54b750fa1230",
+      "requirements": {
+        "inherited": [
+          "codex-cli",
+          "bun-runtime",
+          "git-runtime",
+          "codex-auth-config",
+          "filesystem-trust",
+          "supported-os"
+        ],
+        "explicit": []
+      },
+      "dependencies": [
+        {
+          "destination": "bin",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "browse/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "design/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "make-pdf/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "gstack-upgrade/SKILL.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "ETHOS.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "VERSION",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "scripts/jargon-list.json",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "gstack-office-hours/SKILL.md",
+          "kind": "generated-entrypoint",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "browse/bin",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "gstack-plan-ceo-review/SKILL.md",
+          "kind": "generated-entrypoint",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "gstack-plan-design-review/SKILL.md",
+          "kind": "generated-entrypoint",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "gstack-plan-devex-review/SKILL.md",
+          "kind": "generated-entrypoint",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "gstack-plan-eng-review/SKILL.md",
+          "kind": "generated-entrypoint",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        }
+      ]
+    },
+    {
+      "name": "gstack-benchmark",
+      "source_skill": "benchmark",
+      "content_sha256": "db7e786a1fc52d08457555ddd9e832ab5154bfdb1be15591f4d4e94a8d5004da",
+      "requirements": {
+        "inherited": [
+          "codex-cli",
+          "bun-runtime",
+          "git-runtime",
+          "codex-auth-config",
+          "filesystem-trust",
+          "supported-os"
+        ],
+        "explicit": [
+          "browser-runtime",
+          "network-required"
+        ]
+      },
+      "dependencies": [
+        {
+          "destination": "bin",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "browse/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "design/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "make-pdf/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "gstack-upgrade/SKILL.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "ETHOS.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "VERSION",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        }
+      ]
+    },
+    {
+      "name": "gstack-benchmark-models",
+      "source_skill": "benchmark-models",
+      "content_sha256": "2f7e679164800b1f722c071d4df50840b2a6bd3722327fce13fbb04bc5cbb2f6",
+      "requirements": {
+        "inherited": [
+          "codex-cli",
+          "bun-runtime",
+          "git-runtime",
+          "codex-auth-config",
+          "filesystem-trust",
+          "supported-os"
+        ],
+        "explicit": []
+      },
+      "dependencies": [
+        {
+          "destination": "bin",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "browse/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "design/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "make-pdf/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "gstack-upgrade/SKILL.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "ETHOS.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "VERSION",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        }
+      ]
+    },
+    {
+      "name": "gstack-browse",
+      "source_skill": "browse",
+      "content_sha256": "1b515fa7419c7fbce3b97d2a0a1bf8f35300fbe90ece98c374829bd6ab3139a4",
+      "requirements": {
+        "inherited": [
+          "codex-cli",
+          "bun-runtime",
+          "git-runtime",
+          "codex-auth-config",
+          "filesystem-trust",
+          "supported-os"
+        ],
+        "explicit": [
+          "browser-runtime",
+          "network-required"
+        ]
+      },
+      "dependencies": [
+        {
+          "destination": "bin",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "browse/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "design/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "make-pdf/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "gstack-upgrade/SKILL.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "ETHOS.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "VERSION",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        }
+      ]
+    },
+    {
+      "name": "gstack-canary",
+      "source_skill": "canary",
+      "content_sha256": "9b3a7c120fdb5a213469e5a127ea054dfc940109703423ae32815d7543c68859",
+      "requirements": {
+        "inherited": [
+          "codex-cli",
+          "bun-runtime",
+          "git-runtime",
+          "codex-auth-config",
+          "filesystem-trust",
+          "supported-os"
+        ],
+        "explicit": [
+          "browser-runtime",
+          "network-required"
+        ]
+      },
+      "dependencies": [
+        {
+          "destination": "bin",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "browse/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "design/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "make-pdf/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "gstack-upgrade/SKILL.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "ETHOS.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "VERSION",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "scripts/jargon-list.json",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        }
+      ]
+    },
+    {
+      "name": "gstack-careful",
+      "source_skill": "careful",
+      "content_sha256": "6c26a7f8d9feb4d155875440b01303236bdc482cf4c0b6d447221a04a519255b",
+      "requirements": {
+        "inherited": [
+          "codex-cli",
+          "bun-runtime",
+          "git-runtime",
+          "codex-auth-config",
+          "filesystem-trust",
+          "supported-os"
+        ],
+        "explicit": []
+      },
+      "dependencies": []
+    },
+    {
+      "name": "gstack-claude",
+      "source_skill": "claude",
+      "content_sha256": "522e31cdeae085325cc80a602ce3982998e1cb3eb5274a6d37008e6781111024",
+      "requirements": {
+        "inherited": [
+          "codex-cli",
+          "bun-runtime",
+          "git-runtime",
+          "codex-auth-config",
+          "filesystem-trust",
+          "supported-os"
+        ],
+        "explicit": []
+      },
+      "dependencies": [
+        {
+          "destination": "bin",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "browse/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "design/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "make-pdf/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "gstack-upgrade/SKILL.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "ETHOS.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "VERSION",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "scripts/jargon-list.json",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        }
+      ]
+    },
+    {
+      "name": "gstack-context-restore",
+      "source_skill": "context-restore",
+      "content_sha256": "66ebdec7d3e73f4b3decf9ec012ef407339c64c26019b93971c5ec8eca9675a7",
+      "requirements": {
+        "inherited": [
+          "codex-cli",
+          "bun-runtime",
+          "git-runtime",
+          "codex-auth-config",
+          "filesystem-trust",
+          "supported-os"
+        ],
+        "explicit": []
+      },
+      "dependencies": [
+        {
+          "destination": "bin",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "browse/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "design/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "make-pdf/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "gstack-upgrade/SKILL.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "ETHOS.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "VERSION",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "scripts/jargon-list.json",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        }
+      ]
+    },
+    {
+      "name": "gstack-context-save",
+      "source_skill": "context-save",
+      "content_sha256": "87d5d67f9453869e47c2ac8070e4a9d05852e45e290eccfa8f501adce6bd1faa",
+      "requirements": {
+        "inherited": [
+          "codex-cli",
+          "bun-runtime",
+          "git-runtime",
+          "codex-auth-config",
+          "filesystem-trust",
+          "supported-os"
+        ],
+        "explicit": []
+      },
+      "dependencies": [
+        {
+          "destination": "bin",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "browse/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "design/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "make-pdf/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "gstack-upgrade/SKILL.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "ETHOS.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "VERSION",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "scripts/jargon-list.json",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        }
+      ]
+    },
+    {
+      "name": "gstack-cso",
+      "source_skill": "cso",
+      "content_sha256": "3ea079573b7f9791eb75e4146843c6af542215a552fcf87f18918f6cde6b26d6",
+      "requirements": {
+        "inherited": [
+          "codex-cli",
+          "bun-runtime",
+          "git-runtime",
+          "codex-auth-config",
+          "filesystem-trust",
+          "supported-os"
+        ],
+        "explicit": []
+      },
+      "dependencies": [
+        {
+          "destination": "bin",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "browse/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "design/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "make-pdf/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "gstack-upgrade/SKILL.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "ETHOS.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "VERSION",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "scripts/jargon-list.json",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        }
+      ]
+    },
+    {
+      "name": "gstack-design-consultation",
+      "source_skill": "design-consultation",
+      "content_sha256": "a1c49a7c6ea9abca12d25f4f0c637e450d2baac527304d1a07de136785138894",
+      "requirements": {
+        "inherited": [
+          "codex-cli",
+          "bun-runtime",
+          "git-runtime",
+          "codex-auth-config",
+          "filesystem-trust",
+          "supported-os"
+        ],
+        "explicit": [
+          "openai-image-config",
+          "network-required"
+        ]
+      },
+      "dependencies": [
+        {
+          "destination": "bin",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "browse/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "design/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "make-pdf/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "gstack-upgrade/SKILL.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "ETHOS.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "VERSION",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "scripts/jargon-list.json",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        }
+      ]
+    },
+    {
+      "name": "gstack-design-html",
+      "source_skill": "design-html",
+      "content_sha256": "ed9319c4d1871b78b3ae4d72dedfdc9ccf8205c677e012bc28489e53ec4d1021",
+      "requirements": {
+        "inherited": [
+          "codex-cli",
+          "bun-runtime",
+          "git-runtime",
+          "codex-auth-config",
+          "filesystem-trust",
+          "supported-os"
+        ],
+        "explicit": [
+          "openai-image-config",
+          "network-required"
+        ]
+      },
+      "dependencies": [
+        {
+          "destination": "bin",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "browse/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "design/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "make-pdf/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "gstack-upgrade/SKILL.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "ETHOS.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "VERSION",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "scripts/jargon-list.json",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "design-html/vendor/pretext.js",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        }
+      ]
+    },
+    {
+      "name": "gstack-design-review",
+      "source_skill": "design-review",
+      "content_sha256": "8a6f6e7447534906426add656233dabfa6482a1ac060ef66f6d8fc87ca5dfdd1",
+      "requirements": {
+        "inherited": [
+          "codex-cli",
+          "bun-runtime",
+          "git-runtime",
+          "codex-auth-config",
+          "filesystem-trust",
+          "supported-os"
+        ],
+        "explicit": [
+          "openai-image-config",
+          "network-required"
+        ]
+      },
+      "dependencies": [
+        {
+          "destination": "bin",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "browse/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "design/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "make-pdf/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "gstack-upgrade/SKILL.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "ETHOS.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "VERSION",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "scripts/jargon-list.json",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        }
+      ]
+    },
+    {
+      "name": "gstack-design-shotgun",
+      "source_skill": "design-shotgun",
+      "content_sha256": "f0ea71167d71a8b9e22c6fd8a9225733aadcd9d7c71cda2987611ba8b102632d",
+      "requirements": {
+        "inherited": [
+          "codex-cli",
+          "bun-runtime",
+          "git-runtime",
+          "codex-auth-config",
+          "filesystem-trust",
+          "supported-os"
+        ],
+        "explicit": [
+          "openai-image-config",
+          "network-required"
+        ]
+      },
+      "dependencies": [
+        {
+          "destination": "bin",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "browse/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "design/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "make-pdf/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "gstack-upgrade/SKILL.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "ETHOS.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "VERSION",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "scripts/jargon-list.json",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        }
+      ]
+    },
+    {
+      "name": "gstack-devex-review",
+      "source_skill": "devex-review",
+      "content_sha256": "c375141aa4a2bb8454c4301e451665e027aeaef718181a2568ef2d0874d704d5",
+      "requirements": {
+        "inherited": [
+          "codex-cli",
+          "bun-runtime",
+          "git-runtime",
+          "codex-auth-config",
+          "filesystem-trust",
+          "supported-os"
+        ],
+        "explicit": []
+      },
+      "dependencies": [
+        {
+          "destination": "bin",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "browse/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "design/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "make-pdf/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "gstack-upgrade/SKILL.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "ETHOS.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "VERSION",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "scripts/jargon-list.json",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "plan-devex-review/dx-hall-of-fame.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        }
+      ]
+    },
+    {
+      "name": "gstack-diagram",
+      "source_skill": "diagram",
+      "content_sha256": "120c13f5a3447c690c721abd10c7e1e1bf2bf17d604c3ff13ed6843ce03c6e94",
+      "requirements": {
+        "inherited": [
+          "codex-cli",
+          "bun-runtime",
+          "git-runtime",
+          "codex-auth-config",
+          "filesystem-trust",
+          "supported-os"
+        ],
+        "explicit": []
+      },
+      "dependencies": [
+        {
+          "destination": "bin",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "browse/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "design/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "make-pdf/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "gstack-upgrade/SKILL.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "ETHOS.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "VERSION",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "scripts/jargon-list.json",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        }
+      ]
+    },
+    {
+      "name": "gstack-document-generate",
+      "source_skill": "document-generate",
+      "content_sha256": "864cc3240bc1e3f10591c079207f0a9b3fefe4f2f00484ebdaab4e7fcfaf064f",
+      "requirements": {
+        "inherited": [
+          "codex-cli",
+          "bun-runtime",
+          "git-runtime",
+          "codex-auth-config",
+          "filesystem-trust",
+          "supported-os"
+        ],
+        "explicit": [
+          "github-cli",
+          "network-required"
+        ]
+      },
+      "dependencies": [
+        {
+          "destination": "bin",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "browse/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "design/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "make-pdf/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "gstack-upgrade/SKILL.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "ETHOS.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "VERSION",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "scripts/jargon-list.json",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        }
+      ]
+    },
+    {
+      "name": "gstack-document-release",
+      "source_skill": "document-release",
+      "content_sha256": "cd6cd28c01efcf6de5dc083c63c20756eac5046bf9e3b89ff36325b92716f4f0",
+      "requirements": {
+        "inherited": [
+          "codex-cli",
+          "bun-runtime",
+          "git-runtime",
+          "codex-auth-config",
+          "filesystem-trust",
+          "supported-os"
+        ],
+        "explicit": [
+          "github-cli",
+          "network-required"
+        ]
+      },
+      "dependencies": [
+        {
+          "destination": "bin",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "browse/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "design/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "make-pdf/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "gstack-upgrade/SKILL.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "ETHOS.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "VERSION",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "scripts/jargon-list.json",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        }
+      ]
+    },
+    {
+      "name": "gstack-freeze",
+      "source_skill": "freeze",
+      "content_sha256": "aa46e5cc6f7206f933e320aafccb9e5dc140257599af84b695eace81ac3cea9a",
+      "requirements": {
+        "inherited": [
+          "codex-cli",
+          "bun-runtime",
+          "git-runtime",
+          "codex-auth-config",
+          "filesystem-trust",
+          "supported-os"
+        ],
+        "explicit": []
+      },
+      "dependencies": [
+        {
+          "destination": "bin",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        }
+      ]
+    },
+    {
+      "name": "gstack",
+      "source_skill": "gstack",
+      "content_sha256": "f441fdf2f894df28e4459717812698a89c010cd149a2102362f250c819d92c6b",
+      "requirements": {
+        "inherited": [
+          "codex-cli",
+          "bun-runtime",
+          "git-runtime",
+          "codex-auth-config",
+          "filesystem-trust",
+          "supported-os"
+        ],
+        "explicit": []
+      },
+      "dependencies": [
+        {
+          "destination": "bin",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "browse/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "design/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "make-pdf/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "gstack-upgrade/SKILL.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "ETHOS.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "VERSION",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        }
+      ]
+    },
+    {
+      "name": "gstack-upgrade",
+      "source_skill": "gstack-upgrade",
+      "content_sha256": "59e0a0d6aecf3e5338dd97e54119f002ca3271b835d44bbef8b8c09ef906c2f6",
+      "requirements": {
+        "inherited": [
+          "codex-cli",
+          "bun-runtime",
+          "git-runtime",
+          "codex-auth-config",
+          "filesystem-trust",
+          "supported-os"
+        ],
+        "explicit": []
+      },
+      "dependencies": [
+        {
+          "destination": "bin",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        }
+      ]
+    },
+    {
+      "name": "gstack-guard",
+      "source_skill": "guard",
+      "content_sha256": "a32df2c997538420cd039c2c9cf0d02a4cc91805a636b03b46e9b69032e672c9",
+      "requirements": {
+        "inherited": [
+          "codex-cli",
+          "bun-runtime",
+          "git-runtime",
+          "codex-auth-config",
+          "filesystem-trust",
+          "supported-os"
+        ],
+        "explicit": []
+      },
+      "dependencies": [
+        {
+          "destination": "bin",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        }
+      ]
+    },
+    {
+      "name": "gstack-health",
+      "source_skill": "health",
+      "content_sha256": "23c1957e3a62a39b6db7e8a199b6de1756ce5190c2f86428c2a91d6d9617bf74",
+      "requirements": {
+        "inherited": [
+          "codex-cli",
+          "bun-runtime",
+          "git-runtime",
+          "codex-auth-config",
+          "filesystem-trust",
+          "supported-os"
+        ],
+        "explicit": []
+      },
+      "dependencies": [
+        {
+          "destination": "bin",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "browse/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "design/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "make-pdf/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "gstack-upgrade/SKILL.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "ETHOS.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "VERSION",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "scripts/jargon-list.json",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        }
+      ]
+    },
+    {
+      "name": "gstack-investigate",
+      "source_skill": "investigate",
+      "content_sha256": "1e4a0764cfc484967ac3afe6356262b7b3f8676cdd8e445ab3f21c2582e6a973",
+      "requirements": {
+        "inherited": [
+          "codex-cli",
+          "bun-runtime",
+          "git-runtime",
+          "codex-auth-config",
+          "filesystem-trust",
+          "supported-os"
+        ],
+        "explicit": []
+      },
+      "dependencies": [
+        {
+          "destination": "bin",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "browse/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "design/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "make-pdf/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "gstack-upgrade/SKILL.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "ETHOS.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "VERSION",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "scripts/jargon-list.json",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        }
+      ]
+    },
+    {
+      "name": "gstack-ios-clean",
+      "source_skill": "ios-clean",
+      "content_sha256": "6bedd7cb979db18ba9f12335414498868bfa9ce084174c46be823e8e0025857b",
+      "requirements": {
+        "inherited": [
+          "codex-cli",
+          "bun-runtime",
+          "git-runtime",
+          "codex-auth-config",
+          "filesystem-trust",
+          "supported-os"
+        ],
+        "explicit": []
+      },
+      "dependencies": [
+        {
+          "destination": "bin",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "browse/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "design/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "make-pdf/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "gstack-upgrade/SKILL.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "ETHOS.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "VERSION",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "scripts/jargon-list.json",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        }
+      ]
+    },
+    {
+      "name": "gstack-ios-design-review",
+      "source_skill": "ios-design-review",
+      "content_sha256": "0f47527fab3016a9d16d3744e623ae16e1ef0b610972168501c757f4ada1c7e7",
+      "requirements": {
+        "inherited": [
+          "codex-cli",
+          "bun-runtime",
+          "git-runtime",
+          "codex-auth-config",
+          "filesystem-trust",
+          "supported-os"
+        ],
+        "explicit": []
+      },
+      "dependencies": [
+        {
+          "destination": "bin",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "browse/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "design/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "make-pdf/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "gstack-upgrade/SKILL.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "ETHOS.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "VERSION",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "scripts/jargon-list.json",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        }
+      ]
+    },
+    {
+      "name": "gstack-ios-fix",
+      "source_skill": "ios-fix",
+      "content_sha256": "f2208520e76f95ebf9e36f4242d5e07ee2826e5cb351510a7ea69200ab4aa412",
+      "requirements": {
+        "inherited": [
+          "codex-cli",
+          "bun-runtime",
+          "git-runtime",
+          "codex-auth-config",
+          "filesystem-trust",
+          "supported-os"
+        ],
+        "explicit": []
+      },
+      "dependencies": [
+        {
+          "destination": "bin",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "browse/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "design/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "make-pdf/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "gstack-upgrade/SKILL.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "ETHOS.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "VERSION",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "scripts/jargon-list.json",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        }
+      ]
+    },
+    {
+      "name": "gstack-ios-qa",
+      "source_skill": "ios-qa",
+      "content_sha256": "18050f4f0e18f437c4bd4ff77db8952abbb1e62fa675ab12232d6103e571d73f",
+      "requirements": {
+        "inherited": [
+          "codex-cli",
+          "bun-runtime",
+          "git-runtime",
+          "codex-auth-config",
+          "filesystem-trust",
+          "supported-os"
+        ],
+        "explicit": []
+      },
+      "dependencies": [
+        {
+          "destination": "bin",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "browse/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "design/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "make-pdf/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "gstack-upgrade/SKILL.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "ETHOS.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "VERSION",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "scripts/jargon-list.json",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        }
+      ]
+    },
+    {
+      "name": "gstack-ios-sync",
+      "source_skill": "ios-sync",
+      "content_sha256": "71aabf26c3940db41e2c5e0059e2ffefc128267545cda66dc2e3496b8d91ad96",
+      "requirements": {
+        "inherited": [
+          "codex-cli",
+          "bun-runtime",
+          "git-runtime",
+          "codex-auth-config",
+          "filesystem-trust",
+          "supported-os"
+        ],
+        "explicit": []
+      },
+      "dependencies": [
+        {
+          "destination": "bin",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "browse/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "design/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "make-pdf/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "gstack-upgrade/SKILL.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "ETHOS.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "VERSION",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "scripts/jargon-list.json",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        }
+      ]
+    },
+    {
+      "name": "gstack-land-and-deploy",
+      "source_skill": "land-and-deploy",
+      "content_sha256": "27fa2949742a3f4c21a5298e768d3770b3efd6cd0cbbccf3a50235a9c383351a",
+      "requirements": {
+        "inherited": [
+          "codex-cli",
+          "bun-runtime",
+          "git-runtime",
+          "codex-auth-config",
+          "filesystem-trust",
+          "supported-os"
+        ],
+        "explicit": [
+          "github-cli",
+          "network-required"
+        ]
+      },
+      "dependencies": [
+        {
+          "destination": "bin",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "browse/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "design/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "make-pdf/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "gstack-upgrade/SKILL.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "ETHOS.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "VERSION",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "scripts/jargon-list.json",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "review/checklist.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        }
+      ]
+    },
+    {
+      "name": "gstack-landing-report",
+      "source_skill": "landing-report",
+      "content_sha256": "8dc1b97adfc4cf9bda815cdcf817928086cb17f12857b90f335048922ca40428",
+      "requirements": {
+        "inherited": [
+          "codex-cli",
+          "bun-runtime",
+          "git-runtime",
+          "codex-auth-config",
+          "filesystem-trust",
+          "supported-os"
+        ],
+        "explicit": [
+          "github-cli",
+          "network-required"
+        ]
+      },
+      "dependencies": [
+        {
+          "destination": "bin",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "browse/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "design/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "make-pdf/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "gstack-upgrade/SKILL.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "ETHOS.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "VERSION",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "scripts/jargon-list.json",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        }
+      ]
+    },
+    {
+      "name": "gstack-learn",
+      "source_skill": "learn",
+      "content_sha256": "cb7260c96a4e4bf7a610c676571d941fe9003f69980e964cb2935f4056610f24",
+      "requirements": {
+        "inherited": [
+          "codex-cli",
+          "bun-runtime",
+          "git-runtime",
+          "codex-auth-config",
+          "filesystem-trust",
+          "supported-os"
+        ],
+        "explicit": []
+      },
+      "dependencies": [
+        {
+          "destination": "bin",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "browse/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "design/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "make-pdf/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "gstack-upgrade/SKILL.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "ETHOS.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "VERSION",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "scripts/jargon-list.json",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        }
+      ]
+    },
+    {
+      "name": "gstack-make-pdf",
+      "source_skill": "make-pdf",
+      "content_sha256": "d46f516e657ebb193f6d961e9b70f2160c9d84543bc029159a78e5c745c63911",
+      "requirements": {
+        "inherited": [
+          "codex-cli",
+          "bun-runtime",
+          "git-runtime",
+          "codex-auth-config",
+          "filesystem-trust",
+          "supported-os"
+        ],
+        "explicit": []
+      },
+      "dependencies": [
+        {
+          "destination": "bin",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "browse/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "design/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "make-pdf/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "gstack-upgrade/SKILL.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "ETHOS.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "VERSION",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        }
+      ]
+    },
+    {
+      "name": "gstack-office-hours",
+      "source_skill": "office-hours",
+      "content_sha256": "f5e2b64951656f7cdca7df63259be656e27a97abf9a218b0307067e3e546a406",
+      "requirements": {
+        "inherited": [
+          "codex-cli",
+          "bun-runtime",
+          "git-runtime",
+          "codex-auth-config",
+          "filesystem-trust",
+          "supported-os"
+        ],
+        "explicit": []
+      },
+      "dependencies": [
+        {
+          "destination": "bin",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "browse/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "design/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "make-pdf/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "gstack-upgrade/SKILL.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "ETHOS.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "VERSION",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "scripts/jargon-list.json",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        }
+      ]
+    },
+    {
+      "name": "gstack-open-gstack-browser",
+      "source_skill": "open-gstack-browser",
+      "content_sha256": "fd312ddeec4429905efd5e0224ec144605500319b67f37926b87b63212605a9e",
+      "requirements": {
+        "inherited": [
+          "codex-cli",
+          "bun-runtime",
+          "git-runtime",
+          "codex-auth-config",
+          "filesystem-trust",
+          "supported-os"
+        ],
+        "explicit": [
+          "browser-runtime",
+          "network-required"
+        ]
+      },
+      "dependencies": [
+        {
+          "destination": "bin",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "browse/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "design/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "make-pdf/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "gstack-upgrade/SKILL.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "ETHOS.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "VERSION",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "scripts/jargon-list.json",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        }
+      ]
+    },
+    {
+      "name": "gstack-pair-agent",
+      "source_skill": "pair-agent",
+      "content_sha256": "5ecfeaa9c27bcca90e75fe9a3300d7c16d4f43d933b43cc88d72af336944d7f0",
+      "requirements": {
+        "inherited": [
+          "codex-cli",
+          "bun-runtime",
+          "git-runtime",
+          "codex-auth-config",
+          "filesystem-trust",
+          "supported-os"
+        ],
+        "explicit": [
+          "browser-runtime",
+          "network-required"
+        ]
+      },
+      "dependencies": [
+        {
+          "destination": "bin",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "browse/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "design/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "make-pdf/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "gstack-upgrade/SKILL.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "ETHOS.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "VERSION",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "scripts/jargon-list.json",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        }
+      ]
+    },
+    {
+      "name": "gstack-plan-ceo-review",
+      "source_skill": "plan-ceo-review",
+      "content_sha256": "a914549618d8d20fb95e2dcd481eade3cea8ae2b9bf27324f0425f2597706da2",
+      "requirements": {
+        "inherited": [
+          "codex-cli",
+          "bun-runtime",
+          "git-runtime",
+          "codex-auth-config",
+          "filesystem-trust",
+          "supported-os"
+        ],
+        "explicit": []
+      },
+      "dependencies": [
+        {
+          "destination": "bin",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "browse/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "design/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "make-pdf/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "gstack-upgrade/SKILL.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "ETHOS.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "VERSION",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "scripts/jargon-list.json",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "gstack-office-hours/SKILL.md",
+          "kind": "generated-entrypoint",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "review/TODOS-format.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "browse/bin",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        }
+      ]
+    },
+    {
+      "name": "gstack-plan-design-review",
+      "source_skill": "plan-design-review",
+      "content_sha256": "7d6d736cddbc96241b23e4a424e79e40970be4d7470ec7b68b67f91e7e359610",
+      "requirements": {
+        "inherited": [
+          "codex-cli",
+          "bun-runtime",
+          "git-runtime",
+          "codex-auth-config",
+          "filesystem-trust",
+          "supported-os"
+        ],
+        "explicit": []
+      },
+      "dependencies": [
+        {
+          "destination": "bin",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "browse/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "design/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "make-pdf/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "gstack-upgrade/SKILL.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "ETHOS.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "VERSION",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "scripts/jargon-list.json",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        }
+      ]
+    },
+    {
+      "name": "gstack-plan-devex-review",
+      "source_skill": "plan-devex-review",
+      "content_sha256": "48371b002cd509e286c7f14e3571b04a1ea971b853369fc8ebd072421575bc8a",
+      "requirements": {
+        "inherited": [
+          "codex-cli",
+          "bun-runtime",
+          "git-runtime",
+          "codex-auth-config",
+          "filesystem-trust",
+          "supported-os"
+        ],
+        "explicit": []
+      },
+      "dependencies": [
+        {
+          "destination": "bin",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "browse/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "design/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "make-pdf/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "gstack-upgrade/SKILL.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "ETHOS.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "VERSION",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "scripts/jargon-list.json",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "plan-devex-review/dx-hall-of-fame.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "gstack-office-hours/SKILL.md",
+          "kind": "generated-entrypoint",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "browse/bin",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        }
+      ]
+    },
+    {
+      "name": "gstack-plan-eng-review",
+      "source_skill": "plan-eng-review",
+      "content_sha256": "3d7c9fcef7c01864fd9dd5a5659f4fa48d4ed0f3c3ad115ad6124dc842bd41ee",
+      "requirements": {
+        "inherited": [
+          "codex-cli",
+          "bun-runtime",
+          "git-runtime",
+          "codex-auth-config",
+          "filesystem-trust",
+          "supported-os"
+        ],
+        "explicit": []
+      },
+      "dependencies": [
+        {
+          "destination": "bin",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "browse/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "design/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "make-pdf/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "gstack-upgrade/SKILL.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "ETHOS.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "VERSION",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "scripts/jargon-list.json",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "gstack-office-hours/SKILL.md",
+          "kind": "generated-entrypoint",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "review/TODOS-format.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "browse/bin",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        }
+      ]
+    },
+    {
+      "name": "gstack-plan-tune",
+      "source_skill": "plan-tune",
+      "content_sha256": "297f813dd1970b8adc861c8677ff36ef779d2eb6f4cf4e569635e4a7fd8a5add",
+      "requirements": {
+        "inherited": [
+          "codex-cli",
+          "bun-runtime",
+          "git-runtime",
+          "codex-auth-config",
+          "filesystem-trust",
+          "supported-os"
+        ],
+        "explicit": []
+      },
+      "dependencies": [
+        {
+          "destination": "bin",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "browse/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "design/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "make-pdf/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "gstack-upgrade/SKILL.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "ETHOS.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "VERSION",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "scripts/jargon-list.json",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        }
+      ]
+    },
+    {
+      "name": "gstack-qa",
+      "source_skill": "qa",
+      "content_sha256": "27cceebcd7ba95d446740744cc1b0c78a464fb7c683178897c586e77857bd678",
+      "requirements": {
+        "inherited": [
+          "codex-cli",
+          "bun-runtime",
+          "git-runtime",
+          "codex-auth-config",
+          "filesystem-trust",
+          "supported-os"
+        ],
+        "explicit": [
+          "browser-runtime",
+          "network-required"
+        ]
+      },
+      "dependencies": [
+        {
+          "destination": "bin",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "browse/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "design/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "make-pdf/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "gstack-upgrade/SKILL.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "ETHOS.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "VERSION",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "scripts/jargon-list.json",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        }
+      ]
+    },
+    {
+      "name": "gstack-qa-only",
+      "source_skill": "qa-only",
+      "content_sha256": "b3908a1e37c79d301f58ce328f8a97b15a2a2e9d00a77731cac6d9fcc06db5f3",
+      "requirements": {
+        "inherited": [
+          "codex-cli",
+          "bun-runtime",
+          "git-runtime",
+          "codex-auth-config",
+          "filesystem-trust",
+          "supported-os"
+        ],
+        "explicit": [
+          "browser-runtime",
+          "network-required"
+        ]
+      },
+      "dependencies": [
+        {
+          "destination": "bin",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "browse/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "design/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "make-pdf/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "gstack-upgrade/SKILL.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "ETHOS.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "VERSION",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "scripts/jargon-list.json",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        }
+      ]
+    },
+    {
+      "name": "gstack-retro",
+      "source_skill": "retro",
+      "content_sha256": "29aec202e0317646dd3692af2995590aee745253d4f08df2560a13d6a037e734",
+      "requirements": {
+        "inherited": [
+          "codex-cli",
+          "bun-runtime",
+          "git-runtime",
+          "codex-auth-config",
+          "filesystem-trust",
+          "supported-os"
+        ],
+        "explicit": []
+      },
+      "dependencies": [
+        {
+          "destination": "bin",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "browse/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "design/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "make-pdf/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "gstack-upgrade/SKILL.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "ETHOS.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "VERSION",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "scripts/jargon-list.json",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        }
+      ]
+    },
+    {
+      "name": "gstack-review",
+      "source_skill": "review",
+      "content_sha256": "89926b111229ecd7f378e720544562c16c6086c7ac087201e49d1c86e979c77c",
+      "requirements": {
+        "inherited": [
+          "codex-cli",
+          "bun-runtime",
+          "git-runtime",
+          "codex-auth-config",
+          "filesystem-trust",
+          "supported-os"
+        ],
+        "explicit": [
+          "github-cli",
+          "network-required"
+        ]
+      },
+      "dependencies": [
+        {
+          "destination": "bin",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "browse/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "design/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "make-pdf/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "gstack-upgrade/SKILL.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "ETHOS.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "VERSION",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "scripts/jargon-list.json",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "review/checklist.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "review/greptile-triage.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        }
+      ]
+    },
+    {
+      "name": "gstack-scrape",
+      "source_skill": "scrape",
+      "content_sha256": "4c3122aa1db72bdb3f7be58ec84e326f6867890a5d50ac4c798b816a434b8f19",
+      "requirements": {
+        "inherited": [
+          "codex-cli",
+          "bun-runtime",
+          "git-runtime",
+          "codex-auth-config",
+          "filesystem-trust",
+          "supported-os"
+        ],
+        "explicit": [
+          "browser-runtime",
+          "network-required"
+        ]
+      },
+      "dependencies": [
+        {
+          "destination": "bin",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "browse/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "design/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "make-pdf/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "gstack-upgrade/SKILL.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "ETHOS.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "VERSION",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "scripts/jargon-list.json",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        }
+      ]
+    },
+    {
+      "name": "gstack-setup-browser-cookies",
+      "source_skill": "setup-browser-cookies",
+      "content_sha256": "d07da45a825693abdc856b9793c6c3d895a44e4c8d8af8d9f7b063c0cfdf2313",
+      "requirements": {
+        "inherited": [
+          "codex-cli",
+          "bun-runtime",
+          "git-runtime",
+          "codex-auth-config",
+          "filesystem-trust",
+          "supported-os"
+        ],
+        "explicit": [
+          "browser-runtime",
+          "network-required"
+        ]
+      },
+      "dependencies": [
+        {
+          "destination": "bin",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "browse/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "design/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "make-pdf/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "gstack-upgrade/SKILL.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "ETHOS.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "VERSION",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        }
+      ]
+    },
+    {
+      "name": "gstack-setup-deploy",
+      "source_skill": "setup-deploy",
+      "content_sha256": "fa01a5366b8b2d76d92154e9cdc7f3f621e5bc65a17ad21807a6bbf66bab9267",
+      "requirements": {
+        "inherited": [
+          "codex-cli",
+          "bun-runtime",
+          "git-runtime",
+          "codex-auth-config",
+          "filesystem-trust",
+          "supported-os"
+        ],
+        "explicit": []
+      },
+      "dependencies": [
+        {
+          "destination": "bin",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "browse/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "design/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "make-pdf/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "gstack-upgrade/SKILL.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "ETHOS.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "VERSION",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "scripts/jargon-list.json",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        }
+      ]
+    },
+    {
+      "name": "gstack-setup-gbrain",
+      "source_skill": "setup-gbrain",
+      "content_sha256": "1f6cda209e0798283e48ddfdbe25ebc240c4c09a986145e23ed098fcf43ce006",
+      "requirements": {
+        "inherited": [
+          "codex-cli",
+          "bun-runtime",
+          "git-runtime",
+          "codex-auth-config",
+          "filesystem-trust",
+          "supported-os"
+        ],
+        "explicit": []
+      },
+      "dependencies": [
+        {
+          "destination": "bin",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "browse/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "design/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "make-pdf/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "gstack-upgrade/SKILL.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "ETHOS.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "VERSION",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "scripts/jargon-list.json",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        }
+      ]
+    },
+    {
+      "name": "gstack-ship",
+      "source_skill": "ship",
+      "content_sha256": "ecb277ae5528ae206a5652e6d805f23e3fec09a6a63c9a2734684a81dd5ea0f7",
+      "requirements": {
+        "inherited": [
+          "codex-cli",
+          "bun-runtime",
+          "git-runtime",
+          "codex-auth-config",
+          "filesystem-trust",
+          "supported-os"
+        ],
+        "explicit": [
+          "github-cli",
+          "network-required"
+        ]
+      },
+      "dependencies": [
+        {
+          "destination": "bin",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "browse/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "design/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "make-pdf/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "gstack-upgrade/SKILL.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "ETHOS.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "VERSION",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "scripts/jargon-list.json",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "review/checklist.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "review/design-checklist.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "review/greptile-triage.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "review/TODOS-format.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        }
+      ]
+    },
+    {
+      "name": "gstack-skillify",
+      "source_skill": "skillify",
+      "content_sha256": "6baac4f433afd3c938b06325f9b0a3ccaa564c83c8625568b456d10fa0c17b09",
+      "requirements": {
+        "inherited": [
+          "codex-cli",
+          "bun-runtime",
+          "git-runtime",
+          "codex-auth-config",
+          "filesystem-trust",
+          "supported-os"
+        ],
+        "explicit": []
+      },
+      "dependencies": [
+        {
+          "destination": "bin",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "browse/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "design/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "make-pdf/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "gstack-upgrade/SKILL.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "ETHOS.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "VERSION",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "scripts/jargon-list.json",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        }
+      ]
+    },
+    {
+      "name": "gstack-spec",
+      "source_skill": "spec",
+      "content_sha256": "21b696bf2788d34be28c5a0e195889cc0cca665eeacd84b55b10d1043063cace",
+      "requirements": {
+        "inherited": [
+          "codex-cli",
+          "bun-runtime",
+          "git-runtime",
+          "codex-auth-config",
+          "filesystem-trust",
+          "supported-os"
+        ],
+        "explicit": [
+          "github-cli",
+          "network-required"
+        ]
+      },
+      "dependencies": [
+        {
+          "destination": "bin",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "browse/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "design/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "make-pdf/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "gstack-upgrade/SKILL.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "ETHOS.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "VERSION",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "scripts/jargon-list.json",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "lib/redact-audit-log.ts",
+          "kind": "library",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        }
+      ]
+    },
+    {
+      "name": "gstack-sync-gbrain",
+      "source_skill": "sync-gbrain",
+      "content_sha256": "9137920bd68f92dada8e164a93ab911deca70ba072a5b5e54bd47ec24ba4e6cb",
+      "requirements": {
+        "inherited": [
+          "codex-cli",
+          "bun-runtime",
+          "git-runtime",
+          "codex-auth-config",
+          "filesystem-trust",
+          "supported-os"
+        ],
+        "explicit": []
+      },
+      "dependencies": [
+        {
+          "destination": "bin",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "browse/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "design/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "make-pdf/dist",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "gstack-upgrade/SKILL.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "ETHOS.md",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "VERSION",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        },
+        {
+          "destination": "scripts/jargon-list.json",
+          "kind": "file",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        }
+      ]
+    },
+    {
+      "name": "gstack-unfreeze",
+      "source_skill": "unfreeze",
+      "content_sha256": "b5773948fc725f24160e658db40e6531f1e3fc7e789cd5144acdd329aa779e0c",
+      "requirements": {
+        "inherited": [
+          "codex-cli",
+          "bun-runtime",
+          "git-runtime",
+          "codex-auth-config",
+          "filesystem-trust",
+          "supported-os"
+        ],
+        "explicit": []
+      },
+      "dependencies": [
+        {
+          "destination": "bin",
+          "kind": "executable",
+          "required": true,
+          "producer": "typed-runtime-reference"
+        }
+      ]
+    }
+  ],
+  "identifiers": {
+    "capability_registry_digest": "c43c1cda10bb59663b17a8b212678223e44c325ae924fc2dd095d2038101e7ab",
+    "runtime_asset_digest": "49ee20618d827445334536a2cf41b2ec505a21fde48ec2fdc8b9752a65fb36be",
+    "release_artifact_digest": "02729af6025cc42ae0b6d74ec9502f85d3e34e6a8c89d719ff9c79eff21ec58c"
+  }
+}

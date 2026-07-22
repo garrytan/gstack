@@ -34,7 +34,7 @@ import { generateGBrainContextLoad, generateGBrainSaveResults, generateBrainPref
 import { generateQuestionPreferenceCheck, generateQuestionLog, generateInlineTuneFeedback } from './question-tuning';
 import { generateMakePdfSetup } from './make-pdf';
 import { generateTasksSectionEmit, generateTasksSectionAggregate } from './tasks-section';
-import { SECTION, SECTION_INDEX } from './sections';
+import { SECTION, SECTION_INDEX, SECTION_SELF_CHECK } from './sections';
 import { generateRedactTaxonomyTable, generateRedactInvocationBlock } from './redact-doc';
 
 export const RESOLVERS: Record<string, ResolverValue> = {
@@ -102,4 +102,5 @@ export const RESOLVERS: Record<string, ResolverValue> = {
   TASKS_SECTION_AGGREGATE: generateTasksSectionAggregate,
   SECTION,
   SECTION_INDEX,
+  SECTION_SELF_CHECK,
 };

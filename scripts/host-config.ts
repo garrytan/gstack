@@ -100,7 +100,7 @@ export interface HostConfig {
 
   // --- Content Rewrites ---
   /** Literal string replacements on generated SKILL.md content. Order matters, replaceAll. */
-  pathRewrites: Array<{ from: string; to: string }>;
+  pathRewrites: Array<{ from: string; to: string; dependency?: { destination: string; kind: 'file' | 'directory' | 'executable' | 'library' | 'generated-entrypoint' } }>;
   /** Tool name string replacements on content. */
   toolRewrites?: Record<string, string>;
   /** Resolver functions that return empty string for this host. */

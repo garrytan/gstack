@@ -78,6 +78,24 @@ export interface TemplateContext {
    * Terse builds make the compression structural — bytes never ship in the first place.
    */
   explainLevel?: 'default' | 'terse';
+  runtimeDependencies?: RuntimeDependency[];
+}
+
+export interface RuntimeDependency {
+  destination: string;
+  kind: 'file' | 'directory' | 'executable' | 'library' | 'generated-entrypoint';
+  required: true;
+  producer: 'typed-runtime-reference';
+}
+
+export function runtimeRef(ctx: TemplateContext, rendered: string, destination: string, kind: RuntimeDependency['kind']): string {
+  if (ctx.host === 'codex') {
+    ctx.runtimeDependencies ??= [];
+    if (!ctx.runtimeDependencies.some(edge => edge.destination === destination && edge.kind === kind)) {
+      ctx.runtimeDependencies.push({ destination, kind, required: true, producer: 'typed-runtime-reference' });
+    }
+  }
+  return rendered;
 }
 
 /** Resolver function signature. args is populated for parameterized placeholders like {{INVOKE_SKILL:name}}. */
