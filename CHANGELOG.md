@@ -7,6 +7,45 @@
 > completion state and remaining P0 gates. No version bump or release claim is
 > made here while that status holds.
 
+## [1.61.0.0] - 2026-07-22
+
+## **/plan now sizes its machinery to your ask.**
+## **A terminal toy gets one question round, not a startup diagnostic.**
+
+Ask /plan for something small and it plans something small. The dispatcher now classifies every request on fifteen build-scale vectors (audience, users, commercial intent, deployment, time horizon, integration surface, extensibility, stakes, and so on) and prints the verdict as a `Scale:` line in the execution header: session, hobby, project, product, or venture. Every planning specialist keys its effort to that line. "A cool space animation in my terminal" is session-scale and gets one batched question round, no web research, no outside design voices, and a one-page doc with next steps in hours. "A startup with customizable APIs" is venture-scale and gets the full question pressure, exactly as before. Classification comes from your prompt and cheap repository evidence only; /plan never asks questions just to decide how many questions to ask.
+
+### The numbers that matter
+
+Source: a real /plan Discovery session on 2026-07-22 for a zero-player terminal spaceship toy (transcript `~/.claude/projects/-Users-sinabina-spacegame/b01e246b-*.jsonl`). The After column is the enforced rule at session scale, pinned by the executable regression in `evals/parity/regressions/pr-886.json` (run: `bun run test:gstack2`).
+
+| Metric (session-scale ask) | Before | After |
+|---|---|---|
+| AskUserQuestion rounds | 10, one at a time | 1, batched |
+| Adversarial review iterations on the doc | 3 | 1 max |
+| Web searches by default | 2 | 0, on request |
+| Wireframe + outside-voice offers | 2 | 0, on request |
+| Next-steps horizon | phased roadmap + distribution plan | hours |
+| Output tokens for the session | 115,395 measured | no measurement yet |
+
+Ten separate question rounds means ten full round-trips before a single line of design exists. For a toy built for fun, that was the whole session. One batched round answers the same questions in one pass.
+
+### What this means for you
+
+Small ideas stop costing big-idea tokens and big-idea patience. You can throw a one-liner at /plan and get a one-page plan the same sitting, and the moment your answers reveal real ambition (users, revenue, a platform) the scale upgrades mid-session and the full workflow comes back. Approval gates never shrink at any scale. Just describe what you want to build; the sizing is /plan's job now.
+
+### Itemized changes
+
+#### Added
+
+- **Build-scale classification in /plan.** The dispatcher's execution header gains a `Scale:` line (session, hobby, project, product, venture) classified from fifteen scale vectors before any questioning begins. Highest vector wins; unknown vectors default low; explicit statements dominate inference.
+- **Proportional-planning judgment port (#886)** across all six planning specialists (office-hours, plan-ceo-review, plan-eng-review, plan-devex-review, spec, autoplan): question batching, research and outside-voice gating, review-iteration caps, artifact size, and step units keyed to the printed Scale. product and venture scale change nothing; STOP and approval gates are unchanged everywhere.
+
+#### For contributors
+
+- Overlay #886 anchors to the upstream issue "GENERAL: Reduce Token Overhead" and ships an executable vector-to-tier regression evaluated by `run-parity.ts` (check inventory 4,881 to 4,896).
+- Generator output (`skills/**`, `compat/**`, `evals/parity/**`, generated `docs/gstack-2/` docs) is now marked `linguist-generated`, so PRs collapse it and reviewers see only hand-edited generator inputs. `check:gstack2-generated` keeps the collapsed files honest.
+- Overlay headings now say "issue" instead of "PR" when the source URL is an issue.
+
 ## [1.60.1.0] - 2026-07-09
 
 ## **The /autoplan dual-voice eval is back on the board, catching real regressions.**
