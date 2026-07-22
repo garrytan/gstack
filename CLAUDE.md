@@ -39,6 +39,10 @@ what the user approves, and use typed failure codes. Context.dev specifically ma
 receive only public URLs after explicit consent.
 `gstack context options` and `context select host|local-browser|none` persist
 fallback selection without granting Context.dev consent.
+The optional code-intelligence provider contract (GBrain, Sourcebot, Graphify
+via `gstack-code-intelligence`) follows the same rule: no provider selected by
+default, callers fall back to grep / the file-only decision store, and any
+provider that sends code off-machine requires explicit per-repo egress consent.
 The existing browser stays local. Physical iOS uses only DebugBridge/CoreDevice.
 Do not add cloud browsers, alternate iOS drivers, local image models,
 workflow engines, or a new state database.
