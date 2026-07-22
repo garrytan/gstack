@@ -174,7 +174,7 @@ describe('passes through (no enforcement)', () => {
     const res = spawnSync(HOOK, [], { env, input: '', encoding: 'utf-8' });
     expect(res.status).toBe(0);
     // Crash-safety pass-through: empty stdout only (no permissionDecision).
-    expect(res.stdout ?? '').toBe('');
+    expect(res.stdout).toBe('');
   });
 
   test('non-AUQ tool_name → no decision (defensive)', () => {

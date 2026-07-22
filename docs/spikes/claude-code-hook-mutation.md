@@ -13,8 +13,9 @@ answer via `updatedInput`? If yes, what's the exact protocol?
 
 ## Answer
 
-**Yes.** `updatedInput` is the supported mechanism. Source:
-https://code.claude.com/docs/en/hooks (confirmed 2026-04 reference).
+**Yes.** `updatedInput` is the supported mechanism (platform capability;
+this plan-tune hook does not take that path — see Implementation examples).
+Source: https://code.claude.com/docs/en/hooks (confirmed 2026-04 reference).
 
 ## Hook stdin schema (PreToolUse + PostToolUse)
 
@@ -60,8 +61,9 @@ the pass-through path that lets the permission flow continue unchanged.
 
 **`updatedInput` semantics:** shallow merge of fields present in the returned
 object onto the original `tool_input`. Only valid with
-`permissionDecision: "allow"`. This is what lets us substitute an
-auto-decided answer for `never-ask` preferences.
+`permissionDecision: "allow"`. This is what would let a hook substitute an
+auto-decided answer for `never-ask` preferences; the live plan-tune hook
+instead uses `deny` + reason (see Implementation examples).
 
 ## Matcher schema
 
