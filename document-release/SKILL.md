@@ -889,21 +889,38 @@ git diff <base>...HEAD --name-only
 find . -maxdepth 2 -name "*.md" -not -path "./.git/*" -not -path "./node_modules/*" -not -path "./.gstack/*" -not -path "./.context/*" | sort
 ```
 
-3.5. Discover an in-app public docs site, if one exists. Root-level `*.md` files are internal/
+4. Discover an in-app public docs site, if one exists. Root-level `*.md` files are internal/
 contributor docs — many projects *also* ship a user-facing docs site as app pages, not markdown
-(Next.js App Router `page.tsx`/`page.mdx`, Docusaurus/Mintlify/VitePress/Nextra `.md`/`.mdx`
-content trees). These live arbitrarily deep and won't show up in the find above, but they're the
-docs actual users read — don't skip them.
+(Next.js App Router `page.tsx`/`page.mdx`, Docusaurus/Mintlify/VitePress/Nextra content trees).
+These live arbitrarily deep, and some conventions don't use a directory literally named `docs` at
+all — they won't show up in the find above, but they're the docs actual users read, so don't
+skip them.
 
 ```bash
-find . \( -path "*/node_modules" -o -path "*/.git" -o -path "*/.gstack" -o -path "*/.context" -o -path "*/dist" -o -path "*/build" \) -prune -o -type d -iname "docs" -print 2>/dev/null | sort
+find . \( -path "*/node_modules" -o -path "*/.git" -o -path "*/.gstack" -o -path "*/.context" \
+  -o -path "*/dist" -o -path "*/build" -o -path "*/.next" -o -path "*/.turbo" \
+  -o -path "*/.docusaurus" -o -path "*/vendor" -o -path "*/target" -o -path "*/.venv" \
+  -o -path "*/venv" -o -path "*/coverage" -o -path "*/.cache" \) -prune \
+  -o -type d \( -iname "docs" -o -iname "(docs)" \) -print 2>/dev/null | sort
 ```
 
-For each directory found (besides a root-level `./docs` already covered by the markdown find
-above, unless it also contains non-`.md` page files), list its content pages:
+The `(docs)` alternative catches a Next.js route group (`app/(docs)/...`) — a directory whose
+name is a routing annotation, not literally "docs". Mintlify is a further special case: it
+typically has no `docs`-named directory at all, just root-level `.mdx` driven by a `mint.json`
+or `docs.json` config. Detect it separately:
 
 ```bash
-find "<docs-dir>" -type f \( -iname "page.tsx" -o -iname "page.jsx" -o -iname "*.mdx" \) 2>/dev/null | sort
+{ [ -f mint.json ] || [ -f docs.json ]; } && find . -maxdepth 2 -not -path "./node_modules/*" -not -path "./.git/*" -iname "*.mdx" 2>/dev/null | sort
+```
+
+The Mintlify check already lists final content pages directly — nothing further to do there. For
+each directory found by the first check (including a root-level `./docs` — some of what turns up
+will duplicate the markdown find above for shallow files, which is harmless; this is what catches
+everything that find missed: nesting past depth 2, and non-`.md` page formats), list its content
+pages:
+
+```bash
+find "<docs-dir>" -type f \( -iname "page.tsx" -o -iname "page.jsx" -o -iname "*.md" -o -iname "*.mdx" \) 2>/dev/null | sort
 ```
 
 If nothing is found, there's no in-app docs site in this repo — move on, this step is a no-op.
@@ -911,13 +928,13 @@ If pages are found, treat them as first-class documentation for the rest of this
 (coverage map in Step 1.5, audit in Step 2) — see the framework-native docs heuristic there for
 how to handle edits safely.
 
-4. Classify the changes into categories relevant to documentation:
+5. Classify the changes into categories relevant to documentation:
    - **New features** — new files, new commands, new skills, new capabilities
    - **Changed behavior** — modified services, updated APIs, config changes
    - **Removed functionality** — deleted files, removed commands
    - **Infrastructure** — build system, test infrastructure, CI
 
-5. Output a brief summary: "Analyzing N files changed across M commits. Found K documentation files to review."
+6. Output a brief summary: "Analyzing N files changed across M commits. Found K documentation files to review."
 
 ---
 
@@ -949,7 +966,7 @@ Use these definitions:
 - **Tutorial** — learning-oriented: step-by-step walkthrough for newcomers (getting started guides, docs-site quickstart pages)
 - **Explanation** — understanding-oriented: "why this works this way" (ARCHITECTURE decisions, design rationale)
 
-If Step 1.3.5 found an in-app docs site, its pages count toward coverage exactly like a root
+If Step 1's docs-site check found an in-app docs site, its pages count toward coverage exactly like a root
 `.md` file — a new feature with a docs-site page but no README mention is `❌ README ✅ docs-site`,
 not a gap.
 
@@ -985,7 +1002,7 @@ When significant gaps are found, suggest running `/document-generate` to fill th
   are found, suggest `/document-generate` as the follow-up skill.
 - **Diagram drift is advisory.** Flag stale architecture diagrams in the PR body but do not
   auto-edit ASCII art or Mermaid blocks — they require human judgment to update correctly.
-- **In-app docs sites are in scope, not just root `.md`.** Detect them (Step 1.3.5) and fold
+- **In-app docs sites are in scope, not just root `.md`.** Detect them (Step 1) and fold
   their pages into the coverage map and audit — they're the docs real users read.
 - **Framework-native docs pages get the CHANGELOG treatment.** `page.tsx`/`page.mdx` files mix
   prose with JSX/component structure — a bad Edit can break the build. Auto-update plain copy
