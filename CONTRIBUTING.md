@@ -107,6 +107,13 @@ holds us to internally: **prove it or don't say it.** "Pre-existing failure,"
    submit it. Unsigned commits do not merge.
 4. **A scope statement.** Three lines: what changed, how you verified it *live*,
    what you did not test.
+5. **A liveness screenshot.** Attach a screenshot of your own machine with the
+   text `GSTACK PR` typed **live** into a real surface — your terminal prompt, a
+   shell command, your browser's address/search bar, an editor buffer, anything
+   genuinely on screen. It must be *typed into a live UI*, **not** drawn,
+   overlaid, or edited onto the image afterward. This proves a human on a real
+   machine opened this PR. A screenshot with `GSTACK PR` painted onto the pixels
+   instead of typed into a live surface is an automatic close.
 
 ### Auto-closed, no discussion
 
@@ -130,10 +137,10 @@ A linked issue you are fixing, a failing test you make pass, a live transcript
 showing the improvement, a tight scope statement, and a signed commit. That PR
 gets reviewed the same day.
 
-> **Coming with the Changesets migration:** the four requirements above will be
-> enforced in CI — a required changeset (carrying the human "why"), a DCO check,
-> and a generated-file-only-diff guard. Until then they are reviewer-enforced,
-> and reviewers will hold the line.
+> These requirements are reviewer-enforced. The DCO check and the
+> generated-file-only-diff guard are the pieces we will move into CI; the human
+> "why," the live evidence, and the liveness screenshot stay reviewer-judged.
+> Reviewers hold the line — especially on the screenshot.
 
 ## Quick start
 
