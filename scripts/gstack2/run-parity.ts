@@ -18,8 +18,9 @@ const ALLOWED_DISPOSITIONS = new Set(['VERBATIM_PORT', 'MECHANICAL_PORT', 'JUDGM
 // contracts, retired-invocation guards, and generated package closure. Porting
 // six more upstream judgment overlays (16 -> 22) added 30 checks. Three more
 // Tier-2 overlays (22 -> 25) added 15 checks (5 per overlay). The
-// proportional-discovery overlay for issue #886 (25 -> 26) added 5 more.
-export const EXPECTED_PARITY_CHECKS = 4886;
+// proportional-planning overlay for issue #886 (25 -> 26, six plan-tree
+// targets) added 15 more (2 per targeted module + 3 regression checks).
+export const EXPECTED_PARITY_CHECKS = 4896;
 
 function sha256(value: string | Uint8Array): string {
   return createHash('sha256').update(value).digest('hex');

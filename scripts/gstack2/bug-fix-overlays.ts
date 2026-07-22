@@ -345,17 +345,22 @@ At the Phase 5 approval gate, print the full design-doc body as direct assistant
   {
     pr: 886,
     url: 'https://github.com/garrytan/gstack/issues/886',
-    title: 'Right-size discovery for session-scale builds',
-    targets: ['office-hours'],
-    anchor: 'GSTACK2_FIX_886_PROPORTIONAL_DISCOVERY',
-    body: `### Proportional discovery for session-scale builds
+    title: 'Scale planning machinery to the printed build scale',
+    targets: ['office-hours', 'plan-ceo-review', 'plan-eng-review', 'plan-devex-review', 'spec', 'autoplan'],
+    anchor: 'GSTACK2_FIX_886_PROPORTIONAL_PLANNING',
+    body: `### Proportional planning for the printed build scale
 
-After Phase 1 mode selection, classify the build scale from structured evidence: who it is for, whether external users or revenue exist, whether anything deploys, and the stated time horizon. A personal, for-fun, learning, or single-session build with no external users and nothing deployed is **session-scale**; everything else is **product-scale**. Print the classification and its evidence before Phase 2.
+The /plan dispatcher prints a \`Scale:\` header line classified from fifteen build-scale vectors (its Build scale section). This rule authorizes every planning specialist to size its machinery to that scale while keeping every STOP gate and approval boundary; a polite user answering every question is not evidence the full machinery is wanted, and the user can always ask for the complete treatment.
 
-For a session-scale builder session, proportionality is the default rather than an escape hatch the user must trigger; a polite user answering every question is not evidence the full machinery is wanted. Batch every Phase 2B question the initial prompt left unanswered into one AskUserQuestion call (this refines the one-at-a-time rule, whose pressure exists for startup diagnostics). Skip the Phase 2.75 landscape search unless the user asks for it; the privacy gate is unchanged whenever it runs. Offer the visual sketch and outside design voices only when the user asks for visual or design help. Keep Phase 4 alternatives and both approval gates, each in a single round. Cap the adversarial spec review at one iteration. Keep the design doc near one page with Next Steps sized in hours or days, never a phased multi-week roadmap or a Distribution Plan the user did not ask for. The user can always ask for the complete treatment.`,
+- \`session\` and \`hobby\`: batch every question the initial prompt left unanswered into one AskUserQuestion round (two rounds for hobby); skip web or landscape research, outside voices, second opinions, and visual sketches unless the user asks (privacy gates are unchanged whenever they run); cap any adversarial or spec review loop at one iteration; keep the decision artifact near one page with next steps sized in hours (session) or days (hobby), never a phased multi-week roadmap or a distribution plan the user did not ask for.
+- \`project\`: run the specialist's default workflow, batching question rounds where its source authorizes smart skips; size the roadmap in weeks.
+- \`product\` and \`venture\`: the full specialist workflow and its complete question pressure apply; this rule removes nothing.
+- Never run a questioning round merely to classify scale. Classify from the prompt and cheap repository evidence, defaulting unknown vectors low; a specialist's own later questions may raise the scale mid-session, and an upgrade restores the full workflow from that point.
+
+For office-hours specifically: at session or hobby scale, batch the Phase 2B questions (this refines the one-at-a-time rule, whose pressure exists for startup diagnostics), default-skip the Phase 2.75 landscape search, gate the visual sketch and outside design voices on an explicit ask, and cap the Spec Review Loop at one iteration.`,
     regression: {
-      input: { mode: 'builder', goal: 'having fun', external_users: false, deployment_state: 'none' },
-      expected: { scale: 'session', questions_batched: true, landscape_search: 'skip-unless-asked', sketch_offer: 'on-request', review_iterations_max: 1, roadmap_horizon: 'hours-to-days' },
+      input: { audience: 'self', users: 'none', commercial: 'none', deployment: 'none', horizon: 'session', stakes: 'fun', extensibility: 'fixed' },
+      expected: { scale: 'session', questions_batched: true, question_rounds_max: 1, web_search: 'on-request', outside_voices: 'on-request', review_iterations_max: 1, step_unit: 'hours' },
     },
   },
   {
@@ -548,17 +553,38 @@ export function evaluateBugFixRegression(pr: number, rawInput: unknown): Record<
     case 452:
       return { apply_repo_rules: input.claude_md_has_review_section === true, silent_skip_if_absent: true };
     case 886: {
-      const session = input.mode === 'builder'
-        && input.external_users !== true
-        && input.deployment_state !== 'production'
-        && /fun|learn|personal|toy|hobby|single.session/i.test(String(input.goal ?? ''));
+      const ranks: Record<string, Record<string, number>> = {
+        audience: { self: 0, friends: 1, team: 2, public: 3 },
+        users: { none: 0, handful: 1, many: 3 },
+        commercial: { none: 0, maybe: 2, core: 4 },
+        deployment: { none: 0, local: 0, hosted: 2, production: 3 },
+        horizon: { session: 0, days: 1, weeks: 2, months: 4 },
+        maintenance: { throwaway: 0, kept: 1, maintained: 2 },
+        integration: { standalone: 0, 'consumes-apis': 1, 'exposes-apis': 3, 'multi-service': 3 },
+        extensibility: { fixed: 0, configurable: 2, 'customizable-platform': 4 },
+        data: { none: 0, personal: 2, regulated: 4 },
+        stakes: { fun: 0, annoyance: 1, money: 3, safety: 4 },
+        team: { solo: 0, few: 2, org: 3 },
+        codebase: { greenfield: 0, existing: 1, 'legacy-production': 3 },
+        reversibility: { discardable: 0, breaking: 3 },
+        distribution: { private: 0, shared: 1, published: 3 },
+        compliance: { none: 0, some: 2, audited: 4 },
+      };
+      // Highest tier any vector demands wins; unknown vectors default low.
+      const rank = Object.entries(ranks).reduce(
+        (max, [vector, levels]) => Math.max(max, levels[String(input[vector] ?? '')] ?? 0),
+        0,
+      );
+      const scale = ['session', 'hobby', 'project', 'product', 'venture'][rank];
+      const small = rank <= 1;
       return {
-        scale: session ? 'session' : 'product',
-        questions_batched: session,
-        landscape_search: session ? 'skip-unless-asked' : 'privacy-gated-offer',
-        sketch_offer: session ? 'on-request' : 'default-offer',
-        review_iterations_max: session ? 1 : 3,
-        roadmap_horizon: session ? 'hours-to-days' : 'stage-appropriate',
+        scale,
+        questions_batched: rank <= 2,
+        question_rounds_max: small ? rank + 1 : null,
+        web_search: small ? 'on-request' : 'privacy-gated-offer',
+        outside_voices: small ? 'on-request' : 'offer',
+        review_iterations_max: small ? 1 : 3,
+        step_unit: ['hours', 'days', 'weeks', 'stage-appropriate', 'stage-appropriate'][rank],
       };
     }
     default:
