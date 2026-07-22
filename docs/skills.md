@@ -762,7 +762,7 @@ Claude: Running OWASP Top 10 + STRIDE security audit...
 
 This is my **technical writer mode**.
 
-After `/ship` creates the PR but before it merges, `/document-release` reads every documentation file in the project and cross-references it against the diff. It updates file paths, command lists, project structure trees, and anything else that drifted. Risky or subjective changes get surfaced as questions — everything else is handled automatically.
+After `/ship` creates the PR but before it merges, `/document-release` reads every documentation file in the project and cross-references it against the diff. It updates file paths, command lists, project structure trees, and anything else that drifted. It also detects an in-app public docs site — Next.js App Router `page.tsx`/`page.mdx`, Docusaurus/Mintlify/VitePress/Nextra content trees — and folds those pages into the same audit and coverage map, not just root-level markdown. Risky or subjective changes get surfaced as questions — everything else is handled automatically.
 
 ```
 You:   /document-release

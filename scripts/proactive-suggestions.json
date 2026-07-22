@@ -90,7 +90,7 @@
     },
     "document-release": {
       "lead": "Post-ship documentation update.",
-      "routing": "Reads all project docs, cross-references the\ndiff, builds a Diataxis coverage map (reference/how-to/tutorial/explanation),\nupdates README/ARCHITECTURE/CONTRIBUTING/CLAUDE.md to match what shipped,\ndetects architecture diagram drift, polishes CHANGELOG voice with a sell-test\nrubric, cleans up TODOS, and optionally bumps VERSION. Surfaces documentation\ndebt in the PR body. Use when asked to \"update the docs\", \"sync documentation\",\nor \"post-ship docs\". Proactively suggest after a PR is merged or code is shipped.",
+      "routing": "Reads all project docs, cross-references the\ndiff, builds a Diataxis coverage map (reference/how-to/tutorial/explanation),\nupdates README/ARCHITECTURE/CONTRIBUTING/CLAUDE.md to match what shipped,\ndetects architecture diagram drift, polishes CHANGELOG voice with a sell-test\nrubric, cleans up TODOS, and optionally bumps VERSION. Also detects and audits\nan in-app public docs site (Next.js/Docusaurus/Mintlify/VitePress/Nextra-style\npage trees), not just root markdown. Surfaces documentation debt in the PR\nbody. Use when asked to \"update the docs\", \"sync documentation\", or \"post-ship\ndocs\". Proactively suggest after a PR is merged or code is shipped.",
       "voice_line": null
     },
     "freeze": {

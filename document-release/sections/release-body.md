@@ -33,6 +33,15 @@ Read each documentation file and cross-reference it against the diff. Use these 
 - Read the file, determine its purpose and audience.
 - Cross-reference against the diff to check if it contradicts anything the file says.
 
+**In-app public docs site (if Step 1's docs-site check found one):**
+- These are the docs real users read — hold them to the same bar as README, not a lower one.
+- Read each page, cross-reference against the diff same as any other doc.
+- Check for stale flag/endpoint/config names, wrong paths, outdated screenshots-as-text
+  descriptions, and features shipped in this diff with no corresponding page or section.
+- These files are JSX/MDX, not plain prose — a structural edit can break the build. Plain copy
+  fixes (a renamed flag, a wrong path, a stale count) are auto-update, exactly like README. Any
+  edit that touches JSX structure, adds a new page, or adds a new section is "ask user."
+
 For each file, classify needed updates as:
 
 - **Auto-update** — Factual corrections clearly warranted by the diff: adding an item to a

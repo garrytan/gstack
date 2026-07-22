@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.60.2.0] - 2026-07-22
+
+### Added
+
+- `document-release` now detects an in-app public docs site — not just root-level `*.md`. If your project ships a user-facing docs site as app pages (Next.js App Router `page.tsx`/`page.mdx`, Docusaurus/Mintlify/VitePress/Nextra content trees), those pages now feed into the coverage map and get audited alongside README/ARCHITECTURE/CLAUDE.md instead of being silently skipped.
+
+### Fixed
+
+- The docs-site detection above only shipped correctly on the second pass: the first cut missed plain `.md` pages (breaking Docusaurus/VitePress support it claimed), missed Mintlify (no `docs/`-named directory) and Next.js route groups (`app/(docs)/...`), and let `.next`/`.docusaurus` build caches leak into results. All four fixed and re-verified against mock repo trees before landing.
+
 ## [1.60.1.0] - 2026-07-09
 
 ## **The /autoplan dual-voice eval is back on the board, catching real regressions.**
