@@ -12,8 +12,9 @@
  *   4. No ctx.model set: returns empty string.
  *
  * The returned block is subordinate to skill workflow, safety gates, and
- * AskUserQuestion instructions. The subordination language is part of the
- * wrapper heading so it appears with every overlay regardless of file content.
+ * AskUserQuestion instructions. GPT-family overlays additionally make their
+ * bounded-execution directive authoritative for execution posture only. This
+ * does not redefine the skill's scope or completion criteria.
  */
 
 import * as fs from 'fs';
@@ -48,6 +49,18 @@ export function generateModelOverlay(ctx: TemplateContext): string {
 
   const content = readOverlay(ctx.model);
   if (!content) return '';
+
+  if (ctx.model === 'gpt' || ctx.model.startsWith('gpt-')) {
+    return `## Model-Specific Behavioral Patch (${ctx.model})
+
+The **Bounded execution** directive below is authoritative for GPT execution
+posture: it controls work-unit size, retry limits, and when optional expansion
+stops. It remains subordinate to explicit user scope, safety gates, skill STOP
+points, AskUserQuestion gates, plan-mode safety, /ship review gates, and the
+skill's completion criteria. The remaining nudges are preferences.
+
+${content}`;
+  }
 
   return `## Model-Specific Behavioral Patch (${ctx.model})
 
