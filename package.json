@@ -35,6 +35,7 @@
     "server": "bun run browse/src/server.ts",
     "test": "bun run scripts/test-free-strict.ts",
     "check:gstack2-generated": "bun run scripts/gstack2/check-generated.ts",
+    "check:gstack2-nonmutating": "bun run scripts/gstack2/generate-skill-tree.ts --check",
     "test:gstack2": "bun run gen:gstack2 && bun run check:gstack2-generated && bun run scripts/gstack2/test-suite.ts",
     "test:gstack2:install": "bun run scripts/gstack2/test-install-matrix.ts --full",
     "test:gstack2:parity": "bun run ensure:gstack2-runtime && bun run scripts/gstack2/run-parity.ts",

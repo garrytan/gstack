@@ -22,6 +22,7 @@ import {
   type SemanticExecution,
 } from './semantic-cases';
 import { GSTACK2_BASE_SHA } from './types';
+import { emit, purge } from './output-sink';
 
 const OUTPUT_ROOT = path.join(ROOT, 'evals', 'parity', 'transcripts');
 const SCHEMA_VERSION = 1;
@@ -31,8 +32,7 @@ function sha256(value: string | Uint8Array): string {
 }
 
 function writeJson(file: string, value: unknown): void {
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`);
+  emit(file, `${JSON.stringify(value, null, 2)}\n`);
 }
 
 function readJson(file: string): any {
@@ -419,8 +419,8 @@ export function runDeterministicSemanticParity(output = true): SemanticParityRes
     checks: transcripts.length * (SEMANTIC_DIMENSIONS.length + 3) + sections.length + policyUnits.length,
   };
   if (output) {
-    fs.rmSync(path.join(OUTPUT_ROOT, 'deterministic'), { recursive: true, force: true });
-    fs.rmSync(path.join(OUTPUT_ROOT, 'adversarial.json'), { force: true });
+    purge(path.join(OUTPUT_ROOT, 'deterministic'), true);
+    purge(path.join(OUTPUT_ROOT, 'adversarial.json'));
     for (const transcript of transcripts) writeJson(path.join(OUTPUT_ROOT, 'deterministic', `${transcript.execution_id}.json`), transcript);
     writeJson(path.join(OUTPUT_ROOT, 'sections.json'), { schema_version: SCHEMA_VERSION, sections });
     writeJson(path.join(OUTPUT_ROOT, 'policy-units.json'), {
