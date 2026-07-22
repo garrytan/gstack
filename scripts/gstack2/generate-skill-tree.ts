@@ -82,7 +82,7 @@ function assertInventory(): void {
   }
   if (legacySections().length !== 16) throw new Error(`Expected 16 section templates, found ${legacySections().length}`);
   if (SCENARIOS.length !== 25) throw new Error(`Expected 25 parity scenarios, found ${SCENARIOS.length}`);
-  if (BUG_FIX_OVERLAYS.length !== 25) throw new Error(`Expected 25 upstream judgment overlays, found ${BUG_FIX_OVERLAYS.length}`);
+  if (BUG_FIX_OVERLAYS.length !== 26) throw new Error(`Expected 26 upstream judgment overlays, found ${BUG_FIX_OVERLAYS.length}`);
 }
 
 function toc(body: string): string {
@@ -159,7 +159,7 @@ function renderModule(assignment: SourceAssignment): { content: string; renderSh
     : overlays.length ? 'BUG_FIX' : 'JUDGMENT_PRESERVING_CARVE';
   const overlayText = overlays.map((overlay) => [
     `<!-- GSTACK2_BUG_FIX_START pr=${overlay.pr} anchor=${overlay.anchor} -->`,
-    `## Upstream judgment port: PR #${overlay.pr}`,
+    `## Upstream judgment port: ${overlay.url.includes('/issues/') ? 'issue' : 'PR'} #${overlay.pr}`,
     '',
     `[${overlay.title}](${overlay.url})`,
     '',
@@ -742,7 +742,7 @@ ${rows}
 ## Mechanical versus judgment changes
 
 - \`JUDGMENT_PRESERVING_CARVE\`: pinned specialist workflow with the retired shared onboarding wrapper excluded, retired invocations resolved to six public routes, host/runtime paths normalized, and large carved phases loaded lazily from package-local pinned references.
-- \`BUG_FIX\`: the canonical carved body plus a clearly delimited judgment overlay sourced from one of the 25 upstream PRs and its regression fixture.
+- \`BUG_FIX\`: the canonical carved body plus a clearly delimited judgment overlay sourced from one of the 26 upstream PRs and issues and its regression fixture.
 - Asset relocation is byte-for-byte from the pinned Git blob and is indexed per tree.
 `;
 }
@@ -763,7 +763,7 @@ function parityDoc(assetCount: number): string {
 
 Parity is executable, not a prose claim. Run \`bun run scripts/gstack2/run-parity.ts\` or the dedicated Bun tests.
 
-The pinned release inventory passes **${EXPECTED_PARITY_CHECKS.toLocaleString('en-US')} checks** across 55 specialist sources, 16 carved sections, 25 routing scenarios, 25 regression ports, and **${assetCount} assets**.
+The pinned release inventory passes **${EXPECTED_PARITY_CHECKS.toLocaleString('en-US')} checks** across 55 specialist sources, 16 carved sections, 25 routing scenarios, 26 regression ports, and **${assetCount} assets**.
 
 The suite verifies:
 

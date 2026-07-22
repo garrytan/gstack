@@ -343,6 +343,22 @@ At the Phase 5 approval gate, print the full design-doc body as direct assistant
     },
   },
   {
+    pr: 886,
+    url: 'https://github.com/garrytan/gstack/issues/886',
+    title: 'Right-size discovery for session-scale builds',
+    targets: ['office-hours'],
+    anchor: 'GSTACK2_FIX_886_PROPORTIONAL_DISCOVERY',
+    body: `### Proportional discovery for session-scale builds
+
+After Phase 1 mode selection, classify the build scale from structured evidence: who it is for, whether external users or revenue exist, whether anything deploys, and the stated time horizon. A personal, for-fun, learning, or single-session build with no external users and nothing deployed is **session-scale**; everything else is **product-scale**. Print the classification and its evidence before Phase 2.
+
+For a session-scale builder session, proportionality is the default rather than an escape hatch the user must trigger; a polite user answering every question is not evidence the full machinery is wanted. Batch every Phase 2B question the initial prompt left unanswered into one AskUserQuestion call (this refines the one-at-a-time rule, whose pressure exists for startup diagnostics). Skip the Phase 2.75 landscape search unless the user asks for it; the privacy gate is unchanged whenever it runs. Offer the visual sketch and outside design voices only when the user asks for visual or design help. Keep Phase 4 alternatives and both approval gates, each in a single round. Cap the adversarial spec review at one iteration. Keep the design doc near one page with Next Steps sized in hours or days, never a phased multi-week roadmap or a Distribution Plan the user did not ask for. The user can always ask for the complete treatment.`,
+    regression: {
+      input: { mode: 'builder', goal: 'having fun', external_users: false, deployment_state: 'none' },
+      expected: { scale: 'session', questions_batched: true, landscape_search: 'skip-unless-asked', sketch_offer: 'on-request', review_iterations_max: 1, roadmap_horizon: 'hours-to-days' },
+    },
+  },
+  {
     pr: 452,
     url: 'https://github.com/garrytan/gstack/pull/452',
     title: 'Read a repo-specific ## Review section from CLAUDE.md',
@@ -531,6 +547,20 @@ export function evaluateBugFixRegression(pr: number, rawInput: unknown): Record<
     }
     case 452:
       return { apply_repo_rules: input.claude_md_has_review_section === true, silent_skip_if_absent: true };
+    case 886: {
+      const session = input.mode === 'builder'
+        && input.external_users !== true
+        && input.deployment_state !== 'production'
+        && /fun|learn|personal|toy|hobby|single.session/i.test(String(input.goal ?? ''));
+      return {
+        scale: session ? 'session' : 'product',
+        questions_batched: session,
+        landscape_search: session ? 'skip-unless-asked' : 'privacy-gated-offer',
+        sketch_offer: session ? 'on-request' : 'default-offer',
+        review_iterations_max: session ? 1 : 3,
+        roadmap_horizon: session ? 'hours-to-days' : 'stage-appropriate',
+      };
+    }
     default:
       throw new Error(`No executable GStack 2 regression evaluator for PR #${pr}`);
   }
