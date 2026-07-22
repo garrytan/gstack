@@ -183,6 +183,24 @@ Readiness evidence:
 
 If unavailable: Offer GStack local browser, evidence-limited continuation, or deferral; never recommend or install a third-party Pi browser package automatically.
 
+## Aside AI browser
+
+Classification: `dedicated-ai-browser`
+
+Setup:
+
+1. Explain that Aside is a standalone AI browser driven from the terminal by the `aside` CLI, running the user's real browser with their logged-in accounts and cookies. `aside repl` is a persistent Playwright-compatible JavaScript surface for deterministic control and evidence; `aside exec` delegates a whole task to Aside's own agent; `aside mcp` exposes the same REPL over MCP.
+2. Confirm the `aside` CLI is callable in this session (for example `aside --version`) and that the user has an authenticated Aside account. Never sign in, attach an account, or drive the user's logged-in sessions without their explicit request; use neutral public pages and localhost for QA.
+3. Prefer `aside repl` for QA: it returns structured evidence (accessibility snapshot, screenshots, console logs, network) rather than a prose summary. Reserve `aside exec` for autonomous multi-step tasks the user explicitly delegates.
+
+Readiness evidence:
+
+- The `aside` CLI is callable and reports a version, and a `aside repl` session can `openTab` and return a structured `snapshot`.
+- Console evidence is available via `await page.console.logs()` (level, message, timestamp), and network evidence via `page.cdp` (attach the page target, `Network.enable`, then `requestWillBeSent`/`responseReceived` give URL, method, and status).
+- The common local readiness journey completes end to end through `aside repl`: navigate, read, interact, capture console and network, and release the tab.
+
+If unavailable: Offer GStack local browser or defer; never treat the presence of the `aside` binary as readiness, and never drive the user's logged-in accounts without an explicit request.
+
 ## GStack local browser fallback
 
 GStack's existing local Chromium/Playwright implementation remains the only bundled browser backend. Follow `RUNTIME.md` for preview and separate install consent, run `gstack doctor`, then run the same readiness journey with the `browse` launcher. Do not run `./setup`, add a cloud browser, remote provider, alternate local backend, or personal-profile attachment as a fallback.
