@@ -90,11 +90,15 @@ export class GbrainProvider implements CodeProvider {
 
   async refresh(source: SourceRef, opts: OpOptions = {}): Promise<SourceStatus> {
     assertEgressConsent(this, opts);
-    // `gbrain sync` has no `--strategy` flag (verified against gbrain 0.42.x --help).
-    this.#assertOk(spawnGbrain(["sync", "--source", source.id], {
-      baseEnv: opts.env,
-      timeout: opts.timeout ?? DEFAULT_TIMEOUT_MS,
-    }));
+    const timeout = opts.timeout ?? DEFAULT_TIMEOUT_MS;
+    // Two passes, verified end-to-end against real Postgres-backed gbrain 0.42.56:
+    //  1. default sync (markdown strategy) — indexes docs.
+    //  2. `sync --strategy code` — the ACTUAL code-indexing pass. Without it code
+    //     is never indexed (the whole point of a code provider); `code-def` stays
+    //     "not_built" and search only finds incidental doc mentions. `--full`
+    //     forces it past the per-source checkpoint the markdown pass advanced.
+    this.#assertOk(spawnGbrain(["sync", "--source", source.id], { baseEnv: opts.env, timeout }));
+    this.#assertOk(spawnGbrain(["sync", "--source", source.id, "--strategy", "code", "--full"], { baseEnv: opts.env, timeout }));
     return this.status(source, opts);
   }
 

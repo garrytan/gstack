@@ -46,9 +46,11 @@ export interface SourcebotOptions {
   /** Path to the server's config.json (for register_source). Defaults to SOURCEBOT_CONFIG. */
   configPath?: string;
   /**
-   * API key for the Sourcebot REST API. Defaults to SOURCEBOT_API_KEY. Sourcebot
-   * v5 gates `/api/search` behind auth (`Authorization: Bearer <key>`); without
-   * it, `search` gets HTTP 401. Generate one in Settings -> API Keys.
+   * OPTIONAL API key for the Sourcebot REST API. Defaults to SOURCEBOT_API_KEY.
+   * A local instance with anonymous access enabled
+   * (`FORCE_ENABLE_ANONYMOUS_ACCESS=true`) serves `/api/search` with NO key —
+   * verified keyless against a real Sourcebot v6.5.0. Only set a key when your
+   * instance is login-gated; it is sent as `Authorization: Bearer <key>`.
    */
   apiKey?: string;
   /** Injectable fetch for tests. */
@@ -93,7 +95,12 @@ export class SourcebotProvider implements CodeProvider {
     return this.capabilities.has(capability);
   }
 
-  /** Add the repo as a local `git` connection in Sourcebot's config.json. */
+  /**
+   * Add the repo as a local `git` connection in Sourcebot's config.json.
+   * NOTE: Sourcebot silently SKIPS a local repo that has no `remote.origin.url`
+   * (logs "Skipping <path> - remote.origin.url not found"); a freshly `git init`'d
+   * repo must set an origin before it will index.
+   */
   async registerSource(repo: RepoRef, opts: OpOptions = {}): Promise<SourceStatus> {
     assertEgressConsent(this, opts); // no-op when the server is loopback (local)
     if (!this.#configPath) {
@@ -148,7 +155,7 @@ export class SourcebotProvider implements CodeProvider {
         opts.timeout ?? DEFAULT_TIMEOUT_MS,
       );
       if (res.status === 401 || res.status === 403) {
-        return { id: "*", state: "unknown", partial: true, detail: "reachable but not authenticated (set SOURCEBOT_API_KEY)" };
+        return { id: "*", state: "unknown", partial: true, detail: "reachable but login-gated (enable anonymous access with FORCE_ENABLE_ANONYMOUS_ACCESS=true for local use, or set SOURCEBOT_API_KEY)" };
       }
       return { id: "*", state: res.ok ? "ready" : "unknown", partial: true, detail: `HTTP ${res.status}` };
     } catch {
@@ -168,7 +175,7 @@ export class SourcebotProvider implements CodeProvider {
       throw new CodeProviderError("PROVIDER_UNAVAILABLE", `Sourcebot unreachable at ${this.#baseUrl}: ${(err as Error).message}`, this.id);
     }
     if (res.status === 401 || res.status === 403) {
-      throw new CodeProviderError("PROVIDER_UNAVAILABLE", `Sourcebot requires authentication; set SOURCEBOT_API_KEY (HTTP ${res.status})`, this.id);
+      throw new CodeProviderError("PROVIDER_UNAVAILABLE", `Sourcebot is login-gated (HTTP ${res.status}); enable anonymous access (FORCE_ENABLE_ANONYMOUS_ACCESS=true) for local use, or set SOURCEBOT_API_KEY`, this.id);
     }
     if (!res.ok) throw new CodeProviderError("PROVIDER_ERROR", `Sourcebot ${path} returned HTTP ${res.status}`, this.id);
     try {

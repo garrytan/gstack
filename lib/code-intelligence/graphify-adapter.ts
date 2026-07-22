@@ -1,12 +1,18 @@
 /**
  * Graphify adapter — real CLI integration (github.com/Graphify-Labs/graphify).
  *
- * Graphify is a LOCAL tree-sitter knowledge graph. The genuinely local, no-LLM
- * build is `graphify update <dir>` — it writes `<dir>/graphify-out/graph.json`
- * with NO embeddings and NO network (verified against graphify 0.9.23). NOTE:
- * the bare `graphify <dir>` build instead runs LLM semantic extraction (a gemini
- * backend needing an API key + network), so this adapter deliberately uses
- * `graphify update`, which keeps the "local, no egress consent" invariant true.
+ * Graphify is a LOCAL tree-sitter knowledge graph. For CODE, `graphify <dir>`
+ * and `graphify update <dir>` produce the SAME AST graph with NO LLM and NO
+ * network (verified against graphify 0.9.23 — both emit `AST extraction on N
+ * code files`, all node origins `ast`). The LLM backend (openai/gemini) is only
+ * used to RENAME community clusters (`graphify label` / `cluster-only`) and to
+ * ingest non-code docs (`graphify add`); it adds zero nodes/edges, and our parser
+ * discards the `community=` field it touches — so an LLM mode would send code
+ * off-machine for no change in search output, and is intentionally not offered.
+ *
+ * This adapter uses `graphify update <dir>` (writes `<dir>/graphify-out/graph.json`
+ * and does clustering in one shot) and stays fully local — nothing leaves the
+ * machine, so `local = true` and no egress consent is needed.
  *
  * Query is `graphify query "<q>" --graph <dir>/graphify-out/graph.json`; the
  * `--graph` flag points at the built graph so search never depends on cwd.

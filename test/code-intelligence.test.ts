@@ -281,6 +281,21 @@ exit 1
     expect(hits).toEqual([{ ref: "src/x.ts", score: 0.88, snippet: "match", kind: "document" }]);
   });
 
+  test("refresh runs the code-indexing pass (`sync --strategy code --full`)", async () => {
+    // Real gbrain only indexes code when `sync --strategy code` runs; without it
+    // code-def stays not_built. Pin that the adapter issues that pass.
+    const marker = path.join(homeDir, "sync-calls.log");
+    writeShim(`#!/usr/bin/env bash
+if [ "$1" = "sync" ]; then printf '%s\\n' "$*" >> "${marker}"; exit 0; fi
+if [ "$1" = "sources" ]; then echo '{"sources":[{"id":"code","local_path":"/r","page_count":1}]}'; exit 0; fi
+exit 1
+`);
+    await new GbrainProvider().refresh({ id: "code" }, { env: env(), consented: true });
+    const log = fs.readFileSync(marker, "utf-8");
+    expect(log).toContain("--strategy code");
+    expect(log).toContain("--full");
+  });
+
   test("engine-down (pglite WASM) degrades to PROVIDER_UNAVAILABLE, not PROVIDER_ERROR", async () => {
     // Reproduces garrytan/gbrain#223: engine fails to init; must degrade cleanly.
     writeShim(`#!/usr/bin/env bash
