@@ -14,10 +14,9 @@ import * as path from 'path';
 import { spawn as nodeSpawn } from 'child_process';
 import { safeUnlink, safeUnlinkQuiet, safeKill, isProcessAlive } from './error-handling';
 import { writeSecureFile, mkdirSecure } from './file-permissions';
-import { resolveConfig, ensureStateDir, readVersionHash } from './config';
+import { resolveConfig, ensureStateDir, readVersionHash, isPairAgentEnabled } from './config';
 import { parseProxyConfig, computeConfigHash, ProxyConfigError } from './proxy-config';
 import { redactProxyUrl } from './proxy-redact';
-import { spawnTerminalAgent } from './terminal-agent-control';
 
 const config = resolveConfig();
 const IS_WINDOWS = process.platform === 'win32';
@@ -915,8 +914,11 @@ async function handlePairAgent(state: ServerState, args: string[]): Promise<void
   if (pairData.tunnel_url) {
     serverUrl = pairData.tunnel_url;
   } else if (!localHost) {
-    // No tunnel active. Check if ngrok is available and auto-start.
-    const ngrokAvailable = isNgrokAvailable();
+    // No tunnel active. Remote tunneling (pair-agent) is opt-in — never
+    // auto-start it unless the user explicitly enabled it, even if ngrok is
+    // installed and authed.
+    const pairEnabled = isPairAgentEnabled();
+    const ngrokAvailable = pairEnabled && isNgrokAvailable();
     if (ngrokAvailable) {
       console.log('[browse] ngrok detected. Starting tunnel...');
       try {
@@ -941,9 +943,14 @@ async function handlePairAgent(state: ServerState, args: string[]): Promise<void
         serverUrl = pairData.server_url;
       }
     } else {
-      console.warn('[browse] No tunnel active and ngrok is not installed/configured.');
-      console.warn('[browse] Instructions will use localhost (same-machine only).');
-      console.warn('[browse] For remote agents: install ngrok (https://ngrok.com) and run `ngrok config add-authtoken <TOKEN>`\n');
+      if (!pairEnabled) {
+        console.warn('[browse] Remote pair-agent tunnel is disabled (opt-in).');
+        console.warn('[browse] Enable it with: gstack-config set pair_agent on');
+      } else {
+        console.warn('[browse] No tunnel active and ngrok is not installed/configured.');
+        console.warn('[browse] For remote agents: install ngrok (https://ngrok.com) and run `ngrok config add-authtoken <TOKEN>`');
+      }
+      console.warn('[browse] Instructions will use localhost (same-machine only).\n');
       serverUrl = pairData.server_url;
     }
   } else {
@@ -1095,14 +1102,13 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
     // Delete stale state file
     safeUnlinkQuiet(config.stateFile);
 
-    console.log('Launching headed Chromium with extension + terminal agent...');
+    console.log('Launching headed Chromium...');
     try {
-      // Start server in headed mode with extension auto-loaded
-      // Use a well-known port so the Chrome extension auto-connects
+      // Start server in headed mode.
+      // Use a well-known port so callers auto-connect.
       const serverEnv: Record<string, string> = {
         BROWSE_HEADED: '1',
         BROWSE_PORT: '34567',
-        BROWSE_SIDEBAR_CHAT: '1',
         // Disable parent-process watchdog: the user controls the headed browser
         // window lifecycle. The CLI exits immediately after connect, so watching
         // it would kill the server ~15s later. Cleanup happens via browser
@@ -1134,28 +1140,6 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
         console.log('(If you still don\'t see it, check Mission Control / other Spaces.)');
       }
 
-      // sidebar-agent.ts spawn was here. Ripped alongside the chat queue —
-      // the Terminal pane runs an interactive PTY now, no more one-shot
-      // claude -p subprocesses to multiplex.
-
-      // Auto-start terminal agent (non-compiled bun process). Owns the PTY
-      // WebSocket for the sidebar Terminal pane. Routes through the shared
-      // spawnTerminalAgent helper so the CLI cold-start path and the
-      // server.ts watchdog respawn path share one implementation. The
-      // helper handles prior-PID cleanup, script lookup, and env wiring.
-      try {
-        const newPid = spawnTerminalAgent({
-          stateFile: config.stateFile,
-          serverPort: newState.port,
-          cwd: config.projectDir,
-        });
-        if (newPid) {
-          console.log(`[browse] Terminal agent started (PID: ${newPid})`);
-        }
-      } catch (err: any) {
-        // Non-fatal: chat still works without the terminal agent.
-        console.error(`[browse] Terminal agent failed to start: ${err.message}`);
-      }
     } catch (err: any) {
       console.error(`[browse] Connect failed: ${err.message}`);
       process.exit(1);
@@ -1234,16 +1218,6 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
       try {
         const respawned = await startServer(serverEnv);
         console.log(`[browse] Supervisor: server respawned (PID ${respawned.pid}, port ${respawned.port}).`);
-        // Re-spawn the terminal-agent too; same env wiring as the initial connect.
-        try {
-          spawnTerminalAgent({
-            stateFile: config.stateFile,
-            serverPort: respawned.port,
-            cwd: config.projectDir,
-          });
-        } catch (err: any) {
-          console.warn(`[browse] Supervisor: terminal-agent respawn failed: ${err?.message || err}`);
-        }
       } catch (err: any) {
         console.error(`[browse] Supervisor: server respawn failed: ${err?.message || err}`);
         // Let the next tick try again — the crash-loop guard already

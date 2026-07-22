@@ -23,7 +23,6 @@
   "scripts": {
     "build": "bash scripts/build.sh",
     "build:runtime": "bash scripts/build.sh --runtime-only",
-    "vendor:xterm": "mkdir -p extension/lib && cp node_modules/xterm/lib/xterm.js extension/lib/xterm.js && cp node_modules/xterm/css/xterm.css extension/lib/xterm.css && cp node_modules/xterm-addon-fit/lib/xterm-addon-fit.js extension/lib/xterm-addon-fit.js",
     "dev:make-pdf": "bun run make-pdf/src/cli.ts",
     "dev:design": "bun run design/src/cli.ts",
     "build:diagram-render": "cd lib/diagram-render && bun install && bun run scripts/build.ts",
@@ -77,9 +76,7 @@
     "marked": "^18.0.6",
     "playwright": "npm:playwright-core@^1.58.2",
     "sharp": "^0.34.5",
-    "socks": "^2.8.9",
-    "xterm": "5",
-    "xterm-addon-fit": "^0.8.0"
+    "socks": "^2.8.9"
   },
   "overrides": {
     "@protobufjs/utf8": "1.1.1",
@@ -106,7 +103,6 @@
   ],
   "devDependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.3.216",
-    "@huggingface/transformers": "4.2.0",
     "autoevals": "^0.3.0",
     "braintrust": "^3.24.0"
   }

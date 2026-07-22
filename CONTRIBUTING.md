@@ -73,6 +73,75 @@ Host-specific generation and dev symlinking are not the canonical GStack 2
 installation path. On this branch, `./setup` installs only the optional managed
 runtime; it no longer places host skills or accepts legacy setup flags.
 
+## The evidence bar: prove a human ran this
+
+gstack is AI-coded and proud of it. That is exactly why the bar for a
+contribution is **evidence of real use**, not lines of code. We close
+plausible-looking changes that have no proof behind them, no matter how clean
+they read. "I think this improves X" is not evidence. "Here is the command I
+ran and the output before and after" is.
+
+**Every PR must show a human exercised the change.** Attach one of:
+
+- the reproduction for the bug you fixed (the failing state, then the fixed
+  state);
+- the failing test you made pass;
+- the actual session transcript or `claude -p` output showing the new skill
+  behavior; or
+- for anything visual, before/after screenshots.
+
+A PR we cannot trace to a real reproduction, a real failing test, or a real
+workflow you personally hit gets closed. This is the same standard CLAUDE.md
+holds us to internally: **prove it or don't say it.** "Pre-existing failure,"
+"this obviously helps," and "should work" are not evidence.
+
+### Required on every PR
+
+1. **A human-written "why."** One paragraph in your own words: what breaks for
+   a user today, and what your change does about it. Generated boilerplate that
+   restates the diff is not a why.
+2. **A live-evidence block.** The command(s) you ran and their real output — the
+   before, the after. Not `bun test` alone; the actual behavior you changed.
+3. **`Signed-off-by` (DCO).** Commit with `git commit -s`. This is you
+   personally attesting you wrote or reviewed the change and have the right to
+   submit it. Unsigned commits do not merge.
+4. **A scope statement.** Three lines: what changed, how you verified it *live*,
+   what you did not test.
+5. **A liveness screenshot.** Attach a screenshot of your own machine with the
+   text `GSTACK PR` typed **live** into a real surface — your terminal prompt, a
+   shell command, your browser's address/search bar, an editor buffer, anything
+   genuinely on screen. It must be *typed into a live UI*, **not** drawn,
+   overlaid, or edited onto the image afterward. This proves a human on a real
+   machine opened this PR. A screenshot with `GSTACK PR` painted onto the pixels
+   instead of typed into a live surface is an automatic close.
+
+### Auto-closed, no discussion
+
+- **No ETHOS.md edits.** Ever. It is Garry's builder philosophy, not up for
+  contribution.
+- **No "cleanup" of voice, founder perspective, or YC references.** These are
+  intentional. PRs framing them as "unprofessional," "too promotional," or
+  "unnecessary" are closed on sight.
+- **No generated-file-only diffs.** If your PR only touches a generated file
+  (`*/SKILL.md`, `skills/*/references/legacy/`, `compat/`, `evals/parity/`),
+  you edited the output, not the source. Edit the template/input and regenerate.
+- **No blind-AI-sweep PRs.** We are AI-coded, but a broad "I asked an AI to
+  improve the repo" change with no human-verified reproduction is slop. Show the
+  reproduction or it is closed.
+- **New public command / external service / first-party host adapter without an
+  accepted issue linked first.**
+
+### What gets fast-tracked
+
+A linked issue you are fixing, a failing test you make pass, a live transcript
+showing the improvement, a tight scope statement, and a signed commit. That PR
+gets reviewed the same day.
+
+> These requirements are reviewer-enforced. The DCO check and the
+> generated-file-only-diff guard are the pieces we will move into CI; the human
+> "why," the live evidence, and the liveness screenshot stay reviewer-judged.
+> Reviewers hold the line — especially on the screenshot.
+
 ## Quick start
 
 For GStack 2 source work:

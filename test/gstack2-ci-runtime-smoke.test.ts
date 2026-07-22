@@ -165,7 +165,9 @@ touch node_modules/container-only
       "@huggingface/transformers",
       "onnxruntime-node",
     ]) expect(productionDependencies).not.toContain(forbidden);
-    expect(packageJson.devDependencies?.["@huggingface/transformers"]).toBeDefined();
+    // The prompt-injection ML classifier was removed, so the huggingface
+    // transformers dep is gone from BOTH production and dev dependencies.
+    expect(packageJson.devDependencies?.["@huggingface/transformers"]).toBeUndefined();
 
     const bundlePaths = DEFAULT_RUNTIME_BUNDLE.map((entry) => entry.path).join("\n");
     expect(bundlePaths).not.toMatch(/browserbase|browserless|huggingface|onnxruntime/i);

@@ -314,7 +314,7 @@ describe('Server auth security', () => {
   // Regression: connect command crashed with "domains is not defined" because
   // a stray `domains,` variable was in the status fetch body (cli.ts:852).
   test('connect command status fetch body has no undefined variable references', () => {
-    const connectBlock = sliceBetween(CLI_SRC, 'Launching headed Chromium', 'Terminal agent started');
+    const connectBlock = sliceBetween(CLI_SRC, 'Launching headed Chromium', 'Connect failed');
     // The status fetch should use a clean JSON body
     expect(connectBlock).toContain("command: 'status'");
     // Must NOT contain a bare `domains` reference in the fetch body
@@ -341,7 +341,7 @@ describe('Server auth security', () => {
     // assigned via object-literal syntax (`BROWSE_PARENT_PID: '0'`)
     // inside the `const serverEnv: Record<string, string> = { ... }`
     // declaration. Assert both pieces appear in the connect block.
-    const connectBlock = sliceBetween(CLI_SRC, 'Launching headed Chromium', 'Terminal agent started');
+    const connectBlock = sliceBetween(CLI_SRC, 'Launching headed Chromium', 'Connect failed');
     expect(connectBlock).toContain("const serverEnv");
     expect(connectBlock).toContain("BROWSE_PARENT_PID: '0'");
   });

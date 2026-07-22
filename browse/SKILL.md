@@ -877,7 +877,7 @@ Refs are invalidated on navigation — run `snapshot` again after `goto`.
 ### Inspect element CSS
 ```bash
 $B inspect .header              # full CSS cascade for selector
-$B inspect                      # latest picked element from sidebar
+$B inspect                      # most recently inspected element
 $B inspect --all                # include user-agent stylesheet rules
 $B inspect --history            # show modification history
 ```

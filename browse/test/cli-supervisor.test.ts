@@ -60,22 +60,4 @@ describe('CLI outer supervisor (v1.44+)', () => {
     const src = fs.readFileSync(CLI_TS, 'utf-8');
     expect(src).toContain('GSTACK_SUPERVISOR_TICK_MS');
   });
-
-  test('6. respawned server gets a fresh terminal-agent too', () => {
-    const src = fs.readFileSync(CLI_TS, 'utf-8');
-    // After server respawn, the terminal-agent state is stale (old PID
-    // record points to a dead agent that exited with its parent). The
-    // supervisor must re-call spawnTerminalAgent or the PTY path stays
-    // broken even though the server is back up.
-    const block = sliceBetween(src, 'Supervisor mode:', '// ─── Headed Disconnect');
-    expect(block).toContain('spawnTerminalAgent({');
-  });
 });
-
-function sliceBetween(source: string, start: string, end: string): string {
-  const i = source.indexOf(start);
-  if (i === -1) throw new Error(`marker not found: ${start}`);
-  const j = source.indexOf(end, i + start.length);
-  if (j === -1) throw new Error(`end marker not found: ${end}`);
-  return source.slice(i, j);
-}

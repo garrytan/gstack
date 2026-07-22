@@ -4,7 +4,6 @@
 # Creates a self-contained .app with:
 #   - Compiled browse binary
 #   - Playwright's bundled Chromium
-#   - Chrome extension (sidebar)
 #   - Info.plist with bundle ID
 #
 # Output: dist/GStack Browser.app and dist/GStack-Browser.dmg
@@ -62,11 +61,6 @@ chmod +x "$APP_DIR/Contents/MacOS/gstack-browser"
 # Browse binary
 cp "$BUILD_DIR/browse-app" "$APP_DIR/Contents/Resources/browse"
 chmod +x "$APP_DIR/Contents/Resources/browse"
-
-# Extension
-cp -r "$ROOT/extension" "$APP_DIR/Contents/Resources/extension"
-# Remove .auth.json if present (auth now via /health endpoint)
-rm -f "$APP_DIR/Contents/Resources/extension/.auth.json"
 
 # Server source (needed for `bun run server.ts` subprocess)
 # The launcher sets BROWSE_SERVER_SCRIPT to point at this.
@@ -163,7 +157,6 @@ echo ""
 echo "  $APP_NAME.app: $APP_SIZE"
 echo "    Contents/MacOS/gstack-browser     (launcher)"
 echo "    Contents/Resources/browse          ($(du -sh "$APP_DIR/Contents/Resources/browse" | cut -f1))"
-echo "    Contents/Resources/extension/      ($(du -sh "$APP_DIR/Contents/Resources/extension" | cut -f1))"
 echo "    Contents/Resources/chromium/       ($(du -sh "$APP_DIR/Contents/Resources/chromium" | cut -f1))"
 
 # ─── Step 6: DMG (optional) ─────────────────────────────────────

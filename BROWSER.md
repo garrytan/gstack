@@ -2,9 +2,9 @@
 
 gstack's browser surface in one document. Headless Chromium daemon, ~70+
 commands, ref-based element selection, codifiable browser-skills, real-browser
-mode with a Chrome side panel, an in-sidebar Claude PTY, an ngrok pair-agent
-flow, and a layered prompt-injection defense — all behind a compiled CLI that
-prints plain text to stdout. ~100-200ms per call. Zero context-token overhead.
+mode, an ngrok pair-agent flow, and a layered page-content prompt-injection
+defense — all behind a compiled CLI that prints plain text to stdout.
+~100-200ms per call. Zero context-token overhead.
 
 If you've used gstack in the last release or two, the productivity loop is the
 new headline: `/scrape <intent>` drives a page once, `/skillify` codifies the
@@ -35,7 +35,7 @@ $B screenshot /tmp/hn.png
 /scrape hacker news front page   # second call: 200ms via the codified skill
 
 # Watch Claude work in real time
-$B connect                       # headed Chromium + Side Panel extension
+$B connect                       # headed GStack Browser (anti-bot stealth)
 ```
 
 ---
@@ -50,24 +50,23 @@ $B connect                       # headed Chromium + Side Panel extension
 6. [Browser-skills runtime](#browser-skills-runtime)
 7. [Domain-skills (per-site agent notes)](#domain-skills)
 8. [Real-browser mode (`$B connect`)](#real-browser-mode) — including [`--headed` + `--proxy` + `--navigate` (v1.28.0.0)](#headed-mode--proxy--browser-native-downloads-v12800)
-9. [Side Panel + sidebar agent](#side-panel--sidebar-agent)
-10. [Pair-agent — remote agents over an ngrok tunnel](#pair-agent)
-11. [Authentication + tokens](#authentication)
-12. [Prompt-injection security stack (L1–L6)](#security-stack)
-13. [Screenshots, PDFs, visual inspection](#screenshots-pdfs-visual)
-14. [Local HTML — `goto file://` vs `load-html`](#local-html)
-15. [Batch endpoint](#batch-endpoint)
-16. [Console, network, dialog capture](#capture)
-17. [JS execution — `js` + `eval`](#js-execution)
-18. [Tabs, frames, state, watch, inbox](#tabs-frames-state)
-19. [CDP escape hatch + CSS inspector](#cdp)
-20. [Performance + scale](#performance)
-21. [Multi-workspace isolation](#multi-workspace)
-22. [Environment variables](#environment-variables)
-23. [Source map](#source-map)
-24. [Development + testing](#development)
-25. [Cross-references](#cross-references)
-26. [Acknowledgments](#acknowledgments)
+9. [Pair-agent — remote agents over an ngrok tunnel](#pair-agent)
+10. [Authentication + tokens](#authentication)
+11. [Page-content security stack (L1–L3, L5–L6)](#security-stack)
+12. [Screenshots, PDFs, visual inspection](#screenshots-pdfs-visual)
+13. [Local HTML — `goto file://` vs `load-html`](#local-html)
+14. [Batch endpoint](#batch-endpoint)
+15. [Console, network, dialog capture](#capture)
+16. [JS execution — `js` + `eval`](#js-execution)
+17. [Tabs, frames, state, watch, inbox](#tabs-frames-state)
+18. [CDP escape hatch + CSS inspector](#cdp)
+19. [Performance + scale](#performance)
+20. [Multi-workspace isolation](#multi-workspace)
+21. [Environment variables](#environment-variables)
+22. [Source map](#source-map)
+23. [Development + testing](#development)
+24. [Cross-references](#cross-references)
+25. [Acknowledgments](#acknowledgments)
 
 ---
 
@@ -88,8 +87,8 @@ Three escalating modes:
   cheapest, what skills like `/qa`, `/design-review`, `/benchmark` use by
   default.
 - **Headed via `$B connect`**. Same daemon, but Chromium is visible (rebranded
-  as "GStack Browser") with the Side Panel extension auto-loaded. You watch
-  every command tick through in real time.
+  as "GStack Browser") with anti-bot stealth. You watch every command tick
+  through in real time.
 - **Pair-agent over a tunnel**. Daemon binds a second listener that ngrok
   forwards. A remote agent (Codex, OpenClaw, Hermes, anything that can speak
   HTTP) drives your local browser through a 26-command allowlist with a
@@ -313,7 +312,7 @@ from `snapshot`, or `@c` refs from `snapshot -C`. Full table:
 | `status` | Daemon health + mode (headless / headed / cdp) |
 | `stop` | Shut down daemon |
 | `restart` | Restart daemon |
-| `connect` | Launch headed GStack Browser with Side Panel extension |
+| `connect` | Launch headed GStack Browser (anti-bot stealth) |
 | `disconnect` | Close headed Chrome, return to headless |
 | `focus [@ref]` | Bring headed Chrome to foreground (macOS); `@ref` also scrolls into view |
 | `state save\|load <name>` | Save or load browser state (cookies + URLs) |
@@ -331,7 +330,7 @@ from `snapshot`, or `@c` refs from `snapshot -C`. Full table:
 | Command | Description |
 |---------|-------------|
 | `chain` (JSON via stdin) | Run a sequence of commands. Pipe `[["cmd","arg1",...],...]` to `$B chain`. Stops at first error. |
-| `inbox [--clear]` | List messages from sidebar scout inbox |
+| `inbox [--clear]` | List queued inbox messages (`.gstack/browser-scout.jsonl`); `--clear` empties after reading |
 | `watch [stop]` | Passive observation — periodic snapshots while user browses; `stop` returns summary |
 
 ### Browser-skills runtime
@@ -348,7 +347,7 @@ from `snapshot`, or `@c` refs from `snapshot -C`. Full table:
 
 | Command | Description |
 |---------|-------------|
-| `domain-skill save\|list\|show\|edit\|promote-to-global\|rollback\|rm <host?>` | Per-site agent notes (host derived from active tab). Lifecycle: quarantined → active (after N=3 successful uses without classifier flag) → global (explicit promote) |
+| `domain-skill save\|list\|show\|edit\|promote-to-global\|rollback\|rm <host?>` | Per-site agent notes (host derived from active tab). Lifecycle: quarantined → active (after N=3 successful uses without a security flag) → global (explicit promote) |
 
 Aliases: `setcontent`, `set-content`, `setContent` → `load-html` (canonicalized
 before scope checks, so a read-scoped token can't use the alias to run a
@@ -486,14 +485,14 @@ site (not deterministic scripts). One per hostname. Lifecycle:
 1. `domain-skill save <host>` — agent writes a note about the site (e.g.,
    "GitHub: PR creation needs `--draft` flag for non-staff", "X.com: timeline
    uses cursor pagination, not page numbers"). Default state: **quarantined**.
-2. After **N=3** successful uses without the L4 prompt-injection classifier
+2. After **N=3** successful uses without the page-content security scan
    flagging the note, it auto-promotes to **active**.
 3. `domain-skill promote-to-global <host>` lifts it to the global tier
    (machine-wide, all projects).
 4. `domain-skill rollback <host>` demotes; `domain-skill rm <host>` tombstones.
 
-The classifier flag is set automatically by the L4 prompt-injection scan;
-agents do not set it manually.
+The security flag is set automatically by the page-content security scan
+(canary + content-security layers); agents do not set it manually.
 
 Storage:
 - Per-project: `<project>/.gstack/domain-skills/<host>.md`
@@ -506,9 +505,8 @@ Source: `browse/src/domain-skills.ts`, `domain-skill-commands.ts`.
 ## Real-browser mode
 
 `$B connect` launches **GStack Browser** — a rebranded Chromium controlled by
-Playwright with the Side Panel extension auto-loaded and anti-bot stealth
-patches applied. You watch every command tick through a visible window in
-real time.
+Playwright with anti-bot stealth patches applied. You watch every command tick
+through a visible window in real time.
 
 ```bash
 $B connect              # launches GStack Browser, headed
@@ -530,9 +528,8 @@ Not your daily Chrome — a Playwright-managed Chromium with custom branding
 in the Dock and menu bar (the `.app` name, Dock icon, and tray, NOT the UA
 string), always-on Layer C anti-bot stealth (most JS-observable automation
 tells are masked, so many anti-bot-protected sites load cleanly), a
-stock-Chrome user agent that reports the underlying Chromium version, and the
-gstack extension pre-loaded via `launchPersistentContext`. The UA no longer
-carries a `GStackBrowser` suffix — that branding string was itself a
+stock-Chrome user agent that reports the underlying Chromium version. The UA
+no longer carries a `GStackBrowser` suffix — that branding string was itself a
 high-entropy tell, so the browser now reports a plain `Chrome/<version>` UA.
 Deepest-layer CDP-protocol detection still gets through (Google can still
 trigger captchas; see the CDP-patch item in `TODOS.md`). Your regular Chrome
@@ -640,73 +637,6 @@ transport retries that could corrupt browser traffic.
 
 ---
 
-## Side Panel + sidebar agent
-
-The Chrome extension that ships baked into GStack Browser shows a live
-activity feed of every browse command in a Side Panel, plus `@ref` overlays
-on the page, plus an interactive Claude PTY inside the sidebar.
-
-### The Terminal pane (the headline)
-
-The Side Panel's primary surface is the **Terminal pane** — a live `claude -p`
-PTY you can type into directly from the sidebar. Activity / Refs / Inspector
-are debug overlays behind the footer's `debug` toggle. WebSocket auth uses
-`Sec-WebSocket-Protocol` (browsers can't set `Authorization` on a WebSocket
-upgrade), and the PTY session token is a 30-minute HttpOnly cookie minted
-via `POST /pty-session`.
-
-The toolbar's Cleanup button and the Inspector's "Send to Code" action both
-pipe text into the live Claude PTY via `window.gstackInjectToTerminal(text)`,
-exposed by `sidepanel-terminal.js`. There's no separate `/sidebar-command`
-POST — the live REPL is the only execution surface.
-
-### Activity feed
-
-A scrolling feed of every browse command — name, args, duration, status,
-errors. Shows up in real time as Claude works. Backed by SSE (`/activity/stream`)
-that accepts the Bearer token OR the HttpOnly `gstack_sse` session cookie
-(30-minute stream-scope cookie minted via `POST /sse-session`).
-
-### Refs tab
-
-After `$B snapshot`, shows the current `@ref` list (role + name) so you can
-see what Claude is targeting.
-
-### CSS Inspector
-
-Powered by `$B inspect` (CDP-based). Click any element on the page to see the
-full CSS rule cascade, computed styles, box model, and modification history.
-The "Send to Code" button injects a description into the Claude PTY.
-
-### Sidebar architecture
-
-| Component | Where it lives | Notes |
-|-----------|----------------|-------|
-| Side Panel UI | `extension/sidepanel.js`, `sidepanel-terminal.js` | Chrome extension surface |
-| Background SW | `extension/background.js` | Manages tab events, port management |
-| Content script | `extension/content.js` | Page overlays, `gstack` pill |
-| Terminal agent | `browse/src/terminal-agent.ts` | PTY spawn, lifecycle, auth |
-| Sidebar utilities | `browse/src/sidebar-utils.ts` | URL sanitization, helpers |
-
-Before modifying any of these, read the comment block in `CLAUDE.md` under
-"Sidebar architecture" — silent failures here usually trace to not understanding
-the cross-component flow.
-
-### Manual install (for your regular Chrome)
-
-If you want the extension in your everyday Chrome (not the Playwright-controlled
-one):
-
-```bash
-bin/gstack-extension    # opens chrome://extensions, copies path to clipboard
-```
-
-Or do it manually: `chrome://extensions` → toggle Developer mode → Load
-unpacked → navigate to `~/.claude/skills/gstack/extension` → pin the
-extension → enter the port from `$B status`.
-
----
-
 ## Pair-agent
 
 Remote AI agents (Codex, OpenClaw, Hermes, anything that speaks HTTP) can
@@ -728,11 +658,10 @@ by a 26-command allowlist, scoped tokens, and a denial log.
 When `pair-agent` activates, the daemon binds **two HTTP listeners**:
 
 - **Local listener** (`127.0.0.1:LOCAL_PORT`). Full command surface. Never
-  forwarded by ngrok. Used by your Claude Code, the Side Panel, anything
-  on your machine.
+  forwarded by ngrok. Used by your Claude Code and anything on your machine.
 - **Tunnel listener** (`127.0.0.1:TUNNEL_PORT`). Locked allowlist —
   `/connect`, `/command` (scoped tokens + 26-command browser-driving
-  allowlist), `/sidebar-chat`. ngrok forwards only this port.
+  allowlist). ngrok forwards only this port.
 
 Root tokens sent over the tunnel return 403. SSE endpoints use a 30-minute
 HttpOnly `gstack_sse` cookie (never valid against `/command`).
@@ -790,15 +719,8 @@ Every command that mutates browser state must include
 SSE endpoints (`/activity/stream`, `/inspector/events`) accept the Bearer
 token OR a 30-minute HttpOnly `gstack_sse` cookie minted via
 `POST /sse-session`. The `?token=<ROOT>` query-param auth is no longer
-supported. This is what lets the Chrome extension subscribe to the activity
-feed without putting the root token in extension storage.
-
-### PTY session cookie
-
-The Terminal pane uses a separate session cookie, `gstack_pty`, minted via
-`POST /pty-session`. Different scope — can spawn / drive the live `claude`
-PTY, can't dispatch arbitrary `/command` calls. `/health` endpoint MUST NOT
-surface this token.
+supported. This lets a browser-based SSE subscriber follow the activity or
+inspector stream without putting the root token in client storage.
 
 ### Token registry
 
@@ -811,58 +733,43 @@ startup.
 
 ## Security stack
 
-Layered defense against prompt injection. Every layer runs synchronously on
-every user message and every tool output that could carry untrusted content
-(Read, Glob, Grep, WebFetch, page text from `$B`).
+Layered defense against prompt injection in the page content the browser
+reads. Every layer runs synchronously on every page-content command and every
+tool output that could carry untrusted content. All of it is pure-string —
+no ML model, no native runtime.
 
-| Layer | Module | Lives in |
-|-------|--------|----------|
-| **L1** Datamarking | `content-security.ts` | both server + sidebar agent |
-| **L2** Hidden-element strip | `content-security.ts` | both |
-| **L3** ARIA + URL blocklist + envelope wrapping | `content-security.ts` | both |
-| **L4** TestSavantAI ML classifier (22MB ONNX) | `security-classifier.ts` | sidebar-agent only* |
-| **L4b** Claude Haiku transcript check | `security-classifier.ts` | sidebar-agent only |
-| **L5** Canary token (session-exfil detection) | `security.ts` | both — inject in compiled, check in agent |
-| **L6** `combineVerdict` ensemble | `security.ts` | both |
+| Layer | Module | Notes |
+|-------|--------|-------|
+| **L1** Datamarking | `content-security.ts` | datamark page content before Claude sees it |
+| **L2** Hidden-element strip | `content-security.ts` | remove hidden / off-screen injected text |
+| **L3** ARIA regex + URL blocklist + envelope wrapping | `content-security.ts` | trust-boundary framing |
+| **L5** Canary token (session-exfil detection) | `security.ts` | inject + check |
+| **L6** `combineVerdict` | `security.ts` | threshold aggregation |
 
-\* `security-classifier.ts` cannot be imported from the compiled browse
-binary — `@huggingface/transformers` v4 requires `onnxruntime-node` which
-fails to `dlopen` from Bun compile's temp extract dir. The compiled binary
-runs L1–L3, L5, L6 only.
+`security.ts` is pure-string (canary, verdict combiner, attack log, status)
+and safe to import from the compiled `browse/dist/browse` binary — it loads no
+native modules. There is no L4 layer: the prompt-injection ML classifier
+(TestSavantAI/DeBERTa ONNX, `security-classifier.ts`) and its in-browser
+sidebar/terminal caller were removed.
 
-### Thresholds
+### Verdict rule
 
-- `BLOCK: 0.85` — single-layer score that would cause BLOCK if cross-confirmed
-- `WARN: 0.75` — cross-confirm threshold. When L4 AND L4b both >= 0.75 → BLOCK
-- `LOG_ONLY: 0.40` — gates transcript classifier (skip Haiku when all layers < 0.40)
-- `SOLO_CONTENT_BLOCK: 0.92` — single-layer threshold for label-less content classifiers
-
-### Ensemble rule
-
-BLOCK only when the ML content classifier AND the transcript classifier both
-report >= WARN. Single-layer high confidence degrades to WARN — this is the
-Stack Overflow instruction-writing FP mitigation. **Canary leak always
-BLOCKs (deterministic).**
+L6 aggregates per-layer verdicts against the thresholds in `security.ts`.
+**Canary leak always BLOCKs (deterministic)** — if the token shows up in
+Claude's output, tool arguments, URLs, or file writes, the attacker convinced
+Claude to reveal the system prompt and the session ends.
 
 ### Env knobs
 
-- `GSTACK_SECURITY_OFF=1` — emergency kill switch. Classifier stays off
-  even if warmed. Canary is still injected; just the ML scan is skipped.
-- `GSTACK_SECURITY_ENSEMBLE=deberta` — opt-in DeBERTa-v3 ensemble. Adds
-  ProtectAI DeBERTa-v3-base-injection-onnx as L4c classifier. 721MB
-  first-run download. With ensemble enabled, BLOCK requires 2-of-3 ML
-  classifiers agreeing at >= WARN.
-- Classifier model cache: `~/.gstack/models/testsavant-small/` (112MB, first
-  run only) plus `~/.gstack/models/deberta-v3-injection/` (721MB, only when
-  ensemble enabled).
+- `GSTACK_SECURITY_OFF=1` — kill switch for the content-security scan path.
+  The canary is still injected regardless; only the scan is skipped.
 - Attack log: `~/.gstack/security/attempts.jsonl` (salted SHA-256 + domain
   only, rotates at 10MB, 5 generations).
 - Per-device salt: `~/.gstack/security/device-salt` (0600).
 - Session state: `~/.gstack/security/session-state.json` (cross-process,
   atomic).
 
-A shield icon in the sidebar header shows the live status. See
-ARCHITECTURE.md § "Prompt injection defense" for the full threat model.
+See ARCHITECTURE.md § "Page-content security layers" for the full threat model.
 
 ---
 
@@ -1082,13 +989,12 @@ you did at the end without spamming `snapshot` calls.
 ### Inbox
 
 ```bash
-$B inbox                         # list messages from sidebar scout
+$B inbox                         # list queued inbox messages
 $B inbox --clear                 # clear after reading
 ```
 
-The sidebar scout (a background process the Chrome extension can spawn) drops
-notes for Claude when the user surfaces something they want noticed. Stored
-in `.gstack/browser-scout.jsonl`.
+A queue of notes for Claude, stored in `.gstack/browser-scout.jsonl`. Anything
+that appends to that file surfaces here on the next `$B inbox`.
 
 ---
 
@@ -1197,8 +1103,7 @@ the global `~/.gstack/browser-skills/foo/` only inside project-a.
 | `BROWSE_TUNNEL` | 0 | Activate the dual-listener tunnel architecture (requires `NGROK_AUTHTOKEN`) |
 | `BROWSE_TUNNEL_LOCAL_ONLY` | 0 | Test-only — bind both listeners locally without ngrok |
 | `GSTACK_BROWSE_MAX_HTML_BYTES` | 52428800 (50MB) | `load-html` size cap |
-| `GSTACK_SECURITY_OFF` | unset | Emergency kill switch — disable ML classifier |
-| `GSTACK_SECURITY_ENSEMBLE` | unset | Set to `deberta` for 3-classifier ensemble (721MB download) |
+| `GSTACK_SECURITY_OFF` | unset | Kill switch for the content-security scan path (canary still injects) |
 | `GSTACK_STEALTH` | unset | Set to `extended` (also accepts `1`/`true`) to layer six aggressive patches (WebGL spoof, faked plugins, mediaDevices) on top of Layer C. Actively lies; can break sites. |
 | `GSTACK_CDP_STEALTH` | unset | Set to `on`/`1`/`true` to emit `--gstack-suppress-prepare-stack-trace` (gbrowser Pack 2 / B11 C++ patch only; no-op on stock Chromium) |
 | `GSTACK_GPU_VENDOR`, `GSTACK_GPU_RENDERER`, `GSTACK_GPU_CHIPSET` | unset | Per-install GPU spoof fed to the Pack 1 WebGL/UA-CH C++ patches. Set by gbd from the host profile; emitted as `--gstack-gpu-vendor` / `--gstack-gpu-renderer` / `--gstack-ua-model` cmdline switches only when present. |
@@ -1240,15 +1145,11 @@ browse/
 │   ├── tab-session.ts           # Per-tab session state (load-html replay, ref map scope)
 │   ├── token-registry.ts        # Mint/validate/revoke for root + setup keys + scoped tokens
 │   ├── sse-session-cookie.ts    # 30-min HttpOnly cookie for /activity/stream + /inspector/events
-│   ├── pty-session-cookie.ts    # Separate scope: live Claude PTY auth
 │   ├── tunnel-denial-log.ts     # ~/.gstack/security/attempts.jsonl writer (salted)
 │   ├── path-security.ts         # validateOutputPath / validateReadPath / validateTempPath
 │   ├── url-validation.ts        # URL safety checks for goto
 │   ├── content-security.ts      # L1-L3: datamarking, hidden strip, ARIA, URL blocklist, envelopes
-│   ├── security.ts              # L5 canary + L6 verdict combiner + thresholds
-│   ├── security-classifier.ts   # L4 ML classifier (TestSavant + optional DeBERTa ensemble)
-│   ├── terminal-agent.ts        # Side Panel Claude PTY manager (auth + lifecycle)
-│   ├── sidebar-utils.ts         # Sidebar URL sanitization + helpers
+│   ├── security.ts              # L5 canary + L6 verdict combiner + thresholds (pure-string, compiled-safe)
 │   ├── cookie-import-browser.ts # Decrypt + import cookies from real Chromium browsers
 │   ├── cookie-picker-routes.ts  # HTTP routes for /cookie-picker/*
 │   ├── cookie-picker-ui.ts      # Self-contained HTML/CSS/JS for cookie picker
@@ -1371,8 +1272,8 @@ cp browse/dist/browse ~/.claude/skills/gstack/browse/dist/browse
 
 ## Cross-references
 
-- [`ARCHITECTURE.md`](ARCHITECTURE.md) — system-level architecture, dual-listener tunnel design, prompt-injection defense threat model
-- [`CLAUDE.md`](CLAUDE.md) — project-level instructions, sidebar architecture notes, security-stack constraints
+- [`ARCHITECTURE.md`](ARCHITECTURE.md) — system-level architecture, dual-listener tunnel design, page-content security threat model
+- [`CLAUDE.md`](CLAUDE.md) — project-level instructions, security-stack constraints
 - [`docs/REMOTE_BROWSER_ACCESS.md`](docs/REMOTE_BROWSER_ACCESS.md) — operator guide for `/pair-agent` (setup keys, scoped tokens, denial log)
 - [`docs/designs/BROWSER_SKILLS_V1.md`](docs/designs/BROWSER_SKILLS_V1.md) — design doc for browser-skills runtime (Phase 1 + 2a + roadmap)
 - [`scrape/SKILL.md`](scrape/SKILL.md) — `/scrape` skill: match-or-prototype data extraction
@@ -1390,12 +1291,6 @@ The snapshot system — assigning `@ref` labels to AX tree nodes and mapping
 them back to Playwright Locators — is built entirely on top of Playwright's
 primitives. Thank you to the Playwright team for building such a solid
 foundation.
-
-The prompt-injection L4 layer uses
-[TestSavantAI/distilbert-v1.1-32](https://huggingface.co/TestSavantAI/distilbert-v1.1-32)
-(112MB ONNX), and the optional ensemble layer uses
-[ProtectAI/deberta-v3-base-prompt-injection-v2](https://huggingface.co/protectai/deberta-v3-base-prompt-injection-v2)
-(721MB ONNX) — both run locally via `@huggingface/transformers`.
 
 The CDP escape hatch is gated by an allowlist directly inspired by Codex's
 T2 outside-voice review during the v1.4 design pass: deny-default with an

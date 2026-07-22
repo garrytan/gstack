@@ -21,9 +21,6 @@
  */
 
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
 import { startTestServer } from './test-server';
 import { BrowserManager } from '../src/browser-manager';
 import {
@@ -32,17 +29,6 @@ import {
   cleanupHiddenMarkers,
   urlBlocklistFilter,
 } from '../src/content-security';
-
-// Check if TestSavantAI model cache exists. If missing, ML tests skip.
-const MODEL_CACHE = path.join(
-  os.homedir(),
-  '.gstack',
-  'models',
-  'testsavant-small',
-  'onnx',
-  'model.onnx',
-);
-const ML_AVAILABLE = fs.existsSync(MODEL_CACHE);
 
 describe('defense-in-depth — live Playwright fixture', () => {
   let testServer: ReturnType<typeof startTestServer>;
@@ -133,34 +119,4 @@ describe('defense-in-depth — live Playwright fixture', () => {
 
     await cleanupHiddenMarkers(page);
   });
-
-  // L4 ML tests — skipped if model cache is absent
-  test.skipIf(!ML_AVAILABLE)('L4 — security.ts ML classifier flags the combined fixture text', async () => {
-    const page = bm.getPage();
-    await page.goto(`${baseUrl}/injection-combined.html`, { waitUntil: 'domcontentloaded' });
-    // Use RAW text (not stripped) so the ML layer sees what Claude would see
-    // in a naive pipeline — content-security.ts strips hidden content, but
-    // we want to assert the ML layer would ALSO catch it independently.
-    const rawText = await page.evaluate(() => document.body.innerText);
-
-    const { loadTestsavant, scanPageContent } = await import('../src/security-classifier');
-    await loadTestsavant();
-    const signal = await scanPageContent(rawText);
-    // Expect the classifier to flag some confidence > 0 (INJECTION label).
-    // The combined fixture has instruction-heavy content which TestSavantAI
-    // reliably flags at >= 0.5.
-    expect(signal.confidence).toBeGreaterThan(0);
-    expect(signal.layer).toBe('testsavant_content');
-  }, 60000); // allow WASM cold-start up to 60s
-
-  test.skipIf(!ML_AVAILABLE)('L4 — ML classifier does NOT flag the benign product description alone', async () => {
-    const benign = 'Premium Widget. $29.99. High-quality widget with premium features. Add to Cart.';
-    const { loadTestsavant, scanPageContent } = await import('../src/security-classifier');
-    await loadTestsavant();
-    const signal = await scanPageContent(benign);
-    // Product-catalog content should score low. Give generous headroom
-    // to avoid flakiness on model version drift — the contract is just
-    // "doesn't false-positive on obviously-clean ecommerce copy."
-    expect(signal.confidence).toBeLessThan(0.5);
-  }, 60000);
 });

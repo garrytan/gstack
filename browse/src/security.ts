@@ -3,20 +3,16 @@
  *
  * This file contains the PURE-STRING / ML-FREE parts of the security stack.
  * Safe to import from the compiled `browse/dist/browse` binary because it
- * does not load onnxruntime-node or other native modules.
+ * does not load onnxruntime-node or other native modules. The ML prompt-
+ * injection classifier (and its in-browser sidebar/terminal caller) was
+ * removed; only these page-content layers remain.
  *
- * ML classifier code lives in `security-classifier.ts`, which is only
- * imported from `sidebar-agent.ts` (runs as non-compiled bun script).
- *
- * Layering (see CEO plan 2026-04-19-prompt-injection-guard.md):
+ * Layering:
  *   L1-L3: content-security.ts (existing, datamarking / DOM strip / URL blocklist)
- *   L4:    ML content classifier (TestSavantAI via security-classifier.ts)
- *   L4b:   ML transcript classifier (Haiku via security-classifier.ts)
  *   L5:    Canary (this module — inject + check)
  *   L6:    Threshold aggregation (this module — combineVerdict)
  *
- * Cross-process state lives at ~/.gstack/security/session-state.json
- * (per eng review finding 1.2 — server.ts and sidebar-agent.ts are different processes).
+ * Cross-process state lives at ~/.gstack/security/session-state.json.
  */
 
 import { randomBytes, createHash } from 'crypto';

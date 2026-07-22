@@ -17,7 +17,6 @@
 
 import { chromium, type Browser, type BrowserContext, type BrowserContextOptions, type Page, type Locator, type Cookie } from 'playwright';
 import { readdirSync } from 'node:fs';
-import { writeSecureFile, mkdirSecure } from './file-permissions';
 import { addConsoleEntry, addNetworkEntry, addDialogEntry, networkBuffer, type DialogEntry } from './buffers';
 import { emitActivity } from './activity';
 import { validateNavigationUrl } from './url-validation';
@@ -243,9 +242,8 @@ export class BrowserManager {
   // back below. Pre-guardrail, nothing tracked tab count growth and a
   // user could accumulate hundreds of tabs (each holding 50–300 MB of
   // Chromium-side RSS) without warning until the OS OOM-killer fired.
-  // The toast UX lives in the sidebar (extension/sidepanel.js); the
-  // server-side responsibility is the audit-trail activity entry that
-  // appears in the activity feed even when the sidebar is closed.
+  // The server-side responsibility is the audit-trail activity entry that
+  // appears in the activity feed.
   private static readonly TAB_GUARDRAIL_SOFT = 50;
   private static readonly TAB_GUARDRAIL_HARD = 200;
   private tabGuardrailSoftHit = false;
@@ -265,7 +263,7 @@ export class BrowserManager {
     }
     if (!this.tabGuardrailHardHit && total >= BrowserManager.TAB_GUARDRAIL_HARD) {
       this.tabGuardrailHardHit = true;
-      const msg = `Tab count crossed ${BrowserManager.TAB_GUARDRAIL_HARD} (now ${total}). OOM risk imminent. Open the sidebar to see top RAM consumers.`;
+      const msg = `Tab count crossed ${BrowserManager.TAB_GUARDRAIL_HARD} (now ${total}). OOM risk imminent. Close unused tabs to free RAM.`;
       console.error(`[browse] ${msg}`);
       emitActivity({ type: 'error', command: 'tab-guardrail', error: msg, tabs: total });
     }
@@ -321,43 +319,6 @@ export class BrowserManager {
   }
 
   /**
-   * Find the gstack Chrome extension directory.
-   * Checks: repo root /extension, global install, dev install.
-   */
-  private findExtensionPath(): string | null {
-    const fs = require('fs');
-    const path = require('path');
-    const candidates = [
-      // Explicit override via env var (used by GStack Browser.app bundle)
-      process.env.BROWSE_EXTENSIONS_DIR || '',
-      // Relative to this source file (dev mode: browse/src/ -> ../../extension)
-      path.resolve(__dirname, '..', '..', 'extension'),
-      // Global gstack install
-      path.join(process.env.HOME || '', '.claude', 'skills', 'gstack', 'extension'),
-      // Git repo root (detected via BROWSE_STATE_FILE location)
-      (() => {
-        const stateFile = process.env.BROWSE_STATE_FILE || '';
-        if (stateFile) {
-          const repoRoot = path.resolve(path.dirname(stateFile), '..');
-          return path.join(repoRoot, '.claude', 'skills', 'gstack', 'extension');
-        }
-        return '';
-      })(),
-    ].filter(Boolean);
-
-    for (const candidate of candidates) {
-      try {
-        if (fs.existsSync(path.join(candidate, 'manifest.json'))) {
-          return candidate;
-        }
-      } catch (err: any) {
-        if (err?.code !== 'ENOENT' && err?.code !== 'EACCES') throw err;
-      }
-    }
-    return null;
-  }
-
-  /**
    * Set the proxy config applied to chromium.launch() in launch() and
    * launchHeaded(). Called by server.ts at startup once the (optional) SOCKS5
    * bridge is up.
@@ -378,14 +339,9 @@ export class BrowserManager {
   }
 
   async launch() {
-    // ─── Extension Support ────────────────────────────────────
-    // BROWSE_EXTENSIONS_DIR points to an unpacked Chrome extension directory.
-    // Extensions only work in headed mode, so we use an off-screen window.
-    const extensionsDir = process.env.BROWSE_EXTENSIONS_DIR;
-    if (extensionsDir) assertHeadedBrowserProvider();
     const { STEALTH_LAUNCH_ARGS, buildGStackLaunchArgs } = await import('./stealth');
     const launchArgs: string[] = [...STEALTH_LAUNCH_ARGS, ...buildGStackLaunchArgs()];
-    let useHeadless = true;
+    const useHeadless = true;
     const executablePath = configuredChromiumExecutable();
 
     // Docker/CI/root: Chromium sandbox requires unprivileged user namespaces which
@@ -394,21 +350,6 @@ export class BrowserManager {
     const isRoot = typeof process.getuid === 'function' && process.getuid() === 0;
     if (process.env.CI || process.env.CONTAINER || isRoot) {
       launchArgs.push('--no-sandbox');
-    }
-
-    if (extensionsDir) {
-      // Skip --load-extension when running against a custom Chromium build that
-      // already bakes the extension in (e.g., GBrowser / GStack Browser.app).
-      // Loading it twice causes a ServiceWorkerState::SetWorkerId DCHECK crash.
-      if (!isCustomChromium()) {
-        launchArgs.push(
-          `--disable-extensions-except=${extensionsDir}`,
-          `--load-extension=${extensionsDir}`,
-        );
-      }
-      launchArgs.push('--window-position=-9999,-9999', '--window-size=1,1');
-      useHeadless = false; // extensions require headed mode; off-screen window simulates headless
-      console.log(`[browse] Extensions loaded from: ${extensionsDir}`);
     }
 
     this.browser = await chromium.launch({
@@ -468,23 +409,18 @@ export class BrowserManager {
 
   // ─── Headed Mode ─────────────────────────────────────────────
   /**
-   * Launch Playwright's bundled Chromium in headed mode with the gstack
-   * Chrome extension auto-loaded. Uses launchPersistentContext() which
-   * is required for extension loading (launch() + newContext() can't
-   * load extensions).
+   * Launch Playwright's bundled Chromium in headed mode.
    *
    * The browser launches headed with a visible window — the user sees
    * every action Claude takes in real time.
    */
-  async launchHeaded(authToken?: string): Promise<void> {
+  async launchHeaded(_authToken?: string): Promise<void> {
     assertHeadedBrowserProvider();
     // Clear old state before repopulating
     this.pages.clear();
     this.tabSessions.clear();
     this.nextTabId = 1;
 
-    // Find the gstack extension directory for auto-loading
-    const extensionPath = this.findExtensionPath();
     const { STEALTH_LAUNCH_ARGS, buildGStackLaunchArgs } = await import('./stealth');
     const launchArgs = [
       '--hide-crash-restore-bubble',
@@ -499,38 +435,9 @@ export class BrowserManager {
       // Chromium too.
       ...buildGStackLaunchArgs(),
     ];
-    if (extensionPath) {
-      // Skip --load-extension when running against a custom Chromium build
-      // that already bakes the extension in as a component extension
-      // (gbrowser / GStack Browser.app). Loading it twice causes a
-      // ServiceWorkerState::SetWorkerId DCHECK crash.
-      if (!isCustomChromium()) {
-        launchArgs.push(`--disable-extensions-except=${extensionPath}`);
-        launchArgs.push(`--load-extension=${extensionPath}`);
-      }
-      // Write auth token for extension bootstrap (still required even when
-      // the extension is component-baked — it reads ~/.gstack/.auth.json at
-      // startup to learn how to call the daemon).
-      // Write to ~/.gstack/.auth.json (not the extension dir, which may be read-only
-      // in .app bundles and breaks codesigning).
-      if (authToken) {
-        const fs = require('fs');
-        const path = require('path');
-        const gstackDir = path.join(process.env.HOME || '/tmp', '.gstack');
-        mkdirSecure(gstackDir);
-        const authFile = path.join(gstackDir, '.auth.json');
-        try {
-          writeSecureFile(authFile, JSON.stringify({ token: authToken, port: this.serverPort || 34567 }));
-        } catch (err: any) {
-          console.warn(`[browse] Could not write .auth.json: ${err.message}`);
-        }
-      }
-    }
 
-    // Launch headed Chromium via Playwright's persistent context.
-    // Extensions REQUIRE launchPersistentContext (not launch + newContext).
-    // Real Chrome (executablePath/channel) silently blocks --load-extension,
-    // so we use Playwright's bundled Chromium which reliably loads extensions.
+    // Launch headed Chromium via Playwright's persistent context so the
+    // profile (cookies, storage) persists across runs.
     const fs = require('fs');
     const path = require('path');
     const userDataDir = resolveChromiumProfile();
@@ -1600,27 +1507,16 @@ export class BrowserManager {
     const state = await this.saveState();
     const currentUrl = this.getCurrentUrl();
 
-    // 2. Launch new headed browser with extension (same as launchHeaded)
-    //    Uses launchPersistentContext so the extension auto-loads.
+    // 2. Launch new headed browser (same as launchHeaded).
+    //    Uses launchPersistentContext so the profile persists.
     let newContext: BrowserContext;
     try {
       const fs = require('fs');
-      const path = require('path');
-      const extensionPath = this.findExtensionPath();
       const { STEALTH_LAUNCH_ARGS, buildGStackLaunchArgs } = await import('./stealth');
       // Same blink-level stealth flags as launch()/launchHeaded(). Without
       // STEALTH_LAUNCH_ARGS the handed-off browser kept the AutomationControlled
       // tell that the other two paths strip.
       const launchArgs: string[] = ['--hide-crash-restore-bubble', ...STEALTH_LAUNCH_ARGS, ...buildGStackLaunchArgs()];
-      if (extensionPath) {
-        launchArgs.push(`--disable-extensions-except=${extensionPath}`);
-        launchArgs.push(`--load-extension=${extensionPath}`);
-        // Auth token is served via /health endpoint now (no file write needed).
-        // Extension reads token from /health on connect.
-        console.log(`[browse] Handoff: loading extension from ${extensionPath}`);
-      } else {
-        console.log('[browse] Handoff: extension not found — headed mode without side panel');
-      }
 
       const userDataDir = resolveChromiumProfile();
       fs.mkdirSync(userDataDir, { recursive: true });

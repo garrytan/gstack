@@ -52,6 +52,9 @@ const defaults = Object.freeze({
   redact_repo_visibility: "",
   redact_prepush_hook: false,
   salience_allowlist: "",
+  // Remote pair-agent (ngrok tunnel) is opt-in: OFF exposes nothing to the
+  // internet. Set "on" to allow the tunnel to start.
+  pair_agent: "off",
 });
 
 const [command, ...args] = process.argv.slice(2);
@@ -133,6 +136,7 @@ function validateClosedValue(key, value) {
     [/^redact_repo_visibility$/, ["public", "private", "unknown"], "unknown"],
     [/^redact_prepush_hook$/, ["true", "false"], "false"],
     [/^plan_tune_hooks$/, ["prompt", "yes", "no"], "prompt"],
+    [/^pair_agent$/, ["off", "on"], "off"],
   ];
   if (key === "codex_reviews" && !["enabled", "disabled"].includes(value)) {
     throw new Error(`codex_reviews '${value}' not recognized. Valid values: enabled, disabled. Existing value left unchanged.`);
