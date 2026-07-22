@@ -314,6 +314,48 @@ The default audit is strictly report-only and mutates nothing. Auto-fixes apply 
       expected: { mutations_allowed: false, fix_requires: '--fix' },
     },
   },
+  {
+    pr: 579,
+    url: 'https://github.com/garrytan/gstack/pull/579',
+    title: 'Check MCP-server packaging before it fails the registry build',
+    targets: ['review'],
+    anchor: 'GSTACK2_FIX_579_MCP_PACKAGING',
+    body: `### MCP-server packaging checks (informational)
+
+When the diff adds or modifies an MCP server package (\`glama.json\`, an \`mcpServers\` block in \`package.json\`, or a server entry point), add informational packaging checks. Flag \`package.json\` \`exports\`/\`main\`/\`bin\` that resolve into \`src/\` or a \`.ts\` file rather than the compiled \`dist/\` output, because registry Docker builds run the compiled artifact. Flag relative ESM imports missing \`.js\` extensions under \`moduleResolution: "NodeNext"\`/\`"Node16"\`, since bundler resolution hides it locally but Node ESM fails at runtime. Flag \`moduleResolution: "bundler"\` on a standalone Node MCP server (correct for frontend, wrong for an npm/Docker-distributed server). Flag a missing or malformed \`glama.json\` (needs \`$schema\` and a \`maintainers\` array). Do not flag frontend packages using \`bundler\`, or MCP packages consumed as libraries rather than standalone servers.`,
+    regression: {
+      input: { mcp_server: true, has_glama_json: false },
+      expected: { flag_missing_glama: true, tier: 'informational' },
+    },
+  },
+  {
+    pr: 1116,
+    url: 'https://github.com/garrytan/gstack/pull/1116',
+    title: 'Print the design doc inline before the approval gate',
+    targets: ['office-hours'],
+    anchor: 'GSTACK2_FIX_1116_INLINE_APPROVAL_DOC',
+    body: `### Inline design doc at the approval gate
+
+At the Phase 5 approval gate, print the full design-doc body as direct assistant text before the Approve/Revise/Start-over AskUserQuestion. Do not point the user at the file path and do not rely on a \`Bash cat\` or \`Read\` tool call to display it: tool outputs are frequently collapsed in the Claude Code UI, which leaves the user approving a document they cannot see. The assistant message is the one surface guaranteed to render, so emit a short preamble naming the saved path followed by the verbatim document body, then ask for approval.`,
+    regression: {
+      input: { phase: 'approval' },
+      expected: { print_doc_inline: true, before_approval_auq: true },
+    },
+  },
+  {
+    pr: 452,
+    url: 'https://github.com/garrytan/gstack/pull/452',
+    title: 'Read a repo-specific ## Review section from CLAUDE.md',
+    targets: ['review'],
+    anchor: 'GSTACK2_FIX_452_CLAUDEMD_REVIEW_SECTION',
+    body: `### Repo-owned review calibration
+
+Before scope-drift detection, read a \`## Review\` section from the project CLAUDE.md and apply it as additive repo-specific calibration: scope rules and the intent source of truth, high-risk paths and trust boundaries, escalation rules, auto-fix boundaries, and external consumers. It calibrates risk and scope; it never replaces \`checklist.md\`, which stays the rubric source of truth. If the section is absent, skip silently. If it names an accessible ticketing source of truth, use it during scope-drift detection.`,
+    regression: {
+      input: { claude_md_has_review_section: true },
+      expected: { apply_repo_rules: true, silent_skip_if_absent: true },
+    },
+  },
 ];
 
 export function overlaysForSource(source: string): BugFixOverlay[] {
@@ -479,6 +521,16 @@ export function evaluateBugFixRegression(pr: number, rawInput: unknown): Record<
     }
     case 1053:
       return { mutations_allowed: input.fix_flag === true, fix_requires: '--fix' };
+    case 579: {
+      const flagMissing = input.mcp_server === true && input.has_glama_json !== true;
+      return { flag_missing_glama: flagMissing, tier: 'informational' };
+    }
+    case 1116: {
+      const atApproval = input.phase === 'approval';
+      return { print_doc_inline: atApproval, before_approval_auq: atApproval };
+    }
+    case 452:
+      return { apply_repo_rules: input.claude_md_has_review_section === true, silent_skip_if_absent: true };
     default:
       throw new Error(`No executable GStack 2 regression evaluator for PR #${pr}`);
   }

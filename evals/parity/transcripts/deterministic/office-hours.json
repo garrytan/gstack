@@ -102,6 +102,13 @@
           "reproduced_defect": "Refuse to log success without a persisted design doc",
           "regression_fixture": "evals/parity/regressions/pr-1049.json",
           "explanation": "### Artifact-verified outcome\n\nThe design doc file is the artifact of this session. Before the telemetry block runs, verify that a design doc actually persisted to disk. When no doc was written, the outcome must be `no_doc`, never `success`, no matter how productive the conversation felt. A session without a persisted artifact is not a successful session, and downstream analytics depend on that distinction to catch skipped review phases."
+        },
+        {
+          "classification": "INTENTIONAL_IMPROVEMENT",
+          "issue_or_pr": "https://github.com/garrytan/gstack/pull/1116",
+          "reproduced_defect": "Print the design doc inline before the approval gate",
+          "regression_fixture": "evals/parity/regressions/pr-1116.json",
+          "explanation": "### Inline design doc at the approval gate\n\nAt the Phase 5 approval gate, print the full design-doc body as direct assistant text before the Approve/Revise/Start-over AskUserQuestion. Do not point the user at the file path and do not rely on a `Bash cat` or `Read` tool call to display it: tool outputs are frequently collapsed in the Claude Code UI, which leaves the user approving a document they cannot see. The assistant message is the one surface guaranteed to render, so emit a short preamble naming the saved path followed by the verbatim document body, then ask for approval."
         }
       ]
     }

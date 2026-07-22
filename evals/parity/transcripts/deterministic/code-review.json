@@ -118,6 +118,20 @@
           "reproduced_defect": "Trace changed inputs into unchanged consumers",
           "regression_fixture": "evals/parity/regressions/pr-2141.json",
           "explanation": "### Changed-input consumer trace\n\nWhen a patch widens an accepted input, loosens validation, changes a default, or alters a condition, trace that value into unchanged downstream consumers. Re-read unchanged user-facing strings whose truth may depend on the changed condition. Review the behavioral boundary, not only the edited lines."
+        },
+        {
+          "classification": "INTENTIONAL_IMPROVEMENT",
+          "issue_or_pr": "https://github.com/garrytan/gstack/pull/579",
+          "reproduced_defect": "Check MCP-server packaging before it fails the registry build",
+          "regression_fixture": "evals/parity/regressions/pr-579.json",
+          "explanation": "### MCP-server packaging checks (informational)\n\nWhen the diff adds or modifies an MCP server package (`glama.json`, an `mcpServers` block in `package.json`, or a server entry point), add informational packaging checks. Flag `package.json` `exports`/`main`/`bin` that resolve into `src/` or a `.ts` file rather than the compiled `dist/` output, because registry Docker builds run the compiled artifact. Flag relative ESM imports missing `.js` extensions under `moduleResolution: \"NodeNext\"`/`\"Node16\"`, since bundler resolution hides it locally but Node ESM fails at runtime. Flag `moduleResolution: \"bundler\"` on a standalone Node MCP server (correct for frontend, wrong for an npm/Docker-distributed server). Flag a missing or malformed `glama.json` (needs `$schema` and a `maintainers` array). Do not flag frontend packages using `bundler`, or MCP packages consumed as libraries rather than standalone servers."
+        },
+        {
+          "classification": "INTENTIONAL_IMPROVEMENT",
+          "issue_or_pr": "https://github.com/garrytan/gstack/pull/452",
+          "reproduced_defect": "Read a repo-specific ## Review section from CLAUDE.md",
+          "regression_fixture": "evals/parity/regressions/pr-452.json",
+          "explanation": "### Repo-owned review calibration\n\nBefore scope-drift detection, read a `## Review` section from the project CLAUDE.md and apply it as additive repo-specific calibration: scope rules and the intent source of truth, high-risk paths and trust boundaries, escalation rules, auto-fix boundaries, and external consumers. It calibrates risk and scope; it never replaces `checklist.md`, which stays the rubric source of truth. If the section is absent, skip silently. If it names an accessible ticketing source of truth, use it during scope-drift detection."
         }
       ]
     }

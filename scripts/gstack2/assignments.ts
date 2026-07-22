@@ -75,7 +75,7 @@ function publicModeFor(source: string, tree: SourceAssignment['tree'], legacyMod
 export const SOURCE_ASSIGNMENTS: SourceAssignment[] = [
   // Shared catalog and planning/memory family.
   A('gstack', 'plan', 'catalog', 'Legacy catalog and top-level workflow routing.', { visibility: 'internal' }),
-  A('office-hours', 'plan', 'product', 'Reframe a product idea through YC-style office hours.', { mandatory: true, overlays: [1049, 2030], defaultDepth: 'deep', defaultMutation: 'design-doc-only', webContext: 'optional' }),
+  A('office-hours', 'plan', 'product', 'Reframe a product idea through YC-style office hours.', { mandatory: true, overlays: [1049, 1116, 2030], defaultDepth: 'deep', defaultMutation: 'design-doc-only', webContext: 'optional' }),
   A('plan-ceo-review', 'plan', 'ceo', 'Challenge scope, strategy, and the ten-star product shape.', { mandatory: true, overlays: [2030], defaultDepth: 'deep', defaultMutation: 'plan-only', webContext: 'optional' }),
   A('plan-eng-review', 'plan', 'eng', 'Review architecture, data flow, tests, performance, and failure modes.', { mandatory: true, overlays: [592, 1071, 2030], defaultDepth: 'deep', defaultMutation: 'plan-only' }),
   A('plan-devex-review', 'plan', 'dx', 'Review developer personas, time-to-hello-world, friction, and DX measurement.', { mandatory: true, overlays: [2030], defaultDepth: 'deep', defaultMutation: 'plan-only', webContext: 'optional' }),
@@ -123,7 +123,7 @@ export const SOURCE_ASSIGNMENTS: SourceAssignment[] = [
   A('unfreeze', 'debug', 'unfreeze', 'Remove the edit-directory restriction.', { visibility: 'internal', defaultMutation: 'safety-policy' }),
 
   // Review family.
-  A('review', 'review', 'diff', 'Review a diff, validate findings, and apply safe fixes.', { mandatory: true, overlays: [610, 645, 2030, 2141], defaultDepth: 'deep', defaultMutation: 'fix-safe', webContext: 'optional' }),
+  A('review', 'review', 'diff', 'Review a diff, validate findings, and apply safe fixes.', { mandatory: true, overlays: [452, 579, 610, 645, 2030, 2141], defaultDepth: 'deep', defaultMutation: 'fix-safe', webContext: 'optional' }),
   A('cso', 'review', 'security', 'Run OWASP, STRIDE, secrets, supply-chain, and infrastructure audits.', { mandatory: true, overlays: [1053, 1523, 2030], defaultDepth: 'deep', defaultMutation: 'report-only', webContext: 'optional' }),
   A('health', 'review', 'health', 'Run the code-quality dashboard and trend analysis.', { mandatory: true, defaultMutation: 'report-only' }),
   A('codex', 'review', 'outside-codex', 'Request an OpenAI Codex review, challenge, or consultation.', { mandatory: true, defaultMutation: 'report-only' }),

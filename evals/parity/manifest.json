@@ -17,7 +17,7 @@
     "packaged_section_copies": 17,
     "internal_execution_adapters": 1,
     "scenarios": 25,
-    "bug_fix_ports": 22,
+    "bug_fix_ports": 25,
     "assets": 78,
     "dependency_copies": 4,
     "runtime_helpers": 41
@@ -89,7 +89,8 @@
       "overlays": [
         679,
         2030,
-        1049
+        1049,
+        1116
       ],
       "original_source_file": "office-hours/SKILL.md.tmpl",
       "original_line_range": "1-526",
@@ -3573,7 +3574,9 @@
         645,
         679,
         2030,
-        2141
+        2141,
+        579,
+        452
       ],
       "original_source_file": "review/SKILL.md.tmpl",
       "original_line_range": "1-304",
@@ -7391,6 +7394,33 @@
         "cso"
       ],
       "anchor": "GSTACK2_FIX_1053_FIX_MODE"
+    },
+    {
+      "pr": 579,
+      "url": "https://github.com/garrytan/gstack/pull/579",
+      "title": "Check MCP-server packaging before it fails the registry build",
+      "targets": [
+        "review"
+      ],
+      "anchor": "GSTACK2_FIX_579_MCP_PACKAGING"
+    },
+    {
+      "pr": 1116,
+      "url": "https://github.com/garrytan/gstack/pull/1116",
+      "title": "Print the design doc inline before the approval gate",
+      "targets": [
+        "office-hours"
+      ],
+      "anchor": "GSTACK2_FIX_1116_INLINE_APPROVAL_DOC"
+    },
+    {
+      "pr": 452,
+      "url": "https://github.com/garrytan/gstack/pull/452",
+      "title": "Read a repo-specific ## Review section from CLAUDE.md",
+      "targets": [
+        "review"
+      ],
+      "anchor": "GSTACK2_FIX_452_CLAUDEMD_REVIEW_SECTION"
     }
   ]
 }

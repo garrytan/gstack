@@ -1,0 +1,19 @@
+{
+  "pr": 452,
+  "url": "https://github.com/garrytan/gstack/pull/452",
+  "title": "Read a repo-specific ## Review section from CLAUDE.md",
+  "targets": [
+    "review"
+  ],
+  "anchor": "GSTACK2_FIX_452_CLAUDEMD_REVIEW_SECTION",
+  "body": "### Repo-owned review calibration\n\nBefore scope-drift detection, read a `## Review` section from the project CLAUDE.md and apply it as additive repo-specific calibration: scope rules and the intent source of truth, high-risk paths and trust boundaries, escalation rules, auto-fix boundaries, and external consumers. It calibrates risk and scope; it never replaces `checklist.md`, which stays the rubric source of truth. If the section is absent, skip silently. If it names an accessible ticketing source of truth, use it during scope-drift detection.",
+  "regression": {
+    "input": {
+      "claude_md_has_review_section": true
+    },
+    "expected": {
+      "apply_repo_rules": true,
+      "silent_skip_if_absent": true
+    }
+  }
+}

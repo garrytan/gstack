@@ -760,3 +760,13 @@ Persist a learning only when the interaction contains a useful, reusable signal 
 
 The design doc file is the artifact of this session. Before the telemetry block runs, verify that a design doc actually persisted to disk. When no doc was written, the outcome must be `no_doc`, never `success`, no matter how productive the conversation felt. A session without a persisted artifact is not a successful session, and downstream analytics depend on that distinction to catch skipped review phases.
 <!-- GSTACK2_BUG_FIX_END pr=1049 -->
+
+<!-- GSTACK2_BUG_FIX_START pr=1116 anchor=GSTACK2_FIX_1116_INLINE_APPROVAL_DOC -->
+## Upstream judgment port: PR #1116
+
+[Print the design doc inline before the approval gate](https://github.com/garrytan/gstack/pull/1116)
+
+### Inline design doc at the approval gate
+
+At the Phase 5 approval gate, print the full design-doc body as direct assistant text before the Approve/Revise/Start-over AskUserQuestion. Do not point the user at the file path and do not rely on a `Bash cat` or `Read` tool call to display it: tool outputs are frequently collapsed in the Claude Code UI, which leaves the user approving a document they cannot see. The assistant message is the one surface guaranteed to render, so emit a short preamble naming the saved path followed by the verbatim document body, then ask for approval.
+<!-- GSTACK2_BUG_FIX_END pr=1116 -->

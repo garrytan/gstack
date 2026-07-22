@@ -737,3 +737,23 @@ Persist a learning only when the interaction contains a useful, reusable signal 
 
 When a patch widens an accepted input, loosens validation, changes a default, or alters a condition, trace that value into unchanged downstream consumers. Re-read unchanged user-facing strings whose truth may depend on the changed condition. Review the behavioral boundary, not only the edited lines.
 <!-- GSTACK2_BUG_FIX_END pr=2141 -->
+
+<!-- GSTACK2_BUG_FIX_START pr=579 anchor=GSTACK2_FIX_579_MCP_PACKAGING -->
+## Upstream judgment port: PR #579
+
+[Check MCP-server packaging before it fails the registry build](https://github.com/garrytan/gstack/pull/579)
+
+### MCP-server packaging checks (informational)
+
+When the diff adds or modifies an MCP server package (`glama.json`, an `mcpServers` block in `package.json`, or a server entry point), add informational packaging checks. Flag `package.json` `exports`/`main`/`bin` that resolve into `src/` or a `.ts` file rather than the compiled `dist/` output, because registry Docker builds run the compiled artifact. Flag relative ESM imports missing `.js` extensions under `moduleResolution: "NodeNext"`/`"Node16"`, since bundler resolution hides it locally but Node ESM fails at runtime. Flag `moduleResolution: "bundler"` on a standalone Node MCP server (correct for frontend, wrong for an npm/Docker-distributed server). Flag a missing or malformed `glama.json` (needs `$schema` and a `maintainers` array). Do not flag frontend packages using `bundler`, or MCP packages consumed as libraries rather than standalone servers.
+<!-- GSTACK2_BUG_FIX_END pr=579 -->
+
+<!-- GSTACK2_BUG_FIX_START pr=452 anchor=GSTACK2_FIX_452_CLAUDEMD_REVIEW_SECTION -->
+## Upstream judgment port: PR #452
+
+[Read a repo-specific ## Review section from CLAUDE.md](https://github.com/garrytan/gstack/pull/452)
+
+### Repo-owned review calibration
+
+Before scope-drift detection, read a `## Review` section from the project CLAUDE.md and apply it as additive repo-specific calibration: scope rules and the intent source of truth, high-risk paths and trust boundaries, escalation rules, auto-fix boundaries, and external consumers. It calibrates risk and scope; it never replaces `checklist.md`, which stays the rubric source of truth. If the section is absent, skip silently. If it names an accessible ticketing source of truth, use it during scope-drift detection.
+<!-- GSTACK2_BUG_FIX_END pr=452 -->

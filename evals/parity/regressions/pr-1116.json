@@ -1,0 +1,19 @@
+{
+  "pr": 1116,
+  "url": "https://github.com/garrytan/gstack/pull/1116",
+  "title": "Print the design doc inline before the approval gate",
+  "targets": [
+    "office-hours"
+  ],
+  "anchor": "GSTACK2_FIX_1116_INLINE_APPROVAL_DOC",
+  "body": "### Inline design doc at the approval gate\n\nAt the Phase 5 approval gate, print the full design-doc body as direct assistant text before the Approve/Revise/Start-over AskUserQuestion. Do not point the user at the file path and do not rely on a `Bash cat` or `Read` tool call to display it: tool outputs are frequently collapsed in the Claude Code UI, which leaves the user approving a document they cannot see. The assistant message is the one surface guaranteed to render, so emit a short preamble naming the saved path followed by the verbatim document body, then ask for approval.",
+  "regression": {
+    "input": {
+      "phase": "approval"
+    },
+    "expected": {
+      "print_doc_inline": true,
+      "before_approval_auq": true
+    }
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "pr": 579,
+  "url": "https://github.com/garrytan/gstack/pull/579",
+  "title": "Check MCP-server packaging before it fails the registry build",
+  "targets": [
+    "review"
+  ],
+  "anchor": "GSTACK2_FIX_579_MCP_PACKAGING",
+  "body": "### MCP-server packaging checks (informational)\n\nWhen the diff adds or modifies an MCP server package (`glama.json`, an `mcpServers` block in `package.json`, or a server entry point), add informational packaging checks. Flag `package.json` `exports`/`main`/`bin` that resolve into `src/` or a `.ts` file rather than the compiled `dist/` output, because registry Docker builds run the compiled artifact. Flag relative ESM imports missing `.js` extensions under `moduleResolution: \"NodeNext\"`/`\"Node16\"`, since bundler resolution hides it locally but Node ESM fails at runtime. Flag `moduleResolution: \"bundler\"` on a standalone Node MCP server (correct for frontend, wrong for an npm/Docker-distributed server). Flag a missing or malformed `glama.json` (needs `$schema` and a `maintainers` array). Do not flag frontend packages using `bundler`, or MCP packages consumed as libraries rather than standalone servers.",
+  "regression": {
+    "input": {
+      "mcp_server": true,
+      "has_glama_json": false
+    },
+    "expected": {
+      "flag_missing_glama": true,
+      "tier": "informational"
+    }
+  }
+}
