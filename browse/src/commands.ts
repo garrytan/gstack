@@ -10,6 +10,13 @@
  * Zero side effects. Safe to import from build scripts and tests.
  */
 
+// Implicit post-action settle window (click/fill/select and end-of-chain).
+// networkidle resolves instantly on quiet pages, so this only caps the wait on
+// pages holding a connection open (polling, analytics, websockets) — where the
+// old 2000ms made every interaction feel slow. Explicit `wait --networkidle`
+// stays available for a full wait.
+export const NETWORK_SETTLE_MS = 500;
+
 export const READ_COMMANDS = new Set([
   'text', 'html', 'links', 'forms', 'accessibility',
   'js', 'eval', 'css', 'attrs',

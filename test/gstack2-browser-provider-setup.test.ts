@@ -16,7 +16,7 @@ afterEach(async () => {
 });
 
 describe("browser provider setup contract", () => {
-  test("defines every verified host plus Gemini without inventing Kimi or Pi core automation", () => {
+  test("defines every verified host plus Gemini and the Aside AI browser without inventing Kimi or Pi core automation", () => {
     expect(BROWSER_PROVIDER_CONTRACTS.map((provider) => provider.id)).toEqual([
       "claude",
       "codex",
@@ -26,6 +26,7 @@ describe("browser provider setup contract", () => {
       "openclaw",
       "kimi",
       "pi",
+      "aside",
     ]);
     expect(BROWSER_PROVIDER_CONTRACTS.map((provider) => provider.kind)).toEqual([
       "native-extension",
@@ -36,6 +37,7 @@ describe("browser provider setup contract", () => {
       "native-plugin",
       "no-native-automation",
       "extension-only",
+      "dedicated-ai-browser",
     ]);
 
     const rendered = renderBrowserProviderContract();
@@ -48,6 +50,8 @@ describe("browser provider setup contract", () => {
     expect(rendered).toContain("OpenClaw includes a browser plugin");
     expect(rendered).toContain("Do not describe `kimi web` as browser automation");
     expect(rendered).toContain("Pi intentionally has no core interactive browser tool");
+    expect(rendered).toContain("Aside is a standalone AI browser driven from the terminal by the `aside` CLI");
+    expect(rendered).toContain("await page.console.logs()");
     expect(rendered).toContain("never silently add a browser MCP or alternate backend");
     expect(rendered).toContain("GStack's existing local Chromium/Playwright implementation remains the only bundled browser backend");
     expect(rendered).toContain("Do not run `./setup`");

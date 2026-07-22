@@ -1040,16 +1040,23 @@ async function handleCommandInternalImpl(
       });
       // Start periodic snapshot interval when watch mode begins
       if (command === 'watch' && args[0] !== 'stop' && browserManager.isWatching()) {
+        // A full interactive snapshot can take >1s on large pages; guard against
+        // overlapping runs piling up when a snapshot outlasts the 5s interval.
+        let snapshotInFlight = false;
         const watchInterval = setInterval(async () => {
           if (!browserManager.isWatching()) {
             clearInterval(watchInterval);
             return;
           }
+          if (snapshotInFlight) return;
+          snapshotInFlight = true;
           try {
             const snapshot = await handleSnapshot(['-i'], browserManager.getActiveSession());
             browserManager.addWatchSnapshot(snapshot);
           } catch {
             // Page may be navigating — skip this snapshot
+          } finally {
+            snapshotInFlight = false;
           }
         }, 5000);
         browserManager.watchInterval = watchInterval;

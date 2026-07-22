@@ -107,7 +107,7 @@ function copyDirSync(src: string, dest: string) {
 }
 
 /**
- * Set up browse shims (binary symlink, find-browse, remote-slug) in a tmpDir.
+ * Set up browse shims (binary symlink, remote-slug) in a tmpDir.
  */
 function setupBrowseShims(dir: string) {
   // Symlink browse binary
@@ -117,14 +117,8 @@ function setupBrowseShims(dir: string) {
     fs.symlinkSync(browseBin, path.join(binDir, 'browse'));
   }
 
-  // find-browse shim
   const findBrowseDir = path.join(dir, 'browse', 'bin');
   fs.mkdirSync(findBrowseDir, { recursive: true });
-  fs.writeFileSync(
-    path.join(findBrowseDir, 'find-browse'),
-    `#!/bin/bash\necho "${browseBin}"\n`,
-    { mode: 0o755 },
-  );
 
   // remote-slug shim (returns test-project)
   fs.writeFileSync(

@@ -5,7 +5,7 @@
 import type { BrowserManager } from './browser-manager';
 import { handleSnapshot } from './snapshot';
 import { getCleanText } from './read-commands';
-import { READ_COMMANDS, WRITE_COMMANDS, META_COMMANDS, PAGE_CONTENT_COMMANDS, wrapUntrustedContent, canonicalizeCommand } from './commands';
+import { READ_COMMANDS, WRITE_COMMANDS, META_COMMANDS, PAGE_CONTENT_COMMANDS, wrapUntrustedContent, canonicalizeCommand, NETWORK_SETTLE_MS } from './commands';
 import { handleDomainSkillCommand } from './domain-skill-commands';
 import { handleSkillCommand } from './browser-skill-commands';
 import { validateNavigationUrl } from './url-validation';
@@ -706,9 +706,9 @@ export async function handleMetaCommand(
         }
       }
 
-      // Wait for network to settle after write commands before returning
+      // Settle window after the last write in a chain (see NETWORK_SETTLE_MS).
       if (lastWasWrite) {
-        await bm.getPage().waitForLoadState('networkidle', { timeout: 2000 }).catch(() => {});
+        await bm.getPage().waitForLoadState('networkidle', { timeout: NETWORK_SETTLE_MS }).catch(() => {});
       }
 
       return results.join('\n\n');
@@ -842,11 +842,11 @@ export async function handleMetaCommand(
         if (!bm.isWatching()) return 'Not currently watching.';
         const result = bm.stopWatch();
         const durationSec = Math.round(result.duration / 1000);
-        const lastSnapshot = result.snapshots.length > 0
-          ? wrapUntrustedContent(result.snapshots[result.snapshots.length - 1], bm.getCurrentUrl())
+        const lastSnapshot = result.last
+          ? wrapUntrustedContent(result.last, bm.getCurrentUrl())
           : '(none)';
         return [
-          `WATCH STOPPED (${durationSec}s, ${result.snapshots.length} snapshots)`,
+          `WATCH STOPPED (${durationSec}s, ${result.count} snapshots)`,
           '',
           'Last snapshot:',
           lastSnapshot,

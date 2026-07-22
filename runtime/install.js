@@ -264,7 +264,6 @@ export const DEFAULT_RUNTIME_BUNDLE = Object.freeze([
   ...RUNTIME_HELPER_INTERNALS.map((target) => entry(target, undefined, true)),
   ...RUNTIME_HELPER_DEPENDENCIES.map((target) => entry(target)),
   entry(platformBinary("browse/dist/browse"), "core", true),
-  entry(platformBinary("browse/dist/find-browse"), "core", true),
   entry("browse/dist/server-node.mjs", "core"),
   entry("browse/dist/bun-polyfill.cjs", "core"),
   entry("browse/dist/.version", "core"),

@@ -1159,7 +1159,6 @@ browse/
 │   ├── error-handling.ts        # safeUnlink / safeKill / isProcessAlive
 │   ├── platform.ts              # OS detection (macOS, Linux, Windows)
 │   ├── telemetry.ts             # Anonymous opt-in usage telemetry
-│   ├── find-browse.ts           # Locate running daemon or bootstrap
 │   └── config.ts                # Config resolution (env / files)
 ├── test/                        # Integration tests + HTML fixtures
 └── dist/
