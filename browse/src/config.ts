@@ -166,6 +166,28 @@ export function resolveGstackHome(): string {
 }
 
 /**
+ * Is the remote pair-agent (ngrok tunnel) surface opt-in enabled?
+ *
+ * Fail-closed: the tunnel exposes the local browser to the internet, so it
+ * stays OFF unless the user explicitly ran `gstack-config set pair_agent on`.
+ * Any read/parse failure (missing config, malformed JSON) also resolves OFF.
+ *
+ * Env override `GSTACK_PAIR_AGENT=on|off` wins (used by tests and as an
+ * emergency knob), mirroring the telemetry env-hint convention.
+ */
+export function isPairAgentEnabled(): boolean {
+  const env = process.env.GSTACK_PAIR_AGENT;
+  if (env === 'on') return true;
+  if (env === 'off') return false;
+  try {
+    const raw = fs.readFileSync(path.join(resolveGstackHome(), 'config.json'), 'utf-8');
+    return JSON.parse(raw)?.pair_agent === 'on';
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Resolve the Chromium profile directory.
  *
  * Resolution order:

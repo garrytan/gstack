@@ -34,7 +34,7 @@ import {
   isRootToken, checkConnectRateLimit, type TokenInfo,
 } from './token-registry';
 import { validateTempPath } from './path-security';
-import { resolveConfig, ensureStateDir, readVersionHash, resolveChromiumProfile, cleanSingletonLocks } from './config';
+import { resolveConfig, ensureStateDir, readVersionHash, resolveChromiumProfile, cleanSingletonLocks, isPairAgentEnabled } from './config';
 import { emitActivity, subscribe, getActivityAfter, getActivityHistory, getSubscriberCount } from './activity';
 import { createSseEndpoint } from './sse-helpers';
 import { initAuditLog, writeAuditEntry } from './audit';
@@ -1788,6 +1788,14 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
             status: 403, headers: { 'Content-Type': 'application/json' },
           });
         }
+        // Remote pair-agent is opt-in. Refuse to open the tunnel (and never
+        // bind the tunnel listener) unless the user explicitly enabled it.
+        if (!isPairAgentEnabled()) {
+          return new Response(JSON.stringify({
+            error: 'Remote pair-agent is disabled',
+            hint: 'Enable it with: gstack-config set pair_agent on',
+          }), { status: 403, headers: { 'Content-Type': 'application/json' } });
+        }
         if (tunnelActive && tunnelUrl && tunnelServer) {
           // Verify tunnel is still alive before returning cached URL.
           // Probe GET /connect (the only unauth-reachable path on the tunnel
@@ -2531,7 +2539,9 @@ export async function start() {
   // Start ngrok tunnel if BROWSE_TUNNEL=1 is set.  Uses the dual-listener
   // pattern: bind a dedicated tunnel listener on an ephemeral port and
   // point ngrok.forward() at IT, not the local daemon port.
-  if (process.env.BROWSE_TUNNEL === '1') {
+  if (process.env.BROWSE_TUNNEL === '1' && !isPairAgentEnabled()) {
+    console.error('[browse] BROWSE_TUNNEL=1 ignored: remote pair-agent is disabled (opt-in). Enable it with: gstack-config set pair_agent on');
+  } else if (process.env.BROWSE_TUNNEL === '1') {
     const authtoken = resolveNgrokAuthtoken();
     if (!authtoken) {
       console.error('[browse] BROWSE_TUNNEL=1 but no NGROK_AUTHTOKEN found. Set it via env var or ~/.gstack/ngrok.env');

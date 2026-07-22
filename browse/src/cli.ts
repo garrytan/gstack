@@ -14,7 +14,7 @@ import * as path from 'path';
 import { spawn as nodeSpawn } from 'child_process';
 import { safeUnlink, safeUnlinkQuiet, safeKill, isProcessAlive } from './error-handling';
 import { writeSecureFile, mkdirSecure } from './file-permissions';
-import { resolveConfig, ensureStateDir, readVersionHash } from './config';
+import { resolveConfig, ensureStateDir, readVersionHash, isPairAgentEnabled } from './config';
 import { parseProxyConfig, computeConfigHash, ProxyConfigError } from './proxy-config';
 import { redactProxyUrl } from './proxy-redact';
 
@@ -914,8 +914,11 @@ async function handlePairAgent(state: ServerState, args: string[]): Promise<void
   if (pairData.tunnel_url) {
     serverUrl = pairData.tunnel_url;
   } else if (!localHost) {
-    // No tunnel active. Check if ngrok is available and auto-start.
-    const ngrokAvailable = isNgrokAvailable();
+    // No tunnel active. Remote tunneling (pair-agent) is opt-in — never
+    // auto-start it unless the user explicitly enabled it, even if ngrok is
+    // installed and authed.
+    const pairEnabled = isPairAgentEnabled();
+    const ngrokAvailable = pairEnabled && isNgrokAvailable();
     if (ngrokAvailable) {
       console.log('[browse] ngrok detected. Starting tunnel...');
       try {
@@ -940,9 +943,14 @@ async function handlePairAgent(state: ServerState, args: string[]): Promise<void
         serverUrl = pairData.server_url;
       }
     } else {
-      console.warn('[browse] No tunnel active and ngrok is not installed/configured.');
-      console.warn('[browse] Instructions will use localhost (same-machine only).');
-      console.warn('[browse] For remote agents: install ngrok (https://ngrok.com) and run `ngrok config add-authtoken <TOKEN>`\n');
+      if (!pairEnabled) {
+        console.warn('[browse] Remote pair-agent tunnel is disabled (opt-in).');
+        console.warn('[browse] Enable it with: gstack-config set pair_agent on');
+      } else {
+        console.warn('[browse] No tunnel active and ngrok is not installed/configured.');
+        console.warn('[browse] For remote agents: install ngrok (https://ngrok.com) and run `ngrok config add-authtoken <TOKEN>`');
+      }
+      console.warn('[browse] Instructions will use localhost (same-machine only).\n');
       serverUrl = pairData.server_url;
     }
   } else {
