@@ -476,7 +476,8 @@ determined leaker (a CHANGELOG line that does would fail a hostile screenshotter
   the committed, reviewable `.gstack/redact-prepush-ignore` file at the repo root
   (one glob per line, `#` comments — the recommended mechanism, shared across
   contributors and visible in git history) and the machine-local
-  `redact_prepush_ignore_globs` config key. Globs match repo-root-relative paths
+  `redact_prepush_ignore_globs` config key (comma-separated, no spaces — for
+  several globs prefer the committed file). Globs match repo-root-relative paths
   (`**` spans directories, e.g. `prospecting/exports/**/*.csv`); matched paths are
   dropped from the scanned diff via a git `:(exclude)` pathspec. Every exemption
   prints a one-line stderr notice (how many paths / bytes were skipped) — an

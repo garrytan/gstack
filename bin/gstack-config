@@ -109,7 +109,12 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 #                           #   An exemption is always reported on stderr at push
 #                           #   time; non-ignored files still fail closed. `**`
 #                           #   spans directories, e.g.
-#                           #   prospecting/exports/**/*.csv,data/**/*.parquet
+#                           #   prospecting/exports/**/*.parquet,data/**/*.csv
+#                           #   NOTE: comma-separated, NO spaces (config values are
+#                           #   whitespace-delimited on read — a space would drop
+#                           #   the trailing globs). For several globs, prefer the
+#                           #   committed .gstack/redact-prepush-ignore file
+#                           #   (one glob per line).
 #
 # ─── Workspace-aware ship ────────────────────────────────────────────
 # workspace_root: $HOME/conductor/workspaces  # Where /ship looks for sibling
