@@ -233,7 +233,7 @@ means the replacement still lacks its required release evidence.
 
 | # | Legacy defect | GStack 2 disposition / replacement | Replacement evidence |
 |---:|---|---|---|
-| 1 | Ten registered hosts; setup fully installs five | **Contained:** placement is delegated to the standard installer. | 510/510 checks across seven hosts, 18 installs, two removals, project/global scopes, and selections. Passing live v3/host UI launch remains separate. |
+| 1 | Ten registered hosts; setup fully installs five | **Contained:** placement is delegated to the standard installer. | 510/510 checks across seven hosts, 18 installs, two removals, project/global scopes, and selections. Live v3 installed-host adversarial now passes 4/4 one-shot (evidence 2026-07-22T21-33-20-053Z-84fcb74b.json); broad per-host UI launch coverage remains separate. |
 | 2 | Kiro rewrites Codex output | **Contained:** one canonical standards tree; no Kiro rewrite in the 2.0 path. | Seven-host matrix installs byte-matching canonical copies without host rewrites. |
 | 3 | Gitignored external trees defeat freshness CI | **Implemented:** canonical `skills/`, `compat/`, and parity fixtures are committed. | 4,681 parity checks plus installed-file hash equality. |
 | 4 | External `--dry-run` mutates files | **Contained:** external host generation/dry-run is not used for 2.0 distribution. | Canonical regeneration/parity check exists; a non-mutating canonical check mode is not yet present. |
