@@ -23,7 +23,7 @@ describe('browser tab recording', () => {
   });
 
   afterAll(async () => {
-    try { server.server.stop(); } catch {}
+    server.server.stop();
     // BrowserManager has its own 5s defensive close timeout; keep this hook
     // below Bun's 5s default so a slow Chromium teardown cannot fail the suite.
     await Promise.race([bm.close(), new Promise(resolve => setTimeout(resolve, 4_000))]);

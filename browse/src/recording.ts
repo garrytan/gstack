@@ -169,10 +169,6 @@ async function addMarker(state: RecordingState, label: string, pauseMs = 0): Pro
   }
 }
 
-export function isRecording(bm: BrowserManager): boolean {
-  return recordings.has(bm);
-}
-
 /** Add a non-sensitive automatic marker for visible browser interactions. */
 export async function markRecordedInteraction(bm: BrowserManager, command: string, args: string[]): Promise<void> {
   const state = recordings.get(bm);
