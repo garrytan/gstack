@@ -51,3 +51,17 @@ bin/*        text eol=lf
 # the content-addressed staged filename.
 lib/diagram-render/dist/*.html text eol=lf whitespace=-trailing-space
 lib/diagram-render/dist/*.json text eol=lf
+
+# GStack 2 generator output (scripts/gstack2/, `bun run gen:gstack2`).
+# Marked linguist-generated so PR reviews collapse these by default and
+# reviewers see only the hand-edited generator inputs. check:gstack2-generated
+# enforces that these always match a clean regeneration, so their diffs are
+# reproducible rather than reviewable.
+skills/** linguist-generated=true
+compat/** linguist-generated=true
+evals/parity/** linguist-generated=true
+docs/gstack-2/JUDGMENT-PARITY.md linguist-generated=true
+docs/gstack-2/JUDGMENT-PROVENANCE.json linguist-generated=true
+docs/gstack-2/SCENARIOS.md linguist-generated=true
+docs/gstack-2/SKILL-MIGRATION.md linguist-generated=true
+docs/gstack-2/BACKLOG-MAP.json linguist-generated=true
