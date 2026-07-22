@@ -12,7 +12,8 @@
   "normalized_render_sha256": "76b7c03e6d8e7b852beda0a58409d97153771dd8f7b870bbdda23e996ac23fc1",
   "target": "skills/plan/references/legacy/spec.md",
   "overlays": [
-    679
+    679,
+    886
   ],
   "contract": {
     "question_order": "Preserve the source workflow order; gather prerequisites before consequential questions.",

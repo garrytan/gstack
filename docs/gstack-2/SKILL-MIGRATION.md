@@ -12,11 +12,11 @@ The fixed public modes are: Design = `Explore | Generate | Critique | Implement`
 |---|---|---|---|---|
 | `/gstack` | `$plan --mode Discovery --module gstack` | internal (internal) | no | #679 |
 | `/office-hours` | `$plan --mode Discovery --module office-hours` | internal (primary) | yes | #679, #2030, #1049, #1116, #886 |
-| `/plan-ceo-review` | `$plan --mode Product --module plan-ceo-review` | internal (primary) | yes | #679, #2030 |
-| `/plan-eng-review` | `$plan --mode Engineering --module plan-eng-review` | internal (primary) | yes | #679, #1071, #2030, #592 |
-| `/plan-devex-review` | `$plan --mode DX --module plan-devex-review` | internal (primary) | yes | #679, #2030 |
-| `/autoplan` | `$plan --mode Full chain --module autoplan` | internal (primary) | yes | #679, #2014, #2023 |
-| `/spec` | `$plan --mode Specification --module spec` | internal (primary) | yes | #679 |
+| `/plan-ceo-review` | `$plan --mode Product --module plan-ceo-review` | internal (primary) | yes | #679, #2030, #886 |
+| `/plan-eng-review` | `$plan --mode Engineering --module plan-eng-review` | internal (primary) | yes | #679, #1071, #2030, #592, #886 |
+| `/plan-devex-review` | `$plan --mode DX --module plan-devex-review` | internal (primary) | yes | #679, #2030, #886 |
+| `/autoplan` | `$plan --mode Full chain --module autoplan` | internal (primary) | yes | #679, #2014, #2023, #886 |
+| `/spec` | `$plan --mode Specification --module spec` | internal (primary) | yes | #679, #886 |
 | `/plan-tune` | `$plan --mode Discovery --module plan-tune` | internal (primary) | yes | #679 |
 | `/context-save` | `$plan --mode Discovery --module context-save` | internal (internal) | no | #679 |
 | `/context-restore` | `$plan --mode Discovery --module context-restore` | internal (internal) | no | #679 |

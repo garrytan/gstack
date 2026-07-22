@@ -16,6 +16,7 @@ Before any substantive output, print these exact labels in this exact order. Res
 Target: <concrete repository, product, URL, device, PR, or artifact>
 Mode: <selected top-level mode>
 Depth: <readiness, standard, or deep>
+Scale: <session, hobby, project, product, or venture — name the deciding vectors>
 Mutation: <report-only or exact authorized mutation boundary>
 Active modules: <comma-separated internal specialist modules>
 Skipped modules: <comma-separated non-active mandatory modules with compact reasons>
@@ -32,6 +33,16 @@ Web context: <none, optional, local-browser, or production>
 6. Preserve report-only versus mutation boundaries. Missing mutation authorization fails closed: do not edit merely because a specialist can fix. Commits, pushes, PRs, merges, deploys, messages, and other external mutations still require affirmative authority from the user.
 7. Match the user's language. Keep code identifiers, commands, and source quotations original when translation would reduce accuracy.
 8. At exit, report completed artifacts, evidence, unresolved decisions, skipped modules with reasons, and any blocked gate.
+
+9. Classify the Scale header line from the Build scale section before any questioning begins. Every planning specialist applies its proportional-planning judgment port to that scale.
+
+## Build scale
+
+Classify the request on fifteen scale vectors before any questioning begins, from the prompt and cheap repository evidence only. Never run a questioning round merely to classify scale. Default unknown vectors to the low end; the specialist's own workflow raises the scale naturally when answers reveal more (builder talk turning into startup talk upgrades mid-session).
+
+Vectors: audience (self → friends/team → public), expected users (none → handful → many), commercial intent (none → maybe → core), deployment target (none/local → hosted → production), time horizon (one sitting → days → weeks → months+), maintenance expectation (throwaway → kept → maintained), integration surface (standalone → consumes APIs → exposes APIs/multi-service), extensibility ask (fixed → configurable → customizable platform), data sensitivity (none → personal → regulated), failure stakes (lost fun → annoyance → money/trust/safety), team (solo → few → org), codebase (greenfield → existing repo → legacy production), reversibility (discardable → migrations/breaking changes), distribution (private → shared → published), compliance (none → some → audited).
+
+The highest tier any vector demands wins: `session` (all vectors low — one sitting, for fun, self only), `hobby` (kept personal tool, days), `project` (shared or in a real repo, weeks), `product` (external users, hosted, revenue intent), `venture` (startup ambition, platform/API surface, team, months+). "A cool space animation in my terminal" is session-scale. "A startup with customizable APIs" is venture-scale. Print the result on the header's Scale line with the two or three vectors that decided it.
 
 
 ## Top-level modes

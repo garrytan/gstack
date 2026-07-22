@@ -805,3 +805,20 @@ Add to the standard template:
 
 Write questions, progress updates, reports, and artifacts in the language used by the user. Source material, code identifiers, commands, and quotations may remain in their original language when translating them would reduce accuracy.
 <!-- GSTACK2_BUG_FIX_END pr=679 -->
+
+<!-- GSTACK2_BUG_FIX_START pr=886 anchor=GSTACK2_FIX_886_PROPORTIONAL_PLANNING -->
+## Upstream judgment port: issue #886
+
+[Scale planning machinery to the printed build scale](https://github.com/garrytan/gstack/issues/886)
+
+### Proportional planning for the printed build scale
+
+The /plan dispatcher prints a `Scale:` header line classified from fifteen build-scale vectors (its Build scale section). This rule authorizes every planning specialist to size its machinery to that scale while keeping every STOP gate and approval boundary; a polite user answering every question is not evidence the full machinery is wanted, and the user can always ask for the complete treatment.
+
+- `session` and `hobby`: batch every question the initial prompt left unanswered into one AskUserQuestion round (two rounds for hobby); skip web or landscape research, outside voices, second opinions, and visual sketches unless the user asks (privacy gates are unchanged whenever they run); cap any adversarial or spec review loop at one iteration; keep the decision artifact near one page with next steps sized in hours (session) or days (hobby), never a phased multi-week roadmap or a distribution plan the user did not ask for.
+- `project`: run the specialist's default workflow, batching question rounds where its source authorizes smart skips; size the roadmap in weeks.
+- `product` and `venture`: the full specialist workflow and its complete question pressure apply; this rule removes nothing.
+- Never run a questioning round merely to classify scale. Classify from the prompt and cheap repository evidence, defaulting unknown vectors low; a specialist's own later questions may raise the scale mid-session, and an upgrade restores the full workflow from that point.
+
+For office-hours specifically: at session or hobby scale, batch the Phase 2B questions (this refines the one-at-a-time rule, whose pressure exists for startup diagnostics), default-skip the Phase 2.75 landscape search, gate the visual sketch and outside design voices on an explicit ask, and cap the Spec Review Loop at one iteration.
+<!-- GSTACK2_BUG_FIX_END pr=886 -->

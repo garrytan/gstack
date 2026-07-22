@@ -205,7 +205,8 @@
       "disposition": "BUG_FIX",
       "overlays": [
         679,
-        2030
+        2030,
+        886
       ],
       "original_source_file": "plan-ceo-review/SKILL.md.tmpl",
       "original_line_range": "1-427",
@@ -347,7 +348,8 @@
         679,
         1071,
         2030,
-        592
+        592,
+        886
       ],
       "original_source_file": "plan-eng-review/SKILL.md.tmpl",
       "original_line_range": "1-158",
@@ -466,7 +468,8 @@
       "disposition": "BUG_FIX",
       "overlays": [
         679,
-        2030
+        2030,
+        886
       ],
       "original_source_file": "plan-devex-review/SKILL.md.tmpl",
       "original_line_range": "1-462",
@@ -600,7 +603,8 @@
       "overlays": [
         679,
         2014,
-        2023
+        2023,
+        886
       ],
       "original_source_file": "autoplan/SKILL.md.tmpl",
       "original_line_range": "1-916",
@@ -689,7 +693,8 @@
       "target": "skills/plan/references/legacy/spec.md",
       "disposition": "BUG_FIX",
       "overlays": [
-        679
+        679,
+        886
       ],
       "original_source_file": "spec/SKILL.md.tmpl",
       "original_line_range": "1-769",
@@ -7417,11 +7422,16 @@
     {
       "pr": 886,
       "url": "https://github.com/garrytan/gstack/issues/886",
-      "title": "Right-size discovery for session-scale builds",
+      "title": "Scale planning machinery to the printed build scale",
       "targets": [
-        "office-hours"
+        "office-hours",
+        "plan-ceo-review",
+        "plan-eng-review",
+        "plan-devex-review",
+        "spec",
+        "autoplan"
       ],
-      "anchor": "GSTACK2_FIX_886_PROPORTIONAL_DISCOVERY"
+      "anchor": "GSTACK2_FIX_886_PROPORTIONAL_PLANNING"
     },
     {
       "pr": 452,

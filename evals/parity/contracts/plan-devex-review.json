@@ -13,7 +13,8 @@
   "target": "skills/plan/references/legacy/plan-devex-review.md",
   "overlays": [
     679,
-    2030
+    2030,
+    886
   ],
   "contract": {
     "question_order": "Preserve the source workflow order; gather prerequisites before consequential questions.",
