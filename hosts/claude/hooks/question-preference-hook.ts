@@ -282,11 +282,43 @@ function extractRecommended(
 }
 
 function slugFromCwd(cwd: string | undefined): string {
-  // Mirror gstack-slug's basename fallback. The full slug resolver shells out
-  // to git, which is too expensive on a hot hook path; the basename is close
-  // enough for preference lookup (preferences are keyed by question_id, slug
-  // is just the directory bucket).
+  // Resolve the SAME slug that bin/gstack-slug produces, because that is the
+  // bucket /plan-tune writes project-local preferences into
+  // (~/.gstack/projects/<slug>/question-preferences.json).
+  //
+  // gstack-slug derives the slug from the git remote (owner-repo, e.g.
+  // "garrytan-gstack") and only falls back to basename when the repo has NO
+  // remote configured. Using basename unconditionally — the previous behaviour
+  // — therefore looked up a directory that does not exist in any repo with a
+  // remote, so project-local preferences could never be found and the
+  // project > global precedence (D8) silently collapsed to global-only.
+  //
+  // We do NOT shell out to git: that is too expensive on this hot hook path,
+  // which is why the basename shortcut existed. Instead we read gstack-slug's
+  // own on-disk cache, keyed by the absolute path with '/' replaced by '_'.
+  // That is a single file read, and gstack-slug populates it on first run.
+  // On a cache miss we fall back to basename, matching gstack-slug's own
+  // no-remote fallback.
   if (!cwd) return 'unknown';
+
+  const cacheKey = cwd.replace(/\//g, '_');
+  // stateRoot() honours GSTACK_STATE_ROOT/GSTACK_HOME (used by tests);
+  // gstack-slug itself always writes under $HOME/.gstack. Check both.
+  const candidates = [
+    path.join(stateRoot(), 'slug-cache', cacheKey),
+    path.join(os.homedir(), '.gstack', 'slug-cache', cacheKey),
+  ];
+  for (const cachePath of candidates) {
+    try {
+      // Re-sanitize on read: gstack-slug promises the [a-zA-Z0-9._-] invariant
+      // but a hand-edited cache file could violate it, and this value becomes
+      // a path segment.
+      const cached = fs.readFileSync(cachePath, 'utf-8').trim().replace(/[^a-zA-Z0-9._-]/g, '');
+      if (cached) return cached;
+    } catch {
+      // miss → try next candidate, then basename
+    }
+  }
   return path.basename(cwd);
 }
 
