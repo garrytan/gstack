@@ -93,7 +93,9 @@ required for our hook to fire there.
   accepting.
 
 **`permissionDecision` precedence (when multiple hooks decide):**
-`deny > ask > allow > defer` — most restrictive wins.
+`deny > ask > allow` — most restrictive wins. A hook with no opinion omits
+`permissionDecision` entirely rather than emitting a sentinel value; see the
+note above on why `"defer"` is not valid here.
 
 ## Implementation hookSpecificOutput examples
 
