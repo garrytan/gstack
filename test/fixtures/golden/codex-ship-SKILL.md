@@ -2186,6 +2186,7 @@ stay agent judgment; the slot pick stays `gstack-next-version`.
    bun run $GSTACK_ROOT/bin/gstack-version-bump classify --base <base>
    ```
    Read the JSON `state` and dispatch:
+   - **VERSIONLESS** → preserve the repository's non-versioned convention: set `VERSIONED_SHIP=false`, skip steps 2-5, and continue to Step 13 without creating `VERSION` or changing `package.json.version`.
    - **FRESH** → do the bump (steps 2-4).
    - **ALREADY_BUMPED** → skip the bump, but run the queue-drift check (step 3) with the reported `currentVersion`. If the queue moved (next free version differs), **AskUserQuestion**: rebump to the new version (rewrites CHANGELOG header + PR title) or keep current (CI version-gate will reject until resolved).
    - **DRIFT_STALE_PKG** → run `gstack-version-bump repair` (syncs package.json to VERSION). No re-bump; reuse `currentVersion` for CHANGELOG + PR.
@@ -2239,6 +2240,7 @@ stay agent judgment; the slot pick stays `gstack-next-version`.
    - Refactoring
 
 5. **Write the CHANGELOG entry** covering ALL groups:
+   - If `VERSIONED_SHIP=false`, preserve the repository's existing unversioned CHANGELOG convention and skip the versioned-header rules below. Do not invent a version header; if no CHANGELOG exists, skip this step silently.
    - If existing CHANGELOG entries on the branch already cover some commits, replace them with one unified entry for the new version
    - Categorize changes into applicable sections:
      - `### Added` — new features
@@ -2391,7 +2393,7 @@ user via AskUserQuestion rather than destroying non-WIP commits.
    - **Infrastructure:** migrations, config changes, route additions
    - **Models & services:** new models, services, concerns (with their tests)
    - **Controllers & views:** controllers, views, JS/React components (with their tests)
-   - **VERSION + CHANGELOG + TODOS.md:** always in the final commit
+   - **Release metadata (VERSION when present) + CHANGELOG + TODOS.md:** always in the final commit
 
 3. **Rules for splitting:**
    - A model and its test file go in the same commit
@@ -2406,7 +2408,7 @@ user via AskUserQuestion rather than destroying non-WIP commits.
 5. Compose each commit message:
    - First line: `<type>: <summary>` (type = feat/fix/chore/refactor/docs)
    - Body: brief description of what this commit contains
-   - Only the **final commit** (VERSION + CHANGELOG) gets the version tag and co-author trailer:
+   - Only the **final commit** (release metadata + CHANGELOG) gets the version tag when `VERSIONED_SHIP` is not `false` and the co-author trailer:
 
 ```bash
 git commit -m "$(cat <<'EOF'
@@ -2520,7 +2522,7 @@ git push -u origin <branch-name>
 
 ---
 
-**PR/MR title invariant (always applies — do not skip even if you don't open the section below):** Any PR or MR you create OR update in the next step MUST have a title that starts with `v$NEW_VERSION` (the version bumped in Step 12), in the format `v<NEW_VERSION> <type>: <summary>`. Never create or edit a PR/MR title without this prefix. Compute the correct title with the single source of truth helper: `$GSTACK_ROOT/bin/gstack-pr-title-rewrite.sh "$NEW_VERSION" "<current title>"`. The full create/update procedure (idempotency, redaction scan, self-check) is in the section below.
+**PR/MR title invariant:** When `VERSIONED_SHIP` is not `false`, any PR or MR you create OR update in the next step MUST have a title that starts with `v$NEW_VERSION` (the version bumped in Step 12), in the format `v<NEW_VERSION> <type>: <summary>`, computed with `gstack-pr-title-rewrite`. When `VERSIONED_SHIP=false`, preserve the repository's established unversioned PR title convention. The full create/update procedure is in the section below.
 
 ## Step 18: Documentation sync (via subagent, before PR creation)
 
@@ -2565,14 +2567,16 @@ glab mr view -F json 2>/dev/null | jq -r 'if .state == "opened" then "MR_EXISTS"
 
 If an **open** PR/MR already exists: **update** the PR body using `gh pr edit --body-file "$PR_BODY_FILE"` (GitHub) or `glab mr update -d ...` (GitLab). Always regenerate the PR body from scratch using this run's fresh results (test output, coverage audit, review findings, adversarial review, TODOS summary, documentation_section from Step 18). Never reuse stale PR body content from a prior run. **Run the same redaction scan-at-sink (PR body + title) as the create path (Step 19) before editing — scan the temp file, then `gh pr edit --body-file` from it.**
 
-**Always update the PR title to start with `v$NEW_VERSION`.** PR titles use the workspace-aware format `v<NEW_VERSION> <type>: <summary>` — version ALWAYS first, no exceptions, no "custom title kept intentionally" escape hatch. The shared helper `bin/gstack-pr-title-rewrite.sh` is the single source of truth for the rule.
+**When `VERSIONED_SHIP` is not `false`, update the PR title to start with `v$NEW_VERSION`.** PR titles use the workspace-aware format `v<NEW_VERSION> <type>: <summary>`. When `VERSIONED_SHIP=false`, do not rewrite the title; keep the repository's established unversioned title convention.
+
+If `VERSIONED_SHIP=false`, skip steps 1-4 below. Otherwise:
 
 1. Read the current title: `CURRENT=$(gh pr view --json title -q .title)` (or `glab mr view -F json | jq -r .title`).
 2. Compute the corrected title: `NEW_TITLE=$($GSTACK_ROOT/bin/gstack-pr-title-rewrite.sh "$NEW_VERSION" "$CURRENT")`. The helper handles three cases: title already correct (no-op), title has a different `v<X.Y.Z.W>` prefix (replace it), or title has no version prefix (prepend one).
 3. If `NEW_TITLE` differs from `CURRENT`, run `gh pr edit --title "$NEW_TITLE"` (or `glab mr update -t "$NEW_TITLE"`).
 4. **Self-check:** re-fetch the title and assert it starts with `v$NEW_VERSION `. If it does not, retry the edit once. If still wrong, surface the failure to the user.
 
-This keeps the title truthful when Step 12's queue-drift detection rebumps a stale version, and forces the format on PRs that were created without it.
+This keeps versioned titles truthful when Step 12's queue-drift detection rebumps a stale version without inventing a release convention for versionless repositories.
 
 Print the existing URL and continue to Step 20.
 
@@ -2694,8 +2698,10 @@ case $? in
   3) echo "BLOCKED — credential in PR body. Rotate + redact, do not create the PR."; exit 1 ;;
   2) echo "MEDIUM findings — confirm per finding (sterner on public) before proceeding." ;;
 esac
-# Also scan the title (short, single-line):
-printf '%s' "v$NEW_VERSION <type>: <summary>" | $GSTACK_ROOT/bin/gstack-redact --repo-visibility "$REDACT_VIS" --json
+# Also scan the title (short, single-line). Prefix it only for versioned ships:
+PR_TITLE="<type>: <summary>"
+[ "$VERSIONED_SHIP" = "false" ] || PR_TITLE="v$NEW_VERSION $PR_TITLE"
+printf '%s' "$PR_TITLE" | $GSTACK_ROOT/bin/gstack-redact --repo-visibility "$REDACT_VIS" --json
 ```
 
 HIGH blocks (exit 3, no skip). MEDIUM → AskUserQuestion (PII subset offers
@@ -2704,18 +2710,14 @@ HIGH blocks (exit 3, no skip). MEDIUM → AskUserQuestion (PII subset offers
 **If GitHub:** create from the SCANNED file (exact bytes scanned = bytes sent):
 
 ```bash
-# PR title MUST start with v$NEW_VERSION — enforced on every run, no exceptions.
-# (See Step 19 idempotency block + bin/gstack-pr-title-rewrite.sh for the rule.)
-gh pr create --base <base> --title "v$NEW_VERSION <type>: <summary>" --body-file "$PR_BODY_FILE"
+gh pr create --base <base> --title "$PR_TITLE" --body-file "$PR_BODY_FILE"
 rm -f "$PR_BODY_FILE"
 ```
 
 **If GitLab:**
 
 ```bash
-# MR title MUST start with v$NEW_VERSION — enforced on every run, no exceptions.
-# (See Step 19 idempotency block + bin/gstack-pr-title-rewrite.sh for the rule.)
-glab mr create -b <base> -t "v$NEW_VERSION <type>: <summary>" -d "$(cat <<'EOF'
+glab mr create -b <base> -t "$PR_TITLE" -d "$(cat <<'EOF'
 <MR body from above>
 EOF
 )"
@@ -2747,7 +2749,7 @@ Substitute from earlier steps:
 - **PLAN_TOTAL**: total plan items extracted in Step 8 (0 if no plan file)
 - **PLAN_DONE**: count of DONE + CHANGED items from Step 8 (0 if no plan file)
 - **VERIFY_RESULT**: "pass", "fail", or "skipped" from Step 8.1
-- **VERSION**: from the VERSION file
+- **VERSION**: from the VERSION file, or `"none"` when `VERSIONED_SHIP=false`
 - **BRANCH**: current branch name
 
 This step is automatic — never skip it, never ask for confirmation.
@@ -2793,7 +2795,7 @@ through `gstack-version-bump`; never hand-roll the VERSION/package.json write.
 - **Never skip the pre-landing review.** If checklist.md is unreadable, stop.
 - **Never force push.** Use regular `git push` only.
 - **Never ask for trivial confirmations** (e.g., "ready to push?", "create PR?"). DO stop for: version bumps (MINOR/MAJOR), pre-landing review findings (ASK items), and Codex structured review [P1] findings (large diffs only).
-- **Always use the 4-digit version format** from the VERSION file.
+- **For versioned repositories, always use the 4-digit version format** from the VERSION file.
 - **Date format in CHANGELOG:** `YYYY-MM-DD`
 - **Split commits for bisectability** — each commit = one logical change.
 - **TODOS.md completion detection must be conservative.** Only mark items as completed when the diff clearly shows the work is done.

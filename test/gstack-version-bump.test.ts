@@ -15,23 +15,26 @@ import { classifyState, VERSION_RE } from '../bin/gstack-version-bump';
 const BIN = path.join(import.meta.dir, '..', 'bin', 'gstack-version-bump');
 
 describe('classifyState (idempotency)', () => {
+  test('VERSIONLESS when VERSION is absent on base and branch', () => {
+    expect(classifyState('0.0.0.0', '0.0.0.0', true, '1.0.0', false, false)).toBe('VERSIONLESS');
+  });
   test('FRESH when VERSION matches base and pkg agrees', () => {
-    expect(classifyState('1.1.0.0', '1.1.0.0', true, '1.1.0.0')).toBe('FRESH');
+    expect(classifyState('1.1.0.0', '1.1.0.0', true, '1.1.0.0', true, true)).toBe('FRESH');
   });
   test('FRESH when VERSION matches base and no package.json', () => {
-    expect(classifyState('1.1.0.0', '1.1.0.0', false, '')).toBe('FRESH');
+    expect(classifyState('1.1.0.0', '1.1.0.0', false, '', true, true)).toBe('FRESH');
   });
   test('ALREADY_BUMPED when VERSION moved past base and pkg agrees (re-run)', () => {
-    expect(classifyState('1.2.0.0', '1.1.0.0', true, '1.2.0.0')).toBe('ALREADY_BUMPED');
+    expect(classifyState('1.2.0.0', '1.1.0.0', true, '1.2.0.0', true, true)).toBe('ALREADY_BUMPED');
   });
   test('ALREADY_BUMPED when VERSION moved past base, no package.json', () => {
-    expect(classifyState('1.2.0.0', '1.1.0.0', false, '')).toBe('ALREADY_BUMPED');
+    expect(classifyState('1.2.0.0', '1.1.0.0', false, '', true, true)).toBe('ALREADY_BUMPED');
   });
   test('DRIFT_STALE_PKG when VERSION bumped but pkg lagging', () => {
-    expect(classifyState('1.2.0.0', '1.1.0.0', true, '1.1.0.0')).toBe('DRIFT_STALE_PKG');
+    expect(classifyState('1.2.0.0', '1.1.0.0', true, '1.1.0.0', true, true)).toBe('DRIFT_STALE_PKG');
   });
   test('DRIFT_UNEXPECTED when VERSION matches base but pkg diverges (manual edit)', () => {
-    expect(classifyState('1.1.0.0', '1.1.0.0', true, '1.2.0.0')).toBe('DRIFT_UNEXPECTED');
+    expect(classifyState('1.1.0.0', '1.1.0.0', true, '1.2.0.0', true, true)).toBe('DRIFT_UNEXPECTED');
   });
 });
 
@@ -129,5 +132,33 @@ describe('classify (idempotency over a real git base)', () => {
     expect(parsed.state).toBe('ALREADY_BUMPED');
     expect(parsed.baseVersion).toBe('1.0.0.0');
     expect(parsed.currentVersion).toBe('1.1.0.0');
+  });
+});
+
+describe('classify (repository without VERSION)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vbump-versionless-'));
+  afterAll(() => { try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* noop */ } });
+
+  const git = (...a: string[]) => execFileSync('git', a, { cwd: dir, stdio: 'pipe' });
+  fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'x', version: '1.0.0' }, null, 2) + '\n');
+  git('init', '-q', '-b', 'main');
+  git('config', 'user.email', 't@t'); git('config', 'user.name', 't');
+  git('add', '-A'); git('commit', '-q', '-m', 'base');
+  const head = git('rev-parse', 'HEAD').toString().trim();
+  fs.mkdirSync(path.join(dir, '.git', 'refs', 'remotes', 'origin'), { recursive: true });
+  fs.writeFileSync(path.join(dir, '.git', 'refs', 'remotes', 'origin', 'main'), head + '\n');
+
+  test('reports VERSIONLESS and preserves the established package version', () => {
+    const out = execFileSync('bun', [BIN, 'classify', '--base', 'main'], { cwd: dir }).toString();
+    expect(JSON.parse(out)).toEqual({
+      state: 'VERSIONLESS',
+      baseVersion: null,
+      currentVersion: null,
+      pkgVersion: '1.0.0',
+      pkgExists: true,
+      baseVersionExists: false,
+      versionExists: false,
+    });
+    expect(fs.existsSync(path.join(dir, 'VERSION'))).toBe(false);
   });
 });

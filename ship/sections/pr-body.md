@@ -43,14 +43,16 @@ glab mr view -F json 2>/dev/null | jq -r 'if .state == "opened" then "MR_EXISTS"
 
 If an **open** PR/MR already exists: **update** the PR body using `gh pr edit --body-file "$PR_BODY_FILE"` (GitHub) or `glab mr update -d ...` (GitLab). Always regenerate the PR body from scratch using this run's fresh results (test output, coverage audit, review findings, adversarial review, TODOS summary, documentation_section from Step 18). Never reuse stale PR body content from a prior run. **Run the same redaction scan-at-sink (PR body + title) as the create path (Step 19) before editing — scan the temp file, then `gh pr edit --body-file` from it.**
 
-**Always update the PR title to start with `v$NEW_VERSION`.** PR titles use the workspace-aware format `v<NEW_VERSION> <type>: <summary>` — version ALWAYS first, no exceptions, no "custom title kept intentionally" escape hatch. The shared helper `bin/gstack-pr-title-rewrite.sh` is the single source of truth for the rule.
+**When `VERSIONED_SHIP` is not `false`, update the PR title to start with `v$NEW_VERSION`.** PR titles use the workspace-aware format `v<NEW_VERSION> <type>: <summary>`. When `VERSIONED_SHIP=false`, do not rewrite the title; keep the repository's established unversioned title convention.
+
+If `VERSIONED_SHIP=false`, skip steps 1-4 below. Otherwise:
 
 1. Read the current title: `CURRENT=$(gh pr view --json title -q .title)` (or `glab mr view -F json | jq -r .title`).
 2. Compute the corrected title: `NEW_TITLE=$(~/.claude/skills/gstack/bin/gstack-pr-title-rewrite.sh "$NEW_VERSION" "$CURRENT")`. The helper handles three cases: title already correct (no-op), title has a different `v<X.Y.Z.W>` prefix (replace it), or title has no version prefix (prepend one).
 3. If `NEW_TITLE` differs from `CURRENT`, run `gh pr edit --title "$NEW_TITLE"` (or `glab mr update -t "$NEW_TITLE"`).
 4. **Self-check:** re-fetch the title and assert it starts with `v$NEW_VERSION `. If it does not, retry the edit once. If still wrong, surface the failure to the user.
 
-This keeps the title truthful when Step 12's queue-drift detection rebumps a stale version, and forces the format on PRs that were created without it.
+This keeps versioned titles truthful when Step 12's queue-drift detection rebumps a stale version without inventing a release convention for versionless repositories.
 
 Print the existing URL and continue to Step 20.
 
@@ -172,8 +174,10 @@ case $? in
   3) echo "BLOCKED — credential in PR body. Rotate + redact, do not create the PR."; exit 1 ;;
   2) echo "MEDIUM findings — confirm per finding (sterner on public) before proceeding." ;;
 esac
-# Also scan the title (short, single-line):
-printf '%s' "v$NEW_VERSION <type>: <summary>" | ~/.claude/skills/gstack/bin/gstack-redact --repo-visibility "$REDACT_VIS" --json
+# Also scan the title (short, single-line). Prefix it only for versioned ships:
+PR_TITLE="<type>: <summary>"
+[ "$VERSIONED_SHIP" = "false" ] || PR_TITLE="v$NEW_VERSION $PR_TITLE"
+printf '%s' "$PR_TITLE" | ~/.claude/skills/gstack/bin/gstack-redact --repo-visibility "$REDACT_VIS" --json
 ```
 
 HIGH blocks (exit 3, no skip). MEDIUM → AskUserQuestion (PII subset offers
@@ -182,18 +186,14 @@ HIGH blocks (exit 3, no skip). MEDIUM → AskUserQuestion (PII subset offers
 **If GitHub:** create from the SCANNED file (exact bytes scanned = bytes sent):
 
 ```bash
-# PR title MUST start with v$NEW_VERSION — enforced on every run, no exceptions.
-# (See Step 19 idempotency block + bin/gstack-pr-title-rewrite.sh for the rule.)
-gh pr create --base <base> --title "v$NEW_VERSION <type>: <summary>" --body-file "$PR_BODY_FILE"
+gh pr create --base <base> --title "$PR_TITLE" --body-file "$PR_BODY_FILE"
 rm -f "$PR_BODY_FILE"
 ```
 
 **If GitLab:**
 
 ```bash
-# MR title MUST start with v$NEW_VERSION — enforced on every run, no exceptions.
-# (See Step 19 idempotency block + bin/gstack-pr-title-rewrite.sh for the rule.)
-glab mr create -b <base> -t "v$NEW_VERSION <type>: <summary>" -d "$(cat <<'EOF'
+glab mr create -b <base> -t "$PR_TITLE" -d "$(cat <<'EOF'
 <MR body from above>
 EOF
 )"

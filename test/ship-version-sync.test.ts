@@ -12,6 +12,8 @@ import { mkdtempSync, writeFileSync, readFileSync, rmSync, existsSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+const SHIP_TEMPLATE = readFileSync(join(import.meta.dir, "..", "ship", "SKILL.md.tmpl"), "utf8");
+
 let dir: string;
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "ship-drift-"));
@@ -146,6 +148,14 @@ test("DRIFT_UNEXPECTED: VERSION == base, pkg edited (exits non-zero)", () => {
   const r = idempotency("0.0.0.0");
   expect(r.stdout.startsWith("STATE: DRIFT_UNEXPECTED")).toBe(true);
   expect(r.code).toBe(1);
+});
+
+test("ship dispatch preserves the non-versioned path without weakening real drift stops", () => {
+  expect(SHIP_TEMPLATE).toContain("**VERSIONLESS** → preserve the repository's non-versioned convention");
+  expect(SHIP_TEMPLATE).toContain('**DRIFT_UNEXPECTED** → **STOP**');
+  expect(SHIP_TEMPLATE).toContain('VERSIONED_SHIP=false');
+  expect(readFileSync(join(import.meta.dir, "..", "ship", "sections", "pr-body.md.tmpl"), "utf8"))
+    .toContain("If `VERSIONED_SHIP=false`, skip steps 1-4 below.");
 });
 
 // --- Parse failures: 2 cases ---
