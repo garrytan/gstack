@@ -64,6 +64,16 @@ export const SKILL_COVERAGE: Record<string, SkillCoverage> = {
     periodic: [],
     rationale: 'browse binary has its own integration suite under browse/test/.',
   },
+  garygoal: {
+    gate: [
+      'test/garygoal-template-invariants.test.ts',
+      'test/garygoal-state.test.ts',
+      'test/garygoal-bins.test.ts',
+      'test/skill-coverage-floor.test.ts',
+    ],
+    periodic: [],
+    rationale: 'Template invariants pin the never-merge list, premise gate, ship/CI/review repair loops, injection boundary, and secret bans; the unit+subprocess suites pin the deterministic state machine (transitions, evidence, SHA-tied gates, invalidation matrix, budgets, locks, schema safety, redaction, merge-mode gating) — all free-tier, CI-blocking.',
+  },
   spec: {
     gate: [
       'test/spec-template-invariants.test.ts',

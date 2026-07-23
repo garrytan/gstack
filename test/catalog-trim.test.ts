@@ -293,10 +293,19 @@ describe('proactive-suggestions.json determinism (regression for v1.45.0.0 CI fr
       fs.readFileSync(path.join(__dirname, '..', 'scripts', 'proactive-suggestions.json'), 'utf-8'),
     );
     expect(json.skills).toHaveProperty('gstack');
-    // The directory the test runs in must NOT appear as a key.
+    // The directory the test runs in must NOT pick up the ROOT skill's
+    // catalog parts. A checkout may legitimately be named after a real skill
+    // (e.g. a worktree called "garygoal"), so when the basename IS a skill
+    // directory, assert the entry holds that skill's content — not the root
+    // router's — instead of banning the key outright.
     const repoDir = path.basename(path.resolve(__dirname, '..'));
     if (repoDir !== 'gstack') {
-      expect(json.skills).not.toHaveProperty(repoDir);
+      const isRealSkill = fs.existsSync(path.join(__dirname, '..', repoDir, 'SKILL.md.tmpl'));
+      if (isRealSkill) {
+        expect(json.skills[repoDir]?.lead).not.toBe(json.skills.gstack.lead);
+      } else {
+        expect(json.skills).not.toHaveProperty(repoDir);
+      }
     }
   });
 
