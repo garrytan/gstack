@@ -51,7 +51,12 @@ Optional in subagent context: `agent_id`, `agent_type`.
 - `"deny"` — block (feedback to Claude, NOT a synthetic answer per Codex
   correction in D-prefixed decisions)
 - `"ask"` — escalate to user
-- `"defer"` — let permission flow continue
+- `"defer"` — **NOT a valid value.** The schema accepts only `allow` / `deny` /
+  `ask`. As of Claude Code 2.1.14 an unrecognized `"defer"` is treated as
+  "defer the tool call": the call is swallowed and never executes. For
+  AskUserQuestion this means the question widget never renders and the user
+  sees nothing at all. To signal "no opinion, let permission flow continue",
+  OMIT `permissionDecision` entirely (`additionalContext` is still delivered).
 
 **`updatedInput` semantics:** shallow merge of fields present in the returned
 object onto the original `tool_input`. Only valid with
@@ -88,7 +93,9 @@ required for our hook to fire there.
   accepting.
 
 **`permissionDecision` precedence (when multiple hooks decide):**
-`deny > ask > allow > defer` — most restrictive wins.
+`deny > ask > allow` — most restrictive wins. A hook with no opinion omits
+`permissionDecision` entirely rather than emitting a sentinel value; see the
+note above on why `"defer"` is not valid here.
 
 ## Implementation hookSpecificOutput examples
 
@@ -110,8 +117,7 @@ required for our hook to fire there.
 ```json
 {
   "hookSpecificOutput": {
-    "hookEventName": "PreToolUse",
-    "permissionDecision": "defer"
+    "hookEventName": "PreToolUse"
   }
 }
 ```
