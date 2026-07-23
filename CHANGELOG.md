@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.60.2.0] - 2026-07-23
+
+### Fixed
+
+- `/ship` now preserves repositories that intentionally omit `VERSION`: classification returns an explicit `VERSIONLESS` state, keeps the existing `package.json` version untouched, skips versioned changelog and PR-title rules, and continues through commit, push, and PR creation. Repositories with a real `VERSION` retain the existing package-drift stop.
+- Generated Claude, Codex, Factory, and other host ship surfaces now carry the versionless dispatch, with golden fixtures and real-git regression coverage preventing the path from drifting.
+
 ## [1.60.1.0] - 2026-07-09
 
 ## **The /autoplan dual-voice eval is back on the board, catching real regressions.**

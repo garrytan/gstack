@@ -166,6 +166,7 @@ stay agent judgment; the slot pick stays `gstack-next-version`.
    bun run ~/.claude/skills/gstack/bin/gstack-version-bump classify --base <base>
    ```
    Read the JSON `state` and dispatch:
+   - **VERSIONLESS** → preserve the repository's non-versioned convention: set `VERSIONED_SHIP=false`, skip steps 2-5, and continue to Step 13 without creating `VERSION` or changing `package.json.version`.
    - **FRESH** → do the bump (steps 2-4).
    - **ALREADY_BUMPED** → skip the bump, but run the queue-drift check (step 3) with the reported `currentVersion`. If the queue moved (next free version differs), **AskUserQuestion**: rebump to the new version (rewrites CHANGELOG header + PR title) or keep current (CI version-gate will reject until resolved).
    - **DRIFT_STALE_PKG** → run `gstack-version-bump repair` (syncs package.json to VERSION). No re-bump; reuse `currentVersion` for CHANGELOG + PR.
@@ -329,7 +330,7 @@ user via AskUserQuestion rather than destroying non-WIP commits.
    - **Infrastructure:** migrations, config changes, route additions
    - **Models & services:** new models, services, concerns (with their tests)
    - **Controllers & views:** controllers, views, JS/React components (with their tests)
-   - **VERSION + CHANGELOG + TODOS.md:** always in the final commit
+   - **Release metadata (VERSION when present) + CHANGELOG + TODOS.md:** always in the final commit
 
 3. **Rules for splitting:**
    - A model and its test file go in the same commit
@@ -344,7 +345,7 @@ user via AskUserQuestion rather than destroying non-WIP commits.
 5. Compose each commit message:
    - First line: `<type>: <summary>` (type = feat/fix/chore/refactor/docs)
    - Body: brief description of what this commit contains
-   - Only the **final commit** (VERSION + CHANGELOG) gets the version tag and co-author trailer:
+   - Only the **final commit** (release metadata + CHANGELOG) gets the version tag when `VERSIONED_SHIP` is not `false` and the co-author trailer:
 
 ```bash
 git commit -m "$(cat <<'EOF'
@@ -458,7 +459,7 @@ git push -u origin <branch-name>
 
 ---
 
-**PR/MR title invariant (always applies — do not skip even if you don't open the section below):** Any PR or MR you create OR update in the next step MUST have a title that starts with `v$NEW_VERSION` (the version bumped in Step 12), in the format `v<NEW_VERSION> <type>: <summary>`. Never create or edit a PR/MR title without this prefix. Compute the correct title with the single source of truth helper: `~/.claude/skills/gstack/bin/gstack-pr-title-rewrite.sh "$NEW_VERSION" "<current title>"`. The full create/update procedure (idempotency, redaction scan, self-check) is in the section below.
+**PR/MR title invariant:** When `VERSIONED_SHIP` is not `false`, any PR or MR you create OR update in the next step MUST have a title that starts with `v$NEW_VERSION` (the version bumped in Step 12), in the format `v<NEW_VERSION> <type>: <summary>`, computed with `gstack-pr-title-rewrite`. When `VERSIONED_SHIP=false`, preserve the repository's established unversioned PR title convention. The full create/update procedure is in the section below.
 
 {{SECTION:pr-body}}
 
@@ -481,7 +482,7 @@ Substitute from earlier steps:
 - **PLAN_TOTAL**: total plan items extracted in Step 8 (0 if no plan file)
 - **PLAN_DONE**: count of DONE + CHANGED items from Step 8 (0 if no plan file)
 - **VERIFY_RESULT**: "pass", "fail", or "skipped" from Step 8.1
-- **VERSION**: from the VERSION file
+- **VERSION**: from the VERSION file, or `"none"` when `VERSIONED_SHIP=false`
 - **BRANCH**: current branch name
 
 This step is automatic — never skip it, never ask for confirmation.
@@ -527,7 +528,7 @@ through `gstack-version-bump`; never hand-roll the VERSION/package.json write.
 - **Never skip the pre-landing review.** If checklist.md is unreadable, stop.
 - **Never force push.** Use regular `git push` only.
 - **Never ask for trivial confirmations** (e.g., "ready to push?", "create PR?"). DO stop for: version bumps (MINOR/MAJOR), pre-landing review findings (ASK items), and Codex structured review [P1] findings (large diffs only).
-- **Always use the 4-digit version format** from the VERSION file.
+- **For versioned repositories, always use the 4-digit version format** from the VERSION file.
 - **Date format in CHANGELOG:** `YYYY-MM-DD`
 - **Split commits for bisectability** — each commit = one logical change.
 - **TODOS.md completion detection must be conservative.** Only mark items as completed when the diff clearly shows the work is done.

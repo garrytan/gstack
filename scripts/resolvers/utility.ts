@@ -397,6 +397,7 @@ export function generateChangelogWorkflow(_ctx: TemplateContext): string {
    - Refactoring
 
 5. **Write the CHANGELOG entry** covering ALL groups:
+   - If \`VERSIONED_SHIP=false\`, preserve the repository's existing unversioned CHANGELOG convention and skip the versioned-header rules below. Do not invent a version header; if no CHANGELOG exists, skip this step silently.
    - If existing CHANGELOG entries on the branch already cover some commits, replace them with one unified entry for the new version
    - Categorize changes into applicable sections:
      - \`### Added\` — new features

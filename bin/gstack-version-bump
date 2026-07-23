@@ -15,8 +15,9 @@
 // Subcommands:
 //   classify --base <branch> [--version-path <p>]
 //       Compares VERSION vs origin/<base>:VERSION vs package.json.version.
-//       Emits JSON: { state, baseVersion, currentVersion, pkgVersion, pkgExists }
-//       state ∈ FRESH | ALREADY_BUMPED | DRIFT_STALE_PKG | DRIFT_UNEXPECTED
+//       Emits JSON: { state, baseVersion, currentVersion, pkgVersion, pkgExists,
+//                     baseVersionExists, versionExists }
+//       state ∈ VERSIONLESS | FRESH | ALREADY_BUMPED | DRIFT_STALE_PKG | DRIFT_UNEXPECTED
 //       Exit 0 on a decidable state (incl. DRIFT_UNEXPECTED — it's a real state
 //       the caller must handle), exit 2 on bad args / unresolvable base.
 //
@@ -41,7 +42,8 @@ import { join } from "node:path";
 const VERSION_RE = /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/;
 const DEFAULT = "0.0.0.0";
 
-type State = "FRESH" | "ALREADY_BUMPED" | "DRIFT_STALE_PKG" | "DRIFT_UNEXPECTED";
+type State = "VERSIONLESS" | "FRESH" | "ALREADY_BUMPED" | "DRIFT_STALE_PKG" | "DRIFT_UNEXPECTED";
+type VersionFile = { exists: boolean; version: string };
 
 function fail(msg: string, code = 2): never {
   process.stderr.write(`gstack-version-bump: ${msg}\n`);
@@ -64,12 +66,12 @@ function resolveVersionPath(cwd: string, explicit?: string): string {
   return join(cwd, "VERSION");
 }
 
-function readVersionFile(p: string): string {
+function readVersionFile(p: string): VersionFile {
   try {
     const v = readFileSync(p, "utf-8").replace(/[\r\n\s]/g, "");
-    return v || DEFAULT;
+    return { exists: true, version: v || DEFAULT };
   } catch {
-    return DEFAULT;
+    return { exists: false, version: DEFAULT };
   }
 }
 
@@ -101,7 +103,7 @@ function writePkgVersion(cwd: string, version: string): void {
   writeFileSync(pkgPath, JSON.stringify(parsed, null, 2) + "\n");
 }
 
-function baseVersion(cwd: string, base: string, versionRel: string): string {
+function baseVersion(cwd: string, base: string, versionRel: string): VersionFile {
   // Verify the base ref resolves, mirroring the Step 12 guard.
   try {
     execFileSync("git", ["rev-parse", "--verify", `origin/${base}`], { cwd, stdio: "ignore" });
@@ -109,16 +111,23 @@ function baseVersion(cwd: string, base: string, versionRel: string): string {
     fail(`Unable to resolve origin/${base}. Run 'git fetch origin' or verify the base branch exists.`, 2);
   }
   try {
-    const out = execFileSync("git", ["show", `origin/${base}:${versionRel}`], { cwd }).toString();
+    const out = execFileSync("git", ["show", `origin/${base}:${versionRel}`], { cwd, stdio: "pipe" }).toString();
     const v = out.replace(/[\r\n\s]/g, "");
-    return v || DEFAULT;
+    return { exists: true, version: v || DEFAULT };
   } catch {
-    // VERSION absent on base (new repo / new file) → treat as 0.0.0.0.
-    return DEFAULT;
+    return { exists: false, version: DEFAULT };
   }
 }
 
-function classifyState(current: string, base: string, pkgExists: boolean, pkgVersion: string): State {
+function classifyState(
+  current: string,
+  base: string,
+  pkgExists: boolean,
+  pkgVersion: string,
+  versionExists: boolean,
+  baseVersionExists: boolean,
+): State {
+  if (!versionExists && !baseVersionExists) return "VERSIONLESS";
   if (current === base) {
     // VERSION unchanged vs base. A diverging package.json means someone hand-edited
     // package.json bypassing /ship — unsafe to guess which is authoritative.
@@ -138,14 +147,23 @@ function cmdClassify(args: string[], cwd: string): void {
   const current = readVersionFile(versionPath);
   const baseV = baseVersion(cwd, base!, versionRel);
   const pkg = readPkgVersion(cwd);
-  const state = classifyState(current, baseV, pkg.exists, pkg.version);
+  const state = classifyState(
+    current.version,
+    baseV.version,
+    pkg.exists,
+    pkg.version,
+    current.exists,
+    baseV.exists,
+  );
   process.stdout.write(
     JSON.stringify({
       state,
-      baseVersion: baseV,
-      currentVersion: current,
+      baseVersion: baseV.exists ? baseV.version : null,
+      currentVersion: current.exists ? current.version : null,
       pkgVersion: pkg.version || null,
       pkgExists: pkg.exists,
+      baseVersionExists: baseV.exists,
+      versionExists: current.exists,
     }) + "\n",
   );
   // DRIFT_UNEXPECTED is a real, decidable state — the caller stops on it, but the
@@ -178,9 +196,9 @@ function cmdWrite(args: string[], cwd: string): void {
 function cmdRepair(args: string[], cwd: string): void {
   const versionPath = resolveVersionPath(cwd, argVal(args, "--version-path"));
   const current = readVersionFile(versionPath);
-  if (!VERSION_RE.test(current)) {
+  if (!current.exists || !VERSION_RE.test(current.version)) {
     fail(
-      `VERSION file contents (${current}) do not match MAJOR.MINOR.PATCH.MICRO. ` +
+      `VERSION file contents (${current.version}) do not match MAJOR.MINOR.PATCH.MICRO. ` +
         "Refusing to propagate invalid semver into package.json. Fix VERSION, then re-run /ship.",
       2,
     );
@@ -189,11 +207,11 @@ function cmdRepair(args: string[], cwd: string): void {
     fail("repair: no package.json to sync.", 2);
   }
   try {
-    writePkgVersion(cwd, current);
+    writePkgVersion(cwd, current.version);
   } catch {
     fail("drift repair failed — could not update package.json.", 3);
   }
-  process.stdout.write(JSON.stringify({ repaired: current }) + "\n");
+  process.stdout.write(JSON.stringify({ repaired: current.version }) + "\n");
 }
 
 // Exported for unit tests (pure logic, no I/O).
