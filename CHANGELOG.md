@@ -1,5 +1,45 @@
 # Changelog
 
+## [1.61.0.0] - 2026-07-23
+
+## **/garygoal: one objective in, an evidence-gated PR out.**
+## **The pipeline finally has a conductor that cannot lie to you.**
+
+You can now hand gstack a single goal, "build the hashtag system in docs/hashtag-spec.md", and `/garygoal` conducts the whole delivery arc: repository audit, objective contract, spec when needed, /autoplan, TDD implementation, /review, /cso, /qa, /devex-review, /ship, CI repair, review-thread repair, and a stop at READY_TO_MERGE. With explicit `--merge` authority and repo policy it continues through merge, /land-and-deploy, and /canary with automatic rollback handling. It is a thin conductor, not another specialist. The existing skills stay the source of truth; garygoal reads them from disk, runs them at full depth, and holds their outputs to proof.
+
+The run itself is a persistent state machine under `~/.gstack/projects/<slug>/garygoal/<run-id>/`. A crashed session, a compacted context, or an overnight CI wait resumes with `/garygoal --resume` exactly where it stopped.
+
+**The numbers that matter**
+
+Source: `bun test test/garygoal-state.test.ts test/garygoal-bins.test.ts test/garygoal-template-invariants.test.ts` on this release.
+
+| Metric | Value |
+|---|---|
+| Pipeline states with validated transitions | 29 |
+| Evidence-checked gates, each tied to a commit SHA | 10 |
+| Deterministic gate-invalidation categories | 8 |
+| Repair budgets (CI hypotheses / review cycles / ship reruns) | 3 / 3 / 5 |
+| Free, CI-blocking tests pinning all of the above | 156 |
+
+The state machine is enforced by `bin/gstack-garygoal`, not by prose. An agent that claims a review happened gets exit code 1, not a merged PR. A CSS commit re-runs design review and browser QA but not the migration audit. A docs-only commit re-runs neither. Merge stays off by default: it requires `--merge`, `garygoal_autonomous_merge: true`, and every hard gate valid at the exact PR head SHA.
+
+**What this means for you:** kick off a feature before lunch, come back to either a release-ready PR with a full evidence report, or a BLOCKED state that tells you the one question it needs answered. Start with `/garygoal --plan <objective>` to see the contract and plan it would execute.
+
+### Itemized changes
+
+#### Added
+
+- **`/garygoal` skill** (`garygoal/SKILL.md.tmpl`): goal-to-production orchestration with modes `--plan`, `--pr`, `--merge`, `--resume [run-id]`, `--status`, `--repair-pr <n>` — a bare `/garygoal <objective>` and `--pr` both end at READY_TO_MERGE.
+- **Deterministic state core** (`lib/garygoal-state.ts`, `bin/gstack-garygoal`): 29-state machine with per-state evidence requirements, SHA-tied gate ledger, deterministic invalidation matrix, bounded repair budgets, branch locks with stale-pid reclaim, schema-versioned fail-safe persistence, and redaction-scanned event narration built on the shared `jsonl-store`/`redact-engine` plumbing.
+- **Merge policy** via flat gstack-config keys: `garygoal_default_mode`, `garygoal_autonomous_merge` (default false), `garygoal_deploy_after_merge` (default false), `garygoal_require_canary`, `garygoal_max_ci_repair_attempts`, `garygoal_max_review_repair_cycles`, `garygoal_rollback_on_canary_failure`.
+- **Docs**: `docs/skills.md` deep dive, `docs/designs/GARYGOAL.md` architecture note, README/AGENTS routing rows.
+
+#### For contributors
+
+- 156 new gate-tier tests across `test/garygoal-state.test.ts`, `test/garygoal-bins.test.ts`, and `test/garygoal-template-invariants.test.ts`; `test/skill-coverage-matrix.ts` entry. The suite pins the adversarial-review findings directly: session-anchored branch locks with same-owner supersede, the `--abandon-incomplete` budget-laundering guard, fail-closed budget caps clamped to policy, merge-mode-only MERGING with a READY_TO_MERGE SHA cross-check, diff-derived mandatory review gates in merge-check, deep evidence scanning, file-based free-text transport (`--evidence-file`/`--text-file`), O_EXCL atomic state writes, and pid-0 lock DoS rejection.
+- `test/catalog-trim.test.ts` root-key regression sharpened: a checkout directory legitimately named after a real skill no longer false-positives; the assertion now checks the entry's content instead of banning the key.
+- Ship golden baselines refreshed for the new routing line in the shared preamble.
+
 ## [1.60.1.0] - 2026-07-09
 
 ## **The /autoplan dual-voice eval is back on the board, catching real regressions.**
