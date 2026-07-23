@@ -285,6 +285,7 @@ Key routing rules:
 - Save progress → invoke /context-save
 - Resume context → invoke /context-restore
 - Author a backlog-ready spec/issue → invoke /spec
+- One objective, whole pipeline to a PR (or authorized merge+deploy) → invoke /garygoal
 ```
 
 Then commit the change: `git add CLAUDE.md && git commit -m "chore: add gstack skill routing rules to CLAUDE.md"`
@@ -570,6 +571,7 @@ quality gates that produce better results than answering inline.
 - User asks to review code, check the diff, pre-landing review, "look at my changes" → invoke `/review`
 - User asks about visual polish, design audit of a live site, "this looks off" → invoke `/design-review`
 - User asks to audit the live developer experience, time-to-hello-world → invoke `/devex-review`
+- User gives one objective and wants the whole pipeline run end to end, "build this end to end", "take this to production", "deliver this autonomously" → invoke `/garygoal`
 - User asks to ship, deploy, push, create a PR, "let's land this", "send it" → invoke `/ship`
 - User asks to merge + deploy + verify as one flow → invoke `/land-and-deploy`
 - User asks to configure deployment for the project → invoke `/setup-deploy`
