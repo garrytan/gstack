@@ -201,6 +201,150 @@ describe("escape valve", () => {
   });
 });
 
+describe("path-ignore for generated data files (#1946 follow-up)", () => {
+  // A blob larger than the engine's 1 MiB scan cap. Without an ignore rule this
+  // trips a false-positive HIGH engine.input_too_large and blocks the push.
+  const BIG = "x,y\n".repeat(400_000); // ~1.5 MiB
+
+  function writeIgnoreFile(globs: string): void {
+    fs.mkdirSync(path.join(repo, ".gstack"), { recursive: true });
+    fs.writeFileSync(path.join(repo, ".gstack", "redact-prepush-ignore"), globs);
+  }
+
+  test("(a) an ignored large file passes, and the skip is reported on stderr", () => {
+    writeIgnoreFile("# generated exports\nprospecting/exports/**/*.csv\n");
+    const base = git(["rev-parse", "HEAD"]);
+    fs.mkdirSync(path.join(repo, "prospecting", "exports", "CA"), { recursive: true });
+    fs.writeFileSync(path.join(repo, "prospecting", "exports", "CA", "suspects-1.csv"), BIG);
+    git(["add", "-A"]);
+    git(["commit", "-q", "-m", "big export + ignore rule"]);
+    const head = git(["rev-parse", "HEAD"]);
+    const { code, stderr } = runHook(`refs/heads/main ${head} refs/heads/main ${base}\n`);
+    expect(code).toBe(0);
+    expect(stderr).toContain("skipped 1 path(s)");
+    expect(stderr).toContain("suspects-1.csv");
+    expect(stderr).toContain(".gstack/redact-prepush-ignore");
+  });
+
+  test("(b) a non-ignored large file still blocks fail-closed", () => {
+    writeIgnoreFile("prospecting/exports/**/*.csv\n");
+    const base = git(["rev-parse", "HEAD"]);
+    // Matches no ignore glob → must still oversize-block.
+    fs.writeFileSync(path.join(repo, "bigdata.txt"), BIG);
+    git(["add", "-A"]);
+    git(["commit", "-q", "-m", "big non-ignored file"]);
+    const head = git(["rev-parse", "HEAD"]);
+    const { code, stderr } = runHook(`refs/heads/main ${head} refs/heads/main ${base}\n`);
+    expect(code).toBe(1);
+    expect(stderr).toContain("BLOCKED");
+    expect(stderr).toContain("engine.input_too_large");
+  });
+
+  test("(c) a real secret in a non-ignored file still blocks even with ignore rules present", () => {
+    writeIgnoreFile("prospecting/exports/**/*.csv\n");
+    const base = git(["rev-parse", "HEAD"]);
+    fs.writeFileSync(path.join(repo, "config.env"), "key AKIA1234567890ABCDEF\n");
+    git(["add", "-A"]);
+    git(["commit", "-q", "-m", "secret in code"]);
+    const head = git(["rev-parse", "HEAD"]);
+    const { code, stderr } = runHook(`refs/heads/main ${head} refs/heads/main ${base}\n`);
+    expect(code).toBe(1);
+    expect(stderr).toContain("BLOCKED");
+    expect(stderr).toContain("aws.access_key");
+  });
+
+  test("(d) an explicit ignore glob exempts its file even when it holds a secret (auditable opt-in)", () => {
+    // The tradeoff is intentional and loud: an ignore glob is a versioned,
+    // reviewable opt-in, and the skip is always reported. Anything NOT matched
+    // stays fail-closed (see tests b + c).
+    writeIgnoreFile("prospecting/exports/**/*.csv\n");
+    const base = git(["rev-parse", "HEAD"]);
+    fs.mkdirSync(path.join(repo, "prospecting", "exports", "CA"), { recursive: true });
+    fs.writeFileSync(
+      path.join(repo, "prospecting", "exports", "CA", "x.csv"),
+      "AKIA1234567890ABCDEF\n",
+    );
+    git(["add", "-A"]);
+    git(["commit", "-q", "-m", "secret inside ignored export"]);
+    const head = git(["rev-parse", "HEAD"]);
+    const { code, stderr } = runHook(`refs/heads/main ${head} refs/heads/main ${base}\n`);
+    expect(code).toBe(0);
+    expect(stderr).toContain("skipped 1 path(s)");
+    expect(stderr).not.toContain("aws.access_key");
+  });
+
+  test("(e) the machine-local config key is an additional ignore source", () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "ghome-cfg-"));
+    const cfg = path.resolve(import.meta.dir, "..", "bin", "gstack-config");
+    spawnSync(cfg, ["set", "redact_prepush_ignore_globs", "data/**/*.parquet"], {
+      env: { ...process.env, GSTACK_HOME: home },
+    });
+    const base = git(["rev-parse", "HEAD"]);
+    fs.mkdirSync(path.join(repo, "data"), { recursive: true });
+    fs.writeFileSync(path.join(repo, "data", "big.parquet"), BIG);
+    git(["add", "-A"]);
+    git(["commit", "-q", "-m", "big parquet, no committed ignore file"]);
+    const head = git(["rev-parse", "HEAD"]);
+    const { code, stderr } = runHook(`refs/heads/main ${head} refs/heads/main ${base}\n`, {
+      GSTACK_HOME: home,
+    });
+    expect(code).toBe(0);
+    expect(stderr).toContain("skipped 1 path(s)");
+    expect(stderr).toContain("big.parquet");
+    fs.rmSync(home, { recursive: true, force: true });
+  });
+
+  test("(f) no ignore rules → default behavior unchanged (large file blocks)", () => {
+    const base = git(["rev-parse", "HEAD"]);
+    fs.writeFileSync(path.join(repo, "export.csv"), BIG);
+    git(["add", "-A"]);
+    git(["commit", "-q", "-m", "big csv, no ignore rules"]);
+    const head = git(["rev-parse", "HEAD"]);
+    const { code, stderr } = runHook(`refs/heads/main ${head} refs/heads/main ${base}\n`);
+    expect(code).toBe(1);
+    expect(stderr).toContain("engine.input_too_large");
+    expect(stderr).not.toContain("skipped");
+  });
+
+  test("(g) an ignore glob applies to a non-ASCII filename (core.quotePath=false)", () => {
+    // Regression: git C-quotes non-ASCII paths by default (`"caf\303\251.csv"`),
+    // which the glob can't match — the ignore rule would silently fail to apply
+    // and the large export would still oversize-block. The hook forces
+    // core.quotePath=false so the raw UTF-8 path matches.
+    writeIgnoreFile("prospecting/exports/**/*.csv\n");
+    const base = git(["rev-parse", "HEAD"]);
+    fs.mkdirSync(path.join(repo, "prospecting", "exports"), { recursive: true });
+    fs.writeFileSync(path.join(repo, "prospecting", "exports", "café.csv"), BIG);
+    git(["add", "-A"]);
+    git(["commit", "-q", "-m", "big export with non-ascii name"]);
+    const head = git(["rev-parse", "HEAD"]);
+    const { code, stderr } = runHook(`refs/heads/main ${head} refs/heads/main ${base}\n`);
+    expect(code).toBe(0);
+    expect(stderr).toContain("skipped 1 path(s)");
+    expect(stderr).toContain("café.csv");
+  });
+
+  test("(h) a glob metacharacter in an ignored filename does NOT exclude a sibling (fail-open guard)", () => {
+    // Fail-open regression (adversarial review): a real filename holding a `?`
+    // is a legal path. A plain `:(exclude)export?.csv` pathspec is glob-ENABLED,
+    // so git would ALSO drop `exportX.csv` (a sibling holding a real secret) from
+    // the scan. `:(top,exclude,literal)` treats the name literally, so only the
+    // exact ignored file is exempted and the sibling secret still blocks.
+    // The glob is `export\?.csv` (escaped) so Bun.Glob matches ONLY the literal
+    // `export?.csv` — isolating the git pathspec overreach, not Bun.Glob's own.
+    writeIgnoreFile("export\\?.csv\n");
+    const base = git(["rev-parse", "HEAD"]);
+    fs.writeFileSync(path.join(repo, "export?.csv"), "benign generated data\n");
+    fs.writeFileSync(path.join(repo, "exportX.csv"), "key AKIA1234567890ABCDEF\n");
+    git(["add", "-A"]);
+    git(["commit", "-q", "-m", "ignored ? file + sibling with a secret"]);
+    const head = git(["rev-parse", "HEAD"]);
+    const { code, stderr } = runHook(`refs/heads/main ${head} refs/heads/main ${base}\n`);
+    expect(code).toBe(1); // the sibling's credential must still block
+    expect(stderr).toContain("aws.access_key");
+  });
+});
+
 describe("install / chaining", () => {
   test("install creates a managed hook; existing hook preserved + chained", () => {
     const hookDir = path.join(repo, ".git", "hooks");

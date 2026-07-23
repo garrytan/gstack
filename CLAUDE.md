@@ -466,8 +466,24 @@ determined leaker (a CHANGELOG line that does would fail a hostile screenshotter
   / ` ```greptile ` fences so example credentials those tools quote WARN-degrade
   instead of blocking. A live-format credential inside the fence still blocks.
 - **Config keys:** `redact_repo_visibility` (public|private|unknown, local-only
-  override for repos gh/glab can't read), `redact_prepush_hook` (true|false).
+  override for repos gh/glab can't read), `redact_prepush_hook` (true|false),
+  `redact_prepush_ignore_globs` (comma-separated globs, local-only supplement).
   There is intentionally NO key to disable HIGH blocking.
+- **Pre-push path-ignore (opt-in, auditable):** a repo can exempt generated data
+  files (large `*.csv`/`*.parquet` exports that oversize the 1 MiB scan cap and
+  trip a false-positive HIGH `engine.input_too_large`) from the pre-push scan
+  without weakening credential scanning on code. Ignore globs merge two sources:
+  the committed, reviewable `.gstack/redact-prepush-ignore` file at the repo root
+  (one glob per line, `#` comments — the recommended mechanism, shared across
+  contributors and visible in git history) and the machine-local
+  `redact_prepush_ignore_globs` config key (comma-separated, no spaces — for
+  several globs prefer the committed file). Globs match repo-root-relative paths
+  (`**` spans directories, e.g. `prospecting/exports/**/*.csv`); matched paths are
+  dropped from the scanned diff via a git `:(exclude)` pathspec. Every exemption
+  prints a one-line stderr notice (how many paths / bytes were skipped) — an
+  ignore is never silent. This preserves the #1946 fail-closed invariant: an
+  ignore glob is an explicit, auditable opt-in, and any file NOT matched still
+  fails closed (a bare oversize non-ignored file still blocks).
 - **Audit:** the /spec semantic pass appends a content-free record (categories +
   body sha256, no spec text) to `~/.gstack/security/semantic-reviews.jsonl` (0600).
 
