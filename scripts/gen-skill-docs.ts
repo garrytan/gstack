@@ -13,6 +13,7 @@ import { COMMAND_DESCRIPTIONS } from '../browse/src/commands';
 import { SNAPSHOT_FLAGS } from '../browse/src/snapshot';
 import { discoverTemplates, discoverSectionTemplates } from './discover-skills';
 import { writeLlmsTxt } from './gen-llms-txt';
+import { mkdirpSync } from './fs-utils';
 import * as fs from 'fs';
 import * as path from 'path';
 import type { Host, TemplateContext } from './resolvers/types';
@@ -752,7 +753,7 @@ function processExternalHost(
 
   const name = externalSkillName(skillDir === '.' ? '' : skillDir, frontmatterName);
   const outputDir = path.join(ROOT, hostConfig.hostSubdir, 'skills', name);
-  fs.mkdirSync(outputDir, { recursive: true });
+  mkdirpSync(outputDir);
   const outputPath = path.join(outputDir, 'SKILL.md');
 
   // Guard against symlink loops
@@ -787,7 +788,7 @@ function processExternalHost(
   // Config-driven: generate metadata (e.g., openai.yaml for Codex)
   if (hostConfig.generation.generateMetadata && !symlinkLoop) {
     const agentsDir = path.join(outputDir, 'agents');
-    fs.mkdirSync(agentsDir, { recursive: true });
+    mkdirpSync(agentsDir);
     const shortDescription = condenseOpenAIShortDescription(extractedDescription);
     fs.writeFileSync(path.join(agentsDir, 'openai.yaml'), generateOpenAIYaml(name, shortDescription));
   }
@@ -921,7 +922,7 @@ function processSectionTemplate(
     const externalName = externalSkillName(skillDir, parentName);
     outputPath = path.join(ROOT, hostConfig.hostSubdir, 'skills', externalName, 'sections', fileName);
   }
-  if (!DRY_RUN) fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+  if (!DRY_RUN) mkdirpSync(path.dirname(outputPath));
   return { outputPath, content };
 }
 
@@ -996,7 +997,7 @@ for (const currentHost of hostsToRun) {
       } else {
         // In-place writes land in existing dirs; --out-dir needs the mirrored
         // skill dir created first.
-        if (OUT_DIR) fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+        if (OUT_DIR) mkdirpSync(path.dirname(outputPath));
         fs.writeFileSync(outputPath, content);
         console.log(`GENERATED: ${relOutput}`);
       }
@@ -1058,7 +1059,7 @@ for (const currentHost of hostsToRun) {
     // Generate gstack-lite and gstack-full for OpenClaw host
     if (currentHost === 'openclaw' && !DRY_RUN) {
       const openclawDir = path.join(ROOT, 'openclaw');
-      if (!fs.existsSync(openclawDir)) fs.mkdirSync(openclawDir, { recursive: true });
+      mkdirpSync(openclawDir);
 
       const gstackLite = `# gstack-lite Planning Discipline
 
