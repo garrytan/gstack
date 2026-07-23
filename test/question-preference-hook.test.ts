@@ -493,3 +493,74 @@ describe('auto-decided event tagging', () => {
     expect(fs.existsSync(markerPath)).toBe(true);
   });
 });
+
+// ----------------------------------------------------------------------
+// Slug resolution (project-local preference bucket)
+// ----------------------------------------------------------------------
+
+describe('slug resolution matches gstack-slug', () => {
+  // Regression: the hook used path.basename(cwd) while /plan-tune writes
+  // project-local preferences under the gstack-slug value, which is derived
+  // from the git remote (owner-repo). In any repo WITH a remote the two
+  // disagree, so project-local preferences were never found and D8 precedence
+  // silently collapsed to global-only. The earlier fixtures all used a cwd
+  // whose basename happened to equal the slug, which is why this survived.
+
+  test('uses the cached gstack-slug value, not the cwd basename', () => {
+    const remoteSlug = 'owner-reponame';
+    const repoDir = path.join(stateRoot, 'reponame');
+    fs.mkdirSync(repoDir, { recursive: true });
+
+    // gstack-slug's cache: key is the absolute path with '/' -> '_'
+    const cacheDir = path.join(stateRoot, 'slug-cache');
+    fs.mkdirSync(cacheDir, { recursive: true });
+    fs.writeFileSync(path.join(cacheDir, repoDir.replace(/\//g, '_')), remoteSlug);
+
+    // Preference lives ONLY under the remote-derived slug bucket.
+    fs.mkdirSync(path.join(stateRoot, 'projects', remoteSlug), { recursive: true });
+    fs.writeFileSync(
+      path.join(stateRoot, 'projects', remoteSlug, 'question-preferences.json'),
+      JSON.stringify({ 'test-q': 'never-ask' }),
+    );
+
+    const r = runHook({
+      session_id: 'slug-1',
+      tool_name: 'AskUserQuestion',
+      tool_use_id: 'tu-slug-1',
+      tool_input: {
+        questions: [
+          { question: '<gstack-qid:test-q> Need approval?', options: ['A) Yes (recommended)', 'B) No'] },
+        ],
+      },
+    }, repoDir);
+
+    // Enforcement fired => the hook looked in the remote-derived bucket.
+    expect(r.status).toBe(0);
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('deny');
+  });
+
+  test('falls back to basename when no slug-cache entry exists', () => {
+    // Mirrors gstack-slug's own no-remote fallback.
+    const repoDir = path.join(stateRoot, 'no-remote-repo');
+    fs.mkdirSync(repoDir, { recursive: true });
+    fs.mkdirSync(path.join(stateRoot, 'projects', 'no-remote-repo'), { recursive: true });
+    fs.writeFileSync(
+      path.join(stateRoot, 'projects', 'no-remote-repo', 'question-preferences.json'),
+      JSON.stringify({ 'test-q': 'never-ask' }),
+    );
+
+    const r = runHook({
+      session_id: 'slug-2',
+      tool_name: 'AskUserQuestion',
+      tool_use_id: 'tu-slug-2',
+      tool_input: {
+        questions: [
+          { question: '<gstack-qid:test-q> Need approval?', options: ['A) Yes (recommended)', 'B) No'] },
+        ],
+      },
+    }, repoDir);
+
+    expect(r.status).toBe(0);
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('deny');
+  });
+});
