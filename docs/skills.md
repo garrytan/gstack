@@ -19,6 +19,7 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | [`/qa-only`](#qa) | **QA Reporter** | Same methodology as /qa but report only. Use when you want a pure bug report without code changes. |
 | [`/scrape`](#scrape) | **Browser Data Extractor** | Pull data from a web page. First call prototypes via `$B`; subsequent calls on a matching intent run a codified browser-skill in ~200ms. |
 | [`/skillify`](#skillify) | **Skill Codifier** | Walks back through your conversation, finds the last `/scrape` prototype, synthesizes script + test + fixture, runs the test, asks before committing. |
+| [`/garygoal`](#garygoal) | **Delivery Conductor** | One objective in, evidence-gated delivery out. Conducts spec → plan → TDD → reviews → security → QA → PR → CI repair → review threads with a persistent, resumable state machine. Merge/deploy only when explicitly authorized. |
 | [`/ship`](#ship) | **Release Engineer** | Sync main, run tests, audit coverage, push, open PR. Bootstraps test frameworks if you don't have one. One command. |
 | [`/land-and-deploy`](#land-and-deploy) | **Release Engineer** | Merge the PR, wait for CI and deploy, verify production health. One command from "approved" to "verified in production." |
 | [`/canary`](#canary) | **SRE** | Post-deploy monitoring loop. Watches for console errors, performance regressions, and page failures using the browse daemon. |
@@ -632,6 +633,64 @@ Claude: [Explores 12 pages, fills 3 forms, tests 2 flows]
 ```
 
 **Testing authenticated pages:** Use `/setup-browser-cookies` first to import your real browser sessions, then `/qa` can test pages behind login.
+
+---
+
+## `/garygoal`
+
+**The Delivery Conductor.** One objective in, evidence-gated delivery out.
+
+```
+/garygoal Build the hashtag discovery system described in docs/hashtag-spec.md
+/garygoal --plan Redesign the onboarding flow          # spec + plan only, no code
+/garygoal --pr Fix the upload pipeline race            # release-ready PR, never merges
+/garygoal --merge Ship the entitlements refactor       # through merge+deploy+canary, policy-gated
+/garygoal --resume [run-id]                             # continue an interrupted run (id only if the branch has several)
+/garygoal --status                                      # where is the run, what's next
+/garygoal --repair-pr 417                               # take over an existing PR
+```
+
+**First run:** invoke from inside the target repo. `--plan` needs nothing
+else; the PR/CI/merge phases need `gh` authenticated. Artifacts land under
+`~/.gstack/projects/<owner-repo>/garygoal/<run-id>/` (objective contract, gate
+results, events, final report — the run names the exact path). To authorize
+autonomous merging: `gstack-config set garygoal_autonomous_merge true`, and
+still invoke with `--merge`.
+
+What it is: a **thin orchestration layer** over the skills you already use.
+`/autoplan` still plans, `/review` still reviews, `/cso` still audits, `/qa`
+still tests, `/ship` still ships, `/land-and-deploy` still deploys. GaryGoal
+reads each specialist from disk, runs it at full depth, consumes its
+artifacts, and decides what happens next — with a persistent state machine
+under `~/.gstack/projects/<slug>/garygoal/<run-id>/` so a crashed session,
+compacted context, or overnight CI run resumes exactly where it stopped.
+
+What makes it trustworthy:
+
+- **Every gate is tied to a commit SHA.** A review of yesterday's commit is
+  not evidence for today's. New commits deterministically invalidate exactly
+  the gates the diff touches (a CSS change re-runs design review and browser
+  QA, not the migration audit; a docs-only commit doesn't re-run QA at all).
+- **The state machine is enforced by a CLI, not prose.** `bin/gstack-garygoal`
+  refuses illegal transitions, missing evidence, stale SHAs, exhausted repair
+  budgets, and a second simultaneous run on the same branch.
+- **Repair loops are bounded.** Three root-cause hypotheses per failing CI
+  check, three review-repair cycles, five /ship reruns — then it stops and
+  writes an investigation report instead of looping forever.
+- **Merge is policy, not vibes.** Default mode ends at `READY_TO_MERGE`.
+  Autonomous merge requires `--merge` AND `garygoal_autonomous_merge: true`
+  in gstack config AND every hard gate passing at the exact PR head SHA. It
+  never force-pushes, never bypasses branch protection, never uses admin
+  override, and never resolves a review thread just to clear the gate.
+- **Canary failure is never success.** With rollback configured it rolls
+  back, verifies the rollback, and records the incident as `ROLLED_BACK`.
+
+Config (via `gstack-config set`): `garygoal_default_mode`,
+`garygoal_autonomous_merge`, `garygoal_deploy_after_merge`,
+`garygoal_require_canary`, `garygoal_max_ci_repair_attempts`,
+`garygoal_max_review_repair_cycles`, `garygoal_rollback_on_canary_failure`.
+
+Architecture deep-dive: [docs/designs/GARYGOAL.md](designs/GARYGOAL.md).
 
 ---
 
