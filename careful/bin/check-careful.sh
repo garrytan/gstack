@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # check-careful.sh — PreToolUse hook for /careful skill
 # Reads JSON from stdin, checks Bash command for destructive patterns.
-# Returns {"permissionDecision":"ask","message":"..."} to warn, or {} to allow.
+# Returns a PreToolUse hookSpecificOutput with permissionDecision "ask" to warn,
+# or {} to allow. The decision MUST be nested under hookSpecificOutput — Claude
+# Code ignores a top-level permissionDecision, which silently no-ops the warning.
 set -euo pipefail
 
 # Read stdin (JSON with tool_input)
@@ -94,7 +96,7 @@ if [ -n "$WARN" ]; then
   echo '{"event":"hook_fire","skill":"careful","pattern":"'"$PATTERN"'","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}' >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 
   WARN_ESCAPED=$(printf '%s' "$WARN" | sed 's/"/\\"/g')
-  printf '{"permissionDecision":"ask","message":"[careful] %s"}\n' "$WARN_ESCAPED"
+  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"[careful] %s"}}\n' "$WARN_ESCAPED"
 else
   echo '{}'
 fi

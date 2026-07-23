@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # check-freeze.sh — PreToolUse hook for /freeze skill
 # Reads JSON from stdin, checks if file_path is within the freeze boundary.
-# Returns {"permissionDecision":"deny","message":"..."} to block, or {} to allow.
+# Returns a PreToolUse hookSpecificOutput with permissionDecision "deny" to block,
+# or {} to allow. The decision MUST be nested under hookSpecificOutput — Claude
+# Code ignores a top-level permissionDecision, which silently no-ops the block.
 set -euo pipefail
 
 # Read stdin
@@ -74,6 +76,6 @@ case "$FILE_PATH" in
     mkdir -p ~/.gstack/analytics 2>/dev/null || true
     echo '{"event":"hook_fire","skill":"freeze","pattern":"boundary_deny","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}' >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 
-    printf '{"permissionDecision":"deny","message":"[freeze] Blocked: %s is outside the freeze boundary (%s). Only edits within the frozen directory are allowed."}\n' "$FILE_PATH" "$FREEZE_DIR"
+    printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"[freeze] Blocked: %s is outside the freeze boundary (%s). Only edits within the frozen directory are allowed."}}\n' "$FILE_PATH" "$FREEZE_DIR"
     ;;
 esac
