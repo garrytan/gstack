@@ -614,13 +614,21 @@ describe('v0.4.1 preamble features', () => {
   }
 
   for (const skill of skillsWithPreamble) {
-    test(`${skill} contains escalation protocol`, () => {
+    test(`${skill} points at shared conduct (escalation protocol factored out)`, () => {
+      // The escalation protocol (Completion Status Protocol) is factored into
+      // docs/shared-conduct.md; each skill carries a pointer section instead.
       const content = fs.readFileSync(path.join(ROOT, skill), 'utf-8');
-      expect(content).toContain('DONE_WITH_CONCERNS');
-      expect(content).toContain('BLOCKED');
-      expect(content).toContain('NEEDS_CONTEXT');
+      expect(content).toContain('## Shared Conduct');
+      expect(content).toContain('docs/shared-conduct.md');
     });
   }
+
+  test('docs/shared-conduct.md contains the escalation protocol', () => {
+    const conduct = fs.readFileSync(path.join(ROOT, 'docs', 'shared-conduct.md'), 'utf-8');
+    expect(conduct).toContain('DONE_WITH_CONCERNS');
+    expect(conduct).toContain('BLOCKED');
+    expect(conduct).toContain('NEEDS_CONTEXT');
+  });
 });
 
 // --- Structural tests for new skills ---

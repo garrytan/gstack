@@ -298,12 +298,16 @@ describe('gen-skill-docs', () => {
   });
 
   test('generated SKILL.md contains operational self-improvement (replaced contributor mode)', () => {
+    // Operational Self-Improvement is factored into docs/shared-conduct.md
+    // (Claude host); each skill carries a "## Shared Conduct" pointer to it.
     const content = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
+    const conduct = fs.readFileSync(path.join(ROOT, 'docs', 'shared-conduct.md'), 'utf-8');
     expect(content).not.toContain('Contributor Mode');
     expect(content).not.toContain('gstack_contributor');
     expect(content).not.toContain('contributor-logs');
-    expect(content).toContain('Operational Self-Improvement');
-    expect(content).toContain('gstack-learnings-log');
+    expect(content).toContain('## Shared Conduct');
+    expect(conduct).toContain('Operational Self-Improvement');
+    expect(conduct).toContain('gstack-learnings-log');
     expect(content).toContain('gstack-learnings-search --limit 3');
   });
 
@@ -315,8 +319,11 @@ describe('gen-skill-docs', () => {
 
   test('generated SKILL.md contains session awareness', () => {
     const content = fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf-8');
+    const conduct = fs.readFileSync(path.join(ROOT, 'docs', 'shared-conduct.md'), 'utf-8');
     expect(content).toContain('_SESSIONS');
-    expect(content).toContain('RECOMMENDATION');
+    // RECOMMENDATION lives in the Completion Status Protocol, factored into
+    // docs/shared-conduct.md for the Claude host.
+    expect(conduct).toContain('RECOMMENDATION');
   });
 
   test('generated SKILL.md contains branch detection', () => {
@@ -385,8 +392,10 @@ describe('gen-skill-docs', () => {
   });
 
   test('voice and writing-style preamble sections stay compact', () => {
+    // Voice is factored into docs/shared-conduct.md (Claude host).
     const content = readSkillUnion('plan-eng-review'); // carved: review body moved to section
-    const voice = extractMarkdownSection(content, '## Voice');
+    const conduct = fs.readFileSync(path.join(ROOT, 'docs', 'shared-conduct.md'), 'utf-8');
+    const voice = extractMarkdownSection(conduct, '## Voice');
     const writingStyle = extractMarkdownSection(content, '## Writing Style');
 
     expect(Buffer.byteLength(voice, 'utf-8')).toBeLessThan(3_000);
@@ -394,8 +403,8 @@ describe('gen-skill-docs', () => {
   });
 
   test('slim voice section preserves the gstack voice contract', () => {
-    const content = readSkillUnion('plan-eng-review'); // carved: review body moved to section
-    const voice = extractMarkdownSection(content, '## Voice');
+    const conduct = fs.readFileSync(path.join(ROOT, 'docs', 'shared-conduct.md'), 'utf-8');
+    const voice = extractMarkdownSection(conduct, '## Voice');
 
     expect(voice).toMatch(/lead with the point|direct/i);
     expect(voice).toMatch(/file|function|line|command|real numbers/i);

@@ -33,28 +33,30 @@ function makeCtx(
 }
 
 describe('Preamble composition order', () => {
-  test('AskUserQuestion Format renders before Model-Specific Behavioral Patch (tier 2, claude)', () => {
+  test('AskUserQuestion Format renders before Shared Conduct pointer (tier 2, claude)', () => {
+    // Claude host factors the model overlay into docs/shared-conduct.md;
+    // the pointer section takes the overlay's composition slot.
     const out = generatePreamble(makeCtx('claude', 2, 'claude'));
     const formatIdx = out.indexOf('## AskUserQuestion Format');
-    const overlayIdx = out.indexOf('## Model-Specific Behavioral Patch');
+    const overlayIdx = out.indexOf('## Shared Conduct');
     expect(formatIdx).toBeGreaterThan(-1);
     expect(overlayIdx).toBeGreaterThan(-1);
     expect(formatIdx).toBeLessThan(overlayIdx);
   });
 
-  test('AskUserQuestion Format renders before Model-Specific Behavioral Patch (tier 2, opus-4-7)', () => {
+  test('AskUserQuestion Format renders before Shared Conduct pointer (tier 2, opus-4-7)', () => {
     const out = generatePreamble(makeCtx('claude', 2, 'opus-4-7'));
     const formatIdx = out.indexOf('## AskUserQuestion Format');
-    const overlayIdx = out.indexOf('## Model-Specific Behavioral Patch');
+    const overlayIdx = out.indexOf('## Shared Conduct');
     expect(formatIdx).toBeGreaterThan(-1);
     expect(overlayIdx).toBeGreaterThan(-1);
     expect(formatIdx).toBeLessThan(overlayIdx);
   });
 
-  test('AskUserQuestion Format renders before Model-Specific Behavioral Patch (tier 3)', () => {
+  test('AskUserQuestion Format renders before Shared Conduct pointer (tier 3)', () => {
     const out = generatePreamble(makeCtx('claude', 3, 'opus-4-7'));
     const formatIdx = out.indexOf('## AskUserQuestion Format');
-    const overlayIdx = out.indexOf('## Model-Specific Behavioral Patch');
+    const overlayIdx = out.indexOf('## Shared Conduct');
     expect(formatIdx).toBeLessThan(overlayIdx);
   });
 

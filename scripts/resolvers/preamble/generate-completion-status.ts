@@ -29,7 +29,15 @@ In plan mode, allowed because they inform the plan: \`$B\`, \`$D\`, \`codex exec
 If the user invokes a skill in plan mode, the skill takes precedence over generic plan mode behavior. **Treat the skill file as executable instructions, not reference.** Follow it step by step starting from Step 0; the first AskUserQuestion is the workflow entering plan mode, not a violation of it. AskUserQuestion (any variant — \`mcp__*__AskUserQuestion\` or native; see "AskUserQuestion Format → Tool resolution") satisfies plan mode's end-of-turn requirement. If AskUserQuestion is unavailable or a call fails, follow the AskUserQuestion Format failure fallback: \`headless\` → BLOCKED; \`interactive\` → the prose fallback (also satisfies end-of-turn). At a STOP point, stop immediately. Do not continue the workflow or call ExitPlanMode there. Commands marked "PLAN MODE EXCEPTION — ALWAYS RUN" execute. Call ExitPlanMode only after the skill workflow completes, or if the user tells you to cancel the skill or leave plan mode.`;
 }
 
-export function generateCompletionStatus(ctx: TemplateContext): string {
+/**
+ * Behavioral half of the completion block (Completion Status Protocol +
+ * Operational Self-Improvement). Identical across skills for a given host,
+ * so the Claude host factors it into docs/shared-conduct.md (one copy,
+ * pointed to from every preamble) instead of stamping it into all ~49
+ * SKILL.md files. External hosts still inline it via
+ * generateCompletionStatus().
+ */
+export function generateCompletionStatusBehavioral(ctx: TemplateContext): string {
   return `## Completion Status Protocol
 
 When completing a skill workflow, report status using one of:
@@ -48,9 +56,15 @@ Before completing, if you discovered a durable project quirk or command fix that
 ${ctx.paths.binDir}/gstack-learnings-log '{"skill":"SKILL_NAME","type":"operational","key":"SHORT_KEY","insight":"DESCRIPTION","confidence":N,"source":"observed"}'
 \`\`\`
 
-Do not log obvious facts or one-time transient errors.
+Do not log obvious facts or one-time transient errors.`;
+}
 
-## Telemetry (run last)
+/**
+ * Operational half: telemetry bash + plan status footer. Always inline in
+ * every skill (it must run even if the model never reads the shared doc).
+ */
+export function generateCompletionStatusOperational(_ctx: TemplateContext): string {
+  return `## Telemetry (run last)
 
 After workflow completion, log telemetry. Use skill \`name:\` from frontmatter. OUTCOME is success/error/abort/unknown.
 
@@ -82,4 +96,9 @@ Replace \`SKILL_NAME\`, \`OUTCOME\`, and \`USED_BROWSE\` before running.
 ## Plan Status Footer
 
 Skills that run plan reviews (\`/plan-*-review\`, \`/codex review\`) include the EXIT PLAN MODE GATE blocking checklist at the end of the skill, which verifies the plan file ends with \`## GSTACK REVIEW REPORT\` before ExitPlanMode is called. Skills that don't run plan reviews (operational skills like \`/ship\`, \`/qa\`, \`/review\`) typically don't operate in plan mode and have no review report to verify; this footer is a no-op for them. Writing the plan file is the one edit allowed in plan mode.`;
+}
+
+/** Full inline block — used by external hosts (no shared-doc factoring). */
+export function generateCompletionStatus(ctx: TemplateContext): string {
+  return `${generateCompletionStatusBehavioral(ctx)}\n\n${generateCompletionStatusOperational(ctx)}`;
 }
