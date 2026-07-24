@@ -885,8 +885,9 @@ tmp-file + atomic rename. Concurrent runs are blocked by a lock file at
 After the sync run, query gbrain for the cwd source's page_count:
 
 ```bash
-SOURCE_ID=$(grep -o '"source_id":"[^"]*"' ~/.gstack/.gbrain-sync-state.json 2>/dev/null \
-  | head -1 | sed 's/.*"source_id":"//;s/".*//')
+# NOTE: the sync-state file is pretty-printed (JSON.stringify(state, null, 2)
+# in bin/gstack-gbrain-sync.ts), so a minified-JSON grep never matches. Use jq.
+SOURCE_ID=$(jq -r 'first(.. | objects | .source_id? // empty)' ~/.gstack/.gbrain-sync-state.json 2>/dev/null)
 PAGES=$(gbrain sources list --json 2>/dev/null \
   | jq -r --arg id "$SOURCE_ID" '.sources[] | select(.id==$id) | .page_count' 2>/dev/null \
   || echo 0)
@@ -949,8 +950,9 @@ gbrain delete "$SLUG" 2>/dev/null || true
 # On a markdown-only brain (no code source, or one that can't register because
 # its path overlaps the `default` markdown source) this is 0, so the
 # code-search guidance must gate on it, not on CAPABILITY_OK.
-SOURCE_ID=$(grep -o '"source_id":"[^"]*"' ~/.gstack/.gbrain-sync-state.json 2>/dev/null \
-  | head -1 | sed 's/.*"source_id":"//;s/".*//')
+# NOTE: the sync-state file is pretty-printed (JSON.stringify(state, null, 2)
+# in bin/gstack-gbrain-sync.ts), so a minified-JSON grep never matches. Use jq.
+SOURCE_ID=$(jq -r 'first(.. | objects | .source_id? // empty)' ~/.gstack/.gbrain-sync-state.json 2>/dev/null)
 CODE_PAGES=$(gbrain sources list --json 2>/dev/null \
   | jq -r --arg id "$SOURCE_ID" '.sources[] | select(.id==$id) | .page_count' 2>/dev/null \
   || echo 0)
