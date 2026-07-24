@@ -61,6 +61,30 @@ describe("smartypants", () => {
     expect(out).toContain(`href="it's-a-test.html"`);
   });
 
+  test("does NOT leak SMARTPANTS_PRESERVED placeholders into autolinked URLs", () => {
+    // Regression test: found 2026-07-20 in AI4LD ebook PDF reference
+    // lists. A bare autolinked URL (anchor text == href, zero whitespace
+    // before the closing tag) previously had its </a> placeholder
+    // swallowed by the URL regex's greedy \S+, leaking raw
+    // "SMARTPANTS_PRESERVED_N" text into the rendered link.
+    const input = `<p>See <a href="https://doi.org/10.1016/j.caeai.2026.100637">https://doi.org/10.1016/j.caeai.2026.100637</a> for details.</p>`;
+    const out = smartypants(input);
+    expect(out).not.toContain("SMARTPANTS_PRESERVED");
+    expect(out).toContain(
+      `<a href="https://doi.org/10.1016/j.caeai.2026.100637">https://doi.org/10.1016/j.caeai.2026.100637</a>`
+    );
+  });
+
+  test("does NOT leak placeholders when a linked URL is immediately followed by another tag", () => {
+    // Same bug, different adjacency: URL directly abutting a second tag
+    // (e.g. two consecutive auto-linked references with no separating
+    // whitespace) must not bleed a placeholder into either link.
+    const input = `<p><a href="https://a.example/x">https://a.example/x</a><a href="https://b.example/y">https://b.example/y</a></p>`;
+    const out = smartypants(input);
+    expect(out).not.toContain("SMARTPANTS_PRESERVED");
+    expect(out).toBe(input);
+  });
+
   test("does NOT convert -- in CLI flags", () => {
     // Prose like "try --verbose mode" should not turn -- into em dash
     const out = smartypants(`<p>Try --verbose mode.</p>`);
@@ -157,6 +181,72 @@ describe("render (end-to-end)", () => {
     expect(result.html).toContain("\u2014");
   });
 
+  test("wraps a References section for APA hanging-indent styling", () => {
+    const result = render({
+      markdown: `# My Ebook\n\nBody text.\n\n# References\n\nSmith, J. (2020). A paper.\n\nJones, K. (2021). Another paper.\n`,
+    });
+    expect(result.html).toMatch(
+      /<div class="references">[\s\S]*Smith, J\. \(2020\)[\s\S]*Jones, K\. \(2021\)[\s\S]*<\/div>/
+    );
+    // The heading itself stays outside the wrapper.
+    expect(result.html).not.toMatch(/<div class="references">\s*<h1/);
+  });
+
+  test("References wrapping is case-insensitive and a no-op with no such heading", () => {
+    const lower = render({ markdown: `# Doc\n\nBody.\n\n# references\n\nRef one.\n` });
+    expect(lower.html).toContain('<div class="references">');
+
+    const none = render({ markdown: `# Doc\n\nJust body text, no references section.\n` });
+    expect(none.html).not.toContain('<div class="references">');
+  });
+
+  test("extracts a custom .ai4ld-cover section and places it before the TOC", () => {
+    const result = render({
+      markdown: `<section class="ai4ld-cover" style="background:#05C7F2;">\n  <div>My Custom Cover</div>\n</section>\n\n# Real Title\n\nBody.\n`,
+      toc: true,
+    });
+    const coverIdx = result.html.indexOf("My Custom Cover");
+    const tocIdx = result.html.indexOf('<section class="toc">');
+    // "Body." (not "Real Title") — the TOC itself legitimately contains a
+    // link with the text "Real Title", which would make that string a false
+    // marker for body content; "Body." appears only in the real chapter.
+    const bodyIdx = result.html.indexOf("Body.");
+    expect(coverIdx).toBeGreaterThan(-1);
+    expect(tocIdx).toBeGreaterThan(-1);
+    expect(bodyIdx).toBeGreaterThan(-1);
+    // Custom cover must render BEFORE the TOC, which must render before body
+    // content — the bug this fixes: body content (including a cover
+    // written as ordinary markdown) always landed AFTER the TOC because
+    // the assembly order is coverBlock, tocBlock, chapterHtml, and only
+    // the built-in --cover template populated coverBlock.
+    expect(coverIdx).toBeLessThan(tocIdx);
+    expect(tocIdx).toBeLessThan(bodyIdx);
+  });
+
+  test("custom cover title text does not create a duplicate TOC entry", () => {
+    // The cover title must NOT be an <h1> (that's exactly what caused the
+    // duplicate-heading bug) — verify a same-titled <div> inside the
+    // custom cover isn't picked up as a second heading by the TOC.
+    const result = render({
+      markdown: `<section class="ai4ld-cover">\n  <div>Real Title</div>\n</section>\n\n# Real Title\n\nBody.\n`,
+      toc: true,
+    });
+    const matches = result.html.match(/<a[^>]*>Real Title<\/a>/g) ?? [];
+    expect(matches.length).toBe(1);
+  });
+
+  test("derives title from the real first H1, not text inside a custom cover", () => {
+    const result = render({
+      markdown: `<section class="ai4ld-cover">\n  <div>Not The Title</div>\n</section>\n\n# Actual Title\n\nBody.\n`,
+    });
+    expect(result.meta.title).toBe("Actual Title");
+  });
+
+  test("no custom cover present is a no-op (ordinary documents unaffected)", () => {
+    const result = render({ markdown: `# Just a doc\n\nNo cover here.\n` });
+    expect(result.html).not.toContain("ai4ld-cover");
+  });
+
   test("derives title from first H1 when --title is not passed", () => {
     const result = render({ markdown: `# My Title\n\nBody.` });
     expect(result.meta.title).toBe("My Title");
@@ -236,12 +326,19 @@ describe("render (end-to-end)", () => {
     expect(result.html).toContain("Safe");
   });
 
-  test("respects text-align: left — no justify in print CSS", () => {
+  test("respects text-align: left — no justify or first-line indent on body paragraphs", () => {
     const result = render({ markdown: `para1\n\npara2\n` });
-    // The rule from the design-review fix: no p + p indent, text-align: left.
+    // The rule from the design-review fix: no p + p first-line indent, text-align: left.
     expect(result.printCss).toContain("text-align: left");
     expect(result.printCss).not.toContain("text-align: justify");
-    expect(result.printCss).not.toContain("text-indent");
+    // Ordinary paragraphs (the bare `p { ... }` rule) must not carry a
+    // first-line text-indent. This does NOT ban text-indent everywhere —
+    // `.references p` intentionally uses a negative text-indent for the
+    // APA hanging-indent pattern (see the "wraps a References section"
+    // test above); scope the check to the base rule specifically.
+    const baseParagraphRule = result.printCss.match(/(?<!\.references )\bp\s*\{[^}]*\}/);
+    expect(baseParagraphRule?.[0]).toBeDefined();
+    expect(baseParagraphRule?.[0]).not.toContain("text-indent");
   });
 
   test("includes CJK font fallback in body", () => {

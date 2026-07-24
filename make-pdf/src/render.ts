@@ -87,8 +87,13 @@ export function render(opts: RenderOptions): RenderResult {
   // 4. Smartypants (code-safe)
   const typographicHtml = smartypants(decoded);
 
+  // 4.5. Custom cover extraction (see extractCustomCover doc comment). Must
+  // run before title derivation so extractFirstHeading scans the REST of
+  // the document, not any decorative markup inside the custom cover.
+  const { cover: customCoverHtml, rest: bodyAfterCover } = extractCustomCover(typographicHtml);
+
   // 4. Derive metadata (title from first H1 if not provided)
-  const derivedTitle = opts.title ?? extractFirstHeading(typographicHtml) ?? "Document";
+  const derivedTitle = opts.title ?? extractFirstHeading(bodyAfterCover) ?? "Document";
   const derivedAuthor = opts.author ?? "";
   const derivedDate = opts.date ?? formatToday();
 
@@ -113,22 +118,26 @@ export function render(opts: RenderOptions): RenderResult {
   const css = printCss(cssOptions);
 
   // 6. Assemble document
-  const coverBlock = opts.cover
-    ? buildCoverBlock({
-        title: derivedTitle,
-        subtitle: opts.subtitle,
-        author: derivedAuthor,
-        date: derivedDate,
-      })
-    : "";
+  // A custom cover (extracted above) takes priority over the built-in
+  // template — they're mutually exclusive, never combined.
+  const coverBlock = customCoverHtml
+    ? customCoverHtml
+    : opts.cover
+      ? buildCoverBlock({
+          title: derivedTitle,
+          subtitle: opts.subtitle,
+          author: derivedAuthor,
+          date: derivedDate,
+        })
+      : "";
 
   // TOC anchors must resolve: assign id="toc-N" to each H1-H3 in the same
   // order buildTocBlock scans them, or every TOC link is a dead href (masked
   // in PDFs by Chromium outline bookmarks, glaring in --to html). Headings
   // that already carry an id keep it — the ids array records the ACTUAL id
   // per heading so TOC entries always link to something real.
-  const anchored = opts.toc ? addHeadingIds(typographicHtml) : { html: typographicHtml, ids: [] };
-  const anchoredHtml = anchored.html;
+  const anchored = opts.toc ? addHeadingIds(bodyAfterCover) : { html: bodyAfterCover, ids: [] };
+  const anchoredHtml = wrapReferencesSection(anchored.html);
 
   const tocBlock = opts.toc
     ? buildTocBlock(anchoredHtml, anchored.ids)
@@ -366,6 +375,73 @@ function wrapChaptersByH1(html: string): string {
     chunks.push(`<section class="chapter">${html.slice(start, end)}</section>`);
   }
   return chunks.join("\n");
+}
+
+/**
+ * Wrap an APA-style "References" section in a `.references` container so
+ * print CSS can apply a hanging indent to each entry without touching
+ * ordinary body paragraphs. Detects an <h1> whose text is exactly
+ * "References" (case-insensitive) and wraps everything from there to the
+ * next <h1> (or end of document) in <div class="references">...</div>.
+ * The heading itself stays outside the wrapper so its own styling is
+ * unaffected. No-op if no such heading exists.
+ */
+function wrapReferencesSection(html: string): string {
+  const h1Re = /<h1\b[^>]*>([\s\S]*?)<\/h1>/gi;
+  let m: RegExpExecArray | null;
+  let headingStart = -1;
+  let headingEnd = -1;
+  while ((m = h1Re.exec(html)) !== null) {
+    const text = decodeTextEntities(stripTags(m[1])).trim().toLowerCase();
+    if (text === "references") {
+      headingStart = m.index;
+      headingEnd = m.index + m[0].length;
+      break;
+    }
+  }
+  if (headingStart === -1) return html;
+
+  // Find the next H1 after the References heading (end of section), or EOF.
+  const nextH1Re = /<h1\b[^>]*>/gi;
+  nextH1Re.lastIndex = headingEnd;
+  const next = nextH1Re.exec(html);
+  const sectionEnd = next ? next.index : html.length;
+
+  const before = html.slice(0, headingEnd);
+  const body = html.slice(headingEnd, sectionEnd);
+  const after = html.slice(sectionEnd);
+
+  return `${before}<div class="references">${body}</div>${after}`;
+}
+
+/**
+ * Extract a custom, fully-styled cover section from the very start of the
+ * document, so it can be slotted into the same position the built-in
+ * --cover template occupies (before the TOC), instead of being left as
+ * ordinary body content (which the assembly order in render() places
+ * AFTER the TOC — see the `coverBlock, tocBlock, chapterHtml` order below).
+ *
+ * Detects a top-level `<section class="ai4ld-cover" ...>...</section>`
+ * as the first non-whitespace content in the document. This is a distinct
+ * class from the tool's own generated `.cover` (buildCoverBlock) so the two
+ * mechanisms never collide — a document uses one or the other, never both.
+ * Callers should NOT also pass --cover when using a custom cover section.
+ *
+ * No nested-tag balancing: the custom cover section is expected to be a
+ * single flat block (divs/spans/hr, no inner <section>), so the first
+ * </section> after the opening tag is assumed to close it.
+ */
+function extractCustomCover(html: string): { cover: string; rest: string } {
+  const trimmed = html.replace(/^\s+/, "");
+  const openMatch = trimmed.match(/^<section\s+class="ai4ld-cover"[^>]*>/i);
+  if (!openMatch) return { cover: "", rest: html };
+  const closeIdx = trimmed.indexOf("</section>", openMatch[0].length);
+  if (closeIdx === -1) return { cover: "", rest: html };
+  const closeEnd = closeIdx + "</section>".length;
+  return {
+    cover: trimmed.slice(0, closeEnd),
+    rest: trimmed.slice(closeEnd),
+  };
 }
 
 function extractFirstHeading(html: string): string | null {

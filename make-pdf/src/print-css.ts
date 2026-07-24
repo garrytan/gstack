@@ -329,6 +329,16 @@ function inlineRules(): string {
     `}`,
     `strong { font-weight: 700; }`,
     `em { font-style: italic; }`,
+    // APA-style hanging indent (0.5in) for reference-list entries. Scoped to
+    // .references so ordinary body paragraphs are untouched. wrapped by
+    // render.ts's wrapReferencesSection() around the content following an
+    // <h1>References</h1> heading.
+    `.references p {`,
+    `  margin: 0 0 11pt;`,
+    `  padding-left: 0.5in;`,
+    `  text-indent: -0.5in;`,
+    `}`,
+    `.references p:first-child { margin-top: 0; }`,
   ].join("\n");
 }
 
