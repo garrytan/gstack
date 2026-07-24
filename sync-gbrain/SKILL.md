@@ -954,8 +954,9 @@ tmp-file + atomic rename. Concurrent runs are blocked by a lock file at
 After the sync run, query gbrain for the cwd source's page_count:
 
 ```bash
-SOURCE_ID=$(grep -o '"source_id":"[^"]*"' ~/.gstack/.gbrain-sync-state.json 2>/dev/null \
-  | head -1 | sed 's/.*"source_id":"//;s/".*//')
+# NOTE: the sync-state file is pretty-printed (JSON.stringify(state, null, 2)
+# in bin/gstack-gbrain-sync.ts), so a minified-JSON grep never matches. Use jq.
+SOURCE_ID=$(jq -r 'first(.. | objects | .source_id? // empty)' ~/.gstack/.gbrain-sync-state.json 2>/dev/null)
 PAGES=$(gbrain sources list --json 2>/dev/null \
   | jq -r --arg id "$SOURCE_ID" '.sources[] | select(.id==$id) | .page_count' 2>/dev/null \
   || echo 0)
@@ -1082,17 +1083,31 @@ if [ -f ~/.gbrain/config.json ] && \
   fi
 fi
 gbrain delete "$SLUG" 2>/dev/null || true
+
+# Code-corpus check (#1844). The round-trip above only proves the *markdown*
+# put/search path works — it says nothing about symbol search. code-def /
+# code-refs / code-callers need a registered code source with indexed pages.
+# On a markdown-only brain (no code source, or one that can't register because
+# its path overlaps the `default` markdown source) this is 0, so the
+# code-search guidance must gate on it, not on CAPABILITY_OK.
+# NOTE: the sync-state file is pretty-printed (JSON.stringify(state, null, 2)
+# in bin/gstack-gbrain-sync.ts), so a minified-JSON grep never matches. Use jq.
+SOURCE_ID=$(jq -r 'first(.. | objects | .source_id? // empty)' ~/.gstack/.gbrain-sync-state.json 2>/dev/null)
+CODE_PAGES=$(gbrain sources list --json 2>/dev/null \
+  | jq -r --arg id "$SOURCE_ID" '.sources[] | select(.id==$id) | .page_count' 2>/dev/null \
+  || echo 0)
+[ -z "$CODE_PAGES" ] && CODE_PAGES=0
 ```
 
-Then update CLAUDE.md based on capability state:
+Then update CLAUDE.md based on capability state **and whether an indexed code
+corpus exists** (`CODE_PAGES` from the check above). In every write case the
+block is idempotent: find the HTML-comment-delimited block; replace its body if
+it exists; append at the end of CLAUDE.md if it doesn't. NEVER duplicate. The
+block is machine-AGNOSTIC (no engine, no page counts, no last-sync time — those
+live in the existing `## GBrain Configuration` block).
 
-**If `CAPABILITY_OK=1`** — write or update the block. Idempotent: find the
-HTML-comment-delimited block; replace its body if it exists; append at the
-end of CLAUDE.md if it doesn't. NEVER duplicate. Block is machine-AGNOSTIC
-(no engine, no page counts, no last-sync time — those are in the existing
-`## GBrain Configuration` block).
-
-Verbatim block content (copy exactly):
+**If `CAPABILITY_OK=1` AND `CODE_PAGES` > 0** — full code + memory brain. Write
+or update the block with this verbatim content (copy exactly):
 
 ```markdown
 ## GBrain Search Guidance (configured by /sync-gbrain)
@@ -1133,15 +1148,47 @@ Prefer gbrain when:
     `gbrain search "<terms>" --source gstack-brain-<user>`
 
 Grep is still right for known exact strings, regex, multiline patterns, and
-file globs. Run `/sync-gbrain` after meaningful code changes; for ongoing
-auto-sync across all worktrees, run `gbrain autopilot --install` once per
-machine — gbrain's daemon handles incremental refresh on a schedule.
+file globs. Run `/sync-gbrain` after meaningful code changes to refresh the
+index.
 
-Safety: don't run `/sync-gbrain` while `gbrain autopilot` is active — the
-orchestrator refuses destructive source ops when it detects a running autopilot
-to avoid racing it (#1734). Prefer registering user repos with `gbrain sources
-add --path <dir>` (no `--url`): URL-managed sources can auto-reclone, and the
-sync code walk for them requires an explicit `--allow-reclone` opt-in.
+Safety: prefer registering user repos with `gbrain sources add --path <dir>`
+(no `--url`): URL-managed sources can auto-reclone, and the sync code walk for
+them requires an explicit `--allow-reclone` opt-in.
+
+<!-- gstack-gbrain-search-guidance:end -->
+```
+
+**If `CAPABILITY_OK=1` AND `CODE_PAGES` is 0 or empty** — markdown-only brain.
+gbrain works, but there is no indexed code source: symbol search resolves
+against a 0-page corpus and there is no `.gbrain-source` worktree pin. Do NOT
+claim `code-def` / `code-refs` / `code-callers` / `.gbrain-source` here — they
+return nothing. Write or update the block with this markdown-only content
+instead (copy exactly):
+
+```markdown
+## GBrain Search Guidance (configured by /sync-gbrain)
+<!-- gstack-gbrain-search-guidance:start -->
+
+GBrain is set up and synced on this machine, indexing **markdown/prose only** —
+there is no registered code source, so symbol search is unavailable here. Prefer
+gbrain over Grep for semantic questions and past decisions; use Grep for code.
+
+One indexed corpus available via the `gbrain` CLI:
+- `~/.gstack/` curated memory (registered as `gstack-brain-<user>` source via
+  the existing federation pipeline) — plans, retros, learnings, notes.
+
+Prefer gbrain when:
+- "What did we decide / learn last time?" / past plans, retros, learnings:
+    `gbrain search "<terms>"` or `gbrain query "<question>"`
+    (add `--source gstack-brain-<user>` to scope to curated memory).
+
+Use Grep for ALL code questions — "where is X handled?", "where is symbol Y
+defined?", "what calls Y?". The `code-def`, `code-refs`, `code-callers`, and
+`code-callees` commands resolve against a 0-page corpus on this brain and return
+nothing; there is no `.gbrain-source` worktree pin.
+
+To enable code-symbol search, register a code source whose path does not overlap
+the existing markdown `default` source, then run `/sync-gbrain --full`.
 
 <!-- gstack-gbrain-search-guidance:end -->
 ```
