@@ -200,6 +200,53 @@ describe("render (end-to-end)", () => {
     expect(none.html).not.toContain('<div class="references">');
   });
 
+  test("extracts a custom .ai4ld-cover section and places it before the TOC", () => {
+    const result = render({
+      markdown: `<section class="ai4ld-cover" style="background:#05C7F2;">\n  <div>My Custom Cover</div>\n</section>\n\n# Real Title\n\nBody.\n`,
+      toc: true,
+    });
+    const coverIdx = result.html.indexOf("My Custom Cover");
+    const tocIdx = result.html.indexOf('<section class="toc">');
+    // "Body." (not "Real Title") — the TOC itself legitimately contains a
+    // link with the text "Real Title", which would make that string a false
+    // marker for body content; "Body." appears only in the real chapter.
+    const bodyIdx = result.html.indexOf("Body.");
+    expect(coverIdx).toBeGreaterThan(-1);
+    expect(tocIdx).toBeGreaterThan(-1);
+    expect(bodyIdx).toBeGreaterThan(-1);
+    // Custom cover must render BEFORE the TOC, which must render before body
+    // content — the bug this fixes: body content (including a cover
+    // written as ordinary markdown) always landed AFTER the TOC because
+    // the assembly order is coverBlock, tocBlock, chapterHtml, and only
+    // the built-in --cover template populated coverBlock.
+    expect(coverIdx).toBeLessThan(tocIdx);
+    expect(tocIdx).toBeLessThan(bodyIdx);
+  });
+
+  test("custom cover title text does not create a duplicate TOC entry", () => {
+    // The cover title must NOT be an <h1> (that's exactly what caused the
+    // duplicate-heading bug) — verify a same-titled <div> inside the
+    // custom cover isn't picked up as a second heading by the TOC.
+    const result = render({
+      markdown: `<section class="ai4ld-cover">\n  <div>Real Title</div>\n</section>\n\n# Real Title\n\nBody.\n`,
+      toc: true,
+    });
+    const matches = result.html.match(/<a[^>]*>Real Title<\/a>/g) ?? [];
+    expect(matches.length).toBe(1);
+  });
+
+  test("derives title from the real first H1, not text inside a custom cover", () => {
+    const result = render({
+      markdown: `<section class="ai4ld-cover">\n  <div>Not The Title</div>\n</section>\n\n# Actual Title\n\nBody.\n`,
+    });
+    expect(result.meta.title).toBe("Actual Title");
+  });
+
+  test("no custom cover present is a no-op (ordinary documents unaffected)", () => {
+    const result = render({ markdown: `# Just a doc\n\nNo cover here.\n` });
+    expect(result.html).not.toContain("ai4ld-cover");
+  });
+
   test("derives title from first H1 when --title is not passed", () => {
     const result = render({ markdown: `# My Title\n\nBody.` });
     expect(result.meta.title).toBe("My Title");
