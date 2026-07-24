@@ -286,8 +286,8 @@ contributor's "match template to content" rules.
 
 #### Phase 5 dispatch logic (plan-mode-aware default)
 
-Read `GSTACK_PLAN_MODE` from the environment (emitted by `{{PREAMBLE}}`'s
-preamble bash). Then:
+Read `GSTACK_PLAN_MODE` from the environment (emitted by the preamble bash
+at the top of this skill). Then:
 
 1. **`--file-only` or `--no-execute` flag present** → file-only path.
 2. **`--execute` flag present** → file + spawn path.

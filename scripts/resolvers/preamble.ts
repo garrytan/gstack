@@ -25,6 +25,8 @@ import { generatePreambleBash } from './preamble/generate-preamble-bash';
 import { generateUpgradeCheck } from './preamble/generate-upgrade-check';
 import {
   generateCompletionStatus,
+  generateCompletionStatusBehavioral,
+  generateCompletionStatusOperational,
   generatePlanModeInfo,
 } from './preamble/generate-completion-status';
 
@@ -106,8 +108,16 @@ export function generatePreamble(ctx: TemplateContext): string {
     // it hits; reversing this order regresses plan-review cadence (v1.6.4.0 bug).
     ...(tier >= 2 ? [generateAskUserFormat(ctx)] : []),
     generateBrainSyncBlock(ctx),
-    generateModelOverlay(ctx),
-    generateVoiceDirective(tier),
+    // Shared-conduct factoring (Claude host only): the Voice, model overlay,
+    // Completion Status Protocol, and Operational Self-Improvement blocks are
+    // identical across every skill for a given build, so instead of stamping
+    // ~150-190 lines into all ~49 SKILL.md files, Claude gets a short pointer
+    // to docs/shared-conduct.md (written once per gen-skill-docs run).
+    // External hosts keep the full inline block — their install layouts don't
+    // ship the shared doc.
+    ...(ctx.host === 'claude'
+      ? [generateSharedConductPointer(ctx)]
+      : [generateModelOverlay(ctx), generateVoiceDirective(tier)]),
     ...(tier >= 2 ? [
       generateContextRecovery(ctx),
       generateWritingStyle(ctx),
@@ -118,7 +128,50 @@ export function generatePreamble(ctx: TemplateContext): string {
       generateQuestionTuning(ctx),
     ] : []),
     ...(tier >= 3 ? [generateRepoModeSection(), generateSearchBeforeBuildingSection(ctx)] : []),
-    generateCompletionStatus(ctx),
+    // Claude host: the behavioral half (Completion Status Protocol +
+    // Operational Self-Improvement) lives in docs/shared-conduct.md; only the
+    // operational telemetry/footer block stays inline. External hosts inline both.
+    ...(ctx.host === 'claude'
+      ? [generateCompletionStatusOperational(ctx)]
+      : [generateCompletionStatus(ctx)]),
   ];
   return sections.filter(s => s && s.trim().length > 0).join('\n\n');
+}
+
+/**
+ * One-paragraph pointer that replaces the per-skill copies of the shared
+ * behavioral block on the Claude host. Kept deliberately terse per the
+ * Claude-5 context-engineering guidance: state once, point elsewhere.
+ */
+export function generateSharedConductPointer(ctx: TemplateContext): string {
+  return `## Shared Conduct
+
+Voice, model-specific behavioral patch, Completion Status Protocol, and
+Operational Self-Improvement rules shared by all gstack skills live in
+\`${ctx.paths.skillRoot}/docs/shared-conduct.md\`. Read it now with the Read
+tool unless it was already read earlier in this session, and apply it
+throughout this skill.`;
+}
+
+/**
+ * Content of docs/shared-conduct.md — the factored-out behavioral block,
+ * written ONCE per gen-skill-docs run (Claude host) instead of into every
+ * skill. Voice ships at full (tier-2+) strength; tier-1 skills previously got
+ * a trimmed variant, but a single shared copy makes the full version free.
+ */
+export function generateSharedConductDoc(ctx: TemplateContext): string {
+  const sections = [
+    '# gstack Shared Conduct',
+    '',
+    'Shared behavioral rules for every gstack skill. Skills point here from their',
+    '"## Shared Conduct" preamble section. Read once per session.',
+    '',
+    [
+      generateModelOverlay(ctx),
+      generateVoiceDirective(4),
+      generateCompletionStatusBehavioral(ctx),
+    ].filter(s => s && s.trim().length > 0).join('\n\n'),
+    '',
+  ];
+  return sections.join('\n');
 }

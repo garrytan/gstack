@@ -18,6 +18,7 @@ import * as path from 'path';
 import type { Host, TemplateContext } from './resolvers/types';
 import { HOST_PATHS, unwrapResolver } from './resolvers/types';
 import { RESOLVERS } from './resolvers/index';
+import { generateSharedConductDoc } from './resolvers/preamble';
 import { externalSkillName, extractHookSafetyProse as _extractHookSafetyProse, extractNameAndDescription as _extractNameAndDescription, condenseOpenAIShortDescription as _condenseOpenAIShortDescription, generateOpenAIYaml as _generateOpenAIYaml } from './resolvers/codex-helpers';
 import { generatePlanCompletionAuditShip, generatePlanCompletionAuditReview, generatePlanVerificationExec } from './resolvers/review';
 import { ALL_HOST_CONFIGS, ALL_HOST_NAMES, resolveHostArg, getHostConfig } from '../hosts/index';
@@ -673,6 +674,21 @@ function resolvePlaceholders(
   // effectiveSuppressedResolvers() honors --respect-detection: when gbrain is
   // detected locally, GBRAIN_* resolvers un-suppress. Shared by SKILL.md and
   // section generation so both paths get the same gbrain-aware behavior.
+  // Guard: {{PREAMBLE}} expands to the full multi-hundred-line preamble block.
+  // A second occurrence — e.g. the token used as an inline prose *reference*
+  // ("emitted by `{{PREAMBLE}}`'s bash") — pastes the entire block mid-sentence
+  // (the spec/SKILL.md duplication bug, 2026-07-25). Mention it in prose
+  // without braces instead.
+  for (const onceOnly of ['PREAMBLE']) {
+    const count = (tmplContent.match(new RegExp(`\\{\\{${onceOnly}(?::[^}]+)?\\}\\}`, 'g')) || []).length;
+    if (count > 1) {
+      throw new Error(
+        `{{${onceOnly}}} appears ${count} times in ${relTmplPath} — it must appear at most once per template. ` +
+        `To reference it in prose, write the name without braces.`
+      );
+    }
+  }
+
   const suppressed = effectiveSuppressedResolvers(hostConfig);
   const onePass = (input: string): string =>
     input.replace(/\{\{(\w+(?::[^}]+)?)\}\}/g, (_match, fullKey) => {
@@ -1053,6 +1069,35 @@ for (const currentHost of hostsToRun) {
         lines: content.split('\n').length,
         tokens: Math.round(content.length / 4),
       });
+    }
+
+    // ─── Shared conduct doc (Claude host only) ───
+    // The factored-out behavioral block (Voice, model overlay, Completion
+    // Status Protocol, Operational Self-Improvement) is written ONCE here;
+    // every Claude skill's preamble points at it instead of inlining it.
+    if (currentHost === 'claude') {
+      const conductCtx: TemplateContext = {
+        skillName: 'gstack', tmplPath: path.join(ROOT, 'SKILL.md.tmpl'),
+        host: 'claude', paths: HOST_PATHS['claude'],
+        model: MODEL_ARG_VAL, explainLevel: EXPLAIN_LEVEL,
+      };
+      const conductContent = GENERATED_HEADER.replace('{{SOURCE}}', 'scripts/resolvers/preamble.ts (generateSharedConductDoc)')
+        + generateSharedConductDoc(conductCtx);
+      const conductPath = path.join(OUT_DIR || ROOT, 'docs', 'shared-conduct.md');
+      const relConduct = path.relative(OUT_DIR || ROOT, conductPath);
+      if (DRY_RUN) {
+        const existing = fs.existsSync(conductPath) ? fs.readFileSync(conductPath, 'utf-8') : '';
+        if (existing !== conductContent) {
+          console.log(`STALE: ${relConduct}`);
+          hasChanges = true;
+        } else {
+          console.log(`FRESH: ${relConduct}`);
+        }
+      } else {
+        fs.mkdirSync(path.dirname(conductPath), { recursive: true });
+        fs.writeFileSync(conductPath, conductContent);
+        console.log(`GENERATED: ${relConduct}`);
+      }
     }
 
     // Generate gstack-lite and gstack-full for OpenClaw host
