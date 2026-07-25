@@ -47,8 +47,8 @@ jobs:
 
       # A fork PR's GITHUB_TOKEN only has `packages: read`, so pushing fails.
       # Still BUILD (validates Dockerfile.ci changes), just don't publish. This
-      # job intentionally has no `if:` — it must always start, because a run in
-      # which every job is skipped registers as a startup failure.
+      # job intentionally keeps no `if:` so fork PRs still get one real, honest
+      # green check here instead of a run where every job is grey.
       - if: steps.check.outputs.exists == 'false'
         uses: docker/build-push-action@v6
         with:
