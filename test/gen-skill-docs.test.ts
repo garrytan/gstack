@@ -2408,6 +2408,17 @@ describe('setup script validation', () => {
     expect(setupContent).toContain('command -v opencode');
   });
 
+  test('setup generates Codex skills with the GPT model overlay', () => {
+    const codexGenerationCommands = setupContent.match(
+      /bun(?:_cmd)? run gen:skill-docs --host codex[^\n]*/g,
+    ) ?? [];
+
+    expect(codexGenerationCommands.length).toBeGreaterThan(0);
+    for (const command of codexGenerationCommands) {
+      expect(command).toContain('--model gpt');
+    }
+  });
+
   // T1: Sidecar skip guard — prevents .agents/skills/gstack from being linked as a skill
   test('link_codex_skill_dirs skips the gstack sidecar directory', () => {
     const fnStart = setupContent.indexOf('link_codex_skill_dirs()');
