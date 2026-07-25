@@ -2320,6 +2320,20 @@ describe('setup script validation', () => {
     expect(setupContent).toContain('CODEX_SKILLS="$INSTALL_SKILLS_DIR"');
   });
 
+  test('global .agents installs keep generated skills there and create the Codex runtime root', () => {
+    expect(setupContent).toContain('CODEX_GLOBAL_AGENTS=0');
+    expect(setupContent).toContain('[ "$INSTALL_SKILLS_DIR" = "$HOME/.agents/skills" ]');
+    expect(setupContent).toContain('CODEX_GLOBAL_AGENTS=1');
+
+    const codexSection = setupContent.slice(
+      setupContent.indexOf('# 5. Install for Codex'),
+      setupContent.indexOf('# 6. Create'),
+    );
+    expect(codexSection).toContain('elif [ "$CODEX_GLOBAL_AGENTS" -eq 1 ]; then');
+    expect(codexSection).toContain('CODEX_SKILLS="$INSTALL_SKILLS_DIR"');
+    expect(codexSection).toContain('create_codex_runtime_root "$SOURCE_GSTACK_DIR" "$CODEX_GSTACK"');
+  });
+
   test('setup separates install path from source path for symlinked repo-local installs', () => {
     expect(setupContent).toContain('INSTALL_GSTACK_DIR=');
     expect(setupContent).toContain('SOURCE_GSTACK_DIR=');
