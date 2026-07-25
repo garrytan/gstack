@@ -2505,6 +2505,17 @@ describe('setup script validation', () => {
     expect(setupContent).toContain('avoid duplicate skill discovery');
   });
 
+  test('global Codex discovery uses ~/.agents and migrates the source repo out of it', () => {
+    expect(setupContent).toContain('CODEX_SKILLS="$HOME/.agents/skills"');
+
+    const migrationStart = setupContent.indexOf('migrate_direct_codex_install()');
+    const migrationEnd = setupContent.indexOf('ensure_playwright_browser()', migrationStart);
+    const migrationBody = setupContent.slice(migrationStart, migrationEnd);
+    expect(migrationBody).toContain('local agents_gstack="$3"');
+    expect(migrationBody).toContain('[ "$gstack_dir" = "$agents_gstack" ]');
+    expect(migrationBody).toContain('migrate_direct_codex_install "$SOURCE_GSTACK_DIR" "$CODEX_GSTACK" "$CODEX_SKILLS/gstack"');
+  });
+
   // --- Symlink prefix tests (PR #503) ---
 
   test('link_claude_skill_dirs applies gstack- prefix by default', () => {
