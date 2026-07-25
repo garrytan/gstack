@@ -14,8 +14,16 @@ env:
 
 jobs:
   # Build Docker image with pre-baked toolchain (cached — only rebuilds on Dockerfile/lockfile change)
+  # Fork PRs never receive repository secrets (ANTHROPIC_API_KEY et al) and get a
+  # read-only GITHUB_TOKEN, so nothing below can succeed from a fork: the eval
+  # shards fail at SDK auth, `report` cannot post its comment, and this job cannot
+  # push to ghcr.io. Skip deterministically instead of leaving the outcome to
+  # Docker-cache luck (a warm cache made these run and fail; a cold one made them
+  # fail to push and skip). Same-repo PRs, pushes, and workflow_dispatch are
+  # unaffected. Maintainers get real coverage via a trusted base-repo branch.
   build-image:
     runs-on: ubicloud-standard-8
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     permissions:
       contents: read
       packages: write
@@ -58,6 +66,7 @@ jobs:
   evals:
     runs-on: ${{ matrix.suite.runner || 'ubicloud-standard-8' }}
     needs: build-image
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     container:
       image: ${{ needs.build-image.outputs.image-tag }}
       credentials:
@@ -263,7 +272,7 @@ jobs:
   report:
     runs-on: ubicloud-standard-8
     needs: evals
-    if: always() && github.event_name == 'pull_request'
+    if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     timeout-minutes: 5
     permissions:
       contents: read
