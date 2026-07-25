@@ -375,6 +375,11 @@ export function generateCoAuthorTrailer(ctx: TemplateContext): string {
 export function generateChangelogWorkflow(_ctx: TemplateContext): string {
   return `## Step 13: CHANGELOG (auto-generate)
 
+**Skip this step entirely when Step 12 classified \`NO_VERSION_FILE\`** — a
+repo without per-PR version stamping has no release heading to write (its
+release notes are generated at release/queue time). Do not edit CHANGELOG.md
+there; continue to Step 14.
+
 1. Read \`CHANGELOG.md\` header to know the format.
 
 2. **First, enumerate every commit on the branch:**

@@ -130,4 +130,38 @@ describe('classify (idempotency over a real git base)', () => {
     expect(parsed.baseVersion).toBe('1.0.0.0');
     expect(parsed.currentVersion).toBe('1.1.0.0');
   });
+
+  test('reports NO_VERSION_FILE when the branch deleted VERSION (base still has one)', () => {
+    fs.rmSync(path.join(dir, 'VERSION'));
+    const out = execFileSync('bun', [BIN, 'classify', '--base', 'main'], { cwd: dir }).toString();
+    const parsed = JSON.parse(out);
+    expect(parsed.state).toBe('NO_VERSION_FILE');
+    expect(parsed.currentVersion).toBeNull();
+    expect(parsed.baseVersion).toBe('1.0.0.0');
+  });
+});
+
+describe('classify (version-less repo)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vbump-noversion-'));
+  afterAll(() => { try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* noop */ } });
+
+  // A repo that never had a VERSION file — release-time stamping.
+  const git = (...a: string[]) => execFileSync('git', a, { cwd: dir, stdio: 'pipe' });
+  fs.writeFileSync(path.join(dir, 'README.md'), 'no versions here\n');
+  git('init', '-q', '-b', 'main');
+  git('config', 'user.email', 't@t'); git('config', 'user.name', 't');
+  git('add', '-A'); git('commit', '-q', '-m', 'base');
+  const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: dir }).toString().trim();
+  fs.mkdirSync(path.join(dir, '.git', 'refs', 'remotes', 'origin'), { recursive: true });
+  fs.writeFileSync(path.join(dir, '.git', 'refs', 'remotes', 'origin', 'main'), head + '\n');
+
+  test('reports NO_VERSION_FILE with null versions and never invents 0.0.0.0', () => {
+    const out = execFileSync('bun', [BIN, 'classify', '--base', 'main'], { cwd: dir }).toString();
+    const parsed = JSON.parse(out);
+    expect(parsed.state).toBe('NO_VERSION_FILE');
+    expect(parsed.currentVersion).toBeNull();
+    expect(parsed.baseVersion).toBeNull();
+    // classify is a pure reader: it must not have created a VERSION file.
+    expect(fs.existsSync(path.join(dir, 'VERSION'))).toBe(false);
+  });
 });
