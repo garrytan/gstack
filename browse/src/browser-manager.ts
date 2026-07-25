@@ -74,7 +74,8 @@ export function shouldEnableChromiumSandbox(): boolean {
 }
 
 /**
- * Resolve why the underlying Chromium ChildProcess is going away.
+ * Resolve why the underlying Chromium ChildProcess is going away when the
+ * Browser implementation exposes a process accessor.
  *
  * The 'disconnected' Playwright event fires before the child process emits
  * its own 'exit' in most cases, so .exitCode is null at that moment. Wait
@@ -82,6 +83,10 @@ export function shouldEnableChromiumSandbox(): boolean {
  *
  *   exitCode === 0 && no signal  → 'clean'  (user Cmd+Q, normal shutdown)
  *   anything else                → 'crash'  (signal-kill, SIGSEGV, OOM, non-zero exit)
+ *
+ * Playwright's public Browser API does not expose the child process. In that
+ * case return the defensive `crash` result instead of throwing inside the
+ * disconnect handler.
  *
  * Process supervisors (gbrowser's gbd HealthMonitor in cmd/gbd/health.go)
  * read our exit code to decide whether to restart. The two callers in this
@@ -91,7 +96,19 @@ export function shouldEnableChromiumSandbox(): boolean {
  * restarts on backoff.
  */
 export async function resolveDisconnectCause(browser: Browser | null): Promise<'clean' | 'crash'> {
-  const proc = browser?.process();
+  // Playwright's public Browser API does not expose process(); some embedders
+  // provide a Puppeteer-compatible accessor, so use it when available without
+  // crashing the disconnect handler for ordinary Playwright Browser objects.
+  const processAccessor = (browser as Browser & {
+    process?: () => {
+      exitCode: number | null;
+      signalCode: NodeJS.Signals | null;
+      once: (event: 'exit', listener: () => void) => unknown;
+    };
+  } | null)?.process;
+  if (typeof processAccessor !== 'function') return 'crash';
+
+  const proc = processAccessor.call(browser);
   if (proc && proc.exitCode === null && proc.signalCode === null) {
     await new Promise<void>((resolve) => {
       const timer = setTimeout(resolve, 1000);
