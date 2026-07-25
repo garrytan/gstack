@@ -13,6 +13,7 @@ import * as os from "os";
 import * as path from "path";
 import {
   describeApiKeySource,
+  openaiUrl,
   requireApiKey,
   resolveApiKey,
   resolveApiKeyInfo,
@@ -23,8 +24,17 @@ let tmpDir: string;
 let tmpHome: string;
 let originalHome: string | undefined;
 let originalKey: string | undefined;
+let originalBaseUrl: string | undefined;
 let originalNodeEnv: string | undefined;
 let originalCwd: string;
+
+function listTypeScriptFiles(dir: string): string[] {
+  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const entryPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) return listTypeScriptFiles(entryPath);
+    return entry.isFile() && entry.name.endsWith(".ts") ? [entryPath] : [];
+  });
+}
 
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "gstack-design-auth-"));
@@ -33,11 +43,13 @@ beforeEach(() => {
 
   originalHome = process.env.HOME;
   originalKey = process.env.OPENAI_API_KEY;
+  originalBaseUrl = process.env.OPENAI_BASE_URL;
   originalNodeEnv = process.env.NODE_ENV;
   originalCwd = process.cwd();
 
   process.env.HOME = tmpHome;
   delete process.env.OPENAI_API_KEY;
+  delete process.env.OPENAI_BASE_URL;
   delete process.env.NODE_ENV;
   process.chdir(tmpDir);
 });
@@ -48,6 +60,8 @@ afterEach(() => {
   else process.env.HOME = originalHome;
   if (originalKey === undefined) delete process.env.OPENAI_API_KEY;
   else process.env.OPENAI_API_KEY = originalKey;
+  if (originalBaseUrl === undefined) delete process.env.OPENAI_BASE_URL;
+  else process.env.OPENAI_BASE_URL = originalBaseUrl;
   if (originalNodeEnv === undefined) delete process.env.NODE_ENV;
   else process.env.NODE_ENV = originalNodeEnv;
   fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -108,6 +122,47 @@ describe("resolveApiKeyInfo", () => {
     expect(resolution?.key).toBe("sk-shell");
     expect(resolution?.envFile).toBeUndefined();
     expect(resolution?.warning).toBeUndefined();
+  });
+});
+
+describe("openaiUrl", () => {
+  test("uses the OpenAI v1 endpoint by default", () => {
+    expect(openaiUrl("responses")).toBe("https://api.openai.com/v1/responses");
+    expect(openaiUrl("/chat/completions")).toBe(
+      "https://api.openai.com/v1/chat/completions",
+    );
+  });
+
+  test("uses a trimmed OPENAI_BASE_URL without duplicate slashes", () => {
+    process.env.OPENAI_BASE_URL = "  https://gateway.example/openai/v1///  ";
+
+    expect(openaiUrl("/responses")).toBe(
+      "https://gateway.example/openai/v1/responses",
+    );
+  });
+
+  test("falls back to OpenAI when OPENAI_BASE_URL is blank", () => {
+    process.env.OPENAI_BASE_URL = "   ";
+
+    expect(openaiUrl("responses")).toBe("https://api.openai.com/v1/responses");
+  });
+
+  test("routes every design OpenAI request through the URL resolver", () => {
+    const designDir = path.resolve(import.meta.dir, "..");
+    const authPath = path.join(designDir, "src", "auth.ts");
+    const sourceFiles = [
+      path.join(designDir, "prototype.ts"),
+      ...listTypeScriptFiles(path.join(designDir, "src")),
+    ];
+    const hardcodedCallSites = sourceFiles
+      .filter((filePath) => filePath !== authPath)
+      .filter((filePath) =>
+        fs.readFileSync(filePath, "utf-8").includes("https://api.openai.com/v1"),
+      )
+      .map((filePath) => path.relative(designDir, filePath))
+      .sort();
+
+    expect(hardcodedCallSites).toEqual([]);
   });
 });
 

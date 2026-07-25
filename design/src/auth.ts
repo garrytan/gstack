@@ -16,6 +16,8 @@
 import fs from "fs";
 import path from "path";
 
+const DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1";
+
 type ApiKeySource = "config" | "env";
 
 export interface ApiKeyResolution {
@@ -97,6 +99,17 @@ export function resolveApiKeyInfo(): ApiKeyResolution | null {
 
 export function resolveApiKey(): string | null {
   return resolveApiKeyInfo()?.key ?? null;
+}
+
+export function resolveOpenAIBaseUrl(): string {
+  const configuredBaseUrl = process.env.OPENAI_BASE_URL?.trim();
+  if (!configuredBaseUrl) return DEFAULT_OPENAI_BASE_URL;
+  return configuredBaseUrl.replace(/\/+$/, "");
+}
+
+export function openaiUrl(endpoint: string): string {
+  const normalizedEndpoint = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
+  return `${resolveOpenAIBaseUrl()}${normalizedEndpoint}`;
 }
 
 export function describeApiKeySource(resolution: ApiKeyResolution): string {
