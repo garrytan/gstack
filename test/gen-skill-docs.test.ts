@@ -1665,6 +1665,7 @@ describe('DESIGN_REVIEW_LITE extended with Codex', () => {
 
 describe('Codex generation (--host codex)', () => {
   const AGENTS_DIR = path.join(ROOT, '.agents', 'skills');
+  const REVIEW_RESOURCES = ['checklist.md', 'design-checklist.md', 'greptile-triage.md', 'TODOS-format.md'];
 
   // .agents/ is gitignored (v0.11.2.0) — generate on demand for tests
   Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', 'codex'], {
@@ -1874,31 +1875,25 @@ describe('Codex generation (--host codex)', () => {
 
   // ─── Path rewriting regression tests ─────────────────────────
 
-  test('sidecar paths point to .agents/skills/gstack/review/ (not gstack-review/)', () => {
-    // Regression: gen-skill-docs rewrote .claude/skills/review → .agents/skills/gstack-review
-    // but setup puts sidecars under .agents/skills/gstack/review/. Must match setup layout.
+  test('review resources resolve through the dynamic GSTACK_ROOT', () => {
     const content = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-review', 'SKILL.md'), 'utf-8');
-    // Correct: references to sidecar files use gstack/review/ path
-    expect(content).toContain('.agents/skills/gstack/review/checklist.md');
-    // design-checklist.md is now referenced via Review Army specialist (Claude only, stripped for Codex)
-    // Wrong: must NOT reference gstack-review/checklist.md (file doesn't exist there)
-    expect(content).not.toContain('.agents/skills/gstack-review/checklist.md');
+    expect(content).toContain('$GSTACK_ROOT/review/checklist.md');
+    expect(content).not.toContain('.agents/skills/gstack/review/checklist.md');
   });
 
-  test('sidecar paths in ship skill point to gstack/review/ for pre-landing review', () => {
+  test('ship review resources resolve through the dynamic GSTACK_ROOT', () => {
     const content = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-ship', 'SKILL.md'), 'utf-8');
-    // Ship references the review checklist in its pre-landing review step
-    if (content.includes('checklist.md')) {
-      expect(content).toContain('.agents/skills/gstack/review/');
-      expect(content).not.toContain('.agents/skills/gstack-review/checklist');
+    for (const resource of REVIEW_RESOURCES) {
+      expect(content).toContain(`$GSTACK_ROOT/review/${resource}`);
     }
+    expect(content).not.toContain('.agents/skills/gstack/review/');
   });
 
-  test('greptile-triage sidecar path is correct', () => {
+  test('greptile-triage resource resolves through the dynamic GSTACK_ROOT', () => {
     const content = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-review', 'SKILL.md'), 'utf-8');
     if (content.includes('greptile-triage')) {
-      expect(content).toContain('.agents/skills/gstack/review/greptile-triage.md');
-      expect(content).not.toContain('.agents/skills/gstack-review/greptile-triage');
+      expect(content).toContain('$GSTACK_ROOT/review/greptile-triage.md');
+      expect(content).not.toContain('.agents/skills/gstack/review/greptile-triage.md');
     }
   });
 
@@ -1913,7 +1908,7 @@ describe('Codex generation (--host codex)', () => {
     // Rule 2: .claude/skills/gstack → .agents/skills/gstack
     expect(content).not.toContain('.claude/skills/gstack');
 
-    // Rule 3: .claude/skills/review → .agents/skills/gstack/review
+    // Rule 3: .claude/skills/review → $GSTACK_ROOT/review
     expect(content).not.toContain('.claude/skills/review');
 
     // Rule 4: .claude/skills → .agents/skills (catch-all)
@@ -1930,10 +1925,64 @@ describe('Codex generation (--host codex)', () => {
       if (content.includes('gstack-config') || content.includes('gstack-update-check') || content.includes('gstack-telemetry-log')) {
         expect(content).toContain('$GSTACK_ROOT');
       }
-      // If a skill references checklist.md, it must use the correct sidecar path
-      if (content.includes('checklist.md') && !content.includes('design-checklist.md')) {
-        expect(content).not.toContain('gstack-review/checklist.md');
+      expect(content).not.toContain('.agents/skills/gstack/review/');
+    }
+  });
+
+  test('consumer repos resolve Codex review resources from global and repo-local installs', () => {
+    const reviewContent = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-review', 'SKILL.md'), 'utf-8');
+    const shipContent = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-ship', 'SKILL.md'), 'utf-8');
+    const combined = `${reviewContent}\n${shipContent}`;
+    for (const resource of REVIEW_RESOURCES) {
+      expect(combined).toContain(`$GSTACK_ROOT/review/${resource}`);
+    }
+
+    const preamble = reviewContent.match(/```bash\n(_ROOT=.*\nGSTACK_ROOT=.*\n\[ -n .*\n)/)?.[1];
+    expect(preamble).toBeDefined();
+
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-codex-consumer-'));
+    const homeDir = path.join(tmpDir, 'home');
+    const consumerRepo = path.join(tmpDir, 'consumer');
+    const globalRoot = path.join(homeDir, '.codex', 'skills', 'gstack');
+    const localRoot = path.join(consumerRepo, '.agents', 'skills', 'gstack');
+
+    const installResources = (root: string) => {
+      fs.mkdirSync(path.join(root, 'review'), { recursive: true });
+      for (const resource of REVIEW_RESOURCES) {
+        fs.copyFileSync(path.join(ROOT, 'review', resource), path.join(root, 'review', resource));
       }
+    };
+    const resolveRuntimeRoot = (): string => {
+      const result = Bun.spawnSync(['bash', '-c', `${preamble}printf '%s' "$GSTACK_ROOT"`], {
+        cwd: consumerRepo,
+        env: { ...process.env, HOME: homeDir },
+        stdout: 'pipe',
+        stderr: 'pipe',
+      });
+      expect(result.exitCode).toBe(0);
+      return result.stdout.toString();
+    };
+
+    try {
+      fs.mkdirSync(homeDir, { recursive: true });
+      fs.mkdirSync(consumerRepo, { recursive: true });
+      const gitInit = Bun.spawnSync(['git', 'init', '-q'], { cwd: consumerRepo, stdout: 'pipe', stderr: 'pipe' });
+      expect(gitInit.exitCode).toBe(0);
+
+      installResources(globalRoot);
+      expect(resolveRuntimeRoot()).toBe(globalRoot);
+      for (const resource of REVIEW_RESOURCES) {
+        expect(fs.existsSync(path.join(globalRoot, 'review', resource))).toBe(true);
+      }
+
+      installResources(localRoot);
+      const resolvedLocalRoot = resolveRuntimeRoot();
+      expect(fs.realpathSync(resolvedLocalRoot)).toBe(fs.realpathSync(localRoot));
+      for (const resource of REVIEW_RESOURCES) {
+        expect(fs.existsSync(path.join(resolvedLocalRoot, 'review', resource))).toBe(true);
+      }
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
     }
   });
 

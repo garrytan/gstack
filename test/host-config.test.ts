@@ -379,6 +379,9 @@ describe('host-config-export.ts CLI', () => {
     expect(lines).toContain('bin');
     expect(lines).toContain('ETHOS.md');
     expect(lines).toContain('review/checklist.md');
+    expect(lines).toContain('review/design-checklist.md');
+    expect(lines).toContain('review/greptile-triage.md');
+    expect(lines).toContain('review/TODOS-format.md');
   });
 
   test('opencode symlinks returns nested runtime assets', () => {
