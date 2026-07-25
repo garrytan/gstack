@@ -1797,6 +1797,30 @@ describe('Codex generation (--host codex)', () => {
     expect(reviewContent).not.toContain('CODEX_REVIEWS');
   });
 
+  test('ship keeps mechanical review fixes inside the same invocation through PR creation', () => {
+    const shipContent = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-ship', 'SKILL.md'), 'utf-8');
+    const postFixStart = shipContent.indexOf('7. **After all fixes (auto + user-approved):**');
+    const postFixEnd = shipContent.indexOf('8. Output summary:', postFixStart);
+    const postFixBlock = shipContent.slice(postFixStart, postFixEnd);
+
+    expect(postFixStart).toBeGreaterThan(-1);
+    expect(postFixEnd).toBeGreaterThan(postFixStart);
+    expect(postFixBlock).toContain('same `/ship` invocation');
+    expect(postFixBlock).toContain('Repeat until clean');
+    expect(postFixBlock).not.toContain('**STOP**');
+    expect(postFixBlock).not.toContain('tell the user to run');
+    expect(shipContent.indexOf('## Step 19: Create PR/MR')).toBeGreaterThan(postFixEnd);
+  });
+
+  test('ship automation contract does not contradict its post-fix instructions', () => {
+    const shipContent = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-ship', 'SKILL.md'), 'utf-8');
+
+    expect(shipContent).toContain('Auto-fixable review findings');
+    expect(shipContent).not.toMatch(
+      /If ANY fixes were applied:[\s\S]{0,500}\*\*STOP\*\*[\s\S]{0,200}run `\/ship` again/,
+    );
+  });
+
   test('--host codex --dry-run freshness', () => {
     const result = Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', 'codex', '--dry-run'], {
       cwd: ROOT,
