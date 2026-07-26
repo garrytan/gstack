@@ -18,6 +18,8 @@ import { resolveConfig, ensureStateDir, readVersionHash } from './config';
 import { parseProxyConfig, computeConfigHash, ProxyConfigError } from './proxy-config';
 import { redactProxyUrl } from './proxy-redact';
 import { spawnTerminalAgent } from './terminal-agent-control';
+import { loadAdapter } from './frontend-adapter';
+import { acquireOrLoad } from './token-manager';
 
 const config = resolveConfig();
 const IS_WINDOWS = process.platform === 'win32';
@@ -1038,6 +1040,37 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
 
   const command = args[0];
   const commandArgs = args.slice(1);
+
+  // ─── Agent auto-login token (pre-server command) ────────────
+  // agent-token acquires (or reuses a cached) bearer for a frontend env via
+  // the repo's .agent-browser.config.mjs adapter. Runs CLI-side so `op` /
+  // Touch-ID prompt in the user's terminal, not the daemon. Pure HTTP + op;
+  // no browser needed. NEVER prints the bearer.
+  if (command === 'agent-token') {
+    const envName = commandArgs.find((arg) => !arg.startsWith('-'));
+    const forceRefresh = commandArgs.includes('--refresh');
+    if (!envName) {
+      console.error('[browse] error: agent-token needs an env, e.g. `browse agent-token demo`');
+      process.exit(1);
+    }
+    try {
+      const adapter = await loadAdapter(process.cwd());
+      const { token, cached } = await acquireOrLoad(adapter, envName, {
+        frontendRoot: process.cwd(),
+        forceRefresh,
+      });
+      // Machine-parseable, secret-free summary.
+      console.log(`ENV=${token.env}`);
+      console.log(`REALM=${token.realm}`);
+      console.log(`APPORIGIN=${token.appOrigin}`);
+      console.log(`EXPIRES=${new Date(token.expiresAt).toISOString()}`);
+      console.log(`CACHED=${cached ? 'true' : 'false'}`);
+      process.exit(0);
+    } catch (err) {
+      console.error(`[browse] agent-token failed: ${err instanceof Error ? err.message : err}`);
+      process.exit(1);
+    }
+  }
 
   // ─── Headed Connect (pre-server command) ────────────────────
   // connect must be handled BEFORE ensureServer() because it needs
