@@ -107,14 +107,25 @@ required for our hook to fire there.
 ```
 
 **Pass-through (no preference, or one-way safety override):**
+
+Emit **no** `permissionDecision` — absence is "no opinion". Either write nothing to
+stdout, or emit only `additionalContext`:
 ```json
 {
   "hookSpecificOutput": {
     "hookEventName": "PreToolUse",
-    "permissionDecision": "defer"
+    "additionalContext": "…optional…"
   }
 }
 ```
+
+> ⚠️ **Do not use `permissionDecision: "defer"` here.** (This spike originally
+> recommended it; that was wrong and shipped a real bug — see the AskUserQuestion
+> note in `~/.claude/CLAUDE.md`.) The documented set is `allow | deny | ask`.
+> `defer` is an undocumented print-mode-only value: interactive Claude Code logs
+> "defer is print-mode only" and ignores it, but non-interactive sessions (Cowork,
+> Agent SDK, `claude -p`) honor it and leave the tool_use **unresolved with no
+> result**, which the agent sees as `[Tool result missing due to internal error]`.
 
 **PostToolUse capture (always):**
 ```json

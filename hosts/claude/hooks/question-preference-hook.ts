@@ -92,13 +92,29 @@ function readStdin(): Promise<string> {
   });
 }
 
+/**
+ * Pass the tool through untouched. Emits NO `permissionDecision` — absence is
+ * the correct "no opinion" signal, and the only one that is safe in both modes.
+ *
+ * Do NOT emit `permissionDecision: 'defer'` here. It is an undocumented
+ * print-mode-only value (the documented set is allow | deny | ask): interactive
+ * Claude Code logs "defer is print-mode only" and ignores it, but a
+ * non-interactive / print session — Cowork, the Agent SDK, `claude -p` — honors
+ * it and leaves the tool_use unresolved with no result, which surfaces to the
+ * agent as "[Tool result missing due to internal error]". That made
+ * AskUserQuestion permanently dead in Cowork while looking fine in the terminal.
+ */
 function defer(additionalContext?: string): void {
-  const out: Record<string, unknown> = {
-    hookEventName: 'PreToolUse',
-    permissionDecision: 'defer',
-  };
-  if (additionalContext) out.additionalContext = additionalContext;
-  process.stdout.write(JSON.stringify({ hookSpecificOutput: out }));
+  if (additionalContext) {
+    process.stdout.write(
+      JSON.stringify({
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          additionalContext,
+        },
+      }),
+    );
+  }
   process.exit(0);
 }
 

@@ -126,7 +126,7 @@ describe('defers (no enforcement)', () => {
       },
     });
     expect(r.status).toBe(0);
-    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('defer');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBeUndefined();
   });
 
   test('marker missing → defer (D18)', () => {
@@ -141,7 +141,7 @@ describe('defers (no enforcement)', () => {
         ],
       },
     });
-    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('defer');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBeUndefined();
   });
 
   test('always-ask preference → defer', () => {
@@ -156,7 +156,7 @@ describe('defers (no enforcement)', () => {
         ],
       },
     });
-    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('defer');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBeUndefined();
   });
 
   test('empty stdin → defer (crash safety)', () => {
@@ -168,13 +168,13 @@ describe('defers (no enforcement)', () => {
     const res = spawnSync(HOOK, [], { env, input: '', encoding: 'utf-8' });
     expect(res.status).toBe(0);
     const parsed = JSON.parse(res.stdout || '{}');
-    expect(parsed.hookSpecificOutput?.permissionDecision).toBe('defer');
+    expect(parsed.hookSpecificOutput?.permissionDecision).toBeUndefined();
   });
 
   test('non-AUQ tool_name → defer (defensive)', () => {
     writeProjectPref('test-q', 'never-ask');
     const r = runHook({ session_id: 's4', tool_name: 'Bash', tool_use_id: 'tu-4', tool_input: {} });
-    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('defer');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBeUndefined();
   });
 });
 
@@ -219,7 +219,7 @@ describe('enforces never-ask preferences', () => {
         ],
       },
     });
-    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('defer');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBeUndefined();
   });
 
   test('ambiguous recommendation (two labels) → defer (D2 refuse-on-ambiguous)', () => {
@@ -237,7 +237,7 @@ describe('enforces never-ask preferences', () => {
         ],
       },
     });
-    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('defer');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBeUndefined();
   });
 
   test('no recommendation marker AND no prose match → defer', () => {
@@ -255,7 +255,7 @@ describe('enforces never-ask preferences', () => {
         ],
       },
     });
-    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('defer');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBeUndefined();
   });
 });
 
@@ -317,7 +317,7 @@ describe('precedence: project wins over global (D8)', () => {
         ],
       },
     });
-    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('defer');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBeUndefined();
   });
 });
 
@@ -443,7 +443,7 @@ describe('Conductor prose redirect', () => {
       undefined,
       CONDUCTOR,
     );
-    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('defer');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBeUndefined();
   });
 });
 
