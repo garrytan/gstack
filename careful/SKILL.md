@@ -19,7 +19,7 @@ hooks:
           # bash -c so bash (not cmd.exe) expands $HOME — see "Hook command form" below
           command: 'bash -c "exec \"$HOME/.claude/skills/gstack/careful/bin/check-careful.sh\""'
           statusMessage: "Checking for destructive commands..."
-sensitive: true---
+---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
 
