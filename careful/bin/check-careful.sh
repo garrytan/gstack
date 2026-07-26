@@ -1,7 +1,18 @@
 #!/usr/bin/env bash
 # check-careful.sh — PreToolUse hook for /careful skill
-# Reads JSON from stdin, checks Bash command for destructive patterns.
-# Returns {"permissionDecision":"ask","message":"..."} to warn, or {} to allow.
+# Reads JSON from stdin, checks the Bash command for destructive patterns.
+#
+# Output contract (verified against cli.js 2.1.92 — the harness dispatches ONLY
+# on the nested hookSpecificOutput.permissionDecision field; a bare top-level
+# {"permissionDecision":"ask"} parses fine and is then ignored, so the warning
+# never appears and the destructive command runs unchallenged):
+#   warn  -> {"hookSpecificOutput":{"hookEventName":"PreToolUse",
+#             "permissionDecision":"ask","permissionDecisionReason":"..."}}
+#   allow -> {}   (no opinion; normal permission flow continues)
+# Valid decisions are allow | deny | ask | defer. "ask" prompts the user, who can
+# still proceed — this hook warns, it does not block.
+#
+# Regression: ../tests/test-check-careful.sh. Keep it green.
 set -euo pipefail
 
 # Read stdin (JSON with tool_input)
@@ -11,9 +22,17 @@ INPUT=$(cat)
 # Try grep/sed first (handles 99% of cases), fall back to Python for escaped quotes
 CMD=$(printf '%s' "$INPUT" | grep -o '"command"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*:[[:space:]]*"//;s/"$//' || true)
 
-# Python fallback if grep returned empty (e.g., escaped quotes in command)
+# Python fallback if grep returned empty (e.g., escaped quotes in command).
+# Try python3 then python: many Windows installs ship only `python`, and if the
+# interpreter is missing this silently yields an empty CMD, i.e. a destructive
+# command with escaped quotes would sail through unchecked.
 if [ -z "$CMD" ]; then
-  CMD=$(printf '%s' "$INPUT" | python3 -c 'import sys,json; print(json.loads(sys.stdin.read()).get("tool_input",{}).get("command",""))' 2>/dev/null || true)
+  for _py in python3 python; do
+    if command -v "$_py" >/dev/null 2>&1; then
+      CMD=$(printf '%s' "$INPUT" | "$_py" -c 'import sys,json; print(json.loads(sys.stdin.read()).get("tool_input",{}).get("command",""))' 2>/dev/null || true)
+      if [ -n "$CMD" ]; then break; fi
+    fi
+  done
 fi
 
 # If we still couldn't extract a command, allow
@@ -101,12 +120,25 @@ fi
 
 # --- Output ---
 if [ -n "$WARN" ]; then
-  # Log hook fire event (pattern name only, never command content)
-  mkdir -p ~/.gstack/analytics 2>/dev/null || true
-  echo '{"event":"hook_fire","skill":"careful","pattern":"'"$PATTERN"'","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}' >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
+  # Analytics state root — same chain as gstack/bin/gstack-paths, so the log
+  # lands where the rest of gstack looks for it.
+  if [ -n "${GSTACK_HOME:-}" ]; then
+    STATE_DIR="$GSTACK_HOME"
+  elif [ -n "${CLAUDE_PLUGIN_DATA:-}" ] && printf '%s' "${CLAUDE_PLUGIN_ROOT:-}" | grep -qi "gstack"; then
+    STATE_DIR="$CLAUDE_PLUGIN_DATA"
+  elif [ -n "${HOME:-}" ]; then
+    STATE_DIR="$HOME/.gstack"
+  else
+    STATE_DIR=".gstack"
+  fi
 
-  WARN_ESCAPED=$(printf '%s' "$WARN" | sed 's/"/\\"/g')
-  printf '{"permissionDecision":"ask","message":"[careful] %s"}\n' "$WARN_ESCAPED"
+  # Log hook fire event (pattern name only, never command content)
+  mkdir -p "$STATE_DIR/analytics" 2>/dev/null || true
+  echo '{"event":"hook_fire","skill":"careful","pattern":"'"$PATTERN"'","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}' >> "$STATE_DIR/analytics/skill-usage.jsonl" 2>/dev/null || true
+
+  WARN_ESCAPED=$(printf '%s' "$WARN" | sed 's/\\/\\\\/g; s/"/\\"/g')
+  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"[careful] %s"}}\n' "$WARN_ESCAPED"
 else
   echo '{}'
 fi
+exit 0
