@@ -1072,6 +1072,68 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
     }
   }
 
+  // ─── Agent-browser end-to-end entrypoint (agent-browser U6) ──
+  // env [path] → isolated headless session, cached-or-acquired token injected
+  // origin-scoped, navigated. Hides the session id (auto-generated) and emits a
+  // parseable, secret-free summary. --session overrides the id; --headed is
+  // deferred to Phase 2 (headless only for now).
+  if (command === 'agent-open') {
+    const positional = commandArgs.filter((arg) => !arg.startsWith('-'));
+    const envName = positional[0];
+    const navPath = positional[1] ?? '/';
+    const forceRefresh = commandArgs.includes('--refresh');
+    const sessionFlagIdx = commandArgs.indexOf('--session');
+    const explicitSession = sessionFlagIdx >= 0 ? commandArgs[sessionFlagIdx + 1] : undefined;
+    if (commandArgs.includes('--headed')) {
+      console.error('[browse] --headed is deferred to a later phase; opening headless.');
+    }
+    if (!envName) {
+      console.error('[browse] error: agent-open needs an env, e.g. `browse agent-open demo /profiles`');
+      process.exit(1);
+    }
+    try {
+      const adapter = await loadAdapter(process.cwd());
+      const { token, cached } = await acquireOrLoad(adapter, envName, {
+        frontendRoot: process.cwd(),
+        forceRefresh,
+      });
+      const sessionId =
+        explicitSession ??
+        `${process.env.USER ?? 'agent'}-${path.basename(process.cwd())}-${Math.random().toString(36).slice(2, 8)}`;
+      const url = token.appOrigin.replace(/\/$/, '') + (navPath.startsWith('/') ? navPath : `/${navPath}`);
+
+      const state = await ensureServer(globalFlags);
+      const post = async (cmd: string, args: string[]) => {
+        const resp = await fetch(`http://127.0.0.1:${state.port}/command`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${state.token}` },
+          body: JSON.stringify({ command: cmd, args, session: sessionId }),
+          signal: AbortSignal.timeout(30000),
+        });
+        if (!resp.ok) {
+          throw new Error(`${cmd} failed (${resp.status}): ${(await resp.text()).slice(0, 200)}`);
+        }
+      };
+
+      // inject-auth creates the session's isolated context, then registers the
+      // origin-scoped init script; the subsequent goto navigates with auth live.
+      await post('inject-auth', [token.appOrigin, adapter.token.storageKey, JSON.stringify(token.auth)]);
+      await post('goto', [url]);
+
+      // Secret-free, parseable summary.
+      console.log(`SESSION=${sessionId}`);
+      console.log(`ENV=${token.env}`);
+      console.log(`REALM=${token.realm}`);
+      console.log(`URL=${url}`);
+      console.log(`EXPIRES=${new Date(token.expiresAt).toISOString()}`);
+      console.log(`CACHED=${cached ? 'true' : 'false'}`);
+      process.exit(0);
+    } catch (err) {
+      console.error(`[browse] agent-open failed: ${err instanceof Error ? err.message : err}`);
+      process.exit(1);
+    }
+  }
+
   // ─── Headed Connect (pre-server command) ────────────────────
   // connect must be handled BEFORE ensureServer() because it needs
   // to restart the server in headed mode with the Chrome extension.
