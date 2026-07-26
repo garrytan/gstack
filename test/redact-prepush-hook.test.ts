@@ -216,6 +216,54 @@ describe("install / chaining", () => {
     expect(fs.readFileSync(path.join(hookDir, "pre-push.local"), "utf8")).toContain("echo mine");
   });
 
+  // Regression: `_input="$(cat)"` strips the trailing newline, so a chained
+  // shell hook using `while read` never entered its loop body for the final
+  // (usually only) ref line — it saw zero refs and exited 0, failing OPEN.
+  test("chained pre-push.local receives the final ref line (trailing newline preserved)", () => {
+    const hookDir = path.join(repo, ".git", "hooks");
+    fs.mkdirSync(hookDir, { recursive: true });
+    spawnSync("bun", [REDACT, "install-prepush-hook"], { cwd: repo });
+
+    const seen = path.join(repo, "seen.txt");
+    fs.writeFileSync(
+      path.join(hookDir, "pre-push.local"),
+      `#!/usr/bin/env bash\nwhile read -r a b c d; do echo "$a $b $c $d" >> ${JSON.stringify(seen)}; done\nexit 0\n`,
+      { mode: 0o755 },
+    );
+
+    const sha = "a".repeat(40);
+    const line = `refs/heads/main ${sha} refs/heads/main ${ZERO}\n`;
+    const r = spawnSync("bash", [path.join(hookDir, "pre-push")], {
+      cwd: repo,
+      input: Buffer.from(line),
+      encoding: "utf8",
+      env: { ...process.env, GSTACK_REDACT_PREPUSH: "skip" },
+    });
+    expect(r.status).toBe(0);
+    expect(fs.existsSync(seen)).toBe(true);
+    expect(fs.readFileSync(seen, "utf8").trim()).toBe(
+      `refs/heads/main ${sha} refs/heads/main ${ZERO}`,
+    );
+  });
+
+  test("a blocking pre-push.local still short-circuits the push", () => {
+    const hookDir = path.join(repo, ".git", "hooks");
+    fs.mkdirSync(hookDir, { recursive: true });
+    spawnSync("bun", [REDACT, "install-prepush-hook"], { cwd: repo });
+    fs.writeFileSync(
+      path.join(hookDir, "pre-push.local"),
+      "#!/usr/bin/env bash\nwhile read -r _a _b _c _d || [ -n \"${_a:-}\" ]; do exit 1; done\nexit 0\n",
+      { mode: 0o755 },
+    );
+    const r = spawnSync("bash", [path.join(hookDir, "pre-push")], {
+      cwd: repo,
+      input: Buffer.from(`refs/heads/main ${"b".repeat(40)} refs/heads/main ${ZERO}\n`),
+      encoding: "utf8",
+      env: { ...process.env, GSTACK_REDACT_PREPUSH: "skip" },
+    });
+    expect(r.status).toBe(1);
+  });
+
   test("uninstall restores the chained original", () => {
     const hookDir = path.join(repo, ".git", "hooks");
     fs.mkdirSync(hookDir, { recursive: true });

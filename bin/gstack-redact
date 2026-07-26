@@ -73,10 +73,15 @@ function installPrepushHook(): void {
   }
 
   // stdin is single-consume: capture it once, feed both the chained hook and ours.
+  // The `printf x` sentinel preserves the trailing newline that `$(cat)` strips.
+  // Without it, a chained shell pre-push.local built on `while read` silently
+  // drops the final (often only) ref line and exits 0 — the guard reports
+  // success having scanned nothing, i.e. it fails OPEN.
   const wrapper = `#!/usr/bin/env bash
 ${MANAGED_MARKER}
 set -euo pipefail
-_input="$(cat)"
+_input="$(cat; printf x)"
+_input="\${_input%x}"
 _local="$(git rev-parse --git-path hooks/pre-push.local)"
 if [ -x "$_local" ]; then
   printf '%s' "$_input" | "$_local" "$@" || exit $?
