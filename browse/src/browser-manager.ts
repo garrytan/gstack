@@ -174,6 +174,11 @@ export interface SessionState {
   consoleBuffer: CircularBuffer<LogEntry>;
   networkBuffer: CircularBuffer<NetworkEntry>;
   dialogBuffer: CircularBuffer<DialogEntry>;
+  /**
+   * Origin-scoped storage injections (agent-browser U5). Re-applied on context
+   * recreation so a viewport/scale change doesn't silently drop injected auth.
+   */
+  authInitScripts: Array<{ origin: string; key: string; val: string }>;
 }
 
 const SESSION_BUFFER_CAP = 50_000;
@@ -197,7 +202,21 @@ function createSessionState(): SessionState {
     consoleBuffer: new CircularBuffer<LogEntry>(SESSION_BUFFER_CAP),
     networkBuffer: new CircularBuffer<NetworkEntry>(SESSION_BUFFER_CAP),
     dialogBuffer: new CircularBuffer<DialogEntry>(SESSION_BUFFER_CAP),
+    authInitScripts: [],
   };
+}
+
+/** The origin-scoped localStorage-injection init script (runs in the page). */
+export function originScopedStorageInit(arg: { origin: string; key: string; val: string }): void {
+  // Only write when the page's origin matches — the bearer must never leak to a
+  // non-app origin (agent-browser R5).
+  if (location.origin === arg.origin) {
+    try {
+      window.localStorage.setItem(arg.key, arg.val);
+    } catch {
+      // localStorage can be unavailable (sandboxed/opaque origin); best-effort.
+    }
+  }
 }
 
 export const DEFAULT_SESSION_ID = 'default';
@@ -1065,6 +1084,31 @@ export class BrowserManager {
     await this.newTab();
   }
 
+  /**
+   * Inject an origin-scoped localStorage value into the current session's
+   * context (agent-browser U5). The value is written by an init script ONLY on
+   * pages whose origin === appOrigin, so a bearer token can never leak to a
+   * non-app origin. Applies to future navigations (inject before navigating);
+   * recorded so context recreation re-applies it. Payload must be a non-empty
+   * JSON object (adapter-level shape validation already happened at acquire).
+   */
+  async injectOriginScopedStorage(appOrigin: string, storageKey: string, valueJson: string): Promise<void> {
+    const context = this.cur.context;
+    if (!context) throw new Error('No browser context for the current session; open a session first.');
+    if (!appOrigin || !storageKey) throw new Error('inject requires both an appOrigin and a storageKey.');
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(valueJson);
+    } catch {
+      throw new Error('inject value is not valid JSON.');
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error('inject value must be a non-empty JSON object.');
+    }
+    this.cur.authInitScripts.push({ origin: appOrigin, key: storageKey, val: valueJson });
+    await context.addInitScript(originScopedStorageInit, { origin: appOrigin, key: storageKey, val: valueJson });
+  }
+
   /** Close a session's context + tabs and drop it. Cannot close the default. */
   async closeSession(id: string): Promise<void> {
     if (id === DEFAULT_SESSION_ID) throw new Error('Cannot close the default session.');
@@ -1573,6 +1617,13 @@ export class BrowserManager {
       const { applyStealth } = await import('./stealth');
       await applyStealth(this.context);
 
+      // Re-apply origin-scoped storage injections (agent-browser U5): a fresh
+      // context has no init scripts, so a viewport/scale rebuild would silently
+      // drop injected auth without this.
+      for (const inject of this.cur.authInitScripts) {
+        await this.context.addInitScript(originScopedStorageInit, inject);
+      }
+
       if (Object.keys(this.extraHeaders).length > 0) {
         await this.context.setExtraHTTPHeaders(this.extraHeaders);
       }
@@ -1599,6 +1650,9 @@ export class BrowserManager {
         // Stealth applies to the fallback blank context too.
         const { applyStealth } = await import('./stealth');
         await applyStealth(this.context);
+        for (const inject of this.cur.authInitScripts) {
+          await this.context.addInitScript(originScopedStorageInit, inject);
+        }
         await this.newTab();
         this.clearRefs();
       } catch {

@@ -1109,7 +1109,19 @@ async function handleCommandInternalImpl(
     // phase into the centralized wrap block below.
     let hiddenContentWarnings: string[] = [];
 
-    if (READ_COMMANDS.has(command)) {
+    if (command === 'inject-auth') {
+      // agent-browser U5: origin-scoped localStorage injection into the routed
+      // session's context. args: <appOrigin> <storageKey> <authJson>.
+      const [appOrigin, storageKey, ...rest] = args;
+      const valueJson = rest.join(' ');
+      await browserManager.injectOriginScopedStorage(appOrigin, storageKey, valueJson);
+      result = JSON.stringify({
+        injected: true,
+        appOrigin,
+        key: storageKey,
+        session: browserManager.getCurrentSessionId(),
+      });
+    } else if (READ_COMMANDS.has(command)) {
       const isScoped = tokenInfo && tokenInfo.clientId !== 'root';
       // Hidden-element / ARIA-injection detection for every scoped
       // DOM-reading channel (text, html, links, forms, accessibility,
