@@ -13,7 +13,7 @@
  *   Port:       random 10000-60000 (or BROWSE_PORT env for debug override)
  */
 
-import { BrowserManager } from './browser-manager';
+import { BrowserManager, DEFAULT_SESSION_ID } from './browser-manager';
 import { handleReadCommand, hasOutArg } from './read-commands';
 import { handleWriteCommand } from './write-commands';
 import { handleMetaCommand } from './meta-commands';
@@ -571,9 +571,11 @@ function tmpStatePath(): string {
 // terminal-agent.ts; chat queue + per-tab agent multiplexing are no
 // longer needed.
 
-let lastConsoleFlushed = 0;
-let lastNetworkFlushed = 0;
-let lastDialogFlushed = 0;
+// Per-session flush cursors (agent-browser U4): buffers are now per-session, so
+// each session tracks its own console/network/dialog flush position. Log lines
+// are tagged with the session id when it is not the default, so a single log
+// file stays readable across concurrent isolated sessions.
+const flushCursors = new Map<string, { console: number; network: number; dialog: number }>();
 let flushInProgress = false;
 
 async function flushBuffers() {
@@ -581,37 +583,44 @@ async function flushBuffers() {
   flushInProgress = true;
 
   try {
-    // Console buffer
-    const newConsoleCount = consoleBuffer.totalAdded - lastConsoleFlushed;
-    if (newConsoleCount > 0) {
-      const entries = consoleBuffer.last(Math.min(newConsoleCount, consoleBuffer.length));
-      const lines = entries.map(e =>
-        `[${new Date(e.timestamp).toISOString()}] [${e.level}] ${e.text}`
-      ).join('\n') + '\n';
-      fs.appendFileSync(CONSOLE_LOG_PATH, lines);
-      lastConsoleFlushed = consoleBuffer.totalAdded;
-    }
+    const manager = activeBrowserManager ?? browserManager;
+    if (!manager) return;
+    const tag = (id: string) => (id === DEFAULT_SESSION_ID ? '' : `[session:${id}] `);
 
-    // Network buffer
-    const newNetworkCount = networkBuffer.totalAdded - lastNetworkFlushed;
-    if (newNetworkCount > 0) {
-      const entries = networkBuffer.last(Math.min(newNetworkCount, networkBuffer.length));
-      const lines = entries.map(e =>
-        `[${new Date(e.timestamp).toISOString()}] ${e.method} ${e.url} → ${e.status || 'pending'} (${e.duration || '?'}ms, ${e.size || '?'}B)`
-      ).join('\n') + '\n';
-      fs.appendFileSync(NETWORK_LOG_PATH, lines);
-      lastNetworkFlushed = networkBuffer.totalAdded;
-    }
+    for (const { id, state } of manager.getAllSessions()) {
+      const cursor = flushCursors.get(id) ?? { console: 0, network: 0, dialog: 0 };
 
-    // Dialog buffer
-    const newDialogCount = dialogBuffer.totalAdded - lastDialogFlushed;
-    if (newDialogCount > 0) {
-      const entries = dialogBuffer.last(Math.min(newDialogCount, dialogBuffer.length));
-      const lines = entries.map(e =>
-        `[${new Date(e.timestamp).toISOString()}] [${e.type}] "${e.message}" → ${e.action}${e.response ? ` "${e.response}"` : ''}`
-      ).join('\n') + '\n';
-      fs.appendFileSync(DIALOG_LOG_PATH, lines);
-      lastDialogFlushed = dialogBuffer.totalAdded;
+      const newConsole = state.consoleBuffer.totalAdded - cursor.console;
+      if (newConsole > 0) {
+        const entries = state.consoleBuffer.last(Math.min(newConsole, state.consoleBuffer.length));
+        const lines = entries.map(e =>
+          `[${new Date(e.timestamp).toISOString()}] ${tag(id)}[${e.level}] ${e.text}`
+        ).join('\n') + '\n';
+        fs.appendFileSync(CONSOLE_LOG_PATH, lines);
+        cursor.console = state.consoleBuffer.totalAdded;
+      }
+
+      const newNetwork = state.networkBuffer.totalAdded - cursor.network;
+      if (newNetwork > 0) {
+        const entries = state.networkBuffer.last(Math.min(newNetwork, state.networkBuffer.length));
+        const lines = entries.map(e =>
+          `[${new Date(e.timestamp).toISOString()}] ${tag(id)}${e.method} ${e.url} → ${e.status || 'pending'} (${e.duration || '?'}ms, ${e.size || '?'}B)`
+        ).join('\n') + '\n';
+        fs.appendFileSync(NETWORK_LOG_PATH, lines);
+        cursor.network = state.networkBuffer.totalAdded;
+      }
+
+      const newDialog = state.dialogBuffer.totalAdded - cursor.dialog;
+      if (newDialog > 0) {
+        const entries = state.dialogBuffer.last(Math.min(newDialog, state.dialogBuffer.length));
+        const lines = entries.map(e =>
+          `[${new Date(e.timestamp).toISOString()}] ${tag(id)}[${e.type}] "${e.message}" → ${e.action}${e.response ? ` "${e.response}"` : ''}`
+        ).join('\n') + '\n';
+        fs.appendFileSync(DIALOG_LOG_PATH, lines);
+        cursor.dialog = state.dialogBuffer.totalAdded;
+      }
+
+      flushCursors.set(id, cursor);
     }
   } catch (err: any) {
     console.error('[browse] Buffer flush failed:', err.message);
@@ -940,7 +949,7 @@ interface CommandResult {
  *   chainDepth: recursion guard — reject nested chains (depth > 0 means inside a chain)
  */
 async function handleCommandInternalImpl(
-  body: { command: string; args?: string[]; tabId?: number },
+  body: { command: string; args?: string[]; tabId?: number; session?: string },
   tokenInfo?: TokenInfo | null,
   opts?: { skipRateCheck?: boolean; skipActivity?: boolean; chainDepth?: number },
 ): Promise<CommandResult> {
@@ -1307,12 +1316,36 @@ async function handleCommandInternalImpl(
  * Do not bypass this by calling handleCommandInternalImpl directly.
  */
 async function handleCommandInternal(
-  body: { command: string; args?: string[]; tabId?: number },
+  body: { command: string; args?: string[]; tabId?: number; session?: string },
   tokenInfo?: TokenInfo | null,
   opts?: { skipRateCheck?: boolean; skipActivity?: boolean; chainDepth?: number },
 ): Promise<CommandResult> {
-  const cr = await handleCommandInternalImpl(body, tokenInfo, opts);
-  return { ...cr, result: sanitizeLoneSurrogates(cr.result) };
+  // ─── Session pinning (agent-browser U4) ─────────────────────
+  // Resolve an optional `session` to an isolated BrowserContext before the
+  // command runs, restoring the prior session afterward so a subsequent
+  // command with no `session` field lands on the default session. This is the
+  // single choke point every caller (HTTP, batch, chain) passes through, so
+  // restoring here in a finally covers all early returns inside Impl. Safe
+  // because Bun's event loop is single-threaded — no concurrent handleCommand.
+  const requestedSession = body.session;
+  let savedSessionId: string | null = null;
+  if (requestedSession && requestedSession !== browserManager.getCurrentSessionId()) {
+    savedSessionId = browserManager.getCurrentSessionId();
+    try {
+      await browserManager.ensureSession(requestedSession);
+    } catch (err: any) {
+      return {
+        status: 400, json: true,
+        result: JSON.stringify({ error: `Cannot open session "${requestedSession}": ${err.message}` }),
+      };
+    }
+  }
+  try {
+    const cr = await handleCommandInternalImpl(body, tokenInfo, opts);
+    return { ...cr, result: sanitizeLoneSurrogates(cr.result) };
+  } finally {
+    if (savedSessionId !== null) browserManager.setCurrentSession(savedSessionId);
+  }
 }
 
 /**
@@ -2566,7 +2599,7 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
             continue;
           }
           const cr = await handleCommandInternal(
-            { command: cmd.command, args: cmd.args, tabId: cmd.tabId },
+            { command: cmd.command, args: cmd.args, tabId: cmd.tabId, session: cmd.session },
             tokenInfo,
             { skipRateCheck: true, skipActivity: true },
           );
