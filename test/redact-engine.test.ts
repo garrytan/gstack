@@ -54,6 +54,8 @@ describe("HIGH credential patterns", () => {
       "gcp.service_account",
       '{"private_key_id": "abc123", "private_key": "-----BEGIN PRIVATE KEY-----\\nMIIE..."}',
     ],
+    ["google.oauth_client_secret", 'client_secret: "GOCSPX-' + "Ab3xQ9zLmNp2RtVw7YkD1sHf" + '"'],
+    ["telegram.bot_token", "TELEGRAM_TOKEN=8326208591:AA" + "HdqRy9Lm2ZpXvKb4NcQw8TuEr6YoP1sVg"],
   ];
   for (const [id, text] of cases) {
     test(`flags ${id}`, () => {
@@ -164,6 +166,22 @@ describe("#1946 pattern negatives (placeholders never fire)", () => {
     expect(ids("dop_v1_short")).not.toContain("digitalocean.token");
     // pem header WITHOUT the GCP JSON shape stays pem.private_key only.
     expect(ids("-----BEGIN PRIVATE KEY-----")).not.toContain("gcp.service_account");
+  });
+});
+
+describe("google.oauth_client_secret / telegram.bot_token negatives", () => {
+  test("undersized and placeholder shapes never fire", () => {
+    // Length floor keeps short repo fixtures quiet (e.g. the 19-char body in
+    // openclaw's extensions/google/oauth.test.ts).
+    expect(ids("GOCSPX-FakeSecretValue123")).not.toContain("google.oauth_client_secret");
+    expect(ids("GOCSPX-short")).not.toContain("google.oauth_client_secret");
+    // Placeholder suppression on an otherwise correctly-sized body.
+    expect(ids("GOCSPX-example" + "a".repeat(17))).not.toContain("google.oauth_client_secret");
+    expect(ids("1234567890:AAexample" + "a".repeat(26))).not.toContain("telegram.bot_token");
+    // A plain number pair must not read as a bot token.
+    expect(ids("1234567890:1234567890")).not.toContain("telegram.bot_token");
+    // The AIza key stays MEDIUM (google.api_key); it is not promoted here.
+    expect(ids("AIza" + "a".repeat(35))).not.toContain("google.oauth_client_secret");
   });
 });
 

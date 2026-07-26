@@ -328,6 +328,25 @@ export const PATTERNS: RedactPattern[] = [
     nearWindow: 200,
   },
   {
+    id: "google.oauth_client_secret",
+    tier: "HIGH",
+    category: "secret",
+    // Distinct from google.api_key (MEDIUM): an AIza key is often a public
+    // client key, but a GOCSPX- client secret is never publishable — leaking
+    // it lets anyone impersonate the OAuth app's token exchange.
+    description: "Google OAuth client secret (GOCSPX-…)",
+    regex: /\b(GOCSPX-[A-Za-z0-9_-]{20,40})(?![A-Za-z0-9_-])/,
+    validate: (span) => !isPlaceholderSpan(span),
+  },
+  {
+    id: "telegram.bot_token",
+    tier: "HIGH",
+    category: "secret",
+    description: "Telegram bot token (<bot-id>:AA…)",
+    regex: /\b([0-9]{6,16}:A[A-Za-z0-9_-]{34})(?![A-Za-z0-9_-])/,
+    validate: (span) => !isPlaceholderSpan(span),
+  },
+  {
     id: "pem.private_key",
     tier: "HIGH",
     category: "secret",
