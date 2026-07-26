@@ -19,7 +19,7 @@ import * as path from 'path';
 
 // Thin wrappers that bridge old test calls (bm as 3rd arg) to new signatures (session + bm)
 const handleReadCommand = (cmd: string, args: string[], b: BrowserManager) =>
-  _handleReadCommand(cmd, args, b.getActiveSession());
+  _handleReadCommand(cmd, args, b.getActiveSession(), b);
 const handleWriteCommand = (cmd: string, args: string[], b: BrowserManager) =>
   _handleWriteCommand(cmd, args, b.getActiveSession(), b);
 
@@ -1650,14 +1650,18 @@ describe('Wait load states', () => {
 // ─── Console --errors ──────────────────────────────────────────
 
 describe('Console --errors', () => {
+  // Buffers are per-session (agent-browser U4); seed the session buffer the
+  // read command actually reads, not the legacy module singleton.
+  const sessionConsole = () => bm.getBuffers().consoleBuffer;
+
   test('console --errors filters to error and warning only', async () => {
     // Clear existing entries
     await handleReadCommand('console', ['--clear'], bm);
 
     // Add mixed entries
-    addConsoleEntry({ timestamp: Date.now(), level: 'log', text: 'info message' });
-    addConsoleEntry({ timestamp: Date.now(), level: 'warning', text: 'warn message' });
-    addConsoleEntry({ timestamp: Date.now(), level: 'error', text: 'error message' });
+    sessionConsole().push({ timestamp: Date.now(), level: 'log', text: 'info message' });
+    sessionConsole().push({ timestamp: Date.now(), level: 'warning', text: 'warn message' });
+    sessionConsole().push({ timestamp: Date.now(), level: 'error', text: 'error message' });
 
     const result = await handleReadCommand('console', ['--errors'], bm);
     expect(result).toContain('warn message');
@@ -1665,33 +1669,33 @@ describe('Console --errors', () => {
     expect(result).not.toContain('info message');
 
     // Cleanup
-    consoleBuffer.clear();
+    sessionConsole().clear();
   });
 
   test('console --errors returns empty message when no errors', async () => {
-    consoleBuffer.clear();
-    addConsoleEntry({ timestamp: Date.now(), level: 'log', text: 'just a log' });
+    sessionConsole().clear();
+    sessionConsole().push({ timestamp: Date.now(), level: 'log', text: 'just a log' });
 
     const result = await handleReadCommand('console', ['--errors'], bm);
     expect(result).toBe('(no console errors)');
 
-    consoleBuffer.clear();
+    sessionConsole().clear();
   });
 
   test('console --errors on empty buffer', async () => {
-    consoleBuffer.clear();
+    sessionConsole().clear();
     const result = await handleReadCommand('console', ['--errors'], bm);
     expect(result).toBe('(no console errors)');
   });
 
   test('console without flag still returns all messages', async () => {
-    consoleBuffer.clear();
-    addConsoleEntry({ timestamp: Date.now(), level: 'log', text: 'all messages test' });
+    sessionConsole().clear();
+    sessionConsole().push({ timestamp: Date.now(), level: 'log', text: 'all messages test' });
 
     const result = await handleReadCommand('console', [], bm);
     expect(result).toContain('all messages test');
 
-    consoleBuffer.clear();
+    sessionConsole().clear();
   });
 });
 
