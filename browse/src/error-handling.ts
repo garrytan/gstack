@@ -52,7 +52,13 @@ export function isProcessAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
-  } catch {
+  } catch (err: any) {
+    // EPERM = the process EXISTS but we lack permission to signal it (owned by
+    // another user, or a reparented zombie). It is alive-but-unmanageable, NOT
+    // dead — treating it as dead is the zombie-lock bug (a stale "Chrome for
+    // Testing" holding SingletonLock that cleanup then skips). Only ESRCH (no
+    // such process) means dead. (agent-browser U7)
+    if (err?.code === 'EPERM') return true;
     return false;
   }
 }
