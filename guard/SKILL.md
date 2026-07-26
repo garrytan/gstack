@@ -15,17 +15,19 @@ hooks:
     - matcher: "Bash"
       hooks:
         - type: command
-          command: "bash $HOME/.claude/skills/gstack/careful/bin/check-careful.sh"
+          # bash -c so bash (not cmd.exe) expands $HOME — the bare form dies
+          # exit 127 under the harness's cmd.exe /d /s /c spawn (verified).
+          command: 'bash -c "exec \"$HOME/.claude/skills/gstack/careful/bin/check-careful.sh\""'
           statusMessage: "Checking for destructive commands..."
     - matcher: "Edit"
       hooks:
         - type: command
-          command: "bash $HOME/.claude/skills/gstack/freeze/bin/check-freeze.sh"
+          command: 'bash -c "exec \"$HOME/.claude/skills/gstack/freeze/bin/check-freeze.sh\""'
           statusMessage: "Checking freeze boundary..."
     - matcher: "Write"
       hooks:
         - type: command
-          command: "bash $HOME/.claude/skills/gstack/freeze/bin/check-freeze.sh"
+          command: 'bash -c "exec \"$HOME/.claude/skills/gstack/freeze/bin/check-freeze.sh\""'
           statusMessage: "Checking freeze boundary..."
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->

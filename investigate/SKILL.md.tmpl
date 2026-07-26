@@ -30,12 +30,18 @@ hooks:
     - matcher: "Edit"
       hooks:
         - type: command
-          command: 'bash -c ''S="${CLAUDE_SKILL_DIR}/../freeze/bin/check-freeze.sh"; [ -x "$S" ] || S="${CLAUDE_SKILL_DIR}/../gstack-freeze/bin/check-freeze.sh"; [ -x "$S" ] && bash "$S" || exit 0'''
+          # bash -c so bash (not cmd.exe) expands $HOME. No nested single quotes:
+          # the harness spawns via cmd.exe /d /s /c, which shreds them (verified
+          # exit 0, hook never runs). ${CLAUDE_SKILL_DIR} is body-text-only.
+          command: 'bash -c "exec \"$HOME/.claude/skills/gstack/freeze/bin/check-freeze.sh\""'
           statusMessage: "Checking debug scope boundary..."
     - matcher: "Write"
       hooks:
         - type: command
-          command: 'bash -c ''S="${CLAUDE_SKILL_DIR}/../freeze/bin/check-freeze.sh"; [ -x "$S" ] || S="${CLAUDE_SKILL_DIR}/../gstack-freeze/bin/check-freeze.sh"; [ -x "$S" ] && bash "$S" || exit 0'''
+          # bash -c so bash (not cmd.exe) expands $HOME. No nested single quotes:
+          # the harness spawns via cmd.exe /d /s /c, which shreds them (verified
+          # exit 0, hook never runs). ${CLAUDE_SKILL_DIR} is body-text-only.
+          command: 'bash -c "exec \"$HOME/.claude/skills/gstack/freeze/bin/check-freeze.sh\""'
           statusMessage: "Checking debug scope boundary..."
 gbrain:
   schema: 1
