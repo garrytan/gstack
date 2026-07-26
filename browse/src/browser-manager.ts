@@ -179,6 +179,8 @@ export interface SessionState {
    * recreation so a viewport/scale change doesn't silently drop injected auth.
    */
   authInitScripts: Array<{ origin: string; key: string; val: string }>;
+  /** Whether Playwright tracing is currently recording for this session (U8). */
+  tracing: boolean;
 }
 
 const SESSION_BUFFER_CAP = 50_000;
@@ -203,6 +205,7 @@ function createSessionState(): SessionState {
     networkBuffer: new CircularBuffer<NetworkEntry>(SESSION_BUFFER_CAP),
     dialogBuffer: new CircularBuffer<DialogEntry>(SESSION_BUFFER_CAP),
     authInitScripts: [],
+    tracing: false,
   };
 }
 
@@ -1107,6 +1110,27 @@ export class BrowserManager {
     }
     this.cur.authInitScripts.push({ origin: appOrigin, key: storageKey, val: valueJson });
     await context.addInitScript(originScopedStorageInit, { origin: appOrigin, key: storageKey, val: valueJson });
+  }
+
+  // ─── Playwright tracing (agent-browser U8) ─────────────────
+  isTracing(): boolean { return this.cur.tracing; }
+
+  /** Start recording a Playwright trace for the current session's context. */
+  async startTracing(): Promise<void> {
+    const context = this.cur.context;
+    if (!context) throw new Error('No browser context for the current session; open a session first.');
+    if (this.cur.tracing) return;
+    await context.tracing.start({ screenshots: true, snapshots: true });
+    this.cur.tracing = true;
+  }
+
+  /** Stop tracing and write the trace zip to outPath (view with `browse show-trace`). */
+  async stopTracing(outPath: string): Promise<void> {
+    const context = this.cur.context;
+    if (!context) throw new Error('No browser context for the current session.');
+    if (!this.cur.tracing) throw new Error('Tracing is not active for this session; run `trace start` first.');
+    await context.tracing.stop({ path: outPath });
+    this.cur.tracing = false;
   }
 
   /** Close a session's context + tabs and drop it. Cannot close the default. */

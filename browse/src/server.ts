@@ -1109,7 +1109,22 @@ async function handleCommandInternalImpl(
     // phase into the centralized wrap block below.
     let hiddenContentWarnings: string[] = [];
 
-    if (command === 'inject-auth') {
+    if (command === 'trace') {
+      // agent-browser U8: per-session Playwright tracing. `trace start` /
+      // `trace stop <path>`. View a stopped trace with `browse show-trace <path>`.
+      const sub = args[0];
+      if (sub === 'start') {
+        await browserManager.startTracing();
+        result = JSON.stringify({ tracing: true, session: browserManager.getCurrentSessionId() });
+      } else if (sub === 'stop') {
+        const outPath = args[1];
+        if (!outPath) throw new Error('Usage: trace stop <path-to-trace.zip>');
+        await browserManager.stopTracing(outPath);
+        result = JSON.stringify({ tracing: false, path: outPath, session: browserManager.getCurrentSessionId() });
+      } else {
+        throw new Error('Usage: trace start | trace stop <path>');
+      }
+    } else if (command === 'inject-auth') {
       // agent-browser U5: origin-scoped localStorage injection into the routed
       // session's context. args: <appOrigin> <storageKey> <authJson>.
       const [appOrigin, storageKey, ...rest] = args;

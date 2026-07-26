@@ -1072,6 +1072,24 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
     }
   }
 
+  // ─── Trace viewer (agent-browser U8, pre-server) ────────────
+  // Opens a trace zip produced by `trace stop` in Playwright's trace viewer.
+  // Runs CLI-side (no daemon) — it launches its own viewer UI.
+  if (command === 'show-trace') {
+    const traceFile = commandArgs.find((arg) => !arg.startsWith('-'));
+    if (!traceFile) {
+      console.error('[browse] error: show-trace needs a trace file, e.g. `browse show-trace trace.zip`');
+      process.exit(1);
+    }
+    const viewer = nodeSpawn('npx', ['playwright', 'show-trace', traceFile], { stdio: 'inherit' });
+    viewer.on('error', (err) => {
+      console.error(`[browse] could not launch the Playwright trace viewer: ${err.message}`);
+      process.exit(1);
+    });
+    viewer.on('exit', (code) => process.exit(code ?? 0));
+    return;
+  }
+
   // ─── Agent-browser end-to-end entrypoint (agent-browser U6) ──
   // env [path] → isolated headless session, cached-or-acquired token injected
   // origin-scoped, navigated. Hides the session id (auto-generated) and emits a
