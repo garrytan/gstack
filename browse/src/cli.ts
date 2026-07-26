@@ -1045,10 +1045,13 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
   // agent-token acquires (or reuses a cached) bearer for a frontend env via
   // the repo's .agent-browser.config.mjs adapter. Runs CLI-side so `op` /
   // Touch-ID prompt in the user's terminal, not the daemon. Pure HTTP + op;
-  // no browser needed. NEVER prints the bearer.
+  // no browser needed. Default output is a secret-free summary; --print emits
+  // the bare bearer on stdout (summary moves to stderr) for shell capture like
+  // BACKEND_JWT=$(browse agent-token <env> --print).
   if (command === 'agent-token') {
     const envName = commandArgs.find((arg) => !arg.startsWith('-'));
     const forceRefresh = commandArgs.includes('--refresh');
+    const printBearer = commandArgs.includes('--print');
     if (!envName) {
       console.error('[browse] error: agent-token needs an env, e.g. `browse agent-token demo`');
       process.exit(1);
@@ -1059,12 +1062,17 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
         frontendRoot: process.cwd(),
         forceRefresh,
       });
-      // Machine-parseable, secret-free summary.
-      console.log(`ENV=${token.env}`);
-      console.log(`REALM=${token.realm}`);
-      console.log(`APPORIGIN=${token.appOrigin}`);
-      console.log(`EXPIRES=${new Date(token.expiresAt).toISOString()}`);
-      console.log(`CACHED=${cached ? 'true' : 'false'}`);
+      // Machine-parseable, secret-free summary. With --print it goes to stderr
+      // so stdout carries exactly the bearer and nothing else.
+      const summary = printBearer ? console.error : console.log;
+      summary(`ENV=${token.env}`);
+      summary(`REALM=${token.realm}`);
+      summary(`APPORIGIN=${token.appOrigin}`);
+      summary(`EXPIRES=${new Date(token.expiresAt).toISOString()}`);
+      summary(`CACHED=${cached ? 'true' : 'false'}`);
+      if (printBearer) {
+        process.stdout.write(adapter.token.bearer(token.auth) + '\n');
+      }
       process.exit(0);
     } catch (err) {
       console.error(`[browse] agent-token failed: ${err instanceof Error ? err.message : err}`);
@@ -1096,12 +1104,17 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
   // parseable, secret-free summary. --session overrides the id; --headed is
   // deferred to Phase 2 (headless only for now).
   if (command === 'agent-open') {
-    const positional = commandArgs.filter((arg) => !arg.startsWith('-'));
-    const envName = positional[0];
-    const navPath = positional[1] ?? '/';
     const forceRefresh = commandArgs.includes('--refresh');
     const sessionFlagIdx = commandArgs.indexOf('--session');
     const explicitSession = sessionFlagIdx >= 0 ? commandArgs[sessionFlagIdx + 1] : undefined;
+    // Positionals = args that are neither flags nor a flag's value (--session
+    // takes one); naive startsWith('-') filtering leaked the session id into
+    // the nav path.
+    const positional = commandArgs.filter(
+      (arg, idx) => !arg.startsWith('-') && (sessionFlagIdx < 0 || idx !== sessionFlagIdx + 1),
+    );
+    const envName = positional[0];
+    const navPath = positional[1] ?? '/';
     if (commandArgs.includes('--headed')) {
       console.error('[browse] --headed is deferred to a later phase; opening headless.');
     }
