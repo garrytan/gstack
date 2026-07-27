@@ -196,6 +196,16 @@ describe("PII patterns", () => {
     expect(ids("card 4111111111111111")).toContain("pii.cc");
     expect(ids("num 4111111111111112")).not.toContain("pii.cc");
   });
+  test("all-zero runs are not cards", () => {
+    // Luhn-valid (checksum 0) but never a real card. SVG colour matrices are
+    // full of these: <feColorMatrix values="0 0 0 0 0 ...">.
+    expect(ids("0000000000000000")).not.toContain("pii.cc");
+    expect(ids('values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0"')).not.toContain(
+      "pii.cc"
+    );
+    // A zero-leading real card must still be caught.
+    expect(ids("card 0000000000000018")).toContain("pii.cc");
+  });
   test("public IP flagged, RFC1918 skipped", () => {
     expect(ids("connect 8.8.8.8")).toContain("pii.ip_public");
     expect(ids("local 192.168.1.5")).not.toContain("pii.ip_public");

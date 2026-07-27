@@ -455,7 +455,9 @@ export const PATTERNS: RedactPattern[] = [
     regex: /\b((?:\d[ \-]?){13,19})\b/,
     autoRedactable: true,
     redactToken: "<REDACTED-CC>",
-    validate: (span) => luhnValid(span),
+    // An all-zero run is Luhn-valid (checksum 0) but is never a card number.
+    // SVG <feColorMatrix values="0 0 0 ..."> hits this constantly.
+    validate: (span) => !/^0+$/.test(span.replace(/[ \-]/g, "")) && luhnValid(span),
   },
   {
     id: "pii.ip_public",
