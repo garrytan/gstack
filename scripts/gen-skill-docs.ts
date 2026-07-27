@@ -495,7 +495,7 @@ function generateOpenAIYaml(displayName: string, shortDescription: string): stri
   return `interface:
   display_name: ${JSON.stringify(displayName)}
   short_description: ${JSON.stringify(shortDescription)}
-  default_prompt: ${JSON.stringify(`Use ${displayName} for this task.`)}
+  default_prompt: ${JSON.stringify(`Use $${displayName} for this task.`)}
 policy:
   allow_implicit_invocation: true
 `;
@@ -853,9 +853,11 @@ function processTemplate(tmplPath: string, host: Host = 'claude'): { outputPath:
     content = header + content;
   }
 
-  // Catalog trim (Claude only — external hosts have their own frontmatter shapes)
+  // Catalog trim for hosts whose skill catalogs consume SKILL.md descriptions.
+  // Codex uses the same description field after its host-specific transform, so
+  // keep routing/voice prose in the body instead of spending catalog budget on it.
   let catalogParts: CatalogParts | null = null;
-  if (host === 'claude' && CATALOG_MODE === 'trim') {
+  if ((host === 'claude' || host === 'codex') && CATALOG_MODE === 'trim') {
     const trimmed = applyCatalogTrim(content, skillName);
     if (trimmed) {
       content = trimmed.content;
