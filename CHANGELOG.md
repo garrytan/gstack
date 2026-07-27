@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.60.2.0] - 2026-07-26
+
+## **Codex can load the full gstack catalog without truncating skill descriptions.**
+
+Codex installs now receive the same compact catalog descriptions as Claude while
+keeping natural-language routing and proactive guidance inside each skill body.
+The generated 54-skill catalog uses 3,854 description characters, and explicit
+invocations now use Codex's `$skill-name` syntax.
+
+### Fixed
+
+- Apply catalog trimming to Codex generation without hiding skills from implicit
+  routing.
+- Generate valid `$gstack-*` default prompts in OpenAI metadata.
+- Enforce per-skill and aggregate Codex description budgets and verify that
+  routing guidance remains available after a skill loads.
+
 ## [1.60.1.0] - 2026-07-09
 
 ## **The /autoplan dual-voice eval is back on the board, catching real regressions.**
