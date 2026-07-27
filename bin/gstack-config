@@ -161,7 +161,23 @@ lookup_default() {
     brain_trust_policy*) echo "unset" ;;
     salience_allowlist) echo "" ;;
     user_slug_at_*) echo "" ;;
-    *) echo "" ;;
+    # Read by skill preambles but missing from this table, so they fell through
+    # to the catch-all and came back "" with exit 0. Values below are the ones
+    # the callers already assume in their own `|| echo "<default>"` fallback.
+    question_tuning) echo "false" ;;
+    team_mode) echo "false" ;;
+    transcript_ingest_mode) echo "off" ;;
+    repo_mode) echo "unknown" ;;
+    # Unknown key: exit non-zero instead of printing "". The fallback pattern
+    # the preambles use,
+    #   VAR=$(gstack-config get <key> 2>/dev/null || echo "<default>")
+    # only fires on a non-zero exit, so a catch-all echoing "" with exit 0 left
+    # VAR empty and the written default unreachable.
+    # Deliberately *only* the unknown-key path: the keys above whose default is
+    # intentionally empty (cross_project_learnings, salience_allowlist,
+    # user_slug_at_*, redact_repo_visibility) keep exit 0, because "" is their
+    # real answer and their callers rely on it.
+    *) return 1 ;;
   esac
 }
 
@@ -297,7 +313,12 @@ case "${1:-}" in
     fi
     VALUE=$(read_config_value "$KEY" || true)
     if [ -z "$VALUE" ]; then
-      VALUE=$(lookup_default "$KEY")
+      # lookup_default exits non-zero for a key it does not know. Propagate
+      # that, so the caller's `|| echo "<default>"` can fire. A known key whose
+      # default is empty still exits 0 and prints "".
+      if ! VALUE=$(lookup_default "$KEY"); then
+        exit 1
+      fi
     fi
     printf '%s' "$VALUE"
     ;;
