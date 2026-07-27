@@ -85,7 +85,7 @@ NO_TEAM_MODE=0
 PLAN_TUNE_HOOKS_MODE=""   # "" = resolve from env/config/prompt; "yes"/"no" = explicit
 while [ $# -gt 0 ]; do
   case "$1" in
-    --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, codex, kiro, factory, opencode, openclaw, hermes, gbrain, or auto)" >&2 && exit 1; HOST="$2"; shift 2 ;;
+    --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, codex, kiro, factory, opencode, cursor, openclaw, hermes, gbrain, or auto)" >&2 && exit 1; HOST="$2"; shift 2 ;;
     --host=*) HOST="${1#--host=}"; shift ;;
     --local) LOCAL_INSTALL=1; shift ;;
     --prefix)    SKILL_PREFIX=1; SKILL_PREFIX_FLAG=1; shift ;;
@@ -102,6 +102,21 @@ done
 
 case "$HOST" in
   claude|codex|kiro|factory|opencode|auto) ;;
+  cursor)
+    # Cursor install is bun-free — delegate to gstack-cursor-install and exit.
+    _CURSOR_INSTALL="$(cd "$(dirname "$0")" && pwd)/bin/gstack-cursor-install"
+    if [ ! -x "$_CURSOR_INSTALL" ]; then
+      echo "gstack setup: error — bin/gstack-cursor-install not found at $_CURSOR_INSTALL" >&2
+      exit 1
+    fi
+    _REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+    _TARGET="${GSTACK_SKILLS_DIR:-$_REPO_ROOT/.cursor/skills}"
+    mkdir -p "$_TARGET"
+    GSTACK_CURSOR_QUIET="$QUIET" "$_CURSOR_INSTALL" "$_TARGET"
+    log "gstack ready (cursor)."
+    log "  cursor skills: $_TARGET"
+    log "  Run /gstack-upgrade to update skills."
+    exit 0 ;;
   openclaw)
     echo ""
     echo "OpenClaw integration uses a different model — OpenClaw spawns Claude Code"
@@ -136,7 +151,7 @@ case "$HOST" in
     echo "GBrain setup and brain skills ship from the GBrain repo."
     echo ""
     exit 0 ;;
-  *) echo "Unknown --host value: $HOST (expected claude, codex, kiro, factory, opencode, openclaw, hermes, gbrain, or auto)" >&2; exit 1 ;;
+  *) echo "Unknown --host value: $HOST (expected claude, codex, kiro, factory, opencode, cursor, openclaw, hermes, gbrain, or auto)" >&2; exit 1 ;;
 esac
 
 # ─── Resolve skill prefix preference ─────────────────────────

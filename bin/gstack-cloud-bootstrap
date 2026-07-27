@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# gstack-cloud-bootstrap — bootstrap gstack for a Cloud Agent VM
+#
+# Clones gstack (if not already present) and installs skills into
+# .cursor/skills/ so Cloud Agents can invoke them from session start.
+#
+# Does NOT require bun. Uses only bash, git, sed.
+# Safe to run multiple times (idempotent).
+#
+# Usage:
+#   # From within the project repo:
+#   gstack-cloud-bootstrap
+#
+#   # One-liner for a fresh VM (pipe from curl):
+#   curl -fsSL https://raw.githubusercontent.com/garrytan/gstack/main/bin/gstack-cloud-bootstrap | bash
+#
+# Environment:
+#   GSTACK_REPO          — git remote to clone from (default: garrytan/gstack on GitHub)
+#   GSTACK_CACHE_DIR     — where to cache the gstack clone (default: ~/.gstack/repos/gstack)
+#   GSTACK_AUTOUPDATE    — set to 1 to git-pull on every run (default: 0)
+#   GSTACK_SKILLS_DIR    — override target skills dir (default: <repo-root>/.cursor/skills)
+#   GSTACK_MIN_SKILLS    — minimum expected skill count for verify step (default: 10)
+
+set -e
+
+GSTACK_REPO="${GSTACK_REPO:-https://github.com/garrytan/gstack.git}"
+GSTACK_CACHE_DIR="${GSTACK_CACHE_DIR:-$HOME/.gstack/repos/gstack}"
+GSTACK_AUTOUPDATE="${GSTACK_AUTOUPDATE:-0}"
+GSTACK_MIN_SKILLS="${GSTACK_MIN_SKILLS:-10}"
+
+# ── Resolve project root and skills target ──────────────────────
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+TARGET_SKILLS="${GSTACK_SKILLS_DIR:-$REPO_ROOT/.cursor/skills}"
+
+# ── Step 1: Clone or refresh gstack ────────────────────────────
+if [ ! -d "$GSTACK_CACHE_DIR/.git" ]; then
+  echo "gstack: cloning to $GSTACK_CACHE_DIR..."
+  mkdir -p "$(dirname "$GSTACK_CACHE_DIR")"
+  git clone --single-branch --depth 1 "$GSTACK_REPO" "$GSTACK_CACHE_DIR"
+elif [ "$GSTACK_AUTOUPDATE" = "1" ]; then
+  echo "gstack: pulling latest..."
+  git -C "$GSTACK_CACHE_DIR" fetch --depth 1 origin
+  git -C "$GSTACK_CACHE_DIR" reset --hard FETCH_HEAD
+fi
+
+CURSOR_INSTALL="$GSTACK_CACHE_DIR/bin/gstack-cursor-install"
+if [ ! -x "$CURSOR_INSTALL" ]; then
+  echo "gstack: error — gstack-cursor-install not found at $CURSOR_INSTALL" >&2
+  exit 1
+fi
+
+# ── Step 2: Install into .cursor/skills/ ───────────────────────
+mkdir -p "$TARGET_SKILLS"
+"$CURSOR_INSTALL" "$TARGET_SKILLS"
+
+# ── Step 3: Verify ─────────────────────────────────────────────
+skill_count=$(find "$TARGET_SKILLS" -mindepth 2 -maxdepth 2 -name "SKILL.md" 2>/dev/null | wc -l | tr -d ' ')
+echo "gstack: verified $skill_count skills in $TARGET_SKILLS"
+
+if [ "$skill_count" -lt "$GSTACK_MIN_SKILLS" ]; then
+  echo "gstack: warning — only $skill_count skills installed (expected ≥$GSTACK_MIN_SKILLS)" >&2
+  echo "  Run GSTACK_CURSOR_VERBOSE=1 $CURSOR_INSTALL $TARGET_SKILLS for details." >&2
+  exit 1
+fi
