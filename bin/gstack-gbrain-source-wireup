@@ -35,7 +35,7 @@
 # at src/core/config.ts:53), so a process that flips config.json mid-sync
 # can't redirect us at a different brain mid-stream.
 #
-# Depends on: jq (transitive via gstack-gbrain-detect).
+# Depends on: bun (already a gstack dependency), gbrain, git.
 
 set -euo pipefail
 
@@ -200,21 +200,46 @@ ensure_worktree() {
 }
 
 # ---- gbrain sources operations ----
+# Read .sources[] | select(.id==$id) | .local_path out of `gbrain sources list`.
+#
+# This used to shell out to jq, and hard-failed when jq was absent. The stated
+# justification -- "jq is documented as a dependency of gstack-gbrain-detect
+# (transitive)" -- is stale: gstack-gbrain-detect is TypeScript and no longer
+# shells out to jq. So jq was a hard dependency of this path alone.
+#
+# bun, by contrast, already is a hard dependency of gstack (several bins carry a
+# `#!/usr/bin/env bun` shebang), so parsing the JSON with it removes a
+# dependency rather than documenting one. That matters on Windows/git-bash,
+# where jq is not present by default and the old advice -- `brew install jq` --
+# is not actionable at all: the wireup was skipped on every run, in a warning,
+# until the breakage became routine and therefore invisible.
+#
+# Prints the path, or nothing when the id is absent or the payload is not JSON.
+source_local_path() {
+  gbrain sources list --json 2>/dev/null \
+    | GB_SOURCE_ID="$1" bun -e '
+        const raw = await Bun.stdin.text();
+        try {
+          const s = (JSON.parse(raw).sources || [])
+            .find((x) => x.id === process.env.GB_SOURCE_ID);
+          process.stdout.write(s?.local_path ?? "");
+        } catch { process.stdout.write(""); }
+      ' 2>/dev/null \
+    | tr -d '[:space:]'
+}
+
 # Returns 0 if source with id exists at expected path. 1 if exists but path differs. 2 if absent.
-# Hard-fails (exits non-zero via die) if jq is missing — without jq we cannot
-# distinguish "absent" from "missing-tool" and would falsely re-add an existing
-# source. jq is documented as a dependency of gstack-gbrain-detect (transitive)
-# but adversarial review flagged the silent-fall-through path; this probe makes
-# the failure mode loud.
+# Hard-fails (exits non-zero via die) if the JSON parser is unavailable -- we
+# cannot then distinguish "absent" from "missing-tool" and would falsely re-add
+# an existing source. Adversarial review flagged that silent-fall-through path,
+# so the probe stays; only the tool it probes for has changed.
 check_source_state() {
   local id="$1"
-  if ! command -v jq >/dev/null 2>&1; then
-    die "jq required for source state detection. Install jq (brew install jq) and re-run." 1
+  if ! command -v bun >/dev/null 2>&1; then
+    die "bun required for source state detection. bun is a gstack dependency; see the install instructions in README.md." 1
   fi
   local existing_path
-  existing_path=$(gbrain sources list --json 2>/dev/null \
-    | jq -r --arg id "$id" '.sources[] | select(.id==$id) | .local_path' 2>/dev/null \
-    | tr -d '[:space:]') || existing_path=""
+  existing_path=$(source_local_path "$id") || existing_path=""
   if [ -z "$existing_path" ]; then
     return 2
   fi
@@ -295,9 +320,7 @@ do_wireup() {
       # registration. Just sync from our local worktree — gbrain stores pages
       # by content, not by local_path. The metadata is informational only.
       local existing_path
-      existing_path=$(gbrain sources list --json 2>/dev/null \
-        | jq -r --arg id "$id" '.sources[] | select(.id==$id) | .local_path' 2>/dev/null \
-        | tr -d '[:space:]') || existing_path=""
+      existing_path=$(source_local_path "$id") || existing_path=""
       if [ "$(basename "$existing_path")" = "$(basename "$WORKTREE")" ] \
          && [ "$existing_path" != "$WORKTREE" ]; then
         warn "source $id is registered at $existing_path (likely another machine's local copy of the same brain repo). Skipping re-registration; will sync from local worktree."
