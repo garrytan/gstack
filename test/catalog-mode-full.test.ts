@@ -4,7 +4,7 @@
  * The catalog trim is the default. The opt-out (`--catalog-mode=full`)
  * preserves v1.44 multi-line frontmatter descriptions for users / hosts
  * that depend on the legacy fat catalog. Without this test, someone could
- * break the conditional `if (host === 'claude' && CATALOG_MODE === 'trim')`
+ * break the conditional that gates supported hosts on `CATALOG_MODE === 'trim'`
  * and silently turn the opt-out path into a no-op — users with the flag
  * still get trim'd output, the v1.44 behavior is gone.
  *

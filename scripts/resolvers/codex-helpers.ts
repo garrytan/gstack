@@ -55,7 +55,7 @@ export function generateOpenAIYaml(displayName: string, shortDescription: string
   return `interface:
   display_name: ${JSON.stringify(displayName)}
   short_description: ${JSON.stringify(shortDescription)}
-  default_prompt: ${JSON.stringify(`Use ${displayName} for this task.`)}
+  default_prompt: ${JSON.stringify(`Use $${displayName} for this task.`)}
 policy:
   allow_implicit_invocation: true
 `;

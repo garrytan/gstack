@@ -7,6 +7,8 @@ import * as os from 'os';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const MAX_SKILL_DESCRIPTION_LENGTH = 1024;
+const MAX_CODEX_CATALOG_DESCRIPTION_LENGTH = 240;
+const MAX_CODEX_CATALOG_TOTAL_DESCRIPTION_LENGTH = 6000;
 
 // Carved-skill aware (v2 plan T9): ship is now a skeleton SKILL.md + sections/*.md.
 // Read the union so assertions about content that MOVED into a section still pass.
@@ -30,32 +32,8 @@ function extractDescription(content: string): string {
   const fmEnd = content.indexOf('\n---', 4);
   expect(fmEnd).toBeGreaterThan(0);
   const frontmatter = content.slice(4, fmEnd);
-  const lines = frontmatter.split('\n');
-  let description = '';
-  let inDescription = false;
-  const descLines: string[] = [];
-
-  for (const line of lines) {
-    if (line.match(/^description:\s*\|?\s*$/)) {
-      inDescription = true;
-      continue;
-    }
-    if (line.match(/^description:\s*\S/)) {
-      return line.replace(/^description:\s*/, '').trim();
-    }
-    if (inDescription) {
-      if (line === '' || line.match(/^\s/)) {
-        descLines.push(line.replace(/^  /, ''));
-      } else {
-        break;
-      }
-    }
-  }
-
-  if (descLines.length > 0) {
-    description = descLines.join('\n').trim();
-  }
-  return description;
+  const parsed = Bun.YAML.parse(frontmatter) as { description?: unknown };
+  return typeof parsed.description === 'string' ? parsed.description.trim() : '';
 }
 
 function extractMarkdownSection(content: string, heading: string): string {
@@ -222,7 +200,7 @@ describe('gen-skill-docs', () => {
     expect(fs.existsSync(path.join(ROOT, 'claude', 'SKILL.md'))).toBe(false);
   });
 
-  test(`every Codex SKILL.md description stays within ${MAX_SKILL_DESCRIPTION_LENGTH} chars`, () => {
+  test(`every Codex SKILL.md description stays within ${MAX_CODEX_CATALOG_DESCRIPTION_LENGTH} chars`, () => {
     const agentsDir = path.join(ROOT, '.agents', 'skills');
     if (!fs.existsSync(agentsDir)) return; // skip if not generated
     for (const entry of fs.readdirSync(agentsDir, { withFileTypes: true })) {
@@ -231,12 +209,27 @@ describe('gen-skill-docs', () => {
       if (!fs.existsSync(skillMd)) continue;
       const content = fs.readFileSync(skillMd, 'utf-8');
       const description = extractDescription(content);
-      expect(description.length).toBeLessThanOrEqual(MAX_SKILL_DESCRIPTION_LENGTH);
+      expect(description.length).toBeLessThanOrEqual(MAX_CODEX_CATALOG_DESCRIPTION_LENGTH);
     }
   });
 
-  test('every Codex SKILL.md description stays under 900-char warning threshold', () => {
-    const WARN_THRESHOLD = 900;
+  test(`Codex catalog descriptions stay within ${MAX_CODEX_CATALOG_TOTAL_DESCRIPTION_LENGTH} chars total`, () => {
+    const agentsDir = path.join(ROOT, '.agents', 'skills');
+    if (!fs.existsSync(agentsDir)) return;
+    const lengths: number[] = [];
+    for (const entry of fs.readdirSync(agentsDir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const skillMd = path.join(agentsDir, entry.name, 'SKILL.md');
+      if (!fs.existsSync(skillMd)) continue;
+      lengths.push(extractDescription(fs.readFileSync(skillMd, 'utf-8')).length);
+    }
+
+    expect(lengths.length).toBeGreaterThan(0);
+    expect(lengths.reduce((sum, length) => sum + length, 0))
+      .toBeLessThanOrEqual(MAX_CODEX_CATALOG_TOTAL_DESCRIPTION_LENGTH);
+  });
+
+  test('every Codex SKILL.md keeps routing guidance out of catalog descriptions', () => {
     const agentsDir = path.join(ROOT, '.agents', 'skills');
     if (!fs.existsSync(agentsDir)) return;
     const violations: string[] = [];
@@ -246,8 +239,8 @@ describe('gen-skill-docs', () => {
       if (!fs.existsSync(skillMd)) continue;
       const content = fs.readFileSync(skillMd, 'utf-8');
       const description = extractDescription(content);
-      if (description.length > WARN_THRESHOLD) {
-        violations.push(`${entry.name}: ${description.length} chars (limit ${MAX_SKILL_DESCRIPTION_LENGTH}, ${MAX_SKILL_DESCRIPTION_LENGTH - description.length} remaining)`);
+      if (/\b(?:Use when|Proactively suggest when|Voice triggers):/i.test(description)) {
+        violations.push(entry.name);
       }
     }
     expect(violations).toEqual([]);
@@ -1733,9 +1726,11 @@ describe('Codex generation (--host codex)', () => {
       const fmEnd = content.indexOf('\n---', 4);
       expect(fmEnd).toBeGreaterThan(0);
       const frontmatter = content.slice(4, fmEnd);
+      const parsed = Bun.YAML.parse(frontmatter) as Record<string, unknown>;
       // Must have name and description
       expect(frontmatter).toContain('name:');
       expect(frontmatter).toContain('description:');
+      expect(Object.keys(parsed).sort()).toEqual(['description', 'name']);
       // Must NOT have allowed-tools, version, or hooks
       expect(frontmatter).not.toContain('allowed-tools:');
       expect(frontmatter).not.toContain('version:');
@@ -1743,13 +1738,14 @@ describe('Codex generation (--host codex)', () => {
     }
   });
 
-  test('all Codex skills have agents/openai.yaml metadata', () => {
+  test('all generated Codex skills keep implicit routing and valid explicit prompts', () => {
     for (const skill of CODEX_SKILLS) {
       const metadata = path.join(AGENTS_DIR, skill.codexName, 'agents', 'openai.yaml');
       expect(fs.existsSync(metadata)).toBe(true);
       const content = fs.readFileSync(metadata, 'utf-8');
       expect(content).toContain(`display_name: "${skill.codexName}"`);
       expect(content).toContain('short_description:');
+      expect(content).toContain(`default_prompt: "Use $${skill.codexName} for this task."`);
       expect(content).toContain('allow_implicit_invocation: true');
     }
   });
@@ -1829,16 +1825,18 @@ describe('Codex generation (--host codex)', () => {
     expect(codexResult.stdout.toString()).toBe(agentsResult.stdout.toString());
   });
 
-  test('multiline descriptions preserved in Codex output', () => {
-    // office-hours has a multiline description — verify it survives the frontmatter transform
+  test('Codex catalog trim moves routing prose into the skill body', () => {
+    // office-hours has a long routed description in its template.
     const content = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-office-hours', 'SKILL.md'), 'utf-8');
     const fmEnd = content.indexOf('\n---', 4);
     const frontmatter = content.slice(4, fmEnd);
-    // Description should span multiple lines (block scalar)
-    const descLines = frontmatter.split('\n').filter(l => l.startsWith('  '));
-    expect(descLines.length).toBeGreaterThan(1);
-    // Verify key phrases survived
+    const description = extractDescription(content);
+
+    expect(description.length).toBeLessThanOrEqual(MAX_CODEX_CATALOG_DESCRIPTION_LENGTH);
     expect(frontmatter).toContain('YC Office Hours');
+    expect(frontmatter).not.toMatch(/\bUse when\b/i);
+    expect(content).toContain('## When to invoke this skill');
+    expect(content).toMatch(/\bUse when\b/i);
   });
 
   test('hook skills have safety prose and no hooks: in frontmatter', () => {
