@@ -55,7 +55,7 @@ do_migrate() {
 
   # Run migration in a temp file, then atomic rename.
   local TMPOUT
-  TMPOUT=$(mktemp "$GSTACK_HOME/developer-profile.json.XXXXXX.tmp")
+  TMPOUT=$(mktemp "$GSTACK_HOME/developer-profile.json.tmp.XXXXXX")
   trap 'rm -f "$TMPOUT"' EXIT
 
   cat "$LEGACY_FILE" | bun -e "
@@ -182,7 +182,7 @@ do_log_session() {
   ensure_profile
 
   local TMPOUT
-  TMPOUT=$(mktemp "$GSTACK_HOME/developer-profile.json.XXXXXX.tmp")
+  TMPOUT=$(mktemp "$GSTACK_HOME/developer-profile.json.tmp.XXXXXX")
   trap 'rm -f "$TMPOUT"' EXIT
 
   PROFILE_FILE_PATH="$PROFILE_FILE" RECORD_INPUT="$INPUT" TMPOUT_PATH="$TMPOUT" bun -e "
