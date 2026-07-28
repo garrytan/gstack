@@ -427,3 +427,51 @@ describe('codex SKILL.md.tmpl Step 2A: PROMPT + --base mutual exclusion guard', 
     });
   }
 });
+
+// Regression guard for #1036. The wrapper added in #1056 was wired into
+// codex/SKILL.md but not into the /review and /ship diff passes, which kept
+// running under a bare 5-minute Bash gate. Measured on codex-cli 0.145.0: a
+// pass was killed at 287s of a 300s budget mid-tool-call, and the same prompt
+// completed in 336s. An unwrapped stall returns no exit code and no output,
+// which downstream reads as "Codex reviewed and found nothing".
+describe('codex timeout wrapper: /review + /ship diff passes', () => {
+  const WRAPPED_SITES = [
+    'scripts/resolvers/review.ts', // generator (source of truth)
+    'review/SKILL.md', // generated
+    'ship/sections/adversarial.md', // ship section source
+  ];
+
+  // Outer Bash gate for the wrapped passes. The wrapper must be strictly
+  // shorter so IT fires first and the failure is a diagnosable exit 124.
+  const BASH_GATE_MS = 600000;
+
+  for (const relPath of WRAPPED_SITES) {
+    const read = () => fs.readFileSync(path.join(ROOT, relPath), 'utf8');
+
+    test(`${relPath}: both diff-review Codex calls run under the wrapper`, () => {
+      const wrapped =
+        read().match(/_gstack_codex_timeout_wrapper\s+\d+\s+codex\s+(exec|review)\b/g) ?? [];
+      // Adversarial pass + structured review pass.
+      expect(wrapped.length).toBeGreaterThanOrEqual(2);
+    });
+
+    test(`${relPath}: does not claim \`timeout\` is unavailable on macOS`, () => {
+      // _gstack_codex_timeout_wrapper resolves gtimeout -> timeout -> unwrapped,
+      // so the coreutils-less case is already handled. The old claim is what
+      // steered these call sites away from the wrapper in the first place.
+      expect(read()).not.toMatch(/doesn't exist on macOS/);
+    });
+
+    test(`${relPath}: wrapper budget stays under the outer Bash gate`, () => {
+      const budgets = [...read().matchAll(/_gstack_codex_timeout_wrapper\s+(\d+)\s+codex\b/g)].map(
+        (m) => Number(m[1]) * 1000,
+      );
+      expect(budgets.length).toBeGreaterThan(0);
+      for (const ms of budgets) {
+        // Inverting this makes the wrapper unreachable: the harness kills the
+        // call first and the exit-124 branch below it becomes dead code.
+        expect(ms).toBeLessThan(BASH_GATE_MS);
+      }
+    });
+  }
+});
