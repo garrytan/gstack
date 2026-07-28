@@ -230,7 +230,7 @@ Each skill feeds into the next. `/office-hours` writes a design doc that `/plan-
 | `/open-gstack-browser` | **GStack Browser** — launch GStack Browser with sidebar, anti-bot stealth, auto model routing (Sonnet for actions, Opus for analysis), one-click cookie import, and Claude Code integration. Clean up pages, take smart screenshots, edit CSS, and pass info back to your terminal. |
 | `/setup-deploy` | **Deploy Configurator** — one-time setup for `/land-and-deploy`. Detects your platform, production URL, and deploy commands. |
 | `/setup-gbrain` | **GBrain Onboarding** — from zero to running gbrain in under 5 minutes. PGLite local, Supabase existing URL, or auto-provision a new Supabase project via Management API. MCP registration for Claude Code + per-repo trust triad (read-write/read-only/deny). [Full guide](USING_GBRAIN_WITH_GSTACK.md). |
-| `/sync-gbrain` | **Keep Brain Current** — re-index this repo's code into gbrain via `gbrain sources add` + `gbrain sync --strategy code`, refresh the `## GBrain Search Guidance` block in CLAUDE.md, and auto-remove guidance when the capability check fails. `--incremental` (default), `--full`, `--dry-run`. Idempotent; safe to re-run. |
+| `/sync-gbrain` | **Keep Repository Index Current** — sync this worktree's code and tracked Markdown through a strict GBrain version/source/path gate, bind the exact HEAD/bookmark, and write a bounded verification receipt. `--code-only` means repository-index stage only. `--dry-run` is an explicitly unvalidated no-probe orchestration preview. [Sync and recovery](docs/repository-index-recovery.md). |
 | `/gstack-upgrade` | **Self-Updater** — upgrade gstack to latest. Detects global vs vendored install, syncs both, shows what changed. |
 | `/ios-qa` | **iOS Live-Device QA (v1.43.0.0+)** — drive a real iPhone over USB CoreDevice via an embedded `StateServer` in the app. Read Swift source, codegen typed `@Observable` accessors, run the agent loop. Optional `--tailnet` flag exposes the device to OpenClaw or any HTTP-capable agent on your Tailscale tailnet so remote agents can run iOS QA without ever touching the hardware. Capability-tier allowlist (observe/interact/mutate/restore), per-device session lock, audit log. |
 | `/ios-fix`, `/ios-design-review`, `/ios-clean`, `/ios-sync` | iOS bug-fix loop, designer's-eye HIG audit, debug-bridge cleanup, and accessor resync. See `docs/skills.md`. End-to-end walkthrough: [docs/howto-ios-testing-with-gstack.md](docs/howto-ios-testing-with-gstack.md). |
@@ -405,7 +405,9 @@ Four paths, pick one:
 
 After init, the skill offers to register gbrain as an MCP server for Claude Code (`claude mcp add gbrain -- gbrain serve`) so `gbrain search`, `gbrain put`, etc. show up as first-class typed tools — not bash shell-outs.
 
-**Keeping the brain current.** Run `/sync-gbrain` from any repo to re-index its code into gbrain (incremental by default, `--full` for a full reindex, `--dry-run` to preview). The skill registers the cwd as a federated source via `gbrain sources add`, runs `gbrain sync --strategy code`, and writes a `## GBrain Search Guidance` block to your project's CLAUDE.md so the agent prefers `gbrain search`/`code-def`/`code-refs` over Grep. The block is removed automatically if the capability check fails — no stale guidance pointing at tools that aren't installed.
+**Keeping the repository index current.** Run `/sync-gbrain` after committed code or tracked Markdown changes. Compatible releases use `gbrain sync --strategy auto --no-pull` with the exact source, canonical worktree root, full HEAD, and prior bookmark. A missing source is registered on the first invocation and deliberately stops before content sync; the second invocation can plan against its real bookmark. The wrapper never repairs path drift by remove/re-add and writes `~/.gstack/.gbrain-repository-index-receipt.json` only after clean-HEAD bookmark, strategy, wrapper-owned source-marker attachment, a final strict source reread, bounded affected-item, and zero-image-operation checks pass. Consume it through `gstack-gbrain-sync --verify-receipt --json`, which binds the persisted evidence to the live canonical root and full HEAD.
+
+`/sync-gbrain --dry-run` is only **`ORCHESTRATION PREVIEW — unvalidated`**: it performs no Git, engine, source, path, or content probes. Use the version/source-gated direct GBrain preview in the [repository index sync and recovery guide](docs/repository-index-recovery.md) when you need an actual content plan. GBrain `0.42.70.0` is the paired-release floor.
 
 **Per-remote trust policy.** Each repo on your machine gets one of three tiers:
 
@@ -425,7 +427,7 @@ gstack-brain-init
 
 **Full monty — every scenario, every flag, every bin helper, every troubleshooting step:** [USING_GBRAIN_WITH_GSTACK.md](USING_GBRAIN_WITH_GSTACK.md)
 
-Other references: [docs/gbrain-sync.md](docs/gbrain-sync.md) (sync-specific guide) • [docs/gbrain-sync-errors.md](docs/gbrain-sync-errors.md) (error index)
+Other references: [repository index sync and recovery](docs/repository-index-recovery.md) • [cross-machine GStack artifact sync](docs/gbrain-sync.md) • [artifact-sync error index](docs/gbrain-sync-errors.md)
 
 ## Docs
 
@@ -435,7 +437,8 @@ Other references: [docs/gbrain-sync.md](docs/gbrain-sync.md) (sync-specific guid
 | [Diagrams & Document Formats](docs/howto-diagrams-and-formats.md) | Mermaid/excalidraw fences in PDFs, image sizing and safety defaults, `--to html\|docx`, `/diagram` triplets |
 | [Builder Ethos](ETHOS.md) | Builder philosophy: Boil the Ocean, Search Before Building, three layers of knowledge |
 | [Using GBrain with GStack](USING_GBRAIN_WITH_GSTACK.md) | Every path, flag, bin helper, and troubleshooting step for `/setup-gbrain` |
-| [GBrain Sync](docs/gbrain-sync.md) | Cross-machine memory setup, privacy modes, troubleshooting |
+| [Repository Index Sync and Recovery](docs/repository-index-recovery.md) | Version/source/path gates, preview assurance, receipts, and recovery |
+| [GStack Artifact Sync](docs/gbrain-sync.md) | Cross-machine memory setup, privacy modes, troubleshooting |
 | [Architecture](ARCHITECTURE.md) | Design decisions and system internals |
 | [Browser Reference](BROWSER.md) | Full command reference for `/browse` |
 | [Contributing](CONTRIBUTING.md) | Dev setup, testing, contributor mode, and dev mode |

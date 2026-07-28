@@ -264,8 +264,8 @@
       "voice_line": null
     },
     "sync-gbrain": {
-      "lead": "Keep gbrain current with this repo's code and refresh agent search guidance in CLAUDE.md. Wraps the gstack-gbrain-sync orchestrator with state",
-      "routing": "probing, native code-surface registration, capability checks,\nand a verdict block. Re-runnable, idempotent. Use when: \"sync gbrain\",\n\"refresh gbrain\", \"re-index this repo\", \"gbrain search isn't finding\nthings\".",
+      "lead": "Keep gbrain current with this repo's code and tracked Markdown, and refresh agent search guidance in CLAUDE.md. Wraps the gstack-gbrain-sync",
+      "routing": "orchestrator with\nstrict version/source/path preflight, expected-state sync, a bounded\nreceipt, capability checks, and a verdict block. Use when: \"sync gbrain\",\n\"refresh gbrain\", \"re-index this repo\", \"gbrain search isn't finding\nthings\".",
       "voice_line": null
     },
     "unfreeze": {

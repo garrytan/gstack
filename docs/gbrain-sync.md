@@ -1,10 +1,14 @@
-# Cross-machine memory with GBrain sync
+# Cross-machine GStack artifact sync
 
 gstack writes a lot of useful state to `~/.gstack/` — learnings, retros, CEO
 plans, design docs, developer profile. By default, all of that dies when you
-switch laptops. **GBrain sync** pushes a curated subset to a private git
-repo so your memory follows you across machines and becomes indexable by
-GBrain.
+switch laptops. **GStack artifact sync** pushes a curated subset to a private
+Git repository so your memory follows you across machines. Optional source
+wireup can then make that artifact repository indexable by GBrain.
+
+This is not the current-worktree repository-index stage of `/sync-gbrain`.
+For code + tracked Markdown, version/source/path gates, receipts, and recovery,
+see [Repository index sync and recovery](repository-index-recovery.md).
 
 ## What you get
 

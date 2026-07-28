@@ -8,12 +8,13 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, mkdirSync, chmodSync } from "fs";
+import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, mkdirSync, chmodSync, utimesSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { spawnSync } from "child_process";
 
 import {
+  deriveCodeSourceId,
   derivePathOnlyHashLegacyId,
   planHostnameFoldMigration,
   sourceLocalPath,
@@ -26,17 +27,37 @@ function makeTestHome(): string {
   return mkdtempSync(join(tmpdir(), "gstack-gbrain-sync-"));
 }
 
-function runScript(args: string[], env: Record<string, string> = {}): { stdout: string; stderr: string; exitCode: number } {
+function runScript(
+  args: string[],
+  env: Record<string, string> = {},
+  cwd?: string,
+): { stdout: string; stderr: string; exitCode: number } {
   const result = spawnSync("bun", [SCRIPT, ...args], {
     encoding: "utf-8",
     timeout: 60000,
     env: { ...process.env, ...env },
+    cwd,
   });
   return {
     stdout: result.stdout || "",
     stderr: result.stderr || "",
     exitCode: result.status ?? 1,
   };
+}
+
+function sourceIdFor(repo: string, hostname?: string): string {
+  const cwd = process.cwd();
+  const previousHostname = process.env.GSTACK_HOSTNAME;
+  try {
+    process.chdir(repo);
+    if (hostname === undefined) delete process.env.GSTACK_HOSTNAME;
+    else process.env.GSTACK_HOSTNAME = hostname;
+    return deriveCodeSourceId(repo);
+  } finally {
+    process.chdir(cwd);
+    if (previousHostname === undefined) delete process.env.GSTACK_HOSTNAME;
+    else process.env.GSTACK_HOSTNAME = previousHostname;
+  }
 }
 
 describe("gstack-gbrain-sync CLI", () => {
@@ -55,6 +76,67 @@ describe("gstack-gbrain-sync CLI", () => {
     expect(r.stderr).toContain("Unknown argument: --bogus");
   });
 
+  it("--json reports unknown arguments as one document in either order", () => {
+    for (const args of [
+      ["--json", "--bogus"],
+      ["--bogus", "--json"],
+    ]) {
+      const r = runScript(args);
+      expect(r.exitCode).toBe(1);
+      expect(r.stderr).toBe("");
+      expect(r.stdout.trim().split("\n")).toHaveLength(1);
+      expect(JSON.parse(r.stdout)).toMatchObject({
+        schema_version: 1,
+        result_kind: "repository_index",
+        status: "error",
+        reason_code: "invalid_arguments",
+        state_changed: "none",
+      });
+    }
+  });
+
+  it("conflicting modes refuse before probe or lock in either order", () => {
+    for (const args of [
+      ["--dry-run", "--full"],
+      ["--full", "--dry-run"],
+    ]) {
+      const home = makeTestHome();
+      const gstackHome = join(home, ".gstack");
+      const r = runScript([...args, "--quiet"], {
+        HOME: home,
+        GSTACK_HOME: gstackHome,
+      });
+      expect(r.exitCode).toBe(1);
+      expect(r.stderr).toContain("Conflicting modes:");
+      expect(existsSync(join(gstackHome, ".sync-gbrain.lock"))).toBe(false);
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it("conflicting modes preserve the one-document JSON contract", () => {
+    for (const args of [
+      ["--json", "--dry-run", "--full"],
+      ["--full", "--dry-run", "--json"],
+    ]) {
+      const home = makeTestHome();
+      const gstackHome = join(home, ".gstack");
+      const r = runScript(args, {
+        HOME: home,
+        GSTACK_HOME: gstackHome,
+      });
+      expect(r.exitCode).toBe(1);
+      expect(r.stderr).toBe("");
+      expect(r.stdout.trim().split("\n")).toHaveLength(1);
+      expect(JSON.parse(r.stdout)).toMatchObject({
+        result_kind: "repository_index",
+        reason_code: "invalid_arguments",
+        state_changed: "none",
+      });
+      expect(existsSync(join(gstackHome, ".sync-gbrain.lock"))).toBe(false);
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
   it("uses the shared local gbrain status classifier instead of shelling through command -v", () => {
     const source = readFileSync(SCRIPT, "utf-8");
 
@@ -62,64 +144,112 @@ describe("gstack-gbrain-sync CLI", () => {
     expect(source).toContain("localEngineStatus");
   });
 
-  it("--dry-run with --code-only reports the code import preview only", () => {
+  it("--dry-run with --code-only reports an unvalidated no-probe preview", () => {
     const home = makeTestHome();
     const gstackHome = join(home, ".gstack");
     mkdirSync(gstackHome, { recursive: true });
 
     const r = runScript(["--dry-run", "--code-only", "--quiet"], { HOME: home, GSTACK_HOME: gstackHome });
     expect(r.exitCode).toBe(0);
-    // Code stage now uses native code surface: sources add + sync --strategy code
-    // (NOT gbrain import — that's the markdown-only path that was rejected post-codex).
-    expect(r.stdout).toContain("would: gbrain sources add");
-    expect(r.stdout).toContain("gbrain sync --strategy code");
-    expect(r.stdout).not.toContain("gbrain import");
-    // memory + brain-sync stages should not appear
-    expect(r.stdout).not.toContain("gstack-memory-ingest --probe");
-    expect(r.stdout).not.toContain("gstack-brain-sync --discover-new");
+    expect(r.stdout).toContain("ORCHESTRATION PREVIEW — unvalidated");
+    expect(r.stdout).toContain("GBrain was not contacted.");
+    expect(r.stdout).toContain("blocked_until_version_proven");
+    expect(r.stdout).not.toContain("gbrain sync --strategy");
     rmSync(home, { recursive: true, force: true });
   });
 
-  it("--dry-run with all stages shows previews for all three", () => {
+  it("--dry-run never claims stage-level actions were validated", () => {
     const home = makeTestHome();
     const gstackHome = join(home, ".gstack");
     mkdirSync(gstackHome, { recursive: true });
 
     const r = runScript(["--dry-run"], { HOME: home, GSTACK_HOME: gstackHome });
     expect(r.exitCode).toBe(0);
-    expect(r.stdout).toContain("would: gbrain sources add");
-    expect(r.stdout).toContain("gbrain sync --strategy code");
-    expect(r.stdout).toContain("would: gstack-memory-ingest");
-    expect(r.stdout).toContain("would: gstack-brain-sync");
+    expect(r.stdout).toContain("ORCHESTRATION PREVIEW — unvalidated");
+    expect(r.stdout).not.toContain("would: gbrain sources add");
+    expect(r.stdout).not.toContain("would: gstack-memory-ingest");
+    expect(r.stdout).not.toContain("would: gstack-brain-sync");
     rmSync(home, { recursive: true, force: true });
   });
 
-  it("--no-code skips the code import stage", () => {
+  it("--no-code does not turn dry-run into a probed stage preview", () => {
     const home = makeTestHome();
     const gstackHome = join(home, ".gstack");
     mkdirSync(gstackHome, { recursive: true });
 
     const r = runScript(["--dry-run", "--no-code"], { HOME: home, GSTACK_HOME: gstackHome });
     expect(r.exitCode).toBe(0);
-    expect(r.stdout).not.toContain("would: gbrain sources add");
-    expect(r.stdout).toContain("would: gstack-memory-ingest");
+    expect(r.stdout).toContain("ORCHESTRATION PREVIEW — unvalidated");
+    expect(r.stdout).not.toContain("would:");
     rmSync(home, { recursive: true, force: true });
   });
 
-  it("dry-run derives a stable source id from the canonical git remote", () => {
-    // The source id pattern is `gstack-code-<canonicalized-remote>`. For this
-    // repo (github.com/garrytan/gstack), the slug should appear in the dry-run
-    // preview line. We don't pin the exact slug — just verify the prefix +
-    // that the preview command would target a source with id gstack-code-*.
+  it("--verify-receipt is read-only, one-document, and never contacts gbrain", () => {
     const home = makeTestHome();
     const gstackHome = join(home, ".gstack");
+    const binDir = join(home, "bin");
+    const invocationLog = join(home, "gbrain-invocations.log");
+    const repo = mkdtempSync(join(tmpdir(), "gstack-receipt-cli-"));
     mkdirSync(gstackHome, { recursive: true });
+    mkdirSync(binDir);
+    expect(
+      spawnSync("git", ["init", "--quiet", "-b", "main"], { cwd: repo })
+        .status,
+    ).toBe(0);
+    const fakeGbrain = join(binDir, "gbrain");
+    writeFileSync(
+      fakeGbrain,
+      `#!/bin/sh
+printf '%s\\n' "$*" >> "$GSTACK_TEST_GBRAIN_LOG"
+exit 99
+`,
+    );
+    chmodSync(fakeGbrain, 0o755);
 
-    const r = runScript(["--dry-run", "--code-only", "--quiet"], { HOME: home, GSTACK_HOME: gstackHome });
-    expect(r.exitCode).toBe(0);
-    expect(r.stdout).toMatch(/gbrain sources add gstack-code-[a-z0-9-]+/);
-    expect(r.stdout).toMatch(/gbrain sync --strategy code --source gstack-code-[a-z0-9-]+/);
+    const result = runScript(
+      ["--verify-receipt", "--json", "--quiet"],
+      {
+        HOME: home,
+        GSTACK_HOME: gstackHome,
+        GSTACK_TEST_GBRAIN_LOG: invocationLog,
+        PATH: `${binDir}:${process.env.PATH ?? ""}`,
+      },
+      repo,
+    );
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toBe("");
+    expect(result.stdout.trim().split("\n")).toHaveLength(1);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      result_kind: "repository_index",
+      reason_code: "receipt_missing",
+      state_changed: "none",
+    });
+    expect(existsSync(invocationLog)).toBe(false);
+    expect(existsSync(join(gstackHome, ".sync-gbrain.lock"))).toBe(false);
+    rmSync(repo, { recursive: true, force: true });
     rmSync(home, { recursive: true, force: true });
+  });
+
+  it("--verify-receipt refuses execution-mode flags before probes", () => {
+    const result = runScript([
+      "--verify-receipt",
+      "--dry-run",
+      "--json",
+    ]);
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toBe("");
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      reason_code: "invalid_arguments",
+      state_changed: "none",
+    });
+  });
+
+  it("derives a stable source id from the canonical git remote", () => {
+    const first = sourceIdFor(process.cwd());
+    const second = sourceIdFor(process.cwd());
+    expect(first).toBe(second);
+    expect(first).toMatch(/^gstack-code-[a-z0-9-]+$/);
   });
 
   it("derived source ids are gbrain-valid (≤32 chars, alnum + interior hyphens, no dots) for any remote", () => {
@@ -144,16 +274,7 @@ describe("gstack-gbrain-sync CLI", () => {
       spawnSync("git", ["init", "--quiet", "-b", "main"], { cwd: repo });
       spawnSync("git", ["remote", "add", "origin", remote], { cwd: repo });
 
-      const r = spawnSync("bun", [SCRIPT, "--dry-run", "--code-only", "--quiet"], {
-        encoding: "utf-8",
-        timeout: 60000,
-        cwd: repo,
-        env: { ...process.env, HOME: home, GSTACK_HOME: gstackHome },
-      });
-      expect(r.status).toBe(0);
-      const m = (r.stdout || "").match(/gbrain sources add (\S+)/);
-      expect(m).not.toBeNull();
-      const id = m![1];
+      const id = sourceIdFor(repo);
       expect(id.length).toBeLessThanOrEqual(32);
       expect(id).toMatch(VALID_ID);
       expect(id.startsWith("gstack-code-")).toBe(true);
@@ -174,16 +295,7 @@ describe("gstack-gbrain-sync CLI", () => {
     spawnSync("git", ["init", "--quiet", "-b", "main"], { cwd: repo });
     // No `git remote add origin` — this is the no-remote case.
 
-    const r = spawnSync("bun", [SCRIPT, "--dry-run", "--code-only", "--quiet"], {
-      encoding: "utf-8",
-      timeout: 60000,
-      cwd: repo,
-      env: { ...process.env, HOME: home, GSTACK_HOME: gstackHome },
-    });
-    expect(r.status).toBe(0);
-    const m = (r.stdout || "").match(/gbrain sources add (\S+)/);
-    expect(m).not.toBeNull();
-    const id = m![1];
+    const id = sourceIdFor(repo);
     expect(id.startsWith("gstack-code-")).toBe(true);
     expect(id.length).toBeLessThanOrEqual(32);
     expect(id).toMatch(/^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$/);
@@ -209,16 +321,7 @@ describe("gstack-gbrain-sync CLI", () => {
     spawnSync("git", ["init", "--quiet", "-b", "main"], { cwd: repo });
     // No `origin` remote — forces the basename-fallback path.
 
-    const r = spawnSync("bun", [SCRIPT, "--dry-run", "--code-only", "--quiet"], {
-      encoding: "utf-8",
-      timeout: 60000,
-      cwd: repo,
-      env: { ...process.env, HOME: home, GSTACK_HOME: gstackHome },
-    });
-    expect(r.status).toBe(0);
-    const m = (r.stdout || "").match(/gbrain sources add (\S+)/);
-    expect(m).not.toBeNull();
-    const id = m![1];
+    const id = sourceIdFor(repo);
     // gbrain validator: 1-32 lowercase alnum + interior hyphens, no leading
     // or trailing hyphens.
     expect(id.startsWith("gstack-code-")).toBe(true);
@@ -243,46 +346,20 @@ describe("gstack-gbrain-sync CLI", () => {
     spawnSync("git", ["init", "--quiet", "-b", "main"], { cwd: repo });
     spawnSync("git", ["remote", "add", "origin", "https://github.com/example/multihost.git"], { cwd: repo });
 
-    // Dry-run still gates the code stage on `command -v gbrain`. Drop a no-op
-    // shim on PATH so the stage runs (we only assert the preview line, never
-    // invoke gbrain itself).
-    const bindir = mkdtempSync(join(tmpdir(), "gstack-host-collide-bin-"));
-    const shim = join(bindir, "gbrain");
-    writeFileSync(shim, "#!/bin/sh\nexit 0\n");
-    chmodSync(shim, 0o755);
-    const PATH = `${bindir}:${process.env.PATH || ""}`;
-
-    const runAs = (host: string) =>
-      spawnSync("bun", [SCRIPT, "--dry-run", "--code-only", "--quiet"], {
-        encoding: "utf-8",
-        timeout: 60000,
-        cwd: repo,
-        env: { ...process.env, HOME: home, GSTACK_HOME: gstackHome, GSTACK_HOSTNAME: host, PATH },
-      });
-
-    const a = runAs("machine-a");
-    const b = runAs("machine-b");
-    expect(a.status).toBe(0);
-    expect(b.status).toBe(0);
-    const idA = (a.stdout || "").match(/gbrain sources add (\S+)/)?.[1];
-    const idB = (b.stdout || "").match(/gbrain sources add (\S+)/)?.[1];
-    expect(idA).toBeTruthy();
-    expect(idB).toBeTruthy();
+    const idA = sourceIdFor(repo, "machine-a");
+    const idB = sourceIdFor(repo, "machine-b");
     expect(idA).not.toBe(idB);
     // Both still gbrain-valid.
     const VALID_ID = /^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$/;
-    expect(idA!).toMatch(VALID_ID);
-    expect(idB!).toMatch(VALID_ID);
+    expect(idA).toMatch(VALID_ID);
+    expect(idB).toMatch(VALID_ID);
 
     // Same host + same path stays stable across invocations.
-    const a2 = runAs("machine-a");
-    expect(a2.status).toBe(0);
-    const idA2 = (a2.stdout || "").match(/gbrain sources add (\S+)/)?.[1];
+    const idA2 = sourceIdFor(repo, "machine-a");
     expect(idA2).toBe(idA);
 
     rmSync(repo, { recursive: true, force: true });
     rmSync(home, { recursive: true, force: true });
-    rmSync(bindir, { recursive: true, force: true });
   });
 
   it("dry-run does NOT acquire the lock file (lock is for write paths only)", () => {
@@ -298,27 +375,316 @@ describe("gstack-gbrain-sync CLI", () => {
     rmSync(home, { recursive: true, force: true });
   });
 
-  it("a stale lock file (older than 5 min) is taken over, not blocking", () => {
+  it("holds the wrapper lock across CLI source registration, sync, and attach mutations", () => {
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    const binDir = join(home, "bin");
+    const mutationLog = join(home, "gbrain-mutations.log");
+    const registryMarker = join(home, "source-registered");
+    const lockPath = join(gstackHome, ".sync-gbrain.lock");
+    const repo = mkdtempSync(join(tmpdir(), "gstack-lock-contract-"));
+    mkdirSync(gstackHome, { recursive: true });
+    mkdirSync(binDir);
+    expect(
+      spawnSync("git", ["init", "--quiet", "-b", "main"], { cwd: repo })
+        .status,
+    ).toBe(0);
+    expect(
+      spawnSync("git", ["config", "user.email", "gstack@test.invalid"], {
+        cwd: repo,
+      }).status,
+    ).toBe(0);
+    expect(
+      spawnSync("git", ["config", "user.name", "gstack test"], {
+        cwd: repo,
+      }).status,
+    ).toBe(0);
+    writeFileSync(join(repo, "README.md"), "# lock contract\n");
+    expect(spawnSync("git", ["add", "README.md"], { cwd: repo }).status).toBe(
+      0,
+    );
+    expect(
+      spawnSync("git", ["commit", "--quiet", "-m", "fixture"], { cwd: repo })
+        .status,
+    ).toBe(0);
+
+    const canonicalRepo = spawnSync(
+      "git",
+      ["rev-parse", "--show-toplevel"],
+      { cwd: repo, encoding: "utf-8" },
+    ).stdout.trim();
+    const sourceId = sourceIdFor(canonicalRepo);
+    const head = spawnSync("git", ["rev-parse", "HEAD"], {
+      cwd: repo,
+      encoding: "utf-8",
+    }).stdout.trim();
+    const sourceSnapshot = JSON.stringify({
+      sources: [
+        {
+          id: sourceId,
+          local_path: ".",
+          last_commit: head,
+          last_successful_strategy: "auto",
+        },
+      ],
+    });
+    const syncResult = JSON.stringify({
+      schema_version: 1,
+      result_kind: "gbrain_sync",
+      status: "up_to_date",
+      source: { id: sourceId },
+      repository: {
+        from_commit: head,
+        target_commit: head,
+        bookmark_after: head,
+        last_successful_strategy: "auto",
+      },
+      strategy: "auto",
+      strategy_changed: false,
+      operations: { added: 0, modified: 0, deleted: 0, renamed: 0 },
+      affected: {
+        total: 0,
+        sample_limit: 100,
+        sample: [],
+        truncated: false,
+      },
+      affected_digest:
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      corpus: {
+        markdown_planned_or_applied: 0,
+        code_pages_before: 0,
+        code_pages_after: 0,
+        code_deletions_applied: 0,
+        image_operations_applied: 0,
+        image_pages_after: 0,
+        multimodal_enabled: false,
+        embedding_status: "deferred",
+        extraction_status: "deferred",
+        search_ready: false,
+      },
+    });
+    const fakeGbrain = join(binDir, "gbrain");
+    writeFileSync(
+      fakeGbrain,
+      `#!/bin/sh
+assert_wrapper_lock() {
+  if [ ! -f "$GSTACK_HOME/.sync-gbrain.lock" ]; then
+    printf 'wrapper lock missing for %s\\n' "$*" >&2
+    exit 91
+  fi
+  lock_payload=$(read_lock_payload < "$GSTACK_HOME/.sync-gbrain.lock")
+  case "$lock_payload" in
+    *'"pid":'"$PPID"','*'"started_at":'*) ;;
+    *) printf 'wrapper lock malformed for %s\\n' "$*" >&2; exit 92 ;;
+  esac
+  printf '%s lock=held\\n' "$*" >> "$GSTACK_TEST_GBRAIN_LOG"
+}
+read_lock_payload() {
+  IFS= read -r payload
+  printf '%s' "$payload"
+}
+if [ "$1" = "--version" ]; then
+  printf 'gbrain 0.42.70.0\\n'
+  exit 0
+fi
+if [ "$1" = "sources" ] && [ "$2" = "list" ]; then
+  if [ -f "$GSTACK_TEST_REGISTRY_MARKER" ]; then
+    printf '%s\\n' "$GSTACK_TEST_SOURCE_SNAPSHOT"
+  else
+    printf '{"sources":[]}\\n'
+  fi
+  exit 0
+fi
+if [ "$1" = "sources" ] && [ "$2" = "add" ]; then
+  assert_wrapper_lock "$@"
+  : > "$GSTACK_TEST_REGISTRY_MARKER"
+  exit 0
+fi
+if [ "$1" = "sync" ]; then
+  assert_wrapper_lock "$@"
+  printf '%s\\n' "$GSTACK_TEST_SYNC_RESULT"
+  exit 0
+fi
+if [ "$1" = "sources" ] && [ "$2" = "attach" ]; then
+  assert_wrapper_lock "$@"
+  printf '%s\\n' "$GSTACK_TEST_SOURCE_ID" > "$GSTACK_TEST_REPO/.gbrain-source"
+  chmod 0644 "$GSTACK_TEST_REPO/.gbrain-source"
+  exit 0
+fi
+printf 'unexpected gbrain argv: %s\\n' "$*" >&2
+exit 93
+`,
+    );
+    chmodSync(fakeGbrain, 0o755);
+    const env = {
+      HOME: home,
+      GSTACK_HOME: gstackHome,
+      GSTACK_TEST_GBRAIN_LOG: mutationLog,
+      GSTACK_TEST_REGISTRY_MARKER: registryMarker,
+      GSTACK_TEST_SOURCE_SNAPSHOT: sourceSnapshot,
+      GSTACK_TEST_SYNC_RESULT: syncResult,
+      GSTACK_TEST_SOURCE_ID: sourceId,
+      GSTACK_TEST_REPO: repo,
+      PATH: `${binDir}:${process.env.PATH ?? ""}`,
+    };
+
+    try {
+      const registration = runScript(
+        ["--code-only", "--json", "--quiet"],
+        env,
+        repo,
+      );
+      expect(registration.exitCode).toBe(2);
+      expect(registration.stderr).toBe("");
+      expect(JSON.parse(registration.stdout)).toMatchObject({
+        status: "incomplete",
+        reason_code: "source_registered",
+        state_changed: "registry_only",
+      });
+      expect(existsSync(lockPath)).toBe(false);
+
+      const sync = runScript(
+        ["--code-only", "--json", "--quiet"],
+        env,
+        repo,
+      );
+      expect(sync).toMatchObject({ exitCode: 0, stderr: "" });
+      expect(JSON.parse(sync.stdout)).toMatchObject({
+        status: "verified",
+        reason_code: "up_to_date",
+        state_changed: "applied_verified",
+      });
+      expect(existsSync(lockPath)).toBe(false);
+
+      const mutations = readFileSync(mutationLog, "utf-8")
+        .trim()
+        .split("\n");
+      expect(mutations).toHaveLength(2);
+      expect(mutations[0]).toContain(`sources add ${sourceId} `);
+      expect(mutations[1]).toContain(`sync --strategy auto --source ${sourceId} `);
+      expect(mutations.every((line) => line.endsWith(" lock=held"))).toBe(true);
+      expect(readFileSync(join(repo, ".gbrain-source"), "utf-8")).toBe(
+        `${sourceId}\n`,
+      );
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it("an old lock owned by a dead process still fails closed", () => {
     const home = makeTestHome();
     const gstackHome = join(home, ".gstack");
     mkdirSync(gstackHome, { recursive: true });
 
     // Plant a stale lock file (mtime 6 min ago).
     const lockPath = join(gstackHome, ".sync-gbrain.lock");
-    writeFileSync(lockPath, JSON.stringify({ pid: 99999, started_at: new Date(Date.now() - 6 * 60 * 1000).toISOString() }));
+    writeFileSync(lockPath, JSON.stringify({ pid: 2147483647, started_at: new Date(Date.now() - 6 * 60 * 1000).toISOString() }));
     const sixMinAgo = (Date.now() - 6 * 60 * 1000) / 1000;
-    // Set mtime explicitly via Bun's fs.utimes
-    const fs = require("fs");
-    fs.utimesSync(lockPath, sixMinAgo, sixMinAgo);
+    utimesSync(lockPath, sixMinAgo, sixMinAgo);
 
-    // Run with all stages disabled so we don't actually invoke anything heavy.
+    // The wrapper never auto-breaks an existing lock: PID reuse and
+    // check/delete ABA races make that unsafe.
     const r = runScript(["--incremental", "--no-code", "--no-memory", "--no-brain-sync", "--quiet"], {
       HOME: home,
       GSTACK_HOME: gstackHome,
     });
-    expect(r.exitCode).toBe(0);
-    // Lock should be cleared after the run (we took it over and released).
-    expect(existsSync(lockPath)).toBe(false);
+    expect(r.exitCode).toBe(2);
+    expect(r.stderr).toContain("ERROR [lock_busy]");
+    expect(existsSync(lockPath)).toBe(true);
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("an old lock owned by a live process remains lock_busy", () => {
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    mkdirSync(gstackHome, { recursive: true });
+    const lockPath = join(gstackHome, ".sync-gbrain.lock");
+    writeFileSync(
+      lockPath,
+      JSON.stringify({
+        pid: process.pid,
+        started_at: new Date(Date.now() - 6 * 60 * 1000).toISOString(),
+      }),
+    );
+    const sixMinAgo = (Date.now() - 6 * 60 * 1000) / 1000;
+    utimesSync(lockPath, sixMinAgo, sixMinAgo);
+
+    const r = runScript(
+      ["--incremental", "--no-code", "--no-memory", "--no-brain-sync", "--quiet"],
+      { HOME: home, GSTACK_HOME: gstackHome },
+    );
+
+    expect(r.exitCode).toBe(2);
+    expect(r.stderr).toContain("ERROR [lock_busy]");
+    expect(existsSync(lockPath)).toBe(true);
+    expect(JSON.parse(readFileSync(lockPath, "utf-8")).pid).toBe(process.pid);
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("stale-lock contenders never enter the mutation path", async () => {
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    const binDir = join(home, "bin");
+    const invocationLog = join(home, "gbrain-invocations.log");
+    mkdirSync(gstackHome, { recursive: true });
+    mkdirSync(binDir);
+    const lockPath = join(gstackHome, ".sync-gbrain.lock");
+    writeFileSync(
+      lockPath,
+      JSON.stringify({
+        pid: 2147483647,
+        started_at: new Date(Date.now() - 6 * 60 * 1000).toISOString(),
+      }),
+    );
+    const sixMinAgo = (Date.now() - 6 * 60 * 1000) / 1000;
+    utimesSync(lockPath, sixMinAgo, sixMinAgo);
+    const fakeGbrain = join(binDir, "gbrain");
+    writeFileSync(
+      fakeGbrain,
+      `#!/bin/sh
+if [ "$1" = "--version" ]; then
+  printf 'version\\n' >> "$GSTACK_TEST_GBRAIN_LOG"
+  sleep 1
+  printf 'gbrain 0.42.70.0\\n'
+  exit 0
+fi
+exit 1
+`,
+    );
+    chmodSync(fakeGbrain, 0o755);
+    const env = {
+      ...process.env,
+      HOME: home,
+      GSTACK_HOME: gstackHome,
+      GSTACK_TEST_GBRAIN_LOG: invocationLog,
+      PATH: `${binDir}:${process.env.PATH ?? ""}`,
+    };
+    const runContender = async () => {
+      const child = Bun.spawn(
+        ["bun", SCRIPT, "--code-only", "--json", "--quiet"],
+        {
+          cwd: process.cwd(),
+          env,
+          stdout: "pipe",
+          stderr: "pipe",
+        },
+      );
+      const [exitCode, stdout, stderr] = await Promise.all([
+        child.exited,
+        new Response(child.stdout).text(),
+        new Response(child.stderr).text(),
+      ]);
+      return { exitCode, stdout, stderr };
+    };
+
+    const results = await Promise.all([runContender(), runContender()]);
+    expect(
+      results.map((result) => JSON.parse(result.stdout).reason_code),
+    ).toEqual(["lock_busy", "lock_busy"]);
+    expect(results.map((result) => result.exitCode)).toEqual([2, 2]);
+    expect(results.every((result) => result.stderr === "")).toBe(true);
+    expect(existsSync(invocationLog)).toBe(false);
     rmSync(home, { recursive: true, force: true });
   });
 
@@ -336,9 +702,32 @@ describe("gstack-gbrain-sync CLI", () => {
       GSTACK_HOME: gstackHome,
     });
     expect(r.exitCode).toBe(2);
-    expect(r.stderr).toContain("another /sync-gbrain is running");
+    expect(r.stderr).toContain("ERROR [lock_busy]");
     // Lock should still be there — the second invocation didn't take it over.
     expect(existsSync(lockPath)).toBe(true);
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("--json returns one error document when lock setup itself fails", () => {
+    const home = makeTestHome();
+    const invalidGstackHome = join(home, "not-a-directory");
+    writeFileSync(invalidGstackHome, "file blocks mkdir\n");
+
+    const r = runScript(["--code-only", "--json", "--quiet"], {
+      HOME: home,
+      GSTACK_HOME: invalidGstackHome,
+    });
+
+    expect(r.exitCode).toBe(1);
+    expect(r.stderr).toBe("");
+    expect(r.stdout.trim().split("\n")).toHaveLength(1);
+    expect(JSON.parse(r.stdout)).toMatchObject({
+      schema_version: 1,
+      result_kind: "repository_index",
+      status: "error",
+      reason_code: "repository_index_failed",
+      state_changed: "none",
+    });
     rmSync(home, { recursive: true, force: true });
   });
 
@@ -432,18 +821,7 @@ describe("gstack-gbrain-sync CLI", () => {
       spawnSync("git", ["remote", "add", "origin", remote], { cwd: repo });
     }
 
-    const idOf = (cwd: string): string => {
-      const r = spawnSync("bun", [SCRIPT, "--dry-run", "--code-only", "--quiet"], {
-        encoding: "utf-8",
-        timeout: 60000,
-        cwd,
-        env: { ...process.env, HOME: home, GSTACK_HOME: gstackHome },
-      });
-      expect(r.status).toBe(0);
-      const m = (r.stdout || "").match(/gbrain sources add (\S+)/);
-      expect(m).not.toBeNull();
-      return m![1];
-    };
+    const idOf = (cwd: string): string => sourceIdFor(cwd);
 
     const idA = idOf(repoA);
     const idB = idOf(repoB);
@@ -468,28 +846,14 @@ describe("gstack-gbrain-sync CLI", () => {
     spawnSync("git", ["init", "--quiet", "-b", "main"], { cwd: repo });
     spawnSync("git", ["remote", "add", "origin", remote], { cwd: repo });
 
-    const idOf = (): string => {
-      const r = spawnSync("bun", [SCRIPT, "--dry-run", "--code-only", "--quiet"], {
-        encoding: "utf-8",
-        timeout: 60000,
-        cwd: repo,
-        env: { ...process.env, HOME: home, GSTACK_HOME: gstackHome },
-      });
-      expect(r.status).toBe(0);
-      const m = (r.stdout || "").match(/gbrain sources add (\S+)/);
-      expect(m).not.toBeNull();
-      return m![1];
-    };
+    const idOf = (): string => sourceIdFor(repo);
     expect(idOf()).toBe(idOf());
 
     rmSync(repo, { recursive: true, force: true });
     rmSync(home, { recursive: true, force: true });
   });
 
-  it("dry-run preview includes legacy-source removal + attach (post-codex-review hardening)", () => {
-    // Codex adversarial flagged: pre-pathhash `gstack-code-<slug>` sources stay
-    // orphaned forever after the new pathhash id ships. Dry-run preview must
-    // surface the legacy cleanup so the user knows it'll happen.
+  it("dry-run never previews legacy cleanup or executable source mutation", () => {
     const home = makeTestHome();
     const gstackHome = join(home, ".gstack");
     mkdirSync(gstackHome, { recursive: true });
@@ -504,28 +868,16 @@ describe("gstack-gbrain-sync CLI", () => {
       env: { ...process.env, HOME: home, GSTACK_HOME: gstackHome },
     });
     expect(r.status).toBe(0);
-    // The dry-run preview shows what WOULD run; the live path will also
-    // remove the legacy source via `gbrain sources remove gstack-code-<slug>
-    // --confirm-destructive` when that legacy source is registered. We can't
-    // assert the remove step in dry-run because the orchestrator's preview
-    // string lists what it would do, but the legacy removal is gated on the
-    // legacy id being registered (which we can't probe in a sandboxed test
-    // without a real gbrain CLI). Instead, assert the preview still includes
-    // the new flow (sources add + sync + attach) at minimum.
-    expect(r.stdout).toMatch(/gbrain sources add gstack-code-/);
-    expect(r.stdout).toMatch(/gbrain sync --strategy code --source gstack-code-/);
-    expect(r.stdout).toMatch(/gbrain sources attach gstack-code-/);
+    expect(r.stdout).toContain("ORCHESTRATION PREVIEW — unvalidated");
+    expect(r.stdout).not.toContain("sources remove");
+    expect(r.stdout).not.toContain("sources add");
+    expect(r.stdout).not.toContain("sources attach");
 
     rmSync(repo, { recursive: true, force: true });
     rmSync(home, { recursive: true, force: true });
   });
 
-  it("dry-run preview includes the `sources attach` step (kubectl-style CWD pin)", () => {
-    // Post-spike redesign: after sources add + sync, /sync-gbrain calls
-    // `gbrain sources attach <id>` so subsequent gbrain code-def / code-refs
-    // calls from anywhere under the worktree route to this source by default.
-    // The dry-run preview must surface that step so the user knows what we
-    // would do.
+  it("dry-run says attach remains unvalidated", () => {
     const home = makeTestHome();
     const gstackHome = join(home, ".gstack");
     mkdirSync(gstackHome, { recursive: true });
@@ -540,7 +892,8 @@ describe("gstack-gbrain-sync CLI", () => {
       env: { ...process.env, HOME: home, GSTACK_HOME: gstackHome },
     });
     expect(r.status).toBe(0);
-    expect(r.stdout).toMatch(/gbrain sources attach gstack-code-/);
+    expect(r.stdout).toContain("No engine/source/path/content compatibility was proven.");
+    expect(r.stdout).not.toContain("gbrain sources attach");
 
     rmSync(repo, { recursive: true, force: true });
     rmSync(home, { recursive: true, force: true });
@@ -621,23 +974,8 @@ describe("derivePathOnlyHashLegacyId", () => {
       process.chdir(repo);
       process.env.GSTACK_HOSTNAME = "machine-x";
       const legacy = derivePathOnlyHashLegacyId(repo);
-      // Drive the new id through the CLI so we use the same code path users hit.
-      const home = makeTestHome();
-      const gstackHome = join(home, ".gstack");
-      mkdirSync(gstackHome, { recursive: true });
-      const bindir = mkdtempSync(join(tmpdir(), "gstack-legacy-id-distinct-bin-"));
-      makeShim(bindir, { "--help": { stdout: "gbrain\n" } });
-      const r = spawnSync("bun", [SCRIPT, "--dry-run", "--code-only", "--quiet"], {
-        encoding: "utf-8",
-        timeout: 60000,
-        cwd: repo,
-        env: { ...process.env, HOME: home, GSTACK_HOME: gstackHome, GSTACK_HOSTNAME: "machine-x", PATH: `${bindir}:${process.env.PATH || ""}` },
-      });
-      const newId = (r.stdout || "").match(/gbrain sources add (\S+)/)?.[1];
-      expect(newId).toBeTruthy();
+      const newId = deriveCodeSourceId(repo);
       expect(newId).not.toBe(legacy);
-      rmSync(home, { recursive: true, force: true });
-      rmSync(bindir, { recursive: true, force: true });
     } finally {
       delete process.env.GSTACK_HOSTNAME;
       process.chdir(cwd);
@@ -742,8 +1080,8 @@ describe("constrainSourceId truncation (hyphen-boundary cut)", () => {
   // `kill-270c0001` (from `skill`). The new tokenized cut walks hyphen
   // boundaries from the right and only keeps whole tokens.
   //
-  // Exercised via the dry-run preview (`gbrain sources add gstack-code-…`),
-  // since constrainSourceId is module-private.
+  // Exercised through the exported source-id derivation helper; dry-run no
+  // longer inspects Git or prints an executable registration command.
   it("never produces mid-word truncation artifacts like `kill` (from `skill`)", () => {
     const home = makeTestHome();
     const gstackHome = join(home, ".gstack");
@@ -754,21 +1092,13 @@ describe("constrainSourceId truncation (hyphen-boundary cut)", () => {
     // the boundary lands inside the word `skill`.
     spawnSync("git", ["remote", "add", "origin", "https://github.com/drummerms-av-sow-wiz/skill-270c0001.git"], { cwd: repo });
 
-    const r = spawnSync("bun", [SCRIPT, "--dry-run", "--code-only", "--quiet"], {
-      encoding: "utf-8",
-      timeout: 60000,
-      cwd: repo,
-      env: { ...process.env, HOME: home, GSTACK_HOME: gstackHome },
-    });
-    expect(r.status).toBe(0);
-    const id = (r.stdout || "").match(/gbrain sources add (\S+)/)?.[1];
-    expect(id).toBeTruthy();
+    const id = sourceIdFor(repo);
     // The id must not contain the mid-word fragment `kill` (left over from
     // slicing inside `skill`). Tokens that survive truncation must be whole.
     expect(id).not.toMatch(/(^|-)kill(-|$)/);
     // Still gbrain-valid.
-    expect(id!.length).toBeLessThanOrEqual(32);
-    expect(id!).toMatch(/^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$/);
+    expect(id.length).toBeLessThanOrEqual(32);
+    expect(id).toMatch(/^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$/);
 
     rmSync(repo, { recursive: true, force: true });
     rmSync(home, { recursive: true, force: true });
@@ -786,17 +1116,9 @@ describe("constrainSourceId truncation (hyphen-boundary cut)", () => {
     spawnSync("git", ["init", "--quiet", "-b", "main"], { cwd: repo });
     spawnSync("git", ["remote", "add", "origin", "https://github.com/foo/bar.git"], { cwd: repo });
 
-    const r = spawnSync("bun", [SCRIPT, "--dry-run", "--code-only", "--quiet"], {
-      encoding: "utf-8",
-      timeout: 60000,
-      cwd: repo,
-      env: { ...process.env, HOME: home, GSTACK_HOME: gstackHome },
-    });
-    expect(r.status).toBe(0);
-    const id = (r.stdout || "").match(/gbrain sources add (\S+)/)?.[1];
-    expect(id).toBeTruthy();
+    const id = sourceIdFor(repo);
     expect(id).not.toContain(".");
-    expect(id!).toMatch(/^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$/);
+    expect(id).toMatch(/^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$/);
 
     rmSync(repo, { recursive: true, force: true });
     rmSync(home, { recursive: true, force: true });

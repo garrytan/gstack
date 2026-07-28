@@ -2,7 +2,7 @@
 name: sync-gbrain
 preamble-tier: 2
 version: 1.0.0
-description: Keep gbrain current with this repo's code and refresh agent search guidance in CLAUDE.md. Wraps the gstack-gbrain-sync orchestrator with state (gstack)
+description: Keep gbrain current with this repo's code and tracked Markdown, and refresh agent search guidance in CLAUDE.md. Wraps the gstack-gbrain-sync (gstack)
 triggers:
   - sync gbrain
   - refresh gbrain
@@ -23,8 +23,9 @@ allowed-tools:
 
 ## When to invoke this skill
 
-probing, native code-surface registration, capability checks,
-and a verdict block. Re-runnable, idempotent. Use when: "sync gbrain",
+orchestrator with
+strict version/source/path preflight, expected-state sync, a bounded
+receipt, capability checks, and a verdict block. Use when: "sync gbrain",
 "refresh gbrain", "re-index this repo", "gbrain search isn't finding
 things".
 
@@ -784,28 +785,38 @@ Skills that run plan reviews (`/plan-*-review`, `/codex review`) include the EXI
 
 You are running the canonical "keep this brain up to date" verb. /setup-gbrain
 installs gbrain once; /sync-gbrain runs every time the user wants the brain
-refreshed against this repo's current state, and refreshes the agent-side
+refreshed against this repo's committed code and tracked Markdown, and refreshes the agent-side
 guidance in CLAUDE.md so the coding agent knows when to prefer `gbrain`
 search over Grep.
 
-**Architecture (post-codex review):** This skill uses gbrain v0.20.0+'s
-**native code surfaces** (`gbrain sources add`, `gbrain sync --strategy code`,
-`gbrain reindex-code`, `gbrain code-def/code-refs/code-callers/code-callees`).
-It does NOT use `gbrain import` (that path is for markdown directories).
+**Repository-index architecture:** This skill requires GBrain
+`>= 0.42.70.0` and uses its expected-state repository surface
+(`gbrain sync --strategy auto --no-pull --expected-target
+--expected-bookmark --json`). It indexes admitted code plus tracked Markdown,
+accepts only a schema-1 terminal child result, and writes a clean-HEAD receipt
+after source/bookmark, wrapper-owned marker, final source-reread, and live
+worktree verification.
 It does NOT touch `~/.gstack/` indexing (the existing `gstack-gbrain-source-wireup`
 owns that — never double-store).
+
+This repository index is distinct from **GStack artifact sync**, which moves a
+curated subset of `~/.gstack/` through a private Git repository. The artifact
+workflow is documented in `docs/gbrain-sync.md`; repository-index recovery is
+documented in `docs/repository-index-recovery.md`.
 
 ## User-invocable
 
 When the user types `/sync-gbrain`, run this skill. Argument modes (parsed by
 the skill itself, not a dispatcher binary):
 
-- `/sync-gbrain` — incremental sync (default; mtime fast-path; ~50ms steady-state)
-- `/sync-gbrain --full` — full code reindex via `gbrain reindex-code` (~25-35 min on a big repo). Auto-builds the call graph (`gbrain dream`) **only when it was never built**.
+- `/sync-gbrain` — expected-state repository sync plus enabled downstream memory/artifact stages
+- `/sync-gbrain --full` — repository sync plus full downstream maintenance. Auto-builds the call graph (`gbrain dream`) **only when it was never built**.
 - `/sync-gbrain --dream` — build this source's call graph (`gbrain code-callers`/`code-callees`) via a source-scoped `gbrain dream --source <id>` cycle; ~minutes; runs lock-free after the sync stages. Always forces, even if already built. Only produces a graph on a code-aware schema pack; otherwise the run reports a WARN explaining why the graph is still empty.
 - `/sync-gbrain --no-dream` — skip the dream cycle that `--full` would otherwise auto-run.
-- `/sync-gbrain --code-only` — only run the code stage; skip memory + brain-sync
-- `/sync-gbrain --dry-run` — preview what would sync; no writes anywhere
+- `/sync-gbrain --code-only` — legacy flag name: run only the repository-index stage (code + tracked Markdown); skip memory + artifact sync
+- `/sync-gbrain --dry-run` — `ORCHESTRATION PREVIEW — unvalidated`; no Git/engine/source/path/content probes and no writes
+- `/sync-gbrain --json` — emit exactly one schema-1 `repository_index` JSON document
+- `/sync-gbrain --verify-receipt` — read-only proof that the persisted GREEN receipt matches this live canonical worktree and clean full HEAD
 - `/sync-gbrain --no-memory` / `--no-brain-sync` — selectively skip stages
 - `/sync-gbrain --quiet` — suppress per-stage output
 - `/sync-gbrain --refresh-cache` — force-rebuild brain-aware planning cache (v1.48; replaces /brain-refresh-context per D1 fold). Skips code + memory stages; routes to `gstack-brain-cache refresh --project <slug>`.
@@ -814,11 +825,32 @@ the skill itself, not a dispatcher binary):
 Pass-through args go straight to the orchestrator at
 `~/.claude/skills/gstack/bin/gstack-gbrain-sync.ts`.
 
+### `--dry-run` assurance short-circuit
+
+When `--dry-run` is present, run the orchestrator immediately and STOP this
+skill after showing its result. Do not run Step 1 detection, trust prompts,
+engine/source probes, capability writes, CLAUDE.md edits, health checks,
+artifact sync, or dream.
+
+The first line must be exactly:
+
+```text
+ORCHESTRATION PREVIEW — unvalidated
+```
+
+This is a no-probe wrapper preview. It proves no installed version, source,
+canonical path, bookmark, or content plan, and its machine reason is
+`blocked_until_version_proven` with `state_changed: none`. Never print an
+unconditional raw GBrain apply command from this mode. A validated direct
+content preview is allowed only after proving GBrain `>= 0.42.70.0`, the unique
+source, canonical root, full HEAD, and bookmark; use the exact recovery command
+in `docs/repository-index-recovery.md`.
+
 **`--refresh-cache` short-circuit:** when this flag is present, the skill
 runs ONLY the cache refresh (`gstack-brain-cache refresh --project <slug>`
 for the current worktree's slug, plus a cross-project refresh of
-user-profile if `gstack/user-profile/<user-slug>` exists). Code +
-memory + brain-sync stages are skipped. Useful when the user knows the
+user-profile if `gstack/user-profile/<user-slug>` exists). Repository index,
+memory ingest, and artifact-sync stages are skipped. Useful when the user knows the
 brain has new info gstack should pick up before the next planning skill.
 
 **`--audit` short-circuit:** when this flag is present, the skill runs
@@ -860,18 +892,19 @@ If `_POLICY == "unset"` AND `_HASH == "local"`, auto-set personal:
 ~/.claude/skills/gstack/bin/gstack-config set brain_trust_policy@$_HASH personal
 ```
 
-**Split-engine model (v1.34.0.0+).** Code stage runs locally against the
+**Split-engine model (v1.34.0.0+).** Repository-index stage runs locally against the
 per-machine gbrain engine (PGLite or whatever `gbrain config` points to),
 with each worktree of a repo registered as its own source. **Memory stage
 also runs locally** in local-stdio MCP mode — `gstack-memory-ingest` shells
 out to `gbrain import` against the same local engine. In remote-http MCP
 mode (Path 4), the memory stage instead persists staged markdown to
 `~/.gstack/transcripts/<run-id>/` and the artifacts pipeline pushes it to
-the brain admin's pull job (plan D11). Brain-sync (the `gstack-brain-sync`
-push to git) is the one stage that never touches local engine and runs
-regardless of mode.
+the brain admin's pull job (plan D11). GStack artifact sync
+(`gstack-brain-sync`, a Git push) never touches the local engine, but it does
+not run past a terminal repository-index boundary unless repository indexing
+was explicitly skipped.
 
-Practically: local PGLite stays code-only on remote-http machines; the
+Practically: local PGLite stays repository-index-only on remote-http machines; the
 remote brain holds everything else. Local-stdio machines mix code +
 transcripts in one local engine, as they always have.
 
@@ -904,11 +937,10 @@ BEFORE invoking the orchestrator:
   symbol code search needs a local PGLite. Run `/setup-gbrain` and pick
   'Yes' at the new 'local code index' prompt (Step 4.5), or run
   `gbrain init --pglite --json --embedding-model voyage:voyage-code-3 --embedding-dimensions 1024`
-  directly (drop the voyage flags if `VOYAGE_API_KEY` isn't set). Continuing
-  without code stage."
-  Then proceed to Step 2 — the orchestrator's `runCodeImport()` and
-  `runMemoryIngest()` will return SKIP per plan D12; only `runBrainSyncPush()`
-  will run. Do NOT abort.
+  directly (drop the voyage flags if `VOYAGE_API_KEY` isn't set)."
+  STOP unless the user explicitly passed `--no-code`. With `--no-code`, Step 2
+  may run the non-repository stages; without it, a repository source snapshot
+  cannot be proven and the repository gate is terminal.
 - **`missing-config`** AND `gbrain_mcp_mode != "remote-http"`: STOP. "Local
   gbrain CLI is installed but no engine config. Run `/setup-gbrain` first."
 - **`broken-config`** OR **`broken-db`**: STOP with a clear message:
@@ -922,13 +954,14 @@ BEFORE invoking the orchestrator:
           --embedding-dimensions 1024   (drop voyage flags if VOYAGE_API_KEY unset)
   Re-run /sync-gbrain after.
   ```
-  Do NOT continue — the orchestrator would skip code+memory and only run
-  brain-sync, which is a degraded state the user should fix explicitly.
+  Do NOT continue — repository version/source/bookmark proof cannot complete
+  against a broken engine. If the user explicitly wants only Git artifact
+  transport, they must choose `--no-code --no-memory`.
 
-This pre-flight short-circuits the orchestrator before it spends ~80ms
-probing the engine again. The orchestrator independently runs the same
-classifier for defense-in-depth, but Step 1.5's STOP is where the user
-gets the actionable remediation message.
+This skill-level pre-flight provides actionable remediation. The wrapper still
+performs its own strict version and source snapshot checks and fails closed if
+the configured engine cannot supply them; the memory stage retains its own
+local-engine classifier.
 
 ---
 
@@ -941,46 +974,74 @@ as-is.
 bun run ~/.claude/skills/gstack/bin/gstack-gbrain-sync.ts <user-args>
 ```
 
-The orchestrator runs three stages: code → memory → brain-sync (per the
-plan's storage tiering). Each stage failure is non-fatal; subsequent stages
-still run. State is persisted to `~/.gstack/.gbrain-sync-state.json` via
-tmp-file + atomic rename. Concurrent runs are blocked by a lock file at
-`~/.gstack/.sync-gbrain.lock` (5-min stale-takeover).
+Record the command's exit code. If the repository stage was enabled and the
+command exits nonzero, STOP on that current result and do not consult a
+previously persisted receipt. If the user passed `--no-code`, report the
+repository stage as explicitly skipped; do not run Step 3 and do not claim a
+repository GREEN from historical evidence.
+
+The orchestrator starts with repository index, then memory ingest and GStack
+artifact sync. A repository refusal, partial apply, or unverified apply is
+terminal: unrelated later stages, attach, cleanup, reindex, and dream do not
+continue across that boundary. Concurrent real runs are blocked by
+`~/.gstack/.sync-gbrain.lock`. The wrapper never auto-breaks an existing
+lock: inspect its recorded PID and remove it only after you have independently
+proved that no owner is running.
+
+If the source is absent, the first real invocation performs only safe source
+registration and exits 2 with `source_registered` /
+`state_changed: registry_only`. Stop and report that result; run the same
+command a second time only after registration is visible. Never convert this
+two-invocation bootstrap into register-and-sync.
+
+On a clean verified run the repository receipt is written atomically to
+`~/.gstack/.gbrain-repository-index-receipt.json`. Its GREEN scope is content
+sync at the recorded HEAD—not a blanket claim that embeddings, extraction, or
+semantic search are ready.
 
 ---
 
-## Step 3: Code-index health check
+## Step 3: Repository receipt check
 
-After the sync run, query gbrain for the cwd source's page_count:
+Page count is descriptive and must never turn the repository verdict GREEN.
+After a zero-exit current invocation with the repository stage enabled, run
+the read-only live-binding verifier:
 
 ```bash
-SOURCE_ID=$(grep -o '"source_id":"[^"]*"' ~/.gstack/.gbrain-sync-state.json 2>/dev/null \
-  | head -1 | sed 's/.*"source_id":"//;s/".*//')
-PAGES=$(gbrain sources list --json 2>/dev/null \
-  | jq -r --arg id "$SOURCE_ID" '.sources[] | select(.id==$id) | .page_count' 2>/dev/null \
-  || echo 0)
-echo "cwd source: $SOURCE_ID, page_count: $PAGES"
+bun run ~/.claude/skills/gstack/bin/gstack-gbrain-sync.ts \
+  --verify-receipt --json
 ```
 
-If `PAGES` is 0 or empty AND the user did NOT pass `--no-code` AND mode was
-not `--full`, AskUserQuestion via the format in the preamble:
+This command contacts neither GBrain nor the engine. It re-proves the live
+canonical Git root, clean full HEAD, tracked-marker state, and attached source
+id against the persisted schema-1 receipt. A stale receipt from this worktree,
+another worktree, or an earlier successful invocation exits 1 with
+`receipt_stale`; malformed or untrusted evidence returns `receipt_invalid`.
 
-> D1 — This repo has 0 indexed pages in gbrain. Run a full code reindex now?
->
-> ELI10: gbrain hasn't indexed this repo's code yet. The semantic search
-> tools (`gbrain search`, `code-def`, `code-refs`) will return nothing
-> until we run a full pass. Takes ~25-35 minutes on a big Mac.
->
-> Recommendation: A — the brain is unusable for code search until indexed,
-> and Step 2 of this skill already verified gbrain is configured correctly.
->
-> Note: options differ in kind, not coverage — no completeness score.
->
-> A) Run /sync-gbrain --full now (recommended)
-> B) Skip — I'll run it later
+Proceed only when all of these are true:
 
-If A: re-invoke the orchestrator with `--full --code-only`.
-If B: continue to Step 4 with the empty-corpus state recorded.
+- `result_kind == "repository_index"`
+- `status == "verified"`
+- `state_changed == "applied_verified"`
+- source path identity is `equivalent`
+- full `bookmark_after == git_head`
+- `last_successful_strategy == "auto"`
+- the recorded tree was clean
+- `image_operations_applied == 0` and multimodal admission was disabled
+- `verification.trusted == true`
+- the verifier itself exited 0 for the current canonical root and live full HEAD
+
+The receipt caps its affected sample at 100 and binds the full canonical
+operation/path/slug set with SHA-256. `image_operations_applied: 0` proves no image
+work in this invocation, not an image-free historical corpus. `search_ready`
+and embedding/extraction states are separate: content may be current while
+semantic processing is deferred.
+
+If the receipt is missing or any invariant fails, report the wrapper's stable
+`reason_code` and `state_changed`, link
+`docs/repository-index-recovery.md`, and STOP repository-success claims.
+`partial` and `applied_unverified` never attach or become GREEN by inspecting
+page count.
 
 ---
 
@@ -988,7 +1049,7 @@ If B: continue to Step 4 with the empty-corpus state recorded.
 
 `gbrain code-callers` / `code-callees` (who-calls-this / what-this-calls) return
 `count: 0` until a `gbrain dream` cycle runs the `resolve_symbol_edges` phase for
-this source — not done by the code import in Step 2.
+this source — not done by repository content sync in Step 2.
 
 **One hard prerequisite:** building a call graph requires this source's active
 **schema pack to extract code symbols** (the `extract_atoms` phase). On a pack
@@ -1005,8 +1066,8 @@ Detect whether this source's call graph is built via doctor's `cycle_freshness`
 check, matching the cwd `SOURCE_ID` literally:
 
 ```bash
-SOURCE_ID=$(grep -o '"source_id":"[^"]*"' ~/.gstack/.gbrain-sync-state.json 2>/dev/null \
-  | head -1 | sed 's/.*"source_id":"//;s/".*//')
+SOURCE_ID=$(jq -r '.evidence.source.id // empty' \
+  ~/.gstack/.gbrain-repository-index-receipt.json 2>/dev/null)
 CYCLE=$(gbrain doctor --json --fast 2>/dev/null \
   | jq -r --arg id "$SOURCE_ID" '
       (.checks[] | select(.name=="cycle_freshness")) as $c
@@ -1020,7 +1081,7 @@ echo "call graph for $SOURCE_ID: $CYCLE"
 ```
 
 If `CYCLE == never` AND the user did NOT pass `--dream`/`--full` AND Step 3
-`PAGES > 0`, AskUserQuestion via the format in the preamble:
+has a trusted repository receipt, AskUserQuestion via the format in the preamble:
 
 > D2 — This repo's call graph isn't built. Build it now?
 >
@@ -1040,8 +1101,9 @@ If `CYCLE == never` AND the user did NOT pass `--dream`/`--full` AND Step 3
 > A) Run /sync-gbrain --dream now (recommended)
 > B) Skip — I'll run it later
 
-If A: re-invoke the orchestrator with `--dream --code-only` (skips memory +
-brain-sync; the dream stage still runs because it's gated on `--dream`). Then
+If A: re-invoke the orchestrator with `--dream --code-only` (skips memory
+ingest + artifact sync; the dream stage still runs because it's gated on
+`--dream`). Then
 report the dream stage's ACTUAL row — `OK call graph built (N edges)` vs a
 `WARN` that names why the graph is still empty (non-code-aware pack, missing
 embedding key, or 0 edges matched). Do not claim success on a WARN.
@@ -1098,11 +1160,12 @@ Verbatim block content (copy exactly):
 ## GBrain Search Guidance (configured by /sync-gbrain)
 <!-- gstack-gbrain-search-guidance:start -->
 
-GBrain is set up and synced on this machine. The agent should prefer gbrain
+GBrain is set up on this machine. A trusted repository receipt records which
+clean Git HEAD has verified content sync. The agent should prefer gbrain
 over Grep when the question is semantic or when you don't know the exact
 identifier yet.
 
-**This worktree is pinned to a worktree-scoped code source** via the
+**This worktree is pinned to a worktree-scoped repository source** via the
 `.gbrain-source` file in the repo root (kubectl-style context).
 `gbrain code-def`, `code-refs`, `code-callers`, `code-callees`, `search`, and
 `query` from anywhere under this worktree route to that source by default —
@@ -1118,7 +1181,8 @@ symbols; on a non-code-aware pack `--dream` completes but the graph stays empty
 and reports a WARN. `code-def`/`code-refs` need the same extraction.
 
 Two indexed corpora available via the `gbrain` CLI:
-- This worktree's code (auto-pinned via `.gbrain-source`).
+- This worktree's admitted code and tracked Markdown (auto-pinned via
+  `.gbrain-source`).
 - `~/.gstack/` curated memory (registered as `gstack-brain-<user>` source via
   the existing federation pipeline).
 
@@ -1133,15 +1197,16 @@ Prefer gbrain when:
     `gbrain search "<terms>" --source gstack-brain-<user>`
 
 Grep is still right for known exact strings, regex, multiline patterns, and
-file globs. Run `/sync-gbrain` after meaningful code changes; for ongoing
+file globs. Run `/sync-gbrain` after committed code or tracked Markdown changes; for ongoing
 auto-sync across all worktrees, run `gbrain autopilot --install` once per
 machine — gbrain's daemon handles incremental refresh on a schedule.
 
-Safety: don't run `/sync-gbrain` while `gbrain autopilot` is active — the
-orchestrator refuses destructive source ops when it detects a running autopilot
-to avoid racing it (#1734). Prefer registering user repos with `gbrain sources
-add --path <dir>` (no `--url`): URL-managed sources can auto-reclone, and the
-sync code walk for them requires an explicit `--allow-reclone` opt-in.
+Safety: repository sync is source-scoped, uses `--no-pull`, and binds the full
+target HEAD plus prior bookmark. Stored source paths must resolve to the same
+canonical directory; different or ambiguous paths refuse and are never repaired
+by automatic remove/re-add. Concurrent autopilot activity may produce a
+source-lock or expected-state refusal; stop it and retry rather than overriding
+the guard.
 
 <!-- gstack-gbrain-search-guidance:end -->
 ```
@@ -1178,13 +1243,16 @@ gbrain status: GREEN
 
   CLI ............. OK   <gbrain version>
   Engine .......... OK   <pglite|supabase>
+  Repository index. OK   <40-char clean HEAD> (receipt trusted)
   Capability ...... OK   write+search round-trip
-  CWD source ...... OK   <gstack-code-{repo_slug}> (page_count=<N>)
+  CWD source ...... OK   <gstack-code-{repo_slug}> (canonical path equivalent)
+  Content ......... OK   auto; code + tracked Markdown; image operations=0
+  Search readiness. OK|WARN <complete|deferred from receipt>
   Call graph ...... OK   <N> edges resolved (code-callers/callees live)
   ~/.gstack source. OK   <gstack-brain-{user}> (page_count=<N>) — managed by /setup-gbrain
-  Memory sync ..... OK   <artifacts_sync_mode>
+  Artifact sync ... OK   <artifacts_sync_mode> (separate cross-machine feature)
   CLAUDE.md ....... OK   ## GBrain Search Guidance present
-  Last sync ....... OK   <last_sync from state file>
+  Last receipt .... OK   <reason_code; state_changed=applied_verified>
 
 Run `/sync-gbrain` again any time gbrain feels off; safe and idempotent.
 ```
@@ -1206,6 +1274,10 @@ The **Call graph** row reports the most authoritative signal available:
 
 Any `WARN` Call graph row flips the verdict to YELLOW.
 
+A missing/untrusted repository receipt is RED. Deferred embedding or extraction
+is YELLOW (`search_ready: false`) even when repository content sync is GREEN.
+Do not replace either decision with a generic page-count check.
+
 If any row is YELLOW or RED, the verdict line says so and the failing rows
 surface a one-line "next action" (e.g., `Capability ...... ERR  capability
 check failed; CLAUDE.md guidance block REMOVED — run /setup-gbrain to repair`).
@@ -1215,16 +1287,19 @@ A `never`/`unknown` Call graph row flips the verdict to YELLOW.
 
 ## Concurrency note
 
-This skill is safe to run concurrently from multiple terminals on the same
-Mac. The orchestrator acquires a lock at `~/.gstack/.sync-gbrain.lock` before
-any state-file or CLAUDE.md mutation and exits with code 2 if another sync is
-in flight. Stale locks (process died) auto-clear after 5 minutes.
+The orchestrator serializes real repository-index execution with
+`~/.gstack/.sync-gbrain.lock` and exits 2 with `lock_busy` if another sync is
+in flight. It never auto-breaks an existing wrapper lock because a
+check-then-delete recovery can race a new live owner. Inspect the recorded PID
+and recover explicitly only after proving the owner is gone. GBrain separately
+owns its source lifecycle lock; never break it automatically. Wrapper
+`--dry-run` acquires neither lock.
 
 ## Cross-machine note
 
 The `## GBrain Search Guidance` block is committed to the repo's CLAUDE.md
 and travels with `git push`/`git pull` — NOT through `~/.gstack/.brain-allowlist`
-(which is for `~/.gstack/` brain-sync only). On a different Mac with a synced
+(which is for cross-machine GStack artifact sync only). On a different Mac with a synced
 CLAUDE.md but no local gbrain, /sync-gbrain detects the mismatch via the
 capability check and REMOVES the block (the local agent shouldn't be told to
 use a tool that isn't installed).

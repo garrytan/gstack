@@ -1,6 +1,10 @@
-# gbrain-sync error lookup
+# GStack artifact-sync error lookup
 
-Every error message `gstack-brain-*` can print, with problem, cause, and fix.
+Every artifact-transport error message `gstack-brain-*` can print, with
+problem, cause, and fix. This guide does not cover `/sync-gbrain` repository
+indexing; use
+[Repository index sync and recovery](repository-index-recovery.md) for
+version/source/path refusals, partial application, and receipt failures.
 
 Search this file by the prefix after `BRAIN_SYNC:` or by the binary name in
 the command output.

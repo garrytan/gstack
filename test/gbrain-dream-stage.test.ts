@@ -44,6 +44,9 @@ function args(overrides: Partial<CliArgs> = {}): CliArgs {
     codeOnly: false,
     dream: false,
     noDream: false,
+    allowReclone: false,
+    json: false,
+    verifyReceipt: false,
     ...overrides,
   };
 }
@@ -148,8 +151,10 @@ describe("CLI gate wiring (dry-run subprocess — never spawns a real dream)", (
     return (r.stdout || "") + (r.stderr || "");
   }
 
-  it("--dry-run --dream shows the dream preview row", () => {
-    expect(run(["--dream"])).toContain("would: gbrain dream");
+  it("--dry-run --dream preserves the no-probe orchestration boundary", () => {
+    const output = run(["--dream"]);
+    expect(output).toContain("ORCHESTRATION PREVIEW — unvalidated");
+    expect(output).not.toContain("would: gbrain dream");
   });
 
   it("plain --dry-run (incremental) omits the dream row", () => {

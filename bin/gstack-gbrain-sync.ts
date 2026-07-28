@@ -4,22 +4,21 @@
  *
  * Orchestrates three storage tiers per plan §"Storage tiering":
  *
- *   1. Code (current repo)         → `gbrain sources add` (idempotent via
- *                                    lib/gbrain-sources.ts) + `gbrain sync
- *                                    --strategy code` (incremental) or
- *                                    `gbrain reindex-code --yes` (--full).
- *                                    NEVER `gbrain import` (markdown only).
+ *   1. Repository index            → expected-state `gbrain sync
+ *                                    --strategy auto --no-pull` for supported
+ *                                    code and tracked Markdown.
  *   2. Transcripts + curated memory → gstack-memory-ingest (typed put_page)
  *   3. Curated artifacts to git    → gstack-brain-sync (existing pipeline)
  *
  * Modes:
  *   --incremental (default) — mtime fast-path; runs all 3 stages with cache hits
- *   --full                  — first-run; full walk + reindex; honest budget per ED2
+ *   --full                  — bulk memory ingest + eligible dream cycle; the
+ *                             repository stage keeps the same safe auto contract
  *   --dry-run               — preview what would sync; no writes anywhere (incl. state file)
  *
  * Concurrency safety per /plan-eng-review D1:
  *   - Lock file at ~/.gstack/.sync-gbrain.lock (PID + start ts).
- *   - Stale-lock takeover after 5 min (process death).
+ *   - Existing locks fail closed; the wrapper never auto-breaks them.
  *   - State file written via tmp+rename for atomicity.
  *   - Lock released in finally; SIGINT/SIGTERM trapped for cleanup.
  *
@@ -37,11 +36,20 @@ import { createHash } from "crypto";
 
 import "../lib/conductor-env-shim";
 import { detectEngineTier, withErrorContext, canonicalizeRemote } from "../lib/gstack-memory-helpers";
-import { ensureSourceRegistered, sourcePageCount, parseSourcesList, cycleCompleted, type CycleStatus } from "../lib/gbrain-sources";
-import { detectAutopilot, decideSourceRemove, decideCodeSync } from "../lib/gbrain-guards";
+import { parseSourcesList, cycleCompleted, type CycleStatus } from "../lib/gbrain-sources";
+import { detectAutopilot, decideSourceRemove } from "../lib/gbrain-guards";
 import { localEngineStatus, type LocalEngineStatus } from "../lib/gbrain-local-status";
 import { buildGbrainEnv, spawnGbrain, execGbrainJson, NEEDS_SHELL_ON_WINDOWS } from "../lib/gbrain-exec";
 import { checkOwnedStagingDir } from "../lib/staging-guard";
+import {
+  orchestrationPreviewResult,
+  renderRepositoryIndexResult,
+  runRepositoryIndex,
+  verifyCurrentRepositoryIndexReceipt,
+  REPOSITORY_INDEX_RECOVERY_DOC,
+  type RepositoryIndexResult,
+  type RepositoryIndexRunOutput,
+} from "../lib/gbrain-repository-index";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -60,6 +68,17 @@ export interface CliArgs {
   noDream: boolean;
   /** #1734: opt-in to sync a URL-managed source whose code walk may auto-reclone. */
   allowReclone: boolean;
+  /** Emit the schema-1 repository-index result as exactly one stdout document. */
+  json: boolean;
+  /** Rebind the persisted receipt to the live canonical root and clean HEAD. */
+  verifyReceipt: boolean;
+}
+
+class CliArgumentError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CliArgumentError";
+  }
 }
 
 interface CodeStageDetail {
@@ -85,6 +104,10 @@ interface StageResult {
   warn?: boolean;
   /** Stage-specific structured detail. Code stage carries source_id + page_count. */
   detail?: CodeStageDetail;
+  /** Stable process mapping for stages whose contract distinguishes retry=2. */
+  exit_code?: 0 | 1 | 2;
+  /** Machine-readable repository-index envelope, when this is the code stage. */
+  repository_result?: RepositoryIndexResult;
 }
 
 // ── Constants ──────────────────────────────────────────────────────────────
@@ -93,7 +116,6 @@ const HOME = homedir();
 const GSTACK_HOME = process.env.GSTACK_HOME || join(HOME, ".gstack");
 const STATE_PATH = join(GSTACK_HOME, ".gbrain-sync-state.json");
 const LOCK_PATH = join(GSTACK_HOME, ".sync-gbrain.lock");
-const STALE_LOCK_MS = 5 * 60 * 1000;
 
 // Dream (call-graph build) is brain-global and runs LOCK-FREE after the sync
 // lock releases, so it can't use the sync lock to dedupe across worktrees. A
@@ -230,34 +252,41 @@ function printUsage(): void {
 
 Modes:
   --incremental        Default. mtime fast-path; ~50ms steady-state.
-  --full               First-run; full walk + reindex. Honest ~25-35 min for big Macs (ED2).
-  --dry-run            Preview what would sync; no writes anywhere.
+  --full               Bulk memory ingest and eligible dream cycle. Repository
+                       indexing still uses expected-state strategy=auto.
+  --dry-run            ORCHESTRATION PREVIEW only: no engine, source, path,
+                       Git, or content probes; output is explicitly unvalidated.
 
 Options:
   --quiet              Suppress per-stage output.
   --no-code            Skip the cwd code-import stage.
   --no-memory          Skip the gstack-memory-ingest stage (transcripts + artifacts).
   --no-brain-sync      Skip the gstack-brain-sync git pipeline stage.
-  --code-only          Only run the code-import stage (alias for --no-memory --no-brain-sync).
+  --code-only          Legacy alias: only run the repository-index stage
+                       (supported code + tracked Markdown); alias for
+                       --no-memory --no-brain-sync.
   --dream              Force the source-scoped dream cycle that builds this
                        source's call graph (gbrain code-callers/code-callees).
                        Runs lock-free AFTER the sync stages. ~minutes. Default
                        timeout 45min, override GSTACK_SYNC_DREAM_TIMEOUT_MS.
   --no-dream           Opt out of the dream cycle that --full would auto-run.
-  --allow-reclone      Permit the code walk for URL-managed sources (remote_url set)
-                       even though gbrain may auto-reclone the working tree (#1734).
+  --allow-reclone      Legacy compatibility flag. The expected-state repository
+                       path always uses --no-pull and never auto-reclones.
+  --json               Emit one schema-1 repository-index JSON document.
+  --verify-receipt     Read-only: verify the persisted GREEN receipt belongs
+                       to this live canonical worktree and clean full HEAD.
   --help               This text.
 
-Stages run in order: code → memory ingest → curated git push, then (lock-free)
-the optional dream call-graph build. --full auto-runs dream ONLY when the call
-graph was never built; --dream always forces it. Each stage failure is
-non-fatal; subsequent stages still run.
+Stages run in order: repository index → memory ingest → curated git push, then
+the optional lock-free dream call-graph build. A repository-index refusal,
+partial apply, or unverified apply is terminal; unrelated later stages do not
+run. --full auto-runs dream only when the call graph was never built.
 `);
 }
 
-function parseArgs(): CliArgs {
-  const args = process.argv.slice(2);
+function parseArgs(args: string[] = process.argv.slice(2)): CliArgs {
   let mode: Mode = "incremental";
+  const explicitModes = new Set<Mode>();
   let quiet = false;
   let noCode = false;
   let noMemory = false;
@@ -266,18 +295,32 @@ function parseArgs(): CliArgs {
   let dream = false;
   let noDream = false;
   let allowReclone = false;
+  let json = false;
+  let verifyReceipt = false;
+  const jsonRequested = args.includes("--json");
 
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     switch (a) {
-      case "--incremental": mode = "incremental"; break;
-      case "--full": mode = "full"; break;
-      case "--dry-run": mode = "dry-run"; break;
+      case "--incremental":
+        explicitModes.add("incremental");
+        mode = "incremental";
+        break;
+      case "--full":
+        explicitModes.add("full");
+        mode = "full";
+        break;
+      case "--dry-run":
+        explicitModes.add("dry-run");
+        mode = "dry-run";
+        break;
       case "--quiet": quiet = true; break;
       case "--no-code": noCode = true; break;
       case "--no-memory": noMemory = true; break;
       case "--no-brain-sync": noBrainSync = true; break;
       case "--allow-reclone": allowReclone = true; break;
+      case "--json": json = true; break;
+      case "--verify-receipt": verifyReceipt = true; break;
       case "--code-only":
         codeOnly = true;
         noMemory = true;
@@ -289,16 +332,41 @@ function parseArgs(): CliArgs {
       case "--no-dream": noDream = true; break;
       case "--help":
       case "-h":
+        if (jsonRequested) {
+          throw new CliArgumentError(
+            "--help cannot be combined with --json",
+          );
+        }
         printUsage();
         process.exit(0);
       default:
-        console.error(`Unknown argument: ${a}`);
-        printUsage();
-        process.exit(1);
+        throw new CliArgumentError(`Unknown argument: ${a}`);
     }
   }
+  if (explicitModes.size > 1) {
+    throw new CliArgumentError(
+      `Conflicting modes: ${[...explicitModes]
+        .map((value) => `--${value}`)
+        .join(", ")}`,
+    );
+  }
+  if (
+    verifyReceipt &&
+    (explicitModes.size > 0 ||
+      noCode ||
+      noMemory ||
+      noBrainSync ||
+      codeOnly ||
+      dream ||
+      noDream ||
+      allowReclone)
+  ) {
+    throw new CliArgumentError(
+      "--verify-receipt can only be combined with --json or --quiet",
+    );
+  }
 
-  return { mode, quiet, noCode, noMemory, noBrainSync, codeOnly, dream, noDream, allowReclone };
+  return { mode, quiet, noCode, noMemory, noBrainSync, codeOnly, dream, noDream, allowReclone, json, verifyReceipt };
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -312,13 +380,94 @@ function repoRoot(): string | null {
   }
 }
 
-function originUrl(): string | null {
-  try {
-    const out = execSync("git remote get-url origin", { encoding: "utf-8", timeout: 2000 });
-    return out.trim();
-  } catch {
-    return null;
+function gitText(args: string[], cwd: string): string | null {
+  const result = spawnSync("git", args, {
+    cwd,
+    encoding: "utf-8",
+    timeout: 5_000,
+    stdio: ["ignore", "pipe", "pipe"],
+    env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" },
+  });
+  if (result.status !== 0) return null;
+  return (result.stdout || "").trim();
+}
+
+function repositoryIndexFailure(
+  reasonCode: string,
+  evidence: Record<string, unknown>,
+): RepositoryIndexRunOutput {
+  return {
+    result: {
+      schema_version: 1,
+      result_kind: "repository_index",
+      status: "error",
+      reason_code: reasonCode,
+      state_changed: "none",
+      evidence,
+      next_command: null,
+      docs: REPOSITORY_INDEX_RECOVERY_DOC,
+    },
+    exitCode: 1,
+  };
+}
+
+function runCurrentRepositoryIndex(): RepositoryIndexRunOutput {
+  const root = repoRoot();
+  if (!root) {
+    return repositoryIndexFailure("repository_not_found", {
+      cwd: process.cwd(),
+    });
   }
+  const head = gitText(["rev-parse", "--verify", "HEAD"], root);
+  const porcelain = gitText(
+    ["status", "--porcelain=v1", "--untracked-files=all"],
+    root,
+  );
+  if (!head || porcelain === null) {
+    return repositoryIndexFailure("repository_state_invalid", {
+      repository_root: root,
+    });
+  }
+  const sourceId = deriveCodeSourceId(root);
+  return runRepositoryIndex({
+    root,
+    sourceId,
+    head,
+    workingTreeClean: porcelain === "",
+    gstackHome: GSTACK_HOME,
+    baseEnv: process.env,
+    spawnGbrain: (childArgs, options = {}) =>
+      spawnGbrain(childArgs, {
+        cwd: options.cwd,
+        timeout: options.timeout,
+        baseEnv: options.baseEnv,
+      }),
+  });
+}
+
+function repositoryIndexStage(
+  output: RepositoryIndexRunOutput,
+): StageResult {
+  const source =
+    output.result.evidence.source_id ??
+    (output.result.evidence.source as { id?: unknown } | undefined)?.id;
+  return {
+    name: "code",
+    ran: true,
+    ok: output.exitCode === 0,
+    duration_ms: 0,
+    summary: `${output.result.reason_code} (${output.result.state_changed})`,
+    detail: {
+      ...(typeof source === "string" ? { source_id: source } : {}),
+      status: output.exitCode === 0 ? "ok" : "failed",
+    },
+    exit_code: output.exitCode,
+    repository_result: output.result,
+  };
+}
+
+function originUrl(repoPath: string): string | null {
+  return gitText(["remote", "get-url", "origin"], repoPath);
 }
 
 /**
@@ -340,10 +489,10 @@ function originUrl(): string | null {
  * optional interior hyphens. `constrainSourceId` handles the 32-char cap
  * with a hashed-tail fallback when the combined slug exceeds budget.
  */
-function deriveCodeSourceId(repoPath: string): string {
+export function deriveCodeSourceId(repoPath: string): string {
   const host = process.env.GSTACK_HOSTNAME || hostname();
   const hostPathHash = createHash("sha1").update(`${host}::${repoPath}`).digest("hex").slice(0, 8);
-  const remote = canonicalizeRemote(originUrl());
+  const remote = canonicalizeRemote(originUrl(repoPath));
   if (remote) {
     const segs = remote.split("/").filter(Boolean);
     const slugSource = segs.slice(-2).join("-");
@@ -371,7 +520,7 @@ function deriveCodeSourceId(repoPath: string): string {
  * sync from any worktree of this repo, so users don't accumulate orphans.
  */
 function deriveLegacyCodeSourceId(repoPath: string): string {
-  const remote = canonicalizeRemote(originUrl());
+  const remote = canonicalizeRemote(originUrl(repoPath));
   if (remote) {
     const segs = remote.split("/").filter(Boolean);
     const slugSource = segs.slice(-2).join("-");
@@ -395,7 +544,7 @@ function deriveLegacyCodeSourceId(repoPath: string): string {
  */
 export function derivePathOnlyHashLegacyId(repoPath: string): string {
   const pathHash = createHash("sha1").update(repoPath).digest("hex").slice(0, 8);
-  const remote = canonicalizeRemote(originUrl());
+  const remote = canonicalizeRemote(originUrl(repoPath));
   if (remote) {
     const segs = remote.split("/").filter(Boolean);
     const slugSource = segs.slice(-2).join("-");
@@ -572,7 +721,7 @@ export function removeOrphanedSource(oldId: string, env?: NodeJS.ProcessEnv): bo
  * mid-word. Inputs like "drummerms-av-sow-wiz-skill-270c0001" produce
  * "${prefix}-270c0001-<hash>", not "${prefix}-kill-270c0001-<hash>".
  */
-function constrainSourceId(prefix: string, raw: string): string {
+export function constrainSourceId(prefix: string, raw: string): string {
   const MAX = 32;
   const slug = raw.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
   // Empty slug after sanitize (e.g. raw was all non-alnum like "___") would
@@ -615,25 +764,18 @@ interface LockInfo {
 
 function acquireLock(): boolean {
   mkdirSync(GSTACK_HOME, { recursive: true });
-  if (existsSync(LOCK_PATH)) {
-    // Check if stale.
-    try {
-      const stat = statSync(LOCK_PATH);
-      const ageMs = Date.now() - stat.mtimeMs;
-      if (ageMs > STALE_LOCK_MS) {
-        // Stale; take over.
-        unlinkSync(LOCK_PATH);
-      } else {
-        return false;
-      }
-    } catch {
-      // Cannot stat; bail conservatively.
-      return false;
-    }
-  }
-  const info: LockInfo = { pid: process.pid, started_at: new Date().toISOString() };
+  const info: LockInfo = {
+    pid: process.pid,
+    started_at: new Date().toISOString(),
+  };
   try {
-    writeFileSync(LOCK_PATH, JSON.stringify(info), { encoding: "utf-8", flag: "wx" });
+    // `wx` is the sole ownership transition. Never unlink an existing lock
+    // here: check-then-delete stale recovery has an unavoidable ABA race in
+    // which a delayed contender can delete a new live owner's lock.
+    writeFileSync(LOCK_PATH, JSON.stringify(info), {
+      encoding: "utf-8",
+      flag: "wx",
+    });
     return true;
   } catch {
     return false;
@@ -765,248 +907,13 @@ function warnProbeTimeout(stage: "code" | "memory" | "dream"): void {
 
 
 async function runCodeImport(args: CliArgs): Promise<StageResult> {
-  const t0 = Date.now();
-  const root = repoRoot();
-  if (!root) {
-    return { name: "code", ran: false, ok: true, duration_ms: 0, summary: "skipped (not in git repo)" };
-  }
-
-  const sourceId = deriveCodeSourceId(root);
-
-  // dry-run preview always shows the would-do steps, regardless of local
-  // engine state. Useful for "what would /sync-gbrain do" without probing
-  // the engine.
   if (args.mode === "dry-run") {
-    return {
-      name: "code",
-      ran: false,
-      ok: true,
-      duration_ms: 0,
-      summary: `would: gbrain sources add ${sourceId} --path ${root} --federated; gbrain sync --strategy code --source ${sourceId}; gbrain sources attach ${sourceId}`,
-      detail: { source_id: sourceId, source_path: root, status: "skipped" },
-    };
-  }
-
-  // Split-engine pre-flight (per plan D12): when local engine is not ok, SKIP
-  // code stage cleanly. Brain-sync stage still runs because it doesn't depend
-  // on local engine. The /sync-gbrain Step 1.5 pre-flight surfaces the user
-  // remediation message; this skip just keeps the orchestrator from crashing
-  // when the local DB is dead. Skipped on --dry-run (above) since dry-run
-  // never actually probes anything.
-  const localStatus = localEngineStatus({ noCache: false });
-  if (localStatus === "timeout") {
-    warnProbeTimeout("code"); // #1964: slow-but-healthy — proceed
-  } else if (localStatus !== "ok") {
-    return skipStageForLocalStatus("code", localStatus, t0);
-  }
-
-  // Step 0a: Best-effort cleanup of pre-pathhash legacy source (v1.x form).
-  // Earlier /sync-gbrain versions registered `gstack-code-<slug>` (no path
-  // suffix). On a multi-worktree repo, those collapsed onto a single id
-  // with last-sync-wins. Federated search would return stale duplicate
-  // hits forever if we left the orphan in place. Remove the legacy id once
-  // here so users don't accumulate orphans.
-  // Failure is non-fatal — we still register the new id below.
-  // gbrainEnv seeds DATABASE_URL from gbrain's config so this stage works
-  // inside Next.js / Prisma / Rails projects with their own .env.local
-  // (codex review #7 — bug fix is wider than #1508 as filed).
-  const gbrainEnv = buildGbrainEnv({ announce: !args.quiet });
-  const legacyId = deriveLegacyCodeSourceId(root);
-  let legacyRemoved = false;
-  if (legacyId !== sourceId) {
-    // #1734: route through the data-loss guards (autopilot + source-safety).
-    const rm = safeSourcesRemove(legacyId, gbrainEnv);
-    if (rm.skipped && !args.quiet) {
-      console.error(`[sync:code] legacy-source cleanup skipped: ${rm.reason}`);
-    }
-    if (rm.removed) legacyRemoved = true;
-  }
-
-  // Step 0b: Hostname-fold migration (#1414).
-  // Before #1468 the source id hashed only the absolute repo path. After the
-  // hostname fold, every existing user has a legacy id that no longer matches
-  // what deriveCodeSourceId produces. Try rename-in-place first (preserves
-  // pages); fall back to register-new → sync-OK → remove-old. Path-drift
-  // (user moved the repo, etc.) skips migration with a warning.
-  const pathOnlyHashLegacyId = derivePathOnlyHashLegacyId(root);
-  const migration = planHostnameFoldMigration(root, sourceId, pathOnlyHashLegacyId, gbrainEnv);
-  if (migration.kind === "skipped-path-drift" && !args.quiet) {
-    console.error(
-      `[sync:code] hostname-fold migration skipped: legacy source ${migration.oldId} `
-      + `points at ${migration.oldPath}, current repo is ${migration.currentPath}. `
-      + `Clean up manually with: gbrain sources remove ${migration.oldId} --confirm-destructive`,
-    );
-  } else if (migration.kind === "renamed" && !args.quiet) {
-    console.error(`[sync:code] hostname-fold migration: renamed ${migration.oldId} → ${migration.newId} (pages preserved)`);
-  }
-
-  // Step 1: Ensure source registered (idempotent). Single source of truth in lib —
-  // no synchronous duplicate here (per /codex review #12).
-  let registered = false;
-  try {
-    const result = await ensureSourceRegistered(sourceId, root, { federated: true, env: gbrainEnv });
-    registered = result.changed;
-  } catch (err) {
-    return {
-      name: "code",
-      ran: true,
-      ok: false,
-      duration_ms: Date.now() - t0,
-      summary: `source registration failed: ${(err as Error).message}`,
-      detail: { source_id: sourceId, source_path: root, status: "failed" },
-    };
-  }
-
-  // Step 2: Always run the page-creating file walk first, then (for --full)
-  // a full re-embed.
-  //
-  // `gbrain reindex-code` only RE-EMBEDS pages that already exist; it never
-  // walks the filesystem. On a freshly-registered source (0 pages) a --full
-  // run that called reindex-code alone found nothing ("No code pages to
-  // reindex"), finished in ~1s, and left the code index permanently empty
-  // while still reporting OK. The page-creating walk is `sync --strategy
-  // code`, so --full must run it FIRST, then reindex-code, to honor the
-  // documented "full walk + reindex" contract for both fresh and populated
-  // sources.
-  const codeTimeoutMs = resolveStageTimeoutMs(
-    process.env.GSTACK_SYNC_CODE_TIMEOUT_MS,
-    "GSTACK_SYNC_CODE_TIMEOUT_MS",
-  );
-
-  // #1734 guards, checked immediately before the destructive walk (E8):
-  //   - autopilot active → refuse (the race that wiped a working tree).
-  //   - URL-managed source → the walk can auto-reclone (rm-rf); require
-  //     --allow-reclone. Both surface a visible reason and fail the stage so the
-  //     verdict shows ERR rather than silently skipping protection.
-  const apBeforeWalk = detectAutopilot(gbrainEnv);
-  if (apBeforeWalk.active) {
-    return {
-      name: "code", ran: true, ok: false, duration_ms: Date.now() - t0,
-      summary: `refused: gbrain autopilot active (${apBeforeWalk.signal}). Stop autopilot, then re-run /sync-gbrain.`,
-      detail: { source_id: sourceId, source_path: root, status: "refused-autopilot" },
-    };
-  }
-  const reclone = decideCodeSync(sourceId, gbrainEnv, args.allowReclone);
-  if (!reclone.allow) {
-    return {
-      name: "code", ran: true, ok: false, duration_ms: Date.now() - t0,
-      summary: `refused: ${reclone.reason}`,
-      detail: { source_id: sourceId, source_path: root, status: "refused-reclone" },
-    };
-  }
-
-  const walkResult = spawnGbrain(["sync", "--strategy", "code", "--source", sourceId], {
-    stdio: args.quiet ? ["ignore", "ignore", "ignore"] : ["ignore", "inherit", "inherit"],
-    timeout: codeTimeoutMs,
-    baseEnv: gbrainEnv,
-  });
-
-  if (walkResult.status !== 0) {
-    return {
-      name: "code",
-      ran: true,
-      ok: false,
-      duration_ms: Date.now() - t0,
-      summary: `gbrain sync --strategy code --source ${sourceId} exited ${walkResult.status}`,
-      detail: { source_id: sourceId, source_path: root, status: "failed" },
-    };
-  }
-
-  if (args.mode === "full") {
-    const reindexResult = spawnGbrain(["reindex-code", "--source", sourceId, "--yes"], {
-      stdio: args.quiet ? ["ignore", "ignore", "ignore"] : ["ignore", "inherit", "inherit"],
-      timeout: codeTimeoutMs,
-      baseEnv: gbrainEnv,
+    return repositoryIndexStage({
+      result: orchestrationPreviewResult(),
+      exitCode: 0,
     });
-
-    if (reindexResult.status !== 0) {
-      return {
-        name: "code",
-        ran: true,
-        ok: false,
-        duration_ms: Date.now() - t0,
-        summary: `gbrain reindex-code --source ${sourceId} exited ${reindexResult.status}`,
-        detail: { source_id: sourceId, source_path: root, status: "failed" },
-      };
-    }
   }
-
-  // Step 3: Pin this worktree's CWD to the source via .gbrain-source. Subsequent
-  // gbrain code-def / code-refs / code-callers calls from anywhere under <root>
-  // route to this source by default — no --source flag needed.
-  //
-  // If attach fails the whole flow has a silent correctness problem: sync
-  // succeeded but unqualified `gbrain code-def` from this worktree will hit
-  // the wrong/default source. Treat it as a stage failure (ok=false) so the
-  // verdict block surfaces ERR and the user knows to retry rather than
-  // trusting stale results.
-  const attach = spawnGbrain(["sources", "attach", sourceId], {
-    timeout: 10_000,
-    cwd: root,
-    baseEnv: gbrainEnv,
-  });
-  const pageCount = sourcePageCount(sourceId, gbrainEnv);
-
-  // Step 4: Deferred hostname-fold cleanup.
-  // Only remove the pre-#1468 path-only-hash source NOW that the new source
-  // has registered + synced + has pages. Removing before sync would create a
-  // data-loss window if sync failed; removing without a page-count check would
-  // wipe pages when sync silently no-op'd. This is the codex-review-flagged
-  // safety: register → sync → verify → THEN delete.
-  let hostnameLegacyRemoved = false;
-  if (migration.kind === "pending-cleanup" && pageCount !== null && pageCount > 0) {
-    hostnameLegacyRemoved = removeOrphanedSource(migration.oldId, gbrainEnv);
-    if (hostnameLegacyRemoved && !args.quiet) {
-      console.error(`[sync:code] hostname-fold migration: removed legacy ${migration.oldId} after new source sync verified (page_count=${pageCount})`);
-    }
-  }
-
-  const legacyParts: string[] = [];
-  if (legacyRemoved) legacyParts.push(`removed legacy ${legacyId}`);
-  if (migration.kind === "renamed") legacyParts.push(`renamed ${migration.oldId}→${migration.newId}`);
-  if (hostnameLegacyRemoved) legacyParts.push(`removed pre-hostname-fold ${migration.kind === "pending-cleanup" ? migration.oldId : ""}`);
-  const legacyNote = legacyParts.length > 0 ? `, ${legacyParts.join(", ")}` : "";
-  const baseSummary = `${registered ? "registered + " : ""}synced ${sourceId} (page_count=${pageCount ?? "unknown"}${legacyNote})`;
-
-  if (attach.status !== 0) {
-    const reason = (attach.stderr || attach.stdout || "").trim().split("\n").pop() || `exit ${attach.status}`;
-    return {
-      name: "code",
-      ran: true,
-      ok: false,
-      duration_ms: Date.now() - t0,
-      summary: `${baseSummary}; attach FAILED (${reason}) — code-def queries from this worktree will hit the default source until /sync-gbrain succeeds`,
-      detail: {
-        source_id: sourceId,
-        source_path: root,
-        page_count: pageCount,
-        last_imported: new Date().toISOString(),
-        status: "failed",
-      },
-    };
-  }
-
-  // v1.29.0.0 changelog promised the per-worktree pin would be ignored in the
-  // consuming repo, but the change actually only added .gbrain-source to
-  // gstack's own .gitignore. Without the consumer-side entry, the pin gets
-  // committed and breaks the per-worktree promise: Conductor sibling worktrees
-  // step on each other's pin every time anyone commits (#1384).
-  ensureGbrainSourceGitignored(root);
-
-  return {
-    name: "code",
-    ran: true,
-    ok: true,
-    duration_ms: Date.now() - t0,
-    summary: baseSummary,
-    detail: {
-      source_id: sourceId,
-      source_path: root,
-      page_count: pageCount,
-      last_imported: new Date().toISOString(),
-      status: "ok",
-    },
-  };
+  return repositoryIndexStage(runCurrentRepositoryIndex());
 }
 
 /**
@@ -1472,7 +1379,37 @@ export function formatStage(s: StageResult): string {
 async function main(): Promise<void> {
   const args = parseArgs();
 
-  if (!args.quiet) {
+  if (args.verifyReceipt) {
+    const root = repoRoot();
+    const output = root
+      ? verifyCurrentRepositoryIndexReceipt(root, GSTACK_HOME)
+      : repositoryIndexFailure("repository_not_found", {
+          cwd: process.cwd(),
+        });
+    if (args.json) {
+      console.log(JSON.stringify(output.result));
+    } else {
+      const rendered = renderRepositoryIndexResult(output.result);
+      if (output.exitCode === 0) console.log(rendered);
+      else console.error(rendered);
+    }
+    process.exit(output.exitCode);
+  }
+
+  // Wrapper dry-run is deliberately a no-probe assurance level. Return before
+  // engine detection, lock acquisition, Git inspection, or any gbrain spawn;
+  // a validated content plan belongs to the compatible child.
+  if (args.mode === "dry-run") {
+    const preview = orchestrationPreviewResult();
+    console.log(
+      args.json
+        ? JSON.stringify(preview)
+        : renderRepositoryIndexResult(preview),
+    );
+    process.exit(0);
+  }
+
+  if (!args.quiet && !args.json) {
     const engine = detectEngineTier();
     console.error(`[gbrain-sync] mode=${args.mode} engine=${engine.engine}`);
   }
@@ -1483,10 +1420,21 @@ async function main(): Promise<void> {
   if (needsLock) {
     haveLock = acquireLock();
     if (!haveLock) {
-      console.error(
-        `[gbrain-sync] another /sync-gbrain is running (lock at ${LOCK_PATH}). ` +
-        `If that process died, the lock auto-clears after 5 min, or remove it manually.`
-      );
+      const lockBusy: RepositoryIndexResult = {
+        schema_version: 1,
+        result_kind: "repository_index",
+        status: "incomplete",
+        reason_code: "lock_busy",
+        state_changed: "none",
+        evidence: { lock_path: LOCK_PATH },
+        next_command: "gstack-gbrain-sync --code-only --json",
+        docs: REPOSITORY_INDEX_RECOVERY_DOC,
+      };
+      if (args.json) {
+        console.log(JSON.stringify(lockBusy));
+      } else {
+        console.error(renderRepositoryIndexResult(lockBusy));
+      }
       process.exit(2);
     }
   }
@@ -1494,25 +1442,61 @@ async function main(): Promise<void> {
   const cleanup = () => {
     if (haveLock) releaseLock();
   };
-  process.on("SIGINT", () => { cleanup(); process.exit(130); });
-  process.on("SIGTERM", () => { cleanup(); process.exit(143); });
+  process.once("SIGINT", () => {
+    cleanup();
+    process.exit(130);
+  });
+  process.once("SIGTERM", () => {
+    cleanup();
+    process.exit(143);
+  });
+
+  if (args.json) {
+    let output: RepositoryIndexRunOutput;
+    try {
+      output = args.noCode
+        ? repositoryIndexFailure("repository_stage_disabled", {
+            option: "--no-code",
+          })
+        : runCurrentRepositoryIndex();
+    } catch (error) {
+      output = repositoryIndexFailure("repository_index_failed", {
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      cleanup();
+    }
+    console.log(JSON.stringify(output.result));
+    process.exit(output.exitCode);
+  }
 
   let exitCode = 0;
   const stages: StageResult[] = [];
+  let repositoryIndexExit: 0 | 1 | 2 = 0;
   try {
     const state = loadSyncState();
 
     if (!args.noCode) {
       stages.push(await withErrorContext("sync:code", () => runCodeImport(args), "gstack-gbrain-sync"));
+      const code = stages[stages.length - 1];
+      repositoryIndexExit = code.exit_code ?? (code.ok ? 0 : 1);
+      if (code.repository_result && (!args.quiet || repositoryIndexExit !== 0)) {
+        const rendered = renderRepositoryIndexResult(code.repository_result);
+        if (repositoryIndexExit === 0) console.log(rendered);
+        else console.error(rendered);
+      }
     }
-    if (!args.noMemory) {
+    // Registration, refusal, partial apply, or unverified apply is a terminal
+    // repository-index boundary. Do not continue into unrelated stages or
+    // write the legacy aggregate state as though the whole sync proceeded.
+    if (repositoryIndexExit === 0 && !args.noMemory) {
       stages.push(await withErrorContext("sync:memory", () => runMemoryIngest(args), "gstack-gbrain-sync"));
     }
-    if (!args.noBrainSync) {
+    if (repositoryIndexExit === 0 && !args.noBrainSync) {
       stages.push(await withErrorContext("sync:brain-sync", () => runBrainSyncPush(args), "gstack-gbrain-sync"));
     }
 
-    if (args.mode !== "dry-run") {
+    if (repositoryIndexExit === 0) {
       state.last_sync = new Date().toISOString();
       if (args.mode === "full") state.last_full_sync = state.last_sync;
       state.last_stages = stages;
@@ -1520,7 +1504,11 @@ async function main(): Promise<void> {
     }
 
     const anyError = stages.some((s) => s.ran && !s.ok);
-    exitCode = anyError ? 1 : 0;
+    exitCode = repositoryIndexExit !== 0
+      ? repositoryIndexExit
+      : anyError
+        ? 1
+        : 0;
   } finally {
     // Release the sync lock BEFORE the dream cycle. Dream is a source-scoped
     // cycle that can run several minutes; holding the machine-wide lock that
@@ -1531,14 +1519,7 @@ async function main(): Promise<void> {
 
   // ── Dream (call-graph build) — LOCK-FREE, after the sync lock releases ─────
   let dreamStage: StageResult | null = null;
-  if (args.mode === "dry-run") {
-    // Preview only; never probes doctor or spawns. `--dry-run` and `--full` are
-    // mutually exclusive modes (last one wins in parseArgs), so the only dream
-    // preview that applies to a dry-run is the explicit --dream force.
-    if (args.dream) {
-      dreamStage = await runDream(args);
-    }
-  } else {
+  if (repositoryIndexExit === 0) {
     // Resolve cycle state only on the --full auto path (perf: the steady-state
     // incremental sync never pays a doctor subprocess). Explicit --dream forces.
     let cycle: CycleStatus | null = null;
@@ -1579,7 +1560,26 @@ async function main(): Promise<void> {
 
 if (import.meta.main) {
   main().catch((err) => {
-    console.error(`gstack-gbrain-sync fatal: ${err instanceof Error ? err.message : String(err)}`);
+    const detail = err instanceof Error ? err.message : String(err);
+    if (process.argv.slice(2).includes("--json")) {
+      process.stdout.write(
+        `${JSON.stringify(
+          repositoryIndexFailure(
+            err instanceof CliArgumentError
+              ? "invalid_arguments"
+              : "repository_index_failed",
+            { detail },
+          ).result,
+        )}\n`,
+      );
+    } else {
+      if (err instanceof CliArgumentError) {
+        console.error(detail);
+        printUsage();
+      } else {
+        console.error(`gstack-gbrain-sync fatal: ${detail}`);
+      }
+    }
     releaseLock();
     process.exit(1);
   });

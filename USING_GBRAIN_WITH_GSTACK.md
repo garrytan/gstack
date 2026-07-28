@@ -4,7 +4,7 @@ Your coding agent, with a memory it actually keeps.
 
 [GBrain](https://github.com/garrytan/gbrain) is a persistent knowledge base designed for AI agents. It stores what your agent learns, what you've decided, what worked and what didn't, and lets the agent search all of it on demand. GStack gives you a one-command path from zero to "gbrain is running, and my agent can call it" — with paths for try-it-local, share-with-your-team, and everything between.
 
-This is the full monty: every scenario, every flag, every helper bin, every troubleshooting step. For the quick pitch, see the [README's GBrain section](README.md#gbrain--persistent-knowledge-for-your-coding-agent). For error codes and sync-specific issues, see [docs/gbrain-sync.md](docs/gbrain-sync.md).
+This is the full monty: every scenario, every flag, every helper bin, every troubleshooting step. For the quick pitch, see the [README's GBrain section](README.md#gbrain--persistent-knowledge-for-your-coding-agent). Repository-index refusal and recovery live in [docs/repository-index-recovery.md](docs/repository-index-recovery.md); cross-machine GStack artifact transport and its errors live in [docs/gbrain-sync.md](docs/gbrain-sync.md) and [docs/gbrain-sync-errors.md](docs/gbrain-sync-errors.md).
 
 ---
 
@@ -20,7 +20,7 @@ That's it. The skill detects your current state, asks three questions at most, a
 
 Once `/setup-gbrain` finishes, your coding agent has two retrieval surfaces it didn't have before:
 
-- **Semantic code search across this repo.** `gbrain search "browser security canary"` returns ranked file regions, not exact-match grep hits. `gbrain code-def`, `code-refs`, `code-callers`, `code-callees` walk the call graph by symbol — useful when you don't know which file holds the implementation but you know what it does. The agent prefers these over Grep when the question is semantic; CLAUDE.md gets a `## GBrain Search Guidance` block that teaches it the routing rules.
+- **Semantic repository search across this repo.** `gbrain search "browser security canary"` returns ranked code or tracked-Markdown regions, not exact-match grep hits. `gbrain code-def`, `code-refs`, `code-callers`, `code-callees` walk the call graph by symbol — useful when you don't know which file holds the implementation but you know what it does. The agent prefers these over Grep when the question is semantic; CLAUDE.md gets a `## GBrain Search Guidance` block that teaches it the routing rules.
 - **Cross-session memory.** Plans, retros, decisions, and learnings from past sessions live in `~/.gstack/` and (if you opted in to artifacts sync) get pushed to a private git repo that gbrain indexes. `gbrain search "what did we decide about auth?"` actually finds the prior CEO plan instead of you re-describing context every session.
 
 If you also enabled remote MCP (Path 4 below), brain queries route to a shared brain server that other machines can write to — your laptop, your desktop, and a teammate's machine all see the same memory.
@@ -119,34 +119,63 @@ SSH and HTTPS remote variants collapse to the same key: `https://github.com/foo/
 
 Storage: `~/.gstack/gbrain-repo-policy.json`, mode 0600, schema-versioned so future migrations stay deterministic.
 
-## Keeping the brain current with `/sync-gbrain`
+## Keeping the repository index current with `/sync-gbrain`
 
-`/setup-gbrain` is one-time onboarding. `/sync-gbrain` is the verb you run every time you want gbrain to see fresh changes in this repo's code.
-
-```bash
-/sync-gbrain                # incremental: mtime fast-path, ~seconds on a clean tree
-/sync-gbrain --full         # full reindex (~25-35 minutes on a big Mac)
-/sync-gbrain --code-only    # only the code stage; skip memory + brain-sync
-/sync-gbrain --dry-run      # preview what would sync; no writes
-```
-
-The skill runs three stages — code, memory, brain-sync — independently. A failure in one doesn't block the others. State persists to `~/.gstack/.gbrain-sync-state.json` so re-running picks up cleanly.
-
-**What it does on a fresh worktree:**
-
-1. **Pre-flight.** Checks `gbrain_local_status` (the local engine's health). If the engine is `broken-db` or `broken-config`, the skill STOPs with a remediation menu — it refuses to silently degrade. If the local engine is missing and you're in remote-MCP mode (Path 4), the code stage SKIPs cleanly and only brain-sync runs.
-2. **Code stage.** Registers the cwd as a federated source via `gbrain sources add`, writes a `.gbrain-source` pin file in the repo root (kubectl-style context — every worktree gets its own pin, so Conductor sibling worktrees don't collide), runs `gbrain sync --strategy code`.
-3. **Memory stage.** Stages your `~/.gstack/` transcripts + curated memory. In local-stdio MCP mode, ingests into the local engine. In remote-http MCP mode, persists staged markdown to `~/.gstack/transcripts/run-<pid>-<ts>/` for the remote brain admin's pull pipeline. The ingest timeout is 30 minutes by default; raise it for a big brain with `GSTACK_INGEST_TIMEOUT_MS` (accepts 1 min–24h). On timeout the gbrain import checkpoint is preserved, so the next `/sync-gbrain` resumes instead of starting over.
-4. **Brain-sync stage.** Pushes curated artifacts (plans, designs, retros) to your private artifacts repo if you have one configured.
-5. **CLAUDE.md guidance.** Capability-checks the round-trip (write a page → search → find it). If green, writes the `## GBrain Search Guidance` block to your project's CLAUDE.md. If red, REMOVES the block — the agent should never be told to use a tool that isn't installed.
-
-**The watermark.** Sync state advances by commit hash. If gbrain hits a file it can't index (5 MB hard limit per file, or a file vanished mid-sync), the watermark stays put and subsequent syncs retry. To acknowledge an unfixable failure and move past it:
+`/setup-gbrain` is one-time onboarding. Run `/sync-gbrain` after committed
+source-code or tracked Markdown changes that should be searchable.
 
 ```bash
-gbrain sync --source <source-id> --skip-failed
+/sync-gbrain                # repository index, then enabled memory/artifact stages
+/sync-gbrain --code-only    # repository-index stage only: code + tracked Markdown
+/sync-gbrain --dry-run      # ORCHESTRATION PREVIEW — unvalidated; no probes or writes
 ```
 
-Re-runnable, idempotent, safe to run from multiple terminals on the same machine (locked at `~/.gstack/.sync-gbrain.lock`).
+Repository indexing requires GBrain `0.42.70.0` or newer. A real run proves one
+unique source snapshot, canonical path identity, full Git HEAD, and prior
+bookmark before invoking `gbrain sync --strategy auto --no-pull` with exact
+expected-state arguments. It accepts only one schema-1 child document and
+writes `~/.gstack/.gbrain-repository-index-receipt.json` after post-sync
+bookmark/strategy, wrapper-owned source-marker replacement, a final strict
+source reread, clean-HEAD, bounded affected-item, and zero-image checks pass.
+Before use, `gstack-gbrain-sync --verify-receipt --json` binds that persisted
+evidence to the live canonical root, attached source, and full clean HEAD.
+
+`--dry-run` is deliberately not a content preview. It exits before Git,
+engine, source, path, or content inspection and reports
+`blocked_until_version_proven` / `state_changed: none`. For a real validated
+content plan, first prove version/source/root/HEAD/bookmark, then use the exact
+source-scoped command in
+[Repository index sync and recovery](docs/repository-index-recovery.md).
+
+**Fresh worktree bootstrap is two invocations:**
+
+1. The first real run sees the source is absent, registers only the canonical
+   path, returns `source_registered` / `registry_only`, and exits 2.
+2. The second run can bind `--expected-bookmark <sha|none>` and apply content.
+
+The wrapper never updates a mismatched registration by remove/re-add. A
+different or ambiguous canonical path is a terminal refusal requiring owner
+review.
+
+The wrapper's stages are:
+
+1. **Repository index.** Code + tracked Markdown for this worktree, pinned by
+   `.gbrain-source`. A refusal, partial apply, or unverified apply stops later
+   stages.
+2. **Memory ingest.** Local `~/.gstack/` transcripts and curated memory, or a
+   staged handoff in remote-http mode.
+3. **GStack artifact sync.** Curated `~/.gstack/` files pushed to a private Git
+   repository. This is transport, not the repository index.
+4. **Agent guidance.** Capability-checks GBrain and maintains the
+   `## GBrain Search Guidance` block without treating page count as proof.
+
+Only `synced`, `first_sync`, or `up_to_date` can reach repository verification.
+`partial`, `blocked_by_failures`, malformed JSON, path drift, or a failed
+postcondition never becomes GREEN. Do not automatically use `--skip-failed`,
+break locks, or alter source registration; follow the recovery guide.
+
+The wrapper lock is `~/.gstack/.sync-gbrain.lock`. GBrain separately owns its
+source lifecycle lock; neither should be broken automatically.
 
 ## Switching engines later
 
@@ -160,9 +189,9 @@ The skill runs `gbrain migrate --to supabase --url "$URL"` wrapped in `timeout 1
 
 **If migration hangs:** another gstack session may be holding a lock on the source brain. The timeout fires at 3 minutes with an actionable message. Close other workspaces and re-run.
 
-## GStack memory sync (a separate concern)
+## GStack artifact sync (a separate concern)
 
-This is different from gbrain itself. Your gstack state (`~/.gstack/` — learnings, plans, retros, timeline, developer profile) is machine-local by default. "GStack memory sync" optionally pushes a curated, secret-scanned subset to a private git repo so your memory follows you across machines — and, if you're running gbrain, that git repo becomes indexable there too.
+This is different from repository indexing. Your gstack state (`~/.gstack/` — learnings, plans, retros, timeline, developer profile) is machine-local by default. GStack artifact sync optionally pushes a curated, secret-scanned subset to a private Git repository so your memory follows you across machines. The Git push is transport only; GBrain indexes that artifact repository only when its separate source wireup is configured and synced.
 
 Turn it on with:
 
@@ -176,7 +205,7 @@ Secret-shaped content (AWS keys, GitHub tokens, PEM blocks, JWTs, bearer tokens)
 
 **On a new machine:** Copy `~/.gstack-brain-remote.txt` over, run `gstack-brain-restore`, and yesterday's learnings surface on today's laptop.
 
-Full guide: [docs/gbrain-sync.md](docs/gbrain-sync.md). Error index: [docs/gbrain-sync-errors.md](docs/gbrain-sync-errors.md).
+Artifact-sync guide: [docs/gbrain-sync.md](docs/gbrain-sync.md). Artifact-sync error index: [docs/gbrain-sync-errors.md](docs/gbrain-sync-errors.md).
 
 `/setup-gbrain` offers to wire this up for you at the end of initial setup — it's one more AskUserQuestion, and it integrates with the same private-repo infrastructure.
 
@@ -340,29 +369,29 @@ You edited `~/.gstack/gbrain-repo-policy.json` by hand with legacy `allow` value
 
 `/health` treats that as yellow, not red. Check `gbrain doctor --json | jq .checks` to see which sub-checks are warning. Typical causes: resolver MECE overlap (skill names clashing) or DB connection not yet configured.
 
-### `/sync-gbrain` reports `OK` but `gbrain search` returns nothing semantic
+### Repository receipt is GREEN but `gbrain search` returns nothing semantic
 
-Embeddings probably failed during import. Symbol queries (`code-def`, `code-refs`) still work because they don't need embeddings, but `gbrain search "<terms>"` falls back to a degraded BM25 path. Look in the sync output for lines like:
+Repository GREEN proves content sync at an exact clean HEAD; it does not
+automatically prove embeddings, extraction, or semantic search readiness.
+Inspect `evidence.corpus.embedding_status`, `extraction_status`, and
+`search_ready` in
+`~/.gstack/.gbrain-repository-index-receipt.json`. If embedding failed,
+`gbrain search "<terms>"` may fall back to a degraded lexical path. Look in the
+sync output for lines like:
 
 ```
 [gbrain] embedding failed for code file <name>: OpenAI embedding requires OPENAI_API_KEY
 ```
 
-The fix is to put a provider API key in the process env before re-running. `VOYAGE_API_KEY` is preferred for code (gstack defaults PGLite to `voyage-code-3` when set); otherwise `OPENAI_API_KEY` falls back to `text-embedding-3-large`. On a bare Mac shell, source the key from `~/.zshrc` before calling. In Conductor, the `lib/conductor-env-shim.ts` shim promotes `GSTACK_ANTHROPIC_API_KEY` / `GSTACK_OPENAI_API_KEY` to their canonical names automatically; for `VOYAGE_API_KEY`, set it directly in your Conductor workspace env. Re-run `/sync-gbrain --code-only` to backfill embeddings on already-imported pages.
+The fix is to put a provider API key in the process env before re-running. `VOYAGE_API_KEY` is preferred for code (gstack defaults PGLite to `voyage-code-3` when set); otherwise `OPENAI_API_KEY` falls back to `text-embedding-3-large`. On a bare Mac shell, source the key from `~/.zshrc` before calling. In Conductor, the `lib/conductor-env-shim.ts` shim promotes `GSTACK_ANTHROPIC_API_KEY` / `GSTACK_OPENAI_API_KEY` to their canonical names automatically; for `VOYAGE_API_KEY`, set it directly in your Conductor workspace env. Re-run `/sync-gbrain --code-only`, then require a new receipt whose semantic fields prove readiness.
 
 ### `gbrain sync` blocked at a commit hash — `FILE_TOO_LARGE`
 
-A file in your tree exceeds gbrain's 5 MB hard limit (`MAX_FILE_SIZE` in `gbrain/src/core/import-file.ts`). Common culprits: response replay caches, captured screenshots, large JSON fixtures. Gbrain doesn't honor `.gitignore`-style exclude lists for code sync; the only knob is acknowledging the failure:
-
-```bash
-gbrain sync --source <source-id> --skip-failed
-```
-
-Watermark advances past the offending commit. The same file fails again if it changes; re-skip when that happens.
+A file in your tree exceeds gbrain's 5 MB hard limit (`MAX_FILE_SIZE` in `gbrain/src/core/import-file.ts`). Common culprits: response replay caches, captured screenshots, or large JSON fixtures. Fix, remove, or deliberately relocate the file and rerun the same expected-state sync. Do not automatically use `--skip-failed`: it changes bookmark semantics and cannot produce the wrapper's trusted receipt without an explicitly reviewed recovery.
 
 ### Switching PGLite → Supabase hangs
 
-Another gstack session in a sibling Conductor workspace may be holding a lock on your local PGLite file via its preamble's `gstack-brain-sync` call. Close other workspaces, re-run `/setup-gbrain --switch`. The timeout is bounded at 180s so you'll never actually wait forever.
+Another GBrain process—commonly `gbrain serve`, repository sync, or local memory ingest—may be holding the PGLite file. `gstack-brain-sync` itself is Git-only artifact transport and is not the PGLite writer. Close the actual GBrain holder, then re-run `/setup-gbrain --switch`. The timeout is bounded at 180s.
 
 ## Why this design
 
