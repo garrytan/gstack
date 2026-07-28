@@ -1,5 +1,85 @@
 # Changelog
 
+## [1.63.0.0] - 2026-07-28
+
+## **/sync-gbrain now proves which repository commit it indexed before it calls the result current.**
+
+The repository stage used to make a weak health decision from page count and
+path spelling. A source registered as `.` could later look different from the
+same worktree's absolute path, trigger remove-and-re-add recovery, and come back
+with code indexed but tracked Markdown missing. A successful command could also
+leave later stages to imply everything was healthy without a receipt tied to
+the live Git commit.
+
+The new repository-index stage resolves canonical filesystem identity, keeps
+the source in place, and runs GBrain `0.42.70.0` or newer with the exact HEAD and
+prior bookmark. It indexes admitted code and tracked Markdown with strategy
+`auto`, then writes a bounded receipt only after the source, marker, bookmark,
+strategy, clean HEAD, and result all verify.
+
+### The numbers that matter
+
+| Contract | Before | v1.63.0.0 |
+|---|---|---|
+| Wrapper dry-run probes or writes | Not clearly bounded | 0 |
+| Source snapshots around apply | Best-effort | 3 strict reads |
+| Affected items stored in the receipt | Unbounded or absent | First 100, plus a digest over all |
+| Missing-source bootstrap | Register and continue | Register only, stop, then rerun |
+| Required GBrain release | Not pinned to the fix | `0.42.70.0` or newer |
+
+### What this means for builders
+
+Run `/sync-gbrain --code-only` when you want only this worktree's repository
+index. If its source is missing, the first call registers it and stops; run the
+same command again after inspecting the source. `--dry-run` is now explicitly
+an `ORCHESTRATION PREVIEW — unvalidated`: it returns before Git, engine, lock,
+source, or content probes and makes no writes. Use the validated direct GBrain
+preview in `docs/repository-index-recovery.md` when you need to inspect actual
+content operations.
+
+A repository refusal, partial apply, or failed postcondition is terminal.
+Memory ingest, cross-machine artifact sync, attach, cleanup, reindex, and dream
+do not run past it. A dirty worktree may be indexed deliberately, but it cannot
+produce a trusted clean-HEAD receipt.
+
+### Itemized changes
+
+#### Added
+
+- `lib/gbrain-repository-index.ts` implements four-component version parsing,
+  canonical source identity, exact target/bookmark invocation, strict schema-1
+  result validation, bounded receipt evidence, and live receipt verification.
+- `docs/repository-index-recovery.md` documents normal operation, both preview
+  assurance levels, every result/state class, and paste-ready recovery commands.
+- `/sync-gbrain --json` emits one `repository_index` document, while
+  `--verify-receipt` rebinds persisted evidence to the current canonical root,
+  attached source, clean full HEAD, and tracked marker without contacting
+  GBrain.
+
+#### Changed
+
+- `--code-only` now means “repository-index stage only,” covering both code and
+  tracked Markdown; it no longer implies GBrain strategy `code`.
+- The wrapper requires GBrain `0.42.70.0`, forces multimodal admission off in a
+  copied child environment, and invokes strategy `auto` with `--no-pull`,
+  exact target/bookmark checks, and clean-tree enforcement when applicable.
+- Source-path drift is classified as equivalent, different, or ambiguous.
+  Different or unprovable paths refuse; the wrapper never repairs them by
+  deleting and re-adding the source.
+- Missing sources use a two-invocation bootstrap. The registration call exits
+  incomplete with `state_changed: registry_only`; sync and attach wait for the
+  next invocation.
+- Repository terminal failures stop every later stage. Post-apply failures are
+  reported as `applied_unverified`, never as a rollback or GREEN result.
+- `.gbrain-source` and receipts use wrapper-owned atomic replacement; final
+  source and Git snapshots must still match before cleanup can proceed.
+
+#### Documentation
+
+- README, `USING_GBRAIN_WITH_GSTACK.md`, the generated `/sync-gbrain` skill,
+  error guide, suggestions, and `gstack/llms.txt` now distinguish repository
+  indexing from cross-machine GStack artifact sync and link the recovery guide.
+
 ## [1.60.1.0] - 2026-07-09
 
 ## **The /autoplan dual-voice eval is back on the board, catching real regressions.**
