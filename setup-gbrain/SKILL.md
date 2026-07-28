@@ -468,32 +468,31 @@ else
 fi
 _BRAIN_SYNC_BIN="~/.claude/skills/gstack/bin/gstack-brain-sync"
 _BRAIN_CONFIG_BIN="~/.claude/skills/gstack/bin/gstack-config"
+_GBRAIN_REPOSITORY_SYNC_BIN=~/.claude/skills/gstack/bin/gstack-gbrain-sync
 
-# /sync-gbrain context-load: teach the agent to use gbrain when it's available.
-# Per-worktree pin: post-spike redesign uses kubectl-style `.gbrain-source` in the
-# git toplevel to scope queries. Look for the pin in the worktree (not a global
-# state file) so that opening worktree B without a pin doesn't claim "indexed"
-# just because worktree A was synced. Empty string when gbrain is not
-# configured (zero context cost for non-gbrain users).
+# /sync-gbrain context-load: recommend repository search only when the bounded
+# receipt still verifies against this live canonical worktree and clean HEAD.
+# A .gbrain-source pin or a prior successful receipt is not sufficient.
 _GBRAIN_CONFIG="$HOME/.gbrain/config.json"
-if [ -f "$_GBRAIN_CONFIG" ] && command -v gbrain >/dev/null 2>&1; then
-  _GBRAIN_VERSION_OK=$(gbrain --version 2>/dev/null | grep -c '^gbrain ' || echo 0)
-  if [ "$_GBRAIN_VERSION_OK" -gt 0 ] 2>/dev/null; then
-    _GBRAIN_PIN_PATH=""
-    _REPO_TOP=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
-    if [ -n "$_REPO_TOP" ] && [ -f "$_REPO_TOP/.gbrain-source" ]; then
-      _GBRAIN_PIN_PATH="$_REPO_TOP/.gbrain-source"
+if [ -f "$_GBRAIN_CONFIG" ]; then
+  _GBRAIN_RECEIPT_JSON=""
+  _GBRAIN_RECEIPT_OK=0
+  if command -v gbrain >/dev/null 2>&1 && [ -x "$_GBRAIN_REPOSITORY_SYNC_BIN" ]; then
+    if _GBRAIN_RECEIPT_JSON=$("$_GBRAIN_REPOSITORY_SYNC_BIN" --verify-receipt --json --quiet 2>/dev/null); then
+      _GBRAIN_RECEIPT_OK=1
     fi
-    if [ -n "$_GBRAIN_PIN_PATH" ]; then
-      echo "GBrain configured. Prefer \`gbrain search\`/\`gbrain query\` over Grep for"
-      echo "semantic questions; use \`gbrain code-def\`/\`code-refs\`/\`code-callers\` for"
-      echo "symbol-aware code lookup. See \"## GBrain Search Guidance\" in CLAUDE.md."
-      echo "Run /sync-gbrain to refresh."
-    else
-      echo "GBrain configured but this worktree isn't pinned yet. Run \`/sync-gbrain --full\`"
-      echo "before relying on \`gbrain search\` for code questions in this worktree."
-      echo "Falls back to Grep until pinned."
-    fi
+  fi
+  if [ "$_GBRAIN_RECEIPT_OK" = "1" ] &&
+     printf '%s' "$_GBRAIN_RECEIPT_JSON" | grep -Fq '"status":"verified"' &&
+     printf '%s' "$_GBRAIN_RECEIPT_JSON" | grep -Fq '"state_changed":"applied_verified"' &&
+     printf '%s' "$_GBRAIN_RECEIPT_JSON" | grep -Fq '"trusted":true'; then
+    echo "GBrain receipt verified for this clean HEAD. Prefer \`gbrain search\`/\`gbrain query\`"
+    echo "for semantic questions and \`gbrain code-def\`/\`code-refs\`/\`code-callers\`"
+    echo "for symbol-aware lookup. See \"## GBrain Search Guidance\" in CLAUDE.md."
+  else
+    echo "GBrain is not receipt-verified for this worktree's current clean HEAD."
+    echo "Use repository files and \`rg\`; run \`/sync-gbrain --code-only\` before relying"
+    echo "on GBrain repository search."
   fi
 fi
 
@@ -1325,10 +1324,20 @@ current_tier=$(~/.claude/skills/gstack/bin/gstack-gbrain-repo-policy get)
 ```
 
 Branches:
-- `read-write` → import this repo: `gbrain import "$(pwd)" --no-embed` then
-  `gbrain embed --stale &` in the background.
-- `read-only` → skip import entirely (this tier is enforced by the future
-  auto-import hook + by gbrain resolver injection, not here).
+- `read-write` → run the safe repository-index wrapper exactly once:
+  ```bash
+  _GBRAIN_REPOSITORY_SYNC_BIN=~/.claude/skills/gstack/bin/gstack-gbrain-sync
+  "$_GBRAIN_REPOSITORY_SYNC_BIN" --code-only --json
+  ```
+  Never substitute a raw `gbrain import`, background `gbrain embed`, or direct
+  `gbrain sync`. The wrapper enforces the strict version/source/path gate and
+  expected-state contract, including a validated dry-run whose full
+  `plan_digest` is required and echoed by apply. A first invocation may
+  intentionally return exit 2 with `reason_code: source_registered` and
+  `state_changed: registry_only`;
+  report that bootstrap state and tell the user to run
+  `/sync-gbrain --code-only` again before relying on repository search.
+- `read-only` → skip repository indexing entirely.
 - `deny` → do nothing.
 - `unset` → AskUserQuestion: "How should `<normalized-remote>` interact with
   gbrain?"
@@ -1341,7 +1350,7 @@ Branches:
   ```bash
   ~/.claude/skills/gstack/bin/gstack-gbrain-repo-policy set "$REMOTE" "$TIER"
   ```
-  Then import iff `read-write`.
+  Then run the safe repository-index wrapper above iff `read-write`.
 
 If outside a git repo OR no origin remote: skip this step with a note.
 
@@ -1486,15 +1495,16 @@ Options:
 After answer:
 ```bash
 ~/.claude/skills/gstack/bin/gstack-config set transcript_ingest_mode <choice>
-~/.claude/skills/gstack/bin/gstack-gbrain-sync --full --no-brain-sync
+_GBRAIN_REPOSITORY_SYNC_BIN=~/.claude/skills/gstack/bin/gstack-gbrain-sync
+"$_GBRAIN_REPOSITORY_SYNC_BIN" --full --no-brain-sync
 ```
 (`--no-brain-sync` because Step 7 already wired that path; this just
-runs the code import + memory ingest stages. Brain-sync will run on the
+runs the repository-index + memory-ingest stages. Brain-sync will run on the
 next preamble hook.)
 
-If A/D/E, ingest is incremental from this point on; preamble-boundary
-hook runs `gstack-gbrain-sync --incremental --quiet` on every skill
-start (cheap mtime fast-path).
+If A/D/E, transcript ingest is incremental from this point on. Repository
+indexing is not implied by a later skill start; run `/sync-gbrain` after
+committed source or tracked-Markdown changes.
 
 Reference doc for users: `setup-gbrain/memory.md` (linked from CLAUDE.md
 Step 8).
@@ -1537,49 +1547,12 @@ in to git in many projects). It lives only in `~/.claude.json` where
 - Current repo policy: {read-write|read-only|deny|unset}
 ```
 
-**After Step 9 (smoke test) passes, also write the `## GBrain Search Guidance`
-block** so the coding agent learns when to prefer `gbrain` over Grep. This
-block is gated on the smoke test passing — write the Configuration block
-first (so the user knows what state they're in even if the smoke test fails),
-then return here after Step 9 and write the guidance block only if smoke
-test succeeded.
-
-When Step 9 passes, find-and-replace (or append) this block. Use HTML-comment
-delimiters so removal regex is unambiguous and never eats user content. The
-block content is machine-AGNOSTIC — no engine type, no page counts, no
-last-sync time. Machine state stays in the Configuration block above.
-
-```markdown
-## GBrain Search Guidance (configured by /sync-gbrain)
-<!-- gstack-gbrain-search-guidance:start -->
-
-GBrain is set up and synced on this machine. The agent should prefer gbrain
-over Grep when the question is semantic or when you don't know the exact
-identifier yet. Two indexed corpora available via the `gbrain` CLI:
-- This repo's code (registered as `gstack-code-<repo>` source).
-- `~/.gstack/` curated memory (registered as `gstack-brain-<user>` source via
-  the existing federation pipeline).
-
-Prefer gbrain when:
-- "Where is X handled?" / semantic intent, no exact string yet:
-    `gbrain search "<terms>"` or `gbrain query "<question>"`
-- "Where is symbol Y defined?" / symbol-based code questions:
-    `gbrain code-def <symbol>` or `gbrain code-refs <symbol>`
-- "What calls Y?" / "What does Y depend on?":
-    `gbrain code-callers <symbol>` / `gbrain code-callees <symbol>`
-- "What did we decide last time?" / past plans, retros, learnings:
-    `gbrain search "<terms>" --source gstack-brain-<user>`
-
-Grep is still right for known exact strings, regex, multiline patterns, and
-file globs. The brain auto-syncs incrementally on every gstack skill start.
-Run `/sync-gbrain` to force-refresh, `/sync-gbrain --full` for full reindex.
-
-<!-- gstack-gbrain-search-guidance:end -->
-```
-
-If Step 9 smoke test fails, skip the guidance block write entirely. The user's
-next `/sync-gbrain` run will re-evaluate capability and write the block when
-the round-trip works.
+Do **not** create or refresh `## GBrain Search Guidance` in this setup skill.
+A generic engine/MCP smoke test proves availability, not that this worktree's
+repository index matches its current clean HEAD. `/sync-gbrain` owns that
+guidance and may write it only after its repository-index run produces a
+trusted receipt that passes the live `--verify-receipt` check. Until then,
+tell the agent to use repository files and `rg`.
 
 ---
 

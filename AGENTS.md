@@ -64,8 +64,8 @@ Invoke them by name (e.g., `/office-hours`).
 | `/benchmark` | Performance regression detection (page load, Core Web Vitals). |
 | `/benchmark-models` | Cross-model benchmark for skills (Claude, GPT, Gemini side-by-side). |
 | `/cso` | OWASP Top 10 + STRIDE security audit. |
-| `/setup-gbrain` | Set up gbrain for cross-machine session memory sync. |
-| `/sync-gbrain` | Keep gbrain current with this repo's code; refresh agent search guidance in CLAUDE.md. |
+| `/setup-gbrain` | Configure gbrain, MCP, and per-repository trust without claiming the current repository index is synced. |
+| `/sync-gbrain` | Sync code and tracked Markdown through strict version/source/path, expected-state, and preview/apply `plan_digest` gates; a missing source needs a registration invocation followed by a sync invocation, and search guidance requires a trusted live HEAD-bound receipt. |
 
 ### Browser + agent integration
 

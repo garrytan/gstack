@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
   chmodSync,
+  existsSync,
   mkdirSync,
   lstatSync,
   mkdtempSync,
@@ -16,6 +17,9 @@ import { spawnSync } from "child_process";
 import { createHash } from "crypto";
 import {
   REQUIRED_GBRAIN_REPOSITORY_INDEX_VERSION,
+  REPOSITORY_INDEX_ATTEMPT,
+  REPOSITORY_INDEX_LOCK,
+  REPOSITORY_INDEX_RECEIPT,
   classifyRepositoryPath,
   compareReleasedVersions,
   parseReleasedGbrainVersion,
@@ -38,17 +42,30 @@ const tempDirs: string[] = [];
 function makeCommittedRepo(): string {
   const repo = mkdtempSync(join(tmpdir(), "gstack-repository-index-"));
   tempDirs.push(repo);
-  expect(spawnSync("git", ["init", "--quiet", "-b", "main"], { cwd: repo }).status).toBe(0);
-  expect(spawnSync("git", ["config", "user.email", "gstack@test.invalid"], { cwd: repo }).status).toBe(0);
-  expect(spawnSync("git", ["config", "user.name", "gstack test"], { cwd: repo }).status).toBe(0);
+  expect(
+    spawnSync("git", ["init", "--quiet", "-b", "main"], { cwd: repo }).status,
+  ).toBe(0);
+  expect(
+    spawnSync("git", ["config", "user.email", "gstack@test.invalid"], {
+      cwd: repo,
+    }).status,
+  ).toBe(0);
+  expect(
+    spawnSync("git", ["config", "user.name", "gstack test"], { cwd: repo })
+      .status,
+  ).toBe(0);
   writeFileSync(join(repo, "README.md"), "# fixture\n");
   expect(spawnSync("git", ["add", "README.md"], { cwd: repo }).status).toBe(0);
-  expect(spawnSync("git", ["commit", "--quiet", "-m", "fixture"], { cwd: repo }).status).toBe(0);
+  expect(
+    spawnSync("git", ["commit", "--quiet", "-m", "fixture"], { cwd: repo })
+      .status,
+  ).toBe(0);
   return repo;
 }
 
 const ZERO_DIGEST =
   "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+const PLAN_DIGEST = "a".repeat(64);
 
 function completeChild(
   sourceId: string,
@@ -77,6 +94,7 @@ function completeChild(
       truncated: false,
     },
     affected_digest: ZERO_DIGEST,
+    plan_digest: PLAN_DIGEST,
     corpus: {
       markdown_planned_or_applied: 0,
       code_pages_before: 0,
@@ -92,6 +110,28 @@ function completeChild(
   };
 }
 
+function previewChild(
+  sourceId: string,
+  head: string,
+  fromCommit: string | null,
+  lastSuccessfulStrategy: "markdown" | "code" | "auto" | null = fromCommit ===
+  null
+    ? null
+    : "auto",
+): Record<string, unknown> {
+  const child = completeChild(sourceId, head, fromCommit);
+  return {
+    ...child,
+    status: "dry_run",
+    preview_kind: "validated_index_plan",
+    repository: {
+      ...(child.repository as Record<string, unknown>),
+      bookmark_after: fromCommit,
+      last_successful_strategy: lastSuccessfulStrategy,
+    },
+  };
+}
+
 type SpawnCall = { args: string[]; options?: GbrainSpawnOptions };
 
 function runnerFixture(options: {
@@ -101,10 +141,16 @@ function runnerFixture(options: {
   sources?: unknown;
   postSources?: unknown;
   finalSources?: unknown;
+  preview?: unknown;
+  previewExit?: number;
   sync?: unknown;
   syncExit?: number;
   afterPostSourceProbe?: (repo: string) => void;
   writeReceipt?: (path: string, receipt: RepositoryIndexResult) => void;
+  writeAttemptMarker?: Parameters<
+    typeof runRepositoryIndex
+  >[0]["writeAttemptMarker"];
+  clearAttemptMarker?: (path: string) => void;
   writeSourceMarker?: (root: string, sourceId: string) => void;
   readRepositoryState?: (root: string) => RepositoryState;
 }) {
@@ -140,7 +186,7 @@ function runnerFixture(options: {
           ? options.finalSources
           : sourceProbeCount > 1 && options.postSources !== undefined
             ? options.postSources
-            : options.sources ?? { sources: [] };
+            : (options.sources ?? { sources: [] });
       return {
         status: 0,
         stdout: JSON.stringify(snapshot),
@@ -150,6 +196,25 @@ function runnerFixture(options: {
       return { status: 0, stdout: "" };
     }
     if (args[0] === "sync") {
+      if (args.includes("--dry-run")) {
+        const bookmarkIndex = args.indexOf("--expected-bookmark");
+        const expectedBookmark =
+          bookmarkIndex >= 0 ? args[bookmarkIndex + 1] : head;
+        return {
+          status: options.previewExit ?? 0,
+          stdout:
+            typeof options.preview === "string"
+              ? options.preview
+              : JSON.stringify(
+                  options.preview ??
+                    previewChild(
+                      sourceId,
+                      head,
+                      expectedBookmark === "none" ? null : expectedBookmark,
+                    ),
+                ),
+        };
+      }
       return {
         status: options.syncExit ?? 0,
         stdout:
@@ -179,6 +244,8 @@ function runnerFixture(options: {
         spawnGbrain,
         platform: overrides.platform,
         writeReceipt: options.writeReceipt,
+        writeAttemptMarker: options.writeAttemptMarker,
+        clearAttemptMarker: options.clearAttemptMarker,
         writeSourceMarker: options.writeSourceMarker,
         readRepositoryState: options.readRepositoryState,
       }),
@@ -254,6 +321,9 @@ describe("repository-index receipt rebinding", () => {
         state_changed: "applied_verified",
       },
     });
+    expect(existsSync(join(fixture.gstackHome, REPOSITORY_INDEX_ATTEMPT))).toBe(
+      false,
+    );
     expect(
       verifyCurrentRepositoryIndexReceipt(repo, fixture.gstackHome),
     ).toMatchObject({
@@ -280,6 +350,203 @@ describe("repository-index receipt rebinding", () => {
         status: "refused",
         reason_code: "receipt_stale",
         state_changed: "none",
+      },
+    });
+  });
+
+  test("an active wrapper lock blocks an otherwise current GREEN receipt", () => {
+    const repo = makeCommittedRepo();
+    const sourceId = "gstack-code-fixture-12345678";
+    const head = spawnSync("git", ["rev-parse", "HEAD"], {
+      cwd: repo,
+      encoding: "utf-8",
+    }).stdout.trim();
+    const source = {
+      id: sourceId,
+      local_path: repo,
+      last_commit: head,
+      last_successful_strategy: "auto",
+    };
+    const fixture = runnerFixture({
+      repo,
+      sourceId,
+      sources: { sources: [source] },
+      sync: completeChild(sourceId, head, head),
+    });
+    expect(fixture.run().exitCode).toBe(0);
+    const lockPath = join(fixture.gstackHome, REPOSITORY_INDEX_LOCK);
+    writeFileSync(
+      lockPath,
+      JSON.stringify({
+        pid: process.pid,
+        started_at: new Date().toISOString(),
+      }),
+    );
+
+    expect(
+      verifyCurrentRepositoryIndexReceipt(repo, fixture.gstackHome),
+    ).toMatchObject({
+      exitCode: 1,
+      result: {
+        status: "refused",
+        reason_code: "receipt_in_progress",
+        state_changed: "none",
+        evidence: {
+          active_kind: "wrapper_lock",
+          active_path: lockPath,
+        },
+      },
+    });
+  });
+
+  test("a persisted receipt requires the immutable preview/apply plan digest", () => {
+    const repo = makeCommittedRepo();
+    const sourceId = "gstack-code-fixture-12345678";
+    const head = spawnSync("git", ["rev-parse", "HEAD"], {
+      cwd: repo,
+      encoding: "utf-8",
+    }).stdout.trim();
+    const source = {
+      id: sourceId,
+      local_path: repo,
+      last_commit: head,
+      last_successful_strategy: "auto",
+    };
+    const fixture = runnerFixture({
+      repo,
+      sourceId,
+      sources: { sources: [source] },
+      sync: completeChild(sourceId, head, head),
+    });
+    expect(fixture.run().exitCode).toBe(0);
+    const receiptPath = join(fixture.gstackHome, REPOSITORY_INDEX_RECEIPT);
+    const receipt = JSON.parse(readFileSync(receiptPath, "utf-8"));
+
+    for (const planDigest of [undefined, "A".repeat(64), "a".repeat(63)]) {
+      const invalidReceipt = structuredClone(receipt);
+      if (planDigest === undefined) {
+        delete invalidReceipt.evidence.sync.plan_digest;
+      } else {
+        invalidReceipt.evidence.sync.plan_digest = planDigest;
+      }
+      writeFileSync(
+        receiptPath,
+        `${JSON.stringify(invalidReceipt, null, 2)}\n`,
+      );
+      expect(
+        verifyCurrentRepositoryIndexReceipt(repo, fixture.gstackHome),
+      ).toMatchObject({
+        exitCode: 1,
+        result: {
+          status: "error",
+          reason_code: "receipt_invalid",
+          state_changed: "none",
+        },
+      });
+    }
+  });
+
+  test("a failed same-HEAD attempt invalidates the prior GREEN receipt", () => {
+    const repo = makeCommittedRepo();
+    const sourceId = "gstack-code-fixture-12345678";
+    const head = spawnSync("git", ["rev-parse", "HEAD"], {
+      cwd: repo,
+      encoding: "utf-8",
+    }).stdout.trim();
+    const source = {
+      id: sourceId,
+      local_path: repo,
+      last_commit: head,
+      last_successful_strategy: "auto",
+    };
+    const fixture = runnerFixture({
+      repo,
+      sourceId,
+      sources: { sources: [source] },
+      sync: completeChild(sourceId, head, head),
+    });
+    expect(fixture.run().exitCode).toBe(0);
+    expect(existsSync(join(fixture.gstackHome, REPOSITORY_INDEX_RECEIPT))).toBe(
+      true,
+    );
+
+    const failed = runRepositoryIndex({
+      root: repo,
+      sourceId,
+      head,
+      workingTreeClean: true,
+      gstackHome: fixture.gstackHome,
+      spawnGbrain: () => ({
+        status: 0,
+        stdout: "gbrain 0.42.70.99\n",
+      }),
+    });
+
+    expect(failed).toMatchObject({
+      exitCode: 1,
+      result: {
+        reason_code: "unsupported_version",
+        state_changed: "none",
+      },
+    });
+    expect(existsSync(join(fixture.gstackHome, REPOSITORY_INDEX_RECEIPT))).toBe(
+      false,
+    );
+    expect(existsSync(join(fixture.gstackHome, REPOSITORY_INDEX_ATTEMPT))).toBe(
+      true,
+    );
+    expect(
+      verifyCurrentRepositoryIndexReceipt(repo, fixture.gstackHome),
+    ).toMatchObject({
+      exitCode: 1,
+      result: {
+        reason_code: "receipt_superseded",
+        evidence: { active_kind: "attempt_watermark" },
+      },
+    });
+  });
+
+  test("watermark-clear failure cannot expose the newly written receipt", () => {
+    const repo = makeCommittedRepo();
+    const sourceId = "gstack-code-fixture-12345678";
+    const head = spawnSync("git", ["rev-parse", "HEAD"], {
+      cwd: repo,
+      encoding: "utf-8",
+    }).stdout.trim();
+    const source = {
+      id: sourceId,
+      local_path: repo,
+      last_commit: head,
+      last_successful_strategy: "auto",
+    };
+    const fixture = runnerFixture({
+      repo,
+      sourceId,
+      sources: { sources: [source] },
+      sync: completeChild(sourceId, head, head),
+      clearAttemptMarker: () => {
+        throw new Error("cannot clear attempt watermark");
+      },
+    });
+
+    expect(fixture.run()).toMatchObject({
+      exitCode: 1,
+      result: {
+        reason_code: "verification_failed",
+        state_changed: "applied_unverified",
+        evidence: { failing_step: "attempt_watermark_clear" },
+      },
+    });
+    expect(existsSync(join(fixture.gstackHome, REPOSITORY_INDEX_RECEIPT))).toBe(
+      true,
+    );
+    expect(
+      verifyCurrentRepositoryIndexReceipt(repo, fixture.gstackHome),
+    ).toMatchObject({
+      exitCode: 1,
+      result: {
+        reason_code: "receipt_superseded",
+        evidence: { active_kind: "attempt_watermark" },
       },
     });
   });
@@ -349,6 +616,67 @@ describe("repository-index safety helpers", () => {
     }
   });
 
+  test("global guidance and setup require the safe live-receipt wrapper", () => {
+    const preamble = readFileSync(
+      join(ROOT, "scripts/resolvers/preamble/generate-brain-sync-block.ts"),
+      "utf-8",
+    );
+    expect(preamble).toContain(
+      '"$_GBRAIN_REPOSITORY_SYNC_BIN" --verify-receipt --json --quiet',
+    );
+    expect(preamble).toContain('_GBRAIN_RECEIPT_OK" = "1"');
+    expect(preamble).toContain(`'"status":"verified"'`);
+    expect(preamble).toContain(`'"state_changed":"applied_verified"'`);
+    expect(preamble).toContain(`'"trusted":true'`);
+    expect(preamble).toContain("Use repository files and");
+    expect(preamble).not.toContain("_GBRAIN_PIN_PATH");
+
+    const setup = readFileSync(
+      join(ROOT, "setup-gbrain", "SKILL.md.tmpl"),
+      "utf-8",
+    );
+    expect(setup).toContain(
+      '"$_GBRAIN_REPOSITORY_SYNC_BIN" --code-only --json',
+    );
+    expect(setup).toContain(
+      "Do **not** create or refresh `## GBrain Search Guidance`",
+    );
+    expect(setup).not.toContain('gbrain import "$(pwd)" --no-embed');
+    expect(setup).not.toContain("gbrain embed --stale &");
+
+    const syncSkill = readFileSync(
+      join(ROOT, "sync-gbrain", "SKILL.md.tmpl"),
+      "utf-8",
+    );
+    expect(syncSkill).toContain(
+      "This checked-in block is guidance, not proof of live repository-index",
+    );
+    expect(syncSkill).toContain("The pin alone never proves that");
+    expect(syncSkill).toContain("indexed content matches the current HEAD.");
+    expect(syncSkill).toContain(
+      "If live receipt verification fails, is unavailable, or does not return all",
+    );
+    expect(syncSkill).toContain("--expected-plan-digest");
+    expect(syncSkill).toContain("sync.plan_digest");
+    expect(syncSkill).not.toContain(
+      "the brain auto-syncs incrementally on every gstack skill start",
+    );
+
+    const recovery = readFileSync(
+      join(ROOT, "docs", "repository-index-recovery.md"),
+      "utf-8",
+    );
+    expect(recovery).toContain('--source "$SOURCE_ID"');
+    expect(recovery).toContain('--repo "$REPOSITORY_ROOT"');
+    expect(recovery).toContain(
+      '--expected-plan-digest "$_GBRAIN_REPAIR_PLAN_DIGEST"',
+    );
+    expect(recovery).toContain('value.preview_kind !== "validated_index_plan"');
+    expect(recovery).not.toContain("remove only `--dry-run`");
+    expect(recovery).not.toContain("--source <source-id>");
+    expect(recovery).not.toContain("--repo <canonical-repository-root>");
+  });
+
   test("released-version parsing is strict and compares all four fields", () => {
     expect(parseReleasedGbrainVersion("gbrain 0.42.71.0\n")).toEqual([
       0, 42, 71, 0,
@@ -364,15 +692,9 @@ describe("repository-index safety helpers", () => {
     ]) {
       expect(parseReleasedGbrainVersion(invalid)).toBeNull();
     }
-    expect(
-      compareReleasedVersions([0, 42, 70, 99], [0, 42, 71, 0]),
-    ).toBe(-1);
-    expect(
-      compareReleasedVersions([0, 42, 71, 0], [0, 42, 71, 0]),
-    ).toBe(0);
-    expect(
-      compareReleasedVersions([0, 42, 71, 1], [0, 42, 71, 0]),
-    ).toBe(1);
+    expect(compareReleasedVersions([0, 42, 70, 99], [0, 42, 71, 0])).toBe(-1);
+    expect(compareReleasedVersions([0, 42, 71, 0], [0, 42, 71, 0])).toBe(0);
+    expect(compareReleasedVersions([0, 42, 71, 1], [0, 42, 71, 0])).toBe(1);
   });
 
   test("strict source snapshots accept only complete unique bare/wrapped rows", () => {
@@ -462,9 +784,9 @@ describe("repository-index safety helpers", () => {
     expect(classifyRepositoryPath(alias, repo).kind).toBe("equivalent");
     expect(classifyRepositoryPath(other, repo).kind).toBe("different");
     expect(classifyRepositoryPath(file, repo).kind).toBe("ambiguous");
-    expect(
-      classifyRepositoryPath(join(parent, "missing"), repo).kind,
-    ).toBe("ambiguous");
+    expect(classifyRepositoryPath(join(parent, "missing"), repo).kind).toBe(
+      "ambiguous",
+    );
   });
 
   test("Windows shell transport refuses metacharacters without changing POSIX", () => {
@@ -479,7 +801,7 @@ describe("repository-index safety helpers", () => {
       "!",
       "(",
       ")",
-      "\"",
+      '"',
       "\r",
       "\n",
     ]) {
@@ -555,8 +877,7 @@ describe("repository-index safety helpers", () => {
       sourceId,
       sources: { sources: [source] },
       sync: completeChild(sourceId, head, head),
-      afterPostSourceProbe: (root) =>
-        mkdirSync(join(root, ".gbrain-source")),
+      afterPostSourceProbe: (root) => mkdirSync(join(root, ".gbrain-source")),
     });
 
     expect(fixture.run()).toMatchObject({
@@ -606,10 +927,12 @@ describe("repository-index safety helpers", () => {
       },
     ]);
 
-    // SHA-256("add\tCLAUDE.md\tclaude\nrename\tdocs/new.md\tnew\n").
-    // from_path is intentionally descriptive and excluded from the digest.
+    // SHA-256(
+    //   "add\tCLAUDE.md\tclaude\t\n" +
+    //   "rename\tdocs/new.md\tnew\tdocs/old.md\n",
+    // ).
     expect(summary.sha256).toBe(
-      "068cf732646c90f64f94e2d26324cbd21f0707b2e802c43ea80607bd1af43b87",
+      "ff9653905409b935202cd05330f1aadf714a0ce6fe159a00fdc1c55e01c5cdae",
     );
   });
 
@@ -785,6 +1108,13 @@ describe("repository-index orchestration", () => {
       state_changed: "applied_verified",
     });
     expect(receipts).toHaveLength(1);
+    expect(receipts[0]).toMatchObject({
+      evidence: {
+        sync: {
+          plan_digest: PLAN_DIGEST,
+        },
+      },
+    });
     expect(fixture.calls.map((call) => call.args)).toEqual([
       ["--version"],
       ["sources", "list", "--json"],
@@ -802,14 +1132,33 @@ describe("repository-index orchestration", () => {
         "--expected-bookmark",
         head,
         "--require-clean",
+        "--dry-run",
+        "--json",
+      ],
+      [
+        "sync",
+        "--strategy",
+        "auto",
+        "--source",
+        sourceId,
+        "--repo",
+        realpathSync.native(repo),
+        "--no-pull",
+        "--expected-target",
+        head,
+        "--expected-bookmark",
+        head,
+        "--require-clean",
+        "--expected-plan-digest",
+        PLAN_DIGEST,
         "--json",
       ],
       ["sources", "list", "--json"],
       ["sources", "list", "--json"],
     ]);
-    expect(
-      fixture.calls[2].options?.baseEnv?.GBRAIN_EMBEDDING_MULTIMODAL,
-    ).toBe("false");
+    expect(fixture.calls[2].options?.baseEnv?.GBRAIN_EMBEDDING_MULTIMODAL).toBe(
+      "false",
+    );
     for (const call of fixture.calls) {
       expect(call.options?.baseEnv?.GBRAIN_EMBEDDING_MULTIMODAL).toBe("false");
     }
@@ -818,11 +1167,10 @@ describe("repository-index orchestration", () => {
       `${sourceId}\n`,
     );
     expect(
-      spawnSync(
-        "git",
-        ["status", "--porcelain=v1", "--untracked-files=all"],
-        { cwd: repo, encoding: "utf-8" },
-      ).stdout,
+      spawnSync("git", ["status", "--porcelain=v1", "--untracked-files=all"], {
+        cwd: repo,
+        encoding: "utf-8",
+      }).stdout,
     ).toBe("");
     expect(
       spawnSync("git", ["ls-files"], {
@@ -873,8 +1221,10 @@ describe("repository-index orchestration", () => {
         state_changed: "applied_verified",
       },
     });
-    const syncArgs = fixture.calls.find((call) => call.args[0] === "sync")?.args;
-    expect(syncArgs).toEqual([
+    const syncCalls = fixture.calls
+      .filter((call) => call.args[0] === "sync")
+      .map((call) => call.args);
+    const expectedState = [
       "sync",
       "--strategy",
       "auto",
@@ -888,8 +1238,46 @@ describe("repository-index orchestration", () => {
       "--expected-bookmark",
       "none",
       "--require-clean",
-      "--json",
+    ];
+    expect(syncCalls).toEqual([
+      [...expectedState, "--dry-run", "--json"],
+      [...expectedState, "--expected-plan-digest", PLAN_DIGEST, "--json"],
     ]);
+  });
+
+  test("preview preserves the source's prior successful strategy", () => {
+    const repo = makeCommittedRepo();
+    const sourceId = "gstack-code-fixture-12345678";
+    const head = spawnSync("git", ["rev-parse", "HEAD"], {
+      cwd: repo,
+      encoding: "utf-8",
+    }).stdout.trim();
+    const initialSource = {
+      id: sourceId,
+      local_path: repo,
+      last_commit: head,
+      last_successful_strategy: "code",
+    };
+    const completedSource = {
+      ...initialSource,
+      last_successful_strategy: "auto",
+    };
+    const fixture = runnerFixture({
+      repo,
+      sourceId,
+      sources: { sources: [initialSource] },
+      postSources: { sources: [completedSource] },
+      preview: previewChild(sourceId, head, head, "code"),
+      sync: completeChild(sourceId, head, head),
+    });
+
+    expect(fixture.run()).toMatchObject({
+      exitCode: 0,
+      result: {
+        status: "verified",
+        state_changed: "applied_verified",
+      },
+    });
   });
 
   test("dirty input omits require-clean but can never produce GREEN", () => {
@@ -921,7 +1309,9 @@ describe("repository-index orchestration", () => {
         state_changed: "applied_unverified",
       },
     });
-    const syncArgs = fixture.calls.find((call) => call.args[0] === "sync")?.args;
+    const syncArgs = fixture.calls.find(
+      (call) => call.args[0] === "sync",
+    )?.args;
     expect(syncArgs).not.toContain("--require-clean");
     expect(syncArgs?.at(-1)).toBe("--json");
   });
@@ -936,11 +1326,10 @@ describe("repository-index orchestration", () => {
     writeFileSync(join(repo, ".gbrain-source"), `${sourceId}\n`);
     chmodSync(join(repo, ".gbrain-source"), 0o644);
     expect(
-      spawnSync(
-        "git",
-        ["status", "--porcelain=v1", "--untracked-files=all"],
-        { cwd: repo, encoding: "utf-8" },
-      ).stdout,
+      spawnSync("git", ["status", "--porcelain=v1", "--untracked-files=all"], {
+        cwd: repo,
+        encoding: "utf-8",
+      }).stdout,
     ).toContain(".gbrain-source");
     const source = {
       id: sourceId,
@@ -962,14 +1351,15 @@ describe("repository-index orchestration", () => {
         state_changed: "applied_verified",
       },
     });
-    const syncArgs = fixture.calls.find((call) => call.args[0] === "sync")?.args;
+    const syncArgs = fixture.calls.find(
+      (call) => call.args[0] === "sync",
+    )?.args;
     expect(syncArgs).toContain("--require-clean");
     expect(
-      spawnSync(
-        "git",
-        ["status", "--porcelain=v1", "--untracked-files=all"],
-        { cwd: repo, encoding: "utf-8" },
-    ).stdout,
+      spawnSync("git", ["status", "--porcelain=v1", "--untracked-files=all"], {
+        cwd: repo,
+        encoding: "utf-8",
+      }).stdout,
     ).toBe("");
   });
 
@@ -1241,9 +1631,13 @@ describe("repository-index orchestration", () => {
           spawnSync("git", ["add", ".gbrain-source"], { cwd: repo }).status,
         ).toBe(0);
         expect(
-          spawnSync("git", ["commit", "--quiet", "-m", "track oversized marker"], {
-            cwd: repo,
-          }).status,
+          spawnSync(
+            "git",
+            ["commit", "--quiet", "-m", "track oversized marker"],
+            {
+              cwd: repo,
+            },
+          ).status,
         ).toBe(0);
       }
       const head = spawnSync("git", ["rev-parse", "HEAD"], {
@@ -1321,7 +1715,7 @@ describe("repository-index orchestration", () => {
       repo,
       sourceId,
       sources,
-      sync: "{\"schema_version\":1}\ntrailing",
+      sync: '{"schema_version":1}\ntrailing',
     });
     expect(malformed.run().result).toMatchObject({
       reason_code: "source_result_invalid",
@@ -1330,6 +1724,106 @@ describe("repository-index orchestration", () => {
     expect(malformed.calls.some((call) => call.args[1] === "attach")).toBe(
       false,
     );
+  });
+
+  test("preview plan evidence is mandatory before the apply process starts", () => {
+    for (const planDigest of [undefined, "A".repeat(64), "a".repeat(63)]) {
+      const repo = makeCommittedRepo();
+      const sourceId = "gstack-code-fixture-12345678";
+      const head = spawnSync("git", ["rev-parse", "HEAD"], {
+        cwd: repo,
+        encoding: "utf-8",
+      }).stdout.trim();
+      const source = {
+        id: sourceId,
+        local_path: repo,
+        last_commit: head,
+        last_successful_strategy: "auto",
+      };
+      const preview = previewChild(sourceId, head, head);
+      if (planDigest === undefined) {
+        delete preview.plan_digest;
+      } else {
+        preview.plan_digest = planDigest;
+      }
+      const fixture = runnerFixture({
+        repo,
+        sourceId,
+        sources: { sources: [source] },
+        preview,
+      });
+
+      expect(fixture.run()).toMatchObject({
+        exitCode: 1,
+        result: {
+          status: "error",
+          reason_code: "source_result_invalid",
+          state_changed: "none",
+          evidence: {
+            failing_step: "sync_preview",
+          },
+        },
+      });
+      const syncCalls = fixture.calls.filter((call) => call.args[0] === "sync");
+      expect(syncCalls).toHaveLength(1);
+      expect(syncCalls[0].args).toContain("--dry-run");
+    }
+  });
+
+  test("apply success must echo the exact validated preview plan digest", () => {
+    const repo = makeCommittedRepo();
+    const sourceId = "gstack-code-fixture-12345678";
+    const head = spawnSync("git", ["rev-parse", "HEAD"], {
+      cwd: repo,
+      encoding: "utf-8",
+    }).stdout.trim();
+    const source = {
+      id: sourceId,
+      local_path: repo,
+      last_commit: head,
+      last_successful_strategy: "auto",
+    };
+
+    const missing = completeChild(sourceId, head, head);
+    delete missing.plan_digest;
+    expect(
+      runnerFixture({
+        repo,
+        sourceId,
+        sources: { sources: [source] },
+        sync: missing,
+      }).run(),
+    ).toMatchObject({
+      exitCode: 1,
+      result: {
+        status: "error",
+        reason_code: "source_result_invalid",
+        state_changed: "applied_unverified",
+      },
+    });
+
+    const mismatch = completeChild(sourceId, head, head);
+    mismatch.plan_digest = "b".repeat(64);
+    expect(
+      runnerFixture({
+        repo,
+        sourceId,
+        sources: { sources: [source] },
+        sync: mismatch,
+      }).run(),
+    ).toMatchObject({
+      exitCode: 1,
+      result: {
+        status: "error",
+        reason_code: "source_result_invalid",
+        state_changed: "applied_unverified",
+        evidence: {
+          failing_step: "sync_plan_binding",
+          preview_plan_digest: PLAN_DIGEST,
+          apply_plan_digest: "b".repeat(64),
+        },
+      },
+    });
   });
 
   test("up_to_date with mutation evidence can never verify", () => {
@@ -1363,7 +1857,7 @@ describe("repository-index orchestration", () => {
       truncated: false,
     };
     child.affected_digest = createHash("sha256")
-      .update("add\tsrc/new.ts\tsrc/new\n")
+      .update("add\tsrc/new.ts\tsrc/new\t\n")
       .digest("hex");
 
     const fixture = runnerFixture({
@@ -1519,7 +2013,9 @@ describe("repository-index orchestration", () => {
     const childWithItem = (
       item: Record<string, unknown>,
       digest = createHash("sha256")
-        .update(`${item.operation}\t${item.path}\t${item.slug}\n`)
+        .update(
+          `${item.operation}\t${item.path}\t${item.slug}\t${item.from_path ?? ""}\n`,
+        )
         .digest("hex"),
     ) => {
       const child = completeChild(sourceId, head, head, "synced");
@@ -1557,6 +2053,36 @@ describe("repository-index orchestration", () => {
       result: { status: "verified", state_changed: "applied_verified" },
     });
 
+    const validRename = {
+      operation: "rename",
+      path: "docs/new.md",
+      slug: "new",
+      from_path: "docs/old.md",
+    };
+    expect(
+      runnerFixture({
+        repo,
+        sourceId,
+        sources,
+        sync: childWithItem(validRename),
+      }).run(),
+    ).toMatchObject({
+      exitCode: 0,
+      result: {
+        status: "verified",
+        state_changed: "applied_verified",
+        evidence: {
+          sync: {
+            affected: {
+              sample: [validRename],
+              sha256:
+                "bf7e42b6ba6d622321e588846d4f8ad7654cbec3493b0487e378a69afd15a2c2",
+            },
+          },
+        },
+      },
+    });
+
     const invalidChildren = [
       childWithItem(validItem, "0".repeat(64)),
       {
@@ -1591,7 +2117,7 @@ describe("repository-index orchestration", () => {
           slug: "example",
         },
         createHash("sha256")
-          .update("add\tdocs/example.md\texample\n")
+          .update("add\tdocs/example.md\texample\t\n")
           .digest("hex"),
       ),
       childWithItem({
@@ -1661,7 +2187,7 @@ describe("repository-index orchestration", () => {
       evidence: { failing_step: "source_attach" },
     });
 
-    const receiptFailure = runnerFixture({
+    const receiptFixture = runnerFixture({
       repo,
       sourceId,
       sources,
@@ -1669,11 +2195,27 @@ describe("repository-index orchestration", () => {
       writeReceipt: () => {
         throw new Error("read-only receipt directory");
       },
-    }).run();
+    });
+    const receiptFailure = receiptFixture.run();
     expect(receiptFailure.result).toMatchObject({
       reason_code: "verification_failed",
       state_changed: "applied_unverified",
       evidence: { failing_step: "receipt_write" },
+    });
+    expect(
+      existsSync(join(receiptFixture.gstackHome, REPOSITORY_INDEX_ATTEMPT)),
+    ).toBe(true);
+    expect(
+      existsSync(join(receiptFixture.gstackHome, REPOSITORY_INDEX_RECEIPT)),
+    ).toBe(false);
+    expect(
+      verifyCurrentRepositoryIndexReceipt(repo, receiptFixture.gstackHome),
+    ).toMatchObject({
+      exitCode: 1,
+      result: {
+        reason_code: "receipt_superseded",
+        evidence: { active_kind: "attempt_watermark" },
+      },
     });
   });
 
@@ -1912,8 +2454,9 @@ describe("repository-index orchestration", () => {
       reason_code: reasonCode,
       state_changed: stateChanged,
       problem: reasonCode,
-      observed: null,
-      required: "safe preconditions",
+      observed: reasonCode === "plan_changed" ? "b".repeat(64) : null,
+      required:
+        reasonCode === "plan_changed" ? PLAN_DIGEST : "safe preconditions",
       next_action: "retry",
     });
 
@@ -1923,6 +2466,7 @@ describe("repository-index orchestration", () => {
       "bookmark_changed",
       "working_tree_dirty",
       "managed_clone_missing",
+      "plan_changed",
       "dry_run_modifier_conflict",
       "embedding_credentials_missing",
       "cost_gate_stopped",
@@ -1940,6 +2484,14 @@ describe("repository-index orchestration", () => {
           status: "refused",
           reason_code: reasonCode,
           state_changed: "none",
+          ...(reasonCode === "plan_changed"
+            ? {
+                evidence: {
+                  child_observed: "b".repeat(64),
+                  child_required: PLAN_DIGEST,
+                },
+              }
+            : {}),
         },
       });
     }

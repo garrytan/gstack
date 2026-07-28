@@ -478,32 +478,31 @@ else
 fi
 _BRAIN_SYNC_BIN="~/.claude/skills/gstack/bin/gstack-brain-sync"
 _BRAIN_CONFIG_BIN="~/.claude/skills/gstack/bin/gstack-config"
+_GBRAIN_REPOSITORY_SYNC_BIN=~/.claude/skills/gstack/bin/gstack-gbrain-sync
 
-# /sync-gbrain context-load: teach the agent to use gbrain when it's available.
-# Per-worktree pin: post-spike redesign uses kubectl-style `.gbrain-source` in the
-# git toplevel to scope queries. Look for the pin in the worktree (not a global
-# state file) so that opening worktree B without a pin doesn't claim "indexed"
-# just because worktree A was synced. Empty string when gbrain is not
-# configured (zero context cost for non-gbrain users).
+# /sync-gbrain context-load: recommend repository search only when the bounded
+# receipt still verifies against this live canonical worktree and clean HEAD.
+# A .gbrain-source pin or a prior successful receipt is not sufficient.
 _GBRAIN_CONFIG="$HOME/.gbrain/config.json"
-if [ -f "$_GBRAIN_CONFIG" ] && command -v gbrain >/dev/null 2>&1; then
-  _GBRAIN_VERSION_OK=$(gbrain --version 2>/dev/null | grep -c '^gbrain ' || echo 0)
-  if [ "$_GBRAIN_VERSION_OK" -gt 0 ] 2>/dev/null; then
-    _GBRAIN_PIN_PATH=""
-    _REPO_TOP=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
-    if [ -n "$_REPO_TOP" ] && [ -f "$_REPO_TOP/.gbrain-source" ]; then
-      _GBRAIN_PIN_PATH="$_REPO_TOP/.gbrain-source"
+if [ -f "$_GBRAIN_CONFIG" ]; then
+  _GBRAIN_RECEIPT_JSON=""
+  _GBRAIN_RECEIPT_OK=0
+  if command -v gbrain >/dev/null 2>&1 && [ -x "$_GBRAIN_REPOSITORY_SYNC_BIN" ]; then
+    if _GBRAIN_RECEIPT_JSON=$("$_GBRAIN_REPOSITORY_SYNC_BIN" --verify-receipt --json --quiet 2>/dev/null); then
+      _GBRAIN_RECEIPT_OK=1
     fi
-    if [ -n "$_GBRAIN_PIN_PATH" ]; then
-      echo "GBrain configured. Prefer \`gbrain search\`/\`gbrain query\` over Grep for"
-      echo "semantic questions; use \`gbrain code-def\`/\`code-refs\`/\`code-callers\` for"
-      echo "symbol-aware code lookup. See \"## GBrain Search Guidance\" in CLAUDE.md."
-      echo "Run /sync-gbrain to refresh."
-    else
-      echo "GBrain configured but this worktree isn't pinned yet. Run \`/sync-gbrain --full\`"
-      echo "before relying on \`gbrain search\` for code questions in this worktree."
-      echo "Falls back to Grep until pinned."
-    fi
+  fi
+  if [ "$_GBRAIN_RECEIPT_OK" = "1" ] &&
+     printf '%s' "$_GBRAIN_RECEIPT_JSON" | grep -Fq '"status":"verified"' &&
+     printf '%s' "$_GBRAIN_RECEIPT_JSON" | grep -Fq '"state_changed":"applied_verified"' &&
+     printf '%s' "$_GBRAIN_RECEIPT_JSON" | grep -Fq '"trusted":true'; then
+    echo "GBrain receipt verified for this clean HEAD. Prefer \`gbrain search\`/\`gbrain query\`"
+    echo "for semantic questions and \`gbrain code-def\`/\`code-refs\`/\`code-callers\`"
+    echo "for symbol-aware lookup. See \"## GBrain Search Guidance\" in CLAUDE.md."
+  else
+    echo "GBrain is not receipt-verified for this worktree's current clean HEAD."
+    echo "Use repository files and \`rg\`; run \`/sync-gbrain --code-only\` before relying"
+    echo "on GBrain repository search."
   fi
 fi
 

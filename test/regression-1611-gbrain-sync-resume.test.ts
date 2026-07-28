@@ -34,7 +34,7 @@ import {
   resolveStageTimeoutMs,
   readGbrainCheckpoint,
   decideResume,
-} from "../bin/gstack-gbrain-sync";
+} from "../bin/gstack-gbrain-sync.ts";
 import { checkOwnedStagingDir, STAGING_MARKER } from "../lib/staging-guard";
 import { stagedRelPath, readNewFailures } from "../bin/gstack-memory-ingest";
 
@@ -45,45 +45,69 @@ const MAX_MS = 86_400_000;
 
 describe("#1611 resolveStageTimeoutMs — env parsing + bounds", () => {
   test("undefined env → default 2_100_000ms (unchanged from prior behavior)", () => {
-    expect(resolveStageTimeoutMs(undefined, "GSTACK_SYNC_MEMORY_TIMEOUT_MS")).toBe(DEFAULT_MS);
+    expect(
+      resolveStageTimeoutMs(undefined, "GSTACK_SYNC_MEMORY_TIMEOUT_MS"),
+    ).toBe(DEFAULT_MS);
   });
 
   test("empty string env → default", () => {
-    expect(resolveStageTimeoutMs("", "GSTACK_SYNC_MEMORY_TIMEOUT_MS")).toBe(DEFAULT_MS);
+    expect(resolveStageTimeoutMs("", "GSTACK_SYNC_MEMORY_TIMEOUT_MS")).toBe(
+      DEFAULT_MS,
+    );
   });
 
   test("non-numeric env → warn + default", () => {
-    expect(resolveStageTimeoutMs("not-a-number", "GSTACK_SYNC_CODE_TIMEOUT_MS")).toBe(DEFAULT_MS);
+    expect(
+      resolveStageTimeoutMs("not-a-number", "GSTACK_SYNC_CODE_TIMEOUT_MS"),
+    ).toBe(DEFAULT_MS);
   });
 
   test("zero env → warn + default (not positive)", () => {
-    expect(resolveStageTimeoutMs("0", "GSTACK_SYNC_MEMORY_TIMEOUT_MS")).toBe(DEFAULT_MS);
+    expect(resolveStageTimeoutMs("0", "GSTACK_SYNC_MEMORY_TIMEOUT_MS")).toBe(
+      DEFAULT_MS,
+    );
   });
 
   test("negative env → warn + default", () => {
-    expect(resolveStageTimeoutMs("-1000", "GSTACK_SYNC_MEMORY_TIMEOUT_MS")).toBe(DEFAULT_MS);
+    expect(
+      resolveStageTimeoutMs("-1000", "GSTACK_SYNC_MEMORY_TIMEOUT_MS"),
+    ).toBe(DEFAULT_MS);
   });
 
   test("below 60_000ms floor (1min) → warn + default", () => {
-    expect(resolveStageTimeoutMs("30000", "GSTACK_SYNC_MEMORY_TIMEOUT_MS")).toBe(DEFAULT_MS);
-    expect(resolveStageTimeoutMs(`${MIN_MS - 1}`, "GSTACK_SYNC_MEMORY_TIMEOUT_MS")).toBe(DEFAULT_MS);
+    expect(
+      resolveStageTimeoutMs("30000", "GSTACK_SYNC_MEMORY_TIMEOUT_MS"),
+    ).toBe(DEFAULT_MS);
+    expect(
+      resolveStageTimeoutMs(`${MIN_MS - 1}`, "GSTACK_SYNC_MEMORY_TIMEOUT_MS"),
+    ).toBe(DEFAULT_MS);
   });
 
   test("above 86_400_000ms ceiling (24h) → warn + default", () => {
-    expect(resolveStageTimeoutMs(`${MAX_MS + 1}`, "GSTACK_SYNC_MEMORY_TIMEOUT_MS")).toBe(DEFAULT_MS);
-    expect(resolveStageTimeoutMs("999999999999", "GSTACK_SYNC_CODE_TIMEOUT_MS")).toBe(DEFAULT_MS);
+    expect(
+      resolveStageTimeoutMs(`${MAX_MS + 1}`, "GSTACK_SYNC_MEMORY_TIMEOUT_MS"),
+    ).toBe(DEFAULT_MS);
+    expect(
+      resolveStageTimeoutMs("999999999999", "GSTACK_SYNC_CODE_TIMEOUT_MS"),
+    ).toBe(DEFAULT_MS);
   });
 
   test("at floor (60_000ms exactly) → accepted", () => {
-    expect(resolveStageTimeoutMs(`${MIN_MS}`, "GSTACK_SYNC_MEMORY_TIMEOUT_MS")).toBe(MIN_MS);
+    expect(
+      resolveStageTimeoutMs(`${MIN_MS}`, "GSTACK_SYNC_MEMORY_TIMEOUT_MS"),
+    ).toBe(MIN_MS);
   });
 
   test("at ceiling (86_400_000ms exactly) → accepted", () => {
-    expect(resolveStageTimeoutMs(`${MAX_MS}`, "GSTACK_SYNC_MEMORY_TIMEOUT_MS")).toBe(MAX_MS);
+    expect(
+      resolveStageTimeoutMs(`${MAX_MS}`, "GSTACK_SYNC_MEMORY_TIMEOUT_MS"),
+    ).toBe(MAX_MS);
   });
 
   test("valid mid-range (2h = 7_200_000ms) → returns value", () => {
-    expect(resolveStageTimeoutMs("7200000", "GSTACK_SYNC_MEMORY_TIMEOUT_MS")).toBe(7_200_000);
+    expect(
+      resolveStageTimeoutMs("7200000", "GSTACK_SYNC_MEMORY_TIMEOUT_MS"),
+    ).toBe(7_200_000);
   });
 });
 
@@ -138,14 +162,22 @@ describe("#1611 decideResume — checkpoint + staging detection", () => {
     fs.mkdirSync(stagingDir, { recursive: true });
     fs.writeFileSync(stagingDir + "/page1.md", "content", "utf-8");
     // #1802: a real staging dir carries the ownership marker minted by makeStagingDir.
-    fs.writeFileSync(path.join(stagingDir, STAGING_MARKER), "99\n99\n", "utf-8");
-    fs.writeFileSync(cpPath, JSON.stringify({
-      dir: stagingDir,
-      totalFiles: 1989,
-      processedIndex: 1000,
-      completedFiles: 1000,
-      timestamp: "2026-05-19T19:30:05.008Z",
-    }), "utf-8");
+    fs.writeFileSync(
+      path.join(stagingDir, STAGING_MARKER),
+      "99\n99\n",
+      "utf-8",
+    );
+    fs.writeFileSync(
+      cpPath,
+      JSON.stringify({
+        dir: stagingDir,
+        totalFiles: 1989,
+        processedIndex: 1000,
+        completedFiles: 1000,
+        timestamp: "2026-05-19T19:30:05.008Z",
+      }),
+      "utf-8",
+    );
 
     // gstackHome is injected so the ownership check anchors on the test home.
     const v = decideResume(tmpHome);
@@ -159,11 +191,15 @@ describe("#1611 decideResume — checkpoint + staging detection", () => {
 
   test("checkpoint references missing staging dir → stale-staging-missing", () => {
     // Note: stagingDir is NOT created on disk for this test
-    fs.writeFileSync(cpPath, JSON.stringify({
-      dir: stagingDir,
-      totalFiles: 1989,
-      processedIndex: 1000,
-    }), "utf-8");
+    fs.writeFileSync(
+      cpPath,
+      JSON.stringify({
+        dir: stagingDir,
+        totalFiles: 1989,
+        processedIndex: 1000,
+      }),
+      "utf-8",
+    );
 
     const v = decideResume(tmpHome);
     expect(v.kind).toBe("stale-staging-missing");
@@ -180,8 +216,16 @@ describe("#1611 decideResume — checkpoint + staging detection", () => {
     // code resumed (and cleanup later rm -rf'd it). It must now be refused.
     const repoRoot = path.join(tmpHome, "my-repo");
     fs.mkdirSync(path.join(repoRoot, ".git"), { recursive: true });
-    fs.writeFileSync(path.join(repoRoot, "important.py"), "# real work\n", "utf-8");
-    fs.writeFileSync(cpPath, JSON.stringify({ dir: repoRoot, totalFiles: 10, processedIndex: 3 }), "utf-8");
+    fs.writeFileSync(
+      path.join(repoRoot, "important.py"),
+      "# real work\n",
+      "utf-8",
+    );
+    fs.writeFileSync(
+      cpPath,
+      JSON.stringify({ dir: repoRoot, totalFiles: 10, processedIndex: 3 }),
+      "utf-8",
+    );
 
     const v = decideResume(tmpHome);
     expect(v.kind).toBe("stale-staging-missing");
@@ -191,28 +235,44 @@ describe("#1611 decideResume — checkpoint + staging detection", () => {
 
   test("#1802 staging-named dir WITHOUT marker → stale-staging-missing (not minted by us)", () => {
     fs.mkdirSync(stagingDir, { recursive: true }); // .staging-ingest-99-99, but no marker
-    fs.writeFileSync(cpPath, JSON.stringify({ dir: stagingDir, totalFiles: 1, processedIndex: 0 }), "utf-8");
+    fs.writeFileSync(
+      cpPath,
+      JSON.stringify({ dir: stagingDir, totalFiles: 1, processedIndex: 0 }),
+      "utf-8",
+    );
     expect(decideResume(tmpHome).kind).toBe("stale-staging-missing");
   });
 
   test("#1802 checkpoint.dir = '/' → stale-staging-missing", () => {
-    fs.writeFileSync(cpPath, JSON.stringify({ dir: "/", totalFiles: 1, processedIndex: 0 }), "utf-8");
+    fs.writeFileSync(
+      cpPath,
+      JSON.stringify({ dir: "/", totalFiles: 1, processedIndex: 0 }),
+      "utf-8",
+    );
     expect(decideResume(tmpHome).kind).toBe("stale-staging-missing");
   });
 
   test("checkpoint with no dir field → no-checkpoint verdict", () => {
-    fs.writeFileSync(cpPath, JSON.stringify({
-      totalFiles: 1989,
-      processedIndex: 1000,
-    }), "utf-8");
+    fs.writeFileSync(
+      cpPath,
+      JSON.stringify({
+        totalFiles: 1989,
+        processedIndex: 1000,
+      }),
+      "utf-8",
+    );
 
     expect(decideResume().kind).toBe("no-checkpoint");
   });
 
   test("checkpoint with empty dir string → no-checkpoint verdict", () => {
-    fs.writeFileSync(cpPath, JSON.stringify({
-      dir: "",
-    }), "utf-8");
+    fs.writeFileSync(
+      cpPath,
+      JSON.stringify({
+        dir: "",
+      }),
+      "utf-8",
+    );
 
     expect(decideResume().kind).toBe("no-checkpoint");
   });
@@ -232,7 +292,9 @@ describe("#1611 SIGTERM staging preservation — static invariants", () => {
     const handlerStart = body.indexOf("if (_activeStagingDir)");
     expect(handlerStart).toBeGreaterThan(-1);
     const handlerSlice = body.slice(handlerStart, handlerStart + 1000);
-    const preserveAt = handlerSlice.indexOf("preserving staging dir for resume");
+    const preserveAt = handlerSlice.indexOf(
+      "preserving staging dir for resume",
+    );
     const cleanupAt = handlerSlice.indexOf("cleanupStagingDir");
     expect(preserveAt).toBeGreaterThan(-1);
     expect(cleanupAt).toBeGreaterThan(-1);
@@ -273,7 +335,11 @@ describe("#1802 checkOwnedStagingDir — ownership matrix", () => {
     home = fs.mkdtempSync(path.join(os.tmpdir(), "gstack-1802-"));
   });
   afterEach(() => {
-    try { fs.rmSync(home, { recursive: true, force: true }); } catch { /* best-effort */ }
+    try {
+      fs.rmSync(home, { recursive: true, force: true });
+    } catch {
+      /* best-effort */
+    }
   });
 
   function mintStaging(name = ".staging-ingest-1-1"): string {
@@ -330,7 +396,9 @@ describe("#1802 checkOwnedStagingDir — ownership matrix", () => {
   });
 
   test("missing path → refused (unresolvable)", () => {
-    expect(checkOwnedStagingDir(path.join(home, ".staging-ingest-gone"), home).ok).toBe(false);
+    expect(
+      checkOwnedStagingDir(path.join(home, ".staging-ingest-gone"), home).ok,
+    ).toBe(false);
   });
 
   test("'/' and '' → refused", () => {
@@ -347,13 +415,23 @@ describe("#1802 checkOwnedStagingDir — ownership matrix", () => {
       // realpathSync resolves the link to `outside`, whose parent is not `home`.
       expect(checkOwnedStagingDir(link, home).ok).toBe(false);
     } finally {
-      try { fs.rmSync(outside, { recursive: true, force: true }); } catch { /* best-effort */ }
+      try {
+        fs.rmSync(outside, { recursive: true, force: true });
+      } catch {
+        /* best-effort */
+      }
     }
   });
 
   test("cleanupStagingDir + decideResume both call the guard (static invariant)", () => {
-    const ingest = fs.readFileSync(path.join(ROOT, "bin", "gstack-memory-ingest.ts"), "utf-8");
-    const sync = fs.readFileSync(path.join(ROOT, "bin", "gstack-gbrain-sync.ts"), "utf-8");
+    const ingest = fs.readFileSync(
+      path.join(ROOT, "bin", "gstack-memory-ingest.ts"),
+      "utf-8",
+    );
+    const sync = fs.readFileSync(
+      path.join(ROOT, "bin", "gstack-gbrain-sync.ts"),
+      "utf-8",
+    );
     expect(ingest).toMatch(/checkOwnedStagingDir\(dir, GSTACK_HOME\)/);
     expect(ingest).toMatch(/staging cleanup REFUSED/);
     expect(sync).toMatch(/checkOwnedStagingDir\(stagingDir, gstackHome\)/);
@@ -376,7 +454,9 @@ describe("#1802 D1 — remote-http finally gate (static invariant)", () => {
   test("finally gates cleanupStagingDir on !remoteHttpMode", () => {
     // Tolerates additional guards (e.g. C3's !preserveStaging) in the same
     // condition — the load-bearing invariant is that remote-http never deletes.
-    expect(ingest).toMatch(/if \(!remoteHttpMode[^)]*\) cleanupStagingDir\(stagingDir\)/);
+    expect(ingest).toMatch(
+      /if \(!remoteHttpMode[^)]*\) cleanupStagingDir\(stagingDir\)/,
+    );
   });
 
   test("the only finally-scoped cleanup call is the gated one", () => {
@@ -454,7 +534,11 @@ describe("#1802 C4 — resume failure mapping (behavioral)", () => {
   });
   afterEach(() => {
     for (const d of [dir, cpHome]) {
-      try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best-effort */ }
+      try {
+        fs.rmSync(d, { recursive: true, force: true });
+      } catch {
+        /* best-effort */
+      }
     }
   });
 

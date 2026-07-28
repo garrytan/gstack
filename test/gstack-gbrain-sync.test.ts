@@ -8,7 +8,17 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, mkdirSync, chmodSync, utimesSync } from "fs";
+import {
+  mkdtempSync,
+  writeFileSync,
+  readFileSync,
+  existsSync,
+  rmSync,
+  mkdirSync,
+  chmodSync,
+  statSync,
+  utimesSync,
+} from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { spawnSync } from "child_process";
@@ -19,9 +29,10 @@ import {
   planHostnameFoldMigration,
   sourceLocalPath,
   _resetGbrainSupportsRenameCache,
-} from "../bin/gstack-gbrain-sync";
+} from "../bin/gstack-gbrain-sync.ts";
 
 const SCRIPT = join(import.meta.dir, "..", "bin", "gstack-gbrain-sync.ts");
+const LAUNCHER = join(import.meta.dir, "..", "bin", "gstack-gbrain-sync");
 
 function makeTestHome(): string {
   return mkdtempSync(join(tmpdir(), "gstack-gbrain-sync-"));
@@ -68,6 +79,25 @@ describe("gstack-gbrain-sync CLI", () => {
     expect(r.stderr).toContain("--incremental");
     expect(r.stderr).toContain("--full");
     expect(r.stderr).toContain("--dry-run");
+  });
+
+  it("ships an executable launcher that forwards to the TypeScript CLI", () => {
+    expect(statSync(LAUNCHER).mode & 0o111).not.toBe(0);
+    const result = spawnSync(
+      LAUNCHER,
+      ["--dry-run", "--code-only", "--json", "--quiet"],
+      {
+        encoding: "utf-8",
+        env: process.env,
+      },
+    );
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      result_kind: "repository_index",
+      status: "preview_ready",
+      reason_code: "blocked_until_version_proven",
+    });
   });
 
   it("rejects unknown flag", () => {
@@ -140,7 +170,7 @@ describe("gstack-gbrain-sync CLI", () => {
   it("uses the shared local gbrain status classifier instead of shelling through command -v", () => {
     const source = readFileSync(SCRIPT, "utf-8");
 
-    expect(source).not.toContain('command -v gbrain');
+    expect(source).not.toContain("command -v gbrain");
     expect(source).toContain("localEngineStatus");
   });
 
@@ -149,7 +179,10 @@ describe("gstack-gbrain-sync CLI", () => {
     const gstackHome = join(home, ".gstack");
     mkdirSync(gstackHome, { recursive: true });
 
-    const r = runScript(["--dry-run", "--code-only", "--quiet"], { HOME: home, GSTACK_HOME: gstackHome });
+    const r = runScript(["--dry-run", "--code-only", "--quiet"], {
+      HOME: home,
+      GSTACK_HOME: gstackHome,
+    });
     expect(r.exitCode).toBe(0);
     expect(r.stdout).toContain("ORCHESTRATION PREVIEW — unvalidated");
     expect(r.stdout).toContain("GBrain was not contacted.");
@@ -177,7 +210,10 @@ describe("gstack-gbrain-sync CLI", () => {
     const gstackHome = join(home, ".gstack");
     mkdirSync(gstackHome, { recursive: true });
 
-    const r = runScript(["--dry-run", "--no-code"], { HOME: home, GSTACK_HOME: gstackHome });
+    const r = runScript(["--dry-run", "--no-code"], {
+      HOME: home,
+      GSTACK_HOME: gstackHome,
+    });
     expect(r.exitCode).toBe(0);
     expect(r.stdout).toContain("ORCHESTRATION PREVIEW — unvalidated");
     expect(r.stdout).not.toContain("would:");
@@ -193,8 +229,7 @@ describe("gstack-gbrain-sync CLI", () => {
     mkdirSync(gstackHome, { recursive: true });
     mkdirSync(binDir);
     expect(
-      spawnSync("git", ["init", "--quiet", "-b", "main"], { cwd: repo })
-        .status,
+      spawnSync("git", ["init", "--quiet", "-b", "main"], { cwd: repo }).status,
     ).toBe(0);
     const fakeGbrain = join(binDir, "gbrain");
     writeFileSync(
@@ -232,11 +267,7 @@ exit 99
   });
 
   it("--verify-receipt refuses execution-mode flags before probes", () => {
-    const result = runScript([
-      "--verify-receipt",
-      "--dry-run",
-      "--json",
-    ]);
+    const result = runScript(["--verify-receipt", "--dry-run", "--json"]);
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toBe("");
     expect(JSON.parse(result.stdout)).toMatchObject({
@@ -260,9 +291,9 @@ exit 99
     // which fails validation on both counts. This test exercises the derivation against
     // controlled remotes by spawning the CLI in a temp git repo.
     const cases = [
-      "https://github.com/radubach/platform.git",      // dot in hostname, total > 32 with old slug
-      "git@github.com:garrytan/gstack.git",            // SCP-style remote
-      "https://gitlab.example.com/team/proj.git",      // multi-dot host, non-github
+      "https://github.com/radubach/platform.git", // dot in hostname, total > 32 with old slug
+      "git@github.com:garrytan/gstack.git", // SCP-style remote
+      "https://gitlab.example.com/team/proj.git", // multi-dot host, non-github
       "https://github.com/some-very-long-org-name/some-very-long-repo-name.git", // forces hash-truncate
     ];
     const VALID_ID = /^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$/;
@@ -344,7 +375,11 @@ exit 99
     mkdirSync(gstackHome, { recursive: true });
     const repo = mkdtempSync(join(tmpdir(), "gstack-host-collide-"));
     spawnSync("git", ["init", "--quiet", "-b", "main"], { cwd: repo });
-    spawnSync("git", ["remote", "add", "origin", "https://github.com/example/multihost.git"], { cwd: repo });
+    spawnSync(
+      "git",
+      ["remote", "add", "origin", "https://github.com/example/multihost.git"],
+      { cwd: repo },
+    );
 
     const idA = sourceIdFor(repo, "machine-a");
     const idB = sourceIdFor(repo, "machine-b");
@@ -386,8 +421,7 @@ exit 99
     mkdirSync(gstackHome, { recursive: true });
     mkdirSync(binDir);
     expect(
-      spawnSync("git", ["init", "--quiet", "-b", "main"], { cwd: repo })
-        .status,
+      spawnSync("git", ["init", "--quiet", "-b", "main"], { cwd: repo }).status,
     ).toBe(0);
     expect(
       spawnSync("git", ["config", "user.email", "gstack@test.invalid"], {
@@ -408,11 +442,10 @@ exit 99
         .status,
     ).toBe(0);
 
-    const canonicalRepo = spawnSync(
-      "git",
-      ["rev-parse", "--show-toplevel"],
-      { cwd: repo, encoding: "utf-8" },
-    ).stdout.trim();
+    const canonicalRepo = spawnSync("git", ["rev-parse", "--show-toplevel"], {
+      cwd: repo,
+      encoding: "utf-8",
+    }).stdout.trim();
     const sourceId = sourceIdFor(canonicalRepo);
     const head = spawnSync("git", ["rev-parse", "HEAD"], {
       cwd: repo,
@@ -428,6 +461,7 @@ exit 99
         },
       ],
     });
+    const planDigest = "a".repeat(64);
     const syncResult = JSON.stringify({
       schema_version: 1,
       result_kind: "gbrain_sync",
@@ -450,6 +484,7 @@ exit 99
       },
       affected_digest:
         "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      plan_digest: planDigest,
       corpus: {
         markdown_planned_or_applied: 0,
         code_pages_before: 0,
@@ -461,6 +496,15 @@ exit 99
         embedding_status: "deferred",
         extraction_status: "deferred",
         search_ready: false,
+      },
+    });
+    const previewResult = JSON.stringify({
+      ...JSON.parse(syncResult),
+      status: "dry_run",
+      preview_kind: "validated_index_plan",
+      repository: {
+        ...JSON.parse(syncResult).repository,
+        bookmark_after: head,
       },
     });
     const fakeGbrain = join(binDir, "gbrain");
@@ -502,8 +546,20 @@ if [ "$1" = "sources" ] && [ "$2" = "add" ]; then
 fi
 if [ "$1" = "sync" ]; then
   assert_wrapper_lock "$@"
-  printf '%s\\n' "$GSTACK_TEST_SYNC_RESULT"
-  exit 0
+  case " $* " in
+    *" --dry-run "*)
+      printf '%s\\n' "$GSTACK_TEST_PREVIEW_RESULT"
+      exit 0
+      ;;
+    *" --expected-plan-digest $GSTACK_TEST_PLAN_DIGEST "*)
+      printf '%s\\n' "$GSTACK_TEST_SYNC_RESULT"
+      exit 0
+      ;;
+    *)
+      printf 'unbound sync argv: %s\\n' "$*" >&2
+      exit 94
+      ;;
+  esac
 fi
 if [ "$1" = "sources" ] && [ "$2" = "attach" ]; then
   assert_wrapper_lock "$@"
@@ -522,7 +578,9 @@ exit 93
       GSTACK_TEST_GBRAIN_LOG: mutationLog,
       GSTACK_TEST_REGISTRY_MARKER: registryMarker,
       GSTACK_TEST_SOURCE_SNAPSHOT: sourceSnapshot,
+      GSTACK_TEST_PREVIEW_RESULT: previewResult,
       GSTACK_TEST_SYNC_RESULT: syncResult,
+      GSTACK_TEST_PLAN_DIGEST: planDigest,
       GSTACK_TEST_SOURCE_ID: sourceId,
       GSTACK_TEST_REPO: repo,
       PATH: `${binDir}:${process.env.PATH ?? ""}`,
@@ -543,11 +601,7 @@ exit 93
       });
       expect(existsSync(lockPath)).toBe(false);
 
-      const sync = runScript(
-        ["--code-only", "--json", "--quiet"],
-        env,
-        repo,
-      );
+      const sync = runScript(["--code-only", "--json", "--quiet"], env, repo);
       expect(sync).toMatchObject({ exitCode: 0, stderr: "" });
       expect(JSON.parse(sync.stdout)).toMatchObject({
         status: "verified",
@@ -556,12 +610,14 @@ exit 93
       });
       expect(existsSync(lockPath)).toBe(false);
 
-      const mutations = readFileSync(mutationLog, "utf-8")
-        .trim()
-        .split("\n");
-      expect(mutations).toHaveLength(2);
+      const mutations = readFileSync(mutationLog, "utf-8").trim().split("\n");
+      expect(mutations).toHaveLength(3);
       expect(mutations[0]).toContain(`sources add ${sourceId} `);
-      expect(mutations[1]).toContain(`sync --strategy auto --source ${sourceId} `);
+      expect(mutations[1]).toContain(
+        `sync --strategy auto --source ${sourceId} `,
+      );
+      expect(mutations[1]).toContain("--dry-run");
+      expect(mutations[2]).toContain(`--expected-plan-digest ${planDigest}`);
       expect(mutations.every((line) => line.endsWith(" lock=held"))).toBe(true);
       expect(readFileSync(join(repo, ".gbrain-source"), "utf-8")).toBe(
         `${sourceId}\n`,
@@ -579,16 +635,31 @@ exit 93
 
     // Plant a stale lock file (mtime 6 min ago).
     const lockPath = join(gstackHome, ".sync-gbrain.lock");
-    writeFileSync(lockPath, JSON.stringify({ pid: 2147483647, started_at: new Date(Date.now() - 6 * 60 * 1000).toISOString() }));
+    writeFileSync(
+      lockPath,
+      JSON.stringify({
+        pid: 2147483647,
+        started_at: new Date(Date.now() - 6 * 60 * 1000).toISOString(),
+      }),
+    );
     const sixMinAgo = (Date.now() - 6 * 60 * 1000) / 1000;
     utimesSync(lockPath, sixMinAgo, sixMinAgo);
 
     // The wrapper never auto-breaks an existing lock: PID reuse and
     // check/delete ABA races make that unsafe.
-    const r = runScript(["--incremental", "--no-code", "--no-memory", "--no-brain-sync", "--quiet"], {
-      HOME: home,
-      GSTACK_HOME: gstackHome,
-    });
+    const r = runScript(
+      [
+        "--incremental",
+        "--no-code",
+        "--no-memory",
+        "--no-brain-sync",
+        "--quiet",
+      ],
+      {
+        HOME: home,
+        GSTACK_HOME: gstackHome,
+      },
+    );
     expect(r.exitCode).toBe(2);
     expect(r.stderr).toContain("ERROR [lock_busy]");
     expect(existsSync(lockPath)).toBe(true);
@@ -611,7 +682,13 @@ exit 93
     utimesSync(lockPath, sixMinAgo, sixMinAgo);
 
     const r = runScript(
-      ["--incremental", "--no-code", "--no-memory", "--no-brain-sync", "--quiet"],
+      [
+        "--incremental",
+        "--no-code",
+        "--no-memory",
+        "--no-brain-sync",
+        "--quiet",
+      ],
       { HOME: home, GSTACK_HOME: gstackHome },
     );
 
@@ -695,12 +772,24 @@ exit 1
 
     // Plant a fresh lock file (mtime now).
     const lockPath = join(gstackHome, ".sync-gbrain.lock");
-    writeFileSync(lockPath, JSON.stringify({ pid: 99999, started_at: new Date().toISOString() }));
+    writeFileSync(
+      lockPath,
+      JSON.stringify({ pid: 99999, started_at: new Date().toISOString() }),
+    );
 
-    const r = runScript(["--incremental", "--no-code", "--no-memory", "--no-brain-sync", "--quiet"], {
-      HOME: home,
-      GSTACK_HOME: gstackHome,
-    });
+    const r = runScript(
+      [
+        "--incremental",
+        "--no-code",
+        "--no-memory",
+        "--no-brain-sync",
+        "--quiet",
+      ],
+      {
+        HOME: home,
+        GSTACK_HOME: gstackHome,
+      },
+    );
     expect(r.exitCode).toBe(2);
     expect(r.stderr).toContain("ERROR [lock_busy]");
     // Lock should still be there — the second invocation didn't take it over.
@@ -731,16 +820,55 @@ exit 1
     rmSync(home, { recursive: true, force: true });
   });
 
+  it("reports a lock permission failure as setup/internal error, not contention", () => {
+    if (process.platform === "win32" || process.getuid?.() === 0) return;
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    mkdirSync(gstackHome, { recursive: true });
+    chmodSync(gstackHome, 0o500);
+
+    let r: ReturnType<typeof runScript>;
+    try {
+      r = runScript(["--code-only", "--json", "--quiet"], {
+        HOME: home,
+        GSTACK_HOME: gstackHome,
+      });
+    } finally {
+      chmodSync(gstackHome, 0o700);
+    }
+
+    expect(r.exitCode).toBe(1);
+    expect(r.stderr).toBe("");
+    expect(r.stdout.trim().split("\n")).toHaveLength(1);
+    const parsed = JSON.parse(r.stdout);
+    expect(parsed).toMatchObject({
+      status: "error",
+      reason_code: "repository_index_failed",
+      state_changed: "none",
+    });
+    expect(parsed.reason_code).not.toBe("lock_busy");
+    rmSync(home, { recursive: true, force: true });
+  });
+
   it("writes a state file with schema_version: 1 after a non-dry run", () => {
     const home = makeTestHome();
     const gstackHome = join(home, ".gstack");
     mkdirSync(gstackHome, { recursive: true });
 
     // Run with all stages disabled to avoid actually invoking gbrain/memory-ingest
-    const r = runScript(["--incremental", "--no-code", "--no-memory", "--no-brain-sync", "--quiet"], {
-      HOME: home,
-      GSTACK_HOME: gstackHome,
-    });
+    const r = runScript(
+      [
+        "--incremental",
+        "--no-code",
+        "--no-memory",
+        "--no-brain-sync",
+        "--quiet",
+      ],
+      {
+        HOME: home,
+        GSTACK_HOME: gstackHome,
+      },
+    );
     expect(r.exitCode).toBe(0);
 
     const statePath = join(gstackHome, ".gbrain-sync-state.json");
@@ -770,12 +898,23 @@ exit 1
     const gstackHome = join(home, ".gstack");
     mkdirSync(gstackHome, { recursive: true });
 
-    runScript(["--incremental", "--no-code", "--no-memory", "--no-brain-sync", "--quiet"], {
-      HOME: home,
-      GSTACK_HOME: gstackHome,
-    });
+    runScript(
+      [
+        "--incremental",
+        "--no-code",
+        "--no-memory",
+        "--no-brain-sync",
+        "--quiet",
+      ],
+      {
+        HOME: home,
+        GSTACK_HOME: gstackHome,
+      },
+    );
 
-    const state = JSON.parse(readFileSync(join(gstackHome, ".gbrain-sync-state.json"), "utf-8"));
+    const state = JSON.parse(
+      readFileSync(join(gstackHome, ".gbrain-sync-state.json"), "utf-8"),
+    );
     expect(Array.isArray(state.last_stages)).toBe(true);
     // With all stages disabled, last_stages is empty
     expect(state.last_stages.length).toBe(0);
@@ -859,14 +998,22 @@ exit 1
     mkdirSync(gstackHome, { recursive: true });
     const repo = mkdtempSync(join(tmpdir(), "gstack-legacy-cleanup-"));
     spawnSync("git", ["init", "--quiet", "-b", "main"], { cwd: repo });
-    spawnSync("git", ["remote", "add", "origin", "https://github.com/garrytan/gstack.git"], { cwd: repo });
+    spawnSync(
+      "git",
+      ["remote", "add", "origin", "https://github.com/garrytan/gstack.git"],
+      { cwd: repo },
+    );
 
-    const r = spawnSync("bun", [SCRIPT, "--dry-run", "--code-only", "--quiet"], {
-      encoding: "utf-8",
-      timeout: 60000,
-      cwd: repo,
-      env: { ...process.env, HOME: home, GSTACK_HOME: gstackHome },
-    });
+    const r = spawnSync(
+      "bun",
+      [SCRIPT, "--dry-run", "--code-only", "--quiet"],
+      {
+        encoding: "utf-8",
+        timeout: 60000,
+        cwd: repo,
+        env: { ...process.env, HOME: home, GSTACK_HOME: gstackHome },
+      },
+    );
     expect(r.status).toBe(0);
     expect(r.stdout).toContain("ORCHESTRATION PREVIEW — unvalidated");
     expect(r.stdout).not.toContain("sources remove");
@@ -883,16 +1030,26 @@ exit 1
     mkdirSync(gstackHome, { recursive: true });
     const repo = mkdtempSync(join(tmpdir(), "gstack-attach-preview-"));
     spawnSync("git", ["init", "--quiet", "-b", "main"], { cwd: repo });
-    spawnSync("git", ["remote", "add", "origin", "https://github.com/garrytan/gstack.git"], { cwd: repo });
+    spawnSync(
+      "git",
+      ["remote", "add", "origin", "https://github.com/garrytan/gstack.git"],
+      { cwd: repo },
+    );
 
-    const r = spawnSync("bun", [SCRIPT, "--dry-run", "--code-only", "--quiet"], {
-      encoding: "utf-8",
-      timeout: 60000,
-      cwd: repo,
-      env: { ...process.env, HOME: home, GSTACK_HOME: gstackHome },
-    });
+    const r = spawnSync(
+      "bun",
+      [SCRIPT, "--dry-run", "--code-only", "--quiet"],
+      {
+        encoding: "utf-8",
+        timeout: 60000,
+        cwd: repo,
+        env: { ...process.env, HOME: home, GSTACK_HOME: gstackHome },
+      },
+    );
     expect(r.status).toBe(0);
-    expect(r.stdout).toContain("No engine/source/path/content compatibility was proven.");
+    expect(r.stdout).toContain(
+      "No engine/source/path/content compatibility was proven.",
+    );
     expect(r.stdout).not.toContain("gbrain sources attach");
 
     rmSync(repo, { recursive: true, force: true });
@@ -915,17 +1072,25 @@ exit 1
  * output, then return PATH-prepend value. Lets us run helpers in-process
  * (which spawn `gbrain` from PATH) without a real gbrain CLI.
  */
-function makeShim(bindir: string, responses: Record<string, { stdout?: string; stderr?: string; exit?: number }>): string {
+function makeShim(
+  bindir: string,
+  responses: Record<
+    string,
+    { stdout?: string; stderr?: string; exit?: number }
+  >,
+): string {
   const shim = join(bindir, "gbrain");
-  const cases = Object.entries(responses).map(([key, r]) => {
-    const exit = r.exit ?? 0;
-    const stdout = (r.stdout || "").replace(/'/g, "'\\''");
-    const stderr = (r.stderr || "").replace(/'/g, "'\\''");
-    // Patterns with spaces MUST be double-quoted in sh case statements,
-    // otherwise the shell parses the second word as the start of the next
-    // pattern and errors out.
-    return `  "${key}") printf '%s' '${stdout}'; printf '%s' '${stderr}' >&2; exit ${exit} ;;`;
-  }).join("\n");
+  const cases = Object.entries(responses)
+    .map(([key, r]) => {
+      const exit = r.exit ?? 0;
+      const stdout = (r.stdout || "").replace(/'/g, "'\\''");
+      const stderr = (r.stderr || "").replace(/'/g, "'\\''");
+      // Patterns with spaces MUST be double-quoted in sh case statements,
+      // otherwise the shell parses the second word as the start of the next
+      // pattern and errors out.
+      return `  "${key}") printf '%s' '${stdout}'; printf '%s' '${stderr}' >&2; exit ${exit} ;;`;
+    })
+    .join("\n");
   // Match on the full argument string, joined with literal spaces.
   const script = `#!/bin/sh\nARGS="$*"\ncase "$ARGS" in\n${cases}\n  *) echo "shim: no match for [$ARGS]" >&2; exit 1 ;;\nesac\n`;
   writeFileSync(shim, script);
@@ -940,7 +1105,11 @@ describe("derivePathOnlyHashLegacyId", () => {
     // didn't include hostname.
     const repo = mkdtempSync(join(tmpdir(), "gstack-legacy-id-"));
     spawnSync("git", ["init", "--quiet", "-b", "main"], { cwd: repo });
-    spawnSync("git", ["remote", "add", "origin", "https://github.com/example/legacy-test.git"], { cwd: repo });
+    spawnSync(
+      "git",
+      ["remote", "add", "origin", "https://github.com/example/legacy-test.git"],
+      { cwd: repo },
+    );
 
     const cwd = process.cwd();
     try {
@@ -967,7 +1136,11 @@ describe("derivePathOnlyHashLegacyId", () => {
     // can detect + clean up the orphan.
     const repo = mkdtempSync(join(tmpdir(), "gstack-legacy-id-distinct-"));
     spawnSync("git", ["init", "--quiet", "-b", "main"], { cwd: repo });
-    spawnSync("git", ["remote", "add", "origin", "https://github.com/example/distinct.git"], { cwd: repo });
+    spawnSync(
+      "git",
+      ["remote", "add", "origin", "https://github.com/example/distinct.git"],
+      { cwd: repo },
+    );
 
     const cwd = process.cwd();
     try {
@@ -1006,7 +1179,11 @@ describe("planHostnameFoldMigration", () => {
   });
 
   it("returns ids-match when legacy == new (degenerate case)", () => {
-    const result = planHostnameFoldMigration("/repo/path", "gstack-code-same-abc12345", "gstack-code-same-abc12345");
+    const result = planHostnameFoldMigration(
+      "/repo/path",
+      "gstack-code-same-abc12345",
+      "gstack-code-same-abc12345",
+    );
     expect(result).toEqual({ kind: "none", reason: "ids-match" });
   });
 
@@ -1014,17 +1191,29 @@ describe("planHostnameFoldMigration", () => {
     makeShim(bindir, {
       "sources list --json": { stdout: "[]" },
     });
-    const result = planHostnameFoldMigration("/repo/path", "new-id", "legacy-id", envWithBindir(bindir));
+    const result = planHostnameFoldMigration(
+      "/repo/path",
+      "new-id",
+      "legacy-id",
+      envWithBindir(bindir),
+    );
     expect(result).toEqual({ kind: "none", reason: "no-legacy-source" });
   });
 
   it("returns skipped-path-drift when old source local_path differs from current repo root", () => {
     makeShim(bindir, {
       "sources list --json": {
-        stdout: JSON.stringify([{ id: "legacy-id", local_path: "/some/other/repo" }]),
+        stdout: JSON.stringify([
+          { id: "legacy-id", local_path: "/some/other/repo" },
+        ]),
       },
     });
-    const result = planHostnameFoldMigration("/repo/here", "new-id", "legacy-id", envWithBindir(bindir));
+    const result = planHostnameFoldMigration(
+      "/repo/here",
+      "new-id",
+      "legacy-id",
+      envWithBindir(bindir),
+    );
     expect(result.kind).toBe("skipped-path-drift");
     if (result.kind === "skipped-path-drift") {
       expect(result.oldId).toBe("legacy-id");
@@ -1043,8 +1232,17 @@ describe("planHostnameFoldMigration", () => {
       },
       "sources rename legacy-id new-id": { exit: 0 },
     });
-    const result = planHostnameFoldMigration("/repo/here", "new-id", "legacy-id", envWithBindir(bindir));
-    expect(result).toEqual({ kind: "renamed", oldId: "legacy-id", newId: "new-id" });
+    const result = planHostnameFoldMigration(
+      "/repo/here",
+      "new-id",
+      "legacy-id",
+      envWithBindir(bindir),
+    );
+    expect(result).toEqual({
+      kind: "renamed",
+      oldId: "legacy-id",
+      newId: "new-id",
+    });
   });
 
   it("returns pending-cleanup when rename is unsupported (current gbrain 0.35.0.0)", () => {
@@ -1054,7 +1252,12 @@ describe("planHostnameFoldMigration", () => {
       },
       // No `sources rename --help` match → shim falls into the catch-all and exits 1.
     });
-    const result = planHostnameFoldMigration("/repo/here", "new-id", "legacy-id", envWithBindir(bindir));
+    const result = planHostnameFoldMigration(
+      "/repo/here",
+      "new-id",
+      "legacy-id",
+      envWithBindir(bindir),
+    );
     expect(result).toEqual({ kind: "pending-cleanup", oldId: "legacy-id" });
   });
 
@@ -1066,9 +1269,17 @@ describe("planHostnameFoldMigration", () => {
       "sources rename --help": {
         stdout: "Usage: gbrain sources rename <old> <new>\n",
       },
-      "sources rename legacy-id new-id": { exit: 1, stderr: "rename failed: db locked" },
+      "sources rename legacy-id new-id": {
+        exit: 1,
+        stderr: "rename failed: db locked",
+      },
     });
-    const result = planHostnameFoldMigration("/repo/here", "new-id", "legacy-id", envWithBindir(bindir));
+    const result = planHostnameFoldMigration(
+      "/repo/here",
+      "new-id",
+      "legacy-id",
+      envWithBindir(bindir),
+    );
     expect(result).toEqual({ kind: "pending-cleanup", oldId: "legacy-id" });
   });
 });
@@ -1090,7 +1301,16 @@ describe("constrainSourceId truncation (hyphen-boundary cut)", () => {
     spawnSync("git", ["init", "--quiet", "-b", "main"], { cwd: repo });
     // Remote chosen to be long enough that constrainSourceId truncates and
     // the boundary lands inside the word `skill`.
-    spawnSync("git", ["remote", "add", "origin", "https://github.com/drummerms-av-sow-wiz/skill-270c0001.git"], { cwd: repo });
+    spawnSync(
+      "git",
+      [
+        "remote",
+        "add",
+        "origin",
+        "https://github.com/drummerms-av-sow-wiz/skill-270c0001.git",
+      ],
+      { cwd: repo },
+    );
 
     const id = sourceIdFor(repo);
     // The id must not contain the mid-word fragment `kill` (left over from
@@ -1114,7 +1334,11 @@ describe("constrainSourceId truncation (hyphen-boundary cut)", () => {
     mkdirSync(gstackHome, { recursive: true });
     const repo = mkdtempSync(join(tmpdir(), "gstack-https-period-"));
     spawnSync("git", ["init", "--quiet", "-b", "main"], { cwd: repo });
-    spawnSync("git", ["remote", "add", "origin", "https://github.com/foo/bar.git"], { cwd: repo });
+    spawnSync(
+      "git",
+      ["remote", "add", "origin", "https://github.com/foo/bar.git"],
+      { cwd: repo },
+    );
 
     const id = sourceIdFor(repo);
     expect(id).not.toContain(".");
@@ -1143,7 +1367,9 @@ describe("sourceLocalPath", () => {
         ]),
       },
     });
-    expect(sourceLocalPath("target-id", envWithBindir(bindir))).toBe("/repo/match");
+    expect(sourceLocalPath("target-id", envWithBindir(bindir))).toBe(
+      "/repo/match",
+    );
   });
 
   it("returns null when the source is missing", () => {
@@ -1175,7 +1401,9 @@ describe("sourceLocalPath", () => {
         }),
       },
     });
-    expect(sourceLocalPath("target-id", envWithBindir(bindir))).toBe("/repo/match");
+    expect(sourceLocalPath("target-id", envWithBindir(bindir))).toBe(
+      "/repo/match",
+    );
   });
 
   it("returns null when the source is missing in the wrapped shape", () => {

@@ -44,8 +44,8 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | **Multi-AI** | | |
 | [`/codex`](#codex) | **Second Opinion** | Independent review from OpenAI Codex CLI. Three modes: code review (pass/fail gate), adversarial challenge, and open consultation with session continuity. Cross-model analysis when both `/review` and `/codex` have run. |
 | [`/pair-agent`](#pair-agent) | **Remote Agent Bridge** | Pair a remote AI agent (OpenClaw, Codex, Cursor, Hermes) with your browser. Scoped tunnel, locked allowlist, session token. |
-| [`/setup-gbrain`](#setup-gbrain) | **Memory Sync** | Set up gbrain for cross-machine session memory sync. One command from zero to live. |
-| [`/sync-gbrain`](#sync-gbrain) | **Keep Brain Current** | Refresh gbrain against this repo's code; teach the agent when to use `gbrain search`/`code-def` over Grep. Idempotent; safe to re-run. |
+| [`/setup-gbrain`](#setup-gbrain) | **GBrain Setup** | Configure gbrain, MCP, and per-repository trust without claiming this worktree's repository index is current. |
+| [`/sync-gbrain`](#sync-gbrain) | **Keep Repository Index Current** | Sync code and tracked Markdown through strict version/source/path, expected-state, and preview/apply `plan_digest` gates. A missing source is registered on the first invocation; a second invocation can sync it. Search guidance requires a trusted live HEAD-bound receipt. |
 | | | |
 | **Safety & Utility** | | |
 | [`/careful`](#safety--guardrails) | **Safety Guardrails** | Warns before destructive commands (rm -rf, DROP TABLE, force-push, git reset --hard). Override any warning. Common build cleanups whitelisted. |

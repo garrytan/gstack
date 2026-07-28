@@ -13,6 +13,7 @@ import {
   constants as fsConstants,
   fstatSync,
   fsyncSync,
+  lstatSync,
   mkdirSync,
   openSync,
   readFileSync,
@@ -30,16 +31,14 @@ export const REQUIRED_GBRAIN_REPOSITORY_INDEX_VERSION = "0.42.71.0";
 export const REPOSITORY_INDEX_RECOVERY_DOC =
   "docs/repository-index-recovery.md";
 export const REPOSITORY_INDEX_RECEIPT = ".gbrain-repository-index-receipt.json";
+export const REPOSITORY_INDEX_ATTEMPT = ".gbrain-repository-index-attempt.json";
+export const REPOSITORY_INDEX_LOCK = ".sync-gbrain.lock";
 export const AFFECTED_SAMPLE_LIMIT = 100;
 
 export type ReleasedVersion = readonly [number, number, number, number];
 
 export type RepositoryIndexStatus =
-  | "verified"
-  | "preview_ready"
-  | "incomplete"
-  | "refused"
-  | "error";
+  "verified" | "preview_ready" | "incomplete" | "refused" | "error";
 
 export type RepositoryIndexState =
   | "none"
@@ -69,8 +68,7 @@ export interface StrictSourceRow {
 }
 
 export type StrictSourceSnapshot =
-  | { ok: true; rows: readonly StrictSourceRow[] }
-  | { ok: false; error: string };
+  { ok: true; rows: readonly StrictSourceRow[] } | { ok: false; error: string };
 
 export type PathIdentity =
   | {
@@ -136,9 +134,24 @@ export interface RepositoryIndexRunInput {
   ) => GbrainSpawnResult;
   platform?: NodeJS.Platform;
   writeReceipt?: (path: string, receipt: RepositoryIndexResult) => void;
+  writeAttemptMarker?: (
+    path: string,
+    marker: RepositoryIndexAttemptMarker,
+  ) => void;
+  clearAttemptMarker?: (path: string) => void;
   writeSourceMarker?: (root: string, sourceId: string) => void;
   readRepositoryState?: (root: string) => RepositoryState;
   readAttachedSource?: (root: string) => AttachedSourceState;
+}
+
+export interface RepositoryIndexAttemptMarker {
+  schema_version: 1;
+  result_kind: "repository_index_attempt";
+  status: "in_progress";
+  source_id: string;
+  repository_root: string;
+  git_head: string;
+  started_at: string;
 }
 
 export interface RepositoryIndexRunOutput {
@@ -166,21 +179,9 @@ const SHA_40 = /^[0-9a-f]{40}$/;
 const SHA_256 = /^[0-9a-f]{64}$/;
 const SOURCE_ID = /^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$/;
 const SOURCE_MARKER_MAX_BYTES = 34;
-const CHILD_TERMINAL_STATUSES = new Set([
-  "synced",
-  "first_sync",
-  "up_to_date",
-]);
-const CHILD_INCOMPLETE_STATUSES = new Set([
-  "partial",
-  "blocked_by_failures",
-]);
-const AFFECTED_OPERATIONS = new Set([
-  "add",
-  "modify",
-  "delete",
-  "rename",
-]);
+const CHILD_TERMINAL_STATUSES = new Set(["synced", "first_sync", "up_to_date"]);
+const CHILD_INCOMPLETE_STATUSES = new Set(["partial", "blocked_by_failures"]);
+const AFFECTED_OPERATIONS = new Set(["add", "modify", "delete", "rename"]);
 const CHILD_ERROR_REASONS = new Set([
   "source_changed",
   "target_changed",
@@ -188,6 +189,7 @@ const CHILD_ERROR_REASONS = new Set([
   "working_tree_dirty",
   "managed_clone_missing",
   "plan_failed",
+  "plan_changed",
   "dry_run_modifier_conflict",
   "lock_busy",
   "lock_release_failed",
@@ -220,9 +222,7 @@ function validCorpusReceipt(value: unknown): value is Record<string, unknown> {
   const corpusKeys = Object.keys(value).sort();
   if (
     corpusKeys.length !== CORPUS_RECEIPT_FIELDS.length ||
-    corpusKeys.some(
-      (key, index) => key !== CORPUS_RECEIPT_FIELDS[index],
-    )
+    corpusKeys.some((key, index) => key !== CORPUS_RECEIPT_FIELDS[index])
   ) {
     return false;
   }
@@ -291,9 +291,7 @@ function repositoryResult(
 export function parseReleasedGbrainVersion(
   raw: string,
 ): ReleasedVersion | null {
-  const match = raw
-    .trim()
-    .match(/^(?:gbrain )?(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+  const match = raw.trim().match(/^(?:gbrain )?(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
   if (!match) return null;
   const parts = match.slice(1).map((part) => Number(part));
   if (
@@ -333,9 +331,7 @@ export function isReleasedVersionAtLeast(
  * Accept only the two released `sources list --json` containers and a unique,
  * complete row set. A malformed row cannot be reinterpreted as source absence.
  */
-export function parseStrictSourceSnapshot(
-  raw: unknown,
-): StrictSourceSnapshot {
+export function parseStrictSourceSnapshot(raw: unknown): StrictSourceSnapshot {
   let candidate: unknown;
   if (Array.isArray(raw)) {
     candidate = raw;
@@ -364,8 +360,7 @@ export function parseStrictSourceSnapshot(
     }
     if (
       row.local_path !== null &&
-      (typeof row.local_path !== "string" ||
-        row.local_path.trim() === "")
+      (typeof row.local_path !== "string" || row.local_path.trim() === "")
     ) {
       return {
         ok: false,
@@ -384,8 +379,7 @@ export function parseStrictSourceSnapshot(
     if (
       row.last_commit !== undefined &&
       row.last_commit !== null &&
-      (typeof row.last_commit !== "string" ||
-        !SHA_40.test(row.last_commit))
+      (typeof row.last_commit !== "string" || !SHA_40.test(row.last_commit))
     ) {
       return {
         ok: false,
@@ -416,12 +410,8 @@ export function parseStrictSourceSnapshot(
         local_path: row.local_path as string | null,
         last_commit:
           typeof row.last_commit === "string" ? row.last_commit : null,
-        last_successful_strategy:
-          row.last_successful_strategy as
-            | "markdown"
-            | "code"
-            | "auto"
-            | null,
+        last_successful_strategy: row.last_successful_strategy as
+          "markdown" | "code" | "auto" | null,
       }),
     );
   }
@@ -518,11 +508,8 @@ function equivalentSourceOwnerIds(
     .filter((row) => row.local_path !== null)
     .filter(
       (row) =>
-        classifyRepositoryPath(
-          row.local_path!,
-          repositoryRoot,
-          platform,
-        ).kind === "equivalent",
+        classifyRepositoryPath(row.local_path!, repositoryRoot, platform)
+          .kind === "equivalent",
     )
     .map((row) => row.id)
     .sort();
@@ -538,10 +525,7 @@ export function unsafeRepositoryPathForShell(
   repositoryRoot: string,
   platform: NodeJS.Platform = process.platform,
 ): boolean {
-  return (
-    platform === "win32" &&
-    /[\s&|^%!()"'<>\r\n]/.test(repositoryRoot)
-  );
+  return platform === "win32" && /[\s&|^%!()"'<>\r\n]/.test(repositoryRoot);
 }
 
 function canonicalAffectedItem(
@@ -573,11 +557,10 @@ function canonicalAffectedItem(
     controlCharacter.test(value) ||
     value.startsWith("/") ||
     /^[A-Za-z]:\//.test(value) ||
-    value.split("/").some((part) => part === "" || part === "." || part === "..");
-  if (
-    invalidPath(path) ||
-    (fromPath !== undefined && invalidPath(fromPath))
-  ) {
+    value
+      .split("/")
+      .some((part) => part === "" || part === "." || part === "..");
+  if (invalidPath(path) || (fromPath !== undefined && invalidPath(fromPath))) {
     return null;
   }
   return {
@@ -589,11 +572,14 @@ function canonicalAffectedItem(
 }
 
 function affectedTuple(item: AffectedItem): string {
-  return `${item.operation}\t${item.path}\t${item.slug}`;
+  return `${item.operation}\t${item.path}\t${item.slug}\t${item.from_path ?? ""}`;
 }
 
 function bytewiseCompare(left: string, right: string): number {
-  return Buffer.compare(Buffer.from(left, "utf-8"), Buffer.from(right, "utf-8"));
+  return Buffer.compare(
+    Buffer.from(left, "utf-8"),
+    Buffer.from(right, "utf-8"),
+  );
 }
 
 export function summarizeAffectedItems(
@@ -601,7 +587,9 @@ export function summarizeAffectedItems(
 ): AffectedSummary {
   const canonical = items.map(canonicalAffectedItem);
   if (canonical.some((item) => item === null)) {
-    throw new Error("affected items must use canonical repository-relative paths");
+    throw new Error(
+      "affected items must use canonical repository-relative paths",
+    );
   }
   const sorted = (canonical as AffectedItem[]).sort((left, right) =>
     bytewiseCompare(affectedTuple(left), affectedTuple(right)),
@@ -625,8 +613,7 @@ export function orchestrationPreviewResult(): RepositoryIndexResult {
       {
         gbrain_contacted: false,
         compatibility_proven: false,
-        required_gbrain_version:
-          REQUIRED_GBRAIN_REPOSITORY_INDEX_VERSION,
+        required_gbrain_version: REQUIRED_GBRAIN_REPOSITORY_INDEX_VERSION,
       },
       "gbrain --version",
     ),
@@ -642,10 +629,8 @@ function parseJsonDocument(stdout: string): unknown | null {
   }
 }
 
-interface ValidatedChildResult {
-  status: "synced" | "first_sync" | "up_to_date";
+interface ValidatedSyncEvidence {
   fromCommit: string | null;
-  bookmarkAfter: string;
   operations: {
     added: number;
     modified: number;
@@ -671,10 +656,21 @@ interface ValidatedChildResult {
     extraction_status: "deferred" | "complete";
     search_ready: boolean;
   };
+  planDigest: string;
 }
 
-type ChildVerdict =
-  | { kind: "complete"; value: ValidatedChildResult }
+interface ValidatedChildResult extends ValidatedSyncEvidence {
+  status: "synced" | "first_sync" | "up_to_date";
+  bookmarkAfter: string;
+}
+
+interface ValidatedPreviewResult extends ValidatedSyncEvidence {
+  status: "dry_run";
+  bookmarkAfter: string | null;
+}
+
+type SyncVerdict<T extends ValidatedSyncEvidence> =
+  | { kind: "complete"; value: T }
   | {
       kind: "incomplete";
       reason: "sync_partial" | "sync_blocked" | "sync_failed";
@@ -688,17 +684,24 @@ type ChildVerdict =
       exitCode: 1 | 2;
       problem: string | null;
       nextAction: string | null;
+      observed: string | null;
+      required: string | null;
     }
   | { kind: "invalid"; detail: string };
 
-function validateChildResult(
+type ChildVerdict = SyncVerdict<ValidatedChildResult>;
+type PreviewVerdict = SyncVerdict<ValidatedPreviewResult>;
+
+function validateSyncResult(
   raw: unknown,
   expected: {
     sourceId: string;
     head: string;
     bookmarkBefore: string | null;
+    lastSuccessfulStrategyBefore?: "markdown" | "code" | "auto" | null;
   },
-): ChildVerdict {
+  phase: "preview" | "apply",
+): ChildVerdict | PreviewVerdict {
   if (!isRecord(raw) || raw.schema_version !== 1) {
     return { kind: "invalid", detail: "missing schema_version 1" };
   }
@@ -713,11 +716,12 @@ function validateChildResult(
       typeof raw.reason_code === "string" &&
       typeof raw.state_changed === "string" &&
       childStates.has(raw.state_changed as RepositoryIndexState) &&
-      validChildErrorTuple(
-        raw.reason_code,
-        raw.status,
-        raw.state_changed,
-      )
+      validChildErrorTuple(raw.reason_code, raw.status, raw.state_changed) &&
+      (raw.reason_code !== "plan_changed" ||
+        (typeof raw.observed === "string" &&
+          SHA_256.test(raw.observed) &&
+          typeof raw.required === "string" &&
+          SHA_256.test(raw.required)))
     ) {
       const state = raw.state_changed as RepositoryIndexState;
       return {
@@ -734,37 +738,51 @@ function validateChildResult(
         problem: typeof raw.problem === "string" ? raw.problem : null,
         nextAction:
           typeof raw.next_action === "string" ? raw.next_action : null,
+        observed: typeof raw.observed === "string" ? raw.observed : null,
+        required: typeof raw.required === "string" ? raw.required : null,
       };
     }
     return { kind: "invalid", detail: "malformed gbrain_sync_error" };
   }
-  if (
-    raw.result_kind !== "gbrain_sync" ||
-    typeof raw.status !== "string"
-  ) {
+  if (raw.result_kind !== "gbrain_sync" || typeof raw.status !== "string") {
     return { kind: "invalid", detail: "wrong child result kind or status" };
   }
-  if (CHILD_INCOMPLETE_STATUSES.has(raw.status)) {
+  if (phase === "preview" && raw.status !== "dry_run") {
+    return {
+      kind: "invalid",
+      detail: `preview did not return dry_run: ${raw.status}`,
+    };
+  }
+  if (phase === "preview" && raw.preview_kind !== "validated_index_plan") {
+    return {
+      kind: "invalid",
+      detail: "preview did not return validated_index_plan",
+    };
+  }
+  if (phase === "apply" && CHILD_INCOMPLETE_STATUSES.has(raw.status)) {
     return {
       kind: "incomplete",
       reason:
-        raw.status === "blocked_by_failures"
-          ? "sync_blocked"
-          : "sync_partial",
+        raw.status === "blocked_by_failures" ? "sync_blocked" : "sync_partial",
       state: "partial",
     };
   }
-  if (!CHILD_TERMINAL_STATUSES.has(raw.status)) {
+  if (phase === "apply" && !CHILD_TERMINAL_STATUSES.has(raw.status)) {
     return { kind: "invalid", detail: `unknown child status: ${raw.status}` };
   }
+  const expectedBookmarkAfter =
+    phase === "preview" ? expected.bookmarkBefore : expected.head;
+  const expectedLastSuccessfulStrategy =
+    phase === "preview" ? expected.lastSuccessfulStrategyBefore : "auto";
   if (
     !isRecord(raw.source) ||
     raw.source.id !== expected.sourceId ||
     !isRecord(raw.repository) ||
     raw.repository.from_commit !== expected.bookmarkBefore ||
     raw.repository.target_commit !== expected.head ||
-    raw.repository.bookmark_after !== expected.head ||
-    raw.repository.last_successful_strategy !== "auto" ||
+    raw.repository.bookmark_after !== expectedBookmarkAfter ||
+    raw.repository.last_successful_strategy !==
+      expectedLastSuccessfulStrategy ||
     raw.strategy !== "auto"
   ) {
     return {
@@ -785,6 +803,7 @@ function validateChildResult(
     return { kind: "invalid", detail: "invalid operation counts" };
   }
   if (
+    phase === "apply" &&
     raw.status === "up_to_date" &&
     Object.values(operations).some((count) => count !== 0)
   ) {
@@ -800,9 +819,14 @@ function validateChildResult(
     !Array.isArray(raw.affected.sample) ||
     typeof raw.affected.truncated !== "boolean" ||
     typeof raw.affected_digest !== "string" ||
-    !SHA_256.test(raw.affected_digest)
+    !SHA_256.test(raw.affected_digest) ||
+    typeof raw.plan_digest !== "string" ||
+    !SHA_256.test(raw.plan_digest)
   ) {
-    return { kind: "invalid", detail: "invalid bounded affected evidence" };
+    return {
+      kind: "invalid",
+      detail: "invalid bounded affected evidence or plan_digest",
+    };
   }
   const expectedTotal =
     operations.added +
@@ -813,8 +837,7 @@ function validateChildResult(
     raw.affected.total !== expectedTotal ||
     raw.affected.sample.length !==
       Math.min(raw.affected.total, AFFECTED_SAMPLE_LIMIT) ||
-    raw.affected.truncated !==
-      (raw.affected.total > AFFECTED_SAMPLE_LIMIT)
+    raw.affected.truncated !== raw.affected.total > AFFECTED_SAMPLE_LIMIT
   ) {
     return {
       kind: "invalid",
@@ -824,7 +847,10 @@ function validateChildResult(
   const sample: AffectedItem[] = [];
   for (const value of raw.affected.sample) {
     if (!isRecord(value)) {
-      return { kind: "invalid", detail: "affected sample row is not an object" };
+      return {
+        kind: "invalid",
+        detail: "affected sample row is not an object",
+      };
     }
     const operation =
       typeof value.operation === "string" ? value.operation : "";
@@ -859,7 +885,8 @@ function validateChildResult(
   );
   if (
     sample.some(
-      (item, index) => affectedTuple(item) !== affectedTuple(sortedSample[index]),
+      (item, index) =>
+        affectedTuple(item) !== affectedTuple(sortedSample[index]),
     )
   ) {
     return { kind: "invalid", detail: "affected sample is not canonical" };
@@ -901,23 +928,60 @@ function validateChildResult(
     };
   }
 
+  const evidence: ValidatedSyncEvidence = {
+    fromCommit: raw.repository.from_commit as string | null,
+    operations: operations as ValidatedSyncEvidence["operations"],
+    affected: {
+      total: raw.affected.total,
+      sample_limit: raw.affected.sample_limit,
+      sample,
+      truncated: raw.affected.truncated,
+    },
+    affectedDigest: raw.affected_digest,
+    corpus: raw.corpus as unknown as ValidatedSyncEvidence["corpus"],
+    planDigest: raw.plan_digest,
+  };
+  if (phase === "preview") {
+    return {
+      kind: "complete",
+      value: {
+        ...evidence,
+        status: "dry_run",
+        bookmarkAfter: raw.repository.bookmark_after as string | null,
+      },
+    };
+  }
   return {
     kind: "complete",
     value: {
+      ...evidence,
       status: raw.status as ValidatedChildResult["status"],
-      fromCommit: raw.repository.from_commit as string | null,
       bookmarkAfter: raw.repository.bookmark_after as string,
-      operations: operations as ValidatedChildResult["operations"],
-      affected: {
-        total: raw.affected.total,
-        sample_limit: raw.affected.sample_limit,
-        sample,
-        truncated: raw.affected.truncated,
-      },
-      affectedDigest: raw.affected_digest,
-      corpus: raw.corpus as unknown as ValidatedChildResult["corpus"],
     },
   };
+}
+
+function validateChildResult(
+  raw: unknown,
+  expected: {
+    sourceId: string;
+    head: string;
+    bookmarkBefore: string | null;
+  },
+): ChildVerdict {
+  return validateSyncResult(raw, expected, "apply") as ChildVerdict;
+}
+
+function validatePreviewResult(
+  raw: unknown,
+  expected: {
+    sourceId: string;
+    head: string;
+    bookmarkBefore: string | null;
+    lastSuccessfulStrategyBefore: "markdown" | "code" | "auto" | null;
+  },
+): PreviewVerdict {
+  return validateSyncResult(raw, expected, "preview") as PreviewVerdict;
 }
 
 export function writeRepositoryIndexReceipt(
@@ -943,6 +1007,66 @@ export function writeRepositoryIndexReceipt(
   }
 }
 
+export function writeRepositoryIndexAttemptMarker(
+  path: string,
+  marker: RepositoryIndexAttemptMarker,
+): void {
+  mkdirSync(dirname(path), { recursive: true });
+  const temporary = `${path}.tmp.${process.pid}.${randomBytes(8).toString("hex")}`;
+  try {
+    writeFileSync(temporary, `${JSON.stringify(marker, null, 2)}\n`, {
+      encoding: "utf-8",
+      flag: "wx",
+      mode: 0o600,
+    });
+    renameSync(temporary, path);
+  } catch (error) {
+    try {
+      unlinkSync(temporary);
+    } catch {
+      // Best effort: the active marker was never replaced.
+    }
+    throw error;
+  }
+}
+
+export function clearRepositoryIndexAttemptMarker(path: string): void {
+  unlinkSync(path);
+}
+
+function repositoryIndexActivity(gstackHome: string):
+  | { active: false }
+  | {
+      active: true;
+      kind: "wrapper_lock" | "attempt_watermark";
+      path: string;
+      detail?: string;
+    } {
+  for (const [kind, path] of [
+    ["wrapper_lock", join(gstackHome, REPOSITORY_INDEX_LOCK)],
+    ["attempt_watermark", join(gstackHome, REPOSITORY_INDEX_ATTEMPT)],
+  ] as const) {
+    try {
+      lstatSync(path);
+      return { active: true, kind, path };
+    } catch (error) {
+      const missing =
+        error instanceof Error &&
+        "code" in error &&
+        (error as NodeJS.ErrnoException).code === "ENOENT";
+      if (!missing) {
+        return {
+          active: true,
+          kind,
+          path,
+          detail: error instanceof Error ? error.message : String(error),
+        };
+      }
+    }
+  }
+  return { active: false };
+}
+
 function readCurrentRepositoryState(root: string): RepositoryState {
   const env = { ...process.env, GIT_OPTIONAL_LOCKS: "0" };
   const head = spawnSync("git", ["rev-parse", "--verify", "HEAD"], {
@@ -963,17 +1087,13 @@ function readCurrentRepositoryState(root: string): RepositoryState {
       env,
     },
   );
-  const trackedMarker = spawnSync(
-    "git",
-    ["ls-files", "--", ".gbrain-source"],
-    {
-      cwd: root,
-      encoding: "utf-8",
-      timeout: 5_000,
-      stdio: ["ignore", "pipe", "pipe"],
-      env,
-    },
-  );
+  const trackedMarker = spawnSync("git", ["ls-files", "--", ".gbrain-source"], {
+    cwd: root,
+    encoding: "utf-8",
+    timeout: 5_000,
+    stdio: ["ignore", "pipe", "pipe"],
+    env,
+  });
   const headAfter = spawnSync("git", ["rev-parse", "--verify", "HEAD"], {
     cwd: root,
     encoding: "utf-8",
@@ -981,10 +1101,8 @@ function readCurrentRepositoryState(root: string): RepositoryState {
     stdio: ["ignore", "pipe", "pipe"],
     env,
   });
-  const porcelain =
-    status.status === 0 ? (status.stdout || "").trim() : null;
-  const headText =
-    head.status === 0 ? (head.stdout || "").trim() : null;
+  const porcelain = status.status === 0 ? (status.stdout || "").trim() : null;
+  const headText = head.status === 0 ? (head.stdout || "").trim() : null;
   const headAfterText =
     headAfter.status === 0 ? (headAfter.stdout || "").trim() : null;
   return {
@@ -1004,10 +1122,7 @@ function readCurrentAttachedSource(root: string): AttachedSourceState {
   const path = join(root, ".gbrain-source");
   let descriptor: number | null = null;
   try {
-    descriptor = openSync(
-      path,
-      fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW,
-    );
+    descriptor = openSync(path, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
     const stat = fstatSync(descriptor);
     if (!stat.isFile()) {
       return {
@@ -1029,10 +1144,7 @@ function readCurrentAttachedSource(root: string): AttachedSourceState {
         detail: ".gbrain-source is not owned by the current user or root",
       };
     }
-    if (
-      typeof process.getuid === "function" &&
-      (stat.mode & 0o022) !== 0
-    ) {
+    if (typeof process.getuid === "function" && (stat.mode & 0o022) !== 0) {
       return {
         present: true,
         sourceId: null,
@@ -1149,23 +1261,20 @@ export function writeRepositorySourceMarker(
 function ensureLocalSourceMarkerExclude(
   root: string,
 ):
-  | { ok: true; path: string; changed: boolean }
-  | { ok: false; detail: string } {
-  const commonDirProbe = spawnSync(
-    "git",
-    ["rev-parse", "--git-common-dir"],
-    {
-      cwd: root,
-      encoding: "utf-8",
-      timeout: 5_000,
-      stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" },
-    },
-  );
+  { ok: true; path: string; changed: boolean } | { ok: false; detail: string } {
+  const commonDirProbe = spawnSync("git", ["rev-parse", "--git-common-dir"], {
+    cwd: root,
+    encoding: "utf-8",
+    timeout: 5_000,
+    stdio: ["ignore", "pipe", "pipe"],
+    env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" },
+  });
   if (commonDirProbe.status !== 0) {
     return {
       ok: false,
-      detail: (commonDirProbe.stderr || "git common directory unavailable").trim(),
+      detail: (
+        commonDirProbe.stderr || "git common directory unavailable"
+      ).trim(),
     };
   }
 
@@ -1175,9 +1284,7 @@ function ensureLocalSourceMarkerExclude(
       return { ok: false, detail: "git common directory was empty" };
     }
     const commonDir = realpathSync.native(
-      isAbsolute(rawCommonDir)
-        ? rawCommonDir
-        : resolve(root, rawCommonDir),
+      isAbsolute(rawCommonDir) ? rawCommonDir : resolve(root, rawCommonDir),
     );
     const infoDir = join(commonDir, "info");
     mkdirSync(infoDir, { recursive: true });
@@ -1193,18 +1300,14 @@ function ensureLocalSourceMarkerExclude(
       try {
         excludeDescriptor = openSync(
           excludePath,
-          fsConstants.O_RDWR |
-            fsConstants.O_APPEND |
-            fsConstants.O_NOFOLLOW,
+          fsConstants.O_RDWR | fsConstants.O_APPEND | fsConstants.O_NOFOLLOW,
         );
       } catch (error) {
-        if (
-          !(
-            error instanceof Error &&
-            "code" in error &&
-            (error as NodeJS.ErrnoException).code === "ENOENT"
-          )
-        ) {
+        if (!(
+          error instanceof Error &&
+          "code" in error &&
+          (error as NodeJS.ErrnoException).code === "ENOENT"
+        )) {
           throw error;
         }
         excludeDescriptor = openSync(
@@ -1234,10 +1337,7 @@ function ensureLocalSourceMarkerExclude(
           detail: "git info/exclude is not owned by the current user or root",
         };
       }
-      if (
-        typeof process.getuid === "function" &&
-        (stat.mode & 0o022) !== 0
-      ) {
+      if (typeof process.getuid === "function" && (stat.mode & 0o022) !== 0) {
         return {
           ok: false,
           detail: "git info/exclude is group- or world-writable",
@@ -1245,9 +1345,7 @@ function ensureLocalSourceMarkerExclude(
       }
       const existing = readFileSync(excludeDescriptor, "utf-8");
       if (
-        existing
-          .split("\n")
-          .some((line) => line.trim() === ".gbrain-source")
+        existing.split("\n").some((line) => line.trim() === ".gbrain-source")
       ) {
         return { ok: true, path: excludePath, changed: false };
       }
@@ -1269,7 +1367,12 @@ function ensureLocalSourceMarkerExclude(
 }
 
 function receiptVerificationFailure(
-  reasonCode: "receipt_missing" | "receipt_invalid" | "receipt_stale",
+  reasonCode:
+    | "receipt_missing"
+    | "receipt_invalid"
+    | "receipt_stale"
+    | "receipt_in_progress"
+    | "receipt_superseded",
   evidence: Record<string, unknown>,
 ): RepositoryIndexRunOutput {
   return {
@@ -1278,7 +1381,7 @@ function receiptVerificationFailure(
       reasonCode,
       "none",
       evidence,
-      "gstack-gbrain-sync --code-only --json",
+      "/sync-gbrain --code-only",
     ),
     exitCode: 1,
   };
@@ -1287,10 +1390,7 @@ function receiptVerificationFailure(
 function readRepositoryIndexReceipt(path: string): unknown {
   let descriptor: number | null = null;
   try {
-    descriptor = openSync(
-      path,
-      fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW,
-    );
+    descriptor = openSync(path, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
     const stat = fstatSync(descriptor);
     if (!stat.isFile()) {
       throw new Error("receipt is not a regular file");
@@ -1302,10 +1402,7 @@ function readRepositoryIndexReceipt(path: string): unknown {
     ) {
       throw new Error("receipt is not owned by the current user or root");
     }
-    if (
-      typeof process.getuid === "function" &&
-      (stat.mode & 0o022) !== 0
-    ) {
+    if (typeof process.getuid === "function" && (stat.mode & 0o022) !== 0) {
       throw new Error("receipt is group- or world-writable");
     }
     if (stat.size > 1024 * 1024) {
@@ -1320,16 +1417,31 @@ function readRepositoryIndexReceipt(path: string): unknown {
 /**
  * Rebind the persisted GREEN receipt to the repository that is live now.
  *
- * The receipt path is global to GSTACK_HOME and successful runs intentionally
- * leave prior evidence in place. Consumers must therefore prove that the
- * receipt belongs to this canonical root, source marker, and current clean
- * full HEAD instead of trusting its internally consistent historical fields.
+ * The receipt path is global to GSTACK_HOME. Consumers must prove that no
+ * wrapper lock or attempt watermark is active, then bind the receipt to this
+ * canonical root, source marker, and current clean full HEAD. The activity
+ * check is repeated after the live Git reads so a concurrent attempt cannot
+ * race historical GREEN evidence back into use.
  */
 export function verifyCurrentRepositoryIndexReceipt(
   root: string,
   gstackHome: string,
 ): RepositoryIndexRunOutput {
   const receiptPath = join(gstackHome, REPOSITORY_INDEX_RECEIPT);
+  const activityBefore = repositoryIndexActivity(gstackHome);
+  if (activityBefore.active) {
+    return receiptVerificationFailure(
+      activityBefore.kind === "wrapper_lock"
+        ? "receipt_in_progress"
+        : "receipt_superseded",
+      {
+        receipt_path: receiptPath,
+        active_kind: activityBefore.kind,
+        active_path: activityBefore.path,
+        ...(activityBefore.detail ? { detail: activityBefore.detail } : {}),
+      },
+    );
+  }
   let raw: unknown;
   try {
     raw = readRepositoryIndexReceipt(receiptPath);
@@ -1390,6 +1502,8 @@ export function verifyCurrentRepositoryIndexReceipt(
     !isRecord(sync) ||
     !CHILD_TERMINAL_STATUSES.has(String(sync.terminal_status)) ||
     sync.strategy !== "auto" ||
+    typeof sync.plan_digest !== "string" ||
+    !SHA_256.test(sync.plan_digest) ||
     !nonNegativeInteger(sync.added) ||
     !nonNegativeInteger(sync.modified) ||
     !nonNegativeInteger(sync.deleted) ||
@@ -1423,8 +1537,7 @@ export function verifyCurrentRepositoryIndexReceipt(
     sync.affected.total !== operationTotal ||
     sync.affected.sample.length !==
       Math.min(operationTotal, AFFECTED_SAMPLE_LIMIT) ||
-    sync.affected.truncated !==
-      (operationTotal > AFFECTED_SAMPLE_LIMIT)
+    sync.affected.truncated !== operationTotal > AFFECTED_SAMPLE_LIMIT
   ) {
     return receiptVerificationFailure("receipt_invalid", {
       receipt_path: receiptPath,
@@ -1442,8 +1555,7 @@ export function verifyCurrentRepositoryIndexReceipt(
     }
     const item = canonicalAffectedItem(
       {
-        operation:
-          typeof row.operation === "string" ? row.operation : "",
+        operation: typeof row.operation === "string" ? row.operation : "",
         path: typeof row.path === "string" ? row.path : "",
         slug: typeof row.slug === "string" ? row.slug : "",
         ...(typeof row.from_path === "string"
@@ -1454,8 +1566,7 @@ export function verifyCurrentRepositoryIndexReceipt(
     );
     if (
       !item ||
-      (item.operation === "rename") !==
-        Object.hasOwn(row, "from_path")
+      (item.operation === "rename") !== Object.hasOwn(row, "from_path")
     ) {
       return receiptVerificationFailure("receipt_invalid", {
         receipt_path: receiptPath,
@@ -1473,8 +1584,7 @@ export function verifyCurrentRepositoryIndexReceipt(
         affectedTuple(item) !== affectedTuple(canonicalSample[index]),
     ) ||
     (!sync.affected.truncated &&
-      summarizeAffectedItems(receiptSample).sha256 !==
-        sync.affected.sha256)
+      summarizeAffectedItems(receiptSample).sha256 !== sync.affected.sha256)
   ) {
     return receiptVerificationFailure("receipt_invalid", {
       receipt_path: receiptPath,
@@ -1514,6 +1624,24 @@ export function verifyCurrentRepositoryIndexReceipt(
     });
   }
 
+  const activityAfter = repositoryIndexActivity(gstackHome);
+  if (activityAfter.active) {
+    return receiptVerificationFailure(
+      activityAfter.kind === "wrapper_lock"
+        ? "receipt_in_progress"
+        : "receipt_superseded",
+      {
+        receipt_path: receiptPath,
+        active_kind: activityAfter.kind,
+        active_path: activityAfter.path,
+        ...(activityAfter.detail ? { detail: activityAfter.detail } : {}),
+        detail:
+          activityAfter.detail ??
+          "repository-index activity began during receipt verification",
+      },
+    );
+  }
+
   return {
     result: raw as unknown as RepositoryIndexResult,
     exitCode: 0,
@@ -1534,6 +1662,8 @@ function childErrorOutput(
         source_id: sourceId,
         git_head: head,
         child_problem: child.problem,
+        child_observed: child.observed,
+        child_required: child.required,
       },
       child.nextAction,
     ),
@@ -1557,41 +1687,79 @@ export function runRepositoryIndex(
   );
   if (!requiredVersion) {
     return {
-      result: repositoryResult(
-        "error",
-        "unsupported_version",
-        "none",
-        { required_gbrain_version: REQUIRED_GBRAIN_REPOSITORY_INDEX_VERSION },
-      ),
+      result: repositoryResult("error", "unsupported_version", "none", {
+        required_gbrain_version: REQUIRED_GBRAIN_REPOSITORY_INDEX_VERSION,
+      }),
       exitCode: 1,
     };
   }
   if (!SHA_40.test(input.head)) {
     return {
-      result: repositoryResult(
-        "refused",
-        "repository_state_invalid",
-        "none",
-        { git_head: input.head },
-      ),
+      result: repositoryResult("refused", "repository_state_invalid", "none", {
+        git_head: input.head,
+      }),
       exitCode: 1,
     };
   }
   if (
-    unsafeRepositoryPathForShell(
-      input.root,
-      input.platform ?? process.platform,
-    )
+    unsafeRepositoryPathForShell(input.root, input.platform ?? process.platform)
   ) {
     return {
-      result: repositoryResult(
-        "refused",
-        "unsupported_path",
-        "none",
-        { repository_root: input.root },
-      ),
+      result: repositoryResult("refused", "unsupported_path", "none", {
+        repository_root: input.root,
+      }),
       exitCode: 1,
     };
+  }
+
+  const receiptPath = join(input.gstackHome, REPOSITORY_INDEX_RECEIPT);
+  const attemptPath = join(input.gstackHome, REPOSITORY_INDEX_ATTEMPT);
+  const attemptMarker: RepositoryIndexAttemptMarker = {
+    schema_version: 1,
+    result_kind: "repository_index_attempt",
+    status: "in_progress",
+    source_id: input.sourceId,
+    repository_root: input.root,
+    git_head: input.head,
+    started_at: new Date().toISOString(),
+  };
+  try {
+    (input.writeAttemptMarker ?? writeRepositoryIndexAttemptMarker)(
+      attemptPath,
+      attemptMarker,
+    );
+  } catch (error) {
+    return {
+      result: repositoryResult("error", "verification_failed", "none", {
+        failing_step: "attempt_watermark_write",
+        source_id: input.sourceId,
+        git_head: input.head,
+        attempt_path: attemptPath,
+        detail: error instanceof Error ? error.message : String(error),
+      }),
+      exitCode: 1,
+    };
+  }
+  try {
+    unlinkSync(receiptPath);
+  } catch (error) {
+    const missing =
+      error instanceof Error &&
+      "code" in error &&
+      (error as NodeJS.ErrnoException).code === "ENOENT";
+    if (!missing) {
+      return {
+        result: repositoryResult("error", "verification_failed", "none", {
+          failing_step: "prior_receipt_invalidation",
+          source_id: input.sourceId,
+          git_head: input.head,
+          receipt_path: receiptPath,
+          attempt_path: attemptPath,
+          detail: error instanceof Error ? error.message : String(error),
+        }),
+        exitCode: 1,
+      };
+    }
   }
 
   const versionProbe = input.spawnGbrain(["--version"], {
@@ -1600,9 +1768,7 @@ export function runRepositoryIndex(
   });
   const detectedText = (versionProbe.stdout || "").trim();
   const detectedVersion =
-    versionProbe.status === 0
-      ? parseReleasedGbrainVersion(detectedText)
-      : null;
+    versionProbe.status === 0 ? parseReleasedGbrainVersion(detectedText) : null;
   if (
     !detectedVersion ||
     compareReleasedVersions(detectedVersion, requiredVersion) < 0
@@ -1614,8 +1780,7 @@ export function runRepositoryIndex(
         "none",
         {
           detected_gbrain_version: detectedText || null,
-          required_gbrain_version:
-            REQUIRED_GBRAIN_REPOSITORY_INDEX_VERSION,
+          required_gbrain_version: REQUIRED_GBRAIN_REPOSITORY_INDEX_VERSION,
         },
         "gbrain --version",
       ),
@@ -1643,8 +1808,10 @@ export function runRepositoryIndex(
           detail:
             sourceSnapshot && !sourceSnapshot.ok
               ? sourceSnapshot.error
-              : (sourceProbe.stderr || "sources list did not return one JSON document")
-                  .trim(),
+              : (
+                  sourceProbe.stderr ||
+                  "sources list did not return one JSON document"
+                ).trim(),
         },
         "gbrain sources list --json",
       ),
@@ -1652,24 +1819,17 @@ export function runRepositoryIndex(
     };
   }
 
-  const source = sourceSnapshot.rows.find(
-    (row) => row.id === input.sourceId,
-  );
+  const source = sourceSnapshot.rows.find((row) => row.id === input.sourceId);
   if (!source) {
     let canonicalRoot: string;
     try {
       canonicalRoot = realpathSync.native(input.root);
     } catch (error) {
       return {
-        result: repositoryResult(
-          "refused",
-          "source_path_ambiguous",
-          "none",
-          {
-            repository_root: input.root,
-            detail: error instanceof Error ? error.message : String(error),
-          },
-        ),
+        result: repositoryResult("refused", "source_path_ambiguous", "none", {
+          repository_root: input.root,
+          detail: error instanceof Error ? error.message : String(error),
+        }),
         exitCode: 1,
       };
     }
@@ -1680,15 +1840,10 @@ export function runRepositoryIndex(
       )
     ) {
       return {
-        result: repositoryResult(
-          "refused",
-          "unsupported_path",
-          "none",
-          {
-            repository_root: input.root,
-            canonical_path: canonicalRoot,
-          },
-        ),
+        result: repositoryResult("refused", "unsupported_path", "none", {
+          repository_root: input.root,
+          canonical_path: canonicalRoot,
+        }),
         exitCode: 1,
       };
     }
@@ -1766,13 +1921,12 @@ export function runRepositoryIndex(
         "incomplete",
         "source_registered",
         "registry_only",
-          {
-            source_id: input.sourceId,
-            canonical_path: canonicalRoot,
-          required_gbrain_version:
-            REQUIRED_GBRAIN_REPOSITORY_INDEX_VERSION,
+        {
+          source_id: input.sourceId,
+          canonical_path: canonicalRoot,
+          required_gbrain_version: REQUIRED_GBRAIN_REPOSITORY_INDEX_VERSION,
         },
-        "gstack-gbrain-sync --code-only --json",
+        "/sync-gbrain --code-only",
       ),
       exitCode: 2,
     };
@@ -1824,15 +1978,10 @@ export function runRepositoryIndex(
     )
   ) {
     return {
-      result: repositoryResult(
-        "refused",
-        "unsupported_path",
-        "none",
-        {
-          repository_root: input.root,
-          canonical_path: pathIdentity.canonical_path,
-        },
-      ),
+      result: repositoryResult("refused", "unsupported_path", "none", {
+        repository_root: input.root,
+        canonical_path: pathIdentity.canonical_path,
+      }),
       exitCode: 1,
     };
   }
@@ -1841,10 +1990,7 @@ export function runRepositoryIndex(
     pathIdentity.canonical_path,
     input.platform ?? process.platform,
   );
-  if (
-    equivalentOwners.length !== 1 ||
-    equivalentOwners[0] !== input.sourceId
-  ) {
+  if (equivalentOwners.length !== 1 || equivalentOwners[0] !== input.sourceId) {
     return {
       result: repositoryResult(
         "refused",
@@ -1865,8 +2011,7 @@ export function runRepositoryIndex(
     pathIdentity.canonical_path,
   );
   let localExcludeBeforeSync:
-    | { ok: true; path: string; changed: boolean }
-    | undefined;
+    { ok: true; path: string; changed: boolean } | undefined;
   const stateAfterPreSyncMetadata = (
     state: RepositoryIndexState,
   ): RepositoryIndexState =>
@@ -1879,16 +2024,11 @@ export function runRepositoryIndex(
       attachedBeforeSync.sourceId !== input.sourceId
     ) {
       return {
-        result: repositoryResult(
-          "refused",
-          "verification_failed",
-          "none",
-          {
-            failing_step: "pre_sync_source_marker",
-            source_id: input.sourceId,
-            attached_source: attachedBeforeSync,
-          },
-        ),
+        result: repositoryResult("refused", "verification_failed", "none", {
+          failing_step: "pre_sync_source_marker",
+          source_id: input.sourceId,
+          attached_source: attachedBeforeSync,
+        }),
         exitCode: 1,
       };
     }
@@ -1898,16 +2038,11 @@ export function runRepositoryIndex(
       );
       if (!exclude.ok) {
         return {
-          result: repositoryResult(
-            "error",
-            "verification_failed",
-            "none",
-            {
-              failing_step: "source_marker_exclude",
-              source_id: input.sourceId,
-              detail: exclude.detail,
-            },
-          ),
+          result: repositoryResult("error", "verification_failed", "none", {
+            failing_step: "source_marker_exclude",
+            source_id: input.sourceId,
+            detail: exclude.detail,
+          }),
           exitCode: 1,
         };
       }
@@ -1940,7 +2075,7 @@ export function runRepositoryIndex(
   const workingTreeCleanBeforeSync = preRepositoryState.clean;
 
   const expectedBookmark = source.last_commit ?? "none";
-  const syncArgs = [
+  const expectedStateArgs = [
     "sync",
     "--strategy",
     "auto",
@@ -1954,8 +2089,126 @@ export function runRepositoryIndex(
     "--expected-bookmark",
     expectedBookmark,
   ];
-  if (workingTreeCleanBeforeSync) syncArgs.push("--require-clean");
-  syncArgs.push("--json");
+  if (workingTreeCleanBeforeSync) {
+    expectedStateArgs.push("--require-clean");
+  }
+
+  const previewArgs = [...expectedStateArgs, "--dry-run", "--json"];
+  const preview = input.spawnGbrain(previewArgs, {
+    cwd: pathIdentity.canonical_path,
+    timeout: 35 * 60 * 1000,
+    baseEnv: gbrainEnv,
+  });
+  const previewRaw = parseJsonDocument(preview.stdout || "");
+  if (preview.status !== 0) {
+    if (previewRaw !== null) {
+      const refused = validatePreviewResult(previewRaw, {
+        sourceId: input.sourceId,
+        head: input.head,
+        bookmarkBefore: source.last_commit,
+        lastSuccessfulStrategyBefore: source.last_successful_strategy,
+      });
+      if (refused.kind === "child_error") {
+        return childErrorOutput(
+          {
+            ...refused,
+            state: stateAfterPreSyncMetadata(refused.state),
+          },
+          input.sourceId,
+          input.head,
+        );
+      }
+      if (refused.kind === "invalid") {
+        return {
+          result: repositoryResult(
+            "error",
+            "source_result_invalid",
+            stateAfterPreSyncMetadata("none"),
+            {
+              failing_step: "sync_preview",
+              source_id: input.sourceId,
+              git_head: input.head,
+              child_exit: preview.status,
+              detail: refused.detail,
+            },
+          ),
+          exitCode: 1,
+        };
+      }
+    }
+    return {
+      result: repositoryResult(
+        "error",
+        "sync_failed",
+        stateAfterPreSyncMetadata("none"),
+        {
+          failing_step: "sync_preview",
+          source_id: input.sourceId,
+          git_head: input.head,
+          child_exit: preview.status,
+          child_stderr: (preview.stderr || "").trim(),
+        },
+      ),
+      exitCode: 1,
+    };
+  }
+  if (previewRaw === null) {
+    return {
+      result: repositoryResult(
+        "error",
+        "source_result_invalid",
+        stateAfterPreSyncMetadata("none"),
+        {
+          failing_step: "sync_preview",
+          source_id: input.sourceId,
+          detail: "preview stdout was not exactly one JSON document",
+        },
+      ),
+      exitCode: 1,
+    };
+  }
+  const previewResult = validatePreviewResult(previewRaw, {
+    sourceId: input.sourceId,
+    head: input.head,
+    bookmarkBefore: source.last_commit,
+    lastSuccessfulStrategyBefore: source.last_successful_strategy,
+  });
+  if (previewResult.kind !== "complete") {
+    if (previewResult.kind === "child_error") {
+      return childErrorOutput(
+        {
+          ...previewResult,
+          state: stateAfterPreSyncMetadata(previewResult.state),
+        },
+        input.sourceId,
+        input.head,
+      );
+    }
+    return {
+      result: repositoryResult(
+        "error",
+        "source_result_invalid",
+        stateAfterPreSyncMetadata("none"),
+        {
+          failing_step: "sync_preview",
+          source_id: input.sourceId,
+          git_head: input.head,
+          detail:
+            previewResult.kind === "invalid"
+              ? previewResult.detail
+              : `preview returned ${previewResult.reason}`,
+        },
+      ),
+      exitCode: 1,
+    };
+  }
+
+  const syncArgs = [
+    ...expectedStateArgs,
+    "--expected-plan-digest",
+    previewResult.value.planDigest,
+    "--json",
+  ];
 
   const sync = input.spawnGbrain(syncArgs, {
     cwd: pathIdentity.canonical_path,
@@ -2013,17 +2266,12 @@ export function runRepositoryIndex(
       }
     }
     return {
-      result: repositoryResult(
-        "error",
-        "sync_failed",
-        "partial",
-        {
-          source_id: input.sourceId,
-          git_head: input.head,
-          child_exit: sync.status,
-          child_stderr: (sync.stderr || "").trim(),
-        },
-      ),
+      result: repositoryResult("error", "sync_failed", "partial", {
+        source_id: input.sourceId,
+        git_head: input.head,
+        child_exit: sync.status,
+        child_stderr: (sync.stderr || "").trim(),
+      }),
       exitCode: 1,
     };
   }
@@ -2048,15 +2296,10 @@ export function runRepositoryIndex(
   });
   if (child.kind === "incomplete") {
     return {
-      result: repositoryResult(
-        "incomplete",
-        child.reason,
-        child.state,
-        {
-          source_id: input.sourceId,
-          git_head: input.head,
-        },
-      ),
+      result: repositoryResult("incomplete", child.reason, child.state, {
+        source_id: input.sourceId,
+        git_head: input.head,
+      }),
       exitCode: 1,
     };
   }
@@ -2084,19 +2327,36 @@ export function runRepositoryIndex(
       exitCode: 1,
     };
   }
+  if (child.value.planDigest !== previewResult.value.planDigest) {
+    return {
+      result: repositoryResult(
+        "error",
+        "source_result_invalid",
+        "applied_unverified",
+        {
+          failing_step: "sync_plan_binding",
+          source_id: input.sourceId,
+          git_head: input.head,
+          preview_plan_digest: previewResult.value.planDigest,
+          apply_plan_digest: child.value.planDigest,
+          detail:
+            "apply result plan_digest did not match the validated preview",
+        },
+      ),
+      exitCode: 1,
+    };
+  }
 
-  const postSourceProbe = input.spawnGbrain(
-    ["sources", "list", "--json"],
-    { timeout: 30_000, baseEnv: gbrainEnv },
-  );
+  const postSourceProbe = input.spawnGbrain(["sources", "list", "--json"], {
+    timeout: 30_000,
+    baseEnv: gbrainEnv,
+  });
   const postSourceRaw =
     postSourceProbe.status === 0
       ? parseJsonDocument(postSourceProbe.stdout || "")
       : null;
   const postSnapshot =
-    postSourceRaw === null
-      ? null
-      : parseStrictSourceSnapshot(postSourceRaw);
+    postSourceRaw === null ? null : parseStrictSourceSnapshot(postSourceRaw);
   const postSource =
     postSnapshot?.ok === true
       ? postSnapshot.rows.find((row) => row.id === input.sourceId)
@@ -2218,18 +2478,16 @@ export function runRepositoryIndex(
     };
   }
 
-  const finalSourceProbe = input.spawnGbrain(
-    ["sources", "list", "--json"],
-    { timeout: 30_000, baseEnv: gbrainEnv },
-  );
+  const finalSourceProbe = input.spawnGbrain(["sources", "list", "--json"], {
+    timeout: 30_000,
+    baseEnv: gbrainEnv,
+  });
   const finalSourceRaw =
     finalSourceProbe.status === 0
       ? parseJsonDocument(finalSourceProbe.stdout || "")
       : null;
   const finalSnapshot =
-    finalSourceRaw === null
-      ? null
-      : parseStrictSourceSnapshot(finalSourceRaw);
+    finalSourceRaw === null ? null : parseStrictSourceSnapshot(finalSourceRaw);
   const finalSource =
     finalSnapshot?.ok === true
       ? finalSnapshot.rows.find((row) => row.id === input.sourceId)
@@ -2284,8 +2542,7 @@ export function runRepositoryIndex(
     {
       verification_scope: "content_sync",
       gbrain_version: detectedText,
-      required_gbrain_version:
-        REQUIRED_GBRAIN_REPOSITORY_INDEX_VERSION,
+      required_gbrain_version: REQUIRED_GBRAIN_REPOSITORY_INDEX_VERSION,
       source: {
         id: input.sourceId,
         stored_path: finalSource.local_path,
@@ -2303,6 +2560,7 @@ export function runRepositoryIndex(
       sync: {
         terminal_status: child.value.status,
         strategy: "auto",
+        plan_digest: child.value.planDigest,
         ...child.value.operations,
         affected: {
           ...child.value.affected,
@@ -2319,12 +2577,8 @@ export function runRepositoryIndex(
       },
     },
   );
-  const receiptPath = join(input.gstackHome, REPOSITORY_INDEX_RECEIPT);
   try {
-    (input.writeReceipt ?? writeRepositoryIndexReceipt)(
-      receiptPath,
-      verified,
-    );
+    (input.writeReceipt ?? writeRepositoryIndexReceipt)(receiptPath, verified);
   } catch (error) {
     return {
       result: repositoryResult(
@@ -2335,6 +2589,28 @@ export function runRepositoryIndex(
           failing_step: "receipt_write",
           source_id: input.sourceId,
           git_head: input.head,
+          receipt_path: receiptPath,
+          detail: error instanceof Error ? error.message : String(error),
+        },
+      ),
+      exitCode: 1,
+    };
+  }
+  try {
+    (input.clearAttemptMarker ?? clearRepositoryIndexAttemptMarker)(
+      attemptPath,
+    );
+  } catch (error) {
+    return {
+      result: repositoryResult(
+        "error",
+        "verification_failed",
+        "applied_unverified",
+        {
+          failing_step: "attempt_watermark_clear",
+          source_id: input.sourceId,
+          git_head: input.head,
+          attempt_path: attemptPath,
           receipt_path: receiptPath,
           detail: error instanceof Error ? error.message : String(error),
         },
@@ -2366,7 +2642,8 @@ export function renderRepositoryIndexResult(
   }
 
   const problems: Record<string, string> = {
-    lock_busy: "Another repository-index lifecycle currently owns the wrapper lock.",
+    lock_busy:
+      "Another repository-index lifecycle currently owns the wrapper lock.",
     unsupported_version:
       "The installed GBrain release cannot prove the repository-index safety contract.",
     source_probe_failed:
@@ -2379,10 +2656,8 @@ export function renderRepositoryIndexResult(
       "The stored source path cannot be proven equivalent to this repository.",
     unsupported_path:
       "The repository path is unsafe for the current Windows shell transport.",
-    sync_partial:
-      "GBrain reported a partial repository-index application.",
-    sync_blocked:
-      "GBrain refused or blocked the repository-index application.",
+    sync_partial: "GBrain reported a partial repository-index application.",
+    sync_blocked: "GBrain refused or blocked the repository-index application.",
     sync_failed:
       "GBrain did not produce a trustworthy completed repository-index result.",
     source_result_invalid:
@@ -2393,6 +2668,9 @@ export function renderRepositoryIndexResult(
       "The persisted repository-index receipt is malformed or untrusted.",
     receipt_stale:
       "The persisted receipt does not match this live canonical worktree and clean full HEAD.",
+    receipt_in_progress: "The repository-index wrapper lock is active.",
+    receipt_superseded:
+      "A newer repository-index attempt invalidated the prior GREEN receipt and did not replace it.",
     verification_failed:
       "Content may have been applied, but a required postcondition did not verify.",
     verified:
@@ -2412,12 +2690,10 @@ export function renderRepositoryIndexResult(
       "An existing readable directory canonically identical to the Git root.",
     unsupported_path:
       "A Windows repository path without whitespace or cmd.exe metacharacters until shell transport is replaced.",
-    sync_partial:
-      "A terminal synced, first_sync, or up_to_date child result.",
+    sync_partial: "A terminal synced, first_sync, or up_to_date child result.",
     sync_blocked:
       "Satisfied expected root, target, bookmark, and source-lock preconditions.",
-    sync_failed:
-      "A terminal child result with exact expected-state evidence.",
+    sync_failed: "A terminal child result with exact expected-state evidence.",
     source_result_invalid:
       "Exactly one schema-1 gbrain_sync JSON document and a recognized status.",
     receipt_missing:
@@ -2426,6 +2702,10 @@ export function renderRepositoryIndexResult(
       "A trusted schema-1 receipt written atomically by the repository-index wrapper.",
     receipt_stale:
       "Exact equality with the live canonical root, attached source, clean full HEAD, and receipt evidence.",
+    receipt_in_progress:
+      "No active wrapper lock before and after live receipt rebinding.",
+    receipt_superseded:
+      "A new fully verified repository-index run that writes a replacement receipt while the watermark remains, then clears the watermark to reveal it.",
     verification_failed:
       "Post-sync source bookmark/strategy, attach, clean HEAD, and atomic receipt must all verify.",
   };

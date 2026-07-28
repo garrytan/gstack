@@ -9,11 +9,19 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, chmodSync, statSync } from "fs";
+import {
+  mkdtempSync,
+  writeFileSync,
+  readFileSync,
+  existsSync,
+  rmSync,
+  chmodSync,
+  statSync,
+} from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
-import { ensureGbrainSourceGitignored } from "../bin/gstack-gbrain-sync";
+import { ensureGbrainSourceGitignored } from "../bin/gstack-gbrain-sync.ts";
 
 describe("ensureGbrainSourceGitignored", () => {
   let root: string;

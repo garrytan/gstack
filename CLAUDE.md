@@ -982,9 +982,13 @@ enhancement layered on top, never a dependency.)
 ## GBrain Search Guidance (configured by /sync-gbrain)
 <!-- gstack-gbrain-search-guidance:start -->
 
-GBrain is set up and synced on this machine. The agent should prefer gbrain
-over Grep when the question is semantic or when you don't know the exact
-identifier yet.
+This checked-in block is guidance, not proof of live index freshness. Before
+relying on GBrain for this repository, the skill preamble must run
+`./bin/gstack-gbrain-sync --verify-receipt --json --quiet` and observe all
+three exact markers: `"status":"verified"`,
+`"state_changed":"applied_verified"`, and `"trusted":true`. Only then should
+the agent prefer GBrain when the question is semantic or the exact identifier
+is unknown.
 
 **This worktree is pinned to a worktree-scoped code source** via the
 `.gbrain-source` file in the repo root (kubectl-style context). Any
@@ -992,7 +996,8 @@ identifier yet.
 call from anywhere under this worktree routes to that source by default —
 no `--source` flag needed. Conductor sibling worktrees of the same repo
 each have their own pin and their own indexed pages, so semantic results
-match the actual code on disk in this worktree.
+are isolated by worktree. The pin alone never proves that indexed content
+matches the current HEAD.
 
 Two indexed corpora available via the `gbrain` CLI:
 - This worktree's code (auto-pinned via `.gbrain-source`).
@@ -1009,15 +1014,10 @@ Prefer gbrain when:
 - "What did we decide last time?" / past plans, retros, learnings:
     `gbrain search "<terms>" --source gstack-brain-<user>`
 
-Grep is still right for known exact strings, regex, multiline patterns, and
-file globs. Run `/sync-gbrain` after meaningful code changes; for ongoing
-auto-sync across all worktrees, run `gbrain autopilot --install` once per
-machine — gbrain's daemon handles incremental refresh on a schedule.
-
-Safety: don't run `/sync-gbrain` while `gbrain autopilot` is active — the
-orchestrator refuses destructive source ops when it detects a running autopilot
-to avoid racing it (#1734). Prefer registering user repos with `gbrain sources
-add --path <dir>` (no `--url`): URL-managed sources can auto-reclone, and the
-sync code walk for them requires an explicit `--allow-reclone` opt-in.
+If receipt verification fails, is unavailable, or does not return all three
+exact markers, use repository files and `rg` instead. Run
+`/sync-gbrain --code-only`; source registration may require one bootstrap
+invocation and a second invocation for the expected-state sync. Re-verify
+after every committed source-code or tracked-Markdown change.
 
 <!-- gstack-gbrain-search-guidance:end -->

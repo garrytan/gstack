@@ -6,6 +6,7 @@
   "type": "module",
   "bin": {
     "browse": "./browse/dist/browse",
+    "gstack-gbrain-sync": "./bin/gstack-gbrain-sync",
     "make-pdf": "./make-pdf/dist/pdf"
   },
   "scripts": {

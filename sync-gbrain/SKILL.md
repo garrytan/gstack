@@ -469,32 +469,31 @@ else
 fi
 _BRAIN_SYNC_BIN="~/.claude/skills/gstack/bin/gstack-brain-sync"
 _BRAIN_CONFIG_BIN="~/.claude/skills/gstack/bin/gstack-config"
+_GBRAIN_REPOSITORY_SYNC_BIN=~/.claude/skills/gstack/bin/gstack-gbrain-sync
 
-# /sync-gbrain context-load: teach the agent to use gbrain when it's available.
-# Per-worktree pin: post-spike redesign uses kubectl-style `.gbrain-source` in the
-# git toplevel to scope queries. Look for the pin in the worktree (not a global
-# state file) so that opening worktree B without a pin doesn't claim "indexed"
-# just because worktree A was synced. Empty string when gbrain is not
-# configured (zero context cost for non-gbrain users).
+# /sync-gbrain context-load: recommend repository search only when the bounded
+# receipt still verifies against this live canonical worktree and clean HEAD.
+# A .gbrain-source pin or a prior successful receipt is not sufficient.
 _GBRAIN_CONFIG="$HOME/.gbrain/config.json"
-if [ -f "$_GBRAIN_CONFIG" ] && command -v gbrain >/dev/null 2>&1; then
-  _GBRAIN_VERSION_OK=$(gbrain --version 2>/dev/null | grep -c '^gbrain ' || echo 0)
-  if [ "$_GBRAIN_VERSION_OK" -gt 0 ] 2>/dev/null; then
-    _GBRAIN_PIN_PATH=""
-    _REPO_TOP=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
-    if [ -n "$_REPO_TOP" ] && [ -f "$_REPO_TOP/.gbrain-source" ]; then
-      _GBRAIN_PIN_PATH="$_REPO_TOP/.gbrain-source"
+if [ -f "$_GBRAIN_CONFIG" ]; then
+  _GBRAIN_RECEIPT_JSON=""
+  _GBRAIN_RECEIPT_OK=0
+  if command -v gbrain >/dev/null 2>&1 && [ -x "$_GBRAIN_REPOSITORY_SYNC_BIN" ]; then
+    if _GBRAIN_RECEIPT_JSON=$("$_GBRAIN_REPOSITORY_SYNC_BIN" --verify-receipt --json --quiet 2>/dev/null); then
+      _GBRAIN_RECEIPT_OK=1
     fi
-    if [ -n "$_GBRAIN_PIN_PATH" ]; then
-      echo "GBrain configured. Prefer \`gbrain search\`/\`gbrain query\` over Grep for"
-      echo "semantic questions; use \`gbrain code-def\`/\`code-refs\`/\`code-callers\` for"
-      echo "symbol-aware code lookup. See \"## GBrain Search Guidance\" in CLAUDE.md."
-      echo "Run /sync-gbrain to refresh."
-    else
-      echo "GBrain configured but this worktree isn't pinned yet. Run \`/sync-gbrain --full\`"
-      echo "before relying on \`gbrain search\` for code questions in this worktree."
-      echo "Falls back to Grep until pinned."
-    fi
+  fi
+  if [ "$_GBRAIN_RECEIPT_OK" = "1" ] &&
+     printf '%s' "$_GBRAIN_RECEIPT_JSON" | grep -Fq '"status":"verified"' &&
+     printf '%s' "$_GBRAIN_RECEIPT_JSON" | grep -Fq '"state_changed":"applied_verified"' &&
+     printf '%s' "$_GBRAIN_RECEIPT_JSON" | grep -Fq '"trusted":true'; then
+    echo "GBrain receipt verified for this clean HEAD. Prefer \`gbrain search\`/\`gbrain query\`"
+    echo "for semantic questions and \`gbrain code-def\`/\`code-refs\`/\`code-callers\`"
+    echo "for symbol-aware lookup. See \"## GBrain Search Guidance\" in CLAUDE.md."
+  else
+    echo "GBrain is not receipt-verified for this worktree's current clean HEAD."
+    echo "Use repository files and \`rg\`; run \`/sync-gbrain --code-only\` before relying"
+    echo "on GBrain repository search."
   fi
 fi
 
@@ -792,10 +791,12 @@ search over Grep.
 **Repository-index architecture:** This skill requires GBrain
 `>= 0.42.71.0` and uses its expected-state repository surface
 (`gbrain sync --strategy auto --no-pull --expected-target
---expected-bookmark --json`). It indexes admitted code plus tracked Markdown,
-accepts only a schema-1 terminal child result, and writes a clean-HEAD receipt
-after source/bookmark, wrapper-owned marker, final source-reread, and live
-worktree verification.
+--expected-bookmark --json`). It first requires a schema-1
+`validated_index_plan`, then applies only with that preview's exact
+`--expected-plan-digest` and requires the successful apply result to echo the
+same digest. It indexes admitted code plus tracked Markdown and writes a
+clean-HEAD receipt only after source/bookmark, wrapper-owned marker, final
+source-reread, and live worktree verification.
 It does NOT touch `~/.gstack/` indexing (the existing `gstack-gbrain-source-wireup`
 owns that — never double-store).
 
@@ -823,7 +824,7 @@ the skill itself, not a dispatcher binary):
 - `/sync-gbrain --audit` — emit summary of gstack-owned pages per project + sensitive-content audit (v1.48 / D10 lifecycle). Read-only.
 
 Pass-through args go straight to the orchestrator at
-`~/.claude/skills/gstack/bin/gstack-gbrain-sync.ts`.
+`~/.claude/skills/gstack/bin/gstack-gbrain-sync`.
 
 ### `--dry-run` assurance short-circuit
 
@@ -971,7 +972,8 @@ Pass user args to the orchestrator. Do not paraphrase them — pass through
 as-is.
 
 ```bash
-bun run ~/.claude/skills/gstack/bin/gstack-gbrain-sync.ts <user-args>
+_GBRAIN_REPOSITORY_SYNC_BIN=~/.claude/skills/gstack/bin/gstack-gbrain-sync
+"$_GBRAIN_REPOSITORY_SYNC_BIN" <user-args>
 ```
 
 Record the command's exit code. If the repository stage was enabled and the
@@ -986,7 +988,14 @@ terminal: unrelated later stages, attach, cleanup, reindex, and dream do not
 continue across that boundary. Concurrent real runs are blocked by
 `~/.gstack/.sync-gbrain.lock`. The wrapper never auto-breaks an existing
 lock: inspect its recorded PID and remove it only after you have independently
-proved that no owner is running.
+proved that no owner is running. Every real repository attempt also replaces
+the prior receipt with a fail-closed attempt watermark before the first GBrain
+probe. A fully verified run writes its new receipt while the watermark still
+blocks readers, then clears the watermark to reveal that receipt.
+For an existing source, the wrapper performs a strict GBrain dry-run under the
+same lock, validates its bounded schema and full `plan_digest`, then invokes
+apply with `--expected-plan-digest`. Missing, malformed, changed, or
+non-echoed plan evidence is terminal and cannot publish a receipt.
 
 If the source is absent, the first real invocation performs only safe source
 registration and exits 2 with `source_registered` /
@@ -1008,7 +1017,8 @@ After a zero-exit current invocation with the repository stage enabled, run
 the read-only live-binding verifier:
 
 ```bash
-bun run ~/.claude/skills/gstack/bin/gstack-gbrain-sync.ts \
+_GBRAIN_REPOSITORY_SYNC_BIN=~/.claude/skills/gstack/bin/gstack-gbrain-sync
+"$_GBRAIN_REPOSITORY_SYNC_BIN" \
   --verify-receipt --json
 ```
 
@@ -1016,7 +1026,9 @@ This command contacts neither GBrain nor the engine. It re-proves the live
 canonical Git root, clean full HEAD, tracked-marker state, and attached source
 id against the persisted schema-1 receipt. A stale receipt from this worktree,
 another worktree, or an earlier successful invocation exits 1 with
-`receipt_stale`; malformed or untrusted evidence returns `receipt_invalid`.
+`receipt_stale`; malformed or untrusted evidence returns `receipt_invalid`;
+an active wrapper lock returns `receipt_in_progress`, and a fail-closed attempt
+watermark left by a newer non-GREEN run returns `receipt_superseded`.
 
 Proceed only when all of these are true:
 
@@ -1026,16 +1038,19 @@ Proceed only when all of these are true:
 - source path identity is `equivalent`
 - full `bookmark_after == git_head`
 - `last_successful_strategy == "auto"`
+- `sync.plan_digest` is a full lowercase SHA-256 shared by the validated
+  preview and successful apply
 - the recorded tree was clean
 - `image_operations_applied == 0` and multimodal admission was disabled
 - `verification.trusted == true`
 - the verifier itself exited 0 for the current canonical root and live full HEAD
 
-The receipt caps its affected sample at 100 and binds the full canonical
-operation/path/slug set with SHA-256. `image_operations_applied: 0` proves no image
-work in this invocation, not an image-free historical corpus. `search_ready`
-and embedding/extraction states are separate: content may be current while
-semantic processing is deferred.
+The receipt caps its affected sample at 100, binds the full canonical
+operation/path/slug/rename-source set with SHA-256, and persists the immutable
+plan digest that joined preview to apply. `image_operations_applied: 0` proves
+no image work in this invocation, not an image-free historical corpus.
+`search_ready` and embedding/extraction states are separate: content may be
+current while semantic processing is deferred.
 
 If the receipt is missing or any invariant fails, report the wrapper's stable
 `reason_code` and `state_changed`, link
@@ -1160,10 +1175,13 @@ Verbatim block content (copy exactly):
 ## GBrain Search Guidance (configured by /sync-gbrain)
 <!-- gstack-gbrain-search-guidance:start -->
 
-GBrain is set up on this machine. A trusted repository receipt records which
-clean Git HEAD has verified content sync. The agent should prefer gbrain
-over Grep when the question is semantic or when you don't know the exact
-identifier yet.
+This checked-in block is guidance, not proof of live repository-index
+freshness. Before relying on GBrain for this repository, the skill preamble
+must run the host-resolved `gstack-gbrain-sync --verify-receipt --json --quiet`
+launcher and observe all three exact markers: `"status":"verified"`,
+`"state_changed":"applied_verified"`, and `"trusted":true`. Only then should
+the agent prefer GBrain when the question is semantic or the exact identifier
+is unknown.
 
 **This worktree is pinned to a worktree-scoped repository source** via the
 `.gbrain-source` file in the repo root (kubectl-style context).
@@ -1172,7 +1190,8 @@ identifier yet.
 no `--source` flag needed (gbrain >= 0.41.38.0; on older gbrain the call-graph
 commands need `--source "$(cat .gbrain-source)"`). Conductor sibling worktrees
 of the same repo each have their own pin and their own indexed pages, so
-semantic results match the code on disk here.
+semantic results are isolated by worktree. The pin alone never proves that
+indexed content matches the current HEAD.
 
 Call-graph queries (`code-callers`/`code-callees`) also need the graph to be
 built first — run `/sync-gbrain --dream` (or `--full`) if they return
@@ -1196,16 +1215,18 @@ Prefer gbrain when:
 - "What did we decide last time?" / past plans, retros, learnings:
     `gbrain search "<terms>" --source gstack-brain-<user>`
 
-Grep is still right for known exact strings, regex, multiline patterns, and
-file globs. Run `/sync-gbrain` after committed code or tracked Markdown changes; for ongoing
-auto-sync across all worktrees, run `gbrain autopilot --install` once per
-machine — gbrain's daemon handles incremental refresh on a schedule.
+If live receipt verification fails, is unavailable, or does not return all
+three exact markers, use repository files and `rg` instead. Run
+`/sync-gbrain --code-only`; source registration may require one bootstrap
+invocation and a second invocation for the expected-state sync. Re-verify
+after every committed source-code or tracked-Markdown change.
 
-Safety: repository sync is source-scoped, uses `--no-pull`, and binds the full
-target HEAD plus prior bookmark. Stored source paths must resolve to the same
+Safety: repository sync is source-scoped, uses `--no-pull`, binds the full
+target HEAD plus prior bookmark, and invalidates historical GREEN evidence
+before its first GBrain probe. Stored source paths must resolve to the same
 canonical directory; different or ambiguous paths refuse and are never repaired
-by automatic remove/re-add. Concurrent autopilot activity may produce a
-source-lock or expected-state refusal; stop it and retry rather than overriding
+by automatic remove/re-add. Concurrent activity may produce a wrapper-lock,
+source-lock, or expected-state refusal; stop and retry rather than overriding
 the guard.
 
 <!-- gstack-gbrain-search-guidance:end -->

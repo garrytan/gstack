@@ -1,31 +1,27 @@
 /**
- * Tests the split-engine SKIP semantics in bin/gstack-gbrain-sync.ts (plan D12).
+ * Tests the split-engine boundaries in bin/gstack-gbrain-sync.ts.
  *
- * When localEngineStatus() returns anything except 'ok', the orchestrator's
- * code + memory stages return ran=false summaries; the brain-sync stage runs
- * unchanged. This is the behavior that matters most for Garry's broken-db
- * machine — instead of crashing two stages with ERR output, the orchestrator
- * surfaces a clear skip reason and still pushes artifacts.
+ * The repository stage now proves the released GBrain version and one strict
+ * source snapshot directly, so version/source probe failures are terminal and
+ * later stages do not run. Memory and dream keep the older local-engine SKIP
+ * behavior because they are independent downstream stages.
  *
- * We test via the script (spawn) rather than importing runCodeImport/runMemoryIngest
- * directly because they're internal to the orchestrator. The fake gbrain
- * binary controls localEngineStatus()'s output.
+ * We test via the script (spawn) because the stage runners are internal to the
+ * orchestrator. The fake gbrain binary controls both the strict repository
+ * probe and localEngineStatus() used by downstream stages.
  */
 
 import { describe, it, expect } from "bun:test";
-import {
-  mkdtempSync,
-  mkdirSync,
-  writeFileSync,
-  chmodSync,
-  rmSync,
-} from "fs";
+import { mkdtempSync, mkdirSync, writeFileSync, chmodSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { execFileSync, spawnSync } from "child_process";
+import { REQUIRED_GBRAIN_REPOSITORY_INDEX_VERSION } from "../lib/gbrain-repository-index";
 
 const SCRIPT = join(import.meta.dir, "..", "bin", "gstack-gbrain-sync.ts");
-const BUN_BIN = execFileSync("sh", ["-c", "command -v bun"], { encoding: "utf-8" }).trim();
+const BUN_BIN = execFileSync("sh", ["-c", "command -v bun"], {
+  encoding: "utf-8",
+}).trim();
 
 interface FakeEnv {
   tmp: string;
@@ -37,12 +33,13 @@ interface FakeEnv {
 
 /**
  * Build a sandboxed HOME with optional fake gbrain on PATH.
- * `gbrainBehavior` controls how `gbrain sources list` reacts; this drives
- * localEngineStatus()'s output.
+ * `gbrainBehavior` controls how `gbrain sources list` reacts; this drives both
+ * the strict repository source probe and localEngineStatus().
  */
 function makeEnv(opts: {
   withGbrain: boolean;
-  gbrainBehavior?: "ok" | "broken-db" | "broken-config" | "engine-locked" | "slow";
+  gbrainBehavior?:
+    "ok" | "broken-db" | "broken-config" | "engine-locked" | "slow";
   withConfig: boolean;
 }): FakeEnv {
   const tmp = mkdtempSync(join(tmpdir(), "gbrain-sync-skip-"));
@@ -78,14 +75,14 @@ function makeEnv(opts: {
           : behavior === "engine-locked"
             ? `  echo "gbrain sources: connect timed out (default 10000ms; pass --timeout=Ns to override)." >&2
   exit 124`
-          : `  ${
-              behavior === "broken-db"
-                ? 'echo "Cannot connect to database: . Fix: Check your connection URL in ~/.gbrain/config.json" >&2'
-                : 'echo "Error: malformed config.json" >&2'
-            }
+            : `  ${
+                behavior === "broken-db"
+                  ? 'echo "Cannot connect to database: . Fix: Check your connection URL in ~/.gbrain/config.json" >&2'
+                  : 'echo "Error: malformed config.json" >&2'
+              }
   exit 1`;
     const fake = `#!/bin/sh
-if [ "$1" = "--version" ]; then echo "gbrain 0.33.1.0"; exit 0; fi
+if [ "$1" = "--version" ]; then echo "gbrain ${REQUIRED_GBRAIN_REPOSITORY_INDEX_VERSION}"; exit 0; fi
 if [ "$1 $2" = "sources list" ]; then
 ${sourcesBlock}
 fi
@@ -113,10 +110,20 @@ function runOrchestrator(
   // Initialize a git repo in the sandbox so repoRoot() finds it (otherwise
   // code stage skips with "not in git repo" before our check ever fires).
   spawnSync("git", ["init", "-q", env.home], { encoding: "utf-8" });
-  spawnSync("git", ["-C", env.home, "commit", "--allow-empty", "-m", "init", "-q"], {
-    encoding: "utf-8",
-    env: { ...process.env, GIT_AUTHOR_NAME: "T", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "T", GIT_COMMITTER_EMAIL: "t@t" },
-  });
+  spawnSync(
+    "git",
+    ["-C", env.home, "commit", "--allow-empty", "-m", "init", "-q"],
+    {
+      encoding: "utf-8",
+      env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: "T",
+        GIT_AUTHOR_EMAIL: "t@t",
+        GIT_COMMITTER_NAME: "T",
+        GIT_COMMITTER_EMAIL: "t@t",
+      },
+    },
+  );
 
   const result = spawnSync(BUN_BIN, [SCRIPT, ...args], {
     encoding: "utf-8",
@@ -137,26 +144,35 @@ function runOrchestrator(
   };
 }
 
-describe("gstack-gbrain-sync — split-engine SKIP (plan D12)", () => {
-  it("PROCEEDS (with warning) when the engine probe times out — slow is not broken (#1964)", () => {
-    const env = makeEnv({ withGbrain: true, gbrainBehavior: "slow", withConfig: true });
+describe("gstack-gbrain-sync — strict repository and downstream SKIP boundaries", () => {
+  it("repository stage uses its strict source probe instead of the local-engine timeout shortcut", () => {
+    const env = makeEnv({
+      withGbrain: true,
+      gbrainBehavior: "slow",
+      withConfig: true,
+    });
     try {
       const r = runOrchestrator(env, ["--code-only"], {
         GSTACK_GBRAIN_PROBE_TIMEOUT_MS: "300",
       });
       const out = r.stdout + r.stderr;
-      // The stage must NOT be skipped with the local-engine reason...
+      expect(r.exitCode).toBe(2);
       expect(out).not.toContain("local engine timeout");
       expect(out).not.toContain("config.json is malformed");
-      // ...and the proceed-with-warning line must name the env knob.
-      expect(out).toContain("GSTACK_GBRAIN_PROBE_TIMEOUT_MS");
+      expect(out).not.toContain("GSTACK_GBRAIN_PROBE_TIMEOUT_MS");
+      expect(out).toContain("ERROR [source_registered]");
+      expect(out).toContain("State changed: registry_only");
     } finally {
       env.cleanup();
     }
-  }, 30_000); // proceeding runs the real code-import path against the slow fake (~11s)
+  }, 30_000);
 
   it("memory stage also PROCEEDS (with warning) on probe timeout (#1964)", () => {
-    const env = makeEnv({ withGbrain: true, gbrainBehavior: "slow", withConfig: true });
+    const env = makeEnv({
+      withGbrain: true,
+      gbrainBehavior: "slow",
+      withConfig: true,
+    });
     try {
       const r = runOrchestrator(env, ["--no-code", "--no-brain-sync"], {
         GSTACK_GBRAIN_PROBE_TIMEOUT_MS: "300",
@@ -170,7 +186,11 @@ describe("gstack-gbrain-sync — split-engine SKIP (plan D12)", () => {
   }, 30_000);
 
   it("dream stage also PROCEEDS (with warning) on probe timeout (#1964)", () => {
-    const env = makeEnv({ withGbrain: true, gbrainBehavior: "slow", withConfig: true });
+    const env = makeEnv({
+      withGbrain: true,
+      gbrainBehavior: "slow",
+      withConfig: true,
+    });
     try {
       const r = runOrchestrator(
         env,
@@ -185,23 +205,31 @@ describe("gstack-gbrain-sync — split-engine SKIP (plan D12)", () => {
     }
   }, 30_000);
 
-  it("SKIPs code stage when local engine is broken-db; brain-sync still attempted", () => {
-    const env = makeEnv({ withGbrain: true, gbrainBehavior: "broken-db", withConfig: true });
+  it("repository source-probe failure is terminal when the engine is broken-db", () => {
+    const env = makeEnv({
+      withGbrain: true,
+      gbrainBehavior: "broken-db",
+      withConfig: true,
+    });
     try {
       const r = runOrchestrator(env, ["--code-only"]);
-      // Code stage should be SKIPped with a clear local-engine status reason.
-      // Match on the summary substring our skipStageForLocalStatus helper emits.
-      expect(r.stdout + r.stderr).toContain("local engine broken-db");
-      // Crucial: NOT the legacy "source registration failed" error path that
-      // existed before this fix (codex #2 STOP-vs-SKIP consistency).
-      expect(r.stdout + r.stderr).not.toContain("source registration failed");
+      const out = r.stdout + r.stderr;
+      expect(r.exitCode).toBe(1);
+      expect(out).toContain("ERROR [source_probe_failed]");
+      expect(out).toContain("Cannot connect to database");
+      expect(out).toContain("State changed: none");
+      expect(out).not.toContain("local engine broken-db");
     } finally {
       env.cleanup();
     }
   });
 
   it("SKIPs memory stage when local engine is broken-config", () => {
-    const env = makeEnv({ withGbrain: true, gbrainBehavior: "broken-config", withConfig: true });
+    const env = makeEnv({
+      withGbrain: true,
+      gbrainBehavior: "broken-config",
+      withConfig: true,
+    });
     try {
       const r = runOrchestrator(env, ["--no-code", "--no-brain-sync"]);
       expect(r.stdout + r.stderr).toContain("local engine broken-config");
@@ -210,56 +238,72 @@ describe("gstack-gbrain-sync — split-engine SKIP (plan D12)", () => {
     }
   });
 
-  it("SKIPs with actionable guidance when PGLite is held by gbrain serve (#2194)", () => {
-    const env = makeEnv({ withGbrain: true, gbrainBehavior: "engine-locked", withConfig: true });
+  it("repository source-probe timeout fails closed when PGLite is held (#2194)", () => {
+    const env = makeEnv({
+      withGbrain: true,
+      gbrainBehavior: "engine-locked",
+      withConfig: true,
+    });
     try {
       const r = runOrchestrator(env, ["--code-only"]);
       const out = r.stdout + r.stderr;
-      expect(out).toContain("local engine engine-locked");
-      expect(out).toContain("gbrain serve");
-      expect(out).toContain("outside the live Claude session");
+      expect(r.exitCode).toBe(1);
+      expect(out).toContain("ERROR [source_probe_failed]");
+      expect(out).toContain("connect timed out");
+      expect(out).toContain("State changed: none");
+      expect(out).not.toContain("local engine engine-locked");
       expect(out).not.toContain("config.json is malformed");
     } finally {
       env.cleanup();
     }
   });
 
-  it("SKIPs code stage when gbrain CLI is missing (no-cli)", () => {
+  it("repository stage refuses before source mutation when gbrain CLI is missing", () => {
     const env = makeEnv({ withGbrain: false, withConfig: false });
     try {
       const r = runOrchestrator(env, ["--code-only"]);
-      // Either "no-cli" (from skipStageForLocalStatus) OR the earlier
-      // gbrainAvailable() check (which fires first when the CLI is absent —
-      // returns "skipped (gbrain CLI not in PATH)"). Both are acceptable for
-      // this case; the user-visible outcome is the same.
       const out = r.stdout + r.stderr;
-      const hasSkipReason =
-        out.includes("no-cli") || out.includes("gbrain CLI not in PATH");
-      expect(hasSkipReason).toBe(true);
+      expect(r.exitCode).toBe(1);
+      expect(out).toContain("ERROR [unsupported_version]");
+      expect(out).toContain("State changed: none");
+      expect(out).toContain("Next command: gbrain --version");
+      expect(out).not.toContain("local engine no-cli");
     } finally {
       env.cleanup();
     }
   });
 
-  it("SKIPs code stage when config is missing (missing-config)", () => {
-    const env = makeEnv({ withGbrain: true, gbrainBehavior: "ok", withConfig: false });
+  it("repository stage trusts successful direct probes even when config is absent", () => {
+    const env = makeEnv({
+      withGbrain: true,
+      gbrainBehavior: "ok",
+      withConfig: false,
+    });
     try {
       const r = runOrchestrator(env, ["--code-only"]);
-      expect(r.stdout + r.stderr).toContain("local engine missing-config");
+      const out = r.stdout + r.stderr;
+      expect(r.exitCode).toBe(2);
+      expect(out).toContain("ERROR [source_registered]");
+      expect(out).toContain("State changed: registry_only");
+      expect(out).not.toContain("local engine missing-config");
     } finally {
       env.cleanup();
     }
   });
 
-  it("runs code stage normally when local engine is ok", () => {
-    const env = makeEnv({ withGbrain: true, gbrainBehavior: "ok", withConfig: true });
+  it("registers an absent source once when direct repository probes succeed", () => {
+    const env = makeEnv({
+      withGbrain: true,
+      gbrainBehavior: "ok",
+      withConfig: true,
+    });
     try {
       const r = runOrchestrator(env, ["--code-only"]);
-      // When ok, the SKIP-for-local-status branch must NOT fire.
-      expect(r.stdout + r.stderr).not.toContain("local engine ok");
-      expect(r.stdout + r.stderr).not.toContain("local engine no-cli");
-      expect(r.stdout + r.stderr).not.toContain("local engine broken-db");
-      expect(r.stdout + r.stderr).not.toContain("local engine missing-config");
+      const out = r.stdout + r.stderr;
+      expect(r.exitCode).toBe(2);
+      expect(out).toContain("ERROR [source_registered]");
+      expect(out).toContain("State changed: registry_only");
+      expect(out).not.toContain("local engine ok");
     } finally {
       env.cleanup();
     }

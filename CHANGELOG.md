@@ -13,9 +13,11 @@ the live Git commit.
 
 The new repository-index stage resolves canonical filesystem identity, keeps
 the source in place, and runs GBrain `0.42.71.0` or newer with the exact HEAD and
-prior bookmark. It indexes admitted code and tracked Markdown with strategy
-`auto`, then writes a bounded receipt only after the source, marker, bookmark,
-strategy, clean HEAD, and result all verify.
+prior bookmark. It validates a dry-run plan, binds apply to the plan's full
+immutable `plan_digest`, and requires the apply result to echo that digest. It
+indexes admitted code and tracked Markdown with strategy `auto`, then writes a
+bounded receipt only after the source, marker, bookmark, strategy, clean HEAD,
+plan binding, and result all verify.
 
 ### The numbers that matter
 
@@ -24,6 +26,7 @@ strategy, clean HEAD, and result all verify.
 | Wrapper dry-run probes or writes | Not clearly bounded | 0 |
 | Source snapshots around apply | Best-effort | 3 strict reads |
 | Affected items stored in the receipt | Unbounded or absent | First 100, plus a digest over all |
+| Preview/apply identity | Unbound | Exact shared 64-character `plan_digest` |
 | Missing-source bootstrap | Register and continue | Register only, stop, then rerun |
 | Required GBrain release | Not pinned to the fix | `0.42.71.0` or newer |
 
@@ -48,7 +51,8 @@ produce a trusted clean-HEAD receipt.
 
 - `lib/gbrain-repository-index.ts` implements four-component version parsing,
   canonical source identity, exact target/bookmark invocation, strict schema-1
-  result validation, bounded receipt evidence, and live receipt verification.
+  preview/apply plan binding, bounded receipt evidence, and live receipt
+  verification.
 - `docs/repository-index-recovery.md` documents normal operation, both preview
   assurance levels, every result/state class, and paste-ready recovery commands.
 - `/sync-gbrain --json` emits one `repository_index` document, while
@@ -58,11 +62,33 @@ produce a trusted clean-HEAD receipt.
 
 #### Changed
 
+- Every real repository attempt now writes a fail-closed watermark and removes
+  the prior receipt before the first GBrain probe. A verified result publishes
+  its new receipt while the watermark still blocks readers, then clears the
+  watermark. Failed same-HEAD retries therefore cannot resurrect historical
+  GREEN evidence.
+- The read-only receipt verifier refuses both an active wrapper lock and a
+  superseding attempt watermark before and after its live Git/source checks.
+  Global skill preambles recommend GBrain repository search only when this
+  verifier exits zero for the current clean HEAD; otherwise they explicitly
+  fall back to repository files and `rg`.
+- `/setup-gbrain` now delegates read-write repository setup to the safe
+  repository wrapper. It no longer bypasses the expected-state contract with
+  raw `gbrain import`/background embedding or writes search guidance from a
+  generic engine smoke test.
+- `bin/gstack-gbrain-sync` is now a real executable launcher (and package bin),
+  so generated skills, recovery output, and manual invocations share one
+  runnable entry point.
 - `--code-only` now means “repository-index stage only,” covering both code and
   tracked Markdown; it no longer implies GBrain strategy `code`.
 - The wrapper requires GBrain `0.42.71.0`, forces multimodal admission off in a
-  copied child environment, and invokes strategy `auto` with `--no-pull`,
+  copied child environment, and previews strategy `auto` with `--no-pull`,
   exact target/bookmark checks, and clean-tree enforcement when applicable.
+  Apply receives the preview's exact `--expected-plan-digest`; missing,
+  malformed, changed, or non-echoed plan evidence fails closed.
+- Bounded affected-item hashes bind operation, path, slug, and the rename
+  source path (or an explicit empty field), matching GBrain's schema-1 byte
+  contract.
 - Source-path drift is classified as equivalent, different, or ambiguous.
   Different or unprovable paths refuse; the wrapper never repairs them by
   deleting and re-adding the source.
@@ -79,6 +105,9 @@ produce a trusted clean-HEAD receipt.
 - README, `USING_GBRAIN_WITH_GSTACK.md`, the generated `/sync-gbrain` skill,
   error guide, suggestions, and `gstack/llms.txt` now distinguish repository
   indexing from cross-machine GStack artifact sync and link the recovery guide.
+- Recovery examples validate source/bookmark inputs and quote every shell
+  argument; generated host skills and public catalogs now describe the
+  two-invocation bootstrap and live receipt requirement.
 
 ## [1.60.1.0] - 2026-07-09
 
