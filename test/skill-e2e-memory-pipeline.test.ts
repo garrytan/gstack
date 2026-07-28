@@ -176,19 +176,23 @@ describe("V1 memory ingest pipeline E2E", () => {
 // ── /gbrain-sync orchestrator E2E ──────────────────────────────────────────
 
 describe("V1 /gbrain-sync orchestrator E2E", () => {
-  it("--dry-run with all stages enabled previews 3 stages", () => {
+  it("--dry-run short-circuits before every stage probe or preview", () => {
     const home = makeFixtureHome();
     const { gstackHome } = setupFixture(home);
     const env = { HOME: home, GSTACK_HOME: gstackHome, GSTACK_MEMORY_INGEST_NO_WRITE: "1" };
 
     const r = runBun(SYNC, ["--dry-run"], env);
     expect(r.exitCode).toBe(0);
-    // Code stage uses native gbrain code surfaces (sources add + sync --strategy code)
-    // post-codex review; NOT `gbrain import` (markdown-only path).
-    expect(r.stdout).toContain("would: gbrain sources add");
-    expect(r.stdout).toContain("gbrain sync --strategy code");
-    expect(r.stdout).toContain("would: gstack-memory-ingest");
-    expect(r.stdout).toContain("would: gstack-brain-sync");
+    expect(r.stdout.split("\n")[0]).toBe(
+      "ORCHESTRATION PREVIEW — unvalidated",
+    );
+    expect(r.stdout).toContain("GBrain was not contacted.");
+    expect(r.stdout).toContain(
+      "Command state: blocked_until_version_proven",
+    );
+    expect(r.stdout).not.toContain("gbrain sync");
+    expect(r.stdout).not.toContain("gstack-memory-ingest");
+    expect(r.stdout).not.toContain("gstack-brain-sync");
 
     rmSync(home, { recursive: true, force: true });
   });
