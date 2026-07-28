@@ -12,7 +12,7 @@ leave later stages to imply everything was healthy without a receipt tied to
 the live Git commit.
 
 The new repository-index stage resolves canonical filesystem identity, keeps
-the source in place, and runs GBrain `0.42.70.0` or newer with the exact HEAD and
+the source in place, and runs GBrain `0.42.71.0` or newer with the exact HEAD and
 prior bookmark. It indexes admitted code and tracked Markdown with strategy
 `auto`, then writes a bounded receipt only after the source, marker, bookmark,
 strategy, clean HEAD, and result all verify.
@@ -25,7 +25,7 @@ strategy, clean HEAD, and result all verify.
 | Source snapshots around apply | Best-effort | 3 strict reads |
 | Affected items stored in the receipt | Unbounded or absent | First 100, plus a digest over all |
 | Missing-source bootstrap | Register and continue | Register only, stop, then rerun |
-| Required GBrain release | Not pinned to the fix | `0.42.70.0` or newer |
+| Required GBrain release | Not pinned to the fix | `0.42.71.0` or newer |
 
 ### What this means for builders
 
@@ -60,7 +60,7 @@ produce a trusted clean-HEAD receipt.
 
 - `--code-only` now means “repository-index stage only,” covering both code and
   tracked Markdown; it no longer implies GBrain strategy `code`.
-- The wrapper requires GBrain `0.42.70.0`, forces multimodal admission off in a
+- The wrapper requires GBrain `0.42.71.0`, forces multimodal admission off in a
   copied child environment, and invokes strategy `auto` with `--no-pull`,
   exact target/bookmark checks, and clean-tree enforcement when applicable.
 - Source-path drift is classified as equivalent, different, or ambiguous.

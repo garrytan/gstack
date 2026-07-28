@@ -130,7 +130,7 @@ source-code or tracked Markdown changes that should be searchable.
 /sync-gbrain --dry-run      # ORCHESTRATION PREVIEW — unvalidated; no probes or writes
 ```
 
-Repository indexing requires GBrain `0.42.70.0` or newer. A real run proves one
+Repository indexing requires GBrain `0.42.71.0` or newer. A real run proves one
 unique source snapshot, canonical path identity, full Git HEAD, and prior
 bookmark before invoking `gbrain sync --strategy auto --no-pull` with exact
 expected-state arguments. It accepts only one schema-1 child document and

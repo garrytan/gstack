@@ -11,7 +11,7 @@ private Git repository; see
 
 ## Safety contract
 
-Repository indexing requires GBrain `0.42.70.0` or newer. The wrapper compares
+Repository indexing requires GBrain `0.42.71.0` or newer. The wrapper compares
 all four numeric version components and refuses missing components,
 prerelease/build suffixes, or unrelated prose. This is a paired-release floor:
 reconfirm it against the actual released GBrain version before adopting the
@@ -227,7 +227,7 @@ Page count alone is never a trusted repository receipt.
 
 ### Unsupported or mixed versions
 
-If GBrain is missing, malformed, or below `0.42.70.0`, stop before source
+If GBrain is missing, malformed, or below `0.42.71.0`, stop before source
 mutation. Upgrade GBrain first, then re-run the validated preview and wrapper.
 New gstack with old GBrain must refuse; old gstack with fixed GBrain does not
 gain this wrapper contract automatically.
@@ -252,7 +252,7 @@ write—and re-run verification against the same current state.
 ### Known missing tracked Markdown after the fixed release
 
 1. Commit or otherwise establish the exact intended HEAD.
-2. Prove GBrain `>= 0.42.70.0`.
+2. Prove GBrain `>= 0.42.71.0`.
 3. Prove the source id, canonical path, and current bookmark.
 4. Run the validated `auto --no-pull --no-embed --no-extract --dry-run --json`
    command above.

@@ -407,7 +407,7 @@ After init, the skill offers to register gbrain as an MCP server for Claude Code
 
 **Keeping the repository index current.** Run `/sync-gbrain` after committed code or tracked Markdown changes. Compatible releases use `gbrain sync --strategy auto --no-pull` with the exact source, canonical worktree root, full HEAD, and prior bookmark. A missing source is registered on the first invocation and deliberately stops before content sync; the second invocation can plan against its real bookmark. The wrapper never repairs path drift by remove/re-add and writes `~/.gstack/.gbrain-repository-index-receipt.json` only after clean-HEAD bookmark, strategy, wrapper-owned source-marker attachment, a final strict source reread, bounded affected-item, and zero-image-operation checks pass. Consume it through `gstack-gbrain-sync --verify-receipt --json`, which binds the persisted evidence to the live canonical root and full HEAD.
 
-`/sync-gbrain --dry-run` is only **`ORCHESTRATION PREVIEW — unvalidated`**: it performs no Git, engine, source, path, or content probes. Use the version/source-gated direct GBrain preview in the [repository index sync and recovery guide](docs/repository-index-recovery.md) when you need an actual content plan. GBrain `0.42.70.0` is the paired-release floor.
+`/sync-gbrain --dry-run` is only **`ORCHESTRATION PREVIEW — unvalidated`**: it performs no Git, engine, source, path, or content probes. Use the version/source-gated direct GBrain preview in the [repository index sync and recovery guide](docs/repository-index-recovery.md) when you need an actual content plan. GBrain `0.42.71.0` is the paired-release floor.
 
 **Per-remote trust policy.** Each repo on your machine gets one of three tiers:
 

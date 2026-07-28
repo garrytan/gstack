@@ -350,28 +350,28 @@ describe("repository-index safety helpers", () => {
   });
 
   test("released-version parsing is strict and compares all four fields", () => {
-    expect(parseReleasedGbrainVersion("gbrain 0.42.70.0\n")).toEqual([
-      0, 42, 70, 0,
+    expect(parseReleasedGbrainVersion("gbrain 0.42.71.0\n")).toEqual([
+      0, 42, 71, 0,
     ]);
-    expect(parseReleasedGbrainVersion("0.42.70.1")).toEqual([0, 42, 70, 1]);
+    expect(parseReleasedGbrainVersion("0.42.71.1")).toEqual([0, 42, 71, 1]);
     for (const invalid of [
-      "0.42.70",
-      "v0.42.70.0",
-      "gbrain 0.42.70.0-beta.1",
-      "gbrain 0.42.70.0+build",
-      "version 0.42.70.0",
-      "gbrain 0.42.70.0 extra",
+      "0.42.71",
+      "v0.42.71.0",
+      "gbrain 0.42.71.0-beta.1",
+      "gbrain 0.42.71.0+build",
+      "version 0.42.71.0",
+      "gbrain 0.42.71.0 extra",
     ]) {
       expect(parseReleasedGbrainVersion(invalid)).toBeNull();
     }
     expect(
-      compareReleasedVersions([0, 42, 69, 99], [0, 42, 70, 0]),
+      compareReleasedVersions([0, 42, 70, 99], [0, 42, 71, 0]),
     ).toBe(-1);
     expect(
-      compareReleasedVersions([0, 42, 70, 0], [0, 42, 70, 0]),
+      compareReleasedVersions([0, 42, 71, 0], [0, 42, 71, 0]),
     ).toBe(0);
     expect(
-      compareReleasedVersions([0, 42, 70, 1], [0, 42, 70, 0]),
+      compareReleasedVersions([0, 42, 71, 1], [0, 42, 71, 0]),
     ).toBe(1);
   });
 
@@ -641,7 +641,7 @@ describe("repository-index safety helpers", () => {
 describe("repository-index orchestration", () => {
   test("old versions refuse before the source snapshot", () => {
     const repo = makeCommittedRepo();
-    const fixture = runnerFixture({ repo, version: "gbrain 0.42.69.99" });
+    const fixture = runnerFixture({ repo, version: "gbrain 0.42.70.99" });
     const output = fixture.run();
 
     expect(output.exitCode).toBe(1);

@@ -26,7 +26,7 @@ import { createHash, randomBytes } from "crypto";
 import { spawnSync } from "child_process";
 import { dirname, isAbsolute, join, resolve } from "path";
 
-export const REQUIRED_GBRAIN_REPOSITORY_INDEX_VERSION = "0.42.70.0";
+export const REQUIRED_GBRAIN_REPOSITORY_INDEX_VERSION = "0.42.71.0";
 export const REPOSITORY_INDEX_RECOVERY_DOC =
   "docs/repository-index-recovery.md";
 export const REPOSITORY_INDEX_RECEIPT = ".gbrain-repository-index-receipt.json";

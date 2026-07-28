@@ -484,7 +484,7 @@ read_lock_payload() {
   printf '%s' "$payload"
 }
 if [ "$1" = "--version" ]; then
-  printf 'gbrain 0.42.70.0\\n'
+  printf 'gbrain 0.42.71.0\\n'
   exit 0
 fi
 if [ "$1" = "sources" ] && [ "$2" = "list" ]; then
@@ -646,7 +646,7 @@ exit 93
 if [ "$1" = "--version" ]; then
   printf 'version\\n' >> "$GSTACK_TEST_GBRAIN_LOG"
   sleep 1
-  printf 'gbrain 0.42.70.0\\n'
+  printf 'gbrain 0.42.71.0\\n'
   exit 0
 fi
 exit 1

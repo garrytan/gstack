@@ -35,7 +35,7 @@ guidance in CLAUDE.md so the coding agent knows when to prefer `gbrain`
 search over Grep.
 
 **Repository-index architecture:** This skill requires GBrain
-`>= 0.42.70.0` and uses its expected-state repository surface
+`>= 0.42.71.0` and uses its expected-state repository surface
 (`gbrain sync --strategy auto --no-pull --expected-target
 --expected-bookmark --json`). It indexes admitted code plus tracked Markdown,
 accepts only a schema-1 terminal child result, and writes a clean-HEAD receipt
@@ -87,7 +87,7 @@ This is a no-probe wrapper preview. It proves no installed version, source,
 canonical path, bookmark, or content plan, and its machine reason is
 `blocked_until_version_proven` with `state_changed: none`. Never print an
 unconditional raw GBrain apply command from this mode. A validated direct
-content preview is allowed only after proving GBrain `>= 0.42.70.0`, the unique
+content preview is allowed only after proving GBrain `>= 0.42.71.0`, the unique
 source, canonical root, full HEAD, and bookmark; use the exact recovery command
 in `docs/repository-index-recovery.md`.
 
