@@ -93,12 +93,21 @@ function readStdin(): Promise<string> {
 }
 
 function defer(additionalContext?: string): void {
-  const out: Record<string, unknown> = {
-    hookEventName: 'PreToolUse',
-    permissionDecision: 'defer',
-  };
-  if (additionalContext) out.additionalContext = additionalContext;
-  process.stdout.write(JSON.stringify({ hookSpecificOutput: out }));
+  // No opinion → no permissionDecision. Claude Code's PreToolUse contract
+  // accepts allow | deny | ask only; emitting any other value (the previous
+  // 'defer') fails output validation and aborts the AskUserQuestion call
+  // itself. Pass-through is expressed by silence; additionalContext still
+  // rides along when present.
+  if (additionalContext) {
+    process.stdout.write(
+      JSON.stringify({
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          additionalContext,
+        },
+      }),
+    );
+  }
   process.exit(0);
 }
 
