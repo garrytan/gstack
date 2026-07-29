@@ -42,10 +42,45 @@ check:
 3. **GitHub org handle** — for a developer/software product this is the **primary customer
    touchpoint and delivery surface**; weight a taken org handle heavily.
 4. **Package scopes** — npm (`name` + `@name`), PyPI.
-5. **Cross-language slang** — quick check in target-market languages.
+5. **Cross-language slang** — quick check in target-market languages. Anything that trips this
+   screen is a candidate for the harder **Cross-linguistic gate** below; do not clear it here.
 
 Anything that fails a collision or hard-availability screen moves to the kill list **with its
 evidence** — never silently dropped. Names that pass all screens proceed to scoring.
+
+---
+
+## The cross-linguistic gate (blocking)
+
+A name that means something offensive, vulgar, or comic in another language will surface at the
+worst possible moment — in a launch tweet, a foreign-press headline, or a prospect's first
+reaction. Treat this as a **hard gate on par with Availability**: a name that reads as a bad
+word or embarrassing connotation in a relevant language is killed, not caveated.
+
+**Language set — check every shortlist candidate against, at minimum:**
+
+- The **top ~10 world languages by speaker count** (Mandarin, Spanish, Hindi, Arabic, Bengali,
+  Portuguese, Russian, Japanese, French, German) plus **English** — these are where a collision
+  travels furthest.
+- Every **target-market language** for the product's actual go-to-market geographies.
+- Every **founder- or team-relevant language** (a cross-language lane candidate is *by
+  construction* a word in one language — verify it in the others).
+
+**How to check (both the spelling and the sound):**
+
+1. WebSearch `"<name>" meaning in <language>` and `"<name>" slang` for each language in the set.
+2. Check **homophones**, not just the exact spelling — a name is heard on calls and in ads, so a
+   word that *sounds* like a slur or a body part when said aloud fails even if spelled cleanly.
+3. Note the **register**: distinguish a mild/comic connotation (⚠️, survivable with awareness)
+   from a genuinely offensive/vulgar/taboo meaning (❌, killed).
+4. If a language could not be checked or the result is inconclusive, mark the gate `⚠️
+   unverified` — never `✅`. A name shipping to a market whose language was never checked is an
+   open risk, not a pass.
+
+**Verdict rule:** any `❌` on this gate kills the candidate outright and sends it to the kill
+list (`Killed by = screen`) with the offending language and meaning as evidence. A `⚠️` may stay
+on the shortlist only with the connotation stated explicitly so the founder decides with eyes
+open.
 
 ---
 
@@ -57,13 +92,13 @@ Score each shortlist candidate. `✅` pass / `⚠️` caveat / `❌` fail, each 
 |------|------|
 | **Availability** | Company-name search clear; `.com`/`.ai`/`.dev` obtainable; **GitHub org handle free**; npm/PyPI scope free |
 | **Trademark strength** | Distinctive enough to register and defend (invented/arbitrary > suggestive > descriptive); not a bare surname |
-| **Language / slang** | No offensive or comic meaning in target-market languages |
+| **Cross-linguistic** (blocking) | No offensive, vulgar, or comic meaning — spelling *or* sound — across the language set in the cross-linguistic gate above. A hard ❌ kills the candidate |
 | **Radio test** | Can be said on a call and spelled correctly first try; survives being heard, not just read |
 | **Concept fit** | Fits the positioning category, buyer, and one-line promise |
 | **House-brand fit** | Harmonizes with the parent/house brand if one exists |
 
-A candidate needs no ❌ on Availability or a hard-collision to stay on the shortlist. Carry
-forward the **2–4 strongest**; everything else goes to the kill list.
+A candidate needs no ❌ on Availability, a hard-collision, or the **Cross-linguistic** gate to
+stay on the shortlist. Carry forward the **2–4 strongest**; everything else goes to the kill list.
 
 ---
 
