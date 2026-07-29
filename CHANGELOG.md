@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.58.5.4] - 2026-07-29
+
+### Naming skill gains a blocking cross-linguistic gate
+
+`/marketing --naming` now hard-screens every shortlist candidate for offensive, vulgar, or comic meanings in other languages before it can survive. A name that reads badly in a relevant language is killed, not caveated — the same weight as a taken domain or trademark collision.
+
+The new gate in `enterprise-marketing/playbooks/naming.md` defines a concrete method: check the top ~10 world languages plus every target-market and founder-relevant language; check the sound (homophones), not just the spelling, because names are heard on calls and in ads; distinguish a mild/comic connotation (`⚠️`, survivable with awareness) from a genuinely offensive meaning (`❌`, killed); and mark `⚠️ unverified` when a language could not be checked rather than passing it blind. A hard `❌` on this gate now blocks the shortlist alongside Availability and hard-collisions. Marketing skill version bumped to 1.2.0.
+
 ## [1.58.5.0] - 2026-06-21
 
 ## **A fresh install now lands on a concrete first move, not a dead end.**
