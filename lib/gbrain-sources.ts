@@ -142,9 +142,29 @@ export async function ensureSourceRegistered(
   return withErrorContext(`ensureSourceRegistered:${id}`, () => {
     const probed = probeSource(id, env);
 
-    // Disambiguate match-but-different-path
+    // Disambiguate match-but-different-path.
+    //
+    // Compare paths case-insensitively, with separators normalised. A raw !==
+    // treats a case difference as drift, which on Windows happens routinely:
+    // gbrain may hold `C:/Users/me/projects/quill` while the caller derives
+    // `C:/Users/me/Projects/Quill`. Same directory, different spelling.
+    //
+    // That misread is expensive. Drift sends us into the remove-then-add path
+    // below, and on gbrain >= 0.42 `sources remove` refuses without
+    // --confirm-destructive, so /sync-gbrain fails in every mode. Passing that
+    // flag would be worse than the bug: it permanently deletes the source's
+    // pages, chunks and embeddings (129 / 627 / 627 on the repo where this was
+    // found) and re-walks from scratch, over a mismatch that was never real.
+    //
+    // Windows and macOS both default to case-insensitive filesystems, so
+    // folding case is correct there. On Linux a genuinely case-distinct pair of
+    // paths is possible, but gstack never creates one, and quietly re-using an
+    // existing index is a far cheaper failure than deleting it.
+    const samePath = (a: string | undefined, b: string): boolean =>
+      !!a && a.replace(/\\/g, "/").toLowerCase() === b.replace(/\\/g, "/").toLowerCase();
+
     let state: SourceState = probed;
-    if (probed.status === "match" && probed.registered_path !== path) {
+    if (probed.status === "match" && !samePath(probed.registered_path, path)) {
       state = { status: "drift", registered_path: probed.registered_path };
     }
 

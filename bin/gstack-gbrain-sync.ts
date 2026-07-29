@@ -1147,16 +1147,25 @@ function runBrainSyncPush(args: CliArgs): StageResult {
 
   // #1731: gstack-brain-sync is a bash shebang script; Windows can't spawn it
   // without a shell, which surfaced as "brain-sync exited undefined".
-  spawnSync(brainSyncPath, ["--discover-new"], {
-    stdio: args.quiet ? ["ignore", "ignore", "ignore"] : ["ignore", "inherit", "inherit"],
+  //
+  // ...but `shell: true` on Windows means cmd.exe, and cmd cannot run an
+  // extensionless bash-shebang script either. It reports "'...gstack-brain-sync'
+  // is not recognized as an internal or external command" and exits 1, so this
+  // stage failed on every run. The shebang needs a real bash, which is present
+  // wherever git-for-windows is. Pass the script TO bash rather than trying to
+  // execute it, with separators normalised (bash on Windows accepts C:/... but
+  // not a bare backslash path inside a cmd-quoted string).
+  const isWindows = process.platform === "win32";
+  const runner = isWindows ? "bash" : brainSyncPath;
+  const leading = isWindows ? [brainSyncPath.replace(/\\/g, "/")] : [];
+  const spawnOpts = {
+    stdio: (args.quiet ? ["ignore", "ignore", "ignore"] : ["ignore", "inherit", "inherit"]) as ("ignore" | "inherit")[],
     timeout: 60 * 1000,
-    shell: NEEDS_SHELL_ON_WINDOWS,
-  });
-  const result = spawnSync(brainSyncPath, ["--once"], {
-    stdio: args.quiet ? ["ignore", "ignore", "ignore"] : ["ignore", "inherit", "inherit"],
-    timeout: 60 * 1000,
-    shell: NEEDS_SHELL_ON_WINDOWS,
-  });
+    // bash is a real executable, so no cmd wrapper is needed on Windows either.
+    shell: isWindows ? false : NEEDS_SHELL_ON_WINDOWS,
+  };
+  spawnSync(runner, [...leading, "--discover-new"], spawnOpts);
+  const result = spawnSync(runner, [...leading, "--once"], spawnOpts);
 
   return {
     name: "brain-sync",

@@ -294,18 +294,40 @@ do_wireup() {
       # brain-worktree (same basename, different parent), don't ping-pong the
       # registration. Just sync from our local worktree — gbrain stores pages
       # by content, not by local_path. The metadata is informational only.
-      local existing_path
+      # A path mismatch must never cost the index. This branch used to
+      # remove-then-re-add, which on gbrain >= 0.42 fails outright (the remove
+      # demands --confirm-destructive) and, if "fixed" by passing that flag,
+      # would permanently delete every page/chunk/embedding for the source and
+      # re-walk from scratch. Both outcomes are wrong, because the comment above
+      # is right: gbrain stores pages by CONTENT and local_path is informational
+      # metadata. A changed path does not justify dropping the index.
+      #
+      # Two things made this fire spuriously:
+      #   1. Case. On Windows gbrain may hold C:/Users/me/projects/quill while
+      #      the caller derives C:/Users/me/Projects/Quill — the same directory,
+      #      compared case-sensitively, so "the path changed".
+      #   2. jq. The multi-machine guard below parses `sources list --json` with
+      #      jq. Where jq isn't installed, existing_path comes back EMPTY, the
+      #      guard can never fire, and every mismatch falls through to the
+      #      destructive branch.
+      #
+      # So: normalise before comparing (case-fold + forward slashes), fall back
+      # to sed when jq is missing, and on a genuine mismatch warn and carry on
+      # rather than delete.
+      local existing_path norm_existing norm_worktree
       existing_path=$(gbrain sources list --json 2>/dev/null \
-        | jq -r --arg id "$id" '.sources[] | select(.id==$id) | .local_path' 2>/dev/null \
+        | { if command -v jq >/dev/null 2>&1; then
+              jq -r --arg id "$id" '.sources[] | select(.id==$id) | .local_path' 2>/dev/null
+            else
+              tr ',' '\n' | grep -A2 "\"$id\"" | sed -n 's/.*"local_path"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1
+            fi; } \
         | tr -d '[:space:]') || existing_path=""
-      if [ "$(basename "$existing_path")" = "$(basename "$WORKTREE")" ] \
-         && [ "$existing_path" != "$WORKTREE" ]; then
-        warn "source $id is registered at $existing_path (likely another machine's local copy of the same brain repo). Skipping re-registration; will sync from local worktree."
+      norm_existing=$(printf '%s' "$existing_path" | tr 'A-Z' 'a-z' | tr '\\' '/')
+      norm_worktree=$(printf '%s' "$WORKTREE" | tr 'A-Z' 'a-z' | tr '\\' '/')
+      if [ -n "$existing_path" ] && [ "$norm_existing" = "$norm_worktree" ]; then
+        : # same directory, different spelling (Windows case) — nothing to do
       else
-        warn "source $id registered with different path; recreating (gbrain has no 'sources update')"
-        gbrain sources remove "$id" --yes 2>&1 | prefix || die "gbrain sources remove failed" 1
-        gbrain sources add "$id" --path "$WORKTREE" --federated 2>&1 | prefix \
-          || die "gbrain sources add failed" 1
+        warn "source $id is registered at '${existing_path:-<unknown>}' but this worktree is $WORKTREE. Keeping the existing registration (gbrain stores pages by content; local_path is informational) and syncing from the local worktree. To re-point it deliberately: gbrain sources archive $id, then re-run."
       fi
       ;;
     2)
