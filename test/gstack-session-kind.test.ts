@@ -32,6 +32,12 @@ describe('gstack-session-kind', () => {
     expect(kind({ OPENCLAW_SESSION: '1', GSTACK_HEADLESS: '1', CONDUCTOR_PORT: '5' })).toBe('spawned');
   });
 
+  test('GSTACK_SPAWNED_SESSION → spawned (vendor-neutral orchestrator marker)', () => {
+    expect(kind({ GSTACK_SPAWNED_SESSION: '1' })).toBe('spawned');
+    // same top precedence as OPENCLAW_SESSION: spawned wins over headless/host markers
+    expect(kind({ GSTACK_SPAWNED_SESSION: '1', GSTACK_HEADLESS: '1', CONDUCTOR_PORT: '5' })).toBe('spawned');
+  });
+
   test('GSTACK_HEADLESS → headless', () => {
     expect(kind({ GSTACK_HEADLESS: '1' })).toBe('headless');
   });
