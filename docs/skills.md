@@ -43,6 +43,7 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | | | |
 | **Multi-AI** | | |
 | [`/codex`](#codex) | **Second Opinion** | Independent review from OpenAI Codex CLI. Three modes: code review (pass/fail gate), adversarial challenge, and open consultation with session continuity. Cross-model analysis when both `/review` and `/codex` have run. |
+| [`/grok`](#grok) | **Second Opinion (xAI)** | Independent review from Grok Build CLI. Same three modes as `/codex` with read-only `--permission-mode plan`. Cross-model analysis when `/review`, `/codex`, and `/grok` have run. |
 | [`/pair-agent`](#pair-agent) | **Remote Agent Bridge** | Pair a remote AI agent (OpenClaw, Codex, Cursor, Hermes) with your browser. Scoped tunnel, locked allowlist, session token. |
 | [`/setup-gbrain`](#setup-gbrain) | **Memory Sync** | Set up gbrain for cross-machine session memory sync. One command from zero to live. |
 | [`/sync-gbrain`](#sync-gbrain) | **Keep Brain Current** | Refresh gbrain against this repo's code; teach the agent when to use `gbrain search`/`code-def` over Grep. Idempotent; safe to re-run. |
@@ -1052,6 +1053,31 @@ Claude: Running independent Codex review...
         OVERLAP: Race condition in payment handler (both caught it)
         UNIQUE TO CODEX: Token comparison timing attack
         UNIQUE TO CLAUDE: N+1 query in listing photos
+```
+
+---
+
+
+## `/grok`
+
+This is the **xAI second opinion** — the symmetric counterpart to `/codex`.
+
+When you're in Claude Code and want a perspective from Grok (different training, different blind spots), `/grok` wraps the Grok Build CLI in read-only `--permission-mode plan` and runs the same three-mode contract as `/codex`: review (with `[P1]`/`[P2]` gate), adversarial challenge, and consult with session resume via `-r` / `-c`.
+
+Requires `grok` on PATH and auth via `grok login` or `$XAI_API_KEY`. Install: Grok Build CLI from xAI.
+
+```
+You:   /grok review
+
+Claude: Running independent Grok review...
+
+        GROK SAYS (code review):
+        GATE: PASS
+        [P2] Missing timeout on outbound HTTP client — hung requests block worker pool
+
+        Cross-model analysis (vs /codex review):
+        UNIQUE TO GROK: HTTP client timeout
+        UNIQUE TO CODEX: race in session cleanup
 ```
 
 ---

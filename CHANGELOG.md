@@ -1,5 +1,43 @@
 # Changelog
 
+## [1.62.0.0] - 2026-07-11
+
+## **`/grok` is the symmetric counterpart to `/codex`.**
+## **Independent review, challenge, or consult from xAI Grok Build CLI.**
+
+Cross-model second opinion was a single provider. When you wanted a genuinely different model family than Claude or Codex, you had no first-class skill. `/grok` adds that voice with the same three-mode contract as `/codex`: **review** (diff-scoped `[P1]`/`[P2]` findings with a pass/fail gate), **challenge** (adversarial failure-mode hunt), and **consult** (open Q&A with session resume via `-r`/`-c`). Runs read-only via `--permission-mode plan`. Auth and hang protection live in `bin/gstack-grok-probe` (`~/.grok/auth.json` or `$XAI_API_KEY` / `$GROK_API_KEY`).
+
+The plan-file GSTACK REVIEW REPORT gains a `grok-review` row next to `codex-review`. External hosts (Codex, Cursor, Factory, etc.) skip generating `/grok` the same way they skip `/codex` — both are Claude-host wrappers around another CLI.
+
+### The numbers that matter
+
+Source: local free suite after port (`bun test test/grok-hardening.test.ts` + skill-validation / gen-skill-docs).
+
+| Metric | Value |
+|--------|-------|
+| Probe unit tests | 10/10 pass |
+| Default headless model | `grok-4.5` (`-m`, overridable) |
+| Hosts that skip `/grok` generation | all non-Claude hosts (parity with `/codex`) |
+
+### What this means for you
+
+After `./setup`, run `/grok review`, `/grok challenge security`, or `/grok Is this migration ordering safe?`. Requires `grok` on PATH and `grok login` or `$XAI_API_KEY`. Orthogonal to Grok-as-host work (#2028) and to the plan-review `llm` fallback chain (#1631).
+
+### Itemized changes
+
+#### Added
+
+- `grok/SKILL.md.tmpl` + generated `grok/SKILL.md` — three-mode outside-voice skill
+- `bin/gstack-grok-probe` — auth probe, timeout wrapper, telemetry, hang learning
+- `test/grok-hardening.test.ts` — probe + invocation-contract invariants
+- GSTACK REVIEW REPORT `grok-review` row and field docs in `scripts/resolvers/review.ts`
+- Docs inventory: `AGENTS.md`, `docs/skills.md`, `README.md`, `CLAUDE.md`, `gstack/llms.txt`
+- `scripts/proactive-suggestions.json` routing entry for `/grok`
+
+#### Changed
+
+- Non-Claude hosts: `skipSkills` includes `grok` alongside `codex` so generated host output never ships Claude-path `/grok` wrappers
+
 ## [1.60.1.0] - 2026-07-09
 
 ## **The /autoplan dual-voice eval is back on the board, catching real regressions.**

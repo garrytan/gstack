@@ -25,7 +25,7 @@ const factory: HostConfig = {
 
   generation: {
     generateMetadata: false,
-    skipSkills: ['codex'],  // Codex skill is a Claude wrapper around codex exec
+    skipSkills: ['codex', 'grok'],  // Outside-voice CLI wrappers (Claude host only)
   },
 
   pathRewrites: [

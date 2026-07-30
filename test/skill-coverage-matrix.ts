@@ -150,6 +150,7 @@ export const SKILL_COVERAGE: Record<string, SkillCoverage> = {
   benchmark: { gate: ['test/skill-e2e-benchmark-providers.test.ts', 'test/skill-coverage-floor.test.ts'], periodic: [] },
   'benchmark-models': { gate: ['test/skill-coverage-floor.test.ts'], periodic: [] },
   codex: { gate: ['test/skill-coverage-floor.test.ts'], periodic: [] },
+  grok: { gate: ['test/grok-hardening.test.ts', 'test/skill-coverage-floor.test.ts'], periodic: [] },
   retro: {
     gate: ['test/skill-coverage-floor.test.ts'],
     periodic: ['test/regression-1624-retro-stale-base.test.ts'],

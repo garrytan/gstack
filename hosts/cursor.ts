@@ -19,7 +19,7 @@ const cursor: HostConfig = {
 
   generation: {
     generateMetadata: false,
-    skipSkills: ['codex'],
+    skipSkills: ['codex', 'grok'],
   },
 
   pathRewrites: [
