@@ -42,6 +42,23 @@ import * as os from 'os';
 
 let warnedOnce = false;
 
+/**
+ * Fully-qualified account name for icacls grants.
+ *
+ * An unqualified username is ambiguous when the computer shares its name
+ * with the user: LookupAccountName resolves it to the COMPUTER account (a
+ * bare machine SID nobody's token holds), so `/inheritance:r /grant:r
+ * <user>` locks the actual user out of their own state dir — and because
+ * these calls are idempotent-by-design, every invocation re-applies the
+ * lockout. Qualifying with the account domain (USERDOMAIN — the machine
+ * name for local accounts) makes the lookup unambiguous.
+ */
+function currentUserAccount(): string {
+  const user = os.userInfo().username;
+  const domain = process.env.USERDOMAIN;
+  return domain ? `${domain}\\${user}` : user;
+}
+
 function warnIcaclsFailure(fsPath: string, err: unknown): void {
   if (warnedOnce) return;
   warnedOnce = true;
@@ -67,7 +84,7 @@ function warnIcaclsFailure(fsPath: string, err: unknown): void {
 export function restrictFilePermissions(filePath: string): void {
   if (process.platform === 'win32') {
     try {
-      const user = os.userInfo().username;
+      const user = currentUserAccount();
       execFileSync(
         'icacls',
         [filePath, '/inheritance:r', '/grant:r', `${user}:(F)`],
@@ -97,7 +114,7 @@ export function restrictFilePermissions(filePath: string): void {
 export function restrictDirectoryPermissions(dirPath: string): void {
   if (process.platform === 'win32') {
     try {
-      const user = os.userInfo().username;
+      const user = currentUserAccount();
       execFileSync(
         'icacls',
         [dirPath, '/inheritance:r', '/grant:r', `${user}:(OI)(CI)(F)`],
