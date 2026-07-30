@@ -180,15 +180,50 @@ function main() {
   }
 
   if (allHigh.length > 0) {
-    process.stderr.write(
-      "\n⛔ gstack-redact-prepush BLOCKED the push — credential(s) in the pushed diff:\n\n",
-    );
-    for (const f of allHigh) {
-      process.stderr.write(`  HIGH  ${f.id}  ${f.preview}\n`);
+    // A scan that could not RUN is not a scan that FOUND something. Reporting
+    // "credential(s) in the pushed diff — rotate the credential" for an
+    // `engine.*` finding tells the operator to rotate a secret that was never
+    // detected, on a diff that was never read. Blocking is still right (fail
+    // closed), but the reason must be the true one: a guardrail that cries wolf
+    // is a guardrail that gets bypassed by reflex, which is worse than none.
+    // Seen live 2026-07-30: a diff of a few hundred bytes reported HIGH
+    // engine.input_too_large, because an unresolvable base branch made the hook
+    // fall back to EMPTY_TREE..local — i.e. the WHOLE repo (~7 MiB) as "added
+    // lines". The size the operator sees and the size the hook measures can
+    // therefore differ by four orders of magnitude.
+    const unscanned = allHigh.filter((f) => f.id.startsWith("engine."));
+    const secrets = allHigh.filter((f) => !f.id.startsWith("engine."));
+
+    if (secrets.length > 0) {
+      process.stderr.write(
+        "\n⛔ gstack-redact-prepush BLOCKED the push — credential(s) in the pushed diff:\n\n",
+      );
+      for (const f of secrets) {
+        process.stderr.write(`  HIGH  ${f.id}  ${f.preview}\n`);
+      }
+      process.stderr.write(
+        "\nRotate the credential (a pushed secret is compromised) and remove it from the diff.\n",
+      );
     }
+
+    if (unscanned.length > 0) {
+      process.stderr.write(
+        "\n⛔ gstack-redact-prepush BLOCKED the push — the diff could NOT be scanned.\n" +
+          "   No credential was found; none was looked for. Blocking fail-closed.\n\n",
+      );
+      for (const f of unscanned) {
+        process.stderr.write(`  ${f.id}: ${f.description}\n`);
+      }
+      process.stderr.write(
+        "\nLikely cause: the base branch could not be resolved, so the whole repo was\n" +
+          "treated as added lines. Check `git rev-parse --abbrev-ref origin/HEAD` and\n" +
+          "`git merge-base HEAD origin/main`, then push again. Scan the diff yourself\n" +
+          "before bypassing: `git diff <base>..HEAD | grep -inE \'password|secret|token|api.?key\'`.\n",
+      );
+    }
+
     process.stderr.write(
-      "\nRotate the credential (a pushed secret is compromised) and remove it from the diff.\n" +
-        "This is a guardrail: `git push --no-verify` or `GSTACK_REDACT_PREPUSH=skip git push` bypass it.\n",
+      "This is a guardrail: `git push --no-verify` or `GSTACK_REDACT_PREPUSH=skip git push` bypass it.\n",
     );
     process.exit(1);
   }
