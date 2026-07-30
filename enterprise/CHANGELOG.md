@@ -6,6 +6,19 @@ current upstream base (`<upstream X.Y.Z>.<fork build>`), so upstream's own
 `X.Y.Z.0` releases never collide. Upstream changes stay in the root `CHANGELOG.md`;
 fork changes are logged here to keep upstream merges clean.
 
+## v1.58.5.5 — 2026-07-30
+
+- **Action Checklist convention → standing checklist (supersedes v1.58.5.3):** human to-do
+  items now live in ONE living `docs/enterprise/<team>/CHECKLIST.md` per team (categorized,
+  ordered by execution/importance, checked off in place) instead of a new dated
+  `action-checklist-<slug>-<YYYY-MM-DD>.md` per engagement. Each engagement APPENDS its items
+  and adds a dated `## Changelog` entry carrying an `<!-- af-manual-action -->` marker, so the
+  planner opens one issue for just the newly introduced items (deduped on the changelog date).
+  Updated `enterprise/PROCESS.md`, the company-copy iron rule #4
+  (`docs/agentforce/ENTERPRISE_PROCESS.md`), `enterprise/processes/README.md` + `legal.md`,
+  and Phase 6 of all ten team skills + `/enterprise` + `/enterprise-autoplan`. Reference
+  model: `docs/enterprise/legal/CHECKLIST.md`.
+
 ## v1.58.5.3 — 2026-07-15
 
 - **Action Checklist convention (all enterprise teams):** every team engagement now writes

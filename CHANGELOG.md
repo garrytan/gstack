@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.58.5.5] - 2026-07-30
+
+### Enterprise teams: one standing checklist per team, not a new dated file per engagement
+
+The Action Checklist convention (introduced in v1.58.5.3) is replaced. Every enterprise team now keeps a single living `docs/enterprise/<team>/CHECKLIST.md` that grows over time: engagements APPEND their human to-do items into categories ordered by execution/importance, check them off in place, and add a dated `## Changelog` entry listing what that engagement introduced. Each changelog entry carries an `<!-- af-manual-action -->` marker so the planner opens one delta issue for just the newly introduced items (deduped on the changelog date) instead of one all-time issue per file.
+
+Updated: `enterprise/PROCESS.md` (the authoritative convention), the company-copy iron rule #4 (`docs/agentforce/ENTERPRISE_PROCESS.md`), `enterprise/processes/README.md` + `legal.md`, and Phase 6 of all ten team skills plus `/enterprise` and `/enterprise-autoplan`. Reference model: `docs/enterprise/legal/CHECKLIST.md`.
+
 ## [1.58.5.4] - 2026-07-29
 
 ### Naming skill gains a blocking cross-linguistic gate

@@ -65,12 +65,18 @@ All artifacts land in `docs/enterprise/legal/`:
 docs/enterprise/legal/
   foundation.md
   INDEX.md                                  # one line per artifact: date, mode, link, gate
+  CHECKLIST.md                              # standing human action checklist — grows over time
   concession-log.md                         # running negotiation precedent
   contract-review-acme-msa-2026-07-06.md    # dated artifacts
   msa-draft-2026-07-06.md
   ip-chain-of-title-audit-2026-07-06.md
   ...
 ```
+
+Every human follow-up an engagement produces is appended to `CHECKLIST.md` (iron rule 4) —
+a single living document ordered by execution/importance, not a fresh dated checklist per
+engagement. Dated artifacts still hold the full analysis; the checklist lifts their action
+items into one place.
 
 The date in each filename and document header is the audit trail — it proves the work
 happened and when. Do not remove or change these dates. Every artifact carries the
@@ -97,8 +103,9 @@ drafts are approved for the next step," not "the contract is executed."
 
 ## Phase 5 — External execution
 
-The engagement's handoff summary ends with a human to-do checklist. Typical items and where
-they execute:
+The engagement's handoff summary ends with a human to-do checklist, and every item is
+appended to the standing `docs/enterprise/legal/CHECKLIST.md` (iron rule 4) so it survives
+past the current session. Typical items and where they execute:
 
 - [ ] Attorney reviews gated artifacts (redlines, contracts, consents)
 - [ ] Officer signs (e-signature platform) — agents never execute documents

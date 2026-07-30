@@ -1200,23 +1200,15 @@ closed deal; a spend-recovery estimate is an estimate until invoices confirm it.
    touching contract legal terms → note "have counsel review termination/liability terms".
 3. Update `docs/enterprise/bizops/INDEX.md`: one line per artifact (date, mode, file
    link, review gate).
-4. **Write the human to-do list to its own checklist FILE, never buried** (Action Checklist
-   convention, `enterprise/PROCESS.md`): when there are 3+ human items, write
-   `docs/enterprise/bizops/action-checklist-<slug>-<YYYY-MM-DD>.md` with the standard header,
-   an `<!-- af-manual-action -->` marker block (title · `labels: af-manual-action,
-   af-manager-review` · `checklist:` path · `owner:`) so the planner opens a tagged issue
-   pointing at it, a "How to use this" line, and ordered `- [ ]` steps with time estimates +
-   blocking-path markers; link it from INDEX.md. Then print a SHORT handoff pointing to the
-   file (don't reprint the list); fewer than 3 items → inline checkboxes are fine. Candidate
-   items by mode:
-   - [ ] Sign the vendor contract / approve the spend (named approver)
-   - [ ] Make the negotiation call (brief and BATNA are in the artifact)
-   - [ ] Do the reference calls (peers are only candid human-to-human)
-   - [ ] Accept residual security risk on the vendor (named owner)
-   - [ ] Commit to the OKR targets as a team (AI proposes, humans commit)
-   - [ ] Hold the "what we will NOT do" tradeoff meeting
-   - [ ] Each RACI "A" explicitly accepts accountability
-   - [ ] Make the one-way-door decision (the 6-pager is ready)
+4. **Append human to-dos to the standing team checklist, never buried** (Action Checklist
+   convention, `enterprise/PROCESS.md`): add every human action item to
+   `docs/enterprise/bizops/CHECKLIST.md` — the single living checklist for this team,
+   categorized and ordered by execution/importance. APPEND; never create a new dated
+   checklist file. Add a `## Changelog` entry for the items THIS engagement introduced,
+   carrying an `<!-- af-manual-action -->` delta marker (`title` · `labels: af-manual-action,
+   af-manager-review` · `checklist:` path · `changelog: <YYYY-MM-DD>` · `owner:`) so the
+   planner opens one issue outlining just the new items; bump `Last updated`. Then print only
+   a short pointer to the checklist, not the full list.
 5. Recommend the process doc: "This team's operating process is defined in
    `~/.claude/skills/gstack/enterprise/processes/bizops.md` — commit these artifacts on
    a branch and open a PR titled `docs: bizops <mode> review package` per that process."

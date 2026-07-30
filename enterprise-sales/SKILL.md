@@ -1168,22 +1168,15 @@ Never claim more than the work supports — never "this forecast is accurate," n
    contract/legal terms language → *Licensed professional required (attorney)*.
 3. Update `docs/enterprise/sales/INDEX.md`: one line per artifact (date, mode, file link,
    review gate).
-4. **Write the human to-do list to its own checklist FILE, never buried** (Action Checklist
-   convention, `enterprise/PROCESS.md`): when there are 3+ human items, write
-   `docs/enterprise/sales/action-checklist-<slug>-<YYYY-MM-DD>.md` with the standard header, an
-   `<!-- af-manual-action -->` marker block (title · `labels: af-manual-action,
-   af-manager-review` · `checklist:` path · `owner:`) so the planner opens a tagged issue
-   pointing at it, a "How to use this" line, and ordered `- [ ]` steps with time estimates +
-   blocking-path markers; link it from INDEX.md. Then print a SHORT handoff pointing to the
-   file (don't reprint the list); fewer than 3 items → inline checkboxes are fine. Candidate
-   items by mode:
-   - [ ] Review and approve the ICP / playbook / sequence copy (owner sign-off)
-   - [ ] Configure sending domains, SPF/DKIM/DMARC, and warmup in the outreach tool (credentials)
-   - [ ] Load sequences into the sequencer and send from a real rep identity
-   - [ ] Have the live discovery/negotiation conversations; test the champion in person
-   - [ ] Approve pricing exceptions and sign contracts
-   - [ ] Send the MAP to the buyer and confirm dates with them
-   - [ ] Commit the forecast number upward (board/investors) — the human owns that number
+4. **Append human to-dos to the standing team checklist, never buried** (Action Checklist
+   convention, `enterprise/PROCESS.md`): add every human action item to
+   `docs/enterprise/sales/CHECKLIST.md` — the single living checklist for this team,
+   categorized and ordered by execution/importance. APPEND; never create a new dated
+   checklist file. Add a `## Changelog` entry for the items THIS engagement introduced,
+   carrying an `<!-- af-manual-action -->` delta marker (`title` · `labels: af-manual-action,
+   af-manager-review` · `checklist:` path · `changelog: <YYYY-MM-DD>` · `owner:`) so the
+   planner opens one issue outlining just the new items; bump `Last updated`. Then print only
+   a short pointer to the checklist, not the full list.
 5. Recommend the process doc: "This team's operating process is defined in
    `~/.claude/skills/gstack/enterprise/processes/sales.md` — commit these artifacts on a
    branch and open a PR titled `docs: sales <mode> review package` per that process."

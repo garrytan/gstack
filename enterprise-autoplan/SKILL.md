@@ -987,8 +987,8 @@ executed mode references.
 
 Everything else runs in full: evidence gathering, persona passes, playbook-structured
 artifacts, quality-gate tables, Phase 6 persistence (dated files, headers, review-gate
-footers, INDEX.md, and the human to-do items written to their own dated action-checklist file
-per the Action Checklist convention — never left only inline).
+footers, INDEX.md, and the human to-do items appended to the team's standing `docs/enterprise/<team>/CHECKLIST.md`
+with a changelog delta entry per the Action Checklist convention — never left only inline).
 
 **Consultant reviews are mandatory.** Each team's Phase 4 runs as a real foreground
 Agent subagent (`subagent_type: "general-purpose"`, never `run_in_background`) with the

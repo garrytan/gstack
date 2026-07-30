@@ -524,24 +524,15 @@ a settled fact — the honest ceiling is "no known gaps against <regime> as of <
    ```
 4. Update `docs/enterprise/compliance/INDEX.md`: one line per artifact (date, mode, file
    link, review gate).
-5. **Write the human to-do list to its own checklist FILE, never buried** (Action Checklist
-   convention, `enterprise/PROCESS.md`): when there are 3+ human items, write
-   `docs/enterprise/compliance/action-checklist-<slug>-<YYYY-MM-DD>.md` with the standard
-   header, an `<!-- af-manual-action -->` marker block (title · `labels: af-manual-action,
-   af-manager-review` · `checklist:` path · `owner:`) so the planner opens a tagged issue
-   pointing at it, a "How to use this" line, and ordered `- [ ]` steps with time estimates +
-   blocking-path markers; link it from INDEX.md. Then print a SHORT handoff pointing to the
-   file (don't reprint the list); fewer than 3 items → inline checkboxes are fine. Candidate
-   items:
-   - [ ] Engage counsel to review the applicability memo / breach plan (privilege attaches
-         only with a lawyer)
-   - [ ] Publish the privacy policy to the site after review; configure the CMP per spec
-   - [ ] Select and engage the CPA firm (SOC 2) / accredited body (ISO 27001)
-   - [ ] Appoint the DPO / EU representative; make required filings (CPPA submissions, DPF
-         self-certification) — officers sign, never the skill
-   - [ ] Assign a named owner to every ⏰ CLOCK and put them on a real calendar
-   - [ ] Human sends the questionnaire response after confirming the [A] items
-   - [ ] Schedule and run the tabletop (skill scripted it; humans run it)
+5. **Append human to-dos to the standing team checklist, never buried** (Action Checklist
+   convention, `enterprise/PROCESS.md`): add every human action item to
+   `docs/enterprise/compliance/CHECKLIST.md` — the single living checklist for this team,
+   categorized and ordered by execution/importance. APPEND; never create a new dated
+   checklist file. Add a `## Changelog` entry for the items THIS engagement introduced,
+   carrying an `<!-- af-manual-action -->` delta marker (`title` · `labels: af-manual-action,
+   af-manager-review` · `checklist:` path · `changelog: <YYYY-MM-DD>` · `owner:`) so the
+   planner opens one issue outlining just the new items; bump `Last updated`. Then print only
+   a short pointer to the checklist, not the full list.
 6. Recommend the process doc: "This team's operating process is defined in
    `~/.claude/skills/gstack/enterprise/processes/compliance.md` — commit these artifacts on
    a branch and open a PR titled `docs: compliance <mode> review package` per that process."
