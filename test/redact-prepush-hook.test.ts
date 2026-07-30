@@ -229,3 +229,50 @@ describe("install / chaining", () => {
     expect(restored).not.toContain("managed");
   });
 });
+
+describe("base resolution when the default branch is neither main nor master", () => {
+  test("a new branch scans its own commits, not the whole repository", () => {
+    // The remote's default branch is `trunk` and origin/HEAD is unset, so
+    // defaultRemoteBranch() falls through to `origin/main` — a ref that does
+    // not exist — and merge-base fails. The EMPTY_TREE fallback then treats the
+    // WHOLE repository as added lines, re-scanning history that is already on
+    // the remote. Two consequences, both bad: a secret long since pushed gets
+    // re-reported as if this push introduced it, and on any real repository the
+    // input blows past the engine's byte cap, so `engine.input_too_large`
+    // blocks the push having scanned NOTHING — the "scans more, never less"
+    // fallback inverting into "scans nothing".
+    const bare = fs.mkdtempSync(path.join(os.tmpdir(), "prepush-remote-"));
+    spawnSync("git", ["init", "-q", "--bare", "-b", "trunk", bare]);
+
+    git(["branch", "-M", "trunk"]);
+    const old = commit("legacy.txt", "AKIA1234567890ABCDEF\n", "secret already on the remote");
+    git(["remote", "add", "origin", bare]);
+    git(["push", "-q", "origin", "trunk"]);
+
+    // The remote HAS the old commit, and the default-branch guess is unresolvable.
+    expect(git(["rev-parse", "origin/trunk"])).toBe(old);
+    expect(git(["rev-parse", "--verify", "origin/main"])).toBe("");
+    expect(git(["symbolic-ref", "refs/remotes/origin/HEAD"])).toBe("");
+
+    git(["checkout", "-q", "-b", "feat"]);
+    const head = commit("feature.txt", "totally clean\n", "clean feature commit");
+
+    const { code, stderr } = runHook(`refs/heads/feat ${head} refs/heads/feat ${ZERO}\n`);
+    fs.rmSync(bare, { recursive: true, force: true });
+
+    // The only NEW content is a clean file. The already-pushed secret must not
+    // be attributed to this push.
+    expect(stderr).not.toContain("aws.access_key");
+    expect(code).toBe(0);
+  });
+
+  test("a genuinely new repository with no remote refs still scans everything", () => {
+    // Nothing is on any remote, so every commit IS new content: scanning the
+    // full history is correct here. The narrowing must not open a hole in the
+    // case the EMPTY_TREE fallback exists for.
+    const head = commit("secrets.txt", "AKIA1234567890ABCDEF\n", "secret in a fresh repo");
+    const { code, stderr } = runHook(`refs/heads/feat ${head} refs/heads/feat ${ZERO}\n`);
+    expect(code).toBe(1);
+    expect(stderr).toContain("aws.access_key");
+  });
+});

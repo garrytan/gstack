@@ -80,21 +80,57 @@ function defaultRemoteBranch(): string {
   return "origin/main";
 }
 
+/**
+ * Base commit for a push whose remote tip we cannot use directly, ordered from
+ * most precise to most conservative. Returns null when nothing can anchor the
+ * range, i.e. the whole history really is new content.
+ */
+function unknownRemoteTipBase(localSha: string): string | null {
+  // 1. The common case: a merge-base with the remote's default branch.
+  const base = git(["merge-base", localSha, defaultRemoteBranch()]).trim();
+  if (base) return base;
+
+  // 2. No merge-base. defaultRemoteBranch() guessed a ref that does not exist
+  //    (default branch named trunk/develop, origin/HEAD unset), or history is
+  //    disjoint. Anything reachable from localSha but from NO remote-tracking
+  //    branch is what this push actually adds; the parent of its oldest commit
+  //    is the real base.
+  //
+  //    Without this we drop straight to EMPTY_TREE and re-scan content that is
+  //    already on the remote. That is not merely wasteful, it is wrong in two
+  //    ways: a secret pushed long ago gets re-reported as if THIS push
+  //    introduced it (telling the operator to rotate a key over someone else's
+  //    old commit), and on any real repository the input overshoots the
+  //    engine's byte cap, so `engine.input_too_large` blocks having scanned
+  //    NOTHING — "scans more, never less" inverted into "scans nothing".
+  //
+  //    `--remotes` covers every remote, not just the push target: content
+  //    already published anywhere has already left this machine, so treating it
+  //    as pre-existing is deliberate. Git hands the remote name to pre-push in
+  //    argv, which this hook does not read; narrowing to it would only matter
+  //    for a repo that pushes secrets to one remote but not another.
+  const newCommits = git(["rev-list", "--reverse", localSha, "--not", "--remotes"]).trim();
+  if (newCommits) {
+    const oldest = newCommits.split("\n")[0];
+    const parent = git(["rev-parse", "--verify", `${oldest}^`]).trim();
+    if (parent) return parent;
+    // Oldest new commit is a root commit: there is no parent to anchor on.
+  }
+
+  // 3. Nothing to anchor on — a genuinely fresh repository with no remote refs.
+  //    Every commit IS new content, so scanning it all is the correct answer.
+  return null;
+}
+
 /** Return the added-line text for a ref update being pushed. */
 function addedLinesFor(localSha: string, remoteSha: string): string {
   let range: string;
-  if (ZERO.test(remoteSha)) {
-    // New branch: prefer what's unique to localSha vs the remote default branch.
-    // With no merge-base (e.g. no remote yet), diff against the empty tree so ALL
-    // branch content is scanned as added — fail-safe (scans more, never less).
-    const base = git(["merge-base", localSha, defaultRemoteBranch()]).trim();
-    range = base ? `${base}..${localSha}` : `${EMPTY_TREE}..${localSha}`;
-  } else if (!objectExists(remoteSha)) {
-    // Remote tip object absent locally (shallow clone, force-push without a
-    // prior fetch, CI checkout): remote..local can't resolve. Fall back to
-    // the merge-base/empty-tree path — scans MORE, never less — instead of
-    // hard-blocking a legitimate push (adversarial review finding 8).
-    const base = git(["merge-base", localSha, defaultRemoteBranch()]).trim();
+  if (ZERO.test(remoteSha) || !objectExists(remoteSha)) {
+    // Either a new branch (zero remote sha), or the remote tip object is absent
+    // locally (shallow clone, force-push without a prior fetch, CI checkout) so
+    // remote..local cannot resolve. Both need a base derived locally; scan MORE
+    // rather than hard-blocking a legitimate push (adversarial review finding 8).
+    const base = unknownRemoteTipBase(localSha);
     range = base ? `${base}..${localSha}` : `${EMPTY_TREE}..${localSha}`;
   } else {
     // Existing branch (incl. force-push): net new content remote..local.
