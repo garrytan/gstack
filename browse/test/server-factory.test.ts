@@ -522,3 +522,104 @@ describe('idle timer + onDisconnect dual-instance fix', () => {
     expect(activeCount).toBe(3);
   });
 });
+
+// ─── Parent watchdog vs. runtime headed mode ($B handoff) ───────────
+//
+// #994 inverted "kill on parent death" for headless mode because Claude Code's
+// Bash tool kills the spawning shell after EVERY tool invocation. The headed
+// branch was left shutting down, on the assumption that headed daemons are
+// always launched headed (BROWSE_HEADED=1 + BROWSE_PARENT_PID=0), which never
+// registers this watchdog at all.
+//
+// `handoff` breaks that assumption: it flips an ALREADY-RUNNING headless daemon
+// to headed at runtime. That daemon was spawned with a real BROWSE_PARENT_PID
+// belonging to a Claude Code shell that is already dead, so the next 15s tick
+// saw "parent gone + headed" and tore down the browser the user was actively
+// being asked to log into. Observed: window dies ~15s after every handoff.
+//
+// Headed cleanup is the browser-disconnect handler (handleChromiumDisconnect,
+// which exits the daemon when the window closes) or `$B disconnect`.
+//
+// NOTE: shutdown is fire-and-forget async and ends in a real process.exit, so
+// these tests use NON-throwing exit mocks and drain microtasks before both the
+// assertion and the restore. Throwing (or restoring early) lets the real
+// process.exit run and kills the test runner silently.
+describe('parent watchdog: runtime headed mode survives parent death (handoff)', () => {
+  const DEAD_PID = 999999; // never a live PID; process.kill throws ESRCH
+
+  async function drain() {
+    await Promise.resolve();
+    await Promise.resolve();
+    await new Promise<void>(r => setImmediate(r));
+    await new Promise<void>(r => setImmediate(r));
+  }
+
+  beforeEach(() => {
+    __resetRegistry();
+    __testInternals__.setTunnelActive(false);
+    __testInternals__.resetParentGone();
+    __testInternals__.resetShutdownState();
+  });
+
+  test('CRITICAL — REGRESSION: headed daemon does NOT shut down when parent shell dies', async () => {
+    const exitMock = mock((_code?: number) => {});
+    const originalExit = process.exit;
+    (process as any).exit = exitMock;
+    try {
+      const mockBM = makeMockBrowserManager('headed');
+      buildFetchHandler(makeMinimalConfig({ browserManager: mockBM as any }));
+      __testInternals__.parentWatchdogTick(DEAD_PID);
+      await drain();
+      expect(exitMock).not.toHaveBeenCalled();
+    } finally {
+      (process as any).exit = originalExit;
+    }
+  });
+
+  test('headless daemon also survives parent death (#994, paired control)', async () => {
+    const exitMock = mock((_code?: number) => {});
+    const originalExit = process.exit;
+    (process as any).exit = exitMock;
+    try {
+      const mockBM = makeMockBrowserManager('launched');
+      buildFetchHandler(makeMinimalConfig({ browserManager: mockBM as any }));
+      __testInternals__.parentWatchdogTick(DEAD_PID);
+      await drain();
+      expect(exitMock).not.toHaveBeenCalled();
+    } finally {
+      (process as any).exit = originalExit;
+    }
+  });
+
+  test('tunnel mode still shuts down on parent death (unchanged)', async () => {
+    const exitMock = mock((_code?: number) => {});
+    const originalExit = process.exit;
+    (process as any).exit = exitMock;
+    try {
+      const mockBM = makeMockBrowserManager('launched');
+      buildFetchHandler(makeMinimalConfig({ browserManager: mockBM as any }));
+      __testInternals__.setTunnelActive(true);
+      __testInternals__.parentWatchdogTick(DEAD_PID);
+      await drain();
+      expect(exitMock).toHaveBeenCalled();
+    } finally {
+      (process as any).exit = originalExit;
+      __testInternals__.setTunnelActive(false);
+    }
+  });
+
+  test('live parent is a no-op regardless of mode', async () => {
+    const exitMock = mock((_code?: number) => {});
+    const originalExit = process.exit;
+    (process as any).exit = exitMock;
+    try {
+      const mockBM = makeMockBrowserManager('headed');
+      buildFetchHandler(makeMinimalConfig({ browserManager: mockBM as any }));
+      __testInternals__.parentWatchdogTick(process.pid); // alive
+      await drain();
+      expect(exitMock).not.toHaveBeenCalled();
+    } finally {
+      (process as any).exit = originalExit;
+    }
+  });
+});

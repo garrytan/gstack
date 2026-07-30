@@ -655,6 +655,8 @@ const idleCheckInterval = setInterval(idleCheckTick, 60_000);
 // dual-instance fix` describe block for usage.
 export const __testInternals__ = {
   idleCheckTick,
+  parentWatchdogTick,
+  resetParentGone: () => { parentGone = false; },
   setTunnelActive: (v: boolean) => { tunnelActive = v; },
   setLastActivity: (t: number) => { lastActivity = t; },
   formatExplicitPortUnavailableError,
@@ -684,34 +686,56 @@ const BROWSE_PARENT_PID = parseInt(process.env.BROWSE_PARENT_PID || '0', 10);
 // the closure every 15s. The CLI's connect path sets BROWSE_HEADED=1 + PID=0,
 // so this branch is the normal path for /open-gstack-browser.
 const IS_HEADED_WATCHDOG = process.env.BROWSE_HEADED === '1';
+
+let parentGone = false;
+
+// Named (like idleCheckTick) so the parent-death branches can be driven
+// deterministically in tests instead of waiting on a 15s interval.
+// `pidOverride` exists only so tests can supply a known-dead PID; production
+// registration below passes nothing and uses BROWSE_PARENT_PID.
+function parentWatchdogTick(pidOverride?: number) {
+  const parentPid = pidOverride ?? BROWSE_PARENT_PID;
+  let parentAlive = true;
+  try {
+    process.kill(parentPid, 0); // signal 0 = existence check only, no signal sent
+  } catch {
+    parentAlive = false;
+  }
+  if (parentAlive) return;
+
+  // Parent exited. Resolution order:
+  // 1. Active cookie picker (one-time code or session live)? Stay alive
+  //    regardless of mode — tearing down the server mid-import leaves the
+  //    picker UI with a stale "Failed to fetch" error.
+  // 2. Headed mode? Stay alive. A visible window is a live user session, not
+  //    an orphan. `handoff` flips an already-running headless daemon to headed
+  //    at runtime, and THAT daemon's BROWSE_PARENT_PID is a Claude Code shell
+  //    which dies after every tool call — so shutting down here destroyed the
+  //    browser within 15s of every handoff, including while the user was being
+  //    asked to log in. Headed daemons are reaped by handleChromiumDisconnect
+  //    (user closes the window) or `$B disconnect`. This matches the
+  //    BROWSE_HEADED=1 launch path, which never registers this watchdog at all.
+  // 3. Tunnel mode? Shutdown. The idle timeout doesn't apply (see
+  //    idleCheckInterval above — it early-returns), and a remote /pair-agent
+  //    peer has no window to close, so parent death is the only cleanup signal.
+  // 4. Normal (headless) mode? Stay alive. Claude Code's Bash tool kills
+  //    the parent shell between invocations. The idle timeout (30 min)
+  //    handles eventual cleanup.
+  if (hasActivePicker()) return;
+  if (activeBrowserManager.getConnectionMode() === 'headed') return;
+  if (tunnelActive) {
+    console.log(`[browse] Parent process ${parentPid} exited in tunnel mode, shutting down`);
+    activeShutdown?.();
+    return;
+  }
+  if (!parentGone) {
+    parentGone = true;
+    console.log(`[browse] Parent process ${parentPid} exited (server stays alive, idle timeout will clean up)`);
+  }
+}
+
 if (BROWSE_PARENT_PID > 0 && !IS_HEADED_WATCHDOG) {
-  let parentGone = false;
-  setInterval(() => {
-    try {
-      process.kill(BROWSE_PARENT_PID, 0); // signal 0 = existence check only, no signal sent
-    } catch {
-      // Parent exited. Resolution order:
-      // 1. Active cookie picker (one-time code or session live)? Stay alive
-      //    regardless of mode — tearing down the server mid-import leaves the
-      //    picker UI with a stale "Failed to fetch" error.
-      // 2. Headed / tunnel mode? Shutdown. The idle timeout doesn't apply in
-      //    these modes (see idleCheckInterval above — both early-return), so
-      //    ignoring parent death here would leak orphan daemons after
-      //    /pair-agent or /open-gstack-browser sessions.
-      // 3. Normal (headless) mode? Stay alive. Claude Code's Bash tool kills
-      //    the parent shell between invocations. The idle timeout (30 min)
-      //    handles eventual cleanup.
-      if (hasActivePicker()) return;
-      const headed = activeBrowserManager.getConnectionMode() === 'headed';
-      if (headed || tunnelActive) {
-        console.log(`[browse] Parent process ${BROWSE_PARENT_PID} exited in ${headed ? 'headed' : 'tunnel'} mode, shutting down`);
-        activeShutdown?.();
-      } else if (!parentGone) {
-        parentGone = true;
-        console.log(`[browse] Parent process ${BROWSE_PARENT_PID} exited (server stays alive, idle timeout will clean up)`);
-      }
-    }
-  }, 15_000);
+  setInterval(parentWatchdogTick, 15_000);
 } else if (IS_HEADED_WATCHDOG) {
   console.log('[browse] Parent-process watchdog disabled (headed mode)');
 } else if (BROWSE_PARENT_PID === 0) {
