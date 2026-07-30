@@ -1,0 +1,140 @@
+name: Free Tests
+
+# The free (non-paid) suite — 347 of the repo's 421 test files.
+#
+# Gap this closes: evals.yml's matrix runs exactly the files that
+# package.json's `test` script EXCLUDES (skill-e2e-*, skill-llm-eval,
+# skill-routing-e2e, codex-e2e, gemini-e2e). The two sets are complements, so
+# the fast deterministic suite had no Linux gate at all — the only free tests
+# running anywhere in CI were the 13-file curated subset in
+# windows-free-tests.yml, plus make-pdf's path-filtered gate.
+#
+# Runs in the same pre-baked CI image as evals.yml because five free tests
+# under browse/test/ launch real Chromium (stealth-webdriver, stealth-layer-c,
+# bridge-chromium-e2e, security-sidepanel-dom, server-proxy-fail-fast). A bare
+# runner with setup-bun would fail those.
+#
+# Needs no API keys — scripts/test-free-shards.ts filters out every paid-eval
+# test — so unlike evals.yml this can give real signal on PRs that have no
+# access to repository secrets.
+#
+# NOTE ON DUPLICATION: build-image below is copied from evals.yml. Both
+# workflows trigger on the same PR event, so on a cold cache both may build
+# and push the same tag concurrently; the content is identical so the result
+# is benign, just wasted work. Extracting build-image into a reusable
+# (workflow_call) workflow that both files consume is the clean fix — left out
+# here to keep this PR to one new file and zero edits to evals.yml.
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: free-tests-${{ github.head_ref }}
+  cancel-in-progress: true
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}/ci
+
+jobs:
+  # Mirrors evals.yml's build-image (cached — only rebuilds on Dockerfile/lockfile change).
+  build-image:
+    runs-on: ubicloud-standard-8
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: meta
+        run: echo "tag=${{ env.IMAGE }}:${{ hashFiles('.github/docker/Dockerfile.ci', 'package.json', 'bun.lock') }}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check if image exists
+        id: check
+        run: |
+          if docker manifest inspect ${{ steps.meta.outputs.tag }} > /dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.check.outputs.exists == 'false'
+        run: cp package.json bun.lock .github/docker/
+
+      - if: steps.check.outputs.exists == 'false'
+        uses: docker/build-push-action@v6
+        with:
+          context: .github/docker
+          file: .github/docker/Dockerfile.ci
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.tag }}
+            ${{ env.IMAGE }}:latest
+
+  free-tests:
+    runs-on: ubicloud-standard-8
+    needs: build-image
+    container:
+      image: ${{ needs.build-image.outputs.image-tag }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+      options: --user runner
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Same bun temp redirect evals.yml needs — bun creates root-owned temp
+      # dirs during the Docker build, but Actions runs as the runner user.
+      - name: Fix bun temp
+        run: |
+          mkdir -p /home/runner/.cache/bun
+          {
+            echo "BUN_INSTALL_CACHE_DIR=/home/runner/.cache/bun"
+            echo "BUN_TMPDIR=/home/runner/.cache/bun"
+            echo "TMPDIR=/home/runner/.cache"
+          } >> "$GITHUB_ENV"
+
+      # Several free tests `git init` throwaway repos and commit into them, so
+      # they need an identity. windows-free-tests.yml does the same.
+      - name: Configure git identity
+        run: |
+          git config --global user.email "ci@gstack.test"
+          git config --global user.name "gstack CI"
+          git config --global init.defaultBranch main
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      # Reuse the image's pre-installed node_modules when package.json matches,
+      # else fall back to a real install (same logic as evals.yml).
+      - name: Restore deps
+        run: |
+          if [ -d /opt/node_modules_cache ] && diff -q /opt/node_modules_cache/.package.json package.json >/dev/null 2>&1; then
+            cp -r /opt/node_modules_cache node_modules
+          else
+            bun install
+          fi
+
+      # Also generates the .agents/ and .factory/ SKILL.md outputs (build.sh
+      # calls gen:skill-docs --host all). Both are gitignored, and the
+      # golden-file tests in test/gen-skill-docs.test.ts read them.
+      - run: bun run build
+
+      - name: Free tests (shard ${{ matrix.shard }}/4)
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /opt/playwright-browsers
+        run: bun run scripts/test-free-shards.ts --shards 4 --shard ${{ matrix.shard }}
