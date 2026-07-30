@@ -46,9 +46,9 @@ Forkez-la. Améliorez-la. Faites-en la vôtre. Et si vous voulez critiquer un lo
 
 ### Étape 1 : Installation sur votre machine
 
-Ouvrez Claude Code et collez ceci. Claude s'occupe du reste.
+Ouvrez Claude Code et collez ceci **tel quel**. Le prompt est laissé en anglais volontairement : c'est un texte destiné à l'agent, pas au lecteur — le traduire changerait les instructions qu'il exécute. Claude s'occupe du reste. En résumé, ce prompt lui demande d'installer gstack, puis d'ajouter une section "gstack" à votre CLAUDE.md qui impose d'utiliser le skill `/browse` pour toute navigation web plutôt que les outils `mcp__claude-in-chrome__*`, liste les skills disponibles, et vous demande enfin si vous voulez aussi ajouter gstack au projet en cours pour vos coéquipiers.
 
-> Installation de gstack : exécutez **`git clone --single-branch --depth 1 https://github.com/garrytan/gstack.git ~/.claude/skills/gstack && cd ~/.claude/skills/gstack && ./setup`** puis ajoutez une section "gstack" à CLAUDE.md indiquant d'utiliser le skill `/browse` de gstack pour toute navigation web, de ne jamais utiliser les outils `mcp__claude-in-chrome__*`, et listant les skills disponibles : /office-hours, /plan-ceo-review, /plan-eng-review, /plan-design-review, /design-consultation, /design-shotgun, /design-html, /review, /ship, /land-and-deploy, /canary, /benchmark, /browse, /connect-chrome, /qa, /qa-only, /design-review, /setup-browser-cookies, /setup-deploy, /setup-gbrain, /retro, /investigate, /document-release, /document-generate, /codex, /cso, /autoplan, /plan-devex-review, /devex-review, /careful, /freeze, /guard, /unfreeze, /gstack-upgrade, /learn. Demandez ensuite à l'utilisateur s'il souhaite également ajouter gstack au projet en cours pour que ses coéquipiers en bénéficient.
+> Install gstack: run **`git clone --single-branch --depth 1 https://github.com/garrytan/gstack.git ~/.claude/skills/gstack && cd ~/.claude/skills/gstack && ./setup`** then add a "gstack" section to CLAUDE.md that says to use the /browse skill from gstack for all web browsing, never use mcp\_\_claude-in-chrome\_\_\* tools, and lists the available skills: /office-hours, /plan-ceo-review, /plan-eng-review, /plan-design-review, /design-consultation, /design-shotgun, /design-html, /review, /ship, /land-and-deploy, /canary, /benchmark, /browse, /connect-chrome, /qa, /qa-only, /design-review, /setup-browser-cookies, /setup-deploy, /setup-gbrain, /retro, /investigate, /document-release, /document-generate, /codex, /cso, /autoplan, /plan-devex-review, /devex-review, /careful, /freeze, /guard, /unfreeze, /gstack-upgrade, /learn. Then ask the user if they also want to add gstack to the current project so teammates get it.
 
 ### Étape 2 : Mode équipe — mise à jour automatique pour les dépôts partagés (recommandé)
 
@@ -64,9 +64,9 @@ Remplacez `required` par `optional` si vous préférez suggérer gstack à vos c
 
 ### OpenClaw
 
-OpenClaw lance des sessions Claude Code via ACP, donc tous les skills gstack fonctionnent simplement lorsque Claude Code a gstack installé. Collez ceci dans votre agent OpenClaw :
+OpenClaw lance des sessions Claude Code via ACP, donc tous les skills gstack fonctionnent simplement lorsque Claude Code a gstack installé. Collez ceci dans votre agent OpenClaw, **tel quel et en anglais** — comme ci-dessus, c'est un prompt destiné à l'agent. En résumé, il lui demande d'installer gstack pour Claude Code, puis d'ajouter une section "Coding Tasks" à votre AGENTS.md indiquant d'utiliser les skills gstack lors du lancement de sessions de codage, avec des exemples d'invocation (audit de sécurité, revue de code, test QA d'une URL, fonctionnalité de bout en bout, planification avant construction).
 
-> Installation de gstack : exécutez `git clone --single-branch --depth 1 https://github.com/garrytan/gstack.git ~/.claude/skills/gstack && cd ~/.claude/skills/gstack && ./setup` pour installer gstack pour Claude Code. Ajoutez ensuite une section "Coding Tasks" à AGENTS.md indiquant : lors du lancement de sessions Claude Code pour du travail de codage, demandez à la session d'utiliser les skills gstack. Incluez ces exemples — audit de sécurité : "Load gstack. Run /cso", revue de code : "Load gstack. Run /review", test QA d'une URL : "Load gstack. Run /qa https://...", construction d'une fonctionnalité de bout en bout : "Load gstack. Run /autoplan, implement the plan, then run /ship", planification avant construction : "Load gstack. Run /office-hours then /autoplan. Save the plan, don't implement."
+> Install gstack: run `git clone --single-branch --depth 1 https://github.com/garrytan/gstack.git ~/.claude/skills/gstack && cd ~/.claude/skills/gstack && ./setup` to install gstack for Claude Code. Then add a "Coding Tasks" section to AGENTS.md that says: when spawning Claude Code sessions for coding work, tell the session to use gstack skills. Include these examples — security audit: "Load gstack. Run /cso", code review: "Load gstack. Run /review", QA test a URL: "Load gstack. Run /qa https://...", build a feature end-to-end: "Load gstack. Run /autoplan, implement the plan, then run /ship", plan before building: "Load gstack. Run /office-hours then /autoplan. Save the plan, don't implement."
 
 **Après l'installation, parlez simplement à votre agent OpenClaw naturellement :**
 
@@ -240,6 +240,7 @@ Au-delà des skills en slash-command, gstack livre des CLI autonomes pour les wo
 | `gstack-taste-update` | **Apprentissage du goût design** — enregistre les approbations et rejets de `/design-shotgun` dans un profil de goût persistant par projet. Décroissance de 5%/semaine. Alimente les futures générations de variantes pour que le système apprenne ce que vous choisissez réellement. |
 | `gstack-ios-qa-daemon` | **Démon QA iOS** — courtier côté Mac entre un agent et un iPhone connecté via USB CoreDevice. Boucle locale par défaut ; `--tailnet` ouvre un listener orienté Tailscale avec des niveaux de capacité contrôlés par identité. Instance unique via flock sur `~/.gstack/ios-qa-daemon.pid`. Voir [docs/howto-ios-testing-with-gstack.md](docs/howto-ios-testing-with-gstack.md). |
 | `gstack-ios-qa-mint` | **Gestionnaire de liste blanche iOS** — CLI de grant par le propriétaire pour la liste blanche tailnet. `grant`/`revoke`/`list` contre `~/.gstack/ios-qa-allowlist.json` (mode 0600). Les agents distants ne sont jamais auto-ajoutés à la liste blanche ; ceci est le chemin à intention explicite. |
+| `gstack-ios-qa-regen` | **Régénérateur du bridge iOS** — installe de façon déterministe le paquet canonique DebugBridge, génère les accesseurs d'état typés et enregistre la version de gstack installée. Peut être relancé sans risque après une modification des sources ou une mise à niveau. |
 
 ### Mode checkpoint continu (optionnel, local par défaut)
 
@@ -325,11 +326,13 @@ Ce script gère les skills, les liens symboliques, l'état global (`~/.gstack/`)
 
 Si vous n'avez pas cloné le dépôt (par exemple, si vous avez installé gstack en collant l'instruction dans Claude Code puis supprimé le clone) :
 
+Les commentaires du bloc ci-dessous sont laissés en anglais, à l'identique du README source. Les étapes sont, dans l'ordre : arrêter les daemons de navigation, supprimer les répertoires par skill, supprimer gstack, supprimer l'état global, supprimer les intégrations, supprimer les fichiers temporaires, puis faire le nettoyage par projet.
+
 ```bash
-# 1. Arrêter les daemons de navigation
+# 1. Stop browse daemons
 pkill -f "gstack.*browse" 2>/dev/null || true
 
-# 2. Supprimer les répertoires par skill dont le SKILL.md pointe vers gstack/
+# 2. Remove per-skill directories whose SKILL.md points into gstack/
 find ~/.claude/skills -mindepth 1 -maxdepth 1 -type d ! -name gstack 2>/dev/null |
 while IFS= read -r dir; do
   link="$dir/SKILL.md"
@@ -343,22 +346,22 @@ while IFS= read -r dir; do
   esac
 done
 
-# 3. Supprimer gstack
+# 3. Remove gstack
 rm -rf ~/.claude/skills/gstack
 
-# 4. Supprimer l'état global
+# 4. Remove global state
 rm -rf ~/.gstack
 
-# 5. Supprimer les intégrations (ignorez celles que vous n'avez jamais installées)
+# 5. Remove integrations (skip any you never installed)
 rm -rf ~/.codex/skills/gstack* 2>/dev/null
 rm -rf ~/.factory/skills/gstack* 2>/dev/null
 rm -rf ~/.kiro/skills/gstack* 2>/dev/null
 rm -rf ~/.openclaw/skills/gstack* 2>/dev/null
 
-# 6. Supprimer les fichiers temporaires
+# 6. Remove temp files
 rm -f /tmp/gstack-* 2>/dev/null
 
-# 7. Nettoyage par projet (à exécuter depuis chaque racine de projet)
+# 7. Per-project cleanup (run from each project root)
 rm -rf .gstack .gstack-worktrees .claude/skills/gstack 2>/dev/null
 rm -rf .agents/skills/gstack* .factory/skills/gstack* 2>/dev/null
 ```
