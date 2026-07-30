@@ -205,12 +205,28 @@ function detectSkill(cwd: string | undefined): string {
 }
 
 function spawnLog(payload: Record<string, unknown>, cwd?: string): void {
-  // Locate the bin relative to this script's directory.
-  const here = path.dirname(new URL(import.meta.url).pathname);
+  // Locate the bin relative to this script's directory. On Windows the URL
+  // pathname is "/C:/Users/..."; the leading slash makes path.resolve treat it
+  // as drive-relative and emit a doubled "C:\C:\Users\...", so strip it first.
+  const here = path.dirname(
+    new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'),
+  );
   // hosts/claude/hooks/ -> ../../../bin/
   const repoRoot = path.resolve(here, '..', '..', '..');
   const bin = path.join(repoRoot, 'bin', 'gstack-question-log');
-  const res = spawnSync(bin, [JSON.stringify(payload)], {
+  // Windows cannot CreateProcess a shebang script directly, so spawnSync(bin)
+  // fails to launch at all (status undefined). Invoke it through bash there;
+  // POSIX keeps the original direct-exec path unchanged.
+  const isWindows = process.platform === 'win32';
+  // Git Bash reads a Windows path (C:\a\b) as relative and prefixes cwd, so
+  // translate the drive letter to a POSIX mount point: C:\a\b -> /c/a/b.
+  const toPosixPath = (p: string): string =>
+    p.replace(/\\/g, '/').replace(/^([A-Za-z]):/, (_m, d) => `/${d.toLowerCase()}`);
+  const cmd = isWindows ? 'bash' : bin;
+  const args = isWindows
+    ? [toPosixPath(bin), JSON.stringify(payload)]
+    : [JSON.stringify(payload)];
+  const res = spawnSync(cmd, args, {
     encoding: 'utf-8',
     stdio: ['ignore', 'pipe', 'pipe'],
     timeout: 3000,
