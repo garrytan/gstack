@@ -168,9 +168,14 @@ if (j.recommended !== undefined) {
   if (j.recommended.length > 64) j.recommended = j.recommended.slice(0, 64);
 }
 
-// followed_recommendation — compute if both sides present.
+// followed_recommendation — compute if both sides present. The recommended
+// value arrives with its (Recommended) suffix already stripped by the
+// claude hook's extractRecommended, while user_choice is the raw option
+// label — so strip that suffix from both before comparing, else a user who
+// picks the recommended option is scored as NOT following it.
 if (j.recommended !== undefined && j.user_choice !== undefined) {
-  j.followed_recommendation = j.user_choice === j.recommended;
+  const stripRec = (s) => s.replace(/\(recommended\)\s*\$/i, '').trim();
+  j.followed_recommendation = stripRec(j.user_choice) === stripRec(j.recommended);
 }
 
 // session_id — kebab-friendly; <=64 chars
