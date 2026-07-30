@@ -19,7 +19,7 @@
 _gstack_grok_auth_probe() {
   # Multi-signal: env vars OR auth file. Avoids false negatives for env-auth
   # users (CI, platform engineers) that a file-only check would reject.
-  local _grok_home="${GROK_HOME:-$HOME/.grok}"
+  local _grok_home="${GROK_HOME:-$HOME/.grok3}"
   local _k1 _k2
   _k1=$(printf '%s' "${XAI_API_KEY:-}" | tr -d '[:space:]')
   _k2=$(printf '%s' "${GROK_API_KEY:-}" | tr -d '[:space:]')

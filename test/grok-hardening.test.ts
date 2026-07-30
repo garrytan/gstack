@@ -63,11 +63,11 @@ describe('gstack-grok-probe: auth probe', () => {
     }
   });
 
-  test('${GROK_HOME:-~/.grok}/auth.json exists → AUTH_OK', () => {
+  test('${GROK_HOME:-~/.grok3}/auth.json exists → AUTH_OK', () => {
     const home = tempHome();
     try {
-      fs.mkdirSync(path.join(home, '.grok'), { recursive: true });
-      fs.writeFileSync(path.join(home, '.grok', 'auth.json'), '{}');
+      fs.mkdirSync(path.join(home, '.grok3'), { recursive: true });
+      fs.writeFileSync(path.join(home, '.grok3', 'auth.json'), '{}');
       const r = runProbe({ snippet: '_gstack_grok_auth_probe', home });
       expect(r.stdout.trim()).toBe('AUTH_OK');
       expect(r.status).toBe(0);
@@ -157,7 +157,7 @@ for (const relPath of ['grok/SKILL.md.tmpl']) {
       const section = extractGrokInvocations(path.join(ROOT, relPath));
       const invokeLines = section
         .split('\n')
-        .filter((l) => /_gstack_grok_timeout_wrapper\s+\d+\s+grok\b/.test(l));
+        .filter((l) => /_gstack_grok_timeout_wrapper\s+\d+\s+(?:grok\b|"\$GROK_BIN"|\$GROK_BIN\b)/.test(l));
       expect(invokeLines.length).toBeGreaterThan(0);
       for (const line of invokeLines) {
         expect(line).toContain('--permission-mode plan');
@@ -168,7 +168,7 @@ for (const relPath of ['grok/SKILL.md.tmpl']) {
       const section = extractGrokInvocations(path.join(ROOT, relPath));
       const invokeLines = section
         .split('\n')
-        .filter((l) => /_gstack_grok_timeout_wrapper\s+\d+\s+grok\b/.test(l));
+        .filter((l) => /_gstack_grok_timeout_wrapper\s+\d+\s+(?:grok\b|"\$GROK_BIN"|\$GROK_BIN\b)/.test(l));
       for (const line of invokeLines) {
         expect(line).not.toMatch(/--reasoning-effort\b/);
       }
@@ -178,7 +178,7 @@ for (const relPath of ['grok/SKILL.md.tmpl']) {
       const section = extractGrokInvocations(path.join(ROOT, relPath));
       const invokeLines = section
         .split('\n')
-        .filter((l) => /_gstack_grok_timeout_wrapper\s+\d+\s+grok\b/.test(l));
+        .filter((l) => /_gstack_grok_timeout_wrapper\s+\d+\s+(?:grok\b|"\$GROK_BIN"|\$GROK_BIN\b)/.test(l));
       expect(invokeLines.length).toBeGreaterThan(0);
       for (const line of invokeLines) {
         expect(line).toMatch(/-m\s+grok-4\.5\b/);
