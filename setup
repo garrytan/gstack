@@ -1007,6 +1007,16 @@ create_kimi_runtime_root() {
   if [ -d "$gstack_dir/bin" ]; then
     _link_or_copy "$gstack_dir/bin" "$kimi_gstack/bin"
   fi
+  # Runtime deps of the bin/* wrappers: they invoke bun with "$SCRIPT_DIR/../lib/..."
+  # and "$SCRIPT_DIR/../scripts/..." paths, and bun resolves them textually —
+  # without these links every wrapper fails with "Cannot find module" (e.g.
+  # gstack-learnings-log → lib/jsonl-store.ts).
+  if [ -d "$gstack_dir/lib" ]; then
+    _link_or_copy "$gstack_dir/lib" "$kimi_gstack/lib"
+  fi
+  if [ -d "$gstack_dir/scripts" ]; then
+    _link_or_copy "$gstack_dir/scripts" "$kimi_gstack/scripts"
+  fi
   if [ -d "$gstack_dir/browse/dist" ]; then
     _link_or_copy "$gstack_dir/browse/dist" "$kimi_gstack/browse/dist"
   fi
