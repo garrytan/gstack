@@ -1874,32 +1874,27 @@ describe('Codex generation (--host codex)', () => {
 
   // ─── Path rewriting regression tests ─────────────────────────
 
-  test('sidecar paths point to .agents/skills/gstack/review/ (not gstack-review/)', () => {
-    // Regression: gen-skill-docs rewrote .claude/skills/review → .agents/skills/gstack-review
-    // but setup puts sidecars under .agents/skills/gstack/review/. Must match setup layout.
+  test('review assets resolve through GSTACK_ROOT for global and repo-local installs', () => {
+    // GSTACK_ROOT selects ~/.codex/skills/gstack for global installs and the
+    // repository sidecar for local installs. A cwd-relative .agents path only
+    // works when the project itself has a repo-local gstack installation.
     const content = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-review', 'SKILL.md'), 'utf-8');
-    // Correct: references to sidecar files use gstack/review/ path
-    expect(content).toContain('.agents/skills/gstack/review/checklist.md');
-    // design-checklist.md is now referenced via Review Army specialist (Claude only, stripped for Codex)
-    // Wrong: must NOT reference gstack-review/checklist.md (file doesn't exist there)
-    expect(content).not.toContain('.agents/skills/gstack-review/checklist.md');
+    expect(content).toContain('GSTACK_ROOT="$HOME/.codex/skills/gstack"');
+    expect(content).toContain('GSTACK_ROOT="$_ROOT/.agents/skills/gstack"');
+    expect(content).toContain('Read `$GSTACK_ROOT/review/checklist.md`.');
+    expect(content).not.toContain('.agents/skills/gstack/review/checklist.md');
   });
 
-  test('sidecar paths in ship skill point to gstack/review/ for pre-landing review', () => {
+  test('ship resolves pre-landing review assets through GSTACK_ROOT', () => {
     const content = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-ship', 'SKILL.md'), 'utf-8');
-    // Ship references the review checklist in its pre-landing review step
-    if (content.includes('checklist.md')) {
-      expect(content).toContain('.agents/skills/gstack/review/');
-      expect(content).not.toContain('.agents/skills/gstack-review/checklist');
-    }
+    expect(content).toContain('Read `$GSTACK_ROOT/review/checklist.md`.');
+    expect(content).not.toContain('.agents/skills/gstack/review/');
   });
 
-  test('greptile-triage sidecar path is correct', () => {
+  test('greptile triage resolves through GSTACK_ROOT', () => {
     const content = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-review', 'SKILL.md'), 'utf-8');
-    if (content.includes('greptile-triage')) {
-      expect(content).toContain('.agents/skills/gstack/review/greptile-triage.md');
-      expect(content).not.toContain('.agents/skills/gstack-review/greptile-triage');
-    }
+    expect(content).toContain('$GSTACK_ROOT/review/greptile-triage.md');
+    expect(content).not.toContain('.agents/skills/gstack/review/greptile-triage');
   });
 
   test('all four path rewrite rules produce correct output', () => {
@@ -1913,8 +1908,9 @@ describe('Codex generation (--host codex)', () => {
     // Rule 2: .claude/skills/gstack → .agents/skills/gstack
     expect(content).not.toContain('.claude/skills/gstack');
 
-    // Rule 3: .claude/skills/review → .agents/skills/gstack/review
+    // Rule 3: .claude/skills/review → $GSTACK_ROOT/review
     expect(content).not.toContain('.claude/skills/review');
+    expect(content).toContain('$GSTACK_ROOT/review');
 
     // Rule 4: .claude/skills → .agents/skills (catch-all)
     expect(content).not.toContain('.claude/skills');
@@ -1930,9 +1926,9 @@ describe('Codex generation (--host codex)', () => {
       if (content.includes('gstack-config') || content.includes('gstack-update-check') || content.includes('gstack-telemetry-log')) {
         expect(content).toContain('$GSTACK_ROOT');
       }
-      // If a skill references checklist.md, it must use the correct sidecar path
+      // Review assets must never depend on the current project's .agents tree.
       if (content.includes('checklist.md') && !content.includes('design-checklist.md')) {
-        expect(content).not.toContain('gstack-review/checklist.md');
+        expect(content).not.toContain('.agents/skills/gstack/review/');
       }
     }
   });
