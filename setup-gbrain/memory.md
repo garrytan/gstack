@@ -47,9 +47,9 @@ v1.33.0.0 — off by default. To re-enable it (adds ~4-8 min to cold runs
 on a large transcript corpus), use either:
 
 ```bash
-gstack-memory-ingest --bulk --scan-secrets
+bun run bin/gstack-memory-ingest.ts --bulk --scan-secrets
 # or
-GSTACK_MEMORY_INGEST_SCAN_SECRETS=1 gstack-memory-ingest --bulk
+GSTACK_MEMORY_INGEST_SCAN_SECRETS=1 bun run bin/gstack-memory-ingest.ts --bulk
 ```
 
 When enabled, gitleaks covers:
@@ -155,7 +155,7 @@ verdict block. If a row is RED, the row tells you what to do.
 Common cases:
 
 - **Salience block is empty** — your transcripts may not be ingested
-  yet. Run `gstack-gbrain-sync --full` to do a full pass.
+  yet. Run `bun run bin/gstack-gbrain-sync.ts --full` to do a full pass.
 
 - **"gbrain CLI missing" in the preamble output** — gbrain isn't on
   your PATH. Run `/setup-gbrain` to install/wire it.
@@ -166,7 +166,7 @@ Common cases:
   --pglite && gbrain import <brain-remote-clone-dir>`.
 
 - **A page has stale or wrong content** — `gbrain delete_page <slug>`,
-  then re-run `gstack-gbrain-sync --incremental` to re-ingest from
+  then re-run `bun run bin/gstack-gbrain-sync.ts --incremental` to re-ingest from
   source if the source file is still on disk and unchanged.
 
 ## Privacy + audit
