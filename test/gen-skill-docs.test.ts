@@ -4,6 +4,7 @@ import { SNAPSHOT_FLAGS } from '../browse/src/snapshot';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { spawnSync } from 'child_process';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const MAX_SKILL_DESCRIPTION_LENGTH = 1024;
@@ -1777,14 +1778,37 @@ describe('Codex generation (--host codex)', () => {
     const content = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-claude', 'SKILL.md'), 'utf-8');
     expect(content).toContain('claude -p');
     expect(content).toContain('mktemp /tmp/gstack-claude-prompt-');
+    expect(content).toContain('mktemp /tmp/gstack-claude-response-XXXXXX');
+    expect(content).toContain('mktemp /tmp/gstack-claude-error-XXXXXX');
     expect(content).toContain('mktemp /tmp/gstack-claude-diff-');
+    expect(content).not.toMatch(/gstack-claude-(?:prompt|response|error|diff)-X{6,}\.\w+/);
     expect(content).not.toContain('/tmp/gstack-claude-diff-$$');
-    expect(content).toContain('cat "$PROMPT_FILE" | claude -p');
+    expect(content).toContain('cat "$PROMPT_FILE" | "$CLAUDE_BIN" -p');
+    expect(content).toContain('Resolve the binary and invoke it in the same host execution context');
     expect(content).toContain('--disable-slash-commands');
     expect(content).toContain('--tools ""');
     expect(content).toContain('--allowedTools Read,Grep,Glob');
     expect(content).toContain('--disallowedTools Bash,Edit,Write');
+    expect(content).toContain('Do not infer authentication state from credential files');
+    expect(content).toContain('run the actual `claude -p`');
+    expect(content).not.toContain('AUTH_MISSING');
+    expect(content).not.toContain('$HOME/.claude/.credentials.json');
     expect(content).toContain('is_error');
+  });
+
+  test('Claude temp file templates are accepted by host mktemp', () => {
+    for (const template of [
+      '/tmp/gstack-claude-prompt-XXXXXX',
+      '/tmp/gstack-claude-response-XXXXXX',
+      '/tmp/gstack-claude-error-XXXXXX',
+      '/tmp/gstack-claude-diff-XXXXXX',
+    ]) {
+      const result = spawnSync('mktemp', [template], { encoding: 'utf-8' });
+      expect(result.status).toBe(0);
+      const created = result.stdout.trim();
+      expect(created.startsWith(template.replace('XXXXXX', ''))).toBe(true);
+      fs.unlinkSync(created);
+    }
   });
 
   test('Codex review step stripped from Codex-host ship and review', () => {
