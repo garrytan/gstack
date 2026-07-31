@@ -25,12 +25,24 @@ export class ClaudeAdapter implements ProviderAdapter {
     if (!resolved) {
       return { ok: false, reason: 'claude CLI not found on PATH. Install from https://claude.ai/download or npm i -g @anthropic-ai/claude-code (or set GSTACK_CLAUDE_BIN)' };
     }
-    // Auth sniff: ~/.claude/.credentials.json OR ANTHROPIC_API_KEY
+    // Prefer the CLI's own auth check because current macOS builds store OAuth
+    // credentials in Keychain rather than ~/.claude/.credentials.json.
     const credsPath = path.join(os.homedir(), '.claude', '.credentials.json');
     const hasCreds = fs.existsSync(credsPath);
     const hasKey = !!process.env.ANTHROPIC_API_KEY;
-    if (!hasCreds && !hasKey) {
-      return { ok: false, reason: 'No Claude auth found. Log in via `claude` interactive session, or export ANTHROPIC_API_KEY.' };
+    let hasCliAuth = false;
+    try {
+      execFileSync(
+        resolved.command,
+        [...resolved.argsPrefix, 'auth', 'status', '--json'],
+        { stdio: 'ignore', timeout: 5_000 },
+      );
+      hasCliAuth = true;
+    } catch {
+      // Older CLI builds may not support `auth status`; retain legacy fallbacks.
+    }
+    if (!hasCreds && !hasKey && !hasCliAuth) {
+      return { ok: false, reason: 'No Claude auth found. Run `claude auth login` (or `claude` interactively), or export ANTHROPIC_API_KEY.' };
     }
     return { ok: true };
   }

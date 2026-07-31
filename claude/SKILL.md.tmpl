@@ -45,7 +45,9 @@ If `NOT_FOUND`, stop and tell the user:
 Check auth:
 
 ```bash
-if [ -f "$HOME/.claude/.credentials.json" ] || [ -n "${ANTHROPIC_API_KEY:-}" ]; then
+if [ -f "$HOME/.claude/.credentials.json" ] \
+  || [ -n "${ANTHROPIC_API_KEY:-}" ] \
+  || claude auth status --json >/dev/null 2>&1; then
   echo "AUTH_FOUND"
 else
   echo "AUTH_MISSING"
@@ -53,7 +55,7 @@ fi
 ```
 
 If `AUTH_MISSING`, stop and tell the user:
-"No Claude authentication found. Run `claude` interactively to log in, or export `ANTHROPIC_API_KEY`, then re-run this skill."
+"No Claude authentication found. Run `claude auth login` (or `claude` interactively), or export `ANTHROPIC_API_KEY`, then re-run this skill."
 
 ---
 
