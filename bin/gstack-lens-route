@@ -1,0 +1,75 @@
+#!/usr/bin/env bun
+import * as fs from 'fs';
+import * as path from 'path';
+import { spawnSync } from 'child_process';
+import { loadLensRegistry } from '../scripts/lenses/registry';
+import { loadLensPolicy, routeLenses, type LensRouteMode } from '../scripts/lenses/routing';
+
+function arg(name: string): string | undefined {
+  const index = process.argv.indexOf(name);
+  if (index < 0) return undefined;
+  const value = process.argv[index + 1];
+  return value && !value.startsWith('--') ? value : undefined;
+}
+function flag(name: string): boolean {
+  return process.argv.includes(name);
+}
+function csv(value: string | undefined): string[] {
+  return value ? value.split(',').map((item) => item.trim()).filter(Boolean) : [];
+}
+function git(args: string[], cwd: string): string {
+  const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
+  if (result.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${result.stderr.trim()}`);
+  return result.stdout;
+}
+
+const repoRoot = path.resolve(arg('--repo-root') ?? process.cwd());
+const mode = (arg('--mode') ?? 'mandatory') as LensRouteMode;
+if (!['mandatory', 'recommended', 'all', 'explicit'].includes(mode)) throw new Error(`Invalid --mode ${mode}`);
+
+let changedPaths: string[];
+let addedLines: string[];
+const pathsFile = arg('--paths-file');
+const addedFile = arg('--added-lines-file');
+if (pathsFile) {
+  changedPaths = fs.readFileSync(pathsFile, 'utf8').split(/\r?\n/).map((item: string) => item.trim()).filter(Boolean);
+  addedLines = addedFile ? fs.readFileSync(addedFile, 'utf8').split(/\r?\n/) : [];
+} else {
+  const base = arg('--base') ?? 'main';
+  let diffBase: string;
+  try {
+    git(['fetch', 'origin', base, '--quiet'], repoRoot);
+    diffBase = git(['merge-base', `origin/${base}`, 'HEAD'], repoRoot).trim();
+  } catch {
+    diffBase = git(['merge-base', base, 'HEAD'], repoRoot).trim();
+  }
+  changedPaths = git(['diff', '--name-only', diffBase], repoRoot).split(/\r?\n/).filter(Boolean);
+  addedLines = git(['diff', '--unified=0', diffBase], repoRoot)
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith('+') && !line.startsWith('+++'))
+    .map((line) => line.slice(1));
+}
+
+let prLabels = csv(arg('--pr-labels'));
+if (prLabels.length === 0 && !flag('--no-gh')) {
+  const gh = spawnSync('gh', ['pr', 'view', '--json', 'labels', '-q', '.labels[].name'], { cwd: repoRoot, encoding: 'utf8' });
+  if (gh.status === 0) prLabels = gh.stdout.split(/\r?\n/).map((item: string) => item.trim()).filter(Boolean);
+}
+
+const policyPath = path.resolve(arg('--policy') ?? path.join(repoRoot, '.gstack', 'lens-policy.yaml'));
+const bypassReason = arg('--no-mandatory-lenses') ?? arg('--no-mandatory-reason');
+const bypassMandatory = flag('--no-mandatory') || process.argv.includes('--no-mandatory-lenses');
+const specs = loadLensRegistry(repoRoot);
+const output = routeLenses(specs, {
+  mode,
+  requested: csv(arg('--requested')),
+  allow_draft: flag('--allow-draft'),
+  changed_paths: changedPaths,
+  pr_labels: prLabels,
+  added_lines: addedLines,
+  declared_surfaces: csv(arg('--surface')),
+  policy: loadLensPolicy(policyPath),
+  no_mandatory: bypassMandatory,
+  no_mandatory_reason: bypassReason,
+});
+process.stdout.write(`${JSON.stringify({ ...output, changed_paths: changedPaths, pr_labels: prLabels }, null, 2)}\n`);

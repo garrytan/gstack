@@ -1,0 +1,21 @@
+# Copy to .gstack/product-context.yaml and author only fields that are true.
+# Missing required fields may cause a lens to return INSUFFICIENT_EVIDENCE.
+
+# target_customer: "Large regulated enterprises"
+# business_model: "Usage-based SaaS"
+# product_claim: "Administrative workflows are centrally governed and auditable"
+# regulatory_posture: "Jurisdiction-neutral; legal applicability validated separately"
+# data_classification: "Customer confidential; limited PII"
+# deployment_model: "Multi-tenant SaaS with support-admin access"
+# incentive_structure: "Usage credits and paid overages"
+# competitive_context: "Incumbent platform vendors and specialized point solutions"
+
+# Optional artifacts can be supplied inline or by checked-in path.
+# privileged_role_model:
+#   support-operator:
+#     capabilities: [customer-read, export-request]
+#   support-admin:
+#     capabilities: [customer-read, export-approve]
+
+# Context fields named here are excluded from persisted lens_run metadata.
+# redact_from_events: [competitive_context, regulatory_posture]

@@ -28,6 +28,7 @@ import { generateLearningsSearch, generateLearningsLog } from './learnings';
 import { generateConfidenceCalibration } from './confidence';
 import { generateInvokeSkill } from './composition';
 import { generateReviewArmy } from './review-army';
+import { generateLensEarlyCommands, generateLensPrepare, generateLensLayer, generateLensDisposition } from './lens-layer';
 import { generateDxFramework } from './dx';
 import { generateModelOverlay } from './model-overlay';
 import { generateGBrainContextLoad, generateGBrainSaveResults, generateBrainPreflight, generateBrainCacheRefresh, generateBrainWriteBack } from './gbrain';
@@ -84,6 +85,10 @@ export const RESOLVERS: Record<string, ResolverValue> = {
   INVOKE_SKILL: generateInvokeSkill,
   CHANGELOG_WORKFLOW: generateChangelogWorkflow,
   REVIEW_ARMY: generateReviewArmy,
+  LENS_EARLY_ROUTING: generateLensEarlyCommands,
+  LENS_REVIEW_ARMY_GUARD: generateLensPrepare,
+  LENS_LAYER: generateLensLayer,
+  LENS_DISPOSITION: generateLensDisposition,
   CROSS_REVIEW_DEDUP: generateCrossReviewDedup,
   DX_FRAMEWORK: generateDxFramework,
   MODEL_OVERLAY: generateModelOverlay,

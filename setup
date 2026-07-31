@@ -972,6 +972,40 @@ link_opencode_skill_dirs() {
   fi
 }
 
+install_claude_managed_agents() {
+  local gstack_dir="$1"
+  local skills_dir="$2"
+  local source_dir="$gstack_dir/hosts/claude/agents"
+  local claude_root
+  local target_dir
+
+  [ -d "$source_dir" ] || return 0
+
+  claude_root="$(dirname "$skills_dir")"
+  target_dir="$claude_root/agents"
+  mkdir -p "$target_dir"
+
+  for src in "$source_dir"/*.md; do
+    [ -f "$src" ] || continue
+    local name
+    local target
+    name="$(basename "$src")"
+    target="$target_dir/$name"
+
+    if [ -e "$target" ] && [ ! -L "$target" ]; then
+      if ! grep -q 'gstack-managed-agent' "$target" 2>/dev/null; then
+        log "  warning: preserving user-managed Claude agent: $target"
+        continue
+      fi
+      rm -f "$target"
+    fi
+
+    _link_or_copy "$src" "$target"
+  done
+
+  log "  agents: $target_dir/gstack-{lens-reviewer,lens-output-validator,cto-synthesizer}.md"
+}
+
 # 4. Install for Claude (default)
 SKILLS_BASENAME="$(basename "$INSTALL_SKILLS_DIR")"
 SKILLS_PARENT_BASENAME="$(basename "$(dirname "$INSTALL_SKILLS_DIR")")"
@@ -993,6 +1027,7 @@ if [ "$INSTALL_CLAUDE" -eq 1 ]; then
     "$SOURCE_GSTACK_DIR/bin/gstack-patch-names" "$SOURCE_GSTACK_DIR" "$SKILL_PREFIX"
     link_claude_skill_dirs "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
     link_claude_root_skill_alias "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
+    install_claude_managed_agents "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
     # Self-healing: re-run gstack-relink to ensure name: fields and directory
     # names are consistent with the config. This catches cases where an interrupted
     # setup, stale git state, or gen:skill-docs left name: fields out of sync.
@@ -1065,6 +1100,7 @@ if [ "$INSTALL_CLAUDE" -eq 1 ]; then
       "$SOURCE_GSTACK_DIR/bin/gstack-patch-names" "$SOURCE_GSTACK_DIR" "$SKILL_PREFIX"
       link_claude_skill_dirs "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
       link_claude_root_skill_alias "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
+      install_claude_managed_agents "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
       GSTACK_RELINK="$SOURCE_GSTACK_DIR/bin/gstack-relink"
       if [ -x "$GSTACK_RELINK" ]; then
         GSTACK_SKILLS_DIR="$INSTALL_SKILLS_DIR" GSTACK_INSTALL_DIR="$SOURCE_GSTACK_DIR" "$GSTACK_RELINK" >/dev/null 2>&1 || true

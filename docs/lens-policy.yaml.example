@@ -1,0 +1,17 @@
+# Copy to .gstack/lens-policy.yaml.
+# Mandatory rules are explicit project policy. gstack never creates them silently.
+
+# todo_target: todos_md  # plan_file | todos_md | pr_checklist | issue
+
+mandatory_lenses:
+  admin_exports:
+    surface_globs:
+      - "**/admin/exports/**"
+      - "src/support-tools/data_export.*"
+    lenses: [insider-abuse]
+
+  privileged_access:
+    surface_globs:
+      - "**/rbac/**"
+      - "**/service-accounts/**"
+    lenses: [insider-abuse]

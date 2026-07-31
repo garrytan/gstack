@@ -1,0 +1,17 @@
+#!/usr/bin/env bun
+import * as fs from 'fs';
+import { validateCtoSynthesis } from '../scripts/lenses/synthesis';
+import type { SynthesisInput } from '../scripts/lenses/types';
+
+function arg(name: string): string | undefined {
+  const index = process.argv.indexOf(name);
+  return index >= 0 ? process.argv[index + 1] : undefined;
+}
+
+const inputPath = arg('--input');
+if (!inputPath) throw new Error('Usage: gstack-lens-synthesis-validate --input <synthesis-input.json> [--output <agent-output.json>]');
+const outputPath = arg('--output');
+const rawOutput = outputPath ? fs.readFileSync(outputPath, 'utf8') : fs.readFileSync(0, 'utf8');
+const input = JSON.parse(fs.readFileSync(inputPath, 'utf8')) as SynthesisInput;
+const validated = validateCtoSynthesis(JSON.parse(rawOutput), input);
+process.stdout.write(`${JSON.stringify(validated, null, 2)}\n`);

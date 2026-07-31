@@ -9,12 +9,14 @@
 # What gets REMOVED:
 #   ~/.claude/skills/gstack       — global Claude skill install (git clone or vendored)
 #   ~/.claude/skills/{skill}      — per-skill symlinks created by setup
+#   ~/.claude/agents/gstack-*.md   — managed lens reviewer and CTO synthesis agents
 #   ~/.codex/skills/gstack*       — Codex skill install + per-skill symlinks
 #   ~/.factory/skills/gstack*     — Factory Droid skill install + per-skill symlinks
 #   ~/.kiro/skills/gstack*        — Kiro skill install + per-skill symlinks
 #   ~/.gstack/                    — global state (config, analytics, sessions, projects,
 #                                   repos, installation-id, browse error logs)
 #   .claude/skills/gstack*        — project-local skill install (--local installs)
+#   .claude/agents/gstack-*.md     — project-local managed lens agents
 #   .gstack/                      — per-project browse state (in current git repo)
 #   .gstack-worktrees/            — per-project test worktrees (in current git repo)
 #   .agents/skills/gstack*        — Codex/Gemini/Cursor sidecar (in current git repo)
@@ -63,6 +65,9 @@ done
 if [ "$FORCE" -eq 0 ]; then
   echo "This will remove gstack from your system:"
   { [ -d "$HOME/.claude/skills/gstack" ] || [ -L "$HOME/.claude/skills/gstack" ]; } && echo "  ~/.claude/skills/gstack (+ per-skill symlinks)"
+  [ -e "$HOME/.claude/agents/gstack-lens-reviewer.md" ] && echo "  ~/.claude/agents/gstack-lens-reviewer.md"
+  [ -e "$HOME/.claude/agents/gstack-cto-synthesizer.md" ] && echo "  ~/.claude/agents/gstack-cto-synthesizer.md"
+  [ -e "$HOME/.claude/agents/gstack-lens-output-validator.md" ] && echo "  ~/.claude/agents/gstack-lens-output-validator.md"
   [ -d "$HOME/.codex/skills" ] && echo "  ~/.codex/skills/gstack*"
   [ -d "$HOME/.factory/skills" ] && echo "  ~/.factory/skills/gstack*"
   [ -d "$HOME/.kiro/skills" ] && echo "  ~/.kiro/skills/gstack*"
@@ -70,6 +75,9 @@ if [ "$FORCE" -eq 0 ]; then
 
   if [ -n "$_GIT_ROOT" ]; then
     [ -d "$_GIT_ROOT/.claude/skills/gstack" ] && echo "  $_GIT_ROOT/.claude/skills/gstack (project-local)"
+    [ -e "$_GIT_ROOT/.claude/agents/gstack-lens-reviewer.md" ] && echo "  $_GIT_ROOT/.claude/agents/gstack-lens-reviewer.md"
+    [ -e "$_GIT_ROOT/.claude/agents/gstack-cto-synthesizer.md" ] && echo "  $_GIT_ROOT/.claude/agents/gstack-cto-synthesizer.md"
+    [ -e "$_GIT_ROOT/.claude/agents/gstack-lens-output-validator.md" ] && echo "  $_GIT_ROOT/.claude/agents/gstack-lens-output-validator.md"
     [ -d "$_GIT_ROOT/.gstack" ] && echo "  $_GIT_ROOT/.gstack/ (browse state + reports)"
     [ -d "$_GIT_ROOT/.gstack-worktrees" ] && echo "  $_GIT_ROOT/.gstack-worktrees/"
     [ -d "$_GIT_ROOT/.agents/skills" ] && echo "  $_GIT_ROOT/.agents/skills/gstack*"
@@ -128,6 +136,26 @@ if [ -d "$STATE_DIR/projects" ]; then
   done < <(find "$STATE_DIR/projects" -name browse.json -path '*/.gstack/*' 2>/dev/null || true)
 fi
 
+remove_gstack_managed_agent() {
+  local target="$1"
+  local label="$2"
+  [ -e "$target" ] || [ -L "$target" ] || return 0
+
+  if [ -L "$target" ]; then
+    local link_target
+    link_target="$(readlink "$target" 2>/dev/null || true)"
+    case "$link_target" in
+      *gstack*/hosts/claude/agents/*) rm -f "$target"; REMOVED+=("$label") ;;
+    esac
+    return 0
+  fi
+
+  if grep -q 'gstack-managed-agent' "$target" 2>/dev/null; then
+    rm -f "$target"
+    REMOVED+=("$label")
+  fi
+}
+
 # ─── Remove global Claude skills ────────────────────────────
 CLAUDE_SKILLS="$HOME/.claude/skills"
 if [ -d "$CLAUDE_SKILLS/gstack" ] || [ -L "$CLAUDE_SKILLS/gstack" ]; then
@@ -146,6 +174,11 @@ if [ -d "$CLAUDE_SKILLS/gstack" ] || [ -L "$CLAUDE_SKILLS/gstack" ]; then
   REMOVED+=("~/.claude/skills/gstack")
 fi
 
+remove_gstack_managed_agent "$HOME/.claude/agents/gstack-lens-reviewer.md" "~/.claude/agents/gstack-lens-reviewer.md"
+remove_gstack_managed_agent "$HOME/.claude/agents/gstack-cto-synthesizer.md" "~/.claude/agents/gstack-cto-synthesizer.md"
+remove_gstack_managed_agent "$HOME/.claude/agents/gstack-lens-output-validator.md" "~/.claude/agents/gstack-lens-output-validator.md"
+rmdir "$HOME/.claude/agents" 2>/dev/null || true
+
 # ─── Remove project-local Claude skills (--local installs) ──
 if [ -n "$_GIT_ROOT" ] && [ -d "$_GIT_ROOT/.claude/skills" ]; then
   for _LINK in "$_GIT_ROOT/.claude/skills"/*; do
@@ -159,6 +192,13 @@ if [ -n "$_GIT_ROOT" ] && [ -d "$_GIT_ROOT/.claude/skills" ]; then
     rm -rf "$_GIT_ROOT/.claude/skills/gstack"
     REMOVED+=("$_GIT_ROOT/.claude/skills/gstack")
   fi
+fi
+
+if [ -n "$_GIT_ROOT" ]; then
+  remove_gstack_managed_agent "$_GIT_ROOT/.claude/agents/gstack-lens-reviewer.md" "local .claude/agents/gstack-lens-reviewer.md"
+  remove_gstack_managed_agent "$_GIT_ROOT/.claude/agents/gstack-cto-synthesizer.md" "local .claude/agents/gstack-cto-synthesizer.md"
+  remove_gstack_managed_agent "$_GIT_ROOT/.claude/agents/gstack-lens-output-validator.md" "local .claude/agents/gstack-lens-output-validator.md"
+  rmdir "$_GIT_ROOT/.claude/agents" 2>/dev/null || true
 fi
 
 # ─── Remove Codex skills ────────────────────────────────────

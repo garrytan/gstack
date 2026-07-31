@@ -1,0 +1,27 @@
+#!/usr/bin/env bun
+import * as fs from 'fs';
+import * as path from 'path';
+import { loadLensRegistry, resolveLensName } from '../scripts/lenses/registry';
+import { parseLensOutput } from '../scripts/lenses/parser';
+
+function arg(name: string): string | undefined {
+  const index = process.argv.indexOf(name);
+  return index >= 0 ? process.argv[index + 1] : undefined;
+}
+
+const repoRoot = path.resolve(arg('--repo-root') ?? process.cwd());
+const lensName = arg('--lens');
+if (!lensName) {
+  console.error('Usage: gstack-lens-parse --lens <name> [--file <path>] [--repo-root <path>]');
+  process.exit(2);
+}
+const spec = resolveLensName(loadLensRegistry(repoRoot), lensName!);
+if (!spec) {
+  console.error(`Unknown stakeholder lens: ${lensName}`);
+  process.exit(2);
+}
+const file = arg('--file');
+const raw = file ? fs.readFileSync(path.resolve(file), 'utf8') : fs.readFileSync(0, 'utf8');
+const parsed = parseLensOutput(raw, spec!);
+process.stdout.write(`${JSON.stringify(parsed)}\n`);
+process.exit(parsed.result ? 0 : 1);

@@ -1,0 +1,45 @@
+#!/usr/bin/env bun
+import * as fs from 'fs';
+import * as path from 'path';
+import { computeLensStats, lensEventPath, readLensEvents } from '../scripts/lenses/events';
+
+function arg(name: string): string | undefined {
+  const i = process.argv.indexOf(name);
+  return i >= 0 ? process.argv[i + 1] : undefined;
+}
+function flag(name: string): boolean {
+  return process.argv.includes(name);
+}
+
+const repoRoot = path.resolve(arg('--repo-root') ?? process.cwd());
+const filePath = lensEventPath(repoRoot, { slug: arg('--project') });
+if (process.argv.includes('--purge')) {
+  if (!flag('--yes')) throw new Error(`Refusing to purge ${filePath} without --yes`);
+  fs.rmSync(filePath, { force: true });
+  process.stdout.write(`Purged ${filePath}\n`);
+  process.exit(0);
+}
+
+const { events, parse_errors } = readLensEvents(filePath);
+const stats = computeLensStats(events, parse_errors);
+if (flag('--json')) {
+  process.stdout.write(JSON.stringify({ path: filePath, ...stats }, null, 2) + '\n');
+  process.exit(0);
+}
+
+process.stdout.write(`LENS_STATS: ${events.length} events analyzed (${parse_errors} parse errors)\n`);
+const lenses = [...new Set([...Object.keys(stats.runs), ...Object.keys(stats.findings)])].sort();
+if (lenses.length === 0) {
+  process.stdout.write('No lens history for this project.\n');
+  process.exit(0);
+}
+process.stdout.write('Lens                         Runs  Findings  Novel  Confirmed  Avg latency  Avg cost  Insufficient\n');
+for (const lens of lenses) {
+  const run = stats.runs[lens] ?? { invocations: 0, total_wall_clock_ms: 0, total_cost_usd: 0, cost_samples: 0, insufficient_evidence: 0 };
+  const finding = stats.findings[lens] ?? { total: 0, novel_vs_tech: 0, confirmed_validity: 0 };
+  const latency = run.invocations ? `${Math.round(run.total_wall_clock_ms / run.invocations / 1000)}s` : '-';
+  const cost = run.cost_samples ? `$${(run.total_cost_usd / run.cost_samples).toFixed(2)}` : '-';
+  process.stdout.write(
+    `${lens.padEnd(28)} ${String(run.invocations).padStart(4)}  ${String(finding.total).padStart(8)}  ${String(finding.novel_vs_tech).padStart(5)}  ${String(finding.confirmed_validity).padStart(9)}  ${latency.padStart(11)}  ${cost.padStart(8)}  ${String(run.insufficient_evidence).padStart(12)}\n`,
+  );
+}
