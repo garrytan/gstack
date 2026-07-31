@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.60.2.0] - 2026-07-31
+
+## **Runtime roots now ship `lib/` beside `bin/`, so shared JSONL imports work from Codex sidecars.**
+
+`gstack-learnings-log` imports the shared `lib/jsonl-store.ts` sanitizer from a bash-launched Bun snippet. The source checkout had that file, but Codex/Factory/OpenCode/Kiro runtime roots exposed `bin/` without `lib/`, so invoking the logger through `.agents/skills/gstack/bin/...` failed with `Cannot find module '../lib/jsonl-store.ts'`.
+
+### Fixed
+
+- `setup`: installs or links `lib/` next to `bin/` for the Codex `.agents/skills/gstack` sidecar, Codex global runtime root, Factory runtime root, OpenCode runtime root, and Kiro runtime root.
+- `test/setup-runtime-lib-linking.test.ts`: locks the installer invariant and reproduces the sidecar path end-to-end, proving `gstack-learnings-log` can import the shared JSONL module and append a learning.
+
+### Verified
+
+- `bun test test/setup-runtime-lib-linking.test.ts test/learnings.test.ts test/jsonl-store.test.ts test/gstack-question-log.test.ts test/setup-sections-linking.test.ts test/setup-windows-fallback.test.ts test/bin-windows-bun-import-paths.test.ts` — 75 pass, 0 fail.
+- `bun run test` exited 0 on the current base.
+
 ## [1.60.1.0] - 2026-07-09
 
 ## **The /autoplan dual-voice eval is back on the board, catching real regressions.**
