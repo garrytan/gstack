@@ -155,6 +155,13 @@ export const CDP_ALLOWLIST: ReadonlyArray<CdpAllowEntry> = Object.freeze([
     output: 'trusted',
     justification: 'UA override on the active tab. NOTE: changes affect future requests; fine for tests.',
   },
+  {
+    domain: 'Emulation',
+    method: 'setEmulatedMedia',
+    scope: 'tab',
+    output: 'trusted',
+    justification: 'Media type/feature override (prefers-color-scheme, prefers-reduced-motion, prefers-contrast, forced-colors) so a11y and dark-mode CSS branches are testable. Returns an empty result; no page content. NOTE: like setUserAgentOverride the override persists on the tab until cleared with an empty features array.',
+  },
   // ─── Page capture (output, not navigation) ─────────────────
   {
     domain: 'Page',

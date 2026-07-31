@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.60.1.1] - 2026-07-31
+
+### Added
+- **`/browse` can now test accessibility and dark-mode CSS branches.** `Emulation.setEmulatedMedia` is on the CDP allowlist, so `$B cdp Emulation.setEmulatedMedia '{"features":[{"name":"prefers-reduced-motion","value":"reduce"}]}'` works. Every media-feature branch (`prefers-reduced-motion`, `prefers-contrast`, `prefers-color-scheme`, `forced-colors`) was previously unreachable through browse: the method 403'd under the deny-default allowlist, so `/qa` and `/design-review` had no way to verify that a reduced-motion or high-contrast rule actually fires. Found while QA'ing a site whose CRT scanline overlay is suppressed under `prefers-reduced-motion`; there was no way to prove the suppression worked. Scoped `tab`/`trusted`, matching the three `Emulation` entries already on the list: the method returns an empty result and leaks no page content. Clear the override by passing an empty `features` array.
+
 ## [1.60.1.0] - 2026-07-09
 
 ## **The /autoplan dual-voice eval is back on the board, catching real regressions.**
