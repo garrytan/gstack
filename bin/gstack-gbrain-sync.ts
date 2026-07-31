@@ -895,7 +895,25 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
     };
   }
 
-  const walkResult = spawnGbrain(["sync", "--strategy", "code", "--source", sourceId], {
+  // `--full` must do a FULL walk, not a delta one.
+  //
+  // A bare `sync --strategy code` is incremental: it only revisits files that
+  // changed since the source's checkpoint. So a file missed at the ORIGINAL
+  // import is never revisited and stays invisible indefinitely — and the
+  // reindex-code pass below cannot rescue it, because it re-chunks pages that
+  // already exist and never walks the filesystem (the same property the comment
+  // above already relies on).
+  //
+  // The failure is silent: no error, no warning, and the verdict block still
+  // reports OK while `gbrain search` and `gbrain code-def` answer out of a
+  // partial index. It presents as "gbrain is weak at code questions" rather
+  // than "the index is incomplete", which is what makes it hard to spot.
+  //
+  // --yes because this is spawned non-interactively; a full walk otherwise
+  // prompts to confirm the import cost.
+  const walkArgs = ["sync", "--strategy", "code", "--source", sourceId];
+  if (args.mode === "full") walkArgs.push("--full", "--yes");
+  const walkResult = spawnGbrain(walkArgs, {
     stdio: args.quiet ? ["ignore", "ignore", "ignore"] : ["ignore", "inherit", "inherit"],
     timeout: codeTimeoutMs,
     baseEnv: gbrainEnv,
@@ -907,7 +925,7 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
       ran: true,
       ok: false,
       duration_ms: Date.now() - t0,
-      summary: `gbrain sync --strategy code --source ${sourceId} exited ${walkResult.status}`,
+      summary: `gbrain ${walkArgs.join(" ")} exited ${walkResult.status}`,
       detail: { source_id: sourceId, source_path: root, status: "failed" },
     };
   }
