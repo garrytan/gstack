@@ -96,15 +96,16 @@ Use these shell snippets in every mode.
 Create temp files:
 
 ```bash
-PROMPT_FILE=$(mktemp /tmp/gstack-claude-prompt-XXXXXX)
-RESP_FILE=$(mktemp /tmp/gstack-claude-response-XXXXXX.json)
-ERR_FILE=$(mktemp /tmp/gstack-claude-error-XXXXXX.txt)
+CLAUDE_TMP_DIR=$(mktemp -d /tmp/gstack-claude-XXXXXX)
+PROMPT_FILE="$CLAUDE_TMP_DIR/prompt.txt"
+RESP_FILE="$CLAUDE_TMP_DIR/response.json"
+ERR_FILE="$CLAUDE_TMP_DIR/error.txt"
 ```
 
 Cleanup at the end of every mode:
 
 ```bash
-rm -f "$PROMPT_FILE" "$RESP_FILE" "$ERR_FILE"
+rm -rf "$CLAUDE_TMP_DIR"
 ```
 
 Parse JSON output:
@@ -153,7 +154,7 @@ Review the current branch diff with nested Claude in tool-less mode.
 ```bash
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
 cd "$_REPO_ROOT"
-DIFF_FILE=$(mktemp /tmp/gstack-claude-diff-XXXXXX.patch)
+DIFF_FILE="$CLAUDE_TMP_DIR/diff.patch"
 git fetch origin <base> --quiet 2>/dev/null || true
 git diff "origin/<base>" > "$DIFF_FILE" 2>/dev/null || git diff "<base>" > "$DIFF_FILE"
 ```
@@ -195,7 +196,7 @@ CLAUDE SAYS (code review):
 5. Cleanup:
 
 ```bash
-rm -f "$DIFF_FILE" "$PROMPT_FILE" "$RESP_FILE" "$ERR_FILE"
+rm -rf "$CLAUDE_TMP_DIR"
 ```
 
 ---
@@ -241,7 +242,7 @@ CLAUDE SAYS (adversarial challenge):
 5. Cleanup:
 
 ```bash
-rm -f "$DIFF_FILE" "$PROMPT_FILE" "$RESP_FILE" "$ERR_FILE"
+rm -rf "$CLAUDE_TMP_DIR"
 ```
 
 ---
