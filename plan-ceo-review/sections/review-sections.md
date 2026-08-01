@@ -591,7 +591,7 @@ the review is complete and the context is no longer needed.
 
 ```bash
 setopt +o nomatch 2>/dev/null || true  # zsh compat
-eval "$($GSTACK_BIN/gstack-slug 2>/dev/null)"
+eval "$("$GSTACK_BIN"/gstack-slug 2>/dev/null)"
 rm -f ~/.gstack/projects/$SLUG/*-$BRANCH-ceo-handoff-*.md 2>/dev/null || true
 ```
 
@@ -809,7 +809,7 @@ If you discovered a non-obvious pattern, pitfall, or architectural insight durin
 this session, log it for future sessions:
 
 ```bash
-$GSTACK_BIN/gstack-learnings-log '{"skill":"plan-ceo-review","type":"TYPE","key":"SHORT_KEY","insight":"DESCRIPTION","confidence":N,"source":"SOURCE","files":["path/to/relevant/file"]}'
+"$GSTACK_BIN"/gstack-learnings-log '{"skill":"plan-ceo-review","type":"TYPE","key":"SHORT_KEY","insight":"DESCRIPTION","confidence":N,"source":"SOURCE","files":["path/to/relevant/file"]}'
 ```
 
 **Types:** `pattern` (reusable approach), `pitfall` (what NOT to do), `preference`
@@ -838,7 +838,7 @@ TTHW target, architectural bet, wedge commitment), it MAY write a
 
 **Gated on two things:**
 1. Brain trust policy for the active endpoint is `personal` (check via
-   `$GSTACK_BIN/gstack-config get brain_trust_policy@<endpoint-hash>`).
+   `"$GSTACK_BIN"/gstack-config get brain_trust_policy@<endpoint-hash>`).
    Shared brains skip write-back to avoid polluting team calibration.
 2. Feature flag `BRAIN_CALIBRATION_WRITEBACK` is set (today: false; flips
    to true when upstream gbrain v0.42+ ships `takes_add` MCP op).
@@ -863,10 +863,10 @@ After write, invalidate the affected digests so the next preflight reflects
 the new state:
 
 ```bash
-eval "$($GSTACK_BIN/gstack-slug 2>/dev/null)" 2>/dev/null || true
-  $GSTACK_BIN/gstack-brain-cache invalidate product --project "$SLUG" 2>/dev/null || true
-  $GSTACK_BIN/gstack-brain-cache invalidate goals --project "$SLUG" 2>/dev/null || true
-  $GSTACK_BIN/gstack-brain-cache invalidate competitive-intel --project "$SLUG" 2>/dev/null || true
+eval "$("$GSTACK_BIN"/gstack-slug 2>/dev/null)" 2>/dev/null || true
+  "$GSTACK_BIN"/gstack-brain-cache invalidate product --project "$SLUG" 2>/dev/null || true
+  "$GSTACK_BIN"/gstack-brain-cache invalidate goals --project "$SLUG" 2>/dev/null || true
+  "$GSTACK_BIN"/gstack-brain-cache invalidate competitive-intel --project "$SLUG" 2>/dev/null || true
 ```
 
 
@@ -878,8 +878,8 @@ This is non-blocking — the user doesn't wait. Next invocation benefits
 from the warm cache.
 
 ```bash
-eval "$($GSTACK_BIN/gstack-slug 2>/dev/null)" 2>/dev/null || true
-($GSTACK_BIN/gstack-brain-cache refresh --project "$SLUG" 2>/dev/null &) || true
+eval "$("$GSTACK_BIN"/gstack-slug 2>/dev/null)" 2>/dev/null || true
+("$GSTACK_BIN"/gstack-brain-cache refresh --project "$SLUG" 2>/dev/null &) || true
 ```
 
 

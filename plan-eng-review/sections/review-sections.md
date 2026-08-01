@@ -11,12 +11,12 @@
 Search for relevant learnings from previous sessions:
 
 ```bash
-_CROSS_PROJ=$($GSTACK_BIN/gstack-config get cross_project_learnings 2>/dev/null || echo "unset")
+_CROSS_PROJ=$("$GSTACK_BIN"/gstack-config get cross_project_learnings 2>/dev/null || echo "unset")
 echo "CROSS_PROJECT: $_CROSS_PROJ"
 if [ "$_CROSS_PROJ" = "true" ]; then
-  $GSTACK_BIN/gstack-learnings-search --limit 10 --cross-project 2>/dev/null || true
+  "$GSTACK_BIN"/gstack-learnings-search --limit 10 --cross-project 2>/dev/null || true
 else
-  $GSTACK_BIN/gstack-learnings-search --limit 10 2>/dev/null || true
+  "$GSTACK_BIN"/gstack-learnings-search --limit 10 2>/dev/null || true
 fi
 ```
 
@@ -31,8 +31,8 @@ Options:
 - A) Enable cross-project learnings (recommended)
 - B) Keep learnings project-scoped only
 
-If A: run `$GSTACK_BIN/gstack-config set cross_project_learnings true`
-If B: run `$GSTACK_BIN/gstack-config set cross_project_learnings false`
+If A: run `"$GSTACK_BIN"/gstack-config set cross_project_learnings true`
+If B: run `"$GSTACK_BIN"/gstack-config set cross_project_learnings false`
 
 Then re-run the search with the appropriate flag.
 
@@ -830,7 +830,7 @@ If you discovered a non-obvious pattern, pitfall, or architectural insight durin
 this session, log it for future sessions:
 
 ```bash
-$GSTACK_BIN/gstack-learnings-log '{"skill":"plan-eng-review","type":"TYPE","key":"SHORT_KEY","insight":"DESCRIPTION","confidence":N,"source":"SOURCE","files":["path/to/relevant/file"]}'
+"$GSTACK_BIN"/gstack-learnings-log '{"skill":"plan-eng-review","type":"TYPE","key":"SHORT_KEY","insight":"DESCRIPTION","confidence":N,"source":"SOURCE","files":["path/to/relevant/file"]}'
 ```
 
 **Types:** `pattern` (reusable approach), `pitfall` (what NOT to do), `preference`
@@ -859,7 +859,7 @@ TTHW target, architectural bet, wedge commitment), it MAY write a
 
 **Gated on two things:**
 1. Brain trust policy for the active endpoint is `personal` (check via
-   `$GSTACK_BIN/gstack-config get brain_trust_policy@<endpoint-hash>`).
+   `"$GSTACK_BIN"/gstack-config get brain_trust_policy@<endpoint-hash>`).
    Shared brains skip write-back to avoid polluting team calibration.
 2. Feature flag `BRAIN_CALIBRATION_WRITEBACK` is set (today: false; flips
    to true when upstream gbrain v0.42+ ships `takes_add` MCP op).
@@ -884,7 +884,7 @@ After write, invalidate the affected digests so the next preflight reflects
 the new state:
 
 ```bash
-eval "$($GSTACK_BIN/gstack-slug 2>/dev/null)" 2>/dev/null || true
+eval "$("$GSTACK_BIN"/gstack-slug 2>/dev/null)" 2>/dev/null || true
   # (no per-skill invalidation targets configured)
 ```
 
@@ -897,8 +897,8 @@ This is non-blocking — the user doesn't wait. Next invocation benefits
 from the warm cache.
 
 ```bash
-eval "$($GSTACK_BIN/gstack-slug 2>/dev/null)" 2>/dev/null || true
-($GSTACK_BIN/gstack-brain-cache refresh --project "$SLUG" 2>/dev/null &) || true
+eval "$("$GSTACK_BIN"/gstack-slug 2>/dev/null)" 2>/dev/null || true
+("$GSTACK_BIN"/gstack-brain-cache refresh --project "$SLUG" 2>/dev/null &) || true
 ```
 
 

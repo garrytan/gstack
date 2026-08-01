@@ -621,10 +621,7 @@ record_claude_runtime_root() {
   mv "$tmp" "$marker"
 }
 
-# Frontmatter hooks execute before the skill-body preamble, so guard/freeze/
-# careful cannot use $GSTACK_ROOT. For renamed installs, expose only their two
-# hook payload directories at the canonical path. Do not alias the whole repo:
-# recursive skill scanners would discover every nested SKILL.md (#1202/#1694).
+# True only when source_dir is the canonical <skills_dir>/gstack runtime.
 is_canonical_claude_runtime_root() {
   local source_dir="$1"
   local skills_dir="$2"
@@ -634,6 +631,10 @@ is_canonical_claude_runtime_root() {
   [ -n "$source_real" ] && [ "$source_real" = "$skills_real/gstack" ]
 }
 
+# Frontmatter hooks execute before the skill-body preamble, so guard/freeze/
+# careful cannot use $GSTACK_ROOT. For renamed installs, expose only their two
+# hook payload directories at the canonical path. Do not alias the whole repo:
+# recursive skill scanners would discover every nested SKILL.md (#1202/#1694).
 ensure_claude_hook_runtime_root() {
   local source_dir="$1"
   local skills_dir="$2"

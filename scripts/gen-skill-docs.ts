@@ -677,6 +677,14 @@ function applyHostRewritesToBody(content: string, hostConfig: HostConfig): strin
   return content.slice(0, bodyStart) + applyHostRewrites(content.slice(bodyStart), hostConfig);
 }
 
+/** Quote portable runtime variables when they form the executable/path prefix. */
+function quotePortableRuntimePaths(content: string): string {
+  return content.replace(
+    /(?<!["'])\$(GSTACK_ROOT|GSTACK_BIN|GSTACK_BROWSE|GSTACK_DESIGN|GSTACK_MAKE_PDF)(?=\/)/g,
+    (_match, variable: string) => `"$${variable}"`,
+  );
+}
+
 /**
  * Resolve {{PLACEHOLDER}} / {{NAME:arg}} tokens against the RESOLVERS registry,
  * honoring host suppression and appliesTo gating, then assert nothing is left
@@ -856,6 +864,7 @@ function processTemplate(tmplPath: string, host: Host = 'claude'): { outputPath:
   if (host === 'claude') {
     content = transformFrontmatter(content, host);
     content = applyHostRewritesToBody(content, currentHostConfig);
+    content = quotePortableRuntimePaths(content);
   } else {
     const result = processExternalHost(content, tmplContent, host, skillDir, postProcessDescription, ctx, extractedName || undefined);
     content = result.content;
@@ -925,6 +934,7 @@ function processSectionTemplate(
   // path rewrites. Claude additionally supports --out-dir section isolation.
   content = applyHostRewrites(content, hostConfig);
   if (host === 'claude') {
+    content = quotePortableRuntimePaths(content);
     // --out-dir: a section may cross-reference another section by absolute path;
     // repoint those to the out-dir too (no-op when --out-dir is unset).
     content = rewriteSectionBase(content);

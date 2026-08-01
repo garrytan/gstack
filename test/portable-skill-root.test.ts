@@ -192,7 +192,7 @@ describe('portable generated skill paths (#1882)', () => {
       expect(body, path.relative(ROOT, file)).not.toContain('$_ROOT/$GSTACK_ROOT');
       expect(body, path.relative(ROOT, file)).not.toContain('$HOME/$GSTACK_ROOT');
       expect(body, path.relative(ROOT, file)).not.toMatch(
-        /(^|[\s(=|;&])\$GSTACK_ROOT\/(?:bin|browse\/bin|careful\/bin|freeze\/bin)\//m,
+        /(^|[^"'])\$(?:GSTACK_ROOT|GSTACK_BIN|GSTACK_BROWSE|GSTACK_DESIGN|GSTACK_MAKE_PDF)\//m,
       );
     }
   });
@@ -238,6 +238,24 @@ describe('portable generated skill paths (#1882)', () => {
     });
     expect(result.status).toBe(0);
     expect(result.stdout.trim()).toBe('portable-body');
+  });
+
+  test('a generated GSTACK_BIN body command executes when the runtime root contains whitespace', () => {
+    const home = tempDir('gstack-portable-bin-body-');
+    const bin = path.join(home, 'renamed gstack body', 'bin');
+    fs.mkdirSync(bin, { recursive: true });
+    writeExecutable(path.join(bin, 'gstack-telemetry-log'), 'echo portable-bin-body');
+
+    const setupDeploy = fs.readFileSync(path.join(ROOT, 'setup-deploy', 'SKILL.md'), 'utf8');
+    const command = setupDeploy.split('\n').find(line => line.startsWith('"$GSTACK_BIN"/gstack-telemetry-log '));
+    expect(command).toStartWith('"$GSTACK_BIN"/gstack-telemetry-log ');
+
+    const result = spawnSync('bash', ['-c', command!], {
+      env: { ...process.env, GSTACK_BIN: bin },
+      encoding: 'utf8',
+    });
+    expect(result.status).toBe(0);
+    expect(result.stdout.trim()).toBe('portable-bin-body');
   });
 });
 
