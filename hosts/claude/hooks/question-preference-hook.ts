@@ -92,10 +92,17 @@ function readStdin(): Promise<string> {
   });
 }
 
+// No-op pass-through: emit NO `permissionDecision` at all.
+//
+// Do NOT send `permissionDecision: 'defer'` here. Claude Code's `defer` is not a
+// no-op: in a NON-INTERACTIVE (print-mode) session with a solo tool call it emits
+// `hook_deferred_tool` and returns WITHOUT ever executing the tool, so every
+// AskUserQuestion dies as "Tool execution was interrupted". In interactive mode it
+// is merely warned-and-ignored, which is why this only bites headless/spawned runs.
+// Omitting the field falls through to the normal permission flow in both modes.
 function defer(additionalContext?: string): void {
   const out: Record<string, unknown> = {
     hookEventName: 'PreToolUse',
-    permissionDecision: 'defer',
   };
   if (additionalContext) out.additionalContext = additionalContext;
   process.stdout.write(JSON.stringify({ hookSpecificOutput: out }));
