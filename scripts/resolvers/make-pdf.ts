@@ -1,8 +1,5 @@
 import type { TemplateContext } from './types';
-
-function shellPath(value: string): string {
-  return value.startsWith('~/') ? `$HOME/${value.slice(2)}` : value;
-}
+import { shellPath } from './utility';
 
 /**
  * {{MAKE_PDF_SETUP}} — emits the shell preamble that resolves $P to the

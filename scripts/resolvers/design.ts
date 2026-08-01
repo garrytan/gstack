@@ -1,8 +1,5 @@
 import type { TemplateContext } from './types';
-
-function shellPath(value: string): string {
-  return value.startsWith('~/') ? `$HOME/${value.slice(2)}` : value;
-}
+import { shellPath } from './utility';
 import { AI_SLOP_BLACKLIST, OPENAI_HARD_REJECTIONS, OPENAI_LITMUS_CHECKS } from './constants';
 
 export function generateDesignReviewLite(ctx: TemplateContext): string {

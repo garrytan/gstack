@@ -1,8 +1,5 @@
 import type { TemplateContext } from './types';
-
-function shellPath(value: string): string {
-  return value.startsWith('~/') ? `$HOME/${value.slice(2)}` : value;
-}
+import { shellPath } from './utility';
 import { COMMAND_DESCRIPTIONS } from '../../browse/src/commands';
 import { SNAPSHOT_FLAGS } from '../../browse/src/snapshot';
 

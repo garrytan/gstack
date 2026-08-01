@@ -304,7 +304,7 @@ describe('gen-skill-docs', () => {
     expect(content).not.toContain('contributor-logs');
     expect(content).toContain('Operational Self-Improvement');
     expect(content).toContain('gstack-learnings-log');
-    expect(content).toContain('gstack-learnings-search --limit 3');
+    expect(content).toMatch(/gstack-learnings-search["']?\s+--limit 3/);
   });
 
   test('generated SKILL.md with LEARNINGS_LOG contains operational type', () => {
@@ -2582,7 +2582,7 @@ describe('telemetry', () => {
     expect(content).toContain('_SESSION_ID');
     expect(content).toContain('TELEMETRY:');
     expect(content).toContain('TEL_PROMPTED:');
-    expect(content).toContain('gstack-config get telemetry');
+    expect(content).toMatch(/gstack-config["']?\s+get telemetry/);
   });
 
   test('generated SKILL.md contains telemetry opt-in prompt', () => {
