@@ -161,5 +161,34 @@ describe('gstack-uninstall', () => {
       // Non-gstack should survive
       expect(fs.existsSync(path.join(mockHome, '.claude', 'skills', 'other-tool'))).toBe(true);
     });
+
+    test('portable install removes its marker, managed aliases, hook sidecar, and renamed runtime', () => {
+      const skills = path.join(mockHome, '.claude', 'skills');
+      const portable = path.join(skills, 'renamed gstack');
+      fs.rmSync(path.join(skills, 'gstack'), { recursive: true, force: true });
+      fs.mkdirSync(path.join(portable, 'bin'), { recursive: true });
+      fs.writeFileSync(path.join(skills, '.gstack-root'), `${portable}\n`);
+
+      const managedAlias = path.join(skills, 'gstack-review');
+      fs.mkdirSync(managedAlias, { recursive: true });
+      fs.writeFileSync(path.join(managedAlias, '.gstack-managed-root'), `${portable}\n`);
+
+      const sidecar = path.join(skills, 'gstack');
+      fs.mkdirSync(sidecar, { recursive: true });
+      fs.writeFileSync(path.join(sidecar, '.gstack-hook-runtime'), `${portable}\n`);
+
+      const result = spawnSync('bash', [UNINSTALL, '--force', '--keep-state'], {
+        stdio: 'pipe',
+        env: { ...process.env, HOME: mockHome, GSTACK_DIR: portable, GSTACK_STATE_DIR: path.join(mockHome, '.gstack') },
+        cwd: mockGitRoot,
+      });
+
+      expect(result.status).toBe(0);
+      expect(fs.existsSync(path.join(skills, '.gstack-root'))).toBe(false);
+      expect(fs.existsSync(managedAlias)).toBe(false);
+      expect(fs.existsSync(sidecar)).toBe(false);
+      expect(fs.existsSync(portable)).toBe(false);
+      expect(fs.existsSync(path.join(skills, 'other-tool'))).toBe(true);
+    });
   });
 });

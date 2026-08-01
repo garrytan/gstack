@@ -207,6 +207,18 @@ describe('portable generated skill paths (#1882)', () => {
     }
   });
 
+  test('every generated skill using portable paths defines them first', () => {
+    for (const entry of fs.readdirSync(ROOT, { withFileTypes: true })) {
+      if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
+      const file = path.join(ROOT, entry.name, 'SKILL.md');
+      if (!fs.existsSync(file)) continue;
+      const content = fs.readFileSync(file, 'utf8');
+      if (/\$GSTACK_(?:ROOT|BIN|BROWSE|DESIGN|MAKE_PDF)\b/.test(content)) {
+        expect(content, entry.name).toContain('_GSTACK_ROOT_MARKER=');
+      }
+    }
+  });
+
   test('browse, design, and make-pdf setup resolve env-var paths without a $HOME prefix', () => {
     const ctx = claudeContext();
     const browse = generateBrowseSetup(ctx);

@@ -20,6 +20,7 @@ import { HOST_PATHS, unwrapResolver } from './resolvers/types';
 import { RESOLVERS } from './resolvers/index';
 import { externalSkillName, extractHookSafetyProse as _extractHookSafetyProse, extractNameAndDescription as _extractNameAndDescription, condenseOpenAIShortDescription as _condenseOpenAIShortDescription, generateOpenAIYaml as _generateOpenAIYaml } from './resolvers/codex-helpers';
 import { generatePlanCompletionAuditShip, generatePlanCompletionAuditReview, generatePlanVerificationExec } from './resolvers/review';
+import { generateClaudeRuntimeRootBash } from './resolvers/preamble/generate-preamble-bash';
 import { ALL_HOST_CONFIGS, ALL_HOST_NAMES, resolveHostArg, getHostConfig } from '../hosts/index';
 import type { HostConfig } from './host-config';
 
@@ -685,6 +686,16 @@ function quotePortableRuntimePaths(content: string): string {
   );
 }
 
+function injectClaudeRuntimeRootForPreamblelessSkill(content: string, ctx: TemplateContext): string {
+  if (!/\$GSTACK_(?:ROOT|BIN|BROWSE|DESIGN|MAKE_PDF)\b/.test(content)) return content;
+  const bootstrap = `\n## Runtime path bootstrap\n\n\`\`\`bash\n${generateClaudeRuntimeRootBash(ctx)}\n\`\`\`\n`;
+  if (!content.startsWith('---\n')) return bootstrap + content;
+  const fmEnd = content.indexOf('\n---', 4);
+  if (fmEnd === -1) return bootstrap + content;
+  const bodyStart = fmEnd + 4;
+  return content.slice(0, bodyStart) + bootstrap + content.slice(bodyStart);
+}
+
 /**
  * Resolve {{PLACEHOLDER}} / {{NAME:arg}} tokens against the RESOLVERS registry,
  * honoring host suppression and appliesTo gating, then assert nothing is left
@@ -865,6 +876,9 @@ function processTemplate(tmplPath: string, host: Host = 'claude'): { outputPath:
     content = transformFrontmatter(content, host);
     content = applyHostRewritesToBody(content, currentHostConfig);
     content = quotePortableRuntimePaths(content);
+    if (!tmplContent.includes('{{PREAMBLE}}')) {
+      content = injectClaudeRuntimeRootForPreamblelessSkill(content, ctx);
+    }
   } else {
     const result = processExternalHost(content, tmplContent, host, skillDir, postProcessDescription, ctx, extractedName || undefined);
     content = result.content;

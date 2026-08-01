@@ -130,6 +130,33 @@ fi
 
 # ─── Remove global Claude skills ────────────────────────────
 CLAUDE_SKILLS="$HOME/.claude/skills"
+_CLAUDE_ROOT_MARKER="$CLAUDE_SKILLS/.gstack-root"
+_ACTIVE_CLAUDE_ROOT=""
+if [ -f "$_CLAUDE_ROOT_MARKER" ]; then
+  _MARKED_ROOT="$(head -n 1 "$_CLAUDE_ROOT_MARKER" 2>/dev/null || true)"
+  _MARKED_REAL="$(cd "$_MARKED_ROOT" 2>/dev/null && pwd -P || true)"
+  _UNINSTALL_REAL="$(cd "$GSTACK_DIR" 2>/dev/null && pwd -P || true)"
+  if [ -n "$_MARKED_REAL" ] && [ "$_MARKED_REAL" = "$_UNINSTALL_REAL" ]; then
+    _ACTIVE_CLAUDE_ROOT="$_MARKED_REAL"
+  fi
+fi
+
+if [ -n "$_ACTIVE_CLAUDE_ROOT" ]; then
+  # Current setup creates real top-level skill directories. Remove only entries
+  # carrying our ownership marker for this exact runtime root.
+  for _ITEM in "$CLAUDE_SKILLS"/*; do
+    [ -d "$_ITEM" ] || continue
+    _MANAGED_MARKER="$_ITEM/.gstack-managed-root"
+    [ -f "$_MANAGED_MARKER" ] || continue
+    _MANAGED_ROOT="$(head -n 1 "$_MANAGED_MARKER" 2>/dev/null || true)"
+    _MANAGED_REAL="$(cd "$_MANAGED_ROOT" 2>/dev/null && pwd -P || true)"
+    if [ "$_MANAGED_REAL" = "$_ACTIVE_CLAUDE_ROOT" ]; then
+      rm -rf "$_ITEM"
+      REMOVED+=("claude/$(basename "$_ITEM")")
+    fi
+  done
+fi
+
 if [ -d "$CLAUDE_SKILLS/gstack" ] || [ -L "$CLAUDE_SKILLS/gstack" ]; then
   # Remove per-skill symlinks that point into gstack/
   for _LINK in "$CLAUDE_SKILLS"/*; do
@@ -144,6 +171,19 @@ if [ -d "$CLAUDE_SKILLS/gstack" ] || [ -L "$CLAUDE_SKILLS/gstack" ]; then
 
   rm -rf "$CLAUDE_SKILLS/gstack"
   REMOVED+=("~/.claude/skills/gstack")
+fi
+
+if [ -n "$_ACTIVE_CLAUDE_ROOT" ]; then
+  _CLAUDE_SKILLS_REAL="$(cd "$CLAUDE_SKILLS" 2>/dev/null && pwd -P || true)"
+  _ACTIVE_PARENT_REAL="$(cd "$(dirname "$_ACTIVE_CLAUDE_ROOT")" 2>/dev/null && pwd -P || true)"
+  # Delete renamed installs only when they live directly under the user's
+  # Claude skills directory. Never follow the marker to an arbitrary checkout.
+  if [ "$_ACTIVE_PARENT_REAL" = "$_CLAUDE_SKILLS_REAL" ] && [ "$_ACTIVE_CLAUDE_ROOT" != "$_CLAUDE_SKILLS_REAL/gstack" ]; then
+    rm -rf "$_ACTIVE_CLAUDE_ROOT"
+    REMOVED+=("$_ACTIVE_CLAUDE_ROOT")
+  fi
+  rm -f "$_CLAUDE_ROOT_MARKER"
+  REMOVED+=("~/.claude/skills/.gstack-root")
 fi
 
 # ─── Remove project-local Claude skills (--local installs) ──
