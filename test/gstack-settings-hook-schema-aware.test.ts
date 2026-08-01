@@ -111,6 +111,55 @@ describe('add-event', () => {
     expect(s.hooks.PreToolUse[0].hooks[0].command).toBe('/v2');
   });
 
+  test('dedup includes command: same (event, matcher, command) with different source updates in place', () => {
+    run([
+      'add-event',
+      '--event', 'PostToolUse',
+      '--matcher', '(AskUserQuestion|mcp__.*__AskUserQuestion)',
+      '--command', '/abs/path/to/question-log-hook',
+      '--source', 'source-A',
+      '--timeout', '5',
+    ]);
+    run([
+      'add-event',
+      '--event', 'PostToolUse',
+      '--matcher', '(AskUserQuestion|mcp__.*__AskUserQuestion)',
+      '--command', '/abs/path/to/question-log-hook',
+      '--source', 'source-B',
+      '--timeout', '5',
+    ]);
+    const s = settings();
+    expect(s.hooks.PostToolUse).toHaveLength(1);
+    expect(s.hooks.PostToolUse[0]._gstack_source).toBe('source-B');
+  });
+
+  test('dedup includes command: untagged entry with same command is updated not duplicated', () => {
+    fs.writeFileSync(
+      settingsFile,
+      JSON.stringify({
+        hooks: {
+          PostToolUse: [
+            {
+              matcher: '(AskUserQuestion|mcp__.*__AskUserQuestion)',
+              hooks: [{ type: 'command', command: '/abs/path/to/question-log-hook', timeout: 5 }],
+            },
+          ],
+        },
+      }, null, 2),
+    );
+    run([
+      'add-event',
+      '--event', 'PostToolUse',
+      '--matcher', '(AskUserQuestion|mcp__.*__AskUserQuestion)',
+      '--command', '/abs/path/to/question-log-hook',
+      '--source', 'plan-tune-cathedral',
+      '--timeout', '5',
+    ]);
+    const s = settings();
+    expect(s.hooks.PostToolUse).toHaveLength(1);
+    expect(s.hooks.PostToolUse[0]._gstack_source).toBe('plan-tune-cathedral');
+  });
+
   test('preserves unrelated existing hooks', () => {
     fs.writeFileSync(
       settingsFile,

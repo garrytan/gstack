@@ -171,8 +171,9 @@ case "$ACTION" in
 
       const matchesEntry = (entry) => {
         const sameMatcher = (entry.matcher || "") === matcher;
+        const sameCommand = entry.hooks && entry.hooks[0] && entry.hooks[0].command === cmd;
         const sameSource = entry._gstack_source === source;
-        return sameMatcher && sameSource;
+        return sameMatcher && (sameSource || sameCommand);
       };
 
       let existing = settings.hooks[event].find(matchesEntry);
@@ -184,6 +185,7 @@ case "$ACTION" in
 
       if (existing) {
         existing.hooks = [hookEntry];
+        existing._gstack_source = source;
       } else {
         const newEntry = { _gstack_source: source, hooks: [hookEntry] };
         if (matcher) newEntry.matcher = matcher;
