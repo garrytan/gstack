@@ -56,6 +56,23 @@ fi
 # Normalize: lowercase for case-insensitive SQL matching
 CMD_LOWER=$(printf '%s' "$CMD" | tr '[:upper:]' '[:lower:]')
 
+# --- Shell-obfuscation tripwire ---
+# Every check below inspects the command as a STRING, but bash executes what the
+# string MEANS after expansion. ${IFS} holds the default field separator and
+# contains no literal whitespace, so
+#
+#   rm${IFS}-rf${IFS}/
+#
+# matches none of the `rm\s+` patterns while executing as a full recursive
+# delete. The same holds for a command assembled by a base64 decode piped to a
+# shell. Rather than try to out-parse bash, treat these splitting/decoding
+# primitives as a reason to ask: they are vanishingly rare in commands a human
+# actually means to run unattended.
+if printf '%s' "$CMD" | grep -qE '\$\{IFS\}|\$IFS|\$\(echo[^)]*base64[^)]*\)|base64[[:space:]]+(-d|--decode)[^|]*\|[[:space:]]*(sh|bash)' 2>/dev/null; then
+  printf '{"permissionDecision":"ask","message":"[careful] Shell obfuscation detected (IFS word-splitting or base64-to-shell). Read the command carefully before approving."}\n'
+  exit 0
+fi
+
 # --- Check for safe exceptions (one standalone rm of build artifacts) ---
 # Match the complete command. Parsing only the last rm is unsafe because shell
 # syntax or comments can hide an earlier destructive command, for example:

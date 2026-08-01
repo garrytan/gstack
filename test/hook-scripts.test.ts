@@ -142,6 +142,27 @@ describe('check-careful.sh', () => {
     });
   });
 
+  // --- Shell obfuscation ---
+
+  describe('shell obfuscation', () => {
+    test.each([
+      'rm${IFS}-rf${IFS}/',
+      'rm$IFS-rf$IFS/',
+      'echo cm0gLXJmIC8= | base64 -d | sh',
+    ])('asks when the command hides its shape behind expansion: %s', (command) => {
+      const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput(command));
+      expect(exitCode).toBe(0);
+      expect(output.permissionDecision).toBe('ask');
+      expect(output.message).toContain('obfuscation');
+    });
+
+    test('ordinary commands are unaffected', () => {
+      const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('cat file.b64 | base64 -d > out.bin'));
+      expect(exitCode).toBe(0);
+      expect(output.permissionDecision).toBeUndefined();
+    });
+  });
+
   // --- JSON payload extraction ---
 
   describe('command extraction', () => {
