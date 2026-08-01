@@ -281,8 +281,16 @@ describe('--write user-origin gate (profile-poisoning defense)', () => {
       '--write',
       JSON.stringify({ question_id: 'q1', preference: 'never-ask', source: 'anonymous' }),
     );
-    expect(r.status).not.toBe(0);
-    expect(r.stderr).toContain('invalid source');
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain('profile poisoning defense');
+  });
+
+  test('unknown source exits 2 (user-origin rejection), not 1 (validation error)', () => {
+    const r = run(
+      '--write',
+      JSON.stringify({ question_id: 'q1', preference: 'never-ask', source: 'tool-output' }),
+    );
+    expect(r.status).toBe(2);
   });
 });
 
