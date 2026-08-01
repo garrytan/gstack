@@ -1,5 +1,43 @@
 # Changelog
 
+## [1.60.2.0] - 2026-08-01
+
+## **Questions work again in headless and spawned sessions.**
+## **One hook field was cancelling every AskUserQuestion call.**
+
+If you ran gstack in a non-interactive session, a spawned agent, a `claude -p` run, a scheduled task, anything that is not a live terminal, every AskUserQuestion died with `Tool execution was interrupted`. No error, no log line, nothing pointing at a cause. The culprit was our own PreToolUse hook. `question-preference-hook` returned `permissionDecision: 'defer'` to mean "no opinion, let the tool run". In Claude Code, `defer` means "cancel this tool call and park it for a later resume". Interactive sessions warn and ignore it, which is why terminal users never saw this and headless users saw nothing else.
+
+### The numbers that matter
+
+Source: the `case "defer"` branch in the Claude Code 2.1.219 runtime, plus the new regression test (reproducible: `bun test test/auq-no-defer-decision.test.ts`).
+
+| Metric | Before | After | Δ |
+|--------|--------|-------|---|
+| AskUserQuestion success, non-interactive session | 0% | 100% | restored |
+| AskUserQuestion success, interactive session | 100% | 100% | unchanged |
+| Hook call sites returning the cancelling value | 6 | 0 | -6 |
+| Tripwire tests guarding the invariant | 0 | 5 | +5 |
+
+The failure rate was 0%, not "flaky". Every question, every run, as long as the session was not a live terminal. If a spawned agent ever went quiet on you partway through a task and you assumed it had crashed, this is what happened to it.
+
+### What this means for you
+
+Any workflow that asks you something now works headless: spawned skill agents, scheduled runs, `claude -p` pipelines, and Conductor sessions. If you had worked around this by avoiding questions in automation, you can stop. Upgrade with `/gstack-upgrade`, then re-run whatever you gave up on.
+
+### Itemized changes
+
+#### Fixed
+
+- `hosts/claude/hooks/question-preference-hook.ts`: the no-opinion helper now omits `permissionDecision` entirely instead of sending `'defer'`. That covers all 6 call sites: empty stdin, unparseable stdin, non-AUQ tool name, zero questions, the main pass-through (where no stored preference, always-ask, missing recommendation marker, one-way door, and ambiguous recommendation all land), and the `main()` crash handler. `additionalContext` still rides along, since it is delivered on a separate event. The `deny` path used by auto-decide and the Conductor prose fallback is untouched.
+
+#### For contributors
+
+- `test/auq-no-defer-decision.test.ts`: new tripwire. Two static greps (comment-stripped, so prose explaining the ban does not trip them) fail CI if any hook under `hosts/claude/hooks/` reintroduces a live `permissionDecision: 'defer'`, or if any test re-asserts `toBe('defer')`. Behavioral assertions check the key is absent rather than present-and-undefined, since a serialized `null` would still reach the validator.
+- 14 assertions changed from `toBe('defer')` to `toBeUndefined()` across `test/question-preference-hook.test.ts` (10), `test/memory-cache-injection.test.ts` (3), and `test/skill-e2e-plan-tune-cathedral.test.ts` (1). These previously encoded the broken behavior as expected behavior.
+- `package.json` version synced to `1.60.2.0` (`gen-skill-docs` pins it against `VERSION`).
+- `defer()` is renamed to `passThrough()` in `question-preference-hook.ts` and `auq-error-fallback-hook.ts`, with the comments that used "defer" to mean "let the user answer" reworded to match. The old name is what made emitting the cancelling wire value look like the obvious implementation. No behavior change in either hook.
+- `CLAUDE.md`: new "PreToolUse hooks: never emit `permissionDecision: 'defer'`" section with the per-mode behavior table and a pointer to the tripwire.
+
 ## [1.60.1.0] - 2026-07-09
 
 ## **The /autoplan dual-voice eval is back on the board, catching real regressions.**

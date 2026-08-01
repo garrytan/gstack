@@ -196,6 +196,43 @@ structures. Instead:
 This applies to test commands, eval commands, deploy commands, and any other
 project-specific behavior. The project owns its config; gstack reads it.
 
+## PreToolUse hooks: never emit `permissionDecision: 'defer'`
+
+A PreToolUse hook that has no opinion MUST omit `permissionDecision` entirely.
+Emitting `'defer'` is not a no-op. In Claude Code it means "cancel this tool call
+and park it for a later resume":
+
+| Session | Solo tool call | Result |
+|---------|----------------|--------|
+| interactive | any | warned and ignored, tool runs |
+| non-interactive (print/headless/spawned) | yes | `hook_deferred_tool`, tool **never executes** |
+| non-interactive | no (batched) | warned and ignored, tool runs |
+
+Because our matcher is scoped to `(AskUserQuestion|mcp__.*__AskUserQuestion)` and an
+AskUserQuestion call is almost always solo, a `defer` return meant every question in
+every headless or spawned session died as `Tool execution was interrupted`, with no
+error and no log line pointing at the hook. It reproduced 100% of the time and was
+invisible to `bun test`, because the unit tests asserted the broken value instead of
+the observable behavior.
+
+Omitting the field falls through to the normal permission flow in both modes, and
+`additionalContext` still arrives (it is delivered on a separate event). `deny` is
+unaffected and remains the mechanism for auto-decide and the Conductor prose path.
+
+The helper for this in both AskUserQuestion hooks is `passThrough()`. It is
+deliberately NOT called `defer()` — that name is what made emitting `'defer'`
+look like the obvious implementation in the first place.
+
+`test/auq-no-defer-decision.test.ts` pins the invariant with two static-grep
+tripwires (comment-stripped, so prose explaining the ban does not trip them) plus
+behavioral assertions that the key is absent, not merely undefined:
+
+1. no hook under `hosts/claude/hooks/` may emit a live `permissionDecision: 'defer'`
+2. no test may re-assert `toBe('defer')` — the original bug survived a fully green
+   `bun test` because 14 assertions across three test files encoded it as the spec
+
+Reintroducing either fails CI.
+
 ## Writing SKILL templates
 
 SKILL.md.tmpl files are **prompt templates read by Claude**, not bash scripts.
