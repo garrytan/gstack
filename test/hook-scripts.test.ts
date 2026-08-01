@@ -113,6 +113,23 @@ describe('check-careful.sh', () => {
     });
 
     test.each([
+      'rm -R /',
+      'rm -Rf ~',
+      'rm -fR /var/data',
+    ])('uppercase -R is recursive too: %s', (command) => {
+      const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput(command));
+      expect(exitCode).toBe(0);
+      expect(output.permissionDecision).toBe('ask');
+      expect(output.message).toContain('recursive delete');
+    });
+
+    test('rm -Rf node_modules still allows (safe exception accepts -R)', () => {
+      const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('rm -Rf node_modules'));
+      expect(exitCode).toBe(0);
+      expect(output.permissionDecision).toBeUndefined();
+    });
+
+    test.each([
       'git commit -m "wip" && rm -rf /',
       'bash -c "rm -rf /"',
       'echo "x"; rm -rf ~',
