@@ -141,12 +141,11 @@ const EXPLAIN_LEVEL: 'default' | 'terse' = (() => {
 
 // ─── Out-dir (dev workspace render isolation) ───────────────
 // --out-dir <abs-dir> redirects Claude SKILL.md + section output to a separate
-// (untracked) directory instead of writing in place, AND rewrites the literal
-// section-base path (`~/.claude/skills/gstack/<skill>/sections/`) inside the
-// generated content to point at the out-dir, so section Reads resolve to the
-// rendered copy rather than the global install. Used by bin/dev-setup to render
-// the gbrain `:user` variant for a Conductor workspace without dirtying tracked
-// source. Default (unset) = in-place, behavior unchanged. Claude host only.
+// (untracked) directory instead of writing in place. It rewrites both source
+// section paths and their portable $GSTACK_ROOT form so section Reads resolve
+// to the rendered copy. Used by bin/dev-setup to render the gbrain `:user`
+// variant for a Conductor workspace without dirtying tracked source. Default
+// (unset) = in-place, behavior unchanged. Claude host only.
 const OUT_DIR_ARG = process.argv.find(a => a.startsWith('--out-dir'));
 const OUT_DIR: string | null = (() => {
   if (!OUT_DIR_ARG) return null;
@@ -172,8 +171,8 @@ function rewriteSectionBase(content: string): string {
       `${OUT_DIR}/$1`,
     )
     .replace(
-      /\$GSTACK_ROOT\/([^\s)`"'*]+\/sections\/)/g,
-      `${OUT_DIR}/$1`,
+      /"?\$GSTACK_ROOT"?\/([^\s)`"'*]+\/sections\/)/g,
+      `"${OUT_DIR}"/$1`,
     );
 }
 
@@ -900,8 +899,8 @@ function processTemplate(tmplPath: string, host: Host = 'claude'): { outputPath:
  *
  * Output routing mirrors SKILL.md: Claude writes in-tree at
  * `<skill>/sections/<name>.md`; external hosts write to
- * `<hostSubdir>/skills/<externalName>/sections/<name>.md`. External hosts get
- * applyHostRewrites so cross-references resolve per host.
+ * `<hostSubdir>/skills/<externalName>/sections/<name>.md`. Every host gets its
+ * configured path rewrites so cross-references and runtime paths stay portable.
  */
 function processSectionTemplate(
   sectionTmplPath: string,

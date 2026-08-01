@@ -34,7 +34,7 @@ Voice triggers (speech-to-text aliases): "code x", "code ex", "get another opini
 ```bash
 _GSTACK_ROOT_MARKER="$HOME/.claude/skills/.gstack-root"
 [ -n "${GSTACK_ROOT:-}" ] && [ ! -d "$GSTACK_ROOT/bin" ] && GSTACK_ROOT=""
-[ -z "${GSTACK_ROOT:-}" ] && [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -d "$CLAUDE_PLUGIN_ROOT/bin" ] && GSTACK_ROOT="$CLAUDE_PLUGIN_ROOT"
+[ -z "${GSTACK_ROOT:-}" ] && [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/VERSION" ] && [ -x "$CLAUDE_PLUGIN_ROOT/bin/gstack-config" ] && GSTACK_ROOT="$CLAUDE_PLUGIN_ROOT"
 [ -z "${GSTACK_ROOT:-}" ] && [ -f "$_GSTACK_ROOT_MARKER" ] && GSTACK_ROOT=$(cat "$_GSTACK_ROOT_MARKER" 2>/dev/null || true)
 [ -n "${GSTACK_ROOT:-}" ] && [ ! -d "$GSTACK_ROOT/bin" ] && GSTACK_ROOT=""
 _GSTACK_DIR=gstack
@@ -44,7 +44,7 @@ GSTACK_BROWSE="$GSTACK_ROOT/browse/dist"
 GSTACK_DESIGN="$GSTACK_ROOT/design/dist"
 GSTACK_MAKE_PDF="$GSTACK_ROOT/make-pdf/dist"
 export GSTACK_ROOT GSTACK_BIN GSTACK_BROWSE GSTACK_DESIGN GSTACK_MAKE_PDF
-_UPD=$("$GSTACK_BIN/gstack-update-check" 2>/dev/null || ".claude/skills/gstack/bin/gstack-update-check" 2>/dev/null || true)
+_UPD=$("$GSTACK_BIN/gstack-update-check" 2>/dev/null || true)
 [ -n "$_UPD" ] && echo "$_UPD" || true
 mkdir -p ~/.gstack/sessions
 touch ~/.gstack/sessions/"$PPID"
@@ -324,7 +324,7 @@ If A:
 2. Run `echo '.claude/skills/gstack/' >> .gitignore`
 3. Run `$GSTACK_BIN/gstack-team-init required` (or `optional`)
 4. Run `git add .claude/ .gitignore CLAUDE.md && git commit -m "chore: migrate gstack from vendored to team mode"`
-5. Tell the user: "Done. Each developer now runs: `cd $GSTACK_ROOT && ./setup --team`"
+5. Tell the user: "Done. Each developer now runs: `cd "$GSTACK_ROOT" && ./setup --team`"
 
 If B: say "OK, you're on your own to keep the vendored copy up to date."
 
@@ -792,14 +792,14 @@ _TEL_END=$(date +%s)
 _TEL_DUR=$(( _TEL_END - _TEL_START ))
 rm -f ~/.gstack/analytics/.pending-"$_SESSION_ID" 2>/dev/null || true
 # Session timeline: record skill completion (local-only, never sent anywhere)
-$GSTACK_ROOT/bin/gstack-timeline-log '{"skill":"SKILL_NAME","event":"completed","branch":"'$(git branch --show-current 2>/dev/null || echo unknown)'","outcome":"OUTCOME","duration_s":"'"$_TEL_DUR"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null || true
+"$GSTACK_ROOT"/bin/gstack-timeline-log '{"skill":"SKILL_NAME","event":"completed","branch":"'$(git branch --show-current 2>/dev/null || echo unknown)'","outcome":"OUTCOME","duration_s":"'"$_TEL_DUR"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null || true
 # Local analytics (gated on telemetry setting)
 if [ "$_TEL" != "off" ]; then
 echo '{"skill":"SKILL_NAME","duration_s":"'"$_TEL_DUR"'","outcome":"OUTCOME","browse":"USED_BROWSE","session":"'"$_SESSION_ID"'","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 fi
 # Remote telemetry (opt-in, requires binary)
-if [ "$_TEL" != "off" ] && [ -x $GSTACK_ROOT/bin/gstack-telemetry-log ]; then
-  $GSTACK_ROOT/bin/gstack-telemetry-log \
+if [ "$_TEL" != "off" ] && [ -x "$GSTACK_ROOT"/bin/gstack-telemetry-log ]; then
+  "$GSTACK_ROOT"/bin/gstack-telemetry-log \
     --skill "SKILL_NAME" --duration "$_TEL_DUR" --outcome "OUTCOME" \
     --used-browse "USED_BROWSE" --session-id "$_SESSION_ID" 2>/dev/null &
 fi
@@ -872,8 +872,8 @@ If `NOT_FOUND`: stop and tell the user:
 
 If `NOT_FOUND`, also log the event:
 ```bash
-_TEL=$($GSTACK_ROOT/bin/gstack-config get telemetry 2>/dev/null || echo off)
-source $GSTACK_ROOT/bin/gstack-codex-probe 2>/dev/null && _gstack_codex_log_event "codex_cli_missing" 2>/dev/null || true
+_TEL=$("$GSTACK_ROOT"/bin/gstack-config get telemetry 2>/dev/null || echo off)
+source "$GSTACK_ROOT"/bin/gstack-codex-probe 2>/dev/null && _gstack_codex_log_event "codex_cli_missing" 2>/dev/null || true
 ```
 
 ---
@@ -885,8 +885,8 @@ CLI version isn't in the known-bad list. Sourcing `gstack-codex-probe` loads the
 shared helpers that both `/codex` and `/autoplan` use.
 
 ```bash
-_TEL=$($GSTACK_ROOT/bin/gstack-config get telemetry 2>/dev/null || echo off)
-source $GSTACK_ROOT/bin/gstack-codex-probe
+_TEL=$("$GSTACK_ROOT"/bin/gstack-config get telemetry 2>/dev/null || echo off)
+source "$GSTACK_ROOT"/bin/gstack-codex-probe
 
 if ! _gstack_codex_auth_probe >/dev/null; then
   _gstack_codex_log_event "codex_auth_failed"
@@ -916,11 +916,11 @@ deadlock fixed in #972.
 Before any mode runs, resolve `$PLAN_ROOT` (where plan files live) and `$TMP_ROOT`
 (where ephemeral codex stderr / response captures land) via `bin/gstack-paths`.
 This keeps the skill working whether installed as a Claude Code plugin
-(`CLAUDE_PLANS_DIR` set), a global `$GSTACK_ROOT/` install, or a CI
+(`CLAUDE_PLANS_DIR` set), a global `"$GSTACK_ROOT"/` install, or a CI
 container where `HOME` may be unset and `/tmp` may be read-only.
 
 ```bash
-eval "$($GSTACK_ROOT/bin/gstack-paths)"
+eval "$("$GSTACK_ROOT"/bin/gstack-paths)"
 ```
 
 After this, every subsequent bash block in this skill uses `"$PLAN_ROOT"` and
@@ -1106,7 +1106,7 @@ CROSS-MODEL ANALYSIS:
 
 7. Persist the review result:
 ```bash
-$GSTACK_ROOT/bin/gstack-review-log '{"skill":"codex-review","timestamp":"TIMESTAMP","status":"STATUS","gate":"GATE","findings":N,"findings_fixed":N,"commit":"'"$(git rev-parse --short HEAD)"'"}'
+"$GSTACK_ROOT"/bin/gstack-review-log '{"skill":"codex-review","timestamp":"TIMESTAMP","status":"STATUS","gate":"GATE","findings":N,"findings_fixed":N,"commit":"'"$(git rev-parse --short HEAD)"'"}'
 ```
 
 Substitute: TIMESTAMP (ISO 8601), STATUS ("clean" if PASS, "issues_found" if FAIL),

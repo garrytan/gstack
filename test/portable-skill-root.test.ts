@@ -56,6 +56,7 @@ function createStubRuntime(home: string, name: string): string {
   const install = path.join(home, '.claude', 'skills', name);
   const bin = path.join(install, 'bin');
   fs.mkdirSync(bin, { recursive: true });
+  fs.writeFileSync(path.join(install, 'VERSION'), 'test\n');
   const common = 'printf "%s %s\\n" "$0" "$*" >> "$CALLS"';
   writeExecutable(path.join(bin, 'gstack-update-check'), common);
   writeExecutable(path.join(bin, 'gstack-config'), `${common}\ncase "$*" in *telemetry*) echo off ;; *proactive*) echo false ;; *skill_prefix*) echo false ;; *explain_level*) echo default ;; *question_tuning*) echo false ;; *routing_declined*) echo true ;; *checkpoint_mode*) echo explicit ;; *checkpoint_push*) echo false ;; *) echo false ;; esac`);
@@ -122,6 +123,26 @@ describe('portable generated skill paths (#1882)', () => {
     expect(fs.readFileSync(calls, 'utf8')).toContain(`${plugin}/bin/gstack-config get proactive`);
   });
 
+  test('foreign plugin roots are ignored and cannot trigger a repository-local fallback', () => {
+    const home = tempDir('gstack-portable-foreign-plugin-');
+    const repo = tempDir('gstack-portable-foreign-repo-');
+    const calls = path.join(home, 'calls.log');
+    const trusted = createStubRuntime(home, 'trusted root');
+    const foreign = path.join(home, 'foreign-plugin');
+    fs.mkdirSync(path.join(foreign, 'bin'), { recursive: true });
+    fs.mkdirSync(path.join(repo, '.claude', 'skills', 'gstack', 'bin'), { recursive: true });
+    writeExecutable(
+      path.join(repo, '.claude', 'skills', 'gstack', 'bin', 'gstack-update-check'),
+      'echo repo-fallback >> "$CALLS"',
+    );
+    fs.writeFileSync(path.join(home, '.claude', 'skills', '.gstack-root'), `${trusted}\n`);
+
+    const result = runPreamble(home, repo, calls, { CLAUDE_PLUGIN_ROOT: foreign });
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain(`ROOT=${trusted}`);
+    expect(fs.readFileSync(calls, 'utf8')).not.toContain('repo-fallback');
+  });
+
   test('invalid marker falls back to the canonical user install', () => {
     const home = tempDir('gstack-portable-fallback-');
     const calls = path.join(home, 'calls.log');
@@ -170,6 +191,9 @@ describe('portable generated skill paths (#1882)', () => {
       expect(body, path.relative(ROOT, file)).not.toContain('$HOME/.claude/skills/gstack');
       expect(body, path.relative(ROOT, file)).not.toContain('$_ROOT/$GSTACK_ROOT');
       expect(body, path.relative(ROOT, file)).not.toContain('$HOME/$GSTACK_ROOT');
+      expect(body, path.relative(ROOT, file)).not.toMatch(
+        /(^|[\s(=|;&])\$GSTACK_ROOT\/(?:bin|browse\/bin|careful\/bin|freeze\/bin)\//m,
+      );
     }
   });
 
@@ -196,12 +220,32 @@ describe('portable generated skill paths (#1882)', () => {
       expect(output).not.toContain('$HOME$GSTACK_');
     }
   });
+
+  test('a generated body command executes from a runtime root containing whitespace', () => {
+    const home = tempDir('gstack-portable-body-');
+    const install = path.join(home, 'renamed gstack body');
+    const executable = path.join(install, 'bin', 'gstack-paths');
+    fs.mkdirSync(path.dirname(executable), { recursive: true });
+    writeExecutable(executable, 'echo GSTACK_STATE_ROOT=portable-body');
+
+    const freeze = fs.readFileSync(path.join(ROOT, 'freeze', 'SKILL.md'), 'utf8');
+    const command = freeze.split('\n').find(line => line.includes('gstack-paths)"'));
+    expect(command).toBe('eval "$("$GSTACK_ROOT"/bin/gstack-paths)"');
+
+    const result = spawnSync('bash', ['-c', `${command}\nprintf '%s\\n' "$GSTACK_STATE_ROOT"`], {
+      env: { ...process.env, GSTACK_ROOT: install },
+      encoding: 'utf8',
+    });
+    expect(result.status).toBe(0);
+    expect(result.stdout.trim()).toBe('portable-body');
+  });
 });
 
 describe('setup portable root registration (#1882)', () => {
   const helpers = [
     extractSetupFunction('_link_or_copy'),
     extractSetupFunction('record_claude_runtime_root'),
+    extractSetupFunction('is_canonical_claude_runtime_root'),
     extractSetupFunction('validate_claude_hook_runtime_root'),
     extractSetupFunction('ensure_claude_hook_runtime_root'),
   ].join('\n');

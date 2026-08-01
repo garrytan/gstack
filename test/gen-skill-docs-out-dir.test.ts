@@ -51,7 +51,7 @@ describe('gen-skill-docs --out-dir (B2 render isolation)', () => {
       expect(skillContent).toContain('Brain Context Load');
 
       // (c) section refs repointed to the out-dir; none left pointing at the install
-      expect(skillContent).toContain(`${outDir}/ship/sections/`);
+      expect(skillContent).toContain(`"${outDir}"/ship/sections/`);
       expect(skillContent).not.toContain('~/.claude/skills/gstack/ship/sections/');
 
       // (d) bin refs resolve through the portable runtime root

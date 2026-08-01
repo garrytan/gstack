@@ -33,7 +33,7 @@ gbrain", "install gbrain", "configure gbrain for this machine".
 ```bash
 _GSTACK_ROOT_MARKER="$HOME/.claude/skills/.gstack-root"
 [ -n "${GSTACK_ROOT:-}" ] && [ ! -d "$GSTACK_ROOT/bin" ] && GSTACK_ROOT=""
-[ -z "${GSTACK_ROOT:-}" ] && [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -d "$CLAUDE_PLUGIN_ROOT/bin" ] && GSTACK_ROOT="$CLAUDE_PLUGIN_ROOT"
+[ -z "${GSTACK_ROOT:-}" ] && [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/VERSION" ] && [ -x "$CLAUDE_PLUGIN_ROOT/bin/gstack-config" ] && GSTACK_ROOT="$CLAUDE_PLUGIN_ROOT"
 [ -z "${GSTACK_ROOT:-}" ] && [ -f "$_GSTACK_ROOT_MARKER" ] && GSTACK_ROOT=$(cat "$_GSTACK_ROOT_MARKER" 2>/dev/null || true)
 [ -n "${GSTACK_ROOT:-}" ] && [ ! -d "$GSTACK_ROOT/bin" ] && GSTACK_ROOT=""
 _GSTACK_DIR=gstack
@@ -43,7 +43,7 @@ GSTACK_BROWSE="$GSTACK_ROOT/browse/dist"
 GSTACK_DESIGN="$GSTACK_ROOT/design/dist"
 GSTACK_MAKE_PDF="$GSTACK_ROOT/make-pdf/dist"
 export GSTACK_ROOT GSTACK_BIN GSTACK_BROWSE GSTACK_DESIGN GSTACK_MAKE_PDF
-_UPD=$("$GSTACK_BIN/gstack-update-check" 2>/dev/null || ".claude/skills/gstack/bin/gstack-update-check" 2>/dev/null || true)
+_UPD=$("$GSTACK_BIN/gstack-update-check" 2>/dev/null || true)
 [ -n "$_UPD" ] && echo "$_UPD" || true
 mkdir -p ~/.gstack/sessions
 touch ~/.gstack/sessions/"$PPID"
@@ -323,7 +323,7 @@ If A:
 2. Run `echo '.claude/skills/gstack/' >> .gitignore`
 3. Run `$GSTACK_BIN/gstack-team-init required` (or `optional`)
 4. Run `git add .claude/ .gitignore CLAUDE.md && git commit -m "chore: migrate gstack from vendored to team mode"`
-5. Tell the user: "Done. Each developer now runs: `cd $GSTACK_ROOT && ./setup --team`"
+5. Tell the user: "Done. Each developer now runs: `cd "$GSTACK_ROOT" && ./setup --team`"
 
 If B: say "OK, you're on your own to keep the vendored copy up to date."
 
@@ -773,14 +773,14 @@ _TEL_END=$(date +%s)
 _TEL_DUR=$(( _TEL_END - _TEL_START ))
 rm -f ~/.gstack/analytics/.pending-"$_SESSION_ID" 2>/dev/null || true
 # Session timeline: record skill completion (local-only, never sent anywhere)
-$GSTACK_ROOT/bin/gstack-timeline-log '{"skill":"SKILL_NAME","event":"completed","branch":"'$(git branch --show-current 2>/dev/null || echo unknown)'","outcome":"OUTCOME","duration_s":"'"$_TEL_DUR"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null || true
+"$GSTACK_ROOT"/bin/gstack-timeline-log '{"skill":"SKILL_NAME","event":"completed","branch":"'$(git branch --show-current 2>/dev/null || echo unknown)'","outcome":"OUTCOME","duration_s":"'"$_TEL_DUR"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null || true
 # Local analytics (gated on telemetry setting)
 if [ "$_TEL" != "off" ]; then
 echo '{"skill":"SKILL_NAME","duration_s":"'"$_TEL_DUR"'","outcome":"OUTCOME","browse":"USED_BROWSE","session":"'"$_SESSION_ID"'","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 fi
 # Remote telemetry (opt-in, requires binary)
-if [ "$_TEL" != "off" ] && [ -x $GSTACK_ROOT/bin/gstack-telemetry-log ]; then
-  $GSTACK_ROOT/bin/gstack-telemetry-log \
+if [ "$_TEL" != "off" ] && [ -x "$GSTACK_ROOT"/bin/gstack-telemetry-log ]; then
+  "$GSTACK_ROOT"/bin/gstack-telemetry-log \
     --skill "SKILL_NAME" --duration "$_TEL_DUR" --outcome "OUTCOME" \
     --used-browse "USED_BROWSE" --session-id "$_SESSION_ID" 2>/dev/null &
 fi
@@ -825,7 +825,7 @@ implemented as a dispatcher binary.
 ## Step 1: Detect current state
 
 ```bash
-$GSTACK_ROOT/bin/gstack-gbrain-detect
+"$GSTACK_ROOT"/bin/gstack-gbrain-detect
 ```
 
 Capture the JSON output. It contains: `gbrain_on_path`, `gbrain_version`,
@@ -883,7 +883,7 @@ dead Postgres URL). Fire a targeted AskUserQuestion BEFORE Step 2:
 >   ❌ N/A
 > Net: A is the right starting move; B/C are explicit destructive paths; D bails.
 
-**If A (Retry)**: re-run `$GSTACK_ROOT/bin/gstack-gbrain-detect`
+**If A (Retry)**: re-run `"$GSTACK_ROOT"/bin/gstack-gbrain-detect`
 with `GSTACK_DETECT_NO_CACHE=1` (busts the 60s cache). If the new
 `gbrain_local_status` is `ok`, continue to Step 2. If still `broken-db` or
 `broken-config`, fire the same AskUserQuestion again (the user picks again).
@@ -970,7 +970,7 @@ Path 4 subsection).
 For Paths 1, 2a, 2b, 3, switch — only if `gbrain_on_path=false`:
 
 ```bash
-$GSTACK_ROOT/bin/gstack-gbrain-install
+"$GSTACK_ROOT"/bin/gstack-gbrain-install
 ```
 
 The installer runs D5 detect-first (probes `~/git/gbrain`, `~/gbrain` first),
@@ -990,7 +990,7 @@ Path-specific.
 Source the secret-read helper, collect URL with `read -s` + redacted preview:
 
 ```bash
-. $GSTACK_ROOT/bin/gstack-gbrain-lib.sh
+. "$GSTACK_ROOT"/bin/gstack-gbrain-lib.sh
 read_secret_to_env GBRAIN_POOLER_URL "Paste Session Pooler URL: " \
   --echo-redacted 's#://[^@]*@#://***@#'
 ```
@@ -998,7 +998,7 @@ read_secret_to_env GBRAIN_POOLER_URL "Paste Session Pooler URL: " \
 Then validate structurally:
 
 ```bash
-printf '%s' "$GBRAIN_POOLER_URL" | $GSTACK_ROOT/bin/gstack-gbrain-supabase-verify -
+printf '%s' "$GBRAIN_POOLER_URL" | "$GSTACK_ROOT"/bin/gstack-gbrain-supabase-verify -
 ```
 
 If the verify exit code is 3 (direct-connection URL), the verifier's own
@@ -1029,7 +1029,7 @@ Show the D11 PAT scope disclosure verbatim BEFORE collecting the token:
 Then:
 
 ```bash
-. $GSTACK_ROOT/bin/gstack-gbrain-lib.sh
+. "$GSTACK_ROOT"/bin/gstack-gbrain-lib.sh
 read_secret_to_env SUPABASE_ACCESS_TOKEN "Paste PAT: "
 ```
 
@@ -1042,7 +1042,7 @@ tier. Pro may require them to upgrade the org first at supabase.com.
 List orgs, pick one (AskUserQuestion if multiple):
 
 ```bash
-orgs=$($GSTACK_ROOT/bin/gstack-gbrain-supabase-provision list-orgs --json)
+orgs=$("$GSTACK_ROOT"/bin/gstack-gbrain-supabase-provision list-orgs --json)
 ```
 
 If the `.orgs` array is empty, surface: "Your Supabase account has no
@@ -1071,11 +1071,11 @@ trap 'echo ""; echo "gstack-gbrain: interrupted. In-flight ref: $INFLIGHT_REF"; 
 Create + wait + fetch:
 
 ```bash
-result=$($GSTACK_ROOT/bin/gstack-gbrain-supabase-provision \
+result=$("$GSTACK_ROOT"/bin/gstack-gbrain-supabase-provision \
   create gbrain "$REGION" "$ORG_SLUG" --json)
 INFLIGHT_REF=$(echo "$result" | jq -r .ref)
-$GSTACK_ROOT/bin/gstack-gbrain-supabase-provision wait "$INFLIGHT_REF" --json
-pooler=$($GSTACK_ROOT/bin/gstack-gbrain-supabase-provision \
+"$GSTACK_ROOT"/bin/gstack-gbrain-supabase-provision wait "$INFLIGHT_REF" --json
+pooler=$("$GSTACK_ROOT"/bin/gstack-gbrain-supabase-provision \
   pooler-url "$INFLIGHT_REF" --json)
 GBRAIN_DATABASE_URL=$(echo "$pooler" | jq -r .pooler_url)
 export GBRAIN_DATABASE_URL
@@ -1140,7 +1140,7 @@ non-loopback host); refuse `http://` for non-localhost.
 **4b. Collect bearer token via the secret-read helper (D10, never argv).**
 
 ```bash
-. $GSTACK_ROOT/bin/gstack-gbrain-lib.sh
+. "$GSTACK_ROOT"/bin/gstack-gbrain-lib.sh
 read_secret_to_env GBRAIN_MCP_TOKEN "Paste bearer token: " \
   --echo-redacted 's/.\{6\}$/***REDACTED***/'
 ```
@@ -1150,7 +1150,7 @@ classified JSON output:
 
 ```bash
 verify_json=$(GBRAIN_MCP_TOKEN="$GBRAIN_MCP_TOKEN" \
-  $GSTACK_ROOT/bin/gstack-gbrain-mcp-verify "$MCP_URL")
+  "$GSTACK_ROOT"/bin/gstack-gbrain-mcp-verify "$MCP_URL")
 status=$(echo "$verify_json" | jq -r .status)
 ```
 
@@ -1191,7 +1191,7 @@ Capture two values from the verify output for downstream steps:
 **If A (Yes)**: install + init local PGLite with rollback-safe semantics (D7):
 
 ```bash
-$GSTACK_ROOT/bin/gstack-gbrain-install || exit $?
+"$GSTACK_ROOT"/bin/gstack-gbrain-install || exit $?
 # At this point the local gbrain CLI is on PATH. Init PGLite, but back up any
 # existing ~/.gbrain/config.json first (rollback if init fails).
 if [ -f "$HOME/.gbrain/config.json" ]; then
@@ -1333,7 +1333,7 @@ session start, not mid-session."
 If we're in a git repo with an `origin` remote, check the policy:
 
 ```bash
-current_tier=$($GSTACK_ROOT/bin/gstack-gbrain-repo-policy get)
+current_tier=$("$GSTACK_ROOT"/bin/gstack-gbrain-repo-policy get)
 ```
 
 Branches:
@@ -1351,7 +1351,7 @@ Branches:
 
   On answer (other than skip-for-now):
   ```bash
-  $GSTACK_ROOT/bin/gstack-gbrain-repo-policy set "$REMOTE" "$TIER"
+  "$GSTACK_ROOT"/bin/gstack-gbrain-repo-policy set "$REMOTE" "$TIER"
   ```
   Then import iff `read-write`.
 
@@ -1386,8 +1386,8 @@ verify output (Path 4) or `false` (Paths 1/2/3 — local mode doesn't probe):
 
 ```bash
 URL_FORM=${URL_FORM_SUPPORTED:-false}
-$GSTACK_ROOT/bin/gstack-artifacts-init --url-form-supported "$URL_FORM"
-$GSTACK_ROOT/bin/gstack-config set artifacts_sync_mode artifacts-only
+"$GSTACK_ROOT"/bin/gstack-artifacts-init --url-form-supported "$URL_FORM"
+"$GSTACK_ROOT"/bin/gstack-config set artifacts_sync_mode artifacts-only
 # or "full" if user picked yes-full
 ```
 
@@ -1423,7 +1423,7 @@ try:
 except Exception:
     pass
 ")
-$GSTACK_ROOT/bin/gstack-gbrain-source-wireup --strict \
+"$GSTACK_ROOT"/bin/gstack-gbrain-source-wireup --strict \
   ${GBRAIN_URL:+--database-url "$GBRAIN_URL"}
 ```
 
@@ -1453,7 +1453,7 @@ curated `~/.gstack/` artifacts into gbrain so the retrieval surface
 
 Run the probe to size the operation:
 ```bash
-$GSTACK_ROOT/bin/gstack-memory-ingest --probe
+"$GSTACK_ROOT"/bin/gstack-memory-ingest --probe
 ```
 
 Read the output. If `Total files in window: 0`, skip — there's nothing
@@ -1497,8 +1497,8 @@ Options:
 
 After answer:
 ```bash
-$GSTACK_ROOT/bin/gstack-config set transcript_ingest_mode <choice>
-$GSTACK_ROOT/bin/gstack-gbrain-sync --full --no-brain-sync
+"$GSTACK_ROOT"/bin/gstack-config set transcript_ingest_mode <choice>
+"$GSTACK_ROOT"/bin/gstack-gbrain-sync --full --no-brain-sync
 ```
 (`--no-brain-sync` because Step 7 already wired that path; this just
 runs the code import + memory ingest stages. Brain-sync will run on the
@@ -1646,8 +1646,8 @@ MCP (shared) gets both policies tracked separately.
 Detect the active endpoint hash + current policy:
 
 ```bash
-_HASH=$($GSTACK_ROOT/bin/gstack-config endpoint-hash 2>/dev/null)
-_POLICY=$($GSTACK_ROOT/bin/gstack-config get brain_trust_policy@$_HASH 2>/dev/null || echo unset)
+_HASH=$("$GSTACK_ROOT"/bin/gstack-config endpoint-hash 2>/dev/null)
+_POLICY=$("$GSTACK_ROOT"/bin/gstack-config get brain_trust_policy@$_HASH 2>/dev/null || echo unset)
 echo "ENDPOINT_HASH: $_HASH"
 echo "BRAIN_TRUST_POLICY: $_POLICY"
 ```
@@ -1661,7 +1661,7 @@ Branch on transport + current policy:
 (local engines are inherently single-tenant). No AskUserQuestion.
 
 ```bash
-$GSTACK_ROOT/bin/gstack-config set brain_trust_policy@$_HASH personal
+"$GSTACK_ROOT"/bin/gstack-config set brain_trust_policy@$_HASH personal
 echo "Trust policy auto-set to 'personal' for local PGLite (single-tenant by construction)."
 ```
 
@@ -1687,16 +1687,16 @@ Options:
 After answer, persist:
 
 ```bash
-$GSTACK_ROOT/bin/gstack-config set brain_trust_policy@$_HASH <personal|shared>
+"$GSTACK_ROOT"/bin/gstack-config set brain_trust_policy@$_HASH <personal|shared>
 ```
 
 If `personal` was selected AND `artifacts_sync_mode` is still `off`, also
 default it to `full` (D4 auto-push convention):
 
 ```bash
-_CURRENT_SYNC=$($GSTACK_ROOT/bin/gstack-config get artifacts_sync_mode 2>/dev/null || echo off)
+_CURRENT_SYNC=$("$GSTACK_ROOT"/bin/gstack-config get artifacts_sync_mode 2>/dev/null || echo off)
 if [ "$_CURRENT_SYNC" = "off" ]; then
-  $GSTACK_ROOT/bin/gstack-config set artifacts_sync_mode full
+  "$GSTACK_ROOT"/bin/gstack-config set artifacts_sync_mode full
   echo "artifacts_sync_mode auto-set to 'full' (personal brain default)."
 fi
 ```
@@ -1712,9 +1712,9 @@ configured Mac is a first-class doctor path: every step detects existing
 state, repairs only what's missing, and reports here.
 
 ```bash
-$GSTACK_ROOT/bin/gstack-gbrain-detect 2>/dev/null || true
-$GSTACK_ROOT/bin/gstack-config get transcript_ingest_mode 2>/dev/null || echo "off"
-$GSTACK_ROOT/bin/gstack-config get artifacts_sync_mode 2>/dev/null || echo "off"
+"$GSTACK_ROOT"/bin/gstack-gbrain-detect 2>/dev/null || true
+"$GSTACK_ROOT"/bin/gstack-config get transcript_ingest_mode 2>/dev/null || echo "off"
+"$GSTACK_ROOT"/bin/gstack-config get artifacts_sync_mode 2>/dev/null || echo "off"
 [ -f ~/.gstack/.gbrain-sync-state.json ] && cat ~/.gstack/.gbrain-sync-state.json || echo "{}"
 ```
 

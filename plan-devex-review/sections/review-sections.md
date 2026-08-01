@@ -49,8 +49,8 @@ smarter on their codebase over time.
 Before starting review passes, check for prior DX reviews on this project:
 
 ```bash
-eval "$($GSTACK_ROOT/bin/gstack-slug 2>/dev/null)"
-$GSTACK_ROOT/bin/gstack-review-read 2>/dev/null | grep plan-devex-review || echo "NO_PRIOR_DX_REVIEWS"
+eval "$("$GSTACK_ROOT"/bin/gstack-slug 2>/dev/null)"
+"$GSTACK_ROOT"/bin/gstack-review-read 2>/dev/null | grep plan-devex-review || echo "NO_PRIOR_DX_REVIEWS"
 ```
 
 If prior reviews exist, display the trend:
@@ -69,7 +69,7 @@ Rate 0-10: Can a developer go from zero to hello world in under 5 minutes?
 magical moment from 0D (delivery vehicle), and any Install/Hello World friction
 points from 0F.
 
-Load reference: Read the "## Pass 1" section from `$GSTACK_ROOT/plan-devex-review/dx-hall-of-fame.md`.
+Load reference: Read the "## Pass 1" section from `"$GSTACK_ROOT"/plan-devex-review/dx-hall-of-fame.md`.
 
 Evaluate:
 - **Installation**: One command? One click? No prerequisites?
@@ -98,7 +98,7 @@ Rate 0-10: Is the interface intuitive, consistent, and complete?
 A YC founder expects `tool.do(thing)`. A platform engineer expects
 `tool.configure(options).execute(thing)`.
 
-Load reference: Read the "## Pass 2" section from `$GSTACK_ROOT/plan-devex-review/dx-hall-of-fame.md`.
+Load reference: Read the "## Pass 2" section from `"$GSTACK_ROOT"/plan-devex-review/dx-hall-of-fame.md`.
 
 Evaluate:
 - **Naming**: Guessable without docs? Consistent grammar?
@@ -122,7 +122,7 @@ and how to fix it?
 **Evidence recall:** Reference any error-related friction points from 0F and confusion
 points from 0G.
 
-Load reference: Read the "## Pass 3" section from `$GSTACK_ROOT/plan-devex-review/dx-hall-of-fame.md`.
+Load reference: Read the "## Pass 3" section from `"$GSTACK_ROOT"/plan-devex-review/dx-hall-of-fame.md`.
 
 **Trace 3 specific error paths** from the plan or codebase. For each, evaluate against
 the three-tier system from the Hall of Fame:
@@ -147,7 +147,7 @@ Rate 0-10: Can a developer find what they need and learn by doing?
 style? A YC founder needs copy-paste examples front and center. A platform engineer
 needs architecture docs and API reference.
 
-Load reference: Read the "## Pass 4" section from `$GSTACK_ROOT/plan-devex-review/dx-hall-of-fame.md`.
+Load reference: Read the "## Pass 4" section from `"$GSTACK_ROOT"/plan-devex-review/dx-hall-of-fame.md`.
 
 Evaluate:
 - **Information architecture**: Find what they need in under 2 minutes?
@@ -163,7 +163,7 @@ Evaluate:
 
 Rate 0-10: Can developers upgrade without fear?
 
-Load reference: Read the "## Pass 5" section from `$GSTACK_ROOT/plan-devex-review/dx-hall-of-fame.md`.
+Load reference: Read the "## Pass 5" section from `"$GSTACK_ROOT"/plan-devex-review/dx-hall-of-fame.md`.
 
 Evaluate:
 - **Backward compatibility**: What breaks? Blast radius limited?
@@ -181,7 +181,7 @@ Rate 0-10: Does this integrate into developers' existing workflows?
 **Evidence recall:** Does local dev setup work for [persona from 0A]'s typical
 environment?
 
-Load reference: Read the "## Pass 6" section from `$GSTACK_ROOT/plan-devex-review/dx-hall-of-fame.md`.
+Load reference: Read the "## Pass 6" section from `"$GSTACK_ROOT"/plan-devex-review/dx-hall-of-fame.md`.
 
 Evaluate:
 - **Editor integration**: Language server? Autocomplete? Inline docs?
@@ -199,7 +199,7 @@ Evaluate:
 
 Rate 0-10: Is there a community, and does the plan invest in ecosystem health?
 
-Load reference: Read the "## Pass 7" section from `$GSTACK_ROOT/plan-devex-review/dx-hall-of-fame.md`.
+Load reference: Read the "## Pass 7" section from `"$GSTACK_ROOT"/plan-devex-review/dx-hall-of-fame.md`.
 
 Evaluate:
 - **Open source**: Code open? Permissive license?
@@ -215,7 +215,7 @@ Evaluate:
 
 Rate 0-10: Does the plan include ways to measure and improve DX over time?
 
-Load reference: Read the "## Pass 8" section from `$GSTACK_ROOT/plan-devex-review/dx-hall-of-fame.md`.
+Load reference: Read the "## Pass 8" section from `"$GSTACK_ROOT"/plan-devex-review/dx-hall-of-fame.md`.
 
 Evaluate:
 - **TTHW tracking**: Can you measure getting started time? Is it instrumented?
@@ -233,7 +233,7 @@ Evaluate:
 This is NOT a scored pass. It's a checklist of proven patterns from gstack's own DX.
 
 Load reference: Read the "## Claude Code Skill DX Checklist" section from
-`$GSTACK_ROOT/plan-devex-review/dx-hall-of-fame.md`.
+`"$GSTACK_ROOT"/plan-devex-review/dx-hall-of-fame.md`.
 
 Check each item. For any unchecked item, explain what's missing and suggest the fix.
 
@@ -251,9 +251,9 @@ review. The user turns this off only by asking explicitly
 
 ```bash
 # Codex preflight: one block (functions sourced here don't persist to later blocks).
-_TEL=$($GSTACK_ROOT/bin/gstack-config get telemetry 2>/dev/null || echo off)
-_CODEX_CFG=$($GSTACK_ROOT/bin/gstack-config get codex_reviews 2>/dev/null || echo enabled)
-source $GSTACK_ROOT/bin/gstack-codex-probe 2>/dev/null || true
+_TEL=$("$GSTACK_ROOT"/bin/gstack-config get telemetry 2>/dev/null || echo off)
+_CODEX_CFG=$("$GSTACK_ROOT"/bin/gstack-config get codex_reviews 2>/dev/null || echo enabled)
+source "$GSTACK_ROOT"/bin/gstack-codex-probe 2>/dev/null || true
 if [ "$_CODEX_CFG" = "disabled" ]; then
   _CODEX_MODE="disabled"
 elif ! command -v codex >/dev/null 2>&1; then
@@ -375,7 +375,7 @@ If no tension points exist, note: "No cross-model tension — both reviewers agr
 
 **Persist the result:**
 ```bash
-$GSTACK_ROOT/bin/gstack-review-log '{"skill":"codex-plan-review","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","commit":"'"$(git rev-parse --short HEAD)"'"}'
+"$GSTACK_ROOT"/bin/gstack-review-log '{"skill":"codex-plan-review","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","commit":"'"$(git rev-parse --short HEAD)"'"}'
 ```
 
 Substitute: STATUS = "clean" if no findings, "issues_found" if findings exist.
@@ -545,7 +545,7 @@ Rules:
 backslashes serialize cleanly — never use hand-rolled `echo` / `printf`.
 
 ```bash
-eval "$($GSTACK_ROOT/bin/gstack-slug 2>/dev/null)"
+eval "$("$GSTACK_ROOT"/bin/gstack-slug 2>/dev/null)"
 TASKS_DIR="${HOME}/.gstack/projects/${SLUG:-unknown}"
 mkdir -p "$TASKS_DIR"
 TASKS_FILE="$TASKS_DIR/tasks-devex-review-$(date +%Y%m%d-%H%M%S).jsonl"
@@ -592,7 +592,7 @@ Persist after the DX Scorecard — the dashboard, the GSTACK REVIEW REPORT, and 
 PLAN MODE GATE's "review log was called" check depend on it. **PLAN MODE EXCEPTION — ALWAYS RUN** (writes to `~/.gstack/`, not project files):
 
 ```bash
-$GSTACK_ROOT/bin/gstack-review-log '{"skill":"plan-devex-review","timestamp":"TIMESTAMP","status":"STATUS","initial_score":N,"overall_score":N,"product_type":"PRODUCT_TYPE","tthw_current":"TTHW_CURRENT","tthw_target":"TTHW_TARGET","mode":"MODE","persona":"PERSONA","competitive_tier":"COMPETITIVE_TIER","unresolved":N,"commit":"COMMIT"}'
+"$GSTACK_ROOT"/bin/gstack-review-log '{"skill":"plan-devex-review","timestamp":"TIMESTAMP","status":"STATUS","initial_score":N,"overall_score":N,"product_type":"PRODUCT_TYPE","tthw_current":"TTHW_CURRENT","tthw_target":"TTHW_TARGET","mode":"MODE","persona":"PERSONA","competitive_tier":"COMPETITIVE_TIER","unresolved":N,"commit":"COMMIT"}'
 ```
 
 TIMESTAMP = current ISO 8601 datetime; STATUS = "clean" if score 8+ AND 0 unresolved, else "issues_open"; other fields from the DX Scorecard + Step 0; COMMIT = `git rev-parse --short HEAD`.
@@ -602,7 +602,7 @@ TIMESTAMP = current ISO 8601 datetime; STATUS = "clean" if score 8+ AND 0 unreso
 After completing the review, read the review log and config to display the dashboard.
 
 ```bash
-$GSTACK_ROOT/bin/gstack-review-read
+"$GSTACK_ROOT"/bin/gstack-review-read
 ```
 
 Parse the output. Find the most recent entry for each skill (plan-ceo-review, plan-eng-review, review, plan-design-review, design-review-lite, adversarial-review, codex-review, codex-plan-review). Ignore entries with timestamps older than 7 days. For the Eng Review row, show whichever is more recent between `review` (diff-scoped pre-landing review) and `plan-eng-review` (plan-stage architecture review). Append "(DIFF)" or "(PLAN)" to the status to distinguish. For the Adversarial row, show whichever is more recent between `adversarial-review` (new auto-scaled) and `codex-review` (legacy). For Design Review, show whichever is more recent between `plan-design-review` (full visual audit) and `design-review-lite` (code-level check). Append "(FULL)" or "(LITE)" to the status to distinguish. For the Outside Voice row, show the most recent `codex-plan-review` entry — this captures outside voices from both /plan-ceo-review and /plan-eng-review.

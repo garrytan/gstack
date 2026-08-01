@@ -10,7 +10,7 @@ export function generatePreambleBash(ctx: TemplateContext): string {
   const runtimeRoot = ctx.host === 'claude'
     ? `_GSTACK_ROOT_MARKER="$HOME/${globalSkillsDir}/.gstack-root"
 [ -n "\${GSTACK_ROOT:-}" ] && [ ! -d "$GSTACK_ROOT/bin" ] && GSTACK_ROOT=""
-[ -z "\${GSTACK_ROOT:-}" ] && [ -n "\${CLAUDE_PLUGIN_ROOT:-}" ] && [ -d "$CLAUDE_PLUGIN_ROOT/bin" ] && GSTACK_ROOT="$CLAUDE_PLUGIN_ROOT"
+[ -z "\${GSTACK_ROOT:-}" ] && [ -n "\${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/VERSION" ] && [ -x "$CLAUDE_PLUGIN_ROOT/bin/gstack-config" ] && GSTACK_ROOT="$CLAUDE_PLUGIN_ROOT"
 [ -z "\${GSTACK_ROOT:-}" ] && [ -f "$_GSTACK_ROOT_MARKER" ] && GSTACK_ROOT=$(cat "$_GSTACK_ROOT_MARKER" 2>/dev/null || true)
 [ -n "\${GSTACK_ROOT:-}" ] && [ ! -d "$GSTACK_ROOT/bin" ] && GSTACK_ROOT=""
 _GSTACK_DIR=${path.posix.basename(hostConfig.globalRoot)}
@@ -31,10 +31,14 @@ GSTACK_DESIGN="$GSTACK_ROOT/design/dist"
 `
       : '';
 
+  const updateCheck = ctx.host === 'claude'
+    ? `_UPD=$(${bin('gstack-update-check')} 2>/dev/null || true)`
+    : `_UPD=$(${bin('gstack-update-check')} 2>/dev/null || ${localBin('gstack-update-check')} 2>/dev/null || true)`;
+
   return `## Preamble (run first)
 
 \`\`\`bash
-${runtimeRoot}_UPD=$(${bin('gstack-update-check')} 2>/dev/null || ${localBin('gstack-update-check')} 2>/dev/null || true)
+${runtimeRoot}${updateCheck}
 [ -n "$_UPD" ] && echo "$_UPD" || true
 mkdir -p ~/.gstack/sessions
 touch ~/.gstack/sessions/"$PPID"

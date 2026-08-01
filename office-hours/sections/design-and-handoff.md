@@ -275,7 +275,7 @@ over time.
 ### Step 1: Read Builder Profile
 
 ```bash
-PROFILE=$($GSTACK_ROOT/bin/gstack-builder-profile 2>/dev/null) || PROFILE="SESSION_COUNT: 0
+PROFILE=$("$GSTACK_ROOT"/bin/gstack-builder-profile 2>/dev/null) || PROFILE="SESSION_COUNT: 0
 TIER: introduction"
 SESSION_TIER=$(echo "$PROFILE" | grep "^TIER:" | awk '{print $2}')
 SESSION_COUNT=$(echo "$PROFILE" | grep "^SESSION_COUNT:" | awk '{print $2}')
@@ -403,7 +403,7 @@ This must feel earned, not broadcast. If the evidence doesn't support it, skip e
 with a narrative arc (not a data table). The arc tells the STORY of their journey in
 second person, referencing specific things they said across sessions. Then open it:
 ```bash
-eval "$($GSTACK_ROOT/bin/gstack-paths)"
+eval "$("$GSTACK_ROOT"/bin/gstack-paths)"
 open "$GSTACK_STATE_ROOT/builder-journey.md"
 ```
 
@@ -506,8 +506,8 @@ PAUL GRAHAM ESSAYS:
 1. Log the selected resource URLs to the builder profile (single source of truth).
 Append a resource-tracking entry:
 ```bash
-eval "$($GSTACK_ROOT/bin/gstack-slug 2>/dev/null || true)"
-$GSTACK_ROOT/bin/gstack-developer-profile --log-session '{"date":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","mode":"resources","project_slug":"'"${SLUG:-unknown}"'","signal_count":0,"signals":[],"design_doc":"","assignment":"","resources_shown":["URL1","URL2","URL3"],"topics":[]}' 2>/dev/null || true
+eval "$("$GSTACK_ROOT"/bin/gstack-slug 2>/dev/null || true)"
+"$GSTACK_ROOT"/bin/gstack-developer-profile --log-session '{"date":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","mode":"resources","project_slug":"'"${SLUG:-unknown}"'","signal_count":0,"signals":[],"design_doc":"","assignment":"","resources_shown":["URL1","URL2","URL3"],"topics":[]}' 2>/dev/null || true
 ```
 
 2. Log the selection to analytics:
@@ -573,11 +573,11 @@ Net: 15 minutes of structured review now against rework risk later.
 On the user's SELECTION of A/B/C (not on invocation success), log the handoff, then invoke
 the chosen skill via the **Skill tool** (it auto-discovers the design doc):
 ```bash
-$GSTACK_ROOT/bin/gstack-telemetry-log --event-type handoff --skill office-hours --outcome accepted --session-id "$_SESSION_ID" 2>/dev/null || true
+"$GSTACK_ROOT"/bin/gstack-telemetry-log --event-type handoff --skill office-hours --outcome accepted --session-id "$_SESSION_ID" 2>/dev/null || true
 ```
 On D, log declined and stop:
 ```bash
-$GSTACK_ROOT/bin/gstack-telemetry-log --event-type handoff --skill office-hours --outcome declined --session-id "$_SESSION_ID" 2>/dev/null || true
+"$GSTACK_ROOT"/bin/gstack-telemetry-log --event-type handoff --skill office-hours --outcome declined --session-id "$_SESSION_ID" 2>/dev/null || true
 ```
 
 The design doc at `~/.gstack/projects/` is automatically discoverable by downstream skills — they will read it during their pre-review system audit.

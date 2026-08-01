@@ -27,7 +27,9 @@ const claude: HostConfig = {
   // before the preamble and cannot use $GSTACK_ROOT (see #1871 / #1882).
   pathRewrites: [
     { from: '$HOME/.claude/skills/gstack', to: '$GSTACK_ROOT' },
-    { from: '~/.claude/skills/gstack', to: '$GSTACK_ROOT' },
+    // Tilde paths are necessarily unquoted in source templates. Quote the
+    // replacement so renamed installs containing whitespace remain executable.
+    { from: '~/.claude/skills/gstack', to: '"$GSTACK_ROOT"' },
   ],
   toolRewrites: {},
   suppressedResolvers: ['GBRAIN_CONTEXT_LOAD', 'GBRAIN_SAVE_RESULTS'],
