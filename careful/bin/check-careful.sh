@@ -7,16 +7,47 @@ set -euo pipefail
 # Read stdin (JSON with tool_input)
 INPUT=$(cat)
 
-# Extract the "command" field value from tool_input
-# Try grep/sed first (handles 99% of cases), fall back to Python for escaped quotes
-CMD=$(printf '%s' "$INPUT" | grep -o '"command"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*:[[:space:]]*"//;s/"$//' || true)
+# Extract the "command" field value from tool_input with a real JSON parser.
+#
+# The previous extractor was
+#   grep -o '"command"[[:space:]]*:[[:space:]]*"[^"]*"'
+# whose [^"]* stops at the first escaped quote in the JSON string value. Any
+# destructive command preceded by a quoted argument was therefore truncated
+# away before the pattern checks ever ran:
+#
+#   git commit -m "wip" && rm -rf /   ->  CMD='git commit -m \'   -> allowed
+#   bash -c "rm -rf /"                ->  CMD='bash -c \'         -> allowed
+#   echo "x"; rm -rf ~                ->  CMD='echo \'            -> allowed
+#
+# The python3 fallback never rescued these because CMD was non-empty, so the
+# `[ -z "$CMD" ]` guard did not fire. Parse the payload properly instead, and
+# fail CLOSED when it cannot be parsed at all — a hook that gates destructive
+# commands must not allow-by-default on unreadable input.
+#
+# python3 is tried first because it ships with macOS and most Linux distros and
+# is reliably on PATH in a hook environment; node is the fallback.
+extract_cmd() {
+  if command -v python3 >/dev/null 2>&1; then
+    printf '%s' "$INPUT" | python3 -c 'import sys,json; d=json.loads(sys.stdin.read()); c=d.get("tool_input",{}).get("command",""); sys.stdout.write(c if isinstance(c,str) else "")' 2>/dev/null && return 0
+  fi
+  if command -v node >/dev/null 2>&1; then
+    printf '%s' "$INPUT" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const j=JSON.parse(s);const c=(j&&j.tool_input&&j.tool_input.command)||"";process.stdout.write(typeof c==="string"?c:"")}catch(e){process.exit(3)}})' 2>/dev/null && return 0
+  fi
+  return 1
+}
 
-# Python fallback if grep returned empty (e.g., escaped quotes in command)
-if [ -z "$CMD" ]; then
-  CMD=$(printf '%s' "$INPUT" | python3 -c 'import sys,json; print(json.loads(sys.stdin.read()).get("tool_input",{}).get("command",""))' 2>/dev/null || true)
+set +e
+CMD=$(extract_cmd)
+EXTRACT_RC=$?
+set -e
+
+# No parser available, or the payload is not parseable JSON. Fail closed.
+if [ "$EXTRACT_RC" -ne 0 ] && [ -n "$INPUT" ]; then
+  printf '{"permissionDecision":"ask","message":"[careful] Could not parse the tool payload to safety-check this command. Approve only if you know what it does."}\n'
+  exit 0
 fi
 
-# If we still couldn't extract a command, allow
+# Parsed fine, but there is genuinely no command field (non-Bash payload) — allow.
 if [ -z "$CMD" ]; then
   echo '{}'
   exit 0

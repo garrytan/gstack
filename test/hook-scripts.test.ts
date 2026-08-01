@@ -111,13 +111,55 @@ describe('check-careful.sh', () => {
       expect(output.permissionDecision).toBe('ask');
       expect(output.message).toContain('recursive delete');
     });
+
+    test.each([
+      'git commit -m "wip" && rm -rf /',
+      'bash -c "rm -rf /"',
+      'echo "x"; rm -rf ~',
+      'npm run build --msg "done" && rm -rf /',
+    ])('a quoted argument cannot hide a later destructive command: %s', (command) => {
+      const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput(command));
+      expect(exitCode).toBe(0);
+      expect(output.permissionDecision).toBe('ask');
+      expect(output.message).toContain('recursive delete');
+    });
+  });
+
+  // --- JSON payload extraction ---
+
+  describe('command extraction', () => {
+    test('fails closed when the payload is not valid JSON', () => {
+      const { exitCode, output } = runHookRaw(CAREFUL_SCRIPT, 'this is not json');
+      expect(exitCode).toBe(0);
+      expect(output.permissionDecision).toBe('ask');
+      expect(output.message).toContain('parse');
+    });
+
+    test('allows a well-formed payload with no command field', () => {
+      const { exitCode, output } = runHook(CAREFUL_SCRIPT, { tool_input: { file_path: '/tmp/x' } });
+      expect(exitCode).toBe(0);
+      expect(output.permissionDecision).toBeUndefined();
+    });
+
+    test('allows when command is present but not a string', () => {
+      const { exitCode, output } = runHook(CAREFUL_SCRIPT, { tool_input: { command: 42 } });
+      expect(exitCode).toBe(0);
+      expect(output.permissionDecision).toBeUndefined();
+    });
+
+    test('preserves escaped quotes in the extracted command', () => {
+      const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput('echo "hello world"'));
+      expect(exitCode).toBe(0);
+      expect(output.permissionDecision).toBeUndefined();
+    });
   });
 
   // --- SQL destructive commands ---
-  // Note: SQL commands that contain embedded double quotes (e.g., psql -c "DROP TABLE")
-  // get their command value truncated by the grep-based JSON extractor because \"
-  // terminates the [^"]* match. We use commands WITHOUT embedded quotes so the grep
-  // extraction works and the SQL keywords are visible to the pattern matcher.
+  // Embedded double quotes are now safe to use here. They previously truncated the
+  // extracted command (the grep-based extractor stopped at the first \"), which hid
+  // the SQL keyword from the pattern matcher — so these tests had to be written
+  // without quotes, in a shape no one actually types. The JSON-parser extraction
+  // fixed that, and the quoted forms below are the realistic ones.
 
   describe('SQL destructive commands', () => {
     test('psql DROP TABLE warns with DROP in message', () => {
@@ -125,6 +167,16 @@ describe('check-careful.sh', () => {
       expect(exitCode).toBe(0);
       expect(output.permissionDecision).toBe('ask');
       expect(output.message).toContain('DROP');
+    });
+
+    test.each([
+      'psql -c "DROP TABLE users"',
+      'psql -c "TRUNCATE orders"',
+      'mysql -e "DROP DATABASE prod"',
+    ])('a quoted SQL statement is still inspected: %s', (command) => {
+      const { exitCode, output } = runHook(CAREFUL_SCRIPT, carefulInput(command));
+      expect(exitCode).toBe(0);
+      expect(output.permissionDecision).toBe('ask');
     });
 
     test('mysql drop database warns (case insensitive)', () => {
