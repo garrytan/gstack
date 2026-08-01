@@ -78,6 +78,17 @@ export function resolveConfig(
   };
 }
 
+function isIgnoredByGit(projectDir: string, relPath: string): boolean {
+  try {
+    const proc = Bun.spawnSync(['git', 'check-ignore', '-q', '--', relPath], {
+      cwd: projectDir, stdout: 'pipe', stderr: 'pipe',
+    });
+    return proc.exitCode === 0;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Create the .gstack/ state directory if it doesn't exist.
  * Throws with a clear message on permission errors.
@@ -96,6 +107,9 @@ export function ensureStateDir(config: BrowseConfig): void {
   }
 
   // Ensure .gstack/ is in the project's .gitignore
+  // First, check if git already ignores .gstack/ (via global excludes, .git/info/exclude, or parent .gitignore)
+  if (isIgnoredByGit(config.projectDir, '.gstack/')) return;
+
   const gitignorePath = path.join(config.projectDir, '.gitignore');
   try {
     const content = fs.readFileSync(gitignorePath, 'utf-8');

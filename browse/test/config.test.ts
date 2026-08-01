@@ -124,6 +124,41 @@ describe('config', () => {
       expect(fs.existsSync(path.join(tmpDir, '.gitignore'))).toBe(false);
       fs.rmSync(tmpDir, { recursive: true, force: true });
     });
+
+    test('leaves .gitignore alone when git already ignores .gstack/ globally', () => {
+      const { spawnSync } = require('child_process');
+      const tmpDir = path.join(os.tmpdir(), `browse-gitignore-global-${Date.now()}`);
+      fs.mkdirSync(tmpDir, { recursive: true });
+
+      // Set up a real git repo
+      spawnSync('git', ['init', '-q'], { cwd: tmpDir });
+      spawnSync('git', ['config', 'user.email', 'test@test.com'], { cwd: tmpDir });
+      spawnSync('git', ['config', 'user.name', 'Test'], { cwd: tmpDir });
+
+      // Write a global excludes file that ignores .gstack/
+      const excludesFile = path.join(tmpDir, 'global-gitignore');
+      fs.writeFileSync(excludesFile, '.gstack/\n');
+      spawnSync('git', ['config', 'core.excludesFile', excludesFile], { cwd: tmpDir });
+
+      // .gitignore exists but does NOT contain .gstack/
+      fs.writeFileSync(path.join(tmpDir, '.gitignore'), 'node_modules/\n');
+      spawnSync('git', ['add', '.gitignore'], { cwd: tmpDir });
+      spawnSync('git', ['commit', '-qm', 'init'], { cwd: tmpDir });
+
+      // Verify git knows .gstack/ is ignored
+      const check = spawnSync('git', ['check-ignore', '-q', '.gstack/'], { cwd: tmpDir });
+      expect(check.status).toBe(0);
+
+      const config = resolveConfig({ BROWSE_STATE_FILE: path.join(tmpDir, '.gstack', 'browse.json') });
+      ensureStateDir(config);
+
+      // .gitignore must NOT have been modified
+      const content = fs.readFileSync(path.join(tmpDir, '.gitignore'), 'utf-8');
+      expect(content).toBe('node_modules/\n');
+      expect(fs.existsSync(path.join(tmpDir, '.gstack'))).toBe(true);
+
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
   });
 
   describe('getRemoteSlug', () => {
