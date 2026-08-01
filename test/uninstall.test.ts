@@ -190,5 +190,46 @@ describe('gstack-uninstall', () => {
       expect(fs.existsSync(portable)).toBe(false);
       expect(fs.existsSync(path.join(skills, 'other-tool'))).toBe(true);
     });
+
+    test('portable uninstall preserves a foreign canonical install that replaced its sidecar', () => {
+      const skills = path.join(mockHome, '.claude', 'skills');
+      const portable = path.join(skills, 'renamed gstack');
+      const canonical = path.join(skills, 'gstack');
+      fs.rmSync(canonical, { recursive: true, force: true });
+      fs.mkdirSync(path.join(portable, 'bin'), { recursive: true });
+      fs.writeFileSync(path.join(skills, '.gstack-root'), `${portable}\n`);
+      fs.mkdirSync(canonical, { recursive: true });
+      fs.writeFileSync(path.join(canonical, 'FOREIGN_INSTALL'), 'preserve\n');
+
+      const result = spawnSync('bash', [UNINSTALL, '--force', '--keep-state'], {
+        stdio: 'pipe',
+        env: { ...process.env, HOME: mockHome, GSTACK_DIR: portable, GSTACK_STATE_DIR: path.join(mockHome, '.gstack') },
+        cwd: mockGitRoot,
+      });
+
+      expect(result.status).toBe(0);
+      expect(result.stderr.toString()).toContain('not owned by');
+      expect(fs.existsSync(path.join(canonical, 'FOREIGN_INSTALL'))).toBe(true);
+      expect(fs.existsSync(portable)).toBe(false);
+      expect(fs.existsSync(path.join(skills, '.gstack-root'))).toBe(false);
+    });
+
+    test('interactive preview discloses the renamed runtime before deletion', () => {
+      const skills = path.join(mockHome, '.claude', 'skills');
+      const portable = path.join(skills, 'renamed gstack');
+      fs.mkdirSync(path.join(portable, 'bin'), { recursive: true });
+      fs.writeFileSync(path.join(skills, '.gstack-root'), `${portable}\n`);
+
+      const result = spawnSync('bash', [UNINSTALL, '--keep-state'], {
+        input: 'n\n',
+        stdio: ['pipe', 'pipe', 'pipe'],
+        env: { ...process.env, HOME: mockHome, GSTACK_DIR: portable, GSTACK_STATE_DIR: path.join(mockHome, '.gstack') },
+        cwd: mockGitRoot,
+      });
+
+      expect(result.status).toBe(0);
+      expect(result.stdout.toString()).toContain(`${portable} (active renamed runtime)`);
+      expect(fs.existsSync(portable)).toBe(true);
+    });
   });
 });

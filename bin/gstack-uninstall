@@ -59,10 +59,33 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+# Resolve the active Claude registration before preview/removal. A marker is
+# trusted only when it identifies the runtime whose uninstall binary is running.
+CLAUDE_SKILLS="$HOME/.claude/skills"
+_CLAUDE_ROOT_MARKER="$CLAUDE_SKILLS/.gstack-root"
+_CLAUDE_MARKER_PRESENT=0
+_ACTIVE_CLAUDE_ROOT=""
+_ACTIVE_RENAMED_CHILD=0
+if [ -f "$_CLAUDE_ROOT_MARKER" ]; then
+  _CLAUDE_MARKER_PRESENT=1
+  _MARKED_ROOT="$(head -n 1 "$_CLAUDE_ROOT_MARKER" 2>/dev/null || true)"
+  _MARKED_REAL="$(cd "$_MARKED_ROOT" 2>/dev/null && pwd -P || true)"
+  _UNINSTALL_REAL="$(cd "$GSTACK_DIR" 2>/dev/null && pwd -P || true)"
+  if [ -n "$_MARKED_REAL" ] && [ "$_MARKED_REAL" = "$_UNINSTALL_REAL" ]; then
+    _ACTIVE_CLAUDE_ROOT="$_MARKED_REAL"
+    _CLAUDE_SKILLS_REAL="$(cd "$CLAUDE_SKILLS" 2>/dev/null && pwd -P || true)"
+    _ACTIVE_PARENT_REAL="$(cd "$(dirname "$_ACTIVE_CLAUDE_ROOT")" 2>/dev/null && pwd -P || true)"
+    if [ "$_ACTIVE_PARENT_REAL" = "$_CLAUDE_SKILLS_REAL" ] && [ "$_ACTIVE_CLAUDE_ROOT" != "$_CLAUDE_SKILLS_REAL/gstack" ]; then
+      _ACTIVE_RENAMED_CHILD=1
+    fi
+  fi
+fi
+
 # ─── Confirmation ────────────────────────────────────────────
 if [ "$FORCE" -eq 0 ]; then
   echo "This will remove gstack from your system:"
   { [ -d "$HOME/.claude/skills/gstack" ] || [ -L "$HOME/.claude/skills/gstack" ]; } && echo "  ~/.claude/skills/gstack (+ per-skill symlinks)"
+  [ "$_ACTIVE_RENAMED_CHILD" -eq 1 ] && echo "  $_ACTIVE_CLAUDE_ROOT (active renamed runtime)"
   [ -d "$HOME/.codex/skills" ] && echo "  ~/.codex/skills/gstack*"
   [ -d "$HOME/.factory/skills" ] && echo "  ~/.factory/skills/gstack*"
   [ -d "$HOME/.kiro/skills" ] && echo "  ~/.kiro/skills/gstack*"
@@ -129,18 +152,6 @@ if [ -d "$STATE_DIR/projects" ]; then
 fi
 
 # ─── Remove global Claude skills ────────────────────────────
-CLAUDE_SKILLS="$HOME/.claude/skills"
-_CLAUDE_ROOT_MARKER="$CLAUDE_SKILLS/.gstack-root"
-_ACTIVE_CLAUDE_ROOT=""
-if [ -f "$_CLAUDE_ROOT_MARKER" ]; then
-  _MARKED_ROOT="$(head -n 1 "$_CLAUDE_ROOT_MARKER" 2>/dev/null || true)"
-  _MARKED_REAL="$(cd "$_MARKED_ROOT" 2>/dev/null && pwd -P || true)"
-  _UNINSTALL_REAL="$(cd "$GSTACK_DIR" 2>/dev/null && pwd -P || true)"
-  if [ -n "$_MARKED_REAL" ] && [ "$_MARKED_REAL" = "$_UNINSTALL_REAL" ]; then
-    _ACTIVE_CLAUDE_ROOT="$_MARKED_REAL"
-  fi
-fi
-
 if [ -n "$_ACTIVE_CLAUDE_ROOT" ]; then
   # Current setup creates real top-level skill directories. Remove only entries
   # carrying our ownership marker for this exact runtime root.
@@ -158,27 +169,43 @@ if [ -n "$_ACTIVE_CLAUDE_ROOT" ]; then
 fi
 
 if [ -d "$CLAUDE_SKILLS/gstack" ] || [ -L "$CLAUDE_SKILLS/gstack" ]; then
-  # Remove per-skill symlinks that point into gstack/
-  for _LINK in "$CLAUDE_SKILLS"/*; do
-    [ -L "$_LINK" ] || continue
-    _NAME="$(basename "$_LINK")"
-    [ "$_NAME" = "gstack" ] && continue
-    _TARGET="$(readlink "$_LINK" 2>/dev/null || true)"
-    case "$_TARGET" in
-      gstack/*|*/gstack/*) rm -f "$_LINK"; REMOVED+=("claude/$_NAME") ;;
-    esac
-  done
+  _REMOVE_CANONICAL=0
+  if [ -n "$_ACTIVE_CLAUDE_ROOT" ]; then
+    _CANONICAL_REAL="$(cd "$CLAUDE_SKILLS/gstack" 2>/dev/null && pwd -P || true)"
+    _HOOK_OWNER="$(head -n 1 "$CLAUDE_SKILLS/gstack/.gstack-hook-runtime" 2>/dev/null || true)"
+    _HOOK_OWNER_REAL="$(cd "$_HOOK_OWNER" 2>/dev/null && pwd -P || true)"
+    if [ "$_CANONICAL_REAL" = "$_ACTIVE_CLAUDE_ROOT" ] || [ "$_HOOK_OWNER_REAL" = "$_ACTIVE_CLAUDE_ROOT" ]; then
+      _REMOVE_CANONICAL=1
+    else
+      echo "Preserving $CLAUDE_SKILLS/gstack: it is not owned by $_ACTIVE_CLAUDE_ROOT." >&2
+    fi
+  elif [ "$_CLAUDE_MARKER_PRESENT" -eq 1 ]; then
+    echo "Preserving $CLAUDE_SKILLS/gstack: active marker belongs to a different runtime." >&2
+  else
+    _REMOVE_CANONICAL=1
+  fi
 
-  rm -rf "$CLAUDE_SKILLS/gstack"
-  REMOVED+=("~/.claude/skills/gstack")
+  if [ "$_REMOVE_CANONICAL" -eq 1 ]; then
+    # Remove legacy per-skill symlinks that point into the owned canonical root.
+    for _LINK in "$CLAUDE_SKILLS"/*; do
+      [ -L "$_LINK" ] || continue
+      _NAME="$(basename "$_LINK")"
+      [ "$_NAME" = "gstack" ] && continue
+      _TARGET="$(readlink "$_LINK" 2>/dev/null || true)"
+      case "$_TARGET" in
+        gstack/*|*/gstack/*) rm -f "$_LINK"; REMOVED+=("claude/$_NAME") ;;
+      esac
+    done
+
+    rm -rf "$CLAUDE_SKILLS/gstack"
+    REMOVED+=("~/.claude/skills/gstack")
+  fi
 fi
 
 if [ -n "$_ACTIVE_CLAUDE_ROOT" ]; then
-  _CLAUDE_SKILLS_REAL="$(cd "$CLAUDE_SKILLS" 2>/dev/null && pwd -P || true)"
-  _ACTIVE_PARENT_REAL="$(cd "$(dirname "$_ACTIVE_CLAUDE_ROOT")" 2>/dev/null && pwd -P || true)"
   # Delete renamed installs only when they live directly under the user's
   # Claude skills directory. Never follow the marker to an arbitrary checkout.
-  if [ "$_ACTIVE_PARENT_REAL" = "$_CLAUDE_SKILLS_REAL" ] && [ "$_ACTIVE_CLAUDE_ROOT" != "$_CLAUDE_SKILLS_REAL/gstack" ]; then
+  if [ "$_ACTIVE_RENAMED_CHILD" -eq 1 ]; then
     rm -rf "$_ACTIVE_CLAUDE_ROOT"
     REMOVED+=("$_ACTIVE_CLAUDE_ROOT")
   fi
