@@ -796,6 +796,9 @@ create_codex_runtime_root() {
   if [ -d "$gstack_dir/bin" ]; then
     _link_or_copy "$gstack_dir/bin" "$codex_gstack/bin"
   fi
+  if [ -d "$gstack_dir/lib" ]; then
+    _link_or_copy "$gstack_dir/lib" "$codex_gstack/lib"
+  fi
   if [ -d "$gstack_dir/browse/dist" ]; then
     _link_or_copy "$gstack_dir/browse/dist" "$codex_gstack/browse/dist"
   fi
@@ -836,6 +839,9 @@ create_factory_runtime_root() {
   if [ -d "$gstack_dir/bin" ]; then
     _link_or_copy "$gstack_dir/bin" "$factory_gstack/bin"
   fi
+  if [ -d "$gstack_dir/lib" ]; then
+    _link_or_copy "$gstack_dir/lib" "$factory_gstack/lib"
+  fi
   if [ -d "$gstack_dir/browse/dist" ]; then
     _link_or_copy "$gstack_dir/browse/dist" "$factory_gstack/browse/dist"
   fi
@@ -873,6 +879,9 @@ create_opencode_runtime_root() {
   fi
   if [ -d "$gstack_dir/bin" ]; then
     _link_or_copy "$gstack_dir/bin" "$opencode_gstack/bin"
+  fi
+  if [ -d "$gstack_dir/lib" ]; then
+    _link_or_copy "$gstack_dir/lib" "$opencode_gstack/lib"
   fi
   if [ -d "$gstack_dir/browse/dist" ]; then
     _link_or_copy "$gstack_dir/browse/dist" "$opencode_gstack/browse/dist"
