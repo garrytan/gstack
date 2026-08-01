@@ -1939,19 +1939,20 @@ describe('Codex generation (--host codex)', () => {
 
   // ─── Claude output regression guard ─────────────────────────
 
-  test('Claude output unchanged: review skill still uses .claude/skills/ paths', () => {
-    // Codex changes must NOT affect Claude output
+  test('Claude output uses portable runtime paths while keeping sibling skill paths', () => {
     const content = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
     expect(content).toContain('.claude/skills/review/checklist.md');
-    expect(content).toContain('~/.claude/skills/gstack');
+    expect(content).toContain('$GSTACK_ROOT');
+    expect(content).not.toContain('~/.claude/skills/gstack');
     // Must NOT contain Codex paths
     expect(content).not.toContain('.agents/skills');
     expect(content).not.toContain('~/.codex/');
   });
 
-  test('Claude output unchanged: ship skill still uses .claude/skills/ paths', () => {
+  test('Claude ship output uses portable runtime paths', () => {
     const content = readShipUnion();
-    expect(content).toContain('~/.claude/skills/gstack');
+    expect(content).toContain('$GSTACK_ROOT');
+    expect(content).not.toContain('~/.claude/skills/gstack');
     expect(content).not.toContain('.agents/skills');
     expect(content).not.toContain('~/.codex/');
   });

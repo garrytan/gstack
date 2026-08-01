@@ -31,7 +31,7 @@ export interface HostConfig {
   localSkillRoot: string;
   /** Gitignored directory under repo root for generated docs (e.g., '.opencode'). */
   hostSubdir: string;
-  /** Whether preamble generates $GSTACK_ROOT env vars (true for non-Claude hosts). */
+  /** Whether the preamble generates portable $GSTACK_* runtime paths. */
   usesEnvVars: boolean;
 
   // --- Frontmatter Transformation ---

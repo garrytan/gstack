@@ -1,17 +1,36 @@
 import type { TemplateContext } from '../types';
 import { getHostConfig } from '../../../hosts/index';
+import path from 'node:path';
 
 export function generatePreambleBash(ctx: TemplateContext): string {
   const hostConfig = getHostConfig(ctx.host);
-  const runtimeRoot = hostConfig.usesEnvVars
+  const globalSkillsDir = path.posix.dirname(hostConfig.globalRoot);
+  const localSkillsDir = path.posix.dirname(hostConfig.localSkillRoot);
+  const runtimeRoot = ctx.host === 'claude'
     ? `_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+_GSTACK_ROOT_MARKER=""
+[ -n "$_ROOT" ] && [ -f "$_ROOT/${localSkillsDir}/.gstack-root" ] && _GSTACK_ROOT_MARKER="$_ROOT/${localSkillsDir}/.gstack-root"
+[ -z "$_GSTACK_ROOT_MARKER" ] && [ -f "$HOME/${globalSkillsDir}/.gstack-root" ] && _GSTACK_ROOT_MARKER="$HOME/${globalSkillsDir}/.gstack-root"
+[ -z "\${GSTACK_ROOT:-}" ] && [ -n "\${CLAUDE_PLUGIN_ROOT:-}" ] && [ -d "$CLAUDE_PLUGIN_ROOT/bin" ] && GSTACK_ROOT="$CLAUDE_PLUGIN_ROOT"
+[ -z "\${GSTACK_ROOT:-}" ] && [ -n "$_GSTACK_ROOT_MARKER" ] && GSTACK_ROOT=$(cat "$_GSTACK_ROOT_MARKER" 2>/dev/null || true)
+[ -n "\${GSTACK_ROOT:-}" ] && [ ! -d "$GSTACK_ROOT/bin" ] && GSTACK_ROOT=""
+_GSTACK_DIR=${path.posix.basename(hostConfig.globalRoot)}
+GSTACK_ROOT="\${GSTACK_ROOT:-$HOME/${globalSkillsDir}/$_GSTACK_DIR}"
+GSTACK_BIN="$GSTACK_ROOT/bin"
+GSTACK_BROWSE="$GSTACK_ROOT/browse/dist"
+GSTACK_DESIGN="$GSTACK_ROOT/design/dist"
+GSTACK_MAKE_PDF="$GSTACK_ROOT/make-pdf/dist"
+export GSTACK_ROOT GSTACK_BIN GSTACK_BROWSE GSTACK_DESIGN GSTACK_MAKE_PDF
+`
+    : hostConfig.usesEnvVars
+      ? `_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 GSTACK_ROOT="$HOME/${hostConfig.globalRoot}"
 [ -n "$_ROOT" ] && [ -d "$_ROOT/${ctx.paths.localSkillRoot}" ] && GSTACK_ROOT="$_ROOT/${ctx.paths.localSkillRoot}"
 GSTACK_BIN="$GSTACK_ROOT/bin"
 GSTACK_BROWSE="$GSTACK_ROOT/browse/dist"
 GSTACK_DESIGN="$GSTACK_ROOT/design/dist"
 `
-    : '';
+      : '';
 
   return `## Preamble (run first)
 

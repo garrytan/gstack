@@ -5,7 +5,7 @@
 Write the design document to the project directory.
 
 ```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
+eval "$($GSTACK_BIN/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
 USER=$(whoami)
 DATETIME=$(date +%Y%m%d-%H%M%S)
 ```
@@ -219,7 +219,7 @@ TTHW target, architectural bet, wedge commitment), it MAY write a
 
 **Gated on two things:**
 1. Brain trust policy for the active endpoint is `personal` (check via
-   `~/.claude/skills/gstack/bin/gstack-config get brain_trust_policy@<endpoint-hash>`).
+   `$GSTACK_BIN/gstack-config get brain_trust_policy@<endpoint-hash>`).
    Shared brains skip write-back to avoid polluting team calibration.
 2. Feature flag `BRAIN_CALIBRATION_WRITEBACK` is set (today: false; flips
    to true when upstream gbrain v0.42+ ships `takes_add` MCP op).
@@ -244,10 +244,10 @@ After write, invalidate the affected digests so the next preflight reflects
 the new state:
 
 ```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" 2>/dev/null || true
-  ~/.claude/skills/gstack/bin/gstack-brain-cache invalidate product --project "$SLUG" 2>/dev/null || true
-  ~/.claude/skills/gstack/bin/gstack-brain-cache invalidate goals --project "$SLUG" 2>/dev/null || true
-  ~/.claude/skills/gstack/bin/gstack-brain-cache invalidate competitive-intel --project "$SLUG" 2>/dev/null || true
+eval "$($GSTACK_BIN/gstack-slug 2>/dev/null)" 2>/dev/null || true
+  $GSTACK_BIN/gstack-brain-cache invalidate product --project "$SLUG" 2>/dev/null || true
+  $GSTACK_BIN/gstack-brain-cache invalidate goals --project "$SLUG" 2>/dev/null || true
+  $GSTACK_BIN/gstack-brain-cache invalidate competitive-intel --project "$SLUG" 2>/dev/null || true
 ```
 
 
@@ -259,8 +259,8 @@ This is non-blocking — the user doesn't wait. Next invocation benefits
 from the warm cache.
 
 ```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" 2>/dev/null || true
-(~/.claude/skills/gstack/bin/gstack-brain-cache refresh --project "$SLUG" 2>/dev/null &) || true
+eval "$($GSTACK_BIN/gstack-slug 2>/dev/null)" 2>/dev/null || true
+($GSTACK_BIN/gstack-brain-cache refresh --project "$SLUG" 2>/dev/null &) || true
 ```
 
 
@@ -275,7 +275,7 @@ over time.
 ### Step 1: Read Builder Profile
 
 ```bash
-PROFILE=$(~/.claude/skills/gstack/bin/gstack-builder-profile 2>/dev/null) || PROFILE="SESSION_COUNT: 0
+PROFILE=$($GSTACK_ROOT/bin/gstack-builder-profile 2>/dev/null) || PROFILE="SESSION_COUNT: 0
 TIER: introduction"
 SESSION_TIER=$(echo "$PROFILE" | grep "^TIER:" | awk '{print $2}')
 SESSION_COUNT=$(echo "$PROFILE" | grep "^SESSION_COUNT:" | awk '{print $2}')
@@ -403,7 +403,7 @@ This must feel earned, not broadcast. If the evidence doesn't support it, skip e
 with a narrative arc (not a data table). The arc tells the STORY of their journey in
 second person, referencing specific things they said across sessions. Then open it:
 ```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-paths)"
+eval "$($GSTACK_ROOT/bin/gstack-paths)"
 open "$GSTACK_STATE_ROOT/builder-journey.md"
 ```
 
@@ -506,8 +506,8 @@ PAUL GRAHAM ESSAYS:
 1. Log the selected resource URLs to the builder profile (single source of truth).
 Append a resource-tracking entry:
 ```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null || true)"
-~/.claude/skills/gstack/bin/gstack-developer-profile --log-session '{"date":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","mode":"resources","project_slug":"'"${SLUG:-unknown}"'","signal_count":0,"signals":[],"design_doc":"","assignment":"","resources_shown":["URL1","URL2","URL3"],"topics":[]}' 2>/dev/null || true
+eval "$($GSTACK_ROOT/bin/gstack-slug 2>/dev/null || true)"
+$GSTACK_ROOT/bin/gstack-developer-profile --log-session '{"date":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","mode":"resources","project_slug":"'"${SLUG:-unknown}"'","signal_count":0,"signals":[],"design_doc":"","assignment":"","resources_shown":["URL1","URL2","URL3"],"topics":[]}' 2>/dev/null || true
 ```
 
 2. Log the selection to analytics:
@@ -573,11 +573,11 @@ Net: 15 minutes of structured review now against rework risk later.
 On the user's SELECTION of A/B/C (not on invocation success), log the handoff, then invoke
 the chosen skill via the **Skill tool** (it auto-discovers the design doc):
 ```bash
-~/.claude/skills/gstack/bin/gstack-telemetry-log --event-type handoff --skill office-hours --outcome accepted --session-id "$_SESSION_ID" 2>/dev/null || true
+$GSTACK_ROOT/bin/gstack-telemetry-log --event-type handoff --skill office-hours --outcome accepted --session-id "$_SESSION_ID" 2>/dev/null || true
 ```
 On D, log declined and stop:
 ```bash
-~/.claude/skills/gstack/bin/gstack-telemetry-log --event-type handoff --skill office-hours --outcome declined --session-id "$_SESSION_ID" 2>/dev/null || true
+$GSTACK_ROOT/bin/gstack-telemetry-log --event-type handoff --skill office-hours --outcome declined --session-id "$_SESSION_ID" 2>/dev/null || true
 ```
 
 The design doc at `~/.gstack/projects/` is automatically discoverable by downstream skills — they will read it during their pre-review system audit.

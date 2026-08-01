@@ -270,11 +270,11 @@ describe('validateAllConfigs', () => {
 // ─── HOST_PATHS derivation ──────────────────────────────────
 
 describe('HOST_PATHS derivation from configs', () => {
-  test('Claude uses literal home paths (no env vars)', () => {
-    expect(HOST_PATHS.claude.skillRoot).toBe('~/.claude/skills/gstack');
-    expect(HOST_PATHS.claude.binDir).toBe('~/.claude/skills/gstack/bin');
-    expect(HOST_PATHS.claude.browseDir).toBe('~/.claude/skills/gstack/browse/dist');
-    expect(HOST_PATHS.claude.designDir).toBe('~/.claude/skills/gstack/design/dist');
+  test('Claude uses portable $GSTACK_* runtime paths', () => {
+    expect(HOST_PATHS.claude.skillRoot).toBe('$GSTACK_ROOT');
+    expect(HOST_PATHS.claude.binDir).toBe('$GSTACK_BIN');
+    expect(HOST_PATHS.claude.browseDir).toBe('$GSTACK_BROWSE');
+    expect(HOST_PATHS.claude.designDir).toBe('$GSTACK_DESIGN');
   });
 
   test('Codex uses $GSTACK_ROOT env vars', () => {
@@ -346,7 +346,7 @@ describe('host-config-export.ts CLI', () => {
 
   test('get returns boolean as 1/0', () => {
     const { stdout: t } = run('get', 'claude', 'usesEnvVars');
-    expect(t).toBe('0');
+    expect(t).toBe('1');
     const { stdout: f } = run('get', 'codex', 'usesEnvVars');
     expect(f).toBe('1');
   });
@@ -461,12 +461,12 @@ describe('host config correctness', () => {
     }
   });
 
-  test('claude does not use env vars', () => {
-    expect(claude.usesEnvVars).toBe(false);
+  test('claude uses env vars for portable body paths', () => {
+    expect(claude.usesEnvVars).toBe(true);
   });
 
-  test('all external hosts use env vars', () => {
-    for (const config of getExternalHosts()) {
+  test('all hosts use env vars', () => {
+    for (const config of ALL_HOST_CONFIGS) {
       expect(config.usesEnvVars).toBe(true);
     }
   });
@@ -548,11 +548,10 @@ describe('host config correctness', () => {
     }
   });
 
-  test('every host has at least one pathRewrite (except claude)', () => {
-    for (const config of getExternalHosts()) {
+  test('every host has at least one pathRewrite', () => {
+    for (const config of ALL_HOST_CONFIGS) {
       expect(config.pathRewrites.length).toBeGreaterThan(0);
     }
-    expect(claude.pathRewrites.length).toBe(0);
   });
 
   test('every host has runtimeRoot.globalSymlinks', () => {

@@ -160,16 +160,21 @@ const OUT_DIR: string | null = (() => {
 /**
  * When rendering to an out-dir, repoint the literal section-base path at the
  * out-dir so section Reads resolve to the rendered copy, not the global install.
- * Surgical: ONLY paths containing `/sections/` are rewritten — bin/, browse/,
- * docs/ references keep pointing at `~/.claude/skills/gstack` (the global
- * install, which still works). No-op when --out-dir is unset.
+ * Surgical: ONLY paths containing `/sections/` are rewritten; other runtime
+ * references continue to resolve through `$GSTACK_ROOT`. No-op when --out-dir
+ * is unset.
  */
 function rewriteSectionBase(content: string): string {
   if (!OUT_DIR) return content;
-  return content.replace(
-    /~\/\.claude\/skills\/gstack\/([^\s)`"'*]+\/sections\/)/g,
-    `${OUT_DIR}/$1`,
-  );
+  return content
+    .replace(
+      /~\/\.claude\/skills\/gstack\/([^\s)`"'*]+\/sections\/)/g,
+      `${OUT_DIR}/$1`,
+    )
+    .replace(
+      /\$GSTACK_ROOT\/([^\s)`"'*]+\/sections\/)/g,
+      `${OUT_DIR}/$1`,
+    );
 }
 
 // HostPaths, HOST_PATHS, and TemplateContext imported from ./resolvers/types (line 7-8)
@@ -659,6 +664,21 @@ function applyHostRewrites(content: string, hostConfig: HostConfig): string {
 }
 
 /**
+ * Apply host rewrites to a SKILL.md body while leaving frontmatter byte-for-byte
+ * untouched. Claude safety hooks execute before the preamble, so rewriting their
+ * $HOME-anchored commands to $GSTACK_ROOT would make them fail closed on every
+ * tool call. External hosts reconstruct/strip frontmatter before rewrites and do
+ * not need this special case.
+ */
+function applyHostRewritesToBody(content: string, hostConfig: HostConfig): string {
+  if (!content.startsWith('---\n')) return applyHostRewrites(content, hostConfig);
+  const fmEnd = content.indexOf('\n---', 4);
+  if (fmEnd === -1) return applyHostRewrites(content, hostConfig);
+  const bodyStart = fmEnd + 4;
+  return content.slice(0, bodyStart) + applyHostRewrites(content.slice(bodyStart), hostConfig);
+}
+
+/**
  * Resolve {{PLACEHOLDER}} / {{NAME:arg}} tokens against the RESOLVERS registry,
  * honoring host suppression and appliesTo gating, then assert nothing is left
  * unresolved. Extracted so SKILL.md and section templates resolve through the
@@ -836,6 +856,7 @@ function processTemplate(tmplPath: string, host: Host = 'claude'): { outputPath:
   let symlinkLoop = false;
   if (host === 'claude') {
     content = transformFrontmatter(content, host);
+    content = applyHostRewritesToBody(content, currentHostConfig);
   } else {
     const result = processExternalHost(content, tmplContent, host, skillDir, postProcessDescription, ctx, extractedName || undefined);
     content = result.content;
@@ -901,10 +922,10 @@ function processSectionTemplate(
   // Resolve placeholders against the section body (shared guard catches stragglers).
   let content = resolvePlaceholders(tmplContent, ctx, hostConfig, relTmplPath);
 
-  // External hosts: rewrite cross-reference paths/tools (no frontmatter to transform).
-  if (host !== 'claude') {
-    content = applyHostRewrites(content, hostConfig);
-  } else {
+  // Section files are body-only, so every host gets the same portable runtime
+  // path rewrites. Claude additionally supports --out-dir section isolation.
+  content = applyHostRewrites(content, hostConfig);
+  if (host === 'claude') {
     // --out-dir: a section may cross-reference another section by absolute path;
     // repoint those to the out-dir too (no-op when --out-dir is unset).
     content = rewriteSectionBase(content);
