@@ -138,6 +138,36 @@ function looksLikeWallet(span: string): boolean {
   return span.length >= 26 && span.length <= 62;
 }
 
+// Compact log/backup stamps (`20260727202423` = YYYYMMDDHHMMSS) are bare digit
+// runs that the phone regex happily eats. Only a SEPARATOR-FREE 14-digit span
+// qualifies: E.164 tops out at 15 digits and real numbers carry a + or spacing,
+// so rejecting this shape costs no phone coverage.
+function looksLikeCompactTimestamp(span: string): boolean {
+  if (!/^\d{14}$/.test(span)) {
+    return false;
+  }
+  const n = (from: number, to: number) => Number(span.slice(from, to));
+  const [year, month, day, hour, minute, second] = [
+    n(0, 4),
+    n(4, 6),
+    n(6, 8),
+    n(8, 10),
+    n(10, 12),
+    n(12, 14),
+  ];
+  return (
+    year >= 1900 &&
+    year <= 2999 &&
+    month >= 1 &&
+    month <= 12 &&
+    day >= 1 &&
+    day <= 31 &&
+    hour <= 23 &&
+    minute <= 59 &&
+    second <= 59
+  );
+}
+
 // ── Placeholder suppression (per-matched-span, NOT per-line) ─────────────────
 
 /**
@@ -431,7 +461,8 @@ export const PATTERNS: RedactPattern[] = [
     regex: /(?<![\w.])(\+?[1-9]\d{0,2}[ \-.]?\(?\d{2,4}\)?[ \-.]?\d{3,4}[ \-.]?\d{3,4})(?![\w.])/,
     autoRedactable: true,
     redactToken: "<REDACTED-PHONE>",
-    validate: (span) => span.replace(/\D/g, "").length >= 10,
+    validate: (span) =>
+      span.replace(/\D/g, "").length >= 10 && !looksLikeCompactTimestamp(span),
   },
   {
     id: "pii.ssn",

@@ -185,8 +185,9 @@ describe("PII patterns", () => {
       scan("bob@acme.co", { repoVisibility: "private", repoPublicEmails: ["bob@acme.co"] }).findings,
     ).toHaveLength(0);
   });
-  test("phone E.164", () => {
+  test("phone E.164 flags, skips compact timestamps", () => {
     expect(ids("call +14155550123 now")).toContain("pii.phone.e164");
+    expect(ids("backup stamp 20260727202423 ran late")).not.toContain("pii.phone.e164");
   });
   test("ssn flags valid, skips 000 octet", () => {
     expect(ids("ssn 123-45-6789")).toContain("pii.ssn");
