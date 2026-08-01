@@ -72,7 +72,7 @@ function readStdin(): Promise<string> {
 }
 
 /** No-op output — let the tool result stand untouched. */
-function defer(): void {
+function passThrough(): void {
   process.stdout.write(
     JSON.stringify({ hookSpecificOutput: { hookEventName: 'PostToolUse' } }),
   );
@@ -172,22 +172,22 @@ export function directiveFor(kind: 'spawned' | 'headless' | 'interactive'): stri
 
 async function main(): Promise<void> {
   const raw = await readStdin();
-  if (!raw.trim()) return defer();
+  if (!raw.trim()) return passThrough();
 
   let stdin: HookStdin;
   try {
     stdin = JSON.parse(raw);
   } catch (e) {
     logHookError(`stdin parse failed: ${(e as Error).message}`);
-    return defer();
+    return passThrough();
   }
 
   const toolName = stdin.tool_name || '';
   if (toolName !== 'AskUserQuestion' && !/^mcp__.+__AskUserQuestion$/.test(toolName)) {
-    return defer();
+    return passThrough();
   }
 
-  if (!isErrorResponse(stdin.tool_response)) return defer();
+  if (!isErrorResponse(stdin.tool_response)) return passThrough();
 
   inject(directiveFor(sessionKind(stdin.cwd)));
 }
@@ -197,6 +197,6 @@ async function main(): Promise<void> {
 if (import.meta.main) {
   main().catch((e) => {
     logHookError(`main crash: ${(e as Error).message}`);
-    defer();
+    passThrough();
   });
 }
