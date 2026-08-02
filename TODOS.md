@@ -1,48 +1,5 @@
 # TODOS
 
-## NEXT PRIORITY
-
-### P1: #1882 — portable skill-install prefix (non-`gstack` install dirs break silently)
-
-**What:** Every generated SKILL.md hardcodes the literal `~/.claude/skills/gstack/...`
-for its `bin/`/asset calls (the per-invocation telemetry/config preamble plus ~9
-resolvers). `setup` wires the top-level skill symlinks for any directory name, so
-installing at `~/.claude/skills/<other>` leaves every internal `bin` reference
-pointing at a non-existent `~/.claude/skills/gstack/` path — failing **silently, at
-skill-invocation time**. Make the emitted references portable: resolve the install
-root at runtime (the preamble already defines `GSTACK_ROOT`/`GSTACK_BIN` in
-`scripts/resolvers/preamble/generate-preamble-bash.ts` but the literals don't use
-them) and emit `$GSTACK_BIN`-relative paths instead of the hardcoded prefix.
-
-**Why:** Filed as #1882. Split out of the June 2026 fix wave (decision A) once
-implementation showed it is a host-config/design change, not a fix-wave patch. The
-urgent half — the guard/freeze/careful frontmatter hooks broken on CC 2.1.162 — was
-already fixed in that wave (#1871) with a literal `$HOME`-anchored path, because
-frontmatter hooks run before any runtime variable exists and cannot use `$GSTACK_BIN`.
-So #1882 is now purely the body-preamble portability work.
-
-**Pros:** Unblocks installs at any directory name; removes a whole class of silent
-invocation-time failures.
-**Cons:** Touches the most load-bearing bash in the repo (every skill's preamble);
-a silent mistake breaks all 52 skills. High blast radius — needs its own focused PR.
-
-**Context / where to start:**
-- Rewire `ctx.paths.binDir` (and browse/design dir paths) + the ~9 resolvers that
-  emit the literal (`testing.ts`, `review.ts`, `design.ts`, `browse.ts`,
-  `redact-doc.ts`, `tasks-section.ts`, `preamble/generate-*.ts`) to use the
-  preamble-defined `$GSTACK_ROOT`/`$GSTACK_BIN`.
-- Ensure `GSTACK_ROOT`/`GSTACK_BIN` are defined before first use in EVERY skill's
-  preamble (verify the telemetry preamble's first bin call is after the definition).
-- **Test conflict (verified):** `test/gen-skill-docs.test.ts:1942` and the sibling
-  ship assertion currently *assert* generated Claude output `.toContain('~/.claude/skills/gstack')`
-  as a guardrail that Codex-host paths don't leak. These must be rewritten to match
-  the new portable scheme.
-- Regenerate all 52 SKILL.md (`bun run scripts/gen-skill-docs.ts --host all`); never
-  hand-edit generated files. Bisect: resolver/host-config change commit, then the
-  52-file regen commit.
-- Smoke-test a skill invocation from a non-`gstack` install dir to prove the fix.
-- Sibling of #349 (the `$CLAUDE_CONFIG_DIR` / `~/.claude` path issue).
-
 ## Test infrastructure
 
 ### P2: Periodic CI matrix covers 9 of ~66 e2e files — decide the coverage contract
@@ -2129,6 +2086,51 @@ Shipped in v0.6.5. TemplateContext in gen-skill-docs.ts bakes skill name into pr
 **Depends on:** v1.47.0.0 ships; gather real false-negative data from the v1 string matcher.
 
 ## Completed
+
+### P1: #1882 — portable skill-install prefix (non-`gstack` install dirs break silently)
+
+**What:** Every generated SKILL.md hardcodes the literal `~/.claude/skills/gstack/...`
+for its `bin/`/asset calls (the per-invocation telemetry/config preamble plus ~9
+resolvers). `setup` wires the top-level skill symlinks for any directory name, so
+installing at `~/.claude/skills/<other>` leaves every internal `bin` reference
+pointing at a non-existent `~/.claude/skills/gstack/` path — failing **silently, at
+skill-invocation time**. Make the emitted references portable: resolve the install
+root at runtime (the preamble already defines `GSTACK_ROOT`/`GSTACK_BIN` in
+`scripts/resolvers/preamble/generate-preamble-bash.ts` but the literals don't use
+them) and emit `$GSTACK_BIN`-relative paths instead of the hardcoded prefix.
+
+**Why:** Filed as #1882. Split out of the June 2026 fix wave (decision A) once
+implementation showed it is a host-config/design change, not a fix-wave patch. The
+urgent half — the guard/freeze/careful frontmatter hooks broken on CC 2.1.162 — was
+already fixed in that wave (#1871) with a literal `$HOME`-anchored path, because
+frontmatter hooks run before any runtime variable exists and cannot use `$GSTACK_BIN`.
+So #1882 is now purely the body-preamble portability work.
+
+**Pros:** Unblocks installs at any directory name; removes a whole class of silent
+invocation-time failures.
+**Cons:** Touches the most load-bearing bash in the repo (every skill's preamble);
+a silent mistake breaks all 52 skills. High blast radius — needs its own focused PR.
+
+**Context / where to start:**
+- Rewire `ctx.paths.binDir` (and browse/design dir paths) + the ~9 resolvers that
+  emit the literal (`testing.ts`, `review.ts`, `design.ts`, `browse.ts`,
+  `redact-doc.ts`, `tasks-section.ts`, `preamble/generate-*.ts`) to use the
+  preamble-defined `$GSTACK_ROOT`/`$GSTACK_BIN`.
+- Ensure `GSTACK_ROOT`/`GSTACK_BIN` are defined before first use in EVERY skill's
+  preamble (verify the telemetry preamble's first bin call is after the definition).
+- **Test conflict (verified):** `test/gen-skill-docs.test.ts:1942` and the sibling
+  ship assertion currently *assert* generated Claude output `.toContain('~/.claude/skills/gstack')`
+  as a guardrail that Codex-host paths don't leak. These must be rewritten to match
+  the new portable scheme.
+- Regenerate all 52 SKILL.md (`bun run scripts/gen-skill-docs.ts --host all`); never
+  hand-edit generated files. Bisect: resolver/host-config change commit, then the
+  52-file regen commit.
+- Smoke-test a skill invocation from a non-`gstack` install dir to prove the fix.
+- Sibling of #349 (the `$CLAUDE_CONFIG_DIR` / `~/.claude` path issue).
+
+**Completed:** v1.61.0.0 (2026-08-02)
+
+---
 
 ### Slim preamble + real-PTY plan-mode E2E harness (v1.13.1.0)
 

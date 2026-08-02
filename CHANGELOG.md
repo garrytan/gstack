@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.61.0.0] - 2026-08-02
+
+gstack can now be installed under any Claude skills directory name without its commands silently falling back to `~/.claude/skills/gstack`. Generated skills resolve their active runtime for every shell invocation, including paths containing spaces, while hook frontmatter keeps its safe pre-runtime path.
+
+### Added
+
+- Portable runtime discovery for generated Claude skills, shared review assets, browser commands, design tools, PDF generation, and upgrade flows.
+- Focused regression coverage for renamed installs, strict shells, plugin roots, whitespace paths, Windows copies, prefix changes, relinking, and uninstall cleanup.
+
+### Changed
+
+- Setup records the active runtime and creates only the narrow canonical sidecar needed by startup hooks when the checkout uses a different directory name.
+- Compatibility aliases such as `connect-chrome` now use the same exact ownership markers and collision preflight as other managed skills.
+
+### Fixed
+
+- Setup, relink, and uninstall preserve foreign installations, fail closed on ambiguous ownership, and serialize registration changes with crash-safe locks.
+- Windows installs refresh and remove only copies owned by the active source checkout, while keeping runtime helpers available until hook cleanup finishes.
+- Every independent generated shell block bootstraps its own portable paths, preventing stale variables and canonical-path leaks across tool invocations.
+
 ## [1.60.1.0] - 2026-07-09
 
 ## **The /autoplan dual-voice eval is back on the board, catching real regressions.**
