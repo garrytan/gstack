@@ -115,8 +115,13 @@ function canonicalDirectory(
   }
 }
 
-function sameCanonicalPath(left: string, right: string): boolean {
-  if (process.platform === "win32") {
+/** @internal Exported for platform-independent Windows path tests. */
+export function sameCanonicalPath(
+  left: string,
+  right: string,
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  if (platform === "win32") {
     return left.toLocaleLowerCase("en-US") === right.toLocaleLowerCase("en-US");
   }
   return left === right;

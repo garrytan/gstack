@@ -20,7 +20,12 @@ import {
 import { tmpdir } from "os";
 import { join } from "path";
 
-import { ensureSourceRegistered, probeSource, sourcePageCount } from "../lib/gbrain-sources";
+import {
+  ensureSourceRegistered,
+  probeSource,
+  sameCanonicalPath,
+  sourcePageCount,
+} from "../lib/gbrain-sources";
 
 interface FakeGbrainSetup {
   root: string;
@@ -177,6 +182,26 @@ describe("ensureSourceRegistered", () => {
     expect(log).toContain("sources list --json");
     expectNoMutation(fake);
     fake.cleanup();
+  });
+
+  it("resolves a relative expected path from the caller's working directory", async () => {
+    const fake = makeFakeGbrain({ sources: [] });
+    const repo = makeDirectory(fake, "repo");
+    const previousCwd = process.cwd();
+    writeFileSync(fake.statePath, JSON.stringify({
+      sources: [{ id: "gstack-code-foo", local_path: repo }],
+    }));
+
+    try {
+      process.chdir(fake.root);
+      const result = await ensureSourceRegistered("gstack-code-foo", "repo", { env: fake.env });
+      expect(result.changed).toBe(false);
+      expect(result.state).toEqual({ status: "match", registered_path: repo });
+      expectNoMutation(fake);
+    } finally {
+      process.chdir(previousCwd);
+      fake.cleanup();
+    }
   });
 
   it("treats stored dot as the expected repository without re-registering", async () => {
@@ -338,6 +363,20 @@ describe("ensureSourceRegistered", () => {
     fake.cleanup();
   });
 
+  it("rejects a non-string registered path before remove or add", async () => {
+    const fake = makeFakeGbrain({
+      sources: [{ id: "gstack-code-foo", local_path: 42 as unknown as string }],
+    });
+    const repo = makeDirectory(fake, "repo");
+
+    await expect(
+      ensureSourceRegistered("gstack-code-foo", repo, { env: fake.env }),
+    ).rejects.toThrow(/registered source path.*"42".*missing or empty.*source registration unchanged/);
+
+    expectNoMutation(fake);
+    fake.cleanup();
+  });
+
   it("rejects a registered regular file before remove or add", async () => {
     const fake = makeFakeGbrain({ sources: [] });
     const repo = makeDirectory(fake, "repo");
@@ -371,6 +410,13 @@ describe("ensureSourceRegistered", () => {
 
     expectNoMutation(fake);
     fake.cleanup();
+  });
+});
+
+describe("sameCanonicalPath", () => {
+  it("folds case on Windows but preserves case sensitivity on POSIX", () => {
+    expect(sameCanonicalPath("C:\\Repo", "c:\\repo", "win32")).toBe(true);
+    expect(sameCanonicalPath("/Repo", "/repo", "linux")).toBe(false);
   });
 });
 
