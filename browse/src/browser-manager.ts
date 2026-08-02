@@ -91,7 +91,11 @@ export function shouldEnableChromiumSandbox(): boolean {
  * restarts on backoff.
  */
 export async function resolveDisconnectCause(browser: Browser | null): Promise<'clean' | 'crash'> {
-  const proc = browser?.process();
+  // `.process()` only exists on browsers we launched ourselves. A browser
+  // obtained via connectOverCDP() (or a stub in tests) has no such method —
+  // calling it blind throws inside the disconnect handler, which killed the
+  // whole daemon with "browser?.process is not a function".
+  const proc = typeof browser?.process === 'function' ? browser.process() : null;
   if (proc && proc.exitCode === null && proc.signalCode === null) {
     await new Promise<void>((resolve) => {
       const timer = setTimeout(resolve, 1000);
