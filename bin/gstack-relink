@@ -17,6 +17,7 @@ esac
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 GSTACK_CONFIG="${SCRIPT_DIR}/gstack-config"
+source "${SCRIPT_DIR}/gstack-registration-lock"
 
 # Detect install dir
 INSTALL_DIR="${GSTACK_INSTALL_DIR:-}"
@@ -41,14 +42,12 @@ fi
 SKILLS_DIR="${GSTACK_SKILLS_DIR:-$(dirname "$INSTALL_DIR")}"
 [ -d "$SKILLS_DIR" ] || mkdir -p "$SKILLS_DIR"
 
-_REGISTRATION_LOCK=""
 if [ "${GSTACK_SETUP_RUNNING:-0}" != "1" ]; then
-  _REGISTRATION_LOCK="$SKILLS_DIR/.gstack-registration.lock"
-  if ! mkdir "$_REGISTRATION_LOCK" 2>/dev/null; then
-    echo "Error: another skill registration is active in $SKILLS_DIR" >&2
+  if ! gstack_registration_lock_acquire "$SKILLS_DIR/.gstack-registration.lock"; then
+    echo "Error: registration aborted." >&2
     exit 1
   fi
-  trap 'rmdir "$_REGISTRATION_LOCK" 2>/dev/null || true' EXIT
+  trap gstack_registration_lock_release EXIT
 fi
 
 # Read prefix setting

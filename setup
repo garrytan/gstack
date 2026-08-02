@@ -16,6 +16,7 @@ fi
 
 INSTALL_GSTACK_DIR="$(cd "$(dirname "$0")" && pwd)"
 SOURCE_GSTACK_DIR="$(cd "$(dirname "$0")" && pwd -P)"
+source "$SOURCE_GSTACK_DIR/bin/gstack-registration-lock"
 INSTALL_SKILLS_DIR="$(dirname "$INSTALL_GSTACK_DIR")"
 BROWSE_BIN="$SOURCE_GSTACK_DIR/browse/dist/browse"
 CODEX_SKILLS="$HOME/.codex/skills"
@@ -369,9 +370,7 @@ cleanup_copied_bun() {
   if [ "${BUN_CMD_WAS_COPIED:-0}" -eq 1 ]; then
     rm -rf "$SOURCE_GSTACK_DIR/.tmp-bun-bin"
   fi
-  if [ -n "${_CLAUDE_REGISTRATION_LOCK:-}" ]; then
-    rmdir "$_CLAUDE_REGISTRATION_LOCK" 2>/dev/null || true
-  fi
+  gstack_registration_lock_release
 }
 
 prepare_bun_for_windows_compile
@@ -865,17 +864,14 @@ cleanup_prefixed_claude_symlinks() {
 
 _acquire_claude_registration_lock() {
   local skills_dir="$1"
-  _CLAUDE_REGISTRATION_LOCK="$skills_dir/.gstack-registration.lock"
-  if ! mkdir "$_CLAUDE_REGISTRATION_LOCK" 2>/dev/null; then
-    echo "gstack setup failed: another skill registration is active in $skills_dir." >&2
+  if ! gstack_registration_lock_acquire "$skills_dir/.gstack-registration.lock"; then
+    echo "gstack setup failed: skill registration lock unavailable." >&2
     return 1
   fi
 }
 
 _release_claude_registration_lock() {
-  [ -n "${_CLAUDE_REGISTRATION_LOCK:-}" ] || return 0
-  rmdir "$_CLAUDE_REGISTRATION_LOCK" 2>/dev/null || true
-  _CLAUDE_REGISTRATION_LOCK=""
+  gstack_registration_lock_release
 }
 
 # ─── Helper: link generated Codex skills into a skills parent directory ──

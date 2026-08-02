@@ -53,6 +53,7 @@ function setupMockInstall(skills: string[]): void {
     fs.copyFileSync(path.join(BIN, 'gstack-relink'), path.join(mockBin, 'gstack-relink'));
     fs.chmodSync(path.join(mockBin, 'gstack-relink'), 0o755);
   }
+  fs.copyFileSync(path.join(BIN, 'gstack-registration-lock'), path.join(mockBin, 'gstack-registration-lock'));
   if (fs.existsSync(path.join(BIN, 'gstack-patch-names'))) {
     fs.copyFileSync(path.join(BIN, 'gstack-patch-names'), path.join(mockBin, 'gstack-patch-names'));
     fs.chmodSync(path.join(mockBin, 'gstack-patch-names'), 0o755);
@@ -149,13 +150,48 @@ describe('gstack-relink (#578)', () => {
 
   test('refuses to run while another registration holds the skills lock', () => {
     setupMockInstall(['qa']);
-    fs.mkdirSync(path.join(skillsDir, '.gstack-registration.lock'));
+    const lock = path.join(skillsDir, '.gstack-registration.lock');
+    fs.mkdirSync(lock);
+    fs.writeFileSync(path.join(lock, 'owner'), `${process.pid} foreign-owner\n`);
     const output = run(`${path.join(installDir, 'bin', 'gstack-relink')}`, {
       GSTACK_INSTALL_DIR: installDir,
       GSTACK_SKILLS_DIR: skillsDir,
     }, true);
     expect(output).toContain('another skill registration is active');
     expect(fs.existsSync(path.join(skillsDir, 'qa'))).toBe(false);
+    expect(fs.readFileSync(path.join(lock, 'owner'), 'utf8')).toBe(`${process.pid} foreign-owner\n`);
+  });
+
+  test('a failed setup-style acquirer never removes the active owner on EXIT', () => {
+    setupMockInstall(['qa']);
+    const lock = path.join(skillsDir, '.gstack-registration.lock');
+    fs.mkdirSync(lock);
+    fs.writeFileSync(path.join(lock, 'owner'), `${process.pid} active-owner\n`);
+    const library = path.join(installDir, 'bin', 'gstack-registration-lock');
+
+    const output = run(
+      `bash -c 'source "$1"; trap gstack_registration_lock_release EXIT; gstack_registration_lock_acquire "$2"' bash ${JSON.stringify(library)} ${JSON.stringify(lock)}`,
+      {},
+      true,
+    );
+
+    expect(output).toContain('another skill registration is active');
+    expect(fs.readFileSync(path.join(lock, 'owner'), 'utf8')).toBe(`${process.pid} active-owner\n`);
+  });
+
+  test('reclaims a registration lock whose recorded owner is dead', () => {
+    setupMockInstall(['qa']);
+    const lock = path.join(skillsDir, '.gstack-registration.lock');
+    fs.mkdirSync(lock);
+    fs.writeFileSync(path.join(lock, 'owner'), '99999999 stale-owner\n');
+
+    run(`${path.join(installDir, 'bin', 'gstack-relink')}`, {
+      GSTACK_INSTALL_DIR: installDir,
+      GSTACK_SKILLS_DIR: skillsDir,
+    });
+
+    expect(fs.existsSync(path.join(skillsDir, 'qa', 'SKILL.md'))).toBe(true);
+    expect(fs.existsSync(lock)).toBe(false);
   });
 
   test('refuses a foreign opposite-prefix target before creating new aliases', () => {
