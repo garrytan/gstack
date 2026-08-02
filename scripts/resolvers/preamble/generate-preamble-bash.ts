@@ -22,8 +22,9 @@ export GSTACK_ROOT GSTACK_BIN GSTACK_BROWSE GSTACK_DESIGN GSTACK_MAKE_PDF`;
 export function generateClaudeRuntimeRootBashCompact(ctx: TemplateContext): string {
   const hostConfig = getHostConfig(ctx.host);
   const globalSkillsDir = path.posix.dirname(hostConfig.globalRoot);
-  return `_GSTACK_BOOT="\${GSTACK_ROOT:-}"; [ -x "$_GSTACK_BOOT/bin/gstack-runtime-env" ] || _GSTACK_BOOT="\${CLAUDE_PLUGIN_ROOT:-}"; [ -x "$_GSTACK_BOOT/bin/gstack-runtime-env" ] || _GSTACK_BOOT=$(cat "$HOME/${globalSkillsDir}/.gstack-root" 2>/dev/null || true); [ -x "$_GSTACK_BOOT/bin/gstack-runtime-env" ] || _GSTACK_BOOT="$HOME/${hostConfig.globalRoot}"
-eval "$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_GSTACK_BOOT" "$_GSTACK_BOOT/bin/gstack-runtime-env")"`;
+  return `_gv() { [ -f "$1/VERSION" ] && [ -x "$1/bin/gstack-config" ] && [ -x "$1/bin/gstack-runtime-env" ]; }
+_GSTACK_BOOT="\${GSTACK_ROOT:-}"; _gv "$_GSTACK_BOOT" || _GSTACK_BOOT="\${CLAUDE_PLUGIN_ROOT:-}"; _gv "$_GSTACK_BOOT" || _GSTACK_BOOT=$(cat "$HOME/${globalSkillsDir}/.gstack-root" 2>/dev/null || true); _gv "$_GSTACK_BOOT" || _GSTACK_BOOT="$HOME/${hostConfig.globalRoot}"
+eval "$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_GSTACK_BOOT" "$_GSTACK_BOOT/bin/gstack-runtime-env")"; unset -f _gv`;
 }
 
 export function generatePreambleBash(ctx: TemplateContext): string {

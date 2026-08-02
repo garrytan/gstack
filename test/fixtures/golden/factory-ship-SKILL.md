@@ -137,6 +137,8 @@ echo "GSTACK_PLAN_MODE: $GSTACK_PLAN_MODE"
 shell block that uses `$GSTACK_*` includes its own bootstrap. For non-shell
 tools (Read/Edit/Write/Glob/Grep), replace `$GSTACK_ROOT` with the absolute
 `GSTACK_ROOT:` value printed above; never pass the variable text literally.
+For inline shell commands outside fenced blocks, substitute the printed
+absolute values before execution.
 
 ## Plan Mode Safe Operations
 

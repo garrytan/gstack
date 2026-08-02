@@ -577,12 +577,10 @@ _validate_claude_skill_target() {
   return 1
 }
 
-link_claude_skill_dirs() {
+validate_claude_skill_targets() {
   local gstack_dir="$1"
   local skills_dir="$2"
-  local linked=()
 
-  # Validate the complete target set before mutating any alias.
   _validate_claude_skill_target "$gstack_dir" "$gstack_dir/SKILL.md" "$skills_dir/_gstack-command" || return 1
   for skill_dir in "$gstack_dir"/*/; do
     [ -f "$skill_dir/SKILL.md" ] || continue
@@ -597,6 +595,15 @@ link_claude_skill_dirs() {
     fi
     _validate_claude_skill_target "$gstack_dir" "$gstack_dir/$dir_name/SKILL.md" "$skills_dir/$link_name" || return 1
   done
+}
+
+link_claude_skill_dirs() {
+  local gstack_dir="$1"
+  local skills_dir="$2"
+  local linked=()
+
+  # Keep this public helper safe when sourced independently in tests/scripts.
+  validate_claude_skill_targets "$gstack_dir" "$skills_dir" || return 1
 
   for skill_dir in "$gstack_dir"/*/; do
     if [ -f "$skill_dir/SKILL.md" ]; then
@@ -750,98 +757,90 @@ validate_claude_hook_runtime_root() {
   return 0
 }
 
-# ─── Helper: remove old unprefixed Claude skill entries ───────────────────────
-# Migration: when switching from flat names to gstack- prefixed names,
-# clean up stale symlinks or directories that point into the gstack directory.
-cleanup_old_claude_symlinks() {
+# ─── Helpers: ownership-safe cleanup across prefix-mode changes ──────────────
+_claude_skill_target_owned() {
+  local gstack_dir="$1"
+  local expected_skill="$2"
+  local target="$3"
+  local gstack_real expected_real owner owner_real target_real
+
+  gstack_real=$(cd "$gstack_dir" 2>/dev/null && pwd -P || true)
+  expected_real=$(cd "$(dirname "$expected_skill")" 2>/dev/null && pwd -P || true)/$(basename "$expected_skill")
+
+  if [ -L "$target" ]; then
+    target_real=$(cd "$target" 2>/dev/null && pwd -P || true)
+    [ -n "$target_real" ] && [ "$target_real" = "$(dirname "$expected_real")" ]
+    return
+  fi
+  [ -d "$target" ] || return 1
+  if [ -f "$target/.gstack-managed-root" ]; then
+    owner=$(head -n 1 "$target/.gstack-managed-root" 2>/dev/null || true)
+    owner_real=$(cd "$owner" 2>/dev/null && pwd -P || true)
+    [ -n "$owner_real" ] && [ "$owner_real" = "$gstack_real" ] && return 0
+  fi
+  if [ -L "$target/SKILL.md" ]; then
+    [ "$(readlink "$target/SKILL.md" 2>/dev/null || true)" = "$expected_real" ] && return 0
+  elif [ "$IS_WINDOWS" -eq 1 ] && [ -f "$target/SKILL.md" ] && cmp -s "$target/SKILL.md" "$expected_skill"; then
+    return 0
+  fi
+  return 1
+}
+
+_validate_claude_cleanup_targets() {
   local gstack_dir="$1"
   local skills_dir="$2"
-  local removed=()
+  local old_prefix="$3"
+  local skill_dir skill_name target
   for skill_dir in "$gstack_dir"/*/; do
-    if [ -f "$skill_dir/SKILL.md" ]; then
-      skill_name="$(basename "$skill_dir")"
-      [ "$skill_name" = "node_modules" ] && continue
-      # Skip already-prefixed dirs (gstack-upgrade) — no old symlink to clean
-      case "$skill_name" in gstack-*) continue ;; esac
-      old_target="$skills_dir/$skill_name"
-      # Remove directory symlinks pointing into gstack/
-      if [ -L "$old_target" ]; then
-        link_dest="$(readlink "$old_target" 2>/dev/null || true)"
-        case "$link_dest" in
-          gstack/*|*/gstack/*)
-            rm -f "$old_target"
-            removed+=("$skill_name")
-            ;;
-        esac
-      # Remove real directories with symlinked SKILL.md pointing into gstack/
-      elif [ -d "$old_target" ] && [ -L "$old_target/SKILL.md" ]; then
-        link_dest="$(readlink "$old_target/SKILL.md" 2>/dev/null || true)"
-        case "$link_dest" in
-          *gstack*)
-            rm -rf "$old_target"
-            removed+=("$skill_name")
-            ;;
-        esac
-      # Windows install pattern: real dir with real-file SKILL.md (no symlink
-      # available, so we can't readlink to verify provenance). The outer loop
-      # iterates known gstack skill names from "$gstack_dir"/*, so a name match
-      # plus IS_WINDOWS is safe to treat as gstack-managed during a mode flip.
-      elif [ "$IS_WINDOWS" -eq 1 ] && [ -d "$old_target" ] && [ -f "$old_target/SKILL.md" ]; then
-        rm -rf "$old_target"
-        removed+=("$skill_name")
-      fi
+    [ -f "$skill_dir/SKILL.md" ] || continue
+    skill_name="$(basename "$skill_dir")"
+    [ "$skill_name" = "node_modules" ] && continue
+    case "$skill_name" in gstack-*) continue ;; esac
+    target="$skills_dir/${old_prefix}${skill_name}"
+    [ ! -e "$target" ] && [ ! -L "$target" ] && continue
+    if ! _claude_skill_target_owned "$gstack_dir" "$skill_dir/SKILL.md" "$target"; then
+      echo "gstack setup failed: $target is not owned by this gstack install." >&2
+      echo "Move or remove it before changing skill_prefix." >&2
+      return 1
     fi
   done
+}
+
+_cleanup_claude_skill_targets() {
+  local gstack_dir="$1"
+  local skills_dir="$2"
+  local old_prefix="$3"
+  local label="$4"
+  local removed=()
+  local skill_dir skill_name target
+  for skill_dir in "$gstack_dir"/*/; do
+    [ -f "$skill_dir/SKILL.md" ] || continue
+    skill_name="$(basename "$skill_dir")"
+    [ "$skill_name" = "node_modules" ] && continue
+    case "$skill_name" in gstack-*) continue ;; esac
+    target="$skills_dir/${old_prefix}${skill_name}"
+    [ ! -e "$target" ] && [ ! -L "$target" ] && continue
+    _claude_skill_target_owned "$gstack_dir" "$skill_dir/SKILL.md" "$target" || return 1
+    if [ -L "$target" ]; then
+      rm -f "$target"
+    else
+      rm -f "$target/SKILL.md" "$target/.gstack-managed-root"
+      rm -rf "$target/sections"
+      rmdir "$target" 2>/dev/null || true
+    fi
+    removed+=("${old_prefix}${skill_name}")
+  done
   if [ ${#removed[@]} -gt 0 ]; then
-    echo "  cleaned up old entries: ${removed[*]}"
+    echo "  cleaned up $label entries: ${removed[*]}"
   fi
 }
 
-# ─── Helper: remove old prefixed Claude skill entries ─────────────────────────
-# Reverse migration: when switching from gstack- prefixed names to flat names,
-# clean up stale gstack-* symlinks or directories that point into the gstack directory.
+cleanup_old_claude_symlinks() {
+  _cleanup_claude_skill_targets "$1" "$2" "" "old"
+}
+
 cleanup_prefixed_claude_symlinks() {
-  local gstack_dir="$1"
-  local skills_dir="$2"
-  local removed=()
-  for skill_dir in "$gstack_dir"/*/; do
-    if [ -f "$skill_dir/SKILL.md" ]; then
-      skill_name="$(basename "$skill_dir")"
-      [ "$skill_name" = "node_modules" ] && continue
-      # Only clean up prefixed entries for dirs that AREN'T already prefixed
-      # (e.g., remove gstack-qa but NOT gstack-upgrade which is the real dir name)
-      case "$skill_name" in gstack-*) continue ;; esac
-      prefixed_target="$skills_dir/gstack-$skill_name"
-      # Remove directory symlinks pointing into gstack/
-      if [ -L "$prefixed_target" ]; then
-        link_dest="$(readlink "$prefixed_target" 2>/dev/null || true)"
-        case "$link_dest" in
-          gstack/*|*/gstack/*)
-            rm -f "$prefixed_target"
-            removed+=("gstack-$skill_name")
-            ;;
-        esac
-      # Remove real directories with symlinked SKILL.md pointing into gstack/
-      elif [ -d "$prefixed_target" ] && [ -L "$prefixed_target/SKILL.md" ]; then
-        link_dest="$(readlink "$prefixed_target/SKILL.md" 2>/dev/null || true)"
-        case "$link_dest" in
-          *gstack*)
-            rm -rf "$prefixed_target"
-            removed+=("gstack-$skill_name")
-            ;;
-        esac
-      # Windows install pattern: real dir with real-file SKILL.md. Same
-      # reasoning as cleanup_old_claude_symlinks — directory name match plus
-      # IS_WINDOWS is safe during a mode flip.
-      elif [ "$IS_WINDOWS" -eq 1 ] && [ -d "$prefixed_target" ] && [ -f "$prefixed_target/SKILL.md" ]; then
-        rm -rf "$prefixed_target"
-        removed+=("gstack-$skill_name")
-      fi
-    fi
-  done
-  if [ ${#removed[@]} -gt 0 ]; then
-    echo "  cleaned up prefixed entries: ${removed[*]}"
-  fi
+  _cleanup_claude_skill_targets "$1" "$2" "gstack-" "prefixed"
 }
 
 # ─── Helper: link generated Codex skills into a skills parent directory ──
@@ -1127,10 +1126,13 @@ fi
 if [ "$INSTALL_CLAUDE" -eq 1 ]; then
   if [ "$SKILLS_BASENAME" = "skills" ]; then
     validate_claude_hook_runtime_root "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
-    # Clean up stale symlinks from the opposite prefix mode
+    # Validate every desired and opposite-mode target before any mutation.
+    validate_claude_skill_targets "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
     if [ "$SKILL_PREFIX" -eq 1 ]; then
+      _validate_claude_cleanup_targets "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR" ""
       cleanup_old_claude_symlinks "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
     else
+      _validate_claude_cleanup_targets "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR" "gstack-"
       cleanup_prefixed_claude_symlinks "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
     fi
     # Patch name: fields BEFORE creating symlinks so link_claude_skill_dirs

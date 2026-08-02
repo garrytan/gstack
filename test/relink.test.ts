@@ -109,7 +109,46 @@ describe('gstack-relink (#578)', () => {
     expect(fs.existsSync(path.join(skillsDir, 'gstack-qa'))).toBe(true);
     expect(fs.existsSync(path.join(skillsDir, 'gstack-ship'))).toBe(true);
     expect(fs.existsSync(path.join(skillsDir, 'gstack-review'))).toBe(true);
+    expect(fs.readFileSync(path.join(skillsDir, 'gstack-qa', '.gstack-managed-root'), 'utf8').trim())
+      .toBe(fs.realpathSync(installDir));
     expect(output).toContain('gstack-');
+  });
+
+  test('refuses a foreign desired target without modifying it', () => {
+    setupMockInstall(['qa']);
+    const target = path.join(skillsDir, 'qa');
+    fs.mkdirSync(target, { recursive: true });
+    fs.writeFileSync(path.join(target, 'SKILL.md'), 'foreign\n');
+    fs.writeFileSync(path.join(target, 'USER_FILE'), 'preserve\n');
+
+    const output = run(`${path.join(installDir, 'bin', 'gstack-relink')}`, {
+      GSTACK_INSTALL_DIR: installDir,
+      GSTACK_SKILLS_DIR: skillsDir,
+    }, true);
+
+    expect(output).toContain('refusing to overwrite foreign skill target');
+    expect(fs.readFileSync(path.join(target, 'SKILL.md'), 'utf8')).toBe('foreign\n');
+    expect(fs.readFileSync(path.join(target, 'USER_FILE'), 'utf8')).toBe('preserve\n');
+  });
+
+  test('refuses a foreign opposite-prefix target before creating new aliases', () => {
+    setupMockInstall(['qa']);
+    const foreign = path.join(skillsDir, 'qa');
+    fs.mkdirSync(foreign, { recursive: true });
+    fs.writeFileSync(path.join(foreign, 'SKILL.md'), 'foreign\n');
+    run(`${path.join(installDir, 'bin', 'gstack-config')} set skill_prefix true`, {
+      GSTACK_INSTALL_DIR: installDir,
+      GSTACK_SKILLS_DIR: path.join(tmpDir, 'unused-skills'),
+    });
+
+    const output = run(`${path.join(installDir, 'bin', 'gstack-relink')}`, {
+      GSTACK_INSTALL_DIR: installDir,
+      GSTACK_SKILLS_DIR: skillsDir,
+    }, true);
+
+    expect(output).toContain('refusing to remove foreign skill target');
+    expect(fs.readFileSync(path.join(foreign, 'SKILL.md'), 'utf8')).toBe('foreign\n');
+    expect(fs.existsSync(path.join(skillsDir, 'gstack-qa'))).toBe(false);
   });
 
   // Test 12: flat symlinks when skill_prefix=false

@@ -688,7 +688,9 @@ function quotePortableRuntimePaths(content: string): string {
 
 function injectClaudeRuntimeRootForPreamblelessSkill(content: string, ctx: TemplateContext): string {
   if (!/\$GSTACK_(?:ROOT|BIN|BROWSE|DESIGN|MAKE_PDF)\b/.test(content)) return content;
-  const bootstrap = `\n## Runtime path bootstrap\n\n\`\`\`bash\n${generateClaudeRuntimeRootBash(ctx)}\necho "GSTACK_ROOT: $GSTACK_ROOT"\n\`\`\`\n\n**Portable runtime paths:** Bash blocks run in separate shells, so every later shell block using \`$GSTACK_*\` includes its own bootstrap. For non-shell tools, replace \`$GSTACK_ROOT\` with the absolute \`GSTACK_ROOT:\` value printed above; never pass the variable text literally. For inline shell commands outside fenced blocks, substitute the printed absolute values before execution.\n`;
+  const prose = content.replace(/\`\`\`(?:bash|sh|shell)\n[\s\S]*?\n\`\`\`/g, '');
+  if (!/\$GSTACK_(?:ROOT|BIN|BROWSE|DESIGN|MAKE_PDF)\b/.test(prose)) return content;
+  const bootstrap = `\n## Runtime path bootstrap\n\n\`\`\`bash\n${generateClaudeRuntimeRootBashCompact(ctx)}\necho "GSTACK_ROOT: $GSTACK_ROOT"\n\`\`\`\n\n**Portable runtime paths:** Bash blocks run in separate shells, so every later shell block using \`$GSTACK_*\` includes its own bootstrap. For non-shell tools, replace \`$GSTACK_ROOT\` with the absolute \`GSTACK_ROOT:\` value printed above; never pass the variable text literally. For inline shell commands outside fenced blocks, substitute the printed absolute values before execution.\n`;
   if (!content.startsWith('---\n')) return bootstrap + content;
   const fmEnd = content.indexOf('\n---', 4);
   if (fmEnd === -1) return bootstrap + content;
@@ -699,7 +701,7 @@ function injectClaudeRuntimeRootForPreamblelessSkill(content: string, ctx: Templ
 function bootstrapClaudeShellBlocks(content: string, ctx: TemplateContext): string {
   return content.replace(/\`\`\`(bash|sh|shell)\n([\s\S]*?)\n\`\`\`/g, (full, language: string, body: string) => {
     if (!/\$GSTACK_(?:ROOT|BIN|BROWSE|DESIGN|MAKE_PDF)\b/.test(body)) return full;
-    if (body.includes('_GSTACK_ROOT_MARKER=')) return full;
+    if (body.includes('_GSTACK_ROOT_MARKER=') || body.includes('_GSTACK_BOOT=')) return full;
     return `\`\`\`${language}\n${generateClaudeRuntimeRootBashCompact(ctx)}\n${body}\n\`\`\``;
   });
 }

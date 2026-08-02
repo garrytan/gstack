@@ -94,6 +94,26 @@ describe('portable generated skill paths (#1882)', () => {
     expect(bash).toContain('echo "GSTACK_ROOT: $GSTACK_ROOT"');
   });
 
+  test('the real runtime-env helper self-locates and shell-quotes overrides', () => {
+    const helper = path.join(ROOT, 'bin', 'gstack-runtime-env');
+    const self = spawnSync('bash', ['-c', `eval "$(${JSON.stringify(helper)})"; printf '%s\n' "$GSTACK_ROOT"`], {
+      encoding: 'utf8',
+    });
+    expect(self.status).toBe(0);
+    expect(self.stdout.trim()).toBe(fs.realpathSync(ROOT));
+
+    const home = tempDir('gstack-runtime-env-quote-');
+    const pwned = path.join(home, 'pwned');
+    const override = path.join(home, `runtime with spaces;touch ${pwned}`);
+    const quoted = spawnSync('bash', ['-c', `eval "$(${JSON.stringify(helper)})"; printf '%s\n' "$GSTACK_ROOT"`], {
+      env: { ...process.env, GSTACK_RUNTIME_ROOT_OVERRIDE: override },
+      encoding: 'utf8',
+    });
+    expect(quoted.status).toBe(0);
+    expect(quoted.stdout.trim()).toBe(override);
+    expect(fs.existsSync(pwned)).toBe(false);
+  });
+
   test('non-gstack install marker drives real preamble binary calls', () => {
     const home = tempDir('gstack-portable-home-');
     const calls = path.join(home, 'calls.log');
@@ -217,8 +237,11 @@ describe('portable generated skill paths (#1882)', () => {
       if (!fs.existsSync(file)) continue;
       const content = fs.readFileSync(file, 'utf8');
       if (/\$GSTACK_(?:ROOT|BIN|BROWSE|DESIGN|MAKE_PDF)\b/.test(content)) {
-        expect(content, entry.name).toContain('_GSTACK_ROOT_MARKER=');
-        expect(content, entry.name).toContain('For non-shell');
+        expect(content, entry.name).toMatch(/_GSTACK_ROOT_MARKER=|_GSTACK_BOOT=/);
+        const prose = content.replace(/```(?:bash|sh|shell)\n[\s\S]*?\n```/g, '');
+        if (/\$GSTACK_(?:ROOT|BIN|BROWSE|DESIGN|MAKE_PDF)\b/.test(prose)) {
+          expect(content, entry.name).toContain('For non-shell');
+        }
       }
     }
   });
@@ -264,6 +287,29 @@ describe('portable generated skill paths (#1882)', () => {
     const result = spawnSync('bash', ['-c', block!], { env, encoding: 'utf8' });
     expect(result.status).toBe(0);
     expect(fs.readFileSync(calls, 'utf8')).toContain(`${install}/bin/gstack-config get auto_upgrade`);
+  });
+
+  test('a later shell block never executes a foreign plugin runtime helper', () => {
+    const home = tempDir('gstack-portable-shell-foreign-plugin-');
+    const calls = path.join(home, 'calls.log');
+    const pwned = path.join(home, 'pwned');
+    const trusted = createStubRuntime(home, 'trusted runtime');
+    const foreign = path.join(home, 'foreign-plugin');
+    fs.mkdirSync(path.join(foreign, 'bin'), { recursive: true });
+    writeExecutable(path.join(foreign, 'bin', 'gstack-runtime-env'), `touch "${pwned}"`);
+    fs.writeFileSync(path.join(home, '.claude', 'skills', '.gstack-root'), `${trusted}\n`);
+
+    const upgrade = fs.readFileSync(path.join(ROOT, 'gstack-upgrade', 'SKILL.md'), 'utf8');
+    const block = [...upgrade.matchAll(/```bash\n([\s\S]*?)\n```/g)]
+      .map(match => match[1])
+      .find(body => body.includes('get auto_upgrade'));
+    const env = { ...process.env, HOME: home, CALLS: calls, CLAUDE_PLUGIN_ROOT: foreign } as Record<string, string>;
+    delete env.GSTACK_ROOT;
+    delete env.GSTACK_BIN;
+    const result = spawnSync('bash', ['-c', block!], { env, encoding: 'utf8' });
+    expect(result.status).toBe(0);
+    expect(fs.existsSync(pwned)).toBe(false);
+    expect(fs.readFileSync(calls, 'utf8')).toContain(`${trusted}/bin/gstack-config get auto_upgrade`);
   });
 
   test('browse, design, and make-pdf setup resolve env-var paths without a $HOME prefix', () => {
@@ -434,10 +480,32 @@ describe('setup portable root registration (#1882)', () => {
     fs.writeFileSync(path.join(target, 'SKILL.md'), 'foreign\n');
     fs.writeFileSync(path.join(target, 'USER_FILE'), 'preserve\n');
 
-    const script = `set -e\nIS_WINDOWS=0\nSKILL_PREFIX=1\n_print_windows_copy_note_once() { :; }\n${extractSetupFunction('_link_or_copy')}\n${extractSetupFunction('_validate_claude_skill_target')}\n${extractSetupFunction('link_claude_skill_dirs')}\nlink_claude_skill_dirs "${source}" "${skills}"\n`;
+    const script = `set -e\nIS_WINDOWS=0\nSKILL_PREFIX=1\n_print_windows_copy_note_once() { :; }\n${extractSetupFunction('_link_or_copy')}\n${extractSetupFunction('_validate_claude_skill_target')}\n${extractSetupFunction('validate_claude_skill_targets')}\n${extractSetupFunction('link_claude_skill_dirs')}\nlink_claude_skill_dirs "${source}" "${skills}"\n`;
     const result = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain('owned by another skill install');
+    expect(fs.readFileSync(path.join(target, 'SKILL.md'), 'utf8')).toBe('foreign\n');
+    expect(fs.readFileSync(path.join(target, 'USER_FILE'), 'utf8')).toBe('preserve\n');
+  });
+
+  test('prefix cleanup rejects a foreign legacy-looking target before mutation', () => {
+    const home = tempDir('gstack-setup-cleanup-collision-');
+    const source = path.join(home, 'renamed gstack');
+    const skills = path.join(home, '.claude', 'skills');
+    const foreignSource = path.join(home, 'foreign-gstack-pack', 'qa');
+    const target = path.join(skills, 'qa');
+    fs.mkdirSync(path.join(source, 'qa'), { recursive: true });
+    fs.writeFileSync(path.join(source, 'qa', 'SKILL.md'), 'source\n');
+    fs.mkdirSync(foreignSource, { recursive: true });
+    fs.writeFileSync(path.join(foreignSource, 'SKILL.md'), 'foreign\n');
+    fs.mkdirSync(target, { recursive: true });
+    fs.symlinkSync(path.join(foreignSource, 'SKILL.md'), path.join(target, 'SKILL.md'));
+    fs.writeFileSync(path.join(target, 'USER_FILE'), 'preserve\n');
+
+    const script = `set -e\nIS_WINDOWS=0\n${extractSetupFunction('_claude_skill_target_owned')}\n${extractSetupFunction('_validate_claude_cleanup_targets')}\n_validate_claude_cleanup_targets "${source}" "${skills}" ""\n`;
+    const result = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('not owned by this gstack install');
     expect(fs.readFileSync(path.join(target, 'SKILL.md'), 'utf8')).toBe('foreign\n');
     expect(fs.readFileSync(path.join(target, 'USER_FILE'), 'utf8')).toBe('preserve\n');
   });

@@ -245,8 +245,9 @@ glab mr view -F json 2>/dev/null | python3 -c "import sys,json; print(json.load(
    the bytes scanned are the bytes sent:
 
 ```bash
-_GSTACK_BOOT="${GSTACK_ROOT:-}"; [ -x "$_GSTACK_BOOT/bin/gstack-runtime-env" ] || _GSTACK_BOOT="${CLAUDE_PLUGIN_ROOT:-}"; [ -x "$_GSTACK_BOOT/bin/gstack-runtime-env" ] || _GSTACK_BOOT=$(cat "$HOME/.claude/skills/.gstack-root" 2>/dev/null || true); [ -x "$_GSTACK_BOOT/bin/gstack-runtime-env" ] || _GSTACK_BOOT="$HOME/.claude/skills/gstack"
-eval "$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_GSTACK_BOOT" "$_GSTACK_BOOT/bin/gstack-runtime-env")"
+_gv() { [ -f "$1/VERSION" ] && [ -x "$1/bin/gstack-config" ] && [ -x "$1/bin/gstack-runtime-env" ]; }
+_GSTACK_BOOT="${GSTACK_ROOT:-}"; _gv "$_GSTACK_BOOT" || _GSTACK_BOOT="${CLAUDE_PLUGIN_ROOT:-}"; _gv "$_GSTACK_BOOT" || _GSTACK_BOOT=$(cat "$HOME/.claude/skills/.gstack-root" 2>/dev/null || true); _gv "$_GSTACK_BOOT" || _GSTACK_BOOT="$HOME/.claude/skills/gstack"
+eval "$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_GSTACK_BOOT" "$_GSTACK_BOOT/bin/gstack-runtime-env")"; unset -f _gv
 REDACT_VIS=$("$GSTACK_ROOT"/bin/gstack-config get redact_repo_visibility 2>/dev/null)
 [ -z "$REDACT_VIS" ] && REDACT_VIS=$(gh repo view --json visibility -q .visibility 2>/dev/null | tr 'A-Z' 'a-z')
 "$GSTACK_ROOT"/bin/gstack-redact --from-file /tmp/gstack-pr-body-$$.md --repo-visibility "${REDACT_VIS:-unknown}" --json
@@ -306,8 +307,9 @@ If `CURRENT_TITLE` is empty (no open PR/MR), skip with message "No PR/MR found �
 3. Compute the corrected title using the shared helper (single source of truth — same one `/ship` uses):
 
 ```bash
-_GSTACK_BOOT="${GSTACK_ROOT:-}"; [ -x "$_GSTACK_BOOT/bin/gstack-runtime-env" ] || _GSTACK_BOOT="${CLAUDE_PLUGIN_ROOT:-}"; [ -x "$_GSTACK_BOOT/bin/gstack-runtime-env" ] || _GSTACK_BOOT=$(cat "$HOME/.claude/skills/.gstack-root" 2>/dev/null || true); [ -x "$_GSTACK_BOOT/bin/gstack-runtime-env" ] || _GSTACK_BOOT="$HOME/.claude/skills/gstack"
-eval "$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_GSTACK_BOOT" "$_GSTACK_BOOT/bin/gstack-runtime-env")"
+_gv() { [ -f "$1/VERSION" ] && [ -x "$1/bin/gstack-config" ] && [ -x "$1/bin/gstack-runtime-env" ]; }
+_GSTACK_BOOT="${GSTACK_ROOT:-}"; _gv "$_GSTACK_BOOT" || _GSTACK_BOOT="${CLAUDE_PLUGIN_ROOT:-}"; _gv "$_GSTACK_BOOT" || _GSTACK_BOOT=$(cat "$HOME/.claude/skills/.gstack-root" 2>/dev/null || true); _gv "$_GSTACK_BOOT" || _GSTACK_BOOT="$HOME/.claude/skills/gstack"
+eval "$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_GSTACK_BOOT" "$_GSTACK_BOOT/bin/gstack-runtime-env")"; unset -f _gv
 NEW_TITLE=$("$GSTACK_ROOT"/bin/gstack-pr-title-rewrite.sh "$V" "$CURRENT_TITLE")
 ```
 
@@ -375,8 +377,9 @@ not an opt-in. The user turns it off only by asking explicitly
 **Preflight — decide whether and how the doc review runs:**
 
 ```bash
-_GSTACK_BOOT="${GSTACK_ROOT:-}"; [ -x "$_GSTACK_BOOT/bin/gstack-runtime-env" ] || _GSTACK_BOOT="${CLAUDE_PLUGIN_ROOT:-}"; [ -x "$_GSTACK_BOOT/bin/gstack-runtime-env" ] || _GSTACK_BOOT=$(cat "$HOME/.claude/skills/.gstack-root" 2>/dev/null || true); [ -x "$_GSTACK_BOOT/bin/gstack-runtime-env" ] || _GSTACK_BOOT="$HOME/.claude/skills/gstack"
-eval "$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_GSTACK_BOOT" "$_GSTACK_BOOT/bin/gstack-runtime-env")"
+_gv() { [ -f "$1/VERSION" ] && [ -x "$1/bin/gstack-config" ] && [ -x "$1/bin/gstack-runtime-env" ]; }
+_GSTACK_BOOT="${GSTACK_ROOT:-}"; _gv "$_GSTACK_BOOT" || _GSTACK_BOOT="${CLAUDE_PLUGIN_ROOT:-}"; _gv "$_GSTACK_BOOT" || _GSTACK_BOOT=$(cat "$HOME/.claude/skills/.gstack-root" 2>/dev/null || true); _gv "$_GSTACK_BOOT" || _GSTACK_BOOT="$HOME/.claude/skills/gstack"
+eval "$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_GSTACK_BOOT" "$_GSTACK_BOOT/bin/gstack-runtime-env")"; unset -f _gv
 # Codex preflight: one block (functions sourced here don't persist to later blocks).
 _TEL=$("$GSTACK_ROOT"/bin/gstack-config get telemetry 2>/dev/null || echo off)
 _CODEX_CFG=$("$GSTACK_ROOT"/bin/gstack-config get codex_reviews 2>/dev/null || echo enabled)
@@ -474,8 +477,9 @@ rewrites docs). On B, note the gaps in the output so they're visible.
 
 **Persist the result:**
 ```bash
-_GSTACK_BOOT="${GSTACK_ROOT:-}"; [ -x "$_GSTACK_BOOT/bin/gstack-runtime-env" ] || _GSTACK_BOOT="${CLAUDE_PLUGIN_ROOT:-}"; [ -x "$_GSTACK_BOOT/bin/gstack-runtime-env" ] || _GSTACK_BOOT=$(cat "$HOME/.claude/skills/.gstack-root" 2>/dev/null || true); [ -x "$_GSTACK_BOOT/bin/gstack-runtime-env" ] || _GSTACK_BOOT="$HOME/.claude/skills/gstack"
-eval "$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_GSTACK_BOOT" "$_GSTACK_BOOT/bin/gstack-runtime-env")"
+_gv() { [ -f "$1/VERSION" ] && [ -x "$1/bin/gstack-config" ] && [ -x "$1/bin/gstack-runtime-env" ]; }
+_GSTACK_BOOT="${GSTACK_ROOT:-}"; _gv "$_GSTACK_BOOT" || _GSTACK_BOOT="${CLAUDE_PLUGIN_ROOT:-}"; _gv "$_GSTACK_BOOT" || _GSTACK_BOOT=$(cat "$HOME/.claude/skills/.gstack-root" 2>/dev/null || true); _gv "$_GSTACK_BOOT" || _GSTACK_BOOT="$HOME/.claude/skills/gstack"
+eval "$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_GSTACK_BOOT" "$_GSTACK_BOOT/bin/gstack-runtime-env")"; unset -f _gv
 "$GSTACK_ROOT"/bin/gstack-review-log '{"skill":"codex-doc-review","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","commit":"'"$(git rev-parse --short HEAD)"'"}'
 ```
 Substitute: STATUS = "clean" if no gaps, "issues_found" if gaps exist. SOURCE = "codex" if Codex ran, "claude" if the subagent ran.

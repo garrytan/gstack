@@ -39,35 +39,104 @@ SKILLS_DIR="${GSTACK_SKILLS_DIR:-$(dirname "$INSTALL_DIR")}"
 # Read prefix setting
 PREFIX=$("$GSTACK_CONFIG" get skill_prefix 2>/dev/null || echo "false")
 
-# Helper: remove old skill entry (symlink or real directory with symlinked SKILL.md)
+# Ownership checks deliberately require an exact install root or exact legacy
+# symlink target. Names containing "gstack" are not proof of ownership.
+INSTALL_REAL="$(cd "$INSTALL_DIR" && pwd -P)"
+
+_expected_real() {
+  local expected="$1"
+  printf '%s/%s\n' "$(cd "$(dirname "$expected")" && pwd -P)" "$(basename "$expected")"
+}
+
+_target_owned() {
+  local expected="$1"
+  local target="$2"
+  local expected_real target_real owner owner_real linked linked_real
+  expected_real="$(_expected_real "$expected")"
+  if [ -L "$target" ]; then
+    target_real=$(cd "$target" 2>/dev/null && pwd -P || true)
+    [ -n "$target_real" ] && [ "$target_real" = "$(dirname "$expected_real")" ]
+    return
+  fi
+  [ -d "$target" ] || return 1
+  if [ -f "$target/.gstack-managed-root" ]; then
+    owner=$(head -n 1 "$target/.gstack-managed-root" 2>/dev/null || true)
+    owner_real=$(cd "$owner" 2>/dev/null && pwd -P || true)
+    [ -n "$owner_real" ] && [ "$owner_real" = "$INSTALL_REAL" ] && return 0
+  fi
+  if [ -L "$target/SKILL.md" ]; then
+    linked=$(readlink "$target/SKILL.md" 2>/dev/null || true)
+    linked_real=$(cd "$(dirname "$linked")" 2>/dev/null && pwd -P || true)
+    [ -n "$linked_real" ] && [ "$linked_real/$(basename "$linked")" = "$expected_real" ] && return 0
+  elif [ -f "$target/SKILL.md" ] && cmp -s "$target/SKILL.md" "$expected"; then
+    return 0
+  fi
+  return 1
+}
+
+_validate_desired_target() {
+  local expected="$1"
+  local target="$2"
+  [ ! -e "$target" ] && [ ! -L "$target" ] && return 0
+  _target_owned "$expected" "$target" && return 0
+  if [ -d "$target" ] && [ -z "$(find "$target" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]; then
+    return 0
+  fi
+  echo "Error: refusing to overwrite foreign skill target $target" >&2
+  return 1
+}
+
+_validate_cleanup_target() {
+  local expected="$1"
+  local target="$2"
+  [ ! -e "$target" ] && [ ! -L "$target" ] && return 0
+  _target_owned "$expected" "$target" && return 0
+  echo "Error: refusing to remove foreign skill target $target" >&2
+  return 1
+}
+
 _cleanup_skill_entry() {
-  local entry="$1"
+  local expected="$1"
+  local entry="$2"
+  [ ! -e "$entry" ] && [ ! -L "$entry" ] && return 0
+  _target_owned "$expected" "$entry" || return 1
   if [ -L "$entry" ]; then
     rm -f "$entry"
-  elif [ -d "$entry" ] && [ -L "$entry/SKILL.md" ]; then
-    rm -rf "$entry"
+  else
+    rm -f "$entry/SKILL.md" "$entry/.gstack-managed-root"
+    rm -rf "$entry/sections"
+    rmdir "$entry" 2>/dev/null || true
   fi
 }
 
-_link_root_skill_alias() {
-  local target="$SKILLS_DIR/_gstack-command"
-
-  [ -f "$INSTALL_DIR/SKILL.md" ] || return 0
-  [ -L "$target" ] && rm -f "$target"
+_link_skill_alias() {
+  local expected="$1"
+  local target="$2"
+  if [ -L "$target" ]; then
+    rm -f "$target"
+  elif [ -d "$target" ]; then
+    rm -f "$target/SKILL.md" "$target/.gstack-managed-root"
+    rm -rf "$target/sections"
+  fi
   mkdir -p "$target"
-  ln -snf "$INSTALL_DIR/SKILL.md" "$target/SKILL.md"
+  ln -snf "$expected" "$target/SKILL.md"
+  if [ -d "$(dirname "$expected")/sections" ]; then
+    ln -snf "$(dirname "$expected")/sections" "$target/sections"
+  fi
+  printf '%s\n' "$INSTALL_REAL" > "$target/.gstack-managed-root"
 }
 
-_link_root_skill_alias
-
-# Discover skills (directories with SKILL.md, excluding meta dirs)
-SKILL_COUNT=0
+# Discover and validate the complete mutation set first.
+SKILLS=()
+LINK_NAMES=()
+OLD_TARGETS=()
 for skill_dir in "$INSTALL_DIR"/*/; do
   [ -d "$skill_dir" ] || continue
   skill=$(basename "$skill_dir")
   # Skip non-skill directories
   case "$skill" in bin|browse|design|docs|extension|lib|node_modules|scripts|test|.git|.github) continue ;; esac
   [ -f "$skill_dir/SKILL.md" ] || continue
+  old_target=""
 
   if [ "$PREFIX" = "true" ]; then
     # Don't double-prefix directories already named gstack-*
@@ -75,22 +144,43 @@ for skill_dir in "$INSTALL_DIR"/*/; do
       gstack-*) link_name="$skill" ;;
       *)        link_name="gstack-$skill" ;;
     esac
-    # Remove old flat entry if it exists (and isn't the same as the new link)
-    [ "$link_name" != "$skill" ] && _cleanup_skill_entry "$SKILLS_DIR/$skill"
+    old_target="$SKILLS_DIR/$skill"
   else
     link_name="$skill"
-    # Don't remove gstack-* dirs that are their real name (e.g., gstack-upgrade)
     case "$skill" in
-      gstack-*) ;; # Already the real name, no old prefixed link to clean
-      *)        _cleanup_skill_entry "$SKILLS_DIR/gstack-$skill" ;;
+      gstack-*) old_target="" ;;
+      *)        old_target="$SKILLS_DIR/gstack-$skill" ;;
     esac
   fi
+  expected="$INSTALL_DIR/$skill/SKILL.md"
   target="$SKILLS_DIR/$link_name"
-  # Upgrade old directory symlinks to real directories
-  [ -L "$target" ] && rm -f "$target"
-  # Create real directory with symlinked SKILL.md (absolute path)
-  mkdir -p "$target"
-  ln -snf "$INSTALL_DIR/$skill/SKILL.md" "$target/SKILL.md"
+  _validate_desired_target "$expected" "$target"
+  if [ -n "$old_target" ] && [ "$old_target" != "$target" ]; then
+    _validate_cleanup_target "$expected" "$old_target"
+  fi
+  SKILLS+=("$skill")
+  LINK_NAMES+=("$link_name")
+  OLD_TARGETS+=("$old_target")
+done
+
+if [ -f "$INSTALL_DIR/SKILL.md" ]; then
+  _validate_desired_target "$INSTALL_DIR/SKILL.md" "$SKILLS_DIR/_gstack-command"
+fi
+
+if [ -f "$INSTALL_DIR/SKILL.md" ]; then
+  _link_skill_alias "$INSTALL_DIR/SKILL.md" "$SKILLS_DIR/_gstack-command"
+fi
+
+SKILL_COUNT=0
+for i in "${!SKILLS[@]}"; do
+  skill="${SKILLS[$i]}"
+  expected="$INSTALL_DIR/$skill/SKILL.md"
+  old_target="${OLD_TARGETS[$i]}"
+  target="$SKILLS_DIR/${LINK_NAMES[$i]}"
+  if [ -n "$old_target" ] && [ "$old_target" != "$target" ]; then
+    _cleanup_skill_entry "$expected" "$old_target"
+  fi
+  _link_skill_alias "$expected" "$target"
   SKILL_COUNT=$((SKILL_COUNT + 1))
 done
 
