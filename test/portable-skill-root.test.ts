@@ -293,6 +293,23 @@ describe('portable generated skill paths (#1882)', () => {
     }
   });
 
+  test('static runtime Markdown assets use portable bootstrapped paths', () => {
+    const assets = [
+      path.join(ROOT, 'review', 'design-checklist.md'),
+      path.join(ROOT, 'review', 'greptile-triage.md'),
+    ];
+    for (const file of assets) {
+      const content = fs.readFileSync(file, 'utf8');
+      expect(content, path.relative(ROOT, file)).not.toContain('~/.claude/skills/gstack');
+      for (const match of content.matchAll(/```(?:bash|sh|shell)\n([\s\S]*?)\n```/g)) {
+        if (/\$GSTACK_(?:ROOT|BIN|BROWSE|DESIGN|MAKE_PDF)\b/.test(match[1])) {
+          expect(match[1], path.relative(ROOT, file)).toContain('_gv(){');
+          expect(match[1], path.relative(ROOT, file)).toContain('gstack-runtime-env');
+        }
+      }
+    }
+  });
+
   test('a later generated Bash block resolves the runtime in a fresh shell', () => {
     const home = tempDir('gstack-portable-separate-shell-');
     const calls = path.join(home, 'calls.log');
