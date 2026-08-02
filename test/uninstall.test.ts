@@ -251,6 +251,41 @@ describe('gstack-uninstall', () => {
       expect(fs.existsSync(path.join(skills, '.gstack-root'))).toBe(false);
     });
 
+    test('Windows runtime copy proves source ownership and cleans hooks before deletion', () => {
+      const skills = path.join(mockHome, '.claude', 'skills');
+      const canonical = path.join(skills, 'gstack');
+      const source = path.join(tmpDir, 'source checkout');
+      const alias = path.join(skills, 'gstack-review');
+      const hookLog = path.join(mockHome, 'windows-hook-cleanup.log');
+      fs.mkdirSync(source, { recursive: true });
+      fs.mkdirSync(path.join(canonical, 'bin'), { recursive: true });
+      fs.writeFileSync(path.join(skills, '.gstack-root'), `${source}\n`);
+      fs.writeFileSync(path.join(canonical, '.gstack-hook-runtime'), `${source}\n`);
+      fs.copyFileSync(UNINSTALL, path.join(canonical, 'bin', 'gstack-uninstall'));
+      fs.writeFileSync(
+        path.join(canonical, 'bin', 'gstack-settings-hook'),
+        `#!/bin/sh\nprintf '%s\\n' "$*" >> '${hookLog}'\necho 'removed 1'\n`,
+        { mode: 0o755 },
+      );
+      fs.writeFileSync(path.join(canonical, 'bin', 'gstack-session-update'), '#!/bin/sh\n', { mode: 0o755 });
+      fs.mkdirSync(alias, { recursive: true });
+      fs.writeFileSync(path.join(alias, '.gstack-managed-root'), `${source}\n`);
+      fs.writeFileSync(path.join(alias, 'SKILL.md'), 'managed\n');
+
+      const result = spawnSync('bash', [path.join(canonical, 'bin', 'gstack-uninstall'), '--force', '--keep-state'], {
+        stdio: 'pipe',
+        env: { ...process.env, HOME: mockHome, GSTACK_DIR: canonical, GSTACK_STATE_DIR: path.join(mockHome, '.gstack') },
+        cwd: mockGitRoot,
+      });
+
+      expect(result.status).toBe(0);
+      expect(fs.existsSync(canonical)).toBe(false);
+      expect(fs.existsSync(alias)).toBe(false);
+      expect(fs.existsSync(path.join(skills, '.gstack-root'))).toBe(false);
+      expect(fs.readFileSync(hookLog, 'utf8')).toContain('remove ');
+      expect(fs.readFileSync(hookLog, 'utf8')).toContain('remove-source --source plan-tune-cathedral');
+    });
+
     test('interactive preview discloses the renamed runtime before deletion', () => {
       const skills = path.join(mockHome, '.claude', 'skills');
       const portable = path.join(skills, 'renamed gstack');

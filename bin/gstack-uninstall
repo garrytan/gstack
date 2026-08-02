@@ -66,14 +66,26 @@ _CLAUDE_ROOT_MARKER="$CLAUDE_SKILLS/.gstack-root"
 _CLAUDE_MARKER_PRESENT=0
 _ACTIVE_CLAUDE_ROOT=""
 _ACTIVE_RENAMED_CHILD=0
+_DELETE_CANONICAL=0
 if [ -f "$_CLAUDE_ROOT_MARKER" ]; then
   _CLAUDE_MARKER_PRESENT=1
   _MARKED_ROOT="$(head -n 1 "$_CLAUDE_ROOT_MARKER" 2>/dev/null || true)"
   _MARKED_REAL="$(cd "$_MARKED_ROOT" 2>/dev/null && pwd -P || true)"
   _UNINSTALL_REAL="$(cd "$GSTACK_DIR" 2>/dev/null && pwd -P || true)"
+  _CLAUDE_SKILLS_REAL="$(cd "$CLAUDE_SKILLS" 2>/dev/null && pwd -P || true)"
+  _ACTIVE_ROOT_PROVEN=0
   if [ -n "$_MARKED_REAL" ] && [ "$_MARKED_REAL" = "$_UNINSTALL_REAL" ]; then
+    _ACTIVE_ROOT_PROVEN=1
+  elif [ -n "$_MARKED_REAL" ] && [ "$_UNINSTALL_REAL" = "$_CLAUDE_SKILLS_REAL/gstack" ]; then
+    # Windows setup copies an external checkout to the canonical runtime and
+    # records the source in both markers. Trust the copy only when its exact
+    # owner resolves to the active registration.
+    _COPY_OWNER="$(head -n 1 "$GSTACK_DIR/.gstack-hook-runtime" 2>/dev/null || true)"
+    _COPY_OWNER_REAL="$(cd "$_COPY_OWNER" 2>/dev/null && pwd -P || true)"
+    [ -n "$_COPY_OWNER_REAL" ] && [ "$_COPY_OWNER_REAL" = "$_MARKED_REAL" ] && _ACTIVE_ROOT_PROVEN=1
+  fi
+  if [ "$_ACTIVE_ROOT_PROVEN" -eq 1 ]; then
     _ACTIVE_CLAUDE_ROOT="$_MARKED_REAL"
-    _CLAUDE_SKILLS_REAL="$(cd "$CLAUDE_SKILLS" 2>/dev/null && pwd -P || true)"
     _ACTIVE_PARENT_REAL="$(cd "$(dirname "$_ACTIVE_CLAUDE_ROOT")" 2>/dev/null && pwd -P || true)"
     if [ "$_ACTIVE_PARENT_REAL" = "$_CLAUDE_SKILLS_REAL" ] && [ "$_ACTIVE_CLAUDE_ROOT" != "$_CLAUDE_SKILLS_REAL/gstack" ]; then
       _ACTIVE_RENAMED_CHILD=1
@@ -203,8 +215,8 @@ if [ -d "$CLAUDE_SKILLS/gstack" ] || [ -L "$CLAUDE_SKILLS/gstack" ]; then
       esac
     done
 
-    rm -rf "$CLAUDE_SKILLS/gstack"
-    REMOVED+=("~/.claude/skills/gstack")
+    # Keep the runtime alive until its bundled settings helper removes hooks.
+    _DELETE_CANONICAL=1
   fi
 fi
 
@@ -303,6 +315,11 @@ if [ -x "$SETTINGS_HOOK" ]; then
   if "$SETTINGS_HOOK" remove-source --source plan-tune-cathedral 2>/dev/null | grep -q "removed [1-9]"; then
     REMOVED+=("plan-tune cathedral hooks")
   fi
+fi
+
+if [ "$_DELETE_CANONICAL" -eq 1 ]; then
+  rm -rf "$CLAUDE_SKILLS/gstack"
+  REMOVED+=("~/.claude/skills/gstack")
 fi
 
 # Delete a renamed active runtime only after its bundled settings helper has
