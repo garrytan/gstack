@@ -1,10 +1,10 @@
 /**
  * gbrain-sources — TypeScript helper for idempotent gbrain federated source registration.
  *
- * Mirrors the bash logic in bin/gstack-gbrain-source-wireup:204-310 but in a form
- * importable by other TS callers (currently bin/gstack-gbrain-sync.ts; future
- * callers welcome). gbrain has no `sources update` — drift recovery is
- * `sources remove` followed by `sources add`.
+ * Owns the TypeScript registration boundary used by bin/gstack-gbrain-sync.ts.
+ * It evolved from the legacy shell wire-up but intentionally adds canonical,
+ * fail-closed path classification before mutation. gbrain has no `sources
+ * update` — genuine drift recovery is `sources remove` followed by `sources add`.
  *
  * Per /plan-eng-review D3 (DRY extraction).
  */

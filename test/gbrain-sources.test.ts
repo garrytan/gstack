@@ -322,10 +322,12 @@ describe("ensureSourceRegistered", () => {
   });
 
   it("rejects a missing registered directory before remove or add", async () => {
-    const fake = makeFakeGbrain({
-      sources: [{ id: "gstack-code-foo", local_path: "/missing/registered/repo" }],
-    });
+    const fake = makeFakeGbrain({ sources: [] });
     const repo = makeDirectory(fake, "repo");
+    const missingRegistered = join(fake.root, "missing-registered-repo");
+    writeFileSync(fake.statePath, JSON.stringify({
+      sources: [{ id: "gstack-code-foo", local_path: missingRegistered }],
+    }));
 
     await expect(
       ensureSourceRegistered("gstack-code-foo", repo, { env: fake.env }),
