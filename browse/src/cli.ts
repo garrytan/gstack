@@ -55,8 +55,6 @@ export function resolveServerScript(
   );
 }
 
-const SERVER_SCRIPT = resolveServerScript();
-
 /**
  * On Windows, resolve the Node.js-compatible server bundle.
  * Falls back to null if not found (server will use Bun instead).
@@ -80,14 +78,37 @@ export function resolveNodeServerScript(
   return null;
 }
 
-const NODE_SERVER_SCRIPT = IS_WINDOWS ? resolveNodeServerScript() : null;
+export function resolveServerLaunchScripts(
+  platform: NodeJS.Platform = process.platform,
+  env: Record<string, string | undefined> = process.env,
+  metaDir: string = import.meta.dir,
+  execPath: string = process.execPath,
+): { serverScript: string | null; nodeServerScript: string | null } {
+  const nodeServerScript = platform === 'win32'
+    ? resolveNodeServerScript(metaDir, execPath)
+    : null;
 
-// On Windows, hard-fail if server-node.mjs is missing — the Bun path is known broken.
-if (IS_WINDOWS && !NODE_SERVER_SCRIPT) {
-  throw new Error(
-    'server-node.mjs not found. Run `bun run build` to generate the Windows server bundle.'
-  );
+  // The Windows distribution intentionally ships only the Node bundle in its
+  // minimal runtime root. Do not require browse/src/server.ts on that path.
+  if (platform === 'win32') {
+    if (!nodeServerScript) {
+      throw new Error(
+        'server-node.mjs not found. Run `bun run build` to generate the Windows server bundle.'
+      );
+    }
+    return { serverScript: null, nodeServerScript };
+  }
+
+  return {
+    serverScript: resolveServerScript(env, metaDir, execPath),
+    nodeServerScript: null,
+  };
 }
+
+const {
+  serverScript: SERVER_SCRIPT,
+  nodeServerScript: NODE_SERVER_SCRIPT,
+} = resolveServerLaunchScripts();
 
 interface ServerState {
   pid: number;
@@ -338,6 +359,9 @@ async function startServer(extraEnv?: Record<string, string>): Promise<ServerSta
     // which calls setsid() so the server becomes its own session leader
     // (PPID=1, STAT=Ss) and survives the spawning shell's exit. Mirrors
     // the Windows path's rationale — same root cause, different OS API.
+    if (!SERVER_SCRIPT) {
+      throw new Error('Bun server script was not resolved for this platform.');
+    }
     nodeSpawn('bun', ['run', SERVER_SCRIPT], {
       detached: true,
       stdio: ['ignore', 'ignore', 'ignore'],

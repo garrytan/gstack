@@ -266,7 +266,7 @@ describe('gen-skill-docs', () => {
       stderr: 'pipe',
     });
     expect(result.exitCode).toBe(0);
-    const output = result.stdout.toString();
+    const output = result.stdout.toString().replaceAll('\\', '/');
     // Every skill should be FRESH
     for (const skill of CLAUDE_GENERATED_SKILLS) {
       const file = skill.dir === '.' ? 'SKILL.md' : `${skill.dir}/SKILL.md`;
@@ -1804,7 +1804,7 @@ describe('Codex generation (--host codex)', () => {
       stderr: 'pipe',
     });
     expect(result.exitCode).toBe(0);
-    const output = result.stdout.toString();
+    const output = result.stdout.toString().replaceAll('\\', '/');
     // Every Codex skill should be FRESH
     for (const skill of CODEX_SKILLS) {
       expect(output).toContain(`FRESH: .agents/skills/${skill.codexName}/SKILL.md`);
@@ -2109,7 +2109,7 @@ describe('Factory generation (--host factory)', () => {
       cwd: ROOT, stdout: 'pipe', stderr: 'pipe',
     });
     expect(result.exitCode).toBe(0);
-    const output = result.stdout.toString();
+    const output = result.stdout.toString().replaceAll('\\', '/');
     for (const skill of FACTORY_SKILLS) {
       expect(output).toContain(`FRESH: .factory/skills/${skill.factoryName}/SKILL.md`);
     }
@@ -2242,7 +2242,7 @@ describe('--host all', () => {
       cwd: ROOT, stdout: 'pipe', stderr: 'pipe',
     });
     expect(result.exitCode).toBe(0);
-    const output = result.stdout.toString();
+    const output = result.stdout.toString().replaceAll('\\', '/');
     // All hosts should appear in output
     expect(output).toContain('FRESH: SKILL.md');           // claude
     for (const hostConfig of getExternalHosts()) {

@@ -198,7 +198,7 @@ describe('resolveServerScript', () => {
 });
 
 describe('resolveNodeServerScript', () => {
-  const { resolveNodeServerScript } = require('../src/cli');
+  const { resolveNodeServerScript, resolveServerLaunchScripts } = require('../src/cli');
 
   test('finds server-node.mjs in dist from dev mode', () => {
     const srcDir = path.resolve(__dirname, '../src');
@@ -223,6 +223,28 @@ describe('resolveNodeServerScript', () => {
     if (fs.existsSync(distFile)) {
       const result = resolveNodeServerScript('/$bunfs/something', path.join(distDir, 'browse'));
       expect(result).toBe(distFile);
+    }
+  });
+
+  test('Windows minimal runtime uses adjacent Node bundle without server.ts', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'browse-minimal-runtime-'));
+    try {
+      const nodeBundle = path.join(tmpDir, 'server-node.mjs');
+      fs.writeFileSync(nodeBundle, '// test bundle\n');
+
+      const result = resolveServerLaunchScripts(
+        'win32',
+        {},
+        '/nonexistent/$bunfs',
+        path.join(tmpDir, 'browse.exe'),
+      );
+
+      expect(result).toEqual({
+        serverScript: null,
+        nodeServerScript: nodeBundle,
+      });
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
     }
   });
 });
@@ -367,7 +389,7 @@ describe('resolveChromiumProfile', () => {
     delete process.env.CHROMIUM_PROFILE;
     process.env.GSTACK_HOME = '/tmp/fallback-gstack';
     try {
-      expect(resolveChromiumProfile()).toBe('/tmp/fallback-gstack/chromium-profile');
+      expect(resolveChromiumProfile()).toBe(path.join('/tmp/fallback-gstack', 'chromium-profile'));
     } finally {
       if (origEnv !== undefined) process.env.CHROMIUM_PROFILE = origEnv;
       if (origHome === undefined) delete process.env.GSTACK_HOME;
