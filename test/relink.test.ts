@@ -179,19 +179,21 @@ describe('gstack-relink (#578)', () => {
     expect(fs.readFileSync(path.join(lock, 'owner'), 'utf8')).toBe(`${process.pid} active-owner\n`);
   });
 
-  test('reclaims a registration lock whose recorded owner is dead', () => {
+  test('fails closed on a stale registration lock and prints a recovery path', () => {
     setupMockInstall(['qa']);
     const lock = path.join(skillsDir, '.gstack-registration.lock');
     fs.mkdirSync(lock);
     fs.writeFileSync(path.join(lock, 'owner'), '99999999 stale-owner\n');
 
-    run(`${path.join(installDir, 'bin', 'gstack-relink')}`, {
+    const output = run(`${path.join(installDir, 'bin', 'gstack-relink')}`, {
       GSTACK_INSTALL_DIR: installDir,
       GSTACK_SKILLS_DIR: skillsDir,
-    });
+    }, true);
 
-    expect(fs.existsSync(path.join(skillsDir, 'qa', 'SKILL.md'))).toBe(true);
-    expect(fs.existsSync(lock)).toBe(false);
+    expect(output).toContain('stale skill registration lock recorded for dead PID');
+    expect(output).toContain(`remove this lock directory and retry: ${lock}`);
+    expect(fs.existsSync(path.join(skillsDir, 'qa'))).toBe(false);
+    expect(fs.readFileSync(path.join(lock, 'owner'), 'utf8')).toBe('99999999 stale-owner\n');
   });
 
   test('refuses a foreign opposite-prefix target before creating new aliases', () => {

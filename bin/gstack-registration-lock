@@ -14,7 +14,7 @@ gstack_registration_lock_acquire() {
   local lock_path="$1"
   local owner_path="$lock_path/owner"
   local token="$$.${BASHPID:-$$}.${RANDOM:-0}.$(date +%s 2>/dev/null || printf '0')"
-  local owner_pid="" owner_token="" stale_path stale_pid="" stale_token=""
+  local owner_pid="" owner_token=""
 
   if mkdir "$lock_path" 2>/dev/null; then
     if ! printf '%s %s\n' "$$" "$token" > "$owner_path"; then
@@ -27,8 +27,9 @@ gstack_registration_lock_acquire() {
   fi
 
   # A missing/malformed owner may be an acquirer between mkdir and write.
-  # Never reclaim it automatically. A valid owner is stale only when its PID
-  # is demonstrably dead; PID reuse therefore fails safe as "active".
+  # Existing locks always fail closed: automatically replacing a stale mkdir
+  # lock has an unavoidable ABA race on portable Bash filesystems. The PID is
+  # diagnostic only and gives interrupted installs an explicit recovery path.
   if [ -f "$owner_path" ]; then
     read -r owner_pid owner_token < "$owner_path" || true
   fi
@@ -43,38 +44,9 @@ gstack_registration_lock_acquire() {
     _gstack_registration_lock_error "$lock_path"
     return 1
   fi
-
-  # Rename the stale directory first, then verify the record we inspected is
-  # still the one we moved. This prevents deleting a replacement owner's lock.
-  stale_path="${lock_path}.stale.${token}"
-  if ! mv "$lock_path" "$stale_path" 2>/dev/null; then
-    _gstack_registration_lock_error "$lock_path"
-    return 1
-  fi
-  if [ -f "$stale_path/owner" ]; then
-    read -r stale_pid stale_token < "$stale_path/owner" || true
-  fi
-  if [ "$stale_pid" != "$owner_pid" ] || [ "$stale_token" != "$owner_token" ] ||
-     [ -n "$(find "$stale_path" -mindepth 1 -maxdepth 1 ! -name owner -print -quit 2>/dev/null)" ]; then
-    if [ ! -e "$lock_path" ]; then
-      mv "$stale_path" "$lock_path" 2>/dev/null || true
-    fi
-    _gstack_registration_lock_error "$lock_path"
-    return 1
-  fi
-  rm -f "$stale_path/owner"
-  rmdir "$stale_path" 2>/dev/null || true
-
-  if ! mkdir "$lock_path" 2>/dev/null; then
-    _gstack_registration_lock_error "$lock_path"
-    return 1
-  fi
-  if ! printf '%s %s\n' "$$" "$token" > "$owner_path"; then
-    rmdir "$lock_path" 2>/dev/null || true
-    return 1
-  fi
-  GSTACK_REGISTRATION_LOCK_PATH="$lock_path"
-  GSTACK_REGISTRATION_LOCK_TOKEN="$token"
+  echo "stale skill registration lock recorded for dead PID $owner_pid." >&2
+  echo "If no setup or relink process is running, remove this lock directory and retry: $lock_path" >&2
+  return 1
 }
 
 gstack_registration_lock_release() {
