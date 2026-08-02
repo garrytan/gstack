@@ -10,6 +10,8 @@
  */
 
 import { execFileSync, spawnSync } from "child_process";
+import { realpathSync, statSync } from "fs";
+import { isAbsolute, resolve } from "path";
 import { withErrorContext } from "./gstack-memory-helpers";
 import { execGbrainJson, NEEDS_SHELL_ON_WINDOWS } from "./gbrain-exec";
 
@@ -72,6 +74,54 @@ export interface EnsureOptions {
   env?: NodeJS.ProcessEnv;
 }
 
+interface CanonicalDirectory {
+  rawPath: string;
+  canonicalPath: string;
+}
+
+/**
+ * Resolve and validate one directory without mutating GBrain state.
+ * Relative registered paths are anchored to the expected repository root,
+ * never to the caller's ambient cwd.
+ */
+function canonicalDirectory(
+  rawPath: string,
+  label: string,
+  relativeTo?: string,
+  recoveryHint = "Inspect the path, then rerun /sync-gbrain.",
+): CanonicalDirectory {
+  if (typeof rawPath !== "string" || rawPath.trim().length === 0) {
+    throw new Error(
+      `${label} "${String(rawPath)}" is missing or empty; source registration unchanged. ${recoveryHint}`,
+    );
+  }
+
+  const resolvedPath = isAbsolute(rawPath)
+    ? resolve(rawPath)
+    : resolve(relativeTo ?? process.cwd(), rawPath);
+
+  try {
+    const canonicalPath = realpathSync(resolvedPath);
+    if (!statSync(canonicalPath).isDirectory()) {
+      throw new Error("not a directory");
+    }
+    return { rawPath, canonicalPath };
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      `${label} "${rawPath}" resolved to "${resolvedPath}" is not an existing directory: ${reason}; ` +
+      `source registration unchanged. ${recoveryHint}`,
+    );
+  }
+}
+
+function sameCanonicalPath(left: string, right: string): boolean {
+  if (process.platform === "win32") {
+    return left.toLocaleLowerCase("en-US") === right.toLocaleLowerCase("en-US");
+  }
+  return left === right;
+}
+
 /**
  * Probe the registration state of a source by id.
  *
@@ -123,9 +173,10 @@ export function probeSource(id: string, env?: NodeJS.ProcessEnv): SourceState {
  *
  * Behavior:
  *   - status=absent  → `gbrain sources add <id> --path <path> [--federated]`, returns changed=true.
- *   - status=match + same path → no-op, returns changed=false.
- *   - status=match + different path → `sources remove` + `sources add`, returns changed=true.
+ *   - status=match + same canonical directory → no-op, returns changed=false.
+ *   - status=match + different canonical directory → `sources remove` + `sources add`, returns changed=true.
  *     (Skip when reregister_on_drift=false; returns changed=false.)
+ *   - an absent/non-directory/unresolvable path → throw before remove/add.
  *
  * Caller is responsible for catching errors. The function uses withErrorContext for
  * forensic logging to ~/.gstack/.gbrain-errors.jsonl.
@@ -142,10 +193,31 @@ export async function ensureSourceRegistered(
   return withErrorContext(`ensureSourceRegistered:${id}`, () => {
     const probed = probeSource(id, env);
 
-    // Disambiguate match-but-different-path
+    // Validate the caller-owned repository before any possible add/remove.
+    const registeredContext = probed.status === "match"
+      ? ` (registered path "${String(probed.registered_path)}")`
+      : "";
+    const expected = canonicalDirectory(
+      path,
+      `expected source path${registeredContext}`,
+      undefined,
+      "Inspect or repair the repository path, then rerun /sync-gbrain.",
+    );
+
+    // Disambiguate match-but-different-path by filesystem identity. GBrain may
+    // persist a relative spelling such as "."; interpret it from the expected
+    // repository root rather than process.cwd so comparison is deterministic.
     let state: SourceState = probed;
-    if (probed.status === "match" && probed.registered_path !== path) {
-      state = { status: "drift", registered_path: probed.registered_path };
+    if (probed.status === "match") {
+      const registered = canonicalDirectory(
+        probed.registered_path ?? "",
+        `registered source path (expected root "${expected.rawPath}")`,
+        expected.canonicalPath,
+        "Inspect `gbrain sources list --json` and repair the source path deliberately, then rerun /sync-gbrain.",
+      );
+      if (!sameCanonicalPath(registered.canonicalPath, expected.canonicalPath)) {
+        state = { status: "drift", registered_path: probed.registered_path };
+      }
     }
 
     if (state.status === "match") {
