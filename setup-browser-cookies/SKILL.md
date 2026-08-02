@@ -256,9 +256,10 @@ Skip if `PROACTIVE_PROMPTED` is `yes`.
 
 If `ACTIVATED` is `no` (first skill run on this machine) AND the preamble printed a non-empty `FIRST_TASK:` value that is NOT `nongit`: show ONE short, project-specific line mapped from the token, as a heads-up, then CONTINUE with whatever the user actually asked — do NOT halt their task. Map the token: `greenfield` → "Fresh repo — shape it first with `/spec` or `/office-hours`." `code_node`/`code_python`/`code_rust`/`code_go`/`code_ruby`/`code_ios` → "There's code here — `/qa` to see it work, or `/investigate` if something's off." `branch_ahead` → "Unshipped work on this branch — `/review` then `/ship`." `dirty_default` → "Uncommitted changes — `/review` before committing." `clean_default` → "Pick one: `/spec`, `/investigate`, or `/qa`." Then substitute the token you saw for TASK_TOKEN and run (best-effort), and mark activated:
 ```bash
-_gv() { [ -f "$1/VERSION" ] && [ -x "$1/bin/gstack-config" ] && [ -x "$1/bin/gstack-runtime-env" ]; }
-_GSTACK_BOOT="${GSTACK_ROOT:-}"; _gv "$_GSTACK_BOOT" || _GSTACK_BOOT="${CLAUDE_PLUGIN_ROOT:-}"; _gv "$_GSTACK_BOOT" || _GSTACK_BOOT=$(cat "$HOME/.claude/skills/.gstack-root" 2>/dev/null || true); _gv "$_GSTACK_BOOT" || _GSTACK_BOOT="$HOME/.claude/skills/gstack"
-eval "$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_GSTACK_BOOT" "$_GSTACK_BOOT/bin/gstack-runtime-env")"; unset -f _gv
+_gv(){ [ -f "$1/VERSION" ]&&[ -x "$1/bin/gstack-config" ]&&[ -x "$1/bin/gstack-runtime-env" ];}
+_r="${GSTACK_ROOT:-}";unset GSTACK_ROOT GSTACK_BIN GSTACK_BROWSE GSTACK_DESIGN GSTACK_MAKE_PDF
+_gv "$_r"||_r="${CLAUDE_PLUGIN_ROOT:-}";_gv "$_r"||_r=$(<"$HOME/.claude/skills/.gstack-root");_gv "$_r"||_r="$HOME/.claude/skills/gstack";_gv "$_r"||exit 1
+_e=$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_r" "$_r/bin/gstack-runtime-env")||exit 1;[ -n "$_e" ]||exit 1;eval "$_e";unset _e;unset -f _gv
 "$GSTACK_BIN"/gstack-telemetry-log --event-type first_task_scaffold_shown --skill "TASK_TOKEN" --outcome shown 2>/dev/null || true
 touch ~/.gstack/.activated 2>/dev/null || true
 ```
@@ -334,9 +335,10 @@ If B: say "OK, you're on your own to keep the vendored copy up to date."
 
 Always run (regardless of choice):
 ```bash
-_gv() { [ -f "$1/VERSION" ] && [ -x "$1/bin/gstack-config" ] && [ -x "$1/bin/gstack-runtime-env" ]; }
-_GSTACK_BOOT="${GSTACK_ROOT:-}"; _gv "$_GSTACK_BOOT" || _GSTACK_BOOT="${CLAUDE_PLUGIN_ROOT:-}"; _gv "$_GSTACK_BOOT" || _GSTACK_BOOT=$(cat "$HOME/.claude/skills/.gstack-root" 2>/dev/null || true); _gv "$_GSTACK_BOOT" || _GSTACK_BOOT="$HOME/.claude/skills/gstack"
-eval "$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_GSTACK_BOOT" "$_GSTACK_BOOT/bin/gstack-runtime-env")"; unset -f _gv
+_gv(){ [ -f "$1/VERSION" ]&&[ -x "$1/bin/gstack-config" ]&&[ -x "$1/bin/gstack-runtime-env" ];}
+_r="${GSTACK_ROOT:-}";unset GSTACK_ROOT GSTACK_BIN GSTACK_BROWSE GSTACK_DESIGN GSTACK_MAKE_PDF
+_gv "$_r"||_r="${CLAUDE_PLUGIN_ROOT:-}";_gv "$_r"||_r=$(<"$HOME/.claude/skills/.gstack-root");_gv "$_r"||_r="$HOME/.claude/skills/gstack";_gv "$_r"||exit 1
+_e=$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_r" "$_r/bin/gstack-runtime-env")||exit 1;[ -n "$_e" ]||exit 1;eval "$_e";unset _e;unset -f _gv
 eval "$("$GSTACK_BIN"/gstack-slug 2>/dev/null)" 2>/dev/null || true
 touch ~/.gstack/.vendoring-warned-${SLUG:-unknown}
 ```
@@ -353,9 +355,10 @@ AI orchestrator (e.g., OpenClaw). In spawned sessions:
 ## Artifacts Sync (skill start)
 
 ```bash
-_gv() { [ -f "$1/VERSION" ] && [ -x "$1/bin/gstack-config" ] && [ -x "$1/bin/gstack-runtime-env" ]; }
-_GSTACK_BOOT="${GSTACK_ROOT:-}"; _gv "$_GSTACK_BOOT" || _GSTACK_BOOT="${CLAUDE_PLUGIN_ROOT:-}"; _gv "$_GSTACK_BOOT" || _GSTACK_BOOT=$(cat "$HOME/.claude/skills/.gstack-root" 2>/dev/null || true); _gv "$_GSTACK_BOOT" || _GSTACK_BOOT="$HOME/.claude/skills/gstack"
-eval "$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_GSTACK_BOOT" "$_GSTACK_BOOT/bin/gstack-runtime-env")"; unset -f _gv
+_gv(){ [ -f "$1/VERSION" ]&&[ -x "$1/bin/gstack-config" ]&&[ -x "$1/bin/gstack-runtime-env" ];}
+_r="${GSTACK_ROOT:-}";unset GSTACK_ROOT GSTACK_BIN GSTACK_BROWSE GSTACK_DESIGN GSTACK_MAKE_PDF
+_gv "$_r"||_r="${CLAUDE_PLUGIN_ROOT:-}";_gv "$_r"||_r=$(<"$HOME/.claude/skills/.gstack-root");_gv "$_r"||_r="$HOME/.claude/skills/gstack";_gv "$_r"||exit 1
+_e=$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_r" "$_r/bin/gstack-runtime-env")||exit 1;[ -n "$_e" ]||exit 1;eval "$_e";unset _e;unset -f _gv
 _GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
 # Prefer the v1.27.0.0 artifacts file; fall back to brain file for users
 # upgrading mid-stream before the migration script runs.
@@ -474,9 +477,10 @@ If A/B and `~/.gstack/.git` is missing, ask whether to run `gstack-artifacts-ini
 At skill END before telemetry:
 
 ```bash
-_gv() { [ -f "$1/VERSION" ] && [ -x "$1/bin/gstack-config" ] && [ -x "$1/bin/gstack-runtime-env" ]; }
-_GSTACK_BOOT="${GSTACK_ROOT:-}"; _gv "$_GSTACK_BOOT" || _GSTACK_BOOT="${CLAUDE_PLUGIN_ROOT:-}"; _gv "$_GSTACK_BOOT" || _GSTACK_BOOT=$(cat "$HOME/.claude/skills/.gstack-root" 2>/dev/null || true); _gv "$_GSTACK_BOOT" || _GSTACK_BOOT="$HOME/.claude/skills/gstack"
-eval "$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_GSTACK_BOOT" "$_GSTACK_BOOT/bin/gstack-runtime-env")"; unset -f _gv
+_gv(){ [ -f "$1/VERSION" ]&&[ -x "$1/bin/gstack-config" ]&&[ -x "$1/bin/gstack-runtime-env" ];}
+_r="${GSTACK_ROOT:-}";unset GSTACK_ROOT GSTACK_BIN GSTACK_BROWSE GSTACK_DESIGN GSTACK_MAKE_PDF
+_gv "$_r"||_r="${CLAUDE_PLUGIN_ROOT:-}";_gv "$_r"||_r=$(<"$HOME/.claude/skills/.gstack-root");_gv "$_r"||_r="$HOME/.claude/skills/gstack";_gv "$_r"||exit 1
+_e=$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_r" "$_r/bin/gstack-runtime-env")||exit 1;[ -n "$_e" ]||exit 1;eval "$_e";unset _e;unset -f _gv
 "$GSTACK_BIN/gstack-brain-sync" --discover-new 2>/dev/null || true
 "$GSTACK_BIN/gstack-brain-sync" --once 2>/dev/null || true
 ```
@@ -523,9 +527,10 @@ Escalate after 3 failed attempts, uncertain security-sensitive changes, or scope
 Before completing, if you discovered a durable project quirk or command fix that would save 5+ minutes next time, log it:
 
 ```bash
-_gv() { [ -f "$1/VERSION" ] && [ -x "$1/bin/gstack-config" ] && [ -x "$1/bin/gstack-runtime-env" ]; }
-_GSTACK_BOOT="${GSTACK_ROOT:-}"; _gv "$_GSTACK_BOOT" || _GSTACK_BOOT="${CLAUDE_PLUGIN_ROOT:-}"; _gv "$_GSTACK_BOOT" || _GSTACK_BOOT=$(cat "$HOME/.claude/skills/.gstack-root" 2>/dev/null || true); _gv "$_GSTACK_BOOT" || _GSTACK_BOOT="$HOME/.claude/skills/gstack"
-eval "$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_GSTACK_BOOT" "$_GSTACK_BOOT/bin/gstack-runtime-env")"; unset -f _gv
+_gv(){ [ -f "$1/VERSION" ]&&[ -x "$1/bin/gstack-config" ]&&[ -x "$1/bin/gstack-runtime-env" ];}
+_r="${GSTACK_ROOT:-}";unset GSTACK_ROOT GSTACK_BIN GSTACK_BROWSE GSTACK_DESIGN GSTACK_MAKE_PDF
+_gv "$_r"||_r="${CLAUDE_PLUGIN_ROOT:-}";_gv "$_r"||_r=$(<"$HOME/.claude/skills/.gstack-root");_gv "$_r"||_r="$HOME/.claude/skills/gstack";_gv "$_r"||exit 1
+_e=$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_r" "$_r/bin/gstack-runtime-env")||exit 1;[ -n "$_e" ]||exit 1;eval "$_e";unset _e;unset -f _gv
 "$GSTACK_BIN"/gstack-learnings-log '{"skill":"SKILL_NAME","type":"operational","key":"SHORT_KEY","insight":"DESCRIPTION","confidence":N,"source":"observed"}'
 ```
 
@@ -541,9 +546,10 @@ After workflow completion, log telemetry. Use skill `name:` from frontmatter. OU
 Run this bash:
 
 ```bash
-_gv() { [ -f "$1/VERSION" ] && [ -x "$1/bin/gstack-config" ] && [ -x "$1/bin/gstack-runtime-env" ]; }
-_GSTACK_BOOT="${GSTACK_ROOT:-}"; _gv "$_GSTACK_BOOT" || _GSTACK_BOOT="${CLAUDE_PLUGIN_ROOT:-}"; _gv "$_GSTACK_BOOT" || _GSTACK_BOOT=$(cat "$HOME/.claude/skills/.gstack-root" 2>/dev/null || true); _gv "$_GSTACK_BOOT" || _GSTACK_BOOT="$HOME/.claude/skills/gstack"
-eval "$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_GSTACK_BOOT" "$_GSTACK_BOOT/bin/gstack-runtime-env")"; unset -f _gv
+_gv(){ [ -f "$1/VERSION" ]&&[ -x "$1/bin/gstack-config" ]&&[ -x "$1/bin/gstack-runtime-env" ];}
+_r="${GSTACK_ROOT:-}";unset GSTACK_ROOT GSTACK_BIN GSTACK_BROWSE GSTACK_DESIGN GSTACK_MAKE_PDF
+_gv "$_r"||_r="${CLAUDE_PLUGIN_ROOT:-}";_gv "$_r"||_r=$(<"$HOME/.claude/skills/.gstack-root");_gv "$_r"||_r="$HOME/.claude/skills/gstack";_gv "$_r"||exit 1
+_e=$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_r" "$_r/bin/gstack-runtime-env")||exit 1;[ -n "$_e" ]||exit 1;eval "$_e";unset _e;unset -f _gv
 _TEL_END=$(date +%s)
 _TEL_DUR=$(( _TEL_END - _TEL_START ))
 rm -f ~/.gstack/analytics/.pending-"$_SESSION_ID" 2>/dev/null || true
@@ -593,9 +599,10 @@ If `CDP_MODE=true`: tell the user "Not needed — you're connected to your real 
 ## SETUP (run this check BEFORE any browse command)
 
 ```bash
-_gv() { [ -f "$1/VERSION" ] && [ -x "$1/bin/gstack-config" ] && [ -x "$1/bin/gstack-runtime-env" ]; }
-_GSTACK_BOOT="${GSTACK_ROOT:-}"; _gv "$_GSTACK_BOOT" || _GSTACK_BOOT="${CLAUDE_PLUGIN_ROOT:-}"; _gv "$_GSTACK_BOOT" || _GSTACK_BOOT=$(cat "$HOME/.claude/skills/.gstack-root" 2>/dev/null || true); _gv "$_GSTACK_BOOT" || _GSTACK_BOOT="$HOME/.claude/skills/gstack"
-eval "$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_GSTACK_BOOT" "$_GSTACK_BOOT/bin/gstack-runtime-env")"; unset -f _gv
+_gv(){ [ -f "$1/VERSION" ]&&[ -x "$1/bin/gstack-config" ]&&[ -x "$1/bin/gstack-runtime-env" ];}
+_r="${GSTACK_ROOT:-}";unset GSTACK_ROOT GSTACK_BIN GSTACK_BROWSE GSTACK_DESIGN GSTACK_MAKE_PDF
+_gv "$_r"||_r="${CLAUDE_PLUGIN_ROOT:-}";_gv "$_r"||_r=$(<"$HOME/.claude/skills/.gstack-root");_gv "$_r"||_r="$HOME/.claude/skills/gstack";_gv "$_r"||exit 1
+_e=$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_r" "$_r/bin/gstack-runtime-env")||exit 1;[ -n "$_e" ]||exit 1;eval "$_e";unset _e;unset -f _gv
 _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 B=""
 [ -n "$_ROOT" ] && [ -x "$_ROOT/.claude/skills/gstack/browse/dist/browse" ] && B="$_ROOT/.claude/skills/gstack/browse/dist/browse"

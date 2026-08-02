@@ -11,9 +11,10 @@
 Search for relevant learnings from previous sessions:
 
 ```bash
-_gv() { [ -f "$1/VERSION" ] && [ -x "$1/bin/gstack-config" ] && [ -x "$1/bin/gstack-runtime-env" ]; }
-_GSTACK_BOOT="${GSTACK_ROOT:-}"; _gv "$_GSTACK_BOOT" || _GSTACK_BOOT="${CLAUDE_PLUGIN_ROOT:-}"; _gv "$_GSTACK_BOOT" || _GSTACK_BOOT=$(cat "$HOME/.claude/skills/.gstack-root" 2>/dev/null || true); _gv "$_GSTACK_BOOT" || _GSTACK_BOOT="$HOME/.claude/skills/gstack"
-eval "$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_GSTACK_BOOT" "$_GSTACK_BOOT/bin/gstack-runtime-env")"; unset -f _gv
+_gv(){ [ -f "$1/VERSION" ]&&[ -x "$1/bin/gstack-config" ]&&[ -x "$1/bin/gstack-runtime-env" ];}
+_r="${GSTACK_ROOT:-}";unset GSTACK_ROOT GSTACK_BIN GSTACK_BROWSE GSTACK_DESIGN GSTACK_MAKE_PDF
+_gv "$_r"||_r="${CLAUDE_PLUGIN_ROOT:-}";_gv "$_r"||_r=$(<"$HOME/.claude/skills/.gstack-root");_gv "$_r"||_r="$HOME/.claude/skills/gstack";_gv "$_r"||exit 1
+_e=$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_r" "$_r/bin/gstack-runtime-env")||exit 1;[ -n "$_e" ]||exit 1;eval "$_e";unset _e;unset -f _gv
 _CROSS_PROJ=$("$GSTACK_BIN"/gstack-config get cross_project_learnings 2>/dev/null || echo "unset")
 echo "CROSS_PROJECT: $_CROSS_PROJ"
 if [ "$_CROSS_PROJ" = "true" ]; then
@@ -287,9 +288,10 @@ The plan should be complete enough that when implementation begins, every test i
 After producing the coverage diagram, write a test plan artifact to the project directory so `/qa` and `/qa-only` can consume it as primary test input:
 
 ```bash
-_gv() { [ -f "$1/VERSION" ] && [ -x "$1/bin/gstack-config" ] && [ -x "$1/bin/gstack-runtime-env" ]; }
-_GSTACK_BOOT="${GSTACK_ROOT:-}"; _gv "$_GSTACK_BOOT" || _GSTACK_BOOT="${CLAUDE_PLUGIN_ROOT:-}"; _gv "$_GSTACK_BOOT" || _GSTACK_BOOT=$(cat "$HOME/.claude/skills/.gstack-root" 2>/dev/null || true); _gv "$_GSTACK_BOOT" || _GSTACK_BOOT="$HOME/.claude/skills/gstack"
-eval "$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_GSTACK_BOOT" "$_GSTACK_BOOT/bin/gstack-runtime-env")"; unset -f _gv
+_gv(){ [ -f "$1/VERSION" ]&&[ -x "$1/bin/gstack-config" ]&&[ -x "$1/bin/gstack-runtime-env" ];}
+_r="${GSTACK_ROOT:-}";unset GSTACK_ROOT GSTACK_BIN GSTACK_BROWSE GSTACK_DESIGN GSTACK_MAKE_PDF
+_gv "$_r"||_r="${CLAUDE_PLUGIN_ROOT:-}";_gv "$_r"||_r=$(<"$HOME/.claude/skills/.gstack-root");_gv "$_r"||_r="$HOME/.claude/skills/gstack";_gv "$_r"||exit 1
+_e=$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_r" "$_r/bin/gstack-runtime-env")||exit 1;[ -n "$_e" ]||exit 1;eval "$_e";unset _e;unset -f _gv
 eval "$("$GSTACK_ROOT"/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
 USER=$(whoami)
 DATETIME=$(date +%Y%m%d-%H%M%S)
@@ -346,9 +348,10 @@ review. The user turns this off only by asking explicitly
 **Preflight — decide whether and how the outside voice runs:**
 
 ```bash
-_gv() { [ -f "$1/VERSION" ] && [ -x "$1/bin/gstack-config" ] && [ -x "$1/bin/gstack-runtime-env" ]; }
-_GSTACK_BOOT="${GSTACK_ROOT:-}"; _gv "$_GSTACK_BOOT" || _GSTACK_BOOT="${CLAUDE_PLUGIN_ROOT:-}"; _gv "$_GSTACK_BOOT" || _GSTACK_BOOT=$(cat "$HOME/.claude/skills/.gstack-root" 2>/dev/null || true); _gv "$_GSTACK_BOOT" || _GSTACK_BOOT="$HOME/.claude/skills/gstack"
-eval "$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_GSTACK_BOOT" "$_GSTACK_BOOT/bin/gstack-runtime-env")"; unset -f _gv
+_gv(){ [ -f "$1/VERSION" ]&&[ -x "$1/bin/gstack-config" ]&&[ -x "$1/bin/gstack-runtime-env" ];}
+_r="${GSTACK_ROOT:-}";unset GSTACK_ROOT GSTACK_BIN GSTACK_BROWSE GSTACK_DESIGN GSTACK_MAKE_PDF
+_gv "$_r"||_r="${CLAUDE_PLUGIN_ROOT:-}";_gv "$_r"||_r=$(<"$HOME/.claude/skills/.gstack-root");_gv "$_r"||_r="$HOME/.claude/skills/gstack";_gv "$_r"||exit 1
+_e=$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_r" "$_r/bin/gstack-runtime-env")||exit 1;[ -n "$_e" ]||exit 1;eval "$_e";unset _e;unset -f _gv
 # Codex preflight: one block (functions sourced here don't persist to later blocks).
 _TEL=$("$GSTACK_ROOT"/bin/gstack-config get telemetry 2>/dev/null || echo off)
 _CODEX_CFG=$("$GSTACK_ROOT"/bin/gstack-config get codex_reviews 2>/dev/null || echo enabled)
@@ -474,9 +477,10 @@ If no tension points exist, note: "No cross-model tension — both reviewers agr
 
 **Persist the result:**
 ```bash
-_gv() { [ -f "$1/VERSION" ] && [ -x "$1/bin/gstack-config" ] && [ -x "$1/bin/gstack-runtime-env" ]; }
-_GSTACK_BOOT="${GSTACK_ROOT:-}"; _gv "$_GSTACK_BOOT" || _GSTACK_BOOT="${CLAUDE_PLUGIN_ROOT:-}"; _gv "$_GSTACK_BOOT" || _GSTACK_BOOT=$(cat "$HOME/.claude/skills/.gstack-root" 2>/dev/null || true); _gv "$_GSTACK_BOOT" || _GSTACK_BOOT="$HOME/.claude/skills/gstack"
-eval "$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_GSTACK_BOOT" "$_GSTACK_BOOT/bin/gstack-runtime-env")"; unset -f _gv
+_gv(){ [ -f "$1/VERSION" ]&&[ -x "$1/bin/gstack-config" ]&&[ -x "$1/bin/gstack-runtime-env" ];}
+_r="${GSTACK_ROOT:-}";unset GSTACK_ROOT GSTACK_BIN GSTACK_BROWSE GSTACK_DESIGN GSTACK_MAKE_PDF
+_gv "$_r"||_r="${CLAUDE_PLUGIN_ROOT:-}";_gv "$_r"||_r=$(<"$HOME/.claude/skills/.gstack-root");_gv "$_r"||_r="$HOME/.claude/skills/gstack";_gv "$_r"||exit 1
+_e=$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_r" "$_r/bin/gstack-runtime-env")||exit 1;[ -n "$_e" ]||exit 1;eval "$_e";unset _e;unset -f _gv
 "$GSTACK_ROOT"/bin/gstack-review-log '{"skill":"codex-plan-review","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","commit":"'"$(git rev-parse --short HEAD)"'"}'
 ```
 
@@ -601,9 +605,10 @@ Rules:
 backslashes serialize cleanly — never use hand-rolled `echo` / `printf`.
 
 ```bash
-_gv() { [ -f "$1/VERSION" ] && [ -x "$1/bin/gstack-config" ] && [ -x "$1/bin/gstack-runtime-env" ]; }
-_GSTACK_BOOT="${GSTACK_ROOT:-}"; _gv "$_GSTACK_BOOT" || _GSTACK_BOOT="${CLAUDE_PLUGIN_ROOT:-}"; _gv "$_GSTACK_BOOT" || _GSTACK_BOOT=$(cat "$HOME/.claude/skills/.gstack-root" 2>/dev/null || true); _gv "$_GSTACK_BOOT" || _GSTACK_BOOT="$HOME/.claude/skills/gstack"
-eval "$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_GSTACK_BOOT" "$_GSTACK_BOOT/bin/gstack-runtime-env")"; unset -f _gv
+_gv(){ [ -f "$1/VERSION" ]&&[ -x "$1/bin/gstack-config" ]&&[ -x "$1/bin/gstack-runtime-env" ];}
+_r="${GSTACK_ROOT:-}";unset GSTACK_ROOT GSTACK_BIN GSTACK_BROWSE GSTACK_DESIGN GSTACK_MAKE_PDF
+_gv "$_r"||_r="${CLAUDE_PLUGIN_ROOT:-}";_gv "$_r"||_r=$(<"$HOME/.claude/skills/.gstack-root");_gv "$_r"||_r="$HOME/.claude/skills/gstack";_gv "$_r"||exit 1
+_e=$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_r" "$_r/bin/gstack-runtime-env")||exit 1;[ -n "$_e" ]||exit 1;eval "$_e";unset _e;unset -f _gv
 eval "$("$GSTACK_ROOT"/bin/gstack-slug 2>/dev/null)"
 TASKS_DIR="${HOME}/.gstack/projects/${SLUG:-unknown}"
 mkdir -p "$TASKS_DIR"
@@ -677,9 +682,10 @@ the same pattern. The review dashboard depends on this data. Skipping this
 command breaks the review readiness dashboard in /ship.
 
 ```bash
-_gv() { [ -f "$1/VERSION" ] && [ -x "$1/bin/gstack-config" ] && [ -x "$1/bin/gstack-runtime-env" ]; }
-_GSTACK_BOOT="${GSTACK_ROOT:-}"; _gv "$_GSTACK_BOOT" || _GSTACK_BOOT="${CLAUDE_PLUGIN_ROOT:-}"; _gv "$_GSTACK_BOOT" || _GSTACK_BOOT=$(cat "$HOME/.claude/skills/.gstack-root" 2>/dev/null || true); _gv "$_GSTACK_BOOT" || _GSTACK_BOOT="$HOME/.claude/skills/gstack"
-eval "$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_GSTACK_BOOT" "$_GSTACK_BOOT/bin/gstack-runtime-env")"; unset -f _gv
+_gv(){ [ -f "$1/VERSION" ]&&[ -x "$1/bin/gstack-config" ]&&[ -x "$1/bin/gstack-runtime-env" ];}
+_r="${GSTACK_ROOT:-}";unset GSTACK_ROOT GSTACK_BIN GSTACK_BROWSE GSTACK_DESIGN GSTACK_MAKE_PDF
+_gv "$_r"||_r="${CLAUDE_PLUGIN_ROOT:-}";_gv "$_r"||_r=$(<"$HOME/.claude/skills/.gstack-root");_gv "$_r"||_r="$HOME/.claude/skills/gstack";_gv "$_r"||exit 1
+_e=$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_r" "$_r/bin/gstack-runtime-env")||exit 1;[ -n "$_e" ]||exit 1;eval "$_e";unset _e;unset -f _gv
 "$GSTACK_ROOT"/bin/gstack-review-log '{"skill":"plan-eng-review","timestamp":"TIMESTAMP","status":"STATUS","unresolved":N,"critical_gaps":N,"issues_found":N,"mode":"MODE","commit":"COMMIT"}'
 "$GSTACK_ROOT"/bin/gstack-decision-log '{"decision":"Eng review (MODE): ARCH_SUMMARY","rationale":"KEY_DECISION","scope":"branch","source":"skill","confidence":8}' 2>/dev/null || true
 ```
@@ -700,9 +706,10 @@ Substitute values from the Completion Summary:
 After completing the review, read the review log and config to display the dashboard.
 
 ```bash
-_gv() { [ -f "$1/VERSION" ] && [ -x "$1/bin/gstack-config" ] && [ -x "$1/bin/gstack-runtime-env" ]; }
-_GSTACK_BOOT="${GSTACK_ROOT:-}"; _gv "$_GSTACK_BOOT" || _GSTACK_BOOT="${CLAUDE_PLUGIN_ROOT:-}"; _gv "$_GSTACK_BOOT" || _GSTACK_BOOT=$(cat "$HOME/.claude/skills/.gstack-root" 2>/dev/null || true); _gv "$_GSTACK_BOOT" || _GSTACK_BOOT="$HOME/.claude/skills/gstack"
-eval "$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_GSTACK_BOOT" "$_GSTACK_BOOT/bin/gstack-runtime-env")"; unset -f _gv
+_gv(){ [ -f "$1/VERSION" ]&&[ -x "$1/bin/gstack-config" ]&&[ -x "$1/bin/gstack-runtime-env" ];}
+_r="${GSTACK_ROOT:-}";unset GSTACK_ROOT GSTACK_BIN GSTACK_BROWSE GSTACK_DESIGN GSTACK_MAKE_PDF
+_gv "$_r"||_r="${CLAUDE_PLUGIN_ROOT:-}";_gv "$_r"||_r=$(<"$HOME/.claude/skills/.gstack-root");_gv "$_r"||_r="$HOME/.claude/skills/gstack";_gv "$_r"||exit 1
+_e=$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_r" "$_r/bin/gstack-runtime-env")||exit 1;[ -n "$_e" ]||exit 1;eval "$_e";unset _e;unset -f _gv
 "$GSTACK_ROOT"/bin/gstack-review-read
 ```
 
@@ -851,9 +858,10 @@ If you discovered a non-obvious pattern, pitfall, or architectural insight durin
 this session, log it for future sessions:
 
 ```bash
-_gv() { [ -f "$1/VERSION" ] && [ -x "$1/bin/gstack-config" ] && [ -x "$1/bin/gstack-runtime-env" ]; }
-_GSTACK_BOOT="${GSTACK_ROOT:-}"; _gv "$_GSTACK_BOOT" || _GSTACK_BOOT="${CLAUDE_PLUGIN_ROOT:-}"; _gv "$_GSTACK_BOOT" || _GSTACK_BOOT=$(cat "$HOME/.claude/skills/.gstack-root" 2>/dev/null || true); _gv "$_GSTACK_BOOT" || _GSTACK_BOOT="$HOME/.claude/skills/gstack"
-eval "$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_GSTACK_BOOT" "$_GSTACK_BOOT/bin/gstack-runtime-env")"; unset -f _gv
+_gv(){ [ -f "$1/VERSION" ]&&[ -x "$1/bin/gstack-config" ]&&[ -x "$1/bin/gstack-runtime-env" ];}
+_r="${GSTACK_ROOT:-}";unset GSTACK_ROOT GSTACK_BIN GSTACK_BROWSE GSTACK_DESIGN GSTACK_MAKE_PDF
+_gv "$_r"||_r="${CLAUDE_PLUGIN_ROOT:-}";_gv "$_r"||_r=$(<"$HOME/.claude/skills/.gstack-root");_gv "$_r"||_r="$HOME/.claude/skills/gstack";_gv "$_r"||exit 1
+_e=$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_r" "$_r/bin/gstack-runtime-env")||exit 1;[ -n "$_e" ]||exit 1;eval "$_e";unset _e;unset -f _gv
 "$GSTACK_BIN"/gstack-learnings-log '{"skill":"plan-eng-review","type":"TYPE","key":"SHORT_KEY","insight":"DESCRIPTION","confidence":N,"source":"SOURCE","files":["path/to/relevant/file"]}'
 ```
 
@@ -908,9 +916,10 @@ After write, invalidate the affected digests so the next preflight reflects
 the new state:
 
 ```bash
-_gv() { [ -f "$1/VERSION" ] && [ -x "$1/bin/gstack-config" ] && [ -x "$1/bin/gstack-runtime-env" ]; }
-_GSTACK_BOOT="${GSTACK_ROOT:-}"; _gv "$_GSTACK_BOOT" || _GSTACK_BOOT="${CLAUDE_PLUGIN_ROOT:-}"; _gv "$_GSTACK_BOOT" || _GSTACK_BOOT=$(cat "$HOME/.claude/skills/.gstack-root" 2>/dev/null || true); _gv "$_GSTACK_BOOT" || _GSTACK_BOOT="$HOME/.claude/skills/gstack"
-eval "$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_GSTACK_BOOT" "$_GSTACK_BOOT/bin/gstack-runtime-env")"; unset -f _gv
+_gv(){ [ -f "$1/VERSION" ]&&[ -x "$1/bin/gstack-config" ]&&[ -x "$1/bin/gstack-runtime-env" ];}
+_r="${GSTACK_ROOT:-}";unset GSTACK_ROOT GSTACK_BIN GSTACK_BROWSE GSTACK_DESIGN GSTACK_MAKE_PDF
+_gv "$_r"||_r="${CLAUDE_PLUGIN_ROOT:-}";_gv "$_r"||_r=$(<"$HOME/.claude/skills/.gstack-root");_gv "$_r"||_r="$HOME/.claude/skills/gstack";_gv "$_r"||exit 1
+_e=$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_r" "$_r/bin/gstack-runtime-env")||exit 1;[ -n "$_e" ]||exit 1;eval "$_e";unset _e;unset -f _gv
 eval "$("$GSTACK_BIN"/gstack-slug 2>/dev/null)" 2>/dev/null || true
   # (no per-skill invalidation targets configured)
 ```
@@ -924,9 +933,10 @@ This is non-blocking — the user doesn't wait. Next invocation benefits
 from the warm cache.
 
 ```bash
-_gv() { [ -f "$1/VERSION" ] && [ -x "$1/bin/gstack-config" ] && [ -x "$1/bin/gstack-runtime-env" ]; }
-_GSTACK_BOOT="${GSTACK_ROOT:-}"; _gv "$_GSTACK_BOOT" || _GSTACK_BOOT="${CLAUDE_PLUGIN_ROOT:-}"; _gv "$_GSTACK_BOOT" || _GSTACK_BOOT=$(cat "$HOME/.claude/skills/.gstack-root" 2>/dev/null || true); _gv "$_GSTACK_BOOT" || _GSTACK_BOOT="$HOME/.claude/skills/gstack"
-eval "$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_GSTACK_BOOT" "$_GSTACK_BOOT/bin/gstack-runtime-env")"; unset -f _gv
+_gv(){ [ -f "$1/VERSION" ]&&[ -x "$1/bin/gstack-config" ]&&[ -x "$1/bin/gstack-runtime-env" ];}
+_r="${GSTACK_ROOT:-}";unset GSTACK_ROOT GSTACK_BIN GSTACK_BROWSE GSTACK_DESIGN GSTACK_MAKE_PDF
+_gv "$_r"||_r="${CLAUDE_PLUGIN_ROOT:-}";_gv "$_r"||_r=$(<"$HOME/.claude/skills/.gstack-root");_gv "$_r"||_r="$HOME/.claude/skills/gstack";_gv "$_r"||exit 1
+_e=$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_r" "$_r/bin/gstack-runtime-env")||exit 1;[ -n "$_e" ]||exit 1;eval "$_e";unset _e;unset -f _gv
 eval "$("$GSTACK_BIN"/gstack-slug 2>/dev/null)" 2>/dev/null || true
 ("$GSTACK_BIN"/gstack-brain-cache refresh --project "$SLUG" 2>/dev/null &) || true
 ```

@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { generatePreambleBash } from '../scripts/resolvers/preamble/generate-preamble-bash';
+import { generateClaudeRuntimeRootBashCompact, generatePreambleBash } from '../scripts/resolvers/preamble/generate-preamble-bash';
 import { generateBrowseSetup } from '../scripts/resolvers/browse';
 import { generateDesignSetup } from '../scripts/resolvers/design';
 import { generateMakePdfSetup } from '../scripts/resolvers/make-pdf';
@@ -114,6 +114,17 @@ describe('portable generated skill paths (#1882)', () => {
     expect(fs.existsSync(pwned)).toBe(false);
   });
 
+  test('compact bootstrap fails closed and clears inherited derived paths', () => {
+    const home = tempDir('gstack-runtime-missing-');
+    const script = `${generateClaudeRuntimeRootBashCompact(claudeContext())}\n"$GSTACK_BIN/echo" SHOULD_NOT_RUN\n`;
+    const result = spawnSync('bash', ['-c', script], {
+      env: { ...process.env, HOME: home, GSTACK_ROOT: '', CLAUDE_PLUGIN_ROOT: '', GSTACK_BIN: '/bin' },
+      encoding: 'utf8',
+    });
+    expect(result.status).not.toBe(0);
+    expect(result.stdout).not.toContain('SHOULD_NOT_RUN');
+  });
+
   test('non-gstack install marker drives real preamble binary calls', () => {
     const home = tempDir('gstack-portable-home-');
     const calls = path.join(home, 'calls.log');
@@ -209,7 +220,7 @@ describe('portable generated skill paths (#1882)', () => {
       const content = fs.readFileSync(file, 'utf8');
       const fmEnd = content.startsWith('---\n') ? content.indexOf('\n---', 4) : -1;
       const body = fmEnd >= 0 ? content.slice(fmEnd + 4) : content;
-      const withoutPerBlockBootstrap = body.replace(/^_GSTACK_BOOT=.*$/gm, '');
+      const withoutPerBlockBootstrap = body.replace(/^_(?:gv|r=|e=).*$/gm, '');
       expect(withoutPerBlockBootstrap, path.relative(ROOT, file)).not.toContain('~/.claude/skills/gstack');
       expect(withoutPerBlockBootstrap, path.relative(ROOT, file)).not.toContain('$HOME/.claude/skills/gstack');
       expect(withoutPerBlockBootstrap, path.relative(ROOT, file)).not.toContain('$_ROOT/$GSTACK_ROOT');
@@ -237,7 +248,7 @@ describe('portable generated skill paths (#1882)', () => {
       if (!fs.existsSync(file)) continue;
       const content = fs.readFileSync(file, 'utf8');
       if (/\$GSTACK_(?:ROOT|BIN|BROWSE|DESIGN|MAKE_PDF)\b/.test(content)) {
-        expect(content, entry.name).toMatch(/_GSTACK_ROOT_MARKER=|_GSTACK_BOOT=/);
+        expect(content, entry.name).toMatch(/_GSTACK_ROOT_MARKER=|_gv\(\)/);
         const prose = content.replace(/```(?:bash|sh|shell)\n[\s\S]*?\n```/g, '');
         if (/\$GSTACK_(?:ROOT|BIN|BROWSE|DESIGN|MAKE_PDF)\b/.test(prose)) {
           expect(content, entry.name).toContain('For non-shell');
@@ -467,6 +478,15 @@ describe('setup portable root registration (#1882)', () => {
     expect(SETUP.indexOf('validate_claude_hook_runtime_root "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"')).toBeLessThan(
       SETUP.indexOf('link_claude_skill_dirs "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"'),
     );
+    const outside = SETUP.indexOf('# Preflight the complete mutation set before replacing the canonical link.');
+    const canonicalMutation = SETUP.indexOf('_link_or_copy "$SOURCE_GSTACK_DIR" "$CLAUDE_GSTACK_LINK"', outside);
+    expect(outside).toBeGreaterThan(0);
+    expect(SETUP.indexOf('validate_claude_hook_runtime_root "$SOURCE_GSTACK_DIR" "$CLAUDE_SKILLS_DIR"', outside))
+      .toBeLessThan(canonicalMutation);
+    expect(SETUP.indexOf('validate_claude_skill_targets "$SOURCE_GSTACK_DIR" "$CLAUDE_SKILLS_DIR"', outside))
+      .toBeLessThan(canonicalMutation);
+    expect(SETUP.indexOf('_validate_claude_cleanup_targets "$SOURCE_GSTACK_DIR" "$CLAUDE_SKILLS_DIR"', outside))
+      .toBeLessThan(canonicalMutation);
   });
 
   test('skill registration refuses a foreign non-empty target before overwriting it', () => {
@@ -480,12 +500,46 @@ describe('setup portable root registration (#1882)', () => {
     fs.writeFileSync(path.join(target, 'SKILL.md'), 'foreign\n');
     fs.writeFileSync(path.join(target, 'USER_FILE'), 'preserve\n');
 
-    const script = `set -e\nIS_WINDOWS=0\nSKILL_PREFIX=1\n_print_windows_copy_note_once() { :; }\n${extractSetupFunction('_link_or_copy')}\n${extractSetupFunction('_validate_claude_skill_target')}\n${extractSetupFunction('validate_claude_skill_targets')}\n${extractSetupFunction('link_claude_skill_dirs')}\nlink_claude_skill_dirs "${source}" "${skills}"\n`;
+    const script = `set -e\nIS_WINDOWS=0\nSKILL_PREFIX=1\n_print_windows_copy_note_once() { :; }\n${extractSetupFunction('_link_or_copy')}\n${extractSetupFunction('_validate_claude_skill_target')}\n${extractSetupFunction('_claude_post_patch_skill_name')}\n${extractSetupFunction('validate_claude_skill_targets')}\n${extractSetupFunction('link_claude_skill_dirs')}\nlink_claude_skill_dirs "${source}" "${skills}"\n`;
     const result = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain('owned by another skill install');
     expect(fs.readFileSync(path.join(target, 'SKILL.md'), 'utf8')).toBe('foreign\n');
     expect(fs.readFileSync(path.join(target, 'USER_FILE'), 'utf8')).toBe('preserve\n');
+  });
+
+  test('flat-mode preflight validates the post-patch alias name before cleanup', () => {
+    const home = tempDir('gstack-setup-post-patch-name-');
+    const source = path.join(home, 'renamed gstack');
+    const skills = path.join(home, '.claude', 'skills');
+    const target = path.join(skills, 'qa');
+    fs.mkdirSync(path.join(source, 'qa'), { recursive: true });
+    fs.writeFileSync(path.join(source, 'qa', 'SKILL.md'), '---\nname: gstack-qa\n---\nsource\n');
+    fs.mkdirSync(target, { recursive: true });
+    fs.writeFileSync(path.join(target, 'SKILL.md'), 'foreign\n');
+
+    const script = `set -e\nIS_WINDOWS=0\nSKILL_PREFIX=0\n${extractSetupFunction('_validate_claude_skill_target')}\n${extractSetupFunction('_claude_post_patch_skill_name')}\n${extractSetupFunction('validate_claude_skill_targets')}\nvalidate_claude_skill_targets "${source}" "${skills}"\n`;
+    const result = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('owned by another skill install');
+    expect(fs.readFileSync(path.join(target, 'SKILL.md'), 'utf8')).toBe('foreign\n');
+  });
+
+  test('Unix preflight does not claim an unmarked byte-identical skill directory', () => {
+    const home = tempDir('gstack-setup-identical-collision-');
+    const source = path.join(home, 'renamed gstack');
+    const skills = path.join(home, '.claude', 'skills');
+    const target = path.join(skills, 'gstack-qa');
+    fs.mkdirSync(path.join(source, 'qa'), { recursive: true });
+    fs.writeFileSync(path.join(source, 'qa', 'SKILL.md'), '---\nname: qa\n---\nsame\n');
+    fs.mkdirSync(path.join(target, 'sections'), { recursive: true });
+    fs.copyFileSync(path.join(source, 'qa', 'SKILL.md'), path.join(target, 'SKILL.md'));
+    fs.writeFileSync(path.join(target, 'sections', 'CUSTOM'), 'preserve\n');
+
+    const script = `set -e\nIS_WINDOWS=0\nSKILL_PREFIX=1\n${extractSetupFunction('_validate_claude_skill_target')}\n${extractSetupFunction('_claude_post_patch_skill_name')}\n${extractSetupFunction('validate_claude_skill_targets')}\nvalidate_claude_skill_targets "${source}" "${skills}"\n`;
+    const result = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
+    expect(result.status).not.toBe(0);
+    expect(fs.readFileSync(path.join(target, 'sections', 'CUSTOM'), 'utf8')).toBe('preserve\n');
   });
 
   test('prefix cleanup rejects a foreign legacy-looking target before mutation', () => {

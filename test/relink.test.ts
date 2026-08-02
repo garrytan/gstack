@@ -131,6 +131,33 @@ describe('gstack-relink (#578)', () => {
     expect(fs.readFileSync(path.join(target, 'USER_FILE'), 'utf8')).toBe('preserve\n');
   });
 
+  test('does not treat an unmarked identical SKILL.md as Unix ownership', () => {
+    setupMockInstall(['qa']);
+    const target = path.join(skillsDir, 'qa');
+    fs.mkdirSync(path.join(target, 'sections'), { recursive: true });
+    fs.copyFileSync(path.join(installDir, 'qa', 'SKILL.md'), path.join(target, 'SKILL.md'));
+    fs.writeFileSync(path.join(target, 'sections', 'CUSTOM'), 'preserve\n');
+
+    const output = run(`${path.join(installDir, 'bin', 'gstack-relink')}`, {
+      GSTACK_INSTALL_DIR: installDir,
+      GSTACK_SKILLS_DIR: skillsDir,
+    }, true);
+
+    expect(output).toContain('refusing to overwrite foreign skill target');
+    expect(fs.readFileSync(path.join(target, 'sections', 'CUSTOM'), 'utf8')).toBe('preserve\n');
+  });
+
+  test('refuses to run while another registration holds the skills lock', () => {
+    setupMockInstall(['qa']);
+    fs.mkdirSync(path.join(skillsDir, '.gstack-registration.lock'));
+    const output = run(`${path.join(installDir, 'bin', 'gstack-relink')}`, {
+      GSTACK_INSTALL_DIR: installDir,
+      GSTACK_SKILLS_DIR: skillsDir,
+    }, true);
+    expect(output).toContain('another skill registration is active');
+    expect(fs.existsSync(path.join(skillsDir, 'qa'))).toBe(false);
+  });
+
   test('refuses a foreign opposite-prefix target before creating new aliases', () => {
     setupMockInstall(['qa']);
     const foreign = path.join(skillsDir, 'qa');

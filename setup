@@ -369,6 +369,9 @@ cleanup_copied_bun() {
   if [ "${BUN_CMD_WAS_COPIED:-0}" -eq 1 ]; then
     rm -rf "$SOURCE_GSTACK_DIR/.tmp-bun-bin"
   fi
+  if [ -n "${_CLAUDE_REGISTRATION_LOCK:-}" ]; then
+    rmdir "$_CLAUDE_REGISTRATION_LOCK" 2>/dev/null || true
+  fi
 }
 
 prepare_bun_for_windows_compile
@@ -565,7 +568,7 @@ _validate_claude_skill_target() {
       local linked
       linked=$(readlink "$target/SKILL.md" 2>/dev/null || true)
       [ "$linked" = "$expected_real" ] && return 0
-    elif [ -f "$target/SKILL.md" ] && cmp -s "$target/SKILL.md" "$expected_skill"; then
+    elif [ "$IS_WINDOWS" -eq 1 ] && [ -f "$target/SKILL.md" ] && cmp -s "$target/SKILL.md" "$expected_skill"; then
       return 0
     elif [ -z "$(find "$target" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]; then
       return 0
@@ -575,6 +578,25 @@ _validate_claude_skill_target() {
   echo "gstack setup failed: $target is owned by another skill install." >&2
   echo "Move or remove it before registering $(basename "$(dirname "$expected_skill")")." >&2
   return 1
+}
+
+_claude_post_patch_skill_name() {
+  local dir_name="$1"
+  local current_name="$2"
+  if [ "$SKILL_PREFIX" -eq 1 ]; then
+    case "$current_name" in gstack-*) printf '%s\n' "$current_name" ;; *) printf 'gstack-%s\n' "$current_name" ;; esac
+  else
+    case "$current_name" in
+      gstack-*)
+        if [ "$dir_name" = "$current_name" ]; then
+          printf '%s\n' "$current_name"
+        else
+          printf '%s\n' "${current_name#gstack-}"
+        fi
+        ;;
+      *) printf '%s\n' "$current_name" ;;
+    esac
+  fi
 }
 
 validate_claude_skill_targets() {
@@ -588,11 +610,7 @@ validate_claude_skill_targets() {
     [ "$dir_name" = "node_modules" ] && continue
     skill_name=$(grep -m1 '^name:' "$skill_dir/SKILL.md" 2>/dev/null | sed 's/^name:[[:space:]]*//' | tr -d '[:space:]')
     [ -z "$skill_name" ] && skill_name="$dir_name"
-    if [ "$SKILL_PREFIX" -eq 1 ]; then
-      case "$skill_name" in gstack-*) link_name="$skill_name" ;; *) link_name="gstack-$skill_name" ;; esac
-    else
-      link_name="$skill_name"
-    fi
+    link_name=$(_claude_post_patch_skill_name "$dir_name" "$skill_name")
     _validate_claude_skill_target "$gstack_dir" "$gstack_dir/$dir_name/SKILL.md" "$skills_dir/$link_name" || return 1
   done
 }
@@ -623,6 +641,7 @@ link_claude_skill_dirs() {
         link_name="$skill_name"
       fi
       target="$skills_dir/$link_name"
+      _validate_claude_skill_target "$gstack_dir" "$gstack_dir/$dir_name/SKILL.md" "$target" || return 1
       # Upgrade old directory symlinks to real directories
       if [ -L "$target" ]; then
         rm -f "$target"
@@ -661,6 +680,7 @@ link_claude_root_skill_alias() {
   local target="$skills_dir/_gstack-command"
 
   [ -f "$gstack_dir/SKILL.md" ] || return 0
+  _validate_claude_skill_target "$gstack_dir" "$gstack_dir/SKILL.md" "$target" || return 1
   if [ -L "$target" ]; then
     rm -f "$target"
   fi
@@ -841,6 +861,21 @@ cleanup_old_claude_symlinks() {
 
 cleanup_prefixed_claude_symlinks() {
   _cleanup_claude_skill_targets "$1" "$2" "gstack-" "prefixed"
+}
+
+_acquire_claude_registration_lock() {
+  local skills_dir="$1"
+  _CLAUDE_REGISTRATION_LOCK="$skills_dir/.gstack-registration.lock"
+  if ! mkdir "$_CLAUDE_REGISTRATION_LOCK" 2>/dev/null; then
+    echo "gstack setup failed: another skill registration is active in $skills_dir." >&2
+    return 1
+  fi
+}
+
+_release_claude_registration_lock() {
+  [ -n "${_CLAUDE_REGISTRATION_LOCK:-}" ] || return 0
+  rmdir "$_CLAUDE_REGISTRATION_LOCK" 2>/dev/null || true
+  _CLAUDE_REGISTRATION_LOCK=""
 }
 
 # ─── Helper: link generated Codex skills into a skills parent directory ──
@@ -1125,6 +1160,7 @@ fi
 
 if [ "$INSTALL_CLAUDE" -eq 1 ]; then
   if [ "$SKILLS_BASENAME" = "skills" ]; then
+    _acquire_claude_registration_lock "$INSTALL_SKILLS_DIR"
     validate_claude_hook_runtime_root "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
     # Validate every desired and opposite-mode target before any mutation.
     validate_claude_skill_targets "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
@@ -1164,6 +1200,7 @@ if [ "$INSTALL_CLAUDE" -eq 1 ]; then
       log "gstack ready (claude)."
     fi
     log "  browse: $BROWSE_BIN"
+    _release_claude_registration_lock
   else
     # Not inside a skills/ directory — would symlink the source into
     # ~/.claude/skills/gstack/ and register from there.
@@ -1201,6 +1238,15 @@ if [ "$INSTALL_CLAUDE" -eq 1 ]; then
       log "  browse: $BROWSE_BIN"
     else
       mkdir -p "$CLAUDE_SKILLS_DIR"
+      _acquire_claude_registration_lock "$CLAUDE_SKILLS_DIR"
+      # Preflight the complete mutation set before replacing the canonical link.
+      validate_claude_hook_runtime_root "$SOURCE_GSTACK_DIR" "$CLAUDE_SKILLS_DIR"
+      validate_claude_skill_targets "$SOURCE_GSTACK_DIR" "$CLAUDE_SKILLS_DIR"
+      if [ "$SKILL_PREFIX" -eq 1 ]; then
+        _validate_claude_cleanup_targets "$SOURCE_GSTACK_DIR" "$CLAUDE_SKILLS_DIR" ""
+      else
+        _validate_claude_cleanup_targets "$SOURCE_GSTACK_DIR" "$CLAUDE_SKILLS_DIR" "gstack-"
+      fi
       _link_or_copy "$SOURCE_GSTACK_DIR" "$CLAUDE_GSTACK_LINK"
       log "  symlinked $CLAUDE_GSTACK_LINK -> $SOURCE_GSTACK_DIR"
       INSTALL_SKILLS_DIR="$CLAUDE_SKILLS_DIR"
@@ -1229,6 +1275,7 @@ if [ "$INSTALL_CLAUDE" -eq 1 ]; then
       fi
       log "gstack ready (claude)."
       log "  browse: $BROWSE_BIN"
+      _release_claude_registration_lock
     fi
   fi
 fi

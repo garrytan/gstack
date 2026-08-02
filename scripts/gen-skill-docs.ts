@@ -701,7 +701,7 @@ function injectClaudeRuntimeRootForPreamblelessSkill(content: string, ctx: Templ
 function bootstrapClaudeShellBlocks(content: string, ctx: TemplateContext): string {
   return content.replace(/\`\`\`(bash|sh|shell)\n([\s\S]*?)\n\`\`\`/g, (full, language: string, body: string) => {
     if (!/\$GSTACK_(?:ROOT|BIN|BROWSE|DESIGN|MAKE_PDF)\b/.test(body)) return full;
-    if (body.includes('_GSTACK_ROOT_MARKER=') || body.includes('_GSTACK_BOOT=')) return full;
+    if (body.includes('_GSTACK_ROOT_MARKER=') || body.includes('_gv(){')) return full;
     return `\`\`\`${language}\n${generateClaudeRuntimeRootBashCompact(ctx)}\n${body}\n\`\`\``;
   });
 }

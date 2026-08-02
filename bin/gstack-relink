@@ -10,6 +10,11 @@
 #   GSTACK_SKILLS_DIR  — override target skills directory
 set -euo pipefail
 
+IS_WINDOWS=0
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*|Windows_NT) IS_WINDOWS=1 ;;
+esac
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 GSTACK_CONFIG="${SCRIPT_DIR}/gstack-config"
 
@@ -35,6 +40,16 @@ fi
 # Detect target skills dir
 SKILLS_DIR="${GSTACK_SKILLS_DIR:-$(dirname "$INSTALL_DIR")}"
 [ -d "$SKILLS_DIR" ] || mkdir -p "$SKILLS_DIR"
+
+_REGISTRATION_LOCK=""
+if [ "${GSTACK_SETUP_RUNNING:-0}" != "1" ]; then
+  _REGISTRATION_LOCK="$SKILLS_DIR/.gstack-registration.lock"
+  if ! mkdir "$_REGISTRATION_LOCK" 2>/dev/null; then
+    echo "Error: another skill registration is active in $SKILLS_DIR" >&2
+    exit 1
+  fi
+  trap 'rmdir "$_REGISTRATION_LOCK" 2>/dev/null || true' EXIT
+fi
 
 # Read prefix setting
 PREFIX=$("$GSTACK_CONFIG" get skill_prefix 2>/dev/null || echo "false")
@@ -68,7 +83,7 @@ _target_owned() {
     linked=$(readlink "$target/SKILL.md" 2>/dev/null || true)
     linked_real=$(cd "$(dirname "$linked")" 2>/dev/null && pwd -P || true)
     [ -n "$linked_real" ] && [ "$linked_real/$(basename "$linked")" = "$expected_real" ] && return 0
-  elif [ -f "$target/SKILL.md" ] && cmp -s "$target/SKILL.md" "$expected"; then
+  elif [ "$IS_WINDOWS" -eq 1 ] && [ -f "$target/SKILL.md" ] && cmp -s "$target/SKILL.md" "$expected"; then
     return 0
   fi
   return 1
@@ -112,6 +127,7 @@ _cleanup_skill_entry() {
 _link_skill_alias() {
   local expected="$1"
   local target="$2"
+  _validate_desired_target "$expected" "$target"
   if [ -L "$target" ]; then
     rm -f "$target"
   elif [ -d "$target" ]; then
