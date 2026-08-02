@@ -47,10 +47,9 @@ _link_or_copy() {
   if [ "$IS_WINDOWS" -eq 1 ]; then
     rm -rf "$dst"
     # Unix `ln -snf` accepts a name-only or relative-path source even when the
-    # target doesn't resolve from CWD (e.g. the connect-chrome alias points at
-    # the sibling-relative "gstack/open-gstack-browser"). On Windows the
-    # equivalent semantics don't exist — we'd need a real source on disk to
-    # copy. Skip the alias quietly rather than aborting setup under `set -e`.
+    # target doesn't resolve from CWD. On Windows the equivalent semantics don't
+    # exist — we'd need a real source on disk to copy. Skip such compatibility
+    # aliases quietly rather than aborting setup under `set -e`.
     if [ ! -e "$src" ]; then
       return 0
     fi
@@ -584,9 +583,14 @@ _validate_claude_skill_target() {
       [ -n "$owner_real" ] && [ "$owner_real" = "$gstack_real" ] && return 0
     fi
     if [ -L "$target/SKILL.md" ]; then
-      local linked
+      local linked linked_parent linked_parent_real
       linked=$(readlink "$target/SKILL.md" 2>/dev/null || true)
-      [ "$linked" = "$expected_real" ] && return 0
+      case "$linked" in
+        /*) linked_parent=$(dirname "$linked") ;;
+        *) linked_parent="$(dirname "$target/SKILL.md")/$(dirname "$linked")" ;;
+      esac
+      linked_parent_real=$(cd "$linked_parent" 2>/dev/null && pwd -P || true)
+      [ -n "$linked_parent_real" ] && [ "$linked_parent_real/$(basename "$linked")" = "$expected_real" ] && return 0
     elif _claude_legacy_windows_skill_copy_owned "$gstack_dir" "$expected_skill" "$target/SKILL.md"; then
       return 0
     elif [ -z "$(find "$target" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]; then
@@ -836,7 +840,14 @@ _claude_skill_target_owned() {
     [ -n "$owner_real" ] && [ "$owner_real" = "$gstack_real" ] && return 0
   fi
   if [ -L "$target/SKILL.md" ]; then
-    [ "$(readlink "$target/SKILL.md" 2>/dev/null || true)" = "$expected_real" ] && return 0
+    local linked linked_parent linked_parent_real
+    linked=$(readlink "$target/SKILL.md" 2>/dev/null || true)
+    case "$linked" in
+      /*) linked_parent=$(dirname "$linked") ;;
+      *) linked_parent="$(dirname "$target/SKILL.md")/$(dirname "$linked")" ;;
+    esac
+    linked_parent_real=$(cd "$linked_parent" 2>/dev/null && pwd -P || true)
+    [ -n "$linked_parent_real" ] && [ "$linked_parent_real/$(basename "$linked")" = "$expected_real" ] && return 0
   elif _claude_legacy_windows_skill_copy_owned "$gstack_dir" "$expected_skill" "$target/SKILL.md"; then
     return 0
   fi
@@ -900,12 +911,27 @@ cleanup_prefixed_claude_symlinks() {
   _cleanup_claude_skill_targets "$1" "$2" "gstack-" "prefixed"
 }
 
+link_claude_connect_chrome_alias() {
+  local source_dir="$1"
+  local skills_dir="$2"
+  local target="$skills_dir/connect-chrome"
+  if [ "$SKILL_PREFIX" -eq 1 ]; then
+    target="$skills_dir/gstack-connect-chrome"
+  fi
+  if [ -L "$target" ] || [ ! -e "$target" ]; then
+    _link_or_copy "$source_dir/open-gstack-browser" "$target"
+  fi
+}
+
 _acquire_claude_registration_lock() {
   local skills_dir="$1"
   if ! gstack_registration_lock_acquire "$skills_dir/.gstack-registration.lock"; then
     echo "gstack setup failed: skill registration lock unavailable." >&2
     return 1
   fi
+  # Reassert the setup EXIT handler at the ownership boundary so every later
+  # preflight/build failure releases this exact token before returning control.
+  trap cleanup_copied_bun EXIT
 }
 
 _release_claude_registration_lock() {
@@ -1220,13 +1246,7 @@ if [ "$INSTALL_CLAUDE" -eq 1 ]; then
       GSTACK_SKILLS_DIR="$INSTALL_SKILLS_DIR" GSTACK_INSTALL_DIR="$SOURCE_GSTACK_DIR" "$GSTACK_RELINK" >/dev/null 2>&1 || true
     fi
     # Backwards-compat alias: /connect-chrome → /open-gstack-browser
-    _OGB_LINK="$INSTALL_SKILLS_DIR/connect-chrome"
-    if [ "$SKILL_PREFIX" -eq 1 ]; then
-      _OGB_LINK="$INSTALL_SKILLS_DIR/gstack-connect-chrome"
-    fi
-    if [ -L "$_OGB_LINK" ] || [ ! -e "$_OGB_LINK" ]; then
-      _link_or_copy "gstack/open-gstack-browser" "$_OGB_LINK"
-    fi
+    link_claude_connect_chrome_alias "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
     if [ "$LOCAL_INSTALL" -eq 1 ]; then
       log "gstack ready (project-local)."
       log "  skills: $INSTALL_SKILLS_DIR"
@@ -1302,13 +1322,7 @@ if [ "$INSTALL_CLAUDE" -eq 1 ]; then
       if [ -x "$GSTACK_RELINK" ]; then
         GSTACK_SKILLS_DIR="$INSTALL_SKILLS_DIR" GSTACK_INSTALL_DIR="$SOURCE_GSTACK_DIR" "$GSTACK_RELINK" >/dev/null 2>&1 || true
       fi
-      _OGB_LINK="$INSTALL_SKILLS_DIR/connect-chrome"
-      if [ "$SKILL_PREFIX" -eq 1 ]; then
-        _OGB_LINK="$INSTALL_SKILLS_DIR/gstack-connect-chrome"
-      fi
-      if [ -L "$_OGB_LINK" ] || [ ! -e "$_OGB_LINK" ]; then
-        _link_or_copy "gstack/open-gstack-browser" "$_OGB_LINK"
-      fi
+      link_claude_connect_chrome_alias "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
       log "gstack ready (claude)."
       log "  browse: $BROWSE_BIN"
       _release_claude_registration_lock
