@@ -16,10 +16,13 @@ GSTACK_CONFIG="${SCRIPT_DIR}/gstack-config"
 # Detect install dir
 INSTALL_DIR="${GSTACK_INSTALL_DIR:-}"
 if [ -z "$INSTALL_DIR" ]; then
-  if [ -d "$HOME/.claude/skills/gstack" ]; then
-    INSTALL_DIR="$HOME/.claude/skills/gstack"
-  elif [ -d "${SCRIPT_DIR}/.." ] && [ -f "${SCRIPT_DIR}/../setup" ]; then
+  if [ -d "${SCRIPT_DIR}/.." ] && [ -f "${SCRIPT_DIR}/../setup" ]; then
     INSTALL_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+  elif [ -f "$HOME/.claude/skills/.gstack-root" ]; then
+    _MARKED_INSTALL="$(head -n 1 "$HOME/.claude/skills/.gstack-root" 2>/dev/null || true)"
+    [ -d "$_MARKED_INSTALL" ] && INSTALL_DIR="$(cd "$_MARKED_INSTALL" && pwd -P)"
+  elif [ -d "$HOME/.claude/skills/gstack" ]; then
+    INSTALL_DIR="$HOME/.claude/skills/gstack"
   fi
 fi
 

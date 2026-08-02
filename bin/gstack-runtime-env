@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Print shell-safe portable runtime variables for one isolated Bash block.
+set -u
+
+ROOT="${GSTACK_RUNTIME_ROOT_OVERRIDE:-}"
+if [ -z "$ROOT" ]; then
+  ROOT="$(cd "$(dirname "$0")/.." 2>/dev/null && pwd -P || true)"
+fi
+[ -n "$ROOT" ] || exit 1
+
+printf 'GSTACK_ROOT=%q\n' "$ROOT"
+printf 'GSTACK_BIN=%q\n' "$ROOT/bin"
+printf 'GSTACK_BROWSE=%q\n' "$ROOT/browse/dist"
+printf 'GSTACK_DESIGN=%q\n' "$ROOT/design/dist"
+printf 'GSTACK_MAKE_PDF=%q\n' "$ROOT/make-pdf/dist"
+printf 'export GSTACK_ROOT GSTACK_BIN GSTACK_BROWSE GSTACK_DESIGN GSTACK_MAKE_PDF\n'

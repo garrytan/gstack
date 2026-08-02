@@ -537,10 +537,67 @@ mkdir -p "$HOME/.gstack/projects"
 # gstack/ (which would auto-prefix them as gstack-*).
 # When SKILL_PREFIX=1, directories are prefixed with "gstack-".
 # Use --no-prefix to restore flat names.
+_validate_claude_skill_target() {
+  local gstack_dir="$1"
+  local expected_skill="$2"
+  local target="$3"
+
+  [ ! -e "$target" ] && [ ! -L "$target" ] && return 0
+
+  local expected_parent expected_real
+  expected_parent=$(cd "$(dirname "$expected_skill")" 2>/dev/null && pwd -P || true)
+  expected_real="$expected_parent/$(basename "$expected_skill")"
+
+  if [ -L "$target" ]; then
+    local target_real expected_dir_real
+    target_real=$(cd "$target" 2>/dev/null && pwd -P || true)
+    expected_dir_real=$(cd "$(dirname "$expected_skill")" 2>/dev/null && pwd -P || true)
+    [ -n "$target_real" ] && [ "$target_real" = "$expected_dir_real" ] && return 0
+  elif [ -d "$target" ]; then
+    if [ -f "$target/.gstack-managed-root" ]; then
+      local owner owner_real gstack_real
+      owner=$(head -n 1 "$target/.gstack-managed-root" 2>/dev/null || true)
+      owner_real=$(cd "$owner" 2>/dev/null && pwd -P || true)
+      gstack_real=$(cd "$gstack_dir" 2>/dev/null && pwd -P || true)
+      [ -n "$owner_real" ] && [ "$owner_real" = "$gstack_real" ] && return 0
+    fi
+    if [ -L "$target/SKILL.md" ]; then
+      local linked
+      linked=$(readlink "$target/SKILL.md" 2>/dev/null || true)
+      [ "$linked" = "$expected_real" ] && return 0
+    elif [ -f "$target/SKILL.md" ] && cmp -s "$target/SKILL.md" "$expected_skill"; then
+      return 0
+    elif [ -z "$(find "$target" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]; then
+      return 0
+    fi
+  fi
+
+  echo "gstack setup failed: $target is owned by another skill install." >&2
+  echo "Move or remove it before registering $(basename "$(dirname "$expected_skill")")." >&2
+  return 1
+}
+
 link_claude_skill_dirs() {
   local gstack_dir="$1"
   local skills_dir="$2"
   local linked=()
+
+  # Validate the complete target set before mutating any alias.
+  _validate_claude_skill_target "$gstack_dir" "$gstack_dir/SKILL.md" "$skills_dir/_gstack-command" || return 1
+  for skill_dir in "$gstack_dir"/*/; do
+    [ -f "$skill_dir/SKILL.md" ] || continue
+    dir_name="$(basename "$skill_dir")"
+    [ "$dir_name" = "node_modules" ] && continue
+    skill_name=$(grep -m1 '^name:' "$skill_dir/SKILL.md" 2>/dev/null | sed 's/^name:[[:space:]]*//' | tr -d '[:space:]')
+    [ -z "$skill_name" ] && skill_name="$dir_name"
+    if [ "$SKILL_PREFIX" -eq 1 ]; then
+      case "$skill_name" in gstack-*) link_name="$skill_name" ;; *) link_name="gstack-$skill_name" ;; esac
+    else
+      link_name="$skill_name"
+    fi
+    _validate_claude_skill_target "$gstack_dir" "$gstack_dir/$dir_name/SKILL.md" "$skills_dir/$link_name" || return 1
+  done
+
   for skill_dir in "$gstack_dir"/*/; do
     if [ -f "$skill_dir/SKILL.md" ]; then
       dir_name="$(basename "$skill_dir")"
@@ -652,9 +709,10 @@ ensure_claude_hook_runtime_root() {
     return 0
   fi
 
-  mkdir -p "$runtime_root/careful" "$runtime_root/freeze"
+  mkdir -p "$runtime_root/careful" "$runtime_root/freeze" "$runtime_root/bin"
   _link_or_copy "$source_dir/careful/bin" "$runtime_root/careful/bin"
   _link_or_copy "$source_dir/freeze/bin" "$runtime_root/freeze/bin"
+  _link_or_copy "$source_dir/bin/gstack-runtime-env" "$runtime_root/bin/gstack-runtime-env"
   printf '%s\n' "$source_dir" > "$managed_marker"
   log "  prepared hook runtime: $runtime_root (careful + freeze only)"
 }

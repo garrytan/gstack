@@ -172,6 +172,7 @@ describe('gstack-uninstall', () => {
       const managedAlias = path.join(skills, 'gstack-review');
       fs.mkdirSync(managedAlias, { recursive: true });
       fs.writeFileSync(path.join(managedAlias, '.gstack-managed-root'), `${portable}\n`);
+      fs.writeFileSync(path.join(managedAlias, 'SKILL.md'), 'managed\n');
 
       const sidecar = path.join(skills, 'gstack');
       fs.mkdirSync(sidecar, { recursive: true });
@@ -189,6 +190,32 @@ describe('gstack-uninstall', () => {
       expect(fs.existsSync(sidecar)).toBe(false);
       expect(fs.existsSync(portable)).toBe(false);
       expect(fs.existsSync(path.join(skills, 'other-tool'))).toBe(true);
+    });
+
+    test('portable uninstall removes only managed alias files and preserves unrelated contents', () => {
+      const skills = path.join(mockHome, '.claude', 'skills');
+      const portable = path.join(skills, 'renamed gstack');
+      const alias = path.join(skills, 'gstack-review');
+      fs.rmSync(path.join(skills, 'gstack'), { recursive: true, force: true });
+      fs.mkdirSync(path.join(portable, 'bin'), { recursive: true });
+      fs.writeFileSync(path.join(skills, '.gstack-root'), `${portable}\n`);
+      fs.mkdirSync(path.join(alias, 'sections'), { recursive: true });
+      fs.writeFileSync(path.join(alias, '.gstack-managed-root'), `${portable}\n`);
+      fs.writeFileSync(path.join(alias, 'SKILL.md'), 'managed\n');
+      fs.writeFileSync(path.join(alias, 'sections', 'managed.md'), 'managed\n');
+      fs.writeFileSync(path.join(alias, 'USER_FILE'), 'preserve\n');
+
+      const result = spawnSync('bash', [UNINSTALL, '--force', '--keep-state'], {
+        stdio: 'pipe',
+        env: { ...process.env, HOME: mockHome, GSTACK_DIR: portable, GSTACK_STATE_DIR: path.join(mockHome, '.gstack') },
+        cwd: mockGitRoot,
+      });
+
+      expect(result.status).toBe(0);
+      expect(fs.existsSync(path.join(alias, 'USER_FILE'))).toBe(true);
+      expect(fs.existsSync(path.join(alias, 'SKILL.md'))).toBe(false);
+      expect(fs.existsSync(path.join(alias, 'sections'))).toBe(false);
+      expect(fs.existsSync(path.join(alias, '.gstack-managed-root'))).toBe(false);
     });
 
     test('portable uninstall preserves a foreign canonical install that replaced its sidecar', () => {

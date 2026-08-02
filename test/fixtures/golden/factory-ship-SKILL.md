@@ -116,6 +116,7 @@ _CHECKPOINT_MODE=$("$GSTACK_BIN/gstack-config" get checkpoint_mode 2>/dev/null |
 _CHECKPOINT_PUSH=$("$GSTACK_BIN/gstack-config" get checkpoint_push 2>/dev/null || echo "false")
 echo "CHECKPOINT_MODE: $_CHECKPOINT_MODE"
 echo "CHECKPOINT_PUSH: $_CHECKPOINT_PUSH"
+echo "GSTACK_ROOT: $GSTACK_ROOT"
 # Plan-mode hint for skills like /spec that branch behavior on plan-mode state.
 # Claude Code exposes plan mode via system reminders; we detect best-effort
 # from CLAUDE_PLAN_FILE (set by the harness when plan mode is active) and
@@ -131,6 +132,11 @@ fi
 echo "GSTACK_PLAN_MODE: $GSTACK_PLAN_MODE"
 [ -n "$OPENCLAW_SESSION" ] && echo "SPAWNED_SESSION: true" || true
 ```
+
+**Portable runtime paths:** Bash blocks run in separate shells, so every later
+shell block that uses `$GSTACK_*` includes its own bootstrap. For non-shell
+tools (Read/Edit/Write/Glob/Grep), replace `$GSTACK_ROOT` with the absolute
+`GSTACK_ROOT:` value printed above; never pass the variable text literally.
 
 ## Plan Mode Safe Operations
 

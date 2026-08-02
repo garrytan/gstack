@@ -19,6 +19,13 @@ GSTACK_MAKE_PDF="$GSTACK_ROOT/make-pdf/dist"
 export GSTACK_ROOT GSTACK_BIN GSTACK_BROWSE GSTACK_DESIGN GSTACK_MAKE_PDF`;
 }
 
+export function generateClaudeRuntimeRootBashCompact(ctx: TemplateContext): string {
+  const hostConfig = getHostConfig(ctx.host);
+  const globalSkillsDir = path.posix.dirname(hostConfig.globalRoot);
+  return `_GSTACK_BOOT="\${GSTACK_ROOT:-}"; [ -x "$_GSTACK_BOOT/bin/gstack-runtime-env" ] || _GSTACK_BOOT="\${CLAUDE_PLUGIN_ROOT:-}"; [ -x "$_GSTACK_BOOT/bin/gstack-runtime-env" ] || _GSTACK_BOOT=$(cat "$HOME/${globalSkillsDir}/.gstack-root" 2>/dev/null || true); [ -x "$_GSTACK_BOOT/bin/gstack-runtime-env" ] || _GSTACK_BOOT="$HOME/${hostConfig.globalRoot}"
+eval "$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_GSTACK_BOOT" "$_GSTACK_BOOT/bin/gstack-runtime-env")"`;
+}
+
 export function generatePreambleBash(ctx: TemplateContext): string {
   const hostConfig = getHostConfig(ctx.host);
   const bin = (name: string): string => `"${ctx.paths.binDir}/${name}"`;
@@ -137,6 +144,7 @@ _CHECKPOINT_MODE=$(${bin('gstack-config')} get checkpoint_mode 2>/dev/null || ec
 _CHECKPOINT_PUSH=$(${bin('gstack-config')} get checkpoint_push 2>/dev/null || echo "false")
 echo "CHECKPOINT_MODE: $_CHECKPOINT_MODE"
 echo "CHECKPOINT_PUSH: $_CHECKPOINT_PUSH"
+echo "GSTACK_ROOT: $GSTACK_ROOT"
 # Plan-mode hint for skills like /spec that branch behavior on plan-mode state.
 # Claude Code exposes plan mode via system reminders; we detect best-effort
 # from CLAUDE_PLAN_FILE (set by the harness when plan mode is active) and
@@ -161,5 +169,12 @@ if command -v gbrain &>/dev/null; then
     echo "$_BRAIN_JSON" | grep -o '"name":"[^"]*","status":"[^"]*","message":"[^"]*"' || true
   fi
 fi` : ''}
-\`\`\``;
+\`\`\`
+
+**Portable runtime paths:** Bash blocks run in separate shells, so every later
+shell block that uses \`$GSTACK_*\` includes its own bootstrap. For non-shell
+tools (Read/Edit/Write/Glob/Grep), replace \`$GSTACK_ROOT\` with the absolute
+\`GSTACK_ROOT:\` value printed above; never pass the variable text literally.
+For inline shell commands outside fenced blocks, substitute the printed
+absolute values before execution.`;
 }

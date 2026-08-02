@@ -162,8 +162,14 @@ if [ -n "$_ACTIVE_CLAUDE_ROOT" ]; then
     _MANAGED_ROOT="$(head -n 1 "$_MANAGED_MARKER" 2>/dev/null || true)"
     _MANAGED_REAL="$(cd "$_MANAGED_ROOT" 2>/dev/null && pwd -P || true)"
     if [ "$_MANAGED_REAL" = "$_ACTIVE_CLAUDE_ROOT" ]; then
-      rm -rf "$_ITEM"
-      REMOVED+=("claude/$(basename "$_ITEM")")
+      rm -f "$_ITEM/SKILL.md"
+      rm -rf "$_ITEM/sections"
+      rm -f "$_MANAGED_MARKER"
+      if rmdir "$_ITEM" 2>/dev/null; then
+        REMOVED+=("claude/$(basename "$_ITEM")")
+      else
+        REMOVED+=("claude/$(basename "$_ITEM") managed files (unrelated files preserved)")
+      fi
     fi
   done
 fi

@@ -42,6 +42,7 @@ function setupMockInstall(skills: string[]): void {
   skillsDir = path.join(tmpDir, 'skills');
   fs.mkdirSync(installDir, { recursive: true });
   fs.mkdirSync(skillsDir, { recursive: true });
+  fs.writeFileSync(path.join(installDir, 'setup'), '# mock setup\n');
 
   // Copy the real gstack-config and gstack-relink to the mock install
   const mockBin = path.join(installDir, 'bin');
@@ -76,6 +77,21 @@ afterEach(() => {
 });
 
 describe('gstack-relink (#578)', () => {
+  test('prefers its own renamed install over a canonical hook sidecar', () => {
+    setupMockInstall(['qa']);
+    const mockHome = path.join(tmpDir, 'home');
+    const canonicalSidecar = path.join(mockHome, '.claude', 'skills', 'gstack');
+    fs.mkdirSync(canonicalSidecar, { recursive: true });
+    fs.writeFileSync(path.join(canonicalSidecar, '.gstack-hook-runtime'), `${installDir}\n`);
+
+    run(`${path.join(installDir, 'bin', 'gstack-relink')}`, {
+      HOME: mockHome,
+      GSTACK_SKILLS_DIR: skillsDir,
+    });
+
+    expect(fs.existsSync(path.join(skillsDir, 'qa', 'SKILL.md'))).toBe(true);
+  });
+
   // Test 11: prefixed symlinks when skill_prefix=true
   test('creates gstack-* symlinks when skill_prefix=true', () => {
     setupMockInstall(['qa', 'ship', 'review']);

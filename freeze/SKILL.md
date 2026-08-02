@@ -49,7 +49,10 @@ GSTACK_BROWSE="$GSTACK_ROOT/browse/dist"
 GSTACK_DESIGN="$GSTACK_ROOT/design/dist"
 GSTACK_MAKE_PDF="$GSTACK_ROOT/make-pdf/dist"
 export GSTACK_ROOT GSTACK_BIN GSTACK_BROWSE GSTACK_DESIGN GSTACK_MAKE_PDF
+echo "GSTACK_ROOT: $GSTACK_ROOT"
 ```
+
+**Portable runtime paths:** Bash blocks run in separate shells, so every later shell block using `$GSTACK_*` includes its own bootstrap. For non-shell tools, replace `$GSTACK_ROOT` with the absolute `GSTACK_ROOT:` value printed above; never pass the variable text literally. For inline shell commands outside fenced blocks, substitute the printed absolute values before execution.
 
 
 # /freeze — Restrict Edits to a Directory
@@ -79,6 +82,8 @@ echo "$FREEZE_DIR"
 
 2. Ensure trailing slash and save to the freeze state file:
 ```bash
+_GSTACK_BOOT="${GSTACK_ROOT:-}"; [ -x "$_GSTACK_BOOT/bin/gstack-runtime-env" ] || _GSTACK_BOOT="${CLAUDE_PLUGIN_ROOT:-}"; [ -x "$_GSTACK_BOOT/bin/gstack-runtime-env" ] || _GSTACK_BOOT=$(cat "$HOME/.claude/skills/.gstack-root" 2>/dev/null || true); [ -x "$_GSTACK_BOOT/bin/gstack-runtime-env" ] || _GSTACK_BOOT="$HOME/.claude/skills/gstack"
+eval "$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_GSTACK_BOOT" "$_GSTACK_BOOT/bin/gstack-runtime-env")"
 FREEZE_DIR="${FREEZE_DIR%/}/"
 eval "$("$GSTACK_ROOT"/bin/gstack-paths)"
 STATE_DIR="$GSTACK_STATE_ROOT"

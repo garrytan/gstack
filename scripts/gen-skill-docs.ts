@@ -20,7 +20,7 @@ import { HOST_PATHS, unwrapResolver } from './resolvers/types';
 import { RESOLVERS } from './resolvers/index';
 import { externalSkillName, extractHookSafetyProse as _extractHookSafetyProse, extractNameAndDescription as _extractNameAndDescription, condenseOpenAIShortDescription as _condenseOpenAIShortDescription, generateOpenAIYaml as _generateOpenAIYaml } from './resolvers/codex-helpers';
 import { generatePlanCompletionAuditShip, generatePlanCompletionAuditReview, generatePlanVerificationExec } from './resolvers/review';
-import { generateClaudeRuntimeRootBash } from './resolvers/preamble/generate-preamble-bash';
+import { generateClaudeRuntimeRootBash, generateClaudeRuntimeRootBashCompact } from './resolvers/preamble/generate-preamble-bash';
 import { ALL_HOST_CONFIGS, ALL_HOST_NAMES, resolveHostArg, getHostConfig } from '../hosts/index';
 import type { HostConfig } from './host-config';
 
@@ -688,12 +688,20 @@ function quotePortableRuntimePaths(content: string): string {
 
 function injectClaudeRuntimeRootForPreamblelessSkill(content: string, ctx: TemplateContext): string {
   if (!/\$GSTACK_(?:ROOT|BIN|BROWSE|DESIGN|MAKE_PDF)\b/.test(content)) return content;
-  const bootstrap = `\n## Runtime path bootstrap\n\n\`\`\`bash\n${generateClaudeRuntimeRootBash(ctx)}\n\`\`\`\n`;
+  const bootstrap = `\n## Runtime path bootstrap\n\n\`\`\`bash\n${generateClaudeRuntimeRootBash(ctx)}\necho "GSTACK_ROOT: $GSTACK_ROOT"\n\`\`\`\n\n**Portable runtime paths:** Bash blocks run in separate shells, so every later shell block using \`$GSTACK_*\` includes its own bootstrap. For non-shell tools, replace \`$GSTACK_ROOT\` with the absolute \`GSTACK_ROOT:\` value printed above; never pass the variable text literally. For inline shell commands outside fenced blocks, substitute the printed absolute values before execution.\n`;
   if (!content.startsWith('---\n')) return bootstrap + content;
   const fmEnd = content.indexOf('\n---', 4);
   if (fmEnd === -1) return bootstrap + content;
   const bodyStart = fmEnd + 4;
   return content.slice(0, bodyStart) + bootstrap + content.slice(bodyStart);
+}
+
+function bootstrapClaudeShellBlocks(content: string, ctx: TemplateContext): string {
+  return content.replace(/\`\`\`(bash|sh|shell)\n([\s\S]*?)\n\`\`\`/g, (full, language: string, body: string) => {
+    if (!/\$GSTACK_(?:ROOT|BIN|BROWSE|DESIGN|MAKE_PDF)\b/.test(body)) return full;
+    if (body.includes('_GSTACK_ROOT_MARKER=')) return full;
+    return `\`\`\`${language}\n${generateClaudeRuntimeRootBashCompact(ctx)}\n${body}\n\`\`\``;
+  });
 }
 
 /**
@@ -879,6 +887,7 @@ function processTemplate(tmplPath: string, host: Host = 'claude'): { outputPath:
     if (!tmplContent.includes('{{PREAMBLE}}')) {
       content = injectClaudeRuntimeRootForPreamblelessSkill(content, ctx);
     }
+    content = bootstrapClaudeShellBlocks(content, ctx);
   } else {
     const result = processExternalHost(content, tmplContent, host, skillDir, postProcessDescription, ctx, extractedName || undefined);
     content = result.content;
@@ -949,6 +958,7 @@ function processSectionTemplate(
   content = applyHostRewrites(content, hostConfig);
   if (host === 'claude') {
     content = quotePortableRuntimePaths(content);
+    content = bootstrapClaudeShellBlocks(content, ctx);
     // --out-dir: a section may cross-reference another section by absolute path;
     // repoint those to the out-dir too (no-op when --out-dir is unset).
     content = rewriteSectionBase(content);
