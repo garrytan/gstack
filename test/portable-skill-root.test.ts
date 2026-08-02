@@ -125,6 +125,19 @@ describe('portable generated skill paths (#1882)', () => {
     expect(result.stdout).not.toContain('SHOULD_NOT_RUN');
   });
 
+  test('compact bootstrap reaches canonical fallback under set -e when marker is absent', () => {
+    const home = tempDir('gstack-runtime-strict-shell-');
+    const install = createStubRuntime(home, 'gstack');
+    const script = `set -e\n${generateClaudeRuntimeRootBashCompact(claudeContext())}\nprintf '%s\n' "$GSTACK_ROOT"\n`;
+    const result = spawnSync('bash', ['-c', script], {
+      env: { ...process.env, HOME: home, GSTACK_ROOT: '', CLAUDE_PLUGIN_ROOT: '' },
+      encoding: 'utf8',
+    });
+    expect(result.status).toBe(0);
+    expect(result.stdout.trim()).toBe(install);
+    expect(result.stderr).toBe('');
+  });
+
   test('non-gstack install marker drives real preamble binary calls', () => {
     const home = tempDir('gstack-portable-home-');
     const calls = path.join(home, 'calls.log');
@@ -605,6 +618,21 @@ describe('setup portable root registration (#1882)', () => {
     const result = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
     expect(result.status).toBe(0);
     expect(fs.readFileSync(path.join(runtime, '.gstack-hook-runtime'), 'utf8').trim()).toBe(source);
+  });
+
+  test('Windows recognizes only the exact source as owner of a marked runtime copy', () => {
+    const home = tempDir('gstack-setup-windows-runtime-owner-');
+    const source = path.join(home, 'source');
+    const foreign = path.join(home, 'foreign');
+    const runtime = path.join(home, '.claude', 'skills', 'gstack');
+    for (const dir of [source, foreign, runtime]) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(runtime, '.gstack-hook-runtime'), `${source}\n`);
+
+    const helper = extractSetupFunction('claude_windows_runtime_copy_owned_by');
+    const owned = spawnSync('bash', ['-c', `IS_WINDOWS=1\n${helper}\nclaude_windows_runtime_copy_owned_by "${source}" "${runtime}"`]);
+    const rejected = spawnSync('bash', ['-c', `IS_WINDOWS=1\n${helper}\nclaude_windows_runtime_copy_owned_by "${foreign}" "${runtime}"`]);
+    expect(owned.status).toBe(0);
+    expect(rejected.status).not.toBe(0);
   });
 
   test('prefix cleanup rejects a foreign legacy-looking target before mutation', () => {

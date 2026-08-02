@@ -23,8 +23,8 @@ export function generateClaudeRuntimeRootBashCompact(ctx: TemplateContext): stri
   const hostConfig = getHostConfig(ctx.host);
   const globalSkillsDir = path.posix.dirname(hostConfig.globalRoot);
   return `_gv(){ [ -f "$1/VERSION" ]&&[ -x "$1/bin/gstack-config" ]&&[ -x "$1/bin/gstack-runtime-env" ];}
-_r="\${GSTACK_ROOT:-}";unset GSTACK_ROOT GSTACK_BIN GSTACK_BROWSE GSTACK_DESIGN GSTACK_MAKE_PDF
-_gv "$_r"||_r="\${CLAUDE_PLUGIN_ROOT:-}";_gv "$_r"||_r=$(<"$HOME/${globalSkillsDir}/.gstack-root");_gv "$_r"||_r="$HOME/${hostConfig.globalRoot}";_gv "$_r"||exit 1
+_r="\${GSTACK_ROOT:-}";unset GSTACK_{ROOT,BIN,BROWSE,DESIGN,MAKE_PDF}
+_gv "$_r"||_r="\${CLAUDE_PLUGIN_ROOT:-}";_gv "$_r"||read -r _r 2>/dev/null<"$HOME/${globalSkillsDir}/.gstack-root"||:;_gv "$_r"||_r="$HOME/${hostConfig.globalRoot}";_gv "$_r"||exit 1
 _e=$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_r" "$_r/bin/gstack-runtime-env")||exit 1;[ -n "$_e" ]||exit 1;eval "$_e";unset _e;unset -f _gv`;
 }
 

@@ -743,6 +743,17 @@ mark_claude_windows_runtime_copy() {
   printf '%s\n' "$source_dir" > "$runtime_root/.gstack-hook-runtime"
 }
 
+claude_windows_runtime_copy_owned_by() {
+  local source_dir="$1"
+  local runtime_root="$2"
+  local source_real owner owner_real
+  [ "$IS_WINDOWS" -eq 1 ] && [ -d "$runtime_root" ] && [ ! -L "$runtime_root" ] || return 1
+  owner=$(head -n 1 "$runtime_root/.gstack-hook-runtime" 2>/dev/null || true)
+  source_real=$(cd "$source_dir" 2>/dev/null && pwd -P || true)
+  owner_real=$(cd "$owner" 2>/dev/null && pwd -P || true)
+  [ -n "$source_real" ] && [ "$owner_real" = "$source_real" ]
+}
+
 # Frontmatter hooks execute before the skill-body preamble, so guard/freeze/
 # careful cannot use $GSTACK_ROOT. For renamed installs, expose only their two
 # hook payload directories at the canonical path. Do not alias the whole repo:
@@ -1240,7 +1251,8 @@ if [ "$INSTALL_CLAUDE" -eq 1 ]; then
     _SKIP_CLAUDE_REGISTER=0
     if [ -d "$CLAUDE_GSTACK_LINK" ] && [ ! -L "$CLAUDE_GSTACK_LINK" ]; then
       _EXISTING_REAL=$(cd "$CLAUDE_GSTACK_LINK" 2>/dev/null && pwd -P || echo "")
-      if [ -n "$_EXISTING_REAL" ] && [ "$_EXISTING_REAL" != "$SOURCE_GSTACK_DIR" ]; then
+      if [ -n "$_EXISTING_REAL" ] && [ "$_EXISTING_REAL" != "$SOURCE_GSTACK_DIR" ] &&
+         ! claude_windows_runtime_copy_owned_by "$SOURCE_GSTACK_DIR" "$CLAUDE_GSTACK_LINK"; then
         _SKIP_CLAUDE_REGISTER=1
       fi
     fi
