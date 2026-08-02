@@ -539,6 +539,18 @@ mkdir -p "$HOME/.gstack/projects"
 # gstack/ (which would auto-prefix them as gstack-*).
 # When SKILL_PREFIX=1, directories are prefixed with "gstack-".
 # Use --no-prefix to restore flat names.
+_claude_legacy_windows_skill_copy_owned() {
+  local expected_skill="$1"
+  local target_skill="$2"
+  local expected_name target_name
+  [ "$IS_WINDOWS" -eq 1 ] && [ -f "$expected_skill" ] && [ -f "$target_skill" ] || return 1
+  grep -Fq '<!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->' "$expected_skill" || return 1
+  grep -Fq '<!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->' "$target_skill" || return 1
+  expected_name=$(grep -m1 '^name:' "$expected_skill" 2>/dev/null | sed 's/^name:[[:space:]]*//' | tr -d '[:space:]')
+  target_name=$(grep -m1 '^name:' "$target_skill" 2>/dev/null | sed 's/^name:[[:space:]]*//' | tr -d '[:space:]')
+  [ -n "$expected_name" ] && [ "${expected_name#gstack-}" = "${target_name#gstack-}" ]
+}
+
 _validate_claude_skill_target() {
   local gstack_dir="$1"
   local expected_skill="$2"
@@ -567,7 +579,7 @@ _validate_claude_skill_target() {
       local linked
       linked=$(readlink "$target/SKILL.md" 2>/dev/null || true)
       [ "$linked" = "$expected_real" ] && return 0
-    elif [ "$IS_WINDOWS" -eq 1 ] && [ -f "$target/SKILL.md" ] && cmp -s "$target/SKILL.md" "$expected_skill"; then
+    elif _claude_legacy_windows_skill_copy_owned "$expected_skill" "$target/SKILL.md"; then
       return 0
     elif [ -z "$(find "$target" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]; then
       return 0
@@ -716,6 +728,23 @@ is_canonical_claude_runtime_root() {
   [ -n "$source_real" ] && [ "$source_real" = "$skills_real/gstack" ]
 }
 
+_claude_legacy_windows_runtime_copy_owned() {
+  local source_dir="$1"
+  local runtime_root="$2"
+  [ "$IS_WINDOWS" -eq 1 ] || return 1
+  [ -f "$source_dir/VERSION" ] && [ -f "$source_dir/setup" ] && [ -f "$source_dir/package.json" ] || return 1
+  [ -f "$runtime_root/VERSION" ] && [ -f "$runtime_root/setup" ] && [ -f "$runtime_root/package.json" ] || return 1
+  grep -Eq '"name"[[:space:]]*:[[:space:]]*"gstack"' "$runtime_root/package.json" || return 1
+  grep -Fq '<!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->' "$runtime_root/SKILL.md" 2>/dev/null
+}
+
+mark_claude_windows_runtime_copy() {
+  local source_dir="$1"
+  local runtime_root="$2"
+  _claude_legacy_windows_runtime_copy_owned "$source_dir" "$runtime_root" || return 0
+  printf '%s\n' "$source_dir" > "$runtime_root/.gstack-hook-runtime"
+}
+
 # Frontmatter hooks execute before the skill-body preamble, so guard/freeze/
 # careful cannot use $GSTACK_ROOT. For renamed installs, expose only their two
 # hook payload directories at the canonical path. Do not alias the whole repo:
@@ -767,7 +796,8 @@ validate_claude_hook_runtime_root() {
     return 1
   fi
 
-  if [ -e "$runtime_root" ] && [ ! -f "$managed_marker" ]; then
+  if [ -e "$runtime_root" ] && [ ! -f "$managed_marker" ] &&
+     ! _claude_legacy_windows_runtime_copy_owned "$source_dir" "$runtime_root"; then
     echo "gstack setup failed: $runtime_root is owned by a different install." >&2
     echo "Rename/remove that install before activating $source_dir." >&2
     return 1
@@ -799,7 +829,7 @@ _claude_skill_target_owned() {
   fi
   if [ -L "$target/SKILL.md" ]; then
     [ "$(readlink "$target/SKILL.md" 2>/dev/null || true)" = "$expected_real" ] && return 0
-  elif [ "$IS_WINDOWS" -eq 1 ] && [ -f "$target/SKILL.md" ] && cmp -s "$target/SKILL.md" "$expected_skill"; then
+  elif _claude_legacy_windows_skill_copy_owned "$expected_skill" "$target/SKILL.md"; then
     return 0
   fi
   return 1
@@ -1213,7 +1243,8 @@ if [ "$INSTALL_CLAUDE" -eq 1 ]; then
     _SKIP_CLAUDE_REGISTER=0
     if [ -d "$CLAUDE_GSTACK_LINK" ] && [ ! -L "$CLAUDE_GSTACK_LINK" ]; then
       _EXISTING_REAL=$(cd "$CLAUDE_GSTACK_LINK" 2>/dev/null && pwd -P || echo "")
-      if [ -n "$_EXISTING_REAL" ] && [ "$_EXISTING_REAL" != "$SOURCE_GSTACK_DIR" ]; then
+      if [ -n "$_EXISTING_REAL" ] && [ "$_EXISTING_REAL" != "$SOURCE_GSTACK_DIR" ] &&
+         ! _claude_legacy_windows_runtime_copy_owned "$SOURCE_GSTACK_DIR" "$CLAUDE_GSTACK_LINK"; then
         _SKIP_CLAUDE_REGISTER=1
       fi
     fi
@@ -1244,6 +1275,7 @@ if [ "$INSTALL_CLAUDE" -eq 1 ]; then
         _validate_claude_cleanup_targets "$SOURCE_GSTACK_DIR" "$CLAUDE_SKILLS_DIR" "gstack-"
       fi
       _link_or_copy "$SOURCE_GSTACK_DIR" "$CLAUDE_GSTACK_LINK"
+      mark_claude_windows_runtime_copy "$SOURCE_GSTACK_DIR" "$CLAUDE_GSTACK_LINK"
       log "  symlinked $CLAUDE_GSTACK_LINK -> $SOURCE_GSTACK_DIR"
       INSTALL_SKILLS_DIR="$CLAUDE_SKILLS_DIR"
       INSTALL_GSTACK_DIR="$CLAUDE_GSTACK_LINK"

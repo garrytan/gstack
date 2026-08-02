@@ -38,8 +38,24 @@ if [ -z "$INSTALL_DIR" ] || [ ! -d "$INSTALL_DIR" ]; then
   exit 1
 fi
 
-# Detect target skills dir
-SKILLS_DIR="${GSTACK_SKILLS_DIR:-$(dirname "$INSTALL_DIR")}"
+# Detect target skills dir. A portable checkout may live anywhere while its
+# aliases are registered under ~/.claude/skills; trust that registration only
+# when its marker resolves to this exact install.
+INSTALL_REAL="$(cd "$INSTALL_DIR" && pwd -P)"
+SKILLS_DIR="${GSTACK_SKILLS_DIR:-}"
+if [ -z "$SKILLS_DIR" ]; then
+  _REGISTERED_MARKER="$HOME/.claude/skills/.gstack-root"
+  _REGISTERED_INSTALL=""
+  if [ -f "$_REGISTERED_MARKER" ]; then
+    _REGISTERED_ROOT="$(head -n 1 "$_REGISTERED_MARKER" 2>/dev/null || true)"
+    [ -d "$_REGISTERED_ROOT" ] && _REGISTERED_INSTALL="$(cd "$_REGISTERED_ROOT" && pwd -P)"
+  fi
+  if [ -n "$_REGISTERED_INSTALL" ] && [ "$_REGISTERED_INSTALL" = "$INSTALL_REAL" ]; then
+    SKILLS_DIR="$(dirname "$_REGISTERED_MARKER")"
+  else
+    SKILLS_DIR="$(dirname "$INSTALL_DIR")"
+  fi
+fi
 [ -d "$SKILLS_DIR" ] || mkdir -p "$SKILLS_DIR"
 
 if [ "${GSTACK_SETUP_RUNNING:-0}" != "1" ]; then
@@ -55,11 +71,21 @@ PREFIX=$("$GSTACK_CONFIG" get skill_prefix 2>/dev/null || echo "false")
 
 # Ownership checks deliberately require an exact install root or exact legacy
 # symlink target. Names containing "gstack" are not proof of ownership.
-INSTALL_REAL="$(cd "$INSTALL_DIR" && pwd -P)"
-
 _expected_real() {
   local expected="$1"
   printf '%s/%s\n' "$(cd "$(dirname "$expected")" && pwd -P)" "$(basename "$expected")"
+}
+
+_legacy_windows_skill_copy_owned() {
+  local expected="$1"
+  local target_skill="$2"
+  local expected_name target_name
+  [ "$IS_WINDOWS" -eq 1 ] && [ -f "$expected" ] && [ -f "$target_skill" ] || return 1
+  grep -Fq '<!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->' "$expected" || return 1
+  grep -Fq '<!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->' "$target_skill" || return 1
+  expected_name=$(grep -m1 '^name:' "$expected" 2>/dev/null | sed 's/^name:[[:space:]]*//' | tr -d '[:space:]')
+  target_name=$(grep -m1 '^name:' "$target_skill" 2>/dev/null | sed 's/^name:[[:space:]]*//' | tr -d '[:space:]')
+  [ -n "$expected_name" ] && [ "${expected_name#gstack-}" = "${target_name#gstack-}" ]
 }
 
 _target_owned() {
@@ -82,7 +108,7 @@ _target_owned() {
     linked=$(readlink "$target/SKILL.md" 2>/dev/null || true)
     linked_real=$(cd "$(dirname "$linked")" 2>/dev/null && pwd -P || true)
     [ -n "$linked_real" ] && [ "$linked_real/$(basename "$linked")" = "$expected_real" ] && return 0
-  elif [ "$IS_WINDOWS" -eq 1 ] && [ -f "$target/SKILL.md" ] && cmp -s "$target/SKILL.md" "$expected"; then
+  elif _legacy_windows_skill_copy_owned "$expected" "$target/SKILL.md"; then
     return 0
   fi
   return 1

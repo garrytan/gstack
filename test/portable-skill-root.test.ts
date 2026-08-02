@@ -542,6 +542,41 @@ describe('setup portable root registration (#1882)', () => {
     expect(fs.readFileSync(path.join(target, 'sections', 'CUSTOM'), 'utf8')).toBe('preserve\n');
   });
 
+  test('Windows preflight migrates a stale generated legacy copy', () => {
+    const home = tempDir('gstack-setup-windows-legacy-');
+    const source = path.join(home, 'renamed gstack');
+    const skills = path.join(home, '.claude', 'skills');
+    const target = path.join(skills, 'gstack-qa');
+    fs.mkdirSync(path.join(source, 'qa'), { recursive: true });
+    fs.mkdirSync(target, { recursive: true });
+    const generated = '<!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->';
+    fs.writeFileSync(path.join(source, 'qa', 'SKILL.md'), `---\nname: qa\n---\n${generated}\nnew\n`);
+    fs.writeFileSync(path.join(target, 'SKILL.md'), `---\nname: gstack-qa\n---\n${generated}\nold\n`);
+
+    const script = `set -e\nIS_WINDOWS=1\nSKILL_PREFIX=1\n${extractSetupFunction('_claude_legacy_windows_skill_copy_owned')}\n${extractSetupFunction('_validate_claude_skill_target')}\n${extractSetupFunction('_claude_post_patch_skill_name')}\n${extractSetupFunction('validate_claude_skill_targets')}\nvalidate_claude_skill_targets "${source}" "${skills}"\n`;
+    const result = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
+    expect(result.status).toBe(0);
+  });
+
+  test('Windows recognizes and marks a fresh canonical runtime copy', () => {
+    const home = tempDir('gstack-setup-windows-runtime-copy-');
+    const source = path.join(home, 'source');
+    const runtime = path.join(home, '.claude', 'skills', 'gstack');
+    const generated = '<!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->';
+    for (const dir of [source, runtime]) {
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, 'VERSION'), '1.0.0.0\n');
+      fs.writeFileSync(path.join(dir, 'setup'), '# setup\n');
+      fs.writeFileSync(path.join(dir, 'package.json'), '{"name":"gstack"}\n');
+      fs.writeFileSync(path.join(dir, 'SKILL.md'), `${generated}\n`);
+    }
+
+    const script = `set -e\nIS_WINDOWS=1\n${extractSetupFunction('_claude_legacy_windows_runtime_copy_owned')}\n${extractSetupFunction('mark_claude_windows_runtime_copy')}\nmark_claude_windows_runtime_copy "${source}" "${runtime}"\n`;
+    const result = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
+    expect(result.status).toBe(0);
+    expect(fs.readFileSync(path.join(runtime, '.gstack-hook-runtime'), 'utf8').trim()).toBe(source);
+  });
+
   test('prefix cleanup rejects a foreign legacy-looking target before mutation', () => {
     const home = tempDir('gstack-setup-cleanup-collision-');
     const source = path.join(home, 'renamed gstack');

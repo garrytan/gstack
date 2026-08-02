@@ -93,6 +93,19 @@ describe('gstack-relink (#578)', () => {
     expect(fs.existsSync(path.join(skillsDir, 'qa', 'SKILL.md'))).toBe(true);
   });
 
+  test('uses the matching portable registration directory for an external checkout', () => {
+    setupMockInstall(['qa']);
+    const mockHome = path.join(tmpDir, 'home');
+    const registeredSkills = path.join(mockHome, '.claude', 'skills');
+    fs.mkdirSync(registeredSkills, { recursive: true });
+    fs.writeFileSync(path.join(registeredSkills, '.gstack-root'), `${installDir}\n`);
+
+    run(`${path.join(installDir, 'bin', 'gstack-relink')}`, { HOME: mockHome });
+
+    expect(fs.existsSync(path.join(registeredSkills, 'qa', 'SKILL.md'))).toBe(true);
+    expect(fs.existsSync(path.join(tmpDir, 'qa'))).toBe(false);
+  });
+
   // Test 11: prefixed symlinks when skill_prefix=true
   test('creates gstack-* symlinks when skill_prefix=true', () => {
     setupMockInstall(['qa', 'ship', 'review']);
