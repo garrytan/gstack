@@ -7,10 +7,12 @@
  *   1. Repository (current repo)   → `gbrain sources add` (idempotent via
  *                                    lib/gbrain-sources.ts) + `gbrain sync
  *                                    --strategy auto`. The auto walk admits
- *                                    changed Markdown and code (plus images
- *                                    when GBrain multimodal sync is enabled).
+ *                                    changed Markdown and code. Images remain
+ *                                    disabled here until GBrain preserves the
+ *                                    selected source_id for image imports.
  *                                    `--full` then runs
- *                                    `gbrain reindex-code --yes` for code.
+ *                                    `gbrain reindex-code --yes --json` for
+ *                                    code.
  *                                    NEVER `gbrain import`.
  *   2. Transcripts + curated memory → gstack-memory-ingest (typed put_page)
  *   3. Curated artifacts to git    → gstack-brain-sync (existing pipeline)
@@ -43,7 +45,13 @@ import { detectEngineTier, withErrorContext, canonicalizeRemote } from "../lib/g
 import { ensureSourceRegistered, sourcePageCount, parseSourcesList, cycleCompleted, type CycleStatus } from "../lib/gbrain-sources";
 import { detectAutopilot, decideSourceRemove, decideCodeSync } from "../lib/gbrain-guards";
 import { localEngineStatus, type LocalEngineStatus } from "../lib/gbrain-local-status";
-import { buildGbrainEnv, spawnGbrain, execGbrainJson, NEEDS_SHELL_ON_WINDOWS } from "../lib/gbrain-exec";
+import {
+  buildGbrainEnv,
+  spawnGbrain,
+  spawnGbrainAsync,
+  execGbrainJson,
+  NEEDS_SHELL_ON_WINDOWS,
+} from "../lib/gbrain-exec";
 import { checkOwnedStagingDir } from "../lib/staging-guard";
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -108,8 +116,192 @@ export function repositorySyncArgs(sourceId: string): string[] {
   return ["sync", "--strategy", "auto", "--source", sourceId];
 }
 
+/**
+ * Bound the auto strategy to Markdown + code.
+ *
+ * GBrain 0.42.57 admits images when multimodal is enabled, but its image
+ * transaction drops the selected source_id and writes the page to `default`.
+ * Force the gate off for this repository-scoped path until upstream provides
+ * source-safe image routing and the PGLite boundary test can prove it.
+ */
+export function repositorySyncEnv(baseEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return { ...baseEnv, GBRAIN_EMBEDDING_MULTIMODAL: "false" };
+}
+
 function renderGbrainCommand(args: readonly string[]): string {
   return `gbrain ${args.join(" ")}`;
+}
+
+export type RepositorySyncTerminalStatus =
+  | "up_to_date"
+  | "synced"
+  | "first_sync"
+  | "blocked_by_failures"
+  | "partial"
+  | "unknown";
+
+/**
+ * Interpret GBrain's single-source terminal result.
+ *
+ * Current GBrain releases return exit 0 for both `blocked_by_failures` and
+ * `partial`, and their single-source `--json` path still renders the human
+ * result. Treat the documented terminal lines as a versioned wire contract
+ * and fail closed when a zero-exit result is missing or unfamiliar. This
+ * prevents reindex/pin/cleanup from running after an incomplete repository
+ * walk.
+ */
+export function parseRepositorySyncTerminalOutput(output: string): RepositorySyncTerminalStatus {
+  if (/^Sync BLOCKED\b/m.test(output)) return "blocked_by_failures";
+  if (/^Sync PARTIAL\b/m.test(output)) return "partial";
+  if (/^Already up to date\.$/m.test(output)) return "up_to_date";
+  if (/^Synced .+:$/m.test(output)) return "synced";
+  if (/^First sync complete\./m.test(output)) return "first_sync";
+  return "unknown";
+}
+
+interface ReindexCodeTerminalResult {
+  status?: unknown;
+  failed?: unknown;
+  failures?: unknown;
+}
+
+/** Parse the final JSON object emitted by `gbrain reindex-code --json`. */
+export function parseReindexCodeTerminalOutput(output: string): ReindexCodeTerminalResult | null {
+  const lines = output.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  for (let i = lines.length - 1; i >= 0; i--) {
+    try {
+      const parsed = JSON.parse(lines[i]) as unknown;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return parsed as ReindexCodeTerminalResult;
+      }
+    } catch {
+      // Progress or human-readable output can precede the final JSON object.
+    }
+  }
+  return null;
+}
+
+const TERMINAL_CAPTURE_LIMIT = 256 * 1024;
+
+export interface StreamingGbrainResult {
+  status: number | null;
+  signal: NodeJS.Signals | null;
+  stdout: string;
+  stderr: string;
+  timedOut: boolean;
+  error?: Error;
+}
+
+interface KillableChild {
+  pid?: number;
+  kill(signal?: NodeJS.Signals | number): boolean;
+}
+
+interface ProcessTreeTerminationOptions {
+  platform?: NodeJS.Platform;
+  taskkill?: (args: string[]) => number | null;
+}
+
+/**
+ * Terminate the whole spawned command tree. On Windows, spawnGbrainAsync uses
+ * a shell for .cmd/.ps1 launcher compatibility; killing only that shell can
+ * leave gbrain alive and its pipes open indefinitely.
+ */
+export function terminateGbrainProcessTree(
+  child: KillableChild,
+  opts: ProcessTreeTerminationOptions = {},
+): boolean {
+  const platform = opts.platform ?? process.platform;
+  if (platform === "win32" && child.pid !== undefined) {
+    const taskkill = opts.taskkill ?? ((args: string[]) =>
+      spawnSync("taskkill", args, { stdio: "ignore", windowsHide: true }).status);
+    if (taskkill(["/PID", String(child.pid), "/T", "/F"]) === 0) return true;
+  }
+  return child.kill("SIGTERM");
+}
+
+function appendTerminalTail(current: string, chunk: string): string {
+  const next = current + chunk;
+  return next.length <= TERMINAL_CAPTURE_LIMIT
+    ? next
+    : next.slice(next.length - TERMINAL_CAPTURE_LIMIT);
+}
+
+/**
+ * Stream long-running gbrain output while retaining only a bounded tail for
+ * semantic terminal-status parsing. `spawnSync(..., stdio: "pipe")` buffers
+ * the entire command and fails with ENOBUFS around 1 MiB under Bun; sync trace
+ * output and reindex failure details can legitimately exceed that.
+ */
+export async function runGbrainStreamingCapture(
+  args: string[],
+  opts: {
+    timeout: number;
+    cwd?: string;
+    baseEnv: NodeJS.ProcessEnv;
+    quiet: boolean;
+  },
+): Promise<StreamingGbrainResult> {
+  const child = spawnGbrainAsync(args, {
+    stdio: ["ignore", "pipe", "pipe"],
+    cwd: opts.cwd,
+    baseEnv: opts.baseEnv,
+  });
+  let stdout = "";
+  let stderr = "";
+  let timedOut = false;
+  let spawnError: Error | undefined;
+
+  child.stdout?.on("data", (chunk: Buffer | string) => {
+    stdout = appendTerminalTail(stdout, chunk.toString());
+  });
+  child.stderr?.on("data", (chunk: Buffer | string) => {
+    stderr = appendTerminalTail(stderr, chunk.toString());
+  });
+  if (!opts.quiet) {
+    child.stdout?.pipe(process.stdout, { end: false });
+    child.stderr?.pipe(process.stderr, { end: false });
+  }
+
+  return await new Promise<StreamingGbrainResult>((resolve) => {
+    let settled = false;
+    let forceKillTimer: ReturnType<typeof setTimeout> | undefined;
+    const timeoutTimer = setTimeout(() => {
+      timedOut = true;
+      terminateGbrainProcessTree(child);
+      forceKillTimer = setTimeout(() => {
+        if (process.platform === "win32") {
+          terminateGbrainProcessTree(child);
+        } else {
+          child.kill("SIGKILL");
+        }
+      }, 2_000);
+    }, opts.timeout);
+
+    const finish = (status: number | null, signal: NodeJS.Signals | null): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutTimer);
+      if (forceKillTimer) clearTimeout(forceKillTimer);
+      resolve({ status, signal, stdout, stderr, timedOut, error: spawnError });
+    };
+
+    child.once("error", (error) => {
+      spawnError = error;
+    });
+    child.once("close", finish);
+  });
+}
+
+function describeStreamingFailure(result: StreamingGbrainResult, timeoutMs: number): string {
+  if (result.timedOut) return `timed out after ${timeoutMs}ms`;
+  if (result.error) return `failed to start: ${result.error.message}`;
+  if (result.signal) return `terminated by ${result.signal}`;
+  return `exited ${result.status}`;
+}
+
+export function streamingGbrainSucceeded(result: StreamingGbrainResult): boolean {
+  return result.status === 0 && !result.timedOut && !result.error && !result.signal;
 }
 
 // Dream (call-graph build) is brain-global and runs LOCK-FREE after the sync
@@ -247,9 +439,10 @@ function printUsage(): void {
 
 Modes:
   --incremental        Default. mtime fast-path; ~50ms steady-state.
-  --full               Auto repository sync, then full code reindex. Does not
-                       backfill unchanged historical Markdown. Honest ~25-35 min
-                       for big Macs (ED2).
+  --full               Auto repository sync, then full code reindex. A healthy
+                       existing anchor stays incremental; GBrain can run a full
+                       reconcile when its anchor/history is unavailable or its
+                       indexing pipeline changes. Honest ~25-35 min for big Macs.
   --dry-run            Preview what would sync; no writes anywhere.
 
 Options:
@@ -823,27 +1016,19 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
     return skipStageForLocalStatus("code", localStatus, t0);
   }
 
-  // Step 0a: Best-effort cleanup of pre-pathhash legacy source (v1.x form).
+  // Step 0a: Identify the pre-pathhash legacy source (v1.x form). Cleanup is
+  // deliberately deferred until the replacement source has synced, attached,
+  // and reported a positive page count.
   // Earlier /sync-gbrain versions registered `gstack-code-<slug>` (no path
   // suffix). On a multi-worktree repo, those collapsed onto a single id
   // with last-sync-wins. Federated search would return stale duplicate
   // hits forever if we left the orphan in place. Remove the legacy id once
-  // here so users don't accumulate orphans.
-  // Failure is non-fatal — we still register the new id below.
+  // the replacement is verified so users don't accumulate orphans.
   // gbrainEnv seeds DATABASE_URL from gbrain's config so this stage works
   // inside Next.js / Prisma / Rails projects with their own .env.local
   // (codex review #7 — bug fix is wider than #1508 as filed).
-  const gbrainEnv = buildGbrainEnv({ announce: !args.quiet });
+  const gbrainEnv = repositorySyncEnv(buildGbrainEnv({ announce: !args.quiet }));
   const legacyId = deriveLegacyCodeSourceId(root);
-  let legacyRemoved = false;
-  if (legacyId !== sourceId) {
-    // #1734: route through the data-loss guards (autopilot + source-safety).
-    const rm = safeSourcesRemove(legacyId, gbrainEnv);
-    if (rm.skipped && !args.quiet) {
-      console.error(`[sync:code] legacy-source cleanup skipped: ${rm.reason}`);
-    }
-    if (rm.removed) legacyRemoved = true;
-  }
 
   // Step 0b: Hostname-fold migration (#1414).
   // Before #1468 the source id hashed only the absolute repo path. After the
@@ -890,9 +1075,14 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
   // while still reporting OK. The page-creating walk is `sync --strategy
   // auto`, so --full must run it FIRST, then reindex-code, to honor the
   // documented "repository walk + code reindex" order for both fresh and
-  // populated sources. Auto admits changed Markdown and code, plus images when
-  // GBrain's existing multimodal setting allows them. It does not backfill
-  // unchanged historical Markdown; the second phase is intentionally code-only.
+  // populated sources. Auto admits changed Markdown and code; this caller
+  // deliberately disables image admission until GBrain preserves source_id
+  // for image imports. Merely switching an
+  // existing source with a usable anchor to `auto` does not revisit unchanged
+  // historical Markdown. GBrain can still choose an authoritative full
+  // reconcile on first sync, when its anchor/history is unavailable, or when
+  // its indexing pipeline version changes. The second phase is intentionally
+  // code-only.
   const codeTimeoutMs = resolveStageTimeoutMs(
     process.env.GSTACK_SYNC_CODE_TIMEOUT_MS,
     "GSTACK_SYNC_CODE_TIMEOUT_MS",
@@ -920,37 +1110,78 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
     };
   }
 
-  const walkResult = spawnGbrain(syncArgs, {
-    stdio: args.quiet ? ["ignore", "ignore", "ignore"] : ["ignore", "inherit", "inherit"],
+  const walkResult = await runGbrainStreamingCapture(syncArgs, {
     timeout: codeTimeoutMs,
     baseEnv: gbrainEnv,
+    quiet: args.quiet,
   });
 
-  if (walkResult.status !== 0) {
+  if (!streamingGbrainSucceeded(walkResult)) {
     return {
       name: "code",
       ran: true,
       ok: false,
       duration_ms: Date.now() - t0,
-      summary: `${syncCommand} exited ${walkResult.status}`,
+      summary: `${syncCommand} ${describeStreamingFailure(walkResult, codeTimeoutMs)}`,
+      detail: { source_id: sourceId, source_path: root, status: "failed" },
+    };
+  }
+
+  const walkTerminalStatus = parseRepositorySyncTerminalOutput(
+    `${walkResult.stdout || ""}\n${walkResult.stderr || ""}`,
+  );
+  if (
+    walkTerminalStatus === "blocked_by_failures" ||
+    walkTerminalStatus === "partial" ||
+    walkTerminalStatus === "unknown"
+  ) {
+    return {
+      name: "code",
+      ran: true,
+      ok: false,
+      duration_ms: Date.now() - t0,
+      summary: `${syncCommand} reported ${walkTerminalStatus}; refusing reindex and source pin`,
       detail: { source_id: sourceId, source_path: root, status: "failed" },
     };
   }
 
   if (args.mode === "full") {
-    const reindexResult = spawnGbrain(["reindex-code", "--source", sourceId, "--yes"], {
-      stdio: args.quiet ? ["ignore", "ignore", "ignore"] : ["ignore", "inherit", "inherit"],
-      timeout: codeTimeoutMs,
-      baseEnv: gbrainEnv,
-    });
+    const reindexResult = await runGbrainStreamingCapture(
+      ["reindex-code", "--source", sourceId, "--yes", "--json"],
+      {
+        timeout: codeTimeoutMs,
+        baseEnv: gbrainEnv,
+        quiet: args.quiet,
+      },
+    );
 
-    if (reindexResult.status !== 0) {
+    if (!streamingGbrainSucceeded(reindexResult)) {
       return {
         name: "code",
         ran: true,
         ok: false,
         duration_ms: Date.now() - t0,
-        summary: `gbrain reindex-code --source ${sourceId} exited ${reindexResult.status}`,
+        summary: `gbrain reindex-code --source ${sourceId} ${describeStreamingFailure(reindexResult, codeTimeoutMs)}`,
+        detail: { source_id: sourceId, source_path: root, status: "failed" },
+      };
+    }
+
+    const reindexTerminal = parseReindexCodeTerminalOutput(reindexResult.stdout || "");
+    const reindexFailures = Array.isArray(reindexTerminal?.failures)
+      ? reindexTerminal.failures.length
+      : 0;
+    if (
+      reindexTerminal?.status !== "ok" ||
+      typeof reindexTerminal.failed !== "number" ||
+      reindexTerminal.failed !== 0 ||
+      reindexFailures !== 0
+    ) {
+      return {
+        name: "code",
+        ran: true,
+        ok: false,
+        duration_ms: Date.now() - t0,
+        summary: `gbrain reindex-code --source ${sourceId} reported an incomplete result; refusing source pin`,
         detail: { source_id: sourceId, source_path: root, status: "failed" },
       };
     }
@@ -972,27 +1203,6 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
   });
   const pageCount = sourcePageCount(sourceId, gbrainEnv);
 
-  // Step 4: Deferred hostname-fold cleanup.
-  // Only remove the pre-#1468 path-only-hash source NOW that the new source
-  // has registered + synced + has pages. Removing before sync would create a
-  // data-loss window if sync failed; removing without a page-count check would
-  // wipe pages when sync silently no-op'd. This is the codex-review-flagged
-  // safety: register → sync → verify → THEN delete.
-  let hostnameLegacyRemoved = false;
-  if (migration.kind === "pending-cleanup" && pageCount !== null && pageCount > 0) {
-    hostnameLegacyRemoved = removeOrphanedSource(migration.oldId, gbrainEnv);
-    if (hostnameLegacyRemoved && !args.quiet) {
-      console.error(`[sync:code] hostname-fold migration: removed legacy ${migration.oldId} after new source sync verified (page_count=${pageCount})`);
-    }
-  }
-
-  const legacyParts: string[] = [];
-  if (legacyRemoved) legacyParts.push(`removed legacy ${legacyId}`);
-  if (migration.kind === "renamed") legacyParts.push(`renamed ${migration.oldId}→${migration.newId}`);
-  if (hostnameLegacyRemoved) legacyParts.push(`removed pre-hostname-fold ${migration.kind === "pending-cleanup" ? migration.oldId : ""}`);
-  const legacyNote = legacyParts.length > 0 ? `, ${legacyParts.join(", ")}` : "";
-  const baseSummary = `${registered ? "registered + " : ""}synced ${sourceId} (page_count=${pageCount ?? "unknown"}${legacyNote})`;
-
   if (attach.status !== 0) {
     const reason = (attach.stderr || attach.stdout || "").trim().split("\n").pop() || `exit ${attach.status}`;
     return {
@@ -1000,7 +1210,7 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
       ran: true,
       ok: false,
       duration_ms: Date.now() - t0,
-      summary: `${baseSummary}; attach FAILED (${reason}) — code-def queries from this worktree will hit the default source until /sync-gbrain succeeds`,
+      summary: `${registered ? "registered + " : ""}synced ${sourceId} (page_count=${pageCount ?? "unknown"}); attach FAILED (${reason}) — code-def queries from this worktree will hit the default source until /sync-gbrain succeeds`,
       detail: {
         source_id: sourceId,
         source_path: root,
@@ -1010,6 +1220,35 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
       },
     };
   }
+
+  // Step 4: Deferred legacy cleanup. Only remove either predecessor NOW that
+  // the replacement source has registered + synced + reindexed (when full) +
+  // attached + reported pages. Any earlier failure leaves the previous index
+  // intact. Removals remain best-effort and pass through the #1734 guards.
+  let legacyRemoved = false;
+  let hostnameLegacyRemoved = false;
+  if (pageCount !== null && pageCount > 0) {
+    if (legacyId !== sourceId) {
+      const rm = safeSourcesRemove(legacyId, gbrainEnv);
+      if (rm.skipped && !args.quiet) {
+        console.error(`[sync:code] legacy-source cleanup skipped: ${rm.reason}`);
+      }
+      legacyRemoved = rm.removed;
+    }
+    if (migration.kind === "pending-cleanup") {
+      hostnameLegacyRemoved = removeOrphanedSource(migration.oldId, gbrainEnv);
+      if (hostnameLegacyRemoved && !args.quiet) {
+        console.error(`[sync:code] hostname-fold migration: removed legacy ${migration.oldId} after new source sync verified (page_count=${pageCount})`);
+      }
+    }
+  }
+
+  const legacyParts: string[] = [];
+  if (legacyRemoved) legacyParts.push(`removed legacy ${legacyId}`);
+  if (migration.kind === "renamed") legacyParts.push(`renamed ${migration.oldId}→${migration.newId}`);
+  if (hostnameLegacyRemoved) legacyParts.push(`removed pre-hostname-fold ${migration.kind === "pending-cleanup" ? migration.oldId : ""}`);
+  const legacyNote = legacyParts.length > 0 ? `, ${legacyParts.join(", ")}` : "";
+  const baseSummary = `${registered ? "registered + " : ""}synced ${sourceId} (page_count=${pageCount ?? "unknown"}${legacyNote})`;
 
   // v1.29.0.0 changelog promised the per-worktree pin would be ignored in the
   // consuming repo, but the change actually only added .gbrain-source to

@@ -986,16 +986,18 @@ GBrain is set up and synced on this machine. The agent should prefer gbrain
 over Grep when the question is semantic or when you don't know the exact
 identifier yet.
 
-**This worktree is pinned to a worktree-scoped code source** via the
+**This worktree is pinned to a worktree-scoped repository source** via the
 `.gbrain-source` file in the repo root (kubectl-style context). Any
 `gbrain code-def`, `code-refs`, `code-callers`, `code-callees`, or `query`
 call from anywhere under this worktree routes to that source by default —
 no `--source` flag needed. Conductor sibling worktrees of the same repo
 each have their own pin and their own indexed pages, so semantic results
-match the actual code on disk in this worktree.
+match the repository contents on disk in this worktree.
 
 Two indexed corpora available via the `gbrain` CLI:
-- This worktree's code (auto-pinned via `.gbrain-source`).
+- This worktree's changed Markdown and code (auto-pinned via `.gbrain-source`).
+  Repository images stay excluded until GBrain preserves source isolation for
+  image imports.
 - `~/.gstack/` curated memory (registered as `gstack-brain-<user>` source via
   the existing federation pipeline).
 
@@ -1010,14 +1012,14 @@ Prefer gbrain when:
     `gbrain search "<terms>" --source gstack-brain-<user>`
 
 Grep is still right for known exact strings, regex, multiline patterns, and
-file globs. Run `/sync-gbrain` after meaningful code changes; for ongoing
-auto-sync across all worktrees, run `gbrain autopilot --install` once per
-machine — gbrain's daemon handles incremental refresh on a schedule.
+file globs. Run `/sync-gbrain` after meaningful documentation or code changes.
+Scheduled repository-wide Markdown + code refresh is not configured by this
+skill; GBrain autopilot currently uses its source's own strategy.
 
 Safety: don't run `/sync-gbrain` while `gbrain autopilot` is active — the
 orchestrator refuses destructive source ops when it detects a running autopilot
 to avoid racing it (#1734). Prefer registering user repos with `gbrain sources
 add --path <dir>` (no `--url`): URL-managed sources can auto-reclone, and the
-sync code walk for them requires an explicit `--allow-reclone` opt-in.
+repository sync for them requires an explicit `--allow-reclone` opt-in.
 
 <!-- gstack-gbrain-search-guidance:end -->

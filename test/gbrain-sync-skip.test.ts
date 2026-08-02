@@ -47,6 +47,12 @@ function makeEnv(opts: {
   gbrainBehavior?: "ok" | "broken-db" | "broken-config" | "engine-locked" | "slow";
   withConfig: boolean;
   syncExit?: number;
+  syncTerminal?: "success" | "blocked" | "partial" | "unknown";
+  reindexExit?: number;
+  reindexFailed?: number;
+  reindexHasFailureDetail?: boolean;
+  attachExit?: number;
+  syncNoiseLines?: number;
 }): FakeEnv {
   const tmp = mkdtempSync(join(tmpdir(), "gbrain-sync-skip-"));
   const bindir = join(tmp, "bin");
@@ -69,6 +75,23 @@ function makeEnv(opts: {
   if (opts.withGbrain) {
     const behavior = opts.gbrainBehavior || "ok";
     const syncExit = opts.syncExit ?? 0;
+    const syncTerminal = opts.syncTerminal ?? "success";
+    const reindexExit = opts.reindexExit ?? 0;
+    const reindexFailed = opts.reindexFailed ?? 0;
+    const attachExit = opts.attachExit ?? 0;
+    const syncNoise = opts.syncNoiseLines
+      ? `yes 'trace-0123456789abcdef-0123456789abcdef-0123456789abcdef-0123456789abcdef' | head -n ${opts.syncNoiseLines}`
+      : "";
+    const reindexFailuresJson = opts.reindexHasFailureDetail
+      ? ',"failures":[{"slug":"code/example","error":"fixture failure"}]'
+      : "";
+    const syncTerminalLine = syncTerminal === "blocked"
+      ? "Sync BLOCKED at 01234567: 1 file(s) failed to parse."
+      : syncTerminal === "partial"
+        ? "Sync PARTIAL at 01234567: imported 1 of 2 file(s), reason=timeout."
+        : syncTerminal === "unknown"
+          ? "Sync finished with a future terminal status."
+          : "Already up to date.";
     // "slow": healthy engine, cold pooler connection (#1964) — sleeps past the
     // (test-lowered) probe timeout on `sources list`, then answers fine.
     const sourcesBlock =
@@ -77,7 +100,10 @@ function makeEnv(opts: {
   echo '{"sources":[]}'
   exit 0`
         : behavior === "ok"
-          ? `  if [ -n "$FAKE_GBRAIN_EXISTING_SOURCE" ]; then
+          ? `  if [ -n "$FAKE_GBRAIN_SYNCED_SOURCE_FILE" ] && [ -f "$FAKE_GBRAIN_SYNCED_SOURCE_FILE" ]; then
+    synced_source=$(cat "$FAKE_GBRAIN_SYNCED_SOURCE_FILE")
+    printf '{"sources":[{"id":"%s","local_path":"%s","page_count":2}]}\\n' "$synced_source" "$FAKE_GBRAIN_EXISTING_PATH"
+  elif [ -n "$FAKE_GBRAIN_EXISTING_SOURCE" ]; then
     printf '{"sources":[{"id":"%s","local_path":"%s"}]}\\n' "$FAKE_GBRAIN_EXISTING_SOURCE" "$FAKE_GBRAIN_EXISTING_PATH"
   else
     echo '{"sources":[]}'
@@ -98,7 +124,22 @@ if [ "$1" = "--version" ]; then echo "gbrain 0.33.1.0"; exit 0; fi
 if [ "$1 $2" = "sources list" ]; then
 ${sourcesBlock}
 fi
-if [ "$1 $2 $3" = "sync --strategy auto" ]; then exit ${syncExit}; fi
+if [ "$1 $2 $3" = "sync --strategy auto" ]; then
+  if [ -n "$FAKE_GBRAIN_SYNC_ENV_LOG" ]; then
+    printf '%s\n' "$GBRAIN_EMBEDDING_MULTIMODAL" > "$FAKE_GBRAIN_SYNC_ENV_LOG"
+  fi
+  if [ -n "$FAKE_GBRAIN_SYNCED_SOURCE_FILE" ]; then
+    printf '%s\n' "$5" > "$FAKE_GBRAIN_SYNCED_SOURCE_FILE"
+  fi
+  ${syncNoise}
+  printf '%s\n' '${syncTerminalLine}'
+  exit ${syncExit}
+fi
+if [ "$1" = "reindex-code" ]; then
+  printf '%s\n' '{"status":"ok","codePages":2,"reindexed":2,"skipped":0,"failed":${reindexFailed},"totalTokens":20,"costUsd":0,"model":"fixture"${reindexFailuresJson}}'
+  exit ${reindexExit}
+fi
+if [ "$1 $2" = "sources attach" ]; then exit ${attachExit}; fi
 if [ "$1" = "--help" ]; then echo "  import"; exit 0; fi
 exit 0
 `;
@@ -287,6 +328,8 @@ describe("gstack-gbrain-sync — split-engine SKIP (plan D12)", () => {
       const r = runOrchestrator(env, ["--code-only", "--quiet"], {
         FAKE_GBRAIN_EXISTING_SOURCE: sourceId!,
         FAKE_GBRAIN_EXISTING_PATH: realpathSync(env.home),
+        FAKE_GBRAIN_SYNC_ENV_LOG: join(env.tmp, "sync-env.log"),
+        GBRAIN_EMBEDDING_MULTIMODAL: "true",
       });
       const commands = readFileSync(join(env.tmp, "gbrain.log"), "utf-8").trim().split("\n");
 
@@ -295,6 +338,7 @@ describe("gstack-gbrain-sync — split-engine SKIP (plan D12)", () => {
       expect(commands.some((command) => command.includes("sync --strategy code"))).toBe(false);
       expect(commands.filter((command) => command.startsWith(`sources remove ${sourceId} `))).toEqual([]);
       expect(commands.filter((command) => command.startsWith(`sources add ${sourceId} `))).toEqual([]);
+      expect(readFileSync(join(env.tmp, "sync-env.log"), "utf-8").trim()).toBe("false");
     } finally {
       env.cleanup();
     }
@@ -306,7 +350,7 @@ describe("gstack-gbrain-sync — split-engine SKIP (plan D12)", () => {
       const r = runOrchestrator(env, ["--full", "--code-only", "--no-dream"]);
       const commands = readFileSync(join(env.tmp, "gbrain.log"), "utf-8").trim().split("\n");
       const syncIndex = commands.findIndex((command) => /^sync --strategy auto --source gstack-code-/.test(command));
-      const reindexIndex = commands.findIndex((command) => /^reindex-code --source gstack-code-.* --yes$/.test(command));
+      const reindexIndex = commands.findIndex((command) => /^reindex-code --source gstack-code-.* --yes --json$/.test(command));
       const attachIndex = commands.findIndex((command) => /^sources attach gstack-code-/.test(command));
 
       expect(r.exitCode).toBe(0);
@@ -333,6 +377,133 @@ describe("gstack-gbrain-sync — split-engine SKIP (plan D12)", () => {
       expect(r.stdout + r.stderr).toContain("exited 17");
       expect(commands.some((command) => command.startsWith("reindex-code "))).toBe(false);
       expect(commands.some((command) => command.startsWith("sources attach "))).toBe(false);
+      expect(commands.some((command) => command.startsWith("sources remove "))).toBe(false);
+    } finally {
+      env.cleanup();
+    }
+  });
+
+  for (const terminal of ["blocked", "partial", "unknown"] as const) {
+    it(`fails closed on zero-exit ${terminal} sync and does not reindex or attach`, () => {
+      const env = makeEnv({
+        withGbrain: true,
+        gbrainBehavior: "ok",
+        withConfig: true,
+        syncTerminal: terminal,
+      });
+      try {
+        const r = runOrchestrator(env, ["--full", "--code-only", "--no-dream"]);
+        const commands = readFileSync(join(env.tmp, "gbrain.log"), "utf-8").trim().split("\n");
+
+        expect(r.exitCode).toBe(1);
+        expect(r.stdout + r.stderr).toContain(`reported ${terminal === "blocked" ? "blocked_by_failures" : terminal}`);
+        expect(commands.some((command) => command.startsWith("reindex-code "))).toBe(false);
+        expect(commands.some((command) => command.startsWith("sources attach "))).toBe(false);
+        expect(commands.some((command) => command.startsWith("sources remove "))).toBe(false);
+      } finally {
+        env.cleanup();
+      }
+    });
+  }
+
+  it("does not attach when reindex-code exits non-zero", () => {
+    const env = makeEnv({
+      withGbrain: true,
+      gbrainBehavior: "ok",
+      withConfig: true,
+      reindexExit: 23,
+    });
+    try {
+      const r = runOrchestrator(env, ["--full", "--code-only", "--no-dream"]);
+      const commands = readFileSync(join(env.tmp, "gbrain.log"), "utf-8").trim().split("\n");
+
+      expect(r.exitCode).toBe(1);
+      expect(r.stdout + r.stderr).toContain("reindex-code");
+      expect(r.stdout + r.stderr).toContain("exited 23");
+      expect(commands.some((command) => command.startsWith("sources attach "))).toBe(false);
+      expect(commands.some((command) => command.startsWith("sources remove "))).toBe(false);
+    } finally {
+      env.cleanup();
+    }
+  });
+
+  it("does not attach when reindex-code exits zero with failed pages", () => {
+    const env = makeEnv({
+      withGbrain: true,
+      gbrainBehavior: "ok",
+      withConfig: true,
+      reindexFailed: 1,
+      reindexHasFailureDetail: true,
+    });
+    try {
+      const r = runOrchestrator(env, ["--full", "--code-only", "--no-dream"]);
+      const commands = readFileSync(join(env.tmp, "gbrain.log"), "utf-8").trim().split("\n");
+
+      expect(r.exitCode).toBe(1);
+      expect(r.stdout + r.stderr).toContain("incomplete result");
+      expect(commands.some((command) => command.startsWith("sources attach "))).toBe(false);
+      expect(commands.some((command) => command.startsWith("sources remove "))).toBe(false);
+    } finally {
+      env.cleanup();
+    }
+  });
+
+  it("does not remove legacy sources when attach fails after a successful walk", () => {
+    const env = makeEnv({
+      withGbrain: true,
+      gbrainBehavior: "ok",
+      withConfig: true,
+      attachExit: 29,
+    });
+    try {
+      const r = runOrchestrator(env, ["--code-only"]);
+      const commands = readFileSync(join(env.tmp, "gbrain.log"), "utf-8").trim().split("\n");
+
+      expect(r.exitCode).toBe(1);
+      expect(r.stdout + r.stderr).toContain("attach FAILED");
+      expect(commands.some((command) => command.startsWith("sources remove "))).toBe(false);
+    } finally {
+      env.cleanup();
+    }
+  });
+
+  it("removes a legacy source only after sync, attach, and positive page-count proof", () => {
+    const env = makeEnv({ withGbrain: true, gbrainBehavior: "ok", withConfig: true });
+    try {
+      const r = runOrchestrator(env, ["--code-only", "--quiet"], {
+        FAKE_GBRAIN_EXISTING_SOURCE: "gstack-code-home",
+        FAKE_GBRAIN_EXISTING_PATH: realpathSync(env.home),
+        FAKE_GBRAIN_SYNCED_SOURCE_FILE: join(env.tmp, "synced-source"),
+      });
+      const commands = readFileSync(join(env.tmp, "gbrain.log"), "utf-8").trim().split("\n");
+      const syncIndex = commands.findIndex((command) => command.startsWith("sync --strategy auto "));
+      const attachIndex = commands.findIndex((command) => command.startsWith("sources attach "));
+      const removeIndex = commands.findIndex((command) =>
+        command.startsWith("sources remove gstack-code-home --confirm-destructive"),
+      );
+
+      expect(r.exitCode).toBe(0);
+      expect(syncIndex).toBeGreaterThanOrEqual(0);
+      expect(attachIndex).toBeGreaterThan(syncIndex);
+      expect(removeIndex).toBeGreaterThan(attachIndex);
+    } finally {
+      env.cleanup();
+    }
+  });
+
+  it("handles sync output larger than spawnSync's buffer with a bounded terminal tail", () => {
+    const env = makeEnv({
+      withGbrain: true,
+      gbrainBehavior: "ok",
+      withConfig: true,
+      syncNoiseLines: 20_000,
+    });
+    try {
+      const r = runOrchestrator(env, ["--code-only", "--quiet"]);
+      const commands = readFileSync(join(env.tmp, "gbrain.log"), "utf-8").trim().split("\n");
+
+      expect(r.exitCode).toBe(0);
+      expect(commands.some((command) => command.startsWith("sources attach "))).toBe(true);
     } finally {
       env.cleanup();
     }

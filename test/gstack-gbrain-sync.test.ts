@@ -16,8 +16,14 @@ import { spawnSync } from "child_process";
 import {
   derivePathOnlyHashLegacyId,
   planHostnameFoldMigration,
+  parseReindexCodeTerminalOutput,
+  parseRepositorySyncTerminalOutput,
   repositorySyncArgs,
+  repositorySyncEnv,
+  runGbrainStreamingCapture,
   sourceLocalPath,
+  streamingGbrainSucceeded,
+  terminateGbrainProcessTree,
   _resetGbrainSupportsRenameCache,
 } from "../bin/gstack-gbrain-sync";
 
@@ -71,6 +77,100 @@ describe("gstack-gbrain-sync CLI", () => {
       "--source",
       "gstack-code-example",
     ]);
+  });
+
+  it("bounds repository auto-sync to source-safe Markdown and code", () => {
+    const base = { GBRAIN_EMBEDDING_MULTIMODAL: "true", KEEP_ME: "yes" };
+    const bounded = repositorySyncEnv(base);
+
+    expect(bounded.GBRAIN_EMBEDDING_MULTIMODAL).toBe("false");
+    expect(bounded.KEEP_ME).toBe("yes");
+    expect(base.GBRAIN_EMBEDDING_MULTIMODAL).toBe("true");
+  });
+
+  it("classifies GBrain's zero-exit sync terminal statuses fail closed", () => {
+    expect(parseRepositorySyncTerminalOutput("Already up to date.\n")).toBe("up_to_date");
+    expect(parseRepositorySyncTerminalOutput("Synced 12345678..abcdef01:\n")).toBe("synced");
+    expect(parseRepositorySyncTerminalOutput("First sync complete. Checkpoint: abcdef01\n")).toBe("first_sync");
+    expect(parseRepositorySyncTerminalOutput("Sync BLOCKED at abcdef01: 1 file failed.\n")).toBe("blocked_by_failures");
+    expect(parseRepositorySyncTerminalOutput("Sync PARTIAL at abcdef01: reason=timeout.\n")).toBe("partial");
+    expect(parseRepositorySyncTerminalOutput("Future success wording\n")).toBe("unknown");
+  });
+
+  it("uses the final reindex-code JSON result after any preceding progress envelope", () => {
+    expect(
+      parseReindexCodeTerminalOutput(
+        '{"status":"proceeding"}\n{"status":"ok","failed":0,"failures":[]}\n',
+      ),
+    ).toEqual({ status: "ok", failed: 0, failures: [] });
+    expect(parseReindexCodeTerminalOutput("not json\n")).toBeNull();
+  });
+
+  it("rejects a timed-out child even when its SIGTERM trap exits zero", async () => {
+    if (process.platform === "win32") return;
+    const bindir = mkdtempSync(join(tmpdir(), "gstack-gbrain-timeout-bin-"));
+    const fakeGbrain = join(bindir, "gbrain");
+    writeFileSync(
+      fakeGbrain,
+      '#!/usr/bin/env node\nprocess.on("SIGTERM", () => process.exit(0));\nsetInterval(() => {}, 1_000);\n',
+    );
+    chmodSync(fakeGbrain, 0o755);
+
+    try {
+      const result = await runGbrainStreamingCapture(["sync"], {
+        timeout: 1_000,
+        baseEnv: { ...process.env, PATH: `${bindir}:${process.env.PATH || ""}` },
+        quiet: true,
+      });
+
+      expect(result.timedOut).toBe(true);
+      expect(result.status).toBe(0);
+      expect(streamingGbrainSucceeded(result)).toBe(false);
+    } finally {
+      rmSync(bindir, { recursive: true, force: true });
+    }
+  });
+
+  it("terminates the full Windows shell tree with taskkill", () => {
+    const calls: string[][] = [];
+    let fallbackKillCalled = false;
+    const killed = terminateGbrainProcessTree(
+      {
+        pid: 4242,
+        kill: () => {
+          fallbackKillCalled = true;
+          return true;
+        },
+      },
+      {
+        platform: "win32",
+        taskkill: (args) => {
+          calls.push(args);
+          return 0;
+        },
+      },
+    );
+
+    expect(killed).toBe(true);
+    expect(calls).toEqual([["/PID", "4242", "/T", "/F"]]);
+    expect(fallbackKillCalled).toBe(false);
+  });
+
+  it("falls back to direct termination when Windows taskkill fails", () => {
+    let fallbackSignal: NodeJS.Signals | number | undefined;
+    const killed = terminateGbrainProcessTree(
+      {
+        pid: 4242,
+        kill: (signal) => {
+          fallbackSignal = signal;
+          return true;
+        },
+      },
+      { platform: "win32", taskkill: () => 1 },
+    );
+
+    expect(killed).toBe(true);
+    expect(fallbackSignal).toBe("SIGTERM");
   });
 
   it("--dry-run with --code-only reports the repository sync preview only", () => {

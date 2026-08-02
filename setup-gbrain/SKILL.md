@@ -1154,21 +1154,22 @@ Capture two values from the verify output for downstream steps:
 - `URL_FORM_SUPPORTED` (`true|false`) — passed to `gstack-artifacts-init` in
   Step 7 to control which form of the brain-admin hookup command is printed.
 
-**4d. (Path 4) Offer local PGLite for code search.** Per plan D10/D11, ask:
+**4d. (Path 4) Offer local PGLite for repository search.** Per plan D10/D11, ask:
 
-> D# — Want symbol-aware code search on this machine?
+> D# — Want local repository and symbol search on this machine?
 > Project/branch/task: <one-sentence grounding using detected slug + branch>
 > ELI10: The remote brain at `<MCP_URL>` is great for cross-machine knowledge,
 > but symbol queries like `gbrain code-def` / `code-refs` / `code-callers` need
-> a local index of THIS machine's code. We can spin up a tiny isolated PGLite
-> database (~30 seconds, no accounts, ~120 MB disk) just for code, separate
-> from your remote brain. Transcripts and artifacts continue routing through
-> the artifacts repo to the remote brain — local PGLite stays code-only.
-> Stakes: without it, semantic code search in this repo's worktrees falls
+> a local index of THIS machine's checkout. We can spin up a tiny isolated
+> PGLite database (~30 seconds, no accounts, ~120 MB disk) for changed Markdown
+> and code, separate from your remote brain. Transcripts and artifacts continue
+> routing through the artifacts repo to the remote brain — local PGLite stays
+> repository-only.
+> Stakes: without it, semantic documentation and code search in this repo's worktrees fall
 > back to Grep.
 > Recommendation: A — 30 seconds, no ongoing cost, unlocks the symbol tools.
 > Completeness: A=10/10 (full split-engine), B=7/10 (remote-only).
-> A) Yes, set up local PGLite for code (recommended)
+> A) Yes, set up local PGLite for this repository (recommended)
 >   ✅ Unlocks `gbrain code-def`, `code-refs`, `code-callers` per worktree
 >   ✅ Independent engine — won't disturb remote brain or share transcripts
 > B) No, remote MCP only
@@ -1186,7 +1187,7 @@ if [ -f "$HOME/.gbrain/config.json" ]; then
   BACKUP="$HOME/.gbrain/config.json.gstack-bak-$(date +%s)"
   mv "$HOME/.gbrain/config.json" "$BACKUP"
 fi
-# gstack default for local code-search PGLite: voyage-code-3 (1024d) when
+# gstack default for local repository-search PGLite: voyage-code-3 (1024d) when
 # VOYAGE_API_KEY is set. It wins the A/B over voyage-4-large and OpenAI
 # text-embedding-3-large on this codebase's symbol queries. Falls back to
 # gbrain's auto-selected provider when the key isn't present.
@@ -1197,18 +1198,18 @@ fi
 if ! gbrain init --pglite --json $GBRAIN_EMBED_FLAGS; then
   if [ -n "${BACKUP:-}" ] && [ -f "$BACKUP" ]; then mv "$BACKUP" "$HOME/.gbrain/config.json"; fi
   echo "gbrain init failed. Existing config (if any) was restored. PGLite at ~/.gbrain/pglite/ may be in a partial state — \`rm -rf ~/.gbrain/pglite\` to reset." >&2
-  echo "Continuing setup without local code search; you can re-run /setup-gbrain to retry." >&2
+  echo "Continuing setup without local repository search; you can re-run /setup-gbrain to retry." >&2
 fi
 ```
 
 Then continue to Step 5a. The remote-http MCP registration in 5a runs as
 today; the local PGLite is independent of MCP registration (Claude Code talks
 to the remote brain via MCP for queries; `gbrain` CLI talks to local PGLite
-for code-def/refs/callers).
+for repository search and code-def/refs/callers).
 
 **If B (No)**: skip the install + init. The local engine stays absent.
 `gbrain_local_status` will be `missing-config` (or `no-cli` if gbrain isn't
-installed). `/sync-gbrain` will SKIP the code stage cleanly per plan D12.
+installed). `/sync-gbrain` will SKIP the repository stage cleanly per plan D12.
 
 **4e. Skip Steps 3, 4 (other paths) and 5 (local doctor) when B was picked.**
 When A was picked, Step 3 already ran (via gstack-gbrain-install) and Step 4
@@ -1492,9 +1493,10 @@ After answer:
 runs the code import + memory ingest stages. Brain-sync will run on the
 next preamble hook.)
 
-If A/D/E, ingest is incremental from this point on; preamble-boundary
-hook runs `gstack-gbrain-sync --incremental --quiet` on every skill
-start (cheap mtime fast-path).
+If A/D/E, this initial ingest is complete. Run `/sync-gbrain` after meaningful
+repository or transcript changes. The common skill preamble only runs the
+artifact git-sync path; it does not refresh the local repository or memory
+index.
 
 Reference doc for users: `setup-gbrain/memory.md` (linked from CLAUDE.md
 Step 8).
@@ -1556,7 +1558,9 @@ last-sync time. Machine state stays in the Configuration block above.
 GBrain is set up and synced on this machine. The agent should prefer gbrain
 over Grep when the question is semantic or when you don't know the exact
 identifier yet. Two indexed corpora available via the `gbrain` CLI:
-- This repo's code (registered as `gstack-code-<repo>` source).
+- This repo's changed Markdown and code (registered as `gstack-code-<repo>`
+  source). Repository images stay excluded until GBrain preserves source
+  isolation for image imports.
 - `~/.gstack/` curated memory (registered as `gstack-brain-<user>` source via
   the existing federation pipeline).
 
@@ -1571,8 +1575,11 @@ Prefer gbrain when:
     `gbrain search "<terms>" --source gstack-brain-<user>`
 
 Grep is still right for known exact strings, regex, multiline patterns, and
-file globs. The brain auto-syncs incrementally on every gstack skill start.
-Run `/sync-gbrain` to force-refresh, `/sync-gbrain --full` for full reindex.
+file globs. Run `/sync-gbrain` after meaningful documentation or code changes.
+`/sync-gbrain --full` repeats the repository walk and fully reindexes code. A
+healthy existing anchor stays incremental; GBrain may perform a full
+reconciliation when its anchor/history is unavailable or its indexing
+pipeline changes.
 
 <!-- gstack-gbrain-search-guidance:end -->
 ```
@@ -1722,7 +1729,7 @@ gbrain status: GREEN  (mode: remote-http)
   Artifacts repo .. OK   {gstack_artifacts_remote URL}
   Artifacts sync .. OK   {artifacts_sync_mode}
   Transcripts ..... OK   route to artifacts repo → remote brain (plan D11)
-  Code search ..... {OK local-pglite (~/.gbrain/pglite) | N/A declined at Step 4d}
+  Repository search {OK local-pglite (~/.gbrain/pglite) | N/A declined at Step 4d}
   CLAUDE.md ....... OK
   Smoke test ...... INFO printed for post-restart manual verification
 
@@ -1730,7 +1737,7 @@ Restart Claude Code to pick up the `mcp__gbrain__*` tools.
 Re-run `/setup-gbrain` any time the bearer rotates or the URL moves.
 ```
 
-The **Code search** row reflects the choice at Step 4d:
+The **Repository search** row reflects the choice at Step 4d:
 - If user picked A (Yes): `OK local-pglite` and `gbrain_local_status == "ok"` going forward.
 - If user picked B (No): `N/A declined at Step 4d` — `gstack-config set local_code_index_offered true` to silence future migration notices.
 
@@ -1738,7 +1745,7 @@ The **Transcripts** row changed in v1.34.0.0: in remote-http mode,
 gstack-memory-ingest now persists staged transcripts to
 `~/.gstack/transcripts/run-<pid>-<ts>/` and gstack-brain-sync pushes them
 to the artifacts repo. Brain admin's pull job indexes into the remote brain.
-Local PGLite (when present) stays code-only — no transcript pollution.
+Local PGLite (when present) stays repository-only — no transcript pollution.
 
 ### Paths 1, 2a, 2b, 3 (Local stdio)
 
@@ -1750,7 +1757,7 @@ gbrain status: GREEN  (mode: local-stdio)
   doctor .......... OK
   MCP ............. OK   registered (user scope)
   Repo policy ..... OK   <read-write|read-only|deny>
-  Code import ..... OK   <last_imported_head>
+  Repository sync . OK   <last_imported_head>
   Artifacts sync .. OK   <artifacts_sync_mode> to <remote>
   Transcripts ..... OK   <N> sessions, last ingest <when>
   CLAUDE.md ....... OK

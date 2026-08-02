@@ -65,16 +65,16 @@ This is the best first choice if you just want to see what gbrain feels like bef
 
 ### Path 4: Remote gbrain MCP (split-engine)
 
-Best for: your brain runs on another machine you control (Tailscale, ngrok, internal LAN) or a teammate's server. You want the cross-machine memory benefit without standing up a local database, and you still want symbol-aware code search on this Mac.
+Best for: your brain runs on another machine you control (Tailscale, ngrok, internal LAN) or a teammate's server. You want the cross-machine memory benefit while keeping this checkout's documentation and code index local on your Mac.
 
-**What happens:** You paste an MCP URL (e.g. `https://wintermute.tail554574.ts.net:3131/mcp`) and a bearer token. The skill verifies the URL over the wire, registers gbrain as an HTTP MCP in `~/.claude.json` at user scope, and offers to also stand up a tiny local PGLite for code search (~30 seconds, ~120 MB disk).
+**What happens:** You paste an MCP URL (e.g. `https://wintermute.tail554574.ts.net:3131/mcp`) and a bearer token. The skill verifies the URL over the wire, registers gbrain as an HTTP MCP in `~/.claude.json` at user scope, and offers to also stand up a tiny local PGLite for repository search (~30 seconds, ~120 MB disk).
 
 If you accept the local PGLite, you end up in **split-engine mode**:
 
 - **Brain/context queries** (`mcp__gbrain__search`, `mcp__gbrain__query`, `mcp__gbrain__get_page`) route to the remote MCP. Plans, retros, learnings, cross-machine memory — all on the shared server.
-- **Code queries** (`gbrain code-def`, `code-refs`, `code-callers`, `code-callees`, `gbrain search` for code) route to the local PGLite via the `.gbrain-source` pin in each worktree. Indexed locally, fast, never leaves the machine.
+- **Repository queries** (`gbrain search` over changed Markdown and code, plus `code-def`, `code-refs`, `code-callers`, and `code-callees`) route to the local PGLite via the `.gbrain-source` pin in each worktree. Indexed locally, fast, never leaves the machine.
 
-The two engines are independent. Wiping the local PGLite doesn't touch the remote brain; rotating the remote MCP bearer doesn't affect local code search. This is also the right configuration if your remote brain admin can't (or shouldn't) index every developer's checkout — local code stays local.
+The two engines are independent. Wiping the local PGLite doesn't touch the remote brain; rotating the remote MCP bearer doesn't affect local repository search. This is also the right configuration if your remote brain admin can't (or shouldn't) index every developer's checkout — local checkout content stays local.
 
 ## MCP registration for Claude Code
 
@@ -135,12 +135,12 @@ The skill runs three stages — repository, memory, brain-sync — independently
 **What it does on a fresh worktree:**
 
 1. **Pre-flight.** Checks `gbrain_local_status` (the local engine's health). If the engine is `broken-db` or `broken-config`, the skill STOPs with a remediation menu — it refuses to silently degrade. If the local engine is missing and you're in remote-MCP mode (Path 4), the repository stage SKIPs cleanly and only brain-sync runs.
-2. **Repository stage.** Registers the cwd as a federated source via `gbrain sources add`, writes a `.gbrain-source` pin file in the repo root (kubectl-style context — every worktree gets its own pin, so Conductor sibling worktrees don't collide), then runs `gbrain sync --strategy auto`. GBrain admits eligible Markdown and code when they are new or changed, plus images when its existing multimodal setting is enabled. The legacy `--code-only` and `--no-code` option names are retained for compatibility. `--full` keeps the same auto walk first and then runs `gbrain reindex-code`; that second phase only reindexes code and does not backfill unchanged historical Markdown.
+2. **Repository stage.** Registers the cwd as a federated source via `gbrain sources add`, writes a `.gbrain-source` pin file in the repo root (kubectl-style context — every worktree gets its own pin, so Conductor sibling worktrees don't collide), then runs `gbrain sync --strategy auto`. GBrain admits eligible Markdown and code when they are new or changed. Repository images are deliberately disabled on this path until GBrain preserves the selected source for image imports. The legacy `--code-only` and `--no-code` option names are retained for compatibility. `--full` keeps the same auto walk first and then runs `gbrain reindex-code`; that second phase only reindexes code.
 3. **Memory stage.** Stages your `~/.gstack/` transcripts + curated memory. In local-stdio MCP mode, ingests into the local engine. In remote-http MCP mode, persists staged markdown to `~/.gstack/transcripts/run-<pid>-<ts>/` for the remote brain admin's pull pipeline. The ingest timeout is 30 minutes by default; raise it for a big brain with `GSTACK_INGEST_TIMEOUT_MS` (accepts 1 min–24h). On timeout the gbrain import checkpoint is preserved, so the next `/sync-gbrain` resumes instead of starting over.
 4. **Brain-sync stage.** Pushes curated artifacts (plans, designs, retros) to your private artifacts repo if you have one configured.
 5. **CLAUDE.md guidance.** Capability-checks the round-trip (write a page → search → find it). If green, writes the `## GBrain Search Guidance` block to your project's CLAUDE.md. If red, REMOVES the block — the agent should never be told to use a tool that isn't installed.
 
-**The watermark.** Sync state advances by commit hash. Existing sources do not automatically revisit unchanged historical Markdown just because gstack now selects the auto strategy; edit the file (or use a future upstream backfill facility) to make it eligible again. If gbrain hits a file it can't index (5 MB hard limit per file, or a file vanished mid-sync), the watermark stays put and subsequent syncs retry. To acknowledge an unfixable failure and move past it:
+**The watermark.** Sync state advances by commit hash. An existing source with a usable anchor does not revisit unchanged historical Markdown merely because gstack now selects the auto strategy; edit the file to make it eligible again. GBrain can still perform an authoritative full reconciliation on first sync, when its anchor or git history is unavailable, or when its indexing pipeline version changes. Those reconciliations admit all eligible Markdown and code. If gbrain hits a file it can't index (5 MB hard limit per file, or a file vanished mid-sync), the watermark stays put and subsequent syncs retry. To acknowledge an unfixable failure and move past it:
 
 ```bash
 gbrain sync --source <source-id> --skip-failed
