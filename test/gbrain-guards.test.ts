@@ -4,17 +4,57 @@ import * as os from "os";
 import { join } from "path";
 import {
   detectAutopilot,
+  decidePathManagedDriftRemove,
   decideSourceRemove,
   decideCodeSync,
+  fetchSources,
   isInside,
   _resetCapabilityMemo,
-  type GbrainSourceRow,
 } from "../lib/gbrain-guards";
+import type { GbrainSourceRow } from "../lib/gbrain-sources";
 
 const HOME = os.homedir();
 const clonesPath = (name: string) => join(HOME, ".gbrain", "clones", name);
 
 afterEach(() => _resetCapabilityMemo());
+
+describe("fetchSources management registry", () => {
+  test("uses the public sources_list operation with env routing and no Windows-unsafe JSON argv", () => {
+    const tmp = fs.mkdtempSync(join(os.tmpdir(), "gbrain-managed-list-"));
+    const bin = join(tmp, "bin");
+    const log = join(tmp, "args.log");
+    fs.mkdirSync(bin);
+    const payload = JSON.stringify({
+      sources: [
+        {
+          id: "path-managed",
+          local_path: "/tmp/repo",
+          remote_url: null,
+          page_count: 1,
+        },
+      ],
+    });
+    const shim = join(bin, "gbrain");
+    fs.writeFileSync(
+      shim,
+      `#!/bin/sh\nprintf '%s|%s\\n' "$GBRAIN_SOURCE" "$*" > '${log}'\nprintf '%s' '${payload}'\n`,
+    );
+    fs.chmodSync(shim, 0o755);
+
+    try {
+      const rows = fetchSources({
+        ...process.env,
+        PATH: `${bin}:${process.env.PATH || ""}`,
+      });
+      expect(rows[0]?.remote_url).toBeNull();
+      expect(fs.readFileSync(log, "utf-8").trim()).toBe(
+        "default|call sources_list",
+      );
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
 
 // ── #1734 autopilot detection (E1: affirmative multi-signal) ────────────────
 describe("detectAutopilot", () => {
@@ -92,17 +132,29 @@ describe("detectAutopilot", () => {
 // ── #1734 remove safety (E7: fail closed on user-managed without keep-storage) ─
 describe("decideSourceRemove", () => {
   const rows = (extra: GbrainSourceRow[] = []): GbrainSourceRow[] => [
-    { id: "gbrain-managed", local_path: clonesPath("repo"), config: { remote_url: "https://x/r.git" } },
-    { id: "user-managed", local_path: "/tmp/user-repo", config: { remote_url: "https://x/r.git" } },
-    { id: "path-managed", local_path: "/tmp/path-repo" }, // no remote_url
+    { id: "default", local_path: null, remote_url: null },
+    {
+      id: "gbrain-managed",
+      local_path: clonesPath("repo"),
+      remote_url: "https://x/r.git",
+    },
+    {
+      id: "user-managed",
+      local_path: "/tmp/user-repo",
+      remote_url: "https://x/r.git",
+    },
+    { id: "path-managed", local_path: "/tmp/path-repo", remote_url: null },
     ...extra,
   ];
   const fetchRows = (extra?: GbrainSourceRow[]) => () => rows(extra);
 
-  test("absent source → allow (no-op)", () => {
-    const d = decideSourceRemove("nope", process.env, { keepStorage: false, fetchRows: fetchRows() });
-    expect(d.allow).toBe(true);
-    expect(d.reason).toContain("absent");
+  test("absent active source → FAIL CLOSED because archived provenance is unknown", () => {
+    const d = decideSourceRemove("nope", process.env, {
+      keepStorage: false,
+      fetchRows: fetchRows(),
+    });
+    expect(d.allow).toBe(false);
+    expect(d.reason).toContain("archived provenance is unproven");
   });
 
   test("user-managed + no --keep-storage → FAIL CLOSED", () => {
@@ -127,6 +179,38 @@ describe("decideSourceRemove", () => {
     expect(d.allow).toBe(true);
   });
 
+  test("an empty but non-null remote_url remains URL-managed", () => {
+    const d = decideSourceRemove("empty-remote", process.env, {
+      keepStorage: false,
+      fetchRows: fetchRows([
+        {
+          id: "empty-remote",
+          local_path: "/tmp/user-repo",
+          remote_url: "",
+        },
+      ]),
+    });
+    expect(d.allow).toBe(false);
+    expect(d.reason).toContain("user-managed");
+  });
+
+  test("URL-managed rows with null or empty local_path fail closed", () => {
+    for (const local_path of [null, ""] as const) {
+      const d = decideSourceRemove("unlocatable", process.env, {
+        keepStorage: false,
+        fetchRows: fetchRows([
+          {
+            id: "unlocatable",
+            local_path,
+            remote_url: "https://x/r.git",
+          },
+        ]),
+      });
+      expect(d.allow).toBe(false);
+      expect(d.reason).toContain("not proven inside gbrain clones");
+    }
+  });
+
   test("sources unreadable → FAIL CLOSED", () => {
     const d = decideSourceRemove("user-managed", process.env, {
       keepStorage: false,
@@ -137,11 +221,75 @@ describe("decideSourceRemove", () => {
   });
 });
 
+describe("decidePathManagedDriftRemove", () => {
+  const expectedPath = String.raw`C:\repo`;
+
+  test("allows only an unchanged path-managed source snapshot", () => {
+    const decision = decidePathManagedDriftRemove(
+      "source-id",
+      expectedPath,
+      process.env,
+      {
+        keepStorage: false,
+        fetchRows: () => [
+          { id: "source-id", local_path: expectedPath, remote_url: null },
+        ],
+      },
+    );
+    expect(decision).toEqual({
+      allow: true,
+      extraArgs: [],
+      reason: "validated path-managed source",
+    });
+  });
+
+  test("refuses when the registered row changes after validation", () => {
+    const decision = decidePathManagedDriftRemove(
+      "source-id",
+      expectedPath,
+      process.env,
+      {
+        keepStorage: false,
+        fetchRows: () => [
+          {
+            id: "source-id",
+            local_path: String.raw`C:\replacement`,
+            remote_url: null,
+          },
+        ],
+      },
+    );
+    expect(decision.allow).toBe(false);
+    expect(decision.reason).toContain("changed after validation");
+  });
+
+  test("refuses URL-managed sources without resolving their untrusted path", () => {
+    const unsafe = String.raw`\\attacker.invalid\share`;
+    const decision = decidePathManagedDriftRemove(
+      "source-id",
+      unsafe,
+      process.env,
+      {
+        keepStorage: true,
+        fetchRows: () => [
+          {
+            id: "source-id",
+            local_path: unsafe,
+            remote_url: "https://example.invalid/repo.git",
+          },
+        ],
+      },
+    );
+    expect(decision.allow).toBe(false);
+    expect(decision.reason).toContain("URL-managed");
+  });
+});
+
 // ── #1734 reclone guard (E-level: require --allow-reclone for URL-managed) ───
 describe("decideCodeSync", () => {
   const rows: GbrainSourceRow[] = [
-    { id: "url-managed", local_path: "/tmp/u", config: { remote_url: "https://x/r.git" } },
-    { id: "plain", local_path: "/tmp/p" },
+    { id: "url-managed", local_path: "/tmp/u", remote_url: "https://x/r.git" },
+    { id: "plain", local_path: "/tmp/p", remote_url: null },
   ];
   const fetch = () => rows;
 
@@ -154,16 +302,40 @@ describe("decideCodeSync", () => {
   test("URL-managed + --allow-reclone → allow", () => {
     const d = decideCodeSync("url-managed", process.env, true, fetch);
     expect(d.allow).toBe(true);
+    expect(d.mayReclone).toBe(true);
   });
 
   test("no remote_url → allow", () => {
     const d = decideCodeSync("plain", process.env, false, fetch);
     expect(d.allow).toBe(true);
+    expect(d.mayReclone).toBe(false);
+    expect(d.registeredPath).toBe("/tmp/p");
   });
 
-  test("sources unreadable → fail OPEN (sync read is non-destructive)", () => {
-    const d = decideCodeSync("url-managed", process.env, false, () => { throw new Error("boom"); });
-    expect(d.allow).toBe(true);
+  test("missing source row → FAIL CLOSED", () => {
+    const d = decideCodeSync("missing", process.env, false, fetch);
+    expect(d.allow).toBe(false);
+    expect(d.reason).toContain("absent or has no readable local_path");
+  });
+
+  test("sources unreadable → FAIL CLOSED (reclone applicability is unprovable)", () => {
+    const d = decideCodeSync("url-managed", process.env, false, () => {
+      throw new Error("boom");
+    });
+    expect(d.allow).toBe(false);
+    expect(d.reason).toContain("applicability is unprovable");
+  });
+
+  test("ordinary list shape without top-level remote_url cannot authorize sync", () => {
+    const d = decideCodeSync("legacy-looking", process.env, false, () => [
+      {
+        id: "legacy-looking",
+        local_path: "/tmp/p",
+        config: { remote_url: null },
+      },
+    ]);
+    expect(d.allow).toBe(false);
+    expect(d.reason).toContain("applicability is unprovable");
   });
 });
 
@@ -185,5 +357,14 @@ describe("isInside", () => {
     fs.symlinkSync(outside, link);
     // link lives under base, but realpath resolves to `outside` → not inside base.
     expect(isInside(link, base)).toBe(false);
+  });
+
+  test("direct UNC/device-like paths fail closed before containment resolution", () => {
+    expect(
+      isInside(String.raw`\\attacker.invalid\share`, clonesPath("repo")),
+    ).toBe(false);
+    expect(isInside("//attacker.invalid/share", clonesPath("repo"))).toBe(
+      false,
+    );
   });
 });

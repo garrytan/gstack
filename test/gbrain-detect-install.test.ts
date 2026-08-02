@@ -203,16 +203,16 @@ describe('gstack-gbrain-install D19 PATH-shadow validation', () => {
     return binDir;
   }
 
-  test('passes when install-dir version matches `gbrain --version` on PATH', () => {
-    // Version must be >= MIN_GBRAIN_VERSION (0.20.0) floor (#1744).
-    const installDir = seedInstallDir('0.41.29');
-    const fakeBin = seedFakeGbrainBinary('0.41.29');
+  test("passes when install-dir version matches `gbrain --version` on PATH", () => {
+    // Version must be >= MIN_GBRAIN_VERSION (0.41.38.0) floor (#1744).
+    const installDir = seedInstallDir("0.41.38.0");
+    const fakeBin = seedFakeGbrainBinary("0.41.38.0");
     try {
       const r = run(INSTALL, ['--validate-only', '--install-dir', installDir], {
         env: { PATH: `${fakeBin}:${SAFE_PATH}` },
       });
       expect(r.status).toBe(0);
-      expect(r.stdout).toContain('installed gbrain 0.41.29');
+      expect(r.stdout).toContain("installed gbrain 0.41.38.0");
     } finally {
       fs.rmSync(installDir, { recursive: true, force: true });
       fs.rmSync(fakeBin, { recursive: true, force: true });
@@ -234,9 +234,32 @@ describe('gstack-gbrain-install D19 PATH-shadow validation', () => {
     }
   });
 
+  test("pins the pin-aware code-graph boundary: 0.41.37.0 fails and 0.41.38.0 passes", () => {
+    for (const [version, expectedStatus] of [
+      ["0.41.37.0", 3],
+      ["0.41.38.0", 0],
+    ] as const) {
+      const installDir = seedInstallDir(version);
+      const fakeBin = seedFakeGbrainBinary(version);
+      try {
+        const r = run(
+          INSTALL,
+          ["--validate-only", "--install-dir", installDir],
+          {
+            env: { PATH: `${fakeBin}:${SAFE_PATH}` },
+          },
+        );
+        expect(r.status).toBe(expectedStatus);
+      } finally {
+        fs.rmSync(installDir, { recursive: true, force: true });
+        fs.rmSync(fakeBin, { recursive: true, force: true });
+      }
+    }
+  });
+
   test('tolerates a leading "v" in `gbrain --version` output', () => {
-    const installDir = seedInstallDir('0.41.29');
-    const fakeBin = seedFakeGbrainBinary('v0.41.29');
+    const installDir = seedInstallDir("0.41.38.0");
+    const fakeBin = seedFakeGbrainBinary("v0.41.38.0");
     try {
       const r = run(INSTALL, ['--validate-only', '--install-dir', installDir], {
         env: { PATH: `${fakeBin}:${SAFE_PATH}` },

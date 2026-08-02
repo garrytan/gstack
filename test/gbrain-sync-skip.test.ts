@@ -85,7 +85,7 @@ function makeEnv(opts: {
             }
   exit 1`;
     const fake = `#!/bin/sh
-if [ "$1" = "--version" ]; then echo "gbrain 0.33.1.0"; exit 0; fi
+if [ "$1" = "--version" ]; then echo "gbrain 0.41.38.0"; exit 0; fi
 if [ "$1 $2" = "sources list" ]; then
 ${sourcesBlock}
 fi

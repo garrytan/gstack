@@ -12,12 +12,16 @@ import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, mkdirSync
 import { tmpdir } from "os";
 import { join } from "path";
 import { spawnSync } from "child_process";
+import { canonicalSourceDirectory } from "../lib/gbrain-sources";
 
 import {
   derivePathOnlyHashLegacyId,
   planHostnameFoldMigration,
+  removePlannedHostnameLegacySource,
+  safePathDriftRemove,
+  safeSourcesRemove,
   sourceLocalPath,
-  _resetGbrainSupportsRenameCache,
+  checkGbrainVersion,
 } from "../bin/gstack-gbrain-sync";
 
 const SCRIPT = join(import.meta.dir, "..", "bin", "gstack-gbrain-sync.ts");
@@ -40,6 +44,85 @@ function runScript(args: string[], env: Record<string, string> = {}): { stdout: 
 }
 
 describe("gstack-gbrain-sync CLI", () => {
+  it("enforces the pin-aware GBrain release boundary", () => {
+    expect(checkGbrainVersion("gbrain 0.41.37.0")).toMatchObject({
+      ok: false,
+      detected: "0.41.37.0",
+    });
+    expect(checkGbrainVersion("gbrain v0.41.38.0")).toEqual({
+      ok: true,
+      detected: "0.41.38.0",
+      reason: "supported",
+    });
+    expect(checkGbrainVersion("gbrain 0.42.0")).toMatchObject({
+      ok: true,
+      detected: "0.42.0",
+    });
+    expect(checkGbrainVersion("not-a-version")).toMatchObject({
+      ok: false,
+      detected: null,
+    });
+  });
+
+  it("rejects an installed pre-floor GBrain before any sync mutation", () => {
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    const bindir = join(home, "bin");
+    const mutationMarker = join(home, "unexpected-gbrain-command");
+    mkdirSync(gstackHome, { recursive: true });
+    mkdirSync(bindir, { recursive: true });
+    writeFileSync(
+      join(bindir, "gbrain"),
+      `#!/bin/sh\nif [ "$1" = "--version" ]; then echo "gbrain 0.41.37.0"; exit 0; fi\n: > '${mutationMarker}'\nexit 0\n`,
+    );
+    chmodSync(join(bindir, "gbrain"), 0o755);
+
+    try {
+      const r = runScript(["--incremental", "--code-only", "--quiet"], {
+        HOME: home,
+        GSTACK_HOME: gstackHome,
+        PATH: `${bindir}:${process.env.PATH || ""}`,
+      });
+      expect(r.exitCode).toBe(3);
+      expect(r.stderr).toContain("below the required 0.41.38.0");
+      expect(existsSync(mutationMarker)).toBe(false);
+      expect(existsSync(join(gstackHome, ".sync-gbrain.lock"))).toBe(false);
+      expect(existsSync(join(gstackHome, ".gbrain-sync-state.json"))).toBe(
+        false,
+      );
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a present GBrain with unverifiable version output before mutation", () => {
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    const bindir = join(home, "bin");
+    const mutationMarker = join(home, "unexpected-gbrain-command");
+    mkdirSync(gstackHome, { recursive: true });
+    mkdirSync(bindir, { recursive: true });
+    writeFileSync(
+      join(bindir, "gbrain"),
+      `#!/bin/sh\nif [ "$1" = "--version" ]; then echo "gbrain development-build"; exit 0; fi\n: > '${mutationMarker}'\nexit 0\n`,
+    );
+    chmodSync(join(bindir, "gbrain"), 0o755);
+
+    try {
+      const r = runScript(["--incremental", "--code-only", "--quiet"], {
+        HOME: home,
+        GSTACK_HOME: gstackHome,
+        PATH: `${bindir}:${process.env.PATH || ""}`,
+      });
+      expect(r.exitCode).toBe(3);
+      expect(r.stderr).toContain("could not parse `gbrain --version`");
+      expect(existsSync(mutationMarker)).toBe(false);
+      expect(existsSync(join(gstackHome, ".sync-gbrain.lock"))).toBe(false);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
   it("--help exits 0 with usage text", () => {
     const r = runScript(["--help"]);
     expect(r.exitCode).toBe(0);
@@ -60,6 +143,54 @@ describe("gstack-gbrain-sync CLI", () => {
 
     expect(source).not.toContain('command -v gbrain');
     expect(source).toContain("localEngineStatus");
+    expect(source).toMatch(/syncArgs\.push\("--repo", canonicalRoot\)/);
+    expect(source).toMatch(
+      /spawnGbrain\(syncArgs, \{[\s\S]*?cwd: canonicalRoot/,
+    );
+    expect(source).toMatch(
+      /dreamArgs\.push\("--dir", dreamBinding\.canonicalPath\)/,
+    );
+    expect(source).toMatch(/spawnGbrain\(dreamArgs, \{[\s\S]*?cwd: dreamCwd/);
+
+    const rootCapture = source.indexOf(
+      "validatedRoot = canonicalSourceDirectory(root)",
+    );
+    const stableRootProof = source.indexOf(
+      '"repository before sync preflight"',
+      rootCapture,
+    );
+    const engineProbe = source.indexOf(
+      "const localStatus = localEngineStatus",
+      stableRootProof,
+    );
+    const legacyCleanup = source.indexOf(
+      "safeSourcesRemove(legacyId",
+      engineProbe,
+    );
+    expect(rootCapture).toBeGreaterThan(-1);
+    expect(stableRootProof).toBeGreaterThan(rootCapture);
+    expect(engineProbe).toBeGreaterThan(stableRootProof);
+    expect(legacyCleanup).toBeGreaterThan(engineProbe);
+
+    const finalBindingCheck = source.indexOf(
+      'validateCurrentSourceBinding("sync")',
+    );
+    const finalRootCheck = source.indexOf(
+      'revalidateRoot("sync spawn")',
+      finalBindingCheck,
+    );
+    const finalAutopilotCheck = source.indexOf(
+      "const apAtSyncSpawn = detectAutopilot",
+      finalRootCheck,
+    );
+    const syncSpawn = source.indexOf(
+      "walkResult = spawnGbrain(syncArgs",
+      finalAutopilotCheck,
+    );
+    expect(finalBindingCheck).toBeGreaterThan(-1);
+    expect(finalRootCheck).toBeGreaterThan(finalBindingCheck);
+    expect(finalAutopilotCheck).toBeGreaterThan(finalRootCheck);
+    expect(syncSpawn).toBeGreaterThan(finalAutopilotCheck);
   });
 
   it("--dry-run with --code-only reports the code import preview only", () => {
@@ -486,7 +617,7 @@ describe("gstack-gbrain-sync CLI", () => {
     rmSync(home, { recursive: true, force: true });
   });
 
-  it("dry-run preview includes legacy-source removal + attach (post-codex-review hardening)", () => {
+  it("dry-run preview includes legacy-source removal + safe pin (post-codex-review hardening)", () => {
     // Codex adversarial flagged: pre-pathhash `gstack-code-<slug>` sources stay
     // orphaned forever after the new pathhash id ships. Dry-run preview must
     // surface the legacy cleanup so the user knows it'll happen.
@@ -511,18 +642,20 @@ describe("gstack-gbrain-sync CLI", () => {
     // string lists what it would do, but the legacy removal is gated on the
     // legacy id being registered (which we can't probe in a sandboxed test
     // without a real gbrain CLI). Instead, assert the preview still includes
-    // the new flow (sources add + sync + attach) at minimum.
+    // the new flow (sources add + sync + safe local pin) at minimum.
     expect(r.stdout).toMatch(/gbrain sources add gstack-code-/);
-    expect(r.stdout).toMatch(/gbrain sync --strategy code --source gstack-code-/);
-    expect(r.stdout).toMatch(/gbrain sources attach gstack-code-/);
+    expect(r.stdout).toMatch(
+      /gbrain sync --strategy code --source gstack-code-/,
+    );
+    expect(r.stdout).toMatch(/pin \.gbrain-source to gstack-code-/);
 
     rmSync(repo, { recursive: true, force: true });
     rmSync(home, { recursive: true, force: true });
   });
 
-  it("dry-run preview includes the `sources attach` step (kubectl-style CWD pin)", () => {
+  it("dry-run preview includes the symlink-safe local CWD pin", () => {
     // Post-spike redesign: after sources add + sync, /sync-gbrain calls
-    // `gbrain sources attach <id>` so subsequent gbrain code-def / code-refs
+    // a `.gbrain-source` pin so subsequent gbrain code-def / code-refs
     // calls from anywhere under the worktree route to this source by default.
     // The dry-run preview must surface that step so the user knows what we
     // would do.
@@ -540,10 +673,133 @@ describe("gstack-gbrain-sync CLI", () => {
       env: { ...process.env, HOME: home, GSTACK_HOME: gstackHome },
     });
     expect(r.status).toBe(0);
-    expect(r.stdout).toMatch(/gbrain sources attach gstack-code-/);
+    expect(r.stdout).toMatch(/pin \.gbrain-source to gstack-code-/);
 
     rmSync(repo, { recursive: true, force: true });
     rmSync(home, { recursive: true, force: true });
+  });
+});
+
+describe("guarded remove source-id sink", () => {
+  it("rejects unsafe ids before spawning pgrep or gbrain", () => {
+    const tmp = mkdtempSync(join(tmpdir(), "gstack-remove-id-"));
+    const marker = join(tmp, "spawned");
+    for (const name of ["pgrep", "gbrain"]) {
+      const shim = join(tmp, name);
+      writeFileSync(shim, `#!/bin/sh\ntouch '${marker}'\nexit 1\n`);
+      chmodSync(shim, 0o755);
+    }
+    const env = { ...process.env, PATH: tmp };
+
+    try {
+      const general = safeSourcesRemove("bad&id", env);
+      const drift = safePathDriftRemove("../bad", "/tmp/repo", env);
+      expect(general.skipped).toBe(true);
+      expect(general.reason).toContain("unsafe source id");
+      expect(drift.skipped).toBe(true);
+      expect(drift.reason).toContain("unsafe source id");
+      expect(existsSync(marker)).toBe(false);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("rechecks autopilot after policy I/O and refuses a late start", () => {
+    const tmp = mkdtempSync(join(tmpdir(), "gstack-remove-pilot-race-"));
+    const count = join(tmp, "pgrep-count");
+    const removed = join(tmp, "removed");
+    writeFileSync(count, "0\n");
+    const pgrep = join(tmp, "pgrep");
+    writeFileSync(
+      pgrep,
+      `#!/bin/sh\nN=$(/bin/cat '${count}')\nN=$((N + 1))\nprintf '%s\\n' "$N" > '${count}'\nif [ "$N" -ge 2 ]; then printf '%s\\n' 'gbrain autopilot'; exit 0; fi\nexit 1\n`,
+    );
+    chmodSync(pgrep, 0o755);
+    const gbrain = join(tmp, "gbrain");
+    const registry = JSON.stringify({
+      sources: [
+        { id: "safe-source", local_path: "/tmp/repo", remote_url: null },
+      ],
+    });
+    writeFileSync(
+      gbrain,
+      `#!/bin/sh\ncase "$*" in\n  "--version") printf '%s\\n' 'gbrain 9.9.9-race' ;;\n  "call sources_list") printf '%s' '${registry}' ;;\n  "sources remove safe-source --confirm-destructive"*) : > '${removed}' ;;\n  *) exit 0 ;;\nesac\n`,
+    );
+    chmodSync(gbrain, 0o755);
+    const env = {
+      ...process.env,
+      PATH: tmp,
+      GBRAIN_HOME: join(tmp, "home"),
+    };
+
+    try {
+      const general = safeSourcesRemove("safe-source", env);
+      expect(general.skipped).toBe(true);
+      expect(general.reason).toContain("became active");
+      expect(existsSync(removed)).toBe(false);
+
+      writeFileSync(count, "0\n");
+      const drift = safePathDriftRemove("safe-source", "/tmp/repo", env);
+      expect(drift.skipped).toBe(true);
+      expect(drift.reason).toContain("became active");
+      expect(existsSync(removed)).toBe(false);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("executes both guarded remove paths with exact argv for a proven non-empty path", () => {
+    const tmp = mkdtempSync(join(tmpdir(), "gstack-remove-success-"));
+    const repo = join(tmp, "repo");
+    const callLog = join(tmp, "gbrain-calls.log");
+    mkdirSync(repo);
+    const pgrep = join(tmp, "pgrep");
+    writeFileSync(pgrep, "#!/bin/sh\nexit 1\n");
+    chmodSync(pgrep, 0o755);
+    const registry = JSON.stringify({
+      sources: [
+        { id: "general-source", local_path: repo, remote_url: null },
+        { id: "drift-source", local_path: repo, remote_url: null },
+      ],
+    });
+    makeShim(tmp, {
+      "--version": { stdout: "gbrain 99.100.101-remove-success" },
+      "sources remove --help": { stdout: "usage: sources remove" },
+      "--help": { stdout: "usage: gbrain" },
+      "call sources_list": { stdout: registry },
+      "sources remove general-source --confirm-destructive": {},
+      "sources remove drift-source --confirm-destructive": {},
+    });
+    const env = {
+      ...envWithBindir(tmp),
+      GBRAIN_HOME: join(tmp, "gbrain-home"),
+      GBRAIN_SHIM_LOG: callLog,
+    };
+
+    try {
+      expect(repo.length).toBeGreaterThan(0);
+      expect(safeSourcesRemove("general-source", env)).toMatchObject({
+        removed: true,
+        skipped: false,
+      });
+      expect(safePathDriftRemove("drift-source", repo, env)).toMatchObject({
+        removed: true,
+        skipped: false,
+      });
+      const mutationCalls = readFileSync(callLog, "utf-8")
+        .trim()
+        .split("\n")
+        .filter((line) =>
+          line === "sources remove general-source --confirm-destructive" ||
+          line === "sources remove drift-source --confirm-destructive"
+        );
+      expect(mutationCalls).toEqual([
+        "sources remove general-source --confirm-destructive",
+        "sources remove drift-source --confirm-destructive",
+      ]);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
   });
 });
 
@@ -574,7 +830,7 @@ function makeShim(bindir: string, responses: Record<string, { stdout?: string; s
     return `  "${key}") printf '%s' '${stdout}'; printf '%s' '${stderr}' >&2; exit ${exit} ;;`;
   }).join("\n");
   // Match on the full argument string, joined with literal spaces.
-  const script = `#!/bin/sh\nARGS="$*"\ncase "$ARGS" in\n${cases}\n  *) echo "shim: no match for [$ARGS]" >&2; exit 1 ;;\nesac\n`;
+  const script = `#!/bin/sh\nARGS="$*"\nif [ -n "$GBRAIN_SHIM_LOG" ]; then printf '%s\\n' "$ARGS" >> "$GBRAIN_SHIM_LOG"; fi\ncase "$ARGS" in\n${cases}\n  *) echo "shim: no match for [$ARGS]" >&2; exit 1 ;;\nesac\n`;
   writeFileSync(shim, script);
   chmodSync(shim, 0o755);
   return shim;
@@ -655,16 +911,306 @@ function envWithBindir(bindir: string): NodeJS.ProcessEnv {
   return { ...process.env, PATH: `${bindir}:${process.env.PATH || ""}` };
 }
 
+function previewCodeSourceId(
+  repo: string,
+  env: NodeJS.ProcessEnv,
+): string {
+  const preview = spawnSync(
+    "bun",
+    [SCRIPT, "--dry-run", "--code-only", "--quiet"],
+    { cwd: repo, env, encoding: "utf-8", timeout: 60000 },
+  );
+  expect(preview.status).toBe(0);
+  const sourceId = (preview.stdout || "").match(
+    /gbrain sources add (\S+)/,
+  )?.[1];
+  if (!sourceId) throw new Error("dry-run did not report a code source id");
+  return sourceId;
+}
+
+describe("executable source-bound orchestration", () => {
+  it("registers, rereads, syncs with the canonical repo, pins, counts pages, then removes the exact legacy row", () => {
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    const gbrainHome = join(home, ".gbrain");
+    const bindir = join(home, "bin");
+    const repo = join(home, "repo");
+    const callLog = join(home, "gbrain-calls.jsonl");
+    const registered = join(home, "registered");
+    const synced = join(home, "synced");
+    const pageCountObserved = join(home, "page-count-observed");
+    const legacyRemoved = join(home, "legacy-removed");
+    mkdirSync(gstackHome, { recursive: true });
+    mkdirSync(gbrainHome, { recursive: true });
+    mkdirSync(bindir, { recursive: true });
+    mkdirSync(repo, { recursive: true });
+    writeFileSync(join(gbrainHome, "config.json"), '{"engine":"postgres"}\n');
+    spawnSync("git", ["init", "--quiet", "-b", "main"], { cwd: repo });
+    spawnSync(
+      "git",
+      ["remote", "add", "origin", "https://github.com/example/orchestration.git"],
+      { cwd: repo },
+    );
+    const env = {
+      ...process.env,
+      HOME: home,
+      GSTACK_HOME: gstackHome,
+      GBRAIN_HOME: gbrainHome,
+      GSTACK_HOSTNAME: "orchestration-test-host",
+      PATH: `${bindir}:${process.env.PATH || ""}`,
+    };
+    const sourceId = previewCodeSourceId(repo, env);
+    const reportedRoot = spawnSync(
+      "git",
+      ["rev-parse", "--show-toplevel"],
+      { cwd: repo, encoding: "utf-8" },
+    ).stdout.trim();
+    const canonicalRoot = canonicalSourceDirectory(reportedRoot).canonicalPath;
+    const previousCwd = process.cwd();
+    let legacyId: string;
+    try {
+      process.chdir(repo);
+      legacyId = derivePathOnlyHashLegacyId(reportedRoot);
+    } finally {
+      process.chdir(previousCwd);
+    }
+
+    const gbrain = join(bindir, "gbrain");
+    writeFileSync(
+      gbrain,
+      `#!/usr/bin/env bun
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from "fs";
+const callLog = ${JSON.stringify(callLog)};
+const registered = ${JSON.stringify(registered)};
+const synced = ${JSON.stringify(synced)};
+const pageCountObserved = ${JSON.stringify(pageCountObserved)};
+const legacyRemoved = ${JSON.stringify(legacyRemoved)};
+const sourceId = ${JSON.stringify(sourceId)};
+const legacyId = ${JSON.stringify(legacyId)};
+const root = ${JSON.stringify(canonicalRoot)};
+const pinPath = root + "/.gbrain-source";
+const args = process.argv.slice(2);
+const key = args.join(" ");
+const pin = existsSync(pinPath) ? readFileSync(pinPath, "utf-8").trim() : null;
+appendFileSync(callLog, JSON.stringify({ args, cwd: process.cwd(), noGitignore: process.env.GBRAIN_NO_GITIGNORE || "", pin }) + "\\n");
+const same = (expected) => JSON.stringify(args) === JSON.stringify(expected);
+const list = () => {
+  const sources = [];
+  if (!existsSync(legacyRemoved)) {
+    sources.push({ id: legacyId, local_path: root, remote_url: null, page_count: 9 });
+  }
+  if (existsSync(registered)) {
+    sources.push({ id: sourceId, local_path: root, remote_url: null, page_count: existsSync(synced) ? 4 : 0 });
+  }
+  return JSON.stringify({ sources });
+};
+if (same(["--version"])) {
+  console.log("gbrain 0.41.38.0");
+} else if (same(["sources", "list", "--json"])) {
+  if (existsSync(synced) && pin === sourceId) writeFileSync(pageCountObserved, "yes");
+  process.stdout.write(list());
+} else if (same(["call", "sources_list"])) {
+  process.stdout.write(list());
+} else if (same(["sources", "remove", "--help"])) {
+  process.stdout.write("usage: sources remove");
+} else if (same(["--help"])) {
+  process.stdout.write("usage: gbrain");
+} else if (same(["sources", "add", sourceId, "--path", root, "--federated"])) {
+  writeFileSync(registered, "yes");
+} else if (same(["sync", "--strategy", "code", "--source", sourceId, "--repo", root])) {
+  if (process.cwd() !== root || process.env.GBRAIN_NO_GITIGNORE !== "1" || !existsSync(registered)) process.exit(41);
+  writeFileSync(synced, "yes");
+} else if (same(["sources", "remove", legacyId, "--confirm-destructive"])) {
+  if (!existsSync(pageCountObserved) || pin !== sourceId) process.exit(42);
+  writeFileSync(legacyRemoved, "yes");
+} else {
+  console.error("unexpected gbrain argv: " + key);
+  process.exit(90);
+}
+`,
+    );
+    chmodSync(gbrain, 0o755);
+    writeFileSync(join(bindir, "pgrep"), "#!/bin/sh\nexit 1\n");
+    chmodSync(join(bindir, "pgrep"), 0o755);
+
+    try {
+      const result = spawnSync(
+        "bun",
+        [SCRIPT, "--incremental", "--code-only", "--quiet"],
+        { cwd: repo, env, encoding: "utf-8", timeout: 60000 },
+      );
+      expect({
+        status: result.status,
+        stdout: result.stdout,
+        stderr: result.stderr,
+      }).toMatchObject({ status: 0 });
+      expect(readFileSync(join(canonicalRoot, ".gbrain-source"), "utf-8")).toBe(
+        `${sourceId}\n`,
+      );
+      expect(existsSync(pageCountObserved)).toBe(true);
+      expect(existsSync(legacyRemoved)).toBe(true);
+
+      const calls = readFileSync(callLog, "utf-8")
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as {
+          args: string[];
+          cwd: string;
+          noGitignore: string;
+          pin: string | null;
+        });
+      const addArgs = [
+        "sources", "add", sourceId, "--path", canonicalRoot, "--federated",
+      ];
+      const syncArgs = [
+        "sync", "--strategy", "code", "--source", sourceId, "--repo", canonicalRoot,
+      ];
+      const removeArgs = [
+        "sources", "remove", legacyId, "--confirm-destructive",
+      ];
+      const addIndex = calls.findIndex((call) =>
+        JSON.stringify(call.args) === JSON.stringify(addArgs)
+      );
+      const syncIndex = calls.findIndex((call) =>
+        JSON.stringify(call.args) === JSON.stringify(syncArgs)
+      );
+      const pageCountIndex = calls.findIndex(
+        (call, index) =>
+          index > syncIndex &&
+          JSON.stringify(call.args) ===
+            JSON.stringify(["sources", "list", "--json"]) &&
+          call.pin === sourceId,
+      );
+      const removeIndex = calls.findIndex((call) =>
+        JSON.stringify(call.args) === JSON.stringify(removeArgs)
+      );
+      expect(addIndex).toBeGreaterThan(-1);
+      expect(syncIndex).toBeGreaterThan(addIndex);
+      expect(
+        calls.slice(addIndex + 1, syncIndex).some((call) =>
+          JSON.stringify(call.args) === JSON.stringify(["call", "sources_list"])
+        ),
+      ).toBe(true);
+      expect(calls[syncIndex]).toMatchObject({
+        cwd: canonicalRoot,
+        noGitignore: "1",
+      });
+      expect(pageCountIndex).toBeGreaterThan(syncIndex);
+      expect(removeIndex).toBeGreaterThan(pageCountIndex);
+      expect(
+        calls.filter((call) => call.args[0] === "sources" && call.args[1] === "remove" && call.args[2] !== "--help")
+          .map((call) => call.args),
+      ).toEqual([removeArgs]);
+      expect(readFileSync(join(canonicalRoot, ".gitignore"), "utf-8")).toContain(
+        ".gbrain-source",
+      );
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it("runs source-bound dream in the canonical repo and preserves its non-zero failure", () => {
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    const gbrainHome = join(home, ".gbrain");
+    const bindir = join(home, "bin");
+    const repo = join(home, "repo");
+    const callLog = join(home, "dream-calls.jsonl");
+    mkdirSync(gstackHome, { recursive: true });
+    mkdirSync(gbrainHome, { recursive: true });
+    mkdirSync(bindir, { recursive: true });
+    mkdirSync(repo, { recursive: true });
+    writeFileSync(join(gbrainHome, "config.json"), '{"engine":"postgres"}\n');
+    spawnSync("git", ["init", "--quiet", "-b", "main"], { cwd: repo });
+    spawnSync(
+      "git",
+      ["remote", "add", "origin", "https://github.com/example/dream.git"],
+      { cwd: repo },
+    );
+    const env = {
+      ...process.env,
+      HOME: home,
+      GSTACK_HOME: gstackHome,
+      GBRAIN_HOME: gbrainHome,
+      GSTACK_HOSTNAME: "dream-test-host",
+      PATH: `${bindir}:${process.env.PATH || ""}`,
+    };
+    const sourceId = previewCodeSourceId(repo, env);
+    const reportedRoot = spawnSync(
+      "git",
+      ["rev-parse", "--show-toplevel"],
+      { cwd: repo, encoding: "utf-8" },
+    ).stdout.trim();
+    const canonicalRoot = canonicalSourceDirectory(reportedRoot).canonicalPath;
+    const dreamArgs = [
+      "dream", "--source", sourceId, "--dir", canonicalRoot,
+    ];
+    const gbrain = join(bindir, "gbrain");
+    writeFileSync(
+      gbrain,
+      `#!/usr/bin/env bun
+import { appendFileSync } from "fs";
+const callLog = ${JSON.stringify(callLog)};
+const sourceId = ${JSON.stringify(sourceId)};
+const root = ${JSON.stringify(canonicalRoot)};
+const args = process.argv.slice(2);
+appendFileSync(callLog, JSON.stringify({ args, cwd: process.cwd() }) + "\\n");
+const same = (expected) => JSON.stringify(args) === JSON.stringify(expected);
+const list = JSON.stringify({ sources: [{ id: sourceId, local_path: root, remote_url: null, page_count: 4 }] });
+if (same(["--version"])) console.log("gbrain 0.41.38.0");
+else if (same(["sources", "list", "--json"]) || same(["call", "sources_list"])) process.stdout.write(list);
+else if (same(["dream", "--source", sourceId, "--dir", root])) process.exit(17);
+else process.exit(90);
+`,
+    );
+    chmodSync(gbrain, 0o755);
+
+    try {
+      const result = spawnSync(
+        "bun",
+        [
+          SCRIPT,
+          "--incremental",
+          "--no-code",
+          "--no-memory",
+          "--no-brain-sync",
+          "--dream",
+          "--quiet",
+        ],
+        { cwd: repo, env, encoding: "utf-8", timeout: 60000 },
+      );
+      expect(result.status).toBe(1);
+      const calls = readFileSync(callLog, "utf-8")
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as { args: string[]; cwd: string });
+      const dreamCalls = calls.filter((call) =>
+        JSON.stringify(call.args) === JSON.stringify(dreamArgs)
+      );
+      expect(dreamCalls).toEqual([{ args: dreamArgs, cwd: canonicalRoot }]);
+      const state = JSON.parse(
+        readFileSync(join(gstackHome, ".gbrain-sync-state.json"), "utf-8"),
+      ) as { last_stages?: Array<{ name: string; ok: boolean; summary: string }> };
+      expect(state.last_stages?.find((stage) => stage.name === "dream"))
+        .toMatchObject({
+          ok: false,
+          summary: "gbrain dream exited 17",
+        });
+      expect(existsSync(join(gstackHome, ".dream-in-progress"))).toBe(false);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("planHostnameFoldMigration", () => {
   let bindir: string;
 
   beforeEach(() => {
     bindir = mkdtempSync(join(tmpdir(), "gstack-mig-plan-bin-"));
-    _resetGbrainSupportsRenameCache();
   });
   afterEach(() => {
     rmSync(bindir, { recursive: true, force: true });
-    _resetGbrainSupportsRenameCache();
   });
 
   it("returns ids-match when legacy == new (degenerate case)", () => {
@@ -695,43 +1241,136 @@ describe("planHostnameFoldMigration", () => {
     }
   });
 
-  it("returns renamed when rename is supported and exits 0", () => {
+  it("treats stored dot as the same legacy source by canonical identity", () => {
+    const repo = mkdtempSync(join(tmpdir(), "gstack-mig-dot-"));
+    makeShim(bindir, {
+      "sources list --json": {
+        stdout: JSON.stringify([{ id: "legacy-id", local_path: "." }]),
+      },
+    });
+
+    try {
+      const expected = canonicalSourceDirectory(repo);
+      const result = planHostnameFoldMigration(
+        repo,
+        "new-id",
+        "legacy-id",
+        envWithBindir(bindir),
+        { expected },
+      );
+      expect(result).toEqual({
+        kind: "pending-cleanup",
+        oldId: "legacy-id",
+        oldPath: ".",
+      });
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("never mutates with rename even when a CLI advertises it", () => {
+    const callLog = join(bindir, "calls.log");
     makeShim(bindir, {
       "sources list --json": {
         stdout: JSON.stringify([{ id: "legacy-id", local_path: "/repo/here" }]),
       },
       "sources rename --help": {
-        stdout: "Usage: gbrain sources rename <old> <new>\n",
+        exit: 99,
+        stderr: "rename capability probe must not run",
       },
-      "sources rename legacy-id new-id": { exit: 0 },
+      "sources rename legacy-id new-id": {
+        exit: 99,
+        stderr: "rename mutation must not run",
+      },
     });
-    const result = planHostnameFoldMigration("/repo/here", "new-id", "legacy-id", envWithBindir(bindir));
-    expect(result).toEqual({ kind: "renamed", oldId: "legacy-id", newId: "new-id" });
+    const result = planHostnameFoldMigration(
+      "/repo/here",
+      "new-id",
+      "legacy-id",
+      { ...envWithBindir(bindir), GBRAIN_SHIM_LOG: callLog },
+    );
+    expect(result).toEqual({
+      kind: "pending-cleanup",
+      oldId: "legacy-id",
+      oldPath: "/repo/here",
+    });
+    expect(readFileSync(callLog, "utf-8").trim()).toBe("sources list --json");
   });
 
-  it("returns pending-cleanup when rename is unsupported (current gbrain 0.35.0.0)", () => {
+  it("returns pending-cleanup for a matching legacy source", () => {
     makeShim(bindir, {
       "sources list --json": {
         stdout: JSON.stringify([{ id: "legacy-id", local_path: "/repo/here" }]),
       },
-      // No `sources rename --help` match → shim falls into the catch-all and exits 1.
     });
     const result = planHostnameFoldMigration("/repo/here", "new-id", "legacy-id", envWithBindir(bindir));
-    expect(result).toEqual({ kind: "pending-cleanup", oldId: "legacy-id" });
+    expect(result).toEqual({
+      kind: "pending-cleanup",
+      oldId: "legacy-id",
+      oldPath: "/repo/here",
+    });
   });
 
-  it("returns pending-cleanup when rename is supported but the rename call itself fails", () => {
+  it("refuses cleanup when the planned legacy id is rebound during sync", () => {
+    const callLog = join(bindir, "calls.log");
     makeShim(bindir, {
       "sources list --json": {
-        stdout: JSON.stringify([{ id: "legacy-id", local_path: "/repo/here" }]),
+        stdout: JSON.stringify([
+          { id: "legacy-id", local_path: "/repo/original" },
+        ]),
       },
-      "sources rename --help": {
-        stdout: "Usage: gbrain sources rename <old> <new>\n",
-      },
-      "sources rename legacy-id new-id": { exit: 1, stderr: "rename failed: db locked" },
     });
-    const result = planHostnameFoldMigration("/repo/here", "new-id", "legacy-id", envWithBindir(bindir));
-    expect(result).toEqual({ kind: "pending-cleanup", oldId: "legacy-id" });
+    const env = {
+      ...envWithBindir(bindir),
+      GBRAIN_SHIM_LOG: callLog,
+      GBRAIN_HOME: join(bindir, "gbrain-home"),
+    };
+    const migration = planHostnameFoldMigration(
+      "/repo/original",
+      "new-id",
+      "legacy-id",
+      env,
+    );
+    expect(migration).toEqual({
+      kind: "pending-cleanup",
+      oldId: "legacy-id",
+      oldPath: "/repo/original",
+    });
+    if (migration.kind !== "pending-cleanup") {
+      throw new Error("expected a pending hostname-fold cleanup");
+    }
+
+    makeShim(bindir, {
+      "call sources_list": {
+        stdout: JSON.stringify({
+          sources: [
+            {
+              id: "legacy-id",
+              local_path: "/repo/replacement",
+              remote_url: null,
+            },
+          ],
+        }),
+      },
+      "--version": { stdout: "gbrain 0.41.38.0" },
+      "sources remove --help": { stdout: "--keep-storage" },
+      "sources remove legacy-id --confirm-destructive": {
+        exit: 99,
+        stderr: "replacement row must not be removed",
+      },
+      "sources remove legacy-id --confirm-destructive --keep-storage": {
+        exit: 99,
+        stderr: "replacement row must not be removed",
+      },
+    });
+
+    const cleanup = removePlannedHostnameLegacySource(migration, env);
+    expect(cleanup.removed).toBe(false);
+    expect(cleanup.skipped).toBe(true);
+    expect(cleanup.reason).toContain("changed after validation");
+    expect(readFileSync(callLog, "utf-8")).not.toContain(
+      "sources remove legacy-id --confirm-destructive",
+    );
   });
 });
 

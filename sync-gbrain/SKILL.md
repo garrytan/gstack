@@ -788,12 +788,22 @@ refreshed against this repo's current state, and refreshes the agent-side
 guidance in CLAUDE.md so the coding agent knows when to prefer `gbrain`
 search over Grep.
 
-**Architecture (post-codex review):** This skill uses gbrain v0.20.0+'s
+**Architecture (post-codex review):** This skill requires gbrain v0.41.38.0+ so
+the safety gate can read authoritative source-management provenance and dream
+can scope its cycle to the current source and unqualified code graph commands
+honor the per-worktree pin, and uses
 **native code surfaces** (`gbrain sources add`, `gbrain sync --strategy code`,
 `gbrain reindex-code`, `gbrain code-def/code-refs/code-callers/code-callees`).
 It does NOT use `gbrain import` (that path is for markdown directories).
 It does NOT touch `~/.gstack/` indexing (the existing `gstack-gbrain-source-wireup`
 owns that — never double-store).
+
+Source registration is based on canonical filesystem identity. Relative,
+absolute, and symlink/junction spellings that resolve to the same directory are
+one source. A genuine path drift is repaired only through a guarded remove/add
+after the authoritative registry row and filesystem identity remain stable.
+Missing, ambiguous, rebound, or unverifiable identity stops before destructive
+source mutation.
 
 ## User-invocable
 
@@ -1106,10 +1116,11 @@ identifier yet.
 `.gbrain-source` file in the repo root (kubectl-style context).
 `gbrain code-def`, `code-refs`, `code-callers`, `code-callees`, `search`, and
 `query` from anywhere under this worktree route to that source by default —
-no `--source` flag needed (gbrain >= 0.41.38.0; on older gbrain the call-graph
-commands need `--source "$(cat .gbrain-source)"`). Conductor sibling worktrees
-of the same repo each have their own pin and their own indexed pages, so
-semantic results match the code on disk here.
+no `--source` flag needed. This requires gbrain >= 0.41.38.0; sync and dream
+stop before mutation on an older version. Run `/setup-gbrain` (or
+`gstack-gbrain-install`) and retry `/sync-gbrain` to upgrade. Conductor sibling
+worktrees of the same repo each have their own pin and their own indexed pages,
+so semantic results match the code on disk here.
 
 Call-graph queries (`code-callers`/`code-callees`) also need the graph to be
 built first — run `/sync-gbrain --dream` (or `--full`) if they return

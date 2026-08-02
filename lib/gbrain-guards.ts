@@ -12,7 +12,11 @@
  * plus an autopilot-active check (detectAutopilot) that refuses to run destructive
  * ops concurrently with the daemon.
  *
- * Design notes grounded in the real gbrain 0.41.x surface:
+ * Design notes grounded in the real GBrain surface:
+ *   - `gbrain sources list --json` intentionally omits remote-management
+ *     provenance. Destructive-capable decisions use the read-only
+ *     `GBRAIN_SOURCE=default gbrain call sources_list` operation instead and
+ *     require an explicit top-level `remote_url` value (string or null).
  *   - There is NO `--keep-storage` flag and NO structured capability command, and
  *     subcommand `--help` is generic — so capability detection is best-effort and
  *     defaults to "unsupported". When we can't protect a user-managed source's
@@ -32,8 +36,16 @@ import { spawnSync } from "child_process";
 import { existsSync, realpathSync, readFileSync } from "fs";
 import { homedir } from "os";
 import { join, resolve, sep } from "path";
-import { execGbrainJson, execGbrainText, NEEDS_SHELL_ON_WINDOWS } from "./gbrain-exec";
-import { parseSourcesList, type GbrainSourceRow } from "./gbrain-sources";
+import {
+  execGbrainJson,
+  execGbrainText,
+  NEEDS_SHELL_ON_WINDOWS,
+} from "./gbrain-exec";
+import {
+  parseSourcesListStrict,
+  resolveLocalPathForContainment,
+  type GbrainSourceRow,
+} from "./gbrain-sources";
 
 export function gbrainHome(env: NodeJS.ProcessEnv = process.env): string {
   return env.GBRAIN_HOME || join(homedir(), ".gbrain");
@@ -51,10 +63,18 @@ function clonesDirs(env: NodeJS.ProcessEnv = process.env): string[] {
 
 /** True if `p` resolves (symlinks + `..` collapsed) to a location inside `dir`. */
 export function isInside(p: string, dir: string): boolean {
-  let rp: string;
   let rd: string;
-  try { rp = realpathSync(p); } catch { rp = resolve(p); }
-  try { rd = realpathSync(dir); } catch { rd = resolve(dir); }
+  try {
+    rd = realpathSync(dir);
+  } catch {
+    rd = resolve(dir);
+  }
+  let rp: string;
+  try {
+    rp = resolveLocalPathForContainment(p, rd);
+  } catch {
+    return false;
+  }
   const base = rd.endsWith(sep) ? rd : rd + sep;
   return rp === rd || rp.startsWith(base);
 }
@@ -108,7 +128,9 @@ export function detectAutopilot(
     // decision function — we do NOT delete the file here; the caller may clean it.
   }
   // Primary signal: a live `gbrain autopilot` process.
-  const running = (probe.processRunning ?? defaultProcessRunning)();
+  const running = probe.processRunning
+    ? probe.processRunning()
+    : defaultProcessRunning(env);
   if (running) return { active: true, signal: "process:gbrain autopilot" };
   return { active: false, signal: null };
 }
@@ -141,10 +163,14 @@ function isPidAlive(pid: number): boolean {
   }
 }
 
-function defaultProcessRunning(): boolean {
+function defaultProcessRunning(env: NodeJS.ProcessEnv = process.env): boolean {
   // No reliable pgrep on Windows; rely on the lock-file signal there.
   if (process.platform === "win32") return false;
-  const r = spawnSync("pgrep", ["-f", "gbrain autopilot"], { encoding: "utf-8", timeout: 3_000 });
+  const r = spawnSync("pgrep", ["-f", "gbrain autopilot"], {
+    encoding: "utf-8",
+    timeout: 3_000,
+    env,
+  });
   return r.status === 0 && (r.stdout || "").trim().length > 0;
 }
 
@@ -193,14 +219,46 @@ export function _resetCapabilityMemo(): void {
 // ── Destructive-op decisions ────────────────────────────────────────────────
 
 /**
- * Fetch + normalize the source list. Throws on read/parse failure so callers can
- * distinguish "couldn't read" (fail closed) from "empty list" (source absent).
- * Injectable for hermetic tests.
+ * Require management provenance on every row before it can authorize a
+ * destructive-capable operation. A missing field is not equivalent to null:
+ * the ordinary CLI list omits it even for URL-managed sources.
  */
-export function fetchSources(env: NodeJS.ProcessEnv = process.env): GbrainSourceRow[] {
-  const raw = execGbrainJson(["sources", "list", "--json"], { baseEnv: env });
-  if (raw === null) throw new Error("gbrain sources list returned no JSON");
-  return parseSourcesList(raw);
+function requireManagementRows(rows: GbrainSourceRow[]): GbrainSourceRow[] {
+  for (const row of rows) {
+    if (!Object.hasOwn(row, "remote_url")) {
+      throw new Error(
+        "source management provenance is missing (remote_url omitted)",
+      );
+    }
+  }
+  return rows;
+}
+
+/**
+ * Fetch the authoritative read-only source registry, including remote_url.
+ * `GBRAIN_SOURCE=default` bypasses repo-controlled `.gbrain-source` resolution
+ * on versions that resolve a source for `call`; older v0.28.x versions ignore
+ * the unused env while the operation itself remains brain-wide. The call omits
+ * a JSON argv item so the Windows `.cmd` shell transport cannot strip JSON
+ * quotes. That returns active rows only; a missing row therefore fails closed
+ * rather than being treated as a safe absent no-op. GBrain v0.28.2 introduced
+ * this public operation; gstack's higher supported-version floor also covers
+ * source-scoped dream correctness. Older/unknown surfaces fail closed with an
+ * upgrade hint at the decision boundary.
+ */
+export function fetchSources(
+  env: NodeJS.ProcessEnv = process.env,
+): GbrainSourceRow[] {
+  const registryEnv = { ...env, GBRAIN_SOURCE: "default" };
+  const raw = execGbrainJson(["call", "sources_list"], {
+    baseEnv: registryEnv,
+  });
+  if (raw === null) {
+    throw new Error(
+      "gbrain sources_list returned no JSON; upgrade GBrain to gstack's minimum supported v0.41.38.0 or newer",
+    );
+  }
+  return requireManagementRows(parseSourcesListStrict(raw));
 }
 
 export interface RemoveDecision {
@@ -218,9 +276,10 @@ export interface RemoveDecision {
  *   - the row is user-managed (remote_url set AND local_path outside gbrain's
  *     clones) and gbrain has no --keep-storage to protect the files.
  *
- * Allowed: absent row (no-op), gbrain-managed (inside clones), or path-managed
- * without a remote_url (gbrain's remove won't touch an outside-clones path that
- * it didn't clone). --keep-storage is appended whenever supported, as extra armor.
+ * Allowed: gbrain-managed (inside clones), or path-managed without a remote_url
+ * (gbrain's remove won't touch an outside-clones path that it didn't clone).
+ * An absent active row is refused because the shell-safe registry call excludes
+ * archived rows. --keep-storage is appended whenever supported, as extra armor.
  */
 export interface DecideRemoveOpts {
   /** Override capability detection (tests / cached caps). */
@@ -239,19 +298,28 @@ export function decideSourceRemove(
 
   let rows: GbrainSourceRow[];
   try {
-    rows = (opts.fetchRows ?? fetchSources)(env);
+    rows = requireManagementRows((opts.fetchRows ?? fetchSources)(env));
   } catch {
     return { allow: false, extraArgs: [], reason: "could not read sources list; refusing remove (fail closed)" };
   }
 
   const row = rows.find((r) => r.id === sourceId);
-  if (!row) return { allow: true, extraArgs: extra, reason: "source absent (no-op)" };
+  if (!row) {
+    return {
+      allow: false,
+      extraArgs: [],
+      reason:
+        "source absent from active registry; archived provenance is unproven, refusing remove",
+    };
+  }
 
-  const remoteUrl = row.config?.remote_url;
-  const userManaged =
-    !!remoteUrl && !!row.local_path && !clonesDirs(env).some((d) => isInside(row.local_path!, d));
+  const remoteUrl = row.remote_url;
+  const storageUnproven =
+    remoteUrl !== null &&
+    (!row.local_path ||
+      !clonesDirs(env).some((d) => isInside(row.local_path!, d)));
 
-  if (userManaged) {
+  if (storageUnproven) {
     if (keepStorage) {
       return { allow: true, extraArgs: ["--keep-storage"], reason: "user-managed; --keep-storage protects files" };
     }
@@ -259,8 +327,9 @@ export function decideSourceRemove(
       allow: false,
       extraArgs: [],
       reason:
-        `refusing remove of user-managed source "${sourceId}" (remote_url set, local_path ` +
-        `${row.local_path} outside gbrain clones) — this gbrain has no --keep-storage to ` +
+        `refusing remove of user-managed or unlocatable source "${sourceId}" ` +
+        `(remote_url set, local_path ${row.local_path || "missing"} is not proven inside gbrain clones) — ` +
+        `this gbrain has no --keep-storage to ` +
         `protect the working tree. Upgrade gbrain or remove the source manually.`,
     };
   }
@@ -268,9 +337,75 @@ export function decideSourceRemove(
   return { allow: true, extraArgs: extra, reason: "gbrain-managed or path-managed without remote_url" };
 }
 
+/**
+ * Authorize the narrow remove used to repair a path-managed source whose
+ * registered directory genuinely drifted. The raw row must still match the
+ * snapshot already validated by the caller, and URL-managed sources are
+ * deliberately excluded: their remove path may delete a working tree.
+ *
+ * Unlike the general removal decision, this boundary never resolves the
+ * database-provided pathname, so an untrusted UNC/device spelling cannot
+ * trigger filesystem or network access during policy evaluation.
+ */
+export function decidePathManagedDriftRemove(
+  sourceId: string,
+  expectedLocalPath: string,
+  env: NodeJS.ProcessEnv = process.env,
+  opts: DecideRemoveOpts = {},
+): RemoveDecision {
+  // Capability detection may spawn the CLI. Do it before the final source-row
+  // snapshot so the destructive call follows that snapshot as closely as the
+  // CLI permits (there is no compare-and-delete or source lease).
+  const keepStorage = opts.keepStorage ?? gbrainSupportsKeepStorage(env);
+  let rows: GbrainSourceRow[];
+  try {
+    rows = requireManagementRows((opts.fetchRows ?? fetchSources)(env));
+  } catch {
+    return {
+      allow: false,
+      extraArgs: [],
+      reason: "could not reread sources list; refusing path-drift remove",
+    };
+  }
+
+  const row = rows.find((candidate) => candidate.id === sourceId);
+  if (!row) {
+    return {
+      allow: false,
+      extraArgs: [],
+      reason: "source disappeared before path-drift repair",
+    };
+  }
+  if (row.local_path !== expectedLocalPath) {
+    return {
+      allow: false,
+      extraArgs: [],
+      reason:
+        "registered path changed after validation; refusing path-drift remove",
+    };
+  }
+  if (row.remote_url !== null) {
+    return {
+      allow: false,
+      extraArgs: [],
+      reason: "source is URL-managed; automatic path-drift removal is unsafe",
+    };
+  }
+
+  return {
+    allow: true,
+    extraArgs: keepStorage ? ["--keep-storage"] : [],
+    reason: "validated path-managed source",
+  };
+}
+
 export interface SyncDecision {
   allow: boolean;
   reason: string;
+  /** True only for a proven URL-managed row with explicit --allow-reclone. */
+  mayReclone: boolean;
+  /** Exact strict-row snapshot used for both path binding and reclone policy. */
+  registeredPath?: string;
 }
 
 /**
@@ -278,9 +413,9 @@ export interface SyncDecision {
  *
  * A source with a remote_url can trigger gbrain's auto-reclone, the ungated
  * rm-rf path behind the data loss (gbrain #1526). Require an explicit
- * --allow-reclone opt-in for URL-managed sources. Read failure here is NOT
- * itself destructive, so it fails open (proceed) — the autopilot guard, checked
- * first, is the primary protection against the race that caused the loss.
+ * --allow-reclone opt-in for URL-managed sources. If the row cannot be read,
+ * applicability is unprovable and the destructive-capable operation fails
+ * closed; retrying after the source registry recovers is safe.
  */
 export function decideCodeSync(
   sourceId: string,
@@ -290,18 +425,42 @@ export function decideCodeSync(
 ): SyncDecision {
   let rows: GbrainSourceRow[];
   try {
-    rows = fetchRows(env);
+    rows = requireManagementRows(fetchRows(env));
   } catch {
-    return { allow: true, reason: "sources unreadable; proceeding (sync read is non-destructive)" };
+    return {
+      allow: false,
+      reason:
+        "sources unreadable; refusing sync because URL-managed applicability is unprovable",
+      mayReclone: false,
+    };
   }
   const row = rows.find((r) => r.id === sourceId);
-  if (row?.config?.remote_url && !allowReclone) {
+  if (
+    !row ||
+    typeof row.local_path !== "string" ||
+    row.local_path.length === 0
+  ) {
+    return {
+      allow: false,
+      reason: `source "${sourceId}" is absent or has no readable local_path; refusing sync`,
+      mayReclone: false,
+    };
+  }
+  if (row.remote_url !== null && !allowReclone) {
     return {
       allow: false,
       reason:
         `source "${sourceId}" is URL-managed (remote_url set); sync may auto-reclone and ` +
         `delete the working tree. Re-run /sync-gbrain with --allow-reclone to proceed.`,
+      mayReclone: false,
+      registeredPath: row.local_path,
     };
   }
-  return { allow: true, reason: "no remote_url, or reclone explicitly allowed" };
+  const mayReclone = row.remote_url !== null && allowReclone;
+  return {
+    allow: true,
+    reason: "no remote_url, or reclone explicitly allowed",
+    mayReclone,
+    registeredPath: row.local_path,
+  };
 }

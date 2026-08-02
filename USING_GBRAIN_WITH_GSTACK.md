@@ -130,12 +130,12 @@ Storage: `~/.gstack/gbrain-repo-policy.json`, mode 0600, schema-versioned so fut
 /sync-gbrain --dry-run      # preview what would sync; no writes
 ```
 
-The skill runs three stages — code, memory, brain-sync — independently. A failure in one doesn't block the others. State persists to `~/.gstack/.gbrain-sync-state.json` so re-running picks up cleanly.
+The skill runs three stages — code, memory, brain-sync — independently. A failure in one doesn't block the others. State persists to `~/.gstack/.gbrain-sync-state.json` so re-running picks up cleanly. Code sync and dream require GBrain `0.41.38.0` or newer; an older installed CLI stops before any source mutation. Run `gstack-gbrain-install` (or re-run `/setup-gbrain`) and then retry `/sync-gbrain`.
 
 **What it does on a fresh worktree:**
 
-1. **Pre-flight.** Checks `gbrain_local_status` (the local engine's health). If the engine is `broken-db` or `broken-config`, the skill STOPs with a remediation menu — it refuses to silently degrade. If the local engine is missing and you're in remote-MCP mode (Path 4), the code stage SKIPs cleanly and only brain-sync runs.
-2. **Code stage.** Registers the cwd as a federated source via `gbrain sources add`, writes a `.gbrain-source` pin file in the repo root (kubectl-style context — every worktree gets its own pin, so Conductor sibling worktrees don't collide), runs `gbrain sync --strategy code`.
+1. **Pre-flight.** Checks `gbrain_local_status` (the local engine's health) and requires GBrain `0.41.38.0+` before sync or dream. If the CLI is older, the run exits before mutation and tells you to run `gstack-gbrain-install`; `/setup-gbrain` is the user-facing upgrade path. If the engine is `broken-db` or `broken-config`, the skill STOPs with a remediation menu — it refuses to silently degrade. If the local engine is missing and you're in remote-MCP mode (Path 4), the code stage SKIPs cleanly and only brain-sync runs.
+2. **Code stage.** Registers the cwd as a federated source via `gbrain sources add`, writes a `.gbrain-source` pin file in the repo root (kubectl-style context — every worktree gets its own pin, so Conductor sibling worktrees don't collide), runs `gbrain sync --strategy code`. Relative, absolute, and symlink/junction paths resolving to the same directory are treated as one source. A genuine path drift is repaired only after guarded identity and registry checks; missing, ambiguous, rebound, or unverifiable paths stop before remove/add.
 3. **Memory stage.** Stages your `~/.gstack/` transcripts + curated memory. In local-stdio MCP mode, ingests into the local engine. In remote-http MCP mode, persists staged markdown to `~/.gstack/transcripts/run-<pid>-<ts>/` for the remote brain admin's pull pipeline. The ingest timeout is 30 minutes by default; raise it for a big brain with `GSTACK_INGEST_TIMEOUT_MS` (accepts 1 min–24h). On timeout the gbrain import checkpoint is preserved, so the next `/sync-gbrain` resumes instead of starting over.
 4. **Brain-sync stage.** Pushes curated artifacts (plans, designs, retros) to your private artifacts repo if you have one configured.
 5. **CLAUDE.md guidance.** Capability-checks the round-trip (write a page → search → find it). If green, writes the `## GBrain Search Guidance` block to your project's CLAUDE.md. If red, REMOVES the block — the agent should never be told to use a tool that isn't installed.
@@ -207,7 +207,7 @@ The skill re-collects a PAT (one-time, discarded after), lists every project in 
 | Bin | Purpose |
 |---|---|
 | `gstack-gbrain-detect` | Emit current state as JSON: gbrain on PATH, version, config engine, doctor status, sync mode |
-| `gstack-gbrain-install` | Detect-first installer (probes `~/git/gbrain`, `~/gbrain`, then fresh clone). Has `--dry-run` and `--validate-only` flags. PATH-shadow check exits 3 with remediation menu. |
+| `gstack-gbrain-install` | Detect-first installer (probes `~/git/gbrain`, `~/gbrain`, then fresh clone). Requires GBrain `0.41.38.0+`; older installs exit 3 before sync integration can run. Has `--dry-run` and `--validate-only` flags. PATH-shadow check exits 3 with remediation menu. |
 | `gstack-gbrain-lib.sh` | Sourced, not executed. Provides `read_secret_to_env VARNAME "prompt" [--echo-redacted "<sed-expr>"]` |
 | `gstack-gbrain-supabase-verify` | Structural URL check. Rejects direct-connection URLs (`db.*.supabase.co:5432`) with exit 3 |
 | `gstack-gbrain-supabase-provision` | Management API wrapper. Subcommands: `list-orgs`, `create`, `wait`, `pooler-url`, `list-orphans`, `delete-project`. All require `SUPABASE_ACCESS_TOKEN` in env. `create` and `pooler-url` also require `DB_PASS`. `--json` mode available on every subcommand. |
@@ -297,6 +297,23 @@ One rule for every secret this skill touches: **env var only, never argv, never 
 - Your shell's own `HISTFILE` behavior is your shell's, not ours — we never pass secrets to argv so they don't land there via our code, but nothing stops you from pasting one into a raw `curl` command yourself
 
 ## Troubleshooting
+
+### `[gbrain-sync] gbrain ... is below the required 0.41.38.0`
+
+The installed CLI predates the provenance, source-scoped dream, and pin-aware
+code-graph behavior that safe sync requires. The orchestrator exits before any
+source mutation. Upgrade and retry:
+
+```bash
+gstack-gbrain-install
+# Or use the guided setup path:
+/setup-gbrain
+
+/sync-gbrain
+```
+
+If you intentionally pin GBrain, pass a commit that provides version
+`0.41.38.0` or newer to `gstack-gbrain-install --pinned-commit <sha>`.
 
 ### "PATH SHADOWING DETECTED" during install
 
