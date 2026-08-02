@@ -716,6 +716,26 @@ describe('setup portable root registration (#1882)', () => {
     expect(fs.readFileSync(path.join(alias, '.gstack-managed-root'), 'utf8')).toBe(`${source}\n`);
   });
 
+  test('preflight rejects a foreign connect-chrome alias before registration', () => {
+    const home = tempDir('gstack-setup-connect-chrome-collision-');
+    const source = path.join(home, 'source checkout');
+    const skills = path.join(home, '.claude', 'skills');
+    const foreignAlias = path.join(skills, 'connect-chrome');
+    fs.mkdirSync(path.join(source, 'open-gstack-browser'), { recursive: true });
+    fs.mkdirSync(foreignAlias, { recursive: true });
+    fs.writeFileSync(path.join(source, 'open-gstack-browser', 'SKILL.md'), 'browser\n');
+    fs.writeFileSync(path.join(foreignAlias, 'SKILL.md'), 'foreign\n');
+    fs.writeFileSync(path.join(foreignAlias, 'USER_FILE'), 'preserve\n');
+
+    const script = `set -e\nIS_WINDOWS=0\nSKILL_PREFIX=0\n${extractSetupFunction('_claude_legacy_windows_skill_copy_owned')}\n${extractSetupFunction('_validate_claude_skill_target')}\n${extractSetupFunction('_claude_post_patch_skill_name')}\n${extractSetupFunction('validate_claude_skill_targets')}\nvalidate_claude_skill_targets "${source}" "${skills}"\n`;
+    const result = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('owned by another skill install');
+    expect(fs.readFileSync(path.join(foreignAlias, 'SKILL.md'), 'utf8')).toBe('foreign\n');
+    expect(fs.readFileSync(path.join(foreignAlias, 'USER_FILE'), 'utf8')).toBe('preserve\n');
+    expect(fs.existsSync(path.join(skills, '.gstack-root'))).toBe(false);
+  });
+
   test('prefix cleanup rejects a foreign legacy-looking target before mutation', () => {
     const home = tempDir('gstack-setup-cleanup-collision-');
     const source = path.join(home, 'renamed gstack');

@@ -625,6 +625,7 @@ _claude_post_patch_skill_name() {
 validate_claude_skill_targets() {
   local gstack_dir="$1"
   local skills_dir="$2"
+  local compatibility_alias="$skills_dir/connect-chrome"
 
   _validate_claude_skill_target "$gstack_dir" "$gstack_dir/SKILL.md" "$skills_dir/_gstack-command" || return 1
   for skill_dir in "$gstack_dir"/*/; do
@@ -636,6 +637,13 @@ validate_claude_skill_targets() {
     link_name=$(_claude_post_patch_skill_name "$dir_name" "$skill_name")
     _validate_claude_skill_target "$gstack_dir" "$gstack_dir/$dir_name/SKILL.md" "$skills_dir/$link_name" || return 1
   done
+  if [ "$SKILL_PREFIX" -eq 1 ]; then
+    compatibility_alias="$skills_dir/gstack-connect-chrome"
+  fi
+  _validate_claude_skill_target \
+    "$gstack_dir" \
+    "$gstack_dir/open-gstack-browser/SKILL.md" \
+    "$compatibility_alias" || return 1
 }
 
 link_claude_skill_dirs() {
