@@ -42,10 +42,13 @@ set -euo pipefail
 # --pinned-commit <sha> overrides for reproducibility.
 PINNED_COMMIT=""
 PINNED_TAG=""
-# Minimum gbrain version gstack's integration is known to work with. The
-# `sources list --json` wrapped-object shape + federated sources landed by 0.20;
-# older predates the surface gstack drives. Hard-fail below this floor (#1744).
-MIN_GBRAIN_VERSION="0.20.0"
+# Minimum gbrain version gstack's integration is known to work with. The sync
+# safety gate needs authoritative `sources_list` provenance. GBrain
+# 0.41.38.0 is the first release where the complete promised workflow is sound:
+# source-scoped dream works and unqualified code-callers/code-callees honor the
+# per-worktree `.gbrain-source` pin. Older versions can silently use the wrong
+# source while gstack reports success, so installation fails closed.
+MIN_GBRAIN_VERSION="0.41.38.0"
 GBRAIN_REPO_URL="https://github.com/garrytan/gbrain.git"
 DEFAULT_INSTALL_DIR="${GBRAIN_INSTALL_DIR:-$HOME/gbrain}"
 INSTALL_DIR="$DEFAULT_INSTALL_DIR"
@@ -223,7 +226,7 @@ version_lt() {
 if version_lt "$actual_norm" "$MIN_GBRAIN_VERSION"; then
   echo "" >&2
   echo "gstack-gbrain-install: gbrain $actual_version is below the minimum gstack-tested version ($MIN_GBRAIN_VERSION)." >&2
-  echo "  gstack's sync integration needs the v0.20+ source/list surface." >&2
+  echo "  gstack's sync integration needs v0.41.38.0+ provenance, source-scoped dream, and pin-aware code graph support." >&2
   echo "  Fix: update the gbrain clone at $INSTALL_DIR to a newer release (git pull), then" >&2
   echo "  re-run /setup-gbrain. Or pass --pinned-commit <sha> to install a specific newer commit." >&2
   echo "" >&2

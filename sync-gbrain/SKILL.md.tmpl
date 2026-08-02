@@ -34,7 +34,10 @@ refreshed against this repo's current state, and refreshes the agent-side
 guidance in CLAUDE.md so the coding agent knows when to prefer `gbrain`
 search over Grep.
 
-**Architecture (post-codex review):** This skill uses gbrain v0.20.0+'s
+**Architecture (post-codex review):** This skill requires gbrain v0.41.38.0+ so
+the safety gate can read authoritative source-management provenance and dream
+can scope its cycle to the current source and unqualified code graph commands
+honor the per-worktree pin, and uses
 **native code surfaces** (`gbrain sources add`, `gbrain sync --strategy code`,
 `gbrain reindex-code`, `gbrain code-def/code-refs/code-callers/code-callees`).
 It does NOT use `gbrain import` (that path is for markdown directories).

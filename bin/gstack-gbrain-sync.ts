@@ -29,18 +29,64 @@
  * than building a gstack-side daemon.
  */
 
-import { existsSync, statSync, mkdirSync, writeFileSync, readFileSync, unlinkSync, renameSync } from "fs";
+import {
+  existsSync,
+  lstatSync,
+  statSync,
+  mkdirSync,
+  writeFileSync,
+  readFileSync,
+  openSync,
+  fstatSync,
+  closeSync,
+  unlinkSync,
+  renameSync,
+  constants as FS_CONSTANTS,
+} from "fs";
 import { join, dirname } from "path";
 import { execSync, spawnSync } from "child_process";
 import { homedir, hostname } from "os";
-import { createHash } from "crypto";
+import { createHash, randomBytes } from "crypto";
 
 import "../lib/conductor-env-shim";
-import { detectEngineTier, withErrorContext, canonicalizeRemote } from "../lib/gstack-memory-helpers";
-import { ensureSourceRegistered, sourcePageCount, parseSourcesList, cycleCompleted, type CycleStatus } from "../lib/gbrain-sources";
-import { detectAutopilot, decideSourceRemove, decideCodeSync } from "../lib/gbrain-guards";
-import { localEngineStatus, type LocalEngineStatus } from "../lib/gbrain-local-status";
-import { buildGbrainEnv, spawnGbrain, execGbrainJson, NEEDS_SHELL_ON_WINDOWS } from "../lib/gbrain-exec";
+import {
+  detectEngineTier,
+  withErrorContext,
+  canonicalizeRemote,
+} from "../lib/gstack-memory-helpers";
+import {
+  assertCanonicalDirectoryUnchanged,
+  bindRegisteredSourcePath,
+  canonicalSourceDirectory,
+  ensureSourceRegistered,
+  registeredSourceMatchesDirectory,
+  sourcePageCount,
+  parseSourcesList,
+  cycleCompleted,
+  type CanonicalDirectory,
+  type CycleStatus,
+  type DirectoryFsOps,
+  type SourcePathBinding,
+} from "../lib/gbrain-sources";
+import {
+  detectAutopilot,
+  decideSourceRemove,
+  decidePathManagedDriftRemove,
+  decideCodeSync,
+  fetchSources,
+} from "../lib/gbrain-guards";
+import {
+  localEngineStatus,
+  readGbrainVersion,
+  resolveGbrainBin,
+  type LocalEngineStatus,
+} from "../lib/gbrain-local-status";
+import {
+  buildGbrainEnv,
+  spawnGbrain,
+  execGbrainJson,
+  NEEDS_SHELL_ON_WINDOWS,
+} from "../lib/gbrain-exec";
 import { checkOwnedStagingDir } from "../lib/staging-guard";
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -94,6 +140,56 @@ const GSTACK_HOME = process.env.GSTACK_HOME || join(HOME, ".gstack");
 const STATE_PATH = join(GSTACK_HOME, ".gbrain-sync-state.json");
 const LOCK_PATH = join(GSTACK_HOME, ".sync-gbrain.lock");
 const STALE_LOCK_MS = 5 * 60 * 1000;
+const SOURCE_ID_RE = /^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$/;
+export const MIN_GBRAIN_VERSION = "0.41.38.0";
+
+export interface GbrainVersionCheck {
+  ok: boolean;
+  detected: string | null;
+  reason: string;
+}
+
+/**
+ * Fail closed on an absent, malformed, or unsupported GBrain version.
+ *
+ * The four-component release floor is intentional: 0.41.38.0 is the first
+ * GBrain release where unqualified code-callers/code-callees honor the
+ * per-worktree `.gbrain-source` pin. Merely checking command availability lets
+ * older installs sync one source and silently query another.
+ */
+export function checkGbrainVersion(
+  versionOutput: string,
+  minimum = MIN_GBRAIN_VERSION,
+): GbrainVersionCheck {
+  const match = versionOutput.match(/(?:^|\s)v?(\d+(?:\.\d+){1,3})(?:\s|$)/);
+  if (!match) {
+    return {
+      ok: false,
+      detected: null,
+      reason: "could not parse `gbrain --version`",
+    };
+  }
+
+  const detected = match[1];
+  const toParts = (value: string): number[] =>
+    value.split(".").map((part) => Number(part));
+  const detectedParts = toParts(detected);
+  const minimumParts = toParts(minimum);
+  const width = Math.max(detectedParts.length, minimumParts.length);
+  for (let i = 0; i < width; i++) {
+    const actual = detectedParts[i] ?? 0;
+    const required = minimumParts[i] ?? 0;
+    if (actual > required) return { ok: true, detected, reason: "supported" };
+    if (actual < required) {
+      return {
+        ok: false,
+        detected,
+        reason: `gbrain ${detected} is below the required ${minimum}`,
+      };
+    }
+  }
+  return { ok: true, detected, reason: "supported" };
+}
 
 // Dream (call-graph build) is brain-global and runs LOCK-FREE after the sync
 // lock releases, so it can't use the sync lock to dedupe across worktrees. A
@@ -388,8 +484,7 @@ function deriveLegacyCodeSourceId(repoPath: string): string {
  * repo path: `gstack-code-<slug>-<sha1(path).slice(0,8)>`. After #1468 the
  * hash key is `${hostname}::${path}`, so every existing user's brain has a
  * legacy id that no longer matches what `deriveCodeSourceId` produces. We
- * detect this form once, attempt rename-in-place if the gbrain CLI supports
- * `sources rename`, and otherwise clean up after the new source successfully
+ * detect this form once and clean it up only after the new source successfully
  * syncs. Distinct from `deriveLegacyCodeSourceId` (pre-pathhash v1.x form);
  * both probes run.
  */
@@ -403,41 +498,6 @@ export function derivePathOnlyHashLegacyId(repoPath: string): string {
   }
   const base = repoPath.split("/").pop() || "repo";
   return constrainSourceId("gstack-code", `${base}-${pathHash}`);
-}
-
-/**
- * Feature-check whether the installed gbrain CLI ships `sources rename <old> <new>`.
- *
- * Per the v1.40.0.0 design review: probing `gbrain sources rename --help` and
- * matching for the exact argument shape catches the case where gbrain's
- * `sources` parent help mentions a `rename` subcommand but the CLI doesn't
- * accept the `<old> <new>` form (or vice versa). Cached for the lifetime
- * of the process. As of gbrain 0.35.0.0 this command does not exist, so the
- * function returns false and the migration path falls back to register-new
- * + sync-OK + remove-old.
- */
-let _gbrainSupportsRenameCache: boolean | null = null;
-export function _resetGbrainSupportsRenameCache(): void {
-  _gbrainSupportsRenameCache = null;
-}
-function gbrainSupportsSourcesRename(env?: NodeJS.ProcessEnv): boolean {
-  if (_gbrainSupportsRenameCache !== null) return _gbrainSupportsRenameCache;
-  try {
-    const r = spawnGbrain(["sources", "rename", "--help"], {
-      timeout: 5_000,
-      baseEnv: env,
-    });
-    const out = `${r.stdout || ""}\n${r.stderr || ""}`;
-    // Match the exact argument shape: `rename <old> <new>` (with literal
-    // angle brackets in usage strings) or `rename OLD NEW`.
-    const exact = /sources\s+rename\s+<old>\s+<new>/i.test(out)
-      || /sources\s+rename\s+OLD\s+NEW/.test(out)
-      || /sources\s+rename\s+<oldId>\s+<newId>/i.test(out);
-    _gbrainSupportsRenameCache = exact && r.status === 0;
-  } catch {
-    _gbrainSupportsRenameCache = false;
-  }
-  return _gbrainSupportsRenameCache;
 }
 
 /**
@@ -465,9 +525,13 @@ export function sourceLocalPath(sourceId: string, env?: NodeJS.ProcessEnv): stri
 /** Result of `planHostnameFoldMigration` — informs `runCodeImport` of next steps. */
 export type HostnameFoldMigration =
   | { kind: "none"; reason: "ids-match" | "no-legacy-source" }
-  | { kind: "skipped-path-drift"; oldId: string; oldPath: string; currentPath: string }
-  | { kind: "renamed"; oldId: string; newId: string }
-  | { kind: "pending-cleanup"; oldId: string };
+  | {
+      kind: "skipped-path-drift";
+      oldId: string;
+      oldPath: string;
+      currentPath: string;
+    }
+  | { kind: "pending-cleanup"; oldId: string; oldPath: string };
 
 /**
  * Decide how to migrate from the pre-#1468 path-only-hash source id to the
@@ -479,18 +543,24 @@ export type HostnameFoldMigration =
  *   3. local_path != currentRoot → user moved the repo or two machines share a
  *      hash slot. Skip migration; let the user clean up manually. We will NOT
  *      rename or remove anything; the new source is registered alongside.
- *   4. Otherwise: feature-check `gbrain sources rename`. If supported and the
- *      rename call exits 0 → renamed, pages preserved.
- *   5. Else: pending-cleanup. Caller registers + syncs new source first; only
+ *   4. Otherwise: pending-cleanup. Caller registers + syncs new source first; only
  *      after sync succeeds with a non-zero page count does it remove the old.
  *      This avoids a data-loss window where the old source is gone before the
- *      new one is verifiably populated.
+ *      new one is verifiably populated. We deliberately do not use a
+ *      rename-in-place command here: GBrain provides no filesystem/source-row
+ *      lease across that mutation, so the guarded add/sync/verify/remove path
+ *      is the only path whose subject can be revalidated at every boundary.
  */
 export function planHostnameFoldMigration(
   currentRoot: string,
   newSourceId: string,
   legacyPathHashId: string,
   env?: NodeJS.ProcessEnv,
+  pathIdentity?: {
+    expected: CanonicalDirectory;
+    platform?: NodeJS.Platform;
+    fsOps?: DirectoryFsOps;
+  },
 ): HostnameFoldMigration {
   if (legacyPathHashId === newSourceId) {
     return { kind: "none", reason: "ids-match" };
@@ -499,7 +569,21 @@ export function planHostnameFoldMigration(
   if (oldPath === null) {
     return { kind: "none", reason: "no-legacy-source" };
   }
-  if (oldPath !== currentRoot) {
+  let sameDirectory = oldPath === currentRoot;
+  if (pathIdentity) {
+    try {
+      sameDirectory = registeredSourceMatchesDirectory(
+        oldPath,
+        pathIdentity.expected,
+        pathIdentity.platform,
+        pathIdentity.fsOps,
+        true,
+      );
+    } catch {
+      sameDirectory = false;
+    }
+  }
+  if (!sameDirectory) {
     return {
       kind: "skipped-path-drift",
       oldId: legacyPathHashId,
@@ -507,14 +591,11 @@ export function planHostnameFoldMigration(
       currentPath: currentRoot,
     };
   }
-  if (gbrainSupportsSourcesRename(env)) {
-    const r = spawnGbrain(["sources", "rename", legacyPathHashId, newSourceId], { baseEnv: env });
-    if (r.status === 0) {
-      return { kind: "renamed", oldId: legacyPathHashId, newId: newSourceId };
-    }
-    // Rename failed at runtime — fall through to cleanup path.
-  }
-  return { kind: "pending-cleanup", oldId: legacyPathHashId };
+  return {
+    kind: "pending-cleanup",
+    oldId: legacyPathHashId,
+    oldPath,
+  };
 }
 
 export interface GuardedRemoveResult {
@@ -533,7 +614,17 @@ export interface GuardedRemoveResult {
  * caller decides whether a skip is fatal (it never is today — removes are
  * best-effort cleanup).
  */
-export function safeSourcesRemove(sourceId: string, env?: NodeJS.ProcessEnv): GuardedRemoveResult {
+export function safeSourcesRemove(
+  sourceId: string,
+  env?: NodeJS.ProcessEnv,
+): GuardedRemoveResult {
+  if (!SOURCE_ID_RE.test(sourceId)) {
+    return {
+      removed: false,
+      skipped: true,
+      reason: `unsafe source id "${sourceId}"; refusing remove before any external command`,
+    };
+  }
   const ap = detectAutopilot(env);
   if (ap.active) {
     return {
@@ -547,6 +638,17 @@ export function safeSourcesRemove(sourceId: string, env?: NodeJS.ProcessEnv): Gu
   if (!decision.allow) {
     return { removed: false, skipped: true, reason: decision.reason };
   }
+  const finalAp = detectAutopilot(env);
+  if (finalAp.active) {
+    return {
+      removed: false,
+      skipped: true,
+      reason: `autopilot became active (${finalAp.signal}); refusing destructive remove of ${sourceId}`,
+    };
+  }
+  // GBrain exposes no compare-and-delete primitive or source lease. The final
+  // authoritative reread above minimizes, but cannot eliminate, a concurrent
+  // rebind or autopilot start after the final checks and before this CLI call.
   const r = spawnGbrain(
     ["sources", "remove", sourceId, "--confirm-destructive", ...decision.extraArgs],
     { baseEnv: env },
@@ -554,13 +656,78 @@ export function safeSourcesRemove(sourceId: string, env?: NodeJS.ProcessEnv): Gu
   return { removed: r.status === 0, skipped: false, reason: decision.reason };
 }
 
+/** Guarded, snapshot-bound remove used only for canonical path-drift repair. */
+export function safePathDriftRemove(
+  sourceId: string,
+  expectedRegisteredPath: string,
+  env?: NodeJS.ProcessEnv,
+): GuardedRemoveResult {
+  if (!SOURCE_ID_RE.test(sourceId)) {
+    return {
+      removed: false,
+      skipped: true,
+      reason: `unsafe source id "${sourceId}"; refusing path-drift remove before any external command`,
+    };
+  }
+  const ap = detectAutopilot(env);
+  if (ap.active) {
+    return {
+      removed: false,
+      skipped: true,
+      reason: `autopilot active (${ap.signal}); refusing path-drift remove of ${sourceId}`,
+    };
+  }
+
+  const decision = decidePathManagedDriftRemove(
+    sourceId,
+    expectedRegisteredPath,
+    env,
+  );
+  if (!decision.allow) {
+    return { removed: false, skipped: true, reason: decision.reason };
+  }
+  const finalAp = detectAutopilot(env);
+  if (finalAp.active) {
+    return {
+      removed: false,
+      skipped: true,
+      reason: `autopilot became active (${finalAp.signal}); refusing path-drift remove of ${sourceId}`,
+    };
+  }
+  // GBrain exposes no compare-and-delete primitive or source lease. The final
+  // exact-row reread above minimizes, but cannot eliminate, a concurrent
+  // rebind or autopilot start after the final checks and before this CLI call.
+  const result = spawnGbrain(
+    [
+      "sources",
+      "remove",
+      sourceId,
+      "--confirm-destructive",
+      ...decision.extraArgs,
+    ],
+    { baseEnv: env },
+  );
+  return {
+    removed: result.status === 0,
+    skipped: false,
+    reason:
+      result.status === 0
+        ? decision.reason
+        : `gbrain sources remove exited ${result.status}`,
+  };
+}
+
 /**
- * Remove an orphaned source. Called only after new-source sync verifies pages
- * exist, so the old source is provably redundant before deletion. Routed through
- * safeSourcesRemove for the #1734 guards.
+ * Remove the exact legacy row captured by the hostname-fold migration plan.
+ * The sync between planning and cleanup can be long, so bind the destructive
+ * operation to both the old id and its original path. A concurrent rebind then
+ * fails closed instead of deleting the replacement row.
  */
-export function removeOrphanedSource(oldId: string, env?: NodeJS.ProcessEnv): boolean {
-  return safeSourcesRemove(oldId, env).removed;
+export function removePlannedHostnameLegacySource(
+  migration: Extract<HostnameFoldMigration, { kind: "pending-cleanup" }>,
+  env?: NodeJS.ProcessEnv,
+): GuardedRemoveResult {
+  return safePathDriftRemove(migration.oldId, migration.oldPath, env);
 }
 
 /**
@@ -782,10 +949,55 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
       ran: false,
       ok: true,
       duration_ms: 0,
-      summary: `would: gbrain sources add ${sourceId} --path ${root} --federated; gbrain sync --strategy code --source ${sourceId}; gbrain sources attach ${sourceId}`,
+      summary: `would: gbrain sources add ${sourceId} --path ${root} --federated; gbrain sync --strategy code --source ${sourceId}; pin .gbrain-source to ${sourceId}`,
       detail: { source_id: sourceId, source_path: root, status: "skipped" },
     };
   }
+
+  let validatedRoot: ReturnType<typeof canonicalSourceDirectory>;
+  try {
+    validatedRoot = canonicalSourceDirectory(root);
+    // Prove a non-zero stable identity before any GBrain probe, sync, or legacy
+    // source cleanup. Some filesystems report inode/file-id 0; discovering
+    // that only inside registration would be too late because Step 0a can
+    // already mutate GBrain state.
+    assertCanonicalDirectoryUnchanged(
+      validatedRoot,
+      "repository before sync preflight",
+    );
+  } catch (err) {
+    return {
+      name: "code",
+      ran: false,
+      ok: false,
+      duration_ms: Date.now() - t0,
+      summary: `source path validation failed: ${(err as Error).message}`,
+      detail: { source_id: sourceId, source_path: root, status: "failed" },
+    };
+  }
+  const canonicalRoot = validatedRoot.canonicalPath;
+  const revalidateRoot = (operation: string): StageResult | null => {
+    try {
+      assertCanonicalDirectoryUnchanged(
+        validatedRoot,
+        `expected source path before ${operation}`,
+      );
+      return null;
+    } catch (err) {
+      return {
+        name: "code",
+        ran: true,
+        ok: false,
+        duration_ms: Date.now() - t0,
+        summary: `source path validation failed before ${operation}: ${(err as Error).message}`,
+        detail: {
+          source_id: sourceId,
+          source_path: canonicalRoot,
+          status: "failed",
+        },
+      };
+    }
+  };
 
   // Split-engine pre-flight (per plan D12): when local engine is not ok, SKIP
   // code stage cleanly. Brain-sync stage still runs because it doesn't depend
@@ -814,8 +1026,15 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
   const legacyId = deriveLegacyCodeSourceId(root);
   let legacyRemoved = false;
   if (legacyId !== sourceId) {
+    const legacyCleanupPathError = revalidateRoot("legacy-source cleanup");
+    if (legacyCleanupPathError) return legacyCleanupPathError;
     // #1734: route through the data-loss guards (autopilot + source-safety).
     const rm = safeSourcesRemove(legacyId, gbrainEnv);
+    const legacyCleanupCompletionPathError = revalidateRoot(
+      "legacy-source cleanup completion",
+    );
+    if (legacyCleanupCompletionPathError)
+      return legacyCleanupCompletionPathError;
     if (rm.skipped && !args.quiet) {
       console.error(`[sync:code] legacy-source cleanup skipped: ${rm.reason}`);
     }
@@ -825,26 +1044,46 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
   // Step 0b: Hostname-fold migration (#1414).
   // Before #1468 the source id hashed only the absolute repo path. After the
   // hostname fold, every existing user has a legacy id that no longer matches
-  // what deriveCodeSourceId produces. Try rename-in-place first (preserves
-  // pages); fall back to register-new → sync-OK → remove-old. Path-drift
-  // (user moved the repo, etc.) skips migration with a warning.
+  // what deriveCodeSourceId produces. Register the new source, prove its sync,
+  // then remove the old source through the destructive-operation guards.
+  // Path drift (user moved the repo, etc.) skips migration with a warning.
   const pathOnlyHashLegacyId = derivePathOnlyHashLegacyId(root);
-  const migration = planHostnameFoldMigration(root, sourceId, pathOnlyHashLegacyId, gbrainEnv);
+  const migration = planHostnameFoldMigration(
+    canonicalRoot,
+    sourceId,
+    pathOnlyHashLegacyId,
+    gbrainEnv,
+    { expected: validatedRoot },
+  );
   if (migration.kind === "skipped-path-drift" && !args.quiet) {
     console.error(
       `[sync:code] hostname-fold migration skipped: legacy source ${migration.oldId} `
       + `points at ${migration.oldPath}, current repo is ${migration.currentPath}. `
       + `Clean up manually with: gbrain sources remove ${migration.oldId} --confirm-destructive`,
     );
-  } else if (migration.kind === "renamed" && !args.quiet) {
-    console.error(`[sync:code] hostname-fold migration: renamed ${migration.oldId} → ${migration.newId} (pages preserved)`);
   }
 
   // Step 1: Ensure source registered (idempotent). Single source of truth in lib —
   // no synchronous duplicate here (per /codex review #12).
   let registered = false;
   try {
-    const result = await ensureSourceRegistered(sourceId, root, { federated: true, env: gbrainEnv });
+    const result = await ensureSourceRegistered(sourceId, canonicalRoot, {
+      federated: true,
+      env: gbrainEnv,
+      expected_identity: validatedRoot,
+      removeSource: (driftedId, registeredPath, removeEnv) => {
+        const removal = safePathDriftRemove(
+          driftedId,
+          registeredPath,
+          removeEnv,
+        );
+        if (!removal.removed) {
+          throw new Error(
+            `guarded path-drift repair refused: ${removal.reason}`,
+          );
+        }
+      },
+    });
     registered = result.changed;
   } catch (err) {
     return {
@@ -853,7 +1092,11 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
       ok: false,
       duration_ms: Date.now() - t0,
       summary: `source registration failed: ${(err as Error).message}`,
-      detail: { source_id: sourceId, source_path: root, status: "failed" },
+      detail: {
+        source_id: sourceId,
+        source_path: canonicalRoot,
+        status: "failed",
+      },
     };
   }
 
@@ -883,7 +1126,11 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
     return {
       name: "code", ran: true, ok: false, duration_ms: Date.now() - t0,
       summary: `refused: gbrain autopilot active (${apBeforeWalk.signal}). Stop autopilot, then re-run /sync-gbrain.`,
-      detail: { source_id: sourceId, source_path: root, status: "refused-autopilot" },
+      detail: {
+        source_id: sourceId,
+        source_path: canonicalRoot,
+        status: "refused-autopilot",
+      },
     };
   }
   const reclone = decideCodeSync(sourceId, gbrainEnv, args.allowReclone);
@@ -891,15 +1138,174 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
     return {
       name: "code", ran: true, ok: false, duration_ms: Date.now() - t0,
       summary: `refused: ${reclone.reason}`,
-      detail: { source_id: sourceId, source_path: root, status: "refused-reclone" },
+      detail: {
+        source_id: sourceId,
+        source_path: canonicalRoot,
+        status: "refused-reclone",
+      },
     };
   }
 
-  const walkResult = spawnGbrain(["sync", "--strategy", "code", "--source", sourceId], {
-    stdio: args.quiet ? ["ignore", "ignore", "ignore"] : ["ignore", "inherit", "inherit"],
-    timeout: codeTimeoutMs,
-    baseEnv: gbrainEnv,
-  });
+  let sourceBinding: SourcePathBinding;
+  try {
+    sourceBinding = bindRegisteredSourcePath(
+      reclone.registeredPath!,
+      validatedRoot,
+    );
+  } catch (err) {
+    return {
+      name: "code",
+      ran: true,
+      ok: false,
+      duration_ms: Date.now() - t0,
+      summary: `source path binding failed before sync: ${(err as Error).message}`,
+      detail: {
+        source_id: sourceId,
+        source_path: canonicalRoot,
+        status: "failed",
+      },
+    };
+  }
+
+  // GBrain exposes no source-row lease. Every snapshot below is strict and
+  // checked immediately around source-ID consumers, but a concurrent rebind
+  // after the snapshot remains a non-zero external CLI race window.
+  const validateCurrentSourceBinding = (
+    operation: string,
+  ): StageResult | null => {
+    const decision = decideCodeSync(sourceId, gbrainEnv, args.allowReclone);
+    if (
+      !decision.allow ||
+      !decision.registeredPath ||
+      decision.mayReclone !== reclone.mayReclone
+    ) {
+      return {
+        name: "code",
+        ran: true,
+        ok: false,
+        duration_ms: Date.now() - t0,
+        summary: `source row validation failed before ${operation}: ${decision.reason}`,
+        detail: {
+          source_id: sourceId,
+          source_path: canonicalRoot,
+          status: "failed",
+        },
+      };
+    }
+    try {
+      bindRegisteredSourcePath(decision.registeredPath, validatedRoot);
+      return null;
+    } catch (err) {
+      return {
+        name: "code",
+        ran: true,
+        ok: false,
+        duration_ms: Date.now() - t0,
+        summary: `source row validation failed before ${operation}: ${(err as Error).message}`,
+        detail: {
+          source_id: sourceId,
+          source_path: canonicalRoot,
+          status: "failed",
+        },
+      };
+    }
+  };
+
+  const validateSyncCompletion = (): StageResult | null => {
+    if (reclone.mayReclone) {
+      try {
+        const refreshedRoot = canonicalSourceDirectory(canonicalRoot);
+        if (refreshedRoot.canonicalPath !== canonicalRoot) {
+          throw new Error(
+            `authorized reclone resolved to unexpected path "${refreshedRoot.canonicalPath}"`,
+          );
+        }
+        validatedRoot = refreshedRoot;
+      } catch (err) {
+        return {
+          name: "code",
+          ran: true,
+          ok: false,
+          duration_ms: Date.now() - t0,
+          summary: `source path validation failed after authorized reclone: ${(err as Error).message}`,
+          detail: {
+            source_id: sourceId,
+            source_path: canonicalRoot,
+            status: "failed",
+          },
+        };
+      }
+    } else {
+      const pathError = revalidateRoot("sync completion");
+      if (pathError) return pathError;
+    }
+    return validateCurrentSourceBinding("sync completion");
+  };
+
+  const syncPathError = revalidateRoot("sync");
+  if (syncPathError) return syncPathError;
+  const syncBindingError = validateCurrentSourceBinding("sync");
+  if (syncBindingError) return syncBindingError;
+  const finalSyncPathError = revalidateRoot("sync spawn");
+  if (finalSyncPathError) return finalSyncPathError;
+  const apAtSyncSpawn = detectAutopilot(gbrainEnv);
+  if (apAtSyncSpawn.active) {
+    return {
+      name: "code",
+      ran: true,
+      ok: false,
+      duration_ms: Date.now() - t0,
+      summary:
+        `refused: gbrain autopilot became active (${apAtSyncSpawn.signal}) before sync spawn. ` +
+        "Stop autopilot, then re-run /sync-gbrain.",
+      detail: {
+        source_id: sourceId,
+        source_path: canonicalRoot,
+        status: "refused-autopilot",
+      },
+    };
+  }
+
+  // cwd is an OS-level spawn option, not a shell argument. It keeps relative
+  // legacy local_path values anchored without rejecting safe Windows spaces.
+  const syncArgs = ["sync", "--strategy", "code", "--source", sourceId];
+  if (sourceBinding.useExplicitPath) syncArgs.push("--repo", canonicalRoot);
+  // Current GBrain housekeeping follows a repo-controlled `.gitignore`
+  // symlink. Disable that side effect and update the file through our atomic
+  // boundary after the primary sync succeeds.
+  const syncEnv = { ...gbrainEnv, GBRAIN_NO_GITIGNORE: "1" };
+  let walkResult: ReturnType<typeof spawnGbrain>;
+  try {
+    walkResult = spawnGbrain(syncArgs, {
+      stdio: args.quiet
+        ? ["ignore", "ignore", "ignore"]
+        : ["ignore", "inherit", "inherit"],
+      timeout: codeTimeoutMs,
+      baseEnv: syncEnv,
+      cwd: canonicalRoot,
+    });
+  } catch (err) {
+    const syncCompletionPathError = validateSyncCompletion();
+    if (syncCompletionPathError) return syncCompletionPathError;
+    return {
+      name: "code",
+      ran: true,
+      ok: false,
+      duration_ms: Date.now() - t0,
+      summary: `gbrain sync failed to start: ${(err as Error).message}`,
+      detail: {
+        source_id: sourceId,
+        source_path: canonicalRoot,
+        status: "failed",
+      },
+    };
+  }
+
+  // A proven URL-managed source may replace its checkout only behind the
+  // explicit --allow-reclone opt-in. Refresh and re-bind that new identity;
+  // every other sync must leave the original validated object in place.
+  const syncCompletionPathError = validateSyncCompletion();
+  if (syncCompletionPathError) return syncCompletionPathError;
 
   if (walkResult.status !== 0) {
     return {
@@ -908,16 +1314,64 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
       ok: false,
       duration_ms: Date.now() - t0,
       summary: `gbrain sync --strategy code --source ${sourceId} exited ${walkResult.status}`,
-      detail: { source_id: sourceId, source_path: root, status: "failed" },
+      detail: {
+        source_id: sourceId,
+        source_path: canonicalRoot,
+        status: "failed",
+      },
     };
   }
 
   if (args.mode === "full") {
-    const reindexResult = spawnGbrain(["reindex-code", "--source", sourceId, "--yes"], {
-      stdio: args.quiet ? ["ignore", "ignore", "ignore"] : ["ignore", "inherit", "inherit"],
-      timeout: codeTimeoutMs,
-      baseEnv: gbrainEnv,
-    });
+    const reindexPathError = revalidateRoot("reindex");
+    if (reindexPathError) return reindexPathError;
+    const reindexBindingError = validateCurrentSourceBinding("reindex");
+    if (reindexBindingError) return reindexBindingError;
+    let reindexResult: ReturnType<typeof spawnGbrain>;
+    try {
+      reindexResult = spawnGbrain(
+        ["reindex-code", "--source", sourceId, "--yes"],
+        {
+          stdio: args.quiet
+            ? ["ignore", "ignore", "ignore"]
+            : ["ignore", "inherit", "inherit"],
+          timeout: codeTimeoutMs,
+          baseEnv: gbrainEnv,
+          cwd: canonicalRoot,
+        },
+      );
+    } catch (err) {
+      const reindexCompletionPathError = revalidateRoot("reindex completion");
+      if (reindexCompletionPathError) return reindexCompletionPathError;
+      const reindexCompletionBindingError =
+        validateCurrentSourceBinding("reindex completion");
+      if (reindexCompletionBindingError) {
+        return {
+          ...reindexCompletionBindingError,
+          summary:
+            `gbrain reindex-code failed to start: ${(err as Error).message}; ` +
+            reindexCompletionBindingError.summary,
+        };
+      }
+      return {
+        name: "code",
+        ran: true,
+        ok: false,
+        duration_ms: Date.now() - t0,
+        summary: `gbrain reindex-code failed to start: ${(err as Error).message}`,
+        detail: {
+          source_id: sourceId,
+          source_path: canonicalRoot,
+          status: "failed",
+        },
+      };
+    }
+
+    const reindexCompletionPathError = revalidateRoot("reindex completion");
+    if (reindexCompletionPathError) return reindexCompletionPathError;
+    const reindexCompletionBindingError =
+      validateCurrentSourceBinding("reindex completion");
+    if (reindexCompletionBindingError) return reindexCompletionBindingError;
 
     if (reindexResult.status !== 0) {
       return {
@@ -926,7 +1380,11 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
         ok: false,
         duration_ms: Date.now() - t0,
         summary: `gbrain reindex-code --source ${sourceId} exited ${reindexResult.status}`,
-        detail: { source_id: sourceId, source_path: root, status: "failed" },
+        detail: {
+          source_id: sourceId,
+          source_path: canonicalRoot,
+          status: "failed",
+        },
       };
     }
   }
@@ -935,16 +1393,51 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
   // gbrain code-def / code-refs / code-callers calls from anywhere under <root>
   // route to this source by default — no --source flag needed.
   //
-  // If attach fails the whole flow has a silent correctness problem: sync
+  // If pinning fails the whole flow has a silent correctness problem: sync
   // succeeded but unqualified `gbrain code-def` from this worktree will hit
   // the wrong/default source. Treat it as a stage failure (ok=false) so the
   // verdict block surfaces ERR and the user knows to retry rather than
   // trusting stale results.
-  const attach = spawnGbrain(["sources", "attach", sourceId], {
-    timeout: 10_000,
-    cwd: root,
-    baseEnv: gbrainEnv,
-  });
+  const attachPathError = revalidateRoot("attach");
+  if (attachPathError) return attachPathError;
+  const attachBindingError = validateCurrentSourceBinding("attach");
+  if (attachBindingError) return attachBindingError;
+  try {
+    // Do not call `gbrain sources attach`: current GBrain uses writeFileSync
+    // and follows an existing `.gbrain-source` symlink. Atomic replacement
+    // changes the link itself and never writes through to its target.
+    writeGbrainSourcePin(canonicalRoot, sourceId);
+  } catch (err) {
+    const attachCompletionPathError = revalidateRoot("attach completion");
+    if (attachCompletionPathError) return attachCompletionPathError;
+    const attachCompletionBindingError =
+      validateCurrentSourceBinding("attach completion");
+    if (attachCompletionBindingError) {
+      return {
+        ...attachCompletionBindingError,
+        summary:
+          `could not pin .gbrain-source safely: ${(err as Error).message}; ` +
+          attachCompletionBindingError.summary,
+      };
+    }
+    return {
+      name: "code",
+      ran: true,
+      ok: false,
+      duration_ms: Date.now() - t0,
+      summary: `could not pin .gbrain-source safely: ${(err as Error).message}`,
+      detail: {
+        source_id: sourceId,
+        source_path: canonicalRoot,
+        status: "failed",
+      },
+    };
+  }
+  const attachCompletionPathError = revalidateRoot("attach completion");
+  if (attachCompletionPathError) return attachCompletionPathError;
+  const attachCompletionBindingError =
+    validateCurrentSourceBinding("attach completion");
+  if (attachCompletionBindingError) return attachCompletionBindingError;
   const pageCount = sourcePageCount(sourceId, gbrainEnv);
 
   // Step 4: Deferred hostname-fold cleanup.
@@ -954,44 +1447,59 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
   // wipe pages when sync silently no-op'd. This is the codex-review-flagged
   // safety: register → sync → verify → THEN delete.
   let hostnameLegacyRemoved = false;
-  if (migration.kind === "pending-cleanup" && pageCount !== null && pageCount > 0) {
-    hostnameLegacyRemoved = removeOrphanedSource(migration.oldId, gbrainEnv);
+  const cleanupPathError = revalidateRoot("legacy cleanup");
+  if (cleanupPathError) return cleanupPathError;
+  const cleanupBindingError = validateCurrentSourceBinding("legacy cleanup");
+  if (cleanupBindingError) return cleanupBindingError;
+  if (
+    migration.kind === "pending-cleanup" &&
+    pageCount !== null &&
+    pageCount > 0
+  ) {
+    const cleanupResult = removePlannedHostnameLegacySource(
+      migration,
+      gbrainEnv,
+    );
+    hostnameLegacyRemoved = cleanupResult.removed;
+    const cleanupCompletionPathError = revalidateRoot(
+      "legacy cleanup completion",
+    );
+    if (cleanupCompletionPathError) return cleanupCompletionPathError;
+    const cleanupCompletionBindingError = validateCurrentSourceBinding(
+      "legacy cleanup completion",
+    );
+    if (cleanupCompletionBindingError) return cleanupCompletionBindingError;
     if (hostnameLegacyRemoved && !args.quiet) {
       console.error(`[sync:code] hostname-fold migration: removed legacy ${migration.oldId} after new source sync verified (page_count=${pageCount})`);
+    } else if (cleanupResult.skipped && !args.quiet) {
+      console.error(
+        `[sync:code] hostname-fold migration: kept legacy ${migration.oldId}: ${cleanupResult.reason}`,
+      );
     }
   }
 
   const legacyParts: string[] = [];
   if (legacyRemoved) legacyParts.push(`removed legacy ${legacyId}`);
-  if (migration.kind === "renamed") legacyParts.push(`renamed ${migration.oldId}→${migration.newId}`);
-  if (hostnameLegacyRemoved) legacyParts.push(`removed pre-hostname-fold ${migration.kind === "pending-cleanup" ? migration.oldId : ""}`);
-  const legacyNote = legacyParts.length > 0 ? `, ${legacyParts.join(", ")}` : "";
+  if (hostnameLegacyRemoved)
+    legacyParts.push(
+      `removed pre-hostname-fold ${migration.kind === "pending-cleanup" ? migration.oldId : ""}`,
+    );
+  const legacyNote =
+    legacyParts.length > 0 ? `, ${legacyParts.join(", ")}` : "";
   const baseSummary = `${registered ? "registered + " : ""}synced ${sourceId} (page_count=${pageCount ?? "unknown"}${legacyNote})`;
-
-  if (attach.status !== 0) {
-    const reason = (attach.stderr || attach.stdout || "").trim().split("\n").pop() || `exit ${attach.status}`;
-    return {
-      name: "code",
-      ran: true,
-      ok: false,
-      duration_ms: Date.now() - t0,
-      summary: `${baseSummary}; attach FAILED (${reason}) — code-def queries from this worktree will hit the default source until /sync-gbrain succeeds`,
-      detail: {
-        source_id: sourceId,
-        source_path: root,
-        page_count: pageCount,
-        last_imported: new Date().toISOString(),
-        status: "failed",
-      },
-    };
-  }
 
   // v1.29.0.0 changelog promised the per-worktree pin would be ignored in the
   // consuming repo, but the change actually only added .gbrain-source to
   // gstack's own .gitignore. Without the consumer-side entry, the pin gets
   // committed and breaks the per-worktree promise: Conductor sibling worktrees
   // step on each other's pin every time anyone commits (#1384).
-  ensureGbrainSourceGitignored(root);
+  const gitignorePathError = revalidateRoot("gitignore update");
+  if (gitignorePathError) return gitignorePathError;
+  ensureGbrainSourceGitignored(canonicalRoot);
+  const gitignoreCompletionPathError = revalidateRoot(
+    "gitignore update completion",
+  );
+  if (gitignoreCompletionPathError) return gitignoreCompletionPathError;
 
   return {
     name: "code",
@@ -1001,7 +1509,7 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
     summary: baseSummary,
     detail: {
       source_id: sourceId,
-      source_path: root,
+      source_path: canonicalRoot,
       page_count: pageCount,
       last_imported: new Date().toISOString(),
       status: "ok",
@@ -1010,34 +1518,293 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
 }
 
 /**
+ * Atomically replace a fixed repository metadata file from a same-directory
+ * exclusive temp file. `rename` replaces a symlink leaf itself rather than
+ * following it. The root-level caller still performs identity checks around
+ * this pathname operation; Node does not expose a portable dirfd rename API,
+ * so a hostile concurrent ancestor replacement retains a documented race.
+ */
+type RepositoryLeafExpectation =
+  { kind: "absent" } | {
+    kind: "existing";
+    device: number;
+    inode: number;
+    size: number;
+    mtimeMs: number;
+    ctimeMs: number;
+  };
+
+function assertRepositoryLeafExpectation(
+  targetPath: string,
+  expected: RepositoryLeafExpectation,
+): void {
+  try {
+    const current = lstatSync(targetPath);
+    if (expected.kind === "absent") {
+      throw new Error("repository metadata file appeared during atomic update");
+    }
+    if (
+      current.isSymbolicLink() ||
+      !current.isFile() ||
+      current.dev !== expected.device ||
+      current.ino !== expected.inode ||
+      current.size !== expected.size ||
+      current.mtimeMs !== expected.mtimeMs ||
+      current.ctimeMs !== expected.ctimeMs
+    ) {
+      throw new Error("repository metadata file changed during atomic update");
+    }
+  } catch (err) {
+    if (
+      (err as NodeJS.ErrnoException).code === "ENOENT" &&
+      expected.kind === "absent"
+    )
+      return;
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      throw new Error(
+        "repository metadata file disappeared during atomic update",
+      );
+    }
+    throw err;
+  }
+}
+
+function atomicReplaceRepositoryFile(
+  targetPath: string,
+  content: string,
+  replaceSymlink: boolean,
+  expectedLeaf?: RepositoryLeafExpectation,
+): void {
+  let mode = 0o644;
+  try {
+    const existing = lstatSync(targetPath);
+    if (existing.isSymbolicLink()) {
+      if (!replaceSymlink)
+        throw new Error("refusing to replace a symbolic link");
+    } else if (!existing.isFile()) {
+      throw new Error("refusing to replace a non-regular file");
+    } else {
+      mode = existing.mode & 0o777;
+    }
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+  }
+
+  const tempPath = join(
+    dirname(targetPath),
+    `.gstack-metadata-${process.pid}-${randomBytes(8).toString("hex")}.tmp`,
+  );
+  let tempExists = false;
+  try {
+    writeFileSync(tempPath, content, {
+      encoding: "utf-8",
+      flag: "wx",
+      mode,
+    });
+    tempExists = true;
+    // Recheck the read snapshot after the temp write and immediately before
+    // rename so a concurrent legitimate edit is not silently overwritten.
+    // Node exposes no portable compare-and-rename primitive; a final
+    // check→rename race remains and is documented at the caller boundary.
+    if (expectedLeaf) assertRepositoryLeafExpectation(targetPath, expectedLeaf);
+    renameSync(tempPath, targetPath);
+    tempExists = false;
+
+    const beforeRead = lstatSync(targetPath);
+    if (
+      beforeRead.isSymbolicLink() ||
+      !beforeRead.isFile() ||
+      beforeRead.dev === 0 ||
+      beforeRead.ino === 0
+    ) {
+      throw new Error("atomic replacement did not leave a regular file");
+    }
+    const noFollow = typeof FS_CONSTANTS.O_NOFOLLOW === "number" ? FS_CONSTANTS.O_NOFOLLOW : 0;
+    const nonblock = typeof FS_CONSTANTS.O_NONBLOCK === "number" ? FS_CONSTANTS.O_NONBLOCK : 0;
+    let persisted = "";
+    let fd: number | null = null;
+    try {
+      fd = openSync(targetPath, FS_CONSTANTS.O_RDONLY | noFollow | nonblock);
+      const opened = fstatSync(fd);
+      if (
+        !opened.isFile() ||
+        opened.dev !== beforeRead.dev ||
+        opened.ino !== beforeRead.ino
+      ) {
+        throw new Error("atomic replacement changed before its pinned verification read");
+      }
+      persisted = readFileSync(fd, "utf-8");
+      const afterDescriptorRead = fstatSync(fd);
+      if (
+        !afterDescriptorRead.isFile() ||
+        afterDescriptorRead.dev !== opened.dev ||
+        afterDescriptorRead.ino !== opened.ino ||
+        afterDescriptorRead.size !== opened.size ||
+        afterDescriptorRead.mtimeMs !== opened.mtimeMs ||
+        afterDescriptorRead.ctimeMs !== opened.ctimeMs
+      ) {
+        throw new Error("atomic replacement changed during its pinned verification read");
+      }
+    } finally {
+      if (fd !== null) closeSync(fd);
+    }
+    const afterRead = lstatSync(targetPath);
+    if (
+      afterRead.isSymbolicLink() ||
+      !afterRead.isFile() ||
+      beforeRead.dev !== afterRead.dev ||
+      beforeRead.ino !== afterRead.ino ||
+      persisted !== content
+    ) {
+      throw new Error("atomic replacement could not be verified");
+    }
+  } finally {
+    if (tempExists) {
+      try {
+        unlinkSync(tempPath);
+      } catch {
+        /* best-effort temp cleanup */
+      }
+    }
+  }
+}
+
+/** Safely write the per-worktree source pin without following a leaf symlink. */
+export function writeGbrainSourcePin(root: string, sourceId: string): void {
+  if (!SOURCE_ID_RE.test(sourceId)) {
+    throw new Error(`invalid GBrain source id "${sourceId}"`);
+  }
+  const expectedRoot = canonicalSourceDirectory(root);
+  assertCanonicalDirectoryUnchanged(
+    expectedRoot,
+    "repository before .gbrain-source pin",
+  );
+  atomicReplaceRepositoryFile(
+    join(expectedRoot.canonicalPath, ".gbrain-source"),
+    `${sourceId}\n`,
+    true,
+  );
+  assertCanonicalDirectoryUnchanged(
+    expectedRoot,
+    "repository after .gbrain-source pin",
+  );
+}
+
+/**
  * Ensure `.gbrain-source` is listed in the consumer repo's `.gitignore`.
+ * Static symlink/non-regular leaves are refused; regular files are replaced
+ * atomically. Failures remain a visible warning so a read-only checkout does
+ * not erase an otherwise successful code-index update.
  *
- * Idempotent: only appends when the entry is not already present (matched on
- * trimmed lines so a leading/trailing whitespace difference doesn't add a
- * second copy). Wraps writes in try/catch so a read-only checkout or weird
- * perms logs a warning and lets the rest of the sync continue.
+ * The existing file is read through a pinned descriptor: lstat establishes the
+ * expected leaf, open uses nonblocking/no-follow flags where the platform
+ * exposes them, and fstat proves the descriptor still names that same regular
+ * file before any bytes are read. The atomic writer then rechecks that leaf
+ * immediately before rename. Node exposes no portable compare-and-rename
+ * primitive, so a small final check→rename race remains; this is snapshot
+ * safety, not a zero-window filesystem lease.
  */
 export function ensureGbrainSourceGitignored(root: string): void {
-  const gitignorePath = join(root, ".gitignore");
   try {
+    const expectedRoot = canonicalSourceDirectory(root);
+    assertCanonicalDirectoryUnchanged(
+      expectedRoot,
+      "repository before .gitignore update",
+    );
+    const gitignorePath = join(expectedRoot.canonicalPath, ".gitignore");
     let existing = "";
+    let expectedLeaf: RepositoryLeafExpectation = { kind: "absent" };
     try {
-      existing = readFileSync(gitignorePath, "utf-8");
-    } catch {
-      // No .gitignore yet — we'll create it.
+      const before = lstatSync(gitignorePath);
+      if (before.isSymbolicLink() || !before.isFile()) {
+        throw new Error(
+          "existing .gitignore is a symbolic link or non-regular file",
+        );
+      }
+      if (before.dev === 0 || before.ino === 0) {
+        throw new Error(
+          "existing .gitignore has no stable filesystem identity",
+        );
+      }
+      const noFollow =
+        typeof FS_CONSTANTS.O_NOFOLLOW === "number"
+          ? FS_CONSTANTS.O_NOFOLLOW
+          : 0;
+      const nonblock =
+        typeof FS_CONSTANTS.O_NONBLOCK === "number"
+          ? FS_CONSTANTS.O_NONBLOCK
+          : 0;
+      let fd: number | null = null;
+      try {
+        fd = openSync(
+          gitignorePath,
+          FS_CONSTANTS.O_RDONLY | noFollow | nonblock,
+        );
+        const opened = fstatSync(fd);
+        if (
+          !opened.isFile() ||
+          opened.dev === 0 ||
+          opened.ino === 0 ||
+          opened.dev !== before.dev ||
+          opened.ino !== before.ino
+        ) {
+          throw new Error("existing .gitignore changed before its pinned read");
+        }
+        existing = readFileSync(fd, "utf-8");
+        const afterRead = fstatSync(fd);
+        if (
+          !afterRead.isFile() ||
+          afterRead.dev !== opened.dev ||
+          afterRead.ino !== opened.ino ||
+          afterRead.size !== opened.size ||
+          afterRead.mtimeMs !== opened.mtimeMs ||
+          afterRead.ctimeMs !== opened.ctimeMs
+        ) {
+          throw new Error(
+            "existing .gitignore changed while its descriptor was being read",
+          );
+        }
+        expectedLeaf = {
+          kind: "existing",
+          device: afterRead.dev,
+          inode: afterRead.ino,
+          size: afterRead.size,
+          mtimeMs: afterRead.mtimeMs,
+          ctimeMs: afterRead.ctimeMs,
+        };
+      } finally {
+        if (fd !== null) closeSync(fd);
+      }
+      assertRepositoryLeafExpectation(gitignorePath, expectedLeaf);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+      // No .gitignore yet — create it atomically below.
     }
     const alreadyIgnored = existing
       .split("\n")
       .some((line) => line.trim() === ".gbrain-source");
     if (alreadyIgnored) {
+      assertCanonicalDirectoryUnchanged(
+        expectedRoot,
+        "repository after .gitignore check",
+      );
       return;
     }
     const sep = existing.length > 0 && !existing.endsWith("\n") ? "\n" : "";
-    writeFileSync(gitignorePath, existing + sep + ".gbrain-source\n");
+    atomicReplaceRepositoryFile(
+      gitignorePath,
+      existing + sep + ".gbrain-source\n",
+      false,
+      expectedLeaf,
+    );
+    assertCanonicalDirectoryUnchanged(
+      expectedRoot,
+      "repository after .gitignore update",
+    );
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.warn(
-      `[sync:code] could not add .gbrain-source to ${gitignorePath}: ${msg}`,
+      `[sync:code] could not add .gbrain-source to ${join(root, ".gitignore")}: ${msg}`,
     );
   }
 }
@@ -1253,8 +2020,36 @@ export async function runDream(args: CliArgs): Promise<StageResult> {
     // only when we can't derive the source id (not in a git repo).
     const root = repoRoot();
     const sourceId = root ? deriveCodeSourceId(root) : null;
-    const dreamArgs = sourceId ? ["dream", "--source", sourceId] : ["dream"];
-
+    const dreamEnv = buildGbrainEnv({ announce: !args.quiet });
+    let dreamCwd: string | undefined;
+    let validatedDreamRoot:
+      ReturnType<typeof canonicalSourceDirectory> | undefined;
+    if (root) {
+      try {
+        validatedDreamRoot = canonicalSourceDirectory(root);
+        dreamCwd = validatedDreamRoot.canonicalPath;
+      } catch (err) {
+        return {
+          name: "dream",
+          ran: false,
+          ok: false,
+          duration_ms: Date.now() - t0,
+          summary: `source path validation failed before dream: ${(err as Error).message}`,
+        };
+      }
+    }
+    const validateDreamBinding = (): SourcePathBinding | undefined => {
+      if (!sourceId || !validatedDreamRoot) return undefined;
+      const row = fetchSources(dreamEnv).find(
+        (candidate) => candidate.id === sourceId,
+      );
+      if (!row?.local_path) {
+        throw new Error(
+          `source ${sourceId} is not registered or has no local_path`,
+        );
+      }
+      return bindRegisteredSourcePath(row.local_path, validatedDreamRoot);
+    };
     // spawnGbrain seeds DATABASE_URL from gbrain's config via buildGbrainEnv.
     //
     // We CAPTURE output (pipe) rather than inherit because `gbrain dream` exits 0
@@ -1266,15 +2061,83 @@ export async function runDream(args: CliArgs): Promise<StageResult> {
     if (!args.quiet) {
       process.stderr.write("[dream] running gbrain cycle (call-graph build; this can take a few minutes)...\n");
     }
+
+    const dreamArgs = sourceId ? ["dream", "--source", sourceId] : ["dream"];
+    if (sourceId && validatedDreamRoot) {
+      try {
+        const dreamBinding = validateDreamBinding()!;
+        if (dreamBinding.useExplicitPath) {
+          dreamArgs.push("--dir", dreamBinding.canonicalPath);
+        }
+      } catch (err) {
+        return {
+          name: "dream",
+          ran: false,
+          ok: false,
+          duration_ms: Date.now() - t0,
+          summary: `source path binding failed before dream: ${(err as Error).message}`,
+        };
+      }
+    }
+
+    if (validatedDreamRoot) {
+      try {
+        assertCanonicalDirectoryUnchanged(
+          validatedDreamRoot,
+          "expected source path before dream",
+        );
+      } catch (err) {
+        return {
+          name: "dream",
+          ran: false,
+          ok: false,
+          duration_ms: Date.now() - t0,
+          summary: `source path validation failed before dream: ${(err as Error).message}`,
+        };
+      }
+    }
+
     let result: ReturnType<typeof spawnGbrain>;
     try {
       result = spawnGbrain(dreamArgs, {
         stdio: ["ignore", "pipe", "pipe"],
         timeout: dreamTimeoutMs,
-        baseEnv: process.env,
+        baseEnv: dreamEnv,
         announce: !args.quiet,
+        cwd: dreamCwd,
       });
     } catch (err) {
+      if (validatedDreamRoot) {
+        try {
+          assertCanonicalDirectoryUnchanged(
+            validatedDreamRoot,
+            "expected source path after failed dream start",
+          );
+        } catch (identityErr) {
+          return {
+            name: "dream",
+            ran: true,
+            ok: false,
+            duration_ms: Date.now() - t0,
+            summary:
+              `source path validation failed after dream start error: ${(identityErr as Error).message}; ` +
+              `gbrain also failed to start: ${(err as Error).message}`,
+          };
+        }
+      }
+      try {
+        validateDreamBinding();
+      } catch (bindingErr) {
+        return {
+          name: "dream",
+          ran: true,
+          ok: false,
+          duration_ms: Date.now() - t0,
+          summary:
+            `source row validation failed after dream start error: ${(bindingErr as Error).message}; ` +
+            `gbrain also failed to start: ${(err as Error).message}`,
+        };
+      }
       // Spawn-setup failure (missing binary, bad env): ERR, not a benign skip.
       return {
         name: "dream",
@@ -1282,6 +2145,34 @@ export async function runDream(args: CliArgs): Promise<StageResult> {
         ok: false,
         duration_ms: Date.now() - t0,
         summary: `gbrain dream failed to start: ${(err as Error).message}`,
+      };
+    }
+
+    if (validatedDreamRoot) {
+      try {
+        assertCanonicalDirectoryUnchanged(
+          validatedDreamRoot,
+          "expected source path after dream",
+        );
+      } catch (err) {
+        return {
+          name: "dream",
+          ran: true,
+          ok: false,
+          duration_ms: Date.now() - t0,
+          summary: `source path validation failed after dream: ${(err as Error).message}`,
+        };
+      }
+    }
+    try {
+      validateDreamBinding();
+    } catch (err) {
+      return {
+        name: "dream",
+        ran: true,
+        ok: false,
+        duration_ms: Date.now() - t0,
+        summary: `source row validation failed after dream: ${(err as Error).message}`,
       };
     }
 
@@ -1471,6 +2362,29 @@ export function formatStage(s: StageResult): string {
 
 async function main(): Promise<void> {
   const args = parseArgs();
+
+  // Enforce the integration floor at the mutation boundary, not only during
+  // fresh installation. Existing and legacy installs can otherwise pass the
+  // command-level capability probes, write an index, and then silently query a
+  // different source because their call-graph commands ignore `.gbrain-source`.
+  // Dry-run remains dependency-free because it cannot mutate anything. A
+  // missing CLI also retains the existing split-engine SKIP behavior so the
+  // independent curated brain-sync stage can still proceed; a present CLI
+  // must prove a supported version here before mutation.
+  const needsPinAwareGbrain =
+    args.mode !== "dry-run" && (!args.noCode || args.dream);
+  if (needsPinAwareGbrain) {
+    const gbrainPresent = resolveGbrainBin(process.env) !== null;
+    const versionOutput = readGbrainVersion(process.env);
+    const version = checkGbrainVersion(versionOutput);
+    if (gbrainPresent && !version.ok) {
+      console.error(
+        `[gbrain-sync] ${version.reason}. GBrain ${MIN_GBRAIN_VERSION}+ is required before sync or dream; ` +
+          "run gstack-gbrain-install, then retry.",
+      );
+      process.exit(3);
+    }
+  }
 
   if (!args.quiet) {
     const engine = detectEngineTier();
