@@ -79,8 +79,14 @@ _expected_real() {
 _legacy_windows_skill_copy_owned() {
   local expected="$1"
   local target_skill="$2"
-  local expected_name target_name
+  local expected_name target_name skills_real marker_root marker_real
   [ "$IS_WINDOWS" -eq 1 ] && [ -f "$expected" ] && [ -f "$target_skill" ] || return 1
+  skills_real=$(cd "$(dirname "$(dirname "$target_skill")")" 2>/dev/null && pwd -P || true)
+  if [ "$INSTALL_REAL" != "$skills_real/gstack" ]; then
+    marker_root=$(head -n 1 "$skills_real/.gstack-root" 2>/dev/null || true)
+    marker_real=$(cd "$marker_root" 2>/dev/null && pwd -P || true)
+    [ -n "$marker_real" ] && [ "$marker_real" = "$INSTALL_REAL" ] || return 1
+  fi
   grep -Fq '<!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->' "$expected" || return 1
   grep -Fq '<!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->' "$target_skill" || return 1
   expected_name=$(grep -m1 '^name:' "$expected" 2>/dev/null | sed 's/^name:[[:space:]]*//' | tr -d '[:space:]')
