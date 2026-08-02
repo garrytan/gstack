@@ -37,24 +37,36 @@ Voice triggers (speech-to-text aliases): "auto plan", "automatic review".
 ## Preamble (run first)
 
 ```bash
-_UPD=$(~/.claude/skills/gstack/bin/gstack-update-check 2>/dev/null || .claude/skills/gstack/bin/gstack-update-check 2>/dev/null || true)
+_GSTACK_ROOT_MARKER="$HOME/.claude/skills/.gstack-root"
+[ -n "${GSTACK_ROOT:-}" ] && [ ! -d "$GSTACK_ROOT/bin" ] && GSTACK_ROOT=""
+[ -z "${GSTACK_ROOT:-}" ] && [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/VERSION" ] && [ -x "$CLAUDE_PLUGIN_ROOT/bin/gstack-config" ] && GSTACK_ROOT="$CLAUDE_PLUGIN_ROOT"
+[ -z "${GSTACK_ROOT:-}" ] && [ -f "$_GSTACK_ROOT_MARKER" ] && GSTACK_ROOT=$(cat "$_GSTACK_ROOT_MARKER" 2>/dev/null || true)
+[ -n "${GSTACK_ROOT:-}" ] && [ ! -d "$GSTACK_ROOT/bin" ] && GSTACK_ROOT=""
+_GSTACK_DIR=gstack
+GSTACK_ROOT="${GSTACK_ROOT:-$HOME/.claude/skills/$_GSTACK_DIR}"
+GSTACK_BIN="$GSTACK_ROOT/bin"
+GSTACK_BROWSE="$GSTACK_ROOT/browse/dist"
+GSTACK_DESIGN="$GSTACK_ROOT/design/dist"
+GSTACK_MAKE_PDF="$GSTACK_ROOT/make-pdf/dist"
+export GSTACK_ROOT GSTACK_BIN GSTACK_BROWSE GSTACK_DESIGN GSTACK_MAKE_PDF
+_UPD=$("$GSTACK_BIN/gstack-update-check" 2>/dev/null || true)
 [ -n "$_UPD" ] && echo "$_UPD" || true
 mkdir -p ~/.gstack/sessions
 touch ~/.gstack/sessions/"$PPID"
 _SESSIONS=$(find ~/.gstack/sessions -mmin -120 -type f 2>/dev/null | wc -l | tr -d ' ')
 find ~/.gstack/sessions -mmin +120 -type f -exec rm {} + 2>/dev/null || true
-_PROACTIVE=$(~/.claude/skills/gstack/bin/gstack-config get proactive 2>/dev/null || echo "true")
+_PROACTIVE=$("$GSTACK_BIN/gstack-config" get proactive 2>/dev/null || echo "true")
 _PROACTIVE_PROMPTED=$([ -f ~/.gstack/.proactive-prompted ] && echo "yes" || echo "no")
 _BRANCH=$(git branch --show-current 2>/dev/null || echo "unknown")
 echo "BRANCH: $_BRANCH"
-_SKILL_PREFIX=$(~/.claude/skills/gstack/bin/gstack-config get skill_prefix 2>/dev/null || echo "false")
+_SKILL_PREFIX=$("$GSTACK_BIN/gstack-config" get skill_prefix 2>/dev/null || echo "false")
 echo "PROACTIVE: $_PROACTIVE"
 echo "PROACTIVE_PROMPTED: $_PROACTIVE_PROMPTED"
 echo "SKILL_PREFIX: $_SKILL_PREFIX"
-source <(~/.claude/skills/gstack/bin/gstack-repo-mode 2>/dev/null) || true
+source <("$GSTACK_BIN/gstack-repo-mode" 2>/dev/null) || true
 REPO_MODE=${REPO_MODE:-unknown}
 echo "REPO_MODE: $REPO_MODE"
-_SESSION_KIND=$(~/.claude/skills/gstack/bin/gstack-session-kind 2>/dev/null || echo "interactive")
+_SESSION_KIND=$("$GSTACK_BIN/gstack-session-kind" 2>/dev/null || echo "interactive")
 case "$_SESSION_KIND" in spawned|headless|interactive) ;; *) _SESSION_KIND="interactive" ;; esac
 echo "SESSION_KIND: $_SESSION_KIND"
 # Conductor host: AskUserQuestion is unreliable here (native disabled, MCP
@@ -72,21 +84,21 @@ echo "FIRST_LOOP_SHOWN: $_FIRST_LOOP_SHOWN"
 # (ACTIVATED=no, interactive) so it stays off the hot path for every run after.
 _FIRST_TASK=""
 if [ "$_ACTIVATED" = "no" ] && [ "$_SESSION_KIND" != "headless" ]; then
-  _FIRST_TASK=$(~/.claude/skills/gstack/bin/gstack-first-task-detect 2>/dev/null || true)
+  _FIRST_TASK=$("$GSTACK_BIN/gstack-first-task-detect" 2>/dev/null || true)
 fi
 echo "FIRST_TASK: $_FIRST_TASK"
 _LAKE_SEEN=$([ -f ~/.gstack/.completeness-intro-seen ] && echo "yes" || echo "no")
 echo "LAKE_INTRO: $_LAKE_SEEN"
-_TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || true)
+_TEL=$("$GSTACK_BIN/gstack-config" get telemetry 2>/dev/null || true)
 _TEL_PROMPTED=$([ -f ~/.gstack/.telemetry-prompted ] && echo "yes" || echo "no")
 _TEL_START=$(date +%s)
 _SESSION_ID="$$-$(date +%s)"
 echo "TELEMETRY: ${_TEL:-off}"
 echo "TEL_PROMPTED: $_TEL_PROMPTED"
-_EXPLAIN_LEVEL=$(~/.claude/skills/gstack/bin/gstack-config get explain_level 2>/dev/null || echo "default")
+_EXPLAIN_LEVEL=$("$GSTACK_BIN/gstack-config" get explain_level 2>/dev/null || echo "default")
 if [ "$_EXPLAIN_LEVEL" != "default" ] && [ "$_EXPLAIN_LEVEL" != "terse" ]; then _EXPLAIN_LEVEL="default"; fi
 echo "EXPLAIN_LEVEL: $_EXPLAIN_LEVEL"
-_QUESTION_TUNING=$(~/.claude/skills/gstack/bin/gstack-config get question_tuning 2>/dev/null || echo "false")
+_QUESTION_TUNING=$("$GSTACK_BIN/gstack-config" get question_tuning 2>/dev/null || echo "false")
 echo "QUESTION_TUNING: $_QUESTION_TUNING"
 mkdir -p ~/.gstack/analytics
 if [ "$_TEL" != "off" ]; then
@@ -94,30 +106,30 @@ echo '{"skill":"autoplan","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(_re
 fi
 for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null); do
   if [ -f "$_PF" ]; then
-    if [ "$_TEL" != "off" ] && [ -x "~/.claude/skills/gstack/bin/gstack-telemetry-log" ]; then
-      ~/.claude/skills/gstack/bin/gstack-telemetry-log --event-type skill_run --skill _pending_finalize --outcome unknown --session-id "$_SESSION_ID" 2>/dev/null || true
+    if [ "$_TEL" != "off" ] && [ -x "$GSTACK_BIN/gstack-telemetry-log" ]; then
+      "$GSTACK_BIN/gstack-telemetry-log" --event-type skill_run --skill _pending_finalize --outcome unknown --session-id "$_SESSION_ID" 2>/dev/null || true
     fi
     rm -f "$_PF" 2>/dev/null || true
   fi
   break
 done
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" 2>/dev/null || true
+eval "$("$GSTACK_BIN/gstack-slug" 2>/dev/null)" 2>/dev/null || true
 _LEARN_FILE="${GSTACK_HOME:-$HOME/.gstack}/projects/${SLUG:-unknown}/learnings.jsonl"
 if [ -f "$_LEARN_FILE" ]; then
   _LEARN_COUNT=$(wc -l < "$_LEARN_FILE" 2>/dev/null | tr -d ' ')
   echo "LEARNINGS: $_LEARN_COUNT entries loaded"
   if [ "$_LEARN_COUNT" -gt 5 ] 2>/dev/null; then
-    ~/.claude/skills/gstack/bin/gstack-learnings-search --limit 3 2>/dev/null || true
+    "$GSTACK_BIN/gstack-learnings-search" --limit 3 2>/dev/null || true
   fi
 else
   echo "LEARNINGS: 0"
 fi
-~/.claude/skills/gstack/bin/gstack-timeline-log '{"skill":"autoplan","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
+"$GSTACK_BIN/gstack-timeline-log" '{"skill":"autoplan","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
 _HAS_ROUTING="no"
 if [ -f CLAUDE.md ] && grep -q "## Skill routing" CLAUDE.md 2>/dev/null; then
   _HAS_ROUTING="yes"
 fi
-_ROUTING_DECLINED=$(~/.claude/skills/gstack/bin/gstack-config get routing_declined 2>/dev/null || echo "false")
+_ROUTING_DECLINED=$("$GSTACK_BIN/gstack-config" get routing_declined 2>/dev/null || echo "false")
 echo "HAS_ROUTING: $_HAS_ROUTING"
 echo "ROUTING_DECLINED: $_ROUTING_DECLINED"
 _VENDORED="no"
@@ -128,10 +140,11 @@ if [ -d ".claude/skills/gstack" ] && [ ! -L ".claude/skills/gstack" ]; then
 fi
 echo "VENDORED_GSTACK: $_VENDORED"
 echo "MODEL_OVERLAY: claude"
-_CHECKPOINT_MODE=$(~/.claude/skills/gstack/bin/gstack-config get checkpoint_mode 2>/dev/null || echo "explicit")
-_CHECKPOINT_PUSH=$(~/.claude/skills/gstack/bin/gstack-config get checkpoint_push 2>/dev/null || echo "false")
+_CHECKPOINT_MODE=$("$GSTACK_BIN/gstack-config" get checkpoint_mode 2>/dev/null || echo "explicit")
+_CHECKPOINT_PUSH=$("$GSTACK_BIN/gstack-config" get checkpoint_push 2>/dev/null || echo "false")
 echo "CHECKPOINT_MODE: $_CHECKPOINT_MODE"
 echo "CHECKPOINT_PUSH: $_CHECKPOINT_PUSH"
+echo "GSTACK_ROOT: $GSTACK_ROOT"
 # Plan-mode hint for skills like /spec that branch behavior on plan-mode state.
 # Claude Code exposes plan mode via system reminders; we detect best-effort
 # from CLAUDE_PLAN_FILE (set by the harness when plan mode is active) and
@@ -148,6 +161,13 @@ echo "GSTACK_PLAN_MODE: $GSTACK_PLAN_MODE"
 [ -n "$OPENCLAW_SESSION" ] && echo "SPAWNED_SESSION: true" || true
 ```
 
+**Portable runtime paths:** Bash blocks run in separate shells, so every later
+shell block that uses `$GSTACK_*` includes its own bootstrap. For non-shell
+tools (Read/Edit/Write/Glob/Grep), replace `$GSTACK_ROOT` with the absolute
+`GSTACK_ROOT:` value printed above; never pass the variable text literally.
+For inline shell commands outside fenced blocks, substitute the printed
+absolute values before execution.
+
 ## Plan Mode Safe Operations
 
 In plan mode, allowed because they inform the plan: `$B`, `$D`, `codex exec`/`codex review`, writes to `~/.gstack/`, writes to the plan file, and `open` for generated artifacts.
@@ -158,15 +178,15 @@ If the user invokes a skill in plan mode, the skill takes precedence over generi
 
 If `PROACTIVE` is `"false"`, do not auto-invoke or proactively suggest skills. If a skill seems useful, ask: "I think /skillname might help here — want me to run it?"
 
-If `SKILL_PREFIX` is `"true"`, suggest/invoke `/gstack-*` names. Disk paths stay `~/.claude/skills/gstack/[skill-name]/SKILL.md`.
+If `SKILL_PREFIX` is `"true"`, suggest/invoke `/gstack-*` names. Disk paths stay `"$GSTACK_ROOT"/[skill-name]/SKILL.md`.
 
-If output shows `UPGRADE_AVAILABLE <old> <new>`: read `~/.claude/skills/gstack/gstack-upgrade/SKILL.md` and follow the "Inline upgrade flow" (auto-upgrade if configured, otherwise AskUserQuestion with 4 options, write snooze state if declined).
+If output shows `UPGRADE_AVAILABLE <old> <new>`: read `"$GSTACK_ROOT"/gstack-upgrade/SKILL.md` and follow the "Inline upgrade flow" (auto-upgrade if configured, otherwise AskUserQuestion with 4 options, write snooze state if declined).
 
 If output shows `JUST_UPGRADED <from> <to>`: print "Running gstack v{to} (just updated!)". If `SPAWNED_SESSION` is true, skip feature discovery.
 
 Feature discovery, max one prompt per session:
-- Missing `~/.claude/skills/gstack/.feature-prompted-continuous-checkpoint`: AskUserQuestion for Continuous checkpoint auto-commits. If accepted, run `~/.claude/skills/gstack/bin/gstack-config set checkpoint_mode continuous`. Always touch marker.
-- Missing `~/.claude/skills/gstack/.feature-prompted-model-overlay`: inform "Model overlays are active. MODEL_OVERLAY shows the patch." Always touch marker.
+- Missing `"$GSTACK_ROOT"/.feature-prompted-continuous-checkpoint`: AskUserQuestion for Continuous checkpoint auto-commits. If accepted, run `"$GSTACK_BIN"/gstack-config set checkpoint_mode continuous`. Always touch marker.
+- Missing `"$GSTACK_ROOT"/.feature-prompted-model-overlay`: inform "Model overlays are active. MODEL_OVERLAY shows the patch." Always touch marker.
 
 After upgrade prompts, continue workflow.
 
@@ -179,7 +199,7 @@ Options:
 - B) Restore V0 prose — set `explain_level: terse`
 
 If A: leave `explain_level` unset (defaults to `default`).
-If B: run `~/.claude/skills/gstack/bin/gstack-config set explain_level terse`.
+If B: run `"$GSTACK_BIN"/gstack-config set explain_level terse`.
 
 Always run (regardless of choice):
 ```bash
@@ -206,7 +226,7 @@ Options:
 - A) Help gstack get better! (recommended)
 - B) No thanks
 
-If A: run `~/.claude/skills/gstack/bin/gstack-config set telemetry community`
+If A: run `"$GSTACK_BIN"/gstack-config set telemetry community`
 
 If B: ask follow-up:
 
@@ -216,8 +236,8 @@ Options:
 - A) Sure, anonymous is fine
 - B) No thanks, fully off
 
-If B→A: run `~/.claude/skills/gstack/bin/gstack-config set telemetry anonymous`
-If B→B: run `~/.claude/skills/gstack/bin/gstack-config set telemetry off`
+If B→A: run `"$GSTACK_BIN"/gstack-config set telemetry anonymous`
+If B→B: run `"$GSTACK_BIN"/gstack-config set telemetry off`
 
 Always run:
 ```bash
@@ -234,8 +254,8 @@ Options:
 - A) Keep it on (recommended)
 - B) Turn it off — I'll type /commands myself
 
-If A: run `~/.claude/skills/gstack/bin/gstack-config set proactive true`
-If B: run `~/.claude/skills/gstack/bin/gstack-config set proactive false`
+If A: run `"$GSTACK_BIN"/gstack-config set proactive true`
+If B: run `"$GSTACK_BIN"/gstack-config set proactive false`
 
 Always run:
 ```bash
@@ -248,7 +268,11 @@ Skip if `PROACTIVE_PROMPTED` is `yes`.
 
 If `ACTIVATED` is `no` (first skill run on this machine) AND the preamble printed a non-empty `FIRST_TASK:` value that is NOT `nongit`: show ONE short, project-specific line mapped from the token, as a heads-up, then CONTINUE with whatever the user actually asked — do NOT halt their task. Map the token: `greenfield` → "Fresh repo — shape it first with `/spec` or `/office-hours`." `code_node`/`code_python`/`code_rust`/`code_go`/`code_ruby`/`code_ios` → "There's code here — `/qa` to see it work, or `/investigate` if something's off." `branch_ahead` → "Unshipped work on this branch — `/review` then `/ship`." `dirty_default` → "Uncommitted changes — `/review` before committing." `clean_default` → "Pick one: `/spec`, `/investigate`, or `/qa`." Then substitute the token you saw for TASK_TOKEN and run (best-effort), and mark activated:
 ```bash
-~/.claude/skills/gstack/bin/gstack-telemetry-log --event-type first_task_scaffold_shown --skill "TASK_TOKEN" --outcome shown 2>/dev/null || true
+_gv(){ [ -f "$1/VERSION" ]&&[ -x "$1/bin/gstack-config" ]&&[ -x "$1/bin/gstack-runtime-env" ];}
+_r="${GSTACK_ROOT:-}";unset GSTACK_{ROOT,BIN,BROWSE,DESIGN,MAKE_PDF}
+_gv "$_r"||_r="${CLAUDE_PLUGIN_ROOT:-}";_gv "$_r"||read -r _r 2>/dev/null<"$HOME/.claude/skills/.gstack-root"||:;_gv "$_r"||_r="$HOME/.claude/skills/gstack";_gv "$_r"||exit 1
+_e=$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_r" "$_r/bin/gstack-runtime-env")||exit 1;[ -n "$_e" ]||exit 1;eval "$_e";unset _e;unset -f _gv
+"$GSTACK_BIN"/gstack-telemetry-log --event-type first_task_scaffold_shown --skill "TASK_TOKEN" --outcome shown 2>/dev/null || true
 touch ~/.gstack/.activated 2>/dev/null || true
 ```
 
@@ -299,7 +323,7 @@ Key routing rules:
 
 Then commit the change: `git add CLAUDE.md && git commit -m "chore: add gstack skill routing rules to CLAUDE.md"`
 
-If B: run `~/.claude/skills/gstack/bin/gstack-config set routing_declined true` and say they can re-enable with `gstack-config set routing_declined false`.
+If B: run `"$GSTACK_BIN"/gstack-config set routing_declined true` and say they can re-enable with `gstack-config set routing_declined false`.
 
 This only happens once per project. Skip if `HAS_ROUTING` is `yes` or `ROUTING_DECLINED` is `true`.
 
@@ -315,15 +339,19 @@ Options:
 If A:
 1. Run `git rm -r .claude/skills/gstack/`
 2. Run `echo '.claude/skills/gstack/' >> .gitignore`
-3. Run `~/.claude/skills/gstack/bin/gstack-team-init required` (or `optional`)
+3. Run `"$GSTACK_BIN"/gstack-team-init required` (or `optional`)
 4. Run `git add .claude/ .gitignore CLAUDE.md && git commit -m "chore: migrate gstack from vendored to team mode"`
-5. Tell the user: "Done. Each developer now runs: `cd ~/.claude/skills/gstack && ./setup --team`"
+5. Tell the user: "Done. Each developer now runs: `cd "$GSTACK_ROOT" && ./setup --team`"
 
 If B: say "OK, you're on your own to keep the vendored copy up to date."
 
 Always run (regardless of choice):
 ```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" 2>/dev/null || true
+_gv(){ [ -f "$1/VERSION" ]&&[ -x "$1/bin/gstack-config" ]&&[ -x "$1/bin/gstack-runtime-env" ];}
+_r="${GSTACK_ROOT:-}";unset GSTACK_{ROOT,BIN,BROWSE,DESIGN,MAKE_PDF}
+_gv "$_r"||_r="${CLAUDE_PLUGIN_ROOT:-}";_gv "$_r"||read -r _r 2>/dev/null<"$HOME/.claude/skills/.gstack-root"||:;_gv "$_r"||_r="$HOME/.claude/skills/gstack";_gv "$_r"||exit 1
+_e=$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_r" "$_r/bin/gstack-runtime-env")||exit 1;[ -n "$_e" ]||exit 1;eval "$_e";unset _e;unset -f _gv
+eval "$("$GSTACK_BIN"/gstack-slug 2>/dev/null)" 2>/dev/null || true
 touch ~/.gstack/.vendoring-warned-${SLUG:-unknown}
 ```
 
@@ -464,6 +492,10 @@ Before calling AskUserQuestion, verify:
 ## Artifacts Sync (skill start)
 
 ```bash
+_gv(){ [ -f "$1/VERSION" ]&&[ -x "$1/bin/gstack-config" ]&&[ -x "$1/bin/gstack-runtime-env" ];}
+_r="${GSTACK_ROOT:-}";unset GSTACK_{ROOT,BIN,BROWSE,DESIGN,MAKE_PDF}
+_gv "$_r"||_r="${CLAUDE_PLUGIN_ROOT:-}";_gv "$_r"||read -r _r 2>/dev/null<"$HOME/.claude/skills/.gstack-root"||:;_gv "$_r"||_r="$HOME/.claude/skills/gstack";_gv "$_r"||exit 1
+_e=$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_r" "$_r/bin/gstack-runtime-env")||exit 1;[ -n "$_e" ]||exit 1;eval "$_e";unset _e;unset -f _gv
 _GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
 # Prefer the v1.27.0.0 artifacts file; fall back to brain file for users
 # upgrading mid-stream before the migration script runs.
@@ -472,8 +504,8 @@ if [ -f "$HOME/.gstack-artifacts-remote.txt" ]; then
 else
   _BRAIN_REMOTE_FILE="$HOME/.gstack-brain-remote.txt"
 fi
-_BRAIN_SYNC_BIN="~/.claude/skills/gstack/bin/gstack-brain-sync"
-_BRAIN_CONFIG_BIN="~/.claude/skills/gstack/bin/gstack-config"
+_BRAIN_SYNC_BIN="$GSTACK_BIN/gstack-brain-sync"
+_BRAIN_CONFIG_BIN="$GSTACK_BIN/gstack-config"
 
 # /sync-gbrain context-load: teach the agent to use gbrain when it's available.
 # Per-worktree pin: post-spike redesign uses kubectl-style `.gbrain-source` in the
@@ -582,8 +614,12 @@ If A/B and `~/.gstack/.git` is missing, ask whether to run `gstack-artifacts-ini
 At skill END before telemetry:
 
 ```bash
-"~/.claude/skills/gstack/bin/gstack-brain-sync" --discover-new 2>/dev/null || true
-"~/.claude/skills/gstack/bin/gstack-brain-sync" --once 2>/dev/null || true
+_gv(){ [ -f "$1/VERSION" ]&&[ -x "$1/bin/gstack-config" ]&&[ -x "$1/bin/gstack-runtime-env" ];}
+_r="${GSTACK_ROOT:-}";unset GSTACK_{ROOT,BIN,BROWSE,DESIGN,MAKE_PDF}
+_gv "$_r"||_r="${CLAUDE_PLUGIN_ROOT:-}";_gv "$_r"||read -r _r 2>/dev/null<"$HOME/.claude/skills/.gstack-root"||:;_gv "$_r"||_r="$HOME/.claude/skills/gstack";_gv "$_r"||exit 1
+_e=$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_r" "$_r/bin/gstack-runtime-env")||exit 1;[ -n "$_e" ]||exit 1;eval "$_e";unset _e;unset -f _gv
+"$GSTACK_BIN/gstack-brain-sync" --discover-new 2>/dev/null || true
+"$GSTACK_BIN/gstack-brain-sync" --once 2>/dev/null || true
 ```
 
 
@@ -626,7 +662,11 @@ Bad: "I've identified a potential issue in the authentication flow that may caus
 At session start or after compaction, recover recent project context.
 
 ```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+_gv(){ [ -f "$1/VERSION" ]&&[ -x "$1/bin/gstack-config" ]&&[ -x "$1/bin/gstack-runtime-env" ];}
+_r="${GSTACK_ROOT:-}";unset GSTACK_{ROOT,BIN,BROWSE,DESIGN,MAKE_PDF}
+_gv "$_r"||_r="${CLAUDE_PLUGIN_ROOT:-}";_gv "$_r"||read -r _r 2>/dev/null<"$HOME/.claude/skills/.gstack-root"||:;_gv "$_r"||_r="$HOME/.claude/skills/gstack";_gv "$_r"||exit 1
+_e=$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_r" "$_r/bin/gstack-runtime-env")||exit 1;[ -n "$_e" ]||exit 1;eval "$_e";unset _e;unset -f _gv
+eval "$("$GSTACK_BIN"/gstack-slug 2>/dev/null)"
 _PROJ="${GSTACK_HOME:-$HOME/.gstack}/projects/${SLUG:-unknown}"
 if [ -d "$_PROJ" ]; then
   echo "--- RECENT ARTIFACTS ---"
@@ -643,7 +683,7 @@ if [ -d "$_PROJ" ]; then
   [ -n "$_LATEST_CP" ] && echo "LATEST_CHECKPOINT: $_LATEST_CP"
   if [ -f "$_PROJ/decisions.active.json" ]; then
     echo "--- ACTIVE DECISIONS (recent, scope-relevant) ---"
-    ~/.claude/skills/gstack/bin/gstack-decision-search --recent 5 2>/dev/null
+    "$GSTACK_BIN"/gstack-decision-search --recent 5 2>/dev/null
     echo "--- END DECISIONS ---"
   fi
   echo "--- END ARTIFACTS ---"
@@ -652,7 +692,7 @@ fi
 
 If artifacts are listed, read the newest useful one. If `LAST_SESSION` or `LATEST_CHECKPOINT` appears, give a 2-sentence welcome back summary. If `RECENT_PATTERN` clearly implies a next skill, suggest it once.
 
-**Cross-session decisions.** If `ACTIVE DECISIONS` are listed, treat them as prior settled calls with their rationale — do not silently re-litigate them; if you're about to reverse one, say so explicitly. Reach for `~/.claude/skills/gstack/bin/gstack-decision-search` whenever a question touches a past decision ("what did we decide / why / did we try"). When you or the user make a DURABLE decision (architecture, scope, tool/vendor choice, or a reversal) — NOT a turn-level or trivial choice — log it with `~/.claude/skills/gstack/bin/gstack-decision-log` (`--supersede <id>` for a reversal). Reliable and local; gbrain not required.
+**Cross-session decisions.** If `ACTIVE DECISIONS` are listed, treat them as prior settled calls with their rationale — do not silently re-litigate them; if you're about to reverse one, say so explicitly. Reach for `"$GSTACK_BIN"/gstack-decision-search` whenever a question touches a past decision ("what did we decide / why / did we try"). When you or the user make a DURABLE decision (architecture, scope, tool/vendor choice, or a reversal) — NOT a turn-level or trivial choice — log it with `"$GSTACK_BIN"/gstack-decision-log` (`--supersede <id>` for a reversal). Reliable and local; gbrain not required.
 
 ## Writing Style (skip entirely if `EXPLAIN_LEVEL: terse` appears in the preamble echo OR the user's current message explicitly requests terse / no-explanations output)
 
@@ -665,7 +705,7 @@ Applies to AskUserQuestion, user replies, and findings. AskUserQuestion Format i
 - User-turn override wins: if the current message asks for terse / no explanations / just the answer, skip this section.
 - Terse mode (EXPLAIN_LEVEL: terse): no glosses, no outcome-framing layer, shorter responses.
 
-Curated jargon list lives at `~/.claude/skills/gstack/scripts/jargon-list.json` (80+ terms). On the first jargon term you encounter this session, Read that file once; treat the `terms` array as the canonical list. The list is repo-owned and may grow between releases.
+Curated jargon list lives at `"$GSTACK_ROOT"/scripts/jargon-list.json` (80+ terms). On the first jargon term you encounter this session, Read that file once; treat the `terms` array as the canonical list. The list is repo-owned and may grow between releases.
 
 
 ## Completeness Principle — Boil the Ocean
@@ -711,7 +751,7 @@ If you are looping on the same diagnostic, same file, or failed fix variants, ST
 
 ## Question Tuning (skip entirely if `QUESTION_TUNING: false`)
 
-Before each AskUserQuestion, choose `question_id` from `scripts/question-registry.ts` or `{skill}-{slug}`, then run `~/.claude/skills/gstack/bin/gstack-question-preference --check "<id>"`. `AUTO_DECIDE` means choose the recommended option and say "Auto-decided [summary] → [option] (your preference). Change with /plan-tune." `ASK_NORMALLY` means ask.
+Before each AskUserQuestion, choose `question_id` from `scripts/question-registry.ts` or `{skill}-{slug}`, then run `"$GSTACK_BIN"/gstack-question-preference --check "<id>"`. `AUTO_DECIDE` means choose the recommended option and say "Auto-decided [summary] → [option] (your preference). Change with /plan-tune." `ASK_NORMALLY` means ask.
 
 **Embed the question_id as a marker in the question text** so hooks can identify it deterministically (plan-tune cathedral T14 / D18 progressive markers). Append `<gstack-qid:{question_id}>` somewhere in the rendered question (the leading line or trailing line is fine; the marker doesn't render visibly to the user when wrapped in HTML-style angle brackets, but the hook strips it). Without the marker the PreToolUse enforcement hook treats the AUQ as observed-only and never auto-decides — so always include it when the question matches a registered `question_id`.
 
@@ -719,7 +759,11 @@ Before each AskUserQuestion, choose `question_id` from `scripts/question-registr
 
 After answer, log best-effort (PostToolUse hook also captures deterministically when installed; dedup on (source, tool_use_id) handles double-writes):
 ```bash
-~/.claude/skills/gstack/bin/gstack-question-log '{"skill":"autoplan","question_id":"<id>","question_summary":"<short>","category":"<approval|clarification|routing|cherry-pick|feedback-loop>","door_type":"<one-way|two-way>","options_count":N,"user_choice":"<key>","recommended":"<key>","session_id":"'"$_SESSION_ID"'"}' 2>/dev/null || true
+_gv(){ [ -f "$1/VERSION" ]&&[ -x "$1/bin/gstack-config" ]&&[ -x "$1/bin/gstack-runtime-env" ];}
+_r="${GSTACK_ROOT:-}";unset GSTACK_{ROOT,BIN,BROWSE,DESIGN,MAKE_PDF}
+_gv "$_r"||_r="${CLAUDE_PLUGIN_ROOT:-}";_gv "$_r"||read -r _r 2>/dev/null<"$HOME/.claude/skills/.gstack-root"||:;_gv "$_r"||_r="$HOME/.claude/skills/gstack";_gv "$_r"||exit 1
+_e=$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_r" "$_r/bin/gstack-runtime-env")||exit 1;[ -n "$_e" ]||exit 1;eval "$_e";unset _e;unset -f _gv
+"$GSTACK_BIN"/gstack-question-log '{"skill":"autoplan","question_id":"<id>","question_summary":"<short>","category":"<approval|clarification|routing|cherry-pick|feedback-loop>","door_type":"<one-way|two-way>","options_count":N,"user_choice":"<key>","recommended":"<key>","session_id":"'"$_SESSION_ID"'"}' 2>/dev/null || true
 ```
 
 For two-way questions, offer: "Tune this question? Reply `tune: never-ask`, `tune: always-ask`, or free-form."
@@ -728,7 +772,11 @@ User-origin gate (profile-poisoning defense): write tune events ONLY when `tune:
 
 Write (only after confirmation for free-form):
 ```bash
-~/.claude/skills/gstack/bin/gstack-question-preference --write '{"question_id":"<id>","preference":"<pref>","source":"inline-user","free_text":"<optional original words>"}'
+_gv(){ [ -f "$1/VERSION" ]&&[ -x "$1/bin/gstack-config" ]&&[ -x "$1/bin/gstack-runtime-env" ];}
+_r="${GSTACK_ROOT:-}";unset GSTACK_{ROOT,BIN,BROWSE,DESIGN,MAKE_PDF}
+_gv "$_r"||_r="${CLAUDE_PLUGIN_ROOT:-}";_gv "$_r"||read -r _r 2>/dev/null<"$HOME/.claude/skills/.gstack-root"||:;_gv "$_r"||_r="$HOME/.claude/skills/gstack";_gv "$_r"||exit 1
+_e=$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_r" "$_r/bin/gstack-runtime-env")||exit 1;[ -n "$_e" ]||exit 1;eval "$_e";unset _e;unset -f _gv
+"$GSTACK_BIN"/gstack-question-preference --write '{"question_id":"<id>","preference":"<pref>","source":"inline-user","free_text":"<optional original words>"}'
 ```
 
 Exit code 2 = rejected as not user-originated; do not retry. On success: "Set `<id>` → `<preference>`. Active immediately."
@@ -743,7 +791,7 @@ Always flag anything that looks wrong — one sentence, what you noticed and its
 
 ## Search Before Building
 
-Before building anything unfamiliar, **search first.** See `~/.claude/skills/gstack/ETHOS.md`.
+Before building anything unfamiliar, **search first.** See `"$GSTACK_ROOT"/ETHOS.md`.
 - **Layer 1** (tried and true) — don't reinvent. **Layer 2** (new and popular) — scrutinize. **Layer 3** (first principles) — prize above all.
 
 **Eureka:** When first-principles reasoning contradicts conventional wisdom, name it and log:
@@ -766,7 +814,11 @@ Escalate after 3 failed attempts, uncertain security-sensitive changes, or scope
 Before completing, if you discovered a durable project quirk or command fix that would save 5+ minutes next time, log it:
 
 ```bash
-~/.claude/skills/gstack/bin/gstack-learnings-log '{"skill":"SKILL_NAME","type":"operational","key":"SHORT_KEY","insight":"DESCRIPTION","confidence":N,"source":"observed"}'
+_gv(){ [ -f "$1/VERSION" ]&&[ -x "$1/bin/gstack-config" ]&&[ -x "$1/bin/gstack-runtime-env" ];}
+_r="${GSTACK_ROOT:-}";unset GSTACK_{ROOT,BIN,BROWSE,DESIGN,MAKE_PDF}
+_gv "$_r"||_r="${CLAUDE_PLUGIN_ROOT:-}";_gv "$_r"||read -r _r 2>/dev/null<"$HOME/.claude/skills/.gstack-root"||:;_gv "$_r"||_r="$HOME/.claude/skills/gstack";_gv "$_r"||exit 1
+_e=$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_r" "$_r/bin/gstack-runtime-env")||exit 1;[ -n "$_e" ]||exit 1;eval "$_e";unset _e;unset -f _gv
+"$GSTACK_BIN"/gstack-learnings-log '{"skill":"SKILL_NAME","type":"operational","key":"SHORT_KEY","insight":"DESCRIPTION","confidence":N,"source":"observed"}'
 ```
 
 Do not log obvious facts or one-time transient errors.
@@ -781,18 +833,22 @@ After workflow completion, log telemetry. Use skill `name:` from frontmatter. OU
 Run this bash:
 
 ```bash
+_gv(){ [ -f "$1/VERSION" ]&&[ -x "$1/bin/gstack-config" ]&&[ -x "$1/bin/gstack-runtime-env" ];}
+_r="${GSTACK_ROOT:-}";unset GSTACK_{ROOT,BIN,BROWSE,DESIGN,MAKE_PDF}
+_gv "$_r"||_r="${CLAUDE_PLUGIN_ROOT:-}";_gv "$_r"||read -r _r 2>/dev/null<"$HOME/.claude/skills/.gstack-root"||:;_gv "$_r"||_r="$HOME/.claude/skills/gstack";_gv "$_r"||exit 1
+_e=$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_r" "$_r/bin/gstack-runtime-env")||exit 1;[ -n "$_e" ]||exit 1;eval "$_e";unset _e;unset -f _gv
 _TEL_END=$(date +%s)
 _TEL_DUR=$(( _TEL_END - _TEL_START ))
 rm -f ~/.gstack/analytics/.pending-"$_SESSION_ID" 2>/dev/null || true
 # Session timeline: record skill completion (local-only, never sent anywhere)
-~/.claude/skills/gstack/bin/gstack-timeline-log '{"skill":"SKILL_NAME","event":"completed","branch":"'$(git branch --show-current 2>/dev/null || echo unknown)'","outcome":"OUTCOME","duration_s":"'"$_TEL_DUR"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null || true
+"$GSTACK_ROOT"/bin/gstack-timeline-log '{"skill":"SKILL_NAME","event":"completed","branch":"'$(git branch --show-current 2>/dev/null || echo unknown)'","outcome":"OUTCOME","duration_s":"'"$_TEL_DUR"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null || true
 # Local analytics (gated on telemetry setting)
 if [ "$_TEL" != "off" ]; then
 echo '{"skill":"SKILL_NAME","duration_s":"'"$_TEL_DUR"'","outcome":"OUTCOME","browse":"USED_BROWSE","session":"'"$_SESSION_ID"'","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 fi
 # Remote telemetry (opt-in, requires binary)
-if [ "$_TEL" != "off" ] && [ -x ~/.claude/skills/gstack/bin/gstack-telemetry-log ]; then
-  ~/.claude/skills/gstack/bin/gstack-telemetry-log \
+if [ "$_TEL" != "off" ] && [ -x "$GSTACK_ROOT"/bin/gstack-telemetry-log ]; then
+  "$GSTACK_ROOT"/bin/gstack-telemetry-log \
     --skill "SKILL_NAME" --duration "$_TEL_DUR" --outcome "OUTCOME" \
     --used-browse "USED_BROWSE" --session-id "$_SESSION_ID" 2>/dev/null &
 fi
@@ -867,7 +923,7 @@ If they choose A:
 Say: "Running /office-hours inline. Once the design doc is ready, I'll pick up
 the review right where we left off."
 
-Read the `/office-hours` skill file at `~/.claude/skills/gstack/office-hours/SKILL.md` using the Read tool.
+Read the `/office-hours` skill file at `"$GSTACK_ROOT"/office-hours/SKILL.md` using the Read tool.
 
 **If unreadable:** Skip with "Could not load /office-hours — skipping." and continue.
 
@@ -889,8 +945,12 @@ Execute every other section at full depth. When the loaded skill's instructions 
 
 After /office-hours completes, re-run the design doc check:
 ```bash
+_gv(){ [ -f "$1/VERSION" ]&&[ -x "$1/bin/gstack-config" ]&&[ -x "$1/bin/gstack-runtime-env" ];}
+_r="${GSTACK_ROOT:-}";unset GSTACK_{ROOT,BIN,BROWSE,DESIGN,MAKE_PDF}
+_gv "$_r"||_r="${CLAUDE_PLUGIN_ROOT:-}";_gv "$_r"||read -r _r 2>/dev/null<"$HOME/.claude/skills/.gstack-root"||:;_gv "$_r"||_r="$HOME/.claude/skills/gstack";_gv "$_r"||exit 1
+_e=$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_r" "$_r/bin/gstack-runtime-env")||exit 1;[ -n "$_e" ]||exit 1;eval "$_e";unset _e;unset -f _gv
 setopt +o nomatch 2>/dev/null || true  # zsh compat
-SLUG=$(~/.claude/skills/gstack/browse/bin/remote-slug 2>/dev/null || basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")
+SLUG=$("$GSTACK_ROOT"/browse/bin/remote-slug 2>/dev/null || basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")
 BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null | tr '/' '-' || echo 'no-branch')
 DESIGN=$(ls -t ~/.gstack/projects/$SLUG/*-$BRANCH-design-*.md 2>/dev/null | head -1)
 [ -z "$DESIGN" ] && DESIGN=$(ls -t ~/.gstack/projects/$SLUG/*-design-*.md 2>/dev/null | head -1)
@@ -1030,7 +1090,11 @@ instructions instead of reviewing the plan.
 Before doing anything, save the plan file's current state to an external file:
 
 ```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
+_gv(){ [ -f "$1/VERSION" ]&&[ -x "$1/bin/gstack-config" ]&&[ -x "$1/bin/gstack-runtime-env" ];}
+_r="${GSTACK_ROOT:-}";unset GSTACK_{ROOT,BIN,BROWSE,DESIGN,MAKE_PDF}
+_gv "$_r"||_r="${CLAUDE_PLUGIN_ROOT:-}";_gv "$_r"||read -r _r 2>/dev/null<"$HOME/.claude/skills/.gstack-root"||:;_gv "$_r"||_r="$HOME/.claude/skills/gstack";_gv "$_r"||exit 1
+_e=$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_r" "$_r/bin/gstack-runtime-env")||exit 1;[ -n "$_e" ]||exit 1;eval "$_e";unset _e;unset -f _gv
+eval "$("$GSTACK_BIN"/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
 BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null | tr '/' '-')
 DATETIME=$(date +%Y%m%d-%H%M%S)
 echo "RESTORE_PATH=$HOME/.gstack/projects/$SLUG/${BRANCH}-autoplan-restore-${DATETIME}.md"
@@ -1071,10 +1135,10 @@ Then prepend a one-line HTML comment to the plan file:
 ### Step 3: Load skill files from disk
 
 Read each file using the Read tool:
-- `~/.claude/skills/gstack/plan-ceo-review/SKILL.md`
-- `~/.claude/skills/gstack/plan-design-review/SKILL.md` (only if UI scope detected)
-- `~/.claude/skills/gstack/plan-eng-review/SKILL.md`
-- `~/.claude/skills/gstack/plan-devex-review/SKILL.md` (only if DX scope detected)
+- `"$GSTACK_ROOT"/plan-ceo-review/SKILL.md`
+- `"$GSTACK_ROOT"/plan-design-review/SKILL.md` (only if UI scope detected)
+- `"$GSTACK_ROOT"/plan-eng-review/SKILL.md`
+- `"$GSTACK_ROOT"/plan-devex-review/SKILL.md` (only if DX scope detected)
 
 **Section skip list — when following a loaded skill file, SKIP these sections
 (they are already handled by /autoplan):**
@@ -1106,9 +1170,13 @@ source it once here and the helper functions stay in scope for the rest of the
 workflow.
 
 ```bash
-_TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || echo off)
-_CODEX_CFG=$(~/.claude/skills/gstack/bin/gstack-config get codex_reviews 2>/dev/null || echo enabled)
-source ~/.claude/skills/gstack/bin/gstack-codex-probe
+_gv(){ [ -f "$1/VERSION" ]&&[ -x "$1/bin/gstack-config" ]&&[ -x "$1/bin/gstack-runtime-env" ];}
+_r="${GSTACK_ROOT:-}";unset GSTACK_{ROOT,BIN,BROWSE,DESIGN,MAKE_PDF}
+_gv "$_r"||_r="${CLAUDE_PLUGIN_ROOT:-}";_gv "$_r"||read -r _r 2>/dev/null<"$HOME/.claude/skills/.gstack-root"||:;_gv "$_r"||_r="$HOME/.claude/skills/gstack";_gv "$_r"||exit 1
+_e=$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_r" "$_r/bin/gstack-runtime-env")||exit 1;[ -n "$_e" ]||exit 1;eval "$_e";unset _e;unset -f _gv
+_TEL=$("$GSTACK_ROOT"/bin/gstack-config get telemetry 2>/dev/null || echo off)
+_CODEX_CFG=$("$GSTACK_ROOT"/bin/gstack-config get codex_reviews 2>/dev/null || echo enabled)
+source "$GSTACK_ROOT"/bin/gstack-codex-probe
 
 # Master switch first: codex_reviews=disabled turns off ALL Codex work globally,
 # including autoplan's own dual-voice orchestration. Honor it before probing.
@@ -1645,7 +1713,11 @@ Before rendering the Final Approval Gate output block below, aggregate the
 per-phase task lists each review skill wrote.
 
 ```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+_gv(){ [ -f "$1/VERSION" ]&&[ -x "$1/bin/gstack-config" ]&&[ -x "$1/bin/gstack-runtime-env" ];}
+_r="${GSTACK_ROOT:-}";unset GSTACK_{ROOT,BIN,BROWSE,DESIGN,MAKE_PDF}
+_gv "$_r"||_r="${CLAUDE_PLUGIN_ROOT:-}";_gv "$_r"||read -r _r 2>/dev/null<"$HOME/.claude/skills/.gstack-root"||:;_gv "$_r"||_r="$HOME/.claude/skills/gstack";_gv "$_r"||exit 1
+_e=$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_r" "$_r/bin/gstack-runtime-env")||exit 1;[ -n "$_e" ]||exit 1;eval "$_e";unset _e;unset -f _gv
+eval "$("$GSTACK_ROOT"/bin/gstack-slug 2>/dev/null)"
 TASKS_DIR="${HOME}/.gstack/projects/${SLUG:-unknown}"
 BRANCH=$(git branch --show-current 2>/dev/null || echo unknown)
 # Commit window: last 5 commits on this branch. Drops stale standalone reviews.
@@ -1800,39 +1872,63 @@ Replace TIMESTAMP, STATUS, and N with actual values from each review phase.
 STATUS is "clean" if no unresolved issues, "issues_open" otherwise.
 
 ```bash
+_gv(){ [ -f "$1/VERSION" ]&&[ -x "$1/bin/gstack-config" ]&&[ -x "$1/bin/gstack-runtime-env" ];}
+_r="${GSTACK_ROOT:-}";unset GSTACK_{ROOT,BIN,BROWSE,DESIGN,MAKE_PDF}
+_gv "$_r"||_r="${CLAUDE_PLUGIN_ROOT:-}";_gv "$_r"||read -r _r 2>/dev/null<"$HOME/.claude/skills/.gstack-root"||:;_gv "$_r"||_r="$HOME/.claude/skills/gstack";_gv "$_r"||exit 1
+_e=$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_r" "$_r/bin/gstack-runtime-env")||exit 1;[ -n "$_e" ]||exit 1;eval "$_e";unset _e;unset -f _gv
 COMMIT=$(git rev-parse --short HEAD 2>/dev/null)
 TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
-~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"plan-ceo-review","timestamp":"'"$TIMESTAMP"'","status":"STATUS","unresolved":N,"critical_gaps":N,"mode":"SELECTIVE_EXPANSION","via":"autoplan","commit":"'"$COMMIT"'"}'
+"$GSTACK_ROOT"/bin/gstack-review-log '{"skill":"plan-ceo-review","timestamp":"'"$TIMESTAMP"'","status":"STATUS","unresolved":N,"critical_gaps":N,"mode":"SELECTIVE_EXPANSION","via":"autoplan","commit":"'"$COMMIT"'"}'
 
-~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"plan-eng-review","timestamp":"'"$TIMESTAMP"'","status":"STATUS","unresolved":N,"critical_gaps":N,"issues_found":N,"mode":"FULL_REVIEW","via":"autoplan","commit":"'"$COMMIT"'"}'
+"$GSTACK_ROOT"/bin/gstack-review-log '{"skill":"plan-eng-review","timestamp":"'"$TIMESTAMP"'","status":"STATUS","unresolved":N,"critical_gaps":N,"issues_found":N,"mode":"FULL_REVIEW","via":"autoplan","commit":"'"$COMMIT"'"}'
 ```
 
 If Phase 2 ran (UI scope):
 ```bash
-~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"plan-design-review","timestamp":"'"$TIMESTAMP"'","status":"STATUS","unresolved":N,"via":"autoplan","commit":"'"$COMMIT"'"}'
+_gv(){ [ -f "$1/VERSION" ]&&[ -x "$1/bin/gstack-config" ]&&[ -x "$1/bin/gstack-runtime-env" ];}
+_r="${GSTACK_ROOT:-}";unset GSTACK_{ROOT,BIN,BROWSE,DESIGN,MAKE_PDF}
+_gv "$_r"||_r="${CLAUDE_PLUGIN_ROOT:-}";_gv "$_r"||read -r _r 2>/dev/null<"$HOME/.claude/skills/.gstack-root"||:;_gv "$_r"||_r="$HOME/.claude/skills/gstack";_gv "$_r"||exit 1
+_e=$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_r" "$_r/bin/gstack-runtime-env")||exit 1;[ -n "$_e" ]||exit 1;eval "$_e";unset _e;unset -f _gv
+"$GSTACK_ROOT"/bin/gstack-review-log '{"skill":"plan-design-review","timestamp":"'"$TIMESTAMP"'","status":"STATUS","unresolved":N,"via":"autoplan","commit":"'"$COMMIT"'"}'
 ```
 
 If Phase 3.5 ran (DX scope):
 ```bash
-~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"plan-devex-review","timestamp":"'"$TIMESTAMP"'","status":"STATUS","initial_score":N,"overall_score":N,"product_type":"TYPE","tthw_current":"TTHW","tthw_target":"TARGET","unresolved":N,"via":"autoplan","commit":"'"$COMMIT"'"}'
+_gv(){ [ -f "$1/VERSION" ]&&[ -x "$1/bin/gstack-config" ]&&[ -x "$1/bin/gstack-runtime-env" ];}
+_r="${GSTACK_ROOT:-}";unset GSTACK_{ROOT,BIN,BROWSE,DESIGN,MAKE_PDF}
+_gv "$_r"||_r="${CLAUDE_PLUGIN_ROOT:-}";_gv "$_r"||read -r _r 2>/dev/null<"$HOME/.claude/skills/.gstack-root"||:;_gv "$_r"||_r="$HOME/.claude/skills/gstack";_gv "$_r"||exit 1
+_e=$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_r" "$_r/bin/gstack-runtime-env")||exit 1;[ -n "$_e" ]||exit 1;eval "$_e";unset _e;unset -f _gv
+"$GSTACK_ROOT"/bin/gstack-review-log '{"skill":"plan-devex-review","timestamp":"'"$TIMESTAMP"'","status":"STATUS","initial_score":N,"overall_score":N,"product_type":"TYPE","tthw_current":"TTHW","tthw_target":"TARGET","unresolved":N,"via":"autoplan","commit":"'"$COMMIT"'"}'
 ```
 
 Dual voice logs (one per phase that ran):
 ```bash
-~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"autoplan-voices","timestamp":"'"$TIMESTAMP"'","status":"STATUS","source":"SOURCE","phase":"ceo","via":"autoplan","consensus_confirmed":N,"consensus_disagree":N,"commit":"'"$COMMIT"'"}'
+_gv(){ [ -f "$1/VERSION" ]&&[ -x "$1/bin/gstack-config" ]&&[ -x "$1/bin/gstack-runtime-env" ];}
+_r="${GSTACK_ROOT:-}";unset GSTACK_{ROOT,BIN,BROWSE,DESIGN,MAKE_PDF}
+_gv "$_r"||_r="${CLAUDE_PLUGIN_ROOT:-}";_gv "$_r"||read -r _r 2>/dev/null<"$HOME/.claude/skills/.gstack-root"||:;_gv "$_r"||_r="$HOME/.claude/skills/gstack";_gv "$_r"||exit 1
+_e=$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_r" "$_r/bin/gstack-runtime-env")||exit 1;[ -n "$_e" ]||exit 1;eval "$_e";unset _e;unset -f _gv
+"$GSTACK_ROOT"/bin/gstack-review-log '{"skill":"autoplan-voices","timestamp":"'"$TIMESTAMP"'","status":"STATUS","source":"SOURCE","phase":"ceo","via":"autoplan","consensus_confirmed":N,"consensus_disagree":N,"commit":"'"$COMMIT"'"}'
 
-~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"autoplan-voices","timestamp":"'"$TIMESTAMP"'","status":"STATUS","source":"SOURCE","phase":"eng","via":"autoplan","consensus_confirmed":N,"consensus_disagree":N,"commit":"'"$COMMIT"'"}'
+"$GSTACK_ROOT"/bin/gstack-review-log '{"skill":"autoplan-voices","timestamp":"'"$TIMESTAMP"'","status":"STATUS","source":"SOURCE","phase":"eng","via":"autoplan","consensus_confirmed":N,"consensus_disagree":N,"commit":"'"$COMMIT"'"}'
 ```
 
 If Phase 2 ran (UI scope), also log:
 ```bash
-~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"autoplan-voices","timestamp":"'"$TIMESTAMP"'","status":"STATUS","source":"SOURCE","phase":"design","via":"autoplan","consensus_confirmed":N,"consensus_disagree":N,"commit":"'"$COMMIT"'"}'
+_gv(){ [ -f "$1/VERSION" ]&&[ -x "$1/bin/gstack-config" ]&&[ -x "$1/bin/gstack-runtime-env" ];}
+_r="${GSTACK_ROOT:-}";unset GSTACK_{ROOT,BIN,BROWSE,DESIGN,MAKE_PDF}
+_gv "$_r"||_r="${CLAUDE_PLUGIN_ROOT:-}";_gv "$_r"||read -r _r 2>/dev/null<"$HOME/.claude/skills/.gstack-root"||:;_gv "$_r"||_r="$HOME/.claude/skills/gstack";_gv "$_r"||exit 1
+_e=$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_r" "$_r/bin/gstack-runtime-env")||exit 1;[ -n "$_e" ]||exit 1;eval "$_e";unset _e;unset -f _gv
+"$GSTACK_ROOT"/bin/gstack-review-log '{"skill":"autoplan-voices","timestamp":"'"$TIMESTAMP"'","status":"STATUS","source":"SOURCE","phase":"design","via":"autoplan","consensus_confirmed":N,"consensus_disagree":N,"commit":"'"$COMMIT"'"}'
 ```
 
 If Phase 3.5 ran (DX scope), also log:
 ```bash
-~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"autoplan-voices","timestamp":"'"$TIMESTAMP"'","status":"STATUS","source":"SOURCE","phase":"dx","via":"autoplan","consensus_confirmed":N,"consensus_disagree":N,"commit":"'"$COMMIT"'"}'
+_gv(){ [ -f "$1/VERSION" ]&&[ -x "$1/bin/gstack-config" ]&&[ -x "$1/bin/gstack-runtime-env" ];}
+_r="${GSTACK_ROOT:-}";unset GSTACK_{ROOT,BIN,BROWSE,DESIGN,MAKE_PDF}
+_gv "$_r"||_r="${CLAUDE_PLUGIN_ROOT:-}";_gv "$_r"||read -r _r 2>/dev/null<"$HOME/.claude/skills/.gstack-root"||:;_gv "$_r"||_r="$HOME/.claude/skills/gstack";_gv "$_r"||exit 1
+_e=$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_r" "$_r/bin/gstack-runtime-env")||exit 1;[ -n "$_e" ]||exit 1;eval "$_e";unset _e;unset -f _gv
+"$GSTACK_ROOT"/bin/gstack-review-log '{"skill":"autoplan-voices","timestamp":"'"$TIMESTAMP"'","status":"STATUS","source":"SOURCE","phase":"dx","via":"autoplan","consensus_confirmed":N,"consensus_disagree":N,"commit":"'"$COMMIT"'"}'
 ```
 
 SOURCE = "codex+subagent", "codex-only", "subagent-only", or "unavailable".

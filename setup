@@ -16,6 +16,7 @@ fi
 
 INSTALL_GSTACK_DIR="$(cd "$(dirname "$0")" && pwd)"
 SOURCE_GSTACK_DIR="$(cd "$(dirname "$0")" && pwd -P)"
+source "$SOURCE_GSTACK_DIR/bin/gstack-registration-lock"
 INSTALL_SKILLS_DIR="$(dirname "$INSTALL_GSTACK_DIR")"
 BROWSE_BIN="$SOURCE_GSTACK_DIR/browse/dist/browse"
 CODEX_SKILLS="$HOME/.codex/skills"
@@ -46,10 +47,9 @@ _link_or_copy() {
   if [ "$IS_WINDOWS" -eq 1 ]; then
     rm -rf "$dst"
     # Unix `ln -snf` accepts a name-only or relative-path source even when the
-    # target doesn't resolve from CWD (e.g. the connect-chrome alias points at
-    # the sibling-relative "gstack/open-gstack-browser"). On Windows the
-    # equivalent semantics don't exist — we'd need a real source on disk to
-    # copy. Skip the alias quietly rather than aborting setup under `set -e`.
+    # target doesn't resolve from CWD. On Windows the equivalent semantics don't
+    # exist — we'd need a real source on disk to copy. Skip such compatibility
+    # aliases quietly rather than aborting setup under `set -e`.
     if [ ! -e "$src" ]; then
       return 0
     fi
@@ -369,6 +369,7 @@ cleanup_copied_bun() {
   if [ "${BUN_CMD_WAS_COPIED:-0}" -eq 1 ]; then
     rm -rf "$SOURCE_GSTACK_DIR/.tmp-bun-bin"
   fi
+  gstack_registration_lock_release
 }
 
 prepare_bun_for_windows_compile
@@ -537,10 +538,122 @@ mkdir -p "$HOME/.gstack/projects"
 # gstack/ (which would auto-prefix them as gstack-*).
 # When SKILL_PREFIX=1, directories are prefixed with "gstack-".
 # Use --no-prefix to restore flat names.
+_claude_legacy_windows_skill_copy_owned() {
+  local gstack_dir="$1"
+  local expected_skill="$2"
+  local target_skill="$3"
+  local expected_name target_name gstack_real skills_real marker_root marker_real
+  [ "$IS_WINDOWS" -eq 1 ] && [ -f "$expected_skill" ] && [ -f "$target_skill" ] || return 1
+  gstack_real=$(cd "$gstack_dir" 2>/dev/null && pwd -P || true)
+  skills_real=$(cd "$(dirname "$(dirname "$target_skill")")" 2>/dev/null && pwd -P || true)
+  if [ -z "$gstack_real" ] || [ "$gstack_real" != "$skills_real/gstack" ]; then
+    marker_root=$(head -n 1 "$skills_real/.gstack-root" 2>/dev/null || true)
+    marker_real=$(cd "$marker_root" 2>/dev/null && pwd -P || true)
+    [ -n "$marker_real" ] && [ "$marker_real" = "$gstack_real" ] || return 1
+  fi
+  grep -Fq '<!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->' "$expected_skill" || return 1
+  grep -Fq '<!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->' "$target_skill" || return 1
+  expected_name=$(grep -m1 '^name:' "$expected_skill" 2>/dev/null | sed 's/^name:[[:space:]]*//' | tr -d '[:space:]')
+  target_name=$(grep -m1 '^name:' "$target_skill" 2>/dev/null | sed 's/^name:[[:space:]]*//' | tr -d '[:space:]')
+  [ -n "$expected_name" ] && [ "${expected_name#gstack-}" = "${target_name#gstack-}" ]
+}
+
+_validate_claude_skill_target() {
+  local gstack_dir="$1"
+  local expected_skill="$2"
+  local target="$3"
+
+  [ ! -e "$target" ] && [ ! -L "$target" ] && return 0
+
+  local expected_parent expected_real
+  expected_parent=$(cd "$(dirname "$expected_skill")" 2>/dev/null && pwd -P || true)
+  expected_real="$expected_parent/$(basename "$expected_skill")"
+
+  if [ -L "$target" ]; then
+    local target_real expected_dir_real
+    target_real=$(cd "$target" 2>/dev/null && pwd -P || true)
+    expected_dir_real=$(cd "$(dirname "$expected_skill")" 2>/dev/null && pwd -P || true)
+    [ -n "$target_real" ] && [ "$target_real" = "$expected_dir_real" ] && return 0
+  elif [ -d "$target" ]; then
+    if [ -f "$target/.gstack-managed-root" ]; then
+      local owner owner_real gstack_real
+      owner=$(head -n 1 "$target/.gstack-managed-root" 2>/dev/null || true)
+      owner_real=$(cd "$owner" 2>/dev/null && pwd -P || true)
+      gstack_real=$(cd "$gstack_dir" 2>/dev/null && pwd -P || true)
+      [ -n "$owner_real" ] && [ "$owner_real" = "$gstack_real" ] && return 0
+    fi
+    if [ -L "$target/SKILL.md" ]; then
+      local linked linked_parent linked_parent_real
+      linked=$(readlink "$target/SKILL.md" 2>/dev/null || true)
+      case "$linked" in
+        /*) linked_parent=$(dirname "$linked") ;;
+        *) linked_parent="$(dirname "$target/SKILL.md")/$(dirname "$linked")" ;;
+      esac
+      linked_parent_real=$(cd "$linked_parent" 2>/dev/null && pwd -P || true)
+      [ -n "$linked_parent_real" ] && [ "$linked_parent_real/$(basename "$linked")" = "$expected_real" ] && return 0
+    elif _claude_legacy_windows_skill_copy_owned "$gstack_dir" "$expected_skill" "$target/SKILL.md"; then
+      return 0
+    elif [ -z "$(find "$target" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]; then
+      return 0
+    fi
+  fi
+
+  echo "gstack setup failed: $target is owned by another skill install." >&2
+  echo "Move or remove it before registering $(basename "$(dirname "$expected_skill")")." >&2
+  return 1
+}
+
+_claude_post_patch_skill_name() {
+  local dir_name="$1"
+  local current_name="$2"
+  if [ "$SKILL_PREFIX" -eq 1 ]; then
+    case "$current_name" in gstack-*) printf '%s\n' "$current_name" ;; *) printf 'gstack-%s\n' "$current_name" ;; esac
+  else
+    case "$current_name" in
+      gstack-*)
+        if [ "$dir_name" = "$current_name" ]; then
+          printf '%s\n' "$current_name"
+        else
+          printf '%s\n' "${current_name#gstack-}"
+        fi
+        ;;
+      *) printf '%s\n' "$current_name" ;;
+    esac
+  fi
+}
+
+validate_claude_skill_targets() {
+  local gstack_dir="$1"
+  local skills_dir="$2"
+  local compatibility_alias="$skills_dir/connect-chrome"
+
+  _validate_claude_skill_target "$gstack_dir" "$gstack_dir/SKILL.md" "$skills_dir/_gstack-command" || return 1
+  for skill_dir in "$gstack_dir"/*/; do
+    [ -f "$skill_dir/SKILL.md" ] || continue
+    dir_name="$(basename "$skill_dir")"
+    [ "$dir_name" = "node_modules" ] && continue
+    skill_name=$(grep -m1 '^name:' "$skill_dir/SKILL.md" 2>/dev/null | sed 's/^name:[[:space:]]*//' | tr -d '[:space:]')
+    [ -z "$skill_name" ] && skill_name="$dir_name"
+    link_name=$(_claude_post_patch_skill_name "$dir_name" "$skill_name")
+    _validate_claude_skill_target "$gstack_dir" "$gstack_dir/$dir_name/SKILL.md" "$skills_dir/$link_name" || return 1
+  done
+  if [ "$SKILL_PREFIX" -eq 1 ]; then
+    compatibility_alias="$skills_dir/gstack-connect-chrome"
+  fi
+  _validate_claude_skill_target \
+    "$gstack_dir" \
+    "$gstack_dir/open-gstack-browser/SKILL.md" \
+    "$compatibility_alias" || return 1
+}
+
 link_claude_skill_dirs() {
   local gstack_dir="$1"
   local skills_dir="$2"
   local linked=()
+
+  # Keep this public helper safe when sourced independently in tests/scripts.
+  validate_claude_skill_targets "$gstack_dir" "$skills_dir" || return 1
+
   for skill_dir in "$gstack_dir"/*/; do
     if [ -f "$skill_dir/SKILL.md" ]; then
       dir_name="$(basename "$skill_dir")"
@@ -559,6 +672,7 @@ link_claude_skill_dirs() {
         link_name="$skill_name"
       fi
       target="$skills_dir/$link_name"
+      _validate_claude_skill_target "$gstack_dir" "$gstack_dir/$dir_name/SKILL.md" "$target" || return 1
       # Upgrade old directory symlinks to real directories
       if [ -L "$target" ]; then
         rm -f "$target"
@@ -577,6 +691,7 @@ link_claude_skill_dirs() {
         if [ -e "$target/sections" ] || [ -L "$target/sections" ]; then rm -rf "$target/sections"; fi
         _link_or_copy "$gstack_dir/$dir_name/sections" "$target/sections"
       fi
+      printf '%s\n' "$gstack_dir" > "$target/.gstack-managed-root"
       linked+=("$link_name")
     fi
   done
@@ -596,108 +711,255 @@ link_claude_root_skill_alias() {
   local target="$skills_dir/_gstack-command"
 
   [ -f "$gstack_dir/SKILL.md" ] || return 0
+  _validate_claude_skill_target "$gstack_dir" "$gstack_dir/SKILL.md" "$target" || return 1
   if [ -L "$target" ]; then
     rm -f "$target"
   fi
   mkdir -p "$target"
   if [ -L "$target/SKILL.md" ]; then rm "$target/SKILL.md"; fi
   _link_or_copy "$gstack_dir/SKILL.md" "$target/SKILL.md"
+  printf '%s\n' "$gstack_dir" > "$target/.gstack-managed-root"
   echo "  linked root skill alias: gstack"
   _print_windows_copy_note_once
 }
 
-# ─── Helper: remove old unprefixed Claude skill entries ───────────────────────
-# Migration: when switching from flat names to gstack- prefixed names,
-# clean up stale symlinks or directories that point into the gstack directory.
-cleanup_old_claude_symlinks() {
+# ─── Helpers: portable Claude runtime root (#1882) ───────────────────────────
+# Skill bodies read this marker before their first gstack binary call. It lives
+# only in the user's skills directory: repository-controlled marker files must
+# never be able to redirect a global skill to untrusted executables.
+record_claude_runtime_root() {
+  local source_dir="$1"
+  local skills_dir="$2"
+  local marker="$skills_dir/.gstack-root"
+  local tmp="$marker.tmp.$$"
+
+  mkdir -p "$skills_dir"
+  printf '%s\n' "$source_dir" > "$tmp"
+  mv "$tmp" "$marker"
+}
+
+# True only when source_dir is the canonical <skills_dir>/gstack runtime.
+is_canonical_claude_runtime_root() {
+  local source_dir="$1"
+  local skills_dir="$2"
+  local source_real skills_real
+  source_real=$(cd "$source_dir" 2>/dev/null && pwd -P || true)
+  skills_real=$(cd "$skills_dir" 2>/dev/null && pwd -P || true)
+  [ -n "$source_real" ] && [ "$source_real" = "$skills_real/gstack" ]
+}
+
+mark_claude_windows_runtime_copy() {
+  local source_dir="$1"
+  local runtime_root="$2"
+  [ "$IS_WINDOWS" -eq 1 ] && [ -d "$runtime_root" ] && [ ! -L "$runtime_root" ] || return 0
+  printf '%s\n' "$source_dir" > "$runtime_root/.gstack-hook-runtime"
+}
+
+claude_windows_runtime_copy_owned_by() {
+  local source_dir="$1"
+  local runtime_root="$2"
+  local source_real owner owner_real
+  [ "$IS_WINDOWS" -eq 1 ] && [ -d "$runtime_root" ] && [ ! -L "$runtime_root" ] || return 1
+  owner=$(head -n 1 "$runtime_root/.gstack-hook-runtime" 2>/dev/null || true)
+  source_real=$(cd "$source_dir" 2>/dev/null && pwd -P || true)
+  owner_real=$(cd "$owner" 2>/dev/null && pwd -P || true)
+  [ -n "$source_real" ] && [ "$owner_real" = "$source_real" ]
+}
+
+# Frontmatter hooks execute before the skill-body preamble, so guard/freeze/
+# careful cannot use $GSTACK_ROOT. For renamed installs, expose only their two
+# hook payload directories at the canonical path. Do not alias the whole repo:
+# recursive skill scanners would discover every nested SKILL.md (#1202/#1694).
+ensure_claude_hook_runtime_root() {
+  local source_dir="$1"
+  local skills_dir="$2"
+  local runtime_root="$skills_dir/gstack"
+  local managed_marker="$runtime_root/.gstack-hook-runtime"
+
+  is_canonical_claude_runtime_root "$source_dir" "$skills_dir" && return 0
+
+  validate_claude_hook_runtime_root "$source_dir" "$skills_dir" || return 1
+
+  if [ -L "$runtime_root" ]; then
+    # Validation proved this alias resolves to the active checkout. Preserve it.
+    return 0
+  fi
+
+  mkdir -p "$runtime_root/careful" "$runtime_root/freeze" "$runtime_root/bin"
+  _link_or_copy "$source_dir/careful/bin" "$runtime_root/careful/bin"
+  _link_or_copy "$source_dir/freeze/bin" "$runtime_root/freeze/bin"
+  _link_or_copy "$source_dir/bin/gstack-runtime-env" "$runtime_root/bin/gstack-runtime-env"
+  printf '%s\n' "$source_dir" > "$managed_marker"
+  log "  prepared hook runtime: $runtime_root (careful + freeze only)"
+}
+
+# Side-effect-free collision check. Run this before relinking any Claude skill
+# so a rejected hook runtime cannot leave aliases or .gstack-root half-switched.
+validate_claude_hook_runtime_root() {
+  local source_dir="$1"
+  local skills_dir="$2"
+  local runtime_root="$skills_dir/gstack"
+  local managed_marker="$runtime_root/.gstack-hook-runtime"
+
+  is_canonical_claude_runtime_root "$source_dir" "$skills_dir" && return 0
+
+  local source_real
+  source_real=$(cd "$source_dir" 2>/dev/null && pwd -P || true)
+
+  if [ -L "$runtime_root" ]; then
+    local resolved
+    resolved=$(cd "$runtime_root" 2>/dev/null && pwd -P || true)
+    if [ "$resolved" = "$source_real" ]; then
+      return 0
+    fi
+    echo "gstack setup failed: $runtime_root points to a different install." >&2
+    echo "Remove or retarget it before activating $source_dir." >&2
+    return 1
+  fi
+
+  if [ -e "$runtime_root" ] && [ ! -f "$managed_marker" ]; then
+    echo "gstack setup failed: $runtime_root is owned by a different install." >&2
+    echo "Rename/remove that install before activating $source_dir." >&2
+    return 1
+  fi
+
+  return 0
+}
+
+# ─── Helpers: ownership-safe cleanup across prefix-mode changes ──────────────
+_claude_skill_target_owned() {
+  local gstack_dir="$1"
+  local expected_skill="$2"
+  local target="$3"
+  local gstack_real expected_real owner owner_real target_real
+
+  gstack_real=$(cd "$gstack_dir" 2>/dev/null && pwd -P || true)
+  expected_real=$(cd "$(dirname "$expected_skill")" 2>/dev/null && pwd -P || true)/$(basename "$expected_skill")
+
+  if [ -L "$target" ]; then
+    target_real=$(cd "$target" 2>/dev/null && pwd -P || true)
+    [ -n "$target_real" ] && [ "$target_real" = "$(dirname "$expected_real")" ]
+    return
+  fi
+  [ -d "$target" ] || return 1
+  if [ -f "$target/.gstack-managed-root" ]; then
+    owner=$(head -n 1 "$target/.gstack-managed-root" 2>/dev/null || true)
+    owner_real=$(cd "$owner" 2>/dev/null && pwd -P || true)
+    [ -n "$owner_real" ] && [ "$owner_real" = "$gstack_real" ] && return 0
+  fi
+  if [ -L "$target/SKILL.md" ]; then
+    local linked linked_parent linked_parent_real
+    linked=$(readlink "$target/SKILL.md" 2>/dev/null || true)
+    case "$linked" in
+      /*) linked_parent=$(dirname "$linked") ;;
+      *) linked_parent="$(dirname "$target/SKILL.md")/$(dirname "$linked")" ;;
+    esac
+    linked_parent_real=$(cd "$linked_parent" 2>/dev/null && pwd -P || true)
+    [ -n "$linked_parent_real" ] && [ "$linked_parent_real/$(basename "$linked")" = "$expected_real" ] && return 0
+  elif _claude_legacy_windows_skill_copy_owned "$gstack_dir" "$expected_skill" "$target/SKILL.md"; then
+    return 0
+  fi
+  return 1
+}
+
+_validate_claude_cleanup_targets() {
   local gstack_dir="$1"
   local skills_dir="$2"
-  local removed=()
+  local old_prefix="$3"
+  local skill_dir skill_name target
   for skill_dir in "$gstack_dir"/*/; do
-    if [ -f "$skill_dir/SKILL.md" ]; then
-      skill_name="$(basename "$skill_dir")"
-      [ "$skill_name" = "node_modules" ] && continue
-      # Skip already-prefixed dirs (gstack-upgrade) — no old symlink to clean
-      case "$skill_name" in gstack-*) continue ;; esac
-      old_target="$skills_dir/$skill_name"
-      # Remove directory symlinks pointing into gstack/
-      if [ -L "$old_target" ]; then
-        link_dest="$(readlink "$old_target" 2>/dev/null || true)"
-        case "$link_dest" in
-          gstack/*|*/gstack/*)
-            rm -f "$old_target"
-            removed+=("$skill_name")
-            ;;
-        esac
-      # Remove real directories with symlinked SKILL.md pointing into gstack/
-      elif [ -d "$old_target" ] && [ -L "$old_target/SKILL.md" ]; then
-        link_dest="$(readlink "$old_target/SKILL.md" 2>/dev/null || true)"
-        case "$link_dest" in
-          *gstack*)
-            rm -rf "$old_target"
-            removed+=("$skill_name")
-            ;;
-        esac
-      # Windows install pattern: real dir with real-file SKILL.md (no symlink
-      # available, so we can't readlink to verify provenance). The outer loop
-      # iterates known gstack skill names from "$gstack_dir"/*, so a name match
-      # plus IS_WINDOWS is safe to treat as gstack-managed during a mode flip.
-      elif [ "$IS_WINDOWS" -eq 1 ] && [ -d "$old_target" ] && [ -f "$old_target/SKILL.md" ]; then
-        rm -rf "$old_target"
-        removed+=("$skill_name")
-      fi
+    [ -f "$skill_dir/SKILL.md" ] || continue
+    skill_name="$(basename "$skill_dir")"
+    [ "$skill_name" = "node_modules" ] && continue
+    case "$skill_name" in gstack-*) continue ;; esac
+    target="$skills_dir/${old_prefix}${skill_name}"
+    [ ! -e "$target" ] && [ ! -L "$target" ] && continue
+    if ! _claude_skill_target_owned "$gstack_dir" "$skill_dir/SKILL.md" "$target"; then
+      echo "gstack setup failed: $target is not owned by this gstack install." >&2
+      echo "Move or remove it before changing skill_prefix." >&2
+      return 1
     fi
   done
+}
+
+_cleanup_claude_skill_targets() {
+  local gstack_dir="$1"
+  local skills_dir="$2"
+  local old_prefix="$3"
+  local label="$4"
+  local removed=()
+  local skill_dir skill_name target
+  for skill_dir in "$gstack_dir"/*/; do
+    [ -f "$skill_dir/SKILL.md" ] || continue
+    skill_name="$(basename "$skill_dir")"
+    [ "$skill_name" = "node_modules" ] && continue
+    case "$skill_name" in gstack-*) continue ;; esac
+    target="$skills_dir/${old_prefix}${skill_name}"
+    [ ! -e "$target" ] && [ ! -L "$target" ] && continue
+    _claude_skill_target_owned "$gstack_dir" "$skill_dir/SKILL.md" "$target" || return 1
+    if [ -L "$target" ]; then
+      rm -f "$target"
+    else
+      rm -f "$target/SKILL.md" "$target/.gstack-managed-root"
+      rm -rf "$target/sections"
+      rmdir "$target" 2>/dev/null || true
+    fi
+    removed+=("${old_prefix}${skill_name}")
+  done
   if [ ${#removed[@]} -gt 0 ]; then
-    echo "  cleaned up old entries: ${removed[*]}"
+    echo "  cleaned up $label entries: ${removed[*]}"
   fi
 }
 
-# ─── Helper: remove old prefixed Claude skill entries ─────────────────────────
-# Reverse migration: when switching from gstack- prefixed names to flat names,
-# clean up stale gstack-* symlinks or directories that point into the gstack directory.
+cleanup_old_claude_symlinks() {
+  _cleanup_claude_skill_targets "$1" "$2" "" "old"
+}
+
 cleanup_prefixed_claude_symlinks() {
-  local gstack_dir="$1"
+  _cleanup_claude_skill_targets "$1" "$2" "gstack-" "prefixed"
+}
+
+link_claude_connect_chrome_alias() {
+  local source_dir="$1"
   local skills_dir="$2"
-  local removed=()
-  for skill_dir in "$gstack_dir"/*/; do
-    if [ -f "$skill_dir/SKILL.md" ]; then
-      skill_name="$(basename "$skill_dir")"
-      [ "$skill_name" = "node_modules" ] && continue
-      # Only clean up prefixed entries for dirs that AREN'T already prefixed
-      # (e.g., remove gstack-qa but NOT gstack-upgrade which is the real dir name)
-      case "$skill_name" in gstack-*) continue ;; esac
-      prefixed_target="$skills_dir/gstack-$skill_name"
-      # Remove directory symlinks pointing into gstack/
-      if [ -L "$prefixed_target" ]; then
-        link_dest="$(readlink "$prefixed_target" 2>/dev/null || true)"
-        case "$link_dest" in
-          gstack/*|*/gstack/*)
-            rm -f "$prefixed_target"
-            removed+=("gstack-$skill_name")
-            ;;
-        esac
-      # Remove real directories with symlinked SKILL.md pointing into gstack/
-      elif [ -d "$prefixed_target" ] && [ -L "$prefixed_target/SKILL.md" ]; then
-        link_dest="$(readlink "$prefixed_target/SKILL.md" 2>/dev/null || true)"
-        case "$link_dest" in
-          *gstack*)
-            rm -rf "$prefixed_target"
-            removed+=("gstack-$skill_name")
-            ;;
-        esac
-      # Windows install pattern: real dir with real-file SKILL.md. Same
-      # reasoning as cleanup_old_claude_symlinks — directory name match plus
-      # IS_WINDOWS is safe during a mode flip.
-      elif [ "$IS_WINDOWS" -eq 1 ] && [ -d "$prefixed_target" ] && [ -f "$prefixed_target/SKILL.md" ]; then
-        rm -rf "$prefixed_target"
-        removed+=("gstack-$skill_name")
-      fi
-    fi
-  done
-  if [ ${#removed[@]} -gt 0 ]; then
-    echo "  cleaned up prefixed entries: ${removed[*]}"
+  local source_skill="$source_dir/open-gstack-browser/SKILL.md"
+  local target="$skills_dir/connect-chrome"
+  if [ "$SKILL_PREFIX" -eq 1 ]; then
+    target="$skills_dir/gstack-connect-chrome"
   fi
+
+  [ -f "$source_skill" ] || return 0
+  _validate_claude_skill_target "$source_dir" "$source_skill" "$target" || return 1
+  if [ -L "$target" ]; then
+    rm -f "$target"
+  fi
+  mkdir -p "$target"
+  if [ -e "$target/SKILL.md" ] || [ -L "$target/SKILL.md" ]; then
+    rm -f "$target/SKILL.md"
+  fi
+  _link_or_copy "$source_skill" "$target/SKILL.md"
+  if [ -d "$source_dir/open-gstack-browser/sections" ]; then
+    if [ -e "$target/sections" ] || [ -L "$target/sections" ]; then
+      rm -rf "$target/sections"
+    fi
+    _link_or_copy "$source_dir/open-gstack-browser/sections" "$target/sections"
+  fi
+  printf '%s\n' "$source_dir" > "$target/.gstack-managed-root"
+}
+
+_acquire_claude_registration_lock() {
+  local skills_dir="$1"
+  if ! gstack_registration_lock_acquire "$skills_dir/.gstack-registration.lock"; then
+    echo "gstack setup failed: skill registration lock unavailable." >&2
+    return 1
+  fi
+  # Reassert the setup EXIT handler at the ownership boundary so every later
+  # preflight/build failure releases this exact token before returning control.
+  trap cleanup_copied_bun EXIT
+}
+
+_release_claude_registration_lock() {
+  gstack_registration_lock_release
 }
 
 # ─── Helper: link generated Codex skills into a skills parent directory ──
@@ -982,10 +1244,15 @@ fi
 
 if [ "$INSTALL_CLAUDE" -eq 1 ]; then
   if [ "$SKILLS_BASENAME" = "skills" ]; then
-    # Clean up stale symlinks from the opposite prefix mode
+    _acquire_claude_registration_lock "$INSTALL_SKILLS_DIR"
+    validate_claude_hook_runtime_root "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
+    # Validate every desired and opposite-mode target before any mutation.
+    validate_claude_skill_targets "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
     if [ "$SKILL_PREFIX" -eq 1 ]; then
+      _validate_claude_cleanup_targets "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR" ""
       cleanup_old_claude_symlinks "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
     else
+      _validate_claude_cleanup_targets "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR" "gstack-"
       cleanup_prefixed_claude_symlinks "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
     fi
     # Patch name: fields BEFORE creating symlinks so link_claude_skill_dirs
@@ -993,6 +1260,8 @@ if [ "$INSTALL_CLAUDE" -eq 1 ]; then
     "$SOURCE_GSTACK_DIR/bin/gstack-patch-names" "$SOURCE_GSTACK_DIR" "$SKILL_PREFIX"
     link_claude_skill_dirs "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
     link_claude_root_skill_alias "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
+    ensure_claude_hook_runtime_root "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
+    record_claude_runtime_root "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
     # Self-healing: re-run gstack-relink to ensure name: fields and directory
     # names are consistent with the config. This catches cases where an interrupted
     # setup, stale git state, or gen:skill-docs left name: fields out of sync.
@@ -1001,13 +1270,7 @@ if [ "$INSTALL_CLAUDE" -eq 1 ]; then
       GSTACK_SKILLS_DIR="$INSTALL_SKILLS_DIR" GSTACK_INSTALL_DIR="$SOURCE_GSTACK_DIR" "$GSTACK_RELINK" >/dev/null 2>&1 || true
     fi
     # Backwards-compat alias: /connect-chrome → /open-gstack-browser
-    _OGB_LINK="$INSTALL_SKILLS_DIR/connect-chrome"
-    if [ "$SKILL_PREFIX" -eq 1 ]; then
-      _OGB_LINK="$INSTALL_SKILLS_DIR/gstack-connect-chrome"
-    fi
-    if [ -L "$_OGB_LINK" ] || [ ! -e "$_OGB_LINK" ]; then
-      _link_or_copy "gstack/open-gstack-browser" "$_OGB_LINK"
-    fi
+    link_claude_connect_chrome_alias "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
     if [ "$LOCAL_INSTALL" -eq 1 ]; then
       log "gstack ready (project-local)."
       log "  skills: $INSTALL_SKILLS_DIR"
@@ -1015,6 +1278,7 @@ if [ "$INSTALL_CLAUDE" -eq 1 ]; then
       log "gstack ready (claude)."
     fi
     log "  browse: $BROWSE_BIN"
+    _release_claude_registration_lock
   else
     # Not inside a skills/ directory — would symlink the source into
     # ~/.claude/skills/gstack/ and register from there.
@@ -1031,7 +1295,8 @@ if [ "$INSTALL_CLAUDE" -eq 1 ]; then
     _SKIP_CLAUDE_REGISTER=0
     if [ -d "$CLAUDE_GSTACK_LINK" ] && [ ! -L "$CLAUDE_GSTACK_LINK" ]; then
       _EXISTING_REAL=$(cd "$CLAUDE_GSTACK_LINK" 2>/dev/null && pwd -P || echo "")
-      if [ -n "$_EXISTING_REAL" ] && [ "$_EXISTING_REAL" != "$SOURCE_GSTACK_DIR" ]; then
+      if [ -n "$_EXISTING_REAL" ] && [ "$_EXISTING_REAL" != "$SOURCE_GSTACK_DIR" ] &&
+         ! claude_windows_runtime_copy_owned_by "$SOURCE_GSTACK_DIR" "$CLAUDE_GSTACK_LINK"; then
         _SKIP_CLAUDE_REGISTER=1
       fi
     fi
@@ -1052,7 +1317,17 @@ if [ "$INSTALL_CLAUDE" -eq 1 ]; then
       log "  browse: $BROWSE_BIN"
     else
       mkdir -p "$CLAUDE_SKILLS_DIR"
+      _acquire_claude_registration_lock "$CLAUDE_SKILLS_DIR"
+      # Preflight the complete mutation set before replacing the canonical link.
+      validate_claude_hook_runtime_root "$SOURCE_GSTACK_DIR" "$CLAUDE_SKILLS_DIR"
+      validate_claude_skill_targets "$SOURCE_GSTACK_DIR" "$CLAUDE_SKILLS_DIR"
+      if [ "$SKILL_PREFIX" -eq 1 ]; then
+        _validate_claude_cleanup_targets "$SOURCE_GSTACK_DIR" "$CLAUDE_SKILLS_DIR" ""
+      else
+        _validate_claude_cleanup_targets "$SOURCE_GSTACK_DIR" "$CLAUDE_SKILLS_DIR" "gstack-"
+      fi
       _link_or_copy "$SOURCE_GSTACK_DIR" "$CLAUDE_GSTACK_LINK"
+      mark_claude_windows_runtime_copy "$SOURCE_GSTACK_DIR" "$CLAUDE_GSTACK_LINK"
       log "  symlinked $CLAUDE_GSTACK_LINK -> $SOURCE_GSTACK_DIR"
       INSTALL_SKILLS_DIR="$CLAUDE_SKILLS_DIR"
       INSTALL_GSTACK_DIR="$CLAUDE_GSTACK_LINK"
@@ -1065,19 +1340,16 @@ if [ "$INSTALL_CLAUDE" -eq 1 ]; then
       "$SOURCE_GSTACK_DIR/bin/gstack-patch-names" "$SOURCE_GSTACK_DIR" "$SKILL_PREFIX"
       link_claude_skill_dirs "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
       link_claude_root_skill_alias "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
+      ensure_claude_hook_runtime_root "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
+      record_claude_runtime_root "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
       GSTACK_RELINK="$SOURCE_GSTACK_DIR/bin/gstack-relink"
       if [ -x "$GSTACK_RELINK" ]; then
         GSTACK_SKILLS_DIR="$INSTALL_SKILLS_DIR" GSTACK_INSTALL_DIR="$SOURCE_GSTACK_DIR" "$GSTACK_RELINK" >/dev/null 2>&1 || true
       fi
-      _OGB_LINK="$INSTALL_SKILLS_DIR/connect-chrome"
-      if [ "$SKILL_PREFIX" -eq 1 ]; then
-        _OGB_LINK="$INSTALL_SKILLS_DIR/gstack-connect-chrome"
-      fi
-      if [ -L "$_OGB_LINK" ] || [ ! -e "$_OGB_LINK" ]; then
-        _link_or_copy "gstack/open-gstack-browser" "$_OGB_LINK"
-      fi
+      link_claude_connect_chrome_alias "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
       log "gstack ready (claude)."
       log "  browse: $BROWSE_BIN"
+      _release_claude_registration_lock
     fi
   fi
 fi

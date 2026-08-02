@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# Shared crash-safe registration lock helpers for setup and gstack-relink.
+# The caller owns a lock only after its exact PID/token record is installed.
+
+GSTACK_REGISTRATION_LOCK_PATH=""
+GSTACK_REGISTRATION_LOCK_TOKEN=""
+
+_gstack_registration_lock_error() {
+  local lock_path="$1"
+  echo "another skill registration is active in $(dirname "$lock_path")" >&2
+}
+
+gstack_registration_lock_acquire() {
+  local lock_path="$1"
+  local owner_path="$lock_path/owner"
+  local token="$$.${BASHPID:-$$}.${RANDOM:-0}.$(date +%s 2>/dev/null || printf '0')"
+  local owner_pid="" owner_token=""
+
+  if mkdir "$lock_path" 2>/dev/null; then
+    if ! printf '%s %s\n' "$$" "$token" > "$owner_path"; then
+      rmdir "$lock_path" 2>/dev/null || true
+      return 1
+    fi
+    GSTACK_REGISTRATION_LOCK_PATH="$lock_path"
+    GSTACK_REGISTRATION_LOCK_TOKEN="$token"
+    return 0
+  fi
+
+  # A missing/malformed owner may be an acquirer between mkdir and write.
+  # Existing locks always fail closed: automatically replacing a stale mkdir
+  # lock has an unavoidable ABA race on portable Bash filesystems. The PID is
+  # diagnostic only and gives interrupted installs an explicit recovery path.
+  if [ -f "$owner_path" ]; then
+    read -r owner_pid owner_token < "$owner_path" || true
+  fi
+  case "$owner_pid" in
+    ''|*[!0-9]*)
+      _gstack_registration_lock_error "$lock_path"
+      echo "If no setup or relink process is running, remove this lock directory and retry: $lock_path" >&2
+      return 1
+      ;;
+  esac
+  if kill -0 "$owner_pid" 2>/dev/null; then
+    _gstack_registration_lock_error "$lock_path"
+    return 1
+  fi
+  echo "stale skill registration lock recorded for dead PID $owner_pid." >&2
+  echo "If no setup or relink process is running, remove this lock directory and retry: $lock_path" >&2
+  return 1
+}
+
+gstack_registration_lock_release() {
+  local lock_path="${GSTACK_REGISTRATION_LOCK_PATH:-}"
+  local token="${GSTACK_REGISTRATION_LOCK_TOKEN:-}"
+  local owner_pid="" owner_token=""
+  [ -n "$lock_path" ] && [ -n "$token" ] || return 0
+  if [ -f "$lock_path/owner" ]; then
+    read -r owner_pid owner_token < "$lock_path/owner" || true
+  fi
+  if [ "$owner_pid" = "$$" ] && [ "$owner_token" = "$token" ]; then
+    rm -f "$lock_path/owner"
+    rmdir "$lock_path" 2>/dev/null || true
+  fi
+  GSTACK_REGISTRATION_LOCK_PATH=""
+  GSTACK_REGISTRATION_LOCK_TOKEN=""
+}

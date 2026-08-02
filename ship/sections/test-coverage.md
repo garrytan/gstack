@@ -218,7 +218,11 @@ Using the coverage percentage from the diagram in substep 4 (the `COVERAGE: X/Y 
 After producing the coverage diagram, write a test plan artifact so `/qa` and `/qa-only` can consume it:
 
 ```bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
+_gv(){ [ -f "$1/VERSION" ]&&[ -x "$1/bin/gstack-config" ]&&[ -x "$1/bin/gstack-runtime-env" ];}
+_r="${GSTACK_ROOT:-}";unset GSTACK_{ROOT,BIN,BROWSE,DESIGN,MAKE_PDF}
+_gv "$_r"||_r="${CLAUDE_PLUGIN_ROOT:-}";_gv "$_r"||read -r _r 2>/dev/null<"$HOME/.claude/skills/.gstack-root"||:;_gv "$_r"||_r="$HOME/.claude/skills/gstack";_gv "$_r"||exit 1
+_e=$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_r" "$_r/bin/gstack-runtime-env")||exit 1;[ -n "$_e" ]||exit 1;eval "$_e";unset _e;unset -f _gv
+eval "$("$GSTACK_ROOT"/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
 USER=$(whoami)
 DATETIME=$(date +%Y%m%d-%H%M%S)
 ```

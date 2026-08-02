@@ -9,7 +9,7 @@ const claude: HostConfig = {
   globalRoot: '.claude/skills/gstack',
   localSkillRoot: '.claude/skills/gstack',
   hostSubdir: '.claude',
-  usesEnvVars: false,
+  usesEnvVars: true,
 
   frontmatter: {
     mode: 'denylist',
@@ -22,7 +22,15 @@ const claude: HostConfig = {
     skipSkills: ['claude'],  // Claude outside-voice skill is for non-Claude hosts
   },
 
-  pathRewrites: [],  // Claude is the primary host — no rewrites needed
+  // Skill bodies resolve runtime assets through the preamble-defined root.
+  // Frontmatter is deliberately excluded from these rewrites because hooks run
+  // before the preamble and cannot use $GSTACK_ROOT (see #1871 / #1882).
+  pathRewrites: [
+    { from: '$HOME/.claude/skills/gstack', to: '$GSTACK_ROOT' },
+    // Tilde paths are necessarily unquoted in source templates. Quote the
+    // replacement so renamed installs containing whitespace remain executable.
+    { from: '~/.claude/skills/gstack', to: '"$GSTACK_ROOT"' },
+  ],
   toolRewrites: {},
   suppressedResolvers: ['GBRAIN_CONTEXT_LOAD', 'GBRAIN_SAVE_RESULTS'],
 

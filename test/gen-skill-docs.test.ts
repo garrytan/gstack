@@ -304,7 +304,7 @@ describe('gen-skill-docs', () => {
     expect(content).not.toContain('contributor-logs');
     expect(content).toContain('Operational Self-Improvement');
     expect(content).toContain('gstack-learnings-log');
-    expect(content).toContain('gstack-learnings-search --limit 3');
+    expect(content).toMatch(/gstack-learnings-search["']?\s+--limit 3/);
   });
 
   test('generated SKILL.md with LEARNINGS_LOG contains operational type', () => {
@@ -1939,19 +1939,20 @@ describe('Codex generation (--host codex)', () => {
 
   // ─── Claude output regression guard ─────────────────────────
 
-  test('Claude output unchanged: review skill still uses .claude/skills/ paths', () => {
-    // Codex changes must NOT affect Claude output
+  test('Claude output uses portable runtime paths while keeping sibling skill paths', () => {
     const content = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
     expect(content).toContain('.claude/skills/review/checklist.md');
-    expect(content).toContain('~/.claude/skills/gstack');
+    expect(content).toContain('$GSTACK_ROOT');
+    expect(content).not.toContain('~/.claude/skills/gstack');
     // Must NOT contain Codex paths
     expect(content).not.toContain('.agents/skills');
     expect(content).not.toContain('~/.codex/');
   });
 
-  test('Claude output unchanged: ship skill still uses .claude/skills/ paths', () => {
+  test('Claude ship output uses portable runtime paths', () => {
     const content = readShipUnion();
-    expect(content).toContain('~/.claude/skills/gstack');
+    expect(content).toContain('$GSTACK_ROOT');
+    expect(content).not.toContain('~/.claude/skills/gstack');
     expect(content).not.toContain('.agents/skills');
     expect(content).not.toContain('~/.codex/');
   });
@@ -2329,23 +2330,16 @@ describe('setup script validation', () => {
     expect(fnBody).toContain('_link_or_copy "$gstack_dir/$dir_name/SKILL.md" "$target/SKILL.md"');
   });
 
-  // REGRESSION: cleanup functions must handle both old symlinks AND new real-directory pattern
+  // REGRESSION: cleanup handles legacy and current aliases without deleting unrelated files.
   test('cleanup functions handle real directories with symlinked SKILL.md', () => {
-    // cleanup_old_claude_symlinks must detect and remove real dirs with SKILL.md symlinks
-    const cleanupOldStart = setupContent.indexOf('cleanup_old_claude_symlinks()');
-    const cleanupOldEnd = setupContent.indexOf('}', setupContent.indexOf('cleaned up old', cleanupOldStart));
-    const cleanupOldBody = setupContent.slice(cleanupOldStart, cleanupOldEnd);
-    expect(cleanupOldBody).toContain('-d "$old_target"');
-    expect(cleanupOldBody).toContain('-L "$old_target/SKILL.md"');
-    expect(cleanupOldBody).toContain('rm -rf "$old_target"');
-
-    // cleanup_prefixed_claude_symlinks must also handle the new pattern
-    const cleanupPrefixedStart = setupContent.indexOf('cleanup_prefixed_claude_symlinks()');
-    const cleanupPrefixedEnd = setupContent.indexOf('}', setupContent.indexOf('cleaned up prefixed', cleanupPrefixedStart));
-    const cleanupPrefixedBody = setupContent.slice(cleanupPrefixedStart, cleanupPrefixedEnd);
-    expect(cleanupPrefixedBody).toContain('-d "$prefixed_target"');
-    expect(cleanupPrefixedBody).toContain('-L "$prefixed_target/SKILL.md"');
-    expect(cleanupPrefixedBody).toContain('rm -rf "$prefixed_target"');
+    const helperStart = setupContent.indexOf('_claude_skill_target_owned()');
+    const helperEnd = setupContent.indexOf('# ─── Helper: link generated Codex skills', helperStart);
+    const helperBody = setupContent.slice(helperStart, helperEnd);
+    expect(helperBody).toContain('-L "$target/SKILL.md"');
+    expect(helperBody).toContain('.gstack-managed-root');
+    expect(helperBody).toContain('rm -f "$target/SKILL.md" "$target/.gstack-managed-root"');
+    expect(helperBody).toContain('rmdir "$target"');
+    expect(helperBody).not.toContain('rm -rf "$target"');
   });
 
   // REGRESSION: link function must upgrade old directory symlinks
@@ -2479,15 +2473,14 @@ describe('setup script validation', () => {
     expect(setupContent).toContain('SKILL_PREFIX=0');
   });
 
-  test('cleanup_old_claude_symlinks removes only gstack-pointing symlinks', () => {
+  test('cleanup_old_claude_symlinks removes only exactly owned targets', () => {
     expect(setupContent).toContain('cleanup_old_claude_symlinks');
-    const fnStart = setupContent.indexOf('cleanup_old_claude_symlinks()');
-    const fnEnd = setupContent.indexOf('}', setupContent.indexOf('removed[@]}', fnStart));
+    const fnStart = setupContent.indexOf('_claude_skill_target_owned()');
+    const fnEnd = setupContent.indexOf('cleanup_old_claude_symlinks()', fnStart);
     const fnBody = setupContent.slice(fnStart, fnEnd);
-    // Should check readlink before removing
     expect(fnBody).toContain('readlink');
-    expect(fnBody).toContain('gstack/*');
-    // Should skip already-prefixed dirs
+    expect(fnBody).toContain('.gstack-managed-root');
+    expect(fnBody).not.toContain('*gstack*');
     expect(fnBody).toContain('gstack-*) continue');
   });
 
@@ -2527,13 +2520,13 @@ describe('setup script validation', () => {
     expect(setupContent).toContain('-t 0');
   });
 
-  test('cleanup_prefixed_claude_symlinks exists and uses readlink', () => {
+  test('cleanup_prefixed_claude_symlinks delegates to ownership-safe cleanup', () => {
     expect(setupContent).toContain('cleanup_prefixed_claude_symlinks');
     const fnStart = setupContent.indexOf('cleanup_prefixed_claude_symlinks()');
-    const fnEnd = setupContent.indexOf('}', setupContent.indexOf('removed[@]}', fnStart));
+    const fnEnd = setupContent.indexOf('\n}', fnStart);
     const fnBody = setupContent.slice(fnStart, fnEnd);
-    expect(fnBody).toContain('readlink');
-    expect(fnBody).toContain('gstack-$skill_name');
+    expect(fnBody).toContain('_cleanup_claude_skill_targets');
+    expect(fnBody).toContain('"gstack-"');
   });
 
   test('reverse cleanup runs before link when prefix is disabled', () => {
@@ -2581,7 +2574,7 @@ describe('telemetry', () => {
     expect(content).toContain('_SESSION_ID');
     expect(content).toContain('TELEMETRY:');
     expect(content).toContain('TEL_PROMPTED:');
-    expect(content).toContain('gstack-config get telemetry');
+    expect(content).toMatch(/gstack-config["']?\s+get telemetry/);
   });
 
   test('generated SKILL.md contains telemetry opt-in prompt', () => {

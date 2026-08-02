@@ -15,7 +15,6 @@ allowed-tools:
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
 
-
 ## When to invoke this skill
 
 Detects global vs vendored install,
@@ -23,6 +22,19 @@ runs the upgrade, and shows what's new. Use when asked to "upgrade gstack",
 "update gstack", or "get latest version".
 
 Voice triggers (speech-to-text aliases): "upgrade the tools", "update the tools", "gee stack upgrade", "g stack upgrade".
+
+## Runtime path bootstrap
+
+```bash
+_gv(){ [ -f "$1/VERSION" ]&&[ -x "$1/bin/gstack-config" ]&&[ -x "$1/bin/gstack-runtime-env" ];}
+_r="${GSTACK_ROOT:-}";unset GSTACK_{ROOT,BIN,BROWSE,DESIGN,MAKE_PDF}
+_gv "$_r"||_r="${CLAUDE_PLUGIN_ROOT:-}";_gv "$_r"||read -r _r 2>/dev/null<"$HOME/.claude/skills/.gstack-root"||:;_gv "$_r"||_r="$HOME/.claude/skills/gstack";_gv "$_r"||exit 1
+_e=$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_r" "$_r/bin/gstack-runtime-env")||exit 1;[ -n "$_e" ]||exit 1;eval "$_e";unset _e;unset -f _gv
+echo "GSTACK_ROOT: $GSTACK_ROOT"
+```
+
+**Portable runtime paths:** Bash blocks run in separate shells, so every later shell block using `$GSTACK_*` includes its own bootstrap. For non-shell tools, replace `$GSTACK_ROOT` with the absolute `GSTACK_ROOT:` value printed above; never pass the variable text literally. For inline shell commands outside fenced blocks, substitute the printed absolute values before execution.
+
 
 # /gstack-upgrade
 
@@ -36,9 +48,13 @@ This section is referenced by all skill preambles when they detect `UPGRADE_AVAI
 
 First, check if auto-upgrade is enabled:
 ```bash
+_gv(){ [ -f "$1/VERSION" ]&&[ -x "$1/bin/gstack-config" ]&&[ -x "$1/bin/gstack-runtime-env" ];}
+_r="${GSTACK_ROOT:-}";unset GSTACK_{ROOT,BIN,BROWSE,DESIGN,MAKE_PDF}
+_gv "$_r"||_r="${CLAUDE_PLUGIN_ROOT:-}";_gv "$_r"||read -r _r 2>/dev/null<"$HOME/.claude/skills/.gstack-root"||:;_gv "$_r"||_r="$HOME/.claude/skills/gstack";_gv "$_r"||exit 1
+_e=$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_r" "$_r/bin/gstack-runtime-env")||exit 1;[ -n "$_e" ]||exit 1;eval "$_e";unset _e;unset -f _gv
 _AUTO=""
 [ "${GSTACK_AUTO_UPGRADE:-}" = "1" ] && _AUTO="true"
-[ -z "$_AUTO" ] && _AUTO=$(~/.claude/skills/gstack/bin/gstack-config get auto_upgrade 2>/dev/null || true)
+[ -z "$_AUTO" ] && _AUTO=$("$GSTACK_ROOT"/bin/gstack-config get auto_upgrade 2>/dev/null || true)
 echo "AUTO_UPGRADE=$_AUTO"
 ```
 
@@ -52,7 +68,11 @@ echo "AUTO_UPGRADE=$_AUTO"
 
 **If "Always keep me up to date":**
 ```bash
-~/.claude/skills/gstack/bin/gstack-config set auto_upgrade true
+_gv(){ [ -f "$1/VERSION" ]&&[ -x "$1/bin/gstack-config" ]&&[ -x "$1/bin/gstack-runtime-env" ];}
+_r="${GSTACK_ROOT:-}";unset GSTACK_{ROOT,BIN,BROWSE,DESIGN,MAKE_PDF}
+_gv "$_r"||_r="${CLAUDE_PLUGIN_ROOT:-}";_gv "$_r"||read -r _r 2>/dev/null<"$HOME/.claude/skills/.gstack-root"||:;_gv "$_r"||_r="$HOME/.claude/skills/gstack";_gv "$_r"||exit 1
+_e=$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_r" "$_r/bin/gstack-runtime-env")||exit 1;[ -n "$_e" ]||exit 1;eval "$_e";unset _e;unset -f _gv
+"$GSTACK_ROOT"/bin/gstack-config set auto_upgrade true
 ```
 Tell user: "Auto-upgrade enabled. Future updates will install automatically." Then proceed to Step 2.
 
@@ -78,17 +98,25 @@ Tell user the snooze duration: "Next reminder in 24h" (or 48h or 1 week, dependi
 
 **If "Never ask again":**
 ```bash
-~/.claude/skills/gstack/bin/gstack-config set update_check false
+_gv(){ [ -f "$1/VERSION" ]&&[ -x "$1/bin/gstack-config" ]&&[ -x "$1/bin/gstack-runtime-env" ];}
+_r="${GSTACK_ROOT:-}";unset GSTACK_{ROOT,BIN,BROWSE,DESIGN,MAKE_PDF}
+_gv "$_r"||_r="${CLAUDE_PLUGIN_ROOT:-}";_gv "$_r"||read -r _r 2>/dev/null<"$HOME/.claude/skills/.gstack-root"||:;_gv "$_r"||_r="$HOME/.claude/skills/gstack";_gv "$_r"||exit 1
+_e=$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_r" "$_r/bin/gstack-runtime-env")||exit 1;[ -n "$_e" ]||exit 1;eval "$_e";unset _e;unset -f _gv
+"$GSTACK_ROOT"/bin/gstack-config set update_check false
 ```
-Tell user: "Update checks disabled. Run `~/.claude/skills/gstack/bin/gstack-config set update_check true` to re-enable."
+Tell user: "Update checks disabled. Run `"$GSTACK_ROOT"/bin/gstack-config set update_check true` to re-enable."
 Continue with the current skill.
 
 ### Step 2: Detect install type
 
 ```bash
-if [ -d "$HOME/.claude/skills/gstack/.git" ]; then
+_gv(){ [ -f "$1/VERSION" ]&&[ -x "$1/bin/gstack-config" ]&&[ -x "$1/bin/gstack-runtime-env" ];}
+_r="${GSTACK_ROOT:-}";unset GSTACK_{ROOT,BIN,BROWSE,DESIGN,MAKE_PDF}
+_gv "$_r"||_r="${CLAUDE_PLUGIN_ROOT:-}";_gv "$_r"||read -r _r 2>/dev/null<"$HOME/.claude/skills/.gstack-root"||:;_gv "$_r"||_r="$HOME/.claude/skills/gstack";_gv "$_r"||exit 1
+_e=$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_r" "$_r/bin/gstack-runtime-env")||exit 1;[ -n "$_e" ]||exit 1;eval "$_e";unset _e;unset -f _gv
+if [ -d "$GSTACK_ROOT/.git" ]; then
   INSTALL_TYPE="global-git"
-  INSTALL_DIR="$HOME/.claude/skills/gstack"
+  INSTALL_DIR="$GSTACK_ROOT"
 elif [ -d "$HOME/.gstack/repos/gstack/.git" ]; then
   INSTALL_TYPE="global-git"
   INSTALL_DIR="$HOME/.gstack/repos/gstack"
@@ -101,9 +129,9 @@ elif [ -d ".agents/skills/gstack/.git" ]; then
 elif [ -d ".claude/skills/gstack" ]; then
   INSTALL_TYPE="vendored"
   INSTALL_DIR=".claude/skills/gstack"
-elif [ -d "$HOME/.claude/skills/gstack" ]; then
+elif [ -d "$GSTACK_ROOT" ]; then
   INSTALL_TYPE="vendored-global"
-  INSTALL_DIR="$HOME/.claude/skills/gstack"
+  INSTALL_DIR="$GSTACK_ROOT"
 else
   echo "ERROR: gstack not found"
   exit 1
@@ -151,6 +179,10 @@ rm -rf "$INSTALL_DIR.bak" "$TMP_DIR"
 Use the install directory from Step 2. Check if there's also a local vendored copy, and whether team mode is active:
 
 ```bash
+_gv(){ [ -f "$1/VERSION" ]&&[ -x "$1/bin/gstack-config" ]&&[ -x "$1/bin/gstack-runtime-env" ];}
+_r="${GSTACK_ROOT:-}";unset GSTACK_{ROOT,BIN,BROWSE,DESIGN,MAKE_PDF}
+_gv "$_r"||_r="${CLAUDE_PLUGIN_ROOT:-}";_gv "$_r"||read -r _r 2>/dev/null<"$HOME/.claude/skills/.gstack-root"||:;_gv "$_r"||_r="$HOME/.claude/skills/gstack";_gv "$_r"||exit 1
+_e=$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_r" "$_r/bin/gstack-runtime-env")||exit 1;[ -n "$_e" ]||exit 1;eval "$_e";unset _e;unset -f _gv
 _ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 LOCAL_GSTACK=""
 if [ -n "$_ROOT" ] && [ -d "$_ROOT/.claude/skills/gstack" ]; then
@@ -160,7 +192,7 @@ if [ -n "$_ROOT" ] && [ -d "$_ROOT/.claude/skills/gstack" ]; then
     LOCAL_GSTACK="$_ROOT/.claude/skills/gstack"
   fi
 fi
-_TEAM_MODE=$(~/.claude/skills/gstack/bin/gstack-config get team_mode 2>/dev/null || echo "false")
+_TEAM_MODE=$("$GSTACK_ROOT"/bin/gstack-config get team_mode 2>/dev/null || echo "false")
 echo "LOCAL_GSTACK=$LOCAL_GSTACK"
 echo "TEAM_MODE=$_TEAM_MODE"
 ```
@@ -257,7 +289,11 @@ When invoked directly as `/gstack-upgrade` (not from a preamble):
 
 1. Force a fresh update check (bypass cache):
 ```bash
-~/.claude/skills/gstack/bin/gstack-update-check --force 2>/dev/null || \
+_gv(){ [ -f "$1/VERSION" ]&&[ -x "$1/bin/gstack-config" ]&&[ -x "$1/bin/gstack-runtime-env" ];}
+_r="${GSTACK_ROOT:-}";unset GSTACK_{ROOT,BIN,BROWSE,DESIGN,MAKE_PDF}
+_gv "$_r"||_r="${CLAUDE_PLUGIN_ROOT:-}";_gv "$_r"||read -r _r 2>/dev/null<"$HOME/.claude/skills/.gstack-root"||:;_gv "$_r"||_r="$HOME/.claude/skills/gstack";_gv "$_r"||exit 1
+_e=$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_r" "$_r/bin/gstack-runtime-env")||exit 1;[ -n "$_e" ]||exit 1;eval "$_e";unset _e;unset -f _gv
+"$GSTACK_ROOT"/bin/gstack-update-check --force 2>/dev/null || \
 .claude/skills/gstack/bin/gstack-update-check --force 2>/dev/null || true
 ```
 Use the output to determine if an upgrade is available.

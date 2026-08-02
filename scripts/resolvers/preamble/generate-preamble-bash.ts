@@ -1,39 +1,74 @@
 import type { TemplateContext } from '../types';
 import { getHostConfig } from '../../../hosts/index';
+import path from 'node:path';
+
+export function generateClaudeRuntimeRootBash(ctx: TemplateContext): string {
+  const hostConfig = getHostConfig(ctx.host);
+  const globalSkillsDir = path.posix.dirname(hostConfig.globalRoot);
+  return `_GSTACK_ROOT_MARKER="$HOME/${globalSkillsDir}/.gstack-root"
+[ -n "\${GSTACK_ROOT:-}" ] && [ ! -d "$GSTACK_ROOT/bin" ] && GSTACK_ROOT=""
+[ -z "\${GSTACK_ROOT:-}" ] && [ -n "\${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLUGIN_ROOT/VERSION" ] && [ -x "$CLAUDE_PLUGIN_ROOT/bin/gstack-config" ] && GSTACK_ROOT="$CLAUDE_PLUGIN_ROOT"
+[ -z "\${GSTACK_ROOT:-}" ] && [ -f "$_GSTACK_ROOT_MARKER" ] && GSTACK_ROOT=$(cat "$_GSTACK_ROOT_MARKER" 2>/dev/null || true)
+[ -n "\${GSTACK_ROOT:-}" ] && [ ! -d "$GSTACK_ROOT/bin" ] && GSTACK_ROOT=""
+_GSTACK_DIR=${path.posix.basename(hostConfig.globalRoot)}
+GSTACK_ROOT="\${GSTACK_ROOT:-$HOME/${globalSkillsDir}/$_GSTACK_DIR}"
+GSTACK_BIN="$GSTACK_ROOT/bin"
+GSTACK_BROWSE="$GSTACK_ROOT/browse/dist"
+GSTACK_DESIGN="$GSTACK_ROOT/design/dist"
+GSTACK_MAKE_PDF="$GSTACK_ROOT/make-pdf/dist"
+export GSTACK_ROOT GSTACK_BIN GSTACK_BROWSE GSTACK_DESIGN GSTACK_MAKE_PDF`;
+}
+
+export function generateClaudeRuntimeRootBashCompact(ctx: TemplateContext): string {
+  const hostConfig = getHostConfig(ctx.host);
+  const globalSkillsDir = path.posix.dirname(hostConfig.globalRoot);
+  return `_gv(){ [ -f "$1/VERSION" ]&&[ -x "$1/bin/gstack-config" ]&&[ -x "$1/bin/gstack-runtime-env" ];}
+_r="\${GSTACK_ROOT:-}";unset GSTACK_{ROOT,BIN,BROWSE,DESIGN,MAKE_PDF}
+_gv "$_r"||_r="\${CLAUDE_PLUGIN_ROOT:-}";_gv "$_r"||read -r _r 2>/dev/null<"$HOME/${globalSkillsDir}/.gstack-root"||:;_gv "$_r"||_r="$HOME/${hostConfig.globalRoot}";_gv "$_r"||exit 1
+_e=$(GSTACK_RUNTIME_ROOT_OVERRIDE="$_r" "$_r/bin/gstack-runtime-env")||exit 1;[ -n "$_e" ]||exit 1;eval "$_e";unset _e;unset -f _gv`;
+}
 
 export function generatePreambleBash(ctx: TemplateContext): string {
   const hostConfig = getHostConfig(ctx.host);
-  const runtimeRoot = hostConfig.usesEnvVars
-    ? `_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+  const bin = (name: string): string => `"${ctx.paths.binDir}/${name}"`;
+  const localBin = (name: string): string => `"${ctx.paths.localSkillRoot}/bin/${name}"`;
+  const runtimeRoot = ctx.host === 'claude'
+    ? `${generateClaudeRuntimeRootBash(ctx)}\n`
+    : hostConfig.usesEnvVars
+      ? `_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 GSTACK_ROOT="$HOME/${hostConfig.globalRoot}"
 [ -n "$_ROOT" ] && [ -d "$_ROOT/${ctx.paths.localSkillRoot}" ] && GSTACK_ROOT="$_ROOT/${ctx.paths.localSkillRoot}"
 GSTACK_BIN="$GSTACK_ROOT/bin"
 GSTACK_BROWSE="$GSTACK_ROOT/browse/dist"
 GSTACK_DESIGN="$GSTACK_ROOT/design/dist"
 `
-    : '';
+      : '';
+
+  const updateCheck = ctx.host === 'claude'
+    ? `_UPD=$(${bin('gstack-update-check')} 2>/dev/null || true)`
+    : `_UPD=$(${bin('gstack-update-check')} 2>/dev/null || ${localBin('gstack-update-check')} 2>/dev/null || true)`;
 
   return `## Preamble (run first)
 
 \`\`\`bash
-${runtimeRoot}_UPD=$(${ctx.paths.binDir}/gstack-update-check 2>/dev/null || ${ctx.paths.localSkillRoot}/bin/gstack-update-check 2>/dev/null || true)
+${runtimeRoot}${updateCheck}
 [ -n "$_UPD" ] && echo "$_UPD" || true
 mkdir -p ~/.gstack/sessions
 touch ~/.gstack/sessions/"$PPID"
 _SESSIONS=$(find ~/.gstack/sessions -mmin -120 -type f 2>/dev/null | wc -l | tr -d ' ')
 find ~/.gstack/sessions -mmin +120 -type f -exec rm {} + 2>/dev/null || true
-_PROACTIVE=$(${ctx.paths.binDir}/gstack-config get proactive 2>/dev/null || echo "true")
+_PROACTIVE=$(${bin('gstack-config')} get proactive 2>/dev/null || echo "true")
 _PROACTIVE_PROMPTED=$([ -f ~/.gstack/.proactive-prompted ] && echo "yes" || echo "no")
 _BRANCH=$(git branch --show-current 2>/dev/null || echo "unknown")
 echo "BRANCH: $_BRANCH"
-_SKILL_PREFIX=$(${ctx.paths.binDir}/gstack-config get skill_prefix 2>/dev/null || echo "false")
+_SKILL_PREFIX=$(${bin('gstack-config')} get skill_prefix 2>/dev/null || echo "false")
 echo "PROACTIVE: $_PROACTIVE"
 echo "PROACTIVE_PROMPTED: $_PROACTIVE_PROMPTED"
 echo "SKILL_PREFIX: $_SKILL_PREFIX"
-source <(${ctx.paths.binDir}/gstack-repo-mode 2>/dev/null) || true
+source <(${bin('gstack-repo-mode')} 2>/dev/null) || true
 REPO_MODE=\${REPO_MODE:-unknown}
 echo "REPO_MODE: $REPO_MODE"
-_SESSION_KIND=$(${ctx.paths.binDir}/gstack-session-kind 2>/dev/null || echo "interactive")
+_SESSION_KIND=$(${bin('gstack-session-kind')} 2>/dev/null || echo "interactive")
 case "$_SESSION_KIND" in spawned|headless|interactive) ;; *) _SESSION_KIND="interactive" ;; esac
 echo "SESSION_KIND: $_SESSION_KIND"
 # Conductor host: AskUserQuestion is unreliable here (native disabled, MCP
@@ -51,21 +86,21 @@ echo "FIRST_LOOP_SHOWN: $_FIRST_LOOP_SHOWN"
 # (ACTIVATED=no, interactive) so it stays off the hot path for every run after.
 _FIRST_TASK=""
 if [ "$_ACTIVATED" = "no" ] && [ "$_SESSION_KIND" != "headless" ]; then
-  _FIRST_TASK=$(${ctx.paths.binDir}/gstack-first-task-detect 2>/dev/null || true)
+  _FIRST_TASK=$(${bin('gstack-first-task-detect')} 2>/dev/null || true)
 fi
 echo "FIRST_TASK: $_FIRST_TASK"
 _LAKE_SEEN=$([ -f ~/.gstack/.completeness-intro-seen ] && echo "yes" || echo "no")
 echo "LAKE_INTRO: $_LAKE_SEEN"
-_TEL=$(${ctx.paths.binDir}/gstack-config get telemetry 2>/dev/null || true)
+_TEL=$(${bin('gstack-config')} get telemetry 2>/dev/null || true)
 _TEL_PROMPTED=$([ -f ~/.gstack/.telemetry-prompted ] && echo "yes" || echo "no")
 _TEL_START=$(date +%s)
 _SESSION_ID="$$-$(date +%s)"
 echo "TELEMETRY: \${_TEL:-off}"
 echo "TEL_PROMPTED: $_TEL_PROMPTED"
-_EXPLAIN_LEVEL=$(${ctx.paths.binDir}/gstack-config get explain_level 2>/dev/null || echo "default")
+_EXPLAIN_LEVEL=$(${bin('gstack-config')} get explain_level 2>/dev/null || echo "default")
 if [ "$_EXPLAIN_LEVEL" != "default" ] && [ "$_EXPLAIN_LEVEL" != "terse" ]; then _EXPLAIN_LEVEL="default"; fi
 echo "EXPLAIN_LEVEL: $_EXPLAIN_LEVEL"
-_QUESTION_TUNING=$(${ctx.paths.binDir}/gstack-config get question_tuning 2>/dev/null || echo "false")
+_QUESTION_TUNING=$(${bin('gstack-config')} get question_tuning 2>/dev/null || echo "false")
 echo "QUESTION_TUNING: $_QUESTION_TUNING"
 mkdir -p ~/.gstack/analytics
 if [ "$_TEL" != "off" ]; then
@@ -74,29 +109,29 @@ fi
 for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null); do
   if [ -f "$_PF" ]; then
     if [ "$_TEL" != "off" ] && [ -x "${ctx.paths.binDir}/gstack-telemetry-log" ]; then
-      ${ctx.paths.binDir}/gstack-telemetry-log --event-type skill_run --skill _pending_finalize --outcome unknown --session-id "$_SESSION_ID" 2>/dev/null || true
+      ${bin('gstack-telemetry-log')} --event-type skill_run --skill _pending_finalize --outcome unknown --session-id "$_SESSION_ID" 2>/dev/null || true
     fi
     rm -f "$_PF" 2>/dev/null || true
   fi
   break
 done
-eval "$(${ctx.paths.binDir}/gstack-slug 2>/dev/null)" 2>/dev/null || true
+eval "$(${bin('gstack-slug')} 2>/dev/null)" 2>/dev/null || true
 _LEARN_FILE="\${GSTACK_HOME:-$HOME/.gstack}/projects/\${SLUG:-unknown}/learnings.jsonl"
 if [ -f "$_LEARN_FILE" ]; then
   _LEARN_COUNT=$(wc -l < "$_LEARN_FILE" 2>/dev/null | tr -d ' ')
   echo "LEARNINGS: $_LEARN_COUNT entries loaded"
   if [ "$_LEARN_COUNT" -gt 5 ] 2>/dev/null; then
-    ${ctx.paths.binDir}/gstack-learnings-search --limit 3 2>/dev/null || true
+    ${bin('gstack-learnings-search')} --limit 3 2>/dev/null || true
   fi
 else
   echo "LEARNINGS: 0"
 fi
-${ctx.paths.binDir}/gstack-timeline-log '{"skill":"${ctx.skillName}","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
+${bin('gstack-timeline-log')} '{"skill":"${ctx.skillName}","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
 _HAS_ROUTING="no"
 if [ -f CLAUDE.md ] && grep -q "## Skill routing" CLAUDE.md 2>/dev/null; then
   _HAS_ROUTING="yes"
 fi
-_ROUTING_DECLINED=$(${ctx.paths.binDir}/gstack-config get routing_declined 2>/dev/null || echo "false")
+_ROUTING_DECLINED=$(${bin('gstack-config')} get routing_declined 2>/dev/null || echo "false")
 echo "HAS_ROUTING: $_HAS_ROUTING"
 echo "ROUTING_DECLINED: $_ROUTING_DECLINED"
 _VENDORED="no"
@@ -107,10 +142,11 @@ if [ -d ".claude/skills/gstack" ] && [ ! -L ".claude/skills/gstack" ]; then
 fi
 echo "VENDORED_GSTACK: $_VENDORED"
 echo "MODEL_OVERLAY: ${ctx.model ?? 'none'}"
-_CHECKPOINT_MODE=$(${ctx.paths.binDir}/gstack-config get checkpoint_mode 2>/dev/null || echo "explicit")
-_CHECKPOINT_PUSH=$(${ctx.paths.binDir}/gstack-config get checkpoint_push 2>/dev/null || echo "false")
+_CHECKPOINT_MODE=$(${bin('gstack-config')} get checkpoint_mode 2>/dev/null || echo "explicit")
+_CHECKPOINT_PUSH=$(${bin('gstack-config')} get checkpoint_push 2>/dev/null || echo "false")
 echo "CHECKPOINT_MODE: $_CHECKPOINT_MODE"
 echo "CHECKPOINT_PUSH: $_CHECKPOINT_PUSH"
+echo "GSTACK_ROOT: $GSTACK_ROOT"
 # Plan-mode hint for skills like /spec that branch behavior on plan-mode state.
 # Claude Code exposes plan mode via system reminders; we detect best-effort
 # from CLAUDE_PLAN_FILE (set by the harness when plan mode is active) and
@@ -135,5 +171,12 @@ if command -v gbrain &>/dev/null; then
     echo "$_BRAIN_JSON" | grep -o '"name":"[^"]*","status":"[^"]*","message":"[^"]*"' || true
   fi
 fi` : ''}
-\`\`\``;
+\`\`\`
+
+**Portable runtime paths:** Bash blocks run in separate shells, so every later
+shell block that uses \`$GSTACK_*\` includes its own bootstrap. For non-shell
+tools (Read/Edit/Write/Glob/Grep), replace \`$GSTACK_ROOT\` with the absolute
+\`GSTACK_ROOT:\` value printed above; never pass the variable text literally.
+For inline shell commands outside fenced blocks, substitute the printed
+absolute values before execution.`;
 }

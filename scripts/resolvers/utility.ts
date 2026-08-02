@@ -1,5 +1,9 @@
 import type { TemplateContext } from './types';
 
+export function shellPath(value: string): string {
+  return value.startsWith('~/') ? `$HOME/${value.slice(2)}` : value;
+}
+
 export function generateSlugEval(ctx: TemplateContext): string {
   return `eval "$(${ctx.paths.binDir}/gstack-slug 2>/dev/null)"`;
 }

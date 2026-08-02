@@ -161,5 +161,157 @@ describe('gstack-uninstall', () => {
       // Non-gstack should survive
       expect(fs.existsSync(path.join(mockHome, '.claude', 'skills', 'other-tool'))).toBe(true);
     });
+
+    test('portable install removes its marker, managed aliases, hook sidecar, and renamed runtime', () => {
+      const skills = path.join(mockHome, '.claude', 'skills');
+      const portable = path.join(skills, 'renamed gstack');
+      const hookLog = path.join(mockHome, 'hook-cleanup.log');
+      fs.rmSync(path.join(skills, 'gstack'), { recursive: true, force: true });
+      fs.mkdirSync(path.join(portable, 'bin'), { recursive: true });
+      fs.writeFileSync(
+        path.join(portable, 'bin', 'gstack-settings-hook'),
+        `#!/bin/sh\nprintf '%s\\n' "$*" >> '${hookLog}'\necho 'removed 1'\n`,
+        { mode: 0o755 },
+      );
+      fs.copyFileSync(UNINSTALL, path.join(portable, 'bin', 'gstack-uninstall'));
+      fs.writeFileSync(path.join(portable, 'bin', 'gstack-session-update'), '#!/bin/sh\n', { mode: 0o755 });
+      fs.writeFileSync(path.join(skills, '.gstack-root'), `${portable}\n`);
+
+      const managedAlias = path.join(skills, 'gstack-review');
+      fs.mkdirSync(managedAlias, { recursive: true });
+      fs.writeFileSync(path.join(managedAlias, '.gstack-managed-root'), `${portable}\n`);
+      fs.writeFileSync(path.join(managedAlias, 'SKILL.md'), 'managed\n');
+      const connectChromeAlias = path.join(skills, 'gstack-connect-chrome');
+      fs.mkdirSync(connectChromeAlias, { recursive: true });
+      fs.writeFileSync(path.join(connectChromeAlias, '.gstack-managed-root'), `${portable}\n`);
+      fs.writeFileSync(path.join(connectChromeAlias, 'SKILL.md'), 'managed\n');
+
+      const sidecar = path.join(skills, 'gstack');
+      fs.mkdirSync(sidecar, { recursive: true });
+      fs.writeFileSync(path.join(sidecar, '.gstack-hook-runtime'), `${portable}\n`);
+
+      const result = spawnSync('bash', [path.join(portable, 'bin', 'gstack-uninstall'), '--force', '--keep-state'], {
+        stdio: 'pipe',
+        env: { ...process.env, HOME: mockHome, GSTACK_DIR: portable, GSTACK_STATE_DIR: path.join(mockHome, '.gstack') },
+        cwd: mockGitRoot,
+      });
+
+      expect(result.status).toBe(0);
+      expect(fs.existsSync(path.join(skills, '.gstack-root'))).toBe(false);
+      expect(fs.existsSync(managedAlias)).toBe(false);
+      expect(fs.existsSync(connectChromeAlias)).toBe(false);
+      expect(fs.existsSync(sidecar)).toBe(false);
+      expect(fs.existsSync(portable)).toBe(false);
+      expect(fs.existsSync(path.join(skills, 'other-tool'))).toBe(true);
+      expect(fs.readFileSync(hookLog, 'utf8')).toContain('remove ');
+      expect(fs.readFileSync(hookLog, 'utf8')).toContain('remove-source --source plan-tune-cathedral');
+    });
+
+    test('portable uninstall removes only managed alias files and preserves unrelated contents', () => {
+      const skills = path.join(mockHome, '.claude', 'skills');
+      const portable = path.join(skills, 'renamed gstack');
+      const alias = path.join(skills, 'gstack-review');
+      fs.rmSync(path.join(skills, 'gstack'), { recursive: true, force: true });
+      fs.mkdirSync(path.join(portable, 'bin'), { recursive: true });
+      fs.writeFileSync(path.join(skills, '.gstack-root'), `${portable}\n`);
+      fs.mkdirSync(path.join(alias, 'sections'), { recursive: true });
+      fs.writeFileSync(path.join(alias, '.gstack-managed-root'), `${portable}\n`);
+      fs.writeFileSync(path.join(alias, 'SKILL.md'), 'managed\n');
+      fs.writeFileSync(path.join(alias, 'sections', 'managed.md'), 'managed\n');
+      fs.writeFileSync(path.join(alias, 'USER_FILE'), 'preserve\n');
+
+      const result = spawnSync('bash', [UNINSTALL, '--force', '--keep-state'], {
+        stdio: 'pipe',
+        env: { ...process.env, HOME: mockHome, GSTACK_DIR: portable, GSTACK_STATE_DIR: path.join(mockHome, '.gstack') },
+        cwd: mockGitRoot,
+      });
+
+      expect(result.status).toBe(0);
+      expect(fs.existsSync(path.join(alias, 'USER_FILE'))).toBe(true);
+      expect(fs.existsSync(path.join(alias, 'SKILL.md'))).toBe(false);
+      expect(fs.existsSync(path.join(alias, 'sections'))).toBe(false);
+      expect(fs.existsSync(path.join(alias, '.gstack-managed-root'))).toBe(false);
+    });
+
+    test('portable uninstall preserves a foreign canonical install that replaced its sidecar', () => {
+      const skills = path.join(mockHome, '.claude', 'skills');
+      const portable = path.join(skills, 'renamed gstack');
+      const canonical = path.join(skills, 'gstack');
+      fs.rmSync(canonical, { recursive: true, force: true });
+      fs.mkdirSync(path.join(portable, 'bin'), { recursive: true });
+      fs.writeFileSync(path.join(skills, '.gstack-root'), `${portable}\n`);
+      fs.mkdirSync(canonical, { recursive: true });
+      fs.writeFileSync(path.join(canonical, 'FOREIGN_INSTALL'), 'preserve\n');
+
+      const result = spawnSync('bash', [UNINSTALL, '--force', '--keep-state'], {
+        stdio: 'pipe',
+        env: { ...process.env, HOME: mockHome, GSTACK_DIR: portable, GSTACK_STATE_DIR: path.join(mockHome, '.gstack') },
+        cwd: mockGitRoot,
+      });
+
+      expect(result.status).toBe(0);
+      expect(result.stderr.toString()).toContain('not owned by');
+      expect(fs.existsSync(path.join(canonical, 'FOREIGN_INSTALL'))).toBe(true);
+      expect(fs.existsSync(portable)).toBe(false);
+      expect(fs.existsSync(path.join(skills, '.gstack-root'))).toBe(false);
+    });
+
+    test('Windows runtime copy proves source ownership and cleans hooks before deletion', () => {
+      const skills = path.join(mockHome, '.claude', 'skills');
+      const canonical = path.join(skills, 'gstack');
+      const source = path.join(tmpDir, 'source checkout');
+      const alias = path.join(skills, 'gstack-review');
+      const connectChromeAlias = path.join(skills, 'gstack-connect-chrome');
+      const hookLog = path.join(mockHome, 'windows-hook-cleanup.log');
+      fs.mkdirSync(source, { recursive: true });
+      fs.mkdirSync(path.join(canonical, 'bin'), { recursive: true });
+      fs.writeFileSync(path.join(skills, '.gstack-root'), `${source}\n`);
+      fs.writeFileSync(path.join(canonical, '.gstack-hook-runtime'), `${source}\n`);
+      fs.copyFileSync(UNINSTALL, path.join(canonical, 'bin', 'gstack-uninstall'));
+      fs.writeFileSync(
+        path.join(canonical, 'bin', 'gstack-settings-hook'),
+        `#!/bin/sh\nprintf '%s\\n' "$*" >> '${hookLog}'\necho 'removed 1'\n`,
+        { mode: 0o755 },
+      );
+      fs.writeFileSync(path.join(canonical, 'bin', 'gstack-session-update'), '#!/bin/sh\n', { mode: 0o755 });
+      fs.mkdirSync(alias, { recursive: true });
+      fs.writeFileSync(path.join(alias, '.gstack-managed-root'), `${source}\n`);
+      fs.writeFileSync(path.join(alias, 'SKILL.md'), 'managed\n');
+      fs.mkdirSync(connectChromeAlias, { recursive: true });
+      fs.writeFileSync(path.join(connectChromeAlias, '.gstack-managed-root'), `${source}\n`);
+      fs.writeFileSync(path.join(connectChromeAlias, 'SKILL.md'), 'managed\n');
+
+      const result = spawnSync('bash', [path.join(canonical, 'bin', 'gstack-uninstall'), '--force', '--keep-state'], {
+        stdio: 'pipe',
+        env: { ...process.env, HOME: mockHome, GSTACK_DIR: canonical, GSTACK_STATE_DIR: path.join(mockHome, '.gstack') },
+        cwd: mockGitRoot,
+      });
+
+      expect(result.status).toBe(0);
+      expect(fs.existsSync(canonical)).toBe(false);
+      expect(fs.existsSync(alias)).toBe(false);
+      expect(fs.existsSync(connectChromeAlias)).toBe(false);
+      expect(fs.existsSync(path.join(skills, '.gstack-root'))).toBe(false);
+      expect(fs.readFileSync(hookLog, 'utf8')).toContain('remove ');
+      expect(fs.readFileSync(hookLog, 'utf8')).toContain('remove-source --source plan-tune-cathedral');
+    });
+
+    test('interactive preview discloses the renamed runtime before deletion', () => {
+      const skills = path.join(mockHome, '.claude', 'skills');
+      const portable = path.join(skills, 'renamed gstack');
+      fs.mkdirSync(path.join(portable, 'bin'), { recursive: true });
+      fs.writeFileSync(path.join(skills, '.gstack-root'), `${portable}\n`);
+
+      const result = spawnSync('bash', [UNINSTALL, '--keep-state'], {
+        input: 'n\n',
+        stdio: ['pipe', 'pipe', 'pipe'],
+        env: { ...process.env, HOME: mockHome, GSTACK_DIR: portable, GSTACK_STATE_DIR: path.join(mockHome, '.gstack') },
+        cwd: mockGitRoot,
+      });
+
+      expect(result.status).toBe(0);
+      expect(result.stdout.toString()).toContain(`${portable} (active renamed runtime)`);
+      expect(fs.existsSync(portable)).toBe(true);
+    });
   });
 });

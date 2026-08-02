@@ -19,7 +19,7 @@ export interface HostPaths {
 /**
  * HOST_PATHS — derived from host configs.
  * Each config's globalRoot/localSkillRoot determines the path structure.
- * Non-Claude hosts use $GSTACK_ROOT env vars (set by preamble).
+ * Hosts with usesEnvVars=true use $GSTACK_ROOT env vars (set by preamble).
  */
 function buildHostPaths(): Record<string, HostPaths> {
   const paths: Record<string, HostPaths> = {};

@@ -20,6 +20,7 @@ import { HOST_PATHS, unwrapResolver } from './resolvers/types';
 import { RESOLVERS } from './resolvers/index';
 import { externalSkillName, extractHookSafetyProse as _extractHookSafetyProse, extractNameAndDescription as _extractNameAndDescription, condenseOpenAIShortDescription as _condenseOpenAIShortDescription, generateOpenAIYaml as _generateOpenAIYaml } from './resolvers/codex-helpers';
 import { generatePlanCompletionAuditShip, generatePlanCompletionAuditReview, generatePlanVerificationExec } from './resolvers/review';
+import { generateClaudeRuntimeRootBash, generateClaudeRuntimeRootBashCompact } from './resolvers/preamble/generate-preamble-bash';
 import { ALL_HOST_CONFIGS, ALL_HOST_NAMES, resolveHostArg, getHostConfig } from '../hosts/index';
 import type { HostConfig } from './host-config';
 
@@ -141,12 +142,11 @@ const EXPLAIN_LEVEL: 'default' | 'terse' = (() => {
 
 // ─── Out-dir (dev workspace render isolation) ───────────────
 // --out-dir <abs-dir> redirects Claude SKILL.md + section output to a separate
-// (untracked) directory instead of writing in place, AND rewrites the literal
-// section-base path (`~/.claude/skills/gstack/<skill>/sections/`) inside the
-// generated content to point at the out-dir, so section Reads resolve to the
-// rendered copy rather than the global install. Used by bin/dev-setup to render
-// the gbrain `:user` variant for a Conductor workspace without dirtying tracked
-// source. Default (unset) = in-place, behavior unchanged. Claude host only.
+// (untracked) directory instead of writing in place. It rewrites both source
+// section paths and their portable $GSTACK_ROOT form so section Reads resolve
+// to the rendered copy. Used by bin/dev-setup to render the gbrain `:user`
+// variant for a Conductor workspace without dirtying tracked source. Default
+// (unset) = in-place, behavior unchanged. Claude host only.
 const OUT_DIR_ARG = process.argv.find(a => a.startsWith('--out-dir'));
 const OUT_DIR: string | null = (() => {
   if (!OUT_DIR_ARG) return null;
@@ -160,16 +160,21 @@ const OUT_DIR: string | null = (() => {
 /**
  * When rendering to an out-dir, repoint the literal section-base path at the
  * out-dir so section Reads resolve to the rendered copy, not the global install.
- * Surgical: ONLY paths containing `/sections/` are rewritten — bin/, browse/,
- * docs/ references keep pointing at `~/.claude/skills/gstack` (the global
- * install, which still works). No-op when --out-dir is unset.
+ * Surgical: ONLY paths containing `/sections/` are rewritten; other runtime
+ * references continue to resolve through `$GSTACK_ROOT`. No-op when --out-dir
+ * is unset.
  */
 function rewriteSectionBase(content: string): string {
   if (!OUT_DIR) return content;
-  return content.replace(
-    /~\/\.claude\/skills\/gstack\/([^\s)`"'*]+\/sections\/)/g,
-    `${OUT_DIR}/$1`,
-  );
+  return content
+    .replace(
+      /~\/\.claude\/skills\/gstack\/([^\s)`"'*]+\/sections\/)/g,
+      `${OUT_DIR}/$1`,
+    )
+    .replace(
+      /"?\$GSTACK_ROOT"?\/([^\s)`"'*]+\/sections\/)/g,
+      `"${OUT_DIR}"/$1`,
+    );
 }
 
 // HostPaths, HOST_PATHS, and TemplateContext imported from ./resolvers/types (line 7-8)
@@ -659,6 +664,49 @@ function applyHostRewrites(content: string, hostConfig: HostConfig): string {
 }
 
 /**
+ * Apply host rewrites to a SKILL.md body while leaving frontmatter byte-for-byte
+ * untouched. Claude safety hooks execute before the preamble, so rewriting their
+ * $HOME-anchored commands to $GSTACK_ROOT would make them fail closed on every
+ * tool call. External hosts reconstruct/strip frontmatter before rewrites and do
+ * not need this special case.
+ */
+function applyHostRewritesToBody(content: string, hostConfig: HostConfig): string {
+  if (!content.startsWith('---\n')) return applyHostRewrites(content, hostConfig);
+  const fmEnd = content.indexOf('\n---', 4);
+  if (fmEnd === -1) return applyHostRewrites(content, hostConfig);
+  const bodyStart = fmEnd + 4;
+  return content.slice(0, bodyStart) + applyHostRewrites(content.slice(bodyStart), hostConfig);
+}
+
+/** Quote portable runtime variables when they form the executable/path prefix. */
+function quotePortableRuntimePaths(content: string): string {
+  return content.replace(
+    /(?<!["'])\$(GSTACK_ROOT|GSTACK_BIN|GSTACK_BROWSE|GSTACK_DESIGN|GSTACK_MAKE_PDF)(?=\/)/g,
+    (_match, variable: string) => `"$${variable}"`,
+  );
+}
+
+function injectClaudeRuntimeRootForPreamblelessSkill(content: string, ctx: TemplateContext): string {
+  if (!/\$GSTACK_(?:ROOT|BIN|BROWSE|DESIGN|MAKE_PDF)\b/.test(content)) return content;
+  const prose = content.replace(/\`\`\`(?:bash|sh|shell)\n[\s\S]*?\n\`\`\`/g, '');
+  if (!/\$GSTACK_(?:ROOT|BIN|BROWSE|DESIGN|MAKE_PDF)\b/.test(prose)) return content;
+  const bootstrap = `\n## Runtime path bootstrap\n\n\`\`\`bash\n${generateClaudeRuntimeRootBashCompact(ctx)}\necho "GSTACK_ROOT: $GSTACK_ROOT"\n\`\`\`\n\n**Portable runtime paths:** Bash blocks run in separate shells, so every later shell block using \`$GSTACK_*\` includes its own bootstrap. For non-shell tools, replace \`$GSTACK_ROOT\` with the absolute \`GSTACK_ROOT:\` value printed above; never pass the variable text literally. For inline shell commands outside fenced blocks, substitute the printed absolute values before execution.\n`;
+  if (!content.startsWith('---\n')) return bootstrap + content;
+  const fmEnd = content.indexOf('\n---', 4);
+  if (fmEnd === -1) return bootstrap + content;
+  const bodyStart = fmEnd + 4;
+  return content.slice(0, bodyStart) + bootstrap + content.slice(bodyStart);
+}
+
+function bootstrapClaudeShellBlocks(content: string, ctx: TemplateContext): string {
+  return content.replace(/\`\`\`(bash|sh|shell)\n([\s\S]*?)\n\`\`\`/g, (full, language: string, body: string) => {
+    if (!/\$GSTACK_(?:ROOT|BIN|BROWSE|DESIGN|MAKE_PDF)\b/.test(body)) return full;
+    if (body.includes('_GSTACK_ROOT_MARKER=') || body.includes('_gv(){')) return full;
+    return `\`\`\`${language}\n${generateClaudeRuntimeRootBashCompact(ctx)}\n${body}\n\`\`\``;
+  });
+}
+
+/**
  * Resolve {{PLACEHOLDER}} / {{NAME:arg}} tokens against the RESOLVERS registry,
  * honoring host suppression and appliesTo gating, then assert nothing is left
  * unresolved. Extracted so SKILL.md and section templates resolve through the
@@ -836,6 +884,12 @@ function processTemplate(tmplPath: string, host: Host = 'claude'): { outputPath:
   let symlinkLoop = false;
   if (host === 'claude') {
     content = transformFrontmatter(content, host);
+    content = applyHostRewritesToBody(content, currentHostConfig);
+    content = quotePortableRuntimePaths(content);
+    if (!tmplContent.includes('{{PREAMBLE}}')) {
+      content = injectClaudeRuntimeRootForPreamblelessSkill(content, ctx);
+    }
+    content = bootstrapClaudeShellBlocks(content, ctx);
   } else {
     const result = processExternalHost(content, tmplContent, host, skillDir, postProcessDescription, ctx, extractedName || undefined);
     content = result.content;
@@ -879,8 +933,8 @@ function processTemplate(tmplPath: string, host: Host = 'claude'): { outputPath:
  *
  * Output routing mirrors SKILL.md: Claude writes in-tree at
  * `<skill>/sections/<name>.md`; external hosts write to
- * `<hostSubdir>/skills/<externalName>/sections/<name>.md`. External hosts get
- * applyHostRewrites so cross-references resolve per host.
+ * `<hostSubdir>/skills/<externalName>/sections/<name>.md`. Every host gets its
+ * configured path rewrites so cross-references and runtime paths stay portable.
  */
 function processSectionTemplate(
   sectionTmplPath: string,
@@ -901,10 +955,12 @@ function processSectionTemplate(
   // Resolve placeholders against the section body (shared guard catches stragglers).
   let content = resolvePlaceholders(tmplContent, ctx, hostConfig, relTmplPath);
 
-  // External hosts: rewrite cross-reference paths/tools (no frontmatter to transform).
-  if (host !== 'claude') {
-    content = applyHostRewrites(content, hostConfig);
-  } else {
+  // Section files are body-only, so every host gets the same portable runtime
+  // path rewrites. Claude additionally supports --out-dir section isolation.
+  content = applyHostRewrites(content, hostConfig);
+  if (host === 'claude') {
+    content = quotePortableRuntimePaths(content);
+    content = bootstrapClaudeShellBlocks(content, ctx);
     // --out-dir: a section may cross-reference another section by absolute path;
     // repoint those to the out-dir too (no-op when --out-dir is unset).
     content = rewriteSectionBase(content);
