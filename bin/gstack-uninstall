@@ -209,12 +209,6 @@ if [ -d "$CLAUDE_SKILLS/gstack" ] || [ -L "$CLAUDE_SKILLS/gstack" ]; then
 fi
 
 if [ -n "$_ACTIVE_CLAUDE_ROOT" ]; then
-  # Delete renamed installs only when they live directly under the user's
-  # Claude skills directory. Never follow the marker to an arbitrary checkout.
-  if [ "$_ACTIVE_RENAMED_CHILD" -eq 1 ]; then
-    rm -rf "$_ACTIVE_CLAUDE_ROOT"
-    REMOVED+=("$_ACTIVE_CLAUDE_ROOT")
-  fi
   rm -f "$_CLAUDE_ROOT_MARKER"
   REMOVED+=("~/.claude/skills/.gstack-root")
 fi
@@ -309,6 +303,14 @@ if [ -x "$SETTINGS_HOOK" ]; then
   if "$SETTINGS_HOOK" remove-source --source plan-tune-cathedral 2>/dev/null | grep -q "removed [1-9]"; then
     REMOVED+=("plan-tune cathedral hooks")
   fi
+fi
+
+# Delete a renamed active runtime only after its bundled settings helper has
+# removed hooks that point back into that runtime. The ownership check above
+# restricts this to a direct child of the user's Claude skills directory.
+if [ "$_ACTIVE_RENAMED_CHILD" -eq 1 ]; then
+  rm -rf "$_ACTIVE_CLAUDE_ROOT"
+  REMOVED+=("$_ACTIVE_CLAUDE_ROOT")
 fi
 
 # ─── Remove global state ────────────────────────────────────

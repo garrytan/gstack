@@ -165,8 +165,16 @@ describe('gstack-uninstall', () => {
     test('portable install removes its marker, managed aliases, hook sidecar, and renamed runtime', () => {
       const skills = path.join(mockHome, '.claude', 'skills');
       const portable = path.join(skills, 'renamed gstack');
+      const hookLog = path.join(mockHome, 'hook-cleanup.log');
       fs.rmSync(path.join(skills, 'gstack'), { recursive: true, force: true });
       fs.mkdirSync(path.join(portable, 'bin'), { recursive: true });
+      fs.writeFileSync(
+        path.join(portable, 'bin', 'gstack-settings-hook'),
+        `#!/bin/sh\nprintf '%s\\n' "$*" >> '${hookLog}'\necho 'removed 1'\n`,
+        { mode: 0o755 },
+      );
+      fs.copyFileSync(UNINSTALL, path.join(portable, 'bin', 'gstack-uninstall'));
+      fs.writeFileSync(path.join(portable, 'bin', 'gstack-session-update'), '#!/bin/sh\n', { mode: 0o755 });
       fs.writeFileSync(path.join(skills, '.gstack-root'), `${portable}\n`);
 
       const managedAlias = path.join(skills, 'gstack-review');
@@ -178,7 +186,7 @@ describe('gstack-uninstall', () => {
       fs.mkdirSync(sidecar, { recursive: true });
       fs.writeFileSync(path.join(sidecar, '.gstack-hook-runtime'), `${portable}\n`);
 
-      const result = spawnSync('bash', [UNINSTALL, '--force', '--keep-state'], {
+      const result = spawnSync('bash', [path.join(portable, 'bin', 'gstack-uninstall'), '--force', '--keep-state'], {
         stdio: 'pipe',
         env: { ...process.env, HOME: mockHome, GSTACK_DIR: portable, GSTACK_STATE_DIR: path.join(mockHome, '.gstack') },
         cwd: mockGitRoot,
@@ -190,6 +198,8 @@ describe('gstack-uninstall', () => {
       expect(fs.existsSync(sidecar)).toBe(false);
       expect(fs.existsSync(portable)).toBe(false);
       expect(fs.existsSync(path.join(skills, 'other-tool'))).toBe(true);
+      expect(fs.readFileSync(hookLog, 'utf8')).toContain('remove ');
+      expect(fs.readFileSync(hookLog, 'utf8')).toContain('remove-source --source plan-tune-cathedral');
     });
 
     test('portable uninstall removes only managed alias files and preserves unrelated contents', () => {
