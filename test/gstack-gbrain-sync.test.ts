@@ -16,6 +16,7 @@ import { spawnSync } from "child_process";
 import {
   derivePathOnlyHashLegacyId,
   planHostnameFoldMigration,
+  repositorySyncArgs,
   sourceLocalPath,
   _resetGbrainSupportsRenameCache,
 } from "../bin/gstack-gbrain-sync";
@@ -62,17 +63,26 @@ describe("gstack-gbrain-sync CLI", () => {
     expect(source).toContain("localEngineStatus");
   });
 
-  it("--dry-run with --code-only reports the code import preview only", () => {
+  it("builds one docs-aware repository sync command for preview and execution", () => {
+    expect(repositorySyncArgs("gstack-code-example")).toEqual([
+      "sync",
+      "--strategy",
+      "auto",
+      "--source",
+      "gstack-code-example",
+    ]);
+  });
+
+  it("--dry-run with --code-only reports the repository sync preview only", () => {
     const home = makeTestHome();
     const gstackHome = join(home, ".gstack");
     mkdirSync(gstackHome, { recursive: true });
 
     const r = runScript(["--dry-run", "--code-only", "--quiet"], { HOME: home, GSTACK_HOME: gstackHome });
     expect(r.exitCode).toBe(0);
-    // Code stage now uses native code surface: sources add + sync --strategy code
-    // (NOT gbrain import — that's the markdown-only path that was rejected post-codex).
+    // The legacy --code-only name now drives the docs-aware repository walk.
     expect(r.stdout).toContain("would: gbrain sources add");
-    expect(r.stdout).toContain("gbrain sync --strategy code");
+    expect(r.stdout).toContain("gbrain sync --strategy auto");
     expect(r.stdout).not.toContain("gbrain import");
     // memory + brain-sync stages should not appear
     expect(r.stdout).not.toContain("gstack-memory-ingest --probe");
@@ -88,7 +98,7 @@ describe("gstack-gbrain-sync CLI", () => {
     const r = runScript(["--dry-run"], { HOME: home, GSTACK_HOME: gstackHome });
     expect(r.exitCode).toBe(0);
     expect(r.stdout).toContain("would: gbrain sources add");
-    expect(r.stdout).toContain("gbrain sync --strategy code");
+    expect(r.stdout).toContain("gbrain sync --strategy auto");
     expect(r.stdout).toContain("would: gstack-memory-ingest");
     expect(r.stdout).toContain("would: gstack-brain-sync");
     rmSync(home, { recursive: true, force: true });
@@ -118,7 +128,7 @@ describe("gstack-gbrain-sync CLI", () => {
     const r = runScript(["--dry-run", "--code-only", "--quiet"], { HOME: home, GSTACK_HOME: gstackHome });
     expect(r.exitCode).toBe(0);
     expect(r.stdout).toMatch(/gbrain sources add gstack-code-[a-z0-9-]+/);
-    expect(r.stdout).toMatch(/gbrain sync --strategy code --source gstack-code-[a-z0-9-]+/);
+    expect(r.stdout).toMatch(/gbrain sync --strategy auto --source gstack-code-[a-z0-9-]+/);
     rmSync(home, { recursive: true, force: true });
   });
 
@@ -243,7 +253,7 @@ describe("gstack-gbrain-sync CLI", () => {
     spawnSync("git", ["init", "--quiet", "-b", "main"], { cwd: repo });
     spawnSync("git", ["remote", "add", "origin", "https://github.com/example/multihost.git"], { cwd: repo });
 
-    // Dry-run still gates the code stage on `command -v gbrain`. Drop a no-op
+    // Dry-run still requires a discoverable gbrain CLI. Drop a no-op
     // shim on PATH so the stage runs (we only assert the preview line, never
     // invoke gbrain itself).
     const bindir = mkdtempSync(join(tmpdir(), "gstack-host-collide-bin-"));
@@ -513,7 +523,7 @@ describe("gstack-gbrain-sync CLI", () => {
     // without a real gbrain CLI). Instead, assert the preview still includes
     // the new flow (sources add + sync + attach) at minimum.
     expect(r.stdout).toMatch(/gbrain sources add gstack-code-/);
-    expect(r.stdout).toMatch(/gbrain sync --strategy code --source gstack-code-/);
+    expect(r.stdout).toMatch(/gbrain sync --strategy auto --source gstack-code-/);
     expect(r.stdout).toMatch(/gbrain sources attach gstack-code-/);
 
     rmSync(repo, { recursive: true, force: true });

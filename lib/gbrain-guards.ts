@@ -7,7 +7,7 @@
  * guards gate the two ways the orchestrator can reach destruction:
  *
  *   1. `sources remove --confirm-destructive`  → decideSourceRemove()
- *   2. `sync --strategy code` (can auto-reclone) → decideCodeSync()
+ *   2. `sync --strategy auto` (can auto-reclone) → decideCodeSync()
  *
  * plus an autopilot-active check (detectAutopilot) that refuses to run destructive
  * ops concurrently with the daemon.
@@ -274,7 +274,7 @@ export interface SyncDecision {
 }
 
 /**
- * Decide whether `sync --strategy code --source <id>` is safe to run.
+ * Decide whether `sync --strategy auto --source <id>` is safe to run.
  *
  * A source with a remote_url can trigger gbrain's auto-reclone, the ungated
  * rm-rf path behind the data loss (gbrain #1526). Require an explicit

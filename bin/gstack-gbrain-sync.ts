@@ -4,11 +4,14 @@
  *
  * Orchestrates three storage tiers per plan §"Storage tiering":
  *
- *   1. Code (current repo)         → `gbrain sources add` (idempotent via
+ *   1. Repository (current repo)   → `gbrain sources add` (idempotent via
  *                                    lib/gbrain-sources.ts) + `gbrain sync
- *                                    --strategy code` (incremental) or
- *                                    `gbrain reindex-code --yes` (--full).
- *                                    NEVER `gbrain import` (markdown only).
+ *                                    --strategy auto`. The auto walk admits
+ *                                    changed Markdown and code (plus images
+ *                                    when GBrain multimodal sync is enabled).
+ *                                    `--full` then runs
+ *                                    `gbrain reindex-code --yes` for code.
+ *                                    NEVER `gbrain import`.
  *   2. Transcripts + curated memory → gstack-memory-ingest (typed put_page)
  *   3. Curated artifacts to git    → gstack-brain-sync (existing pipeline)
  *
@@ -58,7 +61,7 @@ export interface CliArgs {
   dream: boolean;
   /** Opt out of the dream cycle that `--full` would otherwise auto-run. */
   noDream: boolean;
-  /** #1734: opt-in to sync a URL-managed source whose code walk may auto-reclone. */
+  /** #1734: opt-in to sync a URL-managed source whose repository walk may auto-reclone. */
   allowReclone: boolean;
 }
 
@@ -83,7 +86,7 @@ interface StageResult {
    * ok for the exit code — it's not a failure, just not the happy path.
    */
   warn?: boolean;
-  /** Stage-specific structured detail. Code stage carries source_id + page_count. */
+  /** Stage-specific structured detail. Repository stage carries source_id + page_count. */
   detail?: CodeStageDetail;
 }
 
@@ -94,6 +97,20 @@ const GSTACK_HOME = process.env.GSTACK_HOME || join(HOME, ".gstack");
 const STATE_PATH = join(GSTACK_HOME, ".gbrain-sync-state.json");
 const LOCK_PATH = join(GSTACK_HOME, ".sync-gbrain.lock");
 const STALE_LOCK_MS = 5 * 60 * 1000;
+
+/**
+ * Canonical argv for the repository file walk.
+ *
+ * Keep preview text, the live spawn, and failure reporting on this one source
+ * so the documented command cannot drift from what the orchestrator executes.
+ */
+export function repositorySyncArgs(sourceId: string): string[] {
+  return ["sync", "--strategy", "auto", "--source", sourceId];
+}
+
+function renderGbrainCommand(args: readonly string[]): string {
+  return `gbrain ${args.join(" ")}`;
+}
 
 // Dream (call-graph build) is brain-global and runs LOCK-FREE after the sync
 // lock releases, so it can't use the sync lock to dedupe across worktrees. A
@@ -230,25 +247,29 @@ function printUsage(): void {
 
 Modes:
   --incremental        Default. mtime fast-path; ~50ms steady-state.
-  --full               First-run; full walk + reindex. Honest ~25-35 min for big Macs (ED2).
+  --full               Auto repository sync, then full code reindex. Does not
+                       backfill unchanged historical Markdown. Honest ~25-35 min
+                       for big Macs (ED2).
   --dry-run            Preview what would sync; no writes anywhere.
 
 Options:
   --quiet              Suppress per-stage output.
-  --no-code            Skip the cwd code-import stage.
+  --no-code            Skip the cwd repository-sync stage (legacy flag name).
   --no-memory          Skip the gstack-memory-ingest stage (transcripts + artifacts).
   --no-brain-sync      Skip the gstack-brain-sync git pipeline stage.
-  --code-only          Only run the code-import stage (alias for --no-memory --no-brain-sync).
+  --code-only          Only run the repository-sync stage (legacy flag name;
+                       alias for --no-memory --no-brain-sync).
   --dream              Force the source-scoped dream cycle that builds this
                        source's call graph (gbrain code-callers/code-callees).
                        Runs lock-free AFTER the sync stages. ~minutes. Default
                        timeout 45min, override GSTACK_SYNC_DREAM_TIMEOUT_MS.
   --no-dream           Opt out of the dream cycle that --full would auto-run.
-  --allow-reclone      Permit the code walk for URL-managed sources (remote_url set)
+  --allow-reclone      Permit repository sync for URL-managed sources (remote_url set)
                        even though gbrain may auto-reclone the working tree (#1734).
   --help               This text.
 
-Stages run in order: code → memory ingest → curated git push, then (lock-free)
+Stages run in order: repository sync → memory ingest → curated git push,
+then (lock-free)
 the optional dream call-graph build. --full auto-runs dream ONLY when the call
 graph was never built; --dream always forces it. Each stage failure is
 non-fatal; subsequent stages still run.
@@ -772,6 +793,8 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
   }
 
   const sourceId = deriveCodeSourceId(root);
+  const syncArgs = repositorySyncArgs(sourceId);
+  const syncCommand = renderGbrainCommand(syncArgs);
 
   // dry-run preview always shows the would-do steps, regardless of local
   // engine state. Useful for "what would /sync-gbrain do" without probing
@@ -782,13 +805,13 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
       ran: false,
       ok: true,
       duration_ms: 0,
-      summary: `would: gbrain sources add ${sourceId} --path ${root} --federated; gbrain sync --strategy code --source ${sourceId}; gbrain sources attach ${sourceId}`,
+      summary: `would: gbrain sources add ${sourceId} --path ${root} --federated; ${syncCommand}; gbrain sources attach ${sourceId}`,
       detail: { source_id: sourceId, source_path: root, status: "skipped" },
     };
   }
 
   // Split-engine pre-flight (per plan D12): when local engine is not ok, SKIP
-  // code stage cleanly. Brain-sync stage still runs because it doesn't depend
+  // repository stage cleanly. Brain-sync stage still runs because it doesn't depend
   // on local engine. The /sync-gbrain Step 1.5 pre-flight surfaces the user
   // remediation message; this skip just keeps the orchestrator from crashing
   // when the local DB is dead. Skipped on --dry-run (above) since dry-run
@@ -857,17 +880,19 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
     };
   }
 
-  // Step 2: Always run the page-creating file walk first, then (for --full)
-  // a full re-embed.
+  // Step 2: Always run the page-creating repository walk first, then (for
+  // --full) a full code re-embed.
   //
   // `gbrain reindex-code` only RE-EMBEDS pages that already exist; it never
   // walks the filesystem. On a freshly-registered source (0 pages) a --full
   // run that called reindex-code alone found nothing ("No code pages to
   // reindex"), finished in ~1s, and left the code index permanently empty
   // while still reporting OK. The page-creating walk is `sync --strategy
-  // code`, so --full must run it FIRST, then reindex-code, to honor the
-  // documented "full walk + reindex" contract for both fresh and populated
-  // sources.
+  // auto`, so --full must run it FIRST, then reindex-code, to honor the
+  // documented "repository walk + code reindex" order for both fresh and
+  // populated sources. Auto admits changed Markdown and code, plus images when
+  // GBrain's existing multimodal setting allows them. It does not backfill
+  // unchanged historical Markdown; the second phase is intentionally code-only.
   const codeTimeoutMs = resolveStageTimeoutMs(
     process.env.GSTACK_SYNC_CODE_TIMEOUT_MS,
     "GSTACK_SYNC_CODE_TIMEOUT_MS",
@@ -895,7 +920,7 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
     };
   }
 
-  const walkResult = spawnGbrain(["sync", "--strategy", "code", "--source", sourceId], {
+  const walkResult = spawnGbrain(syncArgs, {
     stdio: args.quiet ? ["ignore", "ignore", "ignore"] : ["ignore", "inherit", "inherit"],
     timeout: codeTimeoutMs,
     baseEnv: gbrainEnv,
@@ -907,7 +932,7 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
       ran: true,
       ok: false,
       duration_ms: Date.now() - t0,
-      summary: `gbrain sync --strategy code --source ${sourceId} exited ${walkResult.status}`,
+      summary: `${syncCommand} exited ${walkResult.status}`,
       detail: { source_id: sourceId, source_path: root, status: "failed" },
     };
   }

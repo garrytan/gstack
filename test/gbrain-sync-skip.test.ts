@@ -18,6 +18,8 @@ import {
   mkdirSync,
   writeFileSync,
   chmodSync,
+  readFileSync,
+  realpathSync,
   rmSync,
 } from "fs";
 import { tmpdir } from "os";
@@ -44,6 +46,7 @@ function makeEnv(opts: {
   withGbrain: boolean;
   gbrainBehavior?: "ok" | "broken-db" | "broken-config" | "engine-locked" | "slow";
   withConfig: boolean;
+  syncExit?: number;
 }): FakeEnv {
   const tmp = mkdtempSync(join(tmpdir(), "gbrain-sync-skip-"));
   const bindir = join(tmp, "bin");
@@ -65,6 +68,7 @@ function makeEnv(opts: {
 
   if (opts.withGbrain) {
     const behavior = opts.gbrainBehavior || "ok";
+    const syncExit = opts.syncExit ?? 0;
     // "slow": healthy engine, cold pooler connection (#1964) — sleeps past the
     // (test-lowered) probe timeout on `sources list`, then answers fine.
     const sourcesBlock =
@@ -73,7 +77,11 @@ function makeEnv(opts: {
   echo '{"sources":[]}'
   exit 0`
         : behavior === "ok"
-          ? `  echo '{"sources":[]}'
+          ? `  if [ -n "$FAKE_GBRAIN_EXISTING_SOURCE" ]; then
+    printf '{"sources":[{"id":"%s","local_path":"%s"}]}\\n' "$FAKE_GBRAIN_EXISTING_SOURCE" "$FAKE_GBRAIN_EXISTING_PATH"
+  else
+    echo '{"sources":[]}'
+  fi
   exit 0`
           : behavior === "engine-locked"
             ? `  echo "gbrain sources: connect timed out (default 10000ms; pass --timeout=Ns to override)." >&2
@@ -85,10 +93,12 @@ function makeEnv(opts: {
             }
   exit 1`;
     const fake = `#!/bin/sh
+if [ -n "$FAKE_GBRAIN_LOG" ]; then printf '%s\\n' "$*" >> "$FAKE_GBRAIN_LOG"; fi
 if [ "$1" = "--version" ]; then echo "gbrain 0.33.1.0"; exit 0; fi
 if [ "$1 $2" = "sources list" ]; then
 ${sourcesBlock}
 fi
+if [ "$1 $2 $3" = "sync --strategy auto" ]; then exit ${syncExit}; fi
 if [ "$1" = "--help" ]; then echo "  import"; exit 0; fi
 exit 0
 `;
@@ -126,6 +136,7 @@ function runOrchestrator(
       ...process.env,
       HOME: env.home,
       GSTACK_HOME: env.gstackHome,
+      FAKE_GBRAIN_LOG: join(env.tmp, "gbrain.log"),
       PATH: `${env.bindir}:/usr/bin:/bin`,
       ...extraEnv,
     },
@@ -260,6 +271,68 @@ describe("gstack-gbrain-sync — split-engine SKIP (plan D12)", () => {
       expect(r.stdout + r.stderr).not.toContain("local engine no-cli");
       expect(r.stdout + r.stderr).not.toContain("local engine broken-db");
       expect(r.stdout + r.stderr).not.toContain("local engine missing-config");
+    } finally {
+      env.cleanup();
+    }
+  });
+
+  it("executes the exact docs-aware argv without re-registering an ordinary source", () => {
+    const env = makeEnv({ withGbrain: true, gbrainBehavior: "ok", withConfig: true });
+    try {
+      const preview = runOrchestrator(env, ["--dry-run", "--code-only", "--quiet"]);
+      const sourceId = preview.stdout.match(/gbrain sources add (gstack-code-[a-z0-9-]+)/)?.[1];
+      expect(sourceId).toBeTruthy();
+      writeFileSync(join(env.tmp, "gbrain.log"), "");
+
+      const r = runOrchestrator(env, ["--code-only", "--quiet"], {
+        FAKE_GBRAIN_EXISTING_SOURCE: sourceId!,
+        FAKE_GBRAIN_EXISTING_PATH: realpathSync(env.home),
+      });
+      const commands = readFileSync(join(env.tmp, "gbrain.log"), "utf-8").trim().split("\n");
+
+      expect(r.exitCode).toBe(0);
+      expect(commands.some((command) => /^sync --strategy auto --source gstack-code-/.test(command))).toBe(true);
+      expect(commands.some((command) => command.includes("sync --strategy code"))).toBe(false);
+      expect(commands.filter((command) => command.startsWith(`sources remove ${sourceId} `))).toEqual([]);
+      expect(commands.filter((command) => command.startsWith(`sources add ${sourceId} `))).toEqual([]);
+    } finally {
+      env.cleanup();
+    }
+  });
+
+  it("runs full mode as auto sync, then code reindex, then attach", () => {
+    const env = makeEnv({ withGbrain: true, gbrainBehavior: "ok", withConfig: true });
+    try {
+      const r = runOrchestrator(env, ["--full", "--code-only", "--no-dream"]);
+      const commands = readFileSync(join(env.tmp, "gbrain.log"), "utf-8").trim().split("\n");
+      const syncIndex = commands.findIndex((command) => /^sync --strategy auto --source gstack-code-/.test(command));
+      const reindexIndex = commands.findIndex((command) => /^reindex-code --source gstack-code-.* --yes$/.test(command));
+      const attachIndex = commands.findIndex((command) => /^sources attach gstack-code-/.test(command));
+
+      expect(r.exitCode).toBe(0);
+      expect(syncIndex).toBeGreaterThanOrEqual(0);
+      expect(reindexIndex).toBeGreaterThan(syncIndex);
+      expect(attachIndex).toBeGreaterThan(reindexIndex);
+    } finally {
+      env.cleanup();
+    }
+  });
+
+  it("does not reindex or attach when the docs-aware sync fails", () => {
+    const env = makeEnv({
+      withGbrain: true,
+      gbrainBehavior: "ok",
+      withConfig: true,
+      syncExit: 17,
+    });
+    try {
+      const r = runOrchestrator(env, ["--full", "--code-only", "--no-dream"]);
+      const commands = readFileSync(join(env.tmp, "gbrain.log"), "utf-8").trim().split("\n");
+
+      expect(r.stdout + r.stderr).toContain("gbrain sync --strategy auto");
+      expect(r.stdout + r.stderr).toContain("exited 17");
+      expect(commands.some((command) => command.startsWith("reindex-code "))).toBe(false);
+      expect(commands.some((command) => command.startsWith("sources attach "))).toBe(false);
     } finally {
       env.cleanup();
     }

@@ -121,26 +121,26 @@ Storage: `~/.gstack/gbrain-repo-policy.json`, mode 0600, schema-versioned so fut
 
 ## Keeping the brain current with `/sync-gbrain`
 
-`/setup-gbrain` is one-time onboarding. `/sync-gbrain` is the verb you run every time you want gbrain to see fresh changes in this repo's code.
+`/setup-gbrain` is one-time onboarding. `/sync-gbrain` is the verb you run every time you want gbrain to see fresh changes in this repository.
 
 ```bash
 /sync-gbrain                # incremental: mtime fast-path, ~seconds on a clean tree
-/sync-gbrain --full         # full reindex (~25-35 minutes on a big Mac)
-/sync-gbrain --code-only    # only the code stage; skip memory + brain-sync
+/sync-gbrain --full         # auto repository sync + full code reindex (~25-35 min)
+/sync-gbrain --code-only    # only repository sync; legacy name, skips other stages
 /sync-gbrain --dry-run      # preview what would sync; no writes
 ```
 
-The skill runs three stages — code, memory, brain-sync — independently. A failure in one doesn't block the others. State persists to `~/.gstack/.gbrain-sync-state.json` so re-running picks up cleanly.
+The skill runs three stages — repository, memory, brain-sync — independently. A failure in one doesn't block the others. State persists to `~/.gstack/.gbrain-sync-state.json` so re-running picks up cleanly.
 
 **What it does on a fresh worktree:**
 
-1. **Pre-flight.** Checks `gbrain_local_status` (the local engine's health). If the engine is `broken-db` or `broken-config`, the skill STOPs with a remediation menu — it refuses to silently degrade. If the local engine is missing and you're in remote-MCP mode (Path 4), the code stage SKIPs cleanly and only brain-sync runs.
-2. **Code stage.** Registers the cwd as a federated source via `gbrain sources add`, writes a `.gbrain-source` pin file in the repo root (kubectl-style context — every worktree gets its own pin, so Conductor sibling worktrees don't collide), runs `gbrain sync --strategy code`.
+1. **Pre-flight.** Checks `gbrain_local_status` (the local engine's health). If the engine is `broken-db` or `broken-config`, the skill STOPs with a remediation menu — it refuses to silently degrade. If the local engine is missing and you're in remote-MCP mode (Path 4), the repository stage SKIPs cleanly and only brain-sync runs.
+2. **Repository stage.** Registers the cwd as a federated source via `gbrain sources add`, writes a `.gbrain-source` pin file in the repo root (kubectl-style context — every worktree gets its own pin, so Conductor sibling worktrees don't collide), then runs `gbrain sync --strategy auto`. GBrain admits eligible Markdown and code when they are new or changed, plus images when its existing multimodal setting is enabled. The legacy `--code-only` and `--no-code` option names are retained for compatibility. `--full` keeps the same auto walk first and then runs `gbrain reindex-code`; that second phase only reindexes code and does not backfill unchanged historical Markdown.
 3. **Memory stage.** Stages your `~/.gstack/` transcripts + curated memory. In local-stdio MCP mode, ingests into the local engine. In remote-http MCP mode, persists staged markdown to `~/.gstack/transcripts/run-<pid>-<ts>/` for the remote brain admin's pull pipeline. The ingest timeout is 30 minutes by default; raise it for a big brain with `GSTACK_INGEST_TIMEOUT_MS` (accepts 1 min–24h). On timeout the gbrain import checkpoint is preserved, so the next `/sync-gbrain` resumes instead of starting over.
 4. **Brain-sync stage.** Pushes curated artifacts (plans, designs, retros) to your private artifacts repo if you have one configured.
 5. **CLAUDE.md guidance.** Capability-checks the round-trip (write a page → search → find it). If green, writes the `## GBrain Search Guidance` block to your project's CLAUDE.md. If red, REMOVES the block — the agent should never be told to use a tool that isn't installed.
 
-**The watermark.** Sync state advances by commit hash. If gbrain hits a file it can't index (5 MB hard limit per file, or a file vanished mid-sync), the watermark stays put and subsequent syncs retry. To acknowledge an unfixable failure and move past it:
+**The watermark.** Sync state advances by commit hash. Existing sources do not automatically revisit unchanged historical Markdown just because gstack now selects the auto strategy; edit the file (or use a future upstream backfill facility) to make it eligible again. If gbrain hits a file it can't index (5 MB hard limit per file, or a file vanished mid-sync), the watermark stays put and subsequent syncs retry. To acknowledge an unfixable failure and move past it:
 
 ```bash
 gbrain sync --source <source-id> --skip-failed
@@ -348,7 +348,7 @@ Embeddings probably failed during import. Symbol queries (`code-def`, `code-refs
 [gbrain] embedding failed for code file <name>: OpenAI embedding requires OPENAI_API_KEY
 ```
 
-The fix is to put a provider API key in the process env before re-running. `VOYAGE_API_KEY` is preferred for code (gstack defaults PGLite to `voyage-code-3` when set); otherwise `OPENAI_API_KEY` falls back to `text-embedding-3-large`. On a bare Mac shell, source the key from `~/.zshrc` before calling. In Conductor, the `lib/conductor-env-shim.ts` shim promotes `GSTACK_ANTHROPIC_API_KEY` / `GSTACK_OPENAI_API_KEY` to their canonical names automatically; for `VOYAGE_API_KEY`, set it directly in your Conductor workspace env. Re-run `/sync-gbrain --code-only` to backfill embeddings on already-imported pages.
+The fix is to put a provider API key in the process env before re-running. `VOYAGE_API_KEY` is preferred for code (gstack defaults PGLite to `voyage-code-3` when set); otherwise `OPENAI_API_KEY` falls back to `text-embedding-3-large`. On a bare Mac shell, source the key from `~/.zshrc` before calling. In Conductor, the `lib/conductor-env-shim.ts` shim promotes `GSTACK_ANTHROPIC_API_KEY` / `GSTACK_OPENAI_API_KEY` to their canonical names automatically; for `VOYAGE_API_KEY`, set it directly in your Conductor workspace env. Re-run `/sync-gbrain --full --code-only` to re-embed already-imported code pages.
 
 ### `gbrain sync` blocked at a commit hash — `FILE_TOO_LARGE`
 

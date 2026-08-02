@@ -2,7 +2,7 @@
 name: sync-gbrain
 preamble-tier: 2
 version: 1.0.0
-description: Keep gbrain current with this repo's code and refresh agent search guidance in CLAUDE.md. Wraps the gstack-gbrain-sync orchestrator with state (gstack)
+description: Sync this repository's changed Markdown and code into gbrain. (gstack)
 triggers:
   - sync gbrain
   - refresh gbrain
@@ -23,7 +23,8 @@ allowed-tools:
 
 ## When to invoke this skill
 
-probing, native code-surface registration, capability checks,
+Refresh agent search guidance in CLAUDE.md through the gstack-gbrain-sync
+orchestrator with state probing, native repository-source registration, capability checks,
 and a verdict block. Re-runnable, idempotent. Use when: "sync gbrain",
 "refresh gbrain", "re-index this repo", "gbrain search isn't finding
 things".
@@ -788,10 +789,12 @@ refreshed against this repo's current state, and refreshes the agent-side
 guidance in CLAUDE.md so the coding agent knows when to prefer `gbrain`
 search over Grep.
 
-**Architecture (post-codex review):** This skill uses gbrain v0.20.0+'s
-**native code surfaces** (`gbrain sources add`, `gbrain sync --strategy code`,
+**Architecture (post-codex review):** This skill uses gbrain's native source
+surfaces (`gbrain sources add`, `gbrain sync --strategy auto`,
 `gbrain reindex-code`, `gbrain code-def/code-refs/code-callers/code-callees`).
-It does NOT use `gbrain import` (that path is for markdown directories).
+The automatic walk admits eligible changed Markdown and code, plus images when
+GBrain's existing multimodal setting is enabled. It does NOT route the entire
+repository through `gbrain import`.
 It does NOT touch `~/.gstack/` indexing (the existing `gstack-gbrain-source-wireup`
 owns that — never double-store).
 
@@ -800,11 +803,11 @@ owns that — never double-store).
 When the user types `/sync-gbrain`, run this skill. Argument modes (parsed by
 the skill itself, not a dispatcher binary):
 
-- `/sync-gbrain` — incremental sync (default; mtime fast-path; ~50ms steady-state)
-- `/sync-gbrain --full` — full code reindex via `gbrain reindex-code` (~25-35 min on a big repo). Auto-builds the call graph (`gbrain dream`) **only when it was never built**.
+- `/sync-gbrain` — incremental repository sync (default; changed Markdown/code, conditional images; mtime fast-path; ~50ms steady-state)
+- `/sync-gbrain --full` — run the same automatic repository walk, then a full code reindex via `gbrain reindex-code` (~25-35 min on a big repo). This does not backfill unchanged historical Markdown. Auto-builds the call graph (`gbrain dream`) **only when it was never built**.
 - `/sync-gbrain --dream` — build this source's call graph (`gbrain code-callers`/`code-callees`) via a source-scoped `gbrain dream --source <id>` cycle; ~minutes; runs lock-free after the sync stages. Always forces, even if already built. Only produces a graph on a code-aware schema pack; otherwise the run reports a WARN explaining why the graph is still empty.
 - `/sync-gbrain --no-dream` — skip the dream cycle that `--full` would otherwise auto-run.
-- `/sync-gbrain --code-only` — only run the code stage; skip memory + brain-sync
+- `/sync-gbrain --code-only` — only run the repository stage; skip memory + brain-sync (legacy flag name retained for compatibility)
 - `/sync-gbrain --dry-run` — preview what would sync; no writes anywhere
 - `/sync-gbrain --no-memory` / `--no-brain-sync` — selectively skip stages
 - `/sync-gbrain --quiet` — suppress per-stage output
@@ -860,7 +863,7 @@ If `_POLICY == "unset"` AND `_HASH == "local"`, auto-set personal:
 ~/.claude/skills/gstack/bin/gstack-config set brain_trust_policy@$_HASH personal
 ```
 
-**Split-engine model (v1.34.0.0+).** Code stage runs locally against the
+**Split-engine model (v1.34.0.0+).** Repository stage runs locally against the
 per-machine gbrain engine (PGLite or whatever `gbrain config` points to),
 with each worktree of a repo registered as its own source. **Memory stage
 also runs locally** in local-stdio MCP mode — `gstack-memory-ingest` shells
@@ -871,8 +874,9 @@ the brain admin's pull job (plan D11). Brain-sync (the `gstack-brain-sync`
 push to git) is the one stage that never touches local engine and runs
 regardless of mode.
 
-Practically: local PGLite stays code-only on remote-http machines; the
-remote brain holds everything else. Local-stdio machines mix code +
+Practically: local PGLite holds the worktree's repository source (changed
+Markdown/code and conditional images) on remote-http machines; the remote
+brain holds everything else. Local-stdio machines mix repository contents +
 transcripts in one local engine, as they always have.
 
 Also check the per-repo trust policy. If `gstack-gbrain-repo-policy get` for
@@ -905,7 +909,7 @@ BEFORE invoking the orchestrator:
   'Yes' at the new 'local code index' prompt (Step 4.5), or run
   `gbrain init --pglite --json --embedding-model voyage:voyage-code-3 --embedding-dimensions 1024`
   directly (drop the voyage flags if `VOYAGE_API_KEY` isn't set). Continuing
-  without code stage."
+  without repository stage."
   Then proceed to Step 2 — the orchestrator's `runCodeImport()` and
   `runMemoryIngest()` will return SKIP per plan D12; only `runBrainSyncPush()`
   will run. Do NOT abort.
@@ -941,7 +945,7 @@ as-is.
 bun run ~/.claude/skills/gstack/bin/gstack-gbrain-sync.ts <user-args>
 ```
 
-The orchestrator runs three stages: code → memory → brain-sync (per the
+The orchestrator runs three stages: repository → memory → brain-sync (per the
 plan's storage tiering). Each stage failure is non-fatal; subsequent stages
 still run. State is persisted to `~/.gstack/.gbrain-sync-state.json` via
 tmp-file + atomic rename. Concurrent runs are blocked by a lock file at
@@ -949,7 +953,7 @@ tmp-file + atomic rename. Concurrent runs are blocked by a lock file at
 
 ---
 
-## Step 3: Code-index health check
+## Step 3: Repository-index health check
 
 After the sync run, query gbrain for the cwd source's page_count:
 
@@ -965,11 +969,13 @@ echo "cwd source: $SOURCE_ID, page_count: $PAGES"
 If `PAGES` is 0 or empty AND the user did NOT pass `--no-code` AND mode was
 not `--full`, AskUserQuestion via the format in the preamble:
 
-> D1 — This repo has 0 indexed pages in gbrain. Run a full code reindex now?
+> D1 — This repo has 0 indexed pages in gbrain. Run repository sync + full code reindex now?
 >
-> ELI10: gbrain hasn't indexed this repo's code yet. The semantic search
+> ELI10: gbrain hasn't indexed this repository yet. The semantic search
 > tools (`gbrain search`, `code-def`, `code-refs`) will return nothing
-> until we run a full pass. Takes ~25-35 minutes on a big Mac.
+> until it has pages. The auto pass admits eligible new/changed Markdown and
+> code; the second pass reindexes code. It does not backfill unchanged
+> historical Markdown. Takes ~25-35 minutes on a big Mac.
 >
 > Recommendation: A — the brain is unusable for code search until indexed,
 > and Step 2 of this skill already verified gbrain is configured correctly.
@@ -1102,14 +1108,14 @@ GBrain is set up and synced on this machine. The agent should prefer gbrain
 over Grep when the question is semantic or when you don't know the exact
 identifier yet.
 
-**This worktree is pinned to a worktree-scoped code source** via the
+**This worktree is pinned to a worktree-scoped repository source** via the
 `.gbrain-source` file in the repo root (kubectl-style context).
 `gbrain code-def`, `code-refs`, `code-callers`, `code-callees`, `search`, and
 `query` from anywhere under this worktree route to that source by default —
 no `--source` flag needed (gbrain >= 0.41.38.0; on older gbrain the call-graph
 commands need `--source "$(cat .gbrain-source)"`). Conductor sibling worktrees
 of the same repo each have their own pin and their own indexed pages, so
-semantic results match the code on disk here.
+semantic results match the repository files on disk here.
 
 Call-graph queries (`code-callers`/`code-callees`) also need the graph to be
 built first — run `/sync-gbrain --dream` (or `--full`) if they return
@@ -1118,7 +1124,8 @@ symbols; on a non-code-aware pack `--dream` completes but the graph stays empty
 and reports a WARN. `code-def`/`code-refs` need the same extraction.
 
 Two indexed corpora available via the `gbrain` CLI:
-- This worktree's code (auto-pinned via `.gbrain-source`).
+- This worktree's Markdown and code (plus images when multimodal sync is
+  enabled), auto-pinned via `.gbrain-source`.
 - `~/.gstack/` curated memory (registered as `gstack-brain-<user>` source via
   the existing federation pipeline).
 
@@ -1133,15 +1140,15 @@ Prefer gbrain when:
     `gbrain search "<terms>" --source gstack-brain-<user>`
 
 Grep is still right for known exact strings, regex, multiline patterns, and
-file globs. Run `/sync-gbrain` after meaningful code changes; for ongoing
-auto-sync across all worktrees, run `gbrain autopilot --install` once per
-machine — gbrain's daemon handles incremental refresh on a schedule.
+file globs. Run `/sync-gbrain` after meaningful documentation or code changes;
+for ongoing auto-sync across all worktrees, run `gbrain autopilot --install`
+once per machine — gbrain's daemon handles incremental refresh on a schedule.
 
 Safety: don't run `/sync-gbrain` while `gbrain autopilot` is active — the
 orchestrator refuses destructive source ops when it detects a running autopilot
 to avoid racing it (#1734). Prefer registering user repos with `gbrain sources
 add --path <dir>` (no `--url`): URL-managed sources can auto-reclone, and the
-sync code walk for them requires an explicit `--allow-reclone` opt-in.
+repository sync for them requires an explicit `--allow-reclone` opt-in.
 
 <!-- gstack-gbrain-search-guidance:end -->
 ```
