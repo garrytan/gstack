@@ -680,7 +680,7 @@ describe('setup portable root registration (#1882)', () => {
     expect(fs.existsSync(lock)).toBe(false);
   });
 
-  test('connect-chrome resolves directly into a renamed runtime', () => {
+  test('connect-chrome is an owned alias into a renamed runtime', () => {
     const home = tempDir('gstack-setup-connect-chrome-');
     const source = path.join(home, '.claude', 'skills', 'renamed gstack');
     const skills = path.dirname(source);
@@ -688,12 +688,32 @@ describe('setup portable root registration (#1882)', () => {
     fs.mkdirSync(browserSkill, { recursive: true });
     fs.writeFileSync(path.join(browserSkill, 'SKILL.md'), 'browser\n');
 
-    const script = `set -e\nIS_WINDOWS=0\nSKILL_PREFIX=0\n${extractSetupFunction('_link_or_copy')}\n${extractSetupFunction('link_claude_connect_chrome_alias')}\nlink_claude_connect_chrome_alias "${source}" "${skills}"\n`;
+    const script = `set -e\nIS_WINDOWS=0\nSKILL_PREFIX=0\n${extractSetupFunction('_claude_legacy_windows_skill_copy_owned')}\n${extractSetupFunction('_validate_claude_skill_target')}\n${extractSetupFunction('_link_or_copy')}\n${extractSetupFunction('link_claude_connect_chrome_alias')}\nlink_claude_connect_chrome_alias "${source}" "${skills}"\n`;
     const result = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
     const alias = path.join(skills, 'connect-chrome');
     expect(result.status).toBe(0);
-    expect(fs.realpathSync(alias)).toBe(fs.realpathSync(browserSkill));
+    expect(fs.lstatSync(alias).isSymbolicLink()).toBe(false);
+    expect(fs.realpathSync(path.join(alias, 'SKILL.md'))).toBe(fs.realpathSync(path.join(browserSkill, 'SKILL.md')));
     expect(fs.readFileSync(path.join(alias, 'SKILL.md'), 'utf8')).toBe('browser\n');
+    expect(fs.readFileSync(path.join(alias, '.gstack-managed-root'), 'utf8')).toBe(`${source}\n`);
+  });
+
+  test('Windows connect-chrome copy carries the same ownership marker', () => {
+    const home = tempDir('gstack-setup-connect-chrome-windows-');
+    const source = path.join(home, 'source checkout');
+    const skills = path.join(home, '.claude', 'skills');
+    const browserSkill = path.join(source, 'open-gstack-browser');
+    fs.mkdirSync(browserSkill, { recursive: true });
+    fs.mkdirSync(skills, { recursive: true });
+    fs.writeFileSync(path.join(browserSkill, 'SKILL.md'), 'browser\n');
+
+    const script = `set -e\nIS_WINDOWS=1\nSKILL_PREFIX=1\n${extractSetupFunction('_claude_legacy_windows_skill_copy_owned')}\n${extractSetupFunction('_validate_claude_skill_target')}\n${extractSetupFunction('_link_or_copy')}\n${extractSetupFunction('link_claude_connect_chrome_alias')}\nlink_claude_connect_chrome_alias "${source}" "${skills}"\n`;
+    const result = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
+    const alias = path.join(skills, 'gstack-connect-chrome');
+    expect(result.status).toBe(0);
+    expect(fs.lstatSync(path.join(alias, 'SKILL.md')).isSymbolicLink()).toBe(false);
+    expect(fs.readFileSync(path.join(alias, 'SKILL.md'), 'utf8')).toBe('browser\n');
+    expect(fs.readFileSync(path.join(alias, '.gstack-managed-root'), 'utf8')).toBe(`${source}\n`);
   });
 
   test('prefix cleanup rejects a foreign legacy-looking target before mutation', () => {

@@ -914,13 +914,29 @@ cleanup_prefixed_claude_symlinks() {
 link_claude_connect_chrome_alias() {
   local source_dir="$1"
   local skills_dir="$2"
+  local source_skill="$source_dir/open-gstack-browser/SKILL.md"
   local target="$skills_dir/connect-chrome"
   if [ "$SKILL_PREFIX" -eq 1 ]; then
     target="$skills_dir/gstack-connect-chrome"
   fi
-  if [ -L "$target" ] || [ ! -e "$target" ]; then
-    _link_or_copy "$source_dir/open-gstack-browser" "$target"
+
+  [ -f "$source_skill" ] || return 0
+  _validate_claude_skill_target "$source_dir" "$source_skill" "$target" || return 1
+  if [ -L "$target" ]; then
+    rm -f "$target"
   fi
+  mkdir -p "$target"
+  if [ -e "$target/SKILL.md" ] || [ -L "$target/SKILL.md" ]; then
+    rm -f "$target/SKILL.md"
+  fi
+  _link_or_copy "$source_skill" "$target/SKILL.md"
+  if [ -d "$source_dir/open-gstack-browser/sections" ]; then
+    if [ -e "$target/sections" ] || [ -L "$target/sections" ]; then
+      rm -rf "$target/sections"
+    fi
+    _link_or_copy "$source_dir/open-gstack-browser/sections" "$target/sections"
+  fi
+  printf '%s\n' "$source_dir" > "$target/.gstack-managed-root"
 }
 
 _acquire_claude_registration_lock() {

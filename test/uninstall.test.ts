@@ -181,6 +181,10 @@ describe('gstack-uninstall', () => {
       fs.mkdirSync(managedAlias, { recursive: true });
       fs.writeFileSync(path.join(managedAlias, '.gstack-managed-root'), `${portable}\n`);
       fs.writeFileSync(path.join(managedAlias, 'SKILL.md'), 'managed\n');
+      const connectChromeAlias = path.join(skills, 'gstack-connect-chrome');
+      fs.mkdirSync(connectChromeAlias, { recursive: true });
+      fs.writeFileSync(path.join(connectChromeAlias, '.gstack-managed-root'), `${portable}\n`);
+      fs.writeFileSync(path.join(connectChromeAlias, 'SKILL.md'), 'managed\n');
 
       const sidecar = path.join(skills, 'gstack');
       fs.mkdirSync(sidecar, { recursive: true });
@@ -195,6 +199,7 @@ describe('gstack-uninstall', () => {
       expect(result.status).toBe(0);
       expect(fs.existsSync(path.join(skills, '.gstack-root'))).toBe(false);
       expect(fs.existsSync(managedAlias)).toBe(false);
+      expect(fs.existsSync(connectChromeAlias)).toBe(false);
       expect(fs.existsSync(sidecar)).toBe(false);
       expect(fs.existsSync(portable)).toBe(false);
       expect(fs.existsSync(path.join(skills, 'other-tool'))).toBe(true);
@@ -256,6 +261,7 @@ describe('gstack-uninstall', () => {
       const canonical = path.join(skills, 'gstack');
       const source = path.join(tmpDir, 'source checkout');
       const alias = path.join(skills, 'gstack-review');
+      const connectChromeAlias = path.join(skills, 'gstack-connect-chrome');
       const hookLog = path.join(mockHome, 'windows-hook-cleanup.log');
       fs.mkdirSync(source, { recursive: true });
       fs.mkdirSync(path.join(canonical, 'bin'), { recursive: true });
@@ -271,6 +277,9 @@ describe('gstack-uninstall', () => {
       fs.mkdirSync(alias, { recursive: true });
       fs.writeFileSync(path.join(alias, '.gstack-managed-root'), `${source}\n`);
       fs.writeFileSync(path.join(alias, 'SKILL.md'), 'managed\n');
+      fs.mkdirSync(connectChromeAlias, { recursive: true });
+      fs.writeFileSync(path.join(connectChromeAlias, '.gstack-managed-root'), `${source}\n`);
+      fs.writeFileSync(path.join(connectChromeAlias, 'SKILL.md'), 'managed\n');
 
       const result = spawnSync('bash', [path.join(canonical, 'bin', 'gstack-uninstall'), '--force', '--keep-state'], {
         stdio: 'pipe',
@@ -281,6 +290,7 @@ describe('gstack-uninstall', () => {
       expect(result.status).toBe(0);
       expect(fs.existsSync(canonical)).toBe(false);
       expect(fs.existsSync(alias)).toBe(false);
+      expect(fs.existsSync(connectChromeAlias)).toBe(false);
       expect(fs.existsSync(path.join(skills, '.gstack-root'))).toBe(false);
       expect(fs.readFileSync(hookLog, 'utf8')).toContain('remove ');
       expect(fs.readFileSync(hookLog, 'utf8')).toContain('remove-source --source plan-tune-cathedral');
