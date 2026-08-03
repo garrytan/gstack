@@ -42,6 +42,28 @@ import * as os from 'os';
 
 let warnedOnce = false;
 
+/**
+ * Resolve an unambiguous icacls principal for the current user.
+ * Bare usernames can resolve to the machine account when the hostname
+ * equals the username (e.g. host CHIRAG, user chirag) — icacls then grants
+ * the machine SID and the real user loses access. Prefer the fully
+ * qualified `DOMAIN\user` env form (always set on Windows); fall back to
+ * the `*S-1-5-21-...` SID form via whoami.
+ */
+function currentUserPrincipal(): string {
+  const domain = process.env.USERDOMAIN;
+  const user = process.env.USERNAME || os.userInfo().username;
+  if (domain && user) return `${domain}\\${user}`;
+  try {
+    const out = execFileSync('whoami', ['/user'], { encoding: 'utf8' });
+    const m = out.match(/S-1-5-21-\d+-\d+-\d+-\d+/);
+    if (m) return `*${m[0]}`;
+  } catch {
+    /* fall through */
+  }
+  return user;
+}
+
 function warnIcaclsFailure(fsPath: string, err: unknown): void {
   if (warnedOnce) return;
   warnedOnce = true;
@@ -67,10 +89,9 @@ function warnIcaclsFailure(fsPath: string, err: unknown): void {
 export function restrictFilePermissions(filePath: string): void {
   if (process.platform === 'win32') {
     try {
-      const user = os.userInfo().username;
       execFileSync(
         'icacls',
-        [filePath, '/inheritance:r', '/grant:r', `${user}:(F)`],
+        [filePath, '/inheritance:r', '/grant:r', `${currentUserPrincipal()}:(F)`],
         { stdio: 'ignore' },
       );
     } catch (err) {
@@ -97,10 +118,9 @@ export function restrictFilePermissions(filePath: string): void {
 export function restrictDirectoryPermissions(dirPath: string): void {
   if (process.platform === 'win32') {
     try {
-      const user = os.userInfo().username;
       execFileSync(
         'icacls',
-        [dirPath, '/inheritance:r', '/grant:r', `${user}:(OI)(CI)(F)`],
+        [dirPath, '/inheritance:r', '/grant:r', `${currentUserPrincipal()}:(OI)(CI)(F)`],
         { stdio: 'ignore' },
       );
     } catch (err) {
