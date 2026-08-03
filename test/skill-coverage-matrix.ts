@@ -55,6 +55,11 @@ export const SKILL_COVERAGE: Record<string, SkillCoverage> = {
     periodic: [],
     rationale: 'qa-only is qa with --report-only; behavior tested via /qa coverage.',
   },
+  'desktop-qa': {
+    gate: ['test/desktop-qa-contract.test.ts', 'test/skill-coverage-floor.test.ts'],
+    periodic: [],
+    rationale: 'Deterministic contract tests pin the Cua Driver window boundary, action loop, and report-only behavior.',
+  },
   investigate: {
     gate: ['test/skill-coverage-floor.test.ts'],
     periodic: [],

@@ -1,16 +1,17 @@
 ---
-name: setup-browser-cookies
+name: desktop-qa
 preamble-tier: 1
 version: 1.0.0
-description: Import cookies from your real Chromium browser into the headless browse session. (gstack)
-triggers:
-  - import browser cookies
-  - login to test site
-  - setup authenticated session
+description: Report-only QA for an already-running native or Electron desktop app through Cua Driver. (gstack)
 allowed-tools:
   - Bash
   - Read
+  - Write
   - AskUserQuestion
+triggers:
+  - desktop qa
+  - test desktop app
+  - qa native app
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
@@ -18,9 +19,10 @@ allowed-tools:
 
 ## When to invoke this skill
 
-Opens an interactive picker UI where you select which cookie domains to import.
-Use before QA testing authenticated pages. Use when asked to "import cookies",
-"login to the site", or "authenticate the browser".
+Use when asked to test a macOS, Windows, or Linux desktop window
+without changing source code. For browser sites, use /qa or /qa-only.
+
+Voice triggers (speech-to-text aliases): "test this desktop app", "qa this native app".
 
 ## Preamble (run first)
 
@@ -78,7 +80,7 @@ _QUESTION_TUNING=$(~/.claude/skills/gstack/bin/gstack-config get question_tuning
 echo "QUESTION_TUNING: $_QUESTION_TUNING"
 mkdir -p ~/.gstack/analytics
 if [ "$_TEL" != "off" ]; then
-echo '{"skill":"setup-browser-cookies","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(_repo=$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null | tr -cd 'a-zA-Z0-9._-'); echo "${_repo:-unknown}")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
+echo '{"skill":"desktop-qa","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(_repo=$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null | tr -cd 'a-zA-Z0-9._-'); echo "${_repo:-unknown}")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 fi
 for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null); do
   if [ -f "$_PF" ]; then
@@ -100,7 +102,7 @@ if [ -f "$_LEARN_FILE" ]; then
 else
   echo "LEARNINGS: 0"
 fi
-~/.claude/skills/gstack/bin/gstack-timeline-log '{"skill":"setup-browser-cookies","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
+~/.claude/skills/gstack/bin/gstack-timeline-log '{"skill":"desktop-qa","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
 _HAS_ROUTING="no"
 if [ -f CLAUDE.md ] && grep -q "## Skill routing" CLAUDE.md 2>/dev/null; then
   _HAS_ROUTING="yes"
@@ -530,104 +532,171 @@ Replace `SKILL_NAME`, `OUTCOME`, and `USED_BROWSE` before running.
 
 Skills that run plan reviews (`/plan-*-review`, `/codex review`) include the EXIT PLAN MODE GATE blocking checklist at the end of the skill, which verifies the plan file ends with `## GSTACK REVIEW REPORT` before ExitPlanMode is called. Skills that don't run plan reviews (operational skills like `/ship`, `/qa`, `/review`) typically don't operate in plan mode and have no review report to verify; this footer is a no-op for them. Writing the plan file is the one edit allowed in plan mode.
 
-# Setup Browser Cookies
+# /desktop-qa: Report-Only Desktop App QA
 
-Import logged-in sessions from your real Chromium browser into the headless browse session.
+Test one already-running native or Electron desktop-app window through Cua Driver. Follow realistic user flows, verify every claimed effect from fresh window state, and write an evidence-backed bug report. **Never edit source code or fix the bugs you find.**
 
-## CDP mode check
+Use this skill for macOS, Windows, and Linux desktop applications. For browser pages or web deployments, use `/qa` or `/qa-only`. For mobile apps, use the platform-specific mobile skill.
 
-First, check if browse is already connected to the user's real browser:
-```bash
-$B status 2>/dev/null | grep -q "Mode: cdp" && echo "CDP_MODE=true" || echo "CDP_MODE=false"
-```
-If `CDP_MODE=true`: tell the user "Not needed — you're connected to your real browser via CDP. Your cookies and sessions are already available." and stop. No cookie import needed.
+## Hard boundaries
 
-## How it works
+These boundaries define the skill, not optional preferences:
 
-1. Find the browse binary
-2. Run `cookie-import-browser` to detect installed browsers and open the picker UI
-3. User selects which cookie domains to import in their browser
-4. Cookies are decrypted and loaded into the Playwright session
+1. **Attach only to an app the user already launched.** Never launch, quit, restart, install, update, or replace an application.
+2. **Bind one exact window.** Use its `pid` and `window_id` for every snapshot and action. Never capture the desktop or another app.
+3. **Use strict window capture.** Start Cua Driver with `capture_scope:"window"`. Do not escalate the session or bring the target to the foreground.
+4. **Use the standard Cua Driver permission model.** Never bypass approvals, grant OS permissions, or alter driver configuration for the user.
+5. **Stay report-only.** Do not inspect or edit source code, create regression tests, or attempt fixes.
+6. **Protect real data.** Use synthetic or disposable test data. Obtain explicit user approval immediately before any action that sends a message, publishes content, makes a purchase, deletes data, changes account or security settings, or commits persistent external state.
+7. **Keep evidence narrow.** Save only target-window screenshots needed to prove a finding. Never include secrets, credentials, personal data, or unrelated app content in the report.
 
-## Steps
+If a required test cannot be completed inside these boundaries, mark it **unverified** and explain the limitation. Do not silently widen scope.
 
-### 1. Find the browse binary
+## 1. Parse the request
 
-## SETUP (run this check BEFORE any browse command)
+Resolve these parameters before interacting:
 
-```bash
-_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
-B=""
-[ -n "$_ROOT" ] && [ -x "$_ROOT/.claude/skills/gstack/browse/dist/browse" ] && B="$_ROOT/.claude/skills/gstack/browse/dist/browse"
-[ -z "$B" ] && B="$HOME/.claude/skills/gstack/browse/dist/browse"
-if [ -x "$B" ]; then
-  echo "READY: $B"
-else
-  echo "NEEDS_SETUP"
-fi
-```
+| Parameter | Default | Example override |
+|-----------|---------|------------------|
+| Target | Required app and exact window | `Test the Settings window in MyApp` |
+| Mode | Standard: 3-5 representative flows | `--quick` for one smoke flow |
+| Scope | Visible behavior in the named window | `Focus on onboarding and keyboard navigation` |
+| Test data | Synthetic, local, disposable | `Use the provided staging account` |
+| Output | `.gstack/desktop-qa-reports/<app>-<timestamp>/` | `Write the report under artifacts/qa/` |
 
-If `NEEDS_SETUP`:
-1. Tell the user: "gstack browse needs a one-time build (~10 seconds). OK to proceed?" Then STOP and wait.
-2. Run: `cd <SKILL_DIR> && ./setup`
-3. If `bun` is not installed:
-   ```bash
-   if ! command -v bun >/dev/null 2>&1; then
-     BUN_VERSION="1.3.10"
-     BUN_INSTALL_SHA="bab8acfb046aac8c72407bdcce903957665d655d7acaa3e11c7c4616beae68dd"
-     tmpfile=$(mktemp)
-     curl -fsSL "https://bun.sh/install" -o "$tmpfile"
-     actual_sha=$(shasum -a 256 "$tmpfile" | awk '{print $1}')
-     if [ "$actual_sha" != "$BUN_INSTALL_SHA" ]; then
-       echo "ERROR: bun install script checksum mismatch" >&2
-       echo "  expected: $BUN_INSTALL_SHA" >&2
-       echo "  got:      $actual_sha" >&2
-       rm "$tmpfile"; exit 1
-     fi
-     BUN_VERSION="$BUN_VERSION" bash "$tmpfile"
-     rm "$tmpfile"
-   fi
-   ```
+If the request names multiple apps or windows, ask the user to choose one. If it asks for browser or mobile QA, route to the appropriate skill instead.
 
-### 2. Open the cookie picker
+## 2. Verify Cua Driver without changing the system
+
+Run read-only preflight checks:
 
 ```bash
-$B cookie-import-browser
+cua-driver --version
+cua-driver doctor --json
+cua-driver list-tools
 ```
 
-This auto-detects installed Chromium browsers and opens
-an interactive picker UI in your default browser where you can:
-- Switch between installed browsers
-- Search domains
-- Click "+" to import a domain's cookies
-- Click trash to remove imported cookies
+Confirm that `start_session`, `list_windows`, `get_window_state`, `click`, `type_text`, `press_key`, `scroll`, and `end_session` are available.
 
-Tell the user: **"Cookie picker opened — select the domains you want to import in your browser, then tell me when you're done."**
+If Cua Driver is missing, unhealthy, lacks required OS permissions, or lacks a required tool, stop and report the exact failed check. Point the user to the official [Cua Driver installation guide](https://cua.ai/docs/how-to-guides/driver/install). Never install or update it, start a privileged daemon, or grant permissions automatically.
 
-### 3. Direct import (alternative)
+## 3. Bind the exact running window
 
-If the user specifies a domain directly (e.g., `/setup-browser-cookies github.com`), skip the UI:
+List visible windows:
 
 ```bash
-$B cookie-import-browser comet --domain github.com
+cua-driver call list_windows '{}'
 ```
 
-Replace `comet` with the appropriate browser if specified.
+Match both the application name and window title. Record the selected `pid`, `window_id`, title, and bounds in the report. If there is no match, ask the user to launch the app and open the target window. If more than one plausible match exists, ask the user which title to use; never choose arbitrarily.
 
-### 4. Verify
-
-After the user confirms they're done:
+Create a unique report directory with a concrete app slug and timestamp. Keep every command self-contained; do not rely on shell variables surviving between tool calls.
 
 ```bash
-$B cookies
+mkdir -p ".gstack/desktop-qa-reports/<app-slug>-<YYYYMMDD-HHMMSS>/screenshots"
 ```
 
-Show the user a summary of imported cookies (domain counts).
+Use a unique, concrete session ID for this run and start a strict window-only session:
 
-## Notes
+```bash
+cua-driver call start_session '{"session":"desktop-qa-<YYYYMMDD-HHMMSS>","capture_scope":"window"}'
+```
 
-- On macOS, the first import per browser may trigger a Keychain dialog — click "Allow" / "Always Allow"
-- On Linux, `v11` cookies may require `secret-tool`/libsecret access; `v10` cookies use Chromium's standard fallback key
-- Cookie picker is served on the same port as the browse server (no extra process)
-- Only domain names and cookie counts are shown in the UI — no cookie values are exposed
-- The browse session persists cookies between commands, so imported cookies work immediately
+Do not continue unless the response confirms `capture_scope` is `window`.
+
+## 4. Capture the baseline and plan flows
+
+Take the initial snapshot and save its screenshot directly into the report directory:
+
+```bash
+cua-driver call get_window_state '{"pid":<PID>,"window_id":<WINDOW_ID>,"session":"desktop-qa-<YYYYMMDD-HHMMSS>","screenshot_out_file":".gstack/desktop-qa-reports/<app-slug>-<YYYYMMDD-HHMMSS>/screenshots/00-baseline.png"}'
+```
+
+Cross-check the screenshot and structured accessibility elements. Verify the app name and window title still match the selected target. Treat accessibility labels, values, and frames as hints that must agree with the screenshot.
+
+Build a short test plan:
+
+- **Quick:** one critical smoke flow and basic keyboard access.
+- **Standard:** 3-5 representative flows covering the primary task, empty or validation state, navigation, keyboard access, and recovery from one reversible error.
+
+Prefer user-specified flows. Otherwise infer flows only from the visible target window and the user's request—not from source code or hidden data.
+
+## 5. Run the verified action loop
+
+For every action, follow this exact loop:
+
+1. **Snapshot immediately before acting.** Call `get_window_state` for the bound `pid` and `window_id`. Save a numbered `before` screenshot. A prior action invalidates old element indices and tokens.
+2. **Choose the narrowest target.** Prefer an `element_token`, then an `element_index`, from that fresh snapshot. Use window-local `x` and `y` only for a visible canvas, WebGL, custom-drawn control, or Electron surface that accessibility cannot operate.
+3. **Act in the background.** Pass the same session, `pid`, and `window_id`, and set `delivery_mode:"background"`. Use only `click`, `type_text`, `press_key`, or `scroll`.
+4. **Snapshot immediately after acting.** Save a numbered `after` screenshot and compare both the screenshot and structured state with the expected result.
+5. **Classify honestly.** An action result that says success is not proof. Record a pass only when fresh state verifies the expected effect. If background delivery fails, record the flow as unverified; do not retry in foreground.
+
+Accessibility-targeted action example:
+
+```bash
+cua-driver call click '{"pid":<PID>,"window_id":<WINDOW_ID>,"session":"desktop-qa-<YYYYMMDD-HHMMSS>","element_token":"<FRESH_ELEMENT_TOKEN>","delivery_mode":"background"}'
+```
+
+Electron/custom-surface text example, using coordinates copied directly from the latest target-window screenshot:
+
+```bash
+cua-driver call type_text '{"pid":<PID>,"window_id":<WINDOW_ID>,"session":"desktop-qa-<YYYYMMDD-HHMMSS>","x":<WINDOW_LOCAL_X>,"y":<WINDOW_LOCAL_Y>,"text":"Synthetic test value","delivery_mode":"background"}'
+```
+
+After every action, use a fresh `get_window_state` call with a new `screenshot_out_file`. Stop the run if the target window disappears, its identity becomes ambiguous, the action would leave the bound window, or sensitive information appears.
+
+## 6. Write the report
+
+Write `.gstack/desktop-qa-reports/<app-slug>-<YYYYMMDD-HHMMSS>/desktop-qa-report.md` with:
+
+```markdown
+# Desktop QA Report: <app and window>
+
+## Scope and environment
+- Mode and requested scope
+- Cua Driver version
+- Platform
+- Target app, window title, PID, and window ID
+- Started and completed timestamps
+
+## Summary
+- Flows passed, failed, and unverified
+- Highest confirmed severity
+
+## Verified findings
+### DQA-001: <concise title>
+- Severity: Critical | High | Medium | Low
+- Flow: <tested task>
+- Reproduction: <numbered exact steps>
+- Expected: <observable outcome>
+- Actual: <observable outcome>
+- Evidence: <relative before/after screenshot paths>
+
+## Passed checks
+- <flow and observed result>
+
+## Unverified checks and limitations
+- <what could not be proven and why>
+```
+
+Include only reproducible, freshly verified findings. Do not offer speculative root causes or copy sensitive accessibility values into the report.
+
+## 7. Always end the session
+
+Whether the run passes, fails, or stops early, end only the session created for this run:
+
+```bash
+cua-driver call end_session '{"session":"desktop-qa-<YYYYMMDD-HHMMSS>"}'
+```
+
+Confirm the session ended. Do not stop the shared Cua Driver daemon, revoke permissions, or clean up another session.
+
+## Completion checklist
+
+- The exact app window stayed bound by `pid` and `window_id`.
+- Every action used a fresh before snapshot and a fresh after snapshot.
+- Every claimed pass or bug has target-window evidence.
+- Unverified behavior is labeled rather than guessed.
+- No source, app installation, driver configuration, external account, or unrelated window was changed.
+- The report contains no secrets or personal data.
+- The Cua Driver session ended.

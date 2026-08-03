@@ -73,6 +73,11 @@
       "routing": "Standalone design exploration you can\nrun anytime. Use when: \"explore designs\", \"show me options\", \"design variants\",\n\"visual brainstorm\", or \"I don't like how this looks\".\nProactively suggest when the user describes a UI feature but hasn't seen\nwhat it could look like.",
       "voice_line": null
     },
+    "desktop-qa": {
+      "lead": "Report-only QA for an already-running native or Electron desktop app through Cua Driver.",
+      "routing": "Use when asked to test a macOS, Windows, or Linux desktop window\nwithout changing source code. For browser sites, use /qa or /qa-only.",
+      "voice_line": "Voice triggers (speech-to-text aliases): \"test this desktop app\", \"qa this native app\"."
+    },
     "devex-review": {
       "lead": "Live developer experience audit.",
       "routing": "Uses the browse tool to actually TEST the\ndeveloper experience: navigates docs, tries the getting started flow, times\nTTHW, screenshots error messages, evaluates CLI help text. Produces a DX\nscorecard with evidence. Compares against /plan-devex-review scores if they\nexist (the boomerang: plan said 3 minutes, reality says 8). Use when asked to\n\"test the DX\", \"DX audit\", \"developer experience test\", or \"try the\nonboarding\". Proactively suggest after shipping a developer-facing feature.",

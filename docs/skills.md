@@ -17,6 +17,7 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | [`/design-html`](#design-html) | **Design Engineer** | Generates production-quality Pretext-native HTML. Works with approved mockups, CEO plans, design reviews, or from scratch. Text reflows on resize, heights adjust to content. Smart API routing per design type. Framework detection for React/Svelte/Vue. |
 | [`/qa`](#qa) | **QA Lead** | Test your app, find bugs, fix them with atomic commits, re-verify. Auto-generates regression tests for every fix. |
 | [`/qa-only`](#qa) | **QA Reporter** | Same methodology as /qa but report only. Use when you want a pure bug report without code changes. |
+| [`/desktop-qa`](#desktop-qa) | **Desktop QA Reporter** | Report-only testing of one already-running native or Electron app window through Cua Driver. |
 | [`/scrape`](#scrape) | **Browser Data Extractor** | Pull data from a web page. First call prototypes via `$B`; subsequent calls on a matching intent run a codified browser-skill in ~200ms. |
 | [`/skillify`](#skillify) | **Skill Codifier** | Walks back through your conversation, finds the last `/scrape` prototype, synthesizes script + test + fixture, runs the test, asks before committing. |
 | [`/ship`](#ship) | **Release Engineer** | Sync main, run tests, audit coverage, push, open PR. Bootstraps test frameworks if you don't have one. One command. |
@@ -632,6 +633,16 @@ Claude: [Explores 12 pages, fills 3 forms, tests 2 flows]
 ```
 
 **Testing authenticated pages:** Use `/setup-browser-cookies` first to import your real browser sessions, then `/qa` can test pages behind login.
+
+---
+
+## `/desktop-qa`
+
+`/desktop-qa` gives gstack a narrow, report-only path for native and Electron desktop applications. It attaches to one app window the user has already launched, exercises representative flows through [Cua Driver](https://cua.ai/docs/how-to-guides/driver/install), and saves verified before/after evidence under `.gstack/desktop-qa-reports/`.
+
+The skill deliberately stays inside a strict window boundary: it does not capture the desktop, launch or quit apps, foreground windows, install or update Cua Driver, grant permissions, edit source, or fix findings. Every action is preceded and followed by a fresh window snapshot; behavior that cannot be verified in background mode is reported as unverified rather than widening permissions.
+
+Use `/desktop-qa --quick` for one critical smoke flow or `/desktop-qa` for 3-5 representative flows. Use synthetic or disposable data, and expect an explicit confirmation before any action that could publish, purchase, delete, send, change account settings, or persist external state. Browser QA remains under `/qa` and `/qa-only`; mobile QA remains under the platform-specific mobile skills.
 
 ---
 

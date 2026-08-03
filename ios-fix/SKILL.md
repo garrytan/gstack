@@ -288,6 +288,7 @@ Key routing rules:
 - Full review pipeline → invoke /autoplan
 - Bugs/errors → invoke /investigate
 - QA/testing site behavior → invoke /qa or /qa-only
+- QA/testing an already-running native or Electron desktop app → invoke /desktop-qa
 - Code review/diff check → invoke /review
 - Visual polish → invoke /design-review
 - Ship/deploy/PR → invoke /ship or /land-and-deploy
