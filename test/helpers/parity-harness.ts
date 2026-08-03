@@ -234,7 +234,10 @@ const MONOLITH_INVARIANTS: ParityInvariant[] = [
     // cross-session decision-memory nudge) lands this skill just over the strict 1.05;
     // headroom for the shared preamble additions (matches the carved-skill overrides).
     // v1.2.0 activation lift adds the first-run-guidance section on top.
-    maxSizeRatio: 1.09,
+    // The AUQ option-marker rule (numbers, matching the picker's own ordering)
+    // is another shared-preamble addition in the same vein — ~0.3KB, and this
+    // skill sat ~100 bytes under the 1.09 line, so it trips first again.
+    maxSizeRatio: 1.1,
     minBytes: 30_000,
   },
   {

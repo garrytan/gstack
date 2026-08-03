@@ -78,10 +78,10 @@ For each option Eₖ, fire an AskUserQuestion with:
 - ELI10 of just this option's scope, cost, and any dependency it carries
 - Recommendation: Include / Defer / Cut, with concrete reason
 - 4 buckets per option:
-  - **A) Include** in this scope (recommended/not)
-  - **B) Defer** to follow-up (TODOs / next version)
-  - **C) Cut** entirely
-  - **D) Hold** — stop the chain, discuss before deciding
+  - **1) Include** in this scope (recommended/not)
+  - **2) Defer** to follow-up (TODOs / next version)
+  - **3) Cut** entirely
+  - **4) Hold** — stop the chain, discuss before deciding
 - Note: options differ in kind, not coverage — no completeness score.
   (Include/Defer/Cut/Hold are decision actions, so the existing format
   rule applies: omit `Completeness: N/10` and use the kind-note instead.)
@@ -108,18 +108,18 @@ and validate the assembled set.
 accept. Re-prompt the conflict as a single AskUserQuestion:
 
 > "E3 needs E1 but you cut E1. Revise:
-> A) keep E1
-> B) cut E3 too
-> C) leave as-is and accept the broken state"
+> 1) keep E1
+> 2) cut E3 too
+> 3) leave as-is and accept the broken state"
 
 **Step 2 — confirm the assembled set.** If coherent:
 
 > "Here's the assembled set: E1, E2, E5. Ship this scope?
-> A) Ship this scope (recommended)
-> B) Revise one option (you pick which)
-> C) Cut more"
+> 1) Ship this scope (recommended)
+> 2) Revise one option (you pick which)
+> 3) Cut more"
 
-**Step 3 — targeted revise.** If the user picks B, ask which option to
+**Step 3 — targeted revise.** If the user picks Revise, ask which option to
 revise, then fire ONE per-option AskUserQuestion at `D<N>.revise-<k>`
 to update just that option. Do **not** re-run the whole chain.
 
@@ -130,10 +130,10 @@ to update just that option. Do **not** re-run the whole chain.
 - **N > 6**: BEFORE the chain, fire a meta-AskUserQuestion at `D<N>.0`:
 
   > "About to ask N per-option questions. Options:
-  > A) Proceed with the full split (recommended only if every option is
+  > 1) Proceed with the full split (recommended only if every option is
   >    independent)
-  > B) Narrow scope first — I'll propose a smaller set
-  > C) Batch into groups of 4 instead"
+  > 2) Narrow scope first — I'll propose a smaller set
+  > 3) Batch into groups of 4 instead"
 
   This is itself an AskUserQuestion tool call, not prose — it counts as
   the first prompt in the chain, not a violation of the "tool not prose"
@@ -208,7 +208,7 @@ agent should:
    option.
 4. After the chain, fire `D3.final` summarizing the assembled scope
    (e.g. "Ship E1 + E4 — Slack and Telegram pull most demand for least
-   build cost. Defer the rest. A) Ship / B) Revise / C) Cut more").
+   build cost. Defer the rest. 1) Ship / 2) Revise / 3) Cut more").
 
 Pre-fix failure shape (the bug): agent constructs a single
 AskUserQuestion with E1..E4 as four options, drops E5 with prose like

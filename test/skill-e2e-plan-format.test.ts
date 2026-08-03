@@ -40,11 +40,14 @@ const evalCollector = createEvalCollector('e2e-plan-format');
 // — the canonical form per generate-ask-user-format.ts is just
 // `Recommendation: <choice> because <reason>`, where <choice> is the bare
 // option label. judgeRecommendation.present covers the canonical shape.
-// COMPLETENESS regex matches both legacy bare form (`Completeness: 10/10`) and
-// the canonical option-prefixed form (`Completeness: A=10/10, B=7/10`) per
-// scripts/resolvers/preamble/generate-ask-user-format.ts. The optional
-// `[A-Z]=` prefix tolerates either shape; both are acceptable spec output.
-const COMPLETENESS_RE = /Completeness:\s*(?:[A-Z]=)?\d{1,2}\/10/;
+// COMPLETENESS regex matches three shapes: legacy bare (`Completeness: 10/10`),
+// the numeric option-prefixed form the tool path now emits
+// (`Completeness: 1=10/10, 2=7/10`), and the lettered form the prose fallback
+// still uses (`Completeness: A=10/10, B=7/10`) — see the "Option markers" rule
+// in scripts/resolvers/preamble/generate-ask-user-format.ts. The optional
+// `[A-Z0-9]=` prefix tolerates all three; each is acceptable spec output on its
+// own path.
+const COMPLETENESS_RE = /Completeness:\s*(?:[A-Z0-9]=)?\d{1,2}\/10/;
 const KIND_NOTE_RE = /options differ in kind/i;
 
 // v1.7.0.0 Pros/Cons format tokens. Tests are additive: existing
@@ -241,9 +244,9 @@ describeIfSelected('Plan Format — Eng Coverage Issue', ['plan-eng-review-forma
 Read plan.md — that's the plan to review. This is a standalone plan document, not a codebase — skip any codebase exploration steps.
 
 During your review (Section 3 Test Review is the natural place), generate ONE AskUserQuestion about test coverage depth where the options are clearly coverage-differentiated. For example:
-  A) Full coverage: happy path + edge cases + error paths (Completeness 10/10)
-  B) Happy path only (Completeness 7/10)
-  C) Smoke test (Completeness 3/10)
+  1) Full coverage: happy path + edge cases + error paths (Completeness 10/10)
+  2) Happy path only (Completeness 7/10)
+  3) Smoke test (Completeness 3/10)
 
 ${captureInstruction(outFile)}
 
