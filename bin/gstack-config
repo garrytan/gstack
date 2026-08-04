@@ -96,6 +96,29 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 #                           #   /document-release skip the outside-voice step entirely.
 #                           #   An invalid value is REJECTED (existing value preserved) so
 #                           #   a typo cannot silently turn paid Codex calls on or off.
+#
+# ─── Tiered outside voice ────────────────────────────────────────────
+# Which backend reviews at which PHASE. The iterative fix-verify loop and the
+# final gate are priced very differently, so they are configured separately.
+# Both default to codex — an unconfigured install behaves exactly as before.
+# Invalid values are REJECTED (existing value preserved), same rule as codex_reviews:
+# a typo must not silently reroute a phase to a costlier backend, nor the GATE to a
+# cheaper one, which would quietly weaken the review rather than just overspend.
+#
+# outside_voice_loop: codex # codex | openrouter | disabled
+#                           #   Backend for the ITERATIVE fix-verify loop (many rounds).
+#                           #   openrouter runs a cheap model here. The loop keeps the
+#                           #   SAME stop condition (no P1, no P2) — this is a price
+#                           #   change, not a rigour change.
+# outside_voice_gate: codex # codex | openrouter | disabled
+#                           #   Backend for the FINAL gate on the converged artefact.
+#                           #   Keep on codex: it has repo access and a different training
+#                           #   lineage, which is precisely what the gate is buying.
+# outside_voice_loop_model: minimax/minimax-m3
+#                           #   Model id for an openrouter loop. Needs a LARGE context
+#                           #   window: an openrouter backend has no tools, so the diff is
+#                           #   inlined into the prompt rather than read from disk.
+#                           #   Requires $OPENROUTER_API_KEY. Empty value is rejected.
 # gstack_contributor: false # true = file field reports when gstack misbehaves
 # skip_eng_review: false    # true = skip eng review gate in /ship (not recommended)
 #
@@ -123,6 +146,11 @@ lookup_default() {
     checkpoint_push) echo "false" ;;
     explain_level) echo "default" ;;
     codex_reviews) echo "enabled" ;;
+    # Tiered outside voice. Defaults are BOTH codex so an install that has never
+    # configured these behaves exactly as it did before the adapter existed.
+    outside_voice_loop) echo "codex" ;;
+    outside_voice_gate) echo "codex" ;;
+    outside_voice_loop_model) echo "minimax/minimax-m3" ;;
     gstack_contributor) echo "false" ;;
     skip_eng_review) echo "false" ;;
     workspace_root) echo "$HOME/conductor/workspaces" ;;
@@ -269,7 +297,42 @@ case "${1:-}" in
       exit 1
     fi
     # Use literal match for keys containing @ (endpoint ids), regex otherwise
+    # A config file that EXISTS but cannot be read is not an unconfigured install. Both left
+    # VALUE empty and fell through to lookup_default, so a permissions problem or a bad mount
+    # silently resolved every key to its default — and the adapter's _cfg_strict, which was
+    # written to refuse exactly that, relies on a non-zero exit it never got. Probed rather
+    # than assumed: `get` on a chmod-000 config returned 0 and the default.
+    if [ -e "$CONFIG_FILE" ] && [ ! -r "$CONFIG_FILE" ]; then
+      echo "Error: $CONFIG_FILE exists but is not readable" >&2
+      exit 1
+    fi
     VALUE=$(grep -F "${KEY}:" "$CONFIG_FILE" 2>/dev/null | grep -E "^${KEY%@*}(@[a-zA-Z0-9]+)?:" | grep -F "${KEY}:" | tail -1 | awk '{print $2}' | tr -d '[:space:]' || true)
+    # A key written with NO value is not the same fact as a key never written. Both leave
+    # VALUE empty, and lookup_default below turns both into "codex" — so a hand-edited
+    # `outside_voice_loop:` silently routed the cheap loop to the frontier backend, walking
+    # past the misconfiguration guard those keys exist to provide. Scoped to the two backend
+    # keys: they are the ones where guessing costs money.
+    if [ -z "$VALUE" ] && grep -qE "^${KEY}:[[:space:]]*$" "$CONFIG_FILE" 2>/dev/null; then
+      case "$KEY" in outside_voice_loop|outside_voice_gate|outside_voice_loop_model) printf '%s' "__blank__"; exit 0 ;; esac
+    fi
+    # `set` rejects a model id containing whitespace because `get` reads with awk '{print $2}'
+    # and would return only the first field. A HAND-EDITED line skips the setter entirely, so
+    # the same value arrives here truncated and silently bills a model nobody chose. Refuse it
+    # on the read side too: setter-only validation protects the path the config header tells
+    # users not to take ("edit freely").
+    # Strip an inline comment BEFORE judging the value. The check below exists because
+    # `awk '{print $2}'` silently truncates a two-word value — but `model-id # why` is not a
+    # two-word value, it is a value with a comment, and this config file's own header uses
+    # inline comments on nearly every example line while explicitly inviting hand edits. The
+    # first version rejected the shape the documentation teaches, turning a valid model id into
+    # a sentinel that aborted every round.
+    if [ "$KEY" = "outside_voice_loop_model" ]; then
+      _line=$(grep -E "^${KEY}:" "$CONFIG_FILE" 2>/dev/null | tail -1 | sed 's/[[:space:]]#.*$//')
+      _val=$(printf '%s' "$_line" | sed "s/^${KEY}:[[:space:]]*//")
+      if [ -n "$_line" ] && [ "$(printf '%s' "$_val" | wc -w | tr -d '[:space:]')" != "1" ]; then
+        printf '%s' "__blank__"; exit 0
+      fi
+    fi
     if [ -z "$VALUE" ]; then
       VALUE=$(lookup_default "$KEY")
     fi
@@ -321,6 +384,35 @@ case "${1:-}" in
       echo "Error: codex_reviews '$VALUE' not recognized. Valid values: enabled, disabled. Existing value left unchanged." >&2
       exit 1
     fi
+    # outside_voice_* select which backend spends money on which review phase, so they
+    # follow codex_reviews' reject-and-leave-unchanged rule rather than warn-and-default:
+    # a typo must never silently reroute a phase (either to a costlier backend, or to a
+    # cheaper one on the gate, which would quietly weaken the review).
+    if { [ "$KEY" = "outside_voice_loop" ] || [ "$KEY" = "outside_voice_gate" ]; } \
+       && [ "$VALUE" != "codex" ] && [ "$VALUE" != "openrouter" ] && [ "$VALUE" != "disabled" ]; then
+      echo "Error: $KEY '$VALUE' not recognized. Valid values: codex, openrouter, disabled. Existing value left unchanged." >&2
+      exit 1
+    fi
+    # A model id is free-form (the catalogue changes weekly), but a BLANK one would be
+    # stored, then read back by `get` as empty, then silently replaced by the built-in
+    # default — billing a model the user did not choose while looking configured. The
+    # whitespace strip matters: `set <key> ""` is caught earlier by the arity guard, but
+    # `set <key> "   "` passes it, so checking [ -z "$VALUE" ] alone is unreachable.
+    if [ "$KEY" = "outside_voice_loop_model" ] \
+       && [ -z "$(printf '%s' "$VALUE" | tr -d '[:space:]')" ]; then
+      echo "Error: outside_voice_loop_model cannot be blank. Existing value left unchanged." >&2
+      exit 1
+    fi
+    # Reject INTERNAL whitespace too, not just an all-blank value. `get` reads the file with
+    # `awk '{print $2}'`, which takes one field — so `set outside_voice_loop_model "foo bar"`
+    # stores both words and reads back only "foo", billing a model the user never chose and
+    # never mentioning it. A newline would additionally corrupt the config file's line format.
+    # No model id contains whitespace, so refusing is free and the corruption is silent.
+    if [ "$KEY" = "outside_voice_loop_model" ] \
+       && [ "$(printf '%s' "$VALUE" | wc -w | tr -d '[:space:]')" != "1" ]; then
+      echo "Error: outside_voice_loop_model must be a single token with no whitespace (got '$VALUE'). Existing value left unchanged." >&2
+      exit 1
+    fi
     mkdir -p "$STATE_DIR"
     # Write annotated header on first creation
     if [ ! -f "$CONFIG_FILE" ]; then
@@ -343,20 +435,57 @@ case "${1:-}" in
     ;;
   list)
     if [ -f "$CONFIG_FILE" ]; then
-      cat "$CONFIG_FILE"
+      # Guarded. Under `set -e` an unreadable config killed `list` right here, so the command
+      # people run to DIAGNOSE a broken config produced a bare `cat: Permission denied` and no
+      # active values at all — while `get` on the same file already reported the condition in
+      # words and named the path. Say the same thing here, then carry on and print the defaults,
+      # clearly marked, rather than exiting with nothing.
+      if [ -r "$CONFIG_FILE" ]; then
+        cat "$CONFIG_FILE"
+      else
+        echo "# ⚠ $CONFIG_FILE exists but is NOT READABLE — check its permissions."
+        echo "# The active values below are DEFAULTS; the file's real contents could not be read."
+      fi
     fi
     echo ""
     echo "# ─── Active values (including defaults for unset keys) ───"
     for KEY in proactive routing_declined telemetry auto_upgrade update_check \
                skill_prefix checkpoint_mode checkpoint_push explain_level \
                codex_reviews gstack_contributor skip_eng_review workspace_root \
-               artifacts_sync_mode artifacts_sync_mode_prompted plan_tune_hooks; do
-      VALUE=$(grep -E "^${KEY}:" "$CONFIG_FILE" 2>/dev/null | tail -1 | awk '{print $2}' | tr -d '[:space:]' || true)
-      SOURCE="default"
-      if [ -n "$VALUE" ]; then
+               artifacts_sync_mode artifacts_sync_mode_prompted plan_tune_hooks \
+               outside_voice_loop outside_voice_gate outside_voice_loop_model; do
+      # Ask `get`, do not re-parse. This loop used to run its own
+      # `grep | awk '{print $2}' | tr -d [:space:]`, which is a SECOND reader of the same file
+      # and disagreed with the first exactly where it mattered most: a blank
+      # `outside_voice_loop:` printed `codex (default)` as though the key were unset, and
+      # `outside_voice_loop_model: foo bar` printed `foo (set)` — awk takes one field, so an
+      # invalid two-token value was silently truncated into a plausible-looking one.
+      #
+      # Both are values `get` refuses and probe reports as `misconfigured`. So the built-in
+      # diagnostic contradicted the tool it exists to explain, and did it precisely when someone
+      # was running `list` to find out why their backend would not start. Hardening `get` alone
+      # moved the silence here rather than removing it.
+      # `|| true` swallowed a FAILING `get`, which is the same defect this loop was rewritten to
+      # remove, one layer along. `get` exits non-zero when the config exists but cannot be read;
+      # discarding that status left VALUE empty, which then rendered as the DEFAULT — so in the
+      # one failure mode a user runs `list` to diagnose, the diagnostic reported a value the key
+      # does not have and called it a default. Consume the status and name the condition.
+      # `VALUE=$(cmd); RC=$?` does NOT work under `set -e`: a failing command substitution in an
+      # assignment aborts the shell before the next statement runs, so the status is never read
+      # and the loop dies silently — which is how the first version of this guard printed the
+      # warning and then no active values at all. `|| RC=$?` is the form that survives.
+      _GETRC=0
+      VALUE=$("$0" get "$KEY" 2>/dev/null) || _GETRC=$?
+      if grep -qE "^${KEY}:" "$CONFIG_FILE" 2>/dev/null; then SOURCE="set"; else SOURCE="default"; fi
+      if [ "$_GETRC" -ne 0 ]; then
+        printf '  %-24s %s (%s)\n' "$KEY:" "UNREADABLE — \`get\` exited $_GETRC; check permissions on $CONFIG_FILE" "error"
+        continue
+      fi
+      # `get`'s sentinel for "present but unusable". Name it, rather than rendering the sentinel
+      # or, worse, a value the key does not have.
+      if [ "$VALUE" = "__blank__" ]; then
+        VALUE="INVALID — blank, or contains whitespace"
         SOURCE="set"
-      else
-        VALUE=$(lookup_default "$KEY")
       fi
       printf '  %-24s %s (%s)\n' "$KEY:" "$VALUE" "$SOURCE"
     done
@@ -366,7 +495,8 @@ case "${1:-}" in
     for KEY in proactive routing_declined telemetry auto_upgrade update_check \
                skill_prefix checkpoint_mode checkpoint_push explain_level \
                codex_reviews gstack_contributor skip_eng_review workspace_root \
-               artifacts_sync_mode artifacts_sync_mode_prompted plan_tune_hooks; do
+               artifacts_sync_mode artifacts_sync_mode_prompted plan_tune_hooks \
+               outside_voice_loop outside_voice_gate outside_voice_loop_model; do
       printf '  %-24s %s\n' "$KEY:" "$(lookup_default "$KEY")"
     done
     ;;

@@ -47,6 +47,55 @@ _gstack_codex_version_check() {
     echo "WARN: Codex CLI $_ver has known stdin deadlock bugs. Run: npm install -g @openai/codex@latest"
     _gstack_codex_log_event "codex_version_warning"
   fi
+  # Web search moved to on-by-default in 0.124.0, and the skills dropped the explicit
+  # `--enable web_search_cached` because its deprecation warning crowded out real errors —
+  # a credits failure hid behind it for a whole round. On an OLDER CLI that flag was what
+  # turned search ON, so dropping it outright REGRESSED those installs: prompts that reason
+  # about competitors, market risk or external docs quietly fell back to model priors.
+  #
+  # The flag is now passed again, but only where it is still the mechanism (see
+  # _gstack_codex_search_flag). This says so rather than leaving the reader to infer it, and
+  # still recommends upgrading — a deprecated flag is a bridge, not a destination.
+  #
+  # NOTE:, not WARN:. The existing contract — asserted by codex-hardening's anchored-regex
+  # tests — is that WARN: means THIS VERSION IS BUGGY, and 0.116 or 0.121 are not. A version
+  # that merely predates a default is a different statement, and folding the two together
+  # both broke those tests and would have taught the reader that WARN: means less than it does.
+  if _gstack_codex_predates_124 "$_ver"; then
+    echo "NOTE: Codex CLI $_ver predates 0.124, where web search became on-by-default. gstack passes the legacy --enable web_search_cached on this version so search stays ON. Run: npm install -g @openai/codex@latest"
+    _gstack_codex_log_event "codex_websearch_legacy_flag"
+  fi
+}
+
+# --- Web search flag --------------------------------------------------------
+
+_gstack_codex_predates_124() {
+  # True when the CLI predates 0.124, where web search became on-by-default.
+  #
+  # ONE parse decides both the NOTE above and the flag below. They are two consequences of a
+  # single fact, and this branch has already been caught twice shipping a rule stated in two
+  # places that then drifted — the point of deriving rather than repeating.
+  local _ver="${1:-$(codex --version 2>/dev/null | head -1)}"
+  [ -z "$_ver" ] && return 1
+  local _maj _min
+  _maj=$(printf '%s' "$_ver" | grep -oE '[0-9]+\.[0-9]+' | head -1 | cut -d. -f1)
+  _min=$(printf '%s' "$_ver" | grep -oE '[0-9]+\.[0-9]+' | head -1 | cut -d. -f2)
+  [ -n "$_min" ] && [ "${_maj:-0}" -eq 0 ] && [ "$_min" -lt 124 ]
+}
+
+_gstack_codex_search_flag() {
+  # Echo the flag that enables web search on CLIs that still need it, and nothing on 0.124+
+  # where search is on by default and the flag only emits a deprecation warning.
+  #
+  # Call sites expand this UNQUOTED — $(_gstack_codex_search_flag) — so it becomes either two
+  # arguments or none. That is deliberate word-splitting on a fixed literal this function
+  # controls entirely; no external value ever reaches it.
+  #
+  # ALWAYS exits 0. It is used in command substitution inside blocks that may run under
+  # `set -e`, where a non-zero status from the "modern CLI" branch — the common case — would
+  # abort the caller before it ever invoked codex.
+  _gstack_codex_predates_124 && printf '%s' '--enable web_search_cached'
+  return 0
 }
 
 # --- Timeout wrapper --------------------------------------------------------
@@ -72,7 +121,8 @@ _gstack_codex_log_event() {
   # Emit a telemetry event to ~/.gstack/analytics/skill-usage.jsonl.
   # Gated on $_TEL != "off" (caller sets this from gstack-config).
   # Event types: codex_timeout, codex_auth_failed, codex_cli_missing,
-  #              codex_version_warning.
+  #              codex_version_warning, codex_websearch_legacy_flag,
+  #              outside_voice_timeout.
   # Payload schema: {skill, event, duration_s, ts}. NEVER includes prompt
   # content, env var values, or auth tokens.
   local _event="$1"

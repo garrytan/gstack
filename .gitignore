@@ -44,3 +44,7 @@ docs/throughput-*.json
 
 # gbrain local source-staging dir (capability checks, source clones) — runtime artifact
 .sources/
+
+# Python bytecode from bin/*.py helpers
+__pycache__/
+*.pyc
