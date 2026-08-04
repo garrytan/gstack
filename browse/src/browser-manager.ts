@@ -369,6 +369,29 @@ export class BrowserManager {
       console.log(`[browse] Extensions loaded from: ${extensionsDir}`);
     }
 
+    // Support custom Chromium binary via GSTACK_CHROMIUM_PATH env var, same as
+    // launchHeaded(). Falls back to Playwright's bundled/resolved Chromium
+    // (undefined → chromium.launch() uses its own default resolution) when unset.
+    const executablePath = process.env.GSTACK_CHROMIUM_PATH || undefined;
+
+    // Forward the session's outbound proxy to Chromium. Host sandboxes (e.g.
+    // Claude Code web/remote) route all HTTPS through a local MITM-style
+    // agent proxy via HTTPS_PROXY; without --proxy-server Chromium tries a
+    // direct connection and every navigation fails.
+    const sessionProxyUrl = process.env.HTTPS_PROXY || process.env.https_proxy;
+    if (sessionProxyUrl) {
+      launchArgs.push(`--proxy-server=${sessionProxyUrl}`);
+      // NODE_EXTRA_CA_CERTS only affects Node/Bun's own TLS stack (e.g. this
+      // process's own outbound fetches) — Chromium is a native binary and
+      // doesn't read it, so it can't make Chromium trust the MITM proxy's
+      // CA on its own. Set it anyway for this process's benefit, and rely on
+      // ignoreHTTPSErrors (below, on the context) for Chromium's own
+      // validation of the proxy-injected certificate.
+      if (!process.env.NODE_EXTRA_CA_CERTS) {
+        process.env.NODE_EXTRA_CA_CERTS = '/root/.ccr/ca-bundle.crt';
+      }
+    }
+
     this.browser = await chromium.launch({
       headless: useHeadless,
       // On Windows, Chromium's sandbox fails when the server is spawned through
@@ -379,6 +402,7 @@ export class BrowserManager {
       chromiumSandbox: shouldEnableChromiumSandbox(),
       ...(launchArgs.length > 0 ? { args: launchArgs } : {}),
       ...(this.proxyConfig ? { proxy: this.proxyConfig } : {}),
+      ...(executablePath ? { executablePath } : {}),
     });
 
     // Chromium disconnect → distinguish clean user-quit from crash. Both
@@ -397,6 +421,10 @@ export class BrowserManager {
     const contextOptions: BrowserContextOptions = {
       viewport: { width: this.currentViewport.width, height: this.currentViewport.height },
       deviceScaleFactor: this.deviceScaleFactor,
+      // Trust the session proxy's MITM certificate. Chromium has no
+      // "trust this CA file" launch flag, so ignoreHTTPSErrors is the
+      // Playwright-level equivalent that actually takes effect.
+      ...(sessionProxyUrl ? { ignoreHTTPSErrors: true } : {}),
     };
     if (this.customUserAgent) {
       contextOptions.userAgent = this.customUserAgent;
@@ -500,6 +528,17 @@ export class BrowserManager {
     // Used by GStack Browser.app to point at the bundled Chromium.
     const executablePath = process.env.GSTACK_CHROMIUM_PATH || undefined;
 
+    // Forward the session's outbound proxy, same as launch() (headless).
+    // See that method for why NODE_EXTRA_CA_CERTS is set alongside
+    // ignoreHTTPSErrors rather than instead of it.
+    const sessionProxyUrl = process.env.HTTPS_PROXY || process.env.https_proxy;
+    if (sessionProxyUrl) {
+      launchArgs.push(`--proxy-server=${sessionProxyUrl}`);
+      if (!process.env.NODE_EXTRA_CA_CERTS) {
+        process.env.NODE_EXTRA_CA_CERTS = '/root/.ccr/ca-bundle.crt';
+      }
+    }
+
     // Rebrand Chromium → GStack Browser in macOS menu bar / Dock / Cmd+Tab.
     // Patch the Chromium .app's Info.plist so macOS shows our name.
     // This works for both dev mode (system Playwright cache) and .app bundle.
@@ -583,6 +622,7 @@ export class BrowserManager {
       // sees Chromium's "unsupported command-line flag" yellow infobar.
       chromiumSandbox: shouldEnableChromiumSandbox(),
       args: launchArgs,
+      ...(sessionProxyUrl ? { ignoreHTTPSErrors: true } : {}),
       viewport: null,  // Use browser's default viewport (real window size)
       userAgent: this.customUserAgent || customUA,
       ...(executablePath ? { executablePath } : {}),
