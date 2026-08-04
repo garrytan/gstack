@@ -486,8 +486,13 @@ function maybeSpawnPty(ws: any, session: PtySession): boolean {
   return true;
 }
 
+interface TerminalAgentWsData {
+  cookie: string;
+  sessionId: string | null;
+}
+
 function buildServer() {
-  return Bun.serve({
+  return Bun.serve<TerminalAgentWsData>({
     hostname: '127.0.0.1',
     port: 0,
     idleTimeout: 0, // PTY connections are long-lived; default idleTimeout would kill them
@@ -656,8 +661,8 @@ function buildServer() {
        * after `spawned: true` is a no-op.
        */
       open(ws) {
-        const sessionId = (ws.data as any)?.sessionId ?? null;
-        const cookie = (ws.data as any)?.cookie || '';
+        const sessionId = ws.data?.sessionId ?? null;
+        const cookie = ws.data?.cookie || '';
 
         // Commit 3 re-attach: if this sessionId already has a detached
         // PtySession in sessionsById, REPLACE its liveWs ref and replay
@@ -727,9 +732,9 @@ function buildServer() {
             proc: null,
             cols: 80,
             rows: 24,
-            cookie: (ws.data as any)?.cookie || '',
+            cookie: ws.data?.cookie || '',
             liveWs: ws,
-            sessionId: (ws.data as any)?.sessionId ?? null,
+            sessionId: ws.data?.sessionId ?? null,
             spawned: false,
             pingInterval: null,
             ringBuffer: [],

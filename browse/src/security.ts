@@ -175,7 +175,7 @@ export function combineVerdict(signals: LayerSignal[], opts: CombineVerdictOpts 
   for (const s of transcriptSignals) {
     const v = classifyTranscript(s);
     if (v === 'block') { transcriptVote = 'block'; break; }
-    if (v === 'warn' && transcriptVote !== 'block') transcriptVote = 'warn';
+    if (v === 'warn') transcriptVote = 'warn';
   }
 
   // Scalar-layer votes.

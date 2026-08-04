@@ -549,7 +549,8 @@ export async function checkTranscript(params: {
       return finish({ layer: 'transcript_classifier', confidence: 0, meta: { degraded: true, reason: `spawn_throw_${err?.message ?? 'unknown'}` } });
     }
 
-    p.stdout.on('data', (d: Buffer) => (stdout += d.toString()));
+    // stdout is guaranteed non-null: stdio config above pipes it explicitly.
+    p.stdout!.on('data', (d: Buffer) => (stdout += d.toString()));
     p.on('exit', (code) => {
       if (code !== 0) {
         return finish({ layer: 'transcript_classifier', confidence: 0, meta: { degraded: true, reason: `exit_${code}` } });

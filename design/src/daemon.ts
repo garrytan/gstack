@@ -532,7 +532,9 @@ export function start(): { port: number } {
     hostname: "127.0.0.1",
     fetch: fetchHandler,
   });
-  const actualPort = serverRef.port;
+  // .port is `number | undefined` in Bun's types only for unix-socket servers;
+  // we always bind hostname+port (TCP), so it's guaranteed populated here.
+  const actualPort = serverRef.port!;
   const state: DaemonState = {
     pid: process.pid,
     port: actualPort,

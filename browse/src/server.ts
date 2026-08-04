@@ -1889,7 +1889,7 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
         let body: any;
         try { body = await req.json(); } catch { body = null; }
         const sessionId = typeof body?.sessionId === 'string' ? body.sessionId : null;
-        const v = sessionId ? validateLease(sessionId) : { ok: false };
+        const v = sessionId ? validateLease(sessionId) : { ok: false as const };
         if (!v.ok) {
           // 410 Gone — session window has closed (lease expired or never
           // existed). Client must fall back to /pty-session for a brand-new
@@ -2013,7 +2013,7 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
         let body: any;
         try { body = await req.json(); } catch { body = null; }
         const sessionId = typeof body?.sessionId === 'string' ? body.sessionId : null;
-        const r = sessionId ? refreshLease(sessionId) : { ok: false };
+        const r = sessionId ? refreshLease(sessionId) : { ok: false as const };
         if (!r.ok) {
           return new Response(JSON.stringify({ error: 'lease expired or unknown' }), {
             status: 410, headers: { 'Content-Type': 'application/json' },
@@ -2260,8 +2260,8 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
           // the pairing ceremony itself, not the scope. --control adds browser-wide
           // destructive commands (stop, restart, disconnect). --restrict limits scope.
           const scopes = pairBody.control || pairBody.admin
-            ? ['read', 'write', 'admin', 'meta', 'control'] as const
-            : (pairBody.scopes || ['read', 'write', 'admin', 'meta']) as const;
+            ? (['read', 'write', 'admin', 'meta', 'control'] as const)
+            : (pairBody.scopes || ['read', 'write', 'admin', 'meta']);
           const setupKey = createSetupKey({
             clientId: pairBody.clientId,
             scopes: [...scopes],
