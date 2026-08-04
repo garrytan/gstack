@@ -34,7 +34,7 @@
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
-import { spawnSync, spawn, execFileSync, type SpawnSyncReturns, type ChildProcess, type SpawnOptions } from "child_process";
+import crossSpawn from "cross-spawn";
 
 interface GbrainConfig {
   database_url?: string;
@@ -125,14 +125,9 @@ export function buildGbrainEnv(opts: BuildGbrainEnvOptions = {}): NodeJS.Process
 }
 
 /**
- * Windows can't directly spawn the `gbrain` launcher (bun/npm install it as a
- * `gbrain.cmd`/`.ps1` shim) or a shebang script like the bash `gstack-brain-sync`
- * — `spawnSync`/`spawn` resolve those only through a shell's PATHEXT + interpreter
- * lookup. Without `shell: true` the child spawn fails ENOENT, which on the sync
- * orchestrator surfaced as "brain-sync exited undefined" (#1731). Gate on platform
- * so POSIX keeps the cheaper no-shell path. Exported so the static-grep tripwire
- * (test/gbrain-spawn-windows-shell.test.ts) can assert every gbrain/brain-sync
- * spawn carries it.
+ * Legacy platform gate for fixed-argument probes and the internal brain-sync
+ * script. User-controlled gbrain arguments must use the cross-spawn helpers
+ * below, which handle Windows shims without Node's shell:true command string.
  */
 export const NEEDS_SHELL_ON_WINDOWS = process.platform === "win32";
 
@@ -153,20 +148,29 @@ export interface SpawnGbrainOptions {
   announce?: boolean;
 }
 
+export interface GbrainSpawnResult {
+  pid: number;
+  output: Array<string | null>;
+  stdout: string;
+  stderr: string;
+  status: number | null;
+  signal: NodeJS.Signals | null;
+  error?: Error;
+}
+
 /**
  * Spawn `gbrain <args>` with the seeded env. Returns the raw
- * `SpawnSyncReturns<string>` so callers can inspect `status`, `stdout`,
- * `stderr` exactly as they would with `spawnSync` directly.
+ * result so callers can inspect `status`, `stdout`, and `stderr` exactly as
+ * they would with `spawnSync` directly.
  */
-export function spawnGbrain(args: string[], opts: SpawnGbrainOptions = {}): SpawnSyncReturns<string> {
-  return spawnSync("gbrain", args, {
+export function spawnGbrain(args: string[], opts: SpawnGbrainOptions = {}): GbrainSpawnResult {
+  return crossSpawn.sync("gbrain", args, {
     encoding: "utf-8",
     timeout: opts.timeout ?? 30_000,
     cwd: opts.cwd,
     stdio: opts.stdio || ["ignore", "pipe", "pipe"],
     env: buildGbrainEnv({ baseEnv: opts.baseEnv, announce: opts.announce }),
-    shell: NEEDS_SHELL_ON_WINDOWS, // #1731: gbrain is a .cmd shim on Windows
-  });
+  }) as GbrainSpawnResult;
 }
 
 /**
@@ -192,27 +196,34 @@ export function execGbrainJson<T = unknown>(args: string[], opts: SpawnGbrainOpt
  */
 export function spawnGbrainAsync(
   args: string[],
-  opts: { stdio?: SpawnOptions["stdio"]; cwd?: string; baseEnv?: NodeJS.ProcessEnv } = {},
-): ChildProcess {
-  return spawn("gbrain", args, {
+  opts: { stdio?: SpawnGbrainOptions["stdio"]; cwd?: string; baseEnv?: NodeJS.ProcessEnv } = {},
+): ReturnType<typeof crossSpawn> {
+  return crossSpawn("gbrain", args, {
     stdio: opts.stdio || ["ignore", "pipe", "pipe"],
     cwd: opts.cwd,
     env: buildGbrainEnv({ baseEnv: opts.baseEnv, announce: false }),
-    shell: NEEDS_SHELL_ON_WINDOWS, // #1731: gbrain is a .cmd shim on Windows
   });
 }
 
 /**
- * Run `gbrain <args>` via execFileSync. Throws on non-zero exit. Useful
- * for callers that want to surface gbrain's stderr as the error message.
+ * Run `gbrain <args>` synchronously. Throws on non-zero exit. Useful for
+ * callers that want to surface gbrain's stderr as the error message.
  */
 export function execGbrainText(args: string[], opts: SpawnGbrainOptions = {}): string {
-  return execFileSync("gbrain", args, {
+  const result = crossSpawn.sync("gbrain", args, {
     encoding: "utf-8",
     timeout: opts.timeout ?? 30_000,
     cwd: opts.cwd,
     stdio: opts.stdio || ["ignore", "pipe", "pipe"],
     env: buildGbrainEnv({ baseEnv: opts.baseEnv, announce: opts.announce }),
-    shell: NEEDS_SHELL_ON_WINDOWS, // #1731: gbrain is a .cmd shim on Windows
-  });
+  }) as GbrainSpawnResult;
+
+  if (result.error) throw result.error;
+  if (result.status !== 0) {
+    const error = new Error(`gbrain exited with status ${result.status ?? "unknown"}`) as Error &
+      Partial<GbrainSpawnResult>;
+    Object.assign(error, result);
+    throw error;
+  }
+  return result.stdout || "";
 }

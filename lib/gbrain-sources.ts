@@ -9,9 +9,8 @@
  * Per /plan-eng-review D3 (DRY extraction).
  */
 
-import { execFileSync, spawnSync } from "child_process";
 import { withErrorContext } from "./gstack-memory-helpers";
-import { execGbrainJson, NEEDS_SHELL_ON_WINDOWS } from "./gbrain-exec";
+import { execGbrainJson, execGbrainText, spawnGbrain } from "./gbrain-exec";
 
 export interface SourceState {
   /** "absent" — id not registered. "match" — id at expected path. "drift" — id at different path. */
@@ -83,16 +82,14 @@ export interface EnsureOptions {
 export function probeSource(id: string, env?: NodeJS.ProcessEnv): SourceState {
   let stdout: string;
   try {
-    stdout = execFileSync("gbrain", ["sources", "list", "--json"], {
-      encoding: "utf-8",
+    stdout = execGbrainText(["sources", "list", "--json"], {
       timeout: 30_000,
       stdio: ["ignore", "pipe", "pipe"],
-      env,
-      shell: NEEDS_SHELL_ON_WINDOWS, // #1731: gbrain is a .cmd shim on Windows
+      baseEnv: env,
     });
   } catch (err) {
-    const e = err as NodeJS.ErrnoException & { stderr?: Buffer };
-    const stderr = e.stderr?.toString() || "";
+    const e = err as NodeJS.ErrnoException & { stderr?: Buffer | string };
+    const stderr = typeof e.stderr === "string" ? e.stderr : e.stderr?.toString() || "";
     if (e.code === "ENOENT" || stderr.includes("command not found")) {
       throw new Error("gbrain CLI not on PATH");
     }
@@ -158,11 +155,9 @@ export async function ensureSourceRegistered(
 
     // For drift, remove first.
     if (state.status === "drift") {
-      const rm = spawnSync("gbrain", ["sources", "remove", id, "--yes"], {
-        encoding: "utf-8",
+      const rm = spawnGbrain(["sources", "remove", id, "--yes"], {
         timeout: 30_000,
-        env,
-        shell: NEEDS_SHELL_ON_WINDOWS, // #1731: gbrain is a .cmd shim on Windows
+        baseEnv: env,
       });
       if (rm.status !== 0) {
         throw new Error(`gbrain sources remove ${id} failed: ${rm.stderr || rm.stdout || `exit ${rm.status}`}`);
@@ -172,11 +167,9 @@ export async function ensureSourceRegistered(
     // Add.
     const addArgs = ["sources", "add", id, "--path", path];
     if (federated) addArgs.push("--federated");
-    const add = spawnSync("gbrain", addArgs, {
-      encoding: "utf-8",
+    const add = spawnGbrain(addArgs, {
       timeout: 30_000,
-      env,
-      shell: NEEDS_SHELL_ON_WINDOWS, // #1731: gbrain is a .cmd shim on Windows
+      baseEnv: env,
     });
     if (add.status !== 0) {
       throw new Error(`gbrain sources add ${id} failed: ${add.stderr || add.stdout || `exit ${add.status}`}`);
@@ -197,12 +190,10 @@ export async function ensureSourceRegistered(
 export function sourcePageCount(id: string, env?: NodeJS.ProcessEnv): number | null {
   let stdout: string;
   try {
-    stdout = execFileSync("gbrain", ["sources", "list", "--json"], {
-      encoding: "utf-8",
+    stdout = execGbrainText(["sources", "list", "--json"], {
       timeout: 30_000,
       stdio: ["ignore", "pipe", "pipe"],
-      env,
-      shell: NEEDS_SHELL_ON_WINDOWS, // #1731: gbrain is a .cmd shim on Windows
+      baseEnv: env,
     });
   } catch {
     return null;
