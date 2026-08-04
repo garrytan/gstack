@@ -224,7 +224,7 @@ This is a test of the brain-writeback path. Do NOT skip the gbrain save step und
           testName: 'office-hours-brain-writeback',
           runId,
           model: 'claude-sonnet-4-6',
-          extraEnv: {
+          env: {
             PATH: `${join(workDir, 'bin')}:${process.env.PATH || ''}`,
           },
         });

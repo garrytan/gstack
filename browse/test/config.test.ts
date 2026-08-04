@@ -18,7 +18,7 @@ describe('config', () => {
       const config = resolveConfig({});
       const gitRoot = getGitRoot();
       expect(gitRoot).not.toBeNull();
-      expect(config.projectDir).toBe(gitRoot);
+      expect(config.projectDir).toBe(gitRoot!);
       expect(config.stateDir).toBe(path.join(gitRoot!, '.gstack'));
       expect(config.stateFile).toBe(path.join(gitRoot!, '.gstack', 'browse.json'));
     });
@@ -229,8 +229,8 @@ describe('resolveNodeServerScript', () => {
 
 describe('version mismatch detection', () => {
   test('detects when versions differ', () => {
-    const stateVersion = 'abc123';
-    const currentVersion = 'def456';
+    const stateVersion: string = 'abc123';
+    const currentVersion: string = 'def456';
     expect(stateVersion !== currentVersion).toBe(true);
   });
 

@@ -49,7 +49,9 @@ async function startMockServer(): Promise<MockServer> {
   });
 
   return {
-    port: server.port,
+    // .port is `number | undefined` in Bun's types only for unix-socket servers;
+    // this mock always binds a TCP port, so it's guaranteed populated here.
+    port: server.port!,
     requests,
     setResponse(status: number, body: string) { response = { status, body }; },
     async stop() { server.stop(true); },

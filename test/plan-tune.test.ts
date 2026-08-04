@@ -471,6 +471,7 @@ describe('preamble — QUESTION_TUNING injection', () => {
         binDir: '~/.claude/skills/gstack/bin',
         browseDir: '~/.claude/skills/gstack/browse/dist',
         designDir: '~/.claude/skills/gstack/design/dist',
+        makePdfDir: '~/.claude/skills/gstack/make-pdf/dist',
       },
       preambleTier: 2,
     };
@@ -495,6 +496,7 @@ describe('preamble — QUESTION_TUNING injection', () => {
         binDir: '~/.claude/skills/gstack/bin',
         browseDir: '~/.claude/skills/gstack/browse/dist',
         designDir: '~/.claude/skills/gstack/design/dist',
+        makePdfDir: '~/.claude/skills/gstack/make-pdf/dist',
       },
       preambleTier: 1,
     };
@@ -516,6 +518,7 @@ describe('preamble — QUESTION_TUNING injection', () => {
         binDir: '$GSTACK_BIN',
         browseDir: '$GSTACK_BROWSE',
         designDir: '$GSTACK_DESIGN',
+        makePdfDir: '$GSTACK_MAKE_PDF',
       },
     };
     const out = generateQuestionTuning(codexCtx);

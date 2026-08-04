@@ -13,14 +13,14 @@
  * migration can silently re-break the plan-review pacing.
  */
 import { describe, test, expect } from 'bun:test';
-import type { TemplateContext } from '../scripts/resolvers/types';
+import type { TemplateContext, Model } from '../scripts/resolvers/types';
 import { HOST_PATHS } from '../scripts/resolvers/types';
 import { generatePreamble } from '../scripts/resolvers/preamble';
 
 function makeCtx(
   host: 'claude' | 'codex',
   tier: 1 | 2 | 3 | 4,
-  model?: string,
+  model?: Model,
 ): TemplateContext {
   return {
     skillName: 'test-skill',

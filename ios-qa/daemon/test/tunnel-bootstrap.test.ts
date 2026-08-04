@@ -151,7 +151,7 @@ describe('bootstrapTunnel', () => {
     const r = await bootstrapTunnel({
       bundleId: 'com.test',
       spawnImpl: spawn,
-      fetchImpl: (async () => new Response('{"ok":true}', { status: 200 })) as typeof fetch,
+      fetchImpl: (async () => new Response('{"ok":true}', { status: 200 })) as unknown as typeof fetch,
     });
 
     expect(r.ok).toBe(true);
@@ -262,7 +262,7 @@ describe('bootstrapTunnel', () => {
     const r = await bootstrapTunnel({
       bundleId: 'com.test',
       spawnImpl: spawn,
-      fetchImpl: (async () => new Response('{"ok":true}', { status: 200 })) as typeof fetch,
+      fetchImpl: (async () => new Response('{"ok":true}', { status: 200 })) as unknown as typeof fetch,
     });
 
     expect(r.ok).toBe(true);
@@ -311,7 +311,7 @@ describe('bootstrapTunnel', () => {
     const r = await bootstrapTunnel({
       bundleId: 'com.test',
       spawnImpl: spawn,
-      fetchImpl: (async () => new Response('{"ok":true}', { status: 200 })) as typeof fetch,
+      fetchImpl: (async () => new Response('{"ok":true}', { status: 200 })) as unknown as typeof fetch,
     });
 
     expect(r.ok).toBe(true);
@@ -372,7 +372,7 @@ describe('bootstrapTunnel', () => {
       spawnImpl: spawn,
       resolveImpl: async () => ['fd00::1'],
       // fetch always fails.
-      fetchImpl: (async () => { throw new Error('connection refused'); }) as typeof fetch,
+      fetchImpl: (async () => { throw new Error('connection refused'); }) as unknown as typeof fetch,
       startupTimeoutMs: 200, // short, so test runs fast
     });
     expect(r.ok).toBe(false);
@@ -411,7 +411,7 @@ describe('bootstrapTunnel', () => {
       fetchImpl: (async () => new Response(
         JSON.stringify({ bundle_id: 'com.other.debug-app' }),
         { status: 200, headers: { 'content-type': 'application/json' } },
-      )) as typeof fetch,
+      )) as unknown as typeof fetch,
     });
 
     expect(r.ok).toBe(false);
@@ -668,7 +668,7 @@ describe('bootstrapTunnel', () => {
       bundleId: 'com.test',
       spawnImpl: spawn,
       resolveImpl: async () => ['fd00::b'],
-      fetchImpl: (async () => new Response('{"ok":true}', { status: 200 })) as typeof fetch,
+      fetchImpl: (async () => new Response('{"ok":true}', { status: 200 })) as unknown as typeof fetch,
     });
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.tunnel.udid).toBe('B');

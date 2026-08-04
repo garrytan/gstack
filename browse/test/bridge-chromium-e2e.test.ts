@@ -29,12 +29,12 @@ interface MockUpstream {
 async function startAuthUpstream(user: string, pass: string): Promise<MockUpstream> {
   let connects = 0;
   const server = net.createServer((sock) => {
-    sock.once('data', (greeting) => {
+    sock.once('data', (greeting: Buffer) => {
       if (greeting[0] !== 0x05) { sock.destroy(); return; }
       const methods = greeting.subarray(2, 2 + greeting[1]);
       if (!methods.includes(0x02)) { sock.write(Buffer.from([0x05, 0xFF])); sock.destroy(); return; }
       sock.write(Buffer.from([0x05, 0x02]));
-      sock.once('data', (auth) => {
+      sock.once('data', (auth: Buffer) => {
         const ulen = auth[1];
         const uname = auth.subarray(2, 2 + ulen).toString();
         const plen = auth[2 + ulen];
@@ -43,7 +43,7 @@ async function startAuthUpstream(user: string, pass: string): Promise<MockUpstre
           sock.write(Buffer.from([0x01, 0x01])); sock.destroy(); return;
         }
         sock.write(Buffer.from([0x01, 0x00]));
-        sock.once('data', (req) => {
+        sock.once('data', (req: Buffer) => {
           const atyp = req[3];
           let host: string; let port: number;
           if (atyp === 0x01) {

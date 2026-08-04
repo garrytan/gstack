@@ -3190,7 +3190,7 @@ describe('LEARNINGS_SEARCH resolver: query parameter', () => {
   test('claude host + query=foo bar → both cross-project and project-scoped branches contain --query', () => {
     const out = generateLearningsSearch(claudeCtx, ['query=foo bar']);
     // Both branches of the if/else must carry the flag.
-    const lines = out.split('\n').filter(l => l.includes('gstack-learnings-search'));
+    const lines = out.split('\n').filter((l: string) => l.includes('gstack-learnings-search'));
     expect(lines.length).toBeGreaterThanOrEqual(2);
     for (const line of lines) {
       expect(line).toContain('--query "foo bar"');

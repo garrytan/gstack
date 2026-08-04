@@ -8,8 +8,8 @@ import {
   decideCodeSync,
   isInside,
   _resetCapabilityMemo,
-  type GbrainSourceRow,
 } from "../lib/gbrain-guards";
+import { type GbrainSourceRow } from "../lib/gbrain-sources";
 
 const HOME = os.homedir();
 const clonesPath = (name: string) => join(HOME, ".gbrain", "clones", name);

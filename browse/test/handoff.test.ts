@@ -191,11 +191,12 @@ describe('handoff integration', () => {
 
       // Verify cookies survived
       const { handleReadCommand } = await import('../src/read-commands');
-      const cookiesResult = await handleReadCommand('cookies', [], hbm);
+      const hbmSession = hbm.getActiveSession();
+      const cookiesResult = await handleReadCommand('cookies', [], hbmSession, hbm);
       expect(cookiesResult).toContain('handoff_test');
 
       // Verify commands still work
-      const text = await handleReadCommand('text', [], hbm);
+      const text = await handleReadCommand('text', [], hbmSession, hbm);
       expect(text.length).toBeGreaterThan(0);
 
       // Resume

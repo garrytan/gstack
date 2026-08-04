@@ -278,7 +278,7 @@ export function testIfSelected(testName: string, fn: () => Promise<void>, timeou
 }
 
 /** Concurrent version — runs in parallel with other concurrent tests within the same describe block. */
-export function testConcurrentIfSelected(testName: string, fn: () => Promise<void>, timeout: number) {
+export function testConcurrentIfSelected(testName: string, fn: () => Promise<void>, timeout: number = 5000) {
   const shouldRun = selectedTests === null || selectedTests.includes(testName);
   (shouldRun ? test.concurrent : test.skip)(testName, fn, timeout);
 }

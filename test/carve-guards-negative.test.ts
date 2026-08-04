@@ -48,6 +48,10 @@ const guardFor = (skill: string): CarveGuard => ({
     mustMoveToSection: ['MOVED_MARKER'],
     gateAfterStop: 'EXIT PLAN MODE GATE',
   },
+  // This fixture only exercises static carve-shape checks, not a real
+  // behavioral (T2) run — 'prompt' is the simplest valid mode to satisfy
+  // the CarveGuard shape.
+  behavioral: 'prompt',
   maxSkeletonBytes: 999_999,
   minUnionBytes: 0,
   mustContain: [],

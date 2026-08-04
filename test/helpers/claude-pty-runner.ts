@@ -1478,8 +1478,17 @@ export interface PlanSkillObservation {
    *                     outside the sanctioned plan/project directories
    *  - 'exited'       — claude process died before any of the above
    *  - 'timeout'      — none of the above within budget
+   *  - 'wrote_findings_before_asking' — model wrote a plan/findings file
+   *                     before pausing on a question (the bug this guards)
    */
-  outcome: 'asked' | 'auto_decided' | 'plan_ready' | 'silent_write' | 'exited' | 'timeout';
+  outcome:
+    | 'asked'
+    | 'auto_decided'
+    | 'plan_ready'
+    | 'silent_write'
+    | 'wrote_findings_before_asking'
+    | 'exited'
+    | 'timeout';
   /** Human-readable summary. */
   summary: string;
   /** Visible terminal text since the slash command was sent (last 2KB). */
