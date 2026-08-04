@@ -34,12 +34,14 @@ describe("#1731 gbrain spawns carry the Windows shell flag", () => {
     });
   }
 
-  test("orchestrator brain-sync spawns carry the Windows shell flag", () => {
+  test("orchestrator brain-sync spawns route through bash on Windows", () => {
     const src = read("bin/gstack-gbrain-sync.ts");
-    const brainSyncSpawns = src.match(/spawnSync\(brainSyncPath,/g)?.length ?? 0;
-    expect(brainSyncSpawns).toBe(2);
-    // Both spawnSync(brainSyncPath, ...) blocks must include the shell flag.
-    const withShell = src.match(/spawnSync\(brainSyncPath,[\s\S]*?shell:\s*NEEDS_SHELL_ON_WINDOWS/g)?.length ?? 0;
-    expect(withShell).toBe(2);
+    // cmd.exe (shell: true) cannot execute an extensionless bash shebang
+    // script, so the brain-sync invocations must exec bash explicitly on
+    // Windows instead of relying on the shell flag.
+    expect(src).toMatch(/NEEDS_SHELL_ON_WINDOWS \? "bash" : brainSyncPath/);
+    expect(src).toMatch(/NEEDS_SHELL_ON_WINDOWS \? \[brainSyncPath, flag\] : \[flag\]/);
+    // And no brain-sync spawn may still route through cmd via shell:true.
+    expect(src).not.toMatch(/spawnSync\(brainSyncPath,[\s\S]{0,300}?shell:\s*NEEDS_SHELL_ON_WINDOWS/);
   });
 });

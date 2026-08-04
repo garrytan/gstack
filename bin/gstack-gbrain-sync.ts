@@ -1145,25 +1145,35 @@ function runBrainSyncPush(args: CliArgs): StageResult {
     return { name: "brain-sync", ran: false, ok: true, duration_ms: 0, summary: "skipped (gstack-brain-sync not installed)" };
   }
 
-  // #1731: gstack-brain-sync is a bash shebang script; Windows can't spawn it
-  // without a shell, which surfaced as "brain-sync exited undefined".
-  spawnSync(brainSyncPath, ["--discover-new"], {
-    stdio: args.quiet ? ["ignore", "ignore", "ignore"] : ["ignore", "inherit", "inherit"],
-    timeout: 60 * 1000,
-    shell: NEEDS_SHELL_ON_WINDOWS,
-  });
-  const result = spawnSync(brainSyncPath, ["--once"], {
-    stdio: args.quiet ? ["ignore", "ignore", "ignore"] : ["ignore", "inherit", "inherit"],
-    timeout: 60 * 1000,
-    shell: NEEDS_SHELL_ON_WINDOWS,
-  });
+  // #1731 gated these spawns behind `shell: NEEDS_SHELL_ON_WINDOWS`, but
+  // cmd.exe cannot execute an extensionless bash shebang script either — the
+  // stage errored "'gstack-brain-sync' is not recognized as an internal or
+  // external command". Invoke the script through bash explicitly on Windows
+  // (Git Bash ships with git, a hard gstack dependency); POSIX keeps the
+  // direct shebang exec.
+  const runBrainSync = (flag: string) =>
+    spawnSync(
+      NEEDS_SHELL_ON_WINDOWS ? "bash" : brainSyncPath,
+      NEEDS_SHELL_ON_WINDOWS ? [brainSyncPath, flag] : [flag],
+      {
+        stdio: args.quiet ? ["ignore", "ignore", "ignore"] : ["ignore", "inherit", "inherit"],
+        timeout: 60 * 1000,
+      },
+    );
+  runBrainSync("--discover-new");
+  const result = runBrainSync("--once");
 
   return {
     name: "brain-sync",
     ran: true,
     ok: result.status === 0,
     duration_ms: Date.now() - t0,
-    summary: result.status === 0 ? "curated artifacts pushed" : `gstack-brain-sync exited ${result.status}`,
+    summary:
+      result.status === 0
+        ? "curated artifacts pushed"
+        : result.error
+          ? `gstack-brain-sync spawn failed (${result.error.message})`
+          : `gstack-brain-sync exited ${result.status}`,
   };
 }
 
