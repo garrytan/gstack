@@ -1384,12 +1384,12 @@ describe('Codex skill', () => {
     }
   });
 
-  test('adversarial review in /review always runs both passes', () => {
+  test('adversarial review in /review always runs in-session and consent-gates Codex', () => {
     const content = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
-    expect(content).toContain('Adversarial review (always-on)');
-    // Always-on: both Claude and Codex adversarial
+    expect(content).toContain('Adversarial review (in-session always-on; external pass consent-gated)');
     expect(content).toContain('Claude adversarial subagent (always runs)');
     expect(content).toContain('Codex adversarial challenge (runs whenever');
+    expect(content).toContain('do not read or assemble the provider payload yet');
     // Claude adversarial subagent dispatch
     expect(content).toContain('Agent tool');
     expect(content).toContain('FIXABLE');
@@ -1408,9 +1408,9 @@ describe('Codex skill', () => {
     expect(content).toContain('200');
   });
 
-  test('adversarial review in /ship always runs both passes', () => {
+  test('adversarial review in /ship always runs in-session and consent-gates Codex', () => {
     const content = readShipUnion();
-    expect(content).toContain('Adversarial review (always-on)');
+    expect(content).toContain('Adversarial review (in-session always-on; external pass consent-gated)');
     expect(content).toContain('adversarial-review');
     expect(content).toContain('reasoning_effort="high"');
     expect(content).toContain('Investigate and fix');
@@ -1453,28 +1453,29 @@ describe('Codex skill', () => {
     expect(content).toContain('codex exec');
   });
 
-  // D5 regression guard: the Codex outside voice is default-on, not opt-in. A future
-  // gen-skill-docs change must not silently reintroduce the "Want an outside voice?"
-  // AskUserQuestion. The CODEX_PLAN_REVIEW content renders into each skill's
+  // D5 regression guard: the Codex outside voice remains configured by default,
+  // but provider-and-payload authorization is mandatory before export. The
+  // CODEX_PLAN_REVIEW content renders into each skill's
   // sections/review-sections.md (the skeleton points at it). plan-design-review uses
   // DESIGN_OUTSIDE_VOICES, not CODEX_PLAN_REVIEW, so it is excluded here.
-  test('plan reviews run the Codex outside voice default-on (no opt-in question)', () => {
+  test('plan reviews offer the default Codex outside voice behind export consent', () => {
     for (const skill of ['plan-eng-review', 'plan-ceo-review', 'plan-devex-review']) {
       const content = fs.readFileSync(
         path.join(ROOT, skill, 'sections', 'review-sections.md'), 'utf-8');
-      expect(content).not.toContain('Want an outside voice');
-      expect(content).toContain('Outside Voice — Independent Plan Challenge (default-on)');
+      expect(content).toContain('Outside Voice — Independent Plan Challenge (configured by default; export consent required)');
+      expect(content).toContain('do not read or assemble the provider payload yet');
       expect(content).toContain('CODEX_MODE');
       expect(content).toContain('command -v codex'); // preflight install check (e2e relies on it)
     }
   });
 
-  test('/document-release includes the default-on Codex documentation review', () => {
+  test('/document-release includes the consent-gated Codex documentation review', () => {
     // The doc-review renders into the carved release-body section (kept out of the
     // always-loaded skeleton to respect the skeleton-byte budget).
     const content = fs.readFileSync(
       path.join(ROOT, 'document-release', 'sections', 'release-body.md'), 'utf-8');
-    expect(content).toContain('Codex Documentation Review (default-on)');
+    expect(content).toContain('Codex Documentation Review (configured by default; export consent required)');
+    expect(content).toContain('do not read or assemble the provider payload yet');
     expect(content).toContain('CODEX_MODE');
     expect(content).toContain('codex-doc-review');
   });

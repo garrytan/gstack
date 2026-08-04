@@ -107,13 +107,23 @@ source <(~/.claude/skills/gstack/bin/gstack-diff-scope <base> 2>/dev/null)
 
 Substitute: TIMESTAMP = ISO 8601 datetime, STATUS = "clean" if 0 findings or "issues_found", N = total findings, M = auto-fixed count, COMMIT = output of `git rev-parse --short HEAD`.
 
-7. **Codex design voice** (optional, automatic if available):
+7. **Codex design voice** (optional, consent-gated when configured):
 
 ```bash
 command -v codex >/dev/null 2>&1 && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
 ```
 
-If Codex is available, run a lightweight design check on the diff:
+If Codex is available, apply this gate before reading the diff:
+
+**External data authorization:** Before reading or assembling the design diff and necessary source context, confirm
+the user authorized sending that payload to the **OpenAI Codex model service** for
+this invocation. Authentication, command approval, `codex_reviews=enabled`, or a
+generic request for independent review is not export consent. If OpenAI Codex and
+the payload were not both named, use AskUserQuestion and wait. Decline or inability
+to ask means skip Codex and continue locally. Never reuse consent across providers,
+repositories, pull requests, or sessions.
+
+If authorized, run a lightweight design check on the diff:
 
 ```bash
 TMPERR_DRL=$(mktemp /tmp/codex-drl-XXXXXXXX)

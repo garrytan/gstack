@@ -1,5 +1,10 @@
 import type { TemplateContext } from './types';
-import { AI_SLOP_BLACKLIST, OPENAI_HARD_REJECTIONS, OPENAI_LITMUS_CHECKS } from './constants';
+import {
+  AI_SLOP_BLACKLIST,
+  OPENAI_HARD_REJECTIONS,
+  OPENAI_LITMUS_CHECKS,
+  codexExportAuthorization,
+} from './constants';
 
 export function generateDesignReviewLite(ctx: TemplateContext): string {
   const litmusList = OPENAI_LITMUS_CHECKS.map((item, i) => `${i + 1}. ${item}`).join(' ');
@@ -7,13 +12,17 @@ export function generateDesignReviewLite(ctx: TemplateContext): string {
   // Codex block only for Claude host
   const codexBlock = ctx.host === 'codex' ? '' : `
 
-7. **Codex design voice** (optional, automatic if available):
+7. **Codex design voice** (optional, consent-gated when configured):
 
 \`\`\`bash
 command -v codex >/dev/null 2>&1 && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
 \`\`\`
 
-If Codex is available, run a lightweight design check on the diff:
+If Codex is available, apply this gate before reading the diff:
+
+${codexExportAuthorization('the design diff and necessary source context')}
+
+If authorized, run a lightweight design check on the diff:
 
 \`\`\`bash
 TMPERR_DRL=$(mktemp /tmp/codex-drl-XXXXXXXX)
@@ -634,7 +643,9 @@ Be bold. Be specific. No hedging.`;
 
   // Build the opt-in section
   const optInSection = isAutomatic ? `
-**Automatic:** Outside voices run automatically when Codex is available. No opt-in needed.` : `
+**Configured automatically:** The in-session design voice runs as part of this review.
+The Codex voice still requires explicit OpenAI-and-payload export authorization for
+this invocation.` : `
 Use AskUserQuestion:
 > "Want outside design voices${isPlanDesignReview ? ' before the detailed review' : ''}? Codex evaluates against OpenAI's design hard rules + litmus checks; Claude subagent does an independent ${isDesignConsultation ? 'design direction proposal' : 'completeness review'}."
 >
@@ -686,12 +697,20 @@ Merge findings into the triage with \`[codex]\` / \`[subagent]\` / \`[cross-mode
   return `## Design Outside Voices (parallel)
 ${optInSection}
 
-**Check Codex availability:**
+**Check Codex availability, then authorize export:**
+
 \`\`\`bash
 command -v codex >/dev/null 2>&1 && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
 \`\`\`
 
-**If Codex is available**, launch both voices simultaneously:
+If Codex is available, apply this gate before reading or assembling its payload:
+
+${codexExportAuthorization(
+  'the design plan, design artifacts, and necessary source context',
+)}
+
+Launch the Claude design subagent. If Codex is also authorized, launch its voice
+simultaneously:
 
 1. **Codex design voice** (via Bash):
 \`\`\`bash
@@ -1154,4 +1173,3 @@ Flat design can strip away useful visual information that signals interactivity.
 Prioritize ruthlessly: things needed in a hurry go close at hand, everything
 else a few taps away with an obvious path to get there.`;
 }
-

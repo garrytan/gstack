@@ -899,6 +899,21 @@ deadlock fixed in #972.
 
 ---
 
+## Step 0.55: External data authorization
+
+Before reading or assembling repository content for Codex, confirm that the current
+user explicitly authorized sending the specific payload to the **OpenAI Codex model
+service** for this review. Name the payload accurately: complete diff and necessary
+source, a plan, or other repository context.
+
+Authentication, command execution approval, a configured review preference, and a
+generic request for an "independent review" are not source-export consent. If the
+current request does not name OpenAI Codex and the data scope, use AskUserQuestion to
+request that authorization and wait for the answer. Do not infer authorization from
+another provider, PR, repository, or earlier session.
+
+---
+
 ## Step 0.6: Resolve portable roots
 
 Before any mode runs, resolve `$PLAN_ROOT` (where plan files live) and `$TMP_ROOT`

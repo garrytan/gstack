@@ -57,6 +57,17 @@ export function codexErrorHandling(feature: string): string {
 On any error: continue — ${feature} is informational, not a gate.`;
 }
 
+/** Compact consent gate for optional Codex voices that already have their own probe. */
+export function codexExportAuthorization(payload: string): string {
+  return `**External data authorization:** Before reading or assembling ${payload}, confirm
+the user authorized sending that payload to the **OpenAI Codex model service** for
+this invocation. Authentication, command approval, \`codex_reviews=enabled\`, or a
+generic request for independent review is not export consent. If OpenAI Codex and
+the payload were not both named, use AskUserQuestion and wait. Decline or inability
+to ask means skip Codex and continue locally. Never reuse consent across providers,
+repositories, pull requests, or sessions.`;
+}
+
 /**
  * Shared Codex preflight bash block — the single source of truth for deciding
  * whether a Codex review pass should run. Used by ADVERSARIAL_STEP,
@@ -91,7 +102,10 @@ export function codexPreflight(opts: { modeVar?: string; disabledBehavior: 'skip
   const disabledLine = opts.disabledBehavior === 'codex-only'
     ? 'Skip the Codex passes only; the Claude adversarial subagent below STILL runs (it is free and fast). Print: "Codex passes skipped (codex_reviews disabled) — running Claude adversarial only."'
     : 'Skip this section entirely; do NOT fall back to a Claude subagent — disabled means no extra review step. Print: "Codex review skipped (codex_reviews disabled). Re-enable: `gstack-config set codex_reviews enabled`."';
-  return `\`\`\`bash
+  return `Run this local provider/configuration preflight first. It does not export
+repository content:
+
+\`\`\`bash
 # Codex preflight: one block (functions sourced here don't persist to later blocks).
 _TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || echo off)
 _CODEX_CFG=$(~/.claude/skills/gstack/bin/gstack-config get codex_reviews 2>/dev/null || echo enabled)
@@ -112,5 +126,15 @@ Branch on the echoed \`CODEX_MODE\`:
 - **\`disabled\`** — the user turned Codex reviews off (\`codex_reviews=disabled\`). ${disabledLine}
 - **\`not_installed\`** — Codex CLI absent. Print: "Codex not installed — using Claude subagent. Install for cross-model coverage: \`npm install -g @openai/codex\`." Fall back to the Claude subagent path.
 - **\`not_authed\`** — installed but no credentials. Print: "Codex installed but not authenticated — using Claude subagent. Run \`codex login\` or set \`$CODEX_API_KEY\`." Fall back to the Claude subagent path.
-- **\`ready\`** — run the Codex pass below.`;
+- **\`ready\`** — do not read or assemble the provider payload yet. First confirm
+  that the current user explicitly authorized sending the specific payload to the
+  **OpenAI Codex model service** for this invocation. Name the actual payload:
+  complete diff and necessary source, a plan, documentation plus its comparison
+  diff, or other repository context. Authentication, command execution approval,
+  \`codex_reviews=enabled\`, and a generic request for an "independent review" are
+  not source-export consent. If the request does not name OpenAI Codex and the data
+  scope, use AskUserQuestion and wait. Never infer consent from another provider,
+  PR, repository, or earlier session. If declined, treat Codex as unavailable and
+  continue only with the caller's in-session fallback. Only after authorization is
+  confirmed may the Codex pass below read, assemble, or dispatch the payload.`;
 }

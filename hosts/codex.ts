@@ -27,7 +27,10 @@ const codex: HostConfig = {
   pathRewrites: [
     { from: '~/.claude/skills/gstack', to: '$GSTACK_ROOT' },
     { from: '.claude/skills/gstack', to: '.agents/skills/gstack' },
-    { from: '.claude/skills/review', to: '.agents/skills/gstack/review' },
+    // Review assets must resolve from the computed runtime root. A literal
+    // project-relative sidecar path fails in repos that use only the global
+    // Codex install, even though setup installed the files correctly there.
+    { from: '.claude/skills/review', to: '$GSTACK_ROOT/review' },
     { from: '.claude/skills', to: '.agents/skills' },
   ],
 
@@ -44,7 +47,12 @@ const codex: HostConfig = {
   runtimeRoot: {
     globalSymlinks: ['bin', 'browse/dist', 'browse/bin', 'gstack-upgrade', 'ETHOS.md'],
     globalFiles: {
-      'review': ['checklist.md', 'TODOS-format.md'],
+      'review': [
+        'checklist.md',
+        'design-checklist.md',
+        'greptile-triage.md',
+        'TODOS-format.md',
+      ],
     },
   },
   sidecar: {

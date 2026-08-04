@@ -1133,12 +1133,24 @@ Use AskUserQuestion:
 
 If user chooses B, skip this step and continue.
 
-**Check Codex availability:**
+**Check Codex availability, then authorize export:**
+
 ```bash
 command -v codex >/dev/null 2>&1 && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
 ```
 
-**If Codex is available**, launch both voices simultaneously:
+If Codex is available, apply this gate before reading or assembling its payload:
+
+**External data authorization:** Before reading or assembling the design plan, design artifacts, and necessary source context, confirm
+the user authorized sending that payload to the **OpenAI Codex model service** for
+this invocation. Authentication, command approval, `codex_reviews=enabled`, or a
+generic request for independent review is not export consent. If OpenAI Codex and
+the payload were not both named, use AskUserQuestion and wait. Decline or inability
+to ask means skip Codex and continue locally. Never reuse consent across providers,
+repositories, pull requests, or sessions.
+
+Launch the Claude design subagent. If Codex is also authorized, launch its voice
+simultaneously:
 
 1. **Codex design voice** (via Bash):
 ```bash

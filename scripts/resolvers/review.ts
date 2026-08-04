@@ -1,13 +1,16 @@
 /**
  * Cross-model review resolver
  *
- * Data sent to external review services (via Codex CLI):
- *   - Plan markdown content, repository name, branch name, review type
- * Data NOT sent:
- *   - Source code files, credentials, environment variables, git history
+ * Data sent to external review services (via Codex CLI), only
+ * after provider-and-payload authorization:
+ *   - Diff/source context, plan markdown, documentation, repository/branch
+ *     identifiers, and review type as required by the selected review pass
+ * Data NOT sent intentionally:
+ *   - Credentials and environment-variable values
  *
- * Users invoke this explicitly via /plan-eng-review, /plan-ceo-review,
- * or /plan-design-review. No data is sent without user invocation.
+ * These paths are reached through user-invoked review skills. Invoking a skill
+ * does not itself authorize provider export; each external dispatch requires
+ * the provider-and-payload authorization described below.
  *
  * Review logs are stored locally at ~/.gstack/reviews/review-log.jsonl.
  * Codex CLI prompts are written to temp files to prevent shell injection.
@@ -55,7 +58,7 @@ Display:
 - **Eng Review (required by default):** The only review that gates shipping. Covers architecture, code quality, tests, performance. Can be disabled globally with \\\`gstack-config set skip_eng_review true\\\` (the "don't bother me" setting).
 - **CEO Review (optional):** Use your judgment. Recommend it for big product/business changes, new user-facing features, or scope decisions. Skip for bug fixes, refactors, infra, and cleanup.
 - **Design Review (optional):** Use your judgment. Recommend it for UI/UX changes. Skip for backend-only, infra, or prompt-only changes.
-- **Adversarial Review (automatic):** Always-on for every review. Every diff gets both Claude adversarial subagent and Codex adversarial challenge. Large diffs (200+ lines) additionally get Codex structured review with P1 gate. No configuration needed.
+- **Adversarial Review:** Every diff gets the in-session Claude adversarial pass. Codex cross-model passes are offered when configured and run only after explicit provider-and-payload export authorization; large authorized diffs (200+ lines) additionally get Codex structured review with a P1 gate.
 - **Outside Voice (optional):** Independent plan review from a different AI model. Offered after all review sections complete in /plan-ceo-review and /plan-eng-review. Falls back to Claude subagent if Codex is unavailable. Never gates shipping.
 
 **Verdict logic:**
@@ -476,9 +479,11 @@ export function generateAdversarialStep(ctx: TemplateContext): string {
   const isShip = ctx.skillName === 'ship';
   const stepNum = isShip ? '11' : '5.7';
 
-  return `## Step ${stepNum}: Adversarial review (always-on)
+  return `## Step ${stepNum}: Adversarial review (in-session always-on; external pass consent-gated)
 
-Every diff gets adversarial review from both Claude and Codex. LOC is not a proxy for risk — a 5-line auth change can be critical.
+Every diff gets the in-session Claude adversarial review. The Codex cross-model pass
+is offered when configured and runs only after explicit authorization to export the
+named payload. LOC is not a proxy for risk — a 5-line auth change can be critical.
 
 **Detect diff size:**
 
@@ -614,20 +619,24 @@ export function generateCodexPlanReview(ctx: TemplateContext): string {
   // Codex host: strip entirely — Codex should never invoke itself
   if (ctx.host === 'codex') return '';
 
-  return `## Outside Voice — Independent Plan Challenge (default-on)
+  return `## Outside Voice — Independent Plan Challenge (configured by default; export consent required)
 
-After all review sections are complete, run an independent second opinion from a
-different AI system automatically — it is a standard part of plan review, not an
-opt-in. Two models agreeing on a plan is stronger signal than one model's thorough
-review. The user turns this off only by asking explicitly
+After all review sections are complete, offer an independent second opinion from a
+different AI system. It is configured as a standard plan-review option, but it is
+never permission to export the plan: each invocation requires explicit provider-and-
+payload authorization. Two models agreeing on a plan is stronger signal than one
+model's thorough review. The user can disable the option with
 (\`gstack-config set codex_reviews disabled\`).
 
 **Preflight — decide whether and how the outside voice runs:**
 
 ${codexPreflight({ disabledBehavior: 'skip-all' })}
 
-When the mode is \`ready\`, \`not_installed\`, or \`not_authed\`, print one line so the off-switch
-stays discoverable: "Running the outside voice automatically (standard step). Disable: \`gstack-config set codex_reviews disabled\`."
+When the mode is \`ready\` and authorization was granted, print one line so the
+off-switch stays discoverable: "Outside voice authorized for this payload. Disable
+future offers: \`gstack-config set codex_reviews disabled\`." For \`not_installed\`
+or \`not_authed\`, use the in-session fallback without describing OpenAI export as
+authorized.
 
 **Construct the plan review prompt** (for \`ready\`, \`not_installed\`, and \`not_authed\` — skip only on \`disabled\`).
 Read the plan file being reviewed (the file the user pointed this review at, or the branch
@@ -744,19 +753,24 @@ export function generateCodexDocReview(ctx: TemplateContext): string {
   // Codex host: strip entirely — Codex should never invoke itself
   if (ctx.host === 'codex') return '';
 
-  return `## Codex Documentation Review (default-on)
+  return `## Codex Documentation Review (configured by default; export consent required)
 
 After the documentation updates above are written, run an independent cross-model pass that
-checks the docs against what actually shipped. This is a standard part of /document-release,
-not an opt-in. The user turns it off only by asking explicitly
+checks the docs against what actually shipped. This is a configured standard option in
+/document-release, but it never authorizes exporting documentation or a comparison diff.
+Each invocation requires explicit provider-and-payload authorization. The user can disable
+the option with
 (\`gstack-config set codex_reviews disabled\`).
 
 **Preflight — decide whether and how the doc review runs:**
 
 ${codexPreflight({ disabledBehavior: 'skip-all' })}
 
-When the mode is \`ready\`, \`not_installed\`, or \`not_authed\`, print one line so the off-switch
-stays discoverable: "Running the Codex doc review automatically (standard step). Disable: \`gstack-config set codex_reviews disabled\`."
+When the mode is \`ready\` and authorization was granted, print one line so the
+off-switch stays discoverable: "Codex documentation review authorized for this
+payload. Disable future offers: \`gstack-config set codex_reviews disabled\`." For
+\`not_installed\` or \`not_authed\`, use the in-session fallback without describing
+OpenAI export as authorized.
 
 **Determine the release diff range (D3 — reuse the method, do not invent one).**
 Recompute the SAME range document-release used in its pre-flight / diff analysis, with the

@@ -42,20 +42,50 @@ CLAUDE_BIN=$(command -v claude 2>/dev/null || echo "")
 If `NOT_FOUND`, stop and tell the user:
 "Claude CLI not found. Install Claude Code, then re-run this skill."
 
-Check auth:
+Check auth. A failed CLI probe is not proof that the user is logged out: sandboxed
+hosts may be unable to read macOS Keychain or reach the provider even though the
+normal host session is authenticated.
 
 ```bash
+_CLAUDE_AUTH_JSON=""
+_CLAUDE_AUTH_EXIT=0
+_CLAUDE_AUTH_JSON=$(claude auth status --json 2>/dev/null) || _CLAUDE_AUTH_EXIT=$?
+
 if [ -f "$HOME/.claude/.credentials.json" ] \
   || [ -n "${ANTHROPIC_API_KEY:-}" ] \
-  || claude auth status --json >/dev/null 2>&1; then
+  || printf '%s' "$_CLAUDE_AUTH_JSON" | grep -Eq '"loggedIn"[[:space:]]*:[[:space:]]*true'; then
   echo "AUTH_FOUND"
 else
-  echo "AUTH_MISSING"
+  echo "AUTH_UNKNOWN: cli_exit=$_CLAUDE_AUTH_EXIT"
+  printf '%s\n' "$_CLAUDE_AUTH_JSON"
 fi
 ```
 
-If `AUTH_MISSING`, stop and tell the user:
-"No Claude authentication found. Run `claude auth login` (or `claude` interactively), or export `ANTHROPIC_API_KEY`, then re-run this skill."
+If `AUTH_UNKNOWN`, **do not report that authentication is missing.** On a sandboxed
+host, request narrowly scoped host credential/network access and rerun
+`claude auth status --json`. Classify the result only after that authoritative
+host-context check:
+
+- `"loggedIn": true` — continue.
+- `"loggedIn": false` — stop and tell the user: "Claude is logged out. Run
+  `claude auth login` (or `claude` interactively), then re-run this skill."
+- The host-context probe could not run — report authentication as unverified,
+  including the concrete access error. Never turn an access failure into a logout.
+
+---
+
+## External Data Authorization Boundary
+
+Before reading or assembling repository content for Claude, confirm that the current
+user explicitly authorized sending the specific payload to **Anthropic Claude** for
+this review. Name the payload accurately: complete diff and necessary source, a plan,
+or other repository context.
+
+Authentication, command execution approval, a configured review preference, and a
+generic request for an "independent review" are not source-export consent. If the
+current request does not name Anthropic Claude and the data scope, use
+AskUserQuestion to request that authorization and wait for the answer. Do not infer
+authorization from another provider, PR, repository, or earlier session.
 
 ---
 
@@ -140,8 +170,12 @@ if session_id:
 PY
 ```
 
-If stderr contains `auth`, `login`, or `unauthorized`, tell the user:
-"Claude authentication failed. Run `claude` interactively to authenticate or export `ANTHROPIC_API_KEY`."
+If stderr contains `auth`, `login`, or `unauthorized`, do not immediately report
+the user as logged out. Repeat the narrow authentication check from Step 0 in a
+host context with credential-store and network access. Only an authoritative
+`loggedIn: false` result is an authentication failure. If the host check cannot
+run, report authentication as **unverified** and include the access error; never
+turn a sandbox/Keychain/network denial into login instructions.
 
 ---
 
@@ -327,8 +361,9 @@ rm -f "$PROMPT_FILE" "$RESP_FILE" "$ERR_FILE"
 ## Error Handling
 
 - **Binary not found:** Stop with install instructions.
-- **Auth missing:** Stop with login/API key instructions.
-- **Auth failure from stderr:** Surface the stderr line and ask the user to re-authenticate.
+- **Auth explicitly missing after host check:** Stop with login/API key instructions.
+- **Auth unverified:** Surface the access error and request the narrow host recheck.
+- **Auth failure from stderr:** Recheck in host context before asking the user to re-authenticate.
 - **JSON parse failure:** Show raw stdout from `$RESP_FILE` and stderr from `$ERR_FILE`.
 - **Empty response:** Tell the user "Claude returned no response. Check stderr for errors."
 - **Resume failure:** Delete `.context/claude-session-id` and retry with a fresh session.

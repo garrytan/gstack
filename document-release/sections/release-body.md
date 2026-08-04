@@ -361,14 +361,19 @@ If all coverage is complete and no diagrams drifted, output: "Coverage: all ship
 
 ---
 
-## Codex Documentation Review (default-on)
+## Codex Documentation Review (configured by default; export consent required)
 
 After the documentation updates above are written, run an independent cross-model pass that
-checks the docs against what actually shipped. This is a standard part of /document-release,
-not an opt-in. The user turns it off only by asking explicitly
+checks the docs against what actually shipped. This is a configured standard option in
+/document-release, but it never authorizes exporting documentation or a comparison diff.
+Each invocation requires explicit provider-and-payload authorization. The user can disable
+the option with
 (`gstack-config set codex_reviews disabled`).
 
 **Preflight — decide whether and how the doc review runs:**
+
+Run this local provider/configuration preflight first. It does not export
+repository content:
 
 ```bash
 # Codex preflight: one block (functions sourced here don't persist to later blocks).
@@ -391,10 +396,23 @@ Branch on the echoed `CODEX_MODE`:
 - **`disabled`** — the user turned Codex reviews off (`codex_reviews=disabled`). Skip this section entirely; do NOT fall back to a Claude subagent — disabled means no extra review step. Print: "Codex review skipped (codex_reviews disabled). Re-enable: `gstack-config set codex_reviews enabled`."
 - **`not_installed`** — Codex CLI absent. Print: "Codex not installed — using Claude subagent. Install for cross-model coverage: `npm install -g @openai/codex`." Fall back to the Claude subagent path.
 - **`not_authed`** — installed but no credentials. Print: "Codex installed but not authenticated — using Claude subagent. Run `codex login` or set `$CODEX_API_KEY`." Fall back to the Claude subagent path.
-- **`ready`** — run the Codex pass below.
+- **`ready`** — do not read or assemble the provider payload yet. First confirm
+  that the current user explicitly authorized sending the specific payload to the
+  **OpenAI Codex model service** for this invocation. Name the actual payload:
+  complete diff and necessary source, a plan, documentation plus its comparison
+  diff, or other repository context. Authentication, command execution approval,
+  `codex_reviews=enabled`, and a generic request for an "independent review" are
+  not source-export consent. If the request does not name OpenAI Codex and the data
+  scope, use AskUserQuestion and wait. Never infer consent from another provider,
+  PR, repository, or earlier session. If declined, treat Codex as unavailable and
+  continue only with the caller's in-session fallback. Only after authorization is
+  confirmed may the Codex pass below read, assemble, or dispatch the payload.
 
-When the mode is `ready`, `not_installed`, or `not_authed`, print one line so the off-switch
-stays discoverable: "Running the Codex doc review automatically (standard step). Disable: `gstack-config set codex_reviews disabled`."
+When the mode is `ready` and authorization was granted, print one line so the
+off-switch stays discoverable: "Codex documentation review authorized for this
+payload. Disable future offers: `gstack-config set codex_reviews disabled`." For
+`not_installed` or `not_authed`, use the in-session fallback without describing
+OpenAI export as authorized.
 
 **Determine the release diff range (D3 — reuse the method, do not invent one).**
 Recompute the SAME range document-release used in its pre-flight / diff analysis, with the

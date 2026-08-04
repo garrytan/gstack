@@ -6,14 +6,33 @@ Shared reference for fetching, filtering, and classifying Greptile review commen
 
 ## Fetch
 
-Run these commands to detect the PR and fetch comments. Both API calls run in parallel.
+First establish GitHub authentication using a tri-state check:
+
+```bash
+GH_AUTH_OUTPUT=$(gh auth status 2>&1)
+GH_AUTH_EXIT=$?
+printf '%s\n' "$GH_AUTH_OUTPUT"
+```
+
+- A successful status is **authenticated**.
+- An explicit host-context "not logged in" result is **unauthenticated**; note that
+  Greptile triage was skipped and include `gh auth login` guidance.
+- A credential-store, network, sandbox, or command-access failure is **unverified**.
+  Repeat only `gh auth status` with host credential-store/network access before
+  deciding. If that recheck cannot run, surface "GitHub authentication unverified"
+  and continue without Greptile; never describe this as no PR or no comments.
+
+After authentication is confirmed, run these commands to detect the PR and fetch
+comments. Both API calls run in parallel.
 
 ```bash
 REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>/dev/null)
 PR_NUMBER=$(gh pr view --json number --jq '.number' 2>/dev/null)
 ```
 
-**If either fails or is empty:** Skip Greptile triage silently. This integration is additive — the workflow works without it.
+**If either fails because there is authoritatively no PR for the current branch:**
+Skip Greptile triage silently. For access, network, or credential errors, use the
+tri-state behavior above and surface an unverified result instead of claiming no PR.
 
 ```bash
 # Fetch line-level review comments AND top-level PR comments in parallel
@@ -24,7 +43,9 @@ gh api repos/$REPO/issues/$PR_NUMBER/comments \
 wait
 ```
 
-**If API errors or zero Greptile comments across both endpoints:** Skip silently.
+**If both successful API responses contain zero Greptile comments:** Skip silently.
+If either API request fails, report Greptile coverage as unverified and continue;
+do not turn an access failure into a clean zero-comment result.
 
 The `position != null` filter on line-level comments automatically skips outdated comments from force-pushed code.
 
