@@ -140,6 +140,10 @@ function hashPath(p: string): string {
  * call share one fork-exec (~200ms saved per skill preamble).
  */
 const _gbrainBinCache = new Map<string, string | null>();
+// On Windows the shim is `gbrain.cmd` → `bun run cli.ts`; a cold spawn can
+// exceed 2s, and a false negative here poisons the 60s status cache with
+// "no-cli". Give the shim headroom; POSIX keeps the tight timeout.
+const VERSION_PROBE_TIMEOUT_MS = NEEDS_SHELL_ON_WINDOWS ? 10_000 : 2_000;
 export function resolveGbrainBin(env?: NodeJS.ProcessEnv): string | null {
   const e = env ?? process.env;
   const key = e.PATH || "";
@@ -148,7 +152,7 @@ export function resolveGbrainBin(env?: NodeJS.ProcessEnv): string | null {
   try {
     execFileSync("gbrain", ["--version"], {
       encoding: "utf-8",
-      timeout: 2_000,
+      timeout: VERSION_PROBE_TIMEOUT_MS,
       stdio: ["ignore", "ignore", "ignore"],
       env: e,
       shell: NEEDS_SHELL_ON_WINDOWS, // #1731: gbrain is a .cmd shim on Windows
@@ -171,7 +175,7 @@ export function readGbrainVersion(env?: NodeJS.ProcessEnv): string {
   try {
     const out = execFileSync("gbrain", ["--version"], {
       encoding: "utf-8",
-      timeout: 2_000,
+      timeout: VERSION_PROBE_TIMEOUT_MS,
       stdio: ["ignore", "pipe", "ignore"],
       env: e,
       shell: NEEDS_SHELL_ON_WINDOWS, // #1731: gbrain is a .cmd shim on Windows
