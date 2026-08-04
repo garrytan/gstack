@@ -64,9 +64,8 @@ export interface EnsureOptions {
   reregister_on_drift?: boolean;
   /**
    * Optional env override for the spawned `gbrain` calls. Production callers
-   * leave this unset (inherit process.env). Tests pass a custom env to point
-   * at a fake `gbrain` on PATH (Bun's execFileSync does not respect runtime
-   * mutations of process.env.PATH unless env is passed explicitly).
+   * leave this unset (inherit process.env). Tests pass a custom env to control
+   * PATH and gbrain configuration without mutating process.env.
    */
   env?: NodeJS.ProcessEnv;
 }

@@ -13,8 +13,9 @@ describe("#1731 gbrain spawns use the shell-free Windows adapter", () => {
     const src = read("lib/gbrain-exec.ts");
     expect(src).toContain('import crossSpawn from "cross-spawn"');
     expect(src).not.toMatch(/^\s*shell\s*:/m);
-    expect(src.match(/crossSpawn\.sync\("gbrain"/g)?.length).toBe(2);
+    expect(src.match(/crossSpawn\.sync\("gbrain"/g)?.length).toBe(1);
     expect(src.match(/crossSpawn\("gbrain"/g)?.length).toBe(1);
+    expect(src).toContain("const result = spawnGbrain(args, opts)");
   });
 
   test("gbrain source IDs and paths route through the shell-free adapter", () => {

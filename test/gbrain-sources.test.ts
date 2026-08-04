@@ -190,6 +190,27 @@ describe("ensureSourceRegistered", () => {
     expect(log).not.toContain("sources add");
     fake.cleanup();
   });
+
+  it("preserves shell metacharacters in source ids and paths", async () => {
+    const fake = makeFakeGbrain({ sources: [] });
+    const id = "source&literal";
+    const path = '/tmp/space & pipe| caret^ percent% bang! quote" parentheses(x)';
+
+    const result = await ensureSourceRegistered(id, path, { env: fake.env });
+    expect(result).toEqual({
+      changed: true,
+      state: { status: "match", registered_path: path },
+    });
+
+    const persisted = JSON.parse(readFileSync(fake.statePath, "utf-8"));
+    expect(persisted.sources).toContainEqual({
+      id,
+      local_path: path,
+      federated: false,
+      page_count: 0,
+    });
+    fake.cleanup();
+  });
 });
 
 describe("sourcePageCount", () => {

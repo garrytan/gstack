@@ -210,13 +210,7 @@ export function spawnGbrainAsync(
  * callers that want to surface gbrain's stderr as the error message.
  */
 export function execGbrainText(args: string[], opts: SpawnGbrainOptions = {}): string {
-  const result = crossSpawn.sync("gbrain", args, {
-    encoding: "utf-8",
-    timeout: opts.timeout ?? 30_000,
-    cwd: opts.cwd,
-    stdio: opts.stdio || ["ignore", "pipe", "pipe"],
-    env: buildGbrainEnv({ baseEnv: opts.baseEnv, announce: opts.announce }),
-  }) as GbrainSpawnResult;
+  const result = spawnGbrain(args, opts);
 
   if (result.error) throw result.error;
   if (result.status !== 0) {

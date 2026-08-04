@@ -118,6 +118,8 @@ jobs:
             test/build-script-shell-compat.test.ts \
             test/docs-config-keys.test.ts \
             test/brain-sync-windows-paths.test.ts \
+            test/gbrain-exec-argv.test.ts \
+            test/gbrain-spawn-windows-shell.test.ts \
             make-pdf/test/browseClient.test.ts \
             make-pdf/test/pdftotext.test.ts
         shell: bash
