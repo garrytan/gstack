@@ -28,7 +28,7 @@
  *   swap to allow+updatedInput without changing the contract.
  *
  * Recommended-option extraction (per D2):
- *   - First: (recommended) label suffix on an option.
+ *   - First: (recommended) marker on an option (including before a tradeoff).
  *   - Fall back: "Recommendation: X" prose match against option labels.
  *   - Refuse to auto-decide if ambiguous (multiple labels OR no parseable
  *     recommendation): defer instead of silent-wrong.
@@ -58,7 +58,7 @@ interface HookStdin {
 }
 
 const MARKER_RE = /<gstack-qid:([a-z0-9-]{1,64})>/i;
-const RECOMMENDED_LABEL_RE = /\(recommended\)\s*$/i;
+const RECOMMENDED_MARKER_RE = /\(recommended\)/i;
 
 function stateRoot(): string {
   return (
@@ -264,9 +264,13 @@ function extractRecommended(
   questionText: string,
   opts: string[],
 ): { recommended: string | undefined; ambiguous: boolean } {
-  const labelMatches = opts.filter((o) => RECOMMENDED_LABEL_RE.test(o));
+  const labelMatches = opts.filter((o) => RECOMMENDED_MARKER_RE.test(o));
   if (labelMatches.length === 1) {
-    return { recommended: labelMatches[0].replace(RECOMMENDED_LABEL_RE, '').trim(), ambiguous: false };
+    const recommended = labelMatches[0]
+      .replace(RECOMMENDED_MARKER_RE, '')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+    return { recommended, ambiguous: false };
   }
   if (labelMatches.length > 1) return { recommended: undefined, ambiguous: true };
 

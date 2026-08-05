@@ -185,7 +185,7 @@ describe('defers (no enforcement)', () => {
 // ----------------------------------------------------------------------
 
 describe('enforces never-ask preferences', () => {
-  test('marker + never-ask + two-way + clean recommendation → deny', () => {
+  test('marker + never-ask + recommendation before tradeoff → deny', () => {
     writeProjectPref('ship-pre-landing-review-fix', 'never-ask');
     const r = runHook({
       session_id: 's5',
@@ -196,7 +196,10 @@ describe('enforces never-ask preferences', () => {
           {
             question:
               '<gstack-qid:ship-pre-landing-review-fix> Pre-landing review flagged issue.',
-            options: ['A) Fix now (recommended)', 'B) Skip'],
+            options: [
+              'A) Fix now (recommended) — applies the complete correction',
+              'B) Skip — leaves the current behavior unchanged',
+            ],
           },
         ],
       },
@@ -570,7 +573,10 @@ describe('Conductor clickable-question routing', () => {
         questions: [
           {
             question: '<gstack-qid:ship-pre-landing-review-fix> Pre-landing review flagged issue.',
-            options: ['A) Fix now (recommended)', 'B) Skip'],
+            options: [
+              'A) Fix now (recommended) — applies the complete correction',
+              'B) Skip — leaves the current behavior unchanged',
+            ],
           },
         ],
       },
