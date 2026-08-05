@@ -63,8 +63,16 @@ while IFS= read -r f; do
     .github/*) CONFIG=true ;;
     requirements.txt|pyproject.toml|go.mod|Cargo.toml|composer.json) CONFIG=true ;;
 
-    # Migrations: database migration files
-    db/migrate/*|*/migrations/*|alembic/*|prisma/migrations/*) MIGRATIONS=true ;;
+    # Migrations: database migration files.
+    # Match BROADLY on purpose: a false positive costs one extra specialist pass, a false
+    # negative silently skips the data-migration reviewer on the diff that needed it most.
+    # (Observed: a Drizzle repo dropping a column DEFAULT scored SCOPE_MIGRATIONS=false.)
+    db/migrate/*|db/migration/*) MIGRATIONS=true ;;
+    migrations/*|migration/*|*/migrations/*|*/migration/*) MIGRATIONS=true ;;
+    alembic/*|prisma/migrations/*) MIGRATIONS=true ;;
+    # Drizzle: default `out` is ./drizzle — bare .sql files plus a meta/ journal+snapshots.
+    # Nested form covers a monorepo package or a custom `out` one level down.
+    drizzle/*.sql|drizzle/meta/*|*/drizzle/*.sql|*/drizzle/meta/*) MIGRATIONS=true ;;
 
     # API: routes, controllers, endpoints, GraphQL/OpenAPI schemas
     *controller*|*route*|*endpoint*|*/api/*) API=true ;;

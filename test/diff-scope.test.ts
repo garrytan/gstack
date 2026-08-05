@@ -6,7 +6,7 @@
  */
 import { describe, test, expect, afterAll } from 'bun:test';
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'fs';
-import { join } from 'path';
+import { dirname, join } from 'path';
 import { tmpdir } from 'os';
 import { spawnSync } from 'child_process';
 
@@ -34,7 +34,10 @@ function createRepo(files: string[]): string {
   run('git', ['checkout', '-b', 'feature/test']);
   for (const f of files) {
     const fullPath = join(dir, f);
-    const dirPath = fullPath.substring(0, fullPath.lastIndexOf('/'));
+    // dirname(), not lastIndexOf('/'): join() emits BACKSLASHES on Windows, so the
+    // hand-rolled scan returned -1, substring(0, -1) gave '', and mkdirSync('') threw
+    // ENOENT -- every test in this file failed on Windows, including the no-subdir ones.
+    const dirPath = dirname(fullPath);
     if (dirPath !== dir) mkdirSync(dirPath, { recursive: true });
     writeFileSync(fullPath, '# test content\n');
   }
@@ -111,6 +114,52 @@ describe('gstack-diff-scope', () => {
     const dir = createRepo(['prisma/migrations/20260330/migration.sql']);
     const scope = runScope(dir);
     expect(scope.SCOPE_MIGRATIONS).toBe('true');
+  });
+
+  // Drizzle writes bare .sql files plus a meta/ journal into its `out` dir (default
+  // ./drizzle), which matched NO migration pattern -- so a Drizzle PR dropping a column
+  // DEFAULT scored SCOPE_MIGRATIONS=false and silently skipped the data-migration
+  // reviewer, the one pass most relevant to that diff.
+  test('detects migrations via drizzle output dir', () => {
+    for (const f of [
+      'drizzle/20260805040502_lazy_champions.sql',
+      'drizzle/meta/_journal.json',
+      'drizzle/meta/0001_snapshot.json',
+    ]) {
+      const scope = runScope(createRepo([f]));
+      expect(scope.SCOPE_MIGRATIONS).toBe('true');
+    }
+  });
+
+  test('detects migrations via drizzle in a monorepo package', () => {
+    const dir = createRepo(['packages/db/drizzle/0001_init.sql']);
+    const scope = runScope(dir);
+    expect(scope.SCOPE_MIGRATIONS).toBe('true');
+  });
+
+  // `*/migrations/*` requires a parent segment, so a ROOT-level migrations/ dir --
+  // Knex, Sequelize, golang-migrate, Atlas -- fell through.
+  test('detects migrations via root-level migrations/', () => {
+    const dir = createRepo(['migrations/001_init.sql']);
+    const scope = runScope(dir);
+    expect(scope.SCOPE_MIGRATIONS).toBe('true');
+  });
+
+  // Flyway and some Ecto/Java layouts use the SINGULAR `migration/`.
+  test('detects migrations via singular migration/ (Flyway)', () => {
+    for (const f of ['db/migration/V1__init.sql', 'src/main/resources/db/migration/V2__x.sql']) {
+      const scope = runScope(createRepo([f]));
+      expect(scope.SCOPE_MIGRATIONS).toBe('true');
+    }
+  });
+
+  // The widened patterns must not fire on ORM CONFIG or on prose that merely contains
+  // the word -- only on an actual path segment.
+  test('does NOT flag drizzle config or migration prose as a migration', () => {
+    for (const f of ['drizzle.config.ts', 'docs/migration-guide.md', 'src/db/schema.ts']) {
+      const scope = runScope(createRepo([f]));
+      expect(scope.SCOPE_MIGRATIONS).toBe('false');
+    }
   });
 
   test('detects API via controller files', () => {
