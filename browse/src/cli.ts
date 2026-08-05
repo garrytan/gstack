@@ -292,6 +292,27 @@ function raiseHeadedWindowMacOS(): void {
 }
 
 // ─── Server Lifecycle ──────────────────────────────────────────
+// Detached daemon's own stdout/stderr used to be wired to 'ignore' on every
+// platform, so console.error('[browse] FATAL: ...') from a Chromium crash,
+// an uncaughtException, or an unhandledRejection (see server.ts's handlers
+// and browser-manager.ts's handleChromiumDisconnect) went nowhere -- not to
+// a file, not to the terminal, just discarded at the OS level. That made a
+// crash-and-respawn indistinguishable from any other cause of a dropped
+// session: nothing on disk ever recorded WHY. Redirect both streams to
+// <stateDir>/browse-daemon.log instead (opened here, in the CLI's own
+// process, and passed down as a real fd/stream so it survives past this
+// process exiting) -- append mode, so it accumulates across the server's
+// full lifetime and every respawn stays visible in one place.
+function openDaemonLogSink(): number | 'ignore' {
+  try {
+    return fs.openSync(path.join(config.stateDir, 'browse-daemon.log'), 'a');
+  } catch {
+    // stateDir not writable (permissions, disk full) -- fall back to the
+    // previous behavior rather than fail the whole launch over logging.
+    return 'ignore';
+  }
+}
+
 async function startServer(extraEnv?: Record<string, string>): Promise<ServerState> {
   ensureStateDir(config);
 
@@ -320,10 +341,18 @@ async function startServer(extraEnv?: Record<string, string>): Promise<ServerSta
     // with { detached: true } instead, which is the gold standard for Windows
     // process independence. Credit: PR #191 by @fqueiro.
     const extraEnvStr = JSON.stringify({ BROWSE_STATE_FILE: config.stateFile, BROWSE_PARENT_PID: parentPid, ...(extraEnv || {}) });
+    // The daemon's real process lives inside THIS launcher's own `node -e`
+    // invocation, not in cli.ts's process -- so the log file has to be
+    // opened from inside the launcher string too; a fd opened here in
+    // cli.ts wouldn't cross the spawn boundary. Falls back to 'ignore' the
+    // same way openDaemonLogSink() does if the state dir isn't writable.
+    const daemonLogPathStr = JSON.stringify(path.join(config.stateDir, 'browse-daemon.log'));
     const launcherCode =
       `const{spawn}=require('child_process');` +
+      `const fs=require('fs');` +
+      `let logFd;try{logFd=fs.openSync(${daemonLogPathStr},'a');}catch(e){logFd='ignore';}` +
       `spawn(process.execPath,[${JSON.stringify(NODE_SERVER_SCRIPT)}],` +
-      `{detached:true,stdio:['ignore','ignore','ignore'],env:Object.assign({},process.env,` +
+      `{detached:true,stdio:['ignore',logFd,logFd],env:Object.assign({},process.env,` +
       `${extraEnvStr})}).unref()`;
     Bun.spawnSync(['node', '-e', launcherCode], { stdio: ['ignore', 'ignore', 'ignore'] });
   } else {
@@ -338,9 +367,10 @@ async function startServer(extraEnv?: Record<string, string>): Promise<ServerSta
     // which calls setsid() so the server becomes its own session leader
     // (PPID=1, STAT=Ss) and survives the spawning shell's exit. Mirrors
     // the Windows path's rationale — same root cause, different OS API.
+    const daemonLogFd = openDaemonLogSink();
     nodeSpawn('bun', ['run', SERVER_SCRIPT], {
       detached: true,
-      stdio: ['ignore', 'ignore', 'ignore'],
+      stdio: ['ignore', daemonLogFd, daemonLogFd],
       env: { ...process.env, BROWSE_STATE_FILE: config.stateFile, BROWSE_PARENT_PID: parentPid, ...extraEnv },
     }).unref();
   }

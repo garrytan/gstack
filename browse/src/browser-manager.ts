@@ -91,7 +91,32 @@ export function shouldEnableChromiumSandbox(): boolean {
  * restarts on backoff.
  */
 export async function resolveDisconnectCause(browser: Browser | null): Promise<'clean' | 'crash'> {
-  const proc = browser?.process();
+  // browser.process() has thrown "browser?.process is not a function" in
+  // the wild (confirmed live: killing the headless-shell child process
+  // triggered it) -- some browser instances/connection modes apparently
+  // don't carry a real .process() the way a plain chromium.launch() result
+  // does. That's a synchronous throw inside this async function, which
+  // rejects the promise; the caller (handleChromiumDisconnect) awaits it
+  // without its own try/catch and is itself invoked via `void` (fire-and-
+  // forget) from the 'disconnected' event handler, so the rejection had
+  // nowhere to go but server.ts's top-level unhandledRejection handler --
+  // which exits the WHOLE daemon. The function whose entire job is
+  // classifying a disconnect was, on this path, causing a second, harder
+  // to diagnose crash of its own. Default to 'crash' (the conservative,
+  // pre-existing behavior for anything abnormal) when we can't even
+  // determine why the browser disconnected, instead of taking the daemon
+  // down over a diagnostic step.
+  let proc: ReturnType<NonNullable<Browser['process']>> | null = null;
+  try {
+    proc = browser?.process() ?? null;
+  } catch (err) {
+    // Log rather than swallow silently -- the entire point of this diff is
+    // making crash causes diagnosable (see cli.ts's daemon log redirect).
+    // A future error here that ISN'T today's known "not a function" case
+    // would otherwise vanish the same way the original bug did.
+    console.error('[browse] resolveDisconnectCause: browser.process() threw:', (err as Error)?.message || err);
+    proc = null;
+  }
   if (proc && proc.exitCode === null && proc.signalCode === null) {
     await new Promise<void>((resolve) => {
       const timer = setTimeout(resolve, 1000);

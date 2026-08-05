@@ -11,7 +11,46 @@
 'use strict';
 
 const http = require('http');
-const { spawnSync, spawn } = require('child_process');
+const { spawnSync: nodeSpawnSync, spawn: nodeSpawn } = require('child_process');
+// Node's spawn on Windows without shell:true only matches an EXACT
+// executable name -- no PATHEXT resolution the way a real shell (or
+// Bun.spawn, which this file exists to polyfill) does. A bare command
+// name like 'bun' (no .exe/.cmd) then fails ENOENT even though `bun`
+// works fine typed at a prompt (confirmed live: this is what produced
+// "[browse] FATAL uncaught exception: spawn bun ENOENT" from
+// terminal-agent-control.ts's respawn path, once daemon output was
+// actually being captured to a file instead of silently discarded).
+//
+// Two things this is NOT fixed with, both tried and rejected here:
+//
+// 1. shell:true + array args. This file is also reached (via server.ts ->
+//    write-commands.ts/meta-commands.ts -> cookie-import-browser.ts/
+//    browser-skill-commands.ts) by calls that pass genuinely variable
+//    content -- browser-skill-commands.ts:266 spreads `...opts.skillArgs`,
+//    sourced from `$B skill run <name> --arg k=v`'s passthrough CLI args,
+//    into the spawned argv. shell:true on Windows routes through cmd.exe,
+//    and Node's own array-arg handling for that combination does NOT
+//    neutralize cmd.exe metacharacters (& | ^ % < >) -- confirmed by
+//    directly spawning a resolved .cmd path with an arg containing
+//    `& echo INJECTED > proof.txt`: the file was created. Hand-rolled
+//    double-quote-only escaping (an earlier version of this fix) doesn't
+//    close that either -- it only handles embedded quotes.
+//
+// 2. Resolve the .exe/.cmd path ourselves and spawn it with NO shell.
+//    Works for .exe targets, but Node flat-out refuses (EINVAL) to spawn
+//    a .cmd/.bat file without shell:true -- deliberately, as part of
+//    Node's own CVE-2024-27980 fix for implicit unsafe .cmd execution.
+//    bun's own Windows install (npm global) is exactly a .cmd shim, so
+//    this path is not optional to support.
+//
+// cross-spawn (already resolved in node_modules -- a transitive dep of
+// @modelcontextprotocol/sdk, added here as a direct dependency) is the
+// established, battle-tested library for precisely this problem: it does
+// PATHEXT resolution AND correct Windows/cmd.exe argument escaping
+// together. Verified against the same injection payload above: the
+// malicious arg reached the child as a single literal argument, no file
+// was created, and normal resolution (`bun --version`) still worked.
+const crossSpawn = require('cross-spawn');
 
 globalThis.Bun = {
   serve(options) {
@@ -66,7 +105,8 @@ globalThis.Bun = {
 
   spawnSync(cmd, options = {}) {
     const [command, ...args] = cmd;
-    const result = spawnSync(command, args, {
+    const spawnFn = process.platform === 'win32' ? crossSpawn.sync : nodeSpawnSync;
+    const result = spawnFn(command, args, {
       stdio: [
         options.stdin || 'pipe',
         options.stdout === 'pipe' ? 'pipe' : 'ignore',
@@ -86,8 +126,9 @@ globalThis.Bun = {
 
   spawn(cmd, options = {}) {
     const [command, ...args] = cmd;
+    const spawnFn = process.platform === 'win32' ? crossSpawn : nodeSpawn;
     const stdio = options.stdio || ['pipe', 'pipe', 'pipe'];
-    const proc = spawn(command, args, {
+    const proc = spawnFn(command, args, {
       stdio,
       env: options.env,
       cwd: options.cwd,
