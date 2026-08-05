@@ -6,6 +6,7 @@ import * as path from 'path';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const MIGRATION = path.join(ROOT, 'gstack-upgrade', 'migrations', 'v1.60.2.0.sh');
+const SETUP = path.join(ROOT, 'setup');
 const MATCHER = '(AskUserQuestion|mcp__.*__AskUserQuestion)';
 const PREF = path.join(ROOT, 'hosts', 'claude', 'hooks', 'question-preference-hook');
 const LOG = path.join(ROOT, 'hosts', 'claude', 'hooks', 'question-log-hook');
@@ -126,5 +127,25 @@ describe('v1.60.2.0 AskUserQuestion hook migration', () => {
     const backupsAfterSecond = fs.readdirSync(path.join(home, '.claude'))
       .filter((file) => file.startsWith('settings.json.bak.')).length;
     expect(backupsAfterSecond).toBe(backupsAfterFirst);
+  });
+
+  test('normalization failure exits nonzero and remains retryable', () => {
+    const failed = run({ CONDUCTOR_PORT: '55070', PATH: '/usr/bin:/bin' });
+    expect(failed.status).not.toBe(0);
+    expect(failed.stderr).toContain('migration will retry later');
+    expect(fs.existsSync(path.join(home, '.gstack', '.migrations', 'v1.60.2.0.done'))).toBe(false);
+
+    fs.writeFileSync(settingsFile, JSON.stringify({ hooks: {} }));
+    const retried = run({ CONDUCTOR_PORT: '55070' });
+    expect(retried.status).toBe(0);
+    expect(fs.existsSync(path.join(home, '.gstack', '.migrations', 'v1.60.2.0.done'))).toBe(true);
+  });
+
+  test('setup advances its version marker only after migrations succeed', () => {
+    const source = fs.readFileSync(SETUP, 'utf-8');
+    expect(source).toContain('MIGRATIONS_OK=1');
+    expect(source).toContain('MIGRATIONS_OK=0');
+    expect(source).toContain('[ "$CURRENT_VERSION" != "unknown" ] && [ "$MIGRATIONS_OK" -eq 1 ]');
+    expect(source).toContain('retaining setup version $LAST_SETUP_VERSION until migrations succeed');
   });
 });

@@ -21,7 +21,8 @@ prose appears only when a genuine transport failure cannot be recovered.
   once even if JSON key order changes.
 - Upgrades normalize duplicate AskUserQuestion hooks left behind when Claude
   removed gstack's source tags, preserving unrelated hooks and taking a backup
-  before changing `settings.json`.
+  before changing `settings.json`. A failed normalization leaves the prior setup
+  version in place so the next setup run retries it.
 
 ### Changed
 

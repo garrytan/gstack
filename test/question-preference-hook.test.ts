@@ -79,6 +79,8 @@ function runHook(stdin: object, cwd?: string, extraEnv?: Record<string, string>)
   // via extraEnv.
   delete env.CONDUCTOR_WORKSPACE_PATH;
   delete env.CONDUCTOR_PORT;
+  delete env.GSTACK_HEADLESS;
+  delete env.OPENCLAW_SESSION;
   env.GSTACK_QUESTION_LOG_NO_DERIVE = '1';
   if (extraEnv) Object.assign(env, extraEnv);
   const res = spawnSync(HOOK, [], {
@@ -384,6 +386,48 @@ describe('Conductor clickable-question routing', () => {
     expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('defer');
   });
 
+  test('explicit headless mode blocks Conductor MCP before popup delivery', () => {
+    const r = runHook({
+      session_id: 'c1-headless-mcp',
+      tool_name: 'mcp__conductor__AskUserQuestion',
+      tool_use_id: 'tu-c1-headless-mcp',
+      tool_input: {
+        questions: [{ question: 'Pick?', options: ['A) Yes (recommended)', 'B) No'] }],
+      },
+    }, undefined, { ...CONDUCTOR, GSTACK_HEADLESS: '1' });
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('deny');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecisionReason).toContain('[headless] BLOCKED');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecisionReason).not.toContain('mcp__conductor__AskUserQuestion');
+  });
+
+  test('explicit headless mode blocks native AUQ instead of redirecting it', () => {
+    const r = runHook({
+      session_id: 'c1-headless-native',
+      tool_name: 'AskUserQuestion',
+      tool_use_id: 'tu-c1-headless-native',
+      tool_input: {
+        questions: [{ question: 'Pick?', options: ['A) Yes (recommended)', 'B) No'] }],
+      },
+    }, undefined, { ...CONDUCTOR, GSTACK_HEADLESS: '1' });
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('deny');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecisionReason).toContain('[headless] BLOCKED');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecisionReason).not.toContain('mcp__conductor__AskUserQuestion');
+  });
+
+  test('spawned Conductor session follows orchestrator auto-choice policy', () => {
+    const r = runHook({
+      session_id: 'c1-spawned',
+      tool_name: 'mcp__conductor__AskUserQuestion',
+      tool_use_id: 'tu-c1-spawned',
+      tool_input: {
+        questions: [{ question: 'Pick?', options: ['A) Yes (recommended)', 'B) No'] }],
+      },
+    }, undefined, { ...CONDUCTOR, OPENCLAW_SESSION: '1' });
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('deny');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecisionReason).toContain('[spawned]');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecisionReason).toMatch(/Auto-choose the recommended option/);
+  });
+
   test('MCP + OBJECT options → deny with a strings-only retry hint (object options render blank)', () => {
     const r = runHook({
       session_id: 'c2',
@@ -530,7 +574,7 @@ describe('Conductor clickable-question routing', () => {
           },
         ],
       },
-    }, undefined, CONDUCTOR);
+    }, undefined, { ...CONDUCTOR, GSTACK_HEADLESS: '1' });
     expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('deny');
     // auto-decide reason, NOT the conductor routing reason
     expect(r.parsed?.hookSpecificOutput?.permissionDecisionReason).toContain('plan-tune auto-decide');

@@ -290,6 +290,28 @@ function slugFromCwd(cwd: string | undefined): string {
   return path.basename(cwd);
 }
 
+type SessionKind = 'spawned' | 'headless' | 'interactive';
+
+/** Use the same authoritative classifier emitted by the generated preamble.
+ * Any classifier failure degrades to interactive so a real person is never
+ * incorrectly blocked by a hook-local detection error. */
+function sessionKind(cwd?: string): SessionKind {
+  try {
+    const here = path.dirname(new URL(import.meta.url).pathname);
+    const bin = path.resolve(here, '..', '..', '..', 'bin', 'gstack-session-kind');
+    const res = spawnSync(bin, [], {
+      encoding: 'utf-8',
+      timeout: 3000,
+      cwd: cwd && fs.existsSync(cwd) ? cwd : undefined,
+    });
+    const out = (res.stdout || '').trim();
+    if (out === 'spawned' || out === 'headless' || out === 'interactive') return out;
+  } catch (e) {
+    logHookError(`sessionKind failed: ${(e as Error).message}`);
+  }
+  return 'interactive';
+}
+
 function markAutoDecided(sessionId: string | undefined, toolUseId: string | undefined): void {
   if (!sessionId || !toolUseId) return;
   try {
@@ -455,6 +477,33 @@ async function main(): Promise<void> {
   // disabled by Conductor's launch flags, so redirect
   // native calls to the MCP variant; let well-formed MCP calls through to render.
   if (isConductor()) {
+    // A Conductor environment marker can also be present in SDK evals and
+    // orchestrator-spawned sessions. Those sessions have no person waiting for
+    // a popup, so honor the shared session classifier before routing either the
+    // native tool or Conductor's MCP variant. Other host MCP variants retain
+    // their own contracts and pass through untouched.
+    if (
+      toolName !== 'AskUserQuestion' &&
+      toolName !== 'mcp__conductor__AskUserQuestion'
+    ) {
+      defer(memoryContext);
+      return;
+    }
+    const kind = sessionKind(stdin.cwd);
+    if (kind === 'headless') {
+      deny(
+        '[headless] BLOCKED — AskUserQuestion unavailable. This Conductor session is explicitly ' +
+        'headless, so no human can answer. Stop and wait; do not retry or fall back to prose.',
+      );
+      return;
+    }
+    if (kind === 'spawned') {
+      deny(
+        '[spawned] AskUserQuestion is unavailable in an orchestrator-spawned Conductor session. ' +
+        'Auto-choose the recommended option per the Spawned session block; do not emit prose and do not block.',
+      );
+      return;
+    }
     if (toolName === 'AskUserQuestion') {
       deny(
         '[conductor] Native AskUserQuestion is disabled in Conductor (--disallowedTools). ' +
@@ -465,10 +514,6 @@ async function main(): Promise<void> {
         'Do NOT fall back to prose — the MCP tool is the clickable path.' +
         (memoryContext ? `\n${memoryContext}` : ''),
       );
-      return;
-    }
-    if (toolName !== 'mcp__conductor__AskUserQuestion') {
-      defer(memoryContext);
       return;
     }
     if (questions.length < 1 || questions.length > 4) {

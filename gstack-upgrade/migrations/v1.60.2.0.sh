@@ -51,7 +51,7 @@ fi
 for executable in "${SETTINGS_HOOK}" "${PREF_HOOK}" "${LOG_HOOK}" "${FALLBACK_HOOK}"; do
   if [ ! -x "${executable}" ]; then
     echo "  [v1.60.2.0] WARN: missing executable ${executable}; migration will retry later." >&2
-    exit 0
+    exit 1
   fi
 done
 
@@ -80,6 +80,7 @@ if [ "${_OK}" -eq 1 ]; then
   echo "  [v1.60.2.0] AskUserQuestion hooks normalized for clickable host popups." >&2
 else
   echo "  [v1.60.2.0] WARN: hook normalization was incomplete; migration will retry later." >&2
+  exit 1
 fi
 
 exit 0

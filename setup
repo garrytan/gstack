@@ -1206,25 +1206,31 @@ fi
 MIGRATIONS_DIR="$SOURCE_GSTACK_DIR/gstack-upgrade/migrations"
 CURRENT_VERSION=$(cat "$SOURCE_GSTACK_DIR/VERSION" 2>/dev/null || echo "unknown")
 LAST_SETUP_VERSION=$(cat "$HOME/.gstack/.last-setup-version" 2>/dev/null || echo "0.0.0.0")
+MIGRATIONS_OK=1
 if [ -d "$MIGRATIONS_DIR" ] && [ "$CURRENT_VERSION" != "unknown" ] && [ "$LAST_SETUP_VERSION" != "$CURRENT_VERSION" ]; then
   # Fresh install (no marker file) — skip migrations, just write marker
   if [ ! -f "$HOME/.gstack/.last-setup-version" ]; then
     : # fall through to marker write below
   else
-    find "$MIGRATIONS_DIR" -maxdepth 1 -name 'v*.sh' -type f 2>/dev/null | sort -V | while IFS= read -r migration; do
+    while IFS= read -r migration; do
       m_ver="$(basename "$migration" .sh | sed 's/^v//')"
       # Run if migration is newer than last setup version AND not newer than current version
       if [ "$(printf '%s\n%s' "$LAST_SETUP_VERSION" "$m_ver" | sort -V | head -1)" = "$LAST_SETUP_VERSION" ] && [ "$LAST_SETUP_VERSION" != "$m_ver" ] \
          && [ "$(printf '%s\n%s' "$m_ver" "$CURRENT_VERSION" | sort -V | tail -1)" = "$CURRENT_VERSION" ]; then
         echo "  running migration $m_ver..."
-        bash "$migration" || echo "  warning: migration $m_ver had errors (non-fatal)"
+        if ! bash "$migration"; then
+          echo "  warning: migration $m_ver had errors; setup will retry it next time"
+          MIGRATIONS_OK=0
+        fi
       fi
-    done
+    done < <(find "$MIGRATIONS_DIR" -maxdepth 1 -name 'v*.sh' -type f 2>/dev/null | sort -V)
   fi
 fi
 mkdir -p "$HOME/.gstack"
-if [ "$CURRENT_VERSION" != "unknown" ]; then
+if [ "$CURRENT_VERSION" != "unknown" ] && [ "$MIGRATIONS_OK" -eq 1 ]; then
   echo "$CURRENT_VERSION" > "$HOME/.gstack/.last-setup-version"
+elif [ "$MIGRATIONS_OK" -ne 1 ]; then
+  echo "  warning: retaining setup version $LAST_SETUP_VERSION until migrations succeed"
 fi
 
 # 9. First-time welcome + legacy cleanup
