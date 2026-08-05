@@ -368,11 +368,9 @@ async function main(): Promise<void> {
     return;
   }
 
-  const questions = stdin.tool_input?.questions || [];
-  if (questions.length === 0) {
-    defer();
-    return;
-  }
+  const questions = Array.isArray(stdin.tool_input?.questions)
+    ? stdin.tool_input.questions
+    : [];
 
   // For multi-question AUQ, enforcement is all-or-nothing per call:
   // we deny only if ALL questions have marker + never-ask + safe door type.
@@ -403,7 +401,7 @@ async function main(): Promise<void> {
 
   // Determine whether EVERY question is eligible for never-ask auto-decide.
   // We deliberately do NOT early-return defer on the first ineligible question:
-  // a Conductor session still needs the [conductor] prose deny as a fallback,
+  // a Conductor session still needs the [conductor] routing branch below,
   // so we compute eligibility, then branch. memoryContext is preserved on every
   // non-enforcing exit. (All-or-nothing per-call semantics are unchanged: any
   // ineligible question makes the whole call not auto-decidable.)
@@ -451,23 +449,78 @@ async function main(): Promise<void> {
     return;
   }
 
-  // Not fully auto-decidable. In Conductor, AskUserQuestion is unreliable
-  // (native is disabled, the mcp__conductor__AskUserQuestion variant is flaky),
-  // so deny the tool and redirect to a prose decision brief. This is TRANSPORT
-  // AVOIDANCE, not preference enforcement: it fires regardless of marker,
-  // preference, or door type — including one-way doors, which must reach the
-  // human via prose rather than the unreliable tool.
+  // Conductor: the clickable-question tool (mcp__conductor__AskUserQuestion) works
+  // and must render. This reverses the v1.58.1 (#2004) prose suppression: the SDK
+  // missing-result placeholder was misattributed to the host. Native AUQ is
+  // disabled by Conductor's launch flags, so redirect
+  // native calls to the MCP variant; let well-formed MCP calls through to render.
   if (isConductor()) {
-    const conductorReason =
-      '[conductor] AskUserQuestion is unreliable in Conductor (native disabled, MCP variant flaky). ' +
-      'Do NOT call AskUserQuestion (native or any mcp__*__AskUserQuestion). Render this decision as a ' +
-      'PROSE decision brief now: a D<N> label, an ELI10 of the issue, a Recommendation line, then one ' +
-      'paragraph per choice carrying its `(recommended)` marker and `Completeness: X/10`; tell the user ' +
-      'to reply with a letter, then STOP. For a one-way/destructive confirmation, require an explicit ' +
-      'typed confirmation and do NOT proceed on a vague reply. Capture the decision with gstack-question-log ' +
-      '(PostToolUse will not fire on a prose path).' +
-      (memoryContext ? `\n${memoryContext}` : '');
-    deny(conductorReason);
+    if (toolName === 'AskUserQuestion') {
+      deny(
+        '[conductor] Native AskUserQuestion is disabled in Conductor (--disallowedTools). ' +
+        'Re-issue the SAME question as mcp__conductor__AskUserQuestion (it is in your tool list). ' +
+        'Keep the full D<N> decision brief in the `question` field; pass `options` as an array of ' +
+        'plain STRINGS (letter + label + `(recommended)` marker + short tradeoff in each string). ' +
+        'Use 1-4 questions and at most 4 options each; do not include an `Other` option because Conductor adds it. ' +
+        'Do NOT fall back to prose — the MCP tool is the clickable path.' +
+        (memoryContext ? `\n${memoryContext}` : ''),
+      );
+      return;
+    }
+    if (toolName !== 'mcp__conductor__AskUserQuestion') {
+      defer(memoryContext);
+      return;
+    }
+    if (questions.length < 1 || questions.length > 4) {
+      deny(
+        '[conductor] mcp__conductor__AskUserQuestion requires 1-4 `questions` per call. ' +
+        'Retry once with the same decision content split into at most 4 questions. ' +
+        'Do NOT fall back to prose.',
+      );
+      return;
+    }
+    const hasTooManyOptions = questions.some(
+      (q) => Array.isArray(q.options) && q.options.length > 4,
+    );
+    if (hasTooManyOptions) {
+      deny(
+        '[conductor] mcp__conductor__AskUserQuestion allows at most 4 `options` per question. ' +
+        'Retry once with the same decision content split into groups of at most 4 options. ' +
+        'Do NOT drop choices and do NOT fall back to prose.',
+      );
+      return;
+    }
+    // mcp__conductor__AskUserQuestion: options MUST be plain strings. Object
+    // options ({label, description}) render as blank/unclickable choices and are
+    // the single cause of the "AUQ broken in Conductor" reports. Reject them
+    // deterministically with a retry hint; otherwise let the question render.
+    const hasObjectOrBlankOption = questions.some((q) =>
+      !Array.isArray(q.options) ||
+      q.options.some((o) => typeof o !== 'string' || o.trim() === ''),
+    );
+    if (hasObjectOrBlankOption) {
+      deny(
+        '[conductor] mcp__conductor__AskUserQuestion `options` must be an array of non-empty ' +
+        'STRINGS, not {label, description} objects (object options render as blank choices). ' +
+        'Retry the SAME call with each option as one string, e.g. ' +
+        '"A) <label> (recommended) — <short tradeoff>". Keep the full brief in `question`. ' +
+        'Do NOT fall back to prose.',
+      );
+      return;
+    }
+    const hasOtherOption = questions.some((q) =>
+      (q.options || []).some((o) => /^(?:[A-D]\)\s*)?Other(?:\s|$)/i.test(o)),
+    );
+    if (hasOtherOption) {
+      deny(
+        '[conductor] Do not include an `Other` option in mcp__conductor__AskUserQuestion; ' +
+        'Conductor adds it automatically. Retry once with the same questions and all explicit choices, ' +
+        'but remove the explicit `Other` option. Do NOT fall back to prose.',
+      );
+      return;
+    }
+    // Well-formed clickable question — let it through to Conductor to render.
+    defer(memoryContext);
     return;
   }
 

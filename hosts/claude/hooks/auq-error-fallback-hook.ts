@@ -3,13 +3,11 @@
  * PostToolUse hook for AskUserQuestion — runtime reliability layer for the
  * AUQ-failure prose fallback (OV3:B).
  *
- * When an AskUserQuestion call comes back as an ERROR / missing result (the
- * Conductor MCP bug returns `[Tool result missing due to internal error]`), this
- * hook injects `additionalContext` reminding the model of the failure-fallback
- * rule, tailored to the session kind. It does NOT render the prose itself — the
- * model still emits it. The hook only guarantees the reminder fires at the moment
- * of failure, instead of relying on the model noticing the error result and
- * recalling the echoed SESSION_KIND.
+ * When an AskUserQuestion call returns an explicit error, this hook injects
+ * `additionalContext` tailored to the session kind. Conductor returns structured
+ * `CONDUCTOR_ASK_USER_QUESTION_*` errors with a retryable flag; the generic Claude
+ * SDK `[Tool result missing due to internal error]` placeholder is deliberately
+ * ignored because it does not prove that popup delivery failed.
  *
  * DEFENSIVE / INERT-IF-UNSUPPORTED: it is unverified whether Claude Code invokes
  * PostToolUse hooks when an MCP tool returns a transport/missing-result error (we
@@ -31,13 +29,37 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { createHash } from 'crypto';
 import { spawnSync } from 'child_process';
 
 interface HookStdin {
+  session_id?: string;
+  tool_use_id?: string;
   tool_name?: string;
+  tool_input?: unknown;
   tool_response?: unknown;
   cwd?: string;
 }
+
+export type ResponseOutcome =
+  | 'success'
+  | 'cancelled'
+  | 'ambiguous-placeholder'
+  | 'retryable-error'
+  | 'non-retryable-error';
+
+export interface ResponseClassification {
+  outcome: ResponseOutcome;
+  code?: string;
+}
+
+const SDK_MISSING_RESULT_RE = /^\[?tool result missing due to internal error\]?\.?$/i;
+const CONDUCTOR_CODE_RE = /CONDUCTOR_ASK_USER_QUESTION_[A-Z_]+/;
+const RETRYABLE_CONDUCTOR_CODES = new Set([
+  'CONDUCTOR_ASK_USER_QUESTION_DELIVERY_FAILED',
+  'CONDUCTOR_ASK_USER_QUESTION_MALFORMED_ANSWERS',
+  'CONDUCTOR_ASK_USER_QUESTION_ANSWER_COUNT_MISMATCH',
+]);
 
 function stateRoot(): string {
   return (
@@ -88,38 +110,111 @@ function inject(additionalContext: string): void {
   process.exit(0);
 }
 
-/**
- * Decide whether the tool_response is an ERROR / missing result rather than a
- * real answer. Conservative: only flag clear failure shapes, so a successful
- * AskUserQuestion (which carries the user's choice) is never misread as failure.
- */
-export function isErrorResponse(response: unknown): boolean {
-  if (response === null || response === undefined) return true;
-  if (typeof response === 'string') {
-    const s = response.trim();
-    if (s === '') return true;
-    // Match ONLY the specific missing-result sentinel phrase, not any string that
-    // merely contains "error" — a real answer like "Investigate the internal error"
-    // must NOT trigger the fallback. (Codex review finding.)
-    return /tool result missing/i.test(s);
-  }
-  if (typeof response === 'object') {
-    const rec = response as Record<string, unknown>;
-    // Structured flag must be the boolean true — not the substring "is_error" inside
-    // a serialized success payload like '{"is_error": false}'.
-    if (rec.is_error === true || rec.isError === true) return true;
-    if (typeof rec.error === 'string' && rec.error.trim() !== '') return true;
-    // Some hosts wrap the payload as { content: "..." } or { content: [{text}] }.
-    const content = rec.content;
-    if (typeof content === 'string') return /tool result missing/i.test(content);
-    if (Array.isArray(content)) {
-      const text = content
-        .map((c) => (typeof c === 'string' ? c : (c as Record<string, unknown>)?.text ?? ''))
-        .join(' ');
-      return /tool result missing/i.test(text);
+function responseText(response: unknown): string {
+  if (typeof response === 'string') return response.trim();
+  if (!response || typeof response !== 'object') return '';
+  const rec = response as Record<string, unknown>;
+  const parts: string[] = [];
+  if (typeof rec.error === 'string') parts.push(rec.error);
+  if (typeof rec.content === 'string') parts.push(rec.content);
+  if (Array.isArray(rec.content)) {
+    for (const item of rec.content) {
+      if (typeof item === 'string') parts.push(item);
+      else if (item && typeof item === 'object') {
+        const text = (item as Record<string, unknown>).text;
+        if (typeof text === 'string') parts.push(text);
+      }
     }
   }
-  return false;
+  return parts.join('\n').trim();
+}
+
+/** Classify the result without confusing SDK bookkeeping with a host failure. */
+export function classifyResponse(response: unknown): ResponseClassification {
+  if (response === null || response === undefined) return { outcome: 'non-retryable-error' };
+
+  const text = responseText(response);
+  if (text === '') {
+    if (typeof response === 'string') return { outcome: 'non-retryable-error' };
+  }
+
+  if (SDK_MISSING_RESULT_RE.test(text)) return { outcome: 'ambiguous-placeholder' };
+  if (/^User responses:/i.test(text)) return { outcome: 'success' };
+
+  const code = text.match(CONDUCTOR_CODE_RE)?.[0];
+  if (code === 'CONDUCTOR_ASK_USER_QUESTION_USER_CANCELLED') {
+    return { outcome: 'cancelled', code };
+  }
+  if (code) {
+    const retryable = RETRYABLE_CONDUCTOR_CODES.has(code) && /Retryable:\s*yes/i.test(text);
+    return { outcome: retryable ? 'retryable-error' : 'non-retryable-error', code };
+  }
+
+  if (response && typeof response === 'object') {
+    const rec = response as Record<string, unknown>;
+    if (rec.is_error === true || rec.isError === true) return { outcome: 'non-retryable-error' };
+    if (typeof rec.error === 'string' && rec.error.trim() !== '') {
+      return { outcome: 'non-retryable-error' };
+    }
+  }
+
+  return { outcome: 'success' };
+}
+
+export function isErrorResponse(response: unknown): boolean {
+  const outcome = classifyResponse(response).outcome;
+  return outcome === 'retryable-error' || outcome === 'non-retryable-error';
+}
+
+function retryMarker(stdin: HookStdin): string | undefined {
+  if (!stdin.session_id || stdin.tool_input === undefined) return undefined;
+  const digest = createHash('sha256')
+    .update(`${stdin.tool_name || ''}\n${stableJson(stdin.tool_input)}`)
+    .digest('hex')
+    .slice(0, 20);
+  return path.join(stateRoot(), 'sessions', stdin.session_id, `.auq-retry-${digest}`);
+}
+
+/** Canonical JSON keeps a semantically identical retry on the same marker even
+ * when the SDK/model emits object keys in a different order. */
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, item]) => item !== undefined)
+      .sort(([a], [b]) => a.localeCompare(b));
+    return `{${entries
+      .map(([key, item]) => `${JSON.stringify(key)}:${stableJson(item)}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value) ?? 'null';
+}
+
+/** Returns true exactly once for a given session + question payload. */
+function claimRetry(stdin: HookStdin): boolean {
+  const marker = retryMarker(stdin);
+  if (!marker) return false;
+  try {
+    fs.mkdirSync(path.dirname(marker), { recursive: true });
+    const fd = fs.openSync(marker, 'wx');
+    fs.writeFileSync(fd, `${new Date().toISOString()}\n`);
+    fs.closeSync(fd);
+    return true;
+  } catch (e) {
+    const code = (e as { code?: string }).code;
+    if (code !== 'EEXIST') logHookError(`retry marker failed: ${(e as Error).message}`);
+    return false;
+  }
+}
+
+function clearRetry(stdin: HookStdin): void {
+  const marker = retryMarker(stdin);
+  if (!marker) return;
+  try {
+    fs.rmSync(marker, { force: true });
+  } catch (e) {
+    logHookError(`retry marker cleanup failed: ${(e as Error).message}`);
+  }
 }
 
 /** Resolve SESSION_KIND via the shared helper (same classification the preamble
@@ -142,9 +237,14 @@ export function sessionKind(cwd?: string): 'spawned' | 'headless' | 'interactive
 }
 
 /** The directive injected per session kind. Exported for unit testing. */
-export function directiveFor(kind: 'spawned' | 'headless' | 'interactive'): string {
+export function directiveFor(
+  kind: 'spawned' | 'headless' | 'interactive',
+  action: 'retry' | 'fallback' = 'fallback',
+  code?: string,
+): string {
+  const codeNote = code ? ` (${code})` : '';
   const lead =
-    'The AskUserQuestion call did not return a usable answer (error / missing result). ' +
+    `The AskUserQuestion call returned an explicit error${codeNote}. ` +
     'Per the AskUserQuestion failure-fallback rule: ';
   switch (kind) {
     case 'spawned':
@@ -160,12 +260,20 @@ export function directiveFor(kind: 'spawned' | 'headless' | 'interactive'): stri
       );
     case 'interactive':
     default:
+      if (action === 'retry') {
+        return (
+          lead +
+          'SESSION_KIND=interactive — retry the SAME AskUserQuestion exactly once with identical ' +
+          'questions and plain-string options. Do not emit prose yet. If the retry returns `User responses`, ' +
+          'resume the workflow exactly once. If it fails again, follow the prose fallback from the next hook result.'
+        );
+      }
       return (
         lead +
         'SESSION_KIND=interactive — render the decision as a PROSE message now: a clear ELI10 of the issue, ' +
         'then a Recommendation line, then ONE paragraph per choice carrying its `(recommended)` marker, its ' +
         '`Completeness: X/10`, and 2-4 sentences of reasoning. Tell the user to reply with a letter, then STOP. ' +
-        '(Retry the call once first only if no answer could have surfaced.)'
+        'Do not call AskUserQuestion again for this decision.'
       );
   }
 }
@@ -187,9 +295,19 @@ async function main(): Promise<void> {
     return defer();
   }
 
-  if (!isErrorResponse(stdin.tool_response)) return defer();
+  const classification = classifyResponse(stdin.tool_response);
+  if (classification.outcome === 'success' || classification.outcome === 'cancelled') {
+    clearRetry(stdin);
+    return defer();
+  }
+  if (classification.outcome === 'ambiguous-placeholder') return defer();
 
-  inject(directiveFor(sessionKind(stdin.cwd)));
+  const kind = sessionKind(stdin.cwd);
+  const action =
+    classification.outcome === 'retryable-error' && kind === 'interactive' && claimRetry(stdin)
+      ? 'retry'
+      : 'fallback';
+  inject(directiveFor(kind, action, classification.code));
 }
 
 // Only run the stdin→stdout pipeline when executed as a hook, not when imported

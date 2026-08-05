@@ -45,7 +45,7 @@ function runHook(stdin: object): { stdout: string; stderr: string; status: numbe
   delete env.GSTACK_HOME;
   // These cases assert the defer-path memoryContext injection. Strip ambient
   // Conductor markers so running inside Conductor (CONDUCTOR_WORKSPACE_PATH/PORT
-  // set) doesn't flip the hook into the [conductor] prose deny instead of defer.
+  // set) doesn't flip the hook into the [conductor] MCP-routing branch.
   delete env.CONDUCTOR_WORKSPACE_PATH;
   delete env.CONDUCTOR_PORT;
   const res = spawnSync(HOOK, [], {

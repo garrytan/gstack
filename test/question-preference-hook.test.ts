@@ -75,7 +75,7 @@ function runHook(stdin: object, cwd?: string, extraEnv?: Record<string, string>)
   // Strip ambient Conductor markers so these cases characterize NON-Conductor
   // behavior deterministically — otherwise running the suite inside Conductor
   // (CONDUCTOR_WORKSPACE_PATH/PORT set) would flip every defer into the
-  // [conductor] prose deny. The Conductor cases below opt back in explicitly
+  // [conductor] MCP routing deny. The Conductor cases below opt back in explicitly
   // via extraEnv.
   delete env.CONDUCTOR_WORKSPACE_PATH;
   delete env.CONDUCTOR_PORT;
@@ -346,17 +346,134 @@ describe('MCP variant', () => {
 });
 
 // ----------------------------------------------------------------------
-// Conductor: deny + prose redirect (transport avoidance, not preference)
+// Conductor: route clickable questions through the MCP variant. Reverses the
+// v1.58.1 (#2004) prose-suppression regression — mcp__conductor__AskUserQuestion
+// renders and works; native AUQ is disabled by launch flags → redirect; object
+// options are rejected (they render blank).
 // ----------------------------------------------------------------------
 
-describe('Conductor prose redirect', () => {
+describe('Conductor clickable-question routing', () => {
   const CONDUCTOR = { CONDUCTOR_PORT: '55070' };
 
-  test('two-way, no preference → deny with [conductor] prose directive', () => {
+  test('MCP + STRING options → defer (question renders)', () => {
     const r = runHook({
       session_id: 'c1',
-      tool_name: 'AskUserQuestion',
+      tool_name: 'mcp__conductor__AskUserQuestion',
       tool_use_id: 'tu-c1',
+      tool_input: {
+        questions: [
+          { question: '<gstack-qid:test-q> Need approval?', options: ['A) Yes (recommended)', 'B) No'] },
+        ],
+      },
+    }, undefined, CONDUCTOR);
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('defer');
+  });
+
+  test('MCP supports multiple questions and multi-select with string options', () => {
+    const r = runHook({
+      session_id: 'c1b',
+      tool_name: 'mcp__conductor__AskUserQuestion',
+      tool_use_id: 'tu-c1b',
+      tool_input: {
+        questions: [
+          { question: 'Pick one?', options: ['A', 'B'] },
+          { question: 'Pick several?', options: ['A', 'B', 'C'], multiSelect: true },
+        ],
+      },
+    }, undefined, CONDUCTOR);
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('defer');
+  });
+
+  test('MCP + OBJECT options → deny with a strings-only retry hint (object options render blank)', () => {
+    const r = runHook({
+      session_id: 'c2',
+      tool_name: 'mcp__conductor__AskUserQuestion',
+      tool_use_id: 'tu-c2',
+      tool_input: {
+        questions: [
+          { question: '<gstack-qid:test-q> Pick?', options: [{ label: 'A', description: 'x' }, { label: 'B' }] },
+        ],
+      },
+    }, undefined, CONDUCTOR);
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('deny');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecisionReason).toContain('[conductor]');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecisionReason).toMatch(/STRINGS/);
+  });
+
+  test('MCP + blank option → deny with the same strings-only retry hint', () => {
+    const r = runHook({
+      session_id: 'c2b',
+      tool_name: 'mcp__conductor__AskUserQuestion',
+      tool_use_id: 'tu-c2b',
+      tool_input: { questions: [{ question: 'Pick?', options: ['A', '   '] }] },
+    }, undefined, CONDUCTOR);
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('deny');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecisionReason).toMatch(/non-empty.*STRINGS/);
+  });
+
+  test('MCP rejects more than four questions with a deterministic retry', () => {
+    const r = runHook({
+      session_id: 'c2c',
+      tool_name: 'mcp__conductor__AskUserQuestion',
+      tool_use_id: 'tu-c2c',
+      tool_input: {
+        questions: Array.from({ length: 5 }, (_, i) => ({ question: `Q${i + 1}?`, options: ['A'] })),
+      },
+    }, undefined, CONDUCTOR);
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('deny');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecisionReason).toMatch(/requires 1-4/);
+    expect(r.parsed?.hookSpecificOutput?.permissionDecisionReason).toMatch(/Retry once/);
+  });
+
+  test('MCP rejects an empty questions array', () => {
+    const r = runHook({
+      session_id: 'c2c-empty',
+      tool_name: 'mcp__conductor__AskUserQuestion',
+      tool_use_id: 'tu-c2c-empty',
+      tool_input: { questions: [] },
+    }, undefined, CONDUCTOR);
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('deny');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecisionReason).toMatch(/requires 1-4/);
+  });
+
+  test('MCP rejects more than four options without dropping choices', () => {
+    const r = runHook({
+      session_id: 'c2d',
+      tool_name: 'mcp__conductor__AskUserQuestion',
+      tool_use_id: 'tu-c2d',
+      tool_input: { questions: [{ question: 'Pick?', options: ['A', 'B', 'C', 'D', 'E'] }] },
+    }, undefined, CONDUCTOR);
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('deny');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecisionReason).toMatch(/at most 4 `options`/);
+    expect(r.parsed?.hookSpecificOutput?.permissionDecisionReason).toMatch(/Do NOT drop choices/);
+  });
+
+  test('MCP rejects an explicit Other option because Conductor supplies it', () => {
+    const r = runHook({
+      session_id: 'c2d-other',
+      tool_name: 'mcp__conductor__AskUserQuestion',
+      tool_use_id: 'tu-c2d-other',
+      tool_input: { questions: [{ question: 'Pick?', options: ['A) First', 'B) Other'] }] },
+    }, undefined, CONDUCTOR);
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('deny');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecisionReason).toMatch(/adds it automatically/);
+  });
+
+  test('another host MCP variant is not forced into the Conductor payload shape', () => {
+    const r = runHook({
+      session_id: 'c2e',
+      tool_name: 'mcp__another_host__AskUserQuestion',
+      tool_use_id: 'tu-c2e',
+      tool_input: { questions: [{ question: 'Pick?', options: [{ label: 'A' }] }] },
+    }, undefined, CONDUCTOR);
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('defer');
+  });
+
+  test('native AskUserQuestion in Conductor → deny + redirect to the MCP variant', () => {
+    const r = runHook({
+      session_id: 'c3',
+      tool_name: 'AskUserQuestion',
+      tool_use_id: 'tu-c3',
       tool_input: {
         questions: [
           { question: '<gstack-qid:test-q> Need approval?', options: ['A) Yes (recommended)', 'B) No'] },
@@ -365,30 +482,15 @@ describe('Conductor prose redirect', () => {
     }, undefined, CONDUCTOR);
     expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('deny');
     expect(r.parsed?.hookSpecificOutput?.permissionDecisionReason).toContain('[conductor]');
-    expect(r.parsed?.hookSpecificOutput?.permissionDecisionReason).toMatch(/do not call askuserquestion/i);
-    expect(r.parsed?.hookSpecificOutput?.permissionDecisionReason).toMatch(/reply with a letter/i);
+    expect(r.parsed?.hookSpecificOutput?.permissionDecisionReason).toContain('mcp__conductor__AskUserQuestion');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecisionReason).not.toMatch(/reply with a letter/i);
   });
 
-  test('UNMARKED question (modal path) → deny with prose directive', () => {
+  test('native one-way door in Conductor → still redirect to MCP (not prose)', () => {
     const r = runHook({
-      session_id: 'c2',
+      session_id: 'c3b',
       tool_name: 'AskUserQuestion',
-      tool_use_id: 'tu-c2',
-      tool_input: {
-        questions: [
-          { question: 'No marker — an ad-hoc question', options: ['A) Yes (recommended)', 'B) No'] },
-        ],
-      },
-    }, undefined, CONDUCTOR);
-    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('deny');
-    expect(r.parsed?.hookSpecificOutput?.permissionDecisionReason).toContain('[conductor]');
-  });
-
-  test('one-way door → deny with prose directive (NOT defer — destructive must reach human via prose)', () => {
-    const r = runHook({
-      session_id: 'c3',
-      tool_name: 'AskUserQuestion',
-      tool_use_id: 'tu-c3',
+      tool_use_id: 'tu-c3b',
       tool_input: {
         questions: [
           {
@@ -399,11 +501,10 @@ describe('Conductor prose redirect', () => {
       },
     }, undefined, CONDUCTOR);
     expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('deny');
-    expect(r.parsed?.hookSpecificOutput?.permissionDecisionReason).toContain('[conductor]');
-    expect(r.parsed?.hookSpecificOutput?.permissionDecisionReason).toMatch(/typed confirmation/i);
+    expect(r.parsed?.hookSpecificOutput?.permissionDecisionReason).toContain('mcp__conductor__AskUserQuestion');
   });
 
-  test('CONDUCTOR_WORKSPACE_PATH alone also triggers the redirect', () => {
+  test('CONDUCTOR_WORKSPACE_PATH alone also routes (MCP + strings → defer)', () => {
     const r = runHook({
       session_id: 'c4',
       tool_name: 'mcp__conductor__AskUserQuestion',
@@ -412,11 +513,10 @@ describe('Conductor prose redirect', () => {
         questions: [{ question: '<gstack-qid:test-q> Pick?', options: ['A) X (recommended)', 'B) Y'] }],
       },
     }, undefined, { CONDUCTOR_WORKSPACE_PATH: '/Users/x/conductor/ws' });
-    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('deny');
-    expect(r.parsed?.hookSpecificOutput?.permissionDecisionReason).toContain('[conductor]');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('defer');
   });
 
-  test('PRECEDENCE: full never-ask auto-decide still wins over Conductor prose', () => {
+  test('PRECEDENCE: full never-ask auto-decide still wins over Conductor routing', () => {
     writeProjectPref('ship-pre-landing-review-fix', 'never-ask');
     const r = runHook({
       session_id: 'c5',
@@ -432,12 +532,12 @@ describe('Conductor prose redirect', () => {
       },
     }, undefined, CONDUCTOR);
     expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('deny');
-    // auto-decide reason, NOT the conductor prose reason
+    // auto-decide reason, NOT the conductor routing reason
     expect(r.parsed?.hookSpecificOutput?.permissionDecisionReason).toContain('plan-tune auto-decide');
     expect(r.parsed?.hookSpecificOutput?.permissionDecisionReason).not.toContain('[conductor]');
   });
 
-  test('non-AUQ tool in Conductor → still defer (no redirect on unrelated tools)', () => {
+  test('non-AUQ tool in Conductor → still defer (no routing on unrelated tools)', () => {
     const r = runHook(
       { session_id: 'c6', tool_name: 'Bash', tool_use_id: 'tu-c6', tool_input: {} },
       undefined,

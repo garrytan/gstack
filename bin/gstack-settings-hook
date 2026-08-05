@@ -19,8 +19,9 @@
 # before mutating (Codex correction — silent settings.json mutation is wrong).
 #
 # Dedup: legacy `add`/`remove` dedupe by the historical `gstack-session-update`
-# substring. Schema-aware `add-event` dedupes by (event, matcher, _gstack_source) so
-# multiple gstack registrations (plan-tune, ...) don't collide.
+# substring. Schema-aware `add-event` dedupes by event + matcher and either the
+# gstack source tag or the exact command. The command fallback adopts entries when
+# Claude strips `_gstack_source` and collapses duplicate legacy registrations.
 #
 # Writes atomically: .tmp + rename to prevent corruption on crash/disk-full.
 set -euo pipefail
@@ -49,10 +50,16 @@ fi
 
 backup_settings() {
   if [ -f "$SETTINGS_FILE" ]; then
-    local ts
+    local ts backup suffix
     ts=$(date +%Y%m%d-%H%M%S)
-    cp "$SETTINGS_FILE" "$SETTINGS_FILE.bak.$ts"
-    echo "$SETTINGS_FILE.bak.$ts" > "$SETTINGS_FILE.bak-latest"
+    backup="$SETTINGS_FILE.bak.$ts"
+    suffix=0
+    while [ -e "$backup" ]; do
+      suffix=$((suffix + 1))
+      backup="$SETTINGS_FILE.bak.$ts.$suffix"
+    done
+    cp "$SETTINGS_FILE" "$backup"
+    echo "$backup" > "$SETTINGS_FILE.bak-latest"
   fi
 }
 
@@ -169,26 +176,46 @@ case "$ACTION" in
       if (!settings.hooks) settings.hooks = {};
       if (!settings.hooks[event]) settings.hooks[event] = [];
 
+      const hooks = Array.isArray(settings.hooks[event]) ? settings.hooks[event] : [];
+      const sameMatcher = (entry) => (entry.matcher || "") === matcher;
+      const hasExactCommand = (entry) =>
+        Array.isArray(entry.hooks) && entry.hooks.some((hook) => hook?.command === cmd);
       const matchesEntry = (entry) => {
-        const sameMatcher = (entry.matcher || "") === matcher;
         const sameSource = entry._gstack_source === source;
-        return sameMatcher && sameSource;
+        return sameMatcher(entry) && (sameSource || hasExactCommand(entry));
       };
 
-      let existing = settings.hooks[event].find(matchesEntry);
       const hookEntry = { type: "command", command: cmd };
       if (timeoutRaw) {
         const n = Number(timeoutRaw);
         if (Number.isFinite(n) && n > 0) hookEntry.timeout = n;
       }
 
-      if (existing) {
-        existing.hooks = [hookEntry];
-      } else {
-        const newEntry = { _gstack_source: source, hooks: [hookEntry] };
-        if (matcher) newEntry.matcher = matcher;
-        settings.hooks[event].push(newEntry);
+      const canonical = { _gstack_source: source, hooks: [hookEntry] };
+      if (matcher) canonical.matcher = matcher;
+
+      const normalized = [];
+      let inserted = false;
+      for (const entry of hooks) {
+        if (!matchesEntry(entry)) {
+          normalized.push(entry);
+          continue;
+        }
+
+        // An untagged entry may contain the gstack command alongside a user-owned
+        // unrelated command. Preserve those unrelated hooks as their own entry.
+        if (entry._gstack_source !== source && Array.isArray(entry.hooks)) {
+          const unrelated = entry.hooks.filter((hook) => hook?.command !== cmd);
+          if (unrelated.length > 0) normalized.push({ ...entry, hooks: unrelated });
+        }
+
+        if (!inserted) {
+          normalized.push(canonical);
+          inserted = true;
+        }
       }
+      if (!inserted) normalized.push(canonical);
+      settings.hooks[event] = normalized;
 
       const after = JSON.stringify(settings, null, 2);
 

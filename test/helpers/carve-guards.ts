@@ -186,7 +186,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
       gateAfterStop: 'EXIT PLAN MODE GATE',
     },
     behavioral: 'plan',
-    // +Conductor AUQ-default-prose rule + one-way/continuation safety in the
+    // +host-aware AUQ routing + one-way/fallback safety in the
     // always-loaded AskUserQuestion Format section.
     // v1.2.0 activation lift (shared first-run-guidance preamble) + #2077 ask-first scope gate.
     maxSkeletonBytes: 88_000,
@@ -206,7 +206,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
       gateAfterStop: 'EXIT PLAN MODE GATE',
     },
     behavioral: 'plan',
-    // +Conductor AUQ-default-prose rule + one-way/destructive prose safety +
+    // +host-aware AUQ routing + one-way/destructive fallback safety +
     // continuation protocol in the always-loaded AskUserQuestion Format section.
     // v1.2.0 activation lift: first-run-guidance section in the shared preamble.
     maxSkeletonBytes: 80_000,
@@ -250,7 +250,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
       gateAfterStop: undefined,
     },
     behavioral: 'prompt',
-    // +Conductor AUQ-default-prose rule + one-way/continuation safety in the
+    // +host-aware AUQ routing + one-way/fallback safety in the
     // always-loaded AskUserQuestion Format section.
     // v1.2.0 activation lift: first-run-guidance section in the shared preamble.
     maxSkeletonBytes: 56_000,
@@ -278,7 +278,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
       gateAfterStop: undefined,
     },
     behavioral: 'prompt',
-    // +Conductor AUQ-default-prose rule + one-way/continuation safety in the
+    // +host-aware AUQ routing + one-way/fallback safety in the
     // always-loaded AskUserQuestion Format section.
     // v1.2.0 activation lift: first-run-guidance section in the shared preamble.
     maxSkeletonBytes: 69_000,
@@ -317,7 +317,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
       gateAfterStop: undefined,
     },
     behavioral: 'prompt',
-    // +Conductor AUQ-default-prose rule + one-way/continuation safety in the
+    // +host-aware AUQ routing + one-way/fallback safety in the
     // always-loaded AskUserQuestion Format section.
     // v1.2.0 activation lift: first-run-guidance section in the shared preamble.
     maxSkeletonBytes: 75_000,

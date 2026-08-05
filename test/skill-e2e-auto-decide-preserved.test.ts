@@ -105,8 +105,8 @@ describeE2E('AUTO_DECIDE opt-in preserved under Conductor flags (periodic)', () 
       //    never sees the never-ask preference, and the test silently exercises
       //    the wrong state root (pre-existing bug, Codex #9 / Issue 13).
       //    CONDUCTOR_WORKSPACE_PATH additionally proves auto-decide still WINS
-      //    over the Conductor prose redirect (precedence: settled preference
-      //    beats transport-avoidance).
+      //    over the Conductor MCP redirect (precedence: settled preference
+      //    beats host routing).
       const obs = await runPlanSkillObservation({
         skillName: 'plan-ceo-review',
         inPlanMode: true,

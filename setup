@@ -1380,9 +1380,9 @@ if [ "$NO_TEAM_MODE" -ne 1 ] \
     *)                       PT_DECISION="prompt" ;;
   esac
 
-  # Conductor host reliability: the PreToolUse preference hook also carries the
-  # Conductor-prose enforcement (deny the flaky mcp__conductor__AskUserQuestion,
-  # redirect to a prose decision brief). A Conductor workspace setup otherwise
+  # Conductor host reliability: the PreToolUse preference hook redirects native
+  # AskUserQuestion calls to the clickable mcp__conductor__AskUserQuestion tool
+  # and validates its string-option payload. A Conductor workspace setup otherwise
   # falls through to "prompt" → the non-interactive skip below, leaving Conductor
   # users without that backstop. Treat Conductor as an implicit opt-in — but
   # only on the silent fall-through, never overriding an explicit --no-plan-tune-hooks.
@@ -1405,7 +1405,7 @@ if [ "$NO_TEAM_MODE" -ne 1 ] \
       --source plan-tune-cathedral \
       --timeout 5
     # AskUserQuestion-failure prose-fallback reliability hook (OV3:B). Fires only when
-    # an AskUserQuestion call returns an error/missing result; inert on success and
+    # an AskUserQuestion call returns an explicit error; inert on success and
     # inert if the platform doesn't invoke PostToolUse on tool errors. MUST use its
     # OWN source tag: gstack-settings-hook dedupes by (event, matcher, source) and
     # REPLACES the entry's hooks, so sharing 'plan-tune-cathedral' would overwrite the
@@ -1429,8 +1429,8 @@ if [ "$NO_TEAM_MODE" -ne 1 ] \
     _install_plan_tune_hooks
     log ""
     if [ "${_PT_CONDUCTOR_AUTO:-0}" -eq 1 ]; then
-      log "AskUserQuestion reliability hooks installed (Conductor detected): decisions"
-      log "render as a prose brief instead of the flaky AskUserQuestion tool. Inspect with /plan-tune."
+      log "AskUserQuestion hooks installed (Conductor detected): clickable host popups"
+      log "are enabled, with prose reserved for genuine transport failures. Inspect with /plan-tune."
     else
       log "Plan-tune hooks installed. Run /plan-tune anytime to inspect."
     fi

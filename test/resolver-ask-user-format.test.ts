@@ -178,10 +178,18 @@ describe('generateAskUserFormat — runtime-failure prose fallback', () => {
     expect(out).toMatch(/Do NOT[\s\S]{0,40}fall back to prose|never prose/i);
   });
 
-  test('retries the errored call exactly once before degrading', () => {
-    expect(out).toMatch(/retry the SAME call \*\*once\*\*|retry the same call.*once/i);
-    // idempotency guard against double-prompting
-    expect(out).toMatch(/double-prompt|no answer could have surfaced/i);
+  test('retries only the three explicit retryable Conductor errors, exactly once', () => {
+    expect(out).toMatch(/Retry the SAME call exactly \*\*once\*\*/i);
+    expect(out).toContain('CONDUCTOR_ASK_USER_QUESTION_DELIVERY_FAILED');
+    expect(out).toContain('CONDUCTOR_ASK_USER_QUESTION_MALFORMED_ANSWERS');
+    expect(out).toContain('CONDUCTOR_ASK_USER_QUESTION_ANSWER_COUNT_MISMATCH');
+    expect(out).toMatch(/SESSION_UNAVAILABLE[\s\S]{0,160}Do not retry/i);
+  });
+
+  test('success, cancellation, and SDK placeholder never duplicate the question', () => {
+    expect(out).toMatch(/User responses:[\s\S]{0,180}resume the workflow exactly once/i);
+    expect(out).toMatch(/USER_CANCELLED[\s\S]{0,120}Do NOT retry/i);
+    expect(out).toMatch(/Tool result missing due to internal error[\s\S]{0,240}do NOT emit prose/i);
   });
 
   test('branches on SESSION_KIND: spawned / headless / interactive', () => {
@@ -225,22 +233,26 @@ describe('generateAskUserFormat — runtime-failure prose fallback', () => {
     expect(out).toMatch(/must be sent as tool_use, not prose — unless the documented failure fallback/);
   });
 
-  test('OV2: the self-check "not writing prose" line carries the Conductor + fallback qualifiers', () => {
-    // After the Conductor-default-prose change, the exception is two-pronged:
-    // CONDUCTOR_SESSION makes prose the default, OR the documented failure fallback.
-    expect(out).toMatch(/not writing prose — unless `CONDUCTOR_SESSION: true`[\s\S]*OR the documented failure fallback applies/);
+  test('OV2: the self-check "not writing prose" line carries the fallback qualifier', () => {
+    expect(out).toMatch(/not writing prose — unless the documented failure fallback applies/);
   });
 
-  // Conductor-default-prose contract (the proactive path, distinct from the
-  // failure fallback). Guards the Tool-resolution rule + self-check wording.
-  test('Conductor: do-not-call rule present in Tool resolution', () => {
-    expect(out).toMatch(/CONDUCTOR_SESSION: true/);
-    expect(out).toMatch(/do NOT call AskUserQuestion at all/);
-    expect(out).toMatch(/Auto-decide preferences still apply first/);
-    expect(out).toMatch(/gstack-question-log/);
+  // Conductor clickable-question contract (reverses the #2004 prose-suppression):
+  // route to the MCP variant with STRING options; do NOT default to prose.
+  test('Conductor: route to the MCP clickable variant with string options', () => {
+    expect(out).toMatch(/prefer the MCP variant/i);
+    expect(out).toMatch(/mcp__conductor__AskUserQuestion/);
+    expect(out).toMatch(/renders clickable questions and works/);
+    expect(out).toMatch(/array of plain \*\*strings\*\*/);
+    expect(out).toMatch(/does \*\*NOT\*\* accept `\{label, description\}`/);
+    expect(out).toMatch(/Do NOT render prose instead/);
+    expect(out).toMatch(/Auto-decide applies first/);
+    expect(out).toMatch(/send 1-4 `questions`/i);
+    expect(out).toContain('options: string[<=4]');
+    expect(out).toMatch(/Do not include an `Other` option; Conductor adds it automatically/);
   });
 
-  test('Conductor: one-way prose rule + continuation protocol present', () => {
+  test('fallback: one-way prose rule + continuation protocol present', () => {
     expect(out).toMatch(/one-way\b[\s\S]*typed confirmation/i);
     expect(out).toMatch(/never proceed on a vague/i);
     expect(out).toMatch(/Continuation — mapping a typed reply/);

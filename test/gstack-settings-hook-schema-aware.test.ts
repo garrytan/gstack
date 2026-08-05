@@ -111,6 +111,64 @@ describe('add-event', () => {
     expect(s.hooks.PreToolUse[0].hooks[0].command).toBe('/v2');
   });
 
+  test('adopts an exact-command entry when Claude strips the source tag', () => {
+    fs.writeFileSync(settingsFile, JSON.stringify({
+      hooks: {
+        PreToolUse: [{
+          matcher: 'AskUserQuestion',
+          hooks: [{ type: 'command', command: '/gstack-hook', timeout: 1 }],
+        }],
+      },
+    }));
+    run([
+      'add-event',
+      '--event', 'PreToolUse',
+      '--matcher', 'AskUserQuestion',
+      '--command', '/gstack-hook',
+      '--source', 'plan-tune-cathedral',
+      '--timeout', '5',
+    ]);
+    const entries = settings().hooks.PreToolUse;
+    expect(entries).toHaveLength(1);
+    expect(entries[0]._gstack_source).toBe('plan-tune-cathedral');
+    expect(entries[0].hooks).toEqual([
+      { type: 'command', command: '/gstack-hook', timeout: 5 },
+    ]);
+  });
+
+  test('collapses duplicate stripped registrations and preserves unrelated hooks', () => {
+    fs.writeFileSync(settingsFile, JSON.stringify({
+      hooks: {
+        PreToolUse: [
+          { matcher: 'AskUserQuestion', hooks: [{ type: 'command', command: '/gstack-hook' }] },
+          { matcher: 'AskUserQuestion', hooks: [{ type: 'command', command: '/gstack-hook' }] },
+          { matcher: 'AskUserQuestion', hooks: [
+            { type: 'command', command: '/gstack-hook' },
+            { type: 'command', command: '/user-hook' },
+          ] },
+          { matcher: 'AskUserQuestion', hooks: [{ type: 'command', command: '/other-hook' }] },
+          { matcher: 'Bash', hooks: [{ type: 'command', command: '/bash-hook' }] },
+        ],
+      },
+    }));
+    run([
+      'add-event',
+      '--event', 'PreToolUse',
+      '--matcher', 'AskUserQuestion',
+      '--command', '/gstack-hook',
+      '--source', 'plan-tune-cathedral',
+    ]);
+    const entries = settings().hooks.PreToolUse;
+    const gstackHooks = entries.filter((entry: any) =>
+      entry.hooks.some((hook: any) => hook.command === '/gstack-hook'),
+    );
+    expect(gstackHooks).toHaveLength(1);
+    expect(gstackHooks[0]._gstack_source).toBe('plan-tune-cathedral');
+    expect(entries.some((entry: any) => entry.hooks.some((hook: any) => hook.command === '/user-hook'))).toBe(true);
+    expect(entries.some((entry: any) => entry.hooks.some((hook: any) => hook.command === '/other-hook'))).toBe(true);
+    expect(entries.some((entry: any) => entry.hooks.some((hook: any) => hook.command === '/bash-hook'))).toBe(true);
+  });
+
   test('preserves unrelated existing hooks', () => {
     fs.writeFileSync(
       settingsFile,
@@ -156,6 +214,24 @@ describe('add-event', () => {
     const backupContent = JSON.parse(fs.readFileSync(path.join(tmpDir, backups[0]), 'utf-8'));
     expect(backupContent.existing).toBe('value');
     expect(backupContent.hooks).toBeUndefined();
+  });
+
+  test('keeps distinct backups for multiple mutations within one second', () => {
+    fs.writeFileSync(settingsFile, JSON.stringify({ original: true }));
+    run([
+      'add-event', '--event', 'PreToolUse', '--matcher', 'AskUserQuestion',
+      '--command', '/pre', '--source', 'plan-tune-cathedral',
+    ]);
+    run([
+      'add-event', '--event', 'PostToolUse', '--matcher', 'AskUserQuestion',
+      '--command', '/post', '--source', 'plan-tune-cathedral',
+    ]);
+    const backups = fs.readdirSync(tmpDir).filter((f) => f.startsWith('settings.json.bak.'));
+    expect(backups).toHaveLength(2);
+    expect(backups.some((file) => {
+      const value = JSON.parse(fs.readFileSync(path.join(tmpDir, file), 'utf-8'));
+      return value.original === true && value.hooks === undefined;
+    })).toBe(true);
   });
 
   test('rejects invalid --event', () => {
