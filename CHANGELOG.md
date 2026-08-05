@@ -1,5 +1,34 @@
 # Changelog
 
+## [1.60.2.0] - 2026-08-05
+
+## **Conductor decisions are clickable popups again.**
+
+gstack now routes questions through Conductor's working host tool instead of
+blocking it and replacing the decision with a long reply-by-letter message. A
+successful choice resumes the skill once, cancellation stays cancelled, and
+prose appears only when a genuine transport failure cannot be recovered.
+
+### Fixed
+
+- Conductor sessions prefer `mcp__conductor__AskUserQuestion`, redirect native
+  calls to that host tool, and validate its string-option contract before the
+  popup renders. Auto-decisions still run first, while destructive and one-way
+  decisions still require a person.
+- Retry behavior now distinguishes completed responses, cancellation, the
+  Claude SDK's ambiguous missing-result placeholder, retryable delivery/answer
+  errors, and non-retryable session failures. The same question retries at most
+  once even if JSON key order changes.
+- Upgrades normalize duplicate AskUserQuestion hooks left behind when Claude
+  removed gstack's source tags, preserving unrelated hooks and taking a backup
+  before changing `settings.json`.
+
+### Changed
+
+- Generated skill guidance documents the host-MCP string payload and keeps
+  prose as an unavailable-tool or exhausted-transport fallback. The old
+  Conductor-prose E2E now tests that genuine fallback instead.
+
 ## [1.60.1.0] - 2026-07-09
 
 ## **The /autoplan dual-voice eval is back on the board, catching real regressions.**
@@ -240,12 +269,11 @@ real `~/.claude` in the loop.
   scripts: detached, SIGTERM-proof, `caffeinate`-wrapped eval runs with a machine-wide
   lock, per-run logs under `~/.gstack-dev/eval-runs/`, a watchdog, and an `EXIT=`
   sentinel.
-- **Conductor prose AskUserQuestion**: when a Conductor session is detected, every
-  decision renders as a prose brief (labeled question, recommendation, per-option
-  completeness, reply-with-a-letter), enforced by a PreToolUse hook that denies the
-  tool and redirects. Auto-decide preferences still apply first; destructive
-  confirmations require an explicit typed answer. Installed for Conductor even in
-  non-interactive setup, with an upgrade migration for existing installs.
+- **Historical AskUserQuestion workaround (superseded in v1.60.2.0)**: v1.58
+  temporarily bypassed Conductor's host question tool and rendered decision briefs
+  in chat. Auto-decide preferences still applied first, and destructive confirmations
+  required an explicit typed answer. The later popup restoration replaces this
+  workaround while retaining its safety gates.
 
 #### Changed
 - All five E2E runners (`session-runner`, `claude-pty-runner`, `agent-sdk-runner`,
