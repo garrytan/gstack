@@ -82,9 +82,12 @@ function isIgnoredByGit(projectDir: string, relPath: string): boolean {
   try {
     const proc = Bun.spawnSync(['git', 'check-ignore', '-q', '--', relPath], {
       cwd: projectDir, stdout: 'pipe', stderr: 'pipe',
+      timeout: 2_000,
     });
     return proc.exitCode === 0;
   } catch {
+    // git not found, timed out, or not a repo (exit 128). Fall through to
+    // the text-check path — appending is the safe default when unsure.
     return false;
   }
 }
