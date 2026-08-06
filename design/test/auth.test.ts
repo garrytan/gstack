@@ -111,6 +111,27 @@ describe("resolveApiKeyInfo", () => {
   });
 });
 
+describe("saveApiKey", () => {
+  test("stores the key file owner-only, even under a permissive umask", () => {
+    // The OpenAI key file must never be group/other-readable. saveApiKey now
+    // creates it with mode 0600 up front (matching session.ts / #859) instead
+    // of writing at the default umask and tightening afterwards, so the key is
+    // not briefly world-readable in the write-then-chmod window (CWE-377/367).
+    const prevUmask = process.umask(0o000);
+    try {
+      saveApiKey("sk-secret-value");
+    } finally {
+      process.umask(prevUmask);
+    }
+
+    const keyPath = path.join(tmpHome, ".gstack", "openai.json");
+    const mode = fs.statSync(keyPath).mode & 0o777;
+    expect(mode).toBe(0o600);
+    // No group/other read/write/exec bits.
+    expect(mode & 0o077).toBe(0);
+  });
+});
+
 describe("requireApiKey", () => {
   test("prints source disclosure without leaking the key", () => {
     process.env.OPENAI_API_KEY = "sk-secret-value";

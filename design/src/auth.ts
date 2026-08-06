@@ -111,7 +111,10 @@ export function describeApiKeySource(resolution: ApiKeyResolution): string {
 export function saveApiKey(key: string): void {
   const dir = path.dirname(configPath());
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(configPath(), JSON.stringify({ api_key: key }, null, 2));
+  // Create the file owner-only up front so the API key is never briefly
+  // world/group-readable in the window between write and chmod. The trailing
+  // chmodSync is kept as a backstop to tighten a pre-existing loose file.
+  fs.writeFileSync(configPath(), JSON.stringify({ api_key: key }, null, 2), { mode: 0o600 });
   fs.chmodSync(configPath(), 0o600);
 }
 
