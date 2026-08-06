@@ -273,9 +273,14 @@ function tocRules(enabled: boolean): string {
     `  padding: 3pt 0;`,
     `}`,
     `.toc li .toc-title { flex: 0 0 auto; }`,
-    `.toc li .toc-dots { flex: 1 1 auto; border-bottom: 1px dotted #aaa; margin: 0 6pt; transform: translateY(-4pt); }`,
-    `.toc li .toc-page { flex: 0 0 auto; color: #666; font-variant-numeric: tabular-nums; }`,
+    // v1 ships without Paged.js, so target-counter never resolves and
+    // .toc-page stays empty — leader dots would trail into blank space.
+    // Hide both until page numbers actually exist; screenCss() already does
+    // the same for HTML output. Restore these two rules the day Paged.js
+    // lands and the spans get filled.
+    `.toc li .toc-dots, .toc li .toc-page { display: none; }`,
     `.toc li.level-2 { padding-left: 0.35in; font-size: 11pt; }`,
+    `.toc li.level-3 { padding-left: 0.7in; font-size: 10.5pt; color: #555; }`,
     `.toc li a { color: inherit; text-decoration: none; }`,
   ].join("\n");
 }

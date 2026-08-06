@@ -285,7 +285,9 @@ function buildTocBlock(html: string, ids: string[] = []): string {
   if (headings.length === 0) return "";
 
   const items = headings.map((h, i) => {
-    const level = h.level >= 2 ? "level-2" : "level-1";
+    // H3 gets its own class so sub-sections nest under their H2 instead of
+    // sitting at the same indent and reading as top-level peers.
+    const level = h.level >= 3 ? "level-3" : h.level === 2 ? "level-2" : "level-1";
     const id = ids[i] ?? `toc-${i}`;
     return [
       `  <li class="${level}">`,
