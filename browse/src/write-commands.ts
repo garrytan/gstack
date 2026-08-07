@@ -377,11 +377,14 @@ export async function handleWriteCommand(
       const value = valueParts.join(' ');
       if (!selector || !value) throw new Error('Usage: browse fill <selector> <value>');
       const resolved = await session.resolveRef(selector);
-      if ('locator' in resolved) {
-        await resolved.locator.fill(value, { timeout: 5000 });
-      } else {
-        await target.locator(resolved.selector).fill(value, { timeout: 5000 });
-      }
+      const locator = 'locator' in resolved ? resolved.locator : target.locator(resolved.selector);
+      await locator.fill(value, { timeout: 5000 });
+      // Playwright's fill() only dispatches an `input` event. Frameworks that
+      // validate on `change` (AngularJS ng-change, debounced strength/match
+      // checks — e.g. cPanel's Jupiter theme) never see the update, so a value
+      // that's correct in the DOM can still fail the framework's own
+      // validation. Dispatch `change` too so those listeners fire.
+      await locator.dispatchEvent('change');
       // Wait for network to settle (form validation XHRs)
       await page.waitForLoadState('networkidle', { timeout: 2000 }).catch(() => {});
       return `Filled ${selector}`;
