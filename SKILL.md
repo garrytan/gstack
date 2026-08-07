@@ -569,6 +569,7 @@ quality gates that produce better results than answering inline.
 - User asks to just report bugs without fixing → invoke `/qa-only`
 - User asks to review code, check the diff, pre-landing review, "look at my changes" → invoke `/review`
 - User asks about visual polish, design audit of a live site, "this looks off" → invoke `/design-review`
+- User asks for accessibility, WCAG, keyboard navigation, or screen-reader testing → invoke `/accessibility-review`
 - User asks to audit the live developer experience, time-to-hello-world → invoke `/devex-review`
 - User asks to ship, deploy, push, create a PR, "let's land this", "send it" → invoke `/ship`
 - User asks to merge + deploy + verify as one flow → invoke `/land-and-deploy`
