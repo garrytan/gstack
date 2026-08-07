@@ -31,6 +31,7 @@ Invoke them by name (e.g., `/office-hours`).
 | `/codex` | Second opinion via OpenAI Codex. Review, challenge, or consult modes. |
 | `/investigate` | Systematic root-cause debugging. No fixes without investigation. |
 | `/design-review` | Live-site visual audit + fix loop with atomic commits. |
+| `/accessibility-review` | WCAG 2.2 AA audit, keyboard and screen-reader testing, fix, and verification. |
 | `/design-shotgun` | Generate multiple AI design variants, comparison board, iterate. |
 | `/design-html` | Generate production-quality Pretext-native HTML/CSS. |
 | `/devex-review` | Live developer experience audit (TTHW measured against the real flow). |
