@@ -126,7 +126,7 @@ describe('defers (no enforcement)', () => {
       },
     });
     expect(r.status).toBe(0);
-    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('defer');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBeUndefined();
   });
 
   test('marker missing → defer (D18)', () => {
@@ -141,7 +141,7 @@ describe('defers (no enforcement)', () => {
         ],
       },
     });
-    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('defer');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBeUndefined();
   });
 
   test('always-ask preference → defer', () => {
@@ -156,7 +156,7 @@ describe('defers (no enforcement)', () => {
         ],
       },
     });
-    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('defer');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBeUndefined();
   });
 
   test('empty stdin → defer (crash safety)', () => {
@@ -168,13 +168,13 @@ describe('defers (no enforcement)', () => {
     const res = spawnSync(HOOK, [], { env, input: '', encoding: 'utf-8' });
     expect(res.status).toBe(0);
     const parsed = JSON.parse(res.stdout || '{}');
-    expect(parsed.hookSpecificOutput?.permissionDecision).toBe('defer');
+    expect(parsed.hookSpecificOutput?.permissionDecision).toBeUndefined();
   });
 
   test('non-AUQ tool_name → defer (defensive)', () => {
     writeProjectPref('test-q', 'never-ask');
     const r = runHook({ session_id: 's4', tool_name: 'Bash', tool_use_id: 'tu-4', tool_input: {} });
-    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('defer');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBeUndefined();
   });
 });
 
@@ -219,7 +219,7 @@ describe('enforces never-ask preferences', () => {
         ],
       },
     });
-    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('defer');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBeUndefined();
   });
 
   test('ambiguous recommendation (two labels) → defer (D2 refuse-on-ambiguous)', () => {
@@ -237,7 +237,7 @@ describe('enforces never-ask preferences', () => {
         ],
       },
     });
-    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('defer');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBeUndefined();
   });
 
   test('no recommendation marker AND no prose match → defer', () => {
@@ -255,7 +255,7 @@ describe('enforces never-ask preferences', () => {
         ],
       },
     });
-    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('defer');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBeUndefined();
   });
 });
 
@@ -317,7 +317,7 @@ describe('precedence: project wins over global (D8)', () => {
         ],
       },
     });
-    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('defer');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBeUndefined();
   });
 });
 
@@ -443,7 +443,7 @@ describe('Conductor prose redirect', () => {
       undefined,
       CONDUCTOR,
     );
-    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBe('defer');
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).toBeUndefined();
   });
 });
 
@@ -491,5 +491,56 @@ describe('auto-decided event tagging', () => {
     });
     const markerPath = path.join(stateRoot, 'sessions', 's14', '.auto-decided-tu-14');
     expect(fs.existsSync(markerPath)).toBe(true);
+  });
+});
+
+describe('never emits permissionDecision:defer (AskUserQuestion regression)', () => {
+  // Regression guard. 'defer' is NOT "no opinion" in Claude Code — it means
+  // "park this tool call for a later resume". It is ignored in interactive
+  // sessions but HONORED whenever the session is flagged non-interactive,
+  // which includes the Claude desktop app even with a human present. A parked
+  // AskUserQuestion never runs and never returns, so the decision card never
+  // reaches the user and the model sees
+  // "[Tool result missing due to internal error]".
+  //
+  // The no-enforcement contract must therefore be encoded by OMITTING
+  // permissionDecision (it is .optional() in the PreToolUse schema), never by
+  // sending 'defer'. Only 'allow' | 'deny' | 'ask' are safe to emit.
+  const SAFE = new Set(['allow', 'deny', 'ask']);
+
+  const cases: Array<[string, unknown]> = [
+    ['no preference set', { session_id: 'r1', tool_name: 'AskUserQuestion', tool_use_id: 'tr-1',
+      tool_input: { questions: [{ question: 'Plain?', options: ['A) Yes', 'B) No'] }] } }],
+    ['marker present but no preference', { session_id: 'r2', tool_name: 'AskUserQuestion', tool_use_id: 'tr-2',
+      tool_input: { questions: [{ question: '<gstack-qid:test-q> Need approval?', options: ['A) Yes (recommended)', 'B) No'] }] } }],
+    ['empty stdin', {}],
+    ['non-AUQ tool', { session_id: 'r3', tool_name: 'Bash', tool_use_id: 'tr-3', tool_input: {} }],
+  ];
+
+  for (const [name, payload] of cases) {
+    test(`${name} → permissionDecision is never 'defer'`, () => {
+      const r = runHook(payload as never);
+      const decision = r.parsed?.hookSpecificOutput?.permissionDecision;
+      expect(decision).not.toBe('defer');
+      if (decision !== undefined) expect(SAFE.has(decision)).toBe(true);
+    });
+  }
+
+  test('one-way door with never-ask still reaches the user (no defer parking)', () => {
+    // The safety override: one-way doors must always ask. If this emitted
+    // 'defer', the question would be parked instead of asked — silently
+    // converting "always ask the human" into "never ask the human".
+    writeProjectPref('test-q-oneway', 'never-ask');
+    const r = runHook({
+      session_id: 'r5',
+      tool_name: 'AskUserQuestion',
+      tool_use_id: 'tr-5',
+      tool_input: {
+        questions: [
+          { question: '<gstack-qid:test-q-oneway> Destructive?', options: ['A) Do it (recommended)', 'B) Stop'] },
+        ],
+      },
+    });
+    expect(r.parsed?.hookSpecificOutput?.permissionDecision).not.toBe('defer');
   });
 });

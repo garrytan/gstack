@@ -93,9 +93,24 @@ function readStdin(): Promise<string> {
 }
 
 function defer(additionalContext?: string): void {
+  // Deliberately does NOT emit permissionDecision:'defer'.
+  //
+  // In Claude Code, 'defer' does not mean "no opinion" — it means "park this
+  // tool call so a later resume can pick it up". It is ignored in interactive
+  // sessions, but HONORED whenever the session is flagged non-interactive,
+  // which includes the Claude desktop app even with a human present. A parked
+  // AskUserQuestion never runs and never returns a result, so the model sees
+  // "[Tool result missing due to internal error]" and the decision card never
+  // reaches the user.
+  //
+  // This function's contract is "no enforcement — proceed normally, let the
+  // user be asked" (see the never-ask + one-way safety override above, which
+  // requires the question to still reach the human). The correct encoding of
+  // that in Claude Code is to omit permissionDecision entirely; it is
+  // .optional() in the PreToolUse hookSpecificOutput schema. additionalContext
+  // is still delivered, so plan-tune memory injection is unaffected.
   const out: Record<string, unknown> = {
     hookEventName: 'PreToolUse',
-    permissionDecision: 'defer',
   };
   if (additionalContext) out.additionalContext = additionalContext;
   process.stdout.write(JSON.stringify({ hookSpecificOutput: out }));
