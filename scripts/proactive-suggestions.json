@@ -3,6 +3,11 @@
   "catalog_mode": "trim",
   "note": "Routing / voice-trigger prose extracted from SKILL.md frontmatter descriptions during catalog trim. Loaded on demand when routing guidance is needed.",
   "skills": {
+    "accessibility-review": {
+      "lead": "Audits a live web application for accessibility barriers, verifies keyboard and screen-reader semantics, fixes source code, and re-tests every change.",
+      "routing": "Uses WCAG 2.2 Level AA as the evaluation standard.\nUse when asked for an \"accessibility audit\", \"WCAG review\", \"a11y testing\",\n\"keyboard navigation testing\", or \"screen reader review\". Pass --report-only\nto produce findings without changing code.",
+      "voice_line": "Voice triggers (speech-to-text aliases): \"accessibility audit\", \"check WCAG\", \"test keyboard navigation\"."
+    },
     "autoplan": {
       "lead": "Auto-review pipeline — reads the full CEO, design, eng, and DX review skills from disk and runs them sequentially with auto-decisions using 6 decision principles.",
       "routing": "Surfaces\ntaste decisions (close approaches, borderline scope, codex disagreements) at a final\napproval gate. One command, fully reviewed plan out.\nUse when asked to \"auto review\", \"autoplan\", \"run all reviews\", \"review this plan\nautomatically\", or \"make the decisions for me\".\nProactively suggest when the user has a plan file and wants to run the full review\ngauntlet without answering 15-30 intermediate questions.",
