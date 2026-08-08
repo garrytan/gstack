@@ -442,10 +442,15 @@
     if (ta) {
       ta.addEventListener('compositionstart', () => { composing = true; });
       ta.addEventListener('compositionend', (e) => {
-        composing = false;
         if (e.data && ws && ws.readyState === WebSocket.OPEN) {
           ws.send(new TextEncoder().encode(e.data));
         }
+        // Reset on the next tick. Browsers fire the trailing `input` event
+        // (→ term.onData) immediately AFTER compositionend, for the same
+        // composed string. Clearing `composing` synchronously lets that
+        // event through, double-sending CJK input (e.g. "在在这里这里").
+        // Deferring keeps onData suppressed for that trailing event.
+        setTimeout(() => { composing = false; }, 0);
       });
     }
 
