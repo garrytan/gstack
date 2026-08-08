@@ -51,6 +51,7 @@
   "dependencies": {
     "@huggingface/transformers": "^4.1.0",
     "@ngrok/ngrok": "^1.7.0",
+    "adm-zip": "0.6.0",
     "diff": "^7.0.0",
     "html-to-docx": "1.8.0",
     "marked": "^18.0.2",
