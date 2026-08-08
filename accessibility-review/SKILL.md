@@ -457,6 +457,8 @@ Before calling AskUserQuestion, verify:
 - [ ] If you had 5+ options, you split (or batched into ≤4-groups) — did NOT drop any
 - [ ] If you split, you checked dependencies between options before firing the chain
 - [ ] If a per-option Hold fires, you stopped the chain immediately (didn't queue)
+
+
 ## Artifacts Sync (skill start)
 
 ```bash
