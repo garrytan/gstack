@@ -64,8 +64,15 @@ case "$MODE" in
       echo "NO_SESSIONS: $CODEX_SESSIONS_ROOT does not exist"
       exit 0
     fi
-    LATEST=$(find "$CODEX_SESSIONS_ROOT" -type f -name "rollout-*.jsonl" -print 2>/dev/null \
-      | xargs ls -t 2>/dev/null | head -1 || true)
+    # -exec ... + rather than | xargs: with no matches, xargs still runs
+    # `ls -t` with no operands, which lists the CURRENT DIRECTORY. LATEST then
+    # holds a random entry from wherever the caller happened to be, the
+    # emptiness check below passes, and we "import" that path — reporting
+    # "IMPORTED: 0 events from 1 session(s)" instead of NO_SESSIONS.
+    # `find -exec +` never runs the command when nothing matched, and stays
+    # portable (no GNU-only `xargs -r`).
+    LATEST=$(find "$CODEX_SESSIONS_ROOT" -type f -name "rollout-*.jsonl" \
+      -exec ls -t {} + 2>/dev/null | head -1 || true)
     if [ -z "$LATEST" ]; then
       echo "NO_SESSIONS: no rollout-*.jsonl files under $CODEX_SESSIONS_ROOT"
       exit 0
