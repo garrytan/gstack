@@ -77,6 +77,26 @@ describe('restrictDirectoryPermissions', () => {
     fs.mkdirSync(d);
     expect(() => restrictDirectoryPermissions(d)).not.toThrow();
   });
+
+  test('on Windows, the directory stays usable by the calling process', () => {
+    if (process.platform !== 'win32') return;
+    const d = path.join(tmpDir, 'still-usable');
+    fs.mkdirSync(d);
+    fs.writeFileSync(path.join(d, 'before'), 'x');
+
+    restrictDirectoryPermissions(d);
+
+    // Regression: an unqualified username passed to icacls can resolve to
+    // the machine SID rather than the user account. Combined with
+    // /inheritance:r that leaves a directory whose only ACE matches nobody,
+    // so the process that just "secured" it can no longer enumerate or
+    // write to it. icacls still reports success, so a not-toThrow assertion
+    // sails straight past it — hence these access checks.
+    expect(() => fs.readdirSync(d)).not.toThrow();
+    expect(fs.readdirSync(d)).toContain('before');
+    expect(() => fs.writeFileSync(path.join(d, 'after'), 'y')).not.toThrow();
+    expect(fs.readFileSync(path.join(d, 'after'), 'utf8')).toBe('y');
+  });
 });
 
 describe('writeSecureFile', () => {
@@ -136,6 +156,16 @@ describe('mkdirSecure', () => {
     const d = path.join(tmpDir, 'dir');
     mkdirSecure(d);
     expect(() => mkdirSecure(d)).not.toThrow();
+  });
+
+  test('on Windows, the created directory stays usable by the caller', () => {
+    if (process.platform !== 'win32') return;
+    // The state-dir path that broke: mkdirSecure() creates .gstack/, hardens
+    // it, and the very next thing the daemon does is write a lockfile inside.
+    const d = path.join(tmpDir, 'state', '.gstack');
+    mkdirSecure(d);
+    expect(() => fs.writeFileSync(path.join(d, 'browse.json.lock'), '1')).not.toThrow();
+    expect(fs.readdirSync(d)).toContain('browse.json.lock');
   });
 
   test('recursive behavior: creates intermediate directories', () => {

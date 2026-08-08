@@ -42,6 +42,52 @@ import * as os from 'os';
 
 let warnedOnce = false;
 
+let cachedSid: string | null | undefined;
+
+/**
+ * Resolve the current user's SID, cached for the process lifetime.
+ *
+ * Returns null if `whoami` is unavailable or its output cannot be parsed,
+ * in which case callers fall back to a domain-qualified account name.
+ */
+function currentUserSid(): string | null {
+  if (cachedSid !== undefined) return cachedSid;
+  try {
+    // Pin to the System32 binary. A bare `whoami` resolves to the MSYS/Git
+    // Bash build under a bash-flavoured PATH, which rejects `/user` — the
+    // lookup would then silently fail on one of the most common Windows
+    // setups for this tool.
+    const systemRoot = process.env.SystemRoot || process.env.windir || 'C:\\Windows';
+    const out = execFileSync(`${systemRoot}\\System32\\whoami.exe`, ['/user', '/fo', 'csv', '/nh'], {
+      encoding: 'utf8',
+    });
+    const match = out.match(/S-1-[\d-]+/);
+    cachedSid = match ? match[0] : null;
+  } catch {
+    cachedSid = null;
+  }
+  return cachedSid;
+}
+
+/**
+ * The principal to hand icacls for "the current user".
+ *
+ * An unqualified username is ambiguous: on a machine whose hostname equals
+ * the username, it fails to resolve to the user account and icacls silently
+ * writes an ACE for the machine SID instead. Combined with `/inheritance:r`
+ * that leaves a directory whose only ACE matches nobody — locking out the
+ * process that just created it.
+ *
+ * `*<SID>` is icacls' literal-SID form and is immune to that ambiguity.
+ * The domain-qualified name is the fallback.
+ */
+function currentUserPrincipal(): string {
+  const sid = currentUserSid();
+  if (sid) return `*${sid}`;
+  const domain = process.env.USERDOMAIN || os.hostname();
+  return `${domain}\\${os.userInfo().username}`;
+}
+
 function warnIcaclsFailure(fsPath: string, err: unknown): void {
   if (warnedOnce) return;
   warnedOnce = true;
@@ -67,7 +113,7 @@ function warnIcaclsFailure(fsPath: string, err: unknown): void {
 export function restrictFilePermissions(filePath: string): void {
   if (process.platform === 'win32') {
     try {
-      const user = os.userInfo().username;
+      const user = currentUserPrincipal();
       execFileSync(
         'icacls',
         [filePath, '/inheritance:r', '/grant:r', `${user}:(F)`],
@@ -97,7 +143,7 @@ export function restrictFilePermissions(filePath: string): void {
 export function restrictDirectoryPermissions(dirPath: string): void {
   if (process.platform === 'win32') {
     try {
-      const user = os.userInfo().username;
+      const user = currentUserPrincipal();
       execFileSync(
         'icacls',
         [dirPath, '/inheritance:r', '/grant:r', `${user}:(OI)(CI)(F)`],
