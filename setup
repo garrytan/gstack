@@ -249,6 +249,59 @@ if [ "$INSTALL_CODEX" -eq 1 ]; then
   migrate_direct_codex_install "$SOURCE_GSTACK_DIR" "$CODEX_GSTACK"
 fi
 
+# ─── Claude: relocate a direct ~/.claude/skills/gstack checkout ──────────────
+# A full repo checkout sitting at ~/.claude/skills/gstack is itself under
+# Claude Code's (and Cursor's) recursive skill-discovery root, so every
+# generated host-mirror SKILL.md (.cursor/, .hermes/, .agents/, …) and source
+# skill SKILL.md inside it gets indexed — hundreds of phantom skills. Claude
+# Code drops descriptions ("N skill descriptions dropped"); Cursor's cursor-agent
+# CLI hard-freezes. This mirrors migrate_direct_codex_install: move the checkout
+# out of the discovery root to ~/.gstack/repos/gstack and keep ~/.claude/skills
+# as the alias root (a runtime-only sidecar is created later in the Claude
+# install step). See issues #1202 and #1694.
+_CLAUDE_RELOCATED=0
+migrate_direct_claude_install() {
+  local claude_gstack="$HOME/.claude/skills/gstack"
+  local migrated_dir="$HOME/.gstack/repos/gstack"
+
+  # Only the standard *global* layout migrates. Leave --local, symlinked
+  # worktree/vendored installs, and anything not living directly at
+  # ~/.claude/skills/gstack untouched.
+  [ "$LOCAL_INSTALL" -eq 1 ] && return 0
+
+  if [ "$SOURCE_GSTACK_DIR" = "$claude_gstack" ] && [ ! -L "$claude_gstack" ]; then
+    mkdir -p "$(dirname "$migrated_dir")"
+    if [ -e "$migrated_dir" ]; then
+      echo "gstack setup failed: direct Claude install detected at $claude_gstack" >&2
+      echo "A migrated repo already exists at $migrated_dir; move one aside and rerun setup." >&2
+      exit 1
+    fi
+    log "Migrating direct Claude install to $migrated_dir to avoid duplicate skill discovery..."
+    mv "$SOURCE_GSTACK_DIR" "$migrated_dir"
+    SOURCE_GSTACK_DIR="$migrated_dir"
+    BROWSE_BIN="$SOURCE_GSTACK_DIR/browse/dist/browse"
+    _CLAUDE_RELOCATED=1
+  elif [ "$SOURCE_GSTACK_DIR" = "$migrated_dir" ]; then
+    # Already-relocated install re-running setup (e.g. via /gstack-upgrade,
+    # which cd's into the install dir and runs ./setup). Keep aliases in
+    # ~/.claude/skills and refresh the sidecar instead of falling through to
+    # the worktree-symlink branch (which would replant a full-repo symlink
+    # back inside the discovery root).
+    _CLAUDE_RELOCATED=1
+  else
+    return 0
+  fi
+
+  # Decouple the alias root from the checkout location: top-level skill aliases
+  # stay in ~/.claude/skills; the checkout lives outside the discovery root.
+  INSTALL_SKILLS_DIR="$HOME/.claude/skills"
+  INSTALL_GSTACK_DIR="$INSTALL_SKILLS_DIR/gstack"
+}
+
+if [ "$INSTALL_CLAUDE" -eq 1 ]; then
+  migrate_direct_claude_install
+fi
+
 ensure_playwright_browser() {
   if [ "$IS_WINDOWS" -eq 1 ]; then
     # On Windows, Bun can't launch Chromium due to broken pipe handling
@@ -817,6 +870,48 @@ create_codex_runtime_root() {
   fi
 }
 
+# ─── Helper: create a minimal ~/.claude/skills/gstack runtime sidecar ────────
+# Counterpart to create_codex_runtime_root, for relocated Claude installs.
+# After the checkout moves to ~/.gstack/repos/gstack, skills and the ~9 bin/
+# scripts that hard-code absolute paths like ~/.claude/skills/gstack/bin/
+# gstack-config (the most-referenced path in the whole repo) still need them to
+# resolve. Expose ONLY runtime assets here, and — unlike the Codex sidecar —
+# NO nested SKILL.md at all: Claude's root skill is the separate _gstack-command
+# alias and gstack-upgrade is a top-level skill, so the sidecar needs none. That
+# keeps recursive scanners (Cursor walks ~/.claude/skills recursively) at zero
+# phantom skills from this directory.
+create_claude_runtime_root() {
+  local gstack_dir="$1"
+  local claude_gstack="$2"
+
+  if [ -L "$claude_gstack" ]; then
+    rm -f "$claude_gstack"
+  elif [ -d "$claude_gstack" ] && [ "$claude_gstack" != "$gstack_dir" ]; then
+    rm -rf "$claude_gstack"
+  fi
+
+  mkdir -p "$claude_gstack" "$claude_gstack/browse" "$claude_gstack/design" \
+           "$claude_gstack/review" "$claude_gstack/plan-devex-review"
+
+  # Whole-dir runtime assets that contain no SKILL.md
+  for asset in bin scripts extension browse/dist browse/bin design/dist review/specialists; do
+    if [ -e "$gstack_dir/$asset" ]; then
+      _link_or_copy "$gstack_dir/$asset" "$claude_gstack/$asset"
+    fi
+  done
+
+  # Individual runtime files (NOT the whole skill dirs that hold their SKILL.md)
+  for file in ETHOS.md \
+              review/checklist.md review/design-checklist.md \
+              review/greptile-triage.md review/TODOS-format.md \
+              plan-devex-review/dx-hall-of-fame.md \
+              .feature-prompted-model-overlay .feature-prompted-continuous-checkpoint; do
+    if [ -f "$gstack_dir/$file" ]; then
+      _link_or_copy "$gstack_dir/$file" "$claude_gstack/$file"
+    fi
+  done
+}
+
 create_factory_runtime_root() {
   local gstack_dir="$1"
   local factory_gstack="$2"
@@ -999,6 +1094,12 @@ if [ "$INSTALL_CLAUDE" -eq 1 ]; then
     GSTACK_RELINK="$SOURCE_GSTACK_DIR/bin/gstack-relink"
     if [ -x "$GSTACK_RELINK" ]; then
       GSTACK_SKILLS_DIR="$INSTALL_SKILLS_DIR" GSTACK_INSTALL_DIR="$SOURCE_GSTACK_DIR" "$GSTACK_RELINK" >/dev/null 2>&1 || true
+    fi
+    # Relocated install: build the runtime-only sidecar at ~/.claude/skills/gstack
+    # so absolute asset paths (bin/gstack-config, ETHOS.md, review/*, …) resolve
+    # while the full checkout stays out of the recursive discovery root. #1202/#1694
+    if [ "$_CLAUDE_RELOCATED" -eq 1 ]; then
+      create_claude_runtime_root "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR/gstack"
     fi
     # Backwards-compat alias: /connect-chrome → /open-gstack-browser
     _OGB_LINK="$INSTALL_SKILLS_DIR/connect-chrome"
