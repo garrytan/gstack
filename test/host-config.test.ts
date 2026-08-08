@@ -401,10 +401,17 @@ describe('host-config-export.ts CLI', () => {
     expect(exitCode).toBe(1);
   });
 
-  test('detect finds claude (since we are running in claude)', () => {
+  // `detect` reports the hosts whose binaries are on PATH, so asserting it
+  // finds claude is really an assertion about the machine. That holds in CI and
+  // in a developer's own session; it does not hold when the suite runs as a
+  // service account, or anywhere claude is installed for a different user.
+  // Skipping there keeps the suite runnable off a dev box without weakening the
+  // check where it is meaningful — it still runs wherever claude is present.
+  const claudeOnPath = Bun.which('claude') !== null;
+
+  test.skipIf(!claudeOnPath)('detect finds claude (when claude is on PATH)', () => {
     const { stdout, exitCode } = run('detect');
     expect(exitCode).toBe(0);
-    // claude binary should be on PATH in this environment
     expect(stdout).toContain('claude');
   });
 
