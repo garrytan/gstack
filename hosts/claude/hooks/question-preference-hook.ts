@@ -93,12 +93,23 @@ function readStdin(): Promise<string> {
 }
 
 function defer(additionalContext?: string): void {
-  const out: Record<string, unknown> = {
-    hookEventName: 'PreToolUse',
-    permissionDecision: 'defer',
-  };
-  if (additionalContext) out.additionalContext = additionalContext;
-  process.stdout.write(JSON.stringify({ hookSpecificOutput: out }));
+  // "No opinion" must be a SILENT exit 0 (optionally with additionalContext
+  // only), never an explicit `permissionDecision: 'defer'`. `defer` is a real
+  // value in Claude Code, but it means "pause this tool call and hand control
+  // back" and is honored in print/non-interactive mode. Emitting it here made
+  // every AskUserQuestion get deferred in non-interactive sessions (e.g. the
+  // desktop app) — the question UI never rendered. Interactive mode merely
+  // warns and ignores it.
+  if (additionalContext) {
+    process.stdout.write(
+      JSON.stringify({
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          additionalContext,
+        },
+      }),
+    );
+  }
   process.exit(0);
 }
 
