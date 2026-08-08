@@ -13,6 +13,7 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | [`/review`](#review) | **Staff Engineer** | Find the bugs that pass CI but blow up in production. Auto-fixes the obvious ones. Flags completeness gaps. |
 | [`/investigate`](#investigate) | **Debugger** | Systematic root-cause debugging. Iron Law: no fixes without investigation. Traces data flow, tests hypotheses, stops after 3 failed fixes. |
 | [`/design-review`](#design-review) | **Designer Who Codes** | Live-site visual audit + fix loop. 80-item audit, then fixes what it finds. Atomic commits, before/after screenshots. |
+| [`/accessibility-review`](#accessibility-review) | **Accessibility Engineer** | WCAG 2.2 AA audit with keyboard, screen-reader semantics, visual checks, fixes, and browser re-verification. Supports report-only mode. |
 | [`/design-shotgun`](#design-shotgun) | **Design Explorer** | Generate multiple AI design variants, open a comparison board in your browser, and iterate until you approve a direction. Taste memory biases toward your preferences. |
 | [`/design-html`](#design-html) | **Design Engineer** | Generates production-quality Pretext-native HTML. Works with approved mockups, CEO plans, design reviews, or from scratch. Text reflows on resize, heights adjust to content. Smart API routing per design type. Framework detection for React/Svelte/Vue. |
 | [`/qa`](#qa) | **QA Lead** | Test your app, find bugs, fix them with atomic commits, re-verify. Auto-generates regression tests for every fix. |
@@ -428,6 +429,36 @@ Claude: [Runs full 80-item visual audit on the live site]
 ```
 
 Nine commits, each touching one concern. The AI Slop score went from D to A because the three most recognizable patterns (gradient hero, 3-column grid, uniform radius) are gone.
+
+---
+
+## `/accessibility-review`
+
+This is the **accessibility engineer mode** for a live web application.
+
+It audits representative pages and critical workflows against WCAG 2.2 AA, combining DOM inspection with keyboard navigation, focus management, screen-reader semantics, responsive behavior, contrast, motion, and cognitive-accessibility checks. Automated candidates must be manually verified before they become findings.
+
+By default, it fixes confirmed source-code barriers and repeats the exact browser and keyboard reproduction. Use `--report-only` when you need an evidence-backed audit without code changes.
+
+### Example
+
+```
+You:   /accessibility-review https://myapp.com
+
+Claude: [Maps sign-in, navigation, search, and checkout workflows]
+        [Tests keyboard order, dialogs, focus return, names, roles, and states]
+
+        6 confirmed findings:
+        - 1 high: checkout dialog traps keyboard focus
+        - 3 medium: unlabeled search, missing error announcement, weak focus indicator
+        - 2 low: heading hierarchy and redundant link text
+
+        Fixed and verified: 5
+        Deferred for manual assistive-technology validation: 1
+        Readiness: Ready for accessibility review
+```
+
+The report cites exact WCAG criteria, affected users, reproduction steps, evidence, remediation, verification status, residual risk, and untested areas. It never claims formal compliance from an automated or agent-led audit.
 
 ---
 
