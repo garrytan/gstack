@@ -1568,7 +1568,13 @@ export class BrowserManager {
         console.log('[browse] Handoff: extension not found — headed mode without side panel');
       }
 
-      const userDataDir = path.join(process.env.HOME || '/tmp', '.gstack', 'chromium-profile');
+      // Same resolver launchHeaded() uses — was hardcoded to a single
+      // machine-wide $HOME/.gstack/chromium-profile, which let concurrent
+      // headed sessions from OTHER projects steal/kill this one's profile
+      // lock (see resolveChromiumProfile's docstring). Clean stale locks
+      // first, matching launchHeaded()'s pre-launch safety.
+      const userDataDir = resolveChromiumProfile();
+      cleanSingletonLocks(userDataDir);
       fs.mkdirSync(userDataDir, { recursive: true });
 
       // T1: same automation-tell-stripping defaults as launchHeaded().

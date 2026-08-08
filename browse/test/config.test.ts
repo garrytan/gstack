@@ -361,17 +361,29 @@ describe('resolveChromiumProfile', () => {
     }
   });
 
-  test('falls back to resolveGstackHome()/chromium-profile when nothing set', () => {
+  test('falls back to <project stateDir>/chromium-profile when nothing set (per-project, not machine-wide)', () => {
     const origEnv = process.env.CHROMIUM_PROFILE;
-    const origHome = process.env.GSTACK_HOME;
     delete process.env.CHROMIUM_PROFILE;
-    process.env.GSTACK_HOME = '/tmp/fallback-gstack';
     try {
-      expect(resolveChromiumProfile()).toBe('/tmp/fallback-gstack/chromium-profile');
+      const gitRoot = getGitRoot();
+      expect(gitRoot).not.toBeNull();
+      expect(resolveChromiumProfile()).toBe(path.join(gitRoot!, '.gstack', 'chromium-profile'));
     } finally {
       if (origEnv !== undefined) process.env.CHROMIUM_PROFILE = origEnv;
-      if (origHome === undefined) delete process.env.GSTACK_HOME;
-      else process.env.GSTACK_HOME = origHome;
+    }
+  });
+
+  test('two different projects resolve to two different profile dirs (the cross-project collision this fixes)', () => {
+    const origEnv = process.env.CHROMIUM_PROFILE;
+    delete process.env.CHROMIUM_PROFILE;
+    try {
+      const projectA = resolveChromiumProfile(undefined, { BROWSE_STATE_FILE: '/tmp/project-a/.gstack/browse.json' });
+      const projectB = resolveChromiumProfile(undefined, { BROWSE_STATE_FILE: '/tmp/project-b/.gstack/browse.json' });
+      expect(projectA).toBe('/tmp/project-a/.gstack/chromium-profile');
+      expect(projectB).toBe('/tmp/project-b/.gstack/chromium-profile');
+      expect(projectA).not.toBe(projectB);
+    } finally {
+      if (origEnv !== undefined) process.env.CHROMIUM_PROFILE = origEnv;
     }
   });
 
