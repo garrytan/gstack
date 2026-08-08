@@ -56,6 +56,15 @@ else
   _tmp_root=".gstack/tmp"
 fi
 
+# Strip any trailing slash so consumers can safely concatenate "$TMP_ROOT/name"
+# without producing a double slash. On macOS $TMPDIR ends in `/` by default
+# (e.g. /var/folders/.../T/), which would otherwise yield paths like
+# `…/T//codex-err-…`. Normalizing at the source means every consumer benefits,
+# not just /codex.
+_tmp_root="${_tmp_root%/}"
+# A value of "/" collapses to "" above; restore it so TMP_ROOT is never empty.
+[ -z "$_tmp_root" ] && _tmp_root="/"
+
 # Best-effort mkdir; if it fails (read-only fs, permission denied), the caller
 # will discover that on their own write attempt. Don't fail the eval here.
 mkdir -p "$_tmp_root" 2>/dev/null || true
