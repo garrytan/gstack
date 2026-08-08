@@ -11,7 +11,7 @@
  * Free-tier (~50ms total). Runs in `bun test`.
  */
 
-import { describe, it, expect, beforeEach, afterAll } from "bun:test";
+import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, mkdirSync, chmodSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -338,7 +338,10 @@ describe("withErrorContext", () => {
     process.env.GSTACK_HOME = testHome;
   });
 
-  afterAll(() => {
+  // afterEach, not afterAll: the save above runs per-test, so a once-at-the-end
+  // restore writes back whatever the LAST beforeEach captured — which is the
+  // previous test's temp dir, not the original value.
+  afterEach(() => {
     if (savedHome === undefined) delete process.env.GSTACK_HOME;
     else process.env.GSTACK_HOME = savedHome;
   });
@@ -414,7 +417,13 @@ describe("detectEngineTier", () => {
     process.env.HOME = testHome;
   });
 
-  afterAll(() => {
+  // afterEach, not afterAll. beforeEach re-captures these on every test, so by
+  // the last one `savedRealHome` holds the PREVIOUS test's temp dir. Restoring
+  // that at the end left HOME pointing at a fixture containing a
+  // .gbrain/config.json with engine=postgres, which the next FILE then read —
+  // see test/gbrain-detect-install.test.ts, which expects pglite and passes in
+  // isolation.
+  afterEach(() => {
     if (savedHome === undefined) delete process.env.GSTACK_HOME;
     else process.env.GSTACK_HOME = savedHome;
     if (savedGbrainHome === undefined) delete process.env.GBRAIN_HOME;
