@@ -1782,6 +1782,49 @@ async function ingestPass(args: CliArgs): Promise<BulkResult> {
     );
     failed += failedSources.size;
 
+    // Reconcile gbrain's own accounting against what we staged. Without this,
+    // a batch that gbrain never SAW is indistinguishable from a batch that
+    // succeeded: readNewFailures() only reports PER-FILE failures, so when
+    // `gbrain import` collects zero files it writes nothing to
+    // sync-failures.jsonl, failedSources is empty, and every prepared file
+    // gets state-recorded as ingested. The pass then reports "N written"
+    // while the brain gained nothing — and because state now says "done",
+    // no future run retries. Silent, permanent data loss.
+    //
+    // Observed cause: `gbrain import` honours .gitignore, and
+    // `gstack-artifacts-init` writes `.gitignore = "*"` into $GSTACK_HOME.
+    // makeStagingDir() stages under $GSTACK_HOME, so on any machine that has
+    // run artifacts-init, collect_files returns 0 for every batch.
+    //
+    // `skipped` counts content_hash no-ops, which ARE successful landings.
+    const expectedLandings = prep.prepared.length - failedSources.size;
+    const accountedLandings =
+      (importJson.imported ?? 0) + (importJson.skipped ?? 0);
+    if (accountedLandings < expectedLandings) {
+      const collected =
+        importJson.total_files !== undefined
+          ? ` gbrain collected ${importJson.total_files} file(s) from the staging dir.`
+          : "";
+      const msg =
+        `gbrain import accounted for ${accountedLandings} of ${expectedLandings} staged page(s) ` +
+        `(imported=${importJson.imported ?? 0}, unchanged=${importJson.skipped ?? 0}).${collected} ` +
+        `Refusing to advance state — the unaccounted pages would be marked ingested without ` +
+        `landing in the brain. If the count is 0, check whether ${stagingDir} is inside a git ` +
+        `repo that ignores it (gbrain import honours .gitignore).`;
+      console.error(`[memory-ingest] ERR: ${msg}`);
+      failed += prep.prepared.length;
+      return {
+        written: 0,
+        skipped_secret: prep.skippedSecret,
+        skipped_dedup: prep.skippedDedup,
+        skipped_unattributed: prep.skippedUnattributed,
+        failed,
+        duration_ms: Date.now() - t0,
+        partial_pages: prep.partialPages,
+        system_error: msg,
+      };
+    }
+
     // Phase 3: state recording. Only files that landed in gbrain get
     // their mtime+sha256 stamped. Failed source paths are deliberately
     // left un-state'd so the next run re-prepares them and gbrain's
