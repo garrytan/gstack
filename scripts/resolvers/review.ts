@@ -856,7 +856,10 @@ for PLAN_DIR in "$HOME/.gstack/projects/$_PLAN_SLUG" "$HOME/.claude/plans" "$HOM
   [ -d "$PLAN_DIR" ] || continue
   PLAN=$(ls -t "$PLAN_DIR"/*.md 2>/dev/null | xargs grep -l "$BRANCH" 2>/dev/null | head -1)
   [ -z "$PLAN" ] && PLAN=$(ls -t "$PLAN_DIR"/*.md 2>/dev/null | xargs grep -l "$REPO" 2>/dev/null | head -1)
-  [ -z "$PLAN" ] && PLAN=$(find "$PLAN_DIR" -name '*.md' -mmin -1440 -maxdepth 1 2>/dev/null | xargs ls -t 2>/dev/null | head -1)
+  # -exec ... + not | xargs: with no matches xargs still runs \`ls -t\` with no
+  # operands, which lists the CURRENT DIRECTORY — so PLAN would become a random
+  # .md from wherever /review was invoked, and get read as the plan.
+  [ -z "$PLAN" ] && PLAN=$(find "$PLAN_DIR" -maxdepth 1 -name '*.md' -mmin -1440 -exec ls -t {} + 2>/dev/null | head -1)
   [ -n "$PLAN" ] && break
 done
 [ -n "$PLAN" ] && echo "PLAN_FILE: $PLAN" || echo "NO_PLAN_FILE"
