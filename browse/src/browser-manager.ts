@@ -186,6 +186,15 @@ export class BrowserManager {
   // ─── Handoff State ─────────────────────────────────────────
   private isHeaded: boolean = false;
   private consecutiveFailures: number = 0;
+  // Set true only by handoff() (headless daemon transitioning to headed
+  // in-place via the CLI `handoff` command). Distinguishes that case from
+  // launchHeaded()/connect (daemon spawned headed from the start, e.g. by
+  // pair-agent with a real long-lived parent to track). The server's
+  // parent-process watchdog uses this to tell "the CLI process that
+  // happened to send this HTTP request is gone (expected — every CLI
+  // invocation is short-lived)" from "the process that's supposed to own
+  // this headed browser's lifecycle is gone (should shut down)".
+  private handoffTransition: boolean = false;
 
   // ─── Watch Mode ─────────────────────────────────────────
   private watching = false;
@@ -253,6 +262,16 @@ export class BrowserManager {
   public onDisconnect: ((exitCode?: number) => void | Promise<void>) | null = null;
 
   getConnectionMode(): 'launched' | 'headed' { return this.connectionMode; }
+  didHandoffTransition(): boolean { return this.handoffTransition; }
+
+  /** TEST-ONLY: simulate the state handoff() leaves behind, without
+   * launching a real browser — lets watchdog.test.ts exercise the
+   * "headed via handoff, parent gone" branch as a fast subprocess test.
+   * Never called by any real code path. */
+  __forceHandoffHeadedForTest(): void {
+    this.connectionMode = 'headed';
+    this.handoffTransition = true;
+  }
 
   // ─── Watch Mode Methods ─────────────────────────────────
   isWatching(): boolean { return this.watching; }
@@ -1608,6 +1627,7 @@ export class BrowserManager {
       this.pages.clear();
       this.tabSessions.clear();
       this.connectionMode = 'headed';
+      this.handoffTransition = true;
 
       // Same Layer C stealth as launch()/launchHeaded(). Must run BEFORE
       // restoreState() navigates so the init scripts apply to the restored

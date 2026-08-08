@@ -154,4 +154,35 @@ describe('parent-process watchdog (v0.18.1.0)', () => {
     await Bun.sleep(20_000);
     expect(isProcessAlive(serverPid)).toBe(true);
   }, 45_000);
+
+  test('headed via handoff: server STAYS ALIVE when parent dies (regression for the fix in this PR)', async () => {
+    // Reproduces the real bug: `handoff` (headless CLI → headed in-place)
+    // leaves BROWSE_PARENT_PID pointed at whatever short-lived CLI process
+    // happened to spawn the daemon — normally fine (case 3 above), but once
+    // connectionMode flips to 'headed' the OLD code took the "headed, parent
+    // gone → shutdown" branch and killed the freshly-handed-off browser
+    // within one watchdog tick, every time. BROWSE_TEST_FORCE_HANDOFF_HEADED
+    // simulates handoff()'s resulting state without launching a real
+    // browser (slow, sandbox-unfriendly) — see __forceHandoffHeadedForTest.
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'watchdog-handoff-'));
+
+    parentProc = spawn(['sleep', '60'], { stdio: ['ignore', 'ignore', 'ignore'] });
+    const parentPid = parentProc.pid!;
+
+    serverProc = spawnServer(
+      { BROWSE_PARENT_PID: String(parentPid), BROWSE_TEST_FORCE_HANDOFF_HEADED: '1' },
+      34904,
+    );
+    const serverPid = serverProc.pid!;
+
+    await Bun.sleep(2000);
+    expect(isProcessAlive(serverPid)).toBe(true);
+
+    parentProc.kill('SIGKILL');
+
+    // Pre-fix: server would shut itself down on the first tick after the
+    // parent died (~15s). Post-fix: stays alive, same as plain headless.
+    await Bun.sleep(20_000);
+    expect(isProcessAlive(serverPid)).toBe(true);
+  }, 45_000);
 });
