@@ -2450,6 +2450,19 @@ describe('setup script validation', () => {
     expect(fnBody).not.toContain('_link_or_copy "$gstack_dir" "$codex_gstack"');
   });
 
+  test('Factory installs real skill directories only in its documented user root', () => {
+    const fnStart = setupContent.indexOf('link_factory_skill_dirs()');
+    const fnEnd = setupContent.indexOf('\nlink_opencode_skill_dirs()', fnStart);
+    const fnBody = setupContent.slice(fnStart, fnEnd);
+
+    expect(fnBody).toContain('target="$skills_dir/$skill_name"');
+    expect(fnBody).toContain('rm -rf "$target"');
+    expect(fnBody).toContain('cp -R "$skill_dir" "$target"');
+    expect(fnBody).not.toContain('.agents');
+    expect(fnBody).not.toContain('.skill-lock.json');
+    expect(fnBody).not.toContain('_link_or_copy "$skill_dir" "$target"');
+  });
+
   test('direct Codex installs are migrated out of ~/.codex/skills/gstack', () => {
     expect(setupContent).toContain('migrate_direct_codex_install');
     expect(setupContent).toContain('$HOME/.gstack/repos/gstack');

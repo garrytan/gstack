@@ -912,7 +912,7 @@ link_factory_skill_dirs() {
   local gstack_dir="$1"
   local skills_dir="$2"
   local factory_dir="$gstack_dir/.factory/skills"
-  local linked=()
+  local installed=()
 
   if [ ! -d "$factory_dir" ]; then
     echo "  Generating .factory/ skill docs..."
@@ -929,14 +929,17 @@ link_factory_skill_dirs() {
       skill_name="$(basename "$skill_dir")"
       [ "$skill_name" = "gstack" ] && continue
       target="$skills_dir/$skill_name"
-      if [ -L "$target" ] || [ ! -e "$target" ]; then
-        _link_or_copy "$skill_dir" "$target"
-        linked+=("$skill_name")
-      fi
+      # Factory documents ~/.factory/skills as its user-level skill root. Keep
+      # the install self-contained there and use a real directory so Droid does
+      # not have to follow a directory symlink during discovery. These gstack-*
+      # paths are installer-owned and are refreshed on every setup run.
+      rm -rf "$target"
+      cp -R "$skill_dir" "$target"
+      installed+=("$skill_name")
     fi
   done
-  if [ ${#linked[@]} -gt 0 ]; then
-    echo "  linked skills: ${linked[*]}"
+  if [ ${#installed[@]} -gt 0 ]; then
+    echo "  installed skills: ${installed[*]}"
   fi
 }
 
