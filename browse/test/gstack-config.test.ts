@@ -1,8 +1,10 @@
 /**
  * Tests for bin/gstack-config bash script.
  *
- * Uses Bun.spawnSync to invoke the script with temp dirs and
- * GSTACK_STATE_DIR env override for full isolation.
+ * Uses Bun.spawnSync to invoke the script with temp dirs and a
+ * GSTACK_STATE_DIR env override. The helper below strips the two
+ * higher-priority state-dir variables so the override actually wins,
+ * regardless of what other suites leaked into process.env.
  */
 
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
@@ -15,12 +17,25 @@ const SCRIPT = join(import.meta.dir, '..', '..', 'bin', 'gstack-config');
 let stateDir: string;
 
 function run(args: string[] = [], extraEnv: Record<string, string> = {}) {
+  // bin/gstack-config resolves its state dir in priority order:
+  //   GSTACK_STATE_ROOT > GSTACK_HOME > GSTACK_STATE_DIR > $HOME/.gstack
+  // These cases drive the lowest-priority alias, so inheriting either of the
+  // higher two from process.env silently outranks the temp dir and the script
+  // reads somewhere else entirely. That is not hypothetical: several suites
+  // (browse/test/telemetry.test.ts, browse/test/cdp-e2e.test.ts,
+  // browse/test/domain-skills-*.test.ts, test/helpers/budget-override.test.ts)
+  // assign GSTACK_HOME at MODULE scope and never restore it, and bun shares one
+  // process across files — so whether these pass depends on file ordering.
+  const env: Record<string, string | undefined> = {
+    ...process.env,
+    GSTACK_STATE_DIR: stateDir,
+    ...extraEnv,
+  };
+  delete env.GSTACK_STATE_ROOT;
+  delete env.GSTACK_HOME;
+
   const result = Bun.spawnSync(['bash', SCRIPT, ...args], {
-    env: {
-      ...process.env,
-      GSTACK_STATE_DIR: stateDir,
-      ...extraEnv,
-    },
+    env: env as Record<string, string>,
     stdout: 'pipe',
     stderr: 'pipe',
   });
