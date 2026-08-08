@@ -481,6 +481,10 @@ describe('host config correctness', () => {
     expect(codex.generation.metadataFormat).toBe('openai.yaml');
   });
 
+  test('codex rewrites CLAUDE.md to AGENTS.md', () => {
+    expect(codex.pathRewrites).toContainEqual({ from: 'CLAUDE.md', to: 'AGENTS.md' });
+  });
+
   test('codex has sidecar config', () => {
     expect(codex.sidecar).toBeDefined();
     expect(codex.sidecar!.path).toBe('.agents/skills/gstack');
