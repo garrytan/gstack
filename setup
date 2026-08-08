@@ -250,17 +250,23 @@ if [ "$INSTALL_CODEX" -eq 1 ]; then
 fi
 
 ensure_playwright_browser() {
+  # Assert the *full* Chromium build exists before launching. chromium.launch()
+  # defaults to the headless shell (chromium_headless_shell), which can be
+  # present even when the full Chrome-for-Testing build that headed
+  # `browse connect` needs is missing — so a plain launch silently passes and
+  # masks a missing full build. chromium.executablePath() resolves the full
+  # build path regardless, so we stat it first. (#1829)
   if [ "$IS_WINDOWS" -eq 1 ]; then
     # On Windows, Bun can't launch Chromium due to broken pipe handling
     # (oven-sh/bun#4253). Use Node.js to verify Chromium works instead.
     (
       cd "$SOURCE_GSTACK_DIR"
-      node -e "const { chromium } = require('playwright'); (async () => { const b = await chromium.launch(); await b.close(); })()" 2>/dev/null
+      node -e "const { chromium } = require('playwright'); const fs = require('fs'); (async () => { if (!fs.existsSync(chromium.executablePath())) process.exit(1); const b = await chromium.launch(); await b.close(); })()" 2>/dev/null
     )
   else
     (
       cd "$SOURCE_GSTACK_DIR"
-      bun --eval 'import { chromium } from "playwright"; const browser = await chromium.launch(); await browser.close();'
+      bun --eval 'import { chromium } from "playwright"; import { existsSync } from "fs"; if (!existsSync(chromium.executablePath())) process.exit(1); const browser = await chromium.launch(); await browser.close();'
     ) >/dev/null 2>&1
   fi
 }
@@ -480,7 +486,18 @@ if ! ensure_playwright_browser; then
   echo "Installing Playwright Chromium..."
   (
     cd "$SOURCE_GSTACK_DIR"
-    bunx playwright install chromium
+    # The browse binary is compiled above against the lockfile-pinned Playwright.
+    # `bunx playwright install` resolves the *latest* Playwright at runtime, which
+    # downloads a different Chromium revision than the compiled binary expects, so
+    # headed `browse connect` fails with a missing full build even though setup
+    # "succeeds" and headless works. Pin the browser install to the same Playwright
+    # version bundled in node_modules so install and runtime can never drift. (#1829)
+    pw_version="$(bun --eval 'console.log(require("playwright/package.json").version)' 2>/dev/null)"
+    if [ -n "$pw_version" ]; then
+      bunx "playwright@$pw_version" install chromium
+    else
+      bunx playwright install chromium
+    fi
   )
 
   if [ "$IS_WINDOWS" -eq 1 ]; then
