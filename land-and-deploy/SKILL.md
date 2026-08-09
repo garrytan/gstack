@@ -1004,8 +1004,10 @@ echo "$DEPLOY_CONFIG"
 
 # If config exists, parse it
 if [ "$DEPLOY_CONFIG" != "NO_CONFIG" ]; then
-  PROD_URL=$(echo "$DEPLOY_CONFIG" | grep -i "production.*url" | head -1 | sed 's/.*: *//')
-  PLATFORM=$(echo "$DEPLOY_CONFIG" | grep -i "platform" | head -1 | sed 's/.*: *//')
+  # Strip only the label before the FIRST colon. A greedy 's/.*: *//' cuts at the
+  # last colon instead, so "https://example.com" would come back as "//example.com".
+  PROD_URL=$(echo "$DEPLOY_CONFIG" | grep -i "production.*url" | head -1 | sed 's/^[^:]*: *//')
+  PLATFORM=$(echo "$DEPLOY_CONFIG" | grep -i "platform" | head -1 | sed 's/^[^:]*: *//')
   echo "PERSISTED_PLATFORM:$PLATFORM"
   echo "PERSISTED_URL:$PROD_URL"
 fi
@@ -1590,8 +1592,10 @@ echo "$DEPLOY_CONFIG"
 
 # If config exists, parse it
 if [ "$DEPLOY_CONFIG" != "NO_CONFIG" ]; then
-  PROD_URL=$(echo "$DEPLOY_CONFIG" | grep -i "production.*url" | head -1 | sed 's/.*: *//')
-  PLATFORM=$(echo "$DEPLOY_CONFIG" | grep -i "platform" | head -1 | sed 's/.*: *//')
+  # Strip only the label before the FIRST colon. A greedy 's/.*: *//' cuts at the
+  # last colon instead, so "https://example.com" would come back as "//example.com".
+  PROD_URL=$(echo "$DEPLOY_CONFIG" | grep -i "production.*url" | head -1 | sed 's/^[^:]*: *//')
+  PLATFORM=$(echo "$DEPLOY_CONFIG" | grep -i "platform" | head -1 | sed 's/^[^:]*: *//')
   echo "PERSISTED_PLATFORM:$PLATFORM"
   echo "PERSISTED_URL:$PROD_URL"
 fi
