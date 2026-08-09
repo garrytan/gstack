@@ -111,7 +111,35 @@ $B diff https://staging.app.com https://prod.app.com
 ### 11. Show screenshots to the user
 After `$B screenshot`, `$B snapshot -a -o`, or `$B responsive`, always use the Read tool on the output PNG(s) so the user can see them. Without this, screenshots are invisible.
 
-### 12. Render local HTML (no HTTP server needed)
+### 12. Record a video of an interactive bug
+A screenshot proves what a page looked like; it can't show what a page *did*. When
+the bug is in the timing — a double-submit, a loading flicker, focus jumping, a
+drag that drops in the wrong place — record the repro instead of describing it.
+
+```bash
+$B record start                     # or: record start /tmp/repro --size 1280x720
+$B goto https://app.example.com/checkout
+$B click @e4
+$B record stop                      # flushes and lists the .webm files
+```
+
+Recording is a browser-context setting, so `start` and `stop` each rebuild the
+context. Cookies, storage, and open tabs survive that, but `@e` refs do not —
+re-snapshot after `record stop` before you act on the page again. One `.webm` is
+written per tab that rendered while recording ran, including tabs you closed
+along the way; a tab opened and closed in the same instant never paints and
+produces nothing. Keep clips short: a few seconds around the moment it breaks
+beats a minute of navigation. Stick with screenshots for static bugs (a typo, a
+clipped element, a wrong color) — they are cheaper to produce and easier to read.
+
+`record stop` is what hands you the file paths, so stop before you walk away: a
+recording still running when the daemon idles out leaves its `.webm` in the
+directory, but nothing prints the paths. Recording is headless-only (`handoff`
+and `connect` hand the browser to the user, and their window is theirs to
+capture), and it needs control scope — the video keeps whatever was on screen,
+including anything typed into a login form.
+
+### 13. Render local HTML (no HTTP server needed)
 Two paths, pick the cleaner one:
 ```bash
 # HTML file on disk → goto file:// (absolute, or cwd-relative)
@@ -126,7 +154,7 @@ $B load-html /tmp/tweet.html
 
 `goto file://...` is usually cleaner (URL is saved in state, relative asset URLs resolve against the file's dir, scale changes replay naturally). `load-html` uses `page.setContent()` — URL stays `about:blank`, but the content survives `viewport --scale` via in-memory replay. Both are scoped to files under cwd or `$TMPDIR`.
 
-### 13. Retina screenshots (deviceScaleFactor)
+### 14. Retina screenshots (deviceScaleFactor)
 ```bash
 $B viewport 480x600 --scale 2       # 2x deviceScaleFactor
 $B load-html /tmp/tweet.html        # or: $B goto file://./tweet.html
@@ -135,7 +163,7 @@ $B screenshot /tmp/out.png --selector .tweet-card
 ```
 Scale must be 1-3 (gstack policy cap). Changing `--scale` recreates the browser context; refs from `snapshot` are invalidated (rerun `snapshot`), but `load-html` content is replayed automatically. Not supported in headed mode.
 
-### 14. Offline render mode (rasterize your own HTML/JSON, zero network)
+### 15. Offline render mode (rasterize your own HTML/JSON, zero network)
 
 This is the blessed path for "I just want to turn my own local HTML or JSON into a
 PNG/PDF/bytes on disk" — Excalidraw diagrams, tweet/quote cards, og-images,
