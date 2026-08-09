@@ -595,10 +595,11 @@ If the user chooses A or C: Tell the user "Merging now." Continue to Step 4.
 Record the start timestamp for timing data. Also record which merge path is taken
 (auto-merge vs direct) for the deploy report.
 
-Try auto-merge first (respects repo merge settings and merge queues):
+Try auto-merge first (respects repo merge settings and merge queues). Specify the
+merge method explicitly because `gh` requires one in non-interactive sessions:
 
 ```bash
-gh pr merge --auto --delete-branch
+gh pr merge --squash --auto --delete-branch
 ```
 
 If `--auto` succeeds: record `MERGE_PATH=auto`. This means the repo has auto-merge enabled

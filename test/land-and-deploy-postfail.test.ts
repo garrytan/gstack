@@ -36,6 +36,13 @@ function readMd(): string {
 }
 
 describe("PR #1620 §4a-postfail in land-and-deploy template", () => {
+  test("auto-merge specifies a method in template and generated skill", () => {
+    for (const body of [readTmpl(), readMd()]) {
+      expect(body).toContain("gh pr merge --squash --auto --delete-branch");
+      expect(body).not.toContain("gh pr merge --auto --delete-branch");
+    }
+  });
+
   test("§4a-postfail header present in template", () => {
     expect(readTmpl()).toMatch(/### 4a-postfail: Post-failure PR-state check/);
   });
