@@ -22,46 +22,141 @@
  *   - MEDIUM → warn (non-blocking). LOW/WARN → silent.
  *   - GSTACK_REDACT_PREPUSH=skip → log + exit 0 (escape valve).
  *
- * Installed/uninstalled via `gstack-redact install-prepush-hook` (see the
- * gstack-redact CLI), which chains any pre-existing hook.
+ * STREAMING (2026-08): the diff is consumed incrementally and scanned in bounded
+ * windows instead of being buffered whole. This fixes three defects that made the
+ * hook an unreliable gate on large repos — see
+ * docs/prepush-redact-hook-2026-08/README.md in rejstrik-ai for the measurements:
+ *
+ *   1. `scan()` refuses input over its own 1 MiB cap (DEFAULT_MAX_BYTES) by
+ *      returning a synthetic HIGH `engine.input_too_large`. The hook reported that
+ *      as a credential hit, so ANY push adding >1 MiB of text was blocked with
+ *      "Rotate the credential (a pushed secret is compromised)" — a false positive
+ *      on innocuous data, and the added lines were never actually scanned.
+ *      Windowing keeps every scan() call under the cap, so the content is really
+ *      scanned. This scans MORE than before, never less.
+ *   2. Buffering the whole diff cost ~12x its size in RSS (63 MiB of diff → 762 MB).
+ *      Streaming holds one window at a time, which cut peak RSS to 253 MB while
+ *      scanning a LARGER payload (65.5 MB of added lines) that the buffered version
+ *      could not read at all. Peak is not perfectly flat — allocation churn inside
+ *      scan() still scales with total input — but it is bounded by the window
+ *      rather than by the diff. That transient spike is what made the hook a
+ *      plausible target for the OS memory manager, and a SIGKILLed hook surfaces
+ *      to the user as the undiagnosable "pre-push died of signal 9".
+ *   3. Every "cannot scan" path now says what happened, how big the diff was, which
+ *      files dominate it, and what to do — instead of a bare status code.
+ *
+ * Fail-closed is unchanged and load-bearing: any path where the pushed diff cannot
+ * be fully read and scanned BLOCKS the push. Unscanned-but-allowed is the exact
+ * failure mode this hook exists to prevent (#1946).
  */
-import { spawnSync } from "child_process";
+import { spawn, spawnSync } from "child_process";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import { scan, type Finding } from "../lib/redact-engine";
 
-const ZERO = /^0+$/;
-// The canonical empty-tree object; diffing against it yields all content as added.
-const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+/** A git object id: 40 hex (sha1) or 64 hex (sha256). Also matches an all-zero OID. */
+const SHA = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/i;
+/**
+ * The all-zero OID git uses for "no such ref", at either width. Must be length-checked:
+ * a bare /^0+$/ also accepts "0", and a malformed line with localSha="0" would then be
+ * read as a branch delete and skipped — exit 0 with nothing scanned.
+ */
+const ZERO_OID = /^0{40}(?:0{24})?$/;
+/**
+ * The empty-tree object; diffing against it yields all content as added. The OID
+ * depends on the repo's hash algorithm, and hardcoding the SHA-1 one blocks every
+ * new-branch push in a SHA-256 repo (the object simply does not exist there).
+ */
+const EMPTY_TREE_SHA1 = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+const EMPTY_TREE_SHA256 = "6ef19b41225c5369f1c104d45d8d85efa9b057b53b14b4b9b939dd74decc5321";
+
+/**
+ * Window sizing. WINDOW_BYTES must stay strictly under the engine's own
+ * DEFAULT_MAX_BYTES (1 MiB) so scan() never trips its oversize guard on our
+ * behalf — that guard is meant for a caller handing over an unbounded blob, and
+ * here we are the one keeping it bounded.
+ *
+ * A tail is carried into the next window so a match near a cut is still seen whole.
+ * Why the overlap is sized the way it is, checked against the engine rather than
+ * assumed:
+ *
+ *   - withFlags() adds only `g` and `m`, never `s`, so `.` never spans a newline.
+ *   - `\s`, however, DOES match `\n` in JS regardless of the `s` flag. Six pattern
+ *     sources contain `\s`; in five of them it only appears inside a negated class
+ *     (`[^\s…]`), which cannot consume a newline. Exactly one HIGH pattern can
+ *     genuinely span lines: gcp.service_account,
+ *     /("private_key"\s*:\s*"-----BEGIN (?:RSA |EC )?PRIVATE KEY-----)/.
+ *   - That one is harmless to split, and not by luck: the `-----BEGIN … PRIVATE
+ *     KEY-----` substring it requires is itself matched by pem.private_key, which is
+ *     single-line and also HIGH. Splitting the gcp match can therefore cost the
+ *     finding's LABEL, never the block. Verified for the one-line, newline-split and
+ *     EC variants — all block via pem.private_key.
+ *   - Everything else matches within one line, and windows are always cut on a line
+ *     boundary, so those matches can never be split at all.
+ *
+ * What the overlap actually buys is proximity context, which FIVE patterns need:
+ * aws.secret_key (nearWindow 100), gcp.service_account (300), twilio.auth_token (200),
+ * auth.bearer (80), legal.named_criticism (80). THREE are HIGH, so dropping that
+ * context drops a block, not merely a label. (aws.access_key has no nearRegex.)
+ *
+ * Sizes are measured, not guessed. scan() calls normalizeWithMap(), which builds a
+ * string[] AND a number[] with one entry per character — roughly 20x the window in
+ * transient allocation — so the window is the lever that bounds peak RSS. Measured
+ * on the 65.5 MB full-history range of rejstrik-ai (peak RSS / wall time):
+ *     768 KiB / 64 KiB -> 459 MB / 15.1 s
+ *     512 KiB / 16 KiB -> 273 MB / 13.7 s
+ *     384 KiB / 16 KiB -> 253 MB / 13.1 s   <- chosen
+ *     256 KiB / 16 KiB -> 250 MB / 17.0 s
+ *     128 KiB / 64 KiB -> 271 MB / 28.4 s
+ * All configurations produced identical findings (449 MEDIUM, 0 HIGH), i.e. the
+ * window size is a cost knob, not a detection knob.
+ */
+const WINDOW_BYTES = 384 * 1024;
+/**
+ * Tail carried into the next window. Sizing this correctly used to need a second
+ * counter, because the engine strips zero-width characters before matching: a fat
+ * byte-sized tail could normalize to nothing and drop the proximity context that five
+ * patterns (three of them HIGH) depend on. Rather than track two units and fail closed
+ * when they disagree, added lines are stripped of zero-width characters ON INGEST —
+ * exactly what the engine does before matching, so findings are unchanged — after
+ * which bytes and normalization-surviving characters mean the same thing again and one
+ * plain byte count is sound. 16 KiB is ~55x the largest nearWindow (300).
+ */
+const OVERLAP_BYTES = 16 * 1024;
+/**
+ * Slice width for a single line longer than a window. In CHARACTERS, and a quarter of
+ * WINDOW_BYTES, so even all-4-byte UTF-8 stays inside the engine's 1 MiB byte cap.
+ */
+const SLICE_CHARS = WINDOW_BYTES / 4;
+/** Overlap between slices of one oversized line, in the same (stripped) units. */
+const SLICE_OVERLAP_CHARS = 16 * 1024;
+/**
+ * Mirrors ZERO_WIDTH in lib/redact-engine.ts. Duplicated deliberately so the hook can
+ * size its own tail without reaching into engine internals — if that constant ever
+ * changes, this is the other place to update.
+ */
+const ZERO_WIDTH = /[​‌‍⁠﻿]/g;
+
+/** Wall-clock budget for scanning one ref. Fails CLOSED so a pathological diff
+ *  cannot hang a push indefinitely. Tunable for very large monorepos. */
+const TIME_BUDGET_MS = Number(process.env.GSTACK_REDACT_PREPUSH_TIMEOUT_MS || 120_000);
 
 /**
  * Permissive git for legitimately-fallible PROBES (symbolic-ref, rev-parse,
- * merge-base) where a non-zero exit is normal control flow. The DIFF call
- * must NOT use this — see gitStrict (#1946 fail-closed).
+ * merge-base) where a non-zero exit is normal control flow. The DIFF is NOT run
+ * through this — see scanRange (#1946 fail-closed).
  */
 function git(args: string[]): string {
-  const r = spawnSync("git", args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+  const r = spawnSync("git", args, { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 });
   return r.status === 0 ? (r.stdout ?? "") : "";
 }
 
-/**
- * Fail-closed git for the diff that decides whether the push is scanned
- * (#1946). status !== 0 covers repo errors; status === null covers a killed
- * process AND maxBuffer overflow — the oversized-diff case is exactly where
- * a large secret-bearing blob is most likely, so "couldn't read the diff"
- * must block, not silently allow.
- */
-function gitStrict(args: string[]): string {
-  const r = spawnSync("git", args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
-  // status !== 0 covers BOTH a non-zero exit AND null (process killed by a
-  // signal or maxBuffer overflow — null !== 0 is true).
-  if (r.status !== 0) {
-    throw new Error(
-      `git ${args[0]} failed (status=${r.status ?? "killed/overflow"}): ${(r.stderr ?? "").slice(0, 300)}`,
-    );
-  }
-  return r.stdout ?? "";
+/** The empty tree for THIS repo's object format. */
+function emptyTree(): string {
+  return git(["rev-parse", "--show-object-format"]).trim() === "sha256"
+    ? EMPTY_TREE_SHA256
+    : EMPTY_TREE_SHA1;
 }
 
 /** True when the object exists in the local odb (cat-file -e signals via exit code). */
@@ -70,48 +165,367 @@ function objectExists(sha: string): boolean {
   return r.status === 0;
 }
 
-function defaultRemoteBranch(): string {
-  // origin/HEAD → origin/main, fall back to main/master.
-  const sym = git(["symbolic-ref", "refs/remotes/origin/HEAD"]).trim();
+/**
+ * The default branch OF THE REMOTE BEING PUSHED TO. git passes that remote's name as
+ * argv[1] to a pre-push hook; using a hardcoded "origin" instead is a fail-open.
+ *
+ * Concretely: `git push publish HEAD:refs/heads/main` to a brand-new remote sends an
+ * all-zero remote sha, so we take the new-branch path. Resolved against origin, the
+ * merge-base of HEAD and origin/main is HEAD itself, the range collapses to
+ * HEAD..HEAD, the diff is empty and the entire tree — credentials included — ships to
+ * a remote that has never seen it, unscanned. Resolved against `publish`, which has
+ * no refs locally, merge-base fails and we fall through to the empty tree and scan
+ * everything. That is the whole point of the fallback, and it only works if the
+ * remote name is the real one.
+ */
+function defaultRemoteBranch(remote: string): string {
+  const sym = git(["symbolic-ref", `refs/remotes/${remote}/HEAD`]).trim();
   if (sym) return sym.replace("refs/remotes/", "");
-  for (const b of ["origin/main", "origin/master"]) {
+  for (const b of [`${remote}/main`, `${remote}/master`]) {
     if (git(["rev-parse", "--verify", b]).trim()) return b;
   }
-  return "origin/main";
+  // Deliberately a ref that will not resolve for an unknown remote: merge-base then
+  // fails and rangeFor falls back to the empty tree, i.e. scans MORE, never less.
+  return `${remote}/main`;
 }
 
-/** Return the added-line text for a ref update being pushed. */
-function addedLinesFor(localSha: string, remoteSha: string): string {
-  let range: string;
-  if (ZERO.test(remoteSha)) {
+/** The diff range for a ref update being pushed. */
+function rangeFor(localSha: string, remoteSha: string, remote: string): string {
+  if (ZERO_OID.test(remoteSha)) {
     // New branch: prefer what's unique to localSha vs the remote default branch.
     // With no merge-base (e.g. no remote yet), diff against the empty tree so ALL
     // branch content is scanned as added — fail-safe (scans more, never less).
-    const base = git(["merge-base", localSha, defaultRemoteBranch()]).trim();
-    range = base ? `${base}..${localSha}` : `${EMPTY_TREE}..${localSha}`;
-  } else if (!objectExists(remoteSha)) {
+    const base = git(["merge-base", localSha, defaultRemoteBranch(remote)]).trim();
+    return base ? `${base}..${localSha}` : `${emptyTree()}..${localSha}`;
+  }
+  if (!objectExists(remoteSha)) {
     // Remote tip object absent locally (shallow clone, force-push without a
     // prior fetch, CI checkout): remote..local can't resolve. Fall back to
     // the merge-base/empty-tree path — scans MORE, never less — instead of
     // hard-blocking a legitimate push (adversarial review finding 8).
-    const base = git(["merge-base", localSha, defaultRemoteBranch()]).trim();
-    range = base ? `${base}..${localSha}` : `${EMPTY_TREE}..${localSha}`;
-  } else {
-    // Existing branch (incl. force-push): net new content remote..local.
-    range = `${remoteSha}..${localSha}`;
+    const base = git(["merge-base", localSha, defaultRemoteBranch(remote)]).trim();
+    return base ? `${base}..${localSha}` : `${emptyTree()}..${localSha}`;
   }
-  // -U0: only changed lines; we keep lines starting with '+' (added), drop the
-  // +++ file header. Unified diff added lines start with a single '+'.
-  // Strict (#1946): a failed diff used to return "" and the push sailed
-  // through unscanned — fail open on the exact path the guard exists for.
-  const diff = gitStrict(["diff", "--unified=0", "--no-color", range]);
-  const added: string[] = [];
-  for (const line of diff.split("\n")) {
-    if (line.startsWith("+") && !line.startsWith("+++")) {
-      added.push(line.slice(1));
+  // Existing branch (incl. force-push): net new content remote..local.
+  return `${remoteSha}..${localSha}`;
+}
+
+/** What we learned about the diff while streaming it — used to make block messages concrete. */
+interface ScanStats {
+  addedBytes: number;
+  addedLines: number;
+  files: number;
+  /** Added bytes per file, for naming the biggest contributors in a message. */
+  perFile: Map<string, number>;
+}
+
+/**
+ * Why we could not clear the diff. Every one of these BLOCKS the push. `kind`
+ * exists so the remedy we print matches the actual failure — telling someone with
+ * an unresolvable ref to "push in smaller chunks" is noise.
+ */
+type FailureKind = "git-failed" | "git-killed" | "timeout" | "internal";
+
+class UnscannableDiff extends Error {
+  constructor(
+    readonly kind: FailureKind,
+    readonly reason: string,
+    readonly stats: ScanStats,
+  ) {
+    super(reason);
+  }
+}
+
+function emptyStats(): ScanStats {
+  return { addedBytes: 0, addedLines: 0, files: 0, perFile: new Map() };
+}
+
+/**
+ * Stream `git diff` for `range`, scanning added lines in bounded windows.
+ * Resolves with the findings; throws UnscannableDiff on any path where the diff
+ * could not be fully read (fail-closed).
+ */
+async function scanRange(
+  range: string,
+): Promise<{ high: Finding[]; medium: number; stats: ScanStats }> {
+  const stats = emptyStats();
+  const high: Finding[] = [];
+  let medium = 0;
+  // Dedup across windows: the overlap tail is scanned twice by construction.
+  const seen = new Set<string>();
+
+  // The diff MUST come out in canonical unified format, because that grammar is the
+  // only thing standing between us and "scanned nothing, allowed everything".
+  //   --no-ext-diff  : a user's `diff.external` driver replaces the entire diff with
+  //                    its own output. Verified: with one set, `git diff` emits zero
+  //                    '+' lines, so an unhardened scanner reads an empty diff and
+  //                    exits 0 on a push full of secrets. This is a real fail-open
+  //                    reachable from ordinary user config, not a hypothetical.
+  //   --no-textconv  : a .gitattributes textconv driver can likewise rewrite content
+  //                    before we ever see it.
+  //   -c diff.*prefix: force plain a/ b/ paths so file attribution stays correct
+  //                    under diff.noprefix / diff.mnemonicPrefix.
+  const child = spawn(
+    "git",
+    [
+      "-c", "diff.external=",
+      "-c", "diff.noprefix=false",
+      "-c", "diff.mnemonicPrefix=false",
+      "diff", "--unified=0", "--no-color", "--no-ext-diff", "--no-textconv",
+      range,
+    ],
+    { stdio: ["ignore", "pipe", "pipe"] },
+  );
+
+  let stderr = "";
+  child.stderr.setEncoding("utf8");
+  child.stderr.on("data", (d: string) => {
+    if (stderr.length < 4096) stderr += d;
+  });
+
+  // Current window, held as lines so the overlap tail can be cut on a line boundary.
+  let windowLines: string[] = [];
+  let windowBytes = 0;
+  let currentFile = "<unknown>";
+  let inHunk = false;
+  const started = Date.now();
+
+  /** Run the engine over one bounded chunk and fold its findings in. */
+  const collect = (text: string): void => {
+    if (!text) return;
+    // Visibility doesn't change HIGH behavior; pass private so nothing is treated
+    // as public-strict (HIGH blocks regardless either way).
+    const result = scan(text, { repoVisibility: "private" });
+    for (const f of result.findings) {
+      // Can only appear if WINDOW_BYTES were mis-sized above the engine cap. It
+      // means "not scanned", not "credential found" — surface it honestly rather
+      // than telling the user to rotate a credential that does not exist.
+      if (f.id === "engine.input_too_large") {
+        throw new UnscannableDiff(
+          "internal",
+          `internal: scan window (${Buffer.byteLength(text)} B) exceeded the engine cap; ` +
+            `WINDOW_BYTES must stay under it`,
+          stats,
+        );
+      }
+      if (f.severity !== "HIGH" && f.severity !== "MEDIUM") continue;
+      const key = `${f.id}\u0000${f.preview}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      if (f.severity === "HIGH") high.push(f);
+      else medium++;
     }
-  }
-  return added.join("\n");
+  };
+
+  /**
+   * A single line longer than a window — a minified bundle or one-line JSON, both
+   * ordinary in real repos. Buffering it whole would blow the memory bound AND hand
+   * scan() something over its 1 MiB cap, which returns engine.input_too_large: a
+   * block, but one where the content was never actually read. Slice it instead, with
+   * enough overlap that no single-line match can fall in a seam.
+   *
+   * The seams do give `^`/`$` extra places to match (db.url_with_password and
+   * creds.basic_auth_url among the HIGH patterns). That can only produce MORE
+   * findings, never fewer, so it errs toward blocking — the safe direction here.
+   */
+  const scanLongLine = (content: string): void => {
+    // Guard the loop against a future retuning that makes the overlap >= the slice,
+    // which would leave step <= 0 and spin forever on a huge line.
+    const step = Math.max(1, SLICE_CHARS - SLICE_OVERLAP_CHARS);
+    for (let start = 0; start < content.length; start += step) {
+      collect(content.slice(start, start + SLICE_CHARS));
+      if (start + SLICE_CHARS >= content.length) break;
+    }
+  };
+
+  const flush = (final: boolean): void => {
+    if (windowLines.length === 0) return;
+    collect(windowLines.join("\n"));
+    if (final) {
+      windowLines = [];
+      windowBytes = 0;
+      return;
+    }
+    // Retain a tail carrying at least OVERLAP_SIGNIFICANT_CHARS characters that
+    // survive normalization, so proximity context for the six nearRegex patterns is
+    // still visible to the next window. Counting raw bytes here would let zero-width
+    // padding produce a fat tail with no usable context in it.
+    const tail: string[] = [];
+    let tailBytes = 0;
+    for (let i = windowLines.length - 1; i >= 0 && tailBytes < OVERLAP_BYTES; i--) {
+      tail.unshift(windowLines[i]);
+      tailBytes += Buffer.byteLength(windowLines[i]) + 1;
+    }
+    windowLines = tail;
+    windowBytes = tailBytes;
+  };
+
+  const handleLine = (line: string): void => {
+    // Track diff structure so a "+++" is only read as a file header where one can
+    // legally appear. Matching on the prefix alone (what the previous version did)
+    // silently DROPS any added line whose own content starts with "++" — e.g. a
+    // checked-in .patch file, or `+++ token = "…"` — from the scan. That is a
+    // credential-shaped blind spot, so structure beats prefix-guessing here.
+    if (line.startsWith("diff --git ")) {
+      inHunk = false;
+      return;
+    }
+    if (line.startsWith("@@")) {
+      // A hunk header. Added lines start with "+", so "@@" at column 0 is never content.
+      inHunk = true;
+      return;
+    }
+    if (!inHunk && line.startsWith("+++")) {
+      // "+++ b/path" (or "+++ /dev/null"). Names the file for the lines that follow.
+      const p = line.slice(4).trim();
+      currentFile = p === "/dev/null" ? currentFile : p.replace(/^[ab]\//, "");
+      stats.files++;
+      return;
+    }
+    if (!line.startsWith("+")) return;
+    // Strip zero-width characters here, not later: the engine removes them during
+    // normalization anyway, so this cannot change what matches, and it makes a byte
+    // count a faithful proxy for the normalized length everywhere downstream.
+    const content = line.slice(1).replace(ZERO_WIDTH, "");
+    const n = Buffer.byteLength(content) + 1;
+    stats.addedBytes += n;
+    stats.addedLines++;
+    stats.perFile.set(currentFile, (stats.perFile.get(currentFile) ?? 0) + n);
+    if (n > WINDOW_BYTES) {
+      // Oversized single line: flush the pending window, scan the line on its own in
+      // bounded slices, then seed the next window with its tail so proximity context
+      // survives across it.
+      flush(false);
+      scanLongLine(content);
+      // Start the next window from this line's tail ALONE. Appending it to whatever
+      // flush() kept would splice two non-adjacent pieces of the diff together and let
+      // a proximity pattern match across text that is megabytes apart in reality.
+      const tailChars = content.slice(-SLICE_OVERLAP_CHARS);
+      windowLines = [tailChars];
+      windowBytes = Buffer.byteLength(tailChars) + 1;
+      return;
+    }
+    windowLines.push(content);
+    windowBytes += n;
+    if (windowBytes >= WINDOW_BYTES) flush(false);
+  };
+
+  await new Promise<void>((resolve, reject) => {
+    let carry = "";
+    let settled = false;
+    const fail = (e: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(budget);
+      child.kill("SIGKILL");
+      reject(e);
+    };
+
+    // A real timer, not just a check inside the data handler: git can hang before
+    // emitting its first byte or after its last, and a budget that only ticks on
+    // stdout.data would never fire in either case.
+    const budget = setTimeout(() => {
+      fail(
+        new UnscannableDiff(
+          "timeout",
+          `scanning exceeded the ${
+            TIME_BUDGET_MS >= 1000 ? `${Math.round(TIME_BUDGET_MS / 1000)}s` : `${TIME_BUDGET_MS}ms`
+          } budget`,
+          stats,
+        ),
+      );
+    }, TIME_BUDGET_MS);
+    budget.unref?.();
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => {
+      if (settled) return;
+      if (Date.now() - started > TIME_BUDGET_MS) {
+        fail(
+          new UnscannableDiff(
+            "timeout",
+            `scanning exceeded the ${
+              TIME_BUDGET_MS >= 1000 ? `${Math.round(TIME_BUDGET_MS / 1000)}s` : `${TIME_BUDGET_MS}ms`
+            } budget`,
+            stats,
+          ),
+        );
+        return;
+      }
+      try {
+        const buf = carry + chunk;
+        let start = 0;
+        for (;;) {
+          const nl = buf.indexOf("\n", start);
+          if (nl === -1) break;
+          handleLine(buf.slice(start, nl));
+          start = nl + 1;
+        }
+        carry = buf.slice(start);
+      } catch (e) {
+        fail(e instanceof Error ? e : new Error(String(e)));
+      }
+    });
+
+    child.stdout.on("error", (e) => fail(new UnscannableDiff("git-failed", `diff stream error: ${e.message}`, stats)));
+    child.on("error", (e) => fail(new UnscannableDiff("git-failed", `could not run git diff: ${e.message}`, stats)));
+
+    child.on("close", (code, signal) => {
+      if (settled) return;
+      // A signal here means the CHILD died (OOM killer, timeout, manual kill) —
+      // distinct from a non-zero exit, and distinct again from this hook itself
+      // being killed (which git reports as "hook died of signal N" and which no
+      // code inside this process can catch).
+      if (signal) {
+        settled = true;
+        reject(new UnscannableDiff("git-killed", `git diff was killed by ${signal}`, stats));
+        return;
+      }
+      if (code !== 0) {
+        settled = true;
+        reject(
+          new UnscannableDiff(
+            "git-failed",
+            `git diff exited ${code}${stderr.trim() ? `: ${stderr.trim().split("\n")[0]}` : ""}`,
+            stats,
+          ),
+        );
+        return;
+      }
+      // Keep the budget armed across the final flush: a trailing line with no
+      // newline is scanned here, and that is exactly the expensive case.
+      try {
+        if (carry) handleLine(carry);
+        flush(true);
+      } catch (e) {
+        settled = true;
+        clearTimeout(budget);
+        reject(e instanceof Error ? e : new Error(String(e)));
+        return;
+      }
+      settled = true;
+      clearTimeout(budget);
+      resolve();
+    });
+  });
+
+  return { high, medium, stats };
+}
+
+function mb(bytes: number): string {
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/** Concrete "here is what your push actually contains" summary for block messages. */
+function describe(stats: ScanStats): string {
+  const top = [...stats.perFile.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([f, n]) => `      ${mb(n).padStart(9)}  ${f}`)
+    .join("\n");
+  const head =
+    `  Read so far: ${mb(stats.addedBytes)} of added lines ` +
+    `(${stats.addedLines.toLocaleString("en-US")} lines across ${stats.files} file diffs)`;
+  return top ? `${head}\n  Largest contributors:\n${top}` : head;
 }
 
 function logSkip(reason: string): void {
@@ -128,12 +542,17 @@ function logSkip(reason: string): void {
   }
 }
 
-function main() {
+async function main() {
   if ((process.env.GSTACK_REDACT_PREPUSH || "").toLowerCase() === "skip") {
     logSkip(process.env.GSTACK_REDACT_PREPUSH_REASON || "env-skip");
     process.stderr.write("gstack-redact-prepush: skipped via GSTACK_REDACT_PREPUSH=skip\n");
     process.exit(0);
   }
+
+  // git invokes a pre-push hook as: hook <remote name> <remote URL>. Resolving the
+  // range against the remote actually being pushed to is load-bearing — see
+  // defaultRemoteBranch(). Fall back to "origin" only when git told us nothing.
+  const remoteName = process.argv[2] || "origin";
 
   const stdin = fs.readFileSync(0, "utf8");
   const refs = stdin
@@ -145,30 +564,78 @@ function main() {
   const allHigh: Finding[] = [];
   let mediumCount = 0;
 
-  for (const [, localSha, , remoteSha] of refs) {
-    if (!localSha || ZERO.test(localSha)) continue; // branch delete → nothing pushed
-    let added: string;
-    try {
-      added = addedLinesFor(localSha, remoteSha || "0");
-    } catch (err) {
-      // Fail CLOSED (#1946): if we can't compute the pushed diff we can't
-      // scan it, and unscanned-but-allowed is the failure mode this hook
-      // exists to prevent.
+  for (const fields of refs) {
+    // A malformed line is NOT the same as "nothing to push". If we cannot tell what
+    // is being pushed we cannot scan it, so block instead of skipping the ref — a
+    // bare `continue` here would exit 0 having scanned nothing at all.
+    // BOTH shas must be well formed. Validating only the local one leaves a hole:
+    // a line with a good local sha and a junk remote sha passes, objectExists()
+    // then fails on the junk, we take the merge-base path, and if HEAD is already
+    // the remote default branch the range collapses to HEAD..HEAD — an empty diff,
+    // scanned clean, exit 0.
+    const [, localSha, , remoteSha] = fields;
+    const shaOk = (s: string | undefined) => !!s && SHA.test(s);
+    if (fields.length !== 4 || !shaOk(localSha) || !shaOk(remoteSha)) {
       process.stderr.write(
-        "\n⛔ gstack-redact-prepush BLOCKED the push — could not compute the pushed diff, " +
-          "so it cannot be scanned for credentials.\n" +
-          `  (${err instanceof Error ? err.message.split("\n")[0] : String(err)})\n` +
-          "Bypass if you're sure: GSTACK_REDACT_PREPUSH=skip git push   (or git push --no-verify)\n",
+        "\n⛔ gstack-redact-prepush BLOCKED the push — could not parse the ref update\n" +
+          "   git sent on stdin, so there is nothing it can reliably scan.\n\n" +
+          `  Expected "<local ref> <local sha> <remote ref> <remote sha>", got ${fields.length} field(s).\n` +
+          "  This is fail-closed by design. Please report it — the hook should\n" +
+          "  understand every ref update git produces.\n",
       );
       process.exit(1);
     }
-    if (!added.trim()) continue;
-    // Visibility doesn't change HIGH behavior; pass private so nothing is treated
-    // as public-strict (HIGH blocks regardless either way).
-    const result = scan(added, { repoVisibility: "private" });
-    for (const f of result.findings) {
-      if (f.severity === "HIGH") allHigh.push(f);
-      else if (f.severity === "MEDIUM") mediumCount++;
+    if (ZERO_OID.test(localSha)) continue; // branch delete → nothing pushed
+    const range = rangeFor(localSha, remoteSha || "0", remoteName);
+    try {
+      const { high, medium, stats } = await scanRange(range);
+      allHigh.push(...high);
+      mediumCount += medium;
+      if (process.env.GSTACK_REDACT_PREPUSH_VERBOSE) {
+        process.stderr.write(
+          `gstack-redact-prepush: scanned ${mb(stats.addedBytes)} of added lines ` +
+            `(${stats.addedLines.toLocaleString("en-US")} lines, ${stats.files} file diffs) in ${range}\n`,
+        );
+      }
+    } catch (err) {
+      // Fail CLOSED (#1946): if we can't compute or fully scan the pushed diff we
+      // can't clear it, and unscanned-but-allowed is the failure mode this hook
+      // exists to prevent. The message has to leave the user with a next step —
+      // a bare status code does not.
+      const stats = err instanceof UnscannableDiff ? err.stats : emptyStats();
+      const kind: FailureKind = err instanceof UnscannableDiff ? err.kind : "internal";
+      const why = err instanceof Error ? err.message.split("\n")[0] : String(err);
+      // Tailor the remedy to the failure. "Push in smaller chunks" is useless
+      // advice for a ref that does not resolve, and "fetch the remote" is useless
+      // advice for a diff that was too big to get through.
+      const remedy =
+        kind === "git-failed"
+          ? "  The range itself could not be resolved. Usually the remote ref is stale\n" +
+            "  or missing locally. Try:\n" +
+            `    • git fetch ${remoteName}        (then push again)\n` +
+            "    • confirm the branch points at a real commit: git log -1 <branch>\n"
+          : "  This is usually an oversized push, not a leak. Options:\n" +
+            "    • Rebase/branch off the remote default branch so the pushed range is\n" +
+            "      only your own commits, then push again.\n" +
+            `    • Push in smaller chunks:  git push ${remoteName} <sha>:refs/heads/<branch>\n` +
+            "    • Large generated data files belong in .gitignore or an artifact store.\n" +
+            (kind === "timeout"
+              ? "    • Raise the budget if the repo is legitimately huge:\n" +
+                "        GSTACK_REDACT_PREPUSH_TIMEOUT_MS=300000 git push\n"
+              : "");
+      process.stderr.write(
+        "\n⛔ gstack-redact-prepush BLOCKED the push — the pushed diff could not be fully\n" +
+          "   scanned, so it cannot be cleared of credentials. Blocking is deliberate.\n\n" +
+          `  Range:  ${range}\n` +
+          `  Reason: ${why}\n` +
+          `${describe(stats)}\n\n` +
+          remedy +
+          "    • If you have verified the content yourself, take the audited escape\n" +
+          "      valve (it is logged to ~/.gstack/security/prepush-skip.jsonl):\n" +
+          "        GSTACK_REDACT_PREPUSH=skip \\\n" +
+          '        GSTACK_REDACT_PREPUSH_REASON="<why this is safe>" git push\n',
+      );
+      process.exit(1);
     }
   }
 
@@ -196,4 +663,24 @@ function main() {
   process.exit(0);
 }
 
-main();
+/**
+ * Run as a hook unless we are being imported by a test/benchmark. The comparison
+ * is `!== false`, not `=== true`, on purpose: a runtime that does not define
+ * import.meta.main yields undefined, and undefined !== false, so the hook still
+ * runs. Getting this backwards would silently turn the guard into a no-op that
+ * exits 0 — i.e. fail OPEN, the one outcome this file exists to prevent.
+ */
+if (import.meta.main !== false) {
+  main().catch((e) => {
+    // Last-resort fail-closed: an unexpected throw must not let a push through.
+    process.stderr.write(
+      `\n⛔ gstack-redact-prepush BLOCKED the push — unexpected scanner error: ${
+        e instanceof Error ? e.message : String(e)
+      }\n` + "This is fail-closed by design; the diff was not cleared.\n",
+    );
+    process.exit(1);
+  });
+}
+
+export { scanRange, rangeFor, UnscannableDiff, WINDOW_BYTES, OVERLAP_BYTES, SLICE_CHARS };
+export type { ScanStats };
