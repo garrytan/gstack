@@ -22,6 +22,7 @@ bin/gstack-global-discover*
 .openclaw/
 .hermes/
 .gbrain/
+.antigravity/
 .gbrain-source
 .context/
 extension/.auth.json
