@@ -169,6 +169,7 @@ export class BrowserManager {
   private deviceScaleFactor: number = 1;
   private currentViewport: { width: number; height: number } = { width: 1280, height: 720 };
 
+
   /** Server port — set after server starts, used by cookie-import-browser command */
   public serverPort: number = 0;
 
@@ -394,14 +395,7 @@ export class BrowserManager {
       void handleChromiumDisconnect(this.browser);
     });
 
-    const contextOptions: BrowserContextOptions = {
-      viewport: { width: this.currentViewport.width, height: this.currentViewport.height },
-      deviceScaleFactor: this.deviceScaleFactor,
-    };
-    if (this.customUserAgent) {
-      contextOptions.userAgent = this.customUserAgent;
-    }
-    this.context = await this.browser.newContext(contextOptions);
+    this.context = await this.browser.newContext(this.buildContextOptions());
 
     if (Object.keys(this.extraHeaders).length > 0) {
       await this.context.setExtraHTTPHeaders(this.extraHeaders);
@@ -1414,14 +1408,7 @@ export class BrowserManager {
       await this.context.close().catch(() => {});
 
       // 3. Create new context with updated settings
-      const contextOptions: BrowserContextOptions = {
-        viewport: { width: this.currentViewport.width, height: this.currentViewport.height },
-        deviceScaleFactor: this.deviceScaleFactor,
-      };
-      if (this.customUserAgent) {
-        contextOptions.userAgent = this.customUserAgent;
-      }
-      this.context = await this.browser.newContext(contextOptions);
+      this.context = await this.browser.newContext(this.buildContextOptions());
 
       // Re-apply stealth: newContext() is a fresh context with no init scripts,
       // so a useragent / viewport --scale rebuild would otherwise drop the
@@ -1446,14 +1433,7 @@ export class BrowserManager {
         this.tabSessions.clear();
         if (this.context) await this.context.close().catch(() => {});
 
-        const contextOptions: BrowserContextOptions = {
-          viewport: { width: this.currentViewport.width, height: this.currentViewport.height },
-          deviceScaleFactor: this.deviceScaleFactor,
-        };
-        if (this.customUserAgent) {
-          contextOptions.userAgent = this.customUserAgent;
-        }
-        this.context = await this.browser!.newContext(contextOptions);
+        this.context = await this.browser!.newContext(this.buildContextOptions());
         // Stealth applies to the fallback blank context too.
         const { applyStealth } = await import('./stealth');
         await applyStealth(this.context);
@@ -1464,6 +1444,24 @@ export class BrowserManager {
       }
       return `Context recreation failed: ${err instanceof Error ? err.message : String(err)}. Browser reset to blank tab.`;
     }
+  }
+
+  /**
+   * Context options every context in this manager is built from — the initial
+   * launch, the recreateContext() rebuild, and its clean-slate fallback. These
+   * are the settings that only apply at context construction, so each one has to
+   * survive a rebuild; keeping the single builder here is what stops the three
+   * call sites from drifting apart.
+   */
+  private buildContextOptions(): BrowserContextOptions {
+    const options: BrowserContextOptions = {
+      viewport: { width: this.currentViewport.width, height: this.currentViewport.height },
+      deviceScaleFactor: this.deviceScaleFactor,
+    };
+    if (this.customUserAgent) {
+      options.userAgent = this.customUserAgent;
+    }
+    return options;
   }
 
   /**
