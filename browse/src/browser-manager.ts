@@ -125,6 +125,16 @@ export type { RefEntry };
 // Re-export TabSession for consumers
 export { TabSession };
 
+/** Outcome of a recording: the files it produced, and anything that went wrong. */
+export interface RecordingResult {
+  /** Video files with bytes in them. */
+  videos: string[];
+  /** Files that were created but never received bytes — missing evidence, not saved video. */
+  empty: string[];
+  /** Degraded context rebuild or unreadable directory; null when the flush was clean. */
+  warning: string | null;
+}
+
 export interface BrowserState {
   cookies: Cookie[];
   pages: Array<{
@@ -169,6 +179,16 @@ export class BrowserManager {
   private deviceScaleFactor: number = 1;
   private currentViewport: { width: number; height: number } = { width: 1280, height: 720 };
 
+  // ─── Video recording (context option) ────────────────────────
+  // Playwright records at the context level and flushes each page's .webm when
+  // the context closes, so both start and stop go through recreateContext().
+  // Null means not recording.
+  private recording: {
+    dir: string;
+    /** Videos already in `dir` when this recording started — not ours to report. */
+    preexisting: Set<string>;
+    size?: { width: number; height: number };
+  } | null = null;
 
   /** Server port — set after server starts, used by cookie-import-browser command */
   public serverPort: number = 0;
@@ -1446,12 +1466,116 @@ export class BrowserManager {
     }
   }
 
+  // ─── Video Recording ─────────────────────────────────────────
+  /**
+   * Start recording video of browser activity into `dir`.
+   *
+   * Recording is a context option, so this rebuilds the context through
+   * recreateContext(), which preserves cookies, storage, and open tabs.
+   *
+   * Returns the result of any recording this call superseded, plus the warning
+   * recreateContext() uses to report a degraded rebuild. Both are the caller's
+   * to report: a superseded take is already on disk, and a caller who is not
+   * handed its paths has lost it.
+   */
+  async startRecording(
+    dir: string,
+    size?: { width: number; height: number },
+  ): Promise<{ superseded: RecordingResult | null; warning: string | null }> {
+    if (this.connectionMode === 'headed') {
+      throw new Error('record is not supported in headed mode — the visible window is the real browser. Run `$B disconnect` first, or capture the screen with an OS recorder.');
+    }
+    if (!this.browser || !this.context) {
+      throw new Error('Browser not launched');
+    }
+
+    const superseded = this.recording ? await this.stopRecording() : null;
+
+    mkdirSecure(dir);
+    this.recording = { dir, preexisting: this.videoNamesIn(dir), ...(size ? { size } : {}) };
+    // A degraded rebuild still records: the fallback context is built from
+    // buildContextOptions() too, so the flag stays set and stop finds the files.
+    const warning = await this.recreateContext();
+
+    return { superseded, warning };
+  }
+
+  /**
+   * Stop recording and return every video the recording produced.
+   *
+   * Playwright writes one .webm per page and only flushes on context close, so
+   * this clears the flag and rebuilds the context to force the flush, then reads
+   * the recording directory. Reading the directory rather than the live pages is
+   * what catches a tab that was closed mid-recording — its video is on disk, and
+   * enumerating open pages would miss it.
+   *
+   * `warning` carries a degraded rebuild (the flush is that rebuild, so a
+   * failure there is a flush failure) and any error reading the directory back.
+   * Files that never received bytes are reported as `empty` rather than counted
+   * as saved.
+   */
+  async stopRecording(): Promise<RecordingResult> {
+    if (!this.recording) return { videos: [], empty: [], warning: null };
+
+    const fs = require('fs');
+    const path = require('path');
+    const { dir, preexisting } = this.recording;
+    this.recording = null;
+
+    // Closing the old context is what flushes the .webm files to disk. In headed
+    // mode that context is already gone (handoff replaced it, flushing as it
+    // closed), and recreateContext() would throw, so only rebuild when we own a
+    // headless context to rebuild.
+    let warning: string | null = null;
+    if (this.connectionMode !== 'headed') {
+      warning = await this.recreateContext();
+    }
+
+    let entries: string[];
+    try {
+      entries = fs.readdirSync(dir).filter((name: string) => name.endsWith('.webm'));
+    } catch (err: unknown) {
+      const detail = err instanceof Error ? err.message : String(err);
+      return { videos: [], empty: [], warning: warning ?? `Recording directory could not be read: ${detail}` };
+    }
+
+    const videos: string[] = [];
+    const empty: string[] = [];
+    for (const name of entries) {
+      // Skip videos that were already there: a directory reused across takes
+      // would otherwise report the earlier one as part of this recording.
+      if (preexisting.has(name)) continue;
+      const full = path.join(dir, name);
+      try {
+        (fs.statSync(full).size > 0 ? videos : empty).push(full);
+      } catch {
+        empty.push(full);
+      }
+    }
+
+    return { videos, empty, warning };
+  }
+
+  /** Names of the .webm files currently in `dir`; empty when it does not exist yet. */
+  private videoNamesIn(dir: string): Set<string> {
+    const fs = require('fs');
+    try {
+      return new Set<string>(fs.readdirSync(dir).filter((name: string) => name.endsWith('.webm')));
+    } catch {
+      return new Set<string>();
+    }
+  }
+
+  /** Directory the active recording is writing to, or null when not recording. */
+  getRecordingDir(): string | null {
+    return this.recording?.dir ?? null;
+  }
+
   /**
    * Context options every context in this manager is built from — the initial
    * launch, the recreateContext() rebuild, and its clean-slate fallback. These
-   * are the settings that only apply at context construction, so each one has to
-   * survive a rebuild; keeping the single builder here is what stops the three
-   * call sites from drifting apart.
+   * settings only apply at context construction, so each one has to be repeated
+   * on every rebuild to survive it.
    */
   private buildContextOptions(): BrowserContextOptions {
     const options: BrowserContextOptions = {
@@ -1460,6 +1584,12 @@ export class BrowserManager {
     };
     if (this.customUserAgent) {
       options.userAgent = this.customUserAgent;
+    }
+    if (this.recording) {
+      options.recordVideo = {
+        dir: this.recording.dir,
+        ...(this.recording.size ? { size: this.recording.size } : {}),
+      };
     }
     return options;
   }
