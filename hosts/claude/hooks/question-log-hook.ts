@@ -36,7 +36,7 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { spawnSync } from 'child_process';
+import { runBin } from './spawn-bin';
 
 interface HookStdin {
   session_id?: string;
@@ -205,12 +205,7 @@ function detectSkill(cwd: string | undefined): string {
 }
 
 function spawnLog(payload: Record<string, unknown>, cwd?: string): void {
-  // Locate the bin relative to this script's directory.
-  const here = path.dirname(new URL(import.meta.url).pathname);
-  // hosts/claude/hooks/ -> ../../../bin/
-  const repoRoot = path.resolve(here, '..', '..', '..');
-  const bin = path.join(repoRoot, 'bin', 'gstack-question-log');
-  const res = spawnSync(bin, [JSON.stringify(payload)], {
+  const res = runBin('gstack-question-log', [JSON.stringify(payload)], {
     encoding: 'utf-8',
     stdio: ['ignore', 'pipe', 'pipe'],
     timeout: 3000,
