@@ -32,11 +32,12 @@ export async function runSetup(): Promise<void> {
     process.exit(4);
   }
 
-  // 2. Chromium smoke (navigate a dedicated tab to about:blank)
+  // 2. Chromium smoke. Let browse create its standard blank tab: recent browse
+  // builds intentionally reject explicit about: URLs at the navigation boundary.
   process.stderr.write("  [2/5] Launching Chromium...");
   let chromiumTab: number | null = null;
   try {
-    chromiumTab = browseClient.newtab("about:blank");
+    chromiumTab = browseClient.newtab();
     process.stderr.write(` OK (tab ${chromiumTab})\n`);
   } catch (err: any) {
     process.stderr.write(" FAIL\n");

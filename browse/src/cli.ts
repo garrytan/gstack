@@ -237,12 +237,13 @@ async function startServer(extraEnv?: Record<string, string>): Promise<ServerSta
     const launcherCode =
       `const{spawn}=require('child_process');` +
       `spawn(process.execPath,[${JSON.stringify(NODE_SERVER_SCRIPT)}],` +
-      `{detached:true,stdio:['ignore','ignore','ignore'],env:Object.assign({},process.env,` +
+      `{detached:true,windowsHide:true,stdio:['ignore','ignore','ignore'],env:Object.assign({},process.env,` +
       `${extraEnvStr})}).unref()`;
     const launcher = Bun.spawnSync(['node', '-e', launcherCode], {
       stdout: 'pipe',
       stderr: 'pipe',
       timeout: 5000,
+      windowsHide: true,
     });
     const launcherExit = (launcher as any).exitCode ?? (launcher as any).status ?? 0;
     if (launcherExit !== 0) {
