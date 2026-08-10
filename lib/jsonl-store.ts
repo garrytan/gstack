@@ -73,16 +73,25 @@ export function appendJsonl(path: string, obj: unknown): void {
  * corrupt line, a non-JSON line) rather than throwing. A broken line never takes
  * down the whole read. Missing file → empty array. Unknown fields are preserved
  * (forward-compatible: a schema bump on the writer doesn't break older readers).
+ *
+ * Tolerance stops at the file boundary. A file that exists but can't be READ
+ * (EACCES, EISDIR, EIO) is not "no records" — returning `[]` there made a
+ * permission problem look like an empty store, so callers reported "no
+ * decisions/learnings" while the data sat on disk. Those errors propagate;
+ * ENOENT (raced deletion) still yields an empty array. Malformed lines are
+ * still skipped, with one stderr note naming the file so corruption is visible.
  */
 export function readJsonl<T = unknown>(path: string): T[] {
   if (!existsSync(path)) return [];
   let raw: string;
   try {
     raw = readFileSync(path, "utf-8");
-  } catch {
-    return [];
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException)?.code === "ENOENT") return [];
+    throw err;
   }
   const out: T[] = [];
+  let skipped = 0;
   for (const line of raw.split("\n")) {
     const trimmed = line.trim();
     if (!trimmed) continue;
@@ -90,7 +99,11 @@ export function readJsonl<T = unknown>(path: string): T[] {
       out.push(JSON.parse(trimmed) as T);
     } catch {
       // Malformed line (partial tail / corruption) — skip, keep reading.
+      skipped++;
     }
+  }
+  if (skipped > 0) {
+    process.stderr.write(`[jsonl-store] skipped ${skipped} unparseable line(s) in ${path}\n`);
   }
   return out;
 }

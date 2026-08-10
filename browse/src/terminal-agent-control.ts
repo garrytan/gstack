@@ -108,9 +108,13 @@ export function readAgentRecord(stateDir: string): AgentRecord | null {
   }
 }
 
-/** Atomic write. Caller must ensure stateDir exists; agent does this at boot. */
+/**
+ * Atomic write. Creates stateDir if missing; a mkdir failure propagates rather
+ * than being swallowed here, because the writeSecureFile below would then fail
+ * with an ENOENT that hides the real cause (bad perms on the parent dir).
+ */
 export function writeAgentRecord(stateDir: string, record: AgentRecord): void {
-  try { mkdirSecure(stateDir); } catch {}
+  mkdirSecure(stateDir);
   const target = agentRecordPath(stateDir);
   const tmp = `${target}.tmp-${process.pid}`;
   writeSecureFile(tmp, JSON.stringify(record));

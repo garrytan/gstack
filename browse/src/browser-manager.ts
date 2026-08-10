@@ -23,6 +23,7 @@ import { validateNavigationUrl } from './url-validation';
 import { TabSession, type RefEntry } from './tab-session';
 import { resolveChromiumProfile, cleanSingletonLocks } from './config';
 import { withCdpSession } from './cdp-bridge';
+import { errText } from './error-handling';
 import type { MemorySnapshot, MemoryStructureStats, MemoryTabSnapshot, MemoryProcess } from './memory-snapshot';
 
 /**
@@ -862,7 +863,13 @@ export class BrowserManager {
             if (!(err instanceof TypeError)) throw err;
           }
         }
-      } catch {}
+      } catch (err: any) {
+        // page.url() throws once a tab is closed or its target is gone — skip
+        // that tab and keep scanning. A bare catch here also swallowed the
+        // selective rethrows above, so real bugs vanished; rethrow those.
+        const msg = errText(err);
+        if (!msg.includes('closed') && !msg.includes('Target') && !msg.includes('Execution context')) throw err;
+      }
     }
     // Fall back to fuzzy match
     if (fuzzyId !== null) {
@@ -1277,7 +1284,12 @@ export class BrowserManager {
           localStorage: { ...localStorage },
           sessionStorage: { ...sessionStorage },
         }));
-      } catch {}
+      } catch (err: any) {
+        // Storage is dropped for this tab, so a later restore silently logs the
+        // user out of it. Closed/navigating pages are expected; anything else
+        // (a storage-access denial on the origin) is worth seeing.
+        console.warn(`[browse] Could not capture storage for tab ${id} (${url}): ${errText(err)}`);
+      }
 
       // Capture load-html content so a later context recreation (viewport --scale)
       // can replay it via setTabContent. Never persisted to disk.
@@ -1371,7 +1383,9 @@ export class BrowserManager {
               }
             }
           }, saved.storage);
-        } catch {}
+        } catch (err: any) {
+          console.warn(`[browse] Failed to restore storage for tab ${id}: ${errText(err)}`);
+        }
       }
 
       if (saved.isActive) activeId = id;
