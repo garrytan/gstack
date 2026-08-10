@@ -196,16 +196,18 @@ function runBrowse(args: string[]): string {
 }
 
 /**
- * Write a payload to a tmp file and return the path. Used for any payload
- * >4KB to avoid Windows argv limits (Codex round 2 #3).
+ * Temp dir for any file handed to browse (payloads, rendered HTML, PDF output).
  *
  * Path must be under the browse safe-dirs allowlist (/tmp or cwd on
  * non-Windows; os.tmpdir on Windows).  v1.6.0.0 tightened --from-file
  * validation to close a CLI/API parity gap (PR #1103), so os.tmpdir()
  * on macOS (/var/folders/...) now fails validateReadPath.  Use the same
  * TEMP_DIR convention as browse/src/platform.ts.
+ *
+ * Exported because orchestrator.ts and setup.ts write files that browse must
+ * read back; os.tmpdir() there trips the same validateReadPath rejection.
  */
-const PAYLOAD_TMP_DIR = process.platform === "win32" ? os.tmpdir() : "/tmp";
+export const PAYLOAD_TMP_DIR = process.platform === "win32" ? os.tmpdir() : "/tmp";
 
 function writePayloadFile(payload: Record<string, unknown>): string {
   const hash = crypto.createHash("sha256")

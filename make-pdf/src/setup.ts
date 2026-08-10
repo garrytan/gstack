@@ -10,7 +10,6 @@
  *   6. Print a 3-command cheatsheet
  */
 
-import * as os from "node:os";
 import * as path from "node:path";
 import * as fs from "node:fs";
 
@@ -77,8 +76,8 @@ export async function runSetup(): Promise<void> {
     "The second paragraph contains curly quotes (\"hello\"), an em dash -- like this, and an ellipsis... all of which should render correctly.",
     "",
   ].join("\n");
-  const fixturePath = path.join(os.tmpdir(), `make-pdf-smoke-${process.pid}.md`);
-  const outPath = path.join(os.tmpdir(), `make-pdf-smoke-${process.pid}.pdf`);
+  const fixturePath = path.join(browseClient.PAYLOAD_TMP_DIR, `make-pdf-smoke-${process.pid}.md`);
+  const outPath = path.join(browseClient.PAYLOAD_TMP_DIR, `make-pdf-smoke-${process.pid}.pdf`);
   fs.writeFileSync(fixturePath, fixture, "utf8");
 
   try {
