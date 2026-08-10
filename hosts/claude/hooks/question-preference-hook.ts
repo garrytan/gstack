@@ -42,60 +42,21 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
-import { spawnSync } from 'child_process';
 import { isConductor } from '../../../lib/is-conductor';
 import { classifyQuestion } from '../../../scripts/one-way-doors';
+import {
+  MARKER_RE,
+  extractRecommended,
+  isAskUserQuestionTool,
+  makeHookErrorLogger,
+  optionLabels,
+  readHookStdin,
+  repoRoot,
+  spawnQuestionLog,
+  stateRoot,
+} from './hook-common';
 
-interface HookStdin {
-  session_id?: string;
-  hook_event_name?: string;
-  tool_name?: string;
-  tool_use_id?: string;
-  tool_input?: {
-    questions?: Array<{
-      question?: string;
-      options?: Array<string | { label?: string; description?: string }>;
-      multiSelect?: boolean;
-    }>;
-  };
-  cwd?: string;
-}
-
-const MARKER_RE = /<gstack-qid:([a-z0-9-]{1,64})>/i;
-const RECOMMENDED_LABEL_RE = /\(recommended\)\s*$/i;
-
-function stateRoot(): string {
-  return (
-    process.env.GSTACK_STATE_ROOT ||
-    process.env.GSTACK_HOME ||
-    path.join(os.homedir(), '.gstack')
-  );
-}
-
-function logHookError(msg: string): void {
-  try {
-    const sr = stateRoot();
-    fs.mkdirSync(sr, { recursive: true });
-    fs.appendFileSync(
-      path.join(sr, 'hook-errors.log'),
-      `${new Date().toISOString()} question-preference-hook: ${msg}\n`,
-    );
-  } catch {
-    // last-resort swallow
-  }
-}
-
-function readStdin(): Promise<string> {
-  return new Promise((resolve) => {
-    let buf = '';
-    process.stdin.setEncoding('utf-8');
-    process.stdin.on('data', (chunk) => (buf += chunk));
-    process.stdin.on('end', () => resolve(buf));
-    process.stdin.on('error', () => resolve(buf));
-    setTimeout(() => resolve(buf), 2000);
-  });
-}
+const logHookError = makeHookErrorLogger('question-preference-hook');
 
 function passThrough(additionalContext?: string): void {
   // Abstain = exit 0 with EMPTY stdout (#2035, #2006). Never emit a
@@ -240,9 +201,7 @@ function loadRegistry(): Record<string, RegistryEntry> {
   registryCache = {};
   try {
     // Hook lives at hosts/claude/hooks/; registry at scripts/question-registry.ts
-    const here = path.dirname(new URL(import.meta.url).pathname);
-    const repoRoot = path.resolve(here, '..', '..', '..');
-    const regPath = path.join(repoRoot, 'scripts', 'question-registry.ts');
+    const regPath = path.join(repoRoot(), 'scripts', 'question-registry.ts');
     if (!fs.existsSync(regPath)) return registryCache;
     const src = fs.readFileSync(regPath, 'utf-8');
     // Cheap regex extraction so the hook doesn't need to import the TS file
@@ -271,31 +230,6 @@ function loadRegistry(): Record<string, RegistryEntry> {
     logHookError(`registry load failed: ${(e as Error).message}`);
   }
   return registryCache;
-}
-
-function optionLabels(opts: Array<string | { label?: string; description?: string }>): string[] {
-  return opts.map((o) => (typeof o === 'string' ? o : o.label || o.description || ''));
-}
-
-function extractRecommended(
-  questionText: string,
-  opts: string[],
-): { recommended: string | undefined; ambiguous: boolean } {
-  const labelMatches = opts.filter((o) => RECOMMENDED_LABEL_RE.test(o));
-  if (labelMatches.length === 1) {
-    return { recommended: labelMatches[0].replace(RECOMMENDED_LABEL_RE, '').trim(), ambiguous: false };
-  }
-  if (labelMatches.length > 1) return { recommended: undefined, ambiguous: true };
-
-  const m = questionText.match(/Recommendation:\s*([^\n]+)/i);
-  if (!m) return { recommended: undefined, ambiguous: false };
-  const recPhrase = m[1].trim();
-  const prefixMatches = opts.filter((o) =>
-    o.toLowerCase().startsWith(recPhrase.toLowerCase().slice(0, 12)),
-  );
-  if (prefixMatches.length === 1) return { recommended: prefixMatches[0], ambiguous: false };
-  if (prefixMatches.length > 1) return { recommended: undefined, ambiguous: true };
-  return { recommended: undefined, ambiguous: false };
 }
 
 function slugFromCwd(cwd: string | undefined): string {
@@ -333,11 +267,8 @@ function logAutoDecided(
   toolUseId: string | undefined,
   cwd: string | undefined,
 ): void {
-  try {
-    const here = path.dirname(new URL(import.meta.url).pathname);
-    const repoRoot = path.resolve(here, '..', '..', '..');
-    const bin = path.join(repoRoot, 'bin', 'gstack-question-log');
-    const payload: Record<string, unknown> = {
+  spawnQuestionLog(
+    {
       skill: 'unknown',
       question_id: questionId,
       question_summary: questionSummary.slice(0, 200),
@@ -347,40 +278,20 @@ function logAutoDecided(
       source: 'auto-decided',
       session_id: sessionId?.slice(0, 64),
       tool_use_id: toolUseId?.slice(0, 128),
-    };
-    spawnSync(bin, [JSON.stringify(payload)], {
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-      timeout: 3000,
-      // cwd of the originating tool call so gstack-slug resolves to the
-      // project the user is actually in, not the hook script's location.
-      cwd: cwd && fs.existsSync(cwd) ? cwd : undefined,
-    });
-  } catch (e) {
-    logHookError(`logAutoDecided failed: ${(e as Error).message}`);
-  }
+    },
+    cwd,
+    logHookError,
+  );
 }
 
 async function main(): Promise<void> {
-  const raw = await readStdin();
-  if (!raw.trim()) {
-    passThrough();
-    return;
-  }
-  let stdin: HookStdin;
-  try {
-    stdin = JSON.parse(raw);
-  } catch (e) {
-    logHookError(`stdin parse failed: ${(e as Error).message}`);
+  const stdin = await readHookStdin(logHookError);
+  if (!stdin) {
     passThrough();
     return;
   }
 
-  const toolName = stdin.tool_name || '';
-  if (
-    toolName !== 'AskUserQuestion' &&
-    !toolName.match(/^mcp__.+__AskUserQuestion$/)
-  ) {
+  if (!isAskUserQuestionTool(stdin.tool_name)) {
     passThrough();
     return;
   }

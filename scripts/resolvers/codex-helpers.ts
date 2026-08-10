@@ -61,12 +61,18 @@ policy:
 `;
 }
 
-/** Compute skill name for external hosts (Codex, Factory, etc.) */
-export function externalSkillName(skillDir: string): string {
+/**
+ * Compute skill name for external hosts (Codex, Factory, etc.).
+ * `frontmatterName` covers directory/invocation name divergence (e.g. the
+ * run-tests/ directory whose frontmatter declares `name: test`).
+ */
+export function externalSkillName(skillDir: string, frontmatterName?: string): string {
+  // Root skill (skillDir === '' or '.') always maps to 'gstack' regardless of frontmatter
   if (skillDir === '.' || skillDir === '') return 'gstack';
+  const baseName = frontmatterName && frontmatterName !== skillDir ? frontmatterName : skillDir;
   // Don't double-prefix: gstack-upgrade → gstack-upgrade (not gstack-gstack-upgrade)
-  if (skillDir.startsWith('gstack-')) return skillDir;
-  return `gstack-${skillDir}`;
+  if (baseName.startsWith('gstack-')) return baseName;
+  return `gstack-${baseName}`;
 }
 
 /**

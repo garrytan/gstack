@@ -33,26 +33,15 @@
  * See docs/spikes/claude-code-hook-mutation.md for the protocol contract.
  */
 import * as crypto from 'crypto';
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
-import { spawnSync } from 'child_process';
-
-interface HookStdin {
-  session_id?: string;
-  hook_event_name?: string;
-  tool_name?: string;
-  tool_use_id?: string;
-  tool_input?: {
-    questions?: Array<{
-      question?: string;
-      options?: Array<string | { label?: string; description?: string }>;
-      multiSelect?: boolean;
-    }>;
-  };
-  tool_response?: unknown;
-  cwd?: string;
-}
+import {
+  MARKER_RE,
+  extractRecommended,
+  isAskUserQuestionTool,
+  makeHookErrorLogger,
+  optionLabels,
+  readHookStdin,
+  spawnQuestionLog,
+} from './hook-common';
 
 interface ExtractedQuestion {
   question_id: string;
@@ -65,36 +54,7 @@ interface ExtractedQuestion {
   door_type?: string;
 }
 
-const MARKER_RE = /<gstack-qid:([a-z0-9-]{1,64})>/i;
-const RECOMMENDED_LABEL_RE = /\(recommended\)\s*$/i;
-
-function logHookError(msg: string): void {
-  try {
-    const stateRoot =
-      process.env.GSTACK_STATE_ROOT ||
-      process.env.GSTACK_HOME ||
-      path.join(os.homedir(), '.gstack');
-    fs.mkdirSync(stateRoot, { recursive: true });
-    fs.appendFileSync(
-      path.join(stateRoot, 'hook-errors.log'),
-      `${new Date().toISOString()} question-log-hook: ${msg}\n`,
-    );
-  } catch {
-    // Last-resort: swallow. Hook must not block.
-  }
-}
-
-function readStdin(): Promise<string> {
-  return new Promise((resolve) => {
-    let buf = '';
-    process.stdin.setEncoding('utf-8');
-    process.stdin.on('data', (chunk) => (buf += chunk));
-    process.stdin.on('end', () => resolve(buf));
-    process.stdin.on('error', () => resolve(buf));
-    // Hard cutoff so we don't hang the user's session waiting for stdin.
-    setTimeout(() => resolve(buf), 2000);
-  });
-}
+const logHookError = makeHookErrorLogger('question-log-hook');
 
 function hashQuestionId(skill: string, question: string, options: string[]): string {
   const sorted = [...options].sort().join('|');
@@ -129,26 +89,6 @@ function extractQuestionId(
     marker_present: false,
     stripped_question: questionText,
   };
-}
-
-function optionLabels(opts: Array<string | { label?: string; description?: string }>): string[] {
-  return opts.map((o) => (typeof o === 'string' ? o : o.label || o.description || ''));
-}
-
-/**
- * Parse "(recommended)" label-first per D2; fall back to "Recommendation: X"
- * prose match; refuse (return undefined) if ambiguous.
- */
-function extractRecommended(questionText: string, opts: string[]): string | undefined {
-  const labelMatches = opts.filter((o) => RECOMMENDED_LABEL_RE.test(o));
-  if (labelMatches.length === 1) return labelMatches[0].replace(RECOMMENDED_LABEL_RE, '').trim();
-  if (labelMatches.length > 1) return undefined; // ambiguous
-
-  const m = questionText.match(/Recommendation:\s*([^\n]+)/i);
-  if (!m) return undefined;
-  const recPhrase = m[1].trim();
-  const matchByPrefix = opts.find((o) => o.toLowerCase().startsWith(recPhrase.toLowerCase().slice(0, 12)));
-  return matchByPrefix;
 }
 
 /**
@@ -204,43 +144,13 @@ function detectSkill(cwd: string | undefined): string {
   return 'unknown';
 }
 
-function spawnLog(payload: Record<string, unknown>, cwd?: string): void {
-  // Locate the bin relative to this script's directory.
-  const here = path.dirname(new URL(import.meta.url).pathname);
-  // hosts/claude/hooks/ -> ../../../bin/
-  const repoRoot = path.resolve(here, '..', '..', '..');
-  const bin = path.join(repoRoot, 'bin', 'gstack-question-log');
-  const res = spawnSync(bin, [JSON.stringify(payload)], {
-    encoding: 'utf-8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-    timeout: 3000,
-    // Run from the originating tool call's cwd so gstack-slug resolves to
-    // the project the user is actually in, not the hook script's location.
-    cwd: cwd && fs.existsSync(cwd) ? cwd : undefined,
-  });
-  if (res.status !== 0) {
-    logHookError(`gstack-question-log exited ${res.status}: ${res.stderr || res.stdout}`);
-  }
-}
-
 async function main(): Promise<void> {
-  const raw = await readStdin();
-  if (!raw.trim()) {
-    process.exit(0);
-  }
-  let stdin: HookStdin;
-  try {
-    stdin = JSON.parse(raw);
-  } catch (e) {
-    logHookError(`stdin parse failed: ${(e as Error).message}`);
+  const stdin = await readHookStdin(logHookError);
+  if (!stdin) {
     process.exit(0);
   }
 
-  const toolName = stdin.tool_name || '';
-  if (
-    toolName !== 'AskUserQuestion' &&
-    !toolName.match(/^mcp__.+__AskUserQuestion$/)
-  ) {
+  if (!isAskUserQuestionTool(stdin.tool_name)) {
     // Matcher should have filtered this out; defensive no-op.
     process.exit(0);
   }
@@ -260,7 +170,7 @@ async function main(): Promise<void> {
 
     const opts = optionLabels(q.options || []);
     const { id, stripped_question } = extractQuestionId(skill, qText, opts);
-    const recommended = extractRecommended(stripped_question, opts);
+    const { recommended } = extractRecommended(stripped_question, opts);
     const summary = stripped_question.slice(0, 200);
     const choice = choices[i] || { choice: '__unknown__' };
 
@@ -277,7 +187,7 @@ async function main(): Promise<void> {
     if (recommended) payload.recommended = recommended.slice(0, 64);
     if (choice.free_text) payload.free_text = String(choice.free_text);
 
-    spawnLog(payload, stdin.cwd);
+    spawnQuestionLog(payload, stdin.cwd, logHookError);
   }
 
   process.exit(0);

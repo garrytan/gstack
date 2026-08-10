@@ -9,6 +9,16 @@ import path from "path";
 import { requireApiKey } from "./auth";
 import { parseBrief } from "./brief";
 import { normalizeIntFlag } from "./flag-utils";
+import {
+  DEFAULT_IMAGE_QUALITY,
+  DEFAULT_IMAGE_SIZE,
+  IMAGE_TIMEOUT_MS,
+  RESPONSES_URL,
+  apiErrorMessage,
+  authHeaders,
+  extractGeneratedImage,
+  imageGenerationTool,
+} from "./openai";
 
 export interface VariantsOptions {
   brief?: string;
@@ -64,19 +74,16 @@ export async function generateVariant(
     skipLeadingDelay = false;
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 240_000);
+    const timeout = setTimeout(() => controller.abort(), IMAGE_TIMEOUT_MS);
 
     try {
-      const response = await fetchFn("https://api.openai.com/v1/responses", {
+      const response = await fetchFn(RESPONSES_URL, {
         method: "POST",
-        headers: {
-          "Authorization": `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
+        headers: authHeaders(apiKey),
         body: JSON.stringify({
           model: "gpt-4o",
           input: prompt,
-          tools: [{ type: "image_generation", model: "gpt-image-2", size, quality }],
+          tools: [imageGenerationTool(size, quality)],
         }),
         signal: controller.signal,
       });
@@ -113,20 +120,17 @@ export async function generateVariant(
 
       if (!response.ok) {
         const error = await response.text();
-        if (response.status === 403 && error.includes("organization must be verified")) {
-          return { path: outputPath, success: false, error: "OpenAI organization verification required. Go to https://platform.openai.com/settings/organization to verify." };
-        }
-        return { path: outputPath, success: false, error: `API error (${response.status}): ${error.slice(0, 200)}` };
+        return { path: outputPath, success: false, error: apiErrorMessage(response.status, error) };
       }
 
-      const data = await response.json() as any;
-      const imageItem = data.output?.find((item: any) => item.type === "image_generation_call");
-
-      if (!imageItem?.result) {
-        return { path: outputPath, success: false, error: "No image data in response" };
+      let imageData: string;
+      try {
+        ({ imageData } = extractGeneratedImage(await response.json()));
+      } catch (err: any) {
+        return { path: outputPath, success: false, error: err.message };
       }
 
-      fs.writeFileSync(outputPath, Buffer.from(imageItem.result, "base64"));
+      fs.writeFileSync(outputPath, Buffer.from(imageData, "base64"));
       return { path: outputPath, success: true };
     } catch (err: any) {
       clearTimeout(timeout);
@@ -149,7 +153,7 @@ export async function variants(options: VariantsOptions): Promise<void> {
     ? parseBrief(options.briefFile, true)
     : parseBrief(options.brief!, false);
 
-  const quality = options.quality || "high";
+  const quality = options.quality || DEFAULT_IMAGE_QUALITY;
 
   fs.mkdirSync(options.outputDir, { recursive: true });
 
@@ -168,7 +172,7 @@ export async function variants(options: VariantsOptions): Promise<void> {
     min: 1,
     max: STYLE_VARIATIONS.length,
   });
-  const size = options.size || "1536x1024";
+  const size = options.size || DEFAULT_IMAGE_SIZE;
 
   console.error(`Generating ${count} variants...`);
   const startTime = Date.now();
@@ -228,7 +232,7 @@ export async function variants(options: VariantsOptions): Promise<void> {
 }
 
 const VIEWPORT_CONFIGS: Record<string, { size: string; suffix: string; desc: string }> = {
-  desktop: { size: "1536x1024", suffix: "desktop", desc: "Desktop (1536x1024)" },
+  desktop: { size: DEFAULT_IMAGE_SIZE, suffix: "desktop", desc: "Desktop (1536x1024)" },
   tablet: { size: "1024x1024", suffix: "tablet", desc: "Tablet (1024x1024)" },
   mobile: { size: "1024x1536", suffix: "mobile", desc: "Mobile (1024x1536, portrait)" },
 };
