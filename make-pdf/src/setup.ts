@@ -3,7 +3,7 @@
  *
  * Flow (per the CEO plan CLI UX spec):
  *   1. Verify browse binary exists and responds
- *   2. Verify Chromium launches via $B goto about:blank
+ *   2. Verify Chromium launches by opening a blank file: page
  *   3. Verify pdftotext is installed (warn, don't fail)
  *   4. Generate a smoke-test PDF from an inline 2-paragraph fixture
  *   5. Open it
@@ -31,11 +31,16 @@ export async function runSetup(): Promise<void> {
     process.exit(4);
   }
 
-  // 2. Chromium smoke (navigate a dedicated tab to about:blank)
+  // 2. Chromium smoke (navigate a dedicated tab to a throwaway blank page)
   process.stderr.write("  [2/5] Launching Chromium...");
   let chromiumTab: number | null = null;
+  // browse only permits http:, https: and file: URLs, and confines file: paths
+  // to the safe-dirs allowlist, so "about:blank" is rejected on both counts.
+  // A blank file: page under PAYLOAD_TMP_DIR is the network-free equivalent.
+  const smokePage = path.join(browseClient.PAYLOAD_TMP_DIR, `make-pdf-smoke-${process.pid}.html`);
   try {
-    chromiumTab = browseClient.newtab("about:blank");
+    fs.writeFileSync(smokePage, "<!doctype html><title>make-pdf smoke</title>");
+    chromiumTab = browseClient.newtab(`file://${smokePage}`);
     process.stderr.write(` OK (tab ${chromiumTab})\n`);
   } catch (err: any) {
     process.stderr.write(" FAIL\n");
@@ -47,6 +52,7 @@ export async function runSetup(): Promise<void> {
     if (chromiumTab !== null) {
       try { browseClient.closetab(chromiumTab); } catch { /* ignore */ }
     }
+    try { fs.unlinkSync(smokePage); } catch { /* best-effort cleanup */ }
   }
 
   // 3. pdftotext (optional — CI gate only)
