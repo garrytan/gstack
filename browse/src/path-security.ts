@@ -98,6 +98,38 @@ export function validateReadPath(filePath: string): void {
   }
 }
 
+/**
+ * Validate a file path for writing when the safe directories must be resolved
+ * at call time rather than at import time (snapshot's annotated-screenshot and
+ * heatmap outputs, where cwd may have changed since module load).
+ */
+export function validatePathAgainstLiveSafeDirs(filePath: string): void {
+  const absolute = path.resolve(filePath);
+  const safeDirs = [TEMP_DIR, process.cwd()].map((d) => {
+    try { return fs.realpathSync(d); } catch (err: any) { if (err?.code !== 'ENOENT') throw err; return d; }
+  });
+
+  let realPath: string;
+  try {
+    realPath = fs.realpathSync(absolute);
+  } catch (err: any) {
+    if (err.code !== 'ENOENT') {
+      throw new Error(`Cannot resolve real path: ${filePath} (${err.code})`);
+    }
+    // Target doesn't exist yet — check the parent directory instead.
+    try {
+      realPath = path.join(fs.realpathSync(path.dirname(absolute)), path.basename(absolute));
+    } catch (err2: any) {
+      if (err2?.code !== 'ENOENT') throw err2;
+      realPath = absolute;
+    }
+  }
+
+  if (!safeDirs.some((dir) => isPathWithin(realPath, dir))) {
+    throw new Error(`Path must be within: ${safeDirs.join(', ')}`);
+  }
+}
+
 /** Validate a file path for remote serving (GET /file). TEMP_DIR only, not cwd. */
 export function validateTempPath(filePath: string): void {
   const resolved = path.resolve(filePath);

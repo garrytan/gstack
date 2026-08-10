@@ -20,7 +20,8 @@
 import type { Page, Frame, Locator } from 'playwright';
 import type { TabSession, RefEntry } from './tab-session';
 import * as Diff from 'diff';
-import { TEMP_DIR, isPathWithin } from './platform';
+import { TEMP_DIR } from './platform';
+import { validatePathAgainstLiveSafeDirs } from './path-security';
 import { escapeEnvelopeSentinels } from './content-security';
 import { stripLoneSurrogates } from './sanitize';
 import { guardScreenshotPath } from './screenshot-size-guard';
@@ -356,34 +357,8 @@ export async function handleSnapshot(
   // ─── Annotated screenshot (-a) ────────────────────────────
   if (opts.annotate) {
     const screenshotPath = opts.outputPath || `${TEMP_DIR}/browse-annotated.png`;
-    // Validate output path — resolve symlinks to prevent symlink traversal attacks
-    {
-      const nodePath = require('path') as typeof import('path');
-      const nodeFs = require('fs') as typeof import('fs');
-      const absolute = nodePath.resolve(screenshotPath);
-      const safeDirs = [TEMP_DIR, process.cwd()].map((d: string) => {
-        try { return nodeFs.realpathSync(d); } catch (err: any) { if (err?.code !== 'ENOENT') throw err; return d; }
-      });
-      let realPath: string;
-      try {
-        realPath = nodeFs.realpathSync(absolute);
-      } catch (err: any) {
-        if (err.code === 'ENOENT') {
-          try {
-            const dir = nodeFs.realpathSync(nodePath.dirname(absolute));
-            realPath = nodePath.join(dir, nodePath.basename(absolute));
-          } catch (err2: any) {
-            if (err2?.code !== 'ENOENT') throw err2;
-            realPath = absolute;
-          }
-        } else {
-          throw new Error(`Cannot resolve real path: ${screenshotPath} (${err.code})`);
-        }
-      }
-      if (!safeDirs.some((dir: string) => isPathWithin(realPath, dir))) {
-        throw new Error(`Path must be within: ${safeDirs.join(', ')}`);
-      }
-    }
+    // Resolves symlinks to prevent symlink traversal attacks.
+    validatePathAgainstLiveSafeDirs(screenshotPath);
     try {
       // Inject overlay divs at each ref's bounding box
       const boxes: Array<{ ref: string; box: { x: number; y: number; width: number; height: number } }> = [];
@@ -444,34 +419,7 @@ export async function handleSnapshot(
   // ─── Heatmap mode (-H) ──────────────────────────────────────
   if (opts.heatmap) {
     const heatmapPath = opts.outputPath || `${TEMP_DIR}/browse-heatmap.png`;
-    // Validate output path
-    {
-      const nodePath = require('path') as typeof import('path');
-      const nodeFs = require('fs') as typeof import('fs');
-      const absolute = nodePath.resolve(heatmapPath);
-      const safeDirs = [TEMP_DIR, process.cwd()].map((d: string) => {
-        try { return nodeFs.realpathSync(d); } catch (err: any) { if (err?.code !== 'ENOENT') throw err; return d; }
-      });
-      let realPath: string;
-      try {
-        realPath = nodeFs.realpathSync(absolute);
-      } catch (err: any) {
-        if (err.code === 'ENOENT') {
-          try {
-            const dir = nodeFs.realpathSync(nodePath.dirname(absolute));
-            realPath = nodePath.join(dir, nodePath.basename(absolute));
-          } catch (err2: any) {
-            if (err2?.code !== 'ENOENT') throw err2;
-            realPath = absolute;
-          }
-        } else {
-          throw new Error(`Cannot resolve real path: ${heatmapPath} (${err.code})`);
-        }
-      }
-      if (!safeDirs.some((dir: string) => isPathWithin(realPath, dir))) {
-        throw new Error(`Path must be within: ${safeDirs.join(', ')}`);
-      }
-    }
+    validatePathAgainstLiveSafeDirs(heatmapPath);
 
     // Parse and validate color map
     const VALID_COLORS = new Set(['green', 'yellow', 'red', 'blue', 'orange', 'gray']);

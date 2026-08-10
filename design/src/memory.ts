@@ -14,6 +14,7 @@
 import fs from "fs";
 import path from "path";
 import { requireApiKey } from "./auth";
+import { visionRequest } from "./openai";
 
 export interface ExtractedDesign {
   colors: { name: string; hex: string; usage: string }[];
@@ -30,28 +31,12 @@ export async function extractDesignLanguage(imagePath: string): Promise<Extracte
   const apiKey = requireApiKey();
   const imageData = fs.readFileSync(imagePath).toString("base64");
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 60_000);
-
   try {
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "gpt-4o",
-        messages: [{
-          role: "user",
-          content: [
-            {
-              type: "image_url",
-              image_url: { url: `data:image/png;base64,${imageData}` },
-            },
-            {
-              type: "text",
-              text: `Analyze this UI mockup and extract the design language. Return valid JSON only, no markdown:
+    const result = await visionRequest(apiKey, {
+      imageBase64: imageData,
+      maxTokens: 800,
+      json: true,
+      text: `Analyze this UI mockup and extract the design language. Return valid JSON only, no markdown:
 
 {
   "colors": [{"name": "primary", "hex": "#...", "usage": "buttons, links"}, ...],
@@ -62,28 +47,17 @@ export async function extractDesignLanguage(imagePath: string): Promise<Extracte
 }
 
 Extract real values from what you see. Be specific about hex colors and font sizes.`,
-            },
-          ],
-        }],
-        max_tokens: 800,
-        response_format: { type: "json_object" },
-      }),
-      signal: controller.signal,
     });
 
-    if (!response.ok) {
-      console.error(`Vision extraction failed (${response.status})`);
+    if (!result.ok) {
+      console.error(`Vision extraction failed (${result.status})`);
       return defaultDesign();
     }
 
-    const data = await response.json() as any;
-    const content = data.choices?.[0]?.message?.content?.trim() || "";
-    return JSON.parse(content) as ExtractedDesign;
+    return JSON.parse(result.content) as ExtractedDesign;
   } catch (err: any) {
     console.error(`Design extraction error: ${err.message}`);
     return defaultDesign();
-  } finally {
-    clearTimeout(timeout);
   }
 }
 

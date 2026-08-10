@@ -29,47 +29,15 @@
  *   - Errors land in ~/.gstack/hook-errors.log.
  */
 import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
 import { spawnSync } from 'child_process';
+import {
+  gstackBin,
+  isAskUserQuestionTool,
+  makeHookErrorLogger,
+  readHookStdin,
+} from './hook-common';
 
-interface HookStdin {
-  tool_name?: string;
-  tool_response?: unknown;
-  cwd?: string;
-}
-
-function stateRoot(): string {
-  return (
-    process.env.GSTACK_STATE_ROOT ||
-    process.env.GSTACK_HOME ||
-    path.join(os.homedir(), '.gstack')
-  );
-}
-
-function logHookError(msg: string): void {
-  try {
-    const sr = stateRoot();
-    fs.mkdirSync(sr, { recursive: true });
-    fs.appendFileSync(
-      path.join(sr, 'hook-errors.log'),
-      `${new Date().toISOString()} auq-error-fallback-hook: ${msg}\n`,
-    );
-  } catch {
-    // last-resort swallow
-  }
-}
-
-function readStdin(): Promise<string> {
-  return new Promise((resolve) => {
-    let buf = '';
-    process.stdin.setEncoding('utf-8');
-    process.stdin.on('data', (chunk) => (buf += chunk));
-    process.stdin.on('end', () => resolve(buf));
-    process.stdin.on('error', () => resolve(buf));
-    setTimeout(() => resolve(buf), 2000);
-  });
-}
+const logHookError = makeHookErrorLogger('auq-error-fallback-hook');
 
 /** No-op output — let the tool result stand untouched. */
 function defer(): void {
@@ -126,9 +94,7 @@ export function isErrorResponse(response: unknown): boolean {
  *  echoes). Falls back to 'interactive' (degrade-safe) on any failure. */
 export function sessionKind(cwd?: string): 'spawned' | 'headless' | 'interactive' {
   try {
-    const here = path.dirname(new URL(import.meta.url).pathname);
-    const bin = path.resolve(here, '..', '..', '..', 'bin', 'gstack-session-kind');
-    const res = spawnSync(bin, [], {
+    const res = spawnSync(gstackBin('gstack-session-kind'), [], {
       encoding: 'utf-8',
       timeout: 3000,
       cwd: cwd && fs.existsSync(cwd) ? cwd : undefined,
@@ -171,21 +137,10 @@ export function directiveFor(kind: 'spawned' | 'headless' | 'interactive'): stri
 }
 
 async function main(): Promise<void> {
-  const raw = await readStdin();
-  if (!raw.trim()) return defer();
+  const stdin = await readHookStdin(logHookError);
+  if (!stdin) return defer();
 
-  let stdin: HookStdin;
-  try {
-    stdin = JSON.parse(raw);
-  } catch (e) {
-    logHookError(`stdin parse failed: ${(e as Error).message}`);
-    return defer();
-  }
-
-  const toolName = stdin.tool_name || '';
-  if (toolName !== 'AskUserQuestion' && !/^mcp__.+__AskUserQuestion$/.test(toolName)) {
-    return defer();
-  }
+  if (!isAskUserQuestionTool(stdin.tool_name)) return defer();
 
   if (!isErrorResponse(stdin.tool_response)) return defer();
 
