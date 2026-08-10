@@ -40,7 +40,7 @@ import { detectEngineTier, withErrorContext, canonicalizeRemote } from "../lib/g
 import { ensureSourceRegistered, sourcePageCount, parseSourcesList, cycleCompleted, type CycleStatus } from "../lib/gbrain-sources";
 import { detectAutopilot, decideSourceRemove, decideCodeSync } from "../lib/gbrain-guards";
 import { localEngineStatus, type LocalEngineStatus } from "../lib/gbrain-local-status";
-import { buildGbrainEnv, spawnGbrain, execGbrainJson, NEEDS_SHELL_ON_WINDOWS } from "../lib/gbrain-exec";
+import { buildGbrainEnv, spawnGbrain, execGbrainJson, NEEDS_SHELL_ON_WINDOWS, bashScriptInvocation } from "../lib/gbrain-exec";
 import { checkOwnedStagingDir } from "../lib/staging-guard";
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -1152,18 +1152,31 @@ function runBrainSyncPush(args: CliArgs): StageResult {
     return { name: "brain-sync", ran: false, ok: true, duration_ms: 0, summary: "skipped (gstack-brain-sync not installed)" };
   }
 
-  // #1731: gstack-brain-sync is a bash shebang script; Windows can't spawn it
-  // without a shell, which surfaced as "brain-sync exited undefined".
-  spawnSync(brainSyncPath, ["--discover-new"], {
-    stdio: args.quiet ? ["ignore", "ignore", "ignore"] : ["ignore", "inherit", "inherit"],
-    timeout: 60 * 1000,
-    shell: NEEDS_SHELL_ON_WINDOWS,
-  });
-  const result = spawnSync(brainSyncPath, ["--once"], {
-    stdio: args.quiet ? ["ignore", "ignore", "ignore"] : ["ignore", "inherit", "inherit"],
-    timeout: 60 * 1000,
-    shell: NEEDS_SHELL_ON_WINDOWS,
-  });
+  // gstack-brain-sync is a bash shebang script, so it needs an INTERPRETER, not
+  // a shell. #1731 gave it `shell: NEEDS_SHELL_ON_WINDOWS`, which is right for
+  // the gbrain.cmd shim and useless here: cmd.exe resolves .cmd/.bat via PATHEXT
+  // and rejects an extension-less shebang script outright ("is not recognized as
+  // an internal or external command"), so this stage failed on EVERY Windows run
+  // while looking like a single red line in an otherwise green report. See
+  // bashScriptInvocation.
+  const discover = bashScriptInvocation(brainSyncPath, ["--discover-new"]);
+  const once = bashScriptInvocation(brainSyncPath, ["--once"]);
+  if (!discover || !once) {
+    return {
+      name: "brain-sync",
+      ran: false,
+      ok: true,
+      duration_ms: Date.now() - t0,
+      summary: "skipped (no bash found; set GSTACK_BASH to your Git bash.exe)",
+    };
+  }
+
+  const stdio: "ignore"[] | ("ignore" | "inherit")[] = args.quiet
+    ? ["ignore", "ignore", "ignore"]
+    : ["ignore", "inherit", "inherit"];
+
+  spawnSync(discover.cmd, discover.argv, { stdio, timeout: 60 * 1000, shell: discover.shell });
+  const result = spawnSync(once.cmd, once.argv, { stdio, timeout: 60 * 1000, shell: once.shell });
 
   return {
     name: "brain-sync",

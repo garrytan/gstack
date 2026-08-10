@@ -136,6 +136,66 @@ export function buildGbrainEnv(opts: BuildGbrainEnvOptions = {}): NodeJS.Process
  */
 export const NEEDS_SHELL_ON_WINDOWS = process.platform === "win32";
 
+/** Where Git for Windows puts bash, most-specific first. */
+const WINDOWS_BASH_CANDIDATES = [
+  "C:\\Program Files\\Git\\bin\\bash.exe",
+  "C:\\Program Files\\Git\\usr\\bin\\bash.exe",
+  "C:\\Program Files (x86)\\Git\\bin\\bash.exe",
+];
+
+export interface ScriptInvocation {
+  cmd: string;
+  argv: string[];
+  /** Always false: we resolve the interpreter ourselves rather than via cmd.exe. */
+  shell: false;
+}
+
+/**
+ * How to invoke a **bash shebang script** (`gstack-brain-sync`) on this platform.
+ *
+ * POSIX execs it directly — the shebang does the work. Windows cannot, and
+ * `shell: true` does NOT rescue it: that routes through cmd.exe, which resolves
+ * `.cmd`/`.bat` via PATHEXT but has no concept of a shebang, so an
+ * extension-less bash script comes back as *"is not recognized as an internal
+ * or external command"*. This is why #1731's `shell: NEEDS_SHELL_ON_WINDOWS`
+ * fix genuinely cured the `gbrain.cmd` shim while leaving the brain-sync stage
+ * failing on **every** run on Windows. The two cases look identical and are not:
+ * a `.cmd` shim needs a shell, a shebang script needs an interpreter.
+ *
+ * The consequence was quiet rather than loud. `artifacts_sync_mode` defaults to
+ * pushing curated artifacts to git, so a Windows user's learnings accumulated in
+ * `~/.gstack` and were never committed, while `/sync-gbrain` printed one red
+ * line among four green ones.
+ *
+ * Git for Windows' bash is preferred over a bare `bash` on PATH because
+ * WindowsApps ships a `bash.exe` that is the WSL launcher; if it wins PATH
+ * order it interprets `C:\...` as a Linux path and the script never sees the
+ * repo. `GSTACK_BASH` overrides everything for unusual installs.
+ *
+ * Returns `null` when no bash can be found, so the caller can say so plainly
+ * instead of surfacing a spawn error nobody can act on.
+ */
+export function bashScriptInvocation(
+  scriptPath: string,
+  args: string[],
+  opts: { platform?: string; exists?: (p: string) => boolean; env?: NodeJS.ProcessEnv } = {},
+): ScriptInvocation | null {
+  const platform = opts.platform ?? process.platform;
+  if (platform !== "win32") return { cmd: scriptPath, argv: args, shell: false };
+
+  const exists = opts.exists ?? existsSync;
+  const env = opts.env ?? process.env;
+
+  const override = env.GSTACK_BASH?.trim();
+  const candidates = [...(override ? [override] : []), ...WINDOWS_BASH_CANDIDATES];
+  const bash = candidates.find((p) => exists(p));
+  if (!bash) return null;
+
+  // Forward slashes: bash treats backslashes as escapes, so a Windows path
+  // passed verbatim loses its separators.
+  return { cmd: bash, argv: [scriptPath.replace(/\\/g, "/"), ...args], shell: false };
+}
+
 export interface SpawnGbrainOptions {
   /** Timeout in milliseconds. Defaults to 30s. */
   timeout?: number;
