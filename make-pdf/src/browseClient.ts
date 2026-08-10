@@ -158,6 +158,12 @@ export function resolveBrowseBin(env: NodeJS.ProcessEnv = process.env): string {
 
 function isExecutable(p: string): boolean {
   try {
+    // Directories carry the execute (traverse) bit, so an X_OK check alone
+    // matches them. ./setup creates a skill directory at ~/.claude/skills/browse
+    // (holding a SKILL.md symlink), which the `../browse` sibling candidate
+    // resolves to — so without an isFile() guard we "find" a directory and
+    // every subsequent browse call fails with EACCES.
+    if (!fs.statSync(p).isFile()) return false;
     fs.accessSync(p, fs.constants.X_OK);
     return true;
   } catch {
