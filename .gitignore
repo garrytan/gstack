@@ -21,6 +21,7 @@ bin/gstack-global-discover*
 .cursor/
 .openclaw/
 .hermes/
+.pi/
 .gbrain/
 .gbrain-source
 .context/
