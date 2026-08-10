@@ -264,7 +264,7 @@ case "${1:-}" in
     # endpoint-namespaced keys introduced by the brain-aware planning layer).
     # Endpoint ids are sha8/sha16 hex for remote MCP URLs, or the literal
     # "local" for stdio/PGLite engines (see endpoint_hash).
-    if ! printf '%s' "$KEY" | grep -qE '^[a-zA-Z0-9_]+(@[a-zA-Z0-9]+)?$'; then
+    if ! printf '%s' "$KEY" | LC_ALL=C grep -qE '^[a-zA-Z0-9_]+(@[a-zA-Z0-9]+)?$'; then
       echo "Error: key must contain only alphanumeric characters, underscores, and an optional @<endpoint-id> suffix" >&2
       exit 1
     fi
@@ -280,7 +280,7 @@ case "${1:-}" in
     VALUE="${3:?Usage: gstack-config set <key> <value>}"
     # Validate key (alphanumeric + underscore + optional @<endpoint-id> suffix).
     # Accepts hex hashes and the literal "local" from endpoint_hash.
-    if ! printf '%s' "$KEY" | grep -qE '^[a-zA-Z0-9_]+(@[a-zA-Z0-9]+)?$'; then
+    if ! printf '%s' "$KEY" | LC_ALL=C grep -qE '^[a-zA-Z0-9_]+(@[a-zA-Z0-9]+)?$'; then
       echo "Error: key must contain only alphanumeric characters, underscores, and an optional @<endpoint-id> suffix" >&2
       exit 1
     fi
