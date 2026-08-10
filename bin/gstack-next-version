@@ -19,6 +19,12 @@
 //      committed so all collaborators benefit)
 //   3. "VERSION" at the repo root (default, backward-compatible)
 //
+// The pinned path may be a package.json (any depth) rather than a plain-text VERSION file:
+// a path ending in .json is read as JSON and its .version taken. 3-digit semver is accepted
+// as well as 4-digit, and stays 3-digit through bumping. See lib/version-source.ts for why
+// both mattered — each used to fail closed, which silently disabled the queue-collision
+// check this CLI exists to provide.
+//
 // Exit codes:
 //   0 — emitted JSON successfully (may include "offline":true or "host":"unknown")
 //   2 — invalid arguments
@@ -28,9 +34,18 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-
-type Bump = "major" | "minor" | "patch" | "micro";
-type Version = [number, number, number, number];
+import {
+  parseVersion,
+  versionWidth,
+  fmtVersion,
+  bumpVersion,
+  cmpVersion,
+  bumpWasCoerced,
+  extractVersion,
+  type Bump,
+  type Version,
+  type VersionWidth,
+} from "../lib/version-source";
 
 type ClaimedPR = {
   pr: number;
@@ -66,48 +81,20 @@ type Output = {
 const ACTIVE_SIBLING_MAX_AGE_S = 24 * 60 * 60;
 const GH_API_CONCURRENCY = 10;
 
-function parseVersion(s: string): Version | null {
-  const m = s.trim().match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
-  if (!m) return null;
-  return [Number(m[1]), Number(m[2]), Number(m[3]), Number(m[4])];
-}
-
-function fmtVersion(v: Version): string {
-  return v.join(".");
-}
-
-function bumpVersion(v: Version, level: Bump): Version {
-  switch (level) {
-    case "major":
-      return [v[0] + 1, 0, 0, 0];
-    case "minor":
-      return [v[0], v[1] + 1, 0, 0];
-    case "patch":
-      return [v[0], v[1], v[2] + 1, 0];
-    case "micro":
-      return [v[0], v[1], v[2], v[3] + 1];
-  }
-}
-
-function cmpVersion(a: Version, b: Version): number {
-  for (let i = 0; i < 4; i++) {
-    if (a[i] !== b[i]) return a[i] - b[i];
-  }
-  return 0;
-}
-
 // Collision resolution: bump past the highest claimed within the same level.
 // Semantics: if my bump is MINOR and the queue claims 1.7.0.0, I advance to
 // 1.8.0.0 (still a MINOR relative to main). Preserves ship-time intent.
-function pickNextSlot(base: Version, claimed: Version[], level: Bump): { version: Version; reason: string } {
-  let candidate = bumpVersion(base, level);
+// `width` keeps a 3-digit repo 3-digit (see lib/version-source.ts); it defaults to 4 so
+// existing callers and tests are unaffected.
+function pickNextSlot(base: Version, claimed: Version[], level: Bump, width: VersionWidth = 4): { version: Version; reason: string } {
+  let candidate = bumpVersion(base, level, width);
   const sortedClaimed = [...claimed].sort(cmpVersion);
   const highest = sortedClaimed[sortedClaimed.length - 1];
   if (highest && cmpVersion(highest, base) > 0) {
     // Queue already advanced past base; bump past the highest claim.
-    const bumpedPastHighest = bumpVersion(highest, level);
+    const bumpedPastHighest = bumpVersion(highest, level, width);
     if (cmpVersion(bumpedPastHighest, candidate) > 0) {
-      return { version: bumpedPastHighest, reason: `bumped past claimed ${fmtVersion(highest)}` };
+      return { version: bumpedPastHighest, reason: `bumped past claimed ${fmtVersion(highest, width)}` };
     }
   }
   return { version: candidate, reason: "no collision; clean bump from base" };
@@ -167,7 +154,12 @@ function readBaseVersion(base: string, versionPath: string, warnings: string[]):
     warnings.push(`could not read ${versionPath} at origin/${base}; assuming 0.0.0.0`);
     return "0.0.0.0";
   }
-  return r.stdout.trim();
+  const v = extractVersion(r.stdout, versionPath);
+  if (!v) {
+    warnings.push(`${versionPath} at origin/${base} has no readable version; assuming 0.0.0.0`);
+    return "0.0.0.0";
+  }
+  return v;
 }
 
 async function fetchGithubClaimed(base: string, versionPath: string, excludePR: number | null, warnings: string[]): Promise<{ claimed: ClaimedPR[]; offline: boolean }> {
@@ -233,7 +225,7 @@ async function fetchGithubClaimed(base: string, versionPath: string, excludePR: 
       }
       let versionStr: string;
       try {
-        versionStr = Buffer.from(content.stdout.trim(), "base64").toString("utf8").trim();
+        versionStr = extractVersion(Buffer.from(content.stdout.trim(), "base64").toString("utf8"), versionPath);
       } catch {
         warnings.push(`PR #${pr.number}: VERSION is not valid base64`);
         continue;
@@ -290,7 +282,7 @@ async function fetchGitlabClaimed(base: string, versionPath: string, excludePR: 
     }
     try {
       const j = JSON.parse(content.stdout);
-      const versionStr = Buffer.from(j.content, "base64").toString("utf8").trim();
+      const versionStr = extractVersion(Buffer.from(j.content, "base64").toString("utf8"), versionPath);
       if (!parseVersion(versionStr)) {
         warnings.push(`MR !${mr.iid}: VERSION malformed (${versionStr})`);
         continue;
@@ -349,7 +341,7 @@ function scanSiblings(root: string | null, versionPath: string, claimed: Claimed
     if (!existsSync(versionFile)) continue;
     let version: string;
     try {
-      version = readFileSync(versionFile, "utf8").trim();
+      version = extractVersion(readFileSync(versionFile, "utf8"), versionPath);
       if (!parseVersion(version)) continue;
     } catch {
       continue;
@@ -444,6 +436,12 @@ async function main() {
     console.error(`Error: could not parse base version '${baseVersion}'`);
     process.exit(2);
   }
+  // The repo's own width governs everything downstream: a 3-digit repo must not be handed a
+  // 4-digit slot, or /ship writes a version the repo's tooling can't read back.
+  const width = versionWidth(baseVersion);
+  if (bumpWasCoerced(args.bump, width)) {
+    warnings.push(`--bump micro has no component to move in a ${width}-digit version; treated as patch`);
+  }
 
   const excludePR = args.excludePR ?? autoDetectExcludePR();
   if (excludePR !== null && args.excludePR === null) {
@@ -470,7 +468,7 @@ async function main() {
     .map((c) => parseVersion(c.version))
     .filter((v): v is Version => v !== null);
 
-  const { version: picked, reason } = pickNextSlot(baseParsed, claimedVersions, args.bump);
+  const { version: picked, reason } = pickNextSlot(baseParsed, claimedVersions, args.bump, width);
 
   const workspaceRoot = resolveWorkspaceRoot(args.workspaceRoot);
   const siblings = markActiveSiblings(scanSiblings(workspaceRoot, versionPath, claimed, warnings), baseParsed);
@@ -485,12 +483,12 @@ async function main() {
     .filter((v) => cmpVersion(v, finalVersion) >= 0);
   if (activeAhead.length) {
     const highest = activeAhead.sort(cmpVersion)[activeAhead.length - 1];
-    finalVersion = bumpVersion(highest, args.bump);
-    finalReason = `bumped past active sibling ${fmtVersion(highest)}`;
+    finalVersion = bumpVersion(highest, args.bump, width);
+    finalReason = `bumped past active sibling ${fmtVersion(highest, width)}`;
   }
 
   const out: Output = {
-    version: fmtVersion(finalVersion),
+    version: fmtVersion(finalVersion, width),
     current_version: args.current || baseVersion,
     base_version: baseVersion,
     version_path: versionPath,
@@ -506,8 +504,10 @@ async function main() {
   process.stdout.write(JSON.stringify(out, null, 2) + "\n");
 }
 
-// Pure-function exports for testing
-export { parseVersion, fmtVersion, bumpVersion, cmpVersion, pickNextSlot, markActiveSiblings, resolveVersionPath };
+// Pure-function exports for testing. The version primitives are re-exported from
+// lib/version-source so existing importers of this module keep working unchanged.
+export { parseVersion, fmtVersion, bumpVersion, cmpVersion, versionWidth, extractVersion };
+export { pickNextSlot, markActiveSiblings, resolveVersionPath };
 
 // Only run main() when invoked as a script, not when imported by tests.
 if (import.meta.main) {

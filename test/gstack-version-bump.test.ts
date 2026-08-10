@@ -39,10 +39,17 @@ describe('VERSION_RE', () => {
   test('accepts 4-digit semver', () => {
     expect(VERSION_RE.test('1.2.3.4')).toBe(true);
   });
-  test('rejects 3-digit and garbage', () => {
-    expect(VERSION_RE.test('1.2.3')).toBe(false);
+  test('accepts 3-digit semver too', () => {
+    // A repo whose single source of truth is a package.json holds plain 3-digit semver.
+    // Rejecting it meant /ship could not write a version in such a repo at all.
+    expect(VERSION_RE.test('1.2.3')).toBe(true);
+    expect(VERSION_RE.test('0.99.2')).toBe(true);
+  });
+  test('rejects garbage', () => {
+    expect(VERSION_RE.test('1.2')).toBe(false);
     expect(VERSION_RE.test('v1.2.3.4')).toBe(false);
     expect(VERSION_RE.test('1.2.3.4-rc')).toBe(false);
+    expect(VERSION_RE.test('1.2.3.4.5')).toBe(false);
   });
 });
 
@@ -63,7 +70,7 @@ describe('write (FRESH bump)', () => {
 
   test('rejects a malformed version with exit 2', () => {
     let code = 0;
-    try { execFileSync('bun', [BIN, 'write', '--version', '1.2.3'], { cwd: dir, stdio: 'pipe' }); }
+    try { execFileSync('bun', [BIN, 'write', '--version', '1.2.3.4.5'], { cwd: dir, stdio: 'pipe' }); }
     catch (e: any) { code = e.status; }
     expect(code).toBe(2);
   });
@@ -129,5 +136,74 @@ describe('classify (idempotency over a real git base)', () => {
     expect(parsed.state).toBe('ALREADY_BUMPED');
     expect(parsed.baseVersion).toBe('1.0.0.0');
     expect(parsed.currentVersion).toBe('1.1.0.0');
+  });
+});
+
+/**
+ * A repo whose single source of truth is a package.json at a non-root path, holding plain
+ * 3-digit semver — the shape gstack's native VERSION-file assumption failed closed on.
+ * Before this, classify reported {state: FRESH, baseVersion: "0.0.0.0", pkgExists: false}
+ * no matter what the repo's real version was: it looked for a root VERSION file and a root
+ * package.json, found neither, and reported a pristine repo at version zero.
+ */
+describe('package.json as the version source (monorepo, 3-digit)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vbump-pkgsrc-'));
+  afterAll(() => { try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* noop */ } });
+
+  const pkgRel = 'frontend/package.json';
+  const pkgAbs = path.join(dir, pkgRel);
+  fs.mkdirSync(path.join(dir, 'frontend'), { recursive: true });
+  fs.writeFileSync(pkgAbs, JSON.stringify({ name: 'frontend', version: '0.99.2', private: true, scripts: { dev: 'next dev' } }, null, 2) + '\n');
+  // Pin it the committed way, so this also covers the pin being honoured for the BASE read.
+  fs.mkdirSync(path.join(dir, '.gstack'), { recursive: true });
+  fs.writeFileSync(path.join(dir, '.gstack', 'version-path'), pkgRel + '\n');
+
+  execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: dir });
+  execFileSync('git', ['config', 'user.email', 't@e.com'], { cwd: dir });
+  execFileSync('git', ['config', 'user.name', 't'], { cwd: dir });
+  execFileSync('git', ['add', '-A'], { cwd: dir });
+  execFileSync('git', ['commit', '-qm', 'v0.99.2 base'], { cwd: dir });
+  const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: dir }).toString().trim();
+  fs.mkdirSync(path.join(dir, '.git', 'refs', 'remotes', 'origin'), { recursive: true });
+  fs.writeFileSync(path.join(dir, '.git', 'refs', 'remotes', 'origin', 'main'), head + '\n');
+
+  test('classify reads the real version from the pinned package.json', () => {
+    const out = execFileSync('bun', [BIN, 'classify', '--base', 'main'], { cwd: dir }).toString();
+    const parsed = JSON.parse(out);
+    expect(parsed.state).toBe('FRESH');
+    expect(parsed.baseVersion).toBe('0.99.2');    // was "0.0.0.0"
+    expect(parsed.currentVersion).toBe('0.99.2'); // was "0.0.0.0"
+    expect(parsed.pkgExists).toBe(true);          // was false
+  });
+
+  test('write updates the pinned package.json in place and creates no VERSION file', () => {
+    const out = execFileSync('bun', [BIN, 'write', '--version', '0.99.3'], { cwd: dir }).toString();
+    expect(JSON.parse(out)).toEqual({ wrote: '0.99.3', versionPath: pkgRel, packageJson: true });
+    const pkg = JSON.parse(fs.readFileSync(pkgAbs, 'utf-8'));
+    expect(pkg.version).toBe('0.99.3');
+    expect(pkg.scripts).toEqual({ dev: 'next dev' }); // rest of the file untouched
+    expect(pkg.name).toBe('frontend');
+    expect(fs.existsSync(path.join(dir, 'VERSION'))).toBe(false);
+  });
+
+  test('classify reports ALREADY_BUMPED after that write, not a drift state', () => {
+    const out = execFileSync('bun', [BIN, 'classify', '--base', 'main'], { cwd: dir }).toString();
+    const parsed = JSON.parse(out);
+    expect(parsed.state).toBe('ALREADY_BUMPED');
+    expect(parsed.baseVersion).toBe('0.99.2');
+    expect(parsed.currentVersion).toBe('0.99.3');
+  });
+
+  test('repair is a no-op: there is no second file to drift from', () => {
+    const out = execFileSync('bun', [BIN, 'repair'], { cwd: dir }).toString();
+    expect(JSON.parse(out).repaired).toBeNull();
+  });
+
+  test('write refuses a version-path that does not exist', () => {
+    let code = 0;
+    try {
+      execFileSync('bun', [BIN, 'write', '--version', '1.0.0', '--version-path', 'nope/package.json'], { cwd: dir, stdio: 'pipe' });
+    } catch (e: any) { code = e.status; }
+    expect(code).toBe(2);
   });
 });

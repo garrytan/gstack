@@ -12,6 +12,8 @@ import {
   fmtVersion,
   bumpVersion,
   cmpVersion,
+  versionWidth,
+  extractVersion,
   pickNextSlot,
   markActiveSiblings,
   resolveVersionPath,
@@ -28,13 +30,66 @@ describe("parseVersion", () => {
     expect(parseVersion("  1.2.3.4  \n")).toEqual([1, 2, 3, 4]);
   });
 
+  test("accepts 3-digit semver, padding the micro slot", () => {
+    // 3-digit repos (a package.json holding plain semver) used to fail parsing outright,
+    // which exited this CLI 2 on EVERY run — and since this CLI is the queue-collision
+    // check, /ship then fell back to naive local arithmetic and duplicate version slots
+    // shipped silently. The pad keeps comparison uniform; versionWidth narrows output back.
+    expect(parseVersion("0.99.2")).toEqual([0, 99, 2, 0]);
+    expect(parseVersion("1.2.3")).toEqual([1, 2, 3, 0]);
+    expect(versionWidth("0.99.2")).toBe(3);
+    expect(versionWidth("1.6.3.0")).toBe(4);
+  });
+
   test("rejects malformed", () => {
-    expect(parseVersion("1.2.3")).toBeNull();
+    expect(parseVersion("1.2")).toBeNull();
     expect(parseVersion("1.2.3.4.5")).toBeNull();
     expect(parseVersion("v1.2.3.4")).toBeNull();
     expect(parseVersion("")).toBeNull();
     expect(parseVersion("not-a-version")).toBeNull();
     expect(parseVersion("1.2.3.x")).toBeNull();
+  });
+});
+
+describe("3-digit repos keep their width", () => {
+  test("formatting narrows to the repo's own width", () => {
+    expect(fmtVersion([0, 99, 3, 0], 3)).toBe("0.99.3");
+    expect(fmtVersion([0, 99, 3, 0], 4)).toBe("0.99.3.0");
+    expect(fmtVersion([0, 99, 3, 0])).toBe("0.99.3.0"); // default stays 4-digit
+  });
+
+  test("micro is carried out as patch when there is no micro component", () => {
+    // /ship auto-picks MICRO by default. Erroring would make it unusable in every 3-digit
+    // repo; a no-op would be worse — it would write back the version it started with and
+    // claim a slot already taken.
+    expect(bumpVersion([0, 99, 2, 0], "micro", 3)).toEqual([0, 99, 3, 0]);
+    expect(bumpVersion([0, 99, 2, 0], "patch", 3)).toEqual([0, 99, 3, 0]);
+    expect(bumpVersion([0, 99, 2, 3], "micro", 4)).toEqual([0, 99, 2, 4]); // 4-digit unchanged
+  });
+
+  test("slot picking stays inside the repo's width", () => {
+    const { version } = pickNextSlot([0, 99, 2, 0], [[0, 99, 5, 0]], "patch", 3);
+    expect(fmtVersion(version, 3)).toBe("0.99.6");
+  });
+});
+
+describe("extractVersion", () => {
+  test("reads .version when the version-path is a package.json", () => {
+    const pkg = JSON.stringify({ name: "frontend", version: "0.99.2", private: true });
+    expect(extractVersion(pkg, "frontend/package.json")).toBe("0.99.2");
+    expect(extractVersion(pkg, "deep/nested/package.json")).toBe("0.99.2");
+  });
+
+  test("reads raw text for a plain VERSION file", () => {
+    expect(extractVersion("1.6.3.0\n", "VERSION")).toBe("1.6.3.0");
+    expect(extractVersion("  1.6.3.0  ", "version/CURRENT")).toBe("1.6.3.0");
+  });
+
+  test("a JSON path that isn't valid JSON yields empty, not garbage", () => {
+    // The old readers ran a package.json through a whitespace strip and handed the caller
+    // '{"name":"frontend",...' as if it were a version. Empty lets callers fall back loudly.
+    expect(extractVersion("{ not json", "package.json")).toBe("");
+    expect(extractVersion(JSON.stringify({ name: "x" }), "package.json")).toBe("");
   });
 });
 
