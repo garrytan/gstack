@@ -6,7 +6,7 @@ const codex: HostConfig = {
   cliCommand: 'codex',
   cliAliases: ['agents'],
 
-  globalRoot: '.codex/skills/gstack',
+  globalRoot: '.agents/skills/gstack',
   localSkillRoot: '.agents/skills/gstack',
   hostSubdir: '.agents',
   usesEnvVars: true,
