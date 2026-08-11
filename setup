@@ -250,17 +250,19 @@ if [ "$INSTALL_CODEX" -eq 1 ]; then
 fi
 
 ensure_playwright_browser() {
+  # Verify the full Chromium executable used by headed mode as well as a
+  # headless launch. A cached headless shell alone is not a complete install.
   if [ "$IS_WINDOWS" -eq 1 ]; then
     # On Windows, Bun can't launch Chromium due to broken pipe handling
     # (oven-sh/bun#4253). Use Node.js to verify Chromium works instead.
     (
       cd "$SOURCE_GSTACK_DIR"
-      node -e "const { chromium } = require('playwright'); (async () => { const b = await chromium.launch(); await b.close(); })()" 2>/dev/null
+      node -e "const { chromium } = require('playwright'); const fs = require('fs'); (async () => { if (!fs.existsSync(chromium.executablePath())) process.exit(1); const b = await chromium.launch(); await b.close(); })()" 2>/dev/null
     )
   else
     (
       cd "$SOURCE_GSTACK_DIR"
-      bun --eval 'import { chromium } from "playwright"; const browser = await chromium.launch(); await browser.close();'
+      bun --eval 'import { chromium } from "playwright"; import { existsSync } from "fs"; if (!existsSync(chromium.executablePath())) process.exit(1); const browser = await chromium.launch(); await browser.close();'
     ) >/dev/null 2>&1
   fi
 }
@@ -480,7 +482,11 @@ if ! ensure_playwright_browser; then
   echo "Installing Playwright Chromium..."
   (
     cd "$SOURCE_GSTACK_DIR"
-    bunx playwright install chromium
+    # Match the browser revision to the exact Playwright package used to build
+    # and run browse. An unversioned bunx may resolve a different release.
+    pw_version="$(bun --eval 'console.log(require("playwright/package.json").version)')"
+    [ -n "$pw_version" ] || { echo "gstack setup failed: could not resolve the installed Playwright version" >&2; exit 1; }
+    bunx "playwright@$pw_version" install chromium
   )
 
   if [ "$IS_WINDOWS" -eq 1 ]; then
