@@ -598,12 +598,10 @@ function buildServer() {
         // first that matches a known token.
         const protoHeader = req.headers.get('sec-websocket-protocol') || '';
         let token: string | null = null;
-        let acceptedProtocol: string | null = null;
         for (const raw of protoHeader.split(',').map(s => s.trim()).filter(Boolean)) {
           const candidate = raw.startsWith('gstack-pty.') ? raw.slice('gstack-pty.'.length) : raw;
           if (validTokens.has(candidate)) {
             token = candidate;
-            acceptedProtocol = raw;
             break;
           }
         }
@@ -632,13 +630,13 @@ function buildServer() {
         // sessionsById so /internal/restart and (Commit 3) re-attach
         // lookups can find it.
         const sessionId = validTokens.get(token) ?? null;
+        // No explicit Sec-WebSocket-Protocol echo: Bun >= 1.3 auto-echoes the
+        // first offered protocol in the 101 response, so setting the header
+        // here produced a DUPLICATE header — strict clients (Chromium, python
+        // websockets) reject the handshake per RFC 6455 and the sidebar
+        // terminal could never connect. Verified on Bun 1.3.6.
         const upgraded = server.upgrade(req, {
           data: { cookie: token, sessionId },
-          // Echo the protocol back so the browser accepts the upgrade.
-          // Required when the client sends Sec-WebSocket-Protocol — the
-          // server MUST select one of the offered protocols, otherwise
-          // the browser closes the connection immediately.
-          ...(acceptedProtocol ? { headers: { 'Sec-WebSocket-Protocol': acceptedProtocol } } : {}),
         });
         return upgraded ? undefined : new Response('upgrade failed', { status: 500 });
       }
