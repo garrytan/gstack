@@ -48,18 +48,6 @@ jobs:
   windows-setup:
     runs-on: windows-latest
     timeout-minutes: 15
-    # Keep every user-owned path in runner temp. This protects the hosted
-    # runner profile and proves a first-time Codex install, not an upgrade.
-    env:
-      HOME: ${{ runner.temp }}/gstack-windows-codex/home
-      USERPROFILE: ${{ runner.temp }}/gstack-windows-codex/home
-      CODEX_HOME: ${{ runner.temp }}/gstack-windows-codex/codex
-      GSTACK_HOME: ${{ runner.temp }}/gstack-windows-codex/gstack-home
-      GSTACK_STATE_ROOT: ${{ runner.temp }}/gstack-windows-codex/state
-      BROWSE_STATE_FILE: ${{ runner.temp }}/gstack-windows-codex/state/browse.json
-      CHROMIUM_PROFILE: ${{ runner.temp }}/gstack-windows-codex/chromium-profile
-      BROWSE_PARENT_PID: '0'
-      NPM_CONFIG_PREFIX: ${{ runner.temp }}/gstack-windows-codex/npm-global
 
     steps:
       - uses: actions/checkout@v4
@@ -85,8 +73,9 @@ jobs:
           GSTACK_STATE_ROOT="$RUNTIME_ROOT/state"
           BROWSE_STATE_FILE="$RUNTIME_ROOT/state/browse.json"
           CHROMIUM_PROFILE="$RUNTIME_ROOT/chromium-profile"
+          BROWSE_PARENT_PID=0
           NPM_CONFIG_PREFIX="$RUNTIME_ROOT/npm-global"
-          export HOME USERPROFILE CODEX_HOME GSTACK_HOME GSTACK_STATE_ROOT BROWSE_STATE_FILE CHROMIUM_PROFILE NPM_CONFIG_PREFIX
+          export HOME USERPROFILE CODEX_HOME GSTACK_HOME GSTACK_STATE_ROOT BROWSE_STATE_FILE CHROMIUM_PROFILE BROWSE_PARENT_PID NPM_CONFIG_PREFIX
           mkdir -p "$HOME" "$CODEX_HOME" "$GSTACK_HOME" "$GSTACK_STATE_ROOT" "$CHROMIUM_PROFILE" "$NPM_CONFIG_PREFIX"
           {
             echo "HOME=$HOME"
@@ -96,6 +85,7 @@ jobs:
             echo "GSTACK_STATE_ROOT=$GSTACK_STATE_ROOT"
             echo "BROWSE_STATE_FILE=$BROWSE_STATE_FILE"
             echo "CHROMIUM_PROFILE=$CHROMIUM_PROFILE"
+            echo "BROWSE_PARENT_PID=$BROWSE_PARENT_PID"
             echo "NPM_CONFIG_PREFIX=$NPM_CONFIG_PREFIX"
           } >> "$GITHUB_ENV"
           echo "$NPM_CONFIG_PREFIX" >> "$GITHUB_PATH"

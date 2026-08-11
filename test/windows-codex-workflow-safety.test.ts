@@ -56,8 +56,16 @@ describe('Windows workflows: clean Codex compatibility gate', () => {
   test('setup E2E isolates every user-owned runtime directory', () => {
     expect(setup).toContain('cygpath -m "$RUNNER_TEMP"');
     expect(free).toContain('cygpath -m "$RUNNER_TEMP"');
+    for (const [name, workflow] of [
+      ['windows-setup-e2e.yml', setup],
+      ['windows-free-tests.yml', free],
+    ] as const) {
+      expect(workflow, `${name} must not evaluate runner.temp before a runner exists`).not.toContain('${{ runner.temp }}');
+      expect(workflow, `${name} must persist its step-resolved paths for later steps`).toContain('>> "$GITHUB_ENV"');
+    }
     for (const variable of ['HOME', 'USERPROFILE', 'CODEX_HOME', 'GSTACK_HOME', 'GSTACK_STATE_ROOT', 'BROWSE_STATE_FILE', 'CHROMIUM_PROFILE']) {
-      expect(setup, `windows-setup-e2e.yml must isolate ${variable}`).toMatch(new RegExp(`^\\s*${variable}:`, 'm'));
+      expect(setup, `windows-setup-e2e.yml must isolate ${variable}`).toContain(`echo "${variable}=$${variable}"`);
+      expect(free, `windows-free-tests.yml must isolate ${variable}`).toContain(`echo "${variable}=$${variable}"`);
     }
   });
 

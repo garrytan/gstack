@@ -40,17 +40,6 @@ jobs:
     # To revert: swap to `windows-latest` (GitHub's free 4-core Windows runner).
     runs-on: windows-latest
     timeout-minutes: 15
-    # Tests may create gstack state. Keep it away from the hosted runner's
-    # default profile so a failure cannot contaminate a later job.
-    env:
-      HOME: ${{ runner.temp }}/gstack-windows-free/home
-      USERPROFILE: ${{ runner.temp }}/gstack-windows-free/home
-      CODEX_HOME: ${{ runner.temp }}/gstack-windows-free/codex
-      GSTACK_HOME: ${{ runner.temp }}/gstack-windows-free/gstack-home
-      GSTACK_STATE_ROOT: ${{ runner.temp }}/gstack-windows-free/state
-      BROWSE_STATE_FILE: ${{ runner.temp }}/gstack-windows-free/state/browse.json
-      CHROMIUM_PROFILE: ${{ runner.temp }}/gstack-windows-free/chromium-profile
-      BROWSE_PARENT_PID: '0'
 
     steps:
       - uses: actions/checkout@v4
@@ -76,7 +65,8 @@ jobs:
           GSTACK_STATE_ROOT="$RUNTIME_ROOT/state"
           BROWSE_STATE_FILE="$RUNTIME_ROOT/state/browse.json"
           CHROMIUM_PROFILE="$RUNTIME_ROOT/chromium-profile"
-          export HOME USERPROFILE CODEX_HOME GSTACK_HOME GSTACK_STATE_ROOT BROWSE_STATE_FILE CHROMIUM_PROFILE
+          BROWSE_PARENT_PID=0
+          export HOME USERPROFILE CODEX_HOME GSTACK_HOME GSTACK_STATE_ROOT BROWSE_STATE_FILE CHROMIUM_PROFILE BROWSE_PARENT_PID
           mkdir -p "$HOME" "$CODEX_HOME" "$GSTACK_HOME" "$GSTACK_STATE_ROOT" "$CHROMIUM_PROFILE"
           {
             echo "HOME=$HOME"
@@ -86,6 +76,7 @@ jobs:
             echo "GSTACK_STATE_ROOT=$GSTACK_STATE_ROOT"
             echo "BROWSE_STATE_FILE=$BROWSE_STATE_FILE"
             echo "CHROMIUM_PROFILE=$CHROMIUM_PROFILE"
+            echo "BROWSE_PARENT_PID=$BROWSE_PARENT_PID"
           } >> "$GITHUB_ENV"
         shell: bash
 
