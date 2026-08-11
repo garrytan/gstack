@@ -240,6 +240,29 @@ describe('gstack-team-init', () => {
     expect(stat.mode & 0o111).toBeGreaterThan(0);
   });
 
+  test('required: hook emits PreToolUse deny in hookSpecificOutput shape when gstack is missing', () => {
+    run(`${TEAM_INIT} required`, { cwd: tmpDir });
+    const hookPath = path.join(tmpDir, '.claude', 'hooks', 'check-gstack.sh');
+
+    // HOME without gstack → must deny via hookSpecificOutput (top-level
+    // permissionDecision is ignored by Claude Code's PreToolUse schema)
+    const fakeHome = path.join(tmpDir, 'fake-home');
+    fs.mkdirSync(fakeHome, { recursive: true });
+    const denied = run(`bash ${hookPath}`, { env: { HOME: fakeHome } });
+    expect(denied.exitCode).toBe(0);
+    const deniedJson = JSON.parse(denied.stdout.trim());
+    expect(deniedJson.hookSpecificOutput.hookEventName).toBe('PreToolUse');
+    expect(deniedJson.hookSpecificOutput.permissionDecision).toBe('deny');
+    expect(deniedJson.hookSpecificOutput.permissionDecisionReason).toContain('gstack is required');
+
+    // HOME with gstack installed → no-op {}
+    const homeWithGstack = path.join(tmpDir, 'home-with-gstack');
+    fs.mkdirSync(path.join(homeWithGstack, '.claude', 'skills', 'gstack', 'bin'), { recursive: true });
+    const allowed = run(`bash ${hookPath}`, { env: { HOME: homeWithGstack } });
+    expect(allowed.exitCode).toBe(0);
+    expect(JSON.parse(allowed.stdout.trim())).toEqual({});
+  });
+
   test('required: creates project settings.json with PreToolUse hook', () => {
     run(`${TEAM_INIT} required`, { cwd: tmpDir });
     const settingsPath = path.join(tmpDir, '.claude', 'settings.json');
