@@ -4,11 +4,23 @@
  * sidebar-agent bun process. No ML, no network, no subprocess spawning.
  */
 
-import { describe, test, expect } from 'bun:test';
+import { afterAll, describe, test, expect } from 'bun:test';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import {
+
+const originalGstackHome = process.env.GSTACK_HOME;
+const originalHome = process.env.HOME;
+const originalUserProfile = process.env.USERPROFILE;
+const testRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-security-test-'));
+const legacyHome = path.join(testRoot, 'legacy-home');
+const isolatedGstackHome = path.join(testRoot, 'gstack-home');
+fs.mkdirSync(legacyHome, { recursive: true });
+process.env.HOME = legacyHome;
+process.env.USERPROFILE = legacyHome;
+process.env.GSTACK_HOME = isolatedGstackHome;
+
+const {
   THRESHOLDS,
   combineVerdict,
   generateCanary,
@@ -22,8 +34,18 @@ import {
   extractDomain,
   buildTelemetrySpawnCommand,
   resolveBashBinary,
-  type LayerSignal,
-} from '../src/security';
+} = await import('../src/security');
+import type { LayerSignal } from '../src/security';
+
+afterAll(() => {
+  if (originalGstackHome === undefined) delete process.env.GSTACK_HOME;
+  else process.env.GSTACK_HOME = originalGstackHome;
+  if (originalHome === undefined) delete process.env.HOME;
+  else process.env.HOME = originalHome;
+  if (originalUserProfile === undefined) delete process.env.USERPROFILE;
+  else process.env.USERPROFILE = originalUserProfile;
+  fs.rmSync(testRoot, { recursive: true, force: true });
+});
 
 // ─── Threshold constants ─────────────────────────────────────
 
@@ -270,13 +292,15 @@ describe('logAttempt', () => {
     });
     expect(ok).toBe(true);
 
-    const logPath = path.join(os.homedir(), '.gstack', 'security', 'attempts.jsonl');
+    const logPath = path.join(isolatedGstackHome, 'security', 'attempts.jsonl');
     const content = fs.readFileSync(logPath, 'utf8');
     const lines = content.split('\n').filter(Boolean);
     const last = JSON.parse(lines[lines.length - 1]);
     expect(last.urlDomain).toBe('example.com');
     expect(last.payloadHash).toBe('deadbeef');
     expect(last.verdict).toBe('block');
+    expect(fs.existsSync(path.join(isolatedGstackHome, 'security', 'device-salt'))).toBe(true);
+    expect(fs.existsSync(path.join(legacyHome, '.gstack', 'security', 'attempts.jsonl'))).toBe(false);
   });
 });
 
@@ -292,6 +316,8 @@ describe('session state', () => {
       lastUpdated: '2026-04-19T12:34:56Z',
     };
     writeSessionState(state);
+    expect(fs.existsSync(path.join(isolatedGstackHome, 'security', 'session-state.json'))).toBe(true);
+    expect(fs.existsSync(path.join(legacyHome, '.gstack', 'security', 'session-state.json'))).toBe(false);
     const got = readSessionState();
     expect(got).not.toBeNull();
     expect(got!.sessionId).toBe('test-session-123');
