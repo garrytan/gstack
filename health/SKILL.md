@@ -23,8 +23,8 @@ allowed-tools:
 ## When to invoke this skill
 
 Wraps existing project tools (type checker, linter,
-test runner, dead code detector, shell linter), computes a weighted composite
-0-10 score, and tracks trends over time. Use when: "health check",
+test runner, dead code detector, shell linter) plus a read-only structure
+scan, computes a weighted composite 0-10 score, and tracks trends over time. Use when: "health check",
 "code quality", "how healthy is the codebase", "run all checks",
 "quality score".
 
@@ -784,9 +784,9 @@ Skills that run plan reviews (`/plan-*-review`, `/codex review`) include the EXI
 
 You are a **Staff Engineer who owns the CI dashboard**. You know that code quality
 isn't one metric -- it's a composite of type safety, lint cleanliness, test coverage,
-dead code, and script hygiene. Your job is to run every available tool, score the
-results, present a clear dashboard, and track trends so the team knows if quality
-is improving or slipping.
+dead code, script hygiene, and structural maintainability. Your job is to run every
+available tool, score the results, present a clear dashboard, and track trends so
+the team knows if quality is improving or slipping.
 
 **HARD GATE:** Do NOT fix any issues. Produce the dashboard and recommendations only.
 The user decides what to act on.
@@ -806,18 +806,23 @@ If no `## Health Stack` section exists, auto-detect available tools:
 ```bash
 # Type checker
 [ -f tsconfig.json ] && echo "TYPECHECK: tsc --noEmit"
+[ -f pubspec.yaml ] && grep -q '^  flutter:' pubspec.yaml 2>/dev/null && echo "TYPECHECK: flutter analyze"
+[ -f pubspec.yaml ] && ! grep -q '^  flutter:' pubspec.yaml 2>/dev/null && echo "TYPECHECK: dart analyze"
 
 # Linter
 [ -f biome.json ] || [ -f biome.jsonc ] && echo "LINT: biome check ."
 setopt +o nomatch 2>/dev/null || true
 ls eslint.config.* .eslintrc.* .eslintrc 2>/dev/null | head -1 | xargs -I{} echo "LINT: eslint ."
 [ -f .pylintrc ] || [ -f pyproject.toml ] && grep -q "pylint\|ruff" pyproject.toml 2>/dev/null && echo "LINT: ruff check ."
+[ -f pubspec.yaml ] && echo "LINT: dart format --output=none --set-exit-if-changed ."
 
 # Test runner
 [ -f package.json ] && grep -q '"test"' package.json 2>/dev/null && echo "TEST: $(node -e "console.log(JSON.parse(require('fs').readFileSync('package.json','utf8')).scripts.test)" 2>/dev/null)"
 [ -f pyproject.toml ] && grep -q "pytest" pyproject.toml 2>/dev/null && echo "TEST: pytest"
 [ -f Cargo.toml ] && echo "TEST: cargo test"
 [ -f go.mod ] && echo "TEST: go test ./..."
+[ -f pubspec.yaml ] && grep -q 'flutter_test:' pubspec.yaml 2>/dev/null && echo "TEST: flutter test"
+[ -f pubspec.yaml ] && ! grep -q 'flutter_test:' pubspec.yaml 2>/dev/null && grep -q 'test:' pubspec.yaml 2>/dev/null && echo "TEST: dart test"
 
 # Dead code
 command -v knip >/dev/null 2>&1 && echo "DEADCODE: knip"
@@ -830,6 +835,11 @@ command -v shellcheck >/dev/null 2>&1 && ls *.sh scripts/*.sh bin/*.sh 2>/dev/nu
 # set up; otherwise skip so machines without gbrain aren't penalized.
 if command -v gbrain >/dev/null 2>&1 && [ -f "$HOME/.gbrain/config.json" ]; then
   echo "GBRAIN: gbrain doctor --json (wrapped in timeout 5s)"
+fi
+
+# Structure scan
+if command -v rg >/dev/null 2>&1; then
+  echo "STRUCTURE: built-in static scan for oversized files/classes/functions and repeated mutation patterns"
 fi
 ```
 
@@ -845,6 +855,7 @@ After auto-detection, present the detected tools via AskUserQuestion:
 - Tests: `bun test`
 - Dead code: `knip`
 - Shell lint: `shellcheck *.sh`
+- Structure: built-in static scan
 
 A) Looks right -- persist to CLAUDE.md and continue
 B) I need to adjust some tools (tell me which)
@@ -861,6 +872,7 @@ section in CLAUDE.md:
 - test: bun test
 - deadcode: knip
 - shell: shellcheck *.sh scripts/*.sh
+- structure: built-in static scan
 ```
 
 ---
@@ -887,6 +899,24 @@ echo "TOOL:typecheck EXIT:$EXIT_CODE DURATION:$((END-START))s"
 Run tools sequentially (some may share resources or lock files). If a tool is not
 installed or not found, record it as `SKIPPED` with reason, not as a failure.
 
+For `STRUCTURE`, run a read-only scan over source files and report warnings. This
+is not a replacement for lint or tests; it catches maintainability risks that
+compilers usually miss.
+
+Flag these structural warnings:
+- Oversized source files: >350 lines for app/domain code, >500 lines for tests.
+- Oversized classes: >250 lines.
+- Oversized functions/methods: >80 lines.
+- Repeated mutation boilerplate: 3+ occurrences in one file of the same
+  persist/notify or copy/update/commit pattern.
+- Mixed responsibilities: one class imports storage/persistence, UI/webview
+  integration, and domain mutation dependencies in the same file.
+- TODO/FIXME density: >5 markers in one file.
+
+For Dart/Flutter projects, prioritize `lib/**/*.dart` and `test/**/*.dart`, and
+exclude `.dart_tool/`, `build/`, `ios/Pods/`, generated l10n files, and generated
+plugin registrants.
+
 ---
 
 ## Step 3: Score Each Category
@@ -895,12 +925,13 @@ Score each category on a 0-10 scale using this rubric:
 
 | Category | Weight | 10 | 7 | 4 | 0 |
 |-----------|--------|------|-----------|------------|-----------|
-| Type check | 22% | Clean (exit 0) | <10 errors | <50 errors | >=50 errors |
-| Lint | 18% | Clean (exit 0) | <5 warnings | <20 warnings | >=20 warnings |
-| Tests | 28% | All pass (exit 0) | >95% pass | >80% pass | <=80% pass |
-| Dead code | 13% | Clean (exit 0) | <5 unused exports | <20 unused | >=20 unused |
-| Shell lint | 9% | Clean (exit 0) | <5 issues | >=5 issues | N/A (skip) |
+| Type check | 20% | Clean (exit 0) | <10 errors | <50 errors | >=50 errors |
+| Lint | 16% | Clean (exit 0) | <5 warnings | <20 warnings | >=20 warnings |
+| Tests | 26% | All pass (exit 0) | >95% pass | >80% pass | <=80% pass |
+| Dead code | 11% | Clean (exit 0) | <5 unused exports | <20 unused | >=20 unused |
+| Shell lint | 7% | Clean (exit 0) | <5 issues | >=5 issues | N/A (skip) |
 | GBrain (D6) | 10% | doctor=ok, queue<10, pushed <24h | doctor=warnings OR queue<100 OR pushed <72h | doctor broken OR queue>=100 OR pushed >=72h | N/A (gbrain not installed) |
+| Structure | 10% | 0 warnings | 1 warning | <5 warnings | >=5 warnings |
 
 **Parsing tool output for counts:**
 - **tsc:** Count lines matching `error TS` in output.
@@ -908,10 +939,12 @@ Score each category on a 0-10 scale using this rubric:
 - **Tests:** Parse pass/fail counts from the test runner output. If the runner only reports exit code, use: exit 0 = 10, exit non-zero = 4 (assume some failures).
 - **knip:** Count lines reporting unused exports, files, or dependencies.
 - **shellcheck:** Count distinct findings (lines starting with "In ... line").
+- **Structure:** Count structural warnings from the built-in scan. Include file
+  paths and line/function/class names when possible.
 
 **Composite score:**
 ```
-composite = (typecheck_score * 0.22) + (lint_score * 0.18) + (test_score * 0.28) + (deadcode_score * 0.13) + (shell_score * 0.09) + (gbrain_score * 0.10)
+composite = (typecheck_score * 0.20) + (lint_score * 0.16) + (test_score * 0.26) + (deadcode_score * 0.11) + (shell_score * 0.07) + (gbrain_score * 0.10) + (structure_score * 0.10)
 ```
 
 If a category is skipped (tool not available — includes GBrain when gbrain
@@ -958,6 +991,7 @@ Tests         bun test          10/10   CLEAN      12s        47/47 passed
 Dead code     knip               7/10   WARNING    5s         4 unused exports
 Shell lint    shellcheck        10/10   CLEAN      1s         0 issues
 GBrain        gbrain doctor     10/10   CLEAN      <1s        doctor=ok, queue=3, pushed 2h ago
+Structure     static scan        7/10   WARNING    <1s        1 oversized service class
 
 COMPOSITE SCORE: 9.1 / 10
 
@@ -991,19 +1025,20 @@ eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gst
 Append one JSONL line to `~/.gstack/projects/$SLUG/health-history.jsonl`:
 
 ```json
-{"ts":"2026-03-31T14:30:00Z","branch":"main","score":9.1,"typecheck":10,"lint":8,"test":10,"deadcode":7,"shell":10,"gbrain":10,"duration_s":23}
+{"ts":"2026-03-31T14:30:00Z","branch":"main","score":9.1,"typecheck":10,"lint":8,"test":10,"deadcode":7,"shell":10,"gbrain":10,"structure":7,"duration_s":23}
 ```
 
 Fields:
 - `ts` -- ISO 8601 timestamp
 - `branch` -- current git branch
 - `score` -- composite score (one decimal)
-- `typecheck`, `lint`, `test`, `deadcode`, `shell`, `gbrain` -- individual category scores (integer 0-10)
+- `typecheck`, `lint`, `test`, `deadcode`, `shell`, `gbrain`, `structure` -- individual category scores (integer 0-10)
 - `duration_s` -- total time for all tools in seconds
 
 If a category was skipped, set its value to `null`. Pre-D6 history entries
-won't have a `gbrain` field — treat them as `null` for trend comparison
-and start new tracking from the first post-D6 run.
+won't have a `gbrain` field and pre-structure entries won't have a `structure`
+field -- treat missing fields as `null` for trend comparison and start new
+tracking from the first run that records them.
 
 ---
 
@@ -1022,12 +1057,12 @@ tail -10 ~/.gstack/projects/$SLUG/health-history.jsonl 2>/dev/null || echo "NO_H
 ```
 HEALTH TREND (last 5 runs)
 ==========================
-Date          Branch         Score   TC   Lint  Test  Dead  Shell  GBrain
-----------    -----------    -----   --   ----  ----  ----  -----  ------
-2026-03-28    main           9.4     10   9     10    8     10     10
-2026-03-29    feat/auth      8.8     10   7     10    7     10     10
-2026-03-30    feat/auth      8.2     10   6     9     7     10      7
-2026-03-31    feat/auth      9.1     10   8     10    7     10     10
+Date          Branch         Score   TC   Lint  Test  Dead  Shell  GBrain  Struct
+----------    -----------    -----   --   ----  ----  ----  -----  ------  ------
+2026-03-28    main           9.4     10   9     10    8     10     10      null
+2026-03-29    feat/auth      8.8     10   7     10    7     10     10      7
+2026-03-30    feat/auth      8.2     10   6     9     7     10      7      4
+2026-03-31    feat/auth      9.1     10   8     10    7     10     10      7
 
 Trend: IMPROVING (+0.9 since last run)
 ```
@@ -1059,6 +1094,8 @@ RECOMMENDATIONS (by impact)
    Run: biome check . --write to auto-fix
 3. [LOW]   Remove 4 unused exports (Dead code: 7/10, weight 15%)
    Run: knip --fix to auto-remove
+4. [LOW]   Split oversized service class (Structure: 7/10, weight 10%)
+   Start with the file named in the structure warning
 ```
 
 Rank by `weight * (10 - score)` descending. Only show categories below 10.
@@ -1068,9 +1105,10 @@ Rank by `weight * (10 - score)` descending. Only show categories below 10.
 ## Important Rules
 
 1. **Wrap, don't replace.** Run the project's own tools. Never substitute your own analysis for what the tool reports.
-2. **Read-only.** Never fix issues. Present the dashboard and let the user decide.
-3. **Respect CLAUDE.md.** If `## Health Stack` is configured, use those exact commands. Do not second-guess.
-4. **Skipped is not failed.** If a tool isn't available, skip it gracefully and redistribute weight. Do not penalize the score.
-5. **Show raw output for failures.** When a tool reports errors, include the actual output (tail -50) so the user can act on it without re-running.
-6. **Trends require history.** On first run, say "First health check -- no trend data yet. Run /health again after making changes to track progress."
-7. **Be honest about scores.** A codebase with 100 type errors and all tests passing is not healthy. The composite score should reflect reality.
+2. **Structure scan is additive.** It is read-only and should name concrete files/patterns, not vague taste complaints.
+3. **Read-only.** Never fix issues. Present the dashboard and let the user decide.
+4. **Respect CLAUDE.md.** If `## Health Stack` is configured, use those exact commands. Do not second-guess.
+5. **Skipped is not failed.** If a tool isn't available, skip it gracefully and redistribute weight. Do not penalize the score.
+6. **Show raw output for failures.** When a tool reports errors, include the actual output (tail -50) so the user can act on it without re-running.
+7. **Trends require history.** On first run, say "First health check -- no trend data yet. Run /health again after making changes to track progress."
+8. **Be honest about scores.** A codebase with 100 type errors and all tests passing is not healthy. The composite score should reflect reality.
