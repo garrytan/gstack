@@ -6,7 +6,7 @@
 
 import fs from "fs";
 import path from "path";
-import { requireApiKey } from "./auth";
+import { openaiUrl, requireApiKey } from "./auth";
 import { parseBrief } from "./brief";
 import { normalizeIntFlag } from "./flag-utils";
 
@@ -67,7 +67,7 @@ export async function generateVariant(
     const timeout = setTimeout(() => controller.abort(), 240_000);
 
     try {
-      const response = await fetchFn("https://api.openai.com/v1/responses", {
+      const response = await fetchFn(openaiUrl("responses"), {
         method: "POST",
         headers: {
           "Authorization": `Bearer ${apiKey}`,
