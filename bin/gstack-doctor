@@ -1,0 +1,152 @@
+#!/usr/bin/env bash
+# gstack-doctor — read-only local compatibility report for Gstack + Codex.
+#
+# Usage: gstack-doctor [--json] [--strict]
+#   --json    print a stable machine-readable report
+#   --strict  exit 1 when a required local capability is unavailable
+
+set -u
+
+JSON=0
+STRICT=0
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --json) JSON=1 ;;
+    --strict) STRICT=1 ;;
+    -h|--help)
+      cat <<'USAGE'
+Usage: gstack-doctor [--json] [--strict]
+
+Reports local Gstack and Codex compatibility without changing files, starting
+services, authenticating, or contacting a network service.
+USAGE
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      exit 2
+      ;;
+  esac
+  shift
+done
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
+VERSION_FILE="$ROOT/VERSION"
+CODEX_SKILLS_DIR="${CODEX_HOME:-${HOME:-}/.codex}/skills"
+
+UNAME_S=$(uname -s 2>/dev/null || printf '%s' unknown)
+case "$UNAME_S" in
+  MINGW*|MSYS*|CYGWIN*|Windows_NT) PLATFORM=windows ;;
+  Darwin) PLATFORM=macos ;;
+  Linux) PLATFORM=linux ;;
+  *) PLATFORM=unknown ;;
+esac
+
+CHECKS=""
+HUMAN_CHECKS=""
+REQUIRED_FAILURE=0
+
+add_check() {
+  check_id="$1"
+  check_required="$2"
+  check_status="$3"
+  if [ -n "$CHECKS" ]; then
+    CHECKS="$CHECKS,"
+  fi
+  CHECKS="$CHECKS{\"id\":\"$check_id\",\"required\":$check_required,\"status\":\"$check_status\"}"
+  HUMAN_CHECKS="${HUMAN_CHECKS}${check_id}: ${check_status}
+"
+  if [ "$check_required" = true ] && [ "$check_status" = fail ]; then
+    REQUIRED_FAILURE=1
+  fi
+}
+
+VERSION=unknown
+if [ -f "$VERSION_FILE" ]; then
+  VERSION=$(tr -d '\r\n' < "$VERSION_FILE")
+fi
+if printf '%s\n' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
+  add_check source-version true pass
+else
+  add_check source-version true fail
+  VERSION=unknown
+fi
+
+if [ "$PLATFORM" = windows ]; then
+  if [ -n "${BASH_VERSION:-}" ] && command -v git >/dev/null 2>&1; then
+    add_check git-bash true pass
+  else
+    add_check git-bash true fail
+  fi
+
+  if [ -f "$ROOT/browse/dist/server-node.mjs" ]; then
+    add_check browser-runtime true pass
+  else
+    add_check browser-runtime true fail
+  fi
+else
+  add_check git-bash false unsupported
+  if [ -f "$ROOT/browse/dist/browse" ] || [ -f "$ROOT/browse/dist/browse.exe" ]; then
+    add_check browser-runtime true pass
+  else
+    add_check browser-runtime true fail
+  fi
+fi
+
+for skill_name in gstack-qa gstack-review gstack-ship; do
+  skill_dir="$CODEX_SKILLS_DIR/$skill_name"
+  if [ -f "$skill_dir/SKILL.md" ] && [ -f "$skill_dir/agents/openai.yaml" ] && \
+     grep -Fqx "name: $skill_name" "$skill_dir/SKILL.md" && \
+     grep -Eq "^[[:space:]]*display_name:[[:space:]]*\"?$skill_name\"?[[:space:]]*$" "$skill_dir/agents/openai.yaml" && \
+     grep -Eq '^[[:space:]]*default_prompt:[[:space:]]*[^[:space:]]' "$skill_dir/agents/openai.yaml"; then
+    add_check "codex-skill-$skill_name" true pass
+  else
+    add_check "codex-skill-$skill_name" true fail
+  fi
+done
+
+for tool_name in git bun node codex; do
+  if command -v "$tool_name" >/dev/null 2>&1; then
+    add_check "tool-$tool_name" true pass
+  else
+    add_check "tool-$tool_name" true fail
+  fi
+done
+
+for tool_name in python gh jq; do
+  if command -v "$tool_name" >/dev/null 2>&1; then
+    add_check "tool-$tool_name" false pass
+  else
+    add_check "tool-$tool_name" false fail
+  fi
+done
+
+if [ "$PLATFORM" = windows ]; then
+  add_check ios-workflows false unsupported
+elif [ "$PLATFORM" = macos ]; then
+  if command -v xcodebuild >/dev/null 2>&1 && command -v xcrun >/dev/null 2>&1 && command -v devicectl >/dev/null 2>&1; then
+    add_check ios-workflows false pass
+  else
+    add_check ios-workflows false fail
+  fi
+else
+  add_check ios-workflows false unsupported
+fi
+
+if [ "$JSON" -eq 1 ]; then
+  printf '{"schema_version":1,"source":{"version":"%s"},"platform":"%s","checks":[%s]}\n' "$VERSION" "$PLATFORM" "$CHECKS"
+else
+  printf 'Gstack doctor\n'
+  printf 'Source version: %s\n' "$VERSION"
+  printf 'Platform: %s\n' "$PLATFORM"
+  printf '\nChecks:\n'
+  printf '%s' "$HUMAN_CHECKS" | sed 's/^/  /'
+fi
+
+if [ "$STRICT" -eq 1 ] && [ "$REQUIRED_FAILURE" -eq 1 ]; then
+  exit 1
+fi
+
+exit 0
