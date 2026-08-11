@@ -73,6 +73,17 @@ function snapshot(files: string[] = STABLE_OUTPUTS): Map<string, string> {
 }
 
 describe('gen-skill-docs idempotency', () => {
+  test('skill:check accepts templates intentionally excluded from the Claude host', () => {
+    const result = spawnSync('bun', ['run', 'skill:check'], {
+      cwd: REPO_ROOT,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: 120_000,
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout.toString()).not.toContain('claude/SKILL.md                — generated file missing');
+  }, 150_000);
+
   test('two consecutive runs produce byte-identical outputs (no flapping fields)', () => {
     const firstRun = runGen();
     expect(firstRun.exitCode).toBe(0);

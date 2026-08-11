@@ -1,34 +1,100 @@
 #!/usr/bin/env bash
-# gstack-patch-names — patch name: field in SKILL.md frontmatter for prefix mode
-# Usage: gstack-patch-names <gstack-dir> <true|false|1|0>
+# gstack-patch-names — project one canonical skill into an installed wrapper.
+#
+# Usage: gstack-patch-names <source-SKILL.md> <destination-SKILL.md> <canonical-name> <true|false|1|0>
+#        gstack-patch-names --matches-projection <source-SKILL.md> <candidate-SKILL.md> <canonical-name> <true|false|1|0>
+#
+# The generator's outputs are canonical and must never be rewritten for a
+# machine-local prefix preference. This helper copies a source skill into a
+# host wrapper and changes only the wrapper's frontmatter name.
 set -euo pipefail
 
-GSTACK_DIR="$1"
-DO_PREFIX="$2"
+MATCH_ONLY=0
+if [ "${1:-}" = "--matches-projection" ]; then
+  MATCH_ONLY=1
+  shift
+fi
 
-# Normalize prefix arg
+SOURCE_FILE="$1"
+DESTINATION_FILE="$2"
+CANONICAL_NAME="$3"
+DO_PREFIX="$4"
+
 case "$DO_PREFIX" in true|1) DO_PREFIX=1 ;; *) DO_PREFIX=0 ;; esac
 
-PATCHED=0
-for skill_dir in "$GSTACK_DIR"/*/; do
-  [ -f "$skill_dir/SKILL.md" ] || continue
-  dir_name="$(basename "$skill_dir")"
-  [ "$dir_name" = "node_modules" ] && continue
-  cur=$(grep -m1 '^name:' "$skill_dir/SKILL.md" 2>/dev/null | sed 's/^name:[[:space:]]*//' | tr -d '[:space:]' || true)
-  [ -z "$cur" ] && continue
-  [ "$cur" = "gstack" ] && continue  # never prefix root skill
-  if [ "$DO_PREFIX" -eq 1 ]; then
-    case "$cur" in gstack-*) continue ;; esac
-    new="gstack-$cur"
-  else
-    case "$cur" in gstack-*) ;; *) continue ;; esac
-    [ "$dir_name" = "$cur" ] && continue  # inherently prefixed (gstack-upgrade)
-    new="${cur#gstack-}"
-  fi
-  tmp="$(mktemp "${skill_dir}/SKILL.md.XXXXXX")"
-  sed "1,/^---$/s/^name:[[:space:]]*${cur}/name: ${new}/" "$skill_dir/SKILL.md" > "$tmp" && mv "$tmp" "$skill_dir/SKILL.md"
-  PATCHED=$((PATCHED + 1))
-done
-if [ "$PATCHED" -gt 0 ]; then
-  echo "  patched name: field in $PATCHED skills"
+[ -f "$SOURCE_FILE" ] || { echo "gstack-patch-names: source skill missing: $SOURCE_FILE" >&2; exit 1; }
+[ "$SOURCE_FILE" != "$DESTINATION_FILE" ] || { echo "gstack-patch-names: source and destination must differ" >&2; exit 1; }
+case "$CANONICAL_NAME" in ''|*[!a-z0-9-]*)
+  echo "gstack-patch-names: invalid canonical name: $CANONICAL_NAME" >&2
+  exit 1
+  ;;
+esac
+
+if [ "$DO_PREFIX" -eq 1 ] && [[ "$CANONICAL_NAME" != gstack-* ]]; then
+  PROJECTED_NAME="gstack-$CANONICAL_NAME"
+else
+  PROJECTED_NAME="$CANONICAL_NAME"
 fi
+
+mkdir -p "$(dirname "$DESTINATION_FILE")"
+if ! grep -q '^name:[[:space:]]*' "$SOURCE_FILE"; then
+  if [ "$MATCH_ONLY" -eq 1 ]; then
+    cmp -s "$SOURCE_FILE" "$DESTINATION_FILE"
+    exit $?
+  fi
+  cp -f "$SOURCE_FILE" "$DESTINATION_FILE"
+  printf '%s\n' 'gstack-skill-projection-v1' > "$(dirname "$DESTINATION_FILE")/.gstack-skill-projection"
+  exit 0
+fi
+
+if [ "$MATCH_ONLY" -eq 1 ]; then
+  awk -v projected="$PROJECTED_NAME" '
+    BEGIN { in_frontmatter = 0; delimiters = 0; replaced = 0 }
+    /^---$/ {
+      delimiters++
+      if (delimiters == 1) in_frontmatter = 1
+      else if (delimiters == 2) in_frontmatter = 0
+      print
+      next
+    }
+    in_frontmatter && /^name:[[:space:]]*/ {
+      print "name: " projected
+      replaced = 1
+      next
+    }
+    { print }
+    END { if (delimiters < 2 || !replaced) exit 2 }
+  ' "$SOURCE_FILE" | cmp -s - "$DESTINATION_FILE"
+  exit $?
+fi
+
+mkdir -p "$(dirname "$DESTINATION_FILE")"
+tmp="$(mktemp "$(dirname "$DESTINATION_FILE")/.SKILL.md.XXXXXX")"
+trap 'rm -f "$tmp"' EXIT
+
+awk -v projected="$PROJECTED_NAME" '
+  BEGIN { in_frontmatter = 0; delimiters = 0; replaced = 0 }
+  /^---$/ {
+    delimiters++
+    if (delimiters == 1) in_frontmatter = 1
+    else if (delimiters == 2) in_frontmatter = 0
+    print
+    next
+  }
+  in_frontmatter && /^name:[[:space:]]*/ {
+    print "name: " projected
+    replaced = 1
+    next
+  }
+  { print }
+  END {
+    if (delimiters < 2 || !replaced) exit 2
+  }
+' "$SOURCE_FILE" > "$tmp" || {
+  echo "gstack-patch-names: source skill has no replaceable frontmatter name" >&2
+  exit 1
+}
+
+mv "$tmp" "$DESTINATION_FILE"
+printf '%s\n' 'gstack-skill-projection-v1' > "$(dirname "$DESTINATION_FILE")/.gstack-skill-projection"
+trap - EXIT

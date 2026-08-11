@@ -36,14 +36,54 @@ SKILLS_DIR="${GSTACK_SKILLS_DIR:-$(dirname "$INSTALL_DIR")}"
 # Read prefix setting
 PREFIX=$("$GSTACK_CONFIG" get skill_prefix 2>/dev/null || echo "false")
 
-# Helper: remove old skill entry (symlink or real directory with symlinked SKILL.md)
-_cleanup_skill_entry() {
-  local entry="$1"
-  if [ -L "$entry" ]; then
-    rm -f "$entry"
-  elif [ -d "$entry" ] && [ -L "$entry/SKILL.md" ]; then
-    rm -rf "$entry"
+# Return success only for a wrapper this install can prove it owns. A directory
+# name is not proof: users may have their own same-name skill.
+_managed_skill_entry() {
+  local entry="$1" source_dir="$2" canonical_name="$3" prefix="$4"
+  [ ! -e "$entry" ] && [ ! -L "$entry" ] && return 0
+
+  if [ -d "$entry" ] && [ "$(cat "$entry/.gstack-skill-projection" 2>/dev/null || true)" = "gstack-skill-projection-v1" ]; then
+    return 0
   fi
+
+  # Legacy gstack wrappers were directory symlinks or a copied projected
+  # SKILL.md. Adopt only when the link resolves to this exact install or the
+  # copied file is byte-identical to the projection this install would make.
+  if [ -L "$entry" ] && [ "$(readlink -f "$entry" 2>/dev/null || true)" = "$(readlink -f "$source_dir" 2>/dev/null || true)" ]; then
+    return 0
+  fi
+  if [ -d "$entry" ] && [ -L "$entry/SKILL.md" ] && \
+     [ "$(readlink -f "$entry/SKILL.md" 2>/dev/null || true)" = "$(readlink -f "$source_dir/SKILL.md" 2>/dev/null || true)" ]; then
+    return 0
+  fi
+  if [ -d "$entry" ] && [ -f "$entry/SKILL.md" ] && \
+     "$INSTALL_DIR/bin/gstack-patch-names" --matches-projection "$source_dir/SKILL.md" "$entry/SKILL.md" "$canonical_name" "$prefix"; then
+    return 0
+  fi
+  return 1
+}
+
+_refuse_unowned_skill_entry() {
+  local entry="$1"
+  echo "gstack-relink: refusing to replace unowned skill wrapper: $entry" >&2
+  echo "Move or remove it manually, then run gstack-relink again." >&2
+  return 1
+}
+
+_cleanup_skill_entry() {
+  local entry="$1" source_dir="$2" canonical_name="$3" prefix="$4"
+  [ ! -e "$entry" ] && [ ! -L "$entry" ] && return 0
+  _managed_skill_entry "$entry" "$source_dir" "$canonical_name" "$prefix" || _refuse_unowned_skill_entry "$entry"
+  rm -rf "$entry"
+}
+
+_prepare_skill_entry() {
+  local entry="$1" source_dir="$2" canonical_name="$3" prefix="$4"
+  [ ! -e "$entry" ] && [ ! -L "$entry" ] || {
+    _managed_skill_entry "$entry" "$source_dir" "$canonical_name" "$prefix" || _refuse_unowned_skill_entry "$entry"
+    rm -rf "$entry"
+  }
+  mkdir -p "$entry"
 }
 
 _link_root_skill_alias() {
@@ -66,33 +106,31 @@ for skill_dir in "$INSTALL_DIR"/*/; do
   case "$skill" in bin|browse|design|docs|extension|lib|node_modules|scripts|test|.git|.github) continue ;; esac
   [ -f "$skill_dir/SKILL.md" ] || continue
 
+  canonical_name=$(grep -m1 '^name:' "$skill_dir/SKILL.md" 2>/dev/null | sed 's/^name:[[:space:]]*//' | tr -d '[:space:]' || true)
+  [ -n "$canonical_name" ] || canonical_name="$skill"
+
   if [ "$PREFIX" = "true" ]; then
-    # Don't double-prefix directories already named gstack-*
-    case "$skill" in
-      gstack-*) link_name="$skill" ;;
-      *)        link_name="gstack-$skill" ;;
+    case "$canonical_name" in
+      gstack-*) link_name="$canonical_name" ;;
+      *)        link_name="gstack-$canonical_name" ;;
     esac
     # Remove old flat entry if it exists (and isn't the same as the new link)
-    [ "$link_name" != "$skill" ] && _cleanup_skill_entry "$SKILLS_DIR/$skill"
+    [ "$link_name" != "$canonical_name" ] && _cleanup_skill_entry "$SKILLS_DIR/$canonical_name" "$skill_dir" "$canonical_name" false
   else
-    link_name="$skill"
+    link_name="$canonical_name"
     # Don't remove gstack-* dirs that are their real name (e.g., gstack-upgrade)
-    case "$skill" in
+    case "$canonical_name" in
       gstack-*) ;; # Already the real name, no old prefixed link to clean
-      *)        _cleanup_skill_entry "$SKILLS_DIR/gstack-$skill" ;;
+      *)        _cleanup_skill_entry "$SKILLS_DIR/gstack-$canonical_name" "$skill_dir" "$canonical_name" true ;;
     esac
   fi
   target="$SKILLS_DIR/$link_name"
-  # Upgrade old directory symlinks to real directories
-  [ -L "$target" ] && rm -f "$target"
-  # Create real directory with symlinked SKILL.md (absolute path)
-  mkdir -p "$target"
-  ln -snf "$INSTALL_DIR/$skill/SKILL.md" "$target/SKILL.md"
+  # Create a real wrapper. Prefix metadata belongs to this wrapper, not the
+  # canonical install source, so it must be a copied file rather than a symlink.
+  _prepare_skill_entry "$target" "$skill_dir" "$canonical_name" "$PREFIX"
+  "$INSTALL_DIR/bin/gstack-patch-names" "$skill_dir/SKILL.md" "$target/SKILL.md" "$canonical_name" "$PREFIX"
   SKILL_COUNT=$((SKILL_COUNT + 1))
 done
-
-# Patch SKILL.md name: fields to match prefix setting
-"$INSTALL_DIR/bin/gstack-patch-names" "$INSTALL_DIR" "$PREFIX"
 
 if [ "$PREFIX" = "true" ]; then
   echo "Relinked $SKILL_COUNT skills as gstack-*"
