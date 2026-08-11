@@ -59,7 +59,8 @@ const SERVER_SCRIPT = resolveServerScript();
 
 /**
  * On Windows, resolve the Node.js-compatible server bundle.
- * Falls back to null if not found (server will use Bun instead).
+ * Returns null when it is unavailable; the Windows launch path then gives an
+ * actionable build instruction instead of falling back to Bun.
  */
 export function resolveNodeServerScript(
   metaDir: string = import.meta.dir,
@@ -82,11 +83,29 @@ export function resolveNodeServerScript(
 
 const NODE_SERVER_SCRIPT = IS_WINDOWS ? resolveNodeServerScript() : null;
 
-// On Windows, hard-fail if server-node.mjs is missing — the Bun path is known broken.
-if (IS_WINDOWS && !NODE_SERVER_SCRIPT) {
-  throw new Error(
-    'server-node.mjs not found. Run `bun run build` to generate the Windows server bundle.'
-  );
+export function requireWindowsNodeServerScript(
+  nodeServerScript: string | null,
+  isWindows: true,
+): string;
+export function requireWindowsNodeServerScript(
+  nodeServerScript: string | null,
+  isWindows?: false,
+): string | null;
+/**
+ * Keep the Windows bundle requirement at browser-launch time. Importing pure
+ * CLI helpers must still work in a clean checkout before generated artifacts
+ * exist, while an actual Windows daemon launch must never fall back to Bun.
+ */
+export function requireWindowsNodeServerScript(
+  nodeServerScript: string | null,
+  isWindows: boolean = IS_WINDOWS,
+): string | null {
+  if (isWindows && !nodeServerScript) {
+    throw new Error(
+      'server-node.mjs not found. Run `bun run build` to generate the Windows server bundle.'
+    );
+  }
+  return nodeServerScript;
 }
 
 interface ServerState {
@@ -104,6 +123,11 @@ interface ServerState {
   xvfbStartTime?: number;
   xvfbDisplay?: string;
 }
+
+type StartServerRuntime = {
+  isWindows?: boolean;
+  nodeServerScript?: string | null;
+};
 
 // ─── State File ────────────────────────────────────────────────
 function readState(): ServerState | null {
@@ -311,7 +335,16 @@ function raiseHeadedWindowMacOS(): void {
 }
 
 // ─── Server Lifecycle ──────────────────────────────────────────
-async function startServer(extraEnv?: Record<string, string>): Promise<ServerState> {
+export async function startServer(
+  extraEnv?: Record<string, string>,
+  runtime: StartServerRuntime = {},
+): Promise<ServerState> {
+  const isWindows = runtime.isWindows ?? IS_WINDOWS;
+  const configuredNodeServerScript = runtime.nodeServerScript === undefined
+    ? NODE_SERVER_SCRIPT
+    : runtime.nodeServerScript;
+  const nodeServerScript = requireWindowsNodeServerScript(configuredNodeServerScript, isWindows);
+
   ensureStateDir(config);
 
   // Clean up stale state file and error log
@@ -333,7 +366,7 @@ async function startServer(extraEnv?: Record<string, string>): Promise<ServerSta
   // server's own parseInt at server.ts:760.
   const parentPid = parseInt(process.env.BROWSE_PARENT_PID || '', 10) === 0 ? '0' : String(process.pid);
 
-  if (IS_WINDOWS && NODE_SERVER_SCRIPT) {
+  if (isWindows) {
     // Windows: Bun.spawn() + proc.unref() doesn't truly detach on Windows —
     // when the CLI exits, the server dies with it. Use Node's child_process.spawn
     // with { detached: true } instead, which is the gold standard for Windows
@@ -341,7 +374,7 @@ async function startServer(extraEnv?: Record<string, string>): Promise<ServerSta
     const extraEnvStr = JSON.stringify({ BROWSE_STATE_FILE: config.stateFile, BROWSE_PARENT_PID: parentPid, ...(extraEnv || {}) });
     const launcherCode =
       `const{spawn}=require('child_process');` +
-      `spawn(process.execPath,[${JSON.stringify(NODE_SERVER_SCRIPT)}],` +
+      `spawn(process.execPath,[${JSON.stringify(nodeServerScript)}],` +
       `{detached:true,stdio:['ignore','ignore','ignore'],env:Object.assign({},process.env,` +
       `${extraEnvStr})}).unref()`;
     Bun.spawnSync(['node', '-e', launcherCode], { stdio: ['ignore', 'ignore', 'ignore'] });

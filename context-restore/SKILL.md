@@ -851,7 +851,23 @@ else
     SAME=""; OTHER=""
     while IFS= read -r f; do
       [ -n "$f" ] || continue
-      b=$(grep -m1 '^branch:' "$f" 2>/dev/null | sed 's/^branch:[[:space:]]*//')
+      b=""
+      in_frontmatter=0
+      while IFS= read -r line || [ -n "$line" ]; do
+        if [ "$in_frontmatter" -eq 0 ]; then
+          [ "$line" = "---" ] || break
+          in_frontmatter=1
+          continue
+        fi
+        [ "$line" = "---" ] && break
+        case "$line" in
+          branch:*)
+            b=${line#branch:}
+            b="${b#"${b%%[![:space:]]*}"}"
+            break
+            ;;
+        esac
+      done < "$f"
       if [ -n "$CURRENT_BRANCH" ] && [ "$b" = "$CURRENT_BRANCH" ]; then
         SAME="${SAME}${f}
 "

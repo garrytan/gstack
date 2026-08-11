@@ -51,7 +51,23 @@ else
     SAME=""; OTHER=""
     while IFS= read -r f; do
       [ -n "$f" ] || continue
-      b=$(grep -m1 '^branch:' "$f" 2>/dev/null | sed 's/^branch:[[:space:]]*//')
+      b=""
+      in_frontmatter=0
+      while IFS= read -r line || [ -n "$line" ]; do
+        if [ "$in_frontmatter" -eq 0 ]; then
+          [ "$line" = "---" ] || break
+          in_frontmatter=1
+          continue
+        fi
+        [ "$line" = "---" ] && break
+        case "$line" in
+          branch:*)
+            b=\${line#branch:}
+            b="\${b#"\${b%%[![:space:]]*}"}"
+            break
+            ;;
+        esac
+      done < "$f"
       if [ -n "$CURRENT_BRANCH" ] && [ "$b" = "$CURRENT_BRANCH" ]; then
         SAME="\${SAME}\${f}
 "
@@ -282,20 +298,26 @@ describe('context-restore: find + sort + head cap', () => {
     expect(out.trim()).toBe('NO_CHECKPOINTS');
   });
 
-  test('50 .md files → only 20 returned, newest first by filename', () => {
-    // Seed 50 files with monotonically increasing timestamps.
+  test('50 .md files → caps current-branch saves first and trims branch whitespace', () => {
+    // Seed 50 files with monotonically increasing timestamps. The newer odd
+    // files belong to a sibling worktree; restore must prefer the current
+    // branch even when its frontmatter value has leading whitespace.
     for (let i = 0; i < 50; i++) {
       const ts = `20260419-${String(120000 + i).padStart(6, '0')}`;
-      fs.writeFileSync(`${tmp}/${ts}-file${i}.md`, `content ${i}`);
+      const branch = i % 2 === 0 ? '   feature-a' : 'feature-b';
+      fs.writeFileSync(`${tmp}/${ts}-file${i}.md`, `---\nbranch:${branch}\n---\ncontent ${i}`);
     }
     const out = runBash(RESTORE_FIND_BASH, {
       CHECKPOINT_DIR: tmp,
+      CURRENT_BRANCH: 'feature-a',
     }).stdout;
     const lines = out.trim().split('\n').filter(Boolean);
     expect(lines.length).toBe(20);
-    // sort -r → newest first by filename. Highest timestamps (files 30-49).
-    expect(lines[0]).toContain('file49');
-    expect(lines[19]).toContain('file30');
+    // Current-branch files are even-numbered. The 20 newest of 25 are
+    // file48 down to file10; newer feature-b files must remain fallback-only.
+    expect(lines[0]).toContain('file48');
+    expect(lines[19]).toContain('file10');
+    expect(lines.every((line) => /file(?:[0-9]*[02468])\.md$/.test(line))).toBe(true);
   });
 
   test('sort is by filename prefix, NOT mtime', () => {
@@ -329,6 +351,20 @@ describe('context-restore: find + sort + head cap', () => {
     // Must NOT contain any .md filename from cwd.
     expect(out).not.toContain('SKILL.md');
     expect(out).not.toContain('README.md');
+  });
+
+  test('body branch text cannot impersonate frontmatter', () => {
+    const mine = `${tmp}/20260101-120000-mine.md`;
+    const sibling = `${tmp}/20260619-120000-sibling.md`;
+    fs.writeFileSync(mine, '---\nbranch: feature-a\n---\ncurrent branch checkpoint');
+    fs.writeFileSync(sibling, '---\nstatus: in-progress\n---\nbranch: feature-a\n');
+
+    const out = runBash(RESTORE_FIND_BASH, {
+      CHECKPOINT_DIR: tmp,
+      CURRENT_BRANCH: 'feature-a',
+    }).stdout;
+
+    expect(out.trim().split('\n')[0]).toBe(mine);
   });
 });
 
