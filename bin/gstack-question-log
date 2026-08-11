@@ -31,7 +31,15 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # on Windows cannot resolve as an ES module specifier in bun -e imports.
 # cygpath -m converts to C:/Users/... which Bun accepts.
 case "$(uname -s)" in
-  MINGW*|MSYS*|CYGWIN*) command -v cygpath >/dev/null 2>&1 && SCRIPT_DIR="$(cygpath -m "$SCRIPT_DIR")" ;;
+  MINGW*|MSYS*|CYGWIN*)
+    if command -v cygpath >/dev/null 2>&1; then
+      SCRIPT_DIR="$(cygpath -m "$SCRIPT_DIR")"
+      # Bun hooks receive native Windows paths from their parent process.
+      # Convert only the state-root overrides before Bash uses them with mkdir.
+      [ -z "${GSTACK_STATE_ROOT:-}" ] || GSTACK_STATE_ROOT="$(cygpath -u "$GSTACK_STATE_ROOT")"
+      [ -z "${GSTACK_HOME:-}" ] || GSTACK_HOME="$(cygpath -u "$GSTACK_HOME")"
+    fi
+    ;;
 esac
 eval "$("$SCRIPT_DIR/gstack-slug" 2>/dev/null)"
 # GSTACK_STATE_ROOT takes precedence over GSTACK_HOME (test isolation per D16).

@@ -62,6 +62,7 @@ function runEvalList(...args: string[]): { stdout: string; stderr: string; statu
     env: {
       ...process.env,
       HOME: tmpHome,
+      USERPROFILE: tmpHome,
       GSTACK_HOME: path.join(tmpHome, '.gstack'),
     },
     encoding: 'utf-8',

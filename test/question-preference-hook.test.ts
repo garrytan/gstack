@@ -27,6 +27,8 @@ import { spawnSync } from 'child_process';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const HOOK = path.join(ROOT, 'hosts', 'claude', 'hooks', 'question-preference-hook');
+const HOOK_COMMAND = process.platform === 'win32' ? 'bash' : HOOK;
+const HOOK_ARGS = process.platform === 'win32' ? [HOOK] : [];
 
 let stateRoot: string;
 let cwdSlug: string;
@@ -84,7 +86,7 @@ function runHook(stdin: object, cwd?: string, extraEnv?: Record<string, string>)
   delete env.CONDUCTOR_PORT;
   env.GSTACK_QUESTION_LOG_NO_DERIVE = '1';
   if (extraEnv) Object.assign(env, extraEnv);
-  const res = spawnSync(HOOK, [], {
+  const res = spawnSync(HOOK_COMMAND, HOOK_ARGS, {
     env,
     input: JSON.stringify({ ...stdin, cwd: cwd || fixtureCwd }),
     encoding: 'utf-8',
@@ -181,7 +183,7 @@ describe('passes through (no enforcement)', () => {
       if (v !== undefined) env[k] = v;
     }
     env.GSTACK_STATE_ROOT = stateRoot;
-    const res = spawnSync(HOOK, [], { env, input: '', encoding: 'utf-8' });
+    const res = spawnSync(HOOK_COMMAND, HOOK_ARGS, { env, input: '', encoding: 'utf-8' });
     expect(res.status).toBe(0);
     expect(res.stdout).toBe('');
   });

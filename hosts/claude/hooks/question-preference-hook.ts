@@ -42,6 +42,7 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
+import { fileURLToPath } from 'node:url';
 import * as os from 'os';
 import { spawnSync } from 'child_process';
 import { isConductor } from '../../../lib/is-conductor';
@@ -240,7 +241,7 @@ function loadRegistry(): Record<string, RegistryEntry> {
   registryCache = {};
   try {
     // Hook lives at hosts/claude/hooks/; registry at scripts/question-registry.ts
-    const here = path.dirname(new URL(import.meta.url).pathname);
+    const here = path.dirname(fileURLToPath(import.meta.url));
     const repoRoot = path.resolve(here, '..', '..', '..');
     const regPath = path.join(repoRoot, 'scripts', 'question-registry.ts');
     if (!fs.existsSync(regPath)) return registryCache;
@@ -334,7 +335,7 @@ function logAutoDecided(
   cwd: string | undefined,
 ): void {
   try {
-    const here = path.dirname(new URL(import.meta.url).pathname);
+    const here = path.dirname(fileURLToPath(import.meta.url));
     const repoRoot = path.resolve(here, '..', '..', '..');
     const bin = path.join(repoRoot, 'bin', 'gstack-question-log');
     const payload: Record<string, unknown> = {
@@ -348,7 +349,11 @@ function logAutoDecided(
       session_id: sessionId?.slice(0, 64),
       tool_use_id: toolUseId?.slice(0, 128),
     };
-    spawnSync(bin, [JSON.stringify(payload)], {
+    const command = process.platform === 'win32' ? 'bash' : bin;
+    const args = process.platform === 'win32'
+      ? [bin, JSON.stringify(payload)]
+      : [JSON.stringify(payload)];
+    spawnSync(command, args, {
       encoding: 'utf-8',
       stdio: ['ignore', 'pipe', 'pipe'],
       timeout: 3000,

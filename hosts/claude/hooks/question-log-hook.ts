@@ -35,6 +35,7 @@
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
+import { fileURLToPath } from 'node:url';
 import * as os from 'os';
 import { spawnSync } from 'child_process';
 
@@ -206,11 +207,15 @@ function detectSkill(cwd: string | undefined): string {
 
 function spawnLog(payload: Record<string, unknown>, cwd?: string): void {
   // Locate the bin relative to this script's directory.
-  const here = path.dirname(new URL(import.meta.url).pathname);
+  const here = path.dirname(fileURLToPath(import.meta.url));
   // hosts/claude/hooks/ -> ../../../bin/
   const repoRoot = path.resolve(here, '..', '..', '..');
   const bin = path.join(repoRoot, 'bin', 'gstack-question-log');
-  const res = spawnSync(bin, [JSON.stringify(payload)], {
+  const command = process.platform === 'win32' ? 'bash' : bin;
+  const args = process.platform === 'win32'
+    ? [bin, JSON.stringify(payload)]
+    : [JSON.stringify(payload)];
+  const res = spawnSync(command, args, {
     encoding: 'utf-8',
     stdio: ['ignore', 'pipe', 'pipe'],
     timeout: 3000,

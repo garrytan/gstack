@@ -15,9 +15,11 @@
 import { describe, test, expect } from "bun:test";
 import { spawnSync } from "child_process";
 import * as path from "path";
+import { pathToFileURL } from "node:url";
 import { parseIntFlag } from "../design/src/flag-utils";
 
 const ROOT = path.resolve(import.meta.dir, "..");
+const FLAG_UTILS_URL = pathToFileURL(path.join(ROOT, "design", "src", "flag-utils.ts")).href;
 
 const COUNT_SPEC = { name: "count", def: 3, min: 1, max: 7 } as const;
 const RETRY_SPEC = { name: "retry", def: 0, min: 0 } as const;
@@ -91,7 +93,7 @@ describe("parseIntFlag contract (#2032, codex 17a-c)", () => {
 describe("normalizeIntFlag CLI wrapper (exit-1 semantics)", () => {
   function runWrapper(rawExpr: string, specExpr: string): { status: number; stderr: string } {
     const script = `
-      import { normalizeIntFlag } from "${ROOT}/design/src/flag-utils";
+      import { normalizeIntFlag } from ${JSON.stringify(FLAG_UTILS_URL)};
       const v = normalizeIntFlag(${rawExpr}, ${specExpr});
       console.log("VALUE:" + v);
     `;

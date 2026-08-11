@@ -16,8 +16,9 @@
 import { describe, test, expect } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = path.resolve(new URL(import.meta.url).pathname, '..', '..');
+const ROOT = path.resolve(fileURLToPath(import.meta.url), '..', '..');
 
 const RUNNERS = [
   'test/helpers/session-runner.ts',

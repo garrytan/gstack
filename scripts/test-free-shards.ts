@@ -106,6 +106,14 @@ const KNOWN_WINDOWS_INCOMPATIBLE: Array<{ file: string; reason: string }> = [
     file: 'browse/test/findport.test.ts',
     reason: 'asserts Bun.serve.stop() is fire-and-forget — Bun behavior differs on Windows for this polyfill',
   },
+  {
+    file: 'test/regression-pr1169-build-app-sed.test.ts',
+    reason: 'exercises macOS build-app.sh sed and mktemp behavior, including a POSIX /tmp fixture path',
+  },
+  {
+    file: 'test/setup-conductor-worktree.test.ts',
+    reason: 'asserts BSD ln symlink behavior that Windows and Git Bash do not provide',
+  },
 ];
 
 export const DEFAULT_SHARD_COUNT = 20;

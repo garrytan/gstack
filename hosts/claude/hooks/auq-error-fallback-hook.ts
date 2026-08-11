@@ -30,6 +30,7 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
+import { fileURLToPath } from 'node:url';
 import * as os from 'os';
 import { spawnSync } from 'child_process';
 
@@ -126,9 +127,11 @@ export function isErrorResponse(response: unknown): boolean {
  *  echoes). Falls back to 'interactive' (degrade-safe) on any failure. */
 export function sessionKind(cwd?: string): 'spawned' | 'headless' | 'interactive' {
   try {
-    const here = path.dirname(new URL(import.meta.url).pathname);
+    const here = path.dirname(fileURLToPath(import.meta.url));
     const bin = path.resolve(here, '..', '..', '..', 'bin', 'gstack-session-kind');
-    const res = spawnSync(bin, [], {
+    const command = process.platform === 'win32' ? 'bash' : bin;
+    const args = process.platform === 'win32' ? [bin] : [];
+    const res = spawnSync(command, args, {
       encoding: 'utf-8',
       timeout: 3000,
       cwd: cwd && fs.existsSync(cwd) ? cwd : undefined,

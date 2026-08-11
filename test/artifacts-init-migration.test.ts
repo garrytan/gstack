@@ -6,9 +6,11 @@ import { describe, expect, test, beforeEach } from 'bun:test';
 import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, mkdirSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
+import { fileURLToPath } from 'node:url';
 
-const REPO_ROOT = new URL('..', import.meta.url).pathname;
+const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url));
 const MIGRATION = join(REPO_ROOT, 'gstack-upgrade', 'migrations', 'v1.38.1.0.sh');
+const testWithJq = Bun.which('jq') ? test : test.skip;
 
 function setupFakeHome(): string {
   const dir = mkdtempSync(join(tmpdir(), 'mig-v1340-'));
@@ -58,7 +60,7 @@ describe('v1.38.1.0 migration', () => {
     }
   });
 
-  test('adds entries to privacy-map.json via jq (preserves JSON validity)', () => {
+  testWithJq('adds entries to privacy-map.json via jq (preserves JSON validity)', () => {
     const home = setupFakeHome();
     try {
       writeFileSync(join(home, '.gstack', '.brain-privacy-map.json'), JSON.stringify([
@@ -138,7 +140,7 @@ describe('v1.38.1.0 migration', () => {
     }
   });
 
-  test('repairs privacy-map even when allowlist is missing (per-file independence)', () => {
+  testWithJq('repairs privacy-map even when allowlist is missing (per-file independence)', () => {
     const home = setupFakeHome();
     try {
       // No .brain-allowlist; only privacy-map present
@@ -260,7 +262,7 @@ describe('v1.40.0.0 migration', () => {
     }
   });
 
-  test('adds eng-review-test-plan entry to privacy-map.json via jq', () => {
+  testWithJq('adds eng-review-test-plan entry to privacy-map.json via jq', () => {
     const home = setupFakeHome();
     try {
       writeFileSync(join(home, '.gstack', '.brain-privacy-map.json'), JSON.stringify([
