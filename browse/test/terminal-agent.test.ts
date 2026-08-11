@@ -131,15 +131,18 @@ describe('Source-level guard: terminal-agent', () => {
     expect(wsHandler).toContain('validTokens.has');
   });
 
-  test('Sec-WebSocket-Protocol auth: strips gstack-pty. prefix and echoes back', () => {
+  test('Sec-WebSocket-Protocol auth: strips gstack-pty. prefix, no manual echo', () => {
     const wsHandler = AGENT_SRC.slice(AGENT_SRC.indexOf("if (url.pathname === '/ws')"));
     // Browsers send `Sec-WebSocket-Protocol: gstack-pty.<token>`. The agent
-    // must strip the prefix before checking validTokens, AND echo the
-    // protocol back in the upgrade response — without the echo, the
-    // browser closes the connection immediately.
+    // must strip the prefix before checking validTokens. The protocol echo
+    // is Bun's job: Bun >= 1.3 auto-echoes the first offered protocol in the
+    // 101 response. A manual echo on top produced a DUPLICATE
+    // Sec-WebSocket-Protocol header, which strict clients (Chromium, python
+    // websockets) reject per RFC 6455 — the sidebar terminal could never
+    // connect. Pin the invariant: no manual echo in the upgrade call.
     expect(wsHandler).toContain("'gstack-pty.'");
-    expect(wsHandler).toContain('Sec-WebSocket-Protocol');
-    expect(wsHandler).toContain('acceptedProtocol');
+    expect(wsHandler).toContain('sec-websocket-protocol');
+    expect(wsHandler).not.toContain("headers: { 'Sec-WebSocket-Protocol'");
   });
 
   test('lazy spawn: claude PTY is spawned in message handler, not on upgrade', () => {
@@ -152,8 +155,10 @@ describe('Source-level guard: terminal-agent', () => {
     );
     expect(upgradeBlock).not.toContain('spawnClaude(');
     // Spawn must be invoked from the message handler (lazy on first byte).
+    // v1.44 routes both spawn triggers (explicit {type:"start"} text frame
+    // and the lazy binary-frame path) through the maybeSpawnPty helper.
     const messageHandler = AGENT_SRC.slice(AGENT_SRC.indexOf('message(ws, raw)'));
-    expect(messageHandler).toContain('spawnClaude(');
+    expect(messageHandler).toContain('maybeSpawnPty(');
     expect(messageHandler).toContain('!session.spawned');
   });
 
