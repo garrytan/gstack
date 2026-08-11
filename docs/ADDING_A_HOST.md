@@ -1,7 +1,7 @@
 # Adding a New Host to gstack
 
 gstack uses a declarative host config system. Each supported AI coding agent
-(Claude, Codex, Factory, Kiro, OpenCode, Slate, Cursor, OpenClaw) is defined
+(Claude, Codex, Factory, Kiro, OpenCode, Slate, Cursor, OpenClaw, Qoder) is defined
 as a typed TypeScript config object. Adding a new host means creating one file
 and re-exporting it. Zero code changes to the generator, setup, or tooling.
 
@@ -17,6 +17,7 @@ hosts/
 ├── slate.ts         # Slate (Random Labs)
 ├── cursor.ts        # Cursor
 ├── openclaw.ts      # OpenClaw (hybrid: config + adapter)
+├── qoder.ts         # Qoder (通义灵码)
 └── index.ts         # Registry: imports all, derives Host type
 ```
 
@@ -140,6 +141,28 @@ freshness check passes, codex skill excluded.
 ### 6. Update README.md
 
 Add install instructions for the new host in the appropriate section.
+
+### 7. (Optional) Support project-level installation with `--dir`
+
+If your host supports installing skills to a project-local directory (e.g. for
+team-wide or repo-specific skill installations), extend the setup script to
+support the `--dir` flag. Add your host to the `case` statement that handles
+`CUSTOM_DIR` overrides in the `setup` script:
+
+```bash
+case "$HOST" in
+  myhost)
+    MYHOST_SKILLS="$CUSTOM_DIR"
+    MYHOST_GSTACK="$MYHOST_SKILLS/gstack"
+    ;;
+esac
+```
+
+Users can then install skills to a custom directory:
+
+```bash
+./setup --host myhost --dir ./my-project/.myhost/skills
+```
 
 ## Config field reference
 
