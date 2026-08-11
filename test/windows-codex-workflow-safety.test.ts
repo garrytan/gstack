@@ -91,7 +91,12 @@ describe('Windows workflows: clean Codex compatibility gate', () => {
     expect(setup).toContain('bash bin/gstack-doctor --json --strict');
     expect(setup).toContain('for skill in gstack-qa gstack-review gstack-ship; do');
     expect(setup).toContain('$CODEX_HOME/skills/$skill');
-    for (const command of ['goto about:blank', ' status', ' restart', ' stop']) {
+    expect(setup).not.toContain('goto about:blank');
+    expect(setup).toContain('pathToFileURL');
+    expect(setup).toContain('$GITHUB_WORKSPACE/.gstack-ci-blank.html');
+    expect(setup).toContain('goto "$PAGE_URL"');
+    expect(setup).toContain('rm -f "$PAGE_PATH"');
+    for (const command of [' status', ' restart', ' stop']) {
       expect(setup).toContain(command);
     }
     expect(setup).toContain('BROWSE_STATE_FILE');

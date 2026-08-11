@@ -164,10 +164,13 @@ jobs:
           BROWSE_BIN="$CODEX_HOME/skills/gstack/browse/dist/browse.exe"
           test -f "$BROWSE_BIN" || BROWSE_BIN="$CODEX_HOME/skills/gstack/browse/dist/browse"
           test -f "$BROWSE_BIN"
-          cleanup() { "$BROWSE_BIN" stop >/dev/null 2>&1 || true; }
+          PAGE_PATH="$GITHUB_WORKSPACE/.gstack-ci-blank.html"
+          cleanup() { "$BROWSE_BIN" stop >/dev/null 2>&1 || true; rm -f "$PAGE_PATH"; }
           trap cleanup EXIT
 
-          "$BROWSE_BIN" goto about:blank
+          node -e 'require("fs").writeFileSync(process.argv[1], "<!doctype html><title>gstack smoke</title>")' "$PAGE_PATH"
+          PAGE_URL=$(node -e 'console.log(require("url").pathToFileURL(process.argv[1]).href)' "$PAGE_PATH")
+          "$BROWSE_BIN" goto "$PAGE_URL"
           "$BROWSE_BIN" status
           before_pid=$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).pid)' "$BROWSE_STATE_FILE")
 
@@ -184,6 +187,7 @@ jobs:
           test ! -e "$BROWSE_STATE_FILE" || { echo "browse state file was not removed" >&2; exit 1; }
           node -e 'const pid=Number(process.argv[1]); try { process.kill(pid, 0); process.exit(1); } catch (error) { if (error && error.code === "ESRCH") process.exit(0); throw error; }' "$after_pid" \
             || { echo "browse PID is still alive after stop" >&2; exit 1; }
+          rm -f "$PAGE_PATH"
           trap - EXIT
         shell: bash
 
