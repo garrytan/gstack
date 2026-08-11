@@ -5,7 +5,7 @@
  * Each test creates real git worktrees in a temporary repo.
  */
 
-import { describe, test, expect, afterEach } from 'bun:test';
+import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { WorktreeManager } from '../lib/worktree';
 import type { HarvestResult } from '../lib/worktree';
 import { spawnSync } from 'child_process';
@@ -48,7 +48,11 @@ function cleanupRepo(dir: string): void {
 const repos: string[] = [];
 
 // Dedup index path — clear before each test to avoid cross-run contamination
-const DEDUP_PATH = path.join(os.homedir(), '.gstack-dev', 'harvests', 'dedup.json');
+let harvestRoot: string;
+
+beforeEach(() => {
+  harvestRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'worktree-harvest-'));
+});
 
 afterEach(() => {
   for (const repo of repos) {
@@ -56,7 +60,7 @@ afterEach(() => {
   }
   repos.length = 0;
   // Clear dedup index so tests are independent
-  try { fs.unlinkSync(DEDUP_PATH); } catch { /* may not exist */ }
+  try { fs.rmSync(harvestRoot, { recursive: true, force: true }); } catch { /* best effort */ }
 });
 
 describe('WorktreeManager', () => {
@@ -64,7 +68,7 @@ describe('WorktreeManager', () => {
   test('create() produces a valid worktree at the expected path', () => {
     const repo = createTestRepo();
     repos.push(repo);
-    const mgr = new WorktreeManager(repo);
+    const mgr = new WorktreeManager(repo, harvestRoot);
 
     const worktreePath = mgr.create('test-1');
 
@@ -79,7 +83,7 @@ describe('WorktreeManager', () => {
   test('create() worktree has .agents/skills/ (gitignored artifacts copied)', () => {
     const repo = createTestRepo();
     repos.push(repo);
-    const mgr = new WorktreeManager(repo);
+    const mgr = new WorktreeManager(repo, harvestRoot);
 
     const worktreePath = mgr.create('test-agents');
 
@@ -92,7 +96,7 @@ describe('WorktreeManager', () => {
   test('create() stores correct originalSha', () => {
     const repo = createTestRepo();
     repos.push(repo);
-    const mgr = new WorktreeManager(repo);
+    const mgr = new WorktreeManager(repo, harvestRoot);
 
     const expectedSha = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: repo, stdio: 'pipe' })
       .stdout.toString().trim();
@@ -109,7 +113,7 @@ describe('WorktreeManager', () => {
   test('harvest() captures modifications to tracked files', () => {
     const repo = createTestRepo();
     repos.push(repo);
-    const mgr = new WorktreeManager(repo);
+    const mgr = new WorktreeManager(repo, harvestRoot);
 
     const worktreePath = mgr.create('test-harvest-mod');
 
@@ -130,7 +134,7 @@ describe('WorktreeManager', () => {
   test('harvest() captures new untracked files (git add -A path)', () => {
     const repo = createTestRepo();
     repos.push(repo);
-    const mgr = new WorktreeManager(repo);
+    const mgr = new WorktreeManager(repo, harvestRoot);
 
     const worktreePath = mgr.create('test-harvest-new');
 
@@ -148,7 +152,7 @@ describe('WorktreeManager', () => {
   test('harvest() captures committed changes (git diff originalSha)', () => {
     const repo = createTestRepo();
     repos.push(repo);
-    const mgr = new WorktreeManager(repo);
+    const mgr = new WorktreeManager(repo, harvestRoot);
 
     const worktreePath = mgr.create('test-harvest-commit');
 
@@ -168,7 +172,7 @@ describe('WorktreeManager', () => {
   test('harvest() returns null when worktree is clean', () => {
     const repo = createTestRepo();
     repos.push(repo);
-    const mgr = new WorktreeManager(repo);
+    const mgr = new WorktreeManager(repo, harvestRoot);
 
     mgr.create('test-harvest-clean');
 
@@ -185,7 +189,7 @@ describe('WorktreeManager', () => {
     repos.push(repo);
 
     // First run
-    const mgr1 = new WorktreeManager(repo);
+    const mgr1 = new WorktreeManager(repo, harvestRoot);
     const wt1 = mgr1.create('test-dedup-1');
     fs.writeFileSync(path.join(wt1, 'dedup-test.txt'), 'same content\n');
     const result1 = mgr1.harvest('test-dedup-1');
@@ -195,7 +199,7 @@ describe('WorktreeManager', () => {
     expect(result1!.isDuplicate).toBe(false);
 
     // Second run with same change
-    const mgr2 = new WorktreeManager(repo);
+    const mgr2 = new WorktreeManager(repo, harvestRoot);
     const wt2 = mgr2.create('test-dedup-2');
     fs.writeFileSync(path.join(wt2, 'dedup-test.txt'), 'same content\n');
     const result2 = mgr2.harvest('test-dedup-2');
@@ -208,7 +212,7 @@ describe('WorktreeManager', () => {
   test('cleanup() removes worktree directory', () => {
     const repo = createTestRepo();
     repos.push(repo);
-    const mgr = new WorktreeManager(repo);
+    const mgr = new WorktreeManager(repo, harvestRoot);
 
     const worktreePath = mgr.create('test-cleanup');
     expect(fs.existsSync(worktreePath)).toBe(true);
@@ -222,7 +226,7 @@ describe('WorktreeManager', () => {
     repos.push(repo);
 
     // Create a worktree with a different manager (simulating a previous run)
-    const oldMgr = new WorktreeManager(repo);
+    const oldMgr = new WorktreeManager(repo, harvestRoot);
     const oldPath = oldMgr.create('stale-test');
     const oldRunDir = path.dirname(oldPath);
     expect(fs.existsSync(oldPath)).toBe(true);
@@ -236,7 +240,7 @@ describe('WorktreeManager', () => {
     fs.utimesSync(oldRunDir, staleTime, staleTime);
 
     // New manager should prune the old run's directory
-    const newMgr = new WorktreeManager(repo);
+    const newMgr = new WorktreeManager(repo, harvestRoot);
     newMgr.pruneStale();
 
     expect(fs.existsSync(oldRunDir)).toBe(false);
@@ -245,7 +249,7 @@ describe('WorktreeManager', () => {
   test('create() throws on failure (no silent fallback to ROOT)', () => {
     const repo = createTestRepo();
     repos.push(repo);
-    const mgr = new WorktreeManager(repo);
+    const mgr = new WorktreeManager(repo, harvestRoot);
 
     // Create the same worktree twice — second should fail because path exists
     mgr.create('test-fail');
@@ -257,7 +261,7 @@ describe('WorktreeManager', () => {
   test('harvest() returns null gracefully when worktree dir was deleted by agent', () => {
     const repo = createTestRepo();
     repos.push(repo);
-    const mgr = new WorktreeManager(repo);
+    const mgr = new WorktreeManager(repo, harvestRoot);
 
     const worktreePath = mgr.create('test-deleted');
 

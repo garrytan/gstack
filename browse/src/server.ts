@@ -1590,15 +1590,15 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
       // sessions on the same host. Only the PID recorded in
       // `<stateDir>/terminal-agent-pid` by THIS daemon's agent is signaled.
       try {
-        const stateDir = path.dirname(config.stateFile);
+        const stateDir = path.dirname(cfg.config.stateFile);
         const record = readAgentRecord(stateDir);
         if (record) killAgentByRecord(record, 'SIGTERM');
       } catch (err: any) {
         console.warn('[browse] Failed to kill terminal-agent:', err.message);
       }
-      safeUnlinkQuiet(path.join(path.dirname(config.stateFile), 'terminal-port'));
-      safeUnlinkQuiet(path.join(path.dirname(config.stateFile), 'terminal-internal-token'));
-      safeUnlinkQuiet(agentRecordPath(path.dirname(config.stateFile)));
+      safeUnlinkQuiet(path.join(path.dirname(cfg.config.stateFile), 'terminal-port'));
+      safeUnlinkQuiet(path.join(path.dirname(cfg.config.stateFile), 'terminal-internal-token'));
+      safeUnlinkQuiet(agentRecordPath(path.dirname(cfg.config.stateFile)));
     }
     try { detachSession(); } catch (err: any) {
       console.warn('[browse] Failed to detach CDP session:', err.message);

@@ -421,14 +421,25 @@ export async function handleMetaCommand(
     }
 
     case 'stop': {
-      await shutdown();
+      // Return the HTTP response before process shutdown. Calling shutdown()
+      // inline reaches process.exit() while the response body is still being
+      // flushed, which surfaces as ECONNRESET in the CLI on Windows.
+      setTimeout(() => {
+        Promise.resolve(shutdown()).catch((err: any) => {
+          console.error('[browse] Deferred shutdown failed:', err?.message || err);
+        });
+      }, 100);
       return 'Server stopped';
     }
 
     case 'restart': {
       // Signal that we want a restart — the CLI will detect exit and restart
       console.log('[browse] Restart requested. Exiting for CLI to restart.');
-      await shutdown();
+      setTimeout(() => {
+        Promise.resolve(shutdown()).catch((err: any) => {
+          console.error('[browse] Deferred restart shutdown failed:', err?.message || err);
+        });
+      }, 100);
       return 'Restarting...';
     }
 

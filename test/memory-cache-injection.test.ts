@@ -15,6 +15,8 @@ import { spawnSync } from 'child_process';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const HOOK = path.join(ROOT, 'hosts', 'claude', 'hooks', 'question-preference-hook');
+const HOOK_COMMAND = process.platform === 'win32' ? 'bash' : HOOK;
+const HOOK_ARGS = process.platform === 'win32' ? [HOOK] : [];
 
 let stateRoot: string;
 let fixtureCwd: string;
@@ -48,7 +50,7 @@ function runHook(stdin: object): { stdout: string; stderr: string; status: numbe
   // set) doesn't flip the hook into the [conductor] prose deny instead of pass-through.
   delete env.CONDUCTOR_WORKSPACE_PATH;
   delete env.CONDUCTOR_PORT;
-  const res = spawnSync(HOOK, [], {
+  const res = spawnSync(HOOK_COMMAND, HOOK_ARGS, {
     env,
     input: JSON.stringify({ ...stdin, cwd: fixtureCwd }),
     encoding: 'utf-8',

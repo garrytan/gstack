@@ -18,7 +18,7 @@ INSTALL_GSTACK_DIR="$(cd "$(dirname "$0")" && pwd)"
 SOURCE_GSTACK_DIR="$(cd "$(dirname "$0")" && pwd -P)"
 INSTALL_SKILLS_DIR="$(dirname "$INSTALL_GSTACK_DIR")"
 BROWSE_BIN="$SOURCE_GSTACK_DIR/browse/dist/browse"
-CODEX_SKILLS="$HOME/.codex/skills"
+CODEX_SKILLS="${CODEX_HOME:-$HOME/.codex}/skills"
 CODEX_GSTACK="$CODEX_SKILLS/gstack"
 FACTORY_SKILLS="$HOME/.factory/skills"
 FACTORY_GSTACK="$FACTORY_SKILLS/gstack"
@@ -537,6 +537,68 @@ mkdir -p "$HOME/.gstack/projects"
 # gstack/ (which would auto-prefix them as gstack-*).
 # When SKILL_PREFIX=1, directories are prefixed with "gstack-".
 # Use --no-prefix to restore flat names.
+# A directory name alone is not provenance. Before refreshing, replacing, or
+# removing a same-name wrapper, prove it was created by this gstack install.
+_managed_skill_wrapper() {
+  local entry="$1" source_dir="$2" canonical_name="$3" prefix="$4"
+  [ ! -e "$entry" ] && [ ! -L "$entry" ] && return 0
+  if [ -d "$entry" ] && [ "$(cat "$entry/.gstack-skill-projection" 2>/dev/null || true)" = "gstack-skill-projection-v1" ]; then
+    return 0
+  fi
+  # Pre-marker wrappers are safe to adopt only if they resolve to this source
+  # install or their SKILL.md exactly matches the projected canonical source.
+  if [ -L "$entry" ] && [ "$(readlink -f "$entry" 2>/dev/null || true)" = "$(readlink -f "$source_dir" 2>/dev/null || true)" ]; then
+    return 0
+  fi
+  if [ -d "$entry" ] && [ -L "$entry/SKILL.md" ] && \
+     [ "$(readlink -f "$entry/SKILL.md" 2>/dev/null || true)" = "$(readlink -f "$source_dir/SKILL.md" 2>/dev/null || true)" ]; then
+    return 0
+  fi
+  if [ -d "$entry" ] && [ -f "$entry/SKILL.md" ] && \
+     "$SOURCE_GSTACK_DIR/bin/gstack-patch-names" --matches-projection "$source_dir/SKILL.md" "$entry/SKILL.md" "$canonical_name" "$prefix"; then
+    return 0
+  fi
+  return 1
+}
+
+_refuse_unowned_skill_wrapper() {
+  local entry="$1"
+  echo "gstack setup: refusing to replace unowned skill wrapper: $entry" >&2
+  echo "Move or remove it manually, then run setup again." >&2
+  return 1
+}
+
+_remove_managed_skill_wrapper() {
+  local entry="$1" source_dir="$2" canonical_name="$3" prefix="$4"
+  [ ! -e "$entry" ] && [ ! -L "$entry" ] && return 0
+  _managed_skill_wrapper "$entry" "$source_dir" "$canonical_name" "$prefix" || _refuse_unowned_skill_wrapper "$entry"
+  rm -rf "$entry"
+}
+
+_prepare_managed_skill_wrapper() {
+  local entry="$1" source_dir="$2" canonical_name="$3" prefix="$4"
+  [ ! -e "$entry" ] && [ ! -L "$entry" ] || _remove_managed_skill_wrapper "$entry" "$source_dir" "$canonical_name" "$prefix"
+  mkdir -p "$entry"
+}
+
+_project_codex_metadata() {
+  local metadata="$1" canonical_name="$2" prefix="$3" projected_name
+  [ -f "$metadata" ] || return 0
+  if [ "$prefix" -eq 1 ] && [[ "$canonical_name" != gstack-* ]]; then
+    projected_name="gstack-$canonical_name"
+  else
+    projected_name="$canonical_name"
+  fi
+  local tmp
+  tmp="$(mktemp "$(dirname "$metadata")/.openai.yaml.XXXXXX")"
+  awk -v name="$projected_name" '
+    /^  display_name:/ { print "  display_name: \"" name "\""; next }
+    /^  default_prompt:/ { print "  default_prompt: \"Use " name " for this task.\""; next }
+    { print }
+  ' "$metadata" > "$tmp"
+  mv "$tmp" "$metadata"
+}
+
 link_claude_skill_dirs() {
   local gstack_dir="$1"
   local skills_dir="$2"
@@ -559,16 +621,12 @@ link_claude_skill_dirs() {
         link_name="$skill_name"
       fi
       target="$skills_dir/$link_name"
-      # Upgrade old directory symlinks to real directories
-      if [ -L "$target" ]; then
-        rm -f "$target"
-      fi
       # Create real directory with symlinked SKILL.md (absolute path)
-      # Use mkdir -p unconditionally (idempotent) to avoid TOCTOU race
-      mkdir -p "$target"
-      # Validate target isn't a symlink before creating the link
-      if [ -L "$target/SKILL.md" ]; then rm "$target/SKILL.md"; fi
-      _link_or_copy "$gstack_dir/$dir_name/SKILL.md" "$target/SKILL.md"
+      # only after proving a same-name existing entry is Gstack-managed.
+      _prepare_managed_skill_wrapper "$target" "$skill_dir" "$skill_name" "$SKILL_PREFIX"
+      # Prefix metadata is an installation concern. Project the canonical
+      # source into this wrapper instead of mutating the source checkout.
+      "$gstack_dir/bin/gstack-patch-names" "$gstack_dir/$dir_name/SKILL.md" "$target/SKILL.md" "$skill_name" "$SKILL_PREFIX"
       # Link the sections/ subdir for carved skills (v2 plan T9). The prefixed
       # Claude skill dir otherwise holds only SKILL.md, so a runtime
       # "Read sections/<name>.md" 404s. Route through _link_or_copy so Windows
@@ -615,35 +673,14 @@ cleanup_old_claude_symlinks() {
   local removed=()
   for skill_dir in "$gstack_dir"/*/; do
     if [ -f "$skill_dir/SKILL.md" ]; then
-      skill_name="$(basename "$skill_dir")"
+      skill_name="$(grep -m1 '^name:' "$skill_dir/SKILL.md" 2>/dev/null | sed 's/^name:[[:space:]]*//' | tr -d '[:space:]')"
+      [ -n "$skill_name" ] || skill_name="$(basename "$skill_dir")"
       [ "$skill_name" = "node_modules" ] && continue
       # Skip already-prefixed dirs (gstack-upgrade) — no old symlink to clean
       case "$skill_name" in gstack-*) continue ;; esac
       old_target="$skills_dir/$skill_name"
-      # Remove directory symlinks pointing into gstack/
-      if [ -L "$old_target" ]; then
-        link_dest="$(readlink "$old_target" 2>/dev/null || true)"
-        case "$link_dest" in
-          gstack/*|*/gstack/*)
-            rm -f "$old_target"
-            removed+=("$skill_name")
-            ;;
-        esac
-      # Remove real directories with symlinked SKILL.md pointing into gstack/
-      elif [ -d "$old_target" ] && [ -L "$old_target/SKILL.md" ]; then
-        link_dest="$(readlink "$old_target/SKILL.md" 2>/dev/null || true)"
-        case "$link_dest" in
-          *gstack*)
-            rm -rf "$old_target"
-            removed+=("$skill_name")
-            ;;
-        esac
-      # Windows install pattern: real dir with real-file SKILL.md (no symlink
-      # available, so we can't readlink to verify provenance). The outer loop
-      # iterates known gstack skill names from "$gstack_dir"/*, so a name match
-      # plus IS_WINDOWS is safe to treat as gstack-managed during a mode flip.
-      elif [ "$IS_WINDOWS" -eq 1 ] && [ -d "$old_target" ] && [ -f "$old_target/SKILL.md" ]; then
-        rm -rf "$old_target"
+      if [ -e "$old_target" ] || [ -L "$old_target" ]; then
+        _remove_managed_skill_wrapper "$old_target" "$skill_dir" "$skill_name" false
         removed+=("$skill_name")
       fi
     fi
@@ -662,35 +699,16 @@ cleanup_prefixed_claude_symlinks() {
   local removed=()
   for skill_dir in "$gstack_dir"/*/; do
     if [ -f "$skill_dir/SKILL.md" ]; then
-      skill_name="$(basename "$skill_dir")"
+      skill_name="$(grep -m1 '^name:' "$skill_dir/SKILL.md" 2>/dev/null | sed 's/^name:[[:space:]]*//' | tr -d '[:space:]')"
+      [ -n "$skill_name" ] || skill_name="$(basename "$skill_dir")"
       [ "$skill_name" = "node_modules" ] && continue
       # Only clean up prefixed entries for dirs that AREN'T already prefixed
       # (e.g., remove gstack-qa but NOT gstack-upgrade which is the real dir name)
       case "$skill_name" in gstack-*) continue ;; esac
       prefixed_target="$skills_dir/gstack-$skill_name"
-      # Remove directory symlinks pointing into gstack/
-      if [ -L "$prefixed_target" ]; then
-        link_dest="$(readlink "$prefixed_target" 2>/dev/null || true)"
-        case "$link_dest" in
-          gstack/*|*/gstack/*)
-            rm -f "$prefixed_target"
-            removed+=("gstack-$skill_name")
-            ;;
-        esac
-      # Remove real directories with symlinked SKILL.md pointing into gstack/
-      elif [ -d "$prefixed_target" ] && [ -L "$prefixed_target/SKILL.md" ]; then
-        link_dest="$(readlink "$prefixed_target/SKILL.md" 2>/dev/null || true)"
-        case "$link_dest" in
-          *gstack*)
-            rm -rf "$prefixed_target"
-            removed+=("gstack-$skill_name")
-            ;;
-        esac
-      # Windows install pattern: real dir with real-file SKILL.md. Same
-      # reasoning as cleanup_old_claude_symlinks — directory name match plus
-      # IS_WINDOWS is safe during a mode flip.
-      elif [ "$IS_WINDOWS" -eq 1 ] && [ -d "$prefixed_target" ] && [ -f "$prefixed_target/SKILL.md" ]; then
-        rm -rf "$prefixed_target"
+      # Remove only wrappers proved to have been created by this installation.
+      if [ -e "$prefixed_target" ] || [ -L "$prefixed_target" ]; then
+        _remove_managed_skill_wrapper "$prefixed_target" "$skill_dir" "$skill_name" true
         removed+=("gstack-$skill_name")
       fi
     fi
@@ -726,12 +744,33 @@ link_codex_skill_dirs() {
       # browse/), not a skill. Linking it would overwrite the root gstack
       # symlink that Step 5 already pointed at the repo root.
       [ "$skill_name" = "gstack" ] && continue
-      target="$skills_dir/$skill_name"
-      # Create or update symlink
-      if [ -L "$target" ] || [ ! -e "$target" ]; then
-        _link_or_copy "$skill_dir" "$target"
-        linked+=("$skill_name")
+      canonical_name=$(grep -m1 '^name:' "$skill_dir/SKILL.md" 2>/dev/null | sed 's/^name:[[:space:]]*//' | tr -d '[:space:]')
+      [ -n "$canonical_name" ] || canonical_name="$skill_name"
+      if [[ "$canonical_name" == gstack-* ]]; then
+        target_name="$canonical_name"
+        stale_target="$skills_dir/$target_name"
+        stale_prefix="$SKILL_PREFIX"
+      elif [ "$SKILL_PREFIX" -eq 1 ]; then
+        target_name="gstack-$canonical_name"
+        stale_target="$skills_dir/$canonical_name"
+        stale_prefix=false
+      else
+        target_name="$canonical_name"
+        stale_target="$skills_dir/gstack-$canonical_name"
+        stale_prefix=true
       fi
+      target="$skills_dir/$target_name"
+      # gstack-upgrade is already canonical gstack-* and has no alternate name.
+      if [ "$stale_target" != "$target" ] && { [ -e "$stale_target" ] || [ -L "$stale_target" ]; }; then
+        _remove_managed_skill_wrapper "$stale_target" "$skill_dir" "$canonical_name" "$stale_prefix"
+      fi
+      # Always copy generated Codex skills. A prefixed frontmatter name and the
+      # Codex display metadata belong to this wrapper, never to .agents/ output.
+      _prepare_managed_skill_wrapper "$target" "$skill_dir" "$canonical_name" "$SKILL_PREFIX"
+      cp -R "$skill_dir/." "$target"
+      "$gstack_dir/bin/gstack-patch-names" "$skill_dir/SKILL.md" "$target/SKILL.md" "$canonical_name" "$SKILL_PREFIX"
+      _project_codex_metadata "$target/agents/openai.yaml" "$canonical_name" "$SKILL_PREFIX"
+      linked+=("$target_name")
     fi
   done
   if [ ${#linked[@]} -gt 0 ]; then
@@ -788,19 +827,50 @@ create_codex_runtime_root() {
     rm -rf "$codex_gstack"
   fi
 
-  mkdir -p "$codex_gstack" "$codex_gstack/browse" "$codex_gstack/gstack-upgrade" "$codex_gstack/review"
+  mkdir -p "$codex_gstack" "$codex_gstack/browse" "$codex_gstack/gstack-upgrade" "$codex_gstack/review" "$codex_gstack/node_modules"
 
   if [ -f "$agents_dir/gstack/SKILL.md" ]; then
     _link_or_copy "$agents_dir/gstack/SKILL.md" "$codex_gstack/SKILL.md"
   fi
+  # Doctor and update diagnostics identify the installed runtime from this
+  # non-secret release marker rather than depending on the source checkout.
+  if [ -f "$gstack_dir/VERSION" ]; then
+    _link_or_copy "$gstack_dir/VERSION" "$codex_gstack/VERSION"
+  fi
   if [ -d "$gstack_dir/bin" ]; then
     _link_or_copy "$gstack_dir/bin" "$codex_gstack/bin"
+  fi
+  # Bin utilities import shared top-level TypeScript modules from ../lib.
+  # Copy only those small runtime modules; nested lib assets (notably the
+  # multi-megabyte diagram renderer) are not required by the Codex bin tools.
+  if [ -d "$gstack_dir/lib" ]; then
+    mkdir -p "$codex_gstack/lib"
+    for runtime_lib in "$gstack_dir"/lib/*.ts; do
+      [ -f "$runtime_lib" ] || continue
+      _link_or_copy "$runtime_lib" "$codex_gstack/lib/$(basename "$runtime_lib")"
+    done
   fi
   if [ -d "$gstack_dir/browse/dist" ]; then
     _link_or_copy "$gstack_dir/browse/dist" "$codex_gstack/browse/dist"
   fi
   if [ -d "$gstack_dir/browse/bin" ]; then
     _link_or_copy "$gstack_dir/browse/bin" "$codex_gstack/browse/bin"
+  fi
+  # Windows browse.exe validates the adjacent TypeScript server path before it
+  # launches the Node-compatible server bundle. Keep that source available in
+  # the minimal Codex runtime instead of requiring a source-checkout override.
+  if [ -d "$gstack_dir/browse/src" ]; then
+    _link_or_copy "$gstack_dir/browse/src" "$codex_gstack/browse/src"
+  fi
+  # server-node.mjs deliberately externalizes these runtime packages. Install
+  # only those dependencies, not the full repository node_modules tree.
+  for package in playwright playwright-core diff; do
+    if [ -d "$gstack_dir/node_modules/$package" ]; then
+      _link_or_copy "$gstack_dir/node_modules/$package" "$codex_gstack/node_modules/$package"
+    fi
+  done
+  if [ -d "$gstack_dir/node_modules/@ngrok" ]; then
+    _link_or_copy "$gstack_dir/node_modules/@ngrok" "$codex_gstack/node_modules/@ngrok"
   fi
   if [ -f "$agents_dir/gstack-upgrade/SKILL.md" ]; then
     _link_or_copy "$agents_dir/gstack-upgrade/SKILL.md" "$codex_gstack/gstack-upgrade/SKILL.md"
@@ -988,9 +1058,6 @@ if [ "$INSTALL_CLAUDE" -eq 1 ]; then
     else
       cleanup_prefixed_claude_symlinks "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
     fi
-    # Patch name: fields BEFORE creating symlinks so link_claude_skill_dirs
-    # reads the correct (patched) name: values for symlink naming
-    "$SOURCE_GSTACK_DIR/bin/gstack-patch-names" "$SOURCE_GSTACK_DIR" "$SKILL_PREFIX"
     link_claude_skill_dirs "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
     link_claude_root_skill_alias "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
     # Self-healing: re-run gstack-relink to ensure name: fields and directory
@@ -1062,7 +1129,6 @@ if [ "$INSTALL_CLAUDE" -eq 1 ]; then
       else
         cleanup_prefixed_claude_symlinks "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
       fi
-      "$SOURCE_GSTACK_DIR/bin/gstack-patch-names" "$SOURCE_GSTACK_DIR" "$SKILL_PREFIX"
       link_claude_skill_dirs "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
       link_claude_root_skill_alias "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"
       GSTACK_RELINK="$SOURCE_GSTACK_DIR/bin/gstack-relink"
@@ -1095,7 +1161,8 @@ if [ "$INSTALL_CODEX" -eq 1 ]; then
   if [ "$CODEX_REPO_LOCAL" -eq 0 ]; then
     create_codex_runtime_root "$SOURCE_GSTACK_DIR" "$CODEX_GSTACK"
   fi
-  # Install generated Codex-format skills (not Claude source dirs)
+  # Install generated Codex-format skills (not Claude source dirs).
+  # link_codex_skill_dirs projects metadata into the installed wrappers.
   link_codex_skill_dirs "$SOURCE_GSTACK_DIR" "$CODEX_SKILLS"
 
   log "gstack ready (codex)."
@@ -1203,24 +1270,13 @@ fi
 # 8. Run pending version migrations
 # Migrations handle state fixes that ./setup alone can't cover (stale config,
 # orphaned files, directory structure changes). Each migration is idempotent.
-MIGRATIONS_DIR="$SOURCE_GSTACK_DIR/gstack-upgrade/migrations"
+MIGRATION_RUNNER="$SOURCE_GSTACK_DIR/bin/gstack-run-migrations"
 CURRENT_VERSION=$(cat "$SOURCE_GSTACK_DIR/VERSION" 2>/dev/null || echo "unknown")
 LAST_SETUP_VERSION=$(cat "$HOME/.gstack/.last-setup-version" 2>/dev/null || echo "0.0.0.0")
-if [ -d "$MIGRATIONS_DIR" ] && [ "$CURRENT_VERSION" != "unknown" ] && [ "$LAST_SETUP_VERSION" != "$CURRENT_VERSION" ]; then
-  # Fresh install (no marker file) — skip migrations, just write marker
-  if [ ! -f "$HOME/.gstack/.last-setup-version" ]; then
-    : # fall through to marker write below
-  else
-    find "$MIGRATIONS_DIR" -maxdepth 1 -name 'v*.sh' -type f 2>/dev/null | sort -V | while IFS= read -r migration; do
-      m_ver="$(basename "$migration" .sh | sed 's/^v//')"
-      # Run if migration is newer than last setup version AND not newer than current version
-      if [ "$(printf '%s\n%s' "$LAST_SETUP_VERSION" "$m_ver" | sort -V | head -1)" = "$LAST_SETUP_VERSION" ] && [ "$LAST_SETUP_VERSION" != "$m_ver" ] \
-         && [ "$(printf '%s\n%s' "$m_ver" "$CURRENT_VERSION" | sort -V | tail -1)" = "$CURRENT_VERSION" ]; then
-        echo "  running migration $m_ver..."
-        bash "$migration" || echo "  warning: migration $m_ver had errors (non-fatal)"
-      fi
-    done
-  fi
+if [ -f "$MIGRATION_RUNNER" ] && [ "$CURRENT_VERSION" != "unknown" ] \
+   && [ -f "$HOME/.gstack/.last-setup-version" ]; then
+  bash "$MIGRATION_RUNNER" --root "$SOURCE_GSTACK_DIR" --from "$LAST_SETUP_VERSION" --to "$CURRENT_VERSION" \
+    || echo "  warning: migration dispatcher had errors (non-fatal)"
 fi
 mkdir -p "$HOME/.gstack"
 if [ "$CURRENT_VERSION" != "unknown" ]; then

@@ -128,21 +128,87 @@ Use the install type and directory detected in Step 2:
 **For git installs** (global-git, local-git):
 ```bash
 cd "$INSTALL_DIR"
-STASH_OUTPUT=$(git stash 2>&1)
-git fetch origin
-git reset --hard origin/main
+if ! git diff --quiet || ! git diff --cached --quiet || \
+  [ -n "$(git ls-files --others --exclude-standard)" ]; then
+  echo "ERROR: gstack has local changes. Commit or move them aside, then run /gstack-upgrade again."
+  exit 1
+fi
+CURRENT_BRANCH=$(git branch --show-current)
+DEFAULT_BRANCH=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^origin/@@' || echo main)
+if [ "$CURRENT_BRANCH" != "$DEFAULT_BRANCH" ]; then
+  echo "ERROR: gstack is on '$CURRENT_BRANCH', not its default branch '$DEFAULT_BRANCH'. Switch branches manually, then retry."
+  exit 1
+fi
+git fetch origin "$DEFAULT_BRANCH"
+git merge --ff-only "origin/$DEFAULT_BRANCH"
 ./setup
 ```
-If `$STASH_OUTPUT` contains "Saved working directory", warn the user: "Note: local changes were stashed. Run `git stash pop` in the skill directory to restore them."
+This never rewrites `origin`, stores work away automatically, or discards local
+changes. If a fast-forward is not possible, stop and show the Git error. A
+deliberate `git reset --hard` recovery is a manual operator decision, not an
+upgrade step.
 
 **For vendored installs** (vendored, vendored-global):
 ```bash
 PARENT=$(dirname "$INSTALL_DIR")
-TMP_DIR=$(mktemp -d)
-git clone --depth 1 https://github.com/garrytan/gstack.git "$TMP_DIR/gstack"
-mv "$INSTALL_DIR" "$INSTALL_DIR.bak"
-mv "$TMP_DIR/gstack" "$INSTALL_DIR"
-cd "$INSTALL_DIR" && ./setup
+if [ -e "$INSTALL_DIR.bak" ]; then
+  echo "ERROR: backup path '$INSTALL_DIR.bak' already exists. Verify it, then move or remove it manually before retrying."
+  exit 1
+fi
+TMP_DIR=$(mktemp -d "$PARENT/.gstack-upgrade.XXXXXX")
+# Explicit GSTACK_REMOTE_REPO wins when it is a public GitHub HTTPS/SSH URL.
+# Otherwise use this checkout's public origin; malformed or credential-bearing
+# values fall back to the upstream repository without printing the value.
+UPDATE_REPO="garrytan/gstack"
+for CANDIDATE in "${GSTACK_REMOTE_REPO:-}" "$(git -C "$INSTALL_DIR" remote get-url origin 2>/dev/null || true)"; do
+  case "$CANDIDATE" in
+    https://github.com/*) REPO="${CANDIDATE#https://github.com/}" ;;
+    git@github.com:*) REPO="${CANDIDATE#git@github.com:}" ;;
+    ssh://git@github.com/*) REPO="${CANDIDATE#ssh://git@github.com/}" ;;
+    *) continue ;;
+  esac
+  REPO="${REPO%/}"
+  REPO="${REPO%.git}"
+  if [[ "$REPO" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+    UPDATE_REPO="$REPO"
+    break
+  fi
+done
+SOURCE_URL="https://github.com/${UPDATE_REPO}.git"
+DEFAULT_BRANCH=$(git ls-remote --symref "$SOURCE_URL" HEAD 2>/dev/null | awk '$1 == "ref:" && $2 ~ /^refs\/heads\// && $3 == "HEAD" {sub(/^refs\/heads\//, "", $2); print $2; exit}')
+case "$DEFAULT_BRANCH" in
+  ''|*..*|/*|*/|*[!A-Za-z0-9._/-]*) DEFAULT_BRANCH="main" ;;
+esac
+if ! git clone --depth 1 --branch "$DEFAULT_BRANCH" "$SOURCE_URL" "$TMP_DIR/gstack"; then
+  rm -rf "$TMP_DIR"
+  echo "ERROR: clone failed; the existing vendored copy was not changed."
+  exit 1
+fi
+if ! mv "$INSTALL_DIR" "$INSTALL_DIR.bak"; then
+  rm -rf "$TMP_DIR"
+  echo "ERROR: could not back up the existing vendored copy; it was not changed."
+  exit 1
+fi
+if ! mv "$TMP_DIR/gstack" "$INSTALL_DIR"; then
+  rm -rf "$INSTALL_DIR"
+  if ! mv "$INSTALL_DIR.bak" "$INSTALL_DIR"; then
+    echo "CRITICAL: replacement and restore failed. Recover '$INSTALL_DIR.bak' manually."
+    exit 1
+  fi
+  rm -rf "$TMP_DIR"
+  echo "ERROR: replacement failed; restored the previous vendored copy."
+  exit 1
+fi
+if ! (cd "$INSTALL_DIR" && ./setup); then
+  rm -rf "$INSTALL_DIR"
+  if ! mv "$INSTALL_DIR.bak" "$INSTALL_DIR"; then
+    echo "CRITICAL: setup and restore failed. Recover '$INSTALL_DIR.bak' manually."
+    exit 1
+  fi
+  rm -rf "$TMP_DIR"
+  echo "ERROR: setup failed; restored the previous vendored copy."
+  exit 1
+fi
 rm -rf "$INSTALL_DIR.bak" "$TMP_DIR"
 ```
 
@@ -179,46 +245,56 @@ Tell user: "Removed vendored copy at `$LOCAL_GSTACK` (team mode active — globa
 
 **If `LOCAL_GSTACK` is non-empty AND `TEAM_MODE` is NOT `true`:** Update it by copying from the freshly-upgraded primary install (same approach as README vendored install):
 ```bash
-mv "$LOCAL_GSTACK" "$LOCAL_GSTACK.bak"
-cp -Rf "$INSTALL_DIR" "$LOCAL_GSTACK"
-rm -rf "$LOCAL_GSTACK/.git"
-cd "$LOCAL_GSTACK" && ./setup
+# Transactional local vendored sync: prepare and verify a sibling before swap.
+if [ -e "$LOCAL_GSTACK.bak" ] || [ -e "$LOCAL_GSTACK.new" ]; then
+  echo "ERROR: '$LOCAL_GSTACK.bak' or '$LOCAL_GSTACK.new' already exists. Verify it, then move or remove it manually before retrying."
+  exit 1
+fi
+if ! cp -Rf "$INSTALL_DIR" "$LOCAL_GSTACK.new"; then
+  rm -rf "$LOCAL_GSTACK.new"
+  echo "ERROR: copy failed; the previous local vendored copy was not changed."
+  exit 1
+fi
+rm -rf "$LOCAL_GSTACK.new/.git"
+if ! (cd "$LOCAL_GSTACK.new" && bash ./setup); then
+  rm -rf "$LOCAL_GSTACK.new"
+  echo "ERROR: setup failed; the previous local vendored copy was not changed."
+  exit 1
+fi
+if ! mv "$LOCAL_GSTACK" "$LOCAL_GSTACK.bak"; then
+  rm -rf "$LOCAL_GSTACK.new"
+  echo "ERROR: could not back up the local vendored copy; it was not changed."
+  exit 1
+fi
+if ! mv "$LOCAL_GSTACK.new" "$LOCAL_GSTACK"; then
+  rm -rf "$LOCAL_GSTACK"
+  if ! mv "$LOCAL_GSTACK.bak" "$LOCAL_GSTACK"; then
+    echo "CRITICAL: local replacement and restore failed. Recover '$LOCAL_GSTACK.bak' manually."
+    exit 1
+  fi
+  rm -rf "$LOCAL_GSTACK.new"
+  echo "ERROR: replacement failed; restored the previous local vendored copy."
+  exit 1
+fi
 rm -rf "$LOCAL_GSTACK.bak"
 ```
 Tell user: "Also updated vendored copy at `$LOCAL_GSTACK` — commit `.claude/skills/gstack/` when you're ready."
 
-If `./setup` fails, restore from backup and warn the user:
-```bash
-rm -rf "$LOCAL_GSTACK"
-mv "$LOCAL_GSTACK.bak" "$LOCAL_GSTACK"
-```
-Tell user: "Sync failed — restored previous version at `$LOCAL_GSTACK`. Run `/gstack-upgrade` manually to retry."
+Copy and setup failures are handled transactionally by the block above. Tell
+the user when the previous version was restored and ask them to run
+`/gstack-upgrade` manually after resolving the reported problem.
 
-### Step 4.75: Run version migrations
+### Step 4.75: Migrations are dispatched by setup
 
-After `./setup` completes, run any migration scripts for versions between the old
-and new version. Migrations handle state fixes that `./setup` alone can't cover
-(stale config, orphaned files, directory structure changes).
+`./setup` is the single migration dispatcher. It runs ordinary migrations once
+for the version transition and retries only explicitly listed privacy or state
+repairs whose completion marker is still absent. This also repairs an older
+installation when a prerequisite such as `jq` becomes available after a prior
+upgrade.
 
-```bash
-MIGRATIONS_DIR="$INSTALL_DIR/gstack-upgrade/migrations"
-if [ -d "$MIGRATIONS_DIR" ]; then
-  for migration in $(find "$MIGRATIONS_DIR" -maxdepth 1 -name 'v*.sh' -type f 2>/dev/null | sort -V); do
-    # Extract version from filename: v0.15.2.0.sh → 0.15.2.0
-    m_ver="$(basename "$migration" .sh | sed 's/^v//')"
-    # Run if this migration version is newer than old version
-    # (simple string compare works for dotted versions with same segment count)
-    if [ "$OLD_VERSION" != "unknown" ] && [ "$(printf '%s\n%s' "$OLD_VERSION" "$m_ver" | sort -V | head -1)" = "$OLD_VERSION" ] && [ "$OLD_VERSION" != "$m_ver" ]; then
-      echo "Running migration $m_ver..."
-      bash "$migration" || echo "  Warning: migration $m_ver had errors (non-fatal)"
-    fi
-  done
-fi
-```
-
-Migrations are idempotent bash scripts in `gstack-upgrade/migrations/`. Each is named
-`v{VERSION}.sh` and runs only when upgrading from an older version. See CONTRIBUTING.md
-for how to add new migrations.
+Do not invoke migration scripts separately here: doing so can duplicate a
+transition that `./setup` has already dispatched. See CONTRIBUTING.md for the
+completion-marker and retry-manifest contract for new migrations.
 
 ### Step 5: Write marker + clear cache
 

@@ -3,12 +3,14 @@
 // .brain-privacy-map.json, and .gitattributes.
 
 import { describe, expect, test, beforeEach } from 'bun:test';
-import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, mkdirSync } from 'fs';
+import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, mkdirSync, chmodSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
+import { fileURLToPath } from 'node:url';
 
-const REPO_ROOT = new URL('..', import.meta.url).pathname;
+const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url));
 const MIGRATION = join(REPO_ROOT, 'gstack-upgrade', 'migrations', 'v1.38.1.0.sh');
+const testWithJq = Bun.which('jq') ? test : test.skip;
 
 function setupFakeHome(): string {
   const dir = mkdtempSync(join(tmpdir(), 'mig-v1340-'));
@@ -58,7 +60,7 @@ describe('v1.38.1.0 migration', () => {
     }
   });
 
-  test('adds entries to privacy-map.json via jq (preserves JSON validity)', () => {
+  testWithJq('adds entries to privacy-map.json via jq (preserves JSON validity)', () => {
     const home = setupFakeHome();
     try {
       writeFileSync(join(home, '.gstack', '.brain-privacy-map.json'), JSON.stringify([
@@ -138,7 +140,7 @@ describe('v1.38.1.0 migration', () => {
     }
   });
 
-  test('repairs privacy-map even when allowlist is missing (per-file independence)', () => {
+  testWithJq('repairs privacy-map even when allowlist is missing (per-file independence)', () => {
     const home = setupFakeHome();
     try {
       // No .brain-allowlist; only privacy-map present
@@ -210,6 +212,43 @@ describe('v1.38.1.0 migration', () => {
 // up #1465's allowlist edit, so v1.40.0.0 needs its own migration.
 // ──────────────────────────────────────────────────────────────────────────
 const MIGRATION_V1_40 = join(REPO_ROOT, 'gstack-upgrade', 'migrations', 'v1.40.0.0.sh');
+const ARTIFACTS_INIT = join(REPO_ROOT, 'bin', 'gstack-artifacts-init');
+
+function bashPath(value: string): string {
+  if (process.platform !== 'win32') return value;
+  return value.split(';').map((part) => part
+    .replace(/\\/g, '/')
+    .replace(/^([A-Za-z]):/, (_, drive) => `/${drive.toLowerCase()}`))
+    .join(':');
+}
+
+function runFreshArtifactsInit(home: string, remote: string, fakeBin: string): { code: number; stdout: string; stderr: string } {
+  const initRemote = Bun.spawnSync({ cmd: ['git', 'init', '--bare', '-q', '-b', 'main', remote] });
+  expect(initRemote.exitCode).toBe(0);
+  const cmd = process.platform === 'win32'
+    ? [Bun.which('bash')!, ARTIFACTS_INIT, '--remote', remote]
+    : [ARTIFACTS_INIT, '--remote', remote];
+  const proc = Bun.spawnSync({
+    cmd,
+    env: {
+      ...process.env,
+      HOME: home,
+      GSTACK_HOME: join(home, '.gstack'),
+      // The hook is covered by its own tests. This isolated init test needs a
+      // deterministic Python command solely so the initial local commit can run.
+      PATH: process.platform === 'win32'
+        ? `${bashPath(fakeBin)}:/c/Program Files/Git/bin:/c/Program Files/Git/usr/bin`
+        : `${fakeBin}:${process.env.PATH ?? '/usr/bin:/bin'}`,
+    },
+    stdout: 'pipe',
+    stderr: 'pipe',
+  });
+  return {
+    code: proc.exitCode ?? -1,
+    stdout: new TextDecoder().decode(proc.stdout),
+    stderr: new TextDecoder().decode(proc.stderr),
+  };
+}
 
 function runMigrationV140(fakeHome: string): { code: number; stdout: string; stderr: string } {
   const proc = Bun.spawnSync({
@@ -260,7 +299,7 @@ describe('v1.40.0.0 migration', () => {
     }
   });
 
-  test('adds eng-review-test-plan entry to privacy-map.json via jq', () => {
+  testWithJq('adds eng-review-test-plan entry to privacy-map.json via jq', () => {
     const home = setupFakeHome();
     try {
       writeFileSync(join(home, '.gstack', '.brain-privacy-map.json'), JSON.stringify([
@@ -328,6 +367,27 @@ describe('v1.40.0.0 migration', () => {
       expect(existsSync(join(home, '.gstack', '.migrations', 'v1.40.0.0.done'))).toBe(true);
     } finally {
       rmSync(home, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('fresh gstack-artifacts initialization', () => {
+  test('writes the eng-review test-plan union rule into new gitattributes', () => {
+    const home = mkdtempSync(join(REPO_ROOT, '.tmp-artifacts-home-'));
+    const remote = mkdtempSync(join(REPO_ROOT, '.tmp-artifacts-remote-'));
+    const fakeBin = mkdtempSync(join(REPO_ROOT, '.tmp-artifacts-bin-'));
+    try {
+      const fakePython = join(fakeBin, 'python3');
+      writeFileSync(fakePython, '#!/usr/bin/env bash\nexit 0\n');
+      chmodSync(fakePython, 0o755);
+      const result = runFreshArtifactsInit(home, remote, fakeBin);
+      expect(result.code, result.stderr).toBe(0);
+      expect(readFileSync(join(home, '.gstack', '.gitattributes'), 'utf8'))
+        .toContain('projects/*/*-eng-review-test-plan-*.md merge=union');
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+      rmSync(remote, { recursive: true, force: true });
+      rmSync(fakeBin, { recursive: true, force: true });
     }
   });
 });

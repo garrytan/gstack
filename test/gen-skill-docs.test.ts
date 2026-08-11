@@ -2318,44 +2318,60 @@ describe('setup script validation', () => {
     expect(fnBody).toContain('gstack*');
   });
 
-  test('link_claude_skill_dirs creates real directories with absolute SKILL.md symlinks', () => {
-    // Claude links should be real directories with absolute SKILL.md symlinks
-    // to ensure Claude Code discovers them as top-level skills (not nested under gstack/)
+  test('link_codex_skill_dirs refreshes copied installation projections', () => {
+    const fnStart = setupContent.indexOf('link_codex_skill_dirs()');
+    const fnEnd = setupContent.indexOf('}', setupContent.indexOf('linked[@]}', fnStart));
+    const fnBody = setupContent.slice(fnStart, fnEnd);
+    expect(fnBody).toContain('_prepare_managed_skill_wrapper "$target" "$skill_dir" "$canonical_name" "$SKILL_PREFIX"');
+    expect(fnBody).toContain('cp -R "$skill_dir/." "$target"');
+    expect(fnBody).toContain('_remove_managed_skill_wrapper "$stale_target" "$skill_dir" "$canonical_name" "$stale_prefix"');
+  });
+
+  test('Codex install projects prefix metadata only into installed wrappers', () => {
+    const codexStart = setupContent.indexOf('# 5. Install for Codex');
+    const codexEnd = setupContent.indexOf('# 6. Install for Kiro CLI', codexStart);
+    const codexBody = setupContent.slice(codexStart, codexEnd);
+    expect(codexBody).not.toContain('gstack-patch-names" "$SOURCE_GSTACK_DIR/.agents/skills"');
+    expect(codexBody).toContain('link_codex_skill_dirs "$SOURCE_GSTACK_DIR" "$CODEX_SKILLS"');
+    const fnStart = setupContent.indexOf('link_codex_skill_dirs()');
+    const fnEnd = setupContent.indexOf('}', setupContent.indexOf('linked[@]}', fnStart));
+    const fnBody = setupContent.slice(fnStart, fnEnd);
+    expect(fnBody).toContain('target_name="gstack-$canonical_name"');
+    expect(fnBody).toContain('cp -R "$skill_dir/." "$target"');
+    expect(fnBody).toContain('gstack-patch-names" "$skill_dir/SKILL.md" "$target/SKILL.md"');
+    expect(fnBody).toContain('_project_codex_metadata "$target/agents/openai.yaml" "$canonical_name" "$SKILL_PREFIX"');
+  });
+
+  test('link_claude_skill_dirs creates managed copied SKILL.md projections', () => {
     const fnStart = setupContent.indexOf('link_claude_skill_dirs()');
     const fnEnd = setupContent.indexOf('}', setupContent.indexOf('linked[@]}', fnStart));
     const fnBody = setupContent.slice(fnStart, fnEnd);
-    expect(fnBody).toContain('mkdir -p "$target"');
-    // v1.36.0.0: routes through _link_or_copy helper for Windows fallback (cp on MSYS2/Git Bash).
-    expect(fnBody).toContain('_link_or_copy "$gstack_dir/$dir_name/SKILL.md" "$target/SKILL.md"');
+    expect(fnBody).toContain('_prepare_managed_skill_wrapper "$target" "$skill_dir" "$skill_name" "$SKILL_PREFIX"');
+    expect(fnBody).toContain('gstack-patch-names" "$gstack_dir/$dir_name/SKILL.md" "$target/SKILL.md"');
   });
 
-  // REGRESSION: cleanup functions must handle both old symlinks AND new real-directory pattern
-  test('cleanup functions handle real directories with symlinked SKILL.md', () => {
-    // cleanup_old_claude_symlinks must detect and remove real dirs with SKILL.md symlinks
+  test('cleanup functions remove only provenance-verified wrappers', () => {
     const cleanupOldStart = setupContent.indexOf('cleanup_old_claude_symlinks()');
     const cleanupOldEnd = setupContent.indexOf('}', setupContent.indexOf('cleaned up old', cleanupOldStart));
     const cleanupOldBody = setupContent.slice(cleanupOldStart, cleanupOldEnd);
-    expect(cleanupOldBody).toContain('-d "$old_target"');
-    expect(cleanupOldBody).toContain('-L "$old_target/SKILL.md"');
-    expect(cleanupOldBody).toContain('rm -rf "$old_target"');
+    expect(cleanupOldBody).toContain('_remove_managed_skill_wrapper "$old_target" "$skill_dir" "$skill_name" false');
+    expect(cleanupOldBody).not.toContain('IS_WINDOWS');
 
-    // cleanup_prefixed_claude_symlinks must also handle the new pattern
     const cleanupPrefixedStart = setupContent.indexOf('cleanup_prefixed_claude_symlinks()');
     const cleanupPrefixedEnd = setupContent.indexOf('}', setupContent.indexOf('cleaned up prefixed', cleanupPrefixedStart));
     const cleanupPrefixedBody = setupContent.slice(cleanupPrefixedStart, cleanupPrefixedEnd);
-    expect(cleanupPrefixedBody).toContain('-d "$prefixed_target"');
-    expect(cleanupPrefixedBody).toContain('-L "$prefixed_target/SKILL.md"');
-    expect(cleanupPrefixedBody).toContain('rm -rf "$prefixed_target"');
+    expect(cleanupPrefixedBody).toContain('_remove_managed_skill_wrapper "$prefixed_target" "$skill_dir" "$skill_name" true');
+    expect(cleanupPrefixedBody).not.toContain('IS_WINDOWS');
+    expect(setupContent).toContain('_managed_skill_wrapper()');
+    expect(setupContent).toContain('--matches-projection');
   });
 
-  // REGRESSION: link function must upgrade old directory symlinks
-  test('link_claude_skill_dirs removes old directory symlinks before creating real dirs', () => {
+  test('link_claude_skill_dirs verifies old directory symlinks before refreshing', () => {
     const fnStart = setupContent.indexOf('link_claude_skill_dirs()');
     const fnEnd = setupContent.indexOf('}', setupContent.indexOf('linked[@]}', fnStart));
     const fnBody = setupContent.slice(fnStart, fnEnd);
-    // Must check for and remove old symlinks before mkdir
-    expect(fnBody).toContain('if [ -L "$target" ]');
-    expect(fnBody).toContain('rm -f "$target"');
+    expect(fnBody).toContain('_prepare_managed_skill_wrapper "$target" "$skill_dir" "$skill_name" "$SKILL_PREFIX"');
+    expect(setupContent).toContain('readlink -f "$entry"');
   });
 
   test('setup links root gstack skill through a thin Claude wrapper alias', () => {
@@ -2401,6 +2417,15 @@ describe('setup script validation', () => {
     expect(content).toContain('$GSTACK_BIN/');
   });
 
+  test('generated Codex browse setup uses the absolute GSTACK_BROWSE path', () => {
+    const content = fs.readFileSync(
+      path.join(ROOT, '.agents', 'skills', 'gstack-qa', 'SKILL.md'),
+      'utf-8',
+    );
+    expect(content).toContain('B="$GSTACK_BROWSE/browse"');
+    expect(content).not.toContain('B="$HOME$GSTACK_BROWSE/browse"');
+  });
+
   test('setup supports --host kiro with install section and sed rewrites', () => {
     expect(setupContent).toContain('INSTALL_KIRO=');
     expect(setupContent).toContain('kiro-cli');
@@ -2441,6 +2466,10 @@ describe('setup script validation', () => {
     expect(fnBody).toContain('gstack/SKILL.md');
     expect(fnBody).toContain('browse/dist');
     expect(fnBody).toContain('browse/bin');
+    expect(fnBody).toContain('browse/src');
+    expect(fnBody).toContain('for package in playwright playwright-core diff');
+    expect(fnBody).toContain('node_modules/$package');
+    expect(fnBody).toContain('node_modules/@ngrok');
     expect(fnBody).toContain('gstack-upgrade/SKILL.md');
     // Review runtime assets (individual files, not the whole dir)
     expect(fnBody).toContain('checklist.md');
@@ -2479,16 +2508,16 @@ describe('setup script validation', () => {
     expect(setupContent).toContain('SKILL_PREFIX=0');
   });
 
-  test('cleanup_old_claude_symlinks removes only gstack-pointing symlinks', () => {
+  test('cleanup_old_claude_symlinks removes only provenance-verified wrappers', () => {
     expect(setupContent).toContain('cleanup_old_claude_symlinks');
     const fnStart = setupContent.indexOf('cleanup_old_claude_symlinks()');
     const fnEnd = setupContent.indexOf('}', setupContent.indexOf('removed[@]}', fnStart));
     const fnBody = setupContent.slice(fnStart, fnEnd);
-    // Should check readlink before removing
-    expect(fnBody).toContain('readlink');
-    expect(fnBody).toContain('gstack/*');
+    expect(fnBody).toContain('_remove_managed_skill_wrapper "$old_target" "$skill_dir" "$skill_name" false');
     // Should skip already-prefixed dirs
     expect(fnBody).toContain('gstack-*) continue');
+    expect(setupContent).toContain('readlink -f "$entry"');
+    expect(setupContent).toContain('--matches-projection');
   });
 
   test('cleanup runs before link when prefix is enabled', () => {
@@ -2527,13 +2556,14 @@ describe('setup script validation', () => {
     expect(setupContent).toContain('-t 0');
   });
 
-  test('cleanup_prefixed_claude_symlinks exists and uses readlink', () => {
+  test('cleanup_prefixed_claude_symlinks exists and uses managed-wrapper proof', () => {
     expect(setupContent).toContain('cleanup_prefixed_claude_symlinks');
     const fnStart = setupContent.indexOf('cleanup_prefixed_claude_symlinks()');
     const fnEnd = setupContent.indexOf('}', setupContent.indexOf('removed[@]}', fnStart));
     const fnBody = setupContent.slice(fnStart, fnEnd);
-    expect(fnBody).toContain('readlink');
+    expect(fnBody).toContain('_remove_managed_skill_wrapper "$prefixed_target" "$skill_dir" "$skill_name" true');
     expect(fnBody).toContain('gstack-$skill_name');
+    expect(setupContent).toContain('_managed_skill_wrapper()');
   });
 
   test('reverse cleanup runs before link when prefix is disabled', () => {

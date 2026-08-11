@@ -220,7 +220,7 @@ describe('/command tunnel command allowlist', () => {
       'return handleCommand(body, tokenInfo)'
     );
     expect(commandBlock).toContain("surface === 'tunnel'");
-    expect(commandBlock).toContain('canDispatchOverTunnel(body?.command)');
+    expect(commandBlock).toContain('canDispatchOverTunnel(body?.command, body?.args)');
     expect(commandBlock).toContain('disallowed_command');
     expect(commandBlock).toContain('is not allowed over the tunnel surface');
     expect(commandBlock).toContain('status: 403');

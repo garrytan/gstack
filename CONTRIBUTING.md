@@ -526,10 +526,25 @@ SCRIPT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 
 ### How it runs
 
-During `/gstack-upgrade`, after `./setup` completes (Step 4.75), the upgrade
-skill scans `gstack-upgrade/migrations/` and runs every `v*.sh` script whose
-version is newer than the user's old version. Scripts run in version order.
-Failures are logged but never block the upgrade.
+`./setup` is the single migration dispatcher. For an existing installation it
+scans `gstack-upgrade/migrations/` and runs every `v*.sh` script in the version
+interval from the previous setup marker to the installed VERSION. Scripts run
+in version order. Failures are logged but never block the upgrade.
+
+Most migrations run only in that transition. Use
+`gstack-upgrade/migrations/retry-until-done.txt` only for an audited repair
+that must retry after a previously unavailable local prerequisite becomes
+available (for example, a JSON tool needed to validate a privacy map). Each
+manifest entry must be exactly a repository-local `vX.Y.Z.W.sh` filename and
+its script must create `~/.gstack/.migrations/vX.Y.Z.W.done` only after all
+applicable repairs succeed. The dispatcher retries such an entry on later
+same-version setup runs while that marker is absent; it never retries an
+unlisted historical migration.
+
+Retryable migrations must be local-only: do not enable artifact sync, read or
+print artifact contents, contact a remote, commit, or push. Validate structured
+state before replacing it, write replacements atomically in the same directory,
+and leave the completion marker absent on malformed input or write failure.
 
 ### Testing migrations
 

@@ -44,8 +44,8 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { spawnSync } from "child_process";
 
-const gbrainPath = spawnSync("which", ["gbrain"], { encoding: "utf-8" }).stdout.trim();
-const gbrainAvailable = gbrainPath.length > 0;
+const gbrainPath = Bun.which("gbrain");
+const gbrainAvailable = gbrainPath !== null;
 const voyageKey = process.env.VOYAGE_API_KEY?.trim() ?? "";
 const voyageKeyPresent = voyageKey.length > 0;
 

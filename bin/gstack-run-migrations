@@ -1,0 +1,132 @@
+#!/usr/bin/env bash
+# Run version-range migrations once and retry explicitly-audited incomplete
+# migrations on later setups. Retryable migrations must maintain their own
+# ~/.gstack/.migrations/vX.Y.Z.W.done marker.
+
+set -u
+
+usage() {
+  echo "usage: gstack-run-migrations --root <gstack-root> --from <version> --to <version>" >&2
+  exit 2
+}
+
+ROOT=""
+FROM=""
+TO=""
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --root) ROOT="${2:-}"; shift 2 ;;
+    --from) FROM="${2:-}"; shift 2 ;;
+    --to) TO="${2:-}"; shift 2 ;;
+    *) usage ;;
+  esac
+done
+
+[ -n "$ROOT" ] && [ -n "$FROM" ] && [ -n "$TO" ] || usage
+
+is_version() {
+  [[ "$1" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]
+}
+
+is_version "$FROM" && is_version "$TO" || usage
+
+MIGRATIONS_DIR="$ROOT/gstack-upgrade/migrations"
+MANIFEST="$MIGRATIONS_DIR/retry-until-done.txt"
+GSTACK_HOME="${GSTACK_HOME:-${HOME:-}/.gstack}"
+DONE_DIR="$GSTACK_HOME/.migrations"
+
+[ -d "$MIGRATIONS_DIR" ] || exit 0
+
+version_le() {
+  local a1 a2 a3 a4 b1 b2 b3 b4
+  local IFS=.
+  read -r a1 a2 a3 a4 <<EOF
+$1
+EOF
+  read -r b1 b2 b3 b4 <<EOF
+$2
+EOF
+  if ((10#$a1 < 10#$b1)); then return 0; elif ((10#$a1 > 10#$b1)); then return 1; fi
+  if ((10#$a2 < 10#$b2)); then return 0; elif ((10#$a2 > 10#$b2)); then return 1; fi
+  if ((10#$a3 < 10#$b3)); then return 0; elif ((10#$a3 > 10#$b3)); then return 1; fi
+  if ((10#$a4 <= 10#$b4)); then return 0; fi
+  return 1
+}
+
+version_lt() {
+  [ "$1" != "$2" ] && version_le "$1" "$2"
+}
+
+run_migration() {
+  local migration="$1"
+  local version="$2"
+  echo "  running migration $version..."
+  bash "$migration" || echo "  warning: migration $version had errors (non-fatal)" >&2
+}
+
+# Run conventional migrations in the version interval (from, to]. Repeatedly
+# select the next dotted-integer version so this stays portable to macOS Bash
+# and BSD userlands, which do not provide GNU `sort -V`.
+last_version="$FROM"
+while :; do
+  next_migration=""
+  next_version=""
+  for migration in "$MIGRATIONS_DIR"/v*.sh; do
+    [ -f "$migration" ] && [ ! -L "$migration" ] || continue
+    filename="${migration##*/}"
+    version="${filename#v}"
+    version="${version%.sh}"
+    if ! is_version "$version" || ! version_lt "$last_version" "$version" || ! version_le "$version" "$TO"; then
+      continue
+    fi
+    if [ -z "$next_version" ] || version_lt "$version" "$next_version"; then
+      next_migration="$migration"
+      next_version="$version"
+    fi
+  done
+  [ -n "$next_migration" ] || break
+  run_migration "$next_migration" "$next_version"
+  last_version="$next_version"
+done
+
+# A migration can opt into retry only by appearing in this repository-owned,
+# validated manifest. This avoids rerunning historical scripts that never had
+# a done-marker contract. Entries in this invocation's normal range have just
+# run above, so retry them on the next setup instead of running twice.
+if [ -f "$MANIFEST" ]; then
+  # Bash 3.2-compatible de-duplication. Valid manifest names cannot contain
+  # `|`, so delimiter membership cannot confuse distinct entries.
+  seen_retry_entries="|"
+  while IFS= read -r entry || [ -n "$entry" ]; do
+    entry="${entry%$'\r'}"
+    case "$entry" in
+      ''|'#'*) continue ;;
+    esac
+    if [[ ! "$entry" =~ ^v[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+\.sh$ ]]; then
+      echo "  warning: invalid retryable migration entry ignored: $entry" >&2
+      continue
+    fi
+    case "$seen_retry_entries" in
+      *"|$entry|"*) continue ;;
+    esac
+    seen_retry_entries="${seen_retry_entries}${entry}|"
+
+    migration="$MIGRATIONS_DIR/$entry"
+    version="${entry#v}"
+    version="${version%.sh}"
+    if [ ! -f "$migration" ] || ! version_le "$version" "$TO"; then
+      continue
+    fi
+    if [ -L "$migration" ]; then
+      echo "  warning: symlink retryable migration ignored: $entry" >&2
+      continue
+    fi
+    if version_lt "$FROM" "$version"; then
+      continue
+    fi
+    if [ ! -f "$DONE_DIR/v$version.done" ]; then
+      run_migration "$migration" "$version"
+    fi
+  done < "$MANIFEST"
+fi

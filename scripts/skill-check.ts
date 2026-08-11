@@ -13,6 +13,7 @@ import { discoverTemplates, discoverSkillFiles } from './discover-skills';
 import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
+import { getExternalHosts, getHostConfig, ALL_HOST_CONFIGS } from '../hosts/index';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const ROOT_REALPATH = fs.realpathSync(ROOT);
@@ -64,8 +65,20 @@ for (const file of SKILL_FILES) {
 
 console.log('\n  Templates:');
 const TEMPLATES = discoverTemplates(ROOT);
+const canonicalHost = getHostConfig('claude');
+
+function isGeneratedForCanonicalHost(tmpl: string): boolean {
+  const dir = path.dirname(tmpl);
+  if (dir === '.') return true;
+  if (canonicalHost.generation.includeSkills?.length && !canonicalHost.generation.includeSkills.includes(dir)) return false;
+  return !canonicalHost.generation.skipSkills?.includes(dir);
+}
 
 for (const { tmpl, output } of TEMPLATES) {
+  if (!isGeneratedForCanonicalHost(tmpl)) {
+    console.log(`  -  ${tmpl.padEnd(30)} — excluded from canonical host`);
+    continue;
+  }
   const tmplPath = path.join(ROOT, tmpl);
   const outPath = path.join(ROOT, output);
   if (!fs.existsSync(tmplPath)) {
@@ -89,8 +102,6 @@ for (const file of SKILL_FILES) {
 }
 
 // ─── External Host Skills (config-driven) ───────────────────
-
-import { getExternalHosts } from '../hosts/index';
 
 for (const hostConfig of getExternalHosts()) {
   const hostDir = path.join(ROOT, hostConfig.hostSubdir, 'skills');
@@ -129,8 +140,6 @@ for (const hostConfig of getExternalHosts()) {
 }
 
 // ─── Freshness (config-driven) ──────────────────────────────
-
-import { ALL_HOST_CONFIGS } from '../hosts/index';
 
 for (const hostConfig of ALL_HOST_CONFIGS) {
   const hostFlag = hostConfig.name === 'claude' ? '' : ` --host ${hostConfig.name}`;

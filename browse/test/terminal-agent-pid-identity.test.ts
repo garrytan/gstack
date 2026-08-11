@@ -1,6 +1,7 @@
 import { describe, test, expect } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
+import { fileURLToPath } from 'node:url';
 import {
   readAgentRecord,
   writeAgentRecord,
@@ -30,7 +31,7 @@ import {
 // and browse/test/server-sanitize-surrogates.test.ts: read source files
 // directly, assert an invariant on their contents.
 
-const SRC_DIR = path.resolve(new URL(import.meta.url).pathname, '..', '..', 'src');
+const SRC_DIR = path.resolve(fileURLToPath(import.meta.url), '..', '..', 'src');
 
 function readAllSourceFiles(): Array<{ file: string; content: string }> {
   const out: Array<{ file: string; content: string }> = [];

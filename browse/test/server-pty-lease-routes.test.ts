@@ -1,13 +1,14 @@
 import { describe, test, expect } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
+import { fileURLToPath } from 'node:url';
 
 // Server-side route shape for the v1.44 lease + restart + dispose +
 // lease-refresh wiring. Live route exercises require the terminal-agent
 // loopback to be live (e2e-tier); these static-grep tripwires pin the
 // load-bearing protocol invariants.
 
-const SERVER_TS = path.resolve(new URL(import.meta.url).pathname, '..', '..', 'src', 'server.ts');
+const SERVER_TS = path.resolve(fileURLToPath(import.meta.url), '..', '..', 'src', 'server.ts');
 
 describe('server: PTY lease routes (v1.44+ Commit 2)', () => {
   test('1. /pty-session returns the 4-tuple shape (sessionId, attachToken, leaseExpiresAt)', () => {

@@ -15,14 +15,14 @@
 import { describe, test, expect } from 'bun:test';
 import { spawnSync } from 'child_process';
 
-const codexPath = spawnSync('which', ['codex'], { encoding: 'utf-8' }).stdout.trim();
-const codexAvailable = codexPath.length > 0;
+const codexPath = Bun.which('codex');
+const codexAvailable = codexPath !== null;
 
 describe.skipIf(!codexAvailable)(
   'codex exec resume — flag semantics (live CLI smoke; closes #1270 regex-only gap)',
   () => {
     test('codex exec resume --help mentions sandbox_mode as a -c config key', () => {
-      const result = spawnSync('codex', ['exec', 'resume', '--help'], {
+      const result = spawnSync(codexPath!, ['exec', 'resume', '--help'], {
         encoding: 'utf-8',
         stdio: ['ignore', 'pipe', 'pipe'],
         timeout: 10_000,
@@ -35,7 +35,7 @@ describe.skipIf(!codexAvailable)(
     });
 
     test('codex exec resume --help does NOT advertise -C as a top-level flag', () => {
-      const result = spawnSync('codex', ['exec', 'resume', '--help'], {
+      const result = spawnSync(codexPath!, ['exec', 'resume', '--help'], {
         encoding: 'utf-8',
         stdio: ['ignore', 'pipe', 'pipe'],
         timeout: 10_000,

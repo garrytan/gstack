@@ -59,7 +59,8 @@ const SERVER_SCRIPT = resolveServerScript();
 
 /**
  * On Windows, resolve the Node.js-compatible server bundle.
- * Falls back to null if not found (server will use Bun instead).
+ * Returns null when it is unavailable; the Windows launch path then gives an
+ * actionable build instruction instead of falling back to Bun.
  */
 export function resolveNodeServerScript(
   metaDir: string = import.meta.dir,
@@ -82,11 +83,29 @@ export function resolveNodeServerScript(
 
 const NODE_SERVER_SCRIPT = IS_WINDOWS ? resolveNodeServerScript() : null;
 
-// On Windows, hard-fail if server-node.mjs is missing — the Bun path is known broken.
-if (IS_WINDOWS && !NODE_SERVER_SCRIPT) {
-  throw new Error(
-    'server-node.mjs not found. Run `bun run build` to generate the Windows server bundle.'
-  );
+export function requireWindowsNodeServerScript(
+  nodeServerScript: string | null,
+  isWindows: true,
+): string;
+export function requireWindowsNodeServerScript(
+  nodeServerScript: string | null,
+  isWindows?: false,
+): string | null;
+/**
+ * Keep the Windows bundle requirement at browser-launch time. Importing pure
+ * CLI helpers must still work in a clean checkout before generated artifacts
+ * exist, while an actual Windows daemon launch must never fall back to Bun.
+ */
+export function requireWindowsNodeServerScript(
+  nodeServerScript: string | null,
+  isWindows: boolean = IS_WINDOWS,
+): string | null {
+  if (isWindows && !nodeServerScript) {
+    throw new Error(
+      'server-node.mjs not found. Run `bun run build` to generate the Windows server bundle.'
+    );
+  }
+  return nodeServerScript;
 }
 
 interface ServerState {
@@ -104,6 +123,11 @@ interface ServerState {
   xvfbStartTime?: number;
   xvfbDisplay?: string;
 }
+
+type StartServerRuntime = {
+  isWindows?: boolean;
+  nodeServerScript?: string | null;
+};
 
 // ─── State File ────────────────────────────────────────────────
 function readState(): ServerState | null {
@@ -132,6 +156,25 @@ export async function isServerHealthy(port: number): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/**
+ * Confirm that a connection reset was the requested stop/restart transition,
+ * not an unrelated daemon crash. The request must already have been sent;
+ * success requires both the original PID to be dead and its state file gone.
+ */
+async function waitForIntentionalShutdown(state: ServerState, timeoutMs = 10_000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!isProcessAlive(state.pid) && !fs.existsSync(config.stateFile)) return true;
+    await Bun.sleep(50);
+  }
+  return !isProcessAlive(state.pid) && !fs.existsSync(config.stateFile);
+}
+
+async function startReplacementServer(previousState: ServerState): Promise<ServerState> {
+  const restartEnv = buildRestartEnv(_globalFlags, previousState);
+  return startServer(Object.keys(restartEnv).length ? restartEnv : undefined);
 }
 
 // ─── Process Management ─────────────────────────────────────────
@@ -292,7 +335,16 @@ function raiseHeadedWindowMacOS(): void {
 }
 
 // ─── Server Lifecycle ──────────────────────────────────────────
-async function startServer(extraEnv?: Record<string, string>): Promise<ServerState> {
+export async function startServer(
+  extraEnv?: Record<string, string>,
+  runtime: StartServerRuntime = {},
+): Promise<ServerState> {
+  const isWindows = runtime.isWindows ?? IS_WINDOWS;
+  const configuredNodeServerScript = runtime.nodeServerScript === undefined
+    ? NODE_SERVER_SCRIPT
+    : runtime.nodeServerScript;
+  const nodeServerScript = requireWindowsNodeServerScript(configuredNodeServerScript, isWindows);
+
   ensureStateDir(config);
 
   // Clean up stale state file and error log
@@ -314,7 +366,7 @@ async function startServer(extraEnv?: Record<string, string>): Promise<ServerSta
   // server's own parseInt at server.ts:760.
   const parentPid = parseInt(process.env.BROWSE_PARENT_PID || '', 10) === 0 ? '0' : String(process.pid);
 
-  if (IS_WINDOWS && NODE_SERVER_SCRIPT) {
+  if (isWindows) {
     // Windows: Bun.spawn() + proc.unref() doesn't truly detach on Windows —
     // when the CLI exits, the server dies with it. Use Node's child_process.spawn
     // with { detached: true } instead, which is the gold standard for Windows
@@ -322,7 +374,7 @@ async function startServer(extraEnv?: Record<string, string>): Promise<ServerSta
     const extraEnvStr = JSON.stringify({ BROWSE_STATE_FILE: config.stateFile, BROWSE_PARENT_PID: parentPid, ...(extraEnv || {}) });
     const launcherCode =
       `const{spawn}=require('child_process');` +
-      `spawn(process.execPath,[${JSON.stringify(NODE_SERVER_SCRIPT)}],` +
+      `spawn(process.execPath,[${JSON.stringify(nodeServerScript)}],` +
       `{detached:true,stdio:['ignore','ignore','ignore'],env:Object.assign({},process.env,` +
       `${extraEnvStr})}).unref()`;
     Bun.spawnSync(['node', '-e', launcherCode], { stdio: ['ignore', 'ignore', 'ignore'] });
@@ -560,6 +612,12 @@ async function sendCommand(state: ServerState, command: string, args: string[], 
     if (resp.ok) {
       process.stdout.write(text);
       if (!text.endsWith('\n')) process.stdout.write('\n');
+      if (command === 'restart') {
+        if (!await waitForIntentionalShutdown(state)) {
+          throw new Error('[browse] Restart requested, but the original server did not stop');
+        }
+        await startReplacementServer(state);
+      }
     } else {
       // Try to parse as JSON error
       try {
@@ -585,6 +643,14 @@ async function sendCommand(state: ServerState, command: string, args: string[], 
     }
     // Connection error — server may have crashed, OR may just be busy.
     if (err.code === 'ECONNREFUSED' || err.code === 'ECONNRESET' || err.message?.includes('fetch failed')) {
+      // stop/restart intentionally terminate the process. Older or heavily
+      // loaded runtimes can close the socket before the success body flushes;
+      // accept that reset only after verifying the requested state transition.
+      if ((command === 'stop' || command === 'restart') && await waitForIntentionalShutdown(state)) {
+        process.stdout.write(command === 'stop' ? 'Server stopped\n' : 'Restarting...\n');
+        if (command === 'restart') await startReplacementServer(state);
+        return;
+      }
       const oldState = readState();
       // #1781 busy-vs-dead: a single-threaded daemon under beacon/extension load
       // can briefly stop answering HTTP while still alive. Before declaring a
@@ -608,8 +674,7 @@ async function sendCommand(state: ServerState, command: string, args: string[], 
       // invocation OR the persisted server mode, so a restart triggered by a
       // plain command (goto/status, no --headed) never silently downgrades a
       // headed session to headless (#1781). Same for proxy/configHash.
-      const restartEnv = buildRestartEnv(_globalFlags, oldState);
-      const newState = await startServer(Object.keys(restartEnv).length ? restartEnv : undefined);
+      const newState = await startReplacementServer(oldState ?? state);
       return sendCommand(newState, command, args, retries + 1);
     }
     throw err;

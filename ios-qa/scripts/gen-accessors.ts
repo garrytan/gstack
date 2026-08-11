@@ -25,6 +25,7 @@ import { join, resolve, dirname } from 'path';
 import { homedir } from 'os';
 import { createHash } from 'crypto';
 import { execSync } from 'child_process';
+import { fileURLToPath } from 'node:url';
 
 export interface AccessorField {
   name: string;
@@ -752,7 +753,7 @@ function detectToolGitRev(): string {
   if (process.env.GEN_ACCESSORS_REV) return process.env.GEN_ACCESSORS_REV;
   try {
     return execSync('git rev-parse --short HEAD', {
-      cwd: dirname(new URL(import.meta.url).pathname),
+      cwd: dirname(fileURLToPath(import.meta.url)),
       stdio: ['ignore', 'pipe', 'ignore'],
     }).toString().trim();
   } catch {

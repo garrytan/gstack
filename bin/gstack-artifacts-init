@@ -285,6 +285,7 @@ projects/*/designs/**/*.md merge=union
 projects/*/ceo-plans/**/*.md merge=union
 projects/*/*-design-*.md merge=union
 projects/*/*-test-plan-*.md merge=union
+projects/*/*-eng-review-test-plan-*.md merge=union
 EOF
 
 # ---- register merge drivers in local git config ----

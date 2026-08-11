@@ -1,6 +1,7 @@
 import { describe, test, expect } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
+import { fileURLToPath } from 'node:url';
 
 // v1.44 Commit 3 — client-side re-attach loop.
 //
@@ -13,7 +14,7 @@ import * as path from 'path';
 // in the e2e tier.
 
 const TERMINAL_JS = path.resolve(
-  new URL(import.meta.url).pathname, '..', '..', '..', 'extension', 'sidepanel-terminal.js',
+  fileURLToPath(import.meta.url), '..', '..', '..', 'extension', 'sidepanel-terminal.js',
 );
 
 describe('sidepanel re-attach loop (v1.44+ Commit 3)', () => {

@@ -15,6 +15,7 @@
  */
 
 import { describe, test, expect, beforeAll } from 'bun:test';
+import * as path from 'node:path';
 import { handleSkillCommand } from '../src/browser-skill-commands';
 import { listBrowserSkills, defaultTierPaths } from '../src/browser-skills';
 import { initRegistry, __resetRegistry } from '../src/token-registry';
@@ -30,7 +31,7 @@ beforeAll(() => {
 describe('browser-skills E2E — bundled hackernews-frontpage', () => {
   test('defaultTierPaths resolves bundled tier to <repo>/browser-skills/', () => {
     const tiers = defaultTierPaths();
-    expect(tiers.bundled).toMatch(/\/browser-skills$/);
+    expect(path.basename(tiers.bundled)).toBe('browser-skills');
     // Bundled tier should exist on disk (the reference skill is shipped).
     expect(require('fs').existsSync(tiers.bundled)).toBe(true);
   });
