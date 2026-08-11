@@ -46,6 +46,10 @@ const gbrain: HostConfig = {
     'the Read tool': 'the read tool',
     'the Write tool': 'the write tool',
     'the Edit tool': 'the edit tool',
+    // Agent tool: catch every phrasing (using/via/Use/bare), not just 'use the Agent tool'.
+    // Article form first (drops 'the'), then a bare sweep for the article-less forms.
+    'the Agent tool': 'sessions_spawn',
+    'Agent tool': 'sessions_spawn',
   },
 
   // GBrain gets brain-aware resolvers. All other hosts suppress these.

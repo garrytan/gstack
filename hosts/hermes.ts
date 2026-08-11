@@ -41,6 +41,11 @@ const hermes: HostConfig = {
     'the Read tool': 'the read_file tool',
     'the Write tool': 'the patch tool',
     'the Edit tool': 'the patch tool',
+    // Agent tool: catch every phrasing (using/via/Use/bare), not just 'use the Agent tool'.
+    // Article form first (drops 'the' -> no dangling article), then a bare sweep for the
+    // article-less forms ('via Agent tool', '(Agent tool', "Claude Code's Agent tool").
+    'the Agent tool': 'delegate_task',
+    'Agent tool': 'delegate_task',
   },
 
   suppressedResolvers: [
