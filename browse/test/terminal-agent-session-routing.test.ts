@@ -1,6 +1,7 @@
 import { describe, test, expect } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
+import { fileURLToPath } from 'node:url';
 
 // v1.44 Commit 2 — terminal-agent sessionId routing + eager spawn.
 //
@@ -13,7 +14,7 @@ import * as path from 'path';
 //   - {type:"start"} triggers spawn for eager UX after forceRestart
 //   - maybeSpawnPty helper is the single entry point for both spawn paths
 
-const AGENT_TS = path.resolve(new URL(import.meta.url).pathname, '..', '..', 'src', 'terminal-agent.ts');
+const AGENT_TS = path.resolve(fileURLToPath(import.meta.url), '..', '..', 'src', 'terminal-agent.ts');
 
 describe('terminal-agent session routing (v1.44+ Commit 2)', () => {
   test('1. validTokens is a Map binding token → sessionId', () => {

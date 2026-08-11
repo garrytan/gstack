@@ -185,7 +185,7 @@ async function handleTest(args: string[], ctx: SkillCommandContext): Promise<str
     throw new Error(`Skill "${name}" has no script.test.ts at ${testFile}`);
   }
 
-  const proc = Bun.spawn(['bun', 'test', testFile], {
+  const proc = Bun.spawn([resolveBunExecutable(), 'test', testFile], {
     cwd: skill.dir,
     stdout: 'pipe',
     stderr: 'pipe',
@@ -263,7 +263,7 @@ export async function spawnSkill(opts: SpawnSkillOptions): Promise<SpawnSkillRes
       throw new Error(`Skill "${opts.skill.name}" missing script.ts at ${scriptPath}`);
     }
 
-    const proc = Bun.spawn(['bun', 'run', scriptPath, '--', ...opts.skillArgs], {
+    const proc = Bun.spawn([resolveBunExecutable(), 'run', scriptPath, '--', ...opts.skillArgs], {
       cwd: opts.skill.dir,
       env,
       stdout: 'pipe',
@@ -402,12 +402,31 @@ export function buildSpawnEnv(opts: BuildEnvOptions): Record<string, string> {
 }
 
 function resolveMinimalPath(): string {
-  // Prefer the directory bun lives in; fall back to standard system dirs.
-  const fallback = '/usr/local/bin:/usr/bin:/bin';
-  const bunPath = process.execPath;
-  if (bunPath && bunPath.includes('/bun')) {
-    const dir = path.dirname(bunPath);
-    return `${dir}:${fallback}`;
+  // Prefer only the directory Bun lives in; do not leak the caller's full PATH
+  // into an untrusted skill. The Node-based Windows daemon cannot rely on
+  // process.execPath because that points to node.exe, so resolve bun from the
+  // parent PATH and retain just its containing directory.
+  const fallbackDirs = process.platform === 'win32'
+    ? [path.join(process.env.SystemRoot || 'C:\\Windows', 'System32')]
+    : ['/usr/local/bin', '/usr/bin', '/bin'];
+  const executableName = process.platform === 'win32' ? 'bun.exe' : 'bun';
+  const directBunDir = path.basename(process.execPath).toLowerCase() === executableName
+    ? path.dirname(process.execPath)
+    : undefined;
+  const bunDir = directBunDir ?? (process.env.PATH || '')
+    .split(path.delimiter)
+    .filter(Boolean)
+    .find(dir => fs.existsSync(path.join(dir, executableName)));
+  if (bunDir) {
+    return [bunDir, ...fallbackDirs].join(path.delimiter);
   }
-  return fallback;
+  return fallbackDirs.join(path.delimiter);
+}
+
+function resolveBunExecutable(): string {
+  const executableName = process.platform === 'win32' ? 'bun.exe' : 'bun';
+  if (path.basename(process.execPath).toLowerCase() === executableName) {
+    return process.execPath;
+  }
+  return Bun.which('bun') ?? 'bun';
 }

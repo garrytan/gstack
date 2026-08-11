@@ -1,6 +1,7 @@
 import { describe, test, expect } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
+import { fileURLToPath } from 'node:url';
 
 // v1.44 Commit 2C — client-side restart + dispose wiring.
 //
@@ -16,10 +17,10 @@ import * as path from 'path';
 // doesn't leak a 60s-zombie claude.
 
 const TERMINAL_JS = path.resolve(
-  new URL(import.meta.url).pathname, '..', '..', '..', 'extension', 'sidepanel-terminal.js',
+  fileURLToPath(import.meta.url), '..', '..', '..', 'extension', 'sidepanel-terminal.js',
 );
 const SIDEPANEL_JS = path.resolve(
-  new URL(import.meta.url).pathname, '..', '..', '..', 'extension', 'sidepanel.js',
+  fileURLToPath(import.meta.url), '..', '..', '..', 'extension', 'sidepanel.js',
 );
 
 describe('sidepanel-terminal: forceRestart via /pty-restart (v1.44+)', () => {

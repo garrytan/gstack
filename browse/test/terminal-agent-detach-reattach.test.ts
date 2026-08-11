@@ -1,6 +1,7 @@
 import { describe, test, expect } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
+import { fileURLToPath } from 'node:url';
 
 // v1.44 Commit 3 — detach state machine + ring buffer + re-attach replay.
 //
@@ -10,7 +11,7 @@ import * as path from 'path';
 // in the e2e tier; these static-grep tripwires defend the load-bearing
 // protocol + correctness properties.
 
-const AGENT_TS = path.resolve(new URL(import.meta.url).pathname, '..', '..', 'src', 'terminal-agent.ts');
+const AGENT_TS = path.resolve(fileURLToPath(import.meta.url), '..', '..', 'src', 'terminal-agent.ts');
 
 describe('terminal-agent detach + re-attach (v1.44+ Commit 3)', () => {
   test('1. PtySession carries ring buffer + alt-screen + detach state', () => {

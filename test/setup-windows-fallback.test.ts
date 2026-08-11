@@ -17,6 +17,13 @@ function extractHelper(): string {
   return SETUP_SRC.slice(start, end + 2);
 }
 
+function extractShellFunction(name: string): string {
+  const start = SETUP_SRC.indexOf(`${name}() {`);
+  const end = SETUP_SRC.indexOf('\n}\n', start);
+  if (start < 0 || end < 0) throw new Error(`Could not locate ${name}() in setup`);
+  return SETUP_SRC.slice(start, end + 2);
+}
+
 describe('setup: _link_or_copy invariant (D7)', () => {
   test('helper function is defined near the top of setup', () => {
     expect(SETUP_SRC).toContain('_link_or_copy() {');
@@ -124,5 +131,36 @@ describe.skipIf(process.platform === 'win32')('setup: _link_or_copy helper — b
     expect(r.ok).toBe(true);
     expect(r.targetExists).toBe(true);
     expect(r.targetIsSymlink).toBe(false);
+  });
+});
+
+describe('setup: minimal Codex runtime libraries', () => {
+  test('copies top-level lib/*.ts used by bin commands without copying nested renderer assets', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-codex-runtime-'));
+    try {
+      const source = path.join(tmp, 'source');
+      const target = path.join(tmp, 'codex-runtime');
+      fs.mkdirSync(path.join(source, '.agents', 'skills', 'gstack'), { recursive: true });
+      fs.mkdirSync(path.join(source, 'lib', 'diagram-render', 'dist'), { recursive: true });
+      fs.writeFileSync(path.join(source, '.agents', 'skills', 'gstack', 'SKILL.md'), '# gstack\n');
+      fs.writeFileSync(path.join(source, 'lib', 'jsonl-store.ts'), 'export const runtime = true;\n');
+      fs.writeFileSync(path.join(source, 'lib', 'redact-engine.ts'), 'export const redact = true;\n');
+      fs.writeFileSync(path.join(source, 'lib', 'diagram-render', 'dist', 'diagram-render.html'), 'large nested asset\n');
+
+      const script = [
+        'IS_WINDOWS=1',
+        extractHelper(),
+        extractShellFunction('create_codex_runtime_root'),
+        'create_codex_runtime_root "$PWD/source" "$PWD/codex-runtime"',
+      ].join('\n');
+      const result = spawnSync('bash', ['-c', script], { cwd: tmp, encoding: 'utf-8', timeout: 10_000 });
+
+      expect(result.status, result.stderr).toBe(0);
+      expect(fs.readFileSync(path.join(target, 'lib', 'jsonl-store.ts'), 'utf-8')).toContain('runtime = true');
+      expect(fs.readFileSync(path.join(target, 'lib', 'redact-engine.ts'), 'utf-8')).toContain('redact = true');
+      expect(fs.existsSync(path.join(target, 'lib', 'diagram-render'))).toBe(false);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
   });
 });

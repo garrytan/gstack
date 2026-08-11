@@ -1,6 +1,7 @@
 import { describe, test, expect } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
+import { fileURLToPath } from 'node:url';
 
 // v1.44 terminal-agent watchdog — static-grep invariants.
 //
@@ -10,8 +11,8 @@ import * as path from 'path';
 // load-bearing properties: identity-based liveness check (not name match),
 // crash-loop guard, gated on ownsTerminalAgent, and cleared on shutdown.
 
-const SERVER_TS = path.resolve(new URL(import.meta.url).pathname, '..', '..', 'src', 'server.ts');
-const CONTROL_TS = path.resolve(new URL(import.meta.url).pathname, '..', '..', 'src', 'terminal-agent-control.ts');
+const SERVER_TS = path.resolve(fileURLToPath(import.meta.url), '..', '..', 'src', 'server.ts');
+const CONTROL_TS = path.resolve(fileURLToPath(import.meta.url), '..', '..', 'src', 'terminal-agent-control.ts');
 
 describe('terminal-agent watchdog (v1.44+)', () => {
   test('1. spawnTerminalAgent helper exists with PID return type', () => {
@@ -72,7 +73,7 @@ describe('terminal-agent watchdog (v1.44+)', () => {
 
   test('7. CLI cold-start path uses the same spawnTerminalAgent helper', () => {
     const cli = fs.readFileSync(
-      path.resolve(new URL(import.meta.url).pathname, '..', '..', 'src', 'cli.ts'),
+      path.resolve(fileURLToPath(import.meta.url), '..', '..', 'src', 'cli.ts'),
       'utf-8',
     );
     // Otherwise the CLI and watchdog could drift on spawn env/cwd, and

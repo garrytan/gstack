@@ -1,6 +1,7 @@
 import { describe, test, expect } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
+import { fileURLToPath } from 'node:url';
 
 // v1.44 patient autoConnect — static-grep invariants for the polling loop.
 //
@@ -12,7 +13,7 @@ import * as path from 'path';
 // explicit unrecoverable signals (401 auth invalid).
 
 const CLIENT_JS = path.resolve(
-  new URL(import.meta.url).pathname,
+  fileURLToPath(import.meta.url),
   '..',
   '..',
   '..',

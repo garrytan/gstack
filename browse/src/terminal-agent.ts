@@ -1003,9 +1003,11 @@ function main() {
 // In practice, the agent generates INTERNAL_TOKEN once at boot and writes it
 // to a state file the parent reads. This avoids env-passing races. See main().
 const INTERNAL_TOKEN_FILE = path.join(path.dirname(STATE_FILE), 'terminal-internal-token');
-try {
-  mkdirSecure(path.dirname(INTERNAL_TOKEN_FILE));
-  writeSecureFile(INTERNAL_TOKEN_FILE, INTERNAL_TOKEN);
-} catch {}
+if (import.meta.main) {
+  try {
+    mkdirSecure(path.dirname(INTERNAL_TOKEN_FILE));
+    writeSecureFile(INTERNAL_TOKEN_FILE, INTERNAL_TOKEN);
+  } catch {}
 
-main();
+  main();
+}

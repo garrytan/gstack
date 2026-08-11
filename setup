@@ -728,7 +728,7 @@ link_codex_skill_dirs() {
       [ "$skill_name" = "gstack" ] && continue
       target="$skills_dir/$skill_name"
       # Create or update symlink
-      if [ -L "$target" ] || [ ! -e "$target" ]; then
+      if [ "$IS_WINDOWS" -eq 1 ] || [ -L "$target" ] || [ ! -e "$target" ]; then
         _link_or_copy "$skill_dir" "$target"
         linked+=("$skill_name")
       fi
@@ -788,7 +788,7 @@ create_codex_runtime_root() {
     rm -rf "$codex_gstack"
   fi
 
-  mkdir -p "$codex_gstack" "$codex_gstack/browse" "$codex_gstack/gstack-upgrade" "$codex_gstack/review"
+  mkdir -p "$codex_gstack" "$codex_gstack/browse" "$codex_gstack/gstack-upgrade" "$codex_gstack/review" "$codex_gstack/node_modules"
 
   if [ -f "$agents_dir/gstack/SKILL.md" ]; then
     _link_or_copy "$agents_dir/gstack/SKILL.md" "$codex_gstack/SKILL.md"
@@ -796,11 +796,37 @@ create_codex_runtime_root() {
   if [ -d "$gstack_dir/bin" ]; then
     _link_or_copy "$gstack_dir/bin" "$codex_gstack/bin"
   fi
+  # Bin utilities import shared top-level TypeScript modules from ../lib.
+  # Copy only those small runtime modules; nested lib assets (notably the
+  # multi-megabyte diagram renderer) are not required by the Codex bin tools.
+  if [ -d "$gstack_dir/lib" ]; then
+    mkdir -p "$codex_gstack/lib"
+    for runtime_lib in "$gstack_dir"/lib/*.ts; do
+      [ -f "$runtime_lib" ] || continue
+      _link_or_copy "$runtime_lib" "$codex_gstack/lib/$(basename "$runtime_lib")"
+    done
+  fi
   if [ -d "$gstack_dir/browse/dist" ]; then
     _link_or_copy "$gstack_dir/browse/dist" "$codex_gstack/browse/dist"
   fi
   if [ -d "$gstack_dir/browse/bin" ]; then
     _link_or_copy "$gstack_dir/browse/bin" "$codex_gstack/browse/bin"
+  fi
+  # Windows browse.exe validates the adjacent TypeScript server path before it
+  # launches the Node-compatible server bundle. Keep that source available in
+  # the minimal Codex runtime instead of requiring a source-checkout override.
+  if [ -d "$gstack_dir/browse/src" ]; then
+    _link_or_copy "$gstack_dir/browse/src" "$codex_gstack/browse/src"
+  fi
+  # server-node.mjs deliberately externalizes these runtime packages. Install
+  # only those dependencies, not the full repository node_modules tree.
+  for package in playwright playwright-core diff; do
+    if [ -d "$gstack_dir/node_modules/$package" ]; then
+      _link_or_copy "$gstack_dir/node_modules/$package" "$codex_gstack/node_modules/$package"
+    fi
+  done
+  if [ -d "$gstack_dir/node_modules/@ngrok" ]; then
+    _link_or_copy "$gstack_dir/node_modules/@ngrok" "$codex_gstack/node_modules/@ngrok"
   fi
   if [ -f "$agents_dir/gstack-upgrade/SKILL.md" ]; then
     _link_or_copy "$agents_dir/gstack-upgrade/SKILL.md" "$codex_gstack/gstack-upgrade/SKILL.md"
@@ -1096,6 +1122,7 @@ if [ "$INSTALL_CODEX" -eq 1 ]; then
     create_codex_runtime_root "$SOURCE_GSTACK_DIR" "$CODEX_GSTACK"
   fi
   # Install generated Codex-format skills (not Claude source dirs)
+  "$SOURCE_GSTACK_DIR/bin/gstack-patch-names" "$SOURCE_GSTACK_DIR/.agents/skills" "$SKILL_PREFIX"
   link_codex_skill_dirs "$SOURCE_GSTACK_DIR" "$CODEX_SKILLS"
 
   log "gstack ready (codex)."

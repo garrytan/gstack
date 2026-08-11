@@ -149,8 +149,14 @@ let listDomains: any;
 let importCookies: any;
 let CookieImportError: any;
 let originalSpawn: typeof Bun.spawn;
+let testHome: string;
+const originalHome = process.env.HOME;
+const originalUserProfile = process.env.USERPROFILE;
 
 beforeAll(async () => {
+  testHome = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-cookie-home-'));
+  process.env.HOME = testHome;
+  process.env.USERPROFILE = testHome;
   createMacFixtureDb();
   createLinuxFixtureDb();
 
@@ -210,6 +216,11 @@ afterAll(() => {
   try { fs.unlinkSync(FIXTURE_DB); } catch {}
   try { fs.unlinkSync(LINUX_FIXTURE_DB); } catch {}
   try { fs.rmdirSync(FIXTURE_DIR); } catch {}
+  try { fs.rmSync(testHome, { recursive: true, force: true }); } catch {}
+  if (originalHome === undefined) delete process.env.HOME;
+  else process.env.HOME = originalHome;
+  if (originalUserProfile === undefined) delete process.env.USERPROFILE;
+  else process.env.USERPROFILE = originalUserProfile;
 });
 
 // ─── Helper: Override DB path for tests ─────────────────────────

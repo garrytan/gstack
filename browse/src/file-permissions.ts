@@ -41,6 +41,25 @@ import * as fs from 'fs';
 import * as os from 'os';
 
 let warnedOnce = false;
+let cachedWindowsPrincipal: string | undefined;
+
+function windowsAclPrincipal(): string {
+  if (cachedWindowsPrincipal) return cachedWindowsPrincipal;
+  try {
+    const effectivePrincipal = execFileSync('whoami', [], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    if (effectivePrincipal) {
+      cachedWindowsPrincipal = effectivePrincipal;
+      return effectivePrincipal;
+    }
+  } catch {
+    // Fall back to the profile identity when whoami is unavailable.
+  }
+  cachedWindowsPrincipal = os.userInfo().username;
+  return cachedWindowsPrincipal;
+}
 
 function warnIcaclsFailure(fsPath: string, err: unknown): void {
   if (warnedOnce) return;
@@ -67,7 +86,7 @@ function warnIcaclsFailure(fsPath: string, err: unknown): void {
 export function restrictFilePermissions(filePath: string): void {
   if (process.platform === 'win32') {
     try {
-      const user = os.userInfo().username;
+      const user = windowsAclPrincipal();
       execFileSync(
         'icacls',
         [filePath, '/inheritance:r', '/grant:r', `${user}:(F)`],
@@ -97,7 +116,7 @@ export function restrictFilePermissions(filePath: string): void {
 export function restrictDirectoryPermissions(dirPath: string): void {
   if (process.platform === 'win32') {
     try {
-      const user = os.userInfo().username;
+      const user = windowsAclPrincipal();
       execFileSync(
         'icacls',
         [dirPath, '/inheritance:r', '/grant:r', `${user}:(OI)(CI)(F)`],

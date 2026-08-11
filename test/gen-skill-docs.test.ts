@@ -2318,6 +2318,23 @@ describe('setup script validation', () => {
     expect(fnBody).toContain('gstack*');
   });
 
+  test('link_codex_skill_dirs refreshes Windows copied skill directories', () => {
+    const fnStart = setupContent.indexOf('link_codex_skill_dirs()');
+    const fnEnd = setupContent.indexOf('}', setupContent.indexOf('linked[@]}', fnStart));
+    const fnBody = setupContent.slice(fnStart, fnEnd);
+    expect(fnBody).toContain('[ "$IS_WINDOWS" -eq 1 ] || [ -L "$target" ] || [ ! -e "$target" ]');
+  });
+
+  test('Codex install patches generated skill names before linking prefixed skills', () => {
+    const codexStart = setupContent.indexOf('# 5. Install for Codex');
+    const codexEnd = setupContent.indexOf('# 6. Install for Kiro CLI', codexStart);
+    const codexBody = setupContent.slice(codexStart, codexEnd);
+    const patchNames = codexBody.indexOf('gstack-patch-names" "$SOURCE_GSTACK_DIR/.agents/skills" "$SKILL_PREFIX"');
+    const linkSkills = codexBody.indexOf('link_codex_skill_dirs "$SOURCE_GSTACK_DIR" "$CODEX_SKILLS"');
+    expect(patchNames).toBeGreaterThanOrEqual(0);
+    expect(linkSkills).toBeGreaterThan(patchNames);
+  });
+
   test('link_claude_skill_dirs creates real directories with absolute SKILL.md symlinks', () => {
     // Claude links should be real directories with absolute SKILL.md symlinks
     // to ensure Claude Code discovers them as top-level skills (not nested under gstack/)
@@ -2401,6 +2418,15 @@ describe('setup script validation', () => {
     expect(content).toContain('$GSTACK_BIN/');
   });
 
+  test('generated Codex browse setup uses the absolute GSTACK_BROWSE path', () => {
+    const content = fs.readFileSync(
+      path.join(ROOT, '.agents', 'skills', 'gstack-qa', 'SKILL.md'),
+      'utf-8',
+    );
+    expect(content).toContain('B="$GSTACK_BROWSE/browse"');
+    expect(content).not.toContain('B="$HOME$GSTACK_BROWSE/browse"');
+  });
+
   test('setup supports --host kiro with install section and sed rewrites', () => {
     expect(setupContent).toContain('INSTALL_KIRO=');
     expect(setupContent).toContain('kiro-cli');
@@ -2441,6 +2467,10 @@ describe('setup script validation', () => {
     expect(fnBody).toContain('gstack/SKILL.md');
     expect(fnBody).toContain('browse/dist');
     expect(fnBody).toContain('browse/bin');
+    expect(fnBody).toContain('browse/src');
+    expect(fnBody).toContain('for package in playwright playwright-core diff');
+    expect(fnBody).toContain('node_modules/$package');
+    expect(fnBody).toContain('node_modules/@ngrok');
     expect(fnBody).toContain('gstack-upgrade/SKILL.md');
     // Review runtime assets (individual files, not the whole dir)
     expect(fnBody).toContain('checklist.md');

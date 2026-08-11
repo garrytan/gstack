@@ -134,6 +134,25 @@ export async function isServerHealthy(port: number): Promise<boolean> {
   }
 }
 
+/**
+ * Confirm that a connection reset was the requested stop/restart transition,
+ * not an unrelated daemon crash. The request must already have been sent;
+ * success requires both the original PID to be dead and its state file gone.
+ */
+async function waitForIntentionalShutdown(state: ServerState, timeoutMs = 10_000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!isProcessAlive(state.pid) && !fs.existsSync(config.stateFile)) return true;
+    await Bun.sleep(50);
+  }
+  return !isProcessAlive(state.pid) && !fs.existsSync(config.stateFile);
+}
+
+async function startReplacementServer(previousState: ServerState): Promise<ServerState> {
+  const restartEnv = buildRestartEnv(_globalFlags, previousState);
+  return startServer(Object.keys(restartEnv).length ? restartEnv : undefined);
+}
+
 // ─── Process Management ─────────────────────────────────────────
 async function killServer(pid: number): Promise<void> {
   if (!isProcessAlive(pid)) return;
@@ -560,6 +579,12 @@ async function sendCommand(state: ServerState, command: string, args: string[], 
     if (resp.ok) {
       process.stdout.write(text);
       if (!text.endsWith('\n')) process.stdout.write('\n');
+      if (command === 'restart') {
+        if (!await waitForIntentionalShutdown(state)) {
+          throw new Error('[browse] Restart requested, but the original server did not stop');
+        }
+        await startReplacementServer(state);
+      }
     } else {
       // Try to parse as JSON error
       try {
@@ -585,6 +610,14 @@ async function sendCommand(state: ServerState, command: string, args: string[], 
     }
     // Connection error — server may have crashed, OR may just be busy.
     if (err.code === 'ECONNREFUSED' || err.code === 'ECONNRESET' || err.message?.includes('fetch failed')) {
+      // stop/restart intentionally terminate the process. Older or heavily
+      // loaded runtimes can close the socket before the success body flushes;
+      // accept that reset only after verifying the requested state transition.
+      if ((command === 'stop' || command === 'restart') && await waitForIntentionalShutdown(state)) {
+        process.stdout.write(command === 'stop' ? 'Server stopped\n' : 'Restarting...\n');
+        if (command === 'restart') await startReplacementServer(state);
+        return;
+      }
       const oldState = readState();
       // #1781 busy-vs-dead: a single-threaded daemon under beacon/extension load
       // can briefly stop answering HTTP while still alive. Before declaring a
@@ -608,8 +641,7 @@ async function sendCommand(state: ServerState, command: string, args: string[], 
       // invocation OR the persisted server mode, so a restart triggered by a
       // plain command (goto/status, no --headed) never silently downgrades a
       // headed session to headless (#1781). Same for proxy/configHash.
-      const restartEnv = buildRestartEnv(_globalFlags, oldState);
-      const newState = await startServer(Object.keys(restartEnv).length ? restartEnv : undefined);
+      const newState = await startReplacementServer(oldState ?? state);
       return sendCommand(newState, command, args, retries + 1);
     }
     throw err;

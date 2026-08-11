@@ -2,6 +2,8 @@ import { describe, test, expect, beforeEach, beforeAll, afterAll } from 'bun:tes
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
+import * as os from 'os';
+import { fileURLToPath } from 'node:url';
 import {
   buildFetchHandler,
   __resetShuttingDown,
@@ -33,7 +35,11 @@ import { resolveConfig } from '../src/config';
 // Use isProcessAlive's false branch by also testing with a PID that does
 // not exist (negative PID rejected by the OS).
 
-const stateDir = resolveConfig().stateDir;
+const testRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-embedder-state-'));
+const testConfig = resolveConfig({
+  BROWSE_STATE_FILE: path.join(testRoot, '.gstack', 'browse.json'),
+});
+const stateDir = testConfig.stateDir;
 const PORT_FILE = path.join(stateDir, 'terminal-port');
 const TOKEN_FILE = path.join(stateDir, 'terminal-internal-token');
 const AGENT_RECORD_FILE = path.join(stateDir, 'terminal-agent-pid');
@@ -50,7 +56,7 @@ function makeMinimalConfig(overrides: Partial<ServerConfig> = {}): ServerConfig 
     authToken: token,
     browsePort: 34568,
     idleTimeoutMs: 1_800_000,
-    config: resolveConfig(),
+    config: testConfig,
     browserManager: new BrowserManager(),
     startTime: Date.now(),
     ...overrides,
@@ -159,6 +165,7 @@ describe('buildFetchHandler ownsTerminalAgent gate', () => {
     } else {
       try { fs.unlinkSync(AGENT_RECORD_FILE); } catch {}
     }
+    try { fs.rmSync(testRoot, { recursive: true, force: true }); } catch {}
   });
 
   beforeEach(() => {
@@ -217,7 +224,7 @@ describe('buildFetchHandler ownsTerminalAgent gate', () => {
     // Resolves browse/src/server.ts relative to this test file so the test
     // works regardless of cwd. import.meta.url is the test file's URL.
     const serverTsPath = path.resolve(
-      new URL(import.meta.url).pathname,
+      fileURLToPath(import.meta.url),
       '..',
       '..',
       'src',

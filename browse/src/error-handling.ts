@@ -39,6 +39,16 @@ export function safeKill(pid: number, signal: NodeJS.Signals | number): void {
 /** Check if a PID is alive. Pure boolean probe — returns false for ALL errors. */
 export function isProcessAlive(pid: number): boolean {
   if (IS_WINDOWS) {
+    // Signal 0 performs an existence check without terminating the process.
+    // Prefer it because tasklist can be blocked by restricted Windows tokens
+    // (including Codex command mode) even for the caller's own process.
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch (err: any) {
+      if (err?.code === 'EPERM') return true;
+      if (err?.code === 'ESRCH') return false;
+    }
     try {
       const result = Bun.spawnSync(
         ['tasklist', '/FI', `PID eq ${pid}`, '/NH', '/FO', 'CSV'],
