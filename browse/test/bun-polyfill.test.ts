@@ -10,7 +10,7 @@ describe('bun-polyfill', () => {
 
   test('Bun.sleep resolves after delay', async () => {
     const result = Bun.spawnSync(['node', '-e', `
-      require('${polyfillPath}');
+      require(${JSON.stringify(polyfillPath)});
       (async () => {
         const start = Date.now();
         await Bun.sleep(50);
@@ -24,7 +24,7 @@ describe('bun-polyfill', () => {
 
   test('Bun.spawnSync runs a command and returns stdout', () => {
     const result = Bun.spawnSync(['node', '-e', `
-      require('${polyfillPath}');
+      require(${JSON.stringify(polyfillPath)});
       const r = Bun.spawnSync(['echo', 'hello'], { stdout: 'pipe' });
       console.log(r.stdout.toString().trim());
       console.log('exit:' + r.exitCode);
@@ -36,7 +36,7 @@ describe('bun-polyfill', () => {
 
   test('Bun.spawn launches a process with pid', async () => {
     const result = Bun.spawnSync(['node', '-e', `
-      require('${polyfillPath}');
+      require(${JSON.stringify(polyfillPath)});
       const p = Bun.spawn(['echo', 'test'], { stdio: ['pipe', 'pipe', 'pipe'] });
       console.log(typeof p.pid === 'number' ? 'HAS_PID' : 'NO_PID');
       console.log(typeof p.kill === 'function' ? 'HAS_KILL' : 'NO_KILL');
@@ -50,7 +50,7 @@ describe('bun-polyfill', () => {
 
   test('Bun.serve creates an HTTP server that responds', async () => {
     const result = Bun.spawnSync(['node', '-e', `
-      require('${polyfillPath}');
+      require(${JSON.stringify(polyfillPath)});
       const server = Bun.serve({
         port: 0,  // Note: polyfill uses port directly, so we pick one
         hostname: '127.0.0.1',
@@ -68,5 +68,26 @@ describe('bun-polyfill', () => {
     const lines = result.stdout.toString().trim().split('\n');
     expect(lines[0]).toBe('HAS_STOP');
     expect(lines[1]).toBe('HAS_PORT');
+  });
+
+  // Regression: node defaults windowsHide to false, so a console child spawned
+  // through this shim pops a visible window on Windows — bun never does. Asserted
+  // by stubbing child_process before the polyfill destructures it, so the check is
+  // deterministic and runs on every platform.
+  test('spawn and spawnSync pass windowsHide so Windows shows no console window', () => {
+    const result = Bun.spawnSync(['node', '-e', `
+      const cp = require('child_process');
+      const seen = [];
+      cp.spawn = (c, a, o) => { seen.push(o); return { pid: 1, stdout: null, stderr: null, stdin: null, unref() {}, kill() {} }; };
+      cp.spawnSync = (c, a, o) => { seen.push(o); return { status: 0, stdout: Buffer.from(''), stderr: Buffer.from('') }; };
+      require(${JSON.stringify(polyfillPath)});
+      Bun.spawn(['echo', 'x'], { stdio: ['pipe', 'pipe', 'pipe'] });
+      Bun.spawnSync(['echo', 'x'], { stdout: 'pipe' });
+      console.log(seen.length === 2 ? 'BOTH' : 'GOT_' + seen.length);
+      console.log(seen.every((o) => o && o.windowsHide === true) ? 'HIDDEN' : 'VISIBLE');
+    `], { stdout: 'pipe', stderr: 'pipe' });
+    const lines = result.stdout.toString().trim().split('\n');
+    expect(lines[0]).toBe('BOTH');
+    expect(lines[1]).toBe('HIDDEN');
   });
 });
