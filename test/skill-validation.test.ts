@@ -1496,36 +1496,32 @@ describe('Codex skill', () => {
     // (#1428, #1479). Two different shapes satisfy it, and these files have
     // diverged on which one they use:
     //
-    //   codex/  — scoped `codex review --base <base>` with NO prompt argument.
-    //     The scope comes from the CLI, which is the only thing that actually
-    //     sets it.
-    //   review/, ship/ — prompt-only `codex review "<text>"` that describes the
-    //     diff scope in prompt text. This parses, but the CLI then falls back
-    //     to *uncommitted working-tree* scope, so the review silently covers
-    //     the wrong changes. Still pinned below so the shape can't drift
-    //     further before that path is fixed too.
+    //   scoped   — `codex review --base <base>` with NO prompt argument. The
+    //     scope comes from the CLI, which is the only thing that actually sets
+    //     it. This is what all three files now use.
+    //   broken   — prompt-only `codex review "<text>"` describing the diff
+    //     range in prose. This parses, but the CLI falls back to *uncommitted
+    //     working-tree* scope, so the review silently covers the wrong changes.
     //
     // The old assertion banned the substring `--base <base> -c '...'`, which
-    // the correct bare form also contains — it could not tell the two apart.
-    const codexSkill = fs.readFileSync(path.join(ROOT, 'codex', 'SKILL.md'), 'utf-8');
-    expect(codexSkill).toMatch(/codex\s+review\s+--base\b/);
-    const offending: string[] = [];
-    for (const line of codexSkill.split('\n')) {
-      const match = line.match(/\bcodex\s+review\b(.*)$/);
-      if (!match) continue;
-      const rest = match[1];
-      if (!/--base\b|--commit\b|--uncommitted\b/.test(rest)) continue;
-      const beforeFlag = rest.split(/--base\b|--commit\b|--uncommitted\b/)[0].trim();
-      // A quoted string or variable expansion before the scope flag is the bug.
-      if (/^["'$]|^--\s*["']/.test(beforeFlag)) offending.push(line);
-    }
-    expect(offending).toEqual([]);
-
-    for (const rel of ['review/SKILL.md', 'ship/SKILL.md']) {
+    // the correct scoped form also contains — it could not tell the two apart,
+    // so it effectively banned the fix.
+    for (const rel of ['codex/SKILL.md', 'review/SKILL.md', 'ship/SKILL.md']) {
       // ship's codex command moved into sections/adversarial.md (T9 carve).
       const content = rel === 'ship/SKILL.md' ? readShipUnion() : fs.readFileSync(path.join(ROOT, rel), 'utf-8');
-      expect(content).not.toContain('--base <base> -c \'model_reasoning_effort="high"\'');
-      expect(content).toContain('Run git diff origin/<base>...HEAD 2>/dev/null || git diff <base>...HEAD');
+      expect(content).toMatch(/codex\s+review\s+--base\b/);
+      const offending: string[] = [];
+      for (const line of content.split('\n')) {
+        if (line.includes('`codex review`')) continue;
+        const match = line.match(/(?:^|[;&|]\s*|\s)codex\s+review\b(.*)$/);
+        if (!match) continue;
+        const rest = match[1];
+        if (!/--base\b|--commit\b|--uncommitted\b/.test(rest)) continue;
+        const beforeFlag = rest.split(/--base\b|--commit\b|--uncommitted\b/)[0].trim();
+        // A quoted string or variable expansion before the scope flag is the bug.
+        if (/^["'$]|^--\s*["']/.test(beforeFlag)) offending.push(`${rel}: ${line.trim()}`);
+      }
+      expect(offending).toEqual([]);
     }
   });
 

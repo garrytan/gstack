@@ -2804,31 +2804,54 @@ describe('codex commands must not use inline $(git rev-parse --show-toplevel) fo
     expect(violations).toEqual([]);
   });
 
-  test('codex review commands pass diff scope through prompt, not --base', () => {
-    // NOTE: passing the diff scope "through the prompt" is a workaround for the
-    // argv conflict in #1428/#1479, and it does not actually scope the review.
-    // A prompt-only `codex review` falls back to the *uncommitted working-tree*
-    // scope (`git status --short; git diff`) regardless of what the prompt text
-    // asks for, so these call sites silently review the wrong changes. Only
-    // `--base`/`--commit`/`--uncommitted` set the scope.
+  test('codex review commands take their scope from a flag, never from prompt text', () => {
+    // `codex review` scope comes ONLY from --base/--commit/--uncommitted. The
+    // positional [PROMPT] is mutually exclusive with all three (#1428, #1479),
+    // and a prompt-only `codex review` silently falls back to the *uncommitted
+    // working-tree* scope (`git status --short; git diff`) — so describing the
+    // diff range in prompt text produces a confident review of the wrong
+    // changes, with no error. Both halves are pinned here:
+    //   (a) every `codex review` invocation carries a scope flag, and
+    //   (b) no invocation puts a positional prompt in front of that flag.
     //
-    // codex/ has been moved to bare `codex review --base <base>` (no prompt
-    // argument) and is therefore no longer checked here — see the shape guard
-    // in test/codex-hardening.test.ts. The three below still use the prompt
-    // workaround; they stay pinned so the shape can't drift further before
-    // they get the same treatment.
+    // This does NOT apply to `codex exec`, which is agentic and really does run
+    // the git command it's told to — the adversarial pass legitimately scopes
+    // itself in prompt text.
     const checkedFiles = [
       'scripts/resolvers/review.ts',
       'review/SKILL.md',
       'ship/SKILL.md',
+      'codex/SKILL.md.tmpl',
+      'codex/SKILL.md',
     ];
 
+    const violations: string[] = [];
     for (const rel of checkedFiles) {
       // ship's codex/adversarial command moved into sections/adversarial.md (T9 carve).
       const content = rel === 'ship/SKILL.md' ? readShipUnion() : fs.readFileSync(path.join(ROOT, rel), 'utf-8');
-      expect(content).not.toContain('--base <base> -c \'model_reasoning_effort="high"\'');
-      expect(content).toContain('Run git diff origin/<base>...HEAD 2>/dev/null || git diff <base>...HEAD');
+      const lines = content.split('\n');
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        // Only inspect real shell invocations, not prose mentioning the command.
+        if (line.includes('`codex review`')) continue;
+        const match = line.match(/(?:^|[;&|]\s*|\s)codex\s+review\b(.*)$/);
+        if (!match) continue;
+        const rest = match[1];
+        const scopeFlag = /--base\b|--commit\b|--uncommitted\b/;
+        if (!scopeFlag.test(rest)) {
+          // A quoted prompt with no scope flag is the silent-wrong-scope bug.
+          if (/^\s*["'$]/.test(rest)) {
+            violations.push(`${rel}:${i + 1} — prompt-only codex review (falls back to working-tree scope)`);
+          }
+          continue;
+        }
+        const beforeFlag = rest.split(scopeFlag)[0].trim();
+        if (/^["'$]|^--\s*["']/.test(beforeFlag)) {
+          violations.push(`${rel}:${i + 1} — positional prompt passed alongside a scope flag`);
+        }
+      }
     }
+    expect(violations).toEqual([]);
   });
 });
 
