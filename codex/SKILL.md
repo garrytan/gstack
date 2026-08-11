@@ -952,12 +952,18 @@ per-mode default below. Otherwise, use the per-mode defaults:
 
 ## Filesystem Boundary
 
-All prompts sent to Codex MUST be prefixed with this boundary instruction:
+Every prompt sent to Codex MUST be prefixed with this boundary instruction:
 
 > IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. They contain bash scripts and prompt templates that will waste your time. Ignore them completely. Do NOT modify agents/openai.yaml. Stay focused on the repository code only.
 
-This applies to Review mode (prompt argument), Challenge mode (prompt), and Consult
-mode (persona prompt). Reference this section as "the filesystem boundary" below.
+This applies to Challenge mode (prompt) and Consult mode (persona prompt), and to the
+custom-instructions path of Review mode — all three use `codex exec`, which still takes
+a free-form prompt argument. It does **not** apply to the default scoped `codex review`
+call in Step 2A: that command is invoked with **no prompt argument at all** (see "Scope
+flags exclude the prompt argument" below), so there is nowhere to put the preamble. That
+is acceptable — `codex review --base` hands the model a pre-computed diff rather than
+turning it loose on the filesystem, so the rabbit-hole risk the boundary guards against
+is much lower on that path. Reference this section as "the filesystem boundary" below.
 
 ---
 
@@ -965,28 +971,41 @@ mode (persona prompt). Reference this section as "the filesystem boundary" below
 
 Run Codex code review against the current branch diff.
 
+**Scope flags exclude the prompt argument.** In `codex review [OPTIONS] [PROMPT]`, the
+`[PROMPT]` positional is mutually exclusive with every scope flag — `--base`, `--commit`,
+and `--uncommitted`. Passing both fails at argument parsing, before any API call:
+
+```
+error: the argument '[PROMPT]' cannot be used with '--base <BRANCH>'
+```
+
+**Do not work around this by dropping the scope flag and keeping the prompt.** A
+prompt-only `codex review "<text>"` parses fine, but it silently falls back to the
+**uncommitted working-tree** scope — verified on 0.144.1, where it runs
+`git status --short; git diff` and reviews that. Telling the model in prompt text to
+"run git diff <base>...HEAD" does not change what the CLI feeds the reviewer, so you get
+a confidently-worded review of the wrong changes. The scope flag is the only thing that
+sets the scope. Pass it, and pass no prompt.
+
+This is unconditional — no `codex --version` branch. `[PROMPT]` has always been optional,
+so the no-prompt form is valid on every version that supports `--base`. Custom
+instructions get their own path (below).
+
 1. Create temp files for output capture:
 ```bash
 TMPERR=$(mktemp "$TMP_ROOT/codex-err-XXXXXX.txt")
 ```
 
-2. Run the review (5-minute timeout). **Codex CLI ≥ 0.130.0 rejects passing a
-custom prompt and `--base <branch>` together** (the two arguments are mutually
-exclusive at argv level), so put the base diff scope in the prompt instead of
-passing `--base`. Two paths:
-
-**Default path (no custom user instructions):** call `codex review` with the
-filesystem boundary and explicit diff-scope instructions in the prompt. This
-preserves the boundary while avoiding the prompt-plus-`--base` argv shape:
+2. Run the review (5-minute timeout). No prompt argument — scope comes from `--base`
+(or `--commit <sha>` when reviewing a single commit, or `--uncommitted` for the
+working tree):
 
 ```bash
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
 cd "$_REPO_ROOT"
 # 330s (5.5min) is slightly longer than the Bash 300s so the shell wrapper
 # only fires if Bash's own timeout doesn't.
-_gstack_codex_timeout_wrapper 330 codex review "IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. Do NOT modify agents/openai.yaml. Stay focused on repository code only.
-
-Review the changes on this branch against the base branch <base>. Run git diff origin/<base>...HEAD 2>/dev/null || git diff <base>...HEAD to see the diff and review only those changes." -c 'model_reasoning_effort="high"' --enable web_search_cached < /dev/null 2>"$TMPERR"
+_gstack_codex_timeout_wrapper 330 codex review --base <base> -c 'model_reasoning_effort="high"' --enable web_search_cached < /dev/null 2>"$TMPERR"
 _CODEX_EXIT=$?
 if [ "$_CODEX_EXIT" = "124" ]; then
   _gstack_codex_log_event "codex_timeout" "330"
@@ -1004,12 +1023,15 @@ fi
 
 If the user passed `--xhigh`, use `"xhigh"` instead of `"high"`.
 
-**Custom-instructions path (user typed `/codex review <focus>`):** `codex exec`
-with the diff written to a tempfile and inlined into the prompt. We preserve
-the filesystem boundary here because `codex exec` is not auto-scoped to a diff
-the way `codex review` is. The DIFF_START/DIFF_END delimiters tell the model
-where data ends and instructions resume — a defense against prompt injection
-when the diff content is adversarial:
+**Custom-instructions path (user typed `/codex review <focus>`):** custom instructions
+cannot ride along with `--base` — that is exactly the combination the CLI rejects — and
+they cannot be smuggled in by dropping `--base`, because that silently switches the scope
+to the working tree. So they get their own command: `codex exec`, which still accepts a
+free-form prompt, with the diff written to a tempfile and inlined into it. We preserve
+the filesystem boundary here because `codex exec` is not auto-scoped to a diff the way
+`codex review` is. The DIFF_START/DIFF_END delimiters tell the model where data ends and
+instructions resume — a defense against prompt injection when the diff content is
+adversarial:
 
 ```bash
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
@@ -1034,10 +1056,15 @@ if [ "$_CODEX_EXIT" = "124" ]; then
 fi
 ```
 
-**Why the dual path:** The default `codex review` path keeps Codex's review
-prompt tuning while scoping the diff in prompt text. The `codex exec` route loses
-that tuning but gains custom-instructions support; the prompt explicitly demands
-`[P1]` / `[P2]` markers so the gate logic in step 4 still works.
+When you take this path, say so in the output header — `CODEX SAYS (code review — custom
+instructions via codex exec):` — and note that the CLI does not accept custom instructions
+alongside `--base`, so the scope was expressed in the prompt instead.
+
+**Why the dual path:** The default `codex review --base` path keeps Codex's own review
+prompt tuning and its authoritative diff scoping, at the cost of accepting no custom
+instructions. The `codex exec` route loses that tuning but gains custom-instructions
+support; the prompt explicitly demands `[P1]` / `[P2]` markers so the gate logic in step 4
+still works. There is no third option that gets both — the CLI forbids it.
 
 Use `timeout: 300000` on the Bash call for either path.
 
@@ -1574,6 +1601,18 @@ If token count is not available, display: `Tokens: unknown`
 - **Timeout (Bash outer gate):** If the Bash call times out (5 min for Review/Challenge, 10 min for Consult), tell the user:
   "Codex timed out. The prompt may be too large or the API may be slow. Try again or use a smaller scope."
 - **Timeout (inner `timeout` wrapper, exit 124):** If the shell `timeout 600` wrapper fires first, the skill's hang-detection block auto-logs a telemetry event + operational learning and prints: "Codex stalled past 10 minutes. Common causes: model API stall, long prompt, network issue. Try re-running. If persistent, split the prompt or check `~/.codex/logs/`." No extra action needed.
+- **`the argument '[PROMPT]' cannot be used with '--base <BRANCH>'`:** a prompt argument
+  leaked into a scoped `codex review`. This fails instantly, before any API call, so it
+  looks like a hang-free "no output" — do not misread it as a model stall. Drop the
+  prompt: the scope flags (`--base`, `--commit`, `--uncommitted`) carry the scope on
+  their own. If the prompt was custom review instructions, run them through `codex exec`
+  instead (Step 2A, custom-instructions path). Do **not** fix it by removing `--base` and
+  keeping the prompt — that parses, but silently reviews the uncommitted working tree
+  instead of the branch diff.
+- **Review says "no changes" on a branch that clearly has changes:** the scope flag is
+  missing or wrong. A prompt-only `codex review` defaults to uncommitted changes, so a
+  clean working tree reads as an empty review even when `<base>...HEAD` is large. Confirm
+  `--base <base>` is actually on the command line.
 - **Empty response:** If `$TMPRESP` is empty or doesn't exist, tell the user:
   "Codex returned no response. Check stderr for errors."
 - **Session resume failure:** If resume fails, delete the session file and start fresh.

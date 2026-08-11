@@ -2805,9 +2805,19 @@ describe('codex commands must not use inline $(git rev-parse --show-toplevel) fo
   });
 
   test('codex review commands pass diff scope through prompt, not --base', () => {
+    // NOTE: passing the diff scope "through the prompt" is a workaround for the
+    // argv conflict in #1428/#1479, and it does not actually scope the review.
+    // A prompt-only `codex review` falls back to the *uncommitted working-tree*
+    // scope (`git status --short; git diff`) regardless of what the prompt text
+    // asks for, so these call sites silently review the wrong changes. Only
+    // `--base`/`--commit`/`--uncommitted` set the scope.
+    //
+    // codex/ has been moved to bare `codex review --base <base>` (no prompt
+    // argument) and is therefore no longer checked here — see the shape guard
+    // in test/codex-hardening.test.ts. The three below still use the prompt
+    // workaround; they stay pinned so the shape can't drift further before
+    // they get the same treatment.
     const checkedFiles = [
-      'codex/SKILL.md.tmpl',
-      'codex/SKILL.md',
       'scripts/resolvers/review.ts',
       'review/SKILL.md',
       'ship/SKILL.md',
