@@ -13,6 +13,11 @@
  *   Port:       random 10000-60000 (or BROWSE_PORT env for debug override)
  */
 
+// MUST be first: patches child_process.spawn to default windowsHide on Windows
+// before Playwright (pulled in via BrowserManager below) ever launches the
+// browser, so the detached daemon's console-less children don't pop stray
+// terminal windows. No-op off Windows.
+import './win-console-hide';
 import { BrowserManager } from './browser-manager';
 import { handleReadCommand, hasOutArg } from './read-commands';
 import { handleWriteCommand } from './write-commands';
