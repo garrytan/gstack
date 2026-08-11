@@ -88,7 +88,8 @@ describe('Windows workflows: clean Codex compatibility gate', () => {
   test('setup E2E verifies the installed Codex runtime, metadata, and local browser lifecycle', () => {
     expect(setup).toContain('npm install --global @openai/codex@0.146.0');
     expect(setup).toContain('export PATH="$NPM_CONFIG_PREFIX:$PATH"');
-    expect(setup).toContain('bash bin/gstack-doctor --json --strict');
+    expect(setup).toContain('bash "$CODEX_HOME/skills/gstack/bin/gstack-doctor" --json --strict');
+    expect(setup).toContain('test -f "$CODEX_HOME/skills/gstack/VERSION"');
     expect(setup).toContain('for skill in gstack-qa gstack-review gstack-ship; do');
     expect(setup).toContain('$CODEX_HOME/skills/$skill');
     expect(setup).not.toContain('goto about:blank');

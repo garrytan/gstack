@@ -832,6 +832,11 @@ create_codex_runtime_root() {
   if [ -f "$agents_dir/gstack/SKILL.md" ]; then
     _link_or_copy "$agents_dir/gstack/SKILL.md" "$codex_gstack/SKILL.md"
   fi
+  # Doctor and update diagnostics identify the installed runtime from this
+  # non-secret release marker rather than depending on the source checkout.
+  if [ -f "$gstack_dir/VERSION" ]; then
+    _link_or_copy "$gstack_dir/VERSION" "$codex_gstack/VERSION"
+  fi
   if [ -d "$gstack_dir/bin" ]; then
     _link_or_copy "$gstack_dir/bin" "$codex_gstack/bin"
   fi

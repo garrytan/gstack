@@ -143,6 +143,7 @@ describe('setup: minimal Codex runtime libraries', () => {
       fs.mkdirSync(path.join(source, '.agents', 'skills', 'gstack'), { recursive: true });
       fs.mkdirSync(path.join(source, 'lib', 'diagram-render', 'dist'), { recursive: true });
       fs.writeFileSync(path.join(source, '.agents', 'skills', 'gstack', 'SKILL.md'), '# gstack\n');
+      fs.writeFileSync(path.join(source, 'VERSION'), '1.61.0.1\n');
       fs.writeFileSync(path.join(source, 'lib', 'jsonl-store.ts'), 'export const runtime = true;\n');
       fs.writeFileSync(path.join(source, 'lib', 'redact-engine.ts'), 'export const redact = true;\n');
       fs.writeFileSync(path.join(source, 'lib', 'diagram-render', 'dist', 'diagram-render.html'), 'large nested asset\n');
@@ -158,6 +159,7 @@ describe('setup: minimal Codex runtime libraries', () => {
       expect(result.status, result.stderr).toBe(0);
       expect(fs.readFileSync(path.join(target, 'lib', 'jsonl-store.ts'), 'utf-8')).toContain('runtime = true');
       expect(fs.readFileSync(path.join(target, 'lib', 'redact-engine.ts'), 'utf-8')).toContain('redact = true');
+      expect(fs.readFileSync(path.join(target, 'VERSION'), 'utf-8')).toBe('1.61.0.1\n');
       expect(fs.existsSync(path.join(target, 'lib', 'diagram-render'))).toBe(false);
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });

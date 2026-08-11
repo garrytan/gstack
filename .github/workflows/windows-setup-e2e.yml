@@ -16,6 +16,7 @@ on:
     branches: [main]
     paths:
       - 'package.json'
+      - 'VERSION'
       - 'bun.lock'
       - 'scripts/build.sh'
       - 'scripts/write-version-files.sh'
@@ -139,7 +140,7 @@ jobs:
         shell: bash
 
       - name: Diagnose the clean installation
-        run: bash bin/gstack-doctor --json --strict
+        run: bash "$CODEX_HOME/skills/gstack/bin/gstack-doctor" --json --strict
         shell: bash
 
       - name: Verify required prefixed skill metadata and runtime dependencies
@@ -156,6 +157,7 @@ jobs:
           test -f "$CODEX_HOME/skills/gstack/browse/dist/server-node.mjs"
           test -f "$CODEX_HOME/skills/gstack/browse/src/cli.ts"
           test -d "$CODEX_HOME/skills/gstack/node_modules/playwright"
+          test -f "$CODEX_HOME/skills/gstack/VERSION"
         shell: bash
 
       - name: Exercise installed browser on a blank local page and clean up
