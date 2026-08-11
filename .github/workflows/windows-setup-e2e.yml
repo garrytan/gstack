@@ -16,14 +16,28 @@ on:
     branches: [main]
     paths:
       - 'package.json'
+      - 'bun.lock'
       - 'scripts/build.sh'
       - 'scripts/write-version-files.sh'
+      - 'scripts/gen-skill-docs.ts'
+      - 'scripts/skill-check.ts'
       - 'setup'
+      - 'bin/gstack-patch-names'
+      - 'bin/gstack-relink'
       - 'browse/src/cli.ts'
       - 'browse/src/find-browse.ts'
+      - 'browse/src/**'
+      - 'lib/**'
+      - 'hosts/**'
+      - '**/SKILL.md.tmpl'
+      - 'bin/gstack-doctor'
       - 'bin/gstack-paths'
+      - 'test/windows-codex-workflow-safety.test.ts'
       - '.github/workflows/windows-setup-e2e.yml'
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 concurrency:
   group: windows-setup-e2e-${{ github.head_ref }}
@@ -33,13 +47,58 @@ jobs:
   windows-setup:
     runs-on: windows-latest
     timeout-minutes: 15
+    # Keep every user-owned path in runner temp. This protects the hosted
+    # runner profile and proves a first-time Codex install, not an upgrade.
+    env:
+      HOME: ${{ runner.temp }}/gstack-windows-codex/home
+      USERPROFILE: ${{ runner.temp }}/gstack-windows-codex/home
+      CODEX_HOME: ${{ runner.temp }}/gstack-windows-codex/codex
+      GSTACK_HOME: ${{ runner.temp }}/gstack-windows-codex/gstack-home
+      GSTACK_STATE_ROOT: ${{ runner.temp }}/gstack-windows-codex/state
+      BROWSE_STATE_FILE: ${{ runner.temp }}/gstack-windows-codex/state/browse.json
+      CHROMIUM_PROFILE: ${{ runner.temp }}/gstack-windows-codex/chromium-profile
+      BROWSE_PARENT_PID: '0'
+      NPM_CONFIG_PREFIX: ${{ runner.temp }}/gstack-windows-codex/npm-global
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.18.0'
 
       - uses: oven-sh/setup-bun@v1
         with:
-          bun-version: latest
+          bun-version: '1.3.14'
+
+      - name: Prepare isolated Windows profile
+        run: |
+          set -euo pipefail
+          RUNTIME_ROOT="$(cygpath -m "$RUNNER_TEMP")/gstack-windows-codex"
+          HOME="$RUNTIME_ROOT/home"
+          USERPROFILE="$RUNTIME_ROOT/home"
+          CODEX_HOME="$RUNTIME_ROOT/codex"
+          GSTACK_HOME="$RUNTIME_ROOT/gstack-home"
+          GSTACK_STATE_ROOT="$RUNTIME_ROOT/state"
+          BROWSE_STATE_FILE="$RUNTIME_ROOT/state/browse.json"
+          CHROMIUM_PROFILE="$RUNTIME_ROOT/chromium-profile"
+          NPM_CONFIG_PREFIX="$RUNTIME_ROOT/npm-global"
+          export HOME USERPROFILE CODEX_HOME GSTACK_HOME GSTACK_STATE_ROOT BROWSE_STATE_FILE CHROMIUM_PROFILE NPM_CONFIG_PREFIX
+          mkdir -p "$HOME" "$CODEX_HOME" "$GSTACK_HOME" "$GSTACK_STATE_ROOT" "$CHROMIUM_PROFILE" "$NPM_CONFIG_PREFIX"
+          {
+            echo "HOME=$HOME"
+            echo "USERPROFILE=$USERPROFILE"
+            echo "CODEX_HOME=$CODEX_HOME"
+            echo "GSTACK_HOME=$GSTACK_HOME"
+            echo "GSTACK_STATE_ROOT=$GSTACK_STATE_ROOT"
+            echo "BROWSE_STATE_FILE=$BROWSE_STATE_FILE"
+            echo "CHROMIUM_PROFILE=$CHROMIUM_PROFILE"
+            echo "NPM_CONFIG_PREFIX=$NPM_CONFIG_PREFIX"
+          } >> "$GITHUB_ENV"
+          echo "$NPM_CONFIG_PREFIX" >> "$GITHUB_PATH"
+        shell: bash
 
       - name: Configure git identity
         run: |
@@ -59,8 +118,74 @@ jobs:
         # Windows, the build chain regressed.
         run: bun run build
         shell: bash
-        env:
-          GSTACK_SKIP_PLAYWRIGHT: '1'
+
+      - name: Verify canonical Codex skill generation
+        run: |
+          set -euo pipefail
+          bun run gen:skill-docs --host all
+          bun run skill:check
+        shell: bash
+
+      - name: Install declared Codex runtime without authentication
+        run: |
+          set -euo pipefail
+          export PATH="$NPM_CONFIG_PREFIX:$PATH"
+          npm install --global @openai/codex@0.146.0
+          codex --version
+        shell: bash
+
+      - name: Install prefixed Gstack skills into clean Codex home
+        run: bash ./setup --host codex --prefix --no-plan-tune-hooks
+        shell: bash
+
+      - name: Diagnose the clean installation
+        run: bash bin/gstack-doctor --json --strict
+        shell: bash
+
+      - name: Verify required prefixed skill metadata and runtime dependencies
+        run: |
+          set -euo pipefail
+          for skill in gstack-qa gstack-review gstack-ship; do
+            skill_dir="$CODEX_HOME/skills/$skill"
+            test -f "$skill_dir/SKILL.md"
+            test -f "$skill_dir/agents/openai.yaml"
+            grep -Fqx "name: $skill" "$skill_dir/SKILL.md"
+            grep -Eq "^[[:space:]]*display_name:[[:space:]]*\"?$skill\"?[[:space:]]*$" "$skill_dir/agents/openai.yaml"
+            grep -Eq '^[[:space:]]*default_prompt:[[:space:]]*[^[:space:]]' "$skill_dir/agents/openai.yaml"
+          done
+          test -f "$CODEX_HOME/skills/gstack/browse/dist/server-node.mjs"
+          test -f "$CODEX_HOME/skills/gstack/browse/src/cli.ts"
+          test -d "$CODEX_HOME/skills/gstack/node_modules/playwright"
+        shell: bash
+
+      - name: Exercise installed browser on a blank local page and clean up
+        run: |
+          set -euo pipefail
+          BROWSE_BIN="$CODEX_HOME/skills/gstack/browse/dist/browse.exe"
+          test -f "$BROWSE_BIN" || BROWSE_BIN="$CODEX_HOME/skills/gstack/browse/dist/browse"
+          test -f "$BROWSE_BIN"
+          cleanup() { "$BROWSE_BIN" stop >/dev/null 2>&1 || true; }
+          trap cleanup EXIT
+
+          "$BROWSE_BIN" goto about:blank
+          "$BROWSE_BIN" status
+          before_pid=$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).pid)' "$BROWSE_STATE_FILE")
+
+          "$BROWSE_BIN" restart
+          "$BROWSE_BIN" status
+          after_pid=$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).pid)' "$BROWSE_STATE_FILE")
+          test "$before_pid" != "$after_pid"
+
+          "$BROWSE_BIN" stop
+          for _ in $(seq 1 50); do
+            [ ! -e "$BROWSE_STATE_FILE" ] && break
+            sleep 0.1
+          done
+          test ! -e "$BROWSE_STATE_FILE" || { echo "browse state file was not removed" >&2; exit 1; }
+          node -e 'const pid=Number(process.argv[1]); try { process.kill(pid, 0); process.exit(1); } catch (error) { if (error && error.code === "ESRCH") process.exit(0); throw error; }' "$after_pid" \
+            || { echo "browse PID is still alive after stop" >&2; exit 1; }
+          trap - EXIT
+        shell: bash
 
       - name: Verify binaries exist (with .exe extension on Windows)
         run: |
