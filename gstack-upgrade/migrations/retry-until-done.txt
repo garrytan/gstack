@@ -1,0 +1,4 @@
+# Migrations in this manifest use a .done marker as their completion contract.
+# The migration dispatcher retries a listed script on later setup runs until
+# that marker exists. Keep entries to validated vX.Y.Z.W.sh filenames only.
+v1.61.0.1.sh
