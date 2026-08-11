@@ -393,7 +393,7 @@ Tell three outcomes apart:
      - `headless` → `BLOCKED — AskUserQuestion unavailable`; stop and wait (no human can answer).
      - `interactive` → **prose fallback** (below).
 
-**Prose fallback — render the decision brief as a markdown message, not a tool call.** Same information as the tool format below, different structure (paragraphs, not ✅/❌ bullets). It MUST surface this triad:
+**Prose fallback — render the decision brief as a markdown message, not a tool call.** Same information as the tool format below, different structure (paragraphs, not ✅/❌ bullets), and letter markers instead of the tool form's numbers (no picker here — the user types the key back). It MUST surface this triad:
 
 1. **A clear ELI10 of the issue itself** — plain English on what's being decided and why it matters (the question, not per-choice), naming the stakes. Lead with it.
 2. **Completeness scores per choice** — explicit `Completeness: X/10` on EACH choice (10 complete, 7 happy-path, 3 shortcut); use the kind-note when options differ in kind not coverage, but never silently drop the score.
@@ -415,16 +415,22 @@ Project/branch/task: <1 short grounding sentence using _BRANCH>
 ELI10: <plain English a 16-year-old could follow, 2-4 sentences, name the stakes>
 Stakes if we pick wrong: <one sentence on what breaks, what user sees, what's lost>
 Recommendation: <choice> because <one-line reason>
-Completeness: A=X/10, B=Y/10   (or: Note: options differ in kind, not coverage — no completeness score)
+Completeness: 1=X/10, 2=Y/10   (or: Note: options differ in kind, not coverage — no completeness score)
 Pros / cons:
-A) <option label> (recommended)
+1) <option label> (recommended)
   ✅ <pro — concrete, observable, ≥40 chars>
   ❌ <con — honest, ≥40 chars>
-B) <option label>
+2) <option label>
   ✅ <pro>
   ❌ <con>
 Net: <one-line synthesis of what you're actually trading off>
 ```
+
+Option markers are numbers, never letters: the picker renders `options` as a
+numbered list in array order, so `N)` in the brief MUST be `options[N-1]`.
+Mismatch is silent — the `Completeness` score and `(recommended)` marker end up
+pointing at a different row than the one the reader picks. Letters are the prose
+fallback's marker, and only there.
 
 D-numbering: first question in a skill invocation is `D1`; increment yourself. This is a model-level instruction, not a runtime counter.
 
@@ -453,7 +459,7 @@ drop, merge, or silently defer one to fit. Pick a compliant shape:
 Per-option call shape: `D<N>.k` header (e.g. D3.1..D3.5), ELI10 per option,
 Recommendation, kind-note (no completeness score — Include/Defer/Cut/Hold are
 decision actions), and 4 buckets:
-**A) Include**, **B) Defer**, **C) Cut**, **D) Hold** (stop chain, discuss).
+**1) Include**, **2) Defer**, **3) Cut**, **4) Hold** (stop chain, discuss).
 
 After the chain, fire `D<N>.final` to validate the assembled set (reprompt
 dependency conflicts) and confirm shipping it. Use `D<N>.revise-<k>` to
@@ -485,6 +491,7 @@ Before calling AskUserQuestion, verify:
 - [ ] Completeness scored (coverage) OR kind-note present (kind)
 - [ ] Every option has ≥2 ✅ and ≥1 ❌, each ≥40 chars (or hard-stop escape)
 - [ ] (recommended) label on one option (even for neutral-posture)
+- [ ] Option markers are numbers in `options` order (letters only in prose)
 - [ ] Dual-scale effort labels on effort-bearing options (human / CC)
 - [ ] Net line closes the decision
 - [ ] You are calling the tool, not writing prose — unless `CONDUCTOR_SESSION: true` (then prose is the DEFAULT, not the tool) OR the documented failure fallback applies (then: prose with the mandatory triad — issue ELI10, per-choice Completeness, Recommendation + `(recommended)` — and a "reply with a letter" instruction, then STOP)

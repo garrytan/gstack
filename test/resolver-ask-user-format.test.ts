@@ -136,10 +136,10 @@ describe('generateAskUserFormat — 5+ option split rule (slim inline + docs poi
   });
 
   test('names the Include / Defer / Cut / Hold buckets', () => {
-    expect(out).toMatch(/A\) Include/);
-    expect(out).toMatch(/B\) Defer/);
-    expect(out).toMatch(/C\) Cut/);
-    expect(out).toMatch(/D\) Hold/);
+    expect(out).toMatch(/1\) Include/);
+    expect(out).toMatch(/2\) Defer/);
+    expect(out).toMatch(/3\) Cut/);
+    expect(out).toMatch(/4\) Hold/);
   });
 
   test('specifies D<N>.k child numbering and D<N>.final summary', () => {
