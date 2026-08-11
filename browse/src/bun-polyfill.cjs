@@ -75,6 +75,9 @@ globalThis.Bun = {
       timeout: options.timeout,
       env: options.env,
       cwd: options.cwd,
+      // Bun never shows a console window; node's spawn defaults windowsHide to
+      // false, so without this every console child pops a window on Windows.
+      windowsHide: true,
     });
 
     return {
@@ -91,6 +94,10 @@ globalThis.Bun = {
       stdio,
       env: options.env,
       cwd: options.cwd,
+      // See spawnSync. This is the one users notice: spawnTerminalAgent() launches
+      // `bun run terminal-agent.ts` through here and the daemon respawns it on a
+      // watchdog, so an empty console window reappears every few minutes.
+      windowsHide: true,
     });
 
     return {
