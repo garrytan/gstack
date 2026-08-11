@@ -29,6 +29,7 @@ const codex: HostConfig = {
     { from: '.claude/skills/gstack', to: '.agents/skills/gstack' },
     { from: '.claude/skills/review', to: '.agents/skills/gstack/review' },
     { from: '.claude/skills', to: '.agents/skills' },
+    { from: '${CLAUDE_SKILL_DIR}/../qa-only/SKILL.md', to: '$GSTACK_ROOT/../gstack-qa-only/SKILL.md' },
   ],
 
   suppressedResolvers: [

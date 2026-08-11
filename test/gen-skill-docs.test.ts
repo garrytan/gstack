@@ -1797,6 +1797,12 @@ describe('Codex generation (--host codex)', () => {
     expect(reviewContent).not.toContain('CODEX_REVIEWS');
   });
 
+  test('Codex ship plan verification loads qa-only from gstack root', () => {
+    const shipContent = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-ship', 'SKILL.md'), 'utf-8');
+    expect(shipContent).toContain('$GSTACK_ROOT/../gstack-qa-only/SKILL.md');
+    expect(shipContent).not.toContain('${CLAUDE_SKILL_DIR}/../qa-only/SKILL.md');
+  });
+
   test('--host codex --dry-run freshness', () => {
     const result = Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', 'codex', '--dry-run'], {
       cwd: ROOT,
@@ -1902,8 +1908,8 @@ describe('Codex generation (--host codex)', () => {
     }
   });
 
-  test('all four path rewrite rules produce correct output', () => {
-    // Test each of the 4 path rewrite rules individually
+  test('Codex path rewrite rules produce correct output', () => {
+    // Test host-configured path rewrite rules individually
     const content = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-review', 'SKILL.md'), 'utf-8');
 
     // Rule 1: ~/.claude/skills/gstack → $GSTACK_ROOT
