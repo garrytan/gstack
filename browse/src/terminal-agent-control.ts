@@ -77,6 +77,10 @@ export function spawnTerminalAgent(opts: {
       ...(opts.extraEnv || {}),
     },
     stdio: ['ignore', 'ignore', 'ignore'],
+    // Explicit for the Node fallback path (dist/bun-polyfill.cjs), where the
+    // host default is the opposite of Bun's. A visible console window on every
+    // watchdog respawn is the symptom when this is missing.
+    windowsHide: true,
   });
   proc.unref?.();
   return proc.pid ?? null;

@@ -3,6 +3,9 @@ import * as path from 'path';
 
 // Load the polyfill into a fresh object (don't clobber globalThis.Bun)
 const polyfillPath = path.resolve(import.meta.dir, '../src/bun-polyfill.cjs');
+// Forward slashes so the path survives interpolation into a JS string literal
+// on Windows, which is the platform this polyfill exists for.
+const requirePath = polyfillPath.replace(/\\/g, '/');
 
 describe('bun-polyfill', () => {
   // We test the polyfill by requiring it in a subprocess under Node.js
@@ -10,7 +13,7 @@ describe('bun-polyfill', () => {
 
   test('Bun.sleep resolves after delay', async () => {
     const result = Bun.spawnSync(['node', '-e', `
-      require('${polyfillPath}');
+      require('${requirePath}');
       (async () => {
         const start = Date.now();
         await Bun.sleep(50);
@@ -24,7 +27,7 @@ describe('bun-polyfill', () => {
 
   test('Bun.spawnSync runs a command and returns stdout', () => {
     const result = Bun.spawnSync(['node', '-e', `
-      require('${polyfillPath}');
+      require('${requirePath}');
       const r = Bun.spawnSync(['echo', 'hello'], { stdout: 'pipe' });
       console.log(r.stdout.toString().trim());
       console.log('exit:' + r.exitCode);
@@ -36,7 +39,7 @@ describe('bun-polyfill', () => {
 
   test('Bun.spawn launches a process with pid', async () => {
     const result = Bun.spawnSync(['node', '-e', `
-      require('${polyfillPath}');
+      require('${requirePath}');
       const p = Bun.spawn(['echo', 'test'], { stdio: ['pipe', 'pipe', 'pipe'] });
       console.log(typeof p.pid === 'number' ? 'HAS_PID' : 'NO_PID');
       console.log(typeof p.kill === 'function' ? 'HAS_KILL' : 'NO_KILL');
@@ -48,9 +51,52 @@ describe('bun-polyfill', () => {
     expect(lines[2]).toBe('HAS_UNREF');
   });
 
+  // windowsHide is the one option where Node's default is the opposite of
+  // Bun's: Node shows the child's console window, Bun hides it. Dropping it
+  // in translation makes every spawned child pop a window on Windows, which
+  // is the platform this whole file exists for. Both shims are covered.
+  test('Bun.spawn defaults windowsHide to true', () => {
+    const result = Bun.spawnSync(['node', '-e', `
+      const cp = require('child_process');
+      const orig = cp.spawn;
+      let seen;
+      cp.spawn = (c, a, o) => { seen = o; return orig(c, a, o); };
+      require('${requirePath}');
+      Bun.spawn(['node', '-e', ''], { stdio: ['ignore', 'ignore', 'ignore'] });
+      console.log('windowsHide:' + seen.windowsHide);
+    `], { stdout: 'pipe', stderr: 'pipe' });
+    expect(result.stdout.toString().trim()).toBe('windowsHide:true');
+  });
+
+  test('Bun.spawnSync defaults windowsHide to true', () => {
+    const result = Bun.spawnSync(['node', '-e', `
+      const cp = require('child_process');
+      const orig = cp.spawnSync;
+      let seen;
+      cp.spawnSync = (c, a, o) => { seen = o; return orig(c, a, o); };
+      require('${requirePath}');
+      Bun.spawnSync(['node', '-e', '']);
+      console.log('windowsHide:' + seen.windowsHide);
+    `], { stdout: 'pipe', stderr: 'pipe' });
+    expect(result.stdout.toString().trim()).toBe('windowsHide:true');
+  });
+
+  test('an explicit windowsHide:false is honored', () => {
+    const result = Bun.spawnSync(['node', '-e', `
+      const cp = require('child_process');
+      const orig = cp.spawn;
+      let seen;
+      cp.spawn = (c, a, o) => { seen = o; return orig(c, a, o); };
+      require('${requirePath}');
+      Bun.spawn(['node', '-e', ''], { stdio: ['ignore', 'ignore', 'ignore'], windowsHide: false });
+      console.log('windowsHide:' + seen.windowsHide);
+    `], { stdout: 'pipe', stderr: 'pipe' });
+    expect(result.stdout.toString().trim()).toBe('windowsHide:false');
+  });
+
   test('Bun.serve creates an HTTP server that responds', async () => {
     const result = Bun.spawnSync(['node', '-e', `
-      require('${polyfillPath}');
+      require('${requirePath}');
       const server = Bun.serve({
         port: 0,  // Note: polyfill uses port directly, so we pick one
         hostname: '127.0.0.1',

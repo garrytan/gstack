@@ -75,6 +75,10 @@ globalThis.Bun = {
       timeout: options.timeout,
       env: options.env,
       cwd: options.cwd,
+      // Node defaults windowsHide to false; Bun.spawn hides the console
+      // window. Without this the shim silently inverts the behavior on the
+      // one platform it exists to serve. See the spawn() note below.
+      windowsHide: options.windowsHide !== false,
     });
 
     return {
@@ -91,6 +95,11 @@ globalThis.Bun = {
       stdio,
       env: options.env,
       cwd: options.cwd,
+      // stdio:'ignore' silences a child's output but does not suppress its
+      // console window on Windows. The terminal-agent respawn (server.ts
+      // watchdog, 60s ticker) therefore popped a visible bun.exe window on
+      // every respawn until this was forwarded.
+      windowsHide: options.windowsHide !== false,
     });
 
     return {
