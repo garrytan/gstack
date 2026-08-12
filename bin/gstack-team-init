@@ -65,12 +65,13 @@ cd ~/.claude/skills/gstack && ./setup --team
 Skills like /qa, /ship, /review, /investigate, and /browse become available after install.
 Use /browse for all web browsing. Use ~/.claude/skills/gstack/... for gstack file paths.'
 else
-  SNIPPET='## gstack (REQUIRED — global install)
+  SNIPPET=$(cat <<'SNIPPET_EOF'
+## gstack (REQUIRED — global install)
 
 **Before doing ANY work, verify gstack is installed:**
 
-```bash
-test -d ~/.claude/skills/gstack/bin && echo "GSTACK_OK" || echo "GSTACK_MISSING"
+```
+node -e "const fs=require('node:fs'),os=require('node:os'),p=require('node:path'); console.log(fs.existsSync(p.join(os.homedir(),'.claude','skills','gstack','bin')) ? 'GSTACK_OK' : 'GSTACK_MISSING')"
 ```
 
 If GSTACK_MISSING: STOP. Do not proceed. Tell the user:
@@ -87,7 +88,9 @@ Do not skip skills, ignore gstack errors, or work around missing gstack.
 
 Using gstack skills: After install, skills like /qa, /ship, /review, /investigate,
 and /browse are available. Use /browse for all web browsing.
-Use ~/.claude/skills/gstack/... for gstack file paths (the global path).'
+Use ~/.claude/skills/gstack/... for gstack file paths (the global path).
+SNIPPET_EOF
+)
 fi
 
 # Check if CLAUDE.md already has a gstack section
@@ -109,33 +112,64 @@ if [ "$MODE" = "required" ]; then
   HOOKS_DIR="$REPO_ROOT/.claude/hooks"
   SETTINGS="$REPO_ROOT/.claude/settings.json"
 
-  # Create enforcement hook script
+  # Create a CommonJS hook so consumer package.json module settings cannot change
+  # how Node 18+ loads it.
   mkdir -p "$HOOKS_DIR"
-  cat > "$HOOKS_DIR/check-gstack.sh" << 'HOOK_EOF'
-#!/bin/bash
-# Block skill usage when gstack is not installed globally.
+  cat > "$HOOKS_DIR/check-gstack.cjs" << 'HOOK_EOF'
+'use strict';
 
-if [ ! -d "$HOME/.claude/skills/gstack/bin" ]; then
-  cat >&2 <<'MSG'
-BLOCKED: gstack is not installed globally.
+// Block skill usage when gstack is not installed globally.
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 
-gstack is required for AI-assisted work in this repo.
+const homeDir = process.env.HOME || process.env.USERPROFILE || os.homedir();
+const gstackBin = path.join(homeDir, '.claude', 'skills', 'gstack', 'bin');
+let verificationError = null;
+let installed = false;
+
+try {
+  installed = fs.statSync(gstackBin).isDirectory();
+} catch (error) {
+  if (error && error.code !== 'ENOENT') {
+    verificationError = error;
+  }
+}
+
+if (installed) {
+  process.stdout.write('{}\n');
+} else {
+  const projectDir = process.env.CLAUDE_PROJECT_DIR || '(unknown project)';
+  const heading = verificationError
+    ? 'BLOCKED: the global gstack install could not be verified.'
+    : 'BLOCKED: gstack is not installed globally.';
+  const instructions = `${heading}
+
+gstack is required for AI-assisted work in ${projectDir}.
 
 Install it:
   git clone --depth 1 https://github.com/garrytan/gstack.git ~/.claude/skills/gstack
   cd ~/.claude/skills/gstack && ./setup --team
 
 Then restart your AI coding tool.
-MSG
-  echo '{"permissionDecision":"deny","message":"gstack is required but not installed. See stderr for install instructions."}'
-  exit 0
-fi
+`;
 
-echo '{}'
+  process.stderr.write(instructions);
+  const decision = {
+    permissionDecision: 'deny',
+    permissionDecisionReason: instructions,
+  };
+  process.stdout.write(`${JSON.stringify({
+    ...decision,
+    hookSpecificOutput: {
+      hookEventName: 'PreToolUse',
+      ...decision,
+    },
+  })}\n`);
+}
 HOOK_EOF
-  chmod +x "$HOOKS_DIR/check-gstack.sh"
-  GENERATED+=(".claude/hooks/check-gstack.sh")
-  echo "  + .claude/hooks/check-gstack.sh — enforcement hook"
+  GENERATED+=(".claude/hooks/check-gstack.cjs")
+  echo "  + .claude/hooks/check-gstack.cjs — cross-platform enforcement hook"
 
   # Add hook to project-level settings.json
   if command -v bun >/dev/null 2>&1; then
@@ -149,18 +183,34 @@ HOOK_EOF
       if (!settings.hooks) settings.hooks = {};
       if (!settings.hooks.PreToolUse) settings.hooks.PreToolUse = [];
 
-      // Dedup
-      const exists = settings.hooks.PreToolUse.some(entry =>
-        entry.matcher === 'Skill' &&
-        entry.hooks && entry.hooks.some(h => h.command && h.command.includes('check-gstack'))
-      );
+      const hookMatcher = 'Skill|skill';
+      const hookCommand = \"node -e \\\"const deny=reason=>{const decision={permissionDecision:'deny',permissionDecisionReason:reason};console.error(reason);console.log(JSON.stringify({...decision,hookSpecificOutput:{hookEventName:'PreToolUse',...decision}}))};const projectDir=process.env.CLAUDE_PROJECT_DIR;if(!projectDir){deny('BLOCKED: CLAUDE_PROJECT_DIR is unavailable, so the required gstack hook cannot be loaded.')}else{try{require(require('node:path').join(projectDir, '.claude', 'hooks', 'check-gstack.cjs'))}catch{deny('BLOCKED: the required gstack hook could not be loaded. Verify project hook setup and retry.')}}\\\"\";
+      let found = false;
+      settings.hooks.PreToolUse = settings.hooks.PreToolUse.filter(entry => {
+        if (!['Skill', hookMatcher].includes(entry.matcher) || !entry.hooks) return true;
 
-      if (!exists) {
+        const matchingHooks = entry.hooks.filter(
+          h => h.command && h.command.includes('check-gstack')
+        );
+        if (matchingHooks.length === 0) return true;
+
+        entry.hooks = entry.hooks.filter(
+          h => !h.command || !h.command.includes('check-gstack')
+        );
+        if (!found) {
+          entry.matcher = hookMatcher;
+          entry.hooks.push({ type: 'command', command: hookCommand });
+          found = true;
+        }
+        return entry.hooks.length > 0;
+      });
+
+      if (!found) {
         settings.hooks.PreToolUse.push({
-          matcher: 'Skill',
+          matcher: hookMatcher,
           hooks: [{
             type: 'command',
-            command: '\"\$CLAUDE_PROJECT_DIR/.claude/hooks/check-gstack.sh\"'
+            command: hookCommand
           }]
         });
       }
@@ -171,6 +221,16 @@ HOOK_EOF
     " 2>/dev/null
     GENERATED+=(".claude/settings.json")
     echo "  + .claude/settings.json — PreToolUse hook registered"
+
+    # Remove the obsolete Bash hook only after its replacement is generated and
+    # registered successfully. Other project hooks are left untouched.
+    if [ -e "$HOOKS_DIR/check-gstack.sh" ] || [ -L "$HOOKS_DIR/check-gstack.sh" ]; then
+      rm "$HOOKS_DIR/check-gstack.sh"
+      if (cd "$REPO_ROOT" && git ls-files --error-unmatch -- .claude/hooks/check-gstack.sh >/dev/null 2>&1); then
+        GENERATED+=(".claude/hooks/check-gstack.sh")
+      fi
+      echo "  - .claude/hooks/check-gstack.sh — removed legacy enforcement hook"
+    fi
   else
     echo "  ! bun not found — manually add the PreToolUse hook to .claude/settings.json"
   fi
