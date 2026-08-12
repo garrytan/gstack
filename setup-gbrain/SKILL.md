@@ -1445,7 +1445,7 @@ curated `~/.gstack/` artifacts into gbrain so the retrieval surface
 
 Run the probe to size the operation:
 ```bash
-~/.claude/skills/gstack/bin/gstack-memory-ingest --probe
+bun run ~/.claude/skills/gstack/bin/gstack-memory-ingest.ts --probe
 ```
 
 Read the output. If `Total files in window: 0`, skip — there's nothing
@@ -1453,7 +1453,7 @@ to ingest. Set `gstack-config set transcript_ingest_mode incremental`
 silently and continue to Step 8.
 
 If `New (never ingested)` is < 200 AND total bytes are < 100MB: silent
-bulk via `gstack-memory-ingest --bulk --quiet`. Set
+bulk via `bun run ~/.claude/skills/gstack/bin/gstack-memory-ingest.ts --bulk --quiet`. Set
 `transcript_ingest_mode=incremental` and continue.
 
 Otherwise (the "many transcripts on disk" path): AskUserQuestion with

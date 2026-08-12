@@ -248,6 +248,22 @@ describe('gstack-gbrain-install D19 PATH-shadow validation', () => {
     }
   });
 
+  test('checks the version floor without GNU sort -V (macOS portability)', () => {
+    const installDir = seedInstallDir('0.41.29');
+    const fakeBin = seedFakeGbrainBinary('0.41.29');
+    fs.writeFileSync(path.join(fakeBin, 'sort'), '#!/bin/bash\nexit 99\n', { mode: 0o755 });
+    try {
+      const r = run(INSTALL, ['--validate-only', '--install-dir', installDir], {
+        env: { PATH: `${fakeBin}:${SAFE_PATH}` },
+      });
+      expect(r.status).toBe(0);
+      expect(r.stdout).toContain('installed gbrain 0.41.29');
+    } finally {
+      fs.rmSync(installDir, { recursive: true, force: true });
+      fs.rmSync(fakeBin, { recursive: true, force: true });
+    }
+  });
+
   test('fails hard with exit 3 and PATH-shadow message on version mismatch', () => {
     const installDir = seedInstallDir('0.18.2');
     const fakeBin = seedFakeGbrainBinary('0.18.1');
@@ -283,18 +299,47 @@ describe('gstack-gbrain-install D19 PATH-shadow validation', () => {
     }
   });
 
-  test('fails hard when install-dir package.json lacks version', () => {
+  test('passes without package.json version when PATH resolves to install-dir bin', () => {
     const d = fs.mkdtempSync(path.join(os.tmpdir(), 'gbrain-install-'));
+    const binDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fake-bin-'));
     fs.writeFileSync(
       path.join(d, 'package.json'),
       JSON.stringify({ name: 'gbrain', bin: { gbrain: './src/cli.ts' } })
     );
+    fs.mkdirSync(path.join(d, 'src'));
+    fs.writeFileSync(path.join(d, 'src', 'cli.ts'), '#!/bin/bash\necho "gbrain 0.45.1.0"\n', { mode: 0o755 });
+    fs.symlinkSync(path.join(d, 'src', 'cli.ts'), path.join(binDir, 'gbrain'));
     try {
-      const r = run(INSTALL, ['--validate-only', '--install-dir', d]);
-      expect(r.status).toBe(3);
-      expect(r.stderr).toContain('cannot read version');
+      const r = run(INSTALL, ['--validate-only', '--install-dir', d], {
+        env: { PATH: `${binDir}:${SAFE_PATH}` },
+      });
+      expect(r.status).toBe(0);
+      expect(r.stdout).toContain('installed gbrain 0.45.1.0');
     } finally {
       fs.rmSync(d, { recursive: true, force: true });
+      fs.rmSync(binDir, { recursive: true, force: true });
+    }
+  });
+
+  test('fails hard without package.json version when PATH resolves elsewhere', () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'gbrain-install-'));
+    const fakeBin = seedFakeGbrainBinary('0.45.1.0');
+    fs.writeFileSync(
+      path.join(d, 'package.json'),
+      JSON.stringify({ name: 'gbrain', bin: { gbrain: './src/cli.ts' } })
+    );
+    fs.mkdirSync(path.join(d, 'src'));
+    fs.writeFileSync(path.join(d, 'src', 'cli.ts'), '#!/bin/bash\necho "gbrain 0.45.1.0"\n', { mode: 0o755 });
+    try {
+      const r = run(INSTALL, ['--validate-only', '--install-dir', d], {
+        env: { PATH: `${fakeBin}:${SAFE_PATH}` },
+      });
+      expect(r.status).toBe(3);
+      expect(r.stderr).toContain('PATH SHADOWING DETECTED');
+      expect(r.stderr).toContain('package.json has no version');
+    } finally {
+      fs.rmSync(d, { recursive: true, force: true });
+      fs.rmSync(fakeBin, { recursive: true, force: true });
     }
   });
 });

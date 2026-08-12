@@ -113,7 +113,13 @@ while [ $i -lt \${#args[@]} ]; do
 done
 sub="\${args[$i]:-}"
 case "$sub" in
-  ls-remote|fetch|push|pull) exit 0 ;;
+  ls-remote)
+    if [[ "$*" == *"git@"* ]] && [[ "\${GIT_SSH_COMMAND:-}" != *"BatchMode=yes"* ]]; then exit 9; fi
+    if [ "\${GIT_FAKE_FAIL_ALL_REMOTES:-}" = "1" ]; then exit 1; fi
+    if [ "\${GIT_FAKE_FAIL_SSH:-}" = "1" ] && [[ "$*" == *"git@"* ]]; then exit 1; fi
+    exit 0
+    ;;
+  fetch|push|pull) exit 0 ;;
   *) exec "${realGit}" "$@" ;;
 esac
 `;
@@ -257,6 +263,24 @@ describe('gstack-artifacts-init canonical URL storage (codex Finding #10)', () =
     expect(r.status).toBe(0);
     const remote = spawnSync('git', ['-C', tmpHome, 'remote', 'get-url', 'origin'], { encoding: 'utf-8' });
     expect(remote.stdout.trim()).toBe('git@github.com:testuser/gstack-artifacts-testuser.git');
+  });
+
+  test('falls back to HTTPS when SSH is unavailable', () => {
+    makeFakeGh({ webUrl: 'https://github.com/testuser/gstack-artifacts-testuser' });
+    const r = run(['--host', 'github'], { env: { GIT_FAKE_FAIL_SSH: '1' } });
+    expect(r.status).toBe(0);
+    expect(r.stderr).toContain('SSH remote unavailable');
+    const remote = spawnSync('git', ['-C', tmpHome, 'remote', 'get-url', 'origin'], { encoding: 'utf-8' });
+    expect(remote.stdout.trim()).toBe('https://github.com/testuser/gstack-artifacts-testuser');
+  });
+
+  test('fails closed without initializing git when SSH and HTTPS are unavailable', () => {
+    makeFakeGh({ webUrl: 'https://github.com/testuser/gstack-artifacts-testuser' });
+    const r = run(['--host', 'github'], { env: { GIT_FAKE_FAIL_ALL_REMOTES: '1' } });
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain('Remote not reachable via SSH or HTTPS');
+    expect(fs.existsSync(path.join(tmpHome, '.git'))).toBe(false);
+    expect(fs.existsSync(path.join(tmpHome, '.gstack-artifacts-remote.txt'))).toBe(false);
   });
 });
 

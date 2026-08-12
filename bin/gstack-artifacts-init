@@ -185,16 +185,22 @@ PUSH_URL=$("$URL_BIN" --to ssh "$CANONICAL_HTTPS" 2>/dev/null || echo "$CANONICA
 
 # ---- verify push URL is reachable ----
 echo "Verifying remote connectivity: $PUSH_URL"
-if ! git ls-remote "$PUSH_URL" >/dev/null 2>&1; then
-  cat >&2 <<EOF
-Remote not reachable via SSH: $PUSH_URL
+if ! GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -o BatchMode=yes" git ls-remote "$PUSH_URL" >/dev/null 2>&1; then
+  echo "SSH remote unavailable; trying canonical HTTPS with the configured git credential helper." >&2
+  if GIT_TERMINAL_PROMPT=0 git ls-remote "$CANONICAL_HTTPS" >/dev/null 2>&1; then
+    PUSH_URL="$CANONICAL_HTTPS"
+    echo "HTTPS remote is reachable; using $PUSH_URL"
+  else
+    cat >&2 <<EOF
+Remote not reachable via SSH or HTTPS: $CANONICAL_HTTPS
 This could mean:
   - Wrong URL
-  - SSH key not added to your git host (GitHub: gh ssh-key list; GitLab: glab ssh-key list)
+  - SSH key and HTTPS credential helper are both unavailable
   - Network issue
-Fix and re-run gstack-artifacts-init.
+Fix credentials and re-run gstack-artifacts-init.
 EOF
-  exit 1
+    exit 1
+  fi
 fi
 
 # ---- git init ----

@@ -56,6 +56,28 @@ die() { echo "gstack-gbrain-install: $*" >&2; exit 2; }
 fail() { echo "gstack-gbrain-install: $*" >&2; exit 3; }
 log()  { echo "gstack-gbrain-install: $*"; }
 
+# Read a top-level string or bin.gbrain from package.json without assuming jq
+# is installed. Bun is already a checked prerequisite for every install path.
+package_field() {
+  local file="$1"
+  local field="$2"
+  PACKAGE_FILE="$file" PACKAGE_FIELD="$field" bun -e '
+    try {
+      const data = await Bun.file(process.env.PACKAGE_FILE).json();
+      const field = process.env.PACKAGE_FIELD;
+      const value = field === "bin.gbrain" ? data?.bin?.gbrain : data?.[field];
+      if (typeof value === "string") process.stdout.write(value);
+    } catch {}
+  ' 2>/dev/null || true
+}
+
+resolve_path() {
+  RESOLVE_PATH="$1" bun -e '
+    import { realpathSync } from "node:fs";
+    try { process.stdout.write(realpathSync(process.env.RESOLVE_PATH)); } catch {}
+  ' 2>/dev/null || true
+}
+
 # --- parse args ---
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -98,10 +120,10 @@ is_valid_clone() {
   [ -d "$dir" ] || return 1
   [ -f "$dir/package.json" ] || return 1
   local name
-  name=$(jq -r '.name // empty' "$dir/package.json" 2>/dev/null || true)
+  name=$(package_field "$dir/package.json" name)
   [ "$name" = "gbrain" ] || return 1
   local bin
-  bin=$(jq -r '.bin.gbrain // empty' "$dir/package.json" 2>/dev/null || true)
+  bin=$(package_field "$dir/package.json" bin.gbrain)
   [ -n "$bin" ] || return 1
   return 0
 }
@@ -172,10 +194,7 @@ fi
 # Read the version from the install-dir's package.json; compare to
 # `gbrain --version`. If they disagree, PATH is returning a DIFFERENT
 # gbrain than the one we just linked. Fail hard with remediation.
-expected_version=$(jq -r '.version // empty' "$INSTALL_DIR/package.json" 2>/dev/null || true)
-if [ -z "$expected_version" ]; then
-  fail "cannot read version from $INSTALL_DIR/package.json (install may be broken)"
-fi
+expected_version=$(package_field "$INSTALL_DIR/package.json" version)
 
 if ! command -v gbrain >/dev/null 2>&1; then
   fail "bun link completed but 'gbrain' is not on PATH. Ensure ~/.bun/bin is in your PATH."
@@ -184,6 +203,28 @@ fi
 actual_version=$(gbrain --version 2>/dev/null | head -1 | awk '{print $NF}' | tr -d '[:space:]' || true)
 if [ -z "$actual_version" ]; then
   fail "gbrain is on PATH but 'gbrain --version' produced no output — the binary may be broken."
+fi
+
+# Current gbrain HEAD intentionally has no package.json version. In that case,
+# prove D19 by comparing the resolved PATH binary with package.json's bin target
+# instead of weakening or skipping the shadow check.
+if [ -z "$expected_version" ]; then
+  package_bin=$(package_field "$INSTALL_DIR/package.json" bin.gbrain)
+  [ -n "$package_bin" ] || fail "cannot read bin.gbrain from $INSTALL_DIR/package.json (install may be broken)"
+  expected_bin=$(resolve_path "$INSTALL_DIR/${package_bin#./}")
+  actual_bin=$(resolve_path "$(command -v gbrain)")
+  if [ -z "$expected_bin" ] || [ "$actual_bin" != "$expected_bin" ]; then
+    echo "" >&2
+    echo "gstack-gbrain-install: PATH SHADOWING DETECTED" >&2
+    echo "" >&2
+    echo "  $INSTALL_DIR/package.json has no version, so path identity is required." >&2
+    echo "  Expected: ${expected_bin:-unresolvable}" >&2
+    echo "  PATH gives: ${actual_bin:-unresolvable}" >&2
+    echo "" >&2
+    echo "  Ensure ~/.bun/bin precedes other user bin directories, then re-run /setup-gbrain." >&2
+    exit 3
+  fi
+  expected_version="$actual_version"
 fi
 
 # Tolerate a leading "v" (gbrain may print either "0.18.2" or "v0.18.2").
@@ -216,11 +257,31 @@ log "installed gbrain $actual_version from $INSTALL_DIR"
 # as the PATH-shadow / version-mismatch failures above. A warning here is exactly
 # how the data-loss class slipped through, so this gate fails closed.
 version_lt() {
-  # 0 (true) when $1 < $2 by version sort; equal versions are NOT less-than.
-  [ "$1" = "$2" ] && return 1
-  [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -1)" = "$1" ]
+  # 0 (true) when $1 < $2. Avoid GNU-only `sort -V`: this installer targets
+  # macOS too. Validate and compare the first three numeric SemVer components.
+  local a_major a_minor a_patch a_rest b_major b_minor b_patch b_rest
+  case "$1" in *[!0-9.]*|'') return 2 ;; esac
+  case "$2" in *[!0-9.]*|'') return 2 ;; esac
+  IFS=. read -r a_major a_minor a_patch a_rest <<EOF
+$1
+EOF
+  IFS=. read -r b_major b_minor b_patch b_rest <<EOF
+$2
+EOF
+  for component in "$a_major" "$a_minor" "$a_patch" "$b_major" "$b_minor" "$b_patch"; do
+    case "$component" in ''|*[!0-9]*) return 2 ;; esac
+  done
+  [ "$a_major" -lt "$b_major" ] && return 0
+  [ "$a_major" -gt "$b_major" ] && return 1
+  [ "$a_minor" -lt "$b_minor" ] && return 0
+  [ "$a_minor" -gt "$b_minor" ] && return 1
+  [ "$a_patch" -lt "$b_patch" ]
 }
-if version_lt "$actual_norm" "$MIN_GBRAIN_VERSION"; then
+version_cmp_rc=0
+version_lt "$actual_norm" "$MIN_GBRAIN_VERSION" || version_cmp_rc=$?
+if [ "$version_cmp_rc" -eq 2 ]; then
+  fail "cannot compare gbrain version '$actual_version' against minimum '$MIN_GBRAIN_VERSION'"
+elif [ "$version_cmp_rc" -eq 0 ]; then
   echo "" >&2
   echo "gstack-gbrain-install: gbrain $actual_version is below the minimum gstack-tested version ($MIN_GBRAIN_VERSION)." >&2
   echo "  gstack's sync integration needs the v0.20+ source/list surface." >&2
