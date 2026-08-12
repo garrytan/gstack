@@ -1019,6 +1019,17 @@ Screenshots:   .gstack/canary-reports/screenshots/
 VERDICT: [DEPLOY IS HEALTHY / DEPLOY HAS ISSUES — details above]
 ```
 
+**Verdict thresholds** — grade each metric against baseline before writing the verdict:
+
+| Metric | HEALTHY (advance) | DEGRADED (hold, investigate) | BROKEN (recommend rollback) |
+|--------|-------------------|------------------------------|-----------------------------|
+| Error rate | Within 10% of baseline | 10–100% above baseline | >2x baseline |
+| P95 / avg load | Within 20% of baseline | 20–50% above baseline | >50% above baseline |
+| Client JS errors | No new error types | New types in <0.1% of checks | New types persisting across checks |
+| Visual/content | Matches baseline | Cosmetic diffs | Missing content, broken layout |
+
+Also recommend rollback regardless of metrics on: data-integrity issues, security exposure (secrets/stack traces visible), or auth flows failing. The worst metric determines the overall verdict.
+
 Save report to `.gstack/canary-reports/{date}-canary.md` and `.gstack/canary-reports/{date}-canary.json`.
 
 Log the result for the review dashboard:
