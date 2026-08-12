@@ -38,6 +38,11 @@ export interface BootstrapOptions {
   port?: number;
   /** Token-path inside the app sandbox (relative to data container). */
   bootTokenPath?: string;
+  /** Env vars to set when the daemon launches the app (cold start). Forwarded
+   *  to `devicectl ... --environment-variables`. Apps that gate their debug
+   *  bridge behind a flag (e.g. BuckHound's BH_ENABLE_IOS_QA_BRIDGE) need this
+   *  or a cold launch never boots the StateServer. */
+  launchEnv?: Record<string, string>;
   /** Max time to wait for the StateServer to start after launch (ms). */
   startupTimeoutMs?: number;
   /** Test injection. */
@@ -207,7 +212,7 @@ export async function bootstrapTunnel(opts: BootstrapOptions): Promise<Bootstrap
 
   // Step 2: launch app (idempotent — devicectl returns success if already running)
   if (!isAppRunning(target.identifier, opts.bundleId, spawn)) {
-    const launched = launchApp(target.identifier, opts.bundleId, spawn);
+    const launched = launchApp(target.identifier, opts.bundleId, spawn, opts.launchEnv);
     if (!launched.ok) {
       return { ok: false, error: launched.error === 'device_locked' ? 'device_locked' : 'launch_failed', detail: launched.error };
     }

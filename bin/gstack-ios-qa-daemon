@@ -13,6 +13,12 @@
 #                                  the first paired connected device is used)
 #   GSTACK_IOS_TARGET_BUNDLE_ID  — bundle ID of the iOS app hosting StateServer
 #                                  (default com.gstack.iosqa.fixture)
+#   GSTACK_IOS_LAUNCH_ENV        — JSON dict of env vars set when the daemon
+#                                  cold-launches the app, forwarded to
+#                                  `devicectl ... --environment-variables`.
+#                                  Required for apps that gate their debug
+#                                  bridge behind a flag, e.g. BuckHound:
+#                                  '{"BH_ENABLE_IOS_QA_BRIDGE":"1"}'
 #
 # Readiness protocol: prints `READY: port=<n> pid=<pid>` to stdout once both
 # listeners are bound. Spawners read stdin with a ~5s timeout to confirm.

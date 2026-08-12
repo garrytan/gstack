@@ -20,7 +20,7 @@ import { SessionTokenStore } from './session-tokens';
 import { mintForCaller } from './auth-mint';
 import { classifyRoute, proxyToDevice, type DeviceTunnel } from './proxy';
 import { writeAudit, writeAttempt, sanitizeReplacer } from './audit';
-import { bootstrapTunnel } from './tunnel-bootstrap';
+import { acquireTunnel } from './session-cache';
 import { startTunnelKeepalive } from './devicectl';
 import type { Capability } from './types';
 
@@ -546,6 +546,18 @@ if (import.meta.main) {
   const tailnet = process.argv.includes('--tailnet');
   const targetUDID = process.env.GSTACK_IOS_TARGET_UDID;
   const bundleId = process.env.GSTACK_IOS_TARGET_BUNDLE_ID ?? 'com.gstack.iosqa.fixture';
+  // Env vars to set when the daemon cold-launches the app. Apps that gate their
+  // debug bridge behind a flag (BuckHound: BH_ENABLE_IOS_QA_BRIDGE=1) MUST set
+  // this, or a cold start launches the app without the bridge and the
+  // StateServer never binds. Malformed JSON is ignored (warn + no launch env).
+  let launchEnv: Record<string, string> | undefined;
+  if (process.env.GSTACK_IOS_LAUNCH_ENV) {
+    try {
+      launchEnv = JSON.parse(process.env.GSTACK_IOS_LAUNCH_ENV) as Record<string, string>;
+    } catch {
+      process.stderr.write('GSTACK_IOS_LAUNCH_ENV is not valid JSON; ignoring\n');
+    }
+  }
 
   // Default tunnelProvider: when GSTACK_IOS_TARGET_UDID (or a default with
   // any connected paired device) is set, bootstrap a real CoreDevice tunnel.
@@ -557,17 +569,22 @@ if (import.meta.main) {
   // without a poke every few seconds the IPv6 becomes unroutable.
   let keepalive: { stop: () => void } | null = null;
   const realTunnelProvider = async () => {
-    const result = await bootstrapTunnel({
+    // acquireTunnel reuses a cached rotated bearer (warm-start) when the device
+    // still honors it, and only falls back to a full single-use boot-token
+    // rotate on a genuinely fresh app launch. This is what lets a real device
+    // be driven across tunnel-cache refreshes, daemon restarts, and repeat
+    // /ios-qa sessions instead of exactly once per app launch.
+    const tunnel = await acquireTunnel({
       udid: targetUDID,
       bundleId,
+      port: 9999, // in-app StateServer port (not the daemon's loopback port)
+      launchEnv,
+      logImpl: (m) => process.stderr.write(m + '\n'),
     });
-    if (!result.ok) {
-      process.stderr.write(`bootstrap error: ${result.error}${result.detail ? ' — ' + result.detail : ''}\n`);
-      return null;
-    }
+    if (!tunnel) return null;
     if (keepalive) keepalive.stop();
-    keepalive = startTunnelKeepalive(result.tunnel.udid);
-    return result.tunnel;
+    keepalive = startTunnelKeepalive(tunnel.udid);
+    return tunnel;
   };
 
   const shutdown = () => {
