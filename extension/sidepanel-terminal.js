@@ -305,7 +305,7 @@
     setState(STATE.LIVE);
     ensureXterm();
     nextBinaryIsReplay = false;
-    ws = new WebSocket(`ws://127.0.0.1:${terminalPort}/ws`, [`gstack-pty.${attachToken}`]);
+    ws = new WebSocket(`ws://127.0.0.1:${terminalPort}/ws`, [attachToken]);
     ws.binaryType = 'arraybuffer';
 
     ws.addEventListener('open', () => {
@@ -599,7 +599,7 @@
     // SameSite=Strict don't survive the jump from server.ts:34567 to the
     // agent's random port from a chrome-extension origin, so cookies
     // alone weren't reliable.
-    ws = new WebSocket(`ws://127.0.0.1:${terminalPort}/ws`, [`gstack-pty.${attachToken}`]);
+    ws = new WebSocket(`ws://127.0.0.1:${terminalPort}/ws`, [attachToken]);
     ws.binaryType = 'arraybuffer';
 
     ws.addEventListener('open', () => {
@@ -821,7 +821,7 @@
 
     setState(STATE.LIVE);
     ensureXterm();
-    ws = new WebSocket(`ws://127.0.0.1:${terminalPort}/ws`, [`gstack-pty.${token}`]);
+    ws = new WebSocket(`ws://127.0.0.1:${terminalPort}/ws`, [token]);
     ws.binaryType = 'arraybuffer';
 
     ws.addEventListener('open', () => {

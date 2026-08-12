@@ -15,8 +15,7 @@
  *   restores state. Falls back to clean slate on any failure.
  */
 
-import { chromium, type Browser, type BrowserContext, type BrowserContextOptions, type Page, type Locator, type Cookie } from 'playwright';
-import { writeSecureFile, mkdirSecure } from './file-permissions';
+import { chromium, type Browser, type BrowserContext, type BrowserContextOptions, type Page, type Locator, type Cookie, type Worker } from 'playwright';
 import { addConsoleEntry, addNetworkEntry, addDialogEntry, networkBuffer, type DialogEntry } from './buffers';
 import { emitActivity } from './activity';
 import { validateNavigationUrl } from './url-validation';
@@ -24,6 +23,7 @@ import { TabSession, type RefEntry } from './tab-session';
 import { resolveChromiumProfile, cleanSingletonLocks } from './config';
 import { withCdpSession } from './cdp-bridge';
 import type { MemorySnapshot, MemoryStructureStats, MemoryTabSnapshot, MemoryProcess } from './memory-snapshot';
+import { isTrustedGstackExtensionWorkerUrl } from './extension-identity';
 
 /**
  * Detect whether GSTACK_CHROMIUM_PATH points at a custom Chromium build that
@@ -196,6 +196,8 @@ export class BrowserManager {
   // ─── Headed State ────────────────────────────────────────
   private connectionMode: 'launched' | 'headed' = 'launched';
   private intentionalDisconnect = false;
+  /** Root auth is provisioned only into the loaded gstack extension's storage. */
+  private extensionAuthToken: string | null = null;
 
   // ─── Tab Count Guardrail (D5 + Codex single-tab flag) ───────
   // Idempotent threshold trackers: each guardrail fires exactly once per
@@ -318,12 +320,88 @@ export class BrowserManager {
   }
 
   /**
+   * Give the bundled extension its bearer without publishing it through a
+   * loopback HTTP endpoint. chrome.storage.session is isolated per extension
+   * ID and restricted to trusted extension contexts, unlike an Origin header,
+   * which any local caller can forge.
+   */
+  private async provisionExtensionAuth(authToken?: string): Promise<void> {
+    if (authToken) this.extensionAuthToken = authToken;
+    const token = authToken ?? this.extensionAuthToken;
+    if (!token || !this.context) return;
+
+    const writeToken = async (worker: Worker): Promise<void> => {
+      await worker.evaluate(async ({ storedToken, port }) => {
+        const chromeApi = (globalThis as any).chrome;
+        // storage.session defaults to trusted contexts, but set the access
+        // level explicitly so a future manifest/content-script change cannot
+        // silently expose the root bearer. The port is non-secret and remains
+        // in local storage for existing discovery behavior.
+        await chromeApi.storage.session.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' });
+        await chromeApi.storage.session.set({ gstackAuthToken: storedToken });
+        await chromeApi.storage.local.remove('gstackAuthToken');
+        await chromeApi.storage.local.set({ port });
+      }, { storedToken: token, port: this.serverPort || 34567 });
+    };
+
+    // A component-baked extension may start after the browser context. Keep
+    // listening rather than falling back to the unsafe /health bootstrap.
+    this.context.on('serviceworker', (worker) => {
+      void (async () => {
+        if (!(await this.isGstackExtensionWorker(worker))) return;
+        await writeToken(worker);
+      })().catch((err: any) => {
+        console.warn(`[browse] Could not provision late extension auth storage: ${err.message}`);
+      });
+    });
+
+    let worker: Worker | undefined;
+    for (const candidate of this.context.serviceWorkers()) {
+      if (await this.isGstackExtensionWorker(candidate)) {
+        worker = candidate;
+        break;
+      }
+    }
+    if (!worker) {
+      try {
+        const candidate = await this.context.waitForEvent('serviceworker', { timeout: 5000 });
+        if (await this.isGstackExtensionWorker(candidate)) worker = candidate;
+      } catch {
+        console.warn('[browse] Extension service worker not ready; auth will be provisioned when it starts');
+        return;
+      }
+    }
+    if (!worker) return;
+
+    try {
+      await writeToken(worker);
+    } catch (err: any) {
+      console.warn(`[browse] Could not provision extension auth storage: ${err.message}`);
+    }
+  }
+
+  private async isGstackExtensionWorker(worker: Worker): Promise<boolean> {
+    if (!isTrustedGstackExtensionWorkerUrl(worker.url())) return false;
+    try {
+      const manifest = await worker.evaluate(() => (globalThis as any).chrome.runtime.getManifest?.());
+      return manifest?.name === 'gstack browse'
+        && manifest?.background?.service_worker === 'background.js';
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * Set the proxy config applied to chromium.launch() in launch() and
    * launchHeaded(). Called by server.ts at startup once the (optional) SOCKS5
    * bridge is up.
    */
   setProxyConfig(cfg: { server: string; username?: string; password?: string } | null): void {
     this.proxyConfig = cfg;
+  }
+
+  setExtensionAuthToken(token: string | undefined): void {
+    if (token) this.extensionAuthToken = token;
   }
 
   /**
@@ -369,17 +447,44 @@ export class BrowserManager {
       console.log(`[browse] Extensions loaded from: ${extensionsDir}`);
     }
 
-    this.browser = await chromium.launch({
-      headless: useHeadless,
-      // On Windows, Chromium's sandbox fails when the server is spawned through
-      // the Bun→Node process chain (GitHub #276). Disable it — local daemon
-      // browsing user-specified URLs has marginal sandbox benefit. Also disabled
-      // on Linux root/CI/container, where the sandbox requires unprivileged user
-      // namespaces that aren't available.
-      chromiumSandbox: shouldEnableChromiumSandbox(),
-      ...(launchArgs.length > 0 ? { args: launchArgs } : {}),
-      ...(this.proxyConfig ? { proxy: this.proxyConfig } : {}),
-    });
+    const contextOptions: BrowserContextOptions = {
+      viewport: { width: this.currentViewport.width, height: this.currentViewport.height },
+      deviceScaleFactor: this.deviceScaleFactor,
+    };
+    if (this.customUserAgent) {
+      contextOptions.userAgent = this.customUserAgent;
+    }
+
+    if (extensionsDir) {
+      // Extensions do not attach to incognito contexts created by
+      // browser.newContext(). An empty userDataDir gives this off-screen mode a
+      // temporary persistent profile, so its real service worker can receive
+      // auth without sharing state with the user's headed GStack profile.
+      const { STEALTH_IGNORE_DEFAULT_ARGS } = await import('./stealth');
+      this.context = await chromium.launchPersistentContext('', {
+        ...contextOptions,
+        headless: false,
+        chromiumSandbox: shouldEnableChromiumSandbox(),
+        args: launchArgs,
+        ...(this.proxyConfig ? { proxy: this.proxyConfig } : {}),
+        ignoreDefaultArgs: STEALTH_IGNORE_DEFAULT_ARGS,
+      });
+      this.browser = this.context.browser();
+      if (!this.browser) throw new Error('Persistent extension browser did not start');
+    } else {
+      this.browser = await chromium.launch({
+        headless: useHeadless,
+        // On Windows, Chromium's sandbox fails when the server is spawned through
+        // the Bun→Node process chain (GitHub #276). Disable it — local daemon
+        // browsing user-specified URLs has marginal sandbox benefit. Also disabled
+        // on Linux root/CI/container, where the sandbox requires unprivileged user
+        // namespaces that aren't available.
+        chromiumSandbox: shouldEnableChromiumSandbox(),
+        ...(launchArgs.length > 0 ? { args: launchArgs } : {}),
+        ...(this.proxyConfig ? { proxy: this.proxyConfig } : {}),
+      });
+      this.context = await this.browser.newContext(contextOptions);
+    }
 
     // Chromium disconnect → distinguish clean user-quit from crash. Both
     // events look identical to Playwright (one 'disconnected' fires), but
@@ -394,15 +499,6 @@ export class BrowserManager {
       void handleChromiumDisconnect(this.browser);
     });
 
-    const contextOptions: BrowserContextOptions = {
-      viewport: { width: this.currentViewport.width, height: this.currentViewport.height },
-      deviceScaleFactor: this.deviceScaleFactor,
-    };
-    if (this.customUserAgent) {
-      contextOptions.userAgent = this.customUserAgent;
-    }
-    this.context = await this.browser.newContext(contextOptions);
-
     if (Object.keys(this.extraHeaders).length > 0) {
       await this.context.setExtraHTTPHeaders(this.extraHeaders);
     }
@@ -414,6 +510,7 @@ export class BrowserManager {
     // faking those to fixed values flags more bot-like, not less (D7).
     const { applyStealth } = await import('./stealth');
     await applyStealth(this.context);
+    if (extensionsDir) await this.provisionExtensionAuth();
 
     // Create first tab
     await this.newTab();
@@ -460,22 +557,11 @@ export class BrowserManager {
         launchArgs.push(`--disable-extensions-except=${extensionPath}`);
         launchArgs.push(`--load-extension=${extensionPath}`);
       }
-      // Write auth token for extension bootstrap (still required even when
-      // the extension is component-baked — it reads ~/.gstack/.auth.json at
-      // startup to learn how to call the daemon).
-      // Write to ~/.gstack/.auth.json (not the extension dir, which may be read-only
-      // in .app bundles and breaks codesigning).
+      // Auth is provisioned into extension storage after the persistent
+      // context starts. Do not write a reusable token to a local file or
+      // return it from a public endpoint.
       if (authToken) {
-        const fs = require('fs');
-        const path = require('path');
-        const gstackDir = path.join(process.env.HOME || '/tmp', '.gstack');
-        mkdirSecure(gstackDir);
-        const authFile = path.join(gstackDir, '.auth.json');
-        try {
-          writeSecureFile(authFile, JSON.stringify({ token: authToken, port: this.serverPort || 34567 }));
-        } catch (err: any) {
-          console.warn(`[browse] Could not write .auth.json: ${err.message}`);
-        }
+        console.log('[browse] Extension auth will be provisioned via chrome.storage');
       }
     }
 
@@ -604,6 +690,7 @@ export class BrowserManager {
     // this headed path.
     const { applyStealth } = await import('./stealth');
     await applyStealth(this.context);
+    await this.provisionExtensionAuth(authToken);
 
     // Inject visual indicator — subtle top-edge amber gradient
     // Extension's content script handles the floating pill
@@ -1561,14 +1648,14 @@ export class BrowserManager {
       if (extensionPath) {
         launchArgs.push(`--disable-extensions-except=${extensionPath}`);
         launchArgs.push(`--load-extension=${extensionPath}`);
-        // Auth token is served via /health endpoint now (no file write needed).
-        // Extension reads token from /health on connect.
+        // Auth is provisioned into extension storage after the context starts.
+        // /health deliberately remains public status-only.
         console.log(`[browse] Handoff: loading extension from ${extensionPath}`);
       } else {
         console.log('[browse] Handoff: extension not found — headed mode without side panel');
       }
 
-      const userDataDir = path.join(process.env.HOME || '/tmp', '.gstack', 'chromium-profile');
+      const userDataDir = resolveChromiumProfile();
       fs.mkdirSync(userDataDir, { recursive: true });
 
       // T1: same automation-tell-stripping defaults as launchHeaded().
@@ -1613,6 +1700,8 @@ export class BrowserManager {
       if (Object.keys(this.extraHeaders).length > 0) {
         await newContext.setExtraHTTPHeaders(this.extraHeaders);
       }
+
+      await this.provisionExtensionAuth();
 
       // Register disconnect handler on new browser. Same clean-vs-crash
       // discrimination as launch() / launchHeaded() above so a user-initiated

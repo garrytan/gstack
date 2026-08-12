@@ -319,7 +319,7 @@ From DESIGN.md:
 | DMG packaging | **SHIPPED** | 189MB compressed |
 | `GSTACK_CHROMIUM_PATH` | **SHIPPED** | Custom Chromium binary support |
 | `BROWSE_EXTENSIONS_DIR` | **SHIPPED** | Extension path override |
-| Auth via `/health` | **SHIPPED** | Replaces .auth.json file approach, auto-refreshes on server restart |
+| Auth via trusted extension session storage | **SHIPPED** | Fixed extension identity, content-script isolation, auto-refresh on server restart |
 | Build script | **SHIPPED** | `scripts/build-app.sh` |
 | Model routing | **SHIPPED** | Sonnet for actions, Opus for analysis (`pickSidebarModel`) |
 | Debug logging | **SHIPPED** | 40+ silent catches → prefixed console logging across 4 files |

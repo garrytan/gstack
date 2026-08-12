@@ -94,15 +94,27 @@ describe('pair-agent flow end-to-end (HTTP only, no ngrok)', () => {
     if (daemon) killDaemon(daemon);
   });
 
-  test('GET /health returns daemon status and includes token for chrome-extension origin', async () => {
+  test('GET /health never includes root token for a forged extension Origin', async () => {
     const resp = await fetch(`${daemon.baseUrl}/health`, {
       headers: { Origin: 'chrome-extension://test-extension-id' },
     });
     expect(resp.status).toBe(200);
     const body = await resp.json() as any;
     expect(body.status).toBeDefined();
-    // Extension bootstrap — local listener delivers the token
-    expect(body.token).toBe(daemon.token);
+    expect(body.token).toBeUndefined();
+  });
+
+  test('the leaked-health attack cannot mint a PTY session without a bearer', async () => {
+    const resp = await fetch(`${daemon.baseUrl}/pty-session`, { method: 'POST' });
+    expect(resp.status).toBe(401);
+  });
+
+  test('local routes reject a DNS-rebinding-style Host header', async () => {
+    const resp = await fetch(`${daemon.baseUrl}/health`, {
+      headers: { Host: `attacker.example:${daemon.port}` },
+    });
+    expect(resp.status).toBe(403);
+    expect((await resp.json() as any).error).toBe('Forbidden host');
   });
 
   test('GET /health without chrome-extension origin does NOT include token', async () => {

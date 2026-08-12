@@ -56,7 +56,7 @@ All command endpoints require a Bearer token:
 Authorization: Bearer gsk_sess_...
 ```
 
-`/connect` is unauthenticated (rate-limited) — it's how a remote agent exchanges a setup key for a scoped session token. `/health` is unauthenticated on the local listener (bootstrap) but does NOT exist on the tunnel listener (404).
+`/connect` is unauthenticated (rate-limited) — it's how a remote agent exchanges a setup key for a scoped session token. `/health` is an unauthenticated, status-only liveness endpoint on the local listener and does NOT exist on the tunnel listener (404); it never returns the root credential.
 
 SSE endpoints (`/activity/stream`, `/inspector/events`) accept either a Bearer token or the HttpOnly `gstack_sse` cookie (minted via `POST /sse-session`, 30-minute TTL, stream-scope only — cannot be used against `/command`). As of v1.6.0.0 the `?token=<ROOT>` query-string auth is no longer accepted.
 

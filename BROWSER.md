@@ -785,13 +785,27 @@ The root token is written to `<project>/.gstack/browse.json` with chmod 600.
 Every command that mutates browser state must include
 `Authorization: Bearer <token>`.
 
+The Side Panel extension does not fetch that token from `/health`. The daemon
+only provisions it to the manifest-key-pinned GStack extension worker, using
+`chrome.storage.session` with access restricted to trusted extension contexts.
+Ordinary web pages, content scripts, and unrelated extensions cannot use the
+status-only `/health` endpoint to obtain Browse credentials.
+
+`./setup` automatically retires legacy path-identified GStack extensions from
+the dedicated `~/.gstack/chromium-profile`, moving their old storage into a
+private rollback backup under `~/.gstack/browser-migrations/`. If the GStack
+Browser is open, migration safely defers; close it and rerun `./setup`. To retry
+directly, run `bun bin/gstack-browse-migrate.ts --apply
+--legacy-extension-path extension` from the gstack checkout. The migrator never
+touches a user's normal Chrome profile.
+
 ### SSE session cookie (v1.6.0.0+)
 
 SSE endpoints (`/activity/stream`, `/inspector/events`) accept the Bearer
 token OR a 30-minute HttpOnly `gstack_sse` cookie minted via
 `POST /sse-session`. The `?token=<ROOT>` query-param auth is no longer
-supported. This is what lets the Chrome extension subscribe to the activity
-feed without putting the root token in extension storage.
+supported. This keeps the root token out of URLs and limits the stream cookie
+to the read-only activity/inspector surface.
 
 ### PTY session cookie
 
@@ -1201,6 +1215,7 @@ the global `~/.gstack/browser-skills/foo/` only inside project-a.
 | `GSTACK_SECURITY_ENSEMBLE` | unset | Set to `deberta` for 3-classifier ensemble (721MB download) |
 | `GSTACK_STEALTH` | unset | Set to `extended` (also accepts `1`/`true`) to layer six aggressive patches (WebGL spoof, faked plugins, mediaDevices) on top of Layer C. Actively lies; can break sites. |
 | `GSTACK_CDP_STEALTH` | unset | Set to `on`/`1`/`true` to emit `--gstack-suppress-prepare-stack-trace` (gbrowser Pack 2 / B11 C++ patch only; no-op on stock Chromium) |
+| `GSTACK_SKIP_BROWSER_REPAIR` | 0 | Set to `1` to skip setup's bounded Playwright browser-cache health check and repair |
 | `GSTACK_GPU_VENDOR`, `GSTACK_GPU_RENDERER`, `GSTACK_GPU_CHIPSET` | unset | Per-install GPU spoof fed to the Pack 1 WebGL/UA-CH C++ patches. Set by gbd from the host profile; emitted as `--gstack-gpu-vendor` / `--gstack-gpu-renderer` / `--gstack-ua-model` cmdline switches only when present. |
 | `GSTACK_PLATFORM` | unset | Host platform classification (`MacARM`/`MacIntel` → `macOS`, `Win32` → `Windows`, `Linux*` → `Linux`) emitted as `--gstack-ua-platform` |
 | `GSTACK_HW_CONCURRENCY`, `GSTACK_DEVICE_MEMORY` | host profile (fallback 8) | Per-install `hardwareConcurrency`/`deviceMemory` reported by Layer C and emitted as `--gstack-hw-concurrency` / `--gstack-device-memory` for the worker-navigator C++ patch |
@@ -1239,6 +1254,7 @@ browse/
 │   ├── buffers.ts               # Console/network/dialog circular buffers (O(1) ring)
 │   ├── tab-session.ts           # Per-tab session state (load-html replay, ref map scope)
 │   ├── token-registry.ts        # Mint/validate/revoke for root + setup keys + scoped tokens
+│   ├── extension-identity.ts     # Fixed extension ID + trusted service-worker URL check
 │   ├── sse-session-cookie.ts    # 30-min HttpOnly cookie for /activity/stream + /inspector/events
 │   ├── pty-session-cookie.ts    # Separate scope: live Claude PTY auth
 │   ├── tunnel-denial-log.ts     # ~/.gstack/security/attempts.jsonl writer (salted)
