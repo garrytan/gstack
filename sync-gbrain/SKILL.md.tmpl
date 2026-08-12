@@ -352,14 +352,16 @@ Verbatim block content (copy exactly):
 ## GBrain Search Guidance (configured by /sync-gbrain)
 <!-- gstack-gbrain-search-guidance:start -->
 
-GBrain is set up and synced on this machine. The agent should prefer gbrain
-over Grep when the question is semantic or when you don't know the exact
-identifier yet.
+GBrain is set up and synced on this machine. Prefer the registered
+`mcp__gbrain__*` tools over Grep when the question is semantic or when you
+don't know the exact identifier yet. The MCP service may be the sole owner of
+the local PGLite database, so do not run the corresponding `gbrain` CLI query
+while that service is live.
 
 **This worktree is pinned to a worktree-scoped code source** via the
 `.gbrain-source` file in the repo root (kubectl-style context).
-`gbrain code-def`, `code-refs`, `code-callers`, `code-callees`, `search`, and
-`query` from anywhere under this worktree route to that source by default —
+`mcp__gbrain__code_def`, `code_refs`, `code_callers`, `code_callees`, `search`,
+and `query` from anywhere under this worktree route to that source by default —
 no `--source` flag needed (gbrain >= 0.41.38.0; on older gbrain the call-graph
 commands need `--source "$(cat .gbrain-source)"`). Conductor sibling worktrees
 of the same repo each have their own pin and their own indexed pages, so
@@ -371,25 +373,27 @@ built first — run `/sync-gbrain --dream` (or `--full`) if they return
 symbols; on a non-code-aware pack `--dream` completes but the graph stays empty
 and reports a WARN. `code-def`/`code-refs` need the same extraction.
 
-Two indexed corpora available via the `gbrain` CLI:
+Two indexed corpora available through the GBrain MCP service:
 - This worktree's code (auto-pinned via `.gbrain-source`).
 - `~/.gstack/` curated memory (registered as `gstack-brain-<user>` source via
   the existing federation pipeline).
 
-Prefer gbrain when:
+Prefer GBrain MCP when:
 - "Where is X handled?" / semantic intent, no exact string yet:
-    `gbrain search "<terms>"` or `gbrain query "<question>"`
+    `mcp__gbrain__search` or `mcp__gbrain__query`
 - "Where is symbol Y defined?" / symbol-based code questions:
-    `gbrain code-def <symbol>` or `gbrain code-refs <symbol>`
+    `mcp__gbrain__code_def` or `mcp__gbrain__code_refs`
 - "What calls Y?" / "What does Y depend on?":
-    `gbrain code-callers <symbol>` / `gbrain code-callees <symbol>`
+    `mcp__gbrain__code_callers` / `mcp__gbrain__code_callees`
 - "What did we decide last time?" / past plans, retros, learnings:
-    `gbrain search "<terms>" --source gstack-brain-<user>`
+    `mcp__gbrain__search` with `source_id: gstack-brain-<user>`
 
 Grep is still right for known exact strings, regex, multiline patterns, and
-file globs. Run `/sync-gbrain` after meaningful code changes; for ongoing
-auto-sync across all worktrees, run `gbrain autopilot --install` once per
-machine — gbrain's daemon handles incremental refresh on a schedule.
+file globs. Use the local CLI only as a fallback when MCP is not registered
+and no live GBrain server owns PGLite. Run `/sync-gbrain` after meaningful
+code changes; for ongoing
+auto-sync across all worktrees, run `gbrain autopilot --install` only on a
+machine where MCP is not registered. Do not run two database-owning services.
 
 Safety: don't run `/sync-gbrain` while `gbrain autopilot` is active — the
 orchestrator refuses destructive source ops when it detects a running autopilot

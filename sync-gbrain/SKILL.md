@@ -469,6 +469,27 @@ fi
 _BRAIN_SYNC_BIN="~/.claude/skills/gstack/bin/gstack-brain-sync"
 _BRAIN_CONFIG_BIN="~/.claude/skills/gstack/bin/gstack-config"
 
+# Detect an MCP registration before printing query guidance. A local HTTP MCP
+# server may be the sole owner of PGLite, so normal agent queries must not
+# start a competing gbrain CLI process.
+_GBRAIN_MCP_MODE="none"
+if command -v jq >/dev/null 2>&1 && [ -f "$HOME/.claude.json" ]; then
+  _GBRAIN_MCP_TYPE=$(jq -r '.mcpServers.gbrain.type // .mcpServers.gbrain.transport // empty' "$HOME/.claude.json" 2>/dev/null)
+  case "$_GBRAIN_MCP_TYPE" in
+    url|http|sse) _GBRAIN_MCP_MODE="remote-http" ;;
+    stdio) _GBRAIN_MCP_MODE="local-stdio" ;;
+  esac
+fi
+if [ "$_GBRAIN_MCP_MODE" = "none" ] && [ -f "$HOME/.codex/config.toml" ]; then
+  _GBRAIN_MCP_MODE=$(awk '
+    /^[mcp_servers.gbrain]$/ { in_gbrain = 1; next }
+    /^[/ { in_gbrain = 0 }
+    in_gbrain && /^[[:space:]]*url[[:space:]]*=/ { print "remote-http"; exit }
+    in_gbrain && /^[[:space:]]*command[[:space:]]*=/ { print "local-stdio"; exit }
+  ' "$HOME/.codex/config.toml" 2>/dev/null)
+  [ -n "$_GBRAIN_MCP_MODE" ] || _GBRAIN_MCP_MODE="none"
+fi
+
 # /sync-gbrain context-load: teach the agent to use gbrain when it's available.
 # Per-worktree pin: post-spike redesign uses kubectl-style `.gbrain-source` in the
 # git toplevel to scope queries. Look for the pin in the worktree (not a global
@@ -485,10 +506,16 @@ if [ -f "$_GBRAIN_CONFIG" ] && command -v gbrain >/dev/null 2>&1; then
       _GBRAIN_PIN_PATH="$_REPO_TOP/.gbrain-source"
     fi
     if [ -n "$_GBRAIN_PIN_PATH" ]; then
+      if [ "$_GBRAIN_MCP_MODE" != "none" ]; then
+        echo "GBrain MCP is configured. Use mcp__gbrain__search/query and mcp__gbrain__code_*"
+        echo "for normal queries. Do not run the local gbrain CLI while the MCP server owns PGLite."
+        echo "See "## GBrain Search Guidance" in CLAUDE.md. Run /sync-gbrain to refresh."
+      else
       echo "GBrain configured. Prefer \`gbrain search\`/\`gbrain query\` over Grep for"
       echo "semantic questions; use \`gbrain code-def\`/\`code-refs\`/\`code-callers\` for"
       echo "symbol-aware code lookup. See \"## GBrain Search Guidance\" in CLAUDE.md."
       echo "Run /sync-gbrain to refresh."
+      fi
     else
       echo "GBrain configured but this worktree isn't pinned yet. Run \`/sync-gbrain --full\`"
       echo "before relying on \`gbrain search\` for code questions in this worktree."
@@ -498,19 +525,6 @@ if [ -f "$_GBRAIN_CONFIG" ] && command -v gbrain >/dev/null 2>&1; then
 fi
 
 _BRAIN_SYNC_MODE=$("$_BRAIN_CONFIG_BIN" get artifacts_sync_mode 2>/dev/null || echo off)
-
-# Detect remote-MCP mode (Path 4 of /setup-gbrain). Local artifacts sync is
-# a no-op in remote mode; the brain server pulls from GitHub/GitLab on its
-# own cadence. Read claude.json directly to keep this preamble fast (no
-# subprocess to claude CLI on every skill start).
-_GBRAIN_MCP_MODE="none"
-if command -v jq >/dev/null 2>&1 && [ -f "$HOME/.claude.json" ]; then
-  _GBRAIN_MCP_TYPE=$(jq -r '.mcpServers.gbrain.type // .mcpServers.gbrain.transport // empty' "$HOME/.claude.json" 2>/dev/null)
-  case "$_GBRAIN_MCP_TYPE" in
-    url|http|sse) _GBRAIN_MCP_MODE="remote-http" ;;
-    stdio) _GBRAIN_MCP_MODE="local-stdio" ;;
-  esac
-fi
 
 if [ -f "$_BRAIN_REMOTE_FILE" ] && [ ! -d "$_GSTACK_HOME/.git" ] && [ "$_BRAIN_SYNC_MODE" = "off" ]; then
   _BRAIN_NEW_URL=$(head -1 "$_BRAIN_REMOTE_FILE" 2>/dev/null | tr -d '[:space:]')
@@ -1106,14 +1120,16 @@ Verbatim block content (copy exactly):
 ## GBrain Search Guidance (configured by /sync-gbrain)
 <!-- gstack-gbrain-search-guidance:start -->
 
-GBrain is set up and synced on this machine. The agent should prefer gbrain
-over Grep when the question is semantic or when you don't know the exact
-identifier yet.
+GBrain is set up and synced on this machine. Prefer the registered
+`mcp__gbrain__*` tools over Grep when the question is semantic or when you
+don't know the exact identifier yet. The MCP service may be the sole owner of
+the local PGLite database, so do not run the corresponding `gbrain` CLI query
+while that service is live.
 
 **This worktree is pinned to a worktree-scoped code source** via the
 `.gbrain-source` file in the repo root (kubectl-style context).
-`gbrain code-def`, `code-refs`, `code-callers`, `code-callees`, `search`, and
-`query` from anywhere under this worktree route to that source by default —
+`mcp__gbrain__code_def`, `code_refs`, `code_callers`, `code_callees`, `search`,
+and `query` from anywhere under this worktree route to that source by default —
 no `--source` flag needed (gbrain >= 0.41.38.0; on older gbrain the call-graph
 commands need `--source "$(cat .gbrain-source)"`). Conductor sibling worktrees
 of the same repo each have their own pin and their own indexed pages, so
@@ -1125,25 +1141,27 @@ built first — run `/sync-gbrain --dream` (or `--full`) if they return
 symbols; on a non-code-aware pack `--dream` completes but the graph stays empty
 and reports a WARN. `code-def`/`code-refs` need the same extraction.
 
-Two indexed corpora available via the `gbrain` CLI:
+Two indexed corpora available through the GBrain MCP service:
 - This worktree's code (auto-pinned via `.gbrain-source`).
 - `~/.gstack/` curated memory (registered as `gstack-brain-<user>` source via
   the existing federation pipeline).
 
-Prefer gbrain when:
+Prefer GBrain MCP when:
 - "Where is X handled?" / semantic intent, no exact string yet:
-    `gbrain search "<terms>"` or `gbrain query "<question>"`
+    `mcp__gbrain__search` or `mcp__gbrain__query`
 - "Where is symbol Y defined?" / symbol-based code questions:
-    `gbrain code-def <symbol>` or `gbrain code-refs <symbol>`
+    `mcp__gbrain__code_def` or `mcp__gbrain__code_refs`
 - "What calls Y?" / "What does Y depend on?":
-    `gbrain code-callers <symbol>` / `gbrain code-callees <symbol>`
+    `mcp__gbrain__code_callers` / `mcp__gbrain__code_callees`
 - "What did we decide last time?" / past plans, retros, learnings:
-    `gbrain search "<terms>" --source gstack-brain-<user>`
+    `mcp__gbrain__search` with `source_id: gstack-brain-<user>`
 
 Grep is still right for known exact strings, regex, multiline patterns, and
-file globs. Run `/sync-gbrain` after meaningful code changes; for ongoing
-auto-sync across all worktrees, run `gbrain autopilot --install` once per
-machine — gbrain's daemon handles incremental refresh on a schedule.
+file globs. Use the local CLI only as a fallback when MCP is not registered
+and no live GBrain server owns PGLite. Run `/sync-gbrain` after meaningful
+code changes; for ongoing
+auto-sync across all worktrees, run `gbrain autopilot --install` only on a
+machine where MCP is not registered. Do not run two database-owning services.
 
 Safety: don't run `/sync-gbrain` while `gbrain autopilot` is active — the
 orchestrator refuses destructive source ops when it detects a running autopilot
