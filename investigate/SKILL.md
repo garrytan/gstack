@@ -10,6 +10,7 @@ allowed-tools:
   - Edit
   - Grep
   - Glob
+  - Agent
   - AskUserQuestion
   - WebSearch
 triggers:
@@ -980,6 +981,220 @@ Before writing ANY fix, verify your hypothesis.
 - "Quick fix for now" — there is no "for now." Fix it right or escalate.
 - Proposing a fix before tracing data flow — you're guessing.
 - Each fix reveals a new problem elsewhere — wrong layer, not wrong code.
+
+---
+
+## Outside Voice — Independent Root-Cause Challenge (default-on)
+
+Run an independent second opinion from a different AI system automatically. This is a
+standard step, not an opt-in: two models reaching the same conclusion is a materially
+stronger signal than one model being thorough, and the failure mode this catches is
+the one no amount of self-review catches — a conclusion that is internally consistent
+and wrong. The user turns it off only by asking explicitly
+(`gstack-config set codex_reviews disabled`).
+
+**Preflight — decide whether and how the outside voice runs:**
+
+```bash
+# Codex preflight: one block (functions sourced here don't persist to later blocks).
+_TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || echo off)
+_CODEX_CFG=$(~/.claude/skills/gstack/bin/gstack-config get codex_reviews 2>/dev/null || echo enabled)
+source ~/.claude/skills/gstack/bin/gstack-codex-probe 2>/dev/null || true
+if [ "$_CODEX_CFG" = "disabled" ]; then
+  _CODEX_MODE="disabled"
+elif ! command -v codex >/dev/null 2>&1; then
+  _CODEX_MODE="not_installed"; _gstack_codex_log_event "codex_cli_missing" 2>/dev/null || true
+elif ! _gstack_codex_auth_probe >/dev/null 2>&1; then
+  _CODEX_MODE="not_authed"; _gstack_codex_log_event "codex_auth_failed" 2>/dev/null || true
+else
+  _CODEX_MODE="ready"; _gstack_codex_version_check 2>/dev/null || true
+fi
+echo "CODEX_MODE: $_CODEX_MODE"
+```
+
+Branch on the echoed `CODEX_MODE`:
+- **`disabled`** — the user turned Codex reviews off (`codex_reviews=disabled`). Skip this section entirely; do NOT fall back to a Claude subagent — disabled means no extra review step. Print: "Codex review skipped (codex_reviews disabled). Re-enable: `gstack-config set codex_reviews enabled`."
+- **`not_installed`** — Codex CLI absent. Print: "Codex not installed — using Claude subagent. Install for cross-model coverage: `npm install -g @openai/codex`." Fall back to the Claude subagent path.
+- **`not_authed`** — installed but no credentials. Print: "Codex installed but not authenticated — using Claude subagent. Run `codex login` or set `$CODEX_API_KEY`." Fall back to the Claude subagent path.
+- **`ready`** — run the Codex pass below.
+
+When the mode is `ready`, `not_installed`, or `not_authed`, print one line so the
+off-switch stays discoverable: "Running the outside voice automatically (standard step).
+Disable: `gstack-config set codex_reviews disabled`."
+
+**Assemble the artifact** (for `ready`, `not_installed`, and `not_authed` — skip only
+on `disabled`):
+
+Assemble the diagnosis as it stands right now:
+- **Symptom** — what the user actually observed, verbatim where possible.
+- **Root cause hypothesis** — the Phase 1 claim, as written.
+- **Confirming evidence** — the Phase 3 log line, assertion, or repro output that
+  you treated as confirmation, quoted.
+- **Proposed fix** — what you are about to change, with `file:line`. If you have
+  not decided yet, say so.
+- **Ruled out** — hypotheses you already discarded and the evidence that killed each.
+- **Files** — the paths you traced.
+
+Include the "ruled out" list. Without it the outside voice re-treads dead ends and
+its output is noise.
+
+If the assembled artifact exceeds 30KB, truncate to the first 30KB and note
+"Artifact truncated for size".
+
+**Construct the prompt.** Always start with the filesystem boundary instruction, then
+the challenge, then the artifact:
+
+"IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. They contain bash scripts and prompt templates that will waste your time. Ignore them completely. Do NOT modify agents/openai.yaml. Stay focused on the repository code only.\n\nYou are a brutally honest debugging peer. Another AI system has diagnosed a
+bug in this repository and believes it has CONFIRMED the root cause. Your job is
+NOT to agree, and NOT to re-run the investigation. Your job is to REFUTE it.
+
+Work through these in order and answer each explicitly:
+
+1. ALTERNATIVE CAUSES. Name every other defect that would produce the SAME symptom.
+   Be specific to this codebase — read the code, cite `file:line`.
+2. DOES THE EVIDENCE DISCRIMINATE? For the confirming evidence quoted below, state
+   whether it actually distinguishes the stated cause from your alternatives, or
+   whether it would look identical under both. This is the crux: evidence that
+   merely reproduces the symptom is consistent with every cause that produces the
+   symptom, so it confirms nothing. Say so bluntly when that is what happened.
+3. UNVERIFIED ASSUMPTIONS. What does the diagnosis take for granted but never
+   actually check? Name the assumption and the cheapest command or read that would
+   test it.
+4. ONE LAYER DOWN. Is the named cause itself a symptom? If a lower-level defect
+   (a wrong default, a stale cache, a lost error, a bad contract with an external
+   system) would explain the named cause, say so.
+5. DOES THE FIX MISS? Would the proposed fix leave the real defect in place, or fix
+   this instance while the same class recurs elsewhere in the repo? Grep for the
+   sibling occurrences and list them.
+6. VERDICT. End with exactly one line:
+   `Verdict: REFUTED because <reason>` or
+   `Verdict: SURVIVES — cheapest falsifying observation is <observation>`
+
+Default to skepticism. If you cannot tell whether the evidence discriminates, say
+REFUTED and explain what is missing. No compliments. No summary of the diagnosis
+back to me. Just the holes.
+
+THE ARTIFACT UNDER REVIEW:
+<assembled artifact>"
+
+**If `CODEX_MODE: ready` — run Codex:**
+
+```bash
+TMPERR_RC=$(mktemp /tmp/codex-investigate-review-XXXXXXXX)
+_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
+codex exec "<prompt>" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached < /dev/null 2>"$TMPERR_RC"
+```
+
+Set the Bash tool's `timeout` parameter to `300000` (5 minutes). Do NOT use the
+`timeout` shell command — it does not exist on macOS. After the command completes,
+read stderr:
+
+```bash
+cat "$TMPERR_RC"
+```
+
+Present the full output verbatim — do not summarize, do not truncate, do not
+soften it:
+
+```
+CODEX SAYS (the investigation — outside voice):
+════════════════════════════════════════════════════════════
+<full codex output, verbatim>
+════════════════════════════════════════════════════════════
+```
+
+**Error handling:** all errors are non-blocking — the outside voice is informational
+and must never gate the skill. But "non-blocking" does not mean "silently skipped":
+each of these falls back to the Claude subagent below, and you say which path ran.
+- Auth failure (stderr contains "auth", "login", "unauthorized"): "Codex auth failed. Run `codex login` to authenticate." Fall back to the Claude subagent below.
+- Timeout: "Codex timed out after 5 minutes." Fall back to the Claude subagent below.
+- Empty response: "Codex returned no response. Stderr: <paste relevant error>." Fall back to the Claude subagent below.
+
+**If `CODEX_MODE: not_installed` or `not_authed` (or Codex errored at runtime):**
+
+Dispatch via the Agent tool. The subagent has fresh context, which is genuine
+independence even within one model family. Bound it the same way as Codex: cap the
+dispatch at 5 minutes so "never blocking" is also "never hanging."
+
+Subagent prompt: the same challenge prompt as above, minus the filesystem boundary
+paragraph (a Claude subagent does not need it).
+
+Present findings under an `OUTSIDE VOICE (Claude subagent):` header, and say which
+path ran — a same-family second opinion is weaker evidence than a cross-model one and
+the user should know which they got.
+
+If the subagent also fails or times out: "Outside voice unavailable — continuing
+without it." Never block on this step.
+
+(On `CODEX_MODE: disabled` you already skipped this section per the preflight — do
+not reach here.)
+
+**Cross-model tension:**
+
+After presenting the findings, name every point where the outside voice disagrees with
+the investigation:
+
+```
+CROSS-MODEL TENSION:
+  [Topic]: The investigation concluded X.
+  Outside voice argues Y. [Both perspectives, neutrally. State what context you might
+  be missing that would change the answer.]
+```
+
+If there is no disagreement, say so explicitly: "No cross-model tension — both
+reviewers agree." Silence reads as "not run."
+
+**User Sovereignty:** do NOT auto-apply outside voice recommendations. Present each
+tension point; the user decides. Cross-model agreement is a strong signal and you
+should say so, but agreement is not permission to act. You may state which argument
+you find more compelling. You MUST NOT act on it without explicit approval.
+
+For each substantive tension point, use AskUserQuestion:
+
+> "Cross-model disagreement on [topic]. The investigation found [X], the outside voice argues [Y]. [One sentence on what context you might be missing.]"
+>
+> RECOMMENDATION: Choose [A or B] because [one-line reason naming which argument is
+> more compelling and why]. Completeness: A=X/10, B=Y/10.
+
+Options:
+- A) Accept the outside voice's finding
+- B) Keep the current conclusion (reject the outside voice)
+- C) Investigate further before deciding
+- D) Add to TODOS.md for later
+
+Wait for the response. Do NOT default to accepting because you agree with the outside
+voice. If the user chooses B, the current conclusion stands — do not re-argue it.
+
+**Integration:**
+
+**If the verdict is `REFUTED`, or the outside voice names an alternative cause the
+evidence does not discriminate between: the hypothesis is NOT confirmed.** Do not
+proceed to Phase 4. Say plainly: "The outside voice refuted the diagnosis — returning
+to hypothesis testing." Return to Phase 3 and run the discriminating test the outside
+voice named, then re-enter this section with the updated diagnosis. This does NOT
+consume one of the 3 strikes: a refuted confirmation means the hypothesis was never
+actually tested, not that a tested hypothesis failed.
+
+**If the verdict is `SURVIVES`:** record the named falsifying observation in the
+Phase 5 debug report under `Evidence:`, then continue to Phase 4. Two models failing
+to break a diagnosis is the strongest signal available before the fix is written.
+
+Sibling occurrences the outside voice found (item 5) are a genuine finding even when
+the verdict is SURVIVES. Surface them to the user as separate scope — do not silently
+widen this fix to cover them.
+
+**Persist the result:**
+
+```bash
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"codex-investigate-review","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","commit":"'"$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"'"}'
+```
+
+Substitute: STATUS = "clean" if the outside voice found nothing, "issues_found" if it
+did. SOURCE = "codex" if Codex ran, "claude" if the subagent ran. If both paths
+failed, do NOT persist — an absent row means "did not run", and a row claiming
+"clean" when nothing ran is a false all-clear.
+
+**Cleanup:** run `rm -f "$TMPERR_RC"` after processing (if Codex was used).
 
 ---
 

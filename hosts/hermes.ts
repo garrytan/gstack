@@ -48,6 +48,7 @@ const hermes: HostConfig = {
     'ADVERSARIAL_STEP',
     'CODEX_SECOND_OPINION',
     'CODEX_PLAN_REVIEW',
+    'CODEX_OUTSIDE_VOICE',
     'REVIEW_ARMY',
     // GBRAIN_CONTEXT_LOAD and GBRAIN_SAVE_RESULTS are NOT suppressed.
     // The resolvers handle GBrain-not-installed gracefully ("proceed without brain context").

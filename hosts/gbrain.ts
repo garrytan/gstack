@@ -54,6 +54,7 @@ const gbrain: HostConfig = {
     'ADVERSARIAL_STEP',
     'CODEX_SECOND_OPINION',
     'CODEX_PLAN_REVIEW',
+    'CODEX_OUTSIDE_VOICE',
     'REVIEW_ARMY',
     // NOTE: GBRAIN_CONTEXT_LOAD and GBRAIN_SAVE_RESULTS are NOT suppressed here.
     // GBrain is the only host that gets brain-first lookup and save-to-brain behavior.

@@ -1223,3 +1223,366 @@ If no prior reviews exist or none have a \`findings\` array, skip this step sile
 
 Output a summary header: \`Pre-Landing Review: N issues (X critical, Y informational)\``;
 }
+
+// ─── Outside Voice for non-plan reviews ─────────────────────
+//
+// CODEX_PLAN_REVIEW challenges a *plan*. These three skills produce a different
+// kind of artifact — a root-cause diagnosis, a security finding set, a DX
+// scorecard — so each needs its own challenge prompt. The scaffolding (preflight,
+// verbatim presentation, Claude-subagent fallback, cross-model tension, user
+// sovereignty, review-log persist) is identical, so it lives here once and the
+// per-skill difference is data.
+//
+// Placement rule: each {{CODEX_OUTSIDE_VOICE}} sits *before* the skill commits to
+// its output — before investigate writes a fix, before /cso writes its report,
+// before /devex-review scores the scorecard. An outside voice that arrives after
+// the work is done is a postmortem, not a review.
+
+interface OutsideVoiceSpec {
+  /** Section heading. Distinct per skill so report greps stay unambiguous. */
+  header: string;
+  /** gstack-review-log slug, read by /ship + /landing-report dashboards. */
+  logSlug: string;
+  /** Suffix for the stderr temp var — unique so two voices can't collide. */
+  errVar: string;
+  /** What the agent assembles and hands to the outside voice. */
+  artifact: string;
+  /** Domain-specific challenge prompt. Rendered after CODEX_BOUNDARY. */
+  prompt: string;
+  /** Noun for the primary in-skill pass, used in the tension block. */
+  primaryNoun: string;
+  /** What the skill does with the findings once the user has decided. */
+  integration: string;
+}
+
+const OUTSIDE_VOICE_SPECS: Record<string, OutsideVoiceSpec> = {
+  investigate: {
+    header: 'Outside Voice — Independent Root-Cause Challenge (default-on)',
+    logSlug: 'codex-investigate-review',
+    errVar: 'TMPERR_RC',
+    artifact: `Assemble the diagnosis as it stands right now:
+- **Symptom** — what the user actually observed, verbatim where possible.
+- **Root cause hypothesis** — the Phase 1 claim, as written.
+- **Confirming evidence** — the Phase 3 log line, assertion, or repro output that
+  you treated as confirmation, quoted.
+- **Proposed fix** — what you are about to change, with \`file:line\`. If you have
+  not decided yet, say so.
+- **Ruled out** — hypotheses you already discarded and the evidence that killed each.
+- **Files** — the paths you traced.
+
+Include the "ruled out" list. Without it the outside voice re-treads dead ends and
+its output is noise.`,
+    prompt: `You are a brutally honest debugging peer. Another AI system has diagnosed a
+bug in this repository and believes it has CONFIRMED the root cause. Your job is
+NOT to agree, and NOT to re-run the investigation. Your job is to REFUTE it.
+
+Work through these in order and answer each explicitly:
+
+1. ALTERNATIVE CAUSES. Name every other defect that would produce the SAME symptom.
+   Be specific to this codebase — read the code, cite \`file:line\`.
+2. DOES THE EVIDENCE DISCRIMINATE? For the confirming evidence quoted below, state
+   whether it actually distinguishes the stated cause from your alternatives, or
+   whether it would look identical under both. This is the crux: evidence that
+   merely reproduces the symptom is consistent with every cause that produces the
+   symptom, so it confirms nothing. Say so bluntly when that is what happened.
+3. UNVERIFIED ASSUMPTIONS. What does the diagnosis take for granted but never
+   actually check? Name the assumption and the cheapest command or read that would
+   test it.
+4. ONE LAYER DOWN. Is the named cause itself a symptom? If a lower-level defect
+   (a wrong default, a stale cache, a lost error, a bad contract with an external
+   system) would explain the named cause, say so.
+5. DOES THE FIX MISS? Would the proposed fix leave the real defect in place, or fix
+   this instance while the same class recurs elsewhere in the repo? Grep for the
+   sibling occurrences and list them.
+6. VERDICT. End with exactly one line:
+   \`Verdict: REFUTED because <reason>\` or
+   \`Verdict: SURVIVES — cheapest falsifying observation is <observation>\`
+
+Default to skepticism. If you cannot tell whether the evidence discriminates, say
+REFUTED and explain what is missing. No compliments. No summary of the diagnosis
+back to me. Just the holes.`,
+    primaryNoun: 'the investigation',
+    integration: `**If the verdict is \`REFUTED\`, or the outside voice names an alternative cause the
+evidence does not discriminate between: the hypothesis is NOT confirmed.** Do not
+proceed to Phase 4. Say plainly: "The outside voice refuted the diagnosis — returning
+to hypothesis testing." Return to Phase 3 and run the discriminating test the outside
+voice named, then re-enter this section with the updated diagnosis. This does NOT
+consume one of the 3 strikes: a refuted confirmation means the hypothesis was never
+actually tested, not that a tested hypothesis failed.
+
+**If the verdict is \`SURVIVES\`:** record the named falsifying observation in the
+Phase 5 debug report under \`Evidence:\`, then continue to Phase 4. Two models failing
+to break a diagnosis is the strongest signal available before the fix is written.
+
+Sibling occurrences the outside voice found (item 5) are a genuine finding even when
+the verdict is SURVIVES. Surface them to the user as separate scope — do not silently
+widen this fix to cover them.`,
+  },
+
+  cso: {
+    header: 'Outside Voice — Independent Security Challenge (default-on)',
+    logSlug: 'codex-security-review',
+    errVar: 'TMPERR_SEC',
+    artifact: `Assemble a compact summary of the audit so far — NOT the full report:
+- **Scope** — the resolved mode and what Phase 0/1 identified as the attack surface.
+- **Findings kept** — one line each after Phase 12 filtering: severity, category,
+  \`file:line\`.
+- **Findings dismissed as false positives** — one line each with the reason.
+- **Not examined** — anything the resolved mode skipped.
+
+Send the summary, not the raw code. The outside voice reads the repository itself.
+Include the dismissed list: a false-positive call is exactly the kind of judgment a
+second model should get to challenge.`,
+    prompt: `You are an independent offensive security reviewer. A structured security audit
+has already run a checklist over this repository. Do NOT repeat it and do NOT
+re-report its findings. Your job is to find the vulnerability classes a checklist
+cannot see, and to challenge the false-positive dismissals.
+
+Read the actual code. Prioritize these classes, which checklists routinely miss:
+
+1. AUTHORIZATION, distinct from authentication. Being logged in is not being
+   entitled. Can an authenticated caller reach another user's or tenant's records by
+   changing an id in the request? Find every handler that trusts a client-supplied
+   identifier to select or mutate a row.
+2. FORGEABLE COMPOSITE IDENTITY. Any identity, key, or capability assembled by
+   concatenating fields into one string, then recovered by splitting it. If either
+   half can contain the delimiter, identity is forgeable. Check that BOTH halves are
+   validated, not just the first.
+3. SIGNING DOMAIN CONFUSION. One secret used to sign tokens for two different
+   purposes, with no per-purpose domain prefix in the signed payload. A token minted
+   for the low-privilege purpose then verifies for the high-privilege one.
+4. FAILING OPEN. Error handling that swallows a failure and continues as if the
+   check passed — an empty catch around a permission lookup, a dedup read, a quota
+   check, or a signature verification. Distinguish fail-open from fail-closed at
+   every guard and name each fail-open one.
+5. TIME OF CHECK vs TIME OF USE. A validated value re-read, re-parsed, or mutated
+   between the check and the action it authorizes.
+6. SECRET REACHABILITY. Secrets recoverable from logs, error responses, client
+   bundles, build output, or committed fixtures. Include values echoed back in a
+   diagnostic path.
+7. INJECTION AND SSRF through any URL, query, path, or command assembled from input,
+   including values that arrived indirectly via a database or a webhook body.
+8. TRUST IN AN UPSTREAM. Webhooks, callbacks, and inbound email accepted without
+   verifying origin, signature, or replay.
+
+Then, separately: for each finding the audit DISMISSED as a false positive, say
+whether you agree. Argue against the dismissal where you can.
+
+For every issue: exact \`file:line\`, the concrete attack in one or two sentences,
+and what the attacker gains. Rank by exploitability against this codebase as
+deployed, not by theoretical CVSS. If a class genuinely does not apply here, say so
+in one line rather than padding. No compliments.`,
+    primaryNoun: 'the audit',
+    integration: `Merge accepted findings into the Phase 13 report as normal findings, tagged
+\`source: outside-voice\`, and run them through the SAME Phase 12 false-positive
+filter and active verification you applied to your own — an outside finding is a
+candidate, not a confirmed vulnerability. An unverified outside finding in the report
+is worse than no finding, because it spends the reader's trust.
+
+Where the outside voice disputes one of your false-positive dismissals, re-verify
+that specific finding against the code before deciding. If it survives re-verification,
+it goes in the report and you note that it was originally dismissed.`,
+  },
+
+  'devex-review': {
+    header: 'Outside Voice — Independent DX Challenge (default-on)',
+    logSlug: 'codex-devex-review',
+    errVar: 'TMPERR_DX',
+    artifact: `Assemble a compact summary of the audit so far:
+- **Target** — what Step 0 identified (repo, package, CLI, API surface).
+- **Per-step findings** — one line each from Steps 1-8, with \`file:line\` or the
+  exact command.
+- **Provisional scores** — the per-dimension numbers you are about to put in the
+  scorecard.
+
+Send the summary. The outside voice reads the repository itself.`,
+    prompt: `You are an experienced developer meeting this project for the first time, and
+you are impatient. Do NOT audit against a rubric and do NOT restate the findings
+below. Answer one question: where would a competent newcomer get stuck, and what
+would make them give up and close the tab?
+
+Read the README, the quickstart, the install path, the config surface, the public
+API or CLI signatures, and the error strings in the code. Then name, concretely:
+
+1. FIRST FAILURE. The first command in the documented happy path that fails, is
+   ambiguous, or silently does nothing. Quote the command.
+2. UNWRITTEN PREREQUISITES. Every step that needs knowledge not written down — an
+   env var with no documented source, a service assumed to be running, a required
+   account, a version constraint stated nowhere.
+3. DOCS THAT CONTRADICT THE CODE. Cite both sides: the doc line and the
+   \`file:line\` that disagrees with it. Stale docs are worse than missing docs
+   because they are trusted.
+4. DEAD-END ERRORS. Error messages that report what happened but not what to do
+   next. Quote the string and give the \`file:line\`.
+5. FOOTGUNS. Defaults that are wrong for a newcomer, destructive operations with no
+   confirmation, and any API whose obvious usage is the incorrect usage.
+6. THE ONE THING. If the maintainer fixes exactly one thing tomorrow, what is it?
+   Pick the highest-friction moment, not the easiest fix.
+
+Cite a \`file:line\` or an exact command for every claim. Ignore aesthetics and
+code style — this is about whether a stranger can get to a working state. No
+compliments.`,
+    primaryNoun: 'the review',
+    integration: `Fold accepted findings into the DX Scorecard as evidence lines, attributed
+\`(outside voice)\`, and adjust the affected dimension scores. Say which scores moved
+and why — a scorecard that silently absorbs outside findings hides where the signal
+came from. If a finding lands outside all eight dimensions, add it to Next Steps
+rather than forcing it into a dimension.`,
+  },
+};
+
+/** Skills that have an outside-voice spec. Exported so the RESOLVERS gate and the
+ *  tests read from one list instead of duplicating the names. */
+export const OUTSIDE_VOICE_SKILLS = Object.keys(OUTSIDE_VOICE_SPECS);
+
+export function generateCodexOutsideVoice(ctx: TemplateContext): string {
+  // Codex host: strip entirely — Codex should never invoke itself.
+  if (ctx.host === 'codex') return '';
+
+  const spec = OUTSIDE_VOICE_SPECS[ctx.skillName];
+  // Gated by appliesTo in the RESOLVERS map; this is belt-and-braces so an
+  // unguarded reference renders nothing instead of `undefined`.
+  if (!spec) return '';
+
+  const err = `$${spec.errVar}`;
+
+  return `## ${spec.header}
+
+Run an independent second opinion from a different AI system automatically. This is a
+standard step, not an opt-in: two models reaching the same conclusion is a materially
+stronger signal than one model being thorough, and the failure mode this catches is
+the one no amount of self-review catches — a conclusion that is internally consistent
+and wrong. The user turns it off only by asking explicitly
+(\`gstack-config set codex_reviews disabled\`).
+
+**Preflight — decide whether and how the outside voice runs:**
+
+${codexPreflight({ disabledBehavior: 'skip-all' })}
+
+When the mode is \`ready\`, \`not_installed\`, or \`not_authed\`, print one line so the
+off-switch stays discoverable: "Running the outside voice automatically (standard step).
+Disable: \`gstack-config set codex_reviews disabled\`."
+
+**Assemble the artifact** (for \`ready\`, \`not_installed\`, and \`not_authed\` — skip only
+on \`disabled\`):
+
+${spec.artifact}
+
+If the assembled artifact exceeds 30KB, truncate to the first 30KB and note
+"Artifact truncated for size".
+
+**Construct the prompt.** Always start with the filesystem boundary instruction, then
+the challenge, then the artifact:
+
+"${CODEX_BOUNDARY}${spec.prompt}
+
+THE ARTIFACT UNDER REVIEW:
+<assembled artifact>"
+
+**If \`CODEX_MODE: ready\` — run Codex:**
+
+\`\`\`bash
+${spec.errVar}=$(mktemp /tmp/${spec.logSlug}-XXXXXXXX)
+_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
+codex exec "<prompt>" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached < /dev/null 2>"${err}"
+\`\`\`
+
+Set the Bash tool's \`timeout\` parameter to \`300000\` (5 minutes). Do NOT use the
+\`timeout\` shell command — it does not exist on macOS. After the command completes,
+read stderr:
+
+\`\`\`bash
+cat "${err}"
+\`\`\`
+
+Present the full output verbatim — do not summarize, do not truncate, do not
+soften it:
+
+\`\`\`
+CODEX SAYS (${spec.primaryNoun} — outside voice):
+════════════════════════════════════════════════════════════
+<full codex output, verbatim>
+════════════════════════════════════════════════════════════
+\`\`\`
+
+**Error handling:** all errors are non-blocking — the outside voice is informational
+and must never gate the skill. But "non-blocking" does not mean "silently skipped":
+each of these falls back to the Claude subagent below, and you say which path ran.
+- Auth failure (stderr contains "auth", "login", "unauthorized"): "Codex auth failed. Run \`codex login\` to authenticate." Fall back to the Claude subagent below.
+- Timeout: "Codex timed out after 5 minutes." Fall back to the Claude subagent below.
+- Empty response: "Codex returned no response. Stderr: <paste relevant error>." Fall back to the Claude subagent below.
+
+**If \`CODEX_MODE: not_installed\` or \`not_authed\` (or Codex errored at runtime):**
+
+Dispatch via the Agent tool. The subagent has fresh context, which is genuine
+independence even within one model family. Bound it the same way as Codex: cap the
+dispatch at 5 minutes so "never blocking" is also "never hanging."
+
+Subagent prompt: the same challenge prompt as above, minus the filesystem boundary
+paragraph (a Claude subagent does not need it).
+
+Present findings under an \`OUTSIDE VOICE (Claude subagent):\` header, and say which
+path ran — a same-family second opinion is weaker evidence than a cross-model one and
+the user should know which they got.
+
+If the subagent also fails or times out: "Outside voice unavailable — continuing
+without it." Never block on this step.
+
+(On \`CODEX_MODE: disabled\` you already skipped this section per the preflight — do
+not reach here.)
+
+**Cross-model tension:**
+
+After presenting the findings, name every point where the outside voice disagrees with
+${spec.primaryNoun}:
+
+\`\`\`
+CROSS-MODEL TENSION:
+  [Topic]: ${spec.primaryNoun.charAt(0).toUpperCase() + spec.primaryNoun.slice(1)} concluded X.
+  Outside voice argues Y. [Both perspectives, neutrally. State what context you might
+  be missing that would change the answer.]
+\`\`\`
+
+If there is no disagreement, say so explicitly: "No cross-model tension — both
+reviewers agree." Silence reads as "not run."
+
+**User Sovereignty:** do NOT auto-apply outside voice recommendations. Present each
+tension point; the user decides. Cross-model agreement is a strong signal and you
+should say so, but agreement is not permission to act. You may state which argument
+you find more compelling. You MUST NOT act on it without explicit approval.
+
+For each substantive tension point, use AskUserQuestion:
+
+> "Cross-model disagreement on [topic]. ${spec.primaryNoun.charAt(0).toUpperCase() + spec.primaryNoun.slice(1)} found [X], the outside voice argues [Y]. [One sentence on what context you might be missing.]"
+>
+> RECOMMENDATION: Choose [A or B] because [one-line reason naming which argument is
+> more compelling and why]. Completeness: A=X/10, B=Y/10.
+
+Options:
+- A) Accept the outside voice's finding
+- B) Keep the current conclusion (reject the outside voice)
+- C) Investigate further before deciding
+- D) Add to TODOS.md for later
+
+Wait for the response. Do NOT default to accepting because you agree with the outside
+voice. If the user chooses B, the current conclusion stands — do not re-argue it.
+
+**Integration:**
+
+${spec.integration}
+
+**Persist the result:**
+
+\`\`\`bash
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"${spec.logSlug}","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","commit":"'"$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"'"}'
+\`\`\`
+
+Substitute: STATUS = "clean" if the outside voice found nothing, "issues_found" if it
+did. SOURCE = "codex" if Codex ran, "claude" if the subagent ran. If both paths
+failed, do NOT persist — an absent row means "did not run", and a row claiming
+"clean" when nothing ran is a false all-clear.
+
+**Cleanup:** run \`rm -f "${err}"\` after processing (if Codex was used).
+
+---`;
+}
