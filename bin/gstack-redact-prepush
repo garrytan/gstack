@@ -114,6 +114,64 @@ function addedLinesFor(localSha: string, remoteSha: string): string {
   return added.join("\n");
 }
 
+/**
+ * Byte budget per scan() call. Kept comfortably under redact-engine's
+ * DEFAULT_MAX_BYTES (1 MiB) so a slice never trips its oversize guard.
+ */
+const SCAN_CHUNK_BYTES = 768 * 1024;
+
+/**
+ * Scan added lines in line-aligned slices, unioning the findings.
+ *
+ * Why: the engine refuses input over its byte cap and fails closed, which is
+ * right for one scan() call but wrong as a push policy — a feature branch
+ * catching up to a busy main legitimately produces more added lines than the
+ * cap (1,146,782 bytes against the 1 MiB default in the push that prompted
+ * this, and only ~7% of that was the lockfile). The push then blocked on
+ * `engine.input_too_large` — a size error naming no credential — which trains
+ * people to reach for --no-verify, defeating the guardrail far more thoroughly
+ * than a large diff does.
+ *
+ * Slicing loses NO detection coverage, because every pattern is single-line:
+ * none in redact-patterns.ts carries the `m` or `s` flag, the
+ * BEGIN-PRIVATE-KEY patterns capture only the header line rather than the key
+ * body, and the engine itself iterates line by line. A line boundary therefore
+ * cannot bisect a detectable secret, so no inter-slice overlap is needed.
+ *
+ * Fail-closed is preserved: a SINGLE line over the budget is still passed to
+ * the engine intact, so a genuinely unscannable blob (minified bundle,
+ * embedded base64) trips input_too_large and blocks exactly as before.
+ *
+ * Findings' line/col are slice-relative, which is fine here — this hook only
+ * reads severity, id and preview. Do not lift this into the engine, where
+ * callers rely on absolute line numbers.
+ */
+function scanAddedLines(added: string, opts: Parameters<typeof scan>[1]): Finding[] {
+  const findings: Finding[] = [];
+  let slice: string[] = [];
+  let sliceBytes = 0;
+
+  const flush = () => {
+    if (slice.length === 0) return;
+    findings.push(...scan(slice.join("\n"), opts).findings);
+    slice = [];
+    sliceBytes = 0;
+  };
+
+  for (const line of added.split("\n")) {
+    // +1 for the newline that rejoins it.
+    const lineBytes = Buffer.byteLength(line, "utf8") + 1;
+    // Close the current slice BEFORE overflowing it. A single oversized line
+    // lands in a slice of its own and is handed to the engine as-is.
+    if (sliceBytes > 0 && sliceBytes + lineBytes > SCAN_CHUNK_BYTES) flush();
+    slice.push(line);
+    sliceBytes += lineBytes;
+  }
+  flush();
+
+  return findings;
+}
+
 function logSkip(reason: string): void {
   try {
     const home = process.env.GSTACK_HOME || path.join(os.homedir(), ".gstack");
@@ -165,8 +223,9 @@ function main() {
     if (!added.trim()) continue;
     // Visibility doesn't change HIGH behavior; pass private so nothing is treated
     // as public-strict (HIGH blocks regardless either way).
-    const result = scan(added, { repoVisibility: "private" });
-    for (const f of result.findings) {
+    // Sliced (see scanAddedLines) so a large-but-legitimate diff is actually
+    // scanned rather than blocked unscanned on the engine's size cap.
+    for (const f of scanAddedLines(added, { repoVisibility: "private" })) {
       if (f.severity === "HIGH") allHigh.push(f);
       else if (f.severity === "MEDIUM") mediumCount++;
     }
