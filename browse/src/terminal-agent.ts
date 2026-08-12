@@ -30,6 +30,11 @@ import { writeAgentRecord, clearAgentRecord } from './terminal-agent-control';
 const STATE_FILE = process.env.BROWSE_STATE_FILE || path.join(process.env.HOME || '/tmp', '.gstack', 'browse.json');
 const PORT_FILE = path.join(path.dirname(STATE_FILE), 'terminal-port');
 const BROWSE_SERVER_PORT = parseInt(process.env.BROWSE_SERVER_PORT || '0', 10);
+const BROWSE_OWNER_PID = parseInt(process.env.BROWSE_OWNER_PID || '0', 10);
+const OWNER_WATCHDOG_MS = parseInt(
+  process.env.GSTACK_TERMINAL_OWNER_WATCHDOG_MS || '15000',
+  10,
+);
 const EXTENSION_ID = process.env.BROWSE_EXTENSION_ID || ''; // optional: tighten Origin check
 const INTERNAL_TOKEN = crypto.randomBytes(32).toString('base64url'); // shared with parent server via env at spawn
 /**
@@ -987,13 +992,33 @@ function main() {
   console.log(`[terminal-agent] listening on 127.0.0.1:${port} pid=${process.pid} gen=${CURRENT_GEN}`);
 
   // Cleanup port file + agent record on exit.
+  let cleaningUp = false;
   const cleanup = () => {
+    if (cleaningUp) return;
+    cleaningUp = true;
     safeUnlink(PORT_FILE);
+    safeUnlink(INTERNAL_TOKEN_FILE);
     clearAgentRecord(dir);
     process.exit(0);
   };
   process.on('SIGTERM', cleanup);
   process.on('SIGINT', cleanup);
+
+  // The terminal agent is intentionally detached so it survives the short-lived
+  // CLI launcher, but its real owner is the persistent browse server. If that
+  // server crashes or is killed before running normal shutdown, the agent would
+  // otherwise be adopted by PID 1 and live forever. Poll the server PID and use
+  // the same cleanup path as an intentional shutdown when it disappears.
+  if (BROWSE_OWNER_PID > 0) {
+    const ownerWatchdog = setInterval(() => {
+      try {
+        process.kill(BROWSE_OWNER_PID, 0);
+      } catch {
+        cleanup();
+      }
+    }, OWNER_WATCHDOG_MS);
+    (ownerWatchdog as any)?.unref?.();
+  }
 }
 
 // Export the internal token so cli.ts can pass the SAME value to the parent

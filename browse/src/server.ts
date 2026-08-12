@@ -1551,6 +1551,7 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
         const pid = spawnTerminalAgent({
           stateFile: cfg.config.stateFile,
           serverPort: cfg.browsePort,
+          ownerPid: process.pid,
           cwd: cfg.config.projectDir,
         });
         if (pid) {

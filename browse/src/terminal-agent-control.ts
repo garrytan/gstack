@@ -54,6 +54,8 @@ export function resolveTerminalAgentScript(searchHints: { metaDir?: string; exec
 export function spawnTerminalAgent(opts: {
   stateFile: string;
   serverPort: number;
+  /** PID of the browse server that owns this agent. */
+  ownerPid: number;
   cwd?: string;
   /** Optional extra env vars to add to the agent's process env. */
   extraEnv?: Record<string, string>;
@@ -74,6 +76,7 @@ export function spawnTerminalAgent(opts: {
       ...process.env,
       BROWSE_STATE_FILE: opts.stateFile,
       BROWSE_SERVER_PORT: String(opts.serverPort),
+      BROWSE_OWNER_PID: String(opts.ownerPid),
       ...(opts.extraEnv || {}),
     },
     stdio: ['ignore', 'ignore', 'ignore'],

@@ -1130,6 +1130,7 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
         const newPid = spawnTerminalAgent({
           stateFile: config.stateFile,
           serverPort: newState.port,
+          ownerPid: newState.pid,
           cwd: config.projectDir,
         });
         if (newPid) {
@@ -1222,6 +1223,7 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
           spawnTerminalAgent({
             stateFile: config.stateFile,
             serverPort: respawned.port,
+            ownerPid: respawned.pid,
             cwd: config.projectDir,
           });
         } catch (err: any) {
