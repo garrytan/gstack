@@ -47,6 +47,28 @@ describe('validateNavigationUrl', () => {
     await expect(validateNavigationUrl('file://host.example.com/foo.html')).rejects.toThrow(/Unsupported file URL host/i);
   });
 
+  // The daemon opens its own first tab on about:blank, so blocking it meant a restarted
+  // daemon could never initialise — and `make-pdf setup`, whose Chromium smoke test is
+  // `browse newtab about:blank`, reported "Chromium failed to launch" on a healthy browser.
+  it('allows about:blank — the daemon opens its own first tab there', async () => {
+    await expect(validateNavigationUrl('about:blank')).resolves.toBe('about:blank');
+  });
+
+  it('allows about:blank regardless of case, since URL parsing normalises it', async () => {
+    await expect(validateNavigationUrl('ABOUT:BLANK')).resolves.toBe('about:blank');
+  });
+
+  // The allowance is about:blank EXACTLY, not the about: scheme. about:blank has no
+  // origin and loads nothing; the rest of the scheme is a real surface.
+  it('still blocks other about: URLs', async () => {
+    await expect(validateNavigationUrl('about:config')).rejects.toThrow(/scheme.*not allowed/i);
+    await expect(validateNavigationUrl('about:net-internals')).rejects.toThrow(/scheme.*not allowed/i);
+  });
+
+  it('blocks about:blankfoo — exact match, never a prefix test', async () => {
+    await expect(validateNavigationUrl('about:blankfoo')).rejects.toThrow(/scheme.*not allowed/i);
+  });
+
   it('blocks javascript: scheme', async () => {
     await expect(validateNavigationUrl('javascript:alert(1)')).rejects.toThrow(/scheme.*not allowed/i);
   });

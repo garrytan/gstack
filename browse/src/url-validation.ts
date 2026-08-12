@@ -269,9 +269,24 @@ export async function validateNavigationUrl(url: string): Promise<string> {
     return pathToFileURL(fsPath).href + parsed.search + parsed.hash;
   }
 
+  // about:blank ONLY — the canonical empty page, and the one the daemon opens its own
+  // first tab on. Blocking it meant `browse newtab about:blank` failed, which is what
+  // `make-pdf setup` runs as its Chromium smoke test: make-pdf reported "Chromium failed
+  // to launch" against a perfectly healthy Chromium, and any browse session whose daemon
+  // restarted could never recreate the blank tab it starts from.
+  //
+  // Deliberately not the whole `about:` scheme. about:blank has no origin, loads nothing
+  // and runs nothing; about:config, about:net-internals and friends are real surfaces.
+  // Exact href match, not a prefix test, so `about:blankfoo` stays blocked.
+  // Compared lower-cased: the URL parser normalises the PROTOCOL but not the opaque part,
+  // so `ABOUT:BLANK` parses to href `about:BLANK` and an exact === would reject it.
+  if (parsed.protocol === 'about:' && parsed.href.toLowerCase() === 'about:blank') {
+    return 'about:blank';
+  }
+
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
     throw new Error(
-      `Blocked: scheme "${parsed.protocol}" is not allowed. Only http:, https:, and file: URLs are permitted.`
+      `Blocked: scheme "${parsed.protocol}" is not allowed. Only http:, https:, file:, and about:blank URLs are permitted.`
     );
   }
 
