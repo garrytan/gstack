@@ -1,0 +1,137 @@
+#!/usr/bin/env bash
+# gstack-pr-triage — fetch and classify open community PRs for /autoplan
+#
+# Outputs structured JSON: PR metadata, classification, file conflicts,
+# and suggested merge order. Feeds directly into /autoplan's merge planning.
+#
+# Usage:
+#   gstack-pr-triage                    # all open community PRs
+#   gstack-pr-triage 154 155 156        # specific PR numbers
+#   gstack-pr-triage --category fix     # filter by classification
+#
+# Output: JSON to stdout (pipe to jq, feed to /autoplan)
+set -euo pipefail
+
+TMPDIR="${TMPDIR:-/tmp}"
+PRS_FILE=$(mktemp "$TMPDIR/gstack-pr-triage.XXXXXX")
+trap 'rm -f "$PRS_FILE"' EXIT
+
+FILTER_CATEGORY=""
+PR_NUMBERS=()
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --category) FILTER_CATEGORY="${2:-}"; shift 2 ;;
+    --category=*) FILTER_CATEGORY="${1#*=}"; shift ;;
+    [0-9]*) PR_NUMBERS+=("$1"); shift ;;
+    *) shift ;;
+  esac
+done
+
+OWNER=$(gh repo view --json owner -q '.owner.login' 2>/dev/null || echo "")
+
+if [ ${#PR_NUMBERS[@]} -gt 0 ]; then
+  echo "[" > "$PRS_FILE"
+  FIRST=true
+  for num in "${PR_NUMBERS[@]}"; do
+    $FIRST || echo "," >> "$PRS_FILE"
+    FIRST=false
+    gh pr view "$num" --json number,title,author,files,additions,deletions,headRefName,labels 2>/dev/null >> "$PRS_FILE" || echo '{}' >> "$PRS_FILE"
+  done
+  echo "]" >> "$PRS_FILE"
+else
+  gh pr list --state open --limit 50 --json number,title,author,files,additions,deletions,headRefName,labels 2>/dev/null > "$PRS_FILE" || echo "[]" > "$PRS_FILE"
+fi
+
+python3 - "$PRS_FILE" "$OWNER" "$FILTER_CATEGORY" << 'PYEOF'
+import json, sys
+from collections import defaultdict
+
+prs_file, owner, filter_cat = sys.argv[1], sys.argv[2], sys.argv[3]
+
+with open(prs_file) as f:
+    prs = json.load(f)
+
+def classify(pr):
+    title = pr.get('title', '').lower()
+    files = [f.get('path', '') for f in pr.get('files', [])]
+    additions = pr.get('additions', 0)
+    deletions = pr.get('deletions', 0)
+    total = additions + deletions
+
+    if any(k in title for k in ['security', 'cve', 'vuln', 'inject', 'redact', 'sanitize']):
+        cat = 'security'
+    elif any(k in title for k in ['fix', 'bug', 'patch', 'hotfix']):
+        cat = 'fix'
+    elif any(k in title for k in ['test', 'spec', 'coverage', 'eval']):
+        cat = 'test'
+    elif any(k in title for k in ['doc', 'readme', 'changelog']):
+        cat = 'docs'
+    elif any(k in title for k in ['feat', 'add', 'new', 'support']):
+        cat = 'feature'
+    elif any(k in title for k in ['refactor', 'clean', 'improve']):
+        cat = 'refactor'
+    else:
+        cat = 'other'
+
+    size = 'XS' if total <= 50 else 'S' if total <= 200 else 'M' if total <= 500 else 'L' if total <= 1500 else 'XL'
+
+    risk = 'low'
+    risk_reasons = []
+    high_risk = ['server.ts', 'browser-manager.ts', 'cli.ts', 'setup', 'package.json']
+    risky = [f for f in files if any(p in f for p in high_risk)]
+    if risky:
+        risk = 'high'
+        risk_reasons.append(f'modifies core: {", ".join(risky[:3])}')
+    if size in ('L', 'XL'):
+        risk = max(risk, 'medium', key=lambda x: ['low','medium','high'].index(x))
+        risk_reasons.append(f'large change ({total} lines)')
+
+    has_tests = any('test' in f.lower() for f in files)
+    if not has_tests and cat == 'feature':
+        risk_reasons.append('no tests')
+
+    return {
+        'category': cat, 'size': size, 'risk': risk,
+        'risk_reasons': risk_reasons, 'has_tests': has_tests,
+        'files': files, 'lines_changed': total,
+    }
+
+results = []
+file_owners = defaultdict(list)
+
+for pr in prs:
+    author = pr.get('author', {}).get('login', '')
+    if author == owner:
+        continue
+    a = classify(pr)
+    if filter_cat and a['category'] != filter_cat:
+        continue
+    for f in a['files']:
+        file_owners[f].append(pr.get('number'))
+    results.append({
+        'number': pr.get('number'), 'title': pr.get('title'),
+        'author': author, 'branch': pr.get('headRefName'),
+        'category': a['category'], 'size': a['size'],
+        'risk': a['risk'], 'risk_reasons': a['risk_reasons'],
+        'has_tests': a['has_tests'], 'lines_changed': a['lines_changed'],
+        'file_count': len(a['files']), 'files': a['files'][:10],
+    })
+
+conflicts = [{'file': f, 'prs': nums} for f, nums in file_owners.items() if len(nums) > 1]
+
+PRIORITY = {'security': 0, 'fix': 1, 'test': 2, 'docs': 3, 'refactor': 4, 'feature': 5, 'other': 6}
+results.sort(key=lambda r: (PRIORITY.get(r['category'], 99), r['lines_changed']))
+
+output = {
+    'total_prs': len(results),
+    'by_category': {},
+    'conflicts': conflicts,
+    'merge_order': [r['number'] for r in results],
+    'prs': results,
+}
+for r in results:
+    output['by_category'][r['category']] = output['by_category'].get(r['category'], 0) + 1
+
+print(json.dumps(output, indent=2))
+PYEOF
