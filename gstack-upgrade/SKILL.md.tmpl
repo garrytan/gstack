@@ -125,9 +125,16 @@ Use the install type and directory detected in Step 2:
 **For git installs** (global-git, local-git):
 ```bash
 cd "$INSTALL_DIR"
-STASH_OUTPUT=$(git stash 2>&1)
+STASH_OUTPUT=$(git stash push --include-untracked -m "pre-upgrade-$(date +%Y-%m-%d)" 2>&1)
 git fetch origin
-git reset --hard origin/main
+# Try fast-forward first. Safer than reset --hard and passes through guard
+# hooks (Claude Code PreToolUse, pre-commit wrappers) that block destructive
+# ops. Falls back to reset for divergent history — no-op when the working
+# tree is clean and there are no local commits, which is the expected state
+# for a global install.
+if ! git merge --ff-only origin/main 2>/dev/null; then
+  git reset --hard origin/main
+fi
 ./setup
 ```
 If `$STASH_OUTPUT` contains "Saved working directory", warn the user: "Note: local changes were stashed. Run `git stash pop` in the skill directory to restore them."
