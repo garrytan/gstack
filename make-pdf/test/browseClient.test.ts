@@ -59,6 +59,41 @@ describe("findExecutable", () => {
     const found = findExecutable("/nonexistent/path/to/nothing");
     expect(found).toBeNull();
   });
+
+  // access(X_OK) is TRUE for directories — they carry the execute/traverse bit — so a
+  // bare X_OK test returned ~/.claude/skills/browse, the skill's docs folder, as "the
+  // browse binary". Every browse call then failed with an empty error, which surfaced
+  // as make-pdf reporting "Chromium failed to launch".
+  test("rejects a DIRECTORY even though it passes access(X_OK)", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mkpdf-dir-"));
+    try {
+      // Prove the precondition: the directory really does pass the old test.
+      let passesXok = true;
+      try {
+        fs.accessSync(dir, fs.constants.X_OK);
+      } catch {
+        passesXok = false;
+      }
+      expect(passesXok).toBe(true);
+
+      expect(findExecutable(dir)).toBeNull();
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects a directory that shadows a real binary name", () => {
+    // The exact shape of the bug: a directory named like the thing being looked for.
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), "mkpdf-shadow-"));
+    const shadow = path.join(base, "browse");
+    fs.mkdirSync(shadow);
+    fs.writeFileSync(path.join(shadow, "SKILL.md"), "# not a binary\n");
+    try {
+      expect(findExecutable(shadow)).toBeNull();
+    } finally {
+      fs.rmSync(base, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("resolveBrowseBin", () => {

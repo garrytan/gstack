@@ -158,6 +158,11 @@ export function resolveBrowseBin(env: NodeJS.ProcessEnv = process.env): string {
 
 function isExecutable(p: string): boolean {
   try {
+    // Must be a regular FILE. access(X_OK) alone is true for directories — they carry the
+    // execute/traverse bit on POSIX and pass the Windows check too — so discovery happily
+    // "found" ~/.claude/skills/browse, which is the skill's docs folder containing nothing
+    // but SKILL.md, and returned a directory as the browse binary.
+    if (!fs.statSync(p).isFile()) return false;
     fs.accessSync(p, fs.constants.X_OK);
     return true;
   } catch {
