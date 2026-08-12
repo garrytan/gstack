@@ -362,6 +362,7 @@ EOF
     DIR="\${2:-}"
     NO_EMBED=0
     JSON=0
+    echo "argv=\$*" >> "\$ARGS_LOG"
     shift 2 || true
     for arg in "\$@"; do
       case "\$arg" in
@@ -763,6 +764,74 @@ exit 0
     // Match generously: any occurrence of "secret-scan match" line.
     expect(r.stderr + r.stdout).toMatch(/secret-scan match/);
 
+    rmSync(home, { recursive: true, force: true });
+  });
+});
+
+describe("gstack-memory-ingest transcript boundaries (#2140)", () => {
+  it("honors off mode before invoking gbrain", () => {
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    mkdirSync(gstackHome, { recursive: true });
+    writeFileSync(join(gstackHome, "config.yaml"), "transcript_ingest_mode: off\n");
+    writeClaudeCodeSession(
+      home,
+      "current",
+      "off-session",
+      `${JSON.stringify({ type: "user", sessionId: "off-session", cwd: process.cwd(), timestamp: new Date().toISOString(), message: { role: "user", content: "private" } })}\n`,
+    );
+    const fake = installFakeGbrain(home);
+    const r = runScript(["--bulk", "--quiet", "--sources", "transcript"], {
+      HOME: home,
+      GSTACK_HOME: gstackHome,
+      PATH: `${fake.binDir}:${process.env.PATH}`,
+    });
+    expect(r.exitCode).toBe(0);
+    expect(existsSync(fake.argsFile)).toBe(false);
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("imports only the trusted current repo into a dedicated transcript source", () => {
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    mkdirSync(gstackHome, { recursive: true });
+    const currentRemote = spawnSync("git", ["remote", "get-url", "origin"], { encoding: "utf-8" }).stdout.trim();
+    const currentKey = currentRemote.replace(/^[^:]+:\/\//, "").replace(/^[^@]+@/, "").replace(":", "/").replace(/\.git$/, "").toLowerCase();
+    const repos = [
+      ["denied", "https://github.com/probe/denied.git"],
+      ["readonly", "https://github.com/probe/readonly.git"],
+      ["other", "https://github.com/probe/other.git"],
+    ];
+    for (const [name, remote] of repos) {
+      const cwd = join(home, name);
+      mkdirSync(cwd, { recursive: true });
+      spawnSync("git", ["init", "-q"], { cwd });
+      spawnSync("git", ["remote", "add", "origin", remote], { cwd });
+      writeClaudeCodeSession(home, name, `${name}-session`, `${JSON.stringify({ type: "user", sessionId: `${name}-session`, cwd, timestamp: new Date().toISOString(), message: { role: "user", content: name } })}\n`);
+    }
+    writeClaudeCodeSession(home, "current", "current-session", `${JSON.stringify({ type: "user", sessionId: "current-session", cwd: process.cwd(), timestamp: new Date().toISOString(), message: { role: "user", content: "current" } })}\n`);
+    writeFileSync(join(gstackHome, "gbrain-repo-policy.json"), JSON.stringify({
+      _schema_version: 2,
+      [currentKey]: "read-write",
+      "github.com/probe/denied": "deny",
+      "github.com/probe/readonly": "read-only",
+      "github.com/probe/other": "read-write",
+    }));
+    const fake = installFakeGbrain(home);
+    const r = runScript(["--bulk", "--quiet", "--sources", "transcript"], {
+      HOME: home,
+      GSTACK_HOME: gstackHome,
+      PATH: `${fake.binDir}:${process.env.PATH}`,
+    });
+    expect(r.exitCode).toBe(0);
+    const stagedPages = readFileSync(fake.stagingListFile, "utf-8").trim().split("\n").filter((line) => line.endsWith(".md"));
+    expect(stagedPages).toHaveLength(1);
+    const args = readFileSync(fake.argsFile, "utf-8");
+    expect(args).toContain("--source-id transcripts-");
+    expect(args).not.toContain("--source-id default");
+    const sourceId = args.match(/--source-id\s+(\S+)/)?.[1] || "";
+    expect(sourceId).toMatch(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
+    expect(sourceId.length).toBeLessThanOrEqual(32);
     rmSync(home, { recursive: true, force: true });
   });
 });

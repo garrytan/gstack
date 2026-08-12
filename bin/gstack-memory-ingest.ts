@@ -520,11 +520,63 @@ function* walkGstackArtifacts(ctx: WalkContext): Generator<{ path: string; type:
 }
 
 function* walkAllSources(ctx: WalkContext): Generator<{ path: string; type: MemoryType }> {
-  if (ctx.args.sources.has("transcript")) {
+  if (ctx.args.sources.has("transcript") && transcriptIngestMode() !== "off") {
     yield* walkClaudeCodeProjects(ctx);
     yield* walkCodexSessions(ctx);
   }
   yield* walkGstackArtifacts(ctx);
+}
+
+function transcriptIngestMode(): string {
+  try {
+    const raw = readFileSync(join(GSTACK_HOME, "config.yaml"), "utf-8");
+    const match = raw.match(/^transcript_ingest_mode:\s*([^#\s]+)\s*(?:#.*)?$/m);
+    return match?.[1]?.toLowerCase() || "";
+  } catch {
+    return "";
+  }
+}
+
+let cachedCurrentRepoRemote: string | undefined;
+function currentRepoRemote(): string {
+  if (cachedCurrentRepoRemote !== undefined) return cachedCurrentRepoRemote;
+  try {
+    cachedCurrentRepoRemote = canonicalizeRemote(
+      execFileSync("git", ["-C", process.cwd(), "remote", "get-url", "origin"], {
+        encoding: "utf-8",
+        timeout: 5_000,
+        stdio: ["ignore", "pipe", "ignore"],
+      }).trim(),
+    );
+  } catch {
+    cachedCurrentRepoRemote = "";
+  }
+  return cachedCurrentRepoRemote;
+}
+
+let cachedRepoPolicy: Record<string, unknown> | undefined;
+function repoTrustTier(remote: string): string {
+  if (!remote) return "unset";
+  try {
+    cachedRepoPolicy ??= JSON.parse(
+      readFileSync(join(GSTACK_HOME, "gbrain-repo-policy.json"), "utf-8"),
+    ) as Record<string, unknown>;
+    const tier = cachedRepoPolicy[remote];
+    return typeof tier === "string" ? tier : "unset";
+  } catch {
+    cachedRepoPolicy = {};
+    return "unset";
+  }
+}
+
+function transcriptSourceId(): string {
+  const remote = currentRepoRemote();
+  const readable = repoSlug(remote)
+    .replace(/[^a-z0-9]+/gi, "-")
+    .replace(/^-+|-+$/g, "")
+    .toLowerCase() || "current-repo";
+  const hash = createHash("sha256").update(remote || process.cwd()).digest("hex").slice(0, 8);
+  return `transcripts-${readable.slice(0, 11)}-${hash}`;
 }
 
 // ── Renderers ──────────────────────────────────────────────────────────────
@@ -1171,6 +1223,16 @@ function preparePages(
           skippedUnattributed++;
           continue;
         }
+        const currentRemote = currentRepoRemote();
+        const tier = repoTrustTier(page.git_remote || "");
+        const explicitlyUnattributed = (!page.git_remote || page.git_remote === "_unattributed") && args.includeUnattributed;
+        if (
+          !explicitlyUnattributed &&
+          (!currentRemote || page.git_remote !== currentRemote || tier === "deny" || tier === "read-only")
+        ) {
+          skippedUnattributed++;
+          continue;
+        }
         if (page.partial) partialPages++;
       } else {
         page = buildArtifactPage(path, type);
@@ -1409,6 +1471,7 @@ export function resolveImportTimeoutMs(
 function runGbrainImport(
   stagingDir: string,
   timeoutMs: number,
+  sourceId?: string,
 ): Promise<{ status: number | null; stdout: string; stderr: string; timedOut: boolean }> {
   installSignalForwarder();
   return new Promise((resolve) => {
@@ -1416,7 +1479,9 @@ function runGbrainImport(
     // inside Next.js / Prisma / Rails projects with their own
     // .env.local (codex review #7 — defense in depth on top of the
     // parent gstack-gbrain-sync seeding the bun grandchild's env).
-    const child = spawnGbrainAsync(["import", stagingDir, "--no-embed", "--json"]);
+    const importArgs = ["import", stagingDir, "--no-embed", "--json"];
+    if (sourceId) importArgs.push("--source-id", sourceId);
+    const child = spawnGbrainAsync(importArgs);
     _activeImportChild = child;
     let stdout = "";
     let stderr = "";
@@ -1690,7 +1755,10 @@ async function ingestPass(args: CliArgs): Promise<BulkResult> {
     // spawn, parent termination orphans the gbrain process (observed
     // during 2026-05-10 cold-run testing — gbrain kept running 15 min
     // after the orchestrator timed out).
-    const importResult = await runGbrainImport(stagingDir, resolveImportTimeoutMs());
+    const sourceId = args.sources.size === 1 && args.sources.has("transcript")
+      ? transcriptSourceId()
+      : undefined;
+    const importResult = await runGbrainImport(stagingDir, resolveImportTimeoutMs(), sourceId);
 
     const stdout = importResult.stdout || "";
     const stderr = importResult.stderr || "";
@@ -1893,6 +1961,25 @@ function printBulkResult(r: BulkResult, args: CliArgs): void {
   }
 }
 
+async function runScopedIngest(args: CliArgs): Promise<BulkResult> {
+  const hasTranscripts = args.sources.has("transcript");
+  const artifactTypes = new Set([...args.sources].filter((type) => type !== "transcript"));
+  if (!hasTranscripts || artifactTypes.size === 0) return ingestPass(args);
+
+  const transcriptResult = await ingestPass({ ...args, sources: new Set<MemoryType>(["transcript"]) });
+  const artifactResult = await ingestPass({ ...args, sources: artifactTypes });
+  return {
+    written: transcriptResult.written + artifactResult.written,
+    skipped_secret: transcriptResult.skipped_secret + artifactResult.skipped_secret,
+    skipped_dedup: transcriptResult.skipped_dedup + artifactResult.skipped_dedup,
+    skipped_unattributed: transcriptResult.skipped_unattributed + artifactResult.skipped_unattributed,
+    failed: transcriptResult.failed + artifactResult.failed,
+    duration_ms: transcriptResult.duration_ms + artifactResult.duration_ms,
+    partial_pages: transcriptResult.partial_pages + artifactResult.partial_pages,
+    system_error: transcriptResult.system_error || artifactResult.system_error,
+  };
+}
+
 // ── Entry point ────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
@@ -1913,7 +2000,7 @@ async function main(): Promise<void> {
   if (args.mode === "incremental" && args.quiet) {
     // Steady-state fast path: log nothing unless changes happen.
     const t0 = Date.now();
-    const result = await ingestPass(args);
+    const result = await runScopedIngest(args);
     const dt = Date.now() - t0;
     if (result.written > 0 || result.failed > 0) {
       console.error(`[memory-ingest] ${result.written} written, ${result.failed} failed in ${dt}ms`);
@@ -1924,7 +2011,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  const result = await ingestPass(args);
+  const result = await runScopedIngest(args);
   printBulkResult(result, args);
   if (result.system_error) process.exit(1);
 }
