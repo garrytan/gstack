@@ -84,7 +84,14 @@ if ! $VALIDATE_ONLY; then
   # GitHub reachability — fail fast if offline rather than hanging `git clone`.
   # --max-time 10, --head (no body), quiet. Status code 200-4xx means we reached
   # the server (even 404 is reachability proof).
-  if ! curl -s --head --max-time 10 https://github.com >/dev/null 2>&1; then
+  #
+  # Skipped under --dry-run: a dry run prints a plan and exits without ever
+  # cloning, so requiring the network buys nothing and costs a real failure mode.
+  # It made `--dry-run` fail (exit 3, "cannot reach https://github.com") whenever
+  # the curl lost a race for sockets/DNS — reproducible at ~15% by running 60
+  # dry-runs concurrently, and the cause of intermittent red in the D5 tests,
+  # which call this exact path.
+  if ! $DRY_RUN && ! curl -s --head --max-time 10 https://github.com >/dev/null 2>&1; then
     fail "cannot reach https://github.com. Check your network and try again."
   fi
 fi
