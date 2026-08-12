@@ -54,7 +54,10 @@ describe('write (FRESH bump)', () => {
     fs.writeFileSync(path.join(dir, 'VERSION'), '1.0.0.0\n');
     fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'x', version: '1.0.0.0', scripts: { t: 'y' } }, null, 2) + '\n');
     const out = execFileSync('bun', [BIN, 'write', '--version', '1.1.0.0'], { cwd: dir }).toString();
-    expect(JSON.parse(out)).toEqual({ wrote: '1.1.0.0', packageJson: true });
+    expect(JSON.parse(out)).toEqual({
+      wrote: '1.1.0.0', packageJson: true, packageJsonPath: 'package.json',
+      packageJsonVersion: '1.1.0.0', lockfile: null,
+    });
     expect(fs.readFileSync(path.join(dir, 'VERSION'), 'utf-8').trim()).toBe('1.1.0.0');
     const pkg = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf-8'));
     expect(pkg.version).toBe('1.1.0.0');
@@ -72,7 +75,10 @@ describe('write (FRESH bump)', () => {
     const d2 = fs.mkdtempSync(path.join(os.tmpdir(), 'vbump-noPkg-'));
     fs.writeFileSync(path.join(d2, 'VERSION'), '0.1.0.0\n');
     const out = execFileSync('bun', [BIN, 'write', '--version', '0.2.0.0'], { cwd: d2 }).toString();
-    expect(JSON.parse(out)).toEqual({ wrote: '0.2.0.0', packageJson: false });
+    expect(JSON.parse(out)).toEqual({
+      wrote: '0.2.0.0', packageJson: false, packageJsonPath: null,
+      packageJsonVersion: null, lockfile: null,
+    });
     expect(fs.readFileSync(path.join(d2, 'VERSION'), 'utf-8').trim()).toBe('0.2.0.0');
     fs.rmSync(d2, { recursive: true, force: true });
   });
@@ -86,7 +92,10 @@ describe('repair (DRIFT_STALE_PKG)', () => {
     fs.writeFileSync(path.join(dir, 'VERSION'), '2.0.0.0\n');
     fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'x', version: '1.9.0.0' }, null, 2) + '\n');
     const out = execFileSync('bun', [BIN, 'repair'], { cwd: dir }).toString();
-    expect(JSON.parse(out)).toEqual({ repaired: '2.0.0.0' });
+    expect(JSON.parse(out)).toEqual({
+      repaired: '2.0.0.0', packageJsonPath: 'package.json',
+      packageJsonVersion: '2.0.0.0', lockfile: null,
+    });
     expect(JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf-8')).version).toBe('2.0.0.0');
     expect(fs.readFileSync(path.join(dir, 'VERSION'), 'utf-8').trim()).toBe('2.0.0.0'); // unchanged
   });
@@ -129,5 +138,115 @@ describe('classify (idempotency over a real git base)', () => {
     expect(parsed.state).toBe('ALREADY_BUMPED');
     expect(parsed.baseVersion).toBe('1.0.0.0');
     expect(parsed.currentVersion).toBe('1.1.0.0');
+  });
+});
+
+describe('subdirectory manifest (no root package.json)', () => {
+  /**
+   * The layout this tool used to silently no-op on: the only Node package
+   * lives in web/, so join(cwd, "package.json") missed it, classify said
+   * pkgExists:false, and write touched VERSION alone — leaving the manifest
+   * to be bumped by hand every release.
+   */
+  const mk = (): string => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'vbump-subdir-'));
+    fs.mkdirSync(path.join(d, 'web'));
+    fs.mkdirSync(path.join(d, '.gstack'));
+    fs.writeFileSync(path.join(d, '.gstack', 'package-json-path'), 'web/package.json\n');
+    fs.writeFileSync(path.join(d, 'VERSION'), '0.1.0.0\n');
+    return d;
+  };
+
+  test('write finds a pinned manifest and bumps it', () => {
+    const d = mk();
+    fs.writeFileSync(path.join(d, 'web', 'package.json'),
+      JSON.stringify({ name: 'w', version: '0.1.0.0' }, null, 2) + '\n');
+    const out = JSON.parse(execFileSync('bun', [BIN, 'write', '--version', '0.2.0.0'], { cwd: d }).toString());
+    expect(out.packageJson).toBe(true);
+    expect(out.packageJsonPath).toBe('web/package.json');
+    expect(JSON.parse(fs.readFileSync(path.join(d, 'web', 'package.json'), 'utf-8')).version).toBe('0.2.0.0');
+    fs.rmSync(d, { recursive: true, force: true });
+  });
+
+  test('--package-json-path overrides the pin', () => {
+    const d = mk();
+    fs.mkdirSync(path.join(d, 'app'));
+    fs.writeFileSync(path.join(d, 'web', 'package.json'), JSON.stringify({ version: '0.1.0.0' }, null, 2) + '\n');
+    fs.writeFileSync(path.join(d, 'app', 'package.json'), JSON.stringify({ version: '0.1.0.0' }, null, 2) + '\n');
+    const out = JSON.parse(execFileSync('bun',
+      [BIN, 'write', '--version', '0.3.0.0', '--package-json-path', 'app/package.json'], { cwd: d }).toString());
+    expect(out.packageJsonPath).toBe('app/package.json');
+    expect(JSON.parse(fs.readFileSync(path.join(d, 'app', 'package.json'), 'utf-8')).version).toBe('0.3.0.0');
+    // the pinned one is untouched
+    expect(JSON.parse(fs.readFileSync(path.join(d, 'web', 'package.json'), 'utf-8')).version).toBe('0.1.0.0');
+    fs.rmSync(d, { recursive: true, force: true });
+  });
+});
+
+describe('npm-managed manifest (lockfile present)', () => {
+  /**
+   * VERSION is 4-digit; npm semver is 3-component and rejects a fourth. A
+   * package-lock.json beside the manifest proves npm actually manages it, so
+   * the MICRO is dropped there and the lockfile's TWO version fields are
+   * mirrored. Writing 4 digits into a real npm package breaks `npm ci`.
+   */
+  const mk = (pkgV: string, lockV: string): string => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'vbump-npm-'));
+    fs.mkdirSync(path.join(d, 'web'));
+    fs.mkdirSync(path.join(d, '.gstack'));
+    fs.writeFileSync(path.join(d, '.gstack', 'package-json-path'), 'web/package.json\n');
+    fs.writeFileSync(path.join(d, 'VERSION'), '0.1.25.0\n');
+    fs.writeFileSync(path.join(d, 'web', 'package.json'),
+      JSON.stringify({ name: 'w', version: pkgV }, null, 2) + '\n');
+    fs.writeFileSync(path.join(d, 'web', 'package-lock.json'),
+      JSON.stringify({ name: 'w', version: lockV, lockfileVersion: 3,
+        packages: { '': { name: 'w', version: lockV }, 'node_modules/x': { version: '1.0.0' } } }, null, 2) + '\n');
+    return d;
+  };
+
+  test('write drops the MICRO and syncs BOTH lockfile version fields', () => {
+    const d = mk('0.1.25', '0.1.25');
+    const out = JSON.parse(execFileSync('bun', [BIN, 'write', '--version', '0.1.26.0'], { cwd: d }).toString());
+    expect(out.wrote).toBe('0.1.26.0');
+    expect(out.packageJsonVersion).toBe('0.1.26');
+    expect(out.lockfile).toBe('web/package-lock.json');
+    expect(fs.readFileSync(path.join(d, 'VERSION'), 'utf-8').trim()).toBe('0.1.26.0');
+    expect(JSON.parse(fs.readFileSync(path.join(d, 'web', 'package.json'), 'utf-8')).version).toBe('0.1.26');
+    const lock = JSON.parse(fs.readFileSync(path.join(d, 'web', 'package-lock.json'), 'utf-8'));
+    expect(lock.version).toBe('0.1.26');
+    expect(lock.packages[''].version).toBe('0.1.26');
+    expect(lock.packages['node_modules/x'].version).toBe('1.0.0'); // deps untouched
+    fs.rmSync(d, { recursive: true, force: true });
+  });
+
+  test('a correctly-synced 3-component manifest is NOT read as drift', () => {
+    // Without the truncation-aware comparison, 0.1.25 vs 0.1.25.0 reads as
+    // DRIFT forever and every classify returns a false positive.
+    const d = mk('0.1.25', '0.1.25');
+    expect(classifyState('0.1.25.0', '0.1.24.0', true, '0.1.25', '0.1.25')).toBe('ALREADY_BUMPED');
+    fs.rmSync(d, { recursive: true, force: true });
+  });
+
+  test('repair syncs manifest + lockfile to the 3-component form', () => {
+    const d = mk('0.1.19', '0.1.19');
+    const out = JSON.parse(execFileSync('bun', [BIN, 'repair'], { cwd: d }).toString());
+    expect(out.repaired).toBe('0.1.25.0');
+    expect(out.packageJsonVersion).toBe('0.1.25');
+    expect(JSON.parse(fs.readFileSync(path.join(d, 'web', 'package.json'), 'utf-8')).version).toBe('0.1.25');
+    const lock = JSON.parse(fs.readFileSync(path.join(d, 'web', 'package-lock.json'), 'utf-8'));
+    expect(lock.version).toBe('0.1.25');
+    expect(lock.packages[''].version).toBe('0.1.25');
+    fs.rmSync(d, { recursive: true, force: true });
+  });
+
+  test('no lockfile keeps the historical 4-digit mirror (gstack itself)', () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'vbump-nolock-'));
+    fs.writeFileSync(path.join(d, 'VERSION'), '1.60.0.0\n');
+    fs.writeFileSync(path.join(d, 'package.json'), JSON.stringify({ version: '1.60.0.0' }, null, 2) + '\n');
+    const out = JSON.parse(execFileSync('bun', [BIN, 'write', '--version', '1.60.1.0'], { cwd: d }).toString());
+    expect(out.packageJsonVersion).toBe('1.60.1.0');
+    expect(out.lockfile).toBeNull();
+    expect(JSON.parse(fs.readFileSync(path.join(d, 'package.json'), 'utf-8')).version).toBe('1.60.1.0');
+    fs.rmSync(d, { recursive: true, force: true });
   });
 });

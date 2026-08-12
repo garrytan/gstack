@@ -187,7 +187,7 @@ stay agent judgment; the slot pick stays `gstack-next-version`.
    ```bash
    bun run ~/.claude/skills/gstack/bin/gstack-version-bump write --version "$NEW_VERSION"
    ```
-   The CLI validates the 4-digit `MAJOR.MINOR.PATCH.MICRO` pattern and writes **both** VERSION and package.json. On a half-write (VERSION written, package.json failed) it exits 3 — re-run, and classify will report DRIFT_STALE_PKG for `repair` to fix.
+   The CLI validates the 4-digit `MAJOR.MINOR.PATCH.MICRO` pattern and writes VERSION, the manifest, and the manifest's `package-lock.json` when one exists. The manifest is resolved as `--package-json-path` → `.gstack/package-json-path` → `./package.json`, so a repo whose only Node package lives in a subdirectory (`web/`, `app/`) is covered by a one-line pin instead of silently getting a VERSION-only bump. npm rejects 4-component versions, so when a lockfile proves npm manages the manifest the MICRO is dropped there (`0.1.26.0` → `0.1.26`) and both of the lockfile's version fields are mirrored. On a half-write it exits 3 — re-run, and classify will report DRIFT_STALE_PKG for `repair` to fix.
 
 5. **Record the release decision** (durable cross-session memory). The bump level is a real decision the next session should not re-derive blind:
    ```bash

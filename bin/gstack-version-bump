@@ -30,13 +30,28 @@
 //       DRIFT_STALE_PKG path: sync package.json.version to the current VERSION
 //       file. No bump. Validates the VERSION pattern first.
 //
-// Contract: classify NEVER writes. write/repair mutate VERSION + package.json
-// only. No git mutation, no network. Mirrors gstack-next-version's reader/writer
-// split so /ship composes them.
+// Contract: classify NEVER writes. write/repair mutate VERSION + the manifest
+// (+ its lockfile) only. No git mutation, no network. Mirrors
+// gstack-next-version's reader/writer split so /ship composes them.
+//
+// Manifest resolution (all three subcommands accept --package-json-path):
+//   --package-json-path <p>  →  .gstack/package-json-path  →  ./package.json
+// A repo whose only Node package lives in a subdirectory (web/, app/,
+// frontend/) has no ROOT package.json. The tool used to report
+// pkgExists:false there and write VERSION alone, leaving the manifest to be
+// bumped by hand — the drift this tool exists to prevent, in the one layout
+// where it silently did nothing.
+//
+// npm semver: VERSION is 4-digit MAJOR.MINOR.PATCH.MICRO; npm rejects a
+// fourth component. When a package-lock.json sits beside the manifest — proof
+// npm actually manages it — the MICRO is dropped and the lockfile's two
+// version fields are mirrored too. Without a lockfile nothing validates the
+// field and the historical 1:1 mirror is preserved, so gstack's own
+// package.json keeps carrying 1.60.1.0.
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { join } from "node:path";
+import { dirname, join, relative } from "node:path";
 
 const VERSION_RE = /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/;
 const DEFAULT = "0.0.0.0";
@@ -73,9 +88,48 @@ function readVersionFile(p: string): string {
   }
 }
 
+/**
+ * Resolve the package.json path: --package-json-path, else
+ * .gstack/package-json-path, else "package.json".
+ *
+ * Mirrors resolveVersionPath. A repo whose only Node package lives in a
+ * subdirectory (web/, app/, frontend/) has no ROOT package.json, so the
+ * old join(cwd, "package.json") reported pkgExists:false and every bump
+ * silently wrote VERSION alone — leaving the manifest to be edited by
+ * hand, which is exactly the drift this tool exists to prevent.
+ */
+function resolvePkgPath(cwd: string, explicit?: string): string {
+  if (explicit) return join(cwd, explicit);
+  const pin = join(cwd, ".gstack", "package-json-path");
+  if (existsSync(pin)) {
+    const p = readFileSync(pin, "utf-8").trim();
+    if (p) return join(cwd, p);
+  }
+  return join(cwd, "package.json");
+}
+
+/** The npm lockfile beside a manifest, or "" when there is none. */
+function lockPathFor(pkgPath: string): string {
+  const lock = join(dirname(pkgPath), "package-lock.json");
+  return existsSync(lock) ? lock : "";
+}
+
+/**
+ * The version string to write INTO a manifest.
+ *
+ * VERSION is 4-digit MAJOR.MINOR.PATCH.MICRO; npm's semver is 3-component
+ * and rejects a fourth. A package-lock.json beside the manifest is proof
+ * that npm actually manages it, so the MICRO is dropped there. Without a
+ * lockfile nothing validates the field and the historical 1:1 mirror is
+ * preserved — gstack's own package.json carries 1.60.1.0 and must keep
+ * doing so.
+ */
+function manifestVersion(version: string, npmManaged: boolean): string {
+  return npmManaged ? version.split(".").slice(0, 3).join(".") : version;
+}
+
 /** package.json version + existence, parsed without spawning node. */
-function readPkgVersion(cwd: string): { exists: boolean; version: string } {
-  const pkgPath = join(cwd, "package.json");
+function readPkgVersion(pkgPath: string): { exists: boolean; version: string } {
   if (!existsSync(pkgPath)) return { exists: false, version: "" };
   let raw: string;
   try {
@@ -87,18 +141,34 @@ function readPkgVersion(cwd: string): { exists: boolean; version: string } {
   try {
     parsed = JSON.parse(raw);
   } catch {
-    fail("package.json is not valid JSON. Fix the file before re-running /ship.", 2);
+    fail(`${pkgPath} is not valid JSON. Fix the file before re-running /ship.`, 2);
   }
   const version = (parsed as { version?: unknown })?.version;
   return { exists: true, version: typeof version === "string" ? version : "" };
 }
 
-function writePkgVersion(cwd: string, version: string): void {
-  const pkgPath = join(cwd, "package.json");
+function writePkgVersion(pkgPath: string, version: string): void {
   const raw = readFileSync(pkgPath, "utf-8");
   const parsed = JSON.parse(raw) as Record<string, unknown>;
   parsed.version = version;
   writeFileSync(pkgPath, JSON.stringify(parsed, null, 2) + "\n");
+}
+
+/**
+ * Mirror the manifest version into package-lock.json.
+ *
+ * npm records it twice — at the document root and again under
+ * `packages[""]`, the entry describing the root package itself — and
+ * `npm install` keeps both in step. Nothing else in a release does, so a
+ * lockfile left behind drifts one field per bump until someone runs npm.
+ * Pure JSON edit: no npm spawn, no dependency-tree churn.
+ */
+function writeLockVersion(lockPath: string, version: string): void {
+  const parsed = JSON.parse(readFileSync(lockPath, "utf-8")) as Record<string, unknown>;
+  parsed.version = version;
+  const packages = parsed.packages as Record<string, { version?: string }> | undefined;
+  if (packages && packages[""]) packages[""].version = version;
+  writeFileSync(lockPath, JSON.stringify(parsed, null, 2) + "\n");
 }
 
 function baseVersion(cwd: string, base: string, versionRel: string): string {
@@ -118,15 +188,28 @@ function baseVersion(cwd: string, base: string, versionRel: string): string {
   }
 }
 
-function classifyState(current: string, base: string, pkgExists: boolean, pkgVersion: string): State {
+/**
+ * `expectedPkg` is what the manifest SHOULD hold for the current VERSION.
+ * It defaults to VERSION itself (the historical 1:1 mirror), but for an
+ * npm-managed manifest it is the 3-component truncation — otherwise a
+ * correctly-synced `0.1.27` would be read as drift against `0.1.27.0`
+ * forever, and every classify would return DRIFT.
+ */
+function classifyState(
+  current: string,
+  base: string,
+  pkgExists: boolean,
+  pkgVersion: string,
+  expectedPkg: string = current,
+): State {
   if (current === base) {
     // VERSION unchanged vs base. A diverging package.json means someone hand-edited
     // package.json bypassing /ship — unsafe to guess which is authoritative.
-    if (pkgExists && pkgVersion && pkgVersion !== current) return "DRIFT_UNEXPECTED";
+    if (pkgExists && pkgVersion && pkgVersion !== expectedPkg) return "DRIFT_UNEXPECTED";
     return "FRESH";
   }
   // VERSION already moved past base.
-  if (pkgExists && pkgVersion && pkgVersion !== current) return "DRIFT_STALE_PKG";
+  if (pkgExists && pkgVersion && pkgVersion !== expectedPkg) return "DRIFT_STALE_PKG";
   return "ALREADY_BUMPED";
 }
 
@@ -137,8 +220,11 @@ function cmdClassify(args: string[], cwd: string): void {
   const versionRel = argVal(args, "--version-path") ?? "VERSION";
   const current = readVersionFile(versionPath);
   const baseV = baseVersion(cwd, base!, versionRel);
-  const pkg = readPkgVersion(cwd);
-  const state = classifyState(current, baseV, pkg.exists, pkg.version);
+  const pkgPath = resolvePkgPath(cwd, argVal(args, "--package-json-path"));
+  const pkg = readPkgVersion(pkgPath);
+  const lockPath = pkg.exists ? lockPathFor(pkgPath) : "";
+  const expectedPkg = manifestVersion(current, Boolean(lockPath));
+  const state = classifyState(current, baseV, pkg.exists, pkg.version, expectedPkg);
   process.stdout.write(
     JSON.stringify({
       state,
@@ -146,6 +232,9 @@ function cmdClassify(args: string[], cwd: string): void {
       currentVersion: current,
       pkgVersion: pkg.version || null,
       pkgExists: pkg.exists,
+      pkgPath: pkg.exists ? relative(cwd, pkgPath) : null,
+      expectedPkgVersion: pkg.exists ? expectedPkg : null,
+      lockfile: lockPath ? relative(cwd, lockPath) : null,
     }) + "\n",
   );
   // DRIFT_UNEXPECTED is a real, decidable state — the caller stops on it, but the
@@ -160,19 +249,42 @@ function cmdWrite(args: string[], cwd: string): void {
     fail(`NEW_VERSION (${version}) does not match MAJOR.MINOR.PATCH.MICRO. Aborting.`, 2);
   }
   const versionPath = resolveVersionPath(cwd, argVal(args, "--version-path"));
+  const pkgPath = resolvePkgPath(cwd, argVal(args, "--package-json-path"));
+  const hasPkg = existsSync(pkgPath);
+  const lockPath = hasPkg ? lockPathFor(pkgPath) : "";
   writeFileSync(versionPath, version + "\n");
-  if (existsSync(join(cwd, "package.json"))) {
+  if (hasPkg) {
+    const manifestV = manifestVersion(version!, Boolean(lockPath));
     try {
-      writePkgVersion(cwd, version!);
+      writePkgVersion(pkgPath, manifestV);
     } catch {
       fail(
-        "failed to update package.json. VERSION was written but package.json is now stale. " +
+        `failed to update ${relative(cwd, pkgPath)}. VERSION was written but the manifest is now stale. ` +
           "Re-run — classify will report DRIFT_STALE_PKG and repair will sync it.",
         3,
       );
     }
+    if (lockPath) {
+      try {
+        writeLockVersion(lockPath, manifestV);
+      } catch {
+        fail(
+          `failed to update ${relative(cwd, lockPath)}. VERSION and the manifest were written but ` +
+            "the lockfile is now stale. Run `npm install --package-lock-only` in its directory.",
+          3,
+        );
+      }
+    }
   }
-  process.stdout.write(JSON.stringify({ wrote: version, packageJson: existsSync(join(cwd, "package.json")) }) + "\n");
+  process.stdout.write(
+    JSON.stringify({
+      wrote: version,
+      packageJson: hasPkg,
+      packageJsonPath: hasPkg ? relative(cwd, pkgPath) : null,
+      packageJsonVersion: hasPkg ? manifestVersion(version!, Boolean(lockPath)) : null,
+      lockfile: lockPath ? relative(cwd, lockPath) : null,
+    }) + "\n",
+  );
 }
 
 function cmdRepair(args: string[], cwd: string): void {
@@ -185,15 +297,32 @@ function cmdRepair(args: string[], cwd: string): void {
       2,
     );
   }
-  if (!existsSync(join(cwd, "package.json"))) {
-    fail("repair: no package.json to sync.", 2);
+  const pkgPath = resolvePkgPath(cwd, argVal(args, "--package-json-path"));
+  if (!existsSync(pkgPath)) {
+    fail(`repair: no package.json to sync (looked at ${relative(cwd, pkgPath)}).`, 2);
   }
+  const lockPath = lockPathFor(pkgPath);
+  const manifestV = manifestVersion(current, Boolean(lockPath));
   try {
-    writePkgVersion(cwd, current);
+    writePkgVersion(pkgPath, manifestV);
   } catch {
-    fail("drift repair failed — could not update package.json.", 3);
+    fail(`drift repair failed — could not update ${relative(cwd, pkgPath)}.`, 3);
   }
-  process.stdout.write(JSON.stringify({ repaired: current }) + "\n");
+  if (lockPath) {
+    try {
+      writeLockVersion(lockPath, manifestV);
+    } catch {
+      fail(`drift repair failed — could not update ${relative(cwd, lockPath)}.`, 3);
+    }
+  }
+  process.stdout.write(
+    JSON.stringify({
+      repaired: current,
+      packageJsonPath: relative(cwd, pkgPath),
+      packageJsonVersion: manifestV,
+      lockfile: lockPath ? relative(cwd, lockPath) : null,
+    }) + "\n",
+  );
 }
 
 // Exported for unit tests (pure logic, no I/O).
