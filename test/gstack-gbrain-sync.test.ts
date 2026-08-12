@@ -16,7 +16,14 @@ import { spawnSync } from "child_process";
 import {
   derivePathOnlyHashLegacyId,
   planHostnameFoldMigration,
+  parseReindexCodeTerminalOutput,
+  parseRepositorySyncTerminalOutput,
+  repositorySyncArgs,
+  repositorySyncEnv,
+  runGbrainStreamingCapture,
   sourceLocalPath,
+  streamingGbrainSucceeded,
+  terminateGbrainProcessTree,
   _resetGbrainSupportsRenameCache,
 } from "../bin/gstack-gbrain-sync";
 
@@ -62,17 +69,120 @@ describe("gstack-gbrain-sync CLI", () => {
     expect(source).toContain("localEngineStatus");
   });
 
-  it("--dry-run with --code-only reports the code import preview only", () => {
+  it("builds one docs-aware repository sync command for preview and execution", () => {
+    expect(repositorySyncArgs("gstack-code-example")).toEqual([
+      "sync",
+      "--strategy",
+      "auto",
+      "--source",
+      "gstack-code-example",
+    ]);
+  });
+
+  it("bounds repository auto-sync to source-safe Markdown and code", () => {
+    const base = { GBRAIN_EMBEDDING_MULTIMODAL: "true", KEEP_ME: "yes" };
+    const bounded = repositorySyncEnv(base);
+
+    expect(bounded.GBRAIN_EMBEDDING_MULTIMODAL).toBe("false");
+    expect(bounded.KEEP_ME).toBe("yes");
+    expect(base.GBRAIN_EMBEDDING_MULTIMODAL).toBe("true");
+  });
+
+  it("classifies GBrain's zero-exit sync terminal statuses fail closed", () => {
+    expect(parseRepositorySyncTerminalOutput("Already up to date.\n")).toBe("up_to_date");
+    expect(parseRepositorySyncTerminalOutput("Synced 12345678..abcdef01:\n")).toBe("synced");
+    expect(parseRepositorySyncTerminalOutput("First sync complete. Checkpoint: abcdef01\n")).toBe("first_sync");
+    expect(parseRepositorySyncTerminalOutput("Sync BLOCKED at abcdef01: 1 file failed.\n")).toBe("blocked_by_failures");
+    expect(parseRepositorySyncTerminalOutput("Sync PARTIAL at abcdef01: reason=timeout.\n")).toBe("partial");
+    expect(parseRepositorySyncTerminalOutput("Future success wording\n")).toBe("unknown");
+  });
+
+  it("uses the final reindex-code JSON result after any preceding progress envelope", () => {
+    expect(
+      parseReindexCodeTerminalOutput(
+        '{"status":"proceeding"}\n{"status":"ok","failed":0,"failures":[]}\n',
+      ),
+    ).toEqual({ status: "ok", failed: 0, failures: [] });
+    expect(parseReindexCodeTerminalOutput("not json\n")).toBeNull();
+  });
+
+  it("rejects a timed-out child even when its SIGTERM trap exits zero", async () => {
+    if (process.platform === "win32") return;
+    const bindir = mkdtempSync(join(tmpdir(), "gstack-gbrain-timeout-bin-"));
+    const fakeGbrain = join(bindir, "gbrain");
+    writeFileSync(
+      fakeGbrain,
+      '#!/usr/bin/env node\nprocess.on("SIGTERM", () => process.exit(0));\nsetInterval(() => {}, 1_000);\n',
+    );
+    chmodSync(fakeGbrain, 0o755);
+
+    try {
+      const result = await runGbrainStreamingCapture(["sync"], {
+        timeout: 1_000,
+        baseEnv: { ...process.env, PATH: `${bindir}:${process.env.PATH || ""}` },
+        quiet: true,
+      });
+
+      expect(result.timedOut).toBe(true);
+      expect(result.status).toBe(0);
+      expect(streamingGbrainSucceeded(result)).toBe(false);
+    } finally {
+      rmSync(bindir, { recursive: true, force: true });
+    }
+  });
+
+  it("terminates the full Windows shell tree with taskkill", () => {
+    const calls: string[][] = [];
+    let fallbackKillCalled = false;
+    const killed = terminateGbrainProcessTree(
+      {
+        pid: 4242,
+        kill: () => {
+          fallbackKillCalled = true;
+          return true;
+        },
+      },
+      {
+        platform: "win32",
+        taskkill: (args) => {
+          calls.push(args);
+          return 0;
+        },
+      },
+    );
+
+    expect(killed).toBe(true);
+    expect(calls).toEqual([["/PID", "4242", "/T", "/F"]]);
+    expect(fallbackKillCalled).toBe(false);
+  });
+
+  it("falls back to direct termination when Windows taskkill fails", () => {
+    let fallbackSignal: NodeJS.Signals | number | undefined;
+    const killed = terminateGbrainProcessTree(
+      {
+        pid: 4242,
+        kill: (signal) => {
+          fallbackSignal = signal;
+          return true;
+        },
+      },
+      { platform: "win32", taskkill: () => 1 },
+    );
+
+    expect(killed).toBe(true);
+    expect(fallbackSignal).toBe("SIGTERM");
+  });
+
+  it("--dry-run with --code-only reports the repository sync preview only", () => {
     const home = makeTestHome();
     const gstackHome = join(home, ".gstack");
     mkdirSync(gstackHome, { recursive: true });
 
     const r = runScript(["--dry-run", "--code-only", "--quiet"], { HOME: home, GSTACK_HOME: gstackHome });
     expect(r.exitCode).toBe(0);
-    // Code stage now uses native code surface: sources add + sync --strategy code
-    // (NOT gbrain import — that's the markdown-only path that was rejected post-codex).
+    // The legacy --code-only name now drives the docs-aware repository walk.
     expect(r.stdout).toContain("would: gbrain sources add");
-    expect(r.stdout).toContain("gbrain sync --strategy code");
+    expect(r.stdout).toContain("gbrain sync --strategy auto");
     expect(r.stdout).not.toContain("gbrain import");
     // memory + brain-sync stages should not appear
     expect(r.stdout).not.toContain("gstack-memory-ingest --probe");
@@ -88,7 +198,7 @@ describe("gstack-gbrain-sync CLI", () => {
     const r = runScript(["--dry-run"], { HOME: home, GSTACK_HOME: gstackHome });
     expect(r.exitCode).toBe(0);
     expect(r.stdout).toContain("would: gbrain sources add");
-    expect(r.stdout).toContain("gbrain sync --strategy code");
+    expect(r.stdout).toContain("gbrain sync --strategy auto");
     expect(r.stdout).toContain("would: gstack-memory-ingest");
     expect(r.stdout).toContain("would: gstack-brain-sync");
     rmSync(home, { recursive: true, force: true });
@@ -118,7 +228,7 @@ describe("gstack-gbrain-sync CLI", () => {
     const r = runScript(["--dry-run", "--code-only", "--quiet"], { HOME: home, GSTACK_HOME: gstackHome });
     expect(r.exitCode).toBe(0);
     expect(r.stdout).toMatch(/gbrain sources add gstack-code-[a-z0-9-]+/);
-    expect(r.stdout).toMatch(/gbrain sync --strategy code --source gstack-code-[a-z0-9-]+/);
+    expect(r.stdout).toMatch(/gbrain sync --strategy auto --source gstack-code-[a-z0-9-]+/);
     rmSync(home, { recursive: true, force: true });
   });
 
@@ -243,7 +353,7 @@ describe("gstack-gbrain-sync CLI", () => {
     spawnSync("git", ["init", "--quiet", "-b", "main"], { cwd: repo });
     spawnSync("git", ["remote", "add", "origin", "https://github.com/example/multihost.git"], { cwd: repo });
 
-    // Dry-run still gates the code stage on `command -v gbrain`. Drop a no-op
+    // Dry-run still requires a discoverable gbrain CLI. Drop a no-op
     // shim on PATH so the stage runs (we only assert the preview line, never
     // invoke gbrain itself).
     const bindir = mkdtempSync(join(tmpdir(), "gstack-host-collide-bin-"));
@@ -513,7 +623,7 @@ describe("gstack-gbrain-sync CLI", () => {
     // without a real gbrain CLI). Instead, assert the preview still includes
     // the new flow (sources add + sync + attach) at minimum.
     expect(r.stdout).toMatch(/gbrain sources add gstack-code-/);
-    expect(r.stdout).toMatch(/gbrain sync --strategy code --source gstack-code-/);
+    expect(r.stdout).toMatch(/gbrain sync --strategy auto --source gstack-code-/);
     expect(r.stdout).toMatch(/gbrain sources attach gstack-code-/);
 
     rmSync(repo, { recursive: true, force: true });
