@@ -1,0 +1,160 @@
+---
+name: handoff
+preamble-tier: 2
+version: 1.0.0
+description: |
+  Hand a task off to another agentic harness, or claim one that was handed off.
+  Emits one canonical [handoff] block into three sinks (Plane comment, context-save
+  Notes, gbrain page) so any harness — Claude Code, Codex, Hermes, Antigravity — can
+  resume without re-ingesting a transcript. Token-optimized: pointer-based handoff,
+  not context dump. Use when asked to "hand off", "release this task", "claim a
+  handoff", or "pick up a handed-off task".
+  (gstack)
+allowed-tools:
+  - Bash
+  - Read
+  - Write
+  - Glob
+  - Grep
+  - AskUserQuestion
+triggers:
+  - hand off
+  - handoff
+  - release this task
+  - claim a handoff
+  - pick up a handed-off task
+---
+
+{{PREAMBLE}}
+
+# /handoff — Multiplayer Task Handoff
+
+You are a **Staff Engineer running a relay team of AI agents**. Your job is to make
+a task portable: package what's done, what's next, and what failed so a different
+harness picks it up cold without re-deriving anything. The durable spec lives in
+gbrain as `multiplayer-handoff-protocol` — recall it if unsure:
+`gbrain recall "multiplayer handoff protocol"`.
+
+**HARD GATE:** Do NOT implement code changes. This skill packages and moves state only.
+
+---
+
+## Detect command
+
+Parse the user's input:
+
+- `/handoff` or `/handoff <PLANE-ID>` → **Release** (package current work, hand it off)
+- `/handoff claim` or `/handoff take <PLANE-ID>` → **Claim** (pick up a handed-off task)
+- `/handoff list` → show AGT items in state `Ready for Handoff`
+
+The join key is always a Plane work-item id (e.g. `AGT-42`), NOT the git branch.
+If Release mode has no Plane id and you cannot infer one from context, ask for it
+once via AskUserQuestion — a handoff without a task id cannot be claimed later.
+
+---
+
+## Release flow
+
+### Step 1: Gather state
+
+```bash
+{{SLUG_SETUP}}
+echo "=== REPO ==="; basename "$(git rev-parse --show-toplevel 2>/dev/null || echo unknown)"
+echo "=== BRANCH ==="; git branch --show-current 2>/dev/null || echo unknown
+echo "=== COMMIT ==="; git rev-parse --short HEAD 2>/dev/null || echo none
+echo "=== STATUS ==="; git status --short 2>/dev/null
+```
+
+### Step 2: Emit the canonical block
+
+Run the shared emitter to get a git-filled skeleton, then fill every field from
+conversation context:
+
+```bash
+~/.gstack/handoff/emit.sh <PLANE-ID> <by-label>
+```
+
+`<by-label>` identifies the releasing harness (e.g. `claude-code@host`, `codex`,
+`hermes`, `antigravity`). Fill the fields:
+
+- `goal` — one line, what this task is.
+- `done` — verified working, with evidence (test name, observed behavior).
+- `next` — concrete next steps in priority order.
+- `worked` — approaches that succeeded.
+- `failed` — **MANDATORY.** What was tried and did NOT work. This is the field that
+  stops the next agent burning tokens re-deriving a dead end. Never leave it empty;
+  write "none yet" only if genuinely nothing was ruled out.
+- `refs` — **pointers only**: `gbrain:<slug>`, `PR#`, `path/file.ts:line`. Never
+  paste research or diffs inline. Cap the whole block near 400 tokens; overflow goes
+  to a gbrain page linked from `refs`.
+
+### Step 3: Write to all three sinks (identical bytes)
+
+1. **Plane comment** (live coordination) — post the filled block as a comment on the
+   work item via the plane MCP (`create_work_item_comment`).
+2. **context-save Notes** (local + synced) — invoke `/context-save` and place the
+   block verbatim in the `### Notes` section so it lands in synced checkpoints.
+3. **gbrain page** (only if the task produced durable research/learnings) — write or
+   update a page whose slug you referenced in `refs`. Skip if there's nothing durable.
+
+### Step 4: Release the task
+
+Move the Plane work item to state **`Ready for Handoff`** and clear the assignee.
+That released state is the signal any harness scans for. Confirm:
+
+```
+HANDED OFF
+════════════════════════════════════════
+Task:    {PLANE-ID} → Ready for Handoff
+By:      {by-label}
+Sinks:   Plane comment ✓   context-save ✓   gbrain {✓ or skipped}
+Failed:  {one-line echo of the failed field}
+════════════════════════════════════════
+
+Any harness can now claim it with /handoff take {PLANE-ID}.
+```
+
+---
+
+## Claim flow
+
+### Step 1: Find the task
+
+- `/handoff take <PLANE-ID>` → that work item.
+- `/handoff claim` with no id → list AGT items in `Ready for Handoff`, pick the top
+  one (or ask which via AskUserQuestion if several).
+
+### Step 2: Read ONLY the handoff artifact
+
+Read the **latest `[handoff]` comment** on the work item via the plane MCP
+(`list_work_item_comments`). Do NOT pull the full history or a transcript. Then, for
+anything in `refs:`, fire **1-2 targeted** `gbrain query`/`gbrain search` calls — only
+what you need to start. This pointer-based read is the whole token-optimization point:
+~3-4K tokens instead of 50K+ re-ingesting a session.
+
+### Step 3: Claim it (collision guard)
+
+Set the work item's **assignee = the current harness/user** and move state to
+**`In Progress`**. The atomic Plane state change is what prevents two harnesses
+grabbing the same task. If the item is already `In Progress` with a different
+assignee, STOP and tell the user — someone else claimed it.
+
+### Step 4: Brief and start
+
+Present a 3-line brief: goal, the top `next` item, and the `failed` list (so you don't
+repeat it). Then start on the first `next` item.
+
+---
+
+## Important Rules
+
+- **Never gate a claim on gbrain.** Claims go through Plane (atomic, live). gbrain is
+  minutes-behind and read-only here.
+- **Join key is the Plane id**, never the git branch. A branchless or cross-machine
+  handoff still resolves by task id.
+- **`refs` are pointers, `failed` is mandatory.** These two rules are what keep the
+  block cheap to pass and expensive dead ends from being repeated.
+- **Everything synced is append-only** (Plane comments, checkpoints). Live mutable
+  state — claim, release, status — lives only in Plane.
+- **This is a gstack skill, not a Claude Code built-in.** When the user types
+  `/handoff`, invoke this skill via the Skill tool.
