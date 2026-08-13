@@ -1416,7 +1416,20 @@ function runGbrainImport(
     // inside Next.js / Prisma / Rails projects with their own
     // .env.local (codex review #7 — defense in depth on top of the
     // parent gstack-gbrain-sync seeding the bun grandchild's env).
-    const child = spawnGbrainAsync(["import", stagingDir, "--no-embed", "--json"]);
+    // --include-gitignored is load-bearing, not a convenience. Pages are
+    // staged into ~/.gstack/.staging-ingest-<pid>-<ts>/, and ~/.gstack is a
+    // git repo whose .gitignore is `*`. `gbrain import` honours .gitignore,
+    // so without this flag it collects files=0 and imports NOTHING, while
+    // still reporting `written: N` from the staged count. Silent data loss
+    // on every run. A working run logs `import.collect_files done ... files=N`
+    // with N > 0 and takes minutes, not seconds.
+    const child = spawnGbrainAsync([
+      "import",
+      stagingDir,
+      "--no-embed",
+      "--include-gitignored",
+      "--json",
+    ]);
     _activeImportChild = child;
     let stdout = "";
     let stderr = "";
