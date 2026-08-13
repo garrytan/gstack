@@ -33,43 +33,35 @@ function getBaseUrl() {
 // ─── Auth Token Bootstrap ─────────────────────────────────────
 
 async function loadAuthToken() {
-  if (authToken) return;
-  // Get token from browse server /health endpoint (localhost-only, safe).
-  // Previously read from .auth.json in extension dir, but that breaks
-  // read-only .app bundles and codesigning.
-  const base = getBaseUrl();
-  if (!base) return;
   try {
-    const resp = await fetch(`${base}/health`, { signal: AbortSignal.timeout(3000) });
-    if (resp.ok) {
-      const data = await resp.json();
-      if (data.token) authToken = data.token;
-    }
+    const data = await chrome.storage.local.get(['gstackAuthToken', 'port']);
+    if (data.gstackAuthToken) authToken = data.gstackAuthToken;
+    if (data.port) serverPort = data.port;
   } catch (err) {
-    console.error('[gstack bg] Failed to load auth token:', err.message);
+    console.error('[gstack bg] Failed to load auth token from extension storage:', err.message);
   }
 }
 
 // ─── Health Polling ────────────────────────────────────────────
 
 async function checkHealth() {
+  // BrowserManager can provision a fresh token/port after this service worker
+  // starts. Refresh storage before choosing the base URL so we do not keep an
+  // old token or the historical 34567 fallback forever.
+  await loadAuthToken();
   const base = getBaseUrl();
   if (!base) {
     setDisconnected();
     return;
   }
 
-  // Retry loading auth token if we don't have one yet
-  if (!authToken) await loadAuthToken();
-
   try {
     const resp = await fetch(`${base}/health`, { signal: AbortSignal.timeout(3000) });
     if (!resp.ok) { setDisconnected(); return; }
     const data = await resp.json();
     if (data.status === 'healthy') {
-      // Always refresh auth token from /health — the server generates a new
-      // token on each restart, so the old one becomes stale.
-      if (data.token) authToken = data.token;
+      // Health is status-only. Auth is provisioned out-of-band into
+      // chrome.storage by BrowserManager so /health never leaks root auth.
       // Forward chatEnabled so sidepanel can show/hide chat tab
       setConnected({ ...data, chatEnabled: !!data.chatEnabled });
     } else {

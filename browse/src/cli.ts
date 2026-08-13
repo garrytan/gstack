@@ -97,6 +97,7 @@ interface ServerState {
   serverPath: string;
   binaryVersion?: string;
   mode?: 'launched' | 'headed';
+  extensionId?: string;
   /** Hash of (proxyUrl + headed flag), used by D2 daemon-mismatch check. */
   configHash?: string;
   /** Xvfb child PID for cleanup on disconnect. */
@@ -1131,6 +1132,9 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
           stateFile: config.stateFile,
           serverPort: newState.port,
           cwd: config.projectDir,
+          extraEnv: {
+            BROWSE_EXTENSION_ID: newState.extensionId || '__gstack_extension_id_unavailable__',
+          },
         });
         if (newPid) {
           console.log(`[browse] Terminal agent started (PID: ${newPid})`);
@@ -1223,6 +1227,9 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
             stateFile: config.stateFile,
             serverPort: respawned.port,
             cwd: config.projectDir,
+            extraEnv: {
+              BROWSE_EXTENSION_ID: respawned.extensionId || '__gstack_extension_id_unavailable__',
+            },
           });
         } catch (err: any) {
           console.warn(`[browse] Supervisor: terminal-agent respawn failed: ${err?.message || err}`);

@@ -59,6 +59,7 @@ beforeAll(() => {
       ...process.env,
       BROWSE_STATE_FILE: stateFile,
       BROWSE_SERVER_PORT: '0', // not used in this test
+      BROWSE_EXTENSION_ID: 'test-extension-id',
       BROWSE_TERMINAL_BINARY: BASH,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -116,10 +117,25 @@ describe('terminal-agent: /ws gates', () => {
     expect(resp.status).toBe(403);
   });
 
+  test('rejects upgrades from a different extension id even with a granted cookie', async () => {
+    const cookie = 'wrong-extension-token-very-long-yes';
+    const granted = await grantToken(cookie);
+    expect(granted.status).toBe(200);
+
+    const resp = await fetch(`http://127.0.0.1:${agentPort}/ws`, {
+      headers: {
+        'Origin': 'chrome-extension://attacker-extension-id',
+        'Cookie': `gstack_pty=${cookie}`,
+      },
+    });
+    expect(resp.status).toBe(403);
+    expect(await resp.text()).toBe('forbidden origin');
+  });
+
   test('rejects extension-Origin upgrades without a granted cookie', async () => {
     const resp = await fetch(`http://127.0.0.1:${agentPort}/ws`, {
       headers: {
-        'Origin': 'chrome-extension://abc123',
+        'Origin': 'chrome-extension://test-extension-id',
         'Cookie': 'gstack_pty=never-granted',
       },
     });
