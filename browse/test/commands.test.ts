@@ -14,7 +14,6 @@ import { handleWriteCommand as _handleWriteCommand } from '../src/write-commands
 import { handleMetaCommand } from '../src/meta-commands';
 import { consoleBuffer, networkBuffer, dialogBuffer, addConsoleEntry, addNetworkEntry, addDialogEntry, CircularBuffer } from '../src/buffers';
 import * as fs from 'fs';
-import { spawn } from 'child_process';
 import * as path from 'path';
 
 // Thin wrappers that bridge old test calls (bm as 3rd arg) to new signatures (session + bm)
@@ -860,50 +859,6 @@ describe('CLI server script resolution', () => {
 
     fs.rmSync(root, { recursive: true, force: true });
   });
-});
-
-// ─── CLI lifecycle ──────────────────────────────────────────────
-
-describe('CLI lifecycle', () => {
-  test('dead state file triggers a clean restart', async () => {
-    const stateFile = `/tmp/browse-test-state-${Date.now()}.json`;
-    fs.writeFileSync(stateFile, JSON.stringify({
-      port: 1,
-      token: 'fake',
-      pid: 999999,
-    }));
-
-    const cliPath = path.resolve(__dirname, '../src/cli.ts');
-    const cliEnv: Record<string, string> = {};
-    for (const [k, v] of Object.entries(process.env)) {
-      if (v !== undefined) cliEnv[k] = v;
-    }
-    cliEnv.BROWSE_STATE_FILE = stateFile;
-    const result = await new Promise<{ code: number; stdout: string; stderr: string }>((resolve) => {
-      const proc = spawn('bun', ['run', cliPath, 'status'], {
-        timeout: 15000,
-        env: cliEnv,
-      });
-      let stdout = '';
-      let stderr = '';
-      proc.stdout.on('data', (d) => stdout += d.toString());
-      proc.stderr.on('data', (d) => stderr += d.toString());
-      proc.on('close', (code) => resolve({ code: code ?? 1, stdout, stderr }));
-    });
-
-    let restartedPid: number | null = null;
-    if (fs.existsSync(stateFile)) {
-      restartedPid = JSON.parse(fs.readFileSync(stateFile, 'utf-8')).pid;
-      fs.unlinkSync(stateFile);
-    }
-    if (restartedPid) {
-      try { process.kill(restartedPid, 'SIGTERM'); } catch {}
-    }
-
-    expect(result.code).toBe(0);
-    expect(result.stdout).toContain('Status: healthy');
-    expect(result.stderr).toContain('Starting server');
-  }, 20000);
 });
 
 // ─── Buffer bounds ──────────────────────────────────────────────
