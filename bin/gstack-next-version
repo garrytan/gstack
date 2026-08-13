@@ -435,7 +435,7 @@ function autoDetectExcludePR(): number | null {
 // arithmetic". Local arithmetic cannot see a sibling's claim, so the fallback
 // allocated a version another open PR already held.
 //
-// That is not hypothetical. On 2026-08-12 in killthebody, `gh pr list` failed
+// That is not hypothetical. On 2026-08-12 in a downstream repo, `gh pr list` failed
 // during a ship, this util reported offline, the bump fell back to local
 // arithmetic, and 0.1.57.0 was allocated to a second PR while an open one
 // already claimed it — both merged, and `main` carries two commits reading
