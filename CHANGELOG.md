@@ -1,5 +1,56 @@
 # Changelog
 
+## [1.62.0.0] - 2026-08-12
+
+## **Plan reviews stop asking what to review when you're in plan mode.**
+## **The gate that guards normal sessions now knows when the answer is obvious.**
+
+Invoke /plan-eng-review or /plan-design-review while drafting a plan and the review just starts. No more "What should I review? A/B/C" when the only sensible answer is the plan on your screen. The skill announces its pick in one line ("Scope gate: plan mode — auto-selected B (reviewing your plan)") so you can redirect it, then goes straight to work. Name a target explicitly ("review PLAN.md") and the question is skipped in any mode. Outside plan mode with nothing named, the gate asks exactly as before, and it is still a hard stop.
+
+The bypass is engineered against abuse, not just convenience. Only the host's own plan-mode signal can arm it: plan-shaped text inside pasted documents, tool results, or fetched pages does not count, so injected content can't nominate its own review target. When several plan candidates exist, the host-referenced plan file wins; ambiguity means the skill asks. /autoplan stops surfacing the gate too — its loaded review skills now skip it, since the plan under review is already the target.
+
+### The numbers that matter
+
+Source: this branch's live PTY eval runs on 2026-08-11 (logs in ~/.gstack-dev/eval-runs/) and byte measurements from the generated skill files.
+
+| What | Before | After |
+|------|--------|-------|
+| Questions before a plan-mode review starts | 1 | 0 |
+| Seeded plan-mode smokes (announcement rendered, no gate question) | n/a | 2/2 pass |
+| Outside-plan-mode regression runs (gate still asks, bypass never misfires) | n/a | 4/4 pass |
+| Finding-floor runs with the gate excluded from the count | trivially satisfiable | 2/2 pass, gate renders don't count |
+| Stochastic smokes wrongly blocking the CI gate lane | 4 | 0 |
+
+That last row is a repair: four plan-mode/finding-floor smokes were demoted to the weekly tier months ago, but the demotion never took effect — the test files still gated on the blocking lane. They no longer block the gate lane; they run via `bun run test:periodic` (weekly-cron wiring for PTY tests is tracked in TODOS). A new free invariant test makes the declared-vs-actual tier drift impossible to reintroduce silently.
+
+### What this means for you
+
+The plan → review → ship loop loses its most pointless click. Draft a plan, say "/plan-eng-review", and the review starts against your plan immediately — interruptible, announced, and reversible by just naming a different target. Run /gstack-upgrade to get it.
+
+### Itemized changes
+
+### Added
+- **Plan-mode auto-select in the scope gate** (`plan-eng-review`, `plan-design-review`): in plan mode the review targets the active plan automatically, with a one-line announcement; explicitly named targets win in any mode; a fresh plan-mode session with nothing drafted still asks. The mode signal is host-anchored — pasted or fetched content claiming plan mode does not arm the bypass.
+- **Render-shape PTY detectors** for the scope gate question and the auto-select announcement (`test/helpers/claude-pty-runner.ts`), with narration-negative and verbatim-quote fixtures so paid smokes can assert gate behavior across a whole run instead of a lossy 2KB tail; observation runs can also track arbitrary consumption tokens (`trackTokens`).
+- **Tier-alignment invariant test** (`test/e2e-tier-alignment.test.ts`): every self-gated paid test file named in a touchfiles dep list must match its declared tier; unmapped, mixed-tier, and undeclared-key files are reported instead of silently skipped.
+- **Exceptions drift-guard**: the two hand-duplicated gate templates must stay identical modulo their two variant slots, and must carry the exact announcement and question strings the PTY detectors pin.
+
+### Changed
+- `/autoplan`'s section skip list now includes the scope gate — loaded review skills no longer surface a hard-stop question that autoplan's auto-decide contract would immediately answer.
+- The plan-mode preamble wording no longer implies a skill's first action must be a question ("any AskUserQuestion the skill fires is the workflow operating within plan mode" — a skill may legitimately resolve a question itself).
+- The finding-floor harness no longer counts a scope-gate render toward its question floor (positional anchoring, judge-fallback exclusion) — the floor now genuinely measures finding-driven questions.
+
+### Fixed
+- Four stochastic plan-mode/finding-floor smokes declared `periodic` were still self-gating on the blocking `gate` tier — they no longer run in (or block) the gate lane, and the invariant test above prevents declared-vs-actual tier drift from recurring. Weekly-cron wiring for PTY-driven periodic tests is tracked in TODOS.
+- CI eval containers now register `plan-eng-review` and `plan-design-review` as discoverable skills (registration loops, dangling-target checks, and frontmatter verification all extended) — previously only two skills were registered.
+- The no-op regression suite covers all three plan-review skills outside plan mode, asserts the gate question actually rendered (unconditionally), and proves a pasted named target is consumed via cumulative-buffer token tracking.
+- `/ship`'s credential pre-push guard now installs correctly from git worktrees after consent — the custom-hooks-path detection compared against the worktree's own git dir instead of the shared common dir, so every Conductor worktree read as "custom hooks path" and skipped the install.
+
+### For contributors
+- Skeleton/ratio ceilings ratcheted with attribution comments (plan-eng 68k/1.10, plan-design 89k, investigate 1.10) for the exceptions block + shared preamble reword.
+- `PlanSkillObservation.outcome` now includes `wrote_findings_before_asking` (was returned at runtime but missing from the union); high-water flags are built once and spread at every return path.
+- TODOS.md: filed the `{{SCOPE_GATE}}` shared-resolver extraction as the follow-up to the drift-guarded duplication.
+
 ## [1.61.0.0] - 2026-07-09
 
 ## **Nine guard bugs fixed in one wave.**

@@ -56,6 +56,7 @@ type Output = {
   bump: Bump;
   host: "github" | "gitlab" | "unknown";
   offline: boolean;
+  fallback: "git" | null;
   claimed: ClaimedPR[];
   siblings: Sibling[];
   active_siblings: Sibling[];
@@ -427,6 +428,84 @@ function autoDetectExcludePR(): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+// ── git-only fallback ─────────────────────────────────────────────────────
+//
+// When the host query fails this util used to return `offline:true` with an
+// EMPTY claim set, and /ship's instruction was "fall back to local BUMP_LEVEL
+// arithmetic". Local arithmetic cannot see a sibling's claim, so the fallback
+// allocated a version another open PR already held.
+//
+// That is not hypothetical. On 2026-08-12 in killthebody, `gh pr list` failed
+// during a ship, this util reported offline, the bump fell back to local
+// arithmetic, and 0.1.57.0 was allocated to a second PR while an open one
+// already claimed it — both merged, and `main` carries two commits reading
+// v0.1.57.0. Auditing that repo's history found FOUR such pairs going back
+// three weeks (v0.1.6.0, v0.1.9.0, v0.1.32.0, v0.1.57.0), so the silent
+// fallback had been mis-allocating for a while.
+//
+// Git already knows what the API was asked for. Remote-tracking refs carry
+// each branch's VERSION file, and the base's own history records every version
+// already shipped. Neither needs a token, a network round-trip, or a working
+// `gh`. So "offline" degrades the QUEUE VIEW (no PR numbers, no draft status)
+// without degrading the ALLOCATION.
+function fetchGitClaimed(
+  base: string,
+  versionPath: string,
+  warnings: string[],
+): ClaimedPR[] {
+  const claims: ClaimedPR[] = [];
+
+  // 1. Every remote-tracking branch's VERSION file. These are the open PRs'
+  //    branches, whether or not the API can be reached to enumerate them.
+  const refs = runCommand("git", [
+    "for-each-ref",
+    "--format=%(refname:short)",
+    "refs/remotes",
+  ]);
+  if (refs.ok) {
+    const baseShort = base.replace(/^origin\//, "");
+    for (const ref of refs.stdout.split("\n").map((r) => r.trim()).filter(Boolean)) {
+      if (ref.endsWith("/HEAD")) continue;
+      if (ref === base || ref.replace(/^origin\//, "") === baseShort) continue;
+      const show = runCommand("git", ["show", `${ref}:${versionPath}`]);
+      if (!show.ok) continue;
+      const v = parseVersion(show.stdout);
+      if (!v) continue;
+      claims.push({ pr: 0, branch: ref, version: fmtVersion(v) });
+    }
+  } else {
+    warnings.push("git for-each-ref failed; branch claims unavailable");
+  }
+
+  // 2. Versions already shipped, read from the base's commit subjects. Catches
+  //    the case the VERSION file cannot: a number that merged and was then
+  //    re-picked. Bounded, and it says so rather than implying full history.
+  const SUBJECT_SCAN = 400;
+  const log = runCommand("git", ["log", `-n${SUBJECT_SCAN}`, "--format=%s", base]);
+  if (log.ok) {
+    for (const subject of log.stdout.split("\n")) {
+      const m = subject.trim().match(/^v(\d+\.\d+\.\d+\.\d+)\b/);
+      if (!m) continue;
+      const v = parseVersion(m[1]);
+      if (!v) continue;
+      claims.push({ pr: 0, branch: `(shipped on ${base})`, version: fmtVersion(v) });
+    }
+    // A cap that does not announce itself reads as "checked all history".
+    // Only fires when the log came back exactly full, which is the only
+    // observable signal that older commits went unread.
+    if (log.stdout.trim().split("\n").length >= SUBJECT_SCAN) {
+      warnings.push(
+        `shipped-version scan stopped at ${SUBJECT_SCAN} commits on ${base}; ` +
+          `a version shipped before that is not counted as claimed`,
+      );
+    }
+  } else {
+    warnings.push(`git log ${base} failed; shipped-version scan unavailable`);
+  }
+
+  return claims;
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (args.help) {
@@ -458,6 +537,28 @@ async function main() {
     ({ claimed, offline } = await fetchGitlabClaimed(args.base, versionPath, excludePR, warnings));
   } else {
     warnings.push("host unknown; queue-awareness unavailable");
+  }
+
+  // Degraded host query → fall back to git, which needs no API. Additive: it
+  // only runs when the host told us nothing, so the online path is untouched.
+  let fallback: "git" | null = null;
+  if (offline || host === "unknown") {
+    const gitClaims = fetchGitClaimed(args.base, versionPath, warnings);
+    if (gitClaims.length) {
+      claimed = [...claimed, ...gitClaims];
+      fallback = "git";
+      warnings.push(
+        `host queue unavailable — allocated from git instead ` +
+          `(${gitClaims.length} claim(s) from remote refs + shipped subjects). ` +
+          `PR numbers and draft status are unavailable, but the version is safe.`,
+      );
+    } else {
+      warnings.push(
+        "host queue unavailable AND git found no claims — the pick rests on " +
+          "the base VERSION alone. Verify no sibling branch holds it before " +
+          "shipping.",
+      );
+    }
   }
 
   // Only count PRs that actually bumped VERSION past base as real "claims".
@@ -497,6 +598,7 @@ async function main() {
     bump: args.bump,
     host,
     offline,
+    fallback,
     claimed: realClaims,
     siblings,
     active_siblings: activeSiblings,
@@ -507,7 +609,7 @@ async function main() {
 }
 
 // Pure-function exports for testing
-export { parseVersion, fmtVersion, bumpVersion, cmpVersion, pickNextSlot, markActiveSiblings, resolveVersionPath };
+export { parseVersion, fmtVersion, bumpVersion, cmpVersion, pickNextSlot, markActiveSiblings, resolveVersionPath, fetchGitClaimed };
 
 // Only run main() when invoked as a script, not when imported by tests.
 if (import.meta.main) {
