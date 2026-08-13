@@ -1059,7 +1059,13 @@ stay agent judgment; the slot pick stays `gstack-next-version`.
    QUEUE_JSON=$(bun run ~/.claude/skills/gstack/bin/gstack-next-version --base <base> --bump "$BUMP_LEVEL" --current-version "$BASE_VERSION" 2>/dev/null || echo '{"offline":true}')
    NEW_VERSION=$(echo "$QUEUE_JSON" | jq -r '.version // empty')
    ```
-   If `offline`/util fails: fall back to local `BUMP_LEVEL` arithmetic and print `⚠ workspace-aware ship offline — using local bump only`. If `claimed` is non-empty, render the queue table so the user sees landing order. If an active sibling workspace holds a version `>= NEW_VERSION`, **AskUserQuestion**: advance past (unrelated work) or abort and sync with the sibling.
+   Read `.fallback` before `.version`. When the host queue is unreachable the util does not return an empty claim set — it re-derives claims from **git** (every remote-tracking branch's VERSION file, plus versions already shipped in the base's commit subjects), sets `"fallback":"git"`, and the pick stays collision-safe. Say so — `⚠ PR queue unreachable — version allocated from git (PR numbers/draft status unavailable)` — and **continue**; do NOT fall back to local `BUMP_LEVEL` arithmetic. Local arithmetic cannot see a sibling's claim, which is how two commits end up sharing one version: `gh pr list` fails mid-ship, the old instruction said "local bump only", and the number an open PR already held gets allocated again.
+
+   If `.fallback` is `"git"` **and** `claimed` is empty, the pick rests on the base VERSION alone (the util warns about this). Verify no sibling holds it — `git ls-remote --heads origin`, then check the VERSION on any live branch — before writing.
+
+   If the util itself fails (non-zero exit, unparseable JSON): **STOP** and report. Do not guess a version; a duplicate is unfixable after merge without rewriting history, whereas a paused ship costs a minute.
+
+   If `claimed` is non-empty, render the queue table so the user sees landing order. If an active sibling workspace holds a version `>= NEW_VERSION`, **AskUserQuestion**: advance past (unrelated work) or abort and sync with the sibling.
 
 4. **Write the bump** (FRESH, or an approved rebump):
    ```bash
