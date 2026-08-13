@@ -45,12 +45,18 @@ If `NOT_FOUND`, stop and tell the user:
 Check auth:
 
 ```bash
-if [ -f "$HOME/.claude/.credentials.json" ] || [ -n "${ANTHROPIC_API_KEY:-}" ]; then
+if "$CLAUDE_BIN" auth status --text >/dev/null 2>&1; then
+  echo "AUTH_FOUND"
+elif [ -f "$HOME/.claude/.credentials.json" ] || [ -n "${ANTHROPIC_API_KEY:-}" ]; then
   echo "AUTH_FOUND"
 else
   echo "AUTH_MISSING"
 fi
 ```
+
+`claude auth status` detects Claude Code logins stored in the macOS Keychain.
+The file and environment checks are fallbacks for older Claude CLI versions and
+API-key-based setups.
 
 If `AUTH_MISSING`, stop and tell the user:
 "No Claude authentication found. Run `claude` interactively to log in, or export `ANTHROPIC_API_KEY`, then re-run this skill."

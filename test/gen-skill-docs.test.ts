@@ -1776,6 +1776,8 @@ describe('Codex generation (--host codex)', () => {
   test('Codex output includes Claude outside-voice skill with read-only boundary', () => {
     const content = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-claude', 'SKILL.md'), 'utf-8');
     expect(content).toContain('claude -p');
+    expect(content).toContain('"$CLAUDE_BIN" auth status --text');
+    expect(content).toContain('detects Claude Code logins stored in the macOS Keychain');
     expect(content).toContain('mktemp /tmp/gstack-claude-prompt-');
     expect(content).toContain('mktemp /tmp/gstack-claude-diff-');
     expect(content).not.toContain('/tmp/gstack-claude-diff-$$');
@@ -2200,6 +2202,7 @@ describe('Parameterized host smoke tests', () => {
         expect(fs.existsSync(skillMd)).toBe(true);
         const content = fs.readFileSync(skillMd, 'utf-8');
         expect(content).toContain('claude -p');
+        expect(content).toContain('"$CLAUDE_BIN" auth status --text');
         expect(content).toContain('--disable-slash-commands');
         expect(content).toContain('--allowedTools Read,Grep,Glob');
         expect(content).toContain('--disallowedTools Bash,Edit,Write');
