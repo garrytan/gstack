@@ -1329,8 +1329,10 @@ fi
 if [ "$INSTALL_CURSOR" -eq 1 ]; then
   mkdir -p "$CURSOR_SKILLS"
   create_cursor_runtime_root "$SOURCE_GSTACK_DIR" "$CURSOR_GSTACK"
-  create_cursor_sidecar "$SOURCE_GSTACK_DIR"
+  # Link before sidecar. Sidecar mkdir -p creates .cursor/skills/gstack, which
+  # would make link_cursor_skill_dirs' "[ ! -d generated ]" gen fallback a no-op.
   link_cursor_skill_dirs "$SOURCE_GSTACK_DIR" "$CURSOR_SKILLS"
+  create_cursor_sidecar "$SOURCE_GSTACK_DIR"
   echo "gstack ready (cursor)."
   echo "  browse: $BROWSE_BIN"
   echo "  cursor skills: $CURSOR_SKILLS"

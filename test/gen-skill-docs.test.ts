@@ -2478,6 +2478,18 @@ describe('setup script validation', () => {
     expect(setupContent).not.toContain('rm -rf "$CURSOR_SKILLS"');
   });
 
+  test('Cursor install links generated skills before planting the sidecar', () => {
+    const cursorInstall = setupContent.slice(
+      setupContent.indexOf('# 6d. Install for Cursor'),
+      setupContent.indexOf('# 7. Create .agents/ sidecar'),
+    );
+    const linkCall = cursorInstall.indexOf('link_cursor_skill_dirs "$SOURCE_GSTACK_DIR"');
+    const sidecarCall = cursorInstall.indexOf('create_cursor_sidecar "$SOURCE_GSTACK_DIR"');
+    expect(linkCall).toBeGreaterThan(-1);
+    expect(sidecarCall).toBeGreaterThan(-1);
+    expect(linkCall).toBeLessThan(sidecarCall);
+  });
+
   test('setup installs OpenCode skills into a nested gstack runtime root', () => {
     expect(setupContent).toContain('create_opencode_runtime_root');
     expect(setupContent).toContain('.opencode/skills');
