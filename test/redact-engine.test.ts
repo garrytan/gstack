@@ -201,6 +201,34 @@ describe("PII patterns", () => {
     expect(ids("local 192.168.1.5")).not.toContain("pii.ip_public");
     expect(ids("local 10.0.0.1")).not.toContain("pii.ip_public");
   });
+
+  // Digit-only UUIDs are the standard test-fixture shape, and their digit runs
+  // collide with both the card pattern (a 13-19 digit slice passes Luhn often
+  // enough to matter) and the phone pattern (hyphen groups read as national
+  // formatting). Observed live: 14 of 21 MEDIUM findings on one ordinary branch
+  // were exactly this, all from test files — the volume that makes people stop
+  // reading MEDIUM output at all.
+  test("digit-only UUID fixtures are not cards or phones", () => {
+    expect(ids("owner_user_id: '00000000-0000-0000-0000-000000000000'")).not.toContain("pii.cc");
+    expect(ids("const OWNER = '11111111-1111-1111-1111-111111111111'")).not.toContain(
+      "pii.phone.e164",
+    );
+    expect(ids("const TEAM = '22222222-2222-2222-2222-222222222222'")).not.toContain(
+      "pii.phone.e164",
+    );
+    // Hex UUIDs never matched these digit patterns; pinned so the suppression
+    // is not silently widened to something that swallows real numbers.
+    expect(ids("id 'a1b2c3d4-1111-2222-3333-444455556666'")).not.toContain("pii.cc");
+  });
+
+  test("UUID suppression requires TOTAL containment", () => {
+    // Real card sitting next to a UUID still reports — suppression is the
+    // exception and may only fire when the whole match is UUID interior.
+    expect(ids("00000000-0000-0000-0000-000000000000 4111111111111111")).toContain("pii.cc");
+    // And the plain cases are untouched.
+    expect(ids("card 4111-1111-1111-1111")).toContain("pii.cc");
+    expect(ids("reach me on +1 415 555 2671")).toContain("pii.phone.e164");
+  });
 });
 
 describe("internal + legal patterns", () => {

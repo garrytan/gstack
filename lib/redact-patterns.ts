@@ -174,6 +174,53 @@ export function isPlaceholderSpan(span: string): boolean {
   return false;
 }
 
+/** Canonical 8-4-4-4-12 hex UUID. Global: a line may hold several. */
+const UUID_RE = /[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/g;
+
+/** How far either side of a span to look for an enclosing UUID. A UUID is 36
+ * chars, so 40 covers one that starts immediately before the span. Bounded so
+ * this stays cheap on a multi-megabyte buffer. */
+const UUID_CONTEXT_CHARS = 40;
+
+/**
+ * True when the matched span sits ENTIRELY inside a UUID.
+ *
+ * Digit-only UUIDs — `00000000-0000-0000-0000-000000000000`,
+ * `11111111-1111-…` — are the standard fixture shape in test suites, and their
+ * digit runs collide with both the credit-card and phone patterns: a 16-digit
+ * slice of one is Luhn-valid often enough to matter, and the hyphen groups read
+ * as national phone formatting. Observed live: 14 of 21 MEDIUM findings on one
+ * ordinary branch were this, all from test files. That volume is what stops
+ * people reading MEDIUM output at all, so it costs real detection elsewhere.
+ *
+ * Containment must be TOTAL, deliberately. A span merely adjacent to or
+ * overlapping a UUID still reports — suppression is the exception, so it may
+ * only fire when the whole match is demonstrably UUID interior.
+ *
+ * Takes the match (not just the span) because the decision needs surrounding
+ * context; span offset is derived exactly as redact-engine.ts derives it, so
+ * the two cannot disagree about where the span begins.
+ */
+export function insideUuid(match: RegExpExecArray): boolean {
+  const input = match.input ?? "";
+  // Mirror the engine: capture group 1 when present, else the whole match.
+  const spanStartInMatch = match[1] !== undefined ? match[0].indexOf(match[1]) : 0;
+  const spanStart = match.index + Math.max(0, spanStartInMatch);
+  const spanEnd = spanStart + (match[1] ?? match[0]).length;
+
+  const from = Math.max(0, spanStart - UUID_CONTEXT_CHARS);
+  const window = input.slice(from, spanEnd + UUID_CONTEXT_CHARS);
+
+  UUID_RE.lastIndex = 0;
+  let u: RegExpExecArray | null;
+  while ((u = UUID_RE.exec(window)) !== null) {
+    const uuidStart = from + u.index;
+    const uuidEnd = uuidStart + u[0].length;
+    if (spanStart >= uuidStart && spanEnd <= uuidEnd) return true;
+  }
+  return false;
+}
+
 // ── The taxonomy ─────────────────────────────────────────────────────────────
 
 export const PATTERNS: RedactPattern[] = [
@@ -431,7 +478,8 @@ export const PATTERNS: RedactPattern[] = [
     regex: /(?<![\w.])(\+?[1-9]\d{0,2}[ \-.]?\(?\d{2,4}\)?[ \-.]?\d{3,4}[ \-.]?\d{3,4})(?![\w.])/,
     autoRedactable: true,
     redactToken: "<REDACTED-PHONE>",
-    validate: (span) => span.replace(/\D/g, "").length >= 10,
+    // A digit-only UUID's hyphen groups read as national phone formatting.
+    validate: (span, match) => !insideUuid(match) && span.replace(/\D/g, "").length >= 10,
   },
   {
     id: "pii.ssn",
@@ -455,7 +503,9 @@ export const PATTERNS: RedactPattern[] = [
     regex: /\b((?:\d[ \-]?){13,19})\b/,
     autoRedactable: true,
     redactToken: "<REDACTED-CC>",
-    validate: (span) => luhnValid(span),
+    // A 13-19 digit slice of a digit-only UUID passes Luhn often enough to
+    // matter; the enclosing-UUID check runs first so it never reaches Luhn.
+    validate: (span, match) => !insideUuid(match) && luhnValid(span),
   },
   {
     id: "pii.ip_public",
