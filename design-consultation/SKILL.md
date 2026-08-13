@@ -509,10 +509,29 @@ if [ -f "$_GBRAIN_CONFIG" ] && command -v gbrain >/dev/null 2>&1; then
       _GBRAIN_PIN_PATH="$_REPO_TOP/.gbrain-source"
     fi
     if [ -n "$_GBRAIN_PIN_PATH" ]; then
+      # Liveness probe. A config file + `--version` + a pin only prove gbrain is
+      # INSTALLED; none of them prove its engine is reachable. When the engine is
+      # down (disk full, container stopped, pooler unreachable, autopilot wedged)
+      # this block would still tell the agent to "prefer gbrain search" — so the
+      # agent keeps reaching for a tool whose every query fails, instead of
+      # falling back to Grep. One bounded probe closes that gap; the timeout
+      # keeps a hung engine from stalling the preamble of every skill.
+      _GBRAIN_ALIVE=0
+      if command -v timeout >/dev/null 2>&1; then
+        timeout 5 gbrain sources list >/dev/null 2>&1 && _GBRAIN_ALIVE=1
+      else
+        gbrain sources list >/dev/null 2>&1 && _GBRAIN_ALIVE=1
+      fi
+      if [ "$_GBRAIN_ALIVE" -eq 1 ]; then
       echo "GBrain configured. Prefer \`gbrain search\`/\`gbrain query\` over Grep for"
       echo "semantic questions; use \`gbrain code-def\`/\`code-refs\`/\`code-callers\` for"
       echo "symbol-aware code lookup. See \"## GBrain Search Guidance\" in CLAUDE.md."
       echo "Run /sync-gbrain to refresh."
+      else
+        echo "GBrain DOWN — this worktree is pinned, but a probe query failed, so"
+        echo "the engine is unreachable. Do NOT rely on \`gbrain search\`/\`code-def\`"
+        echo "this session; use Grep instead. Diagnose with \`gbrain doctor --fast\`."
+      fi
     else
       echo "GBrain configured but this worktree isn't pinned yet. Run \`/sync-gbrain --full\`"
       echo "before relying on \`gbrain search\` for code questions in this worktree."
