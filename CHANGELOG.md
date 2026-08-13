@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.63.2.0] - 2026-08-13
+
+## **/ship no longer tells itself to guess a version when the PR queue is down.**
+
+Step 12 said: *"If `offline`/util fails: fall back to local `BUMP_LEVEL` arithmetic."* Local arithmetic cannot see a sibling's claim, so that instruction is how two commits end up sharing one version. `gstack-next-version` now re-derives claims from git when the host is unreachable (1.63.1.0), and this is the prose catching up to it.
+
+### What Step 12 says now
+
+- **Read `.fallback` before `.version`.** `"git"` means the queue view is degraded but the allocation is not — announce it and continue.
+- **Never fall back to local arithmetic.** The sentence that caused the duplicates is gone.
+- **`fallback:"git"` with an empty `claimed`** means the pick rests on the base VERSION alone; verify no sibling holds it first.
+- **If the util itself fails, STOP.** Do not guess. A duplicate is unfixable after merge without rewriting history; a paused ship costs a minute.
+
+Prose-only: the template plus its generated `ship/SKILL.md`. No behavior change outside /ship's own instructions.
+
 ## [1.62.0.0] - 2026-08-12
 
 ## **Plan reviews stop asking what to review when you're in plan mode.**
