@@ -942,6 +942,21 @@ Or copy the binaries directly:
 - `cp browse/dist/browse ~/.claude/skills/gstack/browse/dist/browse`
 - `cp design/dist/design ~/.claude/skills/gstack/design/dist/design`
 
+## gstack
+
+gstack is installed. Use the `/browse` skill from gstack for all web browsing
+(QA, dogfooding, cookie setup, scraping) — never use `mcp__claude-in-chrome__*`
+tools; they are slow, unreliable, and not what this project uses.
+
+Available skills: `/office-hours`, `/plan-ceo-review`, `/plan-eng-review`,
+`/plan-design-review`, `/design-consultation`, `/design-shotgun`, `/design-html`,
+`/review`, `/ship`, `/land-and-deploy`, `/canary`, `/benchmark`, `/browse`,
+`/connect-chrome`, `/qa`, `/qa-only`, `/design-review`, `/setup-browser-cookies`,
+`/setup-deploy`, `/setup-gbrain`, `/retro`, `/investigate`, `/document-release`,
+`/document-generate`, `/codex`, `/cso`, `/autoplan`, `/plan-devex-review`,
+`/devex-review`, `/careful`, `/freeze`, `/guard`, `/unfreeze`, `/gstack-upgrade`,
+`/learn`.
+
 ## Skill routing
 
 When the user's request matches an available skill, invoke it via the Skill tool. When in doubt, invoke the skill.
