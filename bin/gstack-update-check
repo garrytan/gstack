@@ -4,6 +4,7 @@
 # Output (one line, or nothing):
 #   JUST_UPGRADED <old> <new>       — marker found from recent upgrade
 #   UPGRADE_AVAILABLE <old> <new>   — remote VERSION differs from local
+#   CHECK_FAILED exit=<n> cmd=<cmd>  — abnormal script failure; do not infer up-to-date
 #   (nothing)                       — up to date, snoozed, disabled, or check skipped
 #
 # Env overrides (for testing):
@@ -11,7 +12,19 @@
 #   GSTACK_REMOTE_URL   — override remote VERSION URL (branch-pinned fallback)
 #   GSTACK_REMOTE_REPO  — override remote git URL for ls-remote SHA resolution
 #   GSTACK_STATE_DIR    — override ~/.gstack state directory
-set -euo pipefail
+set -Eeuo pipefail
+
+report_check_failed() {
+  local status="$?"
+  local cmd="${BASH_COMMAND:-unknown}"
+  cmd="${cmd//$'\n'/ }"
+  echo "CHECK_FAILED exit=$status cmd=$cmd"
+  # Keep CHECK_FAILED as a stdout sentinel, not a failing process status.
+  # The generated preamble runs this command inside an `||` fallback chain;
+  # nonzero here would run the fallback and can duplicate or obscure the marker.
+  exit 0
+}
+trap report_check_failed ERR
 
 GSTACK_DIR="${GSTACK_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 STATE_DIR="${GSTACK_STATE_DIR:-$HOME/.gstack}"
@@ -172,12 +185,14 @@ _SUPA_KEY="${GSTACK_SUPABASE_ANON_KEY:-}"
 _TEL_TIER="$("$GSTACK_DIR/bin/gstack-config" get telemetry 2>/dev/null || true)"
 if [ -n "$_SUPA_URL" ] && [ -n "$_SUPA_KEY" ] && [ "${_TEL_TIER:-off}" != "off" ]; then
   _OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
-  curl -sf --max-time 5 \
-    -X POST "${_SUPA_URL}/functions/v1/update-check" \
-    -H "Content-Type: application/json" \
-    -H "apikey: ${_SUPA_KEY}" \
-    -d "{\"version\":\"$LOCAL\",\"os\":\"$_OS\"}" \
-    >/dev/null 2>&1 &
+  (
+    curl -sf --max-time 5 \
+      -X POST "${_SUPA_URL}/functions/v1/update-check" \
+      -H "Content-Type: application/json" \
+      -H "apikey: ${_SUPA_KEY}" \
+      -d "{\"version\":\"$LOCAL\",\"os\":\"$_OS\"}" \
+      >/dev/null 2>&1 || true
+  ) &
 fi
 
 # Resolve VERSION via a SHA-pinned raw URL. GitHub's branch-raw CDN
@@ -241,8 +256,10 @@ fi
 # Log upgrade_prompted event (only on slow-path fetch, not cached replays)
 TEL_CMD="$GSTACK_DIR/bin/gstack-telemetry-log"
 if [ -x "$TEL_CMD" ]; then
-  "$TEL_CMD" --event-type upgrade_prompted --skill "" --duration 0 \
-    --outcome success --session-id "update-$$-$(date +%s)" 2>/dev/null &
+  (
+    "$TEL_CMD" --event-type upgrade_prompted --skill "" --duration 0 \
+      --outcome success --session-id "update-$$-$(date +%s)" 2>/dev/null || true
+  ) &
 fi
 
 echo "UPGRADE_AVAILABLE $LOCAL $REMOTE"
