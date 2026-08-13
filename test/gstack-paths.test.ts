@@ -1,5 +1,7 @@
 import { describe, test, expect } from 'bun:test';
 import { spawnSync } from 'child_process';
+import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 
 const ROOT = path.resolve(import.meta.dir, '..');
@@ -15,10 +17,11 @@ const BIN = path.join(ROOT, 'bin', 'gstack-paths');
 // HOME from USERPROFILE at shell startup if HOME is unset/empty, which
 // silently breaks the "HOME unset" test scenarios. Clearing USERPROFILE
 // alongside HOME prevents that auto-population on Windows runners.
-function run(env: Record<string, string | undefined>): Record<string, string> {
+function run(env: Record<string, string | undefined>, cwd?: string): Record<string, string> {
   const result = spawnSync('bash', [BIN], {
     env: { PATH: process.env.PATH, USERPROFILE: '', ...env } as Record<string, string>,
     encoding: 'utf-8',
+    cwd,
   });
   if (result.status !== 0) {
     throw new Error(`gstack-paths failed (status ${result.status}): ${result.stderr}`);
@@ -100,8 +103,51 @@ describe('gstack-paths', () => {
   test('emits all three exports on every invocation', () => {
     const got = run({ HOME: '/tmp/h' });
     expect(got).toHaveProperty('GSTACK_STATE_ROOT');
+    expect(got).toHaveProperty('GSTACK_ARTIFACTS_ROOT');
     expect(got).toHaveProperty('PLAN_ROOT');
     expect(got).toHaveProperty('TMP_ROOT');
+  });
+
+  test('artifacts_root=repo writes skill artifacts under the current repo', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-artifacts-root-'));
+    const home = path.join(tmp, 'home');
+    const repo = path.join(tmp, 'repo');
+    fs.mkdirSync(path.join(home, '.gstack'), { recursive: true });
+    fs.mkdirSync(repo, { recursive: true });
+    fs.writeFileSync(path.join(home, '.gstack', 'config.yaml'), 'artifacts_root: repo\n');
+    spawnSync('git', ['init'], { cwd: repo, encoding: 'utf-8' });
+
+    const got = run({ HOME: home }, repo);
+
+    expect(got.GSTACK_STATE_ROOT).toBe(path.join(home, '.gstack'));
+    expect(got.GSTACK_ARTIFACTS_ROOT).toBe(path.join(fs.realpathSync(repo), '.gstack'));
+  });
+
+  test('SLUG_SETUP uses GSTACK_ARTIFACTS_ROOT instead of hardcoded ~/.gstack', async () => {
+    const { generateSlugEval, generateSlugSetup } = await import('../scripts/resolvers/utility');
+    const ctx = {
+      skillName: 'test-skill',
+      tmplPath: 'test/SKILL.md.tmpl',
+      host: 'claude',
+      paths: {
+        skillRoot: '~/.claude/skills/gstack',
+        localSkillRoot: '.claude/skills/gstack',
+        binDir: '~/.claude/skills/gstack/bin',
+        browseDir: '~/.claude/skills/gstack/browse/dist',
+        designDir: '~/.claude/skills/gstack/design/dist',
+        makePdfDir: '~/.claude/skills/gstack/make-pdf/dist',
+      },
+    } as const;
+    const rendered = generateSlugSetup({
+      ...ctx,
+    });
+    const evalRendered = generateSlugEval({ ...ctx });
+
+    expect(rendered).toContain('gstack-paths');
+    expect(rendered).toContain('"$GSTACK_ARTIFACTS_ROOT/projects/$SLUG"');
+    expect(evalRendered).toContain('gstack-paths');
+    expect(evalRendered).toContain('PROJECT_DIR="$GSTACK_ARTIFACTS_ROOT/projects/$SLUG"');
+    expect(rendered).not.toContain('~/.gstack/projects/$SLUG');
   });
 
   test('output is shell-evalable: only KEY=VALUE lines, no extra prose', () => {
