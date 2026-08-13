@@ -1,5 +1,39 @@
 # Changelog
 
+## [1.62.0.1] - 2026-08-13
+
+## **Claude reviews now recognize macOS Keychain logins.**
+## **Authenticated users no longer get a false setup error from the outside-voice skill.**
+
+The Claude outside-voice skill previously decided whether a user was signed in by looking only for `~/.claude/.credentials.json` or `ANTHROPIC_API_KEY`. Current Claude Code installations can keep a Claude.ai login in the macOS Keychain without creating that file, so the skill could stop with “No Claude authentication found” even while `claude -p` worked normally.
+
+The preflight now asks the installed Claude CLI directly with `claude auth status --text`. That makes Claude Code itself the source of truth for secure-store sessions. The existing credential-file and API-key checks remain as fallbacks, preserving compatibility with older CLI versions and non-interactive API-key setups. The status probe is quiet and does not print account or credential data.
+
+### The numbers that matter
+
+| What | Before | After |
+|------|--------|-------|
+| Supported Keychain-backed Claude sessions | rejected | accepted |
+| Existing auth fallbacks retained | 2 | 2 |
+| External host renderings protected by the regression test | 0 | 9 |
+| Credential or account details emitted by the probe | 0 | 0 |
+
+### What this means for you
+
+If `claude` is already logged in on macOS, Claude review commands launched from another supported coding host can use that session without requiring a duplicate API key or plaintext credential file. Run `/gstack-upgrade` to pick up the updated generated skill.
+
+### Itemized changes
+
+#### Fixed
+
+- `claude/SKILL.md.tmpl`: use `claude auth status --text` before the legacy file and environment heuristics, covering credentials stored in the macOS Keychain while remaining backward compatible.
+- `test/gen-skill-docs.test.ts`: pin the CLI-native auth probe in the Codex output and all external-host renderings, plus assert that the generated instructions explain the Keychain behavior.
+
+#### For contributors
+
+- The change stays in the source template rather than a generated host copy, so future regeneration and gstack upgrades preserve it automatically.
+- The public diff was scanned with `gstack-redact`; no credentials, account identifiers, machine paths, or organization-specific details were found.
+
 ## [1.62.0.0] - 2026-08-12
 
 ## **Plan reviews stop asking what to review when you're in plan mode.**
