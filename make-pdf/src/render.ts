@@ -12,6 +12,7 @@
  */
 
 import { marked } from "marked";
+import sanitizeHtml from "sanitize-html";
 import { smartypants } from "./smartypants";
 import { printCss, type PrintCssOptions } from "./print-css";
 import { applyImageDirectives } from "./image-policy";
@@ -194,60 +195,34 @@ function decodeTypographicEntities(html: string): string {
 /**
  * Strip dangerous HTML from markdown-produced output.
  *
- * We can't use DOMPurify (server-side; adds a jsdom dep). A conservative
- * regex sanitizer is fine for this use case because:
- *   1. marked produces structured HTML (never malformed)
- *   2. we only need to strip a fixed blacklist of elements + attrs
- *   3. the output goes through Chromium's parser again, which normalizes
- *
- * What's stripped:
- *   - <script>, <iframe>, <object>, <embed>, <link>, <meta>, <base>, <form>
- *     (and their content).
- *   - on* event handler attributes (onclick, ONCLICK, etc.).
- *   - href/src with javascript: scheme.
- *   - <svg> tags with <script> inside them.
+ * Use a parser-backed sanitizer instead of regex matching. Regex-based HTML
+ * filtering is brittle and can be bypassed by malformed-but-browser-accepted
+ * markup.
  */
+const SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
+  // Keep common markdown output tags only; drop active/embedding content.
+  allowedTags: [
+    ...sanitizeHtml.defaults.allowedTags,
+    "img",
+    "h1", "h2", "h3", "h4", "h5", "h6",
+    "section", "figure", "figcaption",
+    "table", "thead", "tbody", "tr", "th", "td",
+  ],
+  allowedAttributes: {
+    a: ["href", "name", "target", "rel", "title"],
+    img: ["src", "alt", "title", "width", "height"],
+    '*': ["id", "class", "lang", "dir", "align"],
+  },
+  allowedSchemes: ["http", "https", "mailto", "tel", "data"],
+  allowedSchemesByTag: {
+    img: ["http", "https", "data"],
+  },
+  allowProtocolRelative: false,
+  disallowedTagsMode: "discard",
+};
+
 export function sanitizeUntrustedHtml(html: string): string {
-  let s = html;
-
-  // Elements to remove entirely (including content).
-  const DANGER_TAGS = [
-    "script", "iframe", "object", "embed", "link", "meta", "base", "form",
-    "applet", "frame", "frameset",
-  ];
-  for (const tag of DANGER_TAGS) {
-    const re = new RegExp(`<${tag}\\b[\\s\\S]*?</${tag}>`, "gi");
-    s = s.replace(re, "");
-    // Self-closing / unclosed variants
-    const selfRe = new RegExp(`<${tag}\\b[^>]*/?>`, "gi");
-    s = s.replace(selfRe, "");
-  }
-
-  // SVG <script>
-  s = s.replace(/<svg([^>]*)>([\s\S]*?)<\/svg>/gi, (_, attrs, body) => {
-    return `<svg${attrs}>${body.replace(/<script\b[\s\S]*?<\/script>/gi, "")}</svg>`;
-  });
-
-  // Event handler attributes (on* in any case).
-  s = s.replace(/\s+on[a-zA-Z]+\s*=\s*"[^"]*"/gi, "");
-  s = s.replace(/\s+on[a-zA-Z]+\s*=\s*'[^']*'/gi, "");
-  s = s.replace(/\s+on[a-zA-Z]+\s*=\s*[^\s>]+/gi, "");
-
-  // javascript: URLs in href/src/action/formaction
-  s = s.replace(
-    /(\s(?:href|src|action|formaction|xlink:href)\s*=\s*)(?:"javascript:[^"]*"|'javascript:[^']*'|javascript:[^\s>]+)/gi,
-    '$1"#"',
-  );
-
-  // srcdoc attribute (iframe escape hatch — already stripped via iframe above,
-  // but defense-in-depth).
-  s = s.replace(/\s+srcdoc\s*=\s*"[^"]*"/gi, "");
-  s = s.replace(/\s+srcdoc\s*=\s*'[^']*'/gi, "");
-
-  // style="url(javascript:..)" — strip javascript: inside style attrs.
-  s = s.replace(/url\(\s*javascript:[^)]*\)/gi, "url(#)");
-
-  return s;
+  return sanitizeHtml(html, SANITIZE_OPTIONS);
 }
 
 // ─── Cover / TOC / Chapter helpers ────────────────────────────────────
@@ -416,7 +391,7 @@ function composeMargins(opts: {
 }
 
 function stripTags(html: string): string {
-  return html.replace(/<[^>]+>/g, "");
+  return sanitizeHtml(html, { allowedTags: [], allowedAttributes: {} });
 }
 
 export function escapeHtml(s: string): string {
