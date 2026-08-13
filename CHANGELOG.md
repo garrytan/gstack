@@ -1,5 +1,33 @@
 # Changelog
 
+## [1.63.1.0] - 2026-08-13
+
+## **The version allocator stopped guessing when the PR queue was unreachable.**
+
+`gstack-next-version` set `offline:true` whenever `gh pr list` failed and returned an **empty claim set**, and /ship's instruction was "fall back to local `BUMP_LEVEL` arithmetic". Local arithmetic cannot see a sibling's claim, so the fallback handed out a version another open PR already held. Git already knows what the API was being asked for, so offline now degrades the queue *view* — not the *allocation*.
+
+### Before / after
+
+Fixture: base `0.1.66.0`, a sibling branch holding `0.1.67.0`, `gh` failing.
+
+| | Allocated |
+|---|---|
+| old allocator | `0.1.67.0` — collides with the sibling |
+| new allocator | `0.1.68.0` — bumps past it |
+
+### What it reads when the host is down
+
+- **Every remote-tracking branch's VERSION file** — those *are* the open PRs' branches, whether or not the API can enumerate them.
+- **Versions already shipped in the base's commit subjects** — catches a number that merged and was then re-picked, which the VERSION file cannot see because it only holds the newest value. Bounded at 400 commits, and it now warns when it truncates rather than implying it read all history.
+
+New output field `fallback: "git" | null` so /ship can tell a git-derived pick from a host-derived one. The online path is untouched — the fallback only runs when the host query already returned nothing.
+
+### Why it mattered
+
+Found while auditing a downstream repo that had **four** duplicate version pairs in `main` (`v0.1.6.0`, `v0.1.9.0`, `v0.1.32.0`, `v0.1.57.0`), spanning three weeks. The most recent was reproduced exactly: `gh pr list` failed mid-ship, the fallback allocated a number an open PR already held, and both merged — so two commits claim one version and a `/health` reading no longer maps to a single commit.
+
+/ship's Step 12 now reads `.fallback` before `.version`, says so when the pick came from git, and **stops** rather than guessing if the util itself fails. It no longer instructs local arithmetic.
+
 ## [1.62.0.0] - 2026-08-12
 
 ## **Plan reviews stop asking what to review when you're in plan mode.**
