@@ -486,6 +486,18 @@ describe('host config correctness', () => {
     expect(codex.sidecar!.path).toBe('.agents/skills/gstack');
   });
 
+  test('cursor has sidecar config', () => {
+    expect(cursor.sidecar).toBeDefined();
+    expect(cursor.sidecar!.path).toBe('.cursor/skills/gstack');
+    expect(cursor.sidecar!.symlinks).toEqual([
+      'bin',
+      'browse/dist',
+      'browse/bin',
+      'gstack-upgrade',
+      'ETHOS.md',
+    ]);
+  });
+
   test('factory has tool rewrites', () => {
     expect(factory.toolRewrites).toBeDefined();
     expect(Object.keys(factory.toolRewrites!).length).toBeGreaterThan(0);

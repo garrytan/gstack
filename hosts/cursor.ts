@@ -36,6 +36,10 @@ const cursor: HostConfig = {
       'review': ['checklist.md', 'TODOS-format.md'],
     },
   },
+  sidecar: {
+    path: '.cursor/skills/gstack',
+    symlinks: ['bin', 'browse/dist', 'browse/bin', 'gstack-upgrade', 'ETHOS.md'],
+  },
 
   install: {
     prefixable: false,

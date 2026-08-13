@@ -161,5 +161,38 @@ describe('gstack-uninstall', () => {
       // Non-gstack should survive
       expect(fs.existsSync(path.join(mockHome, '.claude', 'skills', 'other-tool'))).toBe(true);
     });
+
+    test('--force removes Cursor gstack skills and leaves other Cursor skills', () => {
+      fs.mkdirSync(path.join(mockHome, '.cursor', 'skills', 'gstack'), { recursive: true });
+      fs.writeFileSync(path.join(mockHome, '.cursor', 'skills', 'gstack', 'SKILL.md'), 'test');
+      fs.mkdirSync(path.join(mockHome, '.cursor', 'skills', 'gstack-review'), { recursive: true });
+      fs.writeFileSync(path.join(mockHome, '.cursor', 'skills', 'gstack-review', 'SKILL.md'), 'test');
+      fs.mkdirSync(path.join(mockHome, '.cursor', 'skills', 'frontend-design'), { recursive: true });
+      fs.writeFileSync(path.join(mockHome, '.cursor', 'skills', 'frontend-design', 'SKILL.md'), 'keep');
+
+      fs.mkdirSync(path.join(mockGitRoot, '.cursor', 'skills', 'gstack-ship'), { recursive: true });
+      fs.writeFileSync(path.join(mockGitRoot, '.cursor', 'skills', 'gstack-ship', 'SKILL.md'), 'test');
+      fs.mkdirSync(path.join(mockGitRoot, '.cursor', 'rules'), { recursive: true });
+      fs.writeFileSync(path.join(mockGitRoot, '.cursor', 'rules', 'keep.md'), 'keep');
+
+      const result = spawnSync('bash', [UNINSTALL, '--force'], {
+        stdio: 'pipe',
+        env: {
+          ...process.env,
+          HOME: mockHome,
+          GSTACK_DIR: path.join(mockHome, '.claude', 'skills', 'gstack'),
+          GSTACK_STATE_DIR: path.join(mockHome, '.gstack'),
+        },
+        cwd: mockGitRoot,
+      });
+
+      expect(result.status).toBe(0);
+
+      expect(fs.existsSync(path.join(mockHome, '.cursor', 'skills', 'gstack'))).toBe(false);
+      expect(fs.existsSync(path.join(mockHome, '.cursor', 'skills', 'gstack-review'))).toBe(false);
+      expect(fs.existsSync(path.join(mockHome, '.cursor', 'skills', 'frontend-design'))).toBe(true);
+      expect(fs.existsSync(path.join(mockGitRoot, '.cursor', 'skills', 'gstack-ship'))).toBe(false);
+      expect(fs.existsSync(path.join(mockGitRoot, '.cursor', 'rules', 'keep.md'))).toBe(true);
+    });
   });
 });

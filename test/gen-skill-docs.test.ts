@@ -2372,9 +2372,9 @@ describe('setup script validation', () => {
     expect(claudeSection).toContain('link_claude_root_skill_alias "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"');
   });
 
-  test('setup supports --host auto|claude|codex|kiro|opencode', () => {
+  test('setup supports --host auto|claude|codex|kiro|opencode|cursor', () => {
     expect(setupContent).toContain('--host');
-    expect(setupContent).toContain('claude|codex|kiro|factory|opencode|auto');
+    expect(setupContent).toContain('claude|codex|kiro|factory|opencode|cursor|auto');
   });
 
   test('auto mode detects claude, codex, kiro, and opencode binaries', () => {
@@ -2382,6 +2382,11 @@ describe('setup script validation', () => {
     expect(setupContent).toContain('command -v codex');
     expect(setupContent).toContain('command -v kiro-cli');
     expect(setupContent).toContain('command -v opencode');
+  });
+
+  test('auto mode detects Cursor via binary or ~/.cursor directory', () => {
+    expect(setupContent).toContain('command -v cursor');
+    expect(setupContent).toContain('[ -d "$HOME/.cursor" ]');
   });
 
   // T1: Sidecar skip guard — prevents .agents/skills/gstack from being linked as a skill
@@ -2412,6 +2417,65 @@ describe('setup script validation', () => {
     expect(setupContent).toContain('INSTALL_OPENCODE=');
     expect(setupContent).toContain('OPENCODE_SKILLS="$HOME/.config/opencode/skills"');
     expect(setupContent).toContain('OPENCODE_GSTACK="$OPENCODE_SKILLS/gstack"');
+  });
+
+  test('setup supports --host cursor with install section and Cursor skill path vars', () => {
+    expect(setupContent).toContain('INSTALL_CURSOR=');
+    expect(setupContent).toContain('CURSOR_SKILLS="$HOME/.cursor/skills"');
+    expect(setupContent).toContain('CURSOR_GSTACK="$CURSOR_SKILLS/gstack"');
+    expect(setupContent).toContain('create_cursor_runtime_root');
+    expect(setupContent).toContain('create_cursor_sidecar');
+    expect(setupContent).toContain('link_cursor_skill_dirs');
+    expect(setupContent).toContain('gstack ready (cursor).');
+  });
+
+  test('create_cursor_runtime_root exposes only Cursor runtime assets', () => {
+    const fnStart = setupContent.indexOf('create_cursor_runtime_root()');
+    const fnEnd = setupContent.indexOf('create_cursor_sidecar()', fnStart);
+    const fnBody = setupContent.slice(fnStart, fnEnd);
+    expect(fnBody).toContain('gstack/SKILL.md');
+    expect(fnBody).toContain('browse/dist');
+    expect(fnBody).toContain('browse/bin');
+    expect(fnBody).toContain('gstack-upgrade/SKILL.md');
+    expect(fnBody).toContain('checklist.md');
+    expect(fnBody).toContain('TODOS-format.md');
+    expect(fnBody).not.toContain('design-checklist.md');
+    expect(fnBody).not.toContain('greptile-triage.md');
+    expect(fnBody).not.toContain('review/specialists');
+    expect(fnBody).not.toContain('qa/templates');
+    expect(fnBody).not.toContain('_link_or_copy "$gstack_dir" "$cursor_gstack"');
+  });
+
+  test('create_cursor_sidecar plants runtime assets without wiping generated SKILL.md', () => {
+    const fnStart = setupContent.indexOf('create_cursor_sidecar()');
+    const fnEnd = setupContent.indexOf('link_cursor_skill_dirs()', fnStart);
+    const fnBody = setupContent.slice(fnStart, fnEnd);
+    expect(fnBody).toContain('.cursor/skills/gstack');
+    expect(fnBody).toContain('bin');
+    expect(fnBody).toContain('browse/dist');
+    expect(fnBody).toContain('browse/bin');
+    expect(fnBody).toContain('ETHOS.md');
+    expect(fnBody).not.toContain('rm -rf');
+  });
+
+  test('link_cursor_skill_dirs skips the gstack runtime root directory', () => {
+    const fnStart = setupContent.indexOf('link_cursor_skill_dirs()');
+    const fnEnd = setupContent.indexOf('}', setupContent.indexOf('linked[@]', fnStart));
+    const fnBody = setupContent.slice(fnStart, fnEnd);
+    expect(fnBody).toContain('[ "$skill_name" = "gstack" ] && continue');
+    expect(fnBody).toContain('[ -L "$target" ] || [ ! -e "$target" ]');
+  });
+
+  // #2142 deleted existing ~/.cursor/skills/<name> dirs with `rm -rf "$target"`
+  // before relinking. That can wipe unowned Cursor skills. Only replace a
+  // symlink or a missing path; never the whole skills directory.
+  test('link_cursor_skill_dirs does not delete unowned Cursor skill directories', () => {
+    const fnStart = setupContent.indexOf('link_cursor_skill_dirs()');
+    const fnEnd = setupContent.indexOf('}', setupContent.indexOf('linked[@]', fnStart));
+    const fnBody = setupContent.slice(fnStart, fnEnd);
+    expect(fnBody).not.toContain('rm -rf "$target"');
+    expect(fnBody).not.toContain('rm -rf "$skills_dir"');
+    expect(setupContent).not.toContain('rm -rf "$CURSOR_SKILLS"');
   });
 
   test('setup installs OpenCode skills into a nested gstack runtime root', () => {
