@@ -311,6 +311,47 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
   'design-shotgun-session':         ['design-shotgun/**', 'scripts/resolvers/design.ts'],
   'design-shotgun-full':            ['design-shotgun/**', 'design/src/**', 'browse/src/**'],
 
+  // /deck — bounded intake/access plus native Flask and nested static delivery.
+  'deck-investor-intake': [
+    'deck/**',
+    'scripts/gen-skill-docs.ts',
+    'test/skill-e2e-deck.test.ts',
+    'test/helpers/e2e-helpers.ts',
+    'test/helpers/llm-judge.ts',
+  ],
+  'deck-full-flask-delivery': [
+    'deck/**',
+    'scripts/gen-skill-docs.ts',
+    'test/skill-e2e-deck.test.ts',
+    'test/helpers/e2e-helpers.ts',
+    'browse/src/**',
+    '.github/docker/Dockerfile.ci',
+    '.github/workflows/evals-periodic.yml',
+  ],
+  'deck-natural-static-monorepo': [
+    'deck/**',
+    'plan-ceo-review/**',
+    'plan-design-review/**',
+    'plan-eng-review/**',
+    'design-review/**',
+    'qa/**',
+    'review/**',
+    'document-release/**',
+    'scripts/gen-skill-docs.ts',
+    'test/skill-e2e-deck.test.ts',
+    'test/helpers/e2e-helpers.ts',
+    'browse/src/**',
+    '.github/docker/Dockerfile.ci',
+    '.github/workflows/evals-periodic.yml',
+  ],
+  'deck-access-boundary-intake': [
+    'deck/**',
+    'scripts/gen-skill-docs.ts',
+    'test/skill-e2e-deck.test.ts',
+    'test/helpers/e2e-helpers.ts',
+    '.github/workflows/evals-periodic.yml',
+  ],
+
   // /diagram (diagram-render bundle consumers). Triplet = deterministic
   // functional (gate); authoring quality = LLM-judged benchmark (periodic).
   'diagram-triplet':            ['diagram/**', 'lib/diagram-render/**', 'browse/src/write-commands.ts', 'browse/src/read-commands.ts'],
@@ -695,6 +736,13 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
   'design-shotgun-path': 'gate',
   'design-shotgun-session': 'gate',
   'design-shotgun-full': 'periodic',
+
+  // /deck — agent behavior is paid and non-deterministic. Sparse intake also
+  // uses an LLM judge; delivery and access runs have deterministic assertions.
+  'deck-investor-intake': 'periodic',
+  'deck-full-flask-delivery': 'periodic',
+  'deck-natural-static-monorepo': 'periodic',
+  'deck-access-boundary-intake': 'periodic',
 
   // /diagram — triplet is deterministic functional, judge is a quality benchmark
   'diagram-triplet': 'gate',

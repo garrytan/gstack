@@ -146,13 +146,12 @@ const EXPLAIN_LEVEL: 'default' | 'terse' = (() => {
 })();
 
 // ─── Out-dir (dev workspace render isolation) ───────────────
-// --out-dir <abs-dir> redirects Claude SKILL.md + section output to a separate
-// (untracked) directory instead of writing in place, AND rewrites the literal
-// section-base path (`~/.claude/skills/gstack/<skill>/sections/`) inside the
-// generated content to point at the out-dir, so section Reads resolve to the
-// rendered copy rather than the global install. Used by bin/dev-setup to render
-// the gbrain `:user` variant for a Conductor workspace without dirtying tracked
-// source. Default (unset) = in-place, behavior unchanged. Claude host only.
+// --out-dir <abs-dir> redirects generated skill output to a separate directory
+// instead of writing in place. For Claude it also rewrites the literal section-
+// base path (`~/.claude/skills/gstack/<skill>/sections/`) inside generated
+// content, so section Reads resolve to the rendered copy rather than the global
+// install. Used by bin/dev-setup and hermetic generation tests. Default (unset)
+// keeps the existing in-place behavior.
 const OUT_DIR_ARG = process.argv.find(a => a.startsWith('--out-dir'));
 const OUT_DIR: string | null = (() => {
   if (!OUT_DIR_ARG) return null;
@@ -757,7 +756,7 @@ function processExternalHost(
   const hostConfig = getHostConfig(host);
 
   const name = externalSkillName(skillDir === '.' ? '' : skillDir, frontmatterName);
-  const outputDir = path.join(ROOT, hostConfig.hostSubdir, 'skills', name);
+  const outputDir = path.join(OUT_DIR || ROOT, hostConfig.hostSubdir, 'skills', name);
   fs.mkdirSync(outputDir, { recursive: true });
   const outputPath = path.join(outputDir, 'SKILL.md');
 
@@ -809,8 +808,8 @@ function processTemplate(tmplPath: string, host: Host = 'claude'): { outputPath:
   // Determine skill directory relative to ROOT
   const skillDir = path.relative(ROOT, path.dirname(tmplPath));
 
-  // --out-dir (Claude only): mirror the skill tree into the out-dir instead of
-  // writing in place. External hosts compute their own paths below.
+  // --out-dir: mirror the Claude skill tree into the out-dir instead of writing
+  // in place. External hosts apply the same root inside processExternalHost.
   if (OUT_DIR && host === 'claude') {
     outputPath = path.join(OUT_DIR, skillDir, path.basename(tmplPath).replace(/\.tmpl$/, ''));
   }
@@ -925,7 +924,7 @@ function processSectionTemplate(
     outputPath = path.join(OUT_DIR || ROOT, skillDir, 'sections', fileName);
   } else {
     const externalName = externalSkillName(skillDir, parentName);
-    outputPath = path.join(ROOT, hostConfig.hostSubdir, 'skills', externalName, 'sections', fileName);
+    outputPath = path.join(OUT_DIR || ROOT, hostConfig.hostSubdir, 'skills', externalName, 'sections', fileName);
   }
   if (!DRY_RUN) fs.mkdirSync(path.dirname(outputPath), { recursive: true });
   return { outputPath, content };
@@ -1063,7 +1062,7 @@ for (const currentHost of hostsToRun) {
 
     // Generate gstack-lite and gstack-full for OpenClaw host
     if (currentHost === 'openclaw' && !DRY_RUN) {
-      const openclawDir = path.join(ROOT, 'openclaw');
+      const openclawDir = path.join(OUT_DIR || ROOT, 'openclaw');
       if (!fs.existsSync(openclawDir)) fs.mkdirSync(openclawDir, { recursive: true });
 
       const gstackLite = `# gstack-lite Planning Discipline
@@ -1201,7 +1200,7 @@ if (failures.length > 0 && HOST_ARG_VAL === 'all') {
 // Single host dry-run failure already handled above
 
 // After all hosts processed, warn if prefix patches may need re-applying
-if (!DRY_RUN) {
+if (!DRY_RUN && !OUT_DIR) {
   try {
     const configPath = path.join(process.env.HOME || '', '.gstack', 'config.yaml');
     if (fs.existsSync(configPath)) {
@@ -1219,7 +1218,7 @@ if (!DRY_RUN) {
 // this module async (test/gen-skill-docs.test.ts uses require() to pull
 // extractVoiceTriggers/processVoiceTriggers, which fails on async modules).
 // Freshness is asserted in test/llms-txt-shape.test.ts.
-if (!DRY_RUN) {
+if (!DRY_RUN && !OUT_DIR) {
   void (async () => {
     try {
       const result = await writeLlmsTxt();
