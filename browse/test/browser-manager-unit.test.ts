@@ -190,6 +190,11 @@ describe('resolveDisconnectCause', () => {
     const { resolveDisconnectCause } = await import('../src/browser-manager');
     expect(await resolveDisconnectCause(null)).toBe('crash');
   });
+
+  it('crash: Playwright Browser without a process accessor does not throw', async () => {
+    const { resolveDisconnectCause } = await import('../src/browser-manager');
+    expect(await resolveDisconnectCause({} as never)).toBe('crash');
+  });
 });
 
 // ─── onDisconnect exit-code propagation (regression test) ──────────

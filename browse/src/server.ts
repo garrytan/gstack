@@ -53,6 +53,7 @@ import { writeReceipt } from '../../lib/egress-receipt';
 import { redactProxyUrl } from './proxy-redact';
 import { shouldSpawnXvfb, pickFreeDisplay, spawnXvfb, xvfbInstallHint, type XvfbHandle } from './xvfb';
 import { logTunnelDenial } from './tunnel-denial-log';
+import { terminationAction } from './daemon-ownership-policy';
 import {
   mintSseSessionToken, validateSseSessionToken, extractSseCookie,
   buildSseSetCookie, SSE_COOKIE_NAME,
@@ -706,21 +707,24 @@ if (BROWSE_PARENT_PID > 0 && !IS_HEADED_WATCHDOG) {
       // 1. Active cookie picker (one-time code or session live)? Stay alive
       //    regardless of mode — tearing down the server mid-import leaves the
       //    picker UI with a stale "Failed to fetch" error.
-      // 2. Headed / tunnel mode? Shutdown. The idle timeout doesn't apply in
-      //    these modes (see idleCheckInterval above — both early-return), so
-      //    ignoring parent death here would leak orphan daemons after
-      //    /pair-agent or /open-gstack-browser sessions.
-      // 3. Normal (headless) mode? Stay alive. Claude Code's Bash tool kills
-      //    the parent shell between invocations. The idle timeout (30 min)
-      //    handles eventual cleanup.
+      // 2. Daemon launched headed, or active tunnel? Shutdown. Those lifecycles
+      //    are externally owned and the idle timeout does not apply.
+      // 3. Daemon launched headless? Stay alive, even if `handoff` later made
+      //    the browser headed. The dead one-shot CLI must not regain ownership
+      //    merely because the browser changed modes.
       if (hasActivePicker()) return;
       const headed = activeBrowserManager.getConnectionMode() === 'headed';
-      if (headed || tunnelActive) {
-        console.log(`[browse] Parent process ${BROWSE_PARENT_PID} exited in ${headed ? 'headed' : 'tunnel'} mode, shutting down`);
+      const action = terminationAction({
+        startedHeaded: IS_HEADED_WATCHDOG,
+        tunnelActive,
+      });
+      if (action === 'shutdown') {
+        console.log(`[browse] Parent process ${BROWSE_PARENT_PID} exited in ${tunnelActive ? 'tunnel' : 'headed-launch'} mode, shutting down`);
         activeShutdown?.();
       } else if (!parentGone) {
         parentGone = true;
-        console.log(`[browse] Parent process ${BROWSE_PARENT_PID} exited (server stays alive, idle timeout will clean up)`);
+        const transition = headed ? ' after handoff' : '';
+        console.log(`[browse] Parent process ${BROWSE_PARENT_PID} exited${transition} (server stays alive, idle timeout/user window will clean up)`);
       }
     }
   }, 15_000);
@@ -1373,9 +1377,11 @@ if (import.meta.main) {
   // - Normal (headless) mode: Claude Code's Bash sandbox fires SIGTERM when the
   //   parent shell exits between tool invocations. Ignoring it keeps the server
   //   alive across $B calls. Idle timeout (30 min) handles eventual cleanup.
-  // - Headed / tunnel mode: idle timeout doesn't apply in these modes. Respect
-  //   SIGTERM so external tooling (systemd, supervisord, CI) can shut cleanly
-  //   without waiting forever. Ctrl+C and /stop still work either way.
+  // - Daemon launched headed / active tunnel: idle timeout doesn't apply.
+  //   Respect SIGTERM so external tooling can shut it down cleanly.
+  // - Headless daemon promoted by `handoff`: retain the original headless
+  //   ownership policy. A short-lived agent shell must not close the user's
+  //   newly visible browser.
   // - Active cookie picker: never tear down mid-import regardless of mode —
   //   would strand the picker UI with "Failed to fetch."
   process.on('SIGTERM', () => {
@@ -1383,9 +1389,12 @@ if (import.meta.main) {
       console.log('[browse] Received SIGTERM but cookie picker is active, ignoring to avoid stranding the picker UI');
       return;
     }
-    const headed = activeBrowserManager.getConnectionMode() === 'headed';
-    if (headed || tunnelActive) {
-      console.log(`[browse] Received SIGTERM in ${headed ? 'headed' : 'tunnel'} mode, shutting down`);
+    const action = terminationAction({
+      startedHeaded: IS_HEADED_WATCHDOG,
+      tunnelActive,
+    });
+    if (action === 'shutdown') {
+      console.log(`[browse] Received SIGTERM in ${tunnelActive ? 'tunnel' : 'headed-launch'} mode, shutting down`);
       activeShutdown?.();
     } else {
       console.log('[browse] Received SIGTERM (ignoring — use /stop or Ctrl+C for intentional shutdown)');

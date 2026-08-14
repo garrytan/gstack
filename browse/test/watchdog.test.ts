@@ -14,8 +14,10 @@ import * as os from 'os';
 //   3. Default headless mode + parent dies: server STAYS ALIVE. The original
 //      "kill on parent death" was inverted by #994 because Claude Code's Bash
 //      sandbox kills the parent shell between every tool invocation, and #994
-//      makes browse persist across $B calls. Idle timeout (30 min) handles
-//      eventual cleanup.
+//      makes browse persist across $B calls. This launch ownership remains
+//      stable if `handoff` later changes the browser to headed mode; the dead
+//      one-shot CLI must not close the user's visible browser. Idle timeout or
+//      the user window handles eventual cleanup.
 //
 // Tunnel mode coverage (parent dies → shutdown because idle timeout doesn't
 // apply) is not covered by an automated test here — tunnelActive is a runtime
