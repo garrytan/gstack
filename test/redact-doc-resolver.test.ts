@@ -93,4 +93,12 @@ describe("REDACT_INVOCATION_BLOCK", () => {
   test("unknown sink label falls back without throwing", () => {
     expect(() => generateRedactInvocationBlock(ctx, ["bogus-sink"])).not.toThrow();
   });
+
+  test("retain mode keeps exact scanned bytes until after the destination write", () => {
+    const full = generateRedactInvocationBlock(ctx, ["pre-issue", "retain"]);
+    const brief = generateRedactInvocationBlock(ctx, ["pre-pr-body", "brief", "retain"]);
+    expect(full).toContain("Retain `$REDACT_FILE` for the immediate destination write");
+    expect(full).toContain("Never delete or reconstruct it before the write");
+    expect(brief).toContain("Retain `$REDACT_FILE` until the destination write succeeds");
+  });
 });

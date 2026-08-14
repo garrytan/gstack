@@ -564,9 +564,10 @@ quality gates that produce better results than answering inline.
 - User asks to review design of a plan → invoke `/plan-design-review`
 - User asks about developer experience of a plan, API/CLI/SDK design → invoke `/plan-devex-review`
 - User wants all reviews done automatically, "review everything" → invoke `/autoplan`
-- User reports a bug, error, broken behavior, "why is this broken", "this doesn't work", "wtf", "something's wrong" → invoke `/investigate`
+- User reports a bug, error, broken behavior, "why is this broken", "this doesn't work", "wtf", or "something's wrong" → invoke `/investigate`
+- Explicit precedence exception: when the user asks to document, reconstruct, capture, file, or draft a report for an already-observed failure → invoke `/bug-report`
 - User asks to test the site, find bugs, QA, "does this work", "check the deploy" → invoke `/qa`
-- User asks to just report bugs without fixing → invoke `/qa-only`
+- User asks to explore a web app for bugs without fixing → invoke `/qa-only`
 - User asks to review code, check the diff, pre-landing review, "look at my changes" → invoke `/review`
 - User asks about visual polish, design audit of a live site, "this looks off" → invoke `/design-review`
 - User asks to audit the live developer experience, time-to-hello-world → invoke `/devex-review`

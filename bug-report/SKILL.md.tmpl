@@ -1,0 +1,335 @@
+---
+name: bug-report
+preamble-tier: 2
+version: 1.0.0
+description: |
+  Evidence-driven bug report authoring. Reconstructs what the user did from the
+  conversation, repository state, recent changes, and safe diagnostic logs;
+  reproduces the failure when possible; and drafts a maintainer-ready report
+  with exact steps, expected/actual behavior, environment, evidence, and a
+  bounded root-cause assessment. Use when asked to "write a bug report",
+  "report this issue", "document what just broke", "capture this bug",
+  "draft an issue for maintainers", or "bugreport". This is report-only: it
+  does not fix code or publish the report without explicit approval. (gstack)
+voice-triggers:
+  - "write a bug report"
+  - "report this issue"
+  - "document what just broke"
+  - "bugreport"
+allowed-tools:
+  - Bash
+  - Read
+  - Write
+  - Grep
+  - Glob
+  - AskUserQuestion
+  - WebSearch
+triggers:
+  - write a bug report
+  - report this issue
+  - capture this bug
+  - draft an issue
+  - bugreport
+---
+
+{{PREAMBLE}}
+
+# /bug-report: Evidence-Driven Bug Reports
+
+Turn a rough description such as "it failed after I upgraded" into a report an
+unfamiliar maintainer can reproduce. Gather evidence; do not invent certainty.
+
+## Iron Laws
+
+1. **REPORT, DO NOT FIX.** Do not edit product code, dependencies, configuration,
+   or tests. If the user wants a fix, finish the report first, then recommend
+   `/investigate` in a separate turn.
+2. **OBSERVED IS NOT INFERRED.** Label every material claim as observed,
+   user-reported, inferred, or unknown. Never present a hypothesis as root cause.
+3. **NO SECRET HARVESTING.** Never dump the full environment, credential stores,
+   cookies, auth headers, shell history, or unrelated logs. Collect the minimum
+   relevant slice and redact before writing or publishing it.
+4. **NO SURPRISE PUBLICATION.** The default deliverable is a local draft. Never
+   run `gh issue create`, `glab issue create`, create a PR/MR, post a comment, or
+   upload an attachment unless the user explicitly asks after seeing the draft.
+5. **SAFE REPRODUCTION ONLY.** Do not reproduce against production, mutate shared
+   data, send messages, spend money, or run destructive commands without explicit
+   approval. Prefer a local, sandboxed, read-only reproduction.
+
+## Inputs and defaults
+
+Parse the request for:
+
+| Input | Default |
+|-------|---------|
+| Scope | Current repository and conversation |
+| Output | `.gstack/bug-reports/{YYYY-MM-DD}-{slug}.md` |
+| Reproduction | Safe local attempt |
+| Publication | Draft only |
+| History inspection | Current conversation and Git metadata only |
+
+Ask at most one blocking question at a time. Read available context before
+asking. A vague initial symptom is enough to begin evidence collection.
+
+## Phase 1: Preserve the initial account
+
+Restate the report in one paragraph without "cleaning up" meaningful details:
+
+- what the user was trying to do;
+- what happened and any exact error text already supplied;
+- what they expected;
+- when it last worked, if known;
+- impact and frequency, if known.
+
+Record missing facts as `Unknown`; do not force the user through a questionnaire.
+
+## Phase 2: Reconstruct the timeline
+
+Build a chronological table with `time/order`, `action`, `result`, and `source`.
+Use sources in this order:
+
+1. The current conversation and commands already run in it.
+2. Current repository evidence:
+
+   ```bash
+   git status --short
+   git branch --show-current
+   git log -10 --date=iso --pretty='%h %ad %s'
+   git diff --stat
+   git diff --cached --stat
+   ```
+
+3. Project-local logs clearly connected to the failure. Search filenames first;
+   read only a narrow tail or time window. Do not recursively ingest every log.
+4. Tool-specific diagnostic state that is both local and relevant (versions,
+   lockfile diff, failed test output, browser console/network evidence).
+
+Treat `git reflog`, IDE histories, browser histories, and shell history as
+sensitive activity records. Inspect them only when the user explicitly approves
+the named source and scope. Never read an entire history file; use a narrow time
+or count bound. Do not inspect histories from other repositories or applications.
+
+When evidence conflicts with the user's memory, preserve both accounts and say
+which evidence creates the discrepancy.
+
+## Phase 3: Capture the environment safely
+
+Collect only fields that can affect reproduction:
+
+- OS name/version and architecture;
+- runtime/compiler/package-manager versions;
+- application/package version or commit SHA;
+- relevant dependency versions;
+- relevant feature flags or configuration **names and sanitized states**;
+- clean/dirty worktree state;
+- local, staging, or production context (never include private hostnames).
+
+Never run bare `env`, `printenv`, `set`, or commands that dump all configuration.
+Query allowlisted names individually and render secrets as `[REDACTED]`. Replace
+usernames in filesystem paths with `<user>`.
+
+## Phase 4: Reproduce and log
+
+Derive the smallest credible reproduction from the timeline. Before running it:
+
+1. State the exact command or interaction and expected side effects.
+2. Confirm it stays local/read-only. Ask before any meaningful mutation.
+3. Prefer an existing test, fixture, dry-run flag, disposable temp directory, or
+   isolated browser session.
+
+Capture a timestamped transcript with:
+
+- exact sanitized command or UI action;
+- exit code and duration;
+- relevant stdout/stderr excerpt with 20 lines of context around the failure;
+- structured application logs in the matching time window;
+- stack trace with the first application-owned frame called out;
+- screenshots or request/response metadata when the issue is visual or networked.
+
+Screenshots and other binary evidence require a separate visual privacy gate:
+inspect every visible region, run OCR when available and scan the extracted text,
+crop or redact private UI, and strip EXIF/metadata before persistence. A clean
+text-byte scan does not prove pixels are safe. If visual review or metadata
+stripping is unavailable, describe the screenshot without saving or publishing
+it. Never upload raw captures.
+
+Enable verbose/debug logging only for the single reproduction attempt and only
+when it will not expose credentials or payloads. Do not leave persistent logging
+enabled. Store raw diagnostic artifacts in a collision-safe temporary directory
+outside the repository. Store only sanitized evidence under
+`.gstack/bug-reports/evidence/{report-slug}/`; exclude irrelevant output and note
+every omitted or redacted field. Never commit raw logs.
+
+After extracting sanitized evidence, delete the raw temporary directory in a
+finally-style cleanup step. If cleanup fails, warn with the exact path and stop
+before publication. Retain raw evidence only when the user explicitly approves
+the path and retention period after being warned it may contain secrets.
+
+Never copy an entire tool home, user profile, browser profile, application-state
+directory, or credential directory into evidence, even temporarily. Create
+disposable runtime homes outside the report tree and delete them after extracting
+the minimum sanitized text evidence. Auth files, config databases, SQLite state,
+cookies, and telemetry stores never belong under `.gstack/bug-reports/`.
+
+Treat every evidence file as its own persistence sink. Compose each sanitized
+artifact in a temporary file outside the repository, run the same exact-byte
+redaction procedure used for the report, and only then move the scanned bytes
+into `.gstack/bug-reports/evidence/`. A HIGH finding blocks persistence; MEDIUM
+requires the same confirmation/redaction flow. Never copy raw evidence into the
+report tree first and promise to clean it later.
+
+Classify reproduction honestly:
+
+- `Reproduced` — exact symptom observed;
+- `Partially reproduced` — related failure observed, with the difference stated;
+- `Not reproduced` — attempt completed without the symptom;
+- `Not attempted` — unsafe, unavailable, or missing prerequisite, with the reason.
+
+Never loop indefinitely. Stop after three materially different attempts and list
+what changed between them.
+
+## Phase 5: Analyze without overclaiming
+
+Trace enough code and recent changes to help maintainers choose where to start.
+Do not edit anything. Separate:
+
+- **Confirmed facts:** directly supported by an artifact or reproduction.
+- **Likely trigger:** the action or change immediately preceding the failure.
+- **Root-cause hypothesis:** a specific, falsifiable explanation, with supporting
+  and contradicting evidence.
+- **Suspected area:** files/modules/owners worth inspecting.
+- **Unknowns:** facts still required to confirm the cause.
+
+Use `git blame` and commit history only for technical provenance. Do not assign
+fault to an individual. If evidence is insufficient, write "Root cause unknown."
+
+## Phase 6: Draft the maintainer-ready report and PR guidance
+
+Write the local report using this exact structure:
+
+```markdown
+# <concise symptom-oriented title>
+
+## Summary
+<what failed, for whom, impact, frequency>
+
+## Reproduction status
+<Reproduced | Partially reproduced | Not reproduced | Not attempted>
+
+## Steps to reproduce
+### Prerequisites
+1. <versions/config/data setup>
+### Steps
+1. <one action per step>
+### Minimal reproduction
+<smallest command, fixture, or interaction; omit if unavailable>
+
+## Expected behavior
+<observable expected result>
+
+## Actual behavior
+<observable actual result, exact sanitized error>
+
+## Timeline reconstructed
+| Order/time | Action | Result | Source |
+|---|---|---|---|
+
+## Environment
+| Field | Value |
+|---|---|
+
+## Evidence
+<sanitized log excerpts and relative artifact paths>
+
+## Technical assessment
+### Confirmed facts
+### Likely trigger
+### Root-cause hypothesis
+### Suspected area
+### Unknowns
+
+## Regression range
+<last known good / first known bad / unknown>
+
+## Workarounds
+<verified workarounds only; otherwise "None known">
+
+## Maintainer verification checklist
+- [ ] Run the minimal reproduction on the reported version
+- [ ] Confirm the stated actual result
+- [ ] Test the root-cause hypothesis
+- [ ] Add a regression test before closing
+
+## Privacy and redaction notes
+<what was omitted, anonymized, or unavailable>
+```
+
+Every reproduction step must be executable by someone without conversation
+context. Pin versions and include setup details that materially affect the bug.
+Link evidence by relative path; do not paste megabytes of logs into the report.
+
+Also write `.gstack/bug-reports/{YYYY-MM-DD}-{slug}-pr-body.md`. This is a draft
+PR description and maintainer handoff, not a claim that a fix exists. Include:
+
+- the linked issue draft or issue URL, when available;
+- `Problem reproduced by` with the minimal sequence;
+- `Evidence of failure` with the stable error and control comparison;
+- `Proposed change: Not implemented in this report-only run` unless an already
+  authorized, verified change exists on the branch;
+- exact `How maintainers can verify` commands and before/after pass criteria;
+- the smallest regression test that should fail before a fix and pass afterward;
+- verified risks, hypotheses, and unknowns in separate lists.
+
+Do not use `git diff --exit-code` where legitimate generated changes make a diff
+expected. Verify generator idempotency by snapshotting after the first generation,
+running it again, and confirming the second run produces no further changes.
+
+Do not add a deliberately failing test to a shared branch. Do not manufacture an
+empty commit or empty PR merely to obtain a PR number.
+
+Before writing the report, scan the exact report bytes:
+
+{{REDACT_INVOCATION_BLOCK:pre-issue:retain}}
+
+Create the destination only after the scan passes. Use a collision-safe slug; do
+not overwrite an existing report. Pass the same scanned bytes to the file write.
+
+Before writing or returning the companion PR body, independently scan its exact
+bytes and pass the same scanned file to the destination write:
+
+{{REDACT_INVOCATION_BLOCK:pre-pr-body:brief:retain}}
+
+The issue draft, each evidence artifact, and the PR-body draft are separate sinks;
+a clean scan for one never authorizes another. Rerun the PR-body scan again before
+any later remote publication because user edits may have changed its bytes.
+
+## Phase 7: User review and optional handoff
+
+Show the title, reproduction status, strongest evidence, root-cause confidence,
+and local report path. Ask: **"Does this accurately capture what happened?"**
+Revise the draft until confirmed.
+
+After confirmation:
+
+- If the user asked only for a draft, stop.
+- If they explicitly ask to file it, rerun the same redaction scan on the final
+  issue bytes and every attachment, show the destination repository and visibility, request confirmation,
+  then use `gh issue create --body-file` (or the equivalent tracker command).
+- If they ask for a PR draft, return the PR-body draft even when no fix exists.
+- Open a remote draft PR only when the branch already contains a meaningful,
+  explicitly authorized artifact or verified code change. Rerun the PR-body scan
+  immediately before publication. Otherwise explain what
+  is missing (normally a regression test or fix), and offer `/investigate` next.
+
+Final output:
+
+```text
+BUG REPORT DRAFT
+Title: <title>
+Reproduction: <status>
+Evidence: <strongest artifact>
+Root cause: <confirmed | hypothesis at confidence | unknown>
+Issue draft: <path>
+PR draft: <path or reason a remote PR cannot yet be opened>
+Published: no
+```
