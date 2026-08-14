@@ -224,7 +224,7 @@ describe("daemon round-trip: two concurrent publishes share one daemon", () => {
 
       // Same daemon process — state file pid is stable
       const state = readStateFile(stateFile);
-      expect(state!.pid).toBe(d.proc.pid);
+      expect(state!.pid).toBe(d.proc.pid!);
 
       // Two distinct board ids
       expect(a.id).not.toBe(b.id);

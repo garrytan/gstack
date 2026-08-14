@@ -21,8 +21,9 @@ function fakeMod(id: number) {
     oldValue: 'red',
     newValue: 'blue',
     source: 'inline' as const,
+    sourceLine: 0,
     timestamp: id,
-    method: 'setProperty' as 'setProperty',
+    method: 'inline' as const,
   };
 }
 

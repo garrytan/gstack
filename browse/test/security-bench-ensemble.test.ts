@@ -26,6 +26,7 @@ import { describe, test, expect, beforeAll } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
 import { spawnSync } from 'child_process';
+import * as crypto from 'crypto';
 import { combineVerdict, THRESHOLDS, type LayerSignal } from '../src/security';
 import { HAIKU_MODEL } from '../src/security-classifier';
 import { detectBaseBranch, matchGlob } from '../../test/helpers/touchfiles';

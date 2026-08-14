@@ -41,7 +41,7 @@ async function importCache(): Promise<typeof import('../bin/gstack-brain-cache')
 }
 
 describe('schema-version cache migration (D4 A4)', () => {
-  test('cache file with mismatched schema_version triggers wipe-and-rebuild attempt', { timeout: SLOW_TIMEOUT }, async () => {
+  test('cache file with mismatched schema_version triggers wipe-and-rebuild attempt', async () => {
     const mod = await importCache();
     const cacheDir = join(TMP_HOME, 'projects', 'helsinki', 'brain-cache');
     mkdirSync(cacheDir, { recursive: true });
@@ -64,9 +64,9 @@ describe('schema-version cache migration (D4 A4)', () => {
     expect(existsSync(stalePath)).toBe(false);
     const newMeta = JSON.parse(readFileSync(join(cacheDir, '_meta.json'), 'utf-8'));
     expect(newMeta.schema_version).toBe(GSTACK_SCHEMA_PACK_VERSION);
-  });
+  }, { timeout: SLOW_TIMEOUT });
 
-  test('matching schema_version + fresh TTL is warm hit (no rebuild)', { timeout: SLOW_TIMEOUT }, async () => {
+  test('matching schema_version + fresh TTL is warm hit (no rebuild)', async () => {
     const mod = await importCache();
     const cacheDir = join(TMP_HOME, 'projects', 'helsinki', 'brain-cache');
     mkdirSync(cacheDir, { recursive: true });
@@ -82,9 +82,9 @@ describe('schema-version cache migration (D4 A4)', () => {
     const result = mod.cmdGet('product', 'helsinki');
     expect(result.state).toBe('warm');
     expect(readFileSync(result.path, 'utf-8')).toBe('# fresh content\n');
-  });
+  }, { timeout: SLOW_TIMEOUT });
 
-  test('rebuild wipes ALL files in scope, not just the one being read', { timeout: SLOW_TIMEOUT }, async () => {
+  test('rebuild wipes ALL files in scope, not just the one being read', async () => {
     const mod = await importCache();
     const cacheDir = join(TMP_HOME, 'projects', 'helsinki', 'brain-cache');
     mkdirSync(cacheDir, { recursive: true });
@@ -104,5 +104,5 @@ describe('schema-version cache migration (D4 A4)', () => {
     expect(existsSync(join(cacheDir, 'product.md'))).toBe(false);
     expect(existsSync(join(cacheDir, 'brand.md'))).toBe(false);
     expect(existsSync(join(cacheDir, 'developer-persona.md'))).toBe(false);
-  });
+  }, { timeout: SLOW_TIMEOUT });
 });

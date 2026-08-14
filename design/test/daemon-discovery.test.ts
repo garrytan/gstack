@@ -79,7 +79,7 @@ describe("daemon-state helpers", () => {
     const d = await spawn1();
     const state = readStateFile(stateFile);
     expect(state).not.toBeNull();
-    expect(state!.pid).toBe(d.proc.pid);
+    expect(state!.pid).toBe(d.proc.pid!);
     expect(state!.port).toBe(d.port);
     expect(state!.cmdlineMarker).toBe(CMDLINE_MARKER);
     expect(state!.version).toBe("test-version");
@@ -329,7 +329,7 @@ describe("shutdownDaemon + daemonStatus", () => {
     expect(s.running).toBe(true);
     if (s.running) {
       expect(s.port).toBe(d.port);
-      expect(s.pid).toBe(d.proc.pid);
+      expect(s.pid).toBe(d.proc.pid!);
       expect(s.version).toBe("test-version");
       expect(s.boards).toBe(0);
       expect(s.activeBoards).toBe(0);

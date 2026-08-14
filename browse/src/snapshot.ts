@@ -303,7 +303,7 @@ export async function handleSnapshot(
           const parts: string[] = [];
           let current: Element | null = el;
           while (current && current !== document.documentElement) {
-            const parent = current.parentElement;
+            const parent: Element | null = current.parentElement;
             if (!parent) break;
             const siblings = [...parent.children];
             const index = siblings.indexOf(current) + 1;

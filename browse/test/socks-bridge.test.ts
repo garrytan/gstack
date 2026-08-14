@@ -31,7 +31,7 @@ async function startMockUpstream(opts: MockUpstreamOpts = {}): Promise<MockUpstr
   const requireAuth = !!(expectedUser || expectedPass);
 
   const server = net.createServer((sock) => {
-    sock.once('data', (greeting) => {
+    sock.once('data', (greeting: Buffer) => {
       // Greeting: VER NMETHODS METHODS...
       const ver = greeting[0];
       if (ver !== 0x05) { sock.destroy(); return; }
@@ -44,7 +44,7 @@ async function startMockUpstream(opts: MockUpstreamOpts = {}): Promise<MockUpstr
           sock.write(Buffer.from([0x05, 0xFF])); sock.destroy(); return;
         }
         sock.write(Buffer.from([0x05, 0x02]));
-        sock.once('data', (auth) => {
+        sock.once('data', (auth: Buffer) => {
           // RFC 1929: VER ULEN UNAME PLEN PASSWD
           const ulen = auth[1];
           const uname = auth.subarray(2, 2 + ulen).toString();
@@ -66,7 +66,7 @@ async function startMockUpstream(opts: MockUpstreamOpts = {}): Promise<MockUpstr
   });
 
   function handleConnect(sock: net.Socket) {
-    sock.once('data', (req) => {
+    sock.once('data', (req: Buffer) => {
       attempts++;
       if (opts.rejectNthConnect && attempts === opts.rejectNthConnect) {
         // SOCKS5 reply with general failure
@@ -94,7 +94,7 @@ async function startMockUpstream(opts: MockUpstreamOpts = {}): Promise<MockUpstr
         sock.write(Buffer.from([0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0]));
         let bytesFromDest = 0;
         if (opts.dropAfterBytes && opts.dropAfterBytes > 0) {
-          dest.on('data', (chunk) => {
+          dest.on('data', (chunk: Buffer) => {
             bytesFromDest += chunk.length;
             if (bytesFromDest >= opts.dropAfterBytes!) {
               dest.destroy();
@@ -137,7 +137,7 @@ async function startMockUpstream(opts: MockUpstreamOpts = {}): Promise<MockUpstr
  */
 async function startEcho(): Promise<{ host: string; port: number; close: () => Promise<void> }> {
   const server = net.createServer((sock) => {
-    sock.on('data', (chunk) => { try { sock.write(chunk); } catch { sock.destroy(); } });
+    sock.on('data', (chunk: Buffer) => { try { sock.write(chunk); } catch { sock.destroy(); } });
     sock.on('error', () => sock.destroy());
   });
   await new Promise<void>((resolve, reject) => {
@@ -168,7 +168,7 @@ function socks5NoAuthConnect(
     sock.once('error', reject);
     sock.once('connect', () => {
       sock.write(Buffer.from([0x05, 0x01, 0x00])); // VER, NMETHODS=1, NO AUTH
-      sock.once('data', (greetReply) => {
+      sock.once('data', (greetReply: Buffer) => {
         if (greetReply[0] !== 0x05 || greetReply[1] !== 0x00) {
           reject(new Error('bridge rejected no-auth')); sock.destroy(); return;
         }
@@ -179,7 +179,7 @@ function socks5NoAuthConnect(
         hostBuf.copy(req, 5);
         req.writeUInt16BE(destPort, 5 + hostBuf.length);
         sock.write(req);
-        sock.once('data', (connectReply) => {
+        sock.once('data', (connectReply: Buffer) => {
           if (connectReply[0] !== 0x05 || connectReply[1] !== 0x00) {
             reject(new Error(`bridge connect failed: rep=${connectReply[1]}`));
             sock.destroy(); return;
@@ -224,7 +224,7 @@ describe('startSocksBridge', () => {
       const payload = Buffer.from('hello-bridge-round-trip-' + Date.now());
       const received = await new Promise<Buffer>((resolve, reject) => {
         const chunks: Buffer[] = [];
-        sock.on('data', (chunk) => {
+        sock.on('data', (chunk: Buffer) => {
           chunks.push(chunk);
           if (Buffer.concat(chunks).length >= payload.length) {
             resolve(Buffer.concat(chunks));
@@ -317,7 +317,7 @@ describe('startSocksBridge', () => {
       // any data arriving between those two attaches gets dropped because
       // the socket is in flowing mode without a listener.
       const inbox: Buffer[] = [];
-      sock.on('data', (chunk) => inbox.push(chunk));
+      sock.on('data', (chunk: Buffer) => inbox.push(chunk));
       const readAtLeast = async (n: number, timeoutMs = 2000): Promise<Buffer> => {
         const deadline = Date.now() + timeoutMs;
         while (Date.now() < deadline) {

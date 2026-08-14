@@ -392,6 +392,7 @@ export async function handleReadCommand(
 
       // Network capture extensions
       if (args[0] === '--capture') {
+        if (!bm) throw new Error('network --capture requires an active browser session');
         const {
           startCapture, stopCapture, getCaptureListener, isCaptureActive,
         } = await import('./network-capture');
@@ -592,6 +593,7 @@ export async function handleReadCommand(
     }
 
     case 'media': {
+      if (!bm) throw new Error('media requires an active browser session');
       const { extractMedia } = await import('./media-extract');
       const target = bm.getActiveFrameOrPage();
       const filter = args.includes('--images') ? 'images' as const
@@ -604,6 +606,7 @@ export async function handleReadCommand(
     }
 
     case 'data': {
+      if (!bm) throw new Error('data requires an active browser session');
       const target = bm.getActiveFrameOrPage();
       const wantJsonLd = args.includes('--jsonld') || args.length === 0;
       const wantOg = args.includes('--og') || args.length === 0;

@@ -164,6 +164,6 @@ describe('brain-cache-spec internal consistency', () => {
 
   test('all 5 preflight skills are real planning-skill names', () => {
     const expected = ['office-hours', 'plan-ceo-review', 'plan-eng-review', 'plan-design-review', 'plan-devex-review'];
-    expect(getPreflightSkills().sort()).toEqual(expected.sort());
+    expect([...getPreflightSkills()].sort()).toEqual(expected.sort());
   });
 });

@@ -85,7 +85,7 @@ describe('buildStealthScript — T3 Layer C', () => {
   });
 
   test('hardware values interpolated from host profile (NOT hardcoded)', () => {
-    const s = buildStealthScript({ platform: 'MacARM', hwConcurrency: 12, deviceMemory: 4 });
+    const s = buildStealthScript({ hwConcurrency: 12, deviceMemory: 4 });
     expect(s).toContain('return 12');
     expect(s).toContain('return 4');
     expect(s).not.toMatch(/return 8;.*hardwareConcurrency/);

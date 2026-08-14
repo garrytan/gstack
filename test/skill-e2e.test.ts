@@ -1819,10 +1819,10 @@ IMPORTANT:
 // Deferred tests — only test.todo entries, no selection needed
 describeE2E('Deferred skill E2E', () => {
   // Ship is destructive: pushes to remote, creates PRs, modifies VERSION/CHANGELOG
-  test.todo('/ship completes full workflow');
+  test.todo('/ship completes full workflow', () => {});
 
   // Setup-browser-cookies requires interactive browser picker UI
-  test.todo('/setup-browser-cookies imports cookies');
+  test.todo('/setup-browser-cookies imports cookies', () => {});
 
 });
 

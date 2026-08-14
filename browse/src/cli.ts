@@ -101,7 +101,7 @@ interface ServerState {
   configHash?: string;
   /** Xvfb child PID for cleanup on disconnect. */
   xvfbPid?: number;
-  xvfbStartTime?: number;
+  xvfbStartTime?: string;
   xvfbDisplay?: string;
 }
 
@@ -1079,24 +1079,26 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
     safeUnlinkQuiet(config.stateFile);
 
     console.log('Launching headed Chromium with extension + terminal agent...');
+    // Start server in headed mode with extension auto-loaded
+    // Use a well-known port so the Chrome extension auto-connects
+    // Hoisted above the try block: the supervisor respawn loop below reuses
+    // this exact env to relaunch with the same headed-mode configuration.
+    const serverEnv: Record<string, string> = {
+      BROWSE_HEADED: '1',
+      BROWSE_PORT: '34567',
+      BROWSE_SIDEBAR_CHAT: '1',
+      // Disable parent-process watchdog: the user controls the headed browser
+      // window lifecycle. The CLI exits immediately after connect, so watching
+      // it would kill the server ~15s later. Cleanup happens via browser
+      // disconnect event or $B disconnect.
+      BROWSE_PARENT_PID: '0',
+      // Apply --proxy from this invocation if present. Without this,
+      // `browse --proxy <url> connect` would launch headed Chromium
+      // bypassing the SOCKS bridge entirely.
+      ...(globalFlags.proxyUrl ? { BROWSE_PROXY_URL: globalFlags.proxyUrl } : {}),
+      ...(globalFlags.configHash ? { BROWSE_CONFIG_HASH: globalFlags.configHash } : {}),
+    };
     try {
-      // Start server in headed mode with extension auto-loaded
-      // Use a well-known port so the Chrome extension auto-connects
-      const serverEnv: Record<string, string> = {
-        BROWSE_HEADED: '1',
-        BROWSE_PORT: '34567',
-        BROWSE_SIDEBAR_CHAT: '1',
-        // Disable parent-process watchdog: the user controls the headed browser
-        // window lifecycle. The CLI exits immediately after connect, so watching
-        // it would kill the server ~15s later. Cleanup happens via browser
-        // disconnect event or $B disconnect.
-        BROWSE_PARENT_PID: '0',
-        // Apply --proxy from this invocation if present. Without this,
-        // `browse --proxy <url> connect` would launch headed Chromium
-        // bypassing the SOCKS bridge entirely.
-        ...(globalFlags.proxyUrl ? { BROWSE_PROXY_URL: globalFlags.proxyUrl } : {}),
-        ...(globalFlags.configHash ? { BROWSE_CONFIG_HASH: globalFlags.configHash } : {}),
-      };
       const newState = await startServer(serverEnv);
 
       // Print connected status

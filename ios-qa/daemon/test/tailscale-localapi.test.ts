@@ -50,6 +50,6 @@ describe('probeTailscale', () => {
     // Reason may be 'socket_missing' or 'unreachable' depending on how the
     // OS/runtime surfaces a missing unix socket. Either is a fail-closed
     // outcome that prevents the daemon from opening the tailnet listener.
-    expect(['socket_missing', 'unreachable']).toContain(r.reason);
+    expect(['socket_missing', 'unreachable']).toContain(r.reason!);
   });
 });

@@ -135,7 +135,8 @@ export function appendSecureFile(
   data: string | NodeJS.ArrayBufferView,
 ): void {
   const existed = fs.existsSync(filePath);
-  fs.appendFileSync(filePath, data, { mode: 0o600 });
+  const payload = typeof data === 'string' ? data : Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+  fs.appendFileSync(filePath, payload, { mode: 0o600 });
   if (!existed) restrictFilePermissions(filePath);
 }
 

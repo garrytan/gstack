@@ -62,8 +62,8 @@ describe('buildHermeticEnv allowlist', () => {
   });
 
   test('keeps named auth vars but not the broad ANTHROPIC_ prefix', () => {
-    expect(env.ANTHROPIC_API_KEY).toBe(CONTAMINATED.ANTHROPIC_API_KEY);
-    expect(env.ANTHROPIC_BASE_URL).toBe(CONTAMINATED.ANTHROPIC_BASE_URL);
+    expect(env.ANTHROPIC_API_KEY).toBe(CONTAMINATED.ANTHROPIC_API_KEY!);
+    expect(env.ANTHROPIC_BASE_URL).toBe(CONTAMINATED.ANTHROPIC_BASE_URL!);
     expect(env.ANTHROPIC_MODEL).toBeUndefined(); // behavior knob, not auth
   });
 
@@ -124,7 +124,7 @@ describe('EVALS_HERMETIC=0 escape hatch', () => {
     const base = { ...CONTAMINATED, EVALS_HERMETIC: '0' } as NodeJS.ProcessEnv;
     const e = buildHermeticEnv(base, HERMETIC_VARS, { GSTACK_HEADLESS: '1' });
     // Legacy spread: every base var survives, hermeticVars NOT applied.
-    expect(e.CONDUCTOR_WORKSPACE_PATH).toBe(CONTAMINATED.CONDUCTOR_WORKSPACE_PATH);
+    expect(e.CONDUCTOR_WORKSPACE_PATH).toBe(CONTAMINATED.CONDUCTOR_WORKSPACE_PATH!);
     expect(e.CLAUDE_CONFIG_DIR).toBe('/Users/op/.claude');
     expect(e.GSTACK_HOME).toBe('/Users/op/.gstack');
     expect(e.GSTACK_HEADLESS).toBe('1');

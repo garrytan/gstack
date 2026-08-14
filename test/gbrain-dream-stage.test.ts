@@ -44,6 +44,7 @@ function args(overrides: Partial<CliArgs> = {}): CliArgs {
     codeOnly: false,
     dream: false,
     noDream: false,
+    allowReclone: false,
     ...overrides,
   };
 }

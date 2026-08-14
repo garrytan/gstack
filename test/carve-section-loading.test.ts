@@ -56,7 +56,7 @@ describeE2E('carve behavioral section-loading (periodic, SDK capture)', () => {
       `${guard.skill}: a real run Reads ${guard.requiredReads.join(', ')}`,
       async () => {
         const { skillMd, sectionsFrom } = skillFromWorktree(guard.skill);
-        const fixtures = guard.behavioral === 'plan' ? { 'PLAN.md': PLAN_MD } : {};
+        const fixtures: Record<string, string> = guard.behavioral === 'plan' ? { 'PLAN.md': PLAN_MD } : {};
         const planDir = setupSkillDir({
           skillName: guard.skill,
           skillMd,

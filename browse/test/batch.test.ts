@@ -34,12 +34,6 @@ beforeAll(async () => {
   bm = new BrowserManager();
   await bm.launch();
   serverPort = bm.serverPort;
-
-  // Start the browse server
-  const { startServer } = await import('../src/server');
-  // The server is already started by launch — we need the port
-  // Actually, BrowserManager.launch() starts the browser, not the server.
-  // The test needs to start a server. Let's use the existing server infrastructure.
 });
 
 afterAll(() => {

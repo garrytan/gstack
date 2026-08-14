@@ -55,7 +55,7 @@ function defaultEvalDir(): string {
 export interface EvalTestEntry {
   name: string;
   suite: string;
-  tier: 'e2e' | 'llm-judge';
+  tier: string;
   passed: boolean;
   duration_ms: number;
   cost_usd: number;
@@ -88,6 +88,13 @@ export interface EvalTestEntry {
   detected_bugs?: string[];
   missed_bugs?: string[];
 
+  // Bug provenance classification (test-failure-triage)
+  has_in_branch_classification?: boolean;
+  has_pre_existing_classification?: boolean;
+  mentions_truncate?: boolean;
+  mentions_divide?: boolean;
+  ran_both_test_files?: boolean;
+
   error?: string;
 
   // Worktree harvest data
@@ -105,7 +112,7 @@ export interface EvalResult {
   git_sha: string;
   timestamp: string;
   hostname: string;
-  tier: 'e2e' | 'llm-judge';
+  tier: string;
   total_tests: number;
   passed: number;
   failed: number;
@@ -765,14 +772,14 @@ function getVersion(): string {
 }
 
 export class EvalCollector {
-  private tier: 'e2e' | 'llm-judge';
+  private tier: string;
   private tests: EvalTestEntry[] = [];
   private finalized = false;
   private evalDir: string;
   private shard: string | null;
   private createdAt = Date.now();
 
-  constructor(tier: 'e2e' | 'llm-judge', evalDir?: string) {
+  constructor(tier: string, evalDir?: string) {
     this.tier = tier;
     this.evalDir = evalDir || process.env.GSTACK_EVAL_DIR || defaultEvalDir();
     this.shard = shardSlugOfEvalDir(this.evalDir);

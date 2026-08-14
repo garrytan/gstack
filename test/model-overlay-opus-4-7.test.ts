@@ -19,11 +19,11 @@
 import { describe, test, expect } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
-import type { TemplateContext } from '../scripts/resolvers/types';
+import type { TemplateContext, Model } from '../scripts/resolvers/types';
 import { HOST_PATHS } from '../scripts/resolvers/types';
 import { generateModelOverlay } from '../scripts/resolvers/model-overlay';
 
-function makeCtx(model: string): TemplateContext {
+function makeCtx(model: Model): TemplateContext {
   return {
     skillName: 'test-skill',
     tmplPath: 'test.tmpl',

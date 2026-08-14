@@ -369,7 +369,10 @@ describe('buildFetchHandler factory contract', () => {
     capturedSurface = undefined;
     const localReq = new Request('http://127.0.0.1/health');
     await handle.fetchLocal(localReq, null);
-    expect(capturedSurface).toBe('local');
+    // capturedSurface is reassigned inside the beforeRoute callback invoked by
+    // fetchLocal; TS's flow analysis doesn't see across that boundary and
+    // narrows to the pre-await `undefined`, so re-widen explicitly.
+    expect(capturedSurface as Surface | undefined).toBe('local');
   });
 
   test('11. initRegistry idempotent under same-token re-init', () => {

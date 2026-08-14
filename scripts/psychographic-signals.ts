@@ -36,7 +36,7 @@
  *   architecture_care:  0 = pragmatic, ship it      ↔  1 = principled, get it right
  */
 
-import { QUESTIONS } from './question-registry';
+import { QUESTIONS, type QuestionDef } from './question-registry';
 
 /** The 5 dimensions of the developer psychographic. */
 export type Dimension =
@@ -255,7 +255,7 @@ export function validateRegistrySignalKeys(): {
   extra: string[];
 } {
   const registrySignalKeys = new Set<string>();
-  for (const q of Object.values(QUESTIONS)) {
+  for (const q of Object.values(QUESTIONS) as QuestionDef[]) {
     if (q.signal_key) registrySignalKeys.add(q.signal_key);
   }
   const mapKeys = new Set(Object.keys(SIGNAL_MAP));

@@ -22,7 +22,7 @@ async function startRejectingUpstream(): Promise<{ port: number; close: () => Pr
   // handshake by REJECTING (status 0x01), then closes. Our testUpstream()
   // should retry 3x and exhaust within ~5s.
   const server = net.createServer((sock) => {
-    sock.once('data', (greeting) => {
+    sock.once('data', (greeting: Buffer) => {
       if (greeting[0] !== 0x05) { sock.destroy(); return; }
       const methods = greeting.subarray(2, 2 + greeting[1]);
       if (!methods.includes(0x02)) { sock.write(Buffer.from([0x05, 0xFF])); sock.destroy(); return; }

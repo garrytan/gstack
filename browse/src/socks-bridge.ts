@@ -132,7 +132,7 @@ export async function startSocksBridge(opts: {
     clientSocket.once('close', () => inFlight.delete(clientSocket));
 
     let state: State = 'greeting';
-    let buf = Buffer.alloc(0);
+    let buf: Buffer = Buffer.alloc(0);
     let upstreamSocket: net.Socket | null = null;
 
     const killBoth = (reason?: string) => {

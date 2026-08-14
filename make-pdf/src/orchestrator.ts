@@ -201,7 +201,7 @@ export async function generate(opts: GenerateOptions): Promise<string> {
       finalHtml = convertDiagnosticsForDocx(finalHtml);
     }
   } finally {
-    renderTab?.close();
+    (renderTab as RenderTab | null)?.close();
   }
 
   // ─── --to html: write the self-contained document, no print round-trip ──

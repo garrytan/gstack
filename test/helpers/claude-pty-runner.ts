@@ -1562,6 +1562,8 @@ export interface PlanSkillObservation {
    *                     AskUserQuestion render (the May-2026 transcript bug)
    *  - 'exited'       — claude process died before any of the above
    *  - 'timeout'      — none of the above within budget
+   *  - 'wrote_findings_before_asking' — model wrote a plan/findings file
+   *                     before pausing on a question (the bug this guards)
    */
   outcome:
     | 'asked'

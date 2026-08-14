@@ -48,7 +48,8 @@
     "analytics": "bun run scripts/analytics.ts",
     "test:audit": "bun test test/audit-compliance.test.ts",
     "slop": "npx slop-scan scan . 2>/dev/null || echo 'slop-scan not available (install with: npm i -g slop-scan)'",
-    "slop:diff": "bun run scripts/slop-diff.ts"
+    "slop:diff": "bun run scripts/slop-diff.ts",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.1.0",
@@ -76,6 +77,8 @@
   "devDependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.2.117",
     "@anthropic-ai/sdk": "^0.78.0",
+    "bun-types": "^1.3.6",
+    "typescript": "^5.9.3",
     "xterm": "5",
     "xterm-addon-fit": "^0.8.0"
   },

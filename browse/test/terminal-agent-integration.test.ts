@@ -266,7 +266,7 @@ describe('terminal-agent: PTY round-trip via real WebSocket (Cookie auth)', () =
 
     await Bun.sleep(300);
     // ws still readyState 1 (OPEN) or 3 (CLOSED after exit) — both fine.
-    expect([WebSocket.OPEN, WebSocket.CLOSED]).toContain(ws.readyState);
+    expect([WebSocket.OPEN, WebSocket.CLOSED] as number[]).toContain(ws.readyState);
 
     try { ws.close(); } catch {}
   });

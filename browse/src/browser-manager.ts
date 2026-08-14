@@ -90,8 +90,15 @@ export function shouldEnableChromiumSandbox(): boolean {
  * per-path exit semantics (launch→1, launchHeaded→2, handoff→1) and gbd
  * restarts on backoff.
  */
+/** Playwright's public `Browser` type doesn't expose the underlying process; this matches what it (and our test fakes) actually provide at runtime. */
+type BrowserProcessHandle = {
+  exitCode: number | null;
+  signalCode: NodeJS.Signals | null;
+  once: (event: 'exit', listener: (...args: unknown[]) => void) => void;
+};
+
 export async function resolveDisconnectCause(browser: Browser | null): Promise<'clean' | 'crash'> {
-  const proc = browser?.process();
+  const proc = (browser as unknown as { process?: () => BrowserProcessHandle } | null)?.process?.();
   if (proc && proc.exitCode === null && proc.signalCode === null) {
     await new Promise<void>((resolve) => {
       const timer = setTimeout(resolve, 1000);
@@ -732,7 +739,7 @@ export class BrowserManager {
           this.context ? this.context.close() : Promise.resolve(),
           new Promise(resolve => setTimeout(resolve, 5000)),
         ]).catch(() => {});
-      } else {
+      } else if (this.browser) {
         // Launched mode: close the browser we spawned
         this.browser.removeAllListeners('disconnected');
         await Promise.race([
