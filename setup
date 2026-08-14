@@ -249,6 +249,81 @@ if [ "$INSTALL_CODEX" -eq 1 ]; then
   migrate_direct_codex_install "$SOURCE_GSTACK_DIR" "$CODEX_GSTACK"
 fi
 
+# ─── Helper: run a command under a wall-clock ceiling ─────────────────────────
+# Portable stand-in for GNU coreutils `timeout`, which macOS does not ship (only
+# `gtimeout`, via Homebrew coreutils). Returns the command's own exit status, or
+# 124 when it had to be killed — same convention as timeout(1).
+#
+# Why this exists: `playwright install` can download a browser archive to 100%
+# and then hang indefinitely in its extraction step, emitting no error and
+# silently re-downloading the whole archive on retry. Without a ceiling, `setup`
+# blocks forever with no output, which reads as "still downloading" rather than
+# "stuck". See README.md → Troubleshooting → "Playwright browser install hangs".
+#
+# Poll granularity is 1s: the kill stays responsive and ~1800 `sleep 1` spawns
+# over a 30-minute ceiling costs nothing next to a 280 MB download.
+_run_with_timeout() {
+  local secs="$1"; shift
+
+  # Job control gives the child its own process group, so the kill reaches the
+  # installer's descendants (playwright spawns node) rather than orphaning a
+  # hung grandchild that still holds Playwright's __dirlock.
+  set -m
+  "$@" &
+  local pid=$!
+  set +m
+
+  local waited=0
+  while kill -0 "$pid" 2>/dev/null; do
+    if [ "$waited" -ge "$secs" ]; then
+      # Negative pid targets the process group, plain pid the direct child. Send
+      # BOTH unconditionally rather than chaining with `||`: MSYS/Git Bash
+      # emulates process groups imperfectly, and a group kill there can report
+      # success without actually signalling the child — which would make an
+      # `||` fallback short-circuit and never fire.
+      kill -TERM "-$pid" 2>/dev/null || true
+      kill -TERM "$pid" 2>/dev/null || true
+      # Brief grace period, then escalate. Breaks early when TERM was enough.
+      local grace=0
+      while [ "$grace" -lt 4 ]; do
+        kill -0 "$pid" 2>/dev/null || break
+        sleep 0.5
+        grace=$((grace + 1))
+      done
+      kill -KILL "-$pid" 2>/dev/null || true
+      kill -KILL "$pid" 2>/dev/null || true
+      wait "$pid" 2>/dev/null || true
+      return 124
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+
+  # Report the command's real status. Assigned via `||` so an errexit-enabled
+  # caller sees the return value instead of aborting inside the helper.
+  local status=0
+  wait "$pid" || status=$?
+  return "$status"
+}
+
+# Printed when the browser install blows through the ceiling above. Raising the
+# timeout does NOT help — the extraction step itself never completes — so the
+# message points at the manual install instead of suggesting a longer wait.
+_print_playwright_install_hang_help() {
+  echo "gstack setup failed: the Playwright browser install exceeded ${PLAYWRIGHT_INSTALL_TIMEOUT}s and was killed." >&2
+  echo "" >&2
+  echo "  Symptom: the download reaches 100%, then extraction hangs with no error" >&2
+  echo "  and the installer silently re-downloads the archive. If that is what you" >&2
+  echo "  saw, a longer timeout will not help — extraction never finishes." >&2
+  echo "" >&2
+  echo "  Fix: install the browsers by hand (unzip takes a few seconds), then" >&2
+  echo "  re-run ./setup. Step-by-step instructions:" >&2
+  echo "    README.md → Troubleshooting → \"Playwright browser install hangs\"" >&2
+  echo "" >&2
+  echo "  If your connection genuinely needs longer for a ~280 MB download, raise" >&2
+  echo "  the ceiling: GSTACK_PLAYWRIGHT_INSTALL_TIMEOUT=3600 ./setup" >&2
+}
+
 ensure_playwright_browser() {
   if [ "$IS_WINDOWS" -eq 1 ]; then
     # On Windows, Bun can't launch Chromium due to broken pipe handling
@@ -476,12 +551,23 @@ if [ "$INSTALL_OPENCODE" -eq 1 ] && [ "$NEEDS_BUILD" -eq 0 ]; then
 fi
 
 # 2. Ensure Playwright's Chromium is available
+# Wall-clock ceiling for the browser install. Generous enough for a ~280 MB
+# download on a slow line, bounded so a hung extraction can't block setup
+# forever. Override with GSTACK_PLAYWRIGHT_INSTALL_TIMEOUT=<seconds>.
+PLAYWRIGHT_INSTALL_TIMEOUT="${GSTACK_PLAYWRIGHT_INSTALL_TIMEOUT:-1800}"
+
 if ! ensure_playwright_browser; then
   echo "Installing Playwright Chromium..."
+  playwright_install_status=0
   (
     cd "$SOURCE_GSTACK_DIR"
-    bunx playwright install chromium
-  )
+    _run_with_timeout "$PLAYWRIGHT_INSTALL_TIMEOUT" bunx playwright install chromium
+  ) || playwright_install_status=$?
+
+  if [ "$playwright_install_status" -eq 124 ]; then
+    _print_playwright_install_hang_help
+    exit 1
+  fi
 
   if [ "$IS_WINDOWS" -eq 1 ]; then
     # On Windows, Node.js launches Chromium (not Bun — see oven-sh/bun#4253).

@@ -473,6 +473,43 @@ Data is stored in [Supabase](https://supabase.com) (open source Firebase alterna
 
 On Windows without Developer Mode (MSYS2 / Git Bash), `setup` falls back to file copies instead of symlinks because `ln -snf` produces frozen copies that don't refresh on `git pull`. **Re-run `cd ~/.claude/skills/gstack && ./setup` after every `git pull`** so your skill files match the repo. `setup` prints a one-line note reminding you. Unix and WSL keep symlinks and don't need the re-run.
 
+### Playwright browser install hangs
+
+**Symptom:** `./setup` prints `Installing Playwright Chromium...`, the download progress bar reaches 100%, and then nothing happens for a long time. The installer is stuck in its *extraction* step — it emits no error and silently re-downloads the whole archive when it retries, so it looks like a slow connection rather than a hang.
+
+`setup` caps this at 30 minutes and aborts with instructions instead of blocking forever. Raise the ceiling with `GSTACK_PLAYWRIGHT_INSTALL_TIMEOUT=3600 ./setup` if your connection genuinely needs longer for a ~280 MB download. If you saw the download hit 100% first, a longer timeout won't help — extraction never finishes.
+
+**Manual fix.** Unzipping the archives by hand takes a few seconds. You need two values, both printed in your own output:
+
+- `VER` — from the installer's download line: `Downloading Chrome for Testing 145.0.7632.6 ...`
+- `REV` — from the directory name in the launch error: `...chromium_headless_shell-1208...`
+
+```bash
+BROWSERS="${PLAYWRIGHT_BROWSERS_PATH:-$HOME/AppData/Local/ms-playwright}"
+VER=145.0.7632.6   # from the installer's download line
+REV=1208           # from chromium_headless_shell-<REV>
+PLAT=win64         # copy the platform segment from the installer's own URL
+BASE="https://cdn.playwright.dev/builds/cft/$VER/$PLAT"
+
+curl -L -o /tmp/chrome.zip "$BASE/chrome-$PLAT.zip"
+curl -L -o /tmp/shell.zip  "$BASE/chrome-headless-shell-$PLAT.zip"
+
+mkdir -p "$BROWSERS/chromium-$REV" "$BROWSERS/chromium_headless_shell-$REV"
+unzip -q -o /tmp/chrome.zip -d "$BROWSERS/chromium-$REV"
+unzip -q -o /tmp/shell.zip  -d "$BROWSERS/chromium_headless_shell-$REV"
+
+# Playwright treats a browser dir without this marker as a partial install.
+touch "$BROWSERS/chromium-$REV/INSTALLATION_COMPLETE"
+touch "$BROWSERS/chromium_headless_shell-$REV/INSTALLATION_COMPLETE"
+```
+
+Then re-run `./setup`. Notes:
+
+- The default browsers root differs per platform: `~/AppData/Local/ms-playwright` (Windows), `~/Library/Caches/ms-playwright` (macOS), `~/.cache/ms-playwright` (Linux). `PLAYWRIGHT_BROWSERS_PATH` wins when set.
+- The `win64` platform string above is verified; for macOS/Linux copy the exact segment out of the installer's own download URL rather than guessing.
+- `/browse` needs the **headless shell** build, not just `chromium`. Extracting only `chromium-<REV>` still fails with `Executable doesn't exist at ...chrome-headless-shell.exe`.
+- If an earlier attempt left a partial install behind, delete the incomplete `chromium*-<REV>` directories and any `__dirlock` in the browsers root before extracting.
+
 **Claude says it can't see the skills?** Make sure your project's `CLAUDE.md` has a gstack section. Add this:
 
 ```
