@@ -20,7 +20,22 @@
 
 const CODE_ZONE_RE = /<(pre|code|script|style)\b[^>]*>[\s\S]*?<\/\1>/gi;
 const TAG_RE = /<[^>]+>/g;
-const URL_RE = /\bhttps?:\/\/\S+/g;
+// BUG FIX (2026-07-20): a bare autolinked URL like <a href="X">X</a> has
+// the URL text sitting with zero whitespace before its own closing </a>
+// tag. TAG_RE carves that </a> into a "\u0000SMARTPANTS_PRESERVED_N\u0000"
+// placeholder BEFORE this pattern runs. The old pattern (\S+, non-
+// whitespace-greedy) swallowed that adjacent placeholder into the URL
+// match, since \u0000 and the placeholder text are all non-whitespace.
+// The outer carve() then stored "https://...\u0000SMARTPANTS_PRESERVED_N\u0000"
+// as ONE preserved zone. String.replace() with a global regex does not
+// rescan replacement text for further matches, so that inner placeholder
+// was never restored -- it leaked through as literal "SMARTPANTS_PRESERVED_N"
+// text glued onto the end of the URL, corrupting the link (found in DOI
+// reference lists across the ebook PDFs). Excluding \u0000 from the URL
+// char class stops the match from ever crossing into an adjacent,
+// already-carved zone.
+const URL_RE = /\bhttps?:\/\/[^\s\u0000]+/g;
+
 
 /**
  * Apply smartypants to an HTML string. Zones that should not be touched:
