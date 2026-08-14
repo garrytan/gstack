@@ -383,8 +383,8 @@ Output a summary header: `Pre-Landing Review: N issues (X critical, Y informatio
    - If 3 or fewer ASK items, you may use individual AskUserQuestion calls instead
 
 7. **After all fixes (auto + user-approved):**
-   - If ANY fixes were applied: commit fixed files by name (`git add <fixed-files> && git commit -m "fix: pre-landing review fixes"`), then **STOP** and tell the user to run `/ship` again to re-test.
-   - If no fixes applied (all ASK items skipped, or no issues found): continue to Step 12.
+   - If ANY fixes were applied: commit fixed files by name (`git add <fixed-files> && git commit -m "fix: pre-landing review fixes"`), then rerun the required tests and pre-landing review against the new immutable HEAD inside the same `/ship` invocation. Repeat until clean or a genuine ASK/hard failure requires human input. Do not return control to the user merely because fixes changed HEAD.
+   - When no fixes remain, continue the ship workflow.
 
 8. Output summary: `Pre-Landing Review: N issues — M auto-fixed, K asked (J fixed, L skipped)`
 

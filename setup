@@ -18,8 +18,8 @@ INSTALL_GSTACK_DIR="$(cd "$(dirname "$0")" && pwd)"
 SOURCE_GSTACK_DIR="$(cd "$(dirname "$0")" && pwd -P)"
 INSTALL_SKILLS_DIR="$(dirname "$INSTALL_GSTACK_DIR")"
 BROWSE_BIN="$SOURCE_GSTACK_DIR/browse/dist/browse"
-CODEX_SKILLS="$HOME/.codex/skills"
-CODEX_GSTACK="$CODEX_SKILLS/gstack"
+CODEX_SKILLS="$HOME/.agents/skills"
+CODEX_GSTACK="$HOME/.codex/skills/gstack"
 FACTORY_SKILLS="$HOME/.factory/skills"
 FACTORY_GSTACK="$FACTORY_SKILLS/gstack"
 OPENCODE_SKILLS="$HOME/.config/opencode/skills"
@@ -225,9 +225,14 @@ fi
 migrate_direct_codex_install() {
   local gstack_dir="$1"
   local codex_gstack="$2"
+  local agents_gstack="$3"
   local migrated_dir="$HOME/.gstack/repos/gstack"
 
-  [ "$gstack_dir" = "$codex_gstack" ] || return 0
+  if [ "$gstack_dir" = "$codex_gstack" ] || [ "$gstack_dir" = "$agents_gstack" ]; then
+    : # Direct install: migrate below so Codex does not recursively discover source skills.
+  else
+    return 0
+  fi
   [ -L "$gstack_dir" ] && return 0
 
   mkdir -p "$(dirname "$migrated_dir")"
@@ -246,7 +251,7 @@ migrate_direct_codex_install() {
 }
 
 if [ "$INSTALL_CODEX" -eq 1 ]; then
-  migrate_direct_codex_install "$SOURCE_GSTACK_DIR" "$CODEX_GSTACK"
+  migrate_direct_codex_install "$SOURCE_GSTACK_DIR" "$CODEX_GSTACK" "$CODEX_SKILLS/gstack"
 fi
 
 ensure_playwright_browser() {
@@ -446,12 +451,12 @@ fi
 AGENTS_DIR="$SOURCE_GSTACK_DIR/.agents/skills"
 NEEDS_AGENTS_GEN=1
 
-if [ "$NEEDS_AGENTS_GEN" -eq 1 ] && [ "$NEEDS_BUILD" -eq 0 ]; then
+if [ "$NEEDS_AGENTS_GEN" -eq 1 ]; then
   log "Generating .agents/ skill docs..."
   (
     cd "$SOURCE_GSTACK_DIR"
     bun_cmd install --frozen-lockfile 2>/dev/null || bun_cmd install
-    bun_cmd run gen:skill-docs --host codex
+    bun_cmd run gen:skill-docs --host codex --model gpt
   )
 fi
 
@@ -711,11 +716,11 @@ link_codex_skill_dirs() {
 
   if [ ! -d "$agents_dir" ]; then
     echo "  Generating .agents/ skill docs..."
-    ( cd "$gstack_dir" && bun run gen:skill-docs --host codex )
+    ( cd "$gstack_dir" && bun run gen:skill-docs --host codex --model gpt )
   fi
 
   if [ ! -d "$agents_dir" ]; then
-    echo "  warning: .agents/skills/ generation failed — run 'bun run gen:skill-docs --host codex' manually" >&2
+    echo "  warning: .agents/skills/ generation failed — run 'bun run gen:skill-docs --host codex --model gpt' manually" >&2
     return 1
   fi
 
@@ -976,8 +981,13 @@ link_opencode_skill_dirs() {
 SKILLS_BASENAME="$(basename "$INSTALL_SKILLS_DIR")"
 SKILLS_PARENT_BASENAME="$(basename "$(dirname "$INSTALL_SKILLS_DIR")")"
 CODEX_REPO_LOCAL=0
+CODEX_GLOBAL_AGENTS=0
 if [ "$SKILLS_BASENAME" = "skills" ] && [ "$SKILLS_PARENT_BASENAME" = ".agents" ]; then
-  CODEX_REPO_LOCAL=1
+  if [ "$INSTALL_SKILLS_DIR" = "$HOME/.agents/skills" ]; then
+    CODEX_GLOBAL_AGENTS=1
+  else
+    CODEX_REPO_LOCAL=1
+  fi
 fi
 
 if [ "$INSTALL_CLAUDE" -eq 1 ]; then
@@ -1087,6 +1097,8 @@ if [ "$INSTALL_CODEX" -eq 1 ]; then
   if [ "$CODEX_REPO_LOCAL" -eq 1 ]; then
     CODEX_SKILLS="$INSTALL_SKILLS_DIR"
     CODEX_GSTACK="$INSTALL_GSTACK_DIR"
+  elif [ "$CODEX_GLOBAL_AGENTS" -eq 1 ]; then
+    CODEX_SKILLS="$INSTALL_SKILLS_DIR"
   fi
   mkdir -p "$CODEX_SKILLS"
 

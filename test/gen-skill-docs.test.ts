@@ -1797,6 +1797,30 @@ describe('Codex generation (--host codex)', () => {
     expect(reviewContent).not.toContain('CODEX_REVIEWS');
   });
 
+  test('ship keeps mechanical review fixes inside the same invocation through PR creation', () => {
+    const shipContent = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-ship', 'SKILL.md'), 'utf-8');
+    const postFixStart = shipContent.indexOf('7. **After all fixes (auto + user-approved):**');
+    const postFixEnd = shipContent.indexOf('8. Output summary:', postFixStart);
+    const postFixBlock = shipContent.slice(postFixStart, postFixEnd);
+
+    expect(postFixStart).toBeGreaterThan(-1);
+    expect(postFixEnd).toBeGreaterThan(postFixStart);
+    expect(postFixBlock).toContain('same `/ship` invocation');
+    expect(postFixBlock).toContain('Repeat until clean');
+    expect(postFixBlock).not.toContain('**STOP**');
+    expect(postFixBlock).not.toContain('tell the user to run');
+    expect(shipContent.indexOf('## Step 19: Create PR/MR')).toBeGreaterThan(postFixEnd);
+  });
+
+  test('ship automation contract does not contradict its post-fix instructions', () => {
+    const shipContent = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-ship', 'SKILL.md'), 'utf-8');
+
+    expect(shipContent).toContain('Auto-fixable review findings');
+    expect(shipContent).not.toMatch(
+      /If ANY fixes were applied:[\s\S]{0,500}\*\*STOP\*\*[\s\S]{0,200}run `\/ship` again/,
+    );
+  });
+
   test('--host codex --dry-run freshness', () => {
     const result = Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', 'codex', '--dry-run'], {
       cwd: ROOT,
@@ -2296,6 +2320,20 @@ describe('setup script validation', () => {
     expect(setupContent).toContain('CODEX_SKILLS="$INSTALL_SKILLS_DIR"');
   });
 
+  test('global .agents installs keep generated skills there and create the Codex runtime root', () => {
+    expect(setupContent).toContain('CODEX_GLOBAL_AGENTS=0');
+    expect(setupContent).toContain('[ "$INSTALL_SKILLS_DIR" = "$HOME/.agents/skills" ]');
+    expect(setupContent).toContain('CODEX_GLOBAL_AGENTS=1');
+
+    const codexSection = setupContent.slice(
+      setupContent.indexOf('# 5. Install for Codex'),
+      setupContent.indexOf('# 6. Create'),
+    );
+    expect(codexSection).toContain('elif [ "$CODEX_GLOBAL_AGENTS" -eq 1 ]; then');
+    expect(codexSection).toContain('CODEX_SKILLS="$INSTALL_SKILLS_DIR"');
+    expect(codexSection).toContain('create_codex_runtime_root "$SOURCE_GSTACK_DIR" "$CODEX_GSTACK"');
+  });
+
   test('setup separates install path from source path for symlinked repo-local installs', () => {
     expect(setupContent).toContain('INSTALL_GSTACK_DIR=');
     expect(setupContent).toContain('SOURCE_GSTACK_DIR=');
@@ -2384,6 +2422,17 @@ describe('setup script validation', () => {
     expect(setupContent).toContain('command -v opencode');
   });
 
+  test('setup generates Codex skills with the GPT model overlay', () => {
+    const codexGenerationCommands = setupContent.match(
+      /bun(?:_cmd)? run gen:skill-docs --host codex[^\n]*/g,
+    ) ?? [];
+
+    expect(codexGenerationCommands.length).toBeGreaterThan(0);
+    for (const command of codexGenerationCommands) {
+      expect(command).toContain('--model gpt');
+    }
+  });
+
   // T1: Sidecar skip guard — prevents .agents/skills/gstack from being linked as a skill
   test('link_codex_skill_dirs skips the gstack sidecar directory', () => {
     const fnStart = setupContent.indexOf('link_codex_skill_dirs()');
@@ -2454,6 +2503,17 @@ describe('setup script validation', () => {
     expect(setupContent).toContain('migrate_direct_codex_install');
     expect(setupContent).toContain('$HOME/.gstack/repos/gstack');
     expect(setupContent).toContain('avoid duplicate skill discovery');
+  });
+
+  test('global Codex discovery uses ~/.agents and migrates the source repo out of it', () => {
+    expect(setupContent).toContain('CODEX_SKILLS="$HOME/.agents/skills"');
+
+    const migrationStart = setupContent.indexOf('migrate_direct_codex_install()');
+    const migrationEnd = setupContent.indexOf('ensure_playwright_browser()', migrationStart);
+    const migrationBody = setupContent.slice(migrationStart, migrationEnd);
+    expect(migrationBody).toContain('local agents_gstack="$3"');
+    expect(migrationBody).toContain('[ "$gstack_dir" = "$agents_gstack" ]');
+    expect(migrationBody).toContain('migrate_direct_codex_install "$SOURCE_GSTACK_DIR" "$CODEX_GSTACK" "$CODEX_SKILLS/gstack"');
   });
 
   // --- Symlink prefix tests (PR #503) ---
