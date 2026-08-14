@@ -369,6 +369,16 @@ export class BrowserManager {
       console.log(`[browse] Extensions loaded from: ${extensionsDir}`);
     }
 
+    // Windows: the default headless path launches chrome-headless-shell.exe — a
+    // CONSOLE-subsystem binary that pops a terminal window on every launch. Switch
+    // to Chrome's "new" headless (full chrome.exe, GUI-subsystem → no console
+    // window) by launching non-headless with --headless=new. Other platforms keep
+    // the lighter headless shell (they have no console-window problem).
+    if (process.platform === 'win32' && useHeadless) {
+      launchArgs.push('--headless=new');
+      useHeadless = false;
+    }
+
     this.browser = await chromium.launch({
       headless: useHeadless,
       // On Windows, Chromium's sandbox fails when the server is spawned through
