@@ -23,6 +23,7 @@ import {
   appendSecureFile,
   mkdirSecure,
   __resetWarnedForTests,
+  __getWindowsGranteeForTests,
 } from '../src/file-permissions';
 
 let tmpDir: string;
@@ -34,6 +35,20 @@ beforeEach(() => {
 
 afterEach(() => {
   try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* best-effort */ }
+});
+
+describe('getWindowsGrantee', () => {
+  test('on Windows, resolves an unambiguous grantee (SID or DOMAIN\\user)', () => {
+    if (process.platform !== 'win32') return;
+    // A bare-username grant is ambiguous when the username collides with
+    // another account object (e.g. machine name == username), which locks
+    // even the owner out. The grantee must be a SID (`*S-1-...`) or, as a
+    // fallback, a domain-qualified name — never a bare username.
+    const grantee = __getWindowsGranteeForTests();
+    const isSid = /^\*S-1-[0-9-]+$/.test(grantee);
+    const isQualified = grantee.includes('\\');
+    expect(isSid || isQualified).toBe(true);
+  });
 });
 
 describe('restrictFilePermissions', () => {
