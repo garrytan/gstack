@@ -803,25 +803,29 @@ last-sync time. Machine state stays in the Configuration block above.
 ## GBrain Search Guidance (configured by /sync-gbrain)
 <!-- gstack-gbrain-search-guidance:start -->
 
-GBrain is set up and synced on this machine. The agent should prefer gbrain
-over Grep when the question is semantic or when you don't know the exact
-identifier yet. Two indexed corpora available via the `gbrain` CLI:
+GBrain is set up and synced on this machine. Prefer the registered
+`mcp__gbrain__*` tools over Grep when the question is semantic or when you
+don't know the exact identifier yet. The MCP service may be the sole owner of
+the local PGLite database, so do not run the corresponding `gbrain` CLI query
+while that service is live. Two indexed corpora are available through MCP:
 - This repo's code (registered as `gstack-code-<repo>` source).
 - `~/.gstack/` curated memory (registered as `gstack-brain-<user>` source via
   the existing federation pipeline).
 
-Prefer gbrain when:
+Prefer GBrain MCP when:
 - "Where is X handled?" / semantic intent, no exact string yet:
-    `gbrain search "<terms>"` or `gbrain query "<question>"`
+    `mcp__gbrain__search` or `mcp__gbrain__query`
 - "Where is symbol Y defined?" / symbol-based code questions:
-    `gbrain code-def <symbol>` or `gbrain code-refs <symbol>`
+    `mcp__gbrain__code_def` or `mcp__gbrain__code_refs`
 - "What calls Y?" / "What does Y depend on?":
-    `gbrain code-callers <symbol>` / `gbrain code-callees <symbol>`
+    `mcp__gbrain__code_callers` / `mcp__gbrain__code_callees`
 - "What did we decide last time?" / past plans, retros, learnings:
-    `gbrain search "<terms>" --source gstack-brain-<user>`
+    `mcp__gbrain__search` with `source_id: gstack-brain-<user>`
 
 Grep is still right for known exact strings, regex, multiline patterns, and
-file globs. The brain auto-syncs incrementally on every gstack skill start.
+file globs. Use the local CLI only as a fallback when MCP is not registered
+and no live GBrain server owns PGLite. The brain auto-syncs incrementally on
+every gstack skill start.
 Run `/sync-gbrain` to force-refresh, `/sync-gbrain --full` for full reindex.
 
 <!-- gstack-gbrain-search-guidance:end -->
