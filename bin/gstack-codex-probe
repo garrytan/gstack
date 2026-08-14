@@ -5,7 +5,7 @@
 # Functions (all prefixed with _gstack_codex_ for namespace hygiene):
 #   _gstack_codex_auth_probe      — multi-signal auth check (env + file)
 #   _gstack_codex_version_check   — warn on known-bad Codex CLI versions
-#   _gstack_codex_timeout_wrapper — gtimeout -> timeout -> unwrapped fallback
+#   _gstack_codex_timeout_wrapper — gtimeout -> timeout -> shell-watchdog fallback
 #   _gstack_codex_log_event       — telemetry emission to ~/.gstack/analytics/
 #
 # Hygiene rules (enforced by test/codex-hardening.test.ts):
@@ -53,17 +53,50 @@ _gstack_codex_version_check() {
 
 _gstack_codex_timeout_wrapper() {
   # Resolve wrapper binary: prefer gtimeout (Homebrew coreutils on macOS),
-  # fall back to timeout (Linux), else run unwrapped. Arguments: $1 is the
-  # duration in seconds; rest is the command to run.
+  # fall back to timeout (Linux), else a pure-shell watchdog so hang
+  # protection still works on machines with neither (e.g. bare macOS).
+  # Arguments: $1 is the duration in seconds; rest is the command to run.
   local _duration="$1"
   shift
   local _to
   _to=$(command -v gtimeout 2>/dev/null || command -v timeout 2>/dev/null || echo "")
   if [ -n "$_to" ]; then
     "$_to" "$_duration" "$@"
-  else
-    "$@"
+    return $?
   fi
+  # Shell watchdog: background the command, poll every 5s, TERM at the
+  # deadline (KILL 10s later if TERM is ignored), and report exit 124 like
+  # GNU timeout so callers' hang handling still fires. The brace group
+  # routes the shell's own stderr to /dev/null so bash's "Terminated" job
+  # notices never leak into skill output, while fd 3 carries the real
+  # stderr through to the command (call-site 2> captures keep working).
+  # Both jobs are reaped inside the silenced group so no notice surfaces
+  # later and nothing outlives the call holding the caller's pipes open.
+  local _cmd_pid _watchdog_pid
+  local _rc=0
+  {
+    "$@" 2>&3 3>&- &
+    _cmd_pid=$!
+    (
+      _waited=0
+      while [ "$_waited" -lt "$_duration" ]; do
+        sleep 5
+        kill -0 "$_cmd_pid" 2>/dev/null || exit 0
+        _waited=$((_waited + 5))
+      done
+      kill -TERM "$_cmd_pid" 2>/dev/null
+      sleep 10
+      kill -KILL "$_cmd_pid" 2>/dev/null
+    ) >/dev/null 2>&1 3>&- &
+    _watchdog_pid=$!
+    wait "$_cmd_pid" || _rc=$?
+    kill "$_watchdog_pid" 2>/dev/null
+    wait "$_watchdog_pid" 2>/dev/null || :
+  } 3>&2 2>/dev/null
+  if [ "$_rc" -eq 143 ] || [ "$_rc" -eq 137 ]; then
+    _rc=124
+  fi
+  return "$_rc"
 }
 
 # --- Telemetry event --------------------------------------------------------
