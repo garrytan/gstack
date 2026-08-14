@@ -75,6 +75,9 @@ globalThis.Bun = {
       timeout: options.timeout,
       env: options.env,
       cwd: options.cwd,
+      // Suppress the console window Windows allocates per child process;
+      // without this every spawn flashes a visible conhost window.
+      windowsHide: true,
     });
 
     return {
@@ -91,6 +94,9 @@ globalThis.Bun = {
       stdio,
       env: options.env,
       cwd: options.cwd,
+      // Suppress the console window Windows allocates per child process;
+      // without this every spawn flashes a visible conhost window.
+      windowsHide: true,
     });
 
     return {
