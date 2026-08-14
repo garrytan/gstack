@@ -66,8 +66,10 @@ export interface RenderResult {
  * Pure renderer. No side effects.
  */
 export function render(opts: RenderOptions): RenderResult {
-  // 1. Markdown → HTML
-  const rawHtml = marked.parse(opts.markdown, { async: false }) as string;
+  // 1. Markdown → HTML (strip a leading YAML frontmatter block first; marked
+  //    has no frontmatter awareness and would otherwise render it as a literal
+  //    paragraph of body text on its own first page).
+  const rawHtml = marked.parse(stripFrontmatter(opts.markdown), { async: false }) as string;
 
   // 1.5. Image directive suffixes: `![a](x.png){width=50%}` → data-gstack-*
   // attributes. Before the sanitizer (which keeps data- attrs) so the brace
@@ -357,15 +359,49 @@ function wrapChaptersByH1(html: string): string {
   }
   const chunks: string[] = [];
   const preamble = html.slice(0, matches[0]);
+  // A preamble that renders nothing visible (a leading <style> block, an HTML
+  // comment) must NOT become its own .chapter. That section would take the
+  // `.chapter:first-of-type { break-before: auto }` exception, so the first
+  // *real* chapter inherits `break-before: page` and starts on page 2 — leaving
+  // a blank page 1. Keep the non-rendering markup (so its styling still applies)
+  // but fold it into the first real chapter instead of giving it a page break.
+  let carriedPreamble = "";
   if (preamble.trim().length > 0) {
-    chunks.push(`<section class="chapter">${preamble}</section>`);
+    if (stripNonRendering(preamble).trim().length > 0) {
+      chunks.push(`<section class="chapter">${preamble}</section>`);
+    } else {
+      carriedPreamble = preamble;
+    }
   }
   for (let i = 0; i < matches.length; i++) {
     const start = matches[i];
     const end = i + 1 < matches.length ? matches[i + 1] : html.length;
-    chunks.push(`<section class="chapter">${html.slice(start, end)}</section>`);
+    const body = i === 0 ? carriedPreamble + html.slice(start, end) : html.slice(start, end);
+    chunks.push(`<section class="chapter">${body}</section>`);
   }
   return chunks.join("\n");
+}
+
+/**
+ * Strip leading YAML frontmatter (`---\n...\n---`). Only a block at the very
+ * start of the document is removed, so a `---` thematic break elsewhere is
+ * untouched.
+ */
+function stripFrontmatter(md: string): string {
+  return md.replace(/^---[ \t]*\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/, "");
+}
+
+/**
+ * Remove non-rendering markup (style/script blocks, HTML comments) so an
+ * otherwise-empty preamble is recognized as visually empty. Used only to decide
+ * whether a preamble deserves its own page — the original markup is preserved in
+ * the output.
+ */
+function stripNonRendering(html: string): string {
+  return html
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "")
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "")
+    .replace(/<!--[\s\S]*?-->/g, "");
 }
 
 function extractFirstHeading(html: string): string | null {

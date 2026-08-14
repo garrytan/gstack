@@ -249,6 +249,48 @@ describe("render (end-to-end)", () => {
     expect(result.printCss).toContain("Hiragino Kaku Gothic");
     expect(result.printCss).toContain("Noto Sans CJK");
   });
+
+  // ─── blank-first-page regression (#1904) ────────────────────────
+  // Any content before the first <h1> used to become a standalone preamble
+  // .chapter. That section takes the `:first-of-type { break-before: auto }`
+  // exception, so the first real chapter inherits `break-before: page` and
+  // starts on page 2 — leaving a blank/near-blank page 1.
+
+  test("a leading <style> preamble does not get its own chapter (no blank page 1)", () => {
+    const result = render({ markdown: `<style>h1{color:#000}</style>\n\n# Hello\n\nBody.\n` });
+    const chapters = result.html.match(/class="chapter"/g) ?? [];
+    // One chapter, not two — the invisible <style> no longer forces a page break.
+    expect(chapters.length).toBe(1);
+    // ...and the style is preserved (folded into the first chapter, not dropped).
+    expect(result.html).toContain("<style>h1{color:#000}</style>");
+    expect(result.html).toMatch(/<section class="chapter"><style>[\s\S]*?<\/style>[\s\S]*?<h1/);
+  });
+
+  test("leading YAML frontmatter is stripped, not rendered as body text", () => {
+    const result = render({
+      markdown: `---\ntitle: My Doc\ntype: memo\ntags: [a, b]\n---\n\n# Hello\n\nBody.\n`,
+    });
+    // Frontmatter keys must not leak into the rendered body.
+    expect(result.html).not.toContain("type: memo");
+    expect(result.html).not.toContain("tags: [a, b]");
+    // No preamble chapter -> single chapter, first H1 on page 1.
+    const chapters = result.html.match(/class="chapter"/g) ?? [];
+    expect(chapters.length).toBe(1);
+    expect(result.meta.title).toBe("Hello");
+  });
+
+  test("a real text preamble still gets its own chapter (unchanged behavior)", () => {
+    const result = render({ markdown: `Intro paragraph.\n\n# Hello\n\nBody.\n` });
+    const chapters = result.html.match(/class="chapter"/g) ?? [];
+    expect(chapters.length).toBe(2);
+  });
+
+  test("a `---` thematic break that is not frontmatter is left intact", () => {
+    // Opening with visible text means the later `---` is a real <hr>, not frontmatter.
+    const result = render({ markdown: `# Hello\n\nBefore.\n\n---\n\nAfter.\n` });
+    expect(result.html).toContain("<hr>");
+    expect(result.html).toContain("After.");
+  });
 });
 
 // ─── print-css ──────────────────────────────────────────────
