@@ -10,6 +10,7 @@ Conventions:
 
 ## Skills
 
+- [/agy](agy/SKILL.md): Google Antigravity CLI wrapper — three modes.
 - [/autoplan](autoplan/SKILL.md): Auto-review pipeline — reads the full CEO, design, eng, and DX review skills from disk and runs them sequentially with auto-decisions using 6 decision principles.
 - [/benchmark](benchmark/SKILL.md): Performance regression detection using the browse daemon.
 - [/benchmark-models](benchmark-models/SKILL.md): Cross-model benchmark for gstack skills.

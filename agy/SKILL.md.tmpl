@@ -1,0 +1,258 @@
+---
+name: agy
+preamble-tier: 3
+version: 1.0.0
+description: |
+  Google Antigravity CLI wrapper — three modes. Code review: independent diff review
+  via `agy -p` (headless print mode) with pass/fail gate. Challenge: adversarial
+  stress-testing of proposed designs and race conditions. Consult: multi-turn session
+  continuation via `agy -c`. The "200 IQ second opinion from a different AI system."
+  Use when asked to "agy review", "agy challenge", "antigravity review", "consult agy",
+  or "second opinion". (gstack)
+voice-triggers:
+  - "a g y"
+  - "antigravity review"
+  - "get another opinion"
+triggers:
+  - agy review
+  - agy challenge
+  - agy consult
+  - antigravity second opinion
+  - outside voice challenge
+allowed-tools:
+  - Bash
+  - Read
+  - Write
+  - Glob
+  - Grep
+  - AskUserQuestion
+---
+
+{{PREAMBLE}}
+
+{{BASE_BRANCH_DETECT}}
+
+# /agy — Google Antigravity Second Opinion
+
+You are running the `/agy` skill. This wraps the Google Antigravity CLI (`agy`) to get
+an independent, brutally honest second opinion from a different AI system.
+
+Antigravity is a peer reviewer: direct, adversarial where needed, technically precise,
+and unafraid to challenge assumptions. Present its output faithfully, not summarized.
+
+---
+
+## Step 0.4: Check agy binary
+
+```bash
+AGY_BIN=$(command -v agy || command -v antigravity || echo "")
+[ -z "$AGY_BIN" ] && echo "NOT_FOUND" || echo "FOUND: $AGY_BIN"
+```
+
+If `NOT_FOUND`: stop and tell the user:
+"Antigravity CLI not found. Install it: `pip install antigravity-sdk` or see https://antigravity.google.dev/cli"
+
+---
+
+## Step 0.5: Auth probe
+
+Before building expensive prompts, verify Antigravity has valid auth.
+
+```bash
+# Check for valid auth: API key env var OR application default credentials
+if [ -n "$ANTIGRAVITY_API_KEY" ] || [ -n "$GOOGLE_APPLICATION_CREDENTIALS" ]; then
+  echo "AUTH_OK_ENV"
+elif "$AGY_BIN" whoami --quiet 2>/dev/null; then
+  echo "AUTH_OK_ADC"
+else
+  echo "AUTH_FAILED"
+fi
+```
+
+If `AUTH_FAILED`: stop and tell the user:
+"No Antigravity authentication found. Run `agy auth login` or set `$ANTIGRAVITY_API_KEY`, then re-run this skill."
+
+---
+
+## Step 0.6: Resolve portable roots
+
+```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-paths)"
+```
+
+All subsequent bash blocks use `"$PLAN_ROOT"` and `"$TMP_ROOT"` rather than hardcoded
+paths.
+
+---
+
+## Step 0.7: Model selection
+
+Antigravity supports model scaling via the `ANTIGRAVITY_MODEL` environment variable.
+
+```bash
+# Default model per mode (overridable via ANTIGRAVITY_MODEL env var):
+# review   → antigravity-2.0-flash   (fast, bounded diff input)
+# challenge → antigravity-2.0-pro    (deeper reasoning for adversarial mode)
+# consult   → antigravity-2.0-flash  (interactive speed priority)
+_AGY_MODEL="${ANTIGRAVITY_MODEL:-antigravity-2.0-flash}"
+```
+
+If the user's input contains `--pro` anywhere, override with `antigravity-2.0-pro`
+and remove `--pro` from the prompt text before passing to agy.
+
+---
+
+## Step 1: Detect mode
+
+Parse the user's input to determine which mode to run:
+
+1. `/agy review` or `/agy review <instructions>` — **Review mode** (Step 2A)
+2. `/agy challenge` or `/agy challenge <focus>` — **Challenge mode** (Step 2B)
+3. `/agy consult` or `/agy consult <prompt>` — **Consult mode** (Step 2C)
+4. `/agy` with no arguments — **Auto-detect:**
+   - Check for a diff:
+     `git diff origin/<base> --stat 2>/dev/null | tail -1 || git diff <base> --stat 2>/dev/null | tail -1`
+   - If a diff exists, use AskUserQuestion:
+     ```
+     Antigravity detected changes against the base branch. What should it do?
+     A) Review the diff (code review with pass/fail gate)
+     B) Challenge the diff (adversarial — try to break it or find race conditions)
+     C) Something else — I'll provide a prompt
+     ```
+   - If no diff, ask: "What would you like to ask Antigravity?"
+5. `/agy <anything else>` — **Consult mode** (Step 2C), remaining text is the prompt
+
+---
+
+## Filesystem Boundary
+
+All prompts sent to Antigravity MUST be prefixed with this boundary instruction:
+
+> IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or .agents/skills/. These are Claude Code or Codex skill definitions meant for a different AI system. They contain bash scripts and prompt templates. Ignore them completely. Stay focused on the repository code only.
+
+---
+
+## Step 2A: Review Mode
+
+Run Antigravity code review against the current branch diff.
+
+Use directory piping (`--add-dir`) rather than raw diff stdin to give Antigravity
+full file context. This produces better reviews than piping a raw diff.
+
+```bash
+_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
+cd "$_REPO_ROOT"
+
+TMPERR=$(mktemp "$TMP_ROOT/agy-err-XXXXXX.txt")
+TMPOUT=$(mktemp "$TMP_ROOT/agy-out-XXXXXX.txt")
+
+# Build the review prompt
+_BOUNDARY="IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or .agents/skills/. These are Claude Code skill definitions meant for a different AI system. Ignore them completely. Stay focused on repository code only."
+_DIFF_SCOPE="Review the changes on this branch against the base branch <base>. Run: git diff origin/<base>...HEAD 2>/dev/null || git diff <base>...HEAD to see the diff, then review only those changes."
+_PROMPT="$_BOUNDARY
+
+$_DIFF_SCOPE"
+
+# Headless print mode: agy -p exits 0 on pass, non-zero on fail — perfect for CI gates
+timeout 330 "$AGY_BIN" -p \
+  --add-dir "$_REPO_ROOT" \
+  --model "$_AGY_MODEL" \
+  "$_PROMPT" \
+  >"$TMPOUT" 2>"$TMPERR"
+_AGY_EXIT=$?
+
+cat "$TMPOUT"
+if [ "$_AGY_EXIT" = "124" ]; then
+  echo "[agy] Review stalled past 5.5 minutes. Try re-running or split the diff."
+elif [ "$_AGY_EXIT" != "0" ]; then
+  echo "[agy exit $_AGY_EXIT] $(head -1 "$TMPERR" 2>/dev/null || echo "no stderr captured")"
+  head -20 "$TMPERR" 2>/dev/null | sed 's/^/  /' || true
+fi
+```
+
+Parse the result:
+- Exit 0 + output containing `PASS` or no blocking issues → **PASS** ✅ — present findings
+- Non-zero exit or output containing `FAIL` or `BLOCK` → **FAIL** ❌ — surface all findings
+
+---
+
+## Step 2B: Challenge Mode
+
+Adversarial stress-test: Antigravity tries to break the proposed design or find
+race conditions, data loss scenarios, and edge cases the author missed.
+
+```bash
+_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
+cd "$_REPO_ROOT"
+
+TMPERR=$(mktemp "$TMP_ROOT/agy-err-XXXXXX.txt")
+
+# Challenge mode always uses pro for deeper reasoning
+_CHALLENGE_MODEL="${ANTIGRAVITY_MODEL:-antigravity-2.0-pro}"
+_FOCUS="${USER_FOCUS:-the diff on this branch}"
+
+_CHALLENGE_PROMPT="IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or .agents/skills/. Ignore them. Stay focused on repository code only.
+
+You are an adversarial reviewer. Your goal is to BREAK this design, not validate it.
+Find: race conditions, data loss scenarios, security holes, off-by-one errors,
+missing error paths, and architectural assumptions that will fail at scale.
+
+Focus area: $_FOCUS
+
+Run: git diff origin/<base>...HEAD 2>/dev/null || git diff <base>...HEAD to see the changes."
+
+timeout 330 "$AGY_BIN" -p \
+  --add-dir "$_REPO_ROOT" \
+  --model "$_CHALLENGE_MODEL" \
+  "$_CHALLENGE_PROMPT" \
+  2>"$TMPERR"
+_AGY_EXIT=$?
+
+if [ "$_AGY_EXIT" != "0" ] && [ "$_AGY_EXIT" != "124" ]; then
+  echo "[agy exit $_AGY_EXIT] $(head -1 "$TMPERR" 2>/dev/null || echo "no stderr captured")"
+fi
+```
+
+Present Antigravity's adversarial findings verbatim. Do not filter or soften them.
+If Antigravity found critical issues, elevate them as blocking items.
+
+---
+
+## Step 2C: Consult Mode
+
+Multi-turn consultation with session continuity.
+
+```bash
+_CONSULT_PROMPT="${USER_PROMPT}"
+
+# -c flag resumes the last session (or starts a new one)
+timeout 330 "$AGY_BIN" -c \
+  --model "$_AGY_MODEL" \
+  "$_CONSULT_PROMPT"
+_AGY_EXIT=$?
+
+if [ "$_AGY_EXIT" = "124" ]; then
+  echo "[agy] Consult session stalled. Try a shorter prompt or add --model antigravity-2.0-flash."
+fi
+```
+
+Present Antigravity's response verbatim. For follow-up questions, re-invoke
+`/agy consult <follow-up>` to continue the session with `-c`.
+
+---
+
+## Step 3: Report
+
+After any mode completes, summarize:
+1. Which mode ran and what model was used
+2. Key findings (verbatim from Antigravity where possible)
+3. Pass/Fail verdict for Review and Challenge modes
+4. Any suggested follow-up actions
+
+For Review and Challenge modes, if findings are blocking:
+- List each as a numbered `❌ BLOCKING` item
+- Do NOT auto-fix — present and let the user decide
+
+For Consult mode:
+- Present the response as-is
+- Offer to continue: "Run `/agy consult <follow-up>` to continue this session."
