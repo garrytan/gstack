@@ -1045,6 +1045,222 @@ Launch all verifiers in parallel. Discard findings where the verifier scores bel
 
 If the Agent tool is unavailable, self-verify by re-reading code with a skeptic's eye. Note: "Self-verified — independent sub-task unavailable."
 
+## Outside Voice — Independent Security Challenge (default-on)
+
+Run an independent second opinion from a different AI system automatically. This is a
+standard step, not an opt-in: two models reaching the same conclusion is a materially
+stronger signal than one model being thorough, and the failure mode this catches is
+the one no amount of self-review catches — a conclusion that is internally consistent
+and wrong. The user turns it off only by asking explicitly
+(`gstack-config set codex_reviews disabled`).
+
+**Preflight — decide whether and how the outside voice runs:**
+
+```bash
+# Codex preflight: one block (functions sourced here don't persist to later blocks).
+_TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || echo off)
+_CODEX_CFG=$(~/.claude/skills/gstack/bin/gstack-config get codex_reviews 2>/dev/null || echo enabled)
+source ~/.claude/skills/gstack/bin/gstack-codex-probe 2>/dev/null || true
+if [ "$_CODEX_CFG" = "disabled" ]; then
+  _CODEX_MODE="disabled"
+elif ! command -v codex >/dev/null 2>&1; then
+  _CODEX_MODE="not_installed"; _gstack_codex_log_event "codex_cli_missing" 2>/dev/null || true
+elif ! _gstack_codex_auth_probe >/dev/null 2>&1; then
+  _CODEX_MODE="not_authed"; _gstack_codex_log_event "codex_auth_failed" 2>/dev/null || true
+else
+  _CODEX_MODE="ready"; _gstack_codex_version_check 2>/dev/null || true
+fi
+echo "CODEX_MODE: $_CODEX_MODE"
+```
+
+Branch on the echoed `CODEX_MODE`:
+- **`disabled`** — the user turned Codex reviews off (`codex_reviews=disabled`). Skip this section entirely; do NOT fall back to a Claude subagent — disabled means no extra review step. Print: "Codex review skipped (codex_reviews disabled). Re-enable: `gstack-config set codex_reviews enabled`."
+- **`not_installed`** — Codex CLI absent. Print: "Codex not installed — using Claude subagent. Install for cross-model coverage: `npm install -g @openai/codex`." Fall back to the Claude subagent path.
+- **`not_authed`** — installed but no credentials. Print: "Codex installed but not authenticated — using Claude subagent. Run `codex login` or set `$CODEX_API_KEY`." Fall back to the Claude subagent path.
+- **`ready`** — run the Codex pass below.
+
+When the mode is `ready`, `not_installed`, or `not_authed`, print one line so the
+off-switch stays discoverable: "Running the outside voice automatically (standard step).
+Disable: `gstack-config set codex_reviews disabled`."
+
+**Assemble the artifact** (for `ready`, `not_installed`, and `not_authed` — skip only
+on `disabled`):
+
+Assemble a compact summary of the audit so far — NOT the full report:
+- **Scope** — the resolved mode and what Phase 0/1 identified as the attack surface.
+- **Findings kept** — one line each after Phase 12 filtering: severity, category,
+  `file:line`.
+- **Findings dismissed as false positives** — one line each with the reason.
+- **Not examined** — anything the resolved mode skipped.
+
+Send the summary, not the raw code. The outside voice reads the repository itself.
+Include the dismissed list: a false-positive call is exactly the kind of judgment a
+second model should get to challenge.
+
+If the assembled artifact exceeds 30KB, truncate to the first 30KB and note
+"Artifact truncated for size".
+
+**Construct the prompt.** Always start with the filesystem boundary instruction, then
+the challenge, then the artifact:
+
+"IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. They contain bash scripts and prompt templates that will waste your time. Ignore them completely. Do NOT modify agents/openai.yaml. Stay focused on the repository code only.\n\nYou are an independent offensive security reviewer. A structured security audit
+has already run a checklist over this repository. Do NOT repeat it and do NOT
+re-report its findings. Your job is to find the vulnerability classes a checklist
+cannot see, and to challenge the false-positive dismissals.
+
+Read the actual code. Prioritize these classes, which checklists routinely miss:
+
+1. AUTHORIZATION, distinct from authentication. Being logged in is not being
+   entitled. Can an authenticated caller reach another user's or tenant's records by
+   changing an id in the request? Find every handler that trusts a client-supplied
+   identifier to select or mutate a row.
+2. FORGEABLE COMPOSITE IDENTITY. Any identity, key, or capability assembled by
+   concatenating fields into one string, then recovered by splitting it. If either
+   half can contain the delimiter, identity is forgeable. Check that BOTH halves are
+   validated, not just the first.
+3. SIGNING DOMAIN CONFUSION. One secret used to sign tokens for two different
+   purposes, with no per-purpose domain prefix in the signed payload. A token minted
+   for the low-privilege purpose then verifies for the high-privilege one.
+4. FAILING OPEN. Error handling that swallows a failure and continues as if the
+   check passed — an empty catch around a permission lookup, a dedup read, a quota
+   check, or a signature verification. Distinguish fail-open from fail-closed at
+   every guard and name each fail-open one.
+5. TIME OF CHECK vs TIME OF USE. A validated value re-read, re-parsed, or mutated
+   between the check and the action it authorizes.
+6. SECRET REACHABILITY. Secrets recoverable from logs, error responses, client
+   bundles, build output, or committed fixtures. Include values echoed back in a
+   diagnostic path.
+7. INJECTION AND SSRF through any URL, query, path, or command assembled from input,
+   including values that arrived indirectly via a database or a webhook body.
+8. TRUST IN AN UPSTREAM. Webhooks, callbacks, and inbound email accepted without
+   verifying origin, signature, or replay.
+
+Then, separately: for each finding the audit DISMISSED as a false positive, say
+whether you agree. Argue against the dismissal where you can.
+
+For every issue: exact `file:line`, the concrete attack in one or two sentences,
+and what the attacker gains. Rank by exploitability against this codebase as
+deployed, not by theoretical CVSS. If a class genuinely does not apply here, say so
+in one line rather than padding. No compliments.
+
+THE ARTIFACT UNDER REVIEW:
+<assembled artifact>"
+
+**If `CODEX_MODE: ready` — run Codex:**
+
+```bash
+TMPERR_SEC=$(mktemp /tmp/codex-security-review-XXXXXXXX)
+_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
+codex exec "<prompt>" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached < /dev/null 2>"$TMPERR_SEC"
+```
+
+Set the Bash tool's `timeout` parameter to `300000` (5 minutes). Do NOT use the
+`timeout` shell command — it does not exist on macOS. After the command completes,
+read stderr:
+
+```bash
+cat "$TMPERR_SEC"
+```
+
+Present the full output verbatim — do not summarize, do not truncate, do not
+soften it:
+
+```
+CODEX SAYS (the audit — outside voice):
+════════════════════════════════════════════════════════════
+<full codex output, verbatim>
+════════════════════════════════════════════════════════════
+```
+
+**Error handling:** all errors are non-blocking — the outside voice is informational
+and must never gate the skill. But "non-blocking" does not mean "silently skipped":
+each of these falls back to the Claude subagent below, and you say which path ran.
+- Auth failure (stderr contains "auth", "login", "unauthorized"): "Codex auth failed. Run `codex login` to authenticate." Fall back to the Claude subagent below.
+- Timeout: "Codex timed out after 5 minutes." Fall back to the Claude subagent below.
+- Empty response: "Codex returned no response. Stderr: <paste relevant error>." Fall back to the Claude subagent below.
+
+**If `CODEX_MODE: not_installed` or `not_authed` (or Codex errored at runtime):**
+
+Dispatch via the Agent tool. The subagent has fresh context, which is genuine
+independence even within one model family. Bound it the same way as Codex: cap the
+dispatch at 5 minutes so "never blocking" is also "never hanging."
+
+Subagent prompt: the same challenge prompt as above, minus the filesystem boundary
+paragraph (a Claude subagent does not need it).
+
+Present findings under an `OUTSIDE VOICE (Claude subagent):` header, and say which
+path ran — a same-family second opinion is weaker evidence than a cross-model one and
+the user should know which they got.
+
+If the subagent also fails or times out: "Outside voice unavailable — continuing
+without it." Never block on this step.
+
+(On `CODEX_MODE: disabled` you already skipped this section per the preflight — do
+not reach here.)
+
+**Cross-model tension:**
+
+After presenting the findings, name every point where the outside voice disagrees with
+the audit:
+
+```
+CROSS-MODEL TENSION:
+  [Topic]: The audit concluded X.
+  Outside voice argues Y. [Both perspectives, neutrally. State what context you might
+  be missing that would change the answer.]
+```
+
+If there is no disagreement, say so explicitly: "No cross-model tension — both
+reviewers agree." Silence reads as "not run."
+
+**User Sovereignty:** do NOT auto-apply outside voice recommendations. Present each
+tension point; the user decides. Cross-model agreement is a strong signal and you
+should say so, but agreement is not permission to act. You may state which argument
+you find more compelling. You MUST NOT act on it without explicit approval.
+
+For each substantive tension point, use AskUserQuestion:
+
+> "Cross-model disagreement on [topic]. The audit found [X], the outside voice argues [Y]. [One sentence on what context you might be missing.]"
+>
+> RECOMMENDATION: Choose [A or B] because [one-line reason naming which argument is
+> more compelling and why]. Completeness: A=X/10, B=Y/10.
+
+Options:
+- A) Accept the outside voice's finding
+- B) Keep the current conclusion (reject the outside voice)
+- C) Investigate further before deciding
+- D) Add to TODOS.md for later
+
+Wait for the response. Do NOT default to accepting because you agree with the outside
+voice. If the user chooses B, the current conclusion stands — do not re-argue it.
+
+**Integration:**
+
+Merge accepted findings into the Phase 13 report as normal findings, tagged
+`source: outside-voice`, and run them through the SAME Phase 12 false-positive
+filter and active verification you applied to your own — an outside finding is a
+candidate, not a confirmed vulnerability. An unverified outside finding in the report
+is worse than no finding, because it spends the reader's trust.
+
+Where the outside voice disputes one of your false-positive dismissals, re-verify
+that specific finding against the code before deciding. If it survives re-verification,
+it goes in the report and you note that it was originally dismissed.
+
+**Persist the result:**
+
+```bash
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"codex-security-review","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","commit":"'"$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"'"}'
+```
+
+Substitute: STATUS = "clean" if the outside voice found nothing, "issues_found" if it
+did. SOURCE = "codex" if Codex ran, "claude" if the subagent ran. If both paths
+failed, do NOT persist — an absent row means "did not run", and a row claiming
+"clean" when nothing ran is a false all-clear.
+
+**Cleanup:** run `rm -f "$TMPERR_SEC"` after processing (if Codex was used).
+
+---
+
 ### Phase 13: Findings Report + Trend Tracking + Remediation
 
 **Exploit scenario requirement:** Every finding MUST include a concrete exploit scenario — a step-by-step attack path an attacker would follow. "This pattern is insecure" is not a finding.

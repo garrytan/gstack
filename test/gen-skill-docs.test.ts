@@ -1319,6 +1319,9 @@ describe('Codex filesystem boundary', () => {
     'plan-eng-review',  // outside voice resolver
     'plan-ceo-review',  // outside voice resolver
     'office-hours',     // second opinion resolver
+    'investigate',      // outside voice — root-cause challenge
+    'cso',              // outside voice — security challenge
+    'devex-review',     // outside voice — DX challenge
   ];
 
   const BOUNDARY_MARKER = 'Do NOT read or execute any';
@@ -1366,6 +1369,120 @@ describe('Codex filesystem boundary', () => {
     expect(boundarySection).not.toContain('.agents/skills');
     expect(boundarySection).toContain('skills/gstack');
     expect(boundarySection).toContain(BOUNDARY_MARKER);
+  });
+});
+
+// --- {{CODEX_OUTSIDE_VOICE}} resolver tests ---
+
+describe('Outside voice for non-plan reviews', () => {
+  // Codex-host output lives in the gitignored .agents/ build dir; regenerate with
+  // `bun run gen:skill-docs --host all` if these reads fail.
+  const CODEX_HOST_DIR = path.join(ROOT, '.agents', 'skills');
+
+  // Each entry: the skill, its rendered heading, and the marker it must appear
+  // BEFORE. The "before" marker is the point where the skill commits to its
+  // output — a fix, a findings report, a scorecard. An outside voice that lands
+  // after that point is a postmortem, so placement is the load-bearing property
+  // of this feature, not a cosmetic detail.
+  const OUTSIDE_VOICE = [
+    {
+      skill: 'investigate',
+      header: 'Outside Voice — Independent Root-Cause Challenge (default-on)',
+      before: '## Phase 4: Implementation',
+      slug: 'codex-investigate-review',
+    },
+    {
+      skill: 'cso',
+      header: 'Outside Voice — Independent Security Challenge (default-on)',
+      before: '### Phase 13: Findings Report',
+      slug: 'codex-security-review',
+    },
+    {
+      skill: 'devex-review',
+      header: 'Outside Voice — Independent DX Challenge (default-on)',
+      before: '## DX Scorecard with Evidence',
+      slug: 'codex-devex-review',
+    },
+  ];
+
+  test.each(OUTSIDE_VOICE)('$skill renders the outside voice default-on', ({ skill, header }) => {
+    const content = fs.readFileSync(path.join(ROOT, skill, 'SKILL.md'), 'utf-8');
+    expect(content).toContain(header);
+    // Default-on, same contract as CODEX_PLAN_REVIEW: no opt-in question.
+    expect(content).not.toContain('Want an outside voice');
+    // Preflight must survive — the e2e suite greps for this literal.
+    expect(content).toContain('CODEX_MODE');
+    expect(content).toContain('command -v codex');
+  });
+
+  test.each(OUTSIDE_VOICE)('$skill runs the outside voice before it commits its output', ({ skill, header, before }) => {
+    const content = fs.readFileSync(path.join(ROOT, skill, 'SKILL.md'), 'utf-8');
+    const voiceIdx = content.indexOf(header);
+    const commitIdx = content.indexOf(before);
+    expect(voiceIdx).toBeGreaterThan(-1);
+    expect(commitIdx).toBeGreaterThan(-1);
+    expect(voiceIdx).toBeLessThan(commitIdx);
+  });
+
+  test.each(OUTSIDE_VOICE)('$skill persists its own review-log slug', ({ skill, slug }) => {
+    const content = fs.readFileSync(path.join(ROOT, skill, 'SKILL.md'), 'utf-8');
+    expect(content).toContain(`"skill":"${slug}"`);
+    // A row claiming "clean" when nothing ran is a false all-clear.
+    expect(content).toContain('do NOT persist');
+    expect(content).toContain('an absent row means "did not run"');
+  });
+
+  test.each(OUTSIDE_VOICE)('$skill keeps the user sovereign over outside findings', ({ skill }) => {
+    const content = fs.readFileSync(path.join(ROOT, skill, 'SKILL.md'), 'utf-8');
+    expect(content).toContain('do NOT auto-apply outside voice recommendations');
+    expect(content).toContain('agreement is not permission to act');
+  });
+
+  test.each(OUTSIDE_VOICE)('$skill falls back to a Claude subagent rather than skipping', ({ skill }) => {
+    const content = fs.readFileSync(path.join(ROOT, skill, 'SKILL.md'), 'utf-8');
+    expect(content).toContain('OUTSIDE VOICE (Claude subagent):');
+    expect(content).toContain('Fall back to the Claude subagent below.');
+  });
+
+  test.each(OUTSIDE_VOICE)('$skill declares the Agent tool the fallback needs', ({ skill }) => {
+    const content = fs.readFileSync(path.join(ROOT, skill, 'SKILL.md'), 'utf-8');
+    const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
+    expect(fmMatch).not.toBeNull();
+    expect(fmMatch![1]).toMatch(/allowed-tools:[\s\S]*?- Agent/);
+  });
+
+  test.each(OUTSIDE_VOICE)('codex host strips the outside voice from $skill', ({ skill, header }) => {
+    // Codex must never invoke itself. The resolver returns '' for that host, and
+    // hosts/codex.ts also lists it in suppressedResolvers (belt and braces).
+    const codexContent = fs.readFileSync(path.join(CODEX_HOST_DIR, `gstack-${skill}`, 'SKILL.md'), 'utf-8');
+    expect(codexContent).not.toContain(header);
+  });
+
+  test('the three prompts are domain-specific, not copies of each other', () => {
+    // The whole value of a second model is a different question being asked. If
+    // these three ever collapse into one generic "review this" prompt, the
+    // feature still renders and still runs, and quietly stops being useful.
+    const investigate = fs.readFileSync(path.join(ROOT, 'investigate', 'SKILL.md'), 'utf-8');
+    const cso = fs.readFileSync(path.join(ROOT, 'cso', 'SKILL.md'), 'utf-8');
+    const devex = fs.readFileSync(path.join(ROOT, 'devex-review', 'SKILL.md'), 'utf-8');
+
+    // investigate asks for falsification of a causal claim
+    expect(investigate).toContain('DOES THE EVIDENCE DISCRIMINATE?');
+    expect(investigate).toContain('Verdict: REFUTED because');
+
+    // cso asks for the vulnerability classes a checklist cannot see
+    expect(cso).toContain('AUTHORIZATION, distinct from authentication');
+    expect(cso).toContain('FORGEABLE COMPOSITE IDENTITY');
+    expect(cso).toContain('FAILING OPEN');
+
+    // devex-review asks the newcomer question
+    expect(devex).toContain('FIRST FAILURE');
+    expect(devex).toContain('DOCS THAT CONTRADICT THE CODE');
+
+    // and none of them carries another's framing
+    expect(cso).not.toContain('DOES THE EVIDENCE DISCRIMINATE?');
+    expect(devex).not.toContain('FORGEABLE COMPOSITE IDENTITY');
+    expect(investigate).not.toContain('FIRST FAILURE');
   });
 });
 

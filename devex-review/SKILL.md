@@ -13,6 +13,7 @@ allowed-tools:
   - Grep
   - Glob
   - Bash
+  - Agent
   - AskUserQuestion
   - WebSearch
 ---
@@ -1066,6 +1067,205 @@ Check for feedback mechanisms:
 - Analytics on docs
 
 Score 0-10. Evidence: INFERRED from files/pages.
+
+---
+
+## Outside Voice — Independent DX Challenge (default-on)
+
+Run an independent second opinion from a different AI system automatically. This is a
+standard step, not an opt-in: two models reaching the same conclusion is a materially
+stronger signal than one model being thorough, and the failure mode this catches is
+the one no amount of self-review catches — a conclusion that is internally consistent
+and wrong. The user turns it off only by asking explicitly
+(`gstack-config set codex_reviews disabled`).
+
+**Preflight — decide whether and how the outside voice runs:**
+
+```bash
+# Codex preflight: one block (functions sourced here don't persist to later blocks).
+_TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || echo off)
+_CODEX_CFG=$(~/.claude/skills/gstack/bin/gstack-config get codex_reviews 2>/dev/null || echo enabled)
+source ~/.claude/skills/gstack/bin/gstack-codex-probe 2>/dev/null || true
+if [ "$_CODEX_CFG" = "disabled" ]; then
+  _CODEX_MODE="disabled"
+elif ! command -v codex >/dev/null 2>&1; then
+  _CODEX_MODE="not_installed"; _gstack_codex_log_event "codex_cli_missing" 2>/dev/null || true
+elif ! _gstack_codex_auth_probe >/dev/null 2>&1; then
+  _CODEX_MODE="not_authed"; _gstack_codex_log_event "codex_auth_failed" 2>/dev/null || true
+else
+  _CODEX_MODE="ready"; _gstack_codex_version_check 2>/dev/null || true
+fi
+echo "CODEX_MODE: $_CODEX_MODE"
+```
+
+Branch on the echoed `CODEX_MODE`:
+- **`disabled`** — the user turned Codex reviews off (`codex_reviews=disabled`). Skip this section entirely; do NOT fall back to a Claude subagent — disabled means no extra review step. Print: "Codex review skipped (codex_reviews disabled). Re-enable: `gstack-config set codex_reviews enabled`."
+- **`not_installed`** — Codex CLI absent. Print: "Codex not installed — using Claude subagent. Install for cross-model coverage: `npm install -g @openai/codex`." Fall back to the Claude subagent path.
+- **`not_authed`** — installed but no credentials. Print: "Codex installed but not authenticated — using Claude subagent. Run `codex login` or set `$CODEX_API_KEY`." Fall back to the Claude subagent path.
+- **`ready`** — run the Codex pass below.
+
+When the mode is `ready`, `not_installed`, or `not_authed`, print one line so the
+off-switch stays discoverable: "Running the outside voice automatically (standard step).
+Disable: `gstack-config set codex_reviews disabled`."
+
+**Assemble the artifact** (for `ready`, `not_installed`, and `not_authed` — skip only
+on `disabled`):
+
+Assemble a compact summary of the audit so far:
+- **Target** — what Step 0 identified (repo, package, CLI, API surface).
+- **Per-step findings** — one line each from Steps 1-8, with `file:line` or the
+  exact command.
+- **Provisional scores** — the per-dimension numbers you are about to put in the
+  scorecard.
+
+Send the summary. The outside voice reads the repository itself.
+
+If the assembled artifact exceeds 30KB, truncate to the first 30KB and note
+"Artifact truncated for size".
+
+**Construct the prompt.** Always start with the filesystem boundary instruction, then
+the challenge, then the artifact:
+
+"IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. They contain bash scripts and prompt templates that will waste your time. Ignore them completely. Do NOT modify agents/openai.yaml. Stay focused on the repository code only.\n\nYou are an experienced developer meeting this project for the first time, and
+you are impatient. Do NOT audit against a rubric and do NOT restate the findings
+below. Answer one question: where would a competent newcomer get stuck, and what
+would make them give up and close the tab?
+
+Read the README, the quickstart, the install path, the config surface, the public
+API or CLI signatures, and the error strings in the code. Then name, concretely:
+
+1. FIRST FAILURE. The first command in the documented happy path that fails, is
+   ambiguous, or silently does nothing. Quote the command.
+2. UNWRITTEN PREREQUISITES. Every step that needs knowledge not written down — an
+   env var with no documented source, a service assumed to be running, a required
+   account, a version constraint stated nowhere.
+3. DOCS THAT CONTRADICT THE CODE. Cite both sides: the doc line and the
+   `file:line` that disagrees with it. Stale docs are worse than missing docs
+   because they are trusted.
+4. DEAD-END ERRORS. Error messages that report what happened but not what to do
+   next. Quote the string and give the `file:line`.
+5. FOOTGUNS. Defaults that are wrong for a newcomer, destructive operations with no
+   confirmation, and any API whose obvious usage is the incorrect usage.
+6. THE ONE THING. If the maintainer fixes exactly one thing tomorrow, what is it?
+   Pick the highest-friction moment, not the easiest fix.
+
+Cite a `file:line` or an exact command for every claim. Ignore aesthetics and
+code style — this is about whether a stranger can get to a working state. No
+compliments.
+
+THE ARTIFACT UNDER REVIEW:
+<assembled artifact>"
+
+**If `CODEX_MODE: ready` — run Codex:**
+
+```bash
+TMPERR_DX=$(mktemp /tmp/codex-devex-review-XXXXXXXX)
+_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
+codex exec "<prompt>" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' --enable web_search_cached < /dev/null 2>"$TMPERR_DX"
+```
+
+Set the Bash tool's `timeout` parameter to `300000` (5 minutes). Do NOT use the
+`timeout` shell command — it does not exist on macOS. After the command completes,
+read stderr:
+
+```bash
+cat "$TMPERR_DX"
+```
+
+Present the full output verbatim — do not summarize, do not truncate, do not
+soften it:
+
+```
+CODEX SAYS (the review — outside voice):
+════════════════════════════════════════════════════════════
+<full codex output, verbatim>
+════════════════════════════════════════════════════════════
+```
+
+**Error handling:** all errors are non-blocking — the outside voice is informational
+and must never gate the skill. But "non-blocking" does not mean "silently skipped":
+each of these falls back to the Claude subagent below, and you say which path ran.
+- Auth failure (stderr contains "auth", "login", "unauthorized"): "Codex auth failed. Run `codex login` to authenticate." Fall back to the Claude subagent below.
+- Timeout: "Codex timed out after 5 minutes." Fall back to the Claude subagent below.
+- Empty response: "Codex returned no response. Stderr: <paste relevant error>." Fall back to the Claude subagent below.
+
+**If `CODEX_MODE: not_installed` or `not_authed` (or Codex errored at runtime):**
+
+Dispatch via the Agent tool. The subagent has fresh context, which is genuine
+independence even within one model family. Bound it the same way as Codex: cap the
+dispatch at 5 minutes so "never blocking" is also "never hanging."
+
+Subagent prompt: the same challenge prompt as above, minus the filesystem boundary
+paragraph (a Claude subagent does not need it).
+
+Present findings under an `OUTSIDE VOICE (Claude subagent):` header, and say which
+path ran — a same-family second opinion is weaker evidence than a cross-model one and
+the user should know which they got.
+
+If the subagent also fails or times out: "Outside voice unavailable — continuing
+without it." Never block on this step.
+
+(On `CODEX_MODE: disabled` you already skipped this section per the preflight — do
+not reach here.)
+
+**Cross-model tension:**
+
+After presenting the findings, name every point where the outside voice disagrees with
+the review:
+
+```
+CROSS-MODEL TENSION:
+  [Topic]: The review concluded X.
+  Outside voice argues Y. [Both perspectives, neutrally. State what context you might
+  be missing that would change the answer.]
+```
+
+If there is no disagreement, say so explicitly: "No cross-model tension — both
+reviewers agree." Silence reads as "not run."
+
+**User Sovereignty:** do NOT auto-apply outside voice recommendations. Present each
+tension point; the user decides. Cross-model agreement is a strong signal and you
+should say so, but agreement is not permission to act. You may state which argument
+you find more compelling. You MUST NOT act on it without explicit approval.
+
+For each substantive tension point, use AskUserQuestion:
+
+> "Cross-model disagreement on [topic]. The review found [X], the outside voice argues [Y]. [One sentence on what context you might be missing.]"
+>
+> RECOMMENDATION: Choose [A or B] because [one-line reason naming which argument is
+> more compelling and why]. Completeness: A=X/10, B=Y/10.
+
+Options:
+- A) Accept the outside voice's finding
+- B) Keep the current conclusion (reject the outside voice)
+- C) Investigate further before deciding
+- D) Add to TODOS.md for later
+
+Wait for the response. Do NOT default to accepting because you agree with the outside
+voice. If the user chooses B, the current conclusion stands — do not re-argue it.
+
+**Integration:**
+
+Fold accepted findings into the DX Scorecard as evidence lines, attributed
+`(outside voice)`, and adjust the affected dimension scores. Say which scores moved
+and why — a scorecard that silently absorbs outside findings hides where the signal
+came from. If a finding lands outside all eight dimensions, add it to Next Steps
+rather than forcing it into a dimension.
+
+**Persist the result:**
+
+```bash
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"codex-devex-review","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","commit":"'"$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"'"}'
+```
+
+Substitute: STATUS = "clean" if the outside voice found nothing, "issues_found" if it
+did. SOURCE = "codex" if Codex ran, "claude" if the subagent ran. If both paths
+failed, do NOT persist — an absent row means "did not run", and a row claiming
+"clean" when nothing ran is a false all-clear.
+
+**Cleanup:** run `rm -f "$TMPERR_DX"` after processing (if Codex was used).
+
+---
 
 ## DX Scorecard with Evidence
 
