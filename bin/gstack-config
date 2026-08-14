@@ -99,6 +99,23 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 # gstack_contributor: false # true = file field reports when gstack misbehaves
 # skip_eng_review: false    # true = skip eng review gate in /ship (not recommended)
 #
+# ─── Redaction guard ─────────────────────────────────────────────────
+# redact_prepush_ignore_globs:   # Comma-separated globs whose matching paths are
+#                           #   EXEMPTED from the pre-push credential scan (e.g.
+#                           #   large generated data files that oversize the 1 MiB
+#                           #   scan cap and trip a false-positive block). Machine-
+#                           #   local supplement to the committed, reviewable
+#                           #   .gstack/redact-prepush-ignore file. Empty by default.
+#                           #   An exemption is always reported on stderr at push
+#                           #   time; non-ignored files still fail closed. `**`
+#                           #   spans directories, e.g.
+#                           #   prospecting/exports/**/*.parquet,data/**/*.csv
+#                           #   NOTE: comma-separated, NO spaces (config values are
+#                           #   whitespace-delimited on read — a space would drop
+#                           #   the trailing globs). For several globs, prefer the
+#                           #   committed .gstack/redact-prepush-ignore file
+#                           #   (one glob per line).
+#
 # ─── Workspace-aware ship ────────────────────────────────────────────
 # workspace_root: $HOME/conductor/workspaces  # Where /ship looks for sibling
 #                           # Conductor worktrees when picking a VERSION slot.
@@ -133,6 +150,7 @@ lookup_default() {
 
     redact_repo_visibility) echo "" ;; # empty → fall through to gh/glab detection
     redact_prepush_hook) echo "false" ;;
+    redact_prepush_ignore_globs) echo "" ;; # empty → no paths exempted from the pre-push scan
     # Brain-aware planning (v1.48 / T5+T10+T16). Defaults documented inline:
     #   brain_trust_policy@<endpoint-id>  — unset on fresh install; setup-gbrain
     #                                writes 'personal' for local engines,
