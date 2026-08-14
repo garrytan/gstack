@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#11100e">
+  <meta name="description" content="A small interactive tour of Garry's Stack: the AI engineering workflow that takes an idea to a verified release.">
+  <title>gstack — the workflow around the agent</title>
+  <style>
+    :root {
+      --ink: #11100e;
+      --paper: #f3f0e9;
+      --muted: #aaa69d;
+      --line: rgba(243, 240, 233, .17);
+      --orange: #ff5c35;
+      --yellow: #f7c84b;
+      --mint: #9de1bd;
+      --blue: #9cc9ff;
+      --max: 1180px;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--paper);
+      background: var(--ink);
+      font-synthesis: none;
+      text-rendering: optimizeLegibility;
+    }
+    * { box-sizing: border-box; }
+    html { background: var(--ink); scroll-behavior: smooth; }
+    body { margin: 0; min-width: 320px; background: var(--ink); }
+    button, a { font: inherit; }
+    button { color: inherit; }
+    .shell { width: min(calc(100% - 40px), var(--max)); margin: 0 auto; }
+    .topbar { position: sticky; top: 0; z-index: 10; border-bottom: 1px solid var(--line); background: rgba(17,16,14,.88); backdrop-filter: blur(16px); }
+    .topbar-inner { display: flex; align-items: center; justify-content: space-between; gap: 24px; min-height: 72px; }
+    .brand { display: inline-flex; align-items: center; gap: 10px; color: var(--paper); text-decoration: none; font-weight: 800; letter-spacing: -.04em; }
+    .brand-mark { display: inline-grid; place-items: center; width: 28px; height: 28px; color: var(--ink); background: var(--orange); border-radius: 7px; font-size: 12px; letter-spacing: -.1em; }
+    .brand small { display: block; margin-top: 2px; color: var(--muted); font-size: 10px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; }
+    .skip { position: absolute; left: 16px; top: -100px; padding: 9px 12px; color: var(--ink); background: var(--yellow); border-radius: 6px; }
+    .skip:focus { top: 12px; }
+    .status { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
+    .status i { width: 7px; height: 7px; background: var(--mint); border-radius: 50%; box-shadow: 0 0 0 4px rgba(157,225,189,.12); }
+    .deck { min-height: calc(100vh - 72px); padding: 50px 0 38px; }
+    .kicker { display: flex; align-items: center; gap: 12px; color: var(--orange); font-size: 11px; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; }
+    .kicker::before { content: ""; width: 38px; height: 2px; background: var(--orange); }
+    h1, h2, p { margin: 0; }
+    h1 { max-width: 890px; margin-top: 22px; font-size: clamp(3.6rem, 10vw, 8.8rem); line-height: .88; letter-spacing: -.095em; font-weight: 850; }
+    h1 em { color: var(--orange); font-style: normal; }
+    .intro { display: grid; grid-template-columns: minmax(0, 1fr) 310px; gap: 48px; align-items: end; margin-top: 34px; }
+    .intro p { max-width: 680px; color: #c7c2b9; font-size: clamp(1.05rem, 2vw, 1.35rem); line-height: 1.45; letter-spacing: -.02em; }
+    .intro-aside { padding: 18px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255,255,255,.035); }
+    .intro-aside strong { display: block; color: var(--paper); font-size: 18px; letter-spacing: -.04em; }
+    .intro-aside span { display: block; margin-top: 8px; color: var(--muted); font-size: 12px; line-height: 1.45; }
+    .tabs-wrap { margin-top: 52px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+    .tabs { display: grid; grid-template-columns: repeat(7, 1fr); gap: 0; overflow-x: auto; scrollbar-width: none; }
+    .tabs::-webkit-scrollbar { display: none; }
+    .tab { position: relative; min-width: 112px; padding: 17px 12px 16px; border: 0; border-right: 1px solid var(--line); color: var(--muted); background: transparent; cursor: pointer; text-align: left; transition: color .2s ease, background .2s ease; }
+    .tab:first-child { border-left: 1px solid var(--line); }
+    .tab:hover, .tab:focus-visible { color: var(--paper); background: rgba(255,255,255,.05); outline: none; }
+    .tab[aria-selected="true"] { color: var(--paper); background: rgba(255,92,53,.10); }
+    .tab[aria-selected="true"]::after { content: ""; position: absolute; right: 12px; bottom: 0; left: 12px; height: 3px; background: var(--orange); }
+    .tab-num { display: block; margin-bottom: 9px; color: var(--orange); font-size: 11px; font-weight: 800; }
+    .tab-label { display: block; font-size: 13px; font-weight: 750; letter-spacing: -.02em; }
+    .stage { position: relative; min-height: 500px; }
+    .panel { display: none; padding: 54px 0 16px; animation: arrive .35s ease both; }
+    .panel.active { display: block; }
+    @keyframes arrive { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    .panel-grid { display: grid; grid-template-columns: minmax(0, .92fr) minmax(0, 1.08fr); gap: 62px; align-items: start; }
+    .panel h2 { max-width: 620px; font-size: clamp(2.4rem, 5vw, 5.1rem); line-height: .94; letter-spacing: -.08em; }
+    .panel h2 span { color: var(--orange); }
+    .lede { max-width: 560px; margin-top: 22px; color: #c7c2b9; font-size: 17px; line-height: 1.5; }
+    .eyebrow { color: var(--muted); font-size: 11px; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; }
+    .evidence { display: inline-flex; align-items: center; gap: 8px; margin-top: 28px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 99px; color: var(--muted); font-size: 12px; }
+    .evidence b { color: var(--mint); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; }
+    .visual { position: relative; min-height: 380px; padding: 25px; overflow: hidden; border: 1px solid var(--line); border-radius: 16px; background: radial-gradient(circle at 80% 10%, rgba(255,92,53,.2), transparent 36%), linear-gradient(135deg, #1f1d19, #131210 72%); }
+    .visual::before { content: ""; position: absolute; inset: 0; background-image: linear-gradient(rgba(255,255,255,.06) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.06) 1px, transparent 1px); background-size: 40px 40px; mask-image: linear-gradient(to bottom, rgba(0,0,0,.5), transparent 85%); pointer-events: none; }
+    .visual-label { position: relative; display: flex; justify-content: space-between; color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; }
+    .visual-label span:last-child { color: var(--orange); }
+    .hero-visual { display: grid; place-items: center; min-height: 350px; }
+    .orbit { position: relative; width: min(100%, 420px); aspect-ratio: 1; border: 1px solid rgba(255,255,255,.19); border-radius: 50%; }
+    .orbit::before, .orbit::after { content: ""; position: absolute; inset: 12%; border: 1px dashed rgba(255,255,255,.15); border-radius: 50%; }
+    .orbit::after { inset: 27%; border-style: solid; border-color: rgba(255,92,53,.43); }
+    .core { position: absolute; inset: 36%; display: grid; place-items: center; color: var(--ink); background: var(--orange); border-radius: 26%; font-size: 38px; font-weight: 900; letter-spacing: -.12em; transform: rotate(-8deg); box-shadow: 0 0 45px rgba(255,92,53,.25); }
+    .orbit-tag { position: absolute; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; color: var(--paper); background: #1a1815; font-size: 11px; font-weight: 750; }
+    .tag-a { top: 7%; left: 11%; } .tag-b { top: 39%; right: 0; } .tag-c { bottom: 8%; left: 18%; } .tag-d { bottom: 23%; right: 7%; }
+    .steps { display: grid; gap: 11px; margin-top: 28px; }
+    .step { display: grid; grid-template-columns: 35px 1fr; gap: 13px; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255,255,255,.035); }
+    .step-num { display: grid; place-items: center; width: 28px; height: 28px; color: var(--ink); background: var(--yellow); border-radius: 7px; font-size: 11px; font-weight: 900; }
+    .step strong { display: block; color: var(--paper); font-size: 14px; letter-spacing: -.02em; }
+    .step p { margin-top: 4px; color: var(--muted); font-size: 12px; line-height: 1.4; }
+    .command { display: inline-flex; align-items: center; gap: 8px; margin-top: 24px; padding: 11px 13px; color: var(--paper); background: #0b0b0a; border: 1px solid var(--line); border-radius: 8px; font: 600 13px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .command::before { content: "$"; color: var(--orange); }
+    .matrix { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 25px; }
+    .matrix-card { min-height: 115px; padding: 15px; border-left: 3px solid var(--orange); background: rgba(255,255,255,.04); }
+    .matrix-card:nth-child(2) { border-color: var(--mint); } .matrix-card:nth-child(3) { border-color: var(--yellow); } .matrix-card:nth-child(4) { border-color: var(--blue); }
+    .matrix-card strong { display: block; font-size: 15px; letter-spacing: -.03em; }
+    .matrix-card p { margin-top: 7px; color: var(--muted); font-size: 12px; line-height: 1.4; }
+    .footer-nav { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-top: 54px; padding-top: 20px; border-top: 1px solid var(--line); }
+    .progress { color: var(--muted); font-size: 12px; }
+    .progress strong { color: var(--paper); }
+    .nav-buttons { display: flex; gap: 8px; }
+    .nav-button { min-width: 92px; padding: 10px 13px; border: 1px solid var(--line); border-radius: 7px; color: var(--paper); background: transparent; cursor: pointer; font-size: 12px; font-weight: 750; }
+    .nav-button:hover, .nav-button:focus-visible { border-color: var(--orange); background: rgba(255,92,53,.1); outline: none; }
+    .nav-button[disabled] { opacity: .35; cursor: not-allowed; }
+    .fineprint { margin-top: 34px; color: #77736c; font-size: 11px; line-height: 1.5; }
+    .fineprint a { color: #aaa69d; }
+    @media (max-width: 760px) {
+      .shell { width: min(calc(100% - 28px), var(--max)); }
+      .topbar-inner { min-height: 62px; }
+      .status { display: none; }
+      .deck { padding-top: 34px; }
+      h1 { font-size: clamp(3.5rem, 18vw, 6rem); }
+      .intro { grid-template-columns: 1fr; gap: 22px; margin-top: 26px; }
+      .intro-aside { max-width: 420px; }
+      .tabs-wrap { margin-top: 36px; margin-inline: -14px; }
+      .tabs { display: flex; padding-inline: 14px; }
+      .tab { min-width: 105px; border-bottom: 0; }
+      .panel { padding-top: 36px; }
+      .panel-grid { grid-template-columns: 1fr; gap: 34px; }
+      .panel h2 { font-size: clamp(2.7rem, 14vw, 4.5rem); }
+      .visual { min-height: 330px; padding: 17px; }
+      .hero-visual { min-height: 285px; }
+      .orbit { width: min(86vw, 360px); }
+      .footer-nav { align-items: flex-start; flex-direction: column; margin-top: 34px; }
+      .nav-buttons { width: 100%; }
+      .nav-button { flex: 1; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip" href="#deck-content">Skip to deck</a>
+  <header class="topbar">
+    <div class="shell topbar-inner">
+      <a class="brand" href="#start" aria-label="gstack deck, go to start"><span class="brand-mark">g/</span><span>gstack<small>Garry's Stack</small></span></a>
+      <span class="status"><i aria-hidden="true"></i> an interactive field guide</span>
+    </div>
+  </header>
+
+  <main class="deck shell" id="deck-content">
+    <div class="kicker">The workflow around the agent</div>
+    <h1>Ship the work.<br><em>Keep the judgment.</em></h1>
+    <div class="intro">
+      <p>gstack is a set of specialist workflows for the whole engineering loop — from understanding the real product to a release you can verify. This tiny deck is a demonstration of the <strong>/deck</strong> skill itself.</p>
+      <aside class="intro-aside"><strong>One repo. Many roles.</strong><span>Think → Plan → Build → Review → Test → Ship → Reflect.</span></aside>
+    </div>
+
+    <div class="tabs-wrap">
+      <nav class="tabs" role="tablist" aria-label="Deck sections">
+        <button class="tab" id="tab-start" role="tab" aria-controls="panel-start" aria-selected="true" tabindex="0" data-target="start"><span class="tab-num">01</span><span class="tab-label">Thesis</span></button>
+        <button class="tab" id="tab-observe" role="tab" aria-controls="panel-observe" aria-selected="false" tabindex="-1" data-target="observe"><span class="tab-num">02</span><span class="tab-label">Observe</span></button>
+        <button class="tab" id="tab-decide" role="tab" aria-controls="panel-decide" aria-selected="false" tabindex="-1" data-target="decide"><span class="tab-num">03</span><span class="tab-label">Decide</span></button>
+        <button class="tab" id="tab-build" role="tab" aria-controls="panel-build" aria-selected="false" tabindex="-1" data-target="build"><span class="tab-num">04</span><span class="tab-label">Build</span></button>
+        <button class="tab" id="tab-prove" role="tab" aria-controls="panel-prove" aria-selected="false" tabindex="-1" data-target="prove"><span class="tab-num">05</span><span class="tab-label">Prove</span></button>
+        <button class="tab" id="tab-ship" role="tab" aria-controls="panel-ship" aria-selected="false" tabindex="-1" data-target="ship"><span class="tab-num">06</span><span class="tab-label">Ship</span></button>
+        <button class="tab" id="tab-learn" role="tab" aria-controls="panel-learn" aria-selected="false" tabindex="-1" data-target="learn"><span class="tab-num">07</span><span class="tab-label">Learn</span></button>
+      </nav>
+    </div>
+
+    <div class="stage" tabindex="-1" aria-live="polite">
+      <section class="panel active" id="panel-start" role="tabpanel" aria-labelledby="tab-start" data-section="start">
+        <div class="panel-grid">
+          <div><div class="eyebrow">01 / Thesis</div><h2>An AI agent is better with a <span>crew</span> around it.</h2><p class="lede">The model can write code. gstack gives the work a repeatable rhythm: a product lens, an architecture lens, a designer's eye, a QA lead, and a release gate.</p><span class="evidence"><b>Core promise</b> judgment at every handoff</span></div>
+          <div class="visual hero-visual"><div class="visual-label"><span>the loop</span><span>01 — 07</span></div><div class="orbit"><div class="core">g/</div><span class="orbit-tag tag-a">understand</span><span class="orbit-tag tag-b">design</span><span class="orbit-tag tag-c">verify</span><span class="orbit-tag tag-d">ship</span></div></div>
+        </div>
+      </section>
+
+      <section class="panel" id="panel-observe" role="tabpanel" aria-labelledby="tab-observe" data-section="observe">
+        <div class="panel-grid"><div><div class="eyebrow">02 / Observe</div><h2>Start with the <span>real thing.</span></h2><p class="lede">Before a plan, see the site, product, routes, constraints, and evidence. The first move is not “pick a framework”; it is “understand what exists.”</p><div class="command">/browse https://your-site.example</div></div><div class="visual"><div class="visual-label"><span>evidence before opinion</span><span>input</span></div><div class="steps"><div class="step"><span class="step-num">01</span><div><strong>See the surface</strong><p>Use <b>/browse</b> for the live flow; use <b>/scrape</b> when structured evidence is the job.</p></div></div><div class="step"><span class="step-num">02</span><div><strong>Find the constraint</strong><p><b>/investigate</b> traces symptoms to a root cause before anyone edits the code.</p></div></div><div class="step"><span class="step-num">03</span><div><strong>Keep the boundary</strong><p>Access, privacy, and deployment choices become explicit instead of accidental.</p></div></div></div></div></div>
+      </section>
+
+      <section class="panel" id="panel-decide" role="tabpanel" aria-labelledby="tab-decide" data-section="decide">
+        <div class="panel-grid"><div><div class="eyebrow">03 / Decide</div><h2>Turn a vague request into a <span>decision.</span></h2><p class="lede">The planning skills force the useful questions early: what matters to the user, what is technically true, what should be beautiful, and what can wait.</p><div class="command">/autoplan</div></div><div class="visual"><div class="visual-label"><span>four lenses</span><span>decision quality</span></div><div class="matrix"><div class="matrix-card"><strong>CEO</strong><p><b>/plan-ceo-review</b> finds the sharpest product hiding in the request.</p></div><div class="matrix-card"><strong>Engineering</strong><p><b>/plan-eng-review</b> closes architecture and edge-case gaps.</p></div><div class="matrix-card"><strong>Design</strong><p><b>/plan-design-review</b> turns taste into an explicit bar.</p></div><div class="matrix-card"><strong>Developer experience</strong><p><b>/plan-devex-review</b> tests the path a real person must take.</p></div></div></div></div>
+      </section>
+
+      <section class="panel" id="panel-build" role="tabpanel" aria-labelledby="tab-build" data-section="build">
+        <div class="panel-grid"><div><div class="eyebrow">04 / Build</div><h2>Make the <span>important</span> path feel obvious.</h2><p class="lede">Specialists are useful when their output is a handoff, not a performance. Build the product, the design system, the deck, or the diagram with the next reviewer already in mind.</p><div class="command">/design-html → /deck</div></div><div class="visual"><div class="visual-label"><span>the handoff</span><span>make it tangible</span></div><div class="steps"><div class="step"><span class="step-num">A</span><div><strong>Concrete surfaces</strong><p>Prefer the actual workflow, screenshot, interaction, or evidence over feature-card fog.</p></div></div><div class="step"><span class="step-num">B</span><div><strong>Responsive by intent</strong><p>Mobile is a composition with its own hierarchy, not a desktop layout squeezed narrower.</p></div></div><div class="step"><span class="step-num">C</span><div><strong>Accessible by default</strong><p>Deep links, keyboard controls, readable contrast, and focus states are part of “done.”</p></div></div></div></div></div>
+      </section>
+
+      <section class="panel" id="panel-prove" role="tabpanel" aria-labelledby="tab-prove" data-section="prove">
+        <div class="panel-grid"><div><div class="eyebrow">05 / Prove</div><h2>Confidence comes from <span>seeing it fail.</span></h2><p class="lede">A green unit test is not a usable product. gstack puts real browser behavior, visual review, security, performance, and staff-level review in the same loop.</p><div class="command">/design-review → /qa → /review</div></div><div class="visual"><div class="visual-label"><span>proof, not vibes</span><span>quality loop</span></div><div class="steps"><div class="step"><span class="step-num">01</span><div><strong>Look at the pixels</strong><p><b>/design-review</b> catches density, clipping, hierarchy, and AI-slop patterns.</p></div></div><div class="step"><span class="step-num">02</span><div><strong>Drive the flow</strong><p><b>/qa</b> opens the real browser, finds bugs, and re-verifies the fix.</p></div></div><div class="step"><span class="step-num">03</span><div><strong>Challenge the diff</strong><p><b>/review</b>, <b>/cso</b>, and <b>/benchmark</b> look for the failures CI cannot see.</p></div></div></div></div></div>
+      </section>
+
+      <section class="panel" id="panel-ship" role="tabpanel" aria-labelledby="tab-ship" data-section="ship">
+        <div class="panel-grid"><div><div class="eyebrow">06 / Ship</div><h2>Release with a <span>receipt.</span></h2><p class="lede">The finish line is not “merged.” It is a change that has been reviewed, deployed through the project's real path, and checked where users will meet it.</p><div class="command">/ship → /land-and-deploy → /canary</div></div><div class="visual"><div class="visual-label"><span>controlled release</span><span>output</span></div><div class="steps"><div class="step"><span class="step-num">01</span><div><strong>Ship the smallest coherent diff</strong><p>Run the repository's tests and source review before the PR leaves the workspace.</p></div></div><div class="step"><span class="step-num">02</span><div><strong>Verify the built route</strong><p>Direct links, refreshes, assets, headers, and the normal site path all get checked.</p></div></div><div class="step"><span class="step-num">03</span><div><strong>Watch the landing</strong><p><b>/canary</b> monitors the live surface after deployment instead of declaring victory early.</p></div></div></div></div></div>
+      </section>
+
+      <section class="panel" id="panel-learn" role="tabpanel" aria-labelledby="tab-learn" data-section="learn">
+        <div class="panel-grid"><div><div class="eyebrow">07 / Learn</div><h2>Every release should make the <span>next one smarter.</span></h2><p class="lede">Context survives the session. Retros turn the work into better defaults. Documentation closes the loop for the next human and the next agent.</p><div class="command">/retro → /learn</div><p class="fineprint">This is a static demonstration of gstack's workflow. It makes no network requests, collects no analytics, and contains no product-specific customer evidence.</p></div><div class="visual"><div class="visual-label"><span>the loop closes</span><span>next run</span></div><div class="hero-visual"><div class="orbit"><div class="core">↗</div><span class="orbit-tag tag-a">context-save</span><span class="orbit-tag tag-b">document-release</span><span class="orbit-tag tag-c">retro</span><span class="orbit-tag tag-d">better default</span></div></div></div></div>
+      </section>
+    </div>
+
+    <footer class="footer-nav"><div class="progress" aria-live="polite">Section <strong id="progress-current">1</strong> of <strong>7</strong></div><div class="nav-buttons"><button class="nav-button" id="prev" type="button" disabled>← Previous</button><button class="nav-button" id="next" type="button">Next →</button></div></footer>
+  </main>
+
+  <script>
+    (() => {
+      const ids = ['start', 'observe', 'decide', 'build', 'prove', 'ship', 'learn'];
+      const tabs = [...document.querySelectorAll('.tab')];
+      const panels = [...document.querySelectorAll('.panel')];
+      const previous = document.querySelector('#prev');
+      const next = document.querySelector('#next');
+      const progress = document.querySelector('#progress-current');
+      let current = 0;
+
+      function show(id, replace = false) {
+        const index = Math.max(0, ids.indexOf(id));
+        current = index;
+        tabs.forEach((tab, i) => {
+          const active = i === current;
+          tab.setAttribute('aria-selected', String(active));
+          tab.tabIndex = active ? 0 : -1;
+        });
+        panels.forEach((panel, i) => {
+          panel.classList.toggle('active', i === current);
+          panel.hidden = i !== current;
+        });
+        progress.textContent = String(current + 1);
+        previous.disabled = current === 0;
+        next.disabled = current === ids.length - 1;
+        const hash = '#' + ids[current];
+        if (replace) history.replaceState(null, '', hash); else history.pushState(null, '', hash);
+        document.querySelector('.stage').focus({ preventScroll: true });
+      }
+
+      function move(delta) { show(ids[Math.min(ids.length - 1, Math.max(0, current + delta))]); }
+      tabs.forEach((tab, index) => {
+        tab.addEventListener('click', () => show(ids[index]));
+        tab.addEventListener('keydown', (event) => {
+          if (event.key === 'ArrowRight' || event.key === 'ArrowDown') { event.preventDefault(); tabs[(index + 1) % ids.length].focus(); show(ids[(index + 1) % ids.length]); }
+          if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') { event.preventDefault(); tabs[(index - 1 + ids.length) % ids.length].focus(); show(ids[(index - 1 + ids.length) % ids.length]); }
+          if (event.key === 'Home') { event.preventDefault(); tabs[0].focus(); show(ids[0]); }
+          if (event.key === 'End') { event.preventDefault(); tabs.at(-1).focus(); show(ids.at(-1)); }
+        });
+      });
+      previous.addEventListener('click', () => move(-1));
+      next.addEventListener('click', () => move(1));
+      document.addEventListener('keydown', (event) => {
+        if (event.target.matches('input, textarea, select')) return;
+        if (event.key === 'ArrowRight' || event.key === 'PageDown') move(1);
+        if (event.key === 'ArrowLeft' || event.key === 'PageUp') move(-1);
+        if (event.key === 'Home') show(ids[0]);
+        if (event.key === 'End') show(ids.at(-1));
+      });
+      window.addEventListener('popstate', () => show(location.hash.slice(1) || 'start', true));
+      show(ids.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'start', true);
+    })();
+  </script>
+</body>
+</html>
