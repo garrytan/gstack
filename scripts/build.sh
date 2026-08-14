@@ -29,8 +29,11 @@ esac
 "$BUN_CMD" build --compile design/src/cli.ts --outfile design/dist/design
 "$BUN_CMD" build --compile make-pdf/src/cli.ts --outfile make-pdf/dist/pdf
 "$BUN_CMD" build --compile bin/gstack-global-discover.ts --outfile bin/gstack-global-discover
-bash browse/scripts/build-node-server.sh
-bash scripts/write-version-files.sh browse/dist/.version design/dist/.version make-pdf/dist/.version
+# Keep nested build steps in this shell. On Windows, a plain `bash` lookup can
+# resolve to wsl.exe through System32 even when this script is running in Git
+# Bash, which rewrites the checkout to /mnt/c/... and makes Bun miss the files.
+"$BASH" browse/scripts/build-node-server.sh
+"$BASH" scripts/write-version-files.sh browse/dist/.version design/dist/.version make-pdf/dist/.version
 chmod +x browse/dist/browse browse/dist/find-browse design/dist/design make-pdf/dist/pdf bin/gstack-global-discover
 rm -f .*.bun-build
 if [ "$BUN_CMD_WAS_COPIED" -eq 1 ]; then

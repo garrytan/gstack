@@ -50,6 +50,17 @@ function buildHostPaths(): Record<string, HostPaths> {
 
 export const HOST_PATHS: Record<string, HostPaths> = buildHostPaths();
 
+/**
+ * Convert a host path into the shell expression used by generated setup blocks.
+ * Env-var-backed hosts (Codex, Factory, etc.) already produce absolute runtime
+ * roots in their preamble, while Claude-style paths begin with `~` and need an
+ * explicit `$HOME` expansion inside quoted strings.
+ */
+export function shellRuntimePath(runtimePath: string): string {
+  if (runtimePath.startsWith('$')) return runtimePath;
+  return `$HOME${runtimePath.replace(/^~/, '')}`;
+}
+
 import type { Model } from '../models';
 export type { Model } from '../models';
 
