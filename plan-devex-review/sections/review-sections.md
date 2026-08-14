@@ -239,15 +239,19 @@ Check each item. For any unchecked item, explain what's missing and suggest the 
 
 **STOP.** AskUserQuestion for any item that requires a design decision.
 
-## Outside Voice — Independent Plan Challenge (default-on)
+## Outside Voice — Independent Plan Challenge (configured by default; export consent required)
 
-After all review sections are complete, run an independent second opinion from a
-different AI system automatically — it is a standard part of plan review, not an
-opt-in. Two models agreeing on a plan is stronger signal than one model's thorough
-review. The user turns this off only by asking explicitly
+After all review sections are complete, offer an independent second opinion from a
+different AI system. It is configured as a standard plan-review option, but it is
+never permission to export the plan: each invocation requires explicit provider-and-
+payload authorization. Two models agreeing on a plan is stronger signal than one
+model's thorough review. The user can disable the option with
 (`gstack-config set codex_reviews disabled`).
 
 **Preflight — decide whether and how the outside voice runs:**
+
+Run this local provider/configuration preflight first. It does not export
+repository content:
 
 ```bash
 # Codex preflight: one block (functions sourced here don't persist to later blocks).
@@ -270,10 +274,23 @@ Branch on the echoed `CODEX_MODE`:
 - **`disabled`** — the user turned Codex reviews off (`codex_reviews=disabled`). Skip this section entirely; do NOT fall back to a Claude subagent — disabled means no extra review step. Print: "Codex review skipped (codex_reviews disabled). Re-enable: `gstack-config set codex_reviews enabled`."
 - **`not_installed`** — Codex CLI absent. Print: "Codex not installed — using Claude subagent. Install for cross-model coverage: `npm install -g @openai/codex`." Fall back to the Claude subagent path.
 - **`not_authed`** — installed but no credentials. Print: "Codex installed but not authenticated — using Claude subagent. Run `codex login` or set `$CODEX_API_KEY`." Fall back to the Claude subagent path.
-- **`ready`** — run the Codex pass below.
+- **`ready`** — do not read or assemble the provider payload yet. First confirm
+  that the current user explicitly authorized sending the specific payload to the
+  **OpenAI Codex model service** for this invocation. Name the actual payload:
+  complete diff and necessary source, a plan, documentation plus its comparison
+  diff, or other repository context. Authentication, command execution approval,
+  `codex_reviews=enabled`, and a generic request for an "independent review" are
+  not source-export consent. If the request does not name OpenAI Codex and the data
+  scope, use AskUserQuestion and wait. Never infer consent from another provider,
+  PR, repository, or earlier session. If declined, treat Codex as unavailable and
+  continue only with the caller's in-session fallback. Only after authorization is
+  confirmed may the Codex pass below read, assemble, or dispatch the payload.
 
-When the mode is `ready`, `not_installed`, or `not_authed`, print one line so the off-switch
-stays discoverable: "Running the outside voice automatically (standard step). Disable: `gstack-config set codex_reviews disabled`."
+When the mode is `ready` and authorization was granted, print one line so the
+off-switch stays discoverable: "Outside voice authorized for this payload. Disable
+future offers: `gstack-config set codex_reviews disabled`." For `not_installed`
+or `not_authed`, use the in-session fallback without describing OpenAI export as
+authorized.
 
 **Construct the plan review prompt** (for `ready`, `not_installed`, and `not_authed` — skip only on `disabled`).
 Read the plan file being reviewed (the file the user pointed this review at, or the branch
@@ -633,7 +650,7 @@ Display:
 - **Eng Review (required by default):** The only review that gates shipping. Covers architecture, code quality, tests, performance. Can be disabled globally with \`gstack-config set skip_eng_review true\` (the "don't bother me" setting).
 - **CEO Review (optional):** Use your judgment. Recommend it for big product/business changes, new user-facing features, or scope decisions. Skip for bug fixes, refactors, infra, and cleanup.
 - **Design Review (optional):** Use your judgment. Recommend it for UI/UX changes. Skip for backend-only, infra, or prompt-only changes.
-- **Adversarial Review (automatic):** Always-on for every review. Every diff gets both Claude adversarial subagent and Codex adversarial challenge. Large diffs (200+ lines) additionally get Codex structured review with P1 gate. No configuration needed.
+- **Adversarial Review:** Every diff gets the in-session Claude adversarial pass. Codex cross-model passes are offered when configured and run only after explicit provider-and-payload export authorization; large authorized diffs (200+ lines) additionally get Codex structured review with a P1 gate.
 - **Outside Voice (optional):** Independent plan review from a different AI model. Offered after all review sections complete in /plan-ceo-review and /plan-eng-review. Falls back to Claude subagent if Codex is unavailable. Never gates shipping.
 
 **Verdict logic:**

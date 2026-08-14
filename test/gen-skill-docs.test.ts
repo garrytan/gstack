@@ -1558,6 +1558,7 @@ describe('DESIGN_OUTSIDE_VOICES resolver', () => {
     const content = readSkillUnion('plan-design-review');
     expect(content).toContain('Design Outside Voices');
     expect(content).toContain('CODEX_AVAILABLE');
+    expect(content).toContain('External data authorization');
     expect(content).toContain('LITMUS SCORECARD');
   });
 
@@ -1776,9 +1777,8 @@ describe('Codex generation (--host codex)', () => {
   test('Codex output includes Claude outside-voice skill with read-only boundary', () => {
     const content = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-claude', 'SKILL.md'), 'utf-8');
     expect(content).toContain('claude -p');
-    expect(content).toContain('mktemp /tmp/gstack-claude-prompt-');
-    expect(content).toContain('mktemp /tmp/gstack-claude-diff-');
-    expect(content).not.toContain('/tmp/gstack-claude-diff-$$');
+    expect(content).toContain('mktemp -d /tmp/gstack-claude-');
+    expect(content).toContain('DIFF_FILE="$CLAUDE_TMP_DIR/diff.patch"');
     expect(content).toContain('cat "$PROMPT_FILE" | claude -p');
     expect(content).toContain('--disable-slash-commands');
     expect(content).toContain('--tools ""');
@@ -1874,22 +1874,21 @@ describe('Codex generation (--host codex)', () => {
 
   // ─── Path rewriting regression tests ─────────────────────────
 
-  test('sidecar paths point to .agents/skills/gstack/review/ (not gstack-review/)', () => {
-    // Regression: gen-skill-docs rewrote .claude/skills/review → .agents/skills/gstack-review
-    // but setup puts sidecars under .agents/skills/gstack/review/. Must match setup layout.
+  test('review assets resolve through the computed Codex runtime root', () => {
+    // Regression: a literal project-relative sidecar path fails when a project
+    // uses the global Codex install. GSTACK_ROOT selects the project sidecar when
+    // present and otherwise falls back to ~/.codex/skills/gstack.
     const content = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-review', 'SKILL.md'), 'utf-8');
-    // Correct: references to sidecar files use gstack/review/ path
-    expect(content).toContain('.agents/skills/gstack/review/checklist.md');
-    // design-checklist.md is now referenced via Review Army specialist (Claude only, stripped for Codex)
-    // Wrong: must NOT reference gstack-review/checklist.md (file doesn't exist there)
+    expect(content).toContain('$GSTACK_ROOT/review/checklist.md');
+    expect(content).not.toContain('.agents/skills/gstack/review/checklist.md');
     expect(content).not.toContain('.agents/skills/gstack-review/checklist.md');
   });
 
   test('sidecar paths in ship skill point to gstack/review/ for pre-landing review', () => {
     const content = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-ship', 'SKILL.md'), 'utf-8');
-    // Ship references the review checklist in its pre-landing review step
     if (content.includes('checklist.md')) {
-      expect(content).toContain('.agents/skills/gstack/review/');
+      expect(content).toContain('$GSTACK_ROOT/review/');
+      expect(content).not.toContain('.agents/skills/gstack/review/');
       expect(content).not.toContain('.agents/skills/gstack-review/checklist');
     }
   });
@@ -1897,7 +1896,8 @@ describe('Codex generation (--host codex)', () => {
   test('greptile-triage sidecar path is correct', () => {
     const content = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-review', 'SKILL.md'), 'utf-8');
     if (content.includes('greptile-triage')) {
-      expect(content).toContain('.agents/skills/gstack/review/greptile-triage.md');
+      expect(content).toContain('$GSTACK_ROOT/review/greptile-triage.md');
+      expect(content).not.toContain('.agents/skills/gstack/review/greptile-triage.md');
       expect(content).not.toContain('.agents/skills/gstack-review/greptile-triage');
     }
   });
@@ -1913,8 +1913,9 @@ describe('Codex generation (--host codex)', () => {
     // Rule 2: .claude/skills/gstack → .agents/skills/gstack
     expect(content).not.toContain('.claude/skills/gstack');
 
-    // Rule 3: .claude/skills/review → .agents/skills/gstack/review
+    // Rule 3: .claude/skills/review → $GSTACK_ROOT/review
     expect(content).not.toContain('.claude/skills/review');
+    expect(content).toContain('$GSTACK_ROOT/review');
 
     // Rule 4: .claude/skills → .agents/skills (catch-all)
     expect(content).not.toContain('.claude/skills');

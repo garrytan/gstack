@@ -918,7 +918,7 @@ Display:
 - **Eng Review (required by default):** The only review that gates shipping. Covers architecture, code quality, tests, performance. Can be disabled globally with \`gstack-config set skip_eng_review true\` (the "don't bother me" setting).
 - **CEO Review (optional):** Use your judgment. Recommend it for big product/business changes, new user-facing features, or scope decisions. Skip for bug fixes, refactors, infra, and cleanup.
 - **Design Review (optional):** Use your judgment. Recommend it for UI/UX changes. Skip for backend-only, infra, or prompt-only changes.
-- **Adversarial Review (automatic):** Always-on for every review. Every diff gets both Claude adversarial subagent and Codex adversarial challenge. Large diffs (200+ lines) additionally get Codex structured review with P1 gate. No configuration needed.
+- **Adversarial Review:** Every diff gets the in-session Claude adversarial pass. Codex cross-model passes are offered when configured and run only after explicit provider-and-payload export authorization; large authorized diffs (200+ lines) additionally get Codex structured review with a P1 gate.
 - **Outside Voice (optional):** Independent plan review from a different AI model. Offered after all review sections complete in /plan-ceo-review and /plan-eng-review. Falls back to Claude subagent if Codex is unavailable. Never gates shipping.
 
 **Verdict logic:**
@@ -2039,13 +2039,23 @@ $GSTACK_BIN/gstack-review-log '{"skill":"design-review-lite","timestamp":"TIMEST
 
 Substitute: TIMESTAMP = ISO 8601 datetime, STATUS = "clean" if 0 findings or "issues_found", N = total findings, M = auto-fixed count, COMMIT = output of `git rev-parse --short HEAD`.
 
-7. **Codex design voice** (optional, automatic if available):
+7. **Codex design voice** (optional, consent-gated when configured):
 
 ```bash
 command -v codex >/dev/null 2>&1 && echo "CODEX_AVAILABLE" || echo "CODEX_NOT_AVAILABLE"
 ```
 
-If Codex is available, run a lightweight design check on the diff:
+If Codex is available, apply this gate before reading the diff:
+
+**External data authorization:** Before reading or assembling the design diff and necessary source context, confirm
+the user authorized sending that payload to the **OpenAI Codex model service** for
+this invocation. Authentication, command approval, `codex_reviews=enabled`, or a
+generic request for independent review is not export consent. If OpenAI Codex and
+the payload were not both named, use AskUserQuestion and wait. Decline or inability
+to ask means skip Codex and continue locally. Never reuse consent across providers,
+repositories, pull requests, or sessions.
+
+If authorized, run a lightweight design check on the diff:
 
 ```bash
 TMPERR_DRL=$(mktemp /tmp/codex-drl-XXXXXXXX)
@@ -2386,9 +2396,11 @@ For each comment in `comments`:
 
 ---
 
-## Step 11: Adversarial review (always-on)
+## Step 11: Adversarial review (in-session always-on; external pass consent-gated)
 
-Every diff gets adversarial review from both Claude and Codex. LOC is not a proxy for risk — a 5-line auth change can be critical.
+Every diff gets the in-session Claude adversarial review. The Codex cross-model pass
+is offered when configured and runs only after explicit authorization to export the
+named payload. LOC is not a proxy for risk — a 5-line auth change can be critical.
 
 **Detect diff size:**
 
@@ -2401,6 +2413,9 @@ echo "DIFF_SIZE: $DIFF_TOTAL"
 ```
 
 **Detect the Codex master switch + tool availability:**
+
+Run this local provider/configuration preflight first. It does not export
+repository content:
 
 ```bash
 # Codex preflight: one block (functions sourced here don't persist to later blocks).
@@ -2423,7 +2438,17 @@ Branch on the echoed `CODEX_MODE`:
 - **`disabled`** — the user turned Codex reviews off (`codex_reviews=disabled`). Skip the Codex passes only; the Claude adversarial subagent below STILL runs (it is free and fast). Print: "Codex passes skipped (codex_reviews disabled) — running Claude adversarial only."
 - **`not_installed`** — Codex CLI absent. Print: "Codex not installed — using Claude subagent. Install for cross-model coverage: `npm install -g @openai/codex`." Fall back to the Claude subagent path.
 - **`not_authed`** — installed but no credentials. Print: "Codex installed but not authenticated — using Claude subagent. Run `codex login` or set `$CODEX_API_KEY`." Fall back to the Claude subagent path.
-- **`ready`** — run the Codex pass below.
+- **`ready`** — do not read or assemble the provider payload yet. First confirm
+  that the current user explicitly authorized sending the specific payload to the
+  **OpenAI Codex model service** for this invocation. Name the actual payload:
+  complete diff and necessary source, a plan, documentation plus its comparison
+  diff, or other repository context. Authentication, command execution approval,
+  `codex_reviews=enabled`, and a generic request for an "independent review" are
+  not source-export consent. If the request does not name OpenAI Codex and the data
+  scope, use AskUserQuestion and wait. Never infer consent from another provider,
+  PR, repository, or earlier session. If declined, treat Codex as unavailable and
+  continue only with the caller's in-session fallback. Only after authorization is
+  confirmed may the Codex pass below read, assemble, or dispatch the payload.
 
 For this diff-review path, `CODEX_MODE: disabled` means skip the Codex passes ONLY — the
 Claude adversarial subagent below still runs (it's free and fast). `ready` runs the Codex
