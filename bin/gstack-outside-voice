@@ -1,0 +1,938 @@
+#!/usr/bin/env bash
+# gstack-outside-voice — one command for every external review call.
+#
+# A single adapter that resolves a BACKEND per review PHASE, so the iterative loop can
+# run on a cheap model while the final gate stays on a frontier one.
+#
+# SCOPE — what is wired today, stated so no reader has to trust a plan as a fact.
+# `/codex` is the ONLY skill routed through this adapter — all three of its review paths:
+# the loop, the default final gate, and the custom-focus `/codex review <focus>` branch. Thirteen other skills — autoplan, design-consultation, design-review,
+# document-release, office-hours, plan-{ceo,design,devex,eng}-review, review, ship
+# (adversarial + review-army), spec — still call `codex exec` directly and are
+# unaffected by outside_voice_* config. Migrating them is the intent of gstack #619
+# and is NOT done here; grep for `codex exec "` to re-derive this list rather than
+# trusting this comment, which is the only thing keeping it honest.
+#
+# Usage:
+#   gstack-outside-voice exec --phase <loop|final_gate> --prompt-file <f> [opts]
+#   gstack-outside-voice backend --phase <loop|final_gate>   — print resolved backend
+#   gstack-outside-voice probe   --phase <loop|final_gate>   — print readiness mode
+#
+# exec options:
+#   --repo-root <dir>       repo to run against (default: git toplevel)
+#   --effort <low|medium|high|xhigh>   reasoning effort (default: high)
+#   --repo-context <diff|none>   what a TOOL-LESS backend is given (default: diff)
+#   --base <ref>            base ref for the inlined diff (default: origin/main)
+#   --timeout <seconds>     wall-clock cap (default: 330)
+#   --label <name>          tag for the usage log (default: phase name)
+#   --codex-mode <review|exec>   codex backend only (default: exec). `review` keeps Codex's
+#                           own review prompt tuning and is what the final_gate uses.
+#   --pathspec <spec>       repeatable; scope the inlined diff to these paths. Splitting a
+#                           large branch into pathspec-scoped rounds is what makes a tool-less
+#                           backend usable on it at all: reasoning cost scales with input, and
+#                           a reasoning model that exhausts its OUTPUT budget emits nothing and
+#                           still bills in full. The trade is real and must be recorded — a
+#                           defect spanning two scopes is invisible to both, and is ceded to
+#                           the repo-scoped gate by construction.
+#   --explicit              the user invoked this review BY NAME. `codex_reviews=disabled`
+#                           governs the automatic passes in /review, /ship and plan reviews;
+#                           it must not silently disable a review someone asked for. The
+#                           per-phase outside_voice_* switches still apply.
+#   --findings-out <file>   require a VALIDATED findings block and write it here as JSON
+#                           {p1,p2,p3,findings[],counts_disagreed}. Severity counts must come
+#                           from this file, never from parsing the prose. Not available on the
+#                           codex backend (it owns its output format) — there the file's
+#                           ABSENCE after a successful run is the signal to read codex directly.
+#
+# Exit codes:
+#   0  ok          2  usage / refused input (bad ref, empty diff, empty prompt,
+#                     unrecognised outside_voice_* backend value, unreadable config,
+#                     diff truncated to nothing)
+#   3  disabled    4  findings block unusable after one retry — NOT a clean round
+#   5  no pre-flight sweep recorded for this lane (first loop round only)
+#   124 timeout (from the timeout wrapper)
+#
+# Backends:
+#   codex       — `codex exec`, WITH repo access (reads files, runs git itself)
+#   openrouter  — OpenRouter chat completion, TOOL-LESS: it can only see what is
+#                 inlined into the prompt. See "Scope asymmetry" below.
+#
+# Scope asymmetry (deliberate, disclosed — do not silently "fix" by degrading codex):
+#   The codex backend explores the repository beyond the diff, which is where a
+#   real share of deep-round P1s come from. A chat-completion backend has no tools
+#   and no filesystem, so `--repo-context diff` inlines the diff for it. The loop is
+#   therefore diff-scoped and the gate repo-scoped. That gap is a reason the frontier
+#   gate keeps earning its keep, not a defect to paper over.
+#
+# Never echoes $OPENROUTER_API_KEY. Usage/cost rows go to
+#   ~/.gstack/analytics/outside-voice.jsonl   (tokens + model + phase; never prompt text)
+set -euo pipefail
+
+_SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
+_CONFIG="$_SELF_DIR/gstack-config"
+# The interpreter that issues the hosted request, resolved ONCE. `python3` by name, else a
+# `python` that really is Python 3. Windows and Git Bash commonly ship a working `python` and no
+# `python3` — gstack-config already falls back this way — so hard-coding the name made the whole
+# openrouter backend unreachable there while Python sat installed.
+#
+# The fallback VERIFIES the major version instead of trusting the name, which the precedent does
+# not. `python` is Python 2 on plenty of boxes; accepting it on `command -v` alone would let
+# probe report `ready` and then hand Python 3 source to a Python 2 interpreter, failing with a
+# SyntaxError at call time. That is the probe-says-ready/exec-fails disagreement this adapter has
+# already hit four times, and trading an unreachable backend for a fifth one is not a fix.
+_PY="$(command -v python3 2>/dev/null || true)"
+if [ -z "$_PY" ] && command -v python >/dev/null 2>&1; then
+  python -c 'import sys; sys.exit(0 if sys.version_info[0] == 3 else 1)' >/dev/null 2>&1 \
+    && _PY="$(command -v python)"
+fi
+# `${HOME:-}`, not `$HOME`: under `set -u` a bare expansion ABORTS the script when HOME is
+# unset, and a HOME-less container is a case this adapter explicitly supports (see TMP_ROOT
+# below). Reported for the two sites further down; this one was NOT reported and is the
+# earliest of the three — it runs before anything else and is safe today only because the
+# plugin path happens to set GSTACK_STATE_ROOT. Unset all three and it dies at line one.
+_STATE_DIR="${GSTACK_STATE_ROOT:-${GSTACK_HOME:-${GSTACK_STATE_DIR:-${HOME:-}/.gstack}}}"
+# Scratch files honour the caller's resolved temp root. Step 0.6 moved the skill to
+# gstack-paths precisely so temp files work where /tmp is read-only or absent, and this
+# adapter then wrote its diff and response files under ${TMPDIR:-/tmp} anyway — so every
+# OpenRouter round failed before sending in exactly the environments TMP_ROOT exists for.
+_TMP_ROOT="${TMP_ROOT:-${TMPDIR:-/tmp}}"
+
+# Max bytes of diff inlined for a tool-less backend. Generous: the intended loop
+# voices carry ~1M-token windows. Exceeding it truncates LOUDLY (see below) —
+# a silently truncated review is indistinguishable from a clean one.
+_MAX_DIFF_BYTES="${GSTACK_OUTSIDE_VOICE_MAX_DIFF_BYTES:-1500000}"
+# A non-numeric override makes every later `-gt` comparison an error under `set -e`, which
+# exits mid-run with a message about integer expressions rather than about the variable the
+# user set. A zero or negative one is worse: it truncates every diff to nothing, and the
+# truncation guard then reports "nothing to review" for a cap the user typo'd.
+case "$_MAX_DIFF_BYTES" in
+  ''|*[!0-9]*) echo "gstack-outside-voice: GSTACK_OUTSIDE_VOICE_MAX_DIFF_BYTES must be a positive whole number of bytes (got '$_MAX_DIFF_BYTES')" >&2; exit 2 ;;
+esac
+[ "$_MAX_DIFF_BYTES" -gt 0 ] || { echo "gstack-outside-voice: GSTACK_OUTSIDE_VOICE_MAX_DIFF_BYTES must be greater than 0 — a cap of 0 truncates every diff to nothing." >&2; exit 2; }
+
+# Prompt cap — validated the same way as the diff cap above, because an override that is
+# non-numeric makes every later `-gt` an error under `set -e`, and one that is zero refuses
+# every prompt. Both fail in a way that names the comparison rather than the variable the
+# user set, which is the whole reason the diff cap validates itself here too.
+_MAX_PROMPT_BYTES="${GSTACK_OUTSIDE_VOICE_MAX_PROMPT_BYTES:-2000000}"
+case "$_MAX_PROMPT_BYTES" in
+  ''|*[!0-9]*) echo "gstack-outside-voice: GSTACK_OUTSIDE_VOICE_MAX_PROMPT_BYTES must be a positive whole number of bytes (got '$_MAX_PROMPT_BYTES')" >&2; exit 2 ;;
+esac
+[ "$_MAX_PROMPT_BYTES" -gt 0 ] || { echo "gstack-outside-voice: GSTACK_OUTSIDE_VOICE_MAX_PROMPT_BYTES must be greater than 0 — a cap of 0 refuses every prompt." >&2; exit 2; }
+
+_cfg() { "$_CONFIG" get "$1" 2>/dev/null || echo ""; }
+
+# Strict variant for the keys that decide WHICH BACKEND SPENDS MONEY. _cfg collapses "the key
+# is unset" and "the config tool failed" into the same empty string, and empty resolves to
+# codex — so a malformed config or a broken helper bills the frontier backend for every loop
+# round, silently, because "" is a legitimate value rather than an error. The -x check added
+# earlier only catches a MISSING helper; one that exists and exits non-zero walked straight
+# past it. Exit status is the only thing that separates the two facts, so read it.
+_cfg_strict() {
+  local _v _rc=0
+  _v="$("$_CONFIG" get "$1" 2>/dev/null)" || _rc=$?
+  # RETURN a status; do not `die` here. Every caller reads this through `$( )`, and an `exit`
+  # inside a command substitution ends only the SUBSHELL — so the message printed, the
+  # substitution yielded empty, and the script carried on and billed anyway. The guard reported
+  # without enforcing, which is the failure mode it existed to prevent, one level up. Verified
+  # by making the config unreadable and watching probe print the refusal and then answer
+  # `not_authed`. Callers must consume this status with `|| exit 2`.
+  if [ "$_rc" -ne 0 ]; then
+    # Refuse ONLY when a config exists and cannot be read. gstack-config exits non-zero for
+    # both that and "there is no config at all", and the two want opposite answers: an
+    # unreadable file is a misconfiguration worth stopping for, while a HOME-less or
+    # config-less container is simply UNCONFIGURED and must keep behaving exactly as today —
+    # which is the property that makes this whole feature safe to adopt. Collapsing them made
+    # probe exit 2 in a CI container, breaking the environment the HOME-less fix exists for.
+    if [ -e "$_STATE_DIR/config.yaml" ] && [ ! -r "$_STATE_DIR/config.yaml" ]; then
+      echo "gstack-outside-voice: cannot read '$1' from configuration ($_CONFIG exited $_rc; $_STATE_DIR/config.yaml exists but is not readable). Refusing to guess — an unreadable config is not an unconfigured one, and guessing either bills the frontier price for every round or ignores a switch that turned billing off." >&2
+      return 1
+    fi
+    printf '%s' ""
+    return 0
+  fi
+  printf '%s' "$_v"
+}
+
+die() { echo "gstack-outside-voice: $*" >&2; exit 2; }
+
+# --- backend resolution -----------------------------------------------------
+
+resolve_backend() {
+  local phase="$1" backend=""
+  # A missing or non-executable gstack-config makes _cfg return "" for EVERY key, and "" is the
+  # documented "unconfigured install" case, which resolves to codex. So a TOOLING failure lands
+  # on the frontier backend for every loop round — the same expensive-by-default outcome the
+  # typo guard below exists to prevent, arriving through a door that guard cannot see, and with
+  # no warning at all, because "" is a legitimate value rather than an error. An unreadable
+  # config is not the same fact as an unconfigured one; only the second is safe to default.
+  [ -x "$_CONFIG" ] || die "cannot read configuration: $_CONFIG is missing or not executable. Refusing to assume a backend — guessing here bills the frontier price for every loop round."
+  case "$phase" in
+    loop)       backend="$(_cfg_strict outside_voice_loop)" || exit 2 ;;
+    final_gate) backend="$(_cfg_strict outside_voice_gate)" || exit 2 ;;
+    *) die "unknown phase '$phase' (want: loop|final_gate)" ;;
+  esac
+  # UNSET resolves to codex — an unconfigured install must behave exactly as it did before
+  # this adapter existed. But an unset value and a MISRECOGNISED one are different facts, and
+  # collapsing them is how `gstack-config set` earns its reject-on-invalid rule and then loses
+  # it: the config file can be hand-edited, and `outside_voice_loop: opnerouter` would fall
+  # through to codex — silently rerouting the cheap loop to the expensive backend, the exact
+  # outcome the setter validation exists to prevent.
+  #
+  # An earlier version warned on stderr and returned codex anyway. That is not "never guess
+  # silently", it is guessing with a receipt nobody collects: on a SUCCESSFUL round the caller
+  # never prints the captured stderr, so a typo'd loop backend bills every round at frontier
+  # price and looks exactly like a correctly configured run. Resolve to `misconfigured` and let
+  # the callers refuse — a review that does not happen is recoverable in one edit, a review that
+  # quietly costs 20x is not, and it is the loop's entire reason for existing.
+  case "$backend" in
+    codex|openrouter|disabled) printf '%s' "$backend" ;;
+    # ABSENT — the unconfigured install, which must behave exactly as it did before this
+    # adapter existed. A key written with no value is a different fact and arrives as
+    # __blank__ from gstack-config: someone meant to set this and did not finish.
+    "") printf 'codex' ;;
+    *) printf 'misconfigured' ;;
+  esac
+}
+
+# --- remediation text -------------------------------------------------------
+
+unusable_config_message() {
+  # ONE statement of what makes a configured openrouter phase unrunnable and which keys to
+  # check. `exec` dies with it and `backend` warns with it; two wordings of one remediation is
+  # how a pair drifts until one of them names a key that no longer exists — and a remediation
+  # message is only as good as the key it names.
+  printf '%s' "the ${1:-openrouter} backend is configured but cannot run. Check \`gstack-config get outside_voice_loop_model\` — one key, used for BOTH phases, and blank refuses rather than guessing — and \$GSTACK_OUTSIDE_VOICE_BASE_URL, which must be https, or http on loopback."
+}
+
+# --- readiness probe --------------------------------------------------------
+# Mirrors the four-state contract of the old codexPreflight so callers branch the
+# same way: disabled | not_installed | not_authed | ready — plus a fifth,
+# `misconfigured`, for a backend value that is not one of the recognised three.
+# It is deliberately NOT folded into `disabled`: "off on purpose" and "off because
+# you typo'd it" want opposite responses from the operator, and a state that cannot
+# distinguish them is how the typo survives.
+# RECONCILED WITH cmd_exec. A guard built on probe and a refusal built into exec must answer
+# the same question, or the guard blocks what exec would run. These diverged four separate
+# times — the key's whitespace, the model id, the master switch, the base URL — so anything
+# added to one belongs in the other.
+probe() {
+  local phase="$1" explicit="${2:-no}" backend
+  # Master switch first, for the same reason as cmd_exec: with reviews off, a misnamed backend
+  # has no consequences, and reporting `misconfigured` there sends the operator to fix a value
+  # nothing will read.
+  # --explicit, same as cmd_exec: codex_reviews governs the AUTOMATIC passes. Without it the
+  # gate guard — which is built on probe — reported `disabled` and skipped a review the user
+  # had asked for by name, while exec would have run it.
+  # `_cfg_strict`, not `_cfg`. The lossy reader collapses "unset" and "the config could not be
+  # read" into "", and "" is not "disabled" — so an unreadable config launched PAID reviews
+  # for a user who had switched them off. This is the same defect already fixed for backend
+  # selection, on the one decision that outranks it: not WHICH backend to bill, but whether
+  # to bill at all. Refusing is the only honest answer to "am I allowed to spend money here".
+  if [ "$explicit" != "yes" ]; then
+    _cr="$(_cfg_strict codex_reviews)" || exit 2
+    [ "$_cr" = "disabled" ] && { echo "disabled"; return 0; }
+  fi
+  backend="$(resolve_backend "$phase")"
+
+  if [ "$backend" = "misconfigured" ]; then echo "misconfigured"; return 0; fi
+  if [ "$backend" = "disabled" ]; then echo "disabled"; return 0; fi
+
+  if [ "$backend" = "codex" ]; then
+    command -v codex >/dev/null 2>&1 || { echo "not_installed"; return 0; }
+    local _k1 _k2
+    _k1=$(printf '%s' "${CODEX_API_KEY:-}" | tr -d '[:space:]')
+    _k2=$(printf '%s' "${OPENAI_API_KEY:-}" | tr -d '[:space:]')
+    # `${HOME:-}` — with HOME and CODEX_HOME both unset, `$HOME` aborted probe with "HOME:
+    # unbound variable" BEFORE it could emit ready/not_authed, so every codex-backed review
+    # failed in a HOME-less install rather than falling back. Resolving to "/.codex/auth.json"
+    # simply does not exist, which is the honest answer: not_authed.
+    if [ -n "$_k1" ] || [ -n "$_k2" ] || [ -f "${CODEX_HOME:-${HOME:-}/.codex}/auth.json" ]; then
+      echo "ready"; return 0
+    fi
+    echo "not_authed"; return 0
+  fi
+
+  # openrouter — probe python3, which is what actually issues the request. This checked `curl`
+  # for a while, which is a different program: a box with curl and no python3 reported "ready"
+  # and then failed at call time, and a box with python3 and no curl reported "not_installed"
+  # while being perfectly capable. Probe the thing you are about to run.
+  [ -z "$_PY" ] && { echo "not_installed"; return 0; }
+  local _ork
+  _ork=$(printf '%s' "${OPENROUTER_API_KEY:-}" | tr -d '[:space:]')
+  # Fail LOUD, not silent: an absent key on a phase explicitly configured for
+  # openrouter is a misconfiguration, and must never quietly bill the frontier
+  # backend instead. The caller decides what to do; we only refuse to guess.
+  [ -z "$_ork" ] && { echo "not_authed"; return 0; }
+  # And reject a key the REQUEST side will reject. It refuses any whitespace — a header value
+  # cannot carry one, and a newline makes http.client treat it as injection — while this probe
+  # stripped whitespace before testing for emptiness. A key copied with a trailing newline
+  # therefore reported `ready`, callers took the runnable path on that word, and every review
+  # then failed at request time. Third time the two sides have disagreed about what "usable"
+  # means; the probe is what callers branch on, so it has to enforce what exec enforces.
+  [ "${OPENROUTER_API_KEY:-}" != "$_ork" ] && { echo "not_authed"; return 0; }
+  # The model too. exec_openrouter refuses an unusable model id at runtime, so without this a
+  # caller saw `ready`, took the outside-voice path on the strength of it, and hit exit 2
+  # before any review ran. The generated skill instructions branch on probe FIRST, which makes
+  # probe's contract the thing callers actually rely on — it has to cover what exec enforces.
+  [ "$(_cfg outside_voice_loop_model)" = "__blank__" ] && { echo "misconfigured"; return 0; }
+  # The base URL too. The request layer refuses anything but https, or http on loopback, so an
+  # override like ftp:// or a remote http:// passed preflight and failed at request time —
+  # breaking the readiness contract the generated skills branch on, over a value probe never read.
+  #
+  # CALL the request layer's validator rather than restating it. The glob that used to live here
+  # disagreed with it on 7 of 15 tried URLs, in both directions: `http://localhost@evil.com` is
+  # userinfo-not-host and matched `http://localhost*`, so probe said `ready` for a plaintext
+  # REMOTE carrying the key; and `HTTPS://…` is valid but is not the literal `https://`, so a
+  # working config was called misconfigured. A prefix glob cannot express "the host IS loopback".
+  # This is the fourth time the two sides disagreed about "usable" — hence deriving, not patching.
+  GSTACK_OUTSIDE_VOICE_BASE_URL="${GSTACK_OUTSIDE_VOICE_BASE_URL:-}" \
+    "$_PY" "$_SELF_DIR/gstack-outside-voice-request.py" --check-base-url 2>/dev/null \
+    || { echo "misconfigured"; return 0; }
+  echo "ready"
+}
+
+# --- usage log --------------------------------------------------------------
+
+log_usage() {
+  # $1 backend  $2 model  $3 phase  $4 label  $5 prompt_tokens  $6 completion_tokens
+  # $7 status  $8 tokens_partial ("true"/"false", optional)  $9 reasoning_tokens ("unknown"
+  # or a number, optional). The codex call sites pass 7 and rely on the defaults, which is
+  # correct: codex reports neither figure, so both resolve to false/null rather than to zero.
+  # NEVER records prompt text, diff content, or credentials.
+  [ "$(_cfg telemetry)" = "off" ] && return 0
+  mkdir -p "$_STATE_DIR/analytics" 2>/dev/null || return 0
+  local _ts
+  _ts=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo unknown)
+  # Strip anything that would break the line. --label and the config-supplied model are
+  # free-form input concatenated straight into JSON: one `"` or newline corrupts the row, and
+  # this file is what the cost analysis reads — a malformed line is a silently missing
+  # measurement, not a visible error. Restricting to a safe character class is enough here
+  # and avoids a jq dependency in the logging path.
+  local _b _m _p _l _st
+  _b=$(printf '%s' "$1"  | tr -cd 'A-Za-z0-9._-')
+  # `+` is in the class because a RETRIED round whose retry routed to a different upstream
+  # records both as `first+second`. Stripping it fused two model ids into one
+  # unattributable string — worse than the single wrong id this was meant to fix, and on
+  # exactly the rows the cost and hit-rate comparison depends on. The sanitizer's job is to
+  # strip what would BREAK the line; `+` needs no JSON escaping and breaks nothing, so
+  # excluding it was over-broad rather than safe.
+  _m=$(printf '%s' "$2"  | tr -cd 'A-Za-z0-9._/:+-')
+  _p=$(printf '%s' "$3"  | tr -cd 'A-Za-z0-9._-')
+  _l=$(printf '%s' "$4"  | tr -cd 'A-Za-z0-9._-')
+  _st=$(printf '%s' "$7" | tr -cd 'A-Za-z0-9._-')
+  # Token counts come from the API but are interpolated unquoted, so a non-numeric value
+  # would produce invalid JSON rather than a wrong number.
+  #
+  # The literal `unknown` becomes JSON null, and the codex backend passes it on every call.
+  # Codex reports no token counts to us, so those rows previously carried a hard 0 — which is
+  # not "we don't know", it is "this cost nothing", and it is the WRONG answer in the one
+  # analysis this file exists to feed. VAS-1964 compares cost per round between a cheap loop
+  # and a frontier gate; zeros on every frontier row make the expensive tier look free and the
+  # comparison come out backwards. null cannot be summed by accident: an analyst gets an error
+  # or a visible gap instead of a confident wrong number. Under-reporting spend silently is the
+  # one direction this log must never fail in.
+  local _pt _ct
+  if [ "${5:-}" = "unknown" ]; then _pt=null
+  else _pt=$(printf '%s' "${5:-0}" | tr -cd '0-9'); [ -n "$_pt" ] || _pt=0; fi
+  if [ "${6:-}" = "unknown" ]; then _ct=null
+  else _ct=$(printf '%s' "${6:-0}" | tr -cd '0-9'); [ -n "$_ct" ] || _ct=0; fi
+  local _pa="false"; [ "${8:-false}" = "true" ] && _pa="true"
+  local _rt
+  if [ "${9:-unknown}" = "unknown" ]; then _rt=null
+  else _rt=$(printf '%s' "${9}" | tr -cd '0-9'); [ -n "$_rt" ] || _rt=null; fi
+  printf '{"backend":"%s","model":"%s","phase":"%s","label":"%s","prompt_tokens":%s,"completion_tokens":%s,"reasoning_tokens":%s,"tokens_partial":%s,"status":"%s","ts":"%s"}\n' \
+    "$_b" "$_m" "$_p" "$_l" "$_pt" "$_ct" "$_rt" "$_pa" "$_st" "$_ts" \
+    >> "$_STATE_DIR/analytics/outside-voice.jsonl" 2>/dev/null || true
+}
+
+# --- cleanup registry -------------------------------------------------------
+# A trap is a STRING evaluated later, so `trap "rm -f '$f'" EXIT` embeds the path inside shell
+# quoting — and a path containing a single quote closes that quoting early, leaving a trap that
+# deletes nothing while the diff (the full source of every changed file) survives in /tmp. This
+# file already learned once that a trap must be verified by firing it rather than by reading it;
+# a registry removes the class outright, because no path is ever interpolated into shell text.
+_OV_CLEANUP=()
+_ov_cleanup_run() { [ ${#_OV_CLEANUP[@]} -eq 0 ] || rm -f "${_OV_CLEANUP[@]}"; }
+# HUP too: a detached round outliving its terminal is the NORMAL way this runs on a large
+# diff — the skill now tells callers to background it — so hangup is the signal most likely to
+# fire, and it was the one signal the cleanup did not cover.
+_ov_cleanup_add() { _OV_CLEANUP+=("$@"); trap _ov_cleanup_run EXIT INT TERM HUP; }
+
+# --- timeout wrapper (gtimeout → timeout → unwrapped) -----------------------
+
+with_timeout() {
+  local _duration="$1"; shift
+  local _to
+  _to=$(command -v gtimeout 2>/dev/null || command -v timeout 2>/dev/null || echo "")
+  if [ -n "$_to" ]; then
+    "$_to" "$_duration" "$@"
+  else
+    # Running uncapped is the only thing left to do — doing it SILENTLY is the defect. A caller
+    # that passed --timeout believes there is a cap, and a stalled request that is already
+    # billed will otherwise hold the process open with nothing to explain why.
+    echo "gstack-outside-voice: WARNING — neither gtimeout nor timeout is installed; running WITHOUT a ${_duration}s wall-clock cap. Install coreutils to enforce it." >&2
+    "$@"
+  fi
+}
+
+# --- pre-flight sweep gate --------------------------------------------------
+#
+# Refuses the FIRST loop round on a lane until a structural pre-flight sweep is recorded.
+#
+# Why this is code and not a rule: the rule already existed. "Pre-flight sweep before round 1
+# on any multi-site edit" is written in the fleet CLAUDE.md, and the build that produced this
+# adapter skipped it — on the very day it was authored, by the session that had just read it —
+# and then logged SEVEN self-inflicted findings, which is precisely the round class the sweep
+# deletes for free. A rule that its own author skips while building the thing the rule is
+# about is not a rule, it is a note. This is the escalation the fleet doctrine prescribes:
+# when a promoted fact gets violated anyway, move it to enforcement rather than restating it.
+#
+# There is deliberately NO bypass flag. A flag is a remembered rule with extra steps, and the
+# escape hatch already exists and is the behaviour we want: record the sweep. If a lane
+# genuinely does not need one, `codex-round-log.sh --preflight --sites 0` says so on the
+# record, in one command, and is then auditable — unlike a flag, which leaves no trace.
+#
+# Scope: ONLY the first round (nothing logged yet). Once the loop is underway this never
+# fires again, so it cannot interrupt a run in progress.
+preflight_gate() {
+  local phase="$1" repo_root="$2"
+  [ "$phase" = "loop" ] || return 0
+
+  # The round ledger is fleet tooling, not gstack's. Upstream installs have no such file and
+  # must be unaffected — this adapter is headed for a third-party PR, so it cannot hard-depend
+  # on a claude-fleet-config binary. Absent tool => no gate, silently.
+  local _rl=""
+  local _c
+  # $GSTACK_ROUND_LEDGER first, so this is configurable rather than fleet-only. Five separate
+  # review rounds filed the hardcoded list as a defect — correctly, in the sense that a reader
+  # cannot tell "deliberately fleet-scoped" from "nobody considered other installs". The
+  # absent-tool behaviour is unchanged and still deliberate: an upstream install has no such
+  # binary and must be unaffected, since this adapter is headed for a third-party PR and cannot
+  # hard-depend on a claude-fleet-config script.
+  for _c in ${GSTACK_ROUND_LEDGER:+"$GSTACK_ROUND_LEDGER"} \
+            "${HOME:-}/Development/cfc-live/claude/bin/codex-round-log.sh" \
+            "${HOME:-}/Development/claude-fleet-config/claude/bin/codex-round-log.sh"; do
+    [ -x "$_c" ] && { _rl="$_c"; break; }
+  done
+  [ -n "$_rl" ] || return 0
+
+  local _json
+  _json=$("$_rl" -C "$repo_root" --json 2>/dev/null) || {
+    # Tool present but unreadable: warn, do not block. Bricking a review loop over a broken
+    # instrument is a worse failure than the one being prevented.
+    echo "gstack-outside-voice: WARNING — could not read the round ledger; pre-flight gate not enforced." >&2
+    return 0
+  }
+
+  local _verdict
+  _verdict=$(printf '%s' "$_json" | "$_PY" -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    print("unreadable"); raise SystemExit(0)
+# Only gate round 1. rounds_logged > 0 means the loop is already running.
+if d.get("rounds_logged", 0) > 0:
+    print("ok")
+elif d.get("preflight_done"):
+    print("ok")
+else:
+    print("missing")
+' 2>/dev/null) || _verdict="unreadable"
+
+  case "$_verdict" in
+    ok) return 0 ;;
+    unreadable)
+      echo "gstack-outside-voice: WARNING — could not parse the round ledger; pre-flight gate not enforced." >&2
+      return 0 ;;
+  esac
+
+  # Name the missing step and the exact command. An error that says "do the sweep" without
+  # saying how is the same remembered-rule problem one layer down.
+  cat >&2 <<GATE
+gstack-outside-voice: REFUSING round 1 — no pre-flight sweep recorded for this lane.
+
+  The sweep is an EMPIRICAL enumeration, not a recollection: grep every site that asserts
+  the fact you changed — every print, preamble, assertion and doc line — and reconcile them
+  BEFORE spending a review round. It deletes the self-inflicted-contradiction round class at
+  zero token cost. Skipping it on this adapter's own build produced 7 self-inflicted findings.
+
+  Do the sweep, then record it:
+    $_rl -C "$repo_root" --preflight --sites <N> [--missed <N>] [--note "..."]
+
+  If this lane genuinely needs no sweep, say so on the record with --sites 0. There is no
+  bypass flag: a flag would leave no trace, and this gate exists because a rule left none.
+GATE
+  exit 5
+}
+
+# --- exec -------------------------------------------------------------------
+
+cmd_exec() {
+  local phase="" prompt_file="" repo_root="" effort="high" repo_context="diff"
+  local base="origin/main" timeout_s="330" label="" findings_out="" codex_mode="exec"
+  local pathspecs=() explicit=no
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --phase)        phase="${2:?--phase needs a value}"; shift 2 ;;
+      --prompt-file)  prompt_file="${2:?--prompt-file needs a value}"; shift 2 ;;
+      --repo-root)    repo_root="${2:?}"; shift 2 ;;
+      --effort)       effort="${2:?}"; shift 2 ;;
+      --repo-context) repo_context="${2:?}"; shift 2 ;;
+      --base)         base="${2:?}"; shift 2 ;;
+      --timeout)      timeout_s="${2:?}"; shift 2 ;;
+      --label)        label="${2:?}"; shift 2 ;;
+      --findings-out) findings_out="${2:?}"; shift 2 ;;
+      --pathspec)     pathspecs+=("${2:?--pathspec needs a value}"); shift 2 ;;
+      --explicit)     explicit=yes; shift ;;
+      --codex-mode)   codex_mode="${2:?}"; shift 2 ;;
+      *) die "unknown option '$1'" ;;
+    esac
+  done
+
+  [ -n "$phase" ] || die "--phase is required"
+  [ -n "$prompt_file" ] || die "--prompt-file is required"
+  [ -f "$prompt_file" ] || die "prompt file not found: $prompt_file"
+  # -f passes for an EMPTY file, which would bill a request carrying only the diff and no
+  # instructions — and a reviewer given no task plausibly returns no findings, which reads as a
+  # clean round. Same family as the empty-diff guard: nothing asked is not nothing wrong.
+  [ -s "$prompt_file" ] || die "prompt file is empty: $prompt_file. Refusing to send a review request with no instructions."
+  # The DIFF is capped and truncated-with-a-warning; the prompt had no guard at all, so an
+  # oversized one blew the context with nothing said. REFUSE rather than truncate, which is the
+  # opposite of the diff's handling and deliberately so: truncating a diff drops material the
+  # reviewer might have commented on, and the warning says so. Truncating the PROMPT drops the
+  # instructions — including the findings contract that decides how severities are reported —
+  # so the round would come back malformed, or worse, plausibly formed against half a spec.
+  # The cap is deliberately far above any real prompt; it is a runaway guard, not a budget.
+  local _psz
+  _psz=$(wc -c < "$prompt_file" | tr -d '[:space:]')
+  if [ "${_psz:-0}" -gt "$_MAX_PROMPT_BYTES" ]; then
+    die "prompt file is ${_psz} bytes, over the ${_MAX_PROMPT_BYTES}-byte cap (\$GSTACK_OUTSIDE_VOICE_MAX_PROMPT_BYTES). Refusing rather than truncating: cutting a prompt drops the instructions — including the findings contract — so the round would return a malformed or half-specified answer instead of a short one. Shorten the prompt, or inline less into it."
+  fi
+  # xhigh is a real Codex reasoning level and the skill documents `/codex review --xhigh`,
+  # so the adapter must accept it — rejecting it would make a documented flag unusable
+  # the moment the gate started routing through here.
+  case "$effort" in low|medium|high|xhigh) ;; *) die "--effort must be low|medium|high|xhigh" ;; esac
+  case "$repo_context" in diff|none) ;; *) die "--repo-context must be diff|none" ;; esac
+  # --timeout goes straight to `timeout N`, where GNU treats 0 as NO LIMIT. So `--timeout 0`
+  # silently removed the wall-clock cap rather than setting a tight one — and the cap is what
+  # stops a stalled request holding the process open indefinitely while the round is already
+  # billed. A non-numeric value fails later, inside timeout, with a message about timeout's
+  # own usage rather than about this flag. Both refused here instead.
+  case "$timeout_s" in
+    ''|*[!0-9]*) die "--timeout must be a positive whole number of seconds (got '$timeout_s')" ;;
+  esac
+  [ "$timeout_s" -gt 0 ] || die "--timeout must be greater than 0 — 'timeout 0' means NO limit, which is the opposite of what a cap is for."
+  case "$codex_mode" in review|exec) ;; *) die "--codex-mode must be review|exec" ;; esac
+  [ -n "$label" ] || label="$phase"
+
+  if [ -z "$repo_root" ]; then
+    repo_root=$(git rev-parse --show-toplevel 2>/dev/null) \
+      || die "not in a git repo and --repo-root not given"
+  fi
+
+  # The master switch is enforced HERE, not only in probe(). A caller that invokes `exec`
+  # directly — which the skill bodies do — otherwise bypasses `codex_reviews=disabled`
+  # entirely, so a user who explicitly turned external review off still gets billed. Two
+  # settings that both mean "no outside voice" must not be able to disagree.
+  #
+  # Checked BEFORE the backend is resolved. Once reviews are off, which backend would have run
+  # is a question with no consequences — and resolving it can now REFUSE (a typo'd value, an
+  # erroring config helper), so a user who had switched the whole feature off was being handed
+  # an error about a backend that was never going to be used. The off switch outranks it.
+  # `codex_reviews` is documented in gstack-config as the switch for the AUTOMATIC cross-model
+  # passes in /review, /ship and the plan reviews. Routing every /codex review path through this
+  # adapter quietly extended it to cover an EXPLICIT `/codex review`, so a user who had turned
+  # the automatic passes off could no longer run one by name — a regression against both the
+  # previous direct-CLI behaviour and the config's own documented contract. --explicit says the
+  # user asked for this review by name; the master switch still governs everything else.
+  # Strict here too — the sibling site above and this one are one decision, and fixing only
+  # the one the review named would leave the exec path billing on an unreadable config.
+  _cr2=""
+  [ "$explicit" != "yes" ] && { _cr2="$(_cfg_strict codex_reviews)" || exit 2; }
+  if [ "$explicit" != "yes" ] && [ "$_cr2" = "disabled" ]; then
+    echo "OUTSIDE_VOICE_DISABLED codex_reviews=disabled" >&2
+    return 3
+  fi
+
+  local backend
+  backend="$(resolve_backend "$phase")"
+
+  # Settle whether a review will happen AT ALL before demanding a pre-flight sweep. The gate
+  # refuses round 1 until a structural sweep is on record — sound when a round is about to run,
+  # absurd when the backend is `disabled` or misnamed: the operator is told to go do a
+  # repo-wide consistency sweep as the price of a review that was never going to happen, and
+  # the message says nothing about the backend, which is the actual problem.
+  case "$backend" in
+    misconfigured)
+      # Refuse rather than fall back. Naming the key and the phase is the whole fix — the
+      # operator has one line to correct and no way to find it from a generic error.
+      local _key="outside_voice_loop"
+      [ "$phase" = "final_gate" ] && _key="outside_voice_gate"
+      die "$_key is set to an unrecognised value (want: codex|openrouter|disabled). Refusing to guess a backend — a wrong guess either bills the frontier price for every loop round or quietly weakens the gate. Fix ~/.gstack/config.yaml, or run: gstack-config set $_key <codex|openrouter|disabled>" ;;
+    disabled) echo "OUTSIDE_VOICE_DISABLED phase=$phase" >&2; return 3 ;;
+  esac
+
+  # Readiness BEFORE the sweep gate. preflight_gate refuses round 1 until a structural sweep is
+  # recorded — correct, and useless as a first message when the real problem is that codex is
+  # not installed or $OPENROUTER_API_KEY is unset: the operator is sent to do a repo-wide
+  # consistency sweep to fix an install error. Same ordering mistake as the disabled/misconfigured
+  # cases in round 21, one class further along: ask "can this run at all" before "is it allowed to".
+  _readiness="$(probe "$phase" "$explicit")"
+  case "$_readiness" in
+    not_installed) die "the $backend backend's client is not installed. For codex: npm install -g @openai/codex. For openrouter: install python3." ;;
+    not_authed)    die "the $backend backend has no credentials. For codex: codex login, or set \$CODEX_API_KEY. For openrouter: set \$OPENROUTER_API_KEY." ;;
+    # `misconfigured` is a SECOND, narrower thing here than the backend check above. That one
+    # catches an unrecognised backend NAME; probe also returns this word for RUNTIME settings a
+    # valid backend still cannot run with — a blank model id, or a base URL the request layer
+    # will refuse. Those fell through to preflight_gate, so the operator was told to record a
+    # structural sweep as the price of a round that could not run afterwards either. Exactly the
+    # ordering the comment above claims to have fixed, on the one state it did not enumerate.
+    misconfigured)
+      # ONE model key serves BOTH phases — exec_openrouter reads outside_voice_loop_model
+      # whatever the phase, and there is no outside_voice_gate_model anywhere in gstack-config.
+      # The first version of this message branched on phase and named that key for final_gate,
+      # inventing a setting the operator would have searched for and never found: a remediation
+      # message is only as good as the key it names, and a wrong key is worse than a vague one.
+      die "$(unusable_config_message "$backend") Refusing to start a round that would fail after the pre-flight gate." ;;
+    # Unreachable today — codex_reviews=disabled and a disabled backend both return earlier —
+    # but enumerated so the branch table stays total. A state probe can emit and this case does
+    # not name is a silent fall-through to preflight_gate, which is the bug being fixed here.
+    disabled) echo "OUTSIDE_VOICE_DISABLED phase=$phase" >&2; return 3 ;;
+  esac
+
+  preflight_gate "$phase" "$repo_root"
+
+  case "$backend" in
+    codex)
+      # --pathspec is meaningless here and must not pass silently. The codex backend explores
+      # the REPOSITORY; it is never handed the inlined diff that a pathspec scopes. A caller
+      # that scoped the loop and then ran the gate the same way would believe both were
+      # reviewing the same slice while the gate reviewed everything — a scope mismatch that
+      # looks like agreement between the tiers and is the opposite of it.
+      if [ ${#pathspecs[@]} -gt 0 ]; then
+        echo "gstack-outside-voice: WARNING — --pathspec is ignored by the codex backend, which reads the repository rather than an inlined diff. This review is NOT scoped to ${pathspecs[*]}." >&2
+      fi
+      # WARN and continue, never die. The loop path always passes --findings-out, and
+      # outside_voice_loop DEFAULTS to codex — so dying here made `/codex review --loop` fail
+      # on every unconfigured install, i.e. the documented command was broken by the default
+      # configuration. Codex owns its own output format and cannot honour the block contract,
+      # so no findings file is written; the absence of the file is the signal to read codex's
+      # own output rather than a structured count.
+      if [ -n "$findings_out" ]; then
+        rm -f "$findings_out"
+        echo "gstack-outside-voice: note — the codex backend does not emit a structured findings block; no findings file written. Read codex's own output for severities." >&2
+      fi
+      exec_codex "$phase" "$prompt_file" "$repo_root" "$effort" "$timeout_s" "$label" "$codex_mode" ;;
+    openrouter)
+      # An openrouter FINAL GATE is not the thing the name promises, and the config accepts it
+      # without saying so. exec_openrouter always uses outside_voice_loop_model and always
+      # inlines a diff — so the "final gate" silently becomes a second loop-style pass on the
+      # cheap model, and repo-scoped defects in untouched files stop being discoverable while
+      # the run is still reported as the gate. That is the exact class this tier exists to
+      # catch: the gate found a sibling-path drift in this very repo that 21 diff-scoped loop
+      # rounds could not see. Configuring it this way is allowed, but it must not be silent.
+      if [ "$phase" = "final_gate" ]; then
+        echo "gstack-outside-voice: WARNING — outside_voice_gate=openrouter runs the gate as a DIFF-SCOPED review on the loop model ($(_cfg outside_voice_loop_model)), not a repository-scoped one. Defects that live in files this branch did not touch cannot be found this way. This is a degraded gate; do not report it as equivalent to the codex gate." >&2
+      fi
+      exec_openrouter "$phase" "$prompt_file" "$repo_root" "$effort" "$timeout_s" "$label" "$repo_context" "$base" "$findings_out" ${pathspecs[@]+"${pathspecs[@]}"} ;;
+  esac
+}
+
+exec_codex() {
+  local phase="$1" prompt_file="$2" repo_root="$3" effort="$4" timeout_s="$5" label="$6"
+  local codex_mode="${7:-exec}"
+  local rc=0
+
+  # `codex review` and `codex exec` are NOT interchangeable, in two ways that both fail loudly
+  # if you assume otherwise — checked against `--help` on 0.124.0 rather than assumed:
+  #
+  #   flags   `codex review` accepts only -c/--config, --uncommitted, --base, --enable,
+  #           --commit, --disable, --title. It rejects the `-C <dir>` and `-s read-only` that
+  #           `codex exec` takes, so review mode cds instead of passing -C, and relies on
+  #           review being inherently read-only rather than asking for a sandbox flag.
+  #   stdin   opposite conventions. `codex exec` reads stdin when the PROMPT is OMITTED;
+  #           `codex review` reads stdin only when PROMPT is the literal `-`. Using the exec
+  #           convention here would send review no instructions at all.
+  #
+  # review mode exists because it keeps Codex's own review prompt tuning, which is most of what
+  # the frontier gate is buying. Routing the gate through `codex exec` would have been a quiet
+  # downgrade dressed up as a refactor.
+  # Web search. Dropping `--enable web_search_cached` outright was a REGRESSION for installs
+  # below 0.124, where that flag is what turns search on — prompts reasoning about competitors
+  # or external docs silently fell back to model priors. It is passed again, but only where it
+  # is still the mechanism: `_gstack_codex_search_flag` is empty on 0.124+, so the deprecation
+  # warning that once hid a credits error for a whole round never returns.
+  #
+  # The version rule is NOT re-implemented here. It lives once in gstack-codex-probe and is
+  # sourced, because two copies of one fact is precisely what this file has been fixed for
+  # before. Sourcing is safe: that file defines functions and executes nothing at source time
+  # (its own hygiene contract). Absent or unreadable, the flag stays empty and the call still
+  # runs — a missing helper must not take the review down with it.
+  _ov_search_flag=""
+  if [ -r "$_SELF_DIR/gstack-codex-probe" ]; then
+    . "$_SELF_DIR/gstack-codex-probe" 2>/dev/null || true
+    command -v _gstack_codex_search_flag >/dev/null 2>&1 \
+      && _ov_search_flag=$(_gstack_codex_search_flag)
+  fi
+  # $_ov_search_flag is expanded UNQUOTED at both call sites below: it must become two
+  # arguments or none, and it only ever holds a literal this repo controls.
+  if [ "$codex_mode" = "review" ]; then
+    # No --base: current Codex rejects a custom prompt and --base together, so the diff scope
+    # travels in the prompt text (same shape the skill has always used).
+    ( cd "$repo_root" && with_timeout "$timeout_s" codex review - \
+        -c "model_reasoning_effort=\"$effort\"" $_ov_search_flag < "$prompt_file" ) || rc=$?
+    if [ "$rc" -eq 124 ]; then log_usage codex "" "$phase" "$label" unknown unknown timeout
+    elif [ "$rc" -ne 0 ]; then log_usage codex "" "$phase" "$label" unknown unknown "error_$rc"
+    else log_usage codex "" "$phase" "$label" unknown unknown ok
+    fi
+    return "$rc"
+  fi
+  # Flags mirror the previous inline call sites exactly, including web search — passed via
+  # $_ov_search_flag above only on CLIs below 0.124, where it is still the mechanism rather
+  # than a deprecation warning (see VAS-1926 for why it is not passed unconditionally).
+  # The prompt goes in on STDIN, not as argv. `codex exec "$(cat "$f")"` puts the entire prompt
+  # into one argument, and a prompt carrying an inlined diff can exceed ARG_MAX — where the
+  # failure is not a clean error but a truncated or rejected exec, i.e. a review of less than
+  # was asked for, which is the same silent-partial-review class the diff guards above exist
+  # to close.
+  # The PROMPT argument is omitted entirely: `codex exec --help` documents that instructions are
+  # read from stdin when no prompt is given, and that a prompt supplied ALONGSIDE piped stdin
+  # gets stdin appended as a separate <stdin> block — so passing "-" would be taken as a literal
+  # one-character prompt rather than meaning "read stdin".
+  with_timeout "$timeout_s" codex exec \
+    -C "$repo_root" -s read-only \
+    -c "model_reasoning_effort=\"$effort\"" $_ov_search_flag < "$prompt_file" || rc=$?
+  if [ "$rc" -eq 124 ]; then
+    log_usage codex "" "$phase" "$label" unknown unknown timeout
+  elif [ "$rc" -ne 0 ]; then
+    log_usage codex "" "$phase" "$label" unknown unknown "error_$rc"
+  else
+    log_usage codex "" "$phase" "$label" unknown unknown ok
+  fi
+  return "$rc"
+}
+
+exec_openrouter() {
+  local phase="$1" prompt_file="$2" repo_root="$3" effort="$4" timeout_s="$5"
+  local label="$6" repo_context="$7" base="$8" findings_out="${9:-}"
+  shift 9 2>/dev/null || shift $#
+  local pathspecs=("$@")
+
+  local _ork
+  _ork=$(printf '%s' "${OPENROUTER_API_KEY:-}" | tr -d '[:space:]')
+  [ -n "$_ork" ] || die "phase '$phase' is configured for openrouter but OPENROUTER_API_KEY is unset. Refusing to silently fall back to a paid frontier backend."
+
+  local model
+  model="$(_cfg outside_voice_loop_model)"
+  # MIRROR of gstack-config's lookup_default for this key — reached only if gstack-config is
+  # missing or broken, since _cfg already falls back to that table. It is a third copy of one
+  # fact (config header prose, lookup_default, here), so changing the default means changing
+  # all three; grep the model id before assuming one edit is enough.
+  # __blank__ means the config LINE exists and its value is unusable — blank, or carrying
+  # whitespace that `get` would truncate. Falling back to the default there bills a model the
+  # user did not choose while their config plainly names one, which is the same silent
+  # misbilling the setter validation exists to prevent, reached through a hand-edited file.
+  if [ "$model" = "__blank__" ]; then
+    die "outside_voice_loop_model is set to an unusable value (blank, or containing whitespace). Fix ~/.gstack/config.yaml, or run: gstack-config set outside_voice_loop_model <model-id>"
+  fi
+  [ -n "$model" ] || model="minimax/minimax-m3"
+
+  # Tool-less backend: inline the diff, or it reviews nothing at all.
+  local diff_file=""
+  local truncated="no"
+  if [ "$repo_context" = "diff" ]; then
+    diff_file=$(mktemp "$_TMP_ROOT/gstack-ov-diff-XXXXXXXX.txt")
+    # Armed IMMEDIATELY, before any of the refusal paths below can `die`. Arming it later —
+    # once the response file also exists — left every early exit leaking the diff, which is
+    # the failure this trap was added to prevent, reintroduced by the very checks added
+    # alongside it. Re-armed after resp_file is created to cover both.
+    # shellcheck disable=SC2064
+    # `.cut` too: the truncation step writes it, then moves it over $diff_file. If that
+    # pipeline aborts between the two, set -e exits, the trap fires, and the intermediate
+    # survives — holding the same full source of every changed file the trap exists to remove.
+    _ov_cleanup_add "$diff_file" "$diff_file.cut"
+    # REFUSE rather than fall back. An earlier version fell back to `git diff HEAD` when the
+    # base ref could not be resolved — which silently swaps "review this branch" for "review
+    # my uncommitted edits". On a shallow clone, an unfetched fork remote, or a typo'd --base
+    # that produces a near-empty diff, a review of almost nothing returns "no P1/P2" and exits
+    # 0, and the caller reads it as a clean round. That is the same defect the truncation
+    # warning exists to prevent, arriving through a door the truncation check cannot see:
+    # the file is not oversized, it is wrong.
+    if ! git -C "$repo_root" rev-parse --verify --quiet "$base" >/dev/null 2>&1; then
+      # One narrow fallback: origin/X -> X. A fork worktree, a shallow clone, or a repo that
+      # simply has not fetched the remote all fail the first check while holding a perfectly
+      # good LOCAL branch of the same name — and refusing there made `--loop` unusable on them.
+      # This is NOT the fallback that was removed earlier: that one dropped to `git diff HEAD`,
+      # silently swapping "review this branch" for "review my uncommitted edits". Branch-to-
+      # branch stays branch-to-branch, and the substitution is announced rather than assumed.
+      _local_base="${base#origin/}"
+      if [ "$_local_base" != "$base" ] && git -C "$repo_root" rev-parse --verify --quiet "$_local_base" >/dev/null 2>&1; then
+        echo "gstack-outside-voice: note — '$base' does not resolve; using the local branch '$_local_base' instead. Fetch the remote if you meant to review against it." >&2
+        base="$_local_base"
+      else
+        die "base ref '$base' does not resolve in $repo_root, and no local '${base#origin/}' exists either. Fetch it (git fetch <remote>) or pass --base. Refusing to review a different diff than the one asked for."
+      fi
+    fi
+    if ! git -C "$repo_root" diff "$base"...HEAD ${pathspecs[@]+-- "${pathspecs[@]}"} > "$diff_file" 2>/dev/null; then
+      die "could not compute 'git diff $base...HEAD${pathspecs[@]+ -- ${pathspecs[*]}}' in $repo_root. Refusing to substitute a different diff."
+    fi
+    # Committed work ONLY, deliberately — see the branch-to-branch note above, which records
+    # that a `git diff HEAD` fallback was REMOVED for silently swapping "review this branch" for
+    # "review my uncommitted edits". Do not reinstate it: a round over a dirty tree is not
+    # reproducible, and the round protocol commits between rounds precisely so each review has a
+    # fixed subject.
+    #
+    # But deliberate and invisible are different things, and this is the one place the two
+    # backends genuinely see different code: the codex backend explores the repo itself, so it
+    # can read uncommitted work, while this path can only see what is inlined. Switching backends
+    # therefore changes what gets reviewed, and nothing said so. Announce the gap — same shape as
+    # the truncation and degraded-gate warnings, which exist because a review that covers less
+    # than the reader assumes is indistinguishable from a clean one.
+    local _dirty
+    _dirty=$(git -C "$repo_root" status --porcelain --untracked-files=no 2>/dev/null | wc -l | tr -d '[:space:]')
+    if [ "${_dirty:-0}" -gt 0 ]; then
+      echo "gstack-outside-voice: WARNING — $_dirty tracked file(s) have uncommitted changes. This review covers '$base...HEAD' (committed work) ONLY; those edits were NOT reviewed. Commit them and re-run if they were meant to be in scope." >&2
+    fi
+    local _sz
+    _sz=$(wc -c < "$diff_file" | tr -d '[:space:]')
+    # An EMPTY diff is not a clean review, it is no review. Saying so is the difference
+    # between "nothing is wrong" and "nothing was looked at".
+    if [ "${_sz:-0}" -eq 0 ]; then
+      die "'git diff $base...HEAD${pathspecs[@]+ -- ${pathspecs[*]}}' is empty — there is nothing to review. Not reporting this as a clean round. A pathspec that matches nothing is the likeliest cause, and it is indistinguishable from a clean review unless it is refused here."
+    fi
+    if [ "${_sz:-0}" -gt "$_MAX_DIFF_BYTES" ]; then
+      truncated="yes"
+      # Cut on a LINE boundary, not a byte boundary. `head -c` splits whatever it lands in
+      # the middle of: a multibyte UTF-8 character (the tail is then re-decoded with
+      # errors="replace", so the model silently reviews a corrupted glyph) and, more to the
+      # point, a diff hunk — leaving the reviewer a half-line of code with no context. Dropping
+      # the final partial line costs at most one line of the tail we were already discarding.
+      # `sed $d` rather than `head -n -1`: BSD head has no negative count, and this ships to macOS.
+      head -c "$_MAX_DIFF_BYTES" "$diff_file" | sed '$d' > "$diff_file.cut" && mv "$diff_file.cut" "$diff_file"
+      # RE-CHECK emptiness. The empty-diff guard above runs BEFORE truncation, so it cannot
+      # see this: cutting on a line boundary can empty a non-empty file outright when the
+      # first line alone exceeds the cap (a minified bundle, a single huge blob). The result
+      # would be a request carrying no diff at all, which returns "no findings" and reads as
+      # a clean round — the precise equivalence between "nothing wrong" and "nothing looked
+      # at" that both guards exist to break. Introduced by the line-boundary fix itself.
+      local _tsz
+      _tsz=$(wc -c < "$diff_file" | tr -d '[:space:]')
+      if [ "${_tsz:-0}" -eq 0 ]; then
+        die "the diff's first line alone exceeds ${_MAX_DIFF_BYTES} bytes, so truncating to a line boundary left nothing to review. Raise GSTACK_OUTSIDE_VOICE_MAX_DIFF_BYTES. Not reporting this as a clean round."
+      fi
+    fi
+  fi
+
+  local resp_file
+  resp_file=$(mktemp "$_TMP_ROOT/gstack-ov-resp-XXXXXXXX.json")
+
+  # The diff tempfile holds the full source of every changed file. Removing it only on the
+  # success path meant a `timeout` SIGTERM — the routine outcome this script is wrapped in —
+  # left that content in /tmp indefinitely. Trap covers the signal paths; the explicit rm at
+  # the end stays, so behaviour is unchanged when nothing goes wrong.
+  # Both files, quoted the same simple way. The previous form used
+  # ${diff_file:+\"'$diff_file'\"}, which expands to a NESTED-quoted word — `rm -f` then
+  # receives a filename containing literal quote characters, deletes nothing, and the diff
+  # (full source of every changed file) survives. It looked correct and tested clean only
+  # because the earlier, simpler trap was still installed at the moment of the test.
+  # A trap is a string evaluated later: verify it by firing it, not by reading it.
+  # `rm -f ''` is harmless, but naming the empty case keeps the intent readable when
+  # --repo-context none means there is no diff file at all.
+  # shellcheck disable=SC2064
+  _ov_cleanup_add "$resp_file"
+
+  # Built on its own line, with the same `${#pathspecs[@]}` test used further up, rather than
+  # inline as `${pathspecs[@]+"${pathspecs[@]}"}`. That idiom IS correctly quoted — re-proved
+  # twice with a spaced pathspec arriving as one line and `*.ts` not expanding against matching
+  # files on disk — but it has now drawn the same false positive from two separate review
+  # rounds. A construct that must be re-proved every round costs the same as a real finding, so
+  # state it in the form nobody has to verify.
+  local _or_pathspec=""
+  [ ${#pathspecs[@]} -gt 0 ] && _or_pathspec="$(printf '%s\n' "${pathspecs[@]}")"
+
+  local rc=0
+  OR_MODEL="$model" OR_PROMPT_FILE="$prompt_file" OR_DIFF_FILE="$diff_file" \
+  OR_TRUNCATED="$truncated" OR_EFFORT="$effort" OR_RESP="$resp_file" \
+  OR_PATHSPEC="$_or_pathspec" \
+  OR_TIMEOUT="$timeout_s" OR_FINDINGS="$findings_out" \
+  GSTACK_OUTSIDE_VOICE_BASE_URL="${GSTACK_OUTSIDE_VOICE_BASE_URL:-}" \
+  with_timeout "$timeout_s" "$_PY" "$_SELF_DIR/gstack-outside-voice-request.py" || rc=$?
+
+  if [ "$truncated" = "yes" ]; then
+    echo "gstack-outside-voice: WARNING — diff exceeded ${_MAX_DIFF_BYTES} bytes and was truncated; this review does NOT cover the omitted tail." >&2
+  fi
+
+  # Default to `unknown`, not 0. The zero default was reached on exactly the paths where the
+  # cost is LEAST knowable and most real: a timeout kills python before it can write the usage
+  # file, and the round was still billed upstream. Two timed-out rounds on this branch logged
+  # `in=0 out=0` for requests OpenRouter had already charged for. 0 there does not mean cheap,
+  # it means unmeasured, and this log feeds a cheap-vs-frontier cost comparison.
+  local ptok=unknown ctok=unknown rmodel="$model" rpartial=false rreason=unknown
+  if [ -s "$resp_file" ]; then
+    # JSON null (usage absent from the API response) prints as None; map it back to the
+    # `unknown` sentinel rather than letting `tr -cd '0-9'` silently flatten it to 0.
+    ptok=$("$_PY" -c 'import json,sys
+v=json.load(open(sys.argv[1])).get("prompt_tokens")
+print("unknown" if v is None else v)' "$resp_file" 2>/dev/null || echo unknown)
+    ctok=$("$_PY" -c 'import json,sys
+v=json.load(open(sys.argv[1])).get("completion_tokens")
+print("unknown" if v is None else v)' "$resp_file" 2>/dev/null || echo unknown)
+    rmodel=$("$_PY" -c 'import json,sys;print(json.load(open(sys.argv[1])).get("model",""))' "$resp_file" 2>/dev/null || echo "$model")
+    # Carry the partial marker through to the log. Recording it only in a tempfile that is
+    # deleted seconds later is the same failure as printing a caveat to a stderr nobody reads:
+    # the number survives and the reason it might be wrong does not.
+    rpartial=$("$_PY" -c 'import json,sys;print("true" if json.load(open(sys.argv[1])).get("tokens_partial") else "false")' "$resp_file" 2>/dev/null || echo false)
+    rreason=$("$_PY" -c 'import json,sys
+v=json.load(open(sys.argv[1])).get("reasoning_tokens")
+print("unknown" if v is None else v)' "$resp_file" 2>/dev/null || echo unknown)
+  fi
+
+  if [ "$rc" -eq 124 ]; then
+    log_usage openrouter "$rmodel" "$phase" "$label" "$ptok" "$ctok" timeout "$rpartial" "$rreason"
+  elif [ "$rc" -ne 0 ]; then
+    log_usage openrouter "$rmodel" "$phase" "$label" "$ptok" "$ctok" "error_$rc" "$rpartial" "$rreason"
+  else
+    log_usage openrouter "$rmodel" "$phase" "$label" "$ptok" "$ctok" ok "$rpartial" "$rreason"
+  fi
+
+  rm -f "$resp_file" ${diff_file:+"$diff_file"}
+  return "$rc"
+}
+
+# --- dispatch ---------------------------------------------------------------
+
+[ $# -gt 0 ] || die "usage: gstack-outside-voice <exec|backend|probe> [options]"
+_CMD="$1"; shift
+
+case "$_CMD" in
+  exec) cmd_exec "$@" ;;
+  backend)
+    [ "${1:-}" = "--phase" ] || die "usage: gstack-outside-voice backend --phase <loop|final_gate>"
+    _resolved="$(resolve_backend "${2:?}")"
+    printf '%s\n' "$_resolved"
+    # codex/SKILL.md sends operators here for "the precise message — it names the key", and it
+    # names TWO causes: this phase's key holding an unrecognised value, and
+    # outside_voice_loop_model being blank. Only the first was ever visible from this command —
+    # for the second, `resolve_backend` correctly returned `openrouter` and the operator was
+    # handed one word that diagnosed nothing, having been told it would name the key. An
+    # artefact that names its own diagnostic is making a checkable claim; this makes it true.
+    #
+    # STDOUT stays exactly one word: preflight captures it as the backend name, and anything
+    # extra there would be read as a backend. The diagnosis goes to STDERR — the channel this
+    # command already uses to explain an unrecognised value, and which preflight deliberately
+    # does not suppress for precisely that reason.
+    if [ "$_resolved" = "openrouter" ] && [ "$(probe "${2:?}" no)" = "misconfigured" ]; then
+      printf 'gstack-outside-voice: %s\n' "$(unusable_config_message "$_resolved")" >&2
+    fi
+    ;;
+  probe)
+    _pexp=no
+    [ "${1:-}" = "--explicit" ] && { _pexp=yes; shift; }
+    [ "${1:-}" = "--phase" ] || die "usage: gstack-outside-voice probe [--explicit] --phase <loop|final_gate>"
+    probe "${2:?}" "$_pexp"
+    ;;
+  *) die "unknown command '$_CMD' (want: exec|backend|probe)" ;;
+esac

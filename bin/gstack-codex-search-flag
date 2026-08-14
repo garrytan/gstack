@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# gstack-codex-search-flag — print the flag that enables Codex web search, when it is needed.
+#
+# Prints `--enable web_search_cached` on CLIs below 0.124, and NOTHING on 0.124+ where web
+# search is on by default and the flag only emits a deprecation warning — a warning that once
+# hid a "no credits remaining" error for a whole review round (VAS-1926).
+#
+# WHY A SEPARATE EXECUTABLE
+# Skill bash blocks are generated into SKILL.md files that carry a size budget, and most of
+# them do not source gstack-codex-probe. Sourcing it at every call site would add four lines
+# apiece across ~15 sites; a command substitution adds one. Callers write:
+#
+#     codex exec "<prompt>" -C "$_REPO_ROOT" $(gstack-codex-search-flag) < /dev/null
+#
+# UNQUOTED on purpose: the substitution must become two arguments or none, and the only value
+# it can ever produce is a literal this repo controls.
+#
+# The version rule itself is NOT implemented here. It lives once, in gstack-codex-probe, and
+# this file is a thin accessor for blocks that cannot source. One fact, one home.
+#
+# ALWAYS exits 0 and prints nothing it is unsure about. A helper that cannot resolve the
+# version must degrade to "pass no flag" — which is correct on every modern CLI — rather than
+# fail and take the review down with it.
+_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd)" || exit 0
+# shellcheck source=/dev/null
+. "$_dir/gstack-codex-probe" 2>/dev/null || exit 0
+command -v _gstack_codex_search_flag >/dev/null 2>&1 || exit 0
+_gstack_codex_search_flag
+exit 0
