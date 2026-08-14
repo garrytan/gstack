@@ -31,8 +31,8 @@
 //       file. No bump. Validates the VERSION pattern first.
 //
 // Contract: classify NEVER writes. write/repair mutate VERSION + package.json
-// only. No git mutation, no network. Mirrors gstack-next-version's reader/writer
-// split so /ship composes them.
+// + package-lock.json (when present) only. No git mutation, no network. Mirrors
+// gstack-next-version's reader/writer split so /ship composes them.
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
@@ -101,6 +101,25 @@ function writePkgVersion(cwd: string, version: string): void {
   writeFileSync(pkgPath, JSON.stringify(parsed, null, 2) + "\n");
 }
 
+/**
+ * package-lock.json carries the version twice (top-level `version` and, in
+ * lockfileVersion >= 2, `packages[""].version`). Leaving either stale after a
+ * bump dirties the tree on the next `npm install`, which downstream clean-tree
+ * asserts reject far from the cause. No-op when the lockfile is absent.
+ */
+function writeLockVersion(cwd: string, version: string): void {
+  const lockPath = join(cwd, "package-lock.json");
+  if (!existsSync(lockPath)) return;
+  const raw = readFileSync(lockPath, "utf-8");
+  const parsed = JSON.parse(raw) as Record<string, unknown>;
+  parsed.version = version;
+  const packages = parsed.packages as Record<string, Record<string, unknown>> | undefined;
+  if (packages && typeof packages[""] === "object" && packages[""] !== null) {
+    packages[""].version = version;
+  }
+  writeFileSync(lockPath, JSON.stringify(parsed, null, 2) + "\n");
+}
+
 function baseVersion(cwd: string, base: string, versionRel: string): string {
   // Verify the base ref resolves, mirroring the Step 12 guard.
   try {
@@ -164,15 +183,22 @@ function cmdWrite(args: string[], cwd: string): void {
   if (existsSync(join(cwd, "package.json"))) {
     try {
       writePkgVersion(cwd, version!);
+      writeLockVersion(cwd, version!);
     } catch {
       fail(
-        "failed to update package.json. VERSION was written but package.json is now stale. " +
-          "Re-run — classify will report DRIFT_STALE_PKG and repair will sync it.",
+        "failed to update package.json/package-lock.json. VERSION was written but the npm " +
+          "manifests are now stale. Re-run — classify will report DRIFT_STALE_PKG and repair will sync them.",
         3,
       );
     }
   }
-  process.stdout.write(JSON.stringify({ wrote: version, packageJson: existsSync(join(cwd, "package.json")) }) + "\n");
+  process.stdout.write(
+    JSON.stringify({
+      wrote: version,
+      packageJson: existsSync(join(cwd, "package.json")),
+      packageLock: existsSync(join(cwd, "package-lock.json")),
+    }) + "\n",
+  );
 }
 
 function cmdRepair(args: string[], cwd: string): void {
@@ -190,8 +216,9 @@ function cmdRepair(args: string[], cwd: string): void {
   }
   try {
     writePkgVersion(cwd, current);
+    writeLockVersion(cwd, current);
   } catch {
-    fail("drift repair failed — could not update package.json.", 3);
+    fail("drift repair failed — could not update package.json/package-lock.json.", 3);
   }
   process.stdout.write(JSON.stringify({ repaired: current }) + "\n");
 }

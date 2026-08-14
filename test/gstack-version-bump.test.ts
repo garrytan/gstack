@@ -54,7 +54,7 @@ describe('write (FRESH bump)', () => {
     fs.writeFileSync(path.join(dir, 'VERSION'), '1.0.0.0\n');
     fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'x', version: '1.0.0.0', scripts: { t: 'y' } }, null, 2) + '\n');
     const out = execFileSync('bun', [BIN, 'write', '--version', '1.1.0.0'], { cwd: dir }).toString();
-    expect(JSON.parse(out)).toEqual({ wrote: '1.1.0.0', packageJson: true });
+    expect(JSON.parse(out)).toEqual({ wrote: '1.1.0.0', packageJson: true, packageLock: false });
     expect(fs.readFileSync(path.join(dir, 'VERSION'), 'utf-8').trim()).toBe('1.1.0.0');
     const pkg = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf-8'));
     expect(pkg.version).toBe('1.1.0.0');
@@ -72,7 +72,7 @@ describe('write (FRESH bump)', () => {
     const d2 = fs.mkdtempSync(path.join(os.tmpdir(), 'vbump-noPkg-'));
     fs.writeFileSync(path.join(d2, 'VERSION'), '0.1.0.0\n');
     const out = execFileSync('bun', [BIN, 'write', '--version', '0.2.0.0'], { cwd: d2 }).toString();
-    expect(JSON.parse(out)).toEqual({ wrote: '0.2.0.0', packageJson: false });
+    expect(JSON.parse(out)).toEqual({ wrote: '0.2.0.0', packageJson: false, packageLock: false });
     expect(fs.readFileSync(path.join(d2, 'VERSION'), 'utf-8').trim()).toBe('0.2.0.0');
     fs.rmSync(d2, { recursive: true, force: true });
   });
@@ -97,6 +97,48 @@ describe('repair (DRIFT_STALE_PKG)', () => {
     try { execFileSync('bun', [BIN, 'repair'], { cwd: dir, stdio: 'pipe' }); }
     catch (e: any) { code = e.status; }
     expect(code).toBe(2);
+  });
+});
+
+describe('write/repair sync package-lock.json (both version fields)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vbump-lock-'));
+  afterAll(() => { try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* noop */ } });
+
+  const lock = (v: string) => JSON.stringify({
+    name: 'x', version: v, lockfileVersion: 3,
+    packages: { '': { name: 'x', version: v }, 'node_modules/a': { version: '9.9.9' } },
+  }, null, 2) + '\n';
+
+  test('write updates top-level version and packages[""].version, leaves deps alone', () => {
+    fs.writeFileSync(path.join(dir, 'VERSION'), '1.0.0.0\n');
+    fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'x', version: '1.0.0.0' }, null, 2) + '\n');
+    fs.writeFileSync(path.join(dir, 'package-lock.json'), lock('1.0.0.0'));
+    const out = execFileSync('bun', [BIN, 'write', '--version', '1.1.0.0'], { cwd: dir }).toString();
+    expect(JSON.parse(out)).toEqual({ wrote: '1.1.0.0', packageJson: true, packageLock: true });
+    const l = JSON.parse(fs.readFileSync(path.join(dir, 'package-lock.json'), 'utf-8'));
+    expect(l.version).toBe('1.1.0.0');
+    expect(l.packages[''].version).toBe('1.1.0.0');
+    expect(l.packages['node_modules/a'].version).toBe('9.9.9'); // untouched
+  });
+
+  test('repair heals a stale lockfile alongside package.json', () => {
+    fs.writeFileSync(path.join(dir, 'VERSION'), '2.0.0.0\n');
+    fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'x', version: '1.9.0.0' }, null, 2) + '\n');
+    fs.writeFileSync(path.join(dir, 'package-lock.json'), lock('1.9.0.0'));
+    execFileSync('bun', [BIN, 'repair'], { cwd: dir });
+    const l = JSON.parse(fs.readFileSync(path.join(dir, 'package-lock.json'), 'utf-8'));
+    expect(l.version).toBe('2.0.0.0');
+    expect(l.packages[''].version).toBe('2.0.0.0');
+  });
+
+  test('lockfileVersion 1 (no packages map) syncs top-level only, no crash', () => {
+    fs.writeFileSync(path.join(dir, 'VERSION'), '3.0.0.0\n');
+    fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'x', version: '2.9.0.0' }, null, 2) + '\n');
+    fs.writeFileSync(path.join(dir, 'package-lock.json'), JSON.stringify({ name: 'x', version: '2.9.0.0', lockfileVersion: 1 }, null, 2) + '\n');
+    execFileSync('bun', [BIN, 'repair'], { cwd: dir });
+    const l = JSON.parse(fs.readFileSync(path.join(dir, 'package-lock.json'), 'utf-8'));
+    expect(l.version).toBe('3.0.0.0');
+    expect(l.packages).toBeUndefined();
   });
 });
 
