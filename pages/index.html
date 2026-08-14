@@ -60,6 +60,7 @@
     .tab-num { display: block; margin-bottom: 9px; color: var(--orange); font-size: 11px; font-weight: 800; }
     .tab-label { display: block; font-size: 13px; font-weight: 750; letter-spacing: -.02em; }
     .stage { position: relative; min-height: 500px; }
+    .stage:focus { outline: 1px solid rgba(255, 92, 53, .62); outline-offset: 8px; border-radius: 12px; }
     .panel { display: none; padding: 54px 0 16px; animation: arrive .35s ease both; }
     .panel.active { display: block; }
     @keyframes arrive { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
