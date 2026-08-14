@@ -155,3 +155,43 @@ describe('parent-process watchdog (v0.18.1.0)', () => {
     expect(isProcessAlive(serverPid)).toBe(true);
   }, 45_000);
 });
+
+// The three tests above all fix the mode via env at SPAWN time, so none of them
+// reaches the headed branch of the watchdog. That branch is only reachable by a
+// RUNTIME promotion, which `handoff` performs: it swaps in a headed context on a
+// running daemon without a restart, moving a daemon that legitimately registered
+// a watchdog onto the fatal side of the check. The parent is usually a
+// short-lived shell (Claude Code's Bash tool kills one after every invocation),
+// so the next poll shut the daemon down and discarded whatever the user had been
+// handed off to do — observed as repeated session loss mid-login.
+//
+// Driving a real `handoff` needs a headed Chromium, which does not belong in the
+// free tier, so this pins the WIRING instead — the same static-tripwire approach
+// used by cdp-session-cleanup.test.ts and server-auth.test.ts. If either half of
+// the contract is dropped, the crash returns silently and these fail.
+describe('watchdog is cancelled on runtime promotion to headed', () => {
+  const read = (rel: string) => fs.readFileSync(path.join(ROOT, rel), 'utf-8');
+
+  test('handoff() notifies the server that it promoted the daemon', () => {
+    const src = read('src/browser-manager.ts');
+    const promote = src.indexOf("this.connectionMode = 'headed';", src.indexOf('async handoff('));
+    expect(promote).toBeGreaterThan(-1);
+    // The notification must follow the promotion closely; a call left far away
+    // (or removed) is the regression this guards.
+    expect(src.slice(promote, promote + 800)).toContain('this.onHeadedPromotion?.()');
+  });
+
+  test('the server binds that callback to the watchdog canceller', () => {
+    const src = read('src/server.ts');
+    // The timer must be reachable — `setInterval(` with its return value dropped
+    // cannot be cleared, which was the original defect.
+    expect(src).toContain('parentWatchdogTimer = setInterval(');
+    expect(src).toContain('function clearParentWatchdog()');
+    expect(src).toContain('clearInterval(parentWatchdogTimer)');
+    // Bound on BOTH the module-level manager and any embedder-supplied one; the
+    // watchdog reads activeBrowserManager, so binding only the default instance
+    // leaves embedders (e.g. gbrowser) promoting silently.
+    expect(src).toContain('browserManager.onHeadedPromotion = clearParentWatchdog');
+    expect(src).toContain('cfgBrowserManager.onHeadedPromotion = clearParentWatchdog');
+  });
+});

@@ -195,6 +195,15 @@ export class BrowserManager {
 
   // ─── Headed State ────────────────────────────────────────
   private connectionMode: 'launched' | 'headed' = 'launched';
+
+  /**
+   * Fired when a RUNNING daemon is promoted to headed mode (see handoff()),
+   * as opposed to starting headed. The server uses it to cancel the
+   * parent-process watchdog, which was registered on the assumption that mode
+   * is fixed at boot and would otherwise kill the freshly handed-off browser
+   * the next time the spawning shell exits.
+   */
+  onHeadedPromotion?: () => void;
   private intentionalDisconnect = false;
 
   // ─── Tab Count Guardrail (D5 + Codex single-tab flag) ───────
@@ -1602,6 +1611,14 @@ export class BrowserManager {
       this.pages.clear();
       this.tabSessions.clear();
       this.connectionMode = 'headed';
+
+      // Promotion, not a headed boot. The server registered a parent-process
+      // watchdog because this daemon started headless, and that watchdog kills
+      // headed daemons when their parent exits — which for a CLI-spawned daemon
+      // is immediately. Without this the handed-off browser dies ~15s later,
+      // taking whatever the user was mid-way through (a login, an MFA prompt)
+      // with it.
+      this.onHeadedPromotion?.();
 
       // Same Layer C stealth as launch()/launchHeaded(). Must run BEFORE
       // restoreState() navigates so the init scripts apply to the restored

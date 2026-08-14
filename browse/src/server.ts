@@ -684,9 +684,14 @@ const BROWSE_PARENT_PID = parseInt(process.env.BROWSE_PARENT_PID || '0', 10);
 // the closure every 15s. The CLI's connect path sets BROWSE_HEADED=1 + PID=0,
 // so this branch is the normal path for /open-gstack-browser.
 const IS_HEADED_WATCHDOG = process.env.BROWSE_HEADED === '1';
+// Kept so a runtime promotion to headed can cancel it. The env guards above only
+// cover daemons that were headed at BOOT; `handoff` promotes a running headless
+// daemon in place, and the watchdog registered here would then kill it on the
+// next parent death. See clearParentWatchdog() below.
+let parentWatchdogTimer: ReturnType<typeof setInterval> | null = null;
 if (BROWSE_PARENT_PID > 0 && !IS_HEADED_WATCHDOG) {
   let parentGone = false;
-  setInterval(() => {
+  parentWatchdogTimer = setInterval(() => {
     try {
       process.kill(BROWSE_PARENT_PID, 0); // signal 0 = existence check only, no signal sent
     } catch {
@@ -716,6 +721,28 @@ if (BROWSE_PARENT_PID > 0 && !IS_HEADED_WATCHDOG) {
   console.log('[browse] Parent-process watchdog disabled (headed mode)');
 } else if (BROWSE_PARENT_PID === 0) {
   console.log('[browse] Parent-process watchdog disabled (BROWSE_PARENT_PID=0)');
+}
+
+/**
+ * Cancel the parent-process watchdog after a runtime promotion to headed mode.
+ *
+ * The watchdog's contract is "headless daemons outlive their parent, headed ones
+ * do not" — reasonable at boot, when mode is fixed by env. `handoff` breaks that
+ * assumption: it swaps in a headed context on a RUNNING daemon
+ * (browser-manager.ts, connectionMode = 'headed') without a restart, so a daemon
+ * that legitimately registered a watchdog is suddenly on the fatal side of the
+ * branch. The parent is typically a short-lived shell — Claude Code's Bash tool
+ * kills one after every invocation — so the next 15s poll shuts the daemon down,
+ * discarding whatever the user was handed off to do, such as a login.
+ *
+ * Once promoted, the user owns the window lifecycle exactly as if the daemon had
+ * been started headed, which is the case the env guards already exempt.
+ */
+function clearParentWatchdog(): void {
+  if (!parentWatchdogTimer) return;
+  clearInterval(parentWatchdogTimer);
+  parentWatchdogTimer = null;
+  console.log('[browse] Parent-process watchdog cleared (promoted to headed at runtime)');
 }
 
 // ─── Command Sets (from commands.ts — single source of truth) ───
@@ -760,6 +787,11 @@ function emitInspectorEvent(event: any): void {
 
 // ─── Server ────────────────────────────────────────────────────
 const browserManager = new BrowserManager();
+// Declared here rather than beside clearParentWatchdog: that function sits with
+// the watchdog it cancels, which is above this line, and binding it up there
+// would touch `browserManager` in its temporal dead zone — aborting module
+// evaluation and leaving every later const uninitialized.
+browserManager.onHeadedPromotion = clearParentWatchdog;
 // Indirection for embedders. Module-level handlers (idleCheckTick, parent
 // watchdog, SIGTERM) read activeBrowserManager so that buildFetchHandler can
 // retarget them at a caller-supplied BrowserManager. Symmetric with the
@@ -1639,6 +1671,11 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
   // after 30 min of HTTP idle because the dead module-level instance still
   // reports connectionMode === 'launched'.
   activeBrowserManager = cfgBrowserManager;
+  // Same reason as above: the watchdog reads activeBrowserManager, so the
+  // instance that can promote itself to headed must be the one that can cancel
+  // it. An embedder-supplied manager otherwise promotes silently and the
+  // watchdog keeps running against a mode it can no longer see.
+  cfgBrowserManager.onHeadedPromotion = clearParentWatchdog;
 
   // Wire the cfg-instance's onDisconnect to run shutdown when the user
   // closes the headed browser window. CHAIN any caller-provided handler
