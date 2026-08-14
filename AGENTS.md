@@ -127,6 +127,33 @@ bun run skill:check      # health dashboard for all skills
   helper resolves state roots through `CLAUDE_PLUGIN_DATA` / `GSTACK_HOME` so plugin
   installs work on every platform.
 
+## Cloud Agent bootstrap
+
+Cloud Agent VMs start fresh every session. If `.cursor/skills/gstack` is absent,
+install gstack before doing any work — **no bun required**:
+
+```bash
+# One-liner: clone gstack and install into .cursor/skills/ of the current repo
+git clone --single-branch --depth 1 https://github.com/garrytan/gstack.git ~/.gstack/repos/gstack \
+  && ~/.gstack/repos/gstack/bin/gstack-cloud-bootstrap
+```
+
+If gstack is already cloned (common when it's a repo dependency or cached):
+
+```bash
+$GSTACK_ROOT/bin/gstack-cloud-bootstrap
+```
+
+Or use `setup --host cursor` directly from the gstack directory:
+
+```bash
+/path/to/gstack/setup --host cursor          # installs into <repo>/.cursor/skills/
+GSTACK_SKILLS_DIR=/custom/path setup --host cursor  # custom target
+```
+
+The bootstrap is idempotent — safe to run at every session start as a health check.
+Set `GSTACK_AUTOUPDATE=1` to pull the latest gstack on each run.
+
 ## Key conventions
 
 - SKILL.md files are **generated** from `.tmpl` templates. Edit the template, not the output.
@@ -135,3 +162,4 @@ bun run skill:check      # health dashboard for all skills
 - Safety skills (careful, freeze, guard) use inline advisory prose — always confirm before destructive operations.
 - State paths resolve via `bin/gstack-paths` (sourced via `eval "$(...)"`). Honors `GSTACK_HOME`, `CLAUDE_PLUGIN_DATA`, `CLAUDE_PLANS_DIR`.
 - The `claude` CLI binary resolves via `browse/src/claude-bin.ts` (`Bun.which()` + `GSTACK_CLAUDE_BIN` override). Set `GSTACK_CLAUDE_BIN=wsl` plus `GSTACK_CLAUDE_BIN_ARGS='["claude"]'` to run Claude through WSL on Windows.
+- `bin/gstack-cursor-install` and `bin/gstack-cloud-bootstrap` are bun-free and safe for Cloud Agent VMs.

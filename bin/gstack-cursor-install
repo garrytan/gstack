@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+# gstack-cursor-install — install gstack skills into .cursor/skills/
+#
+# Works without bun. Designed for Cloud Agent VMs and Cursor IDE users
+# who want gstack available without a full bun build.
+#
+# Strategy:
+#   1. If .agents/skills/ exists (pre-generated), use those skill docs.
+#   2. Otherwise fall back to source SKILL.md files with sed path rewrites.
+#
+# Usage:
+#   gstack-cursor-install [<target-skills-dir>]
+#
+#   Default target: .cursor/skills/ in the current git repo root,
+#   or ./.cursor/skills if not in a git repo.
+#
+# Environment:
+#   GSTACK_CURSOR_QUIET=1  — suppress progress output
+
+set -e
+
+GSTACK_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+QUIET="${GSTACK_CURSOR_QUIET:-0}"
+
+log() { [ "$QUIET" -eq 0 ] && echo "$@" || true; }
+
+# ── Resolve target directory ────────────────────────────────────
+if [ -n "${1:-}" ]; then
+  TARGET_SKILLS="$1"
+else
+  REPO_ROOT="$(git -C "$(pwd)" rev-parse --show-toplevel 2>/dev/null || pwd)"
+  TARGET_SKILLS="$REPO_ROOT/.cursor/skills"
+fi
+
+CURSOR_GSTACK="$TARGET_SKILLS/gstack"
+AGENTS_DIR="$GSTACK_DIR/.agents/skills"
+
+# ── Decide skill source ─────────────────────────────────────────
+# Prefer pre-generated .agents/skills/ (avoids any bun dependency);
+# fall back to source directories when .agents/ is absent or empty.
+if [ -d "$AGENTS_DIR" ] && ls "$AGENTS_DIR"/gstack-*/SKILL.md >/dev/null 2>&1; then
+  SKILL_SOURCE="agents"
+else
+  SKILL_SOURCE="source"
+fi
+
+# ── Path rewrite helper ─────────────────────────────────────────
+rewrite_cursor_paths() {
+  local src="$1"
+  local dst="$2"
+  sed \
+    -e "s|~/.claude/skills/gstack|.cursor/skills/gstack|g" \
+    -e "s|\.claude/skills/gstack|.cursor/skills/gstack|g" \
+    -e "s|\.claude/skills|.cursor/skills|g" \
+    -e "s|~/.codex/skills/gstack|.cursor/skills/gstack|g" \
+    -e "s|\$HOME/.codex/skills/gstack|.cursor/skills/gstack|g" \
+    "$src" > "$dst"
+}
+
+# ── Create gstack runtime root ──────────────────────────────────
+mkdir -p "$CURSOR_GSTACK/review"
+
+# Root SKILL.md
+if [ -f "$GSTACK_DIR/SKILL.md" ]; then
+  rewrite_cursor_paths "$GSTACK_DIR/SKILL.md" "$CURSOR_GSTACK/SKILL.md"
+fi
+
+# ETHOS.md (referenced by every skill's preamble)
+if [ -f "$GSTACK_DIR/ETHOS.md" ]; then
+  cp "$GSTACK_DIR/ETHOS.md" "$CURSOR_GSTACK/ETHOS.md"
+fi
+
+# Review support files
+for f in checklist.md design-checklist.md greptile-triage.md TODOS-format.md; do
+  if [ -f "$GSTACK_DIR/review/$f" ]; then
+    cp "$GSTACK_DIR/review/$f" "$CURSOR_GSTACK/review/$f"
+  fi
+done
+
+# ── Install individual skills ───────────────────────────────────
+LINKED=()
+
+if [ "$SKILL_SOURCE" = "agents" ]; then
+  # Use pre-generated Codex-format skill docs from .agents/skills/
+  for skill_dir in "$AGENTS_DIR"/gstack*/; do
+    [ -f "$skill_dir/SKILL.md" ] || continue
+    skill_name="$(basename "$skill_dir")"
+    # Skip the sidecar root (it's the gstack runtime root, not a skill)
+    [ "$skill_name" = "gstack" ] && continue
+    target_dir="$TARGET_SKILLS/$skill_name"
+    mkdir -p "$target_dir"
+    rewrite_cursor_paths "$skill_dir/SKILL.md" "$target_dir/SKILL.md"
+    LINKED+=("$skill_name")
+  done
+else
+  # Fall back to source SKILL.md files
+  for skill_dir in "$GSTACK_DIR"/*/; do
+    [ -f "$skill_dir/SKILL.md" ] || continue
+    skill_name="$(basename "$skill_dir")"
+    [ "$skill_name" = "node_modules" ] && continue
+    target_dir="$TARGET_SKILLS/$skill_name"
+    mkdir -p "$target_dir"
+    rewrite_cursor_paths "$skill_dir/SKILL.md" "$target_dir/SKILL.md"
+    LINKED+=("$skill_name")
+  done
+fi
+
+SKILL_COUNT="${#LINKED[@]}"
+log "gstack installed to $TARGET_SKILLS ($SKILL_COUNT skills)"
+if [ "${GSTACK_CURSOR_VERBOSE:-0}" = "1" ]; then
+  log "  skills: ${LINKED[*]}"
+fi
