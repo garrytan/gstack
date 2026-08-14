@@ -1,5 +1,62 @@
 # Changelog
 
+## [1.64.0.0] - 2026-08-14
+
+## **`/deck` learns the product before it pitches it.**
+## **The investor story, proof, interaction, and release gates now live in one stack-native workflow.**
+
+An investor deck should not be a feature grid wearing a fundraising costume.
+`/deck` starts by using the actual product and reading the existing site, source
+material, router, design system, hosting, IaC, analytics, and built-output path.
+It turns safe local evidence into a provisional product-truth map before
+narrative intake. If using a remote or authenticated product is necessary, the
+single intake round settles one complete access policy before product use; a
+configured URL, imported cookie, or saved session is never treated as
+permission. Intake stays bounded to the seven
+choices that can materially change the result: audience, CTA, source material,
+access, route/host, requested research, and analytics.
+
+For fundraising, the output has to prove a falsifiable investment thesis. The
+workflow connects product quality and real feature breadth to why now, a credible
+bottom-up market, traction and retention, GTM and economics, defensibility, team,
+risk, and the milestone the round buys. A claim ledger carries source, owner,
+boundary, period, cohort/denominator, and actual/estimate/forecast status so
+design cannot quietly turn weak evidence into a strong claim.
+
+### Contract changes
+
+| Contract | Before | With `/deck` |
+|---|---|---|
+| Product inspection before deck decisions | ad hoc | 6 required repository/product surfaces + sourced truth map |
+| User intake | open-ended | 7 allowed material categories, at most 3 questions in one round |
+| Visual proof | optional spot checks | desktop + phone screenshot for every section |
+| Host coverage | none | canonical template generated for all supported hosts |
+| Skill catalog | 55 | 56 |
+| Regression coverage | none | 31 free deterministic cases + 4 periodic behavioral evals |
+
+### What it does
+
+- learns the real product, buyer, journey, evidence, hosting, and analytics before storyboarding
+- asks only unanswered material choices, with one bounded evidence follow-up when an investor thesis is blocked
+- keeps claims sourced, qualified, aggregated, or explicitly omitted; sensitive detail moves to a data room on request
+- delivers a real tabbed, deep-linkable, keyboard-accessible, mobile-first deck in the repository's native stack
+- requires section-by-section desktop and phone screenshots, visual review, browser QA, source review, and a fresh independent review
+- separates privacy-safe anonymous engagement from named-recipient tracking and gates deployment/configuration changes on explicit confirmation
+
+### Scope and compatibility
+
+The workflow is stack-neutral. It preserves server-rendered Python sites, static
+monorepos, and other native stacks; it does not assume a JavaScript rewrite or a
+particular host. Dedicated hosting uses the target project's existing IaC and
+tests the built output, route, assets, headers, and normal-site path.
+
+### Implementation and verification
+
+- canonical `.tmpl` source plus generated host outputs for Claude, Codex, Factory, Kiro, OpenCode, Slate, Cursor, OpenClaw, Hermes, and GBrain
+- `--out-dir` generation support and a hermetic full-execution fixture
+- focused `/deck` contracts cover intake limits, access boundaries, claim/evidence handling, anonymous analytics, specialist findings, and static-monorepo delivery
+- live demonstration: https://jayzalowitz.github.io/gstack/
+
 ## [1.63.0.0] - 2026-08-13
 
 **Everything gstack sends off your machine now leaves a receipt you can read.**
