@@ -1,11 +1,13 @@
 ---
 name: careful
-version: 0.1.0
-description: Safety guardrails for destructive commands. (gstack)
+version: 0.2.0
+description: "Safety guardrails for destructive commands — a PreToolUse hook prompts for confirmation before rm -rf, DROP TABLE, TRUNCATE, force-push, git reset --hard, git checkout ., kubectl delete and docker prune, and the user can still override each prompt; triggers: be careful / safety mode / prod mode / warn before destructive / guard against rm -rf; the ask must stay nested under hookSpecificOutput and careful/tests/test-check-careful.sh must stay green (gstack)"
 triggers:
   - be careful
   - warn before destructive
   - safety mode
+  - prod mode
+  - guard against rm -rf
 allowed-tools:
   - Bash
   - Read
@@ -14,7 +16,8 @@ hooks:
     - matcher: "Bash"
       hooks:
         - type: command
-          command: "bash $HOME/.claude/skills/gstack/careful/bin/check-careful.sh"
+          # bash -c so bash (not cmd.exe) expands $HOME — see "Hook command form" below
+          command: 'bash -c "exec \"$HOME/.claude/skills/gstack/careful/bin/check-careful.sh\""'
           statusMessage: "Checking for destructive commands..."
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
@@ -23,11 +26,11 @@ hooks:
 
 ## When to invoke this skill
 
-Warns before rm -rf, DROP TABLE,
-force-push, git reset --hard, kubectl delete, and similar destructive operations.
-User can override each warning. Use when touching prod, debugging live systems,
-or working in a shared environment. Use when asked to "be careful", "safety mode",
-"prod mode", or "careful mode".
+Warns before rm -rf, DROP TABLE, force-push, git reset --hard, kubectl
+delete, and similar destructive operations. User can override each warning.
+Use when touching prod, debugging live systems, or working in a shared
+environment. Use when asked to "be careful", "safety mode", "prod mode",
+or "careful mode".
 
 # /careful — Destructive Command Guardrails
 
@@ -61,7 +64,44 @@ These patterns are allowed without warning:
 ## How it works
 
 The hook reads the command from the tool input JSON, checks it against the
-patterns above, and returns `permissionDecision: "ask"` with a warning message
-if a match is found. You can always override the warning and proceed.
+patterns above, and on a match emits:
 
-To deactivate, end the conversation or start a new one. Hooks are session-scoped.
+```json
+{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"[careful] ..."}}
+```
+
+The nesting is load-bearing: Claude Code dispatches on
+`hookSpecificOutput.permissionDecision`. A bare top-level
+`{"permissionDecision":"ask"}` parses fine and is then **ignored** — no prompt
+appears and the destructive command runs unchallenged, while the skill looks
+armed. Valid decisions are `allow` / `deny` / `ask` / `defer`; `careful` uses
+`ask`, so you can always override and proceed.
+
+### Hook command form
+
+`command:` is `bash -c "exec \"$HOME/...\""`, not `bash $HOME/...`. On Windows the
+harness spawns hooks through `cmd.exe /d /s /c`, which does not expand `$HOME`;
+the bare form passes a literal `$HOME/...` to bash and dies with exit 127 before
+any check runs. Wrapping in `bash -c` moves expansion inside bash, where it works
+on every platform. `${CLAUDE_SKILL_DIR}` is **not** an option here — the harness
+interpolates it only in skill body text, never in hook commands.
+
+## Regression test
+
+`careful/tests/test-check-careful.sh` feeds representative destructive and benign
+commands through the script and asserts the warn/allow output schema, the safe
+exceptions, and that the `command:` above actually spawns through the harness's
+`cmd.exe` wrapper:
+
+```bash
+bash ~/.claude/skills/gstack/careful/tests/test-check-careful.sh
+```
+
+## Notes
+
+- Warnings are advisory (`ask`), never a hard block — you stay in control
+- The warning text never includes your command's contents, only the pattern name
+- Detection is regex over the command string, not a shell parser: obfuscated or
+  indirect forms (a destructive command inside a script you invoke) are not caught
+- To deactivate, end the conversation or start a new one. Hooks are session-scoped
+  — unlike `/freeze`, `careful` keeps no state on disk

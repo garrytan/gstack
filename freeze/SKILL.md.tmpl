@@ -1,16 +1,15 @@
 ---
 name: freeze
-version: 0.1.0
+version: 0.2.0
 description: |
-  Restrict file edits to a specific directory for the session. Blocks Edit and
-  Write outside the allowed path. Use when debugging to prevent accidentally
-  "fixing" unrelated code, or when you want to scope changes to one module.
-  Use when asked to "freeze", "restrict edits", "only edit this folder",
-  or "lock down edits". (gstack)
+  Restrict file edits to one directory — a PreToolUse hook hard-denies Edit/Write outside the frozen path, including Windows drive-letter paths; triggers: freeze edits / lock editing scope / restrict file changes / only edit this folder / edit boundary / prevent accidental edits; release with /unfreeze; the deny must stay nested under hookSpecificOutput and freeze/tests/test-check-freeze.sh must stay green (gstack)
 triggers:
   - freeze edits to directory
   - lock editing scope
   - restrict file changes
+  - only edit this folder
+  - edit boundary guard
+  - prevent accidental edits
 allowed-tools:
   - Bash
   - Read
@@ -20,12 +19,14 @@ hooks:
     - matcher: "Edit"
       hooks:
         - type: command
-          command: "bash $HOME/.claude/skills/gstack/freeze/bin/check-freeze.sh"
+          # bash -c so bash (not cmd.exe) expands $HOME — see "Hook command form" below
+          command: 'bash -c "exec \"$HOME/.claude/skills/gstack/freeze/bin/check-freeze.sh\""'
           statusMessage: "Checking freeze boundary..."
     - matcher: "Write"
       hooks:
         - type: command
-          command: "bash $HOME/.claude/skills/gstack/freeze/bin/check-freeze.sh"
+          # bash -c so bash (not cmd.exe) expands $HOME — see "Hook command form" below
+          command: 'bash -c "exec \"$HOME/.claude/skills/gstack/freeze/bin/check-freeze.sh\""'
           statusMessage: "Checking freeze boundary..."
 sensitive: true
 ---
@@ -67,20 +68,60 @@ echo "Freeze boundary set: $FREEZE_DIR"
 
 Tell the user: "Edits are now restricted to `<path>/`. Any Edit or Write
 outside this directory will be blocked. To change the boundary, run `/freeze`
-again. To remove it, run `/unfreeze` or end the session."
+again. To remove it, run `/unfreeze` — the boundary is stored on disk and stays
+in force across sessions until you do."
 
 ## How it works
 
 The hook reads `file_path` from the Edit/Write tool input JSON, then checks
-whether the path starts with the freeze directory. If not, it returns
-`permissionDecision: "deny"` to block the operation.
+whether the path starts with the freeze directory. If not, it blocks by emitting:
 
-The freeze boundary persists for the session via the state file. The hook
-script reads it on every Edit/Write invocation.
+```json
+{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"..."}}
+```
+
+The nesting is load-bearing: Claude Code dispatches on
+`hookSpecificOutput.permissionDecision`. A bare top-level
+`{"permissionDecision":"deny"}` parses fine and is then **ignored**, so the edit
+proceeds — the skill looks armed while blocking nothing.
+
+Paths are canonicalized to POSIX form before comparison, so a Windows
+`C:\src\x.ts` from the tool input matches a `/c/src/` boundary written at setup.
+
+### Hook command form
+
+`command:` is `bash -c "exec \"$HOME/...\""`, not `bash $HOME/...`. On Windows the
+harness spawns hooks through `cmd.exe /d /s /c`, which does not expand `$HOME`;
+the bare form passes a literal `$HOME/...` to bash and dies with exit 127 before
+any check runs. Wrapping in `bash -c` moves expansion inside bash, where it works
+on every platform. `${CLAUDE_SKILL_DIR}` is **not** an option here — the harness
+interpolates it only in skill body text, never in hook commands.
+
+### Boundary lifetime
+
+The boundary is a file on disk (`$GSTACK_STATE_ROOT/freeze-dir.txt`), not session
+state. It survives restarts and applies to every session on this machine until
+`/unfreeze` removes it. Ending the conversation does **not** clear it.
+
+`$GSTACK_STATE_ROOT` resolves as `GSTACK_HOME` → `CLAUDE_PLUGIN_DATA` (only when
+`CLAUDE_PLUGIN_ROOT` confirms gstack) → `$HOME/.gstack` → `.gstack`, matching
+`gstack/bin/gstack-paths`. Reader and writer must agree; if they drift, the hook
+reads a boundary file the setup step never wrote and silently allows everything.
+
+## Regression test
+
+`freeze/tests/test-check-freeze.sh` runs the script in a sandbox with a fake
+`HOME` and asserts the deny/allow output schema, drive-letter path handling,
+state-root resolution, and that the `command:` above actually spawns through the
+harness's `cmd.exe` wrapper. Run it after touching either file:
+
+```bash
+bash ~/.claude/skills/gstack/freeze/tests/test-check-freeze.sh
+```
 
 ## Notes
 
 - The trailing `/` on the freeze directory prevents `/src` from matching `/src-old`
 - Freeze applies to Edit and Write tools only — Read, Bash, Glob, Grep are unaffected
 - This prevents accidental edits, not a security boundary — Bash commands like `sed` can still modify files outside the boundary
-- To deactivate, run `/unfreeze` or end the conversation
+- To deactivate, run `/unfreeze`. Ending the conversation does **not** clear the boundary — the state file is on disk

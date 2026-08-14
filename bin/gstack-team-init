@@ -127,7 +127,11 @@ Install it:
 
 Then restart your AI coding tool.
 MSG
-  echo '{"permissionDecision":"deny","message":"gstack is required but not installed. See stderr for install instructions."}'
+  # The decision MUST nest under hookSpecificOutput — Claude Code dispatches on
+  # hookSpecificOutput.permissionDecision. A bare top-level {"permissionDecision":
+  # "deny"} parses fine and is then ignored, so the "BLOCKED" message above would
+  # print while the call proceeds anyway.
+  printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"gstack is required but not installed. See stderr for install instructions."}}'
   exit 0
 fi
 
@@ -138,8 +142,15 @@ HOOK_EOF
   echo "  + .claude/hooks/check-gstack.sh — enforcement hook"
 
   # Add hook to project-level settings.json
+  # Hook command passed via env to avoid a bash->JS->JSON escaping stack.
+  # `bash -c` is required for Windows: the harness spawns hooks through
+  # cmd.exe /d /s /c, which neither expands $CLAUDE_PROJECT_DIR nor can execute
+  # a .sh file directly. Wrapping in bash -c moves expansion and execution into
+  # bash, where CLAUDE_PROJECT_DIR (injected into the hook env by Claude Code)
+  # resolves on every platform.
+  GSTACK_HOOK_CMD='bash -c "exec \"$CLAUDE_PROJECT_DIR/.claude/hooks/check-gstack.sh\""'
   if command -v bun >/dev/null 2>&1; then
-    GSTACK_SETTINGS_PATH="$SETTINGS" bun -e "
+    GSTACK_HOOK_CMD="$GSTACK_HOOK_CMD" GSTACK_SETTINGS_PATH="$SETTINGS" bun -e "
       const fs = require('fs');
       const settingsPath = process.env.GSTACK_SETTINGS_PATH;
 
@@ -160,7 +171,7 @@ HOOK_EOF
           matcher: 'Skill',
           hooks: [{
             type: 'command',
-            command: '\"\$CLAUDE_PROJECT_DIR/.claude/hooks/check-gstack.sh\"'
+            command: process.env.GSTACK_HOOK_CMD
           }]
         });
       }
