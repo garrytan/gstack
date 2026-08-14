@@ -30,6 +30,82 @@ case "$(uname -s)" in
   MINGW*|MSYS*|CYGWIN*|Windows_NT) IS_WINDOWS=1 ;;
 esac
 
+# Only one setup may mutate an install/HOME at a time. An atomic directory is
+# portable to macOS, Linux, and Git Bash (unlike flock), and the pid lets a
+# later run recover after a crash.
+SETUP_LOCK_DIR="${GSTACK_HOME:-$HOME/.gstack}/.setup.lock.d"
+mkdir -p "$(dirname "$SETUP_LOCK_DIR")"
+SETUP_LOCK_ACQUIRED=0
+if mkdir "$SETUP_LOCK_DIR" 2>/dev/null; then
+  SETUP_LOCK_ACQUIRED=1
+else
+  _setup_lock_pid="$(cat "$SETUP_LOCK_DIR/pid" 2>/dev/null || true)"
+  if [ -n "$_setup_lock_pid" ] && ! kill -0 "$_setup_lock_pid" 2>/dev/null; then
+    rm -rf "$SETUP_LOCK_DIR"
+    if mkdir "$SETUP_LOCK_DIR" 2>/dev/null; then
+      SETUP_LOCK_ACQUIRED=1
+    fi
+  fi
+fi
+if [ "$SETUP_LOCK_ACQUIRED" -ne 1 ]; then
+  echo "gstack setup is already running for this install; waiting is not necessary." >&2
+  exit 1
+fi
+echo "$$" > "$SETUP_LOCK_DIR/pid"
+
+cleanup_setup() {
+  if command -v cleanup_copied_bun >/dev/null 2>&1; then
+    cleanup_copied_bun
+  fi
+  if [ "$(cat "$SETUP_LOCK_DIR/pid" 2>/dev/null || true)" = "$$" ]; then
+    rm -rf "$SETUP_LOCK_DIR"
+  fi
+}
+trap cleanup_setup EXIT
+
+# Kill a command and its descendants after a deadline. `timeout` is absent on
+# stock macOS, so setup cannot rely on coreutils being installed yet.
+terminate_process_tree() {
+  local parent="$1" child
+  if [ "$IS_WINDOWS" -eq 1 ] && command -v taskkill.exe >/dev/null 2>&1; then
+    taskkill.exe //PID "$parent" //T //F >/dev/null 2>&1 || true
+    return
+  fi
+  if command -v pgrep >/dev/null 2>&1; then
+    for child in $(pgrep -P "$parent" 2>/dev/null || true); do
+      terminate_process_tree "$child"
+    done
+  fi
+  kill -TERM "$parent" 2>/dev/null || true
+  sleep 0.1
+  kill -KILL "$parent" 2>/dev/null || true
+}
+
+run_with_deadline() {
+  local seconds="$1" marker pid watcher status
+  shift
+  marker="${TMPDIR:-/tmp}/gstack-setup-timeout.$$.$RANDOM"
+  rm -f "$marker"
+  "$@" &
+  pid=$!
+  (
+    sleep "$seconds"
+    if kill -0 "$pid" 2>/dev/null; then
+      terminate_process_tree "$pid"
+      : > "$marker"
+    fi
+  ) &
+  watcher=$!
+  if wait "$pid"; then status=0; else status=$?; fi
+  kill "$watcher" 2>/dev/null || true
+  wait "$watcher" 2>/dev/null || true
+  if [ -f "$marker" ]; then
+    rm -f "$marker"
+    return 124
+  fi
+  return "$status"
+}
+
 # ─── Symlink-or-copy helper ───────────────────────────────────
 # On macOS/Linux: create a symlink (existing behavior).
 # On Windows without Developer Mode (MSYS2/Git Bash): plain ln -snf silently
@@ -250,17 +326,19 @@ if [ "$INSTALL_CODEX" -eq 1 ]; then
 fi
 
 ensure_playwright_browser() {
-  if [ "$IS_WINDOWS" -eq 1 ]; then
-    # On Windows, Bun can't launch Chromium due to broken pipe handling
-    # (oven-sh/bun#4253). Use Node.js to verify Chromium works instead.
+  local probe_timeout="${GSTACK_PLAYWRIGHT_PROBE_TIMEOUT_SECONDS:-15}"
+  [ -n "${GSTACK_UNDER_TEST:-}" ] && probe_timeout="${GSTACK_PLAYWRIGHT_PROBE_TIMEOUT_SECONDS:-2}"
+  if [ "$IS_WINDOWS" -eq 1 ] || [ "$(uname -s)" = "Darwin" ]; then
+    # Bun can hang while launching Chromium because of pipe handling on Windows
+    # and macOS. Node is also what the Playwright CLI itself uses.
     (
       cd "$SOURCE_GSTACK_DIR"
-      node -e "const { chromium } = require('playwright'); (async () => { const b = await chromium.launch(); await b.close(); })()" 2>/dev/null
+      run_with_deadline "$probe_timeout" node -e "const { chromium } = require('playwright'); (async () => { const b = await chromium.launch(); await b.close(); })()" 2>/dev/null
     )
   else
     (
       cd "$SOURCE_GSTACK_DIR"
-      bun --eval 'import { chromium } from "playwright"; const browser = await chromium.launch(); await browser.close();'
+      run_with_deadline "$probe_timeout" bun --eval 'import { chromium } from "playwright"; const browser = await chromium.launch(); await browser.close();'
     ) >/dev/null 2>&1
   fi
 }
@@ -372,7 +450,6 @@ cleanup_copied_bun() {
 }
 
 prepare_bun_for_windows_compile
-trap cleanup_copied_bun EXIT
 
 # 1. Build browse binary if needed (smart rebuild: stale sources, package.json, lock)
 NEEDS_BUILD=0
@@ -478,10 +555,15 @@ fi
 # 2. Ensure Playwright's Chromium is available
 if ! ensure_playwright_browser; then
   echo "Installing Playwright Chromium..."
-  (
+  _playwright_install_timeout="${GSTACK_PLAYWRIGHT_INSTALL_TIMEOUT_SECONDS:-300}"
+  [ -n "${GSTACK_UNDER_TEST:-}" ] && _playwright_install_timeout="${GSTACK_PLAYWRIGHT_INSTALL_TIMEOUT_SECONDS:-2}"
+  if ! (
     cd "$SOURCE_GSTACK_DIR"
-    bunx playwright install chromium
-  )
+    run_with_deadline "$_playwright_install_timeout" bunx playwright install chromium
+  ); then
+    echo "  warning: Chromium installation failed or timed out after ${_playwright_install_timeout}s." >&2
+    echo "  Skills will still be registered; rerun ./setup to retry browser installation." >&2
+  fi
 
   if [ "$IS_WINDOWS" -eq 1 ]; then
     # On Windows, Node.js launches Chromium (not Bun — see oven-sh/bun#4253).
@@ -512,7 +594,7 @@ if ! ensure_playwright_browser; then
   else
     echo "gstack setup failed: Playwright Chromium could not be launched" >&2
   fi
-  exit 1
+  echo "  Browser-backed skills will be unavailable until Chromium setup succeeds." >&2
 fi
 
 # 2b. Ensure a color-emoji font is installed so make-pdf emoji render (Linux).
