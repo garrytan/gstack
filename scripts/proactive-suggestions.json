@@ -9,8 +9,8 @@
       "voice_line": "Voice triggers (speech-to-text aliases): \"auto plan\", \"automatic review\"."
     },
     "benchmark": {
-      "lead": "Performance regression detection using the browse daemon.",
-      "routing": "Establishes\nbaselines for page load times, Core Web Vitals, and resource sizes.\nCompares before/after on every PR. Tracks performance trends over time.\nUse when: \"performance\", \"benchmark\", \"page speed\", \"lighthouse\", \"web vitals\",\n\"bundle size\", \"load time\".",
+      "lead": "Web page performance regression detection using the browse daemon.",
+      "routing": "Establishes\nbaselines for page load times, Core Web Vitals, and resource sizes.\nCompares before/after on every PR. Tracks performance trends over time.\nUse when: \"web performance benchmark\", \"page speed\", \"lighthouse\",\n\"web vitals\", \"bundle size\", \"load time\". Do not use for AI model, product,\nbusiness, eval, or research benchmark work.",
       "voice_line": "Voice triggers (speech-to-text aliases): \"speed test\", \"check performance\"."
     },
     "benchmark-models": {

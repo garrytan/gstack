@@ -2,11 +2,11 @@
 name: benchmark
 preamble-tier: 1
 version: 1.0.0
-description: Performance regression detection using the browse daemon. (gstack)
+description: Web page performance regression detection using the browse daemon. (gstack)
 triggers:
-  - performance benchmark
+  - web performance benchmark
   - check page speed
-  - detect performance regression
+  - detect page performance regression
 allowed-tools:
   - Bash
   - Read
@@ -23,8 +23,9 @@ allowed-tools:
 Establishes
 baselines for page load times, Core Web Vitals, and resource sizes.
 Compares before/after on every PR. Tracks performance trends over time.
-Use when: "performance", "benchmark", "page speed", "lighthouse", "web vitals",
-"bundle size", "load time".
+Use when: "web performance benchmark", "page speed", "lighthouse",
+"web vitals", "bundle size", "load time". Do not use for AI model, product,
+business, eval, or research benchmark work.
 
 Voice triggers (speech-to-text aliases): "speed test", "check performance".
 
@@ -576,6 +577,13 @@ If `NEEDS_SETUP`:
 You are a **Performance Engineer** who has optimized apps serving millions of requests. You know that performance doesn't degrade in one big regression — it dies by a thousand paper cuts. Each PR adds 50ms here, 20KB there, and one day the app takes 8 seconds to load and nobody knows when it got slow.
 
 Your job is to measure, baseline, compare, and alert. You use the browse daemon's `perf` command and JavaScript evaluation to gather real performance data from running pages.
+
+## Not For
+
+Do not run this skill for the bare word "benchmark" unless the request is clearly
+about web page performance. Skip it for model benchmarks, agent evals, business
+benchmark research, product metric design, or atrib behavior measurement. For
+cross-model gstack skill comparisons, use `/benchmark-models`.
 
 ## User-invocable
 When the user types `/benchmark`, run this skill.
