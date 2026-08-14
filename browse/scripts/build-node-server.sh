@@ -11,44 +11,79 @@ GSTACK_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 SRC_DIR="$GSTACK_DIR/browse/src"
 DIST_DIR="$GSTACK_DIR/browse/dist"
 
+mkdir -p "$DIST_DIR"
+
+# On MSYS2/git-bash, native binaries (bun) fail to write when given a POSIX
+# /c/Users/... path if MSYS_NO_PATHCONV=1 is set (bun reports "Bundled" but
+# writes nothing). Always hand bun a Windows-native path. MSYS tools
+# (perl/cat/cp) keep using the POSIX path, which resolves to the same file via
+# the /c -> C: mount, so the two never diverge.
+if command -v cygpath >/dev/null 2>&1; then
+  SRC_W="$(cygpath -w -a "$SRC_DIR")\\server.ts"
+  DIST_W="$(cygpath -w -a "$DIST_DIR")"
+  RAW_W="$DIST_W\\server-node.raw.mjs"
+else
+  SRC_W="$SRC_DIR/server.ts"
+  DIST_W="$DIST_DIR"
+  RAW_W="$DIST_DIR/server-node.raw.mjs"
+fi
+RAW="$DIST_DIR/server-node.raw.mjs"
+FINAL="$DIST_DIR/server-node.mjs"
+
 echo "Building Node-compatible server bundle..."
 
-# Step 1: Transpile server.ts to a single .mjs bundle (externalize runtime deps)
-#
-# Externalize packages with native addons, dynamic imports, or runtime resolution.
-# If you add a new dependency that uses `await import()` or has a .node addon,
-# add it here. Otherwise `bun build --outfile` will fail with
-# "cannot write multiple output files without an output directory".
-bun build "$SRC_DIR/server.ts" \
+# Step 1: bundle to a fresh raw file (no compat header yet)
+bun build "$SRC_W" \
   --target=node \
-  --outfile "$DIST_DIR/server-node.mjs" \
+  --outfile "$RAW_W" \
   --external playwright \
   --external playwright-core \
   --external diff \
   --external "bun:sqlite" \
-  --external "@ngrok/ngrok"
+  --external "@ngrok/ngrok" \
+  --external socks \
+  --external sharp
 
-# Step 2: Post-process
-# Replace import.meta.dir with a resolvable reference
-perl -pi -e 's/import\.meta\.dir/__browseNodeSrcDir/g' "$DIST_DIR/server-node.mjs"
-# Stub out bun:sqlite (macOS-only cookie import, not needed on Windows)
-perl -pi -e 's|import { Database } from "bun:sqlite";|const Database = null; // bun:sqlite stubbed on Node|g' "$DIST_DIR/server-node.mjs"
+# Step 2: post-process the raw bundle
+perl -pi -e 's/import\.meta\.dir/__browseNodeSrcDir/g' "$RAW"
+perl -pi -e 's|import { Database } from "bun:sqlite";|const Database = null; // bun:sqlite stubbed on Node|g' "$RAW"
 
-# Step 3: Create the final file with polyfill header injected after the first line
+# Step 3: prepend the Windows compat header. Idempotent by construction: the
+# raw bundle is rebuilt from source every run (0 headers), so the header is
+# added exactly once — no duplicate-identifier errors on re-runs.
 {
-  head -1 "$DIST_DIR/server-node.mjs"
   echo '// ── Windows Node.js compatibility (auto-generated) ──'
   echo 'import { fileURLToPath as _ftp } from "node:url";'
   echo 'import { dirname as _dn } from "node:path";'
   echo 'const __browseNodeSrcDir = _dn(_dn(_ftp(import.meta.url))) + "/src";'
   echo '{ const _r = createRequire(import.meta.url); _r("./bun-polyfill.cjs"); }'
   echo '// ── end compatibility ──'
-  tail -n +2 "$DIST_DIR/server-node.mjs"
-} > "$DIST_DIR/server-node.tmp.mjs"
+  cat "$RAW"
+} > "$FINAL"
 
-mv "$DIST_DIR/server-node.tmp.mjs" "$DIST_DIR/server-node.mjs"
+rm -f "$RAW"
 
-# Step 4: Copy polyfill to dist/
+# Step 4: copy polyfill to dist/
 cp "$SRC_DIR/bun-polyfill.cjs" "$DIST_DIR/bun-polyfill.cjs"
 
-echo "Node server bundle ready: $DIST_DIR/server-node.mjs"
+# Step 5: guard — this script only builds the Node.js server bundle. The
+# runnable `browse` CLI binary (plus find-browse/design/pdf) are *compiled*
+# artifacts produced by scripts/build.sh (bun build --compile ...). They are
+# gitignored and deleted by a bare `rm -rf browse/dist`, so a standalone run
+# of this script can leave a working server-node.mjs with no `browse` binary.
+# Warn clearly instead of letting the next `./browse/dist/browse` fail with a
+# cryptic ENOENT.
+BROWSE_BIN=""
+for _cand in "$DIST_DIR/browse" "$DIST_DIR/browse.exe"; do
+  [ -f "$_cand" ] && BROWSE_BIN="$_cand" && break
+done
+if [ -z "$BROWSE_BIN" ]; then
+  echo "WARNING: compiled CLI binary 'browse' is missing from $DIST_DIR." >&2
+  echo "         This script only produces server-node.mjs (the Node.js server" >&2
+  echo "         bundle). To build the runnable 'browse' executable, run:" >&2
+  echo "             bash scripts/build.sh" >&2
+  echo "         or compile it directly:" >&2
+  echo "             bun build --compile browse/src/cli.ts --outfile browse/dist/browse" >&2
+fi
+
+echo "Node server bundle ready: $FINAL"
