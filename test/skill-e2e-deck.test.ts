@@ -1,5 +1,5 @@
 /**
- * /deck behavioral E2Es (periodic, paid).
+ * /deck deterministic harness contracts plus behavioral E2Es.
  *
  * The intake run stops at the first user-input boundary on a sparse synthetic
  * Flask/Jinja site. Deterministic assertions protect the bounded intake,
@@ -10,8 +10,9 @@
  * permission. Delivery runs cover both native Flask/Jinja and a dependency-free
  * static Node site nested beside an unrelated Python service. They require real
  * desktop/phone browser evidence, local review/documentation artifacts, and zero
- * external mutation. All behavioral runs stay periodic because generator
- * behavior is non-deterministic; the sparse intake also has an LLM judge.
+ * external mutation. The deterministic contract block runs in the free suite;
+ * all behavioral runs stay periodic because generator behavior is
+ * non-deterministic, and the sparse intake also has an LLM judge.
  */
 
 import { describe, test, beforeAll, afterAll, expect } from 'bun:test';
@@ -39,11 +40,13 @@ import {
 } from './helpers/e2e-helpers';
 
 const TEST_NAME = 'deck-investor-intake';
+const FOLLOWUP_TEST_NAME = 'deck-investor-evidence-followup';
 const FULL_TEST_NAME = 'deck-full-flask-delivery';
 const STATIC_TEST_NAME = 'deck-natural-static-monorepo';
 const ACCESS_TEST_NAME = 'deck-access-boundary-intake';
 const periodicDeckTierSelected = process.env.EVALS_TIER === 'periodic';
 const evalCollector = createEvalCollector('e2e-deck');
+const followupEvalCollector = createEvalCollector('e2e-deck-followup');
 const fullEvalCollector = createEvalCollector('e2e-deck-full');
 const staticEvalCollector = createEvalCollector('e2e-deck-static');
 const accessEvalCollector = createEvalCollector('e2e-deck-access');
@@ -112,6 +115,20 @@ interface DeckIntake {
     rendering: string;
     toolchain: string;
     reason: string;
+  };
+}
+
+interface DeckEvidenceFollowup {
+  product_observation: {
+    method: string;
+    visited_routes: string[];
+    moment_of_value: string;
+    trust_state: string;
+  };
+  remaining_truth_gaps: string[];
+  followup_round: {
+    round: number;
+    questions: IntakeQuestion[];
   };
 }
 
@@ -530,7 +547,10 @@ function stageDeckSpecialists(root: string): void {
   );
 }
 
-function createPythonSiteFixture(options: { fullExecution?: boolean } = {}): string {
+function createPythonSiteFixture(options: {
+  fullExecution?: boolean;
+  browserAccess?: boolean;
+} = {}): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-e2e-deck-flask-'));
 
   writeFixtureFile(root, 'deck-skill.md', skillExtract());
@@ -807,8 +827,10 @@ The deck CTA is a partner meeting, followed by data-room access on request.
   git(['add', '.']);
   git(['commit', '-m', 'synthetic Flask product fixture']);
 
-  if (options.fullExecution) {
+  if (options.fullExecution || options.browserAccess) {
     setupBrowseShims(root);
+  }
+  if (options.fullExecution) {
     stageDeckSpecialists(root);
   }
 
@@ -1105,6 +1127,17 @@ function parseDeckIntake(filePath: string): DeckIntake {
   }
 }
 
+function parseDeckEvidenceFollowup(filePath: string): DeckEvidenceFollowup {
+  if (!fs.existsSync(filePath)) {
+    throw new Error('Agent did not write deck-evidence-followup.json');
+  }
+  try {
+    return JSON.parse(fs.readFileSync(filePath, 'utf-8')) as DeckEvidenceFollowup;
+  } catch (error) {
+    throw new Error(`deck-evidence-followup.json is not strict JSON: ${String(error)}`);
+  }
+}
+
 function parseAccessBoundaryIntake(filePath: string): AccessBoundaryIntake {
   if (!fs.existsSync(filePath)) {
     throw new Error('Agent did not write deck-access-intake.json');
@@ -1328,6 +1361,25 @@ function htmlAttribute(tag: string, attribute: string): string | null {
   return match?.[1] ?? null;
 }
 
+/** Resolve resources a browser can fetch directly from HTML, including every
+ * responsive-image candidate rather than only the currently selected src. */
+function htmlPageLoadResources(html: string, baseUrl: string): URL[] {
+  const resources: URL[] = [];
+  const tags = html.match(/<(?:script|link|img|source|video|audio|iframe)\b[^>]*>/gi) ?? [];
+  for (const tag of tags) {
+    for (const match of tag.matchAll(/\b(src|href|poster|srcset|imagesrcset)\s*=\s*(["'])([\s\S]*?)\2/gi)) {
+      const attribute = match[1]!.toLowerCase();
+      const rawValues = attribute.endsWith('srcset')
+        ? (match[3] ?? '').split(',').map(candidate => candidate.trim().split(/\s+/, 1)[0] ?? '')
+        : [match[3] ?? ''];
+      for (const rawValue of rawValues.filter(Boolean)) {
+        try { resources.push(new URL(rawValue, baseUrl)); } catch { /* invalid URLs fail at runtime */ }
+      }
+    }
+  }
+  return resources;
+}
+
 function readStaticSources(root: string, extension: '.js' | '.css'): string {
   const staticRoot = path.join(root, 'static');
   if (!fs.existsSync(staticRoot)) return '';
@@ -1429,6 +1481,370 @@ function assertPublicSurfaceSafe(root: string, forbiddenStrings: string[]): void
       ).toBe(false);
     }
   }
+}
+
+type AccountEvidenceRow = {
+  id: string;
+  status: string;
+  handoffs: number;
+};
+
+function parseAccountEvidenceRows(csv: string): AccountEvidenceRow[] {
+  const [headerLine, ...dataLines] = csv.trim().split(/\r?\n/);
+  const headers = (headerLine ?? '').split(',').map(header => header.trim().toLowerCase());
+  const idIndex = headers.indexOf('account_id');
+  const statusIndex = headers.indexOf('status');
+  const handoffsIndex = headers.indexOf('handoffs');
+  if ([idIndex, statusIndex, handoffsIndex].some(index => index < 0)) {
+    throw new Error('accounts.csv is missing account_id, status, or handoffs');
+  }
+  return dataLines.filter(Boolean).map((line, index) => {
+    const columns = line.split(',').map(column => column.trim());
+    const handoffs = Number.parseInt(columns[handoffsIndex] ?? '', 10);
+    if (!columns[idIndex] || !columns[statusIndex] || !Number.isInteger(handoffs)) {
+      throw new Error(`accounts.csv row ${index + 2} is malformed`);
+    }
+    return {
+      id: columns[idIndex]!,
+      status: columns[statusIndex]!,
+      handoffs,
+    };
+  });
+}
+
+function regexEscape(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function decodeEvidenceEntities(raw: string): string {
+  return raw
+    .replace(/&#x([\da-f]+);/gi, (_, hex: string) => {
+      try { return String.fromCodePoint(Number.parseInt(hex, 16)); } catch { return ' '; }
+    })
+    .replace(/&#(\d+);/g, (_, decimal: string) => {
+      try { return String.fromCodePoint(Number.parseInt(decimal, 10)); } catch { return ' '; }
+    })
+    .replace(/&nbsp;|&ensp;|&emsp;/gi, ' ')
+    .replace(/&quot;/gi, '"')
+    .replace(/&apos;|&#39;/gi, "'")
+    .replace(/&amp;/gi, '&');
+}
+
+function normalizedEvidenceBlock(raw: string): string {
+  return decodeEvidenceEntities(raw.normalize('NFKC'))
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+const EVIDENCE_SEMANTIC_BREAK = '\u001e';
+const EVIDENCE_ATTRIBUTE_RE = /\b(?:aria-label|aria-description|aria-valuetext|title|alt|value|placeholder|content|data-[\w:-]+)\s*=\s*(["'])([\s\S]*?)\1/gi;
+const EVIDENCE_CONTAINER_TAGS = new Set([
+  'address', 'article', 'aside', 'blockquote', 'dd', 'div', 'dl', 'dt',
+  'figcaption', 'figure', 'footer', 'form', 'li', 'main', 'nav', 'ol', 'p',
+  'section', 'table', 'tbody', 'td', 'tfoot', 'th', 'thead', 'tr', 'ul',
+]);
+
+function splitEvidenceStatements(raw: string): string[] {
+  return raw
+    .replace(/\u001e/g, EVIDENCE_SEMANTIC_BREAK)
+    .replace(/}\s*,\s*{/g, `}${EVIDENCE_SEMANTIC_BREAK}{`)
+    .replace(/([.!?])\s+/g, `$1${EVIDENCE_SEMANTIC_BREAK}`)
+    .replace(/;\s*/g, `;${EVIDENCE_SEMANTIC_BREAK}`)
+    .replace(/\r?\n/g, EVIDENCE_SEMANTIC_BREAK)
+    .split(EVIDENCE_SEMANTIC_BREAK)
+    .map(normalizedEvidenceBlock)
+    .filter(Boolean);
+}
+
+/** Extract card/row text with a tiny stack-based HTML walk. A parent card is
+ * kept as one candidate even when formatting or nested elements split its
+ * status, value, and label. Attributes from one element are also grouped. */
+function htmlEvidenceBlocks(source: string): string[] {
+  const blocks: string[] = [];
+  const stack: Array<{ tag: string; parts: string[] }> = [];
+  const tokens = source.match(/<!--[\s\S]*?-->|<\/?[a-z][^>]*>|[^<]+/gi) ?? [];
+
+  const emit = (parts: string[]) => {
+    blocks.push(...splitEvidenceStatements(parts.join(' ')));
+  };
+
+  for (const token of tokens) {
+    const closing = token.match(/^<\/\s*([a-z][\w:-]*)/i);
+    if (closing) {
+      const tag = closing[1]!.toLowerCase();
+      const frameIndex = stack.findLastIndex(frame => frame.tag === tag);
+      if (frameIndex >= 0) {
+        const [frame] = stack.splice(frameIndex, 1);
+        emit(frame!.parts);
+      }
+      continue;
+    }
+
+    const opening = token.match(/^<\s*([a-z][\w:-]*)/i);
+    if (opening) {
+      const attributeValues = [...token.matchAll(EVIDENCE_ATTRIBUTE_RE)]
+        .map(match => match[2] ?? '')
+        .filter(Boolean);
+      if (attributeValues.length > 0) {
+        emit(attributeValues);
+        for (const frame of stack) frame.parts.push(...attributeValues);
+      }
+      const tag = opening[1]!.toLowerCase();
+      if (EVIDENCE_CONTAINER_TAGS.has(tag) && !/\/\s*>$/.test(token)) {
+        stack.push({ tag, parts: [...attributeValues] });
+      }
+      continue;
+    }
+
+    const text = token.replace(/\s+/g, ' ').trim();
+    if (!text) continue;
+    for (const frame of stack) frame.parts.push(text);
+  }
+
+  for (const frame of stack) emit(frame.parts);
+  return blocks;
+}
+
+/** Keep each serialized object together across pretty-print newlines. Nested
+ * objects are emitted independently as well as through their parent so a row
+ * cannot evade the gate by moving fields into a child object. */
+function serializedObjectEvidenceBlocks(source: string): string[] {
+  const blocks: string[] = [];
+  const starts: number[] = [];
+  let quote: '"' | "'" | null = null;
+  let escaped = false;
+
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index]!;
+    if (quote) {
+      if (escaped) escaped = false;
+      else if (char === '\\') escaped = true;
+      else if (char === quote) quote = null;
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (char === '{') starts.push(index);
+    if (char === '}' && starts.length > 0) {
+      const start = starts.pop()!;
+      const rawCandidate = source.slice(start, index + 1);
+      let topLevel = '';
+      let topLevelStructure = '';
+      let depth = 0;
+      let nestedQuote: '"' | "'" | null = null;
+      let nestedEscaped = false;
+      for (let offset = 1; offset < rawCandidate.length - 1; offset += 1) {
+        const candidateChar = rawCandidate[offset]!;
+        if (nestedQuote) {
+          if (depth === 0) topLevel += candidateChar;
+          if (depth === 0) topLevelStructure += candidateChar === nestedQuote ? candidateChar : ' ';
+          if (nestedEscaped) nestedEscaped = false;
+          else if (candidateChar === '\\') nestedEscaped = true;
+          else if (candidateChar === nestedQuote) nestedQuote = null;
+          continue;
+        }
+        if (candidateChar === '"' || candidateChar === "'") {
+          nestedQuote = candidateChar;
+          if (depth === 0) topLevel += candidateChar;
+          if (depth === 0) topLevelStructure += candidateChar;
+          continue;
+        }
+        if (candidateChar === '{' || candidateChar === '[' || candidateChar === '(') {
+          depth += 1;
+          continue;
+        }
+        if (candidateChar === '}' || candidateChar === ']' || candidateChar === ')') {
+          depth = Math.max(0, depth - 1);
+          continue;
+        }
+        if (depth === 0) {
+          topLevel += candidateChar;
+          topLevelStructure += candidateChar;
+        }
+      }
+      const objectLike = !topLevelStructure.includes(';')
+        && /(?:^|,)\s*(?:["'][^"']+["']|[a-z_$][\w$-]*)\s*:/im.test(topLevel);
+      const candidate = objectLike ? normalizedEvidenceBlock(rawCandidate) : '';
+      if (candidate) blocks.push(candidate);
+    }
+  }
+  return blocks;
+}
+
+/** Preserve semantic boundaries so an unrelated scalar in a later sentence or
+ * source statement cannot be joined to a claim. HTML cards deliberately get
+ * an additional grouped candidate so nested markup cannot hide a row record. */
+function evidenceSemanticBlocks(raw: string): string[] {
+  const source = raw.normalize('NFKC');
+  const cssGenerated = [...source.matchAll(/\bcontent\s*:\s*(["'])([\s\S]*?)\1/gi)]
+    .flatMap(match => splitEvidenceStatements(match[2] ?? ''));
+  const visibleOrSerialized = source
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<\/(?:address|article|aside|blockquote|dd|div|dl|dt|figcaption|figure|footer|form|h[1-6]|header|li|main|nav|ol|p|section|table|tbody|tfoot|thead|tr|ul)>/gi, EVIDENCE_SEMANTIC_BREAK)
+    .replace(/<br\b[^>]*>/gi, EVIDENCE_SEMANTIC_BREAK)
+    .replace(/<[^>]+>/g, ' ');
+
+  return [
+    ...splitEvidenceStatements(visibleOrSerialized),
+    ...htmlEvidenceBlocks(source),
+    ...serializedObjectEvidenceBlocks(source),
+    ...cssGenerated,
+  ].filter(Boolean);
+}
+
+function tokenPositions(text: string, rawToken: string): number[] {
+  const variants = [...new Set([
+    rawToken,
+    Number.isFinite(Number(rawToken)) ? Number(rawToken).toLocaleString('en-US') : rawToken,
+  ])].map(regexEscape);
+  const pattern = new RegExp(`(?<![\\d,])(?:${variants.join('|')})(?!\\d|\\.\\d|,\\d)`, 'g');
+  const positions: number[] = [];
+  for (const match of text.matchAll(pattern)) {
+    positions.push(match.index ?? 0);
+  }
+  return positions;
+}
+
+function wordPositions(text: string, word: string): number[] {
+  const positions: number[] = [];
+  const pattern = new RegExp(`\\b${regexEscape(word)}\\b`, 'g');
+  for (const match of text.matchAll(pattern)) positions.push(match.index ?? 0);
+  return positions;
+}
+
+function positionsWithin(left: number[], right: number[], distance: number): boolean {
+  return left.some(a => right.some(b => Math.abs(a - b) <= distance));
+}
+
+/** Detect public row-level evidence without banning an unrelated scalar such
+ * as a keyboard keyCode. Approved aggregate count/sum values are not row
+ * totals, so they remain available for the deck's traction story. */
+function findRowEvidenceLeaks(rawSurface: string, rows: AccountEvidenceRow[]): string[] {
+  const leaks = new Set<string>();
+  const totals = [...new Set(rows.map(row => row.handoffs))];
+
+  for (const [blockIndex, surface] of evidenceSemanticBlocks(rawSurface).entries()) {
+    const handoffLabels = [
+      ...wordPositions(surface, 'handoff'),
+      ...wordPositions(surface, 'handoffs'),
+    ];
+    const totalPositions = new Map(totals.map(total => [
+      total,
+      tokenPositions(surface, String(total)),
+    ]));
+
+    for (const row of rows) {
+      const valuePositions = totalPositions.get(row.handoffs) ?? [];
+      if (valuePositions.length === 0) continue;
+      if (positionsWithin(valuePositions, handoffLabels, 64)) {
+        leaks.add(`block ${blockIndex + 1}: row total ${row.handoffs} appears beside a handoff label`);
+      }
+      if (positionsWithin(valuePositions, wordPositions(surface, row.status.toLowerCase()), 64)) {
+        leaks.add(`block ${blockIndex + 1}: row status and total appear together for ${row.id}`);
+      }
+    }
+
+    for (let leftIndex = 0; leftIndex < totals.length; leftIndex += 1) {
+      for (let rightIndex = leftIndex + 1; rightIndex < totals.length; rightIndex += 1) {
+        const left = totals[leftIndex]!;
+        const right = totals[rightIndex]!;
+        if (positionsWithin(totalPositions.get(left) ?? [], totalPositions.get(right) ?? [], 120)) {
+          leaks.add(`block ${blockIndex + 1}: multiple row totals appear together: ${left}, ${right}`);
+        }
+      }
+    }
+  }
+  return [...leaks];
+}
+
+function assertNoRowEvidenceInPublicFiles(root: string, rows: AccountEvidenceRow[]): void {
+  for (const file of publicSurfaceFiles(root)) {
+    if (!/\.(?:html?|css|[cm]?js|json|map|xml|svg|md|txt|csv)$/i.test(file)) continue;
+    const relative = path.relative(root, file);
+    expect(
+      findRowEvidenceLeaks(fs.readFileSync(file, 'utf-8'), rows),
+      `Sensitive row-level evidence leaked through public/build file: ${relative}`,
+    ).toEqual([]);
+  }
+}
+
+function runtimeDeckEvidenceSurface(browserBinary: string, fixtureRoot: string): string {
+  return browseJson<string>(browserBinary, fixtureRoot, `(() => {
+    const allElements = [...document.querySelectorAll('*')];
+    const explicitAttributes = new Set([
+      'aria-label', 'aria-description', 'aria-valuetext', 'title', 'alt',
+      'value', 'placeholder', 'content',
+    ]);
+    const evidenceValues = element => [...element.attributes]
+        .filter(attribute => explicitAttributes.has(attribute.name) || attribute.name.startsWith('data-'))
+        .map(attribute => attribute.value)
+        .filter(Boolean);
+    const attributes = allElements.flatMap(evidenceValues);
+    const generated = allElements.flatMap(element =>
+      ['::before', '::after'].map(pseudo => getComputedStyle(element, pseudo).content)
+        .filter(value => value && value !== 'none' && value !== 'normal' && value !== '""')
+    );
+    const semanticSelector = [
+      'address', 'article', 'aside', 'blockquote', 'body', 'dd', 'div', 'dl', 'dt',
+      'figcaption', 'figure', 'footer', 'form', 'h1', 'h2', 'h3', 'h4', 'h5',
+      'h6', 'header', 'li', 'main', 'nav', 'ol', 'p', 'section', 'table',
+      'tbody', 'td', 'tfoot', 'th', 'thead', 'tr', 'ul', '[role="group"]',
+      '[role="listitem"]', '[role="row"]', '[role="tabpanel"]',
+    ].join(',');
+    const rowOrCardSelector = [
+      'article', 'div', 'li', 'section', 'tr', '[role="group"]',
+      '[role="listitem"]', '[role="row"]', '[role="tabpanel"]',
+    ].join(',');
+    const semanticElements = [...document.querySelectorAll(semanticSelector)];
+    const cardBlocks = semanticElements
+      .filter(element => element.matches(rowOrCardSelector))
+      .map(element => {
+        const subtree = [element, ...element.querySelectorAll('*')];
+        const subtreeAttributes = subtree.flatMap(evidenceValues);
+        const subtreeGenerated = subtree.flatMap(descendant =>
+          ['::before', '::after'].map(pseudo => getComputedStyle(descendant, pseudo).content)
+            .filter(value => value && value !== 'none' && value !== 'normal' && value !== '""')
+        );
+        return [element.textContent ?? '', ...subtreeAttributes, ...subtreeGenerated].join(' ');
+      })
+      .filter(text => text.trim());
+    const leafTextBlocks = semanticElements
+      .filter(element => ![...element.children].some(child => child.matches(semanticSelector)))
+      .map(element => element.textContent ?? '')
+      .filter(text => text.trim());
+    return [...cardBlocks, ...leafTextBlocks, ...attributes, ...generated].join('\\u001e');
+  })()`);
+}
+
+function boundedNumericToken(value: number): string {
+  const variants = [...new Set([String(value), value.toLocaleString('en-US')])]
+    .map(regexEscape)
+    .join('|');
+  return `(?<![\\d,])(?:${variants})(?!\\d|\\.\\d|,\\d)`;
+}
+
+function aggregateClaimPattern(options: {
+  value: number;
+  labelPattern: string;
+  valueWord?: string;
+  distance?: number;
+}): RegExp {
+  const numeric = boundedNumericToken(options.value);
+  const value = options.valueWord
+    ? `(?:${numeric}|\\b${regexEscape(options.valueWord)}\\b)`
+    : numeric;
+  const distance = options.distance ?? 64;
+  return new RegExp(
+    `(?:${value}[^.]{0,${distance}}${options.labelPattern}|${options.labelPattern}[^.]{0,${distance}}${value})`,
+    'i',
+  );
+}
+
+function hasAggregateClaim(rawSurface: string, pattern: RegExp): boolean {
+  return evidenceSemanticBlocks(rawSurface).some(block => pattern.test(block));
 }
 
 function normalizedSkillName(raw: unknown): string {
@@ -1539,6 +1955,18 @@ type RuntimeImageResource = {
   insideInactivePanel: boolean;
 };
 
+type RuntimeAuditSnapshot = {
+  context: string;
+  requests: RuntimeResourceRequest[];
+  images: RuntimeImageResource[];
+};
+
+type AnalyticsOffRuntimeViolation = {
+  context: string;
+  kind: 'request' | 'image';
+  resource: RuntimeResourceRequest | RuntimeImageResource;
+};
+
 const TELEMETRY_LIKE_ASSET_PATH = /(?:^|[\/_-])(?:analytics?|track(?:ing)?|telemetry|pixel|beacon|collect)(?:[\/_\-.]|$)/i;
 
 function cssDependencyUrls(source: string, stylesheetUrl: string): string[] {
@@ -1632,6 +2060,32 @@ function runtimeImageResources(
   })`);
 }
 
+function captureRuntimeAudit(options: {
+  browserBinary: string;
+  fixtureRoot: string;
+  context: string;
+}): RuntimeAuditSnapshot {
+  const { browserBinary, fixtureRoot, context } = options;
+  return {
+    context,
+    requests: runtimeResourceRequests(browserBinary, fixtureRoot),
+    images: runtimeImageResources(browserBinary, fixtureRoot),
+  };
+}
+
+function analyticsOffRuntimeViolations(
+  snapshots: RuntimeAuditSnapshot[],
+  pageUrl: string,
+  allowedAssetUrls: string[],
+): AnalyticsOffRuntimeViolation[] {
+  return snapshots.flatMap(snapshot => [
+    ...unexpectedAnalyticsOffRequests(snapshot.requests, pageUrl, allowedAssetUrls)
+      .map(resource => ({ context: snapshot.context, kind: 'request' as const, resource })),
+    ...suspiciousAnalyticsOffImages(snapshot.images, pageUrl)
+      .map(resource => ({ context: snapshot.context, kind: 'image' as const, resource })),
+  ]);
+}
+
 function assertActivePanel(
   state: ReturnType<typeof activeDeckState>,
   expectedPanel: string,
@@ -1674,8 +2128,14 @@ async function verifyLiveDeck(options: {
       expect(renderedHtml).toMatch(new RegExp(`\\bid=["']${panelId}["']`));
     }
 
-    const assetUrls = [...renderedHtml.matchAll(/\b(?:src|href)\s*=\s*["']([^"']+)["']/gi)]
-      .map(match => new URL(match[1], server.baseUrl))
+    const pageLoadResources = htmlPageLoadResources(renderedHtml, `${server.baseUrl}/investors`);
+    for (const resourceUrl of pageLoadResources) {
+      if (!['http:', 'https:'].includes(resourceUrl.protocol)) continue;
+      expect(resourceUrl.origin, `Cross-origin page-load resource: ${resourceUrl.href}`)
+        .toBe(server.baseUrl);
+    }
+
+    const assetUrls = pageLoadResources
       .filter(url => url.pathname.startsWith('/static/'));
     const assetHrefs = new Set(assetUrls.map(url => url.href));
     expect(assetUrls.length, 'Rendered deck must load its actual static assets').toBeGreaterThan(0);
@@ -1697,7 +2157,8 @@ async function verifyLiveDeck(options: {
       if (/\.css$/i.test(assetUrl.pathname)) {
         for (const dependencyHref of cssDependencyUrls(assetText, assetUrl.href)) {
           const dependency = new URL(dependencyHref);
-          if (dependency.origin !== server.baseUrl || !dependency.pathname.startsWith('/static/')) continue;
+          expect(dependency.origin, `Cross-origin CSS dependency: ${dependency.href}`)
+            .toBe(server.baseUrl);
           if (assetHrefs.has(dependency.href)) continue;
           assetHrefs.add(dependency.href);
           assetUrls.push(dependency);
@@ -1873,10 +2334,17 @@ async function verifyLiveDeck(options: {
     // Recreate each submitted image from a known live tab state. Matching
     // hashes tie the agent's filenames and visual-inspection notes to the
     // actual panel—not merely to distinct PNG placeholders.
+    stabilizeDeckCapture(browserBinary, fixtureRoot);
+    const runtimeAudits: RuntimeAuditSnapshot[] = [captureRuntimeAudit({
+      browserBinary,
+      fixtureRoot,
+      context: 'baseline + interaction flow',
+    })];
     for (const viewport of ['desktop', 'phone'] as const) {
       const dimensions = viewport === 'desktop' ? '1440x900' : '390x844';
-      runBrowseCommand(browserBinary, fixtureRoot, ['viewport', dimensions, '--scale', '1']);
       for (const panelId of panelIds) {
+        runBrowseCommand(browserBinary, fixtureRoot, ['js', 'performance.clearResourceTimings()']);
+        runBrowseCommand(browserBinary, fixtureRoot, ['viewport', dimensions, '--scale', '1']);
         runBrowseCommand(browserBinary, fixtureRoot, ['goto', `${server.baseUrl}/investors#${panelId}`]);
         runBrowseCommand(browserBinary, fixtureRoot, ['js', 'window.scrollTo(0, 0)']);
         stabilizeDeckCapture(browserBinary, fixtureRoot);
@@ -1885,6 +2353,11 @@ async function verifyLiveDeck(options: {
         if (viewport === 'phone') {
           expect(state.overflow, `${dimensions} #${panelId} horizontal overflow`).toBeLessThanOrEqual(1);
         }
+        runtimeAudits.push(captureRuntimeAudit({
+          browserBinary,
+          fixtureRoot,
+          context: `${viewport} #${panelId}`,
+        }));
 
         const harnessPath = path.join(harnessScreenshotRoot, `${panelId}-${viewport}.png`);
         runBrowseCommand(browserBinary, fixtureRoot, ['screenshot', '--viewport', harnessPath]);
@@ -1897,21 +2370,21 @@ async function verifyLiveDeck(options: {
         ).toBe(fileHash(submittedPath));
       }
     }
-
+    expect(runtimeAudits.map(snapshot => snapshot.context)).toEqual(
+      [
+        'baseline + interaction flow',
+        ...(['desktop', 'phone'] as const).flatMap(viewport =>
+          panelIds.map(panelId => `${viewport} #${panelId}`),
+        ),
+      ],
+    );
     expect(
-      unexpectedAnalyticsOffRequests(
-        runtimeResourceRequests(browserBinary, fixtureRoot),
+      analyticsOffRuntimeViolations(
+        runtimeAudits,
         `${server.baseUrl}/investors`,
         assetUrls.map(url => url.href),
       ),
-      'Analytics-off Flask deck initiated an unexpected or telemetry-capable resource request',
-    ).toEqual([]);
-    expect(
-      suspiciousAnalyticsOffImages(
-        runtimeImageResources(browserBinary, fixtureRoot),
-        `${server.baseUrl}/investors`,
-      ),
-      'Analytics-off Flask deck contains a tracking-like, tiny, or unexplained hidden image',
+      'Analytics-off Flask deck emitted a request or image violation in a section snapshot',
     ).toEqual([]);
 
     return renderedHtml;
@@ -2080,6 +2553,10 @@ describe('/deck E2E harness contracts (free)', () => {
       `@font-face { src: url('./fonts/deck.woff2') format('woff2'); }`,
       allowedAssets[0]!,
     )).toEqual([allowedAssets[1]!]);
+    expect(htmlPageLoadResources(
+      '<picture><source srcset="/wide.webp 2x, /phone.webp 1x"><img src="/fallback.png"></picture>',
+      pageUrl,
+    ).map(url => url.pathname)).toEqual(['/wide.webp', '/phone.webp', '/fallback.png']);
     expect(unexpectedAnalyticsOffRequests([
       { name: allowedAssets[0]!, initiatorType: 'link' },
       { name: allowedAssets[1]!, initiatorType: 'css' },
@@ -2106,6 +2583,121 @@ describe('/deck E2E harness contracts (free)', () => {
     expect(suspiciousAnalyticsOffImages([
       { ...ordinaryImage, src: allowedAssets[2]!, naturalWidth: 1, naturalHeight: 1 },
     ], pageUrl)).toHaveLength(1);
+
+    const earlyViolationSnapshots: RuntimeAuditSnapshot[] = [
+      {
+        context: 'desktop #early-section',
+        requests: [{
+          name: 'http://127.0.0.1:43123/collect.gif?section=early',
+          initiatorType: 'img',
+        }],
+        images: [{
+          ...ordinaryImage,
+          src: 'http://127.0.0.1:43123/static/early.gif',
+          naturalWidth: 1,
+          naturalHeight: 1,
+        }],
+      },
+      {
+        context: 'desktop #final-section',
+        requests: [{ name: allowedAssets[0]!, initiatorType: 'link' }],
+        images: [ordinaryImage],
+      },
+    ];
+    expect(
+      analyticsOffRuntimeViolations(earlyViolationSnapshots, pageUrl, allowedAssets)
+        .map(violation => `${violation.context}:${violation.kind}`),
+    ).toEqual([
+      'desktop #early-section:request',
+      'desktop #early-section:image',
+    ]);
+  });
+
+  test('row-evidence gate allows approved aggregates but rejects anonymized row records', () => {
+    const rows = parseAccountEvidenceRows(`account_id,status,handoffs
+synthetic-1,paying,103
+synthetic-2,paying,88
+synthetic-3,paying,71
+synthetic-4,paying,39
+`);
+    expect(findRowEvidenceLeaks(
+      'Four paying teams completed 301 handoffs. ArrowRight uses keyCode 39.',
+      rows,
+    )).toEqual([]);
+    expect(findRowEvidenceLeaks('Anonymous team — paying — 103 handoffs.', rows)).not.toEqual([]);
+    expect(findRowEvidenceLeaks('Cohort distribution: 103 / 88 / 71.', rows)).not.toEqual([]);
+    expect(findRowEvidenceLeaks('{"status":"paying","handoffs":103}', rows)).not.toEqual([]);
+    expect(findRowEvidenceLeaks(
+      '{\n  "status": "paying",\n  "handoffs": 103\n}',
+      rows,
+    )).not.toEqual([]);
+    expect(findRowEvidenceLeaks(
+      '<button aria-label="Paying account, 103 handoffs">Open</button>',
+      rows,
+    )).not.toEqual([]);
+    expect(findRowEvidenceLeaks(
+      '<div>\n<span>Paying</span>\n<strong>103</strong>\n<span>handoffs</span>\n</div>',
+      rows,
+    )).not.toEqual([]);
+    expect(findRowEvidenceLeaks(
+      '<div class="metric"><div>Paying</div><div>103</div><div>handoffs</div></div>',
+      rows,
+    )).not.toEqual([]);
+    expect(findRowEvidenceLeaks(
+      '<div data-status="paying" data-handoffs="103"></div>',
+      rows,
+    )).not.toEqual([]);
+    expect(findRowEvidenceLeaks(
+      '<table><tr>\n<td>Paying</td>\n<td>103</td>\n<td>handoffs</td>\n</tr></table>',
+      rows,
+    )).not.toEqual([]);
+    expect(findRowEvidenceLeaks(
+      '<dl><dt>Paying</dt><dd><p>103 <span>handoffs</span></p></dd></dl>',
+      rows,
+    )).not.toEqual([]);
+    expect(findRowEvidenceLeaks(
+      '<meta content="Paying account, 103 handoffs">',
+      rows,
+    )).not.toEqual([]);
+    expect(findRowEvidenceLeaks(
+      '<div aria-valuetext="Paying, 88 handoffs" data-proof="71 handoffs"></div>',
+      rows,
+    )).not.toEqual([]);
+    expect(findRowEvidenceLeaks(
+      '.proof::before { content: "Paying account — 88 handoffs"; }',
+      rows,
+    )).not.toEqual([]);
+    expect(findRowEvidenceLeaks(
+      'const summary = "Four paying teams completed 301 handoffs"\nconst keyCode = 39',
+      rows,
+    )).toEqual([]);
+    expect(findRowEvidenceLeaks(
+      'function render() {\nconst summary = "Four paying teams completed 301 handoffs"\nconst keyCode = 39\n}',
+      rows,
+    )).toEqual([]);
+    expect(findRowEvidenceLeaks(
+      '.proof { content: "Four paying teams completed 301 handoffs"; right: 39px; }',
+      rows,
+    )).toEqual([]);
+    expect(findRowEvidenceLeaks('Market supports 103,000 handoffs annually.', rows)).toEqual([]);
+
+    const countPattern = aggregateClaimPattern({
+      value: 4,
+      valueWord: 'four',
+      labelPattern: 'paying[^.]{0,32}(?:teams?|accounts?)',
+    });
+    expect('Four paying teams').toMatch(countPattern);
+    expect('Paying teams: 4').toMatch(countPattern);
+    expect('14 paying teams').not.toMatch(countPattern);
+    expect('4,000 paying teams').not.toMatch(countPattern);
+    expect(hasAggregateClaim(`16 paying teams${EVIDENCE_SEMANTIC_BREAK}4 sections`, countPattern)).toBe(false);
+    expect(hasAggregateClaim(`4 sections${EVIDENCE_SEMANTIC_BREAK}16 paying teams`, countPattern)).toBe(false);
+    expect(hasAggregateClaim(`Four paying teams${EVIDENCE_SEMANTIC_BREAK}4 sections`, countPattern)).toBe(true);
+    const totalPattern = aggregateClaimPattern({ value: 301, labelPattern: 'handoffs?' });
+    expect('301 handoffs').toMatch(totalPattern);
+    expect('Handoffs: 301').toMatch(totalPattern);
+    expect('1,301 handoffs').not.toMatch(totalPattern);
+    expect('301,000 handoffs').not.toMatch(totalPattern);
   });
 
   test('builds a hermetic full-execution fixture with its declared production server', () => {
@@ -2447,6 +3039,147 @@ Respond with ONLY JSON:
   }, 420_000);
 });
 
+describePeriodicDeck('/deck investor evidence-follow-up behavioral E2E', [FOLLOWUP_TEST_NAME], () => {
+  let workDir: string;
+
+  beforeAll(() => {
+    workDir = createPythonSiteFixture({ browserAccess: true });
+  });
+
+  afterAll(async () => {
+    const pidPath = path.join(workDir, '.deck-preview.pid');
+    if (fs.existsSync(pidPath)) {
+      const pid = Number.parseInt(fs.readFileSync(pidPath, 'utf-8').trim(), 10);
+      if (Number.isInteger(pid)) {
+        try { process.kill(pid, 'SIGTERM'); } catch { /* already stopped */ }
+      }
+    }
+    try { fs.rmSync(workDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    await finalizeEvalCollector(followupEvalCollector);
+  });
+
+  testConcurrentIfSelected(FOLLOWUP_TEST_NAME, async () => {
+    requireHermeticDeckEval();
+    const { result, monitor } = await runNetworkIsolatedSkillTest({
+      prompt: `Read ./deck-skill.md and continue /deck from the user's completed primary intake reply.
+
+USER'S PRIMARY REPLY:
+- Audience: seed-stage vertical-SaaS investors preparing for a partner meeting;
+  likely objections are adoption, retention, and repeatable acquisition.
+- Goal / CTA: raise a $2.5M seed round and earn a partner meeting. The capital
+  should fund two school-management integrations, pilot conversion, and cohort
+  measurement toward 75 paying schools plus six-month retention evidence.
+- Source material: the repository is authoritative for shipped behavior. Draft
+  investor notes and unsupported founder copy are not verified. No additional
+  evidence bundle has been supplied yet.
+- Access level: approved for a production-equivalent loopback preview using only
+  this repository's synthetic data, read-only navigation, local artifacts, the
+  current agent host only, and no non-loopback page-load egress. Delivery remains
+  limited-share and public-safe. No credential or remote session is authorized.
+- Route / host: /investors on the current host.
+- Research: none. Analytics: off.
+
+Resume Step 0 before deciding whether the bounded Source-material follow-up is
+needed. Start the declared local production server with tools/production_server.py,
+record its PID in .deck-preview.pid, use the bundled browse binary discovered by
+./browse/bin/find-browse, and inspect the live /, /recitals/spring-104, and
+/reports routes. Exercise only read-only navigation. Observe the moment of value
+and one trust-relevant product state. Stop the browser and preview before finish.
+Do not use any non-loopback URL, WebSearch, WebFetch, or external service.
+
+Do not implement the deck. Write ./deck-evidence-followup.json as strict JSON
+(no Markdown fence) with exactly this shape:
+{
+  "product_observation": {
+    "method": "string",
+    "visited_routes": ["string"],
+    "moment_of_value": "string",
+    "trust_state": "string"
+  },
+  "remaining_truth_gaps": ["string"],
+  "followup_round": {
+    "round": 2,
+    "questions": [
+      {
+        "category": "Source material",
+        "current_inference": "string",
+        "question": "string",
+        "decision_changed": "string",
+        "recommended_default": "string"
+      }
+    ]
+  }
+}
+
+Ask zero to two questions. Ask none only if every thesis-critical claim now has
+an authoritative basis. Otherwise each question must cover one distinct,
+specific investor evidence gap, point to the best source or owner, and offer
+qualification or omission. Do not repeat Audience, Goal/CTA, Access, Route/host,
+Research, or Analytics, and do not ask the user to invent strategy. Finish after
+writing the file.`,
+      workingDirectory: workDir,
+      allowedTools: ['Bash', 'Read', 'Write', 'Glob', 'Grep'],
+      maxTurns: 25,
+      timeout: 420_000,
+      testName: FOLLOWUP_TEST_NAME,
+      runId,
+      model: 'claude-sonnet-4-6',
+    });
+
+    logCost('/deck investor evidence follow-up', result);
+    assertNetworkIsolation(monitor);
+    expect(result.exitReason).toBe('success');
+    expect(result.toolCalls.some(call =>
+      ['AskUserQuestion', 'WebSearch', 'WebFetch'].includes(call.tool),
+    )).toBe(false);
+    expect(shellEgressViolations(result.toolCalls)).toEqual([]);
+
+    const shellTranscript = result.toolCalls.map(shellCommand).filter(Boolean).join('\n');
+    expect(shellTranscript).toMatch(/production_server\.py/i);
+    expect(shellTranscript).toMatch(/(?:browse|\$B)[\s\S]*(?:goto|snapshot)/i);
+    expect(shellTranscript).toMatch(/(?:127\.0\.0\.1|localhost)/i);
+
+    const followup = parseDeckEvidenceFollowup(
+      path.join(workDir, 'deck-evidence-followup.json'),
+    );
+    expect(followup.product_observation.method).toMatch(/live|browser|loopback/i);
+    expect(followup.product_observation.visited_routes).toEqual(
+      expect.arrayContaining(['/', '/recitals/spring-104', '/reports']),
+    );
+    expect(followup.product_observation.moment_of_value).toMatch(
+      /conflict|director|publish|run-of-show/i,
+    );
+    expect(followup.product_observation.trust_state).toMatch(/conflict|review|publish/i);
+    expect(followup.remaining_truth_gaps.length).toBeGreaterThan(0);
+
+    expect(followup.followup_round.round).toBe(2);
+    expect(followup.followup_round.questions.length).toBeGreaterThan(0);
+    expect(followup.followup_round.questions.length).toBeLessThanOrEqual(2);
+    const normalizedQuestions = followup.followup_round.questions.map(question => {
+      expect(declaredCategories(question.category)).toEqual(['sourcematerial']);
+      expect(question.current_inference.trim().length).toBeGreaterThan(12);
+      expect(question.question.trim().length).toBeGreaterThan(12);
+      expect(question.question.length).toBeLessThanOrEqual(500);
+      expect(question.decision_changed.trim().length).toBeGreaterThan(12);
+      expect(question.recommended_default).toMatch(/qualif|omit|exclude|unknown/i);
+      return question.question.toLowerCase().replace(/\s+/g, ' ').trim();
+    });
+    expect(new Set(normalizedQuestions).size).toBe(normalizedQuestions.length);
+    const followupText = JSON.stringify(followup.followup_round.questions);
+    expect(followupText).toMatch(/source|owner|evidence|record|report/i);
+    expect(followupText).toMatch(/traction|retention|pricing|revenue|economics|acquisition|team|founder/i);
+    expect(followupText).not.toMatch(/visual style|framework|component|deploy|branch|commit|analytics|research/i);
+
+    recordE2E(
+      followupEvalCollector,
+      FOLLOWUP_TEST_NAME,
+      '/deck investor evidence-follow-up behavioral E2E',
+      result,
+      { passed: true },
+    );
+  }, 540_000);
+});
+
 describePeriodicDeck('/deck unapproved product-access boundary E2E', [ACCESS_TEST_NAME], () => {
   let workDir: string;
   let baselineHead: string;
@@ -2717,9 +3450,14 @@ artifacts/deck-evidence.json with this shape:
     expect(builtDeck).toMatch(/partner meeting/i);
     expect(builtDeck).not.toMatch(/ksn-acct-/i);
 
-    const accountIds = fs.readFileSync(path.join(workDir, 'materials', 'accounts.csv'), 'utf-8')
-      .trim().split(/\r?\n/).slice(1).map(row => row.split(',')[0]);
+    const accountRows = parseAccountEvidenceRows(
+      fs.readFileSync(path.join(workDir, 'materials', 'accounts.csv'), 'utf-8'),
+    );
+    const accountIds = accountRows.map(row => row.id);
+    const approvedPayingRows = accountRows.filter(row => row.status.toLowerCase() === 'paying');
+    const approvedHandoffTotal = approvedPayingRows.reduce((sum, row) => sum + row.handoffs, 0);
     assertPublicSurfaceSafe(workDir, accountIds);
+    assertNoRowEvidenceInPublicFiles(workDir, accountRows);
 
     const evidence = parseDeliveryEvidence(path.join(workDir, 'artifacts', 'deck-evidence.json'));
     assertSpecialistReviewsApplied(evidence);
@@ -2781,10 +3519,7 @@ artifacts/deck-evidence.json with this shape:
         .toMatch(/(?:private|no-store|max-age\s*=\s*0)/i);
 
       const staticAssets: URL[] = [];
-      for (const match of routeHtml.matchAll(
-        /<(?:script|link|img|source|video|audio|iframe)\b[^>]*\b(?:src|href|poster)=["']([^"']+)["']/gi,
-      )) {
-        const asset = new URL(match[1], `${server.baseUrl}/investors/`);
+      for (const asset of htmlPageLoadResources(routeHtml, `${server.baseUrl}/investors/`)) {
         if (['http:', 'https:'].includes(asset.protocol)) {
           expect(asset.origin, `Cross-origin page-load asset is not privacy-safe: ${asset.href}`)
             .toBe(server.baseUrl);
@@ -2803,7 +3538,9 @@ artifacts/deck-evidence.json with this shape:
           const css = await assetResponse.text();
           for (const dependencyHref of cssDependencyUrls(css, asset.href)) {
             const dependency = new URL(dependencyHref);
-            if (dependency.origin !== server.baseUrl || staticAssetHrefs.has(dependency.href)) continue;
+            expect(dependency.origin, `Cross-origin CSS dependency: ${dependency.href}`)
+              .toBe(server.baseUrl);
+            if (staticAssetHrefs.has(dependency.href)) continue;
             staticAssetHrefs.add(dependency.href);
             staticAssets.push(dependency);
           }
@@ -2854,12 +3591,22 @@ artifacts/deck-evidence.json with this shape:
           expect(fallbackBody, `Sensitive value leaked through ${fallbackPath}`)
             .not.toContain(accountId.toLowerCase());
         }
+        expect(
+          findRowEvidenceLeaks(fallbackBody, accountRows),
+          `Sensitive row-level evidence leaked through ${fallbackPath}`,
+        ).toEqual([]);
       }
 
       runBrowseCommand(browse, workDir, ['goto', `${server.baseUrl}/investors/#${panelIds[1]}`]);
       assertActivePanel(activeDeckState(browse, workDir), panelIds[1]!, 'static direct deep link');
       runBrowseCommand(browse, workDir, ['reload']);
       assertActivePanel(activeDeckState(browse, workDir), panelIds[1]!, 'static deep-link refresh');
+      stabilizeDeckCapture(browse, workDir);
+      const runtimeAudits: RuntimeAuditSnapshot[] = [captureRuntimeAudit({
+        browserBinary: browse,
+        fixtureRoot: workDir,
+        context: 'baseline + deep-link reload',
+      })];
 
       const privacyState = browseJson<{
         cookies: string;
@@ -2875,28 +3622,15 @@ artifacts/deck-evidence.json with this shape:
       }))()`);
       expect(privacyState.cookies).toBe('');
       expect(privacyState.externalResources).toEqual([]);
-      expect(
-        unexpectedAnalyticsOffRequests(
-          runtimeResourceRequests(browse, workDir),
-          `${server.baseUrl}/investors/`,
-          staticAssetUrls,
-        ),
-        'Analytics-off static deck initiated an unexpected or telemetry-capable resource request',
-      ).toEqual([]);
-      expect(
-        suspiciousAnalyticsOffImages(
-          runtimeImageResources(browse, workDir),
-          `${server.baseUrl}/investors/`,
-        ),
-        'Analytics-off static deck contains a tracking-like, tiny, or unexplained hidden image',
-      ).toEqual([]);
 
       const harnessScreenshotRoot = path.join(workDir, 'artifacts', 'harness-static-screenshots');
       fs.mkdirSync(harnessScreenshotRoot, { recursive: true });
+      const liveDeckSurfaces = new Map<string, string>();
       for (const viewport of ['desktop', 'phone'] as const) {
         const dimensions = viewport === 'desktop' ? '1440x900' : '390x844';
-        runBrowseCommand(browse, workDir, ['viewport', dimensions, '--scale', '1']);
         for (const section of evidence.sections) {
+          runBrowseCommand(browse, workDir, ['js', 'performance.clearResourceTimings()']);
+          runBrowseCommand(browse, workDir, ['viewport', dimensions, '--scale', '1']);
           runBrowseCommand(browse, workDir, ['goto', `${server.baseUrl}/investors/#${section.id}`]);
           runBrowseCommand(browse, workDir, ['js', 'window.scrollTo(0, 0)']);
           stabilizeDeckCapture(browse, workDir);
@@ -2906,6 +3640,15 @@ artifacts/deck-evidence.json with this shape:
             expect(state.overflow, `${dimensions} #${section.id} horizontal overflow`)
               .toBeLessThanOrEqual(1);
           }
+          runtimeAudits.push(captureRuntimeAudit({
+            browserBinary: browse,
+            fixtureRoot: workDir,
+            context: `${viewport} #${section.id}`,
+          }));
+          liveDeckSurfaces.set(
+            `${viewport} #${section.id}`,
+            runtimeDeckEvidenceSurface(browse, workDir),
+          );
           const harnessPath = path.join(harnessScreenshotRoot, `${section.id}-${viewport}.png`);
           runBrowseCommand(browse, workDir, ['screenshot', '--viewport', harnessPath]);
           expect(
@@ -2914,6 +3657,46 @@ artifacts/deck-evidence.json with this shape:
           ).toBe(fileHash(path.resolve(workDir, section[viewport])));
         }
       }
+      expect(runtimeAudits.map(snapshot => snapshot.context)).toEqual(
+        [
+          'baseline + deep-link reload',
+          ...(['desktop', 'phone'] as const).flatMap(viewport =>
+            evidence.sections.map(section => `${viewport} #${section.id}`),
+          ),
+        ],
+      );
+      expect(
+        analyticsOffRuntimeViolations(
+          runtimeAudits,
+          `${server.baseUrl}/investors/`,
+          staticAssetUrls,
+        ),
+        'Analytics-off static deck emitted a request or image violation in a section snapshot',
+      ).toEqual([]);
+      expect([...liveDeckSurfaces.keys()]).toEqual(
+        (['desktop', 'phone'] as const).flatMap(viewport =>
+          evidence.sections.map(section => `${viewport} #${section.id}`),
+        ),
+      );
+      const liveDeckCorpus = [...liveDeckSurfaces.values()].join(EVIDENCE_SEMANTIC_BREAK);
+      expect(
+        findRowEvidenceLeaks(liveDeckCorpus, accountRows),
+        'Sensitive row-level evidence leaked through live deck text, attributes, or generated content',
+      ).toEqual([]);
+      const countWord = [
+        'zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten',
+      ][approvedPayingRows.length];
+      expect(hasAggregateClaim(liveDeckCorpus, aggregateClaimPattern({
+        value: approvedPayingRows.length,
+        valueWord: countWord,
+        labelPattern: 'paying[^.]{0,48}(?:teams?|accounts?)',
+        distance: 64,
+      }))).toBe(true);
+      expect(hasAggregateClaim(liveDeckCorpus, aggregateClaimPattern({
+        value: approvedHandoffTotal,
+        labelPattern: 'handoffs?',
+        distance: 48,
+      }))).toBe(true);
     } finally {
       try { runBrowseCommand(browse, workDir, ['stop']); } catch { /* best effort */ }
       await stopFixtureServer(server);

@@ -135,6 +135,7 @@ export const SKILL_COVERAGE: Record<string, SkillCoverage> = {
     gate: [
       'test/deck-template-invariants.test.ts',
       'test/deck-template-sync.test.ts',
+      'test/skill-e2e-deck.test.ts',
       'test/skill-coverage-floor.test.ts',
     ],
     periodic: ['test/skill-e2e-deck.test.ts'],

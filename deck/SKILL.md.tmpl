@@ -131,11 +131,12 @@ Unknowns belong in the map. Do not silently fill them from category norms.
 ### Bounded question transport
 
 After the safe local pass and any already-authorized product use, use the host's
-available user-question mechanism for one Step 1 intake round. If product use is
-pending, include the proposed Access policy in that same round; after the reply,
-resume Step 0 as above before Step 2. In Conductor, or when that mechanism is
-unavailable, render the same labelled questions as concise prose and stop for
-the reply. A spawned
+available user-question mechanism for the primary Step 1 intake round and, only
+when investor-critical truth is still missing, the bounded Source-material
+follow-up defined there. If product use is pending, include the proposed Access
+policy in the primary round; after the reply, resume Step 0 as above before Step
+2. In Conductor, or when that mechanism is unavailable, render the same labelled
+questions as concise prose and stop for the reply. A spawned
 worker returns its unanswered material choices to the parent instead of guessing
 or questioning the user directly. In a headless run, block only when a missing
 answer would make the deck misleading or unsafe; otherwise use the documented
@@ -167,15 +168,25 @@ every answer already provided in the prompt or source material.
 | Research | Exact topics and sources the user wants researched. Default: no external research. |
 | Analytics | Off, privacy-safe anonymous engagement, or a separately scoped named-recipient feature. Default: off. |
 
-After showing the inferred brief, ask one consolidated intake round with at most
-three questions. Each question must name its material category, the current
+After showing the inferred brief, ask one consolidated primary intake round with
+at most three questions. Each question must name its material category, the current
 inference, the investor or audience decision it changes, and a recommended
 default. Never ask a blank-slate "tell me about the company" question or make the
 user repeat facts already present in the product or materials. Unanswered
-non-blockers become unknown, qualified, or omitted. Reopen intake only when the
-user's answer creates a contradiction in one of the seven categories. A question
-may pair adjacent categories, but it must ask for one decision or one tightly
-related evidence bundle; never hide a long questionnaire inside one item.
+non-blockers become unknown, qualified, or omitted. A question may pair adjacent
+categories, but it must ask for one decision or one tightly related evidence
+bundle; never hide a long questionnaire inside one item.
+
+After the reply and any approved product inspection, re-score the product truth
+map. For a fundraising deck only, if the product, buyer, core journey, moment of
+value, investment audience decision, intended ask, or another thesis-critical
+claim still lacks an authoritative basis, allow one Source-material follow-up
+round with at most two questions. Each must name a different exact evidence gap,
+the investor decision it blocks, and the best current source or owner to provide;
+offer qualification or omission as the default. It may revisit Source material
+for a new gap, but never repeat a request, add a category, ask the user to invent
+strategy, or turn into diligence-by-chat. After that, reopen intake only when a
+user answer creates a contradiction in one of the seven categories.
 
 For fundraising, prioritize the available slots in this order: any
 safety-blocking Access policy; one combined Audience + Goal/CTA meeting brief if
@@ -196,10 +207,12 @@ new ones:
   shipped breadth, model/economics, traction and retention definitions and time
   windows, alternatives, team edge, and ask.
 
-`Source material` permits only asking the user to point to or provide the single
-highest-leverage source/evidence bundle, identify its authoritative owner, or
-choose qualification or omission. Do not relabel product strategy, visual taste,
-scope, or implementation choices as source-material questions.
+`Source material` permits only asking the user to point to or provide the
+highest-leverage source/evidence bundle for the named gap, identify its
+authoritative owner, or choose qualification or omission. Across the primary and
+follow-up rounds, ask for no more than two distinct evidence bundles. Do not
+relabel product strategy, visual taste, scope, or implementation choices as
+source-material questions.
 
 A user answer can set the intended audience, story, and ask, but factual
 assertions remain owner-provided until corroborated. Never ask the user to invent
@@ -215,7 +228,7 @@ not supplied, qualify or omit it.
 
 Do not draft a fundraising deck while the product, buyer, core journey and
 moment of value, audience decision, or intended ask remain unknown. If
-inspection plus the bounded Source-material response cannot establish them,
+inspection plus the bounded Source-material rounds cannot establish them,
 stop and name the missing category; qualify or omit other unsupported evidence.
 
 If the source material is sensitive and approved processors are not explicit,
@@ -296,8 +309,9 @@ Skip preamble/onboarding, scope/intake/approval gates, commit/stash choices,
 telemetry, and external mutations. Apply only the relevant rubric to the settled
 brief and return findings.** If the host cannot guarantee that boundary, do not
 start the child workflow; apply its rubric in-process and record the fallback. A
-child's mandatory prompt never overrides Step 1. Return to Step 1 only for a new
-contradiction in one of its seven material categories.
+child's mandatory prompt never overrides Step 1. Return to Step 1 only for its
+bounded evidence follow-up or a new contradiction in one of the seven material
+categories.
 
 - Use `/browse` during discovery to experience the product and prior deck when
   runnable. For a fundraising deck, always use `/plan-ceo-review` after intake to

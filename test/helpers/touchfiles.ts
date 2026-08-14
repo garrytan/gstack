@@ -319,6 +319,15 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
     'test/helpers/e2e-helpers.ts',
     'test/helpers/llm-judge.ts',
   ],
+  'deck-investor-evidence-followup': [
+    'deck/**',
+    'scripts/gen-skill-docs.ts',
+    'test/skill-e2e-deck.test.ts',
+    'test/helpers/e2e-helpers.ts',
+    'browse/src/**',
+    '.github/docker/Dockerfile.ci',
+    '.github/workflows/evals-periodic.yml',
+  ],
   'deck-full-flask-delivery': [
     'deck/**',
     'scripts/gen-skill-docs.ts',
@@ -738,8 +747,9 @@ export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
   'design-shotgun-full': 'periodic',
 
   // /deck — agent behavior is paid and non-deterministic. Sparse intake also
-  // uses an LLM judge; delivery and access runs have deterministic assertions.
+  // uses an LLM judge; follow-up, delivery, and access runs have deterministic assertions.
   'deck-investor-intake': 'periodic',
+  'deck-investor-evidence-followup': 'periodic',
   'deck-full-flask-delivery': 'periodic',
   'deck-natural-static-monorepo': 'periodic',
   'deck-access-boundary-intake': 'periodic',

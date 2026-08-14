@@ -50,7 +50,8 @@ describe('/deck template/generated sync', () => {
       expect(generated).toMatch(/^name: deck$/m);
       expect(generated).toContain('# /deck — Story → Interactive Deck → Proof');
       expect(generated).toContain('## Step 0: Inspect before deciding');
-      expect(generated).toContain('one consolidated intake round with at most');
+      expect(generated).toContain('one consolidated primary intake round with');
+      expect(generated).toMatch(/one Source-material follow-up\s+round with at most two questions/);
       expect(generated).toContain('Do not assume JavaScript, TypeScript, React, Node');
       expect(generated).not.toMatch(/\{\{[A-Z_]+(?::[^}]*)?\}\}/);
 

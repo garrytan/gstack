@@ -104,9 +104,12 @@ describe('/deck discovery and material intake', () => {
   test('asks sharp investor questions inside the existing categories and blocks premature drafting', () => {
     const intake = between(TMPL, '## Step 1: Ask only material questions', '## Step 2: Make the story and evidence earn attention');
     const normalized = intake.replace(/\s+/g, ' ');
-    expect(intake).toMatch(/one consolidated intake round with at most\s+three questions/i);
+    expect(intake).toMatch(/one consolidated primary intake round with\s+at most three questions/i);
     expect(normalized).toMatch(/Each question must name its material category, the current inference, the investor or audience decision it changes, and a recommended default/i);
-    expect(intake).toMatch(/Reopen intake only when the\s+user's answer creates a contradiction in one of the seven categories/i);
+    expect(normalized).toMatch(/one Source-material follow-up round with at most two questions/i);
+    expect(normalized).toMatch(/Each must name a different exact evidence gap, the investor decision it blocks, and the best current source or owner/i);
+    expect(normalized).toMatch(/never repeat a request, add a category, ask the user to invent strategy, or turn into diligence-by-chat/i);
+    expect(intake).toMatch(/After that, reopen intake only when a\s+user answer creates a contradiction in one of the seven categories/i);
     expect(intake).toMatch(/never hide a long questionnaire inside one item/i);
     expect(normalized).toMatch(/never ask a blank-slate "tell me about the company"/i);
     expect(intake).toMatch(/For an investor audience, sharpen three existing categories rather than adding\s+new ones/i);
@@ -116,11 +119,12 @@ describe('/deck discovery and material intake', () => {
     expect(normalized).toMatch(/Do not draft until the brief can state, with evidence or an explicit unknown/i);
     expect(normalized).toMatch(/the product, buyer, and urgent job[\s\S]*why it wins[\s\S]*proof plus model\/economics[\s\S]*ask and milestone/i);
     expect(normalized).toMatch(/if it is not supplied, qualify or omit it/i);
-    expect(normalized).toMatch(/Source material` permits only asking the user to point to or provide the single highest-leverage source\/evidence bundle/i);
+    expect(normalized).toMatch(/Source material` permits only asking the user to point to or provide the highest-leverage source\/evidence bundle for the named gap/i);
     expect(normalized).toMatch(/identify its authoritative owner, or choose qualification or omission/i);
+    expect(normalized).toMatch(/no more than two distinct evidence bundles/i);
     expect(normalized).toMatch(/Do not draft a fundraising deck while the product, buyer, core journey and moment of value, audience decision, or intended ask remain unknown/i);
     expect(normalized).toMatch(/stop and name the missing category/i);
-    expect(intake).toMatch(/Do not relabel product strategy, visual taste,\s+scope, or implementation choices as source-material questions/i);
+    expect(intake).toMatch(/Do not\s+relabel product strategy, visual taste,\s+scope, or implementation choices as\s+source-material questions/i);
     expect(normalized).toMatch(/which supplied source or owner can substantiate gaps/i);
     expect(normalized).toMatch(/Never ask the user to invent positioning, market size, differentiation, traction, or team claims/i);
     for (const phrase of ['why now', 'status quo and fair alternatives', 'observed quality and shipped breadth', 'model/economics', 'team edge', 'ask and milestone']) {
@@ -136,8 +140,9 @@ describe('/deck discovery and material intake', () => {
     const discovery = between(TMPL, '### Bounded question transport', '## Step 1: Ask only material questions');
     const normalized = discovery.replace(/\s+/g, ' ');
     expect(normalized).toMatch(/host's available user-question mechanism/i);
-    expect(discovery).toMatch(/one Step 1 intake round/i);
-    expect(discovery).toMatch(/include the proposed Access policy in that same round/i);
+    expect(discovery).toMatch(/primary Step 1 intake round/i);
+    expect(discovery).toMatch(/bounded Source-material\s+follow-up defined there/i);
+    expect(discovery).toMatch(/include the proposed Access\s+policy in the primary round/i);
     expect(discovery).not.toMatch(/remainder round/i);
     expect(normalized).toMatch(/In Conductor.*concise prose and stop for the reply/i);
     expect(discovery).toMatch(/spawned\s+worker returns its unanswered material choices to the parent/i);

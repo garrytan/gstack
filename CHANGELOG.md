@@ -28,11 +28,11 @@ design cannot quietly turn weak evidence into a strong claim.
 | Contract | Before | With `/deck` |
 |---|---|---|
 | Product inspection before deck decisions | ad hoc | 6 required repository/product surfaces + sourced truth map |
-| User intake | open-ended | 7 allowed material categories, at most 3 questions in one round |
+| User intake | open-ended | 7 allowed material categories; ≤3-question primary round + one ≤2-question investor-evidence follow-up |
 | Visual proof | optional spot checks | desktop + phone screenshot for every section |
 | Host coverage | none | canonical template generated for all supported hosts |
 | Skill catalog | 55 | 56 |
-| Regression coverage | none | 31 free deterministic cases + 4 periodic behavioral evals |
+| Regression coverage | none | 32 free deterministic cases + 5 periodic behavioral evals |
 
 ### What it does
 
@@ -42,6 +42,12 @@ design cannot quietly turn weak evidence into a strong claim.
 - delivers a real tabbed, deep-linkable, keyboard-accessible, mobile-first deck in the repository's native stack
 - requires section-by-section desktop and phone screenshots, visual review, browser QA, source review, and a fresh independent review
 - separates privacy-safe anonymous engagement from named-recipient tracking and gates deployment/configuration changes on explicit confirmation
+- preserves server-rendered Python/Rails/PHP/Go sites, static sites, and client-rendered apps in their native stacks
+- grounds the product journey, buyer, moment of value, shipped breadth, differentiation, economics, proof, team, and ask before narrative drafting
+- delegates CEO, design, engineering, DX, security, performance, browser QA, source review, independent review, and documentation specialists only when relevant
+- supports stable deep links, accessible tabs, keyboard/focus handling, browser-history synchronization, reduced motion, intentional phone layouts, and built-output route checks
+- keeps sensitive source material local by default, with anonymized aggregation, provenance, data-room-on-request, and explicit external-processing boundaries
+- tests the template/invariant surface and periodic behavioral cases, including sparse-evidence investor intake, product access boundaries, Flask/Jinja delivery, and stack-distinct static sites
 
 ### Scope and compatibility
 
@@ -164,7 +170,6 @@ bug fix and the port shortlist were selected and hardened for upstream.
   previously ate a gate test's whole time budget.
 - New follow-ups filed in `TODOS.md`: egress ledger rotation (chain-genesis
   records), a launch-nonce token bootstrap, and eval-watch shard-awareness.
-
 ## [1.62.0.0] - 2026-08-12
 
 ## **Plan reviews stop asking what to review when you're in plan mode.**
