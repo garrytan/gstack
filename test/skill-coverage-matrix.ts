@@ -139,7 +139,7 @@ export const SKILL_COVERAGE: Record<string, SkillCoverage> = {
       'test/skill-coverage-floor.test.ts',
     ],
     periodic: ['test/skill-e2e-deck.test.ts'],
-    rationale: 'Deterministic contracts pin evidence, privacy, accessibility, and release gates; four periodic scenarios cover sparse investor intake, unapproved product access, a nested static monorepo, and native Flask delivery with real every-section browser screenshots.',
+    rationale: 'Deterministic contracts pin evidence, privacy, accessibility, and release gates; five periodic scenarios cover sparse investor intake, product-informed evidence follow-up, unapproved product access, a nested static monorepo, and native Flask delivery with real every-section browser screenshots.',
   },
   diagram: {
     gate: ['test/skill-e2e-diagram.test.ts', 'test/skill-coverage-floor.test.ts'],
