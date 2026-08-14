@@ -27,6 +27,7 @@ export const WRITE_COMMANDS = new Set([
   'upload', 'dialog-accept', 'dialog-dismiss',
   'style', 'cleanup', 'prettyscreenshot',
   'download', 'scrape', 'archive',
+  'inject-auth', 'trace',
 ]);
 
 export const META_COMMANDS = new Set([
@@ -139,6 +140,8 @@ export const COMMAND_DESCRIPTIONS: Record<string, { category: string; descriptio
   'download': { category: 'Extraction', description: 'Download URL or media element to disk using browser cookies. Use --navigate for URLs that trigger browser downloads (CDN redirects, Content-Disposition, anti-bot protected sites)', usage: 'download <url|@ref> [path] [--base64] [--navigate]' },
   'scrape':   { category: 'Extraction', description: 'Bulk download all media from page. Writes manifest.json', usage: 'scrape <images|videos|media> [--selector sel] [--dir path] [--limit N]' },
   'archive':  { category: 'Extraction', description: 'Save complete page as MHTML via CDP', usage: 'archive [path]' },
+  'inject-auth': { category: 'Interaction', description: 'Inject an origin-scoped localStorage value into the current session (agent-browser auto-login). Written only when the page origin matches appOrigin.', usage: 'inject-auth <appOrigin> <storageKey> <authJson>' },
+  'trace': { category: 'Interaction', description: 'Record a Playwright trace for the current session; view a stopped trace with show-trace.', usage: 'trace start | trace stop <path>' },
   // Visual
   'screenshot': { category: 'Visual', description: 'Save screenshot. --selector targets a specific element (explicit flag form). Positional selectors starting with ./#/@/[ still work.', usage: 'screenshot [--selector <css>] [--viewport] [--clip x,y,w,h] [--base64] [selector|@ref] [path]' },
   'pdf':     { category: 'Visual', description: 'Save the current page as PDF. Supports page layout (--format, --width, --height, --margins, --margin-*), structure (--toc waits for Paged.js), branding (--header-template, --footer-template, --page-numbers), accessibility (--tagged, --outline), and --from-file <payload.json> for large payloads. Use --tab-id <N> to target a specific tab.', usage: 'pdf [path] [--format letter|a4|legal] [--width <dim> --height <dim>] [--margins <dim>] [--margin-top <dim> --margin-right <dim> --margin-bottom <dim> --margin-left <dim>] [--header-template <html>] [--footer-template <html>] [--page-numbers] [--tagged] [--outline] [--print-background] [--prefer-css-page-size] [--toc] [--tab-id <N>]  |  pdf --from-file <payload.json> [--tab-id <N>]' },

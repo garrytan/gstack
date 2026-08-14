@@ -17,7 +17,7 @@
 
 import { chromium, type Browser, type BrowserContext, type BrowserContextOptions, type Page, type Locator, type Cookie } from 'playwright';
 import { writeSecureFile, mkdirSecure } from './file-permissions';
-import { addConsoleEntry, addNetworkEntry, addDialogEntry, networkBuffer, type DialogEntry } from './buffers';
+import { CircularBuffer, type LogEntry, type NetworkEntry, type DialogEntry } from './buffers';
 import { emitActivity } from './activity';
 import { validateNavigationUrl } from './url-validation';
 import { TabSession, type RefEntry } from './tab-session';
@@ -146,42 +146,142 @@ export interface BrowserState {
   }>;
 }
 
+/**
+ * Per-session isolated browser state (agent-browser U4).
+ *
+ * Each session owns its own Playwright BrowserContext (isolated cookies /
+ * localStorage / storage), its own tab set, its own request headers / UA /
+ * viewport, and its own observability buffers. The shared Browser and the
+ * global tab-ID allocator live on BrowserManager; everything a concurrent
+ * session must NOT share lives here. A default session ("default") reproduces
+ * the pre-U4 single-session behavior for callers that send no `session`.
+ */
+export interface SessionState {
+  context: BrowserContext | null;
+  pages: Map<number, Page>;
+  tabSessions: Map<number, TabSession>;
+  activeTabId: number;
+  extraHeaders: Record<string, string>;
+  customUserAgent: string | null;
+  deviceScaleFactor: number;
+  currentViewport: { width: number; height: number };
+  tabOwnership: Map<number, string>;
+  dialogAutoAccept: boolean;
+  dialogPromptText: string | null;
+  cookieImportedDomains: Set<string>;
+  tabGuardrailSoftHit: boolean;
+  tabGuardrailHardHit: boolean;
+  consoleBuffer: CircularBuffer<LogEntry>;
+  networkBuffer: CircularBuffer<NetworkEntry>;
+  dialogBuffer: CircularBuffer<DialogEntry>;
+  /**
+   * Origin-scoped storage injections (agent-browser U5). Re-applied on context
+   * recreation so a viewport/scale change doesn't silently drop injected auth.
+   */
+  authInitScripts: Array<{ origin: string; key: string; val: string }>;
+  /** Whether Playwright tracing is currently recording for this session (U8). */
+  tracing: boolean;
+}
+
+const SESSION_BUFFER_CAP = 50_000;
+
+function createSessionState(): SessionState {
+  return {
+    context: null,
+    pages: new Map(),
+    tabSessions: new Map(),
+    activeTabId: 0,
+    extraHeaders: {},
+    customUserAgent: null,
+    deviceScaleFactor: 1,
+    currentViewport: { width: 1280, height: 720 },
+    tabOwnership: new Map(),
+    dialogAutoAccept: true,
+    dialogPromptText: null,
+    cookieImportedDomains: new Set(),
+    tabGuardrailSoftHit: false,
+    tabGuardrailHardHit: false,
+    consoleBuffer: new CircularBuffer<LogEntry>(SESSION_BUFFER_CAP),
+    networkBuffer: new CircularBuffer<NetworkEntry>(SESSION_BUFFER_CAP),
+    dialogBuffer: new CircularBuffer<DialogEntry>(SESSION_BUFFER_CAP),
+    authInitScripts: [],
+    tracing: false,
+  };
+}
+
+/** The origin-scoped localStorage-injection init script (runs in the page). */
+export function originScopedStorageInit(arg: { origin: string; key: string; val: string }): void {
+  // Only write when the page's origin matches — the bearer must never leak to a
+  // non-app origin (agent-browser R5).
+  if (location.origin === arg.origin) {
+    try {
+      window.localStorage.setItem(arg.key, arg.val);
+    } catch {
+      // localStorage can be unavailable (sandboxed/opaque origin); best-effort.
+    }
+  }
+}
+
+export const DEFAULT_SESSION_ID = 'default';
+
 export class BrowserManager {
   private browser: Browser | null = null;
-  private context: BrowserContext | null = null;
   // Proxy config applied to chromium.launch() when set (D8). Set by server.ts
   // at startup based on BROWSE_PROXY_URL. For SOCKS5 with auth, server.ts
   // points this at the local bridge (socks5://127.0.0.1:<bridgePort>); for
   // HTTP/HTTPS or unauth SOCKS5, it's the upstream URL directly.
   private proxyConfig: { server: string; username?: string; password?: string } | null = null;
-  private pages: Map<number, Page> = new Map();
-  private tabSessions: Map<number, TabSession> = new Map();
-  private activeTabId: number = 0;
-  private nextTabId: number = 1;
-  private extraHeaders: Record<string, string> = {};
-  private customUserAgent: string | null = null;
 
-  // ─── Viewport + deviceScaleFactor (context options) ──────────
-  // Tracked at the manager level so recreateContext() preserves them.
-  // deviceScaleFactor is a *context* option, not a page-level setter — changes
-  // require recreateContext(). Viewport width/height can change on-page, but we
-  // track the latest so context recreation restores it instead of hardcoding 1280x720.
-  private deviceScaleFactor: number = 1;
-  private currentViewport: { width: number; height: number } = { width: 1280, height: 720 };
+  // ─── Per-session isolated state (agent-browser U4) ──────────
+  // The daemon holds one shared Browser and a map of isolated sessions. Every
+  // per-tab / per-context field below is a private accessor into the CURRENT
+  // session's bundle, so existing method bodies (this.context, this.pages, …)
+  // operate on the active session unchanged. Session routing (server.ts) swaps
+  // currentSessionId around each command, mirroring the activeTabId save/restore.
+  private sessions: Map<string, SessionState> = new Map();
+  private currentSessionId: string = DEFAULT_SESSION_ID;
+
+  /** Current session bundle, lazily created (so `new BrowserManager()` works). */
+  private get cur(): SessionState {
+    let state = this.sessions.get(this.currentSessionId);
+    if (!state) {
+      state = createSessionState();
+      this.sessions.set(this.currentSessionId, state);
+    }
+    return state;
+  }
+
+  private get context(): BrowserContext | null { return this.cur.context; }
+  private set context(value: BrowserContext | null) { this.cur.context = value; }
+  private get pages(): Map<number, Page> { return this.cur.pages; }
+  private get tabSessions(): Map<number, TabSession> { return this.cur.tabSessions; }
+  private get activeTabId(): number { return this.cur.activeTabId; }
+  private set activeTabId(value: number) { this.cur.activeTabId = value; }
+  private get extraHeaders(): Record<string, string> { return this.cur.extraHeaders; }
+  private set extraHeaders(value: Record<string, string>) { this.cur.extraHeaders = value; }
+  private get customUserAgent(): string | null { return this.cur.customUserAgent; }
+  private set customUserAgent(value: string | null) { this.cur.customUserAgent = value; }
+  private get deviceScaleFactor(): number { return this.cur.deviceScaleFactor; }
+  private set deviceScaleFactor(value: number) { this.cur.deviceScaleFactor = value; }
+  private get currentViewport(): { width: number; height: number } { return this.cur.currentViewport; }
+  private set currentViewport(value: { width: number; height: number }) { this.cur.currentViewport = value; }
+  private get tabOwnership(): Map<number, string> { return this.cur.tabOwnership; }
+  private get dialogAutoAccept(): boolean { return this.cur.dialogAutoAccept; }
+  private set dialogAutoAccept(value: boolean) { this.cur.dialogAutoAccept = value; }
+  private get dialogPromptText(): string | null { return this.cur.dialogPromptText; }
+  private set dialogPromptText(value: string | null) { this.cur.dialogPromptText = value; }
+  private get cookieImportedDomains(): Set<string> { return this.cur.cookieImportedDomains; }
+  private get tabGuardrailSoftHit(): boolean { return this.cur.tabGuardrailSoftHit; }
+  private set tabGuardrailSoftHit(value: boolean) { this.cur.tabGuardrailSoftHit = value; }
+  private get tabGuardrailHardHit(): boolean { return this.cur.tabGuardrailHardHit; }
+  private set tabGuardrailHardHit(value: boolean) { this.cur.tabGuardrailHardHit = value; }
+
+  // Tab-ID allocator is daemon-wide so tab ids stay globally unique across
+  // sessions (routing by tabId remains unambiguous).
+  private nextTabId: number = 1;
 
   /** Server port — set after server starts, used by cookie-import-browser command */
   public serverPort: number = 0;
-
-  // ─── Tab Ownership (multi-agent isolation) ──────────────
-  // Maps tabId → clientId. Unowned tabs (not in this map) are root-only for writes.
-  private tabOwnership: Map<number, string> = new Map();
-
-  // ─── Dialog Handling (global, not per-tab) ──────────────────
-  private dialogAutoAccept: boolean = true;
-  private dialogPromptText: string | null = null;
-
-  // ─── Cookie Origin Tracking ────────────────────────────────
-  private cookieImportedDomains: Set<string> = new Set();
 
   // ─── Handoff State ─────────────────────────────────────────
   private isHeaded: boolean = false;
@@ -208,8 +308,8 @@ export class BrowserManager {
   // appears in the activity feed even when the sidebar is closed.
   private static readonly TAB_GUARDRAIL_SOFT = 50;
   private static readonly TAB_GUARDRAIL_HARD = 200;
-  private tabGuardrailSoftHit = false;
-  private tabGuardrailHardHit = false;
+  // tabGuardrailSoftHit / tabGuardrailHardHit are per-session (SessionState),
+  // exposed via accessors above so checkTabGuardrails() stays unchanged.
 
   /**
    * Called from context.on('page') after a new tab is tracked. Emits at
@@ -937,6 +1037,116 @@ export class BrowserManager {
     return tabs;
   }
 
+  // ─── Isolated session management (agent-browser U4) ────────
+  /** The current session id commands resolve against. */
+  getCurrentSessionId(): string { return this.currentSessionId; }
+
+  /** All known session ids (default is created lazily on first access). */
+  listSessionIds(): string[] { return [...this.sessions.keys()]; }
+
+  hasSession(id: string): boolean { return this.sessions.has(id); }
+
+  /** Switch the active session. Bundle is created lazily; context is not. */
+  setCurrentSession(id: string): void { this.currentSessionId = id; }
+
+  /** The current session's observability buffers (read/flush paths). */
+  getBuffers(): { consoleBuffer: CircularBuffer<LogEntry>; networkBuffer: CircularBuffer<NetworkEntry>; dialogBuffer: CircularBuffer<DialogEntry> } {
+    const state = this.cur;
+    return { consoleBuffer: state.consoleBuffer, networkBuffer: state.networkBuffer, dialogBuffer: state.dialogBuffer };
+  }
+
+  /** Every session's bundle (server flush iterates all so no session's logs are lost). */
+  getAllSessions(): Array<{ id: string; state: SessionState }> {
+    return [...this.sessions.entries()].map(([id, state]) => ({ id, state }));
+  }
+
+  /**
+   * Ensure a session has its own isolated BrowserContext + first tab, creating
+   * it on the shared Browser if absent. Switches the active session to `id`.
+   * Requires the browser to be launched (launch() creates the default session).
+   */
+  async ensureSession(id: string): Promise<void> {
+    if (!this.browser) {
+      throw new Error('Browser not launched. ensureSession requires an active browser.');
+    }
+    this.currentSessionId = id;
+    const state = this.cur;
+    if (state.context) return;
+
+    const contextOptions: BrowserContextOptions = {
+      viewport: { width: state.currentViewport.width, height: state.currentViewport.height },
+      deviceScaleFactor: state.deviceScaleFactor,
+    };
+    if (state.customUserAgent) contextOptions.userAgent = state.customUserAgent;
+    state.context = await this.browser.newContext(contextOptions);
+    if (Object.keys(state.extraHeaders).length > 0) {
+      await state.context.setExtraHTTPHeaders(state.extraHeaders);
+    }
+    const { applyStealth } = await import('./stealth');
+    await applyStealth(state.context);
+    await this.newTab();
+  }
+
+  /**
+   * Inject an origin-scoped localStorage value into the current session's
+   * context (agent-browser U5). The value is written by an init script ONLY on
+   * pages whose origin === appOrigin, so a bearer token can never leak to a
+   * non-app origin. Applies to future navigations (inject before navigating);
+   * recorded so context recreation re-applies it. Payload must be a non-empty
+   * JSON object (adapter-level shape validation already happened at acquire).
+   */
+  async injectOriginScopedStorage(appOrigin: string, storageKey: string, valueJson: string): Promise<void> {
+    const context = this.cur.context;
+    if (!context) throw new Error('No browser context for the current session; open a session first.');
+    if (!appOrigin || !storageKey) throw new Error('inject requires both an appOrigin and a storageKey.');
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(valueJson);
+    } catch {
+      throw new Error('inject value is not valid JSON.');
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error('inject value must be a non-empty JSON object.');
+    }
+    this.cur.authInitScripts.push({ origin: appOrigin, key: storageKey, val: valueJson });
+    await context.addInitScript(originScopedStorageInit, { origin: appOrigin, key: storageKey, val: valueJson });
+  }
+
+  // ─── Playwright tracing (agent-browser U8) ─────────────────
+  isTracing(): boolean { return this.cur.tracing; }
+
+  /** Start recording a Playwright trace for the current session's context. */
+  async startTracing(): Promise<void> {
+    const context = this.cur.context;
+    if (!context) throw new Error('No browser context for the current session; open a session first.');
+    if (this.cur.tracing) return;
+    await context.tracing.start({ screenshots: true, snapshots: true });
+    this.cur.tracing = true;
+  }
+
+  /** Stop tracing and write the trace zip to outPath (view with `browse show-trace`). */
+  async stopTracing(outPath: string): Promise<void> {
+    const context = this.cur.context;
+    if (!context) throw new Error('No browser context for the current session.');
+    if (!this.cur.tracing) throw new Error('Tracing is not active for this session; run `trace start` first.');
+    await context.tracing.stop({ path: outPath });
+    this.cur.tracing = false;
+  }
+
+  /** Close a session's context + tabs and drop it. Cannot close the default. */
+  async closeSession(id: string): Promise<void> {
+    if (id === DEFAULT_SESSION_ID) throw new Error('Cannot close the default session.');
+    const state = this.sessions.get(id);
+    if (!state) return;
+    try {
+      await state.context?.close();
+    } catch {
+      // Best-effort: context may already be gone if the browser disconnected.
+    }
+    this.sessions.delete(id);
+    if (this.currentSessionId === id) this.currentSessionId = DEFAULT_SESSION_ID;
+  }
+
   // ─── Session Access ────────────────────────────────────────
   /** Get the TabSession for the active tab. */
   getActiveSession(): TabSession {
@@ -1431,6 +1641,13 @@ export class BrowserManager {
       const { applyStealth } = await import('./stealth');
       await applyStealth(this.context);
 
+      // Re-apply origin-scoped storage injections (agent-browser U5): a fresh
+      // context has no init scripts, so a viewport/scale rebuild would silently
+      // drop injected auth without this.
+      for (const inject of this.cur.authInitScripts) {
+        await this.context.addInitScript(originScopedStorageInit, inject);
+      }
+
       if (Object.keys(this.extraHeaders).length > 0) {
         await this.context.setExtraHTTPHeaders(this.extraHeaders);
       }
@@ -1457,6 +1674,9 @@ export class BrowserManager {
         // Stealth applies to the fallback blank context too.
         const { applyStealth } = await import('./stealth');
         await applyStealth(this.context);
+        for (const inject of this.cur.authInitScripts) {
+          await this.context.addInitScript(originScopedStorageInit, inject);
+        }
         await this.newTab();
         this.clearRefs();
       } catch {
@@ -1683,22 +1903,35 @@ export class BrowserManager {
 
   // ─── Console/Network/Dialog/Ref Wiring ────────────────────
   private wirePageEvents(page: Page) {
+    // Bind every listener to the session that OWNS this page at wire-time.
+    // These events fire asynchronously — after the daemon may have switched the
+    // active session for another command — so resolving state via the current
+    // session accessors here would cross-contaminate sessions. Capture the
+    // owner now (wirePageEvents runs synchronously inside the owning session's
+    // newTab) and mutate its bundle directly. (agent-browser U4)
+    const owner = this.cur;
     // Track tab close — remove from pages and sessions maps, switch to another tab
     page.on('close', () => {
-      for (const [id, p] of this.pages) {
+      for (const [id, p] of owner.pages) {
         if (p === page) {
-          this.pages.delete(id);
-          this.tabSessions.delete(id);
-          console.log(`[browse] Tab closed (id=${id}, remaining=${this.pages.size})`);
+          owner.pages.delete(id);
+          owner.tabSessions.delete(id);
+          console.log(`[browse] Tab closed (id=${id}, remaining=${owner.pages.size})`);
           // If the closed tab was active, switch to another
-          if (this.activeTabId === id) {
-            const remaining = [...this.pages.keys()];
-            this.activeTabId = remaining.length > 0 ? remaining[remaining.length - 1] : 0;
+          if (owner.activeTabId === id) {
+            const remaining = [...owner.pages.keys()];
+            owner.activeTabId = remaining.length > 0 ? remaining[remaining.length - 1] : 0;
           }
           break;
         }
       }
-      this.recheckTabGuardrailsOnClose();
+      // Re-arm this session's tab guardrails.
+      if (owner.tabGuardrailSoftHit && owner.pages.size < BrowserManager.TAB_GUARDRAIL_SOFT) {
+        owner.tabGuardrailSoftHit = false;
+      }
+      if (owner.tabGuardrailHardHit && owner.pages.size < BrowserManager.TAB_GUARDRAIL_HARD) {
+        owner.tabGuardrailHardHit = false;
+      }
     });
 
     // Clear ref map on navigation — refs point to stale elements after page change
@@ -1706,7 +1939,7 @@ export class BrowserManager {
     page.on('framenavigated', (frame) => {
       if (frame === page.mainFrame()) {
         // Find the TabSession for this page and clear its per-tab state
-        for (const session of this.tabSessions.values()) {
+        for (const session of owner.tabSessions.values()) {
           if (session.page === page) {
             session.onMainFrameNavigated();
             break;
@@ -1722,14 +1955,14 @@ export class BrowserManager {
         type: dialog.type(),
         message: dialog.message(),
         defaultValue: dialog.defaultValue() || undefined,
-        action: this.dialogAutoAccept ? 'accepted' : 'dismissed',
-        response: this.dialogAutoAccept ? (this.dialogPromptText ?? undefined) : undefined,
+        action: owner.dialogAutoAccept ? 'accepted' : 'dismissed',
+        response: owner.dialogAutoAccept ? (owner.dialogPromptText ?? undefined) : undefined,
       };
-      addDialogEntry(entry);
+      owner.dialogBuffer.push(entry);
 
       try {
-        if (this.dialogAutoAccept) {
-          await dialog.accept(this.dialogPromptText ?? undefined);
+        if (owner.dialogAutoAccept) {
+          await dialog.accept(owner.dialogPromptText ?? undefined);
         } else {
           await dialog.dismiss();
         }
@@ -1739,7 +1972,7 @@ export class BrowserManager {
     });
 
     page.on('console', (msg) => {
-      addConsoleEntry({
+      owner.consoleBuffer.push({
         timestamp: Date.now(),
         level: msg.type(),
         text: msg.text(),
@@ -1747,7 +1980,7 @@ export class BrowserManager {
     });
 
     page.on('request', (req) => {
-      addNetworkEntry({
+      owner.networkBuffer.push({
         timestamp: Date.now(),
         method: req.method(),
         url: req.url(),
@@ -1758,6 +1991,7 @@ export class BrowserManager {
       // Find matching request entry and update it (backward scan)
       const url = res.url();
       const status = res.status();
+      const networkBuffer = owner.networkBuffer;
       for (let i = networkBuffer.length - 1; i >= 0; i--) {
         const entry = networkBuffer.get(i);
         if (entry && entry.url === url && !entry.status) {
@@ -1787,6 +2021,7 @@ export class BrowserManager {
         if (!sizes) return;
         const url = req.url();
         const size = sizes.responseBodySize ?? 0;
+        const networkBuffer = owner.networkBuffer;
         for (let i = networkBuffer.length - 1; i >= 0; i--) {
           const entry = networkBuffer.get(i);
           if (entry && entry.url === url && !entry.size) {

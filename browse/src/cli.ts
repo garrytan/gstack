@@ -18,6 +18,8 @@ import { resolveConfig, ensureStateDir, readVersionHash } from './config';
 import { parseProxyConfig, computeConfigHash, ProxyConfigError } from './proxy-config';
 import { redactProxyUrl } from './proxy-redact';
 import { spawnTerminalAgent } from './terminal-agent-control';
+import { loadAdapter } from './frontend-adapter';
+import { acquireOrLoad } from './token-manager';
 
 const config = resolveConfig();
 const IS_WINDOWS = process.platform === 'win32';
@@ -1038,6 +1040,130 @@ Refs:           After 'snapshot', use @e1, @e2... as selectors:
 
   const command = args[0];
   const commandArgs = args.slice(1);
+
+  // ─── Agent auto-login token (pre-server command) ────────────
+  // agent-token acquires (or reuses a cached) bearer for a frontend env via
+  // the repo's .agent-browser.config.mjs adapter. Runs CLI-side so `op` /
+  // Touch-ID prompt in the user's terminal, not the daemon. Pure HTTP + op;
+  // no browser needed. Default output is a secret-free summary; --print emits
+  // the bare bearer on stdout (summary moves to stderr) for shell capture like
+  // BACKEND_JWT=$(browse agent-token <env> --print).
+  if (command === 'agent-token') {
+    const envName = commandArgs.find((arg) => !arg.startsWith('-'));
+    const forceRefresh = commandArgs.includes('--refresh');
+    const printBearer = commandArgs.includes('--print');
+    if (!envName) {
+      console.error('[browse] error: agent-token needs an env, e.g. `browse agent-token demo`');
+      process.exit(1);
+    }
+    try {
+      const adapter = await loadAdapter(process.cwd());
+      const { token, cached } = await acquireOrLoad(adapter, envName, {
+        frontendRoot: process.cwd(),
+        forceRefresh,
+      });
+      // Machine-parseable, secret-free summary. With --print it goes to stderr
+      // so stdout carries exactly the bearer and nothing else.
+      const summary = printBearer ? console.error : console.log;
+      summary(`ENV=${token.env}`);
+      summary(`REALM=${token.realm}`);
+      summary(`APPORIGIN=${token.appOrigin}`);
+      summary(`EXPIRES=${new Date(token.expiresAt).toISOString()}`);
+      summary(`CACHED=${cached ? 'true' : 'false'}`);
+      if (printBearer) {
+        process.stdout.write(adapter.token.bearer(token.auth) + '\n');
+      }
+      process.exit(0);
+    } catch (err) {
+      console.error(`[browse] agent-token failed: ${err instanceof Error ? err.message : err}`);
+      process.exit(1);
+    }
+  }
+
+  // ─── Trace viewer (agent-browser U8, pre-server) ────────────
+  // Opens a trace zip produced by `trace stop` in Playwright's trace viewer.
+  // Runs CLI-side (no daemon) — it launches its own viewer UI.
+  if (command === 'show-trace') {
+    const traceFile = commandArgs.find((arg) => !arg.startsWith('-'));
+    if (!traceFile) {
+      console.error('[browse] error: show-trace needs a trace file, e.g. `browse show-trace trace.zip`');
+      process.exit(1);
+    }
+    const viewer = nodeSpawn('npx', ['playwright', 'show-trace', traceFile], { stdio: 'inherit' });
+    viewer.on('error', (err) => {
+      console.error(`[browse] could not launch the Playwright trace viewer: ${err.message}`);
+      process.exit(1);
+    });
+    viewer.on('exit', (code) => process.exit(code ?? 0));
+    return;
+  }
+
+  // ─── Agent-browser end-to-end entrypoint (agent-browser U6) ──
+  // env [path] → isolated headless session, cached-or-acquired token injected
+  // origin-scoped, navigated. Hides the session id (auto-generated) and emits a
+  // parseable, secret-free summary. --session overrides the id; --headed is
+  // deferred to Phase 2 (headless only for now).
+  if (command === 'agent-open') {
+    const forceRefresh = commandArgs.includes('--refresh');
+    const sessionFlagIdx = commandArgs.indexOf('--session');
+    const explicitSession = sessionFlagIdx >= 0 ? commandArgs[sessionFlagIdx + 1] : undefined;
+    // Positionals = args that are neither flags nor a flag's value (--session
+    // takes one); naive startsWith('-') filtering leaked the session id into
+    // the nav path.
+    const positional = commandArgs.filter(
+      (arg, idx) => !arg.startsWith('-') && (sessionFlagIdx < 0 || idx !== sessionFlagIdx + 1),
+    );
+    const envName = positional[0];
+    const navPath = positional[1] ?? '/';
+    if (commandArgs.includes('--headed')) {
+      console.error('[browse] --headed is deferred to a later phase; opening headless.');
+    }
+    if (!envName) {
+      console.error('[browse] error: agent-open needs an env, e.g. `browse agent-open demo /profiles`');
+      process.exit(1);
+    }
+    try {
+      const adapter = await loadAdapter(process.cwd());
+      const { token, cached } = await acquireOrLoad(adapter, envName, {
+        frontendRoot: process.cwd(),
+        forceRefresh,
+      });
+      const sessionId =
+        explicitSession ??
+        `${process.env.USER ?? 'agent'}-${path.basename(process.cwd())}-${Math.random().toString(36).slice(2, 8)}`;
+      const url = token.appOrigin.replace(/\/$/, '') + (navPath.startsWith('/') ? navPath : `/${navPath}`);
+
+      const state = await ensureServer(globalFlags);
+      const post = async (cmd: string, args: string[]) => {
+        const resp = await fetch(`http://127.0.0.1:${state.port}/command`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${state.token}` },
+          body: JSON.stringify({ command: cmd, args, session: sessionId }),
+          signal: AbortSignal.timeout(30000),
+        });
+        if (!resp.ok) {
+          throw new Error(`${cmd} failed (${resp.status}): ${(await resp.text()).slice(0, 200)}`);
+        }
+      };
+
+      // inject-auth creates the session's isolated context, then registers the
+      // origin-scoped init script; the subsequent goto navigates with auth live.
+      await post('inject-auth', [token.appOrigin, adapter.token.storageKey, JSON.stringify(token.auth)]);
+      await post('goto', [url]);
+
+      // Secret-free, parseable summary.
+      console.log(`SESSION=${sessionId}`);
+      console.log(`ENV=${token.env}`);
+      console.log(`REALM=${token.realm}`);
+      console.log(`URL=${url}`);
+      console.log(`EXPIRES=${new Date(token.expiresAt).toISOString()}`);
+      console.log(`CACHED=${cached ? 'true' : 'false'}`);
+      process.exit(0);
+    } catch (err) {
+      console.error(`[browse] agent-open failed: ${err instanceof Error ? err.message : err}`);
+      process.exit(1);
+    }
+  }
 
   // ─── Headed Connect (pre-server command) ────────────────────
   // connect must be handled BEFORE ensureServer() because it needs

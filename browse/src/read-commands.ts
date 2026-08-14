@@ -7,7 +7,8 @@
 
 import type { TabSession } from './tab-session';
 import type { BrowserManager } from './browser-manager';
-import { consoleBuffer, networkBuffer, dialogBuffer } from './buffers';
+// Observability buffers are per-session (agent-browser U4); resolved via
+// bm.getBuffers() inside each handler so reads/clears hit the caller's session.
 import type { Page, Frame } from 'playwright';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -371,6 +372,7 @@ export async function handleReadCommand(
     }
 
     case 'console': {
+      const { consoleBuffer } = bm.getBuffers();
       if (args[0] === '--clear') {
         consoleBuffer.clear();
         return 'Console buffer cleared.';
@@ -385,6 +387,7 @@ export async function handleReadCommand(
     }
 
     case 'network': {
+      const { networkBuffer } = bm.getBuffers();
       if (args[0] === '--clear') {
         networkBuffer.clear();
         return 'Network buffer cleared.';
@@ -440,6 +443,7 @@ export async function handleReadCommand(
     }
 
     case 'dialog': {
+      const { dialogBuffer } = bm.getBuffers();
       if (args[0] === '--clear') {
         dialogBuffer.clear();
         return 'Dialog buffer cleared.';
