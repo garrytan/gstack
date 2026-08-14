@@ -28,6 +28,7 @@
  * to `gstack-brain-sync --discover-new` + `--once`.
  */
 import type { TemplateContext } from '../types';
+import { quoteSafePath } from '../types';
 
 export function generateBrainSyncBlock(ctx: TemplateContext): string {
   const isBrainHost = ctx.host === 'gbrain' || ctx.host === 'hermes';
@@ -42,8 +43,8 @@ if [ -f "$HOME/.gstack-artifacts-remote.txt" ]; then
 else
   _BRAIN_REMOTE_FILE="$HOME/.gstack-brain-remote.txt"
 fi
-_BRAIN_SYNC_BIN="${ctx.paths.binDir}/gstack-brain-sync"
-_BRAIN_CONFIG_BIN="${ctx.paths.binDir}/gstack-config"
+_BRAIN_SYNC_BIN="${quoteSafePath(ctx.paths.binDir)}/gstack-brain-sync"
+_BRAIN_CONFIG_BIN="${quoteSafePath(ctx.paths.binDir)}/gstack-config"
 
 # /sync-gbrain context-load: teach the agent to use gbrain when it's available.
 # Per-worktree pin: post-spike redesign uses kubectl-style \`.gbrain-source\` in the
@@ -152,8 +153,8 @@ If A/B and \`~/.gstack/.git\` is missing, ask whether to run \`gstack-artifacts-
 At skill END before telemetry:
 
 \`\`\`bash
-"${ctx.paths.binDir}/gstack-brain-sync" --discover-new 2>/dev/null || true
-"${ctx.paths.binDir}/gstack-brain-sync" --once 2>/dev/null || true
+"${quoteSafePath(ctx.paths.binDir)}/gstack-brain-sync" --discover-new 2>/dev/null || true
+"${quoteSafePath(ctx.paths.binDir)}/gstack-brain-sync" --once 2>/dev/null || true
 \`\`\`
 `;
 }

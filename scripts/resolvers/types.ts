@@ -17,6 +17,27 @@ export interface HostPaths {
 }
 
 /**
+ * Make a host path safe to interpolate INSIDE DOUBLE QUOTES in generated bash.
+ *
+ * Tilde-based hosts (Claude, factory) resolve to paths like
+ * `~/.claude/skills/gstack/bin`. Bash only performs tilde expansion when the
+ * `~` is UNQUOTED, so `"~/.claude/..."` is a literal relative path that never
+ * resolves. A `[ -x "~/..." ]` test is therefore always false and a
+ * `"~/..." --flag` invocation always fails — the surrounding block silently
+ * becomes dead code rather than erroring.
+ *
+ * Env-var hosts already use `$GSTACK_BIN`, which expands correctly when
+ * quoted, so they pass through untouched.
+ *
+ * Use this ONLY where the path lands inside double quotes. Unquoted
+ * interpolations (`${ctx.paths.binDir}/gstack-slug`) expand fine as-is and are
+ * left alone so generated docs keep the more readable `~`.
+ */
+export function quoteSafePath(hostPath: string): string {
+  return hostPath.startsWith('~/') ? `$HOME/${hostPath.slice(2)}` : hostPath;
+}
+
+/**
  * HOST_PATHS — derived from host configs.
  * Each config's globalRoot/localSkillRoot determines the path structure.
  * Non-Claude hosts use $GSTACK_ROOT env vars (set by preamble).
