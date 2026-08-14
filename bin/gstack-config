@@ -75,7 +75,14 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 #                           # Set to true once the privacy gate has asked the user.
 #                           # Flip back to false to be re-prompted.
 #
-# ─── Plan-tune hooks ─────────────────────────────────────────────────
+# ─── Redaction + Plan-tune hooks ───────────────────────────────────────
+# redact_prepush_hook: prompt # prompt | yes | no — ask to install the local
+#                           #   gstack-redact pre-push guard on a real TTY,
+#                           #   skip otherwise. Override per-run with
+#                           #   ./setup --redact-prepush-hook /
+#                           #   --no-redact-prepush-hook, or env
+#                           #   GSTACK_REDACT_PREPUSH_HOOK.
+#
 # plan_tune_hooks: prompt   # Controls whether ./setup installs the plan-tune
 #                           #   Claude Code hooks (PostToolUse capture +
 #                           #   PreToolUse preference enforcement).
@@ -132,7 +139,7 @@ lookup_default() {
     plan_tune_hooks) echo "prompt" ;; # prompt | yes | no — controls ./setup plan-tune hook install
 
     redact_repo_visibility) echo "" ;; # empty → fall through to gh/glab detection
-    redact_prepush_hook) echo "false" ;;
+    redact_prepush_hook) echo "prompt" ;;
     # Brain-aware planning (v1.48 / T5+T10+T16). Defaults documented inline:
     #   brain_trust_policy@<endpoint-id>  — unset on fresh install; setup-gbrain
     #                                writes 'personal' for local engines,
@@ -306,9 +313,16 @@ case "${1:-}" in
       echo "Warning: redact_repo_visibility '$VALUE' not recognized. Valid values: public, private, unknown. Using unknown." >&2
       VALUE="unknown"
     fi
-    if [ "$KEY" = "redact_prepush_hook" ] && [ "$VALUE" != "true" ] && [ "$VALUE" != "false" ]; then
-      echo "Warning: redact_prepush_hook '$VALUE' not recognized. Valid values: true, false. Using false." >&2
-      VALUE="false"
+    if [ "$KEY" = "redact_prepush_hook" ]; then
+      case "$VALUE" in
+        true|yes|y|1|on|install) VALUE="yes" ;;
+        false|no|n|0|off|skip) VALUE="no" ;;
+        prompt) VALUE="prompt" ;;
+        *)
+          echo "Warning: redact_prepush_hook '$VALUE' not recognized. Valid values: prompt, yes, no. Using prompt." >&2
+          VALUE="prompt"
+          ;;
+      esac
     fi
     if [ "$KEY" = "plan_tune_hooks" ] && [ "$VALUE" != "prompt" ] && [ "$VALUE" != "yes" ] && [ "$VALUE" != "no" ]; then
       echo "Warning: plan_tune_hooks '$VALUE' not recognized. Valid values: prompt, yes, no. Using prompt." >&2
@@ -350,7 +364,8 @@ case "${1:-}" in
     for KEY in proactive routing_declined telemetry auto_upgrade update_check \
                skill_prefix checkpoint_mode checkpoint_push explain_level \
                codex_reviews gstack_contributor skip_eng_review workspace_root \
-               artifacts_sync_mode artifacts_sync_mode_prompted plan_tune_hooks; do
+               artifacts_sync_mode artifacts_sync_mode_prompted plan_tune_hooks \
+               redact_prepush_hook; do
       VALUE=$(grep -E "^${KEY}:" "$CONFIG_FILE" 2>/dev/null | tail -1 | awk '{print $2}' | tr -d '[:space:]' || true)
       SOURCE="default"
       if [ -n "$VALUE" ]; then
@@ -366,7 +381,8 @@ case "${1:-}" in
     for KEY in proactive routing_declined telemetry auto_upgrade update_check \
                skill_prefix checkpoint_mode checkpoint_push explain_level \
                codex_reviews gstack_contributor skip_eng_review workspace_root \
-               artifacts_sync_mode artifacts_sync_mode_prompted plan_tune_hooks; do
+               artifacts_sync_mode artifacts_sync_mode_prompted plan_tune_hooks \
+               redact_prepush_hook; do
       printf '  %-24s %s\n' "$KEY:" "$(lookup_default "$KEY")"
     done
     ;;

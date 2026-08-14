@@ -82,6 +82,25 @@ describe("pre-push hook gating", () => {
     expect(code).toBe(0);
     expect(stderr).toContain("MEDIUM");
   });
+
+  test("common token prefixes in pushed diff block", () => {
+    const base = git(["rev-parse", "HEAD"]);
+    const head = commit("tokens.txt", "gitlab glpat-" + "a".repeat(20) + "\n", "add gitlab token");
+    const { code, stderr } = runHook(`refs/heads/main ${head} refs/heads/main ${base}\n`);
+    expect(code).toBe(1);
+    expect(stderr).toContain("gitlab.token");
+  });
+});
+
+describe("fail-closed git failures", () => {
+  test("invalid local sha blocks instead of silently allowing an unscanned push", () => {
+    const base = git(["rev-parse", "HEAD"]);
+    const { code, stderr } = runHook(
+      `refs/heads/main deadbeefdeadbeefdeadbeefdeadbeefdeadbeef refs/heads/main ${base}\n`,
+    );
+    expect(code).toBe(1);
+    expect(stderr).toContain("could not scan pushed diff safely");
+  });
 });
 
 describe("diff direction + special refs", () => {

@@ -42,6 +42,19 @@ describe("HIGH credential patterns", () => {
     ["slack.token", "xox" + "b-1234567890-abcdefghijklmnop"],
     ["slack.webhook", "https://hooks.slack.com/services/T00000000/B11111111/" + "a".repeat(24)],
     ["discord.webhook", "https://discord.com/api/webhooks/123456789012345678/" + "a".repeat(60)],
+    ["gitlab.token", "glpat-" + "a".repeat(20)],
+    ["huggingface.token", "hf_" + "a".repeat(34)],
+    ["npm.token", "npm_" + "a".repeat(36)],
+    ["digitalocean.token", "dop_v1_" + "a".repeat(64)],
+    [
+      "gcp.service_account_json",
+      `{
+  "type": "service_account",
+  "private_key_id": "${"a".repeat(40)}",
+  "private_key": "-----BEGIN PRIVATE KEY-----\\n${"A".repeat(64)}\\n-----END PRIVATE KEY-----\\n",
+  "client_email": "svc@project.iam.gserviceaccount.com"
+}`,
+    ],
     ["pem.private_key", "-----BEGIN RSA PRIVATE KEY-----"],
     // #1946 coverage-gap additions
     ["gitlab.token", "remote: glpat-" + "Ab12Cd34Ef56Gh78Ij90"],
@@ -99,6 +112,16 @@ describe("HIGH credential patterns", () => {
     expect(ids(`random ${tok} here`)).not.toContain("twilio.auth_token");
   });
 
+  test("generic Bearer token needs authorization context and enough entropy", () => {
+    const token = "Ab3_xY9.KlmN0pQr-StUvWxYz456789";
+    const lowercaseToken = "abc123def456abc123def456abc123def456";
+    expect(ids("Authorization: Bearer " + token)).toContain("auth.bearer");
+    expect(ids("Bearer " + token)).not.toContain("auth.bearer");
+    expect(ids("Authorization: Bearer " + lowercaseToken)).toContain("auth.bearer");
+    expect(ids("docs say Bearer <token> here")).not.toContain("auth.bearer");
+    expect(ids("Authorization: Bearer " + "a".repeat(32))).not.toContain("auth.bearer");
+  });
+
   test("db.url_with_password flags real password, skips placeholder/env-var", () => {
     expect(ids("postgres://user:s3cretP@ss@db.example.com/app")).toContain("db.url_with_password");
     expect(ids("postgres://user:${DB_PASSWORD}@host/app")).not.toContain("db.url_with_password");
@@ -130,7 +153,10 @@ describe("MEDIUM demoted credential-shaped patterns (TENSION-1)", () => {
   });
   test("env.kv fires on high-entropy, skips placeholder", () => {
     expect(ids("API_TOKEN=8Fk2pQ9vXz4wL7mN3rT6yB1cD5eG0hJ")).toContain("env.kv");
+    expect(ids("api_key: 8Fk2pQ9vXz4wL7mN3rT6yB1cD5eG0hJ")).toContain("env.kv");
+    expect(ids('apiToken: "8Fk2pQ9vXz4wL7mN3rT6yB1cD5eG0hJ"')).toContain("env.kv");
     expect(ids("API_KEY=changeme")).not.toContain("env.kv");
+    expect(ids("api_key: changeme")).not.toContain("env.kv");
     expect(ids("API_KEY=${MY_VAR}")).not.toContain("env.kv");
   });
 

@@ -35,14 +35,26 @@ const ZERO = /^0+$/;
 // The canonical empty-tree object; diffing against it yields all content as added.
 const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 
+class GitScanError extends Error {
+  constructor(
+    readonly args: string[],
+    readonly status: number | null,
+    readonly stderr: string,
+  ) {
+    super(`git ${args.join(" ")} failed`);
+  }
+}
+
 /**
  * Permissive git for legitimately-fallible PROBES (symbolic-ref, rev-parse,
  * merge-base) where a non-zero exit is normal control flow. The DIFF call
  * must NOT use this — see gitStrict (#1946 fail-closed).
  */
-function git(args: string[]): string {
+function git(args: string[], opts: { allowFailure?: boolean } = {}): string {
   const r = spawnSync("git", args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
-  return r.status === 0 ? (r.stdout ?? "") : "";
+  if (r.status === 0) return r.stdout ?? "";
+  if (opts.allowFailure) return "";
+  throw new GitScanError(args, r.status, r.stderr ?? "");
 }
 
 /**
@@ -72,10 +84,10 @@ function objectExists(sha: string): boolean {
 
 function defaultRemoteBranch(): string {
   // origin/HEAD → origin/main, fall back to main/master.
-  const sym = git(["symbolic-ref", "refs/remotes/origin/HEAD"]).trim();
+  const sym = git(["symbolic-ref", "refs/remotes/origin/HEAD"], { allowFailure: true }).trim();
   if (sym) return sym.replace("refs/remotes/", "");
   for (const b of ["origin/main", "origin/master"]) {
-    if (git(["rev-parse", "--verify", b]).trim()) return b;
+    if (git(["rev-parse", "--verify", b], { allowFailure: true }).trim()) return b;
   }
   return "origin/main";
 }
@@ -87,14 +99,14 @@ function addedLinesFor(localSha: string, remoteSha: string): string {
     // New branch: prefer what's unique to localSha vs the remote default branch.
     // With no merge-base (e.g. no remote yet), diff against the empty tree so ALL
     // branch content is scanned as added — fail-safe (scans more, never less).
-    const base = git(["merge-base", localSha, defaultRemoteBranch()]).trim();
+    const base = git(["merge-base", localSha, defaultRemoteBranch()], { allowFailure: true }).trim();
     range = base ? `${base}..${localSha}` : `${EMPTY_TREE}..${localSha}`;
   } else if (!objectExists(remoteSha)) {
     // Remote tip object absent locally (shallow clone, force-push without a
     // prior fetch, CI checkout): remote..local can't resolve. Fall back to
     // the merge-base/empty-tree path — scans MORE, never less — instead of
     // hard-blocking a legitimate push (adversarial review finding 8).
-    const base = git(["merge-base", localSha, defaultRemoteBranch()]).trim();
+    const base = git(["merge-base", localSha, defaultRemoteBranch()], { allowFailure: true }).trim();
     range = base ? `${base}..${localSha}` : `${EMPTY_TREE}..${localSha}`;
   } else {
     // Existing branch (incl. force-push): net new content remote..local.
@@ -154,10 +166,16 @@ function main() {
       // Fail CLOSED (#1946): if we can't compute the pushed diff we can't
       // scan it, and unscanned-but-allowed is the failure mode this hook
       // exists to prevent.
+      const detail =
+        err instanceof GitScanError
+          ? `git ${err.args.join(" ")} exited ${err.status ?? "unknown"}${err.stderr.trim() ? `: ${err.stderr.trim()}` : ""}`
+          : err instanceof Error
+            ? err.message.split("\n")[0]
+            : String(err);
       process.stderr.write(
-        "\n⛔ gstack-redact-prepush BLOCKED the push — could not compute the pushed diff, " +
-          "so it cannot be scanned for credentials.\n" +
-          `  (${err instanceof Error ? err.message.split("\n")[0] : String(err)})\n` +
+        "\n⛔ gstack-redact-prepush BLOCKED the push — could not scan pushed diff safely: " +
+          "could not compute the pushed diff, so it cannot be scanned for credentials.\n" +
+          `  (${detail.slice(0, 500)})\n` +
           "Bypass if you're sure: GSTACK_REDACT_PREPUSH=skip git push   (or git push --no-verify)\n",
       );
       process.exit(1);

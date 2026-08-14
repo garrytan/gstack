@@ -83,6 +83,7 @@ SKILL_PREFIX_FLAG=0
 TEAM_MODE=0
 NO_TEAM_MODE=0
 PLAN_TUNE_HOOKS_MODE=""   # "" = resolve from env/config/prompt; "yes"/"no" = explicit
+REDACT_PREPUSH_HOOK_MODE="" # "" = resolve from env/config/prompt; "yes"/"no" = explicit
 while [ $# -gt 0 ]; do
   case "$1" in
     --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, codex, kiro, factory, opencode, openclaw, hermes, gbrain, or auto)" >&2 && exit 1; HOST="$2"; shift 2 ;;
@@ -95,6 +96,9 @@ while [ $# -gt 0 ]; do
     --plan-tune-hooks)    PLAN_TUNE_HOOKS_MODE="yes"; shift ;;
     --no-plan-tune-hooks) PLAN_TUNE_HOOKS_MODE="no"; shift ;;
     --plan-tune-hooks=*)  PLAN_TUNE_HOOKS_MODE="${1#--plan-tune-hooks=}"; shift ;;
+    --redact-prepush-hook)    REDACT_PREPUSH_HOOK_MODE="yes"; shift ;;
+    --no-redact-prepush-hook) REDACT_PREPUSH_HOOK_MODE="no"; shift ;;
+    --redact-prepush-hook=*)  REDACT_PREPUSH_HOOK_MODE="${1#--redact-prepush-hook=}"; shift ;;
     -q|--quiet) QUIET=1; shift ;;
     *) shift ;;
   esac
@@ -1507,6 +1511,7 @@ if [ "$NO_TEAM_MODE" -ne 1 ] \
     log "    --command $PLAN_TUNE_PREF_HOOK --source plan-tune-cathedral --timeout 5"
   fi
 fi
+
 
 # Also tear down plan-tune hooks on --no-team (matches the existing pattern).
 if [ "$NO_TEAM_MODE" -eq 1 ] && [ -x "$SETTINGS_HOOK" ]; then
