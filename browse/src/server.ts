@@ -1504,9 +1504,9 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
   // (which would create split-brain — two agents writing the port file,
   // tokens diverging between them, mystery PTY upgrade failures).
   //
-  // Crash-loop guard: 3 respawn attempts inside 60s → stop trying and emit
-  // a one-line error. Manual `forceRestart` from the sidebar clears the
-  // history (the user is the explicit signal to retry).
+  // Crash-loop guard: 3 respawn attempts inside 3 ticks → stop trying and
+  // emit a one-line error. Manual `forceRestart` from the sidebar clears
+  // the history (the user is the explicit signal to retry).
   //
   // Only active when ownsTerminalAgent === true. Embedders that pre-launch
   // their own PTY server (gbrowser phoenix overlay) must not be auto-respawned
@@ -1517,8 +1517,11 @@ export function buildFetchHandler(cfg: ServerConfig): ServerHandle {
     process.env.GSTACK_AGENT_WATCHDOG_TICK_MS || '60000',
     10,
   );
-  const RESPAWN_GUARD_WINDOW_MS = 60_000;
   const RESPAWN_GUARD_MAX = 3;
+  // The guard must span at least RESPAWN_GUARD_MAX ticks or it can never
+  // trip: respawn attempts land at most once per tick, so a 60s window
+  // over a 60s tick sees a single attempt forever (see #2151).
+  const RESPAWN_GUARD_WINDOW_MS = Math.max(60_000, AGENT_WATCHDOG_TICK_MS * RESPAWN_GUARD_MAX);
   let agentRespawnGuardTripped = false;
 
   if (ownsTerminalAgent) {

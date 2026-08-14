@@ -1,4 +1,5 @@
 import { describe, test, expect, afterAll } from 'bun:test';
+import * as fs from 'fs';
 import * as path from 'path';
 
 // Load the polyfill into a fresh object (don't clobber globalThis.Bun)
@@ -46,6 +47,23 @@ describe('bun-polyfill', () => {
     expect(lines[0]).toBe('HAS_PID');
     expect(lines[1]).toBe('HAS_KILL');
     expect(lines[2]).toBe('HAS_UNREF');
+  });
+
+  test('spawn and spawnSync pass windowsHide (no console flash from console-less daemons)', () => {
+    // Static tripwire (#2151): on Windows the browse server always runs
+    // under Node via this polyfill, and node's child_process defaults to
+    // windowsHide: false — so every subprocess the console-less daemon
+    // spawns (terminal-agent respawns, git, icacls) pops a visible console
+    // window. Both spawn paths must pass windowsHide: true, and spawn must
+    // forward `detached` for daemon children. Behavioral assertion isn't
+    // possible cross-platform (window creation is invisible to the child),
+    // hence source-level pinning.
+    const src = fs.readFileSync(polyfillPath, 'utf-8');
+    const spawnSyncBlock = src.slice(src.indexOf('spawnSync(cmd'), src.indexOf('spawn(cmd'));
+    const spawnBlock = src.slice(src.indexOf('spawn(cmd'));
+    expect(spawnSyncBlock).toContain('windowsHide: true');
+    expect(spawnBlock).toContain('windowsHide: true');
+    expect(spawnBlock).toContain('detached: options.detached');
   });
 
   test('Bun.serve creates an HTTP server that responds', async () => {

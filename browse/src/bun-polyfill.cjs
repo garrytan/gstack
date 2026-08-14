@@ -75,6 +75,9 @@ globalThis.Bun = {
       timeout: options.timeout,
       env: options.env,
       cwd: options.cwd,
+      // The browse server runs console-less on Windows; without this every
+      // subprocess (tasklist, git, icacls) pops a visible console window.
+      windowsHide: true,
     });
 
     return {
@@ -91,6 +94,10 @@ globalThis.Bun = {
       stdio,
       env: options.env,
       cwd: options.cwd,
+      detached: options.detached,
+      // Same as spawnSync: detached daemons (terminal-agent respawns) must
+      // not flash a console window on Windows.
+      windowsHide: true,
     });
 
     return {

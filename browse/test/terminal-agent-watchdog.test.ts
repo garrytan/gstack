@@ -50,7 +50,12 @@ describe('terminal-agent watchdog (v1.44+)', () => {
   test('4. crash-loop guard with rolling window', () => {
     const src = fs.readFileSync(SERVER_TS, 'utf-8');
     const block = sliceBetween(src, '─── Terminal-Agent Watchdog', 'Factory-scoped validateAuth');
-    expect(block).toContain('RESPAWN_GUARD_WINDOW_MS = 60_000');
+    // The window must span at least RESPAWN_GUARD_MAX ticks. Respawn
+    // attempts land at most once per tick, so a fixed 60s window over a
+    // 60s tick would see a single attempt forever and never trip (#2151).
+    expect(block).toContain(
+      'RESPAWN_GUARD_WINDOW_MS = Math.max(60_000, AGENT_WATCHDOG_TICK_MS * RESPAWN_GUARD_MAX)',
+    );
     expect(block).toContain('RESPAWN_GUARD_MAX = 3');
     expect(block).toContain('respawnHistory');
     expect(block).toContain('agentRespawnGuardTripped');
