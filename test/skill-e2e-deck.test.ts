@@ -9,8 +9,9 @@
  * The access run proves that configured production/session capability is not
  * permission. Delivery runs cover both native Flask/Jinja and a dependency-free
  * static Node site nested beside an unrelated Python service. They require real
- * desktop/phone browser evidence, local review/documentation artifacts, and zero
- * external mutation. The deterministic contract block runs in the free suite;
+ * desktop/tablet/phone/short-laptop browser evidence plus scroll-bottom captures,
+ * local review/documentation artifacts, and zero external mutation. The
+ * deterministic contract block runs in the free suite;
  * all behavioral runs stay periodic because generator behavior is
  * non-deterministic, and the sparse intake also has an LLM judge.
  */
@@ -67,6 +68,23 @@ const ALREADY_ANSWERED_CATEGORIES = new Set([
   'research',
   'analytics',
 ]);
+
+type DeckViewport = 'desktop' | 'tablet' | 'phone' | 'short_laptop';
+type DeckCapture = DeckViewport | 'bottom';
+
+const DECK_VIEWPORTS: Record<DeckViewport, { dimensions: string; width: number; height: number }> = {
+  desktop: { dimensions: '1440x900', width: 1440, height: 900 },
+  tablet: { dimensions: '834x1112', width: 834, height: 1112 },
+  phone: { dimensions: '390x844', width: 390, height: 844 },
+  short_laptop: { dimensions: '1365x680', width: 1365, height: 680 },
+};
+const DECK_INITIAL_VIEWPORTS: readonly DeckViewport[] = ['desktop', 'tablet', 'phone', 'short_laptop'];
+const DECK_CAPTURES: readonly DeckCapture[] = [...DECK_INITIAL_VIEWPORTS, 'bottom'];
+const DECK_DWELL_PROBE_MS = 1_100;
+
+function viewportForCapture(capture: DeckCapture): DeckViewport {
+  return capture === 'bottom' ? 'phone' : capture;
+}
 
 interface ProductTruthItem {
   topic: string;
@@ -157,7 +175,10 @@ interface DeliveryEvidence {
   sections: Array<{
     id: string;
     desktop: string;
+    tablet: string;
     phone: string;
+    short_laptop: string;
+    bottom: string;
   }>;
   tests: {
     command: string;
@@ -210,7 +231,8 @@ interface VisualInspectionEntry {
   screenshot: string;
   section_hash: string;
   active_panel: string;
-  viewport: '1440x900' | '390x844';
+  viewport: '1440x900' | '834x1112' | '390x844' | '1365x680';
+  scroll_position: 'initial' | 'bottom' | 'initial-no-scroll';
   checks: {
     spacing: VisualCheckStatus;
     density: VisualCheckStatus;
@@ -225,8 +247,21 @@ interface VisualInspectionEvidence {
   sections: Array<{
     id: string;
     desktop: VisualInspectionEntry;
+    tablet: VisualInspectionEntry;
     phone: VisualInspectionEntry;
+    short_laptop: VisualInspectionEntry;
+    bottom: VisualInspectionEntry;
   }>;
+}
+
+interface DeckAnalyticsEvent {
+  event: 'deck_view' | 'section_view' | 'deck_progress' | 'deck_dwell';
+  deck_revision: string;
+  section_id: string;
+  slide_number: number;
+  canonical_url: string;
+  max_progress: number;
+  duration_ms?: number;
 }
 
 interface FixtureServer {
@@ -503,10 +538,38 @@ const DECK_SPECIALIST_SKILLS = [
 const DECK_EVAL_MOTION_FREEZE_MARKER = 'deck-e2e-motion-freeze';
 const DECK_EVAL_MOTION_FREEZE_CSS = '*,*::before,*::after{animation:none!important;transition:none!important;caret-color:transparent!important;scroll-behavior:auto!important}';
 const ANALYTICS_OFF_NETWORK_PRIMITIVES = /(?:\bfetch\s*\(|\bXMLHttpRequest\b|\bWebSocket\b|\bEventSource\b|\bnavigator\s*\.\s*sendBeacon\b|\bsendBeacon\s*\()/i;
+const ANALYTICS_ON_NON_ADAPTER_TRANSPORTS = /(?:\bfetch\s*\(|\bXMLHttpRequest\b|\bWebSocket\b|\bEventSource\b|\bnavigator\s*\.\s*sendBeacon\b|\bsendBeacon\s*\()/i;
+const ANALYTICS_ON_PERSISTENCE_OR_ID_PRIMITIVES = /(?:\bdocument\s*\.\s*cookie\b|\b(?:localStorage|sessionStorage|indexedDB|CacheStorage|caches)\b|\bnavigator\s*\.\s*serviceWorker\b|\bwindow\s*\.\s*name\b|\b(?:fingerprint(?:ing)?|device|client|visitor|recipient|viewer|user)[_-]?(?:id|uuid)\b)/i;
+const LOCAL_DECK_ANALYTICS_ADAPTER_PATH = '/static/deck-analytics.js';
 
 function assertAnalyticsOffSource(source: string, context: string): void {
   expect(source, `${context} contains a telemetry-capable network primitive while analytics are off`)
     .not.toMatch(ANALYTICS_OFF_NETWORK_PRIMITIVES);
+}
+
+/** Analytics-on is deliberately narrower than "analytics allowed": only the
+ * pre-existing local adapter may transport aggregate events. Deck-authored
+ * HTML/CSS/JS must not smuggle in another persistence or telemetry channel. */
+function assertAnalyticsOnDeckSource(source: string, context: string): void {
+  expect(source, `${context} contains an analytics transport outside the local adapter`)
+    .not.toMatch(ANALYTICS_ON_NON_ADAPTER_TRANSPORTS);
+  expect(source, `${context} contains a persistent or recipient-identifying primitive`)
+    .not.toMatch(ANALYTICS_ON_PERSISTENCE_OR_ID_PRIMITIVES);
+}
+
+function assertLocalDeckAnalyticsAdapterSource(source: string, context: string): void {
+  expect(source, `${context} must use the approved local collector transport`)
+    .toMatch(/\bfetch\s*\(/i);
+  expect(source, `${context} must omit credentials`)
+    .toMatch(/credentials\s*:\s*['"]omit['"]/i);
+  expect(source, `${context} must target the local deck collector`)
+    .toMatch(/\/internal\/deck-analytics/i);
+  expect(source, `${context} embeds an external analytics endpoint`)
+    .not.toMatch(/https?:\/\//i);
+  expect(source, `${context} contains an alternate telemetry transport`)
+    .not.toMatch(/(?:\bXMLHttpRequest\b|\bWebSocket\b|\bEventSource\b|\bnavigator\s*\.\s*sendBeacon\b|\bsendBeacon\s*\()/i);
+  expect(source, `${context} contains a persistent or recipient-identifying primitive`)
+    .not.toMatch(ANALYTICS_ON_PERSISTENCE_OR_ID_PRIMITIVES);
 }
 
 function stageDeckSpecialists(root: string): void {
@@ -550,8 +613,31 @@ function stageDeckSpecialists(root: string): void {
 function createPythonSiteFixture(options: {
   fullExecution?: boolean;
   browserAccess?: boolean;
+  analyticsFixture?: boolean;
 } = {}): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-e2e-deck-flask-'));
+  const analyticsFixture = options.analyticsFixture === true;
+  const analyticsAdapterTag = analyticsFixture
+    ? '<script src="{{ url_for(\'static\', filename=\'deck-analytics.js\') }}" defer></script>'
+    : '';
+  const analyticsAppRoutes = analyticsFixture ? `
+_deck_analytics_events: list[dict] = []
+
+@app.route("/internal/deck-analytics", methods=["GET", "POST", "DELETE"])
+def deck_analytics():
+    if request.method == "DELETE":
+        _deck_analytics_events.clear()
+        return "", 204
+    if request.method == "GET":
+        return jsonify(events=_deck_analytics_events)
+    if request.args.get("fail") == "1":
+        return "", 503
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify(error="expected JSON object"), 400
+    _deck_analytics_events.append(payload)
+    return "", 204
+` : '';
 
   writeFixtureFile(root, 'deck-skill.md', skillExtract());
   writeFixtureFile(root, '.gitignore', `/artifacts/
@@ -580,7 +666,7 @@ conflict detection, schedule review, and run-of-show publishing.
 - Container deployment from infra/Dockerfile and infra/fly.toml
 `);
 
-  writeFixtureFile(root, 'app.py', `from flask import Flask, render_template
+  writeFixtureFile(root, 'app.py', `from flask import Flask, jsonify, render_template, request
 
 app = Flask(__name__)
 
@@ -599,6 +685,7 @@ def reports():
 @app.get("/about")
 def about():
     return render_template("about.html")
+${analyticsAppRoutes}
 `);
 
   writeFixtureFile(root, 'templates/base.html', `<!doctype html>
@@ -607,6 +694,7 @@ def about():
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="stylesheet" href="{{ url_for('static', filename='site.css') }}">
+    ${analyticsAdapterTag}
     <title>{% block title %}Latchfern{% endblock %}</title>
   </head>
   <body>
@@ -670,6 +758,76 @@ nav { display: flex; gap: 1rem; padding-block: 1rem; }
 main { padding-block: clamp(2rem, 8vw, 6rem); }
 `);
 
+  if (analyticsFixture) {
+    writeFixtureFile(root, 'static/deck-analytics.js', `(() => {
+  const ALLOWED_EVENTS = new Set(['deck_view', 'section_view', 'deck_progress', 'deck_dwell']);
+  let maximumProgress = 0;
+
+  const consentGranted = () => window.__deckAnalyticsConsent !== false;
+  const endpoint = () => window.__deckAnalyticsEndpoint || '/internal/deck-analytics';
+  const canonicalUrl = raw => {
+    const url = new URL(raw || location.href, location.origin);
+    if (url.origin !== location.origin) return new URL(location.pathname, location.origin).href;
+    url.search = '';
+    url.hash = '';
+    return url.href;
+  };
+  const positiveInteger = value => Number.isInteger(value) && value > 0 ? value : null;
+  const boundedProgress = value => {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return maximumProgress;
+    maximumProgress = Math.max(maximumProgress, Math.min(100, Math.max(0, number)));
+    return maximumProgress;
+  };
+  const normalize = payload => {
+    if (!payload || typeof payload !== 'object') return null;
+    const event = String(payload.event || '');
+    const deckRevision = String(payload.deck_revision || '');
+    const sectionId = String(payload.section_id || '');
+    const slideNumber = positiveInteger(payload.slide_number);
+    if (!ALLOWED_EVENTS.has(event) || !deckRevision || !sectionId || !slideNumber) return null;
+    const record = {
+      event,
+      deck_revision: deckRevision,
+      section_id: sectionId,
+      slide_number: slideNumber,
+      canonical_url: canonicalUrl(payload.canonical_url),
+      max_progress: boundedProgress(payload.max_progress),
+    };
+    if (event === 'deck_dwell') {
+      const duration = Number(payload.duration_ms);
+      if (!Number.isFinite(duration) || duration < 0) return null;
+      record.duration_ms = Math.round(duration);
+    }
+    return record;
+  };
+  const send = async payload => {
+    if (!consentGranted()) return false;
+    const record = normalize(payload);
+    if (!record) return false;
+    try {
+      const response = await fetch(endpoint(), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        credentials: 'omit',
+        keepalive: true,
+        body: JSON.stringify(record),
+      });
+      return response.ok;
+    } catch {
+      return false;
+    }
+  };
+  window.deckAnalytics = Object.freeze({
+    track: send,
+    recordDwell: payload => document.visibilityState === 'visible'
+      ? send({ ...payload, event: 'deck_dwell' })
+      : Promise.resolve(false),
+  });
+})();
+`);
+  }
+
   writeFixtureFile(root, 'materials/investor-notes.md', `# Draft investor notes — incomplete
 
 - Positioning: replace the spreadsheet reshuffling that happens between roster
@@ -699,7 +857,14 @@ lfn-007,churned,4
 lfn-008,active,16
 `);
 
-  writeFixtureFile(root, 'PRIVACY.md', `# Privacy
+  writeFixtureFile(root, 'PRIVACY.md', analyticsFixture ? `# Privacy
+
+The current site has a pre-existing same-origin, consent-aware deck analytics
+adapter for approved aggregate deck events only. It sends no cookies, recipient
+identity, persistent identifier, query string, fragment, or third-party request.
+Its local collector is a test fixture; production provider configuration remains
+a separately approved change.
+` : `# Privacy
 
 The current site sets no analytics cookies and sends no engagement events. Keep
 analytics off unless a separately approved change updates this policy.
@@ -1352,6 +1517,64 @@ function stabilizeDeckCapture(binary: string, cwd: string): void {
   })()`]);
 }
 
+function scrollVisibleDeckToBottom(binary: string, cwd: string): {
+  hasScrollableContent: boolean;
+} {
+  const result = browseJson<{
+    states: Array<{ label: string; top: number; max: number }>;
+    activePathClipped: boolean;
+  }>(binary, cwd, `(() => {
+    const activePanel = document.querySelector('[role="tabpanel"]:not([hidden])');
+    const ancestors = [];
+    for (let ancestor = activePanel?.parentElement; ancestor; ancestor = ancestor.parentElement) {
+      ancestors.push(ancestor);
+      if (ancestor === document.documentElement) break;
+    }
+    const candidates = [
+      document.scrollingElement,
+      activePanel,
+      ...ancestors,
+      ...(activePanel?.querySelectorAll('*') ?? []),
+    ]
+      .filter(element => element instanceof HTMLElement);
+    const seen = new Set();
+    const isScrollable = element => {
+      const documentScroller = element === document.scrollingElement;
+      const overflowY = getComputedStyle(element).overflowY;
+      return element.scrollHeight > element.clientHeight + 1
+        && (documentScroller || /^(?:auto|scroll|overlay)$/.test(overflowY));
+    };
+    const scrollables = candidates.filter(element => {
+      if (seen.has(element)) return false;
+      seen.add(element);
+      return isScrollable(element);
+    });
+    for (const element of scrollables) element.scrollTop = element.scrollHeight;
+    window.scrollTo(0, document.documentElement.scrollHeight);
+    const activePathClipped = [activePanel, ...ancestors]
+      .filter(element => element instanceof HTMLElement)
+      .some(element => {
+        if (isScrollable(element) || element === document.scrollingElement) return false;
+        const overflowY = getComputedStyle(element).overflowY;
+        return element.scrollHeight > element.clientHeight + 1
+          && /^(?:hidden|clip)$/.test(overflowY);
+      });
+    return {
+      activePathClipped,
+      states: scrollables.map((element, index) => ({
+        label: element === document.scrollingElement ? 'document' : element.id || element.getAttribute('role') || 'element-' + index,
+        top: element.scrollTop,
+        max: Math.max(0, element.scrollHeight - element.clientHeight),
+      })),
+    };
+  })()`);
+  expect(result.activePathClipped, 'Visible panel path has hidden/clipped vertical overflow').toBe(false);
+  for (const state of result.states) {
+    expect(state.top, `${state.label} did not reach its scroll bottom`).toBeGreaterThanOrEqual(state.max - 1);
+  }
+  return { hasScrollableContent: result.states.length > 0 };
+}
+
 function tagsWithRole(html: string, role: string): string[] {
   return html.match(new RegExp(`<[^>]+\\brole\\s*=\\s*["']${role}["'][^>]*>`, 'gi')) ?? [];
 }
@@ -1400,7 +1623,7 @@ function pngDimensions(filePath: string): { width: number; height: number } | nu
 function assertScreenshot(
   fixtureRoot: string,
   relativePath: string,
-  viewport: 'desktop' | 'phone',
+  capture: DeckCapture,
 ): string {
   expect(path.isAbsolute(relativePath), 'Screenshot paths must remain fixture-relative').toBe(false);
   expect(relativePath).toMatch(/^artifacts\/screenshots\/[^/]+\.png$/i);
@@ -1414,13 +1637,10 @@ function assertScreenshot(
   expect(dimensions, `Screenshot is not a valid PNG: ${relativePath}`).not.toBeNull();
   expect(png.length, `Screenshot is implausibly small: ${relativePath}`).toBeGreaterThan(5_000);
   const { width, height } = dimensions!;
-  if (viewport === 'desktop') {
-    expect(width, `Desktop screenshot width: ${relativePath}`).toBeGreaterThanOrEqual(1_000);
-  } else {
-    expect(width, `Phone screenshot width: ${relativePath}`).toBeGreaterThanOrEqual(320);
-    expect(width, `Phone screenshot width: ${relativePath}`).toBeLessThanOrEqual(600);
-  }
-  expect(height, `Screenshot height: ${relativePath}`).toBeGreaterThanOrEqual(500);
+  const viewport = viewportForCapture(capture);
+  const expected = DECK_VIEWPORTS[viewport];
+  expect(width, `${capture} screenshot width: ${relativePath}`).toBe(expected.width);
+  expect(height, `${capture} screenshot height: ${relativePath}`).toBe(expected.height);
   return createHash('sha256').update(png).digest('hex');
 }
 
@@ -2086,6 +2306,51 @@ function analyticsOffRuntimeViolations(
   ]);
 }
 
+function analyticsOnRuntimeViolations(
+  snapshots: RuntimeAuditSnapshot[],
+  pageUrl: string,
+  allowedAssetUrls: string[],
+): AnalyticsOffRuntimeViolation[] {
+  const page = new URL(pageUrl);
+  const allowedAssets = new Set(allowedAssetUrls.map(raw => {
+    const url = new URL(raw, page);
+    url.hash = '';
+    return url.href;
+  }));
+
+  return snapshots.flatMap(snapshot => {
+    const requestViolations = snapshot.requests.flatMap(resource => {
+      let url: URL;
+      try {
+        url = new URL(resource.name, page);
+      } catch {
+        return [{ context: snapshot.context, kind: 'request' as const, resource }];
+      }
+      if (url.origin !== page.origin) {
+        return [{ context: snapshot.context, kind: 'request' as const, resource }];
+      }
+      const isDeckCollector = url.pathname === '/internal/deck-analytics';
+      if (isDeckCollector) {
+        return /^(?:fetch|xmlhttprequest)$/i.test(resource.initiatorType) && !url.search
+          ? []
+          : [{ context: snapshot.context, kind: 'request' as const, resource }];
+      }
+      if (/^(?:fetch|xmlhttprequest|beacon|ping)$/i.test(resource.initiatorType) || url.search) {
+        return [{ context: snapshot.context, kind: 'request' as const, resource }];
+      }
+      url.hash = '';
+      return allowedAssets.has(url.href)
+        ? []
+        : [{ context: snapshot.context, kind: 'request' as const, resource }];
+    });
+    return [
+      ...requestViolations,
+      ...suspiciousAnalyticsOffImages(snapshot.images, pageUrl)
+        .map(resource => ({ context: snapshot.context, kind: 'image' as const, resource })),
+    ];
+  });
+}
+
 function assertActivePanel(
   state: ReturnType<typeof activeDeckState>,
   expectedPanel: string,
@@ -2095,6 +2360,19 @@ function assertActivePanel(
   expect(state.visible, `${context}: exactly one visible tabpanel`).toEqual([expectedPanel]);
 }
 
+async function clearDeckAnalyticsEvents(baseUrl: string): Promise<void> {
+  const response = await fetch(`${baseUrl}/internal/deck-analytics`, { method: 'DELETE' });
+  expect(response.status, 'Could not clear the local deck-analytics collector').toBe(204);
+}
+
+async function readDeckAnalyticsEvents(baseUrl: string): Promise<DeckAnalyticsEvent[]> {
+  const response = await fetch(`${baseUrl}/internal/deck-analytics`);
+  expect(response.status, 'Could not read the local deck-analytics collector').toBe(200);
+  const payload = await response.json() as { events?: DeckAnalyticsEvent[] };
+  expect(Array.isArray(payload.events), 'Collector response lacks an events array').toBe(true);
+  return payload.events!;
+}
+
 async function verifyLiveDeck(options: {
   fixtureRoot: string;
   browserBinary: string;
@@ -2102,6 +2380,10 @@ async function verifyLiveDeck(options: {
   defaultPanel: string;
   evidence: DeliveryEvidence;
   forbiddenPublicStrings: string[];
+  bottomScrollPositions: Map<string, VisualInspectionEntry['scroll_position']>;
+  analytics?: {
+    revision: string;
+  };
 }): Promise<string> {
   const {
     fixtureRoot,
@@ -2110,7 +2392,10 @@ async function verifyLiveDeck(options: {
     defaultPanel,
     evidence,
     forbiddenPublicStrings,
+    bottomScrollPositions,
+    analytics,
   } = options;
+  const analyticsEnabled = Boolean(analytics);
   const server = await startFixtureServer(fixtureRoot);
   const harnessScreenshotRoot = path.join(fixtureRoot, 'artifacts', 'harness-screenshots');
   fs.mkdirSync(harnessScreenshotRoot, { recursive: true });
@@ -2122,7 +2407,11 @@ async function verifyLiveDeck(options: {
       .toBe(false);
     expect(routeResponse.headers.get('server') ?? '').toMatch(/gunicorn/i);
     const renderedHtml = await routeResponse.text();
-    assertAnalyticsOffSource(renderedHtml, 'Rendered Flask deck HTML');
+    if (!analyticsEnabled) {
+      assertAnalyticsOffSource(renderedHtml, 'Rendered Flask deck HTML');
+    } else {
+      assertAnalyticsOnDeckSource(renderedHtml, 'Rendered Flask deck HTML');
+    }
     expect(renderedHtml).not.toMatch(/\{[{%]/);
     for (const panelId of panelIds) {
       expect(renderedHtml).toMatch(new RegExp(`\\bid=["']${panelId}["']`));
@@ -2149,7 +2438,13 @@ async function verifyLiveDeck(options: {
       const assetBytes = Buffer.from(await assetResponse.arrayBuffer());
       expect(assetBytes.byteLength, `Empty asset: ${assetUrl.pathname}`).toBeGreaterThan(0);
       const assetText = assetBytes.toString('utf-8');
-      assertAnalyticsOffSource(assetText, `Served asset ${assetUrl.pathname}`);
+      if (!analyticsEnabled) {
+        assertAnalyticsOffSource(assetText, `Served asset ${assetUrl.pathname}`);
+      } else if (assetUrl.pathname === LOCAL_DECK_ANALYTICS_ADAPTER_PATH) {
+        assertLocalDeckAnalyticsAdapterSource(assetText, `Analytics adapter ${assetUrl.pathname}`);
+      } else {
+        assertAnalyticsOnDeckSource(assetText, `Served deck asset ${assetUrl.pathname}`);
+      }
       for (const forbidden of forbiddenPublicStrings) {
         expect(assetText.toLowerCase(), `Sensitive value leaked through served asset: ${assetUrl.pathname}`)
           .not.toContain(forbidden.toLowerCase());
@@ -2234,6 +2529,7 @@ async function verifyLiveDeck(options: {
 
     const firstPanel = panelIds[0];
     const secondPanel = panelIds[1];
+    const thirdPanel = panelIds[2]!;
     runBrowseCommand(browserBinary, fixtureRoot, ['goto', `${server.baseUrl}/investors#${firstPanel}`]);
     assertActivePanel(activeDeckState(browserBinary, fixtureRoot), firstPanel, 'valid deep link');
     runBrowseCommand(browserBinary, fixtureRoot, ['reload']);
@@ -2331,6 +2627,164 @@ async function verifyLiveDeck(options: {
       'js', `document.querySelector('#deck-e2e-editable')?.remove()`,
     ]);
 
+    if (analytics) {
+      // The preceding tab/key interactions can asynchronously emit approved
+      // analytics. Let them finish before DELETE establishes the hidden-dwell
+      // baseline, otherwise a late old event can masquerade as leakage.
+      stabilizeDeckCapture(browserBinary, fixtureRoot);
+      const adapter = browseJson<{ track: boolean; dwell: boolean }>(browserBinary, fixtureRoot, `({
+        track: typeof window.deckAnalytics?.track === 'function',
+        dwell: typeof window.deckAnalytics?.recordDwell === 'function',
+      })`);
+      expect(adapter).toEqual({ track: true, dwell: true });
+
+      await clearDeckAnalyticsEvents(server.baseUrl);
+      const hiddenDwell = browseJson<{ observed: string }>(browserBinary, fixtureRoot, `(() => {
+        Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
+        try {
+          const observed = document.visibilityState;
+          window.deckAnalytics.recordDwell({
+            deck_revision: ${JSON.stringify(analytics.revision)},
+            section_id: ${JSON.stringify(firstPanel)},
+            slide_number: 1,
+            canonical_url: location.href,
+            max_progress: 0,
+            duration_ms: 250,
+          });
+          return { observed };
+        } finally {
+          delete document.visibilityState;
+        }
+      })()`);
+      expect(hiddenDwell.observed).toBe('hidden');
+      stabilizeDeckCapture(browserBinary, fixtureRoot);
+      expect(await readDeckAnalyticsEvents(server.baseUrl)).toEqual([]);
+
+      runBrowseCommand(browserBinary, fixtureRoot, [
+        'js', `window.__deckAnalyticsConsent = true; window.__deckAnalyticsEndpoint = '/internal/deck-analytics'`,
+      ]);
+      runBrowseCommand(browserBinary, fixtureRoot, ['goto', `${server.baseUrl}/investors#${firstPanel}`]);
+      stabilizeDeckCapture(browserBinary, fixtureRoot);
+      runBrowseCommand(browserBinary, fixtureRoot, ['js', `(async () => {
+        await new Promise(resolve => setTimeout(resolve, 125));
+        return true;
+      })()`]);
+      runBrowseCommand(browserBinary, fixtureRoot, [
+        'click', `[role="tab"][aria-controls="${secondPanel}"]`,
+      ]);
+      stabilizeDeckCapture(browserBinary, fixtureRoot);
+      scrollVisibleDeckToBottom(browserBinary, fixtureRoot);
+      stabilizeDeckCapture(browserBinary, fixtureRoot);
+      runBrowseCommand(browserBinary, fixtureRoot, ['js', `(async () => {
+        await new Promise(resolve => setTimeout(resolve, ${DECK_DWELL_PROBE_MS}));
+        return true;
+      })()`]);
+      // A real, visible transition must make the deck's own lifecycle report
+      // dwell for the section it is leaving. Do not invoke the adapter here.
+      runBrowseCommand(browserBinary, fixtureRoot, [
+        'click', `[role="tab"][aria-controls="${thirdPanel}"]`,
+      ]);
+      stabilizeDeckCapture(browserBinary, fixtureRoot);
+
+      const emitted = await readDeckAnalyticsEvents(server.baseUrl);
+      for (const eventName of ['deck_view', 'section_view', 'deck_progress', 'deck_dwell'] as const) {
+        expect(emitted.some(event => event.event === eventName), `Missing ${eventName} event`).toBe(true);
+      }
+      for (const eventName of ['section_view', 'deck_progress', 'deck_dwell'] as const) {
+        expect(
+          emitted.some(event =>
+            event.event === eventName
+            && event.section_id === secondPanel
+            && event.slide_number === panelIds.indexOf(secondPanel) + 1,
+          ),
+          `${eventName} did not describe the exercised second-panel transition`,
+        ).toBe(true);
+      }
+      const secondPanelDwell = emitted.find(event =>
+        event.event === 'deck_dwell'
+        && event.section_id === secondPanel
+        && event.slide_number === panelIds.indexOf(secondPanel) + 1,
+      );
+      expect(secondPanelDwell?.duration_ms, 'Deck-owned foreground dwell was not measured').toBeGreaterThan(0);
+      const canonicalUrl = `${server.baseUrl}/investors`;
+      let highestProgress = -1;
+      for (const event of emitted) {
+        expect(['deck_view', 'section_view', 'deck_progress', 'deck_dwell']).toContain(event.event);
+        const allowedFields = new Set([
+          'event', 'deck_revision', 'section_id', 'slide_number', 'canonical_url', 'max_progress', 'duration_ms',
+        ]);
+        expect(Object.keys(event).every(field => allowedFields.has(field))).toBe(true);
+        expect(event.deck_revision).toBe(analytics.revision);
+        expect(panelIds).toContain(event.section_id);
+        expect(event.slide_number).toBe(panelIds.indexOf(event.section_id) + 1);
+        expect(event.canonical_url).toBe(canonicalUrl);
+        expect(event.canonical_url).not.toMatch(/[?#]/);
+        expect(event.max_progress).toBeGreaterThanOrEqual(highestProgress);
+        expect(event.max_progress).toBeGreaterThanOrEqual(0);
+        expect(event.max_progress).toBeLessThanOrEqual(100);
+        highestProgress = event.max_progress;
+        if (event.event === 'deck_dwell') {
+          expect(event.duration_ms).toBeGreaterThanOrEqual(0);
+        }
+      }
+
+      await clearDeckAnalyticsEvents(server.baseUrl);
+      runBrowseCommand(browserBinary, fixtureRoot, ['js', 'window.__deckAnalyticsConsent = false']);
+      runBrowseCommand(browserBinary, fixtureRoot, [
+        'click', `[role="tab"][aria-controls="${firstPanel}"]`,
+      ]);
+      stabilizeDeckCapture(browserBinary, fixtureRoot);
+      assertActivePanel(activeDeckState(browserBinary, fixtureRoot), firstPanel, 'analytics consent refusal');
+      expect(await readDeckAnalyticsEvents(server.baseUrl)).toEqual([]);
+
+      runBrowseCommand(browserBinary, fixtureRoot, ['js', 'performance.clearResourceTimings()']);
+      runBrowseCommand(browserBinary, fixtureRoot, [
+        'js', `window.__deckAnalyticsConsent = true; window.__deckAnalyticsEndpoint = '/internal/deck-analytics?fail=1'`,
+      ]);
+      runBrowseCommand(browserBinary, fixtureRoot, [
+        'click', `[role="tab"][aria-controls="${secondPanel}"]`,
+      ]);
+      stabilizeDeckCapture(browserBinary, fixtureRoot);
+      assertActivePanel(activeDeckState(browserBinary, fixtureRoot), secondPanel, 'analytics collector failure');
+      const failedCollectorRequests = runtimeResourceRequests(browserBinary, fixtureRoot).filter(resource => {
+        try {
+          const url = new URL(resource.name, server.baseUrl);
+          return url.origin === server.baseUrl
+            && url.pathname === '/internal/deck-analytics'
+            && url.search === '?fail=1'
+            && /^(?:fetch|xmlhttprequest)$/i.test(resource.initiatorType);
+        } catch {
+          return false;
+        }
+      });
+      expect(
+        failedCollectorRequests.length,
+        'Analytics collector failure path did not attempt its approved same-origin request',
+      ).toBeGreaterThan(0);
+      runBrowseCommand(browserBinary, fixtureRoot, [
+        'js', `window.__deckAnalyticsEndpoint = '/internal/deck-analytics'`,
+      ]);
+      runBrowseCommand(browserBinary, fixtureRoot, ['js', 'performance.clearResourceTimings()']);
+
+      const analyticsClientState = browseJson<{
+        cookies: string;
+        localStorageKeys: string[];
+        sessionStorageKeys: string[];
+        windowName: string;
+      }>(browserBinary, fixtureRoot, `({
+        cookies: document.cookie,
+        localStorageKeys: Object.keys(localStorage).sort(),
+        sessionStorageKeys: Object.keys(sessionStorage).sort(),
+        windowName: window.name,
+      })`);
+      expect(analyticsClientState, 'Analytics may not persist a recipient or identifier in the browser').toEqual({
+        cookies: '',
+        localStorageKeys: [],
+        sessionStorageKeys: [],
+        windowName: '',
+      });
+    }
+
     // Recreate each submitted image from a known live tab state. Matching
     // hashes tie the agent's filenames and visual-inspection notes to the
     // actual panel—not merely to distinct PNG placeholders.
@@ -2340,8 +2794,8 @@ async function verifyLiveDeck(options: {
       fixtureRoot,
       context: 'baseline + interaction flow',
     })];
-    for (const viewport of ['desktop', 'phone'] as const) {
-      const dimensions = viewport === 'desktop' ? '1440x900' : '390x844';
+    for (const viewport of DECK_INITIAL_VIEWPORTS) {
+      const { dimensions } = DECK_VIEWPORTS[viewport];
       for (const panelId of panelIds) {
         runBrowseCommand(browserBinary, fixtureRoot, ['js', 'performance.clearResourceTimings()']);
         runBrowseCommand(browserBinary, fixtureRoot, ['viewport', dimensions, '--scale', '1']);
@@ -2350,9 +2804,7 @@ async function verifyLiveDeck(options: {
         stabilizeDeckCapture(browserBinary, fixtureRoot);
         state = activeDeckState(browserBinary, fixtureRoot);
         assertActivePanel(state, panelId, `${dimensions} #${panelId}`);
-        if (viewport === 'phone') {
-          expect(state.overflow, `${dimensions} #${panelId} horizontal overflow`).toBeLessThanOrEqual(1);
-        }
+        expect(state.overflow, `${dimensions} #${panelId} horizontal overflow`).toBeLessThanOrEqual(1);
         runtimeAudits.push(captureRuntimeAudit({
           browserBinary,
           fixtureRoot,
@@ -2370,22 +2822,66 @@ async function verifyLiveDeck(options: {
         ).toBe(fileHash(submittedPath));
       }
     }
+    for (const panelId of panelIds) {
+      const { dimensions } = DECK_VIEWPORTS.phone;
+      runBrowseCommand(browserBinary, fixtureRoot, ['js', 'performance.clearResourceTimings()']);
+      runBrowseCommand(browserBinary, fixtureRoot, ['viewport', dimensions, '--scale', '1']);
+      runBrowseCommand(browserBinary, fixtureRoot, ['goto', `${server.baseUrl}/investors#${panelId}`]);
+      stabilizeDeckCapture(browserBinary, fixtureRoot);
+      const bottomState = scrollVisibleDeckToBottom(browserBinary, fixtureRoot);
+      const recordedScrollPosition = bottomScrollPositions.get(panelId);
+      expect(recordedScrollPosition, `Missing visual bottom-state record for #${panelId}`).toBeTruthy();
+      expect(
+        recordedScrollPosition,
+        `Visual bottom-state record does not match live scrollability for #${panelId}`,
+      ).toBe(bottomState.hasScrollableContent ? 'bottom' : 'initial-no-scroll');
+      stabilizeDeckCapture(browserBinary, fixtureRoot);
+      state = activeDeckState(browserBinary, fixtureRoot);
+      assertActivePanel(state, panelId, `${dimensions} bottom #${panelId}`);
+      expect(state.overflow, `${dimensions} bottom #${panelId} horizontal overflow`).toBeLessThanOrEqual(1);
+      runtimeAudits.push(captureRuntimeAudit({
+        browserBinary,
+        fixtureRoot,
+        context: `bottom #${panelId}`,
+      }));
+
+      const harnessPath = path.join(harnessScreenshotRoot, `${panelId}-bottom.png`);
+      runBrowseCommand(browserBinary, fixtureRoot, ['screenshot', '--viewport', harnessPath]);
+      const submitted = evidence.sections.find(section => section.id === panelId)?.bottom;
+      expect(submitted, `Missing bottom evidence for #${panelId}`).toBeTruthy();
+      expect(
+        fileHash(harnessPath),
+        `bottom screenshot does not correspond to live #${panelId}`,
+      ).toBe(fileHash(path.resolve(fixtureRoot, submitted!)));
+    }
     expect(runtimeAudits.map(snapshot => snapshot.context)).toEqual(
       [
         'baseline + interaction flow',
-        ...(['desktop', 'phone'] as const).flatMap(viewport =>
+        ...DECK_INITIAL_VIEWPORTS.flatMap(viewport =>
           panelIds.map(panelId => `${viewport} #${panelId}`),
         ),
+        ...panelIds.map(panelId => `bottom #${panelId}`),
       ],
     );
-    expect(
-      analyticsOffRuntimeViolations(
-        runtimeAudits,
-        `${server.baseUrl}/investors`,
-        assetUrls.map(url => url.href),
-      ),
-      'Analytics-off Flask deck emitted a request or image violation in a section snapshot',
-    ).toEqual([]);
+    if (!analyticsEnabled) {
+      expect(
+        analyticsOffRuntimeViolations(
+          runtimeAudits,
+          `${server.baseUrl}/investors`,
+          assetUrls.map(url => url.href),
+        ),
+        'Analytics-off Flask deck emitted a request or image violation in a section snapshot',
+      ).toEqual([]);
+    } else {
+      expect(
+        analyticsOnRuntimeViolations(
+          runtimeAudits,
+          `${server.baseUrl}/investors`,
+          assetUrls.map(url => url.href),
+        ),
+        'Analytics-on Flask deck emitted a request, beacon, pixel, or image outside the local allowlist',
+      ).toEqual([]);
+    }
 
     return renderedHtml;
   } finally {
@@ -2611,6 +3107,63 @@ describe('/deck E2E harness contracts (free)', () => {
       'desktop #early-section:request',
       'desktop #early-section:image',
     ]);
+
+    const analyticsOnSnapshots: RuntimeAuditSnapshot[] = [
+      {
+        context: 'approved collector',
+        requests: [
+          { name: allowedAssets[0]!, initiatorType: 'link' },
+          { name: 'http://127.0.0.1:43123/internal/deck-analytics', initiatorType: 'fetch' },
+        ],
+        images: [ordinaryImage],
+      },
+      {
+        context: 'unapproved analytics path',
+        requests: [
+          { name: 'http://127.0.0.1:43123/internal/deck-analytics?recipient=x', initiatorType: 'fetch' },
+          { name: 'https://tracker.invalid/collect', initiatorType: 'fetch' },
+          { name: allowedAssets[0]!, initiatorType: 'beacon' },
+        ],
+        images: [ordinaryImage],
+      },
+    ];
+    expect(
+      analyticsOnRuntimeViolations(analyticsOnSnapshots, pageUrl, allowedAssets)
+        .map(violation => `${violation.context}:${violation.kind}`),
+    ).toEqual([
+      'unapproved analytics path:request',
+      'unapproved analytics path:request',
+      'unapproved analytics path:request',
+    ]);
+  });
+
+  test('analytics-on reserves transport for the local adapter and rejects persistent identifiers', () => {
+    for (const source of [
+      `fetch('/another-collector', { method: 'POST' })`,
+      `document.cookie = 'recipient=abc'`,
+      `localStorage.setItem('viewer_id', 'abc')`,
+      `indexedDB.open('deck-recipient')`,
+      `caches.open('deck-cache')`,
+      `navigator.serviceWorker.register('/tracker.js')`,
+      `window.name = 'recipient-abc'`,
+      `navigator.sendBeacon('/deck-events', payload)`,
+    ]) {
+      expect(() => assertAnalyticsOnDeckSource(source, 'fixture')).toThrow(/adapter|persistent|recipient/i);
+    }
+    expect(() => assertAnalyticsOnDeckSource(
+      `document.querySelector('[role="tab"]')?.addEventListener('click', selectTab)`,
+      'fixture',
+    )).not.toThrow();
+    expect(() => assertLocalDeckAnalyticsAdapterSource(`
+      const endpoint = () => '/internal/deck-analytics';
+      fetch(endpoint(), { credentials: 'omit' });
+    `, 'fixture')).not.toThrow();
+    for (const source of [
+      `fetch('/internal/deck-analytics', { credentials: 'omit' }); navigator.sendBeacon('/other')`,
+      `fetch('/internal/deck-analytics', { credentials: 'omit' }); localStorage.setItem('id', 'x')`,
+    ]) {
+      expect(() => assertLocalDeckAnalyticsAdapterSource(source, 'fixture')).toThrow(/alternate|persistent/i);
+    }
   });
 
   test('row-evidence gate allows approved aggregates but rejects anonymized row records', () => {
@@ -3394,17 +3947,21 @@ not spawn another agent/model or use an external service. Don't do web research,
 and keep analytics off. Take this through complete local implementation, testing,
 visual QA, review, and documentation, but do not deploy or change any live service.
 For the visual proof, capture each section from its direct deep link at scroll
-position zero using viewport-only 1440x900 and 390x844 PNGs, and inspect every
-captured image. Before each capture, wait for network idle, fonts, and images;
+position zero using viewport-only desktop 1440x900, tablet 834x1112, phone
+390x844, and short_laptop 1365x680 PNGs. Also capture the phone 390x844 bottom
+state after scrolling the visible section/document to its available bottom; if a
+section has no scrollable content, use its initial phone state as its explicit
+no-distinct-bottom capture. Inspect every captured image. Before each capture,
+wait for network idle, fonts, and images;
 inject a temporary style with id deck-e2e-motion-freeze and exact CSS
 \`*,*::before,*::after{animation:none!important;transition:none!important;caret-color:transparent!important;scroll-behavior:auto!important}\`,
 pause videos at time zero, then wait two animation frames. Record the exact
 section IDs and fixture-relative screenshot paths as strict JSON at
 artifacts/deck-evidence.json with this shape:
-{"sections":[{"id":"section-id","desktop":"artifacts/screenshots/file.png","phone":"artifacts/screenshots/file.png"}],"specialist_reviews":[{"name":"plan-ceo-review","scope":"specific scoped checkpoint","status":"applied | fixed | no-actionable-findings","findings":"specific findings or No actionable findings.","disposition":"how the findings were applied/fixed or why no change was required"}]}. Include exactly one specialist_reviews entry for each staged specialist you invoked; loading a skill without recording and applying its scoped findings does not count.`,
+{"sections":[{"id":"section-id","desktop":"artifacts/screenshots/file.png","tablet":"artifacts/screenshots/file.png","phone":"artifacts/screenshots/file.png","short_laptop":"artifacts/screenshots/file.png","bottom":"artifacts/screenshots/file.png"}],"specialist_reviews":[{"name":"plan-ceo-review","scope":"specific scoped checkpoint","status":"applied | fixed | no-actionable-findings","findings":"specific findings or No actionable findings.","disposition":"how the findings were applied/fixed or why no change was required"}]}. Include exactly one specialist_reviews entry for each staged specialist you invoked; loading a skill without recording and applying its scoped findings does not count.`,
       workingDirectory: workDir,
       allowedTools: ['Skill', 'Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep'],
-      maxTurns: 48,
+      maxTurns: 64,
       timeout: 900_000,
       testName: 'deck-natural-static-monorepo',
       runId,
@@ -3499,16 +4056,15 @@ artifacts/deck-evidence.json with this shape:
       .filter(Boolean)
       .map(file => path.resolve(workDir, file)));
     for (const section of evidence.sections) {
-      for (const viewport of ['desktop', 'phone'] as const) {
-        const relativePath = section[viewport];
-        assertScreenshot(workDir, relativePath, viewport);
+      for (const capture of DECK_CAPTURES) {
+        const relativePath = section[capture];
+        assertScreenshot(workDir, relativePath, capture);
         const dimensions = pngDimensions(path.resolve(workDir, relativePath));
-        expect(dimensions, `${viewport} screenshot dimensions for #${section.id}`).toEqual(
-          viewport === 'desktop' ? { width: 1440, height: 900 } : { width: 390, height: 844 },
-        );
+        const { width, height } = DECK_VIEWPORTS[viewportForCapture(capture)];
+        expect(dimensions, `${capture} screenshot dimensions for #${section.id}`).toEqual({ width, height });
         expect(
           readScreenshots.has(path.resolve(workDir, relativePath)),
-          `Uninspected ${viewport} screenshot for #${section.id}: ${relativePath}`,
+          `Uninspected ${capture} screenshot for #${section.id}: ${relativePath}`,
         ).toBe(true);
       }
     }
@@ -3657,8 +4213,8 @@ artifacts/deck-evidence.json with this shape:
       const harnessScreenshotRoot = path.join(workDir, 'artifacts', 'harness-static-screenshots');
       fs.mkdirSync(harnessScreenshotRoot, { recursive: true });
       const liveDeckSurfaces = new Map<string, string>();
-      for (const viewport of ['desktop', 'phone'] as const) {
-        const dimensions = viewport === 'desktop' ? '1440x900' : '390x844';
+      for (const viewport of DECK_INITIAL_VIEWPORTS) {
+        const { dimensions } = DECK_VIEWPORTS[viewport];
         for (const section of evidence.sections) {
           runBrowseCommand(browse, workDir, ['js', 'performance.clearResourceTimings()']);
           runBrowseCommand(browse, workDir, ['viewport', dimensions, '--scale', '1']);
@@ -3667,10 +4223,8 @@ artifacts/deck-evidence.json with this shape:
           stabilizeDeckCapture(browse, workDir);
           const state = activeDeckState(browse, workDir);
           assertActivePanel(state, section.id, `static ${dimensions} #${section.id}`);
-          if (viewport === 'phone') {
-            expect(state.overflow, `${dimensions} #${section.id} horizontal overflow`)
-              .toBeLessThanOrEqual(1);
-          }
+          expect(state.overflow, `${dimensions} #${section.id} horizontal overflow`)
+            .toBeLessThanOrEqual(1);
           runtimeAudits.push(captureRuntimeAudit({
             browserBinary: browse,
             fixtureRoot: workDir,
@@ -3688,12 +4242,38 @@ artifacts/deck-evidence.json with this shape:
           ).toBe(fileHash(path.resolve(workDir, section[viewport])));
         }
       }
+      for (const section of evidence.sections) {
+        const { dimensions } = DECK_VIEWPORTS.phone;
+        runBrowseCommand(browse, workDir, ['js', 'performance.clearResourceTimings()']);
+        runBrowseCommand(browse, workDir, ['viewport', dimensions, '--scale', '1']);
+        runBrowseCommand(browse, workDir, ['goto', `${server.baseUrl}/investors/#${section.id}`]);
+        stabilizeDeckCapture(browse, workDir);
+        scrollVisibleDeckToBottom(browse, workDir);
+        stabilizeDeckCapture(browse, workDir);
+        const state = activeDeckState(browse, workDir);
+        assertActivePanel(state, section.id, `static ${dimensions} bottom #${section.id}`);
+        expect(state.overflow, `${dimensions} bottom #${section.id} horizontal overflow`)
+          .toBeLessThanOrEqual(1);
+        runtimeAudits.push(captureRuntimeAudit({
+          browserBinary: browse,
+          fixtureRoot: workDir,
+          context: `bottom #${section.id}`,
+        }));
+        liveDeckSurfaces.set(`bottom #${section.id}`, runtimeDeckEvidenceSurface(browse, workDir));
+        const harnessPath = path.join(harnessScreenshotRoot, `${section.id}-bottom.png`);
+        runBrowseCommand(browse, workDir, ['screenshot', '--viewport', harnessPath]);
+        expect(
+          fileHash(harnessPath),
+          `bottom screenshot does not correspond to live #${section.id}`,
+        ).toBe(fileHash(path.resolve(workDir, section.bottom)));
+      }
       expect(runtimeAudits.map(snapshot => snapshot.context)).toEqual(
         [
           'baseline + deep-link reload',
-          ...(['desktop', 'phone'] as const).flatMap(viewport =>
+          ...DECK_INITIAL_VIEWPORTS.flatMap(viewport =>
             evidence.sections.map(section => `${viewport} #${section.id}`),
           ),
+          ...evidence.sections.map(section => `bottom #${section.id}`),
         ],
       );
       expect(
@@ -3705,9 +4285,12 @@ artifacts/deck-evidence.json with this shape:
         'Analytics-off static deck emitted a request or image violation in a section snapshot',
       ).toEqual([]);
       expect([...liveDeckSurfaces.keys()]).toEqual(
-        (['desktop', 'phone'] as const).flatMap(viewport =>
+        [
+          ...DECK_INITIAL_VIEWPORTS.flatMap(viewport =>
           evidence.sections.map(section => `${viewport} #${section.id}`),
-        ),
+          ),
+          ...evidence.sections.map(section => `bottom #${section.id}`),
+        ],
       );
       const liveDeckCorpus = [...liveDeckSurfaces.values()].join(EVIDENCE_SEMANTIC_BREAK);
       expect(
@@ -3775,7 +4358,7 @@ describePeriodicDeck('/deck full Flask delivery E2E', [FULL_TEST_NAME], () => {
   let baselineRequirements: string;
 
   beforeAll(() => {
-    workDir = createPythonSiteFixture({ fullExecution: true });
+    workDir = createPythonSiteFixture({ fullExecution: true, analyticsFixture: true });
     baselineHead = gitText(workDir, ['rev-parse', 'HEAD']);
     baselineDockerfile = fs.readFileSync(path.join(workDir, 'infra', 'Dockerfile'), 'utf-8');
     baselineFlyConfig = fs.readFileSync(path.join(workDir, 'infra', 'fly.toml'), 'utf-8');
@@ -3823,7 +4406,19 @@ anything:
 5. Route / host: add /investors to the existing Flask app on its current host.
    Do not add a host or alter IaC, DNS, cloud, or production configuration.
 6. Research: none. Do not use the public network.
-7. Analytics: off. Add no telemetry, recipient tracking, cookies, or tracker.
+7. Analytics: approved only through the existing same-origin, consent-aware
+   \`window.deckAnalytics\` adapter and its local \`/internal/deck-analytics\`
+   collector. Use only aggregate deck events: \`deck_view\`, \`section_view\`,
+   \`deck_progress\`, and visibility-gated \`deck_dwell\`. Every emitted event
+   must have fixed \`deck_revision: "deck-e2e-r1"\`, a \`section_id\` and
+   one-based \`slide_number\` derived from the same ordered source as rendered
+   navigation, a sanitized canonical URL with no query or fragment, and monotonic
+   \`max_progress\`. Use \`deckAnalytics.recordDwell\` for dwell; do not build a
+   timer that counts hidden documents. The deck itself must measure foreground
+   dwell for a visibly viewed section when the reader advances away from it; do
+   not rely on a caller manually invoking the adapter. Do not add cookies, persistent identifiers,
+   recipient tracking, a third-party provider, or any external request. Consent
+   refusal and a collector failure must leave rendering and navigation usable.
 
 Implement the deck in the existing Flask/Jinja/CSS structure. Small native
 browser JavaScript for accessible tabs, deep links, history, and keyboard focus
@@ -3832,9 +4427,10 @@ dependencies. The eval image already contains the exact pinned Python runtime
 dependencies from requirements.txt; network installs remain forbidden. Add a
 native pytest file at tests/test_investor_deck.py that imports app, uses Flask's
 test_client(), and validates the live /investors response, accessibility/deep-
-link source contracts, limited-share headers/noindex, and exclusion from global
+link source contracts, limited-share headers/noindex, exclusion from global
 navigation and any existing sitemap (do not create a sitemap solely for this
-route). Run it together with tests/test_routes.py.
+route), and the existing local analytics adapter/collector boundary. Run it
+together with tests/test_routes.py.
 
 Before implementation, write artifacts/deck-execution-brief.md. It must contain
 the inspected product-truth map (buyer, users, end-to-end workflow, shipped
@@ -3861,10 +4457,13 @@ server when finished. Verify valid and invalid hashes, browser Back/Forward,
 ArrowLeft/ArrowRight/Home/End plus Enter/Space behavior, and that deck shortcuts
 do not steal keys from editable controls. For every actual tabpanel section,
 activate its #id, assert that it is the one visible/selected panel, then capture
-a stable viewport-only screenshot at desktop 1440x900 and phone 390x844 (scale
-1) under artifacts/screenshots/. Before each capture, wait for network idle,
-fonts, and images; inject a temporary style with id deck-e2e-motion-freeze and
-exact CSS
+a stable viewport-only screenshot at desktop 1440x900, tablet 834x1112, phone
+390x844, and short_laptop 1365x680 (scale 1) under artifacts/screenshots/. Also
+capture the phone 390x844 bottom state after scrolling the visible section or
+document to its available bottom; if a section has no scrollable content, use its
+initial phone state as its explicit no-distinct-bottom capture. Before each
+capture, wait for network idle,
+fonts, and images; inject a temporary style with id deck-e2e-motion-freeze and exact CSS
 \`*,*::before,*::after{animation:none!important;transition:none!important;caret-color:transparent!important;scroll-behavior:auto!important}\`,
 pause videos at time zero, then wait two animation frames. Check phone horizontal
 overflow. Use the Read tool to inspect every resulting image; do not merely
@@ -3884,6 +4483,16 @@ problem was found, corrected, and re-inspected:
         "section_hash": "#tabpanel-id",
         "active_panel": "tabpanel-id",
         "viewport": "1440x900",
+        "scroll_position": "initial",
+        "checks": {"spacing": "passed | fixed", "density": "passed | fixed", "hierarchy": "passed | fixed", "clipping": "passed | fixed", "readability": "passed | fixed"},
+        "notes": "specific visual observation"
+      },
+      "tablet": {
+        "screenshot": "artifacts/screenshots/id-tablet.png",
+        "section_hash": "#tabpanel-id",
+        "active_panel": "tabpanel-id",
+        "viewport": "834x1112",
+        "scroll_position": "initial",
         "checks": {"spacing": "passed | fixed", "density": "passed | fixed", "hierarchy": "passed | fixed", "clipping": "passed | fixed", "readability": "passed | fixed"},
         "notes": "specific visual observation"
       },
@@ -3892,6 +4501,25 @@ problem was found, corrected, and re-inspected:
         "section_hash": "#tabpanel-id",
         "active_panel": "tabpanel-id",
         "viewport": "390x844",
+        "scroll_position": "initial",
+        "checks": {"spacing": "passed | fixed", "density": "passed | fixed", "hierarchy": "passed | fixed", "clipping": "passed | fixed", "readability": "passed | fixed"},
+        "notes": "specific visual observation"
+      },
+      "short_laptop": {
+        "screenshot": "artifacts/screenshots/id-short-laptop.png",
+        "section_hash": "#tabpanel-id",
+        "active_panel": "tabpanel-id",
+        "viewport": "1365x680",
+        "scroll_position": "initial",
+        "checks": {"spacing": "passed | fixed", "density": "passed | fixed", "hierarchy": "passed | fixed", "clipping": "passed | fixed", "readability": "passed | fixed"},
+        "notes": "specific visual observation"
+      },
+      "bottom": {
+        "screenshot": "artifacts/screenshots/id-bottom.png",
+        "section_hash": "#tabpanel-id",
+        "active_panel": "tabpanel-id",
+        "viewport": "390x844",
+        "scroll_position": "bottom | initial-no-scroll",
         "checks": {"spacing": "passed | fixed", "density": "passed | fixed", "hierarchy": "passed | fixed", "clipping": "passed | fixed", "readability": "passed | fixed"},
         "notes": "specific visual observation"
       }
@@ -3906,7 +4534,7 @@ JSON to artifacts/deck-evidence.json with this shape:
 {
   "route": "/investors",
   "sections": [
-    {"id": "tabpanel-id", "desktop": "artifacts/screenshots/id-desktop.png", "phone": "artifacts/screenshots/id-phone.png"}
+    {"id": "tabpanel-id", "desktop": "artifacts/screenshots/id-desktop.png", "tablet": "artifacts/screenshots/id-tablet.png", "phone": "artifacts/screenshots/id-phone.png", "short_laptop": "artifacts/screenshots/id-short-laptop.png", "bottom": "artifacts/screenshots/id-bottom.png"}
   ],
   "tests": {"command": "string", "status": "passed | failed", "summary": "string"},
   "browser": {"command": "string", "status": "passed | failed", "summary": "string"},
@@ -3934,7 +4562,7 @@ contact an external service. Finish only after the local implementation and
 evidence files are complete.`,
       workingDirectory: workDir,
       allowedTools: ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep'],
-      maxTurns: 45,
+      maxTurns: 64,
       timeout: 900_000,
       testName: 'deck-full-flask-delivery',
       runId,
@@ -4033,7 +4661,13 @@ evidence files are complete.`,
     expect(visibleDeckText).not.toMatch(/\b(?:no|zero) competitors?\b|\bonly (?:product|platform|solution)\b/i);
     expect(shareableDeckSource).not.toMatch(/https?:\/\/(?!127\.0\.0\.1|localhost)/i);
     expect(shareableDeckSource).not.toMatch(/segment|mixpanel|amplitude|posthog|google-analytics|gtag\s*\(/i);
-    assertAnalyticsOffSource(shareableDeckSource, 'Flask analytics-off deck source');
+    expect(javascript).toMatch(/deckAnalytics\s*\??\.\s*track/i);
+    expect(javascript).toMatch(/deckAnalytics\s*\??\.\s*recordDwell/i);
+    expect(javascript).toMatch(/deck-e2e-r1/);
+    const analyticsAdapter = fs.readFileSync(path.join(workDir, 'static', 'deck-analytics.js'), 'utf-8');
+    expect(analyticsAdapter).toMatch(/document\.visibilityState\s*===\s*['"]visible['"]/);
+    expect(analyticsAdapter).toMatch(/credentials:\s*['"]omit['"]/);
+    expect(analyticsAdapter).not.toMatch(/document\.cookie|localStorage|sessionStorage/i);
     expect(shareableDeckSource, 'Eval-only motion-freeze style leaked into the shipped deck')
       .not.toContain(DECK_EVAL_MOTION_FREEZE_MARKER);
     expect(shareableDeckSource, 'Eval-only motion-freeze rule leaked into the shipped deck')
@@ -4054,7 +4688,7 @@ evidence files are complete.`,
     expect(executionBrief).toMatch(/roster.{0,180}availability.{0,180}conflict.{0,180}(?:run-of-show|publish)/is);
     expect(executionBrief).toMatch(/Flask|Jinja|server-rendered/i);
     expect(executionBrief).toMatch(/Dockerfile|fly\.toml|hosting|IaC/i);
-    expect(executionBrief).toMatch(/analytics.{0,80}off|no analytics/i);
+    expect(executionBrief).toMatch(/analytics.{0,120}(?:approved|consent|local|same-origin)|(?:approved|consent|local|same-origin).{0,120}analytics/i);
     expect(executionBrief).toMatch(/claim ledger|claim-ledger/i);
     expect(executionBrief).toMatch(/actual|derived|estimate|forecast/i);
     expect(executionBrief).toMatch(/verified|qualified|omitted/i);
@@ -4097,6 +4731,7 @@ evidence files are complete.`,
     expect(pythonTest).toMatch(/noindex|x-robots-tag/i);
     expect(pythonTest).toMatch(/referrer-policy/i);
     expect(pythonTest).toMatch(/cache-control/i);
+    expect(pythonTest).toMatch(/deck-analytics|deckAnalytics|analytics/i);
     const pythonCompile = spawnSync('python3', ['-m', 'py_compile', 'app.py', 'tools/production_server.py'], {
       cwd: workDir,
       encoding: 'utf-8',
@@ -4126,14 +4761,21 @@ evidence files are complete.`,
     expect([...evidenceIds].sort()).toEqual([...panelIds].sort());
     expect(new Set(evidenceIds).size).toBe(evidenceIds.length);
 
-    const desktopHashes: string[] = [];
-    const phoneHashes: string[] = [];
+    const initialCaptureHashes = new Map<DeckViewport, string[]>(
+      DECK_INITIAL_VIEWPORTS.map(viewport => [viewport, []]),
+    );
     for (const section of evidence.sections) {
-      desktopHashes.push(assertScreenshot(workDir, section.desktop, 'desktop'));
-      phoneHashes.push(assertScreenshot(workDir, section.phone, 'phone'));
+      for (const viewport of DECK_INITIAL_VIEWPORTS) {
+        initialCaptureHashes.get(viewport)!.push(assertScreenshot(workDir, section[viewport], viewport));
+      }
+      assertScreenshot(workDir, section.bottom, 'bottom');
     }
-    expect(new Set(desktopHashes).size, 'Desktop captures must show each activated section').toBe(panelIds.length);
-    expect(new Set(phoneHashes).size, 'Phone captures must show each activated section').toBe(panelIds.length);
+    for (const viewport of DECK_INITIAL_VIEWPORTS) {
+      expect(
+        new Set(initialCaptureHashes.get(viewport)).size,
+        `${viewport} captures must show each activated section`,
+      ).toBe(panelIds.length);
+    }
 
     expect(evidence.visual_inspection).toBe('artifacts/deck-visual-inspection.json');
     const visualInspection = parseVisualInspection(path.join(workDir, evidence.visual_inspection));
@@ -4147,12 +4789,17 @@ evidence files are complete.`,
     for (const inspection of visualInspection.sections) {
       const sectionEvidence = evidence.sections.find(section => section.id === inspection.id);
       expect(sectionEvidence, `Visual inspection has unknown section: ${inspection.id}`).toBeTruthy();
-      for (const viewport of ['desktop', 'phone'] as const) {
-        const entry = inspection[viewport];
-        expect(entry.screenshot).toBe(sectionEvidence![viewport]);
+      for (const capture of DECK_CAPTURES) {
+        const entry = inspection[capture];
+        expect(entry.screenshot).toBe(sectionEvidence![capture]);
         expect(entry.section_hash).toBe(`#${inspection.id}`);
         expect(entry.active_panel).toBe(inspection.id);
-        expect(entry.viewport).toBe(viewport === 'desktop' ? '1440x900' : '390x844');
+        expect(entry.viewport).toBe(DECK_VIEWPORTS[viewportForCapture(capture)].dimensions);
+        if (capture === 'bottom') {
+          expect(['bottom', 'initial-no-scroll']).toContain(entry.scroll_position);
+        } else {
+          expect(entry.scroll_position).toBe('initial');
+        }
         expect(Object.keys(entry.checks).sort()).toEqual([
           'clipping', 'density', 'hierarchy', 'readability', 'spacing',
         ]);
@@ -4174,6 +4821,10 @@ evidence files are complete.`,
       panelIds,
       defaultPanel: defaultPanel!,
       evidence,
+      bottomScrollPositions: new Map(visualInspection.sections.map(section => [
+        section.id,
+        section.bottom.scroll_position,
+      ])),
       forbiddenPublicStrings: [
         ...syntheticSchoolIds,
         '60% fewer schedule revisions',
@@ -4181,6 +4832,7 @@ evidence files are complete.`,
         DECK_EVAL_MOTION_FREEZE_MARKER,
         DECK_EVAL_MOTION_FREEZE_CSS,
       ],
+      analytics: { revision: 'deck-e2e-r1' },
     });
     for (const schoolId of syntheticSchoolIds) {
       expect(renderedDeck, `Raw school ID leaked into rendered deck: ${schoolId}`).not.toContain(schoolId);
@@ -4190,7 +4842,9 @@ evidence files are complete.`,
     expect(shellTranscript).toMatch(/http:\/\/127\.0\.0\.1/i);
     expect(shellTranscript).toMatch(/\bgoto\b[^\n]*#/i);
     expect(shellTranscript).toMatch(/\bviewport\b[^\n]*1440x900/i);
+    expect(shellTranscript).toMatch(/\bviewport\b[^\n]*834x1112/i);
     expect(shellTranscript).toMatch(/\bviewport\b[^\n]*390x844/i);
+    expect(shellTranscript).toMatch(/\bviewport\b[^\n]*1365x680/i);
     expect(shellTranscript).toMatch(/\bscreenshot\b/i);
 
     // Reviews and release documentation must be tangible and honest about the
@@ -4225,7 +4879,7 @@ evidence files are complete.`,
     const documentation = fs.readFileSync(documentationPath, 'utf-8');
     expect(documentation).toMatch(/\/investors/);
     expect(documentation).toMatch(/keyboard|Arrow/i);
-    expect(documentation).toMatch(/analytics[^\n]*off|no analytics/i);
+    expect(documentation).toMatch(/analytics[^\n]*(?:approved|consent|local|same-origin)|(?:approved|consent|local|same-origin)[^\n]*analytics/i);
     expect(documentation).toMatch(/deploy[^\n]*(?:not|deferred|unperformed)|no external change/i);
 
     expect(evidence.external_changes.performed).toBe(false);
@@ -4240,6 +4894,7 @@ evidence files are complete.`,
       judge_scores: {
         native_stack: 1,
         interaction_contract: 1,
+        analytics_contract: 1,
         python_tests: 1,
         visual_evidence: 1,
         review_and_release: 1,

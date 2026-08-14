@@ -255,9 +255,23 @@ whether the copy is verified, qualified, or omitted. For every metric, chart,
 market-size, or comparative claim, also record its definition, unit, denominator
 or cohort, period, and type: actual, derived, estimate, or forecast. Show formulas
 and key assumptions for derived or forecast values, label management estimates,
-and visually distinguish actuals from projections. Research only user-approved
-topics; cite the source beside any new factual claim and never fill a gap with
-invented proof.
+and visually distinguish actuals from projections. **Proof gate:** components of
+one reported total must be mutually exclusive; record the formula, inclusions,
+exclusions, and any unallocated remainder. Use only permissioned, de-identified
+exact excerpts with a source handle and permission boundary; attribute a person
+or organization only when public attribution is explicitly approved. Run an
+anti-reidentification check before publication. Never infer a causal outcome (for
+example, "helped win") from activity, adoption, or a testimonial. Research only
+user-approved topics; cite the source beside any new factual claim and never fill
+a gap with invented proof.
+
+When prior deck or sales material exists, add a **preservation ledger** before
+storyboarding. For every meaningful prior item or cluster, record its source and
+one disposition: `must-preserve`, `strengthen`, `condense`, or
+`remove-with-reason`. For an item kept or condensed, record where its point
+appears in the new story; for a removal, record the reason. A layout, density, or
+route change must not silently erase audience-critical context—for example,
+founder history, product breadth, proof, or a fundraising use-of-funds story.
 
 Make the deck tell the story that matters to its audience. For fundraising,
 start with a one-sentence, falsifiable investment thesis and order the story to
@@ -270,6 +284,21 @@ strongest evidence, not this checklist, and cut any section that does not advanc
 the investment decision. Do not force an investor outline on a customer,
 recruiting, or launch deck.
 
+Run a **headline-only story test** before implementation and again before
+handoff: read only the ordered primary section headings. For fundraising, they
+must independently communicate the audience/buyer, painful job, thesis,
+distinctive wedge, real product breadth, proof, fair alternatives, team edge, and
+ask or CTA. For another deck, substitute that audience's decision path rather
+than forcing an investor outline. A topical label such as "Platform", "Traction",
+or "Competition" is not a headline and does not pass the test. Navigation labels
+may be short; the visible primary heading cannot rely on a generic label.
+
+When the product combines automation with human or professional judgment, make
+the progression legible: whole platform → distinctive wedge → deep craft-specific
+or high-stakes workflow → explicit automation-to-human or professional
+decision/review boundary. Do not invent that boundary when the product does not
+have one, and state it only where source material supports it.
+
 Before storyboarding, answer the skeptical investor's questions from the ledger:
 Why now? Why this wedge? Why will users switch and stay? How does it grow and
 make money? Why this team? What would falsify the thesis? What does this round
@@ -277,8 +306,13 @@ unlock? These are analysis prompts, not new user questions. Unsupported answers
 are qualified, moved to the data room, or omitted.
 
 Favor concrete product surfaces and proof over generic feature cards. Competitive
-comparisons must be sourced, specific, fair, and framed as the evidence supports;
-never claim a competitor lacks something just because the deck does not show it.
+comparisons must be sourced, specific, fair, and framed as the evidence supports.
+**Competition gate:** when competition matters, compare the buyer-relevant
+decision criteria—such as full workflow breadth, quality, review, or control
+envelope where those axes matter—against relevant buyer alternatives, such as
+manual or incumbent work, suite/platform, or point product. Cite each public
+source and its as-of date. Say what a competitor is **publicly emphasized** to do;
+never infer or assert absence merely because public material does not mention it.
 
 ### Sensitive evidence
 
@@ -395,6 +429,14 @@ an intentional composition, not a compressed desktop. Check readable type,
 contrast, focus states, spacing, density, hierarchy, images, embedded media,
 and all clipping or unintended overflow.
 
+Use an **in-flow layout contract** for information that earns the decision:
+footnotes, proof bars, disclaimers, citations, callouts, and CTAs belong in the
+normal content flow of their section, not in detached viewport overlays. A
+decorative overlay, hover state, or animation cannot obscure or be the only home
+for required information.
+Prefer intentional scrolling to clipping, shrinking, hiding, or deleting
+important content.
+
 ### Routing and host contract
 
 Default to an existing-site route. Validate its production-equivalent runtime or
@@ -443,6 +485,18 @@ as recipient tracking or as a substitute for it. A named-recipient feature is a
 separate, consent-aware access and data-design project; do not smuggle it in via
 UTMs, IP inference, or a third-party tracker.
 
+When analytics is approved, version the event contract. Every deck-analytics
+event carries a fixed `deck_revision` from the released deck, never
+visitor-derived state.
+Derive `section_id` and `slide_number` from the same ordered source that renders
+navigation; do not maintain a duplicate event-only order. Count dwell only while
+the document is foreground/visible, report monotonic maximum progress, and send
+only a sanitized canonical URL. Test the live analytics contract on both the
+normal-site and dedicated deck hosts when both exist; otherwise test the selected
+host's production-equivalent route.
+Consent refusal and analytics-provider failure must not impair deck rendering or
+navigation; test those states where the existing consent architecture permits.
+
 ## Step 6: Prove it before calling it done
 
 Match the target project's test tools. Do not install Node, Bun, or a browser-test
@@ -456,21 +510,32 @@ regress:
    back/forward state synchronization.
 2. Tab roles, keyboard navigation, focus behavior, and controls that do not
    capture typing in user inputs.
-3. Mobile layout with no unintended horizontal overflow, no clipped content, and
-   intentional vertical scrolling where the design calls for it.
+3. In-flow content and responsive layout with no unintended horizontal overflow,
+   no clipped required content, and intentional vertical scrolling where the
+   design calls for it.
 4. The selected Access contract: denied and allowed deep links for authenticated
    decks; non-discovery controls and public-safe assets for limited-share decks;
    and absence of detailed evidence files for data-room-on-request decks.
-5. Analytics URL/data sanitization and event allowlist, if analytics was chosen.
+5. Analytics URL/data sanitization, event allowlist, fixed `deck_revision`,
+   navigation-derived section/slide order, foreground dwell, and monotonic
+   progress, plus non-blocking consent refusal/provider failure, if analytics was
+   chosen.
 6. Production-equivalent direct links, refresh, and static assets for the
    selected route or host; when a dedicated host was chosen, also test
    headers/privacy assets and both the normal-site and deck-host routing.
 
-Run the deck in a real browser. Capture and inspect a desktop and phone screenshot
-for **every section**, plus the navigation states that matter. Review the pixels
-for spacing, density, hierarchy, clipping, contrast, and readability. Run
-`/design-review` and fix meaningful findings; run `/qa` against the interactive
-flow rather than relying on component tests alone.
+Run the deck in a real browser. Capture and inspect desktop, phone, tablet, and
+short-laptop-height screenshots for **every section**, plus the navigation states
+that matter. Choose the matrix from the target project's breakpoint conventions
+or real target devices, and record each exact pixel viewport used; do not replace
+an issue's reported viewport with a nearby preset. For every section, record a
+bottom-state check: for a scrollable section, capture and inspect its available
+bottom; for an unscrollable section, explicitly record that its initial state is
+also its bottom state. When a reported screenshot identifies a viewport,
+reproduce that exact viewport before declaring the issue fixed.
+Review the pixels for spacing, density, hierarchy, clipping, contrast, and
+readability. Run `/design-review` and fix meaningful findings; run `/qa` against
+the interactive flow rather than relying on component tests alone.
 
 Before handoff, run `/review` and a fresh independent second-opinion review of
 the final diff within the approved access boundary: use
@@ -503,10 +568,11 @@ make only the approved change and verify it live.
 Finish with a compact evidence report:
 
 - audience, CTA, access boundary, route/host, and research/analytics decisions;
-- story/claim ledger summary, including anything deliberately qualified or moved
-  to a data room;
+- story, preservation, and claim-ledger summary, including anything deliberately
+  qualified or moved to a data room;
 - implementation files and built-output checks;
-- test results and desktop/phone screenshot locations for every section;
+- test results and desktop/phone/tablet/short-laptop screenshot locations,
+  including each section's bottom-state capture or no-distinct-bottom record;
 - `/design-review`, `/qa`, `/review`, Codex, Copilot/equivalent, and
   `/document-release` outcomes; and
 - deployment/configuration status, including whether external changes were

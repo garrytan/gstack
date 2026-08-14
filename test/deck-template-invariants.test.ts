@@ -163,13 +163,40 @@ describe('/deck narrative and privacy', () => {
     for (const phrase of ['claim ledger', 'source', 'investment thesis', 'product quality', 'feature breadth', 'bottom-up sizing', 'traction', 'go-to-market', 'economics', 'material risks', 'use of funds']) {
       expect(normalized).toContain(phrase);
     }
-    expect(story).toMatch(/never fill a gap with\s+invented proof/i);
+    expect(story).toMatch(/never fill\s+a gap with\s+invented proof/i);
     expect(story).toMatch(/one-sentence, falsifiable investment thesis/i);
     expect(story).toMatch(/What would falsify the thesis\?/i);
     for (const phrase of ['definition', 'unit', 'denominator', 'cohort', 'as-of date', 'actual', 'derived', 'estimate', 'forecast']) {
       expect(story).toContain(phrase);
     }
     expect(story).toMatch(/visually distinguish actuals from projections/i);
+  });
+
+  test('pins the headline, preservation, proof, competition, and decision-boundary gates', () => {
+    const story = between(TMPL, '## Step 2: Make the story and evidence earn attention', '## Step 3: Use the existing specialists');
+    const normalized = story.replace(/\s+/g, ' ');
+
+    for (const phrase of ['preservation ledger', '`must-preserve`', '`strengthen`', '`condense`', '`remove-with-reason`', 'headline-only story test', 'Proof gate', 'Competition gate', 'de-identified', 'anti-reidentification', 'publicly emphasized']) {
+      expect(story).toContain(phrase);
+    }
+    expect(normalized).toMatch(/For an item kept or condensed, record where its point appears in the new story; for a removal, record the reason/i);
+    expect(normalized).toMatch(/must not silently erase audience-critical context/i);
+    expect(normalized).toMatch(/founder history, product breadth, proof, or a fundraising use-of-funds story/i);
+    expect(story).toMatch(/\*\*Proof gate:\*\*\s+components of\s+one reported total must be mutually exclusive/i);
+    expect(normalized).toMatch(/formula, inclusions, exclusions/i);
+    expect(normalized).toMatch(/Never infer a causal outcome/i);
+    expect(normalized).toMatch(/audience\/buyer, painful job, thesis, distinctive wedge, real product breadth, proof, fair alternatives, team edge, and ask or CTA/i);
+    expect(normalized).toMatch(/For another deck, substitute that audience's decision path rather than forcing an investor outline/i);
+    expect(normalized).toMatch(/"Platform", "Traction", or "Competition" is not a headline/i);
+    expect(normalized).toMatch(/whole platform.*distinctive wedge.*deep craft-specific or high-stakes workflow.*automation-to-human or professional decision\/review boundary/i);
+    expect(normalized).toMatch(/Do not invent that boundary when the product does not have one, and state it only where source material supports it/i);
+    expect(normalized).toMatch(/permissioned, de-identified exact excerpts with a source handle and permission boundary/i);
+    expect(normalized).toMatch(/public attribution is explicitly approved/i);
+    expect(normalized).toMatch(/anti-reidentification check before publication/i);
+    expect(normalized).toMatch(/buyer-relevant decision criteria.*full workflow breadth, quality, review, or control envelope where those axes matter/i);
+    expect(normalized).toMatch(/relevant buyer alternatives, such as manual or incumbent work, suite\/platform, or point product/i);
+    expect(normalized).toMatch(/Cite each public source and its as-of date/i);
+    expect(normalized).toMatch(/never infer or assert absence merely because public material does not mention it/i);
   });
 
   test('requires anonymized aggregation and a data-room-on-request pattern for sensitive proof', () => {
@@ -187,6 +214,17 @@ describe('/deck narrative and privacy', () => {
     expect(TMPL).toMatch(/Do not send names, emails, recipient\/link tokens/i);
     expect(TMPL).toMatch(/separate, consent-aware access and data-design project/i);
     expect(TMPL).toMatch(/This confirmation\s+never authorizes source-material, screenshot, diff, or reviewer egress/i);
+  });
+
+  test('makes anonymous analytics revision-safe and host-verifiable when selected', () => {
+    const analytics = between(TMPL, '## Step 5: Add analytics only when requested', '## Step 6: Prove it before calling it done');
+    const normalized = analytics.replace(/\s+/g, ' ');
+    for (const phrase of ['`deck_revision`', '`section_id`', '`slide_number`', 'foreground/visible', 'monotonic maximum progress', 'sanitized canonical URL']) {
+      expect(analytics).toContain(phrase);
+    }
+    expect(normalized).toMatch(/same ordered source that renders navigation/i);
+    expect(normalized).toMatch(/both the normal-site and dedicated deck hosts when both exist/i);
+    expect(normalized).toMatch(/Consent refusal and analytics-provider failure must not impair deck rendering or navigation/i);
   });
 });
 
@@ -206,6 +244,17 @@ describe('/deck interaction and release proof', () => {
     }
     expect(interaction).toMatch(/real tab semantics for the deck's primary section navigation/i);
     expect(interaction).not.toMatch(/when the primary navigation is tabbed/i);
+  });
+
+  test('keeps decision-critical layout content in normal flow', () => {
+    const visual = between(TMPL, '### Visual and responsive contract', '### Routing and host contract');
+    const normalized = visual.replace(/\s+/g, ' ');
+    for (const phrase of ['in-flow layout contract', 'footnotes', 'proof bars', 'disclaimers', 'callouts', 'CTAs']) {
+      expect(visual).toContain(phrase);
+    }
+    expect(normalized).toMatch(/normal content flow of their section, not in detached viewport overlays/i);
+    expect(normalized).toMatch(/hover state, or animation cannot obscure or be the only home for required information/i);
+    expect(normalized).toMatch(/Prefer intentional scrolling to clipping, shrinking, hiding, or deleting important content/i);
   });
 
   test('uses target-project infrastructure and proves the production-equivalent runtime or artifact', () => {
@@ -233,9 +282,16 @@ describe('/deck interaction and release proof', () => {
 
   test('requires behavior tests, screenshots for every section, specialist reviews, and fresh Copilot feedback', () => {
     const proof = between(TMPL, '## Step 6: Prove it before calling it done', '## Step 7: External-change gate and delivery report');
-    for (const phrase of ['Direct valid section links', 'keyboard navigation', 'Mobile layout', 'desktop and phone screenshot\nfor **every section**', '/design-review', '/qa', '/review', 'independent second-opinion', 'fresh** Copilot', '/document-release']) {
+    for (const phrase of ['Direct valid section links', 'keyboard navigation', 'In-flow content and responsive layout', '/design-review', '/qa', '/review', 'independent second-opinion', 'fresh** Copilot', '/document-release']) {
       expect(proof).toContain(phrase);
     }
+    expect(proof).toMatch(/desktop, phone, tablet, and\s+short-laptop-height screenshots for \*\*every section\*\*/i);
+    expect(proof).toMatch(/record each exact pixel viewport used/i);
+    expect(proof.replace(/\s+/g, ' ')).toMatch(/Choose the matrix from the target project's breakpoint conventions or real target devices/i);
+    expect(proof).toMatch(/For every section, record a\s+bottom-state check/i);
+    expect(proof).toMatch(/for a scrollable section, capture and inspect its available\s+bottom; for an unscrollable section, explicitly record that its initial state is\s+also its bottom state/i);
+    expect(proof).toMatch(/reproduce that exact viewport before declaring the issue fixed/i);
+    expect(proof).toMatch(/fixed `deck_revision`,\s+navigation-derived section\/slide order, foreground dwell, and monotonic\s+progress/i);
     expect(proof).toMatch(/use\s+`\/codex review <deck-specific focus>` where available and permitted/i);
     expect(proof).toMatch(/never\s+fabricate a `\/codex` result/i);
     expect(proof).toMatch(/label self-review independent/i);
