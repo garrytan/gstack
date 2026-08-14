@@ -22,9 +22,11 @@
 # signals that actually discriminate are the host/orchestrator/CI env markers below.
 set -euo pipefail
 
-# 1. Orchestrator-spawned session (OpenClaw). Authoritative block lives in the skill;
-#    we only surface the classification.
-if [ -n "${OPENCLAW_SESSION:-}" ]; then
+# 1. Orchestrator-spawned session. Authoritative block lives in the skill; we only
+#    surface the classification. OPENCLAW_SESSION is OpenClaw's marker;
+#    GSTACK_SPAWNED_SESSION is the vendor-neutral one any orchestrator can set to opt
+#    into spawned/autonomous mode (auto-choose, no AskUserQuestion, completion report).
+if [ -n "${OPENCLAW_SESSION:-}" ] || [ -n "${GSTACK_SPAWNED_SESSION:-}" ]; then
   echo "spawned"
   exit 0
 fi
