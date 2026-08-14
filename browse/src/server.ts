@@ -706,21 +706,33 @@ if (BROWSE_PARENT_PID > 0 && !IS_HEADED_WATCHDOG) {
       // 1. Active cookie picker (one-time code or session live)? Stay alive
       //    regardless of mode — tearing down the server mid-import leaves the
       //    picker UI with a stale "Failed to fetch" error.
-      // 2. Headed / tunnel mode? Shutdown. The idle timeout doesn't apply in
-      //    these modes (see idleCheckInterval above — both early-return), so
-      //    ignoring parent death here would leak orphan daemons after
-      //    /pair-agent or /open-gstack-browser sessions.
-      // 3. Normal (headless) mode? Stay alive. Claude Code's Bash tool kills
+      // 2. Headed via the CLI `handoff` command (headless daemon transitioned
+      //    in-place)? Stay alive. BROWSE_PARENT_PID here was set at the
+      //    daemon's ORIGINAL headless spawn — some earlier, already-exited
+      //    CLI invocation, not a process meant to own this headed browser's
+      //    lifecycle. Falling through to case 3's "shut down" would kill
+      //    every handoff within one watchdog tick (~15s) of the parent CLI
+      //    process exiting, which it always does almost immediately — this
+      //    was killing real handoff sessions out from under the user.
+      // 3. Headed via launchHeaded()/connect, or tunnel mode? Shutdown. The
+      //    idle timeout doesn't apply in these modes (see idleCheckInterval
+      //    above — both early-return), so ignoring parent death here would
+      //    leak orphan daemons after /pair-agent or /open-gstack-browser
+      //    sessions, where BROWSE_PARENT_PID is deliberately set to a real
+      //    long-lived owner process.
+      // 4. Normal (headless) mode? Stay alive. Claude Code's Bash tool kills
       //    the parent shell between invocations. The idle timeout (30 min)
       //    handles eventual cleanup.
       if (hasActivePicker()) return;
       const headed = activeBrowserManager.getConnectionMode() === 'headed';
-      if (headed || tunnelActive) {
+      const viaHandoff = activeBrowserManager.didHandoffTransition();
+      if ((headed && !viaHandoff) || tunnelActive) {
         console.log(`[browse] Parent process ${BROWSE_PARENT_PID} exited in ${headed ? 'headed' : 'tunnel'} mode, shutting down`);
         activeShutdown?.();
       } else if (!parentGone) {
         parentGone = true;
-        console.log(`[browse] Parent process ${BROWSE_PARENT_PID} exited (server stays alive, idle timeout will clean up)`);
+        const reason = headed ? 'headed via handoff' : 'headless';
+        console.log(`[browse] Parent process ${BROWSE_PARENT_PID} exited (${reason}, server stays alive, idle timeout will clean up)`);
       }
     }
   }, 15_000);
@@ -780,6 +792,12 @@ const browserManager = new BrowserManager();
 // whose connectionMode never leaves 'launched' — and headed mode never
 // short-circuits idle-shutdown.
 let activeBrowserManager: BrowserManager = browserManager;
+// TEST-ONLY: forces the "headed via handoff" state without a real browser
+// launch, so watchdog.test.ts can subprocess-test the branch added for the
+// handoff-vs-launchHeaded watchdog fix. Never set by any real caller.
+if (process.env.BROWSE_TEST_FORCE_HANDOFF_HEADED === '1') {
+  browserManager.__forceHandoffHeadedForTest();
+}
 // When the user closes the headed browser window, run full cleanup
 // (kill sidebar-agent, save session, remove profile locks, delete state file)
 // before exiting. Exit code 0 means user-initiated clean quit (Cmd+Q on

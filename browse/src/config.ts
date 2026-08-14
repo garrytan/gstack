@@ -171,13 +171,29 @@ export function resolveGstackHome(): string {
  * Resolution order:
  *   1. `explicit` arg (passed via ServerConfig.chromiumProfile by embedders)
  *   2. CHROMIUM_PROFILE env (used by gbrowser's gbd per-workspace)
- *   3. <resolveGstackHome()>/chromium-profile (default)
+ *   3. <resolveConfig(env).stateDir>/chromium-profile (default — per-project)
+ *
+ * Per-project by default (not a single machine-wide path under
+ * resolveGstackHome()): the browse daemon is already isolated per git repo
+ * root via resolveConfig().stateDir, but headed/handoff Chromium used to
+ * share one `$HOME/.gstack/chromium-profile` across every project on the
+ * machine. Every daemon restart runs killOrphanChromium(), which reads the
+ * profile's SingletonLock and unconditionally kills whatever PID holds it —
+ * it can't tell "dead orphan" from "another project's live headed window".
+ * Two concurrent projects that both use headed mode (e.g. two sibling
+ * windows both driving a captcha-gated login) would intermittently kill
+ * each other's browser out from under the user. Scoping the profile per
+ * project removes the shared lock entirely.
  */
-export function resolveChromiumProfile(explicit?: string): string {
+export function resolveChromiumProfile(
+  explicit?: string,
+  env: Record<string, string | undefined> = process.env,
+): string {
   if (explicit && explicit.length > 0) return explicit;
-  const env = process.env.CHROMIUM_PROFILE;
-  if (env && env.length > 0) return env;
-  return path.join(resolveGstackHome(), 'chromium-profile');
+  const envOverride = env.CHROMIUM_PROFILE;
+  if (envOverride && envOverride.length > 0) return envOverride;
+  const { stateDir } = resolveConfig(env);
+  return path.join(stateDir, 'chromium-profile');
 }
 
 /**

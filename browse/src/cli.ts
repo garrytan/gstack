@@ -14,7 +14,7 @@ import * as path from 'path';
 import { spawn as nodeSpawn } from 'child_process';
 import { safeUnlink, safeUnlinkQuiet, safeKill, isProcessAlive } from './error-handling';
 import { writeSecureFile, mkdirSecure } from './file-permissions';
-import { resolveConfig, ensureStateDir, readVersionHash } from './config';
+import { resolveConfig, ensureStateDir, readVersionHash, resolveChromiumProfile } from './config';
 import { parseProxyConfig, computeConfigHash, ProxyConfigError } from './proxy-config';
 import { redactProxyUrl } from './proxy-redact';
 import { spawnTerminalAgent } from './terminal-agent-control';
@@ -212,9 +212,13 @@ function cleanupLegacyState(): void {
 }
 
 // ─── Chromium profile lock helpers (#1781) ─────────────────────
-/** Profile dir used by headed/connect Chromium sessions. */
+/** Profile dir used by headed/connect Chromium sessions. Delegates to the
+ * canonical resolver (config.ts) instead of re-deriving the path — was a
+ * second hardcoded copy of the same $HOME/.gstack/chromium-profile default
+ * that caused cross-project profile-lock collisions (see
+ * resolveChromiumProfile's docstring). */
 function chromiumProfileDir(): string {
-  return path.join(process.env.HOME || '/tmp', '.gstack', 'chromium-profile');
+  return resolveChromiumProfile();
 }
 
 /** Remove Chromium SingletonLock/Socket/Cookie so a relaunch can acquire the
