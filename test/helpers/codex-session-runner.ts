@@ -144,6 +144,8 @@ export async function runCodexSkill(opts: {
   cwd?: string;             // Working directory
   skillName?: string;       // Skill name for installation (default: dirname)
   sandbox?: string;         // Sandbox mode (default: 'read-only')
+  homeParent?: string;      // Parent for isolated HOME (default: OS temp dir)
+  model?: string;           // Optional stable model override for evals
 }): Promise<CodexResult> {
   const {
     skillDir,
@@ -152,6 +154,8 @@ export async function runCodexSkill(opts: {
     cwd,
     skillName,
     sandbox = 'read-only',
+    homeParent = os.tmpdir(),
+    model,
   } = opts;
 
   const startTime = Date.now();
@@ -174,7 +178,8 @@ export async function runCodexSkill(opts: {
   }
 
   // Set up temp HOME with skill installed
-  const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-e2e-'));
+  fs.mkdirSync(homeParent, { recursive: true });
+  const tempHome = fs.mkdtempSync(path.join(homeParent, 'codex-e2e-'));
   const realHome = os.homedir();
 
   try {
@@ -201,6 +206,7 @@ export async function runCodexSkill(opts: {
 
     // Build codex exec command
     const args = ['exec', prompt, '--json', '-s', sandbox];
+    if (model) args.push('-m', model);
 
     // Spawn codex with temp HOME so it discovers our installed skill.
     // Hermetic scrub (test/helpers/hermetic-env.ts) with codex's auth surface

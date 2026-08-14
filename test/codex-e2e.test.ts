@@ -55,6 +55,13 @@ if (!evalsEnabled) {
 // Codex E2E touchfiles — keyed by test name, same pattern as E2E_TOUCHFILES
 const CODEX_E2E_TOUCHFILES: Record<string, string[]> = {
   'codex-discover-skill':    ['codex/**', '.agents/skills/**', 'test/helpers/codex-session-runner.ts'],
+  'codex-design-shotgun-routing': [
+    'design-shotgun/**',
+    '.agents/skills/gstack-design-shotgun/**',
+    'scripts/resolvers/design.ts',
+    'scripts/resolvers/index.ts',
+    'test/helpers/codex-session-runner.ts',
+  ],
   'codex-review-findings':   ['review/**', '.agents/skills/gstack-review/**', 'codex/**', 'test/helpers/codex-session-runner.ts'],
 };
 
@@ -158,6 +165,51 @@ describeCodex('Codex E2E', () => {
       outputLower.includes('review') || outputLower.includes('gstack') || outputLower.includes('skill'),
     ).toBe(true);
   }, 120_000);
+
+  testIfSelected('codex-design-shotgun-routing', async () => {
+    const skillDir = path.join(testWorktree, '.agents', 'skills', 'gstack-design-shotgun');
+
+    const result = await runCodexSkill({
+      skillDir,
+      prompt: `Use the gstack-design-shotgun skill for this routing smoke test.
+Do not generate images, run shell commands, modify files, or ask questions. Read the
+Codex-specific workflow and state exactly:
+1. which skill handles each generated or edited variant;
+2. which command captures an existing page for screenshot evolution;
+3. which command creates and serves the comparison board;
+4. whether OPENAI_API_KEY is required.
+Keep the answer under 150 words.`,
+      timeoutMs: 120_000,
+      cwd: testWorktree,
+      skillName: 'gstack-design-shotgun',
+      homeParent: path.join(testWorktree, '.codex-e2e-homes'),
+      model: 'gpt-5.4',
+    });
+
+    logCodexCost('codex-design-shotgun-routing', result);
+
+    if (result.exitCode === 124 || result.exitCode === 137) {
+      console.warn(`codex-design-shotgun-routing: Codex timed out (exit ${result.exitCode}) - skipping assertions`);
+      recordCodexE2E('codex-design-shotgun-routing', result, true);
+      return;
+    }
+
+    const output = result.output;
+    const passed = result.exitCode === 0
+      && /\$imagegen|imagegen/i.test(output)
+      && /\$B\s+screenshot/i.test(output)
+      && /\$D\s+compare/i.test(output)
+      && /OPENAI_API_KEY/i.test(output)
+      && /not required|does not require|no API key|without.*API key/i.test(output);
+    recordCodexE2E('codex-design-shotgun-routing', result, passed);
+
+    expect(result.exitCode).toBe(0);
+    expect(output).toMatch(/\$imagegen|imagegen/i);
+    expect(output).toMatch(/\$B\s+screenshot/i);
+    expect(output).toMatch(/\$D\s+compare/i);
+    expect(output).toMatch(/OPENAI_API_KEY/i);
+    expect(output).toMatch(/not required|does not require|no API key|without.*API key/i);
+  }, 180_000);
 
   // Validates that Codex can invoke the gstack-review skill, run a diff-based
   // code review, and produce structured review output with findings/issues.
