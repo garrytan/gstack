@@ -279,6 +279,7 @@ Key routing rules:
 - Full review pipeline → invoke /autoplan
 - Bugs/errors → invoke /investigate
 - QA/testing site behavior → invoke /qa or /qa-only
+- QA/testing an already-running native or Electron desktop app → invoke /desktop-qa
 - Code review/diff check → invoke /review
 - Visual polish → invoke /design-review
 - Ship/deploy/PR → invoke /ship or /land-and-deploy
@@ -535,9 +536,10 @@ Skills that run plan reviews (`/plan-*-review`, `/codex review`) include the EXI
 
 This is the gstack router. Its one job is to send the request to the right skill.
 
-1. If the request is about a browser, QA, dogfooding, screenshots, or inspecting a page
+1. If the request is QA for an already-running native or Electron desktop app → invoke `/desktop-qa`.
+2. If the request is about a browser, website QA, dogfooding, screenshots, or inspecting a page
    (open a site, test a deploy, take a screenshot, check a flow visually) → invoke `/browse`.
-2. Otherwise, route by the rules below. If nothing matches, answer directly.
+3. Otherwise, route by the rules below. If nothing matches, answer directly.
 
 Best-effort, record which way you routed (never block on it). Set `ROUTE_OUTCOME` to
 `browse` (sent to /browse), `routed` (sent to another skill), or `direct` (answered
@@ -567,6 +569,7 @@ quality gates that produce better results than answering inline.
 - User reports a bug, error, broken behavior, "why is this broken", "this doesn't work", "wtf", "something's wrong" → invoke `/investigate`
 - User asks to test the site, find bugs, QA, "does this work", "check the deploy" → invoke `/qa`
 - User asks to just report bugs without fixing → invoke `/qa-only`
+- User asks to test an already-running native or Electron desktop app → invoke `/desktop-qa`
 - User asks to review code, check the diff, pre-landing review, "look at my changes" → invoke `/review`
 - User asks about visual polish, design audit of a live site, "this looks off" → invoke `/design-review`
 - User asks to audit the live developer experience, time-to-hello-world → invoke `/devex-review`

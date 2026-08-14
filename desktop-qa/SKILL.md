@@ -1,17 +1,17 @@
 ---
-name: benchmark-models
+name: desktop-qa
 preamble-tier: 1
 version: 1.0.0
-description: Cross-model benchmark for gstack skills. (gstack)
-triggers:
-  - cross model benchmark
-  - compare claude gpt gemini
-  - benchmark skill across models
-  - which model should I use
+description: Report-only QA for an already-running native or Electron desktop app through Cua Driver. (gstack)
 allowed-tools:
   - Bash
   - Read
+  - Write
   - AskUserQuestion
+triggers:
+  - desktop qa
+  - test desktop app
+  - qa native app
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
@@ -19,14 +19,10 @@ allowed-tools:
 
 ## When to invoke this skill
 
-Runs the same prompt through Claude,
-GPT (via Codex CLI), and Gemini side-by-side — compares latency, tokens, cost,
-and optionally quality via LLM judge. Answers "which model is actually best
-for this skill?" with data instead of vibes. Separate from /benchmark, which
-measures web page performance. Use when: "benchmark models", "compare models",
-"which model is best for X", "cross-model comparison", "model shootout".
+Use when asked to test a macOS, Windows, or Linux desktop window
+without changing source code. For browser sites, use /qa or /qa-only.
 
-Voice triggers (speech-to-text aliases): "compare models", "model shootout", "which model is best".
+Voice triggers (speech-to-text aliases): "test this desktop app", "qa this native app".
 
 ## Preamble (run first)
 
@@ -84,7 +80,7 @@ _QUESTION_TUNING=$(~/.claude/skills/gstack/bin/gstack-config get question_tuning
 echo "QUESTION_TUNING: $_QUESTION_TUNING"
 mkdir -p ~/.gstack/analytics
 if [ "$_TEL" != "off" ]; then
-echo '{"skill":"benchmark-models","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(_repo=$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null | tr -cd 'a-zA-Z0-9._-'); echo "${_repo:-unknown}")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
+echo '{"skill":"desktop-qa","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(_repo=$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null | tr -cd 'a-zA-Z0-9._-'); echo "${_repo:-unknown}")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
 fi
 for _PF in $(find ~/.gstack/analytics -maxdepth 1 -name '.pending-*' 2>/dev/null); do
   if [ -f "$_PF" ]; then
@@ -106,7 +102,7 @@ if [ -f "$_LEARN_FILE" ]; then
 else
   echo "LEARNINGS: 0"
 fi
-~/.claude/skills/gstack/bin/gstack-timeline-log '{"skill":"benchmark-models","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
+~/.claude/skills/gstack/bin/gstack-timeline-log '{"skill":"desktop-qa","event":"started","branch":"'"$_BRANCH"'","session":"'"$_SESSION_ID"'"}' 2>/dev/null &
 _HAS_ROUTING="no"
 if [ -f CLAUDE.md ] && grep -q "## Skill routing" CLAUDE.md 2>/dev/null; then
   _HAS_ROUTING="yes"
@@ -148,7 +144,7 @@ In plan mode, allowed because they inform the plan: `$B`, `$D`, `codex exec`/`co
 
 ## Skill Invocation During Plan Mode
 
-If the user invokes a skill in plan mode, the skill takes precedence over generic plan mode behavior. **Treat the skill file as executable instructions, not reference.** Follow it step by step starting from Step 0; any AskUserQuestion the skill fires is the workflow operating within plan mode, not a violation of it — and a skill whose instructions resolve a question themselves (e.g. a plan-mode auto-select) may legitimately not ask it. AskUserQuestion (any variant — `mcp__*__AskUserQuestion` or native; see "AskUserQuestion Format → Tool resolution") satisfies plan mode's end-of-turn requirement. If AskUserQuestion is unavailable or a call fails, follow the AskUserQuestion Format failure fallback: `headless` → BLOCKED; `interactive` → the prose fallback (also satisfies end-of-turn). At a STOP point, stop immediately. Do not continue the workflow or call ExitPlanMode there. Commands marked "PLAN MODE EXCEPTION — ALWAYS RUN" execute. Call ExitPlanMode only after the skill workflow completes, or if the user tells you to cancel the skill or leave plan mode.
+If the user invokes a skill in plan mode, the skill takes precedence over generic plan mode behavior. **Treat the skill file as executable instructions, not reference.** Follow it step by step starting from Step 0; the first AskUserQuestion is the workflow entering plan mode, not a violation of it. AskUserQuestion (any variant — `mcp__*__AskUserQuestion` or native; see "AskUserQuestion Format → Tool resolution") satisfies plan mode's end-of-turn requirement. If AskUserQuestion is unavailable or a call fails, follow the AskUserQuestion Format failure fallback: `headless` → BLOCKED; `interactive` → the prose fallback (also satisfies end-of-turn). At a STOP point, stop immediately. Do not continue the workflow or call ExitPlanMode there. Commands marked "PLAN MODE EXCEPTION — ALWAYS RUN" execute. Call ExitPlanMode only after the skill workflow completes, or if the user tells you to cancel the skill or leave plan mode.
 
 If `PROACTIVE` is `"false"`, do not auto-invoke or proactively suggest skills. If a skill seems useful, ask: "I think /skillname might help here — want me to run it?"
 
@@ -536,126 +532,171 @@ Replace `SKILL_NAME`, `OUTCOME`, and `USED_BROWSE` before running.
 
 Skills that run plan reviews (`/plan-*-review`, `/codex review`) include the EXIT PLAN MODE GATE blocking checklist at the end of the skill, which verifies the plan file ends with `## GSTACK REVIEW REPORT` before ExitPlanMode is called. Skills that don't run plan reviews (operational skills like `/ship`, `/qa`, `/review`) typically don't operate in plan mode and have no review report to verify; this footer is a no-op for them. Writing the plan file is the one edit allowed in plan mode.
 
-# /benchmark-models — Cross-Model Skill Benchmark
+# /desktop-qa: Report-Only Desktop App QA
 
-You are running the `/benchmark-models` workflow. Wraps the `gstack-model-benchmark` binary with an interactive flow that picks a prompt, confirms providers, previews auth, and runs the benchmark.
+Test one already-running native or Electron desktop-app window through Cua Driver. Follow realistic user flows, verify every claimed effect from fresh window state, and write an evidence-backed bug report. **Never edit source code or fix the bugs you find.**
 
-Different from `/benchmark` — that skill measures web page performance (Core Web Vitals, load times). This skill measures AI model performance on gstack skills or arbitrary prompts.
+Use this skill for macOS, Windows, and Linux desktop applications. For browser pages or web deployments, use `/qa` or `/qa-only`. For mobile apps, use the platform-specific mobile skill.
 
----
+## Hard boundaries
 
-## Step 0: Locate the binary
+These boundaries define the skill, not optional preferences:
 
-```bash
-BIN="$HOME/.claude/skills/gstack/bin/gstack-model-benchmark"
-[ -x "$BIN" ] || BIN=".claude/skills/gstack/bin/gstack-model-benchmark"
-[ -x "$BIN" ] || { echo "ERROR: gstack-model-benchmark not found. Run ./setup in the gstack install dir." >&2; exit 1; }
-echo "BIN: $BIN"
-```
+1. **Attach only to an app the user already launched.** Never launch, quit, restart, install, update, or replace an application.
+2. **Bind one exact window.** Use its `pid` and `window_id` for every snapshot and action. Never capture the desktop or another app.
+3. **Use strict window capture.** Start Cua Driver with `capture_scope:"window"`. Do not escalate the session or bring the target to the foreground.
+4. **Use the standard Cua Driver permission model.** Never bypass approvals, grant OS permissions, or alter driver configuration for the user.
+5. **Stay report-only.** Do not inspect or edit source code, create regression tests, or attempt fixes.
+6. **Protect real data.** Use synthetic or disposable test data. Obtain explicit user approval immediately before any action that sends a message, publishes content, makes a purchase, deletes data, changes account or security settings, or commits persistent external state.
+7. **Keep evidence narrow.** Save only target-window screenshots needed to prove a finding. Never include secrets, credentials, personal data, or unrelated app content in the report.
 
-If not found, stop and tell the user to reinstall gstack.
+If a required test cannot be completed inside these boundaries, mark it **unverified** and explain the limitation. Do not silently widen scope.
 
----
+## 1. Parse the request
 
-## Step 1: Choose a prompt
+Resolve these parameters before interacting:
 
-Use AskUserQuestion with the preamble format:
-- **Re-ground:** current project + branch.
-- **Simplify:** "A cross-model benchmark runs the same prompt through 2-3 AI models and shows you how they compare on speed, cost, and output quality. What prompt should we use?"
-- **RECOMMENDATION:** A because benchmarking against a real skill exposes tool-use differences, not just raw generation.
-- **Options:**
-  - A) Benchmark one of my gstack skills (we'll pick which skill next). Completeness: 10/10.
-  - B) Use an inline prompt — type it on the next turn. Completeness: 8/10.
-  - C) Point at a prompt file on disk — specify path on the next turn. Completeness: 8/10.
+| Parameter | Default | Example override |
+|-----------|---------|------------------|
+| Target | Required app and exact window | `Test the Settings window in MyApp` |
+| Mode | Standard: 3-5 representative flows | `--quick` for one smoke flow |
+| Scope | Visible behavior in the named window | `Focus on onboarding and keyboard navigation` |
+| Test data | Synthetic, local, disposable | `Use the provided staging account` |
+| Output | `.gstack/desktop-qa-reports/<app>-<timestamp>/` | `Write the report under artifacts/qa/` |
 
-If A: list top-level gstack skills that have SKILL.md files (from `find . -maxdepth 2 -name SKILL.md -not -path './.*'`), ask the user to pick one via a second AskUserQuestion. Use the picked SKILL.md path as the prompt file.
+If the request names multiple apps or windows, ask the user to choose one. If it asks for browser or mobile QA, route to the appropriate skill instead.
 
-If B: ask the user for the inline prompt. Use it verbatim via `--prompt "<text>"`.
+## 2. Verify Cua Driver without changing the system
 
-If C: ask for the path. Verify it exists. Use as positional argument.
-
----
-
-## Step 2: Choose providers
+Run read-only preflight checks:
 
 ```bash
-"$BIN" --prompt "unused, dry-run" --models claude,gpt,gemini --dry-run
+cua-driver --version
+cua-driver doctor --json
+cua-driver list-tools
 ```
 
-Show the dry-run output. The "Adapter availability" section tells the user which providers will actually run (OK) vs skip (NOT READY — remediation hint included).
+Confirm that `start_session`, `list_windows`, `get_window_state`, `click`, `type_text`, `press_key`, `scroll`, and `end_session` are available.
 
-If ALL three show NOT READY: stop with a clear message — benchmark can't run without at least one authed provider. Suggest `claude login`, `codex login`, or `gemini login` / `export GOOGLE_API_KEY`.
+If Cua Driver is missing, unhealthy, lacks required OS permissions, or lacks a required tool, stop and report the exact failed check. Point the user to the official [Cua Driver installation guide](https://cua.ai/docs/how-to-guides/driver/install). Never install or update it, start a privileged daemon, or grant permissions automatically.
 
-If at least one is OK: AskUserQuestion:
-- **Simplify:** "Which models should we include? The dry-run above showed which are authed. Unauthed ones will be skipped cleanly — they won't abort the batch."
-- **RECOMMENDATION:** A (all authed providers) because running as many as possible gives the richest comparison.
-- **Options:**
-  - A) All authed providers. Completeness: 10/10.
-  - B) Only Claude. Completeness: 6/10 (no cross-model signal — use /ship's review for solo claude benchmarks instead).
-  - C) Pick two — specify on next turn. Completeness: 8/10.
+## 3. Bind the exact running window
 
----
-
-## Step 3: Decide on judge
+List visible windows:
 
 ```bash
-[ -n "$ANTHROPIC_API_KEY" ] || grep -q 'ANTHROPIC' "$HOME/.claude/.credentials.json" 2>/dev/null && echo "JUDGE_AVAILABLE" || echo "JUDGE_UNAVAILABLE"
+cua-driver call list_windows '{}'
 ```
 
-If judge is available, AskUserQuestion:
-- **Simplify:** "The quality judge scores each model's output on a 0-10 scale using Anthropic's Claude as a tiebreaker. Adds ~$0.05/run. Recommended if you care about output quality, not just latency and cost."
-- **RECOMMENDATION:** A — the whole point is comparing quality, not just speed.
-- **Options:**
-  - A) Enable judge (adds ~$0.05). Completeness: 10/10.
-  - B) Skip judge — speed/cost/tokens only. Completeness: 7/10.
+Match both the application name and window title. Record the selected `pid`, `window_id`, title, and bounds in the report. If there is no match, ask the user to launch the app and open the target window. If more than one plausible match exists, ask the user which title to use; never choose arbitrarily.
 
-If judge is NOT available, skip this question and omit the `--judge` flag.
-
----
-
-## Step 4: Run the benchmark
-
-Construct the command from Step 1, 2, 3 decisions:
+Create a unique report directory with a concrete app slug and timestamp. Keep every command self-contained; do not rely on shell variables surviving between tool calls.
 
 ```bash
-"$BIN" <prompt-spec> --models <picked-models> [--judge] --output table
+mkdir -p ".gstack/desktop-qa-reports/<app-slug>-<YYYYMMDD-HHMMSS>/screenshots"
 ```
 
-Where `<prompt-spec>` is either `--prompt "<text>"` (Step 1B), a file path (Step 1A or 1C), and `<picked-models>` is the comma-separated list from Step 2.
+Use a unique, concrete session ID for this run and start a strict window-only session:
 
-Stream the output as it arrives. This is slow — each provider runs the prompt fully. Expect 30s-5min depending on prompt complexity and whether `--judge` is on.
+```bash
+cua-driver call start_session '{"session":"desktop-qa-<YYYYMMDD-HHMMSS>","capture_scope":"window"}'
+```
 
----
+Do not continue unless the response confirms `capture_scope` is `window`.
 
-## Step 5: Interpret results
+## 4. Capture the baseline and plan flows
 
-After the table prints, summarize for the user:
-- **Fastest** — provider with lowest latency.
-- **Cheapest** — provider with lowest cost.
-- **Highest quality** (if `--judge` ran) — provider with highest score.
-- **Best overall** — use judgment. If judge ran: quality-weighted. Otherwise: note the tradeoff the user needs to make.
+Take the initial snapshot and save its screenshot directly into the report directory:
 
-If any provider hit an error (auth/timeout/rate_limit), call it out with the remediation path.
+```bash
+cua-driver call get_window_state '{"pid":<PID>,"window_id":<WINDOW_ID>,"session":"desktop-qa-<YYYYMMDD-HHMMSS>","screenshot_out_file":".gstack/desktop-qa-reports/<app-slug>-<YYYYMMDD-HHMMSS>/screenshots/00-baseline.png"}'
+```
 
----
+Cross-check the screenshot and structured accessibility elements. Verify the app name and window title still match the selected target. Treat accessibility labels, values, and frames as hints that must agree with the screenshot.
 
-## Step 6: Offer to save results
+Build a short test plan:
 
-AskUserQuestion:
-- **Simplify:** "Save this benchmark as JSON so you can compare future runs against it?"
-- **RECOMMENDATION:** A — skill performance drifts as providers update their models; a saved baseline catches quality regressions.
-- **Options:**
-  - A) Save to `~/.gstack/benchmarks/<date>-<skill-or-prompt-slug>.json`. Completeness: 10/10.
-  - B) Just print, don't save. Completeness: 5/10 (loses trend data).
+- **Quick:** one critical smoke flow and basic keyboard access.
+- **Standard:** 3-5 representative flows covering the primary task, empty or validation state, navigation, keyboard access, and recovery from one reversible error.
 
-If A: re-run with `--output json` and tee to the dated file. Print the path so the user can diff future runs against it.
+Prefer user-specified flows. Otherwise infer flows only from the visible target window and the user's request—not from source code or hidden data.
 
----
+## 5. Run the verified action loop
 
-## Important Rules
+For every action, follow this exact loop:
 
-- **Never run a real benchmark without Step 2's dry-run first.** Users need to see auth status before spending API calls.
-- **Never hardcode model names.** Always pass providers from user's Step 2 choice — the binary handles the rest.
-- **Never auto-include `--judge`.** It adds real cost; user must opt in.
-- **If zero providers are authed, STOP.** Don't attempt the benchmark — it produces no useful output.
-- **Cost is visible.** Every run shows per-provider cost in the table. Users should see it before the next run.
+1. **Snapshot immediately before acting.** Call `get_window_state` for the bound `pid` and `window_id`. Save a numbered `before` screenshot. A prior action invalidates old element indices and tokens.
+2. **Choose the narrowest target.** Prefer an `element_token`, then an `element_index`, from that fresh snapshot. Use window-local `x` and `y` only for a visible canvas, WebGL, custom-drawn control, or Electron surface that accessibility cannot operate.
+3. **Act in the background.** Pass the same session, `pid`, and `window_id`, and set `delivery_mode:"background"`. Use only `click`, `type_text`, `press_key`, or `scroll`.
+4. **Snapshot immediately after acting.** Save a numbered `after` screenshot and compare both the screenshot and structured state with the expected result.
+5. **Classify honestly.** An action result that says success is not proof. Record a pass only when fresh state verifies the expected effect. If background delivery fails, record the flow as unverified; do not retry in foreground.
+
+Accessibility-targeted action example:
+
+```bash
+cua-driver call click '{"pid":<PID>,"window_id":<WINDOW_ID>,"session":"desktop-qa-<YYYYMMDD-HHMMSS>","element_token":"<FRESH_ELEMENT_TOKEN>","delivery_mode":"background"}'
+```
+
+Electron/custom-surface text example, using coordinates copied directly from the latest target-window screenshot:
+
+```bash
+cua-driver call type_text '{"pid":<PID>,"window_id":<WINDOW_ID>,"session":"desktop-qa-<YYYYMMDD-HHMMSS>","x":<WINDOW_LOCAL_X>,"y":<WINDOW_LOCAL_Y>,"text":"Synthetic test value","delivery_mode":"background"}'
+```
+
+After every action, use a fresh `get_window_state` call with a new `screenshot_out_file`. Stop the run if the target window disappears, its identity becomes ambiguous, the action would leave the bound window, or sensitive information appears.
+
+## 6. Write the report
+
+Write `.gstack/desktop-qa-reports/<app-slug>-<YYYYMMDD-HHMMSS>/desktop-qa-report.md` with:
+
+```markdown
+# Desktop QA Report: <app and window>
+
+## Scope and environment
+- Mode and requested scope
+- Cua Driver version
+- Platform
+- Target app, window title, PID, and window ID
+- Started and completed timestamps
+
+## Summary
+- Flows passed, failed, and unverified
+- Highest confirmed severity
+
+## Verified findings
+### DQA-001: <concise title>
+- Severity: Critical | High | Medium | Low
+- Flow: <tested task>
+- Reproduction: <numbered exact steps>
+- Expected: <observable outcome>
+- Actual: <observable outcome>
+- Evidence: <relative before/after screenshot paths>
+
+## Passed checks
+- <flow and observed result>
+
+## Unverified checks and limitations
+- <what could not be proven and why>
+```
+
+Include only reproducible, freshly verified findings. Do not offer speculative root causes or copy sensitive accessibility values into the report.
+
+## 7. Always end the session
+
+Whether the run passes, fails, or stops early, end only the session created for this run:
+
+```bash
+cua-driver call end_session '{"session":"desktop-qa-<YYYYMMDD-HHMMSS>"}'
+```
+
+Confirm the session ended. Do not stop the shared Cua Driver daemon, revoke permissions, or clean up another session.
+
+## Completion checklist
+
+- The exact app window stayed bound by `pid` and `window_id`.
+- Every action used a fresh before snapshot and a fresh after snapshot.
+- Every claimed pass or bug has target-window evidence.
+- Unverified behavior is labeled rather than guessed.
+- No source, app installation, driver configuration, external account, or unrelated window was changed.
+- The report contains no secrets or personal data.
+- The Cua Driver session ended.

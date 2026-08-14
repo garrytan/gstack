@@ -1,0 +1,192 @@
+---
+name: desktop-qa
+preamble-tier: 1
+version: 1.0.0
+description: |
+  Report-only QA for an already-running native or Electron desktop app through
+  Cua Driver. Use when asked to test a macOS, Windows, or Linux desktop window
+  without changing source code. For browser sites, use /qa or /qa-only. (gstack)
+voice-triggers:
+  - "test this desktop app"
+  - "qa this native app"
+allowed-tools:
+  - Bash
+  - Read
+  - Write
+  - AskUserQuestion
+triggers:
+  - desktop qa
+  - test desktop app
+  - qa native app
+---
+
+{{PREAMBLE}}
+
+# /desktop-qa: Report-Only Desktop App QA
+
+Test one already-running native or Electron desktop-app window through Cua Driver. Follow realistic user flows, verify every claimed effect from fresh window state, and write an evidence-backed bug report. **Never edit source code or fix the bugs you find.**
+
+Use this skill for macOS, Windows, and Linux desktop applications. For browser pages or web deployments, use `/qa` or `/qa-only`. For mobile apps, use the platform-specific mobile skill.
+
+## Hard boundaries
+
+These boundaries define the skill, not optional preferences:
+
+1. **Attach only to an app the user already launched.** Never launch, quit, restart, install, update, or replace an application.
+2. **Bind one exact window.** Use its `pid` and `window_id` for every snapshot and action. Never capture the desktop or another app.
+3. **Use strict window capture.** Start Cua Driver with `capture_scope:"window"`. Do not escalate the session or bring the target to the foreground.
+4. **Use the standard Cua Driver permission model.** Never bypass approvals, grant OS permissions, or alter driver configuration for the user.
+5. **Stay report-only.** Do not inspect or edit source code, create regression tests, or attempt fixes.
+6. **Protect real data.** Use synthetic or disposable test data. Obtain explicit user approval immediately before any action that sends a message, publishes content, makes a purchase, deletes data, changes account or security settings, or commits persistent external state.
+7. **Keep evidence narrow.** Save only target-window screenshots needed to prove a finding. Never include secrets, credentials, personal data, or unrelated app content in the report.
+
+If a required test cannot be completed inside these boundaries, mark it **unverified** and explain the limitation. Do not silently widen scope.
+
+## 1. Parse the request
+
+Resolve these parameters before interacting:
+
+| Parameter | Default | Example override |
+|-----------|---------|------------------|
+| Target | Required app and exact window | `Test the Settings window in MyApp` |
+| Mode | Standard: 3-5 representative flows | `--quick` for one smoke flow |
+| Scope | Visible behavior in the named window | `Focus on onboarding and keyboard navigation` |
+| Test data | Synthetic, local, disposable | `Use the provided staging account` |
+| Output | `.gstack/desktop-qa-reports/<app>-<timestamp>/` | `Write the report under artifacts/qa/` |
+
+If the request names multiple apps or windows, ask the user to choose one. If it asks for browser or mobile QA, route to the appropriate skill instead.
+
+## 2. Verify Cua Driver without changing the system
+
+Run read-only preflight checks:
+
+```bash
+cua-driver --version
+cua-driver doctor --json
+cua-driver list-tools
+```
+
+Confirm that `start_session`, `list_windows`, `get_window_state`, `click`, `type_text`, `press_key`, `scroll`, and `end_session` are available.
+
+If Cua Driver is missing, unhealthy, lacks required OS permissions, or lacks a required tool, stop and report the exact failed check. Point the user to the official [Cua Driver installation guide](https://cua.ai/docs/how-to-guides/driver/install). Never install or update it, start a privileged daemon, or grant permissions automatically.
+
+## 3. Bind the exact running window
+
+List visible windows:
+
+```bash
+cua-driver call list_windows '{}'
+```
+
+Match both the application name and window title. Record the selected `pid`, `window_id`, title, and bounds in the report. If there is no match, ask the user to launch the app and open the target window. If more than one plausible match exists, ask the user which title to use; never choose arbitrarily.
+
+Create a unique report directory with a concrete app slug and timestamp. Keep every command self-contained; do not rely on shell variables surviving between tool calls.
+
+```bash
+mkdir -p ".gstack/desktop-qa-reports/<app-slug>-<YYYYMMDD-HHMMSS>/screenshots"
+```
+
+Use a unique, concrete session ID for this run and start a strict window-only session:
+
+```bash
+cua-driver call start_session '{"session":"desktop-qa-<YYYYMMDD-HHMMSS>","capture_scope":"window"}'
+```
+
+Do not continue unless the response confirms `capture_scope` is `window`.
+
+## 4. Capture the baseline and plan flows
+
+Take the initial snapshot and save its screenshot directly into the report directory:
+
+```bash
+cua-driver call get_window_state '{"pid":<PID>,"window_id":<WINDOW_ID>,"session":"desktop-qa-<YYYYMMDD-HHMMSS>","screenshot_out_file":".gstack/desktop-qa-reports/<app-slug>-<YYYYMMDD-HHMMSS>/screenshots/00-baseline.png"}'
+```
+
+Cross-check the screenshot and structured accessibility elements. Verify the app name and window title still match the selected target. Treat accessibility labels, values, and frames as hints that must agree with the screenshot.
+
+Build a short test plan:
+
+- **Quick:** one critical smoke flow and basic keyboard access.
+- **Standard:** 3-5 representative flows covering the primary task, empty or validation state, navigation, keyboard access, and recovery from one reversible error.
+
+Prefer user-specified flows. Otherwise infer flows only from the visible target window and the user's request—not from source code or hidden data.
+
+## 5. Run the verified action loop
+
+For every action, follow this exact loop:
+
+1. **Snapshot immediately before acting.** Call `get_window_state` for the bound `pid` and `window_id`. Save a numbered `before` screenshot. A prior action invalidates old element indices and tokens.
+2. **Choose the narrowest target.** Prefer an `element_token`, then an `element_index`, from that fresh snapshot. Use window-local `x` and `y` only for a visible canvas, WebGL, custom-drawn control, or Electron surface that accessibility cannot operate.
+3. **Act in the background.** Pass the same session, `pid`, and `window_id`, and set `delivery_mode:"background"`. Use only `click`, `type_text`, `press_key`, or `scroll`.
+4. **Snapshot immediately after acting.** Save a numbered `after` screenshot and compare both the screenshot and structured state with the expected result.
+5. **Classify honestly.** An action result that says success is not proof. Record a pass only when fresh state verifies the expected effect. If background delivery fails, record the flow as unverified; do not retry in foreground.
+
+Accessibility-targeted action example:
+
+```bash
+cua-driver call click '{"pid":<PID>,"window_id":<WINDOW_ID>,"session":"desktop-qa-<YYYYMMDD-HHMMSS>","element_token":"<FRESH_ELEMENT_TOKEN>","delivery_mode":"background"}'
+```
+
+Electron/custom-surface text example, using coordinates copied directly from the latest target-window screenshot:
+
+```bash
+cua-driver call type_text '{"pid":<PID>,"window_id":<WINDOW_ID>,"session":"desktop-qa-<YYYYMMDD-HHMMSS>","x":<WINDOW_LOCAL_X>,"y":<WINDOW_LOCAL_Y>,"text":"Synthetic test value","delivery_mode":"background"}'
+```
+
+After every action, use a fresh `get_window_state` call with a new `screenshot_out_file`. Stop the run if the target window disappears, its identity becomes ambiguous, the action would leave the bound window, or sensitive information appears.
+
+## 6. Write the report
+
+Write `.gstack/desktop-qa-reports/<app-slug>-<YYYYMMDD-HHMMSS>/desktop-qa-report.md` with:
+
+```markdown
+# Desktop QA Report: <app and window>
+
+## Scope and environment
+- Mode and requested scope
+- Cua Driver version
+- Platform
+- Target app, window title, PID, and window ID
+- Started and completed timestamps
+
+## Summary
+- Flows passed, failed, and unverified
+- Highest confirmed severity
+
+## Verified findings
+### DQA-001: <concise title>
+- Severity: Critical | High | Medium | Low
+- Flow: <tested task>
+- Reproduction: <numbered exact steps>
+- Expected: <observable outcome>
+- Actual: <observable outcome>
+- Evidence: <relative before/after screenshot paths>
+
+## Passed checks
+- <flow and observed result>
+
+## Unverified checks and limitations
+- <what could not be proven and why>
+```
+
+Include only reproducible, freshly verified findings. Do not offer speculative root causes or copy sensitive accessibility values into the report.
+
+## 7. Always end the session
+
+Whether the run passes, fails, or stops early, end only the session created for this run:
+
+```bash
+cua-driver call end_session '{"session":"desktop-qa-<YYYYMMDD-HHMMSS>"}'
+```
+
+Confirm the session ended. Do not stop the shared Cua Driver daemon, revoke permissions, or clean up another session.
+
+## Completion checklist
+
+- The exact app window stayed bound by `pid` and `window_id`.
+- Every action used a fresh before snapshot and a fresh after snapshot.
+- Every claimed pass or bug has target-window evidence.
+- Unverified behavior is labeled rather than guessed.
+- No source, app installation, driver configuration, external account, or unrelated window was changed.
+- The report contains no secrets or personal data.
+- The Cua Driver session ended.
