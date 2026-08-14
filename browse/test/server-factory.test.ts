@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, mock } from 'bun:test';
+import { describe, test, expect, beforeAll, beforeEach, afterAll, mock } from 'bun:test';
 import {
   resolveConfigFromEnv,
   buildFetchHandler,
@@ -411,6 +411,27 @@ function makeMockBrowserManager(mode: 'launched' | 'headed') {
 }
 
 describe('idle timer + onDisconnect dual-instance fix', () => {
+  // File-scoped process.exit guard. The shutdown path is fire-and-forget
+  // async: a test's per-call exit stub can be restored while a second
+  // shutdown invocation is still in flight, and that straggler then hits the
+  // REAL process.exit(0) — truncating the whole bun test run mid-suite with
+  // a green exit code and no failure tally. Per-test stubs installed below
+  // capture-and-restore against this file stub, never the real exit.
+  const fileExitStub = mock((_code?: number) => {});
+  let realProcessExit: typeof process.exit;
+  beforeAll(() => {
+    realProcessExit = process.exit;
+    (process as any).exit = fileExitStub;
+  });
+  afterAll(async () => {
+    // Kill the leaked module-level 60s interval so it can't fire shutdown
+    // (with the real process.exit) during a later test file.
+    __testInternals__.stopIdleTimer();
+    // Grace period: let any straggler async shutdown land on the stub.
+    await new Promise<void>(r => setTimeout(r, 300));
+    (process as any).exit = realProcessExit;
+  });
+
   beforeEach(() => {
     __resetRegistry();
     // Reset module state every test. Bun memoizes the server.ts module
@@ -424,87 +445,68 @@ describe('idle timer + onDisconnect dual-instance fix', () => {
   });
 
   test('CRITICAL — REGRESSION: headed embedder does not auto-shutdown at idle', () => {
-    const exitMock = mock((_code?: number) => { throw new Error('process.exit called'); });
-    const originalExit = process.exit;
-    (process as any).exit = exitMock;
-    try {
-      const mockBM = makeMockBrowserManager('headed');
-      buildFetchHandler(makeMinimalConfig({ browserManager: mockBM as any }));
-      // Drive lastActivity past the idle threshold via the test seam instead
-      // of mutating Date.now — the leaked module-level setInterval would
-      // see fake-time and could fire shutdown if the timing aligned.
-      __testInternals__.setLastActivity(Date.now() - (31 * 60 * 1000));
-      __testInternals__.idleCheckTick();
-      expect(exitMock).not.toHaveBeenCalled();
-    } finally {
-      (process as any).exit = originalExit;
-    }
+    const exitSpy = mock((_code?: number) => {});
+    const mockBM = makeMockBrowserManager('headed');
+    buildFetchHandler(makeMinimalConfig({ browserManager: mockBM as any, exitFn: exitSpy }));
+    // Drive lastActivity past the idle threshold via the test seam instead
+    // of mutating Date.now — the leaked module-level setInterval would
+    // see fake-time and could fire shutdown if the timing aligned.
+    __testInternals__.setLastActivity(Date.now() - (31 * 60 * 1000));
+    __testInternals__.idleCheckTick();
+    expect(exitSpy).not.toHaveBeenCalled();
   });
 
   test('headless still auto-shuts down at idle (paired defensive)', async () => {
-    // Non-throwing mock: idleCheckTick fires shutdown as a fire-and-forget
-    // async call. Throwing from process.exit becomes an unhandled rejection
-    // that the test runner catches. Recording the call is enough.
-    const exitMock = mock((_code?: number) => {});
-    const originalExit = process.exit;
-    (process as any).exit = exitMock;
-    try {
-      const mockBM = makeMockBrowserManager('launched');
-      buildFetchHandler(makeMinimalConfig({ browserManager: mockBM as any }));
-      __testInternals__.setLastActivity(Date.now() - (31 * 60 * 1000));
-      __testInternals__.idleCheckTick();
-      // Drain microtasks: shutdown awaits flushBuffers + cfgBrowserManager.close
-      // before reaching process.exit.
-      await Promise.resolve();
-      await Promise.resolve();
-      await new Promise<void>(r => setImmediate(r));
-      await new Promise<void>(r => setImmediate(r));
-      expect(exitMock).toHaveBeenCalled();
-    } finally {
-      (process as any).exit = originalExit;
+    // Shutdown is fire-and-forget async and hard-calling process.exit from it
+    // is what this seam exists to avoid: a per-test process.exit stub can be
+    // restored while a straggler shutdown is still in flight, and the real
+    // exit(0) then kills the whole bun run mid-suite with a green exit code.
+    // The injected exitFn spy makes the assertion race-free and harmless.
+    const exitSpy = mock((_code?: number) => {});
+    const mockBM = makeMockBrowserManager('launched');
+    buildFetchHandler(makeMinimalConfig({ browserManager: mockBM as any, exitFn: exitSpy }));
+    __testInternals__.setLastActivity(Date.now() - (31 * 60 * 1000));
+    __testInternals__.idleCheckTick();
+    // Poll until the async shutdown reaches the exit seam.
+    for (let i = 0; i < 500 && exitSpy.mock.calls.length === 0; i++) {
+      await new Promise<void>(r => setTimeout(r, 10));
     }
+    expect(exitSpy).toHaveBeenCalled();
+    // Reset activity so the module-level 60s idle interval cannot re-fire
+    // shutdown later in the suite.
+    __testInternals__.setLastActivity(Date.now());
   });
 
   test('buildFetchHandler chains cfgBrowserManager.onDisconnect, preserving caller-set handler', async () => {
     const mockBM = makeMockBrowserManager('headed');
     const callerCb = mock(async (_code?: number) => {});
     mockBM.onDisconnect = callerCb;
-    buildFetchHandler(makeMinimalConfig({ browserManager: mockBM as any }));
+    const exitSpy = mock((_code?: number) => {});
+    buildFetchHandler(makeMinimalConfig({ browserManager: mockBM as any, exitFn: exitSpy }));
     // gstack should have wrapped the caller-installed handler instead of
     // clobbering it (Codex finding: BrowserManager.onDisconnect is a public
     // field; gbrowser may set it before calling buildFetchHandler).
     expect(typeof mockBM.onDisconnect).toBe('function');
     expect(mockBM.onDisconnect).not.toBe(callerCb);
     // Verify the chain: invoking the wrapped handler runs the caller
-    // callback AND reaches activeShutdown (which calls process.exit at the
-    // very end of its async path). Stubbing process.exit to throw aborts
-    // the chain before isShuttingDown can leak into later tests.
-    const exitMock = mock((_code?: number) => { throw new Error('process.exit called'); });
-    const originalExit = process.exit;
-    (process as any).exit = exitMock;
-    try {
-      await expect((mockBM.onDisconnect as any)(0)).rejects.toThrow('process.exit called');
-      expect(callerCb).toHaveBeenCalledWith(0);
-      expect(exitMock).toHaveBeenCalledWith(0);
-    } finally {
-      (process as any).exit = originalExit;
+    // callback AND reaches activeShutdown, whose teardown ends at the
+    // injected exit seam instead of the real process.exit.
+    await (mockBM.onDisconnect as any)(0);
+    for (let i = 0; i < 500 && exitSpy.mock.calls.length === 0; i++) {
+      await new Promise<void>(r => setTimeout(r, 10));
     }
+    expect(callerCb).toHaveBeenCalledWith(0);
+    expect(exitSpy).toHaveBeenCalledWith(0);
   });
 
   test('tunnelActive blocks idle-shutdown even in headless mode', () => {
-    const exitMock = mock((_code?: number) => { throw new Error('process.exit called'); });
-    const originalExit = process.exit;
-    (process as any).exit = exitMock;
-    try {
-      const mockBM = makeMockBrowserManager('launched');
-      buildFetchHandler(makeMinimalConfig({ browserManager: mockBM as any }));
-      __testInternals__.setTunnelActive(true);
-      __testInternals__.setLastActivity(Date.now() - (31 * 60 * 1000));
-      __testInternals__.idleCheckTick();
-      expect(exitMock).not.toHaveBeenCalled();
-    } finally {
-      (process as any).exit = originalExit;
-    }
+    const exitSpy = mock((_code?: number) => {});
+    const mockBM = makeMockBrowserManager('launched');
+    buildFetchHandler(makeMinimalConfig({ browserManager: mockBM as any, exitFn: exitSpy }));
+    __testInternals__.setTunnelActive(true);
+    __testInternals__.setLastActivity(Date.now() - (31 * 60 * 1000));
+    __testInternals__.idleCheckTick();
+    expect(exitSpy).not.toHaveBeenCalled();
   });
 
   test('lifecycle handlers (idleCheckTick + parent watchdog + SIGTERM) read activeBrowserManager, not module-level browserManager', () => {

@@ -18,7 +18,12 @@ function run(args: string[] = [], extraEnv: Record<string, string> = {}) {
   const result = Bun.spawnSync(['bash', SCRIPT, ...args], {
     env: {
       ...process.env,
+      // Set all three state-dir vars: other test files leak GSTACK_HOME /
+      // GSTACK_STATE_ROOT into process.env at module scope, and those
+      // outrank GSTACK_STATE_DIR in the script's resolution order.
       GSTACK_STATE_DIR: stateDir,
+      GSTACK_STATE_ROOT: stateDir,
+      GSTACK_HOME: stateDir,
       ...extraEnv,
     },
     stdout: 'pipe',

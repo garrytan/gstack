@@ -803,15 +803,14 @@ export class BrowserManager {
     this.tabSessions.delete(tabId);
     this.tabOwnership.delete(tabId);
 
-    // Switch to another tab if we closed the active one
-    if (tabId === this.activeTabId) {
+    // Never leave zero tabs, regardless of which tab was closed — activeTabId
+    // can point at an already-removed id, and the old active-only guard then
+    // skipped auto-create when the last tab closed.
+    if (this.pages.size === 0) {
+      await this.newTab();
+    } else if (tabId === this.activeTabId) {
       const remaining = [...this.pages.keys()];
-      if (remaining.length > 0) {
-        this.activeTabId = remaining[remaining.length - 1];
-      } else {
-        // No tabs left — create a new blank one
-        await this.newTab();
-      }
+      this.activeTabId = remaining[remaining.length - 1];
     }
   }
 

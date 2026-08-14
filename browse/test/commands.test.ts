@@ -94,11 +94,18 @@ beforeAll(async () => {
   await bm.launch();
 });
 
-afterAll(() => {
+afterAll(async () => {
   // Force kill browser instead of graceful close (avoids hang)
   try { testServer.server.stop(); } catch {}
   // bm.close() can hang — just let process exit handle it
-  setTimeout(() => process.exit(0), 500);
+  // Close the real browser (capped at 5s — close can hang) instead of a
+  // delayed process.exit(0): that timer fired ~500ms into the NEXT test
+  // file in a full-suite run and killed the whole bun process with a green
+  // exit code and no tally, silently truncating the run.
+  await Promise.race([
+    bm.close().catch(() => {}),
+    new Promise<void>(r => setTimeout(r, 5000)),
+  ]);
 });
 
 // ─── Navigation ─────────────────────────────────────────────────

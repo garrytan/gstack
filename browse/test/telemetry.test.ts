@@ -8,6 +8,7 @@ const TELEMETRY_FILE = path.join(TMP_HOME, 'analytics', 'browse-telemetry.jsonl'
 
 // Use GSTACK_HOME env to redirect telemetry writes (read each call,
 // not cached at module-load).
+const ORIG_GSTACK_HOME = process.env.GSTACK_HOME;
 process.env.GSTACK_HOME = TMP_HOME;
 process.env.GSTACK_TELEMETRY_OFF = '0';
 
@@ -17,6 +18,10 @@ beforeEach(async () => {
 
 afterAll(async () => {
   await fs.rm(TMP_HOME, { recursive: true, force: true });
+  // Un-leak GSTACK_HOME: it outranks GSTACK_STATE_DIR in bin/gstack-config's
+  // resolution order, so leaving it set breaks later test files in-process.
+  if (ORIG_GSTACK_HOME === undefined) delete process.env.GSTACK_HOME;
+  else process.env.GSTACK_HOME = ORIG_GSTACK_HOME;
 });
 
 async function readEvents(): Promise<any[]> {

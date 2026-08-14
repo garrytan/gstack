@@ -1,10 +1,18 @@
-import { describe, it, expect, beforeEach } from 'bun:test';
+import { describe, it, expect, beforeEach, afterAll } from 'bun:test';
 import { promises as fs } from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
 const TMP_HOME = path.join(os.tmpdir(), `gstack-test-${process.pid}-${Date.now()}`);
+const ORIG_GSTACK_HOME = process.env.GSTACK_HOME;
 process.env.GSTACK_HOME = TMP_HOME;
+
+afterAll(() => {
+  // Un-leak GSTACK_HOME: it outranks GSTACK_STATE_DIR in bin/gstack-config,
+  // so leaving it set breaks later test files in-process.
+  if (ORIG_GSTACK_HOME === undefined) delete process.env.GSTACK_HOME;
+  else process.env.GSTACK_HOME = ORIG_GSTACK_HOME;
+});
 
 // Re-import after env var set so module reads updated GSTACK_HOME
 async function freshImport() {

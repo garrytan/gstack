@@ -31,9 +31,13 @@ beforeAll(async () => {
   await bm.launch();
 });
 
-afterAll(() => {
+afterAll(async () => {
   try { testServer.server.stop(); } catch {}
-  setTimeout(() => process.exit(0), 500);
+  // Close the real browser instead of scheduling a delayed process.exit(0):
+  // in a full-suite run that timer fired ~500ms into the NEXT test file and
+  // killed the entire bun process with a green exit code and no tally —
+  // silently truncating the run and hiding every failure after this file.
+  await bm.close().catch(() => {});
 });
 
 // ─── Snapshot Output ────────────────────────────────────────────

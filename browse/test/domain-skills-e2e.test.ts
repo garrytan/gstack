@@ -17,6 +17,7 @@ import { startTestServer } from './test-server';
 import { BrowserManager } from '../src/browser-manager';
 
 const TMP_HOME = path.join(os.tmpdir(), `gstack-domain-e2e-${process.pid}-${Date.now()}`);
+const ORIG_GSTACK_HOME = process.env.GSTACK_HOME;
 process.env.GSTACK_HOME = TMP_HOME;
 process.env.GSTACK_PROJECT_SLUG = 'e2e-test-slug';
 
@@ -41,6 +42,11 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  // Un-leak GSTACK_HOME: it outranks GSTACK_STATE_DIR in bin/gstack-config,
+  // so leaving it set breaks later test files in-process.
+  if (ORIG_GSTACK_HOME === undefined) delete process.env.GSTACK_HOME;
+  else process.env.GSTACK_HOME = ORIG_GSTACK_HOME;
+
   try { await bm.cleanup?.(); } catch {}
   try { testServer.server.stop(); } catch {}
   await fs.rm(TMP_HOME, { recursive: true, force: true });
