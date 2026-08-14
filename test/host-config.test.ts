@@ -22,6 +22,9 @@ import {
   slate,
   cursor,
   openclaw,
+  pi,
+  PI_SUBAGENTS_PACKAGE,
+  PI_SUBAGENT_ROLES,
 } from '../hosts/index';
 import { HOST_PATHS } from '../scripts/resolvers/types';
 import { RESOLVERS } from '../scripts/resolvers';
@@ -32,8 +35,8 @@ const RESOLVER_NAMES = new Set(Object.keys(RESOLVERS));
 // ─── hosts/index.ts ─────────────────────────────────────────
 
 describe('hosts/index.ts', () => {
-  test('ALL_HOST_CONFIGS has 10 hosts', () => {
-    expect(ALL_HOST_CONFIGS.length).toBe(10);
+  test('ALL_HOST_CONFIGS has 11 hosts', () => {
+    expect(ALL_HOST_CONFIGS.length).toBe(11);
   });
 
   test('ALL_HOST_NAMES matches config names', () => {
@@ -55,6 +58,7 @@ describe('hosts/index.ts', () => {
     expect(slate.name).toBe('slate');
     expect(cursor.name).toBe('cursor');
     expect(openclaw.name).toBe('openclaw');
+    expect(pi.name).toBe('pi');
   });
 
   test('getHostConfig returns correct config', () => {
@@ -527,6 +531,23 @@ describe('host config correctness', () => {
 
   test('openclaw has no staticFiles (SOUL.md removed)', () => {
     expect(openclaw.staticFiles).toBeUndefined();
+  });
+
+  test('Pi uses pi-subagents for delegation instead of suppressing workflows', () => {
+    expect(PI_SUBAGENTS_PACKAGE).toBe('npm:pi-subagents');
+    expect(PI_SUBAGENT_ROLES).toEqual({
+      review: 'reviewer',
+      implementation: 'worker',
+      reconnaissance: 'scout',
+      secondOpinion: 'oracle',
+      general: 'delegate',
+    });
+    expect(pi.suppressedResolvers).not.toContain('REVIEW_ARMY');
+    expect(pi.suppressedResolvers).not.toContain('ADVERSARIAL_STEP');
+    expect(pi.suppressedResolvers).not.toContain('SPEC_REVIEW_LOOP');
+    expect(pi.toolRewrites?.['Agent tool']).toContain('subagent');
+    expect(pi.toolRewrites?.['Agent tool,']).toContain('workflowScript');
+    expect(pi.toolRewrites?.['subagent_type: "general-purpose"']).toContain('delegate');
   });
 
   test('openclaw includeSkills is empty (native skills replaced generated ones)', () => {

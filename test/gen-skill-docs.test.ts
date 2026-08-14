@@ -2124,6 +2124,49 @@ describe('Factory generation (--host factory)', () => {
   });
 });
 
+// ─── Pi generation tests ─────────────────────────────────────
+
+describe('Pi generation (--host pi)', () => {
+  const PI_DIR = path.join(ROOT, '.pi', 'skills');
+
+  // Generate Pi output for tests. The directory is gitignored runtime output.
+  beforeAll(() => {
+    const result = Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', 'pi'], {
+      cwd: ROOT, stdout: 'pipe', stderr: 'pipe',
+    });
+    expect(result.exitCode).toBe(0);
+  });
+
+  test('retains delegation sections and targets pi-subagents', () => {
+    const autoplan = fs.readFileSync(path.join(PI_DIR, 'gstack-autoplan', 'SKILL.md'), 'utf-8');
+    const designShotgun = fs.readFileSync(path.join(PI_DIR, 'gstack-design-shotgun', 'SKILL.md'), 'utf-8');
+    const ship = fs.readFileSync(path.join(PI_DIR, 'gstack-ship', 'SKILL.md'), 'utf-8');
+
+    expect(autoplan).toContain('`subagent` tool');
+    expect(autoplan).toContain('workflowScript');
+    expect(autoplan).toContain('runs.run');
+    expect(autoplan).not.toContain('Agent tool');
+    expect(autoplan).not.toContain('delegation is unsupported');
+
+    expect(designShotgun).toContain('runs.all([');
+    expect(designShotgun).toContain("agent: 'delegate'");
+    expect(designShotgun).not.toContain('delegation is unsupported');
+
+    expect(ship).toContain('agent: "delegate"');
+    expect(ship).toContain("agent: 'worker'");
+    expect(ship).not.toContain('subagent_type: "general-purpose"');
+  });
+
+  test('Pi skill names match their generated directories', () => {
+    for (const entry of fs.readdirSync(PI_DIR)) {
+      const skillPath = path.join(PI_DIR, entry, 'SKILL.md');
+      if (!fs.existsSync(skillPath)) continue;
+      const content = fs.readFileSync(skillPath, 'utf-8');
+      expect(content).toContain(`name: ${entry}`);
+    }
+  });
+});
+
 // ─── Parameterized host smoke tests (config-driven) ─────────
 
 import { ALL_HOST_CONFIGS, getExternalHosts } from '../hosts/index';
@@ -2372,16 +2415,17 @@ describe('setup script validation', () => {
     expect(claudeSection).toContain('link_claude_root_skill_alias "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"');
   });
 
-  test('setup supports --host auto|claude|codex|kiro|opencode', () => {
+  test('setup supports --host auto|claude|codex|kiro|opencode|pi', () => {
     expect(setupContent).toContain('--host');
-    expect(setupContent).toContain('claude|codex|kiro|factory|opencode|auto');
+    expect(setupContent).toContain('claude|codex|kiro|factory|opencode|pi|auto');
   });
 
-  test('auto mode detects claude, codex, kiro, and opencode binaries', () => {
+  test('auto mode detects claude, codex, kiro, opencode, and pi binaries', () => {
     expect(setupContent).toContain('command -v claude');
     expect(setupContent).toContain('command -v codex');
     expect(setupContent).toContain('command -v kiro-cli');
     expect(setupContent).toContain('command -v opencode');
+    expect(setupContent).toContain('command -v pi');
   });
 
   // T1: Sidecar skip guard — prevents .agents/skills/gstack from being linked as a skill
@@ -2421,6 +2465,24 @@ describe('setup script validation', () => {
     expect(setupContent).toContain('qa/templates');
     expect(setupContent).toContain('qa/references');
     expect(setupContent).toContain('dx-hall-of-fame.md');
+  });
+
+  test('setup installs Pi skills and the pi-subagents dependency', () => {
+    expect(setupContent).toContain('INSTALL_PI=');
+    expect(setupContent).toContain('PI_SKILLS="$HOME/.pi/agent/skills"');
+    expect(setupContent).toContain('PI_SUBAGENTS_PACKAGE="npm:pi-subagents"');
+    expect(setupContent).toContain('ensure_pi_subagents');
+    expect(setupContent).toContain('pi install "$PI_SUBAGENTS_PACKAGE"');
+    const packageCheck = setupContent.indexOf('  ensure_pi_subagents\n');
+    const piGeneration = setupContent.indexOf('bun_cmd run gen:skill-docs --host pi');
+    expect(packageCheck).toBeGreaterThan(0);
+    expect(packageCheck).toBeLessThan(piGeneration);
+    expect(setupContent).toContain('gen:skill-docs --host pi');
+    expect(setupContent).toContain('create_pi_runtime_root');
+    expect(setupContent).toContain('lib/diagram-render');
+    expect(setupContent).toContain('extension');
+    expect(setupContent).toContain('if [ "$IS_WINDOWS" -eq 1 ] || [ -L "$target" ]');
+    expect(setupContent).toContain('link_pi_skill_dirs');
   });
 
   test('create_agents_sidecar links runtime assets', () => {
