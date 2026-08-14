@@ -745,7 +745,9 @@ function buildTranscriptPage(path: string, session: ParsedSession): PageRecord {
     source_path: path,
     session_id: session.session_id,
     cwd: session.cwd,
-    git_remote: remote,
+    // Normalise at the source so the --include-unattributed guard sees the
+    // same fallback the frontmatter and slug already use (#2353).
+    git_remote: remote || "_unattributed",
     start_time: session.start_time,
     end_time: session.end_time,
     partial: session.partial,

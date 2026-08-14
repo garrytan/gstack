@@ -470,6 +470,39 @@ describe("gstack-memory-ingest writer (gbrain v0.20+ batch `import` interface)",
     expect(stagedList).toMatch(/^\.\/transcripts\/claude-code\/.+\.md$/m);
   });
 
+  // #2353 regression: buildTranscriptPage stored the RAW remote ("" on
+  // failure) in page.git_remote while the skip guard compares against the
+  // "_unattributed" fallback, so `"" === "_unattributed"` never matched and
+  // unattributable sessions imported despite the default policy.
+  it("skips unattributable sessions by default and counts them in skipped (unattrib)", () => {
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    mkdirSync(gstackHome, { recursive: true });
+    const { binDir, stagingListFile } = installFakeGbrain(home);
+
+    // Same fixture as above: cwd has no resolvable git remote. WITHOUT
+    // --include-unattributed the session must be skipped, not imported.
+    const session =
+      `{"type":"user","message":{"role":"user","content":"hi"},"timestamp":"2026-05-01T00:00:00Z","cwd":"/tmp/foo"}\n` +
+      `{"type":"assistant","message":{"role":"assistant","content":"hello"},"timestamp":"2026-05-01T00:00:01Z"}\n`;
+    writeClaudeCodeSession(home, "tmp-foo", "def456", session);
+
+    const r = runScript(["--bulk", "--quiet"], {
+      HOME: home,
+      GSTACK_HOME: gstackHome,
+      PATH: `${binDir}:${process.env.PATH || ""}`,
+    });
+
+    expect(r.exitCode).toBe(0);
+    // The user-facing counter must report the skip (was silently 0).
+    expect(r.stdout).toMatch(/skipped \(unattrib\):\s+1/);
+    // Nothing transcript-shaped may reach the gbrain staging dir.
+    if (existsSync(stagingListFile)) {
+      const stagedList = readFileSync(stagingListFile, "utf-8");
+      expect(stagedList).not.toMatch(/transcripts\//);
+    }
+  });
+
   // Originally landed in v1.32.0.0 (PR #1411) on the per-file `gbrain put`
   // path. Postgres rejects 0x00 in UTF-8 text columns. Some Claude Code
   // transcripts contain NUL inside user-pasted content or tool output. The
