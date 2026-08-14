@@ -10,6 +10,8 @@
 #   ~/.claude/skills/gstack       — global Claude skill install (git clone or vendored)
 #   ~/.claude/skills/{skill}      — per-skill symlinks created by setup
 #   ~/.codex/skills/gstack*       — Codex skill install + per-skill symlinks
+#   ${COPILOT_HOME:-~/.copilot}/skills/gstack*
+#                                  — Copilot CLI/app personal skill install
 #   ~/.factory/skills/gstack*     — Factory Droid skill install + per-skill symlinks
 #   ~/.kiro/skills/gstack*        — Kiro skill install + per-skill symlinks
 #   ~/.gstack/                    — global state (config, analytics, sessions, projects,
@@ -18,6 +20,7 @@
 #   .gstack/                      — per-project browse state (in current git repo)
 #   .gstack-worktrees/            — per-project test worktrees (in current git repo)
 #   .agents/skills/gstack*        — Codex/Gemini/Cursor sidecar (in current git repo)
+#   .github/skills/gstack*        — Copilot repository skills (in current git repo)
 #   Running browse daemons        — stopped via SIGTERM before cleanup
 #
 # What is NOT REMOVED:
@@ -38,6 +41,11 @@ fi
 
 GSTACK_DIR="${GSTACK_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 STATE_DIR="${GSTACK_STATE_DIR:-$HOME/.gstack}"
+COPILOT_CONFIG_HOME="${COPILOT_HOME:-$HOME/.copilot}"
+if command -v cygpath >/dev/null 2>&1; then
+  COPILOT_CONFIG_HOME="$(cygpath -u "$COPILOT_CONFIG_HOME")"
+fi
+COPILOT_SKILLS="$COPILOT_CONFIG_HOME/skills"
 _GIT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 
 # ─── Parse flags ─────────────────────────────────────────────
@@ -64,6 +72,7 @@ if [ "$FORCE" -eq 0 ]; then
   echo "This will remove gstack from your system:"
   { [ -d "$HOME/.claude/skills/gstack" ] || [ -L "$HOME/.claude/skills/gstack" ]; } && echo "  ~/.claude/skills/gstack (+ per-skill symlinks)"
   [ -d "$HOME/.codex/skills" ] && echo "  ~/.codex/skills/gstack*"
+  [ -d "$COPILOT_SKILLS" ] && echo "  $COPILOT_SKILLS/gstack*"
   [ -d "$HOME/.factory/skills" ] && echo "  ~/.factory/skills/gstack*"
   [ -d "$HOME/.kiro/skills" ] && echo "  ~/.kiro/skills/gstack*"
   [ "$KEEP_STATE" -eq 0 ] && [ -d "$STATE_DIR" ] && echo "  $STATE_DIR"
@@ -73,6 +82,7 @@ if [ "$FORCE" -eq 0 ]; then
     [ -d "$_GIT_ROOT/.gstack" ] && echo "  $_GIT_ROOT/.gstack/ (browse state + reports)"
     [ -d "$_GIT_ROOT/.gstack-worktrees" ] && echo "  $_GIT_ROOT/.gstack-worktrees/"
     [ -d "$_GIT_ROOT/.agents/skills" ] && echo "  $_GIT_ROOT/.agents/skills/gstack*"
+    [ -d "$_GIT_ROOT/.github/skills" ] && echo "  $_GIT_ROOT/.github/skills/gstack*"
   fi
 
   # Preview running daemons
@@ -171,6 +181,15 @@ if [ -d "$CODEX_SKILLS" ]; then
   done
 fi
 
+# ─── Remove GitHub Copilot skills ────────────────────────────
+if [ -d "$COPILOT_SKILLS" ]; then
+  for _ITEM in "$COPILOT_SKILLS"/gstack*; do
+    [ -e "$_ITEM" ] || [ -L "$_ITEM" ] || continue
+    rm -rf "$_ITEM"
+    REMOVED+=("copilot/$(basename "$_ITEM")")
+  done
+fi
+
 # ─── Remove Factory Droid skills ────────────────────────────
 FACTORY_SKILLS="$HOME/.factory/skills"
 if [ -d "$FACTORY_SKILLS" ]; then
@@ -201,6 +220,17 @@ if [ -n "$_GIT_ROOT" ] && [ -d "$_GIT_ROOT/.agents/skills" ]; then
 
   rmdir "$_GIT_ROOT/.agents/skills" 2>/dev/null || true
   rmdir "$_GIT_ROOT/.agents" 2>/dev/null || true
+fi
+
+# ─── Remove per-project Copilot skills ──────────────────────
+if [ -n "$_GIT_ROOT" ] && [ -d "$_GIT_ROOT/.github/skills" ]; then
+  for _ITEM in "$_GIT_ROOT/.github/skills"/gstack*; do
+    [ -e "$_ITEM" ] || [ -L "$_ITEM" ] || continue
+    rm -rf "$_ITEM"
+    REMOVED+=("copilot/$(basename "$_ITEM")")
+  done
+
+  rmdir "$_GIT_ROOT/.github/skills" 2>/dev/null || true
 fi
 
 # ─── Remove per-project .factory/ sidecar ────────────────────

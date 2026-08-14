@@ -1,7 +1,7 @@
 # Adding a New Host to gstack
 
 gstack uses a declarative host config system. Each supported AI coding agent
-(Claude, Codex, Factory, Kiro, OpenCode, Slate, Cursor, OpenClaw) is defined
+(Claude, Codex, Factory, Kiro, OpenCode, Slate, Cursor, OpenClaw, Copilot) is defined
 as a typed TypeScript config object. Adding a new host means creating one file
 and re-exporting it. Zero code changes to the generator, setup, or tooling.
 
@@ -17,6 +17,7 @@ hosts/
 ├── slate.ts         # Slate (Random Labs)
 ├── cursor.ts        # Cursor
 ├── openclaw.ts      # OpenClaw (hybrid: config + adapter)
+├── copilot.ts       # GitHub Copilot CLI + app (shared Agent Skills contract)
 └── index.ts         # Registry: imports all, derives Host type
 ```
 
@@ -25,6 +26,7 @@ Each config file exports a `HostConfig` object that tells the generator:
 - How to transform frontmatter (allowlist/denylist fields)
 - What Claude-specific references to rewrite (paths, tool names)
 - What binary to detect for auto-install
+- Which product surfaces share the contract
 - What resolver sections to suppress
 - What assets to symlink at install time
 
@@ -133,9 +135,14 @@ bun test test/gen-skill-docs.test.ts
 bun test test/host-config.test.ts
 ```
 
-The parameterized smoke tests automatically pick up the new host. Zero test
+The parameterized smoke tests automatically pick up the new host. Zero generic test
 code to write. They verify: output exists, no path leakage, valid frontmatter,
 freshness check passes, codex skill excluded.
+
+Add focused host tests for claims the generic matrix cannot prove, such as executable
+detection, official discovery roots, host-specific frontmatter limits, and install
+behavior. Copilot is the reference example because its CLI and app share one skill
+format while using different personal and repository roots.
 
 ### 6. Update README.md
 
@@ -155,7 +162,11 @@ Key fields:
 | `frontmatter.descriptionLimitBehavior` | `error` (fail build), `truncate`, `warn` |
 | `frontmatter.conditionalFields` | Add fields based on template values (e.g., sensitive → disable-model-invocation) |
 | `frontmatter.renameFields` | Rename template fields (e.g., voice-triggers → triggers) |
+| `frontmatter.namePrefix` | Prefix generated names for hosts that require name to match the skill directory |
+| `frontmatter.nameLimit` | Fail generation when the host's maximum skill-name length is exceeded |
 | `pathRewrites` | Literal replaceAll on content. Order matters. |
+| `supportedSurfaces` | Product surfaces covered by one contract (`cli`, optionally `app`) |
+| `globalRootEnv` | Optional config-root override env var honored by setup and generated preambles |
 | `toolRewrites` | Rewrite Claude tool names (e.g., "use the Bash tool" → "run this command") |
 | `suppressedResolvers` | Resolver functions that return empty for this host |
 | `coAuthorTrailer` | Git co-author string for commits |

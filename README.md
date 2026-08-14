@@ -101,7 +101,7 @@ These are conversational skills. Your OpenClaw agent runs them directly via chat
 
 ### Other AI Agents
 
-gstack works on 10 AI coding agents, not just Claude. Setup auto-detects which
+gstack works on 11 AI coding agents, not just Claude. Setup auto-detects which
 agents you have installed:
 
 ```bash
@@ -113,6 +113,7 @@ Or target a specific agent with `./setup --host <name>`:
 
 | Agent | Flag | Skills install to |
 |-------|------|-------------------|
+| GitHub Copilot CLI + app | `--host copilot` | `~/.copilot/skills/gstack-*/` |
 | OpenAI Codex CLI | `--host codex` | `~/.codex/skills/gstack-*/` |
 | OpenCode | `--host opencode` | `~/.config/opencode/skills/gstack-*/` |
 | Cursor | `--host cursor` | `~/.cursor/skills/gstack-*/` |
@@ -121,6 +122,15 @@ Or target a specific agent with `./setup --host <name>`:
 | Kiro | `--host kiro` | `~/.kiro/skills/gstack-*/` |
 | Hermes | `--host hermes` | `~/.hermes/skills/gstack-*/` |
 | GBrain (mod) | `--host gbrain` | `~/.gbrain/skills/gstack-*/` |
+
+Copilot CLI and the GitHub Copilot app use the same [Agent Skills
+contract](https://docs.github.com/en/copilot/concepts/agents/about-agent-skills). One
+gstack host supports both: personal skills install to `~/.copilot/skills`, and
+`./setup --host copilot --local` installs repository skills to `.github/skills`.
+GitHub documents that the [Copilot app automatically makes CLI and repository
+skills available in project sessions](https://docs.github.com/en/copilot/how-tos/github-copilot-app/customize-github-copilot-app).
+If `COPILOT_HOME` is set, setup installs personal skills under
+`$COPILOT_HOME/skills` instead.
 
 **Want to add support for another agent?** See [docs/ADDING_A_HOST.md](docs/ADDING_A_HOST.md).
 It's one TypeScript config file, zero code changes.

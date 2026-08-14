@@ -2142,7 +2142,7 @@ describe('Parameterized host smoke tests', () => {
         cwd: ROOT, stdout: 'pipe', stderr: 'pipe',
       });
     }
-  });
+  }, 30_000);
 
   for (const hostConfig of getExternalHosts()) {
     describe(`${hostConfig.displayName} (--host ${hostConfig.name})`, () => {
@@ -2235,7 +2235,7 @@ describe('--host all', () => {
         cwd: ROOT, stdout: 'pipe', stderr: 'pipe',
       });
     }
-  });
+  }, 30_000);
 
   test('--host all generates for all registered hosts', () => {
     const result = Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', 'all', '--dry-run'], {
@@ -2372,9 +2372,9 @@ describe('setup script validation', () => {
     expect(claudeSection).toContain('link_claude_root_skill_alias "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"');
   });
 
-  test('setup supports --host auto|claude|codex|kiro|opencode', () => {
+  test('setup supports --host auto|claude|copilot|codex|kiro|opencode', () => {
     expect(setupContent).toContain('--host');
-    expect(setupContent).toContain('claude|codex|kiro|factory|opencode|auto');
+    expect(setupContent).toContain('claude|copilot|codex|kiro|factory|opencode|auto');
   });
 
   test('auto mode detects claude, codex, kiro, and opencode binaries', () => {
