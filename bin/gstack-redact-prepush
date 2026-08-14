@@ -10,16 +10,19 @@
  *
  * Git pre-push interface: refs are read from STDIN, one per line:
  *   <local ref> <local sha> <remote ref> <remote sha>
+ * plus argv: <remote name> <remote url>.
  * We scan the ADDED lines of <remote sha>..<local sha> per ref (what's being
  * pushed). Special cases:
- *   - remote sha all-zeroes  → new branch: diff against merge-base with the
- *     remote's default branch (fallback: scan all commits unique to local ref).
+ *   - remote sha all-zeroes  → new branch: git does not tell us a base, so we
+ *     derive one from what THIS remote already has (see pushedRangeBase).
  *   - local sha all-zeroes   → branch delete: nothing to scan, skip.
  *   - force-push             → remote..local still gives the net new content.
  *
  * Behavior:
  *   - HIGH finding in added lines → print + exit 1 (block), for public AND private.
  *   - MEDIUM → warn (non-blocking). LOW/WARN → silent.
+ *   - Any byte of the pushed diff we could NOT scan → print exactly what was
+ *     missed + exit 1. Never reported as a "credential".
  *   - GSTACK_REDACT_PREPUSH=skip → log + exit 0 (escape valve).
  *
  * Installed/uninstalled via `gstack-redact install-prepush-hook` (see the
@@ -36,6 +39,30 @@ const ZERO = /^0+$/;
 const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 
 /**
+ * Bytes of added-line text handed to the engine per scan call.
+ *
+ * redact-engine caps a single scan() at 1 MiB and fails CLOSED above it, by
+ * returning a synthetic HIGH `engine.input_too_large`. That cap is correct for
+ * the engine (unbounded regex work on untrusted input), but a caller that
+ * throws a whole push at it in one call turns "this push is big" into "this
+ * push contains a credential" — a hard block whose only exit is the documented
+ * bypass. So we slice the input to stay under the cap and scan EVERY slice.
+ * Nothing is dropped; the cost is linear.
+ */
+const SCAN_CHUNK_BYTES = 512 * 1024;
+
+/**
+ * Bytes of trailing context carried from one chunk into the next.
+ *
+ * Chunks split on line boundaries and every pattern in redact-patterns matches
+ * within a single line, so a split cannot bisect a match today. The overlap is
+ * insurance for the pattern features that DO read around a match — nearRegex
+ * proximity windows, largest of which is 300 chars — and for any future
+ * multi-line pattern. 16 KiB is ~50x the largest window at ~3% extra work.
+ */
+const SCAN_OVERLAP_BYTES = 16 * 1024;
+
+/**
  * Permissive git for legitimately-fallible PROBES (symbolic-ref, rev-parse,
  * merge-base) where a non-zero exit is normal control flow. The DIFF call
  * must NOT use this — see gitStrict (#1946 fail-closed).
@@ -43,6 +70,12 @@ const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 function git(args: string[]): string {
   const r = spawnSync("git", args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
   return r.status === 0 ? (r.stdout ?? "") : "";
+}
+
+/** Like git() but lets the caller tell "command failed" from "empty output". */
+function gitProbe(args: string[]): { ok: boolean; stdout: string } {
+  const r = spawnSync("git", args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+  return { ok: r.status === 0, stdout: r.stdout ?? "" };
 }
 
 /**
@@ -70,32 +103,91 @@ function objectExists(sha: string): boolean {
   return r.status === 0;
 }
 
-function defaultRemoteBranch(): string {
-  // origin/HEAD → origin/main, fall back to main/master.
-  const sym = git(["symbolic-ref", "refs/remotes/origin/HEAD"]).trim();
+function defaultRemoteBranch(remoteName: string): string {
+  // <remote>/HEAD → <remote>/main, fall back to main/master.
+  const sym = git(["symbolic-ref", `refs/remotes/${remoteName}/HEAD`]).trim();
   if (sym) return sym.replace("refs/remotes/", "");
-  for (const b of ["origin/main", "origin/master"]) {
+  for (const b of [`${remoteName}/main`, `${remoteName}/master`]) {
     if (git(["rev-parse", "--verify", b]).trim()) return b;
   }
-  return "origin/main";
+  return `${remoteName}/main`;
 }
 
-/** Return the added-line text for a ref update being pushed. */
-function addedLinesFor(localSha: string, remoteSha: string): string {
+/** Sentinel: this ref update introduces no commit the remote doesn't already have. */
+const NOTHING_NEW = Symbol("nothing-new");
+
+/**
+ * Base commit for a ref update where git gave us no usable remote sha (new
+ * branch → all-zeroes; or a remote tip whose object isn't in the local odb).
+ *
+ * THIS IS THE FIX FOR THE `engine.input_too_large` FALSE POSITIVE.
+ * The old base was `merge-base(local, origin/HEAD)`. In any repo that ships
+ * from a branch other than its nominal default — very common: the default
+ * branch goes stale while everyone cuts from the release branch — that
+ * merge-base sits hundreds of commits below the real branch point. Observed
+ * case: a 1-commit / 2-file / 114-line push of a new branch was handed 3.5 MiB
+ * of already-pushed content (201 commits) and tripped the engine's 1 MiB cap.
+ * Input size tracked the REPO, not the PUSH.
+ *
+ * `git rev-list --boundary <local> --not --remotes=<remote>` asks git the
+ * question the hook actually means: which commits does this push add to THIS
+ * remote, and which already-present commits do they hang off? The boundary is
+ * the real branch point regardless of what the default branch is doing.
+ *
+ * This narrows the scanned range to what the push adds. It does not narrow what
+ * gets *detected* in that range: everything this push introduces is still
+ * scanned, byte for byte. The content dropped is content the remote already
+ * has, which this push does not send — the same content the existing-ref path
+ * (remote..local) has always excluded.
+ *
+ * Staleness caveat, unchanged from before: remote-tracking refs are a snapshot.
+ * If the remote was force-pushed or a branch deleted since the last fetch we
+ * may believe it holds a commit it no longer does. The old merge-base path read
+ * the same stale refs, just more coarsely.
+ */
+function pushedRangeBase(localSha: string, remoteName: string): string | typeof NOTHING_NEW {
+  const r = gitProbe(["rev-list", "--boundary", localSha, "--not", `--remotes=${remoteName}`]);
+  if (r.ok) {
+    const lines = r.stdout
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean);
+    const boundaries = lines.filter((l) => l.startsWith("-")).map((l) => l.slice(1));
+    const fresh = lines.filter((l) => !l.startsWith("-"));
+    // Every commit already lives on the remote (e.g. `git push origin HEAD:new-name`
+    // for content pushed under another ref) → this push adds no new content.
+    if (fresh.length === 0) return NOTHING_NEW;
+    // No boundary → nothing on the remote is an ancestor. Scan the whole tree.
+    if (boundaries.length === 0) return EMPTY_TREE;
+    if (boundaries.length === 1) return boundaries[0];
+    // Several already-pushed parents (the branch merged other remote branches).
+    // Their common ancestor over-scans a little — never under-scans.
+    const oct = gitProbe(["merge-base", "--octopus", ...boundaries]).stdout.trim();
+    return oct || EMPTY_TREE;
+  }
+  // rev-list unavailable/failed: fall back to the historical approximation,
+  // then to the empty tree. Both scan MORE than the push, never less.
+  const base = git(["merge-base", localSha, defaultRemoteBranch(remoteName)]).trim();
+  return base || EMPTY_TREE;
+}
+
+/**
+ * Return the added-line text for a ref update being pushed, or NOTHING_NEW when
+ * the remote already has every commit involved.
+ */
+function addedLinesFor(
+  localSha: string,
+  remoteSha: string,
+  remoteName: string,
+): string | typeof NOTHING_NEW {
   let range: string;
-  if (ZERO.test(remoteSha)) {
-    // New branch: prefer what's unique to localSha vs the remote default branch.
-    // With no merge-base (e.g. no remote yet), diff against the empty tree so ALL
-    // branch content is scanned as added — fail-safe (scans more, never less).
-    const base = git(["merge-base", localSha, defaultRemoteBranch()]).trim();
-    range = base ? `${base}..${localSha}` : `${EMPTY_TREE}..${localSha}`;
-  } else if (!objectExists(remoteSha)) {
-    // Remote tip object absent locally (shallow clone, force-push without a
-    // prior fetch, CI checkout): remote..local can't resolve. Fall back to
-    // the merge-base/empty-tree path — scans MORE, never less — instead of
-    // hard-blocking a legitimate push (adversarial review finding 8).
-    const base = git(["merge-base", localSha, defaultRemoteBranch()]).trim();
-    range = base ? `${base}..${localSha}` : `${EMPTY_TREE}..${localSha}`;
+  if (ZERO.test(remoteSha) || !objectExists(remoteSha)) {
+    // New branch (all-zeroes remote sha), or a remote tip object absent locally
+    // (shallow clone, force-push without a prior fetch, CI checkout) where
+    // remote..local can't resolve. Derive the base from what the remote has.
+    const base = pushedRangeBase(localSha, remoteName);
+    if (base === NOTHING_NEW) return NOTHING_NEW;
+    range = `${base}..${localSha}`;
   } else {
     // Existing branch (incl. force-push): net new content remote..local.
     range = `${remoteSha}..${localSha}`;
@@ -112,6 +204,131 @@ function addedLinesFor(localSha: string, remoteSha: string): string {
     }
   }
   return added.join("\n");
+}
+
+// ── Chunked scanning ─────────────────────────────────────────────────────────
+// The engine caps one scan() at 1 MiB and fails closed above it. A legitimately
+// large push is a SIZING problem, not a credential, so we slice and scan every
+// slice rather than reporting the size as a finding.
+
+interface ScanChunk {
+  text: string;
+  /** 0-based index, into the added-line array, of this chunk's first line. */
+  lineOffset: number;
+  /** Char offset within that line, non-zero only for windowed long lines. */
+  colOffset: number;
+}
+
+const isHighSurrogate = (c: number) => c >= 0xd800 && c <= 0xdbff;
+const isLowSurrogate = (c: number) => c >= 0xdc00 && c <= 0xdfff;
+
+/**
+ * Split one added line that is itself larger than a chunk (minified bundle,
+ * embedded base64, single-line JSON dump) into overlapping windows, so its
+ * contents are scanned instead of skipped. A UTF-16 code unit is at most 3
+ * UTF-8 bytes, so a budget of CHUNK/3 code units can never exceed the cap.
+ */
+function windowLongLine(line: string): ScanChunk[] {
+  const step = Math.max(1, Math.floor(SCAN_CHUNK_BYTES / 3));
+  const overlap = Math.max(0, Math.floor(SCAN_OVERLAP_BYTES / 3));
+  const out: ScanChunk[] = [];
+  let start = 0;
+  while (start < line.length) {
+    let end = Math.min(line.length, start + step);
+    if (end < line.length && isHighSurrogate(line.charCodeAt(end - 1))) end -= 1;
+    out.push({ text: line.slice(start, end), lineOffset: 0, colOffset: start });
+    if (end >= line.length) break;
+    let next = end - overlap;
+    if (next <= start) next = end; // always make forward progress
+    if (isLowSurrogate(line.charCodeAt(next))) next += 1;
+    start = next;
+  }
+  return out;
+}
+
+/** Slice added lines into engine-sized chunks with trailing-context overlap. */
+function buildScanChunks(lines: string[]): ScanChunk[] {
+  const chunks: ScanChunk[] = [];
+  let buf: string[] = [];
+  let bufBytes = 0;
+  let bufStart = 0; // index in `lines` of buf[0]
+
+  const flush = () => {
+    if (buf.length) chunks.push({ text: buf.join("\n"), lineOffset: bufStart, colOffset: 0 });
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const lineBytes = Buffer.byteLength(line, "utf8") + 1;
+
+    if (lineBytes > SCAN_CHUNK_BYTES) {
+      flush();
+      buf = [];
+      bufBytes = 0;
+      for (const w of windowLongLine(line)) chunks.push({ ...w, lineOffset: i });
+      bufStart = i + 1;
+      continue;
+    }
+
+    if (buf.length && bufBytes + lineBytes > SCAN_CHUNK_BYTES) {
+      flush();
+      // Carry a bounded tail forward as overlap context.
+      const carry: string[] = [];
+      let carryBytes = 0;
+      let k = buf.length;
+      while (k > 0) {
+        const b = Buffer.byteLength(buf[k - 1], "utf8") + 1;
+        if (carryBytes + b > SCAN_OVERLAP_BYTES) break;
+        carryBytes += b;
+        k -= 1;
+        carry.unshift(buf[k]);
+      }
+      bufStart += k;
+      buf = carry;
+      bufBytes = carryBytes;
+    }
+    buf.push(line);
+    bufBytes += lineBytes;
+  }
+  flush();
+  return chunks;
+}
+
+interface AddedScan {
+  high: Finding[];
+  medium: number;
+  /** Human-readable descriptions of anything we could NOT scan. Always empty in
+   *  practice; if it ever isn't, the caller must say so out loud AND block. */
+  unscanned: string[];
+}
+
+/** Scan every byte of the added-line text, in engine-sized chunks. */
+function scanAddedText(added: string): AddedScan {
+  const chunks = buildScanChunks(added.split("\n"));
+  const out: AddedScan = { high: [], medium: 0, unscanned: [] };
+  // Overlap means a finding in a carried tail is seen twice; dedup on its
+  // position in the whole added-line text so counts stay honest.
+  const seen = new Set<string>();
+  for (const c of chunks) {
+    const result = scan(c.text, { repoVisibility: "private" });
+    if (result.oversize) {
+      // Unreachable by construction (chunks are built under the engine cap).
+      // Kept because "we did not scan this" must never be silent.
+      out.unscanned.push(
+        `${Buffer.byteLength(c.text, "utf8")} bytes starting at added line ${c.lineOffset + 1}` +
+          (c.colOffset ? ` (char offset ${c.colOffset})` : ""),
+      );
+      continue;
+    }
+    for (const f of result.findings) {
+      const key = `${f.id}:${c.lineOffset + f.line}:${f.col + c.colOffset}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      if (f.severity === "HIGH") out.high.push(f);
+      else if (f.severity === "MEDIUM") out.medium += 1;
+    }
+  }
+  return out;
 }
 
 function logSkip(reason: string): void {
@@ -135,6 +352,9 @@ function main() {
     process.exit(0);
   }
 
+  // git invokes pre-push as: pre-push <remote-name> <remote-url>
+  const remoteName = process.argv[2] || "origin";
+
   const stdin = fs.readFileSync(0, "utf8");
   const refs = stdin
     .split("\n")
@@ -143,13 +363,14 @@ function main() {
     .map((l) => l.split(/\s+/));
 
   const allHigh: Finding[] = [];
+  const unscanned: string[] = [];
   let mediumCount = 0;
 
   for (const [, localSha, , remoteSha] of refs) {
     if (!localSha || ZERO.test(localSha)) continue; // branch delete → nothing pushed
-    let added: string;
+    let added: string | typeof NOTHING_NEW;
     try {
-      added = addedLinesFor(localSha, remoteSha || "0");
+      added = addedLinesFor(localSha, remoteSha || "0", remoteName);
     } catch (err) {
       // Fail CLOSED (#1946): if we can't compute the pushed diff we can't
       // scan it, and unscanned-but-allowed is the failure mode this hook
@@ -162,14 +383,14 @@ function main() {
       );
       process.exit(1);
     }
+    if (added === NOTHING_NEW) continue; // remote already has every commit
     if (!added.trim()) continue;
     // Visibility doesn't change HIGH behavior; pass private so nothing is treated
     // as public-strict (HIGH blocks regardless either way).
-    const result = scan(added, { repoVisibility: "private" });
-    for (const f of result.findings) {
-      if (f.severity === "HIGH") allHigh.push(f);
-      else if (f.severity === "MEDIUM") mediumCount++;
-    }
+    const result = scanAddedText(added);
+    allHigh.push(...result.high);
+    mediumCount += result.medium;
+    unscanned.push(...result.unscanned);
   }
 
   if (mediumCount > 0) {
@@ -190,10 +411,25 @@ function main() {
       "\nRotate the credential (a pushed secret is compromised) and remove it from the diff.\n" +
         "This is a guardrail: `git push --no-verify` or `GSTACK_REDACT_PREPUSH=skip git push` bypass it.\n",
     );
-    process.exit(1);
   }
 
-  process.exit(0);
+  // A capacity failure is NOT a credential finding and must never be dressed up
+  // as one — that is what taught people to reach for the bypass. Name exactly
+  // what went unscanned, and still block: unscanned-but-allowed is the failure
+  // this hook exists to prevent.
+  if (unscanned.length > 0) {
+    process.stderr.write(
+      "\n⛔ gstack-redact-prepush BLOCKED the push — part of the pushed diff could NOT be scanned.\n" +
+        "   No credential was found in it; it was never read. Unscanned regions:\n\n",
+    );
+    for (const u of unscanned) process.stderr.write(`  UNSCANNED  ${u}\n`);
+    process.stderr.write(
+      "\nThis is a scanner capacity failure, not a finding. Please report it.\n" +
+        "This is a guardrail: `git push --no-verify` or `GSTACK_REDACT_PREPUSH=skip git push` bypass it.\n",
+    );
+  }
+
+  process.exit(allHigh.length > 0 || unscanned.length > 0 ? 1 : 0);
 }
 
 main();

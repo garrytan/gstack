@@ -34,14 +34,30 @@ function commit(file: string, content: string, msg: string): string {
 function runHook(
   stdinLines: string,
   env: Record<string, string> = {},
+  args: string[] = [],
 ): { code: number; stderr: string } {
-  const r = spawnSync("bun", [PREPUSH], {
+  const r = spawnSync("bun", [PREPUSH, ...args], {
     cwd: repo,
     input: Buffer.from(stdinLines),
     encoding: "utf8",
     env: { ...process.env, ...env },
   });
   return { code: r.status ?? 0, stderr: r.stderr ?? "" };
+}
+
+/**
+ * Point a remote-tracking ref at a sha without talking to any remote — that is
+ * all the hook reads to decide what the remote already has.
+ */
+function fakeRemoteRef(name: string, sha: string): void {
+  git(["update-ref", `refs/remotes/origin/${name}`, sha]);
+}
+
+/** ~n KiB of credential-free filler, one statement per line. */
+function filler(kib: number, tag: string): string {
+  const line = `export const ${tag}_PAD = { retries: 3, timeout: 1500, label: "widget-factory" };`;
+  const need = Math.ceil((kib * 1024) / (line.length + 8));
+  return Array.from({ length: need }, (_, i) => `${line} // ${tag}-${i}`).join("\n") + "\n";
 }
 
 const ZERO = "0000000000000000000000000000000000000000";
@@ -164,6 +180,128 @@ describe("fail closed on unscannable diffs (#1946)", () => {
     } finally {
       fs.rmSync(stubDir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("input size tracks the PUSH, not the REPO", () => {
+  // Regression: a 1-commit push of a brand-new branch was blocked with a
+  // synthetic HIGH `engine.input_too_large`. The new-ref base was
+  // merge-base(local, origin/HEAD); in a repo that ships from a branch other
+  // than the default one, that merge-base sits hundreds of commits back, so the
+  // scanner was handed the REPO instead of the DIFF and tripped its 1 MiB cap.
+  // The only way past it was GSTACK_REDACT_PREPUSH=skip — a capacity bug
+  // teaching people to switch a credential guard off.
+
+  /** origin/main stale by >1 MiB; the real work happens on origin/release. */
+  function staleDefaultBranchRepo(): void {
+    const mainTip = git(["rev-parse", "HEAD"]);
+    fakeRemoteRef("main", mainTip);
+    git(["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"]);
+    commit("bulk.ts", filler(1400, "REL"), "big work on the shipping branch");
+    fakeRemoteRef("release", git(["rev-parse", "HEAD"]));
+  }
+
+  test("new ref cut from a branch the default branch is far behind is NOT reported as oversize", () => {
+    staleDefaultBranchRepo();
+    const head = commit("small.md", "one small honest change\n", "small change");
+    const { code, stderr } = runHook(`refs/heads/feat ${head} refs/heads/feat ${ZERO}\n`, {}, [
+      "origin",
+    ]);
+    expect(stderr).not.toContain("input_too_large");
+    expect(stderr).not.toContain("BLOCKED");
+    expect(code).toBe(0);
+  });
+
+  test("new ref cut from a stale-default repo still BLOCKS on a credential in the new commit", () => {
+    staleDefaultBranchRepo();
+    const head = commit("cfg.txt", "key AKIA1234567890ABCDEF\n", "leaky small change");
+    const { code, stderr } = runHook(`refs/heads/feat ${head} refs/heads/feat ${ZERO}\n`, {}, [
+      "origin",
+    ]);
+    expect(code).toBe(1);
+    expect(stderr).toContain("aws.access_key");
+    expect(stderr).not.toContain("input_too_large");
+  });
+
+  test("a >1 MiB clean push is scanned in full and passes", () => {
+    const base = git(["rev-parse", "HEAD"]);
+    const head = commit("bulk.ts", filler(1500, "BULK"), "big clean commit");
+    const { code, stderr } = runHook(`refs/heads/main ${head} refs/heads/main ${base}\n`);
+    expect(stderr).not.toContain("input_too_large");
+    expect(code).toBe(0);
+  });
+
+  test("a credential PAST the 1 MiB engine cap is still found (chunking scans every byte)", () => {
+    // Before the fix this whole push came back as one `engine.input_too_large`
+    // and the credential was never looked at. Oversize hid real secrets.
+    const base = git(["rev-parse", "HEAD"]);
+    const body =
+      filler(1500, "PRE") + 'const u = "postgres://user:hunter2@example.invalid:5432/db";\n';
+    const head = commit("bulk.ts", body, "big commit, credential at the far end");
+    const { code, stderr } = runHook(`refs/heads/main ${head} refs/heads/main ${base}\n`);
+    expect(code).toBe(1);
+    expect(stderr).toContain("db.url_with_password");
+    expect(stderr).not.toContain("input_too_large");
+  });
+
+  test("a single added line bigger than one chunk is windowed, not skipped", () => {
+    const base = git(["rev-parse", "HEAD"]);
+    const pad = "x".repeat(400 * 1024);
+    const head = commit("min.js", `${pad} AKIA1234567890ABCDEF ${pad}\n`, "one giant line");
+    const { code, stderr } = runHook(`refs/heads/main ${head} refs/heads/main ${base}\n`);
+    expect(code).toBe(1);
+    expect(stderr).toContain("aws.access_key");
+    expect(stderr).not.toContain("UNSCANNED");
+  });
+
+  test("size is never reported as a credential — oversize has its own honest wording", () => {
+    // Whatever else changes, `engine.input_too_large` must not be printed under
+    // the "credential(s) in the pushed diff / rotate the credential" banner.
+    const src = fs.readFileSync(PREPUSH, "utf8");
+    expect(src).toContain("could NOT be scanned");
+    expect(src).toContain("UNSCANNED");
+    expect(src).toContain("not a finding");
+  });
+});
+
+describe("new-ref base = what THIS remote already has", () => {
+  test("commits the remote already holds under another ref are not re-scanned", () => {
+    // Pushing existing content under a new name adds nothing to the remote, so
+    // there is nothing new to scan — the same rule the remote..local path has
+    // always used. (This guard is documented as a pushed-diff scanner, not a
+    // history scanner; history is /cso's job.)
+    const head = commit("old.txt", "AKIA1234567890ABCDEF\n", "already on the remote");
+    fakeRemoteRef("already-pushed", head);
+    const { code } = runHook(`refs/heads/alias ${head} refs/heads/alias ${ZERO}\n`, {}, ["origin"]);
+    expect(code).toBe(0);
+  });
+
+  test("with no remote-tracking refs at all, a new ref scans the whole tree", () => {
+    const head = commit("feature.txt", "ghp_" + "a".repeat(36) + "\n", "feature with token");
+    const { code, stderr } = runHook(`refs/heads/feat ${head} refs/heads/feat ${ZERO}\n`, {}, [
+      "origin",
+    ]);
+    expect(code).toBe(1);
+    expect(stderr).toContain("github.pat");
+  });
+
+  test("the boundary is found even when the branch merged another remote branch", () => {
+    const root = git(["rev-parse", "HEAD"]);
+    fakeRemoteRef("main", root);
+    git(["checkout", "-q", "-b", "side"]);
+    const side = commit("side.txt", "side work\n", "side");
+    fakeRemoteRef("side", side);
+    git(["checkout", "-q", "main"]);
+    commit("trunk.txt", "trunk work\n", "trunk");
+    fakeRemoteRef("trunk", git(["rev-parse", "HEAD"]));
+    git(["merge", "-q", "--no-ff", "-m", "merge side", "side"]);
+    const head = commit("cfg.txt", "key AKIA1234567890ABCDEF\n", "new leaky commit");
+    const { code, stderr } = runHook(`refs/heads/feat ${head} refs/heads/feat ${ZERO}\n`, {}, [
+      "origin",
+    ]);
+    expect(code).toBe(1);
+    expect(stderr).toContain("aws.access_key");
+    expect(stderr).not.toContain("input_too_large");
   });
 });
 
