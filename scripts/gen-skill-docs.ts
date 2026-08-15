@@ -413,6 +413,7 @@ export function toYamlInlineScalar(s: string): string {
     s !== s.trim() ||                       // leading/trailing whitespace
     /:(\s|$)/.test(s) ||                    // "foo: bar" / trailing colon → mapping ambiguity
     /\s#/.test(s) ||                        // " #" → inline comment
+    /\.\.\./.test(s) ||                     // "..." → document-end marker; strict parsers reject mid-scalar (catalog-trim truncation appends it)
     /^[\s>|&*!%@`"'#,\[\]{}?-]/.test(s);    // leading YAML indicator char
   return needsQuote ? JSON.stringify(s) : s;
 }

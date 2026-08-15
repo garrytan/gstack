@@ -23,7 +23,36 @@ import {
   buildTrimmedDescription,
   buildWhenToInvokeSection,
   applyCatalogTrim,
+  toYamlInlineScalar,
 } from '../scripts/gen-skill-docs';
+
+describe('toYamlInlineScalar', () => {
+  const parses = (out: string) => Bun.YAML.parse(`d: ${out}`);
+
+  test("scalar containing '...' (YAML document-end marker) is quoted and round-trips", () => {
+    const out = toYamlInlineScalar('Truncated lead ends with... more (gstack)');
+    expect(out.startsWith('"')).toBe(true);
+    expect((parses(out) as { d: string }).d).toContain('...');
+  });
+
+  test("interior ': ' is quoted (nested-mapping ambiguity, #1778)", () => {
+    const out = toYamlInlineScalar('Ship workflow: detect and merge');
+    expect(out.startsWith('"')).toBe(true);
+    expect((parses(out) as { d: string }).d).toBe('Ship workflow: detect and merge');
+  });
+
+  test('plain safe scalar passes through unquoted', () => {
+    expect(toYamlInlineScalar('Simple description here')).toBe('Simple description here');
+  });
+
+  test('leading YAML indicator char is quoted', () => {
+    expect(toYamlInlineScalar('- leading dash').startsWith('"')).toBe(true);
+  });
+
+  test('trailing whitespace is quoted', () => {
+    expect(toYamlInlineScalar('has trailing space ').startsWith('"')).toBe(true);
+  });
+});
 
 describe('splitCatalogDescription', () => {
   test('extracts lead sentence + routing prose from simple multi-line description', () => {
