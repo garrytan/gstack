@@ -319,6 +319,7 @@ Key routing rules:
 - Strategy/scope → invoke /plan-ceo-review
 - Architecture → invoke /plan-eng-review
 - Design system/plan review → invoke /design-consultation or /plan-design-review
+- Interactive web deck / pitch site → invoke /deck
 - Full review pipeline → invoke /autoplan
 - Bugs/errors → invoke /investigate
 - QA/testing site behavior → invoke /qa or /qa-only

@@ -20,12 +20,21 @@ jobs:
       contents: read
       packages: write
     outputs:
-      image-tag: ${{ steps.meta.outputs.tag }}
+      image-tag: ${{ steps.runtime.outputs.tag }}
+      trusted-context: ${{ steps.meta.outputs.trusted_context }}
     steps:
       - uses: actions/checkout@v4
 
       - id: meta
-        run: echo "tag=${{ env.IMAGE }}:${{ hashFiles('.github/docker/Dockerfile.ci', 'package.json', 'bun.lock') }}" >> "$GITHUB_OUTPUT"
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          BASE_REPOSITORY: ${{ github.repository }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          echo "candidate_tag=${{ env.IMAGE }}:${{ hashFiles('.github/docker/Dockerfile.ci', 'package.json', 'bun.lock') }}" >> "$GITHUB_OUTPUT"
+          TRUSTED_CONTEXT=$(bash scripts/evals-image-policy.sh "$EVENT_NAME" "$HEAD_REPOSITORY" "$BASE_REPOSITORY" "$ACTOR")
+          echo "trusted_context=$TRUSTED_CONTEXT" >> "$GITHUB_OUTPUT"
 
       - uses: docker/login-action@v3
         with:
@@ -35,8 +44,10 @@ jobs:
 
       - name: Check if image exists
         id: check
+        env:
+          CANDIDATE_TAG: ${{ steps.meta.outputs.candidate_tag }}
         run: |
-          if docker manifest inspect ${{ steps.meta.outputs.tag }} > /dev/null 2>&1; then
+          if docker manifest inspect "$CANDIDATE_TAG" > /dev/null 2>&1; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
@@ -50,14 +61,37 @@ jobs:
         with:
           context: .github/docker
           file: .github/docker/Dockerfile.ci
-          push: true
+          # A pull_request token from a fork cannot write packages in the base
+          # organization. Still build and load the image to validate the changed
+          # Dockerfile, but publish only from a trusted upstream context.
+          push: ${{ steps.meta.outputs.trusted_context == 'true' }}
+          load: ${{ steps.meta.outputs.trusted_context != 'true' }}
           tags: |
-            ${{ steps.meta.outputs.tag }}
+            ${{ steps.meta.outputs.candidate_tag }}
             ${{ env.IMAGE }}:latest
+
+      - name: Select runtime image
+        id: runtime
+        env:
+          CANDIDATE_TAG: ${{ steps.meta.outputs.candidate_tag }}
+          IMAGE_EXISTS: ${{ steps.check.outputs.exists }}
+          TRUSTED_CONTEXT: ${{ steps.meta.outputs.trusted_context }}
+        run: |
+          if [ "$IMAGE_EXISTS" = "true" ] || [ "$TRUSTED_CONTEXT" = "true" ]; then
+            echo "tag=$CANDIDATE_TAG" >> "$GITHUB_OUTPUT"
+          else
+            if ! docker manifest inspect "${IMAGE}:latest" > /dev/null 2>&1; then
+              echo "No trusted fallback eval image is available for this fork PR" >&2
+              exit 1
+            fi
+            echo "tag=${IMAGE}:latest" >> "$GITHUB_OUTPUT"
+            echo "::notice::Fork PR Dockerfile built successfully without publishing; gate evals use the trusted latest image."
+          fi
 
   evals:
     runs-on: ${{ matrix.suite.runner || 'ubicloud-standard-8' }}
     needs: build-image
+    if: needs.build-image.outputs.trusted-context == 'true'
     container:
       image: ${{ needs.build-image.outputs.image-tag }}
       credentials:
@@ -275,8 +309,8 @@ jobs:
 
   report:
     runs-on: ubicloud-standard-8
-    needs: evals
-    if: always() && github.event_name == 'pull_request'
+    needs: [build-image, evals]
+    if: always() && github.event_name == 'pull_request' && needs.build-image.outputs.trusted-context == 'true'
     timeout-minutes: 5
     permissions:
       contents: read

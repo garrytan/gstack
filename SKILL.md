@@ -276,6 +276,7 @@ Key routing rules:
 - Strategy/scope → invoke /plan-ceo-review
 - Architecture → invoke /plan-eng-review
 - Design system/plan review → invoke /design-consultation or /plan-design-review
+- Interactive web deck / pitch site → invoke /deck
 - Full review pipeline → invoke /autoplan
 - Bugs/errors → invoke /investigate
 - QA/testing site behavior → invoke /qa or /qa-only
@@ -562,6 +563,7 @@ quality gates that produce better results than answering inline.
 - User asks to review architecture, lock in the plan, "does this design make sense" → invoke `/plan-eng-review`
 - User asks about design system, brand, visual identity, "how should this look" → invoke `/design-consultation`
 - User asks to review design of a plan → invoke `/plan-design-review`
+- User asks to add, build, or seriously redesign an interactive web deck, pitch site, or shareable deck → invoke `/deck`
 - User asks about developer experience of a plan, API/CLI/SDK design → invoke `/plan-devex-review`
 - User wants all reviews done automatically, "review everything" → invoke `/autoplan`
 - User reports a bug, error, broken behavior, "why is this broken", "this doesn't work", "wtf", "something's wrong" → invoke `/investigate`

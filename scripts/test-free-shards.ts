@@ -32,6 +32,7 @@ import { isPaidTestFile } from '../test/helpers/paid-test-set';
 const ROOT = path.resolve(import.meta.dir, '..');
 const TEST_ROOTS = ['browse/test', 'test', 'make-pdf/test'] as const;
 const TEST_FILE_REGEX = /\.test\.(?:[cm]?[jt]s|tsx|jsx)$/;
+const FREE_HYBRID_TESTS = new Set(['test/skill-e2e-deck.test.ts']);
 
 // POSIX-only patterns that indicate a test will fail on windows-latest no
 // matter how the runner shards. Codex's v1.18.0.0 review flagged the first
@@ -108,7 +109,14 @@ export function normalizeRelativePath(filePath: string): string {
 export function isFreeTestFile(relativePath: string): boolean {
   const normalized = normalizeRelativePath(relativePath);
   if (!TEST_FILE_REGEX.test(normalized)) return false;
+  if (FREE_HYBRID_TESTS.has(normalized)) return true;
   return !isPaidTestFile(normalized);
+}
+
+export function freeTestEnvironment(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const env = { ...source };
+  delete env.EVALS;
+  return env;
 }
 
 /**
@@ -267,7 +275,7 @@ function runShard(files: string[], shardNumber: number, totalShards: number): nu
   const result = spawnSync(process.execPath, buildShardArgs(files), {
     cwd: ROOT,
     stdio: 'inherit',
-    env: process.env,
+    env: freeTestEnvironment(process.env),
   });
   if (result.status !== 0) {
     console.error(`${header} failed with exit code ${result.status ?? 1}`);

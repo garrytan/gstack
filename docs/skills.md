@@ -15,6 +15,7 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | [`/design-review`](#design-review) | **Designer Who Codes** | Live-site visual audit + fix loop. 80-item audit, then fixes what it finds. Atomic commits, before/after screenshots. |
 | [`/design-shotgun`](#design-shotgun) | **Design Explorer** | Generate multiple AI design variants, open a comparison board in your browser, and iterate until you approve a direction. Taste memory biases toward your preferences. |
 | [`/design-html`](#design-html) | **Design Engineer** | Generates production-quality Pretext-native HTML. Works with approved mockups, CEO plans, design reviews, or from scratch. Text reflows on resize, heights adjust to content. Smart API routing per design type. Framework detection for React/Svelte/Vue. |
+| [`/deck`](#deck) | **Deck Builder** | Add or seriously redesign an evidence-led, interactive web deck on an existing site. Deep links, accessible tabs, mobile layouts, visual QA, and controlled rollout are release gates. |
 | [`/qa`](#qa) | **QA Lead** | Test your app, find bugs, fix them with atomic commits, re-verify. Auto-generates regression tests for every fix. |
 | [`/qa-only`](#qa) | **QA Reporter** | Same methodology as /qa but report only. Use when you want a pure bug report without code changes. |
 | [`/scrape`](#scrape) | **Browser Data Extractor** | Pull data from a web page. First call prototypes via `$B`; subsequent calls on a matching intent run a codified browser-skill in ~200ms. |
@@ -534,6 +535,35 @@ You:    Done
 
 Claude: Saved to ~/.gstack/projects/myapp/designs/hero-20260330/finalized.html
 ```
+
+---
+
+## `/deck`
+
+This is the **decision-ready web deck** workflow. It starts by reading and using
+the real product, existing materials, design system, router, host configuration,
+analytics, and evidence. It builds a sourced product-truth map before asking
+short, high-leverage questions. For investors, those questions nail the buyer,
+problem, core value, differentiation, proof, raise, and milestone without
+expanding beyond the seven material categories: audience, CTA, source material,
+access level, route or host, requested research, and analytics.
+
+The result is an integrated product surface rather than an exported slide deck:
+accessible tabs, stable shareable section links, browser-history synchronization,
+keyboard controls, mobile-first layouts, and section-specific composition. It
+maintains a claim ledger, keeps sensitive proof anonymized and aggregated, and
+uses a data-room-on-request pattern when deeper evidence should not be public.
+It follows the target site's existing stack—server-rendered, static, or client
+rendered—rather than assuming a JavaScript framework or toolchain.
+
+Every section gets desktop and phone screenshots plus real-browser QA. Deep
+links, keyboard/focus behavior, mobile overflow, analytics sanitization, and
+built-output routing for the selected route are tested. `/design-review`, `/qa`,
+`/review`, a fresh independent second-opinion review (Codex where available),
+fresh Copilot feedback when supported and permitted, and `/document-release`
+are all part of the handoff. Deployment, DNS, production routing, or
+analytics-provider changes still require explicit confirmation at the point of
+change.
 
 ---
 
