@@ -168,6 +168,58 @@ function looksLikeCompactTimestamp(span: string): boolean {
   );
 }
 
+/** Context window for pairing a normalized parcel ID with its punctuated form. */
+const PARCEL_CONTEXT_CHARS = 400;
+
+/**
+ * County tax-map parcel ID (APN). Ohio's dominant form is NN-NNNNNNN.NNN, and
+ * some counties use a hyphen before the 3-4 digit suffix instead of a dot.
+ */
+const PARCEL_PUNCT_RE = /\b\d{2}-\d{4,8}[.\-]\d{3,4}\b/g;
+
+/**
+ * A parcel ID reads as a national-format phone number to pii.phone.e164 — the
+ * same collision class as the digit-only UUID that `insideUuid` already guards.
+ * Land/title repos carry these by the hundred, so the false positives are not
+ * incidental: they arrive on every branch that touches title, and a guardrail
+ * that cries wolf on the domain's primary identifier trains people to wave the
+ * warning through, which is how a real HIGH finding eventually gets ignored.
+ *
+ * Deliberately narrow, in two tiers:
+ *
+ * 1. The DOTTED form is exempt on its own shape. No phone convention places a
+ *    dot before a trailing 3-4 digit group after a 4-8 digit middle, so this
+ *    cannot swallow a real number. The hyphen-only variants (22-0001-000) are
+ *    NOT exempted by shape — those genuinely are phone-shaped.
+ *
+ * 2. A DIGITS-ONLY span is phone-shaped in isolation, so it earns the exemption
+ *    only by evidence: it must be the exact digit-normalization of a punctuated
+ *    parcel ID within the surrounding window. Fixtures and marts always carry
+ *    the pair ({parcel_id: "12-3456789.000", norm: "123456789000"}), and a bare
+ *    phone number has no such twin nearby — so this reads the document's own
+ *    evidence rather than guessing from digits.
+ */
+export function looksLikeParcelId(span: string, match: RegExpExecArray): boolean {
+  if (/^\d{2}-\d{4,8}\.\d{3,4}$/.test(span)) return true;
+  if (!/^\d{10,14}$/.test(span)) return false;
+
+  const input = match.input ?? "";
+  const spanStartInMatch = match[1] !== undefined ? match[0].indexOf(match[1]) : 0;
+  const spanStart = match.index + Math.max(0, spanStartInMatch);
+  const spanEnd = spanStart + span.length;
+  const window = input.slice(
+    Math.max(0, spanStart - PARCEL_CONTEXT_CHARS),
+    spanEnd + PARCEL_CONTEXT_CHARS,
+  );
+
+  PARCEL_PUNCT_RE.lastIndex = 0;
+  let p: RegExpExecArray | null;
+  while ((p = PARCEL_PUNCT_RE.exec(window)) !== null) {
+    if (p[0].replace(/\D/g, "") === span) return true;
+  }
+  return false;
+}
+
 // ── Placeholder suppression (per-matched-span, NOT per-line) ─────────────────
 
 /**
@@ -527,11 +579,13 @@ export const PATTERNS: RedactPattern[] = [
     regex: /(?<![\w.])(\+?[1-9]\d{0,2}[ \-.]?\(?\d{2,4}\)?[ \-.]?\d{3,4}[ \-.]?\d{3,4})(?![\w.])/,
     autoRedactable: true,
     redactToken: "<REDACTED-PHONE>",
-    // A digit-only UUID's hyphen groups read as national phone formatting.
+    // A digit-only UUID's hyphen groups read as national phone formatting, and
+    // so does a county tax-map parcel ID (see looksLikeParcelId).
     validate: (span, match) =>
       !insideUuid(match) &&
       span.replace(/\D/g, "").length >= 10 &&
-      !looksLikeCompactTimestamp(span),
+      !looksLikeCompactTimestamp(span) &&
+      !looksLikeParcelId(span, match),
   },
   {
     id: "pii.ssn",
