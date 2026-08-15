@@ -132,6 +132,7 @@ gstack/
 ├── qa-only/         # /qa-only skill (report-only QA, no fixes)
 ├── plan-design-review/  # /plan-design-review skill (report-only design audit)
 ├── design-review/    # /design-review skill (design audit + fix loop)
+├── accessibility-review/ # /accessibility-review skill (WCAG audit + fix loop)
 ├── ship/            # Ship workflow skill
 ├── review/          # PR review skill
 ├── plan-ceo-review/ # /plan-ceo-review skill
@@ -1010,6 +1011,7 @@ Key routing rules:
 - QA/testing site behavior → invoke /qa or /qa-only
 - Code review/diff check → invoke /review
 - Visual polish → invoke /design-review
+- Accessibility/WCAG/keyboard/screen-reader testing → invoke /accessibility-review
 - Ship/deploy/PR → invoke /ship or /land-and-deploy
 - Save progress → invoke /context-save
 - Resume context → invoke /context-restore
