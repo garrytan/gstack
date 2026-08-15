@@ -521,6 +521,21 @@ function fetchRecentDecisions(projectSlug: string | null): string | null {
     '--json',
   ]);
   if (!result?.pages) {
+    // F10 bug fix: this branch used to return the hardcoded
+    // "_No prior skill runs recorded._" string here, which is indistinguishable
+    // from a genuine zero-rows result. That silently converted a gbrain-
+    // unreachable FAILURE into a "successful" cached digest — refreshEntity()
+    // would write it and stamp last_refresh, so the false negative survived
+    // every subsequent TTL cycle forever. Returning null instead lets cmdGet's
+    // existing missing/stale-fallback machinery report the true state, exactly
+    // like every sibling fetcher (fetchGoals, fetchSimplePage) already does on
+    // failure.
+    return null;
+  }
+  // A malformed payload ({pages: {}} etc.) must classify as failure, not crash
+  // refreshEntity mid-refresh — same honest-missing polarity as the F10 fix.
+  if (!Array.isArray(result.pages)) return null;
+  if (result.pages.length === 0) {
     return `# Recent decisions (project: ${projectSlug})\n\n_No prior skill runs recorded._\n`;
   }
   const lines = result.pages.map((p) => `- ${p.title || p.slug}`);
@@ -576,7 +591,17 @@ function fetchSalience(projectSlug: string | null): string | null {
     '--limit', '10',
     '--json',
   ]);
-  if (!result?.pages) return `# Recent salience\n\n_No salient pages in last 14d._\n`;
+  // F10 bug fix (sibling of fetchRecentDecisions above): a gbrain-unreachable
+  // failure used to render the identical hardcoded "no salient pages" string
+  // as a genuine empty result, which refreshEntity() then cached as if it
+  // were verified truth. Unlike recent-decisions there is no project-local
+  // fallback for salience — it is specifically gbrain's emotional-weight-
+  // ranked *brain* pages, not project decision/work data, and conflating the
+  // two would defeat the D9 privacy allowlist's purpose. So on failure we
+  // return null and let the cache report 'missing' (same as product.md,
+  // goals.md, etc. already do on this machine) instead of asserting a claim
+  // we have no way to verify.
+  if (!result?.pages) return null;
 
   // D9 privacy gate: strip entries outside the allowlist BEFORE rendering.
   // Sensitive personal content (family, therapy, reflection) is never written
