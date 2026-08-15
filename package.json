@@ -51,14 +51,14 @@
     "slop:diff": "bun run scripts/slop-diff.ts"
   },
   "dependencies": {
-    "@huggingface/transformers": "^4.1.0",
+    "@huggingface/transformers": "^4.2.0",
     "@ngrok/ngrok": "^1.7.0",
     "diff": "^9.0.0",
     "html-to-docx": "1.8.0",
-    "marked": "^18.0.2",
-    "playwright": "^1.58.2",
-    "puppeteer-core": "^24.40.0",
-    "socks": "^2.8.8"
+    "marked": "^18.0.9",
+    "playwright": "^1.62.1",
+    "puppeteer-core": "^25.6.0",
+    "socks": "^2.8.9"
   },
   "engines": {
     "bun": ">=1.0.0"
