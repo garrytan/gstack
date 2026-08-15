@@ -28,7 +28,7 @@ When asked for coding work, pick the dispatch tier:
 
 **HEAVY:** needs a specific gstack methodology
 → sessions_spawn(runtime: "acp", prompt: "Load gstack. Run /qa https://...")
-  Skills: /cso, /review, /qa, /ship, /investigate, /design-review, /benchmark, /gstack-upgrade
+  Skills: /cso, /review, /qa, /ship, /investigate, /design-review, /web-performance-benchmark, /gstack-upgrade
 
 **FULL:** build a complete feature, multi-day scope, needs planning + review
 → sessions_spawn(runtime: "acp", prompt: "<gstack-full content>\n\n<task>")

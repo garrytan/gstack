@@ -85,7 +85,7 @@ WebSocket — Claude's Bash tool already exists, so we use it.
 Three escalating modes:
 
 - **Headless** (default). Daemon runs Chromium with no visible window. Fastest,
-  cheapest, what skills like `/qa`, `/design-review`, `/benchmark` use by
+  cheapest, what skills like `/qa`, `/design-review`, `/web-performance-benchmark` use by
   default.
 - **Headed via `$B connect`**. Same daemon, but Chromium is visible (rebranded
   as "GStack Browser") with the Side Panel extension auto-loaded. You watch

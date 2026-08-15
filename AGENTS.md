@@ -61,7 +61,7 @@ Invoke them by name (e.g., `/office-hours`).
 | `/learn` | Manage what gstack learned across sessions. |
 | `/retro` | Weekly retro with per-person breakdowns and shipping streaks. |
 | `/health` | Code quality dashboard (type checker, linter, tests, dead code). |
-| `/benchmark` | Performance regression detection (page load, Core Web Vitals). |
+| `/web-performance-benchmark` | Performance regression detection (page load, Core Web Vitals). |
 | `/benchmark-models` | Cross-model benchmark for skills (Claude, GPT, Gemini side-by-side). |
 | `/cso` | OWASP Top 10 + STRIDE security audit. |
 | `/setup-gbrain` | Set up gbrain for cross-machine session memory sync. |

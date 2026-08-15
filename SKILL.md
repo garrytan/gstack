@@ -595,7 +595,7 @@ quality gates that produce better results than answering inline.
 - User asks to make a PDF, document, publication → invoke `/make-pdf`
 - User asks to launch a real browser for QA, "open the browser" → invoke `/open-gstack-browser`
 - User asks to import cookies for authenticated testing → invoke `/setup-browser-cookies`
-- User asks about page speed, performance regression, benchmarks → invoke `/benchmark`
+- User asks about page speed, Core Web Vitals, or a web performance regression → invoke `/web-performance-benchmark`
 - User asks what gstack has learned, "show learnings" → invoke `/learn`
 - User asks to tune question sensitivity, "stop asking me that" → invoke `/plan-tune`
 - User asks for code quality dashboard, "health check" → invoke `/health`

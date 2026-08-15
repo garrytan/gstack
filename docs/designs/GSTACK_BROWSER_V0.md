@@ -193,7 +193,7 @@ Every gstack skill becomes a browser capability.
 | `/qa` | Test every page, find bugs, fix them, verify fixes |
 | `/design-review` | Screenshot → analyze → fix CSS → screenshot again |
 | `/investigate` | See the error in browser → trace to code → fix → verify |
-| `/benchmark` | Measure page performance → detect regressions → alert |
+| `/web-performance-benchmark` | Measure page performance → detect regressions → alert |
 | `/canary` | Monitor deployed site → screenshot periodically → alert on changes |
 | `/ship` | Run tests → review diff → create PR → verify deployment in browser |
 | `/cso` | Audit page for XSS, open redirects, clickjacking in real browser |

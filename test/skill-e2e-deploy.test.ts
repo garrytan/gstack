@@ -328,7 +328,7 @@ describeIfSelected('Benchmark skill E2E', ['benchmark-workflow'], () => {
 
   testConcurrentIfSelected('benchmark-workflow', async () => {
     const result = await runSkillTest({
-      prompt: `Read benchmark/SKILL.md for the /benchmark skill instructions.
+      prompt: `Read benchmark/SKILL.md for the /web-performance-benchmark skill instructions.
 
 You are simulating a benchmark run. There is NO browse daemon available and NO production URL.
 
@@ -353,8 +353,8 @@ Just create the files showing the correct schema and report format.`,
       runId,
     });
 
-    logCost('/benchmark', result);
-    recordE2E(evalCollector, '/benchmark workflow', 'Benchmark skill E2E', result);
+    logCost('/web-performance-benchmark', result);
+    recordE2E(evalCollector, '/web-performance-benchmark workflow', 'Web performance benchmark skill E2E', result);
     expect(result.exitReason).toBe('success');
 
     expect(fs.existsSync(path.join(benchDir, '.gstack', 'benchmark-reports'))).toBe(true);
