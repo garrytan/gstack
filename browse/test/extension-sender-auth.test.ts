@@ -36,6 +36,13 @@ const PRIVILEGED = [
   'getPort', 'setPort', 'getServerUrl', 'getToken', 'fetchRefs',
   'command', 'sidebar-command', 'getTabState',
 ];
+// background.js routes only its ALLOWED_TYPES; 'sidebar-command' stays in the
+// sender-auth POLICY as defense-in-depth for the ripped chat path, but the
+// listener drops it as an unknown type BEFORE the gate — silently. The
+// behavioral "the gate answers" assertion therefore only holds for routed
+// types (regression: both own-content-script behavioral tests failed on
+// pristine v1.64.1.0 the moment the loop reached 'sidebar-command').
+const PRIVILEGED_ROUTED = PRIVILEGED.filter((t) => t !== 'sidebar-command');
 // Content-script-originated flows that must keep working.
 const CONTENT_SCRIPT_TYPES = ['openSidePanel', 'elementPicked', 'pickerCancelled', 'inspectResult'];
 // Sidepanel-originated, non-privileged (page effects only, no token/port).
@@ -187,11 +194,13 @@ describe('background.js onMessage listener (behavioral)', () => {
   });
 
   test('own content script: every privileged type is denied with no token/port fields', () => {
-    for (const type of PRIVILEGED) {
+    for (const type of PRIVILEGED_ROUTED) {
       const r = dispatch(listener, { type }, CONTENT_SCRIPT_SENDER);
       expect(r.responded).toBe(true); // the gate answers, it does not go silent
       expectDenied(r);
     }
+    // Unrouted privileged types must still yield nothing usable (silence is fine).
+    expectDenied(dispatch(listener, { type: 'sidebar-command' }, CONTENT_SCRIPT_SENDER));
   });
 
   test('foreign extension: every privileged type yields no token/port fields', () => {
@@ -201,11 +210,12 @@ describe('background.js onMessage listener (behavioral)', () => {
   });
 
   test('missing sender.url: every privileged type is denied', () => {
-    for (const type of PRIVILEGED) {
+    for (const type of PRIVILEGED_ROUTED) {
       const r = dispatch(listener, { type }, NO_URL_SENDER);
       expect(r.responded).toBe(true);
       expectDenied(r);
     }
+    expectDenied(dispatch(listener, { type: 'sidebar-command' }, NO_URL_SENDER));
   });
 
   test('denied setPort never persists the attacker port', () => {

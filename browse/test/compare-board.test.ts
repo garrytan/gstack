@@ -16,7 +16,10 @@ import { handleReadCommand as _handleReadCommand } from '../src/read-commands';
 import { handleWriteCommand as _handleWriteCommand } from '../src/write-commands';
 
 const handleReadCommand = (cmd: string, args: string[], b: BrowserManager) =>
-  _handleReadCommand(cmd, args, b.getActiveSession());
+  // Regression: the bridge must forward `b` — read-commands' now-unconditional
+  // JS-origin assertion calls bm.hasCookieImports(); omitting it TypeErrors
+  // every read (all 16 tests here failed on pristine v1.64.1.0).
+  _handleReadCommand(cmd, args, b.getActiveSession(), b);
 const handleWriteCommand = (cmd: string, args: string[], b: BrowserManager) =>
   _handleWriteCommand(cmd, args, b.getActiveSession(), b);
 import { generateCompareHtml } from '../../design/src/compare';

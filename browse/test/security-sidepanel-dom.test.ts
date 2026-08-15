@@ -3,21 +3,12 @@
  * actually render and react to security events correctly when loaded in
  * a real Chromium.
  *
- * Uses Playwright + BrowserManager. The extension sidepanel is loaded via
- * file:// with a stubbed window.fetch that simulates the browse server
- * returning /health + /sidebar-chat responses. We inject security_event
- * entries via the stubbed /sidebar-chat response and assert:
- *
- *   * Banner renders (display: block, not display: none)
- *   * Title + subtitle text reflects domain + layer
- *   * Layer scores appear in the expandable details
- *   * Shield icon data-status attr flips based on /health.security.status
- *   * Escape key dismisses the banner
- *   * Expand button toggles aria-expanded + layer list visibility
- *
- * All 83 prior security tests cover the JS behavior in isolation; this
- * test covers the integration: sidepanel.html + sidepanel.js + sidepanel.css
- * + real DOM + real event dispatch.
+ * Uses Playwright. The extension sidepanel is loaded via file:// with a
+ * stubbed window.fetch/chrome.runtime. Since the chat path was ripped
+ * (v1.63–v1.64.1), sidepanel.js deliberately leaves the security shield
+ * hidden and undriven — these tests pin THAT contract (see the tombstone
+ * inside the describe for the five banner/shield-driving tests this file
+ * used to run, and why they can never pass anymore).
  *
  * Runs in ~2s. Gate tier. Skipped if Playwright isn't available.
  */
@@ -138,223 +129,51 @@ afterAll(async () => {
 });
 
 describe('sidepanel security DOM', () => {
-  test.skipIf(!CHROMIUM_AVAILABLE)('shield icon reflects /health.security.status', async () => {
+  // ── Tombstone (2026-08-15) ────────────────────────────────────────────
+  // Five tests here drove the shield + security banner through the chat
+  // path's /sidebar-chat + /health.security stubs:
+  //   * shield icon reflects /health.security.status
+  //   * shield flips to degraded when classifier warmup is incomplete
+  //   * security_event entry triggers banner render with domain + layer scores
+  //   * expand button toggles aria-expanded + reveals details
+  //   * Escape key dismisses an open banner / close button dismisses banner
+  // The chat path was ripped in v1.63–v1.64.1 and sidepanel.js now leaves the
+  // shield "hidden by default, not driven" (see the comment in tryConnect).
+  // The old assertions could never pass again; worse, the first one waited
+  // 15s for a data-status that never arrives, and bun's timeout handler then
+  // SIGTERM'd the SHARED beforeAll browser (exit 143), cascading "browser has
+  // been closed" into every later test. CI never saw any of this because the
+  // whole file skips when Playwright chromium is not installed.
+  // What remains pins the CURRENT contract; if the shield indicator is ever
+  // re-driven off a new endpoint, resurrect the old cases from git history
+  // (they are behaviorally right for a driven shield).
+  test.skipIf(!CHROMIUM_AVAILABLE)('sidepanel loads under stubs; shield exists and stays hidden', async () => {
     const context = await browser!.newContext();
     const page = await context.newPage();
     await installStubsBeforeLoad(page, {
-      healthSecurity: {
-        status: 'protected',
-        layers: { testsavant: 'ok', canary: 'ok' },
-      },
+      healthSecurity: { status: 'protected', layers: { testsavant: 'ok', canary: 'ok' } },
     });
     await page.goto(SIDEPANEL_URL);
-    // sidepanel.js updates the shield after the first /health call
-    // succeeds. Give it a tick.
-    await page.waitForFunction(
-      () => document.getElementById('security-shield')?.getAttribute('data-status') === 'protected',
-      { timeout: 5000 },
-    );
+    await page.waitForSelector('#security-shield', { state: 'attached', timeout: 5000 });
+    const display = await page.$eval('#security-shield', (el) => window.getComputedStyle(el).display);
+    expect(display).toBe('none');
+    await context.close();
+  }, 15000);
+
+  test.skipIf(!CHROMIUM_AVAILABLE)('shield stays undriven — no data-status even with a healthy /health stub', async () => {
+    const context = await browser!.newContext();
+    const page = await context.newPage();
+    await installStubsBeforeLoad(page, {
+      healthSecurity: { status: 'protected', layers: { testsavant: 'ok', canary: 'ok' } },
+    });
+    await page.goto(SIDEPANEL_URL);
+    // Give the connection flow ample time to run; the shield must NOT flip —
+    // sidepanel.js deliberately does not drive it since the chat path rip.
+    await page.waitForTimeout(1500);
     const status = await page.$eval('#security-shield', (el) => el.getAttribute('data-status'));
-    expect(status).toBe('protected');
-    // aria-label carries human-readable state
+    expect(status).toBeNull();
     const aria = await page.$eval('#security-shield', (el) => el.getAttribute('aria-label'));
-    expect(aria).toContain('protected');
-    await context.close();
-  }, 15000);
-
-  test.skipIf(!CHROMIUM_AVAILABLE)('shield flips to degraded when classifier warmup is incomplete', async () => {
-    const context = await browser!.newContext();
-    const page = await context.newPage();
-    await installStubsBeforeLoad(page, {
-      healthSecurity: {
-        status: 'degraded',
-        layers: { testsavant: 'off', canary: 'ok' },
-      },
-    });
-    await page.goto(SIDEPANEL_URL);
-    await page.waitForFunction(
-      () => document.getElementById('security-shield')?.getAttribute('data-status') === 'degraded',
-      { timeout: 5000 },
-    );
-    const status = await page.$eval('#security-shield', (el) => el.getAttribute('data-status'));
-    expect(status).toBe('degraded');
-    await context.close();
-  }, 15000);
-
-  test.skipIf(!CHROMIUM_AVAILABLE)('security_event entry triggers banner render with domain + layer scores', async () => {
-    const securityEntry = {
-      id: 1,
-      ts: '2026-04-20T00:00:00Z',
-      role: 'agent',
-      type: 'security_event',
-      verdict: 'block',
-      reason: 'canary_leaked',
-      layer: 'canary',
-      confidence: 1.0,
-      domain: 'attacker.example.com',
-      channel: 'tool_use:Bash',
-      signals: [
-        { layer: 'testsavant_content', confidence: 0.92 },
-        { layer: 'transcript_classifier', confidence: 0.78 },
-      ],
-    };
-
-    const context = await browser!.newContext();
-    const page = await context.newPage();
-    await installStubsBeforeLoad(page, {
-      healthSecurity: {
-        status: 'protected',
-        layers: { testsavant: 'ok', canary: 'ok' },
-      },
-      securityEntries: [securityEntry],
-    });
-    await page.goto(SIDEPANEL_URL);
-
-    // The banner should become visible once /sidebar-chat poll delivers the
-    // security_event entry and addChatEntry routes it to showSecurityBanner.
-    await page.waitForSelector('#security-banner', { state: 'visible', timeout: 5000 });
-    const displayed = await page.$eval('#security-banner', (el) =>
-      window.getComputedStyle(el).display !== 'none',
-    );
-    expect(displayed).toBe(true);
-
-    // Subtitle includes the attack domain
-    const subtitleText = await page.textContent('#security-banner-subtitle');
-    expect(subtitleText).toContain('attacker.example.com');
-    expect(subtitleText).toContain('prompt injection detected');
-
-    // Layer list was populated — primary layer (canary) always renders;
-    // signals array brings in the additional ML layers
-    const layers = await page.$$eval('.security-banner-layer', (els) =>
-      els.map((el) => el.textContent),
-    );
-    expect(layers.length).toBeGreaterThanOrEqual(1);
-    // Canary row expected
-    expect(layers.join(' ')).toMatch(/Canary|canary/);
-
-    await context.close();
-  }, 15000);
-
-  test.skipIf(!CHROMIUM_AVAILABLE)('expand button toggles aria-expanded + reveals details', async () => {
-    const entry = {
-      id: 1,
-      ts: '2026-04-20T00:00:00Z',
-      role: 'agent',
-      type: 'security_event',
-      verdict: 'block',
-      reason: 'ensemble_agreement',
-      layer: 'testsavant_content',
-      confidence: 0.88,
-      domain: 'example.com',
-      signals: [
-        { layer: 'testsavant_content', confidence: 0.88 },
-        { layer: 'transcript_classifier', confidence: 0.71 },
-      ],
-    };
-    const context = await browser!.newContext();
-    const page = await context.newPage();
-    await installStubsBeforeLoad(page, {
-      healthSecurity: { status: 'protected', layers: { testsavant: 'ok', canary: 'ok' } },
-      securityEntries: [entry],
-    });
-    await page.goto(SIDEPANEL_URL);
-    await page.waitForSelector('#security-banner', { state: 'visible', timeout: 5000 });
-
-    // Initially collapsed
-    const initialAria = await page.$eval('#security-banner-expand', (el) =>
-      el.getAttribute('aria-expanded'),
-    );
-    expect(initialAria).toBe('false');
-    const initialHidden = await page.$eval('#security-banner-details', (el) =>
-      (el as HTMLElement).hidden,
-    );
-    expect(initialHidden).toBe(true);
-
-    // Click expand
-    await page.click('#security-banner-expand');
-    const expandedAria = await page.$eval('#security-banner-expand', (el) =>
-      el.getAttribute('aria-expanded'),
-    );
-    expect(expandedAria).toBe('true');
-    const expandedHidden = await page.$eval('#security-banner-details', (el) =>
-      (el as HTMLElement).hidden,
-    );
-    expect(expandedHidden).toBe(false);
-
-    await context.close();
-  }, 15000);
-
-  test.skipIf(!CHROMIUM_AVAILABLE)('Escape key dismisses an open banner', async () => {
-    const entry = {
-      id: 1,
-      ts: '2026-04-20T00:00:00Z',
-      role: 'agent',
-      type: 'security_event',
-      verdict: 'block',
-      reason: 'canary_leaked',
-      layer: 'canary',
-      confidence: 1.0,
-      domain: 'evil.example.com',
-    };
-    const context = await browser!.newContext();
-    const page = await context.newPage();
-    await installStubsBeforeLoad(page, {
-      healthSecurity: { status: 'protected', layers: { testsavant: 'ok', canary: 'ok' } },
-      securityEntries: [entry],
-    });
-    await page.goto(SIDEPANEL_URL);
-    await page.waitForSelector('#security-banner', { state: 'visible', timeout: 5000 });
-
-    // Hit Escape — should hide the banner
-    await page.keyboard.press('Escape');
-    // Wait a tick for the event handler to run
-    await page.waitForFunction(
-      () => {
-        const el = document.getElementById('security-banner');
-        return el ? window.getComputedStyle(el).display === 'none' : false;
-      },
-      { timeout: 2000 },
-    );
-    const stillVisible = await page.$eval('#security-banner', (el) =>
-      window.getComputedStyle(el).display !== 'none',
-    );
-    expect(stillVisible).toBe(false);
-    await context.close();
-  }, 15000);
-
-  test.skipIf(!CHROMIUM_AVAILABLE)('close button dismisses banner', async () => {
-    const entry = {
-      id: 1,
-      ts: '2026-04-20T00:00:00Z',
-      role: 'agent',
-      type: 'security_event',
-      verdict: 'block',
-      reason: 'canary_leaked',
-      layer: 'canary',
-      confidence: 1.0,
-      domain: 'evil.example.com',
-    };
-    const context = await browser!.newContext();
-    const page = await context.newPage();
-    await installStubsBeforeLoad(page, {
-      healthSecurity: { status: 'protected', layers: { testsavant: 'ok', canary: 'ok' } },
-      securityEntries: [entry],
-    });
-    await page.goto(SIDEPANEL_URL);
-    await page.waitForSelector('#security-banner', { state: 'visible', timeout: 5000 });
-
-    await page.click('#security-banner-close');
-    await page.waitForFunction(
-      () => {
-        const el = document.getElementById('security-banner');
-        return el ? window.getComputedStyle(el).display === 'none' : false;
-      },
-      { timeout: 2000 },
-    );
-    const displayed = await page.$eval('#security-banner', (el) =>
-      window.getComputedStyle(el).display !== 'none',
-    );
-    expect(displayed).toBe(false);
+    expect(aria).toBe('Security status: unknown');
     await context.close();
   }, 15000);
 });
