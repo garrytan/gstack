@@ -451,17 +451,20 @@ and tell the user: "I found and fixed a few issues during the review. The fixes 
 
 **Free tests — prefer exact-SHA CI evidence:**
 
-Capture the PR head and its current checks:
+Bracket the check query with the PR head so a push racing the readiness check
+cannot make stale CI look current:
 
 ```bash
-PR_HEAD_SHA=$(gh pr view --json headRefOid -q .headRefOid)
-gh pr checks --json name,state,workflow
+PR_HEAD_SHA_BEFORE=$(gh pr view --json headRefOid -q .headRefOid)
+CI_CHECKS_JSON=$(gh pr checks --json name,state,workflow)
+PR_HEAD_SHA_AFTER=$(gh pr view --json headRefOid -q .headRefOid)
 ```
 
-If all required checks belong to `PR_HEAD_SHA`, all are successful, and at least
-one check is clearly a test/build/typecheck job, accept that as exact-SHA test
-evidence. Do not run the same suite locally again. Record the check names and SHA
-in the readiness report.
+Accept the CI result only when `PR_HEAD_SHA_BEFORE == PR_HEAD_SHA_AFTER`, every
+required check in `CI_CHECKS_JSON` is successful, and at least one check is clearly
+a test/build/typecheck job. This stable-head bracket proves the checks came from
+the exact PR head being assessed. Do not run the same suite locally again. Record
+the check names and `PR_HEAD_SHA_AFTER` in the readiness report.
 
 Run local free tests only when CI is absent, has no test/build check, targets a
 different SHA, or the project explicitly documents an additional local-only gate.

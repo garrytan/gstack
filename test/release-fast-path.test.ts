@@ -34,8 +34,10 @@ describe("release fast path", () => {
   test("land reuses exact-head CI and auto-continues only when fully green", () => {
     const land = read("land-and-deploy/SKILL.md.tmpl");
 
-    expect(land).toContain("headRefOid");
-    expect(land).toMatch(/accept that as exact-SHA test\s+evidence/);
+    expect(land).toContain("PR_HEAD_SHA_BEFORE");
+    expect(land).toContain("PR_HEAD_SHA_AFTER");
+    expect(land).toContain("PR_HEAD_SHA_BEFORE == PR_HEAD_SHA_AFTER");
+    expect(land).toContain("exact PR head being assessed");
     expect(land).toContain("If there are zero warnings and zero blockers");
     expect(land).toMatch(/continue to\s+Step 4 automatically/);
   });
