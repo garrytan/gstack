@@ -39,7 +39,7 @@ jobs:
     steps:
       # Base repo only — trusted infra (the rewrite helper). No PR-head checkout.
       - name: Checkout base repo (trusted)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 1
 
