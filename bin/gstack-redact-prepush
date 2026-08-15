@@ -122,8 +122,87 @@ function unknownRemoteTipBase(localSha: string): string | null {
   return null;
 }
 
+/**
+ * The commits this push actually adds — reachable from localSha and from NO
+ * remote-tracking ref.
+ *
+ * ⚠ WHY THIS EXISTS RATHER THAN A TWO-DOT RANGE.
+ *
+ * `remoteSha..localSha` is "everything new on this branch", which is NOT the
+ * same as "everything new to the remote". Merge origin/main into a feature
+ * branch and every commit main gained since the branch's last push becomes an
+ * added line — content that is already published, already scanned, and not
+ * this push's doing.
+ *
+ * Two things follow, and both were observed:
+ *
+ *   · FALSE HIGH FINDINGS. A placeholder connection string in a test fixture,
+ *     already merged to main by someone else, blocked an unrelated push as
+ *     `db.url_with_password` — telling the operator to rotate a credential
+ *     over a fixture they had never touched. A
+ *     guard that cries wolf on catch-up merges is a guard people learn to
+ *     bypass reflexively — which is exactly how a real secret gets through.
+ *   · OVERSIZED SCANS. The comment on SCAN_CHUNK_BYTES below records a
+ *     1,146,782-byte diff from "a feature branch catching up to a busy main"
+ *     blowing the engine's 1 MiB cap. Same root cause, treated there as a size
+ *     problem and solved by slicing. Narrowing the range fixes the size too.
+ *
+ * A two-dot range cannot express this: after merging main, neither the remote
+ * tip nor the merge-base with main is an ancestor of the other, so no single
+ * base excludes both. `rev-list --not --remotes` is the operation that does,
+ * and this file already reasons that way in `unknownRemoteTipBase` step 2 —
+ * including why `--remotes` (every remote, not just the push target) is the
+ * right exclusion: content published anywhere has already left this machine.
+ *
+ * Each commit is diffed alone. `--cc` on a merge shows only the conflict
+ * RESOLUTION — content that exists in no parent — so a secret introduced while
+ * resolving a merge is still caught, while an ordinary merge contributes
+ * nothing. Returns null when the notion does not apply, so callers fall back.
+ */
+function addedLinesFromNewCommits(localSha: string, remoteSha: string): string | null {
+  // remoteSha is what git TELLS us the remote has, and it is authoritative in a
+  // way `--remotes` is not: remote-tracking refs can be absent (a fresh clone
+  // that never fetched, a push to a remote with no tracking ref) or stale. Drop
+  // it and a repo with no tracking refs excludes NOTHING — every commit ever
+  // made reads as "new", which re-introduces the false positives from the other
+  // direction. So it stays the base; `--remotes` only ADDS exclusions on top.
+  if (ZERO.test(remoteSha) || !objectExists(remoteSha)) return null;
+
+  const narrowed = git(["rev-list", localSha, "--not", remoteSha, "--remotes"]).trim();
+  if (!narrowed) return null;
+
+  // If excluding remote-tracking refs changes nothing, this push has no
+  // catch-up commits and the plain range already describes it exactly. Defer to
+  // it. That is not just an optimization: it keeps every push that ISN'T a
+  // catch-up merge on the original gitStrict diff path, so the fail-closed
+  // guarantee (#1946) and its regression test keep exercising the code they
+  // were written for. A narrowing that silently retired that test would be a
+  // worse trade than the false positives it set out to fix.
+  const plain = git(["rev-list", `${remoteSha}..${localSha}`]).trim();
+  const asSet = (s: string) => s.split("\n").filter(Boolean).sort().join("\n");
+  if (asSet(narrowed) === asSet(plain)) return null;
+
+  const shas = narrowed.split("\n").filter(Boolean);
+  // A rewrite of long history should fall back rather than shell out per commit.
+  if (shas.length > 500) return null;
+  const out: string[] = [];
+  for (const sha of shas) {
+    // gitStrict: a failed diff must never read as "nothing added" (#1946).
+    out.push(gitStrict([
+      "show", "--unified=0", "--no-color", "--no-ext-diff", "--no-textconv",
+      "--cc", "--format=", sha,
+    ]));
+  }
+  return out.join("\n");
+}
+
 /** Return the added-line text for a ref update being pushed. */
 function addedLinesFor(localSha: string, remoteSha: string): string {
+  // Preferred ONLY when this push carries catch-up commits: scanning them again
+  // is the bug. Every other shape falls through to the range logic below.
+  const fromNew = addedLinesFromNewCommits(localSha, remoteSha);
+  if (fromNew !== null) return collectAddedLines(fromNew);
+
   let range: string;
   if (ZERO.test(remoteSha) || !objectExists(remoteSha)) {
     // Either a new branch (zero remote sha), or the remote tip object is absent
@@ -151,6 +230,14 @@ function addedLinesFor(localSha: string, remoteSha: string): string {
     "diff", "--unified=0", "--no-color", "--no-ext-diff", "--no-textconv",
     range,
   ]);
+  return collectAddedLines(diff);
+}
+
+/**
+ * Added-line text from a unified diff. Shared by both range strategies so the
+ * hunk-aware header handling below cannot drift between them.
+ */
+function collectAddedLines(diff: string): string {
   const added: string[] = [];
   // Hunk-aware header skip (#2498): `+++ ` is only a FILE HEADER outside a
   // hunk. Inside a hunk, an added content line whose text begins with "++"
@@ -158,7 +245,11 @@ function addedLinesFor(localSha: string, remoteSha: string): string {
   // silently dropped exactly those lines from the scan.
   let inHunk = false;
   for (const line of diff.split("\n")) {
-    if (line.startsWith("diff --git")) { inHunk = false; continue; }
+    // `diff --` rather than `diff --git`: a merge scanned with --cc emits
+    // `diff --cc <path>`, so a --git-only reset left inHunk true across file
+    // boundaries and read the next file's `+++ b/...` header as content. Only
+    // noise (it over-scans, never under-scans), but the boundary is real.
+    if (line.startsWith("diff --")) { inHunk = false; continue; }
     if (line.startsWith("@@")) { inHunk = true; continue; }
     if (!inHunk && (line.startsWith("+++") || line.startsWith("---"))) continue;
     if (line.startsWith("+")) added.push(line.slice(1));
