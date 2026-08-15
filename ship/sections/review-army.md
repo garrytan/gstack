@@ -383,7 +383,14 @@ Output a summary header: `Pre-Landing Review: N issues (X critical, Y informatio
    - If 3 or fewer ASK items, you may use individual AskUserQuestion calls instead
 
 7. **After all fixes (auto + user-approved):**
-   - If ANY fixes were applied: commit fixed files by name (`git add <fixed-files> && git commit -m "fix: pre-landing review fixes"`), then **STOP** and tell the user to run `/ship` again to re-test.
+   - If ANY fixes were applied: increment `REPAIR_ROUND`, commit fixed files by
+     name (`git add <fixed-files> && git commit -m "fix: pre-landing review fixes"`),
+     and continue in this invocation. Run the smallest relevant tests for the
+     changed files, then run a focused checklist pass on the repair diff only.
+     Re-run coverage only when behavior or tests changed; re-run plan completion
+     only when scope or plan files changed. Step 16 supplies the final full suite.
+   - If a third repair round produces new findings: **STOP** and report the loop,
+     the remaining findings, and the three repair commit SHAs.
    - If no fixes applied (all ASK items skipped, or no issues found): continue to Step 12.
 
 8. Output summary: `Pre-Landing Review: N issues — M auto-fixed, K asked (J fixed, L skipped)`

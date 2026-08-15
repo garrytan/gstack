@@ -1,19 +1,19 @@
 /**
- * Section resolvers (v2 plan T9, Claude-first carve).
+ * Section resolvers (v2 plan T9, on-demand carve).
  *
  * A carved skill keeps its prose-heavy steps in `<skill>/sections/<id>.md`, read
  * on demand. The SAME template ships to every host, so these resolvers make the
  * carve host-aware:
  *
- *  - On CLAUDE: {{SECTION:id}} emits a STOP-Read pointer to the generated section
- *    file (the skeleton), and the section .md is generated + installed separately.
+ *  - On CLAUDE and CODEX: {{SECTION:id}} emits a STOP-Read pointer to the generated
+ *    section file, and the section .md is generated + installed separately.
  *  - On every OTHER host: {{SECTION:id}} INLINES the section template's content,
  *    so external hosts keep the full monolith ship skill (no section files, no
  *    host-portable-path problem). Inlined content keeps its own {{RESOLVER}}
  *    tokens, which the generator's multi-pass resolve expands.
  *
  * {{SECTION_INDEX:skill}} renders the situation→section table from the PASSIVE
- * manifest on Claude (empty on other hosts — they have no sections). The manifest
+ * manifest on carved hosts (empty on other hosts — they have no sections). The manifest
  * is the single source of id/file/title/trigger text (CM2; v2_PLAN.md:663).
  */
 
@@ -49,17 +49,17 @@ function findSection(skill: string, id: string): SectionEntry {
 }
 
 /**
- * {{SECTION:id}} — pointer on Claude, inline on other hosts.
- * Claude path uses the stable gstack-root install (`{skillRoot}/{skill}/sections/`),
- * which always exists, instead of a naked relative path (Codex outside-voice #7).
+ * {{SECTION:id}} — pointer on carved hosts, inline on other hosts.
  */
 export const SECTION: ResolverFn = (ctx: TemplateContext, args?: string[]): string => {
   const id = args?.[0];
   if (!id) throw new Error('{{SECTION:id}} requires a section id');
   const entry = findSection(ctx.skillName, id);
 
-  if (ctx.host === 'claude') {
-    const sectionPath = `${ctx.paths.skillRoot}/${ctx.skillName}/sections/${entry.file}`;
+  if (ctx.host === 'claude' || ctx.host === 'codex') {
+    const sectionPath = ctx.host === 'codex'
+      ? `${ctx.paths.skillRoot}/.agents/skills/gstack-${ctx.skillName}/sections/${entry.file}`
+      : `${ctx.paths.skillRoot}/${ctx.skillName}/sections/${entry.file}`;
     return [
       `> **STOP.** Before ${entry.trigger}, Read \`${sectionPath}\` and execute it`,
       `> in full. Do not work from memory — that section is the source of truth for this step.`,
@@ -74,10 +74,10 @@ export const SECTION: ResolverFn = (ctx: TemplateContext, args?: string[]): stri
 
 /**
  * {{SECTION_INDEX:skill}} — situation→section table from the passive manifest.
- * Claude only; other hosts inline everything so an index would be noise.
+ * Carved hosts only; other hosts inline everything so an index would be noise.
  */
 export const SECTION_INDEX: ResolverFn = (ctx: TemplateContext, args?: string[]): string => {
-  if (ctx.host !== 'claude') return '';
+  if (ctx.host !== 'claude' && ctx.host !== 'codex') return '';
   const skill = args?.[0] ?? ctx.skillName;
   const manifest = loadManifest(skill);
   const lines: string[] = [

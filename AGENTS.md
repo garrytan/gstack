@@ -43,8 +43,8 @@ Invoke them by name (e.g., `/office-hours`).
 
 | Skill | What it does |
 |-------|-------------|
-| `/ship` | Run tests, review, push, open PR. Workspace-aware version queue. |
-| `/land-and-deploy` | Merge the PR, wait for CI and deploy, verify production health. |
+| `/ship` | Run tests, parallel audits, bounded repair loops, push, open PR. Workspace-aware version queue. |
+| `/land-and-deploy` | Reuse exact-SHA CI, merge a green PR without a duplicate prompt, wait for deploy, verify production health. |
 | `/canary` | Post-deploy monitoring loop using the browse daemon. |
 | `/landing-report` | Read-only dashboard for the workspace-aware ship queue. |
 | `/document-release` | Update all docs to match what you just shipped. |

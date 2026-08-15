@@ -1,5 +1,32 @@
 # Changelog
 
+## [1.65.0.0] - 2026-08-15
+
+### Added
+
+- `/ship` now runs coverage, plan, and eligible specialist audits concurrently,
+  keeps auto-fixes inside one invocation, and bounds repair loops to two rounds.
+- Codex receives on-demand ship sections instead of a 40K-token monolith. The
+  initial skill payload drops from about 40K to 21K tokens.
+- Added `docs/howto-fast-release-workflow.md` with the evidence reuse, repair,
+  CI, and hard-stop contract.
+
+### Changed
+
+- Test commands are discovered from project instructions and manifests instead
+  of unconditionally running Rails and npm commands. Normal runner concurrency is
+  preserved, and only explicit infrastructure failures receive one retry.
+- `/ship` refreshes the base immediately before versioning and again before push,
+  preventing long audits from producing stale VERSION and CHANGELOG claims.
+- `/land-and-deploy` accepts successful test/build checks on the PR's exact head
+  SHA instead of repeating the same suite locally. A fully green readiness report
+  proceeds automatically; warnings and blockers still stop the workflow.
+
+### Fixed
+
+- A green CI result now continues through VERSION drift detection and the
+  readiness gate instead of jumping directly to the merge step.
+
 ## [1.64.0.0] - 2026-08-14
 
 **Ninety fixes in one wave. Every guard that said it was protecting you now actually does.**

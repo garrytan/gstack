@@ -1034,14 +1034,13 @@ for (const currentHost of hostsToRun) {
       }
     }
 
-    // ─── Section generation (v2 plan T9, Claude-first carve) ───
-    // On-demand sections/*.md for carved skills. Generated for CLAUDE ONLY:
-    // every other host inlines section content via the {{SECTION:id}} resolver
-    // (keeping the full monolith skill), so they need no section files and we
-    // sidestep host-portable section paths until that plumbing lands. No-op for
+    // ─── Section generation (v2 plan T9, on-demand carve) ───
+    // On-demand sections/*.md for carved skills. Claude and Codex can Read local
+    // section files; other hosts keep inline content until they have the same
+    // filesystem contract. No-op for
     // any skill without a sections/ dir. Mirrors the SKILL.md DRY_RUN handling so
     // sections participate in the freshness gate.
-    for (const sec of currentHost === 'claude' ? discoverSectionTemplates(ROOT) : []) {
+    for (const sec of (currentHost === 'claude' || currentHost === 'codex') ? discoverSectionTemplates(ROOT) : []) {
       if (currentHostConfig.generation.includeSkills?.length &&
           !currentHostConfig.generation.includeSkills.includes(sec.skillDir)) continue;
       if (currentHostConfig.generation.skipSkills?.length &&

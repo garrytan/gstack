@@ -44,6 +44,9 @@ For each comment in `comments`:
 
 **SUPPRESSED:** Skip silently — these are known false positives from previous triage.
 
-**After all comments are resolved:** If any fixes were applied, the tests from Step 5 are now stale. **Re-run tests** (Step 5) before continuing to Step 12. If no fixes were applied, continue to Step 12.
+**After all comments are resolved:** If fixes were applied, run targeted tests for
+the changed surface and mark the Step 5 full-suite evidence stale. Continue in the
+same invocation; Step 16 runs the final full suite once. Feed these fixes into the
+same two-round `REPAIR_ROUND` budget as Step 9. If no fixes were applied, continue.
 
 ---
