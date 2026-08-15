@@ -58,7 +58,7 @@ export const SECTION: ResolverFn = (ctx: TemplateContext, args?: string[]): stri
 
   if (ctx.host === 'claude' || ctx.host === 'codex') {
     const sectionPath = ctx.host === 'codex'
-      ? `${ctx.paths.skillRoot}/.agents/skills/gstack-${ctx.skillName}/sections/${entry.file}`
+      ? `${ctx.paths.skillRoot}/../gstack-${ctx.skillName}/sections/${entry.file}`
       : `${ctx.paths.skillRoot}/${ctx.skillName}/sections/${entry.file}`;
     return [
       `> **STOP.** Before ${entry.trigger}, Read \`${sectionPath}\` and execute it`,

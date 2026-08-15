@@ -1034,22 +1034,22 @@ apply review or coverage edits until all parallel read-only audits have joined.
 
 ---
 
-> **STOP.** Before running the test suites and (if prompt files changed) the eval suites (Steps 4-6), Read `$GSTACK_ROOT/.agents/skills/gstack-ship/sections/tests.md` and execute it
+> **STOP.** Before running the test suites and (if prompt files changed) the eval suites (Steps 4-6), Read `$GSTACK_ROOT/../gstack-ship/sections/tests.md` and execute it
 > in full. Do not work from memory — that section is the source of truth for this step.
 
-> **STOP.** Before auditing test coverage of the diff (Step 7), Read `$GSTACK_ROOT/.agents/skills/gstack-ship/sections/test-coverage.md` and execute it
+> **STOP.** Before auditing test coverage of the diff (Step 7), Read `$GSTACK_ROOT/../gstack-ship/sections/test-coverage.md` and execute it
 > in full. Do not work from memory — that section is the source of truth for this step.
 
-> **STOP.** Before auditing plan completion, verification, and scope drift (Step 8), Read `$GSTACK_ROOT/.agents/skills/gstack-ship/sections/plan-completion.md` and execute it
+> **STOP.** Before auditing plan completion, verification, and scope drift (Step 8), Read `$GSTACK_ROOT/../gstack-ship/sections/plan-completion.md` and execute it
 > in full. Do not work from memory — that section is the source of truth for this step.
 
-> **STOP.** Before the pre-landing review and specialist dispatch (Step 9), Read `$GSTACK_ROOT/.agents/skills/gstack-ship/sections/review-army.md` and execute it
+> **STOP.** Before the pre-landing review and specialist dispatch (Step 9), Read `$GSTACK_ROOT/../gstack-ship/sections/review-army.md` and execute it
 > in full. Do not work from memory — that section is the source of truth for this step.
 
-> **STOP.** Before addressing Greptile review comments when a PR exists (Step 10), Read `$GSTACK_ROOT/.agents/skills/gstack-ship/sections/greptile.md` and execute it
+> **STOP.** Before addressing Greptile review comments when a PR exists (Step 10), Read `$GSTACK_ROOT/../gstack-ship/sections/greptile.md` and execute it
 > in full. Do not work from memory — that section is the source of truth for this step.
 
-> **STOP.** Before the adversarial review and learnings capture (Step 11), Read `$GSTACK_ROOT/.agents/skills/gstack-ship/sections/adversarial.md` and execute it
+> **STOP.** Before the adversarial review and learnings capture (Step 11), Read `$GSTACK_ROOT/../gstack-ship/sections/adversarial.md` and execute it
 > in full. Do not work from memory — that section is the source of truth for this step.
 
 ### Final base freshness gate
@@ -1112,7 +1112,7 @@ stay agent judgment; the slot pick stays `gstack-next-version`.
    ```
    Substitute `NEW_VERSION`, `BUMP_LEVEL`, and a one-line `WHY` (the signal that set the level: diff scale, a new feature, a breaking change). Best-effort and non-interactive; never blocks the ship. Skip on the ALREADY_BUMPED path (the decision was logged on the run that did the bump).
 
-> **STOP.** Before writing the CHANGELOG entry (Step 13), Read `$GSTACK_ROOT/.agents/skills/gstack-ship/sections/changelog.md` and execute it
+> **STOP.** Before writing the CHANGELOG entry (Step 13), Read `$GSTACK_ROOT/../gstack-ship/sections/changelog.md` and execute it
 > in full. Do not work from memory — that section is the source of truth for this step.
 
 ## Step 14: TODOS.md (auto-update)
@@ -1393,7 +1393,7 @@ git push -u origin <branch-name>
 
 **PR/MR title invariant (always applies — do not skip even if you don't open the section below):** Any PR or MR you create OR update in the next step MUST have a title that starts with `v$NEW_VERSION` (the version bumped in Step 12), in the format `v<NEW_VERSION> <type>: <summary>`. Never create or edit a PR/MR title without this prefix. Compute the correct title with the single source of truth helper: `$GSTACK_ROOT/bin/gstack-pr-title-rewrite.sh "$NEW_VERSION" "<current title>"`. The full create/update procedure (idempotency, redaction scan, self-check) is in the section below.
 
-> **STOP.** Before syncing docs and creating or updating the PR/MR (Steps 18-19), Read `$GSTACK_ROOT/.agents/skills/gstack-ship/sections/pr-body.md` and execute it
+> **STOP.** Before syncing docs and creating or updating the PR/MR (Steps 18-19), Read `$GSTACK_ROOT/../gstack-ship/sections/pr-body.md` and execute it
 > in full. Do not work from memory — that section is the source of truth for this step.
 
 ## Step 20: Persist ship metrics

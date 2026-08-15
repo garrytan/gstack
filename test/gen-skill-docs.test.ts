@@ -1867,7 +1867,7 @@ describe('Codex generation (--host codex)', () => {
     const testsSection = path.join(AGENTS_DIR, 'gstack-ship', 'sections', 'tests.md');
 
     expect(content).toContain('Section index — Read each section when its situation applies');
-    expect(content).toContain('$GSTACK_ROOT/.agents/skills/gstack-ship/sections/tests.md');
+    expect(content).toContain('$GSTACK_ROOT/../gstack-ship/sections/tests.md');
     expect(content).not.toContain('## Step 5: Run tests (on merged code)');
     expect(fs.existsSync(testsSection)).toBe(true);
     expect(fs.readFileSync(testsSection, 'utf-8')).toContain('APPLICABLE_TEST_COMMANDS');

@@ -53,6 +53,7 @@ describe("release fast path", () => {
     const generator = read("scripts/gen-skill-docs.ts");
 
     expect(resolver).toContain("ctx.host === 'claude' || ctx.host === 'codex'");
+    expect(resolver).toContain("${ctx.paths.skillRoot}/../gstack-${ctx.skillName}/sections");
     expect(generator).toContain("currentHost === 'claude' || currentHost === 'codex'");
   });
 });
