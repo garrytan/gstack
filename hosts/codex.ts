@@ -27,7 +27,7 @@ const codex: HostConfig = {
   pathRewrites: [
     { from: '~/.claude/skills/gstack', to: '$GSTACK_ROOT' },
     { from: '.claude/skills/gstack', to: '.agents/skills/gstack' },
-    { from: '.claude/skills/review', to: '.agents/skills/gstack/review' },
+    { from: '.claude/skills/review', to: '$GSTACK_ROOT/review' },
     { from: '.claude/skills', to: '.agents/skills' },
     { from: 'CLAUDE.md', to: 'AGENTS.md' },
   ],
@@ -45,7 +45,12 @@ const codex: HostConfig = {
   runtimeRoot: {
     globalSymlinks: ['bin', 'browse/dist', 'browse/bin', 'gstack-upgrade', 'ETHOS.md'],
     globalFiles: {
-      'review': ['checklist.md', 'TODOS-format.md'],
+      'review': [
+        'checklist.md',
+        'design-checklist.md',
+        'greptile-triage.md',
+        'TODOS-format.md',
+      ],
     },
   },
   sidecar: {
