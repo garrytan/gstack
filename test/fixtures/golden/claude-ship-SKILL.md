@@ -875,16 +875,32 @@ You are running the `/ship` workflow. This is a **non-interactive, fully automat
 - TODOS.md completed-item detection (auto-mark)
 - Auto-fixable review findings (dead code, N+1, stale comments — fixed automatically)
 - Test coverage gaps within target threshold (auto-generate and commit, or flag in PR body)
+- A successful auto-fix round (validate it and continue in the same invocation)
 
-**Re-run behavior (idempotency):**
-Re-running `/ship` means "run the whole checklist again." Every verification step
-(tests, coverage audit, plan completion, pre-landing review, adversarial review,
-VERSION/CHANGELOG check, TODOS, document-release) runs on every invocation.
-Only *actions* are idempotent:
-- Step 12: If VERSION already bumped, skip the bump but still read the version
-- Step 17: If already pushed, skip the push command
-- Step 19: If PR exists, update the body instead of creating a new PR
-Never skip a verification step because a prior `/ship` run already performed it.
+**Fast execution and evidence reuse:**
+
+Treat one `/ship` invocation as a bounded transaction. Do not stop after an
+auto-fix and ask the user to invoke `/ship` again. Repair, validate the affected
+surface, and continue. Allow at most two repair rounds; a third round with new
+findings stops as a genuine loop instead of silently cycling forever.
+
+Run independent work concurrently: after Step 5 succeeds, dispatch the coverage
+audit and plan audit together, dispatch eligible review specialists at the same
+time, and perform the parent's checklist review while those agents run. Join all
+results before changing files.
+
+Evidence is reusable only when its inputs are identical:
+- In the current invocation, keep the Step 5 full-suite result while HEAD, the
+  fetched base SHA, and code files are unchanged.
+- After a repair, invalidate only checks whose inputs changed. Run targeted tests
+  for the repaired surface immediately; Step 16 remains the one final full-suite
+  gate for the resulting code.
+- A later `/ship` invocation may reuse a logged audit only when it records the
+  exact current HEAD and base SHA and the worktree is clean. Otherwise rerun it.
+- Metadata-only edits (VERSION, CHANGELOG, PR body) do not invalidate code tests.
+
+Actions remain idempotent: an existing version bump is reconciled, an existing
+push is skipped, and an existing PR is updated rather than recreated.
 
 ---
 
@@ -1021,6 +1037,15 @@ git fetch origin <base> && git merge origin/<base> --no-edit
 
 **If already up to date:** Continue silently.
 
+Record the exact fetched base for evidence freshness:
+
+```bash
+SHIP_BASE_SHA=$(git rev-parse origin/<base>)
+```
+
+After Step 5 succeeds, open the parallel audit window described above. Do not
+apply review or coverage edits until all parallel read-only audits have joined.
+
 ---
 
 > **STOP.** Before running the test suites and (if prompt files changed) the eval suites (Steps 4-6), Read `~/.claude/skills/gstack/ship/sections/tests.md` and execute it
@@ -1040,6 +1065,26 @@ git fetch origin <base> && git merge origin/<base> --no-edit
 
 > **STOP.** Before the adversarial review and learnings capture (Step 11), Read `~/.claude/skills/gstack/ship/sections/adversarial.md` and execute it
 > in full. Do not work from memory — that section is the source of truth for this step.
+
+### Final base freshness gate
+
+The reviews can take long enough for another workspace to land. Refresh the base
+immediately before choosing the version so VERSION and CHANGELOG are not stale:
+
+```bash
+PRE_VERSION_BASE_SHA=$(git rev-parse origin/<base>)
+git fetch origin <base>
+LATEST_BASE_SHA=$(git rev-parse origin/<base>)
+if [ "$LATEST_BASE_SHA" != "$PRE_VERSION_BASE_SHA" ]; then
+  git merge origin/<base> --no-edit
+fi
+SHIP_BASE_SHA="$LATEST_BASE_SHA"
+```
+
+Auto-resolve only unambiguous VERSION and CHANGELOG ordering conflicts. Stop on
+ambiguous code conflicts. A clean base merge does not change the feature diff, so
+do not repeat coverage, plan, or semantic review audits. It does make the Step 5
+test evidence stale; Step 16 will run the final full suite once.
 
 ## Step 12: Version bump (auto-decide)
 
@@ -1248,16 +1293,20 @@ EOF
 
 **IRON LAW: NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE.**
 
-Before pushing, re-verify if code changed during Steps 4-6:
+Before pushing, compare the current code and base to the Step 5 evidence:
 
-1. **Test verification:** If ANY code changed after Step 5's test run (fixes from review findings, CHANGELOG edits don't count), re-run the test suite. Paste fresh output. Stale output from Step 5 is NOT acceptable.
+1. **Test verification:** If HEAD, `SHIP_BASE_SHA`, or any code file changed after
+   Step 5, run the full applicable test suite exactly once and paste fresh output.
+   If all three inputs are unchanged, reuse Step 5's passing output. Targeted
+   repair tests are feedback, not a substitute for this final full gate.
 
-2. **Build verification:** If the project has a build step, run it. Paste output.
+2. **Build verification:** If the project has a build step and no exact-input
+   passing build result exists from this invocation, run it once and paste output.
 
 3. **Rationalization prevention:**
    - "Should work now" → RUN IT.
    - "I'm confident" → Confidence is not evidence.
-   - "I already tested earlier" → Code changed since then. Test again.
+   - "I already tested earlier" → Reuse it only if the recorded inputs are exact.
    - "It's a trivial change" → Trivial changes break production.
 
 **If tests fail here:** STOP. Do not push. Fix the issue and return to Step 5.
@@ -1267,6 +1316,11 @@ Claiming work is complete without verification is dishonesty, not efficiency.
 ---
 
 ## Step 17: Push
+
+Before credentials or push, fetch the base one last time. If it moved since
+`SHIP_BASE_SHA`, return to the Final base freshness gate, reconcile the queued
+version, and rerun Step 16. Bound this late-base loop to two iterations; then stop
+with the competing base SHAs. Never push a knowingly stale VERSION.
 
 **Credential pre-push guard (#1946) — run before the push:**
 

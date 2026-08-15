@@ -940,9 +940,9 @@ describe('TEST_COVERAGE_AUDIT placeholders', () => {
     expect(shipSkill).toContain('Step 9.3');
   });
 
-  test('ship SKILL.md contains re-run idempotency behavior', () => {
-    expect(shipSkill).toContain('Re-run behavior (idempotency)');
-    expect(shipSkill).toContain('Never skip a verification step');
+  test('ship SKILL.md contains bounded evidence reuse behavior', () => {
+    expect(shipSkill).toContain('Fast execution and evidence reuse');
+    expect(shipSkill).toContain('Allow at most two repair rounds');
   });
 });
 
@@ -1859,6 +1859,18 @@ describe('Codex generation (--host codex)', () => {
       expect(output).toContain(`FRESH: .agents/skills/${skill.codexName}/SKILL.md`);
     }
     expect(output).not.toContain('STALE');
+  });
+
+  test('Codex ship is carved into on-demand sections', () => {
+    const skillPath = path.join(AGENTS_DIR, 'gstack-ship', 'SKILL.md');
+    const content = fs.readFileSync(skillPath, 'utf-8');
+    const testsSection = path.join(AGENTS_DIR, 'gstack-ship', 'sections', 'tests.md');
+
+    expect(content).toContain('Section index — Read each section when its situation applies');
+    expect(content).toContain('$GSTACK_ROOT/../gstack-ship/sections/tests.md');
+    expect(content).not.toContain('## Step 5: Run tests (on merged code)');
+    expect(fs.existsSync(testsSection)).toBe(true);
+    expect(fs.readFileSync(testsSection, 'utf-8')).toContain('APPLICABLE_TEST_COMMANDS');
   });
 
   test('--host agents alias produces same output as --host codex', () => {

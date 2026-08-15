@@ -51,7 +51,7 @@ readiness first.
 
 **Always stop for:**
 - **First-run dry-run validation (Step 1.5)** — shows deploy infrastructure and confirms setup
-- **Pre-merge readiness gate (Step 3.5)** — reviews, tests, docs check before merge
+- **Pre-merge readiness warnings or blockers (Step 3.5)** — a fully green report proceeds automatically
 - GitHub CLI not authenticated
 - No PR found for this branch
 - CI failures or merge conflicts
@@ -302,7 +302,7 @@ gh pr checks --json name,state,status,conclusion
 Parse the output:
 1. If any required checks are **FAILING**: **STOP.** "CI is failing on this PR. Here are the failing checks: {list}. Fix these before deploying — I won't merge code that hasn't passed CI."
 2. If required checks are **PENDING**: Tell the user "CI is still running. I'll wait for it to finish." Proceed to Step 3.
-3. If all checks pass (or no required checks): Tell the user "CI passed." Skip Step 3, go to Step 4.
+3. If all checks pass (or no required checks): Tell the user "CI passed." Skip Step 3, go to Step 3.4.
 
 Also check for merge conflicts:
 ```bash
@@ -322,7 +322,7 @@ gh pr checks --watch --fail-fast
 
 Record the CI wait time for the deploy report.
 
-If CI passes within the timeout: Tell the user "CI passed after {duration}. Moving to readiness checks." Continue to Step 4.
+If CI passes within the timeout: Tell the user "CI passed after {duration}. Moving to readiness checks." Continue to Step 3.4.
 If CI fails: **STOP.** "CI failed. Here's what broke: {failures}. This needs to pass before I can merge."
 If timeout (15 min): **STOP.** "CI has been running for over 15 minutes — that's unusual. Check the GitHub Actions tab to see if something is stuck."
 
@@ -449,7 +449,27 @@ and tell the user: "I found and fixed a few issues during the review. The fixes 
 
 ### 3.5b: Test results
 
-**Free tests — run them now:**
+**Free tests — prefer exact-SHA CI evidence:**
+
+Bracket the check query with the PR head so a push racing the readiness check
+cannot make stale CI look current:
+
+```bash
+PR_HEAD_SHA_BEFORE=$(gh pr view --json headRefOid -q .headRefOid)
+CI_CHECKS_JSON=$(gh pr checks --json name,state,workflow)
+PR_HEAD_SHA_AFTER=$(gh pr view --json headRefOid -q .headRefOid)
+```
+
+Accept the CI result only when `PR_HEAD_SHA_BEFORE == PR_HEAD_SHA_AFTER`, every
+required check in `CI_CHECKS_JSON` is successful, and at least one check is clearly
+a test/build/typecheck job. This stable-head bracket proves the checks came from
+the exact PR head being assessed. Do not run the same suite locally again. Record
+the check names and `PR_HEAD_SHA_AFTER` in the readiness report.
+
+Run local free tests only when CI is absent, has no test/build check, targets a
+different SHA, or the project explicitly documents an additional local-only gate.
+This fallback discovers the command from project instructions; it does not assume
+`bun test` for non-Bun repositories.
 
 Read CLAUDE.md to find the project's test command. If not specified, use `bun test`.
 Run the test command and capture the exit code and output.
@@ -458,7 +478,7 @@ Run the test command and capture the exit code and output.
 bun test 2>&1 | tail -10
 ```
 
-If tests fail: **BLOCKER.** Cannot merge with failing tests.
+If local fallback tests fail: **BLOCKER.** Cannot merge with failing tests.
 
 **E2E tests — check recent results:**
 
@@ -566,7 +586,11 @@ If there are WARNINGS but no blockers: list each warning and recommend A if
 warnings are minor, or B if warnings are significant.
 If everything is green: recommend A.
 
-Use AskUserQuestion:
+If there are zero warnings and zero blockers, print the report and continue to
+Step 4 automatically. The explicit `/land-and-deploy` invocation is authorization
+to merge; a second green confirmation adds latency without information.
+
+If there are warnings or blockers, use AskUserQuestion:
 
 - **Re-ground:** "Ready to merge PR #NNN — '{title}' into {base}. Here's what I found."
   Show the report above.

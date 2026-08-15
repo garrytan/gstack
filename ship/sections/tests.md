@@ -164,12 +164,26 @@ Only commit if there are changes. Stage all bootstrap files (config, test direct
 `db:test:prepare` internally, which loads the schema into the correct lane database.
 Running bare test migrations without INSTANCE hits an orphan DB and corrupts structure.sql.
 
-Run both test suites in parallel:
+Discover the project's applicable test commands before running anything. Project
+instructions (`AGENTS.md`, `CLAUDE.md`, `TESTING.md`) win. Otherwise inspect the
+manifest and executable files:
+
+- Add `bin/test-lane` only when that executable exists and the project documents it.
+- Add `npm run test` only when `package.json` defines a `test` script.
+- Use the detected package manager (`bun`, `pnpm`, `yarn`, or `npm`).
+- Never force serial workers or single-thread mode unless project instructions
+  require it. Preserve the test runner's normal parallelism.
+
+Store the commands as `APPLICABLE_TEST_COMMANDS`. Run independent suites in
+parallel and preserve each exit code. For example, when both Rails and JS suites
+really exist:
 
 ```bash
-bin/test-lane 2>&1 | tee /tmp/ship_tests.txt &
-npm run test 2>&1 | tee /tmp/ship_vitest.txt &
-wait
+bin/test-lane 2>&1 | tee /tmp/ship_tests.txt & rails_pid=$!
+npm run test 2>&1 | tee /tmp/ship_vitest.txt & js_pid=$!
+wait "$rails_pid"; rails_status=$?
+wait "$js_pid"; js_status=$?
+test "$rails_status" -eq 0 && test "$js_status" -eq 0
 ```
 
 After both complete, read the output files and check pass/fail.
@@ -279,6 +293,12 @@ Use AskUserQuestion:
 **If "Skip":**
 - Continue with the workflow.
 - Note in output: "Pre-existing test failure skipped: <test-name>"
+
+If the only failure is an explicit timeout, worker crash, or infrastructure exit,
+retry that failing command once with the same normal concurrency. A retry that
+passes is reported as flaky in the PR body; a retry never erases the first failure
+from the evidence. Assertion failures and deterministic compile errors are not
+retry candidates.
 
 **After triage:** If any in-branch failures remain unfixed, **STOP**. Do not proceed. If all failures were pre-existing and handled (fixed, TODOed, assigned, or skipped), continue to Step 6.
 
