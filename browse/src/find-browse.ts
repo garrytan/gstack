@@ -8,17 +8,31 @@
 import { accessSync, constants } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
+import { spawnSync as nodeSpawnSync } from 'child_process';
+
+const IS_WINDOWS = process.platform === 'win32';
 
 // ─── Binary Discovery ───────────────────────────────────────────
 
 function getGitRoot(): string | null {
   try {
+    if (IS_WINDOWS) {
+      const proc = nodeSpawnSync('git', ['rev-parse', '--show-toplevel'], {
+        stdout: 'pipe',
+        stderr: 'pipe',
+        timeout: 2_000,
+        windowsHide: true,
+      });
+      if (proc.error || proc.status !== 0) return null;
+      return proc.stdout.toString().trim() || null;
+    }
     const proc = Bun.spawnSync(['git', 'rev-parse', '--show-toplevel'], {
       stdout: 'pipe',
       stderr: 'pipe',
+      timeout: 2_000,
     });
     if (proc.exitCode !== 0) return null;
-    return proc.stdout.toString().trim();
+    return proc.stdout.toString().trim() || null;
   } catch {
     return null;
   }
