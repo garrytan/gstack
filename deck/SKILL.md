@@ -389,12 +389,13 @@ Implement inside the target site's existing router, components, styles, build,
 and test conventions. A new standalone app, global toolchain, or framework swap
 is out of scope unless the user explicitly asks for it.
 
-Do not assume JavaScript, TypeScript, React, Node, a client-side SPA router,
-npm/Bun, or an asset bundler. A Python/Django/Flask site, Rails/PHP/Go
-server-rendered application, static site, and client-rendered app need different
-implementation and test paths. Follow the language, renderer, dependency tool,
-deployment model, and test tooling actually found in Step 0; use hydration or
-client-side routing checks only where the project uses them.
+Do not require or assume Python, JavaScript, TypeScript, React, Node, a
+client-side SPA router, a framework, a package manager, or an asset bundler.
+The site may be server-rendered in any runtime, statically generated, or
+client-rendered; each needs a different implementation and test path. Follow the
+language, renderer, dependency tool, deployment model, and test tooling actually
+found in Step 0; use hydration or client-side routing checks only where the
+project uses them.
 
 ### Interaction and accessibility contract
 
@@ -499,10 +500,11 @@ navigation; test those states where the existing consent architecture permits.
 
 ## Step 6: Prove it before calling it done
 
-Match the target project's test tools. Do not install Node, Bun, or a browser-test
-framework solely to test a non-JavaScript project. Add and run the smallest
-native automated tests the repository can own; where no harness exists, add a
-repeatable production-equivalent smoke check and document the browser assertions.
+Match the target project's test tools. Do not require or install a Python test
+runner, Node, Bun, or a browser-test framework solely for this deck. Add and run
+the smallest native automated tests the repository can own; where no harness
+exists, add a repeatable production-equivalent smoke check and document the
+browser assertions.
 The deck does not pass without test evidence for the behaviors most likely to
 regress:
 

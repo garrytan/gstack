@@ -229,10 +229,10 @@ describe('/deck narrative and privacy', () => {
 });
 
 describe('/deck interaction and release proof', () => {
-  test('stays stack-neutral and follows the detected site rather than assuming a JavaScript app', () => {
-    expect(TMPL).toMatch(/Do not assume JavaScript, TypeScript, React, Node, a client-side SPA router,\s+npm\/Bun, or an asset bundler/i);
-    expect(TMPL).toMatch(/Python\/Django\/Flask site, Rails\/PHP\/Go\s+server-rendered application, static site, and client-rendered app/i);
-    expect(TMPL).toMatch(/Follow the language, renderer, dependency tool,\s+deployment model, and test tooling actually found in Step 0/i);
+  test('stays runtime-neutral and follows the detected site rather than requiring Python or a JavaScript app', () => {
+    expect(TMPL).toMatch(/Do not require or assume Python, JavaScript, TypeScript, React, Node, a\s+client-side SPA router, a framework, a package manager, or an asset bundler/i);
+    expect(TMPL).toMatch(/site may be server-rendered in any runtime, statically generated, or\s+client-rendered/i);
+    expect(TMPL).toMatch(/Follow the\s+language, renderer, dependency tool, deployment model, and test tooling actually\s+found in Step 0/i);
     expect(TMPL).toMatch(/Tabs may be server-rendered links, progressively enhanced panels, or a\s+client-rendered component/i);
     expect(TMPL).toMatch(/a Node,\s+SPA, or bundler migration is not/i);
   });
@@ -301,7 +301,7 @@ describe('/deck interaction and release proof', () => {
     expect(proof).toMatch(/After any review-driven change, rerun the affected tests, browser and\s+visual proof/i);
     expect(proof).toMatch(/repeat final source plus fresh\s+independent\/Copilot review/i);
     expect(proof).toMatch(/A review of a superseded diff does not count/i);
-    expect(proof).toMatch(/Do not install Node, Bun, or a browser-test\s+framework solely to test a non-JavaScript project/i);
+    expect(proof).toMatch(/Do not require or install a Python test\s+runner, Node, Bun, or a browser-test framework solely for this deck/i);
   });
 
   test('resolves specialist checkpoints through the current host rather than assuming a command exists', () => {

@@ -52,7 +52,7 @@ describe('/deck template/generated sync', () => {
       expect(generated).toContain('## Step 0: Inspect before deciding');
       expect(generated).toContain('one consolidated primary intake round with');
       expect(generated).toMatch(/one Source-material follow-up\s+round with at most two questions/);
-      expect(generated).toContain('Do not assume JavaScript, TypeScript, React, Node');
+      expect(generated).toContain('Do not require or assume Python, JavaScript, TypeScript, React, Node');
       expect(generated).toContain('headline-only story test');
       expect(generated).toContain('`deck_revision`');
       expect(generated).not.toMatch(/\{\{[A-Z_]+(?::[^}]*)?\}\}/);
