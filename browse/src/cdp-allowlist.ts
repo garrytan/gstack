@@ -155,6 +155,20 @@ export const CDP_ALLOWLIST: ReadonlyArray<CdpAllowEntry> = Object.freeze([
     output: 'trusted',
     justification: 'UA override on the active tab. NOTE: changes affect future requests; fine for tests.',
   },
+  {
+    domain: 'Emulation',
+    method: 'setCPUThrottlingRate',
+    scope: 'tab',
+    output: 'trusted',
+    justification: 'CPU slowdown multiplier on the active tab, for measuring performance on a realistic low-end client instead of the developer workstation. Same domain and mutating character as setDeviceMetricsOverride; affects only timing, reads nothing, exfiltrates nothing.',
+  },
+  {
+    domain: 'Network',
+    method: 'emulateNetworkConditions',
+    scope: 'tab',
+    output: 'trusted',
+    justification: 'Bandwidth/latency emulation on the active tab, for measuring page behaviour on a slow connection. Constrains traffic rather than reading it — no request bodies, headers or cookies are exposed.',
+  },
   // ─── Page capture (output, not navigation) ─────────────────
   {
     domain: 'Page',
