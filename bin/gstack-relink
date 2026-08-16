@@ -36,12 +36,21 @@ SKILLS_DIR="${GSTACK_SKILLS_DIR:-$(dirname "$INSTALL_DIR")}"
 # Read prefix setting
 PREFIX=$("$GSTACK_CONFIG" get skill_prefix 2>/dev/null || echo "false")
 
+# Marker written into generated alias skills so a later relink can recognize
+# (and clean up) an alias it created earlier, even after a prefix flip.
+ALIAS_MARKER='<!-- gstack-generated-alias -->'
+
 # Helper: remove old skill entry (symlink or real directory with symlinked SKILL.md)
 _cleanup_skill_entry() {
   local entry="$1"
   if [ -L "$entry" ]; then
     rm -f "$entry"
   elif [ -d "$entry" ] && [ -L "$entry/SKILL.md" ]; then
+    rm -rf "$entry"
+  elif [ -d "$entry" ] && [ -f "$entry/SKILL.md" ] && grep -qF "$ALIAS_MARKER" "$entry/SKILL.md" 2>/dev/null; then
+    # A generated alias holds a real SKILL.md, not a symlink, so the branch
+    # above never matches it. Without this, a prefix flip leaves the old alias
+    # behind and both names stay registered.
     rm -rf "$entry"
   fi
 }
@@ -55,6 +64,55 @@ _link_root_skill_alias() {
   ln -snf "$INSTALL_DIR/SKILL.md" "$target/SKILL.md"
 }
 
+# Backwards-compat alias: /connect-chrome → /open-gstack-browser.
+#
+# The alias must NOT be a symlink to the canonical skill directory. Claude Code
+# keys skills on the frontmatter `name:`, so two directories sharing a name
+# shadow each other and the survivor follows unsorted readdir order — meaning
+# `/open-gstack-browser` (the name README, AGENTS.md, the router SKILL.md and
+# the sidebar extension all tell users to run) would be registered on some
+# machines and silently missing on others. Generate a thin alias skill with its
+# own `name:` instead, so both commands resolve, on every machine.
+_link_alias_skill() {
+  local canonical="$1"
+  local alias_name="$2"
+
+  [ -f "$INSTALL_DIR/$canonical/SKILL.md" ] || return 0
+
+  local description
+  description=$(grep -m1 '^description:' "$INSTALL_DIR/$canonical/SKILL.md" 2>/dev/null |
+    sed 's/^description:[[:space:]]*//')
+  [ -n "$description" ] || description="Alias for /$canonical."
+
+  # Drop the alias entry belonging to the other prefix mode, so flipping
+  # skill_prefix never leaves two alias skills registered at once.
+  if [ "$PREFIX" = "true" ]; then
+    _cleanup_skill_entry "$SKILLS_DIR/$alias_name"
+    canonical="gstack-$canonical"
+    alias_name="gstack-$alias_name"
+  else
+    _cleanup_skill_entry "$SKILLS_DIR/gstack-$alias_name"
+  fi
+
+  local target="$SKILLS_DIR/$alias_name"
+  if [ -L "$target" ]; then rm -f "$target"; fi
+  mkdir -p "$target"
+  if [ -L "$target/SKILL.md" ]; then rm -f "$target/SKILL.md"; fi
+  cat > "$target/SKILL.md" <<EOF
+---
+name: $alias_name
+description: Deprecated alias for /$canonical. $description
+---
+$ALIAS_MARKER
+
+# /$alias_name (deprecated alias)
+
+Kept for backwards compatibility. The skill itself lives at \`/$canonical\`.
+
+Invoke the \`$canonical\` skill and follow it exactly. Do not restate its steps here.
+EOF
+}
+
 _link_root_skill_alias
 
 # Discover skills (directories with SKILL.md, excluding meta dirs)
@@ -62,8 +120,10 @@ SKILL_COUNT=0
 for skill_dir in "$INSTALL_DIR"/*/; do
   [ -d "$skill_dir" ] || continue
   skill=$(basename "$skill_dir")
-  # Skip non-skill directories
-  case "$skill" in bin|browse|design|docs|extension|lib|node_modules|scripts|test|.git|.github) continue ;; esac
+  # Skip non-skill directories. `connect-chrome` is a repo-level symlink to
+  # open-gstack-browser; it is installed by _link_alias_skill below, not here,
+  # so that it gets its own frontmatter name instead of the canonical one.
+  case "$skill" in bin|browse|connect-chrome|design|docs|extension|lib|node_modules|scripts|test|.git|.github) continue ;; esac
   [ -f "$skill_dir/SKILL.md" ] || continue
 
   if [ "$PREFIX" = "true" ]; then
@@ -90,6 +150,10 @@ for skill_dir in "$INSTALL_DIR"/*/; do
   ln -snf "$INSTALL_DIR/$skill/SKILL.md" "$target/SKILL.md"
   SKILL_COUNT=$((SKILL_COUNT + 1))
 done
+
+# Alias skills, installed after the loop so they overwrite any stale entry a
+# previous relink symlinked into place.
+_link_alias_skill "open-gstack-browser" "connect-chrome"
 
 # Patch SKILL.md name: fields to match prefix setting
 "$INSTALL_DIR/bin/gstack-patch-names" "$INSTALL_DIR" "$PREFIX"
