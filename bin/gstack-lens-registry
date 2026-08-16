@@ -1,0 +1,47 @@
+#!/usr/bin/env bun
+import * as path from 'path';
+import { loadLensRegistry, renderRegistryMarkdown, resolveLensName, writeGeneratedRegistry } from '../scripts/lenses/registry';
+
+function arg(name: string): string | undefined {
+  const i = process.argv.indexOf(name);
+  return i >= 0 ? process.argv[i + 1] : undefined;
+}
+
+const repoRoot = path.resolve(arg('--repo-root') ?? process.cwd());
+const command = process.argv[2] ?? 'list';
+const specs = loadLensRegistry(repoRoot);
+
+if (command === 'validate') {
+  process.stdout.write(JSON.stringify({ valid: true, lenses: specs.map((s) => ({ lens: s.lens, status: s.status })) }, null, 2) + '\n');
+} else if (command === 'generate') {
+  process.stdout.write(writeGeneratedRegistry(repoRoot, specs) + '\n');
+} else if (command === 'markdown') {
+  process.stdout.write(renderRegistryMarkdown(specs));
+} else if (command === 'describe') {
+  const requested = process.argv[3];
+  if (!requested) throw new Error('Usage: gstack-lens-registry describe <lens>');
+  const spec = resolveLensName(specs, requested);
+  if (!spec) throw new Error(`Unknown lens: ${requested}`);
+  process.stdout.write(JSON.stringify({
+    lens: spec.lens,
+    aliases: spec.cli_aliases,
+    status: spec.status,
+    summary: spec.summary,
+    scope_disclaimer: spec.scope_disclaimer,
+    primary_skill: spec.primary_skill,
+    required_artifacts: spec.required_artifacts,
+    required_context: spec.required_context,
+    invocation_triggers: spec.invocation_triggers,
+    prompt: spec.body,
+  }, null, 2) + '\n');
+} else if (command === 'list') {
+  process.stdout.write(JSON.stringify(specs.map((spec) => ({
+    lens: spec.lens,
+    aliases: spec.cli_aliases,
+    status: spec.status,
+    summary: spec.summary,
+    primary_skill: spec.primary_skill,
+  })), null, 2) + '\n');
+} else {
+  throw new Error(`Unknown command '${command}'. Use list, describe, validate, generate, or markdown.`);
+}

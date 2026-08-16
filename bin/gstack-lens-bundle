@@ -1,0 +1,47 @@
+#!/usr/bin/env bun
+import * as fs from 'fs';
+import * as path from 'path';
+import {
+  createBundle,
+  lensBundlePath,
+  purgeLensBundleRun,
+  readLensBundle,
+  writeLensBundle,
+  type LensEvidenceBundle,
+} from '../scripts/lenses/bundle';
+
+function arg(name: string): string | undefined {
+  const index = process.argv.indexOf(name);
+  return index >= 0 ? process.argv[index + 1] : undefined;
+}
+
+function requiredArg(name: string): string {
+  const value = arg(name);
+  if (!value) throw new Error(`Missing ${name}`);
+  return value;
+}
+
+const command = process.argv[2] ?? 'write';
+const runId = requiredArg('--run-id');
+
+if (command === 'path') {
+  process.stdout.write(`${lensBundlePath(runId, requiredArg('--lens'))}\n`);
+} else if (command === 'read') {
+  process.stdout.write(`${JSON.stringify(readLensBundle(runId, requiredArg('--lens')), null, 2)}\n`);
+} else if (command === 'purge') {
+  process.stdout.write(`Purged ${purgeLensBundleRun(runId)}\n`);
+} else if (command === 'write') {
+  const lens = requiredArg('--lens');
+  const file = arg('--from-file');
+  const raw = file ? fs.readFileSync(path.resolve(file), 'utf8') : fs.readFileSync(0, 'utf8');
+  if (!raw.trim()) throw new Error('Provide bundle JSON through --from-file or stdin');
+  const input = JSON.parse(raw) as Partial<LensEvidenceBundle>;
+  const bundle = createBundle({
+    ...(input as LensEvidenceBundle),
+    run_id: runId,
+    lens,
+  });
+  process.stdout.write(`${JSON.stringify(writeLensBundle(bundle), null, 2)}\n`);
+} else {
+  throw new Error(`Unknown command '${command}'. Use write, read, path, or purge.`);
+}

@@ -11,6 +11,7 @@
 
 import { discoverTemplates, discoverSectionTemplates } from './discover-skills';
 import { writeLlmsTxt } from './gen-llms-txt';
+import { syncGeneratedRegistry } from './lenses/registry';
 import * as fs from 'fs';
 import * as path from 'path';
 import type { Host, TemplateContext } from './resolvers/types';
@@ -21,6 +22,17 @@ import type { HostConfig } from './host-config';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const DRY_RUN = process.argv.includes('--dry-run');
+
+// Stakeholder lens markdown frontmatter is the source of truth. Validate it on
+// every generation and keep the human-readable registry deterministic.
+const LENS_REGISTRY_SYNC = import.meta.main
+  ? syncGeneratedRegistry(ROOT, DRY_RUN)
+  : { changed: false, outputPath: path.join(ROOT, 'review', 'lenses', 'registry.md'), specs: [] };
+if (import.meta.main && DRY_RUN) {
+  console.log(`${LENS_REGISTRY_SYNC.changed ? 'STALE' : 'FRESH'}: review/lenses/registry.md`);
+} else if (import.meta.main && LENS_REGISTRY_SYNC.changed) {
+  console.log('GENERATED: review/lenses/registry.md');
+}
 
 // ─── GBrain Detection Override ──────────────────────────────
 // When --respect-detection is passed, read ~/.gstack/gbrain-detection.json
@@ -1101,6 +1113,11 @@ if (!DRY_RUN) {
       }
     }
   } catch { /* non-fatal */ }
+}
+
+if (import.meta.main && DRY_RUN && LENS_REGISTRY_SYNC.changed) {
+  console.error('\nStakeholder lens registry is stale. Run: bun run gen:skill-docs');
+  process.exit(1);
 }
 
 // Regenerate gstack/llms.txt — single-file capability index for AI agents.

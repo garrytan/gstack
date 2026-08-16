@@ -1,0 +1,15 @@
+#!/usr/bin/env bun
+import * as fs from 'fs';
+import * as path from 'path';
+import { appendLensEvent, type LensEvent } from '../scripts/lenses/events';
+
+function arg(name: string): string | undefined {
+  const i = process.argv.indexOf(name);
+  return i >= 0 ? process.argv[i + 1] : undefined;
+}
+
+const repoRoot = path.resolve(arg('--repo-root') ?? process.cwd());
+const raw = arg('--json') ?? fs.readFileSync(0, 'utf8');
+if (!raw.trim()) throw new Error('Provide an event through --json or stdin');
+const result = appendLensEvent(repoRoot, JSON.parse(raw) as LensEvent);
+process.stdout.write(JSON.stringify(result, null, 2) + '\n');

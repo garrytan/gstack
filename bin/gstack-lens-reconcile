@@ -1,0 +1,43 @@
+#!/usr/bin/env bun
+import * as fs from 'fs';
+import * as path from 'path';
+import { reconcileLensResults } from '../scripts/lenses/reconcile';
+import type { LensFindingInput, LensResult, ReconcileInput } from '../scripts/lenses/types';
+
+function arg(name: string): string | undefined {
+  const i = process.argv.indexOf(name);
+  return i >= 0 ? process.argv[i + 1] : undefined;
+}
+
+function readInput(): string {
+  const file = arg('--from-file');
+  if (file) return fs.readFileSync(file, 'utf8');
+  return fs.readFileSync(0, 'utf8');
+}
+
+function normalizeEnvelope(raw: any): ReconcileInput {
+  if (!raw || typeof raw !== 'object') throw new Error('Reconciliation input must be a JSON object');
+  if (Array.isArray(raw.lens_results)) return raw as ReconcileInput;
+  if (raw.lenses && typeof raw.lenses === 'object') {
+    const lensResults: LensResult[] = [];
+    for (const [lens, output] of Object.entries(raw.lenses)) {
+      if (Array.isArray(output)) {
+        lensResults.push({ lens, status: 'FINDINGS', findings: output as LensFindingInput[] });
+      } else if (output && typeof output === 'object') {
+        lensResults.push({ ...(output as object), lens } as LensResult);
+      }
+    }
+    return {
+      novelty_mode: raw.novelty_mode,
+      lens_results: lensResults,
+      tech_findings: raw.tech_findings,
+      generic_adversarial_findings: raw.generic_adversarial_findings,
+    };
+  }
+  throw new Error('Input must contain lens_results[] or lenses{}');
+}
+
+const repoRoot = path.resolve(arg('--repo-root') ?? process.cwd());
+const input = normalizeEnvelope(JSON.parse(readInput()));
+const output = reconcileLensResults(repoRoot, input);
+process.stdout.write(JSON.stringify(output, null, 2) + '\n');
