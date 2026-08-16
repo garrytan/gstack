@@ -17,7 +17,7 @@ jobs:
   check-freshness:
     runs-on: ubicloud-standard-2
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
       - run: bun install
       # One generation pass for ALL 10 hosts. gen-skill-docs --host all

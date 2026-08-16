@@ -39,16 +39,16 @@ jobs:
     timeout-minutes: 15
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: oven-sh/setup-bun@v1
+      - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.13
 
       # bun install was 35s of a 55s job, all network. Cache keyed on the
       # lockfile; bun's install cache lives under ~/.bun/install/cache on
       # every platform.
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: ~/.bun/install/cache
           key: windows-bun-${{ hashFiles('bun.lock') }}
@@ -121,7 +121,7 @@ jobs:
       # carry the WHY (the runner's quiet console names files, not causes).
       - name: Upload shard logs on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: windows-free-test-shard-logs
           path: ${{ runner.temp }}/gstack-free-test-*.log

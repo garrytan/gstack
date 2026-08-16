@@ -22,7 +22,7 @@ jobs:
   actionlint:
     runs-on: ubicloud-standard-2
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       # Pull the prebuilt image instead of rhysd/actionlint@v1.7.11 (a Docker
