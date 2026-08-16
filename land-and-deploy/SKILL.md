@@ -1238,10 +1238,19 @@ If timeout (15 min): **STOP.** "CI has been running for over 15 minutes — that
 
 Before gathering readiness evidence, verify that the VERSION this PR claims is still the next free slot. A sibling workspace may have shipped and landed since `/ship` ran, leaving this PR's VERSION stale.
 
+**Version-less repos skip this step entirely.** If neither the PR head nor the
+base branch has a VERSION file (the repo does not use per-PR version stamping —
+versions stamped at release/queue time, matching `gstack-version-bump`'s
+`NO_VERSION_FILE` state), print `VERSION drift: n/a (repo has no VERSION file)`
+and continue to Step 3.5.
+
 ```bash
 BRANCH_VERSION=$(git show HEAD:VERSION 2>/dev/null | tr -d '\r\n[:space:]' || echo "")
 BASE_BRANCH=$(gh pr view --json baseRefName -q .baseRefName 2>/dev/null || echo main)
 BASE_VERSION=$(git show origin/$BASE_BRANCH:VERSION 2>/dev/null | tr -d '\r\n[:space:]' || echo "")
+if [ -z "$BRANCH_VERSION" ] && [ -z "$BASE_VERSION" ]; then
+  echo "VERSION drift: n/a (repo has no VERSION file)"
+fi
 
 # Imply bump level by comparing branch VERSION to base (crude but good enough for drift detection)
 # We don't need the exact original level — we just need "a level" that passes to the util.

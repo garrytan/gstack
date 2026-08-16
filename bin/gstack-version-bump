@@ -16,7 +16,10 @@
 //   classify --base <branch> [--version-path <p>]
 //       Compares VERSION vs origin/<base>:VERSION vs package.json.version.
 //       Emits JSON: { state, baseVersion, currentVersion, pkgVersion, pkgExists }
-//       state ∈ FRESH | ALREADY_BUMPED | DRIFT_STALE_PKG | DRIFT_UNEXPECTED
+//       state ∈ NO_VERSION_FILE | FRESH | ALREADY_BUMPED | DRIFT_STALE_PKG | DRIFT_UNEXPECTED
+//       NO_VERSION_FILE = the resolved version file does not exist — the repo
+//       does not use per-PR version stamping (release-time stamping, or a
+//       branch that deleted VERSION); /ship skips bump/CHANGELOG/title.
 //       Exit 0 on a decidable state (incl. DRIFT_UNEXPECTED — it's a real state
 //       the caller must handle), exit 2 on bad args / unresolvable base.
 //
@@ -41,7 +44,7 @@ import { join } from "node:path";
 const VERSION_RE = /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/;
 const DEFAULT = "0.0.0.0";
 
-type State = "FRESH" | "ALREADY_BUMPED" | "DRIFT_STALE_PKG" | "DRIFT_UNEXPECTED";
+type State = "NO_VERSION_FILE" | "FRESH" | "ALREADY_BUMPED" | "DRIFT_STALE_PKG" | "DRIFT_UNEXPECTED";
 
 function fail(msg: string, code = 2): never {
   process.stderr.write(`gstack-version-bump: ${msg}\n`);
@@ -135,6 +138,25 @@ function cmdClassify(args: string[], cwd: string): void {
   if (!base) fail("classify requires --base <branch>", 2);
   const versionPath = resolveVersionPath(cwd, argVal(args, "--version-path"));
   const versionRel = argVal(args, "--version-path") ?? "VERSION";
+  // A repo without a version file is not using file-based per-PR versioning
+  // at all (versions stamped at release/queue time, or a branch that deleted
+  // VERSION to retire the convention). That is a distinct state, not a
+  // 0.0.0.0 default: /ship must SKIP the bump/CHANGELOG/title steps, never
+  // manufacture a VERSION file into such a repo.
+  if (!existsSync(versionPath)) {
+    const baseV = baseVersion(cwd, base!, versionRel);
+    const pkg = readPkgVersion(cwd);
+    process.stdout.write(
+      JSON.stringify({
+        state: "NO_VERSION_FILE",
+        baseVersion: baseV === DEFAULT ? null : baseV,
+        currentVersion: null,
+        pkgVersion: pkg.version || null,
+        pkgExists: pkg.exists,
+      }) + "\n",
+    );
+    return;
+  }
   const current = readVersionFile(versionPath);
   const baseV = baseVersion(cwd, base!, versionRel);
   const pkg = readPkgVersion(cwd);

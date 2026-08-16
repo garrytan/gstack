@@ -899,7 +899,7 @@ Re-running `/ship` means "run the whole checklist again." Every verification ste
 (tests, coverage audit, plan completion, pre-landing review, adversarial review,
 VERSION/CHANGELOG check, TODOS, document-release) runs on every invocation.
 Only *actions* are idempotent:
-- Step 12: If VERSION already bumped, skip the bump but still read the version
+- Step 12: If VERSION already bumped, skip the bump but still read the version; if classify reports `NO_VERSION_FILE`, Steps 12-13 and the title invariant stay skipped on every re-run
 - Step 17: If already pushed, skip the push command
 - Step 19: If PR exists, update the body instead of creating a new PR
 Never skip a verification step because a prior `/ship` run already performed it.
@@ -1084,6 +1084,13 @@ stay agent judgment; the slot pick stays `gstack-next-version`.
    bun run ~/.claude/skills/gstack/bin/gstack-version-bump classify --base <base>
    ```
    Read the JSON `state` and dispatch:
+   - **NO_VERSION_FILE** → this repo does not use per-PR version stamping (no
+     version file on this branch — e.g. versions are stamped at release/queue
+     time by CI, or the repo retired the convention). **Skip the rest of Step
+     12, skip Step 13 (CHANGELOG), and skip the PR/MR title version invariant
+     before Step 18** — use a plain `<type>: <summary>` title, and NEVER
+     create a VERSION file or a CHANGELOG release heading in such a repo.
+     Continue at Step 14.
    - **FRESH** → do the bump (steps 2-4).
    - **ALREADY_BUMPED** → skip the bump, but run the queue-drift check (step 3) with the reported `currentVersion`. If the queue moved (next free version differs), **AskUserQuestion**: rebump to the new version (rewrites CHANGELOG header + PR title) or keep current (CI version-gate will reject until resolved).
    - **DRIFT_STALE_PKG** → run `gstack-version-bump repair` (syncs package.json to VERSION). No re-bump; reuse `currentVersion` for CHANGELOG + PR.
@@ -1405,7 +1412,7 @@ git push -u origin <branch-name>
 
 ---
 
-**PR/MR title invariant (always applies — do not skip even if you don't open the section below):** Any PR or MR you create OR update in the next step MUST have a title that starts with `v$NEW_VERSION` (the version bumped in Step 12), in the format `v<NEW_VERSION> <type>: <summary>`. Never create or edit a PR/MR title without this prefix. Compute the correct title with the single source of truth helper: `~/.claude/skills/gstack/bin/gstack-pr-title-rewrite.sh "$NEW_VERSION" "<current title>"`. The full create/update procedure (idempotency, redaction scan, self-check) is in the section below.
+**PR/MR title invariant (applies whenever Step 12 produced a version — do not skip even if you don't open the section below; if Step 12 classified `NO_VERSION_FILE`, titles stay plain `<type>: <summary>` and this invariant does not apply):** Any PR or MR you create OR update in the next step MUST have a title that starts with `v$NEW_VERSION` (the version bumped in Step 12), in the format `v<NEW_VERSION> <type>: <summary>`. Never create or edit a PR/MR title without this prefix. Compute the correct title with the single source of truth helper: `~/.claude/skills/gstack/bin/gstack-pr-title-rewrite.sh "$NEW_VERSION" "<current title>"`. The full create/update procedure (idempotency, redaction scan, self-check) is in the section below.
 
 > **STOP.** Before syncing docs and creating or updating the PR/MR (Steps 18-19), Read `~/.claude/skills/gstack/ship/sections/pr-body.md` and execute it
 > in full. Do not work from memory — that section is the source of truth for this step.
