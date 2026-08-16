@@ -90,6 +90,87 @@ describe("pre-push hook gating", () => {
   });
 });
 
+describe("repo allowlist (.gstack-redact-allowlist)", () => {
+  // Mutation check (documented per gate doctrine): drop `allowlist` from the
+  // scan opts in bin/gstack-redact-prepush and the first, third, and last tests
+  // here go RED (the HIGH blocks again / the MEDIUM warns again); stub
+  // loadRepoAllowlist to return [] and the same three fail. Delete the
+  // suppression notice and the second test fails.
+  const allowlist = (content: string) =>
+    fs.writeFileSync(path.join(repo, ".gstack-redact-allowlist"), content);
+
+  test("an allowlisted HIGH span passes instead of blocking", () => {
+    const base = git(["rev-parse", "HEAD"]);
+    const head = commit("config.txt", "key " + FAKE_AWS_KEY + "\n", "add key");
+    allowlist(FAKE_AWS_KEY + "\n");
+    const { code, stderr } = runHook(`refs/heads/main ${head} refs/heads/main ${base}\n`);
+    expect(code).toBe(0);
+    expect(stderr).not.toContain("BLOCKED");
+  });
+
+  test("suppression is REPORTED, never silent", () => {
+    const base = git(["rev-parse", "HEAD"]);
+    const head = commit("config.txt", "key " + FAKE_AWS_KEY + "\n", "add key");
+    allowlist("# reviewed 2026-08-16: docs sample key\n" + FAKE_AWS_KEY + "\n");
+    const { stderr } = runHook(`refs/heads/main ${head} refs/heads/main ${base}\n`);
+    expect(stderr).toContain("1 finding(s) suppressed by .gstack-redact-allowlist");
+  });
+
+  test("only the exact span is cleared — a different credential still blocks", () => {
+    const base = git(["rev-parse", "HEAD"]);
+    const otherKey = ["AKIA", "FEDCBA0987654321"].join("");
+    const head = commit(
+      "config.txt",
+      "ok " + FAKE_AWS_KEY + "\nleak " + otherKey + "\n",
+      "one benign one real",
+    );
+    allowlist(FAKE_AWS_KEY + "\n");
+    const { code, stderr } = runHook(`refs/heads/main ${head} refs/heads/main ${base}\n`);
+    expect(code).toBe(1);
+    expect(stderr).toContain("aws.access_key");
+  });
+
+  test("comments and blank lines are ignored; entries are trimmed", () => {
+    const base = git(["rev-parse", "HEAD"]);
+    const head = commit("notes.md", "contact bob@corp.io\n", "add note");
+    allowlist("# team contact, public in README\n\n  bob@corp.io  \n");
+    const { code, stderr } = runHook(`refs/heads/main ${head} refs/heads/main ${base}\n`);
+    expect(code).toBe(0);
+    expect(stderr).not.toContain("MEDIUM");
+  });
+
+  test("pushing the allowlist file itself does not block on its own entries", () => {
+    // The bootstrap flow: the entry string appears verbatim in the pushed diff
+    // of the allowlist file. Its own entry must suppress it.
+    const base = git(["rev-parse", "HEAD"]);
+    const head = commit(
+      ".gstack-redact-allowlist",
+      "# dev-only sample key\n" + FAKE_AWS_KEY + "\n",
+      "add allowlist",
+    );
+    const { code } = runHook(`refs/heads/main ${head} refs/heads/main ${base}\n`);
+    expect(code).toBe(0);
+  });
+
+  test("an oversized allowlist file is ignored — scan stays STRICT, push not hard-blocked by the file", () => {
+    const base = git(["rev-parse", "HEAD"]);
+    const head = commit("config.txt", "key " + FAKE_AWS_KEY + "\n", "add key");
+    allowlist(FAKE_AWS_KEY + "\n" + "#".repeat(65 * 1024) + "\n");
+    const { code, stderr } = runHook(`refs/heads/main ${head} refs/heads/main ${base}\n`);
+    expect(code).toBe(1); // entry NOT honored: strict scan still blocks the HIGH
+    expect(stderr).toContain(".gstack-redact-allowlist exceeds");
+  });
+
+  test("the block message names the allowlist as the recorded resolution path", () => {
+    const base = git(["rev-parse", "HEAD"]);
+    const head = commit("config.txt", "key " + FAKE_AWS_KEY + "\n", "add key");
+    const { code, stderr } = runHook(`refs/heads/main ${head} refs/heads/main ${base}\n`);
+    expect(code).toBe(1);
+    expect(stderr).toContain(".gstack-redact-allowlist");
+    expect(stderr).toContain("Do NOT restructure code");
+  });
+});
+
 describe("diff direction + special refs", () => {
   test("only NEW content is scanned (remote..local), not pre-existing", () => {
     // Put a secret in the FIRST commit (already on remote), then push a clean commit.
