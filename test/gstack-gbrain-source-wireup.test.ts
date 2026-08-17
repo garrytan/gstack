@@ -20,6 +20,16 @@ const ROOT = path.resolve(import.meta.dir, '..');
 const BIN_DIR = path.join(ROOT, 'bin');
 const WIREUP_BIN = path.join(BIN_DIR, 'gstack-gbrain-source-wireup');
 
+// Hermetic PATH base (#2255). The missing-gbrain fixtures must not see a
+// user-installed gbrain on the host (e.g. macOS /opt/homebrew/bin), or the
+// "missing" case exits 0 instead of 2. Keep fixed POSIX + package-manager
+// dirs so git/python3/jq/coreutils resolve, but no user-writable dirs. The
+// scratch dir holds only a bun symlink, mirroring gbrain-detect-install.test.ts
+// so spawned children can resolve bun on CI regardless of install dir.
+const BUN_ONLY_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'wireup-bun-only-'));
+fs.symlinkSync(process.execPath, path.join(BUN_ONLY_DIR, 'bun'));
+const HERMETIC_PATH = `/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin:${BUN_ONLY_DIR}`;
+
 let tmpHome: string;
 let gstackHome: string;
 let worktreeDir: string;
@@ -113,7 +123,7 @@ function run(
   opts: { env?: Record<string, string> } = {}
 ) {
   const env = {
-    PATH: `${fakeBinDir}:${process.env.PATH || '/usr/bin:/bin:/opt/homebrew/bin'}`,
+    PATH: `${fakeBinDir}:${HERMETIC_PATH}`,
     HOME: tmpHome,
     GSTACK_HOME: gstackHome,
     GSTACK_BRAIN_WORKTREE: worktreeDir,
@@ -229,12 +239,22 @@ describe('gstack-gbrain-source-wireup — wireup mode', () => {
 
   test('--strict + gbrain missing on PATH: exits 2', () => {
     setupGstackRepo('git@github.com:user/gstack-brain-user.git');
-    // Don't make a fake gbrain — fakeBinDir is empty. Keep system dirs on PATH
-    // so basic commands (git, awk, sed, etc.) work; only `gbrain` is absent.
-    const r = run(['--strict'], {
-      env: { PATH: `${fakeBinDir}:/usr/bin:/bin:/opt/homebrew/bin` },
-    });
+    // Don't make a fake gbrain — fakeBinDir is empty. run() applies the
+    // hermetic PATH base; only `gbrain` is absent.
+    const r = run(['--strict']);
     expect(r.status).toBe(2);
+  });
+
+  test('--strict + gbrain present in controlled dir: exits 0 (positive control)', () => {
+    setupGstackRepo('git@github.com:user/gstack-brain-user.git');
+    // Positive control for hermeticity: a gbrain stub in the test-controlled
+    // fakeBinDir (first on the hermetic PATH) IS found, so --strict proceeds
+    // (exit 0). Combined with the empty-fakeBinDir test above, this proves the
+    // fixture — not the host environment — decides gbrain presence (#2255).
+    makeFakeGbrain({});
+    const r = run(['--strict'], { env: { GSTACK_BRAIN_NO_SYNC: '1' } });
+    expect(r.status).toBe(0);
+    expect(gbrainCalls().some((c) => c.startsWith('gbrain sources add'))).toBe(true);
   });
 
   test('source-id derived from origin URL', () => {
@@ -388,9 +408,7 @@ describe('gstack-gbrain-source-wireup — uninstall mode', () => {
     expect(fs.existsSync(worktreeDir)).toBe(true);
     // Now remove the fake gbrain so uninstall sees gbrain missing
     fs.rmSync(path.join(fakeBinDir, 'gbrain'), { force: true });
-    const r = run(['--uninstall'], {
-      env: { PATH: `${fakeBinDir}:/usr/bin:/bin:/opt/homebrew/bin` },
-    });
+    const r = run(['--uninstall']);
     expect(r.status).toBe(0); // best-effort, never fails on gbrain absence
     expect(fs.existsSync(worktreeDir)).toBe(false); // worktree still cleaned up
   });
