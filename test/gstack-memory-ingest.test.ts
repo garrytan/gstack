@@ -93,7 +93,7 @@ describe("gstack-memory-ingest CLI", () => {
     const session = `{"type":"user","message":{"role":"user","content":"hello"},"timestamp":"${new Date().toISOString()}","cwd":"/tmp/x"}\n{"type":"assistant","message":{"role":"assistant","content":"hi"},"timestamp":"${new Date().toISOString()}"}\n`;
     writeClaudeCodeSession(home, "tmp-x", "abc123", session);
 
-    const r = runScript(["--probe"], { HOME: home, GSTACK_HOME: gstackHome });
+    const r = runScript(["--probe", "--include-unattributed"], { HOME: home, GSTACK_HOME: gstackHome });
     expect(r.exitCode).toBe(0);
     expect(r.stdout).toContain("Total files in window: 1");
     expect(r.stdout).toContain("transcript");
@@ -109,7 +109,7 @@ describe("gstack-memory-ingest CLI", () => {
     const session = `{"type":"session_meta","payload":{"id":"sess-xyz","cwd":"/tmp/x","git":{"repository_url":"https://github.com/foo/bar"}},"timestamp":"${today.toISOString()}"}\n`;
     writeCodexSession(home, ymd, session);
 
-    const r = runScript(["--probe"], { HOME: home, GSTACK_HOME: gstackHome });
+    const r = runScript(["--probe", "--include-unattributed"], { HOME: home, GSTACK_HOME: gstackHome });
     expect(r.exitCode).toBe(0);
     expect(r.stdout).toContain("Total files in window: 1");
     rmSync(home, { recursive: true, force: true });
@@ -269,7 +269,7 @@ describe("internal: parseTranscriptJsonl + buildTranscriptPage shape", () => {
     mkdirSync(projDir, { recursive: true });
     writeFileSync(join(projDir, "abc123.jsonl"), content, "utf-8");
 
-    const r = runScript(["--probe"], { HOME: home, GSTACK_HOME: join(home, ".gstack") });
+    const r = runScript(["--probe", "--include-unattributed"], { HOME: home, GSTACK_HOME: join(home, ".gstack") });
     expect(r.exitCode).toBe(0);
     expect(r.stdout).toContain("Total files in window: 1");
 
@@ -288,7 +288,7 @@ describe("internal: parseTranscriptJsonl + buildTranscriptPage shape", () => {
       `{"type":"assistant","message":{"role":"assistant","content":"this is truncat`; // no closing brace + no newline
     writeFileSync(join(projDir, "trunc.jsonl"), content, "utf-8");
 
-    const r = runScript(["--probe"], { HOME: home, GSTACK_HOME: join(home, ".gstack") });
+    const r = runScript(["--probe", "--include-unattributed"], { HOME: home, GSTACK_HOME: join(home, ".gstack") });
     // Should not crash; should report 1 transcript
     expect(r.exitCode).toBe(0);
     expect(r.stdout).toContain("Total files in window: 1");
