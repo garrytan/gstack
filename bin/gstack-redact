@@ -199,13 +199,67 @@ function humanTable(findings: Finding[]): string {
   return rows.join("\n");
 }
 
+/**
+ * Usage. Exits 0 when asked for (--help), 1 when the invocation was wrong.
+ *
+ * Deliberately NOT 2 or 3: those mean MEDIUM and HIGH findings, and callers
+ * gate dispatch on them (see the exit-code table at the top). A usage error
+ * that exited 2 would be read as "medium findings — prompt the user".
+ */
+function printUsage(code: number): never {
+  const out = code === 0 ? process.stdout : process.stderr;
+  out.write(
+    "gstack-redact — scan text for secrets/PII/legal content.\n" +
+      "\n" +
+      "Reads the text to scan from STDIN, or from --from-file PATH. It is a\n" +
+      "filter: with nothing piped in it has nothing to scan.\n" +
+      "\n" +
+      "  git diff | gstack-redact --repo-visibility private\n" +
+      "  gstack-redact --from-file notes.md --json\n" +
+      "\n" +
+      "Subcommands:\n" +
+      "  install-prepush-hook     install the managed git pre-push credential guard\n" +
+      "  uninstall-prepush-hook   remove it\n" +
+      "\n" +
+      "Flags: --json --repo-visibility V --from-file PATH --allowlist PATH\n" +
+      "       --self-email EMAIL --repo-public-emails PATH --auto-redact IDS\n" +
+      "       --max-bytes N\n" +
+      "\n" +
+      "Exit: 0 clean · 1 usage error · 2 MEDIUM present · 3 HIGH present\n",
+  );
+  process.exit(code);
+}
+
 function main() {
   // Subcommands (positional, not flags).
   const sub = process.argv[2];
   if (sub === "install-prepush-hook") return installPrepushHook();
   if (sub === "uninstall-prepush-hook") return uninstallPrepushHook();
+  if (sub === "--help" || sub === "-h" || sub === "help") return printUsage(0);
+
+  // An unrecognized POSITIONAL is a typo, not input. This used to fall through
+  // to the stdin scan, which on empty stdin prints "(no findings)" and exits 0
+  // — so `install-prepush-hooks` (plural) installed nothing and still looked
+  // like success, leaving the credential guard absent while the operator
+  // believed it was armed. A guard that no-ops must never exit 0.
+  //
+  // "scan" is exempt: the human output header reads "gstack-redact scan —
+  // repo …", so people reasonably type it. It stays an alias for the default.
+  // Flags start with "-" and are parsed further down, so only bare words land
+  // here.
+  if (sub !== undefined && sub !== "scan" && !sub.startsWith("-")) {
+    process.stderr.write(`gstack-redact: unknown subcommand "${sub}"\n\n`);
+    return printUsage(1);
+  }
 
   const opts = buildOpts();
+
+  // Nothing piped in and no --from-file: readInput() below blocks on
+  // readSync(fd 0) until EOF, which on an interactive terminal never comes.
+  // That prints nothing at all and is indistinguishable from a crash or a
+  // slow scan. Show usage instead of hanging silently.
+  if (!arg("--from-file") && process.stdin.isTTY) return printUsage(1);
+
   const input = readInput();
 
   // Auto-redact mode: print redacted body to stdout, diff to stderr, exit 0.

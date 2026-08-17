@@ -95,3 +95,47 @@ describe("gstack-redact oversize fails closed", () => {
     expect(stdout).toContain("too large");
   });
 });
+
+describe("gstack-redact argv dispatch", () => {
+  // The bug: main() recognised exactly two subcommands and let everything else
+  // fall through to the stdin scan, which reports "no findings" and exits 0.
+  // So `install-prepush-hooks` (plural typo) installed no hook and still looked
+  // like success — the credential guard silently absent while the operator
+  // believes it is armed. A guard that no-ops must never exit 0.
+  test("a typo'd install subcommand fails loudly instead of exiting 0", () => {
+    const { code, stderr } = run(["install-prepush-hooks"], "");
+    expect(code).not.toBe(0);
+    expect(stderr).toContain("unknown subcommand");
+  });
+
+  test("an unknown positional never reports a clean scan", () => {
+    const { code, stdout } = run(["totally-bogus"], "");
+    expect(code).not.toBe(0);
+    expect(stdout).not.toContain("HIGH=0");
+  });
+
+  // Usage errors must not collide with the findings codes (2 = MEDIUM,
+  // 3 = HIGH); a caller gating on those would read a typo as "findings".
+  test("usage errors exit 1, not a findings code", () => {
+    expect(run(["totally-bogus"], "").code).toBe(1);
+  });
+
+  test("--help prints usage and exits 0 without scanning", () => {
+    const { code, stdout } = run(["--help"], "key AKIA1234567890ABCDEF");
+    expect(code).toBe(0);
+    expect(stdout).toContain("STDIN");
+    expect(stdout).not.toContain("HIGH=1");
+  });
+
+  // "scan" is what the human output header ("gstack-redact scan — repo …")
+  // invites people to type, so it stays an accepted alias for the default
+  // filter mode. Rejecting it would break that muscle memory for no gain.
+  test("the 'scan' alias still scans normally", () => {
+    expect(run(["scan"], "key AKIA1234567890ABCDEF").code).toBe(3);
+    expect(run(["scan"], "just prose").code).toBe(0);
+  });
+
+  test("flags are still parsed, not mistaken for subcommands", () => {
+    expect(run(["--json"], "just prose").code).toBe(0);
+  });
+});
