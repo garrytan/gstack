@@ -53,6 +53,18 @@ function runWithStdin(input: string, ...args: string[]): { stdout: string; stder
   };
 }
 
+/** Plant a pref by writing the file. Used for legacy / inert one-way prefs
+ *  that --write now refuses (#2488). --check and --stats still have to
+ *  handle files written before the reject landed. */
+function plantPref(id: string, pref: string) {
+  run('--read');
+  const projects = fs.readdirSync(path.join(tmpHome, 'projects'));
+  const file = path.join(tmpHome, 'projects', projects[0], 'question-preferences.json');
+  const prefs = JSON.parse(fs.readFileSync(file, 'utf-8'));
+  prefs[id] = pref;
+  fs.writeFileSync(file, JSON.stringify(prefs, null, 2));
+}
+
 // -----------------------------------------------------------------------
 // --check
 // -----------------------------------------------------------------------
@@ -92,7 +104,8 @@ describe('--check with preferences set', () => {
   });
 
   test('one-way + never-ask → ASK_NORMALLY with safety note', () => {
-    setPref('ship-test-failure-triage', 'never-ask');
+    // Planted: --write now refuses never-ask on one-way ids (#2488).
+    plantPref('ship-test-failure-triage', 'never-ask');
     const r = run('--check', 'ship-test-failure-triage');
     expect(r.stdout).toContain('ASK_NORMALLY');
     expect(r.stdout).toContain('one-way door overrides');
@@ -111,7 +124,7 @@ describe('--check with preferences set', () => {
   });
 
   test('one-way + ask-only-for-one-way → ASK_NORMALLY', () => {
-    setPref('ship-test-failure-triage', 'ask-only-for-one-way');
+    plantPref('ship-test-failure-triage', 'ask-only-for-one-way');
     const r = run('--check', 'ship-test-failure-triage');
     expect(r.stdout.trim()).toContain('ASK_NORMALLY');
   });
@@ -389,6 +402,112 @@ describe('--write schema validation', () => {
   });
 });
 
+// #2488: --write must refuse suppressing prefs on one-way ids. --check
+// already ignores them; storing them made --stats report a working NEVER_ASK.
+describe('--write one-way door reject (#2488)', () => {
+  function prefsFile(): string {
+    const projects = fs.readdirSync(path.join(tmpHome, 'projects'));
+    return path.join(tmpHome, 'projects', projects[0], 'question-preferences.json');
+  }
+
+  test('never-ask on one-way id is rejected and does not write', () => {
+    const r = run(
+      '--write',
+      JSON.stringify({
+        question_id: 'plan-eng-review-arch-finding',
+        preference: 'never-ask',
+        source: 'plan-tune',
+      }),
+    );
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain('cannot set never-ask');
+    expect(r.stderr).toContain('plan-eng-review-arch-finding');
+    expect(r.stderr).toContain('door_type: one-way');
+    expect(JSON.parse(fs.readFileSync(prefsFile(), 'utf-8'))).toEqual({});
+  });
+
+  test('ask-only-for-one-way on one-way id is rejected and does not write', () => {
+    const r = run(
+      '--write',
+      JSON.stringify({
+        question_id: 'ship-test-failure-triage',
+        preference: 'ask-only-for-one-way',
+        source: 'plan-tune',
+      }),
+    );
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain('cannot set ask-only-for-one-way');
+    expect(r.stderr).toContain('door_type: one-way');
+    expect(JSON.parse(fs.readFileSync(prefsFile(), 'utf-8'))).toEqual({});
+  });
+
+  test('always-ask on one-way id is accepted (agrees with the safety override)', () => {
+    const r = run(
+      '--write',
+      JSON.stringify({
+        question_id: 'plan-eng-review-arch-finding',
+        preference: 'always-ask',
+        source: 'plan-tune',
+      }),
+    );
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain('OK');
+    expect(JSON.parse(fs.readFileSync(prefsFile(), 'utf-8'))).toEqual({
+      'plan-eng-review-arch-finding': 'always-ask',
+    });
+  });
+
+  test('never-ask on two-way id is still accepted', () => {
+    const r = run(
+      '--write',
+      JSON.stringify({
+        question_id: 'ship-changelog-voice-polish',
+        preference: 'never-ask',
+        source: 'plan-tune',
+      }),
+    );
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain('OK');
+  });
+
+  test('rejected one-way write does not clobber an existing two-way pref', () => {
+    run(
+      '--write',
+      JSON.stringify({
+        question_id: 'ship-changelog-voice-polish',
+        preference: 'never-ask',
+        source: 'plan-tune',
+      }),
+    );
+    const r = run(
+      '--write',
+      JSON.stringify({
+        question_id: 'plan-eng-review-arch-finding',
+        preference: 'never-ask',
+        source: 'plan-tune',
+      }),
+    );
+    expect(r.status).toBe(1);
+    expect(JSON.parse(fs.readFileSync(prefsFile(), 'utf-8'))).toEqual({
+      'ship-changelog-voice-polish': 'never-ask',
+    });
+  });
+
+  test('poisoning source on a one-way id still exits 2 (origin gate first)', () => {
+    const r = run(
+      '--write',
+      JSON.stringify({
+        question_id: 'plan-eng-review-arch-finding',
+        preference: 'never-ask',
+        source: 'inline-tool-output',
+      }),
+    );
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain('profile poisoning defense');
+    expect(r.stderr).not.toContain('door_type');
+  });
+});
+
 // -----------------------------------------------------------------------
 // --read, --clear, --stats
 // -----------------------------------------------------------------------
@@ -448,5 +567,21 @@ describe('--stats', () => {
     expect(r.stdout).toContain('TOTAL: 3');
     expect(r.stdout).toContain('NEVER_ASK: 2');
     expect(r.stdout).toContain('ALWAYS_ASK: 1');
+    expect(r.stdout).toContain('INERT_ONE_WAY: 0');
+  });
+
+  test('planted one-way never-ask is INERT_ONE_WAY, not a working NEVER_ASK (#2488)', () => {
+    plantPref('plan-eng-review-arch-finding', 'never-ask');
+    const r = run('--stats');
+    expect(r.stdout).toContain('TOTAL: 1');
+    expect(r.stdout).toContain('NEVER_ASK: 0');
+    expect(r.stdout).toContain('INERT_ONE_WAY: 1');
+  });
+
+  test('planted one-way ask-only-for-one-way is INERT_ONE_WAY, not ASK_ONLY_ONE_WAY', () => {
+    plantPref('ship-test-failure-triage', 'ask-only-for-one-way');
+    const r = run('--stats');
+    expect(r.stdout).toContain('ASK_ONLY_ONE_WAY: 0');
+    expect(r.stdout).toContain('INERT_ONE_WAY: 1');
   });
 });
