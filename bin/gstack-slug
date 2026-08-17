@@ -169,6 +169,19 @@ SLUG="${SLUG:-$(basename "$PROJECT_DIR" | tr -cd 'a-zA-Z0-9._-')}"
 #     every path (the fresh-compute design already prevents poisoned-cache
 #     injection, but the invariant should not depend on that reasoning).
 SLUG=$(printf '%s' "$SLUG" | tr -cd 'a-zA-Z0-9._-')
+# 3c. Strip LEADING dots. The slug is used as a PATH COMPONENT, both for
+#     ~/.gstack/projects/<slug>/ and — via gstack-memory-ingest's page slugs —
+#     as a directory inside the staging tree handed to `gbrain import`. A
+#     leading dot makes that component a HIDDEN directory, which markdown
+#     collectors skip: the staged pages are silently never imported, and
+#     memory-ingest's accounting guard then refuses to advance state on EVERY
+#     subsequent run ("gbrain import accounted for N of M staged page(s)").
+#     Reachable without any adversary: `~/.gstack` is itself a git repo once a
+#     user wires artifacts sync, so any gstack bin invoked with a cwd inside it
+#     resolves basename(PROJECT_ROOT) == ".gstack". `.` and `..` are worse
+#     still — as path components they resolve to the project dir's parent.
+SLUG=$(printf '%s' "$SLUG" | sed 's/^\.*//')
+SLUG="${SLUG:-unknown}"
 
 if [[ -n "$SLUG" && "$SLUG_FROM_ENV" -eq 0 ]]; then
   CURRENT_CACHE=""
