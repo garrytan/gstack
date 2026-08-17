@@ -1978,6 +1978,16 @@ describe('Codex generation (--host codex)', () => {
     }
   });
 
+  test('ship resolves document-release through the installed Codex skill', () => {
+    const content = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-ship', 'SKILL.md'), 'utf-8');
+    const repoLocalPath = '.agents/skills/gstack-document-release/SKILL.md';
+    const globalPath = '${HOME}/.codex/skills/gstack-document-release/SKILL.md';
+    expect(content).toContain(`\`${repoLocalPath}\` if that file exists in the repository; otherwise \`${globalPath}\``);
+    expect(content.indexOf(repoLocalPath)).toBeLessThan(content.indexOf(globalPath));
+    expect(content).not.toContain('$GSTACK_ROOT/../gstack-document-release/SKILL.md');
+    expect(content).not.toContain('${HOME}/.agents/skills/gstack/document-release/SKILL.md');
+  });
+
   test('greptile-triage sidecar path is correct', () => {
     const content = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-review', 'SKILL.md'), 'utf-8');
     if (content.includes('greptile-triage')) {

@@ -28,6 +28,13 @@ const codex = defineHost({
   // the preamble env vars), plus an extra review-path rewrite the derived trio
   // doesn't cover.
   pathRewrites: [
+    // Claude installs document-release below the gstack runtime, while Codex
+    // installs generated skills as flat gstack-* siblings. Prefer the active
+    // repo-local install, then fall back to the global Codex skills directory.
+    {
+      from: '`${HOME}/.claude/skills/gstack/document-release/SKILL.md`',
+      to: '`.agents/skills/gstack-document-release/SKILL.md` if that file exists in the repository; otherwise `${HOME}/.codex/skills/gstack-document-release/SKILL.md`',
+    },
     { from: '~/.claude/skills/gstack', to: '$GSTACK_ROOT' },
     { from: '.claude/skills/gstack', to: '.agents/skills/gstack' },
     { from: '.claude/skills/review', to: '.agents/skills/gstack/review' },

@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.67.1.1] - 2026-08-18
+
+### Fixed
+- Codex `/ship` now runs its post-push documentation sync from both global and repo-local GStack installs instead of pointing the fresh subagent at a nonexistent Claude-layout path.
+
 ## [1.67.1.0] - 2026-08-16
 
 **We read every line of external-contributor code from the last two months.**
