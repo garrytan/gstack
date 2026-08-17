@@ -31,10 +31,10 @@
 // header both PROMISED "DEBUG-only; never shipped to App Store" and "never link in
 // Release" — and nothing enforced it. Only `#if TARGET_OS_IOS` was tested, so a
 // Release build for iOS compiled the whole implementation in. Measured on a real
-// app (Seize Day, 2026-08-15), `nm -j` on a Release binary returned 15 DebugBridge
-// symbols including +[DebugBridgeTouch sendTapAtPoint:inWindow:], plus
-// IOHIDEventCreateDigitizer, AXSSetAutomationEnabled and IOKit.framework strings.
-// That is a Guideline 2.5.1 private-API exposure in a shippable binary.
+// iOS app, `nm -j` on a Release binary returned 15 DebugBridge symbols including
+// +[DebugBridgeTouch sendTapAtPoint:inWindow:], plus IOHIDEventCreateDigitizer,
+// AXSSetAutomationEnabled and IOKit.framework strings. That is a Guideline 2.5.1
+// private-API exposure in a shippable binary, caught in a pre-submission audit.
 //
 // Package.swift's stated guard — `.when(configuration: .debug)` on the consuming
 // target's dependency — only exists for SwiftPM consumers. An app integrating this
