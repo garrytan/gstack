@@ -104,3 +104,56 @@ describe('slug cache hygiene', () => {
     }
   });
 });
+
+// A slug is a PATH COMPONENT: ~/.gstack/projects/<slug>/, and via
+// gstack-memory-ingest it also becomes a directory inside the staging tree
+// handed to `gbrain import`. A leading dot makes that component a HIDDEN
+// directory. Markdown collectors skip hidden entries while walking, so pages
+// staged under one are never collected and memory-ingest's accounting guard
+// then refuses to advance state on EVERY run ("gbrain import accounted for
+// N of M staged page(s)"). No adversary needed: once a user wires artifacts
+// sync, ~/.gstack is itself a git repo, so any gstack bin invoked with a cwd
+// inside it resolves basename(PROJECT_ROOT) == ".gstack".
+describe('slug leading-dot hygiene', () => {
+  function slugFor(dirName: string): string {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'slug-dot-home-'));
+    const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'slug-dot-'));
+    try {
+      const proj = path.join(fs.realpathSync(parent), dirName);
+      fs.mkdirSync(proj, { recursive: true });
+      // package.json is a STRONG project-identity marker, so the walk-up
+      // resolves this directory as the project root and takes its basename.
+      fs.writeFileSync(path.join(proj, 'package.json'), '{}');
+      const { GSTACK_PROJECT_SLUG: _drop, ...ambient } = process.env;
+      const r = spawnSync(['bash', SLUG_BIN], {
+        cwd: proj,
+        env: { ...ambient, GSTACK_HOME: home },
+      });
+      expect(r.exitCode).toBe(0);
+      const line = r.stdout.toString().split('\n').find((l) => l.startsWith('SLUG='));
+      expect(line).toBeDefined();
+      return line!.slice('SLUG='.length);
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+      fs.rmSync(parent, { recursive: true, force: true });
+    }
+  }
+
+  test('a dot-prefixed project directory does not produce a hidden slug', () => {
+    expect(slugFor('.gstack')).toBe('gstack');
+  });
+
+  test('leading dots are stripped, interior dots are preserved', () => {
+    expect(slugFor('..hidden.thing')).toBe('hidden.thing');
+  });
+
+  test('a slug never starts with a dot, whatever the directory is named', () => {
+    for (const name of ['.gstack', '.config', '...', '.a']) {
+      expect(slugFor(name)).not.toMatch(/^\./);
+    }
+  });
+
+  test('an all-dots directory name falls back instead of emitting an empty slug', () => {
+    expect(slugFor('...')).toBe('unknown');
+  });
+});

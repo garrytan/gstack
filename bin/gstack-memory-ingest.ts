@@ -697,12 +697,37 @@ function resolveGitRemote(cwd: string): string {
   }
 }
 
+/**
+ * Make a string safe to use as ONE path component of a page slug.
+ *
+ * Page slugs become real directories in the staging tree we hand to
+ * `gbrain import` (see stagedRelPath). A component with a leading dot becomes
+ * a HIDDEN directory, which markdown collectors skip — the page is staged but
+ * never collected, so the accounting guard in ingestPass refuses to advance
+ * state on EVERY subsequent run. `.` and `..` are worse: as path components
+ * they escape upward out of the staging dir.
+ *
+ * This is defense in depth. bin/gstack-slug already strips leading dots from
+ * the project slug, but slug components also arrive from git remotes and from
+ * on-disk directory names that predate that fix, so the invariant is enforced
+ * again at the point where a component is turned into a path.
+ */
+export function safeSlugComponent(s: string): string {
+  const cleaned = s
+    .replace(/[/\\]/g, "-")
+    .replace(/^\.+/, "")
+    .replace(/[^A-Za-z0-9._-]/g, "-");
+  return cleaned || "_unattributed";
+}
+
 function repoSlug(remote: string): string {
   if (!remote) return "_unattributed";
   // github.com/foo/bar → foo-bar
   const parts = remote.split("/");
-  if (parts.length >= 3) return `${parts[parts.length - 2]}-${parts[parts.length - 1]}`;
-  return remote.replace(/\//g, "-");
+  if (parts.length >= 3) {
+    return safeSlugComponent(`${parts[parts.length - 2]}-${parts[parts.length - 1]}`);
+  }
+  return safeSlugComponent(remote.replace(/\//g, "-"));
 }
 
 function dateOnly(ts: string | undefined): string {
@@ -773,9 +798,13 @@ function buildArtifactPage(path: string, type: MemoryType): PageRecord {
   const raw = readFileSync(path, "utf-8");
 
   // Extract repo slug from path: ~/.gstack/projects/<slug>/...
+  // The on-disk directory name is NOT trusted as a path component: a project
+  // dir named `.gstack` (created whenever a gstack bin runs with a cwd inside
+  // ~/.gstack, once that directory is a git repo) would otherwise stage pages
+  // under a hidden directory that gbrain import never collects.
   let slug_repo = "_unattributed";
   const m = path.match(/\/\.gstack\/projects\/([^/]+)\//);
-  if (m) slug_repo = m[1];
+  if (m) slug_repo = safeSlugComponent(m[1]);
 
   const date = new Date(stats.mtimeMs).toISOString().slice(0, 10);
   const baseName = basename(path, path.endsWith(".jsonl") ? ".jsonl" : ".md");
