@@ -56,7 +56,7 @@ describe('VERSION_RE', () => {
 
 describe('write (FRESH bump)', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vbump-write-'));
-  afterAll(() => { try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* noop */ } });
+  afterAll(() => fs.rmSync(dir, { recursive: true, force: true }));
 
   test('writes VERSION + package.json.version, preserving other pkg fields', () => {
     fs.writeFileSync(path.join(dir, 'VERSION'), '1.0.0.0\n');
@@ -530,7 +530,7 @@ describe('path containment: pins and flags cannot escape the repo', () => {
   const outer = fs.mkdtempSync(path.join(os.tmpdir(), 'vbump-contain-'));
   const dir = path.join(outer, 'repo');
   const victim = path.join(outer, 'victim.json');
-  afterAll(() => { try { fs.rmSync(outer, { recursive: true, force: true }); } catch { /* noop */ } });
+  afterAll(() => fs.rmSync(outer, { recursive: true, force: true }));
 
   function runFail(args: string[]): { code: number; stderr: string } {
     try {
