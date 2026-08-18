@@ -28,6 +28,20 @@ const codex = defineHost({
   // the preamble env vars), plus an extra review-path rewrite the derived trio
   // doesn't cover.
   pathRewrites: [
+    // Review assets live under the gstack runtime sidecar, not the generated
+    // gstack-review skill. Repo-local Codex installs have the sidecar in the
+    // checkout; normal global installs have it under ~/.codex/skills/gstack.
+    // Keep each instruction self-contained because Codex shell invocations and
+    // fresh subagents cannot rely on the preamble's unexported GSTACK_ROOT.
+    ...[
+      'checklist.md',
+      'design-checklist.md',
+      'greptile-triage.md',
+      'TODOS-format.md',
+    ].map((file) => ({
+      from: `\`.claude/skills/review/${file}\``,
+      to: `\`.agents/skills/gstack/review/${file}\` if that file exists in the repository; otherwise \`\${HOME}/.codex/skills/gstack/review/${file}\``,
+    })),
     // Parent-side /ship attestation also needs to work when each Codex shell
     // starts without the preamble's GSTACK_ROOT assignment. Resolve the
     // runtime afresh in the command itself for both supported install modes.

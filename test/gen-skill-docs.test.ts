@@ -1978,6 +1978,22 @@ describe('Codex generation (--host codex)', () => {
     }
   });
 
+  test('ship review assets resolve in both repo-local and global Codex installs', () => {
+    const content = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-ship', 'SKILL.md'), 'utf-8');
+    for (const file of [
+      'checklist.md',
+      'design-checklist.md',
+      'greptile-triage.md',
+      'TODOS-format.md',
+    ]) {
+      const repoLocal = `.agents/skills/gstack/review/${file}`;
+      const global = `\${HOME}/.codex/skills/gstack/review/${file}`;
+      expect(content).toContain(repoLocal);
+      expect(content).toContain(global);
+      expect(content.indexOf(repoLocal)).toBeLessThan(content.indexOf(global));
+    }
+  });
+
   test('ship resolves document-release through the installed Codex skill', () => {
     const content = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-ship', 'SKILL.md'), 'utf-8');
     const repoLocalPath = '.agents/skills/gstack-document-release/SKILL.md';
