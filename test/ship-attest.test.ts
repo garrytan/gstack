@@ -50,7 +50,10 @@ if [ "$1" = "api" ]; then
       esac
     fi
   done
-  printf '%s|%s|%s\\n' "$state" "$context" "$FAKE_PR_HEAD"
+  # GitHub's create-commit-status response is a status object. It confirms
+  # state and context but does not include the commit SHA; the SHA is already
+  # fixed by the request URL after the local/PR-head equality check above.
+  printf '%s|%s\\n' "$state" "$context"
   exit 0
 fi
 

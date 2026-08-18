@@ -97,12 +97,12 @@ if ! RESPONSE="$(gh api -X POST "repos/$REPO/statuses/$LOCAL_SHA" \
   -f "context=$CONTEXT" \
   -f "description=$DESCRIPTION" \
   -f "target_url=$PR_URL" \
-  --jq '[.state, .context, .sha] | join("|")')"; then
+  --jq '[.state, .context] | join("|")')"; then
   echo "gstack-ship-attest: could not post gstack/ship $STATE status" >&2
   exit 5
 fi
 
-EXPECTED="$STATE|$CONTEXT|$LOCAL_SHA"
+EXPECTED="$STATE|$CONTEXT"
 if [ "$RESPONSE" != "$EXPECTED" ]; then
   echo "gstack-ship-attest: GitHub returned an unexpected status response: $RESPONSE" >&2
   exit 5
