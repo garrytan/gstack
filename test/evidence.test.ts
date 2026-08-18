@@ -76,6 +76,28 @@ describe('gstack-evidence run', () => {
     expect(fs.readFileSync(rec.log_path, 'utf-8')).toContain('ok');
   });
 
+  test('dotenv keys Bun auto-loaded from the cwd do not reach the child (#2624)', () => {
+    // Bun loads .env/.env.local into process.env before the wrapper's own code
+    // runs; without an explicit env, Bun.spawn hands those values to the test
+    // runner and flips verdicts in repos whose suites need them unset.
+    fs.writeFileSync(path.join(repoDir, '.env.local'), 'GSTACK_TEST_INJECTED=oops\nexport GSTACK_TEST_EXPORTED=oops2\n');
+    fs.writeFileSync(path.join(repoDir, '.env'), 'GSTACK_TEST_PLAIN=oops3\n');
+    const r = run(['run', '--label', 'envtest', '--', 'echo "[${GSTACK_TEST_INJECTED-}|${GSTACK_TEST_EXPORTED-}|${GSTACK_TEST_PLAIN-}]"']);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain('[||]');
+  });
+
+  test('real environment variables still pass through to the child (#2624)', () => {
+    const r = spawnSync(EVIDENCE, ['run', '--label', 'envtest', '--', 'echo "val=${GSTACK_TEST_REAL-}"'], {
+      cwd: repoDir,
+      env: { ...process.env, GSTACK_HOME: gstackHome, GSTACK_TEST_REAL: 'kept' },
+      encoding: 'utf-8',
+      timeout: 60000,
+    });
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain('val=kept');
+  });
+
   test('propagates a failing exit code and records it', () => {
     const r = run(['run', '--label', 'tests', '--', 'exit 3']);
     expect(r.status).toBe(3);

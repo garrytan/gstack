@@ -34,7 +34,7 @@
  * in the ledger; it cannot prove that an expected lane ever ran.
  */
 
-import { mkdirSync, openSync, writeSync, closeSync, readdirSync, statSync, unlinkSync, chmodSync } from "fs";
+import { mkdirSync, openSync, writeSync, closeSync, readdirSync, readFileSync, statSync, unlinkSync, chmodSync } from "fs";
 import { join, dirname } from "path";
 import { spawnSync } from "child_process";
 import { appendJsonl, readJsonl } from "../lib/jsonl-store";
@@ -67,6 +67,33 @@ function sha256(text: string): string {
   const h = new Bun.CryptoHasher("sha256");
   h.update(text);
   return h.digest("hex");
+}
+
+// Bun auto-loads .env/.env.local/.env.<NODE_ENV> from the cwd into process.env
+// before user code runs, and an env-less Bun.spawn hands that pollution to the
+// child test runner — flipping verdicts in any repo whose suites depend on
+// those vars being unset (both directions: false red AND false green). Subtract
+// exactly the keys those files define; the developer's real environment (PATH,
+// credentials, tool config) passes through untouched. Never throws: per the
+// transparency invariant, bookkeeping must not turn a run red.
+function childEnv(): Record<string, string | undefined> {
+  const env = { ...process.env };
+  try {
+    const mode = process.env.NODE_ENV || "development";
+    for (const f of [".env", `.env.${mode}`, ".env.local", `.env.${mode}.local`]) {
+      let text: string;
+      try {
+        text = readFileSync(f, "utf-8");
+      } catch {
+        continue;
+      }
+      for (const line of text.split("\n")) {
+        const m = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=/.exec(line);
+        if (m) delete env[m[1]];
+      }
+    }
+  } catch {}
+  return env;
 }
 
 function git(args: string[]): string | undefined {
@@ -189,7 +216,7 @@ async function cmdRun(argv: string[]): Promise<number> {
   let exitCode: number;
   let proc: ReturnType<typeof Bun.spawn> | undefined;
   try {
-    proc = Bun.spawn(spawnArgv, { stdin: "inherit", stdout: "pipe", stderr: "pipe" });
+    proc = Bun.spawn(spawnArgv, { stdin: "inherit", stdout: "pipe", stderr: "pipe", env: childEnv() });
   } catch (e: any) {
     // Spawn failure (ENOENT on argv-direct form): record exit 127, propagate 127.
     exitCode = 127;
