@@ -149,31 +149,90 @@ export async function dispatchCdpCall(input: CdpDispatchInput): Promise<CdpDispa
   logTelemetry({ event: 'cdp_method_called', domain: input.domain, method: input.method, allowed: true, scope: entry.scope });
 
   try {
-    const page = input.bm.getPageForTab(input.tabId);
-    if (!page) {
-      throw new Error(
-        `Cannot dispatch: tab ${input.tabId} not found.\n` +
-          'Cause: tab was closed between command queue and dispatch.\n' +
-          'Action: $B tabs to list current tabs.'
-      );
+    // Browser-domain methods (e.g. Browser.grantPermissions) must go over a
+    // real browser-level CDP connection — Chromium silently no-ops some of
+    // them (success response, no actual effect) when routed through a
+    // page/target-attached session instead. Tab-scoped methods keep using
+    // the cached per-page session as before.
+    let session: { send: (method: string, params?: unknown) => Promise<unknown>; detach: () => Promise<void> };
+    let ephemeral = false;
+    let params = input.params;
+
+    if (entry.scope === 'browser') {
+      const browserSession = await input.bm.getBrowserCdpSession();
+      if (!browserSession) {
+        throw new Error(
+          `Cannot dispatch: no browser-level CDP session available for ${qualified}.\n` +
+            'Cause: this Playwright build/connection mode does not expose newBrowserCDPSession.\n' +
+            'Action: file a bug — this Browser-domain method cannot be dispatched in this environment.'
+        );
+      }
+      session = browserSession;
+      ephemeral = true;
+
+      // Browser.grantPermissions defaults to Chromium's "default" browser
+      // context when browserContextId is omitted — but Playwright always
+      // creates its own dedicated (non-default) context for every launch,
+      // so an un-scoped grant silently applies to a context nothing in the
+      // daemon actually uses and the caller sees "success" with zero effect.
+      // Auto-resolve the calling tab's real browserContextId (via its
+      // already-attached page session, which any target can query about
+      // itself) so callers never need to discover/pass it manually.
+      if (qualified === 'Browser.grantPermissions' && params.browserContextId === undefined) {
+        const page = input.bm.getPageForTab(input.tabId);
+        if (page) {
+          try {
+            const tabSession = await getCdpSession(page);
+            const targetInfo = (await tabSession.send('Target.getTargetInfo')) as {
+              targetInfo?: { browserContextId?: string };
+            };
+            const browserContextId = targetInfo?.targetInfo?.browserContextId;
+            if (browserContextId) {
+              params = { ...params, browserContextId };
+            }
+          } catch {
+            // Best-effort resolution — if it fails, fall through and let
+            // Chromium apply its default-context behavior rather than
+            // failing the whole call outright.
+          }
+        }
+      }
+    } else {
+      const page = input.bm.getPageForTab(input.tabId);
+      if (!page) {
+        throw new Error(
+          `Cannot dispatch: tab ${input.tabId} not found.\n` +
+            'Cause: tab was closed between command queue and dispatch.\n' +
+            'Action: $B tabs to list current tabs.'
+        );
+      }
+      try {
+        session = await getCdpSession(page);
+      } catch (e: any) {
+        throw new Error(
+          `CDPSessionInvalidated: ${e.message}\n` +
+            'Cause: Playwright context was recreated (e.g., viewport scale change) and the prior CDP session is stale.\n' +
+            'Action: retry the command; the bridge will create a fresh session.'
+        );
+      }
     }
-    let session;
+
     try {
-      session = await getCdpSession(page);
-    } catch (e: any) {
-      throw new Error(
-        `CDPSessionInvalidated: ${e.message}\n` +
-          'Cause: Playwright context was recreated (e.g., viewport scale change) and the prior CDP session is stale.\n' +
-          'Action: retry the command; the bridge will create a fresh session.'
+      // Race the call against a hard timeout.
+      const callPromise = session.send(qualified, params);
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error(`CDPBridgeTimeout: ${qualified} did not return within ${CDP_TIMEOUT_MS}ms`)), CDP_TIMEOUT_MS),
       );
+      const raw = await Promise.race([callPromise, timeoutPromise]);
+      return { raw, entry };
+    } finally {
+      // Ephemeral browser-level sessions aren't cached anywhere (unlike the
+      // per-page cache in getCdpSession), so they must be detached here or
+      // the Chromium-side connection leaks.
+      if (ephemeral) {
+        await session.detach().catch(() => undefined);
+      }
     }
-    // Race the call against a hard timeout.
-    const callPromise = session.send(qualified, input.params);
-    const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error(`CDPBridgeTimeout: ${qualified} did not return within ${CDP_TIMEOUT_MS}ms`)), CDP_TIMEOUT_MS),
-    );
-    const raw = await Promise.race([callPromise, timeoutPromise]);
-    return { raw, entry };
   } finally {
     release();
   }
