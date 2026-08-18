@@ -1857,9 +1857,9 @@ SETTINGS_HOOK="$SOURCE_GSTACK_DIR/bin/gstack-settings-hook"
 # launched directly by the OS — the file-association dialog appears instead.
 # Prefix with 'bash' so Claude Code's hook runner invokes Git Bash explicitly.
 if [ "$IS_WINDOWS" -eq 1 ]; then
-  HOOK_CMD="bash $SOURCE_GSTACK_DIR/bin/gstack-session-update"
+  HOOK_CMD="bash \"$SOURCE_GSTACK_DIR/bin/gstack-session-update\""
 else
-  HOOK_CMD="$SOURCE_GSTACK_DIR/bin/gstack-session-update"
+  HOOK_CMD="\"$SOURCE_GSTACK_DIR/bin/gstack-session-update\""
 fi
 
 if [ "$TEAM_MODE" -eq 1 ]; then

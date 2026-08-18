@@ -61,7 +61,17 @@ describe('setup: _link_or_copy invariant (D7)', () => {
     const hookEnd = SETUP_SRC.indexOf('\nif [ "$TEAM_MODE" -eq 1 ]', hookStart);
     const hookSection = SETUP_SRC.slice(hookStart, hookEnd);
     expect(hookSection).toContain('IS_WINDOWS');
-    expect(hookSection).toContain('bash $SOURCE_GSTACK_DIR/bin/gstack-session-update');
+    expect(hookSection).toContain('bash \\"$SOURCE_GSTACK_DIR/bin/gstack-session-update\\"');
+  });
+
+  test('HOOK_CMD quotes the install path in both branches (#2619)', () => {
+    // An unquoted $SOURCE_GSTACK_DIR breaks the hook command for any install
+    // path containing a space — silently, because setup discards the error.
+    const hookStart = SETUP_SRC.indexOf('# 10. Team mode: register/unregister SessionStart hook');
+    const hookEnd = SETUP_SRC.indexOf('\nif [ "$TEAM_MODE" -eq 1 ]', hookStart);
+    const hookSection = SETUP_SRC.slice(hookStart, hookEnd);
+    expect(hookSection).not.toMatch(/HOOK_CMD="(bash )?\$SOURCE_GSTACK_DIR/);
+    expect(hookSection).toContain('HOOK_CMD="\\"$SOURCE_GSTACK_DIR/bin/gstack-session-update\\""');
   });
 });
 

@@ -74,10 +74,16 @@ case "$ACTION" in
       try { settings = JSON.parse(fs.readFileSync(settingsPath, "utf8")); } catch {}
       if (!settings.hooks) settings.hooks = {};
       if (!settings.hooks.SessionStart) settings.hooks.SessionStart = [];
-      const exists = settings.hooks.SessionStart.some(entry =>
+      const existing = settings.hooks.SessionStart.find(entry =>
         entry.hooks && entry.hooks.some(h => h.command && h.command.includes("gstack-session-update"))
       );
-      if (!exists) {
+      if (existing) {
+        // Refresh a stale command in place (e.g. an unquoted path written by an
+        // older setup) so re-running setup heals broken registrations.
+        for (const h of existing.hooks) {
+          if (h.command && h.command.includes("gstack-session-update")) h.command = hookCmd;
+        }
+      } else {
         settings.hooks.SessionStart.push({
           hooks: [{ type: "command", command: hookCmd }]
         });

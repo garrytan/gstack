@@ -73,6 +73,45 @@ describe('gstack-settings-hook', () => {
     expect(settings.hooks.SessionStart).toHaveLength(1);
   });
 
+  test('add refreshes a stale command in place instead of skipping (#2619)', () => {
+    // Simulate a registration written by an older setup: unquoted path with a
+    // space, which the shell splits at run time. Re-adding with the corrected
+    // command must update the entry, not dedupe-skip it or double-add.
+    fs.writeFileSync(settingsFile, JSON.stringify({
+      hooks: {
+        SessionStart: [
+          { hooks: [{ type: 'command', command: '/Users/Jane Doe/gstack/bin/gstack-session-update' }] },
+        ],
+      },
+    }, null, 2));
+    const fixedCmd = '"/Users/Jane Doe/gstack/bin/gstack-session-update"';
+    const result = run(`${SETTINGS_HOOK} add '${fixedCmd}'`, {
+      env: { GSTACK_SETTINGS_FILE: settingsFile },
+    });
+    expect(result.exitCode).toBe(0);
+    const settings = JSON.parse(fs.readFileSync(settingsFile, 'utf-8'));
+    expect(settings.hooks.SessionStart).toHaveLength(1);
+    expect(settings.hooks.SessionStart[0].hooks[0].command).toBe(fixedCmd);
+  });
+
+  test('stored command executes when the install path contains a space (#2619)', () => {
+    const spacedDir = path.join(tmpDir, 'space dir', 'bin');
+    fs.mkdirSync(spacedDir, { recursive: true });
+    const script = path.join(spacedDir, 'gstack-session-update');
+    fs.writeFileSync(script, '#!/usr/bin/env bash\necho HOOK_RAN\n');
+    fs.chmodSync(script, 0o755);
+    // Quoted, exactly as setup builds HOOK_CMD after the fix.
+    run(`${SETTINGS_HOOK} add '"${script}"'`, {
+      env: { GSTACK_SETTINGS_FILE: settingsFile },
+    });
+    const settings = JSON.parse(fs.readFileSync(settingsFile, 'utf-8'));
+    const stored = settings.hooks.SessionStart[0].hooks[0].command;
+    // Execute the stored string the way Claude Code's hook runner does.
+    const result = run(`bash -c '${stored.replace(/'/g, `'\\''`)}'`);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('HOOK_RAN');
+  });
+
   test('remove removes the hook', () => {
     run(`${SETTINGS_HOOK} add /path/to/gstack-session-update`, {
       env: { GSTACK_SETTINGS_FILE: settingsFile },
