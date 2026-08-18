@@ -2019,6 +2019,18 @@ describe('Codex generation (--host codex)', () => {
     expect(content).not.toContain('Print a warning and proceed to Step 19 without a `## Documentation` section');
   });
 
+  test('ship preserves unversioned repositories without fabricating release metadata', () => {
+    const content = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-ship', 'SKILL.md'), 'utf-8');
+    expect(content).toContain('**UNVERSIONED**');
+    expect(content).toContain('VERSIONING_MODE=unversioned');
+    expect(content).toContain('Do not create VERSION/CHANGELOG');
+    expect(content).toContain('skip this entire step');
+    expect(content).toContain('set `NEW_TITLE="$CURRENT"`');
+    expect(content).toContain('assert it still equals `CURRENT`');
+    expect(content).toContain('the literal `unversioned`');
+    expect(content).toContain('unversioned repos have no release version');
+  });
+
   test('greptile-triage sidecar path is correct', () => {
     const content = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-review', 'SKILL.md'), 'utf-8');
     if (content.includes('greptile-triage')) {

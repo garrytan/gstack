@@ -2277,11 +2277,14 @@ The deterministic version-state logic is the tested **`gstack-version-bump`** CL
 (classify / write / repair). The bump-LEVEL decision and queue-collision handling
 stay agent judgment; the slot pick stays `gstack-next-version`.
 
+Start with `VERSIONING_MODE=versioned` and `NEW_VERSION=""`.
+
 1. **Classify state** — pure reader, never writes:
    ```bash
    bun run $GSTACK_ROOT/bin/gstack-version-bump classify --base <base>
    ```
    Read the JSON `state` and dispatch:
+   - **UNVERSIONED** → set `VERSIONING_MODE=unversioned`; skip the rest of Step 12 and all of Step 13. Do not create VERSION/CHANGELOG, alter package metadata, or prefix the PR/MR title. Continue at Step 14.
    - **FRESH** → do the bump (steps 2-4).
    - **ALREADY_BUMPED** → skip the bump, but run the queue-drift check (step 3) with the reported `currentVersion`. If the queue moved (next free version differs), **AskUserQuestion**: rebump to the new version (rewrites CHANGELOG header + PR title) or keep current (CI version-gate will reject until resolved).
    - **DRIFT_STALE_PKG** → run `gstack-version-bump repair` (syncs package.json to VERSION). No re-bump; reuse `currentVersion` for CHANGELOG + PR.
@@ -2312,6 +2315,9 @@ stay agent judgment; the slot pick stays `gstack-next-version`.
    Substitute `NEW_VERSION`, `BUMP_LEVEL`, and a one-line `WHY` (the signal that set the level: diff scale, a new feature, a breaking change). Best-effort and non-interactive; never blocks the ship. Skip on the ALREADY_BUMPED path (the decision was logged on the run that did the bump).
 
 ## Step 13: CHANGELOG (auto-generate)
+
+If `VERSIONING_MODE=unversioned`, skip this entire step. Do not create a
+CHANGELOG merely so /ship can proceed; continue at Step 14.
 
 1. Read `CHANGELOG.md` header to know the format.
 
@@ -2397,7 +2403,7 @@ For each TODO item, check if the changes in this PR complete it by:
 
 **Be conservative:** Only mark a TODO as completed if there is clear evidence in the diff. If uncertain, leave it alone.
 
-**4. Move completed items** to the `## Completed` section at the bottom. Append: `**Completed:** vX.Y.Z (YYYY-MM-DD)`
+**4. Move completed items** to the `## Completed` section at the bottom. Append `**Completed:** vX.Y.Z (YYYY-MM-DD)` for a versioned repo, or `**Completed:** PR (YYYY-MM-DD)` when `VERSIONING_MODE=unversioned`.
 
 **5. Output summary:**
 - `TODOS.md: N items marked complete (item1, item2, ...). M items remaining.`
@@ -2644,7 +2650,7 @@ git push -u origin <branch-name>
 
 ---
 
-**PR/MR title invariant (always applies — do not skip even if you don't open the section below):** Any PR or MR you create OR update in the next step MUST have a title that starts with `v$NEW_VERSION` (the version bumped in Step 12), in the format `v<NEW_VERSION> <type>: <summary>`. Never create or edit a PR/MR title without this prefix. Compute the correct title with the single source of truth helper: `$GSTACK_ROOT/bin/gstack-pr-title-rewrite.sh "$NEW_VERSION" "<current title>"`. The full create/update procedure (idempotency, redaction scan, self-check) is in the section below.
+**PR/MR title invariant:** In `versioned` mode, titles MUST start with `v$NEW_VERSION`; compute one with `$GSTACK_ROOT/bin/gstack-pr-title-rewrite.sh "$NEW_VERSION" "<current title>"`. In `unversioned` mode, preserve the existing title or use `<type>: <summary>` without a version prefix. Store the title as `NEW_TITLE`. Full create/update rules are below.
 
 ## Step 18: Documentation sync (via subagent, before PR creation)
 
@@ -2694,14 +2700,14 @@ If an **open** PR/MR already exists: **update** the PR body using `gh pr edit --
 
 **REST fallback (#1079):** on some repos `gh pr edit` hard-errors with a GraphQL deprecation mentioning `repository.pullRequest.projectCards` ("Projects (classic) is being deprecated..."). That is a `gh` GraphQL-path problem, not a permissions problem — do not re-ask for auth. Fall back to the REST endpoint, which never touches the deprecated field, using the SAME already-scanned temp file: `PR_NUMBER=$(gh pr view --json number -q .number)` then `gh api "repos/{owner}/{repo}/pulls/$PR_NUMBER" -X PATCH -F body=@"$PR_BODY_FILE"` for the body, and `gh api "repos/{owner}/{repo}/pulls/$PR_NUMBER" -X PATCH -f title="$NEW_TITLE"` when the title edit below hits the same error. Verify with the same self-checks as the primary path.
 
-**Always update the PR title to start with `v$NEW_VERSION`.** PR titles use the workspace-aware format `v<NEW_VERSION> <type>: <summary>` — version ALWAYS first, no exceptions, no "custom title kept intentionally" escape hatch. The shared helper `bin/gstack-pr-title-rewrite.sh` is the single source of truth for the rule.
+**Title handling depends on the classified repository mode.** Versioned repos use the workspace-aware `v<NEW_VERSION> <type>: <summary>` format and the shared `bin/gstack-pr-title-rewrite.sh` helper. Unversioned repos keep the existing title unchanged; do not invent a VERSION file or title prefix.
 
 1. Read the current title: `CURRENT=$(gh pr view --json title -q .title)` (or `glab mr view -F json | jq -r .title`).
-2. Compute the corrected title: `NEW_TITLE=$($GSTACK_ROOT/bin/gstack-pr-title-rewrite.sh "$NEW_VERSION" "$CURRENT")`. The helper handles three cases: title already correct (no-op), title has a different `v<X.Y.Z.W>` prefix (replace it), or title has no version prefix (prepend one).
+2. If `VERSIONING_MODE=versioned`, compute `NEW_TITLE=$($GSTACK_ROOT/bin/gstack-pr-title-rewrite.sh "$NEW_VERSION" "$CURRENT")`. If `VERSIONING_MODE=unversioned`, set `NEW_TITLE="$CURRENT"`.
 3. If `NEW_TITLE` differs from `CURRENT`, run `gh pr edit --title "$NEW_TITLE"` (or `glab mr update -t "$NEW_TITLE"`).
-4. **Self-check:** re-fetch the title and assert it starts with `v$NEW_VERSION `. If it does not, retry the edit once. If still wrong, surface the failure to the user.
+4. **Self-check:** re-fetch the title. For a versioned repo, assert it starts with `v$NEW_VERSION `. For an unversioned repo, assert it still equals `CURRENT`. If the applicable assertion fails, retry the edit once and then surface failure.
 
-This keeps the title truthful when Step 12's queue-drift detection rebumps a stale version, and forces the format on PRs that were created without it.
+This keeps versioned titles truthful when queue drift rebump occurs while leaving unversioned repositories unmodified.
 
 Print the existing URL, then run the exact-head attestation below before Step 20.
 
@@ -2823,8 +2829,8 @@ case $? in
   3) echo "BLOCKED — credential in PR body. Rotate + redact, do not create the PR."; exit 1 ;;
   2) echo "MEDIUM findings — confirm per finding (sterner on public) before proceeding." ;;
 esac
-# Also scan the title (short, single-line):
-printf '%s' "v$NEW_VERSION <type>: <summary>" | $GSTACK_ROOT/bin/gstack-redact --repo-visibility "$REDACT_VIS" --json
+# Also scan the title using the exact value that will be sent (short, single-line):
+printf '%s' "$NEW_TITLE" | $GSTACK_ROOT/bin/gstack-redact --repo-visibility "$REDACT_VIS" --json
 ```
 
 HIGH blocks (exit 3, no skip). MEDIUM → AskUserQuestion (PII subset offers
@@ -2833,18 +2839,16 @@ HIGH blocks (exit 3, no skip). MEDIUM → AskUserQuestion (PII subset offers
 **If GitHub:** create from the SCANNED file (exact bytes scanned = bytes sent):
 
 ```bash
-# PR title MUST start with v$NEW_VERSION — enforced on every run, no exceptions.
-# (See Step 19 idempotency block + bin/gstack-pr-title-rewrite.sh for the rule.)
-gh pr create --base <base> --title "v$NEW_VERSION <type>: <summary>" --body-file "$PR_BODY_FILE"
+# NEW_TITLE has already been composed for the repository's versioning mode.
+gh pr create --base <base> --title "$NEW_TITLE" --body-file "$PR_BODY_FILE"
 rm -f "$PR_BODY_FILE"
 ```
 
 **If GitLab:**
 
 ```bash
-# MR title MUST start with v$NEW_VERSION — enforced on every run, no exceptions.
-# (See Step 19 idempotency block + bin/gstack-pr-title-rewrite.sh for the rule.)
-glab mr create -b <base> -t "v$NEW_VERSION <type>: <summary>" -d "$(cat <<'EOF'
+# NEW_TITLE has already been composed for the repository's versioning mode.
+glab mr create -b <base> -t "$NEW_TITLE" -d "$(cat <<'EOF'
 <MR body from above>
 EOF
 )"
@@ -2895,7 +2899,7 @@ hand-built path into a subdirectory write, and the row goes somewhere `/retro`
 will never look.
 
 ```bash
-$GSTACK_ROOT/bin/gstack-review-log '{"skill":"ship","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","coverage_pct":COVERAGE_PCT,"plan_items_total":PLAN_TOTAL,"plan_items_done":PLAN_DONE,"verification_result":"VERIFY_RESULT","version":"VERSION","branch":"'"$(git rev-parse --abbrev-ref HEAD)"'"}'
+$GSTACK_ROOT/bin/gstack-review-log '{"skill":"ship","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","coverage_pct":COVERAGE_PCT,"plan_items_total":PLAN_TOTAL,"plan_items_done":PLAN_DONE,"verification_result":"VERIFY_RESULT","version":"VERSION_OR_UNVERSIONED","branch":"'"$(git rev-parse --abbrev-ref HEAD)"'"}'
 ```
 
 Substitute from earlier steps:
@@ -2903,7 +2907,7 @@ Substitute from earlier steps:
 - **PLAN_TOTAL**: total plan items extracted in Step 8 (0 if no plan file)
 - **PLAN_DONE**: count of DONE + CHANGED items from Step 8 (0 if no plan file)
 - **VERIFY_RESULT**: "pass", "fail", or "skipped" from Step 8.1
-- **VERSION**: from the VERSION file
+- **VERSION_OR_UNVERSIONED**: `NEW_VERSION` for a versioned repo, or the literal `unversioned`
 
 The branch name is filled in by the shell — there is no `BRANCH` placeholder to
 substitute.
@@ -2951,7 +2955,7 @@ through `gstack-version-bump`; never hand-roll the VERSION/package.json write.
 - **Never skip the pre-landing review.** If checklist.md is unreadable, stop.
 - **Never force push.** Use regular `git push` only.
 - **Never ask for trivial confirmations** (e.g., "ready to push?", "create PR?"). DO stop for: version bumps (MINOR/MAJOR), pre-landing review findings (ASK items), and Codex structured review [P1] findings (large diffs only).
-- **Always use the 4-digit version format** from the VERSION file.
+- **Versioned repos use the 4-digit format** from VERSION; unversioned repos have no release version.
 - **Date format in CHANGELOG:** `YYYY-MM-DD`
 - **Split commits for bisectability** — each commit = one logical change.
 - **TODOS.md completion detection must be conservative.** Only mark items as completed when the diff clearly shows the work is done.

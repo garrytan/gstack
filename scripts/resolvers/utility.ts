@@ -388,6 +388,9 @@ export function generateCoAuthorTrailer(ctx: TemplateContext): string {
 export function generateChangelogWorkflow(_ctx: TemplateContext): string {
   return `## Step 13: CHANGELOG (auto-generate)
 
+If \`VERSIONING_MODE=unversioned\`, skip this entire step. Do not create a
+CHANGELOG merely so /ship can proceed; continue at Step 14.
+
 1. Read \`CHANGELOG.md\` header to know the format.
 
 2. **First, enumerate every commit on the branch:**

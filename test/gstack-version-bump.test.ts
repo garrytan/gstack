@@ -225,6 +225,36 @@ describe('classify (idempotency over a real git base)', () => {
   });
 });
 
+describe('unversioned repository classification', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vbump-unversioned-'));
+  afterAll(() => { try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* noop */ } });
+
+  fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'app', version: '1.0.0', private: true }, null, 2) + '\n');
+  execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: dir });
+  execFileSync('git', ['config', 'user.email', 't@e.com'], { cwd: dir });
+  execFileSync('git', ['config', 'user.name', 't'], { cwd: dir });
+  execFileSync('git', ['add', '-A'], { cwd: dir });
+  execFileSync('git', ['commit', '-qm', 'unversioned base'], { cwd: dir });
+  const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: dir }).toString().trim();
+  fs.mkdirSync(path.join(dir, '.git', 'refs', 'remotes', 'origin'), { recursive: true });
+  fs.writeFileSync(path.join(dir, '.git', 'refs', 'remotes', 'origin', 'main'), head + '\n');
+
+  test('reports UNVERSIONED when VERSION is absent on the base and branch', () => {
+    const out = JSON.parse(execFileSync('bun', [BIN, 'classify', '--base', 'main'], { cwd: dir }).toString());
+    expect(out.state).toBe('UNVERSIONED');
+    expect(out.versionPath).toBe('VERSION');
+    expect(out.versionSourceExists).toBe(false);
+    expect(out.pkgVersion).toBe('1.0.0');
+    expect(fs.existsSync(path.join(dir, 'VERSION'))).toBe(false);
+  });
+
+  test('an explicit package.json version source remains versioned', () => {
+    const out = JSON.parse(execFileSync('bun', [BIN, 'classify', '--base', 'main', '--version-path', 'package.json'], { cwd: dir }).toString());
+    expect(out.state).toBe('FRESH');
+    expect(out.versionSourceExists).toBe(true);
+  });
+});
+
 /**
  * A repo whose single source of truth is a package.json at a non-root path,
  * holding plain 3-digit semver — the shape gstack's native VERSION-file

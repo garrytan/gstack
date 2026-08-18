@@ -16,7 +16,7 @@
 //   classify --base <branch> [--version-path <p>]
 //       Compares VERSION vs origin/<base>:VERSION vs package.json.version.
 //       Emits JSON: { state, baseVersion, currentVersion, pkgVersion, pkgExists }
-//       state ∈ FRESH | ALREADY_BUMPED | DRIFT_STALE_PKG | DRIFT_UNEXPECTED
+//       state ∈ UNVERSIONED | FRESH | ALREADY_BUMPED | DRIFT_STALE_PKG | DRIFT_UNEXPECTED
 //       Exit 0 on a decidable state (incl. DRIFT_UNEXPECTED — it's a real state
 //       the caller must handle), exit 2 on bad args / unresolvable base.
 //
@@ -61,7 +61,7 @@ import { extractVersion, isJsonVersionPath, npmVersion, setVersionInJson } from 
 const VERSION_RE = /^[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$/;
 const DEFAULT = "0.0.0.0";
 
-type State = "FRESH" | "ALREADY_BUMPED" | "DRIFT_STALE_PKG" | "DRIFT_UNEXPECTED";
+type State = "UNVERSIONED" | "FRESH" | "ALREADY_BUMPED" | "DRIFT_STALE_PKG" | "DRIFT_UNEXPECTED";
 
 function fail(msg: string, code = 2): never {
   process.stderr.write(`gstack-version-bump: ${msg}\n`);
@@ -246,7 +246,7 @@ function syncNpmLockfiles(dir: string, version: string, root: string): string[] 
   return synced;
 }
 
-function baseVersion(cwd: string, base: string, versionRel: string): string {
+function baseVersion(cwd: string, base: string, versionRel: string): { exists: boolean; version: string } {
   // Verify the base ref resolves, mirroring the Step 12 guard.
   try {
     execFileSync("git", ["rev-parse", "--verify", `origin/${base}`], { cwd, stdio: "ignore" });
@@ -254,11 +254,13 @@ function baseVersion(cwd: string, base: string, versionRel: string): string {
     fail(`Unable to resolve origin/${base}. Run 'git fetch origin' or verify the base branch exists.`, 2);
   }
   try {
-    const out = execFileSync("git", ["show", `origin/${base}:${versionRel}`], { cwd }).toString();
-    return extractVersion(out, versionRel) || DEFAULT;
+    const out = execFileSync("git", ["show", `origin/${base}:${versionRel}`], {
+      cwd,
+      stdio: ["ignore", "pipe", "ignore"],
+    }).toString();
+    return { exists: true, version: extractVersion(out, versionRel) || DEFAULT };
   } catch {
-    // VERSION absent on base (new repo / new file) → treat as 0.0.0.0.
-    return DEFAULT;
+    return { exists: false, version: DEFAULT };
   }
 }
 
@@ -295,8 +297,10 @@ function cmdClassify(args: string[], cwd: string): void {
   if (!base) fail("classify requires --base <branch>", 2);
   const versionRel = resolveVersionRel(cwd, argVal(args, "--version-path"));
   const versionPath = join(cwd, versionRel);
+  const currentExists = existsSync(versionPath);
   const current = readVersionFile(versionPath, versionRel);
-  const baseV = baseVersion(cwd, base!, versionRel);
+  const baseSource = baseVersion(cwd, base!, versionRel);
+  const baseV = baseSource.version;
   // When the version-path IS a package.json (#2501), that file is the single
   // source of truth and the "VERSION vs package.json" drift states cannot
   // arise — they are the same file. Reporting it as its own pkg keeps DRIFT_*
@@ -312,12 +316,20 @@ function cmdClassify(args: string[], cwd: string): void {
   // JSON version-path is its own source of truth, so its expected form is
   // the version itself.
   const expectedPkg = jsonSource ? current : npmVersion(current);
-  const state = classifyState(current, baseV, pkg.exists, pkg.version, expectedPkg);
+  // A repository that has no configured version source on either side is
+  // intentionally unversioned. A root package.json may still carry a package
+  // metadata version; without .gstack/version-path it is not release truth.
+  // Do not manufacture VERSION or reinterpret that unrelated manifest field.
+  const state: State = !currentExists && !baseSource.exists
+    ? "UNVERSIONED"
+    : classifyState(current, baseV, pkg.exists, pkg.version, expectedPkg);
   process.stdout.write(
     JSON.stringify({
       state,
       baseVersion: baseV,
       currentVersion: current,
+      versionPath: versionRel,
+      versionSourceExists: currentExists,
       pkgVersion: pkg.version || null,
       pkgExists: pkg.exists,
       pkgPath: pkg.exists ? relative(cwd, pkgPath) : null,

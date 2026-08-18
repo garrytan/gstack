@@ -1085,11 +1085,14 @@ The deterministic version-state logic is the tested **`gstack-version-bump`** CL
 (classify / write / repair). The bump-LEVEL decision and queue-collision handling
 stay agent judgment; the slot pick stays `gstack-next-version`.
 
+Start with `VERSIONING_MODE=versioned` and `NEW_VERSION=""`.
+
 1. **Classify state** — pure reader, never writes:
    ```bash
    bun run ~/.claude/skills/gstack/bin/gstack-version-bump classify --base <base>
    ```
    Read the JSON `state` and dispatch:
+   - **UNVERSIONED** → set `VERSIONING_MODE=unversioned`; skip the rest of Step 12 and all of Step 13. Do not create VERSION/CHANGELOG, alter package metadata, or prefix the PR/MR title. Continue at Step 14.
    - **FRESH** → do the bump (steps 2-4).
    - **ALREADY_BUMPED** → skip the bump, but run the queue-drift check (step 3) with the reported `currentVersion`. If the queue moved (next free version differs), **AskUserQuestion**: rebump to the new version (rewrites CHANGELOG header + PR title) or keep current (CI version-gate will reject until resolved).
    - **DRIFT_STALE_PKG** → run `gstack-version-bump repair` (syncs package.json to VERSION). No re-bump; reuse `currentVersion` for CHANGELOG + PR.
@@ -1164,7 +1167,7 @@ For each TODO item, check if the changes in this PR complete it by:
 
 **Be conservative:** Only mark a TODO as completed if there is clear evidence in the diff. If uncertain, leave it alone.
 
-**4. Move completed items** to the `## Completed` section at the bottom. Append: `**Completed:** vX.Y.Z (YYYY-MM-DD)`
+**4. Move completed items** to the `## Completed` section at the bottom. Append `**Completed:** vX.Y.Z (YYYY-MM-DD)` for a versioned repo, or `**Completed:** PR (YYYY-MM-DD)` when `VERSIONING_MODE=unversioned`.
 
 **5. Output summary:**
 - `TODOS.md: N items marked complete (item1, item2, ...). M items remaining.`
@@ -1411,7 +1414,7 @@ git push -u origin <branch-name>
 
 ---
 
-**PR/MR title invariant (always applies — do not skip even if you don't open the section below):** Any PR or MR you create OR update in the next step MUST have a title that starts with `v$NEW_VERSION` (the version bumped in Step 12), in the format `v<NEW_VERSION> <type>: <summary>`. Never create or edit a PR/MR title without this prefix. Compute the correct title with the single source of truth helper: `~/.claude/skills/gstack/bin/gstack-pr-title-rewrite.sh "$NEW_VERSION" "<current title>"`. The full create/update procedure (idempotency, redaction scan, self-check) is in the section below.
+**PR/MR title invariant:** In `versioned` mode, titles MUST start with `v$NEW_VERSION`; compute one with `~/.claude/skills/gstack/bin/gstack-pr-title-rewrite.sh "$NEW_VERSION" "<current title>"`. In `unversioned` mode, preserve the existing title or use `<type>: <summary>` without a version prefix. Store the title as `NEW_TITLE`. Full create/update rules are below.
 
 > **STOP.** Before syncing docs and creating or updating the PR/MR (Steps 18-19), Read `~/.claude/skills/gstack/ship/sections/pr-body.md` and execute it
 > in full. Do not work from memory — that section is the source of truth for this step.
@@ -1428,7 +1431,7 @@ hand-built path into a subdirectory write, and the row goes somewhere `/retro`
 will never look.
 
 ```bash
-~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"ship","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","coverage_pct":COVERAGE_PCT,"plan_items_total":PLAN_TOTAL,"plan_items_done":PLAN_DONE,"verification_result":"VERIFY_RESULT","version":"VERSION","branch":"'"$(git rev-parse --abbrev-ref HEAD)"'"}'
+~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"ship","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","coverage_pct":COVERAGE_PCT,"plan_items_total":PLAN_TOTAL,"plan_items_done":PLAN_DONE,"verification_result":"VERIFY_RESULT","version":"VERSION_OR_UNVERSIONED","branch":"'"$(git rev-parse --abbrev-ref HEAD)"'"}'
 ```
 
 Substitute from earlier steps:
@@ -1436,7 +1439,7 @@ Substitute from earlier steps:
 - **PLAN_TOTAL**: total plan items extracted in Step 8 (0 if no plan file)
 - **PLAN_DONE**: count of DONE + CHANGED items from Step 8 (0 if no plan file)
 - **VERIFY_RESULT**: "pass", "fail", or "skipped" from Step 8.1
-- **VERSION**: from the VERSION file
+- **VERSION_OR_UNVERSIONED**: `NEW_VERSION` for a versioned repo, or the literal `unversioned`
 
 The branch name is filled in by the shell — there is no `BRANCH` placeholder to
 substitute.
@@ -1484,7 +1487,7 @@ through `gstack-version-bump`; never hand-roll the VERSION/package.json write.
 - **Never skip the pre-landing review.** If checklist.md is unreadable, stop.
 - **Never force push.** Use regular `git push` only.
 - **Never ask for trivial confirmations** (e.g., "ready to push?", "create PR?"). DO stop for: version bumps (MINOR/MAJOR), pre-landing review findings (ASK items), and Codex structured review [P1] findings (large diffs only).
-- **Always use the 4-digit version format** from the VERSION file.
+- **Versioned repos use the 4-digit format** from VERSION; unversioned repos have no release version.
 - **Date format in CHANGELOG:** `YYYY-MM-DD`
 - **Split commits for bisectability** — each commit = one logical change.
 - **TODOS.md completion detection must be conservative.** Only mark items as completed when the diff clearly shows the work is done.

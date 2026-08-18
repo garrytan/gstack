@@ -48,14 +48,14 @@ If an **open** PR/MR already exists: **update** the PR body using `gh pr edit --
 
 **REST fallback (#1079):** on some repos `gh pr edit` hard-errors with a GraphQL deprecation mentioning `repository.pullRequest.projectCards` ("Projects (classic) is being deprecated..."). That is a `gh` GraphQL-path problem, not a permissions problem — do not re-ask for auth. Fall back to the REST endpoint, which never touches the deprecated field, using the SAME already-scanned temp file: `PR_NUMBER=$(gh pr view --json number -q .number)` then `gh api "repos/{owner}/{repo}/pulls/$PR_NUMBER" -X PATCH -F body=@"$PR_BODY_FILE"` for the body, and `gh api "repos/{owner}/{repo}/pulls/$PR_NUMBER" -X PATCH -f title="$NEW_TITLE"` when the title edit below hits the same error. Verify with the same self-checks as the primary path.
 
-**Always update the PR title to start with `v$NEW_VERSION`.** PR titles use the workspace-aware format `v<NEW_VERSION> <type>: <summary>` — version ALWAYS first, no exceptions, no "custom title kept intentionally" escape hatch. The shared helper `bin/gstack-pr-title-rewrite.sh` is the single source of truth for the rule.
+**Title handling depends on the classified repository mode.** Versioned repos use the workspace-aware `v<NEW_VERSION> <type>: <summary>` format and the shared `bin/gstack-pr-title-rewrite.sh` helper. Unversioned repos keep the existing title unchanged; do not invent a VERSION file or title prefix.
 
 1. Read the current title: `CURRENT=$(gh pr view --json title -q .title)` (or `glab mr view -F json | jq -r .title`).
-2. Compute the corrected title: `NEW_TITLE=$(~/.claude/skills/gstack/bin/gstack-pr-title-rewrite.sh "$NEW_VERSION" "$CURRENT")`. The helper handles three cases: title already correct (no-op), title has a different `v<X.Y.Z.W>` prefix (replace it), or title has no version prefix (prepend one).
+2. If `VERSIONING_MODE=versioned`, compute `NEW_TITLE=$(~/.claude/skills/gstack/bin/gstack-pr-title-rewrite.sh "$NEW_VERSION" "$CURRENT")`. If `VERSIONING_MODE=unversioned`, set `NEW_TITLE="$CURRENT"`.
 3. If `NEW_TITLE` differs from `CURRENT`, run `gh pr edit --title "$NEW_TITLE"` (or `glab mr update -t "$NEW_TITLE"`).
-4. **Self-check:** re-fetch the title and assert it starts with `v$NEW_VERSION `. If it does not, retry the edit once. If still wrong, surface the failure to the user.
+4. **Self-check:** re-fetch the title. For a versioned repo, assert it starts with `v$NEW_VERSION `. For an unversioned repo, assert it still equals `CURRENT`. If the applicable assertion fails, retry the edit once and then surface failure.
 
-This keeps the title truthful when Step 12's queue-drift detection rebumps a stale version, and forces the format on PRs that were created without it.
+This keeps versioned titles truthful when queue drift rebump occurs while leaving unversioned repositories unmodified.
 
 Print the existing URL, then run the exact-head attestation below before Step 20.
 
@@ -177,8 +177,8 @@ case $? in
   3) echo "BLOCKED — credential in PR body. Rotate + redact, do not create the PR."; exit 1 ;;
   2) echo "MEDIUM findings — confirm per finding (sterner on public) before proceeding." ;;
 esac
-# Also scan the title (short, single-line):
-printf '%s' "v$NEW_VERSION <type>: <summary>" | ~/.claude/skills/gstack/bin/gstack-redact --repo-visibility "$REDACT_VIS" --json
+# Also scan the title using the exact value that will be sent (short, single-line):
+printf '%s' "$NEW_TITLE" | ~/.claude/skills/gstack/bin/gstack-redact --repo-visibility "$REDACT_VIS" --json
 ```
 
 HIGH blocks (exit 3, no skip). MEDIUM → AskUserQuestion (PII subset offers
@@ -187,18 +187,16 @@ HIGH blocks (exit 3, no skip). MEDIUM → AskUserQuestion (PII subset offers
 **If GitHub:** create from the SCANNED file (exact bytes scanned = bytes sent):
 
 ```bash
-# PR title MUST start with v$NEW_VERSION — enforced on every run, no exceptions.
-# (See Step 19 idempotency block + bin/gstack-pr-title-rewrite.sh for the rule.)
-gh pr create --base <base> --title "v$NEW_VERSION <type>: <summary>" --body-file "$PR_BODY_FILE"
+# NEW_TITLE has already been composed for the repository's versioning mode.
+gh pr create --base <base> --title "$NEW_TITLE" --body-file "$PR_BODY_FILE"
 rm -f "$PR_BODY_FILE"
 ```
 
 **If GitLab:**
 
 ```bash
-# MR title MUST start with v$NEW_VERSION — enforced on every run, no exceptions.
-# (See Step 19 idempotency block + bin/gstack-pr-title-rewrite.sh for the rule.)
-glab mr create -b <base> -t "v$NEW_VERSION <type>: <summary>" -d "$(cat <<'EOF'
+# NEW_TITLE has already been composed for the repository's versioning mode.
+glab mr create -b <base> -t "$NEW_TITLE" -d "$(cat <<'EOF'
 <MR body from above>
 EOF
 )"
