@@ -28,6 +28,13 @@ const codex = defineHost({
   // the preamble env vars), plus an extra review-path rewrite the derived trio
   // doesn't cover.
   pathRewrites: [
+    // Parent-side /ship attestation also needs to work when each Codex shell
+    // starts without the preamble's GSTACK_ROOT assignment. Resolve the
+    // runtime afresh in the command itself for both supported install modes.
+    {
+      from: 'SHIP_ATTEST=~/.claude/skills/gstack/bin/gstack-ship-attest',
+      to: 'REPO_ROOT="$(git rev-parse --show-toplevel)"\nif [ -x "$REPO_ROOT/.agents/skills/gstack/bin/gstack-ship-attest" ]; then\n  SHIP_ATTEST="$REPO_ROOT/.agents/skills/gstack/bin/gstack-ship-attest"\nelse\n  SHIP_ATTEST="${HOME}/.codex/skills/gstack/bin/gstack-ship-attest"\nfi',
+    },
     // Claude installs document-release below the gstack runtime, while Codex
     // installs generated skills as flat gstack-* siblings. Prefer the active
     // repo-local install, then fall back to the global Codex skills directory.

@@ -1988,6 +1988,21 @@ describe('Codex generation (--host codex)', () => {
     expect(content).not.toContain('${HOME}/.agents/skills/gstack/document-release/SKILL.md');
   });
 
+  test('ship posts exact-head documentation attestation through either Codex install layout', () => {
+    const content = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-ship', 'SKILL.md'), 'utf-8');
+    const repoLocalHelper = '$REPO_ROOT/.agents/skills/gstack/bin/gstack-ship-attest';
+    const globalHelper = '${HOME}/.codex/skills/gstack/bin/gstack-ship-attest';
+    expect(content).toContain('DOCUMENT_RELEASE_OK=false');
+    expect(content).toContain('Only after those checks pass, set `DOCUMENT_RELEASE_OK=true`');
+    expect(content).toContain(repoLocalHelper);
+    expect(content).toContain(globalHelper);
+    expect(content.indexOf(repoLocalHelper)).toBeLessThan(content.indexOf(globalHelper));
+    expect(content).toContain('"$SHIP_ATTEST" --state success');
+    expect(content).toContain('"$SHIP_ATTEST" --state failure');
+    expect(content).toContain("open PR's `headRefOid`");
+    expect(content).not.toContain('Print a warning and proceed to Step 19 without a `## Documentation` section');
+  });
+
   test('greptile-triage sidecar path is correct', () => {
     const content = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-review', 'SKILL.md'), 'utf-8');
     if (content.includes('greptile-triage')) {

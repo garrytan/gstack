@@ -18,12 +18,15 @@
 
 **Parent processing:**
 
-1. Parse the LAST line of the subagent's output as JSON.
-2. Store `documentation_section` — Step 19 embeds it in the PR body (or omits the section if null).
-3. If `files_updated` is non-empty, print: `Documentation synced: {files_updated.length} files updated, committed as {commit_sha}`.
-4. If `files_updated` is empty, print: `Documentation is current — no updates needed.`
+1. Initialize `DOCUMENT_RELEASE_OK=false` before parsing the response.
+2. Parse the LAST line of the subagent's output as JSON and validate all four fields and their types: `files_updated` is an array, `commit_sha` is a string or null, `pushed` is a boolean, and `documentation_section` is a string or null.
+3. If `files_updated` is non-empty, require a non-empty `commit_sha`, require `pushed:true`, and verify that `commit_sha` resolves to the current local `HEAD`. A documentation commit that was not pushed, or is not current `HEAD`, is a failure.
+4. If `files_updated` is empty, require `commit_sha:null` and `pushed:false`.
+5. Only after those checks pass, set `DOCUMENT_RELEASE_OK=true` and store `documentation_section` — Step 19 embeds it in the PR body (or omits the section if null).
+6. If `files_updated` is non-empty, print: `Documentation synced: {files_updated.length} files updated, committed as {commit_sha}`.
+7. If `files_updated` is empty, print: `Documentation is current — no updates needed.`
 
-**If the subagent fails or returns invalid JSON:** Print a warning and proceed to Step 19 without a `## Documentation` section. Do not block /ship on subagent failure. The user can run `/document-release` manually after the PR lands.
+**If the subagent fails, returns invalid JSON, or fails validation:** Keep `DOCUMENT_RELEASE_OK=false`, store the failure reason, and proceed to Step 19 only so the PR can be created or updated with a visible failing `gstack/ship` status. Do not claim that `/ship` succeeded, and do not tell the user documentation can be fixed after landing — the failed status must block landing until `/ship` is rerun successfully on the current head.
 
 ---
 
@@ -54,7 +57,7 @@ If an **open** PR/MR already exists: **update** the PR body using `gh pr edit --
 
 This keeps the title truthful when Step 12's queue-drift detection rebumps a stale version, and forces the format on PRs that were created without it.
 
-Print the existing URL and continue to Step 20.
+Print the existing URL, then run the exact-head attestation below before Step 20.
 
 If no PR/MR exists: create a pull request (GitHub) or merge request (GitLab) using the platform detected in Step 0.
 
@@ -204,6 +207,27 @@ EOF
 **If neither CLI is available:**
 Print the branch name, remote URL, and instruct the user to create the PR/MR manually via the web UI. Do not stop — the code is pushed and ready.
 
-**Output the PR/MR URL** — then proceed to Step 20.
+**Output the PR/MR URL**, then run the exact-head attestation below before Step 20.
+
+### Exact-head ship attestation (after create or update)
+
+This is the enforcement handoff. It runs only after Step 18 completed and the PR/MR exists. A GitHub commit status is attached to the exact current PR head, so any later push creates a new head with no inherited success and `/ship` must be rerun.
+
+**If GitHub:** resolve and invoke the installed helper:
+
+```bash
+SHIP_ATTEST=~/.claude/skills/gstack/bin/gstack-ship-attest
+if [ "$DOCUMENT_RELEASE_OK" = "true" ]; then
+  "$SHIP_ATTEST" --state success --description "GStack ship and documentation completed"
+else
+  "$SHIP_ATTEST" --state failure --description "GStack documentation sync failed"
+  echo "BLOCKED — documentation sync failed; gstack/ship remains failing until /ship succeeds on this PR head." >&2
+  exit 1
+fi
+```
+
+The helper independently verifies that local `HEAD` equals the open PR's `headRefOid` before posting. If the helper cannot resolve the PR, sees a head mismatch, lacks permission to post statuses, or receives an unexpected API response, stop with a failure and do not claim `/ship` succeeded. Re-run `/ship` after fixing the reported cause.
+
+**If GitLab or neither CLI is available:** there is no GitHub status to post. Still stop with a failure when `DOCUMENT_RELEASE_OK` is not true. Only a validated documentation phase may continue to Step 20.
 
 ---

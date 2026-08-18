@@ -1,0 +1,111 @@
+#!/usr/bin/env bash
+# Post the gstack/ship commit status for the exact commit at the open GitHub PR.
+#
+# This is deliberately a commit status rather than a branch marker: any later
+# push creates a new head SHA with no inherited success, so branch protection
+# can require /ship to be rerun after every change.
+
+set -euo pipefail
+
+STATE=""
+DESCRIPTION=""
+CONTEXT="gstack/ship"
+
+usage() {
+  echo "usage: $0 --state <success|failure> [--description <text>]" >&2
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --state)
+      [ $# -ge 2 ] || { usage; exit 2; }
+      STATE="$2"
+      shift 2
+      ;;
+    --description)
+      [ $# -ge 2 ] || { usage; exit 2; }
+      DESCRIPTION="$2"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      usage
+      exit 2
+      ;;
+  esac
+done
+
+case "$STATE" in
+  success)
+    [ -n "$DESCRIPTION" ] || DESCRIPTION="GStack ship and documentation completed"
+    ;;
+  failure)
+    [ -n "$DESCRIPTION" ] || DESCRIPTION="GStack ship documentation phase failed"
+    ;;
+  *)
+    echo "gstack-ship-attest: state must be success or failure" >&2
+    exit 2
+    ;;
+esac
+
+# GitHub limits status descriptions to 140 characters.
+DESCRIPTION="${DESCRIPTION:0:140}"
+
+if ! command -v gh >/dev/null 2>&1; then
+  echo "gstack-ship-attest: GitHub CLI (gh) is required" >&2
+  exit 3
+fi
+
+if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  echo "gstack-ship-attest: current directory is not a git repository" >&2
+  exit 3
+fi
+
+LOCAL_SHA="$(git rev-parse HEAD)"
+
+if ! PR_META="$(gh pr view --json headRefOid,url,state --jq '[.headRefOid, .url, .state] | @tsv' 2>/dev/null)"; then
+  echo "gstack-ship-attest: no pull request found for the current branch" >&2
+  exit 3
+fi
+
+IFS=$'\t' read -r PR_HEAD PR_URL PR_STATE <<<"$PR_META"
+if [ -z "$PR_HEAD" ] || [ -z "$PR_URL" ]; then
+  echo "gstack-ship-attest: pull request metadata is incomplete" >&2
+  exit 3
+fi
+
+if [ "$PR_STATE" != "OPEN" ]; then
+  echo "gstack-ship-attest: PR is not open (state: $PR_STATE)" >&2
+  exit 3
+fi
+
+if [ "$LOCAL_SHA" != "$PR_HEAD" ]; then
+  echo "gstack-ship-attest: local HEAD $LOCAL_SHA does not match open PR head $PR_HEAD" >&2
+  exit 4
+fi
+
+if ! REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null)" || [ -z "$REPO" ]; then
+  echo "gstack-ship-attest: could not resolve the GitHub repository" >&2
+  exit 3
+fi
+
+if ! RESPONSE="$(gh api -X POST "repos/$REPO/statuses/$LOCAL_SHA" \
+  -f "state=$STATE" \
+  -f "context=$CONTEXT" \
+  -f "description=$DESCRIPTION" \
+  -f "target_url=$PR_URL" \
+  --jq '[.state, .context, .sha] | join("|")')"; then
+  echo "gstack-ship-attest: could not post gstack/ship $STATE status" >&2
+  exit 5
+fi
+
+EXPECTED="$STATE|$CONTEXT|$LOCAL_SHA"
+if [ "$RESPONSE" != "$EXPECTED" ]; then
+  echo "gstack-ship-attest: GitHub returned an unexpected status response: $RESPONSE" >&2
+  exit 5
+fi
+
+printf 'gstack/ship %s attested on %s (%s)\n' "$STATE" "$LOCAL_SHA" "$PR_URL"
