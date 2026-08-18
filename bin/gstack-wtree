@@ -41,8 +41,11 @@ case "$REAL_INDEX" in
   ""|/*) ;;
   *) REAL_INDEX="$TOP/$REAL_INDEX" ;;
 esac
-if [ -n "$REAL_INDEX" ] && [ -f "$REAL_INDEX" ] && cp "$REAL_INDEX" "$TMPIDX" 2>/dev/null; then
-  : # stat-cache-preserving seed
+if [ -n "$REAL_INDEX" ] && [ -f "$REAL_INDEX" ] && cp -p "$REAL_INDEX" "$TMPIDX" 2>/dev/null; then
+  # Preserve the real index mtime as well as its stat cache. A plain copy gives
+  # the temp index a new mtime, which can defeat Git's racy-clean detection and
+  # miss a same-size edit made in the same filesystem timestamp tick.
+  :
 else
   git -C "$TOP" read-tree HEAD 2>/dev/null || exit 1
 fi

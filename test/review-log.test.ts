@@ -182,6 +182,20 @@ describe('gstack-wtree', () => {
     });
   });
 
+  test('a same-size edit with an unchanged mtime changes the fingerprint', () => {
+    withScratchRepo((repoDir, wtree) => {
+      gitIn(repoDir, 'config core.trustctime false');
+      const file = path.join(repoDir, 'a.txt');
+      const before = fs.statSync(file);
+      const clean = wtree();
+
+      fs.writeFileSync(file, 'HELLO\n');
+      fs.utimesSync(file, before.atime, before.mtime);
+
+      expect(wtree()).not.toBe(clean);
+    });
+  });
+
   test('exits non-zero outside a git repo', () => {
     const nonGit = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-wtree-nongit-'));
     try {
