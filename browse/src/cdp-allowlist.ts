@@ -133,6 +133,14 @@ export const CDP_ALLOWLIST: ReadonlyArray<CdpAllowEntry> = Object.freeze([
     output: 'untrusted',
     justification: 'Trace dump may contain URLs and page data; wrap.',
   },
+  // ─── Browser (permissions) ──────────────────────────────────
+  {
+    domain: 'Browser',
+    method: 'grantPermissions',
+    scope: 'browser',
+    output: 'trusted',
+    justification: 'Grant a named permission (e.g. geolocation, notifications) so permission-gated APIs do not auto-deny in headless mode, enabling end-to-end testing of permission-dependent UI. Browser-scoped since it is a Browser-domain method affecting permission state beyond a single tab; returns no page content.',
+  },
   // ─── Emulation (viewport/device) ───────────────────────────
   {
     domain: 'Emulation',
@@ -161,6 +169,13 @@ export const CDP_ALLOWLIST: ReadonlyArray<CdpAllowEntry> = Object.freeze([
     scope: 'tab',
     output: 'trusted',
     justification: 'Media type/feature override (prefers-color-scheme, prefers-reduced-motion, prefers-contrast, forced-colors) so a11y and dark-mode CSS branches are testable. Returns an empty result; no page content. NOTE: like setUserAgentOverride the override persists on the tab until cleared with an empty features array.',
+  },
+  {
+    domain: 'Emulation',
+    method: 'setGeolocationOverride',
+    scope: 'tab',
+    output: 'trusted',
+    justification: 'Override the active tab\'s reported geolocation (lat/long/accuracy) for testing location-dependent UI. Input-only mutation, empty result, no page content leak. Persists on the tab until cleared, same pattern as setUserAgentOverride/setEmulatedMedia. Pair with Browser.grantPermissions to avoid the default permission-denied path in headless mode.',
   },
   // ─── Page capture (output, not navigation) ─────────────────
   {

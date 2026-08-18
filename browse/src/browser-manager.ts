@@ -1090,6 +1090,37 @@ export class BrowserManager {
     return this.pages.get(tabId) ?? null;
   }
 
+  /**
+   * Ephemeral browser-level CDP session, for dispatching true Browser-domain
+   * methods (e.g. Browser.grantPermissions) that Chromium does not apply
+   * correctly when sent through a page/target-attached session — some
+   * Browser.* methods silently no-op (return success, no effect) when routed
+   * that way instead of via the top-level browser connection.
+   * Used by the CDP bridge (cdp-bridge.ts) for scope: 'browser' entries.
+   * Returns null if the Playwright build/connection mode doesn't expose
+   * newBrowserCDPSession. Caller owns the session and must detach() it.
+   */
+  async getBrowserCdpSession(): Promise<{
+    send: (method: string, params?: unknown) => Promise<unknown>;
+    detach: () => Promise<void>;
+  } | null> {
+    const browser: Browser | null = this.browser ?? (this.context ? this.context.browser() : null);
+    if (!browser) return null;
+    // `newBrowserCDPSession` is browser-wide. Not exposed on every Playwright
+    // TypeScript surface, but present at runtime on the Browser instance —
+    // use a typed cast to avoid @ts-expect-error (same pattern as the
+    // SystemInfo.getProcessInfo memory-snapshot usage above).
+    type BrowserWithCDP = Browser & {
+      newBrowserCDPSession?: () => Promise<{
+        send: (method: string, params?: unknown) => Promise<unknown>;
+        detach: () => Promise<void>;
+      }>;
+    };
+    const maybeFactory = (browser as BrowserWithCDP).newBrowserCDPSession;
+    if (typeof maybeFactory !== 'function') return null;
+    return await maybeFactory.call(browser);
+  }
+
   // ─── Two-tier mutex (Codex T7) ─────────────────────────────
   // Per-tab and global locks for the CDP bridge. tab-scoped methods take the
   // per-tab mutex; browser-scoped methods take the global lock that blocks all
