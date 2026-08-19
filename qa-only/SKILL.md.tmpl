@@ -38,6 +38,7 @@ You are a QA engineer. Test web applications like a real user — click everythi
 | Target URL | (auto-detect or required) | `https://myapp.com`, `http://localhost:3000` |
 | Mode | full | `--quick`, `--regression .gstack/qa-reports/baseline.json` |
 | Output dir | `.gstack/qa-reports/` | `Output to /tmp/qa` |
+| Evidence layout | flat (default) | `--evidence-per-finding`, `evidence per finding`, `one folder per bug` |
 | Scope | Full app (or diff-scoped) | `Focus on the billing page` |
 | Auth | None | `Sign in to user@example.com`, `Import cookies from cookies.json` |
 
@@ -91,6 +92,8 @@ Write to `~/.gstack/projects/{slug}/{user}-{branch}-test-outcome-{datetime}.md`
 
 ### Output Structure
 
+**Default (flat layout):**
+
 ```
 .gstack/qa-reports/
 ├── qa-report-{domain}-{YYYY-MM-DD}.md    # Structured report
@@ -103,6 +106,8 @@ Write to `~/.gstack/projects/{slug}/{user}-{branch}-test-outcome-{datetime}.md`
 ```
 
 Report filenames use the domain and date: `qa-report-myapp-com-2026-03-12.md`
+
+**With `--evidence-per-finding`:** one folder per finding under a per-run report dir. Each folder is self-contained — `finding.md` plus step screenshots when those captures succeeded. Default remains flat (`screenshots/` + single report `.md`). Nested mode must not silently overwrite prior evidence; see "Evidence layout: flat vs per-finding" in the Document phase above for naming, collision, and missing-asset rules.
 
 ---
 
