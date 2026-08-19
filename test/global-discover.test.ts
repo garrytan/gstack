@@ -290,6 +290,140 @@ describe("gstack-global-discover", () => {
     });
   });
 
+  describe("codex originator bucketing (issue #1315)", () => {
+    let tmpDir: string;
+    let codexDir: string;
+    let repoDir: string;
+
+    beforeEach(() => {
+      tmpDir = mkdtempSync(join(tmpdir(), "gstack-codex-orig-"));
+      const now = new Date();
+      const y = now.getFullYear().toString();
+      const m = String(now.getMonth() + 1).padStart(2, "0");
+      const d = String(now.getDate()).padStart(2, "0");
+      codexDir = join(tmpDir, "codex-home", "sessions", y, m, d);
+      mkdirSync(codexDir, { recursive: true });
+
+      repoDir = join(tmpDir, "fake-repo");
+      mkdirSync(repoDir);
+      spawnSync("git", ["init"], { cwd: repoDir, stdio: "pipe" });
+      spawnSync("git", ["commit", "--allow-empty", "-m", "init"], {
+        cwd: repoDir,
+        stdio: "pipe",
+      });
+    });
+
+    afterEach(() => {
+      rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    // `originator` is optional in the payload: pass `undefined` to omit it,
+    // or a non-string value to exercise the type guard.
+    function writeCodex(originator?: unknown) {
+      const payload: Record<string, unknown> = {
+        id: `t-${Math.random()}`,
+        timestamp: new Date().toISOString(),
+        cwd: repoDir,
+      };
+      if (originator !== undefined) payload.originator = originator;
+      const line = JSON.stringify({
+        timestamp: new Date().toISOString(),
+        type: "session_meta",
+        payload,
+      });
+      const name = `rollout-${new Date().toISOString().replace(/[:.]/g, "-")}-${Math.random().toString(36).slice(2)}.jsonl`;
+      writeFileSync(join(codexDir, name), line + "\n");
+    }
+
+    function discover() {
+      const r = spawnSync(
+        "bun",
+        ["run", scriptPath, "--since", "1h", "--format", "json"],
+        {
+          encoding: "utf-8",
+          timeout: 30000,
+          env: { ...process.env, CODEX_SESSIONS_DIR: join(tmpDir, "codex-home", "sessions") },
+        }
+      );
+      expect(r.status).toBe(0);
+      return JSON.parse(r.stdout);
+    }
+
+    test("'Codex Desktop' originator → desktop bucket", () => {
+      writeCodex("Codex Desktop");
+      const json = discover();
+      expect(json.tools.codex.originators.desktop).toBe(1);
+      expect(json.tools.codex.originators.exec).toBe(0);
+      expect(json.tools.codex.originators.claude_code).toBe(0);
+    });
+
+    test("'codex_exec' originator → exec bucket", () => {
+      writeCodex("codex_exec");
+      const json = discover();
+      expect(json.tools.codex.originators.exec).toBe(1);
+      expect(json.tools.codex.originators.desktop).toBe(0);
+    });
+
+    test("'Claude Code' originator → claude_code bucket", () => {
+      writeCodex("Claude Code");
+      const json = discover();
+      expect(json.tools.codex.originators.claude_code).toBe(1);
+      expect(json.tools.codex.originators.desktop).toBe(0);
+      expect(json.tools.codex.originators.exec).toBe(0);
+    });
+
+    test("originator with stray surrounding whitespace still maps", () => {
+      writeCodex("  Codex Desktop  ");
+      const json = discover();
+      expect(json.tools.codex.originators.desktop).toBe(1);
+      expect(json.tools.codex.originators.other).toBe(0);
+    });
+
+    test("unknown originator → other bucket (not silently dropped)", () => {
+      writeCodex("future-agent-name-not-yet-mapped");
+      const json = discover();
+      expect(json.tools.codex.originators.other).toBe(1);
+      expect(json.tools.codex.total_sessions).toBe(1);
+    });
+
+    test("missing originator → other bucket (still counted)", () => {
+      writeCodex(undefined);
+      const json = discover();
+      expect(json.tools.codex.originators.other).toBe(1);
+      expect(json.tools.codex.total_sessions).toBe(1);
+    });
+
+    test("null originator → other bucket", () => {
+      writeCodex(null);
+      const json = discover();
+      expect(json.tools.codex.originators.other).toBe(1);
+      expect(json.tools.codex.total_sessions).toBe(1);
+    });
+
+    test("non-string originator → other bucket", () => {
+      writeCodex(42);
+      const json = discover();
+      expect(json.tools.codex.originators.other).toBe(1);
+      expect(json.tools.codex.total_sessions).toBe(1);
+    });
+
+    test("per-repo codex_originators sums to per-repo codex count", () => {
+      writeCodex("Codex Desktop");
+      writeCodex("codex_exec");
+      writeCodex("codex_exec");
+      writeCodex("Claude Code");
+      const json = discover();
+      // The fake repo's normalized remote will be local: form; just find it.
+      const repo = json.repos.find((r: any) => r.paths.includes(repoDir));
+      expect(repo).toBeDefined();
+      const o = repo.codex_originators;
+      expect(o.desktop + o.exec + o.claude_code + o.other).toBe(repo.sessions.codex);
+      expect(o.desktop).toBe(1);
+      expect(o.exec).toBe(2);
+      expect(o.claude_code).toBe(1);
+    });
+  });
+
   describe("discovery output structure", () => {
     test("repos have required fields", () => {
       const result = spawnSync(
@@ -327,6 +461,26 @@ describe("gstack-global-discover", () => {
         json.tools.codex.total_sessions +
         json.tools.gemini.total_sessions;
       expect(json.total_sessions).toBe(toolTotal);
+    });
+
+    test("repos expose codex_originators breakdown", () => {
+      const result = spawnSync(
+        "bun",
+        ["run", scriptPath, "--since", "30d", "--format", "json"],
+        { encoding: "utf-8", timeout: 30000 }
+      );
+      const json = JSON.parse(result.stdout);
+      expect(json.tools.codex).toHaveProperty("originators");
+      const o = json.tools.codex.originators;
+      for (const k of ["desktop", "exec", "claude_code", "other"]) {
+        expect(o).toHaveProperty(k);
+        expect(typeof o[k]).toBe("number");
+      }
+      // Sum of originators must equal codex total_sessions.
+      expect(o.desktop + o.exec + o.claude_code + o.other).toBe(json.tools.codex.total_sessions);
+      for (const repo of json.repos) {
+        expect(repo).toHaveProperty("codex_originators");
+      }
     });
 
     test("deduplicates Conductor workspaces by remote", () => {
