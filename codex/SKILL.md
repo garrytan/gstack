@@ -916,7 +916,7 @@ model reviewing itself, and nested spawns have burned 15M tokens in one
 /review (#2519).
 
 If the output contains `AUTH_FAILED`, stop and tell the user:
-"No Codex authentication found. Run `codex login` or set `$CODEX_API_KEY` / `$OPENAI_API_KEY`, then re-run this skill."
+"No Codex authentication found. Run `codex login`, set `$CODEX_API_KEY` / `$OPENAI_API_KEY`, or export the env var named by `~/.codex/config.toml` `env_key`, then re-run this skill."
 
 If the output contains `MODEL_UNUSABLE`, stop — auth exists but the account
 cannot use the configured model (a stale `model =` pin in
@@ -932,8 +932,11 @@ If the version check printed a `WARN:` line, pass it through to the user verbati
 (non-blocking — Codex may still work, but the user should upgrade).
 
 The probe multi-signal auth logic accepts: `$CODEX_API_KEY` set, `$OPENAI_API_KEY`
-set, or `${CODEX_HOME:-~/.codex}/auth.json` exists. Avoids false-negatives for
-env-auth users (CI, platform engineers) that file-only checks would reject.
+set, the custom provider `env_key` from `${CODEX_HOME:-~/.codex}/config.toml`,
+or `${CODEX_HOME:-~/.codex}/auth.json` exists. It also loads simple key/value
+entries from `.env`, `.env.local`, and `~/.config/recruitmagic/cli.env` for
+worktree automation. Avoids false-negatives for env-auth users (CI, platform
+engineers) that file-only checks would reject.
 
 **Update the known-bad list** in `bin/gstack-codex-probe` when a new Codex CLI version
 regresses. Current entries (`0.120.0`, `0.120.1`, `0.120.2`) trace to the stdin
