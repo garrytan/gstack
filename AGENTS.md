@@ -19,6 +19,7 @@ Invoke them by name (e.g., `/office-hours`).
 | `/plan-design-review` | Rate each design dimension 0-10, explain what a 10 looks like. |
 | `/plan-devex-review` | DX-mode review: TTHW, magical moments, friction points, persona traces. |
 | `/plan-tune` | Self-tune AskUserQuestion sensitivity per question. |
+| `/plan-rollout` | Post-decision: analyze the real diff and write `decomposition.md`. |
 | `/autoplan` | One command runs CEO → design → eng → DX review. |
 | `/design-consultation` | Build a complete design system from scratch. |
 | `/spec` | Turn vague intent into a precise, executable spec in five phases. Files a GitHub issue, optionally spawns a Claude Code agent in a fresh worktree, and lets `/ship` close the source issue on merge. |
