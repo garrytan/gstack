@@ -38,6 +38,9 @@ describe('setup: cleanup_old_claude_symlinks — static (#2204)', () => {
     expect(body).toContain('-d "$old_target"');
     expect(body).toContain('-L "$old_target/SKILL.md"');
     expect(body).toContain('rm -rf "$old_target"');
+    // SKILL.md arm must use path-segment provenance, not a bare substring.
+    expect(body).toContain('gstack/*|*/gstack/*|*/.gstack/render/claude/*');
+    expect(body).not.toMatch(/\*gstack\*\)/);
   });
 
   test('Windows real-file reap still requires a live payload name list', () => {
@@ -148,6 +151,26 @@ describe.skipIf(process.platform === 'win32')('setup: cleanup_old_claude_symlink
     }
   });
 
+  test('payload present: dangling name absent from the payload is still removed', () => {
+    // Unique dest-scan win: the old "$gstack_dir"/*/ loop only considered
+    // names that still exist in the payload. A retired leftover must go.
+    const r = runCleanup({
+      payload: true,
+      plant(skills, payload) {
+        const src = path.join(payload, 'ship');
+        fs.mkdirSync(src);
+        fs.writeFileSync(path.join(src, 'SKILL.md'), '---\nname: ship\n---\n');
+        plantDanglingSkillMd(skills, 'qa');
+      },
+    });
+    try {
+      expect(r.status).toBe(0);
+      expect(r.names).toEqual(['gstack']);
+    } finally {
+      fs.rmSync(r.tmp, { recursive: true, force: true });
+    }
+  });
+
   test('does not remove a SKILL.md symlink that does not point at gstack', () => {
     const r = runCleanup({
       payload: false,
@@ -161,6 +184,42 @@ describe.skipIf(process.platform === 'win32')('setup: cleanup_old_claude_symlink
       expect(r.status).toBe(0);
       expect(r.stdout).toBe('');
       expect(r.names).toEqual(['elsewhere']);
+    } finally {
+      fs.rmSync(r.tmp, { recursive: true, force: true });
+    }
+  });
+
+  test('does not remove a SKILL.md whose target merely contains the substring gstack', () => {
+    const r = runCleanup({
+      payload: false,
+      plant(skills) {
+        const dir = path.join(skills, 'notes');
+        fs.mkdirSync(dir);
+        fs.symlinkSync('../../archive/my-gstack-backup/SKILL.md', path.join(dir, 'SKILL.md'));
+      },
+    });
+    try {
+      expect(r.status).toBe(0);
+      expect(r.stdout).toBe('');
+      expect(r.names).toEqual(['notes']);
+    } finally {
+      fs.rmSync(r.tmp, { recursive: true, force: true });
+    }
+  });
+
+  test('reaps a leftover whose SKILL.md points at the user render dir', () => {
+    const r = runCleanup({
+      payload: false,
+      plant(skills) {
+        const dir = path.join(skills, 'qa');
+        fs.mkdirSync(dir);
+        fs.symlinkSync('../../.gstack/render/claude/qa/SKILL.md', path.join(dir, 'SKILL.md'));
+      },
+    });
+    try {
+      expect(r.status).toBe(0);
+      expect(r.stdout).toContain('cleaned up old entries: qa');
+      expect(r.names).toEqual([]);
     } finally {
       fs.rmSync(r.tmp, { recursive: true, force: true });
     }

@@ -980,8 +980,9 @@ cleanup_old_claude_symlinks() {
   local skills_dir="$2"
   local removed=()
   local old_target skill_name link_dest skill_dir
-  # Destination scan. [ -e ] || [ -L ] keeps dangling dir symlinks visible
-  # when the glob would otherwise skip a broken target.
+  # Destination scan. The glob already yields dangling dir symlinks; [ -e ]
+  # alone would skip them, so [ -L ] keeps those entries. An unmatched `*`
+  # literal (empty skills_dir) is rejected by the same guard.
   for old_target in "$skills_dir"/*; do
     [ -e "$old_target" ] || [ -L "$old_target" ] || continue
     skill_name="$(basename "$old_target")"
@@ -1001,8 +1002,12 @@ cleanup_old_claude_symlinks() {
     # Remove real directories with symlinked SKILL.md pointing into gstack/
     elif [ -d "$old_target" ] && [ -L "$old_target/SKILL.md" ]; then
       link_dest="$(readlink "$old_target/SKILL.md" 2>/dev/null || true)"
+      # Anchored path segments (same as the dir-symlink arm and
+      # gstack-uninstall #2563). A bare *gstack* substring would wipe a
+      # user skill under e.g. ~/tools/gstack-fork/. Also accept the #2569
+      # render prefix (~/.gstack/render/claude/...), which is not `/gstack/`.
       case "$link_dest" in
-        *gstack*)
+        gstack/*|*/gstack/*|*/.gstack/render/claude/*)
           rm -rf "$old_target"
           removed+=("$skill_name")
           ;;
