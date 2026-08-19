@@ -168,7 +168,9 @@ echo "$SKILL_COUNTS" | while read -r COUNT SKILL; do
       # Extract duration_s value using split on "duration_s":
       n = split($0, parts, "\"duration_s\":")
       if (n >= 2) {
-        # parts[2] starts with the value, e.g. "142,"
+        # parts[2] starts with the value: unquoted (142,...) or quoted ("142",...).
+        # Strip a leading double-quote so the digit-extraction below handles both forms.
+        sub(/^"/, "", parts[2])
         gsub(/[^0-9.].*/, "", parts[2])
         if (parts[2]+0 > 0) { total += parts[2]; count++ }
       }
