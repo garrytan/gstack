@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+is_complete_gstack_source() {
+  local root="$1"
+  [ -f "$root/package.json" ] &&
+    [ -f "$root/browse/src/cli.ts" ] &&
+    [ -f "$root/browse/dist/server-node.mjs" ] &&
+    [ -f "$root/node_modules/playwright/package.json" ] &&
+    [ -f "$root/node_modules/diff/package.json" ]
+}
+
+normalize_candidate() {
+  local candidate="$1"
+  if command -v cygpath >/dev/null 2>&1; then
+    candidate="$(cygpath -u "$candidate" 2>/dev/null || printf '%s' "$candidate")"
+  fi
+  (cd "$candidate" 2>/dev/null && pwd -P) || true
+}
+
+SOURCE_ROOT=""
+if [ -n "${GSTACK_SOURCE_ROOT:-}" ]; then
+  SOURCE_ROOT="$(normalize_candidate "$GSTACK_SOURCE_ROOT")"
+  if [ -z "$SOURCE_ROOT" ] || ! is_complete_gstack_source "$SOURCE_ROOT"; then
+    echo "ERROR: GSTACK_SOURCE_ROOT does not contain a complete gstack source install: $GSTACK_SOURCE_ROOT" >&2
+    exit 2
+  fi
+else
+  SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd -P)"
+  for candidate in \
+    "$SCRIPT_DIR/../.." \
+    "$HOME/.gstack/repos/gstack" \
+    "$HOME/.claude/skills/gstack" \
+    "$HOME/.codex/skills/gstack"; do
+    resolved="$(normalize_candidate "$candidate")"
+    if [ -n "$resolved" ] && is_complete_gstack_source "$resolved"; then
+      SOURCE_ROOT="$resolved"
+      break
+    fi
+  done
+fi
+
+if [ -z "$SOURCE_ROOT" ]; then
+  echo "ERROR: no complete gstack source install was found." >&2
+  echo "Expected browse/src/cli.ts, browse/dist/server-node.mjs, and installed dependencies." >&2
+  echo "Set GSTACK_SOURCE_ROOT to the full gstack checkout and retry." >&2
+  exit 2
+fi
+
+if ! command -v bun >/dev/null 2>&1; then
+  echo "ERROR: Bun is required for the Windows gstack browser launcher." >&2
+  exit 3
+fi
+
+if ! command -v node >/dev/null 2>&1; then
+  echo "ERROR: Node.js is required for the Windows gstack browser server." >&2
+  exit 3
+fi
+
+cd "$SOURCE_ROOT"
+exec bun run "$SOURCE_ROOT/browse/src/cli.ts" "$@"

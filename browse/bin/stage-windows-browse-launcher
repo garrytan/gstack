@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PLATFORM="${1:-$(uname -s)}"
+case "$PLATFORM" in
+  MINGW*|MSYS*|CYGWIN*|Windows_NT) ;;
+  *) exit 0 ;;
+esac
+
+ROOT="${2:-$(cd "$(dirname "$0")/../.." && pwd -P)}"
+if command -v cygpath >/dev/null 2>&1; then
+  ROOT="$(cygpath -u "$ROOT" 2>/dev/null || printf '%s' "$ROOT")"
+fi
+ROOT="$(cd "$ROOT" && pwd -P)"
+
+BUN_CMD="${BUN_CMD:-bun}"
+SOURCE="$ROOT/browse/bin/windows-browse"
+DESTINATION="$ROOT/browse/dist/browse"
+
+if [ ! -f "$SOURCE" ]; then
+  echo "ERROR: Windows browse launcher source is missing: $SOURCE" >&2
+  exit 2
+fi
+
+mkdir -p "$(dirname "$DESTINATION")"
+
+# MSYS cp resolves an extensionless destination to an existing .exe and can
+# overwrite browse.exe. Bun writes the exact extensionless path.
+GSTACK_LAUNCHER_SOURCE="$SOURCE" \
+GSTACK_LAUNCHER_DESTINATION="$DESTINATION" \
+  "$BUN_CMD" -e 'await Bun.write(process.env.GSTACK_LAUNCHER_DESTINATION, Bun.file(process.env.GSTACK_LAUNCHER_SOURCE))'
