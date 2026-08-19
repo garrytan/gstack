@@ -1043,9 +1043,29 @@ Per-Page Results:
 
 Alerts Fired:  [N] (X critical, Y high, Z medium)
 Screenshots:   .gstack/canary-reports/screenshots/
+Human smoke:   [CONFIRMED (user said pass) / AWAITING (screen opened, no reply yet)]
 
 VERDICT: [DEPLOY IS HEALTHY / DEPLOY HAS ISSUES — details above]
 ```
+
+**A HEALTHY status from Phases 1-5 is the automated read, not the final word.**
+Every alert path already routes through AskUserQuestion (Phase 5) — but the
+quiet, all-green path never puts anything in front of the user, which means
+the most common outcome (nothing broke) is also the one nobody ever actually
+looks at. Before finalizing the report:
+
+```bash
+open "<url>" 2>/dev/null || xdg-open "<url>" 2>/dev/null || echo "Couldn't auto-open — here's the URL: <url>"
+```
+
+Tell the user: "Automated monitoring found nothing wrong across {N} checks over
+{duration} — but that's a script's opinion, not a look. I've opened the live
+page. Take a glance, then tell me pass or fail so I can close this out as
+actually verified." If the user confirms, mark `Human smoke: CONFIRMED` in the
+report. If this is a non-interactive/spawned session, or the user doesn't
+reply before you need to finish the report, write `Human smoke: AWAITING` and
+say so plainly — do not silently treat "no alerts fired" as "a human looked
+and it's fine."
 
 Save report to `.gstack/canary-reports/{date}-canary.md` and `.gstack/canary-reports/{date}-canary.json`.
 
@@ -1056,16 +1076,21 @@ eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
 mkdir -p ~/.gstack/projects/$SLUG
 ```
 
-Write a JSONL entry: `{"skill":"canary","timestamp":"<ISO>","status":"<HEALTHY/DEGRADED/BROKEN>","url":"<url>","duration_min":<N>,"alerts":<N>}`
+Write a JSONL entry: `{"skill":"canary","timestamp":"<ISO>","status":"<HEALTHY/DEGRADED/BROKEN>","human_smoke":"<CONFIRMED/AWAITING>","url":"<url>","duration_min":<N>,"alerts":<N>}`
 
 ### Phase 7: Baseline Update
 
-If the deploy is healthy, offer to update the baseline:
+If the deploy is healthy AND `Human smoke: CONFIRMED`, offer to update the baseline:
 
-- **Context:** Canary monitoring completed. The deploy is healthy.
+- **Context:** Canary monitoring completed. The deploy is healthy and you confirmed it looks right.
 - **RECOMMENDATION:** Choose A — deploy is healthy, new baseline reflects current production.
 - A) Update baseline with current screenshots
 - B) Keep old baseline
+
+If the deploy is healthy but `Human smoke: AWAITING` (nobody confirmed yet), skip
+this offer — don't bake an unconfirmed state into the baseline other runs will
+compare against. Mention it once: "Once you've had a look, run `/canary <url>
+--baseline` if you want this state as the new reference point."
 
 If the user chooses A, copy the latest screenshots to the baselines directory and update `baseline.json`.
 
