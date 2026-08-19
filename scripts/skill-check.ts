@@ -68,6 +68,10 @@ const TEMPLATES = discoverTemplates(ROOT);
 for (const { tmpl, output } of TEMPLATES) {
   const tmplPath = path.join(ROOT, tmpl);
   const outPath = path.join(ROOT, output);
+  if (!shouldGenerateTemplateForHost(tmpl, 'claude')) {
+    console.log(`  -  ${output.padEnd(30)} — skipped for Claude Code host`);
+    continue;
+  }
   if (!fs.existsSync(tmplPath)) {
     console.log(`  \u26a0\ufe0f  ${output.padEnd(30)} — no template`);
     continue;
@@ -90,7 +94,24 @@ for (const file of SKILL_FILES) {
 
 // ─── External Host Skills (config-driven) ───────────────────
 
-import { getExternalHosts } from '../hosts/index';
+import { getExternalHosts, getHostConfig } from '../hosts/index';
+
+function templateDirName(tmpl: string): string {
+  const dir = path.dirname(tmpl);
+  return dir === '.' ? path.basename(ROOT) : path.basename(dir);
+}
+
+function shouldGenerateTemplateForHost(tmpl: string, hostName: string): boolean {
+  const hostConfig = getHostConfig(hostName);
+  const dir = templateDirName(tmpl);
+  if (hostConfig.generation.includeSkills?.length && !hostConfig.generation.includeSkills.includes(dir)) {
+    return false;
+  }
+  if (hostConfig.generation.skipSkills?.includes(dir)) {
+    return false;
+  }
+  return true;
+}
 
 for (const hostConfig of getExternalHosts()) {
   const hostDir = path.join(ROOT, hostConfig.hostSubdir, 'skills');
@@ -139,13 +160,23 @@ for (const hostConfig of ALL_HOST_CONFIGS) {
     execSync(`bun run scripts/gen-skill-docs.ts${hostFlag} --dry-run`, { cwd: ROOT, stdio: 'pipe' });
     console.log(`  \u2705 All ${hostConfig.displayName} generated files are fresh`);
   } catch (err: any) {
+    if (hostConfig.name === 'claude') {
+      try {
+        execSync('bun run scripts/gen-skill-docs.ts --respect-detection --dry-run', { cwd: ROOT, stdio: 'pipe' });
+        console.log('  \u2705 All Claude Code generated files are fresh for the local GBrain-aware user render');
+        continue;
+      } catch {
+        // Fall through to the normal stale report below.
+      }
+    }
     hasErrors = true;
     const output = err.stdout?.toString() || '';
     console.log(`  \u274c ${hostConfig.displayName} generated files are stale:`);
     for (const line of output.split('\n').filter((l: string) => l.startsWith('STALE'))) {
       console.log(`      ${line}`);
     }
-    console.log(`      Run: bun run gen:skill-docs${hostFlag}`);
+    const command = hostConfig.name === 'claude' ? 'bun run gen:skill-docs:user' : `bun run gen:skill-docs${hostFlag}`;
+    console.log(`      Run: ${command}`);
   }
 }
 
