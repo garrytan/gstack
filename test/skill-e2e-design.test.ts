@@ -121,7 +121,7 @@ Write DESIGN.md and CLAUDE.md (or update it) in the working directory.`,
     // Structural checks — fuzzy synonym matching to handle agent variation
     const sectionSynonyms: Record<string, string[]> = {
       'Product Context': ['product', 'context', 'overview', 'about'],
-      'Aesthetic': ['aesthetic', 'visual direction', 'design direction', 'visual identity'],
+      'Aesthetic': ['aesthetic', 'visual direction', 'design direction', 'visual identity', 'memorable thing', 'thesis'],
       'Typography': ['typography', 'type', 'font', 'typeface'],
       'Color': ['color', 'colour', 'palette', 'colors'],
       'Spacing': ['spacing', 'space', 'whitespace', 'gap'],
