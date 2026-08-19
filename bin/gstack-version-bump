@@ -313,6 +313,11 @@ function cmdClassify(args: string[], cwd: string): void {
   // the version itself.
   const expectedPkg = jsonSource ? current : npmVersion(current);
   const state = classifyState(current, baseV, pkg.exists, pkg.version, expectedPkg);
+  // Surface version-file absence so callers (and /ship) can tell "version is
+  // genuinely 0.0.0.0" from "we made up 0.0.0.0 because the file is missing"
+  // (#2600). Without this, the DRIFT_STALE_PKG dispatch on a missing VERSION
+  // would feed repair a fabricated version that passes the shape check.
+  const versionFileExists = existsSync(versionPath);
   process.stdout.write(
     JSON.stringify({
       state,
@@ -322,6 +327,7 @@ function cmdClassify(args: string[], cwd: string): void {
       pkgExists: pkg.exists,
       pkgPath: pkg.exists ? relative(cwd, pkgPath) : null,
       expectedPkgVersion: pkg.exists ? expectedPkg : null,
+      versionFileExists,
     }) + "\n",
   );
   // DRIFT_UNEXPECTED is a real, decidable state — the caller stops on it, but the
@@ -442,7 +448,29 @@ function cmdRepair(args: string[], cwd: string): void {
     );
     return;
   }
+  // Guard: if the VERSION file does not exist, readVersionFile folds that into
+  // DEFAULT ("0.0.0.0") — a structurally valid but fabricated version. The
+  // shape check below (VERSION_RE) would pass it, and we would write 0.0.0
+  // into package.json, regressing it below where it started (#2600).
+  if (!existsSync(versionPath)) {
+    fail(
+      `VERSION file not found at ${versionRel}. ` +
+        "Cannot repair package.json without a real version to sync. " +
+        "Pass --version-path or set .gstack/version-path if the file lives elsewhere.",
+      2,
+    );
+  }
   const current = readVersionFile(versionPath, versionRel);
+  // Guard against readVersionFile folding "file exists but is empty / unparsable"
+  // into DEFAULT ("0.0.0.0") — same data-corruption pathway as file-missing (#2600).
+  // A fabricated version must never propagate into package.json.
+  if (current === DEFAULT) {
+    fail(
+      `VERSION file at ${versionRel} is empty or contains no parsable version. ` +
+        "Cannot repair package.json with a fabricated version.",
+      2,
+    );
+  }
   if (!VERSION_RE.test(current)) {
     fail(
       `VERSION file contents (${current}) do not match MAJOR.MINOR.PATCH[.MICRO]. ` +

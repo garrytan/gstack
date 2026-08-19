@@ -141,6 +141,7 @@ interface ProbeReport {
   new_count: number;
   updated_count: number;
   unchanged_count: number;
+  skipped_unattributed: number;
   estimate_minutes: number;
 }
 
@@ -1046,6 +1047,48 @@ export function readNewFailures(
 
 // ── Main ingest passes ─────────────────────────────────────────────────────
 
+/**
+ * Lightweight attribution check: does a transcript have a resolvable git
+ * remote for its cwd? Extracts the cwd from the first JSONL line that has
+ * one (mirroring the logic in parseTranscriptJsonl) and calls
+ * resolveGitRemote. Avoids the full parse (body rendering, message counting)
+ * because probe only needs the yes/no answer.
+ *
+ * Non-transcript types (artifacts) always pass — the attribution filter in
+ * preparePages only applies to transcripts (#2394).
+ */
+function transcriptIsAttributable(path: string): boolean {
+  let raw: string;
+  try {
+    raw = readFileSync(path, "utf-8");
+  } catch {
+    return false;
+  }
+  const lines = raw.split("\n").filter((l) => l.trim().length > 0);
+  if (lines.length === 0) return false;
+
+  // Detect format: Codex first line has type=session_meta, Claude Code
+  // has cwd on a user/assistant record.
+  let cwd = "";
+  for (const line of lines) {
+    try {
+      const rec = JSON.parse(line);
+      if (rec?.type === "session_meta") {
+        cwd = rec.payload?.cwd || rec.cwd || "";
+        break;
+      }
+      if (rec?.cwd) {
+        cwd = rec.cwd;
+        break;
+      }
+    } catch {
+      continue;
+    }
+  }
+  if (!cwd) return false;
+  return resolveGitRemote(cwd) !== "";
+}
+
 async function probeMode(args: CliArgs): Promise<ProbeReport> {
   const state = loadState();
   const ctx = makeWalkContext(args, state);
@@ -1066,8 +1109,18 @@ async function probeMode(args: CliArgs): Promise<ProbeReport> {
   let newCount = 0;
   let updatedCount = 0;
   let unchangedCount = 0;
+  let skippedUnattributed = 0;
 
   for (const { path, type } of walkAllSources(ctx)) {
+    // Apply the same attribution filter preparePages uses (#2394):
+    // skip transcripts with no resolvable git remote unless --include-unattributed.
+    if (type === "transcript" && !args.includeUnattributed) {
+      if (!transcriptIsAttributable(path)) {
+        skippedUnattributed++;
+        continue;
+      }
+    }
+
     totalFiles++;
     let size = 0;
     try {
@@ -1096,6 +1149,7 @@ async function probeMode(args: CliArgs): Promise<ProbeReport> {
     new_count: newCount,
     updated_count: updatedCount,
     unchanged_count: unchangedCount,
+    skipped_unattributed: skippedUnattributed,
     estimate_minutes: estimateMinutes,
   };
 }
@@ -2042,6 +2096,9 @@ function printProbeReport(r: ProbeReport, json: boolean): void {
   console.log(`New (never ingested):  ${r.new_count}`);
   console.log(`Updated (mtime/hash):  ${r.updated_count}`);
   console.log(`Unchanged:             ${r.unchanged_count}`);
+  if (r.skipped_unattributed > 0) {
+    console.log(`Skipped (unattributed): ${r.skipped_unattributed}  (no git remote; use --include-unattributed to include)`);
+  }
   console.log("By type:");
   for (const [t, v] of Object.entries(r.by_type)) {
     if (v.count > 0) {
