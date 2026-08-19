@@ -382,7 +382,7 @@ Minimum 0 per category.
 export function generateCoAuthorTrailer(ctx: TemplateContext): string {
   const { getHostConfig } = require('../../hosts/index');
   const hostConfig = getHostConfig(ctx.host);
-  return hostConfig.coAuthorTrailer || 'Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>';
+  return hostConfig.coAuthorTrailer || 'Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>';
 }
 
 export function generateSetupCommand(ctx: TemplateContext): string {
