@@ -196,13 +196,18 @@ runner, the Agent SDK runner, plus the codex and gemini runners) spawns its chil
 through `test/helpers/hermetic-env.ts`: an allowlist-scrubbed environment, a fresh
 seeded `CLAUDE_CONFIG_DIR`, a temp `GSTACK_HOME`, and `--strict-mcp-config`. Your
 operator `~/.claude` config, MCP servers (gbrain, Conductor), skills, `~/.gstack`
-decision logs, and `CONDUCTOR_*` env never leak into the child, so local eval
-signal matches CI instead of disagreeing for reasons unrelated to the code under
-test. The hermetic `CLAUDE_CONFIG_DIR` seeds no skills by default; a PTY test
-that types a `/skill` slash command passes `seedSkills: true` to the PTY runner,
-which swaps in `hermeticSkillsConfigDir()` — a seeded skill registry that
-symlinks the LIVE working tree's SKILL.md files (by design: the skills are the
-subject under test, so a snapshot would measure stale copies). Set
+decision logs, `CONDUCTOR_*` env, and your credentials (`GH_TOKEN`,
+`GITHUB_*_TOKEN`, `OPENAI_API_KEY`, `SSH_AUTH_SOCK`, …) never leak into the
+child, so local eval signal matches CI instead of disagreeing for reasons
+unrelated to the code under test. The `GITHUB_`/`EVALS_` prefix rules carry CI
+metadata only — a credential-shaped name (tail segment `TOKEN`, `SECRET`,
+`KEY`, …) is never admitted by a prefix; a runner that genuinely needs one
+names it exactly via `extraAllow`. The hermetic `CLAUDE_CONFIG_DIR` seeds no
+skills by default; a PTY test that types a `/skill` slash command passes
+`seedSkills: true` to the PTY runner, which swaps in
+`hermeticSkillsConfigDir()` — a seeded skill registry that symlinks the LIVE
+working tree's SKILL.md files (by design: the skills are the subject under
+test, so a snapshot would measure stale copies). Set
 `EVALS_HERMETIC=0` to debug against your real operator state (this also
 drops `--strict-mcp-config`). The wiring is pinned by `test/hermetic-wiring.test.ts`
 (a free static tripwire), two gate-tier isolation canaries in
