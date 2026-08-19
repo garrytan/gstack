@@ -353,6 +353,14 @@ export async function handleSnapshot(
 
   const snapshotText = output.join('\n');
 
+  // `-o` only means something to the two modes that PRODUCE an image. Passed
+  // alone it used to be silently ignored: exit 0, no file, no explanation —
+  // which reads as "the screenshot feature is broken" rather than "you forgot a
+  // flag", and cost a real debugging session before anyone noticed.
+  if (opts.outputPath && !opts.annotate && !opts.heatmap) {
+    output.push(`[warning] -o/--output was ignored: it names the file for an annotated screenshot, so it needs -a/--annotate (or -C/--cursor-interactive). For a plain screenshot use: browse screenshot ${opts.outputPath}`);
+  }
+
   // ─── Annotated screenshot (-a) ────────────────────────────
   if (opts.annotate) {
     const screenshotPath = opts.outputPath || `${TEMP_DIR}/browse-annotated.png`;
@@ -389,13 +397,32 @@ export async function handleSnapshot(
       const boxes: Array<{ ref: string; box: { x: number; y: number; width: number; height: number } }> = [];
       for (const [ref, entry] of refMap) {
         try {
-          const box = await entry.locator.boundingBox({ timeout: 1000 });
+          // `.first()` because a ref's locator can resolve to MORE than one
+          // element, and Playwright strict mode throws on that. It happens
+          // whenever a node has no accessible name: the locator degrades to
+          // `getByRole(role)` with no name filter, and the `.nth()`
+          // disambiguation above cannot help because its count comes from the
+          // FILTERED aria snapshot while getByRole matches the unfiltered DOM.
+          // Measured on a real page: the tree surfaced 2 unnamed paragraphs, the
+          // DOM had 9. Landmarks (banner/main/contentinfo) and paragraphs are
+          // correctly unnamed per ARIA, so this is the common case, not an edge.
+          //
+          // Before this, ONE such ref aborted the entire annotated screenshot
+          // (see the catch below) — which silently cost /qa, /canary and
+          // /land-and-deploy the screenshots their reports reference.
+          const box = await entry.locator.first().boundingBox({ timeout: 1000 });
           if (box) {
             boxes.push({ ref: `@${ref}`, box });
           }
         } catch (err: any) {
-          // Element may be offscreen, hidden, or page navigated — skip
-          if (!err?.message?.includes('Timeout') && !err?.message?.includes('timeout') && !err?.message?.includes('closed') && !err?.message?.includes('Target') && !err?.message?.includes('Execution context')) throw err;
+          // Element may be offscreen, hidden, or page navigated — skip.
+          //
+          // The allowlist is deliberately not exhaustive-by-message any more: a
+          // box we cannot measure is a box we do not draw, never a reason to
+          // lose every other annotation on the page. The heatmap path below has
+          // always used a bare `catch {}` for exactly this reason; annotate was
+          // the only path that could be killed by a single unmeasurable ref.
+          if (process.env.BROWSE_DEBUG) console.error(`[annotate] skipped @${ref}: ${err?.message?.split('\n')[0]}`);
         }
       }
 
