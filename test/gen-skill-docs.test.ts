@@ -1844,6 +1844,8 @@ describe('Codex generation (--host codex)', () => {
     expect(content).not.toMatch(/gstack-claude-(?:prompt|response|error|diff)-X{6,}\.\w+/);
     expect(content).not.toContain('/tmp/gstack-claude-diff-$$');
     expect(content).toContain('cat "$PROMPT_FILE" | "$CLAUDE_BIN" -p');
+    expect(content).toContain('--model sonnet --effort high');
+    expect(content).toContain('--no-session-persistence');
     expect(content).toContain('Resolve the binary and invoke it in the same host execution context');
     expect(content).toContain('--disable-slash-commands');
     expect(content).toContain('--tools ""');
@@ -1871,14 +1873,28 @@ describe('Codex generation (--host codex)', () => {
     }
   });
 
-  test('Codex review step stripped from Codex-host ship and review', () => {
+  test('Codex-host ship and review use native army + Sonnet without nested Codex', () => {
     const shipContent = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-ship', 'SKILL.md'), 'utf-8');
     expect(shipContent).not.toContain('codex review --base');
     expect(shipContent).not.toContain('CODEX_REVIEWS');
+    expect(shipContent).not.toContain('_gstack_codex_timeout_wrapper');
+    expect(shipContent).toContain('Review Army — Specialist Dispatch');
+    expect(shipContent).toContain('native `spawn_agent` tool');
+    expect(shipContent).toContain('`wait_agent`');
+    expect(shipContent).toContain('Claude Sonnet outside voice');
+    expect(shipContent).toContain('--model sonnet --effort high');
+    expect(shipContent).toContain('--tools "" --no-session-persistence');
+    expect(shipContent).not.toContain('using the Agent tool with `subagent_type: "general-purpose"`');
+    expect(shipContent).toContain('report that reviewer as missing coverage');
+    expect(shipContent).toContain('report it as missing coverage and continue');
 
     const reviewContent = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-review', 'SKILL.md'), 'utf-8');
     expect(reviewContent).not.toContain('codex review --base');
     expect(reviewContent).not.toContain('CODEX_REVIEWS');
+    expect(reviewContent).not.toContain('_gstack_codex_timeout_wrapper');
+    expect(reviewContent).toContain('Review Army — Specialist Dispatch');
+    expect(reviewContent).toContain('native `spawn_agent` tool');
+    expect(reviewContent).toContain('Claude Sonnet outside voice');
   });
 
   test('--host codex --dry-run freshness', () => {
@@ -2658,7 +2674,7 @@ describe('setup script validation', () => {
 
   test('create_codex_runtime_root exposes only runtime assets', () => {
     const fnStart = setupContent.indexOf('create_codex_runtime_root()');
-    const fnEnd = setupContent.indexOf('}', setupContent.indexOf('done', setupContent.indexOf('review/', fnStart)));
+    const fnEnd = setupContent.indexOf('create_factory_runtime_root()', fnStart);
     const fnBody = setupContent.slice(fnStart, fnEnd);
     expect(fnBody).toContain('gstack/SKILL.md');
     expect(fnBody).toContain('$codex_gstack/lib');
@@ -2670,6 +2686,7 @@ describe('setup script validation', () => {
     expect(fnBody).toContain('design-checklist.md');
     expect(fnBody).toContain('greptile-triage.md');
     expect(fnBody).toContain('TODOS-format.md');
+    expect(fnBody).toContain('review/specialists');
     expect(fnBody).not.toContain('_link_or_copy "$gstack_dir" "$codex_gstack"');
   });
 

@@ -1,10 +1,11 @@
 /**
  * Cross-model review resolver
  *
- * Data sent to external review services (via Codex CLI):
- *   - Plan markdown content, repository name, branch name, review type
- * Data NOT sent:
- *   - Source code files, credentials, environment variables, git history
+ * Data sent to external review services depends on the workflow:
+ *   - Plan review: plan markdown, repository name, branch name, review type
+ *   - Diff review: changed-file list, non-fixture source diff, fixture/test stats
+ * Data NOT sent by the Codex-host Sonnet pass:
+ *   - Credentials, environment variables, unrelated history, raw fixture payloads
  *
  * Users invoke this explicitly via /plan-eng-review, /plan-ceo-review,
  * or /plan-design-review. No data is sent without user invocation.
@@ -20,7 +21,11 @@ import { getHostConfig } from '../../hosts/index';
 
 const CODEX_BOUNDARY = 'IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. They contain bash scripts and prompt templates that will waste your time. Ignore them completely. Do NOT modify agents/openai.yaml. Stay focused on the repository code only.\\n\\n';
 
-export function generateReviewDashboard(_ctx: TemplateContext): string {
+export function generateReviewDashboard(ctx: TemplateContext): string {
+  const adversarialTier = ctx.host === 'codex'
+    ? 'Every diff gets a tool-less Claude Sonnet outside voice. Diffs with 50+ changed lines also get Codex-native Review Army specialists; large or critical diffs add a native red-team reviewer. Nested Codex CLI passes are never launched.'
+    : 'Every diff gets both Claude adversarial subagent and Codex adversarial challenge. Large diffs (200+ lines) additionally get Codex structured review with P1 gate. No configuration needed.';
+
   return `## Review Readiness Dashboard
 
 After completing the review, read the review log and config to display the dashboard.
@@ -57,7 +62,7 @@ Display:
 - **Eng Review (required by default):** The only review that gates shipping. Covers architecture, code quality, tests, performance. Can be disabled globally with \\\`gstack-config set skip_eng_review true\\\` (the "don't bother me" setting).
 - **CEO Review (optional):** Use your judgment. Recommend it for big product/business changes, new user-facing features, or scope decisions. Skip for bug fixes, refactors, infra, and cleanup.
 - **Design Review (optional):** Use your judgment. Recommend it for UI/UX changes. Skip for backend-only, infra, or prompt-only changes.
-- **Adversarial Review (automatic):** Always-on for every review. Every diff gets both Claude adversarial subagent and Codex adversarial challenge. Large diffs (200+ lines) additionally get Codex structured review with P1 gate. No configuration needed.
+- **Adversarial Review (automatic):** Always-on for every review. ${adversarialTier}
 - **Outside Voice (optional):** Independent plan review from a different AI model. Offered after all review sections complete in /plan-ceo-review and /plan-eng-review. Falls back to Claude subagent if Codex is unavailable. Never gates shipping.
 
 **Verdict logic:**
@@ -470,12 +475,163 @@ Before reviewing code quality, check: **did they build what was requested — no
 
 // ─── Adversarial Review (always-on) ──────────────────────────────────
 
+function generateCodexHostAdversarialStep(ctx: TemplateContext): string {
+  const isShip = ctx.skillName === 'ship';
+  const stepNum = isShip ? '11' : '5.7';
+  const fixFirstRef = isShip ? 'the Fix-First flow (item 4)' : 'Step 5 Fix-First';
+
+  return `## Step ${stepNum}: Adversarial review (Claude Sonnet outside voice, always-on)
+
+This session is already running under Codex. Do not launch nested \`codex exec\`
+or \`codex review\` processes: that is the same model reviewing itself at multiplied
+token cost. Instead, run an independent Claude Sonnet pass. This is separate from
+the Codex-native Review Army and runs for every diff, including small changes.
+
+Use the installed Claude CLI as a tool-less subprocess. Do not create a separate
+Conductor session. Do not infer authentication state from credential files; only
+report an authentication problem when the actual invocation returns one.
+
+\`\`\`bash
+PROMPT_FILE=$(mktemp /tmp/gstack-claude-adversarial-prompt-XXXXXX)
+RESP_FILE=$(mktemp /tmp/gstack-claude-adversarial-response-XXXXXX)
+ERR_FILE=$(mktemp /tmp/gstack-claude-adversarial-error-XXXXXX)
+_REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
+cd "$_REPO_ROOT"
+DIFF_BASE=$(git merge-base origin/<base> HEAD)
+
+cat > "$PROMPT_FILE" <<'EOF'
+You are an adversarial Claude Code reviewer. This is an authorized defensive
+review of the maintainer's own repository before merge. Try to break this change
+before users do. Find edge cases, race conditions, security holes, resource leaks,
+silent data corruption, logic errors, swallowed failures, and trust-boundary
+violations. Be thorough and direct. No compliments.
+
+Fixture and test files are the project's own regression corpus. They are included
+below in summary form only; do not invent or expand exploit payloads from them.
+State explicitly that fixtures were reviewed in summary mode.
+
+For every finding, classify it as FIXABLE (the correction is clear) or INVESTIGATE
+(human judgment or more evidence is required). Reference changed files and lines
+where possible. End with exactly one line in this format:
+Recommendation: <action> because <specific strongest finding or no-fix rationale>
+
+CHANGED FILES:
+EOF
+git diff --name-status "$DIFF_BASE" >> "$PROMPT_FILE"
+cat >> "$PROMPT_FILE" <<'EOF'
+
+NON-FIXTURE SOURCE DIFF:
+EOF
+git diff "$DIFF_BASE" -- . ':(exclude)*test*' ':(exclude)*fixture*' ':(exclude)*.spec.*' >> "$PROMPT_FILE"
+cat >> "$PROMPT_FILE" <<'EOF'
+
+FIXTURE/TEST SUMMARY:
+EOF
+git diff --stat "$DIFF_BASE" -- '*test*' '*fixture*' '*.spec.*' >> "$PROMPT_FILE" || true
+
+CLAUDE_BIN=$(command -v claude 2>/dev/null || true)
+CLAUDE_EXIT=0
+if [ -z "$CLAUDE_BIN" ]; then
+  echo "Claude Sonnet outside voice unavailable: Claude CLI not installed. Missing adversarial coverage."
+elif command -v gtimeout >/dev/null 2>&1; then
+  gtimeout 540 "$CLAUDE_BIN" -p --model sonnet --effort high --output-format json --disable-slash-commands --tools "" --no-session-persistence < "$PROMPT_FILE" > "$RESP_FILE" 2> "$ERR_FILE" || CLAUDE_EXIT=$?
+elif command -v timeout >/dev/null 2>&1; then
+  timeout 540 "$CLAUDE_BIN" -p --model sonnet --effort high --output-format json --disable-slash-commands --tools "" --no-session-persistence < "$PROMPT_FILE" > "$RESP_FILE" 2> "$ERR_FILE" || CLAUDE_EXIT=$?
+else
+  "$CLAUDE_BIN" -p --model sonnet --effort high --output-format json --disable-slash-commands --tools "" --no-session-persistence < "$PROMPT_FILE" > "$RESP_FILE" 2> "$ERR_FILE" || CLAUDE_EXIT=$?
+fi
+
+if [ -n "$CLAUDE_BIN" ]; then
+  if [ "$CLAUDE_EXIT" -eq 124 ]; then
+    echo "Claude Sonnet exceeded 9 minutes and was terminated. Missing adversarial coverage."
+  elif grep -Eiq 'auth|login|unauthorized|API key' "$ERR_FILE"; then
+    echo "Claude authentication failed. Run claude interactively to authenticate. Missing adversarial coverage."
+    sed -n '1,20p' "$ERR_FILE"
+  elif [ "$CLAUDE_EXIT" -ne 0 ]; then
+    echo "Claude Sonnet outside voice failed (exit $CLAUDE_EXIT). Missing adversarial coverage."
+    sed -n '1,40p' "$ERR_FILE"
+  elif [ ! -s "$RESP_FILE" ]; then
+    echo "Claude Sonnet returned no response. Missing adversarial coverage."
+    sed -n '1,40p' "$ERR_FILE"
+  else
+    PYTHON_CMD=$(command -v python3 2>/dev/null || command -v python 2>/dev/null || true)
+    if [ -z "$PYTHON_CMD" ]; then
+      echo "Claude JSON parser unavailable; raw response follows:"
+      cat "$RESP_FILE"
+    else
+      "$PYTHON_CMD" - "$RESP_FILE" <<'PY'
+import json, sys
+path = sys.argv[1]
+try:
+    obj = json.load(open(path))
+except Exception as exc:
+    print(f"CLAUDE_JSON_PARSE_ERROR: {exc}. Missing adversarial coverage.")
+    print(open(path, errors="replace").read())
+    raise SystemExit(0)
+if not isinstance(obj, dict):
+    print(f"CLAUDE_JSON_PARSE_ERROR: expected an object, got {type(obj).__name__}. Missing adversarial coverage.")
+    print(open(path, errors="replace").read())
+    raise SystemExit(0)
+result = obj.get("result") or obj.get("response") or ""
+if obj.get("is_error"):
+    print("CLAUDE_ERROR: Claude returned an error response. Missing adversarial coverage.")
+    if result:
+        print(result)
+    raise SystemExit(0)
+print(result if result else "Claude returned an empty result. Missing adversarial coverage.")
+usage = obj.get("usage") or {}
+if not isinstance(usage, dict):
+    usage = {}
+print(f"\\nTokens: input={usage.get('input_tokens', 0) or 0} output={usage.get('output_tokens', 0) or 0} | Model: {obj.get('model') or 'sonnet'}")
+PY
+    fi
+  fi
+fi
+rm -f "$PROMPT_FILE" "$RESP_FILE" "$ERR_FILE"
+\`\`\`
+
+Set the Bash tool timeout to \`600000\` (10 minutes), above the subprocess's 540s
+limit. Present a successful response under \`ADVERSARIAL REVIEW (Claude Sonnet
+outside voice):\`. FIXABLE findings flow into ${fixFirstRef}; INVESTIGATE findings
+are informational. A failed pass is missing coverage, never a clean bill of health.
+
+If the Sonnet pass produced a result, persist it after fixes are classified:
+
+\`\`\`bash
+${ctx.paths.binDir}/gstack-review-log '{"skill":"adversarial-review","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"claude-sonnet","tier":"always","gate":"informational","commit":"'"$(git rev-parse --short HEAD)"'"}'
+\`\`\`
+
+Substitute STATUS = \`clean\` only when Sonnet completed and found no issues;
+otherwise use \`issues_found\`. Do not persist when the pass produced no review.
+
+Synthesize the primary Codex review, Review Army findings (when dispatched), and
+Claude Sonnet findings. Agreement across Codex and Sonnet is high confidence;
+unique findings retain their original confidence and classification.
+
+---`;
+}
+
+function codexReviewSpeedArgs(ctx: TemplateContext): { setup: string; argv: string } {
+  if (ctx.host !== 'claude') return { setup: '', argv: '' };
+
+  return {
+    setup: `_CODEX_REVIEW_SPEED=$(${ctx.paths.binDir}/gstack-config get codex_review_speed 2>/dev/null || echo fast)
+case "$_CODEX_REVIEW_SPEED" in
+  fast) _CODEX_REVIEW_SPEED_ARGS=(-c 'service_tier="fast"') ;;
+  standard) _CODEX_REVIEW_SPEED_ARGS=() ;;
+  *) echo "Unknown codex_review_speed=$_CODEX_REVIEW_SPEED; defaulting to fast." >&2; _CODEX_REVIEW_SPEED_ARGS=(-c 'service_tier="fast"') ;;
+esac`,
+    argv: ' "${_CODEX_REVIEW_SPEED_ARGS[@]}"',
+  };
+}
+
 export function generateAdversarialStep(ctx: TemplateContext): string {
-  // Codex host: strip entirely — Codex should never invoke itself
-  if (ctx.host === 'codex') return '';
+  if (ctx.host === 'codex') return generateCodexHostAdversarialStep(ctx);
 
   const isShip = ctx.skillName === 'ship';
   const stepNum = isShip ? '11' : '5.7';
+  const reviewSpeed = codexReviewSpeedArgs(ctx);
+  const reviewSpeedSetup = reviewSpeed.setup ? `${reviewSpeed.setup}\n` : '';
 
   return `## Step ${stepNum}: Adversarial review (always-on)
 
@@ -528,11 +684,11 @@ If \`CODEX_MODE\` is \`ready\`:
 \`\`\`bash
 TMPERR_ADV=$(mktemp /tmp/codex-adv-XXXXXXXX)
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
-# Shell functions do not survive between Bash blocks, so re-source the probe
+${reviewSpeedSetup}# Shell functions do not survive between Bash blocks, so re-source the probe
 # here. It defines _gstack_codex_timeout_wrapper (gtimeout -> timeout ->
 # unwrapped fallback), added in #1056 but never wired into this call site.
 source ~/.claude/skills/gstack/bin/gstack-codex-probe 2>/dev/null || true
-_gstack_codex_timeout_wrapper 540 codex exec "${CODEX_BOUNDARY}Review the changes on this branch against the base branch. Run DIFF_BASE=$(git merge-base origin/<base> HEAD) && git diff "$DIFF_BASE" to see the diff. Your job is to find ways this code will fail in production. Think like an attacker and a chaos engineer. Find edge cases, race conditions, security holes, resource leaks, failure modes, and silent data corruption paths. Be adversarial. Be thorough. No compliments — just the problems. End your output with ONE line in the canonical format \`Recommendation: <action> because <one-line reason naming the most exploitable finding>\`. Generic reasons like 'because it's safer' do not qualify; the reason must point to a specific finding or no-fix rationale." -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' ${CODEX_WEB_SEARCH_FLAG} < /dev/null 2>"$TMPERR_ADV"
+_gstack_codex_timeout_wrapper 540 codex exec "${CODEX_BOUNDARY}Review the changes on this branch against the base branch. Run DIFF_BASE=$(git merge-base origin/<base> HEAD) && git diff "$DIFF_BASE" to see the diff. Your job is to find ways this code will fail in production. Think like an attacker and a chaos engineer. Find edge cases, race conditions, security holes, resource leaks, failure modes, and silent data corruption paths. Be adversarial. Be thorough. No compliments — just the problems. End your output with ONE line in the canonical format \`Recommendation: <action> because <one-line reason naming the most exploitable finding>\`. Generic reasons like 'because it's safer' do not qualify; the reason must point to a specific finding or no-fix rationale." -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' ${CODEX_WEB_SEARCH_FLAG}${reviewSpeed.argv} < /dev/null 2>"$TMPERR_ADV"
 \`\`\`
 
 Set the Bash tool's \`timeout\` parameter to \`600000\` (10 minutes). It sits ABOVE the 540s wrapper deliberately, so the wrapper fires first and a stall surfaces as a diagnosable exit 124 instead of a harness kill that returns nothing. The wrapper resolves \`gtimeout\`, then \`timeout\`, then runs unwrapped, so it is safe on a macOS without coreutils. After the command completes, read stderr:
@@ -561,11 +717,11 @@ If \`DIFF_TOTAL >= 200\` AND \`CODEX_MODE\` is \`ready\`:
 TMPERR=$(mktemp /tmp/codex-review-XXXXXXXX)
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
 cd "$_REPO_ROOT"
-# Shell functions do not survive between Bash blocks, so re-source the probe
+${reviewSpeedSetup}# Shell functions do not survive between Bash blocks, so re-source the probe
 # here. It defines _gstack_codex_timeout_wrapper (gtimeout -> timeout ->
 # unwrapped fallback), added in #1056 but never wired into this call site.
 source ~/.claude/skills/gstack/bin/gstack-codex-probe 2>/dev/null || true
-_gstack_codex_timeout_wrapper 540 codex review --base <base> -c 'model_reasoning_effort="high"' ${CODEX_WEB_SEARCH_FLAG} < /dev/null 2>"$TMPERR"
+_gstack_codex_timeout_wrapper 540 codex review --base <base> -c 'model_reasoning_effort="high"' ${CODEX_WEB_SEARCH_FLAG}${reviewSpeed.argv} < /dev/null 2>"$TMPERR"
 \`\`\`
 
 **No prompt argument.** \`--base\` is what scopes the review, and the positional \`[PROMPT]\` is mutually exclusive with it — passing both fails at argv parsing. Do NOT "fix" that error by dropping \`--base\` and keeping the prompt: a prompt-only \`codex review\` silently falls back to the **uncommitted working-tree** scope (\`git status --short; git diff\`), so it reviews the wrong changes and reports "no changes" on a clean tree. Prompt text describing the diff range does not change what the CLI feeds the reviewer. Unlike the adversarial pass above, which uses \`codex exec\` and really does run the git command it's told to, this path gets a pre-computed diff from the CLI — which is also why it needs no filesystem boundary.

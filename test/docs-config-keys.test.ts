@@ -94,6 +94,32 @@ describe('docs ↔ gstack-config key drift guard', () => {
     }
   });
 
+  test.skipIf(process.platform === 'win32')('Codex review speed defaults fast and accepts explicit standard', () => {
+    const tmpHome = fs.mkdtempSync(path.join(require('os').tmpdir(), 'gstack-cfg-'));
+    try {
+      const initial = runConfig(['get', 'codex_review_speed'], tmpHome);
+      expect(initial.status).toBe(0);
+      expect(initial.stdout.trim()).toBe('fast');
+
+      const setStandard = runConfig(['set', 'codex_review_speed', 'standard'], tmpHome);
+      expect(setStandard.status).toBe(0);
+      const standard = runConfig(['get', 'codex_review_speed'], tmpHome);
+      expect(standard.stdout.trim()).toBe('standard');
+
+      const invalid = runConfig(['set', 'codex_review_speed', 'turbo'], tmpHome);
+      expect(invalid.status).toBe(1);
+      expect(invalid.stderr).toContain('Valid values: fast, standard');
+      const preserved = runConfig(['get', 'codex_review_speed'], tmpHome);
+      expect(preserved.stdout.trim()).toBe('standard');
+
+      const defaults = runConfig(['defaults'], tmpHome);
+      expect(defaults.stdout).toContain('codex_review_speed:');
+      expect(defaults.stdout).toContain('fast');
+    } finally {
+      fs.rmSync(tmpHome, { recursive: true, force: true });
+    }
+  });
+
   test.skipIf(process.platform === 'win32')('`gstack-config get artifacts_sync_mode` returns a value (the rename landed)', () => {
     // Run from a clean HOME so the user's local config doesn't pollute.
     const tmpHome = fs.mkdtempSync(path.join(require('os').tmpdir(), 'gstack-cfg-'));

@@ -111,6 +111,11 @@ CONFIG_HEADER='# gstack configuration — edit freely, changes take effect on ne
 #                           #   /document-release skip the outside-voice step entirely.
 #                           #   An invalid value is REJECTED (existing value preserved) so
 #                           #   a typo cannot silently turn paid Codex calls on or off.
+# codex_review_speed: fast  # fast | standard. Controls the Codex adversarial and
+#                           #   structured passes launched by Claude-hosted /review
+#                           #   and /ship. fast uses Codex priority service and more
+#                           #   usage; standard restores the normal service tier.
+#                           #   Invalid values are rejected without changing config.
 # gstack_contributor: false # true = file field reports when gstack misbehaves
 # skip_eng_review: false    # true = skip eng review gate in /ship (not recommended)
 #
@@ -138,6 +143,7 @@ lookup_default() {
     checkpoint_push) echo "false" ;;
     explain_level) echo "default" ;;
     codex_reviews) echo "enabled" ;;
+    codex_review_speed) echo "fast" ;;
     gstack_contributor) echo "false" ;;
     skip_eng_review) echo "false" ;;
     workspace_root) echo "$HOME/conductor/workspaces" ;;
@@ -355,6 +361,10 @@ case "${1:-}" in
       echo "Error: codex_reviews '$VALUE' not recognized. Valid values: enabled, disabled. Existing value left unchanged." >&2
       exit 1
     fi
+    if [ "$KEY" = "codex_review_speed" ] && [ "$VALUE" != "fast" ] && [ "$VALUE" != "standard" ]; then
+      echo "Error: codex_review_speed '$VALUE' not recognized. Valid values: fast, standard. Existing value left unchanged." >&2
+      exit 1
+    fi
     mkdir -p "$STATE_DIR"
     # Write annotated header on first creation
     if [ ! -f "$CONFIG_FILE" ]; then
@@ -384,7 +394,7 @@ case "${1:-}" in
     echo "# ─── Active values (including defaults for unset keys) ───"
     for KEY in proactive routing_declined telemetry auto_upgrade update_check \
                skill_prefix checkpoint_mode checkpoint_push explain_level \
-               codex_reviews gstack_contributor skip_eng_review workspace_root \
+               codex_reviews codex_review_speed gstack_contributor skip_eng_review workspace_root \
                artifacts_sync_mode artifacts_sync_mode_prompted plan_tune_hooks; do
       VALUE=$(read_config_value "$KEY" || true)
       SOURCE="default"
@@ -400,7 +410,7 @@ case "${1:-}" in
     echo "# gstack-config defaults"
     for KEY in proactive routing_declined telemetry auto_upgrade update_check \
                skill_prefix checkpoint_mode checkpoint_push explain_level \
-               codex_reviews gstack_contributor skip_eng_review workspace_root \
+               codex_reviews codex_review_speed gstack_contributor skip_eng_review workspace_root \
                artifacts_sync_mode artifacts_sync_mode_prompted plan_tune_hooks; do
       printf '  %-24s %s\n' "$KEY:" "$(lookup_default "$KEY")"
     done
