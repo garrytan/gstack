@@ -141,6 +141,35 @@ describe('taste-engine: Laplace-smoothed confidence', () => {
     expect(rejected.rejected_count).toBe(1);
     expect(rejected.approved_count).toBe(0);
   });
+
+  test('repeated rejections raise rejected confidence toward 1', () => {
+    for (let i = 0; i < 5; i++) {
+      run(['rejected', `variant-${i}`, '--reason', 'fonts: Comic Sans']);
+    }
+    const p = readProfile();
+    const pref = p.dimensions.fonts.rejected[0];
+    expect(pref.rejected_count).toBe(5);
+    // Confidence reflects this bucket's signal: 5 / (5 + 0 + 1) = 0.833.
+    // Pre-fix this was approved_count/(total+1) = 0/6 = 0 for every rejected entry.
+    expect(pref.confidence).toBeCloseTo(5 / 6, 5);
+  });
+
+  test('show ranks rejections by strength, not insertion order', () => {
+    run(['rejected', 'weak', '--reason', 'colors: beige']);
+    for (let i = 0; i < 4; i++) {
+      run(['rejected', `strong-${i}`, '--reason', 'colors: crimson']);
+    }
+    const r = run(['show']);
+    expect(r.status).toBe(0);
+    // The strongly-rejected value must rank above the weakly-rejected one even
+    // though it was inserted second. Pre-fix both keys were 0, so the sort was a
+    // no-op and "beige" (inserted first) won.
+    const crimsonIdx = r.stdout.indexOf('crimson');
+    const beigeIdx = r.stdout.indexOf('beige');
+    expect(crimsonIdx).toBeGreaterThanOrEqual(0);
+    expect(beigeIdx).toBeGreaterThanOrEqual(0);
+    expect(crimsonIdx).toBeLessThan(beigeIdx);
+  });
 });
 
 describe('taste-engine: decay math', () => {
@@ -308,6 +337,19 @@ describe('taste-engine: taste drift conflict detection', () => {
     const r = run(['approved', 'v1', '--reason', 'fonts: Inter']);
     expect(r.status).toBe(0);
     expect(r.stderr).not.toContain('taste drift');
+  });
+
+  test('drift warning fires from real CLI rejections (no seeding)', () => {
+    // Build the opposite signal through the real CLI: 4 rejections take confidence
+    // to 4/5 = 0.8, above the 0.6 drift threshold. Pre-fix every rejected entry was
+    // pinned to confidence 0, so this branch was unreachable without hand-seeding.
+    for (let i = 0; i < 4; i++) {
+      run(['rejected', `variant-${i}`, '--reason', 'fonts: Comic Sans']);
+    }
+    const r = run(['approved', 'v-approve', '--reason', 'fonts: Comic Sans']);
+    expect(r.status).toBe(0);
+    expect(r.stderr).toContain('taste drift');
+    expect(r.stderr).toContain('Comic Sans');
   });
 });
 
