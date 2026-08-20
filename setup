@@ -1434,8 +1434,10 @@ link_opencode_skill_dirs() {
 # OpenCode 1.18.3 ships builtin /review (subtask: true) which shadows a skill
 # whose frontmatter name is `review`. Do not write commands/review.md — that
 # would steal the builtin. Write a namespaced file so /gstack-review loads
-# the skill by its short name. Same for `init`. Non-colliding skills already
-# register as slash commands from the skill itself.
+# the skill by its short name. Non-colliding skills already register as slash
+# commands from the skill itself. Banner goes after frontmatter so OpenCode
+# still parses description/subtask; grep '<!-- AUTO-GENERATED from' matches
+# the #2142/#2444 ownership gate used by every other installer.
 install_opencode_collision_commands() {
   local skills_dir="$1"
   local commands_dir="$2"
@@ -1449,16 +1451,24 @@ install_opencode_collision_commands() {
     [ -f "$skill_file" ] || continue
     name=$(awk 'BEGIN{fm=0} /^---$/{fm++; next} fm==1 && $1=="name:"{print $2; exit}' "$skill_file")
     case "$name" in
-      review|init) ;;
+      review) ;;
       *) continue ;;
     esac
-    mkdir -p "$commands_dir"
     dest="$commands_dir/gstack-${name}.md"
+    if [ -e "$dest" ] || [ -L "$dest" ]; then
+      if ! grep -q '<!-- AUTO-GENERATED from' "$dest" 2>/dev/null; then
+        echo "  left in place (existing dir not gstack-managed — no generated banner): $dest" >&2
+        continue
+      fi
+    fi
+    mkdir -p "$commands_dir"
     cat > "$dest" <<EOF
 ---
 description: Run the gstack ${name} skill
 subtask: false
 ---
+
+<!-- AUTO-GENERATED from setup — do not edit directly -->
 
 Use the skill tool with name "${name}" (the skill frontmatter name). Follow that skill, including its preamble.
 EOF
@@ -1890,6 +1900,7 @@ if [ "$INSTALL_OPENCODE" -eq 1 ]; then
   echo "gstack ready (opencode)."
   echo "  browse: $BROWSE_BIN"
   echo "  opencode skills: $OPENCODE_SKILLS"
+  echo "  opencode: /review is OpenCode's builtin — use /gstack-review for gstack's review skill"
 fi
 
 # 6d. Install for Cursor

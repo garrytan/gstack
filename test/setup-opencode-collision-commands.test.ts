@@ -7,7 +7,7 @@
  * with `commands/review.md`; it writes a namespaced `gstack-review.md`
  * (`subtask: false`) so `/gstack-review` loads the skill by its short name.
  *
- * Non-colliding skills (qa, ship, …) already become skill-sourced commands
+ * Non-colliding skills (qa, ship, ...) already become skill-sourced commands
  * without `subtask` — do not batch-generate command files for them.
  */
 import { describe, test, expect } from 'bun:test';
@@ -18,6 +18,8 @@ import * as path from 'path';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const SETUP_SRC = fs.readFileSync(path.join(ROOT, 'setup'), 'utf-8');
+
+const GENERATED_BANNER = '<!-- AUTO-GENERATED from';
 
 function extractFn(name: string): string {
   const start = SETUP_SRC.indexOf(`${name}() {`);
@@ -60,6 +62,19 @@ function installCollisionCommands(skills: Record<string, string>, extraCommandFi
   return { tmp, commandsDir, run, files, read };
 }
 
+function assertGeneratedCommand(body: string, skillName: string) {
+  expect(body).toMatch(/^---\n/);
+  expect(body).toContain('subtask: false');
+  expect(body).not.toMatch(/agent:\s*plan/);
+  expect(body).toContain('skill');
+  expect(body).toContain(`"${skillName}"`);
+  expect(body).toContain('preamble');
+  const fmEnd = body.indexOf('\n---\n', 4);
+  expect(fmEnd).toBeGreaterThan(0);
+  const bannerAt = body.indexOf(GENERATED_BANNER);
+  expect(bannerAt).toBeGreaterThan(fmEnd);
+}
+
 describe('setup: OpenCode collision commands — static (#2629)', () => {
   test('OpenCode install invokes the collision-command installer after linking skills', () => {
     const start = SETUP_SRC.indexOf('# 6c. Install for OpenCode');
@@ -72,12 +87,17 @@ describe('setup: OpenCode collision commands — static (#2629)', () => {
     const linkAt = block.indexOf('link_opencode_skill_dirs');
     const installAt = block.indexOf('install_opencode_collision_commands');
     expect(installAt).toBeGreaterThan(linkAt);
+    expect(block).toContain('/gstack-review');
+    expect(block).toContain('/review is OpenCode');
   });
 
   test('collision installer writes only namespaced gstack-<name>.md files', () => {
     const fn = extractFn('install_opencode_collision_commands');
     expect(fn).toContain('"$commands_dir/gstack-${name}.md"');
     expect(fn).not.toMatch(/\$commands_dir\/(?:review|init)\.md/);
+    expect(fn).not.toMatch(/review\|init/);
+    expect(fn).toContain(GENERATED_BANNER);
+    expect(fn).toContain('left in place (existing dir not gstack-managed — no generated banner)');
   });
 });
 
@@ -86,28 +106,17 @@ describe.skipIf(process.platform === 'win32')('setup: OpenCode collision command
     const { tmp, run, files, read } = installCollisionCommands({
       'gstack-review': 'review',
       'gstack-qa': 'qa',
-      'gstack-init': 'init',
     }, { 'review.md': 'USER-OWNED-REVIEW\n' });
     try {
       expect(run.status).toBe(0);
       expect(run.stderr).toBe('');
-      expect(files).toEqual(['gstack-init.md', 'gstack-review.md', 'review.md']);
+      expect(files).toEqual(['gstack-review.md', 'review.md']);
       expect(read('review.md')).toBe('USER-OWNED-REVIEW\n');
       expect(read('init.md')).toBeNull();
+      expect(read('gstack-init.md')).toBeNull();
       expect(read('gstack-qa.md')).toBeNull();
       expect(read('qa.md')).toBeNull();
-
-      const review = read('gstack-review.md')!;
-      expect(review).toMatch(/^---\n/);
-      expect(review).toContain('subtask: false');
-      expect(review).not.toMatch(/agent:\s*plan/);
-      expect(review).toContain('skill');
-      expect(review).toContain('"review"');
-      expect(review).toContain('preamble');
-
-      const init = read('gstack-init.md')!;
-      expect(init).toContain('subtask: false');
-      expect(init).toContain('"init"');
+      assertGeneratedCommand(read('gstack-review.md')!, 'review');
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
     }
@@ -121,6 +130,43 @@ describe.skipIf(process.platform === 'win32')('setup: OpenCode collision command
       expect(run.status).toBe(0);
       expect(files).toEqual([]);
       expect(fs.existsSync(commandsDir)).toBe(false);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  test('leaves a user-owned gstack-review.md without the generated banner in place', () => {
+    const { tmp, run, read } = installCollisionCommands({
+      'gstack-review': 'review',
+    }, { 'gstack-review.md': '# my own command\n' });
+    try {
+      expect(run.status).toBe(0);
+      expect(read('gstack-review.md')).toBe('# my own command\n');
+      expect(run.stderr).toContain('left in place (existing dir not gstack-managed — no generated banner)');
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  test('refreshes a bannered gstack-review.md on re-run', () => {
+    const stale = [
+      '---',
+      'description: stale',
+      'subtask: false',
+      '---',
+      '',
+      `${GENERATED_BANNER} setup — do not edit directly -->`,
+      'stale body',
+      '',
+    ].join('\n');
+    const { tmp, run, read } = installCollisionCommands({
+      'gstack-review': 'review',
+    }, { 'gstack-review.md': stale });
+    try {
+      expect(run.status).toBe(0);
+      const body = read('gstack-review.md')!;
+      expect(body).not.toContain('stale body');
+      assertGeneratedCommand(body, 'review');
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
     }
