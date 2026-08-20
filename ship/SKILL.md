@@ -1044,30 +1044,55 @@ Skip on:
 - Branches where the base is the user's own fork (no upstream to dup)
 - Explicit `--skip-pr-prep` flag
 
-Otherwise run `/pr-prep` inline with `GSTACK_FROM_SHIP=1`:
+Otherwise run the gate. First the precondition probe:
 
 ```bash
-# Skip if no upstream remote configured (solo-repo case)
-if ! gh repo view --json nameWithOwner -q .nameWithOwner >/dev/null 2>&1; then
-  echo "[ship] no upstream repo detected, skipping pr-prep audit"
+if gh repo view --json nameWithOwner -q .nameWithOwner >/dev/null 2>&1; then
+  echo "PR_PREP_GATE: run"
 else
-  GSTACK_FROM_SHIP=1 ~/.claude/skills/gstack/bin/gstack-skill pr-prep --base "$BASE_BRANCH" --json > /tmp/ship-pr-prep.json 2>&1
-  PR_PREP_EXIT=$?
-  if [ "$PR_PREP_EXIT" -eq 1 ]; then
-    # EXACT_DUP found
-    cat /tmp/ship-pr-prep.json
-    echo ""
-    echo "✗ Ship aborted: pr-prep found exact duplicate upstream work."
-    echo "  Resolution paths:"
-    echo "    1. Close your version, comment on the upstream PR with your angle"
-    echo "    2. Cherry-pick unique parts to a new branch + file separately"
-    echo "    3. Override with /ship --skip-pr-prep if coordinated with the upstream PR author"
-    exit 1
-  fi
-  # CLEAN / OVERLAP / SIBLING — render summary, continue
-  jq -r '.summary' /tmp/ship-pr-prep.json 2>/dev/null || true
+  echo "PR_PREP_GATE: skip (no upstream repo detected)"
+fi
+rm -f /tmp/ship-pr-prep.json
+```
+
+If `PR_PREP_GATE` is `skip`, continue to Step 2.
+
+If it is `run`, execute the pr-prep skill INLINE — there is no CLI
+runner for skills, so read `~/.claude/skills/gstack/pr-prep/SKILL.md`
+and follow it step by step in this session, under its `/ship`
+integration contract (its Step 7):
+
+- Treat `GSTACK_FROM_SHIP` as set: skip pr-prep's own AskUserQuestion
+  confirmations, it is ship that owns the gate decision
+- Use `--base "$BASE_BRANCH"` for the commit walk
+- Write pr-prep's machine-readable report to `/tmp/ship-pr-prep.json`
+  (`{"summary": "...", "worst": "EXACT_DUP|OVERLAP|SIBLING|CLEAN",
+  "commits": [...]}`) before returning here
+
+Then enforce the gate on that report:
+
+```bash
+if [ ! -f /tmp/ship-pr-prep.json ]; then
+  echo "[ship] pr-prep produced no report — continuing (audit not run)" >&2
+else
+  PR_PREP_WORST=$(jq -r '.worst // "CLEAN"' /tmp/ship-pr-prep.json 2>/dev/null || echo CLEAN)
+  jq -r '.summary // empty' /tmp/ship-pr-prep.json 2>/dev/null || true
+  echo "PR_PREP_WORST: $PR_PREP_WORST"
 fi
 ```
+
+If `PR_PREP_WORST` is `EXACT_DUP` and `--skip-pr-prep` was not passed,
+ABORT ship and print:
+
+```
+✗ Ship aborted: pr-prep found exact duplicate upstream work.
+  Resolution paths:
+    1. Close your version, comment on the upstream PR with your angle
+    2. Cherry-pick unique parts to a new branch + file separately
+    3. Override with /ship --skip-pr-prep if coordinated with the upstream PR author
+```
+
+`OVERLAP` / `SIBLING` / `CLEAN` are informational — continue to Step 2.
 
 Note: the JSON report path (`/tmp/ship-pr-prep.json`) is read again in
 Step 19 (PR body assembly) to surface SIBLING / OVERLAP findings as a
