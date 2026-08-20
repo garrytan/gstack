@@ -37,6 +37,7 @@ import {
   type ScanOptions,
   type Finding,
 } from "../lib/redact-engine";
+import { mkdirpSync } from "../lib/fs-utils";
 
 const MAX_STDIN_BYTES = 16 * 1024 * 1024; // hard ceiling before the engine cap
 
@@ -55,7 +56,9 @@ function hooksPath(): string {
 
 function installPrepushHook(): void {
   const dir = hooksPath();
-  fs.mkdirSync(dir, { recursive: true });
+  // mkdirpSync, not bare mkdirSync: bun on Windows throws EEXIST from a
+  // recursive mkdir when .git/hooks already exists (#2635).
+  mkdirpSync(dir);
   const hookPath = path.join(dir, "pre-push");
   const prepushBin = path.join(import.meta.dir, "gstack-redact-prepush");
 
