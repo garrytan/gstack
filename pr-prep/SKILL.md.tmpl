@@ -191,9 +191,15 @@ Final severity bucket per commit:
 | Bucket | Trigger |
 |---|---|
 | **EXACT_DUP** | Any OPEN PR with title Jaccard ≥0.6 OR file overlap ≥0.6 |
-| **OVERLAP** | Any OPEN PR/issue with score ≥0.3, or ≥3 OPEN issues |
+| **OVERLAP** | Any OPEN PR/issue with score ≥0.3, or ≥3 OPEN issues each scoring ≥0.15 |
 | **SIBLING** | OPEN issues but no PR; or merged-recently with overlap |
 | **CLEAN** | No hits, or only old closed issues |
+
+The ≥0.15 floor on the count clause matters: without it the clause counts raw
+`gh` full-text hits, so a `chore(build)` commit whose keywords are generic
+(e.g. `regenerate skill merge`) buckets OVERLAP off a topScore of 0.05 on any
+repo with a busy tracker. The floor keeps the clause for a genuinely crowded
+topic while dropping incidental matches.
 
 This bucketing is implemented deterministically in `bin/gstack-pr-prep-score`
 (pure function, unit-tested in `test/pr-prep-score.test.ts`) — the canonical
@@ -207,7 +213,7 @@ ingress, so it stays outside the envelope.
 
 ```bash
 echo "$CANDIDATE_JSON" | ~/.claude/skills/gstack/bin/gstack-pr-prep-score
-# -> {"bucket":"EXACT_DUP","topScore":1,"openIssueCount":0,"reasons":[...]}
+# -> {"bucket":"EXACT_DUP","topScore":1,"openIssueCount":0,"relatedOpenIssueCount":0,"reasons":[...]}
 ```
 
 ## Step 4.4: Second-opinion review via codex (CLEAN commits only)

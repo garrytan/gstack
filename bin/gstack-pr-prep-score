@@ -19,7 +19,8 @@
  *     ]
  *   }
  *
- * Output (stdout): { "bucket", "topScore", "openIssueCount", "reasons": [...] }
+ * Output (stdout):
+ *   { "bucket", "topScore", "openIssueCount", "relatedOpenIssueCount", "reasons": [...] }
  * Buckets: EXACT_DUP | OVERLAP | SIBLING | CLEAN  (precedence in that order).
  * Exit 0 always; the bucket is the signal (the skill maps EXACT_DUP -> exit 1).
  */
@@ -45,6 +46,8 @@ export interface ScoreResult {
   bucket: Bucket;
   topScore: number;
   openIssueCount: number;
+  /** Open issues clearing RELATED_OPEN_ISSUE_FLOOR — what the count clause counts. */
+  relatedOpenIssueCount: number;
   reasons: string[];
 }
 
@@ -55,6 +58,21 @@ const STATE_WEIGHT: Record<CandidateState, number> = {
   merged_recent: 0.6,
   closed_issue: 0.2,
 };
+
+/**
+ * Score floor an open issue must clear to count toward the ">=3 open issues"
+ * OVERLAP clause. Without it the clause counts raw `gh` full-text hits: a
+ * chore/build commit yields generic keywords (e.g. "regenerate skill merge"),
+ * gh returns 3+ unrelated open issues, and the commit buckets OVERLAP on a
+ * topScore of 0.05. On any busy tracker that fires forever, which trains the
+ * reader to ignore the bucket.
+ *
+ * 0.15 sits well below the single-hit OVERLAP threshold (0.3) so the clause
+ * still catches a crowded topic where no single issue is a strong match, but
+ * above the noise floor: an open issue is weighted 0.7, so 0.15 needs title
+ * Jaccard >=0.214 — a real shared-token overlap, not one incidental word.
+ */
+const RELATED_OPEN_ISSUE_FLOOR = 0.15;
 
 function norm(tokens: string[] | undefined): Set<string> {
   return new Set((tokens ?? []).map((t) => t.toLowerCase().trim()).filter(Boolean));
@@ -78,6 +96,7 @@ export function score(input: ScoreInput): ScoreResult {
   let overlap = false;
   let sibling = false;
   let openIssueCount = 0;
+  let relatedOpenIssueCount = 0;
   let hasOpenPr = false;
   let onlyClosed = candidates.length > 0;
 
@@ -90,7 +109,10 @@ export function score(input: ScoreInput): ScoreResult {
     const s = overlapJ * STATE_WEIGHT[c.state];
     if (s > topScore) topScore = s;
     if (c.state !== 'closed_issue') onlyClosed = false;
-    if (c.state === 'open_issue') openIssueCount++;
+    if (c.state === 'open_issue') {
+      openIssueCount++;
+      if (s >= RELATED_OPEN_ISSUE_FLOOR) relatedOpenIssueCount++;
+    }
     if (c.state === 'open_pr') hasOpenPr = true;
 
     const ref = c.ref ? `${c.ref} ` : '';
@@ -115,10 +137,15 @@ export function score(input: ScoreInput): ScoreResult {
     }
   }
 
-  // OVERLAP also triggers on >=3 OPEN issues even when none individually scores high.
-  if (openIssueCount >= 3) {
+  // OVERLAP also triggers on >=3 OPEN issues that are individually RELATED
+  // (each >= RELATED_OPEN_ISSUE_FLOOR) even when none scores high enough to
+  // trip the single-hit threshold on its own. Counting unrelated full-text
+  // hits here is what made every chore/build commit read as OVERLAP.
+  if (relatedOpenIssueCount >= 3) {
     overlap = true;
-    reasons.push(`OVERLAP: ${openIssueCount} open issues`);
+    reasons.push(
+      `OVERLAP: ${relatedOpenIssueCount} open issues scoring >=${RELATED_OPEN_ISSUE_FLOOR}`,
+    );
   }
   // SIBLING: OPEN issues present but no OPEN PR (and not already EXACT_DUP/OVERLAP).
   if (openIssueCount > 0 && !hasOpenPr) sibling = true;
@@ -132,7 +159,13 @@ export function score(input: ScoreInput): ScoreResult {
   if (bucket === 'CLEAN' && reasons.length === 0) {
     reasons.push(onlyClosed ? 'only closed issues' : 'no hits above threshold');
   }
-  return { bucket, topScore: Number(topScore.toFixed(4)), openIssueCount, reasons };
+  return {
+    bucket,
+    topScore: Number(topScore.toFixed(4)),
+    openIssueCount,
+    relatedOpenIssueCount,
+    reasons,
+  };
 }
 
 // CLI entry — skip when imported by the test.

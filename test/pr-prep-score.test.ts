@@ -58,15 +58,53 @@ describe('pr-prep scorer: buckets', () => {
     expect(r.topScore).toBeLessThan(0.6);
   });
 
-  test('three open issues -> OVERLAP even when each scores low', () => {
-    const weak = (ref: string) => ({ state: 'open_issue' as const, ref, titleKeywords: ['zzz'] });
+  test('three RELATED open issues -> OVERLAP even when none scores >=0.3', () => {
+    // Each shares 2 tokens with a 6-token commit: Jaccard 2/7 = 0.286,
+    // scored 0.286 * 0.7 = 0.2 — over the 0.15 related floor, under the 0.3
+    // single-hit threshold. Three of them is the crowded-topic signal the
+    // count clause exists to catch.
+    const related = (ref: string) => ({
+      state: 'open_issue' as const,
+      ref,
+      titleKeywords: ['synopsis', 'truncate', 'error'],
+    });
     const input: ScoreInput = {
-      commitKeywords: ['a', 'b'],
-      candidates: [weak('#1'), weak('#2'), weak('#3')],
+      commitKeywords: ['synopsis', 'truncate', 'documenttext', 'tail', 'handler', 'chat'],
+      candidates: [related('#1'), related('#2'), related('#3')],
     };
     const r = score(input);
     expect(r.bucket).toBe('OVERLAP');
     expect(r.openIssueCount).toBe(3);
+    expect(r.relatedOpenIssueCount).toBe(3);
+    expect(r.topScore).toBeLessThan(0.3);
+  });
+
+  test('three UNRELATED open issues do NOT reach OVERLAP on count alone', () => {
+    // Regression: the count clause used to count every open issue `gh`
+    // full-text returned. A chore/build commit ("regenerate skill merge")
+    // pulls 3+ unrelated open issues on any busy tracker and bucketed
+    // OVERLAP off a topScore of 0.05, so the bucket stopped meaning anything.
+    const noise = (ref: string, kw: string[]) => ({
+      state: 'open_issue' as const,
+      ref,
+      titleKeywords: kw,
+    });
+    const input: ScoreInput = {
+      commitKeywords: ['regenerate', 'skill', 'merge'],
+      candidates: [
+        noise('#2286', ['generated', 'trigger', 'vocabulary', 'frontmatter', 'router']),
+        noise('#1048', ['review', 'minimal', 'diff', 'preference', 'schema']),
+        noise('#349', ['support', 'custom', 'config', 'paths']),
+        noise('#2595', ['windows', 'smart', 'control', 'blocks', 'browse']),
+      ],
+    };
+    const r = score(input);
+    expect(r.openIssueCount).toBe(4);
+    expect(r.relatedOpenIssueCount).toBe(0);
+    expect(r.bucket).not.toBe('OVERLAP');
+    // Open issues with no open PR still surface as SIBLING — informational,
+    // not a false all-clear.
+    expect(r.bucket).toBe('SIBLING');
   });
 
   test('single low-score open issue, no PR -> SIBLING', () => {
