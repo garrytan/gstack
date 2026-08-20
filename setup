@@ -3,6 +3,16 @@
 set -e
 umask 077  # Restrict new files to owner-only (0o600 files, 0o700 dirs)
 
+# Heredoc delivery guard. bash 5.2+ writes a heredoc body <=64KiB through a
+# pipe in the forked child before exec, with no reader on the other end. On
+# macOS under pipe-KVA pressure a fresh pipe gets a 512-byte buffer, so any
+# body >=512B blocks write() forever — ./setup --help would hang with no
+# output. Compat level 50 restores the tempfile path. This script is
+# bash-3.2-clean, so the compat level costs it nothing. Not exported: the
+# guard is per-script, and it survives `bash setup` call sites that bypass
+# the shebang.
+BASH_COMPAT=50
+
 usage() {
   cat <<'EOF'
 gstack setup — install gstack skills + build browse binary
