@@ -99,6 +99,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
   ship: {
     skill: 'ship',
     expectedSections: [
+      'apple-release.md',
       'tests.md',
       'test-coverage.md',
       'plan-completion.md',
@@ -125,11 +126,20 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     },
     behavioral: 'external',
     externalTest: 'test/skill-e2e-ship-section-loading.test.ts',
-    maxSkeletonBytes: 90_000,
+    maxSkeletonBytes: 91_600, // v1.68 fix wave: unconditional learnings capture (#2402, ~450B/skill); measured 91,061
     minUnionBytes: 120_000,
     mustContain: ['VERSION', 'CHANGELOG', 'review', 'merge', 'PR'],
     // v1.58.5.0: pre-push-guard install (#2077) stacks on the shared first-run-guidance preamble.
-    maxSizeRatio: 1.08,
+    // Fork port wave 2: multi-ecosystem test-detection evidence (Django/JVM
+    // markers, test-file census — e3259078 port) + the #1079 gh pr edit REST
+    // fallback grew the union to 1.090x; the third-party web-actions
+    // contract (consent-gated browser drive for API-key registration etc.)
+    // adds ~2.3KB inline judgment, measured 1.103x. The Apple release
+    // adapter (14.8KB carved section, 21 live releases of judgment — the
+    // wave's headline capability) grows the union to 1.195x. Deliberate:
+    // the section is on-demand (loads only for Apple store targets), so
+    // per-invocation cost for non-iOS ships is one manifest line.
+    maxSizeRatio: 1.22,
   },
   'plan-ceo-review': {
     skill: 'plan-ceo-review',
@@ -144,7 +154,10 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     },
     behavioral: 'external',
     externalTest: 'test/skill-e2e-plan-ceo-review-section-loading.test.ts',
-    maxSkeletonBytes: 90_000,
+    // v1.65 merge: provisional larger-of-both-waves budget; re-measured below.
+        // Fork port wave 2 (#703): the repo-doc-preference block in the design
+    // check grew every plan-review skeleton ~0.7KB. Measured values noted.
+    maxSkeletonBytes: 93_900, // v1.68 fix wave: #2402 learnings capture + spool queue-depth lines; measured 93,345
     minUnionBytes: 80_000,
     mustContain: ['SCOPE EXPANSION', 'SELECTIVE EXPANSION', 'HOLD SCOPE', 'SCOPE REDUCTION'],
     // Default-on Codex outside-voice (codexPreflight block + CODEX_MODE branch
@@ -164,7 +177,13 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     },
     behavioral: 'plan',
     // v1.2.0 activation lift (shared first-run-guidance preamble) + #2077 ask-first scope gate.
-    maxSkeletonBytes: 67_000,
+    // +~1 KB: plan-mode auto-select-B scope-gate exceptions (2026-08).
+    // v1.65 merge: provisional larger-of-both-waves budget; re-measured below.
+        // Fork port wave 2 (#703): the repo-doc-preference block in the design
+    // check grew every plan-review skeleton ~0.7KB. Measured values noted.
+    // #2499 project-scope MCP jq in the brain-sync block grew every tier-2+
+    // skeleton ~1.5KB (entry resolution emitted once per SKILL.md).
+    maxSkeletonBytes: 71_800, // v1.68 fix wave (#2402); measured 71,228
     minUnionBytes: 70_000,
     mustContain: ['Architecture', 'Code Quality', 'Test', 'Performance'],
     // Cross-cutting preamble growth (v1.57.2.0 AUQ-failure prose fallback + the
@@ -172,7 +191,10 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     // default-on Codex outside-voice (codexPreflight block + CODEX_MODE branch
     // prose, replacing the smaller opt-in question) land this at ~6.6% over the
     // v1.53.0.0 baseline. Headroom for those intentional additions.
-    maxSizeRatio: 1.08,
+    // 1.08 → 1.10: the scope-gate exceptions block (+ its adversarial-review
+    // hardening: host-anchored mode signal, precedence, passing-mention
+    // guards) and the plan-mode preamble reword land the union at 1.092.
+    maxSizeRatio: 1.12, // measured 1.103
   },
   'plan-design-review': {
     skill: 'plan-design-review',
@@ -189,10 +211,15 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     // +Conductor AUQ-default-prose rule + one-way/continuation safety in the
     // always-loaded AskUserQuestion Format section.
     // v1.2.0 activation lift (shared first-run-guidance preamble) + #2077 ask-first scope gate.
-    maxSkeletonBytes: 88_000,
+    // +~1.3 KB: plan-mode auto-select-B scope-gate exceptions (2026-08).
+    // Fork port wave 2 (D1): evidence directive adds ~0.45KB to every
+    // tier-2+ skeleton (measured 89,184). Main's v1.64.0.0 adds ~340 B more
+    // (telemetry --error-message/--failed-step preamble prose, PR #769).
+    // Budget covers the sum of both waves.
+    maxSkeletonBytes: 91_700, // v1.68 fix wave (#2402); measured 91,176
     minUnionBytes: 70_000,
     mustContain: ['design', 'visual'],
-    maxSizeRatio: 1.07,
+    maxSizeRatio: 1.12, // D1 1.104 + main's ~0.008
   },
   'plan-devex-review': {
     skill: 'plan-devex-review',
@@ -209,7 +236,11 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     // +Conductor AUQ-default-prose rule + one-way/destructive prose safety +
     // continuation protocol in the always-loaded AskUserQuestion Format section.
     // v1.2.0 activation lift: first-run-guidance section in the shared preamble.
-    maxSkeletonBytes: 80_000,
+        // Fork port wave 2 (#703): the repo-doc-preference block in the design
+    // check grew every plan-review skeleton ~0.7KB. Measured values noted.
+    // #2499 project-scope MCP jq in the brain-sync block grew every tier-2+
+    // skeleton ~1.5KB (entry resolution emitted once per SKILL.md).
+    maxSkeletonBytes: 83_500, // v1.68 fix wave (#2402); measured 82,941
     minUnionBytes: 70_000,
     mustContain: ['developer experience', 'Getting Started'],
     // Default-on Codex outside-voice (codexPreflight block + CODEX_MODE branch
@@ -232,10 +263,17 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     behavioral: 'prompt',
     // v1.2.0 activation lift: first-run-guidance section in the shared preamble,
     // plus the P1 office-hours closing handoff (AUQ that launches the next skill).
-    maxSkeletonBytes: 98_000,
+    // v1.65 merge: provisional larger-of-both-waves budget; re-measured below.
+    // Fork port wave 2: the third-party web-actions contract sits inline
+    // (judgment must be visible before the workflow directs the user to a
+    // vendor site), plus the #703 dual-write + repo-doc-preference block and
+    // the #538 opt-out + D1 evidence directive — ratio 1.104 measured.
+    // #2499 project-scope MCP jq in the brain-sync block grew every tier-2+
+    // skeleton ~1.5KB (entry resolution emitted once per SKILL.md).
+    maxSkeletonBytes: 102_800, // v1.68 fix wave (#2402); measured 102,220
     minUnionBytes: 70_000,
     mustContain: ['design doc', 'problem statement'],
-    maxSizeRatio: 1.07,
+    maxSizeRatio: 1.12,
   },
   'document-release': {
     skill: 'document-release',
@@ -253,7 +291,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     // +Conductor AUQ-default-prose rule + one-way/continuation safety in the
     // always-loaded AskUserQuestion Format section.
     // v1.2.0 activation lift: first-run-guidance section in the shared preamble.
-    maxSkeletonBytes: 56_000,
+    maxSkeletonBytes: 57_900, // v1.68 fix wave (#2402); measured 57,385
     minUnionBytes: 55_000,
     mustContain: ['CHANGELOG', 'Diataxis', 'coverage'],
     // Two intentional additions stack on this small skill: the AUQ-failure prose
@@ -281,13 +319,17 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     // +Conductor AUQ-default-prose rule + one-way/continuation safety in the
     // always-loaded AskUserQuestion Format section.
     // v1.2.0 activation lift: first-run-guidance section in the shared preamble.
-    maxSkeletonBytes: 69_000,
+    // v1.65 merge: provisional larger-of-both-waves budget; re-measured below.
+    // v1.64.1.0: shared-preamble prose from the two parallel v1.64 waves lands
+    // the skeleton at 69,022 B; +~1 KB headroom.
+    maxSkeletonBytes: 71_400, // v1.68 fix wave (#2402); measured 70,815
     minUnionBytes: 72_000,
     mustContain: ['Typography', 'Color', 'Aesthetic Direction'],
     // Cross-cutting preamble growth (v1.57.2.0 AUQ-failure prose fallback ~2KB +
     // the cross-session decision-memory nudge) lands this carved skeleton just over
     // the strict 1.05; headroom for the shared preamble additions.
-    maxSizeRatio: 1.07,
+    // v1.64+v1.65 merge sums both waves' preamble growth; measured 1.073.
+    maxSizeRatio: 1.08,
   },
   cso: {
     skill: 'cso',
@@ -320,13 +362,14 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     // +Conductor AUQ-default-prose rule + one-way/continuation safety in the
     // always-loaded AskUserQuestion Format section.
     // v1.2.0 activation lift: first-run-guidance section in the shared preamble.
-    maxSkeletonBytes: 75_000,
+    maxSkeletonBytes: 77_300, // v1.68 fix wave (#2402); measured 76,705
     minUnionBytes: 72_000,
     mustContain: ['OWASP', 'STRIDE', 'daily', 'comprehensive', 'verif'],
     // cso keeps its mode-dispatch + FP-filtering phases always-loaded, so the
     // cross-cutting preamble growth (v1.57.2.0 AUQ-failure prose fallback ~2KB + the
     // decision-memory nudge) lands it just over 1.05; headroom for the shared additions.
-    maxSizeRatio: 1.07,
+    // v1.64+v1.65 merge sums both waves' preamble growth; measured 1.073.
+    maxSizeRatio: 1.08,
   },
 };
 

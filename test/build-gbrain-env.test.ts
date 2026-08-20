@@ -77,15 +77,32 @@ describe("buildGbrainEnv", () => {
     expect(result.DATABASE_URL).toBe("postgresql://app/db");
   });
 
-  it("honors GBRAIN_HOME when set (config aligned with detectEngineTier)", () => {
-    // Move the config to an alternate dir; set GBRAIN_HOME to point at it.
+  it("honors GBRAIN_HOME when set, with gbrain's parent-dir semantics (#2521)", () => {
+    // Move the config to an alternate dir; set GBRAIN_HOME to point at its
+    // PARENT — gbrain's configDir() appends `.gbrain` itself, so
+    // GBRAIN_HOME=/x reads /x/.gbrain/config.json.
     const altGbrainHome = join(home, "alt-gbrain");
-    mkdirSync(altGbrainHome, { recursive: true });
-    writeFileSync(join(altGbrainHome, "config.json"), JSON.stringify({ database_url: "postgresql://alt/db" }));
+    mkdirSync(join(altGbrainHome, ".gbrain"), { recursive: true });
+    writeFileSync(
+      join(altGbrainHome, ".gbrain", "config.json"),
+      JSON.stringify({ database_url: "postgresql://alt/db" }),
+    );
     // No file at the default ~/.gbrain location.
     const baseEnv = { HOME: home, GBRAIN_HOME: altGbrainHome };
     const result = buildGbrainEnv({ baseEnv });
     expect(result.DATABASE_URL).toBe("postgresql://alt/db");
+  });
+
+  it("ignores a config at $GBRAIN_HOME/config.json — gbrain never reads that file (#2521)", () => {
+    const altGbrainHome = join(home, "alt-gbrain-flat");
+    mkdirSync(altGbrainHome, { recursive: true });
+    writeFileSync(
+      join(altGbrainHome, "config.json"),
+      JSON.stringify({ database_url: "postgresql://alt/db" }),
+    );
+    const baseEnv = { HOME: home, GBRAIN_HOME: altGbrainHome };
+    const result = buildGbrainEnv({ baseEnv });
+    expect(result.DATABASE_URL).toBeUndefined();
   });
 
   it("returns a fresh env object — never the caller's env by identity", () => {

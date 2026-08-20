@@ -71,7 +71,11 @@ function run(extraEnv: Record<string, string> = {}, input = ''): { code: number;
       PATH: `${fakeBinDir}:${path.join(ROOT, 'bin')}:/usr/bin:/bin:/opt/homebrew/bin`,
       HOME: tmpHome,
       USER: 'testuser',
-      // Disable interactive prompt: empty stdin = treat as non-interactive.
+      // Empty stdin = non-interactive. Since #1383 the script SKIPS by
+      // default in that context (a remote repo rename is consent-shaped);
+      // the harness opts in explicitly, simulating a consenting unattended
+      // run. The default-skip contract has its own test below.
+      GSTACK_MIGRATE_ASSUME_YES: '1',
       ...extraEnv,
     },
     encoding: 'utf-8',
@@ -165,6 +169,67 @@ describe('v1.27.0.0 migration — GitHub host (non-interactive)', () => {
     const r = run();
     expect(r.code).toBe(0);
     expect(r.stderr).toContain('already named');
+  });
+});
+
+describe('v1.27.0.0 migration — #1383 consent + failure-stays-pending contract', () => {
+  beforeEach(() => {
+    fs.writeFileSync(
+      path.join(tmpHome, '.gstack-brain-remote.txt'),
+      'https://github.com/testuser/gstack-brain-testuser\n'
+    );
+    fs.writeFileSync(
+      path.join(tmpHome, '.gstack/config.yaml'),
+      'gbrain_sync_mode: full\n'
+    );
+    makeFakeGh({});
+  });
+
+  test('non-interactive without opt-in: skips for now, touches NOTHING', () => {
+    const r = run({ GSTACK_MIGRATE_ASSUME_YES: '0' });
+    expect(r.code).toBe(0);
+    expect(r.stderr).toContain('skipping for now');
+    expect(r.stderr).toContain('GSTACK_MIGRATE_ASSUME_YES=1');
+    // The remediation must be REAL: a direct invocation of this script.
+    // `/setup-gbrain --rerun-migration` never existed, and the runners'
+    // version windows never re-select a passed migration, so "will ask
+    // again next upgrade" was false.
+    expect(r.stderr).toContain('v1.27.0.0.sh');
+    expect(r.stderr).not.toContain('--rerun-migration');
+    expect(r.stderr).not.toContain('ask again');
+    // Old state untouched, nothing recorded as done.
+    expect(fs.existsSync(path.join(tmpHome, '.gstack-brain-remote.txt'))).toBe(true);
+    expect(fs.existsSync(path.join(tmpHome, '.gstack-artifacts-remote.txt'))).toBe(false);
+    expect(fs.existsSync(path.join(tmpHome, '.gstack/.migrations/v1.27.0.0.done'))).toBe(false);
+  });
+
+  test('gh rename failure: step stays pending, migration exits INCOMPLETE, retry succeeds', () => {
+    makeFakeGh({ renameSucceeds: false });
+    const r = run();
+    // Failure must be loud and the migration visibly incomplete — the old
+    // behavior marked the failed step done and wrote the done touchfile,
+    // permanently stranding a half-renamed install (#1383).
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain('PENDING');
+    expect(r.stderr).toContain('INCOMPLETE');
+    // Honest remediation: direct invocation, not the nonexistent
+    // /setup-gbrain --rerun-migration flag.
+    expect(r.stderr).toContain('Re-run manually with:');
+    expect(r.stderr).toContain('GSTACK_MIGRATE_ASSUME_YES=1');
+    expect(r.stderr).not.toContain('--rerun-migration');
+    expect(fs.existsSync(path.join(tmpHome, '.gstack/.migrations/v1.27.0.0.done'))).toBe(false);
+    const journal = fs.readFileSync(
+      path.join(tmpHome, '.gstack/.migrations/v1.27.0.0.journal'),
+      'utf-8'
+    );
+    expect(journal).not.toContain('gh_repo_renamed');
+    // Later steps DID run and are journaled (independent of step 1)...
+    expect(journal).toContain('remote_txt_renamed');
+    // ...so a retry with working gh only redoes step 1 and completes.
+    makeFakeGh({});
+    const r2 = run();
+    expect(r2.code).toBe(0);
+    expect(fs.existsSync(path.join(tmpHome, '.gstack/.migrations/v1.27.0.0.done'))).toBe(true);
   });
 });
 

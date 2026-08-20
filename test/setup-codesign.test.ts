@@ -1,78 +1,105 @@
-import { describe, test, expect } from 'bun:test';
-import { spawnSync } from 'child_process';
-import * as path from 'path';
-import * as fs from 'fs';
-import * as os from 'os';
+import { describe, test, expect } from "bun:test";
+import { spawnSync } from "child_process";
+import * as path from "path";
+import * as fs from "fs";
+import * as os from "os";
 
-const ROOT = path.resolve(import.meta.dir, '..');
-const SETUP_SCRIPT = path.join(ROOT, 'setup');
+const ROOT = path.resolve(import.meta.dir, "..");
+const SETUP_SCRIPT = path.join(ROOT, "setup");
 
-describe('setup: Apple Silicon codesign', () => {
-  test('setup script contains codesign block for Darwin arm64', () => {
-    const content = fs.readFileSync(SETUP_SCRIPT, 'utf-8');
+describe("setup: Apple Silicon codesign", () => {
+  test("setup script contains codesign block for Darwin arm64", () => {
+    const content = fs.readFileSync(SETUP_SCRIPT, "utf-8");
     // Verify the codesign guard checks both Darwin and arm64
     expect(content).toContain('$(uname -s)" = "Darwin"');
     expect(content).toContain('$(uname -m)" = "arm64"');
     // Verify remove-then-resign two-step pattern
-    expect(content).toContain('codesign --remove-signature');
-    expect(content).toContain('codesign -s - -f');
+    expect(content).toContain("codesign --remove-signature");
+    expect(content).toContain("codesign -s - -f");
   });
 
-  test('codesign block covers all compiled binaries', () => {
-    const content = fs.readFileSync(SETUP_SCRIPT, 'utf-8');
+  test("codesign block covers all compiled binaries", () => {
+    const content = fs.readFileSync(SETUP_SCRIPT, "utf-8");
     // Extract the binaries from the codesign for-loop
     const forMatch = content.match(/for _bin in ([^;]+);/);
     expect(forMatch).toBeTruthy();
     const binaries = forMatch![1].trim().split(/\s+/);
     // All four compiled binaries from `bun run build` must be covered
-    expect(binaries).toContain('browse/dist/browse');
-    expect(binaries).toContain('browse/dist/find-browse');
-    expect(binaries).toContain('design/dist/design');
-    expect(binaries).toContain('bin/gstack-global-discover');
+    expect(binaries).toContain("browse/dist/browse");
+    expect(binaries).toContain("browse/dist/find-browse");
+    expect(binaries).toContain("design/dist/design");
+    expect(binaries).toContain("bin/gstack-global-discover");
   });
 
-  test('codesign block is inside the NEEDS_BUILD=1 branch', () => {
-    const content = fs.readFileSync(SETUP_SCRIPT, 'utf-8');
+  test("codesign block is inside the NEEDS_BUILD=1 branch", () => {
+    const content = fs.readFileSync(SETUP_SCRIPT, "utf-8");
     // The codesign block should appear after the build command and before the
     // `if [ ! -x "$BROWSE_BIN" ]` guard that checks the build succeeded. The
     // setup script invokes the build via `bun_cmd run build` (not literal
     // `bun run build`) so the wrapper can route through asdf/volta/etc;
     // matching the wrapped form keeps this test stable across that indirection.
-    const buildIdx = content.indexOf('bun_cmd run build');
-    const codesignIdx = content.indexOf('codesign --remove-signature');
-    const browseCheckIdx = content.indexOf('gstack setup failed: browse binary missing');
+    const buildIdx = content.indexOf("bun_cmd run build");
+    const codesignIdx = content.indexOf("codesign --remove-signature");
+    const browseCheckIdx = content.indexOf(
+      "gstack setup failed: browse binary missing",
+    );
     expect(buildIdx).toBeGreaterThan(-1);
     expect(codesignIdx).toBeGreaterThan(buildIdx);
     expect(browseCheckIdx).toBeGreaterThan(codesignIdx);
   });
 
-  test('codesign block is idempotent (skips missing binaries)', () => {
-    const content = fs.readFileSync(SETUP_SCRIPT, 'utf-8');
+  test("codesign block is idempotent (skips missing binaries)", () => {
+    const content = fs.readFileSync(SETUP_SCRIPT, "utf-8");
     // The loop must guard with a file-existence + executable check before codesigning
-    expect(content).toContain('[ -f "$_bin_path" ] && [ -x "$_bin_path" ] || continue');
+    expect(content).toContain(
+      '[ -f "$_bin_path" ] && [ -x "$_bin_path" ] || continue',
+    );
   });
 
-  test('codesign failure is a warning, not a fatal error', () => {
-    const content = fs.readFileSync(SETUP_SCRIPT, 'utf-8');
+  test("codesign failure is a warning, not a fatal error", () => {
+    const content = fs.readFileSync(SETUP_SCRIPT, "utf-8");
     // On codesign failure, log a warning but don't exit
-    expect(content).toContain('warning: codesign failed for');
+    expect(content).toContain("warning: codesign failed for");
     // Should NOT have `set -e` causing exit on codesign failure
     // (the `|| true` after --remove-signature and the if-guard around -s - -f handle this)
-    expect(content).toContain('codesign --remove-signature "$_bin_path" 2>/dev/null || true');
+    expect(content).toContain(
+      'codesign --remove-signature "$_bin_path" 2>/dev/null || true',
+    );
   });
 
-  test('codesign shell snippet is syntactically valid', () => {
+  test("codesign block truncates trailing data past LC_CODE_SIGNATURE", () => {
+    const content = fs.readFileSync(SETUP_SCRIPT, "utf-8");
+    // Bun --compile can leave zero-padding after the signature region, which
+    // breaks `codesign -s - -f` with "main executable failed strict
+    // validation". Setup must compute the signature end via otool and truncate
+    // the file to it before signing.
+    expect(content).toContain("LC_CODE_SIGNATURE");
+    expect(content).toContain('head -c "$_sig_end"');
+    expect(content).toContain('"$_sig_end" -lt "$_fsize"');
+  });
+
+  test("re-sign failure only warns when the binary is SIGKILLed (exit 137)", () => {
+    const content = fs.readFileSync(SETUP_SCRIPT, "utf-8");
+    // A failed re-sign is not fatal and not always a real problem: Bun's adhoc
+    // code-page signature still satisfies the kernel. Setup must probe the
+    // binary and reserve the scary "may not run" warning for exit 137.
+    expect(content).toContain('"$_probe_rc" -eq 137');
+    // The probe must be set -e safe (|| _probe_rc=$?), since setup runs set -e.
+    expect(content).toContain("|| _probe_rc=$?");
+  });
+
+  test("codesign shell snippet is syntactically valid", () => {
     // Extract the codesign block and validate it parses as bash
-    const content = fs.readFileSync(SETUP_SCRIPT, 'utf-8');
+    const content = fs.readFileSync(SETUP_SCRIPT, "utf-8");
     const match = content.match(
-      /# macOS Apple Silicon: ad-hoc codesign[\s\S]*?done\n\s*fi/
+      /# macOS Apple Silicon: ad-hoc codesign[\s\S]*?done\n\s*fi/,
     );
     expect(match).toBeTruthy();
     const snippet = match![0];
     // Wrap in a function to make it a complete script, then syntax-check
     const testScript = `#!/usr/bin/env bash\nset -e\n_test_fn() {\n${snippet}\n}\n`;
-    const result = spawnSync('bash', ['-n', '-c', testScript], {
-      stdio: ['pipe', 'pipe', 'pipe'],
+    const result = spawnSync("bash", ["-n", "-c", testScript], {
+      stdio: ["pipe", "pipe", "pipe"],
       timeout: 5000,
     });
     expect(result.status).toBe(0);

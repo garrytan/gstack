@@ -19,7 +19,8 @@
  * contain "no UI scope".
  */
 
-import { describe, test } from 'bun:test';
+import { test } from 'bun:test';
+import { describeE2ETier } from './helpers/e2e-gate';
 import * as path from 'path';
 import {
   launchClaudePty,
@@ -29,8 +30,7 @@ import {
   isPlanReadyVisible,
 } from './helpers/claude-pty-runner';
 
-const shouldRun = !!process.env.EVALS && process.env.EVALS_TIER === 'gate';
-const describeE2E = shouldRun ? describe : describe.skip;
+const describeE2E = describeE2ETier('gate');
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const FIXTURE = path.join(ROOT, 'test', 'fixtures', 'plans', 'ui-heavy-feature.md');
@@ -44,7 +44,8 @@ describeE2E('/plan-design-review with UI scope (gate)', () => {
       const session = await launchClaudePty({
         permissionMode: 'plan',
         cwd: ROOT,
-        timeoutMs: 480_000,
+        timeoutMs: 720_000,
+        seedSkills: true,
       });
 
       let outcome: 'real_question' | 'plan_ready' | 'timeout' | 'exited' = 'timeout';
@@ -70,7 +71,11 @@ describeE2E('/plan-design-review with UI scope (gate)', () => {
           `Reference plan file: ${fixtureRelPath}\r`
         );
 
-        const budgetMs = 360_000;
+        // 600s, not 360s: the skill preamble (update-check, session bookkeeping,
+        // learnings) plus extended model thinking can take ~6 minutes before the
+        // scope-gate AskUserQuestion renders — a 360s budget expired seconds
+        // before the (correct) AUQ appeared in the observed failure transcript.
+        const budgetMs = 600_000;
         const start = Date.now();
         let lastPermSig = '';
         while (Date.now() - start < budgetMs) {
@@ -145,6 +150,6 @@ describeE2E('/plan-design-review with UI scope (gate)', () => {
         );
       }
     },
-    540_000,
+    780_000,
   );
 });

@@ -105,6 +105,219 @@ describe('bootstrapTunnel', () => {
     }
   });
 
+  test('never auto-selects a connected paired Vision Pro ahead of an iPhone', async () => {
+    const spawn = makeSpawn([
+      {
+        argsMatch: /devicectl list devices/,
+        jsonOutput: {
+          result: { devices: [
+            {
+              identifier: 'VISION',
+              connectionProperties: { tunnelState: 'connected', pairingState: 'paired' },
+              deviceProperties: { name: 'Vision Pro' },
+              hardwareProperties: {
+                productType: 'RealityDevice17,1',
+                platform: 'visionOS',
+                deviceType: 'realityDevice',
+              },
+            },
+            {
+              identifier: 'IPHONE',
+              connectionProperties: { tunnelState: 'connected', pairingState: 'paired', transportType: 'wired' },
+              deviceProperties: { name: 'USB iPhone' },
+              hardwareProperties: {
+                productType: 'iPhone17,1',
+                platform: 'iOS',
+                deviceType: 'iPhone',
+              },
+            },
+          ] },
+        },
+      },
+      {
+        argsMatch: /devicectl device info processes -d IPHONE/,
+        jsonOutput: { result: { runningProcesses: [{ executable: 'file:///var/containers/Bundle/Application/X/com.test.app/com.test' }] } },
+      },
+      {
+        argsMatch: /devicectl device info details --device IPHONE/,
+        jsonOutput: { result: { connectionProperties: { tunnelIPAddress: 'fd00::17' } } },
+      },
+      {
+        argsMatch: /devicectl device copy from --device IPHONE/,
+        destOutput: 'TOKEN\n',
+      },
+    ]);
+
+    const r = await bootstrapTunnel({
+      bundleId: 'com.test',
+      spawnImpl: spawn,
+      fetchImpl: (async () => new Response('{"ok":true}', { status: 200 })) as typeof fetch,
+    });
+
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.tunnel.udid).toBe('IPHONE');
+  });
+
+  test('fails clearly when only non-iPhone platforms are connected', async () => {
+    const spawn = makeSpawn([
+      {
+        argsMatch: /devicectl list devices/,
+        jsonOutput: {
+          result: { devices: [
+            {
+              identifier: 'VISION',
+              connectionProperties: { tunnelState: 'connected', pairingState: 'paired' },
+              deviceProperties: { name: 'Vision Pro' },
+              hardwareProperties: {
+                productType: 'RealityDevice17,1',
+                platform: 'visionOS',
+                deviceType: 'realityDevice',
+              },
+            },
+            {
+              identifier: 'IPAD',
+              connectionProperties: { tunnelState: 'connected', pairingState: 'paired' },
+              deviceProperties: { name: 'iPad' },
+              hardwareProperties: {
+                productType: 'iPad16,6',
+                platform: 'iOS',
+                deviceType: 'iPad',
+              },
+            },
+          ] },
+        },
+      },
+    ]);
+
+    const r = await bootstrapTunnel({ bundleId: 'com.test', spawnImpl: spawn });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.error).toBe('device_not_found');
+      expect(r.detail).toContain('no iPhone');
+    }
+  });
+
+  test('rejects an explicitly targeted non-iPhone device', async () => {
+    const spawn = makeSpawn([
+      {
+        argsMatch: /devicectl list devices/,
+        jsonOutput: {
+          result: { devices: [{
+            identifier: 'VISION',
+            connectionProperties: { tunnelState: 'connected', pairingState: 'paired' },
+            deviceProperties: { name: 'Vision Pro' },
+            hardwareProperties: {
+              productType: 'RealityDevice17,1',
+              platform: 'visionOS',
+              deviceType: 'realityDevice',
+            },
+          }] },
+        },
+      },
+    ]);
+
+    const r = await bootstrapTunnel({ bundleId: 'com.test', udid: 'VISION', spawnImpl: spawn });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.error).toBe('device_not_found');
+      expect(r.detail).toContain('not an iPhone');
+    }
+  });
+
+  test('skips an unavailable paired device for a connected or available paired device', async () => {
+    const spawn = makeSpawn([
+      {
+        argsMatch: /devicectl list devices/,
+        jsonOutput: {
+          result: { devices: [
+            {
+              identifier: 'STALE',
+              connectionProperties: { tunnelState: 'unavailable', pairingState: 'paired' },
+              deviceProperties: { name: 'Stale iPhone' },
+              hardwareProperties: { productType: 'iPhone17,1' },
+            },
+            {
+              identifier: 'WIRED',
+              connectionProperties: { tunnelState: 'available', pairingState: 'paired', transportType: 'wired' },
+              deviceProperties: { name: 'Wired iPhone' },
+              hardwareProperties: { productType: 'iPhone18,2' },
+            },
+          ] },
+        },
+      },
+      {
+        argsMatch: /devicectl device info processes -d WIRED/,
+        jsonOutput: { result: { runningProcesses: [{ executable: 'file:///var/containers/Bundle/Application/X/com.test.app/com.test' }] } },
+      },
+      {
+        argsMatch: /devicectl device info details --device WIRED/,
+        jsonOutput: { result: { connectionProperties: { tunnelIPAddress: 'fd00::2' } } },
+      },
+      {
+        argsMatch: /devicectl device copy from --device WIRED/,
+        destOutput: 'TOKEN\n',
+      },
+    ]);
+
+    const r = await bootstrapTunnel({
+      bundleId: 'com.test',
+      spawnImpl: spawn,
+      fetchImpl: (async () => new Response('{"ok":true}', { status: 200 })) as typeof fetch,
+    });
+
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.tunnel.udid).toBe('WIRED');
+  });
+
+  test('accepts a wired iPhone whose tunnel is disconnected until devicectl wakes it', async () => {
+    const spawn = makeSpawn([
+      {
+        argsMatch: /devicectl list devices/,
+        jsonOutput: {
+          result: { devices: [
+            {
+              identifier: 'STALE-VISION',
+              connectionProperties: { tunnelState: 'unavailable', pairingState: 'paired' },
+              deviceProperties: { name: 'Stale Vision Pro' },
+              hardwareProperties: { productType: 'RealityDevice14,1' },
+            },
+            {
+              identifier: 'WIRED-DISCONNECTED',
+              connectionProperties: {
+                tunnelState: 'disconnected',
+                pairingState: 'paired',
+                transportType: 'wired',
+              },
+              deviceProperties: { name: 'USB iPhone' },
+              hardwareProperties: { productType: 'iPhone18,2' },
+            },
+          ] },
+        },
+      },
+      {
+        argsMatch: /devicectl device info processes -d WIRED-DISCONNECTED/,
+        jsonOutput: { result: { runningProcesses: [{ executable: 'file:\/\/\/var\/containers\/Bundle\/Application\/X\/com.test.app\/com.test' }] } },
+      },
+      {
+        argsMatch: /devicectl device info details --device WIRED-DISCONNECTED/,
+        jsonOutput: { result: { connectionProperties: { tunnelIPAddress: 'fd00::27' } } },
+      },
+      {
+        argsMatch: /devicectl device copy from --device WIRED-DISCONNECTED/,
+        destOutput: 'TOKEN\n',
+      },
+    ]);
+
+    const r = await bootstrapTunnel({
+      bundleId: 'com.test',
+      spawnImpl: spawn,
+      fetchImpl: (async () => new Response('{"ok":true}', { status: 200 })) as typeof fetch,
+    });
+
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.tunnel.udid).toBe('WIRED-DISCONNECTED');
+  });
+
   test('returns device_locked when launchApp errors due to lock', async () => {
     const spawn = makeSpawn([
       {
@@ -164,6 +377,48 @@ describe('bootstrapTunnel', () => {
     });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error).toBe('state_server_unreachable');
+  });
+
+  test('rejects a StateServer owned by a different app bundle', async () => {
+    const spawn = makeSpawn([
+      {
+        argsMatch: /devicectl list devices/,
+        jsonOutput: {
+          result: { devices: [{
+            identifier: 'TEST',
+            connectionProperties: { tunnelState: 'connected', pairingState: 'paired' },
+            deviceProperties: { name: 'Test' },
+            hardwareProperties: { productType: 'iPhone18,2' },
+          }] },
+        },
+      },
+      {
+        argsMatch: /devicectl device info processes/,
+        jsonOutput: { result: { runningProcesses: [] } },
+      },
+      {
+        argsMatch: /devicectl device process launch/,
+      },
+      {
+        argsMatch: /devicectl device info details/,
+        jsonOutput: { result: { connectionProperties: { tunnelIPAddress: 'fd00::9' } } },
+      },
+    ]);
+
+    const r = await bootstrapTunnel({
+      bundleId: 'com.expected.app',
+      spawnImpl: spawn,
+      fetchImpl: (async () => new Response(
+        JSON.stringify({ bundle_id: 'com.other.debug-app' }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      )) as typeof fetch,
+    });
+
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.error).toBe('wrong_app');
+      expect(r.detail).toContain('com.other.debug-app');
+    }
   });
 
   test('happy path: returns DeviceTunnel with rotated token', async () => {
@@ -232,6 +487,125 @@ describe('bootstrapTunnel', () => {
     // Verify the bootstrap sequence: /healthz first, /auth/rotate second.
     expect(fetchCalls[0]?.url).toContain('/healthz');
     expect(fetchCalls[fetchCalls.length - 1]?.url).toContain('/auth/rotate');
+  });
+
+  test('relaunches once when a prior daemon consumed the running app boot token', async () => {
+    const spawn = makeSpawn([
+      {
+        argsMatch: /devicectl list devices/,
+        jsonOutput: {
+          result: { devices: [{
+            identifier: 'TEST-UDID',
+            connectionProperties: { tunnelState: 'connected', pairingState: 'paired' },
+            deviceProperties: { name: 'Test Device' },
+            hardwareProperties: { productType: 'iPhone18,2' },
+          }] },
+        },
+      },
+      {
+        argsMatch: /devicectl device info processes/,
+        jsonOutput: { result: { runningProcesses: [{ executable: 'file:\/\/\/var\/containers\/Bundle\/Application\/X\/com.test.app\/com.test' }] } },
+      },
+      {
+        argsMatch: /devicectl device info details/,
+        jsonOutput: { result: { connectionProperties: { tunnelIPAddress: 'fd99::beef' } } },
+      },
+      {
+        // A prior daemon rotated the one-use token, so StateServer deleted it.
+        argsMatch: /devicectl device copy from/,
+        exitCode: 1,
+        stderr: 'source does not exist',
+      },
+      {
+        argsMatch: /devicectl device process launch --device TEST-UDID --terminate-existing com\.test/,
+      },
+      {
+        argsMatch: /devicectl device copy from/,
+        destOutput: 'FRESH-BOOT-TOKEN\n',
+      },
+    ]);
+    const fetchCalls: Array<{ url: string; authorization?: string }> = [];
+
+    const r = await bootstrapTunnel({
+      bundleId: 'com.test',
+      spawnImpl: spawn,
+      fetchImpl: (async (url, init) => {
+        const u = String(url);
+        const headers = init?.headers as Record<string, string> | undefined;
+        fetchCalls.push({ url: u, authorization: headers?.Authorization });
+        if (u.endsWith('/healthz')) {
+          return new Response(JSON.stringify({ bundle_id: 'com.test' }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (u.endsWith('/auth/rotate') && headers?.Authorization === 'Bearer FRESH-BOOT-TOKEN') {
+          return new Response('{"ok":true}', { status: 200 });
+        }
+        return new Response('unauthorized', { status: 401 });
+      }) as typeof fetch,
+      startupTimeoutMs: 1_000,
+    });
+
+    expect(r.ok).toBe(true);
+    expect(fetchCalls.filter((call) => call.url.endsWith('/healthz'))).toHaveLength(2);
+    expect(fetchCalls.at(-1)?.authorization).toBe('Bearer FRESH-BOOT-TOKEN');
+  });
+
+  test('rechecks bundle ownership after recovering a consumed boot token', async () => {
+    const spawn = makeSpawn([
+      {
+        argsMatch: /devicectl list devices/,
+        jsonOutput: {
+          result: { devices: [{
+            identifier: 'TEST-UDID',
+            connectionProperties: { tunnelState: 'connected', pairingState: 'paired' },
+            deviceProperties: { name: 'Test Device' },
+            hardwareProperties: { productType: 'iPhone18,2' },
+          }] },
+        },
+      },
+      {
+        argsMatch: /devicectl device info processes/,
+        jsonOutput: { result: { runningProcesses: [{ executable: 'file:\/\/\/var\/containers\/Bundle\/Application\/X\/com.test.app\/com.test' }] } },
+      },
+      {
+        argsMatch: /devicectl device info details/,
+        jsonOutput: { result: { connectionProperties: { tunnelIPAddress: 'fd99::beef' } } },
+      },
+      { argsMatch: /devicectl device copy from/, exitCode: 1 },
+      {
+        argsMatch: /devicectl device process launch --device TEST-UDID --terminate-existing com\.test/,
+      },
+      { argsMatch: /devicectl device copy from/, destOutput: 'FRESH-BOOT-TOKEN\n' },
+    ]);
+    let healthChecks = 0;
+    let rotateCalls = 0;
+
+    const r = await bootstrapTunnel({
+      bundleId: 'com.test',
+      spawnImpl: spawn,
+      fetchImpl: (async (url) => {
+        const u = String(url);
+        if (u.endsWith('/healthz')) {
+          healthChecks++;
+          return new Response(JSON.stringify({
+            bundle_id: healthChecks === 1 ? 'com.test' : 'com.other.debug-app',
+          }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        rotateCalls++;
+        return new Response('{"ok":true}', { status: 200 });
+      }) as typeof fetch,
+      startupTimeoutMs: 1_000,
+    });
+
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toBe('wrong_app');
+    expect(healthChecks).toBe(2);
+    expect(rotateCalls).toBe(0);
   });
 
   test('resolve_failed when hostname cant be resolved to an IPv6', async () => {

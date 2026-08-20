@@ -127,7 +127,10 @@ describe("landscape promotion gate", () => {
 
   if (!avail.ok) {
     test("landscape gate prerequisites are present (hard-required in CI)", () => {
-      if (process.env.CI) {
+      // Hard-require only where the binary is expected: the make-pdf gate
+      // workflow is macOS-only (path-filtered) and builds dist/pdf first.
+      // The Linux free lane deliberately doesn't build it — warn-skip there.
+      if (process.env.CI && process.platform === 'darwin') {
         throw new Error(`landscape gate prerequisites missing in CI: ${avail.reason}`);
       }
       console.warn(`[skip] ${avail.reason}`);

@@ -11,6 +11,7 @@
  * zero rendering loss. The TTY rendering layer is identical for fat and slim
  * skills, so it is not where token-reduction degradation can hide.
  */
+import { resolveEvalModel } from '../../lib/eval-model';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -191,7 +192,7 @@ This is a capture test, not an interactive session. Skip any system-audit / envi
     timeout: 240_000,
     testName: opts.testName,
     runId: opts.runId,
-    model: opts.model ?? 'claude-opus-4-7',
+    model: resolveEvalModel('capture', opts.model),
   });
 
   try {
@@ -253,7 +254,7 @@ Rules for this run:
     timeout: opts.timeout ?? 300_000,
     testName: opts.testName,
     runId: opts.runId,
-    model: opts.model ?? 'claude-opus-4-7',
+    model: resolveEvalModel('capture', opts.model),
   });
 
   const readSections = new Set<string>();
@@ -334,7 +335,7 @@ Write the verbatim text of that AskUserQuestion (the full decision brief: title,
     timeout: 240_000,
     testName: opts.testName,
     runId: opts.runId,
-    model: opts.model ?? 'claude-opus-4-7',
+    model: resolveEvalModel('capture', opts.model),
   });
 
   try {

@@ -10,15 +10,22 @@
 `db:test:prepare` internally, which loads the schema into the correct lane database.
 Running bare test migrations without INSTANCE hits an orphan DB and corrupts structure.sql.
 
-Run both test suites in parallel:
+Run both test suites in parallel, each wrapped in the evidence ledger. The
+wrapper is transparent (streams output live, exit code passes through) and
+records `{command, exit, working-tree fingerprint, log path}` to
+`~/.gstack/projects/<slug>/<branch>-evidence.jsonl` — Step 16 cites this
+record instead of re-running when the content hasn't changed:
 
 ```bash
-bin/test-lane 2>&1 | tee /tmp/ship_tests.txt &
-npm run test 2>&1 | tee /tmp/ship_vitest.txt &
+~/.claude/skills/gstack/bin/gstack-evidence run --label tests -- 'bin/test-lane 2>&1' &
+~/.claude/skills/gstack/bin/gstack-evidence run --label vitest -- 'npm run test 2>&1' &
 wait
 ```
 
-After both complete, read the output files and check pass/fail.
+After both complete, check the `gstack-evidence: recorded label=... exit=...
+log=...` summary lines — each carries the lane's exit code and a per-run log
+file (no shared /tmp collisions between concurrent ships). Read the log files
+for failure detail.
 
 **If any test fails:** Do NOT immediately stop. Apply the Test Failure Ownership Triage:
 

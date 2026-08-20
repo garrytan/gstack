@@ -20,7 +20,20 @@ interface ParsedArgs {
   flags: Record<string, string | boolean>;
 }
 
-function parseArgs(argv: string[]): ParsedArgs {
+/**
+ * Flags that never take a value (#2514). The parser used to treat ANY
+ * following non-flag token as the flag's value, so the skill's own
+ * documented usage — `$P generate --cover --toc essay.md essay.pdf` — worked
+ * only by luck of flag adjacency, while `$P generate --toc essay.md` ate
+ * `essay.md` as --toc's value and failed with "missing input".
+ */
+export const BOOLEAN_FLAGS = new Set([
+  "cover", "toc", "no-chapter-breaks", "confidential", "no-confidential",
+  "page-numbers", "no-page-numbers", "tagged", "no-tagged",
+  "outline", "no-outline", "quiet", "verbose", "allow-network", "strict",
+]);
+
+export function parseArgs(argv: string[]): ParsedArgs {
   const args = argv.slice(2);
   if (args.length === 0) {
     printUsage();
@@ -37,7 +50,7 @@ function parseArgs(argv: string[]): ParsedArgs {
     if (a.startsWith("--")) {
       const key = a.slice(2);
       const next = args[i + 1];
-      if (next !== undefined && !next.startsWith("--")) {
+      if (!BOOLEAN_FLAGS.has(key) && next !== undefined && !next.startsWith("--")) {
         flags[key] = next;
         i++;
       } else {
@@ -272,4 +285,7 @@ async function main(): Promise<void> {
   }
 }
 
-main();
+// Guarded so tests can import parseArgs/BOOLEAN_FLAGS without running the CLI.
+if (import.meta.main) {
+  main();
+}

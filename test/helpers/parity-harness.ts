@@ -214,7 +214,9 @@ const MONOLITH_INVARIANTS: ParityInvariant[] = [
     // codexPreflight() block (install + auth tri-state + CODEX_MODE branch prose),
     // landing ~6.3% over the v1.53.0.0 baseline. Intentional: it adds proper
     // not-installed vs not-authed handling, not slop.
-    maxSizeRatio: 1.08,
+    // v1.64+v1.65 merge: both waves grew the shared preamble (evidence
+    // directive + telemetry failure flags); measured 1.094.
+    maxSizeRatio: 1.10,
     minBytes: 70_000,
   },
   {
@@ -223,7 +225,11 @@ const MONOLITH_INVARIANTS: ParityInvariant[] = [
     mustHaveHeadings: ['## Preamble', '## When to invoke'],
     // v1.2.0 activation lift: the unified first-run-guidance section (P4 scaffold +
     // P3 loop tip) is added to every skill's shared preamble — intentional, ~1KB.
-    maxSizeRatio: 1.07,
+    // Fork port wave 2: the shared coverage-audit detection block gained the
+    // multi-ecosystem markers (Django/JVM, script/target/test-file census —
+    // e3259078 port); measured 1.111x. v1.64+v1.65 merge sums both waves'
+    // preamble growth; measured 1.125.
+    maxSizeRatio: 1.13,
     minBytes: 50_000,
   },
   {
@@ -234,7 +240,12 @@ const MONOLITH_INVARIANTS: ParityInvariant[] = [
     // cross-session decision-memory nudge) lands this skill just over the strict 1.05;
     // headroom for the shared preamble additions (matches the carved-skill overrides).
     // v1.2.0 activation lift adds the first-run-guidance section on top.
-    maxSizeRatio: 1.09,
+    // 1.09 → 1.10: the plan-mode preamble reword (scope-gate auto-select-B
+    // change) adds ~250 B to every skill's shared preamble; investigate was
+    // the closest to its ceiling (landed 1.092).
+        // Fork port wave 2 (D1): the evidence-before-claimed-limitations preamble
+    // directive adds ~0.45KB to every tier-2+ skill. Measured values noted.
+    maxSizeRatio: 1.12, // D1 measured
     minBytes: 30_000,
   },
   {
@@ -242,7 +253,9 @@ const MONOLITH_INVARIANTS: ParityInvariant[] = [
     mustContain: ['ceo', 'eng', 'design'],
     mustHaveHeadings: ['## Preamble', '## When to invoke'],
     // v1.2.0 activation lift: shared first-run-guidance preamble section.
-    maxSizeRatio: 1.07,
+        // Fork port wave 2 (D1): the evidence-before-claimed-limitations preamble
+    // directive adds ~0.45KB to every tier-2+ skill. Measured values noted.
+    maxSizeRatio: 1.09, // D1 measured
     minBytes: 70_000,
   },
 ];

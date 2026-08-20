@@ -1,7 +1,7 @@
 name: FixtureApp
 options:
   deploymentTarget:
-    iOS: "16.0"
+    iOS: "17.0"
   bundleIdPrefix: com.gstack.iosqa
   developmentLanguage: en
   createIntermediateGroups: true
@@ -23,7 +23,7 @@ targets:
   FixtureApp:
     type: application
     platform: iOS
-    deploymentTarget: "16.0"
+    deploymentTarget: "17.0"
     sources:
       - path: Sources/FixtureApp
     dependencies:
@@ -45,5 +45,5 @@ targets:
         CODE_SIGN_STYLE: Automatic
         TARGETED_DEVICE_FAMILY: "1"
         SWIFT_VERSION: "5.9"
-        IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+        IPHONEOS_DEPLOYMENT_TARGET: "17.0"
         ENABLE_PREVIEWS: YES

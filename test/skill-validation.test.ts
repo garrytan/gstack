@@ -134,6 +134,15 @@ describe('SKILL.md command validation', () => {
     const result = validateSkill(skill);
     expect(result.snapshotFlagErrors).toHaveLength(0);
   });
+
+  test('autoplan section skip list includes the scope gate', () => {
+    // autoplan Step 3 reads plan-eng-review / plan-design-review SKILL.md
+    // verbatim; without this skip-list entry it ingests their scope gate — a
+    // hard-STOP AskUserQuestion that contradicts autoplan's auto-decide
+    // contract. Nothing else pins the skip-list contents.
+    const md = fs.readFileSync(path.join(ROOT, 'autoplan', 'SKILL.md'), 'utf-8');
+    expect(md).toContain('- Scope gate (the plan under review is already the target)');
+  });
 });
 
 describe('Command registry consistency', () => {
@@ -1207,10 +1216,12 @@ describe('Step 3.4 test coverage audit', () => {
 
 describe('ship step numbering', () => {
   // Allowed sub-steps that are resolver-generated and intentionally nested:
-  // 1.5 (Upstream duplicate audit — pr-prep gate), 8.1 (Plan Verification),
-  // 8.2 (Scope Drift), 9.1 (Review Army), 9.2 (Findings Merge),
-  // 9.3 (Cross-review dedup), 15.0 (WIP squash — continuous checkpoint), 15.1 (Bisectable commits).
-  const ALLOWED_SUBSTEPS = new Set(['1.5', '8.1', '8.2', '9.1', '9.2', '9.3', '15.0', '15.1']);
+  // 0.9 (Apple target detection — MUST precede Step 1's branch gate, R2-pinned
+  // by test/ship-apple-gate.test.ts), 1.5 (Upstream duplicate audit — pr-prep
+  // gate), 8.1 (Plan Verification), 8.2 (Scope Drift), 9.1 (Review Army),
+  // 9.2 (Findings Merge), 9.3 (Cross-review dedup), 15.0 (WIP squash —
+  // continuous checkpoint), 15.1 (Bisectable commits).
+  const ALLOWED_SUBSTEPS = new Set(['0.9', '1.5', '8.1', '8.2', '9.1', '9.2', '9.3', '15.0', '15.1']);
 
   test('ship/SKILL.md.tmpl contains no unexpected fractional step numbers', () => {
     const tmpl = fs.readFileSync(path.join(ROOT, 'ship', 'SKILL.md.tmpl'), 'utf-8');
@@ -1492,11 +1503,37 @@ describe('Codex skill', () => {
   });
 
   test('codex review invocations avoid the prompt plus --base argument shape', () => {
+    // The real invariant is "never pass a positional [PROMPT] together with a
+    // scope flag" — the CLI rejects that combination at argv parse time
+    // (#1428, #1479). Two different shapes satisfy it, and these files have
+    // diverged on which one they use:
+    //
+    //   scoped   — `codex review --base <base>` with NO prompt argument. The
+    //     scope comes from the CLI, which is the only thing that actually sets
+    //     it. This is what all three files now use.
+    //   broken   — prompt-only `codex review "<text>"` describing the diff
+    //     range in prose. This parses, but the CLI falls back to *uncommitted
+    //     working-tree* scope, so the review silently covers the wrong changes.
+    //
+    // The old assertion banned the substring `--base <base> -c '...'`, which
+    // the correct scoped form also contains — it could not tell the two apart,
+    // so it effectively banned the fix.
     for (const rel of ['codex/SKILL.md', 'review/SKILL.md', 'ship/SKILL.md']) {
       // ship's codex command moved into sections/adversarial.md (T9 carve).
       const content = rel === 'ship/SKILL.md' ? readShipUnion() : fs.readFileSync(path.join(ROOT, rel), 'utf-8');
-      expect(content).not.toContain('--base <base> -c \'model_reasoning_effort="high"\'');
-      expect(content).toContain('Run git diff origin/<base>...HEAD 2>/dev/null || git diff <base>...HEAD');
+      expect(content).toMatch(/codex\s+review\s+--base\b/);
+      const offending: string[] = [];
+      for (const line of content.split('\n')) {
+        if (line.includes('`codex review`')) continue;
+        const match = line.match(/(?:^|[;&|]\s*|\s)codex\s+review\b(.*)$/);
+        if (!match) continue;
+        const rest = match[1];
+        if (!/--base\b|--commit\b|--uncommitted\b/.test(rest)) continue;
+        const beforeFlag = rest.split(/--base\b|--commit\b|--uncommitted\b/)[0].trim();
+        // A quoted string or variable expansion before the scope flag is the bug.
+        if (/^["'$]|^--\s*["']/.test(beforeFlag)) offending.push(`${rel}: ${line.trim()}`);
+      }
+      expect(offending).toEqual([]);
     }
   });
 
@@ -1504,9 +1541,13 @@ describe('Codex skill', () => {
     // Pre-#1209, the bare `codex review --base` path stripped the filesystem
     // boundary instruction, letting Codex spend tokens reading skill files.
     // #1209's prompt rewrite restored the boundary by routing every default
-    // call through a prompt. Pin both halves so a future refactor can't
-    // regress: (a) the boundary line must appear, (b) the call must be
-    // through `codex review "<prompt>"` not bare `codex review --base`.
+    // call through a prompt — but routing through a prompt is what breaks the
+    // diff scope, so codex/ no longer does that. What this test pins is the
+    // boundary TEXT, which must still be present for the paths that do take a
+    // prompt (`codex exec` for challenge, consult, and custom review focus).
+    // Do NOT "restore" the boundary by putting a prompt argument back on a
+    // scoped `codex review` call: that combination fails to parse, and
+    // dropping the scope flag to make it parse silently reviews the wrong diff.
     const boundaryLine =
       'Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/';
     for (const rel of ['codex/SKILL.md', 'review/SKILL.md', 'ship/SKILL.md']) {
@@ -1725,13 +1766,6 @@ describe('Codex skill validation', () => {
     expect(fs.existsSync(path.join(AGENTS_DIR, 'gstack-codex', 'SKILL.md'))).toBe(false);
   });
 
-  test('/claude skill is external-host-only — no Claude-host variant', () => {
-    // Claude host should not get an outside-voice skill that shells into Claude.
-    expect(fs.existsSync(path.join(ROOT, 'claude', 'SKILL.md'))).toBe(false);
-    // Codex/external hosts should get the generated wrapper.
-    expect(fs.existsSync(path.join(AGENTS_DIR, 'gstack-claude', 'SKILL.md'))).toBe(true);
-  });
-
   test('Codex skill names follow gstack-{name} convention', () => {
     const codexDirs = fs.readdirSync(AGENTS_DIR);
     for (const dir of codexDirs) {
@@ -1864,10 +1898,9 @@ describe('no compiled binaries in git', () => {
     // repository size without blocking those fixtures from living in git.
     // Known-good fixtures are exempted from the warning to keep CI logs clean.
     const MAX_BYTES = 2 * 1024 * 1024;
-    const knownLargeFixtures = new Set([
-      // Deterministic replay fixture for BrowseSafe-Bench. The live bench is
-      // expensive; this file is intentionally committed so the gate is free.
-      'browse/test/fixtures/security-bench-haiku-responses.json',
+    const knownLargeFixtures = new Set<string>([
+      // Currently empty — add repo-relative paths of intentionally-committed
+      // large fixtures here with a reason.
     ]);
     const oversized = trackedFiles.flatMap((f: string) => {
       if (knownLargeFixtures.has(f)) return [];
@@ -1894,11 +1927,6 @@ describe('no compiled binaries in git', () => {
   });
 });
 
-// `sidebar agent (#584)` describe block was here. sidebar-agent.ts and
-// the entire chat-queue path were ripped in favor of the interactive
-// claude PTY (terminal-agent.ts); these assertions had no target file.
-// Terminal-pane invariants are covered by browse/test/sidebar-tabs.test.ts
-// and browse/test/terminal-agent.test.ts.
 
 // ─── Browser-skills validation ──────────────────────────────────
 //

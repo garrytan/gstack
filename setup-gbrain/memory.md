@@ -35,6 +35,25 @@ happens after you say yes.
 - **Repos under a `deny` trust policy** (set in `/setup-gbrain` Step 6)
   are skipped — neither code nor transcripts from those repos ingest.
 
+## Per-remote trust policy (deny / read-only)
+
+Transcript ingest respects the same per-remote trust store as code import
+(`~/.gstack/gbrain-repo-policy.json`, managed by
+`gstack-gbrain-repo-policy`). Each transcript's git remote is checked
+against the store before anything is written:
+
+- **deny** — the transcript is skipped (reported as `skipped (policy deny)`).
+- **read-only** — skipped too: read-only means "search allowed, page
+  writes never", and transcript ingest writes pages (reported as
+  `skipped (policy read-only)`).
+- **read-write, or no entry** — ingests normally.
+- **Corrupted or unreadable store** — ingestion aborts before any writes
+  rather than bypassing a set policy. Inspect the store with
+  `gstack-gbrain-repo-policy list`; re-run `/setup-gbrain` if it's corrupt.
+
+Artifacts (learnings, plans, retros, etc.) are never policy-filtered — the
+policy is keyed by git remote, which artifacts don't have.
+
 ## What gets scanned for secrets
 
 The cross-machine secret boundary is `gstack-brain-sync` (the git push
@@ -47,9 +66,9 @@ v1.33.0.0 — off by default. To re-enable it (adds ~4-8 min to cold runs
 on a large transcript corpus), use either:
 
 ```bash
-gstack-memory-ingest --bulk --scan-secrets
+bun run bin/gstack-memory-ingest.ts --bulk --scan-secrets
 # or
-GSTACK_MEMORY_INGEST_SCAN_SECRETS=1 gstack-memory-ingest --bulk
+GSTACK_MEMORY_INGEST_SCAN_SECRETS=1 bun run bin/gstack-memory-ingest.ts --bulk
 ```
 
 When enabled, gitleaks covers:
@@ -155,7 +174,7 @@ verdict block. If a row is RED, the row tells you what to do.
 Common cases:
 
 - **Salience block is empty** — your transcripts may not be ingested
-  yet. Run `gstack-gbrain-sync --full` to do a full pass.
+  yet. Run `bun run bin/gstack-gbrain-sync.ts --full` to do a full pass.
 
 - **"gbrain CLI missing" in the preamble output** — gbrain isn't on
   your PATH. Run `/setup-gbrain` to install/wire it.
@@ -166,7 +185,7 @@ Common cases:
   --pglite && gbrain import <brain-remote-clone-dir>`.
 
 - **A page has stale or wrong content** — `gbrain delete_page <slug>`,
-  then re-run `gstack-gbrain-sync --incremental` to re-ingest from
+  then re-run `bun run bin/gstack-gbrain-sync.ts --incremental` to re-ingest from
   source if the source file is still on disk and unchanged.
 
 ## Privacy + audit

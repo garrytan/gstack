@@ -462,14 +462,6 @@ export async function applyStealth(context: BrowserContext): Promise<void> {
 }
 
 /**
- * The legacy single-line webdriver mask, exported for backwards
- * compatibility with any caller that uses it directly. New callers
- * should use applyStealth() which includes this plus the Layer C
- * additions.
- */
-export const WEBDRIVER_MASK_SCRIPT = `Object.defineProperty(navigator, 'webdriver', { get: () => false });`;
-
-/**
  * Args added to chromium.launch's `args` to suppress the
  * AutomationControlled blink feature. This is independent of the init
  * script — it changes how Chromium identifies itself in the protocol layer.

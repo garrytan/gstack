@@ -12,7 +12,7 @@ import * as path from 'path';
 // explicit unrecoverable signals (401 auth invalid).
 
 const CLIENT_JS = path.resolve(
-  new URL(import.meta.url).pathname,
+  import.meta.path,
   '..',
   '..',
   '..',

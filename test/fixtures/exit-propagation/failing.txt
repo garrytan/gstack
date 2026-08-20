@@ -1,0 +1,2 @@
+import { test, expect } from 'bun:test';
+test('this failure must be visible', () => { expect(1).toBe(2); });

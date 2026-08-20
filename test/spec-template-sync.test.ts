@@ -20,6 +20,17 @@ describe('/spec template/generated sync', () => {
       cwd: ROOT,
       encoding: 'utf-8',
       timeout: 120_000,
+      // Scrubbed env: bun test runs a shard's files serially in ONE process,
+      // so an earlier test's env mutations (GSTACK_*/GBRAIN_* detection vars)
+      // leak into inherited process.env and change generator output — this
+      // test failed in-suite while passing solo on an identical tree. The
+      // generator's output must be a function of the templates, not of
+      // whichever test ran before this one.
+      env: {
+        PATH: process.env.PATH ?? '',
+        HOME: process.env.HOME ?? '',
+        TMPDIR: process.env.TMPDIR ?? '',
+      },
     });
     expect(res.status).toBe(0);
 

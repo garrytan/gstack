@@ -77,7 +77,13 @@ IMPORTANT:
       workingDirectory: docReleaseDir,
       maxTurns: 30,
       allowedTools: ['Bash', 'Read', 'Write', 'Edit', 'Grep', 'Glob'],
-      timeout: 180_000,
+      // 300s, not 180s: a 30-turn multi-step doc workflow under 40-way
+      // in-shard CI concurrency timed out at exactly 180s on its final
+      // attempt twice on PR #2593 (rounds 4 and 13) while passing four
+      // other rounds — marginal at 180s, same contention story as
+      // review-dashboard-via and retro-base-branch. Outer bun timeout
+      // rises to 360s for headroom.
+      timeout: 300_000,
       testName: 'document-release',
       runId,
     });
@@ -114,7 +120,7 @@ IMPORTANT:
     } else {
       console.warn('README was NOT updated — agent may not have found the feature');
     }
-  }, 240_000);
+  }, 360_000);
 });
 
 // --- Ship workflow with local bare remote ---

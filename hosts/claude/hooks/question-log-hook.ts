@@ -36,7 +36,7 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { spawnSync } from 'child_process';
+import { runBin } from './spawn-bin';
 
 interface HookStdin {
   session_id?: string;
@@ -156,21 +156,63 @@ function extractRecommended(questionText: string, opts: string[]): string | unde
  * AUQ tool_response shape varies by Claude Code variant (native vs MCP),
  * and the hook stdin docs don't pin a single canonical shape. We handle
  * the common cases gracefully.
+ *
+ * Shape D is the current native AskUserQuestion result:
+ *   { answers: { "<question text>": "<answer>" },
+ *     annotations?: { "<question text>": { notes?, preview? } } }
+ * The map is keyed by the question text exactly as passed in tool_input,
+ * so extraction needs the questions themselves, not just a count.
  */
 function extractUserChoices(
   response: unknown,
-  questionCount: number,
+  questions: Array<{ question?: string; options?: Array<string | { label?: string; description?: string }> }>,
+  diag?: (msg: string) => void,
 ): Array<{ choice: string; free_text?: string }> {
+  const questionCount = questions.length;
   const out: Array<{ choice: string; free_text?: string }> = [];
   if (!response) {
+    diag?.(`answer-extract: empty tool_response (typeof=${typeof response})`);
     for (let i = 0; i < questionCount; i++) out.push({ choice: '__unknown__' });
     return out;
   }
-  // Shape A: { answers: [{option_label, free_text?}] }
-  // Shape B: { questions: [{user_answer}] }
-  // Shape C: { content: [...] } or array.
-  // We probe lazily.
   const rec = response as Record<string, unknown>;
+  // Shape D: { answers: {questionText: answer}, annotations?: {questionText: {notes}} }
+  if (rec.answers && typeof rec.answers === 'object' && !Array.isArray(rec.answers)) {
+    const answers = rec.answers as Record<string, unknown>;
+    const annotations =
+      rec.annotations && typeof rec.annotations === 'object' && !Array.isArray(rec.annotations)
+        ? (rec.annotations as Record<string, Record<string, unknown>>)
+        : {};
+    const keys = Object.keys(answers);
+    const norm = (s: string) => s.replace(/\s+/g, ' ').trim().toLowerCase();
+    for (const q of questions) {
+      const qText = q.question || '';
+      let key: string | undefined = Object.prototype.hasOwnProperty.call(answers, qText)
+        ? qText
+        : keys.find((k) => norm(k) === norm(qText));
+      // Single question, single answer: pair them even if the key drifted.
+      if (key === undefined && keys.length === 1 && questionCount === 1) key = keys[0];
+      if (key === undefined) {
+        diag?.(`answer-extract: no answers key matched question "${qText.slice(0, 60)}"`);
+        out.push({ choice: '__unknown__' });
+        continue;
+      }
+      const v = answers[key];
+      const rawChoice = Array.isArray(v) ? v.map(String).join(', ') : String(v ?? '__unknown__');
+      // The bin compares user_choice === recommended, and recommended is
+      // stored with the "(recommended)" suffix stripped — strip it here too.
+      const choice = rawChoice.replace(RECOMMENDED_LABEL_RE, '').trim() || '__unknown__';
+      const labels = optionLabels(q.options || []).map((l) =>
+        l.replace(RECOMMENDED_LABEL_RE, '').trim().toLowerCase(),
+      );
+      const notes = annotations[key]?.notes;
+      const isFreeText = !Array.isArray(v) && labels.length > 0 && !labels.includes(choice.toLowerCase());
+      const freeText = notes !== undefined ? String(notes) : isFreeText ? rawChoice : undefined;
+      out.push(freeText !== undefined ? { choice, free_text: freeText } : { choice });
+    }
+    return out;
+  }
+  // Shape A: { answers: [{option_label, free_text?}] }
   if (Array.isArray(rec.answers)) {
     for (const a of rec.answers as Array<Record<string, unknown>>) {
       const choice = (a.option_label || a.label || a.choice || a.answer || '__unknown__') as string;
@@ -180,6 +222,7 @@ function extractUserChoices(
     while (out.length < questionCount) out.push({ choice: '__unknown__' });
     return out;
   }
+  // Shape B: { questions: [{user_answer}] }
   if (Array.isArray(rec.questions)) {
     for (const q of rec.questions as Array<Record<string, unknown>>) {
       const choice = (q.user_answer || q.answer || q.choice || '__unknown__') as string;
@@ -188,9 +231,11 @@ function extractUserChoices(
     while (out.length < questionCount) out.push({ choice: '__unknown__' });
     return out;
   }
-  // Fall back: stringify and log first 100 chars to help future debugging.
+  // Unrecognized shape: log it for postmortem (never embed it in the record —
+  // that poisons user_choice for every downstream metric).
+  diag?.(`answer-extract: unrecognized tool_response shape: ${JSON.stringify(response).slice(0, 300)}`);
   for (let i = 0; i < questionCount; i++) {
-    out.push({ choice: `__response-shape-unknown:${JSON.stringify(response).slice(0, 80)}__` });
+    out.push({ choice: '__unknown__' });
   }
   return out;
 }
@@ -205,12 +250,7 @@ function detectSkill(cwd: string | undefined): string {
 }
 
 function spawnLog(payload: Record<string, unknown>, cwd?: string): void {
-  // Locate the bin relative to this script's directory.
-  const here = path.dirname(new URL(import.meta.url).pathname);
-  // hosts/claude/hooks/ -> ../../../bin/
-  const repoRoot = path.resolve(here, '..', '..', '..');
-  const bin = path.join(repoRoot, 'bin', 'gstack-question-log');
-  const res = spawnSync(bin, [JSON.stringify(payload)], {
+  const res = runBin('gstack-question-log', [JSON.stringify(payload)], {
     encoding: 'utf-8',
     stdio: ['ignore', 'pipe', 'pipe'],
     timeout: 3000,
@@ -251,7 +291,9 @@ async function main(): Promise<void> {
   }
 
   const skill = detectSkill(stdin.cwd);
-  const choices = extractUserChoices(stdin.tool_response, questions.length);
+  const choices = extractUserChoices(stdin.tool_response, questions, (msg) =>
+    logHookError(`${msg} (tool_use_id=${stdin.tool_use_id || 'n/a'})`),
+  );
 
   for (let i = 0; i < questions.length; i++) {
     const q = questions[i];

@@ -4,6 +4,7 @@ import {
   ROOT, runId, describeIfSelected, testConcurrentIfSelected,
   logCost, recordE2E, createEvalCollector, finalizeEvalCollector,
 } from './helpers/e2e-helpers';
+import { extractSkillSections, REVIEW_ARMY_E2E_SECTIONS } from './helpers/skill-fixture';
 import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -22,9 +23,15 @@ function setupRepo(prefix: string): { dir: string; run: (cmd: string, args: stri
   return { dir, run };
 }
 
-// Helper: copy review skill files to test dir
+// Helper: stage review skill files in the test dir. The SKILL.md fixture is
+// EXTRACTED (CLAUDE.md: "E2E test fixtures: extract, don't copy") — core
+// review workflow + Step 1.5 (Plan Completion Audit) + Step 4.5 (Review Army
+// dispatch: quality score, JSON schema, consensus, Red Team).
 function copyReviewFiles(dir: string) {
-  fs.copyFileSync(path.join(ROOT, 'review', 'SKILL.md'), path.join(dir, 'review-SKILL.md'));
+  fs.writeFileSync(
+    path.join(dir, 'review-SKILL.md'),
+    extractSkillSections(path.join(ROOT, 'review'), REVIEW_ARMY_E2E_SECTIONS),
+  );
   fs.copyFileSync(path.join(ROOT, 'review', 'checklist.md'), path.join(dir, 'review-checklist.md'));
   fs.copyFileSync(path.join(ROOT, 'review', 'greptile-triage.md'), path.join(dir, 'review-greptile-triage.md'));
   // Copy specialist checklists

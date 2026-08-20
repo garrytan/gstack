@@ -526,6 +526,7 @@ async function dpapiDecrypt(encryptedBytes: Buffer): Promise<Buffer> {
   ].join('; ');
 
   const proc = Bun.spawn(['powershell', '-NoProfile', '-Command', script], {
+    windowsHide: true,
     stdin: 'pipe',
     stdout: 'pipe',
     stderr: 'pipe',
@@ -563,7 +564,7 @@ async function getMacKeychainPassword(service: string): Promise<string> {
   // macOS may show an Allow/Deny dialog that blocks until the user responds.
   const proc = Bun.spawn(
     ['security', 'find-generic-password', '-s', service, '-w'],
-    { stdout: 'pipe', stderr: 'pipe' },
+    { stdout: 'pipe', stderr: 'pipe', windowsHide: true },
   );
 
   const timeout = new Promise<never>((_, reject) =>
@@ -638,7 +639,7 @@ async function getLinuxSecretPassword(browser: BrowserInfo): Promise<string | nu
 
 async function runPasswordLookup(cmd: string[], timeoutMs: number): Promise<string | null> {
   try {
-    const proc = Bun.spawn(cmd, { stdout: 'pipe', stderr: 'pipe' });
+    const proc = Bun.spawn(cmd, { stdout: 'pipe', stderr: 'pipe', windowsHide: true });
     const timeout = new Promise<never>((_, reject) =>
       setTimeout(() => {
         proc.kill();
@@ -778,7 +779,7 @@ function isBrowserRunning(browserName: string): Promise<boolean> {
   const exe = browserName.toLowerCase().includes('edge') ? 'msedge.exe' : 'chrome.exe';
   return new Promise((resolve) => {
     const proc = Bun.spawn(['tasklist', '/FI', `IMAGENAME eq ${exe}`, '/NH'], {
-      stdout: 'pipe', stderr: 'pipe',
+      stdout: 'pipe', stderr: 'pipe', windowsHide: true,
     });
     proc.exited.then(async () => {
       const out = await new Response(proc.stdout).text();
@@ -869,7 +870,7 @@ export async function importCookiesViaCdp(
     '--disable-extensions',
     '--disable-sync',
     '--no-default-browser-check',
-  ], { stdout: 'pipe', stderr: 'pipe' });
+  ], { stdout: 'pipe', stderr: 'pipe', windowsHide: true });
 
   // Wait for Chrome to start, then find a page target's WebSocket URL.
   // Network.getAllCookies is only available on page targets, not browser.

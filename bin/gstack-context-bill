@@ -1,0 +1,8 @@
+#!/usr/bin/env bun
+// gstack-context-bill — token bill-of-materials for an installed skills tree.
+// All behavior lives in lib/context-bill.ts; this is the CLI shim.
+
+import '../lib/conductor-env-shim'; // --exact needs GSTACK_ANTHROPIC_API_KEY promotion inside Conductor
+import { contextBillMain } from '../lib/context-bill';
+
+process.exit(await contextBillMain(process.argv.slice(2)));

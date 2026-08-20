@@ -19,12 +19,12 @@
  * Step-0 mode loop) and keep their dedicated tests; E1 asserts those exist.
  */
 
-import { describe, test, expect } from 'bun:test';
+import { test, expect } from 'bun:test';
+import { describeE2ETier } from './helpers/e2e-gate';
 import { setupSkillDir, skillFromWorktree, captureSectionReads } from './helpers/auq-sdk-capture';
 import { CARVE_GUARDS } from './helpers/carve-guards';
 
-const shouldRun = !!process.env.EVALS && process.env.EVALS_TIER === 'periodic';
-const describeE2E = shouldRun ? describe : describe.skip;
+const describeE2E = describeE2ETier('periodic');
 const runId = `carve-section-loading-${process.env.EVALS_RUN_ID ?? 'local'}`;
 const only = process.env.GSTACK_CARVE_SKILL?.trim();
 

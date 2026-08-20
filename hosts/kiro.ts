@@ -1,50 +1,17 @@
-import type { HostConfig } from '../scripts/host-config';
+import { defineHost } from './define-host';
 
-const kiro: HostConfig = {
+const kiro = defineHost({
   name: 'kiro',
   displayName: 'Kiro',
   cliCommand: 'kiro-cli',
-  cliAliases: [],
 
-  globalRoot: '.kiro/skills/gstack',
-  localSkillRoot: '.kiro/skills/gstack',
-  hostSubdir: '.kiro',
-  usesEnvVars: true,
-
-  frontmatter: {
-    mode: 'allowlist',
-    keepFields: ['name', 'description'],
-    descriptionLimit: null,
-  },
-
-  generation: {
-    generateMetadata: false,
-    skipSkills: ['codex'],  // Codex skill is a Claude wrapper around codex exec
-  },
-
-  pathRewrites: [
-    { from: '~/.claude/skills/gstack', to: '~/.kiro/skills/gstack' },
-    { from: '.claude/skills/gstack', to: '.kiro/skills/gstack' },
-    { from: '.claude/skills', to: '.kiro/skills' },
+  // Beyond the standard .claude/* trio, Kiro also cleans up codex-style paths:
+  // template prose that references ~/.codex/skills/gstack or .codex/skills
+  // (e.g. cross-host examples) must land on Kiro's own paths.
+  extraPathRewrites: [
     { from: '~/.codex/skills/gstack', to: '~/.kiro/skills/gstack' },
     { from: '.codex/skills', to: '.kiro/skills' },
   ],
-
-  suppressedResolvers: ['GBRAIN_CONTEXT_LOAD', 'GBRAIN_SAVE_RESULTS'],
-
-  runtimeRoot: {
-    globalSymlinks: ['bin', 'browse/dist', 'browse/bin', 'gstack-upgrade', 'ETHOS.md'],
-    globalFiles: {
-      'review': ['checklist.md', 'TODOS-format.md'],
-    },
-  },
-
-  install: {
-    prefixable: false,
-    linkingStrategy: 'symlink-generated',
-  },
-
-  learningsMode: 'basic',
-};
+});
 
 export default kiro;

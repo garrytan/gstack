@@ -12,18 +12,11 @@
 // inherits the invariant — cleanup runs on abort, enqueue failure, AND
 // heartbeat failure, exactly once, regardless of which edge fires first.
 
-import { stripLoneSurrogates } from './sanitize';
-
-/**
- * JSON.stringify replacer that strips lone UTF-16 surrogates from string
- * values before they get escape-encoded. Pair with stringify when the
- * consumer will JSON.parse the payload back into JS strings (SSE clients
- * do this). Required at every SSE egress that ships page-content-derived
- * fields — see CLAUDE.md "Unicode sanitization at server egress".
- */
-function sanitizeReplacer(_key: string, value: unknown): unknown {
-  return typeof value === 'string' ? stripLoneSurrogates(value) : value;
-}
+// sanitizeReplacer strips lone UTF-16 surrogates from string values before
+// they get escape-encoded — required at every SSE egress that ships
+// page-content-derived fields. See CLAUDE.md "Unicode sanitization at
+// server egress" and the canonical implementation in sanitize.ts.
+import { sanitizeReplacer } from './sanitize';
 
 /** Send an SSE event. Handles JSON encoding + lone-surrogate sanitization. */
 export type SseSender = (event: string, data: unknown) => void;

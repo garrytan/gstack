@@ -24,7 +24,8 @@
  * Cost: ~$5-8/run, 10-15 min wall clock. Periodic — runs weekly.
  */
 
-import { describe, test, expect } from 'bun:test';
+import { test, expect } from 'bun:test';
+import { describeE2ETier } from './helpers/e2e-gate';
 import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -36,8 +37,7 @@ import {
   isNumberedOptionListVisible,
 } from './helpers/claude-pty-runner';
 
-const shouldRun = !!process.env.EVALS && process.env.EVALS_TIER === 'periodic';
-const describeE2E = shouldRun ? describe : describe.skip;
+const describeE2E = describeE2ETier('periodic');
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const UI_FIXTURE = path.join(ROOT, 'test', 'fixtures', 'plans', 'ui-heavy-feature.md');
@@ -71,6 +71,7 @@ describeE2E('/autoplan chain ordering (periodic)', () => {
           permissionMode: 'plan',
           cwd: tempDir,
           timeoutMs: 1_080_000, // 18 min, slightly above test budget
+          seedSkills: true,
         });
 
         const hits: PhaseHit[] = [];

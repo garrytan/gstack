@@ -17,7 +17,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { safeUnlink, safeKill, isProcessAlive } from './error-handling';
-import { writeSecureFile, mkdirSecure } from './file-permissions';
+import { restrictFilePermissions, mkdirSecure } from './file-permissions';
+import { atomicWriteSync } from '../../lib/fs-atomic';
 
 /**
  * Locate the terminal-agent script on disk. In dev (cli.ts running via
@@ -48,12 +49,13 @@ export function resolveTerminalAgentScript(searchHints: { metaDir?: string; exec
  *
  * Used by both the CLI cold-start path (cli.ts) and the v1.44 watchdog in
  * server.ts. Centralizing here removes a copy-paste between them and means
- * future spawn-env additions (e.g. BROWSE_OWNER_PID for the generation
- * counter rollout) land in one place.
+ * spawn-env additions (BROWSE_OWNER_PID being the first) land in one place.
  */
 export function spawnTerminalAgent(opts: {
   stateFile: string;
   serverPort: number;
+  /** PID of the browse server that owns this agent. */
+  ownerPid: number;
   cwd?: string;
   /** Optional extra env vars to add to the agent's process env. */
   extraEnv?: Record<string, string>;
@@ -74,9 +76,14 @@ export function spawnTerminalAgent(opts: {
       ...process.env,
       BROWSE_STATE_FILE: opts.stateFile,
       BROWSE_SERVER_PORT: String(opts.serverPort),
+      BROWSE_OWNER_PID: String(opts.ownerPid),
       ...(opts.extraEnv || {}),
     },
     stdio: ['ignore', 'ignore', 'ignore'],
+    // Explicit for the Node fallback path (dist/bun-polyfill.cjs), where the
+    // host default is the opposite of Bun's. A visible console window on every
+    // watchdog respawn is the symptom when this is missing.
+    windowsHide: true,
   });
   proc.unref?.();
   return proc.pid ?? null;
@@ -108,13 +115,13 @@ export function readAgentRecord(stateDir: string): AgentRecord | null {
   }
 }
 
-/** Atomic write. Caller must ensure stateDir exists; agent does this at boot. */
+/** Atomic write (throws on failure — boot must not proceed on a bad record). */
 export function writeAgentRecord(stateDir: string, record: AgentRecord): void {
   try { mkdirSecure(stateDir); } catch {}
   const target = agentRecordPath(stateDir);
-  const tmp = `${target}.tmp-${process.pid}`;
-  writeSecureFile(tmp, JSON.stringify(record));
-  fs.renameSync(tmp, target);
+  atomicWriteSync(target, JSON.stringify(record), { mode: 0o600 });
+  // Windows ACL hardening (POSIX chmod is redundant with mode above).
+  restrictFilePermissions(target);
 }
 
 export function clearAgentRecord(stateDir: string): void {

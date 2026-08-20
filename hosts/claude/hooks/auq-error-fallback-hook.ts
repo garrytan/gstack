@@ -31,7 +31,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { spawnSync } from 'child_process';
+import { runBin } from './spawn-bin';
 
 interface HookStdin {
   tool_name?: string;
@@ -126,9 +126,7 @@ export function isErrorResponse(response: unknown): boolean {
  *  echoes). Falls back to 'interactive' (degrade-safe) on any failure. */
 export function sessionKind(cwd?: string): 'spawned' | 'headless' | 'interactive' {
   try {
-    const here = path.dirname(new URL(import.meta.url).pathname);
-    const bin = path.resolve(here, '..', '..', '..', 'bin', 'gstack-session-kind');
-    const res = spawnSync(bin, [], {
+    const res = runBin('gstack-session-kind', [], {
       encoding: 'utf-8',
       timeout: 3000,
       cwd: cwd && fs.existsSync(cwd) ? cwd : undefined,

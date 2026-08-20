@@ -45,6 +45,13 @@ JOURNAL="${MIGRATION_DIR}/v1.27.0.0.journal"
 DONE="${MIGRATION_DIR}/v1.27.0.0.done"
 SKIPPED="${MIGRATION_DIR}/v1.27.0.0.skipped-by-user"
 
+# Real, copy-pasteable re-run command for every remediation message below.
+# There is no runner re-ask: the upgrade runners' version windows never
+# re-select an already-passed migration, so the only honest remediation is
+# a direct invocation of this script ($0-derived so it survives any cwd).
+SELF_PATH="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+RERUN_CMD="GSTACK_MIGRATE_ASSUME_YES=1 bash ${SELF_PATH}"
+
 USER_NAME="${USER:-$(whoami 2>/dev/null || echo unknown)}"
 OLD_REPO_NAME="gstack-brain-${USER_NAME}"
 NEW_REPO_NAME="gstack-artifacts-${USER_NAME}"
@@ -61,8 +68,8 @@ mkdir -p "$MIGRATION_DIR"
 # Already done? exit silently.
 [ -f "$DONE" ] && exit 0
 
-# User opted out previously? exit silently. (Re-invoke via
-# `/setup-gbrain --rerun-migration` removes this marker.)
+# User opted out previously? exit silently. (To re-run after an opt-out:
+# rm the skipped-by-user marker, then invoke this script directly.)
 [ -f "$SKIPPED" ] && exit 0
 
 journal_done() {
@@ -120,19 +127,33 @@ if [ ! -f "$JOURNAL" ]; then
     read -r REPLY || REPLY=""
     case "$REPLY" in
       n|N|no|No|NO)
-        echo "  Skipping migration. Re-run via /setup-gbrain --rerun-migration." >&2
+        echo "  Skipping migration. To re-run later:" >&2
+        echo "    rm ${SKIPPED} && ${RERUN_CMD}" >&2
         touch "$SKIPPED"
         exit 0
         ;;
       skip|skip-for-now|s)
-        echo "  Skipping for now. Will ask again next upgrade." >&2
-        # Don't write SKIPPED — leave both old + new state untouched, ask again next time.
+        echo "  Skipping for now. Re-run manually with: ${RERUN_CMD}" >&2
+        # Don't write SKIPPED — leave both old + new state untouched. The
+        # upgrade runner will NOT re-select this migration, so re-running is
+        # manual via the command above.
         exit 0
         ;;
     esac
   else
-    # Non-interactive (CI, scripted upgrade): proceed automatically.
-    echo "  (non-interactive: proceeding automatically)" >&2
+    # Non-interactive (CI, Claude Code Bash tool, scripted upgrade). Step 1
+    # renames a REMOTE repo — consent-shaped, and blanket auto-proceed once
+    # left an install half-migrated when that step failed mid-run (#1383).
+    # Skip for now by default (asked again next upgrade); explicit opt-in
+    # proceeds unattended.
+    if [ "${GSTACK_MIGRATE_ASSUME_YES:-0}" = "1" ]; then
+      echo "  (non-interactive: proceeding — GSTACK_MIGRATE_ASSUME_YES=1)" >&2
+    else
+      echo "  Non-interactive session: skipping for now." >&2
+      echo "  Re-run manually with: ${RERUN_CMD}" >&2
+      echo "  To run interactively:  bash ${SELF_PATH}" >&2
+      exit 0
+    fi
   fi
 fi
 
@@ -196,8 +217,8 @@ if ! journal_done "gh_repo_renamed"; then
             mark_done "gh_repo_renamed"
           else
             echo "    WARNING: gh rename failed (repo may not exist or permission denied)" >&2
-            echo "    skipping step 1; subsequent steps still run" >&2
-            mark_done "gh_repo_renamed"
+            echo "    step 1 stays PENDING and will retry on re-run; later steps still run (#1383)" >&2
+            echo "    manual: gh repo rename $NEW_REPO_NAME --repo $OLD_REPO_NAME --yes" >&2
           fi
         fi
       else
@@ -336,8 +357,20 @@ EOF
 fi
 
 # ---------------------------------------------------------------------------
-# Step 6: finalize (touchfile + clear journal)
+# Step 6: finalize (touchfile + clear journal) — only when EVERY step is
+# journaled. A failed step must leave the migration visibly incomplete and
+# retryable, never silently recorded as done (#1383).
 # ---------------------------------------------------------------------------
+INCOMPLETE=""
+for _step in gh_repo_renamed remote_txt_renamed config_key_renamed claude_md_block_rewritten sources_swapped; do
+  journal_done "$_step" || INCOMPLETE="$INCOMPLETE $_step"
+done
+if [ -n "$INCOMPLETE" ]; then
+  echo "  [v1.27.0.0] migration INCOMPLETE — pending step(s):$INCOMPLETE" >&2
+  echo "  Completed steps are journaled and will be skipped on re-run." >&2
+  echo "  Re-run manually with: ${RERUN_CMD}" >&2
+  exit 1
+fi
 touch "$DONE"
 rm -f "$JOURNAL"
 

@@ -1,17 +1,22 @@
 /**
- * jsonl-store — shared, audited plumbing for gstack's append-only JSONL stores.
+ * jsonl-store — shared plumbing for gstack's append-only JSONL stores in
+ * lib/ and bin/. (browse/src keeps its own appenders by design — the
+ * compiled-binary surface has different logging semantics and its own
+ * secure-append helper.)
  *
- * Single source of truth for the three things every JSONL store must get right:
- *   1. Injection sanitization (the prompt-injection patterns that must NOT survive
- *      into agent context when a record is later resurfaced).
+ * The three things a JSONL store must get right:
+ *   1. Injection screening — SEE THE CONTRACT BELOW: appendJsonl does NOT
+ *      screen; callers that store free text MUST pre-check with
+ *      hasInjection()/firstInjectionMatch() and reject. Enforcing callers
+ *      today: bin/gstack-learnings-log, bin/gstack-decision-log (via
+ *      lib/gstack-decision.ts), bin/gstack-question-log.
  *   2. Atomic single-line append (concurrent agents must not corrupt the file).
- *   3. Tolerant read (a partially-written tail or one corrupt line must not take
- *      down the whole read).
+ *   3. Tolerant read (a partially-written tail or one corrupt line must not
+ *      take down the whole read).
  *
- * Extracted from `bin/gstack-learnings-log` (D2A) so `gstack-learnings-*` and the
- * new `gstack-decision-*` bins share ONE audited path — a new injection pattern or
- * a write-atomicity fix lands in both at once, never drifts. Per the
- * `squash-with-regen` / DRY discipline + the eng-review D2A decision.
+ * Extracted from `bin/gstack-learnings-log` (D2A) so the learnings/decision/
+ * question stores share ONE audited path — a new injection pattern or a
+ * write-atomicity fix lands in all at once.
  */
 
 import { appendFileSync, readFileSync, existsSync } from "fs";
@@ -27,7 +32,7 @@ export const INJECTION_PATTERNS: readonly RegExp[] = [
   /you\s+are\s+now\s+/i,
   /always\s+output\s+no\s+findings/i,
   /skip\s+(all\s+)?(security|review|checks)/i,
-  /override[:\s]/i,
+  /\boverride\s+(all\s+)?(previous|prior|above|the\s+(rules|instructions|system\s+prompt))/i,
   /\bsystem\s*:/i,
   /\bassistant\s*:/i,
   /\buser\s*:/i,
@@ -60,12 +65,19 @@ export function firstInjectionMatch(text: string): RegExp | null {
  * Caveat: a record larger than PIPE_BUF loses the cross-process atomicity guarantee.
  * Keep records line-bounded; very large free-text should be truncated by the caller.
  */
-export function appendJsonl(path: string, obj: unknown): void {
+export function appendJsonl(path: string, obj: unknown, opts: { mode?: number } = {}): void {
   const line = JSON.stringify(obj);
   if (line.includes("\n")) {
     throw new Error("jsonl-store: record serialized to multiple lines (embedded newline)");
   }
-  appendFileSync(path, line + "\n", { encoding: "utf-8" });
+  // `mode` applies only when the append CREATES the file (POSIX open(2)
+  // semantics) — pass 0o600 for stores holding sensitive content so the
+  // file never exists world-readable.
+  if (opts.mode !== undefined) {
+    appendFileSync(path, line + "\n", { encoding: "utf-8", mode: opts.mode });
+  } else {
+    appendFileSync(path, line + "\n", { encoding: "utf-8" });
+  }
 }
 
 /**

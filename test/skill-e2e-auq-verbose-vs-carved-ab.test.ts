@@ -22,7 +22,8 @@
  * carries the same {{PREAMBLE}} format spec + Step 0 prose as verbose, with
  * strictly less unrelated review-section text in context.
  */
-import { describe, test } from 'bun:test';
+import { test } from 'bun:test';
+import { describeE2ETier } from './helpers/e2e-gate';
 import * as fs from 'node:fs';
 import {
   setupPlanCeoDir,
@@ -33,8 +34,7 @@ import {
 } from './helpers/auq-sdk-capture';
 import { judgeRecommendation } from './helpers/llm-judge';
 
-const shouldRun = !!process.env.EVALS && process.env.EVALS_TIER === 'periodic';
-const describeE2E = shouldRun ? describe : describe.skip;
+const describeE2E = describeE2ETier('periodic');
 const runId = `auq-ab-${process.env.EVALS_RUN_ID ?? 'local'}`;
 
 async function grade(label: string, dir: string) {

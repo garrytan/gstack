@@ -22,6 +22,7 @@
  */
 import { describe, test, expect } from 'bun:test';
 import * as path from 'node:path';
+import { e2eTierEnabled } from './helpers/e2e-gate';
 import { runCodexSkill } from './helpers/codex-session-runner';
 import { judgeRecommendation } from './helpers/llm-judge';
 
@@ -34,8 +35,7 @@ const CODEX_AVAILABLE = (() => {
     return false;
   }
 })();
-const shouldRun =
-  CODEX_AVAILABLE && !!process.env.EVALS && process.env.EVALS_TIER === 'periodic';
+const shouldRun = CODEX_AVAILABLE && e2eTierEnabled('periodic');
 const describeCodex = shouldRun ? describe : describe.skip;
 
 // A small fixture with two real, comparable problems so a good recommendation

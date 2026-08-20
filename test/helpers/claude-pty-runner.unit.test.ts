@@ -28,6 +28,8 @@ import {
   isPermissionDialogVisible,
   isNumberedOptionListVisible,
   isProseAUQVisible,
+  isScopeGateQuestionVisible,
+  isScopeGateAutoSelectVisible,
   isPlanReadyVisible,
   parseNumberedOptions,
   classifyVisible,
@@ -191,6 +193,113 @@ describe('isNumberedOptionListVisible', () => {
     `;
     expect(isNumberedOptionListVisible(sample)).toBe(true);
     expect(isPermissionDialogVisible(sample)).toBe(true);
+  });
+});
+
+describe('scope-gate render detectors', () => {
+  // The verbatim announcement string from the plan-eng/plan-design SKILL.md
+  // templates. If the template rewording drifts, THIS fixture fails first —
+  // before the paid plan-mode smokes silently degrade to vacuous asserts.
+  const TEMPLATE_ANNOUNCEMENT =
+    'Scope gate: plan mode — auto-selected B (reviewing <target>).';
+
+  describe('isScopeGateQuestionVisible', () => {
+    test('matches the clean prose gate render (question + option bodies)', () => {
+      const sample = `
+What should I review?
+A) The current branch diff — the work in progress on this branch.
+B) A plan or design doc I'll paste or point you to.
+C) A specific file, directory, or path.
+Recommendation: A when a branch diff exists, otherwise B.
+`;
+      expect(isScopeGateQuestionVisible(sample)).toBe(true);
+    });
+
+    test('matches the native numbered render (no lettered markers)', () => {
+      const sample = `
+  What should I review?
+
+  ❯ 1. The current branch diff — the work in progress on this branch.
+    2. A plan or design doc I'll paste or point you to.
+    3. A specific file, directory, or path.
+`;
+      expect(isScopeGateQuestionVisible(sample)).toBe(true);
+    });
+
+    test('matches the PTY-collapsed render (stripAnsi squished spaces)', () => {
+      const sample = 'WhatshouldIreview?A)Thecurrentbranchdiff—theworkinprogress';
+      expect(isScopeGateQuestionVisible(sample)).toBe(true);
+    });
+
+    test('stays false on narration quoting only the question', () => {
+      const sample =
+        "Normally I'd ask 'What should I review?' but plan mode is active, so I'm proceeding.";
+      expect(isScopeGateQuestionVisible(sample)).toBe(false);
+    });
+
+    test('stays false on unrelated review prose', () => {
+      const sample = 'I will review the current branch diff and report findings.';
+      expect(isScopeGateQuestionVisible(sample)).toBe(false);
+    });
+  });
+
+  describe('isScopeGateAutoSelectVisible', () => {
+    test('matches the verbatim template announcement', () => {
+      expect(isScopeGateAutoSelectVisible(TEMPLATE_ANNOUNCEMENT)).toBe(true);
+    });
+
+    test('matches a real announcement with a concrete target', () => {
+      const sample =
+        'Scope gate: plan mode — auto-selected B (reviewing ~/.claude/plans/my-feature.md). Running the Design Doc Check next.';
+      expect(isScopeGateAutoSelectVisible(sample)).toBe(true);
+    });
+
+    test('matches the PTY-collapsed announcement', () => {
+      const sample = 'Scopegate:planmode—auto-selectedB(reviewingPLAN.md).';
+      expect(isScopeGateAutoSelectVisible(sample)).toBe(true);
+    });
+
+    test('stays false on narration about the behavior', () => {
+      const sample = "In plan mode I'd auto-select B and review the active plan.";
+      expect(isScopeGateAutoSelectVisible(sample)).toBe(false);
+    });
+
+    test('stays false on a VERBATIM QUOTE of the announcement (negation narration)', () => {
+      // The exact announcement line sits quoted in the skill context, so a
+      // model explaining why it is NOT firing it can reproduce it byte-exact
+      // inside quotes — that must not trip a must-stay-false assert.
+      const sample =
+        'Not in plan mode, so I won\'t announce "Scope gate: plan mode — auto-selected B (reviewing <target>)." and will ask instead.';
+      expect(isScopeGateAutoSelectVisible(sample)).toBe(false);
+    });
+
+    test('a later real render still matches after an earlier quoted mention', () => {
+      const sample =
+        'Earlier I said I would render "Scope gate: plan mode — auto-selected B (…)" and now:\n' +
+        'Scope gate: plan mode — auto-selected B (reviewing PLAN.md).';
+      expect(isScopeGateAutoSelectVisible(sample)).toBe(true);
+    });
+
+    test('matches tense paraphrases WITH the announcement prefix (auto-selecting / auto-selects)', () => {
+      expect(
+        isScopeGateAutoSelectVisible('Scope gate: plan mode — auto-selecting B (reviewing the drafted plan).'),
+      ).toBe(true);
+      expect(isScopeGateAutoSelectVisible('Scope gate: plan mode — auto-selects B.')).toBe(true);
+    });
+
+    test('stays false on tense paraphrases WITHOUT the announcement prefix', () => {
+      expect(isScopeGateAutoSelectVisible('Auto-selecting B since we are in plan mode.')).toBe(false);
+    });
+
+    test('stays false on AUTO_DECIDE preamble output', () => {
+      const sample = 'Auto-decided scope question → B (your preference). Change with /plan-tune.';
+      expect(isScopeGateAutoSelectVisible(sample)).toBe(false);
+    });
+
+    test('stays false on a bare "selected B" without the announcement prefix', () => {
+      const sample = 'I selected B as the review target.';
+      expect(isScopeGateAutoSelectVisible(sample)).toBe(false);
+    });
   });
 });
 

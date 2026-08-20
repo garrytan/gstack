@@ -20,20 +20,26 @@
  * prose contract this test locks in.
  */
 
-import { describe, test, expect } from 'bun:test';
+import { test, expect } from 'bun:test';
+import { describeE2ETier } from './helpers/e2e-gate';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { runAgentSdkTest, passThroughNonAskUserQuestion, resolveClaudeBinary } from './helpers/agent-sdk-runner';
 
-const shouldRun = !!process.env.EVALS && process.env.EVALS_TIER === 'periodic';
-const describeE2E = shouldRun ? describe : describe.skip;
+const describeE2E = describeE2ETier('periodic');
 
 describeE2E('gbrain-sync privacy gate fires once via preamble', () => {
   test('gstack skill preamble fires the 3-option AskUserQuestion when gbrain is detected', async () => {
     // Stage a fresh GSTACK_HOME with artifacts_sync_mode_prompted=false.
     const gstackHome = fs.mkdtempSync(path.join(os.tmpdir(), 'privacy-gate-gstack-'));
     const fakeBinDir = fs.mkdtempSync(path.join(os.tmpdir(), 'privacy-gate-bin-'));
+    // Fresh HOME with NO ~/.claude.json: on a machine where gbrain is
+    // registered type=http, the preamble's remote-mode detection reads the
+    // operator's ~/.claude.json and echoes "ARTIFACTS_SYNC: remote-mode" —
+    // and the local privacy gate legitimately never fires. An empty HOME
+    // makes the detection find nothing.
+    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'privacy-gate-home-'));
 
     // Seed the config so the gate's condition passes.
     fs.writeFileSync(
@@ -59,12 +65,16 @@ describeE2E('gbrain-sync privacy gate fires once via preamble', () => {
     const askUserQuestions: Array<{ input: Record<string, unknown> }> = [];
     const binary = resolveClaudeBinary();
 
-    // Ambient env mutations — restored in finally so other tests in the file
-    // don't inherit them.
-    const origGstackHome = process.env.GSTACK_HOME;
-    const origPath = process.env.PATH;
-    process.env.GSTACK_HOME = gstackHome;
-    process.env.PATH = `${fakeBinDir}:${process.env.PATH ?? '/usr/bin:/bin:/opt/homebrew/bin'}`;
+    // Per-test env, merged LAST by the hermetic env builder (safe post-v1.39:
+    // the runner always passes a COMPLETE hermetic env, so overrides can't
+    // break auth). Ambient process.env.GSTACK_HOME mutation does NOT work
+    // here — hermetic-env scrubs GSTACK_* and repoints GSTACK_HOME at its
+    // own singleton dir, so the staged config would never reach the child.
+    const childEnv = {
+      GSTACK_HOME: gstackHome,
+      HOME: tempHome,
+      PATH: `${fakeBinDir}:${process.env.PATH ?? '/usr/bin:/bin:/opt/homebrew/bin'}`,
+    };
 
     try {
       // Pick a small skill with the preamble and load it via Read to force
@@ -85,12 +95,7 @@ describeE2E('gbrain-sync privacy gate fires once via preamble', () => {
         workingDirectory: gstackHome,
         maxTurns: 10,
         allowedTools: ['Read', 'Grep', 'Glob', 'Bash'],
-        // NOTE: do NOT pass `env:` here. When the Agent SDK gets an explicit
-        // env object, its auth pipeline doesn't pick up ANTHROPIC_API_KEY the
-        // same way as when env is undefined (SDK-internal detail, verified
-        // against the plan-mode-no-op test which passes no env and auths
-        // cleanly). Instead, mutate process.env before the call so the SDK
-        // inherits our overrides ambiently.
+        env: childEnv,
         ...(binary ? { pathToClaudeCodeExecutable: binary } : {}),
         canUseTool: async (toolName, input) => {
           if (toolName === 'AskUserQuestion') {
@@ -141,13 +146,9 @@ describeE2E('gbrain-sync privacy gate fires once via preamble', () => {
       // (The preamble is supposed to be idempotent within a session.)
       expect(privacyQuestions.length).toBe(1);
     } finally {
-      // Restore ambient env before other tests.
-      if (origGstackHome === undefined) delete process.env.GSTACK_HOME;
-      else process.env.GSTACK_HOME = origGstackHome;
-      if (origPath === undefined) delete process.env.PATH;
-      else process.env.PATH = origPath;
       fs.rmSync(gstackHome, { recursive: true, force: true });
       fs.rmSync(fakeBinDir, { recursive: true, force: true });
+      fs.rmSync(tempHome, { recursive: true, force: true });
     }
   }, 180_000);
 
@@ -155,6 +156,10 @@ describeE2E('gbrain-sync privacy gate fires once via preamble', () => {
     // Same staging, but prompted=true this time. Gate should be silent.
     const gstackHome = fs.mkdtempSync(path.join(os.tmpdir(), 'privacy-gate-off-'));
     const fakeBinDir = fs.mkdtempSync(path.join(os.tmpdir(), 'privacy-gate-off-bin-'));
+    // Fresh HOME without a .claude.json — same rationale as the first test:
+    // without it the operator's ~/.claude.json flips the preamble into
+    // remote-mode and this negative test passes vacuously.
+    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'privacy-gate-off-home-'));
 
     fs.writeFileSync(
       path.join(gstackHome, 'config.yaml'),
@@ -171,11 +176,13 @@ describeE2E('gbrain-sync privacy gate fires once via preamble', () => {
     const askUserQuestions: Array<{ input: Record<string, unknown> }> = [];
     const binary = resolveClaudeBinary();
 
-    // Ambient env mutations (see note on the first test).
-    const origGstackHome = process.env.GSTACK_HOME;
-    const origPath = process.env.PATH;
-    process.env.GSTACK_HOME = gstackHome;
-    process.env.PATH = `${fakeBinDir}:${process.env.PATH ?? '/usr/bin:/bin:/opt/homebrew/bin'}`;
+    // Per-test env, merged LAST by the hermetic env builder (see note on the
+    // first test — ambient GSTACK_HOME mutation is scrubbed by hermetic-env).
+    const childEnv = {
+      GSTACK_HOME: gstackHome,
+      HOME: tempHome,
+      PATH: `${fakeBinDir}:${process.env.PATH ?? '/usr/bin:/bin:/opt/homebrew/bin'}`,
+    };
 
     try {
       await runAgentSdkTest({
@@ -185,6 +192,7 @@ describeE2E('gbrain-sync privacy gate fires once via preamble', () => {
         workingDirectory: gstackHome,
         maxTurns: 4,
         allowedTools: ['Read', 'Grep', 'Glob', 'Bash'],
+        env: childEnv,
         ...(binary ? { pathToClaudeCodeExecutable: binary } : {}),
         canUseTool: async (toolName, input) => {
           if (toolName === 'AskUserQuestion') {
@@ -216,12 +224,9 @@ describeE2E('gbrain-sync privacy gate fires once via preamble', () => {
       });
       expect(privacyQuestions.length).toBe(0);
     } finally {
-      if (origGstackHome === undefined) delete process.env.GSTACK_HOME;
-      else process.env.GSTACK_HOME = origGstackHome;
-      if (origPath === undefined) delete process.env.PATH;
-      else process.env.PATH = origPath;
       fs.rmSync(gstackHome, { recursive: true, force: true });
       fs.rmSync(fakeBinDir, { recursive: true, force: true });
+      fs.rmSync(tempHome, { recursive: true, force: true });
     }
   }, 180_000);
 });

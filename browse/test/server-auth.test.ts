@@ -22,14 +22,29 @@ function sliceBetween(source: string, startMarker: string, endMarker: string): s
 }
 
 describe('Server auth security', () => {
-  // Test 1: /health serves token conditionally (headed mode or chrome extension only)
-  test('/health serves token only in headed mode or to chrome extensions', () => {
+  // Test 1 (IRON RULE, inverted in v1.62): /health NEVER serves a token in
+  // ANY mode. Both carve-outs (headed-mode disjunct + chrome-extension://
+  // Origin disjunct) are gone. Token bootstrap moved to POST /extension-token
+  // with a pinned extension Origin.
+  test('/health never serves a token — no headed-mode or chrome-extension carve-out', () => {
     const healthBlock = sliceBetween(SERVER_SRC, "url.pathname === '/health'", "url.pathname === '/connect'");
-    // v1.35.0.0: AUTH_TOKEN const was deleted; factory uses cfg-derived authToken.
-    // Token must be conditional, not unconditional
-    expect(healthBlock).toContain('token: authToken');
-    expect(healthBlock).toContain('headed');
-    expect(healthBlock).toContain('chrome-extension://');
+    expect(healthBlock).not.toContain('token: authToken');
+    expect(healthBlock).not.toContain("getConnectionMode() === 'headed'");
+    expect(healthBlock).not.toContain("startsWith('chrome-extension://')");
+  });
+
+  // Test 1a: the pinned-origin bootstrap endpoint exists and gates on both
+  // the exact extension Origin and a loopback Host.
+  test('POST /extension-token gates on pinned Origin and loopback Host', () => {
+    const tokenBlock = sliceBetween(SERVER_SRC, "url.pathname === '/extension-token'", "url.pathname === '/health'");
+    expect(tokenBlock).toContain('GSTACK_EXTENSION_ID');
+    expect(tokenBlock).toContain('token: authToken');
+    // Host is parsed to a hostname (arrives as '127.0.0.1:34567'), never
+    // compared literally against the raw header.
+    expect(tokenBlock).toContain('.hostname');
+    expect(tokenBlock).toContain("'127.0.0.1'");
+    expect(tokenBlock).toContain("'localhost'");
+    expect(tokenBlock).toContain('403');
   });
 
   // Test 1b: /health does not expose sensitive browsing state
@@ -47,6 +62,22 @@ describe('Server auth security', () => {
     expect(scopeBlock).toContain("command === 'newtab'");
     expect(scopeBlock).toContain('checkDomain');
     expect(scopeBlock).toContain('Domain not allowed');
+  });
+
+  // Test 1d: validateAuth compares the bearer token in CONSTANT TIME with a
+  // length gate. A revert to `header === \`Bearer ${authToken}\`` keeps
+  // accept/reject behavior identical (functional tests still pass) but silently
+  // reintroduces the byte-by-byte timing side-channel; dropping the length gate
+  // makes timingSafeEqual throw RangeError (500 instead of 401) on a wrong-length
+  // token. Pin both properties, mirroring the token-registry sibling guard.
+  test('validateAuth uses constant-time comparison with a length gate', () => {
+    const authBlock = sliceBetween(SERVER_SRC, 'function validateAuth(req: Request): boolean {', '// Factory-scoped shutdown');
+    expect(authBlock).toContain('crypto.timingSafeEqual');
+    expect(authBlock).toContain('got.length === want.length');
+    // The null-header guard must remain (Buffer.from(null) would otherwise throw).
+    expect(authBlock).toContain('header === null');
+    // The raw === comparison of the header against the bearer string must be gone.
+    expect(authBlock).not.toContain('header === `Bearer ${authToken}`');
   });
 
   // Test 2: /refs endpoint requires auth via validateAuth

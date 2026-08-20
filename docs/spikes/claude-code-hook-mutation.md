@@ -51,7 +51,13 @@ Optional in subagent context: `agent_id`, `agent_type`.
 - `"deny"` — block (feedback to Claude, NOT a synthetic answer per Codex
   correction in D-prefixed decisions)
 - `"ask"` — escalate to user
-- `"defer"` — let permission flow continue
+- `"defer"` — pause the tool call for EXTERNAL resumption (Claude Code
+  v2.1.89+, a headless feature: resume with `-p --resume` to re-evaluate).
+  NEVER emit this to mean "no opinion" — in an interactive session nothing
+  resumes the paused call and the tool dies with "Tool result missing due to
+  internal error" (#2035, #2006). To abstain, exit 0 with EMPTY stdout
+  (optionally `hookSpecificOutput` with `additionalContext` only, no
+  `permissionDecision`).
 
 **`updatedInput` semantics:** shallow merge of fields present in the returned
 object onto the original `tool_input`. Only valid with
@@ -106,15 +112,20 @@ required for our hook to fire there.
 }
 ```
 
-**Pass-through (no preference, or one-way safety override):**
+**Pass-through (no preference, or one-way safety override):** exit 0 with
+EMPTY stdout. When there is context to inject (plan-tune memory nuggets),
+emit `additionalContext` WITHOUT a `permissionDecision`:
 ```json
 {
   "hookSpecificOutput": {
     "hookEventName": "PreToolUse",
-    "permissionDecision": "defer"
+    "additionalContext": "[plan-tune memory] Past answers suggest: ..."
   }
 }
 ```
+(Historical note: this example originally emitted `permissionDecision:
+"defer"`, which broke every AskUserQuestion once CC v2.1.89 gave 'defer'
+pause-for-resume semantics — #2035.)
 
 **PostToolUse capture (always):**
 ```json

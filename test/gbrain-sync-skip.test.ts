@@ -42,7 +42,7 @@ interface FakeEnv {
  */
 function makeEnv(opts: {
   withGbrain: boolean;
-  gbrainBehavior?: "ok" | "broken-db" | "broken-config" | "slow";
+  gbrainBehavior?: "ok" | "broken-db" | "broken-config" | "engine-locked" | "slow";
   withConfig: boolean;
 }): FakeEnv {
   const tmp = mkdtempSync(join(tmpdir(), "gbrain-sync-skip-"));
@@ -75,6 +75,9 @@ function makeEnv(opts: {
         : behavior === "ok"
           ? `  echo '{"sources":[]}'
   exit 0`
+          : behavior === "engine-locked"
+            ? `  echo "gbrain sources: connect timed out (default 10000ms; pass --timeout=Ns to override)." >&2
+  exit 124`
           : `  ${
               behavior === "broken-db"
                 ? 'echo "Cannot connect to database: . Fix: Check your connection URL in ~/.gbrain/config.json" >&2'
@@ -202,6 +205,20 @@ describe("gstack-gbrain-sync — split-engine SKIP (plan D12)", () => {
     try {
       const r = runOrchestrator(env, ["--no-code", "--no-brain-sync"]);
       expect(r.stdout + r.stderr).toContain("local engine broken-config");
+    } finally {
+      env.cleanup();
+    }
+  });
+
+  it("SKIPs with actionable guidance when PGLite is held by gbrain serve (#2194)", () => {
+    const env = makeEnv({ withGbrain: true, gbrainBehavior: "engine-locked", withConfig: true });
+    try {
+      const r = runOrchestrator(env, ["--code-only"]);
+      const out = r.stdout + r.stderr;
+      expect(out).toContain("local engine engine-locked");
+      expect(out).toContain("gbrain serve");
+      expect(out).toContain("outside the live Claude session");
+      expect(out).not.toContain("config.json is malformed");
     } finally {
       env.cleanup();
     }

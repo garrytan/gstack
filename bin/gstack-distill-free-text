@@ -198,8 +198,13 @@ RESULT=$(EVENTS_JSON="$EVENTS_JSON" DISTILL_PROMPT="$DISTILL_PROMPT" \
   const INPUT_PER_TOKEN = 1e-6;
   const OUTPUT_PER_TOKEN = 5e-6;
 
+  // Host-neutral model resolution (mirrors lib/eval-model.ts — this inline
+  // bun -e script cannot import repo-relative libs from an arbitrary cwd).
+  const distillModel = process.env.GSTACK_EVAL_MODEL_DISTILL
+    || process.env.GSTACK_EVAL_MODEL
+    || "claude-haiku-4-5-20251001";
   const resp = await client.messages.create({
-    model: "claude-haiku-4-5-20251001",
+    model: distillModel,
     max_tokens: 4096,
     messages: [{ role: "user", content: prompt }],
   });

@@ -13,9 +13,15 @@
 #   PLAN_ROOT:         GSTACK_PLAN_DIR -> CLAUDE_PLANS_DIR -> $HOME/.claude/plans -> .claude/plans
 #   TMP_ROOT:          TMPDIR -> TMP -> .gstack/tmp (and mkdir -p, best-effort)
 #
-# Security: output values are not sanitized — callers may receive paths with
-# shell-special characters if env vars contain them. Skills should always quote
-# expansions ("$GSTACK_STATE_ROOT", not $GSTACK_STATE_ROOT).
+# Output: values are emitted shell-quoted (printf %q) so `eval` round-trips them
+# byte-for-byte. This matters on Windows, where $TMP is a backslash path like
+# C:\Users\me\AppData\Local\Temp — with a bare `echo`, eval consumes the
+# backslashes as escapes and the caller gets C:UsersmeAppDataLocalTemp. A value
+# containing a space (C:\Program Files\Temp) is worse: eval word-splits it and
+# the variable ends up empty. Quoting here is the only fix that works, because
+# the corruption happens during eval, before the caller has anything to quote.
+# Callers should still quote expansions ("$GSTACK_STATE_ROOT") for the same
+# reason any path variable needs quoting.
 set -u
 
 # State root: where gstack writes projects/, sessions/, analytics/.
@@ -55,11 +61,26 @@ elif [ -n "${TMP:-}" ]; then
 else
   _tmp_root=".gstack/tmp"
 fi
+# macOS exports TMPDIR with a trailing slash; mktemp templates built as
+# "$TMP_ROOT/name-XXXXXX" would then carry "//", and any consumer comparing
+# paths gets a spurious mismatch. Strip it (never strips a bare "/"). #2091
+case "$_tmp_root" in
+  */) [ "$_tmp_root" != "/" ] && _tmp_root="${_tmp_root%/}" ;;
+esac
+
+# Strip any trailing slash so consumers can safely concatenate "$TMP_ROOT/name"
+# without producing a double slash. On macOS $TMPDIR ends in `/` by default
+# (e.g. /var/folders/.../T/), which would otherwise yield paths like
+# `…/T//codex-err-…`. Normalizing at the source means every consumer benefits,
+# not just /codex.
+_tmp_root="${_tmp_root%/}"
+# A value of "/" collapses to "" above; restore it so TMP_ROOT is never empty.
+[ -z "$_tmp_root" ] && _tmp_root="/"
 
 # Best-effort mkdir; if it fails (read-only fs, permission denied), the caller
 # will discover that on their own write attempt. Don't fail the eval here.
 mkdir -p "$_tmp_root" 2>/dev/null || true
 
-echo "GSTACK_STATE_ROOT=$_state_root"
-echo "PLAN_ROOT=$_plan_root"
-echo "TMP_ROOT=$_tmp_root"
+printf 'GSTACK_STATE_ROOT=%q\n' "$_state_root"
+printf 'PLAN_ROOT=%q\n' "$_plan_root"
+printf 'TMP_ROOT=%q\n' "$_tmp_root"

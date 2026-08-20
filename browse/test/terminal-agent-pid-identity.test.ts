@@ -30,7 +30,7 @@ import {
 // and browse/test/server-sanitize-surrogates.test.ts: read source files
 // directly, assert an invariant on their contents.
 
-const SRC_DIR = path.resolve(new URL(import.meta.url).pathname, '..', '..', 'src');
+const SRC_DIR = path.resolve(import.meta.path, '..', '..', 'src');
 
 function readAllSourceFiles(): Array<{ file: string; content: string }> {
   const out: Array<{ file: string; content: string }> = [];

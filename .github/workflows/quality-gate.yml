@@ -1,0 +1,77 @@
+# Quality gate (fork port wave 2, adapted from time-attack/gstack GStack 2).
+#
+# Three generic hygiene checks the repo previously had nowhere in CI:
+#   1. Credential scan of the PR diff's ADDED lines through our own
+#      bin/gstack-redact (HIGH fails the check; MEDIUM is an advisory count —
+#      there is no human in CI to confirm, so it never fails here).
+#   2. bun audit at critical severity.
+#   3. ShellCheck (errors only) on the setup/build shell boundary.
+#
+# Trigger is `pull_request`, NEVER `pull_request_target`: fork PRs must not
+# get secret-bearing contexts. Diff excludes cover the planted-bug fixtures
+# and eval baselines that intentionally contain credential-shaped strings.
+name: Quality gate
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-gate-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    runs-on: ubicloud-standard-8
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: latest
+
+      - name: Install frozen dependencies
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: Scan changed text for credentials (added lines, own redact engine)
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          if ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+            BASE_SHA=$(git rev-parse HEAD^)
+          fi
+          git diff --unified=0 --no-color "$BASE_SHA" "$HEAD_SHA" -- \
+            . \
+            ':(exclude)test/fixtures/**' \
+            ':(exclude)browse/test/fixtures/**' \
+            ':(exclude)docs/evals/**' \
+            ':(exclude)test/helpers/security-bench*' \
+            | node .github/scripts/gate-secret-scan.mjs
+
+      - name: Gate critical dependency advisories
+        run: bun audit --audit-level=critical
+
+      - name: Install ShellCheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+          shellcheck --version
+
+      - name: ShellCheck setup and build boundaries
+        run: >-
+          shellcheck --severity=error
+          setup
+          scripts/build.sh
+          scripts/build-app.sh
+          scripts/write-version-files.sh
+          browse/scripts/build-node-server.sh

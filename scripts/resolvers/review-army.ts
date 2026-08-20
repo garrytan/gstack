@@ -129,7 +129,7 @@ CHECKLIST:
 
 **Subagent configuration:**
 - Use \`subagent_type: "general-purpose"\`
-- Do NOT use \`run_in_background\` — all specialists must complete before merge
+- Pass \`run_in_background: false\` on every specialist Agent call — subagents run in the BACKGROUND by default since Claude Code v2.1.198, and all specialists must complete before merge. (Merely omitting the flag no longer produces a foreground run; it must be explicitly false.)
 - If any specialist subagent fails or times out, log the failure and continue with results from successful specialists. Specialists are additive — partial results are better than no results.`;
 }
 

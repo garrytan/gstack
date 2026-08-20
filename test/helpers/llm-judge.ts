@@ -56,7 +56,17 @@ export interface RecommendationScore {
  * existing callers; pass a model id (e.g. claude-haiku-4-5-20251001)
  * for cheaper bounded judgments like judgeRecommendation.
  */
-export async function callJudge<T>(prompt: string, model: string = 'claude-sonnet-4-6'): Promise<T> {
+// Default judge model: Sonnet. D1a tried Haiku 4.5 here and the first live
+// run regressed the doc-rubric family — a controlled A/B on the identical
+// health-rubric prompt scored 2/2/2 under Haiku vs 4/3/4 under Sonnet (both
+// with coherent reasoning; Haiku is simply a harsher grader on long-document
+// rubrics, and every >=4 threshold in skill-llm-eval was calibrated against
+// months of Sonnet baselines). Per D1a's pin-on-regressors protocol the
+// default stays Sonnet; recalibrating the 25 rubrics for Haiku is separately
+// scoped work. Override per run with GSTACK_EVAL_MODEL_JUDGE; Haiku remains
+// the right default for classifier-grade duties (pty hung/working, warmup,
+// distill — see lib/eval-model.ts).
+export async function callJudge<T>(prompt: string, model: string = process.env.GSTACK_EVAL_MODEL_JUDGE || 'claude-sonnet-4-6'): Promise<T> {
   const client = new Anthropic();
 
   const makeRequest = () => client.messages.create({

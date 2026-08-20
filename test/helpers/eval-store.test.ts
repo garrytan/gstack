@@ -6,6 +6,9 @@ import {
   EvalCollector,
   extractToolSummary,
   findPreviousRun,
+  findLatestFinalizedRun,
+  isPartialEval,
+  listEvalJsonFiles,
   compareEvalResults,
   formatComparison,
   generateCommentary,
@@ -56,6 +59,19 @@ function makeResult(overrides?: Partial<EvalResult>): EvalResult {
     tests: [makeEntry()],
     ...overrides,
   };
+}
+
+/** Capture everything a block writes to stderr (finalize prints there). */
+async function captureStderr(fn: () => Promise<void>): Promise<string> {
+  const original = process.stderr.write.bind(process.stderr);
+  let captured = '';
+  (process.stderr as any).write = (chunk: any) => { captured += String(chunk); return true; };
+  try {
+    await fn();
+  } finally {
+    (process.stderr as any).write = original;
+  }
+  return captured;
 }
 
 // --- EvalCollector tests ---
@@ -119,6 +135,41 @@ describe('EvalCollector', () => {
     expect(fs.readdirSync(tmpDir).filter(f => f.endsWith('.json') && !f.startsWith('_partial'))).toHaveLength(1);
   });
 
+  test('with no completed prior run, says NO BASELINE instead of comparing against its own partial', async () => {
+    // addTest writes the in-progress accumulator into the same dir. If that
+    // counted as a baseline, the run would compare against itself and print a
+    // reassuring all-clear forever.
+    const collector = new EvalCollector('e2e', tmpDir);
+    collector.addTest(makeEntry({ name: 'test-1', passed: true }));
+
+    const output = await captureStderr(async () => { await collector.finalize(); });
+
+    expect(fs.existsSync(path.join(tmpDir, '_partial-e2e.json'))).toBe(true); // the trap exists
+    expect(output).toContain('NO BASELINE');
+    expect(output).not.toContain('vs previous');
+    expect(output).not.toContain('Stable run');
+  });
+
+  test('with a genuine prior run, reports the real delta', async () => {
+    fs.writeFileSync(
+      path.join(tmpDir, '0.3.5-main-e2e-20260312-100000.json'),
+      JSON.stringify(makeResult({
+        timestamp: '2026-03-12T10:00:00Z',
+        tests: [makeEntry({ name: 'test-1', passed: true, turns_used: 5 })],
+      })),
+    );
+
+    const collector = new EvalCollector('e2e', tmpDir);
+    collector.addTest(makeEntry({ name: 'test-1', passed: false, turns_used: 5 }));
+
+    const output = await captureStderr(async () => { await collector.finalize(); });
+
+    expect(output).toContain('vs previous');
+    expect(output).toContain('REGRESSION');
+    expect(output).toContain('1 regressed');
+    expect(output).not.toContain('NO BASELINE');
+  });
+
   test('empty collector writes valid file', async () => {
     const collector = new EvalCollector('llm-judge', tmpDir);
     const filepath = await collector.finalize();
@@ -128,6 +179,59 @@ describe('EvalCollector', () => {
     expect(data.passed).toBe(0);
     expect(data.tests).toHaveLength(0);
     expect(data.tier).toBe('llm-judge');
+  });
+});
+
+// --- GSTACK_EVAL_DIR + shard slug tests ---
+
+describe('EvalCollector eval-dir resolution', () => {
+  const savedEnv = process.env.GSTACK_EVAL_DIR;
+
+  afterEach(() => {
+    if (savedEnv === undefined) delete process.env.GSTACK_EVAL_DIR;
+    else process.env.GSTACK_EVAL_DIR = savedEnv;
+  });
+
+  test('honors GSTACK_EVAL_DIR set after import — no --preload needed', async () => {
+    // The default eval dir must resolve lazily at construction, not at module
+    // load: the sharded runner sets GSTACK_EVAL_DIR in each shard child's env
+    // and shard tests import this module long before any collector exists.
+    const envDir = path.join(tmpDir, 'env-dir');
+    process.env.GSTACK_EVAL_DIR = envDir;
+    const collector = new EvalCollector('e2e');
+    collector.addTest(makeEntry());
+    await captureStderr(async () => { await collector.finalize(); });
+    expect(fs.readdirSync(envDir).filter(f => !f.startsWith('_partial'))).toHaveLength(1);
+  });
+
+  test('explicit constructor arg beats GSTACK_EVAL_DIR', async () => {
+    process.env.GSTACK_EVAL_DIR = path.join(tmpDir, 'env-dir');
+    const explicit = path.join(tmpDir, 'explicit');
+    const collector = new EvalCollector('e2e', explicit);
+    collector.addTest(makeEntry());
+    await captureStderr(async () => { await collector.finalize(); });
+    expect(fs.existsSync(path.join(tmpDir, 'env-dir'))).toBe(false);
+    expect(fs.readdirSync(explicit).length).toBeGreaterThan(0);
+  });
+
+  test('writes the shard slug when the eval dir is a shards/ subdir', async () => {
+    const shardDir = path.join(tmpDir, 'shards', 'skill-e2e-qa');
+    const collector = new EvalCollector('e2e', shardDir);
+    collector.addTest(makeEntry());
+    await captureStderr(async () => { await collector.finalize(); });
+
+    const partial = JSON.parse(fs.readFileSync(path.join(shardDir, '_partial-e2e.json'), 'utf-8'));
+    expect(partial.shard).toBe('skill-e2e-qa');
+    const final = fs.readdirSync(shardDir).find(f => !f.startsWith('_partial'))!;
+    expect(JSON.parse(fs.readFileSync(path.join(shardDir, final), 'utf-8')).shard).toBe('skill-e2e-qa');
+  });
+
+  test('writes no shard slug for a flat eval dir', async () => {
+    const collector = new EvalCollector('e2e', tmpDir);
+    collector.addTest(makeEntry());
+    await captureStderr(async () => { await collector.finalize(); });
+    const final = fs.readdirSync(tmpDir).find(f => f.endsWith('.json') && !f.startsWith('_partial'))!;
+    expect(JSON.parse(fs.readFileSync(path.join(tmpDir, final), 'utf-8')).shard).toBeUndefined();
   });
 });
 
@@ -259,6 +363,34 @@ describe('findPreviousRun', () => {
     expect(result).toBeNull(); // only file is excluded
   });
 
+  test('never returns the in-progress accumulator as a baseline', () => {
+    // The current run's own partial carries the current tier + branch and the
+    // freshest timestamp. If it were a candidate, every run would compare
+    // against itself and report "no regressions" forever.
+    fs.writeFileSync(
+      path.join(tmpDir, '_partial-e2e.json'),
+      JSON.stringify(makeResult({ branch: 'main', timestamp: '2026-03-14T10:00:00Z', _partial: true })),
+    );
+
+    const result = findPreviousRun(tmpDir, 'e2e', 'main', path.join(tmpDir, 'current.json'));
+    expect(result).toBeNull();
+  });
+
+  test('prefers a completed run over a newer in-progress accumulator', () => {
+    fs.writeFileSync(
+      path.join(tmpDir, '0.3.5-main-e2e-20260312-100000.json'),
+      JSON.stringify(makeResult({ branch: 'main', timestamp: '2026-03-12T10:00:00Z' })),
+    );
+    // Newer, same tier + branch, but in-progress — must lose to the older completed run.
+    fs.writeFileSync(
+      path.join(tmpDir, '_partial-e2e.json'),
+      JSON.stringify(makeResult({ branch: 'main', timestamp: '2026-03-14T10:00:00Z', _partial: true })),
+    );
+
+    const result = findPreviousRun(tmpDir, 'e2e', 'main', path.join(tmpDir, 'current.json'));
+    expect(result).toContain('0.3.5-main-e2e');
+  });
+
   test('filters by tier', () => {
     fs.writeFileSync(
       path.join(tmpDir, '0.3.6-main-llm-judge-20260314-100000.json'),
@@ -267,6 +399,143 @@ describe('findPreviousRun', () => {
 
     const result = findPreviousRun(tmpDir, 'e2e', 'main', 'current.json');
     expect(result).toBeNull(); // only llm-judge file, looking for e2e
+  });
+
+  test('a shard run prefers its own shard history over newer other-shard or flat priors', () => {
+    const mine = path.join(tmpDir, 'shards', 'skill-e2e-qa');
+    const other = path.join(tmpDir, 'shards', 'codex-e2e');
+    fs.mkdirSync(mine, { recursive: true });
+    fs.mkdirSync(other, { recursive: true });
+    // Same-shard prior — oldest of the three, must still win.
+    fs.writeFileSync(
+      path.join(mine, '0.3.4-main-e2e-20260311-100000.json'),
+      JSON.stringify(makeResult({ timestamp: '2026-03-11T10:00:00Z' })),
+    );
+    fs.writeFileSync(
+      path.join(other, '0.3.5-main-e2e-20260312-100000.json'),
+      JSON.stringify(makeResult({ timestamp: '2026-03-12T10:00:00Z' })),
+    );
+    fs.writeFileSync(
+      path.join(tmpDir, '0.3.6-main-e2e-20260313-100000.json'),
+      JSON.stringify(makeResult({ timestamp: '2026-03-13T10:00:00Z' })),
+    );
+
+    const result = findPreviousRun(tmpDir, 'e2e', 'main', path.join(mine, 'current.json'));
+    expect(result).toContain(path.join('shards', 'skill-e2e-qa'));
+  });
+
+  test('a flat run prefers flat history over a newer shard prior', () => {
+    const shardDir = path.join(tmpDir, 'shards', 'skill-e2e-qa');
+    fs.mkdirSync(shardDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(shardDir, '0.3.6-main-e2e-20260314-100000.json'),
+      JSON.stringify(makeResult({ timestamp: '2026-03-14T10:00:00Z' })),
+    );
+    fs.writeFileSync(
+      path.join(tmpDir, '0.3.5-main-e2e-20260312-100000.json'),
+      JSON.stringify(makeResult({ timestamp: '2026-03-12T10:00:00Z' })),
+    );
+
+    const result = findPreviousRun(tmpDir, 'e2e', 'main', path.join(tmpDir, 'current.json'));
+    expect(result).toContain('0.3.5-main-e2e');
+  });
+
+  test('falls back to a shard prior when the flat dir has no candidate', () => {
+    const shardDir = path.join(tmpDir, 'shards', 'skill-e2e-qa');
+    fs.mkdirSync(shardDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(shardDir, '0.3.6-main-e2e-20260314-100000.json'),
+      JSON.stringify(makeResult({ timestamp: '2026-03-14T10:00:00Z' })),
+    );
+
+    const result = findPreviousRun(tmpDir, 'e2e', 'main', path.join(tmpDir, 'current.json'));
+    expect(result).toContain(path.join('shards', 'skill-e2e-qa'));
+  });
+});
+
+// --- isPartialEval tests ---
+
+describe('isPartialEval', () => {
+  test('flag set but file renamed — still partial', () => {
+    expect(isPartialEval({ _partial: true }, 'renamed-to-look-final.json')).toBe(true);
+  });
+
+  test('name matches but no flag — still partial', () => {
+    expect(isPartialEval({}, '_partial-e2e.json')).toBe(true);
+    expect(isPartialEval(null, path.join('/some/dir', '_partial-e2e.json'))).toBe(true);
+  });
+
+  test('finalized run is not partial', () => {
+    expect(isPartialEval(makeResult(), '0.3.6-main-e2e-20260314-100000.json')).toBe(false);
+  });
+});
+
+// --- listEvalJsonFiles / findLatestFinalizedRun tests ---
+
+describe('findLatestFinalizedRun', () => {
+  test('listEvalJsonFiles recurses exactly one shards/*/ level', () => {
+    fs.writeFileSync(path.join(tmpDir, 'flat.json'), '{}');
+    const shardDir = path.join(tmpDir, 'shards', 'skill-e2e-qa');
+    fs.mkdirSync(shardDir, { recursive: true });
+    fs.writeFileSync(path.join(shardDir, 'sharded.json'), '{}');
+    // Nested one level deeper than the contract — must NOT be picked up.
+    const tooDeep = path.join(shardDir, 'shards', 'nested');
+    fs.mkdirSync(tooDeep, { recursive: true });
+    fs.writeFileSync(path.join(tooDeep, 'too-deep.json'), '{}');
+    fs.writeFileSync(path.join(tmpDir, 'not-json.txt'), '');
+
+    const files = listEvalJsonFiles(tmpDir).map(f => path.basename(f)).sort();
+    expect(files).toEqual(['flat.json', 'sharded.json']);
+  });
+
+  test('finds the newest finalized run across flat dir and shard subdirs', () => {
+    fs.writeFileSync(
+      path.join(tmpDir, '0.3.5-main-e2e-20260312-100000.json'),
+      JSON.stringify(makeResult({ timestamp: '2026-03-12T10:00:00Z' })),
+    );
+    const shardDir = path.join(tmpDir, 'shards', 'skill-e2e-qa');
+    fs.mkdirSync(shardDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(shardDir, '0.3.6-main-e2e-20260314-100000.json'),
+      JSON.stringify(makeResult({ timestamp: '2026-03-14T10:00:00Z' })),
+    );
+
+    const latest = findLatestFinalizedRun(tmpDir, 'e2e');
+    expect(latest?.filepath).toContain('skill-e2e-qa');
+    expect(latest?.result.timestamp).toBe('2026-03-14T10:00:00Z');
+  });
+
+  test('skips partials by flag and by name, filters by tier', () => {
+    // Newest by timestamp, but partial by flag under a shard dir.
+    const shardDir = path.join(tmpDir, 'shards', 'skill-e2e-qa');
+    fs.mkdirSync(shardDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(shardDir, 'flagged.json'),
+      JSON.stringify(makeResult({ timestamp: '2026-03-16T10:00:00Z', _partial: true })),
+    );
+    // Partial by name only.
+    fs.writeFileSync(
+      path.join(tmpDir, '_partial-e2e.json'),
+      JSON.stringify(makeResult({ timestamp: '2026-03-15T10:00:00Z' })),
+    );
+    // Wrong tier.
+    fs.writeFileSync(
+      path.join(tmpDir, '0.3.6-main-llm-judge-20260317-100000.json'),
+      JSON.stringify(makeResult({ tier: 'llm-judge', timestamp: '2026-03-17T10:00:00Z' })),
+    );
+    // The genuine baseline.
+    fs.writeFileSync(
+      path.join(tmpDir, '0.3.5-main-e2e-20260312-100000.json'),
+      JSON.stringify(makeResult({ timestamp: '2026-03-12T10:00:00Z' })),
+    );
+
+    const latest = findLatestFinalizedRun(tmpDir, 'e2e');
+    expect(latest?.result.timestamp).toBe('2026-03-12T10:00:00Z');
+  });
+
+  test('returns null for missing dir or no finalized runs', () => {
+    expect(findLatestFinalizedRun('/nonexistent/path', 'e2e')).toBeNull();
+    expect(findLatestFinalizedRun(tmpDir, 'e2e')).toBeNull();
   });
 });
 
@@ -522,6 +791,29 @@ describe('generateCommentary', () => {
     const notes = generateCommentary(c);
     expect(notes.some(n => n.includes('Overall'))).toBe(true);
     expect(notes.some(n => n.includes('No regressions'))).toBe(true);
+  });
+
+  test('says NO BASELINE instead of "stable" when nothing matched the prior run', () => {
+    // A baseline file existed but shares no test names (renamed/retired suite),
+    // so zero tests were actually compared. Claiming stability here is a lie.
+    const c: ComparisonResult = {
+      before_file: 'a.json', after_file: 'b.json',
+      before_branch: 'main', after_branch: 'main',
+      before_timestamp: '', after_timestamp: '',
+      deltas: [
+        { name: 'a', before: { passed: false, cost_usd: 0 }, after: { passed: true, cost_usd: 0.10 }, status_change: 'unchanged' },
+        { name: 'b', before: { passed: false, cost_usd: 0 }, after: { passed: true, cost_usd: 0.10 }, status_change: 'unchanged' },
+        { name: 'c', before: { passed: false, cost_usd: 0 }, after: { passed: true, cost_usd: 0.10 }, status_change: 'unchanged' },
+      ],
+      total_cost_delta: 0.30, total_duration_delta: 0,
+      improved: 0, regressed: 0, unchanged: 3,
+      tool_count_before: 0, tool_count_after: 0,
+      matched: 0,
+    };
+
+    const notes = generateCommentary(c);
+    expect(notes.some(n => n.includes('NO BASELINE'))).toBe(true);
+    expect(notes.some(n => n.includes('Stable run'))).toBe(false);
   });
 
   test('returns empty for stable run with no significant changes', () => {

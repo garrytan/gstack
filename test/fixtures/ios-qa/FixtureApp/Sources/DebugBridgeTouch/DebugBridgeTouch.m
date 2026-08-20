@@ -20,7 +20,29 @@
 #import "DebugBridgeTouch.h"
 #import <TargetConditionals.h>
 
-#if TARGET_OS_IOS
+#if !defined(DEBUG)
+
+// RELEASE BUILD: this file deliberately emits NOTHING — no class, no symbols, no
+// private-API references. The header still declares the interface, which is inert
+// on its own; every consumer of DebugBridgeTouch is itself `#if DEBUG` guarded, so
+// nothing references it here and nothing fails to link.
+//
+// This guard was added because the comments at the top of this file and in the
+// header both PROMISED "DEBUG-only; never shipped to App Store" and "never link in
+// Release" — and nothing enforced it. Only `#if TARGET_OS_IOS` was tested, so a
+// Release build for iOS compiled the whole implementation in. Measured on a real
+// app (Seize Day, 2026-08-15), `nm -j` on a Release binary returned 15 DebugBridge
+// symbols including +[DebugBridgeTouch sendTapAtPoint:inWindow:], plus
+// IOHIDEventCreateDigitizer, AXSSetAutomationEnabled and IOKit.framework strings.
+// That is a Guideline 2.5.1 private-API exposure in a shippable binary.
+//
+// Package.swift's stated guard — `.when(configuration: .debug)` on the consuming
+// target's dependency — only exists for SwiftPM consumers. An app integrating this
+// as a local package inside an .xcodeproj cannot express it: Xcode's Filters column
+// in Frameworks/Libraries offers platform conditions only, never configuration. So
+// the guard has to live here, in the source, where it holds for every consumer.
+
+#elif TARGET_OS_IOS
 
 #import <UIKit/UIKit.h>
 #import <objc/runtime.h>
@@ -126,6 +148,36 @@ static BOOL DBT_LoadIOKit(void) {
     return _IOKitLoaded;
 }
 
+// KIF enables accessibility automation before it asks UIKit/SwiftUI for the
+// accessibility tree. Without this switch SwiftUI exposes only its hosting
+// shell: /elements has no controls and a synthesized tap can return YES while
+// Button.action never fires. Keep this DEBUG-only with the rest of this file.
+typedef int (*DBTAXSAutomationEnabledFn)(void);
+typedef void (*DBTAXSSetAutomationEnabledFn)(int);
+static DBTAXSAutomationEnabledFn _DBTAXSAutomationEnabled;
+static DBTAXSSetAutomationEnabledFn _DBTAXSSetAutomationEnabled;
+static int _DBTInitialAutomationState = -1;
+
+static void DBT_RestoreAccessibilityAutomation(void) {
+    if (_DBTAXSSetAutomationEnabled && _DBTInitialAutomationState >= 0) {
+        _DBTAXSSetAutomationEnabled(_DBTInitialAutomationState);
+    }
+}
+
+static void DBT_EnableAccessibilityAutomation(void) {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        void *handle = dlopen("/usr/lib/libAccessibility.dylib", RTLD_NOW | RTLD_LOCAL);
+        if (!handle) return;
+        _DBTAXSAutomationEnabled = (DBTAXSAutomationEnabledFn)dlsym(handle, "_AXSAutomationEnabled");
+        _DBTAXSSetAutomationEnabled = (DBTAXSSetAutomationEnabledFn)dlsym(handle, "_AXSSetAutomationEnabled");
+        if (!_DBTAXSAutomationEnabled || !_DBTAXSSetAutomationEnabled) return;
+        _DBTInitialAutomationState = _DBTAXSAutomationEnabled();
+        if (!_DBTInitialAutomationState) _DBTAXSSetAutomationEnabled(1);
+        atexit(DBT_RestoreAccessibilityAutomation);
+    });
+}
+
 static IOHIDEventRef DBT_IOHIDEventWithTouch(UITouch *touch) CF_RETURNS_RETAINED;
 static IOHIDEventRef DBT_IOHIDEventWithTouch(UITouch *touch) {
     if (!DBT_LoadIOKit()) return NULL;
@@ -172,6 +224,7 @@ static IOHIDEventRef DBT_IOHIDEventWithTouch(UITouch *touch) {
 - (void)setGestureView:(UIView *)view;
 - (void)_setLocationInWindow:(CGPoint)location resetPrevious:(BOOL)resetPrevious;
 - (void)_setIsFirstTouchForView:(BOOL)firstTouchForView;
+- (void)_setIsTapToClick:(BOOL)tapToClick;
 - (void)_setHidEvent:(IOHIDEventRef)event;
 @end
 
@@ -229,6 +282,10 @@ static id DBT_HitTestView(UIWindow *window, CGPoint point) {
 
 @implementation DebugBridgeTouch
 
++ (void)prepareForAutomation {
+    DBT_EnableAccessibilityAutomation();
+}
+
 + (BOOL)sendTapAtPoint:(CGPoint)point inWindow:(UIWindow *)window {
     if (!window) return NO;
 
@@ -247,10 +304,17 @@ static id DBT_HitTestView(UIWindow *window, CGPoint point) {
     [touch setPhase:UITouchPhaseBegan];
     if ([touch respondsToSelector:@selector(_setIsFirstTouchForView:)]) {
         [touch _setIsFirstTouchForView:YES];
+    } else if ([touch respondsToSelector:@selector(_setIsTapToClick:)]) {
+        [touch _setIsTapToClick:YES];
+        Ivar flagsIvar = class_getInstanceVariable([UITouch class], "_touchFlags");
+        if (flagsIvar) {
+            ptrdiff_t offset = ivar_getOffset(flagsIvar);
+            char *flags = (__bridge void *)touch + offset;
+            *flags |= (char)0x01;
+        }
     }
     [touch setTimestamp:[[NSProcessInfo processInfo] systemUptime]];
-    if ([touch respondsToSelector:@selector(setGestureView:)] &&
-        [hit isKindOfClass:[UIView class]]) {
+    if ([touch respondsToSelector:@selector(setGestureView:)]) {
         [touch setGestureView:(UIView *)hit];
     }
 
@@ -298,4 +362,4 @@ static id DBT_HitTestView(UIWindow *window, CGPoint point) {
 }
 @end
 
-#endif // TARGET_OS_IOS
+#endif // !DEBUG / TARGET_OS_IOS

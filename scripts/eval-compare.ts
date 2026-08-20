@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 /**
- * Compare two eval runs from ~/.gstack-dev/evals/
+ * Compare two eval runs from the project eval dir (~/.gstack/projects/<slug>/evals;
+ * legacy fallback ~/.gstack-dev/evals)
  *
  * Usage:
  *   bun run eval:compare                    # compare two most recent of same tier
@@ -10,12 +11,13 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
 import {
   findPreviousRun,
   compareEvalResults,
   formatComparison,
   getProjectEvalDir,
+  isPartialEval,
+  listEvalJsonFiles,
 } from '../test/helpers/eval-store';
 import type { EvalResult } from '../test/helpers/eval-store';
 
@@ -52,25 +54,34 @@ if (args.length === 2) {
   }
   beforeFile = prev;
 } else {
-  // No args — find two most recent of the same tier
-  let files: string[];
-  try {
-    files = fs.readdirSync(EVAL_DIR)
-      .filter(f => f.endsWith('.json'))
-      .sort()
-      .reverse();
-  } catch {
+  // No args — find two most recent of the same tier. Scans the flat dir plus
+  // one level of shards/<slug>/; in-progress accumulators are never the
+  // "after" run (comparing against a half-finished run says nothing).
+  const files = listEvalJsonFiles(EVAL_DIR)
+    .sort((a, b) => path.basename(b).localeCompare(path.basename(a)));
+
+  if (files.length === 0) {
     console.log('No eval runs yet. Run: EVALS=1 bun run test:evals');
     process.exit(0);
   }
-
   if (files.length < 2) {
     console.log('Need at least 2 eval runs to compare. Run evals again.');
     process.exit(0);
   }
 
-  // Most recent file
-  afterFile = path.join(EVAL_DIR, files[0]);
+  // Most recent finalized file
+  const latest = files.find(f => {
+    try {
+      return !isPartialEval(JSON.parse(fs.readFileSync(f, 'utf-8')), f);
+    } catch {
+      return false;
+    }
+  });
+  if (!latest) {
+    console.log('No completed eval runs yet. Run: EVALS=1 bun run test:evals');
+    process.exit(0);
+  }
+  afterFile = latest;
   const afterResult = loadResult(afterFile);
   const prev = findPreviousRun(EVAL_DIR, afterResult.tier, afterResult.branch, afterFile);
   if (!prev) {

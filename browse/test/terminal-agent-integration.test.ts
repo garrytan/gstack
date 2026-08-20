@@ -227,6 +227,45 @@ describe('terminal-agent: PTY round-trip via real WebSocket (Cookie auth)', () =
     expect(resp.headers.get('sec-websocket-protocol')).toBe(`gstack-pty.${token}`);
   });
 
+  test('upgrade response contains exactly ONE Sec-WebSocket-Protocol header', async () => {
+    // RFC 6455: the server MUST select at most one subprotocol. Bun >= 1.3
+    // auto-echoes the first offered protocol in server.upgrade(), so a
+    // manual echo on top of that produced TWO Sec-WebSocket-Protocol
+    // headers — and strict clients (Chromium, python websockets) reject the
+    // handshake, leaving the sidebar terminal permanently disconnected.
+    //
+    // Headers.get() normalizes duplicates away, so this test handshakes
+    // over a raw socket and counts header lines in the response head.
+    const token = 'dup-proto-token-must-be-at-least-seventeen-chars';
+    await grantToken(token);
+
+    const head = await new Promise<string>((resolve, reject) => {
+      const req =
+        'GET /ws HTTP/1.1\r\n' +
+        `Host: 127.0.0.1:${agentPort}\r\n` +
+        'Connection: Upgrade\r\n' +
+        'Upgrade: websocket\r\n' +
+        'Sec-WebSocket-Version: 13\r\n' +
+        'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n' +
+        `Sec-WebSocket-Protocol: gstack-pty.${token}\r\n` +
+        'Origin: chrome-extension://test-extension-id\r\n' +
+        '\r\n';
+      let buf = '';
+      const socket = require('net').connect(agentPort, '127.0.0.1', () => socket.write(req));
+      socket.setTimeout(5000, () => { socket.destroy(); reject(new Error('handshake timeout')); });
+      socket.on('data', (chunk: Buffer) => {
+        buf += chunk.toString('utf8');
+        const end = buf.indexOf('\r\n\r\n');
+        if (end !== -1) { socket.destroy(); resolve(buf.slice(0, end)); }
+      });
+      socket.on('error', reject);
+    });
+
+    expect(head).toContain('101');
+    const protoLines = head.split('\r\n').filter(l => l.toLowerCase().startsWith('sec-websocket-protocol:'));
+    expect(protoLines).toEqual([`Sec-WebSocket-Protocol: gstack-pty.${token}`]);
+  });
+
   test('Sec-WebSocket-Protocol auth: rejects unknown token even with valid Origin', async () => {
     const resp = await fetch(`http://127.0.0.1:${agentPort}/ws`, {
       headers: {

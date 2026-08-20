@@ -68,10 +68,17 @@ fi
 # GSTACK_PLAN_TUNE_HOOKS=yes would still resolve to "install" and rewrite the
 # user's global ~/.claude/settings.json to point at THIS ephemeral worktree —
 # which breaks once the workspace is deleted. The flag has highest precedence,
-# so it pins resolution to "prompt", and closed stdin then makes prompt-mode a
-# no-op skip (no install, no decline marker). A dev workspace must never mutate
-# global settings.json. To install the hooks, run `./setup --plan-tune-hooks`
-# directly (outside dev-setup). Saved prefix/other config preferences still apply.
+# so it pins resolution to "prompt" (setup's PT_EXPLICIT provenance keeps the
+# Conductor auto-opt-in from overriding an explicit flag), and closed stdin
+# then makes prompt-mode a no-op skip (no install, no decline marker).
+#
+# A dev workspace never ADDS hooks to global settings.json. One stated repair
+# exception: setup's heal-first pass may PRUNE dead gstack hook entries and
+# RE-POINT existing ones at the stable ~/.claude/skills/gstack install —
+# strictly convergent repair, never a new registration, and hook registration
+# itself is canonical-only (an ephemeral tree path can never be baked in).
+# To install the hooks, run `./setup --plan-tune-hooks` directly (outside
+# dev-setup). Saved prefix/other config preferences still apply.
 #
 # GSTACK_SKIP_GBRAIN_REGEN=1 is passed INLINE (not exported) so it scopes to
 # exactly this nested setup call and can't leak into any other setup path. It

@@ -3,8 +3,8 @@
  *
  * Output for trusted methods is a plain JSON pretty-print.
  * Output for untrusted methods is wrapped with the centralized UNTRUSTED EXTERNAL
- * CONTENT envelope so the sidebar-agent classifier sees it (matches the pattern
- * used by other untrusted-content commands in commands.ts).
+ * CONTENT envelope so downstream consumers treat it as data, not instructions
+ * (matches the pattern used by other untrusted-content commands in commands.ts).
  */
 
 import type { BrowserManager } from './browser-manager';

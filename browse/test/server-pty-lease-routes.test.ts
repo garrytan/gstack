@@ -7,7 +7,7 @@ import * as path from 'path';
 // loopback to be live (e2e-tier); these static-grep tripwires pin the
 // load-bearing protocol invariants.
 
-const SERVER_TS = path.resolve(new URL(import.meta.url).pathname, '..', '..', 'src', 'server.ts');
+const SERVER_TS = path.resolve(import.meta.path, '..', '..', 'src', 'server.ts');
 
 describe('server: PTY lease routes (v1.44+ Commit 2)', () => {
   test('1. /pty-session returns the 4-tuple shape (sessionId, attachToken, leaseExpiresAt)', () => {

@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect } from "bun:test";
-import { mkdtempSync, writeFileSync, readFileSync, existsSync, mkdirSync, rmSync, chmodSync } from "fs";
+import { mkdtempSync, writeFileSync, readFileSync, existsSync, mkdirSync, rmSync, chmodSync, symlinkSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -32,8 +32,11 @@ interface FakeGbrainSetup {
  * Build a temp dir with a fake `gbrain` shell script on PATH. The fake honors:
  *   gbrain sources list --json     → cat $STATE_PATH
  *   gbrain sources add <id> --path <p> [--federated]  → append to state, log
- *   gbrain sources remove <id> --yes                  → drop from state, log
- *   gbrain --version                                  → echo "gbrain 0.25.1"
+ *   gbrain sources remove <id> --confirm-destructive  → drop from state, log
+ *                                                       (#1985: remove WITHOUT
+ *                                                       --confirm-destructive
+ *                                                       fails like gbrain >= 0.42)
+ *   gbrain --version                                  → echo "gbrain 0.42.40.0"
  * Anything else exits 1.
  */
 function makeFakeGbrain(initialState: { sources: Array<{ id: string; local_path: string; federated?: boolean; page_count?: number }> }): FakeGbrainSetup {
@@ -49,7 +52,7 @@ function makeFakeGbrain(initialState: { sources: Array<{ id: string; local_path:
 echo "$@" >> "${logPath}"
 case "$1 $2" in
   "--version ")
-    echo "gbrain 0.25.1"
+    echo "gbrain 0.42.40.0"
     exit 0
     ;;
   "sources list")
@@ -75,6 +78,16 @@ case "$1 $2" in
     ;;
   "sources remove")
     ID="$3"
+    # #1985: gbrain >= 0.42 gates remove behind --confirm-destructive; --yes
+    # alone no longer suppresses the data-loss prompt. Refuse without it so the
+    # drift re-register path is exercised against real gbrain 0.42 behavior.
+    case " $* " in
+      *" --confirm-destructive "*) : ;;
+      *)
+        echo "This will permanently delete pages. To proceed, pass --confirm-destructive" >&2
+        exit 1
+        ;;
+    esac
     NEW=$(jq --arg id "$ID" '.sources = (.sources | map(select(.id != $id)))' "${statePath}")
     echo "$NEW" > "${statePath}"
     exit 0
@@ -155,6 +168,13 @@ describe("ensureSourceRegistered", () => {
     fake.cleanup();
   });
 
+  // Drift-path tests pin the #1734 guard inputs (inactive autopilot, allowed
+  // remove) so a REAL autopilot running on the dev machine can't flip them.
+  const guardsPinnedInactive = {
+    autopilotProbe: { lockPaths: [], processRunning: () => false },
+    removeDecision: { keepStorage: false },
+  } as const;
+
   it("recreates source when path differs (gbrain has no `sources update`), returns changed=true", async () => {
     const fake = makeFakeGbrain({
       sources: [{ id: "gstack-code-foo", local_path: "/old/path" }],
@@ -162,15 +182,136 @@ describe("ensureSourceRegistered", () => {
     const result = await ensureSourceRegistered("gstack-code-foo", "/new/path", {
       federated: true,
       env: fake.env,
+      ...guardsPinnedInactive,
     });
     expect(result.changed).toBe(true);
     expect(result.state.status).toBe("match");
     expect(result.state.registered_path).toBe("/new/path");
 
     const log = readFileSync(fake.logPath, "utf-8");
-    expect(log).toContain("sources remove gstack-code-foo --yes");
+    // #1985: the remove must carry --confirm-destructive (gbrain >= 0.42 gate).
+    expect(log).toContain("sources remove gstack-code-foo --yes --confirm-destructive");
     expect(log).toContain("sources add gstack-code-foo --path /new/path --federated");
     fake.cleanup();
+  });
+
+  // #1985: regression. gbrain >= 0.42 refuses `sources remove` without
+  // --confirm-destructive. On the drift path that surfaces as "source
+  // registration failed" and aborts the /sync-gbrain code stage for every
+  // already-registered source whose path drifted. Before the fix the remove
+  // was issued with `--yes` only, so the guard-simulating fake rejects it and
+  // ensureSourceRegistered throws. The fix passes --confirm-destructive, so
+  // the re-register succeeds.
+  it("re-registers across the gbrain >= 0.42 destructive-remove guard (does not throw)", async () => {
+    const fake = makeFakeGbrain({
+      sources: [{ id: "gstack-code-foo", local_path: "/old/path" }],
+    });
+    const result = await ensureSourceRegistered("gstack-code-foo", "/new/path", {
+      federated: true,
+      env: fake.env,
+      ...guardsPinnedInactive,
+    });
+    expect(result.changed).toBe(true);
+    expect(result.state.status).toBe("match");
+    expect(result.state.registered_path).toBe("/new/path");
+
+    // The old source was actually removed (the guarded remove succeeded), then
+    // the new path was added — not left behind as a stale duplicate.
+    const finalState = JSON.parse(readFileSync(fake.statePath, "utf-8"));
+    expect(finalState.sources).toHaveLength(1);
+    expect(finalState.sources[0].local_path).toBe("/new/path");
+    fake.cleanup();
+  });
+
+  // #1734 tripwire: the drift remove deletes pages/chunks/embeddings, so it
+  // must refuse while a gbrain autopilot is active — and refuse LOUDLY (throw),
+  // not silently return changed=false. Before the guard routing, this path
+  // issued the remove unconditionally.
+  it("REFUSES the drift remove while autopilot is active (throws, no remove issued)", async () => {
+    const fake = makeFakeGbrain({
+      sources: [{ id: "gstack-code-foo", local_path: "/old/path" }],
+    });
+    await expect(
+      ensureSourceRegistered("gstack-code-foo", "/new/path", {
+        env: fake.env,
+        autopilotProbe: { lockPaths: [], processRunning: () => true },
+        removeDecision: { keepStorage: false },
+      }),
+    ).rejects.toThrow(/autopilot active/);
+
+    const log = readFileSync(fake.logPath, "utf-8");
+    expect(log).not.toContain("sources remove");
+    expect(log).not.toContain("sources add");
+    fake.cleanup();
+  });
+
+  it("REFUSES the drift remove when decideSourceRemove disallows (fail closed, throws)", async () => {
+    const fake = makeFakeGbrain({
+      sources: [{ id: "gstack-code-foo", local_path: "/old/path" }],
+    });
+    await expect(
+      ensureSourceRegistered("gstack-code-foo", "/new/path", {
+        env: fake.env,
+        autopilotProbe: { lockPaths: [], processRunning: () => false },
+        // A sources-list read failure makes decideSourceRemove fail closed.
+        removeDecision: {
+          keepStorage: false,
+          fetchRows: () => {
+            throw new Error("sources list unavailable");
+          },
+        },
+      }),
+    ).rejects.toThrow(/fail closed/);
+
+    const log = readFileSync(fake.logPath, "utf-8");
+    expect(log).not.toContain("sources remove");
+    fake.cleanup();
+  });
+
+  it("propagates decideSourceRemove extraArgs (--keep-storage) to the drift remove", async () => {
+    const fake = makeFakeGbrain({
+      sources: [{ id: "gstack-code-foo", local_path: "/old/path" }],
+    });
+    const result = await ensureSourceRegistered("gstack-code-foo", "/new/path", {
+      env: fake.env,
+      autopilotProbe: { lockPaths: [], processRunning: () => false },
+      removeDecision: { keepStorage: true },
+    });
+    expect(result.changed).toBe(true);
+
+    const log = readFileSync(fake.logPath, "utf-8");
+    expect(log).toContain(
+      "sources remove gstack-code-foo --yes --confirm-destructive --keep-storage",
+    );
+    fake.cleanup();
+  });
+
+  // Realpath normalization: a registered path that is a symlink alias of the
+  // requested path is a MATCH, not drift. Declaring it drift triggers a
+  // destructive remove + full re-index for a no-op (#1985 reporter hit the
+  // remove on an unmoved repo; macOS /tmp -> /private/tmp is the usual cause).
+  it("does NOT declare drift when registered path is a symlink alias of the requested path", async () => {
+    const base = mkdtempSync(join(tmpdir(), "gbrain-sources-realpath-"));
+    const realDir = join(base, "real-repo");
+    const linkDir = join(base, "link-repo");
+    mkdirSync(realDir, { recursive: true });
+    symlinkSync(realDir, linkDir);
+
+    const fake = makeFakeGbrain({
+      sources: [{ id: "gstack-code-foo", local_path: realDir }],
+    });
+    const result = await ensureSourceRegistered("gstack-code-foo", linkDir, {
+      env: fake.env,
+      ...guardsPinnedInactive,
+    });
+    expect(result.changed).toBe(false);
+    expect(result.state.status).toBe("match");
+
+    const log = readFileSync(fake.logPath, "utf-8");
+    expect(log).not.toContain("sources remove");
+    expect(log).not.toContain("sources add");
+    fake.cleanup();
+    rmSync(base, { recursive: true, force: true });
   });
 
   it("when reregister_on_drift=false and source is at different path, returns changed=false", async () => {

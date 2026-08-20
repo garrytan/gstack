@@ -25,6 +25,7 @@ import { evolve } from "./evolve";
 import { generateDesignToCodePrompt } from "./design-to-code";
 import { serve } from "./serve";
 import { gallery } from "./gallery";
+import { normalizeIntFlag } from "./flag-utils";
 import {
   daemonStatus as daemonStatusClient,
   ensureDaemon,
@@ -137,7 +138,7 @@ async function main(): Promise<void> {
         briefFile: flags["brief-file"] as string,
         output: (flags.output as string) || "/tmp/gstack-mockup.png",
         check: !!flags.check,
-        retry: flags.retry ? parseInt(flags.retry as string) : 0,
+        retry: normalizeIntFlag(flags.retry, { name: "retry", def: 0, min: 0 }),
         size: flags.size as string,
         quality: flags.quality as string,
       });
@@ -163,7 +164,7 @@ async function main(): Promise<void> {
         if (flags["no-daemon"]) {
           await serve({
             html: outputPath,
-            timeout: flags.timeout ? parseInt(flags.timeout as string) : 600,
+            timeout: normalizeIntFlag(flags.timeout, { name: "timeout", def: 600, min: 1 }),
           });
         } else {
           await publishToDaemon({
@@ -197,7 +198,9 @@ async function main(): Promise<void> {
       await variants({
         brief: flags.brief as string,
         briefFile: flags["brief-file"] as string,
-        count: flags.count ? parseInt(flags.count as string) : 3,
+        // #2032: pass the RAW flag through — variants() normalizes at its
+        // consumption site (a pre-parseInt here would silently truncate "3.7").
+        count: flags.count,
         outputDir: (flags["output-dir"] as string) || "/tmp/gstack-variants/",
         size: flags.size as string,
         quality: flags.quality as string,

@@ -84,9 +84,13 @@ describeIfSelected('hermetic isolation canaries', ['hermetic-canary', 'hermetic-
 
     try {
       const result = await runSkillTest({
+        // ${VAR:-} expansion, not bare $VAR: when scrubbing WORKS the planted
+        // vars are unset, and under a nounset shell (set -u in the operator's
+        // shell snapshot) a bare expansion of an unset var errors the whole
+        // command — making the canary fail exactly when isolation succeeds.
         prompt: 'Run exactly this bash command and then stop: ' +
-          'echo "CFG=$CLAUDE_CONFIG_DIR"; echo "GH=$GSTACK_HOME"; ' +
-          'echo "CW=$CONDUCTOR_WORKSPACE_PATH"; echo "GP=$GBRAIN_POISON_PROBE"',
+          'echo "CFG=${CLAUDE_CONFIG_DIR:-}"; echo "GH=${GSTACK_HOME:-}"; ' +
+          'echo "CW=${CONDUCTOR_WORKSPACE_PATH:-}"; echo "GP=${GBRAIN_POISON_PROBE:-}"',
         workingDirectory: workDir,
         maxTurns: 3,
         allowedTools: ['Bash'],

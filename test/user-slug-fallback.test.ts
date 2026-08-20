@@ -8,7 +8,7 @@
  *   3. sha8($(git config user.email))
  *   4. anonymous-<sha8(hostname)>
  *
- * Result is persisted under user_slug_at_<endpoint-hash> for stability.
+ * Result is persisted under user_slug_at_<endpoint-id> for stability.
  * Test isolation via GSTACK_HOME and HOME env overrides.
  *
  * Gate-tier, free, ~50ms.
@@ -35,6 +35,12 @@ function runConfig(args: string[], extraEnv: Record<string, string> = {}): { std
     encoding: 'utf-8',
     env: {
       ...process.env,
+      // HOME isolation: endpoint_hash() reads $HOME/.claude.json for the
+      // gbrain MCP URL. Pointing HOME at the empty TMP_HOME makes it
+      // deterministically 'local' regardless of the developer's real
+      // ~/.claude.json (which would otherwise change the persisted key
+      // namespace to user_slug_at_<sha8-of-url>).
+      HOME: TMP_HOME,
       ...extraEnv,
     },
     timeout: 5000,
@@ -87,12 +93,14 @@ describe('resolve-user-slug fallback chain', () => {
     expect(slug).toMatch(/^(email-|anonymous-)[a-f0-9]+$|^[a-zA-Z0-9-]+$/);
   });
 
-  test('persists resolution to user_slug_at_<hash> on first call', () => {
+  test('persists resolution to user_slug_at_<endpoint-id> on first call', () => {
     runConfig(['resolve-user-slug'], { GSTACK_HOME: TMP_HOME, USER: 'persisttest' });
     const configFile = join(TMP_HOME, 'config.yaml');
     expect(existsSync(configFile)).toBe(true);
     const content = readFileSync(configFile, 'utf-8');
-    expect(content).toMatch(/^user_slug_at_[a-f0-9]+:\s+persisttest/m);
+    // HOME is isolated to the empty TMP_HOME, so endpoint_hash() is
+    // deterministically the literal 'local' on every machine.
+    expect(content).toMatch(/^user_slug_at_local:\s+persisttest/m);
   });
 
   test('subsequent calls return same slug (stable across sessions)', () => {
@@ -104,7 +112,7 @@ describe('resolve-user-slug fallback chain', () => {
   });
 });
 
-describe('brain_trust_policy@<hash> namespace', () => {
+describe('brain_trust_policy@<endpoint-id> namespace', () => {
   test('default value is "unset"', () => {
     const result = runConfig(['get', 'brain_trust_policy@deadbeef'], { GSTACK_HOME: TMP_HOME });
     expect(result.status).toBe(0);
@@ -157,5 +165,11 @@ describe('key validation', () => {
   test('accepts @<hex-hash> suffix on key', () => {
     const result = runConfig(['get', 'brain_trust_policy@abc123ff'], { GSTACK_HOME: TMP_HOME });
     expect(result.status).toBe(0);
+  });
+
+  test('accepts @local suffix on key', () => {
+    const result = runConfig(['get', 'brain_trust_policy@local'], { GSTACK_HOME: TMP_HOME });
+    expect(result.status).toBe(0);
+    expect(result.stdout).toBe('unset');
   });
 });

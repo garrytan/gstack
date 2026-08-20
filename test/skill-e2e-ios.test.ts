@@ -171,9 +171,12 @@ describe('ios-qa E2E (no-device path)', () => {
     writeFileSync(join(srcDir, 'AppState.swift'), `
 @Observable
 class AppState {
-    @Snapshotable var isLoggedIn: Bool = false
-    @Snapshotable var username: String = ""
-    @Snapshotable var counter: Int = 0
+    // @Snapshotable
+    var isLoggedIn: Bool = false
+    // @Snapshotable
+    var username: String = ""
+    // @Snapshotable
+    var counter: Int = 0
     var ephemeralCache: [String: Any] = [:]
 }
 `);
@@ -189,7 +192,8 @@ class AppState {
     expect(result.specs).toHaveLength(1);
     expect(result.specs[0]!.fields.map(f => f.name).sort()).toEqual(['counter', 'isLoggedIn', 'username']);
     const generatedSwift = readFileSync(result.outputPath, 'utf-8');
-    expect(generatedSwift).toContain('public enum AppStateAccessor');
+    expect(generatedSwift).toContain('enum AppStateAccessor');
+    expect(generatedSwift).not.toContain('public enum AppStateAccessor');
     expect(generatedSwift).toContain('key: "isLoggedIn"');
     expect(generatedSwift).toContain('key: "counter"');
     expect(generatedSwift).not.toContain('key: "ephemeralCache"'); // not marked @Snapshotable

@@ -81,7 +81,10 @@ Write your complete review directly to ${planDir}/review-output.md
 Focus on reviewing the plan content: architecture, error handling, security, and performance.`,
       workingDirectory: planDir,
       maxTurns: 15,
-      timeout: 360_000,
+      // 540s: the evidence-before-claimed-limitations directive and the
+      // design-doc discovery block (fork port wave 2) add real probing turns;
+      // main cleared this at 243s, the enriched skill needs more headroom.
+      timeout: 540_000,
       testName: 'plan-ceo-review',
       runId,
       model: 'claude-opus-4-7',
@@ -100,7 +103,7 @@ Focus on reviewing the plan content: architecture, error handling, security, and
       const review = fs.readFileSync(reviewPath, 'utf-8');
       expect(review.length).toBeGreaterThan(200);
     }
-  }, 420_000);
+  }, 660_000);
 });
 
 // --- Plan CEO Review (SELECTIVE EXPANSION) E2E ---
@@ -168,7 +171,7 @@ Write your complete review directly to ${planDir}/review-output-selective.md
 Focus on reviewing the plan content: architecture, error handling, security, and performance.`,
       workingDirectory: planDir,
       maxTurns: 15,
-      timeout: 360_000,
+      timeout: 540_000,
       testName: 'plan-ceo-review-selective',
       runId,
       model: 'claude-opus-4-7',
@@ -185,7 +188,7 @@ Focus on reviewing the plan content: architecture, error handling, security, and
       const review = fs.readFileSync(reviewPath, 'utf-8');
       expect(review.length).toBeGreaterThan(200);
     }
-  }, 420_000);
+  }, 660_000);
 });
 
 // --- Plan CEO Review SCOPE EXPANSION energy (V1.1 mode-posture regression gate) ---
@@ -549,7 +552,13 @@ Summarize what the "Spec Review Loop" section does — specifically:
 
 Write your summary to ${ohDir}/spec-review-summary.md`,
       workingDirectory: ohDir,
-      maxTurns: 8,
+      // 12, not 8 (#2473): the Spec Review Loop content is CARVED out of
+      // SKILL.md into office-hours/sections/, so the agent legitimately needs
+      // discovery hops (grep SKILL.md -> ls sections/ -> read the section)
+      // before it can write. The 8-turn budget predates the carve — observed
+      // failures wrote a correct summary on tool-turn 8 and hit the cap on
+      // the closing text turn (error_max_turns at 9 turns, deterministic).
+      maxTurns: 12,
       timeout: 120_000,
       testName: 'office-hours-spec-review',
       runId,

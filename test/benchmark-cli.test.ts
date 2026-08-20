@@ -73,6 +73,21 @@ describe('gstack-model-benchmark --dry-run', () => {
     expect(r.stdout).toContain('workdir:    /tmp');
   });
 
+  test('--timeout-ms accepts plus-prefixed positive integers', () => {
+    const r = run(['--prompt', 'hi', '--timeout-ms', '+2500', '--dry-run']);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain('timeout_ms: 2500');
+  });
+
+  test('--timeout-ms rejects malformed values', () => {
+    for (const value of ['1abc', 'nope', '0', '-1', '1.5', '']) {
+      const r = run(['--prompt', 'hi', '--timeout-ms', value, '--dry-run']);
+      expect(r.status).toBe(1);
+      expect(r.stderr).toContain('--timeout-ms requires a positive integer');
+      expect(r.stdout).toBe('');
+    }
+  });
+
   test('--judge flag reported in dry-run output', () => {
     const r = run(['--prompt', 'hi', '--judge', '--dry-run']);
     expect(r.status).toBe(0);
@@ -133,7 +148,7 @@ describe('gstack-model-benchmark --dry-run', () => {
       const notReadyLines = out.split('\n').filter(l => l.includes('NOT READY'));
       expect(notReadyLines.length).toBeGreaterThanOrEqual(2);
       for (const line of notReadyLines) {
-        expect(line).toMatch(/(install|Install|login|export|Run|Log in)/);
+        expect(line).toMatch(/(install|login|export|run|log in)/i);
       }
     } finally {
       fs.rmSync(emptyHome, { recursive: true, force: true });

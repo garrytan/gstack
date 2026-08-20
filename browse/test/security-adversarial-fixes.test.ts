@@ -84,23 +84,11 @@ describe('snapshot in PAGE_CONTENT_COMMANDS', () => {
   });
 });
 
-describe('transcript classifier tool_output parameter', () => {
-  test('checkTranscript accepts optional tool_output', () => {
-    const src = fs.readFileSync(
-      path.join(REPO_ROOT, 'browse', 'src', 'security-classifier.ts'),
-      'utf-8',
-    );
-    expect(src).toContain('tool_output?: string');
-    expect(src).toContain('tool_output');
-    // Haiku prompt mentions tool_output
-    expect(src).toContain('tool_output');
-  });
-
-  // sidebar-agent passed tool text to the transcript classifier on
-  // tool-result scans. That whole pipeline is gone — Terminal pane has
-  // no LLM stream to scan, and security-classifier.ts is dead code with
-  // no production caller (a separate v1.1+ cleanup TODO).
-});
+// The transcript classifier (Haiku) and its tool_output parameter were
+// removed along with sidebar-agent.ts's tool-result scan pipeline. The
+// combineVerdict tests above retain the transcript_classifier vote-handling
+// coverage — the combiner still accepts those signals even though no live
+// layer produces them.
 
 describe('GSTACK_SECURITY_OFF kill switch', () => {
   test('loadTestsavant honors env var early', () => {

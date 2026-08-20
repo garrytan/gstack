@@ -64,8 +64,11 @@ case "$MODE" in
       echo "NO_SESSIONS: $CODEX_SESSIONS_ROOT does not exist"
       exit 0
     fi
+    # xargs -r: GNU xargs runs `ls -t` once even on EMPTY input (listing the
+    # cwd and producing a bogus LATEST); BSD xargs skips it. -r pins the
+    # BSD behavior on both.
     LATEST=$(find "$CODEX_SESSIONS_ROOT" -type f -name "rollout-*.jsonl" -print 2>/dev/null \
-      | xargs ls -t 2>/dev/null | head -1 || true)
+      | xargs -r ls -t 2>/dev/null | head -1 || true)
     if [ -z "$LATEST" ]; then
       echo "NO_SESSIONS: no rollout-*.jsonl files under $CODEX_SESSIONS_ROOT"
       exit 0

@@ -11,10 +11,19 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { getProjectEvalDir } from '../test/helpers/eval-store';
 
 const GSTACK_DEV_DIR = path.join(os.homedir(), '.gstack-dev');
+// Heartbeat + per-run progress logs are GLOBAL by design — session-runner.ts
+// writes ~/.gstack-dev/e2e-live.json regardless of project ("heartbeat stays
+// global"). The PARTIAL file is per-project: EvalCollector writes it into
+// getProjectEvalDir() (or GSTACK_EVAL_DIR), so watching the legacy global
+// path missed it whenever slug detection succeeded — i.e. the normal case.
 const HEARTBEAT_PATH = path.join(GSTACK_DEV_DIR, 'e2e-live.json');
-const PARTIAL_PATH = path.join(GSTACK_DEV_DIR, 'evals', '_partial-e2e.json');
+const PARTIAL_PATH = path.join(
+  process.env.GSTACK_EVAL_DIR || getProjectEvalDir(),
+  '_partial-e2e.json',
+);
 const STALE_THRESHOLD_SEC = 600; // 10 minutes
 
 export interface HeartbeatData {

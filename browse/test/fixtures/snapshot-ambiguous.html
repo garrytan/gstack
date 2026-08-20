@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+<head><title>Ambiguous refs fixture</title></head>
+<body>
+  <!-- "Save" is a substring of "Save As": getByRole('button', { name: 'Save' })
+       matches BOTH buttons (Playwright name matching is substring by default),
+       so the "Save" ref trips strict mode without .first(). This is the
+       deterministic form of the field failure in PR #2601. -->
+  <header>
+    <h1>Ambiguity test page</h1>
+  </header>
+  <main>
+    <p>Paragraph one of plain content.</p>
+    <p>Paragraph two of plain content.</p>
+    <button>Save</button>
+    <button>Save As</button>
+    <button>Cancel</button>
+    <a href="#end">Jump to end</a>
+  </main>
+  <footer>
+    <p id="end">Footer content.</p>
+  </footer>
+</body>
+</html>

@@ -168,9 +168,17 @@ if (j.recommended !== undefined) {
   if (j.recommended.length > 64) j.recommended = j.recommended.slice(0, 64);
 }
 
-// followed_recommendation — compute if both sides present.
-if (j.recommended !== undefined && j.user_choice !== undefined) {
-  j.followed_recommendation = j.user_choice === j.recommended;
+// followed_recommendation — compute if both sides present. An __unknown__
+// choice means extraction failed, not that the user rejected the
+// recommendation — leave the field absent so metrics can't be poisoned.
+// Strip a trailing (Recommended) marker from BOTH sides before comparing:
+// recommended usually arrives pre-stripped while user_choice is the raw
+// option label, so a user who picked the recommended option was scored as
+// NOT following it (#2400). NB: this JS lives inside a double-quoted
+// bun -e string — never use double quotes in it.
+if (j.recommended !== undefined && j.user_choice !== undefined && j.user_choice !== '__unknown__') {
+  const stripRec = (s) => String(s).replace(/\s*\(recommended\)\s*$/i, '').trim();
+  j.followed_recommendation = stripRec(j.user_choice) === stripRec(j.recommended);
 }
 
 // session_id — kebab-friendly; <=64 chars

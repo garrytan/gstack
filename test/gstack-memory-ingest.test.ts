@@ -93,7 +93,7 @@ describe("gstack-memory-ingest CLI", () => {
     const session = `{"type":"user","message":{"role":"user","content":"hello"},"timestamp":"${new Date().toISOString()}","cwd":"/tmp/x"}\n{"type":"assistant","message":{"role":"assistant","content":"hi"},"timestamp":"${new Date().toISOString()}"}\n`;
     writeClaudeCodeSession(home, "tmp-x", "abc123", session);
 
-    const r = runScript(["--probe"], { HOME: home, GSTACK_HOME: gstackHome });
+    const r = runScript(["--probe", "--include-unattributed"], { HOME: home, GSTACK_HOME: gstackHome });
     expect(r.exitCode).toBe(0);
     expect(r.stdout).toContain("Total files in window: 1");
     expect(r.stdout).toContain("transcript");
@@ -109,7 +109,7 @@ describe("gstack-memory-ingest CLI", () => {
     const session = `{"type":"session_meta","payload":{"id":"sess-xyz","cwd":"/tmp/x","git":{"repository_url":"https://github.com/foo/bar"}},"timestamp":"${today.toISOString()}"}\n`;
     writeCodexSession(home, ymd, session);
 
-    const r = runScript(["--probe"], { HOME: home, GSTACK_HOME: gstackHome });
+    const r = runScript(["--probe", "--include-unattributed"], { HOME: home, GSTACK_HOME: gstackHome });
     expect(r.exitCode).toBe(0);
     expect(r.stdout).toContain("Total files in window: 1");
     rmSync(home, { recursive: true, force: true });
@@ -269,7 +269,7 @@ describe("internal: parseTranscriptJsonl + buildTranscriptPage shape", () => {
     mkdirSync(projDir, { recursive: true });
     writeFileSync(join(projDir, "abc123.jsonl"), content, "utf-8");
 
-    const r = runScript(["--probe"], { HOME: home, GSTACK_HOME: join(home, ".gstack") });
+    const r = runScript(["--probe", "--include-unattributed"], { HOME: home, GSTACK_HOME: join(home, ".gstack") });
     expect(r.exitCode).toBe(0);
     expect(r.stdout).toContain("Total files in window: 1");
 
@@ -288,7 +288,7 @@ describe("internal: parseTranscriptJsonl + buildTranscriptPage shape", () => {
       `{"type":"assistant","message":{"role":"assistant","content":"this is truncat`; // no closing brace + no newline
     writeFileSync(join(projDir, "trunc.jsonl"), content, "utf-8");
 
-    const r = runScript(["--probe"], { HOME: home, GSTACK_HOME: join(home, ".gstack") });
+    const r = runScript(["--probe", "--include-unattributed"], { HOME: home, GSTACK_HOME: join(home, ".gstack") });
     // Should not crash; should report 1 transcript
     expect(r.exitCode).toBe(0);
     expect(r.stdout).toContain("Total files in window: 1");
@@ -300,9 +300,16 @@ describe("internal: parseTranscriptJsonl + buildTranscriptPage shape", () => {
 
 describe("gstack-memory-ingest --limit", () => {
   it("respects --limit by stopping after N writes (mocked via --probe shortcut)", () => {
-    const r = runScript(["--probe", "--limit", "1"]);
+    // Hermetic home: against the operator's real HOME this walked the whole
+    // transcript corpus (and, post policy-parity, batch-checked its real
+    // policy store), making a pure arg-parsing assertion slow and flaky.
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    mkdirSync(gstackHome, { recursive: true });
+    const r = runScript(["--probe", "--limit", "1"], { HOME: home, GSTACK_HOME: gstackHome });
     // --limit doesn't apply to probe but argument should parse without error
     expect(r.exitCode).toBe(0);
+    rmSync(home, { recursive: true, force: true });
   });
 
   it("rejects --limit 0 with exit 1", () => {
@@ -330,7 +337,7 @@ describe("gstack-memory-ingest --limit", () => {
  */
 function installFakeGbrain(
   home: string,
-  opts: { failingPaths?: string[] } = {},
+  opts: { failingPaths?: string[]; collectNothing?: boolean } = {},
 ): { binDir: string; logFile: string; argsFile: string; stagingListFile: string } {
   const binDir = join(home, "fake-bin");
   mkdirSync(binDir, { recursive: true });
@@ -390,6 +397,13 @@ EOF
     if [ -d "\$DIR" ]; then
       TOTAL=\$(find "\$DIR" -name "*.md" -type f | wc -l | tr -d ' ')
     else
+      TOTAL=0
+    fi
+    # collectNothing: simulate gbrain walking the staging dir and finding
+    # nothing — the real-world shape when .gitignore hides every staged file
+    # from collect_files. Crucially this writes NO sync-failures.jsonl entry,
+    # because there is no per-file failure: gbrain never saw the files.
+    if [ "${opts.collectNothing ? "1" : "0"}" = "1" ]; then
       TOTAL=0
     fi
     ERRORS=0
@@ -468,6 +482,51 @@ describe("gstack-memory-ingest writer (gbrain v0.20+ batch `import` interface)",
     // dir root. If writeStaged ever regresses to flat layout, this fails.
     const stagedList = readFileSync(stagingListFile, "utf-8");
     expect(stagedList).toMatch(/^\.\/transcripts\/claude-code\/.+\.md$/m);
+  });
+
+  // Silent-data-loss regression: gbrain accepts the import call, exits 0, and
+  // reports imported=0 because collect_files found nothing in the staging dir
+  // (real-world cause: gstack-artifacts-init writes `.gitignore = "*"` into
+  // $GSTACK_HOME, and `gbrain import` honours .gitignore, so every file staged
+  // under $GSTACK_HOME is invisible to it).
+  //
+  // No per-file failure is written to sync-failures.jsonl — gbrain never SAW
+  // the files — so readNewFailures returns empty. Before the reconciliation
+  // check, that made a total loss indistinguishable from success: every
+  // prepared file got state-recorded as ingested and the pass reported
+  // "N written". State then said "done", so no later run ever retried.
+  it("refuses to advance state when gbrain imports fewer pages than were staged", () => {
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    mkdirSync(gstackHome, { recursive: true });
+    const { binDir, logFile } = installFakeGbrain(home, { collectNothing: true });
+
+    const session =
+      `{"type":"user","message":{"role":"user","content":"hi"},"timestamp":"2026-05-01T00:00:00Z","cwd":"/tmp/foo"}\n` +
+      `{"type":"assistant","message":{"role":"assistant","content":"hello"},"timestamp":"2026-05-01T00:00:01Z"}\n`;
+    writeClaudeCodeSession(home, "tmp-foo", "abc123", session);
+
+    const r = runScript(["--bulk", "--include-unattributed", "--quiet"], {
+      HOME: home,
+      GSTACK_HOME: gstackHome,
+      PATH: `${binDir}:${process.env.PATH || ""}`,
+    });
+
+    // gbrain WAS called — this is not a "gbrain missing" path.
+    expect(existsSync(logFile)).toBe(true);
+
+    // The pass must not claim success.
+    expect(r.stderr).toMatch(/\[memory-ingest\] ERR:.*accounted for 0 of 1 staged page/);
+    expect(r.stderr).toMatch(/Refusing to advance state/);
+    expect(r.stdout).not.toMatch(/written:\s+1/);
+
+    // The critical assertion: state must NOT mark the session ingested, or the
+    // next run skips it forever and the transcript is lost silently.
+    const statePath = join(gstackHome, ".transcript-ingest-state.json");
+    if (existsSync(statePath)) {
+      const state = JSON.parse(readFileSync(statePath, "utf-8"));
+      expect(Object.keys(state.sessions || {}).length).toBe(0);
+    }
   });
 
   // Originally landed in v1.32.0.0 (PR #1411) on the per-file `gbrain put`
@@ -762,6 +821,489 @@ exit 0
     // Stderr from the secret-scan match path (printed when !quiet) includes the dirty path's basename.
     // Match generously: any occurrence of "secret-scan match" line.
     expect(r.stderr + r.stdout).toMatch(/secret-scan match/);
+
+    rmSync(home, { recursive: true, force: true });
+  });
+});
+
+// #2105: current Codex rollout records are
+// { type: 'response_item', payload: { type: 'message', role, content: [...] } }
+// — the legacy payload.message branch never fired on them, so every Codex
+// session imported as an empty shell (message_count: 0, 243/243 on the
+// reporting machine).
+describe("#2105 codex response_item rollout shape", () => {
+  it("extracts messages from response_item records", async () => {
+    const { parseTranscriptJsonl } = await import("../bin/gstack-memory-ingest");
+    const dir = mkdtempSync(join(tmpdir(), "ingest-2105-"));
+    const file = join(dir, "rollout-2026-06-01.jsonl");
+    writeFileSync(file, [
+      JSON.stringify({ type: "session_meta", payload: { id: "s1", cwd: "/tmp/x" }, timestamp: "2026-06-01T00:00:00Z" }),
+      JSON.stringify({ type: "response_item", payload: { type: "message", role: "user", content: [{ type: "input_text", text: "hello codex" }] } }),
+      JSON.stringify({ type: "response_item", payload: { type: "message", role: "assistant", content: [{ type: "output_text", text: "hello human" }] } }),
+      // Non-message response_items must not count as messages.
+      JSON.stringify({ type: "response_item", payload: { type: "reasoning", summary: [] } }),
+    ].join("\n") + "\n");
+
+    const parsed = parseTranscriptJsonl(file)!;
+    expect(parsed).not.toBeNull();
+    expect(parsed.agent).toBe("codex");
+    expect(parsed.message_count).toBe(2);
+    expect(parsed.body).toContain("## User\n\nhello codex");
+    expect(parsed.body).toContain("## Assistant\n\nhello human");
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("legacy payload.message shape still parses", async () => {
+    const { parseTranscriptJsonl } = await import("../bin/gstack-memory-ingest");
+    const dir = mkdtempSync(join(tmpdir(), "ingest-2105-legacy-"));
+    const file = join(dir, "rollout-legacy.jsonl");
+    writeFileSync(file, [
+      JSON.stringify({ type: "session_meta", payload: { id: "s2", cwd: "/tmp/y" }, timestamp: "2026-06-01T00:00:00Z" }),
+      JSON.stringify({ payload: { message: { role: "user", content: "old shape" } } }),
+    ].join("\n") + "\n");
+
+    const parsed = parseTranscriptJsonl(file)!;
+    expect(parsed.message_count).toBe(1);
+    expect(parsed.body).toContain("## User\n\nold shape");
+    rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+// ── #2394: --probe counts post-attribution, matching what --bulk would write ─
+
+describe("#2394: probe applies the same attribution gate as prepare", () => {
+  function makeAttributableCwd(home: string): string {
+    const repo = join(home, "work", "attributable-repo");
+    mkdirSync(repo, { recursive: true });
+    spawnSync("git", ["-C", repo, "init", "-q"], { encoding: "utf-8" });
+    spawnSync("git", ["-C", repo, "remote", "add", "origin", "https://github.com/foo/bar.git"], { encoding: "utf-8" });
+    return repo;
+  }
+
+  function writeMixedCorpus(home: string): void {
+    const attributableCwd = makeAttributableCwd(home);
+    const ts = new Date().toISOString();
+    writeClaudeCodeSession(
+      home, "work-attributable", "attr1",
+      `{"type":"user","message":{"role":"user","content":"hello"},"timestamp":"${ts}","cwd":"${attributableCwd.replace(/\\/g, "\\\\")}"}\n`,
+    );
+    writeClaudeCodeSession(
+      home, "tmp-nowhere", "unattr1",
+      `{"type":"user","message":{"role":"user","content":"hello"},"timestamp":"${ts}","cwd":"${join(home, "not-a-repo").replace(/\\/g, "\\\\")}"}\n`,
+    );
+    mkdirSync(join(home, "not-a-repo"), { recursive: true });
+  }
+
+  it("probe reports post-attribution counts and names what it skipped", () => {
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    mkdirSync(gstackHome, { recursive: true });
+    writeMixedCorpus(home);
+
+    const r = runScript(["--probe"], { HOME: home, GSTACK_HOME: gstackHome });
+    expect(r.exitCode).toBe(0);
+    // Post-attribution: only the transcript whose cwd resolves to a remote.
+    expect(r.stdout).toContain("Total files in window: 1");
+    // The excluded remainder is visible, never silent.
+    expect(r.stdout).toContain("Skipped (unattributed): 1");
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("--include-unattributed restores raw counts", () => {
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    mkdirSync(gstackHome, { recursive: true });
+    writeMixedCorpus(home);
+
+    const r = runScript(["--probe", "--include-unattributed"], { HOME: home, GSTACK_HOME: gstackHome });
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain("Total files in window: 2");
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("parity: probe post-attribution count equals what prepare actually processes", () => {
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    mkdirSync(gstackHome, { recursive: true });
+    writeMixedCorpus(home);
+
+    const probe = runScript(["--probe"], { HOME: home, GSTACK_HOME: gstackHome });
+    expect(probe.exitCode).toBe(0);
+    const probeNew = Number((probe.stdout.match(/New \(never ingested\):\s+(\d+)/) || [])[1]);
+    expect(probeNew).toBe(1);
+
+    // Same stage on the ingest side: the transcripts that reach the import
+    // step (written + failed) are exactly the ones that passed the shared
+    // attribution gate in preparePages. No gbrain is configured in this
+    // hermetic env, so the attributable transcript FAILS at import — that is
+    // fine: parity is a prepare-stage invariant (probe post-attribution ==
+    // prepare post-attribution), deliberately NOT == final written (#2394).
+    const inc = runScript(["--incremental", "--quiet"], { HOME: home, GSTACK_HOME: gstackHome });
+    const m = inc.stderr.match(/(\d+) written, (\d+) failed/) || inc.stdout.match(/(\d+) written, (\d+) failed/);
+    expect(m).not.toBeNull();
+    const reachedImport = Number(m![1]) + Number(m![2]);
+    expect(reachedImport).toBe(probeNew);
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("a multi-MB transcript is still classified correctly (bounded probe read)", () => {
+    // The probe reads a BOUNDED 256KB prefix, never the whole file (plan C7).
+    // The cwd sits on the first line; >1MB of filler follows. Classification
+    // must come out attributable — and stay cheap on real multi-MB corpora.
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    mkdirSync(gstackHome, { recursive: true });
+    const attributableCwd = join(home, "work", "attributable-repo");
+    mkdirSync(attributableCwd, { recursive: true });
+    spawnSync("git", ["-C", attributableCwd, "init", "-q"], { encoding: "utf-8" });
+    spawnSync("git", ["-C", attributableCwd, "remote", "add", "origin", "https://github.com/foo/bar.git"], { encoding: "utf-8" });
+
+    const ts = new Date().toISOString();
+    const cwdLine = `{"type":"user","message":{"role":"user","content":"hello"},"timestamp":"${ts}","cwd":"${attributableCwd.replace(/\\/g, "\\\\")}"}\n`;
+    const filler = `{"type":"assistant","message":{"role":"assistant","content":"${"x".repeat(1000)}"}}\n`;
+    const body = cwdLine + filler.repeat(1100); // > 1MB after the cwd line
+    expect(body.length).toBeGreaterThan(1024 * 1024);
+    writeClaudeCodeSession(home, "work-attributable", "big1", body);
+
+    const r = runScript(["--probe"], { HOME: home, GSTACK_HOME: gstackHome });
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain("Total files in window: 1");
+    expect(r.stdout).not.toContain("Skipped (unattributed)");
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("Codex format: session_meta cwd attributes the transcript in the probe", () => {
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    mkdirSync(gstackHome, { recursive: true });
+    const attributableCwd = makeAttributableCwd(home);
+    const today = new Date();
+    const ymd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+    const session = `{"type":"session_meta","payload":{"id":"sess-meta-cwd","cwd":"${attributableCwd.replace(/\\/g, "\\\\")}"},"timestamp":"${today.toISOString()}"}\n`;
+    writeCodexSession(home, ymd, session);
+
+    const r = runScript(["--probe"], { HOME: home, GSTACK_HOME: gstackHome });
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain("Total files in window: 1");
+    expect(r.stdout).not.toContain("Skipped (unattributed)");
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("parity: a Codex cwd appearing only on a LATER record is unattributed in probe AND prepare", () => {
+    // parseTranscriptJsonl reads Codex cwd from the session_meta FIRST record
+    // ONLY. The probe mirrors those exact rules — the pre-fix probe scanned
+    // every line for any cwd and DIVERGED on this shape (probe said
+    // attributable, prepare said not).
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    mkdirSync(gstackHome, { recursive: true });
+    const attributableCwd = makeAttributableCwd(home);
+    const today = new Date();
+    const ymd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+    const session =
+      `{"type":"session_meta","payload":{"id":"sess-late-cwd"},"timestamp":"${today.toISOString()}"}\n` +
+      `{"type":"response_item","payload":{"type":"message","role":"user","content":[{"text":"hi"}]},"cwd":"${attributableCwd.replace(/\\/g, "\\\\")}"}\n`;
+    writeCodexSession(home, ymd, session);
+
+    const probe = runScript(["--probe"], { HOME: home, GSTACK_HOME: gstackHome });
+    expect(probe.exitCode).toBe(0);
+    expect(probe.stdout).toContain("Total files in window: 0");
+    expect(probe.stdout).toContain("Skipped (unattributed): 1");
+
+    // Prepare agrees: nothing reaches the import stage (written + failed = 0)
+    // and the skip is attributed to the same gate.
+    const inc = runScript(["--incremental"], { HOME: home, GSTACK_HOME: gstackHome });
+    expect(inc.exitCode).toBe(0);
+    const written = Number((inc.stdout.match(/written:\s+(\d+)/) || [])[1]);
+    const failed = Number((inc.stdout.match(/failed:\s+(\d+)/) || [])[1]);
+    const unattrib = Number((inc.stdout.match(/skipped \(unattrib\):\s+(\d+)/) || [])[1]);
+    expect(written + failed).toBe(0);
+    expect(unattrib).toBe(1);
+    rmSync(home, { recursive: true, force: true });
+  });
+});
+
+// ── #2392: transcript ingest honors the per-remote trust policy ─────────────
+//
+// The same store the code-import gate honors (bin/gstack-gbrain-sync.ts):
+// tier `deny` and `read-only` transcripts are skipped with their own counters;
+// a store that EXISTS but can't be read is a hard error before any writes
+// (never a silent bypass of a set policy); no store at all = zero policy work.
+// The policy store is seeded through the REAL bin/gstack-gbrain-repo-policy
+// script (its `set` verb owns the file schema + URL normalization).
+
+describe("#2392: transcript ingest honors per-remote trust policy", () => {
+  const POLICY_BIN = join(import.meta.dir, "..", "bin", "gstack-gbrain-repo-policy");
+
+  /** Attributable temp git repo whose origin points at `remoteUrl`. */
+  function makeRepoWithRemote(home: string, name: string, remoteUrl: string): string {
+    const repo = join(home, "work", name);
+    mkdirSync(repo, { recursive: true });
+    spawnSync("git", ["-C", repo, "init", "-q"], { encoding: "utf-8" });
+    spawnSync("git", ["-C", repo, "remote", "add", "origin", remoteUrl], { encoding: "utf-8" });
+    return repo;
+  }
+
+  function writeSessionForRepo(home: string, projectName: string, sessionId: string, cwd: string): void {
+    const record = JSON.stringify({
+      type: "user",
+      message: { role: "user", content: `hello from ${sessionId}` },
+      timestamp: new Date().toISOString(),
+      cwd,
+    });
+    writeClaudeCodeSession(home, projectName, sessionId, record + "\n");
+  }
+
+  function setPolicy(gstackHome: string, url: string, tier: string): void {
+    const r = spawnSync(POLICY_BIN, ["set", url, tier], {
+      encoding: "utf-8",
+      env: { ...process.env, GSTACK_HOME: gstackHome },
+    });
+    expect(r.status).toBe(0);
+  }
+
+  function stateSessions(gstackHome: string): string[] {
+    const statePath = join(gstackHome, ".transcript-ingest-state.json");
+    if (!existsSync(statePath)) return [];
+    return Object.keys(JSON.parse(readFileSync(statePath, "utf-8")).sessions || {});
+  }
+
+  it("(a) deny remote's transcript is skipped and counted as skipped_policy_deny", () => {
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    mkdirSync(gstackHome, { recursive: true });
+    const { binDir, logFile } = installFakeGbrain(home);
+
+    const denyCwd = makeRepoWithRemote(home, "denied", "https://github.com/denyme/denied.git");
+    const okCwd = makeRepoWithRemote(home, "allowed", "https://github.com/okorg/okrepo.git");
+    writeSessionForRepo(home, "work-denied", "denysess1", denyCwd);
+    writeSessionForRepo(home, "work-allowed", "oksess1", okCwd);
+    setPolicy(gstackHome, "https://github.com/denyme/denied.git", "deny");
+
+    const r = runScript(["--bulk", "--quiet"], {
+      HOME: home,
+      GSTACK_HOME: gstackHome,
+      PATH: `${binDir}:${process.env.PATH || ""}`,
+    });
+
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toMatch(/written:\s+1/);
+    expect(r.stdout).toMatch(/skipped \(policy deny\):\s+1/);
+    expect(r.stdout).not.toMatch(/skipped \(policy read-only\)/);
+
+    // Only the allowed session was imported + state-recorded.
+    expect(existsSync(logFile)).toBe(true);
+    const sessions = stateSessions(gstackHome);
+    expect(sessions.length).toBe(1);
+    expect(sessions[0]).toContain("oksess1");
+
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("(b) read-only remote's transcript is skipped and counted as skipped_policy_readonly", () => {
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    mkdirSync(gstackHome, { recursive: true });
+    const { binDir } = installFakeGbrain(home);
+
+    const roCwd = makeRepoWithRemote(home, "readonly", "https://github.com/roorg/rorepo.git");
+    const okCwd = makeRepoWithRemote(home, "allowed", "https://github.com/okorg/okrepo.git");
+    writeSessionForRepo(home, "work-readonly", "rosess1", roCwd);
+    writeSessionForRepo(home, "work-allowed", "oksess1", okCwd);
+    setPolicy(gstackHome, "https://github.com/roorg/rorepo.git", "read-only");
+
+    const r = runScript(["--bulk", "--quiet"], {
+      HOME: home,
+      GSTACK_HOME: gstackHome,
+      PATH: `${binDir}:${process.env.PATH || ""}`,
+    });
+
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toMatch(/written:\s+1/);
+    expect(r.stdout).toMatch(/skipped \(policy read-only\):\s+1/);
+    const sessions = stateSessions(gstackHome);
+    expect(sessions.length).toBe(1);
+    expect(sessions[0]).toContain("oksess1");
+
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("(c) read-write remote's transcript is ingested (reaches gbrain import)", () => {
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    mkdirSync(gstackHome, { recursive: true });
+    const { binDir, logFile } = installFakeGbrain(home);
+
+    const rwCwd = makeRepoWithRemote(home, "readwrite", "https://github.com/rworg/rwrepo.git");
+    writeSessionForRepo(home, "work-readwrite", "rwsess1", rwCwd);
+    setPolicy(gstackHome, "https://github.com/rworg/rwrepo.git", "read-write");
+
+    const r = runScript(["--bulk", "--quiet"], {
+      HOME: home,
+      GSTACK_HOME: gstackHome,
+      PATH: `${binDir}:${process.env.PATH || ""}`,
+    });
+
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toMatch(/written:\s+1/);
+    expect(r.stdout).not.toMatch(/skipped \(policy/);
+    // gbrain import ran exactly once — the page reached the import stage.
+    const calls = readFileSync(logFile, "utf-8").trim().split("\n").filter(Boolean);
+    expect(calls.length).toBe(1);
+    expect(stateSessions(gstackHome).length).toBe(1);
+
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("(d) corrupted store: hard error before any writes, message names recovery", () => {
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    mkdirSync(gstackHome, { recursive: true });
+    const { binDir, logFile } = installFakeGbrain(home);
+
+    const cwd = makeRepoWithRemote(home, "somerepo", "https://github.com/some/repo.git");
+    writeSessionForRepo(home, "work-somerepo", "somesess1", cwd);
+    // Corrupt store — the batch verb refuses (exit 2), the client classifies
+    // `unreadable`, and ingest must abort rather than bypass a set policy.
+    writeFileSync(join(gstackHome, "gbrain-repo-policy.json"), "not valid json{", "utf-8");
+
+    const r = runScript(["--bulk", "--quiet"], {
+      HOME: home,
+      GSTACK_HOME: gstackHome,
+      PATH: `${binDir}:${process.env.PATH || ""}`,
+    });
+
+    expect(r.exitCode).toBe(1);
+    expect(r.stderr).toMatch(/\[memory-ingest\] ERR:.*repo policy store exists/);
+    expect(r.stderr).toContain("gstack-gbrain-repo-policy list");
+    expect(r.stderr).toContain("/setup-gbrain");
+    // Nothing written: no gbrain import call, no state file, store untouched.
+    expect(existsSync(logFile)).toBe(false);
+    expect(stateSessions(gstackHome).length).toBe(0);
+    expect(readFileSync(join(gstackHome, "gbrain-repo-policy.json"), "utf-8")).toBe("not valid json{");
+
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("(e) no store at all: no policy filtering, transcript ingests normally", () => {
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    mkdirSync(gstackHome, { recursive: true });
+    const { binDir } = installFakeGbrain(home);
+
+    const cwd = makeRepoWithRemote(home, "freerepo", "https://github.com/free/repo.git");
+    writeSessionForRepo(home, "work-freerepo", "freesess1", cwd);
+
+    const r = runScript(["--bulk", "--quiet"], {
+      HOME: home,
+      GSTACK_HOME: gstackHome,
+      PATH: `${binDir}:${process.env.PATH || ""}`,
+    });
+
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toMatch(/written:\s+1/);
+    expect(r.stdout).not.toMatch(/skipped \(policy/);
+    expect(stateSessions(gstackHome).length).toBe(1);
+
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("(f) probe policy parity: a denied remote's transcript lands in skipped_policy_deny, not new_count", () => {
+    // --probe used to count policy-denied transcripts as ingestible (it only
+    // applied attribution), so its numbers overstated what --bulk would write.
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    mkdirSync(gstackHome, { recursive: true });
+
+    const denyCwd = makeRepoWithRemote(home, "denied", "https://github.com/denyme/denied.git");
+    writeSessionForRepo(home, "work-denied", "denysess1", denyCwd);
+    setPolicy(gstackHome, "https://github.com/denyme/denied.git", "deny");
+
+    const r = runScript(["--probe"], { HOME: home, GSTACK_HOME: gstackHome });
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain("Total files in window: 0");
+    expect(r.stdout).toMatch(/New \(never ingested\):\s+0/);
+    expect(r.stdout).toMatch(/Skipped \(policy deny\):\s+1/);
+    expect(r.stdout).not.toMatch(/Skipped \(policy read-only\)/);
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("(g) probe policy parity: a read-only remote's transcript lands in skipped_policy_readonly", () => {
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    mkdirSync(gstackHome, { recursive: true });
+
+    const roCwd = makeRepoWithRemote(home, "readonly", "https://github.com/roorg/rorepo.git");
+    writeSessionForRepo(home, "work-readonly", "rosess1", roCwd);
+    setPolicy(gstackHome, "https://github.com/roorg/rorepo.git", "read-only");
+
+    const r = runScript(["--probe"], { HOME: home, GSTACK_HOME: gstackHome });
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain("Total files in window: 0");
+    expect(r.stdout).toMatch(/Skipped \(policy read-only\):\s+1/);
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("(h) --limit counts policy-PERMITTED pages only: a denied-first corpus still writes the allowed page", () => {
+    // Walk order is deterministic here: Claude Code projects are walked
+    // BEFORE Codex sessions (walkAllSources), so the DENIED transcript is
+    // prepared first. Pre-fix, --limit 1 was applied to the unfiltered
+    // prepared array — the denied record consumed the limit and the permitted
+    // one starved (written: 0).
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    mkdirSync(gstackHome, { recursive: true });
+    const { binDir } = installFakeGbrain(home);
+
+    const denyCwd = makeRepoWithRemote(home, "denied", "https://github.com/denyme/denied.git");
+    writeSessionForRepo(home, "work-denied", "denysess1", denyCwd); // Claude Code: walked first
+    const okCwd = makeRepoWithRemote(home, "allowed", "https://github.com/okorg/okrepo.git");
+    const today = new Date();
+    const ymd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+    writeCodexSession(
+      home, ymd,
+      `{"type":"session_meta","payload":{"id":"oksess-codex","cwd":"${okCwd.replace(/\\/g, "\\\\")}"},"timestamp":"${today.toISOString()}"}\n`,
+    );
+    setPolicy(gstackHome, "https://github.com/denyme/denied.git", "deny");
+
+    const r = runScript(["--bulk", "--quiet", "--limit", "1"], {
+      HOME: home,
+      GSTACK_HOME: gstackHome,
+      PATH: `${binDir}:${process.env.PATH || ""}`,
+    });
+
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toMatch(/written:\s+1/);
+    expect(r.stdout).toMatch(/skipped \(policy deny\):\s+1/);
+    // The page that landed is the PERMITTED one (the Codex session), not
+    // whichever record happened to be walked first.
+    const sessions = stateSessions(gstackHome);
+    expect(sessions.length).toBe(1);
+    expect(sessions[0]).toContain("rollout-");
+
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("artifacts are never policy-filtered, even when their project's remote is denied", () => {
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    mkdirSync(join(gstackHome, "projects", "denyme-denied"), { recursive: true });
+    const { binDir } = installFakeGbrain(home);
+
+    // A learning artifact under a project slug matching a denied remote —
+    // the policy is keyed by git remote, which artifacts don't have.
+    writeFileSync(join(gstackHome, "projects", "denyme-denied", "learnings.jsonl"), '{"key":"a","insight":"b"}\n');
+    setPolicy(gstackHome, "https://github.com/denyme/denied.git", "deny");
+
+    const r = runScript(["--bulk", "--quiet"], {
+      HOME: home,
+      GSTACK_HOME: gstackHome,
+      PATH: `${binDir}:${process.env.PATH || ""}`,
+    });
+
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toMatch(/written:\s+1/);
+    expect(r.stdout).not.toMatch(/skipped \(policy/);
 
     rmSync(home, { recursive: true, force: true });
   });

@@ -29,7 +29,7 @@
  * than building a gstack-side daemon.
  */
 
-import { existsSync, statSync, mkdirSync, writeFileSync, readFileSync, unlinkSync, renameSync } from "fs";
+import { existsSync, statSync, mkdirSync, writeFileSync, readFileSync, unlinkSync, renameSync, realpathSync } from "fs";
 import { join, dirname } from "path";
 import { execSync, spawnSync } from "child_process";
 import { homedir, hostname } from "os";
@@ -39,8 +39,10 @@ import "../lib/conductor-env-shim";
 import { detectEngineTier, withErrorContext, canonicalizeRemote } from "../lib/gstack-memory-helpers";
 import { ensureSourceRegistered, sourcePageCount, parseSourcesList, cycleCompleted, type CycleStatus } from "../lib/gbrain-sources";
 import { detectAutopilot, decideSourceRemove, decideCodeSync } from "../lib/gbrain-guards";
+import { writeReceipt } from "../lib/egress-receipt";
 import { localEngineStatus, type LocalEngineStatus } from "../lib/gbrain-local-status";
-import { buildGbrainEnv, spawnGbrain, execGbrainJson, NEEDS_SHELL_ON_WINDOWS } from "../lib/gbrain-exec";
+import { buildGbrainEnv, spawnGbrain, execGbrainJson, NEEDS_SHELL_ON_WINDOWS, bashScriptInvocation } from "../lib/gbrain-exec";
+import { repoPolicyTier as sharedRepoPolicyTier } from "../lib/gbrain-repo-policy-client";
 import { checkOwnedStagingDir } from "../lib/staging-guard";
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -67,7 +69,13 @@ interface CodeStageDetail {
   source_path?: string;
   page_count?: number | null;
   last_imported?: string;
-  status?: "ok" | "skipped" | "failed" | "refused-autopilot" | "refused-reclone";
+  status?:
+    | "ok"
+    | "skipped"
+    | "failed"
+    | "refused-autopilot"
+    | "refused-reclone"
+    | "refused-egress-receipt";
 }
 
 interface StageResult {
@@ -358,6 +366,42 @@ function deriveCodeSourceId(repoPath: string): string {
   }
   const base = repoPath.split("/").pop() || "repo";
   return constrainSourceId("gstack-code", `${base}-${hostPathHash}`);
+}
+
+/**
+ * Reuse an explicit repo pin when it names a registered source for this exact
+ * checkout. The path check prevents a stale or copied dotfile from redirecting
+ * a code sync into another repo's source.
+ */
+function readPinnedSourceId(repoPath: string): string | null {
+  const pinPath = join(repoPath, ".gbrain-source");
+  if (!existsSync(pinPath)) return null;
+
+  try {
+    const sourceId = readFileSync(pinPath, "utf-8").trim();
+    return /^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$/.test(sourceId) ? sourceId : null;
+  } catch {
+    // A pin is advisory. A permission race or a directory at this path must
+    // not turn a sync preview into an unexpected crash.
+    return null;
+  }
+}
+
+export function existingPinnedSourceId(repoPath: string, env?: NodeJS.ProcessEnv): string | null {
+  const sourceId = readPinnedSourceId(repoPath);
+  if (!sourceId) return null;
+
+  const registeredPath = sourceLocalPath(sourceId, env);
+  if (!registeredPath) return null;
+  try {
+    return realpathSync(registeredPath) === realpathSync(repoPath) ? sourceId : null;
+  } catch {
+    return null;
+  }
+}
+
+function resolveCodeSourceId(repoPath: string, env?: NodeJS.ProcessEnv): string {
+  return existingPinnedSourceId(repoPath, env) ?? deriveCodeSourceId(repoPath);
 }
 
 /**
@@ -717,8 +761,12 @@ function dreamMarkerPid(): number | null {
  *   missing-config → "no local engine; run /setup-gbrain to add local PGLite"
  *   broken-config  → "config file at ~/.gbrain/config.json is malformed; see /setup-gbrain Step 1.5"
  *   broken-db      → "config points at unreachable DB; see /setup-gbrain Step 1.5"
+ *   engine-locked  → PGLite is busy; stop its holder or sync outside the live session
  *   timeout        → kept for Record totality; stages PROCEED on timeout (#1964)
  *                    via the gate's warnProbeTimeout path, never this skip.
+ *   thin-client    → remote-HTTP MCP brain, no local engine by design (#2051);
+ *                    local sync stages skip (gbrain refuses sources/sync there),
+ *                    but suppression gates treat the brain as USABLE.
  */
 function skipStageForLocalStatus(
   stage: "code" | "memory" | "dream",
@@ -733,8 +781,14 @@ function skipStageForLocalStatus(
       "config at ~/.gbrain/config.json is malformed; see /setup-gbrain Step 1.5",
     "broken-db":
       "config points at unreachable DB; see /setup-gbrain Step 1.5",
+    "engine-locked":
+      "PGLite is busy (often held by gbrain serve); stop the holding process or run /sync-gbrain outside the live Claude session, then retry",
     "timeout":
       "engine probe timed out; raise GSTACK_GBRAIN_PROBE_TIMEOUT_MS if your pooler is slow",
+    "thin-client":
+      "thin client (remote-HTTP MCP brain, no local engine by design, #2051); " +
+      "code indexing runs on the brain server, memory syncs via the remote " +
+      "brain's artifacts pull — nothing to do locally",
   };
   const reason = reasons[status as Exclude<LocalEngineStatus, "ok">];
   return {
@@ -761,6 +815,40 @@ function warnProbeTimeout(stage: "code" | "memory" | "dream"): void {
 }
 
 
+/**
+ * Per-repo trust tier from ~/.gstack/gbrain-repo-policy.json, read through
+ * the bin/gstack-gbrain-repo-policy CLI (which owns URL normalization and
+ * schema migration — do not reimplement either here).
+ *
+ * The tier was previously enforced only in /sync-gbrain skill prose, so a
+ * direct or cron invocation of this script ingested repo code regardless of
+ * a `deny`/`read-only` setting — and the egress receipt below cited this
+ * chokepoint as consent before it existed (#2140 sync path). This check
+ * closes both gaps.
+ *
+ * Fail-open ONLY when no policy store exists (nothing was ever set — same
+ * behavior as before for every non-policy user, and skips the subprocess).
+ * Fail-closed ("error") when a store exists but can't be read: a policy the
+ * user set must not be silently bypassed by a broken store or missing jq.
+ *
+ * Reads through the shared lib/gbrain-repo-policy-client.ts (same client as
+ * the code-intelligence consent veto — the two gates can never drift, and
+ * win32 gets the invoke-via-bash path). A spawn failure is still fail-closed
+ * but says so, instead of the misleading "store could not be read".
+ */
+export function repoPolicyTier(url: string | null): "read-write" | "read-only" | "deny" | "unset" | "error" {
+  const res = sharedRepoPolicyTier(url, process.env);
+  if (res.error === "spawn-failed") {
+    process.stderr.write(
+      "[gstack-gbrain-sync] the repo-policy helper could not be spawned (bash missing from PATH?) — " +
+        "refusing ingest rather than bypassing a possibly-set policy\n",
+    );
+    return "error";
+  }
+  if (res.error) return "error";
+  return res.tier === "none" ? "unset" : res.tier;
+}
+
 async function runCodeImport(args: CliArgs): Promise<StageResult> {
   const t0 = Date.now();
   const root = repoRoot();
@@ -768,7 +856,43 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
     return { name: "code", ran: false, ok: true, duration_ms: 0, summary: "skipped (not in git repo)" };
   }
 
-  const sourceId = deriveCodeSourceId(root);
+  // A preview must not spawn gbrain. Trust a syntactically-valid local pin
+  // there; a real run confirms its registered path before using it.
+  const gbrainEnv = args.mode === "dry-run" ? undefined : buildGbrainEnv({ announce: !args.quiet });
+  const pinnedSourceId = args.mode === "dry-run"
+    ? readPinnedSourceId(root)
+    : existingPinnedSourceId(root, gbrainEnv);
+  const sourceId = pinnedSourceId ?? deriveCodeSourceId(root);
+
+  // Per-repo trust tier — checked BEFORE the dry-run branch so previews report
+  // the refusal honestly instead of claiming they would sync.
+  const policyUrl = originUrl();
+  const tier = repoPolicyTier(policyUrl);
+  if (tier === "read-only") {
+    // Honoring an explicit user setting (search allowed, page writes never) is
+    // a clean skip, not a stage failure — code ingest writes pages.
+    return {
+      name: "code",
+      ran: false,
+      ok: true,
+      duration_ms: Date.now() - t0,
+      summary: `skipped — repo policy is read-only for ${policyUrl} (code ingest writes pages). Change with: gstack-gbrain-repo-policy set ${policyUrl} read-write`,
+      detail: { source_id: sourceId, source_path: root, status: "skipped-policy-read-only" },
+    };
+  }
+  if (tier === "deny" || tier === "error") {
+    const why = tier === "deny"
+      ? `repo policy is deny for ${policyUrl} — no gbrain ingest for this repo. Change with: gstack-gbrain-repo-policy set ${policyUrl} read-write`
+      : "repo policy store exists but could not be read (gstack-gbrain-repo-policy get failed) — refusing ingest rather than bypassing a set policy";
+    return {
+      name: "code",
+      ran: true,
+      ok: false,
+      duration_ms: Date.now() - t0,
+      summary: `refused: ${why}`,
+      detail: { source_id: sourceId, source_path: root, status: tier === "deny" ? "refused-policy-deny" : "refused-policy-unreadable" },
+    };
+  }
 
   // dry-run preview always shows the would-do steps, regardless of local
   // engine state. Useful for "what would /sync-gbrain do" without probing
@@ -779,7 +903,9 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
       ran: false,
       ok: true,
       duration_ms: 0,
-      summary: `would: gbrain sources add ${sourceId} --path ${root} --federated; gbrain sync --strategy code --source ${sourceId}; gbrain sources attach ${sourceId}`,
+      summary: pinnedSourceId
+        ? `would: gbrain sync --strategy code --source ${sourceId}; gbrain sources attach ${sourceId}`
+        : `would: gbrain sources add ${sourceId} --path ${root} --federated; gbrain sync --strategy code --source ${sourceId}; gbrain sources attach ${sourceId}`,
       detail: { source_id: sourceId, source_path: root, status: "skipped" },
     };
   }
@@ -807,10 +933,9 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
   // gbrainEnv seeds DATABASE_URL from gbrain's config so this stage works
   // inside Next.js / Prisma / Rails projects with their own .env.local
   // (codex review #7 — bug fix is wider than #1508 as filed).
-  const gbrainEnv = buildGbrainEnv({ announce: !args.quiet });
   const legacyId = deriveLegacyCodeSourceId(root);
   let legacyRemoved = false;
-  if (legacyId !== sourceId) {
+  if (!pinnedSourceId && legacyId !== sourceId) {
     // #1734: route through the data-loss guards (autopilot + source-safety).
     const rm = safeSourcesRemove(legacyId, gbrainEnv);
     if (rm.skipped && !args.quiet) {
@@ -826,7 +951,9 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
   // pages); fall back to register-new → sync-OK → remove-old. Path-drift
   // (user moved the repo, etc.) skips migration with a warning.
   const pathOnlyHashLegacyId = derivePathOnlyHashLegacyId(root);
-  const migration = planHostnameFoldMigration(root, sourceId, pathOnlyHashLegacyId, gbrainEnv);
+  const migration = pinnedSourceId
+    ? { kind: "none", reason: "no-legacy-source" } as const
+    : planHostnameFoldMigration(root, sourceId, pathOnlyHashLegacyId, gbrainEnv);
   if (migration.kind === "skipped-path-drift" && !args.quiet) {
     console.error(
       `[sync:code] hostname-fold migration skipped: legacy source ${migration.oldId} `
@@ -837,21 +964,24 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
     console.error(`[sync:code] hostname-fold migration: renamed ${migration.oldId} → ${migration.newId} (pages preserved)`);
   }
 
-  // Step 1: Ensure source registered (idempotent). Single source of truth in lib —
-  // no synchronous duplicate here (per /codex review #12).
+  // Step 1: Ensure generated sources are registered. A confirmed explicit pin
+  // belongs to the user: its realpath was checked above, so never remove/add it
+  // merely because the registered spelling differs (e.g. a symlinked checkout).
   let registered = false;
-  try {
-    const result = await ensureSourceRegistered(sourceId, root, { federated: true, env: gbrainEnv });
-    registered = result.changed;
-  } catch (err) {
-    return {
-      name: "code",
-      ran: true,
-      ok: false,
-      duration_ms: Date.now() - t0,
-      summary: `source registration failed: ${(err as Error).message}`,
-      detail: { source_id: sourceId, source_path: root, status: "failed" },
-    };
+  if (!pinnedSourceId) {
+    try {
+      const result = await ensureSourceRegistered(sourceId, root, { federated: true, env: gbrainEnv });
+      registered = result.changed;
+    } catch (err) {
+      return {
+        name: "code",
+        ran: true,
+        ok: false,
+        duration_ms: Date.now() - t0,
+        summary: `source registration failed: ${(err as Error).message}`,
+        detail: { source_id: sourceId, source_path: root, status: "failed" },
+      };
+    }
   }
 
   // Step 2: Always run the page-creating file walk first, then (for --full)
@@ -892,7 +1022,46 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
     };
   }
 
-  const walkResult = spawnGbrain(["sync", "--strategy", "code", "--source", sourceId], {
+  // Egress receipt BEFORE the code walk (fail-closed): the walk ships repo
+  // content to the user's gbrain DB, which may be a remote Postgres. The
+  // gbrain subprocess owns the wire bytes, so the receipt is content-free
+  // (destination + payload class only; sha256 null).
+  try {
+    writeReceipt({
+      sink: "gbrain-sync",
+      host: "gbrain-db (user-configured DATABASE_URL)",
+      payloadClass: `repo-code-index source=${sourceId} (sent by gbrain subprocess)`,
+      bytes: 0,
+      sha256: null,
+      consent: "gbrain setup consent + per-repo policy chokepoint (repoPolicyTier)",
+    });
+  } catch (err) {
+    return {
+      name: "code", ran: true, ok: false, duration_ms: Date.now() - t0,
+      summary: `EGRESS_RECEIPT_FAILED: ${(err as Error).message} — code sync refused`,
+      detail: { source_id: sourceId, source_path: root, status: "refused-egress-receipt" },
+    };
+  }
+
+  // `--full` must do a FULL walk, not a delta one.
+  //
+  // A bare `sync --strategy code` is incremental: it only revisits files that
+  // changed since the source's checkpoint. So a file missed at the ORIGINAL
+  // import is never revisited and stays invisible indefinitely — and the
+  // reindex-code pass below cannot rescue it, because it re-chunks pages that
+  // already exist and never walks the filesystem (the same property the comment
+  // above already relies on).
+  //
+  // The failure is silent: no error, no warning, and the verdict block still
+  // reports OK while `gbrain search` and `gbrain code-def` answer out of a
+  // partial index. It presents as "gbrain is weak at code questions" rather
+  // than "the index is incomplete", which is what makes it hard to spot.
+  //
+  // --yes because this is spawned non-interactively; a full walk otherwise
+  // prompts to confirm the import cost.
+  const walkArgs = ["sync", "--strategy", "code", "--source", sourceId];
+  if (args.mode === "full") walkArgs.push("--full", "--yes");
+  const walkResult = spawnGbrain(walkArgs, {
     stdio: args.quiet ? ["ignore", "ignore", "ignore"] : ["ignore", "inherit", "inherit"],
     timeout: codeTimeoutMs,
     baseEnv: gbrainEnv,
@@ -904,7 +1073,7 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
       ran: true,
       ok: false,
       duration_ms: Date.now() - t0,
-      summary: `gbrain sync --strategy code --source ${sourceId} exited ${walkResult.status}`,
+      summary: `gbrain ${walkArgs.join(" ")} exited ${walkResult.status}`,
       detail: { source_id: sourceId, source_path: root, status: "failed" },
     };
   }
@@ -1142,18 +1311,31 @@ function runBrainSyncPush(args: CliArgs): StageResult {
     return { name: "brain-sync", ran: false, ok: true, duration_ms: 0, summary: "skipped (gstack-brain-sync not installed)" };
   }
 
-  // #1731: gstack-brain-sync is a bash shebang script; Windows can't spawn it
-  // without a shell, which surfaced as "brain-sync exited undefined".
-  spawnSync(brainSyncPath, ["--discover-new"], {
-    stdio: args.quiet ? ["ignore", "ignore", "ignore"] : ["ignore", "inherit", "inherit"],
-    timeout: 60 * 1000,
-    shell: NEEDS_SHELL_ON_WINDOWS,
-  });
-  const result = spawnSync(brainSyncPath, ["--once"], {
-    stdio: args.quiet ? ["ignore", "ignore", "ignore"] : ["ignore", "inherit", "inherit"],
-    timeout: 60 * 1000,
-    shell: NEEDS_SHELL_ON_WINDOWS,
-  });
+  // gstack-brain-sync is a bash shebang script, so it needs an INTERPRETER, not
+  // a shell. #1731 gave it `shell: NEEDS_SHELL_ON_WINDOWS`, which is right for
+  // the gbrain.cmd shim and useless here: cmd.exe resolves .cmd/.bat via PATHEXT
+  // and rejects an extension-less shebang script outright ("is not recognized as
+  // an internal or external command"), so this stage failed on EVERY Windows run
+  // while looking like a single red line in an otherwise green report. See
+  // bashScriptInvocation.
+  const discover = bashScriptInvocation(brainSyncPath, ["--discover-new"]);
+  const once = bashScriptInvocation(brainSyncPath, ["--once"]);
+  if (!discover || !once) {
+    return {
+      name: "brain-sync",
+      ran: false,
+      ok: true,
+      duration_ms: Date.now() - t0,
+      summary: "skipped (no bash found; set GSTACK_BASH to your Git bash.exe)",
+    };
+  }
+
+  const stdio: "ignore"[] | ("ignore" | "inherit")[] = args.quiet
+    ? ["ignore", "ignore", "ignore"]
+    : ["ignore", "inherit", "inherit"];
+
+  spawnSync(discover.cmd, discover.argv, { stdio, timeout: 60 * 1000, shell: discover.shell });
+  const result = spawnSync(once.cmd, once.argv, { stdio, timeout: 60 * 1000, shell: once.shell });
 
   return {
     name: "brain-sync",
@@ -1202,7 +1384,7 @@ export async function runDream(args: CliArgs): Promise<StageResult> {
 
   if (args.mode === "dry-run") {
     const root = repoRoot();
-    const sourceId = root ? deriveCodeSourceId(root) : null;
+    const sourceId = root ? readPinnedSourceId(root) ?? deriveCodeSourceId(root) : null;
     return {
       name: "dream",
       ran: false,
@@ -1214,6 +1396,7 @@ export async function runDream(args: CliArgs): Promise<StageResult> {
     };
   }
 
+  const gbrainEnv = buildGbrainEnv({ announce: !args.quiet });
   const localStatus = localEngineStatus({ noCache: false });
   if (localStatus === "timeout") {
     warnProbeTimeout("dream"); // #1964: slow-but-healthy — proceed
@@ -1249,7 +1432,7 @@ export async function runDream(args: CliArgs): Promise<StageResult> {
     // code-callers/code-callees for this worktree. Falls back to plain `dream`
     // only when we can't derive the source id (not in a git repo).
     const root = repoRoot();
-    const sourceId = root ? deriveCodeSourceId(root) : null;
+    const sourceId = root ? resolveCodeSourceId(root, gbrainEnv) : null;
     const dreamArgs = sourceId ? ["dream", "--source", sourceId] : ["dream"];
 
     // spawnGbrain seeds DATABASE_URL from gbrain's config via buildGbrainEnv.
@@ -1378,7 +1561,14 @@ export function parseResolvedEdges(out: string): number | null {
 export function classifyDreamOutcome(out: string): string | null {
   // The active schema pack doesn't declare the code-symbol extraction phase, so
   // no symbols are extracted and resolve_symbol_edges has nothing to match.
-  if (/does not declare this phase/i.test(out)) {
+  // #2341: anchor the match to a GRAPH phase. The bare phrase false-positived
+  // on every base-pack brain — gbrain's only emitters of "active pack does not
+  // declare this phase" are the CONTENT phases (extract_atoms,
+  // synthesize_concepts), which base packs legitimately skip while
+  // resolve_symbol_edges still runs and builds the graph. Matching the bare
+  // phrase sent users pack-churning ("switch schema packs") for nothing and
+  // masked real graph bugs behind a wrong diagnosis.
+  if (/(resolve_symbol_edges|extract_code_symbols)[^\n]*does not declare/i.test(out)) {
     return (
       "dream ran, but this source's schema pack does not extract code symbols, " +
       "so the call graph stays empty. Switch this source to a code-aware schema " +
@@ -1541,7 +1731,8 @@ async function main(): Promise<void> {
     let cycle: CycleStatus | null = null;
     if (!args.dream && args.mode === "full" && !args.noDream && !args.noCode) {
       const root = repoRoot();
-      cycle = root ? cycleCompleted(deriveCodeSourceId(root), process.env) : "unknown";
+      const gbrainEnv = buildGbrainEnv({ announce: !args.quiet });
+      cycle = root ? cycleCompleted(resolveCodeSourceId(root, gbrainEnv), gbrainEnv) : "unknown";
     }
     if (shouldRunDream(args, cycle)) {
       dreamStage = await runDream(args);

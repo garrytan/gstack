@@ -18,7 +18,7 @@ GBrain.
 By design, these stay local even when sync is on:
 
 - Credentials: `.auth.json`, `auth-token.json`, `sidebar-sessions/`,
-  `security/device-salt`, consumer tokens in `config.yaml`
+  `security/device-salt`
 - Machine-specific state: Chromium profiles, ONNX model weights,
   caches, eval-cache, CDP-profile, one-time prompt markers
   (`.welcome-seen`, `.telemetry-prompted`, `.vendoring-warned-*`, etc.)
@@ -31,25 +31,25 @@ it; you can append your own entries below the marker line.
 ## First-run setup (30–90 seconds)
 
 ```bash
-gstack-brain-init
+gstack-artifacts-init
 ```
 
 The command:
 
 1. Turns `~/.gstack/` into a git repo.
 2. Asks for a remote URL (default: `gh repo create --private
-   gstack-brain-$USER`). Any git remote works — GitHub, GitLab, Gitea,
+   gstack-artifacts-$USER`). Any git remote works — GitHub, GitLab, Gitea,
    self-hosted.
 3. Pushes an initial commit with just the config.
-4. Writes `~/.gstack-brain-remote.txt` (URL-only, no secrets —
+4. Writes `~/.gstack-artifacts-remote.txt` (URL-only, no secrets —
    safe to copy to another machine).
-5. Wires the gstack-brain repo into your local gbrain as a federated
-   source (via `gbrain sources add` + `git worktree`) so `gbrain search`
-   can index your synced learnings, plans, and designs. Implementation
-   lives in `bin/gstack-gbrain-source-wireup`. The old
-   `gstack-brain-reader add --ingest-url ...` HTTP path was removed in
-   v1.15.1.0 — it depended on a `/ingest-repo` endpoint gbrain never
-   shipped.
+5. Prints the `gbrain sources add` hookup command for the brain host
+   (never auto-executed — run it yourself, or on your own machine
+   `bin/gstack-gbrain-source-wireup` does the same wiring) so
+   `gbrain search` can index your synced learnings, plans, and designs.
+   The old `gstack-brain-reader add --ingest-url ...` HTTP path was
+   removed in v1.15.1.0 — it depended on a `/ingest-repo` endpoint gbrain
+   never shipped.
 
 After init, the **next skill you run** will ask you ONE question about
 privacy mode:
@@ -65,14 +65,15 @@ Your answer is persisted. You won't be asked again.
 
 ## Cross-machine workflow
 
-On machine A: run `gstack-brain-init` once. That's it — every skill
+On machine A: run `gstack-artifacts-init` once. That's it — every skill
 invocation now drains the sync queue at its start and end boundaries
 (~200–800 ms network pause per skill).
 
 On machine B:
 
-1. Copy `~/.gstack-brain-remote.txt` from machine A to machine B
-   (password manager, dotfile repo, USB stick — your call).
+1. Copy `~/.gstack-artifacts-remote.txt` from machine A to machine B
+   (password manager, dotfile repo, USB stick — your call; the legacy
+   `~/.gstack-brain-remote.txt` name is still recognized).
 2. Run any gstack skill. The preamble sees the URL file and prints:
    ```
    BRAIN_SYNC: brain repo detected: <url>
@@ -80,9 +81,7 @@ On machine B:
    ```
 3. Run `gstack-brain-restore`. That clones the repo, rehydrates your
    learnings/plans/retros, and re-registers the git merge drivers.
-4. Re-enter consumer tokens (they're machine-local and NOT synced —
-   `gstack-config set gbrain_token <your-token>`).
-5. Next skill: your yesterday-on-machine-A learning surfaces. That's the
+4. Next skill: your yesterday-on-machine-A learning surfaces. That's the
    magical moment.
 
 ## Status, health, and queue depth
@@ -141,6 +140,12 @@ To remediate:
 There's a defense-in-depth hook at `~/.gstack/.git/hooks/pre-commit` that
 runs the same scan if you manually `git commit` against the repo.
 
+Separately (v1.63.0.0+), every push writes a tamper-evident receipt to the
+egress ledger (`~/.gstack/security/egress.jsonl`) *before* anything is
+sent, fail-closed: if the receipt can't be written, the push is refused
+and the queue is preserved. Inspect the ledger with `gstack-egress list`
+and verify its hash chain with `gstack-egress verify`.
+
 ## Two-machine conflicts
 
 If you write on machine A and machine B the same day, both will push
@@ -161,6 +166,14 @@ The preamble runs `git fetch` + `git merge --ff-only` once per 24 hours
 (cached via `~/.gstack/.brain-last-pull`). You don't need to think about
 this — it happens automatically at the first skill invocation each day.
 
+Historical note (#2516): that daily pull refreshed only `~/.gstack` itself —
+NOT the detached worktree at `~/.gstack-brain-worktree` that gbrain actually
+indexes, so the brain silently served stale pages until the next
+setup-gbrain/sync-gbrain run. Since this fix, the daily sync also advances
+the brain worktree (`gstack-gbrain-source-wireup --advance-only`, throttled
+via `~/.gstack/.brain-worktree-last-advance`); a failed advance warns instead
+of failing silently, and never force-resets a dirty worktree.
+
 ## Uninstall
 
 ```bash
@@ -176,7 +189,7 @@ This:
 Add `--delete-remote` to also delete the private GitHub repo (GitHub only,
 uses `gh repo delete`).
 
-Re-init anytime with `gstack-brain-init`.
+Re-init anytime with `gstack-artifacts-init`.
 
 ## Troubleshooting
 
@@ -185,8 +198,8 @@ error message gstack-brain may print, with problem / cause / fix for each.
 
 ## Under the hood
 
-For the architectural decisions behind this feature (allowlist vs
-denylist, daemon vs preamble-boundary sync, JSONL merge driver, privacy
-stop-gate), see the
-[approved plan](../system-instruction-you-are-working-jaunty-kahn.md) in
-the gstack plans directory.
+The architectural decisions behind this feature: allowlist over denylist
+(unknown files stay local by default), preamble-boundary sync over a daemon
+(no background process to babysit), a JSONL merge driver so concurrent
+machines union their queues instead of conflicting, and a privacy stop-gate
+that asks once before anything syncs.

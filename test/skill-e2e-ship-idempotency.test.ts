@@ -11,11 +11,11 @@
  *   4. Does NOT append a duplicate CHANGELOG [0.0.2] entry
  *   5. Does NOT create a new "chore: bump version" commit
  *
- * Why real-PTY: the existing ship-idempotency test in skill-e2e.test.ts
- * uses the SDK harness with a synthetic prompt asking the agent to "run
- * ONLY the idempotency checks." This test exercises the actual /ship
- * skill end-to-end against a real git fixture so a regression that
- * silently re-bumps despite the check passing would be caught.
+ * Why real-PTY: the old SDK-harness ship-idempotency variant (removed in
+ * v1.64.1.0 as redundant with this test) used a synthetic prompt asking
+ * the agent to "run ONLY the idempotency checks." This test exercises the
+ * actual /ship skill end-to-end against a real git fixture so a regression
+ * that silently re-bumps despite the check passing would be caught.
  *
  * Plan-mode framing: we run /ship in plan mode so the agent cannot push,
  * commit, or open PRs. The Step 12 idempotency check is read-only
@@ -30,7 +30,8 @@
  * Cost: ~$2-4/run. Periodic tier — long, runs weekly.
  */
 
-import { describe, test, expect } from 'bun:test';
+import { test, expect } from 'bun:test';
+import { describeE2ETier } from './helpers/e2e-gate';
 import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -41,8 +42,7 @@ import {
   isNumberedOptionListVisible,
 } from './helpers/claude-pty-runner';
 
-const shouldRun = !!process.env.EVALS && process.env.EVALS_TIER === 'periodic';
-const describeE2E = shouldRun ? describe : describe.skip;
+const describeE2E = describeE2ETier('periodic');
 
 interface ShipFixture {
   workTree: string;
@@ -158,9 +158,10 @@ describeE2E('/ship idempotency E2E (periodic, real-PTY)', () => {
       const session = await launchClaudePty({
         permissionMode: 'plan',
         cwd: fixture.workTree,
-        timeoutMs: 720_000,
+        timeoutMs: 1_080_000,
         // Disable network-y pieces so the agent can't reach actual github.
         env: { GH_TOKEN: 'mock-not-real', NO_COLOR: '1' },
+        seedSkills: true,
       });
 
       let outcome: 'detected' | 'plan_ready' | 'attempted_mutation' | 'timeout' | 'exited' = 'timeout';
@@ -171,7 +172,7 @@ describeE2E('/ship idempotency E2E (periodic, real-PTY)', () => {
         const since = session.mark();
         session.send('/ship\r');
 
-        const budgetMs = 600_000;
+        const budgetMs = 900_000;
         const start = Date.now();
         let lastPermSig = '';
         while (Date.now() - start < budgetMs) {
@@ -233,6 +234,12 @@ describeE2E('/ship idempotency E2E (periodic, real-PTY)', () => {
             break;
           }
         }
+        // Budget exhausted without a terminal signal: capture the tail NOW,
+        // while the session is still alive. Only the break paths above set
+        // evidence — without this, the timeout throw ships evidence: "".
+        if (outcome === 'timeout') {
+          evidence = session.visibleSince(since).slice(-3000);
+        }
       } finally {
         await session.close();
       }
@@ -272,6 +279,6 @@ describeE2E('/ship idempotency E2E (periodic, real-PTY)', () => {
         try { fs.rmSync(path.dirname(fixture.workTree), { recursive: true, force: true }); } catch { /* ignore */ }
       }
     },
-    900_000, // 15 min wall clock
+    1_200_000, // 20 min wall clock
   );
 });

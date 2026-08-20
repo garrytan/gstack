@@ -3,8 +3,8 @@
  * sidebar. Translates the phoenix gbrowser PTY (cmd/gbd/terminal.go) into
  * Bun, with a few changes informed by codex's outside-voice review:
  *
- *  - Lives in a separate non-compiled bun process from sidebar-agent.ts so
- *    a bug in WS framing or PTY cleanup can't take down the chat path.
+ *  - Lives in a separate non-compiled bun process from the browse daemon so
+ *    a bug in WS framing or PTY cleanup can't take down the command surface.
  *  - Binds 127.0.0.1 only — never on the dual-listener tunnel surface.
  *  - Origin validation on the WS upgrade is REQUIRED (not defense-in-depth)
  *    because a localhost shell WS is a real cross-site WebSocket-hijacking
@@ -23,13 +23,21 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
-import { writeSecureFile, mkdirSecure } from './file-permissions';
+import { writeSecureFile, restrictFilePermissions, mkdirSecure } from './file-permissions';
+import { atomicWriteSync, atomicWriteQuiet } from '../../lib/fs-atomic';
 import { safeUnlink } from './error-handling';
 import { writeAgentRecord, clearAgentRecord } from './terminal-agent-control';
+import { findAvailablePort } from './port-allocator';
+import { extractPtyCookie } from './pty-session-cookie';
 
 const STATE_FILE = process.env.BROWSE_STATE_FILE || path.join(process.env.HOME || '/tmp', '.gstack', 'browse.json');
 const PORT_FILE = path.join(path.dirname(STATE_FILE), 'terminal-port');
 const BROWSE_SERVER_PORT = parseInt(process.env.BROWSE_SERVER_PORT || '0', 10);
+const BROWSE_OWNER_PID = parseInt(process.env.BROWSE_OWNER_PID || '0', 10);
+const OWNER_WATCHDOG_MS = parseInt(
+  process.env.GSTACK_TERMINAL_OWNER_WATCHDOG_MS || '15000',
+  10,
+);
 const EXTENSION_ID = process.env.BROWSE_EXTENSION_ID || ''; // optional: tighten Origin check
 const INTERNAL_TOKEN = crypto.randomBytes(32).toString('base64url'); // shared with parent server via env at spawn
 /**
@@ -266,12 +274,9 @@ function writeClaudeAvailable(): void {
     checked_at: new Date().toISOString(),
   };
   const target = path.join(stateDir, 'claude-available.json');
-  const tmp = path.join(stateDir, `.tmp-claude-${process.pid}`);
-  try {
-    writeSecureFile(tmp, JSON.stringify(status, null, 2));
-    fs.renameSync(tmp, target);
-  } catch {
-    safeUnlink(tmp);
+  // Fire-and-forget state file: a failed write must not break boot.
+  if (atomicWriteQuiet(target, JSON.stringify(status, null, 2), { mode: 0o600 })) {
+    restrictFilePermissions(target); // Windows ACL hardening
   }
 }
 
@@ -342,6 +347,7 @@ function spawnClaude(cols: number, rows: number, onData: (chunk: Buffer) => void
   const tabHint = buildTabAwarenessHint(stateDir);
 
   const proc = (Bun as any).spawn([claudePath, '--append-system-prompt', tabHint], {
+    windowsHide: true,
     terminal: {
       rows,
       cols,
@@ -486,10 +492,15 @@ function maybeSpawnPty(ws: any, session: PtySession): boolean {
   return true;
 }
 
-function buildServer() {
+function buildServer(port: number) {
   return Bun.serve({
     hostname: '127.0.0.1',
-    port: 0,
+    // #2314: allocated from the SAME fixed 10000-60000 scan range the main
+    // server uses (port-allocator.ts, decision 8) — never `port: 0`. Binding
+    // 0 drew from the OS EPHEMERAL range (49152-65535 on macOS), where this
+    // weeks-lived agent squatted ports that short-lived `app.listen(0)` test
+    // servers expected to receive, absorbing their traffic as phantom 404s.
+    port,
     idleTimeout: 0, // PTY connections are long-lived; default idleTimeout would kill them
 
     fetch(req, server) {
@@ -598,28 +609,22 @@ function buildServer() {
         // first that matches a known token.
         const protoHeader = req.headers.get('sec-websocket-protocol') || '';
         let token: string | null = null;
-        let acceptedProtocol: string | null = null;
         for (const raw of protoHeader.split(',').map(s => s.trim()).filter(Boolean)) {
           const candidate = raw.startsWith('gstack-pty.') ? raw.slice('gstack-pty.'.length) : raw;
           if (validTokens.has(candidate)) {
             token = candidate;
-            acceptedProtocol = raw;
             break;
           }
         }
 
         // Fallback: Cookie gstack_pty (legacy / non-browser callers).
+        // Parsing is shared with the server via extractPtyCookie; VALIDATION
+        // deliberately stays against the agent's own validTokens map — the
+        // server's registry lives in a different process.
         if (!token) {
-          const cookieHeader = req.headers.get('cookie') || '';
-          for (const part of cookieHeader.split(';')) {
-            const [name, ...rest] = part.trim().split('=');
-            if (name === 'gstack_pty') {
-              const candidate = rest.join('=') || null;
-              if (candidate && validTokens.has(candidate)) {
-                token = candidate;
-              }
-              break;
-            }
+          const candidate = extractPtyCookie(req);
+          if (candidate && validTokens.has(candidate)) {
+            token = candidate;
           }
         }
 
@@ -632,13 +637,13 @@ function buildServer() {
         // sessionsById so /internal/restart and (Commit 3) re-attach
         // lookups can find it.
         const sessionId = validTokens.get(token) ?? null;
+        // No explicit Sec-WebSocket-Protocol echo: Bun >= 1.3 auto-echoes the
+        // first offered protocol in the 101 response, so setting the header
+        // here produced a DUPLICATE header — strict clients (Chromium, python
+        // websockets) reject the handshake per RFC 6455 and the sidebar
+        // terminal could never connect. Verified on Bun 1.3.6.
         const upgraded = server.upgrade(req, {
           data: { cookie: token, sessionId },
-          // Echo the protocol back so the browser accepts the upgrade.
-          // Required when the client sends Sec-WebSocket-Protocol — the
-          // server MUST select one of the offered protocols, otherwise
-          // the browser closes the connection immediately.
-          ...(acceptedProtocol ? { headers: { 'Sec-WebSocket-Protocol': acceptedProtocol } } : {}),
         });
         return upgraded ? undefined : new Response('upgrade failed', { status: 500 });
       }
@@ -884,12 +889,10 @@ function handleTabState(msg: {
       })),
     };
     const target = path.join(stateDir, 'tabs.json');
-    const tmp = path.join(stateDir, `.tmp-tabs-${process.pid}`);
-    try {
-      writeSecureFile(tmp, JSON.stringify(payload, null, 2));
-      fs.renameSync(tmp, target);
-    } catch {
-      safeUnlink(tmp);
+    // Fire-and-forget state file: atomic write (via lib/fs-atomic) so
+    // claude never reads a half-written JSON document; failures swallowed.
+    if (atomicWriteQuiet(target, JSON.stringify(payload, null, 2), { mode: 0o600 })) {
+      restrictFilePermissions(target); // Windows ACL hardening
     }
   }
 
@@ -899,17 +902,12 @@ function handleTabState(msg: {
   const active = msg.active;
   if (active && active.url && !active.url.startsWith('chrome://') && !active.url.startsWith('chrome-extension://')) {
     const ctxFile = path.join(stateDir, 'active-tab.json');
-    const tmp = path.join(stateDir, `.tmp-tab-${process.pid}`);
-    try {
-      writeSecureFile(tmp, JSON.stringify({
-        tabId: active.tabId ?? null,
-        url: active.url,
-        title: active.title ?? '',
-      }));
-      fs.renameSync(tmp, ctxFile);
-    } catch {
-      safeUnlink(tmp);
-    }
+    const ok = atomicWriteQuiet(ctxFile, JSON.stringify({
+      tabId: active.tabId ?? null,
+      url: active.url,
+      title: active.title ?? '',
+    }), { mode: 0o600 });
+    if (ok) restrictFilePermissions(ctxFile); // Windows ACL hardening
   }
 }
 
@@ -919,17 +917,13 @@ function handleTabSwitch(msg: { tabId?: number; url?: string; title?: string }):
 
   const stateDir = path.dirname(STATE_FILE);
   const ctxFile = path.join(stateDir, 'active-tab.json');
-  const tmp = path.join(stateDir, `.tmp-tab-${process.pid}`);
-  try {
-    writeSecureFile(tmp, JSON.stringify({
-      tabId: msg.tabId ?? null,
-      url,
-      title: msg.title ?? '',
-    }));
-    fs.renameSync(tmp, ctxFile);
-  } catch {
-    safeUnlink(tmp);
-  }
+  // Fire-and-forget: atomic write via lib/fs-atomic, failures swallowed.
+  const ok = atomicWriteQuiet(ctxFile, JSON.stringify({
+    tabId: msg.tabId ?? null,
+    url,
+    title: msg.title ?? '',
+  }), { mode: 0o600 });
+  if (ok) restrictFilePermissions(ctxFile); // Windows ACL hardening
 
   // Best-effort sync to parent server so its activeTabId tracking matches.
   // No await; this is fire-and-forget.
@@ -957,9 +951,27 @@ function readBrowseToken(): string {
 }
 
 // Boot.
-function main() {
+async function main() {
   writeClaudeAvailable();
-  const server = buildServer();
+  // #2314: allocate from the shared fixed scan range, then bind. Probe-then-
+  // bind has a TOCTOU window — a concurrent process can take the port between
+  // the probe and Bun.serve, which throws and would kill the boot with no
+  // retry (main().catch → exit 1). Re-allocate and retry a few times; each
+  // iteration probes fresh, so only a genuine race lands here.
+  let server: ReturnType<typeof buildServer> | undefined;
+  let lastBindErr: unknown;
+  for (let attempt = 0; attempt < 5 && !server; attempt++) {
+    const allocatedPort = await findAvailablePort();
+    try {
+      server = buildServer(allocatedPort);
+    } catch (err) {
+      lastBindErr = err;
+    }
+  }
+  if (!server) {
+    console.error(`[terminal-agent] failed to bind after 5 attempts: ${lastBindErr}`);
+    process.exit(1);
+  }
   const port = (server as any).port || (server as any).address?.port;
   if (!port) {
     console.error('[terminal-agent] failed to bind: no port');
@@ -967,11 +979,11 @@ function main() {
   }
 
   // Write port file atomically so the parent server can pick it up.
+  // Throws on failure — a boot without a discoverable port file is broken.
   const dir = path.dirname(PORT_FILE);
   try { mkdirSecure(dir); } catch {}
-  const tmp = `${PORT_FILE}.tmp-${process.pid}`;
-  writeSecureFile(tmp, String(port));
-  fs.renameSync(tmp, PORT_FILE);
+  atomicWriteSync(PORT_FILE, String(port), { mode: 0o600 });
+  restrictFilePermissions(PORT_FILE); // Windows ACL hardening
 
   // Write identity-based agent record (pid + per-boot gen). Replaces the
   // v1.43- `pkill -f terminal-agent\.ts` regex teardown that could kill
@@ -987,13 +999,33 @@ function main() {
   console.log(`[terminal-agent] listening on 127.0.0.1:${port} pid=${process.pid} gen=${CURRENT_GEN}`);
 
   // Cleanup port file + agent record on exit.
+  let cleaningUp = false;
   const cleanup = () => {
+    if (cleaningUp) return;
+    cleaningUp = true;
     safeUnlink(PORT_FILE);
+    safeUnlink(INTERNAL_TOKEN_FILE);
     clearAgentRecord(dir);
     process.exit(0);
   };
   process.on('SIGTERM', cleanup);
   process.on('SIGINT', cleanup);
+
+  // The terminal agent is intentionally detached so it survives the short-lived
+  // CLI launcher, but its real owner is the persistent browse server. If that
+  // server crashes or is killed before running normal shutdown, the agent would
+  // otherwise be adopted by PID 1 and live forever. Poll the server PID and use
+  // the same cleanup path as an intentional shutdown when it disappears.
+  if (BROWSE_OWNER_PID > 0) {
+    const ownerWatchdog = setInterval(() => {
+      try {
+        process.kill(BROWSE_OWNER_PID, 0);
+      } catch {
+        cleanup();
+      }
+    }, OWNER_WATCHDOG_MS);
+    (ownerWatchdog as any)?.unref?.();
+  }
 }
 
 // Export the internal token so cli.ts can pass the SAME value to the parent
@@ -1008,4 +1040,7 @@ try {
   writeSecureFile(INTERNAL_TOKEN_FILE, INTERNAL_TOKEN);
 } catch {}
 
-main();
+main().catch((err) => {
+  console.error(`[terminal-agent] boot failed: ${err instanceof Error ? err.message : String(err)}`);
+  process.exit(1);
+});

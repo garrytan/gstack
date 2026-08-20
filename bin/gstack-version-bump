@@ -30,15 +30,35 @@
 //       DRIFT_STALE_PKG path: sync package.json.version to the current VERSION
 //       file. No bump. Validates the VERSION pattern first.
 //
-// Contract: classify NEVER writes. write/repair mutate VERSION + package.json
-// only. No git mutation, no network. Mirrors gstack-next-version's reader/writer
-// split so /ship composes them.
+// Contract: classify NEVER writes. write/repair mutate VERSION + the manifest
+// + npm lockfiles (package-lock.json / npm-shrinkwrap.json, when present)
+// only. No git mutation, no network. Mirrors gstack-next-version's
+// reader/writer split so /ship composes them.
+//
+// Manifest resolution (all three subcommands accept --package-json-path):
+//   --package-json-path <p>  →  .gstack/package-json-path  →  ./package.json
+// A repo whose only Node package lives in a subdirectory (web/, app/,
+// frontend/) has no ROOT package.json. The tool used to report
+// pkgExists:false there and write VERSION alone, leaving the manifest to be
+// bumped by hand — the drift this tool exists to prevent, in the one layout
+// where it silently did nothing (#2531).
+//
+// npm semver (decision 11, v1.67 fix-wave plan): VERSION is the 4-digit
+// MAJOR.MINOR.PATCH.MICRO source of truth; npm rejects a fourth component,
+// so the manifest and its lockfiles carry the npm-valid 3-digit translation
+// (1.67.0.0 → 1.67.0). classify judges drift against the translated form
+// (accepting the pre-v1.67 1:1 mirror as in-sync until the next write).
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { join } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { extractVersion, isJsonVersionPath, npmVersion, setVersionInJson } from "../lib/version-source";
 
-const VERSION_RE = /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/;
+// 3- or 4-digit (#2501). gstack's own VERSION stays 4-digit MAJOR.MINOR.PATCH.
+// MICRO and stays the source of truth, but a repo whose pinned version source
+// is a package.json holds plain 3-digit semver, and rejecting it here meant
+// /ship could not write a version at all in such a repo. See lib/version-source.ts.
+const VERSION_RE = /^[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$/;
 const DEFAULT = "0.0.0.0";
 
 type State = "FRESH" | "ALREADY_BUMPED" | "DRIFT_STALE_PKG" | "DRIFT_UNEXPECTED";
@@ -53,29 +73,109 @@ function argVal(args: string[], flag: string): string | undefined {
   return i >= 0 && i + 1 < args.length ? args[i + 1] : undefined;
 }
 
-/** Resolve the VERSION file path: --version-path, else .gstack/version-path, else "VERSION". */
-function resolveVersionPath(cwd: string, explicit?: string): string {
-  if (explicit) return join(cwd, explicit);
-  const pin = join(cwd, ".gstack", "version-path");
-  if (existsSync(pin)) {
-    const p = readFileSync(pin, "utf-8").trim();
-    if (p) return join(cwd, p);
+/**
+ * Containment guard: `.gstack/version-path` and `.gstack/package-json-path`
+ * are repo-controlled content. Without this, a cloned repo pinning
+ * `../../victim.json` — or an in-repo symlink pointing outside — turns a
+ * routine bump into an arbitrary file overwrite outside the repository.
+ * Rejects absolute paths, lexical `..` escapes, and symlink escapes (the
+ * deepest EXISTING ancestor is realpath'd, so a not-yet-created VERSION
+ * file is still checked through its parent directory).
+ */
+function assertRepoContained(cwd: string, rel: string, source: string): void {
+  const root = realpathSync(cwd);
+  const abs = resolve(root, rel);
+  const lex = relative(root, abs);
+  if (isAbsolute(rel) || lex === "" || lex.startsWith("..") || isAbsolute(lex)) {
+    fail(`${source} ('${rel}') resolves outside the repository. Refusing to read or write it.`, 2);
   }
-  return join(cwd, "VERSION");
+  let probe = abs;
+  while (!existsSync(probe)) {
+    const parent = dirname(probe);
+    if (parent === probe) break;
+    probe = parent;
+  }
+  let real: string;
+  try {
+    real = realpathSync(probe);
+  } catch {
+    return; // vanished between existsSync and realpath — the read/write will fail honestly on its own
+  }
+  if (real !== root && !real.startsWith(root + sep)) {
+    fail(`${source} ('${rel}') resolves through a symlink to outside the repository. Refusing to read or write it.`, 2);
+  }
 }
 
-function readVersionFile(p: string): string {
+/**
+ * Resolve the version file's path RELATIVE to the repo root: --version-path,
+ * else .gstack/version-path, else "VERSION".
+ *
+ * The relative form is what matters — `git show origin/<base>:<rel>` needs it
+ * (an absolute path is unusable there). Callers used to
+ * derive versionRel from the CLI flag alone (#2462), so a repo using the
+ * .gstack/version-path pin had its local (pinned) version compared against
+ * the BASE's root VERSION file: two different files. On a repo with no root
+ * VERSION the base then always read 0.0.0.0, making every branch look FRESH —
+ * and the pinned-JSON handling never engaged without the explicit flag.
+ * Resolving once, here, keeps base and current reads in step.
+ */
+function resolveVersionRel(cwd: string, explicit?: string): string {
+  if (explicit) {
+    const rel = explicit.trim();
+    assertRepoContained(cwd, rel, "--version-path");
+    return rel;
+  }
+  const pin = join(cwd, ".gstack", "version-path");
+  if (existsSync(pin)) {
+    const p = readFileSync(pin, "utf-8").split("\n")[0]?.trim() ?? "";
+    if (p) {
+      assertRepoContained(cwd, p, ".gstack/version-path");
+      return p;
+    }
+  }
+  return "VERSION";
+}
+
+
+function readVersionFile(p: string, versionRel = "VERSION"): string {
   try {
-    const v = readFileSync(p, "utf-8").replace(/[\r\n\s]/g, "");
+    // extractVersion (#2501): a .json version-path is read as JSON (.version),
+    // not whitespace-stripped raw text that turns a package.json into garbage.
+    const v = extractVersion(readFileSync(p, "utf-8"), versionRel);
     return v || DEFAULT;
   } catch {
     return DEFAULT;
   }
 }
 
+/**
+ * Resolve the manifest path: --package-json-path, else
+ * .gstack/package-json-path, else "package.json" (#2531, mirrors
+ * resolveVersionRel). A repo whose only Node package lives in a
+ * subdirectory (web/, app/, frontend/) has no ROOT package.json, so the
+ * old join(cwd, "package.json") reported pkgExists:false and every bump
+ * silently wrote VERSION alone — leaving the manifest to be edited by
+ * hand, which is exactly the drift this tool exists to prevent.
+ */
+function resolvePkgPath(cwd: string, explicit?: string): string {
+  if (explicit) {
+    const rel = explicit.trim();
+    assertRepoContained(cwd, rel, "--package-json-path");
+    return join(cwd, rel);
+  }
+  const pin = join(cwd, ".gstack", "package-json-path");
+  if (existsSync(pin)) {
+    const p = readFileSync(pin, "utf-8").split("\n")[0]?.trim() ?? "";
+    if (p) {
+      assertRepoContained(cwd, p, ".gstack/package-json-path");
+      return join(cwd, p);
+    }
+  }
+  return join(cwd, "package.json");
+}
+
 /** package.json version + existence, parsed without spawning node. */
-function readPkgVersion(cwd: string): { exists: boolean; version: string } {
-  const pkgPath = join(cwd, "package.json");
+function readPkgVersion(pkgPath: string): { exists: boolean; version: string } {
   if (!existsSync(pkgPath)) return { exists: false, version: "" };
   let raw: string;
   try {
@@ -87,18 +187,63 @@ function readPkgVersion(cwd: string): { exists: boolean; version: string } {
   try {
     parsed = JSON.parse(raw);
   } catch {
-    fail("package.json is not valid JSON. Fix the file before re-running /ship.", 2);
+    fail(`${pkgPath} is not valid JSON. Fix the file before re-running /ship.`, 2);
   }
   const version = (parsed as { version?: unknown })?.version;
   return { exists: true, version: typeof version === "string" ? version : "" };
 }
 
-function writePkgVersion(cwd: string, version: string): void {
-  const pkgPath = join(cwd, "package.json");
+function writePkgVersion(pkgPath: string, version: string): void {
   const raw = readFileSync(pkgPath, "utf-8");
   const parsed = JSON.parse(raw) as Record<string, unknown>;
   parsed.version = version;
   writeFileSync(pkgPath, JSON.stringify(parsed, null, 2) + "\n");
+}
+
+/**
+ * npm records the package version twice in its lockfiles — top-level
+ * `version` and, in lockfileVersion >= 2, `packages[""].version` (the entry
+ * describing the root package itself) — and `npm install` keeps both in
+ * step. Nothing else in a release does, so a lockfile left behind drifts one
+ * field per bump until someone runs npm, dirtying the tree on the next
+ * `npm install` far from the cause (#2567). Pure JSON edit: no npm spawn,
+ * no dependency-tree churn.
+ *
+ * Synced ONLY when the file already exists — never created (gstack itself
+ * is bun-only; decision pinned in the v1.67 fix-wave plan).
+ * npm-shrinkwrap.json shares the format and, when present, is what npm
+ * actually honors, so both names are covered. Returns the names synced.
+ */
+const NPM_LOCKFILES = ["package-lock.json", "npm-shrinkwrap.json"];
+function syncNpmLockfiles(dir: string, version: string, root: string): string[] {
+  const synced: string[] = [];
+  for (const name of NPM_LOCKFILES) {
+    const lockPath = join(dir, name);
+    if (!existsSync(lockPath)) continue;
+    // A lockfile that is a symlink out of the repo would make this write an
+    // arbitrary-file overwrite (same class as the version-path pin escape).
+    // Skip with a warning — unlike the pins, a weird lockfile shouldn't
+    // brick the whole bump.
+    try {
+      const realRoot = realpathSync(root);
+      const realLock = realpathSync(lockPath);
+      if (realLock !== realRoot && !realLock.startsWith(realRoot + sep)) {
+        process.stderr.write(`WARNING: ${name} resolves outside the repository (symlink); not synced.\n`);
+        continue;
+      }
+    } catch {
+      continue;
+    }
+    const parsed = JSON.parse(readFileSync(lockPath, "utf-8")) as Record<string, unknown>;
+    parsed.version = version;
+    const packages = parsed.packages as Record<string, Record<string, unknown>> | undefined;
+    if (packages && typeof packages[""] === "object" && packages[""] !== null) {
+      packages[""].version = version;
+    }
+    writeFileSync(lockPath, JSON.stringify(parsed, null, 2) + "\n");
+    synced.push(name);
+  }
+  return synced;
 }
 
 function baseVersion(cwd: string, base: string, versionRel: string): string {
@@ -110,35 +255,69 @@ function baseVersion(cwd: string, base: string, versionRel: string): string {
   }
   try {
     const out = execFileSync("git", ["show", `origin/${base}:${versionRel}`], { cwd }).toString();
-    const v = out.replace(/[\r\n\s]/g, "");
-    return v || DEFAULT;
+    return extractVersion(out, versionRel) || DEFAULT;
   } catch {
     // VERSION absent on base (new repo / new file) → treat as 0.0.0.0.
     return DEFAULT;
   }
 }
 
-function classifyState(current: string, base: string, pkgExists: boolean, pkgVersion: string): State {
+/**
+ * `expectedPkg` is what the manifest SHOULD hold for the current VERSION —
+ * the npm-valid 3-digit translation (decision 11: npm rejects a fourth
+ * component, so a correctly-synced `1.67.0` must not read as drift against
+ * `1.67.0.0` forever). The historical 1:1 mirror (pre-v1.67 installs whose
+ * package.json still carries the 4-digit form) is also accepted as in-sync;
+ * write/repair migrate those to the translated form on the next release.
+ */
+function classifyState(
+  current: string,
+  base: string,
+  pkgExists: boolean,
+  pkgVersion: string,
+  expectedPkg: string = current,
+): State {
+  const pkgAgrees =
+    !pkgExists || !pkgVersion || pkgVersion === expectedPkg || pkgVersion === current;
   if (current === base) {
     // VERSION unchanged vs base. A diverging package.json means someone hand-edited
     // package.json bypassing /ship — unsafe to guess which is authoritative.
-    if (pkgExists && pkgVersion && pkgVersion !== current) return "DRIFT_UNEXPECTED";
+    if (!pkgAgrees) return "DRIFT_UNEXPECTED";
     return "FRESH";
   }
   // VERSION already moved past base.
-  if (pkgExists && pkgVersion && pkgVersion !== current) return "DRIFT_STALE_PKG";
+  if (!pkgAgrees) return "DRIFT_STALE_PKG";
   return "ALREADY_BUMPED";
 }
 
 function cmdClassify(args: string[], cwd: string): void {
   const base = argVal(args, "--base");
   if (!base) fail("classify requires --base <branch>", 2);
-  const versionPath = resolveVersionPath(cwd, argVal(args, "--version-path"));
-  const versionRel = argVal(args, "--version-path") ?? "VERSION";
-  const current = readVersionFile(versionPath);
+  const versionRel = resolveVersionRel(cwd, argVal(args, "--version-path"));
+  const versionPath = join(cwd, versionRel);
+  const current = readVersionFile(versionPath, versionRel);
   const baseV = baseVersion(cwd, base!, versionRel);
-  const pkg = readPkgVersion(cwd);
-  const state = classifyState(current, baseV, pkg.exists, pkg.version);
+  // When the version-path IS a package.json (#2501), that file is the single
+  // source of truth and the "VERSION vs package.json" drift states cannot
+  // arise — they are the same file. Reporting it as its own pkg keeps DRIFT_*
+  // out of the classification instead of inventing a disagreement between a
+  // file and itself.
+  const jsonSource = isJsonVersionPath(versionRel);
+  const pkgPath = jsonSource ? versionPath : resolvePkgPath(cwd, argVal(args, "--package-json-path"));
+  const pkg = jsonSource
+    ? { exists: existsSync(versionPath), version: current === DEFAULT ? "" : current }
+    : readPkgVersion(pkgPath);
+  // Decision 11: the manifest carries the npm-valid 3-digit translation of
+  // the 4-digit VERSION; drift is judged against the translated form. A
+  // JSON version-path is its own source of truth, so its expected form is
+  // the version itself.
+  const expectedPkg = jsonSource ? current : npmVersion(current);
+  const state = classifyState(current, baseV, pkg.exists, pkg.version, expectedPkg);
+  // Surface version-file absence so callers (and /ship) can tell "version is
+  // genuinely 0.0.0.0" from "we made up 0.0.0.0 because the file is missing"
+  // (#2600). Without this, the DRIFT_STALE_PKG dispatch on a missing VERSION
+  // would feed repair a fabricated version that passes the shape check.
+  const versionFileExists = existsSync(versionPath);
   process.stdout.write(
     JSON.stringify({
       state,
@@ -146,6 +325,9 @@ function cmdClassify(args: string[], cwd: string): void {
       currentVersion: current,
       pkgVersion: pkg.version || null,
       pkgExists: pkg.exists,
+      pkgPath: pkg.exists ? relative(cwd, pkgPath) : null,
+      expectedPkgVersion: pkg.exists ? expectedPkg : null,
+      versionFileExists,
     }) + "\n",
   );
   // DRIFT_UNEXPECTED is a real, decidable state — the caller stops on it, but the
@@ -157,43 +339,177 @@ function cmdWrite(args: string[], cwd: string): void {
   const version = argVal(args, "--version");
   if (!version) fail("write requires --version <X.Y.Z.W>", 2);
   if (!VERSION_RE.test(version!)) {
-    fail(`NEW_VERSION (${version}) does not match MAJOR.MINOR.PATCH.MICRO. Aborting.`, 2);
+    fail(`NEW_VERSION (${version}) does not match MAJOR.MINOR.PATCH[.MICRO]. Aborting.`, 2);
   }
-  const versionPath = resolveVersionPath(cwd, argVal(args, "--version-path"));
-  writeFileSync(versionPath, version + "\n");
-  if (existsSync(join(cwd, "package.json"))) {
+  const versionRel = resolveVersionRel(cwd, argVal(args, "--version-path"));
+  const versionPath = join(cwd, versionRel);
+
+  // A package.json version-path (#2501) is written in place, keeping the rest
+  // of the file intact — and it is the ONLY file written. Also syncing a root
+  // package.json here would be a guess about which of two JSON files the repo
+  // actually publishes from; in a monorepo whose truth is frontend/package.json
+  // the root one either doesn't exist or isn't the version users see.
+  if (isJsonVersionPath(versionRel)) {
+    if (!existsSync(versionPath)) {
+      fail(`write: ${versionRel} does not exist. Check --version-path / .gstack/version-path.`, 2);
+    }
+    // Decision 11: a JSON manifest can only carry npm-valid semver. A repo
+    // whose package.json still mirrors the legacy 4-digit form and pins it as
+    // the version-path would otherwise get "1.67.0.1" written into a manifest
+    // npm rejects forever — with no drift state to catch it (a JSON source is
+    // self-consistent by construction).
+    const jsonV = npmVersion(version!);
+    let manifestWritten = false;
+    let lockSynced: string[] = [];
     try {
-      writePkgVersion(cwd, version!);
+      writeFileSync(versionPath, setVersionInJson(readFileSync(versionPath, "utf-8"), jsonV));
+      manifestWritten = true;
+      // The pinned manifest's OWN lockfiles (beside it) stay in step too.
+      lockSynced = syncNpmLockfiles(dirname(versionPath), jsonV, cwd);
     } catch {
       fail(
-        "failed to update package.json. VERSION was written but package.json is now stale. " +
-          "Re-run — classify will report DRIFT_STALE_PKG and repair will sync it.",
+        manifestWritten
+          ? `write: ${versionRel} was updated but its npm lockfiles were not (corrupt lockfile?). ` +
+            "Fix or delete the lockfile beside it, then re-run write with the same --version."
+          : `write: failed to update ${versionRel} (is it valid JSON?).`,
+        3,
+      );
+    }
+    if (jsonV !== version) {
+      process.stderr.write(
+        `write: ${versionRel} carries the npm-valid translation ${jsonV} (a JSON manifest cannot hold 4-digit ${version}). ` +
+          "Consecutive MICRO releases translate to the SAME manifest version — pin a plain VERSION file if that matters.\n",
+      );
+    }
+    process.stdout.write(
+      JSON.stringify({
+        wrote: jsonV,
+        // Only surfaced when a 4-digit request was translated (the healthy
+        // 3-digit-pinned path is an identity write).
+        ...(jsonV !== version ? { requestedVersion: version } : {}),
+        versionPath: versionRel,
+        packageJson: true,
+        packageLock: lockSynced.length > 0,
+      }) + "\n",
+    );
+    return;
+  }
+
+  const pkgPath = resolvePkgPath(cwd, argVal(args, "--package-json-path"));
+  const hasPkg = existsSync(pkgPath);
+  writeFileSync(versionPath, version + "\n");
+  let lockSynced: string[] = [];
+  // Decision 11: the manifest (and its lockfiles) carry the npm-valid
+  // 3-digit translation — npm rejects a fourth component, so mirroring the
+  // raw 4-digit form breaks `npm ci` in any repo npm actually manages.
+  // VERSION keeps the full 4-digit form; it stays the source of truth.
+  const manifestV = npmVersion(version!);
+  if (hasPkg) {
+    let pkgWritten = false;
+    try {
+      writePkgVersion(pkgPath, manifestV);
+      pkgWritten = true;
+      lockSynced = syncNpmLockfiles(dirname(pkgPath), manifestV, cwd);
+    } catch {
+      // Accurate recovery per failure point: classify only reads
+      // package.json (never lockfiles), so "re-run and repair" is only true
+      // when package.json itself is the stale file.
+      fail(
+        pkgWritten
+          ? `VERSION and ${relative(cwd, pkgPath)} were written but the npm lockfiles were not ` +
+            "(corrupt lockfile?). classify cannot see lockfile drift — fix or delete the lockfile, " +
+            "then re-run write with the same --version."
+          : `failed to update ${relative(cwd, pkgPath)}. VERSION was written but package.json is now ` +
+            "stale. Re-run — classify will report DRIFT_STALE_PKG and repair will sync it.",
         3,
       );
     }
   }
-  process.stdout.write(JSON.stringify({ wrote: version, packageJson: existsSync(join(cwd, "package.json")) }) + "\n");
+  process.stdout.write(
+    JSON.stringify({
+      wrote: version,
+      packageJson: hasPkg,
+      packageJsonPath: hasPkg ? relative(cwd, pkgPath) : null,
+      packageJsonVersion: hasPkg ? manifestV : null,
+      packageLock: lockSynced.length > 0,
+    }) + "\n",
+  );
 }
 
 function cmdRepair(args: string[], cwd: string): void {
-  const versionPath = resolveVersionPath(cwd, argVal(args, "--version-path"));
-  const current = readVersionFile(versionPath);
+  const versionRel = resolveVersionRel(cwd, argVal(args, "--version-path"));
+  const versionPath = join(cwd, versionRel);
+  // Nothing to repair when the version lives in a package.json (#2501): there
+  // is no second file to drift from, and classify never reports DRIFT_* for
+  // that shape.
+  if (isJsonVersionPath(versionRel)) {
+    process.stdout.write(
+      JSON.stringify({ repaired: null, reason: `${versionRel} is the single source of truth; no drift possible` }) + "\n",
+    );
+    return;
+  }
+  // Guard: if the VERSION file does not exist, readVersionFile folds that into
+  // DEFAULT ("0.0.0.0") — a structurally valid but fabricated version. The
+  // shape check below (VERSION_RE) would pass it, and we would write 0.0.0
+  // into package.json, regressing it below where it started (#2600).
+  if (!existsSync(versionPath)) {
+    fail(
+      `VERSION file not found at ${versionRel}. ` +
+        "Cannot repair package.json without a real version to sync. " +
+        "Pass --version-path or set .gstack/version-path if the file lives elsewhere.",
+      2,
+    );
+  }
+  const current = readVersionFile(versionPath, versionRel);
+  // Guard against readVersionFile folding "file exists but is empty / unparsable"
+  // into DEFAULT ("0.0.0.0") — same data-corruption pathway as file-missing (#2600).
+  // A fabricated version must never propagate into package.json. But DEFAULT is
+  // ambiguous: a VERSION file that GENUINELY reads "0.0.0.0" (a brand-new repo)
+  // is a legitimate version, not the sentinel. Disambiguate on the raw bytes:
+  // if the trimmed file content itself matches the version shape, proceed with
+  // the repair; reject only when the raw content is empty or unparseable.
+  if (current === DEFAULT) {
+    let rawTrimmed = "";
+    try {
+      rawTrimmed = readFileSync(versionPath, "utf-8").trim();
+    } catch {
+      rawTrimmed = "";
+    }
+    if (!VERSION_RE.test(rawTrimmed)) {
+      fail(
+        `VERSION file at ${versionRel} is empty or contains no parsable version. ` +
+          "Cannot repair package.json with a fabricated version.",
+        2,
+      );
+    }
+  }
   if (!VERSION_RE.test(current)) {
     fail(
-      `VERSION file contents (${current}) do not match MAJOR.MINOR.PATCH.MICRO. ` +
+      `VERSION file contents (${current}) do not match MAJOR.MINOR.PATCH[.MICRO]. ` +
         "Refusing to propagate invalid semver into package.json. Fix VERSION, then re-run /ship.",
       2,
     );
   }
-  if (!existsSync(join(cwd, "package.json"))) {
-    fail("repair: no package.json to sync.", 2);
+  const pkgPath = resolvePkgPath(cwd, argVal(args, "--package-json-path"));
+  if (!existsSync(pkgPath)) {
+    fail(`repair: no package.json to sync (looked at ${relative(cwd, pkgPath)}).`, 2);
   }
+  // Decision 11: repair syncs the manifest + lockfiles to the npm-valid
+  // 3-digit translation of the current VERSION.
+  const manifestV = npmVersion(current);
   try {
-    writePkgVersion(cwd, current);
+    writePkgVersion(pkgPath, manifestV);
+    syncNpmLockfiles(dirname(pkgPath), manifestV, cwd);
   } catch {
-    fail("drift repair failed — could not update package.json.", 3);
+    fail("drift repair failed — could not update package.json/npm lockfiles.", 3);
   }
-  process.stdout.write(JSON.stringify({ repaired: current }) + "\n");
+  process.stdout.write(
+    JSON.stringify({
+      repaired: current,
+      packageJsonPath: relative(cwd, pkgPath),
+      packageJsonVersion: manifestV,
+    }) + "\n",
+  );
 }
 
 // Exported for unit tests (pure logic, no I/O).

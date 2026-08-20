@@ -31,7 +31,8 @@
 import { describe, test, expect } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
-import { captureBaseline, type ParityBaseline } from './helpers/capture-parity-baseline';
+import { execSync } from 'child_process';
+import { captureBaseline, extractDescription, type ParityBaseline } from './helpers/capture-parity-baseline';
 import { logBudgetOverride } from './helpers/budget-override';
 import { CARVED_SKILLS } from './helpers/carve-guards';
 
@@ -166,12 +167,28 @@ describe('SKILL.md size budget regression (gate, free)', () => {
     // skeleton+sections union), so exempt the skeleton from the body-strip floor.
     // EQ1: derived from the canonical CARVE_GUARDS registry — no parallel list.
     const SECTIONS_EXTRACTED = new Set<string>(CARVED_SKILLS);
+    // Intentional one-off shrinks vs the frozen baseline (each needs a reason):
+    // - spec: the baseline measured a template bug — prose at Phase 5 mentioned
+    //   {{PREAMBLE}} literally, so the generator expanded the ENTIRE preamble a
+    //   second time mid-sentence (~47 KB of duplication). Fixed by rewording the
+    //   prose; spec/SKILL.md now carries exactly one preamble (~80.9 KB, ×0.79).
+    // - scrape/diagram/open-gstack-browser/landing-report/pair-agent/skillify:
+    //   the baseline measured these at the silent tier-4 default (a missing
+    //   preamble-tier frontmatter fell through `?? 4`). Their tiers are now
+    //   declared correctly (1-2), shedding the tier-2..4 onboarding prose they
+    //   never should have carried (-271 lines each for tier 1).
+    const INTENTIONAL_SHRINKS = new Set<string>([
+      'spec',
+      'scrape', 'diagram', 'open-gstack-browser',
+      'landing-report', 'pair-agent', 'skillify',
+    ]);
 
     const undershoots: Array<{
       skill: string; beforeBytes: number; afterBytes: number; ratio: number;
     }> = [];
     for (const [skill, before] of Object.entries(baseline.skills)) {
       if (SECTIONS_EXTRACTED.has(skill)) continue;
+      if (INTENTIONAL_SHRINKS.has(skill)) continue;
       const after = current.skills[skill];
       if (!after) continue; // skill removed since baseline — separate concern
       const ratio = after.skillMdBytes / before.skillMdBytes;
@@ -211,11 +228,31 @@ describe('SKILL.md size budget regression (gate, free)', () => {
   });
 
   test('catalog token estimate stays compressed (v1.45 target ≤ 7000)', () => {
-    const current = captureBaseline({ repoRoot: REPO_ROOT });
+    // Measure COMMITTED content (git show HEAD:), not the live tree. Under
+    // the parallel free-suite runner, sibling workers regenerate real
+    // SKILL.md files mid-run (gen-skill-docs regen tests), so the live-tree
+    // estimate was a moving target: 4177 solo, 8356 and 8041 in two parallel
+    // runs. A repo-budget ratchet measures the catalog that ships; CI always
+    // checks the PR's committed tree anyway.
+    const trackedPaths = execSync('git ls-files -- "*/SKILL.md"', { cwd: REPO_ROOT, encoding: 'utf-8' })
+      .split('\n')
+      .filter(Boolean)
+      .filter((p) => p.split('/').length === 2);
+    let descriptionBytes = 0;
+    for (const rel of trackedPaths) {
+      const committed = execSync(`git show HEAD:${JSON.stringify(rel)}`, {
+        cwd: REPO_ROOT,
+        encoding: 'utf-8',
+        maxBuffer: 8 * 1024 * 1024,
+      });
+      descriptionBytes += Buffer.byteLength(extractDescription(committed), 'utf-8');
+    }
+    const catalogTokens = Math.round(descriptionBytes / 4);
+    const trackedCount = trackedPaths.length;
     const v145Target = 7000;
-    if (current.estTotalCatalogTokens <= v145Target) {
+    if (catalogTokens <= v145Target) {
       // eslint-disable-next-line no-console
-      console.log(`[skill-size-budget] catalog OK: ~${current.estTotalCatalogTokens} tokens (target ≤${v145Target})`);
+      console.log(`[skill-size-budget] catalog OK: ~${catalogTokens} tokens (target ≤${v145Target}, ${trackedCount} tracked skills)`);
       return;
     }
     const overrideReason = process.env.GSTACK_SIZE_BUDGET_OVERRIDE_REASON?.trim();
@@ -223,12 +260,12 @@ describe('SKILL.md size budget regression (gate, free)', () => {
       logBudgetOverride({
         scope: 'skill-size-budget-catalog',
         reason: overrideReason,
-        details: { target: v145Target, observed: current.estTotalCatalogTokens },
+        details: { target: v145Target, observed: catalogTokens },
       });
       return;
     }
     throw new Error(
-      `Catalog token estimate regressed past v1.45 target: ${current.estTotalCatalogTokens} tokens > ${v145Target}. ` +
+      `Catalog token estimate regressed past v1.45 target: ${catalogTokens} tokens > ${v145Target}. ` +
       `T4 catalog trim should keep this under control. Override: set GSTACK_SIZE_BUDGET_OVERRIDE_REASON to allow.`,
     );
   });

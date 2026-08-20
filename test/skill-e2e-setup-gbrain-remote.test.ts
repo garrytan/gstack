@@ -11,7 +11,8 @@
 //
 // See setup-gbrain/SKILL.md.tmpl Step 4 (Path 4) for the contract under test.
 
-import { describe, test, expect } from 'bun:test';
+import { test, expect } from 'bun:test';
+import { describeE2ETier } from './helpers/e2e-gate';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -22,8 +23,7 @@ import { runAgentSdkTest, passThroughNonAskUserQuestion, resolveClaudeBinary } f
 // non-deterministic (it sometimes skips Step 8 CLAUDE.md write, sometimes
 // shortcuts past the verify helper). The deterministic gate coverage for
 // Path 4 lives in test/setup-gbrain-path4-structure.test.ts (free, <200ms).
-const shouldRun = !!process.env.EVALS && process.env.EVALS_TIER === 'periodic';
-const describeE2E = shouldRun ? describe : describe.skip;
+const describeE2E = describeE2ETier('periodic');
 
 // Spin up a stub MCP server that responds to initialize + tools/list.
 function startStubMcpServer(opts: { failWithStatus?: number; failBody?: string } = {}): Promise<{ url: string; close: () => Promise<void> }> {
@@ -130,15 +130,16 @@ describeE2E('/setup-gbrain Path 4 (Remote MCP) — happy path', () => {
     const askUserQuestions: Array<{ input: Record<string, unknown> }> = [];
     const binary = resolveClaudeBinary();
 
-    // Ambient env mutations. Restored in finally.
-    const orig = {
-      gstackHome: process.env.GSTACK_HOME,
-      pathEnv: process.env.PATH,
-      mcpToken: process.env.GBRAIN_MCP_TOKEN,
+    // Per-test child env, passed via opts.env (merges last over the complete
+    // hermetic env). Ambient process.env mutations DO NOT reach children:
+    // hermetic-env scrubs GBRAIN_*/GSTACK_* by allowlist — this test's token
+    // silently never arrived from the day hermetic env landed, and the child
+    // correctly stopped at Step 4c with NEEDS_CONTEXT.
+    const childEnv = {
+      GSTACK_HOME: gstackHome,
+      GBRAIN_MCP_TOKEN: SECRET_TOKEN,
+      PATH: `${fakeBinDir}:${path.join(path.resolve(import.meta.dir, '..'), 'bin')}:${process.env.PATH ?? '/usr/bin:/bin:/opt/homebrew/bin'}`,
     };
-    process.env.GSTACK_HOME = gstackHome;
-    process.env.PATH = `${fakeBinDir}:${path.join(path.resolve(import.meta.dir, '..'), 'bin')}:${process.env.PATH ?? '/usr/bin:/bin:/opt/homebrew/bin'}`;
-    process.env.GBRAIN_MCP_TOKEN = SECRET_TOKEN;
 
     let modelTextOutput = '';
 
@@ -146,6 +147,7 @@ describeE2E('/setup-gbrain Path 4 (Remote MCP) — happy path', () => {
       const skillPath = path.resolve(import.meta.dir, '..', 'setup-gbrain', 'SKILL.md');
       const result = await runAgentSdkTest({
         systemPrompt: { type: 'preset', preset: 'claude_code' },
+        env: childEnv,
         userPrompt:
           `Read the skill file at ${skillPath} and follow Path 4 (Remote MCP) only. ` +
           `Use this MCP URL: ${stubServer.url}. ` +
@@ -195,6 +197,19 @@ describeE2E('/setup-gbrain Path 4 (Remote MCP) — happy path', () => {
 
       // Assertion 2: claude mcp add was called with --transport http.
       const calls = fs.existsSync(callLog) ? fs.readFileSync(callLog, 'utf-8') : '';
+      if (!/mcp add.*--transport http/.test(calls)) {
+        // Failure evidence: without this, the transcript dies with the test
+        // and every triage pass starts blind (three did).
+        const bashCmds = result.toolCalls
+          .filter((t) => t.tool === 'Bash')
+          .map((t) => String((t.input as { command?: string })?.command ?? '').slice(0, 200));
+        console.error(
+          `[setup-gbrain-remote] mcp-add never hit the fake shim.\n` +
+          `exitReason=${result.exitReason} turns=${result.turnsUsed}\n` +
+          `--- bash commands (${bashCmds.length}) ---\n${bashCmds.join('\n')}\n` +
+          `--- final text (last 1500 chars) ---\n${result.output.slice(-1500)}`,
+        );
+      }
       expect(calls).toMatch(/mcp add.*--transport http/);
 
       // Assertion 3: the secret token NEVER appears in the final CLAUDE.md.
@@ -207,14 +222,16 @@ describeE2E('/setup-gbrain Path 4 (Remote MCP) — happy path', () => {
       // Assertion 5: classifier — the model didn't write findings before
       // asking. The Path 4 prose has 5 STOP gates; if any of them got
       // skipped, that's the wrote_findings_before_asking pattern.
-      const wroteBefore = /## GSTACK REVIEW REPORT|critical_gaps/i.test(modelTextOutput);
+      // Scan the ASSISTANT's text only: modelTextOutput serializes every
+      // event including the child's Read of the skill file, whose generated
+      // footer contains the literal "GSTACK REVIEW REPORT" — a guaranteed
+      // false positive on both trees.
+      const wroteBefore = /## GSTACK REVIEW REPORT|critical_gaps/i.test(result.output);
       // Setup-gbrain doesn't have a review report contract, so this is
       // a structural shape check, not a hard failure mode.
       expect(wroteBefore).toBe(false);
     } finally {
-      if (orig.gstackHome === undefined) delete process.env.GSTACK_HOME; else process.env.GSTACK_HOME = orig.gstackHome;
-      if (orig.pathEnv === undefined) delete process.env.PATH; else process.env.PATH = orig.pathEnv;
-      if (orig.mcpToken === undefined) delete process.env.GBRAIN_MCP_TOKEN; else process.env.GBRAIN_MCP_TOKEN = orig.mcpToken;
+      // (no ambient process.env mutations to restore — env goes via opts.env)
       await stubServer.close();
       fs.rmSync(gstackHome, { recursive: true, force: true });
       fs.rmSync(fakeBinDir, { recursive: true, force: true });

@@ -26,7 +26,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: windows-setup-e2e-${{ github.head_ref }}
+  group: windows-setup-e2e-${{ github.head_ref || github.run_id }}
   cancel-in-progress: true
 
 jobs:
@@ -35,11 +35,18 @@ jobs:
     timeout-minutes: 15
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: oven-sh/setup-bun@v1
+      - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: 1.3.13
+
+      # Same lockfile-keyed install cache as windows-free-tests.yml (install
+      # was 45s of a 64s job, all network).
+      - uses: actions/cache@v6
+        with:
+          path: ~/.bun/install/cache
+          key: windows-bun-${{ hashFiles('bun.lock') }}
 
       - name: Configure git identity
         run: |

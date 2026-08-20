@@ -24,15 +24,15 @@
  * ~$1-2/run. Periodic tier.
  */
 
-import { describe, test, expect } from 'bun:test';
+import { test, expect } from 'bun:test';
+import { describeE2ETier } from './helpers/e2e-gate';
 import {
   setupSkillDir,
   skillFromWorktree,
   captureSectionReads,
 } from './helpers/auq-sdk-capture';
 
-const shouldRun = !!process.env.EVALS && process.env.EVALS_TIER === 'periodic';
-const describeE2E = shouldRun ? describe : describe.skip;
+const describeE2E = describeE2ETier('periodic');
 const runId = `plan-ceo-section-loading-${process.env.EVALS_RUN_ID ?? 'local'}`;
 
 // Sections every plan-ceo-review run must consult after Step 0.

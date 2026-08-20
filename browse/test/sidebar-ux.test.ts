@@ -1,10 +1,23 @@
 /**
- * Tests for sidebar UX changes:
- * - System prompt does not bake in page URL (navigation fix)
- * - --resume is never used (stale context fix)
- * - /sidebar-chat response includes agentStatus
- * - Sidebar HTML has updated banner, placeholder, stop button
- * - Narration instructions present in system prompt
+ * Structural tests for the sidebar's surviving UX surfaces:
+ * - Quick-action toolbar (cleanup via PTY injection, screenshot, cookies)
+ * - CSP fallback basic picker (content.js) + inspector allowlist
+ * - Deterministic cleanup heuristics (write-commands.ts)
+ * - Welcome page + sidebar auto-open + arrow hint signal chain
+ * - Connection/auth race prevention + startup health check
+ * - browser-manager tab tracking + no-focus-steal invariants
+ * - Server shutdown teardown of the terminal-agent
+ *
+ * History: this file used to also pin the chat-queue architecture
+ * (sidebar-agent.ts, /sidebar-command, /sidebar-chat, /sidebar-tabs,
+ * per-tab chat context, stop button, chat polling, processAgentEvent,
+ * pickSidebarModel). That entire path was deliberately ripped in PR #1216
+ * (v1.14.0.0) when the interactive claude PTY (terminal-agent.ts) proved
+ * strictly more capable — see docs/designs/SIDEBAR_MESSAGE_FLOW.md. The
+ * stale blocks kept "passing" only because a teardown bug made `bun test`
+ * exit 0 before reporting; once that was fixed (PR #2172) they surfaced as
+ * failures and were removed. The rip itself is pinned as absence tests in
+ * browse/test/sidebar-tabs.test.ts.
  */
 
 import { describe, test, expect } from 'bun:test';
@@ -12,361 +25,6 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 const ROOT = path.resolve(__dirname, '..');
-
-// ─── System prompt tests (server.ts spawnClaude) ─────────────────
-
-describe('sidebar system prompt (server.ts)', () => {
-  const serverSrc = fs.readFileSync(path.join(ROOT, 'src', 'server.ts'), 'utf-8');
-
-  test('system prompt does not bake in page URL', () => {
-    // The old prompt had: `The user is currently viewing: ${pageUrl}`
-    // The new prompt should NOT contain this pattern
-    // Extract the systemPrompt array from spawnClaude
-    const promptSection = serverSrc.slice(
-      serverSrc.indexOf('const systemPrompt = ['),
-      serverSrc.indexOf("].join('\\n');", serverSrc.indexOf('const systemPrompt = [')) + 15,
-    );
-    expect(promptSection).not.toContain('currently viewing');
-    expect(promptSection).not.toContain('${pageUrl}');
-  });
-
-  test('system prompt tells agent to check URL before acting', () => {
-    const promptSection = serverSrc.slice(
-      serverSrc.indexOf('const systemPrompt = ['),
-      serverSrc.indexOf("].join('\\n');", serverSrc.indexOf('const systemPrompt = [')) + 15,
-    );
-    expect(promptSection).toContain('NEVER');
-    expect(promptSection).toContain('navigate back');
-    expect(promptSection).toContain('NEVER assume');
-    expect(promptSection).toContain('url`');
-  });
-
-  test('system prompt includes conciseness and stop instructions', () => {
-    const promptSection = serverSrc.slice(
-      serverSrc.indexOf('const systemPrompt = ['),
-      serverSrc.indexOf("].join('\\n');", serverSrc.indexOf('const systemPrompt = [')) + 15,
-    );
-    expect(promptSection).toContain('CONCISE');
-    expect(promptSection).toContain('STOP');
-  });
-
-  test('--resume is never used in spawnClaude args', () => {
-    // Extract the spawnClaude function
-    const fnStart = serverSrc.indexOf('function spawnClaude(');
-    const fnEnd = serverSrc.indexOf('\nfunction ', fnStart + 1);
-    const fnBody = serverSrc.slice(fnStart, fnEnd);
-    // Should not push --resume to args
-    expect(fnBody).not.toContain("'--resume'");
-    expect(fnBody).not.toContain('"--resume"');
-  });
-
-  test('system prompt includes inspect and style commands', () => {
-    const promptSection = serverSrc.slice(
-      serverSrc.indexOf('const systemPrompt = ['),
-      serverSrc.indexOf("].join('\\n');", serverSrc.indexOf('const systemPrompt = [')) + 15,
-    );
-    expect(promptSection).toContain('inspect');
-    expect(promptSection).toContain('style');
-    expect(promptSection).toContain('cleanup');
-  });
-});
-
-// ─── /sidebar-chat response includes agentStatus ─────────────────
-
-describe('/sidebar-chat agentStatus', () => {
-  const serverSrc = fs.readFileSync(path.join(ROOT, 'src', 'server.ts'), 'utf-8');
-
-  test('sidebar-chat response includes agentStatus field', () => {
-    // Find the GET /sidebar-chat handler — look for the data response, not the auth error
-    const handlerStart = serverSrc.indexOf("url.pathname === '/sidebar-chat'");
-    // Find the response that returns entries + total (skip the auth error response)
-    const entriesResponse = serverSrc.indexOf('{ entries, total', handlerStart);
-    expect(entriesResponse).toBeGreaterThan(handlerStart);
-    const responseLine = serverSrc.slice(entriesResponse, entriesResponse + 100);
-    expect(responseLine).toContain('agentStatus');
-  });
-});
-
-// ─── Sidebar HTML tests ──────────────────────────────────────────
-
-describe('sidebar HTML (sidepanel.html)', () => {
-  const html = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.html'), 'utf-8');
-
-  test('banner says "Browser co-pilot" not "Standalone mode"', () => {
-    expect(html).toContain('Browser co-pilot');
-    expect(html).not.toContain('Standalone mode');
-  });
-
-  test('input placeholder says "Ask about this page"', () => {
-    expect(html).toContain('Ask about this page');
-    expect(html).not.toContain('Message Claude Code');
-  });
-
-  test('stop button exists with id stop-agent-btn', () => {
-    expect(html).toContain('id="stop-agent-btn"');
-    expect(html).toContain('class="stop-btn"');
-  });
-
-  test('stop button is hidden by default', () => {
-    // The stop button should have style="display: none;" initially
-    const stopBtnMatch = html.match(/id="stop-agent-btn"[^>]*/);
-    expect(stopBtnMatch).not.toBeNull();
-    expect(stopBtnMatch![0]).toContain('display: none');
-  });
-});
-
-// ─── Sidebar JS tests ───────────────────────────────────────────
-
-describe('sidebar JS (sidepanel.js)', () => {
-  const js = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.js'), 'utf-8');
-
-  test('stopAgent function exists', () => {
-    expect(js).toContain('async function stopAgent()');
-  });
-
-  test('stopAgent calls /sidebar-agent/stop endpoint', () => {
-    expect(js).toContain('/sidebar-agent/stop');
-  });
-
-  test('stop button click handler is wired up', () => {
-    expect(js).toContain("getElementById('stop-agent-btn')");
-    expect(js).toContain('stopAgent');
-  });
-
-  test('updateStopButton function exists', () => {
-    expect(js).toContain('function updateStopButton(');
-  });
-
-  test('agent_start shows stop button', () => {
-    // Find the agent_start handler and verify it calls updateStopButton(true)
-    const startHandler = js.slice(
-      js.indexOf("entry.type === 'agent_start'"),
-      js.indexOf("entry.type === 'agent_done'"),
-    );
-    expect(startHandler).toContain('updateStopButton(true)');
-  });
-
-  test('agent_done hides stop button', () => {
-    const doneHandler = js.slice(
-      js.indexOf("entry.type === 'agent_done'"),
-      js.indexOf("entry.type === 'agent_error'"),
-    );
-    expect(doneHandler).toContain('updateStopButton(false)');
-  });
-
-  test('agent_error hides stop button', () => {
-    const errorIdx = js.indexOf("entry.type === 'agent_error'");
-    const errorHandler = js.slice(errorIdx, errorIdx + 500);
-    expect(errorHandler).toContain('updateStopButton(false)');
-  });
-
-  test('orphaned thinking cleanup checks agentStatus from server', () => {
-    // After polling, if agentStatus !== processing, thinking dots are removed
-    expect(js).toContain("data.agentStatus !== 'processing'");
-  });
-
-  test('orphaned thinking cleanup removes thinking dots silently', () => {
-    // Thinking dots are removed when agent is idle — no "(session ended)"
-    // notice, which was removed as noisy false-positive UX
-    expect(js).toContain('thinking.remove()');
-  });
-
-  test('sendMessage renders user bubble + thinking dots optimistically', () => {
-    // sendMessage should create user bubble and agent-thinking BEFORE the server responds
-    const sendFn = js.slice(js.indexOf('async function sendMessage()'), js.indexOf('async function sendMessage()') + 2000);
-    expect(sendFn).toContain('chat-bubble user');
-    expect(sendFn).toContain('agent-thinking');
-    expect(sendFn).toContain('lastOptimisticMsg');
-  });
-
-  test('fast polling during agent execution (300ms), slow when idle (1000ms)', () => {
-    expect(js).toContain('FAST_POLL_MS');
-    expect(js).toContain('SLOW_POLL_MS');
-    expect(js).toContain('startFastPoll');
-    expect(js).toContain('stopFastPoll');
-    // Fast = 300ms
-    expect(js).toContain('300');
-    // Slow = 1000ms
-    expect(js).toContain('1000');
-  });
-
-  test('agent_done calls stopFastPoll', () => {
-    const doneHandler = js.slice(
-      js.indexOf("entry.type === 'agent_done'"),
-      js.indexOf("entry.type === 'agent_error'"),
-    );
-    expect(doneHandler).toContain('stopFastPoll');
-  });
-
-  test('duplicate user bubble prevention via lastOptimisticMsg', () => {
-    expect(js).toContain('lastOptimisticMsg');
-    // When polled message matches optimistic, skip rendering
-    expect(js).toContain('lastOptimisticMsg === entry.message');
-  });
-});
-
-// ─── Sidebar agent queue poll (sidebar-agent.ts) ─────────────────
-
-describe('sidebar agent queue poll (sidebar-agent.ts)', () => {
-  const agentSrc = fs.readFileSync(path.join(ROOT, 'src', 'sidebar-agent.ts'), 'utf-8');
-
-  test('queue poll interval is 200ms or less for fast TTFO', () => {
-    const match = agentSrc.match(/const POLL_MS\s*=\s*(\d+)/);
-    expect(match).not.toBeNull();
-    const pollMs = parseInt(match![1], 10);
-    expect(pollMs).toBeLessThanOrEqual(200);
-  });
-});
-
-// ─── System prompt size (TTFO optimization) ──────────────────────
-
-describe('system prompt size', () => {
-  const serverSrc = fs.readFileSync(path.join(ROOT, 'src', 'server.ts'), 'utf-8');
-
-  test('system prompt is compact (under 30 lines)', () => {
-    const start = serverSrc.indexOf('const systemPrompt = [');
-    const end = serverSrc.indexOf("].join('\\n');", start);
-    const promptBlock = serverSrc.slice(start, end);
-    const lines = promptBlock.split('\n').length;
-    // Compact prompt = fewer input tokens = faster first response
-    // Higher limit accommodates security lines (prompt injection defense, allowed commands)
-    expect(lines).toBeLessThan(30);
-  });
-
-  test('system prompt does not contain verbose narration examples', () => {
-    // We trimmed examples to reduce token count. The agent gets the
-    // instruction to narrate, not 6 examples of how.
-    const start = serverSrc.indexOf('const systemPrompt = [');
-    const end = serverSrc.indexOf("].join('\\n');", start);
-    const promptBlock = serverSrc.slice(start, end);
-    expect(promptBlock).not.toContain('Examples of good narration');
-    expect(promptBlock).not.toContain('I can see a login form');
-  });
-});
-
-// ─── TTFO latency chain invariants ──────────────────────────────
-
-describe('TTFO latency chain', () => {
-  const js = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.js'), 'utf-8');
-  const agentSrc = fs.readFileSync(path.join(ROOT, 'src', 'sidebar-agent.ts'), 'utf-8');
-
-  test('optimistic render happens BEFORE chrome.runtime.sendMessage', () => {
-    // In sendMessage(), the bubble + thinking dots must be created
-    // before the async POST to the server
-    const sendFn = js.slice(
-      js.indexOf('async function sendMessage()'),
-      js.indexOf('async function sendMessage()') + 3000,
-    );
-    const optimisticIdx = sendFn.indexOf('agent-thinking');
-    const sendIdx = sendFn.indexOf('chrome.runtime.sendMessage');
-    expect(optimisticIdx).toBeGreaterThan(0);
-    expect(sendIdx).toBeGreaterThan(0);
-    expect(optimisticIdx).toBeLessThan(sendIdx);
-  });
-
-  test('sendMessage calls startFastPoll before server request', () => {
-    const sendFn = js.slice(
-      js.indexOf('async function sendMessage()'),
-      js.indexOf('async function sendMessage()') + 3000,
-    );
-    const fastPollIdx = sendFn.indexOf('startFastPoll');
-    const sendIdx = sendFn.indexOf('chrome.runtime.sendMessage');
-    expect(fastPollIdx).toBeGreaterThan(0);
-    expect(fastPollIdx).toBeLessThan(sendIdx);
-  });
-
-  test('agent_start from server does not duplicate thinking dots', () => {
-    // When we already showed dots optimistically, agent_start from
-    // the poll should skip creating a second set
-    const startHandler = js.slice(
-      js.indexOf("entry.type === 'agent_start'"),
-      js.indexOf("entry.type === 'agent_done'"),
-    );
-    expect(startHandler).toContain('agent-thinking');
-    // Should check if thinking already exists and skip
-    expect(startHandler).toContain("getElementById('agent-thinking')");
-  });
-
-  test('FAST_POLL_MS is strictly less than SLOW_POLL_MS', () => {
-    const fastMatch = js.match(/FAST_POLL_MS\s*=\s*(\d+)/);
-    const slowMatch = js.match(/SLOW_POLL_MS\s*=\s*(\d+)/);
-    expect(fastMatch).not.toBeNull();
-    expect(slowMatch).not.toBeNull();
-    expect(parseInt(fastMatch![1], 10)).toBeLessThan(parseInt(slowMatch![1], 10));
-  });
-
-  test('stopAgent also calls stopFastPoll', () => {
-    const stopFn = js.slice(
-      js.indexOf('async function stopAgent()'),
-      js.indexOf('async function stopAgent()') + 1000,
-    );
-    expect(stopFn).toContain('stopFastPoll');
-  });
-});
-
-// ─── Browser tab bar ────────────────────────────────────────────
-
-describe('browser tab bar (server.ts)', () => {
-  const serverSrc = fs.readFileSync(path.join(ROOT, 'src', 'server.ts'), 'utf-8');
-
-  test('/sidebar-tabs endpoint exists', () => {
-    expect(serverSrc).toContain("/sidebar-tabs'");
-    expect(serverSrc).toContain('getTabListWithTitles');
-  });
-
-  test('/sidebar-tabs/switch endpoint exists', () => {
-    expect(serverSrc).toContain("/sidebar-tabs/switch'");
-    expect(serverSrc).toContain('switchTab');
-  });
-
-  test('/sidebar-tabs requires auth', () => {
-    // Find the handler and verify auth check
-    const handlerIdx = serverSrc.indexOf("/sidebar-tabs'");
-    const handlerBlock = serverSrc.slice(handlerIdx, handlerIdx + 300);
-    expect(handlerBlock).toContain('validateAuth');
-  });
-});
-
-describe('browser tab bar (sidepanel.js)', () => {
-  const js = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.js'), 'utf-8');
-
-  test('pollTabs function exists and calls /sidebar-tabs', () => {
-    expect(js).toContain('async function pollTabs()');
-    expect(js).toContain('/sidebar-tabs');
-  });
-
-  test('renderTabBar function exists', () => {
-    expect(js).toContain('function renderTabBar(tabs)');
-  });
-
-  test('tab bar hidden when only 1 tab', () => {
-    const renderFn = js.slice(
-      js.indexOf('function renderTabBar('),
-      js.indexOf('function renderTabBar(') + 600,
-    );
-    expect(renderFn).toContain('tabs.length <= 1');
-    expect(renderFn).toContain("display = 'none'");
-  });
-
-  test('switchBrowserTab calls /sidebar-tabs/switch', () => {
-    expect(js).toContain('async function switchBrowserTab(');
-    expect(js).toContain('/sidebar-tabs/switch');
-  });
-
-  test('tab polling interval is set on connection', () => {
-    expect(js).toContain('tabPollInterval');
-    expect(js).toContain('setInterval(pollTabs');
-  });
-
-  test('tab polling cleaned up on disconnect', () => {
-    expect(js).toContain('clearInterval(tabPollInterval)');
-  });
-
-  test('only re-renders when tabs change (diff check)', () => {
-    expect(js).toContain('lastTabJson');
-    expect(js).toContain('json === lastTabJson');
-  });
-});
 
 describe('browser tab bar (sidepanel.html)', () => {
   const html = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.html'), 'utf-8');
@@ -397,8 +55,6 @@ describe('sidebar→browser tab switch', () => {
 
 describe('browser→sidebar tab sync', () => {
   const bmSrc = fs.readFileSync(path.join(ROOT, 'src', 'browser-manager.ts'), 'utf-8');
-  const serverSrc = fs.readFileSync(path.join(ROOT, 'src', 'server.ts'), 'utf-8');
-  const js = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.js'), 'utf-8');
 
   test('syncActiveTabByUrl method exists on BrowserManager', () => {
     expect(bmSrc).toContain('syncActiveTabByUrl(activeUrl: string)');
@@ -438,45 +94,15 @@ describe('browser→sidebar tab sync', () => {
     expect(fn).toContain('this.pages.size <= 1');
   });
 
-  test('/sidebar-tabs reads activeUrl param and calls syncActiveTabByUrl', () => {
-    const handler = serverSrc.slice(
-      serverSrc.indexOf("/sidebar-tabs'"),
-      serverSrc.indexOf("/sidebar-tabs'") + 700,
-    );
-    expect(handler).toContain("get('activeUrl')");
-    expect(handler).toContain('syncActiveTabByUrl');
-  });
-
-  test('/sidebar-command syncs activeTabUrl BEFORE reading tabId', () => {
-    // The server must call syncActiveTabByUrl before getActiveTabId
-    // so the agent targets the correct tab
-    const cmdIdx = serverSrc.indexOf("url.pathname === '/sidebar-command'");
-    const handler = serverSrc.slice(cmdIdx, cmdIdx + 1200);
-    const syncIdx = handler.indexOf('syncActiveTabByUrl');
-    const getIdIdx = handler.indexOf('getActiveTabId');
-    expect(syncIdx).toBeGreaterThan(0);
-    expect(getIdIdx).toBeGreaterThan(syncIdx); // sync happens BEFORE reading ID
-  });
+  // NOTE: the /sidebar-tabs + /sidebar-command server consumers of
+  // syncActiveTabByUrl and the sidepanel chat-tab handlers were removed
+  // with the chat-queue rip (PR #1216). The BrowserManager primitives above
+  // survive (tab tracking feeds active-tab.json for the PTY claude).
 
   test('background.js listens for chrome.tabs.onActivated', () => {
     const bgSrc = fs.readFileSync(path.join(ROOT, '..', 'extension', 'background.js'), 'utf-8');
     expect(bgSrc).toContain('chrome.tabs.onActivated.addListener');
     expect(bgSrc).toContain('browserTabActivated');
-  });
-
-  test('sidepanel handles browserTabActivated message instantly', () => {
-    expect(js).toContain("msg.type === 'browserTabActivated'");
-    // Should call switchChatTab for instant context swap
-    expect(js).toContain('switchChatTab');
-  });
-
-  test('pollTabs sends Chrome active tab URL to server', () => {
-    const pollFn = js.slice(
-      js.indexOf('async function pollTabs()'),
-      js.indexOf('async function pollTabs()') + 800,
-    );
-    expect(pollFn).toContain('chrome.tabs.query');
-    expect(pollFn).toContain('activeUrl=');
   });
 });
 
@@ -504,138 +130,6 @@ describe('browser tab bar (sidepanel.css)', () => {
     );
     expect(activeStyle).toContain('--bg-surface');
     expect(activeStyle).toContain('--text-body');
-  });
-});
-
-// ─── Event relay (processAgentEvent) ────────────────────────────
-
-describe('processAgentEvent handles sidebar-agent event types', () => {
-  const serverSrc = fs.readFileSync(path.join(ROOT, 'src', 'server.ts'), 'utf-8');
-
-  // Extract processAgentEvent function body
-  const fnStart = serverSrc.indexOf('function processAgentEvent(');
-  const fnEnd = serverSrc.indexOf('\nfunction ', fnStart + 1);
-  const fnBody = serverSrc.slice(fnStart, fnEnd > fnStart ? fnEnd : fnStart + 2000);
-
-  test('handles tool_use events directly (not raw Claude stream format)', () => {
-    // Must handle { type: 'tool_use', tool, input } from sidebar-agent
-    expect(fnBody).toContain("event.type === 'tool_use'");
-    expect(fnBody).toContain('event.tool');
-    expect(fnBody).toContain('event.input');
-  });
-
-  test('handles text_delta events directly', () => {
-    expect(fnBody).toContain("event.type === 'text_delta'");
-    expect(fnBody).toContain('event.text');
-  });
-
-  test('handles text events directly', () => {
-    expect(fnBody).toContain("event.type === 'text'");
-  });
-
-  test('handles result events', () => {
-    expect(fnBody).toContain("event.type === 'result'");
-  });
-
-  test('handles agent_error events', () => {
-    expect(fnBody).toContain("event.type === 'agent_error'");
-    expect(fnBody).toContain('event.error');
-  });
-
-  test('does NOT re-parse raw Claude stream events (no content_block_start)', () => {
-    // sidebar-agent.ts already transforms these. Server should not duplicate.
-    expect(fnBody).not.toContain('content_block_start');
-    expect(fnBody).not.toContain('content_block_delta');
-    expect(fnBody).not.toContain("event.type === 'assistant'");
-  });
-
-  test('all event types call addChatEntry with role: agent', () => {
-    // Every addChatEntry in processAgentEvent should have role: 'agent'
-    const addCalls = fnBody.match(/addChatEntry\(\{[^}]+\}\)/g) || [];
-    for (const call of addCalls) {
-      expect(call).toContain("role: 'agent'");
-    }
-  });
-});
-
-// ─── Per-tab chat context ────────────────────────────────────────
-
-describe('per-tab chat context (server.ts)', () => {
-  const serverSrc = fs.readFileSync(path.join(ROOT, 'src', 'server.ts'), 'utf-8');
-
-  test('/sidebar-chat accepts tabId query param', () => {
-    const handler = serverSrc.slice(
-      serverSrc.indexOf("/sidebar-chat'"),
-      serverSrc.indexOf("/sidebar-chat'") + 600,
-    );
-    expect(handler).toContain('tabId');
-  });
-
-  test('addChatEntry takes a tabId parameter', () => {
-    // addChatEntry should route entries to the correct tab's buffer
-    expect(serverSrc).toContain('tabId');
-    // Look for tabId in addChatEntry function
-    const fnIdx = serverSrc.indexOf('function addChatEntry(');
-    if (fnIdx > -1) {
-      const fnBody = serverSrc.slice(fnIdx, fnIdx + 300);
-      expect(fnBody).toContain('tabId');
-    }
-  });
-
-  test('spawnClaude passes active tab ID to queue entry', () => {
-    const spawnFn = serverSrc.slice(
-      serverSrc.indexOf('function spawnClaude('),
-      serverSrc.indexOf('\nfunction ', serverSrc.indexOf('function spawnClaude(') + 1),
-    );
-    expect(spawnFn).toContain('tabId');
-  });
-
-  test('tab isolation uses BROWSE_TAB env var instead of system prompt hack', () => {
-    const agentSrc = fs.readFileSync(path.join(ROOT, 'src', 'sidebar-agent.ts'), 'utf-8');
-    // Agent passes BROWSE_TAB env var to claude (not a system prompt instruction)
-    expect(agentSrc).toContain('BROWSE_TAB');
-    // Server handleCommand reads tabId from body and pins to that tab
-    expect(serverSrc).toContain('savedTabId');
-    expect(serverSrc).toContain('switchTab(tabId)');
-  });
-});
-
-describe('per-tab chat context (sidepanel.js)', () => {
-  const js = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.js'), 'utf-8');
-
-  test('tracks activeTabId for chat context', () => {
-    expect(js).toContain('activeTabId');
-  });
-
-  test('pollChat sends tabId to server', () => {
-    const pollFn = js.slice(
-      js.indexOf('async function pollChat()'),
-      js.indexOf('async function pollChat()') + 600,
-    );
-    expect(pollFn).toContain('tabId');
-  });
-
-  test('switching tabs swaps displayed chat', () => {
-    // When tab changes, old chat is saved and new tab's chat is shown
-    expect(js).toContain('switchChatTab');
-  });
-
-  test('switchChatTab saves current tab DOM and restores new tab', () => {
-    const fn = js.slice(
-      js.indexOf('function switchChatTab('),
-      js.indexOf('function switchChatTab(') + 800,
-    );
-    expect(fn).toContain('chatDomByTab');
-    expect(fn).toContain('createDocumentFragment');
-  });
-
-  test('sendMessage includes tabId in message', () => {
-    const sendFn = js.slice(
-      js.indexOf('async function sendMessage()'),
-      js.indexOf('async function sendMessage()') + 2000,
-    );
-    expect(sendFn).toContain('tabId');
-    expect(sendFn).toContain('sidebarActiveTabId');
   });
 });
 
@@ -712,10 +206,14 @@ describe('CSP fallback basic picker', () => {
     expect(contentSrc).toContain('getBoundingClientRect()');
   });
 
-  test('content.js contains CSSOM iteration with cross-origin try/catch', () => {
+  test('content.js contains CSSOM iteration guarded against cross-origin sheets', () => {
     expect(contentSrc).toContain('document.styleSheets');
     expect(contentSrc).toContain('cssRules');
-    expect(contentSrc).toContain('cross-origin');
+    // Cross-origin stylesheets throw DOMException on cssRules access. The
+    // iteration must swallow exactly that (typed catch, not a bare catch {}
+    // — see the slop-scan philosophy in CLAUDE.md).
+    expect(contentSrc).toContain('(same-origin only)');
+    expect(contentSrc).toMatch(/catch \(e\) \{ if \(!\(e instanceof DOMException\)\) throw e; \}/);
   });
 
   test('content.js saves and restores outline on elements', () => {
@@ -772,29 +270,26 @@ describe('cleanup and screenshot buttons', () => {
     expect(html).toContain('quick-actions');
   });
 
-  test('cleanup button sends smart prompt to sidebar agent (not just deterministic selectors)', () => {
-    // Should use /sidebar-command endpoint (agent-based) not just /command (deterministic)
+  test('cleanup button injects smart prompt into the live PTY (not just deterministic selectors)', () => {
+    // Cleanup pipes a prompt into the running claude PTY via
+    // gstackInjectToTerminal (the chat-queue POST to /sidebar-command was
+    // ripped in PR #1216 — the live REPL is the only execution surface).
     const cleanupFn = js.slice(
       js.indexOf('async function runCleanup('),
       js.indexOf('async function runScreenshot('),
     );
-    expect(cleanupFn).toContain('sidebar-command');
+    expect(cleanupFn).toContain('gstackInjectToTerminal');
     expect(cleanupFn).toContain('cleanupPrompt');
     // Should include both deterministic first pass AND agent snapshot analysis
     expect(cleanupFn).toContain('cleanup --all');
     expect(cleanupFn).toContain('snapshot -i');
-    // Should instruct agent to KEEP site branding
-    expect(cleanupFn).toContain('KEEP');
-    expect(cleanupFn).toContain('header/masthead/logo');
+    // Should instruct claude to keep site branding
+    expect(cleanupFn).toContain('Keep the site');
+    expect(cleanupFn).toContain('header/masthead');
   });
 
   test('sidepanel.js screenshot handler POSTs to /command with screenshot', () => {
     expect(js).toContain("command: 'screenshot'");
-  });
-
-  test('sidepanel.js has notification rendering for type notification', () => {
-    expect(js).toContain("entry.type === 'notification'");
-    expect(js).toContain('chat-notification');
   });
 
   test('sidepanel.css contains inspector-action-btn styles', () => {
@@ -941,68 +436,11 @@ describe('chat toolbar buttons disabled state', () => {
   });
 });
 
-// ─── Chat message dedup ─────────────────────────────────────────
+// ─── Focus stealing prevention ──────────────────────────────────
 
-describe('chat message dedup (prevents repeat rendering)', () => {
-  const js = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.js'), 'utf-8');
-
-  test('renderedEntryIds Set exists for dedup tracking', () => {
-    expect(js).toContain('const renderedEntryIds = new Set()');
-  });
-
-  test('addChatEntry checks entry.id against renderedEntryIds', () => {
-    const addFn = js.slice(
-      js.indexOf('function addChatEntry(entry)'),
-      js.indexOf('\n  // User messages', js.indexOf('function addChatEntry(entry)')),
-    );
-    expect(addFn).toContain('renderedEntryIds.has(entry.id)');
-    expect(addFn).toContain('renderedEntryIds.add(entry.id)');
-    // Should return early (skip) if already rendered
-    expect(addFn).toContain('return');
-  });
-
-  test('addChatEntry skips dedup for entries without id (local notifications)', () => {
-    const addFn = js.slice(
-      js.indexOf('function addChatEntry(entry)'),
-      js.indexOf('\n  // User messages', js.indexOf('function addChatEntry(entry)')),
-    );
-    // Should only check dedup when entry.id is defined
-    expect(addFn).toContain('entry.id !== undefined');
-  });
-
-  test('clear chat resets renderedEntryIds', () => {
-    expect(js).toContain('renderedEntryIds.clear()');
-  });
-});
-
-// ─── Agent conciseness and focus stealing ───────────────────────
-
-describe('sidebar agent conciseness + no focus stealing', () => {
+describe('tab switching does not steal focus', () => {
   const serverSrc = fs.readFileSync(path.join(ROOT, 'src', 'server.ts'), 'utf-8');
   const bmSrc = fs.readFileSync(path.join(ROOT, 'src', 'browser-manager.ts'), 'utf-8');
-
-  test('system prompt tells agent to STOP when task is done', () => {
-    const promptSection = serverSrc.slice(
-      serverSrc.indexOf('const systemPrompt = ['),
-      serverSrc.indexOf("].join('\\n');", serverSrc.indexOf('const systemPrompt = [')),
-    );
-    expect(promptSection).toContain('STOP');
-    expect(promptSection).toContain('CONCISE');
-    expect(promptSection).toContain('Do NOT keep exploring');
-  });
-
-  test('sidebar agent auto-routes model based on message type', () => {
-    // Model router exists and defaults to opus for analysis tasks
-    expect(serverSrc).toContain('function pickSidebarModel(');
-    expect(serverSrc).toContain("return 'opus'");
-    expect(serverSrc).toContain("return 'sonnet'");
-    // spawnClaude uses the router, not a hardcoded model
-    const spawnFn = serverSrc.slice(
-      serverSrc.indexOf('function spawnClaude('),
-      serverSrc.indexOf('\nfunction ', serverSrc.indexOf('function spawnClaude(') + 1),
-    );
-    expect(spawnFn).toContain('pickSidebarModel(userMessage)');
-  });
 
   test('switchTab has bringToFront option', () => {
     expect(bmSrc).toContain('bringToFront?: boolean');
@@ -1028,14 +466,14 @@ describe('LLM-based cleanup (smart agent cleanup)', () => {
   const js = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.js'), 'utf-8');
   const wcSrc = fs.readFileSync(path.join(ROOT, 'src', 'write-commands.ts'), 'utf-8');
 
-  test('cleanup button uses /sidebar-command not /command', () => {
+  test('cleanup button does not bypass the agent with a direct /command POST', () => {
     const cleanupFn = js.slice(
       js.indexOf('async function runCleanup('),
       js.indexOf('async function runScreenshot('),
     );
-    // Should POST to sidebar-command (agent) not /command (deterministic)
-    expect(cleanupFn).toContain('/sidebar-command');
-    // Should NOT directly call the cleanup command endpoint
+    // The smart cleanup goes through the claude PTY, never a raw
+    // deterministic /command fetch. (The PTY-injection wiring itself is
+    // pinned in sidebar-tabs.test.ts.)
     expect(cleanupFn).not.toMatch(/fetch.*\/command['"]/);
   });
 
@@ -1056,7 +494,7 @@ describe('LLM-based cleanup (smart agent cleanup)', () => {
     // Agent should take a snapshot to see what deterministic pass missed
     expect(cleanupFn).toContain('snapshot -i');
     // Agent should analyze what remains
-    expect(cleanupFn).toContain('identify remaining non-content');
+    expect(cleanupFn).toContain('identify any remaining');
   });
 
   test('cleanup prompt lists specific clutter categories for agent', () => {
@@ -1065,13 +503,13 @@ describe('LLM-based cleanup (smart agent cleanup)', () => {
       js.indexOf('async function runScreenshot('),
     );
     // Should guide the agent on what to look for
-    expect(cleanupFn).toContain('Ad placeholder');
-    expect(cleanupFn).toContain('ADVERTISEMENT');
-    expect(cleanupFn).toContain('Cookie');
-    expect(cleanupFn).toContain('Audio/podcast');
-    expect(cleanupFn).toContain('Sidebar widget');
-    expect(cleanupFn).toContain('Social share');
-    expect(cleanupFn).toContain('Floating chat');
+    expect(cleanupFn).toContain('cookie/consent banners');
+    expect(cleanupFn).toContain('newsletter popups');
+    expect(cleanupFn).toContain('login walls');
+    expect(cleanupFn).toContain('video autoplay');
+    expect(cleanupFn).toContain('sidebar');
+    expect(cleanupFn).toContain('share');
+    expect(cleanupFn).toContain('floating chat');
   });
 
   test('cleanup prompt instructs agent to preserve site identity', () => {
@@ -1080,11 +518,11 @@ describe('LLM-based cleanup (smart agent cleanup)', () => {
       js.indexOf('async function runScreenshot('),
     );
     // Must keep the site looking like itself
-    expect(cleanupFn).toContain('KEEP');
-    expect(cleanupFn).toContain('header/masthead/logo');
-    expect(cleanupFn).toContain('article headline');
+    expect(cleanupFn).toContain('Keep the site');
+    expect(cleanupFn).toContain('header/masthead');
+    expect(cleanupFn).toContain('headline');
     expect(cleanupFn).toContain('article body');
-    expect(cleanupFn).toContain('author byline');
+    expect(cleanupFn).toContain('byline');
   });
 
   test('cleanup prompt instructs agent to unlock scrolling', () => {
@@ -1093,7 +531,7 @@ describe('LLM-based cleanup (smart agent cleanup)', () => {
       js.indexOf('async function runScreenshot('),
     );
     expect(cleanupFn).toContain('unlock scrolling');
-    expect(cleanupFn).toContain('overflow');
+    expect(cleanupFn).toContain('scroll-locked');
   });
 
   test('cleanup prompt instructs agent to use $B eval for removal', () => {
@@ -1103,15 +541,7 @@ describe('LLM-based cleanup (smart agent cleanup)', () => {
     );
     // Agent should use $B eval to hide elements via JavaScript
     expect(cleanupFn).toContain('$B eval');
-    expect(cleanupFn).toContain("display=");
-  });
-
-  test('cleanup shows notification while agent works', () => {
-    const cleanupFn = js.slice(
-      js.indexOf('async function runCleanup('),
-      js.indexOf('async function runScreenshot('),
-    );
-    expect(cleanupFn).toContain('agent is analyzing');
+    expect(cleanupFn).toContain('hide each');
   });
 
   test('cleanup removes loading state after short delay (agent is async)', () => {
@@ -1343,12 +773,17 @@ describe('sidebar arrow hint hide flow (4-step signal chain)', () => {
   // Step 1: sidepanel sends sidebarOpened when connected
   test('step 1: sidepanel sends sidebarOpened message on connect', () => {
     expect(spSrc).toContain("{ type: 'sidebarOpened' }");
-    // Should be in updateConnection, after setConnState('connected')
+    // Should be in updateConnection, after setConnState('connected').
+    // Window is generous: updateConnection also exposes the PTY bootstrap
+    // globals (gstackServerPort/gstackAuthToken) before the connected branch.
     const connectFn = spSrc.slice(
       spSrc.indexOf('function updateConnection('),
-      spSrc.indexOf('function updateConnection(') + 800,
+      spSrc.indexOf('function updateConnection(') + 2500,
     );
-    expect(connectFn).toContain('sidebarOpened');
+    const connectedIdx = connectFn.indexOf("setConnState('connected')");
+    const openedIdx = connectFn.indexOf('sidebarOpened');
+    expect(connectedIdx).toBeGreaterThan(0);
+    expect(openedIdx).toBeGreaterThan(connectedIdx);
   });
 
   // Step 2: background.js accepts and relays sidebarOpened
@@ -1465,13 +900,16 @@ describe('sidebar debug visibility when stuck', () => {
 
 describe('BROWSE_NO_AUTOSTART (sidebar headless prevention)', () => {
   const cliSrc = fs.readFileSync(path.join(ROOT, 'src', 'cli.ts'), 'utf-8');
-  const agentSrc = fs.readFileSync(path.join(ROOT, 'src', 'sidebar-agent.ts'), 'utf-8');
+  const termAgentSrc = fs.readFileSync(path.join(ROOT, 'src', 'terminal-agent.ts'), 'utf-8');
 
   test('cli.ts checks BROWSE_NO_AUTOSTART before starting a new server', () => {
-    // ensureServer must check this env var BEFORE calling startServer()
+    // ensureServer must check this env var BEFORE spawning a server.
+    // (Anchor on the open paren — both functions grew parameters.)
+    const ensureStart = cliSrc.indexOf('async function ensureServer(');
+    const ensureEnd = cliSrc.indexOf('\nasync function ', ensureStart + 1);
     const ensureServerFn = cliSrc.slice(
-      cliSrc.indexOf('async function ensureServer()'),
-      cliSrc.indexOf('async function startServer()'),
+      ensureStart,
+      ensureEnd > ensureStart ? ensureEnd : undefined,
     );
     expect(ensureServerFn).toContain('BROWSE_NO_AUTOSTART');
     expect(ensureServerFn).toContain('process.exit(1)');
@@ -1482,109 +920,26 @@ describe('BROWSE_NO_AUTOSTART (sidebar headless prevention)', () => {
     expect(cliSrc).toContain('BROWSE_NO_AUTOSTART is set');
   });
 
-  test('sidebar-agent.ts sets BROWSE_NO_AUTOSTART=1', () => {
-    expect(agentSrc).toContain("BROWSE_NO_AUTOSTART: '1'");
+  test('terminal-agent.ts sets BROWSE_NO_AUTOSTART=1 for the claude PTY', () => {
+    // The PTY claude must reuse THIS headed server, never race to spawn
+    // its own. (sidebar-agent.ts, the original setter, was ripped in
+    // PR #1216 — the PTY agent inherited the same env contract.)
+    expect(termAgentSrc).toContain("BROWSE_NO_AUTOSTART: '1'");
   });
 
-  test('sidebar-agent.ts sets BROWSE_PORT for headed server reuse', () => {
-    expect(agentSrc).toContain('BROWSE_PORT');
+  test('terminal-agent.ts sets BROWSE_PORT for headed server reuse', () => {
+    expect(termAgentSrc).toContain('BROWSE_PORT');
   });
 
   test('BROWSE_NO_AUTOSTART check happens before lock acquisition', () => {
     // The guard must be BEFORE the lock acquisition. If it's after,
     // we'd acquire a lock and then exit, leaving a stale lock file.
-    const ensureServerStart = cliSrc.indexOf('async function ensureServer()');
+    const ensureServerStart = cliSrc.indexOf('async function ensureServer(');
     const noAutoStart = cliSrc.indexOf('BROWSE_NO_AUTOSTART', ensureServerStart);
     const lockAcquisition = cliSrc.indexOf('Acquire lock', ensureServerStart);
     expect(noAutoStart).toBeGreaterThan(0);
     expect(lockAcquisition).toBeGreaterThan(0);
     expect(noAutoStart).toBeLessThan(lockAcquisition);
-  });
-});
-
-// ─── Tool-result file filtering (sidebar-agent.ts) ──────────────
-
-describe('sidebar-agent hides internal tool-result reads', () => {
-  const agentSrc = fs.readFileSync(path.join(ROOT, 'src', 'sidebar-agent.ts'), 'utf-8');
-
-  test('describeToolCall returns empty for tool-results paths', () => {
-    expect(agentSrc).toContain("input.file_path.includes('/tool-results/')");
-  });
-
-  test('describeToolCall returns empty for .claude/projects paths', () => {
-    expect(agentSrc).toContain("input.file_path.includes('/.claude/projects/')");
-  });
-
-  test('empty description causes early return (no event sent)', () => {
-    // describeToolCall returns '' for internal reads, which means
-    // summarizeToolInput returns '', which means event.input is ''
-    const readHandler = agentSrc.slice(
-      agentSrc.indexOf("if (tool === 'Read'"),
-      agentSrc.indexOf("if (tool === 'Edit'"),
-    );
-    expect(readHandler).toContain("return ''");
-  });
-});
-
-// ─── Sidebar skips empty tool_use entries (sidepanel.js) ────────
-
-describe('sidebar skips empty tool_use descriptions', () => {
-  const js = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.js'), 'utf-8');
-
-  test('tool_use with no input returns early', () => {
-    const toolUseHandler = js.slice(
-      js.indexOf("entry.type === 'tool_use'"),
-      js.indexOf("entry.type === 'tool_use'") + 400,
-    );
-    expect(toolUseHandler).toContain("if (!toolInput) return");
-  });
-});
-
-// ─── Tool calls collapse into "See reasoning" on agent_done ─────
-
-describe('tool calls collapse into reasoning disclosure', () => {
-  const js = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.js'), 'utf-8');
-  const css = fs.readFileSync(path.join(ROOT, '..', 'extension', 'sidepanel.css'), 'utf-8');
-
-  test('agent_done wraps tool calls in <details> element', () => {
-    const doneHandler = js.slice(
-      js.indexOf("entry.type === 'agent_done'"),
-      js.indexOf("entry.type === 'agent_done'") + 1200,
-    );
-    expect(doneHandler).toContain("createElement('details')");
-    expect(doneHandler).toContain('agent-reasoning');
-  });
-
-  test('disclosure summary shows step count', () => {
-    const doneHandler = js.slice(
-      js.indexOf("entry.type === 'agent_done'"),
-      js.indexOf("entry.type === 'agent_done'") + 1200,
-    );
-    expect(doneHandler).toContain('See reasoning');
-    expect(doneHandler).toContain('tools.length');
-  });
-
-  test('disclosure inserts before text response', () => {
-    const doneHandler = js.slice(
-      js.indexOf("entry.type === 'agent_done'"),
-      js.indexOf("entry.type === 'agent_done'") + 1200,
-    );
-    // Tool calls should appear before the text answer, not after
-    expect(doneHandler).toContain("querySelector('.agent-text')");
-    expect(doneHandler).toContain('insertBefore(details, textEl)');
-  });
-
-  test('CSS styles the reasoning disclosure', () => {
-    expect(css).toContain('.agent-reasoning');
-    expect(css).toContain('.agent-reasoning summary');
-    // Starts collapsed (no [open] by default)
-    expect(css).toContain('.agent-reasoning[open]');
-  });
-
-  test('disclosure uses custom triangle markers', () => {
-    // No default list-style, custom ▶/▼ via ::before
-    expect(css).toContain('list-style: none');
-    expect(css).toMatch(/agent-reasoning summary::before/);
   });
 });
 
@@ -1596,31 +951,30 @@ describe('tool calls collapse into reasoning disclosure', () => {
 // Behavioral coverage lives in browse/test/server-factory.test.ts under the
 // 'idle timer + onDisconnect dual-instance fix' describe block, which
 // exercises the headed/headless/tunnel branches of idleCheckTick directly.
+// The companion '/sidebar-command resets idle timer' test went with the
+// chat-queue rip (PR #1216) — /command and /batch reset the timer and are
+// covered by that factory suite.
 
-describe('idle timeout behavior (server.ts)', () => {
-  const serverSrc = fs.readFileSync(path.join(ROOT, 'src', 'server.ts'), 'utf-8');
-
-  test('sidebar-command resets idle timer', () => {
-    const sidebarCmd = serverSrc.slice(
-      serverSrc.indexOf("url.pathname === '/sidebar-command'"),
-      serverSrc.indexOf("url.pathname === '/sidebar-command'") + 300,
-    );
-    expect(sidebarCmd).toContain('resetIdleTimer');
-  });
-});
-
-// ─── Shutdown kills sidebar-agent daemon (server.ts) ────────────
+// ─── Shutdown kills the terminal-agent (server.ts) ──────────────
 
 describe('shutdown cleanup (server.ts)', () => {
   const serverSrc = fs.readFileSync(path.join(ROOT, 'src', 'server.ts'), 'utf-8');
 
-  test('shutdown kills sidebar-agent daemon process', () => {
+  test('shutdown kills the terminal-agent via identity-based kill (no pkill)', () => {
+    // v1.44+ identity-based teardown: only the PID recorded by THIS
+    // daemon's agent is signaled. The pre-v1.44 `pkill -f terminal-agent`
+    // regex killed sibling gstack sessions on the same host (also pinned
+    // by browse/test/terminal-agent-pid-identity.test.ts).
     const shutdownFn = serverSrc.slice(
-      serverSrc.indexOf('async function shutdown()'),
-      serverSrc.indexOf('async function shutdown()') + 800,
+      serverSrc.indexOf('async function shutdown('),
+      serverSrc.indexOf('async function shutdown(') + 1200,
     );
-    expect(shutdownFn).toContain('sidebar-agent');
-    expect(shutdownFn).toContain('pkill');
+    expect(shutdownFn).toContain('killAgentByRecord');
+    expect(shutdownFn).toContain('readAgentRecord');
+    // No pkill CALL — the word may appear in the explanatory comment, so
+    // match invocation shapes only. The repo-wide reintroduction tripwire
+    // is browse/test/terminal-agent-pid-identity.test.ts.
+    expect(shutdownFn).not.toMatch(/(?:spawnSync|execSync|\$)\(\s*['"`]pkill/);
   });
 });
 
@@ -1641,29 +995,3 @@ describe('cookie import button (sidebar)', () => {
   });
 });
 
-// ─── Model routing (server.ts) ──────────────────────────────────
-
-describe('sidebar model routing (server.ts)', () => {
-  const serverSrc = fs.readFileSync(path.join(ROOT, 'src', 'server.ts'), 'utf-8');
-
-  test('pickSidebarModel routes actions to sonnet', () => {
-    expect(serverSrc).toContain("return 'sonnet'");
-  });
-
-  test('pickSidebarModel routes analysis to opus', () => {
-    expect(serverSrc).toContain("return 'opus'");
-  });
-
-  test('analysis words override action verbs', () => {
-    // ANALYSIS_WORDS check comes before ACTION_PATTERNS
-    const routerFn = serverSrc.slice(
-      serverSrc.indexOf('function pickSidebarModel('),
-      serverSrc.indexOf('function pickSidebarModel(') + 600,
-    );
-    const analysisCheck = routerFn.indexOf('ANALYSIS_WORDS');
-    const actionCheck = routerFn.indexOf('ACTION_PATTERNS');
-    expect(analysisCheck).toBeGreaterThan(0);
-    expect(actionCheck).toBeGreaterThan(0);
-    expect(analysisCheck).toBeLessThan(actionCheck);
-  });
-});

@@ -19,8 +19,32 @@ If `$PRIOR` exists, the new doc gets a `Supersedes:` field referencing it. This 
 
 Write to `~/.gstack/projects/{slug}/{user}-{branch}-design-{datetime}.md`.
 
-After writing the design doc, tell the user:
-**"Design doc saved to: {full path}. Other skills (/plan-ceo-review, /plan-eng-review) will find it automatically."**
+**Repo copy (dual-write, #703 + #2000).** When the session runs inside a git
+repository, ALSO write the doc to `docs/designs/{topic-slug}.md` in the repo —
+visible, committable, team-shareable. The `~/.gstack` copy is still written
+(memory ingest and cross-session discovery depend on it); the repo copy is
+what teammates and plan reviews read. Rules:
+
+1. **Scan at sink first.** The repo copy leaves the private store, so scan the
+   EXACT bytes before writing: write to a temp file, run
+   `~/.claude/skills/gstack/bin/gstack-redact --from-file <tmp>`; exit 3
+   (HIGH) blocks the repo copy (keep the ~/.gstack copy, tell the user why);
+   exit 2 (MEDIUM) confirms per finding before writing.
+2. **Fallback is never blocking.** Read-only checkout, non-git directory, a
+   failed write, or an unconfirmed MEDIUM → keep the `~/.gstack` copy and say
+   in one line why the repo copy was skipped. The handoff continues either way.
+3. **Name the repo path** in the handoff line and any approval questions when
+   the repo copy exists — that's the copy the user can open and commit.
+
+**Decision-record concision (#2000).** The doc is a decision record, not a
+transcript: one bullet per decision with its why; an approach the user ruled
+out DURING the session gets one line (name + rejection reason), never a
+resurrected full section that re-argues the case; omit template sections that
+are empty or that restate what's already settled. No page cap — extra length
+must come from genuinely open questions, not template completeness.
+
+After writing, tell the user:
+**"Design doc saved to: {repo path if written, else ~/.gstack path}{when both: ' (cross-session copy in ~/.gstack)'}. Other skills (/plan-ceo-review, /plan-eng-review) will find it automatically."**
 
 ### Startup mode design doc template:
 
@@ -427,8 +451,31 @@ Then proceed to Founder Resources below.
 
 ### Founder Resources (all tiers)
 
+**Standing opt-out check (#538) — run FIRST:**
+
+```bash
+~/.claude/skills/gstack/bin/gstack-config get founder_resources 2>/dev/null || echo "true"
+```
+
+If the value is `false`, **skip this entire section silently** — no resources,
+no "skipped as requested" mention. The user said never; config outlives
+session context and memory instructions, so never means never. (Re-enable:
+`gstack-config set founder_resources true`.)
+
 Share 2-3 resources from the pool below. For repeat users, resources compound by matching
 to accumulated session context, not just this session's category.
+
+**After sharing, close with the standing choice** (one line, not a ceremony):
+
+> Want these? I can open any of them — or say "never show me these again" and
+> this section disappears for good.
+
+If the user opts out (any clear phrasing of never/stop showing these): run
+`~/.claude/skills/gstack/bin/gstack-config set founder_resources false`, then
+VERIFY the write (`gstack-config get founder_resources` must read back
+`false`) before promising anything — if the write failed, say so and skip for
+this session only. On success confirm in one line with the re-enable command
+and continue the handoff.
 
 **Dedup check:** Read `RESOURCES_SHOWN` from the builder profile output above.
 If `RESOURCES_SHOWN_COUNT` is 34 or more, skip this section entirely (all resources exhausted).

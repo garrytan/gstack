@@ -21,10 +21,11 @@
  * tests don't need it).
  */
 
+import { resolveEvalModel } from '../../lib/eval-model';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { hermeticChildEnv, isHermeticEnabled } from './hermetic-env';
+import { hermeticChildEnv, hermeticSkillsConfigDir, isHermeticEnabled } from './hermetic-env';
 
 /** Strip ANSI escapes for pattern-matching against visible text. */
 export function stripAnsi(s: string): string {
@@ -61,6 +62,11 @@ export function resolveClaudeBinary(): string | null {
 }
 
 export interface ClaudePtyOptions {
+  /** Register the repo's shipped skills in the child's user scope via
+   * hermeticSkillsConfigDir(). Required by any test that types a /skill
+   * slash command; without it hermetic claude rejects the command as
+   * Unknown before any model turn. No effect when EVALS_HERMETIC=0. */
+  seedSkills?: boolean;
   /**
    * Permission mode for the session.
    *  - 'plan' (default) — launches with --permission-mode plan
@@ -300,6 +306,17 @@ export function isPermissionDialogVisible(visible: string): boolean {
 }
 
 /** Detect any AskUserQuestion-shaped numbered option list with cursor. */
+/**
+ * Strip terminal residue that survives ANSI-stripping and can interleave
+ * with AUQ text: DEC cursor-visibility fragments (`[?25l` / `[?25h` — the ESC
+ * byte is gone but the bracket sequence remains) and the spinner frames
+ * rendered between them. Observed in plan-design-with-ui's failure buffer,
+ * where `[?25l✻Sprouting…[?25h` fragments sat inside the option lines.
+ */
+export function stripPtyResidue(visible: string): string {
+  return visible.replace(/\[\?25[lh]/g, '');
+}
+
 export function isNumberedOptionListVisible(visible: string): boolean {
   // ❯ cursor + at least two numbered options 1-9.
   // Matches the trust dialog AND plan-ready prompt AND skill questions.
@@ -311,7 +328,8 @@ export function isNumberedOptionListVisible(visible: string): boolean {
   // because `t-2` is a word-to-word transition. We use the weaker
   // `[^0-9]2\.` to require a non-digit before `2` (so we don't match
   // `12.0`) without requiring whitespace.
-  return /❯\s*1\./.test(visible) && /(^|[^0-9])2\./.test(visible);
+  const cleaned = stripPtyResidue(visible);
+  return /❯\s*1\./.test(cleaned) && /(^|[^0-9])2\./.test(cleaned);
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -437,9 +455,12 @@ ${tail}
   };
 
   try {
+    // Use the same binary resolution as every PTY launch in this file —
+    // judgePtyState previously hardcoded bare 'claude' three definitions
+    // below resolveClaudeBinary(), breaking under hermetic PATHs.
     const result = nodeSpawnSync(
-      'claude',
-      ['-p', '--model', 'claude-haiku-4-5', '--max-turns', '1'],
+      resolveClaudeBinary() ?? 'claude',
+      ['-p', '--model', resolveEvalModel('warmup'), '--max-turns', '1'],
       {
         input: prompt,
         stdio: ['pipe', 'pipe', 'pipe'],
@@ -618,6 +639,55 @@ export function isProseAUQVisible(visible: string): boolean {
   return false;
 }
 
+// ---------------------------------------------------------------------------
+// Scope-gate render detectors (plan-eng-review / plan-design-review)
+// ---------------------------------------------------------------------------
+//
+// Both anchor on the RENDER SHAPE, not bare keywords, so model narration
+// about the gate ("normally I'd ask what should I review…") stays false.
+// Matching is whitespace-squished + lowercased because stripAnsi collapses
+// TTY cursor-positioning escapes unpredictably (the same failure mode the
+// Pattern-4/5 collapsed-form handling above exists for).
+
+/**
+ * True when the scope-gate QUESTION is actually rendered: the question text
+ * plus option A's body text. Option-body anchoring (not `A)`/`B)` markers)
+ * because native AskUserQuestion renders NUMBERED options in the TTY while
+ * the --disallowedTools prose fallback renders lettered ones — the option
+ * body appears in both renders; narration rarely quotes both the question
+ * and an option body.
+ */
+export function isScopeGateQuestionVisible(visible: string): boolean {
+  const squished = visible.replace(/\s+/g, '').toLowerCase();
+  return squished.includes('whatshouldireview') && squished.includes('currentbranchdiff');
+}
+
+/**
+ * True when the plan-mode auto-select announcement is rendered:
+ * "Scope gate: plan mode — auto-selected B (reviewing <target>)."
+ * Requires BOTH the announcement prefix and an auto-select-B token so
+ * narration ("in plan mode I'd auto-select B") stays false. The token is
+ * tense-tolerant (selected/selecting/selects) because the smokes assert
+ * must-be-TRUE on it — a semantically-perfect paraphrase must not fail a
+ * paid run — while the prefix stays exact so paraphrase narration without
+ * the announcement frame stays false. A prefix immediately preceded by a
+ * quote character is a QUOTATION (e.g. the model explaining why it is NOT
+ * announcing), not a render — the announcement line itself never renders
+ * quoted.
+ */
+export function isScopeGateAutoSelectVisible(visible: string): boolean {
+  const squished = visible.replace(/\s+/g, '').toLowerCase();
+  const QUOTES = ['"', "'", '`', '“', '‘'];
+  const re = /scopegate:planmode/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(squished)) !== null) {
+    const before = m.index > 0 ? squished[m.index - 1]! : '';
+    if (QUOTES.includes(before)) continue; // quoted occurrence — narration, keep scanning
+    if (/auto-?select(?:ed|ing|s)?b/.test(squished.slice(m.index))) return true;
+  }
+  return false;
+}
+
 /**
  * Parse a rendered numbered-option list out of the visible TTY text.
  *
@@ -638,6 +708,7 @@ export function isProseAUQVisible(visible: string): boolean {
 export function parseNumberedOptions(
   visible: string,
 ): Array<{ index: number; label: string }> {
+  visible = stripPtyResidue(visible);
   const tail = visible.length > 4096 ? visible.slice(-4096) : visible;
   // Split on lines, look for `❯ N.` or `  N.` patterns. Up to N=9.
   // The `\s*` after `.` (not `\s+`) is required because stripAnsi removes
@@ -679,30 +750,41 @@ export function parseNumberedOptions(
   const seenIndices = new Set<number>();
 
   // Cursor line: option 1 may be inline after box dividers + prompt header
-  // (`...divider...header...❯1. label`). Use a non-anchored regex that
-  // captures `❯N. label` from anywhere on the line through end-of-line.
-  // Only used for the cursor line — subsequent options are parsed with the
-  // start-of-line `optionRe`.
+  // (`...divider...header...❯1. label`) — and, when the PTY reflows the whole
+  // AUQ onto ONE logical line, options 2..N sit on the SAME line after it
+  // (observed with /plan-design-review's Step-0 scope gate: `❯1.Branch diff
+  // ... 2.Plan or design doc ... 5.Chat about this ... Enter to select`).
+  // Parse the cursor line as a STREAM: find every `N.` token (not preceded
+  // by a digit, not followed by one — excludes "12." and "1.5"), require
+  // ascending indices starting from the cursor's option, and take each
+  // label as the text between successive number tokens.
   const cursorLine = lines[cursorLineIdx] ?? '';
-  const cursorInlineRe = /❯\s*([1-9])\.\s*(\S.*?)\s*$/;
-  const inlineMatch = cursorInlineRe.exec(cursorLine);
-  if (inlineMatch) {
-    const idx = Number(inlineMatch[1]);
-    const label = (inlineMatch[2] ?? '').trim();
-    if (label.length > 0 && !seenIndices.has(idx)) {
-      seenIndices.add(idx);
-      found.push({ index: idx, label });
-    }
-  } else {
-    // No inline cursor match — fall back to start-of-line regex.
-    const startMatch = optionRe.exec(cursorLine);
-    if (startMatch) {
-      const idx = Number(startMatch[1]);
-      const label = (startMatch[2] ?? '').trim();
-      if (label.length > 0 && !seenIndices.has(idx)) {
-        seenIndices.add(idx);
-        found.push({ index: idx, label });
-      }
+  const cursorStart = cursorLine.indexOf('❯');
+  const cursorSegment = cursorStart >= 0 ? cursorLine.slice(cursorStart) : cursorLine;
+  const tokenRe = /(?:^|[^0-9])([1-9])\.(?!\d)\s*/g;
+  const tokens: Array<{ idx: number; labelStart: number; matchStart: number }> = [];
+  for (let m = tokenRe.exec(cursorSegment); m !== null; m = tokenRe.exec(cursorSegment)) {
+    tokens.push({
+      idx: Number(m[1]),
+      labelStart: m.index + m[0].length,
+      matchStart: m.index === 0 ? 0 : m.index + 1, // skip the [^0-9] guard char
+    });
+  }
+  // Keep only the ascending run that starts the sequence (1, 2, 3, ...);
+  // stray numbers inside labels break ascension and end the run.
+  let expected = 1;
+  for (let t = 0; t < tokens.length; t++) {
+    const token = tokens[t]!;
+    if (token.idx !== expected) continue;
+    const next = tokens
+      .slice(t + 1)
+      .find((candidate) => candidate.idx === expected + 1 && candidate.matchStart > token.labelStart);
+    const labelEnd = next ? next.matchStart : cursorSegment.length;
+    const label = cursorSegment.slice(token.labelStart, labelEnd).trim();
+    if (label.length > 0 && !seenIndices.has(token.idx)) {
+      seenIndices.add(token.idx);
+      found.push({ index: token.idx, label });
+      expected += 1;
     }
   }
 
@@ -1175,7 +1257,15 @@ export const ceoStep0Boundary: Step0BoundaryPredicate = (fp) =>
 export const engStep0Boundary: Step0BoundaryPredicate = (fp) =>
   /scope reduction recommendation|cross[\s-]?project learnings/i.test(
     fp.promptSnippet,
-  );
+  ) ||
+  // plan-eng-review's Step 0 may legitimately end with NO scope-reduction /
+  // learnings AUQ. When it does, the first answered review-phase question —
+  // tagged <gstack-qid:plan-eng-review-...> ({skill}-{slug} convention) —
+  // must fire the boundary, or every per-finding AUQ stays classified
+  // preReview and the multi-finding batching counter reads 0. Anchor allows
+  // the skill-name prefix; live qids observed: plan-eng-review-jitter,
+  // plan-eng-review-idempotency, plan-eng-review-todos-e2e-concurrent.
+  /gstack-qid:\s*(?:plan-)?eng-review-/i.test(fp.promptSnippet);
 
 export const designStep0Boundary: Step0BoundaryPredicate = (fp) =>
   /design system|design posture|design score|first dimension/i.test(
@@ -1236,6 +1326,9 @@ export async function launchClaudePty(
   // Hermetic by default (test/helpers/hermetic-env.ts): operator session
   // context never reaches the child; per-test opts.env merges last.
   const childEnv = hermeticChildEnv(opts.env);
+  if (opts.seedSkills && hermetic && !opts.env?.CLAUDE_CONFIG_DIR) {
+    childEnv.CLAUDE_CONFIG_DIR = hermeticSkillsConfigDir();
+  }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const proc = (Bun as any).spawn([claudePath, ...args], {
@@ -1476,10 +1569,20 @@ export interface PlanSkillObservation {
    *                     "Ready to execute" confirmation
    *  - 'silent_write' — a Write/Edit landed BEFORE any prompt, to a path
    *                     outside the sanctioned plan/project directories
+   *  - 'wrote_findings_before_asking' — strictPlanWrites only (seeded runs):
+   *                     the plan file was rewritten with findings before any
+   *                     AskUserQuestion render (the May-2026 transcript bug)
    *  - 'exited'       — claude process died before any of the above
    *  - 'timeout'      — none of the above within budget
    */
-  outcome: 'asked' | 'auto_decided' | 'plan_ready' | 'silent_write' | 'exited' | 'timeout';
+  outcome:
+    | 'asked'
+    | 'auto_decided'
+    | 'plan_ready'
+    | 'silent_write'
+    | 'wrote_findings_before_asking'
+    | 'exited'
+    | 'timeout';
   /** Human-readable summary. */
   summary: string;
   /** Visible terminal text since the slash command was sent (last 2KB). */
@@ -1516,6 +1619,28 @@ export interface PlanSkillObservation {
    * Haiku judge fallback rather than the regex detector.
    */
   waitingEverObserved?: boolean;
+  /**
+   * High-water-mark flag: did the scope-gate QUESTION ("What should I
+   * review?" plus option-body text) ever render during the run? Same
+   * lossy-2KB-evidence rationale as proseAUQEverObserved. The plan-mode
+   * smokes assert this stays false (gate bypassed via auto-select B); the
+   * no-op regression asserts it fires outside plan mode.
+   */
+  scopeGateQuestionObserved?: boolean;
+  /**
+   * High-water-mark flag: did the plan-mode auto-select announcement
+   * ("Scope gate: plan mode — auto-selected B …") ever render? The
+   * plan-mode smokes assert true; the no-op regression asserts false.
+   */
+  scopeGateAutoSelectObserved?: boolean;
+  /**
+   * High-water map for opts.trackTokens: token → did it EVER appear in the
+   * cumulative visible buffer? Consumption asserts (e.g. "the pasted target's
+   * distinctive token shows up in the review output") must not depend on the
+   * lossy 2KB evidence tail — plan-file fallbacks are unreachable outside
+   * plan mode (extractPlanFilePath only matches plan-mode save renders).
+   */
+  tokensObserved?: Record<string, boolean>;
 }
 
 /**
@@ -1576,6 +1701,10 @@ export async function runPlanSkillObservation(opts: {
   /** Override the spawned model. Defaults via launchClaudePty's chain
    *  (opts.model ?? EVALS_MODEL ?? 'claude-sonnet-4-6'). */
   model?: string;
+  /** Literal tokens to track as high-water marks over the CUMULATIVE visible
+   *  buffer (case-sensitive). Results land in obs.tokensObserved. Use for
+   *  consumption asserts that must survive the 2KB evidence tail. */
+  trackTokens?: string[];
 }): Promise<PlanSkillObservation> {
   const startedAt = Date.now();
   const session = await launchClaudePty({
@@ -1585,6 +1714,7 @@ export async function runPlanSkillObservation(opts: {
     extraArgs: opts.extraArgs,
     env: opts.env,
     model: opts.model,
+    seedSkills: true,
   });
 
   try {
@@ -1619,6 +1749,21 @@ export async function runPlanSkillObservation(opts: {
     // even if the current state is 'working'.
     let proseAUQEverObserved = false;
     let waitingEverObserved = false;
+    let scopeGateQuestionObserved = false;
+    let scopeGateAutoSelectObserved = false;
+    const tokensObserved: Record<string, boolean> = {};
+    for (const t of opts.trackTokens ?? []) tokensObserved[t] = false;
+    // Single source for the high-water flags at EVERY return site. Hand-
+    // spreading them per-site already drifted once (the judge-waiting return
+    // omitted the prose/waiting flags); a site that forgets a must-stay-false
+    // flag makes `obs.flag ?? false` negative assertions pass vacuously.
+    const highWaterFlags = () => ({
+      proseAUQEverObserved,
+      waitingEverObserved,
+      scopeGateQuestionObserved,
+      scopeGateAutoSelectObserved,
+      ...(opts.trackTokens?.length ? { tokensObserved } : {}),
+    });
     const JUDGE_AFTER_MS = 60_000;
     const JUDGE_INTERVAL_MS = 30_000;
     while (Date.now() - start < budgetMs) {
@@ -1631,6 +1776,7 @@ export async function runPlanSkillObservation(opts: {
           summary: `claude exited (code=${session.exitCode()}) before reaching a terminal outcome`,
           evidence: visible.slice(-2000),
           elapsedMs: Date.now() - startedAt,
+          ...highWaterFlags(),
         };
       }
       if (visible.includes('Unknown command:')) {
@@ -1639,6 +1785,7 @@ export async function runPlanSkillObservation(opts: {
           summary: `claude rejected /${opts.skillName} as unknown command (skill not registered in this cwd)`,
           evidence: visible.slice(-2000),
           elapsedMs: Date.now() - startedAt,
+          ...highWaterFlags(),
         };
       }
 
@@ -1652,6 +1799,18 @@ export async function runPlanSkillObservation(opts: {
           tag: 'prose-auq-surfaced',
         });
       }
+      // Scope-gate render tracking (same high-water shape). Full-run
+      // detection matters because the 2KB evidence tail usually scrolls
+      // past the gate render before the outcome fires.
+      if (!scopeGateQuestionObserved && isScopeGateQuestionVisible(visible)) {
+        scopeGateQuestionObserved = true;
+      }
+      if (!scopeGateAutoSelectObserved && isScopeGateAutoSelectVisible(visible)) {
+        scopeGateAutoSelectObserved = true;
+      }
+      for (const t of opts.trackTokens ?? []) {
+        if (!tokensObserved[t] && visible.includes(t)) tokensObserved[t] = true;
+      }
 
       const classified = classifyVisible(visible, {
         strictPlanWrites: !!opts.initialPlanContent,
@@ -1661,8 +1820,7 @@ export async function runPlanSkillObservation(opts: {
           ...classified,
           evidence: visible.slice(-2000),
           elapsedMs: Date.now() - startedAt,
-          proseAUQEverObserved,
-          waitingEverObserved,
+          ...highWaterFlags(),
         };
         // Capture the plan file path on any outcome where one may have been
         // written. Gating only on 'plan_ready' missed two cases: (1) the
@@ -1693,6 +1851,7 @@ export async function runPlanSkillObservation(opts: {
             summary: `LLM judge: ${lastJudgeVerdict.reasoning} (state=waiting after ${Math.round(elapsed / 1000)}s)`,
             evidence: visible.slice(-2000),
             elapsedMs: Date.now() - startedAt,
+            ...highWaterFlags(),
           };
         }
       }
@@ -1714,8 +1873,7 @@ export async function runPlanSkillObservation(opts: {
             : ''),
         evidence: finalVisible.slice(-2000),
         elapsedMs: Date.now() - startedAt,
-        proseAUQEverObserved,
-        waitingEverObserved,
+        ...highWaterFlags(),
       };
     }
     return {
@@ -1727,8 +1885,7 @@ export async function runPlanSkillObservation(opts: {
           : ''),
       evidence: finalVisible.slice(-2000),
       elapsedMs: Date.now() - startedAt,
-      proseAUQEverObserved,
-      waitingEverObserved,
+      ...highWaterFlags(),
     };
   } finally {
     await session.close();
@@ -1854,6 +2011,7 @@ export async function runPlanSkillCounting(opts: {
     timeoutMs: timeoutMs + 60_000,
     env: opts.env,
     model: opts.model,
+    seedSkills: true,
   });
 
   const fingerprints: AskUserQuestionFingerprint[] = [];
@@ -2087,6 +2245,7 @@ export async function runPlanSkillFloorCheck(opts: {
     timeoutMs: timeoutMs + 60_000,
     env: opts.env,
     model: opts.model,
+    seedSkills: true,
   });
 
   try {
@@ -2099,11 +2258,23 @@ export async function runPlanSkillFloorCheck(opts: {
     const start = Date.now();
     let lastJudgeAt = 0;
     let lastJudgeVerdict: PtyStateVerdict | null = null;
+    // Positional anchor for the scope-gate exclusion. The visible buffer is
+    // append-only (old renders never leave scrollback), so a gate question
+    // rendered in the 3s pre-target window would keep satisfying the
+    // full-buffer acceptance checks forever while a tail-only exclusion
+    // stops seeing it after ~TAIL_SCAN_BYTES of output — a vacuous
+    // auq_observed (found independently by 4 review passes). Once the gate
+    // render is seen, acceptance only counts AUQ renders in content APPENDED
+    // after that point.
+    let gateSeenIdx = -1;
     const JUDGE_AFTER_MS = 60_000;
     const JUDGE_INTERVAL_MS = 30_000;
     while (Date.now() - start < timeoutMs) {
       await Bun.sleep(2000);
       const visible = session.visibleSince(since);
+      if (gateSeenIdx === -1 && isScopeGateQuestionVisible(visible)) {
+        gateSeenIdx = visible.length;
+      }
 
       if (session.exited()) {
         return {
@@ -2129,10 +2300,34 @@ export async function runPlanSkillFloorCheck(opts: {
       // OR via prose-rendered options under --disallowedTools when no MCP
       // variant is callable (isProseAUQVisible). Both surface the question
       // to the user; the bug we're catching is "fired zero AUQs."
+      //
+      // Scope-gate renders do NOT count: the gate's "What should I review?"
+      // can fire inside the 3s pre-target window and would trivially satisfy
+      // the floor, but the floor measures FINDING-driven questions. Once a
+      // gate render has been seen, acceptance scans only the content APPENDED
+      // after it (positional anchor above) — the buffer is append-only, so a
+      // whole-buffer acceptance would keep matching the stale gate render
+      // forever.
+      //
+      // The gate veto is ACTIVE-RENDER-aware, not blanket-tail: when a
+      // numbered menu is up, parseNumberedOptions anchors on the LAST cursor
+      // line, so we veto only when the pending menu IS the gate — a finding
+      // AUQ that renders within TAIL_SCAN_BYTES of the gate (model waiting,
+      // no further output) still satisfies the floor. Prose renders have no
+      // cursor anchor, so the prose path falls back to the tail check
+      // (accepted residual: prose gate + prose finding inside one tail can
+      // suppress until timeout; floors run the native-menu path in practice).
       const tail = visible.slice(-TAIL_SCAN_BYTES);
+      const acceptWindow = gateSeenIdx === -1 ? visible : visible.slice(gateSeenIdx);
+      const activeMenu = parseNumberedOptions(visible);
+      const gateIsActiveRender =
+        activeMenu.length > 0
+          ? activeMenu.some((o) => /current\s*branch\s*diff/i.test(o.label))
+          : isScopeGateQuestionVisible(tail);
       if (
-        (isNumberedOptionListVisible(visible) || isProseAUQVisible(visible)) &&
-        !isPermissionDialogVisible(tail)
+        (isNumberedOptionListVisible(acceptWindow) || isProseAUQVisible(acceptWindow)) &&
+        !isPermissionDialogVisible(tail) &&
+        !gateIsActiveRender
       ) {
         return {
           auqObserved: true,
@@ -2154,7 +2349,11 @@ export async function runPlanSkillFloorCheck(opts: {
         lastJudgeAt = Date.now();
         logPtySnapshot(visible, { testName: opts.skillName, elapsedMs: elapsed, tag: 'floor-judge-tick' });
         lastJudgeVerdict = judgePtyState(visible, { testName: opts.skillName });
-        if (lastJudgeVerdict.state === 'waiting') {
+        // The judge can't tell a scope-gate question from a finding question,
+        // so a 'waiting' verdict while the gate menu is the pending render
+        // must NOT satisfy the floor — same active-render exclusion as the
+        // regex path.
+        if (lastJudgeVerdict.state === 'waiting' && !gateIsActiveRender) {
           return {
             auqObserved: true,
             outcome: 'auq_observed',

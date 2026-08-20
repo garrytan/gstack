@@ -93,3 +93,17 @@ V2 items remain deferred:
 - Per-skill or per-topic explain levels
 - Team profiles
 - AST-based "delivered features" metric
+
+## Fold-in from fork port wave 2 (2026-08-14)
+
+The time-attack/gstack fork attacked the same question fatigue from a
+complementary axis: build-scale classification (session/hobby/project/
+product/venture) sizing the machinery, plus CHAIN-WIDE question budgets.
+Approved decision (CEO review 2026-08-14): fold the fork's ACCOUNTING
+judgment into this design round — the budget is chain-scoped (a chained
+review deducts from what's left, never resets), handoffs carry
+questions-already-spent, approval/mutation gates never count against it, and
+the budget is spent on the hardest-to-reverse decisions first. Do NOT adopt
+the fork's 5/8/12 numeric constants — the fork itself later replaced them
+with a zero-default autonomy dial. Scale sizes the machinery and sets the
+budget; pacing (this doc) ranks what the budget is spent on.

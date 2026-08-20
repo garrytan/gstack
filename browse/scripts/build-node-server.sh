@@ -8,8 +8,14 @@
 set -e
 
 GSTACK_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
+# Windows (MSYS/Git Bash): convert to a Windows-style path — Bun cannot open
+# MSYS /c/... absolute paths ("FileNotFound opening root directory").
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*) GSTACK_DIR="$(cygpath -m "$GSTACK_DIR")" ;;
+esac
 SRC_DIR="$GSTACK_DIR/browse/src"
 DIST_DIR="$GSTACK_DIR/browse/dist"
+mkdir -p "$DIST_DIR"
 
 echo "Building Node-compatible server bundle..."
 
@@ -32,7 +38,7 @@ bun build "$SRC_DIR/server.ts" \
 # Replace import.meta.dir with a resolvable reference
 perl -pi -e 's/import\.meta\.dir/__browseNodeSrcDir/g' "$DIST_DIR/server-node.mjs"
 # Stub out bun:sqlite (macOS-only cookie import, not needed on Windows)
-perl -pi -e 's|import { Database } from "bun:sqlite";|const Database = null; // bun:sqlite stubbed on Node|g' "$DIST_DIR/server-node.mjs"
+perl -pi -e 's|import \{ Database \} from "bun:sqlite";|const Database = null; // bun:sqlite stubbed on Node|g' "$DIST_DIR/server-node.mjs"
 
 # Step 3: Create the final file with polyfill header injected after the first line
 {

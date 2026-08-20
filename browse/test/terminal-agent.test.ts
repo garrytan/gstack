@@ -20,7 +20,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import {
   mintPtySessionToken, validatePtySessionToken, revokePtySessionToken,
-  extractPtyCookie, buildPtySetCookie, buildPtyClearCookie,
+  extractPtyCookie, buildPtySetCookie,
   PTY_COOKIE_NAME, __resetPtySessions,
 } from '../src/pty-session-cookie';
 
@@ -59,10 +59,6 @@ describe('pty-session-cookie: mint/validate/revoke', () => {
     expect(cookie).toMatch(/Max-Age=\d+/);
     // Secure is intentionally omitted — daemon binds 127.0.0.1 over HTTP.
     expect(cookie).not.toContain('Secure');
-  });
-
-  test('clear-cookie has Max-Age=0', () => {
-    expect(buildPtyClearCookie()).toContain('Max-Age=0');
   });
 
   test('extractPtyCookie reads gstack_pty from a Cookie header', () => {
@@ -125,36 +121,62 @@ describe('Source-level guard: terminal-agent', () => {
   test('validates the session token against an in-memory token set', () => {
     const wsHandler = AGENT_SRC.slice(AGENT_SRC.indexOf("if (url.pathname === '/ws')"));
     // Two transports: Sec-WebSocket-Protocol (preferred for browsers) and
-    // Cookie gstack_pty (fallback). Both verify against validTokens.
+    // the gstack_pty cookie fallback — parsing shared via extractPtyCookie
+    // (the hand-rolled parse here had drifted from the server's), validation
+    // still against the agent's own validTokens map.
     expect(wsHandler).toContain('sec-websocket-protocol');
-    expect(wsHandler).toContain('gstack_pty');
+    expect(wsHandler).toContain('extractPtyCookie');
     expect(wsHandler).toContain('validTokens.has');
   });
 
-  test('Sec-WebSocket-Protocol auth: strips gstack-pty. prefix and echoes back', () => {
+  test('Sec-WebSocket-Protocol auth: strips gstack-pty. prefix, no manual echo', () => {
     const wsHandler = AGENT_SRC.slice(AGENT_SRC.indexOf("if (url.pathname === '/ws')"));
     // Browsers send `Sec-WebSocket-Protocol: gstack-pty.<token>`. The agent
-    // must strip the prefix before checking validTokens, AND echo the
-    // protocol back in the upgrade response — without the echo, the
-    // browser closes the connection immediately.
+    // must strip the prefix before checking validTokens. The protocol echo
+    // is Bun's job: Bun >= 1.3 auto-echoes the first offered protocol in the
+    // 101 response. A manual echo on top produced a DUPLICATE
+    // Sec-WebSocket-Protocol header, which strict clients (Chromium, python
+    // websockets) reject per RFC 6455 — the sidebar terminal could never
+    // connect. Pin the invariant: no manual echo in the upgrade call.
     expect(wsHandler).toContain("'gstack-pty.'");
-    expect(wsHandler).toContain('Sec-WebSocket-Protocol');
-    expect(wsHandler).toContain('acceptedProtocol');
+    expect(wsHandler).toContain('sec-websocket-protocol');
+    expect(wsHandler).not.toContain("headers: { 'Sec-WebSocket-Protocol'");
   });
 
   test('lazy spawn: claude PTY is spawned in message handler, not on upgrade', () => {
     // The whole point of lazy-spawn (codex finding #8) is that the WS
-    // upgrade itself does NOT call spawnClaude. Spawn happens on first
-    // message frame.
+    // upgrade itself does NOT spawn claude. Spawn happens on first
+    // message frame (binary input or the v1.44 explicit `start` frame),
+    // routed through the maybeSpawnPty helper, which is the only caller
+    // of spawnClaude.
     const upgradeBlock = AGENT_SRC.slice(
       AGENT_SRC.indexOf("if (url.pathname === '/ws')"),
       AGENT_SRC.indexOf("websocket: {"),
     );
+    // v1.44 renamed spawnClaude -> maybeSpawnPty (explicit `start` frame +
+    // lazy first-byte spawn share one helper). Pin was stale from then until
+    // the free suite got a CI job.
     expect(upgradeBlock).not.toContain('spawnClaude(');
+    expect(upgradeBlock).not.toContain('maybeSpawnPty(');
     // Spawn must be invoked from the message handler (lazy on first byte).
+    // v1.44 routes both spawn triggers (explicit {type:"start"} text frame
+    // and the lazy binary-frame path) through the maybeSpawnPty helper.
     const messageHandler = AGENT_SRC.slice(AGENT_SRC.indexOf('message(ws, raw)'));
-    expect(messageHandler).toContain('spawnClaude(');
+    expect(messageHandler).toContain('maybeSpawnPty(');
     expect(messageHandler).toContain('!session.spawned');
+    // The open() upgrade handler must not spawn — it only creates the
+    // (spawned: false) session record or re-attaches a detached one.
+    const openBlock = AGENT_SRC.slice(
+      AGENT_SRC.indexOf('open(ws)'),
+      AGENT_SRC.indexOf('message(ws, raw)'),
+    );
+    expect(openBlock).not.toContain('spawnClaude(');
+    expect(openBlock).not.toContain('maybeSpawnPty(');
+    // And the helper itself is where spawnClaude actually happens, gated
+    // on session.spawned so it stays a single-shot lazy spawn.
+    const helperBlock = AGENT_SRC.slice(AGENT_SRC.indexOf('function maybeSpawnPty'));
+    expect(helperBlock).toContain('spawnClaude(');
+    expect(helperBlock).toContain('if (session.spawned) return true;');
   });
 
   test('process.on uncaughtException + unhandledRejection handlers exist', () => {
@@ -174,11 +196,13 @@ describe('Source-level guard: terminal-agent', () => {
     expect(AGENT_SRC).toContain("msg?.type === 'tabState'");
     expect(AGENT_SRC).toContain('function handleTabState');
     const fn = AGENT_SRC.slice(AGENT_SRC.indexOf('function handleTabState'));
-    // Atomic write via tmp + rename for both files (so claude never reads
-    // a half-written JSON document).
+    // Atomic write for both files (so claude never reads a half-written
+    // JSON document) — via the shared lib/fs-atomic helper, which owns the
+    // tmp + rename dance. Quiet variant: state-file writes are
+    // fire-and-forget and must never take down the agent.
     expect(fn).toContain("'tabs.json'");
     expect(fn).toContain("'active-tab.json'");
-    expect(fn).toContain('renameSync');
+    expect(fn).toContain('atomicWriteQuiet');
     // Skip chrome:// and chrome-extension:// pages — they're not useful
     // targets for browse commands.
     expect(fn).toContain("startsWith('chrome://')");

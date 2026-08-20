@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# gstack-brain-enqueue — atomically append a path to the GBrain sync queue.
+# gstack-brain-enqueue — write a path record into the GBrain sync spool.
 #
 # Usage:
 #   gstack-brain-enqueue <file-path>
 #
 # Called by writer scripts (gstack-learnings-log, gstack-timeline-log, etc.)
 # after their local write. Fire-and-forget; failures are silent (never blocks
-# the writer). Queue is drained by `gstack-brain-sync --once` invoked from the
-# preamble at skill START and END boundaries.
+# the writer). The spool is drained by `gstack-brain-sync --once` invoked from
+# the preamble at skill START and END boundaries.
 #
 # No-op when:
 #   - artifacts_sync_mode is off (the default)
@@ -18,8 +18,12 @@
 #   GSTACK_HOME — override ~/.gstack state directory (aligns with writers).
 #                 Tests use GSTACK_HOME=/tmp/test-$$ for isolation.
 #
-# Concurrency: POSIX append is atomic up to PIPE_BUF (~4KB Linux, 512 BSD).
-# Queue lines are ~200 bytes, safe under concurrent callers.
+# Concurrency: maildir-style spool — one FILE per record under
+# .brain-queue.d/, created via tmp-file + atomic rename. Writer and drainer
+# never share an inode, so there is no append/rewrite race by construction
+# (the legacy single-file .brain-queue.jsonl append could race the drain's
+# rewrite). Filenames are <epoch>-<pid>-<uniq>.json, so a sorted listing is
+# chronological.
 
 # No `-e` — writer shims rely on this never failing loudly.
 set -uo pipefail
@@ -28,7 +32,7 @@ FILE="${1:-}"
 [ -z "$FILE" ] && exit 0
 
 GSTACK_HOME="${GSTACK_HOME:-$HOME/.gstack}"
-QUEUE="$GSTACK_HOME/.brain-queue.jsonl"
+SPOOL="$GSTACK_HOME/.brain-queue.d"
 SKIP_FILE="$GSTACK_HOME/.brain-skip.txt"
 
 # Fast exits: no git repo, no sync.
@@ -50,6 +54,11 @@ fi
 ESC_FILE=$(printf '%s' "$FILE" | sed 's/\\/\\\\/g; s/"/\\"/g')
 TS=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "")
 
-printf '{"file":"%s","ts":"%s"}\n' "$ESC_FILE" "$TS" >> "$QUEUE" 2>/dev/null
+# One spool file per record: tmp write + atomic rename. Any failure exits 0
+# silently (fire-and-forget contract), cleaning up the tmp file.
+mkdir -p "$SPOOL" 2>/dev/null || exit 0
+TMP="$SPOOL/.tmp-$$-$RANDOM"
+printf '{"file":"%s","ts":"%s"}\n' "$ESC_FILE" "$TS" > "$TMP" 2>/dev/null || { rm -f "$TMP" 2>/dev/null; exit 0; }
+mv -f "$TMP" "$SPOOL/$(date +%s)-$$-$RANDOM.json" 2>/dev/null || rm -f "$TMP" 2>/dev/null
 
 exit 0

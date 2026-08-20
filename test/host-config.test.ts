@@ -3,7 +3,7 @@
  * host-config-export.ts, and golden-file regression checks.
  */
 
-import { describe, test, expect } from 'bun:test';
+import { describe, test, expect, beforeAll } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
 import { validateHostConfig, validateAllConfigs, type HostConfig } from '../scripts/host-config';
@@ -24,8 +24,10 @@ import {
   openclaw,
 } from '../hosts/index';
 import { HOST_PATHS } from '../scripts/resolvers/types';
+import { RESOLVERS } from '../scripts/resolvers';
 
 const ROOT = path.resolve(import.meta.dir, '..');
+const RESOLVER_NAMES = new Set(Object.keys(RESOLVERS));
 
 // ─── hosts/index.ts ─────────────────────────────────────────
 
@@ -110,6 +112,7 @@ describe('validateHostConfig', () => {
       name: 'test-host',
       displayName: 'Test Host',
       cliCommand: 'testcli',
+      defaultModel: 'claude',
       globalRoot: '.test/skills/gstack',
       localSkillRoot: '.test/skills/gstack',
       hostSubdir: '.test',
@@ -118,7 +121,7 @@ describe('validateHostConfig', () => {
       generation: { generateMetadata: false },
       pathRewrites: [],
       runtimeRoot: { globalSymlinks: ['bin'] },
-      install: { prefixable: false, linkingStrategy: 'symlink-generated' },
+      install: { linkingStrategy: 'symlink-generated' },
     };
   }
 
@@ -163,6 +166,12 @@ describe('validateHostConfig', () => {
     expect(validateHostConfig(c)).toEqual([]);
   });
 
+  test('invalid defaultModel is caught', () => {
+    const c = makeValid();
+    (c as any).defaultModel = 'llama-local';
+    expect(validateHostConfig(c).some(e => e.includes('defaultModel'))).toBe(true);
+  });
+
   test('invalid globalRoot is caught', () => {
     const c = makeValid();
     c.globalRoot = 'path with spaces';
@@ -205,13 +214,32 @@ describe('validateHostConfig', () => {
     c.cliCommand = 'opencode;rm -rf /';
     expect(validateHostConfig(c).some(e => e.includes('cliCommand'))).toBe(true);
   });
+
+  test('valid suppressedResolvers pass when resolver names provided', () => {
+    const c = makeValid();
+    c.suppressedResolvers = ['DESIGN_OUTSIDE_VOICES', 'REVIEW_ARMY'];
+    expect(validateHostConfig(c, RESOLVER_NAMES)).toEqual([]);
+  });
+
+  test('unknown suppressedResolvers entry is caught', () => {
+    const c = makeValid();
+    c.suppressedResolvers = ['DESIGN_OUTSIDE_VOICES', 'NONEXISTENT_RESOLVER'];
+    const errors = validateHostConfig(c, RESOLVER_NAMES);
+    expect(errors.some(e => e.includes('NONEXISTENT_RESOLVER'))).toBe(true);
+  });
+
+  test('suppressedResolvers unchecked when resolver names omitted', () => {
+    const c = makeValid();
+    c.suppressedResolvers = ['TYPO_RESOLVER'];
+    expect(validateHostConfig(c)).toEqual([]);
+  });
 });
 
 // ─── validateAllConfigs ─────────────────────────────────────
 
 describe('validateAllConfigs', () => {
   test('real configs all pass validation', () => {
-    const errors = validateAllConfigs(ALL_HOST_CONFIGS);
+    const errors = validateAllConfigs(ALL_HOST_CONFIGS, RESOLVER_NAMES);
     expect(errors).toEqual([]);
   });
 
@@ -231,6 +259,12 @@ describe('validateAllConfigs', () => {
     const dup = { ...codex, name: 'dup-host', hostSubdir: '.dup', globalRoot: '.claude/skills/gstack' } as HostConfig;
     const errors = validateAllConfigs([claude, dup]);
     expect(errors.some(e => e.includes('Duplicate globalRoot'))).toBe(true);
+  });
+
+  test('unknown suppressedResolvers entry surfaces with host-name prefix', () => {
+    const bad = { ...codex, name: 'bad-host', hostSubdir: '.bad', globalRoot: '.bad/skills/gstack', suppressedResolvers: ['BOGUS_RESOLVER'] } as HostConfig;
+    const errors = validateAllConfigs([bad], RESOLVER_NAMES);
+    expect(errors.some(e => e.startsWith('[bad-host]') && e.includes('BOGUS_RESOLVER'))).toBe(true);
   });
 
   test('per-config validation errors are prefixed with host name', () => {
@@ -374,7 +408,9 @@ describe('host-config-export.ts CLI', () => {
     expect(exitCode).toBe(1);
   });
 
-  test('detect finds claude (since we are running in claude)', () => {
+  // Gated: the secretless free-tests CI lane deliberately installs no claude
+  // CLI, so "we are running in claude" is false there by design.
+  test.skipIf(!Bun.which('claude'))('detect finds claude (since we are running in claude)', () => {
     const { stdout, exitCode } = run('detect');
     expect(exitCode).toBe(0);
     // claude binary should be on PATH in this environment
@@ -391,6 +427,33 @@ describe('host-config-export.ts CLI', () => {
 
 describe('golden-file regression', () => {
   const GOLDEN_DIR = path.join(ROOT, 'test', 'fixtures', 'golden');
+
+  // #2532: the codex/factory goldens read gitignored .agents/ and .factory/
+  // artifacts that only gen-skill-docs.test.ts (a serial tree-mutating file)
+  // produces. On a clean clone — or when this file runs in isolation — those
+  // dirs don't exist and the goldens fail with ENOENT, an order dependency,
+  // not a regression. Self-provision: generate a host's artifacts iff its
+  // ship SKILL.md is missing. Existing artifacts are never overwritten here,
+  // so a genuinely stale artifact still fails the golden (that is the test's
+  // job; freshness enforcement lives in gen-skill-docs.test.ts).
+  beforeAll(() => {
+    const hostArtifacts: Array<[string, string]> = [
+      ['codex', path.join(ROOT, '.agents', 'skills', 'gstack-ship', 'SKILL.md')],
+      ['factory', path.join(ROOT, '.factory', 'skills', 'gstack-ship', 'SKILL.md')],
+    ];
+    for (const [host, artifact] of hostArtifacts) {
+      if (fs.existsSync(artifact)) continue;
+      const result = Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', host], {
+        cwd: ROOT,
+      });
+      if (result.exitCode !== 0) {
+        throw new Error(
+          `golden-file beforeAll: gen-skill-docs --host ${host} failed (exit ${result.exitCode}):\n`
+          + result.stderr.toString(),
+        );
+      }
+    }
+  });
 
   test('Claude ship skill matches golden baseline', () => {
     const golden = fs.readFileSync(path.join(GOLDEN_DIR, 'claude-ship-SKILL.md'), 'utf-8');
@@ -414,13 +477,10 @@ describe('golden-file regression', () => {
 // ─── Individual host config correctness ─────────────────────
 
 describe('host config correctness', () => {
-  test('claude is the only prefixable host', () => {
-    for (const config of ALL_HOST_CONFIGS) {
-      if (config.name === 'claude') {
-        expect(config.install.prefixable).toBe(true);
-      } else {
-        expect(config.install.prefixable).toBe(false);
-      }
+  test('Codex defaults to generic GPT while all existing hosts retain Claude', () => {
+    expect(codex.defaultModel).toBe('gpt');
+    for (const host of ALL_HOST_CONFIGS.filter(h => h.name !== 'codex')) {
+      expect(host.defaultModel).toBe('claude');
     }
   });
 
@@ -449,14 +509,12 @@ describe('host config correctness', () => {
     expect(codex.frontmatter.descriptionLimitBehavior).toBe('error');
   });
 
-  test('codex generates openai.yaml metadata', () => {
+  test('codex generates metadata (openai.yaml, format hardcoded in gen-skill-docs)', () => {
     expect(codex.generation.generateMetadata).toBe(true);
-    expect(codex.generation.metadataFormat).toBe('openai.yaml');
   });
 
-  test('codex has sidecar config', () => {
-    expect(codex.sidecar).toBeDefined();
-    expect(codex.sidecar!.path).toBe('.agents/skills/gstack');
+  test('codex rewrites CLAUDE.md to AGENTS.md', () => {
+    expect(codex.pathRewrites).toContainEqual({ from: 'CLAUDE.md', to: 'AGENTS.md' });
   });
 
   test('factory has tool rewrites', () => {
@@ -494,17 +552,13 @@ describe('host config correctness', () => {
     expect(openclaw.pathRewrites.some(r => r.from === 'CLAUDE.md' && r.to === 'AGENTS.md')).toBe(true);
   });
 
-  test('openclaw has no adapter (dead code removed)', () => {
-    expect(openclaw.adapter).toBeUndefined();
-  });
-
-  test('openclaw has no staticFiles (SOUL.md removed)', () => {
-    expect(openclaw.staticFiles).toBeUndefined();
-  });
-
-  test('openclaw includeSkills is empty (native skills replaced generated ones)', () => {
-    expect(openclaw.generation.includeSkills).toBeDefined();
-    expect(openclaw.generation.includeSkills!.length).toBe(0);
+  test('no host carries a no-op empty includeSkills allowlist', () => {
+    // includeSkills: [] was a no-op (the generator's `?.length` guard treats an
+    // empty allowlist as absent), so configs omit the field instead of
+    // shipping a lie about "no skills generated".
+    for (const config of ALL_HOST_CONFIGS) {
+      expect(config.generation.includeSkills).toBeUndefined();
+    }
   });
 
   test('every host has coAuthorTrailer or undefined', () => {

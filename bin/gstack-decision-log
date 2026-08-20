@@ -51,39 +51,64 @@ if (args.includes("--compact")) {
   process.exit(0);
 }
 
+// The payload is identified by its leading `{`, not by "first non-flag arg" — a
+// `--supersede <id> '{...}'` call would otherwise mistake the target id for the payload.
+const jsonArg = args.find((a) => a.trimStart().startsWith("{"));
+
+/** Parse + validate a decision payload. Exits 1 (nothing persisted) when it's bad. */
+function validPayload(raw: string): DecisionEvent {
+  let obj: Partial<DecisionEvent>;
+  try {
+    obj = JSON.parse(raw);
+  } catch {
+    process.stderr.write("gstack-decision-log: invalid JSON\n");
+    process.exit(1);
+  }
+  if (obj.scope === "branch" && !obj.branch) obj.branch = gitBranch();
+  const res = validateDecide(obj);
+  if (!res.ok) {
+    process.stderr.write(`gstack-decision-log: ${res.error}\n`);
+    process.exit(1);
+  }
+  return res.event;
+}
+
 const supersedeId = flagValue(args, "--supersede");
 const redactId = flagValue(args, "--redact");
 if (supersedeId || redactId) {
   const kind = supersedeId ? "supersede" : "redact";
   const targetId = (supersedeId || redactId) as string;
+  if (targetId.trimStart().startsWith("{")) {
+    process.stderr.write(`gstack-decision-log: --${kind} needs the target decision id before the replacement JSON\n`);
+    process.exit(1);
+  }
+  if (kind === "redact" && jsonArg) {
+    process.stderr.write(
+      "gstack-decision-log: --redact expunges and takes no replacement; log the replacement in its own call so it isn't dropped\n",
+    );
+    process.exit(1);
+  }
+  // Validate the replacement BEFORE anything is written, then append it FIRST and
+  // retire the old one SECOND. Appends are individually atomic, so the only visible
+  // interleaving is "both active" (recoverable); the reverse order could retire the
+  // old decision and lose the replacement the user was recording.
+  const replacement = jsonArg ? { ...validPayload(jsonArg), supersedes: targetId } : undefined;
+  if (replacement) appendEvent(paths, replacement);
   appendEvent(paths, makeRefEvent(kind, targetId, { source: "agent" }));
   rebuildSnapshot(paths);
   enqueue();
-  console.log(`${kind}: ${targetId}`);
+  console.log(replacement ? `${kind}: ${targetId} -> ${replacement.id}` : `${kind}: ${targetId}`);
   process.exit(0);
 }
 
-const jsonArg = args.find((a) => !a.startsWith("--"));
 if (!jsonArg) {
   process.stderr.write(
     "gstack-decision-log: provide a JSON decision, or --supersede/--redact <id>, or --compact\n",
   );
   process.exit(1);
 }
-let obj: Partial<DecisionEvent>;
-try {
-  obj = JSON.parse(jsonArg);
-} catch {
-  process.stderr.write("gstack-decision-log: invalid JSON\n");
-  process.exit(1);
-}
-if (obj.scope === "branch" && !obj.branch) obj.branch = gitBranch();
-const res = validateDecide(obj);
-if (!res.ok) {
-  process.stderr.write(`gstack-decision-log: ${res.error}\n`);
-  process.exit(1);
-}
-appendEvent(paths, res.event);
+const event = validPayload(jsonArg);
+appendEvent(paths, event);
 rebuildSnapshot(paths);
 enqueue();
-console.log(res.event.id);
+console.log(event.id);

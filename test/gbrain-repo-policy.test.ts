@@ -269,3 +269,105 @@ describe('get without arg (auto-detect from current dir)', () => {
     }
   });
 });
+
+// ── #2140 sync-path chokepoint ──────────────────────────────────────────────
+// The tier above is a STORE. This block pins the ENFORCEMENT: a direct
+// gstack-gbrain-sync invocation (skill prose bypassed — cron, curiosity,
+// automation) must honor deny/read-only at the code-import stage, and the
+// egress receipt's "per-repo policy chokepoint (repoPolicyTier)" consent
+// string must describe code that exists. Wave-1 shipped the receipt string
+// without the function; these tests make that impossible to repeat.
+
+describe('gstack-gbrain-sync code stage honors the repo policy (#2140 sync path)', () => {
+  const SYNC = path.join(ROOT, 'bin', 'gstack-gbrain-sync.ts');
+  const REPO_URL = 'https://github.com/acme/widget.git';
+
+  let repoDir: string;
+
+  function makeRepo(): void {
+    repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gbrain-policy-repo-'));
+    const git = (...args: string[]) =>
+      spawnSync('git', args, { cwd: repoDir, encoding: 'utf-8' });
+    git('init', '-q', '.');
+    git('remote', 'add', 'origin', REPO_URL);
+    fs.writeFileSync(path.join(repoDir, 'README.md'), 'fixture\n');
+    git('add', '-A');
+    git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'fixture');
+  }
+
+  function runSync(): { status: number; text: string; stages: any[] } {
+    const res = spawnSync('bun', [SYNC, '--code-only', '--incremental'], {
+      cwd: repoDir,
+      encoding: 'utf-8',
+      timeout: 60_000,
+      // HOME also redirected so engine detection can't find a real ~/.gbrain.
+      env: { ...process.env, GSTACK_HOME: tmpHome, HOME: tmpHome },
+    });
+    let stages: any[] = [];
+    try {
+      stages = JSON.parse(
+        fs.readFileSync(path.join(tmpHome, '.gbrain-sync-state.json'), 'utf-8'),
+      ).last_stages || [];
+    } catch {
+      // state file may be absent on early refusal paths — text asserts cover it
+    }
+    return {
+      status: res.status ?? -1,
+      text: `${res.stdout || ''}\n${res.stderr || ''}`,
+      stages,
+    };
+  }
+
+  afterEach(() => {
+    if (repoDir) fs.rmSync(repoDir, { recursive: true, force: true });
+  });
+
+  test('deny → code stage refuses loudly, exit 1, status refused-policy-deny', () => {
+    makeRepo();
+    expect(run(['set', REPO_URL, 'deny']).status).toBe(0);
+    const r = runSync();
+    expect(r.status).toBe(1);
+    expect(r.text).toContain('refused');
+    expect(r.text).toContain('deny');
+    const code = r.stages.find((s: any) => s.name === 'code');
+    expect(code?.detail?.status).toBe('refused-policy-deny');
+  });
+
+  test('read-only → clean skip (exit 0), status skipped-policy-read-only', () => {
+    makeRepo();
+    expect(run(['set', REPO_URL, 'read-only']).status).toBe(0);
+    const r = runSync();
+    expect(r.status).toBe(0);
+    expect(r.text).toContain('read-only');
+    const code = r.stages.find((s: any) => s.name === 'code');
+    expect(code?.detail?.status).toBe('skipped-policy-read-only');
+  });
+
+  test('store exists but unreadable → fail-closed refusal, never bypassed', () => {
+    if (process.platform === 'win32' || process.getuid?.() === 0) return; // chmod semantics differ
+    makeRepo();
+    expect(run(['set', REPO_URL, 'deny']).status).toBe(0);
+    fs.chmodSync(policyFile(), 0o000);
+    try {
+      const r = runSync();
+      expect(r.status).toBe(1);
+      expect(r.text).toContain('refus');
+      const code = r.stages.find((s: any) => s.name === 'code');
+      expect(code?.detail?.status).toBe('refused-policy-unreadable');
+    } finally {
+      fs.chmodSync(policyFile(), 0o600);
+    }
+  });
+
+  test('no policy store → fail-open, stage proceeds past the gate (no policy status)', () => {
+    makeRepo();
+    const r = runSync();
+    const code = r.stages.find((s: any) => s.name === 'code');
+    // With no engine in the redirected HOME the stage skips for ENGINE
+    // reasons — what matters is that no policy refusal fired and the exit
+    // is clean, preserving pre-policy behavior for every non-policy user.
+    expect(r.status).toBe(0);
+    expect(String(code?.detail?.status || '')).not.toContain('policy');
+    expect(r.text).not.toContain('refused');
+  });
+});

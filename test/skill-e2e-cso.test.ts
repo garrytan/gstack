@@ -161,9 +161,14 @@ IMPORTANT:
 - Focus on changes in the current branch vs main.
 - The webhook.ts file was added on this branch — it should be analyzed.`,
       workingDirectory: csoDiffDir,
-      maxTurns: 25,
+      maxTurns: 40,
       allowedTools: ['Bash', 'Read', 'Write', 'Edit', 'Grep', 'Glob', 'Agent'],
-      timeout: 240_000,
+      // 360s/40 turns: the v1.67 wave grew the audit session legitimately —
+      // transcript-verified, the agent finds the webhook vuln, spawns the
+      // verification subagent, and writes the report, then gets killed at
+      // ~215s in its CLOSING telemetry under the old 240s/25-turn budget.
+      // The full-audit sibling already runs at 300s.
+      timeout: 360_000,
     });
 
     logCost('cso', result);
@@ -176,7 +181,7 @@ IMPORTANT:
     ).toBe(true);
 
     recordE2E(evalCollector, 'cso-diff-mode', 'e2e-cso', result);
-  }, 240_000);
+  }, 400_000);
 });
 
 describeIfSelected('CSO v2 — infra scope', ['cso-infra-scope'], () => {

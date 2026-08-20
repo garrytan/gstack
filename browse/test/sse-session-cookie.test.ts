@@ -12,7 +12,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import {
   mintSseSessionToken, validateSseSessionToken, extractSseCookie,
-  buildSseSetCookie, buildSseClearCookie, SSE_COOKIE_NAME,
+  buildSseSetCookie, SSE_COOKIE_NAME,
   __resetSseSessions,
 } from '../src/sse-session-cookie';
 
@@ -105,11 +105,6 @@ describe('SSE session cookie: cookie flag invariants', () => {
     // back to a 127.0.0.1 daemon over HTTP. If gstack ever moves to HTTPS,
     // add Secure then.
     expect(buildSseSetCookie(token)).not.toContain('Secure');
-  });
-
-  test('Clear-Cookie has Max-Age=0', () => {
-    expect(buildSseClearCookie()).toContain('Max-Age=0');
-    expect(buildSseClearCookie()).toContain('HttpOnly');
   });
 });
 

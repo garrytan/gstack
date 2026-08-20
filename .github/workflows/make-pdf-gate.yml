@@ -16,7 +16,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: make-pdf-gate-${{ github.head_ref }}
+  group: make-pdf-gate-${{ github.head_ref || github.run_id }}
   cancel-in-progress: true
 
 jobs:
@@ -24,7 +24,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubicloud-standard-8, macos-latest]
+        # macOS only: the Linux leg became redundant when the free-tests lane
+        # started running make-pdf/test (incl. e2e/) on every PR via the
+        # canonical runner — this gate's remaining value is macOS rendering
+        # coverage on make-pdf-scoped changes.
+        os: [macos-latest]
         # Windows is tolerant-mode — Xpdf / Poppler-Windows extraction
         # differs enough from the Linux/macOS baseline that the strict
         # exact-diff gate is unreliable. Enable once the normalized
@@ -36,7 +40,7 @@ jobs:
 
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: oven-sh/setup-bun@v2
         with:

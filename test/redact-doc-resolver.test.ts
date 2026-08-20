@@ -7,7 +7,6 @@
  */
 import { describe, test, expect } from "bun:test";
 import {
-  generateRedactTaxonomyTable,
   generateRedactInvocationBlock,
 } from "../scripts/resolvers/redact-doc";
 import { HOST_PATHS } from "../scripts/resolvers/types";
@@ -20,32 +19,6 @@ const ctx = {
   paths: HOST_PATHS["claude"],
 };
 
-describe("REDACT_TAXONOMY_TABLE", () => {
-  const table = generateRedactTaxonomyTable(ctx);
-
-  test("lists every pattern id from the engine (no drift)", () => {
-    for (const p of PATTERNS) {
-      expect(table).toContain(`\`${p.id}\``);
-    }
-  });
-
-  test("contains the recognizable credential prefixes", () => {
-    for (const s of ["AKIA", "ghp_", "sk-ant-", "sk-", "BEGIN"]) {
-      expect(table).toContain(s);
-    }
-  });
-
-  test("has all three tier sections", () => {
-    expect(table).toContain("HIGH — genuinely-secret");
-    expect(table).toContain("MEDIUM — PII");
-    expect(table).toContain("LOW — surfaced");
-  });
-
-  test("documents the calibration rationale (publishable/AIza/JWT are MEDIUM)", () => {
-    expect(table).toMatch(/cries wolf/);
-    expect(table).toContain("pk_live_");
-  });
-});
 
 describe("REDACT_INVOCATION_BLOCK", () => {
   test("scan-at-sink: temp file → scan that file → exact bytes", () => {

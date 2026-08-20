@@ -3,6 +3,7 @@
   "name": "gstack browse",
   "version": "0.1.0",
   "description": "Live activity feed and @ref overlays for gstack browse",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEApp4uyDmQADJ/MPoKybEvBPpuGWxsXiNMo5jJFFaEaC3yPJnB4y8E0UuvE56n2KlQzaqlnBOt4T8w0ApTbNABZpEnSGQJVmkbT8a62WXefYZm79bMgzW/bNIZ4QYWNEAtZb0wvncMNSOyU9mga1s3eGWtukHs2Zf5spXRLQGV/on9l8iN9QPRM/VB0AxtUc2DTYjwkTGCAOMFiaq02miP0/hW6AeltBW9R0aHgbnJw2H2YVrgQXRvGxD1DMQe6NzGVVqKGhpUdYGPw4ONWOKijdignz+j+90HSrCK06HUy80jiKAYmdZePnn++N5meIJY+bWk7RqxS6er8Ow2U65TywIDAQAB",
   "permissions": ["sidePanel", "storage", "activeTab", "scripting", "tabs"],
   "host_permissions": ["http://127.0.0.1:*/", "ws://127.0.0.1:*/"],
   "action": {

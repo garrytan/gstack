@@ -157,6 +157,33 @@ describe('gbrain detection override → gen-skill-docs', () => {
     }
   });
 
+  test('with status "engine-locked" (PGLite single-writer, #2456), brain blocks render like "ok"', () => {
+    const { tmpHome, cleanup } = makeFixture(
+      JSON.stringify({
+        gbrain_local_status: 'engine-locked',
+        gbrain_on_path: true,
+        gbrain_version: 'test-0.42.26',
+      }),
+    );
+    try {
+      const snap = regenAndSnapshot({
+        respectDetection: true,
+        tmpHome,
+        files: PROBE_FILES,
+      });
+      const content = probeUnion(snap);
+
+      // PGLite is single-writer: a live `gbrain serve` (the recommended
+      // /setup-gbrain default spawns one at session start) legitimately owns
+      // the embedded DB. gbrain is installed and healthy — a transient lock
+      // must not silently strip brain blocks (same reasoning as "timeout").
+      expect(content).toContain('## Save Results to Brain');
+      expect(content).toContain('gbrain put "office-hours/');
+    } finally {
+      cleanup();
+    }
+  });
+
   test('with detected:false (status != "ok"), brain blocks stay suppressed', () => {
     const { tmpHome, cleanup } = makeFixture(
       JSON.stringify({ gbrain_local_status: 'no-cli', gbrain_on_path: false, gbrain_version: null }),

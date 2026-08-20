@@ -12,6 +12,7 @@ import { resolveServerScript } from '../src/cli';
 import { handleReadCommand as _handleReadCommand, parseOutArgs, hasOutArg, resultToString } from '../src/read-commands';
 import { handleWriteCommand as _handleWriteCommand } from '../src/write-commands';
 import { handleMetaCommand } from '../src/meta-commands';
+import { WRITE_COMMANDS, READ_COMMANDS, META_COMMANDS, PAGE_CONTENT_COMMANDS, wrapUntrustedContent } from '../src/commands';
 import { consoleBuffer, networkBuffer, dialogBuffer, addConsoleEntry, addNetworkEntry, addDialogEntry, CircularBuffer } from '../src/buffers';
 import * as fs from 'fs';
 import { spawn } from 'child_process';
@@ -19,9 +20,40 @@ import * as path from 'path';
 
 // Thin wrappers that bridge old test calls (bm as 3rd arg) to new signatures (session + bm)
 const handleReadCommand = (cmd: string, args: string[], b: BrowserManager) =>
-  _handleReadCommand(cmd, args, b.getActiveSession());
+  _handleReadCommand(cmd, args, b.getActiveSession(), b);
 const handleWriteCommand = (cmd: string, args: string[], b: BrowserManager) =>
   _handleWriteCommand(cmd, args, b.getActiveSession(), b);
+
+// Chain routes every subcommand through the server's executeCommand pipeline in
+// production (the direct-dispatch fallback was deleted — it skipped the security
+// gates). Tests mirror the pipeline minimally: real handlers + trust-wrapping,
+// server-shaped {status, result} envelope.
+function makeChainExecute(b: BrowserManager) {
+  return async (body: { command: string; args?: string[] }) => {
+    const name = body.command;
+    const args = body.args ?? [];
+    try {
+      let result: string;
+      if (WRITE_COMMANDS.has(name)) {
+        result = await _handleWriteCommand(name, args, b.getActiveSession(), b);
+      } else if (READ_COMMANDS.has(name)) {
+        result = await _handleReadCommand(name, args, b.getActiveSession(), b);
+        if (PAGE_CONTENT_COMMANDS.has(name)) {
+          result = wrapUntrustedContent(result, b.getCurrentUrl());
+        }
+      } else if (META_COMMANDS.has(name)) {
+        result = await handleMetaCommand(name, args, b, async () => {});
+      } else {
+        return { status: 404, result: JSON.stringify({ error: `Unknown command: ${name}` }) };
+      }
+      return { status: 200, result };
+    } catch (err: any) {
+      return { status: 500, result: JSON.stringify({ error: err.message }) };
+    }
+  };
+}
+const chainMeta = (b: BrowserManager, args: string[]) =>
+  handleMetaCommand('chain', args, b, async () => {}, null, { executeCommand: makeChainExecute(b) });
 
 // ─── Pure arg-parser + result-conversion unit tests (no browser) ───
 describe('parseOutArgs / hasOutArg', () => {
@@ -94,11 +126,14 @@ beforeAll(async () => {
   await bm.launch();
 });
 
-afterAll(() => {
-  // Force kill browser instead of graceful close (avoids hang)
-  try { testServer.server.stop(); } catch {}
-  // bm.close() can hang — just let process exit handle it
-  setTimeout(() => process.exit(0), 500);
+afterAll(async () => {
+  try { testServer.server.stop(true); } catch {}  // force-close keep-alives — a lingering Chromium connection otherwise blocks stop() forever
+  // Close only this file's own browser — never process.exit(): bun test runs
+  // all files in one process, so a delayed exit kills the whole suite
+  // (see test/no-suicide-exit.test.ts). close() can hang when the browser
+  // already died, and its internal 5s timeout ties bun's 5s hook timeout —
+  // so race it at 3s and abandon; the child is reaped at process exit.
+  try { await Promise.race([bm?.close(), new Promise((resolve) => setTimeout(resolve, 3000))]); } catch {}
 });
 
 // ─── Navigation ─────────────────────────────────────────────────
@@ -804,7 +839,7 @@ describe('Chain', () => {
       ['js', 'document.title'],
       ['css', 'h1', 'color'],
     ]);
-    const result = await handleMetaCommand('chain', [commands], bm, async () => {});
+    const result = await chainMeta(bm, [commands]);
     expect(result).toContain('[goto]');
     expect(result).toContain('Test Page - Basic');
     expect(result).toContain('[css]');
@@ -812,7 +847,7 @@ describe('Chain', () => {
 
   test('chain wraps page-content sub-commands with trust markers', async () => {
     await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
-    const result = await handleMetaCommand('chain', ['text'], bm, async () => {});
+    const result = await chainMeta(bm, ['text']);
     expect(result).toContain('BEGIN UNTRUSTED EXTERNAL CONTENT');
     expect(result).toContain('END UNTRUSTED EXTERNAL CONTENT');
   });
@@ -821,7 +856,7 @@ describe('Chain', () => {
     const commands = JSON.stringify([
       ['goto', 'http://localhost:1/unreachable'],
     ]);
-    const result = await handleMetaCommand('chain', [commands], bm, async () => {});
+    const result = await chainMeta(bm, [commands]);
     expect(result).toContain('[goto] ERROR:');
     expect(result).not.toContain('Unknown meta command');
     expect(result).not.toContain('Unknown read command');
@@ -881,7 +916,10 @@ describe('CLI lifecycle', () => {
     cliEnv.BROWSE_STATE_FILE = stateFile;
     const result = await new Promise<{ code: number; stdout: string; stderr: string }>((resolve) => {
       const proc = spawn('bun', ['run', cliPath, 'status'], {
-        timeout: 15000,
+        // Must exceed the CLI's startup budget (resolveStartTimeout, 15s
+        // non-CI POSIX) or a slow cold boot under full-suite load gets the
+        // child killed at the exact moment the CLI would have succeeded.
+        timeout: 18000,
         env: cliEnv,
       });
       let stdout = '';
@@ -1505,14 +1543,14 @@ describe('Errors', () => {
   test('chain with invalid JSON falls back to pipe format', async () => {
     // Non-JSON input is now treated as pipe-delimited format
     // 'not json' → [["not", "json"]] → "not" is unknown command → error in result
-    const result = await handleMetaCommand('chain', ['not json'], bm, async () => {});
+    const result = await chainMeta(bm, ['not json']);
     expect(result).toContain('ERROR');
     expect(result).toContain('Unknown command: not');
   });
 
   test('chain with no arg throws', async () => {
     try {
-      await handleMetaCommand('chain', [], bm, async () => {});
+      await chainMeta(bm, []);
       expect(true).toBe(false);
     } catch (err: any) {
       expect(err.message).toContain('Usage');
@@ -2006,7 +2044,7 @@ describe('Chain with cookie-import', () => {
       const commands = JSON.stringify([
         ['cookie-import', tmpCookies],
       ]);
-      const result = await handleMetaCommand('chain', [commands], bm, async () => {});
+      const result = await chainMeta(bm, [commands]);
       expect(result).toContain('[cookie-import]');
       expect(result).toContain('Loaded 1 cookie');
     } finally {
@@ -2051,24 +2089,14 @@ describe('Network idle', () => {
 
 describe('Chain pipe format', () => {
   test('pipe-delimited commands work', async () => {
-    const result = await handleMetaCommand(
-      'chain',
-      [`goto ${baseUrl}/basic.html | js document.title`],
-      bm,
-      async () => {}
-    );
+    const result = await chainMeta(bm, [`goto ${baseUrl}/basic.html | js document.title`]);
     expect(result).toContain('[goto]');
     expect(result).toContain('[js]');
     expect(result).toContain('Test Page - Basic');
   });
 
   test('pipe format with quoted args', async () => {
-    const result = await handleMetaCommand(
-      'chain',
-      [`goto ${baseUrl}/forms.html | fill #email "pipe@test.com"`],
-      bm,
-      async () => {}
-    );
+    const result = await chainMeta(bm, [`goto ${baseUrl}/forms.html | fill #email "pipe@test.com"`]);
     expect(result).toContain('[fill]');
     expect(result).toContain('Filled');
     // Verify the fill actually worked
@@ -2081,18 +2109,13 @@ describe('Chain pipe format', () => {
       ['goto', baseUrl + '/basic.html'],
       ['js', 'document.title'],
     ]);
-    const result = await handleMetaCommand('chain', [commands], bm, async () => {});
+    const result = await chainMeta(bm, [commands]);
     expect(result).toContain('[goto]');
     expect(result).toContain('Test Page - Basic');
   });
 
   test('pipe format with unknown command includes error', async () => {
-    const result = await handleMetaCommand(
-      'chain',
-      ['bogus command'],
-      bm,
-      async () => {}
-    );
+    const result = await chainMeta(bm, ['bogus command']);
     expect(result).toContain('ERROR');
     expect(result).toContain('Unknown command: bogus');
   });
@@ -2295,6 +2318,19 @@ describe('load-html', () => {
       expect(err.message).toMatch(/does not appear to be HTML/);
     } finally {
       try { fs.unlinkSync(txtPath); } catch {}
+    }
+  });
+
+  test('load-html rejects .svg files', async () => {
+    const svgPath = path.join(tmpDir, `load-html-test-${Date.now()}.svg`);
+    fs.writeFileSync(svgPath, '<svg xmlns="http://www.w3.org/2000/svg"><text>hi</text></svg>');
+    try {
+      await handleWriteCommand('load-html', [svgPath], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toMatch(/does not appear to be HTML/);
+    } finally {
+      try { fs.unlinkSync(svgPath); } catch {}
     }
   });
 
@@ -2569,14 +2605,14 @@ describe('Command aliases', () => {
 
   test('setcontent alias routes to load-html via chain', async () => {
     // Chain canonicalizes aliases end-to-end; verifies the dispatch path
-    const result = await handleMetaCommand('chain', [JSON.stringify([['setcontent', aliasFix]])], bm, async () => {});
+    const result = await chainMeta(bm, [JSON.stringify([['setcontent', aliasFix]])]);
     expect(result).toContain('Loaded HTML:');
     const text = await handleReadCommand('text', [], bm);
     expect(text).toContain('alias routing ok');
   });
 
   test('set-content (hyphenated) alias also routes', async () => {
-    const result = await handleMetaCommand('chain', [JSON.stringify([['set-content', aliasFix]])], bm, async () => {});
+    const result = await chainMeta(bm, [JSON.stringify([['set-content', aliasFix]])]);
     expect(result).toContain('Loaded HTML:');
   });
 });

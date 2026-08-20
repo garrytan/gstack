@@ -120,22 +120,11 @@ describe('server.ts factory API surface', () => {
       }
     });
 
-    test('reads BROWSE_IDLE_TIMEOUT from env, defaults to 30 min (1800000ms)', () => {
-      const orig = process.env.BROWSE_IDLE_TIMEOUT;
-      delete process.env.BROWSE_IDLE_TIMEOUT;
-      try {
-        expect(resolveConfigFromEnv().idleTimeoutMs).toBe(1800000);
-      } finally {
-        if (orig !== undefined) process.env.BROWSE_IDLE_TIMEOUT = orig;
-      }
-    });
-
     test('returns a populated config object with the expected shape', () => {
       const cfg = resolveConfigFromEnv();
       expect(cfg).toMatchObject({
         authToken: expect.any(String),
         browsePort: expect.any(Number),
-        idleTimeoutMs: expect.any(Number),
         config: expect.objectContaining({
           stateDir: expect.any(String),
           stateFile: expect.any(String),
@@ -178,7 +167,6 @@ describe('server.ts factory API surface', () => {
       const minimalConfigShape = {
         authToken: 'tok',
         browsePort: 0,
-        idleTimeoutMs: 1800000,
         config: { stateDir: '', stateFile: '', consoleLog: '', networkLog: '', dialogLog: '', auditLog: '', projectDir: '' },
         browserManager: {} as any,
         startTime: Date.now(),
@@ -217,7 +205,6 @@ function makeMinimalConfig(overrides: Partial<ServerConfig> = {}): ServerConfig 
   return {
     authToken: token,
     browsePort: 34567,
-    idleTimeoutMs: 1_800_000,
     config: resolveConfig(),
     browserManager: new BrowserManager(),
     startTime: Date.now(),

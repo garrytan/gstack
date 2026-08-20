@@ -17,6 +17,27 @@ export interface HostPaths {
 }
 
 /**
+ * Make a host path safe to interpolate INSIDE DOUBLE QUOTES in generated bash.
+ *
+ * Tilde-based hosts (Claude, factory) resolve to paths like
+ * `~/.claude/skills/gstack/bin`. Bash only performs tilde expansion when the
+ * `~` is UNQUOTED, so `"~/.claude/..."` is a literal relative path that never
+ * resolves. A `[ -x "~/..." ]` test is therefore always false and a
+ * `"~/..." --flag` invocation always fails — the surrounding block silently
+ * becomes dead code rather than erroring.
+ *
+ * Env-var hosts already use `$GSTACK_BIN`, which expands correctly when
+ * quoted, so they pass through untouched.
+ *
+ * Use this ONLY where the path lands inside double quotes. Unquoted
+ * interpolations (`${ctx.paths.binDir}/gstack-slug`) expand fine as-is and are
+ * left alone so generated docs keep the more readable `~`.
+ */
+export function quoteSafePath(hostPath: string): string {
+  return hostPath.startsWith('~/') ? `$HOME/${hostPath.slice(2)}` : hostPath;
+}
+
+/**
  * HOST_PATHS — derived from host configs.
  * Each config's globalRoot/localSkillRoot determines the path structure.
  * Non-Claude hosts use $GSTACK_ROOT env vars (set by preamble).
@@ -49,6 +70,16 @@ function buildHostPaths(): Record<string, HostPaths> {
 }
 
 export const HOST_PATHS: Record<string, HostPaths> = buildHostPaths();
+
+/**
+ * Render a HostPaths binary dir as a shell-expandable absolute path.
+ * Claude-style dirs are `~`-rooted (e.g. `~/.claude/skills/gstack/browse/dist`)
+ * and expand via `$HOME`; env-var hosts already carry an absolute `$GSTACK_*`
+ * value, so they pass through untouched — prepending `$HOME` would double it.
+ */
+export function toShellPath(dir: string): string {
+  return dir.startsWith('~') ? `$HOME${dir.slice(1)}` : dir;
+}
 
 import type { Model } from '../models';
 export type { Model } from '../models';
@@ -83,35 +114,9 @@ export interface TemplateContext {
 /** Resolver function signature. args is populated for parameterized placeholders like {{INVOKE_SKILL:name}}. */
 export type ResolverFn = (ctx: TemplateContext, args?: string[]) => string;
 
-/**
- * Optional gated resolver. When the gate returns false, the resolver is
- * skipped (substituted with empty string) — same effect as the placeholder
- * not being referenced. Use when a resolver's output is only meaningful for
- * a known subset of skills, so future template authors get a structural
- * guardrail instead of relying on social knowledge.
- *
- * Most resolvers don't need this — the {{NAME}} placeholder system is
- * already conditional at the template level. Use only when a resolver
- * lives inside another resolver (e.g. via preamble composition) AND must
- * be conditionalized, or when a top-level resolver has a small, well-defined
- * audience.
- */
-export interface ResolverEntry {
-  resolve: ResolverFn;
-  appliesTo?: (ctx: TemplateContext) => boolean;
-}
-
-/** Anything the RESOLVERS map accepts — either a bare function or a gated entry. */
-export type ResolverValue = ResolverFn | ResolverEntry;
-
-/**
- * Type-narrowing helper for the gen-skill-docs lookup.
- * Returns (resolverFn, gate) so callers can do gate?.(ctx) before invoking.
- */
-export function unwrapResolver(entry: ResolverValue): {
-  resolve: ResolverFn;
-  appliesTo?: (ctx: TemplateContext) => boolean;
-} {
-  if (typeof entry === 'function') return { resolve: entry };
-  return { resolve: entry.resolve, appliesTo: entry.appliesTo };
-}
+// NOTE: a gated-resolver mechanism (ResolverEntry { resolve, appliesTo } +
+// unwrapResolver) lived here, fully built and tested — and never used by a
+// single one of the 65 registry entries. Per-skill gating happens either at
+// the template level ({{NAME}} is already conditional) or, where it truly
+// exists, via explicit ctx.skillName branches inside resolvers. Deleted
+// rather than kept as speculative API.

@@ -22,6 +22,7 @@ import { emitActivity } from './activity';
 import { validateNavigationUrl } from './url-validation';
 import { TabSession, type RefEntry } from './tab-session';
 import { resolveChromiumProfile, cleanSingletonLocks } from './config';
+import { launchWithXProtectHeal } from './xprotect-heal';
 import { withCdpSession } from './cdp-bridge';
 import type { MemorySnapshot, MemoryStructureStats, MemoryTabSnapshot, MemoryProcess } from './memory-snapshot';
 
@@ -74,6 +75,82 @@ export function shouldEnableChromiumSandbox(): boolean {
 }
 
 /**
+ * Thrown by probePoisonedChromiumBundle() when it finds — and removes — a
+ * Chromium bundle poisoned by the pre-v1.64 in-place rebrand (#2242).
+ * Call sites rethrow on `instanceof` (never message-string sniffing) so the
+ * actionable remediation reaches the user instead of being swallowed by the
+ * probe's fall-through-on-failure catch.
+ */
+export class PoisonedBundleError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PoisonedBundleError';
+  }
+}
+
+/**
+ * Self-heal probe for bundles the OLD (pre-v1.64) rebrand code already
+ * poisoned (#2242): the mutation lives in the SHARED Playwright cache, so
+ * deleting the rebrand code fixes fresh installs only, and the documented
+ * deploy paths never run upgrade migrations. Detect the mutated plist and
+ * remove the bundle so the next `playwright install chromium` (or the
+ * upgrade migration) re-fetches a clean one.
+ *
+ * Removal scope: when the .app sits in the standard Playwright cache layout
+ * (chromium-<rev>/chrome-mac/<name>.app), the WHOLE chromium-<rev> revision
+ * dir is removed — Playwright's INSTALLATION_COMPLETE marker lives there,
+ * and `playwright install chromium` treats its presence as "is already
+ * downloaded", so removing only the .app would turn our own remediation
+ * command into a no-op that leaves the user with no browser at all. Outside
+ * that layout, the .app plus any sibling INSTALLATION_COMPLETE /
+ * DEPENDENCIES_VALIDATED markers are removed.
+ *
+ * Caller contract: pass ONLY Playwright-cache executables
+ * (chromium.executablePath()). A bundle supplied via GSTACK_CHROMIUM_PATH
+ * belongs to the wrapper/embedder — its plist legitimately says "GStack
+ * Browser" — and must never be deleted. Both call sites (launchHeaded and
+ * handoff) honor this, and as a second belt the probe refuses to act on the
+ * GSTACK_CHROMIUM_PATH executable itself.
+ *
+ * @param chromiumExecutablePath the Chromium binary inside the .app
+ *   (…/<name>.app/Contents/MacOS/<name>), as returned by
+ *   chromium.executablePath().
+ * @throws PoisonedBundleError after removing a poisoned bundle — the
+ *   message carries the re-fetch command for the user.
+ */
+export function probePoisonedChromiumBundle(chromiumExecutablePath: string): void {
+  const fs = require('fs');
+  const path = require('path');
+
+  // Belt to the caller contract: never act on the custom/embedder bundle.
+  const customPath = process.env.GSTACK_CHROMIUM_PATH;
+  if (customPath && path.resolve(chromiumExecutablePath) === path.resolve(customPath)) {
+    return;
+  }
+
+  const chromeContentsDir = path.resolve(path.dirname(chromiumExecutablePath), '..');
+  const chromePlist = path.join(chromeContentsDir, 'Info.plist');
+  if (!fs.existsSync(chromePlist)) return;
+  if (!fs.readFileSync(chromePlist, 'utf-8').includes('GStack Browser')) return;
+
+  const appDir = path.resolve(chromeContentsDir, '..');
+  const revisionDir = path.resolve(appDir, '..', '..');
+  if (/^chromium-\d+$/.test(path.basename(revisionDir))) {
+    fs.rmSync(revisionDir, { recursive: true, force: true });
+  } else {
+    fs.rmSync(appDir, { recursive: true, force: true });
+    for (const marker of ['INSTALLATION_COMPLETE', 'DEPENDENCIES_VALIDATED']) {
+      fs.rmSync(path.join(path.dirname(appDir), marker), { force: true });
+    }
+  }
+  throw new PoisonedBundleError(
+    'Chromium bundle was mutated by a previous gstack version (broken codesign seal — ' +
+    'GPU exit_code=5 on macOS 26). The poisoned bundle has been removed. ' +
+    'Re-fetch a clean one with: bunx playwright install chromium — then retry.',
+  );
+}
+
+/**
  * Resolve why the underlying Chromium ChildProcess is going away.
  *
  * The 'disconnected' Playwright event fires before the child process emits
@@ -91,7 +168,11 @@ export function shouldEnableChromiumSandbox(): boolean {
  * restarts on backoff.
  */
 export async function resolveDisconnectCause(browser: Browser | null): Promise<'clean' | 'crash'> {
-  const proc = browser?.process();
+  // `.process()` only exists on browsers we launched ourselves. A browser
+  // obtained via connectOverCDP() (or a stub in tests) has no such method —
+  // calling it blind throws inside the disconnect handler, which killed the
+  // whole daemon with "browser?.process is not a function".
+  const proc = typeof browser?.process === 'function' ? browser.process() : null;
   if (proc && proc.exitCode === null && proc.signalCode === null) {
     await new Promise<void>((resolve) => {
       const timer = setTimeout(resolve, 1000);
@@ -195,6 +276,15 @@ export class BrowserManager {
 
   // ─── Headed State ────────────────────────────────────────
   private connectionMode: 'launched' | 'headed' = 'launched';
+
+  /**
+   * Fired when a RUNNING daemon is promoted to headed mode (see handoff()),
+   * as opposed to starting headed. The server uses it to cancel the
+   * parent-process watchdog, which was registered on the assumption that mode
+   * is fixed at boot and would otherwise kill the freshly handed-off browser
+   * the next time the spawning shell exits.
+   */
+  onHeadedPromotion?: () => void;
   private intentionalDisconnect = false;
 
   // ─── Tab Count Guardrail (D5 + Codex single-tab flag) ───────
@@ -244,7 +334,7 @@ export class BrowserManager {
 
   // Called when the headed browser disconnects without intentional teardown
   // (user closed the window). Wired up by server.ts to run full cleanup
-  // (sidebar-agent, state file, profile locks) before exiting with code 2.
+  // (terminal agent, state file, profile locks) before exiting with code 2.
   // Returns void or a Promise; rejections are caught and fall back to exit(2).
   // `exitCode` is the resolved process exit code from the disconnect cause:
   // 0 on clean user-initiated quit (e.g., Cmd+Q on headed Chromium), 2 on
@@ -369,8 +459,23 @@ export class BrowserManager {
       console.log(`[browse] Extensions loaded from: ${extensionsDir}`);
     }
 
-    this.browser = await chromium.launch({
+    // XProtect self-heal wrapper (P0 #2554): a macOS definition update can
+    // start SIGKILLing the pinned Chromium at spawn. On the classified
+    // signature, clear quarantine on the Playwright cache + force-reinstall
+    // once, then retry this launch once. This headless path always uses the
+    // Playwright cache (no executablePath), so the heal is never scoped out.
+    this.browser = await launchWithXProtectHeal(() => chromium.launch({
       headless: useHeadless,
+      // #2220: the daemon owns signal policy, not Playwright. Playwright's
+      // default handlers close Chromium the moment THIS process receives
+      // SIGINT/SIGTERM/SIGHUP — which fights the deliberate headless
+      // SIGTERM-ignore in server.ts (the daemon survives the signal but
+      // loses its browser out from under it). All three are false; server.ts
+      // routes the signals it actually honors through activeShutdown, which
+      // closes Chromium itself.
+      handleSIGINT: false,
+      handleSIGTERM: false,
+      handleSIGHUP: false,
       // On Windows, Chromium's sandbox fails when the server is spawned through
       // the Bun→Node process chain (GitHub #276). Disable it — local daemon
       // browsing user-specified URLs has marginal sandbox benefit. Also disabled
@@ -379,7 +484,7 @@ export class BrowserManager {
       chromiumSandbox: shouldEnableChromiumSandbox(),
       ...(launchArgs.length > 0 ? { args: launchArgs } : {}),
       ...(this.proxyConfig ? { proxy: this.proxyConfig } : {}),
-    });
+    }));
 
     // Chromium disconnect → distinguish clean user-quit from crash. Both
     // events look identical to Playwright (one 'disconnected' fires), but
@@ -500,46 +605,32 @@ export class BrowserManager {
     // Used by GStack Browser.app to point at the bundled Chromium.
     const executablePath = process.env.GSTACK_CHROMIUM_PATH || undefined;
 
-    // Rebrand Chromium → GStack Browser in macOS menu bar / Dock / Cmd+Tab.
-    // Patch the Chromium .app's Info.plist so macOS shows our name.
-    // This works for both dev mode (system Playwright cache) and .app bundle.
-    const chromePath = executablePath || chromium.executablePath();
-    try {
-      // Walk up from binary to the .app's Info.plist
-      // e.g. .../Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing
-      //   → .../Google Chrome for Testing.app/Contents/Info.plist
-      const chromeContentsDir = path.resolve(path.dirname(chromePath), '..');
-      const chromePlist = path.join(chromeContentsDir, 'Info.plist');
-      if (fs.existsSync(chromePlist)) {
-        const plistContent = fs.readFileSync(chromePlist, 'utf-8');
-        if (plistContent.includes('Google Chrome for Testing')) {
-          const patched = plistContent
-            .replace(/Google Chrome for Testing/g, 'GStack Browser');
-          fs.writeFileSync(chromePlist, patched);
-        }
-        // Replace Chromium's Dock icon with ours (Chromium's process owns the Dock icon)
-        const iconCandidates = [
-          path.join(__dirname, '..', '..', 'scripts', 'app', 'icon.icns'),       // repo dev mode
-          path.join(process.env.HOME || '', '.claude', 'skills', 'gstack', 'scripts', 'app', 'icon.icns'), // global install
-        ];
-        const iconSrc = iconCandidates.find(p => fs.existsSync(p));
-        if (iconSrc) {
-          const chromeResources = path.join(chromeContentsDir, 'Resources');
-          // Read original icon name from plist
-          const iconMatch = plistContent.match(/<key>CFBundleIconFile<\/key>\s*<string>([^<]+)<\/string>/);
-          let origIcon = iconMatch ? iconMatch[1] : 'app';
-          if (!origIcon.endsWith('.icns')) origIcon += '.icns';
-          const destIcon = path.join(chromeResources, origIcon);
-          try {
-            fs.copyFileSync(iconSrc, destIcon);
-          } catch (err: any) {
-            if (err?.code !== 'ENOENT' && err?.code !== 'EACCES') throw err;
-          }
-        }
+    // NOTE (#2242): the in-place "rebrand" that patched the Chromium .app's
+    // Info.plist (global "Google Chrome for Testing" → "GStack Browser"
+    // replace) and overwrote its Resources/*.icns is deliberately GONE.
+    // Chrome for Testing is a code-signed bundle: the global replace renamed
+    // CFBundleExecutable to a binary that doesn't exist and the plist/icon
+    // writes broke the codesign seal — GPU process exit_code=5, headed mode
+    // dead on macOS 26 (#2242, #2138, #2139). Branding belongs in the
+    // GStack Browser.app wrapper (GSTACK_CHROMIUM_PATH), never in a mutation
+    // of the signed bundle. Do not reintroduce writes into the Chromium
+    // bundle here — browse/test/rebrand-signed-bundle.test.ts fails CI if
+    // you do.
+    //
+    // Self-heal for bundles the OLD code already poisoned: probe the
+    // Playwright-cache bundle and remove it when the mutated plist is
+    // present (see probePoisonedChromiumBundle for the removal-scope
+    // rationale). Scoped to the Playwright cache copy — a
+    // GSTACK_CHROMIUM_PATH bundle belongs to the wrapper/embedder and is
+    // never probed.
+    if (!executablePath) {
+      try {
+        probePoisonedChromiumBundle(chromium.executablePath());
+      } catch (err: unknown) {
+        if (err instanceof PoisonedBundleError) throw err;
+        // Probe failures (no bundle yet, EACCES) fall through to launch,
+        // which produces its own actionable error.
       }
-    } catch (err: any) {
-      // Non-fatal: app name stays as Chrome for Testing (ENOENT/EACCES expected)
-      if (err?.code !== 'ENOENT' && err?.code !== 'EACCES') throw err;
     }
 
     // Build custom user agent: report as stock Chrome with the version
@@ -576,8 +667,16 @@ export class BrowserManager {
     // three more (--disable-popup-blocking, --disable-component-update,
     // --disable-default-apps — each a documented automation tell per Patchright).
     const { STEALTH_IGNORE_DEFAULT_ARGS } = await import('./stealth');
-    this.context = await chromium.launchPersistentContext(userDataDir, {
+    // XProtect self-heal wrapper (P0 #2554). usesCustomExecutable scopes the
+    // heal out when GSTACK_CHROMIUM_PATH supplies the bundle — that bundle
+    // belongs to the wrapper/embedder and is never quarantine-cleared or
+    // reinstalled over (probePoisonedChromiumBundle's scope contract).
+    this.context = await launchWithXProtectHeal(() => chromium.launchPersistentContext(userDataDir, {
       headless: false,
+      // #2220: daemon owns signal policy — see launch() for the rationale.
+      handleSIGINT: false,
+      handleSIGTERM: false,
+      handleSIGHUP: false,
       // Match the sandbox policy used by launch() above. Without this,
       // Playwright auto-adds --no-sandbox on every headed launch and the user
       // sees Chromium's "unsupported command-line flag" yellow infobar.
@@ -588,7 +687,7 @@ export class BrowserManager {
       ...(executablePath ? { executablePath } : {}),
       ...(this.proxyConfig ? { proxy: this.proxyConfig } : {}),
       ignoreDefaultArgs: STEALTH_IGNORE_DEFAULT_ARGS,
-    });
+    }), { usesCustomExecutable: Boolean(executablePath) });
     this.browser = this.context.browser();
     this.connectionMode = 'headed';
     this.intentionalDisconnect = false;
@@ -680,7 +779,7 @@ export class BrowserManager {
     // restart loop. Crash → process.exit(2) preserves the legacy headed
     // semantics that's distinct from launch()'s code 1.
     // Always calls onDisconnect() first to trigger full shutdown (kill
-    // sidebar-agent, save session, clean profile locks + state file) so
+    // terminal agent, save session, clean profile locks + state file) so
     // crashes don't strand resources either.
     if (this.browser) {
       this.browser.on('disconnected', () => {
@@ -722,7 +821,19 @@ export class BrowserManager {
     this.consecutiveFailures = 0;
   }
 
+  // How long close() waits for a graceful shutdown before falling back to
+  // SIGKILL (launched mode) or abandoning the context close (headed mode).
+  // A field, not a literal, so the SIGKILL fallback is unit-testable without
+  // a 5-second wait.
+  private closeRaceMs = 5000;
+
   async close() {
+    // unref'd race timer: without unref, every successful close still pins
+    // the caller's event loop for the full window.
+    const raceTimeout = (ms: number) => new Promise<false>((resolve) => {
+      const t = setTimeout(() => resolve(false), ms);
+      (t as { unref?: () => void }).unref?.();
+    });
     if (this.browser || (this.connectionMode === 'headed' && this.context)) {
       if (this.connectionMode === 'headed') {
         // Headed/persistent context mode: close the context (which closes the browser)
@@ -730,15 +841,24 @@ export class BrowserManager {
         if (this.browser) this.browser.removeAllListeners('disconnected');
         await Promise.race([
           this.context ? this.context.close() : Promise.resolve(),
-          new Promise(resolve => setTimeout(resolve, 5000)),
+          raceTimeout(this.closeRaceMs),
         ]).catch(() => {});
       } else {
-        // Launched mode: close the browser we spawned
+        // Launched mode: close the browser we spawned.
         this.browser.removeAllListeners('disconnected');
-        await Promise.race([
-          this.browser.close(),
-          new Promise(resolve => setTimeout(resolve, 5000)),
-        ]).catch(() => {});
+        // Grab the child handle BEFORE the race: nulling this.browser after a
+        // race-timeout used to ABANDON a live Chromium whose sockets kept the
+        // caller's event loop (and keep-alive connections into test servers)
+        // open forever — the intermittent whole-suite wedge. If graceful close
+        // doesn't finish in time, the child gets SIGKILL, not freedom.
+        const child = this.browser.process?.();
+        const closed = await Promise.race([
+          this.browser.close().then(() => true as const),
+          raceTimeout(this.closeRaceMs),
+        ]).catch(() => false as const);
+        if (closed === false && child && child.exitCode === null && !child.killed) {
+          try { child.kill('SIGKILL'); } catch { /* already gone */ }
+        }
       }
       this.browser = null;
     }
@@ -798,19 +918,31 @@ export class BrowserManager {
     const page = this.pages.get(tabId);
     if (!page) throw new Error(`Tab ${tabId} not found`);
 
+    // Capture BEFORE close(): the page 'close' event handler wired in
+    // wirePageEvents() can fire while page.close() is awaited. It removes
+    // the tab from the maps and reassigns activeTabId (to 0 when no tabs
+    // remain), so a post-close `tabId === this.activeTabId` check is
+    // order-dependent — whether the event dispatches before or after
+    // close() resolves varies across Playwright/Chromium versions and
+    // machines, and losing the race means the last-tab auto-create below
+    // never runs, leaving the manager with zero tabs.
+    const wasActive = tabId === this.activeTabId;
+
     await page.close();
     this.pages.delete(tabId);
     this.tabSessions.delete(tabId);
     this.tabOwnership.delete(tabId);
 
     // Switch to another tab if we closed the active one
-    if (tabId === this.activeTabId) {
+    if (wasActive) {
       const remaining = [...this.pages.keys()];
-      if (remaining.length > 0) {
-        this.activeTabId = remaining[remaining.length - 1];
-      } else {
+      if (remaining.length === 0) {
         // No tabs left — create a new blank one
         await this.newTab();
+      } else if (!this.pages.has(this.activeTabId)) {
+        // The 'close' handler may have already switched to a valid tab;
+        // only reassign when activeTabId no longer points at a live tab.
+        this.activeTabId = remaining[remaining.length - 1];
       }
     }
   }
@@ -1561,22 +1693,48 @@ export class BrowserManager {
       if (extensionPath) {
         launchArgs.push(`--disable-extensions-except=${extensionPath}`);
         launchArgs.push(`--load-extension=${extensionPath}`);
-        // Auth token is served via /health endpoint now (no file write needed).
-        // Extension reads token from /health on connect.
+        // Auth token is served via POST /extension-token (pinned-origin
+        // bootstrap, no file write needed). /health is liveness-only.
         console.log(`[browse] Handoff: loading extension from ${extensionPath}`);
       } else {
         console.log('[browse] Handoff: extension not found — headed mode without side panel');
       }
 
-      const userDataDir = path.join(process.env.HOME || '/tmp', '.gstack', 'chromium-profile');
+      // Same profile resolution + singleton-lock cleanup as launchHeaded().
+      // This path previously hardcoded ~/.gstack/chromium-profile, silently
+      // ignoring $CHROMIUM_PROFILE / $GSTACK_HOME and skipping the lock
+      // cleanup — the third shipped drift between the three launch paths.
+      const userDataDir = resolveChromiumProfile();
       fs.mkdirSync(userDataDir, { recursive: true });
+      cleanSingletonLocks(userDataDir);
+
+      // Self-heal probe (#2242): handoff always launches the Playwright-cache
+      // bundle (this launchPersistentContext call passes no executablePath),
+      // so a bundle poisoned by the old in-place rebrand would GPU-crash here
+      // exactly like launchHeaded(). Same probe, same contract: a
+      // GSTACK_CHROMIUM_PATH bundle is never passed in. The rethrown typed
+      // error surfaces through the outer catch as the actionable
+      // "Cannot open headed browser" message, headless browser untouched.
+      try {
+        probePoisonedChromiumBundle(chromium.executablePath());
+      } catch (err: unknown) {
+        if (err instanceof PoisonedBundleError) throw err;
+        // Probe failures (no bundle yet, EACCES) fall through to launch.
+      }
 
       // T1: same automation-tell-stripping defaults as launchHeaded().
       // The handoff path (headless → headed re-launch) takes the same
       // anti-detection posture.
       const { STEALTH_IGNORE_DEFAULT_ARGS } = await import('./stealth');
-      newContext = await chromium.launchPersistentContext(userDataDir, {
+      // XProtect self-heal wrapper (P0 #2554): handoff always launches the
+      // Playwright-cache bundle (no executablePath), so the heal applies
+      // exactly as in launch()/launchHeaded().
+      newContext = await launchWithXProtectHeal(() => chromium.launchPersistentContext(userDataDir, {
         headless: false,
+        // #2220: daemon owns signal policy — see launch() for the rationale.
+        handleSIGINT: false,
+        handleSIGTERM: false,
+        handleSIGHUP: false,
         // Match the sandbox policy used by launchHeaded() / launch(). The
         // handoff path is the headless→headed re-launch and shares the same
         // anti-detection posture, including no spurious --no-sandbox infobar.
@@ -1586,7 +1744,7 @@ export class BrowserManager {
         ...(this.proxyConfig ? { proxy: this.proxyConfig } : {}),
         ignoreDefaultArgs: STEALTH_IGNORE_DEFAULT_ARGS,
         timeout: 15000,
-      });
+      }));
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       return `ERROR: Cannot open headed browser — ${msg}. Headless browser still running.`;
@@ -1602,6 +1760,14 @@ export class BrowserManager {
       this.pages.clear();
       this.tabSessions.clear();
       this.connectionMode = 'headed';
+
+      // Promotion, not a headed boot. The server registered a parent-process
+      // watchdog because this daemon started headless, and that watchdog kills
+      // headed daemons when their parent exits — which for a CLI-spawned daemon
+      // is immediately. Without this the handed-off browser dies ~15s later,
+      // taking whatever the user was mid-way through (a login, an MFA prompt)
+      // with it.
+      this.onHeadedPromotion?.();
 
       // Same Layer C stealth as launch()/launchHeaded(). Must run BEFORE
       // restoreState() navigates so the init scripts apply to the restored

@@ -22,12 +22,14 @@ jobs:
     outputs:
       image-tag: ${{ steps.meta.outputs.tag }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - id: meta
-        run: echo "tag=${{ env.IMAGE }}:${{ hashFiles('.github/docker/Dockerfile.ci', 'package.json', 'bun.lock') }}" >> "$GITHUB_OUTPUT"
+        # Keep in sync with evals.yml — key on Dockerfile + lockfile only
+        # (package.json's version field would bust the key on every ship).
+        run: echo "tag=${{ env.IMAGE }}:${{ hashFiles('.github/docker/Dockerfile.ci', 'bun.lock', 'patches/**') }}" >> "$GITHUB_OUTPUT"
 
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -43,14 +45,22 @@ jobs:
           fi
 
       - if: steps.check.outputs.exists == 'false'
-        run: cp package.json bun.lock .github/docker/
+        run: cp package.json bun.lock .github/docker/ && cp -R patches .github/docker/patches
+
+      # Registry cache export needs a docker-container builder — the default
+      # `docker` driver hard-errors on cache-to.
+      - if: steps.check.outputs.exists == 'false'
+        uses: docker/setup-buildx-action@v4
 
       - if: steps.check.outputs.exists == 'false'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .github/docker
           file: .github/docker/Dockerfile.ci
           push: true
+          # Cron-triggered in the base repo only, so cache export is always safe here.
+          cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache
+          cache-to: type=registry,ref=${{ env.IMAGE }}:buildcache,mode=max
           tags: |
             ${{ steps.meta.outputs.tag }}
             ${{ env.IMAGE }}:latest
@@ -79,16 +89,23 @@ jobs:
             file: test/skill-e2e-qa-workflow.test.ts
           - name: e2e-review
             file: test/skill-e2e-review.test.ts
+          - name: e2e-retro
+            file: test/skill-e2e-retro.test.ts
+          # e2e-review-attribution, e2e-coverage-audit, and e2e-triage are
+          # gate-only (every test they hold is gate-tier) — deliberately absent
+          # here; an all-skip shard would just burn a container boot weekly.
           - name: e2e-workflow
             file: test/skill-e2e-workflow.test.ts
           - name: e2e-routing
             file: test/skill-routing-e2e.test.ts
           - name: e2e-codex
             file: test/codex-e2e.test.ts
+          - name: e2e-codex-sol-scope
+            file: test/codex-e2e-sol-scope.test.ts
           - name: e2e-gemini
             file: test/gemini-e2e.test.ts
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -107,7 +124,7 @@ jobs:
       # are on different overlay-fs layers, so cross-device hardlink fails.
       - name: Restore deps
         run: |
-          if [ -d /opt/node_modules_cache ] && diff -q /opt/node_modules_cache/.package.json package.json >/dev/null 2>&1; then
+          if [ -d /opt/node_modules_cache ] && diff -q /opt/node_modules_cache/.bun.lock bun.lock >/dev/null 2>&1; then
             cp -r /opt/node_modules_cache node_modules
           else
             bun install
@@ -122,11 +139,11 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           EVALS_CONCURRENCY: "40"
           PLAYWRIGHT_BROWSERS_PATH: /opt/playwright-browsers
-        run: EVALS=1 bun test --retry 2 --concurrent --max-concurrency 40 ${{ matrix.suite.file }}
+        run: EVALS=1 bun test --retry 1 --concurrent --max-concurrency 40 ${{ matrix.suite.file }}
 
       - name: Upload eval results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: eval-periodic-${{ matrix.suite.name }}
           path: ~/.gstack-dev/evals/*.json

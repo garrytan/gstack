@@ -433,25 +433,15 @@
     });
     ro.observe(els.mount);
 
-    // IME composition handling for Korean/CJK input (issue #1272).
-    // Suppress partial jamo during composition; only send the final
-    // composed string on compositionend. Without this, Korean IME
-    // sends fragmented input or doubles characters.
-    let composing = false;
-    const ta = term.textarea;
-    if (ta) {
-      ta.addEventListener('compositionstart', () => { composing = true; });
-      ta.addEventListener('compositionend', (e) => {
-        composing = false;
-        if (e.data && ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(new TextEncoder().encode(e.data));
-        }
-      });
-    }
-
+    // IME composition (Korean/CJK, issue #1272) is handled by xterm.js
+    // itself: partial jamo are suppressed while _isComposing, and the final
+    // composed string is emitted through onData once, asynchronously
+    // (setTimeout in _finalizeComposition). A previous local workaround
+    // sent e.data manually on compositionend — but xterm emits the same
+    // string one macrotask later, so every composed syllable went out
+    // TWICE. Do not re-add a manual compositionend send.
 
     term.onData((data) => {
-      if (composing) return;  // suppress partial input events during IME composition
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(new TextEncoder().encode(data));
       }
@@ -504,7 +494,8 @@
   window.gstackScanForPTYInject = async function (text, origin) {
     if (!text) return { allow: false, verdict: 'BLOCK', reasons: ['empty-text'] };
     try {
-      const resp = await fetch('http://127.0.0.1:34567/pty-inject-scan', {
+      const serverPort = getServerPort() || 34567;
+      const resp = await fetch(`http://127.0.0.1:${serverPort}/pty-inject-scan`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -529,21 +520,13 @@
   };
 
   // The auth token for /pty-inject-scan comes from the same source the
-  // sidepanel uses for /pty-session — a runtime fetch from /health (which
-  // already returns AUTH_TOKEN in headed mode per CLAUDE.md's v1.1 TODO).
-  // We don't echo the token here; this helper is a thin proxy around the
-  // existing pattern.
+  // sidepanel uses for /pty-session — window.gstackAuthToken, set by
+  // sidepanel.js after the pinned-origin POST /extension-token bootstrap.
+  // The old fallback here fetched /health and read token keys the server
+  // never sent (AUTH_TOKEN/authToken) — dead code since /health stopped
+  // carrying any token.
   async function getAuthTokenForScan() {
-    if (window.__gstackPtyScanToken) return window.__gstackPtyScanToken;
-    try {
-      const resp = await fetch('http://127.0.0.1:34567/health');
-      const body = await resp.json();
-      const token = body.AUTH_TOKEN || body.authToken || '';
-      if (token) window.__gstackPtyScanToken = token;
-      return token;
-    } catch {
-      return '';
-    }
+    return getAuthToken() || '';
   }
 
   async function connect() {

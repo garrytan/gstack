@@ -33,18 +33,42 @@ const GEMINI_AVAILABLE = (() => {
   } catch { return false; }
 })();
 
+// A binary on PATH is not enough: the CLI can be present but UNUSABLE — the
+// individual code-assist auth path was deprecated upstream ("migrate to the
+// Antigravity suite"), which fails every run before any model call, and flag
+// churn (--skip-trust removed in 0.34) errors at argv parse. Probe with a
+// bare --help: a CLI that can't even print usage is unusable, and a working
+// one is cheap to confirm. Deeper auth failures are classified per-run.
+const GEMINI_USABLE = GEMINI_AVAILABLE && (() => {
+  try {
+    const result = Bun.spawnSync(['gemini', '--help'], { timeout: 15_000 });
+    return result.exitCode === 0;
+  } catch { return false; }
+})();
+
 const evalsEnabled = !!process.env.EVALS;
 
-// Skip all tests if gemini is not available or EVALS is not set.
-const SKIP = !GEMINI_AVAILABLE || !evalsEnabled;
+// External-service tests are periodic-tier (CLAUDE.md tiering rule 3):
+// "Requires external service (Codex, Gemini)? -> periodic". The positive
+// form below is the canonical whole-file guard shape — the sharded runner's
+// classifyPaidTestFile greps for it to exclude this file from gate.
+const tierOk = process.env.EVALS_TIER === 'periodic';
+
+// Skip all tests if gemini is not available/usable, EVALS is not set, or
+// we're in the gate tier.
+const SKIP = !GEMINI_USABLE || !evalsEnabled || !tierOk;
 
 const describeGemini = SKIP ? describe.skip : describe;
 
 // Log why we're skipping (helpful for debugging CI)
 if (!evalsEnabled) {
   // Silent — same as Claude E2E tests, EVALS=1 required
+} else if (!tierOk) {
+  process.stderr.write('\nGemini E2E: SKIPPED — external-service test, periodic tier only (EVALS_TIER === \'periodic\')\n');
 } else if (!GEMINI_AVAILABLE) {
   process.stderr.write('\nGemini E2E: SKIPPED — gemini binary not found (install: npm i -g @google/gemini-cli)\n');
+} else if (!GEMINI_USABLE) {
+  process.stderr.write('\nGemini E2E: SKIPPED — gemini CLI present but unusable (auth path deprecated upstream or CLI broken; try updating @google/gemini-cli)\n');
 }
 
 // --- Diff-based test selection ---

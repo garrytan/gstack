@@ -22,6 +22,7 @@ import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { GSTACK_EXTENSION_ID } from '../src/server';
 
 const ROOT = path.resolve(import.meta.dir, '../..');
 const SERVER_ENTRY = path.join(ROOT, 'browse/src/server.ts');
@@ -94,22 +95,44 @@ describe('pair-agent flow end-to-end (HTTP only, no ngrok)', () => {
     if (daemon) killDaemon(daemon);
   });
 
-  test('GET /health returns daemon status and includes token for chrome-extension origin', async () => {
+  test('GET /health returns daemon status and NEVER includes a token (even for chrome-extension origins)', async () => {
     const resp = await fetch(`${daemon.baseUrl}/health`, {
-      headers: { Origin: 'chrome-extension://test-extension-id' },
+      headers: { Origin: `chrome-extension://${GSTACK_EXTENSION_ID}` },
     });
     expect(resp.status).toBe(200);
     const body = await resp.json() as any;
     expect(body.status).toBeDefined();
-    // Extension bootstrap — local listener delivers the token
-    expect(body.token).toBe(daemon.token);
+    // v1.62: token bootstrap moved to POST /extension-token. /health is
+    // liveness-only in every mode.
+    expect(body.token).toBeUndefined();
   });
 
-  test('GET /health without chrome-extension origin does NOT include token', async () => {
+  test('GET /health without origin does NOT include token', async () => {
     const resp = await fetch(`${daemon.baseUrl}/health`);
     expect(resp.status).toBe(200);
     const body = await resp.json() as any;
-    // Headless mode + no chrome-extension origin → token withheld
+    expect(body.token).toBeUndefined();
+  });
+
+  test('POST /extension-token with pinned Origin over real HTTP (Host carries port) returns the token', async () => {
+    // Real fetch → Host arrives as '127.0.0.1:<port>'; the server must parse
+    // the hostname out rather than compare the raw header (amendment C9).
+    const resp = await fetch(`${daemon.baseUrl}/extension-token`, {
+      method: 'POST',
+      headers: { Origin: `chrome-extension://${GSTACK_EXTENSION_ID}` },
+    });
+    expect(resp.status).toBe(200);
+    const body = await resp.json() as any;
+    expect(body.token).toBe(daemon.token);
+  });
+
+  test('POST /extension-token with a non-pinned extension Origin returns 403 without the token', async () => {
+    const resp = await fetch(`${daemon.baseUrl}/extension-token`, {
+      method: 'POST',
+      headers: { Origin: 'chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' },
+    });
+    expect(resp.status).toBe(403);
+    const body = await resp.json() as any;
     expect(body.token).toBeUndefined();
   });
 

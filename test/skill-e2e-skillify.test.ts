@@ -34,6 +34,7 @@ import {
   setupBrowseShims, copyDirSync, logCost, recordE2E,
   createEvalCollector, finalizeEvalCollector,
 } from './helpers/e2e-helpers';
+import { extractSkillBody } from './helpers/skill-fixture';
 import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -77,12 +78,15 @@ function setupSkillifyWorkdir(suffix: string, installSkills: string[] = ['scrape
 
   setupBrowseShims(workDir);
 
-  // Install requested skills.
+  // Install requested skills. The tests exercise the full /scrape + /skillify
+  // flows (all 11 skillify steps, D1-D3 contracts), so keep the whole
+  // skill-specific body — but drop the ~780-line shared preamble the tests
+  // never touch (CLAUDE.md: "E2E test fixtures: extract, don't copy").
   const skillsDir = path.join(workDir, '.claude', 'skills');
   for (const skill of installSkills) {
     const destDir = path.join(skillsDir, skill);
     fs.mkdirSync(destDir, { recursive: true });
-    fs.copyFileSync(path.join(ROOT, skill, 'SKILL.md'), path.join(destDir, 'SKILL.md'));
+    fs.writeFileSync(path.join(destDir, 'SKILL.md'), extractSkillBody(path.join(ROOT, skill)));
   }
 
   // bin/ scripts — preamble references several of these.

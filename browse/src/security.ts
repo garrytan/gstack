@@ -5,26 +5,37 @@
  * Safe to import from the compiled `browse/dist/browse` binary because it
  * does not load onnxruntime-node or other native modules.
  *
- * ML classifier code lives in `security-classifier.ts`, which is only
- * imported from `sidebar-agent.ts` (runs as non-compiled bun script).
+ * Live architecture (see CEO plan 2026-04-19-prompt-injection-guard.md):
+ *   L1-L3: content-security.ts (datamarking, hidden-element strip, ARIA
+ *          regex, URL blocklist, envelope wrapping) — live in server.ts and
+ *          the page-content read path.
+ *   L4:    TestSavantAI content classifier (security-classifier.ts), hosted
+ *          in the security sidecar subprocess (security-sidecar-entry.ts,
+ *          spawned by security-sidecar-client.ts) — live via server.ts's
+ *          /pty-inject-scan path.
+ *   Canary utilities (generateCanary / injectCanary / checkCanaryInStructure)
+ *          — pure functions; currently no production injector (the chat
+ *          stream that injected the canary went away with sidebar-agent.ts).
+ *   combineVerdict + THRESHOLDS — verdict combiner. Retains vote handling
+ *          for transcript_classifier / deberta_content LayerSignal inputs
+ *          even though no live layer produces them anymore (the Haiku
+ *          transcript and DeBERTa ensemble layers were removed with their
+ *          host process): the combiner is pure and tested, and server.ts's
+ *          inline L4 path is the consumer of record.
  *
- * Layering (see CEO plan 2026-04-19-prompt-injection-guard.md):
- *   L1-L3: content-security.ts (existing, datamarking / DOM strip / URL blocklist)
- *   L4:    ML content classifier (TestSavantAI via security-classifier.ts)
- *   L4b:   ML transcript classifier (Haiku via security-classifier.ts)
- *   L5:    Canary (this module — inject + check)
- *   L6:    Threshold aggregation (this module — combineVerdict)
- *
- * Cross-process state lives at ~/.gstack/security/session-state.json
- * (per eng review finding 1.2 — server.ts and sidebar-agent.ts are different processes).
+ * There is no longer any cross-process session state (#2557).
+ * ~/.gstack/security/session-state.json existed to carry classifier status
+ * across the server.ts / sidebar-agent.ts boundary; sidebar-agent.ts went
+ * away with the PTY terminal rewrite, leaving nothing to write the file and
+ * a /health.security status that reported stale or empty data — a permanent
+ * 'inactive', or a false-green 'protected' wherever an old state file
+ * survived on disk. getStatus / SessionState / read+writeSessionState and
+ * the /health field were removed together. Per-tab decision files under
+ * ~/.gstack/security/decisions/ are unaffected, and the L4 sidecar reports
+ * status over its own NDJSON protocol (security-sidecar-client.ts).
  */
 
-import { randomBytes, createHash } from 'crypto';
-import { spawn } from 'child_process';
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
-import { writeSecureFile, appendSecureFile, mkdirSecure } from './file-permissions';
+import { randomBytes } from 'crypto';
 
 // ─── Thresholds + verdict types ──────────────────────────────
 
@@ -55,8 +66,8 @@ export type Verdict = 'safe' | 'log_only' | 'warn' | 'block' | 'user_overrode';
 
 export type LayerName =
   | 'testsavant_content'
-  | 'deberta_content'        // opt-in ensemble layer (GSTACK_SECURITY_ENSEMBLE=deberta)
-  | 'transcript_classifier'
+  | 'deberta_content'        // historical ensemble layer — no live producer, retained for combiner compat
+  | 'transcript_classifier'  // historical Haiku layer — no live producer, retained for combiner compat
   | 'aria_regex'
   | 'canary';
 
@@ -71,18 +82,6 @@ export interface SecurityResult {
   reason?: string;
   signals: LayerSignal[];
   confidence: number;
-}
-
-export type SecurityStatus = 'protected' | 'degraded' | 'inactive';
-
-export interface StatusDetail {
-  status: SecurityStatus;
-  layers: {
-    testsavant: 'ok' | 'degraded' | 'off';
-    transcript: 'ok' | 'degraded' | 'off';
-    canary: 'ok' | 'off';
-  };
-  lastUpdated: string;
 }
 
 // ─── Verdict combiner (ensemble rule, label-first for transcript) ────
@@ -309,357 +308,12 @@ export function checkCanaryInStructure(value: unknown, canary: string): boolean 
   return false;
 }
 
-// ─── Attack logging ──────────────────────────────────────────
-
-export interface AttemptRecord {
-  ts: string;
-  urlDomain: string;
-  payloadHash: string;
-  confidence: number;
-  layer: LayerName;
-  verdict: Verdict;
-  gstackVersion?: string;
-}
-
-const SECURITY_DIR = path.join(os.homedir(), '.gstack', 'security');
-const ATTEMPTS_LOG = path.join(SECURITY_DIR, 'attempts.jsonl');
-const SALT_FILE = path.join(SECURITY_DIR, 'device-salt');
-const MAX_LOG_BYTES = 10 * 1024 * 1024; // 10MB rotate threshold (eng review 4.1)
-const MAX_LOG_GENERATIONS = 5;
-
-/**
- * Read-or-create the per-device salt used for payload hashing. Salt lives at
- * ~/.gstack/security/device-salt (0600). Random per-device, prevents rainbow
- * table attacks across devices (Codex tier-2 finding).
- */
-let cachedSalt: string | null = null;
-
-function getDeviceSalt(): string {
-  if (cachedSalt) return cachedSalt;
-  try {
-    if (fs.existsSync(SALT_FILE)) {
-      cachedSalt = fs.readFileSync(SALT_FILE, 'utf8').trim();
-      return cachedSalt;
-    }
-  } catch {
-    // fall through to generate
-  }
-  try {
-    mkdirSecure(SECURITY_DIR);
-  } catch {}
-  cachedSalt = randomBytes(16).toString('hex');
-  try {
-    writeSecureFile(SALT_FILE, cachedSalt);
-  } catch {
-    // Can't persist (read-only fs, disk full). Keep the in-memory salt
-    // for this process so cross-log correlation still works within a
-    // session. Next process gets a new salt, but that's a degraded-mode
-    // acceptable cost.
-  }
-  return cachedSalt;
-}
-
-export function hashPayload(payload: string): string {
-  const salt = getDeviceSalt();
-  return createHash('sha256').update(salt).update(payload).digest('hex');
-}
-
-/**
- * Rotate attempts.jsonl when it exceeds 10MB. Keeps 5 generations.
- */
-function rotateIfNeeded(): void {
-  try {
-    const st = fs.statSync(ATTEMPTS_LOG);
-    if (st.size < MAX_LOG_BYTES) return;
-  } catch {
-    return; // doesn't exist, nothing to rotate
-  }
-  // Shift .N -> .N+1, drop oldest
-  for (let i = MAX_LOG_GENERATIONS - 1; i >= 1; i--) {
-    const src = `${ATTEMPTS_LOG}.${i}`;
-    const dst = `${ATTEMPTS_LOG}.${i + 1}`;
-    try {
-      if (fs.existsSync(src)) fs.renameSync(src, dst);
-    } catch {}
-  }
-  try {
-    fs.renameSync(ATTEMPTS_LOG, `${ATTEMPTS_LOG}.1`);
-  } catch {}
-}
-
-/**
- * Try to locate the gstack-telemetry-log binary. Resolution order matches
- * the existing skill preamble pattern (never relies on PATH — packaged
- * binary layouts can break that).
- *
- * Order:
- *  1. ~/.claude/skills/gstack/bin/gstack-telemetry-log  (global install)
- *  2. .claude/skills/gstack/bin/gstack-telemetry-log    (symlinked dev)
- *  3. bin/gstack-telemetry-log                          (in-repo dev)
- */
-function findTelemetryBinary(): string | null {
-  const candidates = [
-    path.join(os.homedir(), '.claude', 'skills', 'gstack', 'bin', 'gstack-telemetry-log'),
-    path.resolve(process.cwd(), '.claude', 'skills', 'gstack', 'bin', 'gstack-telemetry-log'),
-    path.resolve(process.cwd(), 'bin', 'gstack-telemetry-log'),
-  ];
-  for (const c of candidates) {
-    try {
-      fs.accessSync(c, fs.constants.X_OK);
-      return c;
-    } catch {
-      // try next
-    }
-  }
-  return null;
-}
-
-/**
- * Resolve a bash binary for invoking shebang scripts on Windows. Mirrors the
- * GSTACK_*_BIN override pattern from `browse/src/claude-bin.ts:resolveClaudeCommand`
- * (introduced in v1.24.0.0 #1252) so users on WSL/MSYS2/non-default Git Bash
- * installs can redirect.
- *
- * Override precedence:
- *   1. GSTACK_BASH_BIN (or BASH_BIN) — absolute path or PATH-resolvable command.
- *   2. Plain Bun.which('bash') — finds Git Bash on the standard Windows install.
- *
- * Returns null if nothing resolves; callers must degrade gracefully (telemetry
- * already swallows spawn errors, so a null here means the local attempts.jsonl
- * audit trail keeps working without surfacing a Windows-only failure).
- */
-export function resolveBashBinary(env: NodeJS.ProcessEnv = process.env): string | null {
-  const PATH = env.PATH ?? env.Path ?? '';
-  const override = (env.GSTACK_BASH_BIN ?? env.BASH_BIN)?.trim();
-  if (override) {
-    const trimmed = override.replace(/^"(.*)"$/, '$1');
-    return path.isAbsolute(trimmed) ? trimmed : (Bun.which(trimmed, { PATH }) ?? null);
-  }
-  return Bun.which('bash', { PATH }) ?? null;
-}
-
-/**
- * Build the [cmd, args] tuple for invoking a bash-script telemetry binary
- * in a way that works on both POSIX and Windows.
- *
- * POSIX: returns [bin, args] unchanged — shebang gets honored by execve.
- * Win32: wraps in bash explicitly. `gstack-telemetry-log` is a shell script
- * (`#!/usr/bin/env bash`) and Windows `CreateProcess` can't dispatch on a
- * shebang — it tries to load the file as a PE image, fails with ENOEXEC,
- * and our 'error' handler silently swallows it. Resolves bash via the same
- * Bun.which + GSTACK_*_BIN override pattern as claude-bin.ts.
- *
- * Returns null when bash can't be resolved on Windows (rare — Git Bash ships
- * with the standard gstack install path). Caller skips spawn; the local
- * attempts.jsonl write still gives the audit trail.
- *
- * Exported for testability — resolution is a pure function of (platform,
- * env, bin, args) so we can assert on it without actually spawning.
- */
-export function buildTelemetrySpawnCommand(
-  bin: string,
-  args: string[],
-  env: NodeJS.ProcessEnv = process.env,
-): { cmd: string; cmdArgs: string[] } | null {
-  if (process.platform === 'win32') {
-    const bashPath = resolveBashBinary(env);
-    if (!bashPath) return null;
-    return { cmd: bashPath, cmdArgs: [bin, ...args] };
-  }
-  return { cmd: bin, cmdArgs: args };
-}
-
-/**
- * Fire-and-forget subprocess invocation of gstack-telemetry-log with the
- * attack_attempt event type. The binary handles tier gating internally
- * (community → upload, anonymous → local only, off → no-op), so we don't
- * need to re-check here.
- *
- * Never throws. Never blocks. If the binary isn't found or spawn fails, the
- * local attempts.jsonl write from logAttempt() still gives us the audit trail.
- */
-function reportAttemptTelemetry(record: AttemptRecord): void {
-  const bin = findTelemetryBinary();
-  if (!bin) return;
-  try {
-    const result = buildTelemetrySpawnCommand(bin, [
-      '--event-type', 'attack_attempt',
-      '--url-domain', record.urlDomain || '',
-      '--payload-hash', record.payloadHash,
-      '--confidence', String(record.confidence),
-      '--layer', record.layer,
-      '--verdict', record.verdict,
-    ]);
-    if (!result) return;
-    const child = spawn(result.cmd, result.cmdArgs, {
-      stdio: 'ignore',
-      detached: true,
-    });
-    // unref so this subprocess doesn't hold the event loop open
-    child.unref();
-    child.on('error', () => { /* swallow — telemetry must never break sidebar */ });
-  } catch {
-    // Spawn failure is non-fatal.
-  }
-}
-
-/**
- * Append an attempt to the local log AND fire telemetry via
- * gstack-telemetry-log (which respects the user's telemetry tier setting).
- * Never throws — logging failure should not break the sidebar.
- * Returns true if the local write succeeded.
- */
-export function logAttempt(record: AttemptRecord): boolean {
-  // Fire telemetry first, async — even if local write fails, we still want
-  // the event reported (it goes to a different directory anyway).
-  reportAttemptTelemetry(record);
-  try {
-    mkdirSecure(SECURITY_DIR);
-    rotateIfNeeded();
-    const line = JSON.stringify(record) + '\n';
-    appendSecureFile(ATTEMPTS_LOG, line);
-    return true;
-  } catch (err) {
-    // Non-fatal. Log to stderr for debugging but don't block.
-    console.error('[security] logAttempt write failed:', (err as Error).message);
-    return false;
-  }
-}
-
-// ─── Cross-process session state ─────────────────────────────
-
-const STATE_FILE = path.join(SECURITY_DIR, 'session-state.json');
-
-export interface SessionState {
-  sessionId: string;
-  canary: string;
-  warnedDomains: string[]; // per-session rate limit for special telemetry
-  classifierStatus: {
-    testsavant: 'ok' | 'degraded' | 'off';
-    transcript: 'ok' | 'degraded' | 'off';
-  };
-  lastUpdated: string;
-}
-
-/**
- * Atomic write of session state (temp + rename pattern). Writes are safe
- * across the server.ts / sidebar-agent.ts process boundary.
- */
-export function writeSessionState(state: SessionState): void {
-  try {
-    mkdirSecure(SECURITY_DIR);
-    const tmp = `${STATE_FILE}.tmp.${process.pid}`;
-    writeSecureFile(tmp, JSON.stringify(state, null, 2));
-    fs.renameSync(tmp, STATE_FILE);
-  } catch (err) {
-    console.error('[security] writeSessionState failed:', (err as Error).message);
-  }
-}
-
-export function readSessionState(): SessionState | null {
-  try {
-    if (!fs.existsSync(STATE_FILE)) return null;
-    return JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
-  } catch {
-    return null;
-  }
-}
-
-// ─── User-in-the-loop review on BLOCK ────────────────────────
-//
-// When a tool-output BLOCK fires, the user gets to see the suspected text
-// and decide. The sidepanel posts to /security-decision, server writes a
-// per-tab file under ~/.gstack/security/decisions/, sidebar-agent polls
-// for it. File-based on purpose: sidebar-agent.ts is a separate subprocess
-// and this is the same pattern the existing per-tab cancel file uses.
-
-const DECISIONS_DIR = path.join(SECURITY_DIR, 'decisions');
-
-export type SecurityDecision = 'allow' | 'block';
-
-export function decisionFileForTab(tabId: number): string {
-  return path.join(DECISIONS_DIR, `tab-${tabId}.json`);
-}
-
-export interface DecisionRecord {
-  tabId: number;
-  decision: SecurityDecision;
-  ts: string;
-  reason?: string;
-}
-
-export function writeDecision(record: DecisionRecord): void {
-  try {
-    mkdirSecure(DECISIONS_DIR);
-    const file = decisionFileForTab(record.tabId);
-    const tmp = `${file}.tmp.${process.pid}`;
-    writeSecureFile(tmp, JSON.stringify(record));
-    fs.renameSync(tmp, file);
-  } catch (err) {
-    console.error('[security] writeDecision failed:', (err as Error).message);
-  }
-}
-
-export function readDecision(tabId: number): DecisionRecord | null {
-  try {
-    const file = decisionFileForTab(tabId);
-    if (!fs.existsSync(file)) return null;
-    return JSON.parse(fs.readFileSync(file, 'utf8'));
-  } catch {
-    return null;
-  }
-}
-
-export function clearDecision(tabId: number): void {
-  try {
-    const file = decisionFileForTab(tabId);
-    if (fs.existsSync(file)) fs.unlinkSync(file);
-  } catch {
-    // best effort
-  }
-}
-
-/**
- * Truncate + sanitize tool output for display in the review banner.
- * - Max 500 chars (UI budget)
- * - Strip control chars, collapse whitespace
- * - Append "…" if truncated
- */
-export function excerptForReview(text: string, max = 500): string {
-  if (!text) return '';
-  const cleaned = text
-    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-  if (cleaned.length <= max) return cleaned;
-  return cleaned.slice(0, max) + '…';
-}
-
-// ─── Status reporting (for shield icon via /health) ──────────
-
-export function getStatus(): StatusDetail {
-  const state = readSessionState();
-  const layers = state?.classifierStatus ?? {
-    testsavant: 'off',
-    transcript: 'off',
-  };
-  const canary = state?.canary ? 'ok' : 'off';
-
-  let status: SecurityStatus;
-  if (layers.testsavant === 'ok' && layers.transcript === 'ok' && canary === 'ok') {
-    status = 'protected';
-  } else if (layers.testsavant === 'off' && canary === 'off') {
-    status = 'inactive';
-  } else {
-    status = 'degraded';
-  }
-
-  return {
-    status,
-    layers: { ...layers, canary: canary as 'ok' | 'off' },
-    lastUpdated: state?.lastUpdated ?? new Date().toISOString(),
-  };
-}
+// NOTE: attack-attempt logging (logAttempt + salted payload hashing +
+// attempts.jsonl rotation + telemetry spawn plumbing) lived here until the
+// chat-path scanner that called it was ripped with sidebar-agent.ts. The
+// LIVE attempts.jsonl writer is tunnel-denial-log.ts, which owns its own
+// rotation. The cross-process session state + getStatus shield feed went
+// the same way (#2557) — see the module header.
 
 /**
  * Extract url domain for logging. Never logs path or query string.

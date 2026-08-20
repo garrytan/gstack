@@ -12,11 +12,15 @@
  *   2. Look up door_type from scripts/question-registry.ts (default two-way).
  *   3. Read preferences with precedence: project-local > global (D8).
  *   4. Apply:
- *        never-ask + one-way → defer (safety override; one-way always asks).
+ *        never-ask + one-way → pass through (safety override; one-way always asks).
  *        never-ask + two-way + marker → deny with auto-decided recommendation
  *          in reason. Mark tool_use_id so PostToolUse logs as 'auto-decided'.
  *        ask-only-for-one-way + two-way + marker → same as never-ask.
- *        always-ask, or no preference → defer.
+ *        always-ask, or no preference → pass through.
+ *
+ * Pass-through = exit 0 with empty stdout (or additionalContext-only output
+ * when memory nuggets exist) — NEVER permissionDecision:'defer', whose
+ * CC v2.1.89+ semantics are pause-for-external-resumption (#2035, #2006).
  *
  * Why deny+reason instead of allow+updatedInput:
  *   AskUserQuestion's `updatedInput` shape for "pre-resolve this question"
@@ -31,7 +35,7 @@
  *   - First: (recommended) label suffix on an option.
  *   - Fall back: "Recommendation: X" prose match against option labels.
  *   - Refuse to auto-decide if ambiguous (multiple labels OR no parseable
- *     recommendation): defer instead of silent-wrong.
+ *     recommendation): pass through instead of silent-wrong.
  *
  * Always exits 0. Hook errors land in ~/.gstack/hook-errors.log.
  * See docs/spikes/claude-code-hook-mutation.md for the protocol contract.
@@ -39,8 +43,9 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { spawnSync } from 'child_process';
+import { runBin, repoRoot } from './spawn-bin';
 import { isConductor } from '../../../lib/is-conductor';
+import { classifyQuestion } from '../../../scripts/one-way-doors';
 
 interface HookStdin {
   session_id?: string;
@@ -92,13 +97,25 @@ function readStdin(): Promise<string> {
   });
 }
 
-function defer(additionalContext?: string): void {
-  const out: Record<string, unknown> = {
-    hookEventName: 'PreToolUse',
-    permissionDecision: 'defer',
-  };
-  if (additionalContext) out.additionalContext = additionalContext;
-  process.stdout.write(JSON.stringify({ hookSpecificOutput: out }));
+function passThrough(additionalContext?: string): void {
+  // Abstain = exit 0 with EMPTY stdout (#2035, #2006). Never emit a
+  // permissionDecision here: 'defer' is a real PreToolUse value, but since
+  // Claude Code v2.1.89 its semantics are "pause this tool call for external
+  // resumption" (a headless-resume feature) — NOT "no opinion". In an
+  // interactive session nothing resumes the paused call, so every
+  // AskUserQuestion died with "Tool result missing due to internal error".
+  // additionalContext-only hookSpecificOutput is the documented shape for
+  // injecting context (plan-tune memory nuggets) without a decision.
+  if (additionalContext) {
+    process.stdout.write(
+      JSON.stringify({
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          additionalContext,
+        },
+      }),
+    );
+  }
   process.exit(0);
 }
 
@@ -223,9 +240,7 @@ function loadRegistry(): Record<string, RegistryEntry> {
   registryCache = {};
   try {
     // Hook lives at hosts/claude/hooks/; registry at scripts/question-registry.ts
-    const here = path.dirname(new URL(import.meta.url).pathname);
-    const repoRoot = path.resolve(here, '..', '..', '..');
-    const regPath = path.join(repoRoot, 'scripts', 'question-registry.ts');
+    const regPath = path.join(repoRoot(), 'scripts', 'question-registry.ts');
     if (!fs.existsSync(regPath)) return registryCache;
     const src = fs.readFileSync(regPath, 'utf-8');
     // Cheap regex extraction so the hook doesn't need to import the TS file
@@ -317,9 +332,6 @@ function logAutoDecided(
   cwd: string | undefined,
 ): void {
   try {
-    const here = path.dirname(new URL(import.meta.url).pathname);
-    const repoRoot = path.resolve(here, '..', '..', '..');
-    const bin = path.join(repoRoot, 'bin', 'gstack-question-log');
     const payload: Record<string, unknown> = {
       skill: 'unknown',
       question_id: questionId,
@@ -331,7 +343,7 @@ function logAutoDecided(
       session_id: sessionId?.slice(0, 64),
       tool_use_id: toolUseId?.slice(0, 128),
     };
-    spawnSync(bin, [JSON.stringify(payload)], {
+    runBin('gstack-question-log', [JSON.stringify(payload)], {
       encoding: 'utf-8',
       stdio: ['ignore', 'pipe', 'pipe'],
       timeout: 3000,
@@ -347,7 +359,7 @@ function logAutoDecided(
 async function main(): Promise<void> {
   const raw = await readStdin();
   if (!raw.trim()) {
-    defer();
+    passThrough();
     return;
   }
   let stdin: HookStdin;
@@ -355,7 +367,7 @@ async function main(): Promise<void> {
     stdin = JSON.parse(raw);
   } catch (e) {
     logHookError(`stdin parse failed: ${(e as Error).message}`);
-    defer();
+    passThrough();
     return;
   }
 
@@ -364,26 +376,26 @@ async function main(): Promise<void> {
     toolName !== 'AskUserQuestion' &&
     !toolName.match(/^mcp__.+__AskUserQuestion$/)
   ) {
-    defer();
+    passThrough();
     return;
   }
 
   const questions = stdin.tool_input?.questions || [];
   if (questions.length === 0) {
-    defer();
+    passThrough();
     return;
   }
 
   // For multi-question AUQ, enforcement is all-or-nothing per call:
   // we deny only if ALL questions have marker + never-ask + safe door type.
-  // Mixed cases pass through (defer) so the user still gets to answer.
+  // Mixed cases pass through so the user still gets to answer.
   const registry = loadRegistry();
   const slug = slugFromCwd(stdin.cwd);
   const memoryNuggets = loadMemoryNuggets(stdin.session_id);
 
   // Compute Layer 8 memory context inline: any nuggets matching the
   // signal_keys of the questions in this AUQ get surfaced as additionalContext.
-  // This applies whether we defer OR deny — gives the agent + user the
+  // This applies whether we pass through OR deny — gives the agent + user the
   // relevant prior context either way.
   const contextNuggets: string[] = [];
   for (const q of questions) {
@@ -402,7 +414,7 @@ async function main(): Promise<void> {
     : undefined;
 
   // Determine whether EVERY question is eligible for never-ask auto-decide.
-  // We deliberately do NOT early-return defer on the first ineligible question:
+  // We deliberately do NOT early-return pass-through on the first ineligible question:
   // a Conductor session still needs the [conductor] prose deny as a fallback,
   // so we compute eligibility, then branch. memoryContext is preserved on every
   // non-enforcing exit. (All-or-nothing per-call semantics are unchanged: any
@@ -418,7 +430,21 @@ async function main(): Promise<void> {
     if (!pref.preference || pref.preference === 'always-ask') { fullyAutoDecidable = false; break; }
 
     const entry = registry[questionId];
-    const doorType = entry?.door_type || 'two-way';
+    let doorType: string = entry?.door_type || 'two-way';
+    if (!entry) {
+      // #2024: an unregistered id used to default straight to two-way without
+      // consulting the keyword net, so an ad-hoc DESTRUCTIVE question with a
+      // stored never-ask preference auto-decided. classifyQuestion is a pure
+      // regex pass over the question text; on any failure keep the default
+      // (enforcement still requires an explicit stored preference).
+      try {
+        if (classifyQuestion({ summary: qText.replace(MARKER_RE, '').trim() }).oneWay) {
+          doorType = 'one-way';
+        }
+      } catch (e) {
+        logHookError(`one-way classifier failed: ${(e as Error).message}`);
+      }
+    }
     // Safety override — even never-ask doesn't bypass one-way doors.
     if (doorType === 'one-way') { fullyAutoDecidable = false; break; }
 
@@ -471,10 +497,10 @@ async function main(): Promise<void> {
     return;
   }
 
-  defer(memoryContext);
+  passThrough(memoryContext);
 }
 
 main().catch((e) => {
   logHookError(`main crash: ${(e as Error).message}`);
-  defer();
+  passThrough();
 });

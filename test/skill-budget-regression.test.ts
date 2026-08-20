@@ -27,10 +27,10 @@
 import { describe, test } from 'bun:test';
 import { spawnSync } from 'child_process';
 import * as fs from 'fs';
-import * as path from 'path';
 import {
   getProjectEvalDir,
   findPreviousRun,
+  findLatestFinalizedRun,
   compareEvalResults,
   assertNoBudgetRegression,
   type EvalResult,
@@ -72,42 +72,9 @@ function currentGitBranch(): string {
   }
 }
 
-interface LatestRun {
-  filepath: string;
-  result: EvalResult;
-}
-
-/** Find the most recent finalized (non-_partial) eval file for a tier. */
-function findLatestRun(evalDir: string, tier: 'e2e' | 'llm-judge'): LatestRun | null {
-  let entries: string[];
-  try {
-    entries = fs.readdirSync(evalDir);
-  } catch {
-    return null;
-  }
-  const candidates: Array<{ filepath: string; timestamp: string }> = [];
-  for (const f of entries) {
-    if (!f.endsWith('.json')) continue;
-    if (f.startsWith('_partial')) continue;
-    const fullPath = path.join(evalDir, f);
-    try {
-      const data = JSON.parse(fs.readFileSync(fullPath, 'utf-8')) as EvalResult;
-      if (data.tier !== tier) continue;
-      candidates.push({ filepath: fullPath, timestamp: data.timestamp ?? '' });
-    } catch { /* ignore corrupt */ }
-  }
-  if (candidates.length === 0) return null;
-  candidates.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
-  const top = candidates[0]!;
-  return {
-    filepath: top.filepath,
-    result: JSON.parse(fs.readFileSync(top.filepath, 'utf-8')) as EvalResult,
-  };
-}
-
 function checkTier(tier: 'e2e' | 'llm-judge'): void {
   const evalDir = getProjectEvalDir();
-  const latest = findLatestRun(evalDir, tier);
+  const latest = findLatestFinalizedRun(evalDir, tier);
   if (!latest) {
     // eslint-disable-next-line no-console
     console.log(`[budget-regression:${tier}] no current run in ${evalDir} — skipping`);
@@ -165,7 +132,7 @@ function checkTier(tier: 'e2e' | 'llm-judge'): void {
 /** Enforce a hard dollar cap on per-run eval cost. */
 function checkHardCap(tier: 'e2e' | 'llm-judge'): void {
   const evalDir = getProjectEvalDir();
-  const latest = findLatestRun(evalDir, tier);
+  const latest = findLatestFinalizedRun(evalDir, tier);
   if (!latest) return;
   const cap = TIER_CAPS[tier];
   const cost = latest.result.total_cost_usd;

@@ -1,0 +1,125 @@
+name: Free Tests
+
+# The free suite (~400 files: test/, browse/test/, make-pdf/test/, design/test/)
+# had ZERO Linux CI coverage before this lane — only a curated Windows subset
+# ran anywhere. This job runs the whole thing through the canonical runner
+# (scripts/test-free-shards.ts): N concurrent shard processes (serial within
+# each, plus a trailing serial tree-mutating shard) with strict-output
+# classification per shard, so a truncated or summary-less run can never
+# report green.
+#
+# Deliberately SECRETLESS: free tests make no API calls, so this lane gets no
+# provider keys at all — least privilege, and fork PRs get real test signal
+# here (the eval matrix skips fork PRs because repository secrets can't reach
+# them). test/free-tests-workflow-wiring.test.ts fails CI if a secret sneaks in.
+#
+# This is a REQUIRED check from day one (branch protection lists it). If it's
+# red, fix or quarantine-with-issue — don't make it advisory; an advisory lane
+# is permanent false comfort.
+#
+# Sizing note (decision V3): single job first. If PR runs show it slower than
+# the eval matrix wall, switch to a matrix of `--shards N --shard i` jobs
+# (indices are stable, empty shards no-op).
+
+on:
+  pull_request:
+    branches: [main]
+  # Also on main pushes: two individually-green PRs can merge into a red
+  # main; without this nothing runs the free suite on main until the next PR.
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Keyed on the PR number, not head_ref: a bare branch name carries no fork
+# prefix, so same-name branches from two forks would share one group and a
+# push to fork B's PR would cancel fork A's in-flight REQUIRED check.
+concurrency:
+  group: free-tests-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+# Least privilege: this job executes PR-controlled code (install lifecycle
+# scripts + the test suite), so the GITHUB_TOKEN gets read-only contents and
+# the checkout doesn't persist it into .git/config.
+permissions:
+  contents: read
+
+jobs:
+  free-tests:
+    runs-on: ubicloud-standard-8
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+
+      - uses: actions/cache@v6
+        with:
+          path: ~/.bun/install/cache
+          key: linux-bun-${{ hashFiles('bun.lock') }}
+          # A lockfile bump starts from the previous cache instead of cold.
+          restore-keys: |
+            linux-bun-
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: linux-playwright-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            linux-playwright-
+
+      # Cache restores browser binaries; install is still required for system
+      # deps and is a fast no-op for already-present browsers.
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      # Headed-browser tests (handoff, extension sidepanel DOM) need a real
+      # DISPLAY — first Linux run failed with Playwright's "launched a headed
+      # browser without an XServer" banner. xvfb-run below provides it;
+      # x11-utils ships xdpyinfo for display probing.
+      - name: Install Xvfb + X11 utilities
+        run: sudo apt-get install -y --no-install-recommends xvfb x11-utils
+
+      - name: Configure git identity (tests init temp repos)
+        run: |
+          git config --global user.email "free-tests-ci@gstack.test"
+          git config --global user.name "Free Tests CI"
+          git config --global init.defaultBranch main
+          # Some tests run git against the checkout itself; CI checkouts can be
+          # owned by a different uid than the runner user.
+          git config --global --add safe.directory '*'
+
+      - name: Generate host SKILL.md outputs (.agents, .factory)
+        # Golden-file tests read generated host outputs that are gitignored.
+        run: bun run gen:skill-docs --host all
+
+      - name: Vendor xterm assets into the extension
+        # extension/lib/xterm* are gitignored (vendored from npm at build
+        # time). Without them the sidepanel's terminal script bails and the
+        # sidepanel DOM tests time out waiting on init that never happens.
+        run: bun run vendor:xterm
+
+      - name: Build server-node bundle (loaded by browse cli imports)
+        run: bash browse/scripts/build-node-server.sh
+
+      - name: Run free suite
+        run: xvfb-run -a bun run test:free
+
+      # The runner streams the full child output to per-run logs under the OS
+      # tmpdir and prints only the quiet contract to the console. Without this
+      # upload, a red required check names WHICH test failed but the why
+      # (assertion detail, stack) dies with the runner — every diagnosis would
+      # need a local re-run, which fork contributors can't do on this image.
+      - name: Upload shard logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: free-test-shard-logs
+          path: /tmp/gstack-free-test-*.log
+          if-no-files-found: ignore
