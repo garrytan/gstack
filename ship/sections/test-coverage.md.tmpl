@@ -1,0 +1,23 @@
+## Step 7: Test Coverage Audit
+
+**Dispatch this step as a subagent** using the Agent tool with `subagent_type: "general-purpose"`. The subagent runs the coverage audit in a fresh context window — the parent only sees the conclusion, not intermediate file reads. This is context-rot defense.
+
+**Subagent prompt:** Pass the following instructions to the subagent, with `<base>` substituted with the base branch:
+
+> You are running a ship-workflow test coverage audit. Run `git diff <base>...HEAD` as needed. Do not commit or push — report only.
+>
+> {{TEST_COVERAGE_AUDIT_SHIP}}
+>
+> After your analysis, output a single JSON object on the LAST LINE of your response (no other text after it):
+> `{"coverage_pct":N,"gaps":N,"diagram":"<full markdown coverage diagram for PR body>","tests_added":["path",...]}`
+
+**Parent processing:**
+
+1. Read the subagent's final output. Parse the LAST line as JSON.
+2. Store `coverage_pct` (for Step 20 metrics), `gaps` (user summary), `tests_added` (for the commit).
+3. Embed `diagram` verbatim in the PR body's `## Test Coverage` section (Step 19).
+4. Print a one-line summary: `Coverage: {coverage_pct}%, {gaps} gaps. {tests_added.length} tests added.`
+
+**If the subagent fails, times out, or returns invalid JSON:** Fall back to running the audit inline in the parent. Do not block /ship on subagent failure — partial results are better than none.
+
+---

@@ -1,12 +1,11 @@
 ---
 name: careful
 version: 0.1.0
-description: |
-  Safety guardrails for destructive commands. Warns before rm -rf, DROP TABLE,
-  force-push, git reset --hard, kubectl delete, and similar destructive operations.
-  User can override each warning. Use when touching prod, debugging live systems,
-  or working in a shared environment. Use when asked to "be careful", "safety mode",
-  "prod mode", or "careful mode".
+description: Safety guardrails for destructive commands. (gstack)
+triggers:
+  - be careful
+  - warn before destructive
+  - safety mode
 allowed-tools:
   - Bash
   - Read
@@ -15,11 +14,20 @@ hooks:
     - matcher: "Bash"
       hooks:
         - type: command
-          command: "bash ${CLAUDE_SKILL_DIR}/bin/check-careful.sh"
+          command: "bash $HOME/.claude/skills/gstack/careful/bin/check-careful.sh"
           statusMessage: "Checking for destructive commands..."
 ---
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
+
+
+## When to invoke this skill
+
+Warns before rm -rf, DROP TABLE,
+force-push, git reset --hard, kubectl delete, and similar destructive operations.
+User can override each warning. Use when touching prod, debugging live systems,
+or working in a shared environment. Use when asked to "be careful", "safety mode",
+"prod mode", or "careful mode".
 
 # /careful — Destructive Command Guardrails
 
@@ -53,7 +61,27 @@ These patterns are allowed without warning:
 ## How it works
 
 The hook reads the command from the tool input JSON, checks it against the
-patterns above, and returns `permissionDecision: "ask"` with a warning message
-if a match is found. You can always override the warning and proceed.
+patterns above, and returns a `hookSpecificOutput` payload with
+`permissionDecision: "ask"` and a warning reason if a match is found (the
+decision must be nested under `hookSpecificOutput` — Claude Code ignores a
+top-level `permissionDecision`). You can always override a MEDIUM warning and
+proceed.
+
+## HIGH tier (hard deny)
+
+Two catastrophic shapes are **denied**, not asked: `rm -r`/`-R` of exactly
+`/`, `~`, or `$HOME`, and force-push to the repo's **default branch**. SIMPLE
+commands only (no `;`, `&&`, `||`, `|`, newline) — compound shapes fall
+through to the MEDIUM ask; `--force-with-lease` is never HIGH. A best-effort
+advisory hard-stop, not a policy boundary: the escape hatch is ending the
+opt-in, session-scoped /careful session.
+
+## Project patterns (additive only)
+
+Add warn rules — one POSIX ERE per line, `#` comments OK — in
+`~/.gstack/careful-patterns.txt` (global) or
+`~/.gstack/projects/<slug>/careful-patterns.txt` (per-project). Consulted
+after the built-in families, so config can only ADD rules, never suppress a
+baseline warning. Invalid regex lines are skipped.
 
 To deactivate, end the conversation or start a new one. Hooks are session-scoped.

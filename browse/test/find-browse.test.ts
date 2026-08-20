@@ -47,4 +47,15 @@ describe('locateBinary', () => {
     expect(typeof locateBinary).toBe('function');
     expect(locateBinary.length).toBe(0);
   });
+
+  test('source-checkout fallback resolves <git-root>/browse/dist/browse[.exe]', () => {
+    // The windows-setup-e2e.yml workflow builds binaries directly under
+    // browse/dist/ (no .claude/skills/gstack/ install layout). find-browse
+    // must resolve those — otherwise every fresh build that hasn't run
+    // ./setup yet looks broken. Static pin so a future refactor that
+    // drops the source-checkout branch trips this test.
+    const src = require('fs').readFileSync(require('path').join(__dirname, '../src/find-browse.ts'), 'utf-8');
+    expect(src).toContain('Source-checkout fallback');
+    expect(src).toContain("join(root, 'browse', 'dist', 'browse')");
+  });
 });

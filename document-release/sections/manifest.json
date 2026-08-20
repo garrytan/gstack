@@ -1,0 +1,14 @@
+{
+  "$schema": "https://gstack.dev/schemas/section-manifest.json",
+  "skill": "document-release",
+  "version": 1,
+  "note": "PASSIVE registry (v2 plan T9 / CM2). id/file/title/trigger text ONLY. The skeleton's decision-tree prose decides WHEN to read. No machine predicate here.",
+  "sections": [
+    {
+      "id": "release-body",
+      "file": "release-body.md",
+      "title": "Per-file audit, auto-updates, risky-change asks, CHANGELOG voice polish, cross-doc consistency, TODOS cleanup, VERSION bump, commit + PR body (Steps 2-9)",
+      "trigger": "auditing each doc file and applying updates, polishing CHANGELOG voice, checking cross-doc consistency, cleaning up TODOS, the VERSION bump, and committing (Steps 2-9, after the coverage map in Step 1.5)"
+    }
+  ]
+}

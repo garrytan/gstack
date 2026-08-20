@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# gstack-ios-qa-mint — manage the tailnet allowlist for remote iOS QA agents.
+#
+# This is the owner-grant path: it writes identities into the local allowlist
+# so a remote agent on the tailnet can self-service mint a session token via
+# POST /auth/mint against the daemon.
+#
+# Run `gstack-ios-qa-mint --help` for full usage.
+#
+# Allowlist file: ~/.gstack/ios-qa-allowlist.json (mode 0600).
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+GSTACK_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+ENTRY="$GSTACK_DIR/ios-qa/daemon/src/cli-mint.ts"
+
+if [ ! -f "$ENTRY" ]; then
+  echo "gstack-ios-qa-mint: missing $ENTRY (gstack install incomplete?)" >&2
+  exit 1
+fi
+
+if ! command -v bun >/dev/null 2>&1; then
+  echo "gstack-ios-qa-mint: bun runtime not on PATH — install from https://bun.sh" >&2
+  exit 1
+fi
+
+exec bun run "$ENTRY" "$@"

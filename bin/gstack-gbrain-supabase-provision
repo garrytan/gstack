@@ -1,0 +1,29 @@
+#!/usr/bin/env -S bun run
+/**
+ * gstack-gbrain-supabase-provision — Supabase Management API wrapper for
+ * /setup-gbrain path 2a (auto-provision). Thin entry: all logic lives in
+ * lib/gbrain-supabase-provision.ts so tests can drive it in-process with
+ * injected fetch/env/sleep instead of spawning a process per test.
+ *
+ * Rewritten from bash to TypeScript; filename and exec semantics unchanged —
+ * callers shell out to this path and the bun shebang resolves at runtime
+ * (same pattern as bin/gstack-gbrain-detect). CLI surface, stdout/stderr
+ * shapes, env handling (SUPABASE_ACCESS_TOKEN / DB_PASS / SUPABASE_API_BASE),
+ * and exit codes are unchanged; run --help for the full contract.
+ *
+ * Egress receipts stay fail-closed at the API-call layer (sink
+ * "supabase-provision", receipt-before-send) — see the module header.
+ */
+
+import { runProvision } from '../lib/gbrain-supabase-provision';
+
+// exitCode, not process.exit(): exit() drops pending stdout writes, which
+// truncates piped JSON / large listings; setting exitCode lets writes drain
+// and the process exit naturally.
+runProvision(process.argv.slice(2)).then(
+  (code) => { process.exitCode = code; },
+  (error) => {
+    process.stderr.write(`gstack-gbrain-supabase-provision: ${(error as Error)?.stack ?? error}\n`);
+    process.exitCode = 1;
+  },
+);

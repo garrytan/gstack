@@ -1,0 +1,623 @@
+{
+  "tag": "v1.44.1",
+  "capturedAt": "2026-05-26T03:29:32.568Z",
+  "capturedFromCommit": "74bc8054",
+  "capturedFromBranch": "garrytan/slim-skill-tokens",
+  "totalSkills": 51,
+  "totalCorpusBytes": 2915151,
+  "estTotalCatalogTokens": 9319,
+  "topHeaviest": [
+    {
+      "skill": "ship",
+      "skillMdBytes": 163553,
+      "skillMdLines": 3094,
+      "estTokens": 40888,
+      "tmplBytes": 48869,
+      "descriptionLen": 557,
+      "hasGateEval": true,
+      "hasPeriodicEval": true
+    },
+    {
+      "skill": "plan-ceo-review",
+      "skillMdBytes": 130891,
+      "skillMdLines": 2224,
+      "estTokens": 32723,
+      "tmplBytes": 63393,
+      "descriptionLen": 1326,
+      "hasGateEval": true,
+      "hasPeriodicEval": true
+    },
+    {
+      "skill": "office-hours",
+      "skillMdBytes": 111088,
+      "skillMdLines": 2090,
+      "estTokens": 27772,
+      "tmplBytes": 55466,
+      "descriptionLen": 1579,
+      "hasGateEval": true,
+      "hasPeriodicEval": false
+    },
+    {
+      "skill": "plan-design-review",
+      "skillMdBytes": 105592,
+      "skillMdLines": 1944,
+      "estTokens": 26398,
+      "tmplBytes": 28624,
+      "descriptionLen": 568,
+      "hasGateEval": true,
+      "hasPeriodicEval": true
+    },
+    {
+      "skill": "plan-devex-review",
+      "skillMdBytes": 104571,
+      "skillMdLines": 2145,
+      "estTokens": 26143,
+      "tmplBytes": 35680,
+      "descriptionLen": 886,
+      "hasGateEval": true,
+      "hasPeriodicEval": true
+    },
+    {
+      "skill": "plan-eng-review",
+      "skillMdBytes": 101409,
+      "skillMdLines": 1788,
+      "estTokens": 25352,
+      "tmplBytes": 26234,
+      "descriptionLen": 743,
+      "hasGateEval": true,
+      "hasPeriodicEval": true
+    },
+    {
+      "skill": "design-review",
+      "skillMdBytes": 94055,
+      "skillMdLines": 1960,
+      "estTokens": 23514,
+      "tmplBytes": 11674,
+      "descriptionLen": 709,
+      "hasGateEval": true,
+      "hasPeriodicEval": false
+    },
+    {
+      "skill": "review",
+      "skillMdBytes": 92443,
+      "skillMdLines": 1789,
+      "estTokens": 23111,
+      "tmplBytes": 14099,
+      "descriptionLen": 512,
+      "hasGateEval": true,
+      "hasPeriodicEval": false
+    },
+    {
+      "skill": "land-and-deploy",
+      "skillMdBytes": 90281,
+      "skillMdLines": 1883,
+      "estTokens": 22570,
+      "tmplBytes": 48624,
+      "descriptionLen": 378,
+      "hasGateEval": true,
+      "hasPeriodicEval": false
+    },
+    {
+      "skill": "autoplan",
+      "skillMdBytes": 89274,
+      "skillMdLines": 1811,
+      "estTokens": 22319,
+      "tmplBytes": 45271,
+      "descriptionLen": 857,
+      "hasGateEval": true,
+      "hasPeriodicEval": true
+    }
+  ],
+  "skills": {
+    "autoplan": {
+      "skill": "autoplan",
+      "skillMdBytes": 89274,
+      "skillMdLines": 1811,
+      "estTokens": 22319,
+      "tmplBytes": 45271,
+      "descriptionLen": 857,
+      "hasGateEval": true,
+      "hasPeriodicEval": true
+    },
+    "benchmark": {
+      "skill": "benchmark",
+      "skillMdBytes": 32537,
+      "skillMdLines": 728,
+      "estTokens": 8134,
+      "tmplBytes": 9378,
+      "descriptionLen": 549,
+      "hasGateEval": true,
+      "hasPeriodicEval": false
+    },
+    "benchmark-models": {
+      "skill": "benchmark-models",
+      "skillMdBytes": 28606,
+      "skillMdLines": 603,
+      "estTokens": 7152,
+      "tmplBytes": 6631,
+      "descriptionLen": 740,
+      "hasGateEval": false,
+      "hasPeriodicEval": false
+    },
+    "browse": {
+      "skill": "browse",
+      "skillMdBytes": 47290,
+      "skillMdLines": 911,
+      "estTokens": 11823,
+      "tmplBytes": 10805,
+      "descriptionLen": 612,
+      "hasGateEval": true,
+      "hasPeriodicEval": false
+    },
+    "canary": {
+      "skill": "canary",
+      "skillMdBytes": 45502,
+      "skillMdLines": 1017,
+      "estTokens": 11376,
+      "tmplBytes": 8033,
+      "descriptionLen": 477,
+      "hasGateEval": true,
+      "hasPeriodicEval": false
+    },
+    "careful": {
+      "skill": "careful",
+      "skillMdBytes": 2531,
+      "skillMdLines": 64,
+      "estTokens": 633,
+      "tmplBytes": 2435,
+      "descriptionLen": 625,
+      "hasGateEval": false,
+      "hasPeriodicEval": false
+    },
+    "codex": {
+      "skill": "codex",
+      "skillMdBytes": 78018,
+      "skillMdLines": 1545,
+      "estTokens": 19505,
+      "tmplBytes": 34143,
+      "descriptionLen": 626,
+      "hasGateEval": true,
+      "hasPeriodicEval": false
+    },
+    "context-restore": {
+      "skill": "context-restore",
+      "skillMdBytes": 39894,
+      "skillMdLines": 875,
+      "estTokens": 9974,
+      "tmplBytes": 5255,
+      "descriptionLen": 636,
+      "hasGateEval": true,
+      "hasPeriodicEval": false
+    },
+    "context-save": {
+      "skill": "context-save",
+      "skillMdBytes": 44091,
+      "skillMdLines": 994,
+      "estTokens": 11023,
+      "tmplBytes": 9293,
+      "descriptionLen": 562,
+      "hasGateEval": true,
+      "hasPeriodicEval": false
+    },
+    "cso": {
+      "skill": "cso",
+      "skillMdBytes": 75797,
+      "skillMdLines": 1477,
+      "estTokens": 18949,
+      "tmplBytes": 35158,
+      "descriptionLen": 774,
+      "hasGateEval": true,
+      "hasPeriodicEval": false
+    },
+    "design-consultation": {
+      "skill": "design-consultation",
+      "skillMdBytes": 76963,
+      "skillMdLines": 1578,
+      "estTokens": 19241,
+      "tmplBytes": 25899,
+      "descriptionLen": 1201,
+      "hasGateEval": true,
+      "hasPeriodicEval": false
+    },
+    "design-html": {
+      "skill": "design-html",
+      "skillMdBytes": 64951,
+      "skillMdLines": 1476,
+      "estTokens": 16238,
+      "tmplBytes": 22567,
+      "descriptionLen": 870,
+      "hasGateEval": false,
+      "hasPeriodicEval": false
+    },
+    "design-review": {
+      "skill": "design-review",
+      "skillMdBytes": 94055,
+      "skillMdLines": 1960,
+      "estTokens": 23514,
+      "tmplBytes": 11674,
+      "descriptionLen": 709,
+      "hasGateEval": true,
+      "hasPeriodicEval": false
+    },
+    "design-shotgun": {
+      "skill": "design-shotgun",
+      "skillMdBytes": 60571,
+      "skillMdLines": 1327,
+      "estTokens": 15143,
+      "tmplBytes": 13331,
+      "descriptionLen": 1057,
+      "hasGateEval": false,
+      "hasPeriodicEval": false
+    },
+    "devex-review": {
+      "skill": "devex-review",
+      "skillMdBytes": 62815,
+      "skillMdLines": 1259,
+      "estTokens": 15704,
+      "tmplBytes": 7984,
+      "descriptionLen": 827,
+      "hasGateEval": false,
+      "hasPeriodicEval": false
+    },
+    "document-generate": {
+      "skill": "document-generate",
+      "skillMdBytes": 51386,
+      "skillMdLines": 1204,
+      "estTokens": 12847,
+      "tmplBytes": 15093,
+      "descriptionLen": 671,
+      "hasGateEval": false,
+      "hasPeriodicEval": false
+    },
+    "document-release": {
+      "skill": "document-release",
+      "skillMdBytes": 56652,
+      "skillMdLines": 1262,
+      "estTokens": 14163,
+      "tmplBytes": 20362,
+      "descriptionLen": 707,
+      "hasGateEval": true,
+      "hasPeriodicEval": false
+    },
+    "freeze": {
+      "skill": "freeze",
+      "skillMdBytes": 3134,
+      "skillMdLines": 88,
+      "estTokens": 784,
+      "tmplBytes": 3038,
+      "descriptionLen": 761,
+      "hasGateEval": false,
+      "hasPeriodicEval": false
+    },
+    "gstack-upgrade": {
+      "skill": "gstack-upgrade",
+      "skillMdBytes": 10794,
+      "skillMdLines": 280,
+      "estTokens": 2699,
+      "tmplBytes": 10667,
+      "descriptionLen": 439,
+      "hasGateEval": true,
+      "hasPeriodicEval": false
+    },
+    "guard": {
+      "skill": "guard",
+      "skillMdBytes": 3277,
+      "skillMdLines": 88,
+      "estTokens": 819,
+      "tmplBytes": 3181,
+      "descriptionLen": 968,
+      "hasGateEval": false,
+      "hasPeriodicEval": false
+    },
+    "health": {
+      "skill": "health",
+      "skillMdBytes": 46313,
+      "skillMdLines": 1041,
+      "estTokens": 11578,
+      "tmplBytes": 11617,
+      "descriptionLen": 463,
+      "hasGateEval": true,
+      "hasPeriodicEval": false
+    },
+    "investigate": {
+      "skill": "investigate",
+      "skillMdBytes": 48810,
+      "skillMdLines": 1039,
+      "estTokens": 12203,
+      "tmplBytes": 11561,
+      "descriptionLen": 1811,
+      "hasGateEval": true,
+      "hasPeriodicEval": false
+    },
+    "ios-clean": {
+      "skill": "ios-clean",
+      "skillMdBytes": 39447,
+      "skillMdLines": 840,
+      "estTokens": 9862,
+      "tmplBytes": 3851,
+      "descriptionLen": 761,
+      "hasGateEval": false,
+      "hasPeriodicEval": false
+    },
+    "ios-design-review": {
+      "skill": "ios-design-review",
+      "skillMdBytes": 40037,
+      "skillMdLines": 841,
+      "estTokens": 10009,
+      "tmplBytes": 4417,
+      "descriptionLen": 836,
+      "hasGateEval": false,
+      "hasPeriodicEval": false
+    },
+    "ios-fix": {
+      "skill": "ios-fix",
+      "skillMdBytes": 39164,
+      "skillMdLines": 837,
+      "estTokens": 9791,
+      "tmplBytes": 3574,
+      "descriptionLen": 767,
+      "hasGateEval": false,
+      "hasPeriodicEval": false
+    },
+    "ios-qa": {
+      "skill": "ios-qa",
+      "skillMdBytes": 45677,
+      "skillMdLines": 957,
+      "estTokens": 11419,
+      "tmplBytes": 10090,
+      "descriptionLen": 875,
+      "hasGateEval": true,
+      "hasPeriodicEval": false
+    },
+    "ios-sync": {
+      "skill": "ios-sync",
+      "skillMdBytes": 39137,
+      "skillMdLines": 831,
+      "estTokens": 9784,
+      "tmplBytes": 3544,
+      "descriptionLen": 727,
+      "hasGateEval": false,
+      "hasPeriodicEval": false
+    },
+    "land-and-deploy": {
+      "skill": "land-and-deploy",
+      "skillMdBytes": 90281,
+      "skillMdLines": 1883,
+      "estTokens": 22570,
+      "tmplBytes": 48624,
+      "descriptionLen": 378,
+      "hasGateEval": true,
+      "hasPeriodicEval": false
+    },
+    "landing-report": {
+      "skill": "landing-report",
+      "skillMdBytes": 42382,
+      "skillMdLines": 901,
+      "estTokens": 10596,
+      "tmplBytes": 6806,
+      "descriptionLen": 512,
+      "hasGateEval": false,
+      "hasPeriodicEval": false
+    },
+    "learn": {
+      "skill": "learn",
+      "skillMdBytes": 40119,
+      "skillMdLines": 918,
+      "estTokens": 10030,
+      "tmplBytes": 5594,
+      "descriptionLen": 460,
+      "hasGateEval": true,
+      "hasPeriodicEval": false
+    },
+    "make-pdf": {
+      "skill": "make-pdf",
+      "skillMdBytes": 28721,
+      "skillMdLines": 644,
+      "estTokens": 7180,
+      "tmplBytes": 5106,
+      "descriptionLen": 698,
+      "hasGateEval": false,
+      "hasPeriodicEval": false
+    },
+    "office-hours": {
+      "skill": "office-hours",
+      "skillMdBytes": 111088,
+      "skillMdLines": 2090,
+      "estTokens": 27772,
+      "tmplBytes": 55466,
+      "descriptionLen": 1579,
+      "hasGateEval": true,
+      "hasPeriodicEval": false
+    },
+    "open-gstack-browser": {
+      "skill": "open-gstack-browser",
+      "skillMdBytes": 44529,
+      "skillMdLines": 981,
+      "estTokens": 11132,
+      "tmplBytes": 7702,
+      "descriptionLen": 586,
+      "hasGateEval": false,
+      "hasPeriodicEval": false
+    },
+    "pair-agent": {
+      "skill": "pair-agent",
+      "skillMdBytes": 45339,
+      "skillMdLines": 1036,
+      "estTokens": 11335,
+      "tmplBytes": 8548,
+      "descriptionLen": 709,
+      "hasGateEval": false,
+      "hasPeriodicEval": false
+    },
+    "plan-ceo-review": {
+      "skill": "plan-ceo-review",
+      "skillMdBytes": 130891,
+      "skillMdLines": 2224,
+      "estTokens": 32723,
+      "tmplBytes": 63393,
+      "descriptionLen": 1326,
+      "hasGateEval": true,
+      "hasPeriodicEval": true
+    },
+    "plan-design-review": {
+      "skill": "plan-design-review",
+      "skillMdBytes": 105592,
+      "skillMdLines": 1944,
+      "estTokens": 26398,
+      "tmplBytes": 28624,
+      "descriptionLen": 568,
+      "hasGateEval": true,
+      "hasPeriodicEval": true
+    },
+    "plan-devex-review": {
+      "skill": "plan-devex-review",
+      "skillMdBytes": 104571,
+      "skillMdLines": 2145,
+      "estTokens": 26143,
+      "tmplBytes": 35680,
+      "descriptionLen": 886,
+      "hasGateEval": true,
+      "hasPeriodicEval": true
+    },
+    "plan-eng-review": {
+      "skill": "plan-eng-review",
+      "skillMdBytes": 101409,
+      "skillMdLines": 1788,
+      "estTokens": 25352,
+      "tmplBytes": 26234,
+      "descriptionLen": 743,
+      "hasGateEval": true,
+      "hasPeriodicEval": true
+    },
+    "plan-tune": {
+      "skill": "plan-tune",
+      "skillMdBytes": 50123,
+      "skillMdLines": 1105,
+      "estTokens": 12531,
+      "tmplBytes": 15586,
+      "descriptionLen": 997,
+      "hasGateEval": true,
+      "hasPeriodicEval": false
+    },
+    "qa": {
+      "skill": "qa",
+      "skillMdBytes": 72267,
+      "skillMdLines": 1648,
+      "estTokens": 18067,
+      "tmplBytes": 12701,
+      "descriptionLen": 814,
+      "hasGateEval": true,
+      "hasPeriodicEval": false
+    },
+    "qa-only": {
+      "skill": "qa-only",
+      "skillMdBytes": 54819,
+      "skillMdLines": 1220,
+      "estTokens": 13705,
+      "tmplBytes": 3851,
+      "descriptionLen": 605,
+      "hasGateEval": true,
+      "hasPeriodicEval": false
+    },
+    "retro": {
+      "skill": "retro",
+      "skillMdBytes": 81286,
+      "skillMdLines": 1777,
+      "estTokens": 20322,
+      "tmplBytes": 42427,
+      "descriptionLen": 979,
+      "hasGateEval": true,
+      "hasPeriodicEval": false
+    },
+    "review": {
+      "skill": "review",
+      "skillMdBytes": 92443,
+      "skillMdLines": 1789,
+      "estTokens": 23111,
+      "tmplBytes": 14099,
+      "descriptionLen": 512,
+      "hasGateEval": true,
+      "hasPeriodicEval": false
+    },
+    "scrape": {
+      "skill": "scrape",
+      "skillMdBytes": 42040,
+      "skillMdLines": 914,
+      "estTokens": 10510,
+      "tmplBytes": 5220,
+      "descriptionLen": 519,
+      "hasGateEval": true,
+      "hasPeriodicEval": false
+    },
+    "setup-browser-cookies": {
+      "skill": "setup-browser-cookies",
+      "skillMdBytes": 25886,
+      "skillMdLines": 577,
+      "estTokens": 6472,
+      "tmplBytes": 2724,
+      "descriptionLen": 433,
+      "hasGateEval": false,
+      "hasPeriodicEval": false
+    },
+    "setup-deploy": {
+      "skill": "setup-deploy",
+      "skillMdBytes": 42326,
+      "skillMdLines": 946,
+      "estTokens": 10582,
+      "tmplBytes": 7780,
+      "descriptionLen": 564,
+      "hasGateEval": true,
+      "hasPeriodicEval": false
+    },
+    "setup-gbrain": {
+      "skill": "setup-gbrain",
+      "skillMdBytes": 76791,
+      "skillMdLines": 1733,
+      "estTokens": 19198,
+      "tmplBytes": 42245,
+      "descriptionLen": 512,
+      "hasGateEval": true,
+      "hasPeriodicEval": false
+    },
+    "ship": {
+      "skill": "ship",
+      "skillMdBytes": 163553,
+      "skillMdLines": 3094,
+      "estTokens": 40888,
+      "tmplBytes": 48869,
+      "descriptionLen": 557,
+      "hasGateEval": true,
+      "hasPeriodicEval": true
+    },
+    "skillify": {
+      "skill": "skillify",
+      "skillMdBytes": 51935,
+      "skillMdLines": 1196,
+      "estTokens": 12984,
+      "tmplBytes": 15107,
+      "descriptionLen": 571,
+      "hasGateEval": true,
+      "hasPeriodicEval": false
+    },
+    "sync-gbrain": {
+      "skill": "sync-gbrain",
+      "skillMdBytes": 48555,
+      "skillMdLines": 1057,
+      "estTokens": 12139,
+      "tmplBytes": 13996,
+      "descriptionLen": 510,
+      "hasGateEval": false,
+      "hasPeriodicEval": false
+    },
+    "unfreeze": {
+      "skill": "unfreeze",
+      "skillMdBytes": 1482,
+      "skillMdLines": 46,
+      "estTokens": 371,
+      "tmplBytes": 1386,
+      "descriptionLen": 350,
+      "hasGateEval": false,
+      "hasPeriodicEval": false
+    }
+  }
+}

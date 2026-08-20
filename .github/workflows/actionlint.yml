@@ -1,0 +1,32 @@
+name: Workflow Lint
+# push is main-only: a push to a PR branch already fires the pull_request run;
+# the unrestricted push trigger double-ran every PR commit.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel superseded runs for the same branch (matches evals.yml,
+# windows-free-tests.yml, etc.). head_ref is set on pull_request; ref_name is
+# the fallback for push so a rapid push series doesn't pile up stale lint runs.
+concurrency:
+  group: actionlint-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+# Lint needs nothing from the token; the job runs a third-party image with
+# the checkout mounted, so keep the grant read-only and out of .git/config.
+permissions:
+  contents: read
+
+jobs:
+  actionlint:
+    runs-on: ubicloud-standard-2
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      # Pull the prebuilt image instead of rhysd/actionlint@v1.7.11 (a Docker
+      # action that rebuilt from source every run: 16s of a 44s job for 1s of
+      # lint). Pinned by DIGEST: a Docker Hub tag is repointable with no
+      # GitHub-side audit trail, and this image sees the mounted checkout.
+      - run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.11@sha256:6f03470d0152251d7f07f7c4dc019dbe7024c72cd952f839544c7798843efa8f -color

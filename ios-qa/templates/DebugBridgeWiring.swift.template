@@ -1,0 +1,59 @@
+// AUTO-GENERATED from gstack/ios-qa/templates/DebugBridgeWiring.swift.template
+//
+// Wiring snippet for the app's @main entry. Users paste this into their
+// App.swift inside the `init()` of the SwiftUI App struct, gated by
+// #if DEBUG. The wiring is intentionally tiny; everything heavy lives in
+// the DebugBridge target.
+
+#if DEBUG
+import Foundation
+import DebugBridgeCore
+#if canImport(UIKit)
+import DebugBridgeUI
+#endif
+
+@MainActor
+func startGstackDebugBridge<State>(
+    appState: State,
+    register: (State) -> Void
+) {
+    // Read --recording flag from launch arguments
+    let recording = ProcessInfo.processInfo.arguments.contains("--gstack-recording")
+
+    // Install the UI resolvers before opening the listener. A warm daemon can
+    // issue its first request as soon as StateServer starts; it must never see
+    // the default empty screenshot/elements/mutation handlers.
+    #if canImport(UIKit)
+    DebugBridgeUIWiring.installAll()
+    #endif
+
+    // Generated typed accessors live in the app target, so pass their register
+    // function into the package instead of asking DebugBridgeCore to import
+    // app-owned types.
+    DebugBridgeManager.shared.start(appState: appState, register: register)
+
+    #if canImport(UIKit)
+    DebugOverlayWindow.shared.install(recording: recording)
+    #endif
+}
+#endif
+
+// Example usage in the app's @main entry (paste this into App.swift):
+//
+//   @main
+//   struct MyApp: App {
+//       @State private var appState = MyAppState()
+//
+//       init() {
+//           #if DEBUG
+//           startGstackDebugBridge(
+//               appState: appState,
+//               register: MyAppStateAccessor.register
+//           )
+//           #endif
+//       }
+//
+//       var body: some Scene {
+//           WindowGroup { ContentView() }
+//       }
+//   }

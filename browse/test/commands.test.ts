@@ -9,13 +9,110 @@ import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { startTestServer } from './test-server';
 import { BrowserManager } from '../src/browser-manager';
 import { resolveServerScript } from '../src/cli';
-import { handleReadCommand } from '../src/read-commands';
-import { handleWriteCommand } from '../src/write-commands';
+import { handleReadCommand as _handleReadCommand, parseOutArgs, hasOutArg, resultToString } from '../src/read-commands';
+import { handleWriteCommand as _handleWriteCommand } from '../src/write-commands';
 import { handleMetaCommand } from '../src/meta-commands';
+import { WRITE_COMMANDS, READ_COMMANDS, META_COMMANDS, PAGE_CONTENT_COMMANDS, wrapUntrustedContent } from '../src/commands';
 import { consoleBuffer, networkBuffer, dialogBuffer, addConsoleEntry, addNetworkEntry, addDialogEntry, CircularBuffer } from '../src/buffers';
 import * as fs from 'fs';
 import { spawn } from 'child_process';
 import * as path from 'path';
+
+// Thin wrappers that bridge old test calls (bm as 3rd arg) to new signatures (session + bm)
+const handleReadCommand = (cmd: string, args: string[], b: BrowserManager) =>
+  _handleReadCommand(cmd, args, b.getActiveSession(), b);
+const handleWriteCommand = (cmd: string, args: string[], b: BrowserManager) =>
+  _handleWriteCommand(cmd, args, b.getActiveSession(), b);
+
+// Chain routes every subcommand through the server's executeCommand pipeline in
+// production (the direct-dispatch fallback was deleted — it skipped the security
+// gates). Tests mirror the pipeline minimally: real handlers + trust-wrapping,
+// server-shaped {status, result} envelope.
+function makeChainExecute(b: BrowserManager) {
+  return async (body: { command: string; args?: string[] }) => {
+    const name = body.command;
+    const args = body.args ?? [];
+    try {
+      let result: string;
+      if (WRITE_COMMANDS.has(name)) {
+        result = await _handleWriteCommand(name, args, b.getActiveSession(), b);
+      } else if (READ_COMMANDS.has(name)) {
+        result = await _handleReadCommand(name, args, b.getActiveSession(), b);
+        if (PAGE_CONTENT_COMMANDS.has(name)) {
+          result = wrapUntrustedContent(result, b.getCurrentUrl());
+        }
+      } else if (META_COMMANDS.has(name)) {
+        result = await handleMetaCommand(name, args, b, async () => {});
+      } else {
+        return { status: 404, result: JSON.stringify({ error: `Unknown command: ${name}` }) };
+      }
+      return { status: 200, result };
+    } catch (err: any) {
+      return { status: 500, result: JSON.stringify({ error: err.message }) };
+    }
+  };
+}
+const chainMeta = (b: BrowserManager, args: string[]) =>
+  handleMetaCommand('chain', args, b, async () => {}, null, { executeCommand: makeChainExecute(b) });
+
+// ─── Pure arg-parser + result-conversion unit tests (no browser) ───
+describe('parseOutArgs / hasOutArg', () => {
+  test('--out <path> splits the flag from the positional', () => {
+    expect(parseOutArgs(['expr', '--out', '/tmp/x'])).toEqual({ outPath: '/tmp/x', raw: false, rest: ['expr'] });
+  });
+
+  test('--out=<path> form is equivalent', () => {
+    expect(parseOutArgs(['expr', '--out=/tmp/x'])).toEqual({ outPath: '/tmp/x', raw: false, rest: ['expr'] });
+  });
+
+  test('flag ordering does not matter', () => {
+    expect(parseOutArgs(['--out', '/tmp/x', 'expr'])).toEqual({ outPath: '/tmp/x', raw: false, rest: ['expr'] });
+  });
+
+  test('--raw and --raw=true|false', () => {
+    expect(parseOutArgs(['e', '--out', '/tmp/x', '--raw']).raw).toBe(true);
+    expect(parseOutArgs(['e', '--out', '/tmp/x', '--raw=true']).raw).toBe(true);
+    expect(parseOutArgs(['e', '--out', '/tmp/x', '--raw=false']).raw).toBe(false);
+  });
+
+  test('repeated --out throws', () => {
+    expect(() => parseOutArgs(['e', '--out', '/a', '--out', '/b'])).toThrow(/more than once/);
+  });
+
+  test('--out with a missing value throws', () => {
+    expect(() => parseOutArgs(['e', '--out'])).toThrow(/requires a file path/);
+    expect(() => parseOutArgs(['e', '--out', '--raw'])).toThrow(/requires a file path/);
+    expect(() => parseOutArgs(['e', '--out='])).toThrow(/requires a file path/);
+  });
+
+  test('bad --raw value throws', () => {
+    expect(() => parseOutArgs(['e', '--out', '/a', '--raw=maybe'])).toThrow(/--raw must be true or false/);
+  });
+
+  test('hasOutArg matches --out and --out= exactly, not lookalikes', () => {
+    expect(hasOutArg(['a', '--out', 'b'])).toBe(true);
+    expect(hasOutArg(['a', '--out=b'])).toBe(true);
+    expect(hasOutArg(['a'])).toBe(false);
+    expect(hasOutArg(['a', '--output', 'b'])).toBe(false);
+    expect(hasOutArg(['a', '--outx'])).toBe(false);
+  });
+});
+
+describe('resultToString — byte-for-byte with pre-refactor behavior', () => {
+  test('null becomes "null" (typeof null === object → JSON.stringify)', () => {
+    expect(resultToString(null)).toBe('null');
+  });
+  test('undefined becomes empty string', () => {
+    expect(resultToString(undefined)).toBe('');
+  });
+  test('objects are pretty-printed JSON', () => {
+    expect(resultToString({ a: 1 })).toBe(JSON.stringify({ a: 1 }, null, 2));
+  });
+  test('primitives use String()', () => {
+    expect(resultToString(42)).toBe('42');
+    expect(resultToString(true)).toBe('true');
+  });
+});
 
 let testServer: ReturnType<typeof startTestServer>;
 let bm: BrowserManager;
@@ -29,11 +126,14 @@ beforeAll(async () => {
   await bm.launch();
 });
 
-afterAll(() => {
-  // Force kill browser instead of graceful close (avoids hang)
-  try { testServer.server.stop(); } catch {}
-  // bm.close() can hang — just let process exit handle it
-  setTimeout(() => process.exit(0), 500);
+afterAll(async () => {
+  try { testServer.server.stop(true); } catch {}  // force-close keep-alives — a lingering Chromium connection otherwise blocks stop() forever
+  // Close only this file's own browser — never process.exit(): bun test runs
+  // all files in one process, so a delayed exit kills the whole suite
+  // (see test/no-suicide-exit.test.ts). close() can hang when the browser
+  // already died, and its internal 5s timeout ties bun's 5s hook timeout —
+  // so race it at 3s and abandon; the child is reaped at process exit.
+  try { await Promise.race([bm?.close(), new Promise((resolve) => setTimeout(resolve, 3000))]); } catch {}
 });
 
 // ─── Navigation ─────────────────────────────────────────────────
@@ -219,6 +319,102 @@ describe('Inspection', () => {
     expect(result).toBe('3');
   });
 
+  // ─── js/eval --out (render-to-file) ───────────────────────────
+
+  test('js (no --out) returns a multi-MB string without truncation', async () => {
+    // Handler-level guarantee: the result is not sliced/capped before return.
+    // (Full HTTP egress path is exercised elsewhere; this pins the handler.)
+    const result = await handleReadCommand('js', ["'x'.repeat(3 * 1024 * 1024)"], bm);
+    expect(result.length).toBe(3 * 1024 * 1024);
+  });
+
+  test('js --out writes the result to disk and returns a short status, not the payload', async () => {
+    const out = `/tmp/browse-out-large-${Date.now()}.txt`;
+    try {
+      const result = await handleReadCommand('js', ["'y'.repeat(2 * 1024 * 1024)", '--out', out], bm);
+      expect(result).toContain('JS result written:');
+      expect(result).toContain(out);
+      expect(result).toContain(`(${2 * 1024 * 1024} bytes)`);
+      expect(result.length).toBeLessThan(200); // status, not the 2MB payload
+      expect(fs.statSync(out).size).toBe(2 * 1024 * 1024);
+    } finally {
+      fs.rmSync(out, { force: true });
+    }
+  });
+
+  test('js --out decodes a base64 PNG data URL to real bytes', async () => {
+    // 1x1 transparent PNG.
+    const b64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+    const out = `/tmp/browse-out-png-${Date.now()}.png`;
+    try {
+      const result = await handleReadCommand('js', [`'data:image/png;base64,' + '${b64}'`, '--out', out], bm);
+      const buf = fs.readFileSync(out);
+      // PNG magic bytes: 89 50 4E 47
+      expect([buf[0], buf[1], buf[2], buf[3]]).toEqual([0x89, 0x50, 0x4e, 0x47]);
+      const expectedLen = Buffer.from(b64, 'base64').length;
+      expect(buf.length).toBe(expectedLen);
+      expect(result).toContain(`(${expectedLen} bytes)`);
+    } finally {
+      fs.rmSync(out, { force: true });
+    }
+  });
+
+  test('js --out --raw writes the literal data-URL string (no decode)', async () => {
+    const dataUrl = 'data:text/plain;base64,aGVsbG8=';
+    const out = `/tmp/browse-out-raw-${Date.now()}.txt`;
+    try {
+      await handleReadCommand('js', [`'${dataUrl}'`, '--out', out, '--raw'], bm);
+      expect(fs.readFileSync(out, 'utf-8')).toBe(dataUrl);
+    } finally {
+      fs.rmSync(out, { force: true });
+    }
+  });
+
+  test('js --out throws on a malformed base64 data URL instead of writing corrupt bytes', async () => {
+    const out = `/tmp/browse-out-bad-${Date.now()}.png`;
+    try {
+      await expect(
+        handleReadCommand('js', ["'data:image/png;base64,!!!not-base64!!!'", '--out', out], bm)
+      ).rejects.toThrow(/malformed base64/);
+      expect(fs.existsSync(out)).toBe(false);
+    } finally {
+      fs.rmSync(out, { force: true });
+    }
+  });
+
+  test('js --out rejects a path outside the safe directories', async () => {
+    await expect(
+      handleReadCommand('js', ['1 + 1', '--out', '/etc/browse-should-not-write.txt'], bm)
+    ).rejects.toThrow();
+  });
+
+  test('js --out creates a missing parent directory', async () => {
+    // validateOutputPath resolves the parent's realpath, so it permits one level
+    // of missing dir under a safe root (/tmp). mkdir then materializes it.
+    const root = `/tmp/browse-out-nested-${Date.now()}`;
+    const out = `${root}/result.txt`;
+    try {
+      await handleReadCommand('js', ["'nested'", '--out', out], bm);
+      expect(fs.readFileSync(out, 'utf-8')).toBe('nested');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('eval --out writes the file result to disk (parity with js)', async () => {
+    const script = `/tmp/browse-eval-out-src-${Date.now()}.js`;
+    const out = `/tmp/browse-eval-out-${Date.now()}.txt`;
+    fs.writeFileSync(script, "'from eval'");
+    try {
+      const result = await handleReadCommand('eval', [script, '--out', out], bm);
+      expect(result).toContain('Eval result written:');
+      expect(fs.readFileSync(out, 'utf-8')).toBe('from eval');
+    } finally {
+      fs.rmSync(script, { force: true });
+      fs.rmSync(out, { force: true });
+    }
+  });
+
   test('css returns computed property', async () => {
     const result = await handleReadCommand('css', ['h1', 'color'], bm);
     // Navy color
@@ -386,10 +582,42 @@ describe('Cookies and storage', () => {
   });
 
   test('storage set and get works', async () => {
-    await handleReadCommand('storage', ['set', 'testKey', 'testValue'], bm);
+    await handleReadCommand('storage', ['set', 'testData', 'testValue'], bm);
     const result = await handleReadCommand('storage', [], bm);
     const storage = JSON.parse(result);
-    expect(storage.localStorage.testKey).toBe('testValue');
+    expect(storage.localStorage.testData).toBe('testValue');
+  });
+
+  test('storage read redacts sensitive keys', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
+    await handleReadCommand('storage', ['set', 'auth_token', 'my-secret-token'], bm);
+    await handleReadCommand('storage', ['set', 'api_key', 'key-12345'], bm);
+    await handleReadCommand('storage', ['set', 'displayName', 'normalValue'], bm);
+    const result = await handleReadCommand('storage', [], bm);
+    const storage = JSON.parse(result);
+    expect(storage.localStorage.auth_token).toMatch(/REDACTED/);
+    expect(storage.localStorage.api_key).toMatch(/REDACTED/);
+    expect(storage.localStorage.displayName).toBe('normalValue');
+  });
+
+  test('storage read redacts sensitive values by prefix', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
+    // JWT value under innocuous key name
+    await handleReadCommand('storage', ['set', 'userData', 'eyJhbGciOiJIUzI1NiJ9.payload.sig'], bm);
+    // GitHub PAT under innocuous key name
+    await handleReadCommand('storage', ['set', 'repoAccess', 'ghp_abc123def456'], bm);
+    const result = await handleReadCommand('storage', [], bm);
+    const storage = JSON.parse(result);
+    expect(storage.localStorage.userData).toMatch(/REDACTED/);
+    expect(storage.localStorage.repoAccess).toMatch(/REDACTED/);
+  });
+
+  test('storage redaction includes value length', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
+    await handleReadCommand('storage', ['set', 'session_token', 'abc123'], bm);
+    const result = await handleReadCommand('storage', [], bm);
+    const storage = JSON.parse(result);
+    expect(storage.localStorage.session_token).toBe('[REDACTED — 6 chars]');
   });
 });
 
@@ -511,6 +739,17 @@ describe('Visual', () => {
     }
   });
 
+  test('screenshot treats relative dot-slash path as file path, not CSS selector', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
+    // ./path/to/file.png must be treated as output path, not a CSS class selector (#495)
+    const relPath = './browse-test-dotpath.png';
+    const absPath = path.resolve(relPath);
+    const result = await handleMetaCommand('screenshot', [relPath], bm, async () => {});
+    expect(result).toContain('Screenshot saved');
+    expect(fs.existsSync(absPath)).toBe(true);
+    fs.unlinkSync(absPath);
+  });
+
   test('screenshot with nonexistent selector throws timeout', async () => {
     await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
     try {
@@ -600,17 +839,24 @@ describe('Chain', () => {
       ['js', 'document.title'],
       ['css', 'h1', 'color'],
     ]);
-    const result = await handleMetaCommand('chain', [commands], bm, async () => {});
+    const result = await chainMeta(bm, [commands]);
     expect(result).toContain('[goto]');
     expect(result).toContain('Test Page - Basic');
     expect(result).toContain('[css]');
+  });
+
+  test('chain wraps page-content sub-commands with trust markers', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
+    const result = await chainMeta(bm, ['text']);
+    expect(result).toContain('BEGIN UNTRUSTED EXTERNAL CONTENT');
+    expect(result).toContain('END UNTRUSTED EXTERNAL CONTENT');
   });
 
   test('chain reports real error when write command fails', async () => {
     const commands = JSON.stringify([
       ['goto', 'http://localhost:1/unreachable'],
     ]);
-    const result = await handleMetaCommand('chain', [commands], bm, async () => {});
+    const result = await chainMeta(bm, [commands]);
     expect(result).toContain('[goto] ERROR:');
     expect(result).not.toContain('Unknown meta command');
     expect(result).not.toContain('Unknown read command');
@@ -670,7 +916,10 @@ describe('CLI lifecycle', () => {
     cliEnv.BROWSE_STATE_FILE = stateFile;
     const result = await new Promise<{ code: number; stdout: string; stderr: string }>((resolve) => {
       const proc = spawn('bun', ['run', cliPath, 'status'], {
-        timeout: 15000,
+        // Must exceed the CLI's startup budget (resolveStartTimeout, 15s
+        // non-CI POSIX) or a slow cold boot under full-suite load gets the
+        // child killed at the exact moment the CLI would have succeeded.
+        timeout: 18000,
         env: cliEnv,
       });
       let stdout = '';
@@ -1291,18 +1540,17 @@ describe('Errors', () => {
     }
   });
 
-  test('chain with invalid JSON throws', async () => {
-    try {
-      await handleMetaCommand('chain', ['not json'], bm, async () => {});
-      expect(true).toBe(false);
-    } catch (err: any) {
-      expect(err.message).toContain('Invalid JSON');
-    }
+  test('chain with invalid JSON falls back to pipe format', async () => {
+    // Non-JSON input is now treated as pipe-delimited format
+    // 'not json' → [["not", "json"]] → "not" is unknown command → error in result
+    const result = await chainMeta(bm, ['not json']);
+    expect(result).toContain('ERROR');
+    expect(result).toContain('Unknown command: not');
   });
 
   test('chain with no arg throws', async () => {
     try {
-      await handleMetaCommand('chain', [], bm, async () => {});
+      await chainMeta(bm, []);
       expect(true).toBe(false);
     } catch (err: any) {
       expect(err.message).toContain('Usage');
@@ -1528,7 +1776,8 @@ describe('Cookie import', () => {
   test('cookie-import preserves explicit domain', async () => {
     await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
     const tempFile = '/tmp/browse-test-cookies-domain.json';
-    const cookies = [{ name: 'explicit', value: 'domain', domain: 'example.com', path: '/foo' }];
+    // Domain must match page hostname (127.0.0.1) — cross-domain cookies are now rejected
+    const cookies = [{ name: 'explicit', value: 'domain', domain: '127.0.0.1', path: '/foo' }];
     fs.writeFileSync(tempFile, JSON.stringify(cookies));
 
     const result = await handleWriteCommand('cookie-import', [tempFile], bm);
@@ -1716,7 +1965,7 @@ describe('Path traversal prevention', () => {
       await handleReadCommand('eval', ['../../etc/passwd'], bm);
       expect(true).toBe(false);
     } catch (err: any) {
-      expect(err.message).toContain('Path traversal');
+      expect(err.message).toContain('Path must be within');
     }
   });
 
@@ -1725,7 +1974,7 @@ describe('Path traversal prevention', () => {
       await handleReadCommand('eval', ['/etc/passwd'], bm);
       expect(true).toBe(false);
     } catch (err: any) {
-      expect(err.message).toContain('Absolute path must be within');
+      expect(err.message).toContain('Path must be within');
     }
   });
 
@@ -1755,7 +2004,8 @@ describe('Path traversal prevention', () => {
       await handleWriteCommand('cookie-import', ['../../etc/shadow'], bm);
       expect(true).toBe(false);
     } catch (err: any) {
-      expect(err.message).toContain('Path traversal');
+      // Traversal blocked by safe-directory check (#707) or explicit .. check
+      expect(err.message).toMatch(/Path must be within|Path traversal/);
     }
   });
 
@@ -1788,17 +2038,581 @@ describe('Chain with cookie-import', () => {
     await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
     const tmpCookies = '/tmp/test-chain-cookies.json';
     fs.writeFileSync(tmpCookies, JSON.stringify([
-      { name: 'chain_test', value: 'chain_value', domain: 'localhost', path: '/' }
+      { name: 'chain_test', value: 'chain_value', domain: '127.0.0.1', path: '/' }
     ]));
     try {
       const commands = JSON.stringify([
         ['cookie-import', tmpCookies],
       ]);
-      const result = await handleMetaCommand('chain', [commands], bm, async () => {});
+      const result = await chainMeta(bm, [commands]);
       expect(result).toContain('[cookie-import]');
       expect(result).toContain('Loaded 1 cookie');
     } finally {
       try { fs.unlinkSync(tmpCookies); } catch {}
     }
+  });
+});
+
+// ─── Network Idle Detection ─────────────────────────────────────
+
+describe('Network idle', () => {
+  test('click on fetch button waits for XHR to complete', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/network-idle.html'], bm);
+    // Click the button that triggers a fetch → networkidle waits for it
+    await handleWriteCommand('click', ['#fetch-btn'], bm);
+    // The DOM should be updated by the time click returns
+    const result = await handleReadCommand('js', ['document.getElementById("result").textContent'], bm);
+    expect(result).toContain('Data loaded');
+  });
+
+  test('click on static button has no latency penalty', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/network-idle.html'], bm);
+    const start = Date.now();
+    await handleWriteCommand('click', ['#static-btn'], bm);
+    const elapsed = Date.now() - start;
+    // Static click should complete well under 2s (the networkidle timeout)
+    // networkidle resolves immediately when no requests are in flight
+    expect(elapsed).toBeLessThan(1500);
+    const result = await handleReadCommand('js', ['document.getElementById("static-result").textContent'], bm);
+    expect(result).toBe('Static action done');
+  });
+
+  test('fill triggers networkidle wait', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/forms.html'], bm);
+    // fill should complete without error (networkidle resolves immediately on static page)
+    const result = await handleWriteCommand('fill', ['#email', 'idle@test.com'], bm);
+    expect(result).toContain('Filled');
+  });
+});
+
+// ─── Chain Pipe Format ──────────────────────────────────────────
+
+describe('Chain pipe format', () => {
+  test('pipe-delimited commands work', async () => {
+    const result = await chainMeta(bm, [`goto ${baseUrl}/basic.html | js document.title`]);
+    expect(result).toContain('[goto]');
+    expect(result).toContain('[js]');
+    expect(result).toContain('Test Page - Basic');
+  });
+
+  test('pipe format with quoted args', async () => {
+    const result = await chainMeta(bm, [`goto ${baseUrl}/forms.html | fill #email "pipe@test.com"`]);
+    expect(result).toContain('[fill]');
+    expect(result).toContain('Filled');
+    // Verify the fill actually worked
+    const val = await handleReadCommand('js', ['document.querySelector("#email").value'], bm);
+    expect(val).toBe('pipe@test.com');
+  });
+
+  test('JSON format still works', async () => {
+    const commands = JSON.stringify([
+      ['goto', baseUrl + '/basic.html'],
+      ['js', 'document.title'],
+    ]);
+    const result = await chainMeta(bm, [commands]);
+    expect(result).toContain('[goto]');
+    expect(result).toContain('Test Page - Basic');
+  });
+
+  test('pipe format with unknown command includes error', async () => {
+    const result = await chainMeta(bm, ['bogus command']);
+    expect(result).toContain('ERROR');
+    expect(result).toContain('Unknown command: bogus');
+  });
+});
+
+// ─── State Persistence ──────────────────────────────────────────
+
+describe('State persistence', () => {
+  test('state save and load round-trip', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
+    // Set a cookie so we can verify it persists
+    await handleWriteCommand('cookie', ['state_test=hello'], bm);
+
+    // Save state
+    const saveResult = await handleMetaCommand('state', ['save', 'test-roundtrip'], bm, async () => {});
+    expect(saveResult).toContain('State saved');
+    expect(saveResult).toContain('Cookies stored in plaintext');
+
+    // Navigate away
+    await handleWriteCommand('goto', [baseUrl + '/forms.html'], bm);
+
+    // Load state — should restore to basic.html with cookie
+    const loadResult = await handleMetaCommand('state', ['load', 'test-roundtrip'], bm, async () => {});
+    expect(loadResult).toContain('State loaded');
+
+    // Verify we're back on basic.html
+    const url = await handleReadCommand('js', ['location.pathname'], bm);
+    expect(url).toContain('basic.html');
+
+    // Clean up
+    try {
+      const { resolveConfig } = await import('../src/config');
+      const config = resolveConfig();
+      fs.unlinkSync(`${config.stateDir}/browse-states/test-roundtrip.json`);
+    } catch {}
+  });
+
+  test('state save rejects invalid names', async () => {
+    try {
+      await handleMetaCommand('state', ['save', '../../evil'], bm, async () => {});
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toContain('alphanumeric');
+    }
+  });
+
+  test('state save accepts valid names', async () => {
+    const result = await handleMetaCommand('state', ['save', 'my-state_1'], bm, async () => {});
+    expect(result).toContain('State saved');
+    // Clean up
+    try {
+      const { resolveConfig } = await import('../src/config');
+      const config = resolveConfig();
+      fs.unlinkSync(`${config.stateDir}/browse-states/my-state_1.json`);
+    } catch {}
+  });
+
+  test('state load rejects missing state', async () => {
+    try {
+      await handleMetaCommand('state', ['load', 'nonexistent-state-xyz'], bm, async () => {});
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toContain('State not found');
+    }
+  });
+
+  test('state requires action and name', async () => {
+    try {
+      await handleMetaCommand('state', [], bm, async () => {});
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toContain('Usage');
+    }
+  });
+});
+
+// ─── Frame (Iframe Support) ─────────────────────────────────────
+
+describe('Frame', () => {
+  test('frame switch to iframe and back', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/iframe.html'], bm);
+
+    // Verify we're on the main page
+    const mainTitle = await handleReadCommand('js', ['document.getElementById("main-title").textContent'], bm);
+    expect(mainTitle).toBe('Main Page');
+
+    // Switch to iframe by CSS selector
+    const switchResult = await handleMetaCommand('frame', ['#test-frame'], bm, async () => {});
+    expect(switchResult).toContain('Switched to frame');
+
+    // Verify we can read iframe content
+    const frameTitle = await handleReadCommand('js', ['document.getElementById("frame-title").textContent'], bm);
+    expect(frameTitle).toBe('Inside Frame');
+
+    // Switch back to main
+    const mainResult = await handleMetaCommand('frame', ['main'], bm, async () => {});
+    expect(mainResult).toBe('Switched to main frame');
+
+    // Verify we're back on the main page
+    const mainTitleAgain = await handleReadCommand('js', ['document.getElementById("main-title").textContent'], bm);
+    expect(mainTitleAgain).toBe('Main Page');
+  });
+
+  test('snapshot shows frame context header', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/iframe.html'], bm);
+    await handleMetaCommand('frame', ['#test-frame'], bm, async () => {});
+
+    const snap = await handleMetaCommand('snapshot', ['-i'], bm, async () => {});
+    expect(snap).toContain('[Context: iframe');
+
+    // Clean up — return to main
+    await handleMetaCommand('frame', ['main'], bm, async () => {});
+  });
+
+  test('goto throws error when in frame context', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/iframe.html'], bm);
+    await handleMetaCommand('frame', ['#test-frame'], bm, async () => {});
+
+    try {
+      await handleWriteCommand('goto', ['https://example.com'], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toContain('Cannot use goto inside a frame');
+    }
+
+    await handleMetaCommand('frame', ['main'], bm, async () => {});
+  });
+
+  test('frame requires argument', async () => {
+    try {
+      await handleMetaCommand('frame', [], bm, async () => {});
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toContain('Usage');
+    }
+  });
+
+  test('fill works inside iframe', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/iframe.html'], bm);
+    await handleMetaCommand('frame', ['#test-frame'], bm, async () => {});
+
+    const result = await handleWriteCommand('fill', ['#frame-input', 'hello from frame'], bm);
+    expect(result).toContain('Filled');
+
+    const value = await handleReadCommand('js', ['document.getElementById("frame-input").value'], bm);
+    expect(value).toBe('hello from frame');
+
+    await handleMetaCommand('frame', ['main'], bm, async () => {});
+  });
+});
+
+// ─── load-html ─────────────────────────────────────────────────
+
+describe('load-html', () => {
+  const tmpDir = '/tmp';
+  const fixturePath = path.join(tmpDir, `browse-test-loadhtml-${Date.now()}.html`);
+  const fragmentPath = path.join(tmpDir, `browse-test-fragment-${Date.now()}.html`);
+
+  beforeAll(() => {
+    fs.writeFileSync(fixturePath, '<html><body><h1 id="loaded">loaded by load-html</h1></body></html>');
+    fs.writeFileSync(fragmentPath, '<div class="fragment" style="width:100px;height:50px">fragment</div>');
+  });
+
+  afterAll(() => {
+    try { fs.unlinkSync(fixturePath); } catch {}
+    try { fs.unlinkSync(fragmentPath); } catch {}
+  });
+
+  test('load-html loads HTML file into page', async () => {
+    const result = await handleWriteCommand('load-html', [fixturePath], bm);
+    expect(result).toContain('Loaded HTML:');
+    expect(result).toContain(fixturePath);
+    const text = await handleReadCommand('text', [], bm);
+    expect(text).toContain('loaded by load-html');
+  });
+
+  test('load-html accepts bare HTML fragments (no doctype)', async () => {
+    const result = await handleWriteCommand('load-html', [fragmentPath], bm);
+    expect(result).toContain('Loaded HTML:');
+    const html = await handleReadCommand('html', [], bm);
+    expect(html).toContain('fragment');
+  });
+
+  test('load-html rejects missing file arg', async () => {
+    try {
+      await handleWriteCommand('load-html', [], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toMatch(/Usage: browse load-html/);
+    }
+  });
+
+  test('load-html rejects non-.html extension', async () => {
+    const txtPath = path.join(tmpDir, `load-html-test-${Date.now()}.txt`);
+    fs.writeFileSync(txtPath, '<html></html>');
+    try {
+      await handleWriteCommand('load-html', [txtPath], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toMatch(/does not appear to be HTML/);
+    } finally {
+      try { fs.unlinkSync(txtPath); } catch {}
+    }
+  });
+
+  test('load-html rejects .svg files', async () => {
+    const svgPath = path.join(tmpDir, `load-html-test-${Date.now()}.svg`);
+    fs.writeFileSync(svgPath, '<svg xmlns="http://www.w3.org/2000/svg"><text>hi</text></svg>');
+    try {
+      await handleWriteCommand('load-html', [svgPath], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toMatch(/does not appear to be HTML/);
+    } finally {
+      try { fs.unlinkSync(svgPath); } catch {}
+    }
+  });
+
+  test('load-html rejects file outside safe dirs', async () => {
+    try {
+      await handleWriteCommand('load-html', ['/etc/passwd.html'], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toMatch(/must be under|not found|security policy/);
+    }
+  });
+
+  test('load-html rejects missing file with actionable error', async () => {
+    try {
+      await handleWriteCommand('load-html', [path.join(tmpDir, 'does-not-exist.html')], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toMatch(/not found|security policy/);
+    }
+  });
+
+  test('load-html rejects directory target', async () => {
+    try {
+      await handleWriteCommand('load-html', [path.join(tmpDir, 'browse-test-notafile.html') + '/'], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      // Either "not found" or "is a directory" — both valid rejections
+      expect(err.message).toMatch(/not found|directory|not a regular file|security policy/);
+    }
+  });
+
+  test('load-html rejects binary content disguised as .html', async () => {
+    const binPath = path.join(tmpDir, `load-html-binary-${Date.now()}.html`);
+    // PNG magic bytes: 0x89 0x50 0x4E 0x47
+    fs.writeFileSync(binPath, Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]));
+    try {
+      await handleWriteCommand('load-html', [binPath], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toMatch(/does not look like HTML/);
+    } finally {
+      try { fs.unlinkSync(binPath); } catch {}
+    }
+  });
+
+  test('load-html strips UTF-8 BOM before magic-byte check', async () => {
+    const bomPath = path.join(tmpDir, `load-html-bom-${Date.now()}.html`);
+    const bomBytes = Buffer.from([0xEF, 0xBB, 0xBF]);
+    fs.writeFileSync(bomPath, Buffer.concat([bomBytes, Buffer.from('<html><body>bom ok</body></html>')]));
+    try {
+      const result = await handleWriteCommand('load-html', [bomPath], bm);
+      expect(result).toContain('Loaded HTML:');
+    } finally {
+      try { fs.unlinkSync(bomPath); } catch {}
+    }
+  });
+
+  test('load-html --wait-until networkidle exercises non-default branch', async () => {
+    const result = await handleWriteCommand('load-html', [fixturePath, '--wait-until', 'networkidle'], bm);
+    expect(result).toContain('Loaded HTML:');
+  });
+
+  test('load-html rejects invalid --wait-until value', async () => {
+    try {
+      await handleWriteCommand('load-html', [fixturePath, '--wait-until', 'bogus'], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toMatch(/Invalid --wait-until/);
+    }
+  });
+
+  test('load-html rejects unknown flag', async () => {
+    try {
+      await handleWriteCommand('load-html', [fixturePath, '--bogus'], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toMatch(/Unknown flag/);
+    }
+  });
+});
+
+// ─── screenshot --selector ─────────────────────────────────────
+
+describe('screenshot --selector', () => {
+  test('--selector flag with output path captures element', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
+    const p = `/tmp/browse-test-selector-${Date.now()}.png`;
+    const result = await handleMetaCommand('screenshot', ['--selector', '#title', p], bm, async () => {});
+    expect(result).toContain('Screenshot saved (element)');
+    expect(fs.existsSync(p)).toBe(true);
+    fs.unlinkSync(p);
+  });
+
+  test('--selector conflicts with positional selector', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
+    try {
+      await handleMetaCommand('screenshot', ['--selector', '#title', '.other'], bm, async () => {});
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toMatch(/conflicts with positional selector/);
+    }
+  });
+
+  test('--selector conflicts with --clip', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
+    try {
+      await handleMetaCommand('screenshot', ['--selector', '#title', '--clip', '0,0,100,100'], bm, async () => {});
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toMatch(/Cannot use --clip with a selector/);
+    }
+  });
+
+  test('--selector with --base64 returns element base64', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
+    const result = await handleMetaCommand('screenshot', ['--selector', '#title', '--base64'], bm, async () => {});
+    expect(result).toMatch(/^data:image\/png;base64,/);
+  });
+
+  test('--selector missing value throws', async () => {
+    await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
+    try {
+      await handleMetaCommand('screenshot', ['--selector'], bm, async () => {});
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toMatch(/Usage: screenshot --selector/);
+    }
+  });
+});
+
+// ─── viewport --scale ───────────────────────────────────────────
+
+describe('viewport --scale', () => {
+  test('viewport WxH --scale 2 produces 2x dimension screenshot', async () => {
+    const tmpFix = path.join('/tmp', `scale-${Date.now()}.html`);
+    fs.writeFileSync(tmpFix, '<div id="box" style="width:100px;height:50px;background:#f00"></div>');
+    try {
+      await handleWriteCommand('viewport', ['200x200', '--scale', '2'], bm);
+      await handleWriteCommand('load-html', [tmpFix], bm);
+      const p = `/tmp/scale-${Date.now()}.png`;
+      await handleMetaCommand('screenshot', ['--selector', '#box', p], bm, async () => {});
+      // Parse PNG IHDR (bytes 16-23 are width/height big-endian u32)
+      const buf = fs.readFileSync(p);
+      const w = buf.readUInt32BE(16);
+      const h = buf.readUInt32BE(20);
+      // Box is 100x50 at 2x = 200x100
+      expect(w).toBe(200);
+      expect(h).toBe(100);
+      fs.unlinkSync(p);
+      // Reset scale for other tests
+      await handleWriteCommand('viewport', ['1280x720', '--scale', '1'], bm);
+    } finally {
+      try { fs.unlinkSync(tmpFix); } catch {}
+    }
+  });
+
+  test('viewport --scale without WxH keeps current size', async () => {
+    await handleWriteCommand('viewport', ['800x600'], bm);
+    const result = await handleWriteCommand('viewport', ['--scale', '2'], bm);
+    expect(result).toContain('800x600');
+    expect(result).toContain('2x');
+    expect(bm.getDeviceScaleFactor()).toBe(2);
+    await handleWriteCommand('viewport', ['1280x720', '--scale', '1'], bm);
+  });
+
+  test('--scale non-finite (NaN) throws', async () => {
+    try {
+      await handleWriteCommand('viewport', ['100x100', '--scale', 'abc'], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toMatch(/not a finite number/);
+    }
+  });
+
+  test('--scale out of range throws', async () => {
+    try {
+      await handleWriteCommand('viewport', ['100x100', '--scale', '4'], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toMatch(/between 1 and 3/);
+    }
+    try {
+      await handleWriteCommand('viewport', ['100x100', '--scale', '0.5'], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toMatch(/between 1 and 3/);
+    }
+  });
+
+  test('--scale missing value throws', async () => {
+    try {
+      await handleWriteCommand('viewport', ['--scale'], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toMatch(/missing value/);
+    }
+  });
+
+  test('viewport with neither arg nor flag throws usage', async () => {
+    try {
+      await handleWriteCommand('viewport', [], bm);
+      expect(true).toBe(false);
+    } catch (err: any) {
+      expect(err.message).toMatch(/Usage: browse viewport/);
+    }
+  });
+});
+
+// ─── setContent replay across context recreation ────────────────
+
+describe('setContent replay (load-html survives viewport --scale)', () => {
+  const tmpDir = '/tmp';
+
+  test('load-html → viewport --scale 2 → content survives', async () => {
+    const fix = path.join(tmpDir, `replay-${Date.now()}.html`);
+    fs.writeFileSync(fix, '<h1 id="marker">replay-test-marker</h1>');
+    try {
+      await handleWriteCommand('load-html', [fix], bm);
+      await handleWriteCommand('viewport', ['400x300', '--scale', '2'], bm);
+      const text = await handleReadCommand('text', [], bm);
+      expect(text).toContain('replay-test-marker');
+      await handleWriteCommand('viewport', ['1280x720', '--scale', '1'], bm);
+    } finally {
+      try { fs.unlinkSync(fix); } catch {}
+    }
+  });
+
+  test('double scale cycle: 2x → 1.5x, content still survives', async () => {
+    const fix = path.join(tmpDir, `replay2-${Date.now()}.html`);
+    fs.writeFileSync(fix, '<h2 id="m">double-cycle-marker</h2>');
+    try {
+      await handleWriteCommand('load-html', [fix], bm);
+      await handleWriteCommand('viewport', ['400x300', '--scale', '2'], bm);
+      await handleWriteCommand('viewport', ['400x300', '--scale', '1.5'], bm);
+      const text = await handleReadCommand('text', [], bm);
+      expect(text).toContain('double-cycle-marker');
+      await handleWriteCommand('viewport', ['1280x720', '--scale', '1'], bm);
+    } finally {
+      try { fs.unlinkSync(fix); } catch {}
+    }
+  });
+
+  test('goto clears loadedHtml — subsequent viewport --scale does NOT resurrect old HTML', async () => {
+    const fix = path.join(tmpDir, `clear-${Date.now()}.html`);
+    fs.writeFileSync(fix, '<div id="stale">stale-content</div>');
+    try {
+      await handleWriteCommand('load-html', [fix], bm);
+      await handleWriteCommand('goto', [baseUrl + '/basic.html'], bm);
+      await handleWriteCommand('viewport', ['400x300', '--scale', '2'], bm);
+      const text = await handleReadCommand('text', [], bm);
+      // Should see basic.html content, NOT the stale load-html content
+      expect(text).not.toContain('stale-content');
+      await handleWriteCommand('viewport', ['1280x720', '--scale', '1'], bm);
+    } finally {
+      try { fs.unlinkSync(fix); } catch {}
+    }
+  });
+});
+
+// ─── Alias routing ─────────────────────────────────────────────
+
+describe('Command aliases', () => {
+  const tmpDir = '/tmp';
+  const aliasFix = path.join(tmpDir, `alias-${Date.now()}.html`);
+
+  beforeAll(() => {
+    fs.writeFileSync(aliasFix, '<p id="alias">alias routing ok</p>');
+  });
+  afterAll(() => {
+    try { fs.unlinkSync(aliasFix); } catch {}
+  });
+
+  test('setcontent alias routes to load-html via chain', async () => {
+    // Chain canonicalizes aliases end-to-end; verifies the dispatch path
+    const result = await chainMeta(bm, [JSON.stringify([['setcontent', aliasFix]])]);
+    expect(result).toContain('Loaded HTML:');
+    const text = await handleReadCommand('text', [], bm);
+    expect(text).toContain('alias routing ok');
+  });
+
+  test('set-content (hyphenated) alias also routes', async () => {
+    const result = await chainMeta(bm, [JSON.stringify([['set-content', aliasFix]])]);
+    expect(result).toContain('Loaded HTML:');
   });
 });

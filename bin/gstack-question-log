@@ -1,0 +1,254 @@
+#!/usr/bin/env bash
+# gstack-question-log — append an AskUserQuestion event to the project log.
+#
+# Usage:
+#   gstack-question-log '{"skill":"ship","question_id":"ship-test-failure-triage",\
+#     "question_summary":"Tests failed","options_count":3,"user_choice":"fix-now",\
+#     "recommended":"fix-now","session_id":"ppid"}'
+#
+# v1: log-only. Consumed by /plan-tune inspection and (in v2) by the
+# inferred-dimension derivation pipeline.
+#
+# Schema (all fields validated):
+#   skill              — skill name (kebab-case)
+#   question_id        — either a registered id (preferred) or ad-hoc `{skill}-{slug}`
+#   question_summary   — short one-liner of what was asked (<= 200 chars)
+#   category           — approval | clarification | routing | cherry-pick | feedback-loop
+#                        (optional — looked up from registry if omitted)
+#   door_type          — one-way | two-way
+#                        (optional — looked up from registry if omitted)
+#   options_count      — number of options presented (positive integer)
+#   user_choice        — key user selected (free string; registry-options preferred)
+#   recommended        — option key the agent recommended (optional)
+#   followed_recommendation — bool (optional — computed if both present)
+#   session_id         — stable session identifier
+#   ts                 — ISO 8601 timestamp (auto-injected if missing)
+#
+# Append-only JSONL. Dedup is at read time in gstack-question-sensitivity --read-log.
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# Windows git-bash (#1950): pwd yields a POSIX path (/c/Users/...), which Bun
+# on Windows cannot resolve as an ES module specifier in bun -e imports.
+# cygpath -m converts to C:/Users/... which Bun accepts.
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*) command -v cygpath >/dev/null 2>&1 && SCRIPT_DIR="$(cygpath -m "$SCRIPT_DIR")" ;;
+esac
+eval "$("$SCRIPT_DIR/gstack-slug" 2>/dev/null)"
+# GSTACK_STATE_ROOT takes precedence over GSTACK_HOME (test isolation per D16).
+GSTACK_HOME="${GSTACK_STATE_ROOT:-${GSTACK_HOME:-$HOME/.gstack}}"
+mkdir -p "$GSTACK_HOME/projects/$SLUG"
+
+INPUT="$1"
+
+# Validate and enrich from registry.
+TMPERR=$(mktemp)
+trap 'rm -f "$TMPERR"' EXIT
+set +e
+VALIDATED=$(printf '%s' "$INPUT" | bun -e "
+import { hasInjection } from '$SCRIPT_DIR/../lib/jsonl-store.ts';
+const path = require('path');
+const raw = await Bun.stdin.text();
+let j;
+try { j = JSON.parse(raw); } catch { process.stderr.write('gstack-question-log: invalid JSON\n'); process.exit(1); }
+
+// Required: skill (kebab-case)
+if (!j.skill || !/^[a-z0-9-]+\$/.test(j.skill)) {
+  process.stderr.write('gstack-question-log: invalid skill, must be kebab-case\n');
+  process.exit(1);
+}
+
+// Required: question_id (kebab-case, <=64 chars).
+// Cathedral T5: hook-sourced events use 'hook-<10-char-hash>' which is
+// kebab-case-compatible and passes the same regex.
+if (!j.question_id || !/^[a-z0-9-]+\$/.test(j.question_id) || j.question_id.length > 64) {
+  process.stderr.write('gstack-question-log: invalid question_id, must be kebab-case <=64 chars\n');
+  process.exit(1);
+}
+
+// Optional: source — tags which writer produced this event.
+//   'agent' (default) — preamble-driven write from inside the running agent
+//   'hook'             — PostToolUse hook captured it deterministically (T5)
+//   'auq-other'        — user picked 'Other' and typed free text (Layer 8)
+//   'auto-decided'     — PreToolUse enforcement hook substituted the answer (T6)
+//   'codex-import-marker' / 'codex-import-pattern' — T9 backfill from Codex
+const ALLOWED_SOURCES = ['agent', 'hook', 'auq-other', 'auto-decided', 'codex-import-marker', 'codex-import-pattern'];
+if (j.source !== undefined) {
+  if (!ALLOWED_SOURCES.includes(j.source)) {
+    process.stderr.write('gstack-question-log: invalid source, must be one of: ' + ALLOWED_SOURCES.join(', ') + '\n');
+    process.exit(1);
+  }
+} else {
+  j.source = 'agent';
+}
+
+// Optional: tool_use_id — Claude Code hook stdin field; used for dedup.
+if (j.tool_use_id !== undefined) {
+  if (typeof j.tool_use_id !== 'string' || j.tool_use_id.length > 128) {
+    process.stderr.write('gstack-question-log: tool_use_id must be string <=128 chars\n');
+    process.exit(1);
+  }
+}
+
+// Optional: free_text — sanitize (no newlines, <=300 chars).
+if (j.free_text !== undefined) {
+  if (typeof j.free_text !== 'string') {
+    process.stderr.write('gstack-question-log: free_text must be string\n');
+    process.exit(1);
+  }
+  if (j.free_text.length > 300) j.free_text = j.free_text.slice(0, 300);
+  j.free_text = j.free_text.replace(/\n+/g, ' ');
+}
+
+// Required: question_summary (non-empty, <=200 chars, no newlines)
+if (typeof j.question_summary !== 'string' || !j.question_summary.length) {
+  process.stderr.write('gstack-question-log: question_summary required\n');
+  process.exit(1);
+}
+if (j.question_summary.length > 200) {
+  j.question_summary = j.question_summary.slice(0, 200);
+}
+if (j.question_summary.includes('\n')) {
+  j.question_summary = j.question_summary.replace(/\n+/g, ' ');
+}
+
+// Injection defense on the summary — shared audited list (lib/jsonl-store.ts),
+// same source of truth as learnings-log and decision-log. The previous local
+// duplicate drifted (#1934): pattern fixes to the lib never propagated here.
+if (hasInjection(j.question_summary)) {
+  process.stderr.write('gstack-question-log: question_summary contains suspicious instruction-like content, rejected\n');
+  process.exit(1);
+}
+
+// Registry lookup for category + door_type enrichment.
+// Registry file is at \$GSTACK_ROOT/scripts/question-registry.ts, but we don't import
+// TypeScript at runtime here — we pass through what was provided and fill in defaults.
+// The caller (the preamble resolver) is expected to pass category+door_type from
+// the registry when it knows them; for ad-hoc ids both can be omitted.
+
+const ALLOWED_CATEGORIES = ['approval', 'clarification', 'routing', 'cherry-pick', 'feedback-loop'];
+if (j.category !== undefined) {
+  if (!ALLOWED_CATEGORIES.includes(j.category)) {
+    process.stderr.write('gstack-question-log: invalid category, must be one of: ' + ALLOWED_CATEGORIES.join(', ') + '\n');
+    process.exit(1);
+  }
+}
+
+const ALLOWED_DOORS = ['one-way', 'two-way'];
+if (j.door_type !== undefined) {
+  if (!ALLOWED_DOORS.includes(j.door_type)) {
+    process.stderr.write('gstack-question-log: invalid door_type, must be one-way or two-way\n');
+    process.exit(1);
+  }
+}
+
+// options_count — positive integer if present
+if (j.options_count !== undefined) {
+  const n = Number(j.options_count);
+  if (!Number.isInteger(n) || n < 1 || n > 26) {
+    process.stderr.write('gstack-question-log: options_count must be integer in [1, 26]\n');
+    process.exit(1);
+  }
+  j.options_count = n;
+}
+
+// user_choice — required; <= 64 chars; single-line; no injection patterns
+if (typeof j.user_choice !== 'string' || !j.user_choice.length) {
+  process.stderr.write('gstack-question-log: user_choice required\n');
+  process.exit(1);
+}
+if (j.user_choice.length > 64) j.user_choice = j.user_choice.slice(0, 64);
+j.user_choice = j.user_choice.replace(/\n+/g, ' ');
+
+// recommended — optional, same constraints as user_choice
+if (j.recommended !== undefined) {
+  if (typeof j.recommended !== 'string') {
+    process.stderr.write('gstack-question-log: recommended must be string\n');
+    process.exit(1);
+  }
+  if (j.recommended.length > 64) j.recommended = j.recommended.slice(0, 64);
+}
+
+// followed_recommendation — compute if both sides present. An __unknown__
+// choice means extraction failed, not that the user rejected the
+// recommendation — leave the field absent so metrics can't be poisoned.
+// Strip a trailing (Recommended) marker from BOTH sides before comparing:
+// recommended usually arrives pre-stripped while user_choice is the raw
+// option label, so a user who picked the recommended option was scored as
+// NOT following it (#2400). NB: this JS lives inside a double-quoted
+// bun -e string — never use double quotes in it.
+if (j.recommended !== undefined && j.user_choice !== undefined && j.user_choice !== '__unknown__') {
+  const stripRec = (s) => String(s).replace(/\s*\(recommended\)\s*$/i, '').trim();
+  j.followed_recommendation = stripRec(j.user_choice) === stripRec(j.recommended);
+}
+
+// session_id — kebab-friendly; <=64 chars
+if (j.session_id !== undefined) {
+  if (typeof j.session_id !== 'string') {
+    process.stderr.write('gstack-question-log: session_id must be string\n');
+    process.exit(1);
+  }
+  if (j.session_id.length > 64) j.session_id = j.session_id.slice(0, 64);
+}
+
+// Inject timestamp if not present.
+if (!j.ts) j.ts = new Date().toISOString();
+
+console.log(JSON.stringify(j));
+" 2>"$TMPERR")
+VALIDATE_RC=$?
+set -e
+
+if [ $VALIDATE_RC -ne 0 ] || [ -z "$VALIDATED" ]; then
+  if [ -s "$TMPERR" ]; then
+    cat "$TMPERR" >&2
+  fi
+  exit 1
+fi
+
+LOG_FILE="$GSTACK_HOME/projects/$SLUG/question-log.jsonl"
+
+# Cathedral T5: composite-source dedup. If this exact (source, tool_use_id)
+# was already logged within the last 100 lines, skip — protects against
+# hook + agent both writing the same fire (D3 plan-tune cathedral decision).
+# Lookup is bounded so the bin stays cheap on hot paths.
+DEDUP_SKIP=""
+if [ -f "$LOG_FILE" ]; then
+  DEDUP_SKIP=$(VALIDATED_JSON="$VALIDATED" LOG_FILE_PATH="$LOG_FILE" bun -e '
+    const fs = require("fs");
+    const j = JSON.parse(process.env.VALIDATED_JSON);
+    if (!j.tool_use_id) { console.log(""); process.exit(0); }
+    const want = j.source + ":" + j.tool_use_id;
+    const lines = fs.readFileSync(process.env.LOG_FILE_PATH, "utf-8").trim().split("\n").slice(-100);
+    for (const ln of lines) {
+      try {
+        const p = JSON.parse(ln);
+        if (p.source && p.tool_use_id && (p.source + ":" + p.tool_use_id) === want) {
+          console.log("dup");
+          process.exit(0);
+        }
+      } catch {}
+    }
+    console.log("");
+  ' 2>/dev/null)
+fi
+
+if [ "$DEDUP_SKIP" = "dup" ]; then
+  echo "DEDUP: skipped (source=$(echo "$VALIDATED" | bun -e 'const j=JSON.parse(await Bun.stdin.text()); console.log(j.source);'), tool_use_id duplicate)"
+  exit 0
+fi
+
+echo "$VALIDATED" >> "$LOG_FILE"
+
+# Cathedral T5: fire-and-forget --derive so inferred dimensions stay current
+# without per-event latency (D17). Sub-second op; output suppressed; never
+# blocks the hook caller. Skipped via GSTACK_QUESTION_LOG_NO_DERIVE=1 for
+# tests that don't want the side effect.
+if [ -z "${GSTACK_QUESTION_LOG_NO_DERIVE:-}" ]; then
+  (
+    nohup "$SCRIPT_DIR/gstack-developer-profile" --derive >/dev/null 2>&1 &
+  ) >/dev/null 2>&1
+fi
+
+# NOTE: question-log.jsonl is deliberately NOT enqueued for gbrain-sync.
+# Per Codex v2 review, audit/derivation data stays local alongside the
+# question-preferences.json it annotates.

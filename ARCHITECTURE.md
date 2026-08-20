@@ -69,11 +69,11 @@ The server writes `.gstack/browse.json` (atomic write via tmp + rename, mode 0o6
 { "pid": 12345, "port": 34567, "token": "uuid-v4", "startedAt": "...", "binaryVersion": "abc123" }
 ```
 
-The CLI reads this file to find the server. If the file is missing, stale, or the PID is dead, the CLI spawns a new server.
+The CLI reads this file to find the server. If the file is missing or the daemon process is dead, the CLI spawns a new server. A process that is alive but not answering `/health` is busy, not dead: the CLI probes for a bounded ~8s, then reports busy with a nonzero exit — only an explicit `--force-restart` kills a live daemon. Process liveness uses signal-0 (`isProcessAlive`, EPERM counts as alive) on every platform, with the health check (GET /health) as the responsiveness signal. Daemon stdout/stderr persists to `<project>/.gstack/browse-daemon.log`.
 
 ### Port selection
 
-Random port between 10000-60000 (retry up to 5 on collision). This means 10 Conductor workspaces can each run their own browse daemon with zero configuration and zero port conflicts. The old approach (scanning 9400-9409) broke constantly in multi-workspace setups.
+Random port between 10000-49151 (retry up to 5 on collision), allocated through the shared `browse/src/port-allocator.ts` so every long-lived gstack listener draws from the same range. The range ends at 49151 on purpose: 49152-65535 is the macOS ephemeral pool, and allocating inside it meant the OS could hand the same port to another process moments later. This means 10 Conductor workspaces can each run their own browse daemon with zero configuration and zero port conflicts. The old approach (scanning 9400-9409) broke constantly in multi-workspace setups.
 
 ### Version auto-restart
 
@@ -83,13 +83,51 @@ The build writes `git rev-parse HEAD` to `browse/dist/.version`. On each CLI inv
 
 ### Localhost only
 
-The HTTP server binds to `localhost`, not `0.0.0.0`. It's not reachable from the network.
+The HTTP server binds to `127.0.0.1`, not `0.0.0.0`. It's not reachable from the network.
+
+### Dual-listener tunnel architecture (v1.6.0.0)
+
+When a user runs `pair-agent --client`, the daemon starts an ngrok tunnel so a remote paired agent can drive the browser. Exposing the full daemon surface to the internet (even behind a random ngrok subdomain) meant `/health` leaked the root token on any Origin spoof, and `/cookie-picker` embedded the token into HTML that any caller could fetch.
+
+The fix is **two HTTP listeners**, not one:
+
+- **Local listener** (`127.0.0.1:LOCAL_PORT`) — always bound. Serves token bootstrap (`POST /extension-token`, released only to the pinned extension identity), `/health` (liveness/status only — never a token), `/cookie-picker`, `/inspector/*`, `/welcome`, `/refs`, the sidebar-agent API, and the full command surface. Never forwarded.
+- **Tunnel listener** (`127.0.0.1:TUNNEL_PORT`) — bound lazily on `/tunnel/start`, torn down on `/tunnel/stop`. Serves a locked allowlist: `/connect` (pairing ceremony, unauth + rate-limited), `/command` (scoped tokens only, further restricted to a browser-driving command allowlist), and `/sidebar-chat`. Everything else 404s.
+
+ngrok forwards only the tunnel port. The security property comes from **physical port separation**: a tunnel caller cannot reach `/health` or `/cookie-picker` because those paths don't exist on that TCP socket. Header inference (check `x-forwarded-for`, check origin) is unreliable (ngrok header behavior changes; local proxies can add these headers); socket separation isn't.
+
+| Endpoint | Local listener | Tunnel listener | Notes |
+|---|---|---|---|
+| `GET /health` | public (liveness/status only — never a token) | 404 | Token bootstrap moved to `POST /extension-token` (v1.63) |
+| `POST /extension-token` | pinned Origin (`chrome-extension://<GSTACK_EXTENSION_ID>`) + loopback Host | 404 | The only endpoint that hands out the root token |
+| `GET /connect` | public (`{alive:true}`) | public (`{alive:true}`) | Probe path for tunnel liveness |
+| `POST /connect` | public (rate-limited 300/min) | public (rate-limited) | Setup-key exchange for pair-agent |
+| `POST /command` | auth (Bearer root OR scoped) | auth (scoped only, allowlisted commands) | Root token on tunnel = 403 |
+| `POST /sidebar-chat` | auth | auth | Lets remote agent post into local sidebar |
+| `POST /pair` | root-only | 404 | Pairing mint — local operator action |
+| `POST /tunnel/{start,stop}` | root-only | 404 | Daemon configuration |
+| `POST /token`, `DELETE /token/:id` | root-only | 404 | Scoped token mint/revoke |
+| `GET /cookie-picker`, `GET /cookie-picker/*` | public UI, auth API | 404 | Local-only — reads local browser DBs |
+| `GET /inspector`, `/inspector/events`, etc. | auth | 404 | Extension callback, local-only |
+| `GET /welcome` | public | 404 | GStack Browser landing page, local-only |
+| `GET /refs` | auth | 404 | Ref map — internal state |
+| `GET /activity/stream` | Bearer OR HttpOnly `gstack_sse` cookie | 404 | SSE. ?token= query param no longer accepted |
+| `GET /inspector/events` | Bearer OR HttpOnly `gstack_sse` cookie | 404 | SSE. Same cookie as /activity/stream |
+| `POST /sse-session` | auth (Bearer) | 404 | Mints the view-only 30-min SSE session cookie |
+
+**Extension token bootstrap (v1.63.0.0).** `GET /health` never carries a token in any mode — it is liveness/status only. The sidebar extension obtains the root token via `POST /extension-token`, which releases it only when the caller's Origin is exactly `chrome-extension://<GSTACK_EXTENSION_ID>` (pinned by the `key` field in `extension/manifest.json`; reproduce the derivation with `bun browse/scripts/extension-id.ts`) and the Host header parses to a loopback hostname — parsed with `new URL()`, never compared raw, because Host carries the port. Web pages cannot forge a `chrome-extension://` Origin, and the endpoint is never added to the tunnel allowlist, so the tunnel surface 404s it by default-deny.
+
+**Tunnel surface denial logs.** Every rejection on the tunnel listener (`path_not_on_tunnel`, `root_token_on_tunnel`, `missing_scoped_token`, `disallowed_command:*`) is recorded asynchronously to `~/.gstack/security/attempts.jsonl` with timestamp, source IP (from `x-forwarded-for`), path, and method. Rate-capped at 60 writes/min globally to prevent log-flood DoS. Shares the attempt log with the prompt-injection scanner.
+
+**SSE session cookies.** EventSource can't send Authorization headers, so the extension POSTs `/sse-session` once at bootstrap with the root Bearer and receives a 30-minute view-only cookie (`gstack_sse`, HttpOnly, SameSite=Strict). The cookie is valid ONLY for `/activity/stream` and `/inspector/events` — it is NOT a scoped token and cannot be used on `/command`. Scope isolation is enforced by the module boundary: `sse-session-cookie.ts` has no imports from `token-registry.ts`.
+
+**Non-goal in this wave** (tracked as #1136): the cookie-import-browser path launches Chrome with `--remote-debugging-port=<random>`. On Windows with App-Bound Encryption v20, a same-user local process can connect to that port and exfiltrate decrypted v20 cookies — an elevation path relative to reading the SQLite DB directly (which can't decrypt v20 without DPAPI context). Fix direction is `--remote-debugging-pipe` instead of TCP; requires restructuring the CDP client.
 
 ### Bearer token auth
 
-Every server session generates a random UUID token, written to the state file with mode 0o600 (owner-only read). Every HTTP request must include `Authorization: Bearer <token>`. If the token doesn't match, the server returns 401.
+Every server session generates a random UUID token, written to the state file with mode 0o600 (owner-only read). Every HTTP request that mutates browser state must include `Authorization: Bearer <token>`. If the token doesn't match, the server returns 401.
 
-This prevents other processes on the same machine from talking to your browse server. The cookie picker UI (`/cookie-picker`) and health check (`/health`) are exempt — they're localhost-only and don't execute commands.
+This prevents other processes on the same machine from talking to your browse server. The cookie picker UI (`/cookie-picker`) and health check (`/health`) are exempt on the local listener — they're 127.0.0.1-bound and don't execute commands. On the tunnel listener nothing is exempt except `/connect`.
 
 ### Cookie security
 
@@ -108,6 +146,49 @@ Cookies are the most sensitive data gstack handles. The design:
 ### Shell injection prevention
 
 The browser registry (Comet, Chrome, Arc, Brave, Edge) is hardcoded. Database paths are constructed from known constants, never from user input. Keychain access uses `Bun.spawn()` with explicit argument arrays, not shell string interpolation.
+
+### Egress receipt ledger (v1.63.0.0)
+
+Every enumerated gstack-initiated off-machine sink writes a hash-chained, tamper-evident receipt to `~/.gstack/security/egress.jsonl` BEFORE the send — `writeReceipt` in `lib/egress-receipt.ts` for TypeScript callers, `_receipted_curl` / `_receipted_git` from `bin/gstack-egress-lib.sh` for shell scripts. Receipts record a sha256 of the exact bytes sent when the caller owns them (subprocess-owned sends like git pushes record `sha256: null`); they never store the body.
+
+Failure polarity is per-class and pinned by tests. Sensitive sinks are fail-closed: brain-sync pushes, memory-ingest, gbrain-sync, telemetry, ngrok tunnel starts, mcp-verify, and supabase-provision refuse to send if the receipt can't be written (each refusal prints problem + cause + fix). User-facing sinks fail open with a stderr warning — the design binary's OpenAI calls, update-check, the read-only dashboards, and git-class receipts proceed even when the receipt write failed, so a fail-open send can go unrecorded (warned, by design). The new-sink scanner in `test/egress-receipt-wiring.test.ts` fails CI when an off-machine sink ships unwired; its only exemptions are enumerated with reasons (user-directed page fetches, reachability probes, install-doc strings, skill prose).
+
+Inspect the ledger with `bin/gstack-egress`: `list` (what gstack attempted to send), `verify` (recompute the chain, exit 3 on tamper), `grants` (the standing consent settings and how to revoke each). `verify` detects in-place edits, reordering, and mid-chain deletion; it does NOT detect tail-truncation, whole-file re-fabrication, or deletion of the ledger itself — guarding against the same-machine, same-user actor who owns the file is out of scope for a forensic log. Threat model: the ledger is forensic observability of ATTEMPTED egress — it records what gstack tried to send so accidents are auditable; it is not an exfiltration control.
+
+### Unicode sanitization at server egress (v1.38.0.0)
+
+Page content harvested by CDP can contain lone UTF-16 surrogate halves (orphaned high or low surrogates from broken JavaScript string handling on the page). When those reach `JSON.stringify`, Bun emits them as `\uD800`-style escape sequences that the downstream consumer's `JSON.parse` accepts, but the Anthropic API rejects with a 400 — turning a single weird page into a session-killing error. Defense is single-point, applied at every server egress that ships page-derived strings.
+
+| Egress path | Module | Sanitization point |
+|---|---|---|
+| `POST /command` (HTTP) | `browse/src/server.ts` | `handleCommandInternal` wrapper (sanitizes the result of `handleCommandInternalImpl`) |
+| `POST /command/batch` | `browse/src/server.ts` | Same wrapper — batch consumers inherit it |
+| `GET /activity/stream` (SSE) | `browse/src/server.ts` | `sanitizeReplacer` passed to `JSON.stringify` |
+| `GET /inspector/events` (SSE) | `browse/src/server.ts` | `sanitizeReplacer` passed to `JSON.stringify` |
+
+`sanitizeReplacer` is a `JSON.stringify` replacer function that cleans every string value during encoding. Post-stringify regex doesn't work here — `JSON.stringify` has already converted `\uD800` into the literal escape sequence `"\\ud800"` before the regex could match, so the replacer must run inside the encoding pipeline. The pure-string helper `sanitizeLoneSurrogates` is used directly for `text/plain` responses.
+
+**Architectural invariant.** Every new SSE/WebSocket writer or HTTP response that ships page-content-derived strings MUST go through one of two paths: `JSON.stringify(payload, sanitizeReplacer)` for object payloads, or `sanitizeLoneSurrogates(body)` for text bodies. New surfaces that bypass both will desync the system. Inline comments at both SSE producers in `server.ts` say so; `browse/test/server-sanitize-surrogates.test.ts` pins wiring with bug-repro + invariant tests (`handleCommandInternalImpl` rename, central sanitization line, replacer existence, SSE producers stringify with replacer).
+
+### Prompt injection defense (sidebar agent)
+
+The Chrome sidebar agent has tools (Bash, Read, Glob, Grep, WebFetch) and reads hostile web pages, so it's the part of gstack most exposed to prompt injection. Defense is layered, not single-point.
+
+1. **L1-L3 content security (`browse/src/content-security.ts`).** Runs on every page-content command and every tool output: datamarking, hidden-element strip, ARIA regex, URL blocklist, and a trust-boundary envelope wrapper. Applied at both the server and the agent.
+
+2. **L4 ML classifier — TestSavantAI (`browse/src/security-classifier.ts`).** A 22MB BERT-small ONNX model (int8 quantized) running in the security sidecar subprocess. Runs locally, no network. Scans page-derived content on the inject-scan path before the agent sees it.
+
+3. **L4b transcript classifier (removed).** A Claude Haiku conversation-shape pass existed until the chat-path agent that invoked it was ripped; it was deleted as dead code (zero production callers), along with the opt-in DeBERTa ensemble. Do not re-document either as live.
+
+4. **L5 canary token (`browse/src/security.ts`).** Generate/inject/detect utilities for a random system-prompt token whose leak means the attacker convinced the model to reveal the system prompt. Canary leak BLOCKs deterministically. The utilities are pure and tested; the chat prompt-builder that injected the canary was ripped, so no production path injects it today.
+
+5. **L6 ensemble combiner (`combineVerdict`).** BLOCK requires agreement from two ML classifiers at >= `WARN` (0.75), not a single confident hit. This is the Stack Overflow instruction-writing false-positive mitigation. On tool-output scans, single-layer high confidence BLOCKs directly — the content wasn't user-authored, so the FP concern doesn't apply.
+
+**Critical constraint:** `security-classifier.ts` runs only in the security sidecar subprocess (`security-sidecar-entry.ts`), never in the compiled browse binary. `@huggingface/transformers` v4 requires `onnxruntime-node`, which fails `dlopen` from Bun compile's temp extract directory. Only the pure-string pieces (canary inject/check, verdict combiner) are in `security.ts`, which is safe to import from `server.ts`. (The attack log lives in `tunnel-denial-log.ts`; the session-state/status surface was removed in #2557.)
+
+**Env knobs:** `GSTACK_SECURITY_OFF=1` is a real kill switch (classifier stays off even if warmed; the L1-L3 filters keep running). Model cache at `~/.gstack/models/testsavant-small/` (112MB, first run). Attack log at `~/.gstack/security/attempts.jsonl` (salted sha256 + domain, rotates at 10MB, 5 generations). Per-device salt at `~/.gstack/security/device-salt` (0600), cached in-process to survive FS-unwritable environments.
+
+**Visibility.** A centered banner appears on canary leak or BLOCK verdict with the exact layer scores. `bin/gstack-security-dashboard` aggregates local attempts; `supabase/functions/community-pulse` aggregates opt-in community telemetry across users. (The sidebar header's SEC shield icon and the `/health` `security` field were removed in #2557: their only data source — `~/.gstack/security/session-state.json` — lost its only writer when the chat-path agent was ripped, so the shield reported stale or empty state. The live defenses report through their own call sites.)
 
 ## The ref system
 
@@ -205,17 +286,24 @@ Templates contain the workflows, tips, and examples that require human judgment.
 | `{{DESIGN_METHODOLOGY}}` | `gen-skill-docs.ts` | Shared design audit methodology for /plan-design-review and /design-review |
 | `{{REVIEW_DASHBOARD}}` | `gen-skill-docs.ts` | Review Readiness Dashboard for /ship pre-flight |
 | `{{TEST_BOOTSTRAP}}` | `gen-skill-docs.ts` | Test framework detection, bootstrap, CI/CD setup for /qa, /ship, /design-review |
+| `{{CODEX_PLAN_REVIEW}}` | `gen-skill-docs.ts` | Optional cross-model plan review (Codex or Claude subagent fallback) for /plan-ceo-review and /plan-eng-review |
+| `{{DESIGN_SETUP}}` | `resolvers/design.ts` | Discovery pattern for `$D` design binary, mirrors `{{BROWSE_SETUP}}` |
+| `{{DESIGN_SHOTGUN_LOOP}}` | `resolvers/design.ts` | Shared comparison board feedback loop for /design-shotgun, /plan-design-review, /design-consultation |
+| `{{UX_PRINCIPLES}}` | `resolvers/design.ts` | User behavioral foundations (scanning, satisficing, goodwill reservoir, trunk test) for /design-html, /design-shotgun, /design-review, /plan-design-review |
+| `{{GBRAIN_CONTEXT_LOAD}}` | `resolvers/gbrain.ts` | Brain-first context search with keyword extraction, health awareness, and data-research routing. Injected into 10 brain-aware skills. Suppressed on non-brain hosts. |
+| `{{GBRAIN_SAVE_RESULTS}}` | `resolvers/gbrain.ts` | Post-skill brain persistence with entity enrichment, throttle handling, and per-skill save instructions. 8 skill-specific save formats. |
 
 This is structurally sound — if a command exists in code, it appears in docs. If it doesn't exist, it can't appear.
 
 ### The preamble
 
-Every skill starts with a `{{PREAMBLE}}` block that runs before the skill's own logic. It handles four things in a single bash command:
+Every skill starts with a `{{PREAMBLE}}` block that runs before the skill's own logic. It handles five things in a single bash command:
 
 1. **Update check** — calls `gstack-update-check`, reports if an upgrade is available.
 2. **Session tracking** — touches `~/.gstack/sessions/$PPID` and counts active sessions (files modified in the last 2 hours). When 3+ sessions are running, all skills enter "ELI16 mode" — every question re-grounds the user on context because they're juggling windows.
-3. **Contributor mode** — reads `gstack_contributor` from config. When true, the agent files casual field reports to `~/.gstack/contributor-logs/` when gstack itself misbehaves.
+3. **Operational self-improvement** — at the end of every skill session, the agent reflects on failures (CLI errors, wrong approaches, project quirks) and logs operational learnings to the project's JSONL file for future sessions.
 4. **AskUserQuestion format** — universal format: context, question, `RECOMMENDATION: Choose X because ___`, lettered options. Consistent across all skills.
+5. **Search Before Building** — before building infrastructure or unfamiliar patterns, search first. Three layers of knowledge: tried-and-true (Layer 1), new-and-popular (Layer 2), first-principles (Layer 3). When first-principles reasoning reveals conventional wisdom is wrong, the agent names the "eureka moment" and logs it. See `ETHOS.md` for the full builder philosophy.
 
 ### Why committed, not generated at runtime?
 
@@ -233,7 +321,7 @@ Three reasons:
 | 2 — E2E via `claude -p` | Spawn real Claude session, run each skill, check for errors | ~$3.85 | ~20min |
 | 3 — LLM-as-judge | Sonnet scores docs on clarity/completeness/actionability | ~$0.15 | ~30s |
 
-Tier 1 runs on every `bun test`. Tiers 2+3 are gated behind `EVALS=1`. The idea is: catch 95% of issues for free, use LLMs only for judgment calls.
+Tier 1 runs on every `bun run test`. Tiers 2+3 are gated behind `EVALS=1`. The idea is: catch 95% of issues for free, use LLMs only for judgment calls.
 
 ## Command dispatch
 
@@ -284,7 +372,7 @@ The `parseNDJSON()` function is pure — no I/O, no side effects — making it i
 ### Observability data flow
 
 ```
-  skill-e2e.test.ts
+  skill-e2e-*.test.ts
         │
         │ generates runId, passes testName + runId to each call
         │
@@ -327,7 +415,7 @@ The `parseNDJSON()` function is pure — no I/O, no side effects — making it i
 
 **Machine-readable diagnostics:** Each test result includes `exit_reason` (success, timeout, error_max_turns, error_api, exit_code_N), `timeout_at_turn`, and `last_tool_call`. This enables `jq` queries like:
 ```bash
-jq '.tests[] | select(.exit_reason == "timeout") | .last_tool_call' ~/.gstack-dev/evals/_partial-e2e.json
+jq '.tests[] | select(.exit_reason == "timeout") | .last_tool_call' ~/.gstack/projects/<slug>/evals/_partial-e2e.json
 ```
 
 ### Eval persistence (`test/helpers/eval-store.ts`)
@@ -337,7 +425,7 @@ The `EvalCollector` accumulates test results and writes them in two ways:
 1. **Incremental:** `savePartial()` writes `_partial-e2e.json` after each test (atomic: write `.tmp`, `fs.renameSync`). Survives kills.
 2. **Final:** `finalize()` writes a timestamped eval file (e.g. `e2e-20260314-143022.json`). The partial file is never cleaned up — it persists alongside the final file for observability.
 
-`eval:compare` diffs two eval runs. `eval:summary` aggregates stats across all runs in `~/.gstack-dev/evals/`.
+`eval:compare` diffs two eval runs. `eval:summary` aggregates stats across all runs in `~/.gstack/projects/<slug>/evals/` (legacy fallback `~/.gstack-dev/evals/`). Both are shard-aware (v1.63.0.0): the sharded paid runner (`scripts/test-paid-shards.ts`, run via `test:gate:sharded` / `test:periodic:sharded` — the `eval:bg:gate` / `eval:bg:periodic` scripts now point at these) gives each shard's collector its own directory at `<evalDir>/shards/<slug>/` through the `GSTACK_EVAL_DIR` env var (honored by the `EvalCollector` constructor), and `eval:list` / `eval:compare` / `eval:summary` scan one level of `shards/<slug>/` subdirectories. Baseline lookups exclude `_partial` accumulators (`isPartialEval` / `findLatestFinalizedRun` in `eval-store.ts`), so auto-comparison never uses the current run's own partial file as its baseline.
 
 ### Test tiers
 
@@ -347,7 +435,7 @@ The `EvalCollector` accumulates test results and writes them in two ways:
 | 2 — E2E via `claude -p` | Spawn real Claude session, run each skill, scan for errors | ~$3.85 | ~20min |
 | 3 — LLM-as-judge | Sonnet scores docs on clarity/completeness/actionability | ~$0.15 | ~30s |
 
-Tier 1 runs on every `bun test`. Tiers 2+3 are gated behind `EVALS=1`. The idea: catch 95% of issues for free, use LLMs only for judgment calls and integration testing.
+Tier 1 runs on every `bun run test`. Tiers 2+3 are gated behind `EVALS=1`. The idea: catch 95% of issues for free, use LLMs only for judgment calls and integration testing.
 
 ## What's intentionally not here
 
@@ -355,4 +443,4 @@ Tier 1 runs on every `bun test`. Tiers 2+3 are gated behind `EVALS=1`. The idea:
 - **No MCP protocol.** MCP adds JSON schema overhead per request and requires a persistent connection. Plain HTTP + plain text output is lighter on tokens and easier to debug.
 - **No multi-user support.** One server per workspace, one user. The token auth is defense-in-depth, not multi-tenancy.
 - **No Windows/Linux cookie decryption.** macOS Keychain is the only supported credential store. Linux (GNOME Keyring/kwallet) and Windows (DPAPI) are architecturally possible but not implemented.
-- **No iframe support.** Playwright can handle iframes but the ref system doesn't cross frame boundaries yet. This is the most-requested missing feature.
+- **No iframe auto-discovery.** `$B frame` supports cross-frame interaction (CSS selector, @ref, `--name`, `--url` matching), but the ref system does not auto-crawl iframes during `snapshot`. You must explicitly enter a frame context first.

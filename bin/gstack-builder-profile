@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# gstack-builder-profile — LEGACY SHIM.
+#
+# Superseded by bin/gstack-developer-profile. This binary now delegates to
+# `gstack-developer-profile --read` to keep /office-hours working during the
+# transition. When all call sites have been updated, this file can be removed.
+#
+# The migration from ~/.gstack/builder-profile.jsonl to the unified
+# ~/.gstack/developer-profile.json happens automatically on first read —
+# see bin/gstack-developer-profile --migrate for details.
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+exec "$SCRIPT_DIR/gstack-developer-profile" --read "$@"

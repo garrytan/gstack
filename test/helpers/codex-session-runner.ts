@@ -15,6 +15,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { hermeticChildEnv } from './hermetic-env';
+import { extractSkillSections } from './skill-fixture';
 
 // --- Interfaces ---
 
@@ -27,6 +29,7 @@ export interface CodexResult {
   durationMs: number;       // Wall clock time
   sessionId: string | null; // Thread ID for session continuity
   rawLines: string[];       // Raw JSONL lines for debugging
+  stderr: string;           // Stderr output (skill loading errors, auth failures)
 }
 
 // --- JSONL parser (ported from Python in codex/SKILL.md.tmpl) ---
@@ -98,7 +101,16 @@ export function parseCodexJSONL(lines: string[]): ParsedCodexJSONL {
 
 /**
  * Install a SKILL.md into a temp HOME directory for Codex to discover.
- * Creates ~/.codex/skills/{skillName}/SKILL.md in the temp HOME.
+ * Creates ~/.codex/skills/{skillName}/SKILL.md in the temp HOME and copies
+ * agents/openai.yaml when present so Codex sees the same metadata as a real install.
+ *
+ * When `sections` is provided, the installed SKILL.md is an EXTRACTION
+ * (frontmatter + the named `## <section>` blocks via
+ * test/helpers/skill-fixture.ts) instead of the full 1000-1900-line file —
+ * CLAUDE.md: "E2E test fixtures: extract, don't copy". Omit `sections` only
+ * when the test's purpose is to validate the real generated artifact itself
+ * (e.g., codex-discover-skill asserts the full SKILL.md loads without
+ * "invalid" / "Skipped loading" stderr from Codex).
  *
  * Returns the temp HOME path. Caller is responsible for cleanup.
  */
@@ -106,14 +118,26 @@ export function installSkillToTempHome(
   skillDir: string,
   skillName: string,
   tempHome?: string,
+  sections?: string[],
 ): string {
   const home = tempHome || fs.mkdtempSync(path.join(os.tmpdir(), 'codex-e2e-'));
   const destDir = path.join(home, '.codex', 'skills', skillName);
   fs.mkdirSync(destDir, { recursive: true });
 
   const srcSkill = path.join(skillDir, 'SKILL.md');
-  if (fs.existsSync(srcSkill)) {
+  if (sections && sections.length > 0) {
+    // extractSkillSections throws loudly on a missing file or renamed
+    // section — a fixture is never silently written empty.
+    fs.writeFileSync(path.join(destDir, 'SKILL.md'), extractSkillSections(skillDir, sections));
+  } else if (fs.existsSync(srcSkill)) {
     fs.copyFileSync(srcSkill, path.join(destDir, 'SKILL.md'));
+  }
+
+  const srcOpenAIYaml = path.join(skillDir, 'agents', 'openai.yaml');
+  if (fs.existsSync(srcOpenAIYaml)) {
+    const destAgentsDir = path.join(destDir, 'agents');
+    fs.mkdirSync(destAgentsDir, { recursive: true });
+    fs.copyFileSync(srcOpenAIYaml, path.join(destAgentsDir, 'openai.yaml'));
   }
 
   return home;
@@ -134,6 +158,10 @@ export async function runCodexSkill(opts: {
   cwd?: string;             // Working directory
   skillName?: string;       // Skill name for installation (default: dirname)
   sandbox?: string;         // Sandbox mode (default: 'read-only')
+  sections?: string[];      // Install only these `## <section>` blocks (extract, don't copy)
+  model?: string;           // Exact Codex model ID (passed with --model)
+  configOverrides?: string[]; // TOML key=value overrides (passed with -c)
+  ignoreUserConfig?: boolean; // Add --ignore-user-config; auth still comes from CODEX_HOME
 }): Promise<CodexResult> {
   const {
     skillDir,
@@ -142,6 +170,10 @@ export async function runCodexSkill(opts: {
     cwd,
     skillName,
     sandbox = 'read-only',
+    sections,
+    model,
+    configOverrides = [],
+    ignoreUserConfig = false,
   } = opts;
 
   const startTime = Date.now();
@@ -159,6 +191,7 @@ export async function runCodexSkill(opts: {
       durationMs: Date.now() - startTime,
       sessionId: null,
       rawLines: [],
+      stderr: '',
     };
   }
 
@@ -167,39 +200,46 @@ export async function runCodexSkill(opts: {
   const realHome = os.homedir();
 
   try {
-    installSkillToTempHome(skillDir, name, tempHome);
+    installSkillToTempHome(skillDir, name, tempHome, sections);
 
-    // Symlink real Codex auth config so codex can authenticate from temp HOME.
-    // Codex stores auth in ~/.codex/ — we need the config but not the skills
-    // (we install our own test skills above).
-    const realCodexConfig = path.join(realHome, '.codex');
+    // Copy authentication only. Copying the whole operator ~/.codex tree leaks
+    // plugins, MCP servers, rules, memories, and skills into a supposedly
+    // hermetic E2E; required private MCPs can then fail before the model starts.
+    const realCodexConfig = process.env.CODEX_HOME || path.join(realHome, '.codex');
     const tempCodexDir = path.join(tempHome, '.codex');
     if (fs.existsSync(realCodexConfig)) {
-      // Copy auth-related files from real ~/.codex/ into temp ~/.codex/
-      // (skills/ is already set up by installSkillToTempHome)
-      const entries = fs.readdirSync(realCodexConfig);
-      for (const entry of entries) {
-        if (entry === 'skills') continue; // don't clobber our test skills
+      for (const entry of ['auth.json']) {
         const src = path.join(realCodexConfig, entry);
         const dst = path.join(tempCodexDir, entry);
-        if (!fs.existsSync(dst)) {
+        if (fs.existsSync(src) && !fs.existsSync(dst)) {
           fs.cpSync(src, dst, { recursive: true });
         }
       }
     }
 
-    // Build codex exec command
-    const args = ['exec', prompt, '--json', '-s', sandbox];
+    // Build codex exec command.
+    // --skip-git-repo-check: newer codex CLIs refuse exec in an untrusted
+    // non-git directory ("Not inside a trusted directory and
+    // --skip-git-repo-check was not specified") — our temp skill dirs are
+    // exactly that. Empirically verified against codex on this machine.
+    const args = ['exec', '--json', '-s', sandbox, '--skip-git-repo-check'];
+    if (ignoreUserConfig) args.push('--ignore-user-config');
+    if (model) args.push('--model', model);
+    for (const override of configOverrides) args.push('-c', override);
+    args.push(prompt);
 
-    // Spawn codex with temp HOME so it discovers our installed skill
+    // Spawn codex with temp HOME so it discovers our installed skill.
+    // Hermetic scrub (test/helpers/hermetic-env.ts) with codex's auth surface
+    // re-admitted: codex auths from $HOME/.codex (copied into tempHome above)
+    // plus OPENAI_API_KEY/CODEX_* when present. HOME override merges last.
     const proc = Bun.spawn(['codex', ...args], {
       cwd: cwd || skillDir,
       stdout: 'pipe',
       stderr: 'pipe',
-      env: {
-        ...process.env,
-        HOME: tempHome,
-      },
+      env: hermeticChildEnv(
+        { HOME: tempHome, CODEX_HOME: tempCodexDir },
+        { extraAllow: ['OPENAI_API_KEY', 'CODEX_*'] },
+      ),
     });
 
     // Race against timeout
@@ -274,6 +314,7 @@ export async function runCodexSkill(opts: {
       durationMs,
       sessionId: parsed.sessionId,
       rawLines: collectedLines,
+      stderr,
     };
   } finally {
     // Clean up temp HOME

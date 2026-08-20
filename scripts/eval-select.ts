@@ -38,8 +38,11 @@ if (changedFiles.length === 0) {
   process.exit(0);
 }
 
-const e2eSelection = selectTests(changedFiles, E2E_TOUCHFILES, GLOBAL_TOUCHFILES);
-const llmSelection = selectTests(changedFiles, LLM_JUDGE_TOUCHFILES, GLOBAL_TOUCHFILES);
+// baseRef/cwd scope the map-diff path (used when touchfiles-data.ts changed)
+// to the same base this script diffed against — including a --base override.
+const selectOpts = { baseRef: baseBranch, cwd: ROOT };
+const e2eSelection = selectTests(changedFiles, E2E_TOUCHFILES, GLOBAL_TOUCHFILES, selectOpts);
+const llmSelection = selectTests(changedFiles, LLM_JUDGE_TOUCHFILES, GLOBAL_TOUCHFILES, selectOpts);
 
 if (jsonMode) {
   console.log(JSON.stringify({
@@ -49,6 +52,7 @@ if (jsonMode) {
       selected: e2eSelection.selected,
       skipped: e2eSelection.skipped,
       reason: e2eSelection.reason,
+      removed_tests: e2eSelection.removedTests ?? [],
       count: `${e2eSelection.selected.length}/${Object.keys(E2E_TOUCHFILES).length}`,
     },
     llm_judge: {
@@ -63,7 +67,10 @@ if (jsonMode) {
   console.log(`Changed files: ${changedFiles.length}`);
   console.log();
 
-  console.log(`E2E (${e2eSelection.reason}): ${e2eSelection.selected.length}/${Object.keys(E2E_TOUCHFILES).length} tests`);
+  console.log(`E2E: selected ${e2eSelection.selected.length} of ${Object.keys(E2E_TOUCHFILES).length}, reason: ${e2eSelection.reason}`);
+  if (e2eSelection.removedTests && e2eSelection.removedTests.length > 0) {
+    console.log(`  Removed from maps (reported, not selected): ${e2eSelection.removedTests.join(', ')}`);
+  }
   if (e2eSelection.selected.length > 0 && e2eSelection.selected.length < Object.keys(E2E_TOUCHFILES).length) {
     console.log(`  Selected: ${e2eSelection.selected.join(', ')}`);
     console.log(`  Skipped:  ${e2eSelection.skipped.join(', ')}`);
@@ -74,7 +81,7 @@ if (jsonMode) {
   }
   console.log();
 
-  console.log(`LLM-judge (${llmSelection.reason}): ${llmSelection.selected.length}/${Object.keys(LLM_JUDGE_TOUCHFILES).length} tests`);
+  console.log(`LLM-judge: selected ${llmSelection.selected.length} of ${Object.keys(LLM_JUDGE_TOUCHFILES).length}, reason: ${llmSelection.reason}`);
   if (llmSelection.selected.length > 0 && llmSelection.selected.length < Object.keys(LLM_JUDGE_TOUCHFILES).length) {
     console.log(`  Selected: ${llmSelection.selected.join(', ')}`);
     console.log(`  Skipped:  ${llmSelection.skipped.join(', ')}`);

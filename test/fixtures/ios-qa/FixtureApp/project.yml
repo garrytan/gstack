@@ -1,0 +1,49 @@
+name: FixtureApp
+options:
+  deploymentTarget:
+    iOS: "17.0"
+  bundleIdPrefix: com.gstack.iosqa
+  developmentLanguage: en
+  createIntermediateGroups: true
+
+settings:
+  DEVELOPMENT_TEAM: 623FYQ2M88
+  CODE_SIGN_STYLE: Automatic
+  ENABLE_USER_SCRIPT_SANDBOXING: NO
+  # Personal-team bundle IDs are scoped per-team; this prefix is unique.
+  PRODUCT_BUNDLE_IDENTIFIER: com.gstack.iosqa.fixture
+
+# Local SPM package providing DebugBridgeCore + DebugBridgeUI as dependencies.
+# packages keyword (with `path:`) means a sibling local package next to project.yml.
+packages:
+  DebugBridge:
+    path: .
+
+targets:
+  FixtureApp:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: Sources/FixtureApp
+    dependencies:
+      - package: DebugBridge
+        product: DebugBridgeCore
+      - package: DebugBridge
+        product: DebugBridgeUI
+    info:
+      path: Sources/FixtureApp/Info.plist
+      properties:
+        CFBundleDisplayName: ios-qa fixture
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        UIRequiredDeviceCapabilities: [arm64]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.gstack.iosqa.fixture
+        DEVELOPMENT_TEAM: 623FYQ2M88
+        CODE_SIGN_STYLE: Automatic
+        TARGETED_DEVICE_FAMILY: "1"
+        SWIFT_VERSION: "5.9"
+        IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+        ENABLE_PREVIEWS: YES

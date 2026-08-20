@@ -1,0 +1,6 @@
+interface:
+  display_name: "gstack"
+  short_description: "AI builder framework — CEO strategy, eng review, design audit, QA testing, security audit, headless browser, deploy pipeline, and retrospectives. Full PM/dev/eng/CEO/QA in a box."
+  default_prompt: "Use $gstack to locate the bundled gstack skills."
+policy:
+  allow_implicit_invocation: true

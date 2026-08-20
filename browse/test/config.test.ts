@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { resolveConfig, ensureStateDir, readVersionHash, getGitRoot, getRemoteSlug } from '../src/config';
+import { resolveConfig, ensureStateDir, readVersionHash, getGitRoot, getRemoteSlug, resolveGstackHome, resolveChromiumProfile, cleanSingletonLocks } from '../src/config';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -58,6 +58,39 @@ describe('config', () => {
       ensureStateDir(config); // should not throw
       expect(fs.existsSync(config.stateDir)).toBe(true);
       // Cleanup
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    test('writes a self-contained .gstack/.gitignore with * unconditionally', () => {
+      // Even with NO project .gitignore, the state dir must carry its own
+      // ignore so persisted cookies / network+audit logs can never be git-added.
+      const tmpDir = path.join(os.tmpdir(), `browse-selfignore-test-${Date.now()}`);
+      fs.mkdirSync(tmpDir, { recursive: true });
+      const config = resolveConfig({ BROWSE_STATE_FILE: path.join(tmpDir, '.gstack', 'browse.json') });
+      ensureStateDir(config);
+      const selfIgnore = path.join(config.stateDir, '.gitignore');
+      expect(fs.existsSync(selfIgnore)).toBe(true);
+      expect(fs.readFileSync(selfIgnore, 'utf-8')).toBe('*\n');
+      // No nesting: the ignore is directly inside the state dir, not .gstack/.gstack/.
+      expect(fs.existsSync(path.join(config.stateDir, '.gstack'))).toBe(false);
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    test('writes the self-contained .gitignore even when git already ignores .gstack/ (before the early return)', () => {
+      // Pins the load-bearing property: the state-dir ignore is written
+      // UNCONDITIONALLY, before the `if (isIgnoredByGit(...)) return` early exit.
+      // A git repo whose root .gitignore already lists .gstack/ makes
+      // isIgnoredByGit true, so the early return fires — moving the write below
+      // it (the exact bug the fix removed) would skip the guard here.
+      const tmpDir = path.join(os.tmpdir(), `browse-gitignored-repo-test-${Date.now()}`);
+      fs.mkdirSync(tmpDir, { recursive: true });
+      Bun.spawnSync(['git', 'init'], { cwd: tmpDir, stdout: 'ignore', stderr: 'ignore' });
+      fs.writeFileSync(path.join(tmpDir, '.gitignore'), '.gstack/\n');
+      const config = resolveConfig({ BROWSE_STATE_FILE: path.join(tmpDir, '.gstack', 'browse.json') });
+      ensureStateDir(config);
+      const selfIgnore = path.join(config.stateDir, '.gitignore');
+      expect(fs.existsSync(selfIgnore)).toBe(true);
+      expect(fs.readFileSync(selfIgnore, 'utf-8')).toBe('*\n');
       fs.rmSync(tmpDir, { recursive: true, force: true });
     });
 
@@ -122,6 +155,41 @@ describe('config', () => {
       const config = resolveConfig({ BROWSE_STATE_FILE: path.join(tmpDir, '.gstack', 'browse.json') });
       ensureStateDir(config);
       expect(fs.existsSync(path.join(tmpDir, '.gitignore'))).toBe(false);
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    test('leaves .gitignore alone when git already ignores .gstack/ globally', () => {
+      const { spawnSync } = require('child_process');
+      const tmpDir = path.join(os.tmpdir(), `browse-gitignore-global-${Date.now()}`);
+      fs.mkdirSync(tmpDir, { recursive: true });
+
+      // Set up a real git repo
+      spawnSync('git', ['init', '-q'], { cwd: tmpDir });
+      spawnSync('git', ['config', 'user.email', 'test@test.com'], { cwd: tmpDir });
+      spawnSync('git', ['config', 'user.name', 'Test'], { cwd: tmpDir });
+
+      // Write a global excludes file that ignores .gstack/
+      const excludesFile = path.join(tmpDir, 'global-gitignore');
+      fs.writeFileSync(excludesFile, '.gstack/\n');
+      spawnSync('git', ['config', 'core.excludesFile', excludesFile], { cwd: tmpDir });
+
+      // .gitignore exists but does NOT contain .gstack/
+      fs.writeFileSync(path.join(tmpDir, '.gitignore'), 'node_modules/\n');
+      spawnSync('git', ['add', '.gitignore'], { cwd: tmpDir });
+      spawnSync('git', ['commit', '-qm', 'init'], { cwd: tmpDir });
+
+      // Verify git knows .gstack/ is ignored
+      const check = spawnSync('git', ['check-ignore', '-q', '.gstack/'], { cwd: tmpDir });
+      expect(check.status).toBe(0);
+
+      const config = resolveConfig({ BROWSE_STATE_FILE: path.join(tmpDir, '.gstack', 'browse.json') });
+      ensureStateDir(config);
+
+      // .gitignore must NOT have been modified
+      const content = fs.readFileSync(path.join(tmpDir, '.gitignore'), 'utf-8');
+      expect(content).toBe('node_modules/\n');
+      expect(fs.existsSync(path.join(tmpDir, '.gstack'))).toBe(true);
+
       fs.rmSync(tmpDir, { recursive: true, force: true });
     });
   });
@@ -246,5 +314,200 @@ describe('version mismatch detection', () => {
     // Version mismatch only triggers when both are present
     const shouldRestart = currentVersion !== null && stateVersion !== undefined && currentVersion !== stateVersion;
     expect(shouldRestart).toBe(false);
+  });
+});
+
+describe('isServerHealthy', () => {
+  const { isServerHealthy } = require('../src/cli');
+  const http = require('http');
+
+  test('returns true for a healthy server', async () => {
+    const server = http.createServer((_req: any, res: any) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'healthy' }));
+    });
+    await new Promise<void>(resolve => server.listen(0, resolve));
+    const port = server.address().port;
+    try {
+      expect(await isServerHealthy(port)).toBe(true);
+    } finally {
+      server.close();
+    }
+  });
+
+  test('returns false for an unhealthy server', async () => {
+    const server = http.createServer((_req: any, res: any) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'unhealthy' }));
+    });
+    await new Promise<void>(resolve => server.listen(0, resolve));
+    const port = server.address().port;
+    try {
+      expect(await isServerHealthy(port)).toBe(false);
+    } finally {
+      server.close();
+    }
+  });
+
+  test('returns false when server is not running', async () => {
+    // Use a port that's almost certainly not in use
+    expect(await isServerHealthy(59999)).toBe(false);
+  });
+
+  test('returns false on non-200 response', async () => {
+    const server = http.createServer((_req: any, res: any) => {
+      res.writeHead(500);
+      res.end('Internal Server Error');
+    });
+    await new Promise<void>(resolve => server.listen(0, resolve));
+    const port = server.address().port;
+    try {
+      expect(await isServerHealthy(port)).toBe(false);
+    } finally {
+      server.close();
+    }
+  });
+});
+
+describe('startup error log', () => {
+  test('write and read error log', () => {
+    const tmpDir = path.join(os.tmpdir(), `browse-error-log-test-${Date.now()}`);
+    fs.mkdirSync(tmpDir, { recursive: true });
+    const errorLogPath = path.join(tmpDir, 'browse-startup-error.log');
+    const errorMsg = 'Cannot find module playwright';
+    fs.writeFileSync(errorLogPath, `2026-03-23T00:00:00.000Z ${errorMsg}\n`);
+    const content = fs.readFileSync(errorLogPath, 'utf-8').trim();
+    expect(content).toContain(errorMsg);
+    expect(content).toMatch(/^\d{4}-\d{2}-\d{2}T/); // ISO timestamp prefix
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+});
+
+describe('resolveGstackHome', () => {
+  test('honors GSTACK_HOME env var when set', () => {
+    const orig = process.env.GSTACK_HOME;
+    process.env.GSTACK_HOME = '/tmp/custom-gstack-home';
+    try {
+      expect(resolveGstackHome()).toBe('/tmp/custom-gstack-home');
+    } finally {
+      if (orig === undefined) delete process.env.GSTACK_HOME;
+      else process.env.GSTACK_HOME = orig;
+    }
+  });
+
+  test('falls back to os.homedir() + /.gstack when env unset', () => {
+    const orig = process.env.GSTACK_HOME;
+    delete process.env.GSTACK_HOME;
+    try {
+      expect(resolveGstackHome()).toBe(path.join(os.homedir(), '.gstack'));
+    } finally {
+      if (orig !== undefined) process.env.GSTACK_HOME = orig;
+    }
+  });
+});
+
+describe('resolveChromiumProfile', () => {
+  test('explicit arg wins over env and default', () => {
+    const orig = process.env.CHROMIUM_PROFILE;
+    process.env.CHROMIUM_PROFILE = '/tmp/env-profile';
+    try {
+      expect(resolveChromiumProfile('/tmp/explicit-profile')).toBe('/tmp/explicit-profile');
+    } finally {
+      if (orig === undefined) delete process.env.CHROMIUM_PROFILE;
+      else process.env.CHROMIUM_PROFILE = orig;
+    }
+  });
+
+  test('CHROMIUM_PROFILE env honored when no explicit arg', () => {
+    const orig = process.env.CHROMIUM_PROFILE;
+    process.env.CHROMIUM_PROFILE = '/tmp/env-profile';
+    try {
+      expect(resolveChromiumProfile()).toBe('/tmp/env-profile');
+    } finally {
+      if (orig === undefined) delete process.env.CHROMIUM_PROFILE;
+      else process.env.CHROMIUM_PROFILE = orig;
+    }
+  });
+
+  test('falls back to resolveGstackHome()/chromium-profile when nothing set', () => {
+    const origEnv = process.env.CHROMIUM_PROFILE;
+    const origHome = process.env.GSTACK_HOME;
+    delete process.env.CHROMIUM_PROFILE;
+    process.env.GSTACK_HOME = '/tmp/fallback-gstack';
+    try {
+      expect(resolveChromiumProfile()).toBe('/tmp/fallback-gstack/chromium-profile');
+    } finally {
+      if (origEnv !== undefined) process.env.CHROMIUM_PROFILE = origEnv;
+      if (origHome === undefined) delete process.env.GSTACK_HOME;
+      else process.env.GSTACK_HOME = origHome;
+    }
+  });
+
+  test('ignores empty-string explicit arg, falls through to env/default', () => {
+    const orig = process.env.CHROMIUM_PROFILE;
+    process.env.CHROMIUM_PROFILE = '/tmp/env-profile';
+    try {
+      expect(resolveChromiumProfile('')).toBe('/tmp/env-profile');
+    } finally {
+      if (orig === undefined) delete process.env.CHROMIUM_PROFILE;
+      else process.env.CHROMIUM_PROFILE = orig;
+    }
+  });
+});
+
+describe('cleanSingletonLocks', () => {
+  test('removes SingletonLock/Socket/Cookie when basename is chromium-profile', () => {
+    const tmpDir = path.join(os.tmpdir(), `clean-locks-${Date.now()}`, 'chromium-profile');
+    fs.mkdirSync(tmpDir, { recursive: true });
+    for (const f of ['SingletonLock', 'SingletonSocket', 'SingletonCookie']) {
+      fs.writeFileSync(path.join(tmpDir, f), 'stale');
+    }
+    cleanSingletonLocks(tmpDir);
+    for (const f of ['SingletonLock', 'SingletonSocket', 'SingletonCookie']) {
+      expect(fs.existsSync(path.join(tmpDir, f))).toBe(false);
+    }
+    fs.rmSync(path.dirname(tmpDir), { recursive: true, force: true });
+  });
+
+  test('refuses to clean unrecognized profile dir basename', () => {
+    const tmpDir = path.join(os.tmpdir(), `unrelated-${Date.now()}`);
+    fs.mkdirSync(tmpDir, { recursive: true });
+    const lockFile = path.join(tmpDir, 'SingletonLock');
+    fs.writeFileSync(lockFile, 'should-survive');
+    const origWarn = console.warn;
+    let warned = '';
+    console.warn = (msg: string) => { warned = msg; };
+    try {
+      cleanSingletonLocks(tmpDir);
+      expect(warned).toContain('refusing to clean unrecognized profile dir');
+      expect(fs.existsSync(lockFile)).toBe(true); // not deleted
+    } finally {
+      console.warn = origWarn;
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  test('respects explicit CHROMIUM_PROFILE env even with non-standard basename', () => {
+    const tmpDir = path.join(os.tmpdir(), `custom-name-${Date.now()}`);
+    fs.mkdirSync(tmpDir, { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, 'SingletonLock'), 'stale');
+    const orig = process.env.CHROMIUM_PROFILE;
+    process.env.CHROMIUM_PROFILE = tmpDir;
+    try {
+      cleanSingletonLocks(tmpDir);
+      expect(fs.existsSync(path.join(tmpDir, 'SingletonLock'))).toBe(false);
+    } finally {
+      if (orig === undefined) delete process.env.CHROMIUM_PROFILE;
+      else process.env.CHROMIUM_PROFILE = orig;
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  test('second call on empty dir does not throw (ENOENT swallowed)', () => {
+    const tmpDir = path.join(os.tmpdir(), `empty-locks-${Date.now()}`, 'chromium-profile');
+    fs.mkdirSync(tmpDir, { recursive: true });
+    expect(() => cleanSingletonLocks(tmpDir)).not.toThrow();
+    expect(() => cleanSingletonLocks(tmpDir)).not.toThrow();
+    fs.rmSync(path.dirname(tmpDir), { recursive: true, force: true });
   });
 });

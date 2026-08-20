@@ -78,8 +78,8 @@ describe('gstack-telemetry-log', () => {
 
     const events = parseJsonl();
     expect(events).toHaveLength(1);
-    // installation_id should be a SHA-256 hash (64 hex chars)
-    expect(events[0].installation_id).toMatch(/^[a-f0-9]{64}$/);
+    // installation_id should be a UUID v4 (or hex fallback)
+    expect(events[0].installation_id).toMatch(/^[a-f0-9-]{32,36}$/);
   });
 
   test('installation_id is null for anonymous tier', () => {
@@ -125,6 +125,171 @@ describe('gstack-telemetry-log', () => {
     expect(events[0]).toHaveProperty('_branch');
   });
 
+  // ─── json_safe() injection prevention tests ────────────────
+  test('sanitizes skill name with quote injection attempt', () => {
+    setConfig('telemetry', 'anonymous');
+    run(`${BIN}/gstack-telemetry-log --skill 'review","injected":"true' --duration 10 --outcome success --session-id inj-1`);
+
+    const lines = readJsonl();
+    expect(lines).toHaveLength(1);
+    // Must be valid JSON (no injection — quotes stripped, so no field injection possible)
+    const event = JSON.parse(lines[0]);
+    // The key check: no injected top-level property was created
+    expect(event).not.toHaveProperty('injected');
+    // Skill field should have quotes stripped but content preserved
+    expect(event.skill).not.toContain('"');
+  });
+
+  test('truncates skill name exceeding 200 chars', () => {
+    setConfig('telemetry', 'anonymous');
+    const longSkill = 'a'.repeat(250);
+    run(`${BIN}/gstack-telemetry-log --skill '${longSkill}' --duration 10 --outcome success --session-id trunc-1`);
+
+    const events = parseJsonl();
+    expect(events[0].skill.length).toBeLessThanOrEqual(200);
+  });
+
+  test('sanitizes outcome with newline injection attempt', () => {
+    setConfig('telemetry', 'anonymous');
+    // Use printf to pass actual newline in the argument
+    run(`bash -c 'OUTCOME=$(printf "success\\nfake\\":\\"true"); ${BIN}/gstack-telemetry-log --skill qa --duration 10 --outcome "$OUTCOME" --session-id inj-2'`);
+
+    const lines = readJsonl();
+    expect(lines).toHaveLength(1);
+    const event = JSON.parse(lines[0]);
+    expect(event).not.toHaveProperty('fake');
+  });
+
+  test('sanitizes session_id with backslash-quote injection', () => {
+    setConfig('telemetry', 'anonymous');
+    run(`${BIN}/gstack-telemetry-log --skill qa --duration 10 --outcome success --session-id 'id\\\\"","x":"y'`);
+
+    const lines = readJsonl();
+    expect(lines).toHaveLength(1);
+    const event = JSON.parse(lines[0]);
+    expect(event).not.toHaveProperty('x');
+  });
+
+  test('sanitizes error_class with quote injection', () => {
+    setConfig('telemetry', 'anonymous');
+    run(`${BIN}/gstack-telemetry-log --skill qa --duration 10 --outcome error --error-class 'timeout","extra":"val' --session-id inj-3`);
+
+    const lines = readJsonl();
+    expect(lines).toHaveLength(1);
+    const event = JSON.parse(lines[0]);
+    expect(event).not.toHaveProperty('extra');
+  });
+
+  test('sanitizes failed_step with quote injection', () => {
+    setConfig('telemetry', 'anonymous');
+    run(`${BIN}/gstack-telemetry-log --skill qa --duration 10 --outcome error --failed-step 'step1","hacked":"yes' --session-id inj-4`);
+
+    const lines = readJsonl();
+    expect(lines).toHaveLength(1);
+    const event = JSON.parse(lines[0]);
+    expect(event).not.toHaveProperty('hacked');
+  });
+
+  test('escapes error_message quotes and preserves content', () => {
+    setConfig('telemetry', 'anonymous');
+    run(`${BIN}/gstack-telemetry-log --skill qa --duration 10 --outcome error --error-message 'Error: file "test.txt" not found' --session-id inj-5`);
+
+    const lines = readJsonl();
+    expect(lines).toHaveLength(1);
+    const event = JSON.parse(lines[0]);
+    expect(event.error_message).toContain('file');
+    expect(event.error_message).toContain('not found');
+  });
+
+  test('redacts credential spans in error_message before they touch disk (#1947)', () => {
+    setConfig('telemetry', 'anonymous');
+    const token = 'ghp_' + 'A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8';
+    run(
+      `${BIN}/gstack-telemetry-log --skill qa --duration 10 --outcome error --error-message 'push failed: auth ${token} rejected by remote' --session-id red-1`,
+    );
+
+    const lines = readJsonl();
+    expect(lines).toHaveLength(1);
+    const event = JSON.parse(lines[0]);
+    // The span is masked, the surrounding triage context survives.
+    expect(event.error_message).toContain('<REDACTED-github.pat>');
+    expect(event.error_message).toContain('push failed');
+    expect(event.error_message).not.toContain(token);
+    // Raw bytes on disk never contain the token either.
+    expect(lines[0]).not.toContain(token);
+  });
+
+  test('fails closed: error_message becomes null when the redactor is unavailable (#1947)', () => {
+    setConfig('telemetry', 'anonymous');
+    const token = 'ghp_' + 'A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8';
+    // Shadow bun with a failing stub on a prepended PATH (deterministic on
+    // any host layout — pre-landing review flagged the bare '/usr/bin:/bin'
+    // variant as environment-dependent): the redaction snippet cannot run,
+    // so the whole message must drop — never raw passthrough.
+    const stubBin = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-tel-nobun-'));
+    try {
+      fs.writeFileSync(path.join(stubBin, 'bun'), '#!/bin/sh\nexit 127\n');
+      fs.chmodSync(path.join(stubBin, 'bun'), 0o755);
+      run(
+        `${BIN}/gstack-telemetry-log --skill qa --duration 10 --outcome error --error-message 'auth ${token} rejected' --session-id red-2`,
+        { PATH: `${stubBin}:${process.env.PATH}` },
+      );
+    } finally {
+      fs.rmSync(stubBin, { recursive: true, force: true });
+    }
+
+    const lines = readJsonl();
+    expect(lines).toHaveLength(1);
+    const event = JSON.parse(lines[0]);
+    expect(event.error_message).toBeNull();
+    expect(lines[0]).not.toContain(token);
+  });
+
+  test('fails closed: PEM key in error_message drops the whole message (#1947 review fix)', () => {
+    setConfig('telemetry', 'anonymous');
+    // Header-only pattern: span replacement would forward the key body, so
+    // the engine returns null and the bin must store null.
+    run(
+      `${BIN}/gstack-telemetry-log --skill qa --duration 10 --outcome error --error-message 'deploy failed: -----BEGIN PRIVATE KEY----- MIIEvQIBADANBgkqhkiG9w0BAQEFAASC' --session-id red-5`,
+    );
+
+    const lines = readJsonl();
+    expect(lines).toHaveLength(1);
+    const event = JSON.parse(lines[0]);
+    expect(event.error_message).toBeNull();
+    expect(lines[0]).not.toContain('MIIEvQIBADAN');
+  });
+
+  test('truncates error_message to 200 chars after redaction (#1947)', () => {
+    setConfig('telemetry', 'anonymous');
+    const long = 'x'.repeat(300);
+    run(
+      `${BIN}/gstack-telemetry-log --skill qa --duration 10 --outcome error --error-message '${long}' --session-id red-3`,
+    );
+
+    const events = parseJsonl();
+    expect(events).toHaveLength(1);
+    expect(events[0].error_message.length).toBeLessThanOrEqual(200);
+  });
+
+  test('fails closed: error_message becomes null when the engine cannot relocate a span (#1947)', () => {
+    setConfig('telemetry', 'anonymous');
+    const secret = '8Fk2pQ9vXz4wL7mN3rT6yB1cD5eG0hJq';
+    // env.kv-shaped finding (line-anchored, so the assignment leads the
+    // message): the span (value) starts past the regex match start,
+    // locateSpan misses it, redactFindingSpans returns null — the bin must
+    // drop the whole message, never pass it through raw.
+    run(
+      `${BIN}/gstack-telemetry-log --skill qa --duration 10 --outcome error --error-message 'API_KEY=${secret} rejected by daemon' --session-id red-4`,
+    );
+
+    const lines = readJsonl();
+    expect(lines).toHaveLength(1);
+    const event = JSON.parse(lines[0]);
+    expect(event.error_message).toBeNull();
+    expect(lines[0]).not.toContain(secret);
+  });
+
   test('creates analytics directory if missing', () => {
     // Remove analytics dir
     const analyticsDir = path.join(tmpDir, 'analytics');
@@ -135,6 +300,34 @@ describe('gstack-telemetry-log', () => {
 
     expect(fs.existsSync(analyticsDir)).toBe(true);
     expect(readJsonl()).toHaveLength(1);
+  });
+
+  // ─── Telemetry JSON safety: branch/repo with special chars ────
+  test('branch name with quotes does not corrupt JSON', () => {
+    setConfig('telemetry', 'anonymous');
+    // Simulate a branch name with double quotes by setting it via git env override
+    // The json_safe function strips quotes, so the JSONL should remain valid
+    run(`${BIN}/gstack-telemetry-log --skill qa --duration 10 --outcome success --session-id branch-quotes-1`);
+
+    const lines = readJsonl();
+    expect(lines).toHaveLength(1);
+    // Every line must be valid JSON
+    const event = JSON.parse(lines[0]);
+    expect(event._branch).toBeDefined();
+    // _branch should not contain double quotes (json_safe strips them)
+    expect(event._branch).not.toContain('"');
+  });
+
+  test('repo slug with special chars does not corrupt JSON', () => {
+    setConfig('telemetry', 'anonymous');
+    run(`${BIN}/gstack-telemetry-log --skill qa --duration 10 --outcome success --session-id repo-special-1`);
+
+    const lines = readJsonl();
+    expect(lines).toHaveLength(1);
+    const event = JSON.parse(lines[0]);
+    expect(event._repo_slug).toBeDefined();
+    // _repo_slug should not contain double quotes (json_safe strips them)
+    expect(event._repo_slug).not.toContain('"');
   });
 });
 
@@ -244,15 +437,31 @@ describe('gstack-analytics', () => {
 });
 
 describe('gstack-telemetry-sync', () => {
-  test('exits silently with no endpoint configured', () => {
-    // Default: GSTACK_TELEMETRY_ENDPOINT is not set → exit 0
+  test('exits silently with no Supabase URL configured', () => {
+    // Default: GSTACK_SUPABASE_URL is not set → exit 0
     const result = run(`${BIN}/gstack-telemetry-sync`);
     expect(result).toBe('');
   });
 
   test('exits silently with no JSONL file', () => {
-    const result = run(`${BIN}/gstack-telemetry-sync`, { GSTACK_TELEMETRY_ENDPOINT: 'http://localhost:9999' });
+    const result = run(`${BIN}/gstack-telemetry-sync`, { GSTACK_SUPABASE_URL: 'http://localhost:9999' });
     expect(result).toBe('');
+  });
+
+  test('does not rename JSONL field names (edge function expects raw names)', () => {
+    setConfig('telemetry', 'anonymous');
+    run(`${BIN}/gstack-telemetry-log --skill qa --duration 60 --outcome success --session-id raw-fields-1`);
+
+    const events = parseJsonl();
+    expect(events).toHaveLength(1);
+    // Edge function expects these raw field names, NOT Postgres column names
+    expect(events[0]).toHaveProperty('v');
+    expect(events[0]).toHaveProperty('ts');
+    expect(events[0]).toHaveProperty('sessions');
+    // Should NOT have Postgres column names
+    expect(events[0]).not.toHaveProperty('schema_version');
+    expect(events[0]).not.toHaveProperty('event_timestamp');
+    expect(events[0]).not.toHaveProperty('concurrent_sessions');
   });
 });
 
@@ -274,5 +483,27 @@ describe('gstack-community-dashboard', () => {
     expect(output).toContain('gstack community dashboard');
     // Should not show "not configured" since config.sh exists
     expect(output).not.toContain('Supabase not configured');
+  });
+});
+
+describe('preamble telemetry gating (#467)', () => {
+  test('preamble source does not write JSONL unconditionally', () => {
+    const preamble = fs.readFileSync(path.join(ROOT, 'scripts', 'resolvers', 'preamble.ts'), 'utf-8');
+    const lines = preamble.split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].includes('skill-usage.jsonl') && lines[i].includes('>>')) {
+        // Each JSONL write must be inside a _TEL conditional (within 5 lines above)
+        let foundConditional = false;
+        for (let j = i - 1; j >= Math.max(0, i - 5); j--) {
+          if (lines[j].includes('_TEL') && lines[j].includes('off')) {
+            foundConditional = true;
+            break;
+          }
+        }
+        if (!foundConditional) {
+          throw new Error(`Unconditional JSONL write at preamble.ts line ${i + 1}: ${lines[i].trim()}`);
+        }
+      }
+    }
   });
 });

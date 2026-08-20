@@ -1,0 +1,29 @@
+/* gstack browse — CSS Inspector overlay styles
+ * Injected alongside inspector.js into the active tab.
+ * Design system: amber accent, zinc neutrals.
+ */
+
+#gstack-inspector-highlight {
+  position: fixed;
+  pointer-events: none;
+  z-index: 2147483647;
+  background: rgba(59, 130, 246, 0.15);
+  border: 2px solid rgba(59, 130, 246, 0.6);
+  border-radius: 2px;
+  transition: top 50ms ease, left 50ms ease, width 50ms ease, height 50ms ease;
+}
+
+#gstack-inspector-tooltip {
+  position: fixed;
+  pointer-events: none;
+  z-index: 2147483647;
+  background: #27272A;
+  color: #e0e0e0;
+  font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  line-height: 18px;
+}

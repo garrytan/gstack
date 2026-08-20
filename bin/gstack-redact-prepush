@@ -1,0 +1,481 @@
+#!/usr/bin/env bun
+/**
+ * gstack-redact-prepush — git pre-push hook that scans the diff being pushed for
+ * HIGH-severity credentials and blocks the push on a hit.
+ *
+ * THIS IS A GUARDRAIL, NOT ENFORCEMENT. `git push --no-verify` bypasses it, as
+ * does `GSTACK_REDACT_PREPUSH=skip`. It catches accidental credential pushes,
+ * the most common real-world leak. It does NOT scan history, binary/LFS/submodule
+ * files, or non-added lines. History scanning is /cso's job.
+ *
+ * Git pre-push interface: refs are read from STDIN, one per line:
+ *   <local ref> <local sha> <remote ref> <remote sha>
+ * We scan the ADDED lines of <remote sha>..<local sha> per ref (what's being
+ * pushed). Special cases:
+ *   - remote sha all-zeroes  → new branch: diff against merge-base with the
+ *     remote's default branch (fallback: scan all commits unique to local ref).
+ *   - local sha all-zeroes   → branch delete: nothing to scan, skip.
+ *   - force-push             → remote..local still gives the net new content.
+ *
+ * Behavior:
+ *   - HIGH finding in added lines → print + exit 1 (block), for public AND private.
+ *   - MEDIUM → warn (non-blocking). LOW/WARN → silent.
+ *   - GSTACK_REDACT_PREPUSH=skip → log + exit 0 (escape valve).
+ *
+ * Installed/uninstalled via `gstack-redact install-prepush-hook` (see the
+ * gstack-redact CLI), which chains any pre-existing hook.
+ */
+import { spawnSync } from "child_process";
+import * as fs from "fs";
+import * as os from "os";
+import * as path from "path";
+import { scan, type Finding } from "../lib/redact-engine";
+
+const ZERO = /^0+$/;
+// The canonical empty-tree object; diffing against it yields all content as added.
+const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+
+/**
+ * Permissive git for legitimately-fallible PROBES (symbolic-ref, rev-parse,
+ * merge-base) where a non-zero exit is normal control flow. The DIFF call
+ * must NOT use this — see gitStrict (#1946 fail-closed).
+ */
+function git(args: string[]): string {
+  const r = spawnSync("git", args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+  return r.status === 0 ? (r.stdout ?? "") : "";
+}
+
+/**
+ * Fail-closed git for the diff that decides whether the push is scanned
+ * (#1946). status !== 0 covers repo errors; status === null covers a killed
+ * process AND maxBuffer overflow — the oversized-diff case is exactly where
+ * a large secret-bearing blob is most likely, so "couldn't read the diff"
+ * must block, not silently allow.
+ */
+function gitStrict(args: string[]): string {
+  const r = spawnSync("git", args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+  // status !== 0 covers BOTH a non-zero exit AND null (process killed by a
+  // signal or maxBuffer overflow — null !== 0 is true).
+  if (r.status !== 0) {
+    throw new Error(
+      `git ${args[0]} failed (status=${r.status ?? "killed/overflow"}): ${(r.stderr ?? "").slice(0, 300)}`,
+    );
+  }
+  return r.stdout ?? "";
+}
+
+/** True when the object exists in the local odb (cat-file -e signals via exit code). */
+function objectExists(sha: string): boolean {
+  const r = spawnSync("git", ["cat-file", "-e", sha], { encoding: "utf8" });
+  return r.status === 0;
+}
+
+/**
+ * The remote-tracking exclusion used when narrowing to "commits new to the
+ * remote" (#2592 catch-up merges, #2573 rebased force-pushes).
+ *
+ * Narrowed to the PUSH TARGET's namespace (S1): a bare `--remotes` excludes
+ * commits reachable from ANY remote-tracking ref, so a secret that had only
+ * ever been fetched from (or pushed to) a private/local-path remote was never
+ * scanned when later pushed to a PUBLIC remote — "already left this machine"
+ * is not "already reached THIS remote". Git hands pre-push the push remote's
+ * name as $1 (and its URL as $2); the installed hook wrapper forwards "$@".
+ * Fallbacks keep the historical all-remotes behavior when the name is
+ * unavailable (stdin/CLI invocation) or is not a configured remote (URL
+ * pushes have no remote-tracking namespace) — falling back scans LESS than
+ * the narrowed form would, but never less than the hook historically did.
+ */
+let _remotesExclusion: string | undefined;
+function remotesExclusion(): string {
+  if (_remotesExclusion === undefined) {
+    const name = process.argv[2];
+    const configured = name
+      ? git(["remote"]).split("\n").map((s) => s.trim()).filter(Boolean).includes(name)
+      : false;
+    _remotesExclusion = configured ? `--remotes=${name}/*` : "--remotes";
+  }
+  return _remotesExclusion;
+}
+
+function defaultRemoteBranch(): string {
+  // origin/HEAD → origin/main, fall back to main/master.
+  const sym = git(["symbolic-ref", "refs/remotes/origin/HEAD"]).trim();
+  if (sym) return sym.replace("refs/remotes/", "");
+  for (const b of ["origin/main", "origin/master"]) {
+    if (git(["rev-parse", "--verify", b]).trim()) return b;
+  }
+  return "origin/main";
+}
+
+/**
+ * Base commit for a push whose remote tip we cannot use directly, ordered from
+ * most precise to most conservative. Returns null when nothing can anchor the
+ * range, i.e. the whole history really is new content.
+ */
+function unknownRemoteTipBase(localSha: string): string | null {
+  // 1. The common case: a merge-base with the remote's default branch.
+  const base = git(["merge-base", localSha, defaultRemoteBranch()]).trim();
+  if (base) return base;
+
+  // 2. No merge-base. defaultRemoteBranch() guessed a ref that does not exist
+  //    (default branch named trunk/develop, origin/HEAD unset), or history is
+  //    disjoint. Anything reachable from localSha but from NO remote-tracking
+  //    branch is what this push actually adds; the parent of its oldest commit
+  //    is the real base.
+  //
+  //    Without this we drop straight to EMPTY_TREE and re-scan content that is
+  //    already on the remote. That is not merely wasteful, it is wrong in two
+  //    ways: a secret pushed long ago gets re-reported as if THIS push
+  //    introduced it (telling the operator to rotate a key over someone else's
+  //    old commit), and on any real repository the input overshoots the
+  //    engine's byte cap, so `engine.input_too_large` blocks having scanned
+  //    NOTHING — "scans more, never less" inverted into "scans nothing".
+  //
+  //    The exclusion is scoped to the PUSH TARGET's tracking refs (see
+  //    remotesExclusion): content on some OTHER remote has left this machine,
+  //    but it has not reached the remote being pushed to — a secret that only
+  //    ever hit a private remote must still be scanned on its way to a public
+  //    one (S1).
+  const newCommits = git(["rev-list", "--reverse", localSha, "--not", remotesExclusion()]).trim();
+  if (newCommits) {
+    const oldest = newCommits.split("\n")[0];
+    const parent = git(["rev-parse", "--verify", `${oldest}^`]).trim();
+    if (parent) return parent;
+    // Oldest new commit is a root commit: there is no parent to anchor on.
+  }
+
+  // 3. Nothing to anchor on — a genuinely fresh repository with no remote refs.
+  //    Every commit IS new content, so scanning it all is the correct answer.
+  return null;
+}
+
+/**
+ * The commits this push actually adds — reachable from localSha and from NO
+ * remote-tracking ref.
+ *
+ * ⚠ WHY THIS EXISTS RATHER THAN A TWO-DOT RANGE.
+ *
+ * `remoteSha..localSha` is "everything new on this branch", which is NOT the
+ * same as "everything new to the remote". Merge origin/main into a feature
+ * branch and every commit main gained since the branch's last push becomes an
+ * added line — content that is already published, already scanned, and not
+ * this push's doing.
+ *
+ * Two things follow, and both were observed:
+ *
+ *   · FALSE HIGH FINDINGS. A placeholder connection string in a test fixture,
+ *     already merged to main by someone else, blocked an unrelated push as
+ *     `db.url_with_password` — telling the operator to rotate a credential
+ *     over a fixture they had never touched. A
+ *     guard that cries wolf on catch-up merges is a guard people learn to
+ *     bypass reflexively — which is exactly how a real secret gets through.
+ *   · OVERSIZED SCANS. The comment on SCAN_CHUNK_BYTES below records a
+ *     1,146,782-byte diff from "a feature branch catching up to a busy main"
+ *     blowing the engine's 1 MiB cap. Same root cause, treated there as a size
+ *     problem and solved by slicing. Narrowing the range fixes the size too.
+ *
+ * A two-dot range cannot express this: after merging main, neither the remote
+ * tip nor the merge-base with main is an ancestor of the other, so no single
+ * base excludes both. `rev-list --not --remotes=<push-remote>/*` is the
+ * operation that does, and this file already reasons that way in
+ * `unknownRemoteTipBase` step 2. The exclusion is scoped to the push target's
+ * tracking namespace (see remotesExclusion): the upstream commits a catch-up
+ * merge brings in came from the SAME remote being pushed to, so scoping keeps
+ * the #2592 fix intact while a secret known only to some OTHER (private)
+ * remote is still scanned on its way to this one (S1).
+ *
+ * Each commit is diffed alone. `--cc` on a merge shows only the conflict
+ * RESOLUTION — content that exists in no parent — so a secret introduced while
+ * resolving a merge is still caught, while an ordinary merge contributes
+ * nothing. Returns null when the notion does not apply, so callers fall back.
+ */
+function addedLinesFromNewCommits(localSha: string, remoteSha: string): string | null {
+  // remoteSha is what git TELLS us the remote has, and it is authoritative in a
+  // way `--remotes` is not: remote-tracking refs can be absent (a fresh clone
+  // that never fetched, a push to a remote with no tracking ref) or stale. Drop
+  // it and a repo with no tracking refs excludes NOTHING — every commit ever
+  // made reads as "new", which re-introduces the false positives from the other
+  // direction. So it stays the base; `--remotes` only ADDS exclusions on top.
+  if (ZERO.test(remoteSha) || !objectExists(remoteSha)) return null;
+
+  const narrowed = git(["rev-list", localSha, "--not", remoteSha, remotesExclusion()]).trim();
+  if (!narrowed) return null;
+
+  // If excluding remote-tracking refs changes nothing, this push has no
+  // catch-up commits and the plain range already describes it exactly. Defer to
+  // it. That is not just an optimization: it keeps every push that ISN'T a
+  // catch-up merge on the original gitStrict diff path, so the fail-closed
+  // guarantee (#1946) and its regression test keep exercising the code they
+  // were written for. A narrowing that silently retired that test would be a
+  // worse trade than the false positives it set out to fix.
+  const plain = git(["rev-list", `${remoteSha}..${localSha}`]).trim();
+  const asSet = (s: string) => s.split("\n").filter(Boolean).sort().join("\n");
+  if (asSet(narrowed) === asSet(plain)) return null;
+
+  const shas = narrowed.split("\n").filter(Boolean);
+  // A rewrite of long history should fall back rather than shell out per commit.
+  if (shas.length > 500) return null;
+  const out: string[] = [];
+  for (const sha of shas) {
+    // gitStrict: a failed diff must never read as "nothing added" (#1946).
+    out.push(gitStrict([
+      "show", "--unified=0", "--no-color", "--no-ext-diff", "--no-textconv",
+      "--cc", "--format=", sha,
+    ]));
+  }
+  return out.join("\n");
+}
+
+/** Return the added-line text for a ref update being pushed. */
+function addedLinesFor(localSha: string, remoteSha: string): string {
+  // Preferred ONLY when this push carries catch-up commits: scanning them again
+  // is the bug. Every other shape falls through to the range logic below.
+  const fromNew = addedLinesFromNewCommits(localSha, remoteSha);
+  if (fromNew !== null) return collectAddedLines(fromNew);
+
+  let range: string;
+  if (ZERO.test(remoteSha) || !objectExists(remoteSha)) {
+    // Either a new branch (zero remote sha), or the remote tip object is absent
+    // locally (shallow clone, force-push without a prior fetch, CI checkout) so
+    // remote..local cannot resolve. Both need a base derived locally; scan MORE
+    // rather than hard-blocking a legitimate push (adversarial review finding 8).
+    const base = unknownRemoteTipBase(localSha);
+    range = base ? `${base}..${localSha}` : `${EMPTY_TREE}..${localSha}`;
+  } else {
+    // Existing branch (incl. force-push): net new content remote..local.
+    range = `${remoteSha}..${localSha}`;
+  }
+  // -U0: only changed lines; we keep lines starting with '+' (added), drop the
+  // +++ file header. Unified diff added lines start with a single '+'.
+  // Strict (#1946): a failed diff used to return "" and the push sailed
+  // through unscanned — fail open on the exact path the guard exists for.
+  //
+  // --no-ext-diff: a user's `diff.external` driver replaces the entire diff
+  // with its own output — with one set, `git diff` emits zero '+' lines, so an
+  // unhardened scanner reads an empty diff and exits 0 on a push full of
+  // secrets. Reachable from ordinary user config, not hypothetical. (#2498)
+  // --no-textconv: a .gitattributes textconv driver can likewise rewrite
+  // content before we ever see it. (#2498)
+  const diff = gitStrict([
+    "diff", "--unified=0", "--no-color", "--no-ext-diff", "--no-textconv",
+    range,
+  ]);
+  return collectAddedLines(diff);
+}
+
+/**
+ * Added-line text from a unified diff. Shared by both range strategies so the
+ * hunk-aware header handling below cannot drift between them.
+ */
+function collectAddedLines(diff: string): string {
+  const added: string[] = [];
+  // Hunk-aware header skip (#2498): `+++ ` is only a FILE HEADER outside a
+  // hunk. Inside a hunk, an added content line whose text begins with "++"
+  // renders as "+++<content>" — the old blanket startsWith("+++") skip
+  // silently dropped exactly those lines from the scan.
+  let inHunk = false;
+  for (const line of diff.split("\n")) {
+    // `diff --` rather than `diff --git`: a merge scanned with --cc emits
+    // `diff --cc <path>`, so a --git-only reset left inHunk true across file
+    // boundaries and read the next file's `+++ b/...` header as content. Only
+    // noise (it over-scans, never under-scans), but the boundary is real.
+    if (line.startsWith("diff --")) { inHunk = false; continue; }
+    if (line.startsWith("@@")) { inHunk = true; continue; }
+    if (!inHunk && (line.startsWith("+++") || line.startsWith("---"))) continue;
+    if (line.startsWith("+")) added.push(line.slice(1));
+  }
+  return added.join("\n");
+}
+
+/**
+ * Byte budget per scan() call. Kept comfortably under redact-engine's
+ * DEFAULT_MAX_BYTES (1 MiB) so a slice never trips its oversize guard.
+ */
+const SCAN_CHUNK_BYTES = 768 * 1024;
+
+/**
+ * Scan added lines in line-aligned slices, unioning the findings.
+ *
+ * Why: the engine refuses input over its byte cap and fails closed, which is
+ * right for one scan() call but wrong as a push policy — a feature branch
+ * catching up to a busy main legitimately produces more added lines than the
+ * cap (1,146,782 bytes against the 1 MiB default in the push that prompted
+ * this, and only ~7% of that was the lockfile). The push then blocked on
+ * `engine.input_too_large` — a size error naming no credential — which trains
+ * people to reach for --no-verify, defeating the guardrail far more thoroughly
+ * than a large diff does.
+ *
+ * Slicing loses NO detection coverage, because every pattern is single-line:
+ * none in redact-patterns.ts carries the `m` or `s` flag, the
+ * BEGIN-PRIVATE-KEY patterns capture only the header line rather than the key
+ * body, and the engine itself iterates line by line. A line boundary therefore
+ * cannot bisect a detectable secret, so no inter-slice overlap is needed.
+ *
+ * Fail-closed is preserved: a SINGLE line over the budget is still passed to
+ * the engine intact, so a genuinely unscannable blob (minified bundle,
+ * embedded base64) trips input_too_large and blocks exactly as before.
+ *
+ * Findings' line/col are slice-relative, which is fine here — this hook only
+ * reads severity, id and preview. Do not lift this into the engine, where
+ * callers rely on absolute line numbers.
+ */
+function scanAddedLines(added: string, opts: Parameters<typeof scan>[1]): Finding[] {
+  const findings: Finding[] = [];
+  let slice: string[] = [];
+  let sliceBytes = 0;
+
+  const flush = () => {
+    if (slice.length === 0) return;
+    findings.push(...scan(slice.join("\n"), opts).findings);
+    slice = [];
+    sliceBytes = 0;
+  };
+
+  for (const line of added.split("\n")) {
+    // +1 for the newline that rejoins it.
+    const lineBytes = Buffer.byteLength(line, "utf8") + 1;
+    // Close the current slice BEFORE overflowing it. A single oversized line
+    // lands in a slice of its own and is handed to the engine as-is.
+    if (sliceBytes > 0 && sliceBytes + lineBytes > SCAN_CHUNK_BYTES) flush();
+    slice.push(line);
+    sliceBytes += lineBytes;
+  }
+  flush();
+
+  return findings;
+}
+
+function logSkip(reason: string): void {
+  try {
+    const home = process.env.GSTACK_HOME || path.join(os.homedir(), ".gstack");
+    const dir = path.join(home, "security");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.appendFileSync(
+      path.join(dir, "prepush-skip.jsonl"),
+      JSON.stringify({ ts: new Date().toISOString(), reason }) + "\n",
+    );
+  } catch {
+    // best-effort; never block a push because logging failed
+  }
+}
+
+function main() {
+  if ((process.env.GSTACK_REDACT_PREPUSH || "").toLowerCase() === "skip") {
+    logSkip(process.env.GSTACK_REDACT_PREPUSH_REASON || "env-skip");
+    process.stderr.write("gstack-redact-prepush: skipped via GSTACK_REDACT_PREPUSH=skip\n");
+    process.exit(0);
+  }
+
+  const stdin = fs.readFileSync(0, "utf8");
+  const refs = stdin
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .map((l) => l.split(/\s+/));
+
+  const allHigh: Finding[] = [];
+  let mediumCount = 0;
+
+  for (const fields of refs) {
+    // Fail CLOSED on a ref line we cannot parse (#2498): git hands pre-push
+    // exactly "<local ref> <local sha> <remote ref> <remote sha>" — anything
+    // else means we cannot tell WHAT is being pushed, and silently skipping
+    // it would leave that ref unscanned.
+    const [, localSha, , remoteSha] = fields;
+    const shaShaped = (s: string | undefined) => !!s && /^[0-9a-f]{40,64}$/i.test(s);
+    if (fields.length !== 4 || !shaShaped(localSha) || !shaShaped(remoteSha)) {
+      process.stderr.write(
+        "\n⛔ gstack-redact-prepush BLOCKED the push — could not parse a pre-push ref line, " +
+          "so its content cannot be scanned.\n" +
+          `  line: ${JSON.stringify(fields.join(" "))}\n` +
+          "Bypass if you're sure: GSTACK_REDACT_PREPUSH=skip git push   (or git push --no-verify)\n",
+      );
+      process.exit(1);
+    }
+    if (ZERO.test(localSha!)) continue; // branch delete → nothing pushed
+    let added: string;
+    try {
+      added = addedLinesFor(localSha, remoteSha || "0");
+    } catch (err) {
+      // Fail CLOSED (#1946): if we can't compute the pushed diff we can't
+      // scan it, and unscanned-but-allowed is the failure mode this hook
+      // exists to prevent.
+      process.stderr.write(
+        "\n⛔ gstack-redact-prepush BLOCKED the push — could not compute the pushed diff, " +
+          "so it cannot be scanned for credentials.\n" +
+          `  (${err instanceof Error ? err.message.split("\n")[0] : String(err)})\n` +
+          "Bypass if you're sure: GSTACK_REDACT_PREPUSH=skip git push   (or git push --no-verify)\n",
+      );
+      process.exit(1);
+    }
+    if (!added.trim()) continue;
+    // Visibility doesn't change HIGH behavior; pass private so nothing is treated
+    // as public-strict (HIGH blocks regardless either way).
+    // Sliced (see scanAddedLines) so a large-but-legitimate diff is actually
+    // scanned rather than blocked unscanned on the engine's size cap.
+    for (const f of scanAddedLines(added, { repoVisibility: "private" })) {
+      if (f.severity === "HIGH") allHigh.push(f);
+      else if (f.severity === "MEDIUM") mediumCount++;
+    }
+  }
+
+  if (mediumCount > 0) {
+    process.stderr.write(
+      `gstack-redact-prepush: ${mediumCount} MEDIUM finding(s) in pushed diff (PII/internal). ` +
+        "Not blocking. Review before this becomes public.\n",
+    );
+  }
+
+  if (allHigh.length > 0) {
+    // A scan that could not RUN is not a scan that FOUND something. Reporting
+    // "credential(s) in the pushed diff — rotate the credential" for an
+    // `engine.*` finding tells the operator to rotate a secret that was never
+    // detected, on a diff that was never read. Blocking is still right (fail
+    // closed), but the reason must be the true one: a guardrail that cries wolf
+    // is a guardrail that gets bypassed by reflex, which is worse than none.
+    // Seen live 2026-07-30: a diff of a few hundred bytes reported HIGH
+    // engine.input_too_large, because an unresolvable base branch made the hook
+    // fall back to EMPTY_TREE..local — i.e. the WHOLE repo (~7 MiB) as "added
+    // lines". The size the operator sees and the size the hook measures can
+    // therefore differ by four orders of magnitude.
+    const unscanned = allHigh.filter((f) => f.id.startsWith("engine."));
+    const secrets = allHigh.filter((f) => !f.id.startsWith("engine."));
+
+    if (secrets.length > 0) {
+      process.stderr.write(
+        "\n⛔ gstack-redact-prepush BLOCKED the push — credential(s) in the pushed diff:\n\n",
+      );
+      for (const f of secrets) {
+        process.stderr.write(`  HIGH  ${f.id}  ${f.preview}\n`);
+      }
+      process.stderr.write(
+        "\nRotate the credential (a pushed secret is compromised) and remove it from the diff.\n",
+      );
+    }
+
+    if (unscanned.length > 0) {
+      process.stderr.write(
+        "\n⛔ gstack-redact-prepush BLOCKED the push — the diff could NOT be scanned.\n" +
+          "   No credential was found; none was looked for. Blocking fail-closed.\n\n",
+      );
+      for (const f of unscanned) {
+        process.stderr.write(`  ${f.id}: ${f.description}\n`);
+      }
+      process.stderr.write(
+        "\nLikely cause: the base branch could not be resolved, so the whole repo was\n" +
+          "treated as added lines. Check `git rev-parse --abbrev-ref origin/HEAD` and\n" +
+          "`git merge-base HEAD origin/main`, then push again. Scan the diff yourself\n" +
+          "before bypassing: `git diff <base>..HEAD | grep -inE \'password|secret|token|api.?key\'`.\n",
+      );
+    }
+
+    process.stderr.write(
+      "This is a guardrail: `git push --no-verify` or `GSTACK_REDACT_PREPUSH=skip git push` bypass it.\n",
+    );
+    process.exit(1);
+  }
+
+  process.exit(0);
+}
+
+main();

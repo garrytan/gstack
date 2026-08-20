@@ -1,0 +1,218 @@
+#!/usr/bin/env bun
+/**
+ * gstack-egress — the auditor's view of the receipts ledger.
+ *
+ *   list    what gstack ATTEMPTED to send off this machine (one row per receipt)
+ *   grants  what CAN leave: every consent grant in force, where it lives,
+ *           and the exact command that revokes it (pure config reads)
+ *   verify  recompute the hash chain; exit 3 on tamper
+ *
+ * THREAT MODEL: the ledger is forensic observability — it records ATTEMPTED
+ * egress so accidents are auditable; it is not an exfiltration control.
+ * `verify` detects in-place edits, reordering, and mid-chain deletion (the
+ * chain breaks). It does NOT detect tail-truncation, whole-file re-fabrication,
+ * or deletion of the ledger — a local actor with write access to the ledger can
+ * do those and `verify` still exits 0. That is by design: guarding against the
+ * same-machine same-user actor who owns the file is out of scope for a forensic
+ * log. Head-anchoring (a separate rotation-aware genesis chain) is tracked at
+ * lib/egress-receipt.ts (rotation TODO), not implemented here.
+ *
+ * The ledger is written by lib/egress-receipt.ts at every enumerated sink
+ * (see test/egress-receipt-wiring.test.ts for the pinned list).
+ *
+ * Home: GSTACK_HOME, legacy GSTACK_STATE_DIR, else ~/.gstack.
+ */
+
+import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import {
+  egressLedgerPath,
+  listReceipts,
+  resolveEgressHome,
+  verifyLedger,
+} from '../lib/egress-receipt';
+
+// import.meta.dir is Windows-safe; new URL(import.meta.url).pathname yields
+// '/C:/...' with percent-encoded spaces there, which would make the
+// gstack-config spawn silently fail and grants report every default. Matches
+// the sibling bin/*.ts convention.
+const BIN_DIR = import.meta.dir;
+
+/**
+ * Strip control characters (incl. ANSI escapes) from ledger-derived strings
+ * before printing. A receipt's host/payloadClass can derive from semi-trusted
+ * input (a URL argument, a git remote); JSON.parse restores \u001b escapes to
+ * live ESC bytes, so an attacker-shaped receipt could hide or spoof rows in
+ * the very output an auditor reads. The hash chain is unaffected; this only
+ * sanitizes the human render.
+ */
+function sanitizeForDisplay(value: unknown): string {
+  return String(value).replace(/[\u0000-\u001F\u007F]/g, '');
+}
+
+function usage(message: string): never {
+  process.stderr.write(`gstack-egress: ${message}\n`);
+  process.stderr.write(
+    'Usage: gstack-egress list [--since <ISO>] [--host <host>] [--sink <sink>] [--json]\n' +
+    '       gstack-egress verify [--json]\n' +
+    '       gstack-egress grants [--json]\n' +
+    '\n' +
+    'verify detects edits/reordering/mid-chain deletion; it does NOT detect\n' +
+    'tail-truncation or deletion of the whole ledger (out of scope — the ledger\n' +
+    'is forensic observability against accidents, not the same-user local actor).\n',
+  );
+  process.exit(2);
+}
+
+function configGet(key: string): string {
+  const result = spawnSync(path.join(BIN_DIR, 'gstack-config'), ['get', key], {
+    encoding: 'utf-8',
+  });
+  return (result.stdout || '').trim();
+}
+
+function egressList(args: string[], home: string): number {
+  const values = new Map<string, string>();
+  let json = false;
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (['--since', '--host', '--sink'].includes(arg)) {
+      const value = args[++index];
+      if (value == null || value.startsWith('--')) usage(`${arg} requires a value`);
+      values.set(arg, value);
+    } else if (arg === '--json') {
+      json = true;
+    } else {
+      usage(`unknown option: ${arg}`);
+    }
+  }
+  const since = values.get('--since');
+  if (since != null && !Number.isFinite(Date.parse(since))) usage('--since must be an ISO timestamp');
+
+  let receipts = listReceipts(home);
+  if (since) receipts = receipts.filter((r) => Date.parse(r.ts) >= Date.parse(since));
+  if (values.has('--host')) receipts = receipts.filter((r) => r.host === values.get('--host'));
+  if (values.has('--sink')) receipts = receipts.filter((r) => r.sink === values.get('--sink'));
+
+  if (json) {
+    process.stdout.write(`${JSON.stringify(receipts, null, 2)}\n`);
+    return 0;
+  }
+  if (!receipts.length) {
+    process.stdout.write(`no receipts\nledger: ${egressLedgerPath(home)}\n`);
+    return 0;
+  }
+  for (const r of receipts) {
+    // sink/host/payload_class/consent can carry semi-trusted content — strip
+    // control chars so a crafted receipt can't spoof the auditor's view. ts,
+    // bytes, and sha256 are format-constrained at write time.
+    process.stdout.write(
+      `${r.ts}  ${sanitizeForDisplay(r.sink)} -> ${sanitizeForDisplay(r.host)}  ` +
+      `${sanitizeForDisplay(r.payload_class)}  ${r.bytes}B  ` +
+      `sha256=${r.sha256 ?? '(subprocess-owned)'}  consent=${sanitizeForDisplay(r.consent)}  ` +
+      `status=${r.status ? sanitizeForDisplay(r.status) : '-'}\n`,
+    );
+  }
+  process.stdout.write(`${receipts.length} receipt(s)  ledger: ${egressLedgerPath(home)}\n`);
+  return 0;
+}
+
+function egressVerify(args: string[], home: string): number {
+  for (const arg of args) if (arg !== '--json') usage(`unknown option: ${arg}`);
+  const result = verifyLedger(home);
+  if (args.includes('--json')) {
+    process.stdout.write(`${JSON.stringify({ ...result, ledger: egressLedgerPath(home) }, null, 2)}\n`);
+  } else {
+    if (result.ok) {
+      process.stdout.write(`chain intact: ${result.count} line(s) verified\n`);
+    } else {
+      process.stdout.write(`TAMPER: chain broken at line ${result.brokenLine} (${result.reason})\n`);
+    }
+    if (result.sizeWarning) process.stdout.write(`${result.sizeWarning}\n`);
+  }
+  return result.ok ? 0 : 3;
+}
+
+interface Grant {
+  grant: string;
+  value: string;
+  granted: boolean;
+  detail: string;
+  file: string;
+  key: string;
+  revoke: string;
+}
+
+function egressGrants(args: string[], home: string): number {
+  for (const arg of args) if (arg !== '--json') usage(`unknown option: ${arg}`);
+  const configFile = path.join(home, 'config.yaml');
+
+  const telemetry = configGet('telemetry') || 'off';
+  const syncMode = configGet('artifacts_sync_mode') || 'off';
+  const repoVisibility = configGet('redact_repo_visibility') || 'unknown';
+  const prepushHook = configGet('redact_prepush_hook') || 'false';
+
+  const grants: Grant[] = [
+    {
+      grant: 'telemetry',
+      value: telemetry,
+      granted: telemetry !== 'off',
+      detail: 'anonymous and community tiers upload usage events to Supabase; off stays local-only',
+      file: configFile,
+      key: 'telemetry',
+      revoke: 'gstack-config set telemetry off',
+    },
+    {
+      grant: 'brain-sync',
+      value: syncMode,
+      granted: syncMode !== 'off' && syncMode !== '',
+      detail: 'git push of curated allowlisted memory to the user-configured artifacts remote',
+      file: configFile,
+      key: 'artifacts_sync_mode',
+      revoke: 'gstack-config set artifacts_sync_mode off',
+    },
+    {
+      grant: 'redact_repo_visibility',
+      value: repoVisibility,
+      granted: repoVisibility === 'public',
+      detail: 'redaction strictness assumption for external sinks; public gets per-finding confirmation',
+      file: configFile,
+      key: 'redact_repo_visibility',
+      revoke: 'gstack-config set redact_repo_visibility unknown (unknown = public-strict)',
+    },
+    {
+      grant: 'redact_prepush_hook',
+      value: prepushHook,
+      granted: prepushHook === 'true',
+      detail: 'opt-in git pre-push redaction scan; granted here means the guard is ON',
+      file: configFile,
+      key: 'redact_prepush_hook',
+      revoke: 'gstack-config set redact_prepush_hook false (disables the guard)',
+    },
+  ];
+
+  if (args.includes('--json')) {
+    process.stdout.write(`${JSON.stringify(grants, null, 2)}\n`);
+    return 0;
+  }
+  for (const grant of grants) {
+    process.stdout.write(
+      `${grant.granted ? '[GRANTED]' : '[off]    '} ${grant.grant}: ${grant.value}\n` +
+      `          ${grant.detail}\n` +
+      `          lives in: ${grant.file} (${grant.key})\n` +
+      `          revoke:   ${grant.revoke}\n`,
+    );
+  }
+  process.stdout.write("What was ATTEMPTED: 'gstack-egress list'. Chain check: 'gstack-egress verify'.\n");
+  return 0;
+}
+
+const [action, ...rest] = process.argv.slice(2);
+const home = resolveEgressHome();
+
+let code: number;
+if (action === 'list') code = egressList(rest, home);
+else if (action === 'verify') code = egressVerify(rest, home);
+else if (action === 'grants') code = egressGrants(rest, home);
+else usage(`unknown subcommand: ${action ?? '(none)'}`);
+process.exit(code);

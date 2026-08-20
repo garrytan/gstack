@@ -92,9 +92,10 @@ describe('session-runner observability', () => {
     );
     // Count non-fatal comments — should be present for each new I/O path
     const nonFatalCount = (src.match(/\/\* non-fatal \*\//g) || []).length;
-    // Original had 2 (promptFile unlink + failure transcript), we added 4 more
-    // (runDir creation, progress.log, heartbeat, NDJSON append)
-    expect(nonFatalCount).toBeGreaterThanOrEqual(6);
+    // Five wrapped I/O sites: runDir creation, progress.log append, heartbeat
+    // write, per-test NDJSON append, failure-transcript write. (Was 6 until
+    // the shell-free spawn removed the promptFile unlink and its marker.)
+    expect(nonFatalCount).toBeGreaterThanOrEqual(5);
   });
 });
 

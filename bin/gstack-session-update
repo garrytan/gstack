@@ -1,0 +1,210 @@
+#!/usr/bin/env bash
+# gstack-session-update — auto-update gstack on session start (team mode)
+#
+# Called by Claude Code SessionStart hook. Must be fast, silent, non-fatal.
+# The entire update runs in background (forked). The hook itself exits
+# immediately so session startup is never delayed.
+#
+# Exit 0 always — errors must never block a Claude Code session.
+
+set +e
+
+GSTACK_DIR="${GSTACK_DIR:-$HOME/.claude/skills/gstack}"
+STATE_DIR="${GSTACK_STATE_DIR:-$HOME/.gstack}"
+
+# Egress receipt helpers (_receipted_git): fail-open — an update pull must
+# never block a session over a receipt hiccup.
+. "$(cd "$(dirname "$0")" && pwd)/gstack-egress-lib.sh"
+THROTTLE_FILE="$STATE_DIR/.last-session-update"
+LOCK_DIR="$STATE_DIR/.setup-lock"
+LOG_FILE="$STATE_DIR/analytics/session-update.log"
+THROTTLE_SECONDS=3600  # 1 hour
+
+log_entry() {
+  mkdir -p "$(dirname "$LOG_FILE")"
+  echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) $1" >> "$LOG_FILE" 2>/dev/null || true
+}
+
+# ── Guard: gstack must be a git repo ──
+if [ ! -d "$GSTACK_DIR/.git" ]; then
+  exit 0
+fi
+
+# ── Guard: team mode must be enabled ──
+AUTO=$("$GSTACK_DIR/bin/gstack-config" get auto_upgrade 2>/dev/null || true)
+if [ "$AUTO" != "true" ]; then
+  exit 0
+fi
+
+# ── Throttle: skip if checked recently ──
+if [ -f "$THROTTLE_FILE" ]; then
+  LAST=$(cat "$THROTTLE_FILE" 2>/dev/null || echo 0)
+  NOW=$(date +%s)
+  ELAPSED=$(( NOW - LAST ))
+  if [ "$ELAPSED" -lt "$THROTTLE_SECONDS" ]; then
+    exit 0
+  fi
+fi
+
+# ── Fork to background: zero latency on session start ──
+(
+  # Prevent git from prompting for credentials (would hang the background process)
+  export GIT_TERMINAL_PROMPT=0
+
+  mkdir -p "$STATE_DIR"
+
+  # ── Acquire lockfile (skip if another session is running setup) ──
+  #
+  # Staleness has two independent detectors (#2613):
+  #  1. PID liveness — the pidfile records the HOLDER subshell's PID and a
+  #     dead PID means reclaim. ($BASHPID, never $$: $$ expands to the PARENT
+  #     hook's PID even inside this backgrounded subshell, and the parent
+  #     exits immediately — so every later session judged the lock stale and
+  #     rm -rf'd a LIVE holder's lock, letting concurrent updaters in.)
+  #  2. Hard TTL on the heartbeat mtime — reclaim regardless of kill -0, so a
+  #     recycled PID or a hung holder can't wedge the lock forever. The
+  #     holder touches the pidfile at step boundaries (after the pull, after
+  #     setup), so a legitimately-slow run keeps itself alive. The TTL also
+  #     bounds the missing/empty-pidfile states: inside the window they mean
+  #     "just acquired, between mkdir and echo" and are respected.
+  LOCK_TTL_MINUTES=30
+  lock_is_expired() {
+    _hb="$LOCK_DIR/pid"
+    [ -f "$_hb" ] || _hb="$LOCK_DIR"
+    [ -n "$(find "$_hb" -maxdepth 0 -mmin +$LOCK_TTL_MINUTES 2>/dev/null)" ]
+  }
+  # Reclaim is TOCTOU-safe via atomic mv-aside: `rm -rf` then `mkdir` lets TWO
+  # contenders both judge the lock stale, both remove it, and both win the
+  # mkdir (one rm can land between the other's rm and mkdir). `mv` of the lock
+  # dir is atomic — exactly one contender's mv succeeds; the loser's mv fails
+  # (ENOENT) and it backs off. The winner reaps the moved-aside dir at leisure.
+  if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+    if lock_is_expired; then
+      mv "$LOCK_DIR" "$LOCK_DIR.reap.$$" 2>/dev/null || { log_entry "SKIP lock_contested"; exit 0; }
+      rm -rf "$LOCK_DIR.reap.$$" 2>/dev/null
+      mkdir "$LOCK_DIR" 2>/dev/null || { log_entry "SKIP lock_contested"; exit 0; }
+      log_entry "RECLAIMED lock_ttl_expired"
+    elif [ -f "$LOCK_DIR/pid" ]; then
+      LOCK_PID=$(cat "$LOCK_DIR/pid" 2>/dev/null || echo 0)
+      if [ "$LOCK_PID" -gt 0 ] 2>/dev/null && ! kill -0 "$LOCK_PID" 2>/dev/null; then
+        # Stale lock — mv aside atomically (see reclaim note above), re-acquire
+        mv "$LOCK_DIR" "$LOCK_DIR.reap.$$" 2>/dev/null || { log_entry "SKIP lock_contested"; exit 0; }
+        rm -rf "$LOCK_DIR.reap.$$" 2>/dev/null
+        mkdir "$LOCK_DIR" 2>/dev/null || { log_entry "SKIP lock_contested"; exit 0; }
+      else
+        # Live holder — or an empty/non-numeric pidfile inside the TTL
+        # window (the -gt test fails on garbage, landing here by design).
+        log_entry "SKIP locked_by=$LOCK_PID"
+        exit 0
+      fi
+    else
+      # Missing pidfile inside the TTL window: just-acquired (mkdir→echo race).
+      log_entry "SKIP locked_no_pid"
+      exit 0
+    fi
+  fi
+
+  # Write the HOLDER's PID for stale lock detection (see #2613 note above;
+  # macOS ships bash 3.2 with no BASHPID — the sh child's $PPID IS this
+  # subshell, so the fallback is exact there). MYPID is captured once at
+  # write time so the trap below can prove ownership before removing.
+  MYPID="${BASHPID:-$(sh -c 'echo $PPID')}"
+  echo "$MYPID" > "$LOCK_DIR/pid" 2>/dev/null
+
+  # In-flight heartbeat: the step-boundary touches below only fire AFTER the
+  # pull / setup return, so a legitimately-slow step (cold clone, huge setup)
+  # older than the TTL got reclaimed while ALIVE. This background loop
+  # freshens the pidfile mtime every 5 minutes for as long as we still own
+  # the lock (ownership re-checked each beat: if another updater reclaimed
+  # and wrote its own pid, the loop exits instead of touching THEIR file).
+  ( while :; do sleep 300; [ "$(cat "$LOCK_DIR/pid" 2>/dev/null)" = "$MYPID" ] || exit 0; touch "$LOCK_DIR/pid" 2>/dev/null; done ) &
+  HB_PID=$!
+
+  # Clean up lock on exit — ownership-checked: after a TTL reclaim by another
+  # updater, $LOCK_DIR belongs to the NEW holder, and an unconditional rm -rf
+  # here would delete the live holder's lock (cascading reclaims). Remove the
+  # lock ONLY while $LOCK_DIR/pid still contains MYPID; always stop the
+  # heartbeat.
+  trap 'kill "$HB_PID" 2>/dev/null; [ "$(cat "$LOCK_DIR/pid" 2>/dev/null)" = "$MYPID" ] && rm -rf "$LOCK_DIR" 2>/dev/null' EXIT
+
+  # ── Pull latest ──
+  OLD_HEAD=$(git -C "$GSTACK_DIR" rev-parse HEAD 2>/dev/null)
+  UPDATE_URL=$(git -C "$GSTACK_DIR" remote get-url origin 2>/dev/null || echo "")
+  UPDATE_HOST="${UPDATE_URL#*://}"; UPDATE_HOST="${UPDATE_HOST#*@}"; UPDATE_HOST="${UPDATE_HOST%%[/:]*}"
+  # --autostash: locally-patched TRACKED files are the NORM on installs, not
+  # the exception — skill-prefix mode rewrites frontmatter names and
+  # `gstack-config gbrain-refresh` renders brain blocks into SKILL.md. A bare
+  # --ff-only refuses over those edits, so auto-upgrade wedged permanently
+  # (observed: 308 consecutive PULL_FAILED with the reason discarded, #2566).
+  # Capture stderr: the log must carry WHY a pull failed, never just the code.
+  PULL_ERR_FILE=$(mktemp "${TMPDIR:-/tmp}/gstack-session-pull-XXXXXX" 2>/dev/null || echo "")
+  GSTACK_HOME="$STATE_DIR" _receipted_git open session-update "${UPDATE_HOST:-unknown}" gstack-self-update-pull "auto_upgrade=true" \
+    bash -c 'git -C "$1" pull --ff-only --autostash -q 2>"${2:-/dev/null}"' _ "$GSTACK_DIR" "$PULL_ERR_FILE"
+  PULL_EXIT=$?
+  NEW_HEAD=$(git -C "$GSTACK_DIR" rev-parse HEAD 2>/dev/null)
+
+  # Heartbeat: pull done — keep the TTL clock fresh for the setup step.
+  touch "$LOCK_DIR/pid" 2>/dev/null
+
+  # Record check time regardless of outcome
+  date +%s > "$THROTTLE_FILE" 2>/dev/null
+
+  if [ "$PULL_EXIT" -ne 0 ]; then
+    PULL_REASON=$(head -c 300 "$PULL_ERR_FILE" 2>/dev/null | tr '\n' ' ' | tr -s ' ')
+    log_entry "PULL_FAILED exit=$PULL_EXIT reason=${PULL_REASON:-unknown}"
+    # Autostash pop conflict leaves the stash behind and the tree half-merged.
+    # The local patches are REGENERABLE (prefix renames, gbrain blocks), so
+    # recover to a clean upstream tree and re-render them below rather than
+    # leaving conflict markers in a live install.
+    if grep -qi "autostash" "$PULL_ERR_FILE" 2>/dev/null; then
+      git -C "$GSTACK_DIR" checkout -q -- . 2>/dev/null
+      git -C "$GSTACK_DIR" stash drop -q 2>/dev/null
+      log_entry "AUTOSTASH_CONFLICT_RECOVERED tree_reset=1"
+      _PREFIX_CFG=$("$GSTACK_DIR/bin/gstack-config" get skill_prefix 2>/dev/null || echo false)
+      "$GSTACK_DIR/bin/gstack-patch-names" "$GSTACK_DIR" "$_PREFIX_CFG" >/dev/null 2>&1 || true
+      "$GSTACK_DIR/bin/gstack-config" gbrain-refresh >/dev/null 2>&1 || true
+    fi
+    rm -f "$PULL_ERR_FILE" 2>/dev/null
+    exit 0
+  fi
+  rm -f "$PULL_ERR_FILE" 2>/dev/null
+  # Re-render local patches over the fresh tree (both tools are idempotent
+  # no-ops when the feature is unconfigured); the autostash pop usually
+  # preserves them, but a clean re-render costs nothing and self-heals.
+  _PREFIX_CFG=$("$GSTACK_DIR/bin/gstack-config" get skill_prefix 2>/dev/null || echo false)
+  "$GSTACK_DIR/bin/gstack-patch-names" "$GSTACK_DIR" "$_PREFIX_CFG" >/dev/null 2>&1 || true
+  "$GSTACK_DIR/bin/gstack-config" gbrain-refresh >/dev/null 2>&1 || true
+
+  # ── If HEAD moved, run setup -q ──
+  if [ "$OLD_HEAD" != "$NEW_HEAD" ]; then
+    log_entry "UPDATING old=$OLD_HEAD new=$NEW_HEAD"
+
+    # bun must be available for setup
+    if command -v bun >/dev/null 2>&1; then
+      ( cd "$GSTACK_DIR" && ./setup -q ) >/dev/null 2>&1 || {
+        log_entry "SETUP_FAILED"
+      }
+      # Heartbeat: setup done (either way) — refresh the TTL clock.
+      touch "$LOCK_DIR/pid" 2>/dev/null
+    else
+      log_entry "SETUP_SKIPPED bun_missing"
+    fi
+
+    # Write marker so next skill preamble shows "just upgraded"
+    OLD_VER=$(git -C "$GSTACK_DIR" show "$OLD_HEAD:VERSION" 2>/dev/null || echo "unknown")
+    echo "$OLD_VER" > "$STATE_DIR/just-upgraded-from" 2>/dev/null
+    rm -f "$STATE_DIR/last-update-check" 2>/dev/null
+    rm -f "$STATE_DIR/update-snoozed" 2>/dev/null
+
+    log_entry "UPDATED from=$OLD_VER to=$(cat "$GSTACK_DIR/VERSION" 2>/dev/null || echo unknown)"
+  else
+    log_entry "UP_TO_DATE head=$OLD_HEAD"
+  fi
+# The detached subshell must own its stdio: it inherits the session hook's
+# pipes, and once the hook exits and the caller closes them, any child that
+# writes (git pull's autostash notice, setup output) dies of SIGPIPE —
+# observed as PULL_FAILED exit=141 with an empty stderr capture. All
+# observability goes through LOG_FILE.
+) >/dev/null 2>&1 &
+
+exit 0

@@ -1,0 +1,16 @@
+{
+  "name": "@gstack/diagram-render",
+  "private": true,
+  "type": "module",
+  "description": "Offline diagram-render bundle: mermaid + excalidraw export + mermaid-to-excalidraw, built into a single self-contained HTML page loaded by the browse daemon. Versions are exact-pinned; bump them only via scripts/build.ts (see README.md).",
+  "scripts": {
+    "build": "bun run scripts/build.ts"
+  },
+  "dependencies": {
+    "@excalidraw/excalidraw": "0.18.0",
+    "@excalidraw/mermaid-to-excalidraw": "1.1.2",
+    "mermaid": "11.12.2",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  }
+}

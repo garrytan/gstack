@@ -1,5 +1,6 @@
 ---
 name: qa
+preamble-tier: 4
 version: 2.0.0
 description: |
   Systematically QA test a web application and fix bugs found. Runs QA testing,
@@ -9,7 +10,11 @@ description: |
   Proactively suggest when the user says a feature is ready for testing
   or asks "does this work?". Three tiers: Quick (critical/high only),
   Standard (+ medium), Exhaustive (+ cosmetic). Produces before/after health scores,
-  fix evidence, and a ship-readiness summary. For report-only mode, use /qa-only.
+  fix evidence, and a ship-readiness summary. For report-only mode, use /qa-only. (gstack)
+voice-triggers:
+  - "quality check"
+  - "test the app"
+  - "run QA"
 allowed-tools:
   - Bash
   - Read
@@ -19,11 +24,17 @@ allowed-tools:
   - Grep
   - AskUserQuestion
   - WebSearch
+triggers:
+  - qa test this
+  - find bugs on site
+  - test the site
 ---
 
 {{PREAMBLE}}
 
 {{BASE_BRANCH_DETECT}}
+
+{{GBRAIN_CONTEXT_LOAD}}
 
 # /qa: Test → Fix → Verify
 
@@ -48,6 +59,12 @@ You are a QA engineer AND a bug-fix engineer. Test web applications like a real 
 - **Exhaustive:** + low/cosmetic severity
 
 **If no URL is given and you're on a feature branch:** Automatically enter **diff-aware mode** (see Modes below). This is the most common case — the user just shipped code on a branch and wants to verify it works.
+
+**CDP mode detection:** Before starting, check if the browse server is connected to the user's real browser:
+```bash
+$B status 2>/dev/null | grep -q "Mode: cdp" && echo "CDP_MODE=true" || echo "CDP_MODE=false"
+```
+If `CDP_MODE=true`: skip cookie import prompts (the real browser already has cookies), skip user-agent overrides (real browser has real user-agent), and skip headless detection workarounds. The user's real auth sessions are already available.
 
 **Check for clean working tree:**
 
@@ -83,13 +100,16 @@ mkdir -p .gstack/qa-reports/screenshots
 
 ---
 
+{{LEARNINGS_SEARCH:query=qa testing bug regression flake fixture}}
+
 ## Test Plan Context
 
 Before falling back to git diff heuristics, check for richer test plan sources:
 
 1. **Project-scoped test plans:** Check `~/.gstack/projects/` for recent `*-test-plan-*.md` files for this repo
    ```bash
-   source <(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)
+   setopt +o nomatch 2>/dev/null || true  # zsh compat
+   {{SLUG_EVAL}}
    ls -t ~/.gstack/projects/$SLUG/*-test-plan-*.md 2>/dev/null | head -1
    ```
 2. **Conversation context:** Check if a prior `/plan-eng-review` or `/plan-ceo-review` produced test plan output in this conversation
@@ -133,6 +153,20 @@ Sort all discovered issues by severity, then decide which to fix based on the se
 - **Exhaustive:** Fix all, including cosmetic/low severity.
 
 Mark issues that cannot be fixed from source code (e.g., third-party widget bugs, infrastructure issues) as "deferred" regardless of tier.
+
+### Refresh learnings for the component/page where the bug lives
+
+The top-of-skill learnings pull was keyed to "qa testing" broadly. Before the fix loop, re-pull learnings keyed to the component or page where the bug you're about to fix lives so prior fixes for the same component-shape surface.
+
+Pick ONE keyword that names the buggy component or page. The keyword should be a noun: the failing component name, the page route base, or the feature noun. The keyword MUST be alphanumeric or hyphen only — no quotes, slashes, dots, colons, or whitespace. If your candidate has any of those, simplify to just the alphanumeric stem.
+
+Worked examples (qa-specific): good keywords are `checkout-button`, `signup-form`, `payment`. Bad: `tests are failing`, `<failing-test>`, `app/views/_checkout.html.erb`.
+
+```bash
+~/.claude/skills/gstack/bin/gstack-learnings-search --query "<your-keyword>" --limit 5 2>/dev/null || true
+```
+
+If any learnings come back, name which one applies to the fix you're about to make in one sentence. If none come back, continue without reference — the absence is itself useful information.
 
 ---
 
@@ -277,7 +311,7 @@ Write the report to both local and project-scoped locations:
 
 **Project-scoped:** Write test outcome artifact for cross-session context:
 ```bash
-source <(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null) && mkdir -p ~/.gstack/projects/$SLUG
+{{SLUG_SETUP}}
 ```
 Write to `~/.gstack/projects/{slug}/{user}-{branch}-test-outcome-{datetime}.md`
 
@@ -306,6 +340,10 @@ If the repo has a `TODOS.md`:
 2. **Fixed bugs that were in TODOS.md** → annotate with "Fixed by /qa on {branch}, {date}"
 
 ---
+
+{{LEARNINGS_LOG}}
+
+{{GBRAIN_SAVE_RESULTS}}
 
 ## Additional Rules (qa-specific)
 

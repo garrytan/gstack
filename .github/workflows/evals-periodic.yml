@@ -1,0 +1,150 @@
+name: Periodic Evals
+on:
+  schedule:
+    - cron: '0 6 * * 1'  # Monday 6 AM UTC
+  workflow_dispatch:
+
+concurrency:
+  group: evals-periodic
+  cancel-in-progress: true
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}/ci
+  EVALS_TIER: periodic
+  EVALS_ALL: 1  # Ignore diff — run all periodic tests
+
+jobs:
+  build-image:
+    runs-on: ubicloud-standard-8
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - id: meta
+        # Keep in sync with evals.yml — key on Dockerfile + lockfile only
+        # (package.json's version field would bust the key on every ship).
+        run: echo "tag=${{ env.IMAGE }}:${{ hashFiles('.github/docker/Dockerfile.ci', 'bun.lock', 'patches/**') }}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check if image exists
+        id: check
+        run: |
+          if docker manifest inspect ${{ steps.meta.outputs.tag }} > /dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.check.outputs.exists == 'false'
+        run: cp package.json bun.lock .github/docker/ && cp -R patches .github/docker/patches
+
+      # Registry cache export needs a docker-container builder — the default
+      # `docker` driver hard-errors on cache-to.
+      - if: steps.check.outputs.exists == 'false'
+        uses: docker/setup-buildx-action@v4
+
+      - if: steps.check.outputs.exists == 'false'
+        uses: docker/build-push-action@v7
+        with:
+          context: .github/docker
+          file: .github/docker/Dockerfile.ci
+          push: true
+          # Cron-triggered in the base repo only, so cache export is always safe here.
+          cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache
+          cache-to: type=registry,ref=${{ env.IMAGE }}:buildcache,mode=max
+          tags: |
+            ${{ steps.meta.outputs.tag }}
+            ${{ env.IMAGE }}:latest
+
+  evals:
+    runs-on: ubicloud-standard-8
+    needs: build-image
+    container:
+      image: ${{ needs.build-image.outputs.image-tag }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+      options: --user runner
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        suite:
+          - name: e2e-plan
+            file: test/skill-e2e-plan.test.ts
+          - name: e2e-design
+            file: test/skill-e2e-design.test.ts
+          - name: e2e-qa-bugs
+            file: test/skill-e2e-qa-bugs.test.ts
+          - name: e2e-qa-workflow
+            file: test/skill-e2e-qa-workflow.test.ts
+          - name: e2e-review
+            file: test/skill-e2e-review.test.ts
+          - name: e2e-retro
+            file: test/skill-e2e-retro.test.ts
+          # e2e-review-attribution, e2e-coverage-audit, and e2e-triage are
+          # gate-only (every test they hold is gate-tier) — deliberately absent
+          # here; an all-skip shard would just burn a container boot weekly.
+          - name: e2e-workflow
+            file: test/skill-e2e-workflow.test.ts
+          - name: e2e-routing
+            file: test/skill-routing-e2e.test.ts
+          - name: e2e-codex
+            file: test/codex-e2e.test.ts
+          - name: e2e-codex-sol-scope
+            file: test/codex-e2e-sol-scope.test.ts
+          - name: e2e-gemini
+            file: test/gemini-e2e.test.ts
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Fix bun temp
+        run: |
+          mkdir -p /home/runner/.cache/bun
+          {
+            echo "BUN_INSTALL_CACHE_DIR=/home/runner/.cache/bun"
+            echo "BUN_TMPDIR=/home/runner/.cache/bun"
+            echo "TMPDIR=/home/runner/.cache"
+          } >> "$GITHUB_ENV"
+
+      # Recursive copy (cp -r) instead of symlink: bun build resolves a
+      # file's realpath when looking for sibling deps. See evals.yml for the
+      # full explanation. cp -al would be faster but /opt and /workspace
+      # are on different overlay-fs layers, so cross-device hardlink fails.
+      - name: Restore deps
+        run: |
+          if [ -d /opt/node_modules_cache ] && diff -q /opt/node_modules_cache/.bun.lock bun.lock >/dev/null 2>&1; then
+            cp -r /opt/node_modules_cache node_modules
+          else
+            bun install
+          fi
+
+      - run: bun run build
+
+      - name: Run ${{ matrix.suite.name }}
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          EVALS_CONCURRENCY: "40"
+          PLAYWRIGHT_BROWSERS_PATH: /opt/playwright-browsers
+        run: EVALS=1 bun test --retry 1 --concurrent --max-concurrency 40 ${{ matrix.suite.file }}
+
+      - name: Upload eval results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: eval-periodic-${{ matrix.suite.name }}
+          path: ~/.gstack-dev/evals/*.json
+          retention-days: 90

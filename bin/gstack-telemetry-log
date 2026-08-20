@@ -18,6 +18,12 @@
 set -uo pipefail
 
 GSTACK_DIR="${GSTACK_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
+SCRIPT_DIR="$GSTACK_DIR/bin"
+# Windows git-bash (#1950): pwd yields a POSIX path (/c/Users/...), which Bun
+# on Windows cannot resolve as an ES module specifier in bun -e imports.
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*) command -v cygpath >/dev/null 2>&1 && SCRIPT_DIR="$(cygpath -m "$SCRIPT_DIR")" ;;
+esac
 STATE_DIR="${GSTACK_STATE_DIR:-$HOME/.gstack}"
 ANALYTICS_DIR="$STATE_DIR/analytics"
 JSONL_FILE="$ANALYTICS_DIR/skill-usage.jsonl"
@@ -32,20 +38,41 @@ OUTCOME="unknown"
 USED_BROWSE="false"
 SESSION_ID=""
 ERROR_CLASS=""
+ERROR_MESSAGE=""
+FAILED_STEP=""
 EVENT_TYPE="skill_run"
+SOURCE=""
+# Security-event fields (populated only when --event-type attack_attempt)
+SEC_URL_DOMAIN=""
+SEC_PAYLOAD_HASH=""
+SEC_CONFIDENCE=""
+SEC_LAYER=""
+SEC_VERDICT=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --skill)       SKILL="$2"; shift 2 ;;
-    --duration)    DURATION="$2"; shift 2 ;;
-    --outcome)     OUTCOME="$2"; shift 2 ;;
-    --used-browse) USED_BROWSE="$2"; shift 2 ;;
-    --session-id)  SESSION_ID="$2"; shift 2 ;;
-    --error-class) ERROR_CLASS="$2"; shift 2 ;;
-    --event-type)  EVENT_TYPE="$2"; shift 2 ;;
+    --skill)         SKILL="$2"; shift 2 ;;
+    --duration)      DURATION="$2"; shift 2 ;;
+    --outcome)       OUTCOME="$2"; shift 2 ;;
+    --used-browse)   USED_BROWSE="$2"; shift 2 ;;
+    --session-id)    SESSION_ID="$2"; shift 2 ;;
+    --error-class)   ERROR_CLASS="$2"; shift 2 ;;
+    --error-message) ERROR_MESSAGE="$2"; shift 2 ;;
+    --failed-step)   FAILED_STEP="$2"; shift 2 ;;
+    --event-type)    EVENT_TYPE="$2"; shift 2 ;;
+    --source)        SOURCE="$2"; shift 2 ;;
+    # Security event fields — emitted by browse/src/security.ts logAttempt()
+    --url-domain)    SEC_URL_DOMAIN="$2"; shift 2 ;;
+    --payload-hash)  SEC_PAYLOAD_HASH="$2"; shift 2 ;;
+    --confidence)    SEC_CONFIDENCE="$2"; shift 2 ;;
+    --layer)         SEC_LAYER="$2"; shift 2 ;;
+    --verdict)       SEC_VERDICT="$2"; shift 2 ;;
     *) shift ;;
   esac
 done
+
+# Source: flag > env > default 'live'
+SOURCE="${SOURCE:-${GSTACK_TELEMETRY_SOURCE:-live}}"
 
 # ─── Read telemetry tier ─────────────────────────────────────
 TIER="$("$CONFIG_CMD" get telemetry 2>/dev/null || true)"
@@ -106,18 +133,29 @@ if [ -d "$STATE_DIR/sessions" ]; then
 fi
 
 # Generate installation_id for community tier
+# Uses a random UUID stored locally — not derived from hostname/user so it
+# can't be guessed or correlated by someone who knows your machine identity.
 INSTALL_ID=""
 if [ "$TIER" = "community" ]; then
-  HOST="$(hostname 2>/dev/null || echo "unknown")"
-  USER="$(whoami 2>/dev/null || echo "unknown")"
-  if command -v shasum >/dev/null 2>&1; then
-    INSTALL_ID="$(printf '%s-%s' "$HOST" "$USER" | shasum -a 256 | awk '{print $1}')"
-  elif command -v sha256sum >/dev/null 2>&1; then
-    INSTALL_ID="$(printf '%s-%s' "$HOST" "$USER" | sha256sum | awk '{print $1}')"
-  elif command -v openssl >/dev/null 2>&1; then
-    INSTALL_ID="$(printf '%s-%s' "$HOST" "$USER" | openssl dgst -sha256 | awk '{print $NF}')"
+  ID_FILE="$HOME/.gstack/installation-id"
+  if [ -f "$ID_FILE" ]; then
+    INSTALL_ID="$(cat "$ID_FILE" 2>/dev/null)"
   fi
-  # If no SHA-256 command available, install_id stays empty
+  if [ -z "$INSTALL_ID" ]; then
+    # Generate a random UUID v4
+    if command -v uuidgen >/dev/null 2>&1; then
+      INSTALL_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
+    elif [ -r /proc/sys/kernel/random/uuid ]; then
+      INSTALL_ID="$(cat /proc/sys/kernel/random/uuid)"
+    else
+      # Fallback: random hex from /dev/urandom
+      INSTALL_ID="$(od -An -tx1 -N16 /dev/urandom 2>/dev/null | tr -d ' \n')"
+    fi
+    if [ -n "$INSTALL_ID" ]; then
+      mkdir -p "$(dirname "$ID_FILE")" 2>/dev/null
+      printf '%s' "$INSTALL_ID" > "$ID_FILE" 2>/dev/null
+    fi
+  fi
 fi
 
 # Local-only fields (never sent remotely)
@@ -131,9 +169,61 @@ fi
 # ─── Construct and append JSON ───────────────────────────────
 mkdir -p "$ANALYTICS_DIR"
 
-# Escape null fields
+# Sanitize string fields for JSON safety (strip quotes, backslashes, control chars)
+json_safe() { printf '%s' "$1" | tr -d '"\\\n\r\t' | head -c 200; }
+SKILL="$(json_safe "$SKILL")"
+OUTCOME="$(json_safe "$OUTCOME")"
+SESSION_ID="$(json_safe "$SESSION_ID")"
+SOURCE="$(json_safe "$SOURCE")"
+EVENT_TYPE="$(json_safe "$EVENT_TYPE")"
+REPO_SLUG="$(json_safe "$REPO_SLUG")"
+BRANCH="$(json_safe "$BRANCH")"
+
+# Escape null fields — sanitize ERROR_CLASS and FAILED_STEP via json_safe()
 ERR_FIELD="null"
-[ -n "$ERROR_CLASS" ] && ERR_FIELD="\"$ERROR_CLASS\""
+[ -n "$ERROR_CLASS" ] && ERR_FIELD="\"$(json_safe "$ERROR_CLASS")\""
+
+# error_message goes through the redaction engine before it touches disk
+# (#1947): stack traces and failed-API errors can embed credentials, paths,
+# and hostnames. Every finding span becomes <REDACTED-{id}>; the rest of the
+# message survives for crash triage. The bun snippet emits a JSON-encoded
+# string (quotes included) ready to drop into the printf below. FAIL CLOSED:
+# if bun / the engine is unavailable, the scan errors, or the output doesn't
+# look like a JSON string, the whole message becomes null — never raw.
+ERR_MSG_FIELD="null"
+if [ -n "$ERROR_MESSAGE" ]; then
+  ERR_MSG_FIELD="$(printf '%s' "$ERROR_MESSAGE" | bun -e "
+import { redactFindingSpans } from '$SCRIPT_DIR/../lib/redact-engine.ts';
+const input = await Bun.stdin.text();
+const out = redactFindingSpans(input, { repoVisibility: 'private' });
+if (out === null) process.exit(1);
+console.log(JSON.stringify(out.slice(0, 200)));
+" 2>/dev/null)" || ERR_MSG_FIELD="null"
+  case "$ERR_MSG_FIELD" in
+    *"
+"*) ERR_MSG_FIELD="null" ;; # embedded newline would corrupt the JSONL record
+    \"*\") ;; # single-line JSON string — safe to embed
+    *) ERR_MSG_FIELD="null" ;;
+  esac
+fi
+
+STEP_FIELD="null"
+[ -n "$FAILED_STEP" ] && STEP_FIELD="\"$(json_safe "$FAILED_STEP")\""
+
+# Integrity first: a non-numeric duration would splice raw text into the
+# JSON line ("duration_s":%s) and corrupt the whole JSONL stream — the range
+# caps below silently no-op on non-integers because both test(1) comparisons
+# fail. Reject anything that isn't a plain integer.
+case "$DURATION" in
+  ''|*[!0-9]*) DURATION="" ;;
+esac
+# Cap unreasonable durations
+if [ -n "$DURATION" ] && [ "$DURATION" -gt 86400 ] 2>/dev/null; then
+  DURATION=""  # null if > 24h
+fi
+if [ -n "$DURATION" ] && [ "$DURATION" -lt 0 ] 2>/dev/null; then
+  DURATION=""  # null if negative
+fi
 
 DUR_FIELD="null"
 [ -n "$DURATION" ] && DUR_FIELD="$DURATION"
@@ -144,10 +234,37 @@ INSTALL_FIELD="null"
 BROWSE_BOOL="false"
 [ "$USED_BROWSE" = "true" ] && BROWSE_BOOL="true"
 
-printf '{"v":1,"ts":"%s","event_type":"%s","skill":"%s","session_id":"%s","gstack_version":"%s","os":"%s","arch":"%s","duration_s":%s,"outcome":"%s","error_class":%s,"used_browse":%s,"sessions":%s,"installation_id":%s,"_repo_slug":"%s","_branch":"%s"}\n' \
+# Sanitize security fields — they're salted hashes and controlled enum values,
+# but apply json_safe() defensively. Domain is limited to 253 chars (RFC 1035).
+SEC_URL_DOMAIN="$(json_safe "$SEC_URL_DOMAIN")"
+SEC_PAYLOAD_HASH="$(json_safe "$SEC_PAYLOAD_HASH")"
+SEC_LAYER="$(json_safe "$SEC_LAYER")"
+SEC_VERDICT="$(json_safe "$SEC_VERDICT")"
+
+# Confidence is numeric 0-1. Default null if unset or malformed.
+SEC_CONF_FIELD="null"
+if [ -n "$SEC_CONFIDENCE" ]; then
+  # awk validates + clamps to [0,1]. Falls back to null on parse failure.
+  _sc="$(awk -v v="$SEC_CONFIDENCE" 'BEGIN { if (v+0 >= 0 && v+0 <= 1) printf "%.4f", v+0; else print "" }' 2>/dev/null || echo "")"
+  [ -n "$_sc" ] && SEC_CONF_FIELD="$_sc"
+fi
+
+SEC_DOMAIN_FIELD="null"
+[ -n "$SEC_URL_DOMAIN" ] && SEC_DOMAIN_FIELD="\"$SEC_URL_DOMAIN\""
+SEC_HASH_FIELD="null"
+[ -n "$SEC_PAYLOAD_HASH" ] && SEC_HASH_FIELD="\"$SEC_PAYLOAD_HASH\""
+SEC_LAYER_FIELD="null"
+[ -n "$SEC_LAYER" ] && SEC_LAYER_FIELD="\"$SEC_LAYER\""
+SEC_VERDICT_FIELD="null"
+[ -n "$SEC_VERDICT" ] && SEC_VERDICT_FIELD="\"$SEC_VERDICT\""
+
+printf '{"v":1,"ts":"%s","event_type":"%s","skill":"%s","session_id":"%s","gstack_version":"%s","os":"%s","arch":"%s","duration_s":%s,"outcome":"%s","error_class":%s,"error_message":%s,"failed_step":%s,"used_browse":%s,"sessions":%s,"installation_id":%s,"source":"%s","security_url_domain":%s,"security_payload_hash":%s,"security_confidence":%s,"security_layer":%s,"security_verdict":%s,"_repo_slug":"%s","_branch":"%s"}\n' \
   "$TS" "$EVENT_TYPE" "$SKILL" "$SESSION_ID" "$GSTACK_VERSION" "$OS" "$ARCH" \
-  "$DUR_FIELD" "$OUTCOME" "$ERR_FIELD" "$BROWSE_BOOL" "${SESSIONS:-1}" \
-  "$INSTALL_FIELD" "$REPO_SLUG" "$BRANCH" >> "$JSONL_FILE" 2>/dev/null || true
+  "$DUR_FIELD" "$OUTCOME" "$ERR_FIELD" "$ERR_MSG_FIELD" "$STEP_FIELD" \
+  "$BROWSE_BOOL" "${SESSIONS:-1}" \
+  "$INSTALL_FIELD" "$SOURCE" \
+  "$SEC_DOMAIN_FIELD" "$SEC_HASH_FIELD" "$SEC_CONF_FIELD" "$SEC_LAYER_FIELD" "$SEC_VERDICT_FIELD" \
+  "$REPO_SLUG" "$BRANCH" >> "$JSONL_FILE" 2>/dev/null || true
 
 # ─── Trigger sync if tier is not off ─────────────────────────
 SYNC_CMD="$GSTACK_DIR/bin/gstack-telemetry-sync"

@@ -1,0 +1,31 @@
+## Step 8: Plan Completion Audit
+
+**Dispatch this step as a subagent** using the Agent tool with `subagent_type: "general-purpose"`. The subagent reads the plan file and every referenced code file in its own fresh context. Parent gets only the conclusion.
+
+**Subagent prompt:** Pass these instructions to the subagent:
+
+> You are running a ship-workflow plan completion audit. The base branch is `<base>`. Use `git diff <base>...HEAD` to see what shipped. Do not commit or push — report only.
+>
+> {{PLAN_COMPLETION_AUDIT_SHIP}}
+>
+> After your analysis, output a single JSON object on the LAST LINE of your response (no other text after it):
+> `{"total_items":N,"done":N,"changed":N,"deferred":N,"unverifiable":N,"summary":"<markdown checklist for PR body>"}`
+
+**Parent processing:**
+
+1. Parse the LAST line of the subagent's output as JSON.
+2. Store `done`, `deferred`, `unverifiable` for Step 20 metrics; use `summary` in PR body.
+3. If `deferred > 0` or `unverifiable > 0` and no user override, present the items via the appropriate AskUserQuestion (see Gate Logic priority order above) before continuing.
+4. Embed `summary` in PR body's `## Plan Completion` section (Step 19). If `unverifiable > 0` and the user picked option A in the UNVERIFIABLE gate, also embed `## Plan Completion — Manual Verifications` listing each user-confirmed item.
+
+**If the subagent fails or returns invalid JSON:** Fall back to running the audit inline (parent processes the same plan-extraction + classification logic). If the inline fallback also fails (e.g., plan file unreadable, parser error), do NOT silently pass — surface the failure as an explicit AskUserQuestion: "Plan Completion audit could not run ({reason}). Options: (A) Skip audit and ship anyway — record that the audit was skipped in PR body and Step 20 metrics; (B) Stop and fix the audit." Default and recommended option is (B). Silent fail-open is the failure shape that VAS-449 surfaced.
+
+---
+
+{{PLAN_VERIFICATION_EXEC}}
+
+{{LEARNINGS_SEARCH:query=release ship version changelog merge pr}}
+
+{{SCOPE_DRIFT}}
+
+---

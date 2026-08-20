@@ -1,0 +1,14 @@
+{
+  "$schema": "https://gstack.dev/schemas/section-manifest.json",
+  "skill": "plan-design-review",
+  "version": 1,
+  "note": "PASSIVE registry (v2 plan T9 / CM2). id/file/title/trigger text ONLY. The skeleton's decision-tree prose decides WHEN to read. See docs/designs/v2_PLAN.md.",
+  "sections": [
+    {
+      "id": "review-sections",
+      "file": "review-sections.md",
+      "title": "7 design passes, required outputs + review report",
+      "trigger": "running the 7 design passes, required outputs, and review report (only after Step 0 scope is agreed)"
+    }
+  ]
+}

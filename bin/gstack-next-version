@@ -1,0 +1,767 @@
+#!/usr/bin/env bun
+// gstack-next-version — host-aware VERSION allocator for /ship.
+//
+// Queries the PR queue (GitHub or GitLab), fetches each open PR's VERSION,
+// scans configurable Conductor sibling worktrees, picks the next free version
+// slot at the requested bump level, and emits the whole picture as JSON.
+//
+// Contract: util NEVER writes files or mutates state. Pure reader + reporter.
+// /ship consumes the JSON and decides what to do.
+//
+// Usage:
+//   gstack-next-version --base <branch> --bump <major|minor|patch|micro> \
+//     --current-version <X.Y.Z.W> [--workspace-root <path>|null] \
+//     [--version-path <path>] [--json]
+//
+// VERSION path resolution (monorepo support):
+//   1. --version-path <path> CLI flag (highest priority)
+//   2. .gstack/version-path file at the repo root (single-line relative path,
+//      committed so all collaborators benefit)
+//   3. "VERSION" at the repo root (default, backward-compatible)
+//
+// The pinned path may be a package.json (any depth) rather than a plain-text
+// VERSION file: a path ending in .json is read as JSON and its .version taken.
+// 3-digit semver is accepted as well as 4-digit, and stays 3-digit through
+// bumping. See lib/version-source.ts for why both mattered — each used to fail
+// closed, which silently disabled the queue-collision check this CLI exists to
+// provide (#2501).
+//
+// Exit codes:
+//   0 — emitted JSON successfully (may include "offline":true or "host":"unknown")
+//   2 — invalid arguments
+//   3 — util bug (unexpected exception)
+
+import { execFileSync, spawnSync } from "node:child_process";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { homedir } from "node:os";
+import { join, resolve } from "node:path";
+import {
+  parseVersion,
+  versionWidth,
+  fmtVersion,
+  bumpVersion,
+  cmpVersion,
+  bumpWasCoerced,
+  extractVersion,
+  type Bump,
+  type Version,
+  type VersionWidth,
+} from "../lib/version-source";
+
+type ClaimedPR = {
+  pr: number;
+  branch: string;
+  version: string;
+  url?: string;
+};
+
+type Sibling = {
+  path: string;
+  branch: string;
+  version: string;
+  last_commit_ts: number;
+  has_open_pr: boolean;
+  is_active: boolean;
+};
+
+type Output = {
+  version: string;
+  current_version: string;
+  base_version: string;
+  version_path: string;
+  bump: Bump;
+  host: "github" | "gitlab" | "unknown";
+  offline: boolean;
+  fallback: "git" | null;
+  claimed: ClaimedPR[];
+  siblings: Sibling[];
+  active_siblings: Sibling[];
+  reason: string;
+  warnings: string[];
+};
+
+const ACTIVE_SIBLING_MAX_AGE_S = 24 * 60 * 60;
+const GH_API_CONCURRENCY = 10;
+
+// Collision resolution: bump past the highest claimed within the same level.
+// Semantics: if my bump is MINOR and the queue claims 1.7.0.0, I advance to
+// 1.8.0.0 (still a MINOR relative to main). Preserves ship-time intent.
+// `width` keeps a 3-digit repo 3-digit (see lib/version-source.ts); it
+// defaults to 4 so existing callers and tests are unaffected.
+function pickNextSlot(base: Version, claimed: Version[], level: Bump, width: VersionWidth = 4): { version: Version; reason: string } {
+  let candidate = bumpVersion(base, level, width);
+  const sortedClaimed = [...claimed].sort(cmpVersion);
+  const highest = sortedClaimed[sortedClaimed.length - 1];
+  if (highest && cmpVersion(highest, base) > 0) {
+    // Queue already advanced past base; bump past the highest claim.
+    const bumpedPastHighest = bumpVersion(highest, level, width);
+    if (cmpVersion(bumpedPastHighest, candidate) > 0) {
+      return { version: bumpedPastHighest, reason: `bumped past claimed ${fmtVersion(highest, width)}` };
+    }
+  }
+  return { version: candidate, reason: "no collision; clean bump from base" };
+}
+
+function runCommand(cmd: string, args: string[], timeoutMs = 15000): { ok: boolean; stdout: string; stderr: string } {
+  const r = spawnSync(cmd, args, { encoding: "utf8", timeout: timeoutMs });
+  return {
+    ok: r.status === 0 && !r.error,
+    stdout: r.stdout ?? "",
+    stderr: r.stderr ?? (r.error ? String(r.error) : ""),
+  };
+}
+
+// VERSION-path resolution for monorepos. Priority: CLI flag > .gstack/version-path
+// at repo root > "VERSION". Pure function; takes the repo root as an argument so
+// tests can drive it with a fixture dir without mocking git.
+function resolveVersionPath(override: string | undefined, repoRoot: string): string {
+  if (override) return override.trim();
+  const configFile = join(repoRoot, ".gstack", "version-path");
+  if (existsSync(configFile)) {
+    try {
+      const firstLine = readFileSync(configFile, "utf8").split("\n")[0]?.trim() ?? "";
+      if (firstLine) return firstLine;
+    } catch {
+      // fall through to default
+    }
+  }
+  return "VERSION";
+}
+
+function repoToplevel(): string {
+  const r = runCommand("git", ["rev-parse", "--show-toplevel"]);
+  return r.ok ? r.stdout.trim() : process.cwd();
+}
+
+function detectHost(): "github" | "gitlab" | "unknown" {
+  const remote = runCommand("git", ["remote", "get-url", "origin"]);
+  if (remote.ok) {
+    const url = remote.stdout.trim();
+    if (url.includes("github.com")) return "github";
+    if (url.includes("gitlab")) return "gitlab";
+  }
+  const gh = runCommand("gh", ["auth", "status"]);
+  if (gh.ok) return "github";
+  const glab = runCommand("glab", ["auth", "status"]);
+  if (glab.ok) return "gitlab";
+  return "unknown";
+}
+
+// When the base-version read fails we assume a zero base — but a literal
+// "0.0.0.0" is 4-digit, which flips versionWidth() to 4 and hands a 3-digit
+// repo a 4-digit slot (the exact width class of bug #2501 fixed in parsing).
+// The LOCAL version file at versionPath knows the repo's own width; shape the
+// zero from it. No local file either → keep the 4-digit default.
+function zeroBaseAtLocalWidth(versionPath: string, repoRoot: string): string {
+  try {
+    const local = extractVersion(readFileSync(join(repoRoot, versionPath), "utf8"), versionPath);
+    if (local && parseVersion(local) && versionWidth(local) === 3) return "0.0.0";
+  } catch {
+    // unreadable/absent local version file — 4-digit default below
+  }
+  return "0.0.0.0";
+}
+
+function readBaseVersion(base: string, versionPath: string, repoRoot: string, warnings: string[]): string {
+  // git fetch is best-effort; we tolerate failure and fall back to whatever
+  // origin/<base> currently points at.
+  runCommand("git", ["fetch", "origin", base, "--quiet"], 10000);
+  const r = runCommand("git", ["show", `origin/${base}:${versionPath}`]);
+  if (!r.ok) {
+    const assumed = zeroBaseAtLocalWidth(versionPath, repoRoot);
+    warnings.push(`could not read ${versionPath} at origin/${base}; assuming ${assumed}`);
+    return assumed;
+  }
+  const v = extractVersion(r.stdout, versionPath);
+  if (!v) {
+    const assumed = zeroBaseAtLocalWidth(versionPath, repoRoot);
+    warnings.push(`${versionPath} at origin/${base} has no readable version; assuming ${assumed}`);
+    return assumed;
+  }
+  return v;
+}
+
+async function fetchGithubClaimed(base: string, versionPath: string, excludePR: number | null, warnings: string[]): Promise<{ claimed: ClaimedPR[]; offline: boolean }> {
+  const list = runCommand("gh", [
+    "pr",
+    "list",
+    "--state",
+    "open",
+    "--base",
+    base,
+    "--limit",
+    "200",
+    "--json",
+    "number,headRefName,headRepositoryOwner,url,isDraft",
+  ]);
+  if (!list.ok) {
+    warnings.push(`gh pr list failed: ${list.stderr.trim().slice(0, 200)}`);
+    return { claimed: [], offline: true };
+  }
+  let prs: {
+    number: number;
+    headRefName: string;
+    headRepositoryOwner?: { login: string };
+    url: string;
+    isDraft: boolean;
+  }[];
+  try {
+    prs = JSON.parse(list.stdout);
+  } catch (e) {
+    warnings.push(`gh pr list returned invalid JSON`);
+    return { claimed: [], offline: true };
+  }
+  // Determine our repo owner to filter out fork PRs. `gh api contents?ref=<branch>`
+  // resolves to OUR repo regardless of where the PR originated, so fork PRs would
+  // otherwise return our main's VERSION as a phantom claim.
+  const viewer = runCommand("gh", ["repo", "view", "--json", "owner", "-q", ".owner.login"]);
+  const myOwner = viewer.ok ? viewer.stdout.trim() : "";
+  const sameRepoPRs = (myOwner
+    ? prs.filter((p) => (p.headRepositoryOwner?.login ?? "") === myOwner)
+    : prs
+  ).filter((p) => excludePR === null || p.number !== excludePR);
+  // Fetch each PR's VERSION at its head in parallel (bounded concurrency).
+  const results: ClaimedPR[] = [];
+  const queue = [...sameRepoPRs];
+  const workers = Array.from({ length: Math.min(GH_API_CONCURRENCY, sameRepoPRs.length) }, async () => {
+    while (queue.length) {
+      const pr = queue.shift();
+      if (!pr) return;
+      // gh passes branch name via argv, not shell — safe.
+      // encodeURI handles spaces in subproject paths (e.g. "Tinas Second Brain/...")
+      // while leaving "/" untouched so the GitHub Contents API gets the path intact.
+      const content = runCommand("gh", [
+        "api",
+        `repos/{owner}/{repo}/contents/${encodeURI(versionPath)}?ref=${encodeURIComponent(pr.headRefName)}`,
+        "-q",
+        ".content",
+      ]);
+      if (!content.ok) {
+        warnings.push(
+          `PR #${pr.number}: could not fetch ${versionPath} (fork, private, or wrong path — try --version-path or .gstack/version-path)`,
+        );
+        continue;
+      }
+      let versionStr: string;
+      try {
+        versionStr = extractVersion(Buffer.from(content.stdout.trim(), "base64").toString("utf8"), versionPath);
+      } catch {
+        warnings.push(`PR #${pr.number}: VERSION is not valid base64`);
+        continue;
+      }
+      if (!parseVersion(versionStr)) {
+        warnings.push(`PR #${pr.number}: VERSION is malformed (${versionStr})`);
+        continue;
+      }
+      results.push({ pr: pr.number, branch: pr.headRefName, version: versionStr, url: pr.url });
+    }
+  });
+  await Promise.all(workers);
+  return { claimed: results, offline: false };
+}
+
+async function fetchGitlabClaimed(base: string, versionPath: string, excludePR: number | null, warnings: string[]): Promise<{ claimed: ClaimedPR[]; offline: boolean }> {
+  const list = runCommand("glab", [
+    "mr",
+    "list",
+    "--opened",
+    "--target-branch",
+    base,
+    "--output",
+    "json",
+    "--per-page",
+    "200",
+  ]);
+  if (!list.ok) {
+    warnings.push(`glab mr list failed: ${list.stderr.trim().slice(0, 200)}`);
+    return { claimed: [], offline: true };
+  }
+  let mrs: { iid: number; source_branch: string; web_url: string }[];
+  try {
+    mrs = JSON.parse(list.stdout);
+  } catch {
+    warnings.push(`glab mr list returned invalid JSON`);
+    return { claimed: [], offline: true };
+  }
+  if (excludePR !== null) {
+    mrs = mrs.filter((mr) => mr.iid !== excludePR);
+  }
+  const results: ClaimedPR[] = [];
+  for (const mr of mrs) {
+    // GitLab files API takes the full path URL-encoded (slashes become %2F).
+    const content = runCommand("glab", [
+      "api",
+      `projects/:id/repository/files/${encodeURIComponent(versionPath)}?ref=${encodeURIComponent(mr.source_branch)}`,
+    ]);
+    if (!content.ok) {
+      warnings.push(
+        `MR !${mr.iid}: could not fetch ${versionPath} (wrong path? — try --version-path or .gstack/version-path)`,
+      );
+      continue;
+    }
+    try {
+      const j = JSON.parse(content.stdout);
+      const versionStr = extractVersion(Buffer.from(j.content, "base64").toString("utf8"), versionPath);
+      if (!parseVersion(versionStr)) {
+        warnings.push(`MR !${mr.iid}: VERSION malformed (${versionStr})`);
+        continue;
+      }
+      results.push({ pr: mr.iid, branch: mr.source_branch, version: versionStr, url: mr.web_url });
+    } catch {
+      warnings.push(`MR !${mr.iid}: unexpected glab api response`);
+    }
+  }
+  return { claimed: results, offline: false };
+}
+
+function resolveWorkspaceRoot(override?: string): string | null {
+  if (override === "null") return null;
+  if (override) return override;
+  const r = runCommand(join(__dirname, "gstack-config"), ["get", "workspace_root"]);
+  const configured = r.ok ? r.stdout.trim() : "";
+  if (configured === "null") return null;
+  if (configured) return configured;
+  // Default: $HOME/conductor/workspaces/
+  return join(homedir(), "conductor", "workspaces");
+}
+
+function currentRepoSlug(): string {
+  const r = runCommand("git", ["remote", "get-url", "origin"]);
+  if (!r.ok) return "";
+  // Extract "owner/repo" from URL like git@github.com:owner/repo.git
+  const m = r.stdout.trim().match(/[:/]([^/]+\/[^/]+?)(?:\.git)?$/);
+  return m ? m[1] : "";
+}
+
+function scanSiblings(root: string | null, versionPath: string, claimed: ClaimedPR[], warnings: string[]): Sibling[] {
+  if (!root || !existsSync(root)) return [];
+  const mySlug = currentRepoSlug();
+  if (!mySlug) {
+    warnings.push("could not determine current repo slug; skipping sibling scan");
+    return [];
+  }
+  const repoName = mySlug.split("/").pop() ?? "";
+  // Conductor layout: <root>/<repo>/<workspace>/
+  const repoDir = join(root, repoName);
+  if (!existsSync(repoDir)) return [];
+  const myAbsPath = resolve(process.cwd());
+  const results: Sibling[] = [];
+  for (const name of readdirSync(repoDir)) {
+    const p = join(repoDir, name);
+    if (resolve(p) === myAbsPath) continue;
+    try {
+      const s = statSync(p);
+      if (!s.isDirectory()) continue;
+    } catch {
+      continue;
+    }
+    if (!existsSync(join(p, ".git")) && !existsSync(join(p, ".git/HEAD"))) continue;
+    const versionFile = join(p, versionPath);
+    if (!existsSync(versionFile)) continue;
+    let version: string;
+    try {
+      version = extractVersion(readFileSync(versionFile, "utf8"), versionPath);
+      if (!parseVersion(version)) continue;
+    } catch {
+      continue;
+    }
+    const branchR = runCommand("git", ["-C", p, "rev-parse", "--abbrev-ref", "HEAD"]);
+    if (!branchR.ok) continue;
+    const branch = branchR.stdout.trim();
+    const commitTsR = runCommand("git", ["-C", p, "log", "-1", "--format=%ct"]);
+    const last_commit_ts = commitTsR.ok ? Number(commitTsR.stdout.trim()) : 0;
+    const has_open_pr = claimed.some((c) => c.branch === branch);
+    results.push({
+      path: p,
+      branch,
+      version,
+      last_commit_ts,
+      has_open_pr,
+      is_active: false,
+    });
+  }
+  return results;
+}
+
+function markActiveSiblings(siblings: Sibling[], baseVersion: Version): Sibling[] {
+  const now = Math.floor(Date.now() / 1000);
+  return siblings.map((s) => {
+    const v = parseVersion(s.version);
+    const isAhead = v ? cmpVersion(v, baseVersion) > 0 : false;
+    const isFresh = s.last_commit_ts > 0 && now - s.last_commit_ts < ACTIVE_SIBLING_MAX_AGE_S;
+    const is_active = isAhead && isFresh && !s.has_open_pr;
+    return { ...s, is_active };
+  });
+}
+
+function parseArgs(argv: string[]): { base: string; bump: Bump; current: string; workspaceRoot?: string; excludePR: number | null; versionPath?: string; help: boolean } {
+  let base = "";
+  let bump: Bump | "" = "";
+  let current = "";
+  let workspaceRoot: string | undefined;
+  let excludePR: number | null = null;
+  let versionPath: string | undefined;
+  let help = false;
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === "--base") base = argv[++i] ?? "";
+    else if (a === "--bump") bump = (argv[++i] ?? "") as Bump;
+    else if (a === "--current-version") current = argv[++i] ?? "";
+    else if (a === "--workspace-root") workspaceRoot = argv[++i];
+    else if (a === "--version-path") versionPath = argv[++i];
+    else if (a === "--exclude-pr") {
+      const n = Number(argv[++i]);
+      excludePR = Number.isFinite(n) && n > 0 ? n : null;
+    }
+    else if (a === "-h" || a === "--help") help = true;
+  }
+  if (help) return { base: "", bump: "micro", current: "", excludePR: null, help: true };
+  if (!base) {
+    // Detect the default branch instead of assuming main (local-only repos
+    // on trunk/master work like GitHub repos on main). Same probe order as
+    // the canonical chain in bin/gstack-diff-scope and {{BASE_BRANCH_DETECT}}
+    // (scripts/resolvers/utility.ts): origin/HEAD -> origin/main ->
+    // origin/master -> literal "main". origin/HEAD is unset on plain clones
+    // that never ran `git remote set-head`, so the rev-parse probes matter.
+    try {
+      const head = execFileSync("git", ["symbolic-ref", "refs/remotes/origin/HEAD"], { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+      base = head.replace("refs/remotes/origin/", "");
+    } catch {
+      // fall through to the rev-parse probes
+    }
+    if (!base) {
+      for (const candidate of ["main", "master"]) {
+        try {
+          execFileSync("git", ["rev-parse", "--verify", "-q", `origin/${candidate}`], { stdio: ["ignore", "ignore", "ignore"] });
+          base = candidate;
+          break;
+        } catch {
+          // probe failed; try the next candidate
+        }
+      }
+    }
+    if (!base) base = "main";
+  }
+  if (!bump) {
+    console.error("Error: --bump is required (major|minor|patch|micro)");
+    process.exit(2);
+  }
+  if (!["major", "minor", "patch", "micro"].includes(bump)) {
+    console.error(`Error: --bump must be major|minor|patch|micro (got ${bump})`);
+    process.exit(2);
+  }
+  return { base, bump: bump as Bump, current, workspaceRoot, excludePR, versionPath, help: false };
+}
+
+// Auto-detect: if --exclude-pr wasn't passed, check whether the current branch
+// already has an open PR and exclude it by default. This prevents the self-
+// reference bug where /ship's own PR inflates the queue on rerun.
+function autoDetectExcludePR(): number | null {
+  const r = runCommand("gh", ["pr", "view", "--json", "number", "-q", ".number"]);
+  if (!r.ok) return null;
+  const n = Number(r.stdout.trim());
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+// ── git-only fallback (#2545) ────────────────────────────────────────────
+//
+// When the host query fails this util used to return `offline:true` with an
+// EMPTY claim set, and /ship's instruction was "fall back to local BUMP_LEVEL
+// arithmetic". Local arithmetic cannot see a sibling's claim, so the fallback
+// allocated a version another open PR already held.
+//
+// That is not hypothetical. On 2026-08-12 in a downstream repo, `gh pr list`
+// failed during a ship, this util reported offline, the bump fell back to
+// local arithmetic, and 0.1.57.0 was allocated to a second PR while an open
+// one already claimed it — both merged, and main carries two commits reading
+// v0.1.57.0. Auditing that repo's history found FOUR such pairs going back
+// three weeks, so the silent fallback had been mis-allocating for a while.
+//
+// Git already knows what the API was asked for. `git ls-remote --heads origin`
+// returns the remote's LIVE branch list with zero local mutation (no fetch, no
+// ref updates), each branch's VERSION file is readable from the local object
+// store, and the base's own history records every version already shipped.
+// None of it needs a token or a working `gh`. So "offline" degrades the QUEUE
+// VIEW (no PR numbers, no draft status) without degrading the ALLOCATION.
+function fetchGitClaimed(
+  base: string,
+  versionPath: string,
+  warnings: string[],
+): ClaimedPR[] {
+  const claims: ClaimedPR[] = [];
+  const baseShort = base.replace(/^origin\//, "");
+
+  // 1. The version-claim branches. FIRST try `git ls-remote --heads origin`:
+  //    fresh remote data, zero local mutation. This scopes claims to branches
+  //    that actually EXIST on origin right now — the previous implementation
+  //    counted every remote-tracking ref on EVERY remote, so stale local refs
+  //    (deleted PR branches, an unrelated `upstream` remote) inflated the
+  //    claim set and pushed the allocation further than the real queue.
+  //    GIT_TERMINAL_PROMPT=0 + a 5s timeout keep a dead/credential-prompting
+  //    remote from hanging the allocator.
+  const lsRemote = spawnSync("git", ["ls-remote", "--heads", "origin"], {
+    encoding: "utf8",
+    timeout: 5000,
+    env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+  });
+  const lsOk = lsRemote.status === 0 && !lsRemote.error;
+
+  // Each candidate carries the LIVE tip sha when it came from ls-remote, so
+  // the VERSION read prefers the fresh commit (present locally after any
+  // prior fetch/clone) and only falls back to the local remote-tracking ref.
+  const candidates: { branch: string; sha?: string }[] = [];
+  if (lsOk) {
+    for (const line of (lsRemote.stdout ?? "").split("\n")) {
+      const m = line.trim().match(/^([0-9a-f]{40,64})\trefs\/heads\/(.+)$/);
+      if (!m) continue;
+      if (m[2] === baseShort) continue;
+      candidates.push({ branch: m[2], sha: m[1] });
+    }
+  } else {
+    // Degraded twice over: no host API AND no reachable remote. Fall back to
+    // the LOCAL refs/remotes/origin snapshot ONLY (never other remotes — an
+    // `upstream` remote's branches are not claims against OUR queue).
+    warnings.push(
+      "git ls-remote origin failed; using stale local refs/remotes/origin — " +
+        "branches deleted on the remote may still be counted as claims (run `git fetch --prune origin` to refresh)",
+    );
+    const refs = runCommand("git", [
+      "for-each-ref",
+      "--format=%(refname:short)",
+      "refs/remotes/origin",
+    ]);
+    if (refs.ok) {
+      for (const ref of refs.stdout.split("\n").map((r) => r.trim()).filter(Boolean)) {
+        if (ref.endsWith("/HEAD")) continue;
+        const branch = ref.replace(/^origin\//, "");
+        if (branch === baseShort) continue;
+        candidates.push({ branch });
+      }
+    } else {
+      warnings.push("git for-each-ref failed; branch claims unavailable");
+    }
+  }
+
+  //    Read each candidate's VERSION through extractVersion so a JSON
+  //    version-path (#2501) resolves on remote refs too, and the branch's own
+  //    width is preserved in the claim. Reads are LOCAL-first; branches whose
+  //    advertised tip has no local object are collected and resolved with ONE
+  //    batched shallow fetch below. A per-branch fetch loop here once crawled
+  //    a busy remote for minutes on a shallow CI clone (dozens of sequential
+  //    network fetches, 10s cap each) — the total network budget must be one
+  //    bounded round trip regardless of branch count.
+  const readClaim = (branch: string, sha?: string): "claimed" | "not-a-claim" | "object-missing" => {
+    let show = sha ? runCommand("git", ["show", `${sha}:${versionPath}`]) : { ok: false, stdout: "", stderr: "" };
+    if (!show.ok) {
+      // Live tip not fetched yet (or no sha in the fallback path): best-effort
+      // read from the local remote-tracking ref.
+      show = runCommand("git", ["show", `refs/remotes/origin/${branch}:${versionPath}`]);
+    }
+    if (!show.ok) {
+      if (!sha) return "not-a-claim";
+      // Distinguish "object missing" from "branch has no VERSION file".
+      return runCommand("git", ["cat-file", "-e", sha]).ok ? "not-a-claim" : "object-missing";
+    }
+    const raw = extractVersion(show.stdout, versionPath);
+    if (!raw || !parseVersion(raw)) return "not-a-claim";
+    claims.push({ pr: 0, branch: `origin/${branch}`, version: raw });
+    return "claimed";
+  };
+
+  const pending: { branch: string; sha?: string }[] = [];
+  for (const { branch, sha } of candidates) {
+    if (readClaim(branch, sha) === "object-missing") pending.push({ branch, sha });
+  }
+  if (pending.length > 0) {
+    // ls-remote advertises SHAs without objects: a branch pushed after our
+    // last fetch has NO local object. The pre-#2545 `continue` silently
+    // dropped a LIVE claim — the exact duplicate-allocation this fallback
+    // exists to prevent. One shallow batched fetch (no prompts, no tags,
+    // bounded) brings every missing tip local in a single round trip.
+    spawnSync(
+      "git",
+      ["fetch", "origin", ...pending.map((p) => `refs/heads/${p.branch}`), "--depth=1", "--no-tags"],
+      { encoding: "utf8", timeout: 15000, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } },
+    );
+    // One unservable ref (dangling sha on the server) fails the WHOLE batch
+    // transfer, so refs still missing get a bounded per-branch retry — that
+    // isolates a poisoned ref without reopening the unbounded fetch crawl
+    // (per-branch-only fetching once ground a shallow CI clone against a
+    // busy remote for minutes). Anything past the cap is warned, not fetched.
+    const RETRY_CAP = 8;
+    let retries = 0;
+    for (const { branch, sha } of pending) {
+      let outcome = readClaim(branch, sha);
+      if (outcome === "object-missing" && retries < RETRY_CAP) {
+        retries++;
+        spawnSync(
+          "git",
+          ["fetch", "origin", `refs/heads/${branch}`, "--depth=1", "--no-tags"],
+          { encoding: "utf8", timeout: 5000, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } },
+        );
+        outcome = readClaim(branch, sha);
+      }
+      if (outcome === "object-missing") {
+        // STILL unreadable (fetch failed, retry cap hit, or the tip moved
+        // between ls-remote and fetch) — never skip silently. Surface it as
+        // an UNKNOWN claim so the caller knows the allocation may be unsafe.
+        warnings.push(
+          `origin/${branch}: VERSION unreadable even after a targeted fetch — ` +
+            `counted as an UNKNOWN claim; allocation may collide with this branch. ` +
+            `Run \`git fetch origin ${branch}\` and re-run to verify.`,
+        );
+      }
+    }
+  }
+
+  // 2. Versions already shipped, read from the base's commit subjects. Catches
+  //    the case the VERSION file cannot: a number that merged and was then
+  //    re-picked. Bounded, and it says so rather than implying full history.
+  const SUBJECT_SCAN = 400;
+  const log = runCommand("git", ["log", `-n${SUBJECT_SCAN}`, "--format=%s", base]);
+  if (log.ok) {
+    for (const subject of log.stdout.split("\n")) {
+      const m = subject.trim().match(/^v(\d+\.\d+\.\d+(?:\.\d+)?)\b/);
+      if (!m) continue;
+      if (!parseVersion(m[1])) continue;
+      claims.push({ pr: 0, branch: `(shipped on ${base})`, version: m[1] });
+    }
+    // A cap that does not announce itself reads as "checked all history".
+    // Only fires when the log came back exactly full, which is the only
+    // observable signal that older commits went unread.
+    if (log.stdout.trim().split("\n").length >= SUBJECT_SCAN) {
+      warnings.push(
+        `shipped-version scan stopped at ${SUBJECT_SCAN} commits on ${base}; ` +
+          `a version shipped before that is not counted as claimed`,
+      );
+    }
+  } else {
+    warnings.push(`git log ${base} failed; shipped-version scan unavailable`);
+  }
+
+  return claims;
+}
+
+async function main() {
+  const args = parseArgs(process.argv.slice(2));
+  if (args.help) {
+    console.log(
+      "Usage: gstack-next-version --base <branch> --bump <level> --current-version <X.Y.Z.W> [--workspace-root <path|null>] [--version-path <path>]",
+    );
+    process.exit(0);
+  }
+  const warnings: string[] = [];
+  const host = detectHost();
+  const repoRoot = repoToplevel();
+  const versionPath = resolveVersionPath(args.versionPath, repoRoot);
+  const baseVersion = args.current || readBaseVersion(args.base, versionPath, repoRoot, warnings);
+  const baseParsed = parseVersion(baseVersion);
+  if (!baseParsed) {
+    console.error(`Error: could not parse base version '${baseVersion}'`);
+    process.exit(2);
+  }
+  // The repo's own width governs everything downstream: a 3-digit repo must
+  // not be handed a 4-digit slot, or /ship writes a version the repo's tooling
+  // can't read back (#2501).
+  const width = versionWidth(baseVersion);
+  if (bumpWasCoerced(args.bump, width)) {
+    warnings.push(`--bump micro has no component to move in a ${width}-digit version; treated as patch`);
+  }
+
+  const excludePR = args.excludePR ?? autoDetectExcludePR();
+  if (excludePR !== null && args.excludePR === null) {
+    warnings.push(`auto-excluded PR #${excludePR} (current branch's own PR)`);
+  }
+
+  let claimed: ClaimedPR[] = [];
+  let offline = false;
+  if (host === "github") {
+    ({ claimed, offline } = await fetchGithubClaimed(args.base, versionPath, excludePR, warnings));
+  } else if (host === "gitlab") {
+    ({ claimed, offline } = await fetchGitlabClaimed(args.base, versionPath, excludePR, warnings));
+  } else {
+    warnings.push("host unknown; queue-awareness unavailable");
+  }
+
+  // Degraded host query → fall back to git, which needs no API. Additive: it
+  // only runs when the host told us nothing, so the online path is untouched.
+  let fallback: "git" | null = null;
+  if (offline || host === "unknown") {
+    const gitClaims = fetchGitClaimed(args.base, versionPath, warnings);
+    if (gitClaims.length) {
+      claimed = [...claimed, ...gitClaims];
+      fallback = "git";
+      warnings.push(
+        `host queue unavailable — allocated from git instead ` +
+          `(${gitClaims.length} claim(s) from remote refs + shipped subjects). ` +
+          `PR numbers and draft status are unavailable, but the version is safe.`,
+      );
+    } else {
+      warnings.push(
+        "host queue unavailable AND git found no claims — the pick rests on " +
+          "the base VERSION alone. Verify no sibling branch holds it before " +
+          "shipping.",
+      );
+    }
+  }
+
+  // Only count PRs that actually bumped VERSION past base as real "claims".
+  // A PR whose VERSION equals base's VERSION hasn't claimed anything.
+  const realClaims = claimed.filter((c) => {
+    const v = parseVersion(c.version);
+    return v !== null && cmpVersion(v, baseParsed) > 0;
+  });
+  const claimedVersions = realClaims
+    .map((c) => parseVersion(c.version))
+    .filter((v): v is Version => v !== null);
+
+  const { version: picked, reason } = pickNextSlot(baseParsed, claimedVersions, args.bump, width);
+
+  const workspaceRoot = resolveWorkspaceRoot(args.workspaceRoot);
+  const siblings = markActiveSiblings(scanSiblings(workspaceRoot, versionPath, claimed, warnings), baseParsed);
+  const activeSiblings = siblings.filter((s) => s.is_active);
+
+  // If an active sibling outranks our pick, bump past it (same bump level).
+  let finalVersion = picked;
+  let finalReason = reason;
+  const activeAhead = activeSiblings
+    .map((s) => parseVersion(s.version))
+    .filter((v): v is Version => v !== null)
+    .filter((v) => cmpVersion(v, finalVersion) >= 0);
+  if (activeAhead.length) {
+    const highest = activeAhead.sort(cmpVersion)[activeAhead.length - 1];
+    finalVersion = bumpVersion(highest, args.bump, width);
+    finalReason = `bumped past active sibling ${fmtVersion(highest, width)}`;
+  }
+
+  const out: Output = {
+    version: fmtVersion(finalVersion, width),
+    current_version: args.current || baseVersion,
+    base_version: baseVersion,
+    version_path: versionPath,
+    bump: args.bump,
+    host,
+    offline,
+    fallback,
+    claimed: realClaims,
+    siblings,
+    active_siblings: activeSiblings,
+    reason: finalReason,
+    warnings,
+  };
+  process.stdout.write(JSON.stringify(out, null, 2) + "\n");
+}
+
+// Pure-function exports for testing. The version primitives are re-exported
+// from lib/version-source so existing importers of this module keep working
+// unchanged.
+export { parseVersion, fmtVersion, bumpVersion, cmpVersion, versionWidth, extractVersion };
+export { pickNextSlot, markActiveSiblings, resolveVersionPath, fetchGitClaimed };
+
+// Only run main() when invoked as a script, not when imported by tests.
+if (import.meta.main) {
+  main().catch((e) => {
+    console.error("Unexpected error:", e?.stack ?? e);
+    process.exit(3);
+  });
+}

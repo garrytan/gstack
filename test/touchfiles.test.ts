@@ -13,6 +13,7 @@ import {
   selectTests,
   detectBaseBranch,
   E2E_TOUCHFILES,
+  E2E_TIERS,
   LLM_JUDGE_TOUCHFILES,
   GLOBAL_TOUCHFILES,
 } from './helpers/touchfiles';
@@ -79,8 +80,39 @@ describe('selectTests', () => {
     expect(result.selected).toContain('plan-ceo-review');
     expect(result.selected).toContain('plan-ceo-review-selective');
     expect(result.selected).toContain('plan-ceo-review-benefits');
-    expect(result.selected.length).toBe(3);
-    expect(result.skipped.length).toBe(Object.keys(E2E_TOUCHFILES).length - 3);
+    expect(result.selected).toContain('plan-ceo-review-expansion-energy');
+    expect(result.selected).toContain('autoplan-core');
+    expect(result.selected).toContain('codex-offered-ceo-review');
+    expect(result.selected).toContain('plan-ceo-review-format-mode');
+    expect(result.selected).toContain('plan-ceo-review-format-approach');
+    // v1.10.2.0 plan-mode handshake entries also depend on plan-ceo-review/**
+    expect(result.selected).toContain('plan-ceo-review-plan-mode');
+    expect(result.selected).toContain('plan-mode-no-op');
+    expect(result.selected).toContain('e2e-harness-audit');
+    expect(result.selected).toContain('plan-ceo-review-prosons-cadence');
+    expect(result.selected).toContain('plan-review-prosons-format');
+    expect(result.selected).toContain('plan-review-prosons-hardstop-neg');
+    expect(result.selected).toContain('plan-review-prosons-neutral-neg');
+    // v1.13.x real-PTY E2E batch entries that also depend on plan-ceo-review/**
+    expect(result.selected).toContain('auq-format-gate');
+    expect(result.selected).toContain('plan-ceo-mode-routing');
+    expect(result.selected).toContain('autoplan-chain-pty');
+    // Per-finding count + review-report-at-bottom (v1.21.x)
+    expect(result.selected).toContain('plan-ceo-finding-count');
+    // v1.22+ AskUserQuestion-blocked regression: auto-decide-preserved
+    // also depends on plan-ceo-review/** (autoplan-auto-mode test was
+    // removed in v1.28 — see commit message for the rationale).
+    expect(result.selected).toContain('auto-decide-preserved');
+    // v1.27+ gate-tier reviewCount-floor regression for transcript bug
+    expect(result.selected).toContain('plan-ceo-finding-floor');
+    // garrytan/askuserquestion-split-on-overflow: split-overflow periodic
+    // E2E test also depends on plan-ceo-review/** (5-option scope decision
+    // regression for the "drop to fit 4 options" failure mode).
+    expect(result.selected).toContain('plan-ceo-split-overflow');
+    // v2 plan Phase B carve: the section-loading E2E depends on plan-ceo-review/**.
+    expect(result.selected).toContain('plan-ceo-section-loading');
+    expect(result.selected.length).toBe(23);
+    expect(result.skipped.length).toBe(Object.keys(E2E_TOUCHFILES).length - 23);
   });
 
   test('global touchfile triggers ALL tests', () => {
@@ -90,10 +122,19 @@ describe('selectTests', () => {
     expect(result.reason).toContain('global');
   });
 
-  test('gen-skill-docs.ts is a global touchfile', () => {
+  test('gen-skill-docs.ts is a scoped touchfile, not global', () => {
     const result = selectTests(['scripts/gen-skill-docs.ts'], E2E_TOUCHFILES);
-    expect(result.selected.length).toBe(Object.keys(E2E_TOUCHFILES).length);
-    expect(result.reason).toContain('global');
+    // Should select tests that list gen-skill-docs.ts in their touchfiles, not ALL tests
+    expect(result.selected.length).toBeGreaterThan(0);
+    expect(result.selected.length).toBeLessThan(Object.keys(E2E_TOUCHFILES).length);
+    expect(result.reason).toBe('diff');
+    // Should include tests that depend on gen-skill-docs.ts
+    expect(result.selected).toContain('skillmd-setup-discovery');
+    expect(result.selected).toContain('session-awareness');
+    expect(result.selected).toContain('journey-ideation');
+    // Should NOT include tests that don't depend on it
+    expect(result.selected).not.toContain('retro');
+    expect(result.selected).not.toContain('cso-full-audit');
   });
 
   test('unrelated file selects nothing', () => {
@@ -132,7 +173,7 @@ describe('selectTests', () => {
     const result = selectTests(['SKILL.md.tmpl'], E2E_TOUCHFILES);
     // Should select the 7 tests that depend on root SKILL.md
     expect(result.selected).toContain('skillmd-setup-discovery');
-    expect(result.selected).toContain('contributor-mode');
+    expect(result.selected).toContain('session-awareness');
     expect(result.selected).toContain('session-awareness');
     // Also selects journey routing tests (SKILL.md.tmpl in their touchfiles)
     expect(result.selected).toContain('journey-ideation');
@@ -142,7 +183,7 @@ describe('selectTests', () => {
   });
 
   test('global touchfiles work for LLM-judge tests too', () => {
-    const result = selectTests(['scripts/gen-skill-docs.ts'], LLM_JUDGE_TOUCHFILES);
+    const result = selectTests(['test/helpers/session-runner.ts'], LLM_JUDGE_TOUCHFILES);
     expect(result.selected.length).toBe(Object.keys(LLM_JUDGE_TOUCHFILES).length);
   });
 });
@@ -191,14 +232,17 @@ describe('detectBaseBranch', () => {
   });
 });
 
-// --- Completeness: every testName in skill-e2e.test.ts has a TOUCHFILES entry ---
+// --- Completeness: every testName in skill-e2e-*.test.ts has a TOUCHFILES entry ---
 
 describe('TOUCHFILES completeness', () => {
   test('every E2E testName has a TOUCHFILES entry', () => {
-    const e2eContent = fs.readFileSync(
-      path.join(ROOT, 'test', 'skill-e2e.test.ts'),
-      'utf-8',
-    );
+    // Read all split E2E test files
+    const testDir = path.join(ROOT, 'test');
+    const e2eFiles = fs.readdirSync(testDir).filter(f => f.startsWith('skill-e2e-') && f.endsWith('.test.ts'));
+    let e2eContent = '';
+    for (const f of e2eFiles) {
+      e2eContent += fs.readFileSync(path.join(testDir, f), 'utf-8') + '\n';
+    }
 
     // Extract all testName: 'value' entries
     const testNameRegex = /testName:\s*['"`]([^'"`]+)['"`]/g;
@@ -229,6 +273,36 @@ describe('TOUCHFILES completeness', () => {
     }
   });
 
+  test('E2E_TIERS covers exactly the same tests as E2E_TOUCHFILES', () => {
+    const touchfileKeys = new Set(Object.keys(E2E_TOUCHFILES));
+    const tierKeys = new Set(Object.keys(E2E_TIERS));
+
+    const missingFromTiers = [...touchfileKeys].filter(k => !tierKeys.has(k));
+    const extraInTiers = [...tierKeys].filter(k => !touchfileKeys.has(k));
+
+    if (missingFromTiers.length > 0) {
+      throw new Error(
+        `E2E tests missing TIER entries: ${missingFromTiers.join(', ')}\n` +
+        `Add these to E2E_TIERS in test/helpers/touchfiles.ts`,
+      );
+    }
+    if (extraInTiers.length > 0) {
+      throw new Error(
+        `E2E_TIERS has extra entries not in E2E_TOUCHFILES: ${extraInTiers.join(', ')}\n` +
+        `Remove these from E2E_TIERS or add to E2E_TOUCHFILES`,
+      );
+    }
+  });
+
+  test('E2E_TIERS only contains valid tier values', () => {
+    const validTiers = ['gate', 'periodic'];
+    for (const [name, tier] of Object.entries(E2E_TIERS)) {
+      if (!validTiers.includes(tier)) {
+        throw new Error(`E2E_TIERS['${name}'] has invalid tier '${tier}'. Valid: ${validTiers.join(', ')}`);
+      }
+    }
+  });
+
   test('every LLM-judge test has a TOUCHFILES entry', () => {
     const llmContent = fs.readFileSync(
       path.join(ROOT, 'test', 'skill-llm-eval.test.ts'),
@@ -252,6 +326,60 @@ describe('TOUCHFILES completeness', () => {
       throw new Error(
         `LLM-judge tests missing TOUCHFILES entries: ${missing.join(', ')}\n` +
         `Add these to LLM_JUDGE_TOUCHFILES in test/helpers/touchfiles.ts`,
+      );
+    }
+  });
+});
+
+// --- dependency paths exist on disk ---
+//
+// The axis nobody guarded: a dep-list entry can point at a file that was
+// deleted long ago (browse/src/sidebar-agent.ts sat in three entries for 48
+// versions), and diff-based selection then silently never triggers those
+// tests. Globs are skipped (they describe patterns, not files); every literal
+// path must exist.
+
+describe('touchfile dependency paths exist', () => {
+  const allEntries: Array<[string, string]> = [];
+  for (const [name, deps] of Object.entries(E2E_TOUCHFILES)) {
+    for (const dep of deps) allEntries.push([name, dep]);
+  }
+  for (const [name, deps] of Object.entries(LLM_JUDGE_TOUCHFILES)) {
+    for (const dep of deps) allEntries.push([name, dep]);
+  }
+  for (const dep of GLOBAL_TOUCHFILES) allEntries.push(['(global)', dep]);
+
+  test('every non-glob dependency path exists', () => {
+    const stale = allEntries
+      .filter(([, dep]) => !dep.includes('*'))
+      .filter(([, dep]) => !fs.existsSync(path.join(ROOT, dep)));
+    if (stale.length > 0) {
+      throw new Error(
+        `Touchfile dep lists reference files that do not exist:\n` +
+        stale.map(([name, dep]) => `  ${name} -> ${dep}`).join('\n') +
+        `\nDelete or update these entries in test/helpers/touchfiles.ts — ` +
+        `diff-based selection silently skips tests whose deps are gone.`,
+      );
+    }
+  });
+
+  test('every glob dependency anchors to a directory that exists', () => {
+    // Cheap sanity for globs, two shapes: 'dir/**' (prefix ends with '/')
+    // must have the directory itself; 'dir/file-prefix*.ext' must have the
+    // containing directory. Catches 'deleted-dir/**' rot without a full
+    // filesystem walk; deliberately does not chase file-prefix staleness.
+    const stale = allEntries
+      .filter(([, dep]) => dep.includes('*'))
+      .map(([name, dep]) => {
+        const prefix = dep.split('*')[0];
+        const anchor = prefix.endsWith('/') ? prefix.slice(0, -1) : path.dirname(prefix);
+        return [name, dep, anchor] as const;
+      })
+      .filter(([, , anchor]) => anchor.length > 0 && anchor !== '.' && !fs.existsSync(path.join(ROOT, anchor)));
+    if (stale.length > 0) {
+      throw new Error(
+        `Touchfile glob deps whose anchor directory does not exist:\n` +
+        stale.map(([name, dep]) => `  ${name} -> ${dep}`).join('\n'),
       );
     }
   });

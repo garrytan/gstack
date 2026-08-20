@@ -1,0 +1,120 @@
+#!/usr/bin/env bash
+# gstack-relink — re-create skill symlinks based on skill_prefix config
+#
+# Usage:
+#   gstack-relink
+#
+# Env overrides (for testing):
+#   GSTACK_STATE_DIR   — override ~/.gstack state directory
+#   GSTACK_INSTALL_DIR — override gstack install directory
+#   GSTACK_SKILLS_DIR  — override target skills directory
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+GSTACK_CONFIG="${SCRIPT_DIR}/gstack-config"
+
+# Detect install dir
+INSTALL_DIR="${GSTACK_INSTALL_DIR:-}"
+if [ -z "$INSTALL_DIR" ]; then
+  if [ -d "$HOME/.claude/skills/gstack" ]; then
+    INSTALL_DIR="$HOME/.claude/skills/gstack"
+  elif [ -d "${SCRIPT_DIR}/.." ] && [ -f "${SCRIPT_DIR}/../setup" ]; then
+    INSTALL_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+  fi
+fi
+
+if [ -z "$INSTALL_DIR" ] || [ ! -d "$INSTALL_DIR" ]; then
+  echo "Error: gstack install directory not found." >&2
+  echo "Run: cd ~/.claude/skills/gstack && ./setup" >&2
+  exit 1
+fi
+
+# Detect target skills dir
+SKILLS_DIR="${GSTACK_SKILLS_DIR:-$(dirname "$INSTALL_DIR")}"
+[ -d "$SKILLS_DIR" ] || mkdir -p "$SKILLS_DIR"
+
+# Read prefix setting
+PREFIX=$("$GSTACK_CONFIG" get skill_prefix 2>/dev/null || echo "false")
+
+# #2569: rendered :user variants (brain-aware blocks) live in an UNTRACKED
+# out-dir instead of the tracked install checkout. When a render exists for a
+# skill, relink serves it — otherwise a config change would silently flip
+# every skill back to the canonical (blockless) source.
+RENDER_DIR="${GSTACK_USER_RENDER_DIR:-${GSTACK_HOME:-$HOME/.gstack}/render/claude}"
+
+# Helper: remove old skill entry (symlink or real directory with symlinked SKILL.md)
+_cleanup_skill_entry() {
+  local entry="$1"
+  if [ -L "$entry" ]; then
+    rm -f "$entry"
+  elif [ -d "$entry" ] && [ -L "$entry/SKILL.md" ]; then
+    rm -rf "$entry"
+  fi
+}
+
+_link_root_skill_alias() {
+  local target="$SKILLS_DIR/_gstack-command"
+
+  [ -f "$INSTALL_DIR/SKILL.md" ] || return 0
+  [ -L "$target" ] && rm -f "$target"
+  mkdir -p "$target"
+  # Copy-then-rewrite, never a symlink (#2511): a symlinked alias re-serves
+  # the canonical `name: gstack`, Claude Code sees a duplicate skill name,
+  # and drops the ENTIRE personal-skills set. sed reads the source and writes
+  # a fresh copy — remove any prior symlink first so the redirect can never
+  # write through it into the generated source.
+  rm -f "$target/SKILL.md"
+  sed "1,/^---\$/ s/^name:[[:space:]].*/name: _gstack-command/" "$INSTALL_DIR/SKILL.md" > "$target/SKILL.md"
+}
+
+_link_root_skill_alias
+
+# Discover skills (directories with SKILL.md, excluding meta dirs)
+SKILL_COUNT=0
+for skill_dir in "$INSTALL_DIR"/*/; do
+  [ -d "$skill_dir" ] || continue
+  # Skip symlinked skill dirs (connect-chrome → open-gstack-browser): linking
+  # one under the symlink's basename would duplicate the canonical frontmatter
+  # name and collide in Claude Code's skill registry (#2201). setup owns the
+  # rewritten-copy alias for those.
+  [ -L "${skill_dir%/}" ] && continue
+  skill=$(basename "$skill_dir")
+  # Skip non-skill directories
+  case "$skill" in bin|browse|design|docs|extension|lib|node_modules|scripts|test|.git|.github) continue ;; esac
+  [ -f "$skill_dir/SKILL.md" ] || continue
+
+  if [ "$PREFIX" = "true" ]; then
+    # Don't double-prefix directories already named gstack-*
+    case "$skill" in
+      gstack-*) link_name="$skill" ;;
+      *)        link_name="gstack-$skill" ;;
+    esac
+    # Remove old flat entry if it exists (and isn't the same as the new link)
+    [ "$link_name" != "$skill" ] && _cleanup_skill_entry "$SKILLS_DIR/$skill"
+  else
+    link_name="$skill"
+    # Don't remove gstack-* dirs that are their real name (e.g., gstack-upgrade)
+    case "$skill" in
+      gstack-*) ;; # Already the real name, no old prefixed link to clean
+      *)        _cleanup_skill_entry "$SKILLS_DIR/gstack-$skill" ;;
+    esac
+  fi
+  target="$SKILLS_DIR/$link_name"
+  # Upgrade old directory symlinks to real directories
+  [ -L "$target" ] && rm -f "$target"
+  # Create real directory with symlinked SKILL.md (absolute path)
+  mkdir -p "$target"
+  skill_md_src="$INSTALL_DIR/$skill/SKILL.md"
+  [ -f "$RENDER_DIR/$skill/SKILL.md" ] && skill_md_src="$RENDER_DIR/$skill/SKILL.md"
+  ln -snf "$skill_md_src" "$target/SKILL.md"
+  SKILL_COUNT=$((SKILL_COUNT + 1))
+done
+
+# Patch SKILL.md name: fields to match prefix setting
+"$INSTALL_DIR/bin/gstack-patch-names" "$INSTALL_DIR" "$PREFIX"
+
+if [ "$PREFIX" = "true" ]; then
+  echo "Relinked $SKILL_COUNT skills as gstack-*"
+else
+  echo "Relinked $SKILL_COUNT skills as flat names"
+fi

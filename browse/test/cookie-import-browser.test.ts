@@ -13,7 +13,7 @@
  * Remaining bytes = actual cookie value
  */
 
-import { describe, test, expect, beforeAll, afterAll, mock } from 'bun:test';
+import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { Database } from 'bun:sqlite';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
@@ -24,16 +24,26 @@ import * as os from 'os';
 
 const TEST_PASSWORD = 'test-keychain-password';
 const TEST_KEY = crypto.pbkdf2Sync(TEST_PASSWORD, 'saltysalt', 1003, 16, 'sha1');
+const LINUX_V10_PASSWORD = 'peanuts';
+const LINUX_V10_KEY = crypto.pbkdf2Sync(LINUX_V10_PASSWORD, 'saltysalt', 1, 16, 'sha1');
+const LINUX_V11_PASSWORD = 'test-linux-secret';
+const LINUX_V11_KEY = crypto.pbkdf2Sync(LINUX_V11_PASSWORD, 'saltysalt', 1, 16, 'sha1');
 const IV = Buffer.alloc(16, 0x20);
 const CHROMIUM_EPOCH_OFFSET = 11644473600000000n;
 
 // Fixture DB path
 const FIXTURE_DIR = path.join(import.meta.dir, 'fixtures');
 const FIXTURE_DB = path.join(FIXTURE_DIR, 'test-cookies.db');
+const LINUX_FIXTURE_DB = path.join(FIXTURE_DIR, 'test-cookies-linux.db');
 
 // ─── Encryption Helper ──────────────────────────────────────────
 
-function encryptCookieValue(value: string): Buffer {
+function encryptCookieValue(
+  value: string,
+  options?: { key?: Buffer; prefix?: 'v10' | 'v11' },
+): Buffer {
+  const key = options?.key ?? TEST_KEY;
+  const prefix = options?.prefix ?? 'v10';
   // 32-byte HMAC tag (random for test) + actual value
   const hmacTag = crypto.randomBytes(32);
   const plaintext = Buffer.concat([hmacTag, Buffer.from(value, 'utf-8')]);
@@ -43,12 +53,11 @@ function encryptCookieValue(value: string): Buffer {
   const padLen = blockSize - (plaintext.length % blockSize);
   const padded = Buffer.concat([plaintext, Buffer.alloc(padLen, padLen)]);
 
-  const cipher = crypto.createCipheriv('aes-128-cbc', TEST_KEY, IV);
+  const cipher = crypto.createCipheriv('aes-128-cbc', key, IV);
   cipher.setAutoPadding(false); // We padded manually
   const encrypted = Buffer.concat([cipher.update(padded), cipher.final()]);
 
-  // Prefix with "v10"
-  return Buffer.concat([Buffer.from('v10'), encrypted]);
+  return Buffer.concat([Buffer.from(prefix), encrypted]);
 }
 
 function chromiumEpoch(unixSeconds: number): bigint {
@@ -57,11 +66,11 @@ function chromiumEpoch(unixSeconds: number): bigint {
 
 // ─── Create Fixture Database ────────────────────────────────────
 
-function createFixtureDb() {
+function createFixtureDb(dbPath: string): Database {
   fs.mkdirSync(FIXTURE_DIR, { recursive: true });
-  if (fs.existsSync(FIXTURE_DB)) fs.unlinkSync(FIXTURE_DB);
+  if (fs.existsSync(dbPath)) fs.unlinkSync(dbPath);
 
-  const db = new Database(FIXTURE_DB);
+  const db = new Database(dbPath);
   db.run(`CREATE TABLE cookies (
     host_key TEXT NOT NULL,
     name TEXT NOT NULL,
@@ -74,7 +83,11 @@ function createFixtureDb() {
     has_expires INTEGER NOT NULL DEFAULT 0,
     samesite INTEGER NOT NULL DEFAULT 1
   )`);
+  return db;
+}
 
+function createMacFixtureDb() {
+  const db = createFixtureDb(FIXTURE_DB);
   const insert = db.prepare(`INSERT INTO cookies
     (host_key, name, value, encrypted_value, path, expires_utc, is_secure, is_httponly, has_expires, samesite)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
@@ -110,6 +123,21 @@ function createFixtureDb() {
   db.close();
 }
 
+function createLinuxFixtureDb() {
+  const db = createFixtureDb(LINUX_FIXTURE_DB);
+  const insert = db.prepare(`INSERT INTO cookies
+    (host_key, name, value, encrypted_value, path, expires_utc, is_secure, is_httponly, has_expires, samesite)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+
+  const futureExpiry = Number(chromiumEpoch(Math.floor(Date.now() / 1000) + 86400 * 365));
+
+  insert.run('.linux-v10.com', 'sid', '', encryptCookieValue('linux-v10-value', { key: LINUX_V10_KEY, prefix: 'v10' }), '/', futureExpiry, 1, 1, 1, 1);
+  insert.run('.linux-v11.com', 'auth', '', encryptCookieValue('linux-v11-value', { key: LINUX_V11_KEY, prefix: 'v11' }), '/', futureExpiry, 1, 1, 1, 1);
+  insert.run('.linux-plain.com', 'plain', 'plain-linux', Buffer.alloc(0), '/', futureExpiry, 0, 0, 1, 1);
+
+  db.close();
+}
+
 // ─── Mock Setup ─────────────────────────────────────────────────
 // We need to mock:
 // 1. The Keychain access (getKeychainPassword) to return TEST_PASSWORD
@@ -120,17 +148,18 @@ let findInstalledBrowsers: any;
 let listDomains: any;
 let importCookies: any;
 let CookieImportError: any;
+let originalSpawn: typeof Bun.spawn;
 
 beforeAll(async () => {
-  createFixtureDb();
+  createMacFixtureDb();
+  createLinuxFixtureDb();
 
   // Mock Bun.spawn to return test password for keychain access
-  const origSpawn = Bun.spawn;
+  originalSpawn = Bun.spawn;
   // @ts-ignore - monkey-patching for test
   Bun.spawn = function(cmd: any, opts: any) {
     // Intercept security find-generic-password calls
     if (Array.isArray(cmd) && cmd[0] === 'security' && cmd[1] === 'find-generic-password') {
-      const service = cmd[3]; // -s <service>
       // Return test password for any known test service
       return {
         stdout: new ReadableStream({
@@ -146,8 +175,23 @@ beforeAll(async () => {
         kill: () => {},
       };
     }
+    if (Array.isArray(cmd) && cmd[0] === 'secret-tool' && cmd[1] === 'lookup') {
+      return {
+        stdout: new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode(LINUX_V11_PASSWORD + '\n'));
+            controller.close();
+          }
+        }),
+        stderr: new ReadableStream({
+          start(controller) { controller.close(); }
+        }),
+        exited: Promise.resolve(0),
+        kill: () => {},
+      };
+    }
     // Pass through other spawn calls
-    return origSpawn(cmd, opts);
+    return originalSpawn(cmd, opts);
   };
 
   // Import the module (uses our mocked Bun.spawn)
@@ -159,8 +203,12 @@ beforeAll(async () => {
 });
 
 afterAll(() => {
+  // Restore Bun.spawn
+  // @ts-ignore - monkey-patching for test
+  Bun.spawn = originalSpawn;
   // Clean up fixture DB
   try { fs.unlinkSync(FIXTURE_DB); } catch {}
+  try { fs.unlinkSync(LINUX_FIXTURE_DB); } catch {}
   try { fs.rmdirSync(FIXTURE_DIR); } catch {}
 });
 
@@ -175,6 +223,35 @@ afterAll(() => {
 // 1. Creating encrypted cookies with known values
 // 2. Decrypting them with the module's decryption logic
 // The actual DB path resolution is tested separately.
+
+async function withInstalledProfile<T>(
+  relativeBrowserDir: string,
+  sourceDb: string,
+  run: () => Promise<T>,
+  profile = 'Default',
+): Promise<T> {
+  const homeDir = os.homedir();
+  const profileDir = path.join(homeDir, relativeBrowserDir, profile);
+  const cookiesPath = path.join(profileDir, 'Cookies');
+  const backupPath = path.join(profileDir, `Cookies.backup-${crypto.randomUUID()}`);
+  const hadOriginal = fs.existsSync(cookiesPath);
+
+  fs.mkdirSync(profileDir, { recursive: true });
+  if (hadOriginal) fs.copyFileSync(cookiesPath, backupPath);
+  fs.copyFileSync(sourceDb, cookiesPath);
+
+  try {
+    return await run();
+  } finally {
+    if (hadOriginal) {
+      fs.copyFileSync(backupPath, cookiesPath);
+      fs.unlinkSync(backupPath);
+    } else {
+      try { fs.unlinkSync(cookiesPath); } catch {}
+      try { fs.rmdirSync(profileDir); } catch {}
+    }
+  }
+}
 
 // ─── Tests ──────────────────────────────────────────────────────
 
@@ -350,6 +427,51 @@ describe('Cookie Import Browser', () => {
         expect(b).toHaveProperty('keychainService');
         expect(b).toHaveProperty('aliases');
       }
+    });
+
+    test('detects linux-style Chromium profiles under ~/.config', async () => {
+      await withInstalledProfile('.config/chromium', LINUX_FIXTURE_DB, async () => {
+        const browsers = findInstalledBrowsers();
+        const names = browsers.map((browser: any) => browser.name);
+
+        expect(names).toContain('Chromium');
+      });
+    });
+  });
+
+  describe('Real Profile Imports', () => {
+    test('imports Linux v10 cookies from ~/.config/chromium', async () => {
+      await withInstalledProfile('.config/chromium', LINUX_FIXTURE_DB, async () => {
+        const result = await importCookies('chromium', ['.linux-v10.com'], 'GstackLinuxV10');
+
+        expect(result.count).toBe(1);
+        expect(result.failed).toBe(0);
+        expect(result.cookies[0].name).toBe('sid');
+        expect(result.cookies[0].value).toBe('linux-v10-value');
+      }, 'GstackLinuxV10');
+    });
+
+    test('imports Linux v11 cookies when secret-tool returns a key', async () => {
+      await withInstalledProfile('.config/chromium', LINUX_FIXTURE_DB, async () => {
+        const result = await importCookies('chromium', ['.linux-v11.com'], 'GstackLinuxV11');
+
+        expect(result.count).toBe(1);
+        expect(result.failed).toBe(0);
+        expect(result.cookies[0].name).toBe('auth');
+        expect(result.cookies[0].value).toBe('linux-v11-value');
+      }, 'GstackLinuxV11');
+    });
+
+    test('lists domains from Linux Chromium profiles', async () => {
+      await withInstalledProfile('.config/chromium', LINUX_FIXTURE_DB, async () => {
+        const result = listDomains('chromium', 'GstackLinuxDomains');
+        const domains = result.domains.map((entry: any) => entry.domain);
+
+        expect(result.browser).toBe('Chromium');
+        expect(domains).toContain('.linux-v10.com');
+        expect(domains).toContain('.linux-v11.com');
+        expect(domains).toContain('.linux-plain.com');
+      }, 'GstackLinuxDomains');
     });
   });
 

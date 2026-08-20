@@ -24,8 +24,15 @@ if [ -d "$CLAUDE_SKILLS" ]; then
   fi
 
   rmdir "$CLAUDE_SKILLS" 2>/dev/null || true
-  rmdir "$REPO_ROOT/.claude" 2>/dev/null || true
 fi
+
+# ─── Clean up the untracked brain-aware render (bin/dev-setup step 7) ──
+RENDER_DIR="$REPO_ROOT/.claude/gstack-rendered"
+if [ -d "$RENDER_DIR" ]; then
+  rm -rf "$RENDER_DIR"
+  removed+=("claude/gstack-rendered")
+fi
+rmdir "$REPO_ROOT/.claude" 2>/dev/null || true
 
 # ─── Clean up .agents/skills/ ────────────────────────────────
 AGENTS_SKILLS="$REPO_ROOT/.agents/skills"

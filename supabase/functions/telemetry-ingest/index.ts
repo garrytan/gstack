@@ -16,6 +16,8 @@ interface TelemetryEvent {
   duration_s?: number;
   outcome: string;
   error_class?: string;
+  error_message?: string;
+  failed_step?: string;
   used_browse?: boolean;
   sessions?: number;
   installation_id?: string;
@@ -43,9 +45,15 @@ Deno.serve(async (req) => {
       return new Response(`Batch too large (max ${MAX_BATCH_SIZE})`, { status: 400 });
     }
 
+    // Use the anon key, not the service role key.
+    // The service role key bypasses Row Level Security (RLS) and grants full
+    // unrestricted database access — wildly over-privileged for a public
+    // telemetry endpoint that only needs INSERT on two tables.
+    // The anon key + properly configured RLS INSERT policies is correct.
+    // See: https://supabase.com/docs/guides/database/postgres/row-level-security
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
+      Deno.env.get("SUPABASE_ANON_KEY") ?? ""
     );
 
     // Validate and transform events
@@ -61,8 +69,18 @@ Deno.serve(async (req) => {
       // Validate schema version
       if (event.v !== 1) continue;
 
-      // Validate event_type
-      const validTypes = ["skill_run", "upgrade_prompted", "upgrade_completed"];
+      // Validate event_type. Activation-funnel events (v1.x) join the originals:
+      // onboarding (P0 setup nudge), first_task_scaffold_shown (P4 first-run
+      // scaffold), handoff (P1 office-hours → next skill), route (gstack router).
+      const validTypes = [
+        "skill_run",
+        "upgrade_prompted",
+        "upgrade_completed",
+        "onboarding",
+        "first_task_scaffold_shown",
+        "handoff",
+        "route",
+      ];
       if (!validTypes.includes(event.event_type)) continue;
 
       rows.push({
@@ -77,6 +95,8 @@ Deno.serve(async (req) => {
         duration_s: typeof event.duration_s === "number" ? event.duration_s : null,
         outcome: String(event.outcome).slice(0, 20),
         error_class: event.error_class ? String(event.error_class).slice(0, 100) : null,
+        error_message: event.error_message ? String(event.error_message).slice(0, 500) : null,
+        failed_step: event.failed_step ? String(event.failed_step).slice(0, 100) : null,
         used_browse: event.used_browse === true,
         concurrent_sessions: typeof event.sessions === "number" ? event.sessions : 1,
         installation_id: event.installation_id ? String(event.installation_id).slice(0, 64) : null,

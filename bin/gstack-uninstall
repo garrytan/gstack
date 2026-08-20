@@ -1,0 +1,402 @@
+#!/usr/bin/env bash
+# gstack-uninstall — remove gstack skills, state, and browse daemons
+#
+# Usage:
+#   gstack-uninstall              — interactive uninstall (prompts before removing)
+#   gstack-uninstall --force      — remove everything without prompting
+#   gstack-uninstall --keep-state — remove skills but keep ~/.gstack/ data
+#
+# What gets REMOVED:
+#   ~/.claude/skills/gstack       — global Claude skill install (git clone or vendored)
+#   ~/.claude/skills/{skill}      — per-skill symlinks created by setup
+#   ~/.codex/skills/gstack*       — Codex skill install + per-skill symlinks
+#   ~/.factory/skills/gstack*     — Factory Droid skill install + per-skill symlinks
+#   ~/.kiro/skills/gstack*        — Kiro skill install + per-skill symlinks
+#   ~/.cursor/skills/gstack*      — Cursor skill install + per-skill symlinks
+#   ~/.gstack/                    — global state (config, analytics, sessions, projects,
+#                                   repos, installation-id, browse error logs)
+#   .claude/skills/gstack*        — project-local skill install (--local installs)
+#   .gstack/                      — per-project browse state (in current git repo)
+#   .gstack-worktrees/            — per-project test worktrees (in current git repo)
+#   .agents/skills/gstack*        — Codex/Gemini sidecar (in current git repo)
+#   .cursor/skills/gstack*        — project-local Cursor skills (in current git repo)
+#   Running browse daemons        — stopped via SIGTERM before cleanup
+#
+# What is NOT REMOVED:
+#   ~/Library/Caches/ms-playwright/  — Playwright Chromium (shared, may be used by other tools)
+#   ~/.gstack-dev/                   — developer eval artifacts (only present in gstack contributors)
+#
+# Env overrides (for testing):
+#   GSTACK_DIR        — override auto-detected gstack root
+#   GSTACK_STATE_DIR  — override ~/.gstack state directory
+#
+# NOTE: Uses set -uo pipefail (no -e) — uninstall must never abort partway.
+set -uo pipefail
+
+if [ -z "${HOME:-}" ]; then
+  echo "ERROR: \$HOME is not set" >&2
+  exit 1
+fi
+
+GSTACK_DIR="${GSTACK_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
+STATE_DIR="${GSTACK_STATE_DIR:-$HOME/.gstack}"
+_GIT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+
+# ─── Parse flags ─────────────────────────────────────────────
+FORCE=0
+KEEP_STATE=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --force) FORCE=1; shift ;;
+    --keep-state) KEEP_STATE=1; shift ;;
+    -h|--help)
+      sed -n '2,/^[^#]/{ /^#/s/^# \{0,1\}//p; }' "$0"
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      echo "Usage: gstack-uninstall [--force] [--keep-state]" >&2
+      exit 1
+      ;;
+  esac
+done
+
+# ─── Confirmation ────────────────────────────────────────────
+if [ "$FORCE" -eq 0 ]; then
+  echo "This will remove gstack from your system:"
+  { [ -d "$HOME/.claude/skills/gstack" ] || [ -L "$HOME/.claude/skills/gstack" ]; } && echo "  ~/.claude/skills/gstack (+ per-skill symlinks)"
+  [ -d "$HOME/.codex/skills" ] && echo "  ~/.codex/skills/gstack*"
+  [ -d "$HOME/.factory/skills" ] && echo "  ~/.factory/skills/gstack*"
+  [ -d "$HOME/.kiro/skills" ] && echo "  ~/.kiro/skills/gstack*"
+  [ -d "$HOME/.cursor/skills" ] && echo "  ~/.cursor/skills/gstack*"
+  [ "$KEEP_STATE" -eq 0 ] && [ -d "$STATE_DIR" ] && echo "  $STATE_DIR"
+
+  if [ -n "$_GIT_ROOT" ]; then
+    [ -d "$_GIT_ROOT/.claude/skills/gstack" ] && echo "  $_GIT_ROOT/.claude/skills/gstack (project-local)"
+    [ -d "$_GIT_ROOT/.gstack" ] && echo "  $_GIT_ROOT/.gstack/ (browse state + reports)"
+    [ -d "$_GIT_ROOT/.gstack-worktrees" ] && echo "  $_GIT_ROOT/.gstack-worktrees/"
+    [ -d "$_GIT_ROOT/.agents/skills" ] && echo "  $_GIT_ROOT/.agents/skills/gstack*"
+    [ -d "$_GIT_ROOT/.cursor/skills" ] && echo "  $_GIT_ROOT/.cursor/skills/gstack*"
+  fi
+
+  # Preview running daemons
+  if [ -n "$_GIT_ROOT" ] && [ -f "$_GIT_ROOT/.gstack/browse.json" ]; then
+    _PREVIEW_PID="$(awk -F'[:,]' '/"pid"/ { for(i=1;i<=NF;i++) if($i ~ /"pid"/) { gsub(/[^0-9]/, "", $(i+1)); print $(i+1); exit } }' "$_GIT_ROOT/.gstack/browse.json" 2>/dev/null || true)"
+    [ -n "$_PREVIEW_PID" ] && kill -0 "$_PREVIEW_PID" 2>/dev/null && echo "  browse daemon (PID $_PREVIEW_PID) will be stopped"
+  fi
+
+  printf "\nContinue? [y/N] "
+  read -r REPLY
+  case "$REPLY" in
+    y|Y|yes|YES) ;;
+    *) echo "Aborted."; exit 0 ;;
+  esac
+fi
+
+REMOVED=()
+
+# ─── Stop running browse daemons ─────────────────────────────
+# Browse servers write PID to {project}/.gstack/browse.json.
+# Stop any we can find before removing state directories.
+stop_browse_daemon() {
+  local state_file="$1"
+  if [ ! -f "$state_file" ]; then
+    return
+  fi
+  local pid
+  pid="$(awk -F'[:,]' '/"pid"/ { for(i=1;i<=NF;i++) if($i ~ /"pid"/) { gsub(/[^0-9]/, "", $(i+1)); print $(i+1); exit } }' "$state_file" 2>/dev/null || true)"
+  if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+    kill "$pid" 2>/dev/null || true
+    # Wait up to 2s for graceful shutdown
+    local waited=0
+    while [ "$waited" -lt 4 ] && kill -0 "$pid" 2>/dev/null; do
+      sleep 0.5
+      waited=$(( waited + 1 ))
+    done
+    if kill -0 "$pid" 2>/dev/null; then
+      kill -9 "$pid" 2>/dev/null || true
+    fi
+    REMOVED+=("browse daemon (PID $pid)")
+  fi
+}
+
+# Stop daemon in current project
+if [ -n "$_GIT_ROOT" ] && [ -f "$_GIT_ROOT/.gstack/browse.json" ]; then
+  stop_browse_daemon "$_GIT_ROOT/.gstack/browse.json"
+fi
+
+# Stop daemons tracked in global projects directory
+if [ -d "$STATE_DIR/projects" ]; then
+  while IFS= read -r _BJ; do
+    stop_browse_daemon "$_BJ"
+  done < <(find "$STATE_DIR/projects" -name browse.json -path '*/.gstack/*' 2>/dev/null || true)
+fi
+
+# ─── Remove gstack hooks from Claude Code settings ──────────
+# MUST run BEFORE any install-root deletion: SETTINGS_HOOK resolves inside the
+# install being removed — in a real global uninstall, running this after
+# `rm -rf ~/.claude/skills/gstack` silently no-ops and orphans every hook.
+SETTINGS_HOOK="$(dirname "$0")/gstack-settings-hook"
+SESSION_UPDATE="$(dirname "$0")/gstack-session-update"
+if [ -x "$SETTINGS_HOOK" ]; then
+  "$SETTINGS_HOOK" remove "$SESSION_UPDATE" && REMOVED+=("SessionStart hook") || true
+  # Cathedral T8 cleanup: also remove plan-tune PreToolUse + PostToolUse hooks.
+  if "$SETTINGS_HOOK" remove-source --source plan-tune-cathedral | grep -q "removed [1-9]"; then
+    REMOVED+=("plan-tune cathedral hooks")
+  fi
+  # AskUserQuestion error-fallback hook (registered by setup; previously never
+  # torn down).
+  if "$SETTINGS_HOOK" remove-source --source auq-error-fallback | grep -q "removed [1-9]"; then
+    REMOVED+=("AskUserQuestion error-fallback hook")
+  fi
+  # Timeline Stop hook (#2553).
+  if "$SETTINGS_HOOK" remove-source --source gstack-timeline-stop | grep -q "removed [1-9]"; then
+    REMOVED+=("timeline Stop hook")
+  fi
+  # Verification stop hook (opt-in via README; user-registered, ours to sweep).
+  if "$SETTINGS_HOOK" remove-source --source verify-gate | grep -q "removed [1-9]"; then
+    REMOVED+=("verification Stop hook")
+  fi
+  # Identity sweep for untagged strays (Claude Code strips _gstack_source
+  # tags; pre-v1.67 setups baked worktree paths). Removes every gstack-owned
+  # hook item, live or dead — the binaries they point at are being deleted.
+  if "$SETTINGS_HOOK" prune-stale --all | grep -q "removed [1-9]"; then
+    REMOVED+=("stray gstack hook entries")
+  fi
+fi
+
+# ─── Remove global Claude skills ────────────────────────────
+CLAUDE_SKILLS="$HOME/.claude/skills"
+
+# Skill-name inventory (#2563 gate a): every name setup could have installed —
+# each source skill's directory name, its frontmatter name, their gstack-
+# prefixed variants, and the alias dirs. Built BEFORE the install root is
+# removed. A real directory in ~/.claude/skills is only deletable when its
+# name is in this inventory AND its SKILL.md carries the generated banner.
+# The seed names below are the alias dirs setup's _install_alias_skill_md
+# creates (setup: link_claude_root_skill_alias + the connect-chrome call
+# sites) — keep in sync with setup if an alias is added or renamed there.
+_INVENTORY=" _gstack-command connect-chrome gstack-connect-chrome "
+if [ -d "$GSTACK_DIR" ]; then
+  for _SRC in "$GSTACK_DIR"/*/; do
+    [ -f "$_SRC/SKILL.md" ] || continue
+    _SRC_NAME="$(basename "$_SRC")"
+    _FM_NAME=$(grep -m1 '^name:' "$_SRC/SKILL.md" 2>/dev/null | sed 's/^name:[[:space:]]*//' | tr -d '[:space:]' || true)
+    for _N in "$_SRC_NAME" "$_FM_NAME"; do
+      [ -n "$_N" ] || continue
+      case "$_INVENTORY" in *" $_N "*) ;; *) _INVENTORY="$_INVENTORY$_N gstack-$_N " ;; esac
+    done
+  done
+fi
+_in_skill_inventory() { case "$_INVENTORY" in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
+
+_SKIPPED_DIRS=()
+if [ -d "$CLAUDE_SKILLS/gstack" ] || [ -L "$CLAUDE_SKILLS/gstack" ]; then
+  # Remove per-skill entries created by setup. Three install shapes exist:
+  #   1. symlink entry                      (oldest installs)
+  #   2. real dir + SYMLINKED SKILL.md      (standard Unix install)
+  #   3. real dir + REAL-FILE SKILL.md      (Windows copy install, #2563)
+  # Shape 3 was skipped entirely — gstack-uninstall exited 0 and reported
+  # success while leaving ~52 gstack-* directories behind on Windows.
+  for _ENTRY in "$CLAUDE_SKILLS"/*; do
+    _NAME="$(basename "$_ENTRY")"
+    [ "$_NAME" = "gstack" ] && continue
+    if [ -L "$_ENTRY" ]; then
+      _TARGET="$(readlink "$_ENTRY" 2>/dev/null || true)"
+      case "$_TARGET" in
+        gstack/*|*/gstack/*) rm -f "$_ENTRY"; REMOVED+=("claude/$_NAME") ;;
+      esac
+    elif [ -d "$_ENTRY" ] && { [ -f "$_ENTRY/SKILL.md" ] || [ -L "$_ENTRY/SKILL.md" ]; }; then
+      if [ -L "$_ENTRY/SKILL.md" ]; then
+        # Shape 2: provenance readable from the symlink target itself.
+        # Gate 1: the name must be in gstack's skill inventory (parity with
+        # shape 3). Gate 2: the target must contain "gstack" as an ANCHORED
+        # path segment (gstack/*|*/gstack/*, same pattern as shape 1) — a
+        # bare *gstack* substring match would wipe a user's own skill whose
+        # SKILL.md merely lives under e.g. ~/tools/gstack-fork/.
+        _TARGET="$(readlink "$_ENTRY/SKILL.md" 2>/dev/null || true)"
+        if _in_skill_inventory "$_NAME"; then
+          case "$_TARGET" in
+            gstack/*|*/gstack/*) rm -rf "$_ENTRY"; REMOVED+=("claude/$_NAME") ;;
+            *) _SKIPPED_DIRS+=("$_ENTRY") ;;
+          esac
+        else
+          _SKIPPED_DIRS+=("$_ENTRY")
+        fi
+      elif _in_skill_inventory "$_NAME" && grep -q '<!-- AUTO-GENERATED from' "$_ENTRY/SKILL.md" 2>/dev/null; then
+        # Shape 3: delete ONLY when BOTH gates pass (F8) — the name is in
+        # gstack's skill inventory AND the SKILL.md carries the existing
+        # generated banner. ENG-OV10: the banner IS the provenance marker —
+        # every pre-v1.67 copy already carries it; inventing a new marker
+        # would refuse to delete legitimate old installs, recreating #2563.
+        rm -rf "$_ENTRY"
+        REMOVED+=("claude/$_NAME")
+      else
+        # A real dir we cannot prove is gstack-managed (name collision with a
+        # user's own skill, or a hand-written SKILL.md): NEVER delete — list.
+        _SKIPPED_DIRS+=("$_ENTRY")
+      fi
+    fi
+  done
+
+  rm -rf "$CLAUDE_SKILLS/gstack"
+  REMOVED+=("~/.claude/skills/gstack")
+fi
+
+# ─── Remove project-local Claude skills (--local installs) ──
+if [ -n "$_GIT_ROOT" ] && [ -d "$_GIT_ROOT/.claude/skills" ]; then
+  for _LINK in "$_GIT_ROOT/.claude/skills"/*; do
+    [ -L "$_LINK" ] || continue
+    _TARGET="$(readlink "$_LINK" 2>/dev/null || true)"
+    case "$_TARGET" in
+      gstack/*|*/gstack/*) rm -f "$_LINK"; REMOVED+=("local claude/$(basename "$_LINK")") ;;
+    esac
+  done
+  if [ -d "$_GIT_ROOT/.claude/skills/gstack" ] || [ -L "$_GIT_ROOT/.claude/skills/gstack" ]; then
+    rm -rf "$_GIT_ROOT/.claude/skills/gstack"
+    REMOVED+=("$_GIT_ROOT/.claude/skills/gstack")
+  fi
+fi
+
+# ─── Remove Codex skills ────────────────────────────────────
+CODEX_SKILLS="$HOME/.codex/skills"
+if [ -d "$CODEX_SKILLS" ]; then
+  for _ITEM in "$CODEX_SKILLS"/gstack*; do
+    [ -e "$_ITEM" ] || [ -L "$_ITEM" ] || continue
+    rm -rf "$_ITEM"
+    REMOVED+=("codex/$(basename "$_ITEM")")
+  done
+fi
+
+# ─── Remove Factory Droid skills ────────────────────────────
+FACTORY_SKILLS="$HOME/.factory/skills"
+if [ -d "$FACTORY_SKILLS" ]; then
+  for _ITEM in "$FACTORY_SKILLS"/gstack*; do
+    [ -e "$_ITEM" ] || [ -L "$_ITEM" ] || continue
+    rm -rf "$_ITEM"
+    REMOVED+=("factory/$(basename "$_ITEM")")
+  done
+fi
+
+# ─── Remove Kiro skills ─────────────────────────────────────
+KIRO_SKILLS="$HOME/.kiro/skills"
+if [ -d "$KIRO_SKILLS" ]; then
+  for _ITEM in "$KIRO_SKILLS"/gstack*; do
+    [ -e "$_ITEM" ] || [ -L "$_ITEM" ] || continue
+    rm -rf "$_ITEM"
+    REMOVED+=("kiro/$(basename "$_ITEM")")
+  done
+fi
+
+# ─── Remove Cursor skills ───────────────────────────────────
+# Cursor installs are rendered REAL directories, so a bare gstack* glob could
+# sweep a user's own dir that merely starts with "gstack" (e.g.
+# ~/.cursor/skills/gstack-fork-notes). Provenance gate: a real dir is only
+# deleted when its SKILL.md carries the generated banner; anything else is
+# listed, never deleted. Symlinks stay ungated — removing a link never
+# destroys user content.
+_cursor_item_is_gstack_managed() {
+  # Symlinks and plain files are safe to remove; real dirs need the banner.
+  if [ -L "$1" ] || [ ! -d "$1" ]; then return 0; fi
+  grep -q '<!-- AUTO-GENERATED from' "$1/SKILL.md" 2>/dev/null
+}
+
+CURSOR_SKILLS="$HOME/.cursor/skills"
+if [ -d "$CURSOR_SKILLS" ]; then
+  for _ITEM in "$CURSOR_SKILLS"/gstack*; do
+    [ -e "$_ITEM" ] || [ -L "$_ITEM" ] || continue
+    if _cursor_item_is_gstack_managed "$_ITEM"; then
+      rm -rf "$_ITEM"
+      REMOVED+=("cursor/$(basename "$_ITEM")")
+    else
+      _SKIPPED_DIRS+=("$_ITEM")
+    fi
+  done
+fi
+
+# ─── Remove per-project .agents/ sidecar ─────────────────────
+if [ -n "$_GIT_ROOT" ] && [ -d "$_GIT_ROOT/.agents/skills" ]; then
+  for _ITEM in "$_GIT_ROOT/.agents/skills"/gstack*; do
+    [ -e "$_ITEM" ] || [ -L "$_ITEM" ] || continue
+    rm -rf "$_ITEM"
+    REMOVED+=("agents/$(basename "$_ITEM")")
+  done
+
+  rmdir "$_GIT_ROOT/.agents/skills" 2>/dev/null || true
+  rmdir "$_GIT_ROOT/.agents" 2>/dev/null || true
+fi
+
+# ─── Remove per-project .factory/ sidecar ────────────────────
+if [ -n "$_GIT_ROOT" ] && [ -d "$_GIT_ROOT/.factory/skills" ]; then
+  for _ITEM in "$_GIT_ROOT/.factory/skills"/gstack*; do
+    [ -e "$_ITEM" ] || [ -L "$_ITEM" ] || continue
+    rm -rf "$_ITEM"
+    REMOVED+=("factory/$(basename "$_ITEM")")
+  done
+
+  rmdir "$_GIT_ROOT/.factory/skills" 2>/dev/null || true
+  rmdir "$_GIT_ROOT/.factory" 2>/dev/null || true
+fi
+
+# ─── Remove per-project .cursor/skills/gstack* ──────────────
+# Never rmdir .cursor itself — Cursor IDE stores rules and other user config there.
+# Same provenance gate as the global cursor block above.
+if [ -n "$_GIT_ROOT" ] && [ -d "$_GIT_ROOT/.cursor/skills" ]; then
+  for _ITEM in "$_GIT_ROOT/.cursor/skills"/gstack*; do
+    [ -e "$_ITEM" ] || [ -L "$_ITEM" ] || continue
+    if _cursor_item_is_gstack_managed "$_ITEM"; then
+      rm -rf "$_ITEM"
+      REMOVED+=("cursor/$(basename "$_ITEM")")
+    else
+      _SKIPPED_DIRS+=("$_ITEM")
+    fi
+  done
+
+  rmdir "$_GIT_ROOT/.cursor/skills" 2>/dev/null || true
+fi
+
+# ─── Remove per-project state ───────────────────────────────
+if [ -n "$_GIT_ROOT" ]; then
+  if [ -d "$_GIT_ROOT/.gstack" ]; then
+    rm -rf "$_GIT_ROOT/.gstack"
+    REMOVED+=("$_GIT_ROOT/.gstack/")
+  fi
+  if [ -d "$_GIT_ROOT/.gstack-worktrees" ]; then
+    rm -rf "$_GIT_ROOT/.gstack-worktrees"
+    REMOVED+=("$_GIT_ROOT/.gstack-worktrees/")
+  fi
+fi
+
+# ─── Remove global state ────────────────────────────────────
+if [ "$KEEP_STATE" -eq 0 ] && [ -d "$STATE_DIR" ]; then
+  rm -rf "$STATE_DIR"
+  REMOVED+=("$STATE_DIR")
+fi
+
+# ─── Clean up temp files ────────────────────────────────────
+for _TMP in /tmp/gstack-latest-version /tmp/gstack-sketch-*.html /tmp/gstack-sketch.png /tmp/gstack-sync-*; do
+  if [ -e "$_TMP" ]; then
+    rm -f "$_TMP"
+    REMOVED+=("$(basename "$_TMP")")
+  fi
+done
+
+# ─── Skipped-entry report ───────────────────────────────────
+# Everything any provenance gate refused to delete (Claude shapes 2/3,
+# cursor real dirs) — listed once, at the end, so nothing is silent.
+if [ ${#_SKIPPED_DIRS[@]} -gt 0 ]; then
+  echo "left in place (not provably gstack-managed — remove by hand if they are yours):" >&2
+  for _D in "${_SKIPPED_DIRS[@]}"; do
+    echo "  $_D" >&2
+  done
+fi
+
+# ─── Summary ────────────────────────────────────────────────
+if [ ${#REMOVED[@]} -gt 0 ]; then
+  echo "Removed: ${REMOVED[*]}"
+  echo "gstack uninstalled."
+else
+  echo "Nothing to remove — gstack is not installed."
+fi
+
+exit 0
