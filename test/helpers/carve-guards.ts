@@ -126,7 +126,7 @@ export const CARVE_GUARDS: Record<string, CarveGuard> = {
     },
     behavioral: 'external',
     externalTest: 'test/skill-e2e-ship-section-loading.test.ts',
-    maxSkeletonBytes: 94_400, // fork: +single-select AskUserQuestion doctrine (~440B) + Step 1.5 pr-prep gate (~2.3KB); measured 93,941
+    maxSkeletonBytes: 95_200, // fork: +single-select AskUserQuestion doctrine (~440B) + Step 1.5 pr-prep gate (~3.1KB); measured 94,688
     minUnionBytes: 120_000,
     mustContain: ['VERSION', 'CHANGELOG', 'review', 'merge', 'PR'],
     // v1.58.5.0: pre-push-guard install (#2077) stacks on the shared first-run-guidance preamble.
