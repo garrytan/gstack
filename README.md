@@ -114,7 +114,7 @@ Or target a specific agent with `./setup --host <name>`:
 | Agent | Flag | What you get |
 |-------|------|--------------|
 | OpenAI Codex CLI | `--host codex` | Full install → `${CODEX_HOME:-~/.codex}/skills/gstack-*/` |
-| OpenCode | `--host opencode` | Full install → `~/.config/opencode/skills/gstack-*/` |
+| OpenCode | `--host opencode` | Full install → `~/.config/opencode/skills/gstack-*/` + `~/.config/opencode/commands/gstack-review.md` |
 | Cursor | `--host cursor` | Full install → `~/.cursor/skills/gstack-*/` |
 | Factory Droid | `--host factory` | Full install → `~/.factory/skills/gstack-*/` |
 | Kiro | `--host kiro` | Full install → `~/.kiro/skills/gstack-*/` |
@@ -405,6 +405,7 @@ rm -rf ~/.kiro/skills/gstack* 2>/dev/null
 rm -rf ~/.openclaw/skills/gstack* 2>/dev/null
 rm -rf ~/.cursor/skills/gstack* 2>/dev/null
 rm -rf ~/.config/opencode/skills/gstack* 2>/dev/null
+rm -f ~/.config/opencode/commands/gstack-review.md 2>/dev/null
 
 # 6. Remove temp files
 rm -f /tmp/gstack-* 2>/dev/null

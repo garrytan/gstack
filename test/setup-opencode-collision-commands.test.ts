@@ -83,7 +83,7 @@ describe('setup: OpenCode collision commands — static (#2629)', () => {
     expect(end).toBeGreaterThan(start);
     const block = SETUP_SRC.slice(start, end);
     expect(block).toContain('link_opencode_skill_dirs');
-    expect(block).toContain('install_opencode_collision_commands "$OPENCODE_SKILLS"');
+    expect(block).toContain('install_opencode_collision_commands "$OPENCODE_SKILLS" "$OPENCODE_COMMANDS"');
     const linkAt = block.indexOf('link_opencode_skill_dirs');
     const installAt = block.indexOf('install_opencode_collision_commands');
     expect(installAt).toBeGreaterThan(linkAt);
@@ -98,6 +98,17 @@ describe('setup: OpenCode collision commands — static (#2629)', () => {
     expect(fn).not.toMatch(/review\|init/);
     expect(fn).toContain(GENERATED_BANNER);
     expect(fn).toContain('left in place (existing dir not gstack-managed — no generated banner)');
+  });
+
+  test('OPENCODE_COMMANDS is the canonical ~/.config/opencode/commands path', () => {
+    const line = SETUP_SRC.split('\n').find((l) => l.startsWith('OPENCODE_COMMANDS='));
+    expect(line).toBe('OPENCODE_COMMANDS="$HOME/.config/opencode/commands"');
+  });
+
+  test('README documents the OpenCode command install path and manual uninstall', () => {
+    const readme = fs.readFileSync(path.join(ROOT, 'README.md'), 'utf-8');
+    expect(readme).toContain('~/.config/opencode/commands/gstack-review.md');
+    expect(readme).toContain('rm -f ~/.config/opencode/commands/gstack-review.md');
   });
 });
 
@@ -167,6 +178,36 @@ describe.skipIf(process.platform === 'win32')('setup: OpenCode collision command
       const body = read('gstack-review.md')!;
       expect(body).not.toContain('stale body');
       assertGeneratedCommand(body, 'review');
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  test('wires OPENCODE_COMMANDS through a temporary HOME to the canonical commands path', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-oc-home-'));
+    const home = path.join(tmp, 'home');
+    const canonical = path.join(home, '.config', 'opencode', 'commands');
+    try {
+      const ocSkills = SETUP_SRC.split('\n').find((l) => l.startsWith('OPENCODE_SKILLS='));
+      const ocCommands = SETUP_SRC.split('\n').find((l) => l.startsWith('OPENCODE_COMMANDS='));
+      if (!ocSkills || !ocCommands) throw new Error('Could not locate OPENCODE_* assignments in setup');
+
+      const script = [
+        `HOME="${home}"`,
+        ocSkills,
+        ocCommands,
+        extractFn('install_opencode_collision_commands'),
+        'mkdir -p "$OPENCODE_SKILLS/gstack-review"',
+        `cat > "$OPENCODE_SKILLS/gstack-review/SKILL.md" <<'SKILL'\n${skillMd('review')}SKILL`,
+        'install_opencode_collision_commands "$OPENCODE_SKILLS" "$OPENCODE_COMMANDS"',
+      ].join('\n');
+      const run = spawnSync('bash', ['-c', script], { encoding: 'utf-8', timeout: 15000 });
+      expect(run.status).toBe(0);
+      expect(fs.existsSync(path.join(canonical, 'gstack-review.md'))).toBe(true);
+      expect(fs.existsSync(path.join(canonical, 'review.md'))).toBe(false);
+      expect(fs.existsSync(path.join(canonical, 'init.md'))).toBe(false);
+      expect(fs.existsSync(path.join(home, '.config', 'opencode', 'NOT-A-REAL-DIR'))).toBe(false);
+      assertGeneratedCommand(fs.readFileSync(path.join(canonical, 'gstack-review.md'), 'utf-8'), 'review');
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
     }
