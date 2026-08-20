@@ -372,9 +372,9 @@ not an opt-in. The user turns it off only by asking explicitly
 
 ```bash
 # Codex preflight: one block (functions sourced here don't persist to later blocks).
-_TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || echo off)
-_CODEX_CFG=$(~/.claude/skills/gstack/bin/gstack-config get codex_reviews 2>/dev/null || echo enabled)
-source ~/.claude/skills/gstack/bin/gstack-codex-probe 2>/dev/null || true
+_TEL=$($GSTACK_BIN/gstack-config get telemetry 2>/dev/null || echo off)
+_CODEX_CFG=$($GSTACK_BIN/gstack-config get codex_reviews 2>/dev/null || echo enabled)
+source $GSTACK_BIN/gstack-codex-probe 2>/dev/null || true
 if [ "$_CODEX_CFG" = "disabled" ]; then
   _CODEX_MODE="disabled"
 elif ! command -v codex >/dev/null 2>&1; then
@@ -468,7 +468,7 @@ rewrites docs). On B, note the gaps in the output so they're visible.
 
 **Persist the result:**
 ```bash
-~/.claude/skills/gstack/bin/gstack-review-log '{"skill":"codex-doc-review","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","commit":"'"$(git rev-parse --short HEAD)"'"}'
+$GSTACK_BIN/gstack-review-log '{"skill":"codex-doc-review","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","status":"STATUS","source":"SOURCE","commit":"'"$(git rev-parse --short HEAD)"'"}'
 ```
 Substitute: STATUS = "clean" if no gaps, "issues_found" if gaps exist. SOURCE = "codex" if Codex ran, "claude" if the subagent ran.
 

@@ -129,7 +129,8 @@ function detectBundledRoot(): string {
  * Parse a SKILL.md into { frontmatter, bodyMd }. Throws if the file is
  * missing required fields (host, triggers, args).
  */
-export function parseSkillFile(content: string, opts: { skillName?: string } = {}): { frontmatter: SkillFrontmatter; bodyMd: string } {
+export function parseSkillFile(contentRaw: string, opts: { skillName?: string } = {}): { frontmatter: SkillFrontmatter; bodyMd: string } {
+  const content = contentRaw.replace(/\r\n/g, '\n');
   if (!content.startsWith('---\n')) {
     throw new Error('SKILL.md missing frontmatter block (expected starting "---\\n")');
   }

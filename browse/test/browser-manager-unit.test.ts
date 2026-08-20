@@ -303,3 +303,26 @@ describe('stealth injected on every context-creation path', () => {
     expect(sites.length).toBeGreaterThanOrEqual(2);
   });
 });
+
+describe('getMemorySnapshot', () => {
+  it('exposes serviceWorkers, gpuInfo, and nativeProfile on MemorySnapshot', async () => {
+    const { BrowserManager } = await import('../src/browser-manager');
+    const bm = new BrowserManager();
+    const fakeStats = {
+      modificationHistory: { current: 0, cap: 100, evicted: 0 },
+      activitySubscribers: 0,
+      inspectorSubscribers: 0,
+      consoleBufferLen: 0,
+      networkBufferLen: 0,
+      dialogBufferLen: 0,
+      captureBufferBytes: 0,
+    };
+    const snapshot = await bm.getMemorySnapshot(fakeStats);
+    
+    expect(snapshot).toBeDefined();
+    expect(snapshot.bunServer).toBeDefined();
+    expect(Array.isArray(snapshot.serviceWorkers)).toBe(true);
+    expect('gpuInfo' in snapshot).toBe(true);
+    expect('nativeProfile' in snapshot).toBe(true);
+  });
+});

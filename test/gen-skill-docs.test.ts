@@ -27,9 +27,10 @@ function readShipUnion(): string {
 }
 
 function extractDescription(content: string): string {
-  const fmEnd = content.indexOf('\n---', 4);
+  const norm = content.replace(/\r\n/g, '\n');
+  const fmEnd = norm.indexOf('\n---', 4);
   expect(fmEnd).toBeGreaterThan(0);
-  const frontmatter = content.slice(4, fmEnd);
+  const frontmatter = norm.slice(4, fmEnd);
   const lines = frontmatter.split('\n');
   let description = '';
   let inDescription = false;
@@ -178,10 +179,11 @@ describe('gen-skill-docs', () => {
   // mapping). Parse EVERY generated frontmatter block with a strict YAML parser,
   // not just string-check that name:/description: exist.
   function frontmatterBlock(content: string): string {
-    expect(content.startsWith('---\n')).toBe(true);
-    const end = content.indexOf('\n---', 4);
+    const norm = content.replace(/\r\n/g, '\n');
+    expect(norm.startsWith('---\n')).toBe(true);
+    const end = norm.indexOf('\n---', 4);
     expect(end).toBeGreaterThan(0);
-    return content.slice(4, end);
+    return norm.slice(4, end);
   }
 
   test('every generated SKILL.md frontmatter parses as strict YAML', () => {
@@ -266,11 +268,12 @@ describe('gen-skill-docs', () => {
       stderr: 'pipe',
     });
     expect(result.exitCode).toBe(0);
-    const output = result.stdout.toString();
+    const output = result.stdout.toString().replace(/\\/g, '/');
     // Every skill should be FRESH
     for (const skill of CLAUDE_GENERATED_SKILLS) {
       const file = skill.dir === '.' ? 'SKILL.md' : `${skill.dir}/SKILL.md`;
-      expect(output).toContain(`FRESH: ${file}`);
+      const fileNorm = file.replace(/\\/g, '/');
+      expect(output).toContain(`FRESH: ${fileNorm}`);
     }
     expect(output).not.toContain('STALE');
   });
@@ -506,7 +509,7 @@ describe('gen-skill-docs', () => {
     // Scope to frontmatter (between the first two --- lines) — the body can
     // legitimately mention these tool names in prose (e.g., Claude model
     // overlay says "prefer Read, Edit, Write, Glob, Grep over Bash").
-    const fmMatch = qaOnlyContent.match(/^---\n([\s\S]*?)\n---/);
+    const fmMatch = qaOnlyContent.match(/^---\r?\n([\s\S]*?)\r?\n---/);
     expect(fmMatch).not.toBeNull();
     const frontmatter = fmMatch![1];
     expect(frontmatter).toMatch(/allowed-tools:/);
@@ -1728,7 +1731,8 @@ describe('Codex generation (--host codex)', () => {
 
   test('Codex frontmatter has ONLY name + description', () => {
     for (const skill of CODEX_SKILLS) {
-      const content = fs.readFileSync(path.join(AGENTS_DIR, skill.codexName, 'SKILL.md'), 'utf-8');
+      const rawContent = fs.readFileSync(path.join(AGENTS_DIR, skill.codexName, 'SKILL.md'), 'utf-8');
+      const content = rawContent.replace(/\r\n/g, '\n');
       expect(content.startsWith('---\n')).toBe(true);
       const fmEnd = content.indexOf('\n---', 4);
       expect(fmEnd).toBeGreaterThan(0);
@@ -1804,7 +1808,7 @@ describe('Codex generation (--host codex)', () => {
       stderr: 'pipe',
     });
     expect(result.exitCode).toBe(0);
-    const output = result.stdout.toString();
+    const output = result.stdout.toString().replace(/\\/g, '/');
     // Every Codex skill should be FRESH
     for (const skill of CODEX_SKILLS) {
       expect(output).toContain(`FRESH: .agents/skills/${skill.codexName}/SKILL.md`);
@@ -1831,7 +1835,8 @@ describe('Codex generation (--host codex)', () => {
 
   test('multiline descriptions preserved in Codex output', () => {
     // office-hours has a multiline description — verify it survives the frontmatter transform
-    const content = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-office-hours', 'SKILL.md'), 'utf-8');
+    const rawContent = fs.readFileSync(path.join(AGENTS_DIR, 'gstack-office-hours', 'SKILL.md'), 'utf-8');
+    const content = rawContent.replace(/\r\n/g, '\n');
     const fmEnd = content.indexOf('\n---', 4);
     const frontmatter = content.slice(4, fmEnd);
     // Description should span multiple lines (block scalar)
@@ -1844,7 +1849,8 @@ describe('Codex generation (--host codex)', () => {
   test('hook skills have safety prose and no hooks: in frontmatter', () => {
     const HOOK_SKILLS = ['gstack-careful', 'gstack-freeze', 'gstack-guard'];
     for (const skillName of HOOK_SKILLS) {
-      const content = fs.readFileSync(path.join(AGENTS_DIR, skillName, 'SKILL.md'), 'utf-8');
+      const rawContent = fs.readFileSync(path.join(AGENTS_DIR, skillName, 'SKILL.md'), 'utf-8');
+      const content = rawContent.replace(/\r\n/g, '\n');
       // Must have safety advisory prose
       expect(content).toContain('Safety Advisory');
       // Must NOT have hooks: in frontmatter
@@ -1943,7 +1949,7 @@ describe('Codex generation (--host codex)', () => {
     // Codex changes must NOT affect Claude output
     const content = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
     expect(content).toContain('.claude/skills/review/checklist.md');
-    expect(content).toContain('~/.claude/skills/gstack');
+    expect(content).toContain('$GSTACK_ROOT');
     // Must NOT contain Codex paths
     expect(content).not.toContain('.agents/skills');
     expect(content).not.toContain('~/.codex/');
@@ -1951,7 +1957,7 @@ describe('Codex generation (--host codex)', () => {
 
   test('Claude output unchanged: ship skill still uses .claude/skills/ paths', () => {
     const content = readShipUnion();
-    expect(content).toContain('~/.claude/skills/gstack');
+    expect(content).toContain('$GSTACK_ROOT');
     expect(content).not.toContain('.agents/skills');
     expect(content).not.toContain('~/.codex/');
   });
@@ -2026,7 +2032,8 @@ describe('Factory generation (--host factory)', () => {
 
   test('Factory frontmatter has name + description + user-invocable', () => {
     for (const skill of FACTORY_SKILLS) {
-      const content = fs.readFileSync(path.join(FACTORY_DIR, skill.factoryName, 'SKILL.md'), 'utf-8');
+      const rawContent = fs.readFileSync(path.join(FACTORY_DIR, skill.factoryName, 'SKILL.md'), 'utf-8');
+      const content = rawContent.replace(/\r\n/g, '\n');
       const fmEnd = content.indexOf('\n---', 4);
       const frontmatter = content.slice(4, fmEnd);
       expect(frontmatter).toContain('name:');
@@ -2041,7 +2048,8 @@ describe('Factory generation (--host factory)', () => {
   test('sensitive skills have disable-model-invocation', () => {
     const SENSITIVE = ['gstack-ship', 'gstack-land-and-deploy', 'gstack-guard', 'gstack-careful', 'gstack-freeze', 'gstack-unfreeze'];
     for (const name of SENSITIVE) {
-      const content = fs.readFileSync(path.join(FACTORY_DIR, name, 'SKILL.md'), 'utf-8');
+      const rawContent = fs.readFileSync(path.join(FACTORY_DIR, name, 'SKILL.md'), 'utf-8');
+      const content = rawContent.replace(/\r\n/g, '\n');
       const fmEnd = content.indexOf('\n---', 4);
       const frontmatter = content.slice(4, fmEnd);
       expect(frontmatter).toContain('disable-model-invocation: true');
@@ -2051,7 +2059,8 @@ describe('Factory generation (--host factory)', () => {
   test('non-sensitive skills lack disable-model-invocation', () => {
     const NON_SENSITIVE = ['gstack-qa', 'gstack-review', 'gstack-investigate', 'gstack-browse'];
     for (const name of NON_SENSITIVE) {
-      const content = fs.readFileSync(path.join(FACTORY_DIR, name, 'SKILL.md'), 'utf-8');
+      const rawContent = fs.readFileSync(path.join(FACTORY_DIR, name, 'SKILL.md'), 'utf-8');
+      const content = rawContent.replace(/\r\n/g, '\n');
       const fmEnd = content.indexOf('\n---', 4);
       const frontmatter = content.slice(4, fmEnd);
       expect(frontmatter).not.toContain('disable-model-invocation');
@@ -2109,7 +2118,7 @@ describe('Factory generation (--host factory)', () => {
       cwd: ROOT, stdout: 'pipe', stderr: 'pipe',
     });
     expect(result.exitCode).toBe(0);
-    const output = result.stdout.toString();
+    const output = result.stdout.toString().replace(/\\/g, '/');
     for (const skill of FACTORY_SKILLS) {
       expect(output).toContain(`FRESH: .factory/skills/${skill.factoryName}/SKILL.md`);
     }
@@ -2188,7 +2197,8 @@ describe('Parameterized host smoke tests', () => {
         for (const skill of skills) {
           const skillMd = path.join(hostDir, skill, 'SKILL.md');
           if (!fs.existsSync(skillMd)) continue;
-          const content = fs.readFileSync(skillMd, 'utf-8');
+          const rawContent = fs.readFileSync(skillMd, 'utf-8');
+          const content = rawContent.replace(/\r\n/g, '\n');
           expect(content).toMatch(/^---\n/);
           expect(content).toMatch(/^name:\s/m);
           expect(content).toMatch(/^description:\s/m);
@@ -2242,11 +2252,12 @@ describe('--host all', () => {
       cwd: ROOT, stdout: 'pipe', stderr: 'pipe',
     });
     expect(result.exitCode).toBe(0);
-    const output = result.stdout.toString();
+    const output = result.stdout.toString().replace(/\\/g, '/');
     // All hosts should appear in output
     expect(output).toContain('FRESH: SKILL.md');           // claude
     for (const hostConfig of getExternalHosts()) {
-      expect(output).toContain(`FRESH: ${hostConfig.hostSubdir}/skills/`);
+      const subdirNorm = hostConfig.hostSubdir.replace(/\\/g, '/');
+      expect(output).toContain(`FRESH: ${subdirNorm}/skills/`);
     }
   });
 });

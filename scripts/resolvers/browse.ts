@@ -51,10 +51,10 @@ export function generateCommandReference(_ctx: TemplateContext): string {
   return sections.join('\n').trimEnd();
 }
 
-export function generateSnapshotFlags(_ctx: TemplateContext): string {
+export function generateSnapshotFlags(ctx: TemplateContext): string {
   const lines: string[] = [
     'The snapshot is your primary tool for understanding and interacting with pages.',
-    '`$B` is the browse binary (resolved from `$_ROOT/.claude/skills/gstack/browse/dist/browse` or `~/.claude/skills/gstack/browse/dist/browse`).',
+    `\`$B\` is the browse binary (resolved from \`$_ROOT/\${ctx.paths.localSkillRoot}/browse/dist/browse\` or \`\${ctx.paths.browseDir}/browse\`).`,
     '',
     '**Syntax:** `$B snapshot [flags]`',
     '',

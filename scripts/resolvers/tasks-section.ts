@@ -11,7 +11,7 @@ import type { TemplateContext, ResolverFn } from './types';
 
 const VALID_PHASES = new Set(['ceo-review', 'design-review', 'eng-review', 'devex-review']);
 
-export const generateTasksSectionEmit: ResolverFn = (_ctx: TemplateContext, args?: string[]) => {
+export const generateTasksSectionEmit: ResolverFn = (ctx: TemplateContext, args?: string[]) => {
   const phase = args?.[0];
   if (!phase || !VALID_PHASES.has(phase)) {
     throw new Error(`TASKS_SECTION_EMIT requires one of ${[...VALID_PHASES].join(', ')} — got ${phase}`);
@@ -51,7 +51,7 @@ Rules:
 backslashes serialize cleanly — never use hand-rolled \`echo\` / \`printf\`.
 
 \`\`\`bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+eval "$(${ctx.paths.binDir}/gstack-slug 2>/dev/null)"
 TASKS_DIR="\${HOME}/.gstack/projects/\${SLUG:-unknown}"
 mkdir -p "$TASKS_DIR"
 TASKS_FILE="$TASKS_DIR/tasks-${phase}-$(date +%Y%m%d-%H%M%S).jsonl"
@@ -90,14 +90,14 @@ this run (an empty file means "ran, no findings" — distinct from "didn't run")
 `;
 };
 
-export const generateTasksSectionAggregate: ResolverFn = (_ctx: TemplateContext) => {
+export const generateTasksSectionAggregate: ResolverFn = (ctx: TemplateContext) => {
   return `## Implementation Tasks aggregator
 
 Before rendering the Final Approval Gate output block below, aggregate the
 per-phase task lists each review skill wrote.
 
 \`\`\`bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)"
+eval "$(${ctx.paths.binDir}/gstack-slug 2>/dev/null)"
 TASKS_DIR="\${HOME}/.gstack/projects/\${SLUG:-unknown}"
 BRANCH=$(git branch --show-current 2>/dev/null || echo unknown)
 # Commit window: last 5 commits on this branch. Drops stale standalone reviews.

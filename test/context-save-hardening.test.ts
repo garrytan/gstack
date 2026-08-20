@@ -48,12 +48,17 @@ else
     echo "NO_CHECKPOINTS"
   else
     : "\${CURRENT_BRANCH:=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)}"
-    SAME=""; OTHER=""
+    : "\${CURRENT_WORKTREE:=$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
+    SAME_WT=""; SAME_BRANCH=""; OTHER=""
     while IFS= read -r f; do
       [ -n "$f" ] || continue
+      w=$(grep -m1 '^worktree:' "$f" 2>/dev/null | sed 's/^worktree:[[:space:]]*//')
       b=$(grep -m1 '^branch:' "$f" 2>/dev/null | sed 's/^branch:[[:space:]]*//')
-      if [ -n "$CURRENT_BRANCH" ] && [ "$b" = "$CURRENT_BRANCH" ]; then
-        SAME="\${SAME}\${f}
+      if [ -n "$CURRENT_WORKTREE" ] && [ "$w" = "$CURRENT_WORKTREE" ]; then
+        SAME_WT="\${SAME_WT}\${f}
+"
+      elif [ -n "$CURRENT_BRANCH" ] && [ "$b" = "$CURRENT_BRANCH" ]; then
+        SAME_BRANCH="\${SAME_BRANCH}\${f}
 "
       else
         OTHER="\${OTHER}\${f}
@@ -62,7 +67,7 @@ else
     done <<EOF
 $ALL
 EOF
-    FILES=$(printf '%s%s' "$SAME" "$OTHER" | grep -v '^[[:space:]]*$' | head -20)
+    FILES=$(printf '%s%s%s' "$SAME_WT" "$SAME_BRANCH" "$OTHER" | grep -v '^[[:space:]]*$' | head -20)
     echo "$FILES"
   fi
 fi
@@ -330,67 +335,76 @@ describe('context-restore: find + sort + head cap', () => {
   });
 });
 
-// ─── Current-branch preference (#2052) ──────────────────────────────────────
+// ─── Current-worktree / Current-branch preference (#2052) ───────────────────
 //
 // All worktrees of a repo share one origin-derived slug → one checkpoints dir.
-// Restore must prefer the CURRENT branch's own checkpoint so a sibling
-// worktree's newer save can't shadow it, while still falling back across
-// branches (Conductor handoff) when the current branch has none.
+// Restore must prefer:
+//   1. the CURRENT worktree's own checkpoint (SAME_WT)
+//   2. the CURRENT branch's checkpoint on another worktree (SAME_BRANCH)
+//   3. any other checkpoint as a fallback (OTHER)
+// This guarantees that a sibling worktree's newer save can't shadow our own.
 
-describe('context-restore: current-branch preference (#2052)', () => {
+describe('context-restore: current-worktree / current-branch preference (#2052)', () => {
   let tmp: string;
   beforeEach(() => { tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ctx-branch-')); });
   afterEach(() => { try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {} });
 
-  function writeCheckpoint(ts: string, branch: string | null): string {
+  function writeCheckpoint(ts: string, branch: string | null, worktree: string | null = null): string {
     const file = `${tmp}/${ts}-work.md`;
-    const fm = branch === null
-      ? `---\nstatus: in-progress\n---\n`
-      : `---\nstatus: in-progress\nbranch: ${branch}\n---\n`;
+    let fm = `---\nstatus: in-progress\n`;
+    if (branch !== null) fm += `branch: ${branch}\n`;
+    if (worktree !== null) fm += `worktree: ${worktree}\n`;
+    fm += `---\n`;
     fs.writeFileSync(file, fm);
     return file;
   }
 
-  function firstCandidate(currentBranch?: string): string {
+  function firstCandidate(currentBranch?: string, currentWorktree?: string): string {
     const env: Record<string, string> = { CHECKPOINT_DIR: tmp };
     if (currentBranch !== undefined) env.CURRENT_BRANCH = currentBranch;
+    if (currentWorktree !== undefined) env.CURRENT_WORKTREE = currentWorktree;
     const out = runBash(RESTORE_FIND_BASH, env).stdout;
     return out.trim().split('\n').filter(Boolean)[0] ?? '';
   }
 
-  test('the bug: current-branch save is NOT shadowed by a newer sibling-worktree save', () => {
-    const mine = writeCheckpoint('20260101-120000', 'feature-a'); // older, my branch
-    writeCheckpoint('20260619-120000', 'feature-b');              // newer, sibling worktree
-    // On feature-a, restore must load feature-a's own (older) checkpoint.
-    expect(firstCandidate('feature-a')).toBe(mine);
+  test('same-worktree takes absolute precedence over newer same-branch/diff-worktree save', () => {
+    const mine = writeCheckpoint('20260101-120000', 'feature-a', '/users/travi/clone-a'); // older, same WT
+    writeCheckpoint('20260619-120000', 'feature-a', '/users/travi/clone-b');              // newer, same branch but different WT
+    expect(firstCandidate('feature-a', '/users/travi/clone-a')).toBe(mine);
   });
 
-  test('fallback: current branch has no checkpoint → newest across all branches (Conductor handoff)', () => {
-    writeCheckpoint('20260101-120000', 'feature-a');
-    const newest = writeCheckpoint('20260619-120000', 'feature-b');
-    // On feature-c (no own checkpoint), cross-branch resume still works.
-    expect(firstCandidate('feature-c')).toBe(newest);
+  test('same-branch/diff-worktree takes precedence over newer cross-branch fallback (Conductor handoff)', () => {
+    const sameBranchDiffWt = writeCheckpoint('20260101-120000', 'feature-a', '/users/travi/clone-b'); // older, same branch, different WT
+    writeCheckpoint('20260619-120000', 'feature-b', '/users/travi/clone-b');                         // newer, different branch, different WT
+    expect(firstCandidate('feature-a', '/users/travi/clone-a')).toBe(sameBranchDiffWt);
   });
 
-  test('back-compat: empty current branch (non-git) → newest across all', () => {
-    writeCheckpoint('20260101-120000', 'feature-a');
-    const newest = writeCheckpoint('20260619-120000', 'feature-b');
-    expect(firstCandidate('')).toBe(newest);
+  test('fallback: current branch/worktree has no checkpoint → newest across all (Conductor handoff)', () => {
+    writeCheckpoint('20260101-120000', 'feature-a', '/users/travi/clone-b');
+    const newest = writeCheckpoint('20260619-120000', 'feature-b', '/users/travi/clone-b');
+    // On feature-c (no own checkpoint), cross-branch/cross-worktree resume still works and gets newest.
+    expect(firstCandidate('feature-c', '/users/travi/clone-a')).toBe(newest);
   });
 
-  test('checkpoints without a branch frontmatter still rank as fallback, never lost', () => {
-    const mine = writeCheckpoint('20260101-120000', 'feature-a');
-    writeCheckpoint('20260301-120000', null); // legacy save, no branch field
-    const out = runBash(RESTORE_FIND_BASH, { CHECKPOINT_DIR: tmp, CURRENT_BRANCH: 'feature-a' }).stdout;
+  test('back-compat: empty current branch/worktree → newest across all', () => {
+    writeCheckpoint('20260101-120000', 'feature-a', '/users/travi/clone-a');
+    const newest = writeCheckpoint('20260619-120000', 'feature-b', '/users/travi/clone-b');
+    expect(firstCandidate('', '')).toBe(newest);
+  });
+
+  test('checkpoints without a branch/worktree frontmatter still rank as fallback, never lost', () => {
+    const mine = writeCheckpoint('20260101-120000', 'feature-a', '/users/travi/clone-a');
+    writeCheckpoint('20260301-120000', null, null); // legacy save, no branch/worktree
+    const out = runBash(RESTORE_FIND_BASH, { CHECKPOINT_DIR: tmp, CURRENT_BRANCH: 'feature-a', CURRENT_WORKTREE: '/users/travi/clone-a' }).stdout;
     const lines = out.trim().split('\n').filter(Boolean);
-    expect(lines[0]).toBe(mine);            // current branch first
+    expect(lines[0]).toBe(mine);            // current worktree first
     expect(lines.length).toBe(2);           // legacy file is still present
   });
 
-  test('within the current branch, ordering stays newest-first', () => {
-    const older = writeCheckpoint('20260101-120000', 'feature-a');
-    const newer = writeCheckpoint('20260619-120000', 'feature-a');
-    const out = runBash(RESTORE_FIND_BASH, { CHECKPOINT_DIR: tmp, CURRENT_BRANCH: 'feature-a' }).stdout;
+  test('within the same worktree, ordering stays newest-first', () => {
+    const older = writeCheckpoint('20260101-120000', 'feature-a', '/users/travi/clone-a');
+    const newer = writeCheckpoint('20260619-120000', 'feature-a', '/users/travi/clone-a');
+    const out = runBash(RESTORE_FIND_BASH, { CHECKPOINT_DIR: tmp, CURRENT_BRANCH: 'feature-a', CURRENT_WORKTREE: '/users/travi/clone-a' }).stdout;
     const lines = out.trim().split('\n').filter(Boolean);
     expect(lines[0]).toBe(newer);
     expect(lines[1]).toBe(older);

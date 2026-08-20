@@ -460,9 +460,9 @@ describe('Hidden element stripping', () => {
     await bm.launch();
   });
 
-  afterAll(() => {
+  afterAll(async () => {
     try { testServer.server.stop(); } catch {}
-    setTimeout(() => process.exit(0), 500);
+    if (bm) await bm.close();
   });
 
   test('detects CSS-hidden elements on injection-hidden page', async () => {

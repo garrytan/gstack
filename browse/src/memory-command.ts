@@ -77,6 +77,26 @@ function formatSnapshotText(s: MemorySnapshot): string {
     lines.push('Renderers:         (no tabs tracked)');
   }
 
+  if (s.serviceWorkers && s.serviceWorkers.length > 0) {
+    lines.push(`Service Workers:   ${s.serviceWorkers.length} background worker(s):`);
+    for (const sw of s.serviceWorkers) {
+      const urlShort = sw.url.length > 80 ? sw.url.slice(0, 77) + '...' : sw.url;
+      lines.push(
+        `  [${formatBytes(sw.jsHeapUsed).padStart(8)} JS heap] ` +
+        `${sw.title} — ${urlShort}`,
+      );
+    }
+  }
+
+  if (s.nativeProfile) {
+    lines.push(`Native heap (est): ${formatBytes(s.nativeProfile.totalAllocatedBytes)} sampled allocations`);
+  }
+
+  if (s.gpuInfo && s.gpuInfo.devices.length > 0) {
+    const devs = s.gpuInfo.devices.map(d => d.deviceString || `${d.vendorId}:${d.deviceId}`).join('; ');
+    lines.push(`GPU Hardware:      ${devs}`);
+  }
+
   lines.push('─────────────────────────────────────────────────');
   lines.push('In-memory structures (Bun side):');
   const m = s.structures.modificationHistory;

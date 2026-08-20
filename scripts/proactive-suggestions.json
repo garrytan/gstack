@@ -3,6 +3,11 @@
   "catalog_mode": "trim",
   "note": "Routing / voice-trigger prose extracted from SKILL.md frontmatter descriptions during catalog trim. Loaded on demand when routing guidance is needed.",
   "skills": {
+    "automate": {
+      "lead": "Codify form fills, click sequences, and multi-step interactions into permanent browser-skills.",
+      "routing": "First call on a new intent prototypes the flow via $B primitives\nwith strict confirmation gates. Subsequent calls on a matching intent route\nto a codified browser-skill and return in ~200ms.\nUse when asked to \"automate\", \"fill the form\", \"log in\", \"click X\", \"submit\", \"create\", or\nperform multi-step mutating actions on a page.",
+      "voice_line": null
+    },
     "autoplan": {
       "lead": "Auto-review pipeline — reads the full CEO, design, eng, and DX review skills from disk and runs them sequentially with auto-decisions using 6 decision principles.",
       "routing": "Surfaces\ntaste decisions (close approaches, borderline scope, codex disagreements) at a final\napproval gate. One command, fully reviewed plan out.\nUse when asked to \"auto review\", \"autoplan\", \"run all reviews\", \"review this plan\nautomatically\", or \"make the decisions for me\".\nProactively suggest when the user has a plan file and wants to run the full review\ngauntlet without answering 15-30 intermediate questions.",
@@ -11,12 +16,12 @@
     "benchmark": {
       "lead": "Performance regression detection using the browse daemon.",
       "routing": "Establishes\nbaselines for page load times, Core Web Vitals, and resource sizes.\nCompares before/after on every PR. Tracks performance trends over time.\nUse when: \"performance\", \"benchmark\", \"page speed\", \"lighthouse\", \"web vitals\",\n\"bundle size\", \"load time\".",
-      "voice_line": "Voice triggers (speech-to-text aliases): \"speed test\", \"check performance\"."
+      "voice_line": null
     },
     "benchmark-models": {
       "lead": "Cross-model benchmark for gstack skills.",
       "routing": "Runs the same prompt through Claude,\nGPT (via Codex CLI), and Gemini side-by-side — compares latency, tokens, cost,\nand optionally quality via LLM judge. Answers \"which model is actually best\nfor this skill?\" with data instead of vibes. Separate from /benchmark, which\nmeasures web page performance. Use when: \"benchmark models\", \"compare models\",\n\"which model is best for X\", \"cross-model comparison\", \"model shootout\".",
-      "voice_line": "Voice triggers (speech-to-text aliases): \"compare models\", \"model shootout\", \"which model is best\"."
+      "voice_line": null
     },
     "browse": {
       "lead": "Fast headless browser for QA testing and site dogfooding.",
@@ -61,7 +66,7 @@
     "design-html": {
       "lead": "Design finalization: generates production-quality Pretext-native HTML/CSS.",
       "routing": "Works with approved mockups from /design-shotgun, CEO plans from /plan-ceo-review,\ndesign review context from /plan-design-review, or from scratch with a user\ndescription. Text actually reflows, heights are computed, layouts are dynamic.\n30KB overhead, zero deps. Smart API routing: picks the right Pretext patterns\nfor each design type. Use when: \"finalize this design\", \"turn this into HTML\",\n\"build me a page\", \"implement this design\", or after any planning skill.\nProactively suggest when user has approved a design or has a plan ready.",
-      "voice_line": "Voice triggers (speech-to-text aliases): \"build the design\", \"code the mockup\", \"make it real\"."
+      "voice_line": null
     },
     "design-review": {
       "lead": "Designer's eye QA: finds visual inconsistency, spacing issues, hierarchy problems, AI slop patterns, and slow interactions — then fixes them.",
@@ -76,7 +81,7 @@
     "devex-review": {
       "lead": "Live developer experience audit.",
       "routing": "Uses the browse tool to actually TEST the\ndeveloper experience: navigates docs, tries the getting started flow, times\nTTHW, screenshots error messages, evaluates CLI help text. Produces a DX\nscorecard with evidence. Compares against /plan-devex-review scores if they\nexist (the boomerang: plan said 3 minutes, reality says 8). Use when asked to\n\"test the DX\", \"DX audit\", \"developer experience test\", or \"try the\nonboarding\". Proactively suggest after shipping a developer-facing feature.",
-      "voice_line": "Voice triggers (speech-to-text aliases): \"dx audit\", \"test the developer experience\", \"try the onboarding\", \"developer experience test\"."
+      "voice_line": null
     },
     "diagram": {
       "lead": "Turn an English description (or mermaid source) into a diagram triplet: the source, an editable .excalidraw file you can open",
@@ -106,7 +111,7 @@
     "gstack-upgrade": {
       "lead": "Upgrade gstack to the latest version.",
       "routing": "Detects global vs vendored install,\nruns the upgrade, and shows what's new. Use when asked to \"upgrade gstack\",\n\"update gstack\", or \"get latest version\".",
-      "voice_line": "Voice triggers (speech-to-text aliases): \"upgrade the tools\", \"update the tools\", \"gee stack upgrade\", \"g stack upgrade\"."
+      "voice_line": null
     },
     "guard": {
       "lead": "Full safety mode: destructive command warnings + directory-scoped edits.",
@@ -176,12 +181,12 @@
     "open-gstack-browser": {
       "lead": "Launch GStack Browser — AI-controlled Chromium with the sidebar extension baked in.",
       "routing": "Opens a visible browser window where you can watch every action in real time.\nThe sidebar shows a live activity feed and chat. Anti-bot stealth built in.\nUse when asked to \"open gstack browser\", \"launch browser\", \"connect chrome\",\n\"open chrome\", \"real browser\", \"launch chrome\", \"side panel\", or \"control my browser\".",
-      "voice_line": "Voice triggers (speech-to-text aliases): \"show me the browser\"."
+      "voice_line": null
     },
     "pair-agent": {
       "lead": "Pair a remote AI agent with your browser.",
       "routing": "One command generates a setup key and\nprints instructions the other agent can follow to connect. Works with OpenClaw,\nHermes, Codex, Cursor, or any agent that can make HTTP requests. The remote agent\ngets its own tab with scoped access (read+write by default, admin on request).\nUse when asked to \"pair agent\", \"connect agent\", \"share browser\", \"remote browser\",\n\"let another agent use my browser\", or \"give browser access\".",
-      "voice_line": "Voice triggers (speech-to-text aliases): \"pair agent\", \"connect agent\", \"share my browser\", \"remote browser access\"."
+      "voice_line": null
     },
     "plan-ceo-review": {
       "lead": "CEO/founder-mode plan review.",
@@ -216,7 +221,7 @@
     "qa-only": {
       "lead": "Report-only QA testing.",
       "routing": "Systematically tests a web application and produces a\nstructured report with health score, screenshots, and repro steps — but never\nfixes anything. Use when asked to \"just report bugs\", \"qa report only\", or\n\"test but don't fix\". For the full test-fix-verify loop, use /qa instead.\nProactively suggest when the user wants a bug report without any code changes.",
-      "voice_line": "Voice triggers (speech-to-text aliases): \"bug report\", \"just check for bugs\"."
+      "voice_line": null
     },
     "retro": {
       "lead": "Weekly engineering retrospective.",

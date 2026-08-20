@@ -179,7 +179,7 @@ Only commit if there are changes. Stage all bootstrap files (config, test direct
 
 type CoverageAuditMode = 'plan' | 'ship' | 'review';
 
-function generateTestCoverageAuditInner(mode: CoverageAuditMode): string {
+function generateTestCoverageAuditInner(mode: CoverageAuditMode, ctx: TemplateContext): string {
   const sections: string[] = [];
 
   // ── Intro (mode-specific) ──
@@ -379,7 +379,7 @@ The plan should be complete enough that when implementation begins, every test i
 After producing the coverage diagram, write a test plan artifact to the project directory so \`/qa\` and \`/qa-only\` can consume it as primary test input:
 
 \`\`\`bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
+eval "$(${ctx.paths.binDir}/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
 USER=$(whoami)
 DATETIME=$(date +%Y%m%d-%H%M%S)
 \`\`\`
@@ -476,7 +476,7 @@ Using the coverage percentage from the diagram in substep 4 (the \`COVERAGE: X/Y
 After producing the coverage diagram, write a test plan artifact so \`/qa\` and \`/qa-only\` can consume it:
 
 \`\`\`bash
-eval "$(~/.claude/skills/gstack/bin/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
+eval "$(${ctx.paths.binDir}/gstack-slug 2>/dev/null)" && mkdir -p ~/.gstack/projects/$SLUG
 USER=$(whoami)
 DATETIME=$(date +%Y%m%d-%H%M%S)
 \`\`\`
@@ -538,14 +538,14 @@ If coverage percentage cannot be determined, skip the warning silently.`);
   return sections.join('\n');
 }
 
-export function generateTestCoverageAuditPlan(_ctx: TemplateContext): string {
-  return generateTestCoverageAuditInner('plan');
+export function generateTestCoverageAuditPlan(ctx: TemplateContext): string {
+  return generateTestCoverageAuditInner('plan', ctx);
 }
 
-export function generateTestCoverageAuditShip(_ctx: TemplateContext): string {
-  return generateTestCoverageAuditInner('ship');
+export function generateTestCoverageAuditShip(ctx: TemplateContext): string {
+  return generateTestCoverageAuditInner('ship', ctx);
 }
 
-export function generateTestCoverageAuditReview(_ctx: TemplateContext): string {
-  return generateTestCoverageAuditInner('review');
+export function generateTestCoverageAuditReview(ctx: TemplateContext): string {
+  return generateTestCoverageAuditInner('review', ctx);
 }

@@ -1,0 +1,138 @@
+---
+name: automate
+version: 1.0.0
+description: |
+  Codify form fills, click sequences, and multi-step interactions into permanent
+  browser-skills. First call on a new intent prototypes the flow via $B primitives
+  with strict confirmation gates. Subsequent calls on a matching intent route
+  to a codified browser-skill and return in ~200ms.
+  Use when asked to "automate", "fill the form", "log in", "click X", "submit", "create", or
+  perform multi-step mutating actions on a page. (gstack)
+allowed-tools:
+  - Bash
+  - Read
+  - AskUserQuestion
+triggers:
+  - automate this flow
+  - fill the form
+  - log in to
+  - click through
+  - submit this
+---
+
+{{PREAMBLE}}
+
+# /automate — automate multi-step mutating flows on a page
+
+The mutating-flow sibling of `/scrape`. One entry point for driving forms, clicks,
+logins, and state mutations. Two paths under the hood:
+
+1. **Match path** (~200ms) — if the user's intent matches an existing
+   browser-skill's triggers, run it via `$B skill run <name>` and emit
+   the result.
+2. **Prototype path** (~30s) — no matching skill yet, so drive the page
+   using `$B` primitives with strict, per-step confirmation gates, and
+   suggest `/skillify` so the next call lands on the match path.
+
+## Step 1 — Determine intent
+
+The user's request after `/automate` is the intent. If they did not include
+one, ask once:
+
+> "What flow do you want to automate? Describe the steps in one line, e.g.
+> 'log into github.com and navigate to settings' or 'search on google and click the third result'."
+
+Do not ask multiple clarifying questions up front. Any further questions
+go in the prototype path where they're cheaper.
+
+## Step 2 — Match phase
+
+List existing browser-skills:
+
+```bash
+$B skill list
+```
+
+For each skill, `$B skill show <name>` exposes the full SKILL.md including
+`triggers:`, `description:`, and `host:`. Read these and judge whether the
+user's intent semantically matches one of them.
+
+A confident match means **all three** are true:
+
+- The intent's domain matches the skill's `host` (or one of its hostnames)
+- A `triggers:` phrase or the `description:` covers the same action sequence the
+  intent asks for
+- The intent does not require args the skill does not declare in `args:`
+
+If matched, parse any `--arg key=value` from the intent (or pass none for
+zero-arg skills) and run:
+
+```bash
+$B skill run <name> [--arg key=value ...]
+```
+
+Emit the result. Stop.
+
+If matching is ambiguous, fall through to the prototype path rather than guess wrong.
+
+## Step 3 — Prototype phase with strict confirmation gating (D1)
+
+No match. Drive the page using `$B` primitives. Because `/automate` performs mutating
+actions, you MUST wrap every mutating step in a confirmation gate:
+
+### Mutating actions require confirmation
+Before executing any mutating command — verbs like `click`, `fill`, `type`, `select`,
+`check`, `uncheck`, `upload` — you MUST explain the action to the user and request
+approval via **AskUserQuestion**.
+
+Format your question inside an `<UNTRUSTED>` block:
+
+```
+<UNTRUSTED>
+Project/branch/task: automating step "<intended action>" on <current-url>.
+ELI10: I'm about to perform a mutating action on this webpage.
+Stakes if we proceed: this will submit data, click buttons, or toggle state on the target page.
+Recommendation: A — <describe specific click or fill target>.
+A) Proceed with this step
+B) Cancel the automation
+</UNTRUSTED>
+```
+
+Only proceed with the command if the user explicitly selects Option A. If they cancel
+or select anything else, stop the automation gracefully and report what you did so far.
+
+Non-mutating commands (e.g., `goto`, `snapshot`, `text`, `html`, `links`) do NOT require
+confirmation gates.
+
+### Typical prototype workflow:
+1. `$B goto <url>` — navigate to the target (no confirmation required).
+2. `$B snapshot --text` — get a clean text view of the page (no confirmation required).
+3. **AskUserQuestion** to click/fill a specific element (e.g., clicking a settings icon).
+4. `$B click @eX` — run the click only after receiving approval.
+5. `$B snapshot --text` — check the new page state (no confirmation required).
+6. **AskUserQuestion** to fill out input fields.
+7. `$B fill @eY "some-value"` — run the fill only after receiving approval.
+8. Iterate until the automated flow is successful.
+
+## Step 4 — Skillify nudge
+
+After a successful prototype, append exactly one line:
+
+> "Say /skillify to make this a permanent skill (200ms on next call)."
+
+That is the entire nudge. Do not nag.
+
+## What this skill does NOT do
+
+- Run un-codified mutating actions without confirmation (strict gate required)
+- Multi-page background crawls
+- Anything that requires the daemon to not be running
+
+## Output discipline
+
+The match path returns whatever output the matched skill emits. The
+prototype path returns whatever final page-state summary you construct.
+In both cases:
+
+- One clear success/failure summary document, on stdout.
+- Stderr (or chat) is for logs and the skillify nudge.

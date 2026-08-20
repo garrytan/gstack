@@ -2,7 +2,8 @@ import type { Host } from './types';
 
 const OPENAI_SHORT_DESCRIPTION_LIMIT = 120;
 
-export function extractNameAndDescription(content: string): { name: string; description: string } {
+export function extractNameAndDescription(contentRaw: string): { name: string; description: string } {
+  const content = contentRaw.replace(/\r\n/g, '\n');
   const fmStart = content.indexOf('---\n');
   if (fmStart !== 0) return { name: '', description: '' };
   const fmEnd = content.indexOf('\n---', fmStart + 4);
@@ -74,12 +75,13 @@ export function externalSkillName(skillDir: string): string {
  * Strips allowed-tools, hooks, version, and all other fields.
  * Handles multiline block scalar descriptions (YAML | syntax).
  */
-export function transformFrontmatter(content: string, host: Host): string {
-  if (host === 'claude') return content;
+export function transformFrontmatter(contentRaw: string, host: Host): string {
+  if (host === 'claude') return contentRaw;
 
+  const content = contentRaw.replace(/\r\n/g, '\n');
   // Find frontmatter boundaries
   const fmStart = content.indexOf('---\n');
-  if (fmStart !== 0) return content; // frontmatter must be at the start
+  if (fmStart !== 0) return contentRaw; // frontmatter must be at the start
   const fmEnd = content.indexOf('\n---', fmStart + 4);
   if (fmEnd === -1) return content;
 

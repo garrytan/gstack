@@ -9,7 +9,7 @@ const claude: HostConfig = {
   globalRoot: '.claude/skills/gstack',
   localSkillRoot: '.claude/skills/gstack',
   hostSubdir: '.claude',
-  usesEnvVars: false,
+  usesEnvVars: true,
 
   frontmatter: {
     mode: 'denylist',

@@ -37,7 +37,8 @@ Invoke them by name (e.g., `/office-hours`).
 | `/qa` | Open a real browser, find bugs, fix them, re-verify. |
 | `/qa-only` | Same methodology as /qa but report only — no code changes. |
 | `/scrape` | Pull data from a web page. First call prototypes; codified call runs in ~200ms. |
-| `/skillify` | Codify the most recent successful `/scrape` flow into a permanent browser-skill. |
+| `/automate` | Automate multi-step mutating flows on a page. First call prototypes with strict gates; codified call runs in ~200ms. |
+| `/skillify` | Codify the most recent successful `/scrape` or `/automate` flow into a permanent browser-skill. |
 
 ### Release + deploy
 

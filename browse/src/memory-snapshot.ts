@@ -31,6 +31,34 @@ export interface MemoryTabSnapshot {
   listeners: number;
 }
 
+/** Service worker JS heap snapshot (CDP Runtime.getHeapUsage). */
+export interface MemoryWorkerSnapshot {
+  targetId: string;
+  url: string;
+  title: string;
+  jsHeapUsed: number;
+  jsHeapTotal: number;
+}
+
+/** GPU hardware capabilities via CDP SystemInfo.getInfo. */
+export interface MemoryGpuInfo {
+  devices: Array<{
+    vendorId: number;
+    deviceId: number;
+    vendorString: string;
+    deviceString: string;
+    driverVendor?: string;
+    driverVersion?: string;
+  }>;
+  modelName?: string;
+  modelVersion?: string;
+}
+
+/** Native memory sampled allocations via CDP Memory.getSamplingProfile. */
+export interface MemoryNativeProfile {
+  totalAllocatedBytes: number;
+}
+
 /** Chromium process metadata via CDP SystemInfo.getProcessInfo. */
 export interface MemoryProcess {
   /** Chromium-internal process id (not OS PID). */
@@ -49,14 +77,15 @@ export interface MemorySnapshot {
     external: number;
   };
   tabs: MemoryTabSnapshot[];
+  /** Bakes extension background worker heap profile metrics. */
+  serviceWorkers: MemoryWorkerSnapshot[];
+  /** Detailed GPU device information if CDP provides it. */
+  gpuInfo: MemoryGpuInfo | null;
+  /** Sampled native memory footprint. */
+  nativeProfile: MemoryNativeProfile | null;
   /**
    * Chromium process tree. `null` when no browser handle is available
    * (server in connection mode, or browser not yet launched).
-   *
-   * Per-process RSS is NOT included: SystemInfo.getProcessInfo returns
-   * id+type+cpuTime but Chromium does not expose RSS via CDP. The
-   * `notes[]` field tells the caller why — see the follow-up TODO
-   * "native/GPU memory breakdown" for the deferred fix.
    */
   processes: MemoryProcess[] | null;
   structures: MemoryStructureStats;

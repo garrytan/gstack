@@ -69,10 +69,10 @@ beforeAll(async () => {
   await handleWriteCommand('goto', [boardUrl], bm);
 });
 
-afterAll(() => {
+afterAll(async () => {
   try { server.stop(); } catch {}
   fs.rmSync(tmpDir, { recursive: true, force: true });
-  setTimeout(() => process.exit(0), 500);
+  if (bm) await bm.close();
 });
 
 // ─── DOM Structure ──────────────────────────────────────────────

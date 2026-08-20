@@ -10,6 +10,7 @@ Conventions:
 
 ## Skills
 
+- [/automate](automate/SKILL.md): Codify form fills, click sequences, and multi-step interactions into permanent browser-skills.
 - [/autoplan](autoplan/SKILL.md): Auto-review pipeline — reads the full CEO, design, eng, and DX review skills from disk and runs them sequentially with auto-decisions using 6 decision principles.
 - [/benchmark](benchmark/SKILL.md): Performance regression detection using the browse daemon.
 - [/benchmark-models](benchmark-models/SKILL.md): Cross-model benchmark for gstack skills.

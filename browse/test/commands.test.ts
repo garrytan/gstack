@@ -94,11 +94,10 @@ beforeAll(async () => {
   await bm.launch();
 });
 
-afterAll(() => {
+afterAll(async () => {
   // Force kill browser instead of graceful close (avoids hang)
   try { testServer.server.stop(); } catch {}
-  // bm.close() can hang — just let process exit handle it
-  setTimeout(() => process.exit(0), 500);
+  if (bm) await bm.close();
 });
 
 // ─── Navigation ─────────────────────────────────────────────────

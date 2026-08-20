@@ -29,7 +29,7 @@ import * as path from 'path';
 import { spawnSync } from 'child_process';
 
 const ROOT = path.resolve(import.meta.dir, '..');
-const TEST_ROOTS = ['browse/test', 'test', 'make-pdf/test'] as const;
+const TEST_ROOTS = ['browse/test', 'test', 'make-pdf/test', 'design/test'] as const;
 const TEST_FILE_REGEX = /\.test\.(?:[cm]?[jt]s|tsx|jsx)$/;
 
 // Tests that require API spend, external services, or e2e harnesses.

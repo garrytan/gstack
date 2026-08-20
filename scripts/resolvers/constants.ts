@@ -57,6 +57,8 @@ export function codexErrorHandling(feature: string): string {
 On any error: continue — ${feature} is informational, not a gate.`;
 }
 
+import type { TemplateContext } from './types';
+
 /**
  * Shared Codex preflight bash block — the single source of truth for deciding
  * whether a Codex review pass should run. Used by ADVERSARIAL_STEP,
@@ -86,16 +88,16 @@ On any error: continue — ${feature} is informational, not a gate.`;
  *   - `codex-only` (diff adversarial): disabled gates only the Codex passes; the
  *     free Claude adversarial subagent still runs.
  */
-export function codexPreflight(opts: { modeVar?: string; disabledBehavior: 'skip-all' | 'codex-only' }): string {
+export function codexPreflight(ctx: TemplateContext, opts: { modeVar?: string; disabledBehavior: 'skip-all' | 'codex-only' }): string {
   const m = opts.modeVar ?? '_CODEX_MODE';
   const disabledLine = opts.disabledBehavior === 'codex-only'
     ? 'Skip the Codex passes only; the Claude adversarial subagent below STILL runs (it is free and fast). Print: "Codex passes skipped (codex_reviews disabled) — running Claude adversarial only."'
     : 'Skip this section entirely; do NOT fall back to a Claude subagent — disabled means no extra review step. Print: "Codex review skipped (codex_reviews disabled). Re-enable: `gstack-config set codex_reviews enabled`."';
   return `\`\`\`bash
 # Codex preflight: one block (functions sourced here don't persist to later blocks).
-_TEL=$(~/.claude/skills/gstack/bin/gstack-config get telemetry 2>/dev/null || echo off)
-_CODEX_CFG=$(~/.claude/skills/gstack/bin/gstack-config get codex_reviews 2>/dev/null || echo enabled)
-source ~/.claude/skills/gstack/bin/gstack-codex-probe 2>/dev/null || true
+_TEL=$(${ctx.paths.binDir}/gstack-config get telemetry 2>/dev/null || echo off)
+_CODEX_CFG=$(${ctx.paths.binDir}/gstack-config get codex_reviews 2>/dev/null || echo enabled)
+source ${ctx.paths.binDir}/gstack-codex-probe 2>/dev/null || true
 if [ "$_CODEX_CFG" = "disabled" ]; then
   ${m}="disabled"
 elif ! command -v codex >/dev/null 2>&1; then

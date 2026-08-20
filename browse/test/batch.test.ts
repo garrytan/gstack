@@ -42,9 +42,9 @@ beforeAll(async () => {
   // The test needs to start a server. Let's use the existing server infrastructure.
 });
 
-afterAll(() => {
+afterAll(async () => {
   try { testServer.server.stop(); } catch {}
-  setTimeout(() => process.exit(0), 500);
+  if (bm) await bm.close();
 });
 
 // We need a running browse server for HTTP tests.

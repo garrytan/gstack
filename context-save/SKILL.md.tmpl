@@ -65,6 +65,8 @@ Collect the current working state:
 ```bash
 echo "=== BRANCH ==="
 git rev-parse --abbrev-ref HEAD 2>/dev/null
+echo "=== WORKTREE ==="
+git rev-parse --show-toplevel 2>/dev/null || pwd
 echo "=== STATUS ==="
 git status --short 2>/dev/null
 echo "=== DIFF STAT ==="
@@ -153,6 +155,7 @@ The file format:
 ---
 status: in-progress
 branch: {current branch name}
+worktree: {current absolute worktree path from === WORKTREE === above}
 timestamp: {ISO-8601 timestamp, e.g. 2026-04-18T14:30:00-07:00}
 session_duration_s: {computed duration, omit if unknown}
 files_modified:

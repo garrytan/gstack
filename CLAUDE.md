@@ -64,7 +64,7 @@ variants to force all tests. Run `eval:select` to preview which tests would run.
 
 **Two-tier system:** Tests are classified as `gate` or `periodic` in `E2E_TIERS`
 (in `test/helpers/touchfiles.ts`). CI runs only gate tests (`EVALS_TIER=gate`);
-periodic tests run weekly via cron or manually. Use `EVALS_TIER=gate` or
+a curated subset of periodic tests run weekly via cron to manage API spend, while the rest run manually. Use `EVALS_TIER=gate` or
 `EVALS_TIER=periodic` to filter. When adding new E2E tests, classify them:
 1. Safety guardrail or deterministic functional test? -> `gate`
 2. Quality benchmark, Opus model test, or non-deterministic? -> `periodic`

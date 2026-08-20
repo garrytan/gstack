@@ -513,9 +513,11 @@ policy:
  * Codex: keeps name + description only, enforces 1024-char limit.
  * Factory: keeps name + description + user-invocable, conditionally adds disable-model-invocation.
  */
-function transformFrontmatter(content: string, host: Host): string {
+function transformFrontmatter(contentRaw: string, host: Host): string {
   const hostConfig = getHostConfig(host);
   const fm = hostConfig.frontmatter;
+
+  let content = contentRaw.replace(/\r\n/g, '\n');
 
   if (fm.mode === 'denylist') {
     // Denylist mode: strip listed fields, keep everything else
@@ -531,7 +533,7 @@ function transformFrontmatter(content: string, host: Host): string {
 
   // Allowlist mode: reconstruct frontmatter with only allowed fields
   const fmStart = content.indexOf('---\n');
-  if (fmStart !== 0) return content;
+  if (fmStart !== 0) return contentRaw;
   const fmEnd = content.indexOf('\n---', fmStart + 4);
   if (fmEnd === -1) return content;
   const frontmatter = content.slice(fmStart + 4, fmEnd);

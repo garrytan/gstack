@@ -23,7 +23,7 @@ import { validateNavigationUrl } from './url-validation';
 import { TabSession, type RefEntry } from './tab-session';
 import { resolveChromiumProfile, cleanSingletonLocks } from './config';
 import { withCdpSession } from './cdp-bridge';
-import type { MemorySnapshot, MemoryStructureStats, MemoryTabSnapshot, MemoryProcess } from './memory-snapshot';
+import type { MemorySnapshot, MemoryStructureStats, MemoryTabSnapshot, MemoryProcess, MemoryWorkerSnapshot, MemoryGpuInfo, MemoryNativeProfile } from './memory-snapshot';
 
 /**
  * Detect whether GSTACK_CHROMIUM_PATH points at a custom Chromium build that
@@ -1040,40 +1040,103 @@ export class BrowserManager {
   }
 
   /**
+   * Helper to attach to a service worker target and query its V8 heap usage.
+   * Uses flat/non-flat CDP routing safely with a 1500ms timeout guard.
+   */
+  private async getWorkerHeapUsage(browserSession: any, targetId: string): Promise<{ usedSize: number; totalSize: number } | null> {
+    try {
+      const attachRes = await browserSession.send('Target.attachToTarget', { targetId, flatten: false }) as any;
+      const sessionId = attachRes.sessionId;
+      
+      return await Promise.race([
+        new Promise<{ usedSize: number; totalSize: number } | null>((resolve) => {
+          const onMessage = (event: any) => {
+            try {
+              const data = JSON.parse(event.message);
+              if (data.id === 202) {
+                browserSession.off('Target.receivedMessageFromTarget', onMessage);
+                if (data.result) {
+                  resolve({
+                    usedSize: data.result.usedSize ?? 0,
+                    totalSize: data.result.totalSize ?? 0
+                  });
+                } else {
+                  resolve(null);
+                }
+              }
+            } catch {
+              // Ignore malformed JSON
+            }
+          };
+          
+          browserSession.on('Target.receivedMessageFromTarget', onMessage);
+          
+          browserSession.send('Target.sendMessageToTarget', {
+            sessionId,
+            message: JSON.stringify({ id: 202, method: 'Runtime.getHeapUsage' })
+          }).catch(() => {
+            browserSession.off('Target.receivedMessageFromTarget', onMessage);
+            resolve(null);
+          });
+        }),
+        new Promise<{ usedSize: number; totalSize: number } | null>((resolve) => setTimeout(() => resolve(null), 1500))
+      ]);
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Diagnostic for `$B memory` and the /memory endpoint.
    *
    * Collects:
    *   - Bun process memory (cross-platform, accurate, no shelling).
    *   - Per-tab JS heap via CDP Performance.getMetrics — the most portable
-   *     per-tab signal CDP exposes. Misses native/GPU/Skia/cache memory
-   *     (Codex flag on the eng-review; see follow-up TODO "native/GPU
-   *     memory breakdown").
+   *     per-tab signal CDP exposes.
+   *   - MV3 extension background worker heap profile metrics via Target.getTargets
+   *     and Target.attachToTarget (Runtime.getHeapUsage).
+   *   - GPU hardware device and driver details via SystemInfo.getInfo.
+   *   - Native memory sampled allocations per-renderer via Memory.getSamplingProfile.
    *   - Chromium process tree via SystemInfo.getProcessInfo — PID + type
-   *     + CPU time. Per-process RSS is NOT exposed via CDP and the eng
-   *     review (D2 USE_CDP) explicitly chose CDP over shelling to `ps`,
-   *     so RSS columns are absent and `notes[]` says why.
-   *
-   * `structures` is passed in by the caller (read-commands / server) so
-   * browser-manager doesn't take a hard dep on every buffer-owning module.
+   *     + CPU time.
    */
   async getMemorySnapshot(structures: MemoryStructureStats): Promise<MemorySnapshot> {
     const bunMem = process.memoryUsage();
     const notes: string[] = [];
 
-    // Per-tab JS heap. Lazy: only the pages we already track. A target
-    // that died mid-snapshot is omitted, never throws.
+    // Per-tab JS heap and native sampling profiles.
     const tabs: MemoryTabSnapshot[] = [];
+    let totalNativeAllocated = 0;
+    let hasNativeSampling = false;
+
     for (const [id, page] of this.pages) {
       try {
         const url = (() => { try { return page.url(); } catch { return ''; } })();
         const title = await page.title().catch(() => '');
-        const metrics = await withCdpSession(page, async (session) => {
+        const data = await withCdpSession(page, async (session) => {
           await session.send('Performance.enable').catch(() => undefined);
-          const result = await session.send('Performance.getMetrics');
-          return ((result as { metrics?: Array<{ name: string; value: number }> }).metrics) ?? [];
+          const result = await session.send('Performance.getMetrics').catch(() => ({ metrics: [] }));
+          
+          // Get native sampling profile for this renderer target
+          const sampling = await session.send('Memory.getSamplingProfile').catch(() => null) as any;
+          
+          return {
+            metrics: ((result as { metrics?: Array<{ name: string; value: number }> }).metrics) ?? [],
+            sampling,
+          };
         });
+
         const mm: Record<string, number> = {};
-        for (const m of metrics) mm[m.name] = m.value;
+        for (const m of data.metrics) mm[m.name] = m.value;
+
+        // Sum up native allocated bytes if profile returned
+        if (data.sampling?.profile?.samples) {
+          hasNativeSampling = true;
+          for (const s of data.sampling.profile.samples) {
+            totalNativeAllocated += s.size ?? 0;
+          }
+        }
+
         tabs.push({
           id,
           url,
@@ -1089,26 +1152,29 @@ export class BrowserManager {
       }
     }
 
-    // Chromium process tree. Browser handle may be on the `browser` field
-    // (launched mode) or accessible via `context.browser()` (persistent
-    // context / headed mode); try both.
+    const nativeProfile = hasNativeSampling ? { totalAllocatedBytes: totalNativeAllocated } : null;
+
+    // Chromium process tree, GPU info, and Service Worker targets.
     let processes: MemoryProcess[] | null = null;
+    let gpuInfo: MemoryGpuInfo | null = null;
+    const serviceWorkers: MemoryWorkerSnapshot[] = [];
+
     const browser: Browser | null = this.browser ?? (this.context ? this.context.browser() : null);
     if (browser) {
       try {
-        // `newBrowserCDPSession` is browser-wide. Not exposed on every
-        // Playwright TypeScript surface, but present at runtime on the
-        // Browser instance — use a typed cast to avoid the @ts-expect-error.
         type BrowserWithCDP = Browser & {
           newBrowserCDPSession?: () => Promise<{
             send: (method: string, params?: unknown) => Promise<unknown>;
             detach: () => Promise<void>;
+            on: (event: string, cb: (data: any) => void) => void;
+            off: (event: string, cb: (data: any) => void) => void;
           }>;
         };
         const maybeFactory = (browser as BrowserWithCDP).newBrowserCDPSession;
         if (typeof maybeFactory === 'function') {
           const browserSession = await maybeFactory.call(browser);
           try {
+            // 1. Fetch process tree
             const info = (await browserSession.send('SystemInfo.getProcessInfo')) as {
               processInfo?: Array<{ id: number; type: string; cpuTime: number }>;
             };
@@ -1117,21 +1183,43 @@ export class BrowserManager {
               type: p.type,
               cpuTime: p.cpuTime,
             }));
-            notes.push(
-              'Per-Chromium-process RSS not collected — SystemInfo.getProcessInfo exposes PID+type+CPU only. ' +
-              'See follow-up TODO "native/GPU memory breakdown" for the deferred fix.',
-            );
+
+            // 2. Fetch GPU hardware detail
+            const sysInfo = (await browserSession.send('SystemInfo.getInfo').catch(() => null)) as any;
+            if (sysInfo && sysInfo.gpu) {
+              gpuInfo = {
+                devices: sysInfo.gpu.devices || [],
+                modelName: sysInfo.modelName,
+                modelVersion: sysInfo.modelVersion,
+              };
+            }
+
+            // 3. Fetch Service Worker targets
+            const targets = (await browserSession.send('Target.getTargets').catch(() => ({ targetInfos: [] }))) as any;
+            const swTargets = (targets?.targetInfos || []).filter((t: any) => t.type === 'service_worker');
+            
+            for (const t of swTargets) {
+              const heap = await this.getWorkerHeapUsage(browserSession, t.targetId);
+              serviceWorkers.push({
+                targetId: t.targetId,
+                url: t.url || '',
+                title: t.title || 'Service Worker',
+                jsHeapUsed: heap?.usedSize ?? 0,
+                jsHeapTotal: heap?.totalSize ?? 0,
+              });
+            }
+
           } finally {
             await browserSession.detach().catch(() => undefined);
           }
         } else {
-          notes.push('Playwright build does not expose newBrowserCDPSession; per-process info skipped.');
+          notes.push('Playwright build does not expose newBrowserCDPSession; per-process and SW info skipped.');
         }
       } catch (err: any) {
         notes.push(`CDP browser session unavailable: ${err?.message ?? String(err)}`);
       }
     } else {
-      notes.push('Browser handle unavailable (server connection mode); per-process info skipped.');
+      notes.push('Browser handle unavailable (server connection mode); per-process and SW info skipped.');
     }
 
     return {
@@ -1142,6 +1230,9 @@ export class BrowserManager {
         external: bunMem.external,
       },
       tabs,
+      serviceWorkers,
+      gpuInfo,
+      nativeProfile,
       processes,
       structures,
       capturedAt: Date.now(),

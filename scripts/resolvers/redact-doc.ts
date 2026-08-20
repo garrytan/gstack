@@ -144,7 +144,7 @@ file, pass the SAME file downstream. Never scan a string then re-render it.
 command -v bun >/dev/null 2>&1 || echo "redaction scan skipped — bun not on PATH"
 # Resolve visibility once; cache + reuse. Order: local config (~/.gstack, never
 # committed) → gh → glab → unknown(=public-strict).
-REDACT_VIS=$(~/.claude/skills/gstack/bin/gstack-config get redact_repo_visibility 2>/dev/null)
+REDACT_VIS=$(${ctx.paths.binDir}/gstack-config get redact_repo_visibility 2>/dev/null)
 [ -z "$REDACT_VIS" ] && REDACT_VIS=$(gh repo view --json visibility -q .visibility 2>/dev/null | tr 'A-Z' 'a-z')
 [ -z "$REDACT_VIS" ] && REDACT_VIS=$(glab repo view -F json 2>/dev/null | grep -o '"visibility":"[^"]*"' | head -1 | sed 's/.*:"//;s/"//' | tr 'A-Z' 'a-z')
 REDACT_VIS="\${REDACT_VIS:-unknown}"
