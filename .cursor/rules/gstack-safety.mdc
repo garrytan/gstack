@@ -1,0 +1,14 @@
+---
+description: Destructive-command and freeze-boundary behavior when those skills are active.
+alwaysApply: true
+---
+
+# Safety skills
+
+`/careful`, `/freeze`, and `/guard` are opt-in. Cursor hooks in `.cursor/hooks.json` enforce them only after the matching skill writes state.
+
+- `/careful` — warn (and hard-deny catastrophic shapes) before `rm -rf`, `DROP TABLE`, force-push, `git reset --hard`. Touches `$GSTACK_HOME/careful-active`.
+- `/freeze` — block Write/StrReplace outside the chosen directory. Writes `$GSTACK_HOME/freeze-dir.txt`.
+- `/guard` — both. `/unfreeze` clears the freeze file.
+
+Even when hooks are idle, confirm with the user before recursive deletes, force-pushes to the default branch, or production-data destruction.

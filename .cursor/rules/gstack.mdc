@@ -1,0 +1,33 @@
+---
+description: gstack workflow routing and Cursor tool mapping. Always on.
+alwaysApply: true
+---
+
+# gstack in Cursor
+
+gstack is a specialist workflow suite. Skills live in `.cursor/skills/<name>/SKILL.md`. When a request matches a skill, **Read that file and follow it** before answering. Do not improvise a thinner version.
+
+## Sprint order
+
+Think → Plan → Build → Review → Test → Ship → Reflect
+
+- New product idea / "is this worth building" → `/office-hours`
+- Strategy / scope / ambition → `/plan-ceo-review`
+- Architecture / data flow / tests → `/plan-eng-review`
+- Visual design of a plan → `/plan-design-review`
+- DX of a plan (CLI/API/SDK) → `/plan-devex-review`
+- Run the full review gauntlet → `/autoplan`
+- Vague intent → GitHub issue → `/spec`
+- Bug / error / "why is this broken" → `/investigate`
+- Code review / diff → `/review`
+- Test a live site and fix → `/qa` (report only: `/qa-only`)
+- Ready to push / PR → `/ship`
+- Security audit → `/cso`
+
+## Cursor tools (never Claude Code names)
+
+Use `AskQuestion`, `Shell`, `Task`, `StrReplace`, `Read`, `Grep`, `Glob`. Read `AGENTS.md` for project conventions, not `CLAUDE.md`. Browser work uses the gstack browse binary (`browse/dist/browse` or `bun run dev`), never Chrome MCP tools.
+
+## Project config
+
+Read `AGENTS.md` first. Persist durable project answers there so they are not re-asked.
