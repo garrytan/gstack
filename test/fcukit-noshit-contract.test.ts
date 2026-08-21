@@ -11,6 +11,10 @@ function template(skill: 'noshit' | 'fcukit'): string {
 describe('/noshit contract', () => {
   const body = template('noshit');
 
+  test('documents the full tool name', () => {
+    expect(body).toContain('NOSHIT: No-Omissions System Health & Integrity Test');
+  });
+
   test('has no mutation-capable file tools', () => {
     const frontmatter = body.slice(0, body.indexOf('\n---', 4));
     expect(frontmatter).not.toMatch(/^\s+- (Write|Edit|NotebookEdit)$/m);
@@ -45,6 +49,10 @@ describe('/noshit contract', () => {
 describe('/fcukit contract', () => {
   const body = template('fcukit');
 
+  test('documents the full tool name', () => {
+    expect(body).toContain('FCUKIT: Full Configuration, Understanding & Knowledge Integration Tool');
+  });
+
   test('discovery precedes approval and writes', () => {
     expect(body.indexOf('## Phase 0: Establish identity')).toBeLessThan(body.indexOf('## Phase 5: One consolidated approval gate'));
     expect(body.indexOf('## Phase 5: One consolidated approval gate')).toBeLessThan(body.indexOf('## Phase 6: Apply only approved changes'));
@@ -53,6 +61,8 @@ describe('/fcukit contract', () => {
   test('headless mode blocks before mutation', () => {
     expect(body).toContain('`GSTACK_HEADLESS`, `CI`, or');
     expect(body).toContain('`GITHUB_ACTIONS`');
+    expect(body).toContain('FCUKIT_SESSION_KIND=headless');
+    expect(body).toContain('Run this mandatory observational probe before any other command');
     expect(body).toContain('BLOCKED: approval required');
     expect(body).toContain('No files or settings changed.');
     expect(body).not.toContain('{{PREAMBLE}}');

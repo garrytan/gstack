@@ -21,6 +21,10 @@
  * Each test lists the file patterns that, if changed, require the test to run.
  */
 export const E2E_TOUCHFILES: Record<string, string[]> = {
+  // Repository-integrity safety contracts — behavioral, Git-visible tripwires.
+  'noshit-zero-write': ['noshit/**', 'test/skill-e2e-fcukit-noshit-safety.test.ts', 'test/helpers/session-runner.ts'],
+  'fcukit-headless-approval': ['fcukit/**', 'test/skill-e2e-fcukit-noshit-safety.test.ts', 'test/helpers/session-runner.ts'],
+
   // Browse core (+ test-server dependency)
   'browse-basic':    ['browse/src/**', 'browse/test/test-server.ts'],
   'browse-snapshot': ['browse/src/**', 'browse/test/test-server.ts'],
@@ -440,6 +444,9 @@ export const E2E_TOUCHFILES: Record<string, string[]> = {
  * Must have exactly the same keys as E2E_TOUCHFILES.
  */
 export const E2E_TIERS: Record<string, 'gate' | 'periodic'> = {
+  'noshit-zero-write': 'gate',
+  'fcukit-headless-approval': 'gate',
+
   // Browse core — gate (if browse breaks, everything breaks)
   'browse-basic': 'gate',
   'browse-snapshot': 'gate',

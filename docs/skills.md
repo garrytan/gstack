@@ -1062,6 +1062,8 @@ Claude: Running independent Codex review...
 
 ## `/noshit`
 
+**No-Omissions System Health & Integrity Test.**
+
 Read-only integrity audit for AI-development setup. It compares repository evidence
 with agent instructions, safety rules, memory, tools, verification guidance, and Git
 hygiene. It never fixes files or runs commands likely to write caches or state; use
@@ -1070,6 +1072,8 @@ hygiene. It never fixes files or runs commands likely to write caches or state; 
 See [`noshit/SKILL.md`](../noshit/SKILL.md) for the complete workflow.
 
 ## `/fcukit`
+
+**Full Configuration, Understanding & Knowledge Integration Tool.**
 
 Evidence-first repository bootstrap and hardening. It resolves repository identity,
 maps risks, and shows one consolidated mutation plan before asking for approval. It
