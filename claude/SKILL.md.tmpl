@@ -176,7 +176,7 @@ cat "$DIFF_FILE" >> "$PROMPT_FILE"
 
 ```bash
 CLAUDE_BIN=$(command -v claude 2>/dev/null) || { echo "Claude CLI not found" >&2; exit 1; }
-cat "$PROMPT_FILE" | "$CLAUDE_BIN" -p --output-format json --disable-slash-commands --tools "" > "$RESP_FILE" 2>"$ERR_FILE"
+cat "$PROMPT_FILE" | "$CLAUDE_BIN" -p --model sonnet --effort high --output-format json --disable-slash-commands --tools "" --no-session-persistence > "$RESP_FILE" 2>"$ERR_FILE"
 ```
 
 4. Present the parsed output:
@@ -223,7 +223,7 @@ cat "$DIFF_FILE" >> "$PROMPT_FILE"
 
 ```bash
 CLAUDE_BIN=$(command -v claude 2>/dev/null) || { echo "Claude CLI not found" >&2; exit 1; }
-cat "$PROMPT_FILE" | "$CLAUDE_BIN" -p --output-format json --disable-slash-commands --tools "" > "$RESP_FILE" 2>"$ERR_FILE"
+cat "$PROMPT_FILE" | "$CLAUDE_BIN" -p --model sonnet --effort high --output-format json --disable-slash-commands --tools "" --no-session-persistence > "$RESP_FILE" 2>"$ERR_FILE"
 ```
 
 4. Present the parsed output:

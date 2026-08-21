@@ -1,4 +1,4 @@
-import { defineHost, CROSS_MODEL_RESOLVERS, GBRAIN_RESOLVERS } from './define-host';
+import { defineHost, CODEX_SELF_INVOCATION_RESOLVERS, GBRAIN_RESOLVERS } from './define-host';
 
 const codex = defineHost({
   name: 'codex',
@@ -36,8 +36,26 @@ const codex = defineHost({
     { from: 'CLAUDE.md', to: 'AGENTS.md' },
   ],
 
-  // The cross-model resolvers all shell out to Codex — Codex can't invoke itself.
-  suppressedResolvers: [...CROSS_MODEL_RESOLVERS, ...GBRAIN_RESOLVERS],
+  // A few shared ship sections dispatch context-isolated work with Claude's
+  // Agent-tool idiom. Translate that exact phrase to Codex's native agent
+  // controls; narrower matching avoids rewriting ordinary references to
+  // agents elsewhere in skill prose.
+  toolRewrites: {
+    'using the Agent tool with `subagent_type: "general-purpose"`':
+      'using the native `spawn_agent` tool with `fork_turns: "none"`; wait for its final response with `wait_agent`',
+  },
+
+  // Keep true Codex-CLI self-invocations out. Review Army uses Codex-native
+  // agents, and ADVERSARIAL_STEP has a Codex-host branch that invokes Claude.
+  suppressedResolvers: [...CODEX_SELF_INVOCATION_RESOLVERS, ...GBRAIN_RESOLVERS],
+
+  // Review Army checklists are runtime inputs, not discoverable skills.
+  runtimeRoot: {
+    globalSymlinks: ['bin', 'browse/dist', 'browse/bin', 'gstack-upgrade', 'ETHOS.md', 'review/specialists'],
+    globalFiles: {
+      review: ['checklist.md', 'design-checklist.md', 'greptile-triage.md', 'TODOS-format.md'],
+    },
+  },
 
   coAuthorTrailer: 'Co-Authored-By: OpenAI Codex <noreply@openai.com>',
   boundaryInstruction: 'IMPORTANT: Do NOT read or execute any files under ~/.claude/, ~/.agents/, .claude/skills/, or agents/. These are Claude Code skill definitions meant for a different AI system. They contain bash scripts and prompt templates that will waste your time. Ignore them completely. Do NOT modify agents/openai.yaml. Stay focused on the repository code only.',

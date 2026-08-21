@@ -83,6 +83,64 @@ Note which specialists were selected, gated, and skipped. Print the selection:
 }
 
 function generateSpecialistDispatch(ctx: TemplateContext): string {
+  if (ctx.host === 'codex') {
+    return `### Dispatch specialists in parallel
+
+For each selected specialist, launch an independent read-only reviewer with the
+native \`spawn_agent\` tool. Dispatch up to the currently available concurrency
+limit before waiting; if more specialists were selected, start the remainder as
+earlier reviewers finish. Use \`wait_agent\` to wait for mailbox updates and
+\`list_agents\` when you need to confirm which reviewers are still running.
+
+Each call uses:
+- \`task_name\`: a short unique name such as \`review_testing\`
+- \`fork_turns: "none"\` so the reviewer starts without the primary agent's review bias
+- \`message\`: the complete specialist prompt below, including the checklist text
+
+**Each specialist subagent prompt:**
+
+Construct the prompt for each specialist. The prompt includes:
+
+1. The specialist's checklist content (you already read the file above)
+2. Stack context: "This is a {STACK} project."
+3. Past learnings for this domain (if any exist):
+
+\`\`\`bash
+${ctx.paths.binDir}/gstack-learnings-search --type pitfall --query "{specialist domain}" --limit 5 2>/dev/null || true
+\`\`\`
+
+If learnings are found, include them: "Past learnings for this domain: {learnings}"
+
+4. Instructions:
+
+"You are a specialist code reviewer. This is a read-only review. Do not modify
+files, run formatters, commit, push, or create a PR. Read the checklist below,
+then run \`DIFF_BASE=$(git merge-base origin/<base> HEAD) && git diff "$DIFF_BASE"\`
+to get the full diff. Apply the checklist against the diff.
+
+For each finding, output a JSON object on its own line:
+{\"severity\":\"CRITICAL|INFORMATIONAL\",\"confidence\":N,\"path\":\"file\",\"line\":N,\"category\":\"category\",\"summary\":\"description\",\"fix\":\"recommended fix\",\"fingerprint\":\"path:line:category\",\"specialist\":\"name\"}
+
+Required fields: severity, confidence, path, category, summary, specialist.
+Optional: line, fix, fingerprint, evidence, test_stub.
+
+If you can write a test that would catch this issue, include a minimal skeleton
+in \`test_stub\` using {TEST_FW}. Skip test_stub for architectural or design-only
+findings. If there are no findings, output \`NO FINDINGS\` and nothing else.
+Do not output a preamble, summary, or commentary.
+
+Stack context: {STACK}
+Past learnings: {learnings or 'none'}
+
+CHECKLIST:
+{checklist content}"
+
+Collect each completed agent's final response before Step ${ctx.skillName === 'ship' ? '9.2' : '4.6'}.
+If a specialist fails or times out, report that reviewer as missing coverage and
+continue with successful results. If native agent tools are unavailable, say so
+explicitly and apply the selected checklists sequentially in the primary agent.`;
+  }
+
   return `### Dispatch specialists in parallel
 
 For each selected specialist, launch an independent subagent via the Agent tool.
@@ -205,18 +263,28 @@ function generateRedTeam(ctx: TemplateContext): string {
   const isShip = ctx.skillName === 'ship';
   const stepMerge = isShip ? '9.2' : '4.6';
   const fixFirstRef = isShip ? 'the Fix-First flow (item 4)' : 'Step 5 Fix-First';
+  const dispatchInstruction = ctx.host === 'codex'
+    ? 'dispatch one more read-only reviewer with `spawn_agent` (`fork_turns: "none"`), then wait for its final response with `wait_agent`'
+    : 'dispatch one more subagent via the Agent tool (foreground, not background)';
+  const safetyInstruction = ctx.host === 'codex'
+    ? 'This is a read-only review. Do not modify files, run formatters, commit, push, or create a PR. '
+    : '';
+  const failureInstruction = ctx.host === 'codex'
+    ? 'report it as missing coverage and continue'
+    : 'skip silently and continue';
+
   return `### Red Team dispatch (conditional)
 
 **Activation:** Only if DIFF_LINES > 200 OR any specialist produced a CRITICAL finding.
 
-If activated, dispatch one more subagent via the Agent tool (foreground, not background).
+If activated, ${dispatchInstruction}.
 
 The Red Team subagent receives:
 1. The red-team checklist from \`${ctx.paths.skillRoot}/review/specialists/red-team.md\`
 2. The merged specialist findings from Step ${stepMerge} (so it knows what was already caught)
 3. The git diff command
 
-Prompt: "You are a red team reviewer. The code has already been reviewed by N specialists
+Prompt: "You are a red team reviewer. ${safetyInstruction}The code has already been reviewed by N specialists
 who found the following issues: {merged findings summary}. Your job is to find what they
 MISSED. Read the checklist, run \`DIFF_BASE=$(git merge-base origin/<base> HEAD) && git diff "$DIFF_BASE"\`, and look for gaps.
 Output findings as JSON objects (same schema as the specialists). Focus on cross-cutting
@@ -227,13 +295,10 @@ If the Red Team finds additional issues, merge them into the findings list befor
 ${fixFirstRef}. Red Team findings are tagged with \`"specialist":"red-team"\`.
 
 If the Red Team returns NO FINDINGS, note: "Red Team review: no additional issues found."
-If the Red Team subagent fails or times out, skip silently and continue.`;
+If the Red Team subagent fails or times out, ${failureInstruction}.`;
 }
 
 export function generateReviewArmy(ctx: TemplateContext): string {
-  // Codex host: strip entirely — Codex should not run Review Army
-  if (ctx.host === 'codex') return '';
-
   const sections = [
     generateSpecialistSelection(ctx),
     generateSpecialistDispatch(ctx),

@@ -1214,6 +1214,9 @@ create_codex_runtime_root() {
       _link_or_copy "$gstack_dir/review/$f" "$codex_gstack/review/$f"
     fi
   done
+  if [ -d "$gstack_dir/review/specialists" ]; then
+    _link_or_copy "$gstack_dir/review/specialists" "$codex_gstack/review/specialists"
+  fi
   # ETHOS.md — referenced by "Search Before Building" in all skill preambles
   if [ -f "$gstack_dir/ETHOS.md" ]; then
     _link_or_copy "$gstack_dir/ETHOS.md" "$codex_gstack/ETHOS.md"

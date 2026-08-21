@@ -386,6 +386,7 @@ describe('host-config-export.ts CLI', () => {
     expect(lines).toContain('bin');
     expect(lines).toContain('ETHOS.md');
     expect(lines).toContain('review/checklist.md');
+    expect(lines).toContain('review/specialists');
   });
 
   test('opencode symlinks returns nested runtime assets', () => {
@@ -530,11 +531,24 @@ describe('host config correctness', () => {
     expect(factory.frontmatter.conditionalFields![0].add).toEqual({ 'disable-model-invocation': true });
   });
 
-  test('codex has suppressedResolvers for self-invocation prevention', () => {
+  test('codex suppresses only true CLI self-invocations', () => {
     expect(codex.suppressedResolvers).toBeDefined();
     expect(codex.suppressedResolvers).toContain('CODEX_SECOND_OPINION');
-    expect(codex.suppressedResolvers).toContain('ADVERSARIAL_STEP');
-    expect(codex.suppressedResolvers).toContain('REVIEW_ARMY');
+    expect(codex.suppressedResolvers).toContain('CODEX_PLAN_REVIEW');
+    expect(codex.suppressedResolvers).not.toContain('ADVERSARIAL_STEP');
+    expect(codex.suppressedResolvers).not.toContain('REVIEW_ARMY');
+  });
+
+  test('codex translates Claude subagent dispatch to native agent controls', () => {
+    expect(codex.toolRewrites).toEqual({
+      'using the Agent tool with `subagent_type: "general-purpose"`':
+        'using the native `spawn_agent` tool with `fork_turns: "none"`; wait for its final response with `wait_agent`',
+    });
+  });
+
+  test('codex runtime root includes Review Army inputs', () => {
+    expect(codex.runtimeRoot.globalSymlinks).toContain('review/specialists');
+    expect(codex.runtimeRoot.globalFiles?.review).toContain('design-checklist.md');
   });
 
   test('codex has boundary instruction', () => {

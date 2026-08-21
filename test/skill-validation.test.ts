@@ -1413,6 +1413,8 @@ describe('Codex skill', () => {
     // Review log
     expect(content).toContain('adversarial-review');
     expect(content).toContain('reasoning_effort="high"');
+    expect(content).toContain('codex_review_speed');
+    expect(content).toContain('service_tier="fast"');
     expect(content).toContain('ADVERSARIAL REVIEW SYNTHESIS');
     // Large diff structured review still gated
     expect(content).toContain('Codex structured review (large diffs only');
@@ -1424,6 +1426,8 @@ describe('Codex skill', () => {
     expect(content).toContain('Adversarial review (always-on)');
     expect(content).toContain('adversarial-review');
     expect(content).toContain('reasoning_effort="high"');
+    expect(content).toContain('codex_review_speed');
+    expect(content).toContain('service_tier="fast"');
     expect(content).toContain('Investigate and fix');
     expect(content).toContain('Claude adversarial subagent (always runs)');
   });
@@ -1441,7 +1445,7 @@ describe('Codex skill', () => {
     }
   });
 
-  test('codex-host ship/review do NOT contain adversarial review step', () => {
+  test('codex-host ship/review use native specialists and Claude Sonnet outside voice', () => {
     // .agents/ is gitignored — generate on demand
     Bun.spawnSync(['bun', 'run', 'scripts/gen-skill-docs.ts', '--host', 'codex'], {
       cwd: ROOT, stdout: 'pipe', stderr: 'pipe',
@@ -1449,13 +1453,22 @@ describe('Codex skill', () => {
     const shipContent = fs.readFileSync(path.join(ROOT, '.agents', 'skills', 'gstack-ship', 'SKILL.md'), 'utf-8');
     expect(shipContent).not.toContain('codex review --base');
     expect(shipContent).not.toContain('CODEX_REVIEWS');
+    expect(shipContent).not.toContain('_gstack_codex_timeout_wrapper');
+    expect(shipContent).toContain('native `spawn_agent` tool');
+    expect(shipContent).toContain('`wait_agent`');
+    expect(shipContent).toContain('Claude Sonnet outside voice');
+    expect(shipContent).toContain('--model sonnet --effort high');
 
     const reviewContent = fs.readFileSync(path.join(ROOT, '.agents', 'skills', 'gstack-review', 'SKILL.md'), 'utf-8');
     expect(reviewContent).not.toContain('codex review --base');
     expect(reviewContent).not.toContain('codex_reviews');
     expect(reviewContent).not.toContain('CODEX_REVIEWS');
-    expect(reviewContent).not.toContain('adversarial-review');
-    expect(reviewContent).not.toContain('Investigate and fix');
+    expect(reviewContent).not.toContain('_gstack_codex_timeout_wrapper');
+    expect(reviewContent).toContain('Review Army — Specialist Dispatch');
+    expect(reviewContent).toContain('native `spawn_agent` tool');
+    expect(reviewContent).toContain('Claude Sonnet outside voice');
+    expect(reviewContent).toContain('adversarial-review');
+    expect(reviewContent).toContain('FIXABLE findings flow into Step 5 Fix-First');
   });
 
   test('codex integration in /plan-eng-review offers plan critique', () => {
