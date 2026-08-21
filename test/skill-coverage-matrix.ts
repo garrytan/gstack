@@ -193,6 +193,16 @@ export const SKILL_COVERAGE: Record<string, SkillCoverage> = {
   guard: { gate: ['test/skill-coverage-floor.test.ts'], periodic: [] },
   'landing-report': { gate: ['test/skill-coverage-floor.test.ts'], periodic: [] },
   health: { gate: ['test/skill-coverage-floor.test.ts'], periodic: [] },
+  noshit: {
+    gate: ['test/fcukit-noshit-contract.test.ts', 'test/skill-coverage-floor.test.ts'],
+    periodic: [],
+    rationale: 'Free contract tests pin the zero-write gate, status model, host uncertainty, and /health separation.',
+  },
+  fcukit: {
+    gate: ['test/fcukit-noshit-contract.test.ts', 'test/skill-coverage-floor.test.ts'],
+    periodic: [],
+    rationale: 'Free contract tests pin discovery ordering, headless approval, identity checks, and unrelated-work preservation.',
+  },
   'make-pdf': { gate: ['test/skill-coverage-floor.test.ts'], periodic: [] },
   'devex-review': { gate: ['test/skill-coverage-floor.test.ts'], periodic: [] },
 };

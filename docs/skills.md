@@ -38,6 +38,8 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | [`/context-save`](#context-save) | **Save State** | Save working context (git state, decisions, remaining work) so any future session can resume. |
 | [`/context-restore`](#context-restore) | **Restore State** | Resume from a saved context, even across Conductor workspace handoffs. |
 | [`/health`](#health) | **Code Quality Dashboard** | Wraps type checker, linter, tests, dead code detection. Computes a weighted 0-10 score; tracks trends over time. |
+| [`/noshit`](#noshit) | **AI Integrity Audit** | Read-only check that agent instructions, safety, memory, tooling, and Git hygiene match repository evidence. |
+| [`/fcukit`](#fcukit) | **Repository Bootstrap** | Audit and harden repository AI-development setup after an explicit approval gate. |
 | [`/landing-report`](#landing-report) | **Ship Queue Dashboard** | Read-only snapshot of the workspace-aware ship queue. Which version slots are claimed, which sibling workspaces have WIP. |
 | [`/benchmark-models`](#benchmark-models) | **Model Benchmark** | Side-by-side cross-model benchmark for skills (Claude vs GPT vs Gemini). Latency, tokens, cost, optional LLM-judged quality. |
 | | | |
@@ -1055,6 +1057,26 @@ Claude: Running independent Codex review...
         UNIQUE TO CODEX: Token comparison timing attack
         UNIQUE TO CLAUDE: N+1 query in listing photos
 ```
+
+---
+
+## `/noshit`
+
+Read-only integrity audit for AI-development setup. It compares repository evidence
+with agent instructions, safety rules, memory, tools, verification guidance, and Git
+hygiene. It never fixes files or runs commands likely to write caches or state; use
+`/health` separately for code-quality scoring.
+
+See [`noshit/SKILL.md`](../noshit/SKILL.md) for the complete workflow.
+
+## `/fcukit`
+
+Evidence-first repository bootstrap and hardening. It resolves repository identity,
+maps risks, and shows one consolidated mutation plan before asking for approval. It
+fails closed in headless sessions, preserves unrelated work, and keeps GBrain setup as
+a separately approved workflow.
+
+See [`fcukit/SKILL.md`](../fcukit/SKILL.md) for the complete workflow.
 
 ---
 
