@@ -1069,6 +1069,13 @@ with agent instructions, safety rules, memory, tools, verification guidance, and
 hygiene. It never fixes files or runs commands likely to write caches or state; use
 `/health` separately for code-quality scoring.
 
+Use it to prove that repository identity, `CLAUDE.md`/`AGENTS.md` claims, host
+permissions, sandbox boundaries, secret and persistent-data protections, Git state,
+memory scope, MCP/tool access, and documented verification commands match reality.
+Seven evidence categories receive `PASS`, `WARN`, `FAIL`, or `UNKNOWN`; unsupported
+host behavior stays `UNKNOWN` instead of being assumed safe. The final report identifies
+blockers, warnings, unknowns, and well-designed areas while guaranteeing zero writes.
+
 See [`noshit/SKILL.md`](../noshit/SKILL.md) for the complete workflow.
 
 ## `/fcukit`
@@ -1079,6 +1086,14 @@ Evidence-first repository bootstrap and hardening. It resolves repository identi
 maps risks, and shows one consolidated mutation plan before asking for approval. It
 fails closed in headless sessions, preserves unrelated work, and keeps GBrain setup as
 a separately approved workflow.
+
+Use it to understand an unfamiliar repository, audit stale or contradictory agent
+configuration, detect the real build/test/lint toolchain, identify secrets, databases,
+migrations, containers, deployment and publishing boundaries, and propose the smallest
+useful project instructions and supported local safety settings. Every proposed change
+is tied to evidence and shown in one approval table. It never deletes, stages, commits,
+deploys, publishes, or silently initializes Git, and it verifies that pre-existing
+staged, unstaged, and untracked work remains untouched.
 
 See [`fcukit/SKILL.md`](../fcukit/SKILL.md) for the complete workflow.
 
