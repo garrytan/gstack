@@ -60,6 +60,7 @@ FACTORY_SKILLS="$HOME/.factory/skills"
 FACTORY_GSTACK="$FACTORY_SKILLS/gstack"
 OPENCODE_SKILLS="$HOME/.config/opencode/skills"
 OPENCODE_GSTACK="$OPENCODE_SKILLS/gstack"
+OPENCODE_COMMANDS="$HOME/.config/opencode/commands"
 CURSOR_SKILLS="$HOME/.cursor/skills"
 CURSOR_GSTACK="$CURSOR_SKILLS/gstack"
 
@@ -1430,6 +1431,55 @@ link_opencode_skill_dirs() {
   fi
 }
 
+# OpenCode 1.18.3 ships builtin /review (subtask: true) which shadows a skill
+# whose frontmatter name is `review`. Do not write commands/review.md — that
+# would steal the builtin. Write a namespaced file so /gstack-review loads
+# the skill by its short name. Non-colliding skills already register as slash
+# commands from the skill itself. Banner goes after frontmatter so OpenCode
+# still parses description/subtask; grep '<!-- AUTO-GENERATED from' matches
+# the #2142/#2444 ownership gate used by every other installer.
+install_opencode_collision_commands() {
+  local skills_dir="$1"
+  local commands_dir="$2"
+  local skill_dir skill_file name dest
+  local wrote=()
+
+  [ -d "$skills_dir" ] || return 0
+
+  for skill_dir in "$skills_dir"/gstack-*/; do
+    skill_file="$skill_dir/SKILL.md"
+    [ -f "$skill_file" ] || continue
+    name=$(awk 'BEGIN{fm=0} /^---$/{fm++; next} fm==1 && $1=="name:"{print $2; exit}' "$skill_file")
+    case "$name" in
+      review) ;;
+      *) continue ;;
+    esac
+    dest="$commands_dir/gstack-${name}.md"
+    if [ -e "$dest" ] || [ -L "$dest" ]; then
+      if ! grep -q '<!-- AUTO-GENERATED from' "$dest" 2>/dev/null; then
+        echo "  left in place (existing dir not gstack-managed — no generated banner): $dest" >&2
+        continue
+      fi
+    fi
+    mkdir -p "$commands_dir"
+    cat > "$dest" <<EOF
+---
+description: Run the gstack ${name} skill
+subtask: false
+---
+
+<!-- AUTO-GENERATED from setup — do not edit directly -->
+
+Use the skill tool with name "${name}" (the skill frontmatter name). Follow that skill, including its preamble.
+EOF
+    wrote+=("gstack-${name}")
+  done
+
+  if [ ${#wrote[@]} -gt 0 ]; then
+    echo "  opencode commands: ${wrote[*]}"
+  fi
+}
+
 # ─── Helper: create a minimal ~/.cursor/skills/gstack runtime root ──────────
 # Cursor scans ~/.cursor/skills. Same shape as the Codex/Factory/OpenCode
 # runtime roots: root SKILL.md from the generated tree + runtime assets only.
@@ -1846,9 +1896,11 @@ if [ "$INSTALL_OPENCODE" -eq 1 ]; then
   mkdir -p "$OPENCODE_SKILLS"
   create_opencode_runtime_root "$SOURCE_GSTACK_DIR" "$OPENCODE_GSTACK"
   link_opencode_skill_dirs "$SOURCE_GSTACK_DIR" "$OPENCODE_SKILLS"
+  install_opencode_collision_commands "$OPENCODE_SKILLS" "$OPENCODE_COMMANDS"
   echo "gstack ready (opencode)."
   echo "  browse: $BROWSE_BIN"
   echo "  opencode skills: $OPENCODE_SKILLS"
+  echo "  opencode: /review is OpenCode's builtin — use /gstack-review for gstack's review skill"
 fi
 
 # 6d. Install for Cursor
