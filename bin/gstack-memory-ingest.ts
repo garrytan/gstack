@@ -788,7 +788,10 @@ function buildTranscriptPage(path: string, session: ParsedSession): PageRecord {
     source_path: path,
     session_id: session.session_id,
     cwd: session.cwd,
-    git_remote: remote,
+    // Apply the same "_unattributed" fallback the frontmatter and repoSlug use.
+    // The unattributed skip guard reads this field, so leaving the raw "" here
+    // makes `--include-unattributed` inert (`"" === "_unattributed"` is never true).
+    git_remote: remote || "_unattributed",
     start_time: session.start_time,
     end_time: session.end_time,
     partial: session.partial,

@@ -296,6 +296,64 @@ describe("internal: parseTranscriptJsonl + buildTranscriptPage shape", () => {
   });
 });
 
+// ── unattributed skip policy ───────────────────────────────────────────────
+
+describe("gstack-memory-ingest unattributed skip", () => {
+  function sessionIn(cwd: string): string {
+    return (
+      `{"type":"user","message":{"role":"user","content":"hi"},"timestamp":"2026-05-01T00:00:00Z","cwd":"${cwd}"}\n` +
+      `{"type":"assistant","message":{"role":"assistant","content":"hello"},"timestamp":"2026-05-01T00:00:01Z"}\n`
+    );
+  }
+
+  it("skips a session whose cwd is not a git repo", () => {
+    const home = makeTestHome();
+    const work = join(home, "work");
+    mkdirSync(work, { recursive: true });
+    writeClaudeCodeSession(home, "not-a-repo", "sess1", sessionIn(work));
+
+    const r = runScript(["--bulk", "--no-write"], { HOME: home, GSTACK_HOME: join(home, ".gstack") });
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain("written:               0");
+    expect(r.stdout).toContain("skipped (unattrib):    1");
+
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("imports that same session when --include-unattributed is passed", () => {
+    const home = makeTestHome();
+    const work = join(home, "work");
+    mkdirSync(work, { recursive: true });
+    writeClaudeCodeSession(home, "not-a-repo", "sess1", sessionIn(work));
+
+    const r = runScript(["--bulk", "--no-write", "--include-unattributed"], {
+      HOME: home,
+      GSTACK_HOME: join(home, ".gstack"),
+    });
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain("written:               1");
+    expect(r.stdout).toContain("skipped (unattrib):    0");
+
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("still imports a session whose cwd does resolve to a git remote", () => {
+    const home = makeTestHome();
+    const repo = join(home, "repo");
+    mkdirSync(repo, { recursive: true });
+    spawnSync("git", ["-C", repo, "init", "-q"]);
+    spawnSync("git", ["-C", repo, "remote", "add", "origin", "https://github.com/foo/bar.git"]);
+    writeClaudeCodeSession(home, "real", "sess2", sessionIn(repo));
+
+    const r = runScript(["--bulk", "--no-write"], { HOME: home, GSTACK_HOME: join(home, ".gstack") });
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain("written:               1");
+    expect(r.stdout).toContain("skipped (unattrib):    0");
+
+    rmSync(home, { recursive: true, force: true });
+  });
+});
+
 // ── --limit shortcut for smoke tests ───────────────────────────────────────
 
 describe("gstack-memory-ingest --limit", () => {
