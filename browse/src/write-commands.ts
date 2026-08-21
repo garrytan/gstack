@@ -7,8 +7,9 @@
 
 import type { TabSession } from './tab-session';
 import type { BrowserManager } from './browser-manager';
-import { findInstalledBrowsers, importCookies, importCookiesViaCdp, hasV20Cookies, listSupportedBrowserNames } from './cookie-import-browser';
+import { findInstalledBrowsers, listProfiles, listDomains, importCookiesWithRetry, importCookiesViaCdp, hasV20Cookies, listSupportedBrowserNames } from './cookie-import-browser';
 import { generatePickerCode } from './cookie-picker-routes';
+import { verifyCookieAuthentication } from './cookie-auth-verification';
 import { validateNavigationUrl } from './url-validation';
 import { validateOutputPath, validateReadPath } from './path-security';
 import { guardScreenshotPath } from './screenshot-size-guard';
@@ -695,7 +696,9 @@ export async function handleWriteCommand(
       const domainIdx = args.indexOf('--domain');
       const profileIdx = args.indexOf('--profile');
       const hasAll = args.includes('--all');
-      const profile = (profileIdx !== -1 && profileIdx + 1 < args.length) ? args[profileIdx + 1] : 'Default';
+      const verifyAuth = args.includes('--verify-auth');
+      const explicitProfile = profileIdx !== -1 && profileIdx + 1 < args.length;
+      const profile = explicitProfile ? args[profileIdx + 1] : 'Default';
 
       if (domainIdx !== -1 && domainIdx + 1 < args.length) {
         // Direct import mode — scoped to specific domain
@@ -707,17 +710,44 @@ export async function handleWriteCommand(
           throw new Error(`--domain "${domain}" does not match current page domain "${pageHostname}". Navigate to the target site first.`);
         }
         const browser = browserArg || 'comet';
-        let result = await importCookies(browser, [domain], profile);
+        let selectedProfile = profile;
+        if (!explicitProfile) {
+          const candidates = listProfiles(browser).filter(candidate => {
+            try {
+              return listDomains(browser, candidate.name).domains.some(entry => {
+                const cookieDomain = entry.domain.replace(/^\./, '');
+                const requestedDomain = domain.replace(/^\./, '');
+                return requestedDomain === cookieDomain
+                  || requestedDomain.endsWith('.' + cookieDomain)
+                  || cookieDomain.endsWith('.' + requestedDomain);
+              });
+            } catch {
+              return false;
+            }
+          });
+          if (candidates.length === 1) selectedProfile = candidates[0].name;
+        }
+        let result = await importCookiesWithRetry(browser, [domain], selectedProfile);
         // If all cookies failed and v20 is detected, try CDP extraction
-        if (result.cookies.length === 0 && result.failed > 0 && hasV20Cookies(browser, profile)) {
-          result = await importCookiesViaCdp(browser, [domain], profile);
+        if (result.cookies.length === 0 && result.failed > 0 && hasV20Cookies(browser, selectedProfile)) {
+          result = await importCookiesViaCdp(browser, [domain], selectedProfile);
         }
         if (result.cookies.length > 0) {
           await page.context().addCookies(result.cookies);
           bm.trackCookieImportDomains([domain]);
+          if (verifyAuth) {
+            const verification = await verifyCookieAuthentication(page, {
+              identitySelector: process.env.GSTACK_COOKIE_AUTH_SELECTOR,
+              expectedIdentity: process.env.GSTACK_COOKIE_AUTH_EXPECTED_IDENTITY,
+            });
+            if (!verification.verified) {
+              throw new Error(`Cookie import completed, but authentication verification failed (${verification.reason}).`);
+            }
+          }
         }
         const msg = [`Imported ${result.count} cookies for ${domain} from ${browser}`];
         if (result.failed > 0) msg.push(`(${result.failed} failed to decrypt)`);
+        if (selectedProfile !== profile) msg.push(`(auto-selected profile: ${selectedProfile})`);
         return msg.join(' ');
       }
 
@@ -731,10 +761,19 @@ export async function handleWriteCommand(
         if (allDomainNames.length === 0) {
           return `No cookies found in ${browser} (profile: ${profile})`;
         }
-        const result = await importCookies(browser, allDomainNames, profile);
+        const result = await importCookiesWithRetry(browser, allDomainNames, profile);
         if (result.cookies.length > 0) {
           await page.context().addCookies(result.cookies);
           bm.trackCookieImportDomains(allDomainNames);
+          if (verifyAuth) {
+            const verification = await verifyCookieAuthentication(page, {
+              identitySelector: process.env.GSTACK_COOKIE_AUTH_SELECTOR,
+              expectedIdentity: process.env.GSTACK_COOKIE_AUTH_EXPECTED_IDENTITY,
+            });
+            if (!verification.verified) {
+              throw new Error(`Cookie import completed, but authentication verification failed (${verification.reason}).`);
+            }
+          }
         }
         const msg = [`Imported ${result.count} cookies across ${Object.keys(result.domainCounts).length} domains from ${browser}`];
         msg.push('(used --all: all browser cookies imported, consider --domain for tighter scoping)');
@@ -752,7 +791,8 @@ export async function handleWriteCommand(
       }
 
       const code = generatePickerCode();
-      const pickerUrl = `http://127.0.0.1:${port}/cookie-picker?code=${code}`;
+      const targetDomain = new URL(page.url()).hostname;
+      const pickerUrl = `http://127.0.0.1:${port}/cookie-picker?code=${code}&targetDomain=${encodeURIComponent(targetDomain)}`;
       try {
         Bun.spawn(['open', pickerUrl], { stdout: 'ignore', stderr: 'ignore', windowsHide: true });
       } catch (err: any) {
@@ -760,7 +800,7 @@ export async function handleWriteCommand(
         if (err?.code !== 'ENOENT' && !err?.message?.includes('spawn')) throw err;
       }
 
-      return `Cookie picker opened at http://127.0.0.1:${port}/cookie-picker\nDetected browsers: ${browsers.map(b => b.name).join(', ')}\nSelect domains to import, then close the picker when done.\n\nTip: For scripted imports, use --domain <domain> to scope cookies to a single domain.`;
+      return `Cookie picker opened at http://127.0.0.1:${port}/cookie-picker\nDetected browsers: ${browsers.map(b => b.name).join(', ')}\nTarget domain: ${targetDomain}\nSelect domains to import, then close the picker when done.\n\nTip: For scripted imports, use --domain <domain> to scope cookies to a single domain.`;
     }
 
     case 'style': {

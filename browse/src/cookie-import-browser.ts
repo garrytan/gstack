@@ -290,6 +290,38 @@ export async function importCookies(
   }
 }
 
+/**
+ * Import with a small, bounded retry budget for browser-owned resources.
+ * Chromium keeps its cookie database and OS keychain busy during profile
+ * writes; retrying those transient failures is safe because this function
+ * only reads the source database. Permanent decryption errors fail fast.
+ */
+export async function importCookiesWithRetry(
+  browserName: string,
+  domains: string[],
+  profile = 'Default',
+  options: { attempts?: number; delaysMs?: number[] } = {},
+): Promise<ImportResult> {
+  const attempts = Math.max(1, Math.min(options.attempts ?? 3, 5));
+  const delaysMs = options.delaysMs ?? [150, 500, 1000, 1500];
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    try {
+      return await importCookies(browserName, domains, profile);
+    } catch (err) {
+      lastError = err;
+      const retryable = err instanceof CookieImportError
+        ? err.action === 'retry'
+        : /SQLITE_BUSY|database is locked|busy or locked/i.test(String((err as any)?.message || err));
+      if (!retryable || attempt === attempts - 1) throw err;
+      await new Promise(resolve => setTimeout(resolve, delaysMs[Math.min(attempt, delaysMs.length - 1)] ?? 500));
+    }
+  }
+
+  throw lastError;
+}
+
 // ─── Internal: Browser Resolution ───────────────────────────────
 
 function resolveBrowser(nameOrAlias: string): BrowserInfo {

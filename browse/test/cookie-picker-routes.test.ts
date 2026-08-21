@@ -247,6 +247,36 @@ describe('cookie-picker-routes', () => {
       expect(res.headers.get('Cache-Control')).toBe('no-store');
     });
 
+    test('picker code remains valid while a browser window is opening', async () => {
+      const { bm } = mockBrowserManager();
+      const code = generatePickerCode();
+      const realNow = Date.now;
+      Date.now = () => realNow() + 60_000;
+      try {
+        const res = await handleCookiePickerRoute(
+          makeUrl(`/cookie-picker?code=${code}`),
+          new Request('http://127.0.0.1:9470', { method: 'GET' }),
+          bm,
+          'test-token',
+        );
+        expect(res.status).toBe(302);
+      } finally {
+        Date.now = realNow;
+      }
+    });
+
+    test('preserves the target hostname across code exchange', async () => {
+      const { bm } = mockBrowserManager();
+      const code = generatePickerCode();
+      const res = await handleCookiePickerRoute(
+        makeUrl(`/cookie-picker?code=${code}&targetDomain=app.example.test`),
+        new Request('http://127.0.0.1:9470', { method: 'GET' }),
+        bm,
+        'test-token',
+      );
+      expect(res.headers.get('Location')).toBe('/cookie-picker?targetDomain=app.example.test');
+    });
+
     test('code cannot be reused', async () => {
       const { bm } = mockBrowserManager();
       const code = generatePickerCode();
