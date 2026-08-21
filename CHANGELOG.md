@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.68.2.1] - 2026-08-21
+
+### Changed
+- Native agent search/fetch now handles research and source lookup, while G-Stack `/browse` is reserved for rendered interaction, visual or responsive QA, screenshots, DOM/console/network inspection, downloads, local HTML rendering, and persistent browser state.
+- Install and team-mode guidance now keeps Claude-in-Chrome excluded and tells concurrent browser tasks to pin every task to its own `--tab-id`/`BROWSE_TAB` or run serially.
+
 ## [1.68.2.0] - 2026-08-20
 
 **Revoking a paired agent now revokes everything it holds, and the**
