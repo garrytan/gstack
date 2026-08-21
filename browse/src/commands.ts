@@ -39,6 +39,7 @@ export const META_COMMANDS = new Set([
   'connect', 'disconnect', 'focus',
   'inbox',
   'watch',
+  'record',
   'state',
   'frame',
   'ux-audit',
@@ -168,6 +169,8 @@ export const COMMAND_DESCRIPTIONS: Record<string, { category: string; descriptio
   'inbox':   { category: 'Meta', description: 'List messages from sidebar scout inbox', usage: 'inbox [--clear]' },
   // Watch
   'watch':   { category: 'Meta', description: 'Passive observation — periodic snapshots while user browses', usage: 'watch [stop]' },
+  // Record
+  'record':  { category: 'Meta', description: 'Record video of browser activity (interactive bug repros)', usage: 'record start [dir] [--size WxH] | record stop | record status' },
   // State
   'state':   { category: 'Server', description: 'Save/load browser state (cookies + URLs)', usage: 'state save|load <name>' },
   // Frame
@@ -225,6 +228,7 @@ export function canonicalizeCommand(cmd: string): string {
  */
 export const NEW_IN_VERSION: Record<string, string> = {
   'load-html': '0.19.0.0',
+  'record': '1.62.0.0',
 };
 
 /**
