@@ -24,7 +24,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import { writeSecureFile, mkdirSecure } from './file-permissions';
-import { safeUnlink } from './error-handling';
+import { safeUnlink, warnOnce } from './error-handling';
 import { writeAgentRecord, clearAgentRecord } from './terminal-agent-control';
 
 const STATE_FILE = process.env.BROWSE_STATE_FILE || path.join(process.env.HOME || '/tmp', '.gstack', 'browse.json');
@@ -257,7 +257,11 @@ function findClaude(): string | null {
 /** Probe + persist claude availability for the bootstrap card. */
 function writeClaudeAvailable(): void {
   const stateDir = path.dirname(STATE_FILE);
-  try { mkdirSecure(stateDir); } catch {}
+  try {
+    mkdirSecure(stateDir);
+  } catch (err) {
+    warnOnce('state-dir', `[terminal-agent] cannot create ${stateDir}`, err);
+  }
   const found = findClaude();
   const status = {
     available: !!found,
@@ -270,8 +274,11 @@ function writeClaudeAvailable(): void {
   try {
     writeSecureFile(tmp, JSON.stringify(status, null, 2));
     fs.renameSync(tmp, target);
-  } catch {
+  } catch (err) {
     safeUnlink(tmp);
+    // The sidebar bootstrap card reads this file to decide whether to show the
+    // "install claude" prompt. A silent failure leaves it showing stale state.
+    warnOnce('claude-available', `[terminal-agent] cannot write ${target}; bootstrap card may show stale claude status`, err);
   }
 }
 
@@ -866,7 +873,11 @@ function handleTabState(msg: {
   reason?: string;
 }): void {
   const stateDir = path.dirname(STATE_FILE);
-  try { mkdirSecure(stateDir); } catch {}
+  try {
+    mkdirSecure(stateDir);
+  } catch (err) {
+    warnOnce('state-dir', `[terminal-agent] cannot create ${stateDir}`, err);
+  }
 
   // tabs.json — full list
   if (Array.isArray(msg.tabs)) {
@@ -888,8 +899,11 @@ function handleTabState(msg: {
     try {
       writeSecureFile(tmp, JSON.stringify(payload, null, 2));
       fs.renameSync(tmp, target);
-    } catch {
+    } catch (err) {
       safeUnlink(tmp);
+      // claude reads tabs.json instead of shelling out to `$B tabs`. If the
+      // write keeps failing it reads a stale snapshot and targets wrong tabs.
+      warnOnce('tabs-json', `[terminal-agent] cannot write ${target}; claude will see a stale tab list`, err);
     }
   }
 
@@ -907,8 +921,9 @@ function handleTabState(msg: {
         title: active.title ?? '',
       }));
       fs.renameSync(tmp, ctxFile);
-    } catch {
+    } catch (err) {
       safeUnlink(tmp);
+      warnOnce('active-tab-json', `[terminal-agent] cannot write ${ctxFile}; claude will see a stale active tab`, err);
     }
   }
 }
@@ -927,8 +942,9 @@ function handleTabSwitch(msg: { tabId?: number; url?: string; title?: string }):
       title: msg.title ?? '',
     }));
     fs.renameSync(tmp, ctxFile);
-  } catch {
+  } catch (err) {
     safeUnlink(tmp);
+    warnOnce('active-tab-json', `[terminal-agent] cannot write ${ctxFile}; claude will see a stale active tab`, err);
   }
 
   // Best-effort sync to parent server so its activeTabId tracking matches.
@@ -944,7 +960,11 @@ function handleTabSwitch(msg: { tabId?: number; url?: string; title?: string }):
         command: 'tab',
         args: [String(msg.tabId ?? ''), '--no-focus'],
       }),
-    }).catch(() => {});
+    }).catch((err) => {
+      // Parent's activeTabId now disagrees with the browser until the next
+      // switch lands. Non-fatal, but invisible without this line.
+      warnOnce('tab-switch-sync', '[terminal-agent] tab-switch sync to parent server failed', err);
+    });
   }
 }
 
@@ -968,7 +988,11 @@ function main() {
 
   // Write port file atomically so the parent server can pick it up.
   const dir = path.dirname(PORT_FILE);
-  try { mkdirSecure(dir); } catch {}
+  try {
+    mkdirSecure(dir);
+  } catch (err) {
+    warnOnce('port-dir', `[terminal-agent] cannot create ${dir}`, err);
+  }
   const tmp = `${PORT_FILE}.tmp-${process.pid}`;
   writeSecureFile(tmp, String(port));
   fs.renameSync(tmp, PORT_FILE);
@@ -1006,6 +1030,11 @@ const INTERNAL_TOKEN_FILE = path.join(path.dirname(STATE_FILE), 'terminal-intern
 try {
   mkdirSecure(path.dirname(INTERNAL_TOKEN_FILE));
   writeSecureFile(INTERNAL_TOKEN_FILE, INTERNAL_TOKEN);
-} catch {}
+} catch (err) {
+  // Without this file the parent server cannot authenticate to /internal/grant,
+  // so sidebar grants fail with a 401 that looks like a bug in the parent. Loud
+  // on purpose: this is a broken-auth condition, not best-effort bookkeeping.
+  console.error(`[terminal-agent] failed to write internal token to ${INTERNAL_TOKEN_FILE}; /internal/grant will be rejected: ${err instanceof Error ? err.message : String(err)}`);
+}
 
 main();

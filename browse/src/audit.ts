@@ -10,10 +10,14 @@
  *   - whether cookies were imported (elevated security context)
  *   - connection mode (headless/headed)
  *
- * All writes are best-effort — audit failures never cause command failures.
+ * All writes are best-effort — audit failures never cause command failures. They
+ * are NOT silent, though: a broken forensic trail is itself a finding, so the
+ * first failure warns on stderr (see warnOnce) and writeAuditEntry reports
+ * whether the record landed.
  */
 
 import * as fs from 'fs';
+import { warnOnce } from './error-handling';
 
 export interface AuditEntry {
   ts: string;
@@ -39,8 +43,9 @@ export function initAuditLog(logPath: string): void {
   auditPath = logPath;
 }
 
-export function writeAuditEntry(entry: AuditEntry): void {
-  if (!auditPath) return;
+/** Append one entry. Returns false when the record was not persisted. */
+export function writeAuditEntry(entry: AuditEntry): boolean {
+  if (!auditPath) return false;
   try {
     const truncatedArgs = entry.args.length > MAX_ARGS_LENGTH
       ? entry.args.slice(0, MAX_ARGS_LENGTH) + '…'
@@ -63,7 +68,10 @@ export function writeAuditEntry(entry: AuditEntry): void {
     if (truncatedError) record.error = truncatedError;
 
     fs.appendFileSync(auditPath, JSON.stringify(record) + '\n');
-  } catch {
-    // Audit write failures are silent — never block command execution
+    return true;
+  } catch (err) {
+    // Never block command execution — but don't lose the trail silently either.
+    warnOnce('audit-write', `[audit] write to ${auditPath} failed; command audit trail is incomplete`, err);
+    return false;
   }
 }

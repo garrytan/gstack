@@ -8,6 +8,7 @@ import { describe, test, expect } from 'bun:test';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { createHash } from 'crypto';
 import {
   THRESHOLDS,
   combineVerdict,
@@ -253,6 +254,29 @@ describe('hashPayload', () => {
   test('hash is sha256 hex (64 chars)', () => {
     const h = hashPayload('test');
     expect(h).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  // Runs in a child process with HOME redirected: the salt path is resolved at
+  // module load and the salt itself is cached for the process lifetime.
+  test('an empty salt file is regenerated, not used as the salt', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-salt-'));
+    const saltFile = path.join(home, '.gstack', 'security', 'device-salt');
+    fs.mkdirSync(path.dirname(saltFile), { recursive: true });
+    fs.writeFileSync(saltFile, '  \n'); // truncated / blanked salt file
+    const src = path.join(import.meta.dir, '..', 'src', 'security.ts');
+    const r = Bun.spawnSync(
+      ['bun', '-e', `const m = await import(${JSON.stringify(src)}); console.log(m.hashPayload('payload'));`],
+      { env: { ...process.env, HOME: home, USERPROFILE: home }, stdout: 'pipe', stderr: 'pipe' },
+    );
+    const hash = r.stdout.toString().trim().split('\n').pop() || '';
+    // An empty salt would degrade the hash to a plain sha256 of the payload —
+    // identical on every device, which is exactly what the salt prevents.
+    const unsalted = createHash('sha256').update('').update('payload').digest('hex');
+    expect(hash).toMatch(/^[0-9a-f]{64}$/);
+    expect(hash).not.toBe(unsalted);
+    expect(r.stderr.toString()).toContain('is empty');
+    expect(fs.readFileSync(saltFile, 'utf8').trim()).toMatch(/^[0-9a-f]{32}$/);
+    fs.rmSync(home, { recursive: true, force: true });
   });
 });
 

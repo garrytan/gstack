@@ -25,6 +25,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { writeSecureFile, appendSecureFile, mkdirSecure } from './file-permissions';
+import { warnOnce } from './error-handling';
 
 // ─── Thresholds + verdict types ──────────────────────────────
 
@@ -338,23 +339,34 @@ function getDeviceSalt(): string {
   if (cachedSalt) return cachedSalt;
   try {
     if (fs.existsSync(SALT_FILE)) {
-      cachedSalt = fs.readFileSync(SALT_FILE, 'utf8').trim();
-      return cachedSalt;
+      const stored = fs.readFileSync(SALT_FILE, 'utf8').trim();
+      // An empty or truncated salt file must NOT become the salt: every device
+      // that hit the same truncation would then produce identical payload
+      // hashes, which is exactly what the per-device salt exists to prevent.
+      if (stored) {
+        cachedSalt = stored;
+        return cachedSalt;
+      }
+      warnOnce('salt-empty', `[security] ${SALT_FILE} is empty — regenerating device salt`);
     }
-  } catch {
-    // fall through to generate
+  } catch (err) {
+    // Unreadable salt (perms, EISDIR) means every future run correlates under
+    // a different salt. Say so, then generate a session-local one.
+    warnOnce('salt-read', `[security] cannot read ${SALT_FILE} — payload hashes will not correlate across runs`, err);
   }
   try {
     mkdirSecure(SECURITY_DIR);
-  } catch {}
+  } catch (err) {
+    warnOnce('salt-mkdir', `[security] cannot create ${SECURITY_DIR} — device salt will not persist`, err);
+  }
   cachedSalt = randomBytes(16).toString('hex');
   try {
     writeSecureFile(SALT_FILE, cachedSalt);
-  } catch {
+  } catch (err) {
     // Can't persist (read-only fs, disk full). Keep the in-memory salt
     // for this process so cross-log correlation still works within a
-    // session. Next process gets a new salt, but that's a degraded-mode
-    // acceptable cost.
+    // session. Next process gets a new salt — degraded, and now visible.
+    warnOnce('salt-write', `[security] cannot persist ${SALT_FILE} — device salt is session-only`, err);
   }
   return cachedSalt;
 }
@@ -380,11 +392,18 @@ function rotateIfNeeded(): void {
     const dst = `${ATTEMPTS_LOG}.${i + 1}`;
     try {
       if (fs.existsSync(src)) fs.renameSync(src, dst);
-    } catch {}
+    } catch (err) {
+      warnOnce('attempts-shift', `[security] cannot rotate ${src} — attempt-log generations may be stale`, err);
+    }
   }
   try {
     fs.renameSync(ATTEMPTS_LOG, `${ATTEMPTS_LOG}.1`);
-  } catch {}
+  } catch (err) {
+    // Rotation failed, so the live log keeps growing past MAX_LOG_BYTES. The
+    // append still happens — unbounded growth is better than dropped attempts —
+    // but the user needs to know why the file is oversized.
+    warnOnce('attempts-rotate', `[security] cannot rotate ${ATTEMPTS_LOG} — it will grow past ${MAX_LOG_BYTES} bytes`, err);
+  }
 }
 
 /**

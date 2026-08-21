@@ -71,6 +71,13 @@ describe("readJsonl (tolerant)", () => {
     expect(rows.map((r) => r.id)).toEqual([1, 2]);
     rmSync(p, { force: true });
   });
+  it("propagates a real read failure instead of reporting an empty store", () => {
+    // A directory in place of the store: exists, but readFileSync throws EISDIR.
+    // Returning [] here would make an unreadable store look like "no records".
+    const dir = mkdtempSync(join(tmpdir(), "jsonl-store-dir-"));
+    expect(() => readJsonl(dir)).toThrow();
+    rmSync(dir, { recursive: true, force: true });
+  });
   it("preserves unknown fields (forward-compatible read)", () => {
     const p = tmp();
     appendJsonl(p, { id: 1, futureField: "from a newer writer" });

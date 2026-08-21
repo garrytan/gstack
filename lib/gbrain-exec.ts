@@ -106,7 +106,13 @@ export function buildGbrainEnv(opts: BuildGbrainEnvOptions = {}): NodeJS.Process
   let cfg: GbrainConfig = {};
   try {
     cfg = JSON.parse(readFileSync(configPath, "utf-8")) as GbrainConfig;
-  } catch {
+  } catch (err) {
+    // Unreadable/corrupt config means DATABASE_URL is never seeded, so every
+    // gbrain call silently runs against the caller's env (or no DB at all).
+    // Announce it — a hand-edited config.json is the usual cause.
+    process.stderr.write(
+      `[gbrain-exec] cannot read ${configPath} (${err instanceof Error ? err.message : String(err)}); DATABASE_URL not seeded\n`,
+    );
     return out;
   }
   if (!cfg.database_url) return out;
