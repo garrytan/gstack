@@ -85,6 +85,40 @@ describe('cookie-picker-routes', () => {
   });
 
   describe('JSON responses (with auth)', () => {
+    test('import route wires post-import authentication verification', async () => {
+      const addedCookies: any[] = [];
+      const page = {
+        context: () => ({ addCookies: (cookies: any[]) => { addedCookies.push(...cookies); } }),
+      };
+      const bm = {
+        getActiveSession: () => ({ getPage: () => page }),
+      } as any;
+      const url = makeUrl('/cookie-picker/import');
+      const req = makeReq('POST', {
+        browser: 'Chrome',
+        domains: ['.example.test'],
+        verifyAuth: true,
+      }, { 'Authorization': 'Bearer test-token' });
+
+      const res = await handleCookiePickerRoute(url, req, bm, 'test-token', {
+        importCookiesWithRetry: async () => ({
+          cookies: [{ name: 'session', value: 'redacted-fixture', domain: '.example.test', path: '/', expires: -1, secure: true, httpOnly: true, sameSite: 'Lax' }],
+          count: 1,
+          failed: 0,
+          domainCounts: { '.example.test': 1 },
+        }),
+        hasV20Cookies: () => false,
+        verifyCookieAuthentication: async () => ({ verified: true, reason: 'ok', status: 200 }),
+      });
+
+      expect(res.status).toBe(200);
+      expect(addedCookies).toHaveLength(1);
+      expect(await res.json()).toMatchObject({
+        imported: 1,
+        verification: { verified: true, reason: 'ok', status: 200 },
+      });
+    });
+
     test('GET /cookie-picker/browsers returns JSON', async () => {
       const { bm } = mockBrowserManager();
       const url = makeUrl('/cookie-picker/browsers');

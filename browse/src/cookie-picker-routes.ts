@@ -19,9 +19,16 @@
 
 import * as crypto from 'crypto';
 import type { BrowserManager } from './browser-manager';
-import { findInstalledBrowsers, listProfiles, listDomains, importCookiesWithRetry, importCookiesViaCdp, hasV20Cookies, CookieImportError } from './cookie-import-browser';
+import { findInstalledBrowsers, listProfiles, listDomainsWithRetry, importCookiesWithRetry, importCookiesViaCdp, hasV20Cookies, CookieImportError, cookieDomainsMatch } from './cookie-import-browser';
 import { getCookiePickerHTML } from './cookie-picker-ui';
 import { verifyCookieAuthentication } from './cookie-auth-verification';
+
+export interface CookiePickerRouteDependencies {
+  importCookiesWithRetry?: typeof importCookiesWithRetry;
+  importCookiesViaCdp?: typeof importCookiesViaCdp;
+  hasV20Cookies?: typeof hasV20Cookies;
+  verifyCookieAuthentication?: typeof verifyCookieAuthentication;
+}
 
 // ─── Auth State ─────────────────────────────────────────────────
 // One-time codes for the cookie picker UI (code → expiry timestamp).
@@ -114,9 +121,14 @@ export async function handleCookiePickerRoute(
   req: Request,
   bm: BrowserManager,
   authToken?: string,
+  deps: CookiePickerRouteDependencies = {},
 ): Promise<Response> {
   const pathname = url.pathname;
   const port = parseInt(url.port, 10) || 9400;
+  const importWithRetry = deps.importCookiesWithRetry ?? importCookiesWithRetry;
+  const importViaCdp = deps.importCookiesViaCdp ?? importCookiesViaCdp;
+  const hasV20 = deps.hasV20Cookies ?? hasV20Cookies;
+  const verifyAuthFn = deps.verifyCookieAuthentication ?? verifyCookieAuthentication;
 
   // CORS preflight
   if (req.method === 'OPTIONS') {
@@ -214,17 +226,15 @@ export async function handleCookiePickerRoute(
       if (targetDomain) {
         // Profile metadata is not a reliable auth signal. Recommend only a
         // profile that actually contains the requested domain.
-        const matching = profiles.filter(profile => {
+        const matching = await Promise.all(profiles.map(async profile => {
           try {
-            return listDomains(browserName, profile.name).domains.some(entry =>
-              entry.domain === targetDomain ||
-              targetDomain.endsWith(entry.domain.startsWith('.') ? entry.domain.slice(1) : entry.domain),
-            );
+            const result = await listDomainsWithRetry(browserName, profile.name);
+            return result.domains.some(entry => cookieDomainsMatch(targetDomain, entry.domain));
           } catch {
             return false;
           }
-        });
-        recommendedProfile = matching[0]?.name;
+        }));
+        recommendedProfile = profiles[matching.findIndex(Boolean)]?.name;
       }
       return jsonResponse({ profiles, ...(recommendedProfile ? { recommendedProfile } : {}) }, { port });
     }
@@ -236,7 +246,7 @@ export async function handleCookiePickerRoute(
         return errorResponse("Missing 'browser' parameter", 'missing_param', { port });
       }
       const profile = url.searchParams.get('profile') || 'Default';
-      const result = listDomains(browserName, profile);
+      const result = await listDomainsWithRetry(browserName, profile);
       return jsonResponse({
         browser: result.browser,
         domains: result.domains,
@@ -252,7 +262,7 @@ export async function handleCookiePickerRoute(
         return errorResponse('Invalid JSON body', 'bad_request', { port });
       }
 
-      const { browser, domains, profile, verifyAuth } = body;
+      const { browser, domains, profile, verifyAuth: shouldVerifyAuth } = body;
       if (!browser) return errorResponse("Missing 'browser' field", 'missing_param', { port });
       if (!domains || !Array.isArray(domains) || domains.length === 0) {
         return errorResponse("Missing or empty 'domains' array", 'missing_param', { port });
@@ -260,13 +270,13 @@ export async function handleCookiePickerRoute(
 
       // Decrypt cookies from the browser DB
       const selectedProfile = profile || 'Default';
-      let result = await importCookiesWithRetry(browser, domains, selectedProfile);
+      let result = await importWithRetry(browser, domains, selectedProfile);
 
       // If all cookies failed and v20 encryption is detected, try CDP extraction
-      if (result.cookies.length === 0 && result.failed > 0 && hasV20Cookies(browser, selectedProfile)) {
+      if (result.cookies.length === 0 && result.failed > 0 && hasV20(browser, selectedProfile)) {
         console.log(`[cookie-picker] v20 App-Bound Encryption detected, trying CDP extraction...`);
         try {
-          result = await importCookiesViaCdp(browser, domains, selectedProfile);
+          result = await importViaCdp(browser, domains, selectedProfile);
         } catch (cdpErr: any) {
           console.log(`[cookie-picker] CDP fallback failed: ${cdpErr.message}`);
           return jsonResponse({
@@ -300,8 +310,8 @@ export async function handleCookiePickerRoute(
         importedCounts.set(domain, (importedCounts.get(domain) || 0) + result.domainCounts[domain]);
       }
 
-      const verification = verifyAuth === true
-        ? await verifyCookieAuthentication(page, {
+      const verification = shouldVerifyAuth === true
+        ? await verifyAuthFn(page, {
             identitySelector: process.env.GSTACK_COOKIE_AUTH_SELECTOR,
             expectedIdentity: process.env.GSTACK_COOKIE_AUTH_EXPECTED_IDENTITY,
           })

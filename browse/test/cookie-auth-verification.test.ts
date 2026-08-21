@@ -23,7 +23,10 @@ function mockPage(options: {
 
 describe('cookie authentication verification', () => {
   test('accepts a successful page response', async () => {
-    await expect(verifyCookieAuthentication(mockPage({}))).resolves.toMatchObject({
+    await expect(verifyCookieAuthentication(mockPage({ text: 'alice@example.test' }), {
+      identitySelector: '[data-user-email]',
+      expectedIdentity: 'alice@example.test',
+    })).resolves.toMatchObject({
       verified: true,
       reason: 'ok',
       status: 200,

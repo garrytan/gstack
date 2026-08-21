@@ -8,7 +8,7 @@
 
 export interface CookieAuthVerification {
   verified: boolean;
-  reason: 'ok' | 'http_unauthorized' | 'redirected_to_auth' | 'identity_not_visible' | 'identity_mismatch' | 'verification_failed';
+  reason: 'ok' | 'http_unauthorized' | 'redirected_to_auth' | 'verification_not_configured' | 'identity_not_visible' | 'identity_not_configured' | 'identity_mismatch' | 'verification_failed';
   status?: number;
 }
 
@@ -49,17 +49,20 @@ export async function verifyCookieAuthentication(
       return { verified: false, reason: 'redirected_to_auth', status };
     }
 
-    if (options.identitySelector) {
-      const identity = page.locator(options.identitySelector);
-      if (!await identity.isVisible()) {
-        return { verified: false, reason: 'identity_not_visible', status };
-      }
-      if (options.expectedIdentity) {
-        const text = await identity.textContent();
-        if (!text?.includes(options.expectedIdentity)) {
-          return { verified: false, reason: 'identity_mismatch', status };
-        }
-      }
+    if (!options.identitySelector) {
+      return { verified: false, reason: 'verification_not_configured', status };
+    }
+    if (!options.expectedIdentity) {
+      return { verified: false, reason: 'identity_not_configured', status };
+    }
+
+    const identity = page.locator(options.identitySelector);
+    if (!await identity.isVisible()) {
+      return { verified: false, reason: 'identity_not_visible', status };
+    }
+    const text = await identity.textContent();
+    if (!text?.includes(options.expectedIdentity)) {
+      return { verified: false, reason: 'identity_mismatch', status };
     }
 
     return { verified: true, reason: 'ok', status };

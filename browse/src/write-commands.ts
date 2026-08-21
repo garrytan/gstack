@@ -7,7 +7,7 @@
 
 import type { TabSession } from './tab-session';
 import type { BrowserManager } from './browser-manager';
-import { findInstalledBrowsers, listProfiles, listDomains, importCookiesWithRetry, importCookiesViaCdp, hasV20Cookies, listSupportedBrowserNames } from './cookie-import-browser';
+import { findInstalledBrowsers, listProfiles, listDomainsWithRetry, cookieDomainsMatch, importCookiesWithRetry, importCookiesViaCdp, hasV20Cookies, listSupportedBrowserNames } from './cookie-import-browser';
 import { generatePickerCode } from './cookie-picker-routes';
 import { verifyCookieAuthentication } from './cookie-auth-verification';
 import { validateNavigationUrl } from './url-validation';
@@ -712,19 +712,16 @@ export async function handleWriteCommand(
         const browser = browserArg || 'comet';
         let selectedProfile = profile;
         if (!explicitProfile) {
-          const candidates = listProfiles(browser).filter(candidate => {
+          const profiles = listProfiles(browser);
+          const matching = await Promise.all(profiles.map(async candidate => {
             try {
-              return listDomains(browser, candidate.name).domains.some(entry => {
-                const cookieDomain = entry.domain.replace(/^\./, '');
-                const requestedDomain = domain.replace(/^\./, '');
-                return requestedDomain === cookieDomain
-                  || requestedDomain.endsWith('.' + cookieDomain)
-                  || cookieDomain.endsWith('.' + requestedDomain);
-              });
+              const result = await listDomainsWithRetry(browser, candidate.name);
+              return result.domains.some(entry => cookieDomainsMatch(pageHostname, entry.domain));
             } catch {
               return false;
             }
-          });
+          }));
+          const candidates = profiles.filter((_, index) => matching[index]);
           if (candidates.length === 1) selectedProfile = candidates[0].name;
         }
         let result = await importCookiesWithRetry(browser, [domain], selectedProfile);
@@ -755,8 +752,7 @@ export async function handleWriteCommand(
         // Explicit all-cookies import — requires --all flag as a deliberate opt-in.
         // Imports every non-expired cookie domain from the browser.
         const browser = browserArg || 'comet';
-        const { listDomains } = await import('./cookie-import-browser');
-        const { domains } = listDomains(browser, profile);
+        const { domains } = await listDomainsWithRetry(browser, profile);
         const allDomainNames = domains.map((d: any) => d.domain);
         if (allDomainNames.length === 0) {
           return `No cookies found in ${browser} (profile: ${profile})`;

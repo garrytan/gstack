@@ -71,6 +71,11 @@ export interface ImportResult {
   domainCounts: Record<string, number>;
 }
 
+export interface CookieRetryOptions {
+  attempts?: number;
+  delaysMs?: number[];
+}
+
 export interface PlaywrightCookie {
   name: string;
   value: string;
@@ -219,6 +224,13 @@ export function listProfiles(browserName: string): ProfileEntry[] {
   return profiles;
 }
 
+/** Match a page hostname to a cookie domain without suffix confusion. */
+export function cookieDomainsMatch(hostname: string, cookieDomain: string): boolean {
+  const host = hostname.replace(/^(https?:\/\/)/i, '').split('/')[0].replace(/\.$/, '').toLowerCase();
+  const domain = cookieDomain.replace(/^\./, '').replace(/\.$/, '').toLowerCase();
+  return host === domain || host.endsWith('.' + domain);
+}
+
 /**
  * List unique cookie domains + counts from a browser's DB. No decryption.
  */
@@ -239,6 +251,15 @@ export function listDomains(browserName: string, profile = 'Default'): { domains
   } finally {
     db.close();
   }
+}
+
+/** Read domain metadata with the same bounded contention retry as imports. */
+export async function listDomainsWithRetry(
+  browserName: string,
+  profile = 'Default',
+  options: CookieRetryOptions = {},
+): Promise<{ domains: DomainEntry[]; browser: string }> {
+  return withCookieImportRetry(() => listDomains(browserName, profile), options);
 }
 
 /**
@@ -300,17 +321,26 @@ export async function importCookiesWithRetry(
   browserName: string,
   domains: string[],
   profile = 'Default',
-  options: { attempts?: number; delaysMs?: number[] } = {},
+  options: CookieRetryOptions = {},
 ): Promise<ImportResult> {
+  return withCookieImportRetry(() => importCookies(browserName, domains, profile), options);
+}
+
+/**
+ * Shared bounded retry seam for reads from browser-owned databases/keychains.
+ * Non-transient failures are never retried.
+ */
+export async function withCookieImportRetry<T>(
+  operation: () => T | Promise<T>,
+  options: CookieRetryOptions = {},
+): Promise<T> {
   const attempts = Math.max(1, Math.min(options.attempts ?? 3, 5));
   const delaysMs = options.delaysMs ?? [150, 500, 1000, 1500];
-  let lastError: unknown;
 
   for (let attempt = 0; attempt < attempts; attempt++) {
     try {
-      return await importCookies(browserName, domains, profile);
+      return await operation();
     } catch (err) {
-      lastError = err;
       const retryable = err instanceof CookieImportError
         ? err.action === 'retry'
         : /SQLITE_BUSY|database is locked|busy or locked/i.test(String((err as any)?.message || err));
@@ -319,7 +349,7 @@ export async function importCookiesWithRetry(
     }
   }
 
-  throw lastError;
+  throw new Error('Cookie import retry loop exited unexpectedly');
 }
 
 // ─── Internal: Browser Resolution ───────────────────────────────
