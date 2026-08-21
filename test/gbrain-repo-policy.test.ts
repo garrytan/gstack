@@ -121,6 +121,24 @@ describe('set + get', () => {
     expect(run(['get', 'https://github.com/c/c']).stdout).toBe('deny');
   });
 
+  test('peek interprets a legacy allow tier without migrating the store', () => {
+    const legacy = JSON.stringify({ 'github.com/foo/bar': 'allow' });
+    fs.writeFileSync(policyFile(), legacy);
+    const r = run(['peek', 'https://github.com/foo/bar.git']);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toBe('read-write');
+    expect(fs.readFileSync(policyFile(), 'utf-8')).toBe(legacy);
+  });
+
+  test('peek fails closed on corrupt JSON without quarantine or replacement', () => {
+    const corrupt = '{broken';
+    fs.writeFileSync(policyFile(), corrupt);
+    const r = run(['peek', 'https://github.com/foo/bar.git']);
+    expect(r.status).toBe(2);
+    expect(fs.readFileSync(policyFile(), 'utf-8')).toBe(corrupt);
+    expect(fs.readdirSync(tmpHome).filter((name) => name.includes('.corrupt-'))).toEqual([]);
+  });
+
   test('invalid tier rejected with non-zero exit', () => {
     const r = run(['set', 'https://github.com/foo/bar', 'allow']);
     expect(r.status).not.toBe(0);
@@ -295,13 +313,16 @@ describe('gstack-gbrain-sync code stage honors the repo policy (#2140 sync path)
     git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'fixture');
   }
 
-  function runSync(): { status: number; text: string; stages: any[] } {
-    const res = spawnSync('bun', [SYNC, '--code-only', '--incremental'], {
+  function runSync(
+    args: string[] = ['--code-only', '--incremental'],
+    extraEnv: Record<string, string> = {},
+  ): { status: number; text: string; stages: any[] } {
+    const res = spawnSync('bun', [SYNC, ...args], {
       cwd: repoDir,
       encoding: 'utf-8',
       timeout: 60_000,
       // HOME also redirected so engine detection can't find a real ~/.gbrain.
-      env: { ...process.env, GSTACK_HOME: tmpHome, HOME: tmpHome },
+      env: { ...process.env, GSTACK_HOME: tmpHome, HOME: tmpHome, ...extraEnv },
     });
     let stages: any[] = [];
     try {
@@ -341,6 +362,67 @@ describe('gstack-gbrain-sync code stage honors the repo policy (#2140 sync path)
     expect(r.text).toContain('read-only');
     const code = r.stages.find((s: any) => s.name === 'code');
     expect(code?.detail?.status).toBe('skipped-policy-read-only');
+  });
+
+  test('deny/read-only also block explicit call-graph backfill before any GBrain command', () => {
+    makeRepo();
+    const binDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gbrain-policy-fake-bin-'));
+    const commandLog = path.join(tmpHome, 'gbrain-commands.log');
+    fs.writeFileSync(
+      path.join(binDir, 'gbrain'),
+      '#!/bin/sh\nprintf \'%s\\n\' "$*" >> "$GSTACK_TEST_GBRAIN_LOG"\nexit 99\n',
+      { mode: 0o755 },
+    );
+    const dreamArgs = ['--dream', '--no-code', '--no-memory', '--no-brain-sync', '--quiet'];
+    const env = {
+      PATH: `${binDir}:${process.env.PATH || ''}`,
+      GSTACK_TEST_GBRAIN_LOG: commandLog,
+    };
+
+    try {
+      expect(run(['set', REPO_URL, 'deny']).status).toBe(0);
+      const deniedPreview = runSync([
+        '--dry-run', '--dream', '--no-code', '--no-memory', '--no-brain-sync', '--quiet',
+      ], env);
+      expect(deniedPreview.text).toContain('no GBrain interaction is allowed');
+      expect(deniedPreview.text).not.toContain('would: gbrain edges-backfill');
+      expect(fs.existsSync(commandLog)).toBe(false);
+
+      const denied = runSync(dreamArgs, env);
+      expect(denied.status).toBe(1);
+      expect(denied.stages.find((s: any) => s.name === 'dream')?.summary)
+        .toContain('no GBrain interaction is allowed');
+      expect(fs.existsSync(commandLog)).toBe(false);
+
+      expect(run(['set', REPO_URL, 'read-only']).status).toBe(0);
+      const readOnlyPreview = runSync([
+        '--dry-run', '--dream', '--no-code', '--no-memory', '--no-brain-sync', '--quiet',
+      ], env);
+      expect(readOnlyPreview.text).toContain('call-graph backfill writes metadata');
+      expect(readOnlyPreview.text).not.toContain('would: gbrain edges-backfill');
+      expect(fs.existsSync(commandLog)).toBe(false);
+
+      const readOnly = runSync(dreamArgs, env);
+      expect(readOnly.status).toBe(0);
+      expect(readOnly.stages.find((s: any) => s.name === 'dream')?.summary)
+        .toContain('call-graph backfill writes metadata');
+      expect(fs.existsSync(commandLog)).toBe(false);
+    } finally {
+      fs.rmSync(binDir, { recursive: true, force: true });
+    }
+  });
+
+  test('dream dry-run reads legacy policy without migrating it', () => {
+    makeRepo();
+    const legacy = JSON.stringify({ 'github.com/acme/widget': 'deny' });
+    fs.writeFileSync(policyFile(), legacy);
+    const r = runSync([
+      '--dry-run', '--dream', '--no-code', '--no-memory', '--no-brain-sync', '--quiet',
+    ]);
+    // Preview reports the refusal but remains a successful no-write preview.
+    expect(r.status).toBe(0);
+    expect(r.text).toContain('no GBrain interaction is allowed');
+    expect(fs.readFileSync(policyFile(), 'utf-8')).toBe(legacy);
   });
 
   test('store exists but unreadable → fail-closed refusal, never bypassed', () => {

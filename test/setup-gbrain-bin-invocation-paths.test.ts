@@ -69,6 +69,14 @@ describe('setup-gbrain/SKILL.md.tmpl — bin invocation paths', () => {
     );
   });
 
+  test('every setup writer and reader shares the portable sync-state root', () => {
+    expect(tmpl).toContain('eval "$(~/.claude/skills/gstack/bin/gstack-paths)"');
+    expect(tmpl).toContain('GSTACK_STATE_ROOT="$GSTACK_STATE_ROOT" \\\n  bun run ~/.claude/skills/gstack/bin/gstack-gbrain-sync.ts --full --no-brain-sync');
+    expect(tmpl).toContain('GSTACK_STATE_ROOT="$GSTACK_STATE_ROOT" bun run ~/.claude/skills/gstack/bin/gstack-gbrain-sync.ts --incremental --quiet');
+    expect(tmpl).toContain('"$GSTACK_STATE_ROOT/.gbrain-sync-state.json"');
+    expect(tmpl).not.toContain('[ -f ~/.gstack/.gbrain-sync-state.json ]');
+  });
+
   test('the preamble-hook incremental-sync mention uses bun run + .ts (R4)', () => {
     expect(tmpl).toContain(
       'bun run ~/.claude/skills/gstack/bin/gstack-gbrain-sync.ts --incremental --quiet'

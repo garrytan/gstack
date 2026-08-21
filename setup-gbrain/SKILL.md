@@ -1563,15 +1563,17 @@ Options:
 After answer:
 ```bash
 ~/.claude/skills/gstack/bin/gstack-config set transcript_ingest_mode <choice>
-bun run ~/.claude/skills/gstack/bin/gstack-gbrain-sync.ts --full --no-brain-sync
+eval "$(~/.claude/skills/gstack/bin/gstack-paths)"
+GSTACK_STATE_ROOT="$GSTACK_STATE_ROOT" \
+  bun run ~/.claude/skills/gstack/bin/gstack-gbrain-sync.ts --full --no-brain-sync
 ```
 (`--no-brain-sync` because Step 7 already wired that path; this just
 runs the code import + memory ingest stages. Brain-sync will run on the
 next preamble hook.)
 
-If A/D/E, ingest is incremental from this point on; preamble-boundary
-hook runs `bun run ~/.claude/skills/gstack/bin/gstack-gbrain-sync.ts --incremental --quiet` on every skill
-start (cheap mtime fast-path).
+If A/D/E, ingest is incremental from this point on; the preamble-boundary hook
+runs `eval "$(~/.claude/skills/gstack/bin/gstack-paths)"; GSTACK_STATE_ROOT="$GSTACK_STATE_ROOT" bun run ~/.claude/skills/gstack/bin/gstack-gbrain-sync.ts --incremental --quiet`
+on every skill start (cheap mtime fast-path).
 
 Reference doc for users: `setup-gbrain/memory.md` (linked from CLAUDE.md
 Step 8).
@@ -1777,10 +1779,12 @@ configured Mac is a first-class doctor path: every step detects existing
 state, repairs only what's missing, and reports here.
 
 ```bash
+eval "$(~/.claude/skills/gstack/bin/gstack-paths)"
 ~/.claude/skills/gstack/bin/gstack-gbrain-detect 2>/dev/null || true
 ~/.claude/skills/gstack/bin/gstack-config get transcript_ingest_mode 2>/dev/null || echo "off"
 ~/.claude/skills/gstack/bin/gstack-config get artifacts_sync_mode 2>/dev/null || echo "off"
-[ -f ~/.gstack/.gbrain-sync-state.json ] && cat ~/.gstack/.gbrain-sync-state.json || echo "{}"
+[ -f "$GSTACK_STATE_ROOT/.gbrain-sync-state.json" ] && \
+  cat "$GSTACK_STATE_ROOT/.gbrain-sync-state.json" || echo "{}"
 ```
 
 Read `gbrain_mcp_mode` from the detect output and pick the right verdict

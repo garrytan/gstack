@@ -58,13 +58,19 @@ const POLICY_SCRIPT = join(import.meta.dir, "..", "bin", "gstack-gbrain-repo-pol
  * `none` (policy is keyed by origin remote, so nothing can be set for the
  * repo). Everything else shells to the script, which owns normalization.
  */
-export function repoPolicyTier(url: string | null, env: NodeJS.ProcessEnv = process.env): RepoPolicyResult {
+function repoPolicyTierWithCommand(
+  url: string | null,
+  env: NodeJS.ProcessEnv,
+  command: "get" | "peek",
+): RepoPolicyResult {
   if (!hasRepoPolicyStore(env)) return { tier: "none" };
   if (!url) return { tier: "none" };
   // The script is `#!/usr/bin/env bash`; win32 can't exec a shebang file, so
   // invoke through bash there. An ENOENT then means bash is not on PATH.
   const [cmd, args]: [string, string[]] =
-    process.platform === "win32" ? ["bash", [POLICY_SCRIPT, "get", url]] : [POLICY_SCRIPT, ["get", url]];
+    process.platform === "win32"
+      ? ["bash", [POLICY_SCRIPT, command, url]]
+      : [POLICY_SCRIPT, [command, url]];
   const res = spawnSync(cmd, args, {
     encoding: "utf-8",
     timeout: 10_000,
@@ -81,6 +87,18 @@ export function repoPolicyTier(url: string | null, env: NodeJS.ProcessEnv = proc
   if (tier === "deny" || tier === "read-only" || tier === "read-write") return { tier };
   if (tier === "unset") return { tier: "none" };
   return { tier: "none", error: "unreadable" }; // unexpected output — a read failure, not a tier
+}
+
+export function repoPolicyTier(url: string | null, env: NodeJS.ProcessEnv = process.env): RepoPolicyResult {
+  return repoPolicyTierWithCommand(url, env, "get");
+}
+
+/** Strictly non-mutating lookup for dry-run previews. */
+export function repoPolicyTierReadOnly(
+  url: string | null,
+  env: NodeJS.ProcessEnv = process.env,
+): RepoPolicyResult {
+  return repoPolicyTierWithCommand(url, env, "peek");
 }
 
 /**

@@ -241,7 +241,7 @@ export function hasRemoteOnlyGbrainMcp(
   return sawRemote && !sawLocal;
 }
 
-function configuredEngine(env?: NodeJS.ProcessEnv): "pglite" | "postgres" | null {
+export function configuredEngine(env?: NodeJS.ProcessEnv): "pglite" | "postgres" | null {
   try {
     const parsed = JSON.parse(readFileSync(gbrainConfigPath(env), "utf-8")) as { engine?: string };
     return parsed.engine === "pglite" || parsed.engine === "postgres" ? parsed.engine : null;

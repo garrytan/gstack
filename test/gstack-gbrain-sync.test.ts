@@ -21,6 +21,7 @@ import {
 } from "../bin/gstack-gbrain-sync";
 
 const SCRIPT = join(import.meta.dir, "..", "bin", "gstack-gbrain-sync.ts");
+const GSTACK_PATHS = join(import.meta.dir, "..", "bin", "gstack-paths");
 
 function makeTestHome(): string {
   return mkdtempSync(join(tmpdir(), "gstack-gbrain-sync-"));
@@ -62,12 +63,23 @@ describe("gstack-gbrain-sync CLI", () => {
     expect(source).toContain("localEngineStatus");
   });
 
-  it("uses GBrain's config environment when resolving dream sources", () => {
+  it("uses GBrain's config environment when resolving call-graph sources", () => {
     const source = readFileSync(SCRIPT, "utf-8");
 
     expect(source).not.toContain("resolveCodeSourceId(root, process.env)");
     expect(source).toContain("resolveCodeSourceId(root, gbrainEnv)");
-    expect(source).toContain("cycleCompleted(resolveCodeSourceId(root, gbrainEnv), gbrainEnv)");
+    expect(source).toContain('spawnGbrain(["edges-backfill", "--source", sourceId, "--json"]');
+  });
+
+  it("keeps portable sync metadata separate from canonical child data stores", () => {
+    const source = readFileSync(SCRIPT, "utf-8");
+
+    expect(source).toContain('const LEGACY_GSTACK_HOME = process.env.GSTACK_HOME || join(HOME, ".gstack")');
+    expect(source).toContain("const GSTACK_STATE_ROOT = process.env.GSTACK_STATE_ROOT || LEGACY_GSTACK_HOME");
+    expect(source).toContain('const LOCK_PATH = join(LEGACY_GSTACK_HOME, ".sync-gbrain.lock")');
+    expect(source).toContain("decideResume(gstackHome: string = LEGACY_GSTACK_HOME)");
+    expect(source).not.toContain("childEnv.GSTACK_HOME =");
+    expect(source).not.toContain("const childEnv = { ...process.env, GSTACK_HOME }");
   });
 
   it("--dry-run with --code-only reports the code import preview only", () => {
@@ -236,7 +248,64 @@ esac
     });
 
     expect(r.status).toBe(0);
-    expect(r.stdout).toContain("gbrain dream --source client-acme-app");
+    expect(r.stdout).toContain("gbrain edges-backfill --source client-acme-app --json");
+    rmSync(repo, { recursive: true, force: true });
+    rmSync(bindir, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("rejects an old GBrain before explicit backfill can start", () => {
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    const bindir = mkdtempSync(join(tmpdir(), "gstack-old-gbrain-bin-"));
+    const repo = mkdtempSync(join(tmpdir(), "gstack-old-gbrain-repo-"));
+    const commandLog = join(home, "gbrain-commands.log");
+    mkdirSync(gstackHome, { recursive: true });
+    mkdirSync(join(home, ".gbrain"), { recursive: true });
+    writeFileSync(
+      join(home, ".gbrain", "config.json"),
+      JSON.stringify({ engine: "pglite", database_url: "pglite:///fake" }),
+    );
+    spawnSync("git", ["init", "--quiet", "-b", "main"], { cwd: repo });
+    spawnSync("git", ["remote", "add", "origin", "https://github.com/acme/old-gbrain.git"], { cwd: repo });
+    writeFileSync(join(bindir, "gbrain"), `#!/bin/sh
+printf '%s\n' "$*" >> "$GSTACK_TEST_GBRAIN_LOG"
+case "$*" in
+  --version) echo 'gbrain 0.42.13.9'; exit 0 ;;
+  'sources list --json') echo '{"sources":[]}'; exit 0 ;;
+  *) exit 99 ;;
+esac
+`);
+    chmodSync(join(bindir, "gbrain"), 0o755);
+
+    const r = spawnSync("bun", [
+      SCRIPT,
+      "--dream",
+      "--no-code",
+      "--no-memory",
+      "--no-brain-sync",
+    ], {
+      encoding: "utf-8",
+      timeout: 60000,
+      cwd: repo,
+      env: {
+        ...process.env,
+        HOME: home,
+        GSTACK_HOME: gstackHome,
+        GSTACK_TEST_GBRAIN_LOG: commandLog,
+        PATH: `${bindir}:${process.env.PATH || ""}`,
+      },
+    });
+
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain("requires gbrain >= 0.42.14");
+    expect(r.stderr).toContain("Run /setup-gbrain to upgrade before syncing");
+    const commands = readFileSync(commandLog, "utf-8").trim().split("\n");
+    expect(commands.length).toBeGreaterThan(0);
+    expect(commands.every((command) =>
+      command === "--version" || command === "sources list --json"
+    )).toBe(true);
+    expect(commands.some((command) => command.startsWith("edges-backfill"))).toBe(false);
     rmSync(repo, { recursive: true, force: true });
     rmSync(bindir, { recursive: true, force: true });
     rmSync(home, { recursive: true, force: true });
@@ -531,6 +600,36 @@ esac
     expect(Array.isArray(state.last_stages)).toBe(true);
     // With all stages disabled, last_stages is empty
     expect(state.last_stages.length).toBe(0);
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("writes to the same portable plugin state root consumed by post-sync readers", () => {
+    const home = makeTestHome();
+    const pluginData = join(home, "plugin-data");
+    const env = {
+      ...process.env,
+      HOME: home,
+      CLAUDE_PLUGIN_DATA: pluginData,
+      CLAUDE_PLUGIN_ROOT: join(home, "gstack-plugin"),
+    };
+    delete env.GSTACK_HOME;
+    delete env.GSTACK_STATE_ROOT;
+
+    const r = spawnSync(
+      "bash",
+      [
+        "-c",
+        'eval "$(bash "$1")"; GSTACK_STATE_ROOT="$GSTACK_STATE_ROOT" bun "$2" --incremental --no-code --no-memory --no-brain-sync --quiet',
+        "gstack-sync-test",
+        GSTACK_PATHS,
+        SCRIPT,
+      ],
+      { encoding: "utf-8", timeout: 60000, env },
+    );
+
+    expect(r.status).toBe(0);
+    expect(existsSync(join(pluginData, ".gbrain-sync-state.json"))).toBe(true);
+    expect(existsSync(join(home, ".gstack", ".gbrain-sync-state.json"))).toBe(false);
     rmSync(home, { recursive: true, force: true });
   });
 

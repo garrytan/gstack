@@ -7,6 +7,10 @@
 #     if no URL is passed. Exits 0 with one of: read-write, read-only,
 #     deny, unset.
 #
+#   gstack-gbrain-repo-policy peek <remote-url>
+#     Read the effective tier without migrating or rewriting the store.
+#     Intended for dry-run previews. Corrupt/unreadable stores fail closed.
+#
 #   gstack-gbrain-repo-policy get --batch
 #     Read remote URLs from stdin (one per line); print one tier per line
 #     in input order: read-write, read-only, deny, or none (no entry / no
@@ -238,6 +242,36 @@ cmd_get() {
   jq -r --arg key "$key" '.[$key] // "unset"' "$POLICY_FILE"
 }
 
+# peek <url> — strictly non-mutating lookup for dry-run callers. Legacy
+# `allow` is interpreted as its effective v2 value (`read-write`) in memory,
+# but the store is never migrated. Corrupt/unreadable stores fail closed and
+# are never quarantined or replaced.
+cmd_peek() {
+  local url="${1:-}"
+  [ -z "$url" ] && die "usage: peek <remote-url>"
+  if [ ! -f "$POLICY_FILE" ]; then
+    echo "unset"
+    return 0
+  fi
+  require_jq
+  if [ ! -r "$POLICY_FILE" ]; then
+    die "Cannot read $POLICY_FILE"
+  fi
+  if ! jq empty "$POLICY_FILE" 2>/dev/null; then
+    die "policy store $POLICY_FILE is corrupt (invalid JSON) — refusing non-mutating read"
+  fi
+  local key
+  key=$(normalize "$url")
+  if [ -z "$key" ]; then
+    echo "unset"
+    return 0
+  fi
+  jq -r --arg key "$key" '
+    (.[$key] // "unset") as $tier
+    | if $tier == "allow" then "read-write" else $tier end
+  ' "$POLICY_FILE"
+}
+
 cmd_set() {
   local url="${1:-}"
   local tier="${2:-}"
@@ -276,10 +310,11 @@ cmd_normalize() {
 
 case "${1:-}" in
   get) shift; cmd_get "$@" ;;
+  peek) shift; cmd_peek "$@" ;;
   set) shift; cmd_set "$@" ;;
   list) shift; cmd_list "$@" ;;
   normalize) shift; cmd_normalize "$@" ;;
   --help|-h|help) sed -n '2,54p' "$0" | sed 's/^# \{0,1\}//' ;;
-  "") die "usage: gstack-gbrain-repo-policy {get|set|list|normalize|--help}" ;;
+  "") die "usage: gstack-gbrain-repo-policy {get|peek|set|list|normalize|--help}" ;;
   *) die "unknown subcommand: $1" ;;
 esac

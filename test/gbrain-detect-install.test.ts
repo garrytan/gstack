@@ -34,7 +34,7 @@ const INSTALL = path.join(ROOT, 'bin', 'gstack-gbrain-install');
 // symlink to bun and nothing else.
 const BUN_ONLY_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'bun-only-'));
 fs.symlinkSync(process.execPath, path.join(BUN_ONLY_DIR, 'bun'));
-const SAFE_PATH = `/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin:${BUN_ONLY_DIR}`;
+const SAFE_PATH = `/usr/bin:/bin:/usr/sbin:/sbin:${BUN_ONLY_DIR}`;
 
 let tmpHome: string;
 let tmpHomeReal: string;
@@ -213,15 +213,15 @@ describe('gstack-gbrain-install D19 PATH-shadow validation', () => {
   }
 
   test('passes when install-dir version matches `gbrain --version` on PATH', () => {
-    // Version must be >= MIN_GBRAIN_VERSION (0.20.0) floor (#1744).
-    const installDir = seedInstallDir('0.41.29');
-    const fakeBin = seedFakeGbrainBinary('0.41.29');
+    // Version must be >= the source-scoped readiness floor (0.42.14).
+    const installDir = seedInstallDir('0.42.14');
+    const fakeBin = seedFakeGbrainBinary('0.42.14');
     try {
       const r = run(INSTALL, ['--validate-only', '--install-dir', installDir], {
         env: { PATH: `${fakeBin}:${SAFE_PATH}` },
       });
       expect(r.status).toBe(0);
-      expect(r.stdout).toContain('installed gbrain 0.41.29');
+      expect(r.stdout).toContain('installed gbrain 0.42.14');
     } finally {
       fs.rmSync(installDir, { recursive: true, force: true });
       fs.rmSync(fakeBin, { recursive: true, force: true });
@@ -229,8 +229,8 @@ describe('gstack-gbrain-install D19 PATH-shadow validation', () => {
   });
 
   test('hard-fails (exit 3) when the installed gbrain is below the version floor (#1744)', () => {
-    const installDir = seedInstallDir('0.18.2');
-    const fakeBin = seedFakeGbrainBinary('0.18.2');
+    const installDir = seedInstallDir('0.42.13');
+    const fakeBin = seedFakeGbrainBinary('0.42.13');
     try {
       const r = run(INSTALL, ['--validate-only', '--install-dir', installDir], {
         env: { PATH: `${fakeBin}:${SAFE_PATH}` },
@@ -244,8 +244,8 @@ describe('gstack-gbrain-install D19 PATH-shadow validation', () => {
   });
 
   test('tolerates a leading "v" in `gbrain --version` output', () => {
-    const installDir = seedInstallDir('0.41.29');
-    const fakeBin = seedFakeGbrainBinary('v0.41.29');
+    const installDir = seedInstallDir('0.42.14');
+    const fakeBin = seedFakeGbrainBinary('v0.42.14');
     try {
       const r = run(INSTALL, ['--validate-only', '--install-dir', installDir], {
         env: { PATH: `${fakeBin}:${SAFE_PATH}` },

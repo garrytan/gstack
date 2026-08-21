@@ -37,12 +37,15 @@ import { createHash } from "crypto";
 
 import "../lib/conductor-env-shim";
 import { detectEngineTier, withErrorContext, canonicalizeRemote } from "../lib/gstack-memory-helpers";
-import { ensureSourceRegistered, sourcePageCount, parseSourcesList, cycleCompleted, type CycleStatus } from "../lib/gbrain-sources";
+import { ensureSourceRegistered, sourcePageCount, parseSourcesList, type CycleStatus } from "../lib/gbrain-sources";
 import { detectAutopilot, decideSourceRemove, decideCodeSync } from "../lib/gbrain-guards";
 import { writeReceipt } from "../lib/egress-receipt";
-import { localEngineStatus, type LocalEngineStatus } from "../lib/gbrain-local-status";
+import { configuredEngine, localEngineStatus, readGbrainVersion, type LocalEngineStatus } from "../lib/gbrain-local-status";
 import { buildGbrainEnv, spawnGbrain, execGbrainJson, NEEDS_SHELL_ON_WINDOWS, bashScriptInvocation } from "../lib/gbrain-exec";
-import { repoPolicyTier as sharedRepoPolicyTier } from "../lib/gbrain-repo-policy-client";
+import {
+  repoPolicyTier as sharedRepoPolicyTier,
+  repoPolicyTierReadOnly as sharedRepoPolicyTierReadOnly,
+} from "../lib/gbrain-repo-policy-client";
 import { checkOwnedStagingDir } from "../lib/staging-guard";
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -56,9 +59,9 @@ export interface CliArgs {
   noMemory: boolean;
   noBrainSync: boolean;
   codeOnly: boolean;
-  /** Force the source-scoped dream cycle (builds this source's call graph). Always runs. */
+  /** Force the source-scoped call-graph backfill. Flag name retained for compatibility. */
   dream: boolean;
-  /** Opt out of the dream cycle that `--full` would otherwise auto-run. */
+  /** Opt out of the call-graph backfill that `--full` would otherwise auto-run. */
   noDream: boolean;
   /** #1734: opt-in to sync a URL-managed source whose code walk may auto-reclone. */
   allowReclone: boolean;
@@ -86,9 +89,9 @@ interface StageResult {
   summary: string;
   /**
    * Stage ran and did not error, but the outcome is a degraded no-op the user
-   * should know about (e.g. dream completed but the schema pack can't extract
-   * code symbols, so the call graph stays empty). Rendered as WARN, counts as
-   * ok for the exit code — it's not a failure, just not the happy path.
+   * should know about (e.g. the source-scoped readiness probe still reports
+   * indexing). Rendered as WARN, counts as ok for the exit code — it's not a
+   * failure, just not the happy path.
    */
   warn?: boolean;
   /** Stage-specific structured detail. Code stage carries source_id + page_count. */
@@ -98,18 +101,58 @@ interface StageResult {
 // ── Constants ──────────────────────────────────────────────────────────────
 
 const HOME = homedir();
-const GSTACK_HOME = process.env.GSTACK_HOME || join(HOME, ".gstack");
-const STATE_PATH = join(GSTACK_HOME, ".gbrain-sync-state.json");
-const LOCK_PATH = join(GSTACK_HOME, ".sync-gbrain.lock");
+// The orchestrator's own metadata is portable. Curated artifacts, repository
+// policies, transcript watermarks, and ingest staging remain in the canonical
+// GSTACK_HOME consumed by their existing writers; do not silently relocate
+// those data stores when a plugin supplies GSTACK_STATE_ROOT.
+const LEGACY_GSTACK_HOME = process.env.GSTACK_HOME || join(HOME, ".gstack");
+const GSTACK_STATE_ROOT = process.env.GSTACK_STATE_ROOT || LEGACY_GSTACK_HOME;
+const STATE_PATH = join(GSTACK_STATE_ROOT, ".gbrain-sync-state.json");
+const LOCK_PATH = join(LEGACY_GSTACK_HOME, ".sync-gbrain.lock");
 const STALE_LOCK_MS = 5 * 60 * 1000;
 
-// Dream (call-graph build) is brain-global and runs LOCK-FREE after the sync
-// lock releases, so it can't use the sync lock to dedupe across worktrees. A
-// dedicated short-TTL marker prevents two worktrees from launching duplicate
-// ~35-min global jobs. TTL matches the dream timeout default so a crashed run
-// can't wedge the marker longer than one cycle.
-const DEFAULT_DREAM_TIMEOUT_MS = 45 * 60 * 1000; // 45min — dream is the slow stage
+// The legacy --dream flag runs GBrain's official source-scoped, resumable
+// edges-backfill operation. It runs after the main sync lock releases, with a
+// dedicated engine/source-aware marker preventing unsafe duplicate work.
+const DEFAULT_DREAM_TIMEOUT_MS = 45 * 60 * 1000;
 const DREAM_MARKER_STALE_MS = DEFAULT_DREAM_TIMEOUT_MS;
+const CALL_GRAPH_READINESS_PROBE = "__gstack_call_graph_readiness_5f3c9d__";
+export const MIN_GBRAIN_CALL_GRAPH_VERSION = "0.42.14";
+
+export interface EdgeBackfillSummary {
+  source_id: string;
+  chunks_walked: number;
+  edges_resolved: number;
+  edges_ambiguous: number;
+  edges_unmatched: number;
+  batches: number;
+  ms: number;
+}
+
+export interface CallGraphReadiness {
+  source_id: string;
+  scope: "single";
+  count: number;
+  status: "not_built" | "indexing" | "ready" | "unknown";
+  ready: boolean;
+}
+
+export type CallGraphPassAction = "ready" | "continue" | "stalled" | "not_built" | "unknown" | "invalid";
+
+/** Accept gbrain's 3- or 4-part stable release format, with its CLI prefix. */
+export function isGbrainCallGraphVersionSupported(raw: string): boolean {
+  const match = raw.trim().match(/^(?:gbrain\s*)?v?(\d+)\.(\d+)\.(\d+)(?:\.(\d+))?$/i);
+  if (!match) return false;
+  const have = match.slice(1, 5).map((part) => Number.parseInt(part ?? "0", 10));
+  const need = MIN_GBRAIN_CALL_GRAPH_VERSION.split(".").map((part) => Number.parseInt(part, 10));
+  for (let i = 0; i < 4; i += 1) {
+    const havePart = have[i] ?? 0;
+    const needPart = need[i] ?? 0;
+    if (havePart > needPart) return true;
+    if (havePart < needPart) return false;
+  }
+  return true;
+}
 
 /**
  * Marker path computed fresh per call (not a module const) so tests can mutate
@@ -117,8 +160,18 @@ const DREAM_MARKER_STALE_MS = DEFAULT_DREAM_TIMEOUT_MS;
  * lib/gbrain-local-status.ts. Avoids the ESM static-import hoist trap where a
  * module-load-time const captures the real ~/.gstack before a test can redirect.
  */
-export function dreamMarkerPath(): string {
-  return join(process.env.GSTACK_HOME || join(homedir(), ".gstack"), ".dream-in-progress");
+export function dreamMarkerPath(sourceId: string): string {
+  // PGLite is single-process, so every source sharing that engine must use one
+  // marker. Unknown configs take the same conservative path. Postgres-backed
+  // engines can safely backfill independent sources in parallel.
+  const engine = configuredEngine(process.env);
+  const markerName = engine === "postgres"
+    ? `.call-graph-backfill-${createHash("sha256").update(sourceId).digest("hex").slice(0, 16)}.lock`
+    : ".call-graph-backfill.lock";
+  return join(
+    process.env.GSTACK_HOME || join(homedir(), ".gstack"),
+    markerName,
+  );
 }
 
 // Default 35-minute timeout for code-walk + memory-ingest stages. Override via
@@ -208,7 +261,7 @@ export type ResumeVerdict =
  *   - checkpoint + staging ok    → resume (gbrain picks up at processedIndex+1)
  *   - checkpoint + staging gone  → warn, fall through to fresh restage
  */
-export function decideResume(gstackHome: string = GSTACK_HOME): ResumeVerdict {
+export function decideResume(gstackHome: string = LEGACY_GSTACK_HOME): ResumeVerdict {
   const cp = readGbrainCheckpoint();
   if (!cp || !cp.dir) return { kind: "no-checkpoint" };
   const stagingDir = cp.dir;
@@ -247,19 +300,19 @@ Options:
   --no-memory          Skip the gstack-memory-ingest stage (transcripts + artifacts).
   --no-brain-sync      Skip the gstack-brain-sync git pipeline stage.
   --code-only          Only run the code-import stage (alias for --no-memory --no-brain-sync).
-  --dream              Force the source-scoped dream cycle that builds this
-                       source's call graph (gbrain code-callers/code-callees).
+  --dream              Force GBrain's official source-scoped edges-backfill
+                       for code-callers/code-callees, then verify ready=true.
                        Runs lock-free AFTER the sync stages. ~minutes. Default
                        timeout 45min, override GSTACK_SYNC_DREAM_TIMEOUT_MS.
-  --no-dream           Opt out of the dream cycle that --full would auto-run.
+  --no-dream           Opt out of the call-graph backfill that --full auto-runs.
   --allow-reclone      Permit the code walk for URL-managed sources (remote_url set)
                        even though gbrain may auto-reclone the working tree (#1734).
   --help               This text.
 
 Stages run in order: code → memory ingest → curated git push, then (lock-free)
-the optional dream call-graph build. --full auto-runs dream ONLY when the call
-graph was never built; --dream always forces it. Each stage failure is
-non-fatal; subsequent stages still run.
+the optional source-scoped call-graph backfill. --full always backfills after
+reindex unless --no-dream is set; --dream always forces it. Each stage failure
+is non-fatal; subsequent stages still run.
 `);
 }
 
@@ -291,7 +344,7 @@ function parseArgs(): CliArgs {
         noMemory = true;
         noBrainSync = true;
         break;
-      // --dream forces the cycle; --full only chains it at the call site (so
+      // --dream forces the backfill; --full only chains it at the call site (so
       // --no-dream can override) — do NOT set dream from --full here.
       case "--dream": dream = true; break;
       case "--no-dream": noDream = true; break;
@@ -658,7 +711,7 @@ interface LockInfo {
 }
 
 function acquireLock(): boolean {
-  mkdirSync(GSTACK_HOME, { recursive: true });
+  mkdirSync(LEGACY_GSTACK_HOME, { recursive: true });
   if (existsSync(LOCK_PATH)) {
     // Check if stale.
     try {
@@ -698,14 +751,14 @@ function releaseLock(): void {
 }
 
 /**
- * Acquire the dream marker (`~/.gstack/.dream-in-progress`). Returns false when
- * a FRESH marker already exists (another worktree is mid-dream) — the caller
- * then SKIPs rather than launching a duplicate ~35-min global job. A stale
+ * Acquire the call-graph marker. PGLite uses one engine-wide marker because it
+ * is single-process; Postgres uses source-scoped markers so independent sources
+ * can proceed concurrently. A stale
  * marker (older than DREAM_MARKER_STALE_MS, i.e. a crashed run) is taken over.
  * Mirrors acquireLock but with the dream TTL and its own path.
  */
-export function acquireDreamMarker(): boolean {
-  const path = dreamMarkerPath();
+export function acquireDreamMarker(sourceId: string): boolean {
+  const path = dreamMarkerPath(sourceId);
   mkdirSync(dirname(path), { recursive: true });
   if (existsSync(path)) {
     try {
@@ -728,9 +781,9 @@ export function acquireDreamMarker(): boolean {
   }
 }
 
-export function releaseDreamMarker(): void {
+export function releaseDreamMarker(sourceId: string): void {
   try {
-    const path = dreamMarkerPath();
+    const path = dreamMarkerPath(sourceId);
     if (!existsSync(path)) return;
     const info = JSON.parse(readFileSync(path, "utf-8")) as LockInfo;
     if (info.pid === process.pid) unlinkSync(path);
@@ -740,9 +793,9 @@ export function releaseDreamMarker(): void {
 }
 
 /** Read the pid recorded in a fresh dream marker, for the "already running" message. */
-function dreamMarkerPid(): number | null {
+function dreamMarkerPid(sourceId: string): number | null {
   try {
-    const info = JSON.parse(readFileSync(dreamMarkerPath(), "utf-8")) as LockInfo;
+    const info = JSON.parse(readFileSync(dreamMarkerPath(sourceId), "utf-8")) as LockInfo;
     return typeof info.pid === "number" ? info.pid : null;
   } catch {
     return null;
@@ -836,8 +889,13 @@ function warnProbeTimeout(stage: "code" | "memory" | "dream"): void {
  * win32 gets the invoke-via-bash path). A spawn failure is still fail-closed
  * but says so, instead of the misleading "store could not be read".
  */
-export function repoPolicyTier(url: string | null): "read-write" | "read-only" | "deny" | "unset" | "error" {
-  const res = sharedRepoPolicyTier(url, process.env);
+export function repoPolicyTier(
+  url: string | null,
+  readOnly: boolean = false,
+): "read-write" | "read-only" | "deny" | "unset" | "error" {
+  const res = readOnly
+    ? sharedRepoPolicyTierReadOnly(url, process.env)
+    : sharedRepoPolicyTier(url, process.env);
   if (res.error === "spawn-failed") {
     process.stderr.write(
       "[gstack-gbrain-sync] the repo-policy helper could not be spawned (bash missing from PATH?) — " +
@@ -867,7 +925,7 @@ async function runCodeImport(args: CliArgs): Promise<StageResult> {
   // Per-repo trust tier — checked BEFORE the dry-run branch so previews report
   // the refusal honestly instead of claiming they would sync.
   const policyUrl = originUrl();
-  const tier = repoPolicyTier(policyUrl);
+  const tier = repoPolicyTier(policyUrl, args.mode === "dry-run");
   if (tier === "read-only") {
     // Honoring an explicit user setting (search allowed, page writes never) is
     // a clean skip, not a stage failure — code ingest writes pages.
@@ -1346,248 +1404,394 @@ function runBrainSyncPush(args: CliArgs): StageResult {
   };
 }
 
-/**
- * Decide whether the dream (call-graph build) cycle should run. PURE so the
- * gate matrix is unit-testable without spawning a real ~35-min dream.
- *
- *   - explicit --dream → always run (force), regardless of cycle state / --no-code.
- *   - --full → run ONLY when the call graph was never built (cycle === "never"),
- *     and only when not opted out via --no-dream / --no-code. "completed" skips
- *     (edges already built); "unknown" skips (a flaky doctor must not trigger a
- *     surprise 35-min cycle — see gbrain-doctor-overstrict).
- *   - everything else → skip.
- *
- * `cycle` is only consulted on the --full auto path; pass null when forcing.
- */
-export function shouldRunDream(args: CliArgs, cycle: CycleStatus | null): boolean {
+/** Decide whether the source-scoped call-graph backfill should run. */
+export function shouldRunDream(args: CliArgs, _cycle: CycleStatus | null): boolean {
   if (args.dream) return true;
-  if (args.mode === "full" && !args.noDream && !args.noCode) {
-    return cycle === "never";
+  return args.mode === "full" && !args.noDream && !args.noCode;
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0;
+}
+
+/** Parse the one exact-source row emitted by `gbrain edges-backfill --json`. */
+export function parseEdgeBackfillSummary(out: string, sourceId: string): EdgeBackfillSummary | null {
+  try {
+    const parsed = JSON.parse(out) as { summary?: unknown };
+    if (!Array.isArray(parsed.summary) || parsed.summary.length !== 1) return null;
+    const row = parsed.summary[0] as Record<string, unknown>;
+    if (
+      row.source_id !== sourceId ||
+      !isNonNegativeInteger(row.chunks_walked) ||
+      !isNonNegativeInteger(row.edges_resolved) ||
+      !isNonNegativeInteger(row.edges_ambiguous) ||
+      !isNonNegativeInteger(row.edges_unmatched) ||
+      !isNonNegativeInteger(row.batches) ||
+      !isNonNegativeInteger(row.ms)
+    ) {
+      return null;
+    }
+    return {
+      source_id: sourceId,
+      chunks_walked: row.chunks_walked,
+      edges_resolved: row.edges_resolved,
+      edges_ambiguous: row.edges_ambiguous,
+      edges_unmatched: row.edges_unmatched,
+      batches: row.batches,
+      ms: row.ms,
+    };
+  } catch {
+    return null;
   }
-  return false;
+}
+
+/** Parse GBrain's official source-scoped readiness envelope for our sentinel. */
+export function parseCallGraphReadiness(out: string, sourceId: string): CallGraphReadiness | null {
+  try {
+    const parsed = JSON.parse(out) as Record<string, unknown>;
+    const statuses = new Set<CallGraphReadiness["status"]>(["not_built", "indexing", "ready", "unknown"]);
+    if (
+      parsed.source_id !== sourceId ||
+      parsed.scope !== "single" ||
+      parsed.count !== 0 ||
+      typeof parsed.status !== "string" ||
+      !statuses.has(parsed.status as CallGraphReadiness["status"]) ||
+      typeof parsed.ready !== "boolean"
+    ) {
+      return null;
+    }
+    return {
+      source_id: sourceId,
+      scope: "single",
+      count: 0,
+      status: parsed.status as CallGraphReadiness["status"],
+      ready: parsed.ready,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Pure continuation gate so no-progress and contradictory signals stay tested. */
+export function nextCallGraphPass(
+  backfill: EdgeBackfillSummary,
+  readiness: CallGraphReadiness,
+): CallGraphPassAction {
+  if (readiness.status === "ready" && readiness.ready) return "ready";
+  if (readiness.ready || readiness.status === "ready") return "invalid";
+  if (readiness.status === "indexing") {
+    return backfill.chunks_walked > 0 ? "continue" : "stalled";
+  }
+  if (readiness.status === "not_built") return "not_built";
+  if (readiness.status === "unknown") return "unknown";
+  return "invalid";
 }
 
 /**
- * Run `gbrain dream` — the brain-global maintenance cycle whose
- * resolve_symbol_edges phase builds the call graph. Runs LOCK-FREE (called
- * after the sync lock releases) so it never freezes sibling worktrees; the
- * `.dream-in-progress` marker dedupes concurrent dreams instead.
- *
- * Returns a StageResult (never throws). SKIP (ran:false, ok:true) for: dry-run
- * preview, local engine not ok, or a fresh marker present. ERR (ran:true,
- * ok:false) for: non-zero/timeout exit, or a spawn-setup failure (missing
- * binary / malformed env) — a broken install must be visible, not disguised as
- * optional maintenance.
+ * Run GBrain's official resumable edge backfill in its default bounded batches,
+ * repeating only while the exact source says it is still indexing and the last
+ * pass made progress. The public flag remains --dream for compatibility.
  */
 export async function runDream(args: CliArgs): Promise<StageResult> {
   const t0 = Date.now();
+  const root = repoRoot();
+  const previewSourceId = root ? readPinnedSourceId(root) ?? deriveCodeSourceId(root) : null;
+
+  // Edge backfill mutates call-graph metadata, so it is subject to the same
+  // repository policy as code ingest. This check intentionally precedes the
+  // dry-run branch: previews must report the same refusal/skip as real runs,
+  // while still avoiding every GBrain command.
+  const policyUrl = originUrl();
+  const tier = repoPolicyTier(policyUrl, args.mode === "dry-run");
+  if (tier === "read-only") {
+    return {
+      name: "dream",
+      ran: false,
+      ok: true,
+      duration_ms: Date.now() - t0,
+      summary: `skipped — repo policy is read-only for ${policyUrl} (call-graph backfill writes metadata)`,
+    };
+  }
+  if (tier === "deny" || tier === "error") {
+    return {
+      name: "dream",
+      ran: true,
+      ok: false,
+      duration_ms: Date.now() - t0,
+      summary: tier === "deny"
+        ? `refused — repo policy is deny for ${policyUrl}; no GBrain interaction is allowed`
+        : "refused — repo policy store exists but could not be read; no GBrain interaction attempted",
+    };
+  }
 
   if (args.mode === "dry-run") {
-    const root = repoRoot();
-    const sourceId = root ? readPinnedSourceId(root) ?? deriveCodeSourceId(root) : null;
     return {
       name: "dream",
       ran: false,
       ok: true,
       duration_ms: 0,
-      summary: sourceId
-        ? `would: gbrain dream --source ${sourceId}  (build this source's call graph)`
-        : "would: gbrain dream  (call-graph build)",
+      summary: previewSourceId
+        ? `would: gbrain edges-backfill --source ${previewSourceId} --json, then verify source readiness`
+        : "would: refuse call-graph backfill because no repository source can be identified",
     };
   }
 
   const gbrainEnv = buildGbrainEnv({ announce: !args.quiet });
   const localStatus = localEngineStatus({ noCache: false });
   if (localStatus === "timeout") {
-    warnProbeTimeout("dream"); // #1964: slow-but-healthy — proceed
+    warnProbeTimeout("dream");
   } else if (localStatus !== "ok") {
     return skipStageForLocalStatus("dream", localStatus, t0);
   }
 
-  // Dedupe concurrent dreams across worktrees (lock-free path).
-  if (!acquireDreamMarker()) {
-    const pid = dreamMarkerPid();
+  // Existing installations may predate the current installer floor. Refuse
+  // before any backfill/reindex work instead of failing after a long --full run.
+  const gbrainVersion = readGbrainVersion(process.env);
+  if (!isGbrainCallGraphVersionSupported(gbrainVersion)) {
+    return {
+      name: "dream",
+      ran: true,
+      ok: false,
+      duration_ms: Date.now() - t0,
+      summary: gbrainVersion
+        ? `gbrain ${gbrainVersion} is below the required ${MIN_GBRAIN_CALL_GRAPH_VERSION}; run /setup-gbrain to upgrade before syncing`
+        : `could not verify gbrain >= ${MIN_GBRAIN_CALL_GRAPH_VERSION}; run /setup-gbrain before syncing`,
+    };
+  }
+
+  if (!root) {
+    return {
+      name: "dream",
+      ran: true,
+      ok: false,
+      duration_ms: Date.now() - t0,
+      summary: "cannot identify a repository source for the call-graph backfill",
+    };
+  }
+  const sourceId = resolveCodeSourceId(root, gbrainEnv);
+  const sourceDetail = { source_id: sourceId, source_path: root };
+
+  if (!acquireDreamMarker(sourceId)) {
+    const pid = dreamMarkerPid(sourceId);
     return {
       name: "dream",
       ran: false,
       ok: true,
       duration_ms: Date.now() - t0,
-      summary: `dream already running${pid !== null ? ` (pid ${pid})` : ""} — skipped`,
+      summary: `call-graph backfill already running${pid !== null ? ` (pid ${pid})` : ""} — skipped`,
+      detail: sourceDetail,
     };
   }
 
   try {
-    const dreamTimeoutMs = resolveStageTimeoutMs(
+    const timeoutMs = resolveStageTimeoutMs(
       process.env.GSTACK_SYNC_DREAM_TIMEOUT_MS,
       "GSTACK_SYNC_DREAM_TIMEOUT_MS",
       DEFAULT_DREAM_TIMEOUT_MS,
     );
+    const deadline = t0 + timeoutMs;
+    let passes = 0;
+    let chunksWalked = 0;
+    let edgesResolved = 0;
+    let edgesAmbiguous = 0;
+    let edgesUnmatched = 0;
 
-    // Scope the cycle to THIS worktree's code source: `gbrain dream --source <id>`.
-    // Verified empirically (not just from `gbrain --help`): plain `gbrain dream`
-    // cycles the brain's default source and never runs the source-scoped `extract`
-    // phase for our code source, so the call graph for the pinned source stays
-    // empty. `gbrain dream --source <id>` runs the per-source cycle (the form
-    // `gbrain doctor` recommends for stale sources) and is what actually populates
-    // code-callers/code-callees for this worktree. Falls back to plain `dream`
-    // only when we can't derive the source id (not in a git repo).
-    const root = repoRoot();
-    const sourceId = root ? resolveCodeSourceId(root, gbrainEnv) : null;
-    const dreamArgs = sourceId ? ["dream", "--source", sourceId] : ["dream"];
+    while (Date.now() < deadline) {
+      passes += 1;
+      if (!args.quiet) {
+        process.stderr.write(`[dream] backfilling call graph for ${sourceId} (pass ${passes})...\n`);
+      }
 
-    // spawnGbrain seeds DATABASE_URL from gbrain's config via buildGbrainEnv.
-    //
-    // We CAPTURE output (pipe) rather than inherit because `gbrain dream` exits 0
-    // even when it SKIPS the cycle — when another cycle already holds gbrain's own
-    // DB lock (e.g. a running `gbrain autopilot`), it prints "Skipped: another
-    // cycle is already running. (locked)" and exits 0. Trusting the exit code
-    // alone would falsely report "call graph built". Trade-off: no live streaming
-    // for a long cycle; we echo the captured output afterward instead.
-    if (!args.quiet) {
-      process.stderr.write("[dream] running gbrain cycle (call-graph build; this can take a few minutes)...\n");
+      let backfillResult: ReturnType<typeof spawnGbrain>;
+      try {
+        backfillResult = spawnGbrain(["edges-backfill", "--source", sourceId, "--json"], {
+          stdio: ["ignore", "pipe", "pipe"],
+          timeout: Math.max(1, deadline - Date.now()),
+          baseEnv: process.env,
+          announce: !args.quiet,
+        });
+      } catch (err) {
+        return {
+          name: "dream",
+          ran: true,
+          ok: false,
+          duration_ms: Date.now() - t0,
+          summary: `gbrain edges-backfill failed to start: ${(err as Error).message}`,
+          detail: sourceDetail,
+        };
+      }
+
+      if (backfillResult.error || backfillResult.status !== 0) {
+        const err = backfillResult.error as NodeJS.ErrnoException | undefined;
+        const why = err?.code === "ENOENT"
+          ? "gbrain not on PATH"
+          : err?.message ?? (backfillResult.status === null
+            ? "killed by signal or timeout"
+            : "exit " + backfillResult.status);
+        return {
+          name: "dream",
+          ran: true,
+          ok: false,
+          duration_ms: Date.now() - t0,
+          summary: `gbrain edges-backfill failed: ${why}`,
+          detail: sourceDetail,
+        };
+      }
+      if (/\[edges-backfill\][^\n]*failed:/i.test(backfillResult.stderr || "")) {
+        return {
+          name: "dream",
+          ran: true,
+          ok: false,
+          duration_ms: Date.now() - t0,
+          summary: "gbrain edges-backfill reported a source failure",
+          detail: sourceDetail,
+        };
+      }
+      if (!args.quiet && backfillResult.stderr?.trim()) {
+        process.stderr.write(
+          backfillResult.stderr.endsWith("\n")
+            ? backfillResult.stderr
+            : backfillResult.stderr + "\n",
+        );
+      }
+
+      const backfill = parseEdgeBackfillSummary(backfillResult.stdout || "", sourceId);
+      if (!backfill) {
+        return {
+          name: "dream",
+          ran: true,
+          ok: false,
+          duration_ms: Date.now() - t0,
+          summary: `gbrain edges-backfill returned no exact row for source ${sourceId}`,
+          detail: sourceDetail,
+        };
+      }
+      chunksWalked += backfill.chunks_walked;
+      edgesResolved += backfill.edges_resolved;
+      edgesAmbiguous += backfill.edges_ambiguous;
+      edgesUnmatched += backfill.edges_unmatched;
+
+      if (Date.now() >= deadline) break;
+      let readinessResult: ReturnType<typeof spawnGbrain>;
+      try {
+        readinessResult = spawnGbrain([
+          "code-callers",
+          CALL_GRAPH_READINESS_PROBE,
+          "--source",
+          sourceId,
+          "--limit",
+          "1",
+          "--json",
+        ], {
+          stdio: ["ignore", "pipe", "pipe"],
+          timeout: Math.max(1, deadline - Date.now()),
+          baseEnv: process.env,
+          announce: false,
+        });
+      } catch (err) {
+        return {
+          name: "dream",
+          ran: true,
+          ok: false,
+          duration_ms: Date.now() - t0,
+          summary: `gbrain source readiness probe failed to start: ${(err as Error).message}`,
+          detail: sourceDetail,
+        };
+      }
+      if (readinessResult.error || readinessResult.status !== 0) {
+        const err = readinessResult.error as NodeJS.ErrnoException | undefined;
+        const why = err?.message ?? (readinessResult.status === null
+          ? "killed by signal or timeout"
+            : `exit ${readinessResult.status}`);
+        return {
+          name: "dream",
+          ran: true,
+          ok: false,
+          duration_ms: Date.now() - t0,
+          summary: `gbrain source readiness probe failed: ${why}`,
+          detail: sourceDetail,
+        };
+      }
+
+      const readiness = parseCallGraphReadiness(readinessResult.stdout || "", sourceId);
+      if (!readiness) {
+        return {
+          name: "dream",
+          ran: true,
+          ok: false,
+          duration_ms: Date.now() - t0,
+          summary: `gbrain readiness returned invalid or wrong-source evidence for ${sourceId}`,
+          detail: sourceDetail,
+        };
+      }
+
+      switch (nextCallGraphPass(backfill, readiness)) {
+        case "ready":
+          return {
+            name: "dream",
+            ran: true,
+            ok: true,
+            duration_ms: Date.now() - t0,
+            summary: `call graph ready for ${sourceId} ` +
+              `(${chunksWalked} chunks in ${passes} pass${passes === 1 ? "" : "es"}; ` +
+              `${edgesResolved} resolved, ${edgesAmbiguous} ambiguous, ${edgesUnmatched} unmatched)`,
+            detail: { ...sourceDetail, status: readiness.status, ready: readiness.ready },
+          };
+        case "continue":
+          continue;
+        case "stalled":
+          return {
+            name: "dream",
+            ran: true,
+            ok: true,
+            warn: true,
+            duration_ms: Date.now() - t0,
+            summary: `call graph for ${sourceId} still indexing, but the official backfill made no progress`,
+            detail: { ...sourceDetail, status: readiness.status, ready: readiness.ready },
+          };
+        case "not_built":
+          return {
+            name: "dream",
+            ran: true,
+            ok: true,
+            warn: true,
+            duration_ms: Date.now() - t0,
+            summary: `call graph not built for ${sourceId} because no code is indexed in that source`,
+            detail: { ...sourceDetail, status: readiness.status, ready: readiness.ready },
+          };
+        case "unknown":
+          return {
+            name: "dream",
+            ran: true,
+            ok: true,
+            warn: true,
+            duration_ms: Date.now() - t0,
+            summary: `call-graph readiness is unknown for ${sourceId}; no success claimed`,
+            detail: { ...sourceDetail, status: readiness.status, ready: readiness.ready },
+          };
+        case "invalid":
+          return {
+            name: "dream",
+            ran: true,
+            ok: false,
+            duration_ms: Date.now() - t0,
+            summary: `gbrain returned contradictory readiness for ${sourceId}`,
+            detail: { ...sourceDetail, status: readiness.status, ready: readiness.ready },
+          };
+      }
     }
-    let result: ReturnType<typeof spawnGbrain>;
-    try {
-      result = spawnGbrain(dreamArgs, {
-        stdio: ["ignore", "pipe", "pipe"],
-        timeout: dreamTimeoutMs,
-        baseEnv: process.env,
-        announce: !args.quiet,
-      });
-    } catch (err) {
-      // Spawn-setup failure (missing binary, bad env): ERR, not a benign skip.
-      return {
-        name: "dream",
-        ran: true,
-        ok: false,
-        duration_ms: Date.now() - t0,
-        summary: `gbrain dream failed to start: ${(err as Error).message}`,
-      };
-    }
 
-    if (result.error) {
-      const e = result.error as NodeJS.ErrnoException;
-      const why = e.code === "ENOENT" ? "gbrain not on PATH" : e.message;
-      return {
-        name: "dream",
-        ran: true,
-        ok: false,
-        duration_ms: Date.now() - t0,
-        summary: `gbrain dream failed to start: ${why}`,
-      };
-    }
-
-    const out = `${result.stdout || ""}${result.stderr || ""}`;
-    if (!args.quiet && out.trim()) {
-      process.stderr.write(out.endsWith("\n") ? out : `${out}\n`);
-    }
-
-    if (result.status !== 0) {
-      return {
-        name: "dream",
-        ran: true,
-        ok: false,
-        duration_ms: Date.now() - t0,
-        summary: `gbrain dream exited ${result.status === null ? "null (killed by signal / timeout)" : result.status}`,
-      };
-    }
-
-    // Exit 0 but the cycle was SKIPPED because gbrain's own lock is held by
-    // another cycle (typically `gbrain autopilot`). Report SKIP, not "built" —
-    // the graph builds on that other cycle, not this invocation.
-    if (/already running|\block(?:ed)?\b|Skipped:/i.test(out)) {
-      return {
-        name: "dream",
-        ran: false,
-        ok: true,
-        duration_ms: Date.now() - t0,
-        summary: "skipped — a gbrain cycle is already running (e.g. autopilot); the call graph builds on that cycle",
-      };
-    }
-
-    // Exit 0 and the cycle actually ran. Parse the cycle's OWN output to report
-    // the truth, not a flat "built": `gbrain dream` exits 0 even when the call
-    // graph could not be built, and a misleading "built" turns a multi-minute
-    // no-op into a silent dead end. gbrain only surfaces these conditions in the
-    // cycle log (there is no pre-flight pack-capability query as of 0.41.x), so
-    // string-matching the log is the available signal; an unrecognized log
-    // degrades to the generic success summary below.
-    const dreamWarn = classifyDreamOutcome(out);
-    if (dreamWarn) {
-      return {
-        name: "dream",
-        ran: true,
-        ok: true,
-        warn: true,
-        duration_ms: Date.now() - t0,
-        summary: dreamWarn,
-      };
-    }
-
-    const edges = parseResolvedEdges(out);
     return {
       name: "dream",
       ran: true,
-      ok: true,
+      ok: false,
       duration_ms: Date.now() - t0,
-      summary:
-        edges !== null
-          ? `call graph built (${edges} edge${edges === 1 ? "" : "s"} resolved)`
-          : "call graph built (resolve_symbol_edges complete)",
+      summary: `call-graph backfill timed out after ${passes} pass${passes === 1 ? "" : "es"}; progress is resumable`,
+      detail: sourceDetail,
     };
   } finally {
-    releaseDreamMarker();
+    releaseDreamMarker(sourceId);
   }
-}
-
-/**
- * Parse `<n>` from a `resolve_symbol_edges ... resolved <n>` cycle-log line.
- * Returns null when the line is absent (older gbrain / different pack). The
- * `[^\n]*?` is newline-bounded so it matches the `✓ resolve_symbol_edges ...`
- * summary line, not the bracketed `[cycle.resolve_symbol_edges] start` markers.
- */
-export function parseResolvedEdges(out: string): number | null {
-  const m = out.match(/resolve_symbol_edges\b[^\n]*?\bresolved\s+(\d+)/i);
-  return m ? parseInt(m[1], 10) : null;
-}
-
-/**
- * Inspect a completed (exit-0) `gbrain dream` log and return a WARN summary when
- * the cycle ran but could not actually build the call graph. Returns null on the
- * happy path (caller emits the normal "call graph built" summary). Order matters:
- * the pack-capability gap is the most actionable, so it wins over a 0-edge count
- * (both appear together when the pack lacks the code-symbol phase).
- */
-export function classifyDreamOutcome(out: string): string | null {
-  // The active schema pack doesn't declare the code-symbol extraction phase, so
-  // no symbols are extracted and resolve_symbol_edges has nothing to match.
-  // #2341: anchor the match to a GRAPH phase. The bare phrase false-positived
-  // on every base-pack brain — gbrain's only emitters of "active pack does not
-  // declare this phase" are the CONTENT phases (extract_atoms,
-  // synthesize_concepts), which base packs legitimately skip while
-  // resolve_symbol_edges still runs and builds the graph. Matching the bare
-  // phrase sent users pack-churning ("switch schema packs") for nothing and
-  // masked real graph bugs behind a wrong diagnosis.
-  if (/(resolve_symbol_edges|extract_code_symbols)[^\n]*does not declare/i.test(out)) {
-    return (
-      "dream ran, but this source's schema pack does not extract code symbols, " +
-      "so the call graph stays empty. Switch this source to a code-aware schema " +
-      "pack (`gbrain schema use <pack>`) to enable code-callers/code-callees."
-    );
-  }
-  // The embed phase failed for a missing key; symbols can't index without it.
-  if (/embed phase failed/i.test(out) || /requires\s+\S*_API_KEY/i.test(out)) {
-    return (
-      "dream ran, but the embed phase failed (missing embedding API key), so " +
-      "symbols won't index. Ensure the embedding provider's key is set for the " +
-      "gbrain process, then re-run /sync-gbrain --dream."
-    );
-  }
-  // Cycle ran and embedded fine, but matched zero call-graph edges.
-  if (parseResolvedEdges(out) === 0) {
-    return "dream ran but resolved 0 call-graph edges (no code symbols matched for this source yet).";
-  }
-  return null;
 }
 
 // ── State file ─────────────────────────────────────────────────────────────
@@ -1659,6 +1863,34 @@ export function formatStage(s: StageResult): string {
 async function main(): Promise<void> {
   const args = parseArgs();
 
+  // --full performs its expensive code walk before runDream. Existing users
+  // may still have a GBrain release accepted by an older gstack installer, so
+  // enforce the new floor here as well as inside runDream. Check repo policy
+  // first: deny/read-only previews and invocations must not probe GBrain.
+  if (args.mode !== "dry-run" && shouldRunDream(args, null)) {
+    const tier = repoPolicyTier(originUrl());
+    if (tier === "read-write" || tier === "unset") {
+      const localStatus = localEngineStatus({ noCache: false });
+      // Thin clients have no local graph engine by design. Other unhealthy
+      // local states keep their existing stage-level skip/remediation path.
+      if (localStatus !== "ok" && localStatus !== "timeout") {
+        // No local call-graph compatibility requirement to enforce here.
+      } else {
+        const gbrainVersion = readGbrainVersion(process.env);
+        if (!isGbrainCallGraphVersionSupported(gbrainVersion)) {
+          const detail = gbrainVersion
+            ? `found ${gbrainVersion}`
+            : "version could not be determined";
+          console.error(
+            `[gbrain-sync] call-graph backfill requires gbrain >= ${MIN_GBRAIN_CALL_GRAPH_VERSION} (${detail}). ` +
+            "Run /setup-gbrain to upgrade before syncing.",
+          );
+          process.exit(1);
+        }
+      }
+    }
+  }
+
   if (!args.quiet) {
     const engine = detectEngineTier();
     console.error(`[gbrain-sync] mode=${args.mode} engine=${engine.engine}`);
@@ -1709,14 +1941,12 @@ async function main(): Promise<void> {
     const anyError = stages.some((s) => s.ran && !s.ok);
     exitCode = anyError ? 1 : 0;
   } finally {
-    // Release the sync lock BEFORE the dream cycle. Dream is a source-scoped
-    // cycle that can run several minutes; holding the machine-wide lock that
-    // long would freeze every other worktree's /sync-gbrain. Dream is guarded
-    // by its own marker.
+    // Release the sync lock BEFORE the source-scoped edge backfill. It can run
+    // several minutes and is guarded separately across sibling worktrees.
     cleanup();
   }
 
-  // ── Dream (call-graph build) — LOCK-FREE, after the sync lock releases ─────
+  // ── Call-graph backfill — separately guarded after the sync lock releases ──
   let dreamStage: StageResult | null = null;
   if (args.mode === "dry-run") {
     // Preview only; never probes doctor or spawns. `--dry-run` and `--full` are
@@ -1726,30 +1956,12 @@ async function main(): Promise<void> {
       dreamStage = await runDream(args);
     }
   } else {
-    // Resolve cycle state only on the --full auto path (perf: the steady-state
-    // incremental sync never pays a doctor subprocess). Explicit --dream forces.
-    let cycle: CycleStatus | null = null;
-    if (!args.dream && args.mode === "full" && !args.noDream && !args.noCode) {
-      const root = repoRoot();
-      const gbrainEnv = buildGbrainEnv({ announce: !args.quiet });
-      cycle = root ? cycleCompleted(resolveCodeSourceId(root, gbrainEnv), gbrainEnv) : "unknown";
-    }
-    if (shouldRunDream(args, cycle)) {
+    // A full code reindex can create fresh chunks even when an older cycle was
+    // complete, so it always backfills unless the caller explicitly opts out.
+    if (shouldRunDream(args, null)) {
       dreamStage = await runDream(args);
       mergeDreamIntoState(dreamStage);
       if (dreamStage.ran && !dreamStage.ok) exitCode = 1;
-    } else if (cycle === "unknown") {
-      // --full wanted to auto-build but doctor couldn't confirm the graph state.
-      // Surface a WARN-style SKIP so the user knows to run --dream if needed,
-      // rather than silently doing nothing (a flaky doctor must not trigger a
-      // surprise 35-min run — gbrain-doctor-overstrict).
-      dreamStage = {
-        name: "dream",
-        ran: false,
-        ok: true,
-        duration_ms: 0,
-        summary: "call-graph state unknown (doctor unavailable) — run /sync-gbrain --dream if code-callers returns 0",
-      };
     }
   }
 
