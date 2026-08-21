@@ -18,6 +18,8 @@ allowed-tools:
 
 # /fcukit — Repository Bootstrap and Hardening
 
+**FCUKIT: Full Configuration, Understanding & Knowledge Integration Tool**
+
 Make the current directory ready for serious AI-assisted engineering. This is an
 evidence-first configuration workflow, not a project generator and not a license to
 clean up unrelated work.
@@ -43,6 +45,21 @@ First classify the session without writing state. Treat `GSTACK_HEADLESS`, `CI`,
 only *potentially* interactive until AskUserQuestion is known to work. This standalone
 check intentionally replaces the normal gstack preamble here because that preamble may
 write analytics or session state before approval.
+
+Run this mandatory observational probe before any other command and retain its result:
+
+```bash
+if [ -n "${GSTACK_HEADLESS:-}" ] || [ -n "${CI:-}" ] || [ -n "${GITHUB_ACTIONS:-}" ]; then
+  echo "FCUKIT_SESSION_KIND=headless"
+elif [ -n "${CONDUCTOR_WORKSPACE_PATH:-}" ] || [ -n "${CONDUCTOR_PORT:-}" ]; then
+  echo "FCUKIT_SESSION_KIND=conductor"
+else
+  echo "FCUKIT_SESSION_KIND=potentially-interactive"
+fi
+```
+
+If it prints `FCUKIT_SESSION_KIND=headless`, discovery and planning may continue, but
+Phase 5 must print the blocking marker and stop before every mutation.
 
 Capture the before-state:
 

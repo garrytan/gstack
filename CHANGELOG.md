@@ -9,13 +9,14 @@ Two new workflows cover the gap between opening an unfamiliar repository and tru
 
 ### The numbers that matter
 
-Source: `bun run gen:skill-docs --host all`, `bun test test/fcukit-noshit-contract.test.ts test/catalog-budget.test.ts test/gen-skill-docs.test.ts test/skill-coverage-matrix.test.ts test/skill-coverage-floor.test.ts`, and read-only before/after fingerprints on three representative local projects.
+Source: `bun run gen:skill-docs --host all`, `bun test test/fcukit-noshit-contract.test.ts test/catalog-budget.test.ts test/gen-skill-docs.test.ts test/skill-coverage-matrix.test.ts test/skill-coverage-floor.test.ts`, two paid hermetic safety E2Es, and read-only before/after fingerprints on three representative local projects.
 
 | Metric | Before | After | Δ |
 |--------|--------|-------|---|
 | Repository-integrity workflows | 0 | 2 | +2 |
 | Generated host catalogs carrying both skills | 0 | 10 | +10 |
-| Focused free checks | 0 | 761 passing | +761 |
+| Focused free checks | 0 | 764 passing | +764 |
+| Behavioral safety E2Es | 0 | 2 passing | +2 |
 | Dogfood repositories with changed fingerprints | 0 | 0 of 3 | 0 writes |
 | Catalog discovery budget | 1,105 tokens | ≤1,175 tokens | +70 ceiling |
 
@@ -24,6 +25,8 @@ The audits caught material drift in a non-Git scaffold, a committed credential-l
 ### What this means for contributors
 
 Run `/noshit` when you need a compact answer to “does this AI setup tell the truth?” Run `/fcukit` when the answer should become an approved, repository-specific configuration. Both names are playful; their reports and safety boundaries are not.
+
+The names expand to **No-Omissions System Health & Integrity Test** and **Full Configuration, Understanding & Knowledge Integration Tool**: memorable handles for serious, evidence-driven workflows.
 
 ### Itemized changes
 
