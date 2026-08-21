@@ -8,6 +8,18 @@ const ROOT = path.resolve(import.meta.dir, '..');
 const SETTINGS_HOOK = path.join(ROOT, 'bin', 'gstack-settings-hook');
 const SESSION_UPDATE = path.join(ROOT, 'bin', 'gstack-session-update');
 const TEAM_INIT = path.join(ROOT, 'bin', 'gstack-team-init');
+const BROWSER_ROUTING_GUIDANCE = [
+  'Use first-party web search/fetch for research and source lookup.',
+  'Use G-Stack /browse for rendered-page interaction, visual or responsive QA, screenshots,',
+  'DOM/console/network inspection, downloads, local HTML rendering, or persistent browser state.',
+  'Never use mcp__claude-in-chrome__* tools.',
+  'Pin each concurrent browser task to its own tab ID (`--tab-id` or `BROWSE_TAB`) or serialize browser work.',
+].join('\n');
+
+function expectBrowserRoutingGuidance(source: string): void {
+  expect(source).toContain(BROWSER_ROUTING_GUIDANCE);
+  expect(source).not.toMatch(/\/browse(?: skill)?(?: from gstack)? for all web browsing/i);
+}
 
 function mkTmpDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-team-test-'));
@@ -219,6 +231,7 @@ describe('gstack-team-init', () => {
     const claude = fs.readFileSync(path.join(tmpDir, 'CLAUDE.md'), 'utf-8');
     expect(claude).toContain('## gstack (recommended)');
     expect(claude).toContain('./setup --team');
+    expectBrowserRoutingGuidance(claude);
   });
 
   test('required: creates CLAUDE.md with required section', () => {
@@ -227,6 +240,7 @@ describe('gstack-team-init', () => {
     const claude = fs.readFileSync(path.join(tmpDir, 'CLAUDE.md'), 'utf-8');
     expect(claude).toContain('## gstack (REQUIRED');
     expect(claude).toContain('GSTACK_MISSING');
+    expectBrowserRoutingGuidance(claude);
   });
 
   test('required: creates enforcement hook', () => {

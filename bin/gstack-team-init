@@ -63,7 +63,12 @@ cd ~/.claude/skills/gstack && ./setup --team
 ```
 
 Skills like /qa, /ship, /review, /investigate, and /browse become available after install.
-Use /browse for all web browsing. Use ~/.claude/skills/gstack/... for gstack file paths.'
+Use first-party web search/fetch for research and source lookup.
+Use G-Stack /browse for rendered-page interaction, visual or responsive QA, screenshots,
+DOM/console/network inspection, downloads, local HTML rendering, or persistent browser state.
+Never use mcp__claude-in-chrome__* tools.
+Pin each concurrent browser task to its own tab ID (`--tab-id` or `BROWSE_TAB`) or serialize browser work.
+Use ~/.claude/skills/gstack/... for gstack file paths.'
 else
   SNIPPET='## gstack (REQUIRED — global install)
 
@@ -90,7 +95,11 @@ If GSTACK_MISSING: STOP. Do not proceed. Tell the user:
 Do not skip skills, ignore gstack errors, or work around missing gstack.
 
 Using gstack skills: After install, skills like /qa, /ship, /review, /investigate,
-and /browse are available. Use /browse for all web browsing.
+and /browse are available. Use first-party web search/fetch for research and source lookup.
+Use G-Stack /browse for rendered-page interaction, visual or responsive QA, screenshots,
+DOM/console/network inspection, downloads, local HTML rendering, or persistent browser state.
+Never use mcp__claude-in-chrome__* tools.
+Pin each concurrent browser task to its own tab ID (`--tab-id` or `BROWSE_TAB`) or serialize browser work.
 Use the resolved install path above for gstack file paths
 (default: ~/.claude/skills/gstack).'
 fi
