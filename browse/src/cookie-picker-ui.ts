@@ -7,8 +7,9 @@
  * No cookie values exposed anywhere.
  */
 
-export function getCookiePickerHTML(serverPort: number): string {
+export function getCookiePickerHTML(serverPort: number, targetDomain?: string | null): string {
   const baseUrl = `http://127.0.0.1:${serverPort}`;
+  const safeTargetDomain = targetDomain && /^[a-z0-9.-]+$/i.test(targetDomain) ? targetDomain : '';
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -383,15 +384,17 @@ export function getCookiePickerHTML(serverPort: number): string {
 
   // ─── API ────────────────────────────────
   async function api(path, opts) {
-    const res = await fetch(BASE + '/cookie-picker' + path, { ...opts, credentials: 'same-origin' });
-    const data = await res.json();
-    if (!res.ok) {
+    const maxAttempts = (opts && opts.method && opts.method !== 'GET') ? 1 : 3;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const res = await fetch(BASE + '/cookie-picker' + path, { ...opts, credentials: 'same-origin' });
+      const data = await res.json();
+      if (res.ok) return data;
       const err = new Error(data.error || 'Request failed');
       err.code = data.code;
       err.action = data.action;
-      throw err;
+      if (err.action !== 'retry' || attempt === maxAttempts - 1) throw err;
+      await new Promise(resolve => setTimeout(resolve, [150, 500][attempt] || 500));
     }
-    return data;
   }
 
   // ─── Init ───────────────────────────────
@@ -448,7 +451,9 @@ export function getCookiePickerHTML(serverPort: number): string {
 
     try {
       // Fetch profiles for this browser
-      const profileData = await api('/profiles?browser=' + encodeURIComponent(name));
+      const targetQuery = ${JSON.stringify(safeTargetDomain)}
+        ? '&domain=' + encodeURIComponent(${JSON.stringify(safeTargetDomain)}) : '';
+      const profileData = await api('/profiles?browser=' + encodeURIComponent(name) + targetQuery);
       allProfiles = profileData.profiles || [];
 
       if (allProfiles.length > 1) {
@@ -456,7 +461,7 @@ export function getCookiePickerHTML(serverPort: number): string {
         $profilePills.style.display = 'flex';
         renderProfilePills();
         // Auto-select profile with the most recent/largest cookie DB, or Default
-        activeProfile = allProfiles[0].name;
+        activeProfile = profileData.recommendedProfile || allProfiles[0].name;
       } else {
         $profilePills.style.display = 'none';
         activeProfile = allProfiles.length === 1 ? allProfiles[0].name : 'Default';
@@ -572,8 +577,12 @@ export function getCookiePickerHTML(serverPort: number): string {
       const data = await api('/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ browser: activeBrowser, domains: [domain], profile: activeProfile }),
+        body: JSON.stringify({ browser: activeBrowser, domains: [domain], profile: activeProfile, verifyAuth: Boolean(${JSON.stringify(safeTargetDomain)}) }),
       });
+
+      if (data.verification && !data.verification.verified) {
+        showBanner('Cookies imported, but the active page did not verify an authenticated session (' + data.verification.reason + ').', 'error');
+      }
 
       if (data.domainCounts) {
         for (const [d, count] of Object.entries(data.domainCounts)) {
@@ -607,8 +616,12 @@ export function getCookiePickerHTML(serverPort: number): string {
       const data = await api('/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ browser: activeBrowser, domains: domains, profile: activeProfile }),
+        body: JSON.stringify({ browser: activeBrowser, domains: domains, profile: activeProfile, verifyAuth: Boolean(${JSON.stringify(safeTargetDomain)}) }),
       });
+
+      if (data.verification && !data.verification.verified) {
+        showBanner('Cookies imported, but the active page did not verify an authenticated session (' + data.verification.reason + ').', 'error');
+      }
 
       if (data.domainCounts) {
         for (const [d, count] of Object.entries(data.domainCounts)) {
