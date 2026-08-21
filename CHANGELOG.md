@@ -1,5 +1,41 @@
 # Changelog
 
+## [1.69.0.0] - 2026-08-21
+
+**Repository setup can now prove what is true before touching anything.**
+**The audit stays read-only, including gstack's own startup behavior.**
+
+Two new workflows cover the gap between opening an unfamiliar repository and trusting an agent to work in it. `/noshit` audits repository identity, agent instructions, permissions, memory, tools, verification readiness, and Git hygiene against evidence, with explicit PASS, WARN, FAIL, and UNKNOWN results. `/fcukit` performs the same evidence-first discovery, maps concrete risks, and presents one approval table before applying the smallest project-specific configuration. It stops before mutation in headless sessions, preserves unrelated changes, refuses ambiguous Git initialization, and routes code health, security, debugging, review, memory, and shipping to the existing specialist skills.
+
+### The numbers that matter
+
+Source: `bun run gen:skill-docs --host all`, `bun test test/fcukit-noshit-contract.test.ts test/catalog-budget.test.ts test/gen-skill-docs.test.ts test/skill-coverage-matrix.test.ts test/skill-coverage-floor.test.ts`, and read-only before/after fingerprints on three representative local projects.
+
+| Metric | Before | After | Δ |
+|--------|--------|-------|---|
+| Repository-integrity workflows | 0 | 2 | +2 |
+| Generated host catalogs carrying both skills | 0 | 10 | +10 |
+| Focused free checks | 0 | 761 passing | +761 |
+| Dogfood repositories with changed fingerprints | 0 | 0 of 3 | 0 writes |
+| Catalog discovery budget | 1,105 tokens | ≤1,175 tokens | +70 ceiling |
+
+The audits caught material drift in a non-Git scaffold, a committed credential-like value in Docker configuration, and frontend production/credential risks without changing any target project. Removing the normal shared preamble was essential: a read-only audit cannot quietly write analytics or session state before it begins.
+
+### What this means for contributors
+
+Run `/noshit` when you need a compact answer to “does this AI setup tell the truth?” Run `/fcukit` when the answer should become an approved, repository-specific configuration. Both names are playful; their reports and safety boundaries are not.
+
+### Itemized changes
+
+### Added
+- `/noshit`, a zero-write AI-development integrity dashboard distinct from `/health`.
+- `/fcukit`, an identity-first repository bootstrap with consolidated approval, headless blocking, and unrelated-work preservation.
+- Free contract and coverage tests for read-only behavior, host uncertainty, routing, nested-Git protection, and approval ordering.
+
+### Changed
+- Cross-host skill catalogs and documentation now include both workflows.
+- The catalog budget is re-measured and ratcheted for the two intentional additions.
+
 ## [1.68.2.0] - 2026-08-20
 
 **Revoking a paired agent now revokes everything it holds, and the**

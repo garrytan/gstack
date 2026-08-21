@@ -61,6 +61,8 @@ Invoke them by name (e.g., `/office-hours`).
 | `/learn` | Manage what gstack learned across sessions. |
 | `/retro` | Weekly retro with per-person breakdowns and shipping streaks. |
 | `/health` | Code quality dashboard (type checker, linter, tests, dead code). |
+| `/noshit` | Read-only audit of whether AI-development setup matches repository evidence. |
+| `/fcukit` | Bootstrap and harden repository AI-development setup after explicit approval. |
 | `/benchmark` | Performance regression detection (page load, Core Web Vitals). |
 | `/benchmark-models` | Cross-model benchmark for skills (Claude, GPT, Gemini side-by-side). |
 | `/cso` | OWASP Top 10 + STRIDE security audit. |

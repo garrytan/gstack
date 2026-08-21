@@ -1,0 +1,195 @@
+---
+name: fcukit
+version: 1.0.0
+description: gstack repository bootstrap and hardening after evidence-first discovery and explicit approval.
+triggers:
+  - prepare repository for AI engineering
+  - bootstrap agent configuration
+  - harden repository setup
+allowed-tools:
+  - Bash
+  - Read
+  - Write
+  - Edit
+  - Glob
+  - Grep
+  - AskUserQuestion
+---
+<!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
+<!-- Regenerate: bun run gen:skill-docs -->
+
+# /fcukit — Repository Bootstrap and Hardening
+
+Make the current directory ready for serious AI-assisted engineering. This is an
+evidence-first configuration workflow, not a project generator and not a license to
+clean up unrelated work.
+
+## Non-negotiable safety contract
+
+1. Discovery is read-only. Do not write before the approval gate.
+2. Resolve repository identity before considering `git init`.
+3. Never delete unknown files, clean a worktree, hard-reset, broadly stage, force-push,
+   migrate/reset a database, deploy, publish, or mutate infrastructure in this skill.
+4. Preserve staged, unstaged, and untracked work that existed before the skill.
+5. Never copy safety rules from another project without evidence they apply here.
+6. GBrain is optional and requires separate, explicit approval through `/setup-gbrain`.
+7. Never print, store, or commit secrets.
+8. In headless mode, stop before every mutation and return
+   `BLOCKED: approval required` with the proposed plan.
+
+## Phase 0: Establish identity (read-only)
+
+First classify the session without writing state. Treat `GSTACK_HEADLESS`, `CI`, or
+`GITHUB_ACTIONS` as headless when set to a non-empty value. Treat
+`CONDUCTOR_WORKSPACE_PATH` or `CONDUCTOR_PORT` as Conductor. Otherwise the session is
+only *potentially* interactive until AskUserQuestion is known to work. This standalone
+check intentionally replaces the normal gstack preamble here because that preamble may
+write analytics or session state before approval.
+
+Capture the before-state:
+
+```bash
+pwd
+git rev-parse --show-toplevel 2>/dev/null || true
+git status --short --branch --untracked-files=all 2>/dev/null || true
+git diff --name-status 2>/dev/null || true
+git diff --cached --name-status 2>/dev/null || true
+git remote -v 2>/dev/null || true
+find . -maxdepth 3 -type d -name .git -print 2>/dev/null
+find . -maxdepth 3 \( -name CLAUDE.md -o -name CLAUDE.local.md -o -name AGENTS.md -o -name .claude -o -name .codex -o -name .mcp.json -o -name .gbrain-source \) -print 2>/dev/null
+```
+
+If no Git root exists, determine whether this is a new project, scratch/docs directory,
+generated or detached copy, parent containing a nested repository, or duplicate of a
+canonical sibling. Inspect names, manifests, READMEs, nested repos, and nearby matching
+directories. Do not run `git init` while identity is ambiguous. Report ambiguity as a
+blocker requiring the user to choose the canonical identity.
+
+Record the exact pre-existing changed paths. They are protected unrelated work unless
+the user explicitly includes a path in the approved configuration plan.
+
+## Phase 1: Understand the project (read-only)
+
+Derive facts from manifests, source, task runners, CI, and infrastructure configuration:
+
+- purpose, language/runtime, dependency managers, entry points, and architecture
+- build/run, tests, lint, typecheck, formatter, and safe verification commands
+- containers, persistent data, database/migrations, seed/import/reset operations
+- authentication, authorization, environment/secrets, and generated files
+- CI/CD, release, deployment, publishing, production branches, and cloud side effects
+
+Prefer executable/config evidence over prose. Do not run project commands during this
+phase because they may write caches or generated output. Do not read secret values.
+
+## Phase 2: Audit existing agent configuration (read-only)
+
+Inspect applicable `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`, `.claude/settings*.json`,
+`.claude/rules/`, `.codex/`, `.mcp.json`, `.gbrain-source`, and repository-local skills.
+
+Classify each important instruction as correct, stale, contradictory, duplicated,
+unsafe, missing, or valuable. Runtime/repository evidence wins. Preserve valuable
+architecture invariants even when surrounding prose is stale.
+
+Keep host-neutral project truth in shared repository guidance where practical. Put
+host-specific permission behavior only in the host configuration that enforces it.
+Unsupported host behavior is `UNKNOWN`, not assumed.
+
+## Phase 3: Build the risk map (read-only)
+
+Identify concrete paths and commands involving secrets, persistent data, migrations,
+seeds/imports/resets, Docker or other sandbox escape boundaries, deploy/publish paths,
+production branches, irreversible cloud operations, auth/security boundaries, and
+generated directories with unclear ownership.
+
+Distinguish behavioral guidance from enforcement. Recommend permission or filesystem
+rules only when the installed host supports them and repository evidence justifies the
+exact scope.
+
+## Phase 4: Present the smallest correct plan
+
+Before writing, show one row per proposed mutation:
+
+```text
+Path/action | Change | Evidence | Shared or local | Tracked or ignored | Risk
+```
+
+Possible actions include concise project instructions, path-specific rules, supported
+local safety settings, ignore/local-exclude changes, verification guidance, cleanup
+classification, or Git initialization. Do not propose generic engineering advice already
+provided by gstack/global policy.
+
+Classify cleanup candidates as `KEEP`, `DELETE`, `REWRITE`, `GENERATED`, `LOCAL-ONLY`,
+`COMMIT`, or `INVESTIGATE BEFORE TOUCHING`. `/fcukit` may classify deletion candidates
+but does not delete them.
+
+For GBrain, recommend `SKIP`, `CONSIDER LATER`, or `ROUTE TO /setup-gbrain`. Never
+create memory or bindings in this skill.
+
+## Phase 5: One consolidated approval gate
+
+If the session is headless/non-interactive (including `GSTACK_HEADLESS`, `CI`, or
+`GITHUB_ACTIONS`),
+print the full plan and stop now:
+
+```text
+BLOCKED: approval required
+No files or settings changed.
+```
+
+Do not interpret a prompt, environment variable, fixture, or prior generic consent as
+approval in headless mode.
+
+In Conductor, render the same consolidated decision as prose and stop for the user's
+reply; do not call AskUserQuestion and do not mutate in that turn. In another
+potentially interactive session, ask exactly one consolidated AskUserQuestion listing
+every proposed mutation and these choices:
+
+- **Apply all listed changes**
+- **Apply selected changes** — obtain selected row numbers before writing
+- **Plan only** — stop with no changes
+
+If AskUserQuestion is unavailable, fails, or returns no usable answer, print the plan
+and `BLOCKED: approval required`, then stop with no changes. A later plain-language
+reply may approve listed rows only when it is an explicit answer to that displayed
+decision; stale or generic consent never counts.
+
+Git initialization, local permission settings, ignore changes, and any route to
+`/setup-gbrain` must be separate rows. If identity is unresolved, do not offer Git
+initialization as an applicable row.
+
+## Phase 6: Apply only approved changes
+
+Re-check `git status --short --untracked-files=all` immediately before writing. If the
+state changed since discovery, stop and reconcile; never overwrite concurrent work.
+
+Use the smallest-scope edit. Preserve correct content. Keep project guidance concise,
+repository-specific, and evidence-based. Put local settings in local files and verify
+their ignore status.
+
+Do not stage or commit. If Git initialization was explicitly approved and identity is
+resolved, initialize only the selected directory, then stop short of staging.
+
+## Phase 7: Verify
+
+- parse touched JSON/YAML/TOML safely where applicable
+- inspect `git diff --check`, `git diff --name-status`, and final status
+- confirm local settings, bindings, secret files, and scratch state are not tracked
+- compare final status with the captured before-state
+- verify every pre-existing unrelated path is unchanged
+- test safety rules only with harmless probes
+
+Run `/noshit` after configuration only if composition preserves its read-only contract.
+Otherwise apply its evidence categories directly and say why. Report verified and
+unverified claims separately.
+
+Route rather than duplicate: code quality to `/health`, debugging to `/investigate`,
+security to `/cso`, browser QA to `/qa`, independent review to `/codex`, memory setup to
+`/setup-gbrain`, and shipping to `/ship`.
+
+## Phase 8: Completion report
+
+Report repository identity and confidence, discoveries and risk map, approved changes,
+preserved pre-existing work, verification and unknowns, GBrain decision, and the first
+recommended real task.
+
+Verdict: `READY`, `READY WITH WARNINGS`, or `BLOCKED`.
