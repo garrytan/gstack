@@ -16,6 +16,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { spawnSync } from 'child_process';
+import { QUESTIONS } from '../scripts/question-registry';
+import { SIGNAL_MAP } from '../scripts/psychographic-signals';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const BIN_DEV = path.join(ROOT, 'bin', 'gstack-developer-profile');
@@ -46,7 +48,13 @@ function runDev(...args: string[]): { stdout: string; stderr: string; status: nu
 
 function logQuestion(payload: Record<string, unknown>): number {
   const res = spawnSync(BIN_LOG, [JSON.stringify(payload)], {
-    env: { ...process.env, GSTACK_HOME: tmpHome },
+    // gstack-question-log fires `--derive` in the background (nohup) after every
+    // append. Those writes land on developer-profile.json via tmp+rename, so
+    // they race the explicit runDev('--derive') a test then makes — observed as
+    // an intermittently EMPTY stdout from the foreground derive. This env var
+    // exists for exactly this case; without it, any test that logs several rows
+    // and then derives is flaky by construction.
+    env: { ...process.env, GSTACK_HOME: tmpHome, GSTACK_QUESTION_LOG_NO_DERIVE: '1' },
     encoding: 'utf-8',
     cwd: ROOT,
   });
@@ -292,6 +300,265 @@ describe('gstack-developer-profile --derive', () => {
     expect(v1).toEqual(v2);
   });
 
+  // ---------------------------------------------------------------------
+  // Registry-independent autonomy signal — WIRING only.
+  // The formula lives in test/plan-tune.test.ts; these prove derive and trace
+  // actually call it and agree with each other.
+  // ---------------------------------------------------------------------
+
+  /** Path of the project question-log inside the temp GSTACK_HOME. */
+  function logPath(): string {
+    const projects = path.join(tmpHome, 'projects');
+    const slug = fs.readdirSync(projects)[0];
+    return path.join(projects, slug, 'question-log.jsonl');
+  }
+
+  /**
+   * Append pre-formed rows straight to the log.
+   *
+   * Bulk cases here exercise --derive, not the log writer's validation, and
+   * spawning gstack-question-log 260 times costs ~28s against <1s for a single
+   * write. Semantics-sensitive cases still go through logQuestion so that
+   * followed_recommendation is computed by the binary that owns it.
+   */
+  function appendRows(rows: Array<Record<string, unknown>>) {
+    // Seed via the real binary so the slug directory and file exist.
+    logQuestion({
+      skill: 'ship',
+      question_id: 'seed-row',
+      question_summary: 'seed',
+      user_choice: 'accept',
+      session_id: 'seed',
+    });
+    const body = rows.map((r) => JSON.stringify({ ts: '2026-04-01T10:00:00Z', ...r })).join('\n') + '\n';
+    fs.appendFileSync(logPath(), body);
+  }
+
+  function bulk(n: number, row: Record<string, unknown>): Array<Record<string, unknown>> {
+    return Array.from({ length: n }, (_, i) => ({ ...row, session_id: `b${i}` }));
+  }
+
+  function logFollowed(n: number, followed: number, extra: Record<string, unknown> = {}) {
+    for (let i = 0; i < n; i++) {
+      logQuestion({
+        skill: 'ship',
+        question_id: 'adhoc-recommendation-case',
+        question_summary: 'q',
+        user_choice: i < followed ? 'accept' : 'reject',
+        recommended: 'accept',
+        session_id: `s${i}`,
+        ts: `2026-04-01T10:00:0${i % 10}Z`,
+        ...extra,
+      });
+    }
+  }
+
+  test('derive moves autonomy off 0.5 when the user follows recommendations', () => {
+    logFollowed(30, 30);
+    runDev('--derive');
+    const p = readProfile() as { inferred: { values: Record<string, number> } };
+    expect(p.inferred.values.autonomy).toBeGreaterThan(0.5);
+    // Other dimensions are untouched by this signal.
+    expect(p.inferred.values.scope_appetite).toBeCloseTo(0.5, 2);
+  });
+
+  test('derive moves autonomy below 0.5 when the user overrides recommendations', () => {
+    logFollowed(30, 0);
+    runDev('--derive');
+    const p = readProfile() as { inferred: { values: Record<string, number> } };
+    expect(p.inferred.values.autonomy).toBeLessThan(0.5);
+  });
+
+  test('derive is idempotent with the recommendation signal applied', () => {
+    logFollowed(30, 28);
+    runDev('--derive');
+    const v1 = (readProfile() as any).inferred.values;
+    runDev('--derive');
+    const v2 = (readProfile() as any).inferred.values;
+    expect(v1).toEqual(v2);
+  });
+
+  test('derive writes contributing_events and derivation_version', () => {
+    // The point of these fields: an inferred 0.5 with 0 contributors means
+    // "no evidence", not "balanced evidence". Without them the two are
+    // indistinguishable, which is how a dead pipeline hid behind a healthy
+    // sample_size for two months.
+    //
+    // MUTATE THIS by deleting the contributing_events write; this reds.
+    logFollowed(25, 25);
+    runDev('--derive');
+    const p = readProfile() as {
+      inferred: {
+        contributing_events: Record<string, number>;
+        derivation_version: string;
+        sample_size: number;
+      };
+    };
+    expect(p.inferred.contributing_events.autonomy).toBe(25);
+    // A dimension with no evidence reports 0, not a missing key.
+    expect(p.inferred.contributing_events.scope_appetite).toBe(0);
+    expect(p.inferred.derivation_version).toBeTruthy();
+  });
+
+  test('contributing_events counts UNIQUE ROWS, never signal applications', () => {
+    // A single row can apply several deltas. Counting applications would
+    // overstate the evidence, which is the opposite of this field's purpose.
+    //
+    // The fixture MUST exercise the registry path, not just the rate signal:
+    // an earlier version of this test used rate-only rows, so the registry
+    // contributor count was 0 and multiplying it by anything changed nothing.
+    // 'review-fix-now' applies deltas to more than one dimension from ONE row,
+    // which is exactly the over-count this guards.
+    const multiDimId = Object.values(QUESTIONS).find((q) => {
+      if (!q.signal_key) return false;
+      const choices = SIGNAL_MAP[q.signal_key] ?? {};
+      return Object.values(choices).some((ds) => ds.length > 1);
+    });
+    expect(multiDimId).toBeDefined();
+    const choice = Object.entries(SIGNAL_MAP[multiDimId!.signal_key!])
+      .find(([, ds]) => ds.length > 1)![0];
+
+    appendRows(
+      bulk(10, {
+        skill: multiDimId!.skill,
+        question_id: multiDimId!.id,
+        user_choice: choice,
+        recommended: choice,
+        followed_recommendation: true,
+        source: 'agent',
+      }),
+    );
+    runDev('--derive');
+    const p = readProfile() as {
+      inferred: { contributing_events: Record<string, number>; sample_size: number };
+    };
+    // Sanity: the registry path really did contribute here, or the assertion
+    // below would pass vacuously the way the old fixture did.
+    const touched = Object.values(p.inferred.contributing_events).filter((n) => n > 0);
+    expect(touched.length).toBeGreaterThanOrEqual(2);
+    for (const n of Object.values(p.inferred.contributing_events)) {
+      expect(n).toBeLessThanOrEqual(p.inferred.sample_size);
+    }
+  });
+
+  test('auto-decided rows do not feed the autonomy signal', () => {
+    // Guards the feedback loop: the preference hook auto-picks the
+    // recommendation, so counting it as delegation evidence would let the
+    // dimension that licenses auto-deciding inflate itself.
+    logFollowed(30, 30, { source: 'auto-decided' });
+    runDev('--derive');
+    const p = readProfile() as {
+      inferred: { values: Record<string, number>; contributing_events: Record<string, number> };
+    };
+    expect(p.inferred.values.autonomy).toBeCloseTo(0.5, 2);
+    expect(p.inferred.contributing_events.autonomy).toBe(0);
+  });
+
+  test('rows without a recommendation contribute nothing', () => {
+    // No `recommended` field means gstack-question-log computes no
+    // followed_recommendation, so there is nothing for the signal to read.
+    for (let i = 0; i < 20; i++) {
+      logQuestion({
+        skill: 'ship',
+        question_id: 'adhoc-no-recommendation',
+        question_summary: 'q',
+        user_choice: 'accept',
+        session_id: `s${i}`,
+      });
+    }
+    runDev('--derive');
+    const p = readProfile() as {
+      inferred: { values: Record<string, number>; contributing_events: Record<string, number> };
+    };
+    expect(p.inferred.values.autonomy).toBeCloseTo(0.5, 2);
+    expect(p.inferred.contributing_events.autonomy).toBe(0);
+  });
+
+  test('REGRESSION: registry autonomy rows are excluded from the rate tally', () => {
+    // totals.autonomy is written by BOTH the per-event SIGNAL_MAP path and the
+    // O(1) rate aggregate, so one decision could feed it twice. Precedence:
+    // a row already counted by the registry path is excluded from the rate.
+    //
+    // N=200, not N=1: a single-event check measures coefficient size, not
+    // interaction at scale. One /plan-eng-review session produces ~5 mapped
+    // events, so 200 is roughly forty sessions — a real steady state.
+    //
+    // MUTATE THIS by deleting the countedByRegistry() check in
+    // isRecommendationEligible; the eligible count jumps to 260 and this reds.
+    appendRows([
+      ...bulk(200, {
+        skill: 'land-and-deploy',
+        question_id: 'land-and-deploy-merge-confirm',
+        user_choice: 'apply-fix',
+        recommended: 'apply-fix',
+        followed_recommendation: true,
+        source: 'agent',
+      }),
+      ...bulk(60, {
+        skill: 'ship',
+        question_id: 'adhoc-rate-evidence',
+        user_choice: 'reject',
+        recommended: 'accept',
+        followed_recommendation: false,
+        source: 'hook',
+      }),
+    ]);
+
+    const r = runDev('--derive');
+    expect(r.stdout).toContain('60 recommendation-eligible');
+
+    const p = readProfile() as {
+      inferred: { values: Record<string, number>; contributing_events: Record<string, number> };
+    };
+    // 200 registry rows + 60 rate rows = 260 UNIQUE rows touching autonomy.
+    expect(p.inferred.contributing_events.autonomy).toBe(260);
+  });
+
+  test('KNOWN LIMITATION: the per-event registry path still swamps the rate signal', () => {
+    // This pins a bug we are NOT fixing in this change, so that the day someone
+    // does fix it, this test reds and they re-baseline deliberately.
+    //
+    // normalizeToDimensionValue is a sigmoid over an ACCUMULATED total, so the
+    // per-event path grows without bound: 200 'decision-autonomy' events at
+    // +0.04 total 8.0, and sigmoid(3 * 8.0) is 1.0 to float precision.
+    // Precedence stops the same ROW being counted twice; it does nothing about
+    // volume. Measured: with 200 mapped events pointing one way and 60 rate
+    // rows pointing the OTHER way, the derived value is 1.0 — while the rate
+    // evidence alone would read 0.190. The signal is not merely diluted, it is
+    // erased, and the conclusion flips.
+    //
+    // The real fix is to normalize per-event accumulation (a mean, or damping)
+    // so no dimension can saturate. That re-prices every delta in
+    // psychographic-signals.ts and belongs in its own change.
+    appendRows([
+      ...bulk(200, {
+        skill: 'land-and-deploy',
+        question_id: 'land-and-deploy-merge-confirm',
+        user_choice: 'apply-fix',
+        recommended: 'apply-fix',
+        followed_recommendation: true,
+        source: 'agent',
+      }),
+      ...bulk(60, {
+        skill: 'ship',
+        question_id: 'adhoc-rate-evidence',
+        user_choice: 'reject',
+        recommended: 'accept',
+        followed_recommendation: false,
+        source: 'hook',
+      }),
+    ]);
+    runDev('--derive');
+    const p = readProfile() as { inferred: { values: Record<string, number> } };
+    expect(p.inferred.values.autonomy).toBe(1);
+  });
+
+  test('derive reports the recommendation-eligible count on stdout', () => {
+    logFollowed(12, 12);
+    const r = runDev('--derive');
+    expect(r.stdout).toContain('12 recommendation-eligible');
+  });
+
   test('derive ignores events for questions not in registry (ad-hoc ids)', () => {
     logQuestion({
       skill: 'plan-ceo-review',
@@ -339,6 +606,47 @@ describe('gstack-developer-profile --trace <dim>', () => {
     });
     const r = runDev('--trace', 'autonomy');
     expect(r.stdout).toContain('no events contribute to autonomy');
+  });
+
+  test('names the aggregate for autonomy instead of reporting no events', () => {
+    // Without this, --trace autonomy would still say "no events contribute"
+    // while --profile showed a moved number — the explain tool disagreeing
+    // with the thing it explains.
+    for (let i = 0; i < 25; i++) {
+      logQuestion({
+        skill: 'ship',
+        question_id: 'adhoc-recommendation-case',
+        question_summary: 'q',
+        user_choice: 'accept',
+        recommended: 'accept',
+        session_id: `s${i}`,
+      });
+    }
+    const r = runDev('--trace', 'autonomy');
+    expect(r.stdout).toContain('25 events for autonomy');
+    expect(r.stdout).toContain('followed_recommendation');
+    expect(r.stdout).toContain('25/25');
+    expect(r.stdout).not.toContain('no events contribute');
+  });
+
+  test('trace and derive agree on the eligible count', () => {
+    // Two separate bun -e blocks read the log. If the eligibility rule ever
+    // drifts between them, the explain tool lies about the derived number.
+    for (let i = 0; i < 18; i++) {
+      logQuestion({
+        skill: 'ship',
+        question_id: 'adhoc-recommendation-case',
+        question_summary: 'q',
+        user_choice: i < 15 ? 'accept' : 'reject',
+        recommended: 'accept',
+        session_id: `s${i}`,
+      });
+    }
+    const traced = runDev('--trace', 'autonomy');
+    expect(traced.stdout).toContain('15/18');
+    runDev('--derive');
+    const p = readProfile() as { inferred: { contributing_events: Record<string, number> } };
+    expect(p.inferred.contributing_events.autonomy).toBe(18);
   });
 
   test('errors without dimension argument', () => {
