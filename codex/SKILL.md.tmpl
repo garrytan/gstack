@@ -451,8 +451,19 @@ for line in sys.stdin:
         elif t == 'turn.completed':
             turn_completed_count += 1
             usage = obj.get('usage',{})
-            tokens = usage.get('input_tokens',0) + usage.get('output_tokens',0)
-            if tokens: print(f'\ntokens used: {tokens}', flush=True)
+            in_tok = usage.get('input_tokens',0)
+            cached_tok = usage.get('cached_input_tokens',0)
+            cache_write_tok = usage.get('cache_write_input_tokens',0)
+            out_tok = usage.get('output_tokens',0)
+            reasoning_tok = usage.get('reasoning_output_tokens',0)
+            tokens = in_tok + out_tok
+            if tokens:
+                print(f'\ntokens used: {tokens}', flush=True)
+                # Machine-parseable breakdown alongside the human-readable line above.
+                # codex's --json usage object splits cache reads from cache writes and
+                # reasoning from output; the plain 'tokens used' total collapses all of
+                # that, which is fine to read but not enough to price a call correctly.
+                print(f'CODEX_USAGE: input={in_tok} cached_input={cached_tok} cache_write={cache_write_tok} output={out_tok} reasoning_output={reasoning_tok}', flush=True)
     except: pass
 # Fix 2: completeness check — warn if no turn.completed received
 if turn_completed_count == 0:
@@ -610,8 +621,15 @@ for line in sys.stdin:
                 if cmd: print(f'[codex ran] {cmd}', flush=True)
         elif t == 'turn.completed':
             usage = obj.get('usage',{})
-            tokens = usage.get('input_tokens',0) + usage.get('output_tokens',0)
-            if tokens: print(f'\ntokens used: {tokens}', flush=True)
+            in_tok = usage.get('input_tokens',0)
+            cached_tok = usage.get('cached_input_tokens',0)
+            cache_write_tok = usage.get('cache_write_input_tokens',0)
+            out_tok = usage.get('output_tokens',0)
+            reasoning_tok = usage.get('reasoning_output_tokens',0)
+            tokens = in_tok + out_tok
+            if tokens:
+                print(f'\ntokens used: {tokens}', flush=True)
+                print(f'CODEX_USAGE: input={in_tok} cached_input={cached_tok} cache_write={cache_write_tok} output={out_tok} reasoning_output={reasoning_tok}', flush=True)
     except: pass
 "
 # Fix 1: hang detection for Consult new-session (mirrors Challenge + resume)
@@ -748,6 +766,23 @@ Parse token count from stderr. Codex prints `tokens used\nN` to stderr.
 Display as: `Tokens: N`
 
 If token count is not available, display: `Tokens: unknown`
+
+**Challenge and Consult modes** (both run `codex exec --json`) additionally emit a
+machine-parseable breakdown line alongside the human-readable one, once per
+`turn.completed` event:
+
+```
+CODEX_USAGE: input=21294 cached_input=6912 cache_write=0 output=5 reasoning_output=0
+```
+
+`input`/`output` are the same totals folded into `tokens used\nN`; `cached_input` and
+`cache_write` split the input side into what was served from cache versus written to
+it, and `reasoning_output` is the portion of the output spent on reasoning rather than
+the visible response — codex's `--json` `usage` object reports all five separately,
+this just stops discarding four of them. Consumers that only need the total keep
+reading `tokens used`; anything that wants a real per-call cost breakdown reads
+`CODEX_USAGE` instead. Native `codex review` (the default Review-mode path, which does
+not use `--json`) has no equivalent — it never emits more than the plain stderr total.
 
 ---
 
