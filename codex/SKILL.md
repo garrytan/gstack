@@ -992,13 +992,13 @@ Parse the user's input to determine which mode to run:
    - Otherwise, ask: "What would you like to ask Codex?"
 4. `/codex <anything else>` — **Consult mode** (Step 2C), where the remaining text is the prompt
 
-**Reasoning effort override:** If the user's input contains `--xhigh` anywhere,
-note it and remove it from the prompt text before passing to Codex. When `--xhigh`
-is present, use `model_reasoning_effort="xhigh"` for all modes regardless of the
-per-mode default below. Otherwise, use the per-mode defaults:
-- Review (2A): `high` — bounded diff input, needs thoroughness
-- Challenge (2B): `high` — adversarial but bounded by diff
-- Consult (2C): `medium` — large context, interactive, needs speed
+**Reasoning effort override:** If the user's input contains `--max` (or its legacy
+alias `--xhigh`) anywhere, note it and remove it from the prompt text before passing
+to Codex. When present, use `model_reasoning_effort="max"` for all modes regardless
+of the per-mode default below. Otherwise, use the per-mode defaults:
+- Review (2A): `max` — bounded diff input, needs thoroughness
+- Challenge (2B): `max` — adversarial but bounded by diff
+- Consult (2C): `high` — large context, interactive; `high` balances depth and latency
 
 ---
 
@@ -1061,15 +1061,15 @@ contradicting this skill's read-only contract (#2496, #2524):
 ```bash
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
 cd "$_REPO_ROOT"
-# The 330s wrapper sits BELOW the 360s Bash gate so the wrapper fires FIRST
+# The 570s wrapper sits BELOW the 600s Bash gate so the wrapper fires FIRST
 # and a stall surfaces as a diagnosable exit 124 with an explicit message,
 # never as a silent harness kill that downstream reads as "no findings".
-_gstack_codex_timeout_wrapper 330 codex review --base <base> -c 'sandbox_mode="read-only"' -c 'model_reasoning_effort="high"' -c 'web_search="cached"' < /dev/null 2>"$TMPERR"
+_gstack_codex_timeout_wrapper 570 codex review --base <base> -c 'sandbox_mode="read-only"' -c 'model_reasoning_effort="max"' -c 'web_search="cached"' < /dev/null 2>"$TMPERR"
 _CODEX_EXIT=$?
 if [ "$_CODEX_EXIT" = "124" ]; then
-  _gstack_codex_log_event "codex_timeout" "330"
+  _gstack_codex_log_event "codex_timeout" "570"
   _gstack_codex_log_hang "review" "$(wc -c < "$TMPERR" 2>/dev/null || echo 0)"
-  echo "Codex stalled past 5.5 minutes. Common causes: model API stall, long prompt, network issue. Try re-running. If persistent, split the prompt or check ~/.codex/logs/."
+  echo "Codex stalled past 9.5 minutes. Common causes: model API stall, long prompt, network issue. Try re-running. If persistent, split the prompt or check ~/.codex/logs/."
 elif [ "$_CODEX_EXIT" != "0" ]; then
   # Surface non-zero exits (parse errors, arg-shape breaks, etc.) so the
   # calling agent doesn't read "no output" as a silent model/API stall and
@@ -1080,7 +1080,7 @@ elif [ "$_CODEX_EXIT" != "0" ]; then
 fi
 ```
 
-If the user passed `--xhigh`, use `"xhigh"` instead of `"high"`.
+The `--max` override (legacy `--xhigh`) is a no-op here — this mode already runs at `"max"`.
 
 **Custom-instructions path (user typed `/codex review <focus>`):** custom instructions
 cannot ride along with `--base` — that is exactly the combination the CLI rejects — and
@@ -1105,13 +1105,13 @@ _PROMPT_FILE=$(mktemp "$TMP_ROOT/codex-prompt-XXXXXX")
   git diff "<base>...HEAD" 2>/dev/null
   printf '\nDIFF_END\n'
 } > "$_PROMPT_FILE"
-_gstack_codex_timeout_wrapper 330 codex exec -s read-only "$(cat "$_PROMPT_FILE")" -c 'model_reasoning_effort="high"' -c 'web_search="cached"' < /dev/null 2>"$TMPERR"
+_gstack_codex_timeout_wrapper 570 codex exec -s read-only "$(cat "$_PROMPT_FILE")" -c 'model_reasoning_effort="max"' -c 'web_search="cached"' < /dev/null 2>"$TMPERR"
 _CODEX_EXIT=$?
 rm -f "$_PROMPT_FILE"
 if [ "$_CODEX_EXIT" = "124" ]; then
-  _gstack_codex_log_event "codex_timeout" "330"
+  _gstack_codex_log_event "codex_timeout" "570"
   _gstack_codex_log_hang "review" "$(wc -c < "$TMPERR" 2>/dev/null || echo 0)"
-  echo "Codex stalled past 5.5 minutes."
+  echo "Codex stalled past 9.5 minutes."
 fi
 ```
 
@@ -1125,8 +1125,8 @@ instructions. The `codex exec` route loses that tuning but gains custom-instruct
 support; the prompt explicitly demands `[P1]` / `[P2]` markers so the gate logic in step 4
 still works. There is no third option that gets both — the CLI forbids it.
 
-Use `timeout: 360000` on the Bash call for either path. The Bash gate sits ABOVE the
-330s wrapper deliberately: the wrapper fires first with its explicit exit-124 message,
+Use `timeout: 600000` on the Bash call for either path. The Bash gate sits ABOVE the
+570s wrapper deliberately: the wrapper fires first with its explicit exit-124 message,
 instead of the harness killing the call silently.
 
 3. Capture the output. Then parse cost from stderr:
@@ -1371,10 +1371,10 @@ With focus (e.g., "security"):
 Review the changes on this branch against the base branch. Run `git diff origin/<base>` to see the diff. Focus specifically on SECURITY. Your job is to find every way an attacker could exploit this code. Think about injection vectors, auth bypasses, privilege escalation, data exposure, and timing attacks. Be adversarial."
 
 2. Run codex exec with **JSONL output** to capture reasoning traces and tool calls.
-Use `timeout: 660000` on the Bash call — the gate sits ABOVE the 600s wrapper so the
+Use `timeout: 660000` on the Bash call — the gate sits ABOVE the 570s wrapper so the
 wrapper fires first with its explicit stall message:
 
-If the user passed `--xhigh`, use `"xhigh"` instead of `"high"`.
+The `--max` override (legacy `--xhigh`) is a no-op here — this mode already runs at `"max"`.
 
 ```bash
 _REPO_ROOT=$(git rev-parse --show-toplevel) || { echo "ERROR: not in a git repo" >&2; exit 1; }
@@ -1386,7 +1386,7 @@ fi
 # Fix 1+2: wrap with timeout (gtimeout/timeout fallback chain via probe helper),
 # capture stderr to $TMPERR for auth error detection (was: 2>/dev/null).
 TMPERR=${TMPERR:-$(mktemp "$TMP_ROOT/codex-err-XXXXXX")}
-_gstack_codex_timeout_wrapper 600 codex exec "<prompt>" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' -c 'web_search="cached"' --json < /dev/null 2>"$TMPERR" | PYTHONUNBUFFERED=1 "$PYTHON_CMD" -u -c "
+_gstack_codex_timeout_wrapper 570 codex exec "<prompt>" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="max"' -c 'web_search="cached"' --json < /dev/null 2>"$TMPERR" | PYTHONUNBUFFERED=1 "$PYTHON_CMD" -u -c "
 import sys, json
 turn_completed_count = 0
 for line in sys.stdin:
@@ -1420,9 +1420,9 @@ if turn_completed_count == 0:
 _CODEX_EXIT=${PIPESTATUS[0]}
 # Fix 1: hang detection — log + surface actionable message
 if [ "$_CODEX_EXIT" = "124" ]; then
-  _gstack_codex_log_event "codex_timeout" "600"
+  _gstack_codex_log_event "codex_timeout" "570"
   _gstack_codex_log_hang "challenge" "$(wc -c < "$TMPERR" 2>/dev/null || echo 0)"
-  echo "Codex stalled past 10 minutes. Common causes: model API stall, long prompt, network issue. Try re-running. If persistent, split the prompt or check ~/.codex/logs/."
+  echo "Codex stalled past 9.5 minutes. Common causes: model API stall, long prompt, network issue. Try re-running. If persistent, split the prompt or check ~/.codex/logs/."
 elif [ "$_CODEX_EXIT" != "0" ]; then
   # Surface non-zero exits so the calling agent doesn't read "no output" as
   # a silent model/API stall. See #1327.
@@ -1530,10 +1530,10 @@ For non-plan consult prompts (user typed `/codex <question>`), still prepend the
 
 4. Run codex exec with **JSONL output** to capture reasoning traces. Use
 `timeout: 660000` on the Bash call (for both new and resumed sessions) — the gate
-sits ABOVE the 600s wrapper so the wrapper fires first with its explicit stall
+sits ABOVE the 570s wrapper so the wrapper fires first with its explicit stall
 message:
 
-If the user passed `--xhigh`, use `"xhigh"` instead of `"medium"`.
+If the user passed `--max` (or legacy `--xhigh`), use `"max"` instead of `"high"`.
 
 For a **new session:**
 ```bash
@@ -1544,7 +1544,7 @@ if [ -z "$PYTHON_CMD" ]; then
   exit 1
 fi
 # Fix 1: wrap with timeout (gtimeout/timeout fallback chain via probe helper)
-_gstack_codex_timeout_wrapper 600 codex exec "<prompt>" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="medium"' -c 'web_search="cached"' --json < /dev/null 2>"$TMPERR" | PYTHONUNBUFFERED=1 "$PYTHON_CMD" -u -c "
+_gstack_codex_timeout_wrapper 570 codex exec "<prompt>" -C "$_REPO_ROOT" -s read-only -c 'model_reasoning_effort="high"' -c 'web_search="cached"' --json < /dev/null 2>"$TMPERR" | PYTHONUNBUFFERED=1 "$PYTHON_CMD" -u -c "
 import sys, json
 for line in sys.stdin:
     line = line.strip()
@@ -1576,9 +1576,9 @@ for line in sys.stdin:
 # Fix 1: hang detection for Consult new-session (mirrors Challenge + resume)
 _CODEX_EXIT=${PIPESTATUS[0]}
 if [ "$_CODEX_EXIT" = "124" ]; then
-  _gstack_codex_log_event "codex_timeout" "600"
+  _gstack_codex_log_event "codex_timeout" "570"
   _gstack_codex_log_hang "consult" "$(wc -c < "$TMPERR" 2>/dev/null || echo 0)"
-  echo "Codex stalled past 10 minutes. Common causes: model API stall, long prompt, network issue. Try re-running. If persistent, split the prompt or check ~/.codex/logs/."
+  echo "Codex stalled past 9.5 minutes. Common causes: model API stall, long prompt, network issue. Try re-running. If persistent, split the prompt or check ~/.codex/logs/."
 elif [ "$_CODEX_EXIT" != "0" ]; then
   # Surface non-zero exits so the calling agent doesn't read "no output" as
   # a silent model/API stall. See #1327.
@@ -1606,15 +1606,15 @@ if [ -z "$PYTHON_CMD" ]; then
 fi
 cd "$_REPO_ROOT" || exit 1
 # Fix 1: wrap with timeout (gtimeout/timeout fallback chain via probe helper)
-_gstack_codex_timeout_wrapper 600 codex exec resume <session-id> "<prompt>" -c 'sandbox_mode="read-only"' -c 'model_reasoning_effort="medium"' -c 'web_search="cached"' --json < /dev/null 2>"$TMPERR" | PYTHONUNBUFFERED=1 "$PYTHON_CMD" -u -c "
+_gstack_codex_timeout_wrapper 570 codex exec resume <session-id> "<prompt>" -c 'sandbox_mode="read-only"' -c 'model_reasoning_effort="high"' -c 'web_search="cached"' --json < /dev/null 2>"$TMPERR" | PYTHONUNBUFFERED=1 "$PYTHON_CMD" -u -c "
 <same python streaming parser as above, with flush=True on all print() calls>
 "
 # Fix 1: same hang detection pattern as new-session block
 _CODEX_EXIT=${PIPESTATUS[0]}
 if [ "$_CODEX_EXIT" = "124" ]; then
-  _gstack_codex_log_event "codex_timeout" "600"
+  _gstack_codex_log_event "codex_timeout" "570"
   _gstack_codex_log_hang "consult-resume" "$(wc -c < "$TMPERR" 2>/dev/null || echo 0)"
-  echo "Codex stalled past 10 minutes. Common causes: model API stall, long prompt, network issue. Try re-running. If persistent, split the prompt or check ~/.codex/logs/."
+  echo "Codex stalled past 9.5 minutes. Common causes: model API stall, long prompt, network issue. Try re-running. If persistent, split the prompt or check ~/.codex/logs/."
 elif [ "$_CODEX_EXIT" != "0" ]; then
   # Surface non-zero exits so the calling agent doesn't read "no output" as
   # a silent model/API stall. See #1327.
@@ -1671,13 +1671,15 @@ uses them. If the user wants a specific model, pass it through — but the flag 
 by mode (see below).
 
 **Reasoning effort (per-mode defaults):**
-- **Review (2A):** `high` — bounded diff input, needs thoroughness but not max tokens
-- **Challenge (2B):** `high` — adversarial but bounded by diff size
-- **Consult (2C):** `medium` — large context (plans, codebase), interactive, needs speed
+- **Review (2A):** `max` — bounded diff input; reviewer depth is the whole point
+- **Challenge (2B):** `max` — adversarial but bounded by diff size
+- **Consult (2C):** `high` — large context (plans, codebase), interactive
 
-`xhigh` uses ~23x more tokens than `high` and causes 50+ minute hangs on large context
-tasks (OpenAI issues #8545, #8402, #6931). Users can override with `--xhigh` flag
-(e.g., `/codex review --xhigh`) when they want maximum reasoning and are willing to wait.
+Top-tier efforts burn ~23x more tokens than `high` and have caused 50+ minute hangs on
+large-context tasks (OpenAI issues #8545, #8402, #6931) — that is why Consult stays one
+notch down, and why the 570s wrappers matter: a runaway run dies with a diagnosable
+stall message, not a silent hang. Users can force `max` in any mode with the `--max`
+flag (legacy alias `--xhigh`; e.g., `/codex consult --max`) when they accept the wait.
 
 **Web search:** All codex commands pass `-c 'web_search="cached"'` so `codex exec`
 invocations can look up docs and APIs during review. This is OpenAI's cached index —
@@ -1715,12 +1717,12 @@ If token count is not available, display: `Tokens: unknown`
 - **Binary not found:** Detected in Step 0. Stop with install instructions.
 - **Auth error:** Codex prints an auth error to stderr. Surface the error:
   "Codex authentication failed. Run `codex login` in your terminal to authenticate via ChatGPT."
-- **Timeout (Bash outer gate):** Every Bash gate sits ABOVE its inner wrapper (360s gate
-  over the 330s review wrapper; 660s gate over the 600s challenge/consult wrappers), so
+- **Timeout (Bash outer gate):** Every Bash gate sits ABOVE its inner wrapper (600s gate
+  over the 570s review wrapper; 660s gate over the 570s challenge/consult wrappers), so
   the wrapper's exit-124 path normally fires first with its explicit message. If the Bash
   call itself times out anyway (wrapper unavailable AND codex hung), tell the user:
   "Codex timed out. The prompt may be too large or the API may be slow. Try again or use a smaller scope."
-- **Timeout (inner `timeout` wrapper, exit 124):** If the shell `timeout 600` wrapper fires first, the skill's hang-detection block auto-logs a telemetry event + operational learning and prints: "Codex stalled past 10 minutes. Common causes: model API stall, long prompt, network issue. Try re-running. If persistent, split the prompt or check `~/.codex/logs/`." No extra action needed.
+- **Timeout (inner `timeout` wrapper, exit 124):** If the shell `timeout 570` wrapper fires first, the skill's hang-detection block auto-logs a telemetry event + operational learning and prints: "Codex stalled past 9.5 minutes. Common causes: model API stall, long prompt, network issue. Try re-running. If persistent, split the prompt or check `~/.codex/logs/`." No extra action needed.
 - **`the argument '[PROMPT]' cannot be used with '--base <BRANCH>'`:** a prompt argument
   leaked into a scoped `codex review`. This fails instantly, before any API call, so it
   looks like a hang-free "no output" — do not misread it as a model stall. Drop the
@@ -1762,8 +1764,8 @@ If token count is not available, display: `Tokens: unknown`
 - **Add synthesis after, not instead of.** Any Claude commentary comes after the full output.
 - **Bash gate above the wrapper.** Every Bash call to codex sets its `timeout`
   parameter ABOVE the inner `_gstack_codex_timeout_wrapper` budget (Review:
-  `timeout: 360000` over the 330s wrapper; Challenge/Consult: `timeout: 660000`
-  over the 600s wrappers) so the wrapper fires first with a diagnosable exit 124.
+  `timeout: 600000` over the 570s wrapper; Challenge/Consult: `timeout: 660000`
+  over the 570s wrappers) so the wrapper fires first with a diagnosable exit 124.
 - **No double-reviewing.** If the user already ran `/review`, Codex provides a second
   independent opinion. Do not re-run Claude Code's own review.
 - **Detect skill-file rabbit holes.** After receiving Codex output, scan for signs
