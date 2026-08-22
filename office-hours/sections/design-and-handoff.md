@@ -377,6 +377,13 @@ Lead with recognition. The magical moment is immediate.
 
 Read LAST_ASSIGNMENT and CROSS_PROJECT from the profile output.
 
+**Backfilled-history guard (applies to every tier below):** if LAST_ASSIGNMENT
+and LAST_PROJECT are both empty despite the tier (a profile whose tenure comes
+from `--reconcile` backfill — the sessions count, but what they contained was
+never logged), skip every "last time" sentence. Acknowledge tenure without
+asserting content: "Welcome back — you've been at this a while. What are you
+working on right now?" Never interpolate an empty [LAST_ASSIGNMENT].
+
 If CROSS_PROJECT is false (same project as last time):
 "Welcome back. Last time you were working on [LAST_ASSIGNMENT from profile]. How's it going?"
 
