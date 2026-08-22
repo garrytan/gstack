@@ -311,6 +311,16 @@ Read the full profile output. You will use these values throughout the closing.
 
 Follow ONE tier path below based on `SESSION_TIER`. Do not mix tiers.
 
+**Backfilled-history guard (applies to every returning tier below —
+welcome_back, regular, and inner_circle):** if LAST_ASSIGNMENT and
+LAST_PROJECT are both empty despite the tier (a profile whose tenure comes
+from `--reconcile` backfill — the sessions count, but what they contained was
+never logged), skip every sentence that asserts logged content: "last time"
+check-ins, [LAST_ASSIGNMENT], [LAST_PROJECT], the DESIGN_TITLES/DESIGN_COUNT
+trajectory lines, and the ACCUMULATED_SIGNALS summary. Acknowledge tenure
+without asserting content: "Welcome back — you've been at this a while. What
+are you working on right now?" Never interpolate an empty or zero placeholder.
+
 ---
 
 ### If TIER = introduction (first session)
@@ -376,13 +386,6 @@ Then proceed to Founder Resources below.
 Lead with recognition. The magical moment is immediate.
 
 Read LAST_ASSIGNMENT and CROSS_PROJECT from the profile output.
-
-**Backfilled-history guard (applies to every tier below):** if LAST_ASSIGNMENT
-and LAST_PROJECT are both empty despite the tier (a profile whose tenure comes
-from `--reconcile` backfill — the sessions count, but what they contained was
-never logged), skip every "last time" sentence. Acknowledge tenure without
-asserting content: "Welcome back — you've been at this a while. What are you
-working on right now?" Never interpolate an empty [LAST_ASSIGNMENT].
 
 If CROSS_PROJECT is false (same project as last time):
 "Welcome back. Last time you were working on [LAST_ASSIGNMENT from profile]. How's it going?"
