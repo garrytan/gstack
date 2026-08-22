@@ -22,6 +22,17 @@
  *   - MEDIUM → warn (non-blocking). LOW/WARN → silent.
  *   - GSTACK_REDACT_PREPUSH=skip → log + exit 0 (escape valve).
  *
+ * Allowlist: a repo-root `.gstack-redact-allowlist` file (one exact string per
+ * line; `#` comments; blank lines ignored) suppresses findings whose matched
+ * span equals an entry — for known-benign values like a public docker-compose
+ * dev password or a documented sample URL. Entries live IN the repo so every
+ * suppression is a reviewable commit, and the hook reports how many findings an
+ * allowlist suppressed on each push. This surface exists so a known-safe value
+ * has a legitimate, recorded resolution — the alternative people reach for is
+ * restructuring code until the scanner stops matching, which silences the same
+ * finding while leaving no record anywhere. An absent or unreadable file simply
+ * means a stricter scan (the safe direction), never a blocked push.
+ *
  * Installed/uninstalled via `gstack-redact install-prepush-hook` (see the
  * gstack-redact CLI), which chains any pre-existing hook.
  */
@@ -34,6 +45,12 @@ import { scan, type Finding } from "../lib/redact-engine";
 const ZERO = /^0+$/;
 // The canonical empty-tree object; diffing against it yields all content as added.
 const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+
+const ALLOWLIST_FILE = ".gstack-redact-allowlist";
+// Sanity cap. An allowlist is a handful of reviewed strings; anything bigger is
+// a mistake (or an attempt to blanket-suppress), and ignoring it degrades to a
+// STRICTER scan rather than a permissive one.
+const ALLOWLIST_MAX_BYTES = 64 * 1024;
 
 /**
  * Permissive git for legitimately-fallible PROBES (symbolic-ref, rev-parse,
@@ -345,6 +362,39 @@ function scanAddedLines(added: string, opts: Parameters<typeof scan>[1]): Findin
   return findings;
 }
 
+/**
+ * Exact-string allowlist from the repo root, matched against the SPAN the
+ * engine captures (for db.url_with_password that is the whole
+ * `scheme://user:pass@host:port` URL, not the bare password — so an entry
+ * clears one specific benign URL, never every use of that password). Every
+ * failure mode here — no repo root, unreadable file, oversize file — returns
+ * [], i.e. the scan runs stricter, never looser, and never blocks the push.
+ */
+function loadRepoAllowlist(): string[] {
+  const top = git(["rev-parse", "--show-toplevel"]).trim();
+  if (!top) return [];
+  const file = path.join(top, ALLOWLIST_FILE);
+  let raw: string;
+  try {
+    if (fs.statSync(file).size > ALLOWLIST_MAX_BYTES) {
+      process.stderr.write(
+        `gstack-redact-prepush: ${ALLOWLIST_FILE} exceeds ${ALLOWLIST_MAX_BYTES} bytes — ignoring it, scanning without an allowlist.\n`,
+      );
+      return [];
+    }
+    raw = fs.readFileSync(file, "utf8");
+  } catch {
+    return []; // absent (the normal case) or unreadable → strict scan
+  }
+  const entries: string[] = [];
+  for (const line of raw.split("\n")) {
+    const t = line.replace(/\r$/, "").trim();
+    if (!t || t.startsWith("#")) continue;
+    entries.push(t);
+  }
+  return entries;
+}
+
 function logSkip(reason: string): void {
   try {
     const home = process.env.GSTACK_HOME || path.join(os.homedir(), ".gstack");
@@ -373,8 +423,10 @@ function main() {
     .filter(Boolean)
     .map((l) => l.split(/\s+/));
 
+  const allowlist = loadRepoAllowlist();
   const allHigh: Finding[] = [];
   let mediumCount = 0;
+  let suppressedCount = 0;
 
   for (const fields of refs) {
     // Fail CLOSED on a ref line we cannot parse (#2498): git hands pre-push
@@ -413,10 +465,28 @@ function main() {
     // as public-strict (HIGH blocks regardless either way).
     // Sliced (see scanAddedLines) so a large-but-legitimate diff is actually
     // scanned rather than blocked unscanned on the engine's size cap.
-    for (const f of scanAddedLines(added, { repoVisibility: "private" })) {
+    const findings = scanAddedLines(added, { repoVisibility: "private", allowlist });
+    for (const f of findings) {
       if (f.severity === "HIGH") allHigh.push(f);
       else if (f.severity === "MEDIUM") mediumCount++;
     }
+    // A suppression that leaves no trace in the push output is the failure mode
+    // the allowlist exists to REPLACE, so count what it actually did: re-scan
+    // without the allowlist (only when one is active — the common no-allowlist
+    // push stays a single scan) and report the HIGH/MEDIUM delta below.
+    if (allowlist.length > 0) {
+      const actionable = (fs: Finding[]) =>
+        fs.filter((f) => f.severity === "HIGH" || f.severity === "MEDIUM").length;
+      const strict = scanAddedLines(added, { repoVisibility: "private" });
+      suppressedCount += actionable(strict) - actionable(findings);
+    }
+  }
+
+  if (suppressedCount > 0) {
+    process.stderr.write(
+      `gstack-redact-prepush: ${suppressedCount} finding(s) suppressed by ${ALLOWLIST_FILE} ` +
+        "(entries there are trusted as reviewed-benign).\n",
+    );
   }
 
   if (mediumCount > 0) {
@@ -449,7 +519,11 @@ function main() {
         process.stderr.write(`  HIGH  ${f.id}  ${f.preview}\n`);
       }
       process.stderr.write(
-        "\nRotate the credential (a pushed secret is compromised) and remove it from the diff.\n",
+        "\nRotate the credential (a pushed secret is compromised) and remove it from the diff.\n" +
+          `If this is a KNOWN-BENIGN value (a public dev-compose password, a documented sample),\n` +
+          `add the exact matched string to ${ALLOWLIST_FILE} at the repo root instead — that\n` +
+          "records the decision as a reviewable commit. Do NOT restructure code to dodge the\n" +
+          "pattern: that silences the finding while leaving no record.\n",
       );
     }
 
