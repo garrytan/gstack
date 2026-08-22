@@ -556,6 +556,51 @@ esac
     rmSync(home, { recursive: true, force: true });
   });
 
+  it("brain-sync stage does not label a successful git command as gbrain indexing", () => {
+    const source = readFileSync(SCRIPT, "utf-8");
+
+    expect(source).not.toContain('summary: result.status === 0 ? "curated artifacts pushed"');
+    expect(source).toContain("gbrain indexing is not performed by this stage");
+  });
+
+  it("brain-sync stage is ERR when its maintained artifacts source has zero pages", () => {
+    const home = makeTestHome();
+    const gstackHome = join(home, ".gstack");
+    const fakeBin = join(home, "fake-bin");
+    mkdirSync(gstackHome, { recursive: true });
+    mkdirSync(fakeBin, { recursive: true });
+    spawnSync("git", ["init", "--quiet", "-b", "main"], { cwd: gstackHome });
+    writeFileSync(join(gstackHome, "config.yaml"), "artifacts_sync_mode: full\n");
+    writeFileSync(join(fakeBin, "gbrain"), `#!/bin/sh
+case "$*" in
+  "sources list --json")
+    printf '%s\\n' '{"sources":[{"id":"fixture-artifacts","page_count":0}]}'
+    ;;
+  *) exit 1 ;;
+esac
+`);
+    chmodSync(join(fakeBin, "gbrain"), 0o755);
+
+    const r = runScript(
+      ["--incremental", "--no-code", "--no-memory", "--quiet"],
+      {
+        HOME: home,
+        GSTACK_HOME: gstackHome,
+        GSTACK_BRAIN_SOURCE_ID: "fixture-artifacts",
+        PATH: `${fakeBin}:${process.env.PATH || ""}`,
+      },
+    );
+
+    expect(r.exitCode).toBe(1);
+    const state = JSON.parse(readFileSync(join(gstackHome, ".gbrain-sync-state.json"), "utf-8"));
+    const stage = state.last_stages.find((entry: { name: string }) => entry.name === "brain-sync");
+    expect(stage.ok).toBe(false);
+    expect(stage.summary).toContain("gstack-brain-sync exited 1");
+    const status = JSON.parse(readFileSync(join(gstackHome, ".brain-sync-status.json"), "utf-8"));
+    expect(status.status).toBe("index_failed");
+    rmSync(home, { recursive: true, force: true });
+  });
+
   it("worktree-aware source ID: two worktrees of the same repo get DIFFERENT ids", () => {
     // Conductor pattern: same origin, two different absolute paths. Pre-fix the
     // ID was slug-only so both worktrees collapsed onto `gstack-code-<slug>` and
